@@ -1,0 +1,153 @@
+/**
+ * The backup document (PLAN §3.9, Fase 1 scope): everything the owner produced, versioned by `schemaVersion`.
+ * Dates are ISO strings; numeric ids keep their database values so a `replace` restores them verbatim.
+ * Excluded on purpose: password hash, TOTP secret, token hashes (tokens travel as metadata only), raw CSV files.
+ */
+import { z } from 'zod'
+
+export const BACKUP_SCHEMA_VERSION = 1
+
+const isoDate = z.string().refine((value) => !Number.isNaN(Date.parse(value)), 'fecha ISO 8601 inválida')
+const nullableDate = isoDate.nullable()
+const json = z.json()
+
+const settingSchema = z.object({ key: z.string(), value: json, updatedAt: isoDate })
+const rarityRuleSchema = z.object({
+  rarity: z.string(),
+  points: z.number().int().nullable(),
+  pointsVerified: z.boolean(),
+  tradeable: z.boolean(),
+})
+const stockSchema = z.object({
+  cardId: z.string(),
+  amountOwned: z.number().int().min(0),
+  collected: z.boolean(),
+  source: z.enum(['import', 'manual']),
+  importId: z.number().int().nullable(),
+  updatedAt: isoDate,
+})
+const importRowSchema = z.object({
+  cardId: z.string(),
+  internalId: z.number().int(),
+  numberOwned: z.number().int(),
+  collected: z.boolean(),
+})
+const importSchema = z.object({
+  id: z.number().int(),
+  fileName: z.string(),
+  sha256: z.string(),
+  importedAt: isoDate,
+  appliedAt: nullableDate,
+  status: z.enum(['pending', 'applied', 'discarded']),
+  rowCount: z.number().int(),
+  naiveTotal: z.number().int(),
+  dedupTotal: z.number().int(),
+  unknownIds: z.array(z.string()),
+  diffSummary: json.nullable(),
+  rows: z.array(importRowSchema),
+})
+const adjustmentSchema = z.object({
+  id: z.number().int(),
+  functionalGroupId: z.string(),
+  playableCopies: z.number().int().min(0),
+  reason: z.string(),
+  active: z.boolean(),
+  createdAt: isoDate,
+  resolvedAt: nullableDate,
+  resolution: z.enum(['user', 'csv_matches', 'manual_edit', 'converted', 'catalog_change']).nullable(),
+})
+const deckSource = z.enum(['ui', 'import', 'mcp', 'duplicate', 'restore'])
+const revisionSchema = z.object({
+  id: z.number().int(),
+  number: z.number().int(),
+  cards: z.array(z.object({ cardId: z.string(), count: z.number().int().min(1) })),
+  energies: z.array(z.string()),
+  note: z.string(),
+  source: deckSource,
+  createdAt: isoDate,
+})
+const changeSchema = z.object({
+  id: z.number().int(),
+  field: z.string(),
+  old: json.nullable(),
+  new: json.nullable(),
+  at: isoDate,
+  source: deckSource,
+})
+const deckSchema = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  energies: z.array(z.string()),
+  tags: z.array(z.string()),
+  notes: z.string(),
+  builtInGame: z.boolean(),
+  builtInGameSince: nullableDate,
+  variantOfId: z.number().int().nullable(),
+  packPriority: z.number().int(),
+  keyCards: json,
+  archivedAt: nullableDate,
+  currentRevisionId: z.number().int().nullable(),
+  createdAt: isoDate,
+  updatedAt: isoDate,
+  revisions: z.array(revisionSchema),
+  changes: z.array(changeSchema),
+})
+const tokenSchema = z.object({
+  id: z.number().int(),
+  name: z.string(),
+  kind: z.enum(['worker', 'mcp']),
+  scopes: z.array(z.string()),
+  prefix: z.string(),
+  createdAt: isoDate,
+  lastUsedAt: nullableDate,
+  expiresAt: nullableDate,
+  revokedAt: nullableDate,
+})
+
+export const backupDocumentSchema = z.object({
+  schemaVersion: z.literal(BACKUP_SCHEMA_VERSION),
+  exportedAt: isoDate,
+  appVersion: z.string(),
+  catalogCommit: z.string().nullable(),
+  engineRev: z.string().nullable(),
+  settings: z.array(settingSchema),
+  rarityRules: z.array(rarityRuleSchema),
+  collection: z.object({
+    stock: z.array(stockSchema),
+    imports: z.array(importSchema),
+    adjustments: z.array(adjustmentSchema),
+  }),
+  decks: z.array(deckSchema),
+  /** Metadata only: hashes are never exported, so tokens are not restored (they are created again). */
+  tokens: z.array(tokenSchema),
+})
+
+export type BackupDocument = z.infer<typeof backupDocumentSchema>
+
+export interface BackupCounts {
+  settings: number
+  rarityRules: number
+  stock: number
+  imports: number
+  importRows: number
+  adjustments: number
+  decks: number
+  revisions: number
+  changes: number
+  tokens: number
+}
+
+export function backupCounts(document: BackupDocument): BackupCounts {
+  return {
+    settings: document.settings.length,
+    rarityRules: document.rarityRules.length,
+    stock: document.collection.stock.length,
+    imports: document.collection.imports.length,
+    importRows: document.collection.imports.reduce((sum, item) => sum + item.rows.length, 0),
+    adjustments: document.collection.adjustments.length,
+    decks: document.decks.length,
+    revisions: document.decks.reduce((sum, deck) => sum + deck.revisions.length, 0),
+    changes: document.decks.reduce((sum, deck) => sum + deck.changes.length, 0),
+    tokens: document.tokens.length,
+  }
+}

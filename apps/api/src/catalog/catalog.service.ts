@@ -3,18 +3,19 @@ import { type CardEdition, CatalogIndex, type SearchLang } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { ENV, type Env } from '../config/env.js'
 import type { CatalogSync } from '../generated/prisma/client.js'
+import { idToString } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { CatalogRepository } from './catalog-repository.js'
 import {
   type CardSearchHit,
   type CardSummary,
   type ExpansionView,
-  type GroupDeckUsage,
   type GroupDetail,
   toCardSummary,
   toGroupSummary,
   toPackView,
 } from './catalog-views.js'
+import { deckUsageOfCards } from './deck-usage.js'
 
 export interface CatalogStatus {
   loaded: boolean
@@ -157,38 +158,23 @@ export class CatalogService implements OnModuleInit {
     const group = index.groupById(id)
     if (!group) throw new NotFoundException(`Carta funcional ${id} no encontrada.`)
     const cards = index.cardsOfGroup(id)
-    const [stockRows, adjustment, deckRows] = await Promise.all([
+    const [stockRows, adjustment, decks] = await Promise.all([
       this.prisma.collectionStock.findMany({ where: { cardId: { in: group.stockCardIds } } }),
       this.prisma.collectionAdjustment.findFirst({ where: { functionalGroupId: id, active: true } }),
-      this.prisma.deckCard.findMany({
-        where: { cardId: { in: group.cardIds }, deck: { archivedAt: null } },
-        include: { deck: { select: { id: true, name: true, builtInGame: true } } },
-      }),
+      deckUsageOfCards(this.prisma, group.cardIds),
     ])
     const stockByCardId = new Map(stockRows.map((row) => [row.cardId, row]))
     const fromStock = group.stockCardIds.reduce(
       (sum, stockId) => sum + (stockByCardId.get(stockId)?.amountOwned ?? 0),
       0,
     )
-    const decksById = new Map<number, GroupDeckUsage>()
-    for (const row of deckRows) {
-      const usage = decksById.get(row.deck.id)
-      if (usage) usage.count += row.count
-      else
-        decksById.set(row.deck.id, {
-          id: row.deck.id,
-          name: row.deck.name,
-          count: row.count,
-          builtInGame: row.deck.builtInGame,
-        })
-    }
     return {
       ...toGroupSummary(group),
       playable: adjustment ? adjustment.playableCopies : fromStock,
       fromStock,
       adjustment: adjustment
         ? {
-            id: adjustment.id,
+            id: idToString(adjustment.id),
             playableCopies: adjustment.playableCopies,
             reason: adjustment.reason,
             createdAt: adjustment.createdAt,
@@ -204,7 +190,7 @@ export class CatalogService implements OnModuleInit {
           twinCardIds: (unit?.cardIds ?? []).filter((twinId) => twinId !== card.id),
         }
       }),
-      decks: [...decksById.values()].sort((a, b) => a.id - b.id),
+      decks,
     }
   }
 }

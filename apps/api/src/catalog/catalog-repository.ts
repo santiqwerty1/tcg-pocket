@@ -21,9 +21,9 @@ import type {
   Rarity,
   StockUnit,
 } from '@tcg/domain'
-import type pg from 'pg'
 import type { CatalogSync } from '../generated/prisma/client.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import { deleteNotIn, upsertMany } from '../prisma/sql.js'
 
 /** Rarities tradeable by default (PLAN §8 B9); ✵/✵✵ costs stay "unverified" until confirmed in game. */
 const DEFAULT_TRADEABLE: ReadonlySet<string> = new Set(['◊', '◊◊', '◊◊◊', '◊◊◊◊', '☆'])
@@ -31,59 +31,6 @@ const DEFAULT_TRADEABLE: ReadonlySet<string> = new Set(['◊', '◊◊', '◊◊
 const EVOLUTION_ALIASES: ReadonlyArray<{ nameEn: string; countsAs: string }> = [
   { nameEn: 'Eevee ex', countsAs: 'Eevee' },
 ]
-
-/** Postgres allows 65 535 parameters per statement; stay well under it. */
-const MAX_PARAMS_PER_STATEMENT = 30_000
-
-function quote(identifier: string): string {
-  return `"${identifier.replace(/"/g, '""')}"`
-}
-
-async function upsertMany(
-  client: pg.PoolClient,
-  table: string,
-  columns: readonly string[],
-  rows: readonly (readonly unknown[])[],
-  conflictColumns: readonly string[],
-): Promise<void> {
-  if (rows.length === 0) return
-  const updatable = columns.filter((column) => !conflictColumns.includes(column))
-  const columnList = columns.map(quote).join(', ')
-  const conflictList = conflictColumns.map(quote).join(', ')
-  const action =
-    updatable.length === 0
-      ? 'DO NOTHING'
-      : `DO UPDATE SET ${updatable.map((column) => `${quote(column)} = EXCLUDED.${quote(column)}`).join(', ')}`
-  const chunkSize = Math.max(1, Math.floor(MAX_PARAMS_PER_STATEMENT / columns.length))
-  for (let start = 0; start < rows.length; start += chunkSize) {
-    const chunk = rows.slice(start, start + chunkSize)
-    const params: unknown[] = []
-    const tuples = chunk.map((row) => {
-      if (row.length !== columns.length)
-        throw new Error(`upsertMany(${table}): row has ${row.length} values for ${columns.length} columns`)
-      return `(${row
-        .map((value) => {
-          params.push(value)
-          return `$${params.length}`
-        })
-        .join(', ')})`
-    })
-    await client.query(
-      `INSERT INTO ${quote(table)} (${columnList}) VALUES ${tuples.join(', ')} ON CONFLICT (${conflictList}) ${action}`,
-      params,
-    )
-  }
-}
-
-async function deleteNotIn(
-  client: pg.PoolClient,
-  table: string,
-  column: string,
-  keep: readonly string[],
-): Promise<number> {
-  const result = await client.query(`DELETE FROM ${quote(table)} WHERE ${quote(column)} <> ALL($1::text[])`, [keep])
-  return result.rowCount ?? 0
-}
 
 function json(value: unknown): string | null {
   return value === null || value === undefined ? null : JSON.stringify(value)

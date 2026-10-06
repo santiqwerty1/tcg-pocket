@@ -23,6 +23,8 @@ const envSchema = z.object({
   ENGINE_REV: gitSha.default(DEFAULT_ENGINE_REV),
   /** Defaults to true in production (`__Host-session` cookie requires HTTPS). */
   COOKIE_SECURE: z.stringbool().optional(),
+  /** Daily backup snapshot into `backup_blobs` (04:00); defaults to on in production only. */
+  BACKUP_CRON: z.stringbool().optional(),
   /** Express `trust proxy` hops (Fly sits one proxy in front of the app). */
   TRUST_PROXY: z.coerce.number().int().min(0).default(1),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).optional(),
@@ -42,6 +44,7 @@ export interface Env {
   catalogCommit: string
   engineRev: string
   cookieSecure: boolean
+  backupCron: boolean
   trustProxy: number
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent'
   version: string
@@ -83,6 +86,7 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
     catalogCommit: raw.CATALOG_COMMIT,
     engineRev: raw.ENGINE_REV,
     cookieSecure: raw.COOKIE_SECURE ?? isProduction,
+    backupCron: raw.BACKUP_CRON ?? isProduction,
     trustProxy: raw.TRUST_PROXY,
     logLevel: raw.LOG_LEVEL ?? (isProduction ? 'info' : 'debug'),
     version: raw.APP_VERSION ?? packageVersion(),

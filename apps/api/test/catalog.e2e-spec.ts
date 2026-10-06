@@ -166,7 +166,7 @@ describe('catalog (e2e)', () => {
       const expected = edition.card.stockCardId === firstUnit ? 2 : edition.card.stockCardId === secondUnit ? 1 : 0
       expect(edition.owned, edition.card.id).toBe(expected)
     }
-    expect(withStock.body.group.decks).toEqual([{ id: deck.id, name: 'Prueba', count: 2, builtInGame: false }])
+    expect(withStock.body.group.decks).toEqual([{ id: String(deck.id), name: 'Prueba', count: 2, builtInGame: false }])
 
     const adjustment = await test.prisma.collectionAdjustment.create({
       data: { functionalGroupId: 'B1-225', playableCopies: 2, reason: 'una está en otro mazo' },
@@ -174,7 +174,7 @@ describe('catalog (e2e)', () => {
     const adjusted = await get('/api/groups/B1-225')
     expect(adjusted.body.group).toMatchObject({ playable: 2, fromStock: 3 })
     expect(adjusted.body.group.adjustment).toMatchObject({
-      id: adjustment.id,
+      id: String(adjustment.id),
       playableCopies: 2,
       reason: 'una está en otro mazo',
     })

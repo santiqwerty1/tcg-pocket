@@ -31,7 +31,8 @@ export interface GroupSummary {
 }
 
 export interface GroupAdjustmentView {
-  id: number
+  /** Numeric ids are exposed as strings (docs/API.md). */
+  id: string
   playableCopies: number
   reason: string
   createdAt: Date
@@ -46,7 +47,7 @@ export interface GroupEditionView {
 }
 
 export interface GroupDeckUsage {
-  id: number
+  id: string
   name: string
   count: number
   builtInGame: boolean

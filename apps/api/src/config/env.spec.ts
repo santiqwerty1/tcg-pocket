@@ -24,6 +24,10 @@ describe('parseEnv', () => {
     expect(parseEnv({ ...base, NODE_ENV: 'production' }).cookieSecure).toBe(true)
     expect(parseEnv({ ...base, NODE_ENV: 'production', COOKIE_SECURE: 'false' }).cookieSecure).toBe(false)
     expect(parseEnv({ ...base, COOKIE_SECURE: 'true' }).cookieSecure).toBe(true)
+    expect(parseEnv(base).backupCron).toBe(false)
+    expect(parseEnv({ ...base, NODE_ENV: 'production' }).backupCron).toBe(true)
+    expect(parseEnv({ ...base, NODE_ENV: 'production', BACKUP_CRON: 'false' }).backupCron).toBe(false)
+    expect(parseEnv({ ...base, BACKUP_CRON: 'true' }).backupCron).toBe(true)
   })
 
   it('treats empty strings as unset', () => {
