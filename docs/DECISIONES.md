@@ -38,3 +38,15 @@ Registro de decisiones que tomo sin preguntar, con una línea de motivo (BRIEF �
 | A.7 | Crear el repo privado en GitHub; cuentas de Fly y Supabase las abre Santi y pasa los tokens por variables de entorno, nunca por el chat. | Aprobado. |
 
 Las preguntas del bloque B (orden de fases, sobres, torneos, simulación, texto en inglés, pin manual, sin MCP stdio, «nada sin autenticar» literal) quedan con su valor por defecto salvo objeción.
+
+## Fase 1 · decisiones de implementación (desde el 6/10/2026)
+
+| # | Decisión | Motivo |
+|---|---|---|
+| 1.1 | El daño de ataque `'0'` del tracker se normaliza a `null` (136 ataques), además de las 280 palabras filtradas desde el nombre del ataque (que se reponen al nombre). | `'0'` es el marcador del scraper para ataques sin daño; Pocket nunca imprime 0. |
+| 1.2 | `isDisplayEdition` es verdadero para exactamente una edición por grupo (la de `alternate_versions[0]`), no para todas las gemelas que comparten ese `internal_id`. | Para armar mazos alcanza con un representante por carta funcional. |
+| 1.3 | Los datos del tracker dicen que A4b (Deluxe ex) es `tradeable: true` y `containsShinies: true`; los tests afirman esos valores reales. | Los asumimos distintos en la Fase 0; manda el dato del tracker al commit fijado. |
+| 1.4 | La búsqueda del catálogo rankea coincidencia exacta de nombre, luego prefijo de palabra, luego contiene, luego texto de reglas; insensible a mayúsculas y acentos. | «Mew» debe mostrar «Mew ex» antes que «Mewtwo». |
+| 1.5 | El dominio no usa `node:crypto`: el hash de reglas (`rulesHash`) es FNV-1a de 64 bits en hexadecimal. | El paquete corre también en el navegador; el hash solo verifica invariantes. |
+| 1.6 | Base de datos local de desarrollo y tests: Postgres 17 en Docker Compose (puerto 5433, bases `tcg` y `tcg_test`); producción en Supabase. | Reproducible y gratis; Docker Desktop ya está en la PC. |
+| 1.7 | pnpm se instaló como ejecutable de usuario (`%LOCALAPPDATA%\pnpm\bin`) porque `corepack enable` requiere permisos de administrador. | Funciona en PowerShell y Git Bash sin tocar `Program Files`. |
