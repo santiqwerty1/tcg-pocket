@@ -85,6 +85,38 @@ describe('exposure (e2e)', () => {
     expect(response.headers['x-powered-by']).toBeUndefined()
   })
 
+  it('refuses cross-site writes on the cookie routes (login included) but not reads or the bearer integrations', async () => {
+    const crossSite = await test
+      .http()
+      .post('/api/auth/login')
+      .set('X-Forwarded-For', '10.9.9.8')
+      .set('Sec-Fetch-Site', 'cross-site')
+      .send({ email: 'a@b.c', password: 'x' })
+    expect(crossSite.status).toBe(403)
+    expect(crossSite.body).toEqual({
+      error: { code: 'forbidden', message: 'Solicitud rechazada: viene de otro sitio.' },
+    })
+    expect(crossSite.headers['cache-control']).toBe('no-store')
+    const foreignOrigin = await test.http().post('/api/tokens').set('Origin', 'https://evil.example').send({})
+    expect(foreignOrigin.status).toBe(403)
+    expect((await test.http().patch('/api/decks/1').set('Origin', 'null').send({})).status).toBe(403)
+    // Same origin (what the login page's fetch sends) passes the check and reaches validation.
+    const sameOrigin = await test
+      .http()
+      .post('/api/auth/login')
+      .set('X-Forwarded-For', '10.9.9.8')
+      .set('Host', '127.0.0.1')
+      .set('Origin', 'http://127.0.0.1')
+      .set('Sec-Fetch-Site', 'same-origin')
+      .send({ email: '' })
+    expect(sameOrigin.status).toBe(400)
+    expect(sameOrigin.body.error.code).toBe('validation')
+    expect((await test.http().get('/healthz').set('Sec-Fetch-Site', 'cross-site')).status).toBe(200)
+    const bearer = await test.http().post('/api/mcp').set('Sec-Fetch-Site', 'cross-site').send({})
+    expect(bearer.status).toBe(401)
+    expect(bearer.headers['www-authenticate']).toBe('Bearer')
+  })
+
   it('rejects malformed login bodies with 400 validation and Spanish messages', async () => {
     const response = await test.http().post('/api/auth/login').set('X-Forwarded-For', '10.9.9.9').send({ email: '' })
     expect(response.status).toBe(400)

@@ -19,6 +19,11 @@ import {
 } from './backup-schema.js'
 
 export const BACKUP_BLOBS_KEPT = 14
+/**
+ * Upper bound of an uploaded backup once inflated. A real backup is a few MB (one row per stock unit, per import row,
+ * per deck revision); without a cap a 50 MB gzip of zeros inflates to ~50 GB and takes the 512 MB machine down.
+ */
+export const BACKUP_MAX_INFLATED_BYTES = 128 * 1024 * 1024
 
 export interface BackupBlobView {
   id: string
@@ -223,9 +228,15 @@ export class BackupService {
     let text: string
     try {
       const isGzip = bytes.length > 2 && bytes[0] === GZIP_MAGIC[0] && bytes[1] === GZIP_MAGIC[1]
-      text = (isGzip ? gunzipSync(bytes) : bytes).toString('utf8')
-    } catch {
-      throw new BadRequestException({ code: 'invalid_backup', message: 'No se pudo descomprimir el archivo.' })
+      text = (isGzip ? gunzipSync(bytes, { maxOutputLength: BACKUP_MAX_INFLATED_BYTES }) : bytes).toString('utf8')
+    } catch (error) {
+      const tooLarge = (error as { code?: unknown } | null)?.code === 'ERR_BUFFER_TOO_LARGE'
+      throw new BadRequestException({
+        code: 'invalid_backup',
+        message: tooLarge
+          ? `El archivo descomprimido supera los ${BACKUP_MAX_INFLATED_BYTES / (1024 * 1024)} MB; no parece un backup de esta app.`
+          : 'No se pudo descomprimir el archivo.',
+      })
     }
     let raw: unknown
     try {

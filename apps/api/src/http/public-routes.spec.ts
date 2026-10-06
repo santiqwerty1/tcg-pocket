@@ -1,4 +1,4 @@
-import { requestPathname, routeExposure, unauthenticatedAction, wantsHtml } from './public-routes.js'
+import { isCrossSiteWrite, requestPathname, routeExposure, unauthenticatedAction, wantsHtml } from './public-routes.js'
 
 describe('requestPathname', () => {
   it('uses the full original url without the query string', () => {
@@ -69,5 +69,33 @@ describe('unauthenticatedAction', () => {
     expect(wantsHtml('text/html')).toBe(true)
     expect(wantsHtml('application/json')).toBe(false)
     expect(wantsHtml(undefined)).toBe(false)
+  })
+})
+
+describe('isCrossSiteWrite', () => {
+  const own = 'https://tcg-pocket.fly.dev'
+
+  it('never blocks reads', () => {
+    expect(isCrossSiteWrite('GET', { secFetchSite: 'cross-site', origin: 'https://evil.example' }, own)).toBe(false)
+    expect(isCrossSiteWrite('HEAD', { secFetchSite: 'cross-site' }, own)).toBe(false)
+    expect(isCrossSiteWrite('OPTIONS', { origin: 'https://evil.example' }, own)).toBe(false)
+  })
+
+  it('lets same-origin, same-site and header-less writes through', () => {
+    expect(isCrossSiteWrite('POST', { secFetchSite: 'same-origin', origin: own }, own)).toBe(false)
+    expect(isCrossSiteWrite('POST', { secFetchSite: 'same-site' }, own)).toBe(false)
+    expect(isCrossSiteWrite('POST', { secFetchSite: 'none', origin: own }, own)).toBe(false)
+    expect(isCrossSiteWrite('POST', { origin: 'HTTPS://TCG-POCKET.FLY.DEV' }, own)).toBe(false)
+    expect(isCrossSiteWrite('DELETE', {}, own)).toBe(false)
+    expect(isCrossSiteWrite('POST', { origin: 'http://localhost:3000' }, 'http://localhost:3000')).toBe(false)
+  })
+
+  it('blocks writes that the browser marks as cross-site or that carry a foreign or null Origin', () => {
+    expect(isCrossSiteWrite('POST', { secFetchSite: 'cross-site' }, own)).toBe(true)
+    expect(isCrossSiteWrite('POST', { secFetchSite: 'cross-site', origin: own }, own)).toBe(true)
+    expect(isCrossSiteWrite('PATCH', { origin: 'https://evil.example' }, own)).toBe(true)
+    expect(isCrossSiteWrite('POST', { origin: 'null' }, own)).toBe(true)
+    expect(isCrossSiteWrite('POST', { origin: 'https://tcg-pocket.fly.dev:8443' }, own)).toBe(true)
+    expect(isCrossSiteWrite('POST', { origin: 'http://localhost:3001' }, 'http://localhost:3000')).toBe(true)
   })
 })

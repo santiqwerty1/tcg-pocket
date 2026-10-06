@@ -1,10 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import type { ApiToken } from '../generated/prisma/client.js'
+import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { type ApiTokenKind, generateApiToken, hashApiToken, invalidScopes } from './token-format.js'
 
 export interface ApiTokenView {
-  id: number
+  /** Numeric database id, as a string like every other id in the API (docs/API.md «Convenciones»). */
+  id: string
   name: string
   kind: ApiTokenKind
   scopes: string[]
@@ -25,7 +27,7 @@ const LAST_USED_WRITE_INTERVAL_MS = 60_000
 
 function toView(row: ApiToken): ApiTokenView {
   return {
-    id: row.id,
+    id: idToString(row.id),
     name: row.name,
     kind: row.kind,
     scopes: row.scopes,
@@ -68,9 +70,11 @@ export class TokensService {
     return rows.map(toView)
   }
 
-  async revoke(id: number): Promise<ApiTokenView> {
+  /** Revokes by id (anything that is not a positive integer is a 404, like the other resources). */
+  async revoke(rawId: string): Promise<ApiTokenView> {
+    const id = parseNumericId(rawId, 'Token')
     const row = await this.prisma.apiToken.findUnique({ where: { id } })
-    if (!row) throw new NotFoundException('Token no encontrado.')
+    if (!row) throw new NotFoundException(`Token ${rawId} no encontrado.`)
     if (row.revokedAt) return toView(row)
     return toView(await this.prisma.apiToken.update({ where: { id }, data: { revokedAt: new Date() } }))
   }

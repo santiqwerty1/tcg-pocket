@@ -27,7 +27,8 @@ describe('api tokens (e2e)', () => {
       scopes: ['worker:claim'],
       revokedAt: null,
     })
-    expect(typeof created.body.id).toBe('number')
+    expect(typeof created.body.id).toBe('string')
+    expect(created.body.id).toMatch(/^\d+$/)
 
     const list = await test.http().get('/api/tokens').set('Cookie', cookie)
     expect(list.status).toBe(200)
@@ -58,7 +59,7 @@ describe('api tokens (e2e)', () => {
     const ping = await test.http().get('/api/worker/ping').set('Authorization', `Bearer ${created.body.token}`)
     expect(ping.status).toBe(200)
     expect(ping.body).toEqual({ ok: true, token: { name: 'worker', kind: 'worker' } })
-    const row = await test.prisma.apiToken.findUniqueOrThrow({ where: { id: created.body.id } })
+    const row = await test.prisma.apiToken.findUniqueOrThrow({ where: { id: Number(created.body.id) } })
     expect(row.lastUsedAt).not.toBeNull()
   })
 
@@ -84,11 +85,15 @@ describe('api tokens (e2e)', () => {
     const ping = await test.http().get('/api/worker/ping').set('Authorization', `Bearer ${created.body.token}`)
     expect(ping.status).toBe(401)
     const list = await test.http().get('/api/tokens').set('Cookie', cookie)
-    const revoked = list.body.items.find((token: { id: number }) => token.id === created.body.id)
+    const revoked = list.body.items.find((token: { id: string }) => token.id === created.body.id)
     expect(revoked.revokedAt).not.toBeNull()
     const missing = await test.http().delete('/api/tokens/99999').set('Cookie', cookie)
     expect(missing.status).toBe(404)
     expect(missing.body.error.code).toBe('not_found')
+    // Ids travel as strings; anything that is not a positive integer is a 404 like the other resources.
+    const notAnId = await test.http().delete('/api/tokens/abc').set('Cookie', cookie)
+    expect(notAnId.status).toBe(404)
+    expect(notAnId.body.error.code).toBe('not_found')
   })
 
   it('requires the session for token management', async () => {

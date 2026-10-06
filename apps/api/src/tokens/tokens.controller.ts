@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Post } from '@nestjs/common'
+import { Body, Controller, Delete, Get, HttpCode, Param, Post } from '@nestjs/common'
 import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
 import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
@@ -31,7 +31,7 @@ export class TokensController {
 
   @Delete(':id')
   @HttpCode(204)
-  async revoke(@Param('id', ParseIntPipe) id: number, @CurrentSession() _session: RequestSession): Promise<void> {
+  async revoke(@Param('id') id: string, @CurrentSession() _session: RequestSession): Promise<void> {
     await this.tokens.revoke(id)
   }
 }

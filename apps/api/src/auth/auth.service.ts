@@ -1,5 +1,6 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common'
+import { Inject, Injectable, UnauthorizedException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
+import { ENV, type Env } from '../config/env.js'
 import { OwnerService } from './owner.service.js'
 import { hashPassword, verifyAgainstDummy, verifyPassword } from './password.js'
 import { SessionService } from './session.service.js'
@@ -32,12 +33,16 @@ export class AuthService {
   constructor(
     private readonly owners: OwnerService,
     private readonly sessions: SessionService,
+    @Inject(ENV) private readonly env: Env,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(AuthService.name)
   }
 
-  /** Password + TOTP (when enrolled). Every failure is a generic 401 except a missing code, which the form can ask for. */
+  /**
+   * Password + TOTP (when enrolled). Every failure is a generic 401 except a missing code, which the form can ask
+   * for. A TOTP code is accepted once: its time step is recorded and anything up to that step is refused (replay).
+   */
   async login(
     input: LoginInput,
     meta: { userAgent?: string | undefined },
@@ -57,8 +62,13 @@ export class AuthService {
     if (totpSecret !== null) {
       const token = (input.totp ?? '').replace(/\s+/g, '')
       if (token === '') throw new LoginError('totp_required')
-      if (!(await verifyTotp(totpSecret, token))) {
+      const verified = await verifyTotp(totpSecret, token)
+      if (!verified.valid) {
         this.logger.warn('login failed: wrong TOTP code')
+        throw new LoginError('invalid_credentials')
+      }
+      if (!(await this.owners.acceptTotpStep(verified.step))) {
+        this.logger.warn('login failed: TOTP code already used')
         throw new LoginError('invalid_credentials')
       }
     }
@@ -88,7 +98,7 @@ export class AuthService {
         message: 'La contraseña actual no es correcta.',
       })
     }
-    await this.owners.setPasswordHash(await hashPassword(input.newPassword))
+    await this.owners.setPasswordHash(await hashPassword(input.newPassword, this.env.argon2))
     const closed = await this.sessions.destroyAllExcept(currentIdHash)
     this.logger.info({ closedSessions: closed }, 'password changed')
   }

@@ -204,6 +204,50 @@ describe('decks (e2e)', () => {
     expect((await patch(`/api/decks/${created[25]?.id}`).send({ builtInGame: true })).status).toBe(200)
   })
 
+  it('re-checks the limit when un-archiving a deck that is still marked as built (I8 counts active decks)', async () => {
+    const built = created[1] as Summary // built and active after the previous test
+    const spare = created[0] as Summary // not built
+    const other = created[26] as Summary // not built
+    const activeBuilt = () => test.prisma.deck.count({ where: { builtInGame: true, archivedAt: null } })
+    expect(await activeBuilt()).toBe(25)
+
+    // Archiving keeps the mark but frees a slot…
+    const archived = await patch(`/api/decks/${built.id}`).send({ archived: true })
+    expect(archived.status).toBe(200)
+    expect(archived.body.builtInGame).toBe(true)
+    expect(archived.body.archivedAt).not.toBeNull()
+    expect((await get('/api/decks?builtInGame=true')).body.items).toHaveLength(24)
+    expect((await patch(`/api/decks/${spare.id}`).send({ builtInGame: true })).status).toBe(200)
+    expect(await activeBuilt()).toBe(25)
+
+    // …so bringing the deck back would make 26: refused, and it stays archived.
+    const back = await patch(`/api/decks/${built.id}`).send({ archived: false })
+    expect(back.status).toBe(409)
+    expect(back.body.error.code).toBe('built_in_game_limit')
+    expect(back.body.error.details).toEqual({ built: 25, max: 25 })
+    expect((await get(`/api/decks/${built.id}`)).body.archivedAt).not.toBeNull()
+
+    // Same when an archived deck is un-archived and marked in one patch; marking it while archived is fine (it does
+    // not count) and the check happens when it comes back.
+    expect((await patch(`/api/decks/${other.id}`).send({ archived: true })).status).toBe(200)
+    const both = await patch(`/api/decks/${other.id}`).send({ archived: false, builtInGame: true })
+    expect(both.status).toBe(409)
+    expect(both.body.error.code).toBe('built_in_game_limit')
+    expect((await patch(`/api/decks/${other.id}`).send({ builtInGame: true })).body).toMatchObject({
+      builtInGame: true,
+    })
+    expect((await patch(`/api/decks/${other.id}`).send({ archived: false })).status).toBe(409)
+    expect(await activeBuilt()).toBe(25)
+
+    // Back to the previous state: free the slot, un-archive the built deck (fits again), reset the other one.
+    expect((await patch(`/api/decks/${spare.id}`).send({ builtInGame: false })).status).toBe(200)
+    const restored = await patch(`/api/decks/${built.id}`).send({ archived: false })
+    expect(restored.status).toBe(200)
+    expect(restored.body).toMatchObject({ builtInGame: true, archivedAt: null })
+    expect((await patch(`/api/decks/${other.id}`).send({ archived: false, builtInGame: false })).status).toBe(200)
+    expect(await activeBuilt()).toBe(25)
+  })
+
   it('creates a 19-card deck as invalid with a concrete message, and rejects unknown cards', async () => {
     const six = drafts.find((d) => d.number === 6)?.draft as NonNullable<Draft['draft']>
     const cards = six.cards.map((c) => ({ ...c }))

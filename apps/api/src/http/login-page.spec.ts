@@ -18,4 +18,11 @@ describe('renderLoginPage', () => {
     expect(html).toContain("fetch('/api/auth/login'")
     expect(html).toContain("window.location.replace('/')")
   })
+
+  it('reads the error envelope ({ error: { code, message } }) to show the TOTP prompt and server messages', () => {
+    expect(html).toContain('data.error')
+    expect(html).toContain("err.code === 'totp_required'")
+    expect(html).toContain('err.message')
+    expect(html).not.toMatch(/data\.code|data\.message/)
+  })
 })

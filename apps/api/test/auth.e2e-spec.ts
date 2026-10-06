@@ -14,6 +14,11 @@ describe('auth (e2e)', () => {
     await test.close()
   })
 
+  // A TOTP code is accepted once per 30-second step; the suite logs in several times within one step.
+  beforeEach(async () => {
+    await test.prisma.owner.updateMany({ data: { totpLastStep: null } })
+  })
+
   const attempt = (body: Record<string, string>, ip: string) =>
     test.http().post('/api/auth/login').set('X-Forwarded-For', ip).send(body)
 
@@ -99,6 +104,39 @@ describe('auth (e2e)', () => {
     expect(setCookies(me)[0]).toMatch(/Max-Age=0/)
   })
 
+  it('accepts a TOTP code once: replaying it within its time step is refused', async () => {
+    await test.prisma.owner.updateMany({ data: { totpLastStep: null } })
+    const code = await currentTotp(secret)
+    const first = await attempt({ email: OWNER.email, password: OWNER.password, totp: code }, '10.1.0.11')
+    expect(first.status).toBe(204)
+    const replay = await attempt({ email: OWNER.email, password: OWNER.password, totp: code }, '10.1.0.11')
+    expect(replay.status).toBe(401)
+    expect(replay.body.error.code).toBe('invalid_credentials')
+    expect(setCookies(replay)).toEqual([])
+    const owner = await test.prisma.owner.findUniqueOrThrow({ where: { id: 1 } })
+    const nowStep = Math.floor(Date.now() / 1000 / 30)
+    expect(Math.abs((owner.totpLastStep as number) - nowStep)).toBeLessThanOrEqual(1)
+    // A new enrolment (owner:init) resets the guard.
+    secret = (await seedOwner(test.app, { totp: true })).secret as string
+    expect((await test.prisma.owner.findUniqueOrThrow({ where: { id: 1 } })).totpLastStep).toBeNull()
+  })
+
+  it('closes a still-valid session presented at login instead of keeping it alive next to the new one', async () => {
+    const old = await login(test, { secret, ip: '10.1.0.12' })
+    await test.prisma.owner.updateMany({ data: { totpLastStep: null } })
+    const again = await test
+      .http()
+      .post('/api/auth/login')
+      .set('X-Forwarded-For', '10.1.0.12')
+      .set('Cookie', old)
+      .send({ email: OWNER.email, password: OWNER.password, totp: await currentTotp(secret) })
+    expect(again.status).toBe(204)
+    const fresh = cookieHeader(setCookies(again))
+    expect(fresh).not.toBe(old)
+    expect((await test.http().get('/api/auth/me').set('Cookie', fresh)).status).toBe(200)
+    expect((await test.http().get('/api/auth/me').set('Cookie', old)).status).toBe(401)
+  })
+
   it('throttles the 6th login attempt within 15 minutes per IP', async () => {
     const ip = '10.1.0.6'
     for (let i = 0; i < 5; i += 1) {
@@ -147,6 +185,7 @@ describe('auth (e2e)', () => {
       '10.1.0.10',
     )
     expect(oldPassword.status).toBe(401)
+    await test.prisma.owner.updateMany({ data: { totpLastStep: null } }) // the logins above used this step's code
     const newPassword = await attempt(
       { email: OWNER.email, password: 'another-long-password-123', totp: await currentTotp(secret) },
       '10.1.0.10',

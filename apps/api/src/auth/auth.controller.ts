@@ -27,7 +27,10 @@ export class AuthController {
     private readonly sessions: SessionService,
   ) {}
 
-  /** Public. 5 attempts per 15 minutes per IP; the 6th answers 429. Success: 204 + session cookie. */
+  /**
+   * Public. 5 attempts per 15 minutes per IP (successful ones count too); the 6th answers 429. Success: 204 + a new
+   * session cookie; a still-valid session sent with the request is closed, not kept alive next to the new one.
+   */
   @Post('login')
   @HttpCode(204)
   @UseGuards(ThrottlerGuard)
@@ -38,6 +41,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<void> {
     const { cookie } = await this.auth.login(body, { userAgent: req.headers['user-agent'] })
+    if (req.session) await this.auth.logout(req.session.idHash)
     res.setHeader('Set-Cookie', cookie)
     res.setHeader('Cache-Control', 'no-store')
   }

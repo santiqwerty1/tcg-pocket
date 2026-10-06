@@ -20,10 +20,12 @@ primary_region = "gru"
   min_machines_running = 1
   processes = ["app"]
 
+  # /healthz pings the database (503 when it does not answer). The grace period covers `prisma migrate deploy` and the
+  # 4.3k-card catalog load on a cold start.
   [[http_service.checks]]
     interval = "30s"
     timeout = "5s"
-    grace_period = "15s"
+    grace_period = "60s"
     method = "GET"
     path = "/healthz"
 

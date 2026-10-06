@@ -34,6 +34,25 @@ export function wantsHtml(accept: string | undefined): boolean {
   return accept?.includes('text/html') ?? false
 }
 
+export interface WriteRequestHeaders {
+  secFetchSite?: string | undefined
+  origin?: string | undefined
+}
+
+/**
+ * Belt and braces over `SameSite=Lax` for the cookie-authenticated routes: a request that can change state (anything
+ * but GET/HEAD/OPTIONS) is refused when the browser says it comes from another site (`Sec-Fetch-Site: cross-site`)
+ * or when its `Origin` is not the origin serving the app (`null` included). Requests without either header (curl,
+ * supertest, old browsers) pass: the cookie attributes still protect them.
+ */
+export function isCrossSiteWrite(method: string, headers: WriteRequestHeaders, ownOrigin: string): boolean {
+  const verb = method.toUpperCase()
+  if (verb === 'GET' || verb === 'HEAD' || verb === 'OPTIONS') return false
+  if (headers.secFetchSite?.toLowerCase() === 'cross-site') return true
+  if (headers.origin !== undefined && headers.origin.toLowerCase() !== ownOrigin.toLowerCase()) return true
+  return false
+}
+
 export type UnauthenticatedAction = { kind: 'redirect'; location: '/login' } | { kind: 'json'; status: 401 }
 
 /**

@@ -6,6 +6,7 @@ Contrato entre `apps/api` (NestJS) y `apps/web` (PWA). Identificadores en inglé
 
 - Errores: `{ "error": { "code": "snake_case", "message": "texto en español", "details"?: … } }` con el status HTTP apropiado (400 validación, 401 sin sesión, 403 sin permiso/scope, 404, 409 conflicto, 429 límite).
 - Sin sesión: las navegaciones (`Accept: text/html`) reciben `302 /login`; las llamadas a `/api/*` reciben `401 { error: { code: "unauthenticated" } }`.
+- Escrituras de otro sitio: una petición que no sea GET/HEAD/OPTIONS con `Sec-Fetch-Site: cross-site` o con un `Origin` distinto del de la app recibe `403 { error: { code: "forbidden" } }` (no aplica a `/api/mcp` ni `/api/worker/*`, que usan token).
 - Paginación: `?limit=50&offset=0` → `{ items: [...], total }`.
 - Porcentajes (desde la Fase 2): siempre `{ value, games, samples, sampleKind, ci95: [lo, hi], orientative }`.
 - Fechas en ISO 8601 UTC. Ids de carta = `card_id` del tracker (`A1-1`, `B4b-372`); ids de grupo funcional = `card_id` más temprano del grupo.
@@ -18,9 +19,9 @@ Contrato entre `apps/api` (NestJS) y `apps/web` (PWA). Identificadores en inglé
 
 | Método y ruta | Descripción |
 |---|---|
-| `GET /healthz` | `{ ok: true, version, catalogCommit, engineRev }` |
+| `GET /healthz` | `{ ok: true, version, catalogCommit, engineRev }`; `503 { error: { code: 'unavailable' } }` si la base de datos no responde en 3 s |
 | `GET /login` | Página HTML autónoma de inicio de sesión (email, contraseña, código TOTP) |
-| `POST /api/auth/login` | `{ email, password, totp? }` → `204` + cookie. Límite 5 intentos / 15 min por IP (`429`). |
+| `POST /api/auth/login` | `{ email, password, totp? }` → `204` + cookie (si venía una sesión válida en la cookie, se cierra y se reemplaza). Límite 5 intentos / 15 min por IP (`429`), también los exitosos. Un código TOTP vale para un solo ingreso: repetirlo da `401 invalid_credentials`. |
 | `/api/mcp`, `/api/worker/*` | Con `Authorization: Bearer tcg_mcp_…` / `tcg_wk_…` (Fases 3 y 6). Sin token válido: `401`. |
 
 ## Sesión
@@ -109,7 +110,7 @@ ImportPreview = {
 | `GET /api/decks?tag=&archived=false&builtInGame=` | `{ items: DeckSummary[] }` en orden de creación; sin `archived` lista solo los no archivados, `archived=true` solo los archivados |
 | `POST /api/decks` | `DeckInput` → `201 DeckDetail` (se crea aunque tenga errores de validación: `valid: false`; cartas o energías vacías valen). `400 unknown_card` si algún `cardId` no existe en el catálogo (`details` lista los ids). Las entradas repetidas de una misma edición se suman |
 | `GET /api/decks/:id` | `DeckDetail` |
-| `PATCH /api/decks/:id` | `Partial<DeckInput> & { builtInGame?, archived?, note? }` → `DeckDetail`; crea una revisión (`source: 'ui'`, con `note`) solo si cambian cartas o energías; registra en `changes` los cambios de `name`, `tags`, `notes`, `packPriority`, `variantOf`, `builtInGame` y `archived`; `409 { code: 'built_in_game_limit' }` al superar 25 no archivados; `400` si `variantOfId` es el propio mazo |
+| `PATCH /api/decks/:id` | `Partial<DeckInput> & { builtInGame?, archived?, note? }` → `DeckDetail`; crea una revisión (`source: 'ui'`, con `note`) solo si cambian cartas o energías; registra en `changes` los cambios de `name`, `tags`, `notes`, `packPriority`, `variantOf`, `builtInGame` y `archived`; `409 { code: 'built_in_game_limit', details: { built, max } }` cuando el mazo quedaría entre los armados no archivados y ya hay 25 (al marcarlo, al desarchivarlo si sigue marcado, o ambas cosas en el mismo PATCH: archivar **no** quita la marca `builtInGame`); `400` si `variantOfId` es el propio mazo |
 | `DELETE /api/decks/:id` | Borra (solo si está archivado) → `204`; `409 deck_not_archived` si no lo está |
 | `POST /api/decks/:id/duplicate` | `{ name? }` (default «<nombre> (copia)») → `201 DeckDetail` con `variantOfId` = el original, revisión 1 con `source: 'duplicate'` |
 | `POST /api/decks/:id/revisions/:number/restore` | → `DeckDetail` (nueva revisión con `source: 'restore'` y nota «Restaurada la revisión N»; si la revisión pedida es idéntica a la actual no se crea nada); `404` si no existe |
@@ -153,7 +154,7 @@ Issue = { code, message, cardIds?: string[] }
 | Método y ruta | Respuesta |
 |---|---|
 | `GET /api/backup/export` | Descarga `tcgpocket-backup-AAAAMMDD.json.gz` (`application/gzip`; todo lo propio de la Fase 1, ver abajo y PLAN §3.9) |
-| `POST /api/backup/import?mode=dry-run|replace` | `multipart/form-data` con `file` (`.json.gz` o `.json`, ≤ 50 MB); sin `mode`: `dry-run` → `{ schemaVersion, exportedAt, appVersion, catalogCommit, diff: { current, incoming, notices: string[], needsReview, unknownCardIds } }` (`current`/`incoming` son conteos por tabla); `replace` → `{ applied: true, counts, notices }`. Errores: `400 invalid_backup` (no es gzip/JSON o no tiene la forma), `400 unsupported_schema` (otro `schemaVersion`), `400 unknown_card` en `replace` si referencia cartas o grupos que no están en el catálogo cargado |
+| `POST /api/backup/import?mode=dry-run|replace` | `multipart/form-data` con `file` (`.json.gz` o `.json`, ≤ 50 MB); sin `mode`: `dry-run` → `{ schemaVersion, exportedAt, appVersion, catalogCommit, diff: { current, incoming, notices: string[], needsReview, unknownCardIds } }` (`current`/`incoming` son conteos por tabla); `replace` → `{ applied: true, counts, notices }`. Errores: `400 invalid_backup` (no es gzip/JSON, no tiene la forma o descomprimido supera 128 MB), `400 unsupported_schema` (otro `schemaVersion`), `400 unknown_card` en `replace` si referencia cartas o grupos que no están en el catálogo cargado |
 | `GET /api/backup/blobs` | `{ items: [{ id, createdAt, sizeBytes }] }` (copias diarias guardadas, más reciente primero; se conservan las últimas 14) |
 | `GET /api/backup/blobs/:id` | Descarga (`application/gzip`, nombre con la fecha de la copia) |
 

@@ -66,9 +66,11 @@ export function renderLoginPage(options: { nonce: string }): string {
     }).then(function (response) {
       if (response.ok) { window.location.replace('/'); return; }
       return response.json().catch(function () { return {}; }).then(function (data) {
+        // Errors come wrapped as { error: { code, message } } (docs/API.md).
+        var err = (data && data.error) ? data.error : {};
         if (response.status === 429) { show('Demasiados intentos. Esperá 15 minutos y volvé a probar.'); return; }
-        if (data && data.code === 'totp_required') { show('Falta el código de 6 dígitos.'); form.totp.focus(); return; }
-        show((data && typeof data.message === 'string') ? data.message : 'No se pudo iniciar sesión.');
+        if (err.code === 'totp_required') { show('Falta el código de 6 dígitos.'); form.totp.focus(); return; }
+        show((typeof err.message === 'string') ? err.message : 'No se pudo iniciar sesión.');
       });
     }).catch(function () {
       show('Sin conexión con el servidor. Probá de nuevo.');

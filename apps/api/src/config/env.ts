@@ -30,6 +30,10 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).optional(),
   /** Overrides the package.json version reported by /healthz (e.g. the image tag). */
   APP_VERSION: z.string().optional(),
+  /** argon2id cost for new password hashes (OWASP minimum by default; the 512 MB machine cannot afford the library defaults). */
+  ARGON2_MEMORY_KIB: z.coerce.number().int().min(8192).max(1_048_576).default(19456),
+  ARGON2_TIME_COST: z.coerce.number().int().min(1).max(20).default(2),
+  ARGON2_PARALLELISM: z.coerce.number().int().min(1).max(8).default(1),
 })
 
 export interface Env {
@@ -48,6 +52,8 @@ export interface Env {
   trustProxy: number
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent'
   version: string
+  /** argon2id parameters for new password hashes (`memoryCost` in KiB). */
+  argon2: { memoryCost: number; timeCost: number; parallelism: number }
 }
 
 export class EnvError extends Error {
@@ -90,6 +96,7 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
     trustProxy: raw.TRUST_PROXY,
     logLevel: raw.LOG_LEVEL ?? (isProduction ? 'info' : 'debug'),
     version: raw.APP_VERSION ?? packageVersion(),
+    argon2: { memoryCost: raw.ARGON2_MEMORY_KIB, timeCost: raw.ARGON2_TIME_COST, parallelism: raw.ARGON2_PARALLELISM },
   }
 }
 

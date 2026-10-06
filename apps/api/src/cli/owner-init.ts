@@ -22,7 +22,7 @@ if (values.help) {
   process.exit(0)
 }
 
-const { context } = await createCliContext()
+const { env, context } = await createCliContext()
 try {
   const email = (process.env.OWNER_EMAIL ?? '').trim().toLowerCase()
   const password = process.env.OWNER_PASSWORD ?? ''
@@ -34,7 +34,7 @@ try {
   const sessions = context.get(SessionService)
   const existing = await owners.get()
   const totpSecret = values['no-totp'] ? null : generateTotpSecret()
-  await owners.upsert({ email, passwordHash: await hashPassword(password), totpSecret })
+  await owners.upsert({ email, passwordHash: await hashPassword(password, env.argon2), totpSecret })
   const closed = await sessions.destroyAllExcept(null)
 
   console.log(`${existing ? 'Updated' : 'Created'} owner ${email} (${closed} session(s) closed).`)

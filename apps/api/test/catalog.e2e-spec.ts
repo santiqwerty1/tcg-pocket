@@ -207,6 +207,56 @@ describe('catalog (e2e)', () => {
     expect(await test.prisma.card.count()).toBe(EXPECTED.cards)
   })
 
+  it("re-syncing never overwrites the owner's rarity rules and only seeds missing rarities (DECISIONES 1.10)", async () => {
+    const seeded = await test.prisma.rarityRule.findUniqueOrThrow({ where: { rarity: '◊' } })
+    expect(seeded).toMatchObject({ pointsVerified: false, tradeable: true })
+    await test.prisma.rarityRule.update({
+      where: { rarity: '◊' },
+      data: { points: 999, pointsVerified: true, tradeable: false },
+    })
+    await test.prisma.rarityRule.delete({ where: { rarity: '◊◊' } })
+
+    const summary = await sync.sync({
+      trackerCommit: test.env.catalogCommit,
+      engineRev: test.env.engineRev,
+      source: 'fixtures',
+    })
+    expect(summary.status).toBe('applied')
+    expect(await test.prisma.rarityRule.findUniqueOrThrow({ where: { rarity: '◊' } })).toMatchObject({
+      points: 999,
+      pointsVerified: true,
+      tradeable: false,
+    })
+    // A rarity that is missing (deleted, or new in the tracker) is seeded with the defaults.
+    expect(await test.prisma.rarityRule.findUniqueOrThrow({ where: { rarity: '◊◊' } })).toMatchObject({
+      pointsVerified: false,
+      tradeable: true,
+    })
+    await test.prisma.rarityRule.update({ where: { rarity: '◊' }, data: { points: seeded.points } })
+  })
+
+  it('closes at startup a sync left running by a previous process, without touching the catalog', async () => {
+    const stale = await test.prisma.catalogSync.create({
+      data: {
+        commitSha: test.env.catalogCommit,
+        engineRev: test.env.engineRev,
+        source: 'fixtures',
+        status: 'running',
+        fetchedAt: new Date(),
+        fileHashes: {},
+        counts: {},
+      },
+    })
+    expect((await get('/api/catalog/status')).body.lastSync).toMatchObject({ id: stale.id, status: 'running' })
+    await sync.onModuleInit()
+    const status = await get('/api/catalog/status')
+    expect(status.body.lastSync).toMatchObject({ id: stale.id, status: 'failed' })
+    expect(status.body.lastSync.error).toContain('reinició')
+    expect(status.body.loaded).toBe(true)
+    expect(status.body.trackerCommit).toBe(test.env.catalogCommit)
+    expect(await test.prisma.card.count()).toBe(EXPECTED.cards)
+  })
+
   it('guards the sync trigger and the read API behind the session', async () => {
     expect((await test.http().post('/api/catalog/sync').send({ fromFixtures: true })).status).toBe(401)
     expect((await test.http().get('/api/cards?q=Pikachu')).status).toBe(401)

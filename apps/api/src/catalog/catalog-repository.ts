@@ -8,6 +8,7 @@ import { Injectable } from '@nestjs/common'
 import type {
   Ability,
   Attack,
+  BuildCounts,
   CardEdition,
   CardType,
   Catalog,
@@ -22,8 +23,9 @@ import type {
   StockUnit,
 } from '@tcg/domain'
 import type { CatalogSync } from '../generated/prisma/client.js'
+import type { CatalogSyncStatus } from '../generated/prisma/enums.js'
 import { PrismaService } from '../prisma/prisma.service.js'
-import { deleteNotIn, upsertMany } from '../prisma/sql.js'
+import { deleteNotIn, insertMany, upsertMany } from '../prisma/sql.js'
 
 /** Rarities tradeable by default (PLAN §8 B9); ✵/✵✵ costs stay "unverified" until confirmed in game. */
 const DEFAULT_TRADEABLE: ReadonlySet<string> = new Set(['◊', '◊◊', '◊◊◊', '◊◊◊◊', '☆'])
@@ -45,12 +47,32 @@ export interface ReplaceResult {
   deleted: { cards: number; groups: number; packs: number; expansions: number }
 }
 
+export interface SyncChangeRow {
+  cardId: string
+  field: string
+  old: unknown
+  new: unknown
+}
+
+/** What gets recorded on the `catalog_syncs` row (and `catalog_sync_changes`) together with the catalog itself. */
+export interface SyncOutcome {
+  syncId: number
+  status: Extract<CatalogSyncStatus, 'applied' | 'needs_review'>
+  counts: BuildCounts
+  craftingCost: CraftingCost
+  report: unknown
+  changes: readonly SyncChangeRow[]
+}
+
 @Injectable()
 export class CatalogRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Full upsert of every catalog table in one transaction. */
-  async replaceCatalog(catalog: Catalog): Promise<ReplaceResult> {
+  /**
+   * Full upsert of every catalog table plus the sync record (`catalog_syncs` status/report and its change rows) in
+   * one transaction: the tables and the row that says which commit they hold can never disagree.
+   */
+  async replaceCatalog(catalog: Catalog, outcome: SyncOutcome): Promise<ReplaceResult> {
     const client = await this.prisma.pool.connect()
     try {
       await client.query('BEGIN')
@@ -207,7 +229,8 @@ export class CatalogRepository {
         ),
         ['card_id'],
       )
-      // Rarity rules are owner configuration: seeded once, never overwritten.
+      // Rarity rules are owner configuration (DECISIONES 1.10): new rarities are seeded, existing rows are never
+      // overwritten (`points_verified` and `tradeable` are the owner's, and `points` may have been corrected by hand).
       await upsertMany(
         client,
         'rarity_rules',
@@ -219,6 +242,7 @@ export class CatalogRepository {
           DEFAULT_TRADEABLE.has(rarity),
         ]),
         ['rarity'],
+        { action: 'nothing' },
       )
 
       const deleted = {
@@ -247,6 +271,31 @@ export class CatalogRepository {
           catalog.expansions.map((expansion) => expansion.id),
         ),
       }
+
+      await insertMany(
+        client,
+        'catalog_sync_changes',
+        ['sync_id', 'card_id', 'field', 'old', 'new'],
+        outcome.changes.map((change) => [
+          outcome.syncId,
+          change.cardId,
+          change.field,
+          json(change.old),
+          json(change.new),
+        ]),
+      )
+      await client.query(
+        `UPDATE "catalog_syncs"
+           SET "status" = $2::"catalog_sync_status", "applied_at" = now(), "counts" = $3, "crafting_cost" = $4, "report" = $5
+         WHERE "id" = $1`,
+        [
+          outcome.syncId,
+          outcome.status,
+          json({ ...outcome.counts, deleted }),
+          json(outcome.craftingCost),
+          json(outcome.report),
+        ],
+      )
 
       await client.query('COMMIT')
       return { deleted }

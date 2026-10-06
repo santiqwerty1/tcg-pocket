@@ -84,6 +84,17 @@ export interface ValidateBody {
 type DeckRecord = Deck & { revisions: DeckRevision[]; changes: DeckChange[] }
 type Tx = Prisma.TransactionClient
 
+/**
+ * Deck writes that read-then-write (the built-in-game count of I8, the next revision number) take this
+ * transaction-scoped advisory lock first, so two concurrent PATCHes cannot both see 24 built decks and commit 26.
+ */
+const DECK_WRITES_LOCK_KEY = 1001
+
+async function lockDeckWrites(tx: Tx): Promise<void> {
+  // `$executeRaw`, not `$queryRaw`: the function returns `void`, which Prisma cannot deserialize as a result column.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${DECK_WRITES_LOCK_KEY})`
+}
+
 interface EvalContext {
   index: CatalogIndex
   playableByGroup: Map<string, number>
@@ -277,11 +288,12 @@ export class DecksService {
 
   async patch(rawId: string, patch: DeckPatch): Promise<DeckDetail> {
     const index = this.catalog.requireIndex()
-    const record = await this.requireDeck(rawId)
     if (patch.cards) this.assertKnownCards(index, patch.cards)
-    const variantOfId =
-      patch.variantOfId === undefined ? undefined : await this.resolveVariantOf(patch.variantOfId, record.id)
     await this.prisma.$transaction(async (tx) => {
+      await lockDeckWrites(tx)
+      const record = await this.requireDeck(rawId, tx)
+      const variantOfId =
+        patch.variantOfId === undefined ? undefined : await this.resolveVariantOf(patch.variantOfId, record.id, tx)
       const data: Prisma.DeckUpdateInput = {}
       const changes: { field: string; old: unknown; new: unknown }[] = []
       if (patch.name !== undefined && patch.name !== record.name) {
@@ -308,14 +320,19 @@ export class DecksService {
         })
         data.variantOf = variantOfId === null ? { disconnect: true } : { connect: { id: variantOfId } }
       }
+      // I8 counts the non-archived decks marked as built in the game. Archiving keeps the mark, so the limit is
+      // re-checked whenever the deck ends up in that set: marked while active, un-archived while marked, or both.
+      const wasArchived = record.archivedAt !== null
+      const wasCounted = record.builtInGame && !wasArchived
+      const willBeCounted = (patch.builtInGame ?? record.builtInGame) && !(patch.archived ?? wasArchived)
+      if (willBeCounted && !wasCounted) await this.assertCanBuild(tx, record.id)
       if (patch.builtInGame !== undefined && patch.builtInGame !== record.builtInGame) {
-        if (patch.builtInGame) await this.assertCanBuild(tx, record.id)
         changes.push({ field: 'builtInGame', old: record.builtInGame, new: patch.builtInGame })
         data.builtInGame = patch.builtInGame
         data.builtInGameSince = patch.builtInGame ? new Date() : null
       }
-      if (patch.archived !== undefined && patch.archived !== (record.archivedAt !== null)) {
-        changes.push({ field: 'archived', old: record.archivedAt !== null, new: patch.archived })
+      if (patch.archived !== undefined && patch.archived !== wasArchived) {
+        changes.push({ field: 'archived', old: wasArchived, new: patch.archived })
         data.archivedAt = patch.archived ? new Date() : null
       }
       if (patch.cards !== undefined || patch.energies !== undefined) {
@@ -326,7 +343,7 @@ export class DecksService {
           energies: patch.energies ?? current.energies,
         }
         if (diffDeckDrafts(current, next, index).changed) {
-          const revision = await this.insertRevision(tx, record, next, 'ui', patch.note ?? '')
+          const revision = await this.insertRevision(tx, record.id, next, 'ui', patch.note ?? '')
           data.currentRevisionId = revision.id
         }
       }
@@ -392,7 +409,8 @@ export class DecksService {
     }
     if (diffDeckDrafts(current, next, index).changed) {
       await this.prisma.$transaction(async (tx) => {
-        const revision = await this.insertRevision(tx, record, next, 'restore', `Restaurada la revisión ${number}`)
+        await lockDeckWrites(tx)
+        const revision = await this.insertRevision(tx, record.id, next, 'restore', `Restaurada la revisión ${number}`)
         await tx.deck.update({ where: { id: record.id }, data: { currentRevisionId: revision.id } })
       })
     }
@@ -489,9 +507,9 @@ export class DecksService {
     }
   }
 
-  private async requireDeck(rawId: string): Promise<DeckRecord> {
+  private async requireDeck(rawId: string, client: Tx | PrismaService = this.prisma): Promise<DeckRecord> {
     const id = parseNumericId(rawId, 'Mazo')
-    const record = await this.prisma.deck.findUnique({
+    const record = await client.deck.findUnique({
       where: { id },
       include: { revisions: { orderBy: { number: 'asc' } }, changes: { orderBy: [{ at: 'asc' }, { id: 'asc' }] } },
     })
@@ -564,19 +582,21 @@ export class DecksService {
     return deck.id
   }
 
+  /** Appends a revision; the number comes from the database inside the (locked) transaction, never from a stale read. */
   private async insertRevision(
     tx: Tx,
-    record: DeckRecord,
+    deckId: number,
     draft: DeckDraft,
     source: DeckSource,
     note: string,
   ): Promise<DeckRevision> {
     const entries = aggregateEntries(draft.cards)
-    const number = Math.max(0, ...record.revisions.map((revision) => revision.number)) + 1
+    const latest = await tx.deckRevision.aggregate({ where: { deckId }, _max: { number: true } })
+    const number = (latest._max.number ?? 0) + 1
     const revision = await tx.deckRevision.create({
-      data: { deckId: record.id, number, cards: cardsJson(entries), energies: draft.energies, note, source },
+      data: { deckId, number, cards: cardsJson(entries), energies: draft.energies, note, source },
     })
-    await this.materialize(tx, record.id, entries)
+    await this.materialize(tx, deckId, entries)
     return revision
   }
 

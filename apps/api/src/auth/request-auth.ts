@@ -12,7 +12,7 @@ export interface RequestSession {
 
 /** Attached to the request by BearerTokenGuard. */
 export interface RequestApiToken {
-  id: number
+  id: string
   name: string
   kind: ApiTokenKind
   scopes: string[]

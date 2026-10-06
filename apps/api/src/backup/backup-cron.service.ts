@@ -4,7 +4,10 @@ import { PinoLogger } from 'nestjs-pino'
 import { ENV, type Env } from '../config/env.js'
 import { BackupService } from './backup.service.js'
 
-/** Daily snapshot at 04:00 (server time) into `backup_blobs`; `BACKUP_CRON` turns it on (default: production). */
+/** The owner's local time: the container runs in UTC, so the schedule names the zone explicitly. */
+export const BACKUP_CRON_TIMEZONE = 'America/Argentina/Buenos_Aires'
+
+/** Daily snapshot at 04:00 Buenos Aires time into `backup_blobs`; `BACKUP_CRON` turns it on (default: production). */
 @Injectable()
 export class BackupCronService implements OnModuleInit {
   constructor(
@@ -16,10 +19,10 @@ export class BackupCronService implements OnModuleInit {
   }
 
   onModuleInit(): void {
-    this.logger.info({ enabled: this.env.backupCron }, 'daily backup cron')
+    this.logger.info({ enabled: this.env.backupCron, timeZone: BACKUP_CRON_TIMEZONE }, 'daily backup cron')
   }
 
-  @Cron('0 4 * * *')
+  @Cron('0 4 * * *', { timeZone: BACKUP_CRON_TIMEZONE })
   async daily(): Promise<void> {
     if (!this.env.backupCron) return
     try {

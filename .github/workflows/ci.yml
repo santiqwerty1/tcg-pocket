@@ -20,3 +20,36 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+
+  # Supertest suite against a real Postgres 17 (migrations applied by test/global-setup.ts).
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: tcg
+          POSTGRES_PASSWORD: tcg
+          POSTGRES_DB: tcg
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U tcg -d tcg"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://tcg:tcg@127.0.0.1:5433/tcg_test
+      SESSION_SECRET: ci-session-secret-ci-session-secret-0123456789
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.9.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -F @tcg/domain build
+      - run: pnpm -F @tcg/api test:e2e

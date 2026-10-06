@@ -22,19 +22,31 @@ export class OwnerService {
     return this.prisma.owner.findUnique({ where: { id: OWNER_ID } })
   }
 
-  /** Creates or replaces the owner credentials. `totpSecret` null disables TOTP. */
+  /** Creates or replaces the owner credentials. `totpSecret` null disables TOTP. A new secret resets the replay guard. */
   async upsert(input: { email: string; passwordHash: string; totpSecret: string | null }): Promise<Owner> {
     const totpSecretEnc = input.totpSecret === null ? null : this.box.seal(input.totpSecret)
     const email = input.email.trim().toLowerCase()
     return this.prisma.owner.upsert({
       where: { id: OWNER_ID },
-      create: { id: OWNER_ID, email, passwordHash: input.passwordHash, totpSecretEnc },
-      update: { email, passwordHash: input.passwordHash, totpSecretEnc },
+      create: { id: OWNER_ID, email, passwordHash: input.passwordHash, totpSecretEnc, totpLastStep: null },
+      update: { email, passwordHash: input.passwordHash, totpSecretEnc, totpLastStep: null },
     })
   }
 
   setPasswordHash(passwordHash: string): Promise<Owner> {
     return this.prisma.owner.update({ where: { id: OWNER_ID }, data: { passwordHash } })
+  }
+
+  /**
+   * Records `step` as the last TOTP time step accepted at login (RFC 6238 §5.2: a code is good for one login).
+   * Atomic: false when the stored step is already `step` or later, i.e. the code was used before (replay).
+   */
+  async acceptTotpStep(step: number): Promise<boolean> {
+    const result = await this.prisma.owner.updateMany({
+      where: { id: OWNER_ID, OR: [{ totpLastStep: null }, { totpLastStep: { lt: step } }] },
+      data: { totpLastStep: step },
+    })
+    return result.count === 1
   }
 
   totpSecretOf(owner: Owner): string | null {

@@ -1,10 +1,10 @@
-import { ConflictException, Injectable } from '@nestjs/common'
+import { ConflictException, Injectable, type OnModuleInit } from '@nestjs/common'
 import { type BuildCounts, buildCatalogWithReport, type CatalogDiff, diffCatalog, isEmptyDiff } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import type { CatalogSyncSource, CatalogSyncStatus } from '../generated/prisma/enums.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { CatalogService } from './catalog.service.js'
-import { CatalogRepository } from './catalog-repository.js'
+import { CatalogRepository, type SyncChangeRow } from './catalog-repository.js'
 import { type CatalogPins, type CatalogSources, fetchCatalogSources, readFixtureSources } from './catalog-sources.js'
 
 export interface SyncRequest extends CatalogPins {
@@ -46,8 +46,8 @@ function diffCounts(diff: CatalogDiff): DiffCounts {
   }
 }
 
-function changeRows(diff: CatalogDiff): { cardId: string; field: string; old: unknown; new: unknown }[] {
-  const rows: { cardId: string; field: string; old: unknown; new: unknown }[] = []
+function changeRows(diff: CatalogDiff): SyncChangeRow[] {
+  const rows: SyncChangeRow[] = []
   for (const cardId of diff.added) rows.push({ cardId, field: 'card', old: null, new: 'added' })
   for (const cardId of diff.removed) rows.push({ cardId, field: 'card', old: 'present', new: null })
   for (const change of diff.internalIdChanged)
@@ -68,7 +68,7 @@ function changeRows(diff: CatalogDiff): { cardId: string; field: string; old: un
  * (`POST /api/catalog/sync` → 202; progress in `GET /api/catalog/status`).
  */
 @Injectable()
-export class CatalogSyncService {
+export class CatalogSyncService implements OnModuleInit {
   private running = false
 
   constructor(
@@ -78,6 +78,18 @@ export class CatalogSyncService {
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(CatalogSyncService.name)
+  }
+
+  /**
+   * The lock lives in this process, so a `running` row found at startup belongs to a sync that died with the previous
+   * process (crash, deploy): it is closed as `failed` so `GET /api/catalog/status` and the UI do not stay blocked.
+   */
+  async onModuleInit(): Promise<void> {
+    const stale = await this.prisma.catalogSync.updateMany({
+      where: { status: 'running' },
+      data: { status: 'failed', error: 'Interrumpida: el servidor se reinició mientras corría.' },
+    })
+    if (stale.count > 0) this.logger.warn({ count: stale.count }, 'stale running catalog syncs marked as failed')
   }
 
   get isRunning(): boolean {
@@ -145,38 +157,18 @@ export class CatalogSyncService {
         )
       }
 
-      const replaced = await this.repository.replaceCatalog(catalog)
-      const status: CatalogSyncStatus = needsReview ? 'needs_review' : 'applied'
-      await this.prisma.$transaction(async (tx) => {
-        if (diff) {
-          const rows = changeRows(diff)
-          if (rows.length > 0) {
-            await tx.catalogSyncChange.createMany({
-              data: rows.map((change) => ({
-                syncId,
-                cardId: change.cardId,
-                field: change.field,
-                old: change.old === null ? undefined : (change.old as string | number),
-                new: change.new === null ? undefined : (change.new as string | number),
-              })),
-            })
-          }
-        }
-        await tx.catalogSync.update({
-          where: { id: syncId },
-          data: {
-            status,
-            appliedAt: new Date(),
-            counts: { ...report.counts, deleted: replaced.deleted },
-            craftingCost: catalog.craftingCost,
-            report: JSON.parse(
-              JSON.stringify({
-                build: { ...report, warnings },
-                diff: diff ? { counts: diffCounts(diff), detail: diff } : null,
-              }),
-            ),
-          },
-        })
+      const status = needsReview ? 'needs_review' : 'applied'
+      // Catalog tables, change rows and the sync status are committed together (one pg transaction).
+      await this.repository.replaceCatalog(catalog, {
+        syncId,
+        status,
+        counts: report.counts,
+        craftingCost: catalog.craftingCost,
+        report: {
+          build: { ...report, warnings },
+          diff: diff ? { counts: diffCounts(diff), detail: diff } : null,
+        },
+        changes: diff ? changeRows(diff) : [],
       })
       await this.catalog.reload()
 

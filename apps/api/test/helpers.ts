@@ -62,7 +62,11 @@ export async function login(
   options: { secret: string | null; ip?: string } = { secret: null },
 ): Promise<string> {
   const body: Record<string, string> = { email: OWNER.email, password: OWNER.password }
-  if (options.secret) body.totp = await currentTotp(options.secret)
+  if (options.secret) {
+    // A TOTP code is accepted once (replay guard); the suite logs in several times within one 30-second step.
+    await test.prisma.owner.updateMany({ data: { totpLastStep: null } })
+    body.totp = await currentTotp(options.secret)
+  }
   const response = await test
     .http()
     .post('/api/auth/login')

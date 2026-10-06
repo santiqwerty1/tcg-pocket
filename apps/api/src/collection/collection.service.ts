@@ -75,6 +75,9 @@ export interface ImportSource {
   fileName: string | null
 }
 
+/** An import row as the service reads it: everything but the gzipped CSV (`raw_file_gz` is only written, never served). */
+type ImportRecord = Omit<CollectionImport, 'rawFileGz'>
+
 /** What `collection_imports.diff_summary` holds: parse metadata (fixed) plus the diff (refreshed while pending). */
 interface StoredImport {
   meta: {
@@ -276,7 +279,7 @@ export class CollectionService {
   }
 
   async listImports(): Promise<ImportListItem[]> {
-    const rows = await this.prisma.collectionImport.findMany({ orderBy: { id: 'desc' } })
+    const rows = await this.prisma.collectionImport.findMany({ orderBy: { id: 'desc' }, omit: { rawFileGz: true } })
     return rows.map((row) => {
       const stored = readStored(row)
       return {
@@ -479,9 +482,14 @@ export class CollectionService {
   // Helpers
   // ---------------------------------------------------------------------------------------------------------------
 
-  private async requireImport(rawId: string): Promise<CollectionImport & { rows: ImportRowLike[] }> {
+  /** The import with its rows; the raw CSV blob stays in the database (nothing here needs it). */
+  private async requireImport(rawId: string): Promise<ImportRecord & { rows: ImportRowLike[] }> {
     const id = parseNumericId(rawId, 'Importación')
-    const row = await this.prisma.collectionImport.findUnique({ where: { id }, include: { rows: true } })
+    const row = await this.prisma.collectionImport.findUnique({
+      where: { id },
+      include: { rows: true },
+      omit: { rawFileGz: true },
+    })
     if (!row) throw new NotFoundException(`Importación ${rawId} no encontrada.`)
     return row
   }
@@ -509,7 +517,7 @@ export class CollectionService {
     return normalizeImportRows(csvRows, index).units
   }
 
-  private toPreview(index: CatalogIndex, row: CollectionImport, stored: StoredImport): ImportPreview {
+  private toPreview(index: CatalogIndex, row: ImportRecord, stored: StoredImport): ImportPreview {
     const nameOf = (stockCardId: string): string => index.cardById(stockCardId)?.nameEs ?? stockCardId
     const changes: ImportChangeView[] = stored.diff.changes.map((change) => ({
       stockCardId: change.stockCardId,
@@ -595,7 +603,7 @@ function toJson(value: unknown): InputJsonObject {
   return JSON.parse(JSON.stringify(value)) as InputJsonObject
 }
 
-function readStored(row: CollectionImport): StoredImport {
+function readStored(row: ImportRecord): StoredImport {
   const raw = row.diffSummary as Partial<StoredImport> | null
   return {
     meta: {
@@ -614,7 +622,7 @@ function isBlocked(stored: StoredImport): boolean {
   return stored.meta.errors.length > 0 || stored.meta.conflicts.length > 0
 }
 
-function notPending(row: CollectionImport): ConflictException {
+function notPending(row: ImportRecord): ConflictException {
   const state = row.status === 'applied' ? 'ya fue aplicada' : 'fue descartada'
   return new ConflictException({ code: 'import_not_pending', message: `La importación ${state}.` })
 }

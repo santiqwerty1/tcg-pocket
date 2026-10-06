@@ -3,15 +3,20 @@ import type { NextFunction, Request, Response } from 'express'
 import { SessionService } from '../auth/session.service.js'
 import { readSessionId } from '../auth/session-cookie.js'
 import type { ApiErrorBody } from './http-exception.filter.js'
-import { requestPathname, routeExposure, unauthenticatedAction } from './public-routes.js'
+import { isCrossSiteWrite, requestPathname, routeExposure, unauthenticatedAction } from './public-routes.js'
 
 export const UNAUTHENTICATED_BODY: ApiErrorBody = {
   error: { code: 'unauthenticated', message: 'Necesitás iniciar sesión.' },
 }
 
+export const CROSS_SITE_BODY: ApiErrorBody = {
+  error: { code: 'forbidden', message: 'Solicitud rechazada: viene de otro sitio.' },
+}
+
 /**
- * Runs before every route and before the static files: resolves the session cookie, applies the sliding expiry and
- * blocks anything that is not public or bearer-guarded. Registered for '*' in AppModule.
+ * Runs before every route and before the static files: refuses cross-site writes on the cookie-authenticated routes
+ * (the bearer-token integrations are exempt), resolves the session cookie, applies the sliding expiry and blocks
+ * anything that is not public or bearer-guarded. Registered for '*' in AppModule.
  */
 @Injectable()
 export class SessionMiddleware implements NestMiddleware {
@@ -20,6 +25,14 @@ export class SessionMiddleware implements NestMiddleware {
   async use(req: Request, res: Response, next: NextFunction): Promise<void> {
     const pathname = requestPathname(req)
     const exposure = routeExposure(req.method, pathname)
+    if (exposure !== 'bearer') {
+      const headers = { secFetchSite: header(req, 'sec-fetch-site'), origin: header(req, 'origin') }
+      if (isCrossSiteWrite(req.method, headers, `${req.protocol}://${req.get('host') ?? ''}`)) {
+        res.setHeader('Cache-Control', 'no-store')
+        res.status(403).json(CROSS_SITE_BODY)
+        return
+      }
+    }
     const id = exposure === 'bearer' ? null : readSessionId(req.headers.cookie, this.sessions.cookieName)
     if (id !== null) {
       const resolved = await this.sessions.resolve(id)
@@ -43,4 +56,9 @@ export class SessionMiddleware implements NestMiddleware {
     }
     res.status(401).json(UNAUTHENTICATED_BODY)
   }
+}
+
+function header(req: Request, name: string): string | undefined {
+  const value = req.headers[name]
+  return Array.isArray(value) ? value[0] : value
 }

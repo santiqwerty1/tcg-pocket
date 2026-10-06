@@ -392,6 +392,8 @@ model Owner {
   passwordHash  String   @map("password_hash")
   /// TOTP secret encrypted with AES-256-GCM under a key derived from SESSION_SECRET; null = TOTP disabled.
   totpSecretEnc String?  @map("totp_secret_enc")
+  /// Last TOTP time step (epoch / 30 s) accepted at login; codes up to this step are refused (replay protection).
+  totpLastStep  Int?     @map("totp_last_step")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 

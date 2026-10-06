@@ -15,7 +15,7 @@ Se validan al arrancar (`src/config/env.ts`, zod); si falta algo el proceso term
 
 | Variable | Obligatoria | Default | Uso |
 |---|---|---|---|
-| `DATABASE_URL` | sí | — | `postgresql://…`. Local: `postgresql://tcg:tcg@127.0.0.1:5433/tcg` (usar `127.0.0.1`, no `localhost`: el motor de Prisma resuelve `localhost` por IPv6 y Docker en Windows no responde ahí). |
+| `DATABASE_URL` | sí | — | `postgresql://…`. Local: `postgresql://tcg:tcg@127.0.0.1:5433/tcg` (usar `127.0.0.1`, no `localhost`: el motor de Prisma resuelve `localhost` por IPv6 y Docker en Windows no responde ahí). Producción: ver «Deploy» (pooler de Supabase con `sslmode=verify-full`). |
 | `SESSION_SECRET` | sí | — | ≥ 32 caracteres aleatorios. Deriva (HKDF) la clave AES-256-GCM que cifra el secreto TOTP en reposo. Cambiarlo invalida el TOTP guardado (hay que correr `owner:init` de nuevo). |
 | `TEST_DATABASE_URL` | para `test:e2e` | — | Base aparte en el mismo servidor (`…/tcg_test`). |
 | `OWNER_EMAIL`, `OWNER_PASSWORD` | para `owner:init` | — | Credenciales iniciales (contraseña ≥ 12 caracteres). |
@@ -26,9 +26,10 @@ Se validan al arrancar (`src/config/env.ts`, zod); si falta algo el proceso term
 | `ENGINE_REV` | no | `fb792ebfbaca995af9750c28101ce92a51282825` | Pin de deckgym-core. |
 | `COOKIE_SECURE` | no | `true` en producción, `false` si no | Cookie `__Host-session` + `Secure` + HSTS; en desarrollo `tcg_session` sin `Secure`. |
 | `TRUST_PROXY` | no | `1` | Saltos de proxy confiables (`X-Forwarded-For`): 1 en Fly. |
-| `BACKUP_CRON` | no | `true` en producción, `false` si no | Copia diaria de seguridad a las 04:00 (hora del servidor) en `backup_blobs`, conservando las últimas 14. |
+| `BACKUP_CRON` | no | `true` en producción, `false` si no | Copia diaria de seguridad a las 04:00 **hora de Buenos Aires** (`America/Argentina/Buenos_Aires`; el contenedor corre en UTC) en `backup_blobs`, conservando las últimas 14. |
 | `LOG_LEVEL` | no | `info` en producción, `debug` si no | Nivel de pino (`silent` apaga). |
 | `APP_VERSION` | no | versión de `package.json` | Lo que informa `/healthz`. |
+| `ARGON2_MEMORY_KIB`, `ARGON2_TIME_COST`, `ARGON2_PARALLELISM` | no | `19456`, `2`, `1` | Costo de argon2id para hashes nuevos (mínimo recomendado por OWASP: 19 MiB, 2 pasadas, 1 hilo). Los valores por defecto de la librería (64 MiB × 4 hilos) no entran en la máquina de 512 MB con varios intentos de login a la vez. El costo queda guardado en el hash: cambiarlo solo afecta contraseñas nuevas. |
 
 ## Base de datos local
 
@@ -62,7 +63,7 @@ Crea o actualiza al único usuario (fila `owner` con `id = 1`): contraseña con 
 
 ### `catalog:sync [--commit <sha>] [--engine-rev <sha>] [--from-fixtures]`
 
-Baja los ocho archivos del tracker (`raw.githubusercontent.com`, commit fijado) y `database.json` de deckgym, calcula sha256 de cada uno, construye el catálogo con `@tcg/domain` (`buildCatalogWithReport`), lo compara con el cargado (`diffCatalog`) y lo escribe entero en una transacción (upsert completo: expansiones, sobres, grupos funcionales, cartas, `pack_cards`, alias de evolución; siembra `rarity_rules` sin pisar valores existentes). Registra una fila en `catalog_syncs` (estado, conteos, hashes, informe, diff) y los cambios por carta en `catalog_sync_changes`. Al terminar recarga el índice en memoria. `--from-fixtures` lee `packages/domain/test/fixtures` (offline; es lo que usan los tests). Salida: JSON con el resumen; código 2 si quedó en `needs_review`.
+Baja los ocho archivos del tracker (`raw.githubusercontent.com`, commit fijado) y `database.json` de deckgym, calcula sha256 de cada uno, construye el catálogo con `@tcg/domain` (`buildCatalogWithReport`), lo compara con el cargado (`diffCatalog`) y lo escribe entero en una transacción (upsert completo: expansiones, sobres, grupos funcionales, cartas, `pack_cards`, alias de evolución; siembra `rarity_rules` con `ON CONFLICT DO NOTHING`: solo agrega rarezas nuevas, nunca pisa `points`, `points_verified` ni `tradeable`). En esa misma transacción deja la fila de `catalog_syncs` (estado, conteos, hashes, informe, diff) y los cambios por carta en `catalog_sync_changes`, así las tablas y el estado nunca quedan desfasados. Al terminar recarga el índice en memoria. `--from-fixtures` lee `packages/domain/test/fixtures` (offline; es lo que usan los tests). Salida: JSON con el resumen; código 2 si quedó en `needs_review`. Al arrancar, el proceso marca como `failed` cualquier sync que haya quedado en `running` (un reinicio a mitad de camino): solo corre uno a la vez y el candado vive en memoria.
 
 Pendiente (I12): cuando cambian unidades de stock o grupos y ya hay colección/mazos, el sync aplica el catálogo y queda en `needs_review` con un aviso; el remapeo automático de colección, ajustes y mazos no está implementado todavía.
 
@@ -72,9 +73,9 @@ Sigue `docs/API.md`. Errores siempre como `{ error: { code, message, details? } 
 
 | Ruta | Acceso | Qué hace |
 |---|---|---|
-| `GET /healthz` | pública | `{ ok, version, catalogCommit, engineRev }` (health check de Fly). |
+| `GET /healthz` | pública | `{ ok, version, catalogCommit, engineRev }` (health check de Fly). Hace `SELECT 1`: `503 unavailable` si la base no responde en 3 s. |
 | `GET /login` | pública | Página de ingreso autocontenida (correo, contraseña, código de 6 dígitos). Con sesión redirige a `/`. |
-| `POST /api/auth/login` | pública, 5 intentos / 15 min por IP (429 al 6.º) | `{ email, password, totp? }` → `204` + cookie de sesión. |
+| `POST /api/auth/login` | pública, 5 intentos / 15 min por IP (429 al 6.º; los exitosos también cuentan) | `{ email, password, totp? }` → `204` + cookie de sesión. Si la petición traía una sesión válida, se cierra y se reemplaza. Cada código TOTP vale para un solo ingreso (se guarda el último paso aceptado en `owner.totp_last_step`). |
 | `POST /api/auth/logout` | sesión | `204`; borra la sesión y la cookie. |
 | `GET /api/auth/me` | sesión | `{ email, totpEnabled }`. |
 | `POST /api/auth/password` | sesión | `{ currentPassword, newPassword }` → `204`; cierra las demás sesiones. |
@@ -107,9 +108,9 @@ Sigue `docs/API.md`. Errores siempre como `{ error: { code, message, details? } 
 | `/.well-known/*` | pública | 404 por ahora (reservado para OAuth si hiciera falta). |
 | resto (`/`, `/assets/*`, `/sw.js`, `/manifest.webmanifest`…) | sesión | Estáticos de `WEB_DIST` (`/assets/*` inmutable; shell, sw y manifest `no-store`) y fallback a `index.html`. |
 
-Subidas de archivos: multipart con `multer` en memoria (`FileInterceptor`), CSV hasta 5 MB y backups hasta 50 MB (`413` si se pasan).
+Subidas de archivos: multipart con `multer` en memoria (`FileInterceptor`), CSV hasta 5 MB y backups hasta 50 MB (`413` si se pasan); un backup gzip se descomprime con tope de 128 MB (`400 invalid_backup` si lo supera: protege de una «bomba» gzip).
 
-Sesiones: id aleatorio de 32 bytes en la cookie, SHA-256 en `sessions`; 30 días deslizantes (se extienden cuando pasó más de un día desde `last_seen_at`); `HttpOnly; SameSite=Lax; Path=/` (+ `Secure`). Cabeceras de seguridad en todas las respuestas (CSP, `nosniff`, `frame-ancestors 'none'`, HSTS con `COOKIE_SECURE`). Cuerpos JSON hasta 10 MB.
+Sesiones: id aleatorio de 32 bytes en la cookie, SHA-256 en `sessions`; 30 días deslizantes (se extienden cuando pasó más de un día desde `last_seen_at`); `HttpOnly; SameSite=Lax; Path=/` (+ `Secure`). Las sesiones se memorizan 30 s en el proceso (DECISIONES 1.11): el logout y el cambio de contraseña invalidan al instante, pero `owner:init` (otro proceso) cierra las sesiones en la base y el servidor en marcha puede seguir aceptando una ya cargada hasta 30 s. Escrituras de otro sitio (`Sec-Fetch-Site: cross-site` u `Origin` ajeno en una petición que no sea GET/HEAD/OPTIONS) reciben `403 forbidden` antes de mirar la cookie; las rutas con token quedan fuera. Cabeceras de seguridad en todas las respuestas (CSP, `nosniff`, `frame-ancestors 'none'`, HSTS con `COOKIE_SECURE`). Cuerpos JSON hasta 10 MB.
 
 ## Tokens de API
 
@@ -122,19 +123,30 @@ pnpm -F @tcg/api test        # unitarios (vitest): env, cookies, cifrado, tokens
 pnpm -F @tcg/api test:e2e    # supertest contra TEST_DATABASE_URL
 ```
 
-Los e2e (`test/*.e2e-spec.ts`, `vitest.config.e2e.ts`) crean la base de prueba si no existe, aplican `prisma migrate deploy` y truncan todas las tablas (`test/global-setup.ts`); corren de a un archivo. Cubren exposición y cabeceras, login/TOTP/throttle/logout/expiración deslizante/cambio de contraseña, tokens y guard bearer, el catálogo (sync desde fixtures: 4.317 cartas, «Copiona» y «Copycat» dan el mismo grupo `B1-225`, `A4b-1` comparte unidad de stock con `A1-1`, detalle de grupo con stock/ajuste/mazos, re-sync por HTTP con diff vacío) y la aceptación de PLAN §7 con los datos reales de `docs/context/`:
+Los e2e (`test/*.e2e-spec.ts`, `vitest.config.e2e.ts`) crean la base de prueba si no existe, aplican `prisma migrate deploy` y truncan todas las tablas (`test/global-setup.ts`); corren de a un archivo, también en CI (job `e2e` de `.github/workflows/ci.yml` con un servicio `postgres:17`). Cubren exposición y cabeceras (incluido el rechazo de escrituras cross-site), login/TOTP (y su repetición)/throttle/logout/reemplazo de sesión al ingresar/expiración deslizante/cambio de contraseña, tokens y guard bearer, el catálogo (sync desde fixtures: 4.317 cartas, «Copiona» y «Copycat» dan el mismo grupo `B1-225`, `A4b-1` comparte unidad de stock con `A1-1`, detalle de grupo con stock/ajuste/mazos, re-sync por HTTP con diff vacío, re-sync sin pisar `rarity_rules`, cierre de un sync `running` huérfano) y la aceptación de PLAN §7 con los datos reales de `docs/context/`:
 
 - `collection.e2e-spec.ts`: importa el CSV del 6/10/2026 por multipart (4.317 filas, 5.844 ingenuo vs 4.714 deduplicado), lo aplica y verifica las copias jugables (Mega-Mawile ex 2, Globito 3, Bulbasaur A1-1 3, Latias 2, Latios 2, Hoopa ex 1, Espeon ex 2, Mega Sharpedo ex 1, Riolu A2-91 1, Riolu B3-79 9), el resumen (1.255 grupos con ≥ 2, 1.853 con ≥ 1, 466 sin copias, 2.083 unidades coleccionadas), la exportación byte-idéntica al archivo original, la reimportación con diff vacío, las cuatro reglas de los ajustes (Latias = 2 «ya coincide», Latias = 1 oculta el cambio 3 → 2, edición manual con ajuste activo, conversión) y el bloqueo de un archivo con gemelas inconsistentes.
-- `decks.e2e-spec.ts`: vista previa de `mazos_40_listas.md` (40 borradores, 0 errores, el 10 pide elegir energía), alta de los 40 (todos válidos y completos), exportación deckgym del 9 con `Energy: Fire, Lightning`, límite de 25 armados, mazo de 19 cartas («Tiene 19 cartas, falta 1»), revisiones/restauración/duplicado/archivado/borrado y «qué mazos usan X».
-- `backup.e2e-spec.ts`: configuración por clave, export → import `replace` sobre la base vaciada → export idéntico salvo `exportedAt`, dry-run, rechazo de ids desconocidos y retención de 14 copias diarias.
+- `decks.e2e-spec.ts`: vista previa de `mazos_40_listas.md` (40 borradores, 0 errores, el 10 pide elegir energía), alta de los 40 (todos válidos y completos), exportación deckgym del 9 con `Energy: Fire, Lightning`, límite de 25 armados (también al desarchivar un mazo que sigue marcado), mazo de 19 cartas («Tiene 19 cartas, falta 1»), revisiones/restauración/duplicado/archivado/borrado y «qué mazos usan X».
+- `backup.e2e-spec.ts`: configuración por clave, export → import `replace` sobre la base vaciada → export idéntico salvo `exportedAt`, dry-run, rechazo de una bomba gzip, rechazo de ids desconocidos y retención de 14 copias diarias.
 
 La sincronización del catálogo desde fixtures tarda ~2 s, así que cada archivo la hace una vez en `beforeAll`; la suite completa corre en ~25 s.
 
 ## Deploy (Fly.io)
 
-- `Dockerfile` (raíz): multi-stage con pnpm; compila `@tcg/domain`, genera el cliente de Prisma, compila la PWA y la API; imagen final `node:24-alpine` con `WEB_DIST=/app/apps/web/dist`. `docker/entrypoint.sh` corre `prisma migrate deploy` y arranca `node dist/main.js`.
-- `fly.toml`: app `tcg-pocket`, región `gru`, puerto interno 3000, `force_https`, `auto_stop_machines = false`, `min_machines_running = 1`, `shared-cpu-1x` 512 MB, health check `GET /healthz`.
-- Secretos: `fly secrets set DATABASE_URL=… SESSION_SECRET=…` (Supabase: pooler en modo sesión, puerto 5432). Luego `fly deploy` y, una vez, `owner:init` y `catalog:sync` contra esa base (`fly ssh console` → `cd /app/apps/api && OWNER_EMAIL=… OWNER_PASSWORD=… node dist/cli/owner-init.js`).
+- `Dockerfile` (raíz): multi-stage con pnpm. La etapa `deps` copia `apps/api/prisma/schema.prisma` y `prisma.config.ts` antes de `pnpm install` (el `postinstall` de la API corre `prisma generate`); `build` compila `@tcg/domain`, genera el cliente de Prisma, compila la PWA y la API y vuelve a instalar solo las dependencias de producción de `@tcg/api` y `@tcg/domain` (`pnpm install --prod --filter "@tcg/api..."` desde el store local: ~330 MB de `node_modules`, la mayor parte el CLI de Prisma, DECISIONES 1.13); la imagen final es `node:24-alpine` con `WEB_DIST=/app/apps/web/dist`. `docker/entrypoint.sh` corre `prisma migrate deploy` (schema engine `linux-musl`) y arranca `node dist/main.js`.
+- Probar la imagen en local contra el Postgres de Docker Compose (Docker Desktop en Windows: `host.docker.internal`; en Linux, `--network host` y `127.0.0.1`):
+
+  ```bash
+  docker build -t tcg-pocket:local .
+  docker run --rm -p 3200:3200 -e DATABASE_URL=postgresql://tcg:tcg@host.docker.internal:5433/tcg_test \
+    -e SESSION_SECRET=<48 caracteres aleatorios> -e NODE_ENV=production -e PORT=3200 tcg-pocket:local
+  curl -i localhost:3200/healthz      # 200 { ok: true, … } (503 si la base no responde)
+  curl -s localhost:3200/login | head # la página de ingreso
+  ```
+
+- `fly.toml`: app `tcg-pocket`, región `gru`, puerto interno 3000, `force_https`, `auto_stop_machines = false`, `min_machines_running = 1`, `shared-cpu-1x` 512 MB, health check `GET /healthz` cada 30 s con `grace_period = "60s"` (cubre `migrate deploy` más la carga del catálogo en un arranque frío).
+- `DATABASE_URL` en producción (Supabase, plan Free): usar el **pooler en modo sesión**, puerto **5432** (`postgresql://postgres.<ref>:<clave>@aws-0-<región>.pooler.supabase.com:5432/postgres?sslmode=verify-full`). Motivos: la conexión directa `db.<ref>.supabase.co` es solo IPv6 y el pooler da IPv4; el puerto 6543 (modo transacción) rompe `pool.connect()` + `BEGIN` y las sentencias preparadas que usa la app. SSL: `pg` 8.16 (`pg-connection-string` 2.14) trata `sslmode=verify-full` como verificación completa contra las CA del sistema (`require`/`prefer` también, pero avisan que cambiarán de semántica); el certificado del pooler es de una CA pública, así que no hace falta `sslrootcert`. Si al conectar fallara la verificación, bajar el certificado raíz de Supabase (`prod-ca-2021.crt`) y agregar `&sslrootcert=/ruta`, o como último recurso `uselibpqcompat=true&sslmode=require` (cifra sin verificar). `prisma migrate deploy` (arranque del contenedor) acepta `disable|prefer|require` y trata otros valores como `prefer`, con lo que negocia TLS igual. El pool de la app es de 8 conexiones (cabe en el pooler Free). **Pendiente de verificar una vez contra el pooler real** antes del primer `fly deploy`.
+- Secretos: `fly secrets set DATABASE_URL=… SESSION_SECRET=…`. Luego `fly deploy` y, una vez, `owner:init` y `catalog:sync` contra esa base (`fly ssh console` → `cd /app/apps/api && OWNER_EMAIL=… OWNER_PASSWORD=… node dist/cli/owner-init.js`).
 
 ## Estructura
 
