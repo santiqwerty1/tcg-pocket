@@ -1,0 +1,13 @@
+// Public API of the decks module (apps import it through '@tcg/domain').
+export * from './completeness.js'
+export * from './deckgym.js'
+export * from './json.js'
+export * from './limitless.js'
+export * from './limits.js'
+export * from './lineFormat.js'
+export * from './parseSpanish.js'
+export * from './resolveNames.js'
+export * from './revisions.js'
+export * from './types.js'
+export * from './validate.js'
+export * from './writeSpanish.js'
