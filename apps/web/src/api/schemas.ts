@@ -1,0 +1,521 @@
+/**
+ * zod schemas for every response of docs/API.md (Fase 1). The API is the source of truth; these schemas are
+ * deliberately tolerant on what the contract leaves open (unknown keys are stripped, open shapes are `unknown`).
+ */
+import { z } from 'zod'
+
+// ---------- Shared vocabulary ----------
+
+/** Mirrors `SELECTABLE_ENERGIES` from @tcg/domain (its .d.ts is not built yet, see README). */
+export const SELECTABLE_ENERGIES = [
+  'grass',
+  'fire',
+  'water',
+  'lightning',
+  'psychic',
+  'fighting',
+  'darkness',
+  'metal',
+] as const
+export const selectableEnergySchema = z.enum(SELECTABLE_ENERGIES)
+export type SelectableEnergy = z.infer<typeof selectableEnergySchema>
+
+export const energyTypeSchema = z.enum([...SELECTABLE_ENERGIES, 'dragon', 'colorless'])
+export type EnergyType = z.infer<typeof energyTypeSchema>
+
+export const cardTypeSchema = z.enum(['pokemon', 'trainer'])
+export const evolutionTypeSchema = z.enum(['basic', 'stage1', 'stage2', 'supporter', 'item', 'tool', 'stadium'])
+
+export const isoDate = z.string()
+export const nullableDate = z.string().nullable()
+
+export const apiErrorBodySchema = z.object({
+  error: z.object({
+    code: z.string(),
+    message: z.string(),
+    details: z.unknown().optional(),
+  }),
+})
+
+/** Percentages from Fase 2 onwards (docs/API.md «Convenciones»); the Stat component already renders them. */
+export const percentageSchema = z.object({
+  value: z.number(),
+  games: z.number().optional(),
+  samples: z.number().optional(),
+  sampleKind: z.string().optional(),
+  ci95: z.tuple([z.number(), z.number()]).optional(),
+  orientative: z.boolean().optional(),
+})
+export type Percentage = z.infer<typeof percentageSchema>
+
+// ---------- Catalog ----------
+
+export const cardSummarySchema = z.object({
+  id: z.string(),
+  nameEs: z.string(),
+  nameEn: z.string(),
+  expansionId: z.string(),
+  number: z.number(),
+  rarity: z.string(),
+  cardType: cardTypeSchema,
+  evolutionType: evolutionTypeSchema,
+  ex: z.boolean(),
+  prizePoints: z.number(),
+  imageUrl: z.string().nullable().optional(),
+  functionalGroupId: z.string(),
+  stockCardId: z.string(),
+  isDisplayEdition: z.boolean(),
+})
+export type CardSummary = z.infer<typeof cardSummarySchema>
+
+export const groupSummarySchema = z.object({
+  id: z.string(),
+  nameEs: z.string(),
+  nameEn: z.string(),
+  cardType: cardTypeSchema,
+  displayCardId: z.string(),
+  editionCount: z.number(),
+})
+export type GroupSummary = z.infer<typeof groupSummarySchema>
+
+export const activeAdjustmentSchema = z.object({
+  id: z.string(),
+  playableCopies: z.number(),
+  reason: z.string(),
+  createdAt: isoDate,
+})
+export type ActiveAdjustment = z.infer<typeof activeAdjustmentSchema>
+
+export const groupEditionSchema = z.object({
+  card: cardSummarySchema,
+  owned: z.number(),
+  collected: z.boolean(),
+  twinCardIds: z.array(z.string()),
+})
+export type GroupEdition = z.infer<typeof groupEditionSchema>
+
+export const deckUsageSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  count: z.number(),
+  builtInGame: z.boolean(),
+})
+export type DeckUsage = z.infer<typeof deckUsageSchema>
+
+export const groupDetailSchema = groupSummarySchema.extend({
+  playable: z.number(),
+  fromStock: z.number(),
+  adjustment: activeAdjustmentSchema.nullable(),
+  editions: z.array(groupEditionSchema),
+  decks: z.array(deckUsageSchema),
+})
+export type GroupDetail = z.infer<typeof groupDetailSchema>
+
+export const attackSchema = z.object({
+  cost: z.array(energyTypeSchema),
+  name: z.string(),
+  damage: z.string().nullable(),
+  effect: z.string().nullable(),
+})
+export const abilitySchema = z.object({ name: z.string(), effect: z.string() })
+
+/** Full edition as stored by the catalog (@tcg/domain `CardEdition`). */
+export const cardEditionSchema = cardSummarySchema.extend({
+  internalId: z.number().optional(),
+  hp: z.number().nullable().optional(),
+  energy: z.string().optional(),
+  evolvesFrom: z.string().nullable().optional(),
+  isFossil: z.boolean().optional(),
+  baby: z.boolean().optional(),
+  pack: z.string().optional(),
+  artist: z.string().optional(),
+  attacks: z.array(attackSchema).default([]),
+  ability: abilitySchema.nullable().default(null),
+  weakness: z.string().nullable().optional(),
+  retreat: z.number().nullable().optional(),
+  engineId: z.string().optional(),
+})
+export type CardEdition = z.infer<typeof cardEditionSchema>
+
+export const cardSearchHitSchema = z.object({
+  card: cardSummarySchema,
+  group: groupSummarySchema,
+  score: z.number().optional(),
+})
+export type CardSearchHit = z.infer<typeof cardSearchHitSchema>
+
+export const cardSearchResponseSchema = z.object({ items: z.array(cardSearchHitSchema) })
+export const cardResponseSchema = z.object({ card: cardEditionSchema, group: groupDetailSchema })
+export const groupResponseSchema = z.object({ group: groupDetailSchema })
+
+export const packSchema = z.object({
+  id: z.string(),
+  expansionId: z.string(),
+  name: z.string(),
+  nameEs: z.string(),
+  color: z.string().nullable().optional(),
+})
+export const expansionSchema = z.object({
+  id: z.string(),
+  nameEn: z.string(),
+  nameEs: z.string(),
+  sortOrder: z.number().optional(),
+  isPromo: z.boolean().optional(),
+  packs: z.array(packSchema).optional(),
+})
+export type Expansion = z.infer<typeof expansionSchema>
+export const expansionsResponseSchema = z.object({ items: z.array(expansionSchema) })
+
+export const catalogSyncSchema = z.object({
+  id: z.union([z.string(), z.number()]),
+  status: z.string(),
+  startedAt: nullableDate.optional(),
+  finishedAt: nullableDate.optional(),
+  report: z.unknown().optional(),
+})
+export const catalogStatusSchema = z.object({
+  trackerCommit: z.string().nullable(),
+  engineRev: z.string().nullable(),
+  syncedAt: nullableDate.optional(),
+  counts: z
+    .object({
+      cards: z.number(),
+      groups: z.number(),
+      stockUnits: z.number(),
+      expansions: z.number(),
+      packs: z.number(),
+    })
+    .nullable(),
+  lastSync: catalogSyncSchema.nullable(),
+})
+export type CatalogStatus = z.infer<typeof catalogStatusSchema>
+export const catalogSyncStartedSchema = z.object({ syncId: z.union([z.string(), z.number()]) })
+
+// ---------- Collection ----------
+
+export const collectionSummarySchema = z.object({
+  copies: z.number(),
+  stockUnitsCollected: z.number(),
+  groupsWithAtLeast: z.object({ one: z.number(), two: z.number() }),
+  groupsMissing: z.number(),
+  lastImportAt: nullableDate,
+  activeAdjustments: z.number(),
+})
+export type CollectionSummary = z.infer<typeof collectionSummarySchema>
+
+export const collectionGroupItemSchema = z.object({
+  group: groupSummarySchema,
+  playable: z.number(),
+  fromStock: z.number(),
+  hasAdjustment: z.boolean(),
+})
+export type CollectionGroupItem = z.infer<typeof collectionGroupItemSchema>
+export const collectionGroupsResponseSchema = z.object({
+  items: z.array(collectionGroupItemSchema),
+  total: z.number(),
+})
+
+export const stockItemSchema = z.object({
+  card: cardSummarySchema,
+  owned: z.number(),
+  collected: z.boolean(),
+  twinCardIds: z.array(z.string()),
+})
+export type StockItem = z.infer<typeof stockItemSchema>
+export const stockResponseSchema = z.object({ items: z.array(stockItemSchema), total: z.number() })
+
+export const stockValueSchema = z.object({ amountOwned: z.number(), collected: z.boolean() })
+export const stockPatchResultSchema = z.object({
+  stockCardId: z.string(),
+  affectedTwinIds: z.array(z.string()),
+  before: stockValueSchema.nullable(),
+  after: stockValueSchema,
+  activeAdjustment: activeAdjustmentSchema.nullable(),
+})
+export type StockPatchResult = z.infer<typeof stockPatchResultSchema>
+
+export const importSummarySchema = z.object({
+  unitsChanged: z.number(),
+  copiesDelta: z.number(),
+  newUnits: z.number(),
+  zeroedUnits: z.number(),
+  collectedChanged: z.number(),
+})
+export const importStatusSchema = z.enum(['pending', 'applied', 'discarded'])
+
+export const importChangeSchema = z.object({
+  stockCardId: z.string(),
+  cardIds: z.array(z.string()),
+  nameEs: z.string(),
+  before: stockValueSchema.nullable(),
+  after: stockValueSchema,
+})
+export type ImportChange = z.infer<typeof importChangeSchema>
+
+export const twinConflictSchema = z.object({
+  stockCardId: z.string(),
+  rows: z.array(
+    z.object({
+      cardId: z.string(),
+      line: z.number(),
+      amountOwned: z.number(),
+      collected: z.boolean(),
+    }),
+  ),
+})
+
+export const importPreviewSchema = z.object({
+  id: z.string(),
+  fileName: z.string().nullable(),
+  status: importStatusSchema,
+  importedAt: isoDate,
+  appliedAt: nullableDate,
+  rowCount: z.number(),
+  naiveTotal: z.number(),
+  dedupTotal: z.number(),
+  bom: z.boolean().optional(),
+  lineEnding: z.string().optional(),
+  errors: z.array(z.object({ line: z.number().nullable(), code: z.string(), message: z.string() })),
+  unknownIds: z.array(z.string()),
+  twinConflicts: z.array(twinConflictSchema),
+  summary: importSummarySchema,
+  changes: z.array(importChangeSchema),
+  adjustmentsMatching: z.array(
+    z.object({ adjustmentId: z.string(), groupId: z.string(), nameEs: z.string(), playableCopies: z.number() }),
+  ),
+  adjustmentsHidingChange: z.array(
+    z.object({
+      adjustmentId: z.string(),
+      groupId: z.string(),
+      nameEs: z.string(),
+      playableCopies: z.number(),
+      sumBefore: z.number(),
+      sumAfter: z.number(),
+    }),
+  ),
+})
+export type ImportPreview = z.infer<typeof importPreviewSchema>
+
+export const importListItemSchema = z.object({
+  id: z.string(),
+  fileName: z.string().nullable(),
+  importedAt: isoDate,
+  appliedAt: nullableDate,
+  status: importStatusSchema,
+  rowCount: z.number(),
+  naiveTotal: z.number(),
+  dedupTotal: z.number(),
+  summary: importSummarySchema.nullable().optional(),
+})
+export type ImportListItem = z.infer<typeof importListItemSchema>
+export const importsResponseSchema = z.object({ items: z.array(importListItemSchema) })
+export const importAppliedSchema = z.object({ applied: z.boolean(), summary: importSummarySchema.optional() })
+
+export const collectionAdjustmentSchema = z.object({
+  id: z.string(),
+  functionalGroupId: z.string(),
+  /** Not in the contract yet (gap reported): shown when present, otherwise the group id links to its page. */
+  nameEs: z.string().optional(),
+  playableCopies: z.number(),
+  reason: z.string(),
+  active: z.boolean(),
+  createdAt: isoDate,
+  resolvedAt: nullableDate.optional(),
+  resolution: z.string().nullable().optional(),
+})
+export type CollectionAdjustment = z.infer<typeof collectionAdjustmentSchema>
+export const adjustmentsResponseSchema = z.object({ items: z.array(collectionAdjustmentSchema) })
+
+// ---------- Decks ----------
+
+export const issueSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+  cardIds: z.array(z.string()).optional(),
+})
+export type Issue = z.infer<typeof issueSchema>
+
+export const validationSchema = z.object({
+  ok: z.boolean(),
+  errors: z.array(issueSchema),
+  warnings: z.array(issueSchema),
+  infos: z.array(issueSchema),
+})
+export type DeckValidation = z.infer<typeof validationSchema>
+
+export const completenessSchema = z.object({
+  complete: z.boolean(),
+  missing: z.array(
+    z.object({
+      groupId: z.string(),
+      nameEs: z.string(),
+      need: z.number(),
+      have: z.number(),
+      cardIds: z.array(z.string()),
+    }),
+  ),
+  missingCount: z.number(),
+})
+export type DeckCompleteness = z.infer<typeof completenessSchema>
+
+export const deckCardInputSchema = z.object({ cardId: z.string(), count: z.number().int().min(1) })
+export const deckInputSchema = z.object({
+  name: z.string(),
+  energies: z.array(selectableEnergySchema),
+  cards: z.array(deckCardInputSchema),
+  tags: z.array(z.string()).optional(),
+  notes: z.string().optional(),
+  variantOfId: z.string().optional(),
+  packPriority: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]).optional(),
+})
+export type DeckInput = z.infer<typeof deckInputSchema>
+
+export const deckSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  energies: z.array(selectableEnergySchema),
+  tags: z.array(z.string()),
+  builtInGame: z.boolean(),
+  variantOfId: z.string().nullable(),
+  packPriority: z.number().nullable().optional(),
+  archivedAt: nullableDate,
+  valid: z.boolean(),
+  errorCount: z.number(),
+  complete: z.boolean(),
+  missingCount: z.number(),
+  cardCount: z.number(),
+  updatedAt: isoDate,
+  revisionNumber: z.number(),
+})
+export type DeckSummary = z.infer<typeof deckSummarySchema>
+export const decksResponseSchema = z.object({ items: z.array(deckSummarySchema) })
+
+export const deckCardSchema = z.object({
+  card: cardSummarySchema,
+  count: z.number(),
+  group: groupSummarySchema,
+  playable: z.number(),
+  missing: z.number(),
+})
+export type DeckCard = z.infer<typeof deckCardSchema>
+
+export const deckRevisionSchema = z.object({
+  number: z.number(),
+  createdAt: isoDate,
+  source: z.string(),
+  note: z.string().nullable().optional(),
+  cardCount: z.number(),
+})
+export const deckChangeSchema = z.object({
+  field: z.string(),
+  old: z.unknown(),
+  new: z.unknown(),
+  at: isoDate,
+  source: z.string().nullable().optional(),
+})
+
+export const deckDetailSchema = deckSummarySchema.extend({
+  cards: z.array(deckCardSchema),
+  validation: validationSchema,
+  completeness: completenessSchema,
+  revisions: z.array(deckRevisionSchema),
+  changes: z.array(deckChangeSchema),
+  notes: z.string().nullable(),
+})
+export type DeckDetail = z.infer<typeof deckDetailSchema>
+
+export const deckDraftSchema = z.object({
+  name: z.string().optional(),
+  energies: z.array(selectableEnergySchema),
+  cards: z.array(deckCardInputSchema),
+  notes: z.string().optional(),
+  source: z.string().optional(),
+})
+export type DeckDraft = z.infer<typeof deckDraftSchema>
+
+export const parseIssueSchema = z.object({
+  code: z.string(),
+  message: z.string(),
+  line: z.number().optional(),
+  candidates: z.array(z.string()).optional(),
+})
+
+export const validateResponseSchema = z.object({
+  draft: deckDraftSchema.nullable(),
+  validation: validationSchema,
+  completeness: completenessSchema,
+})
+export type ValidateResponse = z.infer<typeof validateResponseSchema>
+
+export const importedDeckDraftSchema = z.object({
+  number: z.number().optional().nullable(),
+  title: z.string().optional().nullable(),
+  draft: deckDraftSchema.nullable(),
+  errors: z.array(parseIssueSchema),
+  warnings: z.array(parseIssueSchema),
+  validation: validationSchema.nullable(),
+  completeness: completenessSchema.nullable(),
+})
+export type ImportedDeckDraft = z.infer<typeof importedDeckDraftSchema>
+export const importDecksResponseSchema = z.object({ drafts: z.array(importedDeckDraftSchema) })
+export const commitDecksResponseSchema = z.object({ created: z.array(deckSummarySchema) })
+export const decksByCardResponseSchema = z.object({ items: z.array(deckUsageSchema) })
+
+export const DECK_EXPORT_FORMATS = ['spanish', 'deckgym', 'limitless', 'json'] as const
+export type DeckExportFormat = (typeof DECK_EXPORT_FORMATS)[number]
+export const DECK_IMPORT_FORMATS = ['auto', 'spanish', 'spanish-file', 'limitless', 'json'] as const
+export type DeckImportFormat = (typeof DECK_IMPORT_FORMATS)[number]
+
+// ---------- Auth, tokens, settings, backup ----------
+
+export const meSchema = z.object({ email: z.string(), totpEnabled: z.boolean() })
+export type Me = z.infer<typeof meSchema>
+
+export const tokenKindSchema = z.enum(['worker', 'mcp'])
+export type TokenKind = z.infer<typeof tokenKindSchema>
+export const SCOPES_BY_KIND: Record<TokenKind, readonly string[]> = {
+  worker: ['worker:claim'],
+  mcp: ['mcp:read', 'mcp:write'],
+}
+
+export const apiTokenSchema = z.object({
+  id: z.union([z.string(), z.number()]).transform(String),
+  name: z.string(),
+  kind: tokenKindSchema,
+  scopes: z.array(z.string()),
+  prefix: z.string(),
+  lastUsedAt: nullableDate.optional(),
+  expiresAt: nullableDate.optional(),
+  revokedAt: nullableDate.optional(),
+  createdAt: isoDate,
+})
+export type ApiToken = z.infer<typeof apiTokenSchema>
+export const tokensResponseSchema = z.object({ items: z.array(apiTokenSchema) })
+export const createdTokenSchema = z.object({
+  id: z.union([z.string(), z.number()]).transform(String),
+  token: z.string(),
+})
+
+export const settingsSchema = z.record(z.string(), z.unknown())
+export const settingValueSchema = z.object({ key: z.string(), value: z.unknown() })
+export const uiSettingsSchema = z.object({ thumbnails: z.boolean().default(false) })
+export type UiSettings = z.infer<typeof uiSettingsSchema>
+
+export const backupDryRunSchema = z.object({
+  schemaVersion: z.union([z.string(), z.number()]),
+  catalogCommit: z.string().nullable(),
+  diff: z.record(z.string(), z.unknown()),
+})
+export type BackupDryRun = z.infer<typeof backupDryRunSchema>
+export const backupReplaceSchema = z.object({ applied: z.boolean(), counts: z.record(z.string(), z.unknown()) })
+export const backupBlobsSchema = z.object({
+  items: z.array(z.object({ id: z.string(), createdAt: isoDate, sizeBytes: z.number() })),
+})
+export type BackupBlob = z.infer<typeof backupBlobsSchema>['items'][number]
+
+export const healthSchema = z.object({
+  ok: z.boolean(),
+  version: z.string().optional(),
+  catalogCommit: z.string().nullable().optional(),
+  engineRev: z.string().nullable().optional(),
+})

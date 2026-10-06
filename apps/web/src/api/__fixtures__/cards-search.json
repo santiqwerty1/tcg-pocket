@@ -1,0 +1,85 @@
+{
+  "items": [
+    {
+      "card": {
+        "id": "B2-113",
+        "nameEs": "Mega-Mawile ex",
+        "nameEn": "Mega Mawile ex",
+        "expansionId": "B2",
+        "number": 113,
+        "rarity": "◊◊◊◊",
+        "cardType": "pokemon",
+        "evolutionType": "stage1",
+        "ex": true,
+        "prizePoints": 3,
+        "imageUrl": "https://static.tcgpocketcollectiontracker.com/cards/B2/B2-113.webp",
+        "functionalGroupId": "B2-113",
+        "stockCardId": "B2-113",
+        "isDisplayEdition": true
+      },
+      "group": {
+        "id": "B2-113",
+        "nameEs": "Mega-Mawile ex",
+        "nameEn": "Mega Mawile ex",
+        "cardType": "pokemon",
+        "displayCardId": "B2-113",
+        "editionCount": 2
+      },
+      "score": 1
+    },
+    {
+      "card": {
+        "id": "B2-201",
+        "nameEs": "Mega-Mawile ex",
+        "nameEn": "Mega Mawile ex",
+        "expansionId": "B2",
+        "number": 201,
+        "rarity": "☆☆",
+        "cardType": "pokemon",
+        "evolutionType": "stage1",
+        "ex": true,
+        "prizePoints": 3,
+        "imageUrl": "https://static.tcgpocketcollectiontracker.com/cards/B2/B2-201.webp",
+        "functionalGroupId": "B2-113",
+        "stockCardId": "B2-201",
+        "isDisplayEdition": false
+      },
+      "group": {
+        "id": "B2-113",
+        "nameEs": "Mega-Mawile ex",
+        "nameEn": "Mega Mawile ex",
+        "cardType": "pokemon",
+        "displayCardId": "B2-113",
+        "editionCount": 2
+      },
+      "score": 1
+    },
+    {
+      "card": {
+        "id": "B3b-64",
+        "nameEs": "Globito",
+        "nameEn": "Wimpod",
+        "expansionId": "B3b",
+        "number": 64,
+        "rarity": "◊◊",
+        "cardType": "pokemon",
+        "evolutionType": "basic",
+        "ex": false,
+        "prizePoints": 1,
+        "imageUrl": null,
+        "functionalGroupId": "B3b-64",
+        "stockCardId": "B3b-64",
+        "isDisplayEdition": true
+      },
+      "group": {
+        "id": "B3b-64",
+        "nameEs": "Globito",
+        "nameEn": "Wimpod",
+        "cardType": "pokemon",
+        "displayCardId": "B3b-64",
+        "editionCount": 2
+      },
+      "score": 0.4
+    }
+  ]
+}

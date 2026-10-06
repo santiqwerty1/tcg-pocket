@@ -1,0 +1,58 @@
+{
+  "group": {
+    "id": "B3b-64",
+    "nameEs": "Globito",
+    "nameEn": "Wimpod",
+    "cardType": "pokemon",
+    "displayCardId": "B3b-64",
+    "editionCount": 2,
+    "playable": 3,
+    "fromStock": 3,
+    "adjustment": null,
+    "editions": [
+      {
+        "card": {
+          "id": "B3b-64",
+          "nameEs": "Globito",
+          "nameEn": "Wimpod",
+          "expansionId": "B3b",
+          "number": 64,
+          "rarity": "◊◊",
+          "cardType": "pokemon",
+          "evolutionType": "basic",
+          "ex": false,
+          "prizePoints": 1,
+          "imageUrl": null,
+          "functionalGroupId": "B3b-64",
+          "stockCardId": "B3b-64",
+          "isDisplayEdition": true
+        },
+        "owned": 1,
+        "collected": true,
+        "twinCardIds": ["B3b-64"]
+      },
+      {
+        "card": {
+          "id": "B4b-372",
+          "nameEs": "Globito",
+          "nameEn": "Wimpod",
+          "expansionId": "B4b",
+          "number": 372,
+          "rarity": "◊◊",
+          "cardType": "pokemon",
+          "evolutionType": "basic",
+          "ex": false,
+          "prizePoints": 1,
+          "imageUrl": null,
+          "functionalGroupId": "B3b-64",
+          "stockCardId": "B4b-372",
+          "isDisplayEdition": false
+        },
+        "owned": 2,
+        "collected": true,
+        "twinCardIds": ["B4b-372"]
+      }
+    ],
+    "decks": [{ "id": "dk_38", "name": "Wugtrio ex", "count": 2, "builtInGame": false }]
+  }
+}

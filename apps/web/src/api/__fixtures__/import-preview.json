@@ -1,0 +1,65 @@
+{
+  "id": "imp_2026-10-06_01",
+  "fileName": "tcgcollectiontracterexport.csv",
+  "status": "pending",
+  "importedAt": "2026-10-06T18:12:40.000Z",
+  "appliedAt": null,
+  "rowCount": 4317,
+  "naiveTotal": 5844,
+  "dedupTotal": 4714,
+  "bom": true,
+  "lineEnding": "LF",
+  "errors": [],
+  "unknownIds": [],
+  "twinConflicts": [],
+  "summary": {
+    "unitsChanged": 4,
+    "copiesDelta": 2,
+    "newUnits": 1,
+    "zeroedUnits": 1,
+    "collectedChanged": 1
+  },
+  "changes": [
+    {
+      "stockCardId": "A1-1",
+      "cardIds": ["A1-1", "A4b-1"],
+      "nameEs": "Bulbasaur",
+      "before": { "amountOwned": 2, "collected": true },
+      "after": { "amountOwned": 3, "collected": true }
+    },
+    {
+      "stockCardId": "A4a-36",
+      "cardIds": ["A4a-36"],
+      "nameEs": "Latias",
+      "before": { "amountOwned": 3, "collected": true },
+      "after": { "amountOwned": 2, "collected": true }
+    },
+    {
+      "stockCardId": "B3b-64",
+      "cardIds": ["B3b-64"],
+      "nameEs": "Globito",
+      "before": { "amountOwned": 1, "collected": true },
+      "after": { "amountOwned": 0, "collected": true }
+    },
+    {
+      "stockCardId": "B4b-372",
+      "cardIds": ["B4b-372"],
+      "nameEs": "Globito",
+      "before": null,
+      "after": { "amountOwned": 2, "collected": true }
+    }
+  ],
+  "adjustmentsMatching": [
+    { "adjustmentId": "adj_latias", "groupId": "A4a-36", "nameEs": "Latias", "playableCopies": 2 }
+  ],
+  "adjustmentsHidingChange": [
+    {
+      "adjustmentId": "adj_mawile",
+      "groupId": "B2-113",
+      "nameEs": "Mega-Mawile ex",
+      "playableCopies": 1,
+      "sumBefore": 2,
+      "sumAfter": 3
+    }
+  ]
+}

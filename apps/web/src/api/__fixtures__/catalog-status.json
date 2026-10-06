@@ -1,0 +1,13 @@
+{
+  "trackerCommit": "3ab58f1cec6a03e3e85455cf7aade3bb8561f92e",
+  "engineRev": "fb792ebfbaca995af9750c28101ce92a51282825",
+  "syncedAt": "2026-10-06T17:30:00.000Z",
+  "counts": { "cards": 4317, "groups": 2319, "stockUnits": 3866, "expansions": 24, "packs": 41 },
+  "lastSync": {
+    "id": 3,
+    "status": "done",
+    "startedAt": "2026-10-06T17:29:12.000Z",
+    "finishedAt": "2026-10-06T17:30:00.000Z",
+    "report": { "cardsAdded": 0, "cardsChanged": 0, "groupsChanged": 0, "namesFallbackEn": 0 }
+  }
+}

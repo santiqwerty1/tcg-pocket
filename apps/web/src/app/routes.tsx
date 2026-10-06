@@ -1,0 +1,66 @@
+import { Navigate, type RouteObject } from 'react-router'
+import { CardPage } from '@/pages/cartas/CardPage'
+import { GroupPage } from '@/pages/cartas/GroupPage'
+import { AdjustmentsPage } from '@/pages/coleccion/AdjustmentsPage'
+import { CollectionPage } from '@/pages/coleccion/CollectionPage'
+import { ImportPage } from '@/pages/coleccion/ImportPage'
+import { ImportPreviewPage } from '@/pages/coleccion/ImportPreviewPage'
+import { AboutPage } from '@/pages/mas/AboutPage'
+import { AppSettingsPage } from '@/pages/mas/AppSettingsPage'
+import { BackupPage } from '@/pages/mas/BackupPage'
+import { CatalogPage } from '@/pages/mas/CatalogPage'
+import { MasPage } from '@/pages/mas/MasPage'
+import { SessionPage } from '@/pages/mas/SessionPage'
+import { TokensPage } from '@/pages/mas/TokensPage'
+import { DeckDetailPage } from '@/pages/mazos/DeckDetailPage'
+import { DeckEditorPage } from '@/pages/mazos/DeckEditorPage'
+import { DeckImportPage } from '@/pages/mazos/DeckImportPage'
+import { DecksPage } from '@/pages/mazos/DecksPage'
+import { NotFoundPage } from '@/pages/NotFoundPage'
+import { PartidasPage } from '@/pages/partidas/PartidasPage'
+import { SobresPage } from '@/pages/sobres/SobresPage'
+import { AppShell, type RouteHandle } from './AppShell'
+
+function handle(title: string, back?: string): RouteHandle {
+  return back === undefined ? { title } : { title, back }
+}
+
+/** Route table shared by the browser router and the tests (memory router). */
+export const routes: RouteObject[] = [
+  {
+    path: '/',
+    element: <AppShell />,
+    children: [
+      { index: true, element: <Navigate to="/coleccion" replace /> },
+      { path: 'partidas', element: <PartidasPage />, handle: handle('Partidas') },
+      { path: 'sobres', element: <SobresPage />, handle: handle('Sobres') },
+
+      { path: 'coleccion', element: <CollectionPage />, handle: handle('Colección') },
+      { path: 'coleccion/importar', element: <ImportPage />, handle: handle('Importar colección', '/coleccion') },
+      {
+        path: 'coleccion/importar/:importId',
+        element: <ImportPreviewPage />,
+        handle: handle('Vista previa del import', '/coleccion/importar'),
+      },
+      { path: 'coleccion/ajustes', element: <AdjustmentsPage />, handle: handle('Ajustes manuales', '/coleccion') },
+      { path: 'cartas/:cardId', element: <CardPage />, handle: handle('Carta', '/coleccion') },
+      { path: 'grupos/:groupId', element: <GroupPage />, handle: handle('Carta funcional', '/coleccion') },
+
+      { path: 'mazos', element: <DecksPage />, handle: handle('Mazos') },
+      { path: 'mazos/nuevo', element: <DeckEditorPage />, handle: handle('Nuevo mazo', '/mazos') },
+      { path: 'mazos/importar', element: <DeckImportPage />, handle: handle('Importar mazos', '/mazos') },
+      { path: 'mazos/:deckId', element: <DeckDetailPage />, handle: handle('Mazo', '/mazos') },
+      { path: 'mazos/:deckId/editar', element: <DeckEditorPage />, handle: handle('Editar mazo', '/mazos') },
+
+      { path: 'mas', element: <MasPage />, handle: handle('Más') },
+      { path: 'mas/catalogo', element: <CatalogPage />, handle: handle('Catálogo', '/mas') },
+      { path: 'mas/backup', element: <BackupPage />, handle: handle('Copia de seguridad', '/mas') },
+      { path: 'mas/tokens', element: <TokensPage />, handle: handle('Tokens de API', '/mas') },
+      { path: 'mas/sesion', element: <SessionPage />, handle: handle('Sesión', '/mas') },
+      { path: 'mas/ajustes', element: <AppSettingsPage />, handle: handle('Ajustes de la app', '/mas') },
+      { path: 'mas/acerca', element: <AboutPage />, handle: handle('Acerca de', '/mas') },
+
+      { path: '*', element: <NotFoundPage />, handle: handle('No encontrado', '/') },
+    ],
+  },
+]

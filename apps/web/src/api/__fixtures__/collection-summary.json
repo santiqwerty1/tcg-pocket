@@ -1,0 +1,8 @@
+{
+  "copies": 4714,
+  "stockUnitsCollected": 3400,
+  "groupsWithAtLeast": { "one": 1853, "two": 1255 },
+  "groupsMissing": 466,
+  "lastImportAt": "2026-10-06T18:12:40.000Z",
+  "activeAdjustments": 1
+}

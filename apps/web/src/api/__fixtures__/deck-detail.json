@@ -1,0 +1,453 @@
+{
+  "id": "dk_08",
+  "name": "Mega-Mawile ex / Perrserker de Galar",
+  "energies": ["metal"],
+  "tags": ["uno-por-tipo"],
+  "builtInGame": true,
+  "variantOfId": null,
+  "packPriority": 1,
+  "archivedAt": null,
+  "valid": true,
+  "errorCount": 0,
+  "complete": true,
+  "missingCount": 0,
+  "cardCount": 20,
+  "updatedAt": "2026-10-06T19:02:11.000Z",
+  "revisionNumber": 2,
+  "notes": "En prueba. Mega-Mawile ex suma 30 por cada turno que repite su ataque sin salir del Activo.",
+  "cards": [
+    {
+      "card": {
+        "id": "B2-113",
+        "nameEs": "Mega-Mawile ex",
+        "nameEn": "Mega Mawile ex",
+        "expansionId": "B2",
+        "number": 113,
+        "rarity": "◊◊◊◊",
+        "cardType": "pokemon",
+        "evolutionType": "stage1",
+        "ex": true,
+        "prizePoints": 3,
+        "imageUrl": "https://static.tcgpocketcollectiontracker.com/cards/B2/B2-113.webp",
+        "functionalGroupId": "B2-113",
+        "stockCardId": "B2-113",
+        "isDisplayEdition": true
+      },
+      "count": 1,
+      "group": {
+        "id": "B2-113",
+        "nameEs": "Mega-Mawile ex",
+        "nameEn": "Mega Mawile ex",
+        "cardType": "pokemon",
+        "displayCardId": "B2-113",
+        "editionCount": 2
+      },
+      "playable": 2,
+      "missing": 0
+    },
+    {
+      "card": {
+        "id": "B2-201",
+        "nameEs": "Mega-Mawile ex",
+        "nameEn": "Mega Mawile ex",
+        "expansionId": "B2",
+        "number": 201,
+        "rarity": "☆☆",
+        "cardType": "pokemon",
+        "evolutionType": "stage1",
+        "ex": true,
+        "prizePoints": 3,
+        "imageUrl": "https://static.tcgpocketcollectiontracker.com/cards/B2/B2-201.webp",
+        "functionalGroupId": "B2-113",
+        "stockCardId": "B2-201",
+        "isDisplayEdition": false
+      },
+      "count": 1,
+      "group": {
+        "id": "B2-113",
+        "nameEs": "Mega-Mawile ex",
+        "nameEn": "Mega Mawile ex",
+        "cardType": "pokemon",
+        "displayCardId": "B2-113",
+        "editionCount": 2
+      },
+      "playable": 2,
+      "missing": 0
+    },
+    {
+      "card": {
+        "id": "B2-110",
+        "nameEs": "Meowth de Galar",
+        "nameEn": "Galarian Meowth",
+        "expansionId": "B2",
+        "number": 110,
+        "rarity": "◊",
+        "cardType": "pokemon",
+        "evolutionType": "basic",
+        "ex": false,
+        "prizePoints": 1,
+        "imageUrl": null,
+        "functionalGroupId": "B2-110",
+        "stockCardId": "B2-110",
+        "isDisplayEdition": true
+      },
+      "count": 2,
+      "group": {
+        "id": "B2-110",
+        "nameEs": "Meowth de Galar",
+        "nameEn": "Galarian Meowth",
+        "cardType": "pokemon",
+        "displayCardId": "B2-110",
+        "editionCount": 1
+      },
+      "playable": 4,
+      "missing": 0
+    },
+    {
+      "card": {
+        "id": "B2-111",
+        "nameEs": "Perrserker de Galar",
+        "nameEn": "Galarian Perrserker",
+        "expansionId": "B2",
+        "number": 111,
+        "rarity": "◊◊",
+        "cardType": "pokemon",
+        "evolutionType": "stage1",
+        "ex": false,
+        "prizePoints": 1,
+        "imageUrl": null,
+        "functionalGroupId": "B2-111",
+        "stockCardId": "B2-111",
+        "isDisplayEdition": true
+      },
+      "count": 2,
+      "group": {
+        "id": "B2-111",
+        "nameEs": "Perrserker de Galar",
+        "nameEn": "Galarian Perrserker",
+        "cardType": "pokemon",
+        "displayCardId": "B2-111",
+        "editionCount": 1
+      },
+      "playable": 4,
+      "missing": 0
+    },
+    {
+      "card": {
+        "id": "A2-111",
+        "nameEs": "Skarmory",
+        "nameEn": "Skarmory",
+        "expansionId": "A2",
+        "number": 111,
+        "rarity": "◊",
+        "cardType": "pokemon",
+        "evolutionType": "basic",
+        "ex": false,
+        "prizePoints": 1,
+        "imageUrl": null,
+        "functionalGroupId": "A2-111",
+        "stockCardId": "A2-111",
+        "isDisplayEdition": true
+      },
+      "count": 2,
+      "group": {
+        "id": "A2-111",
+        "nameEs": "Skarmory",
+        "nameEn": "Skarmory",
+        "cardType": "pokemon",
+        "displayCardId": "A2-111",
+        "editionCount": 1
+      },
+      "playable": 2,
+      "missing": 0
+    },
+    {
+      "card": {
+        "id": "A4b-373",
+        "nameEs": "Investigación de Profesores",
+        "nameEn": "Professor's Research",
+        "expansionId": "A4b",
+        "number": 373,
+        "rarity": "◊◊",
+        "cardType": "trainer",
+        "evolutionType": "supporter",
+        "ex": false,
+        "prizePoints": 0,
+        "imageUrl": null,
+        "functionalGroupId": "A1-219",
+        "stockCardId": "A1-219",
+        "isDisplayEdition": false
+      },
+      "count": 2,
+      "group": {
+        "id": "A1-219",
+        "nameEs": "Investigación de Profesores",
+        "nameEn": "Professor's Research",
+        "cardType": "trainer",
+        "displayCardId": "A1-219",
+        "editionCount": 4
+      },
+      "playable": 2,
+      "missing": 0
+    },
+    {
+      "card": {
+        "id": "B1-225",
+        "nameEs": "Copiona",
+        "nameEn": "Copycat",
+        "expansionId": "B1",
+        "number": 225,
+        "rarity": "◊◊",
+        "cardType": "trainer",
+        "evolutionType": "supporter",
+        "ex": false,
+        "prizePoints": 0,
+        "imageUrl": null,
+        "functionalGroupId": "B1-225",
+        "stockCardId": "B1-225",
+        "isDisplayEdition": true
+      },
+      "count": 1,
+      "group": {
+        "id": "B1-225",
+        "nameEs": "Copiona",
+        "nameEn": "Copycat",
+        "cardType": "trainer",
+        "displayCardId": "B1-225",
+        "editionCount": 5
+      },
+      "playable": 4,
+      "missing": 0
+    },
+    {
+      "card": {
+        "id": "A2b-111",
+        "nameEs": "Poké Ball",
+        "nameEn": "Poké Ball",
+        "expansionId": "A2b",
+        "number": 111,
+        "rarity": "◊",
+        "cardType": "trainer",
+        "evolutionType": "item",
+        "ex": false,
+        "prizePoints": 0,
+        "imageUrl": null,
+        "functionalGroupId": "A1-216",
+        "stockCardId": "A1-216",
+        "isDisplayEdition": false
+      },
+      "count": 2,
+      "group": {
+        "id": "A1-216",
+        "nameEs": "Poké Ball",
+        "nameEn": "Poké Ball",
+        "cardType": "trainer",
+        "displayCardId": "A1-216",
+        "editionCount": 3
+      },
+      "playable": 2,
+      "missing": 0
+    },
+    {
+      "card": {
+        "id": "B2-148",
+        "nameEs": "Barrera Núcleo Metálico",
+        "nameEn": "Metal Core Barrier",
+        "expansionId": "B2",
+        "number": 148,
+        "rarity": "◊◊",
+        "cardType": "trainer",
+        "evolutionType": "tool",
+        "ex": false,
+        "prizePoints": 0,
+        "imageUrl": null,
+        "functionalGroupId": "B2-148",
+        "stockCardId": "B2-148",
+        "isDisplayEdition": true
+      },
+      "count": 2,
+      "group": {
+        "id": "B2-148",
+        "nameEs": "Barrera Núcleo Metálico",
+        "nameEn": "Metal Core Barrier",
+        "cardType": "trainer",
+        "displayCardId": "B2-148",
+        "editionCount": 1
+      },
+      "playable": 2,
+      "missing": 0
+    },
+    {
+      "card": {
+        "id": "A2b-70",
+        "nameEs": "Chica del Centro Pokémon",
+        "nameEn": "Pokémon Center Lady",
+        "expansionId": "A2b",
+        "number": 70,
+        "rarity": "◊◊",
+        "cardType": "trainer",
+        "evolutionType": "supporter",
+        "ex": false,
+        "prizePoints": 0,
+        "imageUrl": null,
+        "functionalGroupId": "A2b-70",
+        "stockCardId": "A2b-70",
+        "isDisplayEdition": true
+      },
+      "count": 1,
+      "group": {
+        "id": "A2b-70",
+        "nameEs": "Chica del Centro Pokémon",
+        "nameEn": "Pokémon Center Lady",
+        "cardType": "trainer",
+        "displayCardId": "A2b-70",
+        "editionCount": 2
+      },
+      "playable": 6,
+      "missing": 0
+    },
+    {
+      "card": {
+        "id": "A2-150",
+        "nameEs": "Helio",
+        "nameEn": "Cyrus",
+        "expansionId": "A2",
+        "number": 150,
+        "rarity": "◊◊",
+        "cardType": "trainer",
+        "evolutionType": "supporter",
+        "ex": false,
+        "prizePoints": 0,
+        "imageUrl": null,
+        "functionalGroupId": "A2-150",
+        "stockCardId": "A2-150",
+        "isDisplayEdition": true
+      },
+      "count": 1,
+      "group": {
+        "id": "A2-150",
+        "nameEs": "Helio",
+        "nameEn": "Cyrus",
+        "cardType": "trainer",
+        "displayCardId": "A2-150",
+        "editionCount": 2
+      },
+      "playable": 3,
+      "missing": 0
+    },
+    {
+      "card": {
+        "id": "A2-147",
+        "nameEs": "Capa Gigante",
+        "nameEn": "Giant Cape",
+        "expansionId": "A2",
+        "number": 147,
+        "rarity": "◊◊",
+        "cardType": "trainer",
+        "evolutionType": "tool",
+        "ex": false,
+        "prizePoints": 0,
+        "imageUrl": null,
+        "functionalGroupId": "A2-147",
+        "stockCardId": "A2-147",
+        "isDisplayEdition": true
+      },
+      "count": 1,
+      "group": {
+        "id": "A2-147",
+        "nameEs": "Capa Gigante",
+        "nameEn": "Giant Cape",
+        "cardType": "trainer",
+        "displayCardId": "A2-147",
+        "editionCount": 2
+      },
+      "playable": 2,
+      "missing": 0
+    },
+    {
+      "card": {
+        "id": "A2a-75",
+        "nameEs": "Adamas",
+        "nameEn": "Adaman",
+        "expansionId": "A2a",
+        "number": 75,
+        "rarity": "◊◊",
+        "cardType": "trainer",
+        "evolutionType": "supporter",
+        "ex": false,
+        "prizePoints": 0,
+        "imageUrl": null,
+        "functionalGroupId": "A2a-75",
+        "stockCardId": "A2a-75",
+        "isDisplayEdition": true
+      },
+      "count": 1,
+      "group": {
+        "id": "A2a-75",
+        "nameEs": "Adamas",
+        "nameEn": "Adaman",
+        "cardType": "trainer",
+        "displayCardId": "A2a-75",
+        "editionCount": 2
+      },
+      "playable": 2,
+      "missing": 0
+    },
+    {
+      "card": {
+        "id": "B2-145",
+        "nameEs": "Helado Suerte",
+        "nameEn": "Lucky Ice Pop",
+        "expansionId": "B2",
+        "number": 145,
+        "rarity": "◊◊",
+        "cardType": "trainer",
+        "evolutionType": "item",
+        "ex": false,
+        "prizePoints": 0,
+        "imageUrl": null,
+        "functionalGroupId": "B2-145",
+        "stockCardId": "B2-145",
+        "isDisplayEdition": true
+      },
+      "count": 1,
+      "group": {
+        "id": "B2-145",
+        "nameEs": "Helado Suerte",
+        "nameEn": "Lucky Ice Pop",
+        "cardType": "trainer",
+        "displayCardId": "B2-145",
+        "editionCount": 1
+      },
+      "playable": 5,
+      "missing": 0
+    }
+  ],
+  "validation": {
+    "ok": true,
+    "errors": [],
+    "warnings": [],
+    "infos": [
+      {
+        "code": "same_group_split",
+        "message": "Mega-Mawile ex: 2 copias (B2-113 + B2-201)",
+        "cardIds": ["B2-113", "B2-201"]
+      }
+    ]
+  },
+  "completeness": { "complete": true, "missing": [], "missingCount": 0 },
+  "revisions": [
+    { "number": 1, "createdAt": "2026-10-06T18:40:00.000Z", "source": "import", "note": null, "cardCount": 20 },
+    {
+      "number": 2,
+      "createdAt": "2026-10-06T19:02:11.000Z",
+      "source": "edit",
+      "note": "Skarmory por Helado Suerte",
+      "cardCount": 20
+    }
+  ],
+  "changes": [
+    { "field": "builtInGame", "old": false, "new": true, "at": "2026-10-06T18:45:00.000Z", "source": "ui" },
+    { "field": "tags", "old": [], "new": ["uno-por-tipo"], "at": "2026-10-06T18:46:00.000Z", "source": "ui" }
+  ]
+}

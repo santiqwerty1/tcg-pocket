@@ -1,0 +1,87 @@
+{
+  "drafts": [
+    {
+      "number": 8,
+      "title": "Mega-Mawile ex / Perrserker de Galar",
+      "draft": {
+        "name": "Mega-Mawile ex / Perrserker de Galar",
+        "energies": ["metal"],
+        "cards": [
+          { "cardId": "B2-113", "count": 1 },
+          { "cardId": "B2-201", "count": 1 },
+          { "cardId": "B2-110", "count": 2 },
+          { "cardId": "B2-111", "count": 2 },
+          { "cardId": "A2-111", "count": 2 },
+          { "cardId": "A4b-373", "count": 2 },
+          { "cardId": "B1-225", "count": 1 },
+          { "cardId": "A2b-111", "count": 2 },
+          { "cardId": "B2-148", "count": 2 },
+          { "cardId": "A2b-70", "count": 1 },
+          { "cardId": "A2-150", "count": 1 },
+          { "cardId": "A2-147", "count": 1 },
+          { "cardId": "A2a-75", "count": 1 },
+          { "cardId": "B2-145", "count": 1 }
+        ],
+        "source": "spanish_text"
+      },
+      "errors": [],
+      "warnings": [],
+      "validation": {
+        "ok": true,
+        "errors": [],
+        "warnings": [],
+        "infos": [
+          {
+            "code": "same_group_split",
+            "message": "Mega-Mawile ex: 2 copias (B2-113 + B2-201)",
+            "cardIds": ["B2-113", "B2-201"]
+          }
+        ]
+      },
+      "completeness": { "complete": true, "missing": [], "missingCount": 0 }
+    },
+    {
+      "number": 10,
+      "title": "Mega-Kangaskhan ex / Silvally",
+      "draft": {
+        "name": "Mega-Kangaskhan ex / Silvally",
+        "energies": [],
+        "cards": [
+          { "cardId": "B2-127", "count": 1 },
+          { "cardId": "A3a-60", "count": 2 },
+          { "cardId": "A3a-61", "count": 1 },
+          { "cardId": "B4-144", "count": 1 },
+          { "cardId": "B2-141", "count": 1 },
+          { "cardId": "B1-206", "count": 1 }
+        ],
+        "source": "spanish_text"
+      },
+      "errors": [
+        {
+          "code": "energy_choice_required",
+          "message": "La tabla resumen dice «Cualquiera»: elegí la energía del mazo.",
+          "line": 94
+        }
+      ],
+      "warnings": [],
+      "validation": null,
+      "completeness": null
+    },
+    {
+      "number": 6,
+      "title": "Mega-Lucario ex / Lucario",
+      "draft": null,
+      "errors": [
+        {
+          "code": "ambiguous_name",
+          "message": "«Riolu» sin código: hay más de una carta con ese nombre.",
+          "line": 48,
+          "candidates": ["Riolu (A2-91)", "Riolu (B3-79)"]
+        }
+      ],
+      "warnings": [],
+      "validation": null,
+      "completeness": null
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "items": [
+    {
+      "id": "dk_08",
+      "name": "Mega-Mawile ex / Perrserker de Galar",
+      "energies": ["metal"],
+      "tags": ["uno-por-tipo"],
+      "builtInGame": true,
+      "variantOfId": null,
+      "packPriority": 1,
+      "archivedAt": null,
+      "valid": true,
+      "errorCount": 0,
+      "complete": true,
+      "missingCount": 0,
+      "cardCount": 20,
+      "updatedAt": "2026-10-06T19:02:11.000Z",
+      "revisionNumber": 2
+    },
+    {
+      "id": "dk_09",
+      "name": "Mega-Rayquaza ex / Dragonair",
+      "energies": ["fire", "lightning"],
+      "tags": ["uno-por-tipo"],
+      "builtInGame": true,
+      "variantOfId": null,
+      "packPriority": 0,
+      "archivedAt": null,
+      "valid": true,
+      "errorCount": 0,
+      "complete": false,
+      "missingCount": 1,
+      "cardCount": 20,
+      "updatedAt": "2026-10-06T18:41:00.000Z",
+      "revisionNumber": 1
+    },
+    {
+      "id": "dk_39",
+      "name": "Mega-Mawile ex solo",
+      "energies": ["metal"],
+      "tags": ["misión"],
+      "builtInGame": false,
+      "variantOfId": "dk_08",
+      "packPriority": null,
+      "archivedAt": "2026-10-06T19:10:00.000Z",
+      "valid": false,
+      "errorCount": 1,
+      "complete": true,
+      "missingCount": 0,
+      "cardCount": 19,
+      "updatedAt": "2026-10-06T19:10:00.000Z",
+      "revisionNumber": 3
+    }
+  ]
+}
