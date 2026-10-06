@@ -20,6 +20,8 @@ const copies = [
   ['frontend/src/types/index.ts', 'tracker/types.index.ts'],
   ['frontend/public/locales/es-ES/common/sets.json', 'tracker/es-ES.sets.json'],
   ['frontend/public/locales/es-ES/common/packs.json', 'tracker/es-ES.packs.json'],
+  ['frontend/public/locales/en-US/common/sets.json', 'tracker/en-US.sets.json'],
+  ['frontend/public/locales/en-US/common/packs.json', 'tracker/en-US.packs.json'],
 ]
 for (const [src, dst] of copies) copyFileSync(join(tracker, src), join(out, dst))
 
