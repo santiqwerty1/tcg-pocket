@@ -1,0 +1,235 @@
+import type { Session } from '@supabase/supabase-js'
+
+export type User = Session
+
+export const expansionIds = [
+  'B4b',
+  'B4a',
+  'B4',
+  'B3b',
+  'B3a',
+  'B3',
+  'B2b',
+  'B2a',
+  'B2',
+  'B1a',
+  'B1',
+  'A4b',
+  'A4a',
+  'A4',
+  'A3b',
+  'A3a',
+  'A3',
+  'A2b',
+  'A2a',
+  'A2',
+  'A1a',
+  'A1',
+  'P-B',
+  'P-A',
+] as const
+export type ExpansionId = (typeof expansionIds)[number]
+
+export const rarities = ['◊', '◊◊', '◊◊◊', '◊◊◊◊', '☆', '☆☆', '☆☆☆', '✵', '✵✵', 'Crown Rare', 'P'] as const
+export const tradableRarities = ['◊', '◊◊', '◊◊◊', '◊◊◊◊', '☆', '☆☆', '✵', '✵✵'] as const
+
+export const energies = ['grass', 'fire', 'water', 'lightning', 'psychic', 'fighting', 'darkness', 'metal'] as const
+export type Energy = (typeof energies)[number]
+export const cardTypes = [...energies, 'dragon', 'colorless', 'trainer'] as const
+
+export const gameLanguages = ['en', 'fr', 'it', 'de', 'es', 'pt', 'ja', 'zh', 'ko'] as const
+export type GameLanguage = (typeof gameLanguages)[number]
+
+export type Rarity = (typeof rarities)[number]
+export type TradableRarity = (typeof tradableRarities)[number]
+export type CardType = (typeof cardTypes)[number]
+
+export interface RaritySettingsRow {
+  rarity: Rarity
+  to_collect: number
+  to_keep: number
+  collecting_carddex: boolean
+}
+export const defaultRaritySettings: Omit<RaritySettingsRow, 'rarity'> = {
+  to_collect: 1,
+  to_keep: 1,
+  collecting_carddex: false,
+}
+
+export interface PublicAccountRow {
+  username: string | null
+  friend_id: string
+  language: GameLanguage | null
+  is_active_trading: boolean
+  trade_rarity_settings: RaritySettingsRow[]
+}
+
+export interface UserAccountRow extends PublicAccountRow {
+  email: string
+  last_active: Date
+  collection_last_updated: Date
+  is_public: boolean
+  completed_missions?: string[]
+}
+
+export interface CollectionRow {
+  email: string
+  internal_id: number
+  amount_owned: number
+  amount_wanted: number | null
+  created_at: Date
+  updated_at: Date
+  collected: boolean
+}
+
+export type Collection = Map<number, CollectionRow>
+
+export interface CardAmountUpdate {
+  internal_id: number
+  amount_owned: number
+  collected: boolean
+}
+
+export interface CardAmountsRowUpdate {
+  email: string
+  internal_id: number
+  updated_at: Date
+  amount_owned: number
+}
+
+const tradeStatuses = ['offered', 'accepted', 'declined', 'finished'] as const
+
+export type TradeStatus = (typeof tradeStatuses)[number]
+
+export interface TradeRow {
+  id: number
+  created_at: Date
+  updated_at: Date
+  offering_friend_id: string
+  receiving_friend_id: string
+  offer_card_id: string | null
+  receiver_card_id: string | null
+  offerer_ended: boolean
+  receiver_ended: boolean
+  status: TradeStatus
+}
+
+export interface TradePartners {
+  friend_id: string
+  username: string
+  language?: GameLanguage
+  trade_matches: number
+}
+
+export interface PackStructure {
+  containsShinies: boolean
+  containsBabies: boolean
+  containsLinkedCards: boolean
+  cardsPerPack: 4 | 5
+}
+
+export interface Expansion {
+  name: string
+  id: ExpansionId
+  internalId: number
+  packs: Pack[]
+  tradeable: boolean
+  openable: boolean
+  promo?: boolean
+  packStructure?: PackStructure
+}
+
+export interface Pack {
+  name: string
+  color: string
+}
+
+export interface Card {
+  internal_id: number
+  card_id: string
+  expansion: ExpansionId
+  name: string
+  hp?: number
+  energy: CardType
+  card_type: 'pokémon' | 'trainer'
+  evolution_type: string
+  image: string
+  attacks: {
+    cost: string[]
+    name: string
+    damage: string
+    effect: string
+  }[]
+  ability?: {
+    name: string
+    effect: string
+  }
+  weakness: string
+  retreat?: number
+  rarity: Rarity
+  ex: boolean
+  baby: boolean
+  pack: string
+  alternate_versions: number[]
+  artist: string
+
+  amount_owned?: number // calculated from the card amounts table
+  collected?: boolean // calculated from the card amounts table
+  updated_at?: Date // calculated from the card amounts table
+}
+
+export interface ImportExportRow {
+  Id: string
+  CardName: string
+  InternalId: number
+  NumberOwned: number
+  Rarity: Rarity
+  Collected: boolean
+}
+
+export interface Mission {
+  name: string
+  requiredCards: MissionCard[]
+  expansionId: ExpansionId
+  reward?: string
+  secret?: boolean
+  completed?: boolean
+}
+
+export interface MissionCard {
+  amount: number
+  options: string[]
+  owned?: number
+}
+
+export interface Deck {
+  id?: number
+  email?: string
+  username?: string
+  likes?: number
+  is_public: boolean
+  name: string
+  energy: Energy[]
+  cards: number[]
+  created_at: Date
+  updated_at: Date
+}
+
+export type FriendState = 'accepted' | 'declined' | 'revoked' | 'pending'
+
+export interface FriendRow {
+  id: number
+  friend_id: string // the OTHER person's public friend_id
+  username: string // the OTHER person's username
+  state: FriendState
+  created_at: Date
+}
+
+export interface MessageRow {
+  id: number
+  sender_friend_id: string
+  receiver_friend_id: string
+  content: string
+  created_at: Date
+  read_at: Date | null
+}

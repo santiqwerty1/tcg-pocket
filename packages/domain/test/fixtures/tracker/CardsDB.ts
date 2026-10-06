@@ -1,0 +1,407 @@
+import type { Card, Expansion, ExpansionId, Rarity } from '@/types'
+
+const AllCardsJson = await import('../../assets/cards.json')
+
+export const allCards: Card[] = AllCardsJson.default as Card[]
+
+const allCardsDict: Map<string, Card> = new Map(allCards.map((card) => [card.card_id, card]))
+const allCardsByInternalId: Map<number, Card> = new Map(allCards.toReversed().map((card) => [card.internal_id, card]))
+const allCardsByInternalIdList: Partial<Record<number, Card[]>> = Object.groupBy(allCards, (c) => c.internal_id)
+
+export const getCardById = (cardId: string): Card | undefined => {
+  return allCardsDict.get(cardId)
+}
+
+export const getCardByInternalId = (internalId: number): Card | undefined => {
+  return allCardsByInternalId.get(internalId)
+}
+
+export function getCardsByInternalId(internalId: number) {
+  return allCardsByInternalIdList[internalId]
+}
+
+export const getInternalIdByCardId = (card_id: string) => {
+  const internalId = getCardById(card_id)?.internal_id
+  if (!internalId) {
+    throw new Error(`Internal ID for card with id ${card_id} not found`)
+  }
+  return internalId
+}
+
+export const expansions: Expansion[] = [
+  // internalId=0 skipped for error states
+  {
+    name: 'geneticapex',
+    id: 'A1',
+    internalId: 1, // IMPORTANT note: these should NEVER EVER change. The internals of the DB depend on it.
+    packs: [
+      { name: 'mewtwopack', color: '#c078bc' },
+      { name: 'charizardpack', color: '#c08c78' },
+      { name: 'pikachupack', color: '#c0af78' },
+      { name: 'everypack', color: '#c0c0c0' },
+    ],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: false,
+      containsBabies: false,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'mythicalisland',
+    id: 'A1a',
+    internalId: 2,
+    packs: [{ name: 'mewpack', color: '#c07898' }],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: false,
+      containsBabies: false,
+      containsLinkedCards: true,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'space-timesmackdown',
+    id: 'A2',
+    internalId: 3,
+    packs: [
+      { name: 'dialgapack', color: '#7895c0' },
+      { name: 'palkiapack', color: '#c07898' },
+      { name: 'everypack', color: '#c0c0c0' },
+    ],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: false,
+      containsBabies: false,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'triumphantlight',
+    id: 'A2a',
+    internalId: 4,
+    packs: [{ name: 'arceuspack', color: '#c0b278' }],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: false,
+      containsBabies: false,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'shiningrevelry',
+    id: 'A2b',
+    internalId: 5,
+    packs: [{ name: 'shiningrevelrypack', color: '#78b3c0' }],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: true,
+      containsBabies: false,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'celestialguardians',
+    id: 'A3',
+    internalId: 6,
+    packs: [
+      { name: 'lunalapack', color: '#8c78c0' },
+      { name: 'solgaleopack', color: '#c09e78' },
+      { name: 'everypack', color: '#c0c0c0' },
+    ],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: true,
+      containsBabies: false,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'extradimensionalcrisis',
+    id: 'A3a',
+    internalId: 7,
+    packs: [{ name: 'buzzwolepack', color: '#c07878' }],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: true,
+      containsBabies: false,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'eeveegrove',
+    id: 'A3b',
+    internalId: 8,
+    packs: [{ name: 'eeveegrovepack', color: '#c0a378' }],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: true,
+      containsBabies: false,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'wisdomofseaandsky',
+    id: 'A4',
+    internalId: 9,
+    packs: [
+      { name: 'ho-ohpack', color: '#c09578' },
+      { name: 'lugiapack', color: '#789ec0' },
+      { name: 'everypack', color: '#c0c0c0' },
+    ],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: true,
+      containsBabies: true,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'secludedsprings',
+    id: 'A4a',
+    internalId: 10,
+    packs: [{ name: 'suicunepack', color: '#78c0be' }],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: true,
+      containsBabies: true,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'deluxepackex',
+    id: 'A4b',
+    internalId: 11,
+    packs: [{ name: 'deluxepack', color: '#c0af78' }],
+    tradeable: true,
+    openable: false,
+    packStructure: {
+      containsShinies: true,
+      containsBabies: false,
+      containsLinkedCards: true,
+      cardsPerPack: 4,
+    },
+  },
+  {
+    name: 'megarising',
+    id: 'B1',
+    internalId: 12,
+    packs: [
+      { name: 'megaaltariapack', color: '#78b3c0' },
+      { name: 'megablazikenpack', color: '#c08678' },
+      { name: 'megagyaradospack', color: '#788ac0' },
+      { name: 'everypack', color: '#c0c0c0' },
+    ],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: true,
+      containsBabies: false,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'crimsonblaze',
+    id: 'B1a',
+    internalId: 13,
+    packs: [{ name: 'crimsonblazepack', color: '#bf8f78' }],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: true,
+      containsBabies: false,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'fantasticalparade',
+    id: 'B2',
+    internalId: 14,
+    packs: [{ name: 'megagardevoirpack', color: '#b9c078' }],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: true,
+      containsBabies: false,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'paldeanwonders',
+    id: 'B2a',
+    internalId: 15,
+    packs: [{ name: 'paldeanwonderspack', color: '#78b9c0' }],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: true,
+      containsBabies: false,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'megashine',
+    id: 'B2b',
+    internalId: 16,
+    packs: [{ name: 'megashinepack', color: '#78c078' }],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: true,
+      containsBabies: false,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'pulsingaura',
+    id: 'B3',
+    internalId: 17,
+    packs: [{ name: 'pulsingaurapack', color: '#a878c0' }],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: true,
+      containsBabies: false,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'paradoxdrive',
+    id: 'B3a',
+    internalId: 18,
+    packs: [{ name: 'paradoxdrivepack', color: '#c08278' }],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: true,
+      containsBabies: false,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'everydaywonders',
+    id: 'B3b',
+    internalId: 19,
+    packs: [{ name: 'everydaywonderspack', color: '#78c09c' }],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: true,
+      containsBabies: false,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'ruleroftheskies',
+    id: 'B4',
+    internalId: 20,
+    packs: [{ name: 'ruleroftheskiespack', color: '#98c078' }],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: true,
+      containsBabies: false,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'teamrocketsambition',
+    id: 'B4a',
+    internalId: 21,
+    packs: [{ name: 'teamrocketsambitionpack', color: '#bf7887' }],
+    tradeable: true,
+    openable: true,
+    packStructure: {
+      containsShinies: true,
+      containsBabies: false,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    },
+  },
+  {
+    name: 'deluxepackmega',
+    id: 'B4b',
+    internalId: 22,
+    packs: [{ name: 'deluxepackmega', color: '#7878bf' }],
+    tradeable: true,
+    openable: false,
+    packStructure: {
+      containsShinies: true,
+      containsBabies: false,
+      containsLinkedCards: true,
+      cardsPerPack: 4,
+    },
+  },
+  // Pack colors should have saturation 37.5% (96) and value 75% (192). The distance in hue between any two packs should not be smaller than 3.33% (12)
+  {
+    name: 'promo-a',
+    id: 'P-A',
+    internalId: 192, // IMPORTANT note: these should NEVER EVER change. The internals of the DB depend on it.
+    packs: [{ name: 'everypack', color: '#c0c0c0' }],
+    tradeable: false,
+    openable: false,
+    promo: true,
+  },
+  {
+    name: 'promo-b',
+    id: 'P-B',
+    internalId: 193,
+    packs: [{ name: 'everypack', color: '#c0c0c0' }],
+    tradeable: false,
+    openable: false,
+    promo: true,
+  },
+]
+
+const expansionsDict: Map<string, Expansion> = new Map(expansions.map((expansion) => [expansion.id, expansion]))
+
+export const getExpansionById = (id: ExpansionId): Expansion => {
+  const expansion = expansionsDict.get(id)
+  if (expansion === undefined) {
+    throw new Error(`Unrecognized expansionId: ${id}`)
+  }
+  return expansion
+}
+
+export const tradableExpansions = expansions.filter((e) => e.tradeable).map((e) => e.id)
+
+export const basicRarities: Rarity[] = ['◊', '◊◊', '◊◊◊', '◊◊◊◊']
+
+export const craftingCost: Partial<Record<Rarity, number>> = {
+  '◊': 35,
+  '◊◊': 70,
+  '◊◊◊': 150,
+  '◊◊◊◊': 500,
+  '☆': 400,
+  '☆☆': 1250,
+  '☆☆☆': 1500,
+  'Crown Rare': 2500,
+}
