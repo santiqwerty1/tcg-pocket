@@ -32,4 +32,10 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 
 - Windows 11, PowerShell. Disponibles: node 24, pnpm (instalar si falta), git, gh (autenticado), curl. **No** hay cargo/rustc (el motor se compila en GitHub Actions según el plan).
 - La API de Limitless limita a 50 requests por 5 minutos por IP: no la llamar en bucle desde scripts ad hoc.
-- Todavía no hay repo git ni comandos de build/test; se agregan en Fase 1 (`pnpm test`, `pnpm catalog:sync`, `pnpm db:migrate`, `fly deploy`, `pnpm worker:install-task`).
+- Postgres local: `docker compose up -d` (Postgres 17 en `127.0.0.1:5433`, usuario/clave/db `tcg`; base de tests `tcg_test`). `.env` se copia de `.env.example` y **no se versiona**; usar `127.0.0.1` y no `localhost` en `DATABASE_URL` (el motor de Prisma resuelve `localhost` por IPv6 y Docker en Windows no responde ahí) y un `SESSION_SECRET` de ≥ 32 caracteres.
+- Orden de build: `pnpm -F @tcg/domain build` antes de typecheck/tests/build de `@tcg/api` (resuelve `@tcg/domain` por `dist/`). Tras `pnpm install`: `pnpm -F @tcg/api db:generate`.
+- Base de datos (`apps/api`, Prisma 7, `prisma.config.ts`): `pnpm -F @tcg/api db:migrate` (dev, crea/aplica migraciones), `db:deploy` (producción), `db:generate`, `db:reset` (borra todo; solo dev).
+- Usuario y catálogo: `OWNER_EMAIL=… OWNER_PASSWORD=… pnpm -F @tcg/api owner:init [--no-totp]` (imprime el secreto TOTP una vez) y `pnpm -F @tcg/api catalog:sync [--commit sha] [--engine-rev sha] [--from-fixtures]` (`--from-fixtures` usa `packages/domain/test/fixtures`, sin red). Ambos compilan antes (`nest build`).
+- Calidad: `pnpm lint` / `pnpm lint:fix` (biome), `pnpm -F @tcg/api typecheck | test | test:e2e | build`; `test:e2e` usa `TEST_DATABASE_URL` (crea la base, aplica migraciones y trunca tablas). Servidor: `pnpm -F @tcg/api start` (`dist/main.js`) o `start:dev`; login en `http://localhost:3000/login`.
+- Deploy: `Dockerfile` y `fly.toml` en la raíz (app `tcg-pocket`, región `gru`, `/healthz`); secretos `DATABASE_URL` y `SESSION_SECRET` con `fly secrets set`; `fly deploy`. El contenedor corre `prisma migrate deploy` al arrancar. Detalle en `apps/api/README.md`.
+- Pendiente de Fase 1: `pnpm worker:install-task` (worker de Windows, Fase 6).

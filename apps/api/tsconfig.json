@@ -5,7 +5,7 @@
     "resolvePackageJsonExports": true,
     "esModuleInterop": true,
     "isolatedModules": true,
-    "declaration": true,
+    "declaration": false,
     "removeComments": true,
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
@@ -15,13 +15,13 @@
     "sourceMap": true,
     "outDir": "./dist",
     "rootDir": ".",
-    "incremental": true,
     "skipLibCheck": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
     "strictPropertyInitialization": false,
     "types": ["vitest/globals", "node"]
   },
-  "include": ["src", "test", "prisma", "vitest.config.ts", "vitest.config.e2e.ts"],
+  "include": ["src", "test", "prisma.config.ts", "vitest.config.ts", "vitest.config.e2e.ts"],
   "exclude": ["node_modules", "dist"]
 }

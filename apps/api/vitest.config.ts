@@ -1,13 +1,11 @@
-import tsconfigPaths from 'vite-tsconfig-paths'
 import { defineConfig } from 'vitest/config'
 
+// Unit tests: pure helpers and guards, no database.
 export default defineConfig({
-  // Resolves the path aliases declared in tsconfig.json, including the ones
-  // added by `nest g library`.
-  plugins: [tsconfigPaths()],
   test: {
     globals: true,
     root: './',
-    include: ['**/*.spec.ts'],
+    include: ['src/**/*.spec.ts'],
+    env: { NODE_ENV: 'test' },
   },
 })

@@ -50,3 +50,11 @@ Las preguntas del bloque B (orden de fases, sobres, torneos, simulación, texto 
 | 1.5 | El dominio no usa `node:crypto`: el hash de reglas (`rulesHash`) es FNV-1a de 64 bits en hexadecimal. | El paquete corre también en el navegador; el hash solo verifica invariantes. |
 | 1.6 | Base de datos local de desarrollo y tests: Postgres 17 en Docker Compose (puerto 5433, bases `tcg` y `tcg_test`); producción en Supabase. | Reproducible y gratis; Docker Desktop ya está en la PC. |
 | 1.7 | pnpm se instaló como ejecutable de usuario (`%LOCALAPPDATA%\pnpm\bin`) porque `corepack enable` requiere permisos de administrador. | Funciona en PowerShell y Git Bash sin tocar `Program Files`. |
+| 1.8 | `DATABASE_URL` local usa `127.0.0.1`, no `localhost`. | El motor de esquema de Prisma resuelve `localhost` a `::1` y Docker en Windows no responde en IPv6. |
+| 1.9 | Variables de entorno sin `dotenv`: `util.parseEnv` de Node 24 lee `.env` de la raíz solo fuera de producción. | Una dependencia menos; en Fly las variables vienen de `fly secrets`. |
+| 1.10 | La escritura del catálogo en la DB va por `pg` en una sola transacción con `INSERT … ON CONFLICT` por lotes; `rarity_rules` se siembra una vez y no se pisa. | 4.317 filas por sync; las reglas de rareza son configuración del usuario. |
+| 1.11 | Las sesiones se memorizan 30 s en memoria del proceso; el logout invalida de inmediato. | Una consulta por carga de página en vez de una por chunk de la PWA. |
+| 1.12 | `owner:init` rota el secreto TOTP y cierra todas las sesiones; `--no-totp` lo desactiva (solo desarrollo). | Un solo usuario; re-enrolar es el camino de recuperación. |
+| 1.13 | `prisma` es dependencia de producción: las migraciones corren al arrancar el contenedor (`docker/entrypoint.sh`). | Deploy en un solo paso en Fly. |
+| 1.14 | `apps/api/biome.json` anidado desactiva `style/useImportType`. | La inyección por constructor de NestJS necesita imports de valor con `emitDecoratorMetadata`. |
+| 1.15 | Pendiente (TODO en `catalog-sync.service.ts`): el remapeo automático de I12 al cambiar unidades de stock o grupos; hoy el sync queda en `needs_review` con aviso. | Se implementa cuando haya un segundo commit del tracker que lo exija. |

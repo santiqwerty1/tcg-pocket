@@ -1,0 +1,73 @@
+import { requestPathname, routeExposure, unauthenticatedAction, wantsHtml } from './public-routes.js'
+
+describe('requestPathname', () => {
+  it('uses the full original url without the query string', () => {
+    expect(requestPathname({ originalUrl: '/api/cards?q=x', url: '/?q=x' })).toBe('/api/cards')
+    expect(requestPathname({ originalUrl: '/login', url: '/' })).toBe('/login')
+    expect(requestPathname({ url: '/x' })).toBe('/x')
+    expect(requestPathname({ originalUrl: '' })).toBe('/')
+  })
+})
+
+describe('routeExposure', () => {
+  it('exposes only the documented public routes', () => {
+    expect(routeExposure('GET', '/healthz')).toBe('public')
+    expect(routeExposure('HEAD', '/healthz')).toBe('public')
+    expect(routeExposure('GET', '/login')).toBe('public')
+    expect(routeExposure('POST', '/api/auth/login')).toBe('public')
+    expect(routeExposure('GET', '/.well-known/oauth-protected-resource')).toBe('public')
+    expect(routeExposure('GET', '/.well-known')).toBe('public')
+  })
+
+  it('routes the integrations to the bearer guard', () => {
+    expect(routeExposure('POST', '/api/mcp')).toBe('bearer')
+    expect(routeExposure('GET', '/api/mcp/')).toBe('bearer')
+    expect(routeExposure('GET', '/api/worker/ping')).toBe('bearer')
+    expect(routeExposure('POST', '/api/worker/claim')).toBe('bearer')
+  })
+
+  it('requires the session for everything else, including the PWA shell and chunks', () => {
+    expect(routeExposure('GET', '/')).toBe('session')
+    expect(routeExposure('GET', '/index.html')).toBe('session')
+    expect(routeExposure('GET', '/manifest.webmanifest')).toBe('session')
+    expect(routeExposure('GET', '/sw.js')).toBe('session')
+    expect(routeExposure('GET', '/assets/index-abc123.js')).toBe('session')
+    expect(routeExposure('GET', '/api/auth/me')).toBe('session')
+    expect(routeExposure('POST', '/api/auth/logout')).toBe('session')
+    expect(routeExposure('GET', '/api/auth/login')).toBe('session')
+    expect(routeExposure('POST', '/login')).toBe('session')
+    expect(routeExposure('GET', '/healthz/extra')).toBe('session')
+    expect(routeExposure('GET', '/api/workers')).toBe('session')
+    expect(routeExposure('GET', '/api/mcpx')).toBe('session')
+    expect(routeExposure('GET', '/.well-knownx')).toBe('session')
+  })
+})
+
+describe('unauthenticatedAction', () => {
+  it('redirects browser GETs outside /api to /login (navigations, shell and chunks)', () => {
+    expect(unauthenticatedAction('GET', '/', 'text/html,application/xhtml+xml')).toEqual({
+      kind: 'redirect',
+      location: '/login',
+    })
+    expect(unauthenticatedAction('GET', '/decks/3', 'text/html')).toEqual({ kind: 'redirect', location: '/login' })
+    expect(unauthenticatedAction('GET', '/assets/x.js', '*/*')).toEqual({ kind: 'redirect', location: '/login' })
+    expect(unauthenticatedAction('HEAD', '/manifest.webmanifest', undefined)).toEqual({
+      kind: 'redirect',
+      location: '/login',
+    })
+  })
+
+  it('answers 401 JSON to API calls, JSON clients and non-GET methods', () => {
+    expect(unauthenticatedAction('GET', '/api/auth/me', 'text/html')).toEqual({ kind: 'json', status: 401 })
+    expect(unauthenticatedAction('GET', '/api/cards', '*/*')).toEqual({ kind: 'json', status: 401 })
+    expect(unauthenticatedAction('GET', '/sw.js', 'application/json')).toEqual({ kind: 'json', status: 401 })
+    expect(unauthenticatedAction('POST', '/decks', 'text/html')).toEqual({ kind: 'json', status: 401 })
+    expect(unauthenticatedAction('DELETE', '/x', undefined)).toEqual({ kind: 'json', status: 401 })
+  })
+
+  it('detects html accept headers', () => {
+    expect(wantsHtml('text/html')).toBe(true)
+    expect(wantsHtml('application/json')).toBe(false)
+    expect(wantsHtml(undefined)).toBe(false)
+  })
+})

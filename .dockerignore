@@ -1,0 +1,17 @@
+.git
+.github
+node_modules
+**/node_modules
+**/dist
+**/coverage
+**/*.tsbuildinfo
+apps/api/src/generated
+refs
+docs
+.env
+.env.*
+!.env.example
+*.log
+tmp
+Dockerfile
+fly.toml

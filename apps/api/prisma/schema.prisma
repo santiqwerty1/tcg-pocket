@@ -1,0 +1,451 @@
+// Phase 1 schema (docs/PLAN.md §4.2). Table and column names are snake_case through @@map/@map.
+// Identity of a card is its tracker `card_id`; `internal_id` is a versioned attribute (invariant I1).
+// The datasource URL is configured in prisma.config.ts (Prisma 7).
+
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  moduleFormat           = "esm"
+  runtime                = "nodejs"
+  importFileExtension    = "js"
+  generatedFileExtension = "ts"
+  previewFeatures        = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [pg_trgm, unaccent]
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Catalog (versioned by tracker commit + engine rev)
+// ---------------------------------------------------------------------------------------------------------------
+
+enum CatalogSyncStatus {
+  running
+  applied
+  failed
+  needs_review
+
+  @@map("catalog_sync_status")
+}
+
+enum CatalogSyncSource {
+  github
+  fixtures
+
+  @@map("catalog_sync_source")
+}
+
+model CatalogSync {
+  id           Int                 @id @default(autoincrement())
+  commitSha    String              @map("commit_sha")
+  engineRev    String              @map("engine_rev")
+  source       CatalogSyncSource
+  status       CatalogSyncStatus
+  fetchedAt    DateTime            @map("fetched_at") @db.Timestamptz(3)
+  appliedAt    DateTime?           @map("applied_at") @db.Timestamptz(3)
+  /// sha256 per fetched file, keyed by source path.
+  fileHashes   Json                @map("file_hashes")
+  counts       Json
+  /// BuildReport from @tcg/domain plus the diff summary against the previous catalog.
+  report       Json?
+  /// Tracker craftingCost (pack points per rarity) as parsed from CardsDB.ts.
+  craftingCost Json?               @map("crafting_cost")
+  error        String?
+  changes      CatalogSyncChange[]
+
+  @@index([status, id])
+  @@map("catalog_syncs")
+}
+
+model CatalogSyncChange {
+  id     Int         @id @default(autoincrement())
+  syncId Int         @map("sync_id")
+  sync   CatalogSync @relation(fields: [syncId], references: [id], onDelete: Cascade)
+  cardId String      @map("card_id")
+  field  String
+  old    Json?
+  new    Json?
+
+  @@index([syncId])
+  @@map("catalog_sync_changes")
+}
+
+model Expansion {
+  id                  String    @id
+  trackerInternalId   Int       @map("tracker_internal_id")
+  slug                String
+  nameEn              String    @map("name_en")
+  nameEs              String    @map("name_es")
+  /// Position in catalog order (A1 = 0 …, promos last).
+  sortOrder           Int       @map("sort_order")
+  isPromo             Boolean   @map("is_promo")
+  tradeable           Boolean
+  openableTracker     Boolean   @map("openable_tracker")
+  cardsPerPack        Int?      @map("cards_per_pack")
+  containsShinies     Boolean   @default(false) @map("contains_shinies")
+  containsBabies      Boolean   @default(false) @map("contains_babies")
+  containsLinkedCards Boolean   @default(false) @map("contains_linked_cards")
+  /// Owner overrides (not touched by the sync).
+  releaseDate         DateTime? @map("release_date") @db.Date
+  opensEra            Boolean?  @map("opens_era")
+  packs               Pack[]
+  cards               Card[]
+
+  @@map("expansions")
+}
+
+model Pack {
+  id            String     @id
+  expansionId   String     @map("expansion_id")
+  expansion     Expansion  @relation(fields: [expansionId], references: [id])
+  name          String
+  nameEs        String     @map("name_es")
+  color         String?
+  sortOrder     Int        @map("sort_order")
+  /// Owner switch: is this pack still available in the game?
+  available     Boolean    @default(true)
+  /// Optional manual pack-points balance.
+  pointsBalance Int?       @map("points_balance")
+  cards         PackCard[]
+
+  @@index([expansionId])
+  @@map("packs")
+}
+
+model PackCard {
+  packId   String @map("pack_id")
+  pack     Pack   @relation(fields: [packId], references: [id], onDelete: Cascade)
+  cardId   String @map("card_id")
+  card     Card   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  position Int
+
+  @@id([packId, cardId])
+  @@index([cardId])
+  @@map("pack_cards")
+}
+
+model FunctionalGroup {
+  id            String                 @id
+  displayCardId String                 @map("display_card_id")
+  nameEn        String                 @map("name_en")
+  nameEs        String                 @map("name_es")
+  cardType      String                 @map("card_type")
+  rulesHash     String                 @map("rules_hash")
+  editionCount  Int                    @map("edition_count")
+  sortOrder     Int                    @map("sort_order")
+  cards         Card[]
+  adjustments   CollectionAdjustment[]
+
+  @@index([nameEn])
+  @@map("functional_groups")
+}
+
+model Card {
+  id                   String           @id
+  expansionId          String           @map("expansion_id")
+  expansion            Expansion        @relation(fields: [expansionId], references: [id])
+  number               Int
+  internalId           Int              @map("internal_id")
+  stockCardId          String           @map("stock_card_id")
+  functionalGroupId    String           @map("functional_group_id")
+  functionalGroup      FunctionalGroup  @relation(fields: [functionalGroupId], references: [id])
+  isDisplayEdition     Boolean          @map("is_display_edition")
+  nameEn               String           @map("name_en")
+  nameEs               String           @map("name_es")
+  nameEsSource         String           @map("name_es_source")
+  hp                   Int?
+  energy               String
+  cardType             String           @map("card_type")
+  evolutionType        String           @map("evolution_type")
+  evolvesFrom          String?          @map("evolves_from")
+  isFossil             Boolean          @map("is_fossil")
+  ex                   Boolean
+  prizePoints          Int              @map("prize_points")
+  baby                 Boolean
+  rarity               String
+  pack                 String
+  artist               String
+  attacks              Json
+  ability              Json?
+  weakness             String?
+  retreat              Int?
+  imageUrl             String           @map("image_url")
+  engineId             String           @map("engine_id")
+  searchText           String           @map("search_text")
+  alternateVersionsRaw Int[]            @map("alternate_versions_raw")
+  /// Position in catalog order (cards.json order).
+  sortOrder            Int              @map("sort_order")
+  packs                PackCard[]
+  stock                CollectionStock?
+  deckCards            DeckCard[]
+
+  @@index([internalId])
+  @@index([stockCardId])
+  @@index([functionalGroupId])
+  @@index([nameEn])
+  @@index([engineId])
+  @@index([searchText(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("cards")
+}
+
+/// Printed evolution exceptions (Eevee ex counts as Eevee for "evolves from Eevee").
+model EvolutionAlias {
+  cardId   String @id @map("card_id")
+  countsAs String @map("counts_as")
+
+  @@map("evolution_aliases")
+}
+
+model RarityRule {
+  rarity         String  @id
+  points         Int?
+  pointsVerified Boolean @default(false) @map("points_verified")
+  tradeable      Boolean
+
+  @@map("rarity_rules")
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Collection
+// ---------------------------------------------------------------------------------------------------------------
+
+enum CollectionImportStatus {
+  pending
+  applied
+  discarded
+
+  @@map("collection_import_status")
+}
+
+model CollectionImport {
+  id          Int                    @id @default(autoincrement())
+  fileName    String                 @map("file_name")
+  sha256      String
+  importedAt  DateTime               @default(now()) @map("imported_at") @db.Timestamptz(3)
+  appliedAt   DateTime?              @map("applied_at") @db.Timestamptz(3)
+  status      CollectionImportStatus @default(pending)
+  rowCount    Int                    @map("row_count")
+  naiveTotal  Int                    @map("naive_total")
+  dedupTotal  Int                    @map("dedup_total")
+  unknownIds  String[]               @map("unknown_ids")
+  diffSummary Json?                  @map("diff_summary")
+  rawFileGz   Bytes                  @map("raw_file_gz")
+  rows        CollectionImportRow[]
+
+  @@map("collection_imports")
+}
+
+model CollectionImportRow {
+  importId    Int              @map("import_id")
+  import      CollectionImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  /// Tracker card id as written in the CSV (may be unknown to the catalog: no foreign key).
+  cardId      String           @map("card_id")
+  internalId  Int              @map("internal_id")
+  numberOwned Int              @map("number_owned")
+  collected   Boolean
+
+  @@id([importId, cardId])
+  @@map("collection_import_rows")
+}
+
+enum CollectionStockSource {
+  import
+  manual
+
+  @@map("collection_stock_source")
+}
+
+/// One row per stock unit: card_id is the earliest edition of the unit (cards.stock_card_id).
+model CollectionStock {
+  cardId      String                @id @map("card_id")
+  card        Card                  @relation(fields: [cardId], references: [id])
+  /// CHECK (amount_owned >= 0) added in the migration.
+  amountOwned Int                   @map("amount_owned")
+  collected   Boolean               @default(false)
+  source      CollectionStockSource
+  importId    Int?                  @map("import_id")
+  updatedAt   DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("collection_stock")
+}
+
+enum AdjustmentResolution {
+  user
+  csv_matches
+  manual_edit
+  converted
+  catalog_change
+
+  @@map("adjustment_resolution")
+}
+
+/// Absolute playable-copies override per functional group; at most one active per group (partial unique index).
+model CollectionAdjustment {
+  id                Int                   @id @default(autoincrement())
+  functionalGroupId String                @map("functional_group_id")
+  functionalGroup   FunctionalGroup       @relation(fields: [functionalGroupId], references: [id])
+  playableCopies    Int                   @map("playable_copies")
+  reason            String                @default("")
+  active            Boolean               @default(true)
+  createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  resolvedAt        DateTime?             @map("resolved_at") @db.Timestamptz(3)
+  resolution        AdjustmentResolution?
+
+  @@index([functionalGroupId])
+  @@map("collection_adjustments")
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Decks
+// ---------------------------------------------------------------------------------------------------------------
+
+enum DeckSource {
+  ui
+  import
+  mcp
+  duplicate
+  restore
+
+  @@map("deck_source")
+}
+
+model Deck {
+  id                Int            @id @default(autoincrement())
+  name              String
+  energies          String[]
+  tags              String[]
+  notes             String         @default("")
+  builtInGame       Boolean        @default(false) @map("built_in_game")
+  builtInGameSince  DateTime?      @map("built_in_game_since") @db.Timestamptz(3)
+  variantOfId       Int?           @map("variant_of_id")
+  variantOf         Deck?          @relation("DeckVariants", fields: [variantOfId], references: [id], onDelete: SetNull)
+  variants          Deck[]         @relation("DeckVariants")
+  packPriority      Int            @default(0) @map("pack_priority")
+  /// [{ functionalGroupId, role: attacker | setup }]
+  keyCards          Json           @default("[]") @map("key_cards")
+  archivedAt        DateTime?      @map("archived_at") @db.Timestamptz(3)
+  currentRevisionId Int?           @map("current_revision_id")
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  revisions         DeckRevision[]
+  changes           DeckChange[]
+  cards             DeckCard[]
+
+  @@index([archivedAt])
+  @@map("decks")
+}
+
+model DeckRevision {
+  id        Int        @id @default(autoincrement())
+  deckId    Int        @map("deck_id")
+  deck      Deck       @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  number    Int
+  /// [{ cardId, count }] in list order.
+  cards     Json
+  energies  String[]
+  note      String     @default("")
+  source    DeckSource
+  createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([deckId, number])
+  @@map("deck_revisions")
+}
+
+model DeckChange {
+  id     Int        @id @default(autoincrement())
+  deckId Int        @map("deck_id")
+  deck   Deck       @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  field  String
+  old    Json?
+  new    Json?
+  at     DateTime   @default(now()) @db.Timestamptz(3)
+  source DeckSource
+
+  @@index([deckId, at])
+  @@map("deck_changes")
+}
+
+/// Materialization of the current revision ("which decks use X").
+model DeckCard {
+  deckId   Int    @map("deck_id")
+  deck     Deck   @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  cardId   String @map("card_id")
+  card     Card   @relation(fields: [cardId], references: [id])
+  count    Int
+  position Int
+
+  @@id([deckId, cardId])
+  @@index([cardId])
+  @@map("deck_cards")
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Access and configuration
+// ---------------------------------------------------------------------------------------------------------------
+
+/// Exactly one row (id = 1). Created by `pnpm -F @tcg/api owner:init`.
+model Owner {
+  id            Int      @id @default(1)
+  email         String   @unique
+  passwordHash  String   @map("password_hash")
+  /// TOTP secret encrypted with AES-256-GCM under a key derived from SESSION_SECRET; null = TOTP disabled.
+  totpSecretEnc String?  @map("totp_secret_enc")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("owner")
+}
+
+/// Browser sessions: the cookie holds the random id, the table stores its SHA-256.
+model Session {
+  idHash     String   @id @map("id_hash")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(3)
+  lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  userAgent  String?  @map("user_agent")
+
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+enum ApiTokenKind {
+  worker
+  mcp
+
+  @@map("api_token_kind")
+}
+
+model ApiToken {
+  id         Int          @id @default(autoincrement())
+  name       String
+  kind       ApiTokenKind
+  scopes     String[]
+  tokenHash  String       @unique @map("token_hash")
+  /// First characters of the token, for display (tcg_wk_AbCd…).
+  prefix     String
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastUsedAt DateTime?    @map("last_used_at") @db.Timestamptz(3)
+  expiresAt  DateTime?    @map("expires_at") @db.Timestamptz(3)
+  revokedAt  DateTime?    @map("revoked_at") @db.Timestamptz(3)
+
+  @@map("api_tokens")
+}
+
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("app_settings")
+}
+
+model BackupBlob {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  sizeBytes Int      @map("size_bytes")
+  dataGz    Bytes    @map("data_gz")
+
+  @@map("backup_blobs")
+}
