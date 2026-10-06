@@ -6,7 +6,7 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 
 - **Fase 0 entregada y aprobada el 6/10/2026**: `docs/PLAN.md` (revisión 2 + Apéndice E de herramientas), `docs/DECISIONES.md` (bloque A aprobado: Fly siempre encendida ≈ 4 US$, Supabase Free, login contraseña+TOTP a mano, modelo de datos, `engine-cli`, Descope como servidor OAuth si hace falta, repo privado en GitHub), `docs/LICENCIAS.md`, `docs/fase0/`. No hay código de la app todavía.
 - Conector remoto de Claude: la cuenta de Santi admite «Encabezados de solicitud» → token fijo `tcg_mcp_*`, sin OAuth (capturas del 6/10/2026). Dominio: `*.fly.dev`.
-- **Fase 1 en curso desde el 6/10/2026** (aprobada por Santi).
+- **Fase 1 en curso desde el 6/10/2026**: dominio completo (164 tests), API con todos los endpoints de `docs/API.md` (41 unit + 53 e2e, aceptación de PLAN §7 pasada contra el sistema real), PWA construida (31 tests). Pendiente: correcciones de la revisión adversarial (Dockerfile, reglas de rareza en re-sync, límite de 25 al desarchivar, menores), prueba manual de la PWA y deploy en Fly + Supabase.
 - Siguiente paso: Fase 1 (M1 catálogo, M2 colección, M3 mazos, backup, login, deploy) según PLAN §7, con el bloque B del plan en sus valores por defecto.
 
 ## Cómo trabajar acá
