@@ -1,0 +1,19 @@
+# Licencias
+
+Qué código o datos se toman de cada fuente, bajo qué licencia y qué implica (BRIEF §3.5). La app es privada y de uso personal; nada de esto genera obligaciones mientras no se distribuya ni se abra a terceros. Esto no es asesoramiento legal.
+
+| Pieza | Licencia | Commit / versión | Uso en la app | Obligación hoy (uso privado) | Si algún día se abre a otras personas |
+|---|---|---|---|---|---|
+| `marcelpanse/tcg-pocket-collection-tracker`: `frontend/assets/cards.json`, `pokemon_translations.json`, `trainers_translations.json`, `tools_translations.json`, `frontend/src/lib/CardsDB.ts` (expansiones, sobres, `packStructure`, `craftingCost`), `frontend/src/types/index.ts` (`expansionIds`), `frontend/public/locales/es-ES/common/{sets,packs}.json`, más adelante `assets/themed-collections/*.json` | GPL-3.0 | `3ab58f1cec6a03e3e85455cf7aade3bb8561f92e` (1/10/2026) | Datos sincronizados por commit fijado | Citar origen y commit | Publicar la app bajo GPL-3.0 con fuentes |
+| Tracker: algoritmo `getCardNameByLang` (`frontend/src/lib/utils.ts:55-89`) y modelo de sobres `frontend/src/lib/stats.ts` | GPL-3.0 | `3ab58f1` | **Portados** a `packages/domain` (obra derivada) | Cabecera «Portions derived from marcelpanse/tcg-pocket-collection-tracker (GPL-3.0) @ 3ab58f1» en esos archivos | `packages/domain` y todo lo que lo enlace (api, worker, mcp) bajo GPL-3.0 |
+| Tracker: componentes de UI, páginas, hooks, CSS | GPL-3.0 | — | **No se copian.** shadcn/ui se regenera con `npx shadcn add` (MIT en nuestro repo) | — | — |
+| `bcollazo/deckgym-core` (motor) | AGPL-3.0 | `fb792ebfbaca995af9750c28101ce92a51282825` (4/10/2026) | Sin modificar. Tres vías en evaluación (PLAN A5): (a) enlazado como biblioteca por un ejecutable propio `engine-cli` (dependencia git al `rev`), compilado en GitHub Actions y ejecutado por el worker en la PC; (b) fork fijado con un parche mínimo; (c) su CLI intacto como proceso aparte | Ninguna. En (a) el binario `engine-cli` es obra derivada AGPL pero no se distribuye; en (b) el parche es una modificación no distribuida; en (c) el worker no es derivado | (a) y (b): si se publica el `.exe` (Release pública) o se abre el servicio, ofrecer las fuentes del crate o del fork y del motor (basta el enlace al commit mientras no se modifique). (c): nada que publicar del motor |
+| deckgym-core: `database.json` | AGPL-3.0 | `fb792ebf` | `evolves_from`, `trainer_card_type`, id del motor | Citar | Ídem |
+| deckgym-core: `viewer/` (visor de repeticiones) | AGPL-3.0 | `fb792ebf` | Propuesta: bundle estático servido detrás del login (`vite build --base=/viewer/`, sin modificar) | Ninguna | Código AGPL servido en red: ofrecer su fuente a los usuarios |
+| Limitless (`play.limitlesstcg.com/api`) | Términos del sitio (no revisados en detalle); sin API key | Datos de torneos, listas y récords | Atribución visible «Datos de torneo: Limitless (play.limitlesstcg.com)»; volumen bajo, respetando el límite de 50 req/5 min | Revisar los términos antes de compartir la app |
+| `mogja9/ptcgp-tracker` | MIT | — | Idea del cliente con reintentos y del criterio de elegibilidad (reimplementado) | Aviso de atribución si se copia código | — |
+| `KevinGutowski/tcgp-deck-qr` | MIT | — | Referencia del formato QR del juego («más adelante») | Aviso si se copia | — |
+| `PocketDecks/pokemon-tcg-pocket-tier-list`, `PocketDecks/pokemon-tcg-pocket-cards` | AGPL-3.0 | — | Solo lectura de su documentación de scoring; **no se copia código** | — | — |
+| Imágenes de cartas | © The Pokémon Company / DeNA / Creatures | — | Nunca en el repo ni en la DB; solo enlaces al raw del tracker | — | — |
+
+Regla práctica: si la app se abre a otras personas, **toda la app se publica bajo GPL-3.0** y el motor y el viewer bajo AGPL-3.0 (compatibles: el motor corre aparte). Hasta entonces, mantener esta tabla al día es la única obligación que nos imponemos.

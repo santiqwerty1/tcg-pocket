@@ -1,0 +1,324 @@
+[
+ {
+  "id": "B4b 198",
+  "name": "Lucky Ice Pop",
+  "kind": "Trainer",
+  "ttype": "Item",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 199",
+  "name": "Electric Generator",
+  "kind": "Trainer",
+  "ttype": "Item",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 200",
+  "name": "Order Pad",
+  "kind": "Trainer",
+  "ttype": "Item",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 201",
+  "name": "Quick-Grow Extract",
+  "kind": "Trainer",
+  "ttype": "Item",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 202",
+  "name": "Field Blower",
+  "kind": "Trainer",
+  "ttype": "Item",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 203",
+  "name": "Flame Patch",
+  "kind": "Trainer",
+  "ttype": "Item",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 212",
+  "name": "Iris",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 213",
+  "name": "Juliana",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 214",
+  "name": "Diantha",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 215",
+  "name": "Calem",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 216",
+  "name": "Puppy-Loving Girl",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 217",
+  "name": "Korrina",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 218",
+  "name": "Clemont",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 219",
+  "name": "Serena",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 220",
+  "name": "May",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 221",
+  "name": "Skyla",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 222",
+  "name": "Arven",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 223",
+  "name": "Wallace",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 224",
+  "name": "Wally",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 225",
+  "name": "Copycat",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 226",
+  "name": "Lisia",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 364",
+  "name": "Lucky Ice Pop",
+  "kind": "Trainer",
+  "ttype": "Item",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 365",
+  "name": "Electric Generator",
+  "kind": "Trainer",
+  "ttype": "Item",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 366",
+  "name": "Order Pad",
+  "kind": "Trainer",
+  "ttype": "Item",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 367",
+  "name": "Quick-Grow Extract",
+  "kind": "Trainer",
+  "ttype": "Item",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 368",
+  "name": "Field Blower",
+  "kind": "Trainer",
+  "ttype": "Item",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 369",
+  "name": "Flame Patch",
+  "kind": "Trainer",
+  "ttype": "Item",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 378",
+  "name": "Iris",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 379",
+  "name": "Juliana",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 380",
+  "name": "Diantha",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 381",
+  "name": "Calem",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 382",
+  "name": "Puppy-Loving Girl",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 383",
+  "name": "Korrina",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 384",
+  "name": "Clemont",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 385",
+  "name": "Serena",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 386",
+  "name": "May",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 387",
+  "name": "Skyla",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 388",
+  "name": "Arven",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 389",
+  "name": "Wallace",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 390",
+  "name": "Wally",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 391",
+  "name": "Copycat",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 392",
+  "name": "Lisia",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 421",
+  "name": "Iris",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 422",
+  "name": "Elesa",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 423",
+  "name": "Arven",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ },
+ {
+  "id": "B4b 424",
+  "name": "Copycat",
+  "kind": "Trainer",
+  "ttype": "Supporter",
+  "status": "MissingTrainer"
+ }
+]

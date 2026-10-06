@@ -1,0 +1,27 @@
+# reference repos (GPL/AGPL clones, pinned by commit in docs/LICENCIAS.md)
+refs/
+
+# dependencies and builds
+node_modules/
+dist/
+build/
+coverage/
+.turbo/
+*.tsbuildinfo
+target/
+
+# environment and secrets
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# local data
+*.log
+tmp/
