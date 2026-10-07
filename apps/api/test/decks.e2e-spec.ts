@@ -106,6 +106,13 @@ describe('decks (e2e)', () => {
       { cardId: 'A2-91', count: 2 },
       { cardId: 'A2-92', count: 2 },
     ])
+    expect(one.body.drafts[0].cards).toEqual([
+      { cardId: 'A2-91', count: 2, nameEs: 'Riolu', nameEn: 'Riolu', cardType: 'pokemon' },
+      { cardId: 'A2-92', count: 2, nameEs: 'Lucario', nameEn: 'Lucario', cardType: 'pokemon' },
+    ])
+    expect(
+      (drafts[9] as { cards?: { cardId: string; nameEs: string }[] }).cards?.find((c) => c.cardId === 'A3a-60')?.nameEs,
+    ).toBe('Código Cero')
     expect(one.body.drafts[0].validation.ok).toBe(false)
     const broken = await post('/api/decks/import').send({ text: '- Pokémon: 1 Riolu\n- Entrenadores: 2 Copiona' })
     expect(broken.body.drafts[0].draft).toBeNull()

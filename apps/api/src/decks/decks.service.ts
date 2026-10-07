@@ -36,6 +36,7 @@ import {
   type DeckCardView,
   type DeckDetail,
   type DeckSummary,
+  type ImportedCardView,
   type ImportedDeckDraft,
   toIssueView,
   type ValidateResult,
@@ -241,10 +242,21 @@ export class DecksService {
     const context = await this.context()
     return parseDeckText(text, format, context.index).map((parsed) => {
       const evaluated = parsed.draft ? this.evaluate(context, parsed.draft) : null
+      const cards: ImportedCardView[] = (parsed.draft?.cards ?? []).map((entry) => {
+        const card = context.index.cardById(entry.cardId)
+        return {
+          cardId: entry.cardId,
+          count: entry.count,
+          nameEs: card?.nameEs ?? entry.cardId,
+          nameEn: card?.nameEn ?? entry.cardId,
+          cardType: card?.cardType ?? null,
+        }
+      })
       return {
         number: parsed.number,
         title: parsed.title,
         draft: parsed.draft,
+        cards,
         errors: parsed.errors,
         warnings: parsed.warnings,
         validation: evaluated?.validation ?? null,

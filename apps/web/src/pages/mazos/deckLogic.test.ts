@@ -103,6 +103,9 @@ describe('payloads', () => {
       number: 10,
       title: 'Mega-Kangaskhan ex / Silvally',
       draft: { energies: [], cards: [{ cardId: 'B2-127', count: 1 }] },
+      cards: [
+        { cardId: 'B2-127', count: 1, nameEs: 'Mega-Kangaskhan ex', nameEn: 'Mega Kangaskhan ex', cardType: 'pokemon' },
+      ],
       errors: [{ code: 'energy_choice_required', message: 'La tabla dice «Cualquiera»: elegí la energía.' }],
       warnings: [],
       validation: null,

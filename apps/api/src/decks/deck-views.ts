@@ -79,10 +79,21 @@ export interface ValidateResult {
   completeness: DeckCompleteness
 }
 
+/** One card of an imported draft, resolved against the catalog so the UI can show names. */
+export interface ImportedCardView {
+  cardId: string
+  count: number
+  nameEs: string
+  nameEn: string
+  cardType: 'pokemon' | 'trainer' | null
+}
+
 export interface ImportedDeckDraft {
   number: number | null
   title: string | null
   draft: DeckDraft | null
+  /** Same entries as draft.cards with catalog names; empty when draft is null. Unknown ids keep the id as name. */
+  cards: ImportedCardView[]
   errors: ParseIssue[]
   warnings: ParseIssue[]
   /** Null when the text did not parse (`draft` is null). */

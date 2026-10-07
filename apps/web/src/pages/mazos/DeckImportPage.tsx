@@ -7,6 +7,7 @@ import {
   DECK_IMPORT_FORMATS,
   type DeckImportFormat,
   type DeckInput,
+  type ImportedCard,
   type ImportedDeckDraft,
   type SelectableEnergy,
 } from '@/api/schemas'
@@ -40,6 +41,51 @@ const PLACEHOLDER = `### 6. Mega-Lucario ex / Lucario
 Energy: Fighting`
 
 /** Keys for the card lines: the same edition may appear more than once in an imported list. */
+function ImportedCardList({
+  cards,
+  fallback,
+}: {
+  cards: ImportedCard[]
+  fallback: { cardId: string; count: number }[]
+}) {
+  // Older API responses carry only ids; show them as they are.
+  if (cards.length === 0) {
+    return (
+      <ul className="mt-1 columns-2 text-sm">
+        {withKeys(fallback).map(({ key, entry }) => (
+          <li key={key} className="font-mono text-xs">
+            {entry.count} × {entry.cardId}
+          </li>
+        ))}
+      </ul>
+    )
+  }
+  const groups: { label: string; items: ImportedCard[] }[] = [
+    { label: 'Pokémon', items: cards.filter((c) => c.cardType !== 'trainer') },
+    { label: 'Entrenadores', items: cards.filter((c) => c.cardType === 'trainer') },
+  ].filter((g) => g.items.length > 0)
+  return (
+    <div className="mt-1 space-y-2 text-sm">
+      {groups.map((group) => (
+        <div key={group.label}>
+          <div className="text-xs font-medium text-muted-foreground">
+            {group.label} · {group.items.reduce((n, c) => n + c.count, 0)}
+          </div>
+          <ul>
+            {withKeys(group.items).map(({ key, entry }) => (
+              <li key={key} className="flex items-baseline gap-2">
+                <span className="w-6 text-right font-mono text-xs">{entry.count}×</span>
+                <span>{entry.nameEs}</span>
+                <span className="font-mono text-xs text-muted-foreground">{entry.cardId}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function withKeys<T extends { cardId: string }>(entries: readonly T[]): { key: string; entry: T }[] {
   const seen = new Map<string, number>()
   return entries.map((entry) => {
@@ -210,13 +256,7 @@ export function DeckImportPage() {
                       <summary className="cursor-pointer text-sm text-muted-foreground select-none">
                         Ver las {cardCount} cartas
                       </summary>
-                      <ul className="mt-1 columns-2 text-sm">
-                        {withKeys(draft.draft.cards).map(({ key, entry }) => (
-                          <li key={key} className="font-mono text-xs">
-                            {entry.count} × {entry.cardId}
-                          </li>
-                        ))}
-                      </ul>
+                      <ImportedCardList cards={draft.cards} fallback={draft.draft.cards} />
                     </details>
                   ) : null}
 

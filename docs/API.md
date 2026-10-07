@@ -124,6 +124,7 @@ Detección `auto`: texto que empieza con `{` → `json`; una tabla con fila `| #
 
 ```ts
 ImportedDeckDraft = {
+  cards: [{ cardId, count, nameEs, nameEn, cardType: 'pokemon'|'trainer'|null }],  // = draft.cards con nombres del catálogo; [] si draft es null
   number: number | null, title: string | null,
   draft: DeckDraft | null,                 // null cuando hubo errores de parseo
   errors: ParseIssue[], warnings: ParseIssue[],

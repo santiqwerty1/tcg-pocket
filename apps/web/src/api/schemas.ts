@@ -447,10 +447,20 @@ export const validateResponseSchema = z.object({
 })
 export type ValidateResponse = z.infer<typeof validateResponseSchema>
 
+export const importedCardSchema = z.object({
+  cardId: z.string(),
+  count: z.number().int(),
+  nameEs: z.string(),
+  nameEn: z.string(),
+  cardType: z.enum(['pokemon', 'trainer']).nullable(),
+})
+export type ImportedCard = z.infer<typeof importedCardSchema>
+
 export const importedDeckDraftSchema = z.object({
   number: z.number().optional().nullable(),
   title: z.string().optional().nullable(),
   draft: deckDraftSchema.nullable(),
+  cards: z.array(importedCardSchema).optional().default([]),
   errors: z.array(parseIssueSchema),
   warnings: z.array(parseIssueSchema),
   validation: validationSchema.nullable(),
