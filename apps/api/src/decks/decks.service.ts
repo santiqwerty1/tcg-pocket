@@ -383,6 +383,15 @@ export class DecksService {
         message: 'Archivá el mazo antes de borrarlo (los mazos activos no se borran).',
       })
     }
+    // Own matches keep the deck alive: deleting it would silently drop them from the statistics.
+    const matches = await this.prisma.match.count({ where: { deckId: record.id } })
+    if (matches > 0) {
+      throw new ConflictException({
+        code: 'deck_has_matches',
+        message: `El mazo tiene ${matches === 1 ? '1 partida registrada' : `${matches} partidas registradas`}: queda archivado para no perderlas de las estadísticas.`,
+        details: { matches },
+      })
+    }
     await this.prisma.deck.delete({ where: { id: record.id } })
   }
 

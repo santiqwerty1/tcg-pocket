@@ -31,6 +31,8 @@ async function invalidateDecks(queryClient: QueryClient): Promise<void> {
     queryClient.invalidateQueries({ queryKey: deckKeys.all }),
     queryClient.invalidateQueries({ queryKey: ['groups'] }),
     queryClient.invalidateQueries({ queryKey: ['cards'] }),
+    // Deck names, archiving and revisions show up in the match picker, lists and statistics.
+    queryClient.invalidateQueries({ queryKey: ['matches'] }),
   ])
 }
 

@@ -7,7 +7,10 @@ import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
-/** PLAN §7 (backup acceptance): export → import into an empty database → identical export except `exportedAt`. */
+/**
+ * PLAN §7 (backup acceptance): export → import into an empty database → identical export except `exportedAt`.
+ * Fase 2: matches travel in the backup (schemaVersion 2); version 1 files still read.
+ */
 const CSV_PATH = join(REPO_ROOT, 'docs/context/tcgcollectiontracterexport-2026-10-06.csv')
 const DECKS_PATH = join(REPO_ROOT, 'docs/context/mazos_40_listas.md')
 
@@ -19,7 +22,8 @@ interface Doc {
   settings: unknown[]
   rarityRules: unknown[]
   collection: { stock: unknown[]; imports: { rows: unknown[] }[]; adjustments: unknown[] }
-  decks: { id: number; variantOfId: number | null; revisions: unknown[]; changes: unknown[] }[]
+  decks: { id: number; variantOfId: number | null; revisions: { id: number }[]; changes: unknown[] }[]
+  matches: { id: number; deckId: number; deckRevisionId: number; result: string; opponentText: string | null }[]
   tokens: { name: string }[]
 }
 
@@ -106,6 +110,22 @@ describe('backup and settings (e2e)', () => {
     expect((await post('/api/tokens').send({ name: 'worker', kind: 'worker', scopes: ['worker:claim'] })).status).toBe(
       201,
     )
+    // Two matches: one now on the edited deck (revision 2), one dated last week on the second deck.
+    expect(
+      (await post('/api/matches').send({ deckId: deckIds[0], result: 'win', opponent: 'Mega-Blaziken ex' })).status,
+    ).toBe(201)
+    expect(
+      (
+        await post('/api/matches').send({
+          deckId: deckIds[1],
+          result: 'loss',
+          wentFirst: false,
+          mode: 'competitive',
+          note: 'backup',
+          playedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+        })
+      ).status,
+    ).toBe(201)
 
     const response = await get('/api/backup/export').responseType('blob')
     expect(response.status).toBe(200)
@@ -114,7 +134,7 @@ describe('backup and settings (e2e)', () => {
     exported = response.body as Buffer
     document = JSON.parse(gunzipSync(exported).toString('utf8')) as Doc
     expect(document).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       catalogCommit: test.env.catalogCommit,
       engineRev: test.env.engineRev,
       settings: [
@@ -131,6 +151,14 @@ describe('backup and settings (e2e)', () => {
     expect(document.decks[0]?.revisions).toHaveLength(2)
     expect(document.decks[0]?.changes.length).toBeGreaterThanOrEqual(2)
     expect(document.decks[2]?.variantOfId).toBe(Number(deckIds[0]))
+    expect(document.matches).toHaveLength(2)
+    expect(document.matches[0]).toMatchObject({
+      deckId: Number(deckIds[0]),
+      deckRevisionId: document.decks[0]?.revisions[1]?.id,
+      result: 'win',
+      opponentText: 'Mega-Blaziken ex',
+    })
+    expect(document.matches[1]).toMatchObject({ deckId: Number(deckIds[1]), result: 'loss', mode: 'competitive' })
     expect(document.tokens.map((t) => t.name)).toEqual(['worker'])
     expect(document.tokens[0]).not.toHaveProperty('tokenHash')
     expect(document.rarityRules.length).toBeGreaterThan(0)
@@ -139,7 +167,8 @@ describe('backup and settings (e2e)', () => {
   it('dry-run reports counts and notices without touching the data', async () => {
     const response = await post('/api/backup/import?mode=dry-run').attach('file', exported, 'backup.json.gz')
     expect(response.status).toBe(200)
-    expect(response.body).toMatchObject({ schemaVersion: 1, catalogCommit: test.env.catalogCommit })
+    expect(response.body).toMatchObject({ schemaVersion: 2, catalogCommit: test.env.catalogCommit })
+    expect(response.body.diff.incoming.matches).toBe(2)
     expect(response.body.diff.incoming).toEqual(response.body.diff.current)
     expect(response.body.diff.needsReview).toBe(false)
     expect(response.body.diff.unknownCardIds).toEqual([])
@@ -162,6 +191,7 @@ describe('backup and settings (e2e)', () => {
   })
 
   it('restores into an emptied database and exports the same document (except exportedAt)', async () => {
+    await test.prisma.match.deleteMany()
     await test.prisma.deck.deleteMany()
     await test.prisma.collectionAdjustment.deleteMany()
     await test.prisma.collectionStock.deleteMany()
@@ -173,7 +203,14 @@ describe('backup and settings (e2e)', () => {
     const response = await post('/api/backup/import?mode=replace').attach('file', exported, 'backup.json.gz')
     expect(response.status).toBe(200)
     expect(response.body.applied).toBe(true)
-    expect(response.body.counts).toMatchObject({ decks: 3, imports: 1, importRows: 4317, adjustments: 2, settings: 2 })
+    expect(response.body.counts).toMatchObject({
+      decks: 3,
+      imports: 1,
+      importRows: 4317,
+      adjustments: 2,
+      settings: 2,
+      matches: 2,
+    })
 
     const again = await get('/api/backup/export').responseType('blob')
     const restored = JSON.parse(gunzipSync(again.body as Buffer).toString('utf8')) as Doc
@@ -197,6 +234,45 @@ describe('backup and settings (e2e)', () => {
     expect(
       (await post('/api/collection/adjustments').send({ functionalGroupId: 'A4a-36', playableCopies: 2 })).status,
     ).toBe(201)
+
+    // Matches come back with their deck revision; the statistics see them and new ids do not collide.
+    const matches = await get('/api/matches')
+    expect(matches.body.total).toBe(2)
+    expect(matches.body.items[0]).toMatchObject({ deck: { id: deckIds[0] }, deckRevision: 2, result: 'win' })
+    expect((await get('/api/matches/stats')).body.overall.record).toEqual({ wins: 1, losses: 1, ties: 0 })
+    const logged = await post('/api/matches').send({ deckId: deckIds[0], result: 'tie' })
+    expect(logged.status).toBe(201)
+    expect(Number(logged.body.id)).toBeGreaterThan(Math.max(...document.matches.map((m) => m.id)))
+    expect((await test.http().delete(`/api/matches/${logged.body.id}`).set('Cookie', cookie)).status).toBe(204)
+  })
+
+  it('reads a version 1 backup (no matches) and warns that restoring it drops the current matches', async () => {
+    const { matches: _matches, ...rest } = document
+    const v1 = gzipSync(Buffer.from(JSON.stringify({ ...rest, schemaVersion: 1 })))
+    const dry = await post('/api/backup/import?mode=dry-run').attach('file', v1, 'v1.json.gz')
+    expect(dry.status).toBe(200)
+    expect(dry.body.schemaVersion).toBe(1)
+    expect(dry.body.diff.incoming.matches).toBe(0)
+    expect(dry.body.diff.current.matches).toBe(2)
+    expect(dry.body.diff.notices.some((n: string) => n.includes('no trae partidas'))).toBe(true)
+  })
+
+  it('refuses a backup whose matches point to a deck revision that is not in the file', async () => {
+    const otherDeckRevision = document.decks[1]?.revisions[0]?.id
+    const broken = {
+      ...document,
+      matches: [{ ...document.matches[0], deckRevisionId: otherDeckRevision }],
+    }
+    const response = await post('/api/backup/import?mode=dry-run').attach(
+      'file',
+      gzipSync(Buffer.from(JSON.stringify(broken))),
+      'b.json.gz',
+    )
+    expect(response.status).toBe(400)
+    expect(response.body.error.code).toBe('invalid_backup')
+    expect(response.body.error.details).toEqual([
+      { id: document.matches[0]?.id, deckId: document.matches[0]?.deckId, deckRevisionId: otherDeckRevision },
+    ])
   })
 
   it('refuses a replace that references cards missing from the catalog', async () => {
@@ -247,7 +323,8 @@ describe('backup and settings (e2e)', () => {
     expect(download.status).toBe(200)
     expect(download.headers['content-type']).toBe('application/gzip')
     const parsed = JSON.parse(gunzipSync(download.body as Buffer).toString('utf8')) as Doc
-    expect(parsed.schemaVersion).toBe(1)
+    expect(parsed.schemaVersion).toBe(2)
+    expect(parsed.matches).toHaveLength(2)
     expect(parsed.decks).toHaveLength(4)
     expect((await get('/api/backup/blobs/999999')).status).toBe(404)
     expect((await test.http().get('/api/backup/export')).status).toBe(401)

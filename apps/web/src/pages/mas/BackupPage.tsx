@@ -9,6 +9,19 @@ import { KeyValue, Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
 import { formatBytes, formatDateTime, shortSha } from '@/lib/format'
 
+/** The dry-run notices (catalog mismatch, tokens, an old backup without matches…) as readable text. */
+function Notices({ diff }: { diff: Record<string, unknown> }) {
+  const notices = Array.isArray(diff.notices) ? diff.notices.filter((n): n is string => typeof n === 'string') : []
+  if (notices.length === 0) return null
+  return (
+    <ul className="flex flex-col gap-1 rounded-md border border-warning/40 p-2 text-sm text-warning">
+      {notices.map((notice) => (
+        <li key={notice}>{notice}</li>
+      ))}
+    </ul>
+  )
+}
+
 function DiffTree({ value }: { value: unknown }) {
   if (value === null || typeof value !== 'object') return <span className="tabular">{String(value)}</span>
   if (Array.isArray(value)) return <span className="tabular">{value.length} elementos</span>
@@ -132,6 +145,7 @@ export function BackupPage() {
                 { label: 'Catálogo', value: <code className="font-mono">{shortSha(dryRun.data.catalogCommit)}</code> },
               ]}
             />
+            <Notices diff={dryRun.data.diff} />
             <div className="text-sm font-medium">Diferencias</div>
             <DiffTree value={dryRun.data.diff} />
           </div>

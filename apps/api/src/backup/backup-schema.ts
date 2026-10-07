@@ -1,11 +1,14 @@
 /**
- * The backup document (PLAN §3.9, Fase 1 scope): everything the owner produced, versioned by `schemaVersion`.
+ * The backup document (PLAN §3.9): everything the owner produced, versioned by `schemaVersion`. Version 2 (Fase 2)
+ * adds `matches`; a version 1 file still reads, with no matches.
  * Dates are ISO strings; numeric ids keep their database values so a `replace` restores them verbatim.
  * Excluded on purpose: password hash, TOTP secret, token hashes (tokens travel as metadata only), raw CSV files.
  */
 import { z } from 'zod'
 
-export const BACKUP_SCHEMA_VERSION = 1
+export const BACKUP_SCHEMA_VERSION = 2
+/** Versions this app reads. Exports always write BACKUP_SCHEMA_VERSION. */
+export const READABLE_BACKUP_VERSIONS: readonly number[] = [1, 2]
 
 const isoDate = z.string().refine((value) => !Number.isNaN(Date.parse(value)), 'fecha ISO 8601 inválida')
 const nullableDate = isoDate.nullable()
@@ -92,6 +95,20 @@ const deckSchema = z.object({
   revisions: z.array(revisionSchema),
   changes: z.array(changeSchema),
 })
+const matchSchema = z.object({
+  id: z.number().int(),
+  deckId: z.number().int(),
+  deckRevisionId: z.number().int(),
+  result: z.enum(['win', 'loss', 'tie']),
+  opponentText: z.string().nullable(),
+  wentFirst: z.boolean().nullable(),
+  mode: z.enum(['competitive', 'casual', 'beginner', 'event', 'friend']),
+  note: z.string(),
+  playedAt: isoDate,
+  source: z.enum(['ui', 'mcp']),
+  createdAt: isoDate,
+  updatedAt: isoDate,
+})
 const tokenSchema = z.object({
   id: z.number().int(),
   name: z.string(),
@@ -105,7 +122,7 @@ const tokenSchema = z.object({
 })
 
 export const backupDocumentSchema = z.object({
-  schemaVersion: z.literal(BACKUP_SCHEMA_VERSION),
+  schemaVersion: z.union([z.literal(1), z.literal(2)]),
   exportedAt: isoDate,
   appVersion: z.string(),
   catalogCommit: z.string().nullable(),
@@ -118,6 +135,8 @@ export const backupDocumentSchema = z.object({
     adjustments: z.array(adjustmentSchema),
   }),
   decks: z.array(deckSchema),
+  /** Own matches (version 2); a version 1 file has none. */
+  matches: z.array(matchSchema).default([]),
   /** Metadata only: hashes are never exported, so tokens are not restored (they are created again). */
   tokens: z.array(tokenSchema),
 })
@@ -134,6 +153,7 @@ export interface BackupCounts {
   decks: number
   revisions: number
   changes: number
+  matches: number
   tokens: number
 }
 
@@ -148,6 +168,7 @@ export function backupCounts(document: BackupDocument): BackupCounts {
     decks: document.decks.length,
     revisions: document.decks.reduce((sum, deck) => sum + deck.revisions.length, 0),
     changes: document.decks.reduce((sum, deck) => sum + deck.changes.length, 0),
+    matches: document.matches.length,
     tokens: document.tokens.length,
   }
 }

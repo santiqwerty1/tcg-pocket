@@ -332,6 +332,7 @@ model Deck {
   revisions         DeckRevision[]
   changes           DeckChange[]
   cards             DeckCard[]
+  matches           Match[]
 
   @@index([archivedAt])
   @@map("decks")
@@ -348,6 +349,7 @@ model DeckRevision {
   note      String     @default("")
   source    DeckSource
   createdAt DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  matches   Match[]
 
   @@unique([deckId, number])
   @@map("deck_revisions")
@@ -379,6 +381,60 @@ model DeckCard {
   @@id([deckId, cardId])
   @@index([cardId])
   @@map("deck_cards")
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Matches (Fase 2, M6)
+// ---------------------------------------------------------------------------------------------------------------
+
+enum MatchResult {
+  win
+  loss
+  tie
+
+  @@map("match_result")
+}
+
+enum MatchMode {
+  competitive
+  casual
+  beginner
+  event
+  friend
+
+  @@map("match_mode")
+}
+
+enum MatchSource {
+  ui
+  mcp
+
+  @@map("match_source")
+}
+
+/// One own match. A deck with matches cannot be deleted (Restrict): it stays archived and in the statistics.
+model Match {
+  id             Int          @id @default(autoincrement())
+  deckId         Int          @map("deck_id")
+  deck           Deck         @relation(fields: [deckId], references: [id], onDelete: Restrict)
+  /// Revision current when the match was played (domain `revisionAt`).
+  deckRevisionId Int          @map("deck_revision_id")
+  deckRevision   DeckRevision @relation(fields: [deckRevisionId], references: [id], onDelete: Restrict)
+  result         MatchResult
+  /// Opponent archetype as typed (cleaned); statistics group it by the domain `opponentKey`. Fase 5 adds archetypes.
+  opponentText   String?      @map("opponent_text")
+  wentFirst      Boolean?     @map("went_first")
+  mode           MatchMode
+  note           String       @default("")
+  playedAt       DateTime     @default(now()) @map("played_at") @db.Timestamptz(3)
+  source         MatchSource  @default(ui)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([deckId, playedAt])
+  @@index([playedAt])
+  @@index([deckRevisionId])
+  @@map("matches")
 }
 
 // ---------------------------------------------------------------------------------------------------------------

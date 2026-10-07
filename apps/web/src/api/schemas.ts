@@ -37,7 +37,25 @@ export const apiErrorBodySchema = z.object({
   }),
 })
 
-/** Percentages from Fase 2 onwards (docs/API.md «Convenciones»); the Stat component already renders them. */
+/**
+ * A win rate (docs/API.md «Convenciones», PLAN I9): percentages 0–100 at full precision, Wilson 95 % interval over
+ * `games`, «orientativo» decided on `samples`. `source` keeps own matches, tournament and simulation apart.
+ */
+export const winRateSchema = z.object({
+  source: z.enum(['matches', 'tournament', 'simulation']),
+  value: z.number(),
+  games: z.number(),
+  samples: z.number(),
+  sampleKind: z.enum(['matches', 'lists', 'simulations']),
+  ci95: z.tuple([z.number(), z.number()]),
+  orientative: z.boolean(),
+})
+export type WinRate = z.infer<typeof winRateSchema>
+
+export const gameRecordSchema = z.object({ wins: z.number(), losses: z.number(), ties: z.number() })
+export type GameRecord = z.infer<typeof gameRecordSchema>
+
+/** Generic percentage shape kept for the Stat component. */
 export const percentageSchema = z.object({
   value: z.number(),
   games: z.number().optional(),
@@ -475,6 +493,104 @@ export const DECK_EXPORT_FORMATS = ['spanish', 'deckgym', 'limitless', 'json'] a
 export type DeckExportFormat = (typeof DECK_EXPORT_FORMATS)[number]
 export const DECK_IMPORT_FORMATS = ['auto', 'spanish', 'spanish-file', 'limitless', 'json'] as const
 export type DeckImportFormat = (typeof DECK_IMPORT_FORMATS)[number]
+
+// ---------- Matches (Fase 2) ----------
+
+/** Mirrors MATCH_RESULTS / MATCH_MODES of @tcg/domain. */
+export const MATCH_RESULTS = ['win', 'loss', 'tie'] as const
+export const matchResultSchema = z.enum(MATCH_RESULTS)
+export type MatchResult = z.infer<typeof matchResultSchema>
+export const MATCH_MODES = ['competitive', 'casual', 'beginner', 'event', 'friend'] as const
+export const matchModeSchema = z.enum(MATCH_MODES)
+export type MatchMode = z.infer<typeof matchModeSchema>
+
+export const matchDeckRefSchema = z.object({ id: z.string(), name: z.string(), archived: z.boolean() })
+export type MatchDeckRef = z.infer<typeof matchDeckRefSchema>
+
+export const matchSchema = z.object({
+  id: z.string(),
+  deck: matchDeckRefSchema,
+  deckRevision: z.number(),
+  result: matchResultSchema,
+  opponent: z.string().nullable(),
+  wentFirst: z.boolean().nullable(),
+  mode: matchModeSchema,
+  note: z.string(),
+  playedAt: isoDate,
+  source: z.string(),
+  createdAt: isoDate,
+  updatedAt: isoDate,
+})
+export type Match = z.infer<typeof matchSchema>
+export const matchesResponseSchema = z.object({ items: z.array(matchSchema), total: z.number() })
+
+export interface MatchInput {
+  deckId: string
+  result: MatchResult
+  opponent?: string | null
+  wentFirst?: boolean | null
+  mode?: MatchMode
+  note?: string
+  playedAt?: string
+}
+
+export const pickerDeckSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  energies: z.array(z.string()),
+  builtInGame: z.boolean(),
+  lastPlayedAt: nullableDate,
+  games: z.number(),
+})
+export type PickerDeck = z.infer<typeof pickerDeckSchema>
+
+export const opponentSuggestionSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  games: z.number(),
+  lastPlayedAt: isoDate,
+})
+export type OpponentSuggestion = z.infer<typeof opponentSuggestionSchema>
+
+export const matchSuggestionsSchema = z.object({
+  decks: z.array(pickerDeckSchema),
+  lastDeckId: z.string().nullable(),
+  lastMode: matchModeSchema,
+  opponents: z.array(opponentSuggestionSchema),
+})
+export type MatchSuggestions = z.infer<typeof matchSuggestionsSchema>
+
+const rowFields = { record: gameRecordSchema, rate: winRateSchema.nullable() }
+export const statRowSchema = z.object(rowFields)
+export type StatRow = z.infer<typeof statRowSchema>
+
+export const matchStatsSchema = z.object({
+  filters: z.object({
+    deckId: z.string().nullable(),
+    mode: matchModeSchema.nullable(),
+    from: nullableDate,
+    to: nullableDate,
+  }),
+  overall: statRowSchema,
+  byDeck: z.array(z.object({ ...rowFields, deck: matchDeckRefSchema })),
+  byOpponent: z.array(z.object({ ...rowFields, key: z.string().nullable(), label: z.string() })),
+  byWentFirst: z.array(z.object({ ...rowFields, key: z.enum(['first', 'second', 'unknown']), label: z.string() })),
+  byMode: z.array(z.object({ ...rowFields, mode: matchModeSchema, label: z.string() })),
+  byRevision: z.array(z.object({ ...rowFields, revision: z.number().nullable() })),
+})
+export type MatchStats = z.infer<typeof matchStatsSchema>
+
+export const comparisonColumnSchema = z.object({
+  source: z.enum(['matches', 'tournament', 'simulation']),
+  label: z.string(),
+  available: z.boolean(),
+  record: gameRecordSchema.nullable(),
+  rate: winRateSchema.nullable(),
+  note: z.string(),
+})
+export type ComparisonColumn = z.infer<typeof comparisonColumnSchema>
+export const deckComparisonSchema = z.object({ deck: matchDeckRefSchema, columns: z.array(comparisonColumnSchema) })
+export type DeckComparison = z.infer<typeof deckComparisonSchema>
 
 // ---------- Auth, tokens, settings, backup ----------
 

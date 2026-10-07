@@ -1,5 +1,5 @@
 /**
- * Backup (PLAN §3.9, Fase 1 scope): export of everything the owner produced as gzip JSON, dry-run/replace import,
+ * Backup (PLAN §3.9): export of everything the owner produced as gzip JSON, dry-run/replace import,
  * and the daily snapshots kept in `backup_blobs` (last 14). The catalog is not part of the backup (it re-syncs).
  */
 import { gunzipSync, gzipSync } from 'node:zlib'
@@ -16,6 +16,7 @@ import {
   type BackupDocument,
   backupCounts,
   backupDocumentSchema,
+  READABLE_BACKUP_VERSIONS,
 } from './backup-schema.js'
 
 export const BACKUP_BLOBS_KEPT = 14
@@ -78,6 +79,16 @@ function nullableJson(value: unknown): Prisma.InputJsonValue | undefined {
   return value === null || value === undefined ? undefined : (value as Prisma.InputJsonValue)
 }
 
+/** Matches whose deck or revision is not in the document, so they could not be restored. */
+export function danglingMatches(document: BackupDocument): { id: number; deckId: number; deckRevisionId: number }[] {
+  const revisionsByDeck = new Map(
+    document.decks.map((deck) => [deck.id, new Set(deck.revisions.map((revision) => revision.id))]),
+  )
+  return document.matches
+    .filter((match) => !revisionsByDeck.get(match.deckId)?.has(match.deckRevisionId))
+    .map((match) => ({ id: match.id, deckId: match.deckId, deckRevisionId: match.deckRevisionId }))
+}
+
 @Injectable()
 export class BackupService {
   constructor(
@@ -94,7 +105,7 @@ export class BackupService {
   // ---------------------------------------------------------------------------------------------------------------
 
   async exportDocument(): Promise<BackupDocument> {
-    const [settings, rarityRules, stock, imports, adjustments, decks, tokens] = await Promise.all([
+    const [settings, rarityRules, stock, imports, adjustments, decks, matches, tokens] = await Promise.all([
       this.prisma.appSetting.findMany({ orderBy: { key: 'asc' } }),
       this.prisma.rarityRule.findMany({ orderBy: { rarity: 'asc' } }),
       this.prisma.collectionStock.findMany({ orderBy: { cardId: 'asc' } }),
@@ -108,6 +119,7 @@ export class BackupService {
         orderBy: { id: 'asc' },
         include: { revisions: { orderBy: { number: 'asc' } }, changes: { orderBy: { id: 'asc' } } },
       }),
+      this.prisma.match.findMany({ orderBy: { id: 'asc' } }),
       this.prisma.apiToken.findMany({ orderBy: { id: 'asc' } }),
     ])
     return {
@@ -195,6 +207,20 @@ export class BackupService {
           source: change.source,
         })),
       })),
+      matches: matches.map((match) => ({
+        id: match.id,
+        deckId: match.deckId,
+        deckRevisionId: match.deckRevisionId,
+        result: match.result,
+        opponentText: match.opponentText,
+        wentFirst: match.wentFirst,
+        mode: match.mode,
+        note: match.note,
+        playedAt: iso(match.playedAt),
+        source: match.source,
+        createdAt: iso(match.createdAt),
+        updatedAt: iso(match.updatedAt),
+      })),
       tokens: tokens.map((token) => ({
         id: token.id,
         name: token.name,
@@ -245,10 +271,10 @@ export class BackupService {
       throw new BadRequestException({ code: 'invalid_backup', message: 'El archivo no contiene JSON válido.' })
     }
     const version = (raw as { schemaVersion?: unknown } | null)?.schemaVersion
-    if (version !== BACKUP_SCHEMA_VERSION) {
+    if (typeof version !== 'number' || !READABLE_BACKUP_VERSIONS.includes(version)) {
       throw new BadRequestException({
         code: 'unsupported_schema',
-        message: `El backup tiene schemaVersion ${String(version)}; esta versión de la app lee la ${BACKUP_SCHEMA_VERSION}.`,
+        message: `El backup tiene schemaVersion ${String(version)}; esta versión de la app lee ${READABLE_BACKUP_VERSIONS.join(' y ')}.`,
       })
     }
     const parsed = backupDocumentSchema.safeParse(raw)
@@ -259,6 +285,14 @@ export class BackupService {
         details: parsed.error.issues
           .slice(0, 20)
           .map((issue) => ({ path: issue.path.join('.'), message: issue.message })),
+      })
+    }
+    const dangling = danglingMatches(parsed.data)
+    if (dangling.length > 0) {
+      throw new BadRequestException({
+        code: 'invalid_backup',
+        message: `${dangling.length} partidas del backup apuntan a un mazo o una revisión que no están en el archivo.`,
+        details: dangling.slice(0, 20),
       })
     }
     return parsed.data
@@ -288,6 +322,8 @@ export class BackupService {
     }
     await this.prisma.$transaction(
       async (tx) => {
+        // Matches first: they restrict the deletion of their deck and revision.
+        await tx.match.deleteMany()
         await tx.deck.deleteMany()
         await tx.collectionAdjustment.deleteMany()
         await tx.collectionStock.deleteMany()
@@ -387,6 +423,9 @@ export class BackupService {
             }
           }
         }
+        if (document.matches.length > 0) {
+          await tx.match.createMany({ data: document.matches })
+        }
         if (document.settings.length > 0) {
           await tx.appSetting.createMany({
             data: document.settings.map((setting) => ({
@@ -409,6 +448,7 @@ export class BackupService {
           'decks',
           'deck_revisions',
           'deck_changes',
+          'matches',
         ]) {
           await tx.$executeRawUnsafe(
             `SELECT setval(pg_get_serial_sequence('"${table}"', 'id'), COALESCE((SELECT MAX(id) FROM "${table}"), 0) + 1, false)`,
@@ -444,6 +484,11 @@ export class BackupService {
     if (unknown.size > 0) {
       notices.push(
         `${unknown.size} ids del backup no existen en el catálogo cargado; no se puede restaurar hasta sincronizarlo.`,
+      )
+    }
+    if (document.schemaVersion < BACKUP_SCHEMA_VERSION) {
+      notices.push(
+        `Backup de la versión ${document.schemaVersion}, anterior al registro de partidas: no trae partidas, así que restaurarlo borra las que hay ahora.`,
       )
     }
     if (document.tokens.length > 0) {

@@ -1,10 +1,62 @@
-import { EmptyState } from '@/components/ListState'
+import { ChartColumnIcon, HistoryIcon } from 'lucide-react'
+import { Link, useSearchParams } from 'react-router'
+import { useMatches, useMatchSuggestions } from '@/api/matches'
+import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
+import { Section } from '@/components/Section'
+import { Button } from '@/components/ui/button'
+import { MatchList } from './MatchList'
+import { QuickMatchForm } from './QuickMatchForm'
 
+/** Home screen: the quick-entry sheet on top, the last matches below. */
 export function PartidasPage() {
+  const [params] = useSearchParams()
+  const suggestions = useMatchSuggestions()
+  const recent = useMatches({ limit: 10 })
+
   return (
-    <EmptyState
-      title="Llega en la Fase 2"
-      description="Acá vas a cargar cada partida en cuatro toques y ver tus estadísticas con n e intervalo de confianza."
-    />
+    <div className="flex flex-col gap-6">
+      <Section title="Nueva partida">
+        {suggestions.isPending ? <LoadingRows rows={5} /> : null}
+        {suggestions.isError ? <ErrorState error={suggestions.error} onRetry={() => suggestions.refetch()} /> : null}
+        {suggestions.data && suggestions.data.decks.length === 0 ? (
+          <EmptyState
+            title="Primero necesitás un mazo"
+            description="Las partidas se registran contra un mazo de la app. Importá tus listas o creá uno."
+            action={
+              <Button asChild>
+                <Link to="/mazos/importar">Importar mazos</Link>
+              </Button>
+            }
+          />
+        ) : null}
+        {suggestions.data && suggestions.data.decks.length > 0 ? (
+          <QuickMatchForm suggestions={suggestions.data} preferredDeckId={params.get('mazo')} />
+        ) : null}
+      </Section>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Button variant="outline" asChild>
+          <Link to="/partidas/estadisticas">
+            <ChartColumnIcon data-icon="inline-start" />
+            Estadísticas
+          </Link>
+        </Button>
+        <Button variant="outline" asChild>
+          <Link to="/partidas/historial">
+            <HistoryIcon data-icon="inline-start" />
+            Historial
+          </Link>
+        </Button>
+      </div>
+
+      <Section title="Últimas partidas">
+        {recent.isPending ? <LoadingRows rows={3} /> : null}
+        {recent.isError ? <ErrorState error={recent.error} onRetry={() => recent.refetch()} /> : null}
+        {recent.data && recent.data.items.length === 0 ? (
+          <EmptyState title="Todavía no registraste partidas" description="La primera que guardes aparece acá." />
+        ) : null}
+        {recent.data && recent.data.items.length > 0 ? <MatchList matches={recent.data.items} /> : null}
+      </Section>
+    </div>
   )
 }

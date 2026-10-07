@@ -13,6 +13,7 @@ import { ApiExceptionFilter } from './http/http-exception.filter.js'
 import { SecurityHeadersMiddleware } from './http/security-headers.middleware.js'
 import { SessionMiddleware } from './http/session.middleware.js'
 import { loggerModule } from './logging/logger.module.js'
+import { MatchesModule } from './matches/matches.module.js'
 import { McpModule } from './mcp/mcp.module.js'
 import { PrismaModule } from './prisma/prisma.module.js'
 import { SettingsModule } from './settings/settings.module.js'
@@ -39,6 +40,7 @@ export class AppModule implements NestModule {
         CatalogModule,
         CollectionModule,
         DecksModule,
+        MatchesModule,
         SettingsModule,
         BackupModule,
         HttpModule,

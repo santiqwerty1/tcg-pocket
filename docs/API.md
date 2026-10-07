@@ -1,4 +1,4 @@
-# Contrato REST · Fase 1
+# Contrato REST · Fases 1 y 2
 
 Contrato entre `apps/api` (NestJS) y `apps/web` (PWA). Identificadores en inglés; mensajes para el usuario en español. Todas las rutas van bajo `/api` y exigen la cookie de sesión salvo las marcadas como públicas. JSON en ambas direcciones salvo descargas.
 
@@ -8,7 +8,7 @@ Contrato entre `apps/api` (NestJS) y `apps/web` (PWA). Identificadores en inglé
 - Sin sesión: las navegaciones (`Accept: text/html`) reciben `302 /login`; las llamadas a `/api/*` reciben `401 { error: { code: "unauthenticated" } }`.
 - Escrituras de otro sitio: una petición que no sea GET/HEAD/OPTIONS con `Sec-Fetch-Site: cross-site` o con un `Origin` distinto del de la app recibe `403 { error: { code: "forbidden" } }` (no aplica a `/api/mcp` ni `/api/worker/*`, que usan token).
 - Paginación: `?limit=50&offset=0` → `{ items: [...], total }`.
-- Porcentajes (desde la Fase 2): siempre `{ value, games, samples, sampleKind, ci95: [lo, hi], orientative }`.
+- Porcentajes (desde la Fase 2): `WinRate = { source: 'matches'|'tournament'|'simulation', value, games, samples, sampleKind: 'matches'|'lists'|'simulations', ci95: [lo, hi], orientative }`, en porcentaje 0–100 sin redondear (la UI muestra el valor con hasta 1 decimal y el intervalo con 1). `games = V + D + E` alimenta Wilson 95 %; `orientative` es `samples < 30`. Sin partidas el campo es `null` («sin datos»), nunca `0`. Cada fila trae además `record: { wins, losses, ties }`. Las tres fuentes nunca se combinan en un número.
 - Fechas en ISO 8601 UTC. Ids de carta = `card_id` del tracker (`A1-1`, `B4b-372`); ids de grupo funcional = `card_id` más temprano del grupo.
 - Todo texto de reglas de cartas viene en inglés; `nameEs` siempre presente.
 - Los ids numéricos de la base (mazos, ajustes, importaciones, copias de seguridad, tokens) viajan **como strings** en todas las respuestas (`"12"`), también dentro de `variantOfId`, `adjustmentId` y `decks[].id`; en las rutas se aceptan tal cual. Un id que no es un entero positivo responde `404`.
@@ -111,7 +111,7 @@ ImportPreview = {
 | `POST /api/decks` | `DeckInput` → `201 DeckDetail` (se crea aunque tenga errores de validación: `valid: false`; cartas o energías vacías valen). `400 unknown_card` si algún `cardId` no existe en el catálogo (`details` lista los ids). Las entradas repetidas de una misma edición se suman |
 | `GET /api/decks/:id` | `DeckDetail` |
 | `PATCH /api/decks/:id` | `Partial<DeckInput> & { builtInGame?, archived?, note? }` → `DeckDetail`; crea una revisión (`source: 'ui'`, con `note`) solo si cambian cartas o energías; registra en `changes` los cambios de `name`, `tags`, `notes`, `packPriority`, `variantOf`, `builtInGame` y `archived`; `409 { code: 'built_in_game_limit', details: { built, max } }` cuando el mazo quedaría entre los armados no archivados y ya hay 25 (al marcarlo, al desarchivarlo si sigue marcado, o ambas cosas en el mismo PATCH: archivar **no** quita la marca `builtInGame`); `400` si `variantOfId` es el propio mazo |
-| `DELETE /api/decks/:id` | Borra (solo si está archivado) → `204`; `409 deck_not_archived` si no lo está |
+| `DELETE /api/decks/:id` | Borra (solo si está archivado y sin partidas) → `204`; `409 deck_not_archived` si no lo está; `409 deck_has_matches` (`details: { matches }`) si tiene partidas registradas |
 | `POST /api/decks/:id/duplicate` | `{ name? }` (default «<nombre> (copia)») → `201 DeckDetail` con `variantOfId` = el original, revisión 1 con `source: 'duplicate'` |
 | `POST /api/decks/:id/revisions/:number/restore` | → `DeckDetail` (nueva revisión con `source: 'restore'` y nota «Restaurada la revisión N»; si la revisión pedida es idéntica a la actual no se crea nada); `404` si no existe |
 | `GET /api/decks/:id/export?format=spanish|deckgym|limitless|json` | `text/plain` (o `application/json`), `Content-Disposition: inline; filename*=…`; `spanish` incluye el encabezado `### Nombre` y siempre `- Energía:`; deckgym siempre con `Energy:` (`400 energy_required` si el mazo no tiene energía elegida); sin `format`: `spanish` |
@@ -150,16 +150,51 @@ DeckDetail = DeckSummary & {
 Issue = { code, message, cardIds?: string[] }
 ```
 
+## Partidas (Fase 2)
+
+| Método y ruta | Cuerpo / respuesta |
+|---|---|
+| `GET /api/matches?deckId=&mode=&result=&opponent=&from=&to=&limit=50&offset=0` | `{ items: Match[], total }`, más reciente primero (`playedAt`, después `id`). `opponent` busca «contiene» sobre la clave del rival (sin mayúsculas, tildes ni signos: `blaz` encuentra «Mega-Blaziken ex»). `from` inclusivo, `to` exclusivo (ISO 8601). `limit` ≤ 200. `404` si `deckId` no existe |
+| `POST /api/matches` | `MatchInput` → `201 Match`. Sin `playedAt`: hora del servidor y revisión actual del mazo; con `playedAt`: la revisión vigente en ese momento (la 1 si es anterior al mazo). Sin `mode`: el de la última partida registrada (la primera vez, `casual`). `404` mazo inexistente; `400 played_at_future` si la fecha está más de 10 min en el futuro; `400 validation` (rival > 80 caracteres, nota > 2000, resultado o modalidad inválidos). Se permite registrar con un mazo archivado |
+| `GET /api/matches/suggestions` | `{ decks: [{ id, name, energies, builtInGame, lastPlayedAt, games }], lastDeckId, lastMode, opponents: [{ key, label, games, lastPlayedAt }] }`: mazos no archivados en el orden del selector (jugados por fecha, después armados en el juego, después por nombre con orden numérico); `lastDeckId`/`lastMode` de la última partida **registrada** (`null` si su mazo está archivado); hasta 30 rivales del último año ordenados por conteo ponderado (vida media 14 días) |
+| `GET /api/matches/stats?deckId=&mode=&from=&to=` | `MatchStats` (solo partidas propias) |
+| `GET /api/matches/:id` | `Match`; `404` |
+| `PATCH /api/matches/:id` | `Partial<MatchInput>` (al menos un campo) → `Match`; si cambian `deckId` o `playedAt` se recalcula la revisión; `400` vacío; `404` |
+| `DELETE /api/matches/:id` | `204`; `404` |
+| `GET /api/decks/:id/comparison?mode=` | `DeckComparison`; `404` si el mazo no existe |
+
+```ts
+MatchInput = { deckId: string, result: 'win'|'loss'|'tie', opponent?: string | null, wentFirst?: boolean | null,
+               mode?: 'competitive'|'casual'|'beginner'|'event'|'friend', note?: string, playedAt?: string /* ISO */ }
+Match = { id, deck: { id, name, archived }, deckRevision: number, result, opponent: string | null, wentFirst: boolean | null,
+          mode, note, playedAt, source: 'ui'|'mcp', createdAt, updatedAt }
+Row = { record: { wins, losses, ties }, rate: WinRate | null }
+MatchStats = {
+  filters: { deckId, mode, from, to },
+  overall: Row,
+  byDeck: (Row & { deck: { id, name, archived } })[],              // más jugados primero
+  byOpponent: (Row & { key: string | null, label: string })[],      // key null = «Sin rival anotado», al final
+  byWentFirst: (Row & { key: 'first'|'second'|'unknown', label })[], // siempre las tres filas
+  byMode: (Row & { mode, label })[],                                 // solo modalidades jugadas
+  byRevision: (Row & { revision: number | null })[]                  // solo con deckId; la más nueva primero
+}
+DeckComparison = { deck: { id, name, archived },
+  columns: [{ source: 'matches'|'tournament'|'simulation', label, available, record: Record | null, rate: WinRate | null, note }] }
+  // siempre tres columnas en ese orden; torneo y simulación: available false, rate null hasta las Fases 5 y 6
+```
+
+El rival se guarda limpio (espacios colapsados); si no tiene letras ni números se guarda `null`. Las estadísticas agrupan por la clave y muestran la grafía más usada.
+
 ## Copia de seguridad
 
 | Método y ruta | Respuesta |
 |---|---|
-| `GET /api/backup/export` | Descarga `tcgpocket-backup-AAAAMMDD.json.gz` (`application/gzip`; todo lo propio de la Fase 1, ver abajo y PLAN §3.9) |
-| `POST /api/backup/import?mode=dry-run|replace` | `multipart/form-data` con `file` (`.json.gz` o `.json`, ≤ 50 MB); sin `mode`: `dry-run` → `{ schemaVersion, exportedAt, appVersion, catalogCommit, diff: { current, incoming, notices: string[], needsReview, unknownCardIds } }` (`current`/`incoming` son conteos por tabla); `replace` → `{ applied: true, counts, notices }`. Errores: `400 invalid_backup` (no es gzip/JSON, no tiene la forma o descomprimido supera 128 MB), `400 unsupported_schema` (otro `schemaVersion`), `400 unknown_card` en `replace` si referencia cartas o grupos que no están en el catálogo cargado |
+| `GET /api/backup/export` | Descarga `tcgpocket-backup-AAAAMMDD.json.gz` (`application/gzip`; todo lo propio, partidas incluidas; ver abajo y PLAN §3.9) |
+| `POST /api/backup/import?mode=dry-run|replace` | `multipart/form-data` con `file` (`.json.gz` o `.json`, ≤ 50 MB); sin `mode`: `dry-run` → `{ schemaVersion, exportedAt, appVersion, catalogCommit, diff: { current, incoming, notices: string[], needsReview, unknownCardIds } }` (`current`/`incoming` son conteos por tabla, `matches` incluido); `replace` → `{ applied: true, counts, notices }`. Errores: `400 invalid_backup` (no es gzip/JSON, no tiene la forma, descomprimido supera 128 MB o tiene partidas con referencias rotas), `400 unsupported_schema` (`schemaVersion` distinto de 1 y 2), `400 unknown_card` en `replace` si referencia cartas o grupos que no están en el catálogo cargado |
 | `GET /api/backup/blobs` | `{ items: [{ id, createdAt, sizeBytes }] }` (copias diarias guardadas, más reciente primero; se conservan las últimas 14) |
 | `GET /api/backup/blobs/:id` | Descarga (`application/gzip`, nombre con la fecha de la copia) |
 
-Documento (`schemaVersion: 1`): `{ schemaVersion, exportedAt, appVersion, catalogCommit, engineRev, settings[], rarityRules[], collection: { stock[], imports[] (metadatos + filas, sin el archivo crudo), adjustments[] }, decks[] (con `revisions[]` y `changes[]`), tokens[] (solo metadatos: no se restauran) }`, con los ids numéricos y las fechas de la base, así `replace` deja una base idéntica (y un nuevo `export` igual salvo `exportedAt`). `replace` corre en una transacción: borra mazos, ajustes, stock, importaciones y configuración, inserta todo con sus ids, reconstruye `deck_cards` y reajusta las secuencias; `rarity_rules` se pisan por rareza. Si `catalogCommit` difiere del catálogo cargado, `notices` avisa `needs_review` (el remapeo I12 sigue pendiente). La copia diaria (04:00, `BACKUP_CRON`) guarda el mismo documento en `backup_blobs`.
+Documento (`schemaVersion: 2`): `{ schemaVersion, exportedAt, appVersion, catalogCommit, engineRev, settings[], rarityRules[], collection: { stock[], imports[] (metadatos + filas, sin el archivo crudo), adjustments[] }, decks[] (con `revisions[]` y `changes[]`), matches[] (con `deckId` y `deckRevisionId`), tokens[] (solo metadatos: no se restauran) }`, con los ids numéricos y las fechas de la base, así `replace` deja una base idéntica (y un nuevo `export` igual salvo `exportedAt`). Se leen las versiones 1 (Fase 1, sin `matches`: el dry-run avisa que restaurarla borra las partidas actuales) y 2. Una partida cuyo mazo o revisión no está en el archivo da `400 invalid_backup` con `details` (`[{ id, deckId, deckRevisionId }]`). `replace` corre en una transacción: borra partidas, mazos, ajustes, stock, importaciones y configuración, inserta todo con sus ids, reconstruye `deck_cards` y reajusta las secuencias; `rarity_rules` se pisan por rareza. Si `catalogCommit` difiere del catálogo cargado, `notices` avisa `needs_review` (el remapeo I12 sigue pendiente). La copia diaria (04:00, `BACKUP_CRON`) guarda el mismo documento en `backup_blobs`.
 
 ## Configuración
 

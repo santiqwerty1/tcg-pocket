@@ -32,6 +32,7 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { DeckPerformance } from './DeckPerformance'
 import { DeckBadges } from './DecksPage'
 import { BUILT_IN_GAME_LIMIT, groupByType, totalCount } from './deckLogic'
 
@@ -252,6 +253,8 @@ export function DeckDetailPage() {
         {data.notes ? <p className="text-sm whitespace-pre-wrap text-muted-foreground">{data.notes}</p> : null}
       </div>
 
+      <DeckPerformance deckId={data.id} archived={Boolean(data.archivedAt)} />
+
       <Section title={`Cartas (${totalCount(data.cards)})`}>
         <CardGroups deck={data} />
       </Section>
@@ -370,7 +373,7 @@ export function DeckDetailPage() {
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
         title="¿Eliminar este mazo?"
-        description="Se borra con sus revisiones. Solo se pueden eliminar mazos archivados."
+        description="Se borra con sus revisiones. Solo se pueden eliminar mazos archivados y sin partidas registradas."
         confirmLabel="Eliminar"
         destructive
         pending={remove.isPending}

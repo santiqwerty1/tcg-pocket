@@ -17,6 +17,9 @@ import { DeckEditorPage } from '@/pages/mazos/DeckEditorPage'
 import { DeckImportPage } from '@/pages/mazos/DeckImportPage'
 import { DecksPage } from '@/pages/mazos/DecksPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
+import { MatchEditPage } from '@/pages/partidas/MatchEditPage'
+import { MatchHistoryPage } from '@/pages/partidas/MatchHistoryPage'
+import { MatchStatsPage } from '@/pages/partidas/MatchStatsPage'
 import { PartidasPage } from '@/pages/partidas/PartidasPage'
 import { SobresPage } from '@/pages/sobres/SobresPage'
 import { AppShell, type RouteHandle } from './AppShell'
@@ -31,8 +34,20 @@ export const routes: RouteObject[] = [
     path: '/',
     element: <AppShell />,
     children: [
-      { index: true, element: <Navigate to="/coleccion" replace /> },
+      // Home: logging a match is the most frequent action (PLAN §7 Fase 2: ≤ 4 taps from the home screen).
+      { index: true, element: <Navigate to="/partidas" replace /> },
       { path: 'partidas', element: <PartidasPage />, handle: handle('Partidas') },
+      {
+        path: 'partidas/estadisticas',
+        element: <MatchStatsPage />,
+        handle: handle('Estadísticas de partidas', '/partidas'),
+      },
+      {
+        path: 'partidas/historial',
+        element: <MatchHistoryPage />,
+        handle: handle('Historial de partidas', '/partidas'),
+      },
+      { path: 'partidas/:matchId', element: <MatchEditPage />, handle: handle('Editar partida', '/partidas') },
       { path: 'sobres', element: <SobresPage />, handle: handle('Sobres') },
 
       { path: 'coleccion', element: <CollectionPage />, handle: handle('Colección') },
