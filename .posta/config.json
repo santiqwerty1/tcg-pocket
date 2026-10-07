@@ -1,0 +1,24 @@
+{
+  "kit_version": "0.1.0",
+  "nombre": "TCG Pocket",
+  "boveda": "Boveda",
+  "perfil": "tablero",
+  "aplicado": "2026-10-07",
+  "presupuesto_semana_usd": null,
+  "reglas": {
+    "protegidas": [
+      "Boveda/Sesiones/**",
+      ".posta/eventos/**"
+    ],
+    "secretos": [
+      ".env",
+      ".env.local",
+      ".env.fly",
+      "~/.posta/claves/**"
+    ],
+    "con_aprobacion": [
+      "git push *"
+    ],
+    "prohibidos": []
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "posta hook session-start",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "posta hook stop",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "posta hook session-end",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "posta hook pre-tool-use",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "deny": [
+      "Edit(/Boveda/Sesiones/**)",
+      "Edit(/.posta/eventos/**)",
+      "Read(/.env)",
+      "Edit(/.env)",
+      "Read(/.env.local)",
+      "Edit(/.env.local)",
+      "Read(/.env.fly)",
+      "Edit(/.env.fly)",
+      "Read(~/.posta/claves/**)",
+      "Edit(~/.posta/claves/**)"
+    ],
+    "ask": [
+      "Bash(git push *)",
+      "PowerShell(git push *)"
+    ]
+  }
+}

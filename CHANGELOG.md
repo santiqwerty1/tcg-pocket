@@ -1,0 +1,44 @@
+# Changelog
+
+Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque siguiente lo mantiene Posta; el resto es de la persona.
+
+## [Sin publicar]
+
+<!-- posta:cambios -->
+_Borrador generado al 2026-10-07 (23 commits). Escribí el «porqué» fuera de este bloque._
+
+### Agregado
+
+- pack recommendation with the tracker model and a corrected one (phase 4, M4) `2a266b6`
+- read-only MCP server for Claude, closest deck, random deck and best prints (phase 3) `5d081ed`
+- match logging with Wilson statistics (phase 2, M6) `b7c4232`
+- show card names in the deck import preview `4f751b7`
+- collection, decks, backup and settings endpoints per docs/API.md `b0fa80d`
+- PWA shell and phase 1 screens against docs/API.md `f269441`
+- infrastructure — Prisma 7 schema, auth (password+TOTP, sessions), protected static serving, API tokens, catalog sync, deploy files `556cacc`
+- decks module (Spanish/deckgym/Limitless/JSON formats, validation, completeness, limits, revisions) `2fd9f0c`
+- collection module (tracker CSV, stock units, playable copies, adjustments, import diff) `e1216fb`
+- catalog module built from the tracker and deckgym data `ed1375d`
+
+### Corregido
+
+- set NODE_EXTRA_CA_CERTS in fly.toml and record decision 1.32 `3574f78`
+- trust the Supabase pooler CA so sslmode=verify-full works in production `a9dac63`
+- address the adversarial review `72b2082`
+
+### Documentado
+
+- production deployed on Fly + Supabase; ops notes `853bb69`
+- phase 1 implementation verified; deploy pending `b0c5b14`
+- record API implementation decisions and phase 1 state `629407b`
+- REST contract for phase 1 (auth, catalog, collection, decks, backup, tokens) `a703dc7`
+- record phase 1 implementation decisions `189252b`
+- phase 0 plan, decisions, licenses and research `e8e477e`
+
+### Mantenimiento
+
+- local Postgres 17 via docker compose and .env.example `9681c20`
+- scaffold apps/api (NestJS 12, ESM, Prisma 7) and apps/web (Vite 8, React 19, PWA deps) `338e565`
+- scaffold pnpm monorepo, domain package skeleton, fixtures and CI `e133151`
+- enforce LF line endings and keep CSV fixtures byte-exact `461affb`
+<!-- /posta:cambios -->

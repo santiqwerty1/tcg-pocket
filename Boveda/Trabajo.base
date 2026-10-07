@@ -1,0 +1,108 @@
+# generado por posta: no editar; se regenera con `posta generar`
+filters:
+  or:
+    - file.inFolder("Seguimiento/Preguntas")
+    - file.inFolder("Seguimiento/Supuestos")
+    - file.inFolder("Seguimiento/Decisiones")
+    - file.inFolder("Seguimiento/Riesgos")
+    - file.inFolder("Seguimiento/Hallazgos")
+    - file.inFolder("Seguimiento/Tareas")
+properties:
+  note.codigo:
+    displayName: Código
+  note.estado:
+    displayName: Estado
+  note.sector:
+    displayName: Sector
+views:
+  - type: table
+    name: "Para revisar"
+    filters: "note.revisar == true"
+    order:
+      - note.codigo
+      - note.tipo
+      - note.estado
+      - note.sector
+      - note.actualizado
+  - type: table
+    name: "Preguntas por sector"
+    filters: "note.tipo == \"pregunta\" && (note.estado == \"pendiente\" || note.estado == \"parcial\")"
+    groupBy:
+      property: note.sector
+      direction: ASC
+    order:
+      - note.codigo
+      - note.sector
+      - note.destraba
+      - note.prioridad
+      - note.actualizado
+  - type: table
+    name: "Decisiones propuestas"
+    filters: "note.tipo == \"decision\" && note.estado == \"propuesta\""
+    order:
+      - note.codigo
+      - note.actualizado
+  - type: table
+    name: "Riesgos abiertos"
+    filters: "note.tipo == \"riesgo\" && note.estado != \"resuelto\" && note.estado != \"descartado\""
+    order:
+      - note.codigo
+      - note.prioridad
+      - note.estado
+      - note.actualizado
+  - type: table
+    name: "Hallazgos abiertos"
+    filters: "note.tipo == \"hallazgo\" && note.estado != \"resuelto\" && note.estado != \"descartado\""
+    order:
+      - note.codigo
+      - note.severidad
+      - note.pr
+      - note.actualizado
+  - type: table
+    name: "Todas: pregunta"
+    filters: "note.tipo == \"pregunta\""
+    order:
+      - note.codigo
+      - note.estado
+      - note.prioridad
+      - note.actualizado
+  - type: table
+    name: "Todas: supuesto"
+    filters: "note.tipo == \"supuesto\""
+    order:
+      - note.codigo
+      - note.estado
+      - note.prioridad
+      - note.actualizado
+  - type: table
+    name: "Todas: decision"
+    filters: "note.tipo == \"decision\""
+    order:
+      - note.codigo
+      - note.estado
+      - note.prioridad
+      - note.actualizado
+  - type: table
+    name: "Todas: riesgo"
+    filters: "note.tipo == \"riesgo\""
+    order:
+      - note.codigo
+      - note.estado
+      - note.prioridad
+      - note.actualizado
+  - type: table
+    name: "Todas: hallazgo"
+    filters: "note.tipo == \"hallazgo\""
+    order:
+      - note.codigo
+      - note.estado
+      - note.prioridad
+      - note.actualizado
+  - type: table
+    name: "Todas: tarea"
+    filters: "note.tipo == \"tarea\""
+    order:
+      - note.codigo
+      - note.estado
+      - note.prioridad
+      - note.actualizado

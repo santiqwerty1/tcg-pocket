@@ -25,3 +25,14 @@ Thumbs.db
 # local data
 *.log
 tmp/
+
+# Bóveda de Obsidian: estado local de la app
+Boveda/.obsidian/workspace*.json
+Boveda/.obsidian/graph.json
+Boveda/.obsidian/themes/
+Boveda/.obsidian/snippets/
+Boveda/.obsidian/hotkeys.json
+Boveda/.obsidian/cache/
+Boveda/.obsidian/plugins/
+Boveda/.trash/
+Boveda/Adjuntos/

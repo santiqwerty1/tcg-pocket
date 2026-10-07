@@ -1,0 +1,7 @@
+{
+  "items": [
+    { "type": "file", "path": "Inicio.md", "title": "Inicio" },
+    { "type": "file", "path": "Trabajo.base", "title": "Trabajo" },
+    { "type": "file", "path": "Seguimiento/Avance.md", "title": "Avance" }
+  ]
+}

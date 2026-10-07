@@ -6,7 +6,18 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/dist", "!**/node_modules", "!**/test/fixtures", "!refs", "!docs", "!**/public"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/node_modules",
+      "!**/test/fixtures",
+      "!refs",
+      "!docs",
+      "!**/public",
+      "!Boveda",
+      "!.posta",
+      "!.claude"
+    ]
   },
   "formatter": {
     "enabled": true,

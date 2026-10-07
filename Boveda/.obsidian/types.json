@@ -1,0 +1,17 @@
+{
+  "types": {
+    "tipo": "text",
+    "codigo": "text",
+    "titulo": "text",
+    "area": "text",
+    "estado": "text",
+    "actualizado": "date",
+    "origen": "multitext",
+    "revisar": "checkbox",
+    "prioridad": "number",
+    "sector": "text",
+    "destraba": "text",
+    "respondido": "text",
+    "fecha": "date"
+  }
+}
