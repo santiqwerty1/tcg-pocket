@@ -16,6 +16,7 @@ import {
 import { DECK_EXPORT_FORMATS, type DeckCard, type DeckDetail, type DeckExportFormat } from '@/api/schemas'
 import { usePageTitle } from '@/app/AppShell'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { DeckNumber } from '@/components/DeckNumber'
 import { EnergyChips } from '@/components/EnergyChip'
 import { IssueList } from '@/components/IssueList'
 import { ErrorState, LoadingRows, Spinner } from '@/components/ListState'
@@ -32,6 +33,8 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { BestVersionsSection } from './BestVersions'
+import { ClosestDecksSection } from './ClosestDecks'
 import { DeckPerformance } from './DeckPerformance'
 import { DeckBadges } from './DecksPage'
 import { BUILT_IN_GAME_LIMIT, groupByType, totalCount } from './deckLogic'
@@ -180,7 +183,10 @@ export function DeckDetailPage() {
       <div className="flex flex-col gap-2">
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            <h2 className="text-2xl font-semibold">{data.name}</h2>
+            <h2 className="flex items-baseline gap-2 text-2xl font-semibold">
+              <DeckNumber id={data.id} name={data.name} className="text-lg font-normal" />
+              <span className="min-w-0">{data.name}</span>
+            </h2>
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <EnergyChips energies={data.energies} size="md" />
             </div>
@@ -258,6 +264,10 @@ export function DeckDetailPage() {
       <Section title={`Cartas (${totalCount(data.cards)})`}>
         <CardGroups deck={data} />
       </Section>
+
+      <BestVersionsSection deck={data} />
+
+      <ClosestDecksSection deckId={data.id} />
 
       <Section title="Validación">
         {data.validation.ok ? (

@@ -134,7 +134,7 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
     await user.click(within(form).getByRole('button', { name: 'Otro mazo…' }))
     const sheet = await screen.findByRole('dialog', { name: 'Elegí el mazo' })
     await user.type(within(sheet).getByLabelText('Buscar mazo'), 'eev')
-    await user.click(within(sheet).getByRole('button', { name: 'Eevee ex' }))
+    await user.click(within(sheet).getByRole('button', { name: /Eevee ex/ }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(within(deckGroup).getByRole('button', { name: /Eevee ex/ })).toHaveAttribute('aria-pressed', 'true')
 

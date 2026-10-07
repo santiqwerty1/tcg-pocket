@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useCreateMatch, useDeleteMatch } from '@/api/matches'
 import type { MatchMode, MatchResult, MatchSuggestions } from '@/api/schemas'
+import { DeckNumber } from '@/components/DeckNumber'
 import { Spinner } from '@/components/ListState'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -45,7 +46,7 @@ export function QuickMatchForm({
   const filteredDecks = useMemo(() => {
     const text = filter.trim().toLocaleLowerCase('es')
     return text
-      ? suggestions.decks.filter((deck) => deck.name.toLocaleLowerCase('es').includes(text))
+      ? suggestions.decks.filter((deck) => deck.id === text || deck.name.toLocaleLowerCase('es').includes(text))
       : suggestions.decks
   }, [filter, suggestions.decks])
 
@@ -127,7 +128,7 @@ export function QuickMatchForm({
           <div className="flex min-h-0 flex-col gap-2 px-4 pb-4">
             <Input
               aria-label="Buscar mazo"
-              placeholder="Buscar por nombre"
+              placeholder="Buscar por número o nombre"
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
             />
@@ -144,6 +145,7 @@ export function QuickMatchForm({
                       setFilter('')
                     }}
                   >
+                    <DeckNumber id={deck.id} name={deck.name} className="text-sm" />
                     <span className="min-w-0 flex-1 truncate">{deck.name}</span>
                     {deck.games > 0 ? (
                       <span className="text-xs text-muted-foreground tabular">{deck.games} partidas</span>

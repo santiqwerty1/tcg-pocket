@@ -1,0 +1,366 @@
+import { readFileSync } from 'node:fs'
+import type { AddressInfo } from 'node:net'
+import { join } from 'node:path'
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
+import { REPO_ROOT } from '../src/config/dotenv.js'
+import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
+
+/**
+ * docs/PLAN.md §7 Fase 3 (M8 read tools) with the official MCP client against the real HTTP endpoint, the
+ * 6/10/2026 collection and the 40 decks. Both protocol eras: the 2025 `initialize` handshake (what the Claude apps
+ * and Claude Code speak) and 2026-07-28.
+ */
+const CSV_PATH = join(REPO_ROOT, 'docs/context/tcgcollectiontracterexport-2026-10-06.csv')
+const DECKS_PATH = join(REPO_ROOT, 'docs/context/mazos_40_listas.md')
+
+type Structured = Record<string, unknown>
+
+describe('MCP endpoint (e2e)', () => {
+  let test: TestApp
+  let cookie: string
+  let url: URL
+  let readToken: string
+  let workerToken: string
+  const clients: Client[] = []
+
+  beforeAll(async () => {
+    test = await createTestApp()
+    await seedOwner(test.app, { totp: false })
+    cookie = await login(test, { secret: null })
+    const summary = await test.app
+      .get(CatalogSyncService)
+      .sync({ trackerCommit: test.env.catalogCommit, engineRev: test.env.engineRev, source: 'fixtures' })
+    expect(summary.status).toBe('applied')
+    const post = (path: string) => test.http().post(path).set('Cookie', cookie)
+    const preview = await post('/api/collection/imports').attach('file', readFileSync(CSV_PATH), 'export.csv')
+    expect((await post(`/api/collection/imports/${preview.body.id}/apply`)).status).toBe(200)
+    const drafts = (await post('/api/decks/import').send({ text: readFileSync(DECKS_PATH, 'utf8') })).body.drafts as {
+      title: string
+      draft: { energies: string[]; cards: unknown[] }
+    }[]
+    const inputs = drafts.map((d) => ({
+      name: d.title,
+      // Deck 10 says «Cualquiera»: the importer leaves the choice to the user.
+      energies: d.draft.energies.length > 0 ? d.draft.energies : ['psychic'],
+      cards: d.draft.cards,
+    }))
+    expect((await post('/api/decks/import/commit').send({ decks: inputs })).status).toBe(201)
+    readToken = (await post('/api/tokens').send({ name: 'claude', kind: 'mcp', scopes: ['mcp:read'] })).body.token
+    workerToken = (await post('/api/tokens').send({ name: 'pc', kind: 'worker', scopes: ['worker:claim'] })).body.token
+    expect(readToken).toMatch(/^tcg_mcp_/)
+
+    await test.app.listen(0, '127.0.0.1')
+    const { port } = test.app.getHttpServer().address() as AddressInfo
+    url = new URL(`http://127.0.0.1:${port}/api/mcp`)
+  })
+
+  afterAll(async () => {
+    for (const client of clients) await client.close().catch(() => undefined)
+    await test.close()
+  })
+
+  async function connect(era: 'legacy' | 'modern' = 'legacy', token = readToken): Promise<Client> {
+    const client = new Client(
+      { name: 'e2e', version: '1.0.0' },
+      era === 'modern' ? { versionNegotiation: { mode: { pin: '2026-07-28' } } } : {},
+    )
+    await client.connect(
+      new StreamableHTTPClientTransport(url, { requestInit: { headers: { Authorization: `Bearer ${token}` } } }),
+    )
+    clients.push(client)
+    return client
+  }
+
+  async function call(client: Client, name: string, args: Record<string, unknown> = {}) {
+    const result = await client.callTool({ name, arguments: args })
+    const typed = result as {
+      structuredContent?: Structured
+      content: { type: string; text?: string }[]
+      isError?: boolean
+    }
+    return { ...typed, structuredContent: typed.structuredContent ?? {} }
+  }
+
+  it('requires a valid mcp token with mcp:read', async () => {
+    const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
+    const headers = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' }
+    const none = await fetch(url, { method: 'POST', headers, body })
+    expect(none.status).toBe(401)
+    expect(none.headers.get('www-authenticate')).toMatch(/^Bearer/)
+    const bad = await fetch(url, {
+      method: 'POST',
+      headers: { ...headers, Authorization: 'Bearer tcg_mcp_nope' },
+      body,
+    })
+    expect(bad.status).toBe(401)
+    const worker = await fetch(url, {
+      method: 'POST',
+      headers: { ...headers, Authorization: `Bearer ${workerToken}` },
+      body,
+    })
+    expect(worker.status).toBe(403)
+    // The session cookie is not a way in: the endpoint is bearer-only.
+    expect((await fetch(url, { method: 'POST', headers: { ...headers, Cookie: cookie }, body })).status).toBe(401)
+    // No sessions and no standalone stream: GET and DELETE are 405 for an authenticated caller.
+    const get = await fetch(url, { headers: { Accept: 'text/event-stream', Authorization: `Bearer ${readToken}` } })
+    expect(get.status).toBe(405)
+    const del = await fetch(url, { method: 'DELETE', headers: { Authorization: `Bearer ${readToken}` } })
+    expect(del.status).toBe(405)
+  })
+
+  it('serves the 2025 initialize handshake (Claude apps, Claude Code) statelessly with every read tool', async () => {
+    const client = await connect('legacy')
+    expect(client.getServerVersion()?.name).toBe('tcg-pocket')
+    expect(client.getInstructions()).toContain('carta funcional')
+    const { tools } = await client.listTools()
+    expect(tools.map((tool) => tool.name).sort()).toEqual([
+      'cards_search',
+      'collection_editions',
+      'collection_playable_copies',
+      'collection_summary',
+      'decks_closest',
+      'decks_find_by_card',
+      'decks_get',
+      'decks_list',
+      'decks_missing',
+      'decks_random',
+      'decks_validate',
+      'matches_list',
+      'matches_stats',
+      'packs_recommend',
+      'simulations_results',
+      'tournaments_buildable',
+      'tournaments_stats',
+      'tournaments_unlock_cards',
+    ])
+    for (const tool of tools) {
+      expect(tool.annotations?.readOnlyHint).toBe(true)
+      expect(tool.description?.length).toBeGreaterThan(30)
+      expect(tool.inputSchema.type).toBe('object')
+    }
+    const playable = tools.find((tool) => tool.name === 'collection_playable_copies')
+    expect(playable?.inputSchema.required).toEqual(['query'])
+  })
+
+  it('serves 2026-07-28 clients from the same endpoint', async () => {
+    const client = await connect('modern')
+    const { tools } = await client.listTools()
+    expect(tools).toHaveLength(18)
+    const summary = await call(client, 'collection_summary')
+    expect(summary.structuredContent).toMatchObject({
+      copies: 4714,
+      functionalCardsWithAtLeastOne: 1853,
+      functionalCardsWithAtLeastTwo: 1255,
+    })
+  })
+
+  it('BRIEF M8 acceptance: Hoopa ex has 1 playable copy (B4-103) and decks 13 and 19 use it', async () => {
+    const client = await connect()
+    const copies = await call(client, 'collection_playable_copies', { query: 'Hoopa ex' })
+    expect(copies.isError).toBeFalsy()
+    const card = (copies.structuredContent.cards as Structured[])[0] as Structured
+    expect(copies.structuredContent.exactMatch).toBe(true)
+    expect(card).toMatchObject({ nameEs: 'Hoopa ex', playableCopies: 1, adjustment: null })
+    // B4b-149 is the Deluxe reprint that shares the tracker row with B4-103: one copy, not two.
+    expect(card.ownedEditions).toEqual([{ cardIds: ['B4-103', 'B4b-149'], rarity: '◊◊◊◊', owned: 1 }])
+    // Imported like the PWA does (name without the number): ids 1–40 follow the file, so «mazo 13» is id 13.
+    const used = card.decksUsingIt as { id: string; name: string }[]
+    expect(used.map((deck) => [deck.id, deck.name])).toEqual([
+      ['13', 'Hoopa ex / Mega-Absol ex'],
+      ['19', 'Hydreigon'],
+    ])
+    const names = used.map((deck) => deck.name)
+
+    const byCard = await call(client, 'decks_find_by_card', { query: 'hoopa EX' })
+    const decks = ((byCard.structuredContent.cards as Structured[])[0] as Structured).decks as { name: string }[]
+    expect(decks.map((deck) => deck.name)).toEqual(names)
+    // The text content carries the same JSON for clients that ignore structuredContent.
+    expect(JSON.parse(byCard.content[0]?.text ?? '{}')).toEqual(byCard.structuredContent)
+  })
+
+  it('resolves names in both languages, ids, and cards with the same name and different text', async () => {
+    const client = await connect()
+    const copycat = await call(client, 'cards_search', { q: 'Copycat' })
+    const ids = (copycat.structuredContent.results as { cardId: string; nameEs: string }[]).map((hit) => hit.cardId)
+    expect(ids).toEqual(expect.arrayContaining(['B1-225', 'B1-270', 'B4b-225', 'B4b-391', 'B4b-424']))
+    const copiona = await call(client, 'cards_search', { q: 'Copiona', limit: 5 })
+    expect((copiona.structuredContent.results as { nameEs: string }[])[0]?.nameEs).toBe('Copiona')
+
+    const riolu = await call(client, 'collection_playable_copies', { query: 'Riolu' })
+    const groups = riolu.structuredContent.cards as { functionalGroupId: string; playableCopies: number }[]
+    // Three Riolu with different text in the catalog; the plan's two (A2-91 = 1, B3-79 = 9) are among them.
+    expect(groups.map((group) => [group.functionalGroupId, group.playableCopies])).toEqual([
+      ['A2-91', 1],
+      ['A2b-42', 8],
+      ['B3-79', 9],
+    ])
+    const bulbasaur = await call(client, 'collection_editions', { query: 'a4b-1' })
+    const editions = ((bulbasaur.structuredContent.cards as Structured[])[0] as Structured).editions as {
+      cardId: string
+      sharesRowWith?: string[]
+    }[]
+    expect(editions.find((edition) => edition.cardId === 'A1-1')?.sharesRowWith).toEqual(['A4b-1'])
+
+    const unknown = await call(client, 'collection_playable_copies', { query: 'Pikachu Galáctico Supremo' })
+    expect(unknown.isError).toBe(true)
+    expect(unknown.content[0]?.text).toContain('No encontré ninguna carta')
+  })
+
+  it('lists and shows decks by their number, and says what a deck is missing with the cheapest edition', async () => {
+    const client = await connect()
+    const list = await call(client, 'decks_list')
+    expect(list.structuredContent.count).toBe(40)
+    const all = list.structuredContent.decks as { valid: boolean; complete: boolean }[]
+    expect(all.every((deck) => deck.valid && deck.complete)).toBe(true)
+
+    const deck13 = await call(client, 'decks_get', { deck: '13' })
+    expect(deck13.structuredContent).toMatchObject({
+      id: '13',
+      name: 'Hoopa ex / Mega-Absol ex',
+      cardCount: 20,
+      valid: true,
+    })
+    expect(deck13.structuredContent.text).toContain('Hoopa ex (B4-103)')
+    expect((await call(client, 'decks_get', { deck: 'mazo 1' })).structuredContent.name).toBe(
+      'Butterfree / Mega-Sceptile ex',
+    )
+    expect((await call(client, 'decks_get', { deck: 'hydreigon' })).structuredContent.id).toBe('19')
+    const ambiguous = await call(client, 'decks_get', { deck: 'Mega' })
+    expect(ambiguous.isError).toBe(true)
+    expect(ambiguous.content[0]?.text).toContain('varios mazos')
+
+    // A second Hoopa ex (the note of deck 13 says it is missing): one copy short, cheapest edition 500 points.
+    const detail = deck13.structuredContent.cards as { cardId: string; count: number }[]
+    const cards = detail.map((entry) => ({ cardId: entry.cardId, count: entry.cardId === 'B4-103' ? 2 : entry.count }))
+    const darkrai = cards.findIndex((entry) => entry.cardId === 'A2-110')
+    cards.splice(darkrai, 1)
+    const created = await test
+      .http()
+      .post('/api/decks')
+      .set('Cookie', cookie)
+      .send({ name: '41. Hoopa x2', energies: ['darkness'], cards })
+    expect(created.status).toBe(201)
+    const missing = await call(client, 'decks_missing', { deck: '41' })
+    expect(missing.structuredContent).toMatchObject({ complete: false, totalPackPoints: 500 })
+    expect(missing.structuredContent.missing).toEqual([
+      expect.objectContaining({
+        nameEs: 'Hoopa ex',
+        need: 2,
+        have: 1,
+        missingCopies: 1,
+        cheapestEdition: { cardId: 'B4-103', rarity: '◊◊◊◊', points: 500, pointsVerified: false, tradeable: true },
+      }),
+    ])
+  })
+
+  it('validates a pasted Limitless list without saving it', async () => {
+    const client = await connect()
+    const decks = (await test.http().get('/api/decks').set('Cookie', cookie)).body.items as {
+      id: string
+      name: string
+    }[]
+    const deck6 = decks.find((deck) => deck.id === '6')
+    expect(deck6?.name).toBe('Mega-Lucario ex / Lucario')
+    const exported = await test.http().get(`/api/decks/${deck6?.id}/export?format=limitless`).set('Cookie', cookie)
+    const valid = await call(client, 'decks_validate', { text: exported.text })
+    const first = (valid.structuredContent.decks as Structured[])[0] as Structured
+    expect(first).toMatchObject({ parsed: true, valid: true, complete: true, errors: [] })
+    expect((first.cards as { nameEs: string | null }[]).every((card) => card.nameEs !== null)).toBe(true)
+
+    // Without one of its two Riolu the list has 19 cards: a concrete Spanish message, nothing saved.
+    const broken = exported.text.replace(/^1 Riolu A2 91\r?\n/m, '')
+    expect(broken).not.toBe(exported.text)
+    const invalid = await call(client, 'decks_validate', { text: broken })
+    const result = (invalid.structuredContent.decks as Structured[])[0] as Structured
+    expect(result.valid).toBe(false)
+    expect((result.errors as string[]).join(' ')).toMatch(/19 cartas/)
+    expect((await test.http().get('/api/decks').set('Cookie', cookie)).body.items).toHaveLength(41)
+
+    const nothing = await call(client, 'decks_validate', {})
+    expect(nothing.isError).toBe(true)
+  })
+
+  it('reports own match statistics with the canonical text, and the modules that are not there yet', async () => {
+    const client = await connect()
+    const decks = (await test.http().get('/api/decks').set('Cookie', cookie)).body.items as {
+      id: string
+      name: string
+    }[]
+    const deck2 = decks.find((deck) => deck.id === '2')
+    for (let i = 0; i < 10; i += 1) {
+      const logged = await test
+        .http()
+        .post('/api/matches')
+        .set('Cookie', cookie)
+        .send({ deckId: deck2?.id, result: i < 7 ? 'win' : 'loss', opponent: 'Gardevoir ex' })
+      expect(logged.status).toBe(201)
+    }
+    const stats = await call(client, 'matches_stats', { deck: '2' })
+    expect(stats.structuredContent.overall).toMatchObject({
+      record: { wins: 7, losses: 3, ties: 0 },
+      rate: { text: '70 % (n = 10, IC 39,7–89,2 %, orientativo)', value: 70, games: 10, source: 'matches' },
+    })
+    expect(stats.structuredContent.source).toContain('no incluye torneos')
+    const recent = await call(client, 'matches_list', { limit: 3 })
+    expect(recent.structuredContent.total).toBe(10)
+    expect((recent.structuredContent.matches as Structured[])[0]).toMatchObject({
+      deck: 'Mega-Blaziken ex',
+      opponent: 'Gardevoir ex',
+    })
+    const list = await call(client, 'decks_list')
+    const withMatches = (list.structuredContent.decks as { name: string; myMatches: Structured | null }[]).find(
+      (deck) => deck.name === 'Mega-Blaziken ex',
+    )
+    expect(withMatches?.myMatches).toMatchObject({ record: { wins: 7, losses: 3, ties: 0 } })
+
+    for (const [name, phase] of [
+      ['packs_recommend', 'Fase 4'],
+      ['tournaments_stats', 'Fase 5'],
+      ['tournaments_buildable', 'Fase 5'],
+      ['tournaments_unlock_cards', 'Fase 5'],
+      ['simulations_results', 'Fase 6'],
+    ] as const) {
+      const result = await call(client, name)
+      expect(result.isError).toBeFalsy()
+      expect(result.structuredContent.available).toBe(false)
+      expect(String(result.structuredContent.message)).toContain(phase)
+    }
+  })
+
+  it('finds the closest saved deck to a pasted list, picks a random deck and recommends the best prints', async () => {
+    const client = await connect()
+    const exported = await test.http().get('/api/decks/6/export?format=limitless').set('Cookie', cookie)
+    const text = exported.text.replace(/^1 Riolu A2 91\r?\n/m, '')
+    expect(text).not.toBe(exported.text)
+    const builtOnly = await call(client, 'decks_closest', { text })
+    expect(builtOnly.structuredContent.note).toContain('armado en el juego')
+    const closest = await call(client, 'decks_closest', { text, scope: 'all', limit: 2 })
+    const best = (closest.structuredContent.closest as Structured[])[0] as Structured
+    expect(best).toMatchObject({ deckId: '6', swaps: 1, keep: 19, add: [], energy: 'sin cambios' })
+    expect(best.remove).toEqual(['1× Riolu (A2-91)'])
+    const byDeck = await call(client, 'decks_closest', { deck: '13', scope: 'all', limit: 1 })
+    expect((byDeck.structuredContent.closest as Structured[])[0]?.deckId).not.toBe('13')
+
+    const random = await call(client, 'decks_random', { leastPlayed: true })
+    expect(random.isError).toBeFalsy()
+    expect(random.structuredContent.myMatches).toBe(0)
+    expect(String((random.structuredContent.deck as Structured).id)).not.toBe('2')
+
+    const deck1 = await call(client, 'decks_get', { deck: '1' })
+    const changes = (deck1.structuredContent.bestVersions as { changes: Structured[] }).changes
+    expect(changes).toContainEqual({ nameEs: 'Copiona', listed: ['1× B1-225'], use: ['1× B4b-391 ◊◊ holográfica'] })
+  })
+
+  it('a revoked token stops working at once', async () => {
+    const created = await test
+      .http()
+      .post('/api/tokens')
+      .set('Cookie', cookie)
+      .send({ name: 'temporal', kind: 'mcp', scopes: ['mcp:read'] })
+    const client = await connect('legacy', created.body.token)
+    expect((await client.listTools()).tools.length).toBe(18)
+    expect((await test.http().delete(`/api/tokens/${created.body.id}`).set('Cookie', cookie)).status).toBe(204)
+    await expect(client.listTools()).rejects.toThrow()
+  })
+})

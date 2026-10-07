@@ -6,7 +6,14 @@ import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
 import type { GroupDeckUsage } from '../catalog/catalog-views.js'
 import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
 import { DECK_IMPORT_FORMATS } from './deck-formats.js'
-import type { DeckDetail, DeckSummary, ImportedDeckDraft, ValidateResult } from './deck-views.js'
+import type {
+  ClosestDecksResult,
+  DeckDetail,
+  DeckSummary,
+  ImportedDeckDraft,
+  RandomDeckResult,
+  ValidateResult,
+} from './deck-views.js'
 import { DecksService } from './decks.service.js'
 
 const queryBool = z.stringbool().optional()
@@ -48,6 +55,25 @@ const importSchema = z.object({
 })
 const commitSchema = z.object({ decks: z.array(deckInputSchema).min(1).max(100) })
 const duplicateSchema = z.object({ name: z.string().trim().min(1).max(200).optional() })
+const closestSchema = z
+  .object({
+    deckId: z.string().trim().min(1).max(20).optional(),
+    text: z.string().max(200_000).optional(),
+    format: z.enum(DECK_IMPORT_FORMATS).optional(),
+    cards: cards.optional(),
+    energies: energies.optional(),
+    scope: z.enum(['built', 'all']).optional(),
+    limit: z.number().int().min(1).max(10).optional(),
+  })
+  .refine((body) => body.deckId !== undefined || body.text !== undefined || body.cards !== undefined, {
+    message: 'Mandá deckId, text o cards.',
+  })
+const randomQuerySchema = z.object({
+  builtInGame: queryBool,
+  tag: z.string().trim().max(50).optional(),
+  leastPlayed: queryBool,
+  exclude: z.string().trim().max(20).optional(),
+})
 
 /** Session-protected deck API (docs/API.md «Mazos»). Static routes go first so they never match `:id`. */
 @Controller('api/decks')
@@ -96,6 +122,23 @@ export class DecksController {
     @CurrentSession() _session: RequestSession,
   ): Promise<{ created: DeckSummary[] }> {
     return { created: await this.decks.importCommit(body.decks) }
+  }
+
+  @Post('closest')
+  @HttpCode(200)
+  closest(
+    @Body(new ZodValidationPipe(closestSchema)) body: z.infer<typeof closestSchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<ClosestDecksResult> {
+    return this.decks.closest(body)
+  }
+
+  @Get('random')
+  random(
+    @Query(new ZodValidationPipe(randomQuerySchema)) query: z.infer<typeof randomQuerySchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<RandomDeckResult> {
+    return this.decks.random(query)
   }
 
   @Get('by-card/:groupId')

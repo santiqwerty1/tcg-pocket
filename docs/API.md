@@ -1,4 +1,4 @@
-# Contrato REST · Fases 1 y 2
+# Contrato REST · Fases 1 a 3
 
 Contrato entre `apps/api` (NestJS) y `apps/web` (PWA). Identificadores en inglés; mensajes para el usuario en español. Todas las rutas van bajo `/api` y exigen la cookie de sesión salvo las marcadas como públicas. JSON en ambas direcciones salvo descargas.
 
@@ -119,6 +119,8 @@ ImportPreview = {
 | `POST /api/decks/import` | `{ text, format?: 'auto'|'spanish'|'spanish-file'|'limitless'|'json' }` → `{ drafts: ImportedDeckDraft[] }` (vista previa; `spanish-file` acepta el archivo completo de 40 mazos con su tabla resumen) |
 | `POST /api/decks/import/commit` | `{ decks: DeckInput[] }` → `201 { created: DeckSummary[] }` (todos o ninguno, en una transacción; revisión 1 con `source: 'import'`) |
 | `GET /api/decks/by-card/:groupId` | `{ items: [{ id, name, count, builtInGame }] }` (mazos no archivados cuya revisión actual usa alguna edición del grupo; mismo contenido que `GroupDetail.decks`) |
+| `POST /api/decks/closest` | `{ deckId? | text?, format? | cards?, energies?, scope?: 'built'|'all', limit?: 1..10 }` (una de las tres fuentes) → `ClosestDecks`: los mazos guardados activos que necesitan menos cambios para convertirse en la lista; `built` (por defecto) compara solo con los armados en el juego, `all` con todos; el mazo de `deckId` se excluye. `400 invalid_deck_text` si el texto no tiene ningún mazo legible; `400 validation` sin fuente; `404` mazo inexistente |
+| `GET /api/decks/random?builtInGame=&tag=&leastPlayed=&exclude=` | `{ deck: DeckSummary, games, candidates }`: un mazo activo al azar (CSPRNG); con `leastPlayed=true` solo entre los que tienen menos partidas; `exclude` deja afuera la elección anterior salvo que sea la única. `404 no_decks` si ningún mazo cumple el filtro |
 
 Detección `auto`: texto que empieza con `{` → `json`; una tabla con fila `| # |` **o** dos o más encabezados `### N.` → `spanish-file`; un encabezado `### N.` o líneas `Pokémon:` / `Entrenadores:` / `Energía:` → `spanish`; lo demás → `limitless` (formato de líneas de Limitless/deckgym).
 
@@ -145,10 +147,26 @@ DeckDetail = DeckSummary & {
   completeness: { complete, missing: [{ groupId, nameEs, need, have, cardIds }], missingCount },
   revisions: [{ number, createdAt, source: 'ui'|'import'|'mcp'|'duplicate'|'restore', note, cardCount, energies }],
   changes: [{ field, old, new, at, source }],
-  notes: string
+  notes: string,
+  bestVersions: {                                     // mejores versiones que tengo de cada carta funcional
+    changed: boolean,
+    groups: [{ groupId, nameEs, need, current: [{ cardId, count }],
+               recommended: [{ cardId, nameEs, rarity, holo, count }] }],   // solo las cartas que mejoran
+    cards: [{ cardId, count }]                        // la lista entera reescrita (para PATCH { cards })
+  }
 }
 Issue = { code, message, cardIds?: string[] }
+ClosestDecks = {
+  target: { deckId: string | null, name: string | null, cardCount },
+  scope: 'built'|'all', candidates: number, builtInGameDecks: number,
+  results: [{ deckId, name, builtInGame, swaps, keep,               // swaps = max(cartas a poner, cartas a sacar)
+              toAdd: CardChange[], toRemove: CardChange[], otherEdition: CardChange[],
+              energies: { from, to, change } }]                     // menos cambios primero; empate: misma energía, armado, nombre
+}
+CardChange = { groupId, nameEs, count, cardIds }
 ```
+
+Mejor versión: entre las ediciones de la misma carta funcional que tengo (por fila del tracker), gana la de mayor rareza (◊ … ◊◊◊◊ < promo < ☆ < ☆☆ < ☆☆☆ < ✵ < ✵✵ < Corona) y, a igual rareza, la holográfica de los Deluxe (edición con fila propia cuya expansión trae también la reimpresión normal). En empates se queda la edición de la lista. Las copias que no tengo conservan la edición listada. Los ajustes manuales no se usan acá (son por carta funcional, no dicen qué edición).
 
 ## Partidas (Fase 2)
 
@@ -184,6 +202,16 @@ DeckComparison = { deck: { id, name, archived },
 ```
 
 El rival se guarda limpio (espacios colapsados); si no tiene letras ni números se guarda `null`. Las estadísticas agrupan por la clave y muestran la grafía más usada.
+
+## MCP (Fase 3)
+
+`POST /api/mcp`: servidor MCP remoto, Streamable HTTP, sin sesiones, con el SDK v2 (`@modelcontextprotocol/server` 2.3.1). Atiende las dos eras del protocolo en el mismo endpoint: 2026-07-28 y la de 2025 con `initialize` (la que usan hoy las apps de Claude y Claude Code). `GET` y `DELETE` responden `405`. Autenticación: `Authorization: Bearer tcg_mcp_…` con scope `mcp:read` (`401` sin token o con uno inválido o revocado, `403` con un token de worker); la cookie de sesión no sirve acá.
+
+Tools de lectura (nombres con `_` porque la API de Claude no acepta `.`): `collection_summary`, `cards_search`, `collection_playable_copies`, `collection_editions`, `decks_list`, `decks_get` (incluye `bestVersions`), `decks_find_by_card`, `decks_validate`, `decks_missing`, `decks_closest`, `decks_random`, `matches_stats`, `matches_list`. `packs_recommend`, `tournaments_stats`, `tournaments_buildable`, `tournaments_unlock_cards` y `simulations_results` responden `{ available: false, message }` con la fase en que llegan. Todas devuelven JSON compacto en `content[0].text` y el mismo objeto en `structuredContent`; los errores esperables (carta o mazo inexistente, entrada inválida) vuelven como `isError: true` con el mensaje en español. Cada porcentaje trae `text` con el formato canónico «70 % (n = 10, IC 39,7–89,2 %, orientativo)». Un mazo se indica por su número («13», «mazo 13»: el número con que empieza el nombre o, si no, el id), o por parte del nombre.
+
+Conectar:
+- **Claude Code:** crear un token MCP en Más → Tokens de API y registrar `claude mcp add --transport http tcg https://tcg-pocket.fly.dev/api/mcp --header "Authorization: Bearer tcg_mcp_…"`.
+- **Apps de Claude (web, escritorio, celular):** Configuración → Conectores → Añadir conector personalizado, URL `https://tcg-pocket.fly.dev/api/mcp`, «Encabezados de solicitud»: `Authorization` = `Bearer tcg_mcp_…` (DECISIONES A.6).
 
 ## Copia de seguridad
 

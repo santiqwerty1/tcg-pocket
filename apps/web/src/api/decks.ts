@@ -1,6 +1,7 @@
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request, requestText } from './client'
 import {
+  closestDecksSchema,
   commitDecksResponseSchema,
   type DeckExportFormat,
   type DeckImportFormat,
@@ -9,6 +10,7 @@ import {
   decksByCardResponseSchema,
   decksResponseSchema,
   importDecksResponseSchema,
+  randomDeckSchema,
   type SelectableEnergy,
   validateResponseSchema,
 } from './schemas'
@@ -18,6 +20,33 @@ export const deckKeys = {
   list: (params: DecksParams) => ['decks', 'list', params] as const,
   detail: (id: string) => ['decks', id] as const,
   byCard: (groupId: string) => ['decks', 'by-card', groupId] as const,
+  closest: (deckId: string, scope: 'built' | 'all') => ['decks', 'closest', deckId, scope] as const,
+}
+
+/** Saved decks closest to deck `deckId` (fewest swaps); read-only, so a query even though it is a POST. */
+export function useClosestDecks(deckId: string | undefined, scope: 'built' | 'all') {
+  return useQuery({
+    queryKey: deckKeys.closest(deckId ?? '', scope),
+    queryFn: ({ signal }) =>
+      request('/api/decks/closest', {
+        method: 'POST',
+        body: { deckId, scope, limit: 3 },
+        schema: closestDecksSchema,
+        signal,
+      }),
+    enabled: Boolean(deckId),
+  })
+}
+
+export interface RandomDeckParams {
+  builtInGame?: boolean
+  tag?: string
+  leastPlayed?: boolean
+  exclude?: string
+}
+
+export function fetchRandomDeck(params: RandomDeckParams) {
+  return request('/api/decks/random', { query: { ...params }, schema: randomDeckSchema })
 }
 
 export interface DecksParams {

@@ -432,6 +432,24 @@ export const deckChangeSchema = z.object({
   source: z.string().nullable().optional(),
 })
 
+/** Best prints owned of each functional card (only the cards that improve; `cards` is the whole list rewritten). */
+export const bestVersionsSchema = z.object({
+  changed: z.boolean(),
+  groups: z.array(
+    z.object({
+      groupId: z.string(),
+      nameEs: z.string(),
+      need: z.number(),
+      current: z.array(z.object({ cardId: z.string(), count: z.number() })),
+      recommended: z.array(
+        z.object({ cardId: z.string(), nameEs: z.string(), rarity: z.string(), holo: z.boolean(), count: z.number() }),
+      ),
+    }),
+  ),
+  cards: z.array(z.object({ cardId: z.string(), count: z.number() })),
+})
+export type BestVersions = z.infer<typeof bestVersionsSchema>
+
 export const deckDetailSchema = deckSummarySchema.extend({
   cards: z.array(deckCardSchema),
   validation: validationSchema,
@@ -439,8 +457,42 @@ export const deckDetailSchema = deckSummarySchema.extend({
   revisions: z.array(deckRevisionSchema),
   changes: z.array(deckChangeSchema),
   notes: z.string().nullable(),
+  bestVersions: bestVersionsSchema.optional(),
 })
 export type DeckDetail = z.infer<typeof deckDetailSchema>
+
+const cardChangeSchema = z.object({
+  groupId: z.string(),
+  nameEs: z.string(),
+  count: z.number(),
+  cardIds: z.array(z.string()),
+})
+export type CardChange = z.infer<typeof cardChangeSchema>
+
+export const deckDistanceSchema = z.object({
+  deckId: z.string(),
+  name: z.string(),
+  builtInGame: z.boolean(),
+  swaps: z.number(),
+  keep: z.number(),
+  toAdd: z.array(cardChangeSchema),
+  toRemove: z.array(cardChangeSchema),
+  otherEdition: z.array(cardChangeSchema),
+  energies: z.object({ from: z.array(z.string()), to: z.array(z.string()), change: z.boolean() }),
+})
+export type DeckDistance = z.infer<typeof deckDistanceSchema>
+
+export const closestDecksSchema = z.object({
+  target: z.object({ deckId: z.string().nullable(), name: z.string().nullable(), cardCount: z.number() }),
+  scope: z.enum(['built', 'all']),
+  candidates: z.number(),
+  builtInGameDecks: z.number(),
+  results: z.array(deckDistanceSchema),
+})
+export type ClosestDecks = z.infer<typeof closestDecksSchema>
+
+export const randomDeckSchema = z.object({ deck: deckSummarySchema, games: z.number(), candidates: z.number() })
+export type RandomDeck = z.infer<typeof randomDeckSchema>
 
 export const deckDraftSchema = z.object({
   name: z.string().optional(),

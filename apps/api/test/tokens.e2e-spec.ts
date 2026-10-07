@@ -73,9 +73,15 @@ describe('api tokens (e2e)', () => {
     expect(wrongKind.body.error.code).toBe('forbidden')
     const workerOnMcp = await test.http().post('/api/mcp').set('Authorization', `Bearer ${worker.body.token}`).send({})
     expect(workerOnMcp.status).toBe(403)
-    const mcpStub = await test.http().post('/api/mcp').set('Authorization', `Bearer ${mcp.body.token}`).send({})
-    expect(mcpStub.status).toBe(501)
-    expect(mcpStub.body.error.code).toBe('not_implemented')
+    // A valid mcp token reaches the MCP server (Fase 3), which answers an empty body with a JSON-RPC error.
+    const mcpCall = await test
+      .http()
+      .post('/api/mcp')
+      .set('Authorization', `Bearer ${mcp.body.token}`)
+      .set('Accept', 'application/json, text/event-stream')
+      .send({})
+    expect(mcpCall.status).toBe(400)
+    expect(mcpCall.body.jsonrpc).toBe('2.0')
   })
 
   it('revokes a token and keeps it in the list as revoked', async () => {

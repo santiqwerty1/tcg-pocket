@@ -1,8 +1,9 @@
-import { ClipboardPasteIcon, PlusIcon } from 'lucide-react'
+import { ClipboardPasteIcon, DicesIcon, PlusIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { useDecks } from '@/api/decks'
 import type { DeckSummary } from '@/api/schemas'
+import { DeckNumber } from '@/components/DeckNumber'
 import { EnergyChips } from '@/components/EnergyChip'
 import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Badge } from '@/components/ui/badge'
@@ -12,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { BUILT_IN_GAME_LIMIT, DECK_SIZE } from './deckLogic'
+import { RandomDeckSheet } from './RandomDeckSheet'
 
 const ALL_TAGS = '__all__'
 
@@ -45,6 +47,7 @@ export function DecksPage() {
   const [showArchived, setShowArchived] = useState(false)
   const [onlyBuilt, setOnlyBuilt] = useState(false)
   const [tag, setTag] = useState<string>(ALL_TAGS)
+  const [randomOpen, setRandomOpen] = useState(false)
   const decks = useDecks({ archived: showArchived })
   const active = useDecks({ archived: false })
 
@@ -73,6 +76,10 @@ export function DecksPage() {
             <ClipboardPasteIcon data-icon="inline-start" />
             Importar
           </Link>
+        </Button>
+        <Button variant="outline" onClick={() => setRandomOpen(true)}>
+          <DicesIcon data-icon="inline-start" />
+          Al azar
         </Button>
         <span className="ml-auto self-center text-sm text-muted-foreground tabular">
           {builtCount}/{BUILT_IN_GAME_LIMIT} en el juego
@@ -124,6 +131,7 @@ export function DecksPage() {
                 )}
               >
                 <span className="flex items-center gap-2">
+                  <DeckNumber id={deck.id} name={deck.name} className="text-sm" />
                   <span className="min-w-0 flex-1 truncate font-medium">{deck.name}</span>
                   <EnergyChips energies={deck.energies} />
                 </span>
@@ -139,6 +147,9 @@ export function DecksPage() {
             </li>
           ))}
         </ul>
+      ) : null}
+      {randomOpen ? (
+        <RandomDeckSheet open onOpenChange={setRandomOpen} onlyBuilt={onlyBuilt} tag={tag === ALL_TAGS ? null : tag} />
       ) : null}
     </div>
   )

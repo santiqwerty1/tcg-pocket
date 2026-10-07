@@ -1,7 +1,14 @@
 /**
  * Response shapes of the deck endpoints (docs/API.md «Mazos»). Numeric ids travel as strings.
  */
-import type { DeckCompleteness, DeckDraft, ParseIssue, SelectableEnergy, ValidationIssue } from '@tcg/domain'
+import type {
+  DeckCompleteness,
+  DeckDistance,
+  DeckDraft,
+  ParseIssue,
+  SelectableEnergy,
+  ValidationIssue,
+} from '@tcg/domain'
 import type { CardSummary, GroupSummary } from '../catalog/catalog-views.js'
 import type { DeckSource } from '../generated/prisma/enums.js'
 
@@ -71,6 +78,29 @@ export interface DeckDetail extends DeckSummary {
   completeness: DeckCompleteness
   revisions: DeckRevisionView[]
   changes: DeckChangeView[]
+  /** Best prints owned of every functional card (pedido del 7/10/2026). */
+  bestVersions: BestVersionsView
+}
+
+export interface VersionPickView {
+  cardId: string
+  nameEs: string
+  rarity: string
+  holo: boolean
+  count: number
+}
+
+/** Only the functional cards whose recommendation improves the list; `cards` is the whole list rewritten. */
+export interface BestVersionsView {
+  changed: boolean
+  groups: {
+    groupId: string
+    nameEs: string
+    need: number
+    current: { cardId: string; count: number }[]
+    recommended: VersionPickView[]
+  }[]
+  cards: { cardId: string; count: number }[]
 }
 
 export interface ValidateResult {
@@ -105,4 +135,24 @@ export function toIssueView(issue: ValidationIssue): IssueView {
   return issue.cardIds
     ? { code: issue.code, message: issue.message, cardIds: issue.cardIds }
     : { code: issue.code, message: issue.message }
+}
+
+/** `POST /api/decks/closest`: the saved decks closest to a target list (pedido del 7/10/2026). */
+export interface ClosestDecksResult {
+  target: { deckId: string | null; name: string | null; cardCount: number }
+  scope: 'built' | 'all'
+  /** Decks compared (the target itself excluded). */
+  candidates: number
+  /** Active decks marked as built in the game, to tell «none marked» from «none close». */
+  builtInGameDecks: number
+  results: DeckDistance[]
+}
+
+/** `GET /api/decks/random`. */
+export interface RandomDeckResult {
+  deck: DeckSummary
+  /** Own matches logged with the picked deck. */
+  games: number
+  /** Decks the pick was drawn from (after the filters and leastPlayed). */
+  candidates: number
 }

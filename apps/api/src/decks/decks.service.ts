@@ -3,18 +3,23 @@
  * whole collection, built-in-game limit, duplicate/restore, text formats. The rules live in @tcg/domain; this
  * service persists (`decks`, `deck_revisions`, `deck_changes`, `deck_cards`) and shapes responses.
  */
+import { randomInt } from 'node:crypto'
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import {
   aggregateEntries,
   type CatalogIndex,
+  type ComparableDeck,
   canMarkBuiltInGame,
+  closestDecks,
   countCards,
   type DeckCardEntry,
   type DeckDraft,
   DeckFormatError,
   deckCompleteness,
   diffDeckDrafts,
+  pickRandomDeck,
   playableCopies,
+  recommendBestVersions,
   type SelectableEnergy,
   validateDeck,
   writeDeckgymText,
@@ -33,11 +38,14 @@ import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { type DeckImportFormat, parseDeckText } from './deck-formats.js'
 import {
+  type BestVersionsView,
+  type ClosestDecksResult,
   type DeckCardView,
   type DeckDetail,
   type DeckSummary,
   type ImportedCardView,
   type ImportedDeckDraft,
+  type RandomDeckResult,
   toIssueView,
   type ValidateResult,
   type ValidationView,
@@ -82,6 +90,34 @@ export interface ValidateBody {
   energies?: SelectableEnergy[] | undefined
 }
 
+export interface ClosestBody {
+  /** The target is a saved deck (excluded from the candidates)… */
+  deckId?: string | undefined
+  /** …or a pasted list (first deck of the text)… */
+  text?: string | undefined
+  format?: DeckImportFormat | undefined
+  /** …or explicit cards. */
+  cards?: DeckCardEntry[] | undefined
+  energies?: SelectableEnergy[] | undefined
+  /** `built` (default): decks marked as built in the game; `all`: every active deck. */
+  scope?: 'built' | 'all' | undefined
+  limit?: number | undefined
+}
+
+export interface RandomQuery {
+  builtInGame?: boolean | undefined
+  tag?: string | undefined
+  leastPlayed?: boolean | undefined
+  /** Previous pick, so «otro» gives a different deck when there is one. */
+  exclude?: string | undefined
+}
+
+/** Uniform [0, 1) from the OS CSPRNG (Math.random is fine too, but this one is not seedable by accident). */
+function cryptoRandom(): number {
+  // randomInt needs max - min < 2^48.
+  return randomInt(0, 2 ** 47) / 2 ** 47
+}
+
 type DeckRecord = Deck & { revisions: DeckRevision[]; changes: DeckChange[] }
 type Tx = Prisma.TransactionClient
 
@@ -99,6 +135,8 @@ async function lockDeckWrites(tx: Tx): Promise<void> {
 interface EvalContext {
   index: CatalogIndex
   playableByGroup: Map<string, number>
+  /** Copies per tracker row, for the best-print recommendation. */
+  ownedByStock: Map<string, number>
 }
 
 const EXPORT_FILE_EXTENSION: Record<DeckExportFormat, string> = {
@@ -172,6 +210,80 @@ export class DecksService {
   async detail(rawId: string): Promise<DeckDetail> {
     const record = await this.requireDeck(rawId)
     return this.toDetail(await this.context(), record)
+  }
+
+  /**
+   * The saved decks that need the fewest card swaps to become the target (pedido del 7/10/2026). Counted by
+   * functional card; the Energy Zone is reported apart. Candidates: decks built in the game, or every active deck.
+   */
+  async closest(body: ClosestBody): Promise<ClosestDecksResult> {
+    const index = this.catalog.requireIndex()
+    let target: ComparableDeck
+    let targetName: string | null = null
+    let excludeId: string | null = null
+    if (body.deckId !== undefined) {
+      const record = await this.requireDeck(body.deckId)
+      target = draftOf(record)
+      targetName = record.name
+      excludeId = idToString(record.id)
+    } else if (body.text !== undefined && body.text.trim() !== '') {
+      const parsed = parseDeckText(body.text, body.format ?? 'auto', index)
+      const first = parsed.find((item) => item.draft !== null)
+      if (!first?.draft) {
+        const messages = parsed.flatMap((item) => item.errors.map((issue) => issue.message))
+        throw new BadRequestException({
+          code: 'invalid_deck_text',
+          message: messages.length > 0 ? messages.slice(0, 5).join(' · ') : 'No encontré ningún mazo en el texto.',
+        })
+      }
+      target = first.draft
+      targetName = first.title ?? first.draft.name ?? null
+    } else if (body.cards !== undefined) {
+      this.assertKnownCards(index, body.cards)
+      target = { cards: body.cards, energies: body.energies ?? [] }
+    } else {
+      throw new BadRequestException({ code: 'validation', message: 'Mandá deckId, text o cards.' })
+    }
+    const scope = body.scope ?? 'built'
+    const records = await this.prisma.deck.findMany({
+      where: { archivedAt: null, ...(scope === 'built' ? { builtInGame: true } : {}) },
+      include: { revisions: { orderBy: { number: 'asc' } }, changes: { take: 0 } },
+      orderBy: { id: 'asc' },
+    })
+    const builtInGameDecks = scope === 'built' ? records.length : records.filter((record) => record.builtInGame).length
+    const candidates = records.map((record) => {
+      const draft = draftOf(record)
+      return {
+        id: idToString(record.id),
+        name: record.name,
+        builtInGame: record.builtInGame,
+        cards: draft.cards,
+        energies: draft.energies,
+      }
+    })
+    return {
+      target: { deckId: excludeId, name: targetName, cardCount: countCards({ cards: [...target.cards] }) },
+      scope,
+      candidates: candidates.filter((candidate) => candidate.id !== excludeId).length,
+      builtInGameDecks,
+      results: closestDecks(target, candidates, index, { limit: body.limit ?? 3, excludeId }),
+    }
+  }
+
+  /** A random active deck, optionally among the built ones, a tag, or the least played (pedido del 7/10/2026). */
+  async random(query: RandomQuery, random: () => number = cryptoRandom): Promise<RandomDeckResult> {
+    const items = await this.list({ archived: false, builtInGame: query.builtInGame, tag: query.tag })
+    const counts = await this.prisma.match.groupBy({ by: ['deckId'], _count: { _all: true } })
+    const games = new Map(counts.map((row) => [idToString(row.deckId), row._count._all]))
+    const picked = pickRandomDeck(
+      items.map((deck) => ({ ...deck, games: games.get(deck.id) ?? 0 })),
+      { leastPlayed: query.leastPlayed ?? false, excludeId: query.exclude ?? null, random },
+    )
+    if (!picked) {
+      throw new NotFoundException({ code: 'no_decks', message: 'No hay mazos activos que cumplan el filtro.' })
+    }
+    const { games: played, ...deck } = picked.deck
+    return { deck, games: played, candidates: picked.candidates }
   }
 
   async byGroup(groupId: string): Promise<GroupDeckUsage[]> {
@@ -448,7 +560,8 @@ export class DecksService {
     const playableByGroup = new Map<string, number>()
     for (const [groupId, copies] of playableCopies(index, stock, adjustments))
       playableByGroup.set(groupId, copies.playable)
-    return { index, playableByGroup }
+    const ownedByStock = new Map(Object.values(stock).map((unit) => [unit.stockCardId, unit.amountOwned]))
+    return { index, playableByGroup, ownedByStock }
   }
 
   private evaluate(context: EvalContext, draft: DeckDraft) {
@@ -525,6 +638,35 @@ export class DecksService {
         at: change.at,
         source: change.source,
       })),
+      bestVersions: this.bestVersions(context, draft),
+    }
+  }
+
+  /** Which owned prints to put in the game deck: same functional card, best rarity, holographic over plain. */
+  private bestVersions(context: EvalContext, draft: DeckDraft): BestVersionsView {
+    const result = recommendBestVersions(
+      draft.cards,
+      context.index,
+      (stockCardId) => context.ownedByStock.get(stockCardId) ?? 0,
+    )
+    return {
+      changed: result.changed,
+      groups: result.groups
+        .filter((group) => group.improves)
+        .map((group) => ({
+          groupId: group.groupId,
+          nameEs: group.nameEs,
+          need: group.need,
+          current: group.current,
+          recommended: group.recommended.map((pick) => ({
+            cardId: pick.cardId,
+            nameEs: context.index.cardById(pick.cardId)?.nameEs ?? pick.cardId,
+            rarity: pick.rarity,
+            holo: pick.holo,
+            count: pick.count,
+          })),
+        })),
+      cards: result.cards,
     }
   }
 
