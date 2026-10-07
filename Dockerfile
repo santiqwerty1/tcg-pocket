@@ -42,6 +42,7 @@ COPY --from=build --chown=node:node /app/packages/domain/dist ./packages/domain/
 COPY --from=build --chown=node:node /app/packages/domain/node_modules ./packages/domain/node_modules
 COPY --from=build --chown=node:node /app/apps/api/package.json /app/apps/api/prisma.config.ts ./apps/api/
 COPY --from=build --chown=node:node /app/apps/api/prisma ./apps/api/prisma
+COPY --from=build --chown=node:node /app/apps/api/certs ./apps/api/certs
 COPY --from=build --chown=node:node /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=build --chown=node:node /app/apps/api/dist ./apps/api/dist
 COPY --from=build --chown=node:node /app/apps/web/dist ./apps/web/dist

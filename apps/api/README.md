@@ -169,3 +169,7 @@ src/settings/      configuración por clave
 src/cli/           owner-init, catalog-sync
 test/              e2e (supertest)
 ```
+
+### Supabase y TLS
+
+El pooler de Supabase usa una cadena firmada por `Supabase Root 2021 CA`, que Node no trae. El certificado público está en `certs/supabase-prod-ca-2021.crt` y `fly.toml` lo activa con `NODE_EXTRA_CA_CERTS`, así `DATABASE_URL` puede llevar `?sslmode=verify-full`. Para probar localmente contra Supabase: `NODE_EXTRA_CA_CERTS=apps/api/certs/supabase-prod-ca-2021.crt`.
