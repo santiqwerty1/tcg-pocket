@@ -106,6 +106,9 @@ model Pack {
   sortOrder     Int        @map("sort_order")
   /// Owner switch: is this pack still available in the game?
   available     Boolean    @default(true)
+  /// Owner switch: sold for a limited time (the Deluxe Mega); its last day, owner's time zone, when known.
+  limited       Boolean    @default(false)
+  limitedUntil  DateTime?  @map("limited_until") @db.Date
   /// Optional manual pack-points balance.
   pointsBalance Int?       @map("points_balance")
   cards         PackCard[]

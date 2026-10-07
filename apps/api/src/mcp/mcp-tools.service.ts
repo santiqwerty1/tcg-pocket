@@ -643,6 +643,7 @@ export class McpToolsService {
     alpha?: number
     collection?: { rarities: Rarity[]; copies: number } | null
     onlyAvailable?: boolean
+    limitedBoost?: number
     limit?: number
   }): Promise<Json> {
     const result = await this.packs.recommend({
@@ -650,7 +651,15 @@ export class McpToolsService {
       alpha: args.alpha,
       collection: args.collection,
       onlyAvailable: args.onlyAvailable ?? true,
+      limitedBoost: args.limitedBoost,
     })
+    const day = (iso: string) => iso.split('-').reverse().join('/')
+    const lastDay = (limited: { until: string | null; daysLeft: number | null }) =>
+      limited.until === null
+        ? 'tiempo limitado, sin fecha de fin cargada'
+        : limited.daysLeft !== null && limited.daysLeft < 0
+          ? `terminó el ${day(limited.until)}`
+          : `tiempo limitado hasta el ${day(limited.until)}${limited.daysLeft === null ? '' : limited.daysLeft === 0 ? ' (último día)' : ` (quedan ${limited.daysLeft} días)`}`
     const pct = (value: number) => `${percentFormat.format(value)} %`
     const packName = (pack: { nameEs: string; expansionId: string }) => `${pack.nameEs} (${pack.expansionId})`
     const reasons: Record<string, string> = {
@@ -660,6 +669,8 @@ export class McpToolsService {
     return {
       model: result.model === 'corrected' ? 'corregido' : 'tracker',
       alpha: result.alpha,
+      limitedBoost: result.limitedBoost,
+      today: result.today,
       goals: {
         decks: result.goals.decks,
         collection: result.collection,
@@ -675,6 +686,21 @@ export class McpToolsService {
         score: twoDecimals(row.expectedValue),
         packsFor50: row.packsFor50,
         packsFor90: row.packsFor90,
+        ...(row.limited
+          ? {
+              limited: lastDay(row.limited),
+              onlyHere: {
+                decks: row.limited.exclusive
+                  .filter((item) => item.goal === 'decks')
+                  .map((item) => `${item.nameEs} (${item.cardId})`),
+                collectionVersions: row.limited.exclusive.filter((item) => item.goal === 'collection').length,
+                examples: row.limited.exclusive
+                  .filter((item) => item.goal === 'collection')
+                  .slice(0, 12)
+                  .map((item) => `${item.cardId} ${item.nameEs} ${item.rarity}${item.holo ? ' holo' : ''}`),
+              },
+            }
+          : {}),
         ...(Math.abs(row.otherModel.probability - row.probability) >= 0.005
           ? {
               otherModel: `${row.otherModel.model === 'tracker' ? 'tracker' : 'corregido'}: ${pct(row.otherModel.probability)}${row.otherModel.reasons.length > 0 ? ` (${row.otherModel.reasons.map((reason) => reasons[reason] ?? reason).join('; ')})` : ''}`,
@@ -688,15 +714,25 @@ export class McpToolsService {
         cheapest: item.cheapest
           ? `${item.cheapest.cardId} ${item.cheapest.rarity}: ${item.cheapest.points} puntos${item.cheapest.verified ? '' : ' (sin verificar)'}, ${item.cheapest.tradeable ? 'intercambiable' : 'no intercambiable'}`
           : 'no se compra con puntos',
+        tradeable: item.tradeable,
         bestPack: item.bestPack
-          ? `${packName(item.bestPack)}: ${pct(item.bestPack.probability)} por sobre, ~${Math.round(item.bestPack.packsPerCopy)} sobres por copia`
-          : 'no sale de ningún sobre disponible',
+          ? `${packName(item.bestPack)}: ${pct(item.bestPack.probability)} por sobre, ~${Math.round(item.bestPack.packsPerCopy)} sobres por copia${item.bestPack.limited ? ' (tiempo limitado)' : ''}`
+          : 'no sale de ningún sobre a la venta',
+        ...(item.bestPack?.limited
+          ? {
+              afterLimited: item.afterLimited
+                ? `cuando termine: ${packName(item.afterLimited)}, ${pct(item.afterLimited.probability)} por sobre`
+                : 'cuando termine no la da ningún sobre a la venta',
+            }
+          : {}),
         advice:
           item.advice === 'buy'
             ? 'conviene comprarla con puntos'
             : item.advice === 'open'
               ? 'conviene abrir sobres'
-              : null,
+              : item.advice === 'trade'
+                ? 'ningún sobre a la venta la da ni se compra con puntos que se puedan ganar: conseguirla por intercambio'
+                : null,
       })),
       deckCompletion: result.decks.map((deck) => ({
         deck: deck.name,
@@ -704,9 +740,14 @@ export class McpToolsService {
         notInPacks: deck.notInPacks,
         bestPacks: deck.bestPacks.map(
           (pack) =>
-            `${packName(pack)}: cubre ${pack.covered} de ${deck.missingCopies} copias en ~${Math.round(pack.expectedPacks)} sobres${pack.method === 'simulation' ? ' (simulación)' : ''}`,
+            `${packName(pack)}: cubre ${pack.covered} de ${deck.missingCopies} copias en ~${Math.round(pack.expectedPacks)} sobres${pack.method === 'simulation' ? ' (simulación)' : ''}${pack.limited ? ' (tiempo limitado)' : ''}`,
         ),
       })),
+      ...(result.collectionOutOfPacks
+        ? {
+            collectionOutOfPacks: `${result.collectionOutOfPacks.versions} versiones buscadas no salen de ningún sobre a la venta; ${result.collectionOutOfPacks.tradeable} se pueden intercambiar`,
+          }
+        : {}),
       assumptions: result.assumptions,
     }
   }

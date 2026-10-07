@@ -24,14 +24,21 @@ export function usePacks() {
   })
 }
 
-export function useSetPackAvailable() {
+export interface PackPatch {
+  available?: boolean
+  limited?: boolean
+  /** YYYY-MM-DD, the last day on sale; null = unknown. */
+  limitedUntil?: string | null
+}
+
+export function useUpdatePack() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, available }: { id: string; available: boolean }) => {
+    mutationFn: ({ id, patch }: { id: string; patch: PackPatch }) => {
       const [expansionId, name] = id.split('/')
       return request(`/api/packs/${encodeURIComponent(expansionId ?? '')}/${encodeURIComponent(name ?? '')}`, {
         method: 'PATCH',
-        body: { available },
+        body: patch,
         schema: packInfoSchema,
       })
     },
@@ -69,7 +76,9 @@ export function useSetRarityRule() {
 /** Read-only POST: the goals travel in the body. Keeps the previous table while a new one loads. */
 export function useRecommendation(body: RecommendBody | null) {
   return useQuery({
-    queryKey: packKeys.recommend(body ?? { model: 'corrected', alpha: 0, collection: null, onlyAvailable: true }),
+    queryKey: packKeys.recommend(
+      body ?? { model: 'corrected', alpha: 0, collection: null, onlyAvailable: true, limitedBoost: 2 },
+    ),
     queryFn: ({ signal }) =>
       request('/api/packs/recommend', { method: 'POST', body, schema: recommendationSchema, signal }),
     enabled: body !== null,

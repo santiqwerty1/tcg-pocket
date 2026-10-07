@@ -1,13 +1,17 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import type { Rarity } from '../../src/catalog/types.js'
 import { normalizeImportRows, parseTrackerCsv, playableCopies } from '../../src/collection/index.js'
+import { isHoloEdition } from '../../src/decks/bestVersions.js'
 import {
   cheapestPrint,
+  collectionWanted,
   DEFAULT_RARITY_RULES,
   type DeckGoal,
   deckDeficits,
   editionChances,
   expectedPacksToComplete,
+  PACKS_LIMITED_BY_DEFAULT,
   packProfile,
   type RecommendInput,
   recommendPacks,
@@ -145,9 +149,9 @@ describe('recommendPacks: PLAN §7 Fase 4 acceptance (c), deck 13 missing one Ho
     for (const row of decksOnly.rows) {
       expect(both.rows.find((r) => r.packId === row.packId)?.expectedValue).toBeCloseTo(row.expectedValue, 12)
     }
-    // Each goal is scaled to its best pack: alone, the collection goal scores expected wanted cards / best pack's.
+    // Each goal is scaled to its best pack on sale: alone, the collection goal scores expected wanted cards / best's.
     const collectionOnly = recommendPacks(input({ decks: [], collection }))
-    const best = Math.max(...collectionOnly.rows.map((row) => row.expected))
+    const best = Math.max(...collectionOnly.rows.filter((row) => row.available).map((row) => row.expected))
     expect(collectionOnly.rows[0]?.expectedValue).toBeCloseTo(1, 12)
     for (const row of collectionOnly.rows) {
       expect(row.expectedValue).toBeCloseTo(row.expected / best, 12)
@@ -158,6 +162,9 @@ describe('recommendPacks: PLAN §7 Fase 4 acceptance (c), deck 13 missing one Ho
     expect(mixed.rows[0]?.packId).toBe('B4b/deluxepackmega')
     expect(mixed.rows[0]?.expectedValue).toBeGreaterThan(0.7)
     expect(mixed.rows[0]?.expectedValue).toBeLessThanOrEqual(1)
+    // The Deluxe ex is off sale: below every pack on sale, and its score says it would beat them.
+    expect(collectionOnly.rows.at(-1)?.packId).toBe('A4b/deluxepack')
+    expect(collectionOnly.rows.at(-1)?.expectedValue).toBeGreaterThan(1)
     // α = 0.2: the collection decides.
     const collectionFirst = recommendPacks(input({ collection, alpha: 0.2 }))
     expect(collectionFirst.rows[0]?.packId).not.toBe('B4b/deluxepackmega')
@@ -168,6 +175,137 @@ describe('recommendPacks: PLAN §7 Fase 4 acceptance (c), deck 13 missing one Ho
   })
 })
 
+describe('versions of the same card (pedido del 7/10/2026)', () => {
+  const card = (id: string) => {
+    const found = index.cardById(id)
+    if (!found) throw new Error(id)
+    return found
+  }
+
+  it('tells apart the card number, the version (internal id) and the functional card', () => {
+    // Same version under two numbers: one tracker row, copies counted together.
+    expect(card('A4b-1').internalId).toBe(card('A1-1').internalId)
+    expect(card('B4b-1').internalId).toBe(card('B1a-1').internalId)
+    expect(card('B4b-8').stockCardId).toBe('B1-2')
+    expect(owned(card('B4b-1').stockCardId)).toBe(5)
+    // A new version of the same functional card: its own internal id and count; the Deluxe holographic print.
+    expect(card('B4b-237').internalId).not.toBe(card('B4b-1').internalId)
+    expect(card('B4b-237').functionalGroupId).toBe(card('B4b-1').functionalGroupId)
+    expect(owned(card('B4b-237').stockCardId)).toBe(2)
+    expect(isHoloEdition(card('B4b-237'), index)).toBe(true)
+    expect(isHoloEdition(card('B4b-1'), index)).toBe(false)
+    expect(card('A1-227').functionalGroupId).toBe('A1-1')
+    expect(owned(card('A1-227').stockCardId)).toBe(1)
+    // Same name, different functional card (other attacks): never mixed for the decks.
+    expect(card('B1a-1').functionalGroupId).not.toBe(card('A1-1').functionalGroupId)
+  })
+
+  it('the collection goal wants versions: a reprint of an owned version is not wanted, a new version is', () => {
+    const wanted = new Set(collectionWanted(index, owned, { rarities: [], copies: 3 }).map((c) => c.id))
+    // B1a-1 = B4b-1 owned ×5: neither is wanted; B4b-237 (×2) is, on its own.
+    expect(wanted.has('B4b-1')).toBe(false)
+    expect(wanted.has('B1a-1')).toBe(false)
+    expect(wanted.has('B4b-237')).toBe(true)
+    // A1-1 = A4b-1 owned ×2: both numbers are the same wanted version.
+    expect(wanted.has('A1-1')).toBe(true)
+    expect(wanted.has('A4b-1')).toBe(true)
+  })
+})
+
+describe('limited-time packs: the Deluxe Mega until 28/10 (DECISIONES 4.9)', () => {
+  const limited = (packId: string) =>
+    PACKS_LIMITED_BY_DEFAULT.has(packId) ? { until: PACKS_LIMITED_BY_DEFAULT.get(packId) ?? null } : null
+  const everything = { rarities: [], copies: 10 }
+
+  it('days left, and the exclusive versions are the ones no pack that stays gives', () => {
+    const result = recommendPacks(input({ decks: [], collection: everything, limited, today: '2026-10-07' }))
+    const b4b = result.rows.find((row) => row.packId === 'B4b/deluxepackmega')
+    expect(b4b?.limited?.until).toBe('2026-10-28')
+    expect(b4b?.limited?.daysLeft).toBe(21)
+    const exclusive = new Map(b4b?.limited?.exclusive.map((item) => [item.cardId, item]))
+    // B4b-1 is the version of B1a-1 (B1a gives it); B4b-237 is a new holographic version only B4b gives.
+    expect(exclusive.has('B4b-1')).toBe(false)
+    expect(exclusive.get('B4b-237')).toEqual({
+      cardId: 'B4b-237',
+      nameEs: 'Bulbasaur',
+      rarity: '◊',
+      holo: true,
+      goal: 'collection',
+    })
+    // 193 of the 429 B4b versions are not in any other pack on sale (A4b is off).
+    expect(exclusive.size).toBe(193)
+    expect(result.rows.find((row) => row.packId === 'B4/ruleroftheskiespack')?.limited).toBeNull()
+  })
+
+  it('the exclusive versions weigh limitedBoost times more while the pack is on sale', () => {
+    const goal = { decks: [], collection: everything, limited, today: '2026-10-07' }
+    const plain = recommendPacks(input({ ...goal, limitedBoost: 1 }))
+    const boosted = recommendPacks(input({ ...goal, limitedBoost: 3 }))
+    const score = (result: typeof plain) => result.rows.find((row) => row.packId === 'B4b/deluxepackmega')
+    expect(boosted.limitedBoost).toBe(3)
+    expect(score(boosted)?.expectedValue).toBeGreaterThan(score(plain)?.expectedValue ?? 1)
+    // ×1 is the same as no limited pack at all.
+    const none = recommendPacks(input({ decks: [], collection: everything }))
+    expect(score(plain)?.expectedValue).toBeCloseTo(score(none)?.expectedValue ?? -1, 12)
+    expect(score(none)?.limited).toBeNull()
+  })
+
+  it('for the decks every B4b card is a reprint: nothing exclusive, and the best pack after it ends', () => {
+    const result = recommendPacks(input({ limited, today: '2026-10-07' }))
+    const b4b = result.rows.find((row) => row.packId === 'B4b/deluxepackmega')
+    expect(b4b?.limited?.exclusive).toEqual([])
+    const [hoopa] = result.missing
+    expect(hoopa?.bestPack).toMatchObject({ packId: 'B4b/deluxepackmega', limited: true })
+    expect(hoopa?.afterLimited?.packId).toBe('B4/ruleroftheskiespack')
+    expect((hoopa?.afterLimited?.probability ?? 0) * 100).toBeCloseTo(1.064, 3)
+    expect(result.decks[0]?.bestPacks[0]).toMatchObject({ packId: 'B4b/deluxepackmega', limited: true })
+  })
+
+  it('past its last day the pack is not on sale: it goes below the ones on sale', () => {
+    const result = recommendPacks(input({ limited, today: '2026-10-29' }))
+    const at = result.rows.findIndex((row) => row.packId === 'B4b/deluxepackmega')
+    expect(result.rows[at]).toMatchObject({ available: false, limited: { daysLeft: -1, exclusive: [] } })
+    expect(result.rows.slice(0, at).every((row) => row.available)).toBe(true)
+    expect(result.rows[0]?.packId).toBe('B4/ruleroftheskiespack')
+    expect(result.missing[0]?.bestPack).toMatchObject({ packId: 'B4/ruleroftheskiespack', limited: false })
+    expect(result.missing[0]?.afterLimited).toBeNull()
+  })
+})
+
+describe('cards out of the packs on sale (the Deluxe ex left the shop, DECISIONES 4.10)', () => {
+  it('trade when no pack on sale gives it and its points cannot be earned', () => {
+    const absent = index.catalog.cards.find(
+      (c) =>
+        c.expansionId === 'A1' &&
+        c.rarity === '◊' &&
+        (playableByGroup.get(c.functionalGroupId) ?? 0) === 0 &&
+        index.cardsOfGroup(c.functionalGroupId).every((other) => ['A1', 'A4b'].includes(other.expansionId)),
+    )
+    if (!absent) throw new Error('the collection has every A1 ◊ card')
+    const deck: DeckGoal = { deckId: '1', name: 'Prueba', priority: 1, cards: [{ cardId: absent.id, count: 1 }] }
+    const onSale = recommendPacks(input({ decks: [deck] }))
+    expect(onSale.missing[0]).toMatchObject({ tradeable: true, cheapest: { points: 35 } })
+    // Without the A1 packs (and A4b off) there is no pack to open nor A1 points to earn: trade it.
+    const retired = recommendPacks(
+      input({ decks: [deck], available: (packId) => !packId.startsWith('A1/') && packId !== 'A4b/deluxepack' }),
+    )
+    expect(retired.missing[0]).toMatchObject({ bestPack: null, cheapest: null, tradeable: true, advice: 'trade' })
+    expect(retired.decks[0]?.notInPacks).toEqual([absent.nameEs])
+  })
+
+  it('counts the collection versions no pack on sale gives and how many can be traded', () => {
+    const result = recommendPacks(input({ decks: [], collection: { rarities: [], copies: 1 } }))
+    const out = result.collectionOutOfPacks
+    expect(out?.versions).toBeGreaterThan(0)
+    expect(out?.tradeable).toBeGreaterThan(0)
+    expect(out?.tradeable).toBeLessThanOrEqual(out?.versions ?? 0)
+    // With the Deluxe ex on sale its own versions come back into the packs.
+    const withA4b = recommendPacks(input({ decks: [], collection: { rarities: [], copies: 1 }, available: () => true }))
+    expect(withA4b.collectionOutOfPacks?.versions).toBeLessThan(out?.versions ?? 0)
+    expect(recommendPacks(input()).collectionOutOfPacks).toBeNull()
+  })
+})
+
 describe('cheapestPrint', () => {
   it('skips promos and marks the trade rule of rarity and expansion', () => {
     expect(cheapestPrint(index, 'A1-1', (rarity) => DEFAULT_RARITY_RULES[rarity])).toMatchObject({
@@ -175,6 +313,12 @@ describe('cheapestPrint', () => {
       points: 35,
       tradeable: true,
     })
+  })
+
+  it('leaves out the prints whose points can no longer be earned', () => {
+    const rule = (rarity: Rarity) => DEFAULT_RARITY_RULES[rarity]
+    expect(cheapestPrint(index, 'A1-1', rule, (expansionId) => expansionId !== 'A1')?.cardId).toBe('A4b-1')
+    expect(cheapestPrint(index, 'A1-1', rule, () => false)).toBeNull()
   })
 })
 

@@ -17,8 +17,15 @@ const recommendSchema = z.object({
   alpha: z.number().min(0).max(1).optional(),
   collection: collectionGoalSchema.nullable().optional(),
   onlyAvailable: z.boolean().optional(),
+  limitedBoost: z.number().min(1).max(5).optional(),
 })
-const availabilitySchema = z.object({ available: z.boolean() })
+const packPatchSchema = z
+  .object({
+    available: z.boolean().optional(),
+    limited: z.boolean().optional(),
+    limitedUntil: z.iso.date().nullable().optional(),
+  })
+  .refine((patch) => Object.keys(patch).length > 0, { message: 'Mandá al menos un campo.' })
 const rarityRuleSchema = z
   .object({
     points: z.number().int().min(0).max(100_000).nullable().optional(),
@@ -48,13 +55,13 @@ export class PacksController {
   }
 
   @Patch('packs/:expansionId/:name')
-  setAvailable(
+  updatePack(
     @Param('expansionId') expansionId: string,
     @Param('name') name: string,
-    @Body(new ZodValidationPipe(availabilitySchema)) body: z.infer<typeof availabilitySchema>,
+    @Body(new ZodValidationPipe(packPatchSchema)) body: z.infer<typeof packPatchSchema>,
     @CurrentSession() _session: RequestSession,
   ): Promise<PackView> {
-    return this.packs.setAvailable(assertPackId(expansionId, name), body.available)
+    return this.packs.updatePack(assertPackId(expansionId, name), body)
   }
 
   @Get('rarity-rules')

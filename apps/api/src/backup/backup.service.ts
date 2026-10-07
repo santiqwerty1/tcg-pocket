@@ -7,6 +7,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { ENV, type Env } from '../config/env.js'
+import { dateOnly } from '../config/time-zone.js'
 import type { Prisma } from '../generated/prisma/client.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
@@ -120,7 +121,10 @@ export class BackupService {
         include: { revisions: { orderBy: { number: 'asc' } }, changes: { orderBy: { id: 'asc' } } },
       }),
       this.prisma.match.findMany({ orderBy: { id: 'asc' } }),
-      this.prisma.pack.findMany({ orderBy: { id: 'asc' }, select: { id: true, available: true, pointsBalance: true } }),
+      this.prisma.pack.findMany({
+        orderBy: { id: 'asc' },
+        select: { id: true, available: true, pointsBalance: true, limited: true, limitedUntil: true },
+      }),
       this.prisma.apiToken.findMany({ orderBy: { id: 'asc' } }),
     ])
     return {
@@ -208,7 +212,13 @@ export class BackupService {
           source: change.source,
         })),
       })),
-      packs: packs.map((pack) => ({ id: pack.id, available: pack.available, pointsBalance: pack.pointsBalance })),
+      packs: packs.map((pack) => ({
+        id: pack.id,
+        available: pack.available,
+        pointsBalance: pack.pointsBalance,
+        limited: pack.limited,
+        limitedUntil: dateOnly(pack.limitedUntil),
+      })),
       matches: matches.map((match) => ({
         id: match.id,
         deckId: match.deckId,
@@ -429,7 +439,14 @@ export class BackupService {
         for (const pack of document.packs) {
           await tx.pack.updateMany({
             where: { id: pack.id },
-            data: { available: pack.available, pointsBalance: pack.pointsBalance },
+            data: {
+              available: pack.available,
+              pointsBalance: pack.pointsBalance,
+              ...(pack.limited === undefined ? {} : { limited: pack.limited }),
+              ...(pack.limitedUntil === undefined
+                ? {}
+                : { limitedUntil: pack.limitedUntil === null ? null : new Date(`${pack.limitedUntil}T00:00:00Z`) }),
+            },
           })
         }
         if (document.matches.length > 0) {

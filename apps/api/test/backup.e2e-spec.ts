@@ -128,6 +128,10 @@ describe('backup and settings (e2e)', () => {
     ).toBe(201)
     // Pack switch (Fase 4): B4b turned off travels in the backup; A4b starts off by default.
     expect((await patch('/api/packs/B4b/deluxepackmega').send({ available: false })).status).toBe(200)
+    // «Tiempo limitado» with its last day travels too.
+    expect((await patch('/api/packs/A1/mewtwopack').send({ limited: true, limitedUntil: '2026-12-01' })).status).toBe(
+      200,
+    )
 
     const response = await get('/api/backup/export').responseType('blob')
     expect(response.status).toBe(200)
@@ -153,10 +157,20 @@ describe('backup and settings (e2e)', () => {
     expect(document.decks[0]?.revisions).toHaveLength(2)
     expect(document.decks[0]?.changes.length).toBeGreaterThanOrEqual(2)
     expect(document.decks[2]?.variantOfId).toBe(Number(deckIds[0]))
-    const packs = (document as unknown as { packs: { id: string; available: boolean }[] }).packs
-    expect(packs.find((pack) => pack.id === 'B4b/deluxepackmega')?.available).toBe(false)
+    const packs = (document as unknown as { packs: Record<string, unknown>[] }).packs
+    expect(packs.find((pack) => pack.id === 'B4b/deluxepackmega')).toEqual({
+      id: 'B4b/deluxepackmega',
+      available: false,
+      pointsBalance: null,
+      limited: true,
+      limitedUntil: '2026-10-28',
+    })
     expect(packs.find((pack) => pack.id === 'A4b/deluxepack')?.available).toBe(false)
-    expect(packs.find((pack) => pack.id === 'A1/mewtwopack')?.available).toBe(true)
+    expect(packs.find((pack) => pack.id === 'A1/mewtwopack')).toMatchObject({
+      available: true,
+      limited: true,
+      limitedUntil: '2026-12-01',
+    })
     expect(document.matches).toHaveLength(2)
     expect(document.matches[0]).toMatchObject({
       deckId: Number(deckIds[0]),
@@ -192,6 +206,12 @@ describe('backup and settings (e2e)', () => {
     expect(bombed.status).toBe(400)
     expect(bombed.body.error.code).toBe('invalid_backup')
     expect(bombed.body.error.message).toContain('128 MB')
+    // A version-3 file from before «tiempo limitado» still reads (the switches stay as they are).
+    const packsOnly = (document as unknown as { packs: Record<string, unknown>[] }).packs.map(
+      ({ limited: _limited, limitedUntil: _until, ...rest }) => rest,
+    )
+    const earlier = gzipSync(Buffer.from(JSON.stringify({ ...document, packs: packsOnly })))
+    expect((await post('/api/backup/import?mode=dry-run').attach('file', earlier, 'x.gz')).status).toBe(200)
     expect((await post('/api/backup/import?mode=replace')).status).toBe(400)
     expect((await post('/api/backup/import?mode=nope').attach('file', exported, 'b.gz')).status).toBe(400)
   })
@@ -203,7 +223,7 @@ describe('backup and settings (e2e)', () => {
     await test.prisma.collectionStock.deleteMany()
     await test.prisma.collectionImport.deleteMany()
     await test.prisma.appSetting.deleteMany()
-    await test.prisma.pack.updateMany({ data: { available: true } })
+    await test.prisma.pack.updateMany({ data: { available: true, limited: false, limitedUntil: null } })
     expect((await get('/api/decks')).body.items).toEqual([])
     expect((await get('/api/collection/summary')).body.copies).toBe(0)
 
@@ -219,7 +239,11 @@ describe('backup and settings (e2e)', () => {
       matches: 2,
     })
     const packs = (await get('/api/packs')).body.items as { id: string; available: boolean }[]
-    expect(packs.find((pack) => pack.id === 'B4b/deluxepackmega')?.available).toBe(false)
+    expect(packs.find((pack) => pack.id === 'B4b/deluxepackmega')).toMatchObject({
+      available: false,
+      limited: true,
+      limitedUntil: '2026-10-28',
+    })
     expect(packs.find((pack) => pack.id === 'A4b/deluxepack')?.available).toBe(false)
 
     const again = await get('/api/backup/export').responseType('blob')

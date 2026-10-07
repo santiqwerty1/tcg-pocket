@@ -16,6 +16,7 @@ export const SETTING_KEYS = [
   'cores',
   'defaultBot',
   'packModel',
+  'limitedBoost',
 ] as const
 export type SettingKey = (typeof SETTING_KEYS)[number]
 

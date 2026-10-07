@@ -137,9 +137,20 @@ export const backupDocumentSchema = z.object({
   decks: z.array(deckSchema),
   /** Own matches (version 2); a version 1 file has none. */
   matches: z.array(matchSchema).default([]),
-  /** Owner switches of the packs (version 3, Fase 4): «disponible» and the optional points balance. */
+  /**
+   * Owner switches of the packs (version 3, Fase 4): «disponible», the optional points balance and «tiempo limitado»
+   * with its last day (added later in version 3: a file without them keeps the current ones).
+   */
   packs: z
-    .array(z.object({ id: z.string(), available: z.boolean(), pointsBalance: z.number().int().nullable() }))
+    .array(
+      z.object({
+        id: z.string(),
+        available: z.boolean(),
+        pointsBalance: z.number().int().nullable(),
+        limited: z.boolean().optional(),
+        limitedUntil: z.iso.date().nullable().optional(),
+      }),
+    )
     .default([]),
   /** Metadata only: hashes are never exported, so tokens are not restored (they are created again). */
   tokens: z.array(tokenSchema),

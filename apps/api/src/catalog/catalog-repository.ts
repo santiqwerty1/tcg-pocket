@@ -22,7 +22,7 @@ import type {
   Rarity,
   StockUnit,
 } from '@tcg/domain'
-import { DEFAULT_RARITY_RULES, PACKS_OFF_BY_DEFAULT } from '@tcg/domain'
+import { DEFAULT_RARITY_RULES, PACKS_LIMITED_BY_DEFAULT, PACKS_OFF_BY_DEFAULT } from '@tcg/domain'
 import type { CatalogSync } from '../generated/prisma/client.js'
 import type { CatalogSyncStatus } from '../generated/prisma/enums.js'
 import { PrismaService } from '../prisma/prisma.service.js'
@@ -117,7 +117,7 @@ export class CatalogRepository {
       await upsertMany(
         client,
         'packs',
-        ['id', 'expansion_id', 'name', 'name_es', 'color', 'sort_order', 'available'],
+        ['id', 'expansion_id', 'name', 'name_es', 'color', 'sort_order', 'available', 'limited', 'limited_until'],
         catalog.packs.map((pack, index) => [
           pack.id,
           pack.expansionId,
@@ -126,10 +126,13 @@ export class CatalogRepository {
           pack.color,
           index,
           !PACKS_OFF_BY_DEFAULT.has(pack.id),
+          PACKS_LIMITED_BY_DEFAULT.has(pack.id),
+          PACKS_LIMITED_BY_DEFAULT.get(pack.id) ?? null,
         ]),
         ['id'],
-        // «Disponible» is the owner's switch: a new pack gets the default, a known pack keeps what was chosen.
-        { insertOnly: ['available'] },
+        // «Disponible» and «tiempo limitado» are the owner's switches: a new pack gets the default, a known pack keeps
+        // what was chosen.
+        { insertOnly: ['available', 'limited', 'limited_until'], casts: { limited_until: '$n::date' } },
       )
 
       await upsertMany(

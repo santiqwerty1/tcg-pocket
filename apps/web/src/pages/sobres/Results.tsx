@@ -1,15 +1,17 @@
 /** Results of the pack recommendation: table per pack, missing cards with cost, packs to complete each deck. */
 import { useState } from 'react'
 import { Link } from 'react-router'
-import type { DeckCompletion, MissingCard, PackRow, Recommendation } from '@/api/schemas'
+import type { DeckCompletion, ExclusiveVersion, MissingCard, PackRow, Recommendation } from '@/api/schemas'
 import { Section } from '@/components/Section'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   formatAmount,
+  formatBoost,
   formatChance,
   formatExpectedPacks,
   formatPacks,
+  limitedLabel,
   MODEL_LABEL,
   REASON_LABEL,
   rarityLabel,
@@ -20,16 +22,54 @@ function packLabel(pack: { nameEs: string; expansionId: string }): string {
   return `${pack.nameEs} · ${pack.expansionId}`
 }
 
-function PackRowItem({ row, rank }: { row: PackRow; rank: number }) {
+function versionLabel(item: ExclusiveVersion): string {
+  return `${item.nameEs} ${rarityLabel(item.rarity)}${item.holo ? ' holo' : ''}`
+}
+
+/** What only a limited pack gives: functional cards for the decks, versions (art, holo) for the collection. */
+function ExclusiveList({ items, boost }: { items: ExclusiveVersion[]; boost: number }) {
+  const forDecks = items.filter((item) => item.goal === 'decks')
+  const forCollection = items.filter((item) => item.goal === 'collection')
+  return (
+    <details className="pl-8 text-xs">
+      <summary className="cursor-pointer text-warning select-none">
+        {items.length === 1 ? 'Solo de este sobre: 1 carta buscada' : `Solo de este sobre: ${items.length} buscadas`}
+        {boost > 1 ? `, pesan ${formatBoost(boost)}` : ''}
+      </summary>
+      {forDecks.length > 0 ? (
+        <p className="mt-1">
+          <span className="text-muted-foreground">Para mazos: </span>
+          {forDecks.map((item) => item.nameEs).join(', ')}
+        </p>
+      ) : null}
+      {forCollection.length > 0 ? (
+        <ul className="mt-1 grid grid-cols-1 gap-x-3 sm:grid-cols-2">
+          {forCollection.map((item) => (
+            <li key={item.cardId} className="truncate">
+              <span className="font-mono text-muted-foreground">{item.cardId}</span> {versionLabel(item)}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </details>
+  )
+}
+
+function PackRowItem({ row, rank, today, boost }: { row: PackRow; rank: number; today: string; boost: number }) {
   const differs = Math.abs(row.otherModel.probability - row.probability) >= 0.005
   return (
     <li className={cn('flex flex-col gap-0.5 px-3 py-2', !row.available && 'opacity-60')}>
       <div className="flex items-baseline gap-2">
         <span className="w-6 shrink-0 text-right text-xs text-muted-foreground tabular">{rank}</span>
         <span className="min-w-0 flex-1 truncate font-medium">{packLabel(row)}</span>
-        {!row.available ? <Badge variant="outline">no disponible</Badge> : null}
+        {row.limited && row.available ? (
+          <Badge className="bg-warning text-white">limitado</Badge>
+        ) : !row.available ? (
+          <Badge variant="outline">no disponible</Badge>
+        ) : null}
         <span className="shrink-0 font-semibold tabular">{formatChance(row.probability)}</span>
       </div>
+      {row.limited ? <div className="pl-8 text-xs text-warning">{limitedLabel(row.limited, today)}</div> : null}
       <div className="pl-8 text-xs text-muted-foreground tabular">
         <span className="whitespace-nowrap">{formatAmount(row.expected)} buscadas</span>
         <span className="whitespace-nowrap"> · puntaje {formatAmount(row.expectedValue)}</span>
@@ -44,6 +84,9 @@ function PackRowItem({ row, rank }: { row: PackRow; rank: number }) {
             : ''}
         </div>
       ) : null}
+      {row.limited && row.available && row.limited.exclusive.length > 0 ? (
+        <ExclusiveList items={row.limited.exclusive} boost={boost} />
+      ) : null}
     </li>
   )
 }
@@ -52,6 +95,7 @@ export function PackTable({ recommendation }: { recommendation: Recommendation }
   const [showAll, setShowAll] = useState(false)
   const rows = showAll ? recommendation.rows : recommendation.rows.slice(0, 8)
   const nothingWanted = recommendation.rows.every((row) => row.wanted === 0)
+  const out = recommendation.collectionOutOfPacks
   return (
     <Section title="Qué sobre abrir">
       {nothingWanted ? (
@@ -61,19 +105,34 @@ export function PackTable({ recommendation }: { recommendation: Recommendation }
       ) : (
         <>
           <p className="text-xs text-muted-foreground">
-            Ordenados por puntaje: 1 es el mejor sobre posible. Cada objetivo se mide contra su mejor sobre (cartas
+            Ordenados por puntaje: 1 es el mejor sobre a la venta. Cada objetivo se mide contra su mejor sobre (cartas
             buscadas esperadas, pesadas por la prioridad de cada mazo) y se combinan con el peso de los mazos. El
-            porcentaje es la probabilidad de al menos una carta buscada por sobre.
+            porcentaje es la probabilidad de al menos una carta buscada por sobre. Los que no están a la venta van al
+            final; su puntaje dice cuánto mejor serían.
           </p>
           <ol className="divide-y rounded-lg border">
             {rows.map((row, at) => (
-              <PackRowItem key={row.packId} row={row} rank={at + 1} />
+              <PackRowItem
+                key={row.packId}
+                row={row}
+                rank={at + 1}
+                today={recommendation.today}
+                boost={recommendation.limitedBoost}
+              />
             ))}
           </ol>
           {recommendation.rows.length > 8 ? (
             <Button variant="ghost" size="sm" className="self-start" onClick={() => setShowAll(!showAll)}>
               {showAll ? 'Ver menos' : `Ver los ${recommendation.rows.length}`}
             </Button>
+          ) : null}
+          {out && out.versions > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {out.versions === 1
+                ? '1 versión que buscás no sale de ningún sobre a la venta'
+                : `${out.versions} versiones que buscás no salen de ningún sobre a la venta`}{' '}
+              (sobres retirados como el Deluxe ex, promos): {out.tradeable} se pueden conseguir por intercambio.
+            </p>
           ) : null}
         </>
       )}
@@ -96,6 +155,8 @@ function MissingRow({ item }: { item: MissingCard }) {
           <Badge className="bg-success text-white">comprar</Badge>
         ) : item.advice === 'open' ? (
           <Badge variant="secondary">abrir</Badge>
+        ) : item.advice === 'trade' ? (
+          <Badge variant="outline">intercambiar</Badge>
         ) : null}
       </div>
       <div className="text-xs text-muted-foreground">
@@ -115,14 +176,21 @@ function MissingRow({ item }: { item: MissingCard }) {
             ) : null}
           </>
         ) : (
-          'No se compra con puntos'
+          'No se compra con puntos que se puedan ganar'
         )}
       </div>
       <div className="text-xs text-muted-foreground">
         {item.bestPack
-          ? `Mejor sobre: ${packLabel(item.bestPack)} · ${formatChance(item.bestPack.probability)} · ~${formatExpectedPacks(item.bestPack.packsPerCopy)} sobres por copia`
-          : 'No sale de ningún sobre disponible'}
+          ? `Mejor sobre: ${packLabel(item.bestPack)} · ${formatChance(item.bestPack.probability)} · ~${formatExpectedPacks(item.bestPack.packsPerCopy)} sobres por copia${item.bestPack.limited ? ' (tiempo limitado)' : ''}`
+          : `No sale de ningún sobre a la venta${item.tradeable ? '; se puede intercambiar' : ''}`}
       </div>
+      {item.bestPack?.limited ? (
+        <div className="text-xs text-muted-foreground">
+          {item.afterLimited
+            ? `Cuando termine: ${packLabel(item.afterLimited)} · ${formatChance(item.afterLimited.probability)} · ~${formatExpectedPacks(item.afterLimited.packsPerCopy)} sobres por copia`
+            : 'Cuando termine no la da ningún sobre a la venta'}
+        </div>
+      ) : null}
     </li>
   )
 }
@@ -133,6 +201,7 @@ export function MissingCards({ items }: { items: MissingCard[] }) {
     <Section title={`Cartas que faltan (${items.length})`}>
       <p className="text-xs text-muted-foreground">
         «Comprar» cuando juntar los puntos lleva menos sobres que sacarla: cada sobre da 5 puntos de su expansión.
+        «Intercambiar» cuando ningún sobre a la venta la da ni sus puntos se pueden ganar.
       </p>
       <ul className="divide-y rounded-lg border">
         {items.map((item) => (
@@ -169,6 +238,7 @@ function CompletionRow({ deck }: { deck: DeckCompletion }) {
           {pack.method === 'simulation' && pack.ci95
             ? ` (simulación, IC ${formatAmount(pack.ci95[0])}–${formatAmount(pack.ci95[1])})`
             : ''}
+          {pack.limited ? ' · tiempo limitado' : ''}
         </div>
       ))}
       {deck.notInPacks.length > 0 ? (

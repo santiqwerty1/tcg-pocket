@@ -1,5 +1,5 @@
 /** Response shapes of the packs API (docs/API.md «Sobres»). Probabilities in percent (0–100). */
-import type { CollectionGoal, ModelDifferenceReason, PackModel, Rarity } from '@tcg/domain'
+import type { CollectionGoal, ExclusiveVersion, ModelDifferenceReason, PackModel, Rarity } from '@tcg/domain'
 
 export interface PackView {
   /** "<expansionId>/<name>", e.g. "B4b/deluxepackmega". */
@@ -9,6 +9,9 @@ export interface PackView {
   name: string
   nameEs: string
   available: boolean
+  /** Sold for a limited time (the Deluxe Mega); `limitedUntil` = its last day (YYYY-MM-DD), null when unknown. */
+  limited: boolean
+  limitedUntil: string | null
   cardsPerPack: 4 | 5
   cardCount: number
   containsShinies: boolean
@@ -43,6 +46,8 @@ export interface PackRowView extends PackRef {
   decks: { probability: number; expected: number } | null
   collection: { probability: number; expected: number } | null
   otherModel: { model: PackModel; probability: number; reasons: ModelDifferenceReason[] }
+  /** Limited-time pack: last day, days left (0 = last day, negative = over) and the cards only it gives. */
+  limited: { until: string | null; daysLeft: number | null; exclusive: ExclusiveVersion[] } | null
 }
 
 export interface MissingCardView {
@@ -52,9 +57,12 @@ export interface MissingCardView {
   weight: number
   decks: { deckId: string; name: string; priority: number; need: number }[]
   cheapest: { cardId: string; rarity: string; points: number; verified: boolean; tradeable: boolean } | null
-  bestPack: (PackRef & { probability: number; packsPerCopy: number }) | null
+  tradeable: boolean
+  bestPack: (PackRef & { probability: number; packsPerCopy: number; limited: boolean }) | null
+  /** When the best pack is a limited one: the best pack that stays. */
+  afterLimited: (PackRef & { probability: number; packsPerCopy: number }) | null
   pointsInPacks: number | null
-  advice: 'buy' | 'open' | null
+  advice: 'buy' | 'open' | 'trade' | null
 }
 
 export interface DeckCompletionView {
@@ -66,6 +74,7 @@ export interface DeckCompletionView {
   /** Packs covering the most missing copies (`covered`), then the fewest expected packs to get them. */
   bestPacks: (PackRef & {
     covered: number
+    limited: boolean
     expectedPacks: number
     method: 'exact' | 'simulation'
     ci95: [number, number] | null
@@ -77,10 +86,15 @@ export interface RecommendationView {
   alpha: number
   collection: CollectionGoal | null
   onlyAvailable: boolean
+  limitedBoost: number
+  /** The date the recommendation used (owner's time zone). */
+  today: string
   goals: { decks: { id: string; name: string; priority: number }[] }
   rows: PackRowView[]
   missing: MissingCardView[]
   decks: DeckCompletionView[]
+  /** Versions the collection goal wants that no pack on sale gives, and how many can be traded. */
+  collectionOutOfPacks: { versions: number; tradeable: number } | null
   /** What the numbers assume (shown under the table). */
   assumptions: string[]
 }

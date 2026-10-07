@@ -25,6 +25,27 @@ export function formatPacks(value: number | null): string {
   return value === 1 ? '1 sobre' : `${integer.format(value)} sobres`
 }
 
+/** «28/10» from YYYY-MM-DD; the year only when it is not the current one. */
+export function formatDay(iso: string, today: string): string {
+  const [year, month, day] = iso.split('-')
+  return year === today.slice(0, 4) ? `${day}/${month}` : `${day}/${month}/${year}`
+}
+
+/** «Hasta el 28/10 · quedan 21 días», «Último día», «Terminó el 28/10». */
+export function limitedLabel(limited: { until: string | null; daysLeft: number | null }, today: string): string {
+  if (limited.until === null) return 'Tiempo limitado, sin fecha de fin'
+  const day = formatDay(limited.until, today)
+  if (limited.daysLeft === null) return `Hasta el ${day}`
+  if (limited.daysLeft < 0) return `Terminó el ${day}`
+  if (limited.daysLeft === 0) return `Hasta hoy (${day}): último día`
+  return `Hasta el ${day} · ${limited.daysLeft === 1 ? 'queda 1 día' : `quedan ${limited.daysLeft} días`}`
+}
+
+/** «×2», «×1,5». */
+export function formatBoost(boost: number): string {
+  return `×${twoDecimals.format(boost)}`
+}
+
 export const MODEL_LABEL: Record<PackModel, string> = { corrected: 'corregido', tracker: 'tracker' }
 
 export const REASON_LABEL: Record<'babies' | 'reprints', string> = {

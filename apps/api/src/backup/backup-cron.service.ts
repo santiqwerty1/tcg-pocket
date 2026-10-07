@@ -2,10 +2,11 @@ import { Inject, Injectable, type OnModuleInit } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { PinoLogger } from 'nestjs-pino'
 import { ENV, type Env } from '../config/env.js'
+import { OWNER_TIME_ZONE } from '../config/time-zone.js'
 import { BackupService } from './backup.service.js'
 
 /** The owner's local time: the container runs in UTC, so the schedule names the zone explicitly. */
-export const BACKUP_CRON_TIMEZONE = 'America/Argentina/Buenos_Aires'
+export const BACKUP_CRON_TIMEZONE = OWNER_TIME_ZONE
 
 /** Daily snapshot at 04:00 Buenos Aires time into `backup_blobs`; `BACKUP_CRON` turns it on (default: production). */
 @Injectable()

@@ -660,6 +660,8 @@ export const packInfoSchema = z.object({
   name: z.string(),
   nameEs: z.string(),
   available: z.boolean(),
+  limited: z.boolean(),
+  limitedUntil: z.string().nullable(),
   cardsPerPack: z.number(),
   cardCount: z.number(),
   containsShinies: z.boolean(),
@@ -689,6 +691,16 @@ const packRefFields = {
 }
 const pullFields = z.object({ probability: z.number(), expected: z.number() })
 
+/** A card only a limited-time pack gives: a functional card for the decks, a version (art, holo) for the collection. */
+export const exclusiveVersionSchema = z.object({
+  cardId: z.string(),
+  nameEs: z.string(),
+  rarity: z.string(),
+  holo: z.boolean(),
+  goal: z.enum(['decks', 'collection']),
+})
+export type ExclusiveVersion = z.infer<typeof exclusiveVersionSchema>
+
 export const packRowSchema = z.object({
   ...packRefFields,
   available: z.boolean(),
@@ -706,6 +718,13 @@ export const packRowSchema = z.object({
     probability: z.number(),
     reasons: z.array(z.enum(['babies', 'reprints'])),
   }),
+  limited: z
+    .object({
+      until: z.string().nullable(),
+      daysLeft: z.number().nullable(),
+      exclusive: z.array(exclusiveVersionSchema),
+    })
+    .nullable(),
 })
 export type PackRow = z.infer<typeof packRowSchema>
 
@@ -724,9 +743,13 @@ export const missingCardSchema = z.object({
       tradeable: z.boolean(),
     })
     .nullable(),
-  bestPack: z.object({ ...packRefFields, probability: z.number(), packsPerCopy: z.number() }).nullable(),
+  tradeable: z.boolean(),
+  bestPack: z
+    .object({ ...packRefFields, probability: z.number(), packsPerCopy: z.number(), limited: z.boolean() })
+    .nullable(),
+  afterLimited: z.object({ ...packRefFields, probability: z.number(), packsPerCopy: z.number() }).nullable(),
   pointsInPacks: z.number().nullable(),
-  advice: z.enum(['buy', 'open']).nullable(),
+  advice: z.enum(['buy', 'open', 'trade']).nullable(),
 })
 export type MissingCard = z.infer<typeof missingCardSchema>
 
@@ -740,6 +763,7 @@ export const deckCompletionSchema = z.object({
     z.object({
       ...packRefFields,
       covered: z.number(),
+      limited: z.boolean(),
       expectedPacks: z.number(),
       method: z.enum(['exact', 'simulation']),
       ci95: z.tuple([z.number(), z.number()]).nullable(),
@@ -753,10 +777,13 @@ export const recommendationSchema = z.object({
   alpha: z.number(),
   collection: collectionGoalSchema.nullable(),
   onlyAvailable: z.boolean(),
+  limitedBoost: z.number(),
+  today: z.string(),
   goals: z.object({ decks: z.array(z.object({ id: z.string(), name: z.string(), priority: z.number() })) }),
   rows: z.array(packRowSchema),
   missing: z.array(missingCardSchema),
   decks: z.array(deckCompletionSchema),
+  collectionOutOfPacks: z.object({ versions: z.number(), tradeable: z.number() }).nullable(),
   assumptions: z.array(z.string()),
 })
 export type Recommendation = z.infer<typeof recommendationSchema>
@@ -766,6 +793,7 @@ export interface RecommendBody {
   alpha: number
   collection: CollectionGoal | null
   onlyAvailable: boolean
+  limitedBoost: number
 }
 
 // ---------- Auth, tokens, settings, backup ----------

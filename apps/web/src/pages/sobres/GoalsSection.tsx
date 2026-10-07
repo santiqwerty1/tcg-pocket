@@ -1,6 +1,7 @@
 /**
  * Goals of the recommendation (BRIEF M4): target decks with a priority (1–3, stored in each deck), the collection
- * goal with a rarity filter, α between them, the model switch and «solo disponibles».
+ * goal with a rarity filter, α between them, the weight of what only a limited-time pack gives, the model switch
+ * and «solo disponibles».
  */
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -15,11 +16,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
-import { PACK_RARITIES, rarityLabel } from '@/lib/packs'
+import { formatBoost, PACK_RARITIES, rarityLabel } from '@/lib/packs'
 import { ChoiceGroup } from '@/pages/partidas/MatchFields'
 
 const PRESSED = 'aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground'
 const PRIORITY_LABEL = ['—', 'Baja', 'Media', 'Alta'] as const
+const LIMITED_BOOSTS = [1, 1.5, 2, 3] as const
 
 function TargetDecksSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const decks = useDecks({ archived: false })
@@ -101,6 +103,9 @@ export function GoalsSection({
   onModelChange,
   onlyAvailable,
   onOnlyAvailableChange,
+  limitedBoost,
+  onLimitedBoostChange,
+  limitedPacks,
 }: {
   decks: { id: string; name: string; priority: number }[]
   collection: CollectionGoal | null
@@ -113,6 +118,10 @@ export function GoalsSection({
   onModelChange: (model: PackModel) => void
   onlyAvailable: boolean
   onOnlyAvailableChange: (value: boolean) => void
+  limitedBoost: number
+  onLimitedBoostChange: (value: number) => void
+  /** Limited-time packs on sale, e.g. «Sobre Deluxe Mega (hasta el 28/10)». */
+  limitedPacks: string[]
 }) {
   const [sheetOpen, setSheetOpen] = useState(false)
   const toggleRarity = (rarity: (typeof PACK_RARITIES)[number]) => {
@@ -216,6 +225,30 @@ export function GoalsSection({
             <span>Colección</span>
             <span>Mazos</span>
           </div>
+        </div>
+      ) : null}
+
+      {limitedPacks.length > 0 ? (
+        <div className="flex flex-col gap-2 rounded-lg border p-3">
+          <ChoiceGroup label="Prioridad a los sobres por tiempo limitado" className="grid grid-cols-4 gap-1.5">
+            {LIMITED_BOOSTS.map((boost) => (
+              <Button
+                key={boost}
+                type="button"
+                size="sm"
+                variant="outline"
+                aria-pressed={limitedBoost === boost}
+                className={PRESSED}
+                onClick={() => onLimitedBoostChange(boost)}
+              >
+                {boost === 1 ? 'No' : formatBoost(boost)}
+              </Button>
+            ))}
+          </ChoiceGroup>
+          <p className="text-xs text-muted-foreground">
+            {limitedPacks.join(' · ')}. Lo que solo sale de ahí pesa más mientras dure: para los mazos, una carta que
+            ningún otro sobre a la venta da; para la colección, una versión (arte u holo) que ningún otro sobre da.
+          </p>
         </div>
       ) : null}
 

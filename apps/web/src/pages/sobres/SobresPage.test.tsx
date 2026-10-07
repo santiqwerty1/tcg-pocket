@@ -20,6 +20,8 @@ function recommendation(model: 'corrected' | 'tracker') {
     alpha: 0.7,
     collection: null,
     onlyAvailable: true,
+    limitedBoost: 2,
+    today: '2026-10-07',
     goals: { decks: [{ id: '13', name: 'Hoopa ex / Mega-Absol ex', priority: 3 }] },
     rows: [
       {
@@ -39,6 +41,26 @@ function recommendation(model: 'corrected' | 'tracker') {
           probability: model === 'corrected' ? 0 : 100 / 70,
           reasons: ['reprints'],
         },
+        limited: {
+          until: '2026-10-28',
+          daysLeft: 21,
+          exclusive: [{ cardId: 'B4b-237', nameEs: 'Bulbasaur', rarity: '◊', holo: true, goal: 'collection' }],
+        },
+      },
+      {
+        ...ref('A4b/deluxepack', 'Sobre Deluxe ex'),
+        available: false,
+        cardsPerPack: 4,
+        wanted: 0,
+        probability: 0,
+        expected: 0,
+        expectedValue: 0,
+        packsFor50: null,
+        packsFor90: null,
+        decks: { probability: 0, expected: 0 },
+        collection: null,
+        otherModel: { model: model === 'corrected' ? 'tracker' : 'corrected', probability: 0, reasons: [] },
+        limited: null,
       },
     ],
     missing: [
@@ -49,9 +71,29 @@ function recommendation(model: 'corrected' | 'tracker') {
         weight: 3,
         decks: [{ deckId: '13', name: 'Hoopa ex / Mega-Absol ex', priority: 3, need: 2 }],
         cheapest: { cardId: 'B4-103', rarity: '◊◊◊◊', points: 500, verified: false, tradeable: true },
-        bestPack: { ...ref('B4b/deluxepackmega', 'Sobre Deluxe Mega'), probability: 100 / 70, packsPerCopy: 70 },
+        tradeable: true,
+        bestPack: {
+          ...ref('B4b/deluxepackmega', 'Sobre Deluxe Mega'),
+          probability: 100 / 70,
+          packsPerCopy: 70,
+          limited: true,
+        },
+        afterLimited: { ...ref('B4/ruleroftheskiespack', 'Sobre Hoopa'), probability: 1.064, packsPerCopy: 94 },
         pointsInPacks: 100,
         advice: 'open',
+      },
+      {
+        groupId: 'P-A-7',
+        nameEs: 'Investigación de Profesores',
+        missing: 1,
+        weight: 1,
+        decks: [{ deckId: '13', name: 'Hoopa ex / Mega-Absol ex', priority: 3, need: 2 }],
+        cheapest: null,
+        tradeable: true,
+        bestPack: null,
+        afterLimited: null,
+        pointsInPacks: null,
+        advice: 'trade',
       },
     ],
     decks: [
@@ -65,6 +107,7 @@ function recommendation(model: 'corrected' | 'tracker') {
           {
             ...ref('B4b/deluxepackmega', 'Sobre Deluxe Mega'),
             covered: 1,
+            limited: true,
             expectedPacks: 70,
             method: 'exact',
             ci95: null,
@@ -72,6 +115,7 @@ function recommendation(model: 'corrected' | 'tracker') {
         ],
       },
     ],
+    collectionOutOfPacks: null,
     assumptions: ['Tasas constantes.'],
   }
 }
@@ -129,7 +173,34 @@ describe('Sobres page (Fase 4)', () => {
       alpha: 0.7,
       collection: null,
       onlyAvailable: true,
+      limitedBoost: 2,
     })
+  })
+
+  it('limited time: badge, days left, the versions only it gives, the pack after it ends and «intercambiar»', async () => {
+    const user = userEvent.setup()
+    renderAt('/sobres')
+    expect(await screen.findByText('limitado')).toBeInTheDocument()
+    expect(screen.getByText('Hasta el 28/10 · quedan 21 días')).toBeInTheDocument()
+    expect(screen.getByText(/Solo de este sobre: 1 carta buscada, pesan ×2/)).toBeInTheDocument()
+    expect(screen.getByText(/Bulbasaur ◊ holo/)).toBeInTheDocument()
+    expect(screen.getByText('no disponible')).toBeInTheDocument()
+    expect(screen.getByText(/Cuando termine: Sobre Hoopa · B4 · 1,06 %/)).toBeInTheDocument()
+    expect(screen.getByText('intercambiar')).toBeInTheDocument()
+    expect(screen.getByText('No sale de ningún sobre a la venta; se puede intercambiar')).toBeInTheDocument()
+    // The weight of the limited packs is saved and asked again.
+    expect(screen.getByText(/Sobre Deluxe Mega: hasta el 28\/10 · quedan 21 días/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '×3' }))
+    await waitFor(() =>
+      expect(requests.some((r) => r.path === '/api/settings/limitedBoost' && r.method === 'PUT')).toBe(true),
+    )
+    await waitFor(() =>
+      expect(
+        requests.some(
+          (r) => r.path === '/api/packs/recommend' && (r.body as { limitedBoost: number }).limitedBoost === 3,
+        ),
+      ).toBe(true),
+    )
   })
 
   it('the tracker switch saves the setting and asks again with the tracker model', async () => {
@@ -146,6 +217,9 @@ describe('Sobres page (Fase 4)', () => {
         requests.some((r) => r.path === '/api/packs/recommend' && (r.body as { model: string }).model === 'tracker'),
       ).toBe(true),
     )
-    expect(await screen.findByText('0 %')).toBeInTheDocument()
+    await waitFor(() => {
+      const row = screen.getByText('Sobre Deluxe Mega · B4b').closest('li') as HTMLElement
+      expect(within(row).getByText('0 %')).toBeInTheDocument()
+    })
   })
 })

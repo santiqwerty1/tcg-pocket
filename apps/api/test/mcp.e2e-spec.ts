@@ -341,6 +341,11 @@ describe('MCP endpoint (e2e)', () => {
     const patched = await test.http().patch('/api/decks/13').set('Cookie', cookie).send({ cards, packPriority: 3 })
     expect(patched.status).toBe(200)
 
+    // The Deluxe Mega is limited: a last day far away keeps this test independent of the clock.
+    await test.prisma.pack.update({
+      where: { id: 'B4b/deluxepackmega' },
+      data: { limitedUntil: new Date('2099-12-31T00:00:00Z') },
+    })
     const result = await call(client, 'packs_recommend', { collection: null, limit: 3 })
     expect(result.isError).toBeFalsy()
     const packs = result.structuredContent.packs as Structured[]
@@ -348,15 +353,32 @@ describe('MCP endpoint (e2e)', () => {
     expect(packs[0]).toMatchObject({ probability: '1,43 %', packsFor50: 49, packsFor90: 161 })
     expect(String(packs[0]?.pack)).toContain('(B4b)')
     expect(String(packs[0]?.otherModel)).toContain('tracker: 0 %')
+    expect(String(packs[0]?.limited)).toContain('tiempo limitado hasta el 31/12/2099')
+    // For the decks every B4b card is a reprint: nothing only it gives.
+    expect(packs[0]?.onlyHere).toMatchObject({ decks: [], collectionVersions: 0 })
     expect(result.structuredContent.missingCards).toEqual([
       expect.objectContaining({
         nameEs: 'Hoopa ex',
         cheapest: 'B4-103 ◊◊◊◊: 500 puntos (sin verificar), intercambiable',
+        tradeable: true,
+        afterLimited: expect.stringContaining('cuando termine: '),
         advice: 'conviene abrir sobres',
       }),
     ])
+    expect(String((result.structuredContent.missingCards as Structured[])[0]?.bestPack)).toContain('(tiempo limitado)')
+    expect(result.structuredContent.limitedBoost).toBe(2)
     const completion = (result.structuredContent.deckCompletion as Structured[])[0]
     expect(String((completion?.bestPacks as string[] | undefined)?.[0])).toContain('cubre 1 de 1 copias en ~70 sobres')
+
+    // With the collection goal the B4b versions no other pack gives weigh more; some can only be traded.
+    const collection = await call(client, 'packs_recommend', { alpha: 0, limit: 29, onlyAvailable: false })
+    const b4b = (collection.structuredContent.packs as Structured[]).find((pack) => String(pack.pack).includes('(B4b)'))
+    expect((b4b?.onlyHere as Structured | undefined)?.collectionVersions).toBeGreaterThan(0)
+    expect(String(collection.structuredContent.collectionOutOfPacks)).toMatch(/^\d+ versiones buscadas/)
+    await test.prisma.pack.update({
+      where: { id: 'B4b/deluxepackmega' },
+      data: { limitedUntil: new Date('2026-10-28T00:00:00Z') },
+    })
   })
 
   it('finds the closest saved deck to a pasted list, picks a random deck and recommends the best prints', async () => {

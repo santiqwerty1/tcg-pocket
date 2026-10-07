@@ -1,9 +1,12 @@
-/** «Disponible» switch per pack and the rarity rules (points, confirmed, tradeable), both owner settings. */
+/**
+ * «Disponible» and «tiempo limitado» (with its last day) per pack, and the rarity rules (points, confirmed,
+ * tradeable): owner settings.
+ */
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
-import { usePacks, useRarityRules, useSetPackAvailable, useSetRarityRule } from '@/api/packs'
-import type { RarityRuleInfo } from '@/api/schemas'
+import { type PackPatch, usePacks, useRarityRules, useSetRarityRule, useUpdatePack } from '@/api/packs'
+import type { PackInfo, RarityRuleInfo } from '@/api/schemas'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Input } from '@/components/ui/input'
@@ -49,14 +52,51 @@ function RarityRuleRow({ rule }: { rule: RarityRuleInfo }) {
   )
 }
 
+function PackRow({ pack, onChange }: { pack: PackInfo; onChange: (patch: PackPatch) => void }) {
+  return (
+    <li className="flex flex-col gap-1 px-3 py-1">
+      <div className="grid min-h-11 grid-cols-[1fr_auto_auto] items-center gap-3">
+        <span className="min-w-0 truncate text-sm">
+          {pack.nameEs} <span className="text-muted-foreground">· {pack.expansionId}</span>
+        </span>
+        <Switch
+          aria-label={`${pack.nameEs} por tiempo limitado`}
+          checked={pack.limited}
+          onCheckedChange={(limited) => onChange({ limited })}
+        />
+        <Switch
+          aria-label={`${pack.nameEs} disponible`}
+          checked={pack.available}
+          onCheckedChange={(available) => onChange({ available })}
+        />
+      </div>
+      {pack.limited ? (
+        <Label className="flex items-center gap-2 pb-1 text-xs font-normal text-muted-foreground">
+          Último día
+          <Input
+            type="date"
+            className="h-9 w-40"
+            aria-label={`Último día de ${pack.nameEs}`}
+            defaultValue={pack.limitedUntil ?? ''}
+            onBlur={(event) => {
+              const value = event.target.value === '' ? null : event.target.value
+              if (value !== pack.limitedUntil) onChange({ limitedUntil: value })
+            }}
+          />
+        </Label>
+      ) : null}
+    </li>
+  )
+}
+
 export function PackSettings() {
   const packs = usePacks()
   const rules = useRarityRules()
-  const setAvailable = useSetPackAvailable()
+  const updatePack = useUpdatePack()
 
-  async function toggle(id: string, available: boolean) {
+  async function change(id: string, patch: PackPatch) {
     try {
-      await setAvailable.mutateAsync({ id, available })
+      await updatePack.mutateAsync({ id, patch })
     } catch (error) {
       toast.error(errorMessage(error))
     }
@@ -68,18 +108,18 @@ export function PackSettings() {
         <summary className="cursor-pointer px-3 py-2 font-medium select-none">Sobres disponibles en el juego</summary>
         {packs.isPending ? <LoadingRows rows={3} /> : null}
         {packs.isError ? <ErrorState error={packs.error} onRetry={() => packs.refetch()} /> : null}
+        <p className="px-3 pb-2 text-xs text-muted-foreground">
+          Un sobre por tiempo limitado da más peso a lo que solo sale de él hasta su último día; después deja de contar
+          como disponible.
+        </p>
+        <div className="grid grid-cols-[1fr_auto_auto] gap-3 border-t px-3 py-1 text-xs text-muted-foreground">
+          <span>Sobre</span>
+          <span>Limitado</span>
+          <span>Disponible</span>
+        </div>
         <ul className="divide-y border-t">
           {(packs.data ?? []).map((pack) => (
-            <li key={pack.id} className="flex min-h-11 items-center gap-2 px-3 py-1">
-              <label htmlFor={`pack-${pack.id}`} className="min-w-0 flex-1 truncate text-sm">
-                {pack.nameEs} <span className="text-muted-foreground">· {pack.expansionId}</span>
-              </label>
-              <Switch
-                id={`pack-${pack.id}`}
-                checked={pack.available}
-                onCheckedChange={(available) => toggle(pack.id, available)}
-              />
-            </li>
+            <PackRow key={pack.id} pack={pack} onChange={(patch) => change(pack.id, patch)} />
           ))}
         </ul>
       </details>

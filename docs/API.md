@@ -207,42 +207,54 @@ El rival se guarda limpio (espacios colapsados); si no tiene letras ni números 
 
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
-| `GET /api/packs` | `{ items: [{ id, expansionId, expansionNameEs, name, nameEs, available, cardsPerPack, cardCount, containsShinies, containsBabies, inTrackerOverview }] }`: los 29 sobres que se abren (expansiones con estructura de sobre; sin los «everypack» de los sets con varios sobres ni las promos). El Deluxe ex (A4b) empieza apagado |
-| `PATCH /api/packs/:expansionId/:name` | `{ available }` → el sobre; `404` si no es un sobre abrible. El interruptor es tuyo: el sync del catálogo no lo pisa y viaja en el backup |
-| `POST /api/packs/recommend` | `{ model?: 'corrected'|'tracker', alpha?: 0..1, collection?: { rarities: Rarity[], copies: 1..5 } | null, onlyAvailable? }` → `Recommendation`. Lo omitido sale de `app_settings` (`packModel`, `alpha`, `rarityFilter`; por defecto corregido, 0,7 y todas las rarezas con 1 copia). Objetivo mazos: los mazos activos con `packPriority` 1–3 |
+| `GET /api/packs` | `{ items: [{ id, expansionId, expansionNameEs, name, nameEs, available, limited, limitedUntil, cardsPerPack, cardCount, containsShinies, containsBabies, inTrackerOverview }] }`: los 29 sobres que se abren (expansiones con estructura de sobre; sin los «everypack» de los sets con varios sobres ni las promos). El Deluxe ex (A4b) empieza apagado; el Deluxe Mega (B4b) empieza «por tiempo limitado» con último día 28/10/2026 (`limitedUntil`, YYYY-MM-DD, hora de Buenos Aires) |
+| `PATCH /api/packs/:expansionId/:name` | `{ available?, limited?, limitedUntil?: YYYY-MM-DD | null }` (al menos uno) → el sobre; `404` si no es un sobre abrible. Los interruptores son tuyos: el sync del catálogo no los pisa y viajan en el backup. Pasado `limitedUntil`, el sobre deja de contar como disponible |
+| `POST /api/packs/recommend` | `{ model?: 'corrected'|'tracker', alpha?: 0..1, collection?: { rarities: Rarity[], copies: 1..5 } | null, onlyAvailable?, limitedBoost?: 1..5 }` → `Recommendation`. Lo omitido sale de `app_settings` (`packModel`, `alpha`, `rarityFilter`, `limitedBoost`; por defecto corregido, 0,7, todas las rarezas con 1 copia y ×2). Objetivo mazos: los mazos activos con `packPriority` 1–3 |
 | `GET /api/rarity-rules` | `{ items: [{ rarity, points, verified, tradeable }] }` para todas las rarezas (tracker + ✵ 1000 y ✵✵ 1350 sin verificar; P sin costo) |
 | `PATCH /api/rarity-rules/:rarity` | `{ points?, verified?, tradeable? }` → la regla; `404` rareza desconocida |
 
 ```ts
 Recommendation = {
-  model, alpha, collection, onlyAvailable,
+  model, alpha, collection, onlyAvailable, limitedBoost,
+  today,                                 // YYYY-MM-DD en Buenos Aires: días que quedan y sobres limitados vencidos
   goals: { decks: [{ id, name, priority }] },
   rows: [{ packId, nameEs, expansionId, expansionNameEs, available, cardsPerPack,
            wanted,                       // ediciones del sobre que cuentan para algún objetivo
            probability,                  // % de al menos una buscada por sobre
            expected,                     // cartas buscadas esperadas por sobre
-           expectedValue,                // puntaje 0–1: α·(valor mazos / mejor sobre) + (1−α)·(valor colección / mejor sobre)
+           expectedValue,                // puntaje, 1 = mejor sobre a la venta: α·(valor mazos / mejor) + (1−α)·(valor colección / mejor);
+                                         // un sobre que no está a la venta puede pasar de 1
            packsFor50, packsFor90,       // ⌈ln(1−q)/ln(1−p)⌉; null si p = 0
            decks: { probability, expected } | null, collection: { probability, expected } | null,
-           otherModel: { model, probability, reasons: ('reprints'|'babies')[] } }],   // ordenadas por puntaje
+           otherModel: { model, probability, reasons: ('reprints'|'babies')[] },
+           limited: { until, daysLeft,  // daysLeft 0 = último día, < 0 = terminó (y available = false)
+                      exclusive: [{ cardId, nameEs, rarity, holo, goal: 'decks'|'collection' }] } | null }],
+                                         // a la venta primero, después por puntaje
   missing: [{ groupId, nameEs, missing, weight, decks: [{ deckId, name, priority, need }],
               cheapest: { cardId, rarity, points, verified, tradeable } | null,
-              bestPack: { packId, nameEs, expansionId, expansionNameEs, probability, packsPerCopy } | null,
-              pointsInPacks, advice: 'buy'|'open'|null }],          // «buy» si los puntos cuestan menos sobres que sacarla
+              tradeable,                                         // alguna versión se puede intercambiar
+              bestPack: { packId, nameEs, expansionId, expansionNameEs, probability, packsPerCopy, limited } | null,
+              afterLimited: { packId, nameEs, expansionId, expansionNameEs, probability, packsPerCopy } | null,
+              pointsInPacks, advice: 'buy'|'open'|'trade'|null }],
+              // «buy» si los puntos cuestan menos sobres que sacarla; «trade» si ningún sobre a la venta la da ni sus
+              // puntos se pueden ganar; cheapest solo mira expansiones con algún sobre a la venta
   decks: [{ deckId, name, priority, missingCopies, notInPacks: string[],
-            bestPacks: [{ packId, nameEs, expansionId, expansionNameEs, covered, expectedPacks,
+            bestPacks: [{ packId, nameEs, expansionId, expansionNameEs, covered, limited, expectedPacks,
                           method: 'exact'|'simulation', ci95: [lo, hi] | null }] }],   // más copias cubiertas primero
+  collectionOutOfPacks: { versions, tradeable } | null,   // versiones buscadas que ningún sobre a la venta da
   assumptions: string[]
 }
 ```
 
 Modelo: port de `stats.ts` del tracker @ `3ab58f1` (tablas por posición, mezcla de sobre normal, raro y de 6 cartas). «tracker» reproduce sus dos errores para coincidir con su web; «corrected» (por defecto) cuenta las reimpresiones de otra expansión y no saca las bebés del denominador en sets sin sobre de bebés. Cada fila dice cuánto daría el otro modelo y por qué.
 
+Versiones: el objetivo mazos busca cartas funcionales (cualquier versión sirve); el objetivo colección busca versiones, identificadas por el `internal_id` del tracker. Dos números con el mismo `internal_id` son la misma versión y comparten copias (A1-1 = A4b-1, B1a-1 = B4b-1); un arte u holo nuevo es otra versión de la misma carta funcional (B4b-237, Bulbasaur holo). Sobres por tiempo limitado: lo que solo ellos dan frente a los sobres a la venta que quedan (carta funcional para mazos, versión para colección) pesa `limitedBoost` veces más hasta su último día (DECISIONES 4.9).
+
 ## MCP (Fase 3)
 
 `POST /api/mcp`: servidor MCP remoto, Streamable HTTP, sin sesiones, con el SDK v2 (`@modelcontextprotocol/server` 2.3.1). Atiende las dos eras del protocolo en el mismo endpoint: 2026-07-28 y la de 2025 con `initialize` (la que usan hoy las apps de Claude y Claude Code). `GET` y `DELETE` responden `405`. Autenticación: `Authorization: Bearer tcg_mcp_…` con scope `mcp:read` (`401` sin token o con uno inválido o revocado, `403` con un token de worker); la cookie de sesión no sirve acá.
 
-Tools de lectura (nombres con `_` porque la API de Claude no acepta `.`): `collection_summary`, `cards_search`, `collection_playable_copies`, `collection_editions`, `decks_list`, `decks_get` (incluye `bestVersions`), `decks_find_by_card`, `decks_validate`, `decks_missing`, `decks_closest`, `decks_random`, `matches_stats`, `matches_list` y `packs_recommend` (Fase 4: la misma recomendación, resumida, con lo guardado en la app por defecto). `tournaments_stats`, `tournaments_buildable`, `tournaments_unlock_cards` y `simulations_results` responden `{ available: false, message }` con la fase en que llegan. Todas devuelven JSON compacto en `content[0].text` y el mismo objeto en `structuredContent`; los errores esperables (carta o mazo inexistente, entrada inválida) vuelven como `isError: true` con el mensaje en español. Cada porcentaje trae `text` con el formato canónico «70 % (n = 10, IC 39,7–89,2 %, orientativo)». Un mazo se indica por su número («13», «mazo 13»: el número con que empieza el nombre o, si no, el id), o por parte del nombre.
+Tools de lectura (nombres con `_` porque la API de Claude no acepta `.`): `collection_summary`, `cards_search`, `collection_playable_copies`, `collection_editions`, `decks_list`, `decks_get` (incluye `bestVersions`), `decks_find_by_card`, `decks_validate`, `decks_missing`, `decks_closest`, `decks_random`, `matches_stats`, `matches_list` y `packs_recommend` (Fase 4: la misma recomendación, resumida, con lo guardado en la app por defecto; dice el último día de los sobres limitados, lo que solo dan ellos, el mejor sobre cuando terminen y cuándo intercambiar). `tournaments_stats`, `tournaments_buildable`, `tournaments_unlock_cards` y `simulations_results` responden `{ available: false, message }` con la fase en que llegan. Todas devuelven JSON compacto en `content[0].text` y el mismo objeto en `structuredContent`; los errores esperables (carta o mazo inexistente, entrada inválida) vuelven como `isError: true` con el mensaje en español. Cada porcentaje trae `text` con el formato canónico «70 % (n = 10, IC 39,7–89,2 %, orientativo)». Un mazo se indica por su número («13», «mazo 13»: el número con que empieza el nombre o, si no, el id), o por parte del nombre.
 
 Conectar:
 - **Claude Code:** crear un token MCP en Más → Tokens de API y registrar `claude mcp add --transport http tcg https://tcg-pocket.fly.dev/api/mcp --header "Authorization: Bearer tcg_mcp_…"`.
@@ -257,7 +269,7 @@ Conectar:
 | `GET /api/backup/blobs` | `{ items: [{ id, createdAt, sizeBytes }] }` (copias diarias guardadas, más reciente primero; se conservan las últimas 14) |
 | `GET /api/backup/blobs/:id` | Descarga (`application/gzip`, nombre con la fecha de la copia) |
 
-Documento (`schemaVersion: 3`): `{ schemaVersion, exportedAt, appVersion, catalogCommit, engineRev, settings[], rarityRules[], collection: { stock[], imports[] (metadatos + filas, sin el archivo crudo), adjustments[] }, decks[] (con `revisions[]` y `changes[]`), matches[] (con `deckId` y `deckRevisionId`), packs[] (`{ id, available, pointsBalance }`, Fase 4), tokens[] (solo metadatos: no se restauran) }`, con los ids numéricos y las fechas de la base, así `replace` deja una base idéntica (y un nuevo `export` igual salvo `exportedAt`). Se leen las versiones 1 (Fase 1, sin `matches`: el dry-run avisa que restaurarla borra las partidas actuales), 2 (sin `packs`: se mantiene la disponibilidad actual) y 3. Una partida cuyo mazo o revisión no está en el archivo da `400 invalid_backup` con `details` (`[{ id, deckId, deckRevisionId }]`). `replace` corre en una transacción: borra partidas, mazos, ajustes, stock, importaciones y configuración, inserta todo con sus ids, reconstruye `deck_cards` y reajusta las secuencias; `rarity_rules` se pisan por rareza. Si `catalogCommit` difiere del catálogo cargado, `notices` avisa `needs_review` (el remapeo I12 sigue pendiente). La copia diaria (04:00, `BACKUP_CRON`) guarda el mismo documento en `backup_blobs`.
+Documento (`schemaVersion: 3`): `{ schemaVersion, exportedAt, appVersion, catalogCommit, engineRev, settings[], rarityRules[], collection: { stock[], imports[] (metadatos + filas, sin el archivo crudo), adjustments[] }, decks[] (con `revisions[]` y `changes[]`), matches[] (con `deckId` y `deckRevisionId`), packs[] (`{ id, available, pointsBalance, limited?, limitedUntil? }`, Fase 4; sin `limited`/`limitedUntil` se mantienen los actuales), tokens[] (solo metadatos: no se restauran) }`, con los ids numéricos y las fechas de la base, así `replace` deja una base idéntica (y un nuevo `export` igual salvo `exportedAt`). Se leen las versiones 1 (Fase 1, sin `matches`: el dry-run avisa que restaurarla borra las partidas actuales), 2 (sin `packs`: se mantiene la disponibilidad actual) y 3. Una partida cuyo mazo o revisión no está en el archivo da `400 invalid_backup` con `details` (`[{ id, deckId, deckRevisionId }]`). `replace` corre en una transacción: borra partidas, mazos, ajustes, stock, importaciones y configuración, inserta todo con sus ids, reconstruye `deck_cards` y reajusta las secuencias; `rarity_rules` se pisan por rareza. Si `catalogCommit` difiere del catálogo cargado, `notices` avisa `needs_review` (el remapeo I12 sigue pendiente). La copia diaria (04:00, `BACKUP_CRON`) guarda el mismo documento en `backup_blobs`.
 
 ## Configuración
 
