@@ -62,6 +62,8 @@ async function invalidateDecks(queryClient: QueryClient): Promise<void> {
     queryClient.invalidateQueries({ queryKey: ['cards'] }),
     // Deck names, archiving and revisions show up in the match picker, lists and statistics.
     queryClient.invalidateQueries({ queryKey: ['matches'] }),
+    // Deck priorities and lists are the goals of the pack recommendation.
+    queryClient.invalidateQueries({ queryKey: ['packs'] }),
   ])
 }
 

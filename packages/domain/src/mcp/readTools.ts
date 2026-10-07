@@ -7,6 +7,7 @@
  * Claude Code and the Claude apps expose MCP tools under those names (DECISIONES 3.2).
  */
 import { z } from 'zod'
+import { RARITIES } from '../catalog/types.js'
 import { MATCH_MODES } from '../matches/types.js'
 
 const query = z
@@ -28,7 +29,6 @@ const deckRef = z
   )
 
 export const MCP_TOOL_NOT_AVAILABLE = {
-  packs: 'La recomendación de sobres (M4) llega en la Fase 4.',
   tournaments: 'Los datos de torneo de Limitless (M5) llegan en la Fase 5.',
   simulations: 'Las simulaciones con deckgym (M7) llegan en la Fase 6.',
 } as const
@@ -172,8 +172,30 @@ export const MCP_READ_TOOLS = {
   packsRecommend: {
     name: 'packs_recommend',
     title: 'Recomendar sobres',
-    description: `Qué sobres conviene abrir según los mazos objetivo y la colección. ${MCP_TOOL_NOT_AVAILABLE.packs}`,
-    input: z.object({}),
+    description:
+      'Qué sobres conviene abrir. Por sobre: probabilidad de al menos una carta buscada, cartas buscadas esperadas, puntaje de 0 a 1 según los objetivos (cada objetivo medido contra su mejor sobre) y sobres para 50 % y 90 %. Objetivos: los mazos con prioridad de sobres (1 a 3, se marca en cada mazo) y la colección con filtro de rarezas, pesados con alpha. Incluye las cartas que faltan con su costo en puntos, si son intercambiables y si conviene comprarlas, y los sobres esperados para completar cada mazo objetivo. Modelo «corrected» por defecto; «tracker» reproduce los números de la web del tracker. Sin parámetros usa lo guardado en la app.',
+    input: z.object({
+      model: z
+        .enum(['corrected', 'tracker'])
+        .optional()
+        .describe('Modelo de probabilidades (por defecto el guardado, «corrected»)'),
+      alpha: z
+        .number()
+        .min(0)
+        .max(1)
+        .optional()
+        .describe('Peso de los mazos frente a la colección (0 a 1; por defecto 0,7)'),
+      collection: z
+        .object({
+          rarities: z.array(z.enum(RARITIES)).describe('Rarezas que cuentan; vacío = todas'),
+          copies: z.number().int().min(1).max(5).describe('Copias por edición que se buscan'),
+        })
+        .nullable()
+        .optional()
+        .describe('Objetivo colección; null lo apaga'),
+      onlyAvailable: z.boolean().optional().describe('Solo sobres disponibles hoy (por defecto true)'),
+      limit: z.number().int().min(1).max(29).optional().describe('Sobres a devolver (por defecto 8)'),
+    }),
   },
   tournamentsStats: {
     name: 'tournaments_stats',

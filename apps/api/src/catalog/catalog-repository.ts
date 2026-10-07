@@ -22,6 +22,7 @@ import type {
   Rarity,
   StockUnit,
 } from '@tcg/domain'
+import { DEFAULT_RARITY_RULES, PACKS_OFF_BY_DEFAULT } from '@tcg/domain'
 import type { CatalogSync } from '../generated/prisma/client.js'
 import type { CatalogSyncStatus } from '../generated/prisma/enums.js'
 import { PrismaService } from '../prisma/prisma.service.js'
@@ -116,9 +117,19 @@ export class CatalogRepository {
       await upsertMany(
         client,
         'packs',
-        ['id', 'expansion_id', 'name', 'name_es', 'color', 'sort_order'],
-        catalog.packs.map((pack, index) => [pack.id, pack.expansionId, pack.name, pack.nameEs, pack.color, index]),
+        ['id', 'expansion_id', 'name', 'name_es', 'color', 'sort_order', 'available'],
+        catalog.packs.map((pack, index) => [
+          pack.id,
+          pack.expansionId,
+          pack.name,
+          pack.nameEs,
+          pack.color,
+          index,
+          !PACKS_OFF_BY_DEFAULT.has(pack.id),
+        ]),
         ['id'],
+        // «Disponible» is the owner's switch: a new pack gets the default, a known pack keeps what was chosen.
+        { insertOnly: ['available'] },
       )
 
       await upsertMany(
@@ -235,12 +246,15 @@ export class CatalogRepository {
         client,
         'rarity_rules',
         ['rarity', 'points', 'points_verified', 'tradeable'],
-        Object.entries(catalog.craftingCost).map(([rarity, points]) => [
-          rarity,
-          points,
-          false,
-          DEFAULT_TRADEABLE.has(rarity),
-        ]),
+        // Tracker craftingCost first; rarities it lacks (✵, ✵✵) come from the domain defaults, unverified.
+        Object.entries({
+          ...Object.fromEntries(
+            Object.entries(DEFAULT_RARITY_RULES)
+              .filter(([, rule]) => rule.points !== null)
+              .map(([rarity, rule]) => [rarity, rule.points]),
+          ),
+          ...catalog.craftingCost,
+        }).map(([rarity, points]) => [rarity, points, false, DEFAULT_TRADEABLE.has(rarity)]),
         ['rarity'],
         { action: 'nothing' },
       )

@@ -15,6 +15,7 @@ import { SessionMiddleware } from './http/session.middleware.js'
 import { loggerModule } from './logging/logger.module.js'
 import { MatchesModule } from './matches/matches.module.js'
 import { McpModule } from './mcp/mcp.module.js'
+import { PacksModule } from './packs/packs.controller.js'
 import { PrismaModule } from './prisma/prisma.module.js'
 import { SettingsModule } from './settings/settings.module.js'
 import { TokensModule } from './tokens/tokens.module.js'
@@ -41,6 +42,7 @@ export class AppModule implements NestModule {
         CollectionModule,
         DecksModule,
         MatchesModule,
+        PacksModule,
         SettingsModule,
         BackupModule,
         HttpModule,

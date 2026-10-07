@@ -43,7 +43,7 @@ describe('MCP read tools', () => {
       const schema = z.toJSONSchema(tool.input) as { type?: string }
       expect(schema.type).toBe('object')
     }
-    expect(MCP_READ_TOOLS.packsRecommend.description).toContain('Fase 4')
+    expect(MCP_READ_TOOLS.packsRecommend.description).toContain('puntaje')
     expect(MCP_READ_TOOLS.tournamentsStats.description).toContain('Fase 5')
     expect(MCP_READ_TOOLS.simulationsResults.description).toContain('Fase 6')
   })

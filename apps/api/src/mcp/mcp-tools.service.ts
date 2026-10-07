@@ -19,6 +19,7 @@ import {
   MCP_READ_TOOLS,
   MCP_SERVER_INSTRUCTIONS,
   MCP_TOOL_NOT_AVAILABLE,
+  type Rarity,
   type WinRate,
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
@@ -30,9 +31,13 @@ import type { DeckImportFormat } from '../decks/deck-formats.js'
 import { DecksService } from '../decks/decks.service.js'
 import type { RowView } from '../matches/match-views.js'
 import { MatchesService } from '../matches/matches.service.js'
+import { PacksService } from '../packs/packs.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 
 type Json = Record<string, unknown>
+
+const percentFormat = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 })
+const twoDecimals = (value: number) => Math.round(value * 100) / 100
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const
 
@@ -100,6 +105,7 @@ export class McpToolsService {
     private readonly collection: CollectionService,
     private readonly decks: DecksService,
     private readonly matches: MatchesService,
+    private readonly packs: PacksService,
     private readonly prisma: PrismaService,
     @Inject(ENV) private readonly env: Env,
     private readonly logger: PinoLogger,
@@ -163,7 +169,9 @@ export class McpToolsService {
       server.registerTool(def.name, config(def), () =>
         run(def.name, async () => ({ available: false, message: `Todavía no disponible. ${message}` })),
       )
-    notYet(t.packsRecommend, MCP_TOOL_NOT_AVAILABLE.packs)
+    server.registerTool(t.packsRecommend.name, config(t.packsRecommend), (args) =>
+      run(t.packsRecommend.name, () => this.packsRecommend(args)),
+    )
     notYet(t.tournamentsStats, MCP_TOOL_NOT_AVAILABLE.tournaments)
     notYet(t.tournamentsBuildable, MCP_TOOL_NOT_AVAILABLE.tournaments)
     notYet(t.tournamentsUnlockCards, MCP_TOOL_NOT_AVAILABLE.tournaments)
@@ -623,6 +631,83 @@ export class McpToolsService {
       byWentFirst: stats.byWentFirst.map((row) => ({ who: row.label, ...rowView(row) })),
       byMode: stats.byMode.map((row) => ({ mode: row.label, ...rowView(row) })),
       byRevision: stats.byRevision.map((row) => ({ revision: row.revision, ...rowView(row) })),
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Packs
+  // ---------------------------------------------------------------------------------------------------------------
+
+  private async packsRecommend(args: {
+    model?: 'corrected' | 'tracker'
+    alpha?: number
+    collection?: { rarities: Rarity[]; copies: number } | null
+    onlyAvailable?: boolean
+    limit?: number
+  }): Promise<Json> {
+    const result = await this.packs.recommend({
+      model: args.model,
+      alpha: args.alpha,
+      collection: args.collection,
+      onlyAvailable: args.onlyAvailable ?? true,
+    })
+    const pct = (value: number) => `${percentFormat.format(value)} %`
+    const packName = (pack: { nameEs: string; expansionId: string }) => `${pack.nameEs} (${pack.expansionId})`
+    const reasons: Record<string, string> = {
+      reprints: 'el tracker no cuenta reimpresiones de otra expansión',
+      babies: 'el tracker excluye bebés del denominador en sets sin sobre de bebés',
+    }
+    return {
+      model: result.model === 'corrected' ? 'corregido' : 'tracker',
+      alpha: result.alpha,
+      goals: {
+        decks: result.goals.decks,
+        collection: result.collection,
+        ...(result.goals.decks.length === 0
+          ? { note: 'Ningún mazo tiene prioridad de sobres: se marca en cada mazo (1 a 3).' }
+          : {}),
+      },
+      packs: result.rows.slice(0, args.limit ?? 8).map((row) => ({
+        pack: packName(row),
+        available: row.available,
+        probability: pct(row.probability),
+        expectedWantedCards: twoDecimals(row.expected),
+        score: twoDecimals(row.expectedValue),
+        packsFor50: row.packsFor50,
+        packsFor90: row.packsFor90,
+        ...(Math.abs(row.otherModel.probability - row.probability) >= 0.005
+          ? {
+              otherModel: `${row.otherModel.model === 'tracker' ? 'tracker' : 'corregido'}: ${pct(row.otherModel.probability)}${row.otherModel.reasons.length > 0 ? ` (${row.otherModel.reasons.map((reason) => reasons[reason] ?? reason).join('; ')})` : ''}`,
+            }
+          : {}),
+      })),
+      missingCards: result.missing.map((item) => ({
+        nameEs: item.nameEs,
+        missing: item.missing,
+        decks: item.decks.map((deck) => `${deck.name} (prioridad ${deck.priority})`),
+        cheapest: item.cheapest
+          ? `${item.cheapest.cardId} ${item.cheapest.rarity}: ${item.cheapest.points} puntos${item.cheapest.verified ? '' : ' (sin verificar)'}, ${item.cheapest.tradeable ? 'intercambiable' : 'no intercambiable'}`
+          : 'no se compra con puntos',
+        bestPack: item.bestPack
+          ? `${packName(item.bestPack)}: ${pct(item.bestPack.probability)} por sobre, ~${Math.round(item.bestPack.packsPerCopy)} sobres por copia`
+          : 'no sale de ningún sobre disponible',
+        advice:
+          item.advice === 'buy'
+            ? 'conviene comprarla con puntos'
+            : item.advice === 'open'
+              ? 'conviene abrir sobres'
+              : null,
+      })),
+      deckCompletion: result.decks.map((deck) => ({
+        deck: deck.name,
+        missingCopies: deck.missingCopies,
+        notInPacks: deck.notInPacks,
+        bestPacks: deck.bestPacks.map(
+          (pack) =>
+            `${packName(pack)}: cubre ${pack.covered} de ${deck.missingCopies} copias en ~${Math.round(pack.expectedPacks)} sobres${pack.method === 'simulation' ? ' (simulación)' : ''}`,
+        ),
+      })),
+      assumptions: result.assumptions,
     }
   }
 

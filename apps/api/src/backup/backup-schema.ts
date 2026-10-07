@@ -6,9 +6,9 @@
  */
 import { z } from 'zod'
 
-export const BACKUP_SCHEMA_VERSION = 2
+export const BACKUP_SCHEMA_VERSION = 3
 /** Versions this app reads. Exports always write BACKUP_SCHEMA_VERSION. */
-export const READABLE_BACKUP_VERSIONS: readonly number[] = [1, 2]
+export const READABLE_BACKUP_VERSIONS: readonly number[] = [1, 2, 3]
 
 const isoDate = z.string().refine((value) => !Number.isNaN(Date.parse(value)), 'fecha ISO 8601 inválida')
 const nullableDate = isoDate.nullable()
@@ -122,7 +122,7 @@ const tokenSchema = z.object({
 })
 
 export const backupDocumentSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   exportedAt: isoDate,
   appVersion: z.string(),
   catalogCommit: z.string().nullable(),
@@ -137,6 +137,10 @@ export const backupDocumentSchema = z.object({
   decks: z.array(deckSchema),
   /** Own matches (version 2); a version 1 file has none. */
   matches: z.array(matchSchema).default([]),
+  /** Owner switches of the packs (version 3, Fase 4): «disponible» and the optional points balance. */
+  packs: z
+    .array(z.object({ id: z.string(), available: z.boolean(), pointsBalance: z.number().int().nullable() }))
+    .default([]),
   /** Metadata only: hashes are never exported, so tokens are not restored (they are created again). */
   tokens: z.array(tokenSchema),
 })
@@ -154,6 +158,7 @@ export interface BackupCounts {
   revisions: number
   changes: number
   matches: number
+  packs: number
   tokens: number
 }
 
@@ -169,6 +174,7 @@ export function backupCounts(document: BackupDocument): BackupCounts {
     revisions: document.decks.reduce((sum, deck) => sum + deck.revisions.length, 0),
     changes: document.decks.reduce((sum, deck) => sum + deck.changes.length, 0),
     matches: document.matches.length,
+    packs: document.packs.length,
     tokens: document.tokens.length,
   }
 }

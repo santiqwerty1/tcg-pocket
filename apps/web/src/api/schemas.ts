@@ -644,6 +644,130 @@ export type ComparisonColumn = z.infer<typeof comparisonColumnSchema>
 export const deckComparisonSchema = z.object({ deck: matchDeckRefSchema, columns: z.array(comparisonColumnSchema) })
 export type DeckComparison = z.infer<typeof deckComparisonSchema>
 
+// ---------- Packs (Fase 4) ----------
+
+/** Mirrors RARITIES of @tcg/domain (pack-obtainable ones first; «P» are promos). */
+export const RARITIES = ['◊', '◊◊', '◊◊◊', '◊◊◊◊', '☆', '☆☆', '☆☆☆', '✵', '✵✵', 'Crown Rare', 'P'] as const
+export const raritySchema = z.enum(RARITIES)
+export type Rarity = z.infer<typeof raritySchema>
+export const PACK_MODELS = ['corrected', 'tracker'] as const
+export type PackModel = (typeof PACK_MODELS)[number]
+
+export const packInfoSchema = z.object({
+  id: z.string(),
+  expansionId: z.string(),
+  expansionNameEs: z.string(),
+  name: z.string(),
+  nameEs: z.string(),
+  available: z.boolean(),
+  cardsPerPack: z.number(),
+  cardCount: z.number(),
+  containsShinies: z.boolean(),
+  containsBabies: z.boolean(),
+  inTrackerOverview: z.boolean(),
+})
+export type PackInfo = z.infer<typeof packInfoSchema>
+export const packsResponseSchema = z.object({ items: z.array(packInfoSchema) })
+
+export const rarityRuleSchema = z.object({
+  rarity: z.string(),
+  points: z.number().nullable(),
+  verified: z.boolean(),
+  tradeable: z.boolean(),
+})
+export type RarityRuleInfo = z.infer<typeof rarityRuleSchema>
+export const rarityRulesResponseSchema = z.object({ items: z.array(rarityRuleSchema) })
+
+export const collectionGoalSchema = z.object({ rarities: z.array(raritySchema), copies: z.number() })
+export type CollectionGoal = z.infer<typeof collectionGoalSchema>
+
+const packRefFields = {
+  packId: z.string(),
+  nameEs: z.string(),
+  expansionId: z.string(),
+  expansionNameEs: z.string(),
+}
+const pullFields = z.object({ probability: z.number(), expected: z.number() })
+
+export const packRowSchema = z.object({
+  ...packRefFields,
+  available: z.boolean(),
+  cardsPerPack: z.number(),
+  wanted: z.number(),
+  probability: z.number(),
+  expected: z.number(),
+  expectedValue: z.number(),
+  packsFor50: z.number().nullable(),
+  packsFor90: z.number().nullable(),
+  decks: pullFields.nullable(),
+  collection: pullFields.nullable(),
+  otherModel: z.object({
+    model: z.enum(PACK_MODELS),
+    probability: z.number(),
+    reasons: z.array(z.enum(['babies', 'reprints'])),
+  }),
+})
+export type PackRow = z.infer<typeof packRowSchema>
+
+export const missingCardSchema = z.object({
+  groupId: z.string(),
+  nameEs: z.string(),
+  missing: z.number(),
+  weight: z.number(),
+  decks: z.array(z.object({ deckId: z.string(), name: z.string(), priority: z.number(), need: z.number() })),
+  cheapest: z
+    .object({
+      cardId: z.string(),
+      rarity: z.string(),
+      points: z.number(),
+      verified: z.boolean(),
+      tradeable: z.boolean(),
+    })
+    .nullable(),
+  bestPack: z.object({ ...packRefFields, probability: z.number(), packsPerCopy: z.number() }).nullable(),
+  pointsInPacks: z.number().nullable(),
+  advice: z.enum(['buy', 'open']).nullable(),
+})
+export type MissingCard = z.infer<typeof missingCardSchema>
+
+export const deckCompletionSchema = z.object({
+  deckId: z.string(),
+  name: z.string(),
+  priority: z.number(),
+  missingCopies: z.number(),
+  notInPacks: z.array(z.string()),
+  bestPacks: z.array(
+    z.object({
+      ...packRefFields,
+      covered: z.number(),
+      expectedPacks: z.number(),
+      method: z.enum(['exact', 'simulation']),
+      ci95: z.tuple([z.number(), z.number()]).nullable(),
+    }),
+  ),
+})
+export type DeckCompletion = z.infer<typeof deckCompletionSchema>
+
+export const recommendationSchema = z.object({
+  model: z.enum(PACK_MODELS),
+  alpha: z.number(),
+  collection: collectionGoalSchema.nullable(),
+  onlyAvailable: z.boolean(),
+  goals: z.object({ decks: z.array(z.object({ id: z.string(), name: z.string(), priority: z.number() })) }),
+  rows: z.array(packRowSchema),
+  missing: z.array(missingCardSchema),
+  decks: z.array(deckCompletionSchema),
+  assumptions: z.array(z.string()),
+})
+export type Recommendation = z.infer<typeof recommendationSchema>
+
+export interface RecommendBody {
+  model: PackModel
+  alpha: number
+  collection: CollectionGoal | null
+  onlyAvailable: boolean
+}
+
 // ---------- Auth, tokens, settings, backup ----------
 
 export const meSchema = z.object({ email: z.string(), totpEnabled: z.boolean() })

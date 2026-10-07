@@ -9,7 +9,7 @@ import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /**
  * PLAN §7 (backup acceptance): export → import into an empty database → identical export except `exportedAt`.
- * Fase 2: matches travel in the backup (schemaVersion 2); version 1 files still read.
+ * Fase 2: matches travel in the backup (schemaVersion 2); Fase 4: pack switches (3). Older files still read.
  */
 const CSV_PATH = join(REPO_ROOT, 'docs/context/tcgcollectiontracterexport-2026-10-06.csv')
 const DECKS_PATH = join(REPO_ROOT, 'docs/context/mazos_40_listas.md')
@@ -126,6 +126,8 @@ describe('backup and settings (e2e)', () => {
         })
       ).status,
     ).toBe(201)
+    // Pack switch (Fase 4): B4b turned off travels in the backup; A4b starts off by default.
+    expect((await patch('/api/packs/B4b/deluxepackmega').send({ available: false })).status).toBe(200)
 
     const response = await get('/api/backup/export').responseType('blob')
     expect(response.status).toBe(200)
@@ -134,7 +136,7 @@ describe('backup and settings (e2e)', () => {
     exported = response.body as Buffer
     document = JSON.parse(gunzipSync(exported).toString('utf8')) as Doc
     expect(document).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       catalogCommit: test.env.catalogCommit,
       engineRev: test.env.engineRev,
       settings: [
@@ -151,6 +153,10 @@ describe('backup and settings (e2e)', () => {
     expect(document.decks[0]?.revisions).toHaveLength(2)
     expect(document.decks[0]?.changes.length).toBeGreaterThanOrEqual(2)
     expect(document.decks[2]?.variantOfId).toBe(Number(deckIds[0]))
+    const packs = (document as unknown as { packs: { id: string; available: boolean }[] }).packs
+    expect(packs.find((pack) => pack.id === 'B4b/deluxepackmega')?.available).toBe(false)
+    expect(packs.find((pack) => pack.id === 'A4b/deluxepack')?.available).toBe(false)
+    expect(packs.find((pack) => pack.id === 'A1/mewtwopack')?.available).toBe(true)
     expect(document.matches).toHaveLength(2)
     expect(document.matches[0]).toMatchObject({
       deckId: Number(deckIds[0]),
@@ -167,7 +173,7 @@ describe('backup and settings (e2e)', () => {
   it('dry-run reports counts and notices without touching the data', async () => {
     const response = await post('/api/backup/import?mode=dry-run').attach('file', exported, 'backup.json.gz')
     expect(response.status).toBe(200)
-    expect(response.body).toMatchObject({ schemaVersion: 2, catalogCommit: test.env.catalogCommit })
+    expect(response.body).toMatchObject({ schemaVersion: 3, catalogCommit: test.env.catalogCommit })
     expect(response.body.diff.incoming.matches).toBe(2)
     expect(response.body.diff.incoming).toEqual(response.body.diff.current)
     expect(response.body.diff.needsReview).toBe(false)
@@ -197,6 +203,7 @@ describe('backup and settings (e2e)', () => {
     await test.prisma.collectionStock.deleteMany()
     await test.prisma.collectionImport.deleteMany()
     await test.prisma.appSetting.deleteMany()
+    await test.prisma.pack.updateMany({ data: { available: true } })
     expect((await get('/api/decks')).body.items).toEqual([])
     expect((await get('/api/collection/summary')).body.copies).toBe(0)
 
@@ -211,6 +218,9 @@ describe('backup and settings (e2e)', () => {
       settings: 2,
       matches: 2,
     })
+    const packs = (await get('/api/packs')).body.items as { id: string; available: boolean }[]
+    expect(packs.find((pack) => pack.id === 'B4b/deluxepackmega')?.available).toBe(false)
+    expect(packs.find((pack) => pack.id === 'A4b/deluxepack')?.available).toBe(false)
 
     const again = await get('/api/backup/export').responseType('blob')
     const restored = JSON.parse(gunzipSync(again.body as Buffer).toString('utf8')) as Doc
@@ -323,7 +333,7 @@ describe('backup and settings (e2e)', () => {
     expect(download.status).toBe(200)
     expect(download.headers['content-type']).toBe('application/gzip')
     const parsed = JSON.parse(gunzipSync(download.body as Buffer).toString('utf8')) as Doc
-    expect(parsed.schemaVersion).toBe(2)
+    expect(parsed.schemaVersion).toBe(3)
     expect(parsed.matches).toHaveLength(2)
     expect(parsed.decks).toHaveLength(4)
     expect((await get('/api/backup/blobs/999999')).status).toBe(404)

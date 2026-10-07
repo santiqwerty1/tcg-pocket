@@ -15,6 +15,7 @@ import { CatalogModule } from '../catalog/catalog.module.js'
 import { CollectionModule } from '../collection/collection.module.js'
 import { DecksModule } from '../decks/decks.module.js'
 import { MatchesModule } from '../matches/matches.module.js'
+import { PacksModule } from '../packs/packs.controller.js'
 import { BearerTokenGuard, RequireScopes } from '../tokens/bearer-token.guard.js'
 import { TokensModule } from '../tokens/tokens.module.js'
 import { McpToolsService } from './mcp-tools.service.js'
@@ -57,7 +58,7 @@ export class McpController implements OnModuleDestroy {
 }
 
 @Module({
-  imports: [TokensModule, CatalogModule, CollectionModule, DecksModule, MatchesModule],
+  imports: [TokensModule, CatalogModule, CollectionModule, DecksModule, MatchesModule, PacksModule],
   controllers: [McpController],
   providers: [McpToolsService],
 })

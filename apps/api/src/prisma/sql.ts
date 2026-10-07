@@ -21,6 +21,8 @@ export interface UpsertOptions extends InsertOptions {
    * `nothing` keeps the existing row untouched (seed-once tables such as `rarity_rules`).
    */
   action?: 'update' | 'nothing' | undefined
+  /** Columns written when the row is new and left alone on conflict (owner settings with a default). */
+  insertOnly?: readonly string[] | undefined
 }
 
 async function insertChunks(
@@ -75,7 +77,9 @@ export function upsertMany(
   conflictColumns: readonly string[],
   options: UpsertOptions = {},
 ): Promise<void> {
-  const updatable = columns.filter((column) => !conflictColumns.includes(column))
+  const updatable = columns.filter(
+    (column) => !conflictColumns.includes(column) && !(options.insertOnly ?? []).includes(column),
+  )
   const conflictList = conflictColumns.map(quoteIdentifier).join(', ')
   const action =
     updatable.length === 0 || options.action === 'nothing'

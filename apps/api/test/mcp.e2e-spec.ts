@@ -315,7 +315,6 @@ describe('MCP endpoint (e2e)', () => {
     expect(withMatches?.myMatches).toMatchObject({ record: { wins: 7, losses: 3, ties: 0 } })
 
     for (const [name, phase] of [
-      ['packs_recommend', 'Fase 4'],
       ['tournaments_stats', 'Fase 5'],
       ['tournaments_buildable', 'Fase 5'],
       ['tournaments_unlock_cards', 'Fase 5'],
@@ -326,6 +325,38 @@ describe('MCP endpoint (e2e)', () => {
       expect(result.structuredContent.available).toBe(false)
       expect(String(result.structuredContent.message)).toContain(phase)
     }
+  })
+
+  it('recommends packs (Fase 4): deck 13 with priority and a missing Hoopa ex points to the Deluxe Mega', async () => {
+    const client = await connect()
+    const noGoals = await call(client, 'packs_recommend', { collection: null })
+    expect((noGoals.structuredContent.goals as Structured).note).toContain('prioridad de sobres')
+
+    const detail = (await test.http().get('/api/decks/13').set('Cookie', cookie)).body as {
+      cards: { card: { id: string }; count: number }[]
+    }
+    const cards = detail.cards
+      .filter((entry) => entry.card.id !== 'A2-110')
+      .map((entry) => ({ cardId: entry.card.id, count: entry.card.id === 'B4-103' ? 2 : entry.count }))
+    const patched = await test.http().patch('/api/decks/13').set('Cookie', cookie).send({ cards, packPriority: 3 })
+    expect(patched.status).toBe(200)
+
+    const result = await call(client, 'packs_recommend', { collection: null, limit: 3 })
+    expect(result.isError).toBeFalsy()
+    const packs = result.structuredContent.packs as Structured[]
+    expect(packs).toHaveLength(3)
+    expect(packs[0]).toMatchObject({ probability: '1,43 %', packsFor50: 49, packsFor90: 161 })
+    expect(String(packs[0]?.pack)).toContain('(B4b)')
+    expect(String(packs[0]?.otherModel)).toContain('tracker: 0 %')
+    expect(result.structuredContent.missingCards).toEqual([
+      expect.objectContaining({
+        nameEs: 'Hoopa ex',
+        cheapest: 'B4-103 ◊◊◊◊: 500 puntos (sin verificar), intercambiable',
+        advice: 'conviene abrir sobres',
+      }),
+    ])
+    const completion = (result.structuredContent.deckCompletion as Structured[])[0]
+    expect(String((completion?.bestPacks as string[] | undefined)?.[0])).toContain('cubre 1 de 1 copias en ~70 sobres')
   })
 
   it('finds the closest saved deck to a pasted list, picks a random deck and recommends the best prints', async () => {

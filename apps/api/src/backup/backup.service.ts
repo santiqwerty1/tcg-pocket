@@ -105,7 +105,7 @@ export class BackupService {
   // ---------------------------------------------------------------------------------------------------------------
 
   async exportDocument(): Promise<BackupDocument> {
-    const [settings, rarityRules, stock, imports, adjustments, decks, matches, tokens] = await Promise.all([
+    const [settings, rarityRules, stock, imports, adjustments, decks, matches, packs, tokens] = await Promise.all([
       this.prisma.appSetting.findMany({ orderBy: { key: 'asc' } }),
       this.prisma.rarityRule.findMany({ orderBy: { rarity: 'asc' } }),
       this.prisma.collectionStock.findMany({ orderBy: { cardId: 'asc' } }),
@@ -120,6 +120,7 @@ export class BackupService {
         include: { revisions: { orderBy: { number: 'asc' } }, changes: { orderBy: { id: 'asc' } } },
       }),
       this.prisma.match.findMany({ orderBy: { id: 'asc' } }),
+      this.prisma.pack.findMany({ orderBy: { id: 'asc' }, select: { id: true, available: true, pointsBalance: true } }),
       this.prisma.apiToken.findMany({ orderBy: { id: 'asc' } }),
     ])
     return {
@@ -207,6 +208,7 @@ export class BackupService {
           source: change.source,
         })),
       })),
+      packs: packs.map((pack) => ({ id: pack.id, available: pack.available, pointsBalance: pack.pointsBalance })),
       matches: matches.map((match) => ({
         id: match.id,
         deckId: match.deckId,
@@ -423,6 +425,13 @@ export class BackupService {
             }
           }
         }
+        // Pack switches only touch packs the catalog has; a backup without them keeps the current ones.
+        for (const pack of document.packs) {
+          await tx.pack.updateMany({
+            where: { id: pack.id },
+            data: { available: pack.available, pointsBalance: pack.pointsBalance },
+          })
+        }
         if (document.matches.length > 0) {
           await tx.match.createMany({ data: document.matches })
         }
@@ -486,7 +495,12 @@ export class BackupService {
         `${unknown.size} ids del backup no existen en el catálogo cargado; no se puede restaurar hasta sincronizarlo.`,
       )
     }
-    if (document.schemaVersion < BACKUP_SCHEMA_VERSION) {
+    if (document.schemaVersion < 3) {
+      notices.push(
+        `Backup de la versión ${document.schemaVersion}, anterior a la Fase 4: no trae qué sobres están disponibles; se mantiene lo que hay ahora.`,
+      )
+    }
+    if (document.schemaVersion < 2) {
       notices.push(
         `Backup de la versión ${document.schemaVersion}, anterior al registro de partidas: no trae partidas, así que restaurarlo borra las que hay ahora.`,
       )
