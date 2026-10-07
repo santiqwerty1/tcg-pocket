@@ -11,6 +11,8 @@ primary_region = "gru"
   PORT = "3000"
   WEB_DIST = "/app/apps/web/dist"
   TRUST_PROXY = "1"
+  # Supabase pooler certificate chain (apps/api/certs/README.md); required for sslmode=verify-full.
+  NODE_EXTRA_CA_CERTS = "/app/apps/api/certs/supabase-prod-ca-2021.crt"
 
 [http_service]
   internal_port = 3000
