@@ -6,7 +6,7 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 
 - **Fase 0 entregada y aprobada el 6/10/2026**: `docs/PLAN.md` (revisión 2 + Apéndice E de herramientas), `docs/DECISIONES.md` (bloque A aprobado: Fly siempre encendida ≈ 4 US$, Supabase Free, login contraseña+TOTP a mano, modelo de datos, `engine-cli`, Descope como servidor OAuth si hace falta, repo privado en GitHub), `docs/LICENCIAS.md`, `docs/fase0/`. No hay código de la app todavía.
 - Conector remoto de Claude: la cuenta de Santi admite «Encabezados de solicitud» → token fijo `tcg_mcp_*`, sin OAuth (capturas del 6/10/2026). Dominio: `*.fly.dev`.
-- **Fase 1 implementada y verificada (6/10/2026)**: dominio (164 tests), API completa (48 unit + 59 e2e; aceptación de PLAN §7 pasada contra el sistema real; revisión adversarial aplicada), PWA (31 tests) probada en el navegador contra datos reales (CSV y 40 mazos). Imagen Docker verificada. **Pendiente para cerrar la fase: deploy en Fly + Supabase** (cuentas de Santi) y prueba desde el celular.
+- **Fase 1 implementada y verificada (6/10/2026)**: dominio (164 tests), API completa (48 unit + 59 e2e; aceptación de PLAN §7 pasada contra el sistema real; revisión adversarial aplicada), PWA (31 tests) probada en el navegador contra datos reales (CSV y 40 mazos). Imagen Docker verificada. **Desplegada el 7/10/2026** en Fly.io (`https://tcg-pocket.fly.dev`, app `tcg-pocket`, región gru, 1 máquina shared-cpu-1x 512 MB) con Postgres en Supabase (proyecto `<ref-oculto>`, São Paulo, pooler de sesión + `sslmode=verify-full` con la CA de `apps/api/certs/`). Migraciones y catálogo sincronizados en producción. Pendiente: Santi crea su usuario (`owner:init`) y prueba desde el celular.
 - Siguiente paso: Fase 1 (M1 catálogo, M2 colección, M3 mazos, backup, login, deploy) según PLAN §7, con el bloque B del plan en sus valores por defecto.
 
 ## Cómo trabajar acá
@@ -39,3 +39,10 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 - Calidad: `pnpm lint` / `pnpm lint:fix` (biome), `pnpm -F @tcg/api typecheck | test | test:e2e | build`; `test:e2e` usa `TEST_DATABASE_URL` (crea la base, aplica migraciones y trunca tablas). Servidor: `pnpm -F @tcg/api start` (`dist/main.js`) o `start:dev`; login en `http://localhost:3000/login`.
 - Deploy: `Dockerfile` y `fly.toml` en la raíz (app `tcg-pocket`, región `gru`, `/healthz`); secretos `DATABASE_URL` y `SESSION_SECRET` con `fly secrets set`; `fly deploy`. El contenedor corre `prisma migrate deploy` al arrancar. Detalle en `apps/api/README.md`.
 - Pendiente de Fase 1: `pnpm worker:install-task` (worker de Windows, Fase 6).
+
+## Producción
+
+- `flyctl` está en `%USERPROFILE%.flyin`. `flyctl ssh console` falla desde esta PC (túnel WireGuard reseteado); usar `flyctl machine exec <id> --app tcg-pocket "<comando>"` (API de máquinas) para tareas puntuales: `node /app/apps/api/dist/cli/catalog-sync.js`, `node /app/apps/api/dist/cli/owner-init.js`.
+- Tras un `catalog-sync` por CLI hay que reiniciar la máquina (`flyctl machine restart <id>`) o usar `POST /api/catalog/sync`, porque el catálogo vive en memoria del proceso.
+- Deploy: `flyctl deploy --app tcg-pocket --remote-only --ha=false`. Secretos: `flyctl secrets set` (`DATABASE_URL` en `.env.fly`, nunca en el repo).
+- Fly crea 2 máquinas por defecto; siempre `--ha=false` (un usuario).
