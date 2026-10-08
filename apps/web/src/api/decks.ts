@@ -1,4 +1,4 @@
-import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { type QueryClient, queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request, requestText } from './client'
 import {
   closestDecksSchema,
@@ -87,13 +87,16 @@ export function useDecks(params: DecksParams = {}) {
   })
 }
 
-export function useDeck(id: string | undefined) {
-  return useQuery({
-    queryKey: deckKeys.detail(id ?? ''),
-    queryFn: ({ signal }) =>
-      request(`/api/decks/${encodeURIComponent(id ?? '')}`, { schema: deckDetailSchema, signal }),
-    enabled: Boolean(id),
+/** Shared with the deck pager, which prefetches the neighbours so ‹ › and the arrows are instant. */
+export function deckDetailQuery(id: string) {
+  return queryOptions({
+    queryKey: deckKeys.detail(id),
+    queryFn: ({ signal }) => request(`/api/decks/${encodeURIComponent(id)}`, { schema: deckDetailSchema, signal }),
   })
+}
+
+export function useDeck(id: string | undefined) {
+  return useQuery({ ...deckDetailQuery(id ?? ''), enabled: Boolean(id) })
 }
 
 export function useDecksByCard(groupId: string | undefined) {

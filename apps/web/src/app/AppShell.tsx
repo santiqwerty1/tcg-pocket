@@ -1,5 +1,6 @@
 import { ChevronLeftIcon } from 'lucide-react'
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Outlet, useMatches, useNavigate } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
@@ -17,6 +18,9 @@ interface TitleContextValue {
 
 const TitleContext = createContext<TitleContextValue>({ setTitle: () => {} })
 
+/** The spot at the right of the header title where a page can put its own controls. */
+const HeaderSlotContext = createContext<HTMLElement | null>(null)
+
 /** Lets a page replace the static route title (e.g. with the deck name). */
 export function usePageTitle(title: string | null | undefined): void {
   const { setTitle } = useContext(TitleContext)
@@ -24,6 +28,12 @@ export function usePageTitle(title: string | null | undefined): void {
     setTitle(title ?? null)
     return () => setTitle(null)
   }, [title, setTitle])
+}
+
+/** Renders `children` at the right of the header (e.g. the deck pager), while the page is mounted. */
+export function HeaderActions({ children }: { children: ReactNode }) {
+  const slot = useContext(HeaderSlotContext)
+  return slot ? createPortal(children, slot) : null
 }
 
 function useRouteHandle(): RouteHandle | undefined {
@@ -39,6 +49,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
   const handle = useRouteHandle()
   const navigate = useNavigate()
   const [override, setOverride] = useState<string | null>(null)
+  const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null)
   const setTitle = useCallback((title: string | null) => setOverride(title), [])
   const value = useMemo(() => ({ setTitle }), [setTitle])
   const title = override ?? handle?.title ?? 'TCG Pocket'
@@ -54,21 +65,24 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
   return (
     <TitleContext.Provider value={value}>
-      <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">
-        <div className="mx-auto flex h-14 max-w-3xl items-center gap-1 px-2">
-          {handle?.back !== undefined ? (
-            <Button variant="ghost" size="icon" aria-label="Volver" onClick={goBack}>
-              <ChevronLeftIcon className="size-6" />
-            </Button>
-          ) : (
-            <span className="w-2" />
-          )}
-          <h1 className="truncate text-lg font-semibold">{title}</h1>
-        </div>
-      </header>
-      <main className="mx-auto w-full max-w-3xl px-4 pt-4 pb-28">{children ?? <Outlet />}</main>
-      <BottomNav />
-      <Toaster />
+      <HeaderSlotContext.Provider value={headerSlot}>
+        <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">
+          <div className="mx-auto flex h-14 max-w-3xl items-center gap-1 px-2">
+            {handle?.back !== undefined ? (
+              <Button variant="ghost" size="icon" aria-label="Volver" onClick={goBack}>
+                <ChevronLeftIcon className="size-6" />
+              </Button>
+            ) : (
+              <span className="w-2" />
+            )}
+            <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">{title}</h1>
+            <div ref={setHeaderSlot} className="flex shrink-0 items-center empty:hidden" />
+          </div>
+        </header>
+        <main className="mx-auto w-full max-w-3xl px-4 pt-4 pb-28">{children ?? <Outlet />}</main>
+        <BottomNav />
+        <Toaster />
+      </HeaderSlotContext.Provider>
     </TitleContext.Provider>
   )
 }

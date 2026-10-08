@@ -35,6 +35,7 @@ import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { BestVersionsSection } from './BestVersions'
 import { ClosestDecksSection } from './ClosestDecks'
+import { DeckPager } from './DeckPager'
 import { DeckPerformance } from './DeckPerformance'
 import { DeckBadges } from './DecksPage'
 import { BUILT_IN_GAME_LIMIT, groupByType, totalCount } from './deckLogic'
@@ -107,6 +108,16 @@ function CardGroups({ deck }: { deck: DeckDetail }) {
 
 export function DeckDetailPage() {
   const { deckId } = useParams()
+  return (
+    <>
+      {deckId ? <DeckPager deckId={deckId} /> : null}
+      {/* Keyed so sheets and dialogs of one deck never stay open on the next. */}
+      <DeckDetailView key={deckId} deckId={deckId} />
+    </>
+  )
+}
+
+function DeckDetailView({ deckId }: { deckId: string | undefined }) {
   const navigate = useNavigate()
   const deck = useDeck(deckId)
   const activeDecks = useDecks({ archived: false })
