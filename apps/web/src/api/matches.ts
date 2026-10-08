@@ -3,6 +3,7 @@ import { request } from './client'
 import {
   deckComparisonSchema,
   deckMatchupsSchema,
+  luckSchema,
   type MatchInput,
   type MatchMode,
   type MatchResult,
@@ -71,6 +72,20 @@ export function useMatchStats(params: MatchStatsParams = {}) {
   return useQuery({
     queryKey: matchKeys.stats(params),
     queryFn: ({ signal }) => request('/api/matches/stats', { query: { ...params }, schema: matchStatsSchema, signal }),
+  })
+}
+
+/** Fase 13: is the deck's record against a rival (or overall) unusual for what tournaments expect? */
+export function useLuck(deckId: string | null, opponent: string | null) {
+  return useQuery({
+    queryKey: ['matches', 'luck', deckId ?? '', opponent ?? ''] as const,
+    queryFn: ({ signal }) =>
+      request('/api/matches/luck', {
+        query: { deckId: deckId ?? '', opponent: opponent ?? undefined },
+        schema: luckSchema,
+        signal,
+      }),
+    enabled: Boolean(deckId),
   })
 }
 

@@ -6,6 +6,7 @@ import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
 import type {
   DeckComparisonView,
   DeckMatchupsView,
+  LuckView,
   MatchStatsView,
   MatchSuggestionsView,
   MatchView,
@@ -47,11 +48,25 @@ const statsQuerySchema = z.object({
   to: isoDateTime.optional(),
 })
 const comparisonQuerySchema = z.object({ mode: z.enum(MATCH_MODES).optional() })
+const luckQuerySchema = z.object({
+  deckId: z.string().trim().min(1).max(20),
+  opponent: z.string().trim().max(OPPONENT_MAX_LENGTH).optional(),
+  mode: z.enum(MATCH_MODES).optional(),
+})
 
 /** Session-protected matches API (docs/API.md «Partidas»). Static routes go first so they never match `:id`. */
 @Controller('api/matches')
 export class MatchesController {
   constructor(private readonly matches: MatchesService) {}
+
+  /** Fase 13: is the deck's record (overall or against a rival) unusual for what tournaments expect? */
+  @Get('luck')
+  luck(
+    @Query(new ZodValidationPipe(luckQuerySchema)) query: z.infer<typeof luckQuerySchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<LuckView> {
+    return this.matches.luck(query.deckId, query.opponent || undefined, query.mode)
+  }
 
   @Get()
   list(

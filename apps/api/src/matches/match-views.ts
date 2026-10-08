@@ -72,6 +72,27 @@ export interface ComparisonColumnView {
   rows?: { label: string; record: GameRecord; rate: WinRate | null; note?: string }[]
 }
 
+/** Fase 13: an own record against the expected rate (tournaments), in words. */
+export interface LuckView {
+  deck: MatchDeckRef
+  opponent: string | null
+  record: GameRecord
+  /** Where the expected rate comes from: the matchup of the deck's archetype against the rival, or its record. */
+  expected: { value: number; kind: 'matchup' | 'archetype'; label: string; games: number } | null
+  check: {
+    games: number
+    actual: number
+    expected: number
+    lowerTail: number
+    upperTail: number
+    verdict: 'too_few' | 'normal' | 'unlucky' | 'lucky'
+  } | null
+  /** The current losing run of the deck (3 or more), at the expected rate. */
+  streak: { losses: number; probability: number; somewhere: number; games: number } | null
+  /** The verdict in Spanish, ready to show. */
+  text: string
+}
+
 /** Fase 9: one rival of a deck, own matches and the tournament matchup side by side (never combined). */
 export interface DeckMatchupRowView {
   /** Tournament archetype (id) or an opponent typed by hand that matches none (id null). */
@@ -80,6 +101,8 @@ export interface DeckMatchupRowView {
   share: number | null
   mine: RowView | null
   tournament: { record: GameRecord; rate: WinRate | null } | null
+  /** Fase 13: own record against the tournament matchup (when both exist). */
+  luck: 'too_few' | 'normal' | 'unlucky' | 'lucky' | null
 }
 
 export interface DeckMatchupsView {

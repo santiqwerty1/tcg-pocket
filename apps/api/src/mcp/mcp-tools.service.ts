@@ -175,6 +175,9 @@ ${MCP_WRITE_INSTRUCTIONS}`
     server.registerTool(t.tournamentsStats.name, config(t.tournamentsStats), (args) =>
       run(t.tournamentsStats.name, () => this.tournamentsStats(args)),
     )
+    server.registerTool(t.matchesLuck.name, config(t.matchesLuck), (args) =>
+      run(t.matchesLuck.name, () => this.matchesLuck(args)),
+    )
     server.registerTool(t.rivalsNotes.name, config(t.rivalsNotes), (args) =>
       run(t.rivalsNotes.name, () => this.rivalsNotes(args)),
     )
@@ -923,6 +926,19 @@ ${MCP_WRITE_INSTRUCTIONS}`
         name: row.archetype.name,
         ...this.recordJson(row),
       })),
+    }
+  }
+
+  private async matchesLuck(args: { deck: string; opponent?: string }): Promise<Json> {
+    const deck = await this.resolveDeck(args.deck)
+    const luck = await this.matches.luck(deck.id, args.opponent, undefined)
+    return {
+      deck: luck.deck,
+      opponent: luck.opponent,
+      record: luck.record,
+      expected: luck.expected,
+      verdict: luck.check?.verdict ?? null,
+      text: luck.text,
     }
   }
 

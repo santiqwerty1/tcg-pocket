@@ -286,3 +286,12 @@ Pedido de Santi: hacer las doce ideas de ampliación, cada una como su propia fa
 | 15.1 | Una nota por rival, guardada por su **clave de rival** (la misma de las estadísticas: sin mayúsculas, tildes ni signos), así la nota escrita sobre «Mega Blaziken ex» de Limitless aparece al anotar «mega-blaziken EX». Texto libre hasta 5.000 caracteres; vacío la borra. Tabla `rival_notes` (migración `20261009010000_rival_notes`). | Un solo lugar por rival, cualquiera sea la forma de escribirlo. |
 | 15.2 | Dónde se ve: debajo del campo «Rival» al cargar una partida (solo si hay nota, recortada a 3 líneas), sección «Mis notas» en cada arquetipo de Torneos y Más → «Notas por rival» (todas, nuevas por nombre). Claude las lee (`rivals_notes`) y, con permiso de escritura, agrega un párrafo o la reemplaza (`rivals_note_set`, por defecto agrega). | Recordarlas justo antes de jugar. |
 | 15.3 | **Backup versión 6**: las notas viajan en `rivalNotes`; al restaurar se reemplazan; los backups anteriores dejan las actuales con un aviso. | Son datos tuyos. |
+
+## Fase 13: ¿mala racha o mal matchup? (8/10/2026)
+
+| # | Decisión | Motivo |
+|---|---|---|
+| 16.1 | **Lo esperable** sale de torneos: el matchup del arquetipo del mazo contra ese rival si tiene 10 partidas o más (Fase 9); si no, el récord del arquetipo en la era. Sin arquetipo de torneo, no se dice nada. | Una referencia externa a tus propias partidas. |
+| 16.2 | **Prueba binomial exacta** sobre tus partidas (los empates cuentan como no-victoria, como en todo el resto): «raro» si sacar eso o menos (o más) pasa menos de 1 de cada 20 veces; con menos de 5 partidas, «todavía pocas». En palabras («pasa 1 de cada 25 veces»), sin p-valores. | Que se entienda en el celu. |
+| 16.3 | **Rachas**: desde 3 derrotas seguidas con el mazo, cuántas veces pasa esa racha en un tramo dado y cuántas veces aparece una así en todas las partidas jugadas (cálculo exacto). | Una racha suelta casi siempre aparece en algún momento. |
+| 16.4 | Dónde: después de guardar una derrota, debajo del formulario; en «Contra cada rival» de la ficha del mazo («racha rara», «mejor de lo esperable»); `GET /api/matches/luck`; tool `matches_luck`. | Justo cuando uno se pregunta si es el mazo o la suerte. |

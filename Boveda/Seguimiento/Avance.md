@@ -33,7 +33,7 @@ revisar: false
 | 10 | Calculadora de mano inicial | hecho 08/10 · falta subir y desplegar | — | [T-012](Tareas/T-012.md) |
 | 11 | Meta semanal | hecho 08/10 · falta subir y desplegar | — | [T-012](Tareas/T-012.md) |
 | 12 | Notas por rival | hecho 08/10 · falta subir y desplegar | — | [T-012](Tareas/T-012.md) |
-| 13 | ¿Mala racha o mal matchup? | pendiente | 9 | [T-012](Tareas/T-012.md) |
+| 13 | ¿Mala racha o mal matchup? | hecho 08/10 · falta subir y desplegar | 9 | [T-012](Tareas/T-012.md) |
 | 14 | ¿Cuántos días me faltan? | pendiente | — | [T-012](Tareas/T-012.md) |
 | 15 | ¿Qué mazo llevo hoy? | pendiente | 9 | [T-012](Tareas/T-012.md) |
 | 16 | Eventos con restricciones | pendiente | — | [T-012](Tareas/T-012.md) |

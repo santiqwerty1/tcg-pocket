@@ -237,6 +237,16 @@ export const MCP_READ_TOOLS = {
       limit: z.number().int().min(1).max(50).optional().describe('Filas a devolver (por defecto 15)'),
     }),
   },
+  matchesLuck: {
+    name: 'matches_luck',
+    title: '¿Mala racha o mal matchup?',
+    description:
+      'Si el récord de Santi con un mazo (en general o contra un rival) es raro para lo que dicen los torneos: compara contra el matchup del arquetipo del mazo contra ese rival en torneos (10 partidas o más) o, si no, el récord del arquetipo, con una prueba binomial exacta, y dice si lleva una racha de derrotas y qué tan común es. Devuelve el veredicto en palabras: «dentro de lo normal», «raro», «mejor de lo esperable».',
+    input: z.object({
+      deck: deckRef,
+      opponent: z.string().trim().min(1).max(120).optional().describe('Rival: arquetipo como Santi lo anota'),
+    }),
+  },
   rivalsNotes: {
     name: 'rivals_notes',
     title: 'Notas por rival',

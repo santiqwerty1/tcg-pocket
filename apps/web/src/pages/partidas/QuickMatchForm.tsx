@@ -11,6 +11,7 @@ import { useCreateMatch, useDeleteMatch } from '@/api/matches'
 import type { MatchMode, MatchResult, MatchSuggestions } from '@/api/schemas'
 import { DeckNumber } from '@/components/DeckNumber'
 import { Spinner } from '@/components/ListState'
+import { LuckCard } from '@/components/LuckCard'
 import { RivalNoteHint } from '@/components/RivalNote'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -43,6 +44,8 @@ export function QuickMatchForm({
   const [note, setNote] = useState('')
   const [pickerOpen, setPickerOpen] = useState(false)
   const [filter, setFilter] = useState('')
+  /** Fase 13: after a loss, «¿mala racha?» for that deck and rival. */
+  const [lastLoss, setLastLoss] = useState<{ deckId: string; opponent: string | null } | null>(null)
 
   // Own opponents first (most recent and frequent), then the tournament archetypes of the era not typed yet.
   const opponentChoices = useMemo(() => {
@@ -84,6 +87,7 @@ export function QuickMatchForm({
         mode,
         ...(note.trim() ? { note: note.trim() } : {}),
       })
+      setLastLoss(match.result === 'loss' ? { deckId: match.deck.id, opponent: match.opponent } : null)
       setResult(null)
       setOpponent('')
       setWentFirst(null)
@@ -125,6 +129,13 @@ export function QuickMatchForm({
         {create.isPending ? <Spinner /> : <SaveIcon data-icon="inline-start" />}
         Guardar partida
       </Button>
+      {lastLoss ? (
+        <LuckCard
+          key={`${lastLoss.deckId}|${lastLoss.opponent ?? ''}`}
+          deckId={lastLoss.deckId}
+          opponent={lastLoss.opponent}
+        />
+      ) : null}
       {deckId === null ? (
         <p className="text-sm text-muted-foreground">Elegí el mazo con «Otro mazo…».</p>
       ) : result === null ? (

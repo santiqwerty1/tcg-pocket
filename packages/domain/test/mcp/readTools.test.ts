@@ -30,6 +30,7 @@ describe('MCP read tools', () => {
         'lab_meta_bank',
         'lab_results',
         'matches_list',
+        'matches_luck',
         'matches_stats',
         'packs_recommend',
         'rivals_notes',

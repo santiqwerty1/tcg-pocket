@@ -411,6 +411,53 @@ describe('tournaments (e2e)', () => {
     }
   })
 
+  it('¿mala racha? (Fase 13): eight losses in a row against the most played archetype are rare', async () => {
+    const decks = (await get('/api/decks')).body.items as { id: string; name: string }[]
+    const blaziken = decks.find((deck) => deck.name === 'Mega-Blaziken ex')
+    const [top] = (await get('/api/tournaments/archetypes')).body.rows as { archetype: { name: string } }[]
+    const ids: string[] = []
+    for (let i = 0; i < 8; i++) {
+      const logged = await post('/api/matches').send({
+        deckId: blaziken?.id,
+        result: 'loss',
+        opponent: top?.archetype.name,
+      })
+      ids.push(logged.body.id)
+    }
+    const luck = (
+      await get(`/api/matches/luck?deckId=${blaziken?.id}&opponent=${encodeURIComponent(top?.archetype.name ?? '')}`)
+    ).body as {
+      record: { wins: number; losses: number }
+      expected: { kind: string; value: number; label: string } | null
+      check: { verdict: string; lowerTail: number } | null
+      streak: { losses: number; somewhere: number } | null
+      text: string
+    }
+    expect(luck.record).toMatchObject({ wins: 0, losses: 8 })
+    expect(luck.expected?.label).toMatch(/Blaziken/i)
+    expect(luck.check?.verdict).toBe('unlucky')
+    expect(luck.check?.lowerTail).toBeLessThan(0.05)
+    expect(luck.streak?.losses).toBe(8)
+    expect(luck.text).toContain('Es raro')
+    expect(luck.text).toContain('8 derrotas seguidas')
+    // Overall with the deck: the same eight games here.
+    const overall = (await get(`/api/matches/luck?deckId=${blaziken?.id}`)).body as {
+      opponent: string | null
+      expected: { kind: string }
+    }
+    expect(overall.opponent).toBeNull()
+    expect(overall.expected.kind).toBe('archetype')
+    // The deck sheet marks the row.
+    const sheet = (await get(`/api/decks/${blaziken?.id}/matchups`)).body as {
+      rows: { rival: { name: string }; luck: string | null }[]
+    }
+    const row = sheet.rows.find((item) => item.rival.name === top?.archetype.name)
+    expect(['unlucky', null]).toContain(row?.luck)
+    for (const id of ids)
+      expect((await test.http().delete(`/api/matches/${id}`).set('Cookie', cookie)).status).toBe(204)
+    expect((await get('/api/matches/luck?deckId=99999')).status).toBe(404)
+  })
+
   it('meta semanal (Fase 11): the week of PMPT #45 against the week before (empty here)', async () => {
     const trends = (await get('/api/tournaments/trends')).body as {
       days: number
@@ -524,6 +571,8 @@ describe('tournaments (e2e)', () => {
       const ww = split.withWithout as { with: { lists: number }; without: { lists: number } }
       expect(ww.with.lists + ww.without.lists).toBe((detail.archetype as { lists: number }).lists)
       expect((await call('tournaments_stats', { by: 'list', limit: 2 })).lists).toHaveLength(2)
+      const luck = await call('matches_luck', { deck: 'Mega-Blaziken ex' })
+      expect(String(luck.text).length).toBeGreaterThan(10)
       const week = await call('tournaments_trends', { limit: 3 })
       expect(week.thisWeek).toMatchObject({ lists: 393 })
       expect((week.archetypesUp as unknown[]).length + (week.archetypesDown as unknown[]).length).toBeGreaterThan(0)

@@ -59,6 +59,17 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
         const url = new URL(input, 'http://localhost')
         const method = init?.method ?? 'GET'
         if (url.pathname === '/api/matches/suggestions') return json(SUGGESTIONS)
+        if (url.pathname === '/api/matches/luck') {
+          return json({
+            deck: { id: '7', name: 'Zoroark ex / Mega-Absol ex', archived: false },
+            opponent: url.searchParams.get('opponent'),
+            record: { wins: 1, losses: 6, ties: 0 },
+            expected: { value: 52, kind: 'matchup', label: 'Zoroark contra Gardevoir en torneos', games: 40 },
+            check: { games: 7, actual: 14.3, expected: 52, lowerTail: 0.04, upperTail: 0.99, verdict: 'unlucky' },
+            streak: null,
+            text: 'Vas 1-6 (14,3 %). Es raro.',
+          })
+        }
         if (url.pathname === '/api/rival-notes') {
           return json({
             items: [
@@ -136,6 +147,18 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
     expect(within(form).getByRole('button', { name: 'Empecé yo' })).toHaveAttribute('aria-pressed', 'false')
     expect(within(form).getByLabelText('Rival (arquetipo)')).toHaveValue('')
     expect(within(deckGroup).getByRole('button', { name: /Zoroark ex/ })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('after a loss, says whether the record against that rival is rare (Fase 13)', async () => {
+    const user = userEvent.setup()
+    renderAt('/partidas')
+    const form = await screen.findByRole('form', { name: 'Nueva partida' })
+    await user.click(within(form).getByRole('button', { name: 'Derrota' }))
+    await user.click(within(form).getByRole('button', { name: 'Gardevoir ex' }))
+    await user.click(within(form).getByRole('button', { name: /Guardar partida/ }))
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(await within(form).findByText('Vas 1-6 (14,3 %). Es raro.')).toBeVisible()
+    expect(within(form).getByText(/Racha rara/)).toBeVisible()
   })
 
   it('shows the note about the rival once it is picked (Fase 12)', async () => {

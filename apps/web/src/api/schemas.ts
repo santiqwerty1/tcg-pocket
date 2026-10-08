@@ -670,11 +670,37 @@ export const deckMatchupsSchema = z.object({
       share: z.number().nullable(),
       mine: z.object({ record: gameRecordSchema, rate: winRateSchema.nullable() }).nullable(),
       tournament: z.object({ record: gameRecordSchema, rate: winRateSchema.nullable() }).nullable(),
+      luck: z.enum(['too_few', 'normal', 'unlucky', 'lucky']).nullable().default(null),
     }),
   ),
   attribution: z.string(),
 })
 export type DeckMatchups = z.infer<typeof deckMatchupsSchema>
+
+/** Fase 13: an own record against what tournaments expect, in words. */
+export const luckSchema = z.object({
+  deck: matchDeckRefSchema,
+  opponent: z.string().nullable(),
+  record: gameRecordSchema,
+  expected: z
+    .object({ value: z.number(), kind: z.enum(['matchup', 'archetype']), label: z.string(), games: z.number() })
+    .nullable(),
+  check: z
+    .object({
+      games: z.number(),
+      actual: z.number(),
+      expected: z.number(),
+      lowerTail: z.number(),
+      upperTail: z.number(),
+      verdict: z.enum(['too_few', 'normal', 'unlucky', 'lucky']),
+    })
+    .nullable(),
+  streak: z
+    .object({ losses: z.number(), probability: z.number(), somewhere: z.number(), games: z.number() })
+    .nullable(),
+  text: z.string(),
+})
+export type Luck = z.infer<typeof luckSchema>
 export type DeckComparison = z.infer<typeof deckComparisonSchema>
 
 // ---------- Packs (Fase 4) ----------

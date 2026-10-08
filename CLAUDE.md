@@ -26,6 +26,7 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 - **Fase 11 implementada el 8/10/2026** (DECISIONES 14.1–14.3): `packages/domain/src/tournaments/trends.ts` (`metaTrends`), `GET /api/tournaments/trends`, tool `tournaments_trends`, Torneos → Meta semanal.
 - Pedido del 8/10: «Actualizar el mazo original» desde el Laboratorio (revisión nueva del mazo de partida, DECISIONES 10.13).
 - **Fase 12 implementada el 8/10/2026** (DECISIONES 15.1–15.3): notas por rival (`rival_notes`, migración `20261009010000_rival_notes`, `apps/api/src/rivals`, `/api/rival-notes*`), tools `rivals_notes` y `rivals_note_set` (escritura), backup `schemaVersion` 6, nota debajo del rival al cargar una partida, «Mis notas» en el arquetipo y Más → Notas por rival.
+- **Fase 13 implementada el 8/10/2026** (DECISIONES 16.1–16.4): `packages/domain/src/stats/luck.ts` (`luckCheck`, `binomialTails`, `losingStreak`, `runProbability`), `GET /api/matches/luck`, tool `matches_luck`, veredicto después de guardar una derrota y en «Contra cada rival».
 - **Visto bueno de Santi para todo el 8/10/2026**: fases 0–8 del plan, laboratorio y ajustes aprobados; no queda nada esperando su revisión. Siguiente paso: lo que pida Santi (abiertos: remapeo I12 al cambiar el catálogo, R-001; CI antes de cada deploy, R-007).
 
 ## Cómo trabajar acá

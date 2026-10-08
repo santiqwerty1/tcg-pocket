@@ -64,6 +64,8 @@ export function DeckMatchupsSection({ deckId }: { deckId: string }) {
                 {row.mine ? (
                   <>
                     <Rate rate={row.mine.rate} prefix="Vos" /> · {formatRecord(row.mine.record)}
+                    {row.luck === 'unlucky' ? <span className="text-warning"> · racha rara</span> : null}
+                    {row.luck === 'lucky' ? <span className="text-success"> · mejor de lo esperable</span> : null}
                   </>
                 ) : (
                   <span className="text-muted-foreground">Vos: sin partidas</span>

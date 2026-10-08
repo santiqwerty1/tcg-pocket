@@ -11,15 +11,20 @@ import {
   type DeckCardEntry,
   filterMatches,
   formatPercentEs,
+  type GameRecord,
+  losingStreak,
+  luckCheck,
   type MatchFacts,
   type MatchMode,
   type MatchResult,
   matchStats,
+  oneIn,
   opponentKey,
   orderDecksForPicker,
   revisionAt,
   simulationRate,
   suggestOpponents,
+  tallyMatches,
 } from '@tcg/domain'
 import type { Prisma } from '../generated/prisma/client.js'
 import type { MatchSource } from '../generated/prisma/enums.js'
@@ -32,6 +37,7 @@ import type {
   DeckComparisonView,
   DeckMatchupRowView,
   DeckMatchupsView,
+  LuckView,
   MatchDeckRef,
   MatchStatsView,
   MatchSuggestionsView,
@@ -41,6 +47,48 @@ import type {
 
 /** Most played archetypes always shown in a deck's «Contra cada rival» (the rest only when the deck met them). */
 const DECK_MATCHUP_RIVALS = 10
+
+/** Matches a tournament matchup needs to be the expected rate of «¿mala racha?». */
+const LUCK_EXPECTED_MIN_MATCHES = 10
+
+function luckText(
+  record: GameRecord,
+  expected: LuckView['expected'],
+  check: LuckView['check'],
+  streak: LuckView['streak'],
+): string {
+  const games = record.wins + record.losses + record.ties
+  if (!expected || !check) {
+    return games === 0
+      ? 'Todavía no hay partidas.'
+      : 'No hay datos de torneo para comparar: el mazo no tiene arquetipo de torneo en la era.'
+  }
+  const own = `Vas ${record.wins}-${record.losses}${record.ties ? `-${record.ties}` : ''} (${formatPercentEs(check.actual)})`
+  const base = `Lo esperable (${expected.label}) es ${formatPercentEs(expected.value)}`
+  const parts: string[] = []
+  if (check.verdict === 'too_few') {
+    parts.push(`${own}. ${base}; con ${games} ${games === 1 ? 'partida' : 'partidas'} todavía no se puede decir nada.`)
+  } else if (check.verdict === 'unlucky') {
+    parts.push(
+      `${own}. ${base}: sacar ${record.wins} o menos de ${games} pasa 1 de cada ${oneIn(check.lowerTail)} veces. Es raro: si sigue así, mirá la lista o cómo jugás el matchup.`,
+    )
+  } else if (check.verdict === 'lucky') {
+    parts.push(
+      `${own}. ${base}: sacar ${record.wins} o más de ${games} pasa 1 de cada ${oneIn(check.upperTail)} veces. Te viene yendo mejor de lo esperable.`,
+    )
+  } else {
+    const tail = check.actual < check.expected ? check.lowerTail : check.upperTail
+    parts.push(
+      `${own}. ${base}: un resultado así o más lejos pasa 1 de cada ${oneIn(tail)} veces. Está dentro de lo normal.`,
+    )
+  }
+  if (streak) {
+    parts.push(
+      `Llevás ${streak.losses} derrotas seguidas: a ese ritmo, ${streak.losses} seguidas pasan 1 de cada ${oneIn(streak.probability)} veces, pero en ${streak.games} partidas una racha así aparece ${formatPercentEs(streak.somewhere * 100)} de las veces.`,
+    )
+  }
+  return parts.join(' ')
+}
 
 export interface MatchInput {
   deckId: string
@@ -337,11 +385,16 @@ export class MatchesService {
       const own = key === null ? undefined : mine.get(key)
       if (at >= DECK_MATCHUP_RIVALS && !own) continue
       if (key !== null && own) used.add(key)
+      const tournament = tournamentByRival.get(share.archetypeId) ?? null
       rows.push({
         rival: { id: share.archetypeId, name: share.name },
         share: share.share,
         mine: own ? { record: own.record, rate: own.rate } : null,
-        tournament: tournamentByRival.get(share.archetypeId) ?? null,
+        tournament,
+        luck:
+          own && tournament?.rate && tournament.rate.games >= LUCK_EXPECTED_MIN_MATCHES
+            ? luckCheck(own.record, tournament.rate.value).verdict
+            : null,
       })
     }
     for (const own of stats.byOpponent) {
@@ -351,6 +404,7 @@ export class MatchesService {
         share: null,
         mine: { record: own.record, rate: own.rate },
         tournament: null,
+        luck: null,
       })
     }
     return {
@@ -361,6 +415,75 @@ export class MatchesService {
       expected: context?.matchups.expected ?? null,
       rows,
       attribution: 'Datos de torneo: Limitless (play.limitlesstcg.com)',
+    }
+  }
+
+  /**
+   * Fase 13: is the deck's record (against one rival, or overall) unusual for what tournaments say it should do?
+   * Expected rate: the matchup of the deck's archetype against the rival (10 matches or more), else the archetype's
+   * record in the era. Also the current losing run of the deck.
+   */
+  async luck(rawDeckId: string, opponent: string | undefined, mode: MatchMode | undefined): Promise<LuckView> {
+    const deck = await this.requireDeckRef(parseNumericId(rawDeckId, 'Mazo'))
+    const { facts } = await this.loadFacts()
+    const key = opponentKey(opponent ?? null)
+    const ofDeck = filterMatches(facts, { deckId: deck.id, mode: mode ?? null, from: null, to: null })
+    const selected = key === null ? ofDeck : ofDeck.filter((fact) => opponentKey(fact.opponent) === key)
+    const record = tallyMatches(selected)
+    const expected = await this.expectedFor(deck.id, key)
+    const check = expected ? luckCheck(record, expected.value) : null
+    const run = expected
+      ? losingStreak(
+          ofDeck.map((fact) => fact.result),
+          expected.value,
+        )
+      : null
+    const streak = run ? { ...run, games: ofDeck.length } : null
+    return {
+      deck,
+      opponent: key === null ? null : (cleanOpponent(opponent) ?? null),
+      record,
+      expected,
+      check,
+      streak,
+      text: luckText(record, expected, check, streak),
+    }
+  }
+
+  /** The expected rate of a deck, against a rival (by key) or overall, from tournaments. */
+  private async expectedFor(deckId: string, key: string | null): Promise<LuckView['expected']> {
+    const row = await this.prisma.deck.findUnique({
+      where: { id: Number(deckId) },
+      select: { currentRevisionId: true, tournamentArchetypeId: true },
+    })
+    const revision =
+      row?.currentRevisionId == null
+        ? null
+        : await this.prisma.deckRevision.findUnique({ where: { id: row.currentRevisionId }, select: { cards: true } })
+    if (!revision) return null
+    const placed = await this.tournaments
+      .deckTournament(revision.cards as unknown as DeckCardEntry[], row?.tournamentArchetypeId ?? null)
+      .catch(() => null)
+    const archetype = placed?.archetype
+    if (!archetype?.archetype.id) return null
+    if (key !== null) {
+      const context = await this.tournaments.archetypeMatchupsOf(archetype.archetype.id).catch(() => null)
+      const hit = context?.matchups.rows.find((item) => opponentKey(item.rival.name) === key)
+      if (hit?.rate && hit.rate.games >= LUCK_EXPECTED_MIN_MATCHES) {
+        return {
+          value: hit.rate.value,
+          kind: 'matchup',
+          label: `${archetype.archetype.name} contra ${hit.rival.name} en torneos`,
+          games: hit.rate.games,
+        }
+      }
+    }
+    if (!archetype.rate) return null
+    return {
+      value: archetype.rate.value,
+      kind: 'archetype',
+      label: `${archetype.archetype.name} en torneos`,
+      games: archetype.rate.games,
     }
   }
 
