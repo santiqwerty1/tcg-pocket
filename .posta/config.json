@@ -5,6 +5,8 @@
   "perfil": "tablero",
   "aplicado": "2026-10-07",
   "presupuesto_semana_usd": null,
+  "ci": false,
+  "hooks": "plugin",
   "reglas": {
     "protegidas": [
       "Boveda/Sesiones/**",
