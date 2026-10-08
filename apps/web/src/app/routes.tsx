@@ -5,6 +5,8 @@ import { AdjustmentsPage } from '@/pages/coleccion/AdjustmentsPage'
 import { CollectionPage } from '@/pages/coleccion/CollectionPage'
 import { ImportPage } from '@/pages/coleccion/ImportPage'
 import { ImportPreviewPage } from '@/pages/coleccion/ImportPreviewPage'
+import { LabJobPage } from '@/pages/laboratorio/LabJobPage'
+import { LaboratorioPage } from '@/pages/laboratorio/LaboratorioPage'
 import { AboutPage } from '@/pages/mas/AboutPage'
 import { AppSettingsPage } from '@/pages/mas/AppSettingsPage'
 import { BackupPage } from '@/pages/mas/BackupPage'
@@ -69,6 +71,8 @@ export const routes: RouteObject[] = [
         handle: handle('Repetición', '/simulacion'),
       },
       { path: 'simulacion/:id', element: <SimulationDetailPage />, handle: handle('Simulación', '/simulacion') },
+      { path: 'laboratorio', element: <LaboratorioPage />, handle: handle('Laboratorio de mazos', '/mas') },
+      { path: 'laboratorio/:id', element: <LabJobPage />, handle: handle('Laboratorio', '/laboratorio') },
 
       { path: 'coleccion', element: <CollectionPage />, handle: handle('Colección') },
       { path: 'coleccion/importar', element: <ImportPage />, handle: handle('Importar colección', '/coleccion') },

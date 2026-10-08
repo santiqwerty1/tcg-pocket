@@ -6,7 +6,7 @@ export interface SnapshotView {
   id: number
   key: string
   label: string
-  sourceType: 'deck_revision' | 'tournament_list' | 'text'
+  sourceType: 'deck_revision' | 'tournament_list' | 'text' | 'lab'
   sourceId: string | null
   deckId: string | null
   energies: string[]
@@ -41,6 +41,8 @@ export interface JobSummaryView {
   finishedAt: Date | null
   error: string | null
   progress: JobProgressView
+  /** A job of the Laboratorio (T-008): a test against the meta bank or an automatic search. */
+  lab: 'test' | 'explore' | null
 }
 
 export interface CellView {

@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-08 (40 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-08 (41 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- «armado» checkbox in the deck list; ← → between decks `2a66a25`
 - deckgym 33ff2a5 — bounded bot search, turn action limit, Quick Growth fix (T-010) `43d103f`
 - owner decisions of 8/10 — limited ×3, retired points, deckgym viewer, upstream check, Posta on (D-007, D-008, D-009, D-014, T-010) (D-011, D-017, T-005, T-007) `595f973`
 - Claude can write — decks, matches and simulations (phase 7, M8 part 2) (D-017, T-009) `8a81661`

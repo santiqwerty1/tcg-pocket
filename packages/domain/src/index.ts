@@ -2,6 +2,7 @@
 export * from './catalog/index.js'
 export * from './collection/index.js'
 export * from './decks/index.js'
+export * from './lab/index.js'
 export * from './matches/index.js'
 export * from './mcp/index.js'
 export * from './packs/index.js'

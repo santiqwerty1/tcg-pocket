@@ -112,6 +112,19 @@ export function listRows(dataset: TournamentDataset, kind: ListKeyKind = 'group'
   return rows.sort(byListsThenRate)
 }
 
+/** Energies most of a list's entries declare (NOEX lists come without them). */
+export function mostCommonEnergies(entries: readonly DatasetEntry[]): string[] {
+  const counts = new Map<string, { energies: string[]; count: number }>()
+  for (const entry of entries) {
+    if (entry.energies.length === 0) continue
+    const key = [...entry.energies].sort().join(',')
+    const bucket = counts.get(key)
+    if (bucket) bucket.count += 1
+    else counts.set(key, { energies: entry.energies, count: 1 })
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count)[0]?.energies ?? []
+}
+
 /** Entries of one exact list. */
 export function entriesOfList(dataset: TournamentDataset, key: string, kind: ListKeyKind = 'group'): DatasetEntry[] {
   return dataset.entries.filter((entry) => (kind === 'group' ? entry.keyByGroup : entry.keyByName) === key)

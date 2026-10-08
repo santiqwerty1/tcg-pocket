@@ -15,7 +15,7 @@ import {
   Sse,
   UseGuards,
 } from '@nestjs/common'
-import { SELECTABLE_ENERGIES, SIMULATION_KINDS, TOURNAMENT_FORMATS } from '@tcg/domain'
+import { QUEUEABLE_SIMULATION_KINDS, SELECTABLE_ENERGIES, TOURNAMENT_FORMATS } from '@tcg/domain'
 import type { Request } from 'express'
 import { from, interval, type Observable, startWith, switchMap, takeWhile } from 'rxjs'
 import { z } from 'zod'
@@ -47,7 +47,7 @@ const sourceSchema = z.union([
 ])
 const botCode = z.string().regex(/^(r|w|aa|et|v|er|m|e[1-9])$/, 'Bot desconocido.')
 const jobSchema = z.object({
-  kind: z.enum(SIMULATION_KINDS),
+  kind: z.enum(QUEUEABLE_SIMULATION_KINDS),
   label: z.string().trim().max(200).optional(),
   // The real limit (150 per side, MAX_DECKS_PER_SIDE) is checked by the service with a Spanish message.
   sideA: z.array(sourceSchema).min(1).max(500),
@@ -281,6 +281,6 @@ export class SimulationsController {
   imports: [TokensModule, CatalogModule, TournamentsModule],
   controllers: [WorkerController, SimulationsController],
   providers: [EngineStatusService, EngineUpstreamService, SnapshotsService, WorkerQueueService, SimulationsService],
-  exports: [SimulationsService, SnapshotsService, EngineStatusService],
+  exports: [SimulationsService, SnapshotsService, EngineStatusService, WorkerQueueService],
 })
 export class SimulationModule {}

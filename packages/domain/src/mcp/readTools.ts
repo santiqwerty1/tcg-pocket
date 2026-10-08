@@ -266,6 +266,25 @@ export const MCP_READ_TOOLS = {
       limit: z.number().int().min(1).max(50).optional().describe('Filas a devolver (por defecto 15)'),
     }),
   },
+  labMetaBank: {
+    name: 'lab_meta_bank',
+    title: 'Banco del meta (laboratorio)',
+    description: `El rival estándar del laboratorio de mazos: los arquetipos más jugados de la era, cada uno con su lista representativa (la misma que la «versión de torneo»: entre las repetidas 5 veces o más, la de mejor piso del intervalo) y su peso, la cuota de listas de la era normalizada sobre el banco. lab_test y lab_explore juegan contra este banco y ponderan con estos pesos. Una lista que el motor no puede simular cede su lugar a la siguiente del arquetipo, o el arquetipo se saltea (se dice por qué). ${TOURNAMENT_NOTE}`,
+    input: z.object({
+      ...tournamentScope,
+      size: z.number().int().min(1).max(20).optional().describe('Arquetipos del banco (por defecto 10)'),
+    }),
+  },
+  labResults: {
+    name: 'lab_results',
+    title: 'Resultados del laboratorio',
+    description:
+      'Sin «job»: las pruebas contra el meta y las búsquedas automáticas recientes, con estado y progreso. Con «job»: cada mazo con su puntaje contra el meta (% de victorias ponderado por la cuota de cada arquetipo del banco, con n e intervalo), su resultado contra cada rival, los cambios de cartas respecto de la lista de partida y su novedad («jugada en torneo», «conocida»: a 6 cambios o menos de una lista de la era, o «nueva»). En una búsqueda: cada ronda, qué variante ganó y la ronda de confirmación (partidas nuevas para la lista de partida y la encontrada, sin la suerte que eligió al ganador). Juegan bots, no personas: es una pista para probar en el juego, no un veredicto, y nunca se mezcla con torneos ni con partidas propias.',
+    input: z.object({
+      job: z.number().int().positive().optional().describe('Número de la simulación («#12» → 12)'),
+      limit: z.number().int().min(1).max(60).optional().describe('Mazos a devolver (por defecto 10)'),
+    }),
+  },
 } as const
 
 export type McpReadToolKey = keyof typeof MCP_READ_TOOLS

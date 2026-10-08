@@ -24,6 +24,7 @@ import type { CreateJobInput } from '../simulation/simulations.service.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
 import type { SnapshotSource } from '../simulation/snapshots.service.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
+import { resolveCardRef } from './card-ref.js'
 import { DeckRefResolver } from './deck-ref.js'
 
 type Json = Record<string, unknown>
@@ -345,27 +346,7 @@ export class McpWriteToolsService {
 
   /** A card of the catalog by code («B4-103») or Spanish/English name; the deck's own edition when it plays one. */
   private resolveCard(query: string, preferred: readonly string[] = []): string {
-    const index = this.catalog.requireIndex()
-    const code = query.trim().replace(/\s+/g, '-').toUpperCase()
-    const byId = index.cardById(code) ?? index.cardById(query.trim())
-    if (byId) return byId.id
-    const key = foldText(query)
-    const hits = index.search(query, { lang: 'any', limit: 10 })
-    const named = hits.filter(({ card }) => foldText(card.nameEs) === key || foldText(card.nameEn) === key)
-    const pool = named.length > 0 ? named : hits
-    const own = pool.find(({ card }) => preferred.includes(card.id))
-    if (own) return own.card.id
-    const groups = new Set(pool.map(({ card }) => card.functionalGroupId))
-    if (pool.length === 0) throw new NotFoundException(`No encontré la carta «${query}».`)
-    if (groups.size > 1) {
-      throw new BadRequestException(
-        `«${query}» puede ser varias cartas: ${pool
-          .slice(0, 6)
-          .map(({ card }) => `${card.nameEs} (${card.id})`)
-          .join('; ')}. Indicá el código.`,
-      )
-    }
-    return (pool[0] as (typeof pool)[number]).card.id
+    return resolveCardRef(this.catalog.requireIndex(), query, preferred)
   }
 
   private async simulationsEnqueue(args: {

@@ -7,12 +7,14 @@ export const KIND_LABEL: Record<SimulationKind, string> = {
   matrix: 'Matriz',
   compare: 'Comparar',
   optimize: 'Optimizar',
+  explore: 'Explorar (laboratorio)',
 }
 
 export const KIND_HINT: Record<SimulationKind, string> = {
   matrix: 'Todos contra todos dentro de una lista de mazos (o una lista contra otra).',
   compare: 'Uno o varios mazos contra una lista de rivales.',
   optimize: 'Sacá cartas de un mazo y probá combinaciones de candidatas contra rivales.',
+  explore: 'Búsqueda automática de variantes de un mazo contra el meta (Laboratorio).',
 }
 
 export const STATUS_LABEL: Record<SimulationStatus, string> = {

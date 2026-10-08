@@ -60,6 +60,8 @@ export interface CreateJobInput {
   cores?: number | undefined
   /** Leave the decks that cannot be simulated out instead of refusing the job. */
   skipNotSimulable?: boolean | undefined
+  /** Stored with the job's params (the Laboratorio's meta bank and weights, T-008). */
+  lab?: Prisma.InputJsonValue | undefined
   /** optimize: the deck (side A, one), the cards to take out, the candidates to try. */
   optimize?:
     | {
@@ -201,7 +203,12 @@ export class SimulationsService {
       if (pairings.length === 0) {
         throw new BadRequestException({ code: 'validation', message: 'No queda ningún cruce para simular.' })
       }
-      params = { sideA: okA, sideB: okB, bothOrders: input.bothOrders ?? false }
+      params = {
+        sideA: okA,
+        sideB: okB,
+        bothOrders: input.bothOrders ?? false,
+        ...(input.lab === undefined ? {} : { lab: input.lab }),
+      }
       chunks = planChunks(pairings, input.gamesPerPair)
     }
     const totalGames = chunks.reduce((sum, chunk) => sum + chunk.games, 0)
@@ -364,6 +371,7 @@ export class SimulationsService {
       startedAt: job.startedAt,
       finishedAt: job.finishedAt,
       error: job.error,
+      lab: labMode(job.params),
       progress: progress.get(job.id) ?? {
         totalGames: job.totalGames,
         gamesDone: 0,
@@ -375,6 +383,13 @@ export class SimulationsService {
 
   async list(limit = 50): Promise<JobSummaryView[]> {
     const jobs = await this.prisma.simulationJob.findMany({ orderBy: { id: 'desc' }, take: limit })
+    const progress = await this.progress(jobs.map((job) => job.id))
+    return jobs.map((job) => this.summary(job, progress))
+  }
+
+  /** Summaries of some jobs, newest first (the Laboratorio's list). */
+  async summariesOf(ids: readonly number[]): Promise<JobSummaryView[]> {
+    const jobs = await this.prisma.simulationJob.findMany({ where: { id: { in: [...ids] } }, orderBy: { id: 'desc' } })
     const progress = await this.progress(jobs.map((job) => job.id))
     return jobs.map((job) => this.summary(job, progress))
   }
@@ -674,6 +689,12 @@ export class SimulationsService {
   }
 }
 
+/** Whether a job belongs to the Laboratorio, from the `lab` block of its params (T-008). */
+export function labMode(params: Prisma.JsonValue): 'test' | 'explore' | null {
+  const mode = (params as { lab?: { mode?: unknown } } | null)?.lab?.mode
+  return mode === 'test' || mode === 'explore' ? mode : null
+}
+
 /** A matrix with an empty «Contra» side: side A against itself, every pair once (DECISIONES 6.4). */
 function withRivals(input: CreateJobInput): CreateJobInput {
   return input.kind === 'matrix' && input.sideB.length === 0 ? { ...input, sideB: input.sideA } : input
@@ -681,6 +702,7 @@ function withRivals(input: CreateJobInput): CreateJobInput {
 
 function defaultLabel(kind: SimulationKind, sideA: readonly SnapshotView[], sideB: readonly SnapshotView[]): string {
   if (kind === 'optimize') return `Optimizar ${sideA[0]?.label ?? ''}`
+  if (kind === 'explore') return `Explorar ${sideA[0]?.label ?? ''}`
   if (kind === 'compare') return `${sideA.map((s) => s.label).join(' vs ')} contra ${sideB.length} rivales`
   return `Matriz ${sideA.length} × ${sideB.length}`
 }

@@ -29,7 +29,8 @@ export interface WorkerHello {
 export interface ClaimedChunk {
   chunkId: number
   jobId: number
-  kind: 'matrix' | 'compare' | 'optimize'
+  /** explore chunks are plain pairings (deckA against deckB) like matrix and compare. */
+  kind: 'matrix' | 'compare' | 'optimize' | 'explore'
   idx: number
   games: number
   firstGame: number
@@ -63,6 +64,8 @@ export class WorkerQueueService {
   private readonly queued = new EventEmitter()
   /** How long a claim waits for work (tests shorten it). */
   longPollMs = LONG_POLL_MS
+  /** Who decides what an explore job plays next when a round ends (the Laboratorio, T-008). */
+  private roundHandler: ((jobId: number) => Promise<void>) | null = null
 
   constructor(
     private readonly prisma: PrismaService,
@@ -75,6 +78,11 @@ export class WorkerQueueService {
 
   notifyQueued(): void {
     this.queued.emit('queued')
+  }
+
+  /** An explore job does not end when its chunks do: `handler` queues the next round or finishes it. */
+  onExploreRound(handler: (jobId: number) => Promise<void>): void {
+    this.roundHandler = handler
   }
 
   private async seen(hello: WorkerHello): Promise<void> {
@@ -256,12 +264,19 @@ export class WorkerQueueService {
     return { status }
   }
 
-  /** A job ends when every chunk is done, failed or cancelled. */
+  /** A job ends when every chunk is done, failed or cancelled (an explore job, when the Laboratorio says so). */
   async settle(jobId: number): Promise<void> {
     const pending = await this.prisma.simulationChunk.count({
       where: { jobId, status: { in: ['queued', 'leased'] } },
     })
     if (pending > 0) return
+    if (this.roundHandler) {
+      const job = await this.prisma.simulationJob.findUnique({ where: { id: jobId }, select: { kind: true } })
+      if (job?.kind === 'explore') {
+        await this.roundHandler(jobId)
+        return
+      }
+    }
     const failed = await this.prisma.simulationChunk.count({ where: { jobId, status: 'failed' } })
     await this.prisma.simulationJob.updateMany({
       where: { id: jobId, status: { in: ['queued', 'running'] } },

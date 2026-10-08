@@ -105,7 +105,7 @@ export interface DeckInTournaments {
 }
 
 /** Card changes between two lists of 20: max(cards to add, cards to remove), by functional card. */
-function swaps(a: ReadonlyMap<CardId, number>, b: ReadonlyMap<CardId, number>): number {
+export function listSwaps(a: ReadonlyMap<CardId, number>, b: ReadonlyMap<CardId, number>): number {
   let add = 0
   let remove = 0
   for (const [groupId, count] of a) {
@@ -147,7 +147,7 @@ export function deckInTournaments(
   let best = Number.POSITIVE_INFINITY
   let closest: DatasetEntry[] = []
   for (const entry of dataset.entries) {
-    const distance = swaps(groups, entry.groups)
+    const distance = listSwaps(groups, entry.groups)
     if (distance < best) {
       best = distance
       closest = [entry]
@@ -197,6 +197,17 @@ function lowerBound(row: ListRow): number {
 }
 
 /**
+ * The exact lists of one archetype, best target first: the ones played at least `TOURNAMENT_VERSION_MIN_LISTS` times
+ * by the lower bound of their interval (more lists on ties); when none is repeated that often, the most played first.
+ */
+export function rankArchetypeLists(lists: readonly ListRow[]): ListRow[] {
+  const repeated = lists.filter((row) => row.lists >= TOURNAMENT_VERSION_MIN_LISTS)
+  return repeated.length > 0
+    ? [...repeated].sort((a, b) => lowerBound(b) - lowerBound(a) || b.lists - a.lists || a.key.localeCompare(b.key))
+    : [...lists].sort((a, b) => b.lists - a.lists || lowerBound(b) - lowerBound(a) || a.key.localeCompare(b.key))
+}
+
+/**
  * The «versión de torneo» of a deck: among the exact lists of its archetype played at least
  * `TOURNAMENT_VERSION_MIN_LISTS` times, the one with the best lower bound of its interval (more lists on ties); when
  * none is repeated that often, the most played one (a list played once that went 5-0 is luck, not a target). With the
@@ -211,11 +222,7 @@ export function tournamentVersion(
 ): TournamentVersion | null {
   const lists = listRows(dataset, 'group').filter((row) => row.archetypeId === archetypeId)
   if (lists.length === 0) return null
-  const repeated = lists.filter((row) => row.lists >= TOURNAMENT_VERSION_MIN_LISTS)
-  const ranked =
-    repeated.length > 0
-      ? [...repeated].sort((a, b) => lowerBound(b) - lowerBound(a) || b.lists - a.lists || a.key.localeCompare(b.key))
-      : [...lists].sort((a, b) => b.lists - a.lists || lowerBound(b) - lowerBound(a) || a.key.localeCompare(b.key))
+  const ranked = rankArchetypeLists(lists)
   const list = ranked[0] as ListRow
   const deck = new Map<CardId, number>()
   for (const entry of cards) {
@@ -239,7 +246,7 @@ export function tournamentVersion(
   }
   return {
     list,
-    swaps: swaps(deck, list.groups),
+    swaps: listSwaps(deck, list.groups),
     add,
     remove,
     missing,

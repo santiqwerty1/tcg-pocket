@@ -11,7 +11,7 @@ describe('MCP read tools', () => {
     for (const name of names) expect(name).toMatch(/^[a-zA-Z0-9_-]{1,64}$/)
   })
 
-  it('cover Apéndice D read tools (dots as underscores) plus decks_closest and decks_random', () => {
+  it('cover Apéndice D read tools (dots as underscores) plus decks_closest, decks_random and the lab', () => {
     expect(tools.map((tool) => tool.name).sort()).toEqual(
       [
         'cards_search',
@@ -25,6 +25,8 @@ describe('MCP read tools', () => {
         'decks_missing',
         'decks_random',
         'decks_validate',
+        'lab_meta_bank',
+        'lab_results',
         'matches_list',
         'matches_stats',
         'packs_recommend',
@@ -50,6 +52,8 @@ describe('MCP read tools', () => {
     expect(MCP_READ_TOOLS.simulationsResults.description).toContain('dependen del bot')
     expect(MCP_READ_TOOLS.simulationsResults.input.safeParse({ job: 3, deck: '13' }).success).toBe(true)
     expect(MCP_READ_TOOLS.simulationsResults.input.safeParse({ job: 0 }).success).toBe(false)
+    expect(MCP_READ_TOOLS.labResults.description).toContain('Juegan bots')
+    expect(MCP_READ_TOOLS.labMetaBank.input.safeParse({ size: 21 }).success).toBe(false)
   })
 
   it('validate their inputs', () => {

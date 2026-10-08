@@ -125,7 +125,10 @@ function JobRow({ job }: { job: JobSummary }) {
   const active = isActive(job.status)
   return (
     <li>
-      <Link to={`/simulacion/${job.id}`} className="flex flex-col gap-1.5 px-3 py-2.5 hover:bg-muted">
+      <Link
+        to={job.lab ? `/laboratorio/${job.id}` : `/simulacion/${job.id}`}
+        className="flex flex-col gap-1.5 px-3 py-2.5 hover:bg-muted"
+      >
         <div className="flex items-baseline gap-2">
           <span className="min-w-0 flex-1 truncate font-medium">{job.label}</span>
           <StatusBadge status={job.status} />

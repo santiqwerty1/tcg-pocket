@@ -21,7 +21,6 @@ import {
   MCP_WRITE_INSTRUCTIONS,
   type Rarity,
   type TournamentFormat,
-  type WinRate,
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
@@ -34,7 +33,6 @@ import type { RowView } from '../matches/match-views.js'
 import { MatchesService } from '../matches/matches.service.js'
 import { PacksService } from '../packs/packs.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
-import type { JobSummaryView } from '../simulation/simulation-views.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
 import type {
   ArchetypeRowView,
@@ -45,6 +43,8 @@ import type {
 } from '../tournaments/tournament-views.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
 import { type DeckRef, DeckRefResolver } from './deck-ref.js'
+import { jobSummaryJson, rateView } from './mcp-json.js'
+import { McpLabToolsService } from './mcp-lab-tools.service.js'
 import { McpWriteToolsService } from './mcp-write-tools.service.js'
 
 type Json = Record<string, unknown>
@@ -70,23 +70,6 @@ function config<S extends StandardSchemaWithJSON>(
 
 function ok(data: Json): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(data) }], structuredContent: data }
-}
-
-function round(value: number): number {
-  return Math.round(value * 100) / 100
-}
-
-/** A rate as the tools return it: rounded numbers plus the canonical Spanish text. */
-function rateView(rate: WinRate | null): Json | null {
-  if (!rate) return null
-  return {
-    text: formatWinRateEs(rate),
-    value: round(rate.value),
-    games: rate.games,
-    ci95: [round(rate.ci95[0]), round(rate.ci95[1])],
-    orientative: rate.orientative,
-    source: rate.source,
-  }
 }
 
 function rowView(row: RowView): Json {
@@ -118,6 +101,7 @@ export class McpToolsService {
     private readonly prisma: PrismaService,
     private readonly deckRefs: DeckRefResolver,
     private readonly writeTools: McpWriteToolsService,
+    private readonly labTools: McpLabToolsService,
     @Inject(ENV) private readonly env: Env,
     private readonly logger: PinoLogger,
   ) {
@@ -198,7 +182,11 @@ ${MCP_WRITE_INSTRUCTIONS}`
     server.registerTool(t.simulationsResults.name, config(t.simulationsResults), (args) =>
       run(t.simulationsResults.name, () => this.simulationsResults(args)),
     )
-    if (canWrite) this.writeTools.register(server, run)
+    this.labTools.registerRead(server, run)
+    if (canWrite) {
+      this.writeTools.register(server, run)
+      this.labTools.registerWrite(server, run)
+    }
     return server
   }
 
@@ -1054,29 +1042,4 @@ function stockUnits(detail: GroupDetail): { cardIds: string[]; rarity: string; o
     else units.set(key, { cardIds: [edition.card.id], rarity: edition.card.rarity, owned: edition.owned })
   }
   return [...units.values()]
-}
-
-/** A job as the tools return it: what was played, with which bots, n, seed and engine, and how far it got. */
-function jobSummaryJson(job: JobSummaryView): Json {
-  return {
-    id: job.id,
-    label: job.label,
-    kind: { matrix: 'matriz', compare: 'comparar', optimize: 'optimizar' }[job.kind],
-    status: { queued: 'en cola', running: 'corriendo', done: 'terminada', failed: 'falló', cancelled: 'cancelada' }[
-      job.status
-    ],
-    bots: job.playersEs,
-    gamesPerPairing: job.gamesPerPair,
-    seed: job.baseSeed,
-    engineRev: job.engineRev.slice(0, 7),
-    progress: {
-      games: job.progress.gamesDone,
-      totalGames: job.progress.totalGames,
-      pairingsDone: job.progress.chunks.done,
-      pairings: job.progress.chunks.total,
-      failed: job.progress.chunks.failed,
-    },
-    createdAt: job.createdAt.toISOString(),
-    finishedAt: job.finishedAt?.toISOString() ?? null,
-  }
 }

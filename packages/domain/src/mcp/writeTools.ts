@@ -191,13 +191,113 @@ export const MCP_WRITE_TOOLS = {
         .describe('optimize: cartas candidatas para los huecos (nombre o código)'),
     }),
   },
+  labTest: {
+    name: 'lab_test',
+    title: 'Probar mazos contra el meta',
+    description:
+      'Laboratorio: encola de 1 a 10 mazos contra el banco del meta (lab_meta_bank): cada mazo contra la lista de cada arquetipo, resumido en un puntaje ponderado por la cuota de la era. Los mazos pueden ser míos (decks), listas de torneo (lists) o listas pegadas (texts: sirve para probar una idea sin guardarla). Devuelve el número de simulación y la estimación de tiempo; los resultados se leen con lab_results. Juegan bots: el puntaje es una pista, no un veredicto.',
+    input: z.object({
+      decks: z.array(deckRef).max(10).optional().describe('Mis mazos'),
+      lists: z.array(tournamentList).max(10).optional().describe('Listas exactas de torneo'),
+      texts: z
+        .array(
+          z.object({
+            text: deckText,
+            name: z.string().trim().max(200).optional().describe('Nombre para mostrar'),
+            energies: energies.optional(),
+          }),
+        )
+        .max(10)
+        .optional()
+        .describe('Listas pegadas (no se guardan como mazos)'),
+      size: z.number().int().min(1).max(20).optional().describe('Arquetipos del banco (por defecto 10)'),
+      era: z
+        .string()
+        .regex(/^[A-Za-z0-9-]{1,8}$/)
+        .optional()
+        .describe('Era del banco (por defecto la vigente)'),
+      format: z.enum(TOURNAMENT_FORMATS).optional().describe('STANDARD (por defecto) o NOEX'),
+      games: z.number().int().min(10).max(5000).optional().describe('Partidas contra cada rival (por defecto 100)'),
+      bots: z.tuple([bot, bot]).optional().describe('Bot de mis mazos y de los rivales (por defecto e2 y e2)'),
+      seed: z
+        .number()
+        .int()
+        .min(0)
+        .max(2 ** 51)
+        .optional()
+        .describe('Semilla (por defecto al azar)'),
+      label: z.string().trim().max(200).optional().describe('Nombre de la prueba'),
+    }),
+  },
+  labExplore: {
+    name: 'lab_explore',
+    title: 'Buscar variantes de un mazo contra el meta',
+    description:
+      'Laboratorio, búsqueda automática: parte de un mazo (deck, list o text) y prueba variantes de 1 o 2 cambios de cartas contra el banco del meta, ronda por ronda (todas las listas de una ronda con la misma semilla por rival). Una variante reemplaza a la mejor solo si la supera con claridad; tras varias rondas sin mejora o el máximo de rondas, una ronda de confirmación juega la lista de partida y la encontrada con partidas nuevas. Las cartas que entran salen de la colección (pool «collection», por defecto) o de todo lo que el motor juega («all»: para descubrir qué conseguir). locked: cartas que no se tocan. Con dryRun dice el plan (variantes de la primera ronda, partidas y tiempo) sin encolar. Los resultados se leen con lab_results. Juegan bots: lo que encuentre es una idea para probar en el juego.',
+    input: z.object({
+      deck: deckRef.optional().describe('Mazo mío de partida'),
+      list: tournamentList.optional().describe('Lista de torneo de partida'),
+      text: deckText.optional().describe('Lista pegada de partida'),
+      energies: energies.optional().describe('Energías (si la lista no las trae)'),
+      pool: z
+        .enum(['collection', 'all'])
+        .optional()
+        .describe('De dónde salen las cartas que entran (por defecto collection)'),
+      locked: z
+        .array(z.string().trim().min(1).max(100))
+        .max(20)
+        .optional()
+        .describe('Cartas que nunca salen (nombre o código)'),
+      rounds: z.number().int().min(1).max(20).optional().describe('Rondas como máximo (por defecto 8)'),
+      variants: z.number().int().min(1).max(12).optional().describe('Variantes nuevas por ronda (por defecto 6)'),
+      games: z
+        .number()
+        .int()
+        .min(10)
+        .max(500)
+        .optional()
+        .describe('Partidas por rival y lista en cada ronda (por defecto 40)'),
+      patience: z
+        .number()
+        .int()
+        .min(1)
+        .max(10)
+        .optional()
+        .describe('Rondas seguidas sin mejora antes de parar (por defecto 3)'),
+      confirmGames: z
+        .number()
+        .int()
+        .min(0)
+        .max(1000)
+        .optional()
+        .describe('Partidas por rival de la ronda de confirmación (por defecto 100; 0 sin confirmación)'),
+      size: z.number().int().min(1).max(20).optional().describe('Arquetipos del banco (por defecto 10)'),
+      era: z
+        .string()
+        .regex(/^[A-Za-z0-9-]{1,8}$/)
+        .optional()
+        .describe('Era del banco (por defecto la vigente)'),
+      format: z.enum(TOURNAMENT_FORMATS).optional().describe('STANDARD (por defecto) o NOEX'),
+      bots: z.tuple([bot, bot]).optional().describe('Bot de las variantes y de los rivales (por defecto e2 y e2)'),
+      seed: z
+        .number()
+        .int()
+        .min(0)
+        .max(2 ** 51)
+        .optional()
+        .describe('Semilla (por defecto al azar): la misma semilla repite las mismas variantes y partidas'),
+      label: z.string().trim().max(200).optional().describe('Nombre de la búsqueda'),
+      dryRun: z.boolean().optional().describe('Solo mostrar el plan, sin encolar'),
+    }),
+  },
 } as const
 
 export type McpWriteToolKey = keyof typeof MCP_WRITE_TOOLS
 
 /** Added to the server instructions when the token can write. */
 export const MCP_WRITE_INSTRUCTIONS = [
-  'Con permiso de escritura: decks_create, decks_update, matches_log, matches_update, matches_delete y simulations_enqueue cambian datos de Santi.',
+  'Con permiso de escritura: decks_create, decks_update, matches_log, matches_update, matches_delete, simulations_enqueue, lab_test y lab_explore cambian datos de Santi.',
+  'Laboratorio de mazos: para una idea nueva, armá la lista, probala con lab_test (texts, sin guardarla) y, si promete, afinala con lab_explore; antes de proponer guardarla, mirá su novedad y sus cambios en lab_results. Los números son de bots: presentalos como pistas para probar en el juego.',
   'Registrá cada partida una sola vez y solo cuando Santi la cuente; si falta el mazo o el resultado, preguntá. Para corregir, matches_update; para borrar, confirmá antes.',
   'Un mazo que no valida no se guarda: mostrá los errores y proponé el arreglo.',
 ].join('\n')

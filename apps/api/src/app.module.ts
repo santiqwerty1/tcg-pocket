@@ -12,6 +12,7 @@ import { HttpModule } from './http/http.module.js'
 import { ApiExceptionFilter } from './http/http-exception.filter.js'
 import { SecurityHeadersMiddleware } from './http/security-headers.middleware.js'
 import { SessionMiddleware } from './http/session.middleware.js'
+import { LabModule } from './lab/lab.controller.js'
 import { loggerModule } from './logging/logger.module.js'
 import { MatchesModule } from './matches/matches.module.js'
 import { McpModule } from './mcp/mcp.module.js'
@@ -49,6 +50,7 @@ export class AppModule implements NestModule {
         BackupModule,
         HttpModule,
         SimulationModule,
+        LabModule,
         McpModule,
         WebModule,
       ],

@@ -1,0 +1,6 @@
+// Public API of the Laboratorio de mazos (T-008; apps import it through '@tcg/domain').
+export * from './explore.js'
+export * from './gauntlet.js'
+export * from './mutate.js'
+export * from './novelty.js'
+export * from './score.js'

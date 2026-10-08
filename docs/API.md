@@ -297,7 +297,7 @@ Versión de torneo de un mazo: entre las listas exactas (por carta funcional) de
 
 ## Simulación (Fase 6)
 
-Partidas entre mazos con deckgym-core (`engine-cli`, `engine/`) que juega el worker de la PC (`apps/worker`). Un **trabajo** (`matrix`, `compare` u `optimize`) congela sus mazos en **fotos** (`deck_snapshots`) y se parte en **chunks** de hasta 1000 partidas, uno o más por cruce; cada chunk lleva su semilla (`baseSeed + idx`). Resultados: victorias, derrotas y empates aparte, `WinRate` con `source: 'simulation'` (victorias / partidas, Wilson 95 %, «orientativo» con menos de 30). Nunca se combinan con torneos ni partidas propias.
+Partidas entre mazos con deckgym-core (`engine-cli`, `engine/`) que juega el worker de la PC (`apps/worker`). Un **trabajo** (`matrix`, `compare`, `optimize` o `explore`, este último solo desde el Laboratorio) congela sus mazos en **fotos** (`deck_snapshots`) y se parte en **chunks** de hasta 1000 partidas, uno o más por cruce; cada chunk lleva su semilla (`baseSeed + idx`). Resultados: victorias, derrotas y empates aparte, `WinRate` con `source: 'simulation'` (victorias / partidas, Wilson 95 %, «orientativo» con menos de 30). Nunca se combinan con torneos ni partidas propias.
 
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
@@ -318,12 +318,12 @@ JobInput = { kind: 'matrix'|'compare'|'optimize', label?, sideA: Source[1..60], 
              gamesPerPair: 1..20000, players: [bot, bot], seed?: 0..2^52, bothOrders?, replaySample?: 0..5 (2),
              cores?: hilos por chunk (si no, los del worker), skipNotSimulable?,
              optimize?: { remove: [{ cardId, count: 1|2 }], candidates: cardId[] } }   // optimize: sideA = 1 mazo, sideB = rivales
-Snapshot = { id, key, label, sourceType: 'deck_revision'|'tournament_list'|'text', sourceId, deckId, energies,
+Snapshot = { id, key, label, sourceType: 'deck_revision'|'tournament_list'|'text'|'lab', sourceId, deckId, energies,
              simulable, problems: [{ kind: 'unknown_card'|'not_implemented'|'energy_required'|'size'|'no_basic'|'too_many_copies', message, … }],
              remapped: [{ cardId, playedAs }],   // reimpresiones B4b jugadas como otra edición
              deckgymText }
 JobSummary = { id, kind, status: 'queued'|'running'|'done'|'failed'|'cancelled', label, players, playersEs, gamesPerPair,
-               baseSeed (string), engineRev, replaySample, createdAt, startedAt, finishedAt, error,
+               baseSeed (string), engineRev, replaySample, createdAt, startedAt, finishedAt, error, lab: 'test'|'explore'|null,
                progress: { totalGames, gamesDone, chunks: { total, done, running, failed }, etaSeconds | null } }
 JobDetail = JobSummary & { snapshots: Snapshot[], sideA: id[], sideB: id[],
                rows: [{ snapshot, total: Record, rate, cells: [{ rival, record | null, rate | null }] }],   // matriz y comparar
@@ -348,11 +348,42 @@ Bots (`players`): `r` al azar, `w` al azar ponderado, `aa` adjunta y ataca, `et`
 | `PUT /api/worker/chunks/:id/replays/:gameId?index=&seed=&winner=` | Cuerpo: el JSON de la repetición en gzip (`application/gzip`, hasta 8 MB) → `{ id }` |
 | `PUT /api/worker/engine-status` | `{ engineRev, cards: [{ id, name, status, complete }] }` (salida de `engine-cli status`) → `{ cards, incomplete }` |
 
+## Laboratorio de mazos (T-008)
+
+Probar mazos (míos, de torneo o pegados) contra el **banco del meta** y buscar variantes automáticamente. El banco: los N arquetipos más jugados de la era (5–20, 10 por defecto), cada uno con su lista representativa (la misma regla que la «versión de torneo»: entre las listas repetidas 5 veces o más, la de mejor piso del intervalo; si ninguna, la más jugada) y un **peso** = su cuota de listas normalizada sobre el banco. Una lista que el motor no puede simular cede su lugar a la siguiente del arquetipo (hasta 3) o el arquetipo se saltea. El **puntaje contra el meta** es el % de victorias contra cada rival ponderado por su peso (`W / (W + L + T)` por rival), con un intervalo aproximado (normal sobre las tasas por rival, cada una suavizada +2/+4 para su varianza). Juegan bots: es una pista, nunca se mezcla con torneos ni partidas propias.
+
+| Método y ruta | Cuerpo / respuesta |
+|---|---|
+| `GET /api/lab/bank?era=&format=&size=` | `{ era, format, size, lists, coverage (0–100), rivals: [{ archetypeId, archetypeName, share, weight, listKey, listLists, listRate, rank, energies, cards: [{ cardId, nameEs, count }] }], skipped: [{ archetypeId, archetypeName, share, reason }], engineRev, attribution }` |
+| `POST /api/lab/test` | `{ decks: LabDeck[1..10], era?, format?, size?, gamesPerRival? (100), players? (e2, e2), seed?, label?, cores?, dryRun? }` → `JobSummary` (un trabajo `compare` contra el banco, `lab: 'test'`); con `dryRun`: `{ preview (como /api/simulations/preview), bank }` |
+| `POST /api/lab/explore` | `{ deck: LabDeck, locked?: cardId[], config?: { gamesPerRival 10–500 (40), variantsPerRound 1–12 (6), maxRounds 1–20 (8), patience 1–10 (3), confirmGames 0–1000 (100), pool: 'collection'\|'all', acceptZ 0–3 (1) }, era?, format?, size?, players?, seed?, label?, cores?, dryRun? }` → `JobSummary` (`kind: 'explore'`); con `dryRun`: `{ base (foto), bank, pool (cartas candidatas), firstRound: [{ add, remove }], config, games: { perRound, max }, estimatedSeconds: { perRound, max } }`; `400 no_variants` si no hay variantes válidas |
+| `GET /api/lab/jobs` | `{ items: (JobSummary & { mode, era })[] }` (pruebas y búsquedas, las más nuevas primero) |
+| `GET /api/lab/jobs/:id` | `LabJob` |
+
+```ts
+LabDeck = { deckId, energies? } | { listKey, era?, format?, energies? } | { text, name?, energies? }
+        | { cards: [{ cardId, count }], energies, name? }
+MetaScore = { value (0–100), ci95: [lo, hi], se, games, rivals, coverage (0–1: peso del banco con partidas) }
+LabJob = { job: JobSummary, mode: 'test'|'explore', era, format, size,
+           rivals: [{ snapshot, label, archetypeId, archetypeName, share, weight, listKey }],
+           decks: [{ snapshot, label, deckId, role: 'best'|'base'|'variant'|'deck', round,
+                     search: { score: MetaScore|null, text }, confirm: { score, text } | null,
+                     perRival: [{ rival, record, rate }], changes: { add, remove } | null (desde la lista de partida),
+                     novelty: { kind: 'played'|'known'|'new', label, swaps, closestArchetype, closestLists, nearbyLists, nearbyEntries },
+                     cards, energies, simulable }],
+           explore: { config, poolEs, phase: 'search'|'confirm'|'done', stopReason: 'rounds'|'patience'|'no_variants'|null,
+                      stopReasonEs, base, best, roundsDone, rounds: [{ index, kind, incumbent, candidates, accepted, decided }],
+                      locked } | null,
+           note }
+```
+
+**Búsqueda** (`explore`): cada ronda juega la mejor lista hasta ahora y K variantes nuevas (1 o 2 cambios de cartas: entra una carta del pool —la colección o todo lo que el motor juega—, con su preevolución si falta, y sale una copia; validadas como mazo) contra el banco; todas las listas de una ronda usan la misma semilla por rival (`baseSeed + ronda × 1000 + rival`). Las cartas que juega la era, y sobre todo las que juegan las listas del arquetipo del mazo, salen más seguido; las que juega todo el arquetipo salen 10 veces menos del mazo. La mejor variante reemplaza a la vigente si su puntaje la supera por más de `acceptZ` errores estándar de la diferencia (la vigente suma todas sus partidas). Para con `maxRounds` rondas, `patience` seguidas sin cambio o sin variantes nuevas; si encontró algo, una ronda de confirmación juega la lista de partida y la encontrada con `confirmGames` partidas nuevas por rival. La API encola cada ronda cuando termina la anterior (el worker no cambia); `advance` bloquea la fila del trabajo para avanzar una sola vez y, si la app se reinicia entre rondas, la retoma al arrancar. **Novedad**: «jugada en torneo» (una lista de la era es exactamente esa), «conocida» (alguna a 6 cambios o menos) o «nueva».
+
 ## MCP (Fases 3 y 7)
 
 `POST /api/mcp`: servidor MCP remoto, Streamable HTTP, sin sesiones, con el SDK v2 (`@modelcontextprotocol/server` 2.3.1). Atiende las dos eras del protocolo en el mismo endpoint: 2026-07-28 y la de 2025 con `initialize` (la que usan hoy las apps de Claude y Claude Code). `GET` y `DELETE` responden `405`. Autenticación: `Authorization: Bearer tcg_mcp_…` con scope `mcp:read` (`401` sin token o con uno inválido o revocado, `403` con un token de worker); la cookie de sesión no sirve acá.
 
-Tools de lectura (nombres con `_` porque la API de Claude no acepta `.`): `collection_summary`, `cards_search`, `collection_playable_copies`, `collection_editions`, `decks_list`, `decks_get` (incluye `bestVersions`), `decks_find_by_card`, `decks_validate`, `decks_missing`, `decks_closest`, `decks_random`, `matches_stats`, `matches_list` y `packs_recommend` (Fase 4: la misma recomendación, resumida, con lo guardado en la app por defecto; dice el último día de los sobres limitados, lo que solo dan ellos, el mejor sobre cuando terminen y cuándo intercambiar). Torneos (Fase 5): `tournaments_stats` (por arquetipo o lista exacta; con `archetype` el detalle y con `card` el récord con y sin esa carta), `tournaments_buildable` (listas que se pueden armar hoy y las que quedan a 1 o 2 copias) y `tournaments_unlock_cards` (qué carta sola destraba más listas), todas con la era, la media de la era y la atribución a Limitless. Simulación (Fase 6): `simulations_results` (trabajos recientes; con `job`, el ranking de mazos o las combinaciones de optimizar; con `deck`, la columna «simulación» del mazo y, junto con `job`, sus cruces), siempre con bots, n, semilla y motor. Todas devuelven JSON compacto en `content[0].text` y el mismo objeto en `structuredContent`; los errores esperables (carta o mazo inexistente, entrada inválida) vuelven como `isError: true` con el mensaje en español. Cada porcentaje trae `text` con el formato canónico «70 % (n = 10, IC 39,7–89,2 %, orientativo)». Un mazo se indica por su número («13», «mazo 13»: el número con que empieza el nombre o, si no, el id), o por parte del nombre.
+Tools de lectura (nombres con `_` porque la API de Claude no acepta `.`): `collection_summary`, `cards_search`, `collection_playable_copies`, `collection_editions`, `decks_list`, `decks_get` (incluye `bestVersions`), `decks_find_by_card`, `decks_validate`, `decks_missing`, `decks_closest`, `decks_random`, `matches_stats`, `matches_list` y `packs_recommend` (Fase 4: la misma recomendación, resumida, con lo guardado en la app por defecto; dice el último día de los sobres limitados, lo que solo dan ellos, el mejor sobre cuando terminen y cuándo intercambiar). Torneos (Fase 5): `tournaments_stats` (por arquetipo o lista exacta; con `archetype` el detalle y con `card` el récord con y sin esa carta), `tournaments_buildable` (listas que se pueden armar hoy y las que quedan a 1 o 2 copias) y `tournaments_unlock_cards` (qué carta sola destraba más listas), todas con la era, la media de la era y la atribución a Limitless. Simulación (Fase 6): `simulations_results` (trabajos recientes; con `job`, el ranking de mazos o las combinaciones de optimizar; con `deck`, la columna «simulación» del mazo y, junto con `job`, sus cruces), siempre con bots, n, semilla y motor. Laboratorio (T-008): `lab_meta_bank` (el banco del meta con pesos y listas) y `lab_results` (pruebas y búsquedas; con `job`, cada lista con su puntaje contra el meta, cruces, cambios, novedad y las rondas). Todas devuelven JSON compacto en `content[0].text` y el mismo objeto en `structuredContent`; los errores esperables (carta o mazo inexistente, entrada inválida) vuelven como `isError: true` con el mensaje en español. Cada porcentaje trae `text` con el formato canónico «70 % (n = 10, IC 39,7–89,2 %, orientativo)». Un mazo se indica por su número («13», «mazo 13»: el número con que empieza el nombre o, si no, el id), o por parte del nombre.
 
 Tools de escritura (Fase 7), solo para un token con `mcp:write` (con `mcp:read` solo, ni aparecen en `tools/list`; las instrucciones del servidor suman las reglas de escritura):
 
@@ -364,6 +395,9 @@ Tools de escritura (Fase 7), solo para un token con `mcp:write` (con `mcp:read` 
 | `matches_update` | `{ id, …campos de matches_log }` → `{ updated, before, match }` |
 | `matches_delete` | `{ id }` → `{ deleted, match }` (marcada `destructiveHint`) |
 | `simulations_enqueue` | `{ kind: compare\|matrix\|optimize, decksA?, listsA?: [{ key, era?, format?, energies? }], decksB?, listsB?, games? (200), bots? (e2, e2), seed?, replaySample?, bothOrders?, label?, skipNotSimulable?, remove?: [{ card, count }], candidates?: string[] }` → `{ queued, jobId, seed, pairings, totalGames, estimatedMinutes, notSimulable, workerOnline }`; con mazos no simulables no encola (`queued: false` y los motivos) salvo `skipNotSimulable`. Cartas de optimizar por nombre o código (ambiguas: `isError` con las opciones) |
+
+| `lab_test` | `{ decks?, lists?, texts?: [{ text, name?, energies? }], size?, era?, format?, games? (100), bots?, seed?, label? }` → `{ queued, jobId, pairings, totalGames, estimatedMinutes, workerOnline }` (mazos contra el banco del meta; las listas pegadas no se guardan como mazos) |
+| `lab_explore` | `{ deck? \| list? \| text?, energies?, pool?, locked?: string[] (nombre o código), rounds?, variants?, games?, patience?, confirmGames?, size?, era?, format?, bots?, seed?, label?, dryRun? }` → con `dryRun`, el plan (variantes de la primera ronda, partidas y minutos); si no, `{ queued, jobId, config, rivals, gamesPerRound, maxGames, estimatedMinutes, workerOnline }` |
 
 Todas las de escritura llevan `readOnlyHint: false` e `idempotentHint: false` (registrar dos veces son dos partidas).
 

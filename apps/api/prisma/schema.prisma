@@ -631,6 +631,8 @@ enum SimulationKind {
   matrix
   compare
   optimize
+  /// Laboratorio de mazos (T-008): rounds of variants against the meta bank, queued by the API round by round.
+  explore
 }
 
 enum SimulationJobStatus {
@@ -680,7 +682,7 @@ model DeckSnapshot {
   /// Hash of `deckgym_text`: two snapshots of the same list share it.
   key          String
   label        String
-  /// deck_revision | tournament_list | text
+  /// deck_revision | tournament_list | text | lab
   sourceType   String   @map("source_type")
   /// Deck revision id, tournament list key…
   sourceId     String?  @map("source_id")
@@ -706,7 +708,7 @@ model SimulationJob {
   kind         SimulationKind
   status       SimulationJobStatus @default(queued)
   label        String
-  /// { sideA: snapshotIds, sideB: snapshotIds, bothOrders } or the optimize payload
+  /// { sideA: snapshotIds, sideB: snapshotIds, bothOrders, lab? } or the optimize payload
   params       Json
   engineRev    String              @map("engine_rev")
   players      String[]

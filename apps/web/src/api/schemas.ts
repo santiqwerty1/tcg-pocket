@@ -1115,8 +1115,11 @@ export const setReleasesResponseSchema = z.object({ items: z.array(setReleaseSch
 
 // ---------- Simulación (Fase 6) ----------
 
-export const SIMULATION_KINDS = ['matrix', 'compare', 'optimize'] as const
+export const SIMULATION_KINDS = ['matrix', 'compare', 'optimize', 'explore'] as const
 export type SimulationKind = (typeof SIMULATION_KINDS)[number]
+/** What the new-simulation screen queues: explore jobs start from the Laboratorio. */
+export const QUEUEABLE_SIMULATION_KINDS = ['matrix', 'compare', 'optimize'] as const
+export type QueueableSimulationKind = (typeof QUEUEABLE_SIMULATION_KINDS)[number]
 export const SIMULATION_STATUSES = ['queued', 'running', 'done', 'failed', 'cancelled'] as const
 export type SimulationStatus = (typeof SIMULATION_STATUSES)[number]
 
@@ -1135,7 +1138,7 @@ export const snapshotSchema = z.object({
   id: z.number(),
   key: z.string(),
   label: z.string(),
-  sourceType: z.enum(['deck_revision', 'tournament_list', 'text']),
+  sourceType: z.enum(['deck_revision', 'tournament_list', 'text', 'lab']),
   sourceId: z.string().nullable(),
   deckId: z.string().nullable(),
   energies: z.array(z.string()),
@@ -1169,9 +1172,182 @@ export const jobSummarySchema = z.object({
   finishedAt: nullableDate,
   error: z.string().nullable(),
   progress: jobProgressSchema,
+  /** Laboratorio (T-008): a test against the meta bank or an automatic search. */
+  lab: z.enum(['test', 'explore']).nullable().default(null),
 })
 export type JobSummary = z.infer<typeof jobSummarySchema>
 export const jobsResponseSchema = z.object({ items: z.array(jobSummarySchema) })
+
+// ---------- Laboratorio de mazos (T-008) ----------
+
+export const metaScoreSchema = z.object({
+  value: z.number(),
+  ci95: z.tuple([z.number(), z.number()]),
+  se: z.number(),
+  games: z.number(),
+  rivals: z.number(),
+  coverage: z.number(),
+})
+export type MetaScore = z.infer<typeof metaScoreSchema>
+
+const labCardSchema = z.object({ cardId: z.string(), nameEs: z.string(), count: z.number() })
+export type LabCard = z.infer<typeof labCardSchema>
+
+export const labBankSchema = z.object({
+  era: z.string(),
+  format: z.enum(TOURNAMENT_FORMATS),
+  size: z.number(),
+  lists: z.number(),
+  coverage: z.number(),
+  rivals: z.array(
+    z.object({
+      archetypeId: z.string(),
+      archetypeName: z.string(),
+      share: z.number(),
+      weight: z.number(),
+      listKey: z.string(),
+      listLists: z.number(),
+      listRate: winRateSchema.nullable(),
+      rank: z.number(),
+      energies: z.array(z.string()),
+      cards: z.array(labCardSchema),
+    }),
+  ),
+  skipped: z.array(
+    z.object({ archetypeId: z.string(), archetypeName: z.string(), share: z.number(), reason: z.string() }),
+  ),
+  engineRev: z.string(),
+  attribution: z.string(),
+})
+export type LabBank = z.infer<typeof labBankSchema>
+
+const labScoreSchema = z.object({ score: metaScoreSchema.nullable(), text: z.string() })
+
+export const labDeckSchema = z.object({
+  snapshot: z.number(),
+  label: z.string(),
+  deckId: z.string().nullable(),
+  role: z.enum(['base', 'best', 'variant', 'deck']),
+  round: z.number().nullable(),
+  search: labScoreSchema,
+  confirm: labScoreSchema.nullable(),
+  perRival: z.array(z.object({ rival: z.number(), record: gameRecordSchema, rate: winRateSchema.nullable() })),
+  changes: z.object({ add: z.array(labCardSchema), remove: z.array(labCardSchema) }).nullable(),
+  novelty: z.object({
+    kind: z.enum(['played', 'known', 'new']),
+    label: z.string(),
+    swaps: z.number().nullable(),
+    closestArchetype: z.string().nullable(),
+    closestLists: z.number(),
+    nearbyLists: z.number(),
+    nearbyEntries: z.number(),
+  }),
+  cards: z.array(labCardSchema),
+  energies: z.array(z.string()),
+  simulable: z.boolean(),
+})
+export type LabDeck = z.infer<typeof labDeckSchema>
+
+export const EXPLORE_POOLS = ['collection', 'all'] as const
+export type ExplorePool = (typeof EXPLORE_POOLS)[number]
+
+const exploreConfigSchema = z.object({
+  gamesPerRival: z.number(),
+  variantsPerRound: z.number(),
+  maxRounds: z.number(),
+  patience: z.number(),
+  confirmGames: z.number(),
+  pool: z.enum(EXPLORE_POOLS),
+  acceptZ: z.number(),
+})
+export type ExploreConfig = z.infer<typeof exploreConfigSchema>
+
+export const labJobSchema = z.object({
+  job: jobSummarySchema,
+  mode: z.enum(['test', 'explore']),
+  era: z.string(),
+  format: z.enum(TOURNAMENT_FORMATS),
+  size: z.number(),
+  rivals: z.array(
+    z.object({
+      snapshot: z.number().nullable(),
+      label: z.string(),
+      archetypeId: z.string(),
+      archetypeName: z.string(),
+      share: z.number(),
+      weight: z.number(),
+      listKey: z.string(),
+    }),
+  ),
+  decks: z.array(labDeckSchema),
+  explore: z
+    .object({
+      config: exploreConfigSchema,
+      poolEs: z.string(),
+      phase: z.enum(['search', 'confirm', 'done']),
+      stopReason: z.string().nullable(),
+      stopReasonEs: z.string().nullable(),
+      base: z.number(),
+      best: z.number(),
+      roundsDone: z.number(),
+      rounds: z.array(
+        z.object({
+          index: z.number(),
+          kind: z.enum(['search', 'confirm']),
+          incumbent: z.number(),
+          candidates: z.array(z.number()),
+          accepted: z.number().nullable(),
+          decided: z.boolean(),
+        }),
+      ),
+      locked: z.array(labCardSchema),
+    })
+    .nullable(),
+  note: z.string(),
+})
+export type LabJob = z.infer<typeof labJobSchema>
+
+export const labJobsSchema = z.object({
+  items: z.array(jobSummarySchema.extend({ mode: z.enum(['test', 'explore']), era: z.string().nullable() })),
+})
+export type LabJobItem = z.infer<typeof labJobsSchema>['items'][number]
+
+export type LabDeckSource =
+  | { deckId: string; energies?: SelectableEnergy[] }
+  | { listKey: string; era?: string; format?: TournamentFormat; energies?: SelectableEnergy[] }
+  | { text: string; name?: string; energies?: SelectableEnergy[] }
+  | { cards: { cardId: string; count: number }[]; energies: SelectableEnergy[]; name?: string }
+
+export interface LabRunInput {
+  size?: number
+  era?: string
+  players?: [string, string]
+  seed?: number
+  label?: string
+  cores?: number
+}
+
+export interface LabTestInput extends LabRunInput {
+  decks: LabDeckSource[]
+  gamesPerRival?: number
+}
+
+export interface LabExploreInput extends LabRunInput {
+  deck: LabDeckSource
+  locked?: string[]
+  config?: Partial<Omit<ExploreConfig, 'acceptZ'>>
+}
+
+export const labExplorePlanSchema = z.object({
+  base: snapshotSchema.omit({ id: true }),
+  bank: labBankSchema,
+  pool: z.number(),
+  firstRound: z.array(z.object({ add: z.array(labCardSchema), remove: z.array(labCardSchema) })),
+  config: exploreConfigSchema,
+  games: z.object({ perRound: z.number(), max: z.number() }),
+  estimatedSeconds: z.object({ perRound: z.number(), max: z.number() }),
+})
+export type LabExplorePlan = z.infer<typeof labExplorePlanSchema>
 
 const simulationCellSchema = z.object({
   rival: z.number(),
@@ -1281,7 +1457,7 @@ export type SimulationSource =
   | { listKey: string; era?: string; format?: TournamentFormat; kind?: 'group' | 'name'; energies?: SelectableEnergy[] }
 
 export interface SimulationInput {
-  kind: SimulationKind
+  kind: QueueableSimulationKind
   label?: string
   sideA: SimulationSource[]
   sideB: SimulationSource[]

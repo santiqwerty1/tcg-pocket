@@ -16,7 +16,8 @@ export interface Hello {
 export interface Chunk {
   chunkId: number
   jobId: number
-  kind: 'matrix' | 'compare' | 'optimize'
+  /** explore (Laboratorio) chunks are plain pairings, like matrix and compare. */
+  kind: 'matrix' | 'compare' | 'optimize' | 'explore'
   idx: number
   games: number
   firstGame: number

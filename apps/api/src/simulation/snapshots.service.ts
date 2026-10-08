@@ -26,9 +26,13 @@ import { PrismaService } from '../prisma/prisma.service.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
 import type { SnapshotView } from './simulation-views.js'
 
-/** A deck to play: one of mine (current revision) or an exact tournament list, with an optional energy choice. */
+/**
+ * A deck to play: one of mine (current revision), an exact tournament list (with an optional energy choice) or a list
+ * given card by card (pasted text, or a variant of the Laboratorio, T-008).
+ */
 export type SnapshotSource =
   | { deckId: string; energies?: SelectableEnergy[] | undefined }
+  | { cards: DeckCardEntry[]; energies: SelectableEnergy[]; label: string; origin: 'text' | 'lab' }
   | {
       listKey: string
       era?: string | undefined
@@ -220,6 +224,12 @@ export class SnapshotsService {
         },
       }
     }
+    if ('cards' in source) {
+      return {
+        draft: buildSnapshot({ label: source.label, cards: source.cards, energies: source.energies, index, engine }),
+        meta: { sourceType: source.origin, sourceId: null, deckId: null, energySource: 'declared' },
+      }
+    }
     const detail = await this.tournaments.list(source.listKey, {
       era: source.era,
       format: source.format,
@@ -234,7 +244,7 @@ export class SnapshotsService {
     }
     const declared = detail.energies
       .map((word) => energyFromNameEn(word))
-      .filter((energy): energy is SelectableEnergy => energy !== null)
+      .filter((energy): energy is SelectableEnergy => energy !== undefined)
     const energies = source.energies && source.energies.length > 0 ? source.energies : declared
     const draft = buildSnapshot({
       label: `${detail.list.archetype.name} · lista ${source.listKey.slice(0, 6)} (${detail.list.lists} en torneo)`,
@@ -305,7 +315,7 @@ export class SnapshotsService {
 }
 
 export interface SnapshotMeta {
-  sourceType: 'deck_revision' | 'tournament_list'
+  sourceType: 'deck_revision' | 'tournament_list' | 'text' | 'lab'
   sourceId: string | null
   deckId: number | null
   energySource: 'declared' | 'chosen'

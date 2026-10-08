@@ -4,11 +4,15 @@
  *   (40 decks → 780 pairings; the engine draws who starts), optionally both orders.
  * - compare: variants (or revisions) of a deck against a group of rivals, one row per variant.
  * - optimize: fill the open slots of a deck with candidate cards, against a group of rivals (one chunk).
+ * - explore: the Laboratorio's automatic search (T-008, lab/explore.ts): rounds of variants against the meta bank,
+ *   queued by the API one round at a time.
  * A pairing with many games is split so a chunk stays short (heartbeats, resuming after the PC is turned off).
  */
 
-export const SIMULATION_KINDS = ['matrix', 'compare', 'optimize'] as const
+export const SIMULATION_KINDS = ['matrix', 'compare', 'optimize', 'explore'] as const
 export type SimulationKind = (typeof SIMULATION_KINDS)[number]
+/** What POST /api/simulations queues: explore jobs start from the Laboratorio. */
+export const QUEUEABLE_SIMULATION_KINDS = ['matrix', 'compare', 'optimize'] as const
 
 /** Bots of deckgym that can play unattended, with what they are. */
 export const BOT_LABEL_ES: Record<string, string> = {

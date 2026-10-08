@@ -19,6 +19,8 @@ type Structured = Record<string, unknown>
 const WRITE_TOOLS = [
   'decks_create',
   'decks_update',
+  'lab_explore',
+  'lab_test',
   'matches_delete',
   'matches_log',
   'matches_update',

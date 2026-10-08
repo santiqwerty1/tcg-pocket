@@ -14,6 +14,7 @@ import { CurrentApiToken, type RequestApiToken } from '../auth/request-auth.js'
 import { CatalogModule } from '../catalog/catalog.module.js'
 import { CollectionModule } from '../collection/collection.module.js'
 import { DecksModule } from '../decks/decks.module.js'
+import { LabModule } from '../lab/lab.controller.js'
 import { MatchesModule } from '../matches/matches.module.js'
 import { PacksModule } from '../packs/packs.controller.js'
 import { SimulationModule } from '../simulation/simulation.controller.js'
@@ -21,6 +22,7 @@ import { BearerTokenGuard, RequireScopes } from '../tokens/bearer-token.guard.js
 import { TokensModule } from '../tokens/tokens.module.js'
 import { TournamentsModule } from '../tournaments/tournaments.controller.js'
 import { DeckRefResolver } from './deck-ref.js'
+import { McpLabToolsService } from './mcp-lab-tools.service.js'
 import { McpToolsService } from './mcp-tools.service.js'
 import { McpWriteToolsService } from './mcp-write-tools.service.js'
 
@@ -71,8 +73,9 @@ export class McpController implements OnModuleDestroy {
     PacksModule,
     TournamentsModule,
     SimulationModule,
+    LabModule,
   ],
   controllers: [McpController],
-  providers: [McpToolsService, McpWriteToolsService, DeckRefResolver],
+  providers: [McpToolsService, McpWriteToolsService, McpLabToolsService, DeckRefResolver],
 })
 export class McpModule {}

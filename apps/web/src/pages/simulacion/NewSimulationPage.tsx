@@ -10,14 +10,14 @@ import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useDeck, useDecks } from '@/api/decks'
 import type {
+  QueueableSimulationKind,
   SelectableEnergy,
   SimulationInput,
-  SimulationKind,
   SimulationPreview,
   SimulationSource,
   TournamentFormat,
 } from '@/api/schemas'
-import { SIMULATION_KINDS } from '@/api/schemas'
+import { QUEUEABLE_SIMULATION_KINDS } from '@/api/schemas'
 import { useCreateSimulation, useEngineInfo, usePreviewSimulation } from '@/api/simulations'
 import { useTournamentLists } from '@/api/tournaments'
 import { CardSearch } from '@/components/CardSearch'
@@ -403,9 +403,9 @@ export function NewSimulationPage() {
 
   const initial = useMemo(() => initialSides(params), [params])
   const kindParam = params.get('tipo')
-  const [kind, setKind] = useState<SimulationKind>(
-    (SIMULATION_KINDS as readonly string[]).includes(kindParam ?? '')
-      ? (kindParam as SimulationKind)
+  const [kind, setKind] = useState<QueueableSimulationKind>(
+    (QUEUEABLE_SIMULATION_KINDS as readonly string[]).includes(kindParam ?? '')
+      ? (kindParam as QueueableSimulationKind)
       : initial.b.length > 0
         ? 'compare'
         : 'matrix',
@@ -543,9 +543,9 @@ export function NewSimulationPage() {
       }}
     >
       <div className="flex flex-col gap-1.5">
-        <Tabs value={kind} onValueChange={(value) => setKind(value as SimulationKind)}>
+        <Tabs value={kind} onValueChange={(value) => setKind(value as QueueableSimulationKind)}>
           <TabsList className="w-full">
-            {SIMULATION_KINDS.map((value) => (
+            {QUEUEABLE_SIMULATION_KINDS.map((value) => (
               <TabsTrigger key={value} value={value}>
                 {KIND_LABEL[value]}
               </TabsTrigger>

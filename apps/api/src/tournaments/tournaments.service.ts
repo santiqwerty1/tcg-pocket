@@ -28,6 +28,7 @@ import {
   type ListRow,
   listRows,
   listsAgainstCollection,
+  mostCommonEnergies,
   newEraWarning,
   playableCopies,
   type RecordRow,
@@ -87,7 +88,7 @@ export interface ScopeQuery {
   format?: TournamentFormat | undefined
 }
 
-interface Scope {
+export interface Scope {
   era: string
   format: TournamentFormat
   minPlayers: number
@@ -382,7 +383,14 @@ export class TournamentsService {
     }
   }
 
-  private async playable(index: CatalogIndex): Promise<(groupId: CardId) => number> {
+  /** The era's dataset with its scope (the Laboratorio's meta bank and novelty, T-008). */
+  async scopedDataset(query: ScopeQuery): Promise<{ scope: Scope; dataset: TournamentDataset }> {
+    const scope = await this.scope(query)
+    return { scope, dataset: await this.dataset(scope) }
+  }
+
+  /** Playable copies per functional card of the collection today. */
+  async playable(index: CatalogIndex): Promise<(groupId: CardId) => number> {
     const { stock, adjustments } = await this.collection.loadState()
     const copies = new Map([...playableCopies(index, stock, adjustments)].map(([groupId, c]) => [groupId, c.playable]))
     return (groupId) => copies.get(groupId) ?? 0
@@ -678,19 +686,6 @@ export class TournamentsService {
 
 function rowView(row: RecordRow): RecordRowView {
   return { lists: row.lists, record: row.record, rate: row.rate, share: row.share }
-}
-
-/** Energies most of a list's entries declare (NOEX lists come without them). */
-function mostCommonEnergies(entries: readonly DatasetEntry[]): string[] {
-  const counts = new Map<string, { energies: string[]; count: number }>()
-  for (const entry of entries) {
-    if (entry.energies.length === 0) continue
-    const key = [...entry.energies].sort().join(',')
-    const bucket = counts.get(key)
-    if (bucket) bucket.count += 1
-    else counts.set(key, { energies: entry.energies, count: 1 })
-  }
-  return [...counts.values()].sort((a, b) => b.count - a.count)[0]?.energies ?? []
 }
 
 /** Limitless clipboard text (Pokémon, blank line, trainers, blank line, `Energy:`): imports as a deck. */
