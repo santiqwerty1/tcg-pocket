@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-08 (31 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-08 (32 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -26,6 +26,7 @@ _Borrador generado al 2026-10-08 (31 commits). Escribí el «porqué» fuera de 
 
 ### Corregido
 
+- engine off Windows efficiency mode; quick jobs first; phase 6 acceptance (H-001, T-004) `e81e220`
 - set NODE_EXTRA_CA_CERTS in fly.toml and record decision 1.32 `3574f78`
 - trust the Supabase pooler CA so sslmode=verify-full works in production `a9dac63`
 - address the adversarial review `72b2082`

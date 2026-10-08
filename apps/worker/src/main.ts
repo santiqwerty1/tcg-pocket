@@ -11,6 +11,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { ApiError, WorkerClient } from './client.js'
 import { loadConfig } from './config.js'
 import { engineVersion } from './engine.js'
+import { acquireLock, releaseLock } from './lock.js'
 import { Worker } from './worker.js'
 
 function logger(file: string) {
@@ -45,6 +46,12 @@ async function main(): Promise<void> {
     log('servidor alcanzable', { token: ping.token.name })
     return
   }
+  const running = acquireLock(config.dataDir)
+  if (running !== null) {
+    log('ya hay un worker corriendo en esta carpeta; no arranco otro', { pid: running })
+    return
+  }
+  process.on('exit', () => releaseLock(config.dataDir))
   const worker = new Worker(config, client, log)
   await worker.cleanWorkDir()
   const controller = new AbortController()

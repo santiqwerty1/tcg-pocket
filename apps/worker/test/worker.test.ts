@@ -241,3 +241,22 @@ describe('worker client', () => {
     expect((error as Error).message).toContain('Token sin permiso.')
   })
 })
+
+describe('worker lock', () => {
+  it('lets one worker per folder run and takes over a lock left by a dead process', async () => {
+    const { acquireLock, releaseLock } = await import('../src/lock.js')
+    const dir = mkdtempSync(join(tmpdir(), 'tcg-worker-lock-'))
+    try {
+      expect(acquireLock(dir)).toBeNull()
+      // This test process holds it: another PID is told who runs.
+      expect(acquireLock(dir, process.pid + 1_000_000)).toBe(process.pid)
+      releaseLock(dir)
+      // A PID that does not exist anymore does not block.
+      expect(acquireLock(dir, 999_999_991)).toBeNull()
+      expect(acquireLock(dir)).toBeNull()
+      releaseLock(dir)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})

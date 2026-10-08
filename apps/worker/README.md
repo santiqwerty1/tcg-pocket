@@ -10,7 +10,7 @@ Worker de simulación para la PC de Santi (BRIEF §4, PLAN §3.7, Fase 6). Pide 
 4. **Resultado**: lo guarda primero en `state.json` y después lo sube (idempotente), con las repeticiones en gzip. Si no hay red, reintenta (1 s, 2 s, 4 s… hasta 5 min); si se apaga la PC antes de subir, lo manda al volver.
 5. **Si se corta** a mitad de un chunk (PC apagada, proceso muerto), el lease vence y la app lo vuelve a encolar: se juega de nuevo con la misma semilla y da el mismo resultado.
 
-Un error inesperado reinicia el bucle al minuto; un token rechazado (401/403) lo detiene. `engine-cli` se excluye del «modo eficiencia» de Windows al arrancar: oculto, Windows lo dejaba en los núcleos de eficiencia (H-001 en la bóveda).
+Un error inesperado reinicia el bucle al minuto; un token rechazado (401/403) lo detiene. Corre un solo worker por carpeta (`worker.lock` con el PID): un segundo arranque avisa en el log y termina. `engine-cli` se excluye del «modo eficiencia» de Windows al arrancar: oculto, Windows lo dejaba en los núcleos de eficiencia (H-001 en la bóveda).
 
 ## Configuración
 
@@ -32,7 +32,7 @@ pnpm -F @tcg/worker build
 node apps/worker/dist/main.js --check   # configuración, motor y si llega al servidor
 node apps/worker/dist/main.js --once    # un chunk y termina
 node apps/worker/dist/main.js           # hasta Ctrl+C
-pnpm -F @tcg/worker install-task        # arranca oculto al iniciar sesión (tarea programada o carpeta Inicio)
+pnpm -F @tcg/worker install-task        # arranca oculto al iniciar sesión (tarea programada o, sin admin, carpeta Inicio) y ya mismo
 pnpm -F @tcg/worker uninstall-task
 ```
 

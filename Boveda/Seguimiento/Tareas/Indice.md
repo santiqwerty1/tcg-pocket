@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-7 fichas: hecho 3 · pendiente 4. ⚑ = para revisar.
+7 fichas: hecho 3 · parcial 1 · pendiente 3. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Actualizado |
 | --- | --- | --- | --- | --- |
@@ -23,4 +23,4 @@ revisar: false
 | [T-004](T-004.md) | Worker de Windows para la simulación | hecho | — | 2026-10-08 |
 | [T-005](T-005.md) | Decidir si se activa el flujo completo de Posta | pendiente | — | 2026-10-07 |
 | [T-006](T-006.md) | Verificar la Fase 5 con los datos reales de producción | hecho | — | 2026-10-08 |
-| [T-007](T-007.md) | Arrancar el worker en la PC contra producción | pendiente ⚑ | — | 2026-10-08 |
+| [T-007](T-007.md) | Arrancar el worker en la PC contra producción | parcial ⚑ | — | 2026-10-08 |
