@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-08 (54 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-08 (55 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- update the starting deck with the version the search found (T-008) `c2c0711`
 - phase 11 — weekly meta, what rises and what falls (T-012) `13185d8`
 - phase 10 — opening hand and natural draw odds (T-012) `0c5741a`
 - phase 9 — tournament matchups from Limitless pairings (T-012) (#45) `9fd38b2`

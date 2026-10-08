@@ -1836,3 +1836,17 @@ export const drawOddsSchema = z.object({
   note: z.string(),
 })
 export type DrawOdds = z.infer<typeof drawOddsSchema>
+
+// ---------- Notas por rival (Fase 12) ----------
+
+export const rivalNoteSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  archetypeId: z.string().nullable(),
+  text: z.string(),
+  createdAt: isoDate,
+  updatedAt: isoDate,
+})
+export type RivalNote = z.infer<typeof rivalNoteSchema>
+export const rivalNotesSchema = z.object({ items: z.array(rivalNoteSchema) })
+export const rivalNoteResponseSchema = z.object({ note: rivalNoteSchema.nullable() })

@@ -858,3 +858,17 @@ model LiveGame {
   @@index([status])
   @@map("live_games")
 }
+
+/// Fase 12: the owner's notes on how to play against a rival, by its opponent key («mega blaziken ex»).
+model RivalNote {
+  /// opponentKey of the label: case, accents and punctuation do not matter.
+  key         String   @id
+  label       String
+  /// Limitless archetype it was written from, when there was one.
+  archetypeId String?  @map("archetype_id")
+  text        String
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("rival_notes")
+}

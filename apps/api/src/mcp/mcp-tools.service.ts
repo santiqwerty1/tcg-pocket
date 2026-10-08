@@ -33,6 +33,7 @@ import type { RowView } from '../matches/match-views.js'
 import { MatchesService } from '../matches/matches.service.js'
 import { PacksService } from '../packs/packs.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import { RivalNotesService } from '../rivals/rival-notes.service.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
 import type {
   ArchetypeRowView,
@@ -100,6 +101,7 @@ export class McpToolsService {
     private readonly simulations: SimulationsService,
     private readonly prisma: PrismaService,
     private readonly deckRefs: DeckRefResolver,
+    private readonly rivalNotes: RivalNotesService,
     private readonly writeTools: McpWriteToolsService,
     private readonly labTools: McpLabToolsService,
     @Inject(ENV) private readonly env: Env,
@@ -172,6 +174,9 @@ ${MCP_WRITE_INSTRUCTIONS}`
     )
     server.registerTool(t.tournamentsStats.name, config(t.tournamentsStats), (args) =>
       run(t.tournamentsStats.name, () => this.tournamentsStats(args)),
+    )
+    server.registerTool(t.rivalsNotes.name, config(t.rivalsNotes), (args) =>
+      run(t.rivalsNotes.name, () => this.rivalsNotes(args)),
     )
     server.registerTool(t.decksDrawOdds.name, config(t.decksDrawOdds), (args) =>
       run(t.decksDrawOdds.name, () => this.decksDrawOdds(args)),
@@ -919,6 +924,20 @@ ${MCP_WRITE_INSTRUCTIONS}`
         ...this.recordJson(row),
       })),
     }
+  }
+
+  private async rivalsNotes(args: { opponent?: string }): Promise<Json> {
+    const shape = (note: { label: string; text: string; updatedAt: Date }) => ({
+      rival: note.label,
+      text: note.text,
+      updatedAt: note.updatedAt.toISOString(),
+    })
+    if (args.opponent) {
+      const note = await this.rivalNotes.lookup(args.opponent)
+      return note ? { note: shape(note) } : { note: null, message: `Santi no tiene notas contra «${args.opponent}».` }
+    }
+    const notes = await this.rivalNotes.list()
+    return { total: notes.length, notes: notes.map(shape) }
   }
 
   private async decksDrawOdds(args: {

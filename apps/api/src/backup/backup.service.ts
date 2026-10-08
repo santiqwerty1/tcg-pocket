@@ -108,31 +108,45 @@ export class BackupService {
   // ---------------------------------------------------------------------------------------------------------------
 
   async exportDocument(): Promise<BackupDocument> {
-    const [settings, rarityRules, stock, imports, adjustments, decks, matches, packs, tokens, sets, aliases, games] =
-      await Promise.all([
-        this.prisma.appSetting.findMany({ orderBy: { key: 'asc' } }),
-        this.prisma.rarityRule.findMany({ orderBy: { rarity: 'asc' } }),
-        this.prisma.collectionStock.findMany({ orderBy: { cardId: 'asc' } }),
-        this.prisma.collectionImport.findMany({
-          orderBy: { id: 'asc' },
-          include: { rows: { orderBy: { cardId: 'asc' } } },
-          omit: { rawFileGz: true },
-        }),
-        this.prisma.collectionAdjustment.findMany({ orderBy: { id: 'asc' } }),
-        this.prisma.deck.findMany({
-          orderBy: { id: 'asc' },
-          include: { revisions: { orderBy: { number: 'asc' } }, changes: { orderBy: { id: 'asc' } } },
-        }),
-        this.prisma.match.findMany({ orderBy: { id: 'asc' } }),
-        this.prisma.pack.findMany({
-          orderBy: { id: 'asc' },
-          select: { id: true, available: true, pointsBalance: true, limited: true, limitedUntil: true },
-        }),
-        this.prisma.apiToken.findMany({ orderBy: { id: 'asc' } }),
-        this.prisma.setRelease.findMany({ orderBy: [{ releaseDate: 'asc' }, { code: 'asc' }] }),
-        this.prisma.archetypeAlias.findMany({ orderBy: { archetypeId: 'asc' } }),
-        this.prisma.liveGame.findMany({ where: { status: 'done', winner: { not: null } }, orderBy: { id: 'asc' } }),
-      ])
+    const [
+      settings,
+      rarityRules,
+      stock,
+      imports,
+      adjustments,
+      decks,
+      matches,
+      packs,
+      tokens,
+      sets,
+      aliases,
+      games,
+      notes,
+    ] = await Promise.all([
+      this.prisma.appSetting.findMany({ orderBy: { key: 'asc' } }),
+      this.prisma.rarityRule.findMany({ orderBy: { rarity: 'asc' } }),
+      this.prisma.collectionStock.findMany({ orderBy: { cardId: 'asc' } }),
+      this.prisma.collectionImport.findMany({
+        orderBy: { id: 'asc' },
+        include: { rows: { orderBy: { cardId: 'asc' } } },
+        omit: { rawFileGz: true },
+      }),
+      this.prisma.collectionAdjustment.findMany({ orderBy: { id: 'asc' } }),
+      this.prisma.deck.findMany({
+        orderBy: { id: 'asc' },
+        include: { revisions: { orderBy: { number: 'asc' } }, changes: { orderBy: { id: 'asc' } } },
+      }),
+      this.prisma.match.findMany({ orderBy: { id: 'asc' } }),
+      this.prisma.pack.findMany({
+        orderBy: { id: 'asc' },
+        select: { id: true, available: true, pointsBalance: true, limited: true, limitedUntil: true },
+      }),
+      this.prisma.apiToken.findMany({ orderBy: { id: 'asc' } }),
+      this.prisma.setRelease.findMany({ orderBy: [{ releaseDate: 'asc' }, { code: 'asc' }] }),
+      this.prisma.archetypeAlias.findMany({ orderBy: { archetypeId: 'asc' } }),
+      this.prisma.liveGame.findMany({ where: { status: 'done', winner: { not: null } }, orderBy: { id: 'asc' } }),
+      this.prisma.rivalNote.findMany({ orderBy: { key: 'asc' } }),
+    ])
     return {
       schemaVersion: BACKUP_SCHEMA_VERSION,
       exportedAt: iso(new Date()),
@@ -271,6 +285,14 @@ export class BackupService {
         turns: game.turns,
         createdAt: iso(game.createdAt),
         finishedAt: isoOrNull(game.finishedAt),
+      })),
+      rivalNotes: notes.map((note) => ({
+        key: note.key,
+        label: note.label,
+        archetypeId: note.archetypeId,
+        text: note.text,
+        createdAt: iso(note.createdAt),
+        updatedAt: iso(note.updatedAt),
       })),
     } as BackupDocument
   }
@@ -534,6 +556,11 @@ export class BackupService {
             })
           }
         }
+        // Notes by rival (version 6): replaced by the file's; older files keep the current ones.
+        if (document.rivalNotes) {
+          await tx.rivalNote.deleteMany()
+          if (document.rivalNotes.length > 0) await tx.rivalNote.createMany({ data: document.rivalNotes })
+        }
         for (const rule of document.rarityRules) {
           await tx.rarityRule.upsert({
             where: { rarity: rule.rarity },
@@ -585,6 +612,11 @@ export class BackupService {
     if (unknown.size > 0) {
       notices.push(
         `${unknown.size} ids del backup no existen en el catálogo cargado; no se puede restaurar hasta sincronizarlo.`,
+      )
+    }
+    if (document.schemaVersion < 6) {
+      notices.push(
+        `Backup de la versión ${document.schemaVersion}, anterior a la Fase 12: no trae notas por rival; se mantienen las que hay ahora.`,
       )
     }
     if (document.schemaVersion < 5) {

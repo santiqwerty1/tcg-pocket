@@ -7,6 +7,7 @@ import {
   HandIcon,
   ImageIcon,
   KeyRoundIcon,
+  NotebookPenIcon,
   RefreshCwIcon,
   SwordsIcon,
   TrophyIcon,
@@ -31,6 +32,7 @@ const ENTRIES = [
     hint: 'Probar ideas contra el meta y buscar variantes',
     icon: FlaskConicalIcon,
   },
+  { to: '/mas/notas', label: 'Notas por rival', hint: 'Cómo jugarle a cada arquetipo', icon: NotebookPenIcon },
   {
     to: '/mas/mano',
     label: 'Calculadora de mano',

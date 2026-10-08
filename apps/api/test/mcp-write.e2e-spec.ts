@@ -24,6 +24,7 @@ const WRITE_TOOLS = [
   'matches_delete',
   'matches_log',
   'matches_update',
+  'rivals_note_set',
   'simulations_enqueue',
 ]
 
@@ -125,6 +126,21 @@ describe('MCP write tools (e2e)', () => {
     // The match is in the app, tagged as logged by Claude.
     const list = (await get('/api/matches')).body as { items: { id: string; source: string; deck: { id: string } }[] }
     expect(list.items[0]).toMatchObject({ id: match.id, source: 'mcp', deck: { id: '7' } })
+
+    // A note about the rival: appended by default.
+    const note = await call(client, 'rivals_note_set', {
+      opponent: 'Mega-Blaziken',
+      text: 'Le cuesta el primer turno.',
+    })
+    expect(note.structuredContent).toMatchObject({
+      saved: true,
+      rival: 'Mega-Blaziken',
+      text: 'Le cuesta el primer turno.',
+    })
+    const again = await call(client, 'rivals_note_set', { opponent: 'mega blaziken', text: 'Y el segundo.' })
+    expect(again.structuredContent.text).toBe('Le cuesta el primer turno.\n\nY el segundo.')
+    const read = await call(client, 'rivals_notes', { opponent: 'Mega Blaziken' })
+    expect((read.structuredContent.note as Structured).text).toContain('Y el segundo.')
 
     const fixed = await call(client, 'matches_update', { id: match.id, result: 'loss', wentFirst: false })
     expect(fixed.structuredContent).toMatchObject({

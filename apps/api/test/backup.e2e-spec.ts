@@ -135,6 +135,10 @@ describe('backup and settings (e2e)', () => {
       200,
     )
 
+    // Notes by rival (Fase 12) travel too.
+    expect((await put('/api/rival-notes').send({ opponent: 'Mega Blaziken ex', text: 'Nota de prueba.' })).status).toBe(
+      200,
+    )
     // Games against the bot (Fase 8, D-019): only the finished one travels, and only its result.
     const engineRev = test.env.engineRev ?? 'test'
     await test.prisma.liveGame.create({
@@ -175,7 +179,7 @@ describe('backup and settings (e2e)', () => {
     exported = response.body as Buffer
     document = JSON.parse(gunzipSync(exported).toString('utf8')) as Doc
     expect(document).toMatchObject({
-      schemaVersion: 5,
+      schemaVersion: 6,
       catalogCommit: test.env.catalogCommit,
       engineRev: test.env.engineRev,
       settings: [
@@ -217,6 +221,9 @@ describe('backup and settings (e2e)', () => {
     expect(document.tokens.map((t) => t.name)).toEqual(['worker'])
     expect(document.tokens[0]).not.toHaveProperty('tokenHash')
     expect(document.rarityRules.length).toBeGreaterThan(0)
+    expect((document as unknown as { rivalNotes: unknown[] }).rivalNotes).toEqual([
+      expect.objectContaining({ key: 'mega blaziken ex', label: 'Mega Blaziken ex', text: 'Nota de prueba.' }),
+    ])
     expect(document.playedGames).toEqual([
       {
         id: expect.any(Number),
@@ -236,7 +243,7 @@ describe('backup and settings (e2e)', () => {
   it('dry-run reports counts and notices without touching the data', async () => {
     const response = await post('/api/backup/import?mode=dry-run').attach('file', exported, 'backup.json.gz')
     expect(response.status).toBe(200)
-    expect(response.body).toMatchObject({ schemaVersion: 5, catalogCommit: test.env.catalogCommit })
+    expect(response.body).toMatchObject({ schemaVersion: 6, catalogCommit: test.env.catalogCommit })
     expect(response.body.diff.incoming.matches).toBe(2)
     expect(response.body.diff.incoming.playedGames).toBe(1)
     expect(response.body.diff.incoming).toEqual(response.body.diff.current)
@@ -269,6 +276,7 @@ describe('backup and settings (e2e)', () => {
   it('restores into an emptied database and exports the same document (except exportedAt)', async () => {
     await test.prisma.match.deleteMany()
     await test.prisma.liveGame.deleteMany({ where: { status: 'done' } })
+    await test.prisma.rivalNote.deleteMany()
     await test.prisma.deck.deleteMany()
     await test.prisma.collectionAdjustment.deleteMany()
     await test.prisma.collectionStock.deleteMany()
@@ -289,6 +297,7 @@ describe('backup and settings (e2e)', () => {
       settings: 2,
       matches: 2,
       playedGames: 1,
+      rivalNotes: 1,
     })
     const packs = (await get('/api/packs')).body.items as { id: string; available: boolean }[]
     expect(packs.find((pack) => pack.id === 'B4b/deluxepackmega')).toMatchObject({
@@ -360,6 +369,7 @@ describe('backup and settings (e2e)', () => {
     expect(dry.body.diff.current.matches).toBe(2)
     expect(dry.body.diff.notices.some((n: string) => n.includes('no trae partidas'))).toBe(true)
     expect(dry.body.diff.notices.some((n: string) => n.includes('partidas contra el bot'))).toBe(true)
+    expect(dry.body.diff.notices.some((n: string) => n.includes('notas por rival'))).toBe(true)
   })
 
   it('refuses a backup whose matches point to a deck revision that is not in the file', async () => {
@@ -428,7 +438,7 @@ describe('backup and settings (e2e)', () => {
     expect(download.status).toBe(200)
     expect(download.headers['content-type']).toBe('application/gzip')
     const parsed = JSON.parse(gunzipSync(download.body as Buffer).toString('utf8')) as Doc
-    expect(parsed.schemaVersion).toBe(5)
+    expect(parsed.schemaVersion).toBe(6)
     expect(parsed.matches).toHaveLength(2)
     expect(parsed.decks).toHaveLength(4)
     expect((await get('/api/backup/blobs/999999')).status).toBe(404)

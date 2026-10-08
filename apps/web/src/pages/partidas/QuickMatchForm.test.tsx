@@ -59,6 +59,20 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
         const url = new URL(input, 'http://localhost')
         const method = init?.method ?? 'GET'
         if (url.pathname === '/api/matches/suggestions') return json(SUGGESTIONS)
+        if (url.pathname === '/api/rival-notes') {
+          return json({
+            items: [
+              {
+                key: 'gardevoir ex',
+                label: 'Gardevoir ex',
+                archetypeId: null,
+                text: 'Atacar a la Ralts antes de que evolucione.',
+                createdAt: '2026-10-07T19:00:00.000Z',
+                updatedAt: '2026-10-07T19:00:00.000Z',
+              },
+            ],
+          })
+        }
         if (url.pathname === '/api/matches' && method === 'GET') return json({ items: [], total: 0 })
         if (url.pathname === '/api/matches' && method === 'POST') {
           const body = JSON.parse(String(init?.body)) as Record<string, unknown>
@@ -122,6 +136,16 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
     expect(within(form).getByRole('button', { name: 'Empecé yo' })).toHaveAttribute('aria-pressed', 'false')
     expect(within(form).getByLabelText('Rival (arquetipo)')).toHaveValue('')
     expect(within(deckGroup).getByRole('button', { name: /Zoroark ex/ })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('shows the note about the rival once it is picked (Fase 12)', async () => {
+    const user = userEvent.setup()
+    renderAt('/partidas')
+    const form = await screen.findByRole('form', { name: 'Nueva partida' })
+    expect(within(form).queryByText(/Atacar a la Ralts/)).toBeNull()
+    await user.click(within(form).getByRole('button', { name: 'Gardevoir ex' }))
+    expect(await within(form).findByText('Atacar a la Ralts antes de que evolucione.')).toBeVisible()
+    expect(within(form).getByText('Tu nota contra Gardevoir ex')).toBeVisible()
   })
 
   it('preselects the deck from ?mazo=, picks another from the full list and filters opponents while typing', async () => {

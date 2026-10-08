@@ -278,3 +278,11 @@ Pedido de Santi: hacer las doce ideas de ampliación, cada una como su propia fa
 | # | Decisión | Motivo |
 |---|---|---|
 | 10.13 | **«Actualizar el mazo original»**: cuando una búsqueda arrancó de un mazo guardado, la mejor lista (y cada variante probada) se puede guardar sobre ese mazo como una **revisión nueva** con la nota «Laboratorio #N: puntaje»; la anterior queda en Revisiones y se restaura con un toque. Al terminar una búsqueda que mejoró la lista de partida, un aviso arriba lo ofrece. La confirmación muestra los cambios y avisa si el mazo cambió desde que empezó la búsqueda. Si el mazo ya tiene esa lista, no se ofrece. | Pedido de Santi; «Guardar como mazo» creaba uno nuevo. |
+
+## Fase 12: notas por rival (8/10/2026)
+
+| # | Decisión | Motivo |
+|---|---|---|
+| 15.1 | Una nota por rival, guardada por su **clave de rival** (la misma de las estadísticas: sin mayúsculas, tildes ni signos), así la nota escrita sobre «Mega Blaziken ex» de Limitless aparece al anotar «mega-blaziken EX». Texto libre hasta 5.000 caracteres; vacío la borra. Tabla `rival_notes` (migración `20261009010000_rival_notes`). | Un solo lugar por rival, cualquiera sea la forma de escribirlo. |
+| 15.2 | Dónde se ve: debajo del campo «Rival» al cargar una partida (solo si hay nota, recortada a 3 líneas), sección «Mis notas» en cada arquetipo de Torneos y Más → «Notas por rival» (todas, nuevas por nombre). Claude las lee (`rivals_notes`) y, con permiso de escritura, agrega un párrafo o la reemplaza (`rivals_note_set`, por defecto agrega). | Recordarlas justo antes de jugar. |
+| 15.3 | **Backup versión 6**: las notas viajan en `rivalNotes`; al restaurar se reemplazan; los backups anteriores dejan las actuales con un aviso. | Son datos tuyos. |

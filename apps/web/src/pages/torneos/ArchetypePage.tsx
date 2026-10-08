@@ -10,6 +10,7 @@ import { errorMessage } from '@/api/client'
 import { useArchetype, useArchetypes, useSetArchetypeAlias } from '@/api/tournaments'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { RateHeadline, RateRows } from '@/components/RateSummary'
+import { RivalNoteEditor } from '@/components/RivalNote'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -132,6 +133,12 @@ export function ArchetypePage() {
           ))}
         </ul>
       </Section>
+
+      {archetype.archetype.id ? (
+        <Section title="Mis notas">
+          <RivalNoteEditor opponent={archetype.archetype.name} archetypeId={archetype.archetype.id} />
+        </Section>
+      ) : null}
 
       <Section
         title="Matchups"

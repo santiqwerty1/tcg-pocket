@@ -119,6 +119,17 @@ export const MCP_WRITE_TOOLS = {
       playedAt: z.iso.datetime({ offset: true }).optional().describe('Cuándo se jugó (ISO 8601); por defecto ahora'),
     }),
   },
+  rivalsNoteSet: {
+    name: 'rivals_note_set',
+    title: 'Escribir una nota sobre un rival',
+    description:
+      'Escribe la nota de Santi sobre cómo jugar contra un rival. Por defecto agrega un párrafo al final de lo que ya hay («append»: true); con «append»: false la reemplaza (y con texto vacío la borra: confirmá con Santi antes). Pedile permiso antes de guardar algo que él no dijo.',
+    input: z.object({
+      opponent: z.string().trim().min(1).max(200).describe('Rival: arquetipo o como Santi lo anota'),
+      text: z.string().max(5000).describe('Texto de la nota (o del párrafo a agregar)'),
+      append: z.boolean().optional().describe('true (por defecto): agrega al final; false: reemplaza'),
+    }),
+  },
   matchesUpdate: {
     name: 'matches_update',
     title: 'Corregir una partida',

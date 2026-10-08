@@ -16,6 +16,7 @@ import { BackupPage } from '@/pages/mas/BackupPage'
 import { CatalogPage } from '@/pages/mas/CatalogPage'
 import { HandCalculatorPage } from '@/pages/mas/HandCalculatorPage'
 import { MasPage } from '@/pages/mas/MasPage'
+import { RivalNotesPage } from '@/pages/mas/RivalNotesPage'
 import { SessionPage } from '@/pages/mas/SessionPage'
 import { TokensPage } from '@/pages/mas/TokensPage'
 import { DeckDetailPage } from '@/pages/mazos/DeckDetailPage'
@@ -110,6 +111,7 @@ export const routes: RouteObject[] = [
       { path: 'mas/ajustes', element: <AppSettingsPage />, handle: handle('Ajustes de la app', '/mas') },
       { path: 'mas/acerca', element: <AboutPage />, handle: handle('Acerca de', '/mas') },
       { path: 'mas/mano', element: <HandCalculatorPage />, handle: handle('Calculadora de mano', '/mas') },
+      { path: 'mas/notas', element: <RivalNotesPage />, handle: handle('Notas por rival', '/mas') },
 
       { path: '*', element: <NotFoundPage />, handle: handle('No encontrado', '/') },
     ],

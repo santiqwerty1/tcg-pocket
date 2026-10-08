@@ -20,6 +20,7 @@ import type { DeckDetail } from '../decks/deck-views.js'
 import { DecksService } from '../decks/decks.service.js'
 import type { MatchView, RowView } from '../matches/match-views.js'
 import { MatchesService } from '../matches/matches.service.js'
+import { RivalNotesService } from '../rivals/rival-notes.service.js'
 import type { CreateJobInput } from '../simulation/simulations.service.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
 import type { SnapshotSource } from '../simulation/snapshots.service.js'
@@ -96,6 +97,7 @@ export class McpWriteToolsService {
     private readonly simulations: SimulationsService,
     private readonly tournaments: TournamentsService,
     private readonly deckRefs: DeckRefResolver,
+    private readonly rivalNotes: RivalNotesService,
   ) {}
 
   register(server: McpServer, run: Run): void {
@@ -108,6 +110,9 @@ export class McpWriteToolsService {
     )
     server.registerTool(t.matchesLog.name, config(t.matchesLog, WRITE), (args) =>
       run(t.matchesLog.name, () => this.matchesLog(args)),
+    )
+    server.registerTool(t.rivalsNoteSet.name, config(t.rivalsNoteSet, WRITE), (args) =>
+      run(t.rivalsNoteSet.name, () => this.rivalsNoteSet(args)),
     )
     server.registerTool(t.matchesUpdate.name, config(t.matchesUpdate, WRITE), (args) =>
       run(t.matchesUpdate.name, () => this.matchesUpdate(args)),
@@ -283,6 +288,13 @@ export class McpWriteToolsService {
   // ---------------------------------------------------------------------------------------------------------------
   // Matches
   // ---------------------------------------------------------------------------------------------------------------
+
+  private async rivalsNoteSet(args: { opponent: string; text: string; append?: boolean }): Promise<Json> {
+    const note = await this.rivalNotes.save({ opponent: args.opponent, text: args.text, append: args.append ?? true })
+    return note
+      ? { saved: true, rival: note.label, text: note.text, updatedAt: note.updatedAt.toISOString() }
+      : { saved: true, deleted: true, rival: args.opponent }
+  }
 
   private async matchesLog(args: {
     deck: string

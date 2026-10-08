@@ -11,6 +11,7 @@ import { useCreateMatch, useDeleteMatch } from '@/api/matches'
 import type { MatchMode, MatchResult, MatchSuggestions } from '@/api/schemas'
 import { DeckNumber } from '@/components/DeckNumber'
 import { Spinner } from '@/components/ListState'
+import { RivalNoteHint } from '@/components/RivalNote'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -102,6 +103,7 @@ export function QuickMatchForm({
       <DeckChips decks={suggestions.decks} value={deckId} onChange={setDeckId} onMore={() => setPickerOpen(true)} />
       <ResultPicker value={result} onChange={setResult} />
       <OpponentField value={opponent} onChange={setOpponent} suggestions={opponentChoices} />
+      <RivalNoteHint opponent={opponent} />
       <WentFirstPicker value={wentFirst} onChange={setWentFirst} />
       <ModePicker value={mode} onChange={setMode} />
       {noteOpen ? (

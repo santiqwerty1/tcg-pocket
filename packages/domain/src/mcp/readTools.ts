@@ -237,6 +237,15 @@ export const MCP_READ_TOOLS = {
       limit: z.number().int().min(1).max(50).optional().describe('Filas a devolver (por defecto 15)'),
     }),
   },
+  rivalsNotes: {
+    name: 'rivals_notes',
+    title: 'Notas por rival',
+    description:
+      'Las notas de Santi sobre cómo jugar contra cada rival (arquetipo), escritas en la app o por Claude. Con «opponent» la nota de ese rival (sin importar mayúsculas, tildes ni guiones); sin él, todas. Usalas antes de aconsejar contra un rival.',
+    input: z.object({
+      opponent: z.string().trim().min(1).max(200).optional().describe('Rival: arquetipo o como Santi lo anota'),
+    }),
+  },
   decksDrawOdds: {
     name: 'decks_draw_odds',
     title: 'Probabilidad de robar una carta',
