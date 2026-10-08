@@ -29,6 +29,7 @@ import { CollectionService } from '../collection/collection.service.js'
 import { ENV, type Env } from '../config/env.js'
 import type { DeckImportFormat } from '../decks/deck-formats.js'
 import { DecksService } from '../decks/decks.service.js'
+import { EventsService } from '../events/events.service.js'
 import type { RowView } from '../matches/match-views.js'
 import { MatchesService } from '../matches/matches.service.js'
 import { PacksService } from '../packs/packs.service.js'
@@ -104,6 +105,7 @@ export class McpToolsService {
     private readonly deckRefs: DeckRefResolver,
     private readonly rivalNotes: RivalNotesService,
     private readonly pick: PickService,
+    private readonly events: EventsService,
     private readonly writeTools: McpWriteToolsService,
     private readonly labTools: McpLabToolsService,
     @Inject(ENV) private readonly env: Env,
@@ -179,6 +181,9 @@ ${MCP_WRITE_INSTRUCTIONS}`
     )
     server.registerTool(t.matchesLuck.name, config(t.matchesLuck), (args) =>
       run(t.matchesLuck.name, () => this.matchesLuck(args)),
+    )
+    server.registerTool(t.eventsCheck.name, config(t.eventsCheck), (args) =>
+      run(t.eventsCheck.name, () => this.eventsCheck(args)),
     )
     server.registerTool(t.rivalsNotes.name, config(t.rivalsNotes), (args) =>
       run(t.rivalsNotes.name, () => this.rivalsNotes(args)),
@@ -954,6 +959,44 @@ ${MCP_WRITE_INSTRUCTIONS}`
       expected: luck.expected,
       verdict: luck.check?.verdict ?? null,
       text: luck.text,
+    }
+  }
+
+  private async eventsCheck(args: { event?: string }): Promise<Json> {
+    const events = await this.events.list()
+    if (!args.event) {
+      return {
+        total: events.length,
+        events: events.map((event) => ({ id: event.id, name: event.name, endsOn: event.endsOn, rules: event.rulesEs })),
+      }
+    }
+    const wanted = foldText(args.event)
+    const hit =
+      events.find((event) => event.id === args.event || foldText(event.name) === wanted) ??
+      events.find((event) => foldText(event.name).includes(wanted))
+    if (!hit) throw new NotFoundException(`No hay un evento «${args.event}».`)
+    const detail = await this.events.detail(hit.id)
+    return {
+      event: {
+        id: detail.id,
+        name: detail.name,
+        startsOn: detail.startsOn,
+        endsOn: detail.endsOn,
+        rules: detail.rulesEs,
+      },
+      decksThatComply: detail.decks.filter((deck) => deck.ok).map((deck) => `#${deck.id} ${deck.name}`),
+      decksThatDoNot: detail.decks
+        .filter((deck) => !deck.ok)
+        .slice(0, 15)
+        .map((deck) => ({ deck: `#${deck.id} ${deck.name}`, problems: deck.problems.slice(0, 4) })),
+      tournamentLists: detail.lists.slice(0, 10).map((list) => ({
+        key: list.key,
+        archetype: list.archetype,
+        pokemon: list.pokemon,
+        lists: list.lists,
+        rate: rateView(list.rate),
+        missingCopies: list.missingCopies,
+      })),
     }
   }
 

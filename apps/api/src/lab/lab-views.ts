@@ -115,6 +115,8 @@ export interface LabExploreView {
     decided: boolean
   }[]
   locked: CardLineView[]
+  /** Fase 16: the event whose rules every variant keeps. */
+  event: { id: string; name: string; rules: string[] } | null
 }
 
 export interface LabJobView {

@@ -49,6 +49,8 @@ export interface PoolOptions {
   usage?: ((groupId: CardId) => number) | undefined
   /** Share of the lists like this deck (its archetype) that play the card (0–100). */
   affinity?: ((groupId: CardId) => number) | undefined
+  /** Fase 16: only cards an event allows can come in. */
+  allow?: ((card: CardEdition) => boolean) | undefined
 }
 
 /** How much more often a card comes up: trainers ×2, then up to ×11 for era usage and ×11 for archetype usage. */
@@ -71,6 +73,7 @@ export function mutationPool(options: PoolOptions): PoolCard[] {
     if (maxCopies < 1) continue
     const card = options.edition(group.id)
     if (!card || !usableWith(card, options.energies)) continue
+    if (options.allow && !options.allow(card)) continue
     const usage = options.usage?.(group.id) ?? 0
     const affinity = options.affinity?.(group.id) ?? 0
     // An off-type Pokémon without an ability that no list of the era plays is noise: it stays out.
@@ -111,6 +114,8 @@ export interface VariantOptions {
   seen?: ReadonlySet<string> | undefined
   /** Share of the lists like this deck that play the card (0–100): the more, the less often it goes out. */
   affinity?: ((groupId: CardId) => number) | undefined
+  /** Fase 16: a variant must also pass this (an event's counts, like «al menos 8 Pokémon de tipo Fuego»). */
+  accept?: ((cards: readonly DeckCardEntry[]) => boolean) | undefined
 }
 
 function weightedPick<T extends { weight: number }>(items: readonly T[], random: () => number): T | null {
@@ -169,6 +174,7 @@ export function variantOf(
     const key = listKeyByGroup(groups)
     if (key === baseKey || options.seen?.has(key)) continue
     if (validateDeck({ cards, energies: [...energies] }, index).errors.length > 0) continue
+    if (options.accept && !options.accept(cards)) continue
     const sorted = cards.filter((entry) => entry.count > 0)
     return { cards: sorted, key, ...cardChanges(deck, sorted, index) }
   }

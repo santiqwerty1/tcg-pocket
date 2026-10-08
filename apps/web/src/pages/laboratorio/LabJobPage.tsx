@@ -342,6 +342,7 @@ function ExploreSummary({ job }: { job: LabJob }) {
           ...(explore.locked.length > 0
             ? [{ label: 'No se tocan', value: explore.locked.map((card) => card.nameEs).join(', ') }]
             : []),
+          ...(explore.event ? [{ label: `Evento «${explore.event.name}»`, value: explore.event.rules.join(' ') }] : []),
         ]}
       />
       <ol className="flex flex-col gap-1 text-sm">

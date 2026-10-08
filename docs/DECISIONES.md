@@ -314,3 +314,13 @@ Pedido de Santi: hacer las doce ideas de ampliación, cada una como su propia fa
 | 18.3 | El récord del arquetipo contra todos, base de los matchups con pocas partidas, también se acerca a 50 % (como si tuviera 20 partidas más a 50 %). | Cachorros salía «0 % contra el meta» con 3 partidas en un torneo. Cambia un poco los números de la Fase 9 (12.3). |
 | 18.4 | El puntaje del Laboratorio de un mazo se busca **por la lista** (la clave de la foto), no por la revisión: una revisión restaurada o una copia con las mismas cartas encuentra sus pruebas. Sirve la confirmación de una búsqueda o, si no hay, sus rondas. | El mazo 2 no encontraba su búsqueda después de restaurar una revisión. |
 | 18.5 | Dónde: Mazos → «¿Cuál llevo hoy?», `GET /api/decks-today?sort=`, tool `decks_pick_today`. | |
+
+## Fase 16: eventos con restricciones (8/10/2026)
+
+| # | Decisión | Motivo |
+|---|---|---|
+| 19.1 | **Reglas a mano** (nadie publica las de los eventos del juego): solo Pokémon de ciertos tipos, al menos N Pokémon de un tipo, sin ex, solo ciertas rarezas, solo ciertas expansiones, cartas prohibidas (por carta funcional). Tabla `events` (migración `20261009020000_events`), `eventRulesSchema` en el dominio. | Es lo último de «más adelante» del brief. |
+| 19.2 | **Rarezas y expansiones miran la edición que juega el mazo**; si otra edición de la misma carta cumple, el problema lo dice («sirve A4b-1 ◊»). Para las listas de torneo, cualquier edición que cumpla alcanza (la edición es la que tenía el jugador). | En el juego elegís la edición. |
+| 19.3 | La página del evento: tus mazos que cumplen (los armados primero), los que no y por qué, y las listas exactas de torneo de la era que cumplen, las que podés armar primero. | Lo que uno quiere saber antes de un evento. |
+| 19.4 | **Laboratorio con reglas**: una búsqueda puede llevar un evento (`eventId`): la lista de partida tiene que cumplir (si no, `422 event_rules` con los problemas), solo entran cartas que el evento permite y cada variante tiene que cumplir las cuentas. Las reglas quedan guardadas en la búsqueda para las rondas siguientes. Botón «Buscar variantes» en cada mazo que cumple. | «El Laboratorio arma candidatos con tu colección» sin romper las reglas. |
+| 19.5 | **Backup versión 7**: los eventos viajan en `events`. Tool `events_check`. | Datos tuyos. |

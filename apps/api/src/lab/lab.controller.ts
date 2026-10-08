@@ -74,6 +74,10 @@ const consistencySchema = scopeSchema.extend({
 const limit = ([min, max]: readonly [number, number]) => z.number().min(min).max(max).optional()
 const exploreSchema = runSchema.extend({
   deck: deckSchema,
+  eventId: z
+    .string()
+    .regex(/^\d{1,10}$/)
+    .optional(),
   locked: z.array(z.string().min(1).max(20)).max(20).optional(),
   config: z
     .object({

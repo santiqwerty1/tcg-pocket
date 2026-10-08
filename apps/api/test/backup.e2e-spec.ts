@@ -179,7 +179,7 @@ describe('backup and settings (e2e)', () => {
     exported = response.body as Buffer
     document = JSON.parse(gunzipSync(exported).toString('utf8')) as Doc
     expect(document).toMatchObject({
-      schemaVersion: 6,
+      schemaVersion: 7,
       catalogCommit: test.env.catalogCommit,
       engineRev: test.env.engineRev,
       settings: [
@@ -243,7 +243,7 @@ describe('backup and settings (e2e)', () => {
   it('dry-run reports counts and notices without touching the data', async () => {
     const response = await post('/api/backup/import?mode=dry-run').attach('file', exported, 'backup.json.gz')
     expect(response.status).toBe(200)
-    expect(response.body).toMatchObject({ schemaVersion: 6, catalogCommit: test.env.catalogCommit })
+    expect(response.body).toMatchObject({ schemaVersion: 7, catalogCommit: test.env.catalogCommit })
     expect(response.body.diff.incoming.matches).toBe(2)
     expect(response.body.diff.incoming.playedGames).toBe(1)
     expect(response.body.diff.incoming).toEqual(response.body.diff.current)
@@ -253,7 +253,7 @@ describe('backup and settings (e2e)', () => {
     expect((await post('/api/backup/import').attach('file', Buffer.from('nope'), 'x.gz')).body.error.code).toBe(
       'invalid_backup',
     )
-    const old = gzipSync(Buffer.from(JSON.stringify({ ...document, schemaVersion: 7 })))
+    const old = gzipSync(Buffer.from(JSON.stringify({ ...document, schemaVersion: 99 })))
     expect((await post('/api/backup/import').attach('file', old, 'x.gz')).body.error.code).toBe('unsupported_schema')
     // A gzip bomb (300 MiB of zeros in ~300 KB, concatenated gzip members) is refused before it can inflate.
     const member = gzipSync(Buffer.alloc(1024 * 1024))
@@ -438,7 +438,7 @@ describe('backup and settings (e2e)', () => {
     expect(download.status).toBe(200)
     expect(download.headers['content-type']).toBe('application/gzip')
     const parsed = JSON.parse(gunzipSync(download.body as Buffer).toString('utf8')) as Doc
-    expect(parsed.schemaVersion).toBe(6)
+    expect(parsed.schemaVersion).toBe(7)
     expect(parsed.matches).toHaveLength(2)
     expect(parsed.decks).toHaveLength(4)
     expect((await get('/api/backup/blobs/999999')).status).toBe(404)

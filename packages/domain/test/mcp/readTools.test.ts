@@ -28,6 +28,7 @@ describe('MCP read tools', () => {
         'decks_missing',
         'decks_random',
         'decks_validate',
+        'events_check',
         'lab_meta_bank',
         'lab_results',
         'matches_list',

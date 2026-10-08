@@ -872,3 +872,18 @@ model RivalNote {
 
   @@map("rival_notes")
 }
+
+/// Fase 16: an in-game event with deck rules typed by the owner (types, no ex, rarities, expansions, banned cards).
+model Event {
+  id        Int       @id @default(autoincrement())
+  name      String
+  startsOn  DateTime? @map("starts_on") @db.Date
+  endsOn    DateTime? @map("ends_on") @db.Date
+  /// EventRules (packages/domain/src/events/rules.ts).
+  rules     Json
+  notes     String    @default("")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("events")
+}

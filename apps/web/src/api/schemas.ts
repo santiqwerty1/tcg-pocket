@@ -1484,6 +1484,11 @@ export const labJobSchema = z.object({
         }),
       ),
       locked: z.array(labCardSchema),
+      /** Fase 16: the event whose rules every variant keeps. */
+      event: z
+        .object({ id: z.string(), name: z.string(), rules: z.array(z.string()) })
+        .nullable()
+        .default(null),
     })
     .nullable(),
   note: z.string(),
@@ -1519,6 +1524,8 @@ export interface LabExploreInput extends LabRunInput {
   deck: LabDeckSource
   locked?: string[]
   config?: Partial<Omit<ExploreConfig, 'acceptZ'>>
+  /** Fase 16: keep this event's rules in every variant. */
+  eventId?: string
 }
 
 export const labExplorePlanSchema = z.object({
@@ -1926,3 +1933,71 @@ export const pickSchema = z.object({
   note: z.string(),
 })
 export type Pick = z.infer<typeof pickSchema>
+
+// ---------- Eventos con restricciones (Fase 16) ----------
+
+export const EVENT_TYPES = [
+  'grass',
+  'fire',
+  'water',
+  'lightning',
+  'psychic',
+  'fighting',
+  'darkness',
+  'metal',
+  'dragon',
+  'colorless',
+] as const
+export type EventType = (typeof EVENT_TYPES)[number]
+export const eventRulesSchema = z.object({
+  types: z.array(z.enum(EVENT_TYPES)).optional(),
+  minOfType: z.object({ type: z.enum(EVENT_TYPES), count: z.number() }).optional(),
+  noEx: z.boolean().optional(),
+  rarities: z.array(z.string()).optional(),
+  expansions: z.array(z.string()).optional(),
+  banned: z.array(z.string()).optional(),
+})
+export type EventRules = z.infer<typeof eventRulesSchema>
+export const eventSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  startsOn: z.string().nullable(),
+  endsOn: z.string().nullable(),
+  rules: eventRulesSchema,
+  rulesEs: z.array(z.string()),
+  notes: z.string(),
+  createdAt: isoDate,
+  updatedAt: isoDate,
+})
+export type GameEvent = z.infer<typeof eventSchema>
+export const eventsSchema = z.object({ items: z.array(eventSchema) })
+export const eventDetailSchema = eventSchema.extend({
+  decks: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      builtInGame: z.boolean(),
+      ok: z.boolean(),
+      problems: z.array(z.string()),
+    }),
+  ),
+  lists: z.array(
+    z.object({
+      key: z.string(),
+      archetype: z.string().nullable(),
+      lists: z.number(),
+      rate: winRateSchema.nullable(),
+      missingCopies: z.number(),
+      pokemon: z.array(z.string()),
+    }),
+  ),
+  era: z.string().nullable(),
+})
+export type GameEventDetail = z.infer<typeof eventDetailSchema>
+export interface EventInput {
+  name: string
+  startsOn?: string | null
+  endsOn?: string | null
+  rules: EventRules
+  notes?: string
+}

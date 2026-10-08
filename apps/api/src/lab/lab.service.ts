@@ -17,12 +17,16 @@ import {
   buildSnapshot,
   type CardId,
   type CatalogIndex,
+  cardBreaksEvent,
   cardChanges,
   cardUsage,
+  checkEventDeck,
   DEFAULT_CONSISTENCY_GAMES,
   DEFAULT_GAUNTLET_SIZE,
   type DeckCardEntry,
+  describeEventRulesEs,
   describeProblems,
+  type EventRules,
   EXPLORE_POOL_LABEL_ES,
   EXPLORE_STOP_ES,
   type ExploreConfig,
@@ -30,6 +34,7 @@ import {
   energyFromNameEn,
   engineEdition,
   estimateSeconds,
+  eventRulesSchema,
   exploreConfig,
   exploreGames,
   exploreSeed,
@@ -127,6 +132,8 @@ export interface LabExploreInput extends LabRunInput {
   /** Card ids (any edition) that never go out. */
   locked?: string[] | undefined
   config?: Partial<ExploreConfig> | undefined
+  /** Fase 16: an event whose rules every variant must keep (the starting deck too). */
+  eventId?: string | undefined
 }
 
 /** A rival of the bank as a job stores it. */
@@ -168,6 +175,8 @@ interface ExploreState {
   variants: Record<string, { round: number; parent: number }>
   /** List keys (by functional card) already played in this search. */
   seen: string[]
+  /** Fase 16: the event's rules every variant keeps, and its name. */
+  event?: { id: string; name: string; rules: EventRules }
 }
 
 interface LabParams {
@@ -463,6 +472,7 @@ export class LabService implements OnApplicationBootstrap {
     energies: readonly SelectableEnergy[],
     which: 'collection' | 'all',
     affinity: ReadonlyMap<CardId, number>,
+    rules?: EventRules,
   ) {
     const index = bank.scope.index
     const engine = await this.engine.status()
@@ -478,7 +488,16 @@ export class LabService implements OnApplicationBootstrap {
       maxCopies: (groupId) => (playable ? playable(groupId) : 2),
       usage: (groupId) => bank.usage.get(groupId) ?? 0,
       affinity: (groupId) => affinity.get(groupId) ?? 0,
+      allow: rules ? (card) => cardBreaksEvent(card, rules) === null : undefined,
     })
+  }
+
+  /** An event's rules, read straight from the table (the events module depends on tournaments, not the other way). */
+  private async eventRules(rawId: string): Promise<{ id: string; name: string; rules: EventRules }> {
+    const id = Number.parseInt(rawId, 10)
+    const event = Number.isSafeInteger(id) ? await this.prisma.event.findUnique({ where: { id } }) : null
+    if (!event) throw new NotFoundException(`Evento ${rawId} no encontrado.`)
+    return { id: String(event.id), name: event.name, rules: eventRulesSchema.parse(event.rules) }
   }
 
   private lockedGroups(index: CatalogIndex, cardIds: readonly string[]): Set<CardId> {
@@ -501,6 +520,7 @@ export class LabService implements OnApplicationBootstrap {
     locked: ReadonlySet<CardId>,
     seen: Set<string>,
     affinity: ReadonlyMap<CardId, number>,
+    rules?: EventRules,
   ): Variant[] {
     const random = seededRandom(seed)
     const out: Variant[] = []
@@ -509,6 +529,7 @@ export class LabService implements OnApplicationBootstrap {
         locked,
         seen,
         affinity: (groupId) => affinity.get(groupId) ?? 0,
+        accept: rules ? (cards) => checkEventDeck(cards, rules, index).ok : undefined,
       })
       if (!variant) continue
       seen.add(variant.key)
@@ -565,9 +586,19 @@ export class LabService implements OnApplicationBootstrap {
       })
     }
     const baseCards = cardsOfSnapshot(draft.cards)
+    const event = input.eventId ? await this.eventRules(input.eventId) : null
+    if (event) {
+      const check = checkEventDeck(baseCards, event.rules, index)
+      if (!check.ok) {
+        throw new UnprocessableEntityException({
+          code: 'event_rules',
+          message: `La lista de partida no cumple las reglas de «${event.name}»: ${check.problems.map((problem) => problem.message).join('; ')}.`,
+        })
+      }
+    }
     const locked = this.lockedGroups(index, input.locked ?? [])
     const affinity = neighborhoodUsage(bank.dataset, baseCards, index)
-    const pool = await this.pool(bank, draft.energies, config.pool, affinity)
+    const pool = await this.pool(bank, draft.energies, config.pool, affinity, event?.rules)
     const baseSeed = this.baseSeed(input)
     const seen = new Set([listKeyByGroup(groupsOfCards(baseCards, index))])
     const first = this.variants(
@@ -580,6 +611,7 @@ export class LabService implements OnApplicationBootstrap {
       locked,
       seen,
       affinity,
+      event?.rules,
     )
     const rivals = bank.gauntlet.rivals.length
     const games = exploreGames(config, rivals)
@@ -645,13 +677,14 @@ export class LabService implements OnApplicationBootstrap {
       ],
       variants: Object.fromEntries(variants.map((variant) => [String(variant.id), { round: 0, parent: base.id }])),
       seen: [...seen],
+      ...(event ? { event } : {}),
     }
     const params: JobParams = { sideA: decks, sideB: rivalSnapshots.map((rival) => rival.id), bothOrders: false, lab }
     const job = await this.prisma.$transaction(async (tx) => {
       const created = await tx.simulationJob.create({
         data: {
           kind: 'explore',
-          label: input.label?.trim() || `Explorar ${base.label}`,
+          label: input.label?.trim() || `Explorar ${base.label}${event ? ` para «${event.name}»` : ''}`,
           params: params as unknown as Prisma.InputJsonValue,
           engineRev: this.engine.engineRev(),
           players,
@@ -747,7 +780,7 @@ export class LabService implements OnApplicationBootstrap {
             const bank = await this.usageBank(params.lab)
             const incumbentCards = cardsOfSnapshot(incumbent.cards as unknown as SnapshotCard[])
             const affinity = neighborhoodUsage(bank.dataset, incumbentCards, index)
-            const pool = await this.pool(bank, energies, state.config.pool, affinity)
+            const pool = await this.pool(bank, energies, state.config.pool, affinity, state.event?.rules)
             const seen = new Set(state.seen)
             const fresh = this.variants(
               incumbentCards,
@@ -759,6 +792,7 @@ export class LabService implements OnApplicationBootstrap {
               new Set(state.locked),
               seen,
               affinity,
+              state.event?.rules,
             )
             const base = await tx.deckSnapshot.findUniqueOrThrow({ where: { id: state.base }, select: { label: true } })
             const saved = await this.saveVariants(fresh, energies, base.label, searchRounds)
@@ -1022,6 +1056,9 @@ export class LabService implements OnApplicationBootstrap {
               nameEs: index.groupById(groupId)?.nameEs ?? groupId,
               count: 0,
             })),
+            event: state.event
+              ? { id: state.event.id, name: state.event.name, rules: describeEventRulesEs(state.event.rules, index) }
+              : null,
           }
         : null,
       note: LAB_NOTE,

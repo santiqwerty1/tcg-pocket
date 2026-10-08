@@ -1,4 +1,5 @@
 import {
+  CalendarRangeIcon,
   ChevronRightIcon,
   CircleHelpIcon,
   CpuIcon,
@@ -31,6 +32,12 @@ const ENTRIES = [
     label: 'Laboratorio de mazos',
     hint: 'Probar ideas contra el meta y buscar variantes',
     icon: FlaskConicalIcon,
+  },
+  {
+    to: '/eventos',
+    label: 'Eventos',
+    hint: 'Reglas de un evento: qué mazos cumplen y qué podés armar',
+    icon: CalendarRangeIcon,
   },
   { to: '/mas/notas', label: 'Notas por rival', hint: 'Cómo jugarle a cada arquetipo', icon: NotebookPenIcon },
   {

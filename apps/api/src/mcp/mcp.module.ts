@@ -14,6 +14,7 @@ import { CurrentApiToken, type RequestApiToken } from '../auth/request-auth.js'
 import { CatalogModule } from '../catalog/catalog.module.js'
 import { CollectionModule } from '../collection/collection.module.js'
 import { DecksModule } from '../decks/decks.module.js'
+import { EventsModule } from '../events/events.controller.js'
 import { LabModule } from '../lab/lab.controller.js'
 import { MatchesModule } from '../matches/matches.module.js'
 import { PacksModule } from '../packs/packs.controller.js'
@@ -78,6 +79,7 @@ export class McpController implements OnModuleDestroy {
     LabModule,
     RivalNotesModule,
     PickModule,
+    EventsModule,
   ],
   controllers: [McpController],
   providers: [McpToolsService, McpWriteToolsService, McpLabToolsService, DeckRefResolver],

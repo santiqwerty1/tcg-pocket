@@ -122,6 +122,7 @@ export class BackupService {
       aliases,
       games,
       notes,
+      events,
     ] = await Promise.all([
       this.prisma.appSetting.findMany({ orderBy: { key: 'asc' } }),
       this.prisma.rarityRule.findMany({ orderBy: { rarity: 'asc' } }),
@@ -146,6 +147,7 @@ export class BackupService {
       this.prisma.archetypeAlias.findMany({ orderBy: { archetypeId: 'asc' } }),
       this.prisma.liveGame.findMany({ where: { status: 'done', winner: { not: null } }, orderBy: { id: 'asc' } }),
       this.prisma.rivalNote.findMany({ orderBy: { key: 'asc' } }),
+      this.prisma.event.findMany({ orderBy: { id: 'asc' } }),
     ])
     return {
       schemaVersion: BACKUP_SCHEMA_VERSION,
@@ -293,6 +295,16 @@ export class BackupService {
         text: note.text,
         createdAt: iso(note.createdAt),
         updatedAt: iso(note.updatedAt),
+      })),
+      events: events.map((event) => ({
+        id: event.id,
+        name: event.name,
+        startsOn: event.startsOn ? event.startsOn.toISOString().slice(0, 10) : null,
+        endsOn: event.endsOn ? event.endsOn.toISOString().slice(0, 10) : null,
+        rules: event.rules as Record<string, unknown>,
+        notes: event.notes,
+        createdAt: iso(event.createdAt),
+        updatedAt: iso(event.updatedAt),
       })),
     } as BackupDocument
   }
@@ -556,6 +568,24 @@ export class BackupService {
             })
           }
         }
+        // Events (version 7): replaced by the file's; older files keep the current ones.
+        if (document.events) {
+          await tx.event.deleteMany()
+          if (document.events.length > 0) {
+            await tx.event.createMany({
+              data: document.events.map((event) => ({
+                id: event.id,
+                name: event.name,
+                startsOn: event.startsOn ? new Date(`${event.startsOn}T00:00:00Z`) : null,
+                endsOn: event.endsOn ? new Date(`${event.endsOn}T00:00:00Z`) : null,
+                rules: event.rules as Prisma.InputJsonValue,
+                notes: event.notes,
+                createdAt: event.createdAt,
+                updatedAt: event.updatedAt,
+              })),
+            })
+          }
+        }
         // Notes by rival (version 6): replaced by the file's; older files keep the current ones.
         if (document.rivalNotes) {
           await tx.rivalNote.deleteMany()
@@ -576,6 +606,7 @@ export class BackupService {
           'deck_changes',
           'matches',
           'live_games',
+          'events',
         ]) {
           await tx.$executeRawUnsafe(
             `SELECT setval(pg_get_serial_sequence('"${table}"', 'id'), COALESCE((SELECT MAX(id) FROM "${table}"), 0) + 1, false)`,
@@ -612,6 +643,11 @@ export class BackupService {
     if (unknown.size > 0) {
       notices.push(
         `${unknown.size} ids del backup no existen en el catálogo cargado; no se puede restaurar hasta sincronizarlo.`,
+      )
+    }
+    if (document.schemaVersion < 7) {
+      notices.push(
+        `Backup de la versión ${document.schemaVersion}, anterior a la Fase 16: no trae eventos; se mantienen los que hay ahora.`,
       )
     }
     if (document.schemaVersion < 6) {

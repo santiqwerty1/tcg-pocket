@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-08 (58 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-08 (59 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- phase 15 — which deck to bring today (T-012) `79ade03`
 - phase 14 — how many days until a deck is complete (T-012) `03b1a41`
 - phase 13 — bad run or bad matchup? (T-012) `88660db`
 - phase 12 — notes by rival (T-012) `3c426b8`

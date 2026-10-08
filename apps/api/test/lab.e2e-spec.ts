@@ -265,6 +265,41 @@ describe('laboratorio (e2e)', () => {
     expect(dry.body.firstRound).toHaveLength(3)
     expect(dry.body.pool).toBeGreaterThan(50)
     expect(dry.body.games).toEqual({ perRound: 4 * 5 * 10, max: 4 * 5 * 10 * 2 + 2 * 5 * 20 })
+    // Fase 16: under an event's rules. «Sin ex» breaks the starting list (Mega-Blaziken ex): refused, with why.
+    const noEx = await test
+      .http()
+      .post('/api/events')
+      .set('Cookie', cookie)
+      .send({ name: 'Sin ex', rules: { noEx: true } })
+    const refused = await post('/api/lab/explore').send({
+      deck: { deckId: deckIds[1] },
+      size: 5,
+      config,
+      dryRun: true,
+      eventId: noEx.body.id,
+    })
+    expect(refused.status).toBe(422)
+    expect(refused.body.error.code).toBe('event_rules')
+    expect(refused.body.error.message).toContain('Sin ex')
+    // Only Fire Pokémon: the variants never bring another type in.
+    const fire = await test
+      .http()
+      .post('/api/events')
+      .set('Cookie', cookie)
+      .send({ name: 'Fuego', rules: { types: ['fire'] } })
+    const onlyFire = await post('/api/lab/explore').send({
+      deck: { deckId: deckIds[1] },
+      size: 5,
+      config,
+      dryRun: true,
+      eventId: fire.body.id,
+    })
+    if (onlyFire.status === 200) {
+      expect(onlyFire.body.pool).toBeLessThan(dry.body.pool)
+    } else {
+      // The starting deck plays a non-Fire Pokémon: the rule is checked before anything.
+      expect(onlyFire.body.error.code).toBe('event_rules')
+    }
 
     const created = await post('/api/lab/explore').send({
       deck: { deckId: deckIds[1] },

@@ -492,6 +492,43 @@ describe('tournaments (e2e)', () => {
     for (const deck of [blaziken, hoopa]) await patch(`/api/decks/${deck?.id}`).send({ builtInGame: false })
   })
 
+  it('eventos (Fase 16): which decks and which tournament lists comply with an event', async () => {
+    const created = await post('/api/events').send({
+      name: 'Copa sin ex',
+      startsOn: '2026-10-10',
+      endsOn: '2026-10-17',
+      rules: { noEx: true },
+    })
+    expect(created.status).toBe(201)
+    expect(created.body).toMatchObject({ name: 'Copa sin ex', startsOn: '2026-10-10', rulesEs: ['Sin Pokémon ex.'] })
+    const id = created.body.id as string
+    const detail = (await get(`/api/events/${id}`)).body as {
+      decks: { name: string; ok: boolean; problems: string[] }[]
+      lists: { pokemon: string[]; missingCopies: number; lists: number }[]
+      era: string
+    }
+    expect(detail.era).toBe('B4a')
+    const blaziken = detail.decks.find((deck) => deck.name === 'Mega-Blaziken ex')
+    expect(blaziken?.ok).toBe(false)
+    expect(blaziken?.problems.some((problem) => problem.includes('es un Pokémon ex'))).toBe(true)
+    // Decks that comply come first.
+    const firstBad = detail.decks.findIndex((deck) => !deck.ok)
+    expect(detail.decks.slice(firstBad).every((deck) => !deck.ok)).toBe(true)
+    for (let i = 1; i < detail.lists.length; i++) {
+      expect(detail.lists[i - 1]?.missingCopies).toBeLessThanOrEqual(detail.lists[i]?.missingCopies ?? 0)
+    }
+    // A stricter rule: only Fire Pokémon and at least 8 of them.
+    const patched = await patch(`/api/events/${id}`).send({
+      rules: { types: ['fire'], minOfType: { type: 'fire', count: 8 } },
+    })
+    expect(patched.body.rulesEs).toEqual(['Solo Pokémon de tipo Fuego.', 'Al menos 8 Pokémon de tipo Fuego.'])
+    expect((await get('/api/events')).body.items).toHaveLength(1)
+    expect((await post('/api/events').send({ name: 'x', rules: { banned: ['ZZ-999'] } })).status).toBe(400)
+    expect((await post('/api/events').send({ name: 'x', rules: { types: ['plasma'] } })).status).toBe(400)
+    expect((await test.http().delete(`/api/events/${id}`).set('Cookie', cookie)).status).toBe(204)
+    expect((await get(`/api/events/${id}`)).status).toBe(404)
+  })
+
   it('meta semanal (Fase 11): the week of PMPT #45 against the week before (empty here)', async () => {
     const trends = (await get('/api/tournaments/trends')).body as {
       days: number
@@ -605,6 +642,12 @@ describe('tournaments (e2e)', () => {
       const ww = split.withWithout as { with: { lists: number }; without: { lists: number } }
       expect(ww.with.lists + ww.without.lists).toBe((detail.archetype as { lists: number }).lists)
       expect((await call('tournaments_stats', { by: 'list', limit: 2 })).lists).toHaveLength(2)
+      const event = await post('/api/events').send({ name: 'Evento de Claude', rules: { noEx: true } })
+      const checked = await call('events_check', { event: 'claude' })
+      expect((checked.event as { name: string }).name).toBe('Evento de Claude')
+      expect((checked.decksThatDoNot as unknown[]).length).toBeGreaterThan(0)
+      expect((await call('events_check')).total).toBe(1)
+      await test.http().delete(`/api/events/${event.body.id}`).set('Cookie', cookie)
       const luck = await call('matches_luck', { deck: 'Mega-Blaziken ex' })
       expect(String(luck.text).length).toBeGreaterThan(10)
       const week = await call('tournaments_trends', { limit: 3 })
@@ -642,7 +685,7 @@ describe('tournaments (e2e)', () => {
       tournaments: { sets: unknown[]; archetypeAliases: unknown[] }
       decks: { tournamentArchetypeId: string | null }[]
     }
-    expect(document.schemaVersion).toBe(6)
+    expect(document.schemaVersion).toBe(7)
     expect(document.tournaments.sets).toHaveLength(22)
     expect(document.tournaments.archetypeAliases).toEqual([])
     expect(document.decks.every((deck) => deck.tournamentArchetypeId === null)).toBe(true)

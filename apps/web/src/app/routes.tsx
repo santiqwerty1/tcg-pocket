@@ -6,6 +6,8 @@ import { CollectionPage } from '@/pages/coleccion/CollectionPage'
 import { ImportPage } from '@/pages/coleccion/ImportPage'
 import { ImportPreviewPage } from '@/pages/coleccion/ImportPreviewPage'
 import { MissionsPage } from '@/pages/coleccion/MissionsPage'
+import { EventPage } from '@/pages/eventos/EventPage'
+import { EventsPage } from '@/pages/eventos/EventsPage'
 import { GamePage } from '@/pages/jugar/GamePage'
 import { JugarPage } from '@/pages/jugar/JugarPage'
 import { LabJobPage } from '@/pages/laboratorio/LabJobPage'
@@ -114,6 +116,8 @@ export const routes: RouteObject[] = [
       { path: 'mas/acerca', element: <AboutPage />, handle: handle('Acerca de', '/mas') },
       { path: 'mas/mano', element: <HandCalculatorPage />, handle: handle('Calculadora de mano', '/mas') },
       { path: 'mas/notas', element: <RivalNotesPage />, handle: handle('Notas por rival', '/mas') },
+      { path: 'eventos', element: <EventsPage />, handle: handle('Eventos', '/mas') },
+      { path: 'eventos/:id', element: <EventPage />, handle: handle('Evento', '/eventos') },
 
       { path: '*', element: <NotFoundPage />, handle: handle('No encontrado', '/') },
     ],
