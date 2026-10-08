@@ -35,9 +35,9 @@ _Recuentos al 2026-10-08 (generados; no editar a mano)._
 | pregunta | 5 | cerrada 2 · parcial 1 · pendiente 2 |
 | riesgo | 9 | abierto 9 |
 | supuesto | 3 | por_validar 1 · verificado 2 |
-| tarea | 6 | en_curso 1 · parcial 1 · pendiente 4 |
+| tarea | 6 | hecho 2 · pendiente 4 |
 
-**Para revisar:** D-007, D-008, D-009, D-011, D-012, P-002, P-003, P-004, S-002. **Abiertas:** 24.
+**Para revisar:** D-007, D-008, D-009, D-011, D-012, P-002, P-003, P-004, S-002. **Abiertas:** 22.
 <!-- /posta:recuentos -->
 
 ## Fichas

@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-08 (26 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-08 (27 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- tournament results from Limitless by era (phase 5, M5) (D-010, D-012, R-008, R-009, T-006) `ca79964`
 - limited-time packs, trade advice and version-aware exclusives (phase 4) `07ebe68`
 - pack recommendation with the tracker model and a corrected one (phase 4, M4) `2a266b6`
 - read-only MCP server for Claude, closest deck, random deck and best prints (phase 3) `5d081ed`

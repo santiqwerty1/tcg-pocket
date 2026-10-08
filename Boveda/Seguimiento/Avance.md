@@ -22,7 +22,7 @@ revisar: false
 | 3 | Claude de solo lectura (MCP), mazo más cercano, aleatorio y mejores versiones | hecho | 2 | `5d081ed` |
 | 4 | Sobres (M4) | hecho · aprobado 08/10 ([P-005](Preguntas/P-005.md)) | 3 | `2a266b6` |
 | 4.1 | Tiempo limitado, «intercambiar» y versiones | hecho 07/10 · propuesto | 4 | [D-007](Decisiones/D-007.md), [D-008](Decisiones/D-008.md) |
-| 5 | Torneos (M5) | hecho 08/10 · verificando con datos reales ([T-006](Tareas/T-006.md)) | 4 | [T-003](Tareas/T-003.md) |
+| 5 | Torneos (M5) | hecho 08/10 · verificado en producción ([T-006](Tareas/T-006.md)) · falta tu visto bueno | 4 | [T-003](Tareas/T-003.md) |
 | 6 | Simulación (M7) y worker de Windows | pendiente | 5 | [T-004](Tareas/T-004.md) |
 | 7 | Claude de escritura (M8 parte 2) | pendiente | 6 | [PLAN](../../docs/PLAN.md) |
 | 8 | Jugar contra un bot, consistencia | abierto | 7 | [PLAN](../../docs/PLAN.md) |
@@ -30,7 +30,7 @@ revisar: false
 
 ## Próximos pasos
 
-1. Verificar la Fase 5 con los datos de producción y pedir el visto bueno ([T-006](Tareas/T-006.md)).
+1. Visto bueno de la Fase 5 (verificada en producción: [T-006](Tareas/T-006.md)); después, Fase 6 (simulación).
 2. Confirmar en el juego el último día del Deluxe Mega ([T-001](Tareas/T-001.md)) antes del 28/10.
 
 ## Pendiente de decidir (para después)
