@@ -9,7 +9,13 @@
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
 import type { CardEdition, CardId, Rarity } from '../catalog/types.js'
 import { isHoloEdition } from '../decks/bestVersions.js'
-import { type CompletionEstimate, expectedPacksToComplete, type MissingInPack } from './completion.js'
+import {
+  type CompletionEstimate,
+  expectedPacksToComplete,
+  type MissingInPack,
+  type PlanPacks,
+  planPacks,
+} from './completion.js'
 import { type CollectionGoal, collectionWanted, type DeckGoal, deckDeficits, type GroupDeficit } from './goals.js'
 import {
   combineChances,
@@ -203,6 +209,15 @@ export interface DeckCompletion {
    * usually mixes expansions, so one pack rarely covers everything: `covered` says how much of it this pack gives.
    */
   bestPacks: ({ packId: string; covered: number; limited: boolean } & CompletionEstimate)[]
+  /**
+   * Fase 14: the whole deck, each missing card from the pack that gives it best, opened one pack after the other
+   * (cards to redeem with saved points and cards no pack gives are left out). Null when nothing is left to open.
+   */
+  plan: {
+    packs: PlanPacks
+    groups: { packId: string; copies: number; cards: string[]; limited: boolean }[]
+    redeemable: string[]
+  } | null
 }
 
 export interface Recommendation {
@@ -525,6 +540,39 @@ export function recommendPacks(input: RecommendInput): Recommendation {
         }
         bestPacks.sort((a, b) => b.covered - a.covered || a.expectedPacks - b.expectedPacks)
       }
+      // The plan: every reachable card from its best pack; the ones payable with saved points are not opened for.
+      const advice = new Map(missing.map((row) => [row.groupId, row]))
+      const redeemable = reachable.filter((deficit) => advice.get(deficit.groupId)?.advice === 'redeem')
+      const byPack = new Map<string, { profile: PackProfile; items: MissingInPack[]; names: string[] }>()
+      for (const deficit of reachable) {
+        if (advice.get(deficit.groupId)?.advice === 'redeem') continue
+        const best = advice.get(deficit.groupId)?.bestPack
+        const profile = best ? openable.find((item) => item.packId === best.packId) : undefined
+        if (!profile) continue
+        const entry = byPack.get(profile.packId) ?? { profile, items: [], names: [] }
+        entry.items.push({ groupId: deficit.groupId, copies: deficit.missing, chances: groupChances(profile, deficit) })
+        entry.names.push(deficit.nameEs)
+        byPack.set(profile.packId, entry)
+      }
+      const groups = [...byPack.values()]
+      const plan: DeckCompletion['plan'] =
+        groups.length === 0 && redeemable.length === 0
+          ? null
+          : {
+              packs: planPacks(
+                groups.map((group) => ({ missing: group.items, structure: group.profile.structure })),
+                Number.parseInt(goal.deckId, 10) || 1,
+              ),
+              groups: groups
+                .map((group) => ({
+                  packId: group.profile.packId,
+                  copies: group.items.reduce((sum, item) => sum + item.copies, 0),
+                  cards: group.names,
+                  limited: limitedOf(group.profile.packId) !== null,
+                }))
+                .sort((a, b) => b.copies - a.copies),
+              redeemable: redeemable.map((deficit) => deficit.nameEs),
+            }
       return {
         deckId: goal.deckId,
         name: goal.name,
@@ -532,6 +580,7 @@ export function recommendPacks(input: RecommendInput): Recommendation {
         missingCopies: own.reduce((sum, deficit) => sum + deficit.missing, 0),
         notInPacks,
         bestPacks: bestPacks.slice(0, 3),
+        plan,
       }
     })
 

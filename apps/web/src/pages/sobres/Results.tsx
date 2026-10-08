@@ -261,7 +261,40 @@ function CompletionRow({ deck }: { deck: DeckCompletion }) {
       {deck.notInPacks.length > 0 ? (
         <div className="text-xs text-warning">No salen de sobres disponibles: {deck.notInPacks.join(', ')}</div>
       ) : null}
+      {deck.plan ? <PlanLine plan={deck.plan} /> : null}
     </li>
+  )
+}
+
+function daysLabel(days: number): string {
+  return days === 0 ? 'hoy' : days === 1 ? '1 día' : `${days} días`
+}
+
+/** Fase 14: days to complete the whole deck, opening each card's best pack one after the other. */
+function PlanLine({ plan }: { plan: NonNullable<DeckCompletion['plan']> }) {
+  const opens = plan.groups.length > 0
+  return (
+    <div className="mt-1 flex flex-col gap-0.5 rounded-md bg-muted/50 px-2 py-1.5 text-xs">
+      {opens ? (
+        <span>
+          <span className="font-medium">
+            Completo en ~{daysLabel(plan.days.p50)}
+            {plan.days.p80 > plan.days.p50 ? ` (${daysLabel(plan.days.p80)} con mala suerte)` : ''}
+          </span>{' '}
+          · ~{formatExpectedPacks(plan.packs.p50)} sobres:{' '}
+          {plan.groups.map((group, at) => (
+            <span key={group.packId}>
+              {at > 0 ? '; ' : ''}
+              {packLabel(group)} ({group.cards.join(', ')})
+              {group.endsBeforeDone ? <span className="text-warning"> · deja de venderse antes</span> : null}
+            </span>
+          ))}
+        </span>
+      ) : null}
+      {plan.redeemable.length > 0 ? (
+        <span className="text-success">Canjeá con puntos guardados: {plan.redeemable.join(', ')}</span>
+      ) : null}
+    </div>
   )
 }
 
@@ -271,6 +304,7 @@ export function DeckCompletions({ decks }: { decks: DeckCompletion[] }) {
     <Section title="Sobres para completar cada mazo">
       <p className="text-xs text-muted-foreground">
         Abriendo siempre el mismo sobre: cuántas de las copias que faltan puede dar y en cuántos sobres esperados.
+        Abajo, el plan para completarlo entero (cada carta de su mejor sobre) y en cuántos días, al ritmo de Ajustes.
       </p>
       <ul className="divide-y rounded-lg border">
         {decks.map((deck) => (

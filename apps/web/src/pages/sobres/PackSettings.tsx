@@ -135,6 +135,64 @@ function PointsRow({
   )
 }
 
+/** Fase 14: the pace of «¿cuántos días me faltan?»: packs a day and pack hourglasses saved. */
+function Pace() {
+  const settings = useSettings()
+  const setSetting = useSetSetting()
+  const queryClient = useQueryClient()
+  const perDay = typeof settings.data?.packsPerDay === 'number' ? settings.data.packsPerDay : 2
+  const hourglasses = typeof settings.data?.hourglasses === 'number' ? settings.data.hourglasses : 0
+  const [perDayText, setPerDayText] = useState<string | null>(null)
+  const [hourglassText, setHourglassText] = useState<string | null>(null)
+
+  async function save(key: 'packsPerDay' | 'hourglasses', value: number) {
+    try {
+      await setSetting.mutateAsync({ key, value })
+      await queryClient.invalidateQueries({ queryKey: packKeys.all })
+    } catch (error) {
+      toast.error(errorMessage(error))
+    }
+  }
+
+  return (
+    <details className="rounded-lg border">
+      <summary className="cursor-pointer px-3 py-2 font-medium select-none">Ritmo de apertura</summary>
+      <p className="px-3 pb-2 text-xs text-muted-foreground">
+        Para «completo en ~N días»: cuántos sobres abrís por día (2 gratis; 3 con el pase) y cuántos relojes de arena de
+        sobre tenés guardados (12 son un sobre).
+      </p>
+      <div className="grid grid-cols-[1fr_6rem] items-center gap-3 border-t px-3 py-2 text-sm">
+        <Label htmlFor="packs-per-day">Sobres por día</Label>
+        <Input
+          id="packs-per-day"
+          inputMode="decimal"
+          className="h-9"
+          value={perDayText ?? String(perDay)}
+          onChange={(event) => setPerDayText(event.target.value.replace(/[^\d.,]/g, ''))}
+          onBlur={() => {
+            const next = Number((perDayText ?? '').replace(',', '.'))
+            setPerDayText(null)
+            if (Number.isFinite(next) && next >= 0.5 && next <= 20 && next !== perDay) void save('packsPerDay', next)
+          }}
+        />
+        <Label htmlFor="hourglasses">Relojes de arena de sobre</Label>
+        <Input
+          id="hourglasses"
+          inputMode="numeric"
+          className="h-9"
+          value={hourglassText ?? String(hourglasses)}
+          onChange={(event) => setHourglassText(event.target.value.replace(/\D/g, ''))}
+          onBlur={() => {
+            const next = hourglassText === '' || hourglassText === null ? hourglasses : Number(hourglassText)
+            setHourglassText(null)
+            if (next !== hourglasses && next <= 100_000) void save('hourglasses', next)
+          }}
+        />
+      </div>
+    </details>
+  )
+}
+
 /** Pack points already saved per expansion: they can be spent even after its packs leave the shop (S-002). */
 function SavedPoints() {
   const packs = usePacks()
@@ -234,6 +292,7 @@ export function PackSettings() {
         </ul>
       </details>
       <SavedPoints />
+      <Pace />
     </Section>
   )
 }

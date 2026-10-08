@@ -850,6 +850,24 @@ export const deckCompletionSchema = z.object({
       ci95: z.tuple([z.number(), z.number()]).nullable(),
     }),
   ),
+  /** Fase 14: the whole deck from the best packs, packs and days at the planner's pace. */
+  plan: z
+    .object({
+      packs: z.object({ mean: z.number(), p50: z.number(), p80: z.number() }),
+      days: z.object({ p50: z.number(), p80: z.number() }),
+      groups: z.array(
+        z.object({
+          ...packRefFields,
+          copies: z.number(),
+          cards: z.array(z.string()),
+          limited: z.boolean(),
+          endsBeforeDone: z.boolean(),
+        }),
+      ),
+      redeemable: z.array(z.string()),
+    })
+    .nullable()
+    .default(null),
 })
 export type DeckCompletion = z.infer<typeof deckCompletionSchema>
 
@@ -880,6 +898,7 @@ export const recommendationSchema = z.object({
   missing: z.array(missingCardSchema),
   decks: z.array(deckCompletionSchema),
   collectionOutOfPacks: z.object({ versions: z.number(), tradeable: z.number() }).nullable(),
+  planner: z.object({ packsPerDay: z.number(), hourglasses: z.number() }).default({ packsPerDay: 2, hourglasses: 0 }),
   assumptions: z.array(z.string()),
 })
 export type Recommendation = z.infer<typeof recommendationSchema>

@@ -8,8 +8,11 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import {
   type CollectionGoal,
   DEFAULT_LIMITED_BOOST,
+  DEFAULT_PACKS_PER_DAY,
   DEFAULT_RARITY_RULES,
   type DeckGoal,
+  daysBetween,
+  daysForPacks,
   type PackModel,
   playableCopies,
   RARITIES,
@@ -56,6 +59,8 @@ const settingSchemas = {
   limitedBoost: z.number().min(1).max(5),
   packDeckTarget: z.enum(['saved', 'tournament']),
   packPoints: z.record(z.string(), z.number().int().min(0).max(1_000_000)),
+  packsPerDay: z.number().min(0.5).max(20),
+  hourglasses: z.number().int().min(0).max(100_000),
 }
 
 const ASSUMPTIONS = [
@@ -67,6 +72,7 @@ const ASSUMPTIONS = [
   'Cada sobre se evalúa solo; la mejor política es volver a mirar después de cada importación.',
   'Sobres por tiempo limitado: lo que solo ellos dan (otra carta funcional para los mazos, otra versión para la colección) pesa más hasta su último día; después dejan de estar a la venta.',
   'Versiones: dos números con el mismo internal_id del tracker son la misma versión (A1-1 = A4b-1); un arte u holo nuevo es otra versión de la misma carta funcional.',
+  'Días para completar un mazo: cada carta que falta del sobre que mejor la da, abriendo un sobre después del otro, a los sobres por día de Ajustes (los relojes de arena guardados primero, 12 por sobre). La mediana y el caso de mala suerte (8 de cada 10 veces se termina antes) salen de simular el plan entero. No cuenta lo que se canjea con puntos ya guardados.',
   'Versión de torneo de un mazo: la lista exacta de su arquetipo jugada al menos 5 veces en la era con la mejor cota inferior del intervalo; sin datos de torneo se usa la lista guardada.',
 ]
 
@@ -174,6 +180,8 @@ export class PacksService {
     const onlyAvailable = body.onlyAvailable ?? false
     const limitedBoost = body.limitedBoost ?? settings.limitedBoost ?? DEFAULT_LIMITED_BOOST
     const deckTarget = body.deckTarget ?? settings.packDeckTarget ?? 'saved'
+    const packsPerDay = settings.packsPerDay ?? DEFAULT_PACKS_PER_DAY
+    const hourglasses = settings.hourglasses ?? 0
     const today = todayInOwnerZone()
 
     const [{ stock, adjustments }, packRows, rules, goals] = await Promise.all([
@@ -288,8 +296,30 @@ export class PacksService {
       decks: result.decks.map((deck) => ({
         ...deck,
         bestPacks: deck.bestPacks.map((pack) => ({ ...ref(pack.packId), ...pack })),
+        plan: deck.plan
+          ? (() => {
+              const days = {
+                p50: daysForPacks(deck.plan.packs.p50, packsPerDay, hourglasses),
+                p80: daysForPacks(deck.plan.packs.p80, packsPerDay, hourglasses),
+              }
+              return {
+                packs: deck.plan.packs,
+                days,
+                groups: deck.plan.groups.map((group) => {
+                  const until = limited.get(group.packId)?.until ?? null
+                  return {
+                    ...ref(group.packId),
+                    ...group,
+                    endsBeforeDone: until !== null && daysBetween(today, until) < days.p50,
+                  }
+                }),
+                redeemable: deck.plan.redeemable,
+              }
+            })()
+          : null,
       })),
       collectionOutOfPacks: result.collectionOutOfPacks,
+      planner: { packsPerDay, hourglasses },
       assumptions: ASSUMPTIONS,
     }
   }
@@ -353,7 +383,20 @@ export class PacksService {
   /** Saved knobs, ignoring values that do not parse (a bad setting must not break the page). */
   private async savedSettings(): Promise<SavedSettings> {
     const rows = await this.prisma.appSetting.findMany({
-      where: { key: { in: ['alpha', 'packModel', 'rarityFilter', 'limitedBoost', 'packDeckTarget', 'packPoints'] } },
+      where: {
+        key: {
+          in: [
+            'alpha',
+            'packModel',
+            'rarityFilter',
+            'limitedBoost',
+            'packDeckTarget',
+            'packPoints',
+            'packsPerDay',
+            'hourglasses',
+          ],
+        },
+      },
     })
     const out: SavedSettings = {}
     for (const row of rows) {
@@ -375,6 +418,12 @@ export class PacksService {
       } else if (row.key === 'packPoints') {
         const parsed = settingSchemas.packPoints.safeParse(row.value)
         if (parsed.success) out.packPoints = parsed.data
+      } else if (row.key === 'packsPerDay') {
+        const parsed = settingSchemas.packsPerDay.safeParse(row.value)
+        if (parsed.success) out.packsPerDay = parsed.data
+      } else if (row.key === 'hourglasses') {
+        const parsed = settingSchemas.hourglasses.safeParse(row.value)
+        if (parsed.success) out.hourglasses = parsed.data
       }
     }
     return out
@@ -388,6 +437,8 @@ interface SavedSettings {
   limitedBoost?: number
   packDeckTarget?: DeckTarget
   packPoints?: Record<string, number>
+  packsPerDay?: number
+  hourglasses?: number
 }
 
 export function assertPackId(expansionId: string, name: string): string {

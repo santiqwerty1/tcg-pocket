@@ -788,6 +788,16 @@ ${MCP_WRITE_INSTRUCTIONS}`
           (pack) =>
             `${packName(pack)}: cubre ${pack.covered} de ${deck.missingCopies} copias en ~${Math.round(pack.expectedPacks)} sobres${pack.method === 'simulation' ? ' (simulación)' : ''}${pack.limited ? ' (tiempo limitado)' : ''}`,
         ),
+        ...(deck.plan
+          ? {
+              daysToComplete: `${deck.plan.days.p50} días (mediana; ${deck.plan.days.p80} con mala suerte) a ${result.planner.packsPerDay} sobres por día, ~${Math.round(deck.plan.packs.p50)} sobres`,
+              plan: deck.plan.groups.map(
+                (group) =>
+                  `${packName(group)}: ${group.cards.join(', ')}${group.endsBeforeDone ? ' (el sobre deja de venderse antes)' : ''}`,
+              ),
+              ...(deck.plan.redeemable.length > 0 ? { redeemWithSavedPoints: deck.plan.redeemable } : {}),
+            }
+          : {}),
       })),
       ...(result.collectionOutOfPacks
         ? {

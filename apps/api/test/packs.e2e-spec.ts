@@ -193,9 +193,32 @@ describe('packs (e2e)', () => {
       advice: 'redeem',
       redeem: { cardId: 'B4-103', points: 500, saved: 500, copies: 1 },
     })
+    // Fase 14: with the points, nothing is left to open for the deck: «canjeá».
+    expect(redeem.body.decks[0].plan).toMatchObject({ groups: [], redeemable: ['Hoopa ex'] })
     expect((await put('/api/settings/packPoints').send({ value: {} })).status).toBe(200)
     expect(body.decks[0]?.bestPacks[0]).toMatchObject({ packId: 'B4b/deluxepackmega', method: 'exact', limited: true })
     expect(body.decks[0]?.bestPacks[0]?.expectedPacks).toBeCloseTo(70, 6)
+    // Fase 14: the plan opens the Deluxe Mega for the Hoopa ex; days at 2 a day, then at 3 a day with 120 hourglasses.
+    const plan = (
+      body.decks[0] as unknown as {
+        plan: {
+          packs: { p50: number; p80: number }
+          days: { p50: number; p80: number }
+          groups: { packId: string; cards: string[] }[]
+        }
+      }
+    ).plan
+    expect(plan.groups).toEqual([expect.objectContaining({ packId: 'B4b/deluxepackmega', cards: ['Hoopa ex'] })])
+    expect(plan.days.p50).toBe(Math.ceil(plan.packs.p50 / 2))
+    expect(plan.days.p80).toBeGreaterThanOrEqual(plan.days.p50)
+    expect((body as unknown as { planner: unknown }).planner).toEqual({ packsPerDay: 2, hourglasses: 0 })
+    expect((await put('/api/settings/packsPerDay').send({ value: 3 })).status).toBe(200)
+    expect((await put('/api/settings/hourglasses').send({ value: 120 })).status).toBe(200)
+    const paced = (await post('/api/packs/recommend').send({ collection: null })).body
+    expect(paced.planner).toEqual({ packsPerDay: 3, hourglasses: 120 })
+    expect(paced.decks[0].plan.days.p50).toBe(Math.ceil(Math.max(0, paced.decks[0].plan.packs.p50 - 10) / 3))
+    expect((await put('/api/settings/packsPerDay').send({ value: 2 })).status).toBe(200)
+    expect((await put('/api/settings/hourglasses').send({ value: 0 })).status).toBe(200)
     expect(body.assumptions.length).toBeGreaterThan(3)
   })
 

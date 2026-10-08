@@ -295,3 +295,12 @@ Pedido de Santi: hacer las doce ideas de ampliación, cada una como su propia fa
 | 16.2 | **Prueba binomial exacta** sobre tus partidas (los empates cuentan como no-victoria, como en todo el resto): «raro» si sacar eso o menos (o más) pasa menos de 1 de cada 20 veces; con menos de 5 partidas, «todavía pocas». En palabras («pasa 1 de cada 25 veces»), sin p-valores. | Que se entienda en el celu. |
 | 16.3 | **Rachas**: desde 3 derrotas seguidas con el mazo, cuántas veces pasa esa racha en un tramo dado y cuántas veces aparece una así en todas las partidas jugadas (cálculo exacto). | Una racha suelta casi siempre aparece en algún momento. |
 | 16.4 | Dónde: después de guardar una derrota, debajo del formulario; en «Contra cada rival» de la ficha del mazo («racha rara», «mejor de lo esperable»); `GET /api/matches/luck`; tool `matches_luck`. | Justo cuando uno se pregunta si es el mazo o la suerte. |
+
+## Fase 14: ¿cuántos días me faltan? (8/10/2026)
+
+| # | Decisión | Motivo |
+|---|---|---|
+| 17.1 | **Plan por mazo**: cada carta que falta se busca en el sobre que mejor la da (el mismo «mejor sobre» de la recomendación), y los sobres se abren uno después del otro. Lo que ya se paga con puntos guardados («canjear») queda afuera del plan y se lista aparte; lo que no sale de ningún sobre ya se avisaba. | Lo que haría uno: abrir el mejor sobre de cada carta. |
+| 17.2 | **Mediana y «mala suerte»**: el plan entero se simula 600 veces con semilla fija (el mismo modelo de sobres de la Fase 4) y se informan la mediana y el percentil 80 de sobres; los días salen de dividir por los sobres por día, después de usar los relojes de arena guardados (12 por sobre). Con un solo sobre, la media del plan coincide con el cálculo exacto (verificado). | Una media sola esconde que a veces tarda el doble. |
+| 17.3 | **Ritmo** en Sobres → Ajustes → «Ritmo de apertura»: sobres por día (2 por defecto: uno cada 12 horas; 3 con el pase) y relojes de arena guardados (ajustes `packsPerDay` y `hourglasses`). Un sobre por tiempo limitado que deja de venderse antes de la mediana se marca «deja de venderse antes». | Cada uno abre a su ritmo. |
+| 17.4 | Dónde: debajo de cada mazo en «Sobres para completar cada mazo» y en `packs_recommend` (`daysToComplete`, `plan`). | Junto a los sobres esperados. |

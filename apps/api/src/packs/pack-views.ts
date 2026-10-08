@@ -91,6 +91,22 @@ export interface DeckCompletionView {
     method: 'exact' | 'simulation'
     ci95: [number, number] | null
   })[]
+  /**
+   * Fase 14: the whole deck, each missing card from its best pack, opened one after the other: packs and days at
+   * the planner's pace (median and «mala suerte», the 80th percentile). Null when nothing is left to open.
+   */
+  plan: {
+    packs: { mean: number; p50: number; p80: number }
+    days: { p50: number; p80: number }
+    groups: (PackRef & {
+      copies: number
+      cards: string[]
+      limited: boolean
+      /** A limited pack whose last day comes before the median plan ends. */
+      endsBeforeDone: boolean
+    })[]
+    redeemable: string[]
+  } | null
 }
 
 export interface RecommendationView {
@@ -119,6 +135,8 @@ export interface RecommendationView {
   decks: DeckCompletionView[]
   /** Versions the collection goal wants that no pack on sale gives, and how many can be traded. */
   collectionOutOfPacks: { versions: number; tradeable: number } | null
+  /** Fase 14: the pace of the day plans. */
+  planner: { packsPerDay: number; hourglasses: number }
   /** What the numbers assume (shown under the table). */
   assumptions: string[]
 }

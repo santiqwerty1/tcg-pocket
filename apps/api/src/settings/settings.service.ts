@@ -20,6 +20,9 @@ export const SETTING_KEYS = [
   'packDeckTarget',
   /** { [expansionId]: pack points saved } (S-002, 8/10/2026). */
   'packPoints',
+  /** Fase 14: packs opened a day and pack hourglasses saved, for «¿cuántos días me faltan?». */
+  'packsPerDay',
+  'hourglasses',
 ] as const
 export type SettingKey = (typeof SETTING_KEYS)[number]
 

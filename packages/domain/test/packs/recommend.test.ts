@@ -8,11 +8,13 @@ import {
   collectionWanted,
   DEFAULT_RARITY_RULES,
   type DeckGoal,
+  daysForPacks,
   deckDeficits,
   editionChances,
   expectedPacksToComplete,
   PACKS_LIMITED_BY_DEFAULT,
   packProfile,
+  planPacks,
   type RecommendInput,
   recommendPacks,
 } from '../../src/packs/index.js'
@@ -413,5 +415,55 @@ describe('expectedPacksToComplete', () => {
         b4.structure,
       ),
     ).toBeNull()
+  })
+})
+
+describe('¿cuántos días me faltan? (Fase 14)', () => {
+  const b4 = packProfile('B4/ruleroftheskiespack', index)
+  if (!b4) throw new Error('no B4 profile')
+  const chancesOf = (cardId: string) => {
+    const card = index.cardById(cardId)
+    if (!card) throw new Error(cardId)
+    return [editionChances(card, b4, 'corrected')]
+  }
+  const [first, second] = b4.cards.filter((card) => card.rarity === '◊').slice(0, 2)
+
+  it('a one-pack plan: its mean matches the exact expectation; the 80th percentile is above the median', () => {
+    if (!first || !second) throw new Error('no commons')
+    const missing = [
+      { groupId: 'x', copies: 1, chances: chancesOf(first.id) },
+      { groupId: 'y', copies: 1, chances: chancesOf(second.id) },
+    ]
+    const exact = expectedPacksToComplete(missing, b4.structure)?.expectedPacks ?? 0
+    const plan = planPacks([{ missing, structure: b4.structure }], 3)
+    expect(Math.abs(plan.mean - exact) / exact).toBeLessThan(0.1)
+    expect(plan.p80).toBeGreaterThanOrEqual(plan.p50)
+    expect(planPacks([{ missing, structure: b4.structure }], 3)).toEqual(plan)
+    expect(planPacks([])).toEqual({ mean: 0, p50: 0, p80: 0 })
+  })
+
+  it('two packs one after the other add up', () => {
+    if (!first) throw new Error('no commons')
+    const one = { missing: [{ groupId: 'x', copies: 1, chances: chancesOf(first.id) }], structure: b4.structure }
+    const single = planPacks([one], 5)
+    const double = planPacks([one, one], 5)
+    expect(double.mean).toBeGreaterThan(1.6 * single.mean)
+    expect(double.mean).toBeLessThan(2.4 * single.mean)
+  })
+
+  it('days: packs a day, hourglasses first (12 a pack)', () => {
+    expect(daysForPacks(10, 2)).toBe(5)
+    expect(daysForPacks(11, 2)).toBe(6)
+    expect(daysForPacks(10, 2, 24)).toBe(4)
+    expect(daysForPacks(1, 2, 12)).toBe(0)
+    expect(daysForPacks(5, 0)).toBe(Number.POSITIVE_INFINITY)
+  })
+
+  it('deck 13 missing a Hoopa ex: one pack in the plan, with its card', () => {
+    const deck = recommendPacks(input()).decks[0]
+    expect(deck?.plan?.groups).toHaveLength(1)
+    expect(deck?.plan?.groups[0]).toMatchObject({ copies: 1, cards: ['Hoopa ex'] })
+    expect(deck?.plan?.packs.p50).toBeGreaterThan(10)
+    expect(deck?.plan?.redeemable).toEqual([])
   })
 })

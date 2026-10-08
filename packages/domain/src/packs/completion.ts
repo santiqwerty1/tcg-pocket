@@ -57,8 +57,16 @@ function exact(missing: readonly MissingInPack[], structure: PackStructure): num
   return expected
 }
 
-function simulate(missing: readonly MissingInPack[], structure: PackStructure, seed: number): CompletionEstimate {
-  const random = seededRandom(seed)
+/** The draw tables of one pack for the cards still missing: the base of every simulation. */
+export interface PreparedPack {
+  missing: readonly MissingInPack[]
+  structure: PackStructure
+  regular: { upTo: number; group: number }[][]
+  rare: { upTo: number; group: number }[]
+  baby: { upTo: number; group: number }[]
+}
+
+export function preparePack(missing: readonly MissingInPack[], structure: PackStructure): PreparedPack {
   const positions = structure.cardsPerPack
   // Per slot: cumulative probabilities over the wanted editions, with the group each one fills.
   const slot = (pick: (chance: EditionChances) => number) => {
@@ -75,32 +83,46 @@ function simulate(missing: readonly MissingInPack[], structure: PackStructure, s
     })
     return entries
   }
-  const regular = Array.from({ length: positions }, (_, at) => slot((chance) => chance.perPosition[at] ?? 0))
-  const rare = slot((chance) => chance.rare)
-  const baby = slot((chance) => chance.baby)
+  return {
+    missing,
+    structure,
+    regular: Array.from({ length: positions }, (_, at) => slot((chance) => chance.perPosition[at] ?? 0)),
+    rare: slot((chance) => chance.rare),
+    baby: slot((chance) => chance.baby),
+  }
+}
+
+/** One run: packs opened until every missing copy came out (capped). */
+export function packsNeededOnce(prepared: PreparedPack, random: () => number): number {
+  const { missing, structure, regular, rare, baby } = prepared
+  const positions = structure.cardsPerPack
   const draw = (entries: { upTo: number; group: number }[], have: number[]) => {
     const u = random()
     const hit = entries.find((entry) => u < entry.upTo)
     if (hit) have[hit.group] = (have[hit.group] ?? 0) + 1
   }
-  const results: number[] = []
-  for (let run = 0; run < SIMULATION_RUNS; run += 1) {
-    const have = missing.map(() => 0)
-    let packs = 0
-    while (packs < SIMULATION_PACK_CAP && missing.some((item, at) => (have[at] ?? 0) < item.copies)) {
-      packs += 1
-      const kind = random()
-      if (positions === 5 && kind < PACK_MIX.rare) {
-        for (let i = 0; i < 5; i += 1) draw(rare, have)
-        continue
-      }
-      for (const entries of regular) draw(entries, have)
-      if (structure.containsBabies && positions === 5 && kind >= PACK_MIX.rare + PACK_MIX.regularWithBabies) {
-        draw(baby, have)
-      }
+  const have = missing.map(() => 0)
+  let packs = 0
+  while (packs < SIMULATION_PACK_CAP && missing.some((item, at) => (have[at] ?? 0) < item.copies)) {
+    packs += 1
+    const kind = random()
+    if (positions === 5 && kind < PACK_MIX.rare) {
+      for (let i = 0; i < 5; i += 1) draw(rare, have)
+      continue
     }
-    results.push(packs)
+    for (const entries of regular) draw(entries, have)
+    if (structure.containsBabies && positions === 5 && kind >= PACK_MIX.rare + PACK_MIX.regularWithBabies) {
+      draw(baby, have)
+    }
   }
+  return packs
+}
+
+function simulate(missing: readonly MissingInPack[], structure: PackStructure, seed: number): CompletionEstimate {
+  const random = seededRandom(seed)
+  const prepared = preparePack(missing, structure)
+  const results: number[] = []
+  for (let run = 0; run < SIMULATION_RUNS; run += 1) results.push(packsNeededOnce(prepared, random))
   const mean = results.reduce((sum, value) => sum + value, 0) / results.length
   const variance = results.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (results.length - 1)
   const half = 1.959963984540054 * Math.sqrt(variance / results.length)
@@ -123,4 +145,48 @@ export function expectedPacksToComplete(
     return { expectedPacks: exact(wanted, structure), method: 'exact', ci95: null }
   }
   return simulate(wanted, structure, seed)
+}
+
+/** Packs of a plan (several packs opened one after the other): mean, median and the 80th percentile. */
+export interface PlanPacks {
+  mean: number
+  p50: number
+  p80: number
+}
+
+const PLAN_RUNS = 600
+
+/**
+ * A completion plan: each group of missing cards from its own pack, opened one pack after the other. Simulated as a
+ * whole (seeded) so the median and the «mala suerte» percentile are of the total, not sums of averages.
+ */
+export function planPacks(
+  groups: readonly { missing: readonly MissingInPack[]; structure: PackStructure }[],
+  seed = 1,
+): PlanPacks {
+  const prepared = groups
+    .map((group) => ({ ...group, missing: group.missing.filter((item) => item.copies > 0) }))
+    .filter((group) => group.missing.length > 0)
+    .map((group) => preparePack(group.missing, group.structure))
+  if (prepared.length === 0) return { mean: 0, p50: 0, p80: 0 }
+  const random = seededRandom(seed)
+  const totals: number[] = []
+  for (let run = 0; run < PLAN_RUNS; run += 1) {
+    totals.push(prepared.reduce((sum, pack) => sum + packsNeededOnce(pack, random), 0))
+  }
+  totals.sort((a, b) => a - b)
+  const at = (q: number) => totals[Math.min(totals.length - 1, Math.floor(q * totals.length))] ?? 0
+  return { mean: totals.reduce((sum, value) => sum + value, 0) / totals.length, p50: at(0.5), p80: at(0.8) }
+}
+
+/** Free packs a day in the game (one every 12 hours). */
+export const DEFAULT_PACKS_PER_DAY = 2
+/** Pack hourglasses per pack (one hour each, 12 hours a pack). */
+export const HOURGLASSES_PER_PACK = 12
+
+/** Days to open `packs` at `packsPerDay`, after spending the hourglasses saved. */
+export function daysForPacks(packs: number, packsPerDay: number, hourglasses = 0): number {
+  const fromHourglasses = Math.floor(Math.max(0, hourglasses) / HOURGLASSES_PER_PACK)
+  const left = Math.max(0, packs - fromHourglasses)
+  return packsPerDay <= 0 ? Number.POSITIVE_INFINITY : Math.ceil(left / packsPerDay)
 }

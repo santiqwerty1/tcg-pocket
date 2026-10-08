@@ -27,6 +27,7 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 - Pedido del 8/10: «Actualizar el mazo original» desde el Laboratorio (revisión nueva del mazo de partida, DECISIONES 10.13).
 - **Fase 12 implementada el 8/10/2026** (DECISIONES 15.1–15.3): notas por rival (`rival_notes`, migración `20261009010000_rival_notes`, `apps/api/src/rivals`, `/api/rival-notes*`), tools `rivals_notes` y `rivals_note_set` (escritura), backup `schemaVersion` 6, nota debajo del rival al cargar una partida, «Mis notas» en el arquetipo y Más → Notas por rival.
 - **Fase 13 implementada el 8/10/2026** (DECISIONES 16.1–16.4): `packages/domain/src/stats/luck.ts` (`luckCheck`, `binomialTails`, `losingStreak`, `runProbability`), `GET /api/matches/luck`, tool `matches_luck`, veredicto después de guardar una derrota y en «Contra cada rival».
+- **Fase 14 implementada el 8/10/2026** (DECISIONES 17.1–17.4): `planPacks`, `daysForPacks` y `preparePack`/`packsNeededOnce` en `packages/domain/src/packs/completion.ts`, `DeckCompletion.plan` en la recomendación, ajustes `packsPerDay` y `hourglasses` (Sobres → Ajustes → Ritmo de apertura), «Completo en ~N días» debajo de cada mazo.
 - **Visto bueno de Santi para todo el 8/10/2026**: fases 0–8 del plan, laboratorio y ajustes aprobados; no queda nada esperando su revisión. Siguiente paso: lo que pida Santi (abiertos: remapeo I12 al cambiar el catálogo, R-001; CI antes de cada deploy, R-007).
 
 ## Cómo trabajar acá
