@@ -206,6 +206,9 @@ ${MCP_WRITE_INSTRUCTIONS}`
     server.registerTool(t.tournamentsUnlockCards.name, config(t.tournamentsUnlockCards), (args) =>
       run(t.tournamentsUnlockCards.name, () => this.tournamentsUnlock(args)),
     )
+    server.registerTool(t.collectionPackLuck.name, config(t.collectionPackLuck), () =>
+      run(t.collectionPackLuck.name, () => this.collectionPackLuck()),
+    )
     server.registerTool(t.collectionMissions.name, config(t.collectionMissions), (args) =>
       run(t.collectionMissions.name, () => this.collectionMissions(args)),
     )
@@ -1186,6 +1189,40 @@ ${MCP_WRITE_INSTRUCTIONS}`
       scope: this.scopeJson(view.scope),
       buildable: view.buildable.map((row) => this.againstJson(row)),
       nearlyBuildable: near,
+    }
+  }
+
+  private async collectionPackLuck(): Promise<Json> {
+    const view = await this.collection.packLuck()
+    const verdict = {
+      too_few: 'pocas cartas',
+      normal: 'dentro de lo normal',
+      unlucky: 'peor de lo normal',
+      lucky: 'mejor de lo normal',
+    }
+    const shape = (item: NonNullable<typeof view.overall>) => ({
+      from: item.from.appliedAt.slice(0, 10),
+      to: item.to.appliedAt.slice(0, 10),
+      gained: item.luck.gained,
+      packsIfAllFromPacks: Math.round(item.luck.packsEstimate),
+      byRarity: item.luck.byRarity,
+      artRareOrBetter: {
+        observed: item.luck.rare.observed,
+        expected: Math.round(item.luck.rare.expected * 10) / 10,
+        verdict: verdict[item.luck.rare.check.verdict],
+      },
+      ex: {
+        observed: item.luck.ex.observed,
+        expected: Math.round(item.luck.ex.expected * 10) / 10,
+        verdict: verdict[item.luck.ex.check.verdict],
+      },
+    })
+    return {
+      imports: view.imports,
+      ...(view.imports < 2 ? { note: 'Hace falta una segunda importación del CSV para comparar.' } : {}),
+      latest: view.intervals[0] ? shape(view.intervals[0]) : null,
+      overall: view.overall ? shape(view.overall) : null,
+      caveat: 'Aproximado: cuenta todo lo que entró (también intercambios, Wonder Pick y premios); las promos no.',
     }
   }
 

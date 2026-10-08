@@ -324,3 +324,12 @@ Pedido de Santi: hacer las doce ideas de ampliación, cada una como su propia fa
 | 19.3 | La página del evento: tus mazos que cumplen (los armados primero), los que no y por qué, y las listas exactas de torneo de la era que cumplen, las que podés armar primero. | Lo que uno quiere saber antes de un evento. |
 | 19.4 | **Laboratorio con reglas**: una búsqueda puede llevar un evento (`eventId`): la lista de partida tiene que cumplir (si no, `422 event_rules` con los problemas), solo entran cartas que el evento permite y cada variante tiene que cumplir las cuentas. Las reglas quedan guardadas en la búsqueda para las rondas siguientes. Botón «Buscar variantes» en cada mazo que cumple. | «El Laboratorio arma candidatos con tu colección» sin romper las reglas. |
 | 19.5 | **Backup versión 7**: los eventos viajan en `events`. Tool `events_check`. | Datos tuyos. |
+
+## Fase 17: suerte de los sobres (8/10/2026)
+
+| # | Decisión | Motivo |
+|---|---|---|
+| 20.1 | **Qué entró** = las copias que subieron entre dos importaciones aplicadas del CSV, por versión (internal id: una reimpresión que comparte id no cuenta doble); las que bajaron (intercambios) no cuentan; las promos tampoco. | El CSV es lo único que sabe la app de tus aperturas. |
+| 20.2 | **Lo esperado** sale de las tasas publicadas de los sobres de la expansión de cada carta (la edición más vieja de la versión), promediadas por posición: en un sobre común, 3,3 % de las cartas son ☆ o más y 1,7 % ◊◊◊◊. Sin sobres raros ni de 6 cartas (cambian poco). Prueba binomial exacta: «mejor», «dentro de lo normal», «peor» (1 de cada 20 o menos), como la Fase 13. | Una medida simple y honesta. |
+| 20.3 | **Aproximado y dicho así**: también cuentan intercambios, Wonder Pick y premios, porque el CSV no dice de dónde vino cada carta. «≈ N sobres si todo vino de sobres» para dar escala. Con una sola importación, la sección espera a la próxima. | No vender precisión que no hay. |
+| 20.4 | Dónde: Colección → «Suerte de los sobres» (la última importación y desde la primera), `GET /api/collection/pack-luck`, tool `collection_pack_luck`. | |

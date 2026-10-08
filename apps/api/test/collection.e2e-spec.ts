@@ -391,4 +391,50 @@ describe('collection (e2e)', () => {
     ).toBe(409)
     expect((await get('/api/collection/summary')).body.activeAdjustments).toBe(0)
   })
+
+  it('suerte de los sobres (Fase 17): what came in since the last import, by rarity, against the packs', async () => {
+    const lines = csvBytes.toString('utf8').split('\n')
+    const header = lines[0] as string
+    const body = lines.slice(1).filter((line) => line.trim() !== '')
+    const count = new Map<string, number>()
+    for (const line of body) {
+      const internalId = line.split(',')[2] as string
+      count.set(internalId, (count.get(internalId) ?? 0) + 1)
+    }
+    // One more copy of 10 art rares (☆) and 20 commons (◊) of B4 that have no twin row.
+    const touched = new Set<string>()
+    const bump = (rarity: string, howMany: number) => {
+      let left = howMany
+      return (line: string) => {
+        const cells = line.split(',')
+        if (left === 0 || cells[4] !== 'B4' || cells[6] !== rarity || count.get(cells[2] as string) !== 1) return line
+        left -= 1
+        touched.add(cells[0] as string)
+        cells[3] = String(Number(cells[3]) + 1)
+        cells[7] = (cells[7] ?? '').replace('FALSE', 'TRUE')
+        return cells.join(',')
+      }
+    }
+    const rares = bump('☆', 10)
+    const commons = bump('◊', 20)
+    const csv = [header, ...body.map((line) => commons(rares(line)))].join('\n')
+    expect(touched.size).toBe(30)
+    const preview = await post('/api/collection/imports').send({ csv })
+    expect(preview.status).toBe(201)
+    expect((await post(`/api/collection/imports/${preview.body.id}/apply`)).status).toBe(200)
+    const luck = (await get('/api/collection/pack-luck')).body as {
+      imports: number
+      intervals: {
+        luck: {
+          gained: number
+          rare: { observed: number; check: { verdict: string } }
+          packsEstimate: number
+        }
+      }[]
+    }
+    expect(luck.imports).toBeGreaterThanOrEqual(2)
+    expect(luck.intervals[0]?.luck).toMatchObject({ gained: 30, rare: { observed: 10 } })
+    expect(luck.intervals[0]?.luck.rare.check.verdict).toBe('lucky')
+    expect(luck.intervals[0]?.luck.packsEstimate).toBeCloseTo(6, 10)
+  })
 })

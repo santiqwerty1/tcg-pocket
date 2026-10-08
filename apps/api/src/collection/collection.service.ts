@@ -19,6 +19,8 @@ import {
   manualEdit,
   missionProgress,
   normalizeImportRows,
+  type PackLuck,
+  packLuck,
   parseTrackerCsv,
   planAdjustmentConversion,
   playableCopies,
@@ -118,6 +120,23 @@ const CONVERSION_MESSAGES: Record<ConversionErrorCode, string> = {
   negative_amount: 'No se pueden quitar tantas copias de esa edición: quedaría en negativo.',
 }
 
+/** Import intervals «suerte de los sobres» reports (the newest). */
+const PACK_LUCK_INTERVALS = 6
+
+export interface PackLuckView {
+  imports: number
+  /** Newest first. */
+  intervals: { from: ImportRef; to: ImportRef; luck: PackLuck }[]
+  /** From the first applied import to the last. */
+  overall: { from: ImportRef; to: ImportRef; luck: PackLuck } | null
+}
+
+interface ImportRef {
+  id: string
+  fileName: string
+  appliedAt: string
+}
+
 @Injectable()
 export class CollectionService {
   constructor(
@@ -153,6 +172,58 @@ export class CollectionService {
       lastImportAt: lastImport?.appliedAt ?? null,
       activeAdjustments: adjustments.length,
     }
+  }
+
+  /**
+   * Fase 17: what came in between consecutive applied imports (and since the first one), by rarity, against the
+   * rates of packs. Approximate: trades and rewards count too.
+   */
+  async packLuck(): Promise<PackLuckView> {
+    const index = this.catalog.requireIndex()
+    const imports = await this.prisma.collectionImport.findMany({
+      where: { status: 'applied', appliedAt: { not: null } },
+      orderBy: { appliedAt: 'asc' },
+      select: { id: true, fileName: true, appliedAt: true },
+    })
+    const recent = imports.slice(-(PACK_LUCK_INTERVALS + 1))
+    const snapshots = new Map<number, Map<number, number>>()
+    for (const item of recent.length > 1 ? [imports[0], ...recent] : []) {
+      if (!item || snapshots.has(item.id)) continue
+      const rows = await this.prisma.collectionImportRow.findMany({
+        where: { importId: item.id },
+        select: { internalId: true, numberOwned: true },
+      })
+      const owned = new Map<number, number>()
+      for (const row of rows) owned.set(row.internalId, Math.max(owned.get(row.internalId) ?? 0, row.numberOwned))
+      snapshots.set(item.id, owned)
+    }
+    const ref = (item: { id: number; fileName: string; appliedAt: Date | null }) => ({
+      id: idToString(item.id),
+      fileName: item.fileName,
+      appliedAt: item.appliedAt?.toISOString() ?? '',
+    })
+    const intervals: PackLuckView['intervals'] = []
+    for (let at = 1; at < recent.length; at++) {
+      const from = recent[at - 1]
+      const to = recent[at]
+      if (!from || !to) continue
+      intervals.push({
+        from: ref(from),
+        to: ref(to),
+        luck: packLuck(snapshots.get(from.id) ?? new Map(), snapshots.get(to.id) ?? new Map(), index),
+      })
+    }
+    const first = imports[0]
+    const last = imports[imports.length - 1]
+    const overall =
+      first && last && first.id !== last.id
+        ? {
+            from: ref(first),
+            to: ref(last),
+            luck: packLuck(snapshots.get(first.id) ?? new Map(), snapshots.get(last.id) ?? new Map(), index),
+          }
+        : null
+    return { imports: imports.length, intervals: intervals.reverse(), overall }
   }
 
   /**

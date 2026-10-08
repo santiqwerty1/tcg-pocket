@@ -16,6 +16,7 @@ import {
   importPreviewSchema,
   importsResponseSchema,
   missionsSchema,
+  packLuckViewSchema,
   stockPatchResultSchema,
   stockResponseSchema,
 } from './schemas'
@@ -244,5 +245,13 @@ export function useMissions(params: { expansion?: string; incomplete?: boolean }
     queryFn: ({ signal }) =>
       request(`/api/collection/missions?${search.toString()}`, { schema: missionsSchema, signal }),
     placeholderData: keepPreviousData,
+  })
+}
+
+/** Fase 17: what came in between imports, by rarity, against the rates of packs. */
+export function usePackLuck() {
+  return useQuery({
+    queryKey: ['collection', 'pack-luck'] as const,
+    queryFn: ({ signal }) => request('/api/collection/pack-luck', { schema: packLuckViewSchema, signal }),
   })
 }

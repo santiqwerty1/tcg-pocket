@@ -17,6 +17,7 @@ describe('MCP read tools', () => {
         'cards_search',
         'collection_editions',
         'collection_missions',
+        'collection_pack_luck',
         'collection_playable_copies',
         'collection_summary',
         'decks_closest',

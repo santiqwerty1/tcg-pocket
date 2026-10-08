@@ -18,7 +18,7 @@ import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
 import { CSV_UPLOAD_LIMIT_BYTES, type UploadedFileShape, uploadOptions } from '../http/upload.js'
 import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
-import { CollectionService } from './collection.service.js'
+import { CollectionService, type PackLuckView } from './collection.service.js'
 import type {
   AdjustmentConversionResult,
   CollectionAdjustmentView,
@@ -86,6 +86,12 @@ export class CollectionController {
   @Get('summary')
   summary(@CurrentSession() _session: RequestSession): Promise<CollectionSummaryView> {
     return this.collection.summary()
+  }
+
+  /** Fase 17: what came in between imports, by rarity, against the rates of packs. */
+  @Get('pack-luck')
+  packLuck(@CurrentSession() _session: RequestSession): Promise<PackLuckView> {
+    return this.collection.packLuck()
   }
 
   /** Themed-collection missions with what the collection has of each (Fase 8). */

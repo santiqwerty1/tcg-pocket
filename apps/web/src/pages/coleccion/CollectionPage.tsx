@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatDate, formatNumber } from '@/lib/format'
 import { ByEditionTab } from './ByEditionTab'
 import { ByGroupTab } from './ByGroupTab'
+import { PackLuckSection } from './PackLuckSection'
 
 type View = 'carta' | 'edicion'
 const SUMMARY_SKELETONS = ['copies', 'units', 'one', 'two', 'missing', 'last']
@@ -114,6 +115,7 @@ export function CollectionPage() {
           <ByEditionTab />
         </TabsContent>
       </Tabs>
+      <PackLuckSection />
     </div>
   )
 }

@@ -342,6 +342,13 @@ export const MCP_READ_TOOLS = {
       limit: z.number().int().min(1).max(50).optional().describe('Filas a devolver (por defecto 15)'),
     }),
   },
+  collectionPackLuck: {
+    name: 'collection_pack_luck',
+    title: 'Suerte de los sobres',
+    description:
+      'Qué entró a la colección entre dos importaciones del CSV (y desde la primera), por rareza, contra lo que dan los sobres: cuántas cartas ☆ o más y ◊◊◊◊ salieron y cuántas se esperaban, con una prueba binomial («mejor de lo normal», «dentro de lo normal», «peor»). Aproximado: el CSV dice qué tenés, no de dónde vino (cuenta intercambios, Wonder Pick y premios); las promos no cuentan.',
+    input: z.object({}),
+  },
   collectionMissions: {
     name: 'collection_missions',
     title: 'Misiones de colección',

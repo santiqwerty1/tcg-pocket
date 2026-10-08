@@ -2001,3 +2001,35 @@ export interface EventInput {
   rules: EventRules
   notes?: string
 }
+
+// ---------- Suerte de los sobres (Fase 17) ----------
+
+const luckCheckSchema = z.object({
+  games: z.number(),
+  wins: z.number(),
+  actual: z.number(),
+  expected: z.number(),
+  lowerTail: z.number(),
+  upperTail: z.number(),
+  verdict: z.enum(['too_few', 'normal', 'unlucky', 'lucky']),
+})
+const packLuckTierSchema = z.object({
+  observed: z.number(),
+  expectedShare: z.number(),
+  expected: z.number(),
+  check: luckCheckSchema,
+})
+export const packLuckSchema = z.object({
+  gained: z.number(),
+  byRarity: z.record(z.string(), z.number()),
+  rare: packLuckTierSchema,
+  ex: packLuckTierSchema,
+  packsEstimate: z.number(),
+})
+const importRefSchema = z.object({ id: z.string(), fileName: z.string(), appliedAt: z.string() })
+export const packLuckViewSchema = z.object({
+  imports: z.number(),
+  intervals: z.array(z.object({ from: importRefSchema, to: importRefSchema, luck: packLuckSchema })),
+  overall: z.object({ from: importRefSchema, to: importRefSchema, luck: packLuckSchema }).nullable(),
+})
+export type PackLuckView = z.infer<typeof packLuckViewSchema>
