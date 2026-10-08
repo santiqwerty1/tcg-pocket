@@ -14,6 +14,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common'
 import {
+  buildFromCore,
   buildSnapshot,
   type CardId,
   type CatalogIndex,
@@ -81,6 +82,7 @@ import { LIMITLESS_ATTRIBUTION, type Scope, TournamentsService } from '../tourna
 import type {
   CardLineView,
   LabBankView,
+  LabCoreView,
   LabDeckView,
   LabJobsView,
   LabJobView,
@@ -133,6 +135,18 @@ export interface LabExploreInput extends LabRunInput {
   locked?: string[] | undefined
   config?: Partial<ExploreConfig> | undefined
   /** Fase 16: an event whose rules every variant must keep (the starting deck too). */
+  eventId?: string | undefined
+}
+
+/** Fase 19: 1–4 cards (any edition) to build a first list around. */
+export interface LabCoreInput {
+  cards: string[]
+  energies?: SelectableEnergy[] | undefined
+  /** «collection» (default): only what the collection has, at its playable copies; «all»: any card. */
+  pool?: 'collection' | 'all' | undefined
+  era?: string | undefined
+  format?: TournamentFormat | undefined
+  /** Fase 16: only cards an event's rules allow. */
   eventId?: string | undefined
 }
 
@@ -498,6 +512,80 @@ export class LabService implements OnApplicationBootstrap {
     const event = Number.isSafeInteger(id) ? await this.prisma.event.findUnique({ where: { id } }) : null
     if (!event) throw new NotFoundException(`Evento ${rawId} no encontrado.`)
     return { id: String(event.id), name: event.name, rules: eventRulesSchema.parse(event.rules) }
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Build from a core (Fase 19)
+  // ---------------------------------------------------------------------------------------------------------------
+
+  /** A first list around 1–4 cards, from what the era's lists that play them also play. Queues nothing. */
+  async core(input: LabCoreInput): Promise<LabCoreView> {
+    const { scope, dataset } = await this.tournaments.scopedDataset({ era: input.era, format: input.format })
+    const index = scope.index
+    const engine = await this.engine.status()
+    const pool = input.pool ?? 'collection'
+    const playable = pool === 'collection' ? await this.tournaments.playable(index) : null
+    const event = input.eventId ? await this.eventRules(input.eventId) : null
+    const core = [...this.lockedGroups(index, input.cards)]
+    const played = (groupId: CardId) => {
+      const group = index.groupById(groupId)
+      const display = group ? index.cardById(group.displayCardId) : undefined
+      return display ? engineEdition(display, index, engine) : null
+    }
+    const build = buildFromCore({
+      dataset,
+      index,
+      core,
+      energies: input.energies,
+      edition: (groupId) => {
+        const card = played(groupId)
+        return card && (!event || cardBreaksEvent(card, event.rules) === null) ? card : null
+      },
+      maxCopies: (groupId) => (playable ? playable(groupId) : 2),
+    })
+    const nameEs = (cardId: CardId) => index.cardById(cardId)?.nameEs ?? cardId
+    const coreNames = core
+      .filter((groupId) => !build.left.some((item) => item.groupId === groupId))
+      .map((groupId) => nameEs(index.groupById(groupId)?.displayCardId ?? groupId))
+    const lists = (n: number) => `${n} ${n === 1 ? 'lista' : 'listas'}`
+    const basisText =
+      build.basis.kind === 'together'
+        ? `Lo que juegan las ${lists(build.basis.lists)} de la era con ${joinEs(coreNames)}`
+        : build.basis.kind === 'partial'
+          ? `Casi ninguna lista juega todo el núcleo junto: lo que juegan las ${lists(build.basis.lists)} con alguna de esas cartas`
+          : `Ninguna lista de la era juega estas cartas: lo más jugado de la era (${lists(build.basis.lists)})`
+    return {
+      era: scope.era,
+      format: scope.format,
+      pool,
+      event: event ? { id: event.id, name: event.name } : null,
+      basis: { ...build.basis, text: basisText },
+      energies: build.energies,
+      cards: build.picks.map((pick) => ({
+        cardId: pick.cardId,
+        groupId: pick.groupId,
+        nameEs: nameEs(pick.cardId),
+        count: pick.copies,
+        reason: pick.reason,
+        share: pick.share,
+      })),
+      left: build.left.map((item) => {
+        const cardId = index.groupById(item.groupId)?.displayCardId ?? item.groupId
+        return {
+          cardId,
+          nameEs: nameEs(cardId),
+          reason:
+            item.reason === 'not_owned'
+              ? 'No la tenés en la colección'
+              : played(item.groupId) === null
+                ? 'El motor todavía no la juega'
+                : `No entra en las reglas de «${event?.name ?? 'el evento'}»`,
+        }
+      }),
+      problems: build.problems,
+      total: build.cards.reduce((sum, card) => sum + card.count, 0),
+      attribution: LIMITLESS_ATTRIBUTION,
+    }
   }
 
   private lockedGroups(index: CatalogIndex, cardIds: readonly string[]): Set<CardId> {
@@ -1181,4 +1269,10 @@ function complete(
 
 function scoreView(score: MetaScore | null): LabScoreView {
   return { score, text: formatMetaScoreEs(score) }
+}
+
+/** «a», «a y b», «a, b y c». */
+function joinEs(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? ''
+  return `${items.slice(0, -1).join(', ')} y ${items.at(-1)}`
 }

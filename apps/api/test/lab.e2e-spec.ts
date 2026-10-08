@@ -243,6 +243,30 @@ describe('laboratorio (e2e)', () => {
     expect((await post('/api/lab/consistency').send({ deckId: deckIds[1], bot: 'et' })).status).toBe(400)
   })
 
+  it('build from a core (Fase 19): the lists that play the core give the rest; the collection caps it', async () => {
+    const all = await post('/api/lab/core').send({ cards: ['B1-36'], pool: 'all' })
+    expect(all.status).toBe(200)
+    expect(all.body).toMatchObject({ era: 'B4a', pool: 'all', energies: ['fire'], total: 20, problems: [], left: [] })
+    expect(all.body.basis).toMatchObject({ kind: 'together' })
+    expect(all.body.basis.text).toMatch(/^Lo que juegan las \d+ listas de la era con Mega-Blaziken ex$/)
+    const byName = new Map(
+      (all.body.cards as { nameEs: string; count: number; reason: string }[]).map((c) => [c.nameEs, c]),
+    )
+    expect(byName.get('Mega-Blaziken ex')).toMatchObject({ count: 2, reason: 'core' })
+    expect(byName.get('Torchic')).toMatchObject({ count: 2, reason: 'line' })
+    expect(byName.get('Caramelo Raro')).toMatchObject({ count: 2, reason: 'line' })
+
+    // The collection (the CSV of 6/10, where deck 2 — Mega-Blaziken ex — is complete).
+    const mine = await post('/api/lab/core').send({ cards: ['B1-36'] })
+    expect(mine.body).toMatchObject({ pool: 'collection', left: [] })
+    const mineCards = mine.body.cards as { nameEs: string; count: number }[]
+    expect(mineCards.find((card) => card.nameEs === 'Mega-Blaziken ex')?.count).toBe(2)
+    expect(mineCards.reduce((sum, card) => sum + card.count, 0)).toBe(mine.body.total)
+
+    expect((await post('/api/lab/core').send({ cards: [] })).status).toBe(400)
+    expect((await post('/api/lab/core').send({ cards: ['ZZ-999'] })).status).toBe(400)
+  })
+
   it('a pasted list is tested like a deck; one that does not parse says why', async () => {
     const text = readFileSync(DECKS_PATH, 'utf8')
     const start = text.indexOf('\n### 2. ')
@@ -420,6 +444,10 @@ describe('laboratorio (e2e)', () => {
     for (const variant of firstRound) for (const line of variant.out) expect(line).not.toMatch(/Mega-Blaziken ex/)
 
     expect(await playAll((_a, _b, games) => games / 2)).toBe(3)
+    const core = await call('lab_build_from_core', { cards: ['Mega-Blaziken ex'], pool: 'all' })
+    expect(core).toMatchObject({ era: 'B4a', total: 20, valid: true, pool: 'cualquier carta' })
+    expect(core.cards).toContainEqual({ line: expect.stringMatching(/^2 Mega-Blaziken ex /), why: 'núcleo' })
+
     const list = await call('lab_results')
     expect((list.jobs as { id: number }[]).map((job) => job.id)).toContain(queued.jobId)
     const results = await call('lab_results', { job: queued.jobId })

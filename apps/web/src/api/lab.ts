@@ -3,9 +3,11 @@ import { z } from 'zod'
 import { request } from './client'
 import {
   jobSummarySchema,
+  type LabCoreInput,
   type LabExploreInput,
   type LabTestInput,
   labBankSchema,
+  labCoreSchema,
   labExplorePlanSchema,
   labJobSchema,
   labJobsSchema,
@@ -92,5 +94,13 @@ export function useLabExplore() {
       void queryClient.invalidateQueries({ queryKey: labKeys.all })
       void queryClient.invalidateQueries({ queryKey: simulationKeys.all })
     },
+  })
+}
+
+/** Fase 19: a first list around 1–4 cards (queues nothing). */
+export function useLabCore() {
+  return useMutation({
+    mutationFn: (input: LabCoreInput) =>
+      request('/api/lab/core', { method: 'POST', body: input, schema: labCoreSchema }),
   })
 }

@@ -23,6 +23,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { formatDateTime, formatNumber } from '@/lib/format'
 import { formatDuration, isActive, progressFraction } from '@/lib/simulation'
 import { ProgressBar, StatusBadge } from '../simulacion/SimulacionPage'
+import { CoreBuilder } from './CoreBuilder'
 
 export const LAB_NOTE =
   'Juegan bots del motor deckgym (e2), no personas: el porcentaje depende del bot. Es una pista para probar en el juego, no un veredicto.'
@@ -490,6 +491,9 @@ export function LaboratorioPage() {
         {bank.isLoading ? <LoadingRows rows={4} /> : null}
         {bank.isError ? <ErrorState error={bank.error} onRetry={() => void bank.refetch()} /> : null}
         {bank.data ? <BankList bank={bank.data} /> : null}
+      </Section>
+      <Section title="Armar desde un núcleo">
+        <CoreBuilder size={size} />
       </Section>
       <Section title="Probar contra el meta">
         <TestForm size={size} />

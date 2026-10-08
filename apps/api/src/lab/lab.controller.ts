@@ -8,7 +8,7 @@ import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
 import { SimulationModule } from '../simulation/simulation.controller.js'
 import { TournamentsModule } from '../tournaments/tournaments.controller.js'
 import { LabService, MAX_TEST_DECKS } from './lab.service.js'
-import type { LabBankView, LabJobsView, LabJobView } from './lab-views.js'
+import type { LabBankView, LabCoreView, LabJobsView, LabJobView } from './lab-views.js'
 
 const energies = z.array(z.enum(SELECTABLE_ENERGIES)).max(3).optional()
 const era = z
@@ -69,6 +69,17 @@ const consistencySchema = scopeSchema.extend({
     .int()
     .min(0)
     .max(2 ** 52)
+    .optional(),
+})
+const coreSchema = z.object({
+  cards: z.array(z.string().trim().min(1).max(20)).min(1).max(4),
+  energies,
+  pool: z.enum(['collection', 'all']).optional(),
+  era,
+  format: z.enum(TOURNAMENT_FORMATS).optional(),
+  eventId: z
+    .string()
+    .regex(/^\d{1,10}$/)
     .optional(),
 })
 const limit = ([min, max]: readonly [number, number]) => z.number().min(min).max(max).optional()
@@ -133,6 +144,16 @@ export class LabController {
     @CurrentSession() _session: RequestSession,
   ) {
     return this.lab.consistency(body)
+  }
+
+  /** Fase 19: a first list around 1–4 cards, from the era's lists that play them (queues nothing). */
+  @Post('core')
+  @HttpCode(200)
+  core(
+    @Body(new ZodValidationPipe(coreSchema)) body: z.infer<typeof coreSchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<LabCoreView> {
+    return this.lab.core(body)
   }
 
   /** The automatic search of variants of a deck against the meta bank (with `dryRun`: the plan). */

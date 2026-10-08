@@ -7,7 +7,7 @@
  * Claude Code and the Claude apps expose MCP tools under those names (DECISIONES 3.2).
  */
 import { z } from 'zod'
-import { RARITIES } from '../catalog/types.js'
+import { RARITIES, SELECTABLE_ENERGIES } from '../catalog/types.js'
 import { MATCH_MODES } from '../matches/types.js'
 import { TOURNAMENT_FORMATS } from '../tournaments/eras.js'
 
@@ -372,6 +372,35 @@ export const MCP_READ_TOOLS = {
     input: z.object({
       ...tournamentScope,
       size: z.number().int().min(1).max(20).optional().describe('Arquetipos del banco (por defecto 15)'),
+    }),
+  },
+  labBuildFromCore: {
+    name: 'lab_build_from_core',
+    title: 'Armar desde un núcleo',
+    description: `Una primera lista alrededor de 1 a 4 cartas que Santi quiere jugar juntas: el resto sale de lo que juegan las listas de torneo de la era que llevan esas cartas juntas (las más jugadas primero, con las copias que suelen llevar), con la línea evolutiva de cada Pokémon (Caramelo Raro en vez de la Fase 1 cuando esas listas lo hacen), solo cartas que el motor juega y Pokémon cuyos ataques pagan las energías. Si casi ninguna lista juega el núcleo junto, las que juegan alguna de esas cartas; si ninguna, lo más jugado de la era. Por defecto solo con lo que tiene la colección («pool»: «all» para cualquier carta). Devuelve la lista con el porqué de cada carta y si valida; no guarda nada. Es un punto de partida para lab_test o lab_explore, no un mazo probado. ${TOURNAMENT_NOTE}`,
+    input: z.object({
+      ...tournamentScope,
+      cards: z
+        .array(z.string().trim().min(1).max(80))
+        .min(1)
+        .max(4)
+        .describe('Las cartas del núcleo: nombre en español o inglés, o código de edición («B3-77»)'),
+      energies: z
+        .array(z.enum(SELECTABLE_ENERGIES))
+        .max(3)
+        .optional()
+        .describe('Energías; por defecto las que piden los ataques del núcleo'),
+      pool: z
+        .enum(['collection', 'all'])
+        .optional()
+        .describe('collection (por defecto): solo lo que tiene la colección; all: cualquier carta'),
+      event: z
+        .string()
+        .trim()
+        .min(1)
+        .max(120)
+        .optional()
+        .describe('Nombre o id de un evento cargado: solo cartas que sus reglas permiten'),
     }),
   },
   labResults: {

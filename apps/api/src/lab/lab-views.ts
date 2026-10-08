@@ -132,6 +132,29 @@ export interface LabJobView {
   note: string
 }
 
+/** Fase 19: a first list around 1–4 cards (POST /api/lab/core). */
+export interface LabCoreView {
+  era: string
+  format: TournamentFormat
+  pool: 'collection' | 'all'
+  event: { id: string; name: string } | null
+  /** Which lists the rest came from: the ones that play the whole core, part of it, or the whole era. */
+  basis: { kind: 'together' | 'partial' | 'era'; lists: number; text: string }
+  energies: string[]
+  cards: (CardLineView & {
+    groupId: string
+    reason: 'core' | 'line' | 'usage'
+    /** Share (0–100) of the basis lists that play it; null for the core and its line. */
+    share: number | null
+  })[]
+  /** Core cards that could not go in. */
+  left: { cardId: string; nameEs: string; reason: string }[]
+  /** Errors of the draft as a deck (empty = it validates). */
+  problems: string[]
+  total: number
+  attribution: string
+}
+
 export interface LabJobsView {
   items: (JobSummaryView & { mode: 'test' | 'explore'; era: string | null })[]
 }

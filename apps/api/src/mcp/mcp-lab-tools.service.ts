@@ -4,17 +4,19 @@
  * from bots: the tools say so next to it.
  */
 import type { CallToolResult, McpServer, StandardSchemaWithJSON } from '@modelcontextprotocol/server'
-import { BadRequestException, Injectable } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import {
   estimateSeconds,
   exploreConfig,
   exploreGames,
+  foldText,
   MCP_READ_TOOLS,
   MCP_WRITE_TOOLS,
   type SelectableEnergy,
 } from '@tcg/domain'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { DecksService } from '../decks/decks.service.js'
+import { EventsService } from '../events/events.service.js'
 import { LAB_NOTE, type LabDeckInput, LabService } from '../lab/lab.service.js'
 import type { CardLineView, LabDeckView } from '../lab/lab-views.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
@@ -68,6 +70,7 @@ export class McpLabToolsService {
     private readonly decks: DecksService,
     private readonly simulations: SimulationsService,
     private readonly deckRefs: DeckRefResolver,
+    private readonly events: EventsService,
   ) {}
 
   registerRead(server: McpServer, run: Run): void {
@@ -77,6 +80,9 @@ export class McpLabToolsService {
     )
     server.registerTool(t.labResults.name, config(t.labResults, READ_ONLY), (args) =>
       run(t.labResults.name, () => this.results(args)),
+    )
+    server.registerTool(t.labBuildFromCore.name, config(t.labBuildFromCore, READ_ONLY), (args) =>
+      run(t.labBuildFromCore.name, () => this.buildFromCore(args)),
     )
   }
 
@@ -112,6 +118,50 @@ export class McpLabToolsService {
         reason: skip.reason,
       })),
       note: LIMITLESS_ATTRIBUTION,
+    }
+  }
+
+  private async buildFromCore(args: {
+    cards: string[]
+    energies?: SelectableEnergy[]
+    pool?: 'collection' | 'all'
+    era?: string
+    format?: 'STANDARD' | 'NOEX'
+    event?: string
+  }): Promise<Json> {
+    const index = this.catalog.requireIndex()
+    const cards = args.cards.map((query) => resolveCardRef(index, query))
+    let eventId: string | undefined
+    if (args.event) {
+      const events = await this.events.list()
+      const wanted = foldText(args.event)
+      const hit =
+        events.find((event) => event.id === args.event || foldText(event.name) === wanted) ??
+        events.find((event) => foldText(event.name).includes(wanted))
+      if (!hit) throw new NotFoundException(`No hay un evento «${args.event}».`)
+      eventId = hit.id
+    }
+    const view = await this.lab.core({ ...args, cards, eventId })
+    const REASON_ES = { core: 'núcleo', line: 'línea evolutiva', usage: 'la juegan' } as const
+    return {
+      era: view.era,
+      format: view.format,
+      pool: view.pool === 'collection' ? 'solo la colección' : 'cualquier carta',
+      event: view.event?.name ?? null,
+      basis: view.basis.text,
+      energies: view.energies,
+      total: view.total,
+      valid: view.problems.length === 0,
+      problems: view.problems,
+      cards: view.cards.map((card) => ({
+        line: cardLine(card),
+        why:
+          card.reason === 'usage' && card.share !== null
+            ? `la juegan el ${round(card.share)} % de esas listas`
+            : REASON_ES[card.reason],
+      })),
+      left: view.left.map((item) => `${item.nameEs} (${item.cardId}): ${item.reason}`),
+      note: `Punto de partida armado con listas de torneo, no un mazo probado: probalo con lab_test o mejoralo con lab_explore. ${view.attribution}`,
     }
   }
 

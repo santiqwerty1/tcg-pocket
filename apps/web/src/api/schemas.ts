@@ -2053,3 +2053,37 @@ export const notificationsSchema = z.object({
   preferences: z.object({ liveGame: z.boolean(), simulations: z.boolean(), lab: z.boolean(), alerts: z.boolean() }),
 })
 export type NotificationsStatus = z.infer<typeof notificationsSchema>
+
+// ---------- Armar desde un núcleo (Fase 19) ----------
+
+export const labCoreSchema = z.object({
+  era: z.string(),
+  format: z.string(),
+  pool: z.enum(['collection', 'all']),
+  event: z.object({ id: z.string(), name: z.string() }).nullable(),
+  basis: z.object({ kind: z.enum(['together', 'partial', 'era']), lists: z.number(), text: z.string() }),
+  energies: z.array(selectableEnergySchema),
+  cards: z.array(
+    z.object({
+      cardId: z.string(),
+      groupId: z.string(),
+      nameEs: z.string(),
+      count: z.number(),
+      reason: z.enum(['core', 'line', 'usage']),
+      share: z.number().nullable(),
+    }),
+  ),
+  left: z.array(z.object({ cardId: z.string(), nameEs: z.string(), reason: z.string() })),
+  problems: z.array(z.string()),
+  total: z.number(),
+  attribution: z.string(),
+})
+export type LabCore = z.infer<typeof labCoreSchema>
+
+export interface LabCoreInput {
+  cards: string[]
+  energies?: SelectableEnergy[]
+  pool?: 'collection' | 'all'
+  era?: string
+  eventId?: string
+}

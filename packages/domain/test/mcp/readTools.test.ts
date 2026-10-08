@@ -30,6 +30,7 @@ describe('MCP read tools', () => {
         'decks_random',
         'decks_validate',
         'events_check',
+        'lab_build_from_core',
         'lab_meta_bank',
         'lab_results',
         'matches_list',
