@@ -10,6 +10,7 @@ description = "JSON front end of deckgym-core for the TCG Pocket worker: validat
 [dependencies]
 # The engine, pinned and unmodified. Bump the rev here (and nothing else) to update it.
 deckgym = { git = "https://github.com/bcollazo/deckgym-core", rev = "33ff2a5942dd4ce09d1ebc3041ffe48f604409e6" }
+rand = "0.8"
 rayon = "1.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

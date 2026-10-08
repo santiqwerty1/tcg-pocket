@@ -179,4 +179,6 @@ export interface Catalog {
   groups: FunctionalGroup[]
   stockUnits: StockUnit[]
   craftingCost: CraftingCost
+  /** Themed-collection missions (Fase 8); absent in catalogs synced before them. */
+  missions?: import('./missions.js').Mission[]
 }

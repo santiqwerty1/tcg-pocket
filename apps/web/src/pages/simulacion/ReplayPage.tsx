@@ -28,13 +28,13 @@ import { cn } from '@/lib/utils'
 
 const SIDE = ['A', 'B'] as const
 
-function energySummary(energies: string[]): string {
+export function energySummary(energies: string[]): string {
   const counts = new Map<string, number>()
   for (const energy of energies) counts.set(energy, (counts.get(energy) ?? 0) + 1)
   return [...counts].map(([energy, count]) => `${energyEs(energy)}${count > 1 ? ` ×${count}` : ''}`).join(', ')
 }
 
-function Slot({ slot, reader, active }: { slot: ReplaySlot | null; reader: ReplayReader; active?: boolean }) {
+export function Slot({ slot, reader, active }: { slot: ReplaySlot | null; reader: ReplayReader; active?: boolean }) {
   if (!slot) {
     return (
       <div className="flex min-h-12 items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">

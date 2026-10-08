@@ -240,7 +240,7 @@ export const MCP_READ_TOOLS = {
   tournamentsBuildable: {
     name: 'tournaments_buildable',
     title: 'Listas de torneo que puedo armar',
-    description: `Listas exactas de torneo de la era que se pueden armar hoy con la colección (por carta funcional, cada lista contra la colección entera), las más jugadas primero, y las que quedan a 1 o 2 copias. ${TOURNAMENT_NOTE}`,
+    description: `Listas exactas de torneo de la era que se pueden armar hoy con la colección (por carta funcional, cada lista contra la colección entera), las más jugadas primero, y las que quedan a 1 o 2 copias, con qué reemplazar cada carta que falta entre lo que Santi tiene (otra versión de la misma carta, o lo que juegan las listas del arquetipo que no la llevan). ${TOURNAMENT_NOTE}`,
     input: z.object({
       ...tournamentScope,
       limit: z.number().int().min(1).max(50).optional().describe('Listas a devolver por grupo (por defecto 10)'),
@@ -264,6 +264,22 @@ export const MCP_READ_TOOLS = {
       job: z.number().int().positive().optional().describe('Número de la simulación («#12» → 12)'),
       deck: deckRef.optional(),
       limit: z.number().int().min(1).max(50).optional().describe('Filas a devolver (por defecto 15)'),
+    }),
+  },
+  collectionMissions: {
+    name: 'collection_missions',
+    title: 'Misiones de colección',
+    description:
+      'Las misiones de colección del juego (themed collections, datos del tracker al commit fijado) contra la colección: por misión, cuántas copias pide cada casilla, cuántas tiene Santi entre las cartas que valen (reimpresiones y otras artes cuentan) y qué falta; la recompensa. Nombres de misiones y recompensas en inglés, como los datos del juego. Con «incomplete» solo las que faltan.',
+    input: z.object({
+      expansion: z
+        .string()
+        .trim()
+        .regex(/^[A-Za-z0-9-]{1,8}$/)
+        .optional()
+        .describe('Expansión («B4a»); por defecto todas'),
+      incomplete: z.boolean().optional().describe('Solo las misiones sin completar'),
+      limit: z.number().int().min(1).max(100).optional().describe('Misiones a devolver (por defecto 20)'),
     }),
   },
   labMetaBank: {

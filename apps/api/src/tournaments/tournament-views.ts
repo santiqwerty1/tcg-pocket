@@ -115,9 +115,24 @@ export interface ArchetypeDetailView {
   withWithout: WithWithoutView | null
 }
 
+export interface SubstituteView {
+  groupId: string
+  /** The card shown (display edition). */
+  cardId: string
+  nameEs: string
+  reason: 'same_name' | 'replaces' | 'archetype'
+  /** «otra versión de la misma carta (otro texto)», «la juegan 7 de 19 listas del arquetipo sin ella»… */
+  reasonEs: string
+  lists: number
+  of: number
+  have: number
+}
+
 export interface ListDetailView {
   scope: ScopeView
   list: ListAgainstCollectionView
+  /** For each card the collection lacks, what can take its place (Fase 8). */
+  substitutes: { groupId: string; nameEs: string; need: number; have: number; options: SubstituteView[] }[]
   /** Most common energies of its entries (English, as Limitless). */
   energies: string[]
   /** Limitless clipboard text (also deckgym's): imports as a deck. */

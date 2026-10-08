@@ -1,5 +1,6 @@
 import { LayersIcon, LibraryBigIcon, MenuIcon, PackageIcon, SwordsIcon } from 'lucide-react'
 import { NavLink, useLocation } from 'react-router'
+import { useAlerts } from '@/api/alerts'
 import { cn } from '@/lib/utils'
 
 export interface NavDestination {
@@ -28,6 +29,8 @@ export function destinationFor(pathname: string): NavDestination | undefined {
 export function BottomNav() {
   const { pathname } = useLocation()
   const active = destinationFor(pathname)
+  const alerts = useAlerts()
+  const warnings = (alerts.data ?? []).filter((alert) => alert.level === 'warning').length
   return (
     <nav
       aria-label="Secciones"
@@ -47,7 +50,16 @@ export function BottomNav() {
                   isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
                 )}
               >
-                <Icon className="size-6" aria-hidden="true" />
+                <span className="relative">
+                  <Icon className="size-6" aria-hidden="true" />
+                  {destination.to === '/mas' && warnings > 0 ? (
+                    <span
+                      className="absolute -top-0.5 -right-1 size-2.5 rounded-full bg-warning"
+                      role="img"
+                      aria-label={`${warnings} ${warnings === 1 ? 'aviso' : 'avisos'}`}
+                    />
+                  ) : null}
+                </span>
                 <span>{destination.label}</span>
               </NavLink>
             </li>

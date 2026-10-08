@@ -1006,6 +1006,29 @@ export type ArchetypeDetail = z.infer<typeof archetypeDetailSchema>
 export const listDetailSchema = z.object({
   scope: scopeSchema,
   list: listAgainstSchema,
+  /** Fase 8: what can take the place of each card the collection lacks. */
+  substitutes: z
+    .array(
+      z.object({
+        groupId: z.string(),
+        nameEs: z.string(),
+        need: z.number(),
+        have: z.number(),
+        options: z.array(
+          z.object({
+            groupId: z.string(),
+            cardId: z.string(),
+            nameEs: z.string(),
+            reason: z.enum(['same_name', 'replaces', 'archetype']),
+            reasonEs: z.string(),
+            lists: z.number(),
+            of: z.number(),
+            have: z.number(),
+          }),
+        ),
+      }),
+    )
+    .default([]),
   energies: z.array(z.string()),
   text: z.string(),
   entries: z.array(
@@ -1127,7 +1150,7 @@ export const setReleasesResponseSchema = z.object({ items: z.array(setReleaseSch
 
 // ---------- Simulación (Fase 6) ----------
 
-export const SIMULATION_KINDS = ['matrix', 'compare', 'optimize', 'explore'] as const
+export const SIMULATION_KINDS = ['matrix', 'compare', 'optimize', 'explore', 'consistency'] as const
 export type SimulationKind = (typeof SIMULATION_KINDS)[number]
 /** What the new-simulation screen queues: explore jobs start from the Laboratorio. */
 export const QUEUEABLE_SIMULATION_KINDS = ['matrix', 'compare', 'optimize'] as const
@@ -1394,12 +1417,39 @@ export const replaySummarySchema = z.object({
 })
 export type ReplaySummary = z.infer<typeof replaySummarySchema>
 
+const curvePointSchema = z.object({
+  turn: z.number(),
+  ready: z.number(),
+  games: z.number(),
+  value: z.number(),
+  ci95: z.tuple([z.number(), z.number()]),
+})
+export type CurvePoint = z.infer<typeof curvePointSchema>
+const curvesSchema = z.object({
+  first: z.array(curvePointSchema),
+  second: z.array(curvePointSchema),
+  all: z.array(curvePointSchema),
+})
+export const consistencySchema = z.object({
+  deckId: z.string().nullable(),
+  deck: z.string(),
+  keyCards: z.array(z.object({ cardId: z.string(), nameEs: z.string() })),
+  bot: z.string(),
+  botEs: z.string(),
+  maxTurn: z.number(),
+  ready: curvesSchema,
+  attack: curvesSchema,
+  games: z.object({ first: z.number(), second: z.number(), all: z.number() }),
+})
+export type Consistency = z.infer<typeof consistencySchema>
+
 export const jobDetailSchema = jobSummarySchema.extend({
   snapshots: z.array(snapshotSchema),
   sideA: z.array(z.number()),
   sideB: z.array(z.number()),
   rows: z.array(matrixRowSchema),
   optimize: z.array(optimizeRowSchema).nullable(),
+  consistency: consistencySchema.nullable().default(null),
   replays: z.array(replaySummarySchema),
   chunks: z.array(
     z.object({
@@ -1524,3 +1574,137 @@ export const deckVersionSchema = z.object({
 export type DeckVersion = z.infer<typeof deckVersionSchema>
 export const deckVersionDetailSchema = deckVersionSchema.extend({ scope: scopeSchema })
 export const deckVersionsResponseSchema = z.object({ scope: scopeSchema, decks: z.array(deckVersionSchema) })
+
+// ---------- Jugar contra un bot (Fase 8) ----------
+
+export const LIVE_GAME_STATUSES = ['queued', 'running', 'waiting', 'done', 'abandoned', 'failed'] as const
+export type LiveGameStatus = (typeof LIVE_GAME_STATUSES)[number]
+
+export const liveDecisionSchema = z.object({
+  ply: z.number(),
+  turn: z.number(),
+  state: z.record(z.string(), z.unknown()),
+  actions: z.array(z.object({ i: z.number(), text: z.string(), action: z.unknown() })),
+})
+export type LiveDecision = z.infer<typeof liveDecisionSchema>
+
+export const liveLogEntrySchema = z
+  .object({
+    ply: z.number().optional(),
+    turn: z.number(),
+    actor: z.number(),
+    forced: z.boolean().optional(),
+    text: z.string(),
+    action: z.unknown(),
+    ctx: z
+      .object({
+        in_play: z.array(z.array(z.string().nullable())).optional(),
+        stadium: z.string().nullable().optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough()
+export type LiveLogEntry = z.infer<typeof liveLogEntrySchema>
+
+export const liveGameSchema = z.object({
+  id: z.number(),
+  status: z.enum(LIVE_GAME_STATUSES),
+  bot: z.string(),
+  botEs: z.string(),
+  seed: z.string(),
+  engineRev: z.string(),
+  human: z.object({ snapshot: z.number(), label: z.string(), deckId: z.string().nullable() }),
+  rival: z.object({
+    snapshot: z.number(),
+    label: z.string(),
+    deckId: z.string().nullable(),
+    listKey: z.string().nullable(),
+  }),
+  decision: liveDecisionSchema.nullable(),
+  log: z.array(liveLogEntrySchema),
+  choices: z.number(),
+  winner: z.enum(['you', 'bot', 'tie']).nullable(),
+  turns: z.number().nullable(),
+  finalState: z.record(z.string(), z.unknown()).nullable(),
+  replay: z.boolean(),
+  names: z.record(z.string(), z.string()),
+  cards: z.record(z.string(), z.object({ id: z.string(), name: z.string() })),
+  workerOnline: z.boolean(),
+  error: z.string().nullable(),
+  createdAt: isoDate,
+  updatedAt: isoDate,
+  finishedAt: nullableDate,
+})
+export type LiveGame = z.infer<typeof liveGameSchema>
+
+export const liveGamesSchema = z.object({
+  items: z.array(
+    z.object({
+      id: z.number(),
+      status: z.enum(LIVE_GAME_STATUSES),
+      botEs: z.string(),
+      human: z.string(),
+      rival: z.string(),
+      winner: z.enum(['you', 'bot', 'tie']).nullable(),
+      turns: z.number().nullable(),
+      createdAt: isoDate,
+      finishedAt: nullableDate,
+    }),
+  ),
+})
+export type LiveGameItem = z.infer<typeof liveGamesSchema>['items'][number]
+
+export type PlaySource =
+  | { deckId: string; energies?: SelectableEnergy[] }
+  | { listKey: string; era?: string; format?: TournamentFormat; energies?: SelectableEnergy[] }
+
+export interface PlayInput {
+  human: PlaySource
+  rival: PlaySource
+  bot?: string
+  seed?: number
+}
+
+// ---------- Avisos (Fase 8) ----------
+
+export const alertsSchema = z.object({
+  items: z.array(
+    z.object({
+      code: z.string(),
+      level: z.enum(['info', 'warning']),
+      title: z.string(),
+      detail: z.string(),
+      link: z.string().nullable(),
+    }),
+  ),
+})
+export type AlertItem = z.infer<typeof alertsSchema>['items'][number]
+
+// ---------- Misiones (Fase 8) ----------
+
+export const missionsSchema = z.object({
+  total: z.number(),
+  complete: z.number(),
+  expansions: z.array(z.object({ id: z.string(), nameEs: z.string(), missions: z.number() })),
+  items: z.array(
+    z.object({
+      expansionId: z.string(),
+      expansionNameEs: z.string(),
+      name: z.string(),
+      reward: z.string().nullable(),
+      secret: z.boolean(),
+      complete: z.boolean(),
+      missingCopies: z.number(),
+      slots: z.array(
+        z.object({
+          amount: z.number(),
+          have: z.number(),
+          nameEs: z.string(),
+          options: z.array(z.object({ cardId: z.string(), rarity: z.string().nullable() })),
+        }),
+      ),
+    }),
+  ),
+})
+export type Missions = z.infer<typeof missionsSchema>

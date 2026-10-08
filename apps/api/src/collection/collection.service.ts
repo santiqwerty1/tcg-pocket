@@ -17,6 +17,7 @@ import {
   diffImport,
   type ImportDiff,
   manualEdit,
+  missionProgress,
   normalizeImportRows,
   parseTrackerCsv,
   planAdjustmentConversion,
@@ -43,6 +44,7 @@ import type {
   ImportChangeView,
   ImportListItem,
   ImportPreview,
+  MissionsView,
   Page,
   StockItem,
   StockPatchResult,
@@ -150,6 +152,63 @@ export class CollectionService {
       groupsMissing: missing,
       lastImportAt: lastImport?.appliedAt ?? null,
       activeAdjustments: adjustments.length,
+    }
+  }
+
+  /**
+   * Themed-collection missions (Fase 8) against the collection: each slot with the copies owned among its options and
+   * the cards that count; by expansion (newest first), incomplete first within each.
+   */
+  async missions(query: { expansion?: string | undefined; incomplete?: boolean | undefined }): Promise<MissionsView> {
+    const index = this.catalog.requireIndex()
+    const { stock } = await this.repository.loadState()
+    const all = index.catalog.missions ?? []
+    const progress = missionProgress(
+      all.filter((mission) => !query.expansion || mission.expansionId === query.expansion),
+      index,
+      (stockCardId) => stock[stockCardId]?.amountOwned ?? 0,
+    ).filter((item) => !query.incomplete || !item.complete)
+    const order = new Map(index.catalog.expansions.map((expansion, at) => [expansion.id, at]))
+    const items = progress
+      .sort(
+        (a, b) =>
+          (order.get(b.mission.expansionId) ?? 0) - (order.get(a.mission.expansionId) ?? 0) ||
+          Number(a.complete) - Number(b.complete) ||
+          a.missingCopies - b.missingCopies,
+      )
+      .map((item) => ({
+        expansionId: item.mission.expansionId,
+        expansionNameEs: index.expansionById(item.mission.expansionId)?.nameEs ?? item.mission.expansionId,
+        name: item.mission.name,
+        reward: item.mission.reward,
+        secret: item.mission.secret,
+        complete: item.complete,
+        missingCopies: item.missingCopies,
+        slots: item.slots.map((slot) => {
+          const first = index.cardById(slot.options[0] ?? '')
+          return {
+            amount: slot.amount,
+            have: slot.have,
+            nameEs: first?.nameEs ?? slot.options[0] ?? '?',
+            options: slot.options.map((cardId) => ({ cardId, rarity: index.cardById(cardId)?.rarity ?? null })),
+          }
+        }),
+      }))
+    const expansions = [...new Set(all.map((mission) => mission.expansionId))]
+      .sort((a, b) => (order.get(b) ?? 0) - (order.get(a) ?? 0))
+      .map((id) => {
+        return {
+          id,
+          nameEs: index.expansionById(id)?.nameEs ?? id,
+          missions: all.filter((mission) => mission.expansionId === id).length,
+        }
+      })
+    return {
+      total: all.length,
+      complete: missionProgress(all, index, (unit) => stock[unit]?.amountOwned ?? 0).filter((item) => item.complete)
+        .length,
+      expansions,
+      items,
     }
   }
 

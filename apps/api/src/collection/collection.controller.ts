@@ -26,6 +26,7 @@ import type {
   CollectionSummaryView,
   ImportListItem,
   ImportPreview,
+  MissionsView,
   Page,
   StockItem,
   StockPatchResult,
@@ -70,6 +71,14 @@ const adjustmentResolveSchema = z.object({ resolution: z.enum(['user', 'csv_matc
 const adjustmentConvertSchema = z.object({ targetCardId: z.string().trim().min(1).max(20) })
 
 /** Session-protected collection API (docs/API.md «Colección»). */
+const missionsQuerySchema = z.object({
+  expansion: z
+    .string()
+    .regex(/^[A-Za-z0-9-]{1,8}$/)
+    .optional(),
+  incomplete: z.stringbool().optional(),
+})
+
 @Controller('api/collection')
 export class CollectionController {
   constructor(private readonly collection: CollectionService) {}
@@ -77,6 +86,15 @@ export class CollectionController {
   @Get('summary')
   summary(@CurrentSession() _session: RequestSession): Promise<CollectionSummaryView> {
     return this.collection.summary()
+  }
+
+  /** Themed-collection missions with what the collection has of each (Fase 8). */
+  @Get('missions')
+  missions(
+    @Query(new ZodValidationPipe(missionsQuerySchema)) query: z.infer<typeof missionsQuerySchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<MissionsView> {
+    return this.collection.missions(query)
   }
 
   @Get('groups')

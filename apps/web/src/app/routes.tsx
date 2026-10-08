@@ -5,6 +5,9 @@ import { AdjustmentsPage } from '@/pages/coleccion/AdjustmentsPage'
 import { CollectionPage } from '@/pages/coleccion/CollectionPage'
 import { ImportPage } from '@/pages/coleccion/ImportPage'
 import { ImportPreviewPage } from '@/pages/coleccion/ImportPreviewPage'
+import { MissionsPage } from '@/pages/coleccion/MissionsPage'
+import { GamePage } from '@/pages/jugar/GamePage'
+import { JugarPage } from '@/pages/jugar/JugarPage'
 import { LabJobPage } from '@/pages/laboratorio/LabJobPage'
 import { LaboratorioPage } from '@/pages/laboratorio/LaboratorioPage'
 import { AboutPage } from '@/pages/mas/AboutPage'
@@ -72,6 +75,8 @@ export const routes: RouteObject[] = [
       },
       { path: 'simulacion/:id', element: <SimulationDetailPage />, handle: handle('Simulación', '/simulacion') },
       { path: 'laboratorio', element: <LaboratorioPage />, handle: handle('Laboratorio de mazos', '/mas') },
+      { path: 'jugar', element: <JugarPage />, handle: handle('Jugar contra un bot', '/mas') },
+      { path: 'jugar/:id', element: <GamePage />, handle: handle('Partida', '/jugar') },
       { path: 'laboratorio/:id', element: <LabJobPage />, handle: handle('Laboratorio', '/laboratorio') },
 
       { path: 'coleccion', element: <CollectionPage />, handle: handle('Colección') },
@@ -82,6 +87,7 @@ export const routes: RouteObject[] = [
         handle: handle('Vista previa del import', '/coleccion/importar'),
       },
       { path: 'coleccion/ajustes', element: <AdjustmentsPage />, handle: handle('Ajustes manuales', '/coleccion') },
+      { path: 'coleccion/misiones', element: <MissionsPage />, handle: handle('Misiones de colección', '/coleccion') },
       { path: 'cartas/:cardId', element: <CardPage />, handle: handle('Carta', '/coleccion') },
       { path: 'grupos/:groupId', element: <GroupPage />, handle: handle('Carta funcional', '/coleccion') },
 

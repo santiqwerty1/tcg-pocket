@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-18 fichas: vigente 18. ⚑ = para revisar.
+19 fichas: propuesta 1 · vigente 18. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Actualizado |
 | --- | --- | --- | --- | --- |
@@ -35,3 +35,4 @@ revisar: false
 | [D-016](D-016.md) | Versión de torneo de cada mazo y Sobres apuntando a ella | vigente | — | 2026-10-08 |
 | [D-017](D-017.md) | Qué puede escribir Claude | vigente | — | 2026-10-08 |
 | [D-018](D-018.md) | Cómo mide y busca el laboratorio de mazos | vigente | — | 2026-10-08 |
+| [D-019](D-019.md) | Cómo se juega contra el bot y cómo se mide la consistencia | propuesta ⚑ | — | 2026-10-08 |

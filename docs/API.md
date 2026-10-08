@@ -68,6 +68,7 @@ GroupDetail = GroupSummary & {
 
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
+| `GET /api/collection/missions?expansion=&incomplete=` | Misiones de colección (Fase 8; datos del tracker al commit fijado, llegan con el sync del catálogo): `{ total, complete, expansions: [{ id, nameEs, missions }], items: [{ expansionId, expansionNameEs, name, reward, secret, complete, missingCopies, slots: [{ amount, have, nameEs, options: [{ cardId, rarity }] }] }] }`; `have` cuenta copias por unidad de stock entre las opciones (reimpresiones y otras artes valen; mellizas A1-1/A4b-1, una vez). Nombres y recompensas en inglés |
 | `GET /api/collection/summary` | `{ copies, stockUnitsCollected, groupsWithAtLeast: { one, two }, groupsMissing, lastImportAt, activeAdjustments }` |
 | `GET /api/collection/groups?q=&expansion=&missingOnly=&limit=&offset=` | `{ items: [{ group: GroupSummary, playable, fromStock, hasAdjustment }], total }` (vista por carta funcional) |
 | `GET /api/collection/stock?q=&expansion=&onlyOwned=&limit=&offset=` | `{ items: [{ card: CardSummary, owned, collected, twinCardIds }], total }` (vista por edición) |
@@ -268,7 +269,7 @@ Datos de Limitless (play.limitlesstcg.com) por **era** y **formato**. La era de 
 | `GET /api/tournaments/archetypes/:id?card=&minCount=1|2` | `{ scope, archetype: Row, merged: string[], lists: ListRow[] (20 más jugadas), cards: [{ groupId, nameEs, lists, share, byCopies: [0, ×1, ×2], averageCopies }], withWithout: { card, minCount, with: Row, without: Row } | null }`; `card` = id de carta funcional o de edición; `:id` = `none` para las listas sin arquetipo; `404` sin listas |
 | `PUT /api/tournaments/archetypes/:id/alias` | `{ canonicalId: string | null }`: muestra `:id` como parte de `canonicalId` (sigue cadenas); `null` lo separa |
 | `GET /api/tournaments/lists?kind=group|name&archetype=&minLists=&limit=100` | `{ scope, rows: ListRow[], total }` |
-| `GET /api/tournaments/lists/:key?kind=` | `{ scope, list: ListRow & { missing, missingCopies }, energies: string[], text (portapapeles de Limitless, también deckgym), entries: [{ tournamentId, tournamentName, date, playerName, placing, record }] }`; `400` clave inválida, `404` |
+| `GET /api/tournaments/lists/:key?kind=` | `{ scope, list: ListRow & { missing, missingCopies }, substitutes: [{ groupId, nameEs, need, have, options: [{ groupId, cardId, nameEs, reason: 'same_name'|'replaces'|'archetype', reasonEs, lists, of, have }] }] (Fase 8: por cada carta que falta, hasta 3 reemplazos que tenés), energies: string[], text (portapapeles de Limitless, también deckgym), entries: [{ tournamentId, tournamentName, date, playerName, placing, record }] }`; `400` clave inválida, `404` |
 | `GET /api/tournaments/buildable?limit=100` | `{ scope, buildable: (ListRow & { missing: [], missingCopies: 0 })[], near: (ListRow & { missing: [{ groupId, nameEs, need, have }], missingCopies: 1|2 })[] }` |
 | `GET /api/tournaments/decks/versions` | `{ scope, decks: DeckVersion[] }` de los mazos activos (sin `alternatives`) |
 | `GET /api/tournaments/decks/:id/version` | `{ scope } & DeckVersion` con hasta 3 `alternatives`; `404` si el mazo no existe |
@@ -349,6 +350,62 @@ Bots (`players`): `r` al azar, `w` al azar ponderado, `aa` adjunta y ataca, `et`
 | `PUT /api/worker/chunks/:id/replays/:gameId?index=&seed=&winner=` | Cuerpo: el JSON de la repetición en gzip (`application/gzip`, hasta 8 MB) → `{ id }` |
 | `PUT /api/worker/engine-status` | `{ engineRev, cards: [{ id, name, status, complete }] }` (salida de `engine-cli status`) → `{ cards, incomplete }` |
 
+### Consistencia (Fase 8)
+
+| Método y ruta | Cuerpo / respuesta |
+|---|---|
+| `POST /api/simulations/consistency` | `{ deckId, keyCards?: cardId[], games? (1000, 10–10.000), bot? (e2), seed? }` → `201 JobSummary` (`kind: 'consistency'`, un chunk, `players: [bot, 'et']`); sin `keyCards`, el Pokémon del mazo que más puntos da (todas sus ediciones); `422 not_simulable`, `400` si las cartas clave no están en el mazo |
+| `GET /api/simulations/consistency/deck/:deckId` | `{ result: { job: JobDetail, consistency: Consistency } | null }`: la última medición terminada del mazo (cualquier revisión) |
+
+```ts
+Consistency = { deckId, deck, keyCards: [{ cardId, nameEs }], bot, botEs, maxTurn, games: { first, second, all },
+                ready: { first: Curve, second: Curve, all: Curve },    // atacante clave en juego con energía para un ataque
+                attack: { first: Curve, second: Curve, all: Curve } }  // activo y con un ataque posible
+Curve = [{ turn (turno propio 1…), ready, games, value (0–100), ci95 }]   // acumulada: P(listo en el turno propio ≤ N), Wilson 95 %
+```
+
+`JobDetail.consistency` trae lo mismo en el detalle de la simulación. Partidas «goldfish»: el mazo lo juega el bot sin elegir atacar y el rival es el mismo mazo con `et` (solo termina el turno), así la partida dura y se mide cómo se arma la lista. El worker solo recibe estos chunks desde la versión 0.2.0.
+
+## Jugar contra un bot (Fase 8)
+
+La partida corre en el worker de la PC (`engine-cli play`); la app muestra cada decisión y manda tu elección. Está determinada por su semilla y tus elecciones: si el worker se reinicia, otro la toma (el lease vence a los 3 min) y la reconstruye mandando las elecciones ya hechas.
+
+| Método y ruta | Cuerpo / respuesta |
+|---|---|
+| `GET /api/play` | `{ items: [{ id, status, botEs, human, rival, winner, turns, createdAt, finishedAt }] }` (30 más recientes; las que llevan 3 días sin movimiento pasan a `abandoned`) |
+| `POST /api/play` | `{ human: Source, rival: Source, bot? (e2), seed? }` → `201 LiveGame`; `400 not_simulable` si un mazo no se puede jugar |
+| `GET /api/play/:id` | `LiveGame` |
+| `POST /api/play/:id/choice` | `{ ply, i }` → `LiveGame`; `409 not_your_turn` / `stale_decision`, `400` opción inexistente |
+| `POST /api/play/:id/abandon` | `LiveGame` (el worker corta el motor en su próximo long-poll) |
+| `GET /api/play/:id/replay/raw` | La repetición de la partida terminada (para `/viewer/index.html?url=…`) |
+
+```ts
+LiveGame = { id, status: 'queued'|'running'|'waiting'|'done'|'abandoned'|'failed', bot, botEs, seed, engineRev,
+             human: { snapshot, label, deckId }, rival: { snapshot, label, deckId, listKey },
+             decision: { ply, turn, state: ViewState (lo que ve tu asiento: la mano del bot oculta), actions: [{ i, text, action }] } | null,
+             log: [{ ply, turn, actor (0 vos, 1 bot), forced, text, action, ctx: { in_play: [[cardId|null]×4]×2, stadium } }],
+             choices, winner: 'you'|'bot'|'tie'|null, turns, finalState, replay: boolean,
+             names: { [engineId]: nombre en español }, cards: { [engineId]: { id, name (inglés) } },
+             workerOnline, error, createdAt, updatedAt, finishedAt }
+```
+
+Worker (`Bearer tcg_wk_…`, scope `worker:claim`):
+
+| Método y ruta | Cuerpo / respuesta |
+|---|---|
+| `POST /api/worker/live/claim` | `{ workerId, engineRev }` → long-poll de hasta 25 s → `{ game: { id, deckHuman, deckBot, bot, seed, choices } | null }` (una nueva, o una cuyo worker se fue) |
+| `PUT /api/worker/live/:id/decision` | `{ workerId, ply, turn, state, actions, log }` → `{ choice | null, status }` (`choice` ya está si la partida se reconstruye o la elegiste con la PC apagada) |
+| `POST /api/worker/live/:id/choice` | `{ workerId, ply }` → long-poll de hasta 25 s → `{ choice | null, status }`; renueva el lease; `status: abandoned` corta |
+| `PUT /api/worker/live/:id/end` | `{ workerId, winner, turns, state, log }` → `{ ok }` |
+| `PUT /api/worker/live/:id/failure` | `{ workerId, error }` → `{ ok }` |
+| `PUT /api/worker/live/:id/replay?workerId=` | La repetición en gzip → `{ ok }` |
+
+## Avisos (Fase 8)
+
+| Método y ruta | Cuerpo / respuesta |
+|---|---|
+| `GET /api/alerts` | `{ items: [{ code: 'new_set'|'unknown_cards'|'new_era_likely'|'limited_pack'|'engine_update', level: 'info'|'warning', title, detail, link }] }`: set nuevo en el `main` del tracker que el catálogo fijado no tiene (cada 12 h, en producción, `TRACKER_UPSTREAM_CHECK`), listas de la era con cartas que el catálogo no conoce, era nueva probable (35 días), sobre limitado en su última semana, commits nuevos de deckgym |
+
 ## Laboratorio de mazos (T-008)
 
 Probar mazos (míos, de torneo o pegados) contra el **banco del meta** y buscar variantes automáticamente. El banco: los N arquetipos más jugados de la era (5–20, 15 por defecto), cada uno con su lista representativa (la misma regla que la «versión de torneo»: entre las listas repetidas 5 veces o más, la de mejor piso del intervalo; si ninguna, la más jugada) y un **peso** = su cuota de listas normalizada sobre el banco. Una lista que el motor no puede simular cede su lugar a la siguiente del arquetipo (hasta 3) o el arquetipo se saltea. El **puntaje contra el meta** es el % de victorias contra cada rival ponderado por su peso (`W / (W + L + T)` por rival), con un intervalo aproximado (normal sobre las tasas por rival, cada una suavizada +2/+4 para su varianza). Juegan bots: es una pista, nunca se mezcla con torneos ni partidas propias.
@@ -384,7 +441,7 @@ LabJob = { job: JobSummary, mode: 'test'|'explore', era, format, size,
 
 `POST /api/mcp`: servidor MCP remoto, Streamable HTTP, sin sesiones, con el SDK v2 (`@modelcontextprotocol/server` 2.3.1). Atiende las dos eras del protocolo en el mismo endpoint: 2026-07-28 y la de 2025 con `initialize` (la que usan hoy las apps de Claude y Claude Code). `GET` y `DELETE` responden `405`. Autenticación: `Authorization: Bearer tcg_mcp_…` con scope `mcp:read` (`401` sin token o con uno inválido o revocado, `403` con un token de worker); la cookie de sesión no sirve acá.
 
-Tools de lectura (nombres con `_` porque la API de Claude no acepta `.`): `collection_summary`, `cards_search`, `collection_playable_copies`, `collection_editions`, `decks_list`, `decks_get` (incluye `bestVersions`), `decks_find_by_card`, `decks_validate`, `decks_missing`, `decks_closest`, `decks_random`, `matches_stats`, `matches_list` y `packs_recommend` (Fase 4: la misma recomendación, resumida, con lo guardado en la app por defecto; dice el último día de los sobres limitados, lo que solo dan ellos, el mejor sobre cuando terminen y cuándo intercambiar). Torneos (Fase 5): `tournaments_stats` (por arquetipo o lista exacta; con `archetype` el detalle y con `card` el récord con y sin esa carta), `tournaments_buildable` (listas que se pueden armar hoy y las que quedan a 1 o 2 copias) y `tournaments_unlock_cards` (qué carta sola destraba más listas), todas con la era, la media de la era y la atribución a Limitless. Simulación (Fase 6): `simulations_results` (trabajos recientes; con `job`, el ranking de mazos o las combinaciones de optimizar; con `deck`, la columna «simulación» del mazo y, junto con `job`, sus cruces), siempre con bots, n, semilla y motor. Laboratorio (T-008): `lab_meta_bank` (el banco del meta con pesos y listas) y `lab_results` (pruebas y búsquedas; con `job`, cada lista con su puntaje contra el meta, cruces, cambios, novedad y las rondas). Todas devuelven JSON compacto en `content[0].text` y el mismo objeto en `structuredContent`; los errores esperables (carta o mazo inexistente, entrada inválida) vuelven como `isError: true` con el mensaje en español. Cada porcentaje trae `text` con el formato canónico «70 % (n = 10, IC 39,7–89,2 %, orientativo)». Un mazo se indica por su número («13», «mazo 13»: el número con que empieza el nombre o, si no, el id), o por parte del nombre.
+Tools de lectura (nombres con `_` porque la API de Claude no acepta `.`): `collection_summary`, `cards_search`, `collection_playable_copies`, `collection_editions`, `decks_list`, `decks_get` (incluye `bestVersions`), `decks_find_by_card`, `decks_validate`, `decks_missing`, `decks_closest`, `decks_random`, `matches_stats`, `matches_list` y `packs_recommend` (Fase 4: la misma recomendación, resumida, con lo guardado en la app por defecto; dice el último día de los sobres limitados, lo que solo dan ellos, el mejor sobre cuando terminen y cuándo intercambiar). Torneos (Fase 5): `tournaments_stats` (por arquetipo o lista exacta; con `archetype` el detalle y con `card` el récord con y sin esa carta), `tournaments_buildable` (listas que se pueden armar hoy y las que quedan a 1 o 2 copias) y `tournaments_unlock_cards` (qué carta sola destraba más listas), todas con la era, la media de la era y la atribución a Limitless. Simulación (Fase 6): `simulations_results` (trabajos recientes; con `job`, el ranking de mazos o las combinaciones de optimizar; con `deck`, la columna «simulación» del mazo y, junto con `job`, sus cruces), siempre con bots, n, semilla y motor. Misiones (Fase 8): `collection_missions` (misiones de colección con lo que falta). `tournaments_buildable` suma, para las listas a 1 o 2 copias, con qué reemplazar cada carta que falta. Laboratorio (T-008): `lab_meta_bank` (el banco del meta con pesos y listas) y `lab_results` (pruebas y búsquedas; con `job`, cada lista con su puntaje contra el meta, cruces, cambios, novedad y las rondas). Todas devuelven JSON compacto en `content[0].text` y el mismo objeto en `structuredContent`; los errores esperables (carta o mazo inexistente, entrada inválida) vuelven como `isError: true` con el mensaje en español. Cada porcentaje trae `text` con el formato canónico «70 % (n = 10, IC 39,7–89,2 %, orientativo)». Un mazo se indica por su número («13», «mazo 13»: el número con que empieza el nombre o, si no, el id), o por parte del nombre.
 
 Tools de escritura (Fase 7), solo para un token con `mcp:write` (con `mcp:read` solo, ni aparecen en `tools/list`; las instrucciones del servidor suman las reglas de escritura):
 

@@ -80,9 +80,40 @@ export function ListPage() {
         {list.missing.length === 0 ? (
           <p className="text-sm text-success">La podés armar con tu colección.</p>
         ) : (
-          <p className="text-sm text-warning">
-            Te falta: {list.missing.map((item) => `${item.need - item.have} ${item.nameEs}`).join(', ')}.
-          </p>
+          <div className="flex flex-col gap-1.5">
+            <p className="text-sm text-warning">
+              Te falta: {list.missing.map((item) => `${item.need - item.have} ${item.nameEs}`).join(', ')}.
+            </p>
+            {detail.data.substitutes.map((item) => (
+              <div key={item.groupId} className="rounded-md border px-3 py-2 text-sm">
+                <p className="font-medium">
+                  En lugar de {item.need - item.have === 1 ? '' : `${item.need - item.have} `}
+                  {item.nameEs}
+                </p>
+                {item.options.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No encontré un reemplazo que tengas.</p>
+                ) : (
+                  <ul className="flex flex-col gap-0.5">
+                    {item.options.map((option) => (
+                      <li key={option.groupId} className="text-xs">
+                        <Link
+                          to={`/cartas/${encodeURIComponent(option.cardId)}`}
+                          className="font-medium hover:underline"
+                        >
+                          {option.nameEs}
+                        </Link>{' '}
+                        <span className="font-mono text-muted-foreground">{option.cardId}</span>
+                        <span className="text-muted-foreground">
+                          {' '}
+                          · {option.reasonEs} · tenés {option.have}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
         )}
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" onClick={copy}>

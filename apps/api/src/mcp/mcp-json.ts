@@ -26,7 +26,13 @@ export function jobSummaryJson(job: JobSummaryView): Json {
   return {
     id: job.id,
     label: job.label,
-    kind: { matrix: 'matriz', compare: 'comparar', optimize: 'optimizar', explore: 'explorar (laboratorio)' }[job.kind],
+    kind: {
+      matrix: 'matriz',
+      compare: 'comparar',
+      optimize: 'optimizar',
+      explore: 'explorar (laboratorio)',
+      consistency: 'consistencia',
+    }[job.kind],
     status: { queued: 'en cola', running: 'corriendo', done: 'terminada', failed: 'falló', cancelled: 'cancelada' }[
       job.status
     ],

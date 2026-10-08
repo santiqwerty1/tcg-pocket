@@ -30,7 +30,7 @@ export interface ClaimedChunk {
   chunkId: number
   jobId: number
   /** explore chunks are plain pairings (deckA against deckB) like matrix and compare. */
-  kind: 'matrix' | 'compare' | 'optimize' | 'explore'
+  kind: 'matrix' | 'compare' | 'optimize' | 'explore' | 'consistency'
   idx: number
   games: number
   firstGame: number
@@ -44,7 +44,12 @@ export interface ClaimedChunk {
   deckB: string | null
   /** optimize: the engine-cli optimize job without seed/threads. */
   optimize: Prisma.JsonValue | null
+  /** consistency: the key cards (engine ids), own turns reported and the deck's bot. */
+  consistency: { keyCards: string[]; maxTurn: number; bot: string } | null
 }
+
+/** Workers older than this do not know consistency chunks (they would play them as a pairing). */
+export const CONSISTENCY_WORKER_VERSION = '0.2.0'
 
 export interface ChunkResultInput {
   workerId: string
@@ -119,6 +124,7 @@ export class WorkerQueueService {
       WHERE id = (
         SELECT c.id FROM simulation_chunks c JOIN simulation_jobs j ON j.id = c.job_id
         WHERE j.status IN ('queued', 'running') AND j.engine_rev = ${hello.engineRev}
+          AND (j.kind <> 'consistency' OR ${hello.version ?? '0'} >= ${CONSISTENCY_WORKER_VERSION})
           AND (c.status = 'queued' OR (c.status = 'leased' AND c.lease_until < now()))
         ORDER BY (SELECT count(*) FROM simulation_chunks r
                   WHERE r.job_id = j.id AND r.status IN ('queued', 'leased')), j.created_at, j.id, c.idx
@@ -156,6 +162,19 @@ export class WorkerQueueService {
       optimize:
         chunk.job.kind === 'optimize'
           ? ((chunk.job.params as { engineJob?: Prisma.JsonValue }).engineJob ?? null)
+          : null,
+      consistency:
+        chunk.job.kind === 'consistency'
+          ? (() => {
+              const params = (
+                chunk.job.params as { consistency?: { engineIds?: string[]; maxTurn?: number; bot?: string } }
+              ).consistency
+              return {
+                keyCards: params?.engineIds ?? [],
+                maxTurn: params?.maxTurn ?? 8,
+                bot: params?.bot ?? chunk.job.players[0] ?? 'e2',
+              }
+            })()
           : null,
     }
   }

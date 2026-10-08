@@ -293,6 +293,7 @@ name = "engine-cli"
 version = "0.1.0"
 dependencies = [
  "deckgym",
+ "rand",
  "rayon",
  "serde",
  "serde_json",

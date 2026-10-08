@@ -27,14 +27,14 @@ revisar: false
 | 6.1 | Versión de torneo de cada mazo (pedido del 08/10) | hecho 08/10 · propuesto | 6 | [D-016](Decisiones/D-016.md) |
 | 7 | Claude de escritura (M8 parte 2) | hecho 08/10 · falta probarla desde el celu ([T-009](Tareas/T-009.md)) y tu visto bueno | 6 | [D-017](Decisiones/D-017.md) |
 | 7.1 | Laboratorio de mazos (pedido del 08/10) | hecho 08/10 · desplegado (`dc2dcad`) · falta tu visto bueno | 7 | [T-008](Tareas/T-008.md), [D-018](Decisiones/D-018.md) |
-| 8 | Jugar contra un bot, consistencia | abierto | 7.1 | [PLAN](../../docs/PLAN.md) |
+| 8 | Jugar contra un bot, consistencia, sustitutos, avisos y misiones | hecho 08/10 · probado en la demo · falta subir, desplegar y tu visto bueno | 7.1 | [T-011](Tareas/T-011.md), [D-019](Decisiones/D-019.md) |
 | K | Bóveda con el kit de Posta | hecho 07/10 · propuesto | — | [D-009](Decisiones/D-009.md) |
 
 ## Próximos pasos
 
 1. Probar la Fase 7 desde el celu ([T-009](Tareas/T-009.md)) y dar el visto bueno.
 2. Probar el laboratorio de mazos en producción ([T-008](Tareas/T-008.md)) y revisar cómo mide y busca ([D-018](Decisiones/D-018.md)).
-3. Fase 8: jugar contra un bot desde el celu y consistencia de cada mazo (pedido el 08/10).
+3. Probar la Fase 8 desde el celu ([T-011](Tareas/T-011.md)) y revisar [D-019](Decisiones/D-019.md).
 
 ## Pendiente de decidir (para después)
 
@@ -44,3 +44,5 @@ Decididas por Santiago el 08/10/2026: D-007, D-008, D-009, D-011, D-012, D-013, 
 |---|---|---|
 | [T-009](Tareas/T-009.md) | Probar la Fase 7 desde el celu y Claude Code | probada en tests de integración |
 | [T-008](Tareas/T-008.md) | Probar el laboratorio en producción | desplegado; probado en la demo con el motor real |
+| [T-011](Tareas/T-011.md) | Probar la Fase 8 desde el celu | probada en la demo con el motor real |
+| [D-019](Decisiones/D-019.md) | Cómo se juega contra el bot y cómo se mide la consistencia | implementado así |

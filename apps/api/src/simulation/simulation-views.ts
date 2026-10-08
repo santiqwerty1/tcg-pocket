@@ -66,12 +66,35 @@ export interface OptimizeRowView {
   perEnemy: { snapshot: number; record: GameRecord; rate: WinRate | null }[]
 }
 
+export interface ConsistencyCurveView {
+  turn: number
+  ready: number
+  games: number
+  value: number
+  ci95: [number, number]
+}
+
+/** A consistency job's result: P(ready by own turn N) going first, second and both (Fase 8). */
+export interface ConsistencyView {
+  deckId: string | null
+  deck: string
+  keyCards: { cardId: string; nameEs: string }[]
+  bot: string
+  botEs: string
+  maxTurn: number
+  ready: { first: ConsistencyCurveView[]; second: ConsistencyCurveView[]; all: ConsistencyCurveView[] }
+  attack: { first: ConsistencyCurveView[]; second: ConsistencyCurveView[]; all: ConsistencyCurveView[] }
+  games: { first: number; second: number; all: number }
+}
+
 export interface JobDetailView extends JobSummaryView {
   snapshots: SnapshotView[]
   sideA: number[]
   sideB: number[]
   rows: MatrixRowView[]
   optimize: OptimizeRowView[] | null
+  /** consistency jobs: the curves (null until it finished). */
+  consistency: ConsistencyView | null
   replays: ReplaySummaryView[]
   chunks: {
     id: number

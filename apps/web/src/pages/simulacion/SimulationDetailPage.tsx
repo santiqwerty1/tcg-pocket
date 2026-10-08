@@ -13,6 +13,7 @@ import type { JobDetail, JobSummary, Snapshot } from '@/api/schemas'
 import { jobSummarySchema } from '@/api/schemas'
 import { simulationKeys, useCancelSimulation, useDeleteSimulation, useSimulation } from '@/api/simulations'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConsistencyTable } from '@/components/ConsistencyTable'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { OrientativeBadge, RateDetails } from '@/components/RateSummary'
 import { SearchBox } from '@/components/SearchBox'
@@ -493,7 +494,20 @@ export function SimulationDetailPage() {
         ]}
       />
 
-      <Section title={current.kind === 'optimize' ? 'Combinaciones' : 'Resultados'}>
+      {current.kind === 'consistency' ? (
+        <Section title="¿En qué turno está listo?">
+          {current.consistency ? (
+            <ConsistencyTable data={current.consistency} turns={current.consistency.maxTurn} />
+          ) : (
+            <p className="text-sm text-muted-foreground">Todavía no terminó.</p>
+          )}
+        </Section>
+      ) : null}
+
+      <Section
+        title={current.kind === 'optimize' ? 'Combinaciones' : 'Resultados'}
+        className={current.kind === 'consistency' ? 'hidden' : undefined}
+      >
         <p className="text-xs text-muted-foreground">
           Victorias, derrotas y empates por separado; el porcentaje es victorias sobre partidas (un empate no suma) con
           su intervalo de Wilson al 95 %. Depende del bot ({current.playersEs.join(' vs ')}).

@@ -4,9 +4,9 @@
  * (`--from-fixtures`, offline and in tests). Every file is hashed (sha256) for the `catalog_syncs` record.
  */
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { type BuildCatalogInput, engineCardsFromDatabaseJson } from '@tcg/domain'
+import { type BuildCatalogInput, engineCardsFromDatabaseJson, parseExpansionIds } from '@tcg/domain'
 import { REPO_ROOT } from '../config/dotenv.js'
 
 export const TRACKER_RAW_BASE = 'https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker'
@@ -38,6 +38,9 @@ export const FIXTURE_PATHS: Record<TrackerFileKey, string> = {
   esPacks: 'tracker/es-ES.packs.json',
 }
 export const FIXTURE_ENGINE_PATH = 'deckgym/engine-cards.json'
+/** Missions (themed collections, Fase 8): one file per expansion that has them. */
+export const MISSIONS_DIR = 'frontend/assets/themed-collections'
+export const FIXTURE_MISSIONS_DIR = 'tracker/themed-collections'
 export const DEFAULT_FIXTURES_DIR = resolve(REPO_ROOT, 'packages/domain/test/fixtures')
 
 export interface SourceFile {
@@ -86,6 +89,7 @@ function assemble(
   texts: Record<TrackerFileKey, string>,
   engineCards: unknown,
   files: Record<string, SourceFile>,
+  missions: Record<string, unknown> = {},
 ): CatalogSources {
   const input: BuildCatalogInput = {
     cardsJson: parseJson(texts.cardsJson, TRACKER_PATHS.cardsJson),
@@ -101,6 +105,7 @@ function assemble(
     engineCards,
     trackerCommit: pins.trackerCommit,
     engineRev: pins.engineRev,
+    missions,
   }
   return { input, files }
 }
@@ -128,7 +133,20 @@ export async function fetchCatalogSources(pins: CatalogPins, fetchImpl: FetchLik
   files.engine = fileRecord(ENGINE_PATH, engineText)
   // Same reduction as scripts/extract-fixtures.mjs, so fixtures and live data produce identical catalogs.
   const engineCards = engineCardsFromDatabaseJson(parseJson(engineText, ENGINE_PATH))
-  return assemble(pins, texts, engineCards, files)
+  // Missions: one optional file per expansion (a 404 means the expansion has none).
+  const missions: Record<string, unknown> = {}
+  await Promise.all(
+    parseExpansionIds(texts.typesIndex).map(async (id) => {
+      const path = `${MISSIONS_DIR}/${id}-missions.json`
+      const response = await fetchImpl(`${TRACKER_RAW_BASE}/${pins.trackerCommit}/${path}`)
+      if (response.status === 404) return
+      if (!response.ok) throw new CatalogSourceError(`HTTP ${response.status} fetching ${path}`)
+      const text = await response.text()
+      missions[id] = parseJson(text, path)
+      files[`missions:${id}`] = fileRecord(path, text)
+    }),
+  )
+  return assemble(pins, texts, engineCards, files, missions)
 }
 
 /** Reads the same files from packages/domain/test/fixtures (already reduced engine data). */
@@ -149,5 +167,17 @@ export function readFixtureSources(pins: CatalogPins, fixturesDir: string = DEFA
   }
   const engineText = read(FIXTURE_ENGINE_PATH)
   files.engine = fileRecord(FIXTURE_ENGINE_PATH, engineText)
-  return assemble(pins, texts, parseJson(engineText, FIXTURE_ENGINE_PATH), files)
+  const missions: Record<string, unknown> = {}
+  const missionsDir = join(fixturesDir, FIXTURE_MISSIONS_DIR)
+  if (existsSync(missionsDir)) {
+    for (const file of readdirSync(missionsDir)
+      .filter((name) => name.endsWith('-missions.json'))
+      .sort()) {
+      const text = read(`${FIXTURE_MISSIONS_DIR}/${file}`)
+      const id = file.replace(/-missions\.json$/, '')
+      missions[id] = parseJson(text, file)
+      files[`missions:${id}`] = fileRecord(`${FIXTURE_MISSIONS_DIR}/${file}`, text)
+    }
+  }
+  return assemble(pins, texts, parseJson(engineText, FIXTURE_ENGINE_PATH), files, missions)
 }

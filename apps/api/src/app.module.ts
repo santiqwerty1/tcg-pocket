@@ -1,6 +1,7 @@
 import { type DynamicModule, type MiddlewareConsumer, Module, type NestModule } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
 import { ScheduleModule } from '@nestjs/schedule'
+import { AlertsModule } from './alerts/alerts.controller.js'
 import { AuthModule } from './auth/auth.module.js'
 import { BackupModule } from './backup/backup.module.js'
 import { CatalogModule } from './catalog/catalog.module.js'
@@ -17,6 +18,7 @@ import { loggerModule } from './logging/logger.module.js'
 import { MatchesModule } from './matches/matches.module.js'
 import { McpModule } from './mcp/mcp.module.js'
 import { PacksModule } from './packs/packs.controller.js'
+import { PlayModule } from './play/play.controller.js'
 import { PrismaModule } from './prisma/prisma.module.js'
 import { SettingsModule } from './settings/settings.module.js'
 import { SimulationModule } from './simulation/simulation.controller.js'
@@ -51,6 +53,8 @@ export class AppModule implements NestModule {
         HttpModule,
         SimulationModule,
         LabModule,
+        PlayModule,
+        AlertsModule,
         McpModule,
         WebModule,
       ],

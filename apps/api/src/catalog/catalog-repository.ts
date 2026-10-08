@@ -17,6 +17,7 @@ import type {
   EvolutionType,
   Expansion,
   FunctionalGroup,
+  Mission,
   NameEsSource,
   Pack,
   Rarity,
@@ -60,6 +61,8 @@ export interface SyncOutcome {
   status: Extract<CatalogSyncStatus, 'applied' | 'needs_review'>
   counts: BuildCounts
   craftingCost: CraftingCost
+  /** Themed-collection missions (Fase 8). */
+  missions: Mission[]
   report: unknown
   changes: readonly SyncChangeRow[]
 }
@@ -306,7 +309,8 @@ export class CatalogRepository {
       )
       await client.query(
         `UPDATE "catalog_syncs"
-           SET "status" = $2::"catalog_sync_status", "applied_at" = now(), "counts" = $3, "crafting_cost" = $4, "report" = $5
+           SET "status" = $2::"catalog_sync_status", "applied_at" = now(), "counts" = $3, "crafting_cost" = $4, "report" = $5,
+               "missions" = $6
          WHERE "id" = $1`,
         [
           outcome.syncId,
@@ -314,6 +318,7 @@ export class CatalogRepository {
           json({ ...outcome.counts, deleted }),
           json(outcome.craftingCost),
           json(outcome.report),
+          json(outcome.missions),
         ],
       )
 
@@ -472,6 +477,7 @@ export class CatalogRepository {
       groups,
       stockUnits: [...stockUnitsById.values()],
       craftingCost: (sync.craftingCost ?? {}) as CraftingCost,
+      missions: (sync.missions ?? []) as unknown as Mission[],
     }
     return { catalog, sync }
   }

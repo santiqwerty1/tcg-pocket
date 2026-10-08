@@ -164,6 +164,7 @@ export class CatalogSyncService implements OnModuleInit {
         status,
         counts: report.counts,
         craftingCost: catalog.craftingCost,
+        missions: catalog.missions ?? [],
         report: {
           build: { ...report, warnings },
           diff: diff ? { counts: diffCounts(diff), detail: diff } : null,

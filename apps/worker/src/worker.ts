@@ -12,8 +12,10 @@ import { gzipSync } from 'node:zlib'
 import { ApiError, type Chunk, type ChunkResult, type Log, type WorkerClient } from './client.js'
 import type { WorkerConfig } from './config.js'
 import { EngineError, engineStatus, engineVersion, runJob } from './engine.js'
+import { LiveRunner } from './live.js'
 
-export const WORKER_VERSION = '0.1.0'
+/** 0.2.0: games against a bot and consistency chunks (Fase 8); the app gives consistency chunks only from 0.2.0 on. */
+export const WORKER_VERSION = '0.2.0'
 const HEARTBEAT_MS = 30_000
 
 interface SimulateResult {
@@ -31,6 +33,20 @@ interface OptimizeResult {
   engineRev: string
   durationMs: number
   combinations: { cards: string[]; winsA: number; winsB: number; ties: number; games: number; turns: number }[]
+}
+
+interface TurnHistogram {
+  games: number
+  firstOnTurn: number[]
+  never: number
+}
+
+interface ConsistencyResult {
+  engineRev: string
+  durationMs: number
+  games: number
+  ready: { first: TurnHistogram; second: TurnHistogram }
+  attack: { first: TurnHistogram; second: TurnHistogram }
 }
 
 interface PendingUpload {
@@ -182,6 +198,40 @@ export class Worker {
           dir,
         }
       }
+      if (chunk.kind === 'consistency') {
+        const { result, dir } = await runJob<ConsistencyResult>(
+          this.config.enginePath,
+          'consistency',
+          {
+            deck: chunk.deckA,
+            keyCards: chunk.consistency?.keyCards ?? [],
+            bot: chunk.consistency?.bot ?? 'e2',
+            maxTurn: chunk.consistency?.maxTurn ?? 8,
+            games: chunk.games,
+            seed: Number(chunk.seed),
+            threads,
+          },
+          this.workDir,
+          { signal: controller.signal, onProgress: track },
+        )
+        // The tallies the queue keeps: games ready by the last turn reported, and games never ready.
+        const never = result.ready.first.never + result.ready.second.never
+        return {
+          chunkId: chunk.chunkId,
+          result: {
+            workerId: this.config.workerId,
+            engineRev: result.engineRev,
+            winsA: result.games - never,
+            winsB: never,
+            ties: 0,
+            games: result.games,
+            durationMs: result.durationMs,
+            extra: { ready: result.ready, attack: result.attack },
+          },
+          replays: [],
+          dir,
+        }
+      }
       const { result, dir } = await runJob<SimulateResult>(
         this.config.enginePath,
         'simulate',
@@ -242,6 +292,10 @@ export class Worker {
       cores: this.config.cores,
       name: this.config.name,
     })
+    // Games against a bot run next to the chunks (they wait on the owner most of the time).
+    const live = options.once
+      ? null
+      : new LiveRunner(this.config, this.client, this.log, this.workDir).start(engineRev, signal)
     while (!signal.aborted) {
       let claim: Awaited<ReturnType<WorkerClient['claim']>>
       try {
@@ -292,6 +346,7 @@ export class Worker {
       }
       if (options.once) return
     }
+    await live
   }
 
   /** Removes work folders left by a crash (results are in state.json, folders without one are useless). */

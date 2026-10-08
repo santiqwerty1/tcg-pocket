@@ -26,6 +26,7 @@ import {
   type StoredEntry,
   type StoredTournament,
   standingsIncomplete,
+  substitutesFor,
   TOURNAMENT_VERSION_MIN_LISTS,
   totalRecord,
   tournamentVersion,
@@ -240,6 +241,36 @@ describe('lists against the 6/10 collection', () => {
       expect(card.copies).toBeGreaterThanOrEqual(1)
       expect(card.rate?.sampleKind).toBe('lists')
     }
+  })
+
+  it('an incomplete list names each missing card and substitutes the collection has (PLAN Fase 8)', () => {
+    const lookup = (groupId: string) => playable.get(groupId) ?? 0
+    const near = rows.filter((row) => row.missing.length > 0 && row.missingCopies <= 2).slice(0, 10)
+    expect(near.length).toBeGreaterThan(0)
+    let withOptions = 0
+    for (const row of near) {
+      const result = substitutesFor(dataset, row.list.archetypeId, row.list.groups, index, lookup)
+      expect(result.map((item) => item.groupId).sort()).toEqual(row.missing.map((item) => item.groupId).sort())
+      for (const item of result) {
+        const missing = index.cardById(index.groupById(item.groupId)?.displayCardId ?? '')
+        expect(item.options.length).toBeLessThanOrEqual(3)
+        for (const option of item.options) {
+          const card = index.cardById(index.groupById(option.groupId)?.displayCardId ?? '')
+          // Same kind, owned with a spare copy, never the missing card itself.
+          expect(card?.cardType).toBe(missing?.cardType)
+          expect(option.groupId).not.toBe(item.groupId)
+          expect(lookup(option.groupId)).toBeGreaterThan(row.list.groups.get(option.groupId) ?? 0)
+          if (option.reason === 'same_name') expect(card?.nameEn).toBe(missing?.nameEn)
+          if (option.reason === 'replaces') expect(option.lists).toBeGreaterThan(0)
+        }
+        if (item.options.length > 0) withOptions++
+      }
+    }
+    expect(withOptions).toBeGreaterThan(0)
+    // A list the collection already has needs no substitutes.
+    const complete = rows.find((row) => row.missing.length === 0)
+    if (complete)
+      expect(substitutesFor(dataset, complete.list.archetypeId, complete.list.groups, index, lookup)).toEqual([])
   })
 
   it('deck 2 (Mega-Blaziken ex): keys of its list and an archetype guessed from the closest lists', () => {

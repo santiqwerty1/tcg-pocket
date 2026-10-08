@@ -8,7 +8,9 @@
  *   (450 internal ids map to 2–3 cards); id = earliest card; `displayCardId` = earliest card whose internal id is
  *   `alternate_versions[0]` (the tracker's deck-building id, including its 3 overrides).
  */
+
 import { type EngineConflict, joinEngineData, trackerIdToEngineId } from './engine.js'
+import { type Mission, parseMissions } from './missions.js'
 import { cardNameEs, type NameTranslations } from './names.js'
 import {
   buildSearchText,
@@ -66,6 +68,8 @@ export interface BuildCatalogInput {
   engineCards: unknown
   trackerCommit: string
   engineRev: string
+  /** `assets/themed-collections/<expansion>-missions.json`, parsed, by expansion id (Fase 8). Optional. */
+  missions?: Record<string, unknown> | undefined
 }
 
 export interface BuildCounts {
@@ -86,6 +90,8 @@ export interface BuildCounts {
   damageNoiseAttacks: number
   /** Trainer effects that carried the 'Illustrated by' tail. */
   cleanedTrainerEffects: number
+  /** Themed-collection missions kept (Fase 8). */
+  missions: number
 }
 
 export interface BuildReport {
@@ -296,6 +302,7 @@ export function buildCatalogWithReport(input: BuildCatalogInput): BuildResult {
     noCostAttacks: 0,
     damageNoiseAttacks: 0,
     cleanedTrainerEffects: 0,
+    missions: 0,
   }
   const nameFallbacks: CardId[] = []
   const editions: CardEdition[] = cards.map((raw, index) => {
@@ -462,6 +469,15 @@ export function buildCatalogWithReport(input: BuildCatalogInput): BuildResult {
   counts.expansions = expansions.length
   counts.packs = packs.length
 
+  const knownCards = new Set(editions.map((card) => card.id))
+  const missions: Mission[] = []
+  for (const [expansionId, raw] of Object.entries(input.missions ?? {})) {
+    const parsed = parseMissions(raw, (cardId) => knownCards.has(cardId))
+    missions.push(...parsed.missions)
+    for (const warning of parsed.warnings) warnings.push(`${expansionId} ${warning}`)
+  }
+  counts.missions = missions.length
+
   const catalog: Catalog = {
     trackerCommit: input.trackerCommit,
     engineRev: input.engineRev,
@@ -471,6 +487,7 @@ export function buildCatalogWithReport(input: BuildCatalogInput): BuildResult {
     groups,
     stockUnits,
     craftingCost,
+    missions,
   }
   const report: BuildReport = {
     trackerCommit: input.trackerCommit,

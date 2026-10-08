@@ -1,4 +1,11 @@
-import { type QueryClient, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  type QueryClient,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { downloadFile, request } from './client'
 import {
   adjustmentsResponseSchema,
@@ -8,6 +15,7 @@ import {
   importAppliedSchema,
   importPreviewSchema,
   importsResponseSchema,
+  missionsSchema,
   stockPatchResultSchema,
   stockResponseSchema,
 } from './schemas'
@@ -223,5 +231,18 @@ export function useConvertAdjustment() {
         body: { targetCardId },
       }),
     onSuccess: () => invalidateCollection(queryClient),
+  })
+}
+
+/** Themed-collection missions against the collection (Fase 8). */
+export function useMissions(params: { expansion?: string; incomplete?: boolean }) {
+  const search = new URLSearchParams()
+  if (params.expansion) search.set('expansion', params.expansion)
+  if (params.incomplete) search.set('incomplete', 'true')
+  return useQuery({
+    queryKey: ['collection', 'missions', params.expansion ?? '', Boolean(params.incomplete)] as const,
+    queryFn: ({ signal }) =>
+      request(`/api/collection/missions?${search.toString()}`, { schema: missionsSchema, signal }),
+    placeholderData: keepPreviousData,
   })
 }

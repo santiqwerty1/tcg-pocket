@@ -8,6 +8,7 @@ export const KIND_LABEL: Record<SimulationKind, string> = {
   compare: 'Comparar',
   optimize: 'Optimizar',
   explore: 'Explorar (laboratorio)',
+  consistency: 'Consistencia',
 }
 
 export const KIND_HINT: Record<SimulationKind, string> = {
@@ -15,6 +16,7 @@ export const KIND_HINT: Record<SimulationKind, string> = {
   compare: 'Uno o varios mazos contra una lista de rivales.',
   optimize: 'Sacá cartas de un mazo y probá combinaciones de candidatas contra rivales.',
   explore: 'Búsqueda automática de variantes de un mazo contra el meta (Laboratorio).',
+  consistency: 'En qué turno tiene listo el mazo a su atacante principal (desde la ficha del mazo).',
 }
 
 export const STATUS_LABEL: Record<SimulationStatus, string> = {

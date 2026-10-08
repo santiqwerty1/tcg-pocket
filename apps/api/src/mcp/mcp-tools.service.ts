@@ -179,6 +179,9 @@ ${MCP_WRITE_INSTRUCTIONS}`
     server.registerTool(t.tournamentsUnlockCards.name, config(t.tournamentsUnlockCards), (args) =>
       run(t.tournamentsUnlockCards.name, () => this.tournamentsUnlock(args)),
     )
+    server.registerTool(t.collectionMissions.name, config(t.collectionMissions), (args) =>
+      run(t.collectionMissions.name, () => this.collectionMissions(args)),
+    )
     server.registerTool(t.simulationsResults.name, config(t.simulationsResults), (args) =>
       run(t.simulationsResults.name, () => this.simulationsResults(args)),
     )
@@ -912,10 +915,47 @@ ${MCP_WRITE_INSTRUCTIONS}`
   private async tournamentsBuildable(args: { era?: string; format?: TournamentFormat; limit?: number }): Promise<Json> {
     const limit = args.limit ?? 10
     const view = await this.tournaments.buildable({ era: args.era, format: args.format, limit })
+    // For the lists one or two copies away: what can take the place of each missing card (Fase 8).
+    const near = await Promise.all(
+      view.near.map(async (row) => {
+        const detail = await this.tournaments.list(row.key, { era: args.era, format: args.format })
+        return {
+          ...this.againstJson(row),
+          substitutes: detail.substitutes.map((item) => ({
+            missing: item.nameEs,
+            options: item.options.map(
+              (option) => `${option.nameEs} (${option.cardId}): ${option.reasonEs}; tenés ${option.have}`,
+            ),
+          })),
+        }
+      }),
+    )
     return {
       scope: this.scopeJson(view.scope),
       buildable: view.buildable.map((row) => this.againstJson(row)),
-      nearlyBuildable: view.near.map((row) => this.againstJson(row)),
+      nearlyBuildable: near,
+    }
+  }
+
+  private async collectionMissions(args: { expansion?: string; incomplete?: boolean; limit?: number }): Promise<Json> {
+    const view = await this.collection.missions({ expansion: args.expansion, incomplete: args.incomplete })
+    return {
+      total: view.total,
+      complete: view.complete,
+      missions: view.items.slice(0, args.limit ?? 20).map((item) => ({
+        expansion: item.expansionId,
+        name: item.name,
+        reward: item.reward,
+        secret: item.secret,
+        complete: item.complete,
+        missingCopies: item.missingCopies,
+        slots: item.slots.map((slot) => ({
+          card: slot.nameEs,
+          need: slot.amount,
+          have: slot.have,
+          accepted: slot.options.map((option) => option.cardId),
+        })),
+      })),
     }
   }
 

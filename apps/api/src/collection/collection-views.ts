@@ -147,3 +147,20 @@ export interface AdjustmentConversionResult {
   before: StockValue | null
   after: StockValue
 }
+
+/** Themed-collection missions against the collection (Fase 8). Names and rewards in English, as the game data. */
+export interface MissionsView {
+  total: number
+  complete: number
+  expansions: { id: string; nameEs: string; missions: number }[]
+  items: {
+    expansionId: string
+    expansionNameEs: string
+    name: string
+    reward: string | null
+    secret: boolean
+    complete: boolean
+    missingCopies: number
+    slots: { amount: number; have: number; nameEs: string; options: { cardId: string; rarity: string | null }[] }[]
+  }[]
+}

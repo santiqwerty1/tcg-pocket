@@ -74,6 +74,18 @@ const jobSchema = z.object({
     })
     .optional(),
 })
+const consistencySchema = z.object({
+  deckId: z.string().trim().min(1).max(20),
+  keyCards: z.array(z.string().min(1).max(20)).max(10).optional(),
+  games: z.number().int().min(10).max(10_000).optional(),
+  bot: botCode.optional(),
+  seed: z
+    .number()
+    .int()
+    .min(0)
+    .max(2 ** 52)
+    .optional(),
+})
 const helloSchema = z.object({
   workerId: z.string().min(8).max(64),
   name: z.string().trim().min(1).max(100),
@@ -230,6 +242,22 @@ export class SimulationsController {
     return this.simulations.create(body)
   }
 
+  /** How soon a deck has its key attacker ready (Fase 8): one chunk of goldfish games. */
+  @Post('consistency')
+  @HttpCode(201)
+  consistency(
+    @Body(new ZodValidationPipe(consistencySchema)) body: z.infer<typeof consistencySchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<JobSummaryView> {
+    return this.simulations.createConsistency(body)
+  }
+
+  /** The latest finished consistency of a deck, or `{ result: null }`. */
+  @Get('consistency/deck/:deckId')
+  async deckConsistency(@Param('deckId') deckId: string, @CurrentSession() _session: RequestSession) {
+    return { result: await this.simulations.deckConsistency(deckId) }
+  }
+
   /** The replay JSON as the engine wrote it, for deckgym's own viewer (`/viewer/index.html?url=…`, D-014). */
   @Get('replays/:id/raw')
   replayRaw(@Param('id') id: string, @CurrentSession() _session: RequestSession): Promise<unknown> {
@@ -281,6 +309,6 @@ export class SimulationsController {
   imports: [TokensModule, CatalogModule, TournamentsModule],
   controllers: [WorkerController, SimulationsController],
   providers: [EngineStatusService, EngineUpstreamService, SnapshotsService, WorkerQueueService, SimulationsService],
-  exports: [SimulationsService, SnapshotsService, EngineStatusService, WorkerQueueService],
+  exports: [SimulationsService, SnapshotsService, EngineStatusService, WorkerQueueService, EngineUpstreamService],
 })
 export class SimulationModule {}

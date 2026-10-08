@@ -52,6 +52,8 @@ model CatalogSync {
   report       Json?
   /// Tracker craftingCost (pack points per rarity) as parsed from CardsDB.ts.
   craftingCost Json?               @map("crafting_cost")
+  /// Themed-collection missions of the pinned tracker commit (Fase 8).
+  missions     Json?
   error        String?
   changes      CatalogSyncChange[]
 
@@ -633,6 +635,8 @@ enum SimulationKind {
   optimize
   /// Laboratorio de mazos (T-008): rounds of variants against the meta bank, queued by the API round by round.
   explore
+  /// Fase 8: how soon a deck has its key attacker ready, in goldfish games (one chunk).
+  consistency
 }
 
 enum SimulationJobStatus {
@@ -778,4 +782,53 @@ model SimulationReplay {
 
   @@unique([chunkId, gameId])
   @@map("simulation_replays")
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Playing against a bot (Fase 8)
+// ---------------------------------------------------------------------------------------------------------------
+
+enum LiveGameStatus {
+  /// Waiting for a worker.
+  queued
+  /// The engine plays: the bot's turn, or the owner's choice on its way to the engine.
+  running
+  /// The owner's turn: a decision is pending.
+  waiting
+  done
+  abandoned
+  failed
+}
+
+/// A game of the owner against a bot: the worker on the PC runs `engine-cli play` and relays each decision. The game
+/// is fully determined by its seed and the owner's choices, so a worker that restarts rebuilds it from them.
+model LiveGame {
+  id              Int            @id @default(autoincrement())
+  status          LiveGameStatus @default(queued)
+  humanSnapshotId Int            @map("human_snapshot_id")
+  botSnapshotId   Int            @map("bot_snapshot_id")
+  /// Bot code (e2, r…).
+  bot             String
+  seed            BigInt
+  engineRev       String         @map("engine_rev")
+  workerId        String?        @map("worker_id")
+  leaseUntil      DateTime?      @map("lease_until") @db.Timestamptz(3)
+  /// The owner's choice at each decision, in order.
+  choices         Int[]
+  /// The pending decision: { ply, turn, state, actions }.
+  decision        Json?
+  /// Every action so far, as the engine reported it.
+  log             Json           @default("[]")
+  /// you | bot | tie
+  winner          String?
+  turns           Int?
+  finalState      Json?          @map("final_state")
+  replayGz        Bytes?         @map("replay_gz")
+  error           String?
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  finishedAt      DateTime?      @map("finished_at") @db.Timestamptz(3)
+
+  @@index([status])
+  @@map("live_games")
 }

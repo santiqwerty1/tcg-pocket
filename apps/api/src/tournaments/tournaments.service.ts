@@ -36,6 +36,7 @@ import {
   type SetRelease,
   type StoredEntry,
   type StoredTournament,
+  substitutesFor,
   type TournamentDataset,
   type TournamentFormat,
   tournamentVersion,
@@ -368,6 +369,30 @@ export class TournamentsService {
         })),
         missingCopies: against?.missingCopies ?? 0,
       },
+      substitutes: substitutesFor(dataset, row.archetypeId, row.groups, scope.index, playable).map((item) => ({
+        groupId: item.groupId,
+        nameEs: scope.index.groupById(item.groupId)?.nameEs ?? item.groupId,
+        need: item.need,
+        have: item.have,
+        options: item.options.map((option) => {
+          const group = scope.index.groupById(option.groupId)
+          return {
+            groupId: option.groupId,
+            cardId: group?.displayCardId ?? option.groupId,
+            nameEs: group?.nameEs ?? option.groupId,
+            reason: option.reason,
+            reasonEs:
+              option.reason === 'same_name'
+                ? 'la misma carta en otra versión (con otro texto)'
+                : option.reason === 'replaces'
+                  ? `la juegan ${option.lists} de ${option.of} listas del arquetipo que no llevan la que falta`
+                  : `la juegan ${option.lists} de ${option.of} listas del arquetipo`,
+            lists: option.lists,
+            of: option.of,
+            have: option.have,
+          }
+        }),
+      })),
       energies,
       text: limitlessText(row.cards, energies, scope.index),
       entries: [...entries]
@@ -380,6 +405,25 @@ export class TournamentsService {
           placing: entry.placing,
           record: entry.record,
         })),
+    }
+  }
+
+  /**
+   * What the alerts need of the tournaments (Fase 8): the «era nueva probable» warning and the sets of the cards the
+   * catalog does not know in the current era's lists (a set is out).
+   */
+  async eraAlerts(): Promise<{
+    newEra: { lastRelease: string; days: number; likely: boolean } | null
+    unknownCards: number
+    unknownSets: string[]
+  }> {
+    const sets = await this.settings.sets()
+    const warning = newEraWarning(todayInOwnerZone(), sets)
+    const { dataset } = await this.scopedDataset({})
+    return {
+      newEra: warning ? { lastRelease: warning.lastRelease.code, days: warning.days, likely: warning.likely } : null,
+      unknownCards: dataset.unknownCards.length,
+      unknownSets: [...new Set(dataset.unknownCards.map((card) => card.set))].sort(),
     }
   }
 

@@ -1,6 +1,8 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { z } from 'zod'
 import { request } from './client'
 import {
+  consistencySchema,
   engineInfoSchema,
   jobDetailSchema,
   jobSummarySchema,
@@ -88,5 +90,31 @@ export function useReplay(id: string) {
     queryFn: ({ signal }) =>
       request(`/api/simulations/replays/${encodeURIComponent(id)}`, { schema: replayResponseSchema, signal }),
     staleTime: Number.POSITIVE_INFINITY,
+  })
+}
+
+const deckConsistencySchema = z.object({
+  result: z.object({ job: jobSummarySchema, consistency: consistencySchema }).nullable(),
+})
+
+/** The latest finished consistency of a deck (Fase 8). */
+export function useDeckConsistency(deckId: string) {
+  return useQuery({
+    queryKey: [...simulationKeys.all, 'consistency', deckId] as const,
+    queryFn: ({ signal }) =>
+      request(`/api/simulations/consistency/deck/${encodeURIComponent(deckId)}`, {
+        schema: deckConsistencySchema,
+        signal,
+      }),
+    select: (data) => data.result,
+  })
+}
+
+export function useMeasureConsistency() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { deckId: string; keyCards?: string[]; games?: number }) =>
+      request('/api/simulations/consistency', { method: 'POST', body, schema: jobSummarySchema }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: simulationKeys.all }),
   })
 }

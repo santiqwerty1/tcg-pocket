@@ -5,6 +5,8 @@ import { createTestApp, login, seedOwner, type TestApp, waitForSync } from './he
 const EXPECTED = { cards: 4317, expansions: 24, groups: 2319, stockUnits: 3866 }
 const COPYCAT_GROUP = ['B1-225', 'B1-270', 'B4b-225', 'B4b-391', 'B4b-424']
 
+const EXPECTED_MISSIONS = 443
+
 describe('catalog (e2e)', () => {
   let test: TestApp
   let cookie: string
@@ -71,7 +73,16 @@ describe('catalog (e2e)', () => {
     expect(health.body.engineRev).toBe(test.env.engineRev)
 
     const row = await test.prisma.catalogSync.findUniqueOrThrow({ where: { id: summary.syncId } })
-    expect(Object.keys(row.fileHashes as Record<string, unknown>)).toHaveLength(9)
+    // Nine files plus the 21 mission files of the pinned tracker (Fase 8).
+    const hashes = Object.keys(row.fileHashes as Record<string, unknown>)
+    expect(hashes).toHaveLength(9 + 21)
+    expect(hashes.filter((key) => key.startsWith('missions:'))).toHaveLength(21)
+    expect(row.missions as unknown[]).toHaveLength(EXPECTED_MISSIONS)
+    // Missions against an empty collection: none complete, every one listed.
+    const missions = await test.http().get('/api/collection/missions').set('Cookie', cookie)
+    expect(missions.body).toMatchObject({ total: EXPECTED_MISSIONS, complete: 0 })
+    expect(missions.body.items[0].slots[0]).toMatchObject({ have: 0 })
+    expect(missions.body.expansions.length).toBe(21)
     expect(await test.prisma.card.count()).toBe(EXPECTED.cards)
     expect(await test.prisma.functionalGroup.count()).toBe(EXPECTED.groups)
     expect(await test.prisma.expansion.count()).toBe(EXPECTED.expansions)

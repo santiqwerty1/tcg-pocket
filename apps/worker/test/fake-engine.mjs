@@ -73,6 +73,76 @@ if (command === 'version') {
       )
     }
   }
+} else if (command === 'consistency') {
+  const job = JSON.parse(readFileSync(jobFile, 'utf8'))
+  process.stderr.write(`total ${job.games}
+`)
+  const half = Math.floor(job.games / 2)
+  const histogram = (games) => ({
+    games,
+    firstOnTurn: [0, Math.floor(games / 2), games - Math.floor(games / 2) - 1],
+    never: 1,
+  })
+  const split = { first: histogram(half), second: histogram(job.games - half) }
+  writeFileSync(
+    resultFile,
+    JSON.stringify({
+      engineRev: REV,
+      games: job.games,
+      keyCards: job.keyCards,
+      ready: split,
+      attack: split,
+      durationMs: 7,
+    }),
+  )
+} else if (command === 'play') {
+  // Two decisions of two options each; the winner depends on the owner's choices (both 1 → «you»).
+  const job = JSON.parse(readFileSync(jobFile, 'utf8'))
+  const say = (value) => process.stdout.write(`${JSON.stringify(value)}\n`)
+  const state = { turn: 1, current_player: 0, points: [0, 0], players: [], stadium: null }
+  const options = [
+    { i: 0, text: 'EndTurn', action: 'EndTurn' },
+    { i: 1, text: 'Attack(Vine Whip)', action: { Attack: { title: 'Vine Whip' } } },
+  ]
+  say({ type: 'start', seed: String(job.seed), you: 0, bot: job.bot })
+  say({ type: 'action', ply: 0, turn: 0, actor: 1, forced: true, text: 'Place', action: 'EndTurn', ctx: {} })
+  const choices = []
+  let ply = 0
+  const ask = () => {
+    ply++
+    say({ type: 'decide', ply, turn: ply, state, actions: options })
+  }
+  ask()
+  let buffer = ''
+  process.stdin.setEncoding('utf8').on('data', (data) => {
+    buffer += data
+    let at = buffer.indexOf('\n')
+    while (at >= 0) {
+      const line = buffer.slice(0, at)
+      buffer = buffer.slice(at + 1)
+      at = buffer.indexOf('\n')
+      const i = JSON.parse(line).i
+      choices.push(i)
+      say({
+        type: 'action',
+        ply,
+        turn: ply,
+        actor: 0,
+        forced: false,
+        text: options[i].text,
+        action: options[i].action,
+        ctx: {},
+      })
+      if (ply < 2) ask()
+      else {
+        mkdirSync(job.replayDir, { recursive: true })
+        const replay = join(job.replayDir, 'game.json')
+        writeFileSync(replay, JSON.stringify({ version: 1, steps: [], choices }))
+        say({ type: 'end', winner: choices.every((c) => c === 1) ? 'you' : 'bot', turns: 4, state, replay })
+        process.exit(0)
+      }
+    }
+  })
 } else {
   process.stdout.write(JSON.stringify({ error: `comando desconocido ${command}` }))
   process.exit(2)

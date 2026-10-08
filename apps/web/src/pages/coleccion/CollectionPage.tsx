@@ -1,4 +1,4 @@
-import { DownloadIcon, SlidersHorizontalIcon, UploadIcon } from 'lucide-react'
+import { DownloadIcon, SlidersHorizontalIcon, TrophyIcon, UploadIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
@@ -62,6 +62,12 @@ export function CollectionPage() {
             {summary.data && summary.data.activeAdjustments > 0 ? (
               <Badge variant="secondary">{summary.data.activeAdjustments}</Badge>
             ) : null}
+          </Link>
+        </Button>
+        <Button variant="outline" asChild>
+          <Link to="/coleccion/misiones">
+            <TrophyIcon data-icon="inline-start" />
+            Misiones
           </Link>
         </Button>
       </div>

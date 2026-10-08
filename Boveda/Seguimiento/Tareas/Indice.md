@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-10 fichas: hecho 7 · pendiente 3. ⚑ = para revisar.
+11 fichas: hecho 7 · pendiente 4. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Actualizado |
 | --- | --- | --- | --- | --- |
@@ -27,3 +27,4 @@ revisar: false
 | [T-008](T-008.md) | Laboratorio: mazos nuevos con Claude y el simulador | hecho ⚑ | — | 2026-10-08 |
 | [T-009](T-009.md) | Probar la Fase 7 desde el celu y desde Claude Code | pendiente ⚑ | — | 2026-10-08 |
 | [T-010](T-010.md) | Saber cuándo hay una versión nueva de deckgym | hecho | — | 2026-10-08 |
+| [T-011](T-011.md) | Probar la Fase 8 desde el celu | pendiente ⚑ | — | 2026-10-08 |

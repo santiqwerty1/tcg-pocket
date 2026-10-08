@@ -9,9 +9,14 @@ import { BadRequestException, Injectable, NotFoundException, UnprocessableEntity
 import {
   BOT_LABEL_ES,
   botLabel,
+  type ConsistencySplit,
   chunkSeed,
   comparePairings,
+  DEFAULT_CONSISTENCY_GAMES,
+  DEFAULT_CONSISTENCY_TURNS,
+  type DeckCardEntry,
   deckRecord,
+  defaultKeyCards,
   describeProblems,
   estimateSeconds,
   type GameRecord,
@@ -19,9 +24,11 @@ import {
   MAX_BASE_SEED,
   matrixPairings,
   matrixRows,
+  mergeHistograms,
   optimizeRanking,
   planChunks,
   randomBaseSeed,
+  readinessCurve,
   type SimulationKind,
   simulationRate,
 } from '@tcg/domain'
@@ -31,6 +38,7 @@ import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { EngineUpstreamService } from './engine-upstream.service.js'
 import type {
+  ConsistencyView,
   EngineView,
   JobDetailView,
   JobProgressView,
@@ -450,6 +458,14 @@ export class SimulationsService {
       sideB,
       rows,
       optimize: job.kind === 'optimize' ? this.optimizeRows(chunks[0]?.extra ?? null, sideB) : null,
+      consistency:
+        job.kind === 'consistency'
+          ? this.consistencyView(
+              job,
+              snapshots[0] ?? null,
+              chunks[0]?.status === 'done' ? (chunks[0]?.extra ?? null) : null,
+            )
+          : null,
       replays: replays.map(
         (replay): ReplaySummaryView => ({
           id: replay.id,
@@ -494,6 +510,139 @@ export class SimulationsService {
         rate: simulationRate(record),
       })),
     }))
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Consistency (Fase 8)
+  // ---------------------------------------------------------------------------------------------------------------
+
+  /**
+   * How soon one of my decks has its key attacker ready: one chunk of goldfish games (engine-cli `consistency`). The
+   * key cards are the owner's pick or, by default, the attacker worth the most prize points.
+   */
+  async createConsistency(input: {
+    deckId: string
+    keyCards?: string[] | undefined
+    games?: number | undefined
+    bot?: string | undefined
+    seed?: number | undefined
+  }): Promise<JobSummaryView> {
+    const bot = input.bot ?? 'e2'
+    if (!isBotCode(bot)) throw new BadRequestException({ code: 'validation', message: `Bot «${bot}» desconocido.` })
+    const games = input.games ?? DEFAULT_CONSISTENCY_GAMES
+    if (!Number.isInteger(games) || games < 10 || games > 10_000) {
+      throw new BadRequestException({ code: 'validation', message: 'Partidas: de 10 a 10.000.' })
+    }
+    const snapshot = await this.snapshots.save({ deckId: input.deckId })
+    if (!snapshot.simulable) {
+      throw new UnprocessableEntityException({
+        code: 'not_simulable',
+        message: `No se puede simular ${snapshot.label}: ${describeProblems(snapshot.problems)}.`,
+      })
+    }
+    const index = this.catalog.requireIndex()
+    const row = await this.prisma.deckSnapshot.findUniqueOrThrow({ where: { id: snapshot.id } })
+    const cards = row.cards as unknown as { cardId: string; engineId: string; count: number }[]
+    const entries: DeckCardEntry[] = cards.map((card) => ({ cardId: card.cardId, count: card.count }))
+    const wanted = input.keyCards && input.keyCards.length > 0 ? input.keyCards : defaultKeyCards(entries, index)
+    const groups = new Set(wanted.map((cardId) => index.cardById(cardId)?.functionalGroupId).filter(Boolean))
+    const key = cards.filter((card) => groups.has(index.cardById(card.cardId)?.functionalGroupId))
+    if (key.length === 0) {
+      throw new BadRequestException({ code: 'validation', message: 'Las cartas clave tienen que estar en el mazo.' })
+    }
+    const baseSeed = input.seed ?? randomBaseSeed(() => randomInt(0, 2 ** 32 - 1) >>> 0)
+    if (!Number.isSafeInteger(baseSeed) || baseSeed < 0 || baseSeed > MAX_BASE_SEED) {
+      throw new BadRequestException({ code: 'validation', message: 'Semilla: un entero de 0 a 2^52.' })
+    }
+    const consistency = {
+      keyCards: [...new Set(key.map((card) => card.cardId))],
+      engineIds: [...new Set(key.map((card) => card.engineId))],
+      maxTurn: DEFAULT_CONSISTENCY_TURNS,
+      bot,
+    }
+    const keyName = index.cardById(key[0]?.cardId ?? '')?.nameEs ?? 'atacante'
+    const job = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.simulationJob.create({
+        data: {
+          kind: 'consistency',
+          label: `Consistencia de ${snapshot.label}: ${keyName}`,
+          params: { sideA: [snapshot.id], sideB: [], consistency } as Prisma.InputJsonValue,
+          engineRev: this.engine.engineRev(),
+          players: [bot, 'et'],
+          gamesPerPair: games,
+          baseSeed: BigInt(baseSeed),
+          replaySample: 0,
+          totalGames: games,
+        },
+      })
+      await tx.simulationChunk.create({
+        data: {
+          jobId: created.id,
+          idx: 0,
+          snapshotAId: snapshot.id,
+          snapshotBId: null,
+          games,
+          firstGame: 0,
+          seed: BigInt(chunkSeed(baseSeed, 0)),
+        },
+      })
+      return created
+    })
+    this.queue.notifyQueued()
+    return this.summary(job, await this.progress([job.id]))
+  }
+
+  private consistencyView(
+    job: JobRow,
+    snapshot: SnapshotView | null,
+    extra: Prisma.JsonValue | null,
+  ): ConsistencyView | null {
+    const result = extra as { ready?: ConsistencySplit; attack?: ConsistencySplit } | null
+    if (!result?.ready || !result.attack) return null
+    const params = (job.params as { consistency?: { keyCards?: string[]; maxTurn?: number; bot?: string } }).consistency
+    const index = this.catalog.requireIndex()
+    const curves = (split: ConsistencySplit) => ({
+      first: readinessCurve(split.first),
+      second: readinessCurve(split.second),
+      all: readinessCurve(mergeHistograms(split.first, split.second)),
+    })
+    const bot = params?.bot ?? job.players[0] ?? 'e2'
+    return {
+      deckId: snapshot?.deckId ?? null,
+      deck: snapshot?.label ?? '',
+      keyCards: (params?.keyCards ?? []).map((cardId) => ({
+        cardId,
+        nameEs: index.cardById(cardId)?.nameEs ?? cardId,
+      })),
+      bot,
+      botEs: botLabel(bot),
+      maxTurn: params?.maxTurn ?? result.ready.first.firstOnTurn.length,
+      ready: curves(result.ready),
+      attack: curves(result.attack),
+      games: {
+        first: result.ready.first.games,
+        second: result.ready.second.games,
+        all: result.ready.first.games + result.ready.second.games,
+      },
+    }
+  }
+
+  /** The latest finished consistency job of a deck (any revision), with its job summary; null when none. */
+  async deckConsistency(rawDeckId: string): Promise<{ job: JobSummaryView; consistency: ConsistencyView } | null> {
+    const deckId = parseNumericId(rawDeckId, 'Mazo')
+    const snapshots = await this.prisma.deckSnapshot.findMany({ where: { deckId }, select: { id: true } })
+    if (snapshots.length === 0) return null
+    const job = await this.prisma.simulationJob.findFirst({
+      where: {
+        kind: 'consistency',
+        status: 'done',
+        chunks: { some: { snapshotAId: { in: snapshots.map((row) => row.id) } } },
+      },
+      orderBy: { id: 'desc' },
+    })
+    if (!job) return null
+    const detail = await this.detail(String(job.id))
+    return detail.consistency ? { job: detail, consistency: detail.consistency } : null
   }
 
   async cancel(rawId: string): Promise<JobSummaryView> {

@@ -7,12 +7,17 @@
 //!   engine-cli validate <job.json>                   → per deck: valid, errors, cards not implemented
 //!   engine-cli simulate <job.json> <result.json>     → one pairing: wins, losses, ties, replays
 //!   engine-cli optimize <job.json> <result.json>     → every valid way to fill a deck, against a group of rivals
+//!   engine-cli play <job.json>                       → one game of the owner against a bot, decisions over stdin/stdout
+//!   engine-cli consistency <job.json> <result.json>  → how soon a deck has its key attacker ready (goldfish games)
 //!
 //! Seeds: game `i` of a job plays with `splitmix64(seed ^ splitmix64(i))`, so a job is reproducible from its seed and
 //! no two games share one (deckgym's own `simulate --seed` plays every game with the same seed). Whether the engine
 //! is deterministic across processes is measured, not assumed (PLAN §3.7).
 //!
 //! Exit codes: 0 ok · 2 bad input (bad JSON, invalid deck, unknown card) · 3 the engine failed (a game panicked).
+
+mod consistency;
+mod play;
 
 use std::io::Write;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -638,13 +643,22 @@ fn run(args: &[String]) -> Result<(), CliError> {
             let result = simulate(job)?;
             write_json(args.get(2).map(String::as_str), &result)
         }
+        Some("consistency") => {
+            let job: consistency::ConsistencyJob = read_job(args.get(1).ok_or_else(|| CliError::input("falta job.json"))?)?;
+            let result = consistency::consistency(job)?;
+            write_json(args.get(2).map(String::as_str), &result)
+        }
+        Some("play") => {
+            let job: play::PlayJob = read_job(args.get(1).ok_or_else(|| CliError::input("falta job.json"))?)?;
+            play::play(job)
+        }
         Some("optimize") => {
             let job: OptimizeJob = read_job(args.get(1).ok_or_else(|| CliError::input("falta job.json"))?)?;
             let result = optimize(job)?;
             write_json(args.get(2).map(String::as_str), &result)
         }
         _ => Err(CliError::input(
-            "uso: engine-cli version | status [out.json] | validate job.json [out.json] | simulate job.json [out.json] | optimize job.json [out.json]",
+            "uso: engine-cli version | status [out.json] | validate job.json [out.json] | simulate job.json [out.json] | optimize job.json [out.json] | play job.json | consistency job.json [out.json]",
         )),
     }
 }

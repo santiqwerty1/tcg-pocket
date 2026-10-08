@@ -7,14 +7,23 @@ import {
   ImageIcon,
   KeyRoundIcon,
   RefreshCwIcon,
+  SwordsIcon,
   TrophyIcon,
   UserIcon,
 } from 'lucide-react'
 import { Link } from 'react-router'
+import { useAlerts } from '@/api/alerts'
+import { cn } from '@/lib/utils'
 
 const ENTRIES = [
   { to: '/torneos', label: 'Torneos', hint: 'Limitless: arquetipos, listas y qué podés armar', icon: TrophyIcon },
   { to: '/simulacion', label: 'Simulación', hint: 'Mazos contra mazos con deckgym en la PC', icon: CpuIcon },
+  {
+    to: '/jugar',
+    label: 'Jugar contra un bot',
+    hint: 'Una partida desde el celu, el motor corre en la PC',
+    icon: SwordsIcon,
+  },
   {
     to: '/laboratorio',
     label: 'Laboratorio de mazos',
@@ -29,7 +38,46 @@ const ENTRIES = [
   { to: '/mas/acerca', label: 'Acerca de', hint: 'Versión y licencias', icon: CircleHelpIcon },
 ]
 
+function Alerts() {
+  const alerts = useAlerts()
+  if (!alerts.data || alerts.data.length === 0) return null
+  return (
+    <section aria-label="Avisos" className="flex flex-col gap-2">
+      {alerts.data.map((alert) => {
+        const body = (
+          <>
+            <span className="font-medium">{alert.title}</span>
+            <span className="text-xs text-muted-foreground">{alert.detail}</span>
+          </>
+        )
+        const className = cn(
+          'flex flex-col gap-0.5 rounded-lg border px-3 py-2 text-sm',
+          alert.level === 'warning' ? 'border-warning/60' : 'border-border',
+        )
+        return alert.link ? (
+          <Link key={alert.code + alert.title} to={alert.link} className={cn(className, 'hover:bg-muted')}>
+            {body}
+          </Link>
+        ) : (
+          <div key={alert.code + alert.title} className={className}>
+            {body}
+          </div>
+        )
+      })}
+    </section>
+  )
+}
+
 export function MasPage() {
+  return (
+    <div className="flex flex-col gap-4">
+      <Alerts />
+      <MenuList />
+    </div>
+  )
+}
+
+function MenuList() {
   return (
     <ul className="divide-y rounded-lg border">
       {ENTRIES.map((entry) => {

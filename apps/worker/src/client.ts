@@ -17,7 +17,7 @@ export interface Chunk {
   chunkId: number
   jobId: number
   /** explore (Laboratorio) chunks are plain pairings, like matrix and compare. */
-  kind: 'matrix' | 'compare' | 'optimize' | 'explore'
+  kind: 'matrix' | 'compare' | 'optimize' | 'explore' | 'consistency'
   idx: number
   games: number
   firstGame: number
@@ -29,6 +29,18 @@ export interface Chunk {
   deckA: string | null
   deckB: string | null
   optimize: Record<string, unknown> | null
+  /** consistency chunks (Fase 8): key cards as engine ids, own turns reported, the deck's bot. */
+  consistency?: { keyCards: string[]; maxTurn: number; bot: string } | null
+}
+
+/** A game against a bot to run (Fase 8): the decks, the bot, the seed and the owner's choices so far. */
+export interface LiveGame {
+  id: number
+  deckHuman: string
+  deckBot: string
+  bot: string
+  seed: string
+  choices: number[]
 }
 
 export interface ChunkResult {
@@ -144,6 +156,58 @@ export class WorkerClient {
     return this.request<{ id: number }>('PUT', `/api/worker/chunks/${chunkId}/replays/${gameId}`, undefined, {
       raw: data,
       query: { index: String(meta.index), seed: meta.seed, winner: meta.winner },
+    })
+  }
+
+  liveClaim(body: { workerId: string; engineRev: string }, signal?: AbortSignal) {
+    return this.request<{ game: LiveGame | null }>('POST', '/api/worker/live/claim', body, {
+      ...(signal ? { signal } : {}),
+      timeoutMs: 60_000,
+    })
+  }
+
+  liveDecision(
+    id: number,
+    body: {
+      workerId: string
+      ply: number
+      turn: number
+      state: Record<string, unknown>
+      actions: { i: number; text: string; action: unknown }[]
+      log: Record<string, unknown>[]
+    },
+  ) {
+    return this.request<{ choice: number | null; status: string }>('PUT', `/api/worker/live/${id}/decision`, body)
+  }
+
+  liveChoice(id: number, body: { workerId: string; ply: number }, signal?: AbortSignal) {
+    return this.request<{ choice: number | null; status: string }>('POST', `/api/worker/live/${id}/choice`, body, {
+      ...(signal ? { signal } : {}),
+      timeoutMs: 60_000,
+    })
+  }
+
+  liveEnd(
+    id: number,
+    body: {
+      workerId: string
+      winner: 'you' | 'bot' | 'tie'
+      turns: number
+      state: Record<string, unknown>
+      log: Record<string, unknown>[]
+    },
+  ) {
+    return this.request<{ ok: true }>('PUT', `/api/worker/live/${id}/end`, body)
+  }
+
+  liveFailure(id: number, body: { workerId: string; error: string }) {
+    return this.request<{ ok: true }>('PUT', `/api/worker/live/${id}/failure`, body)
+  }
+
+  liveReplay(id: number, workerId: string, data: Uint8Array) {
+    return this.request<{ ok: true }>('PUT', `/api/worker/live/${id}/replay`, undefined, {
+      raw: data,
+      query: { workerId },
     })
   }
 

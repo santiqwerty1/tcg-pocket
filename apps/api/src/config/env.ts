@@ -31,6 +31,9 @@ const envSchema = z.object({
   /** Look at deckgym-core's upstream `main` at most every 12 h (T-010); defaults to on in production only. */
   ENGINE_UPSTREAM_CHECK: z.stringbool().optional(),
   ENGINE_UPSTREAM_URL: z.url().default('https://api.github.com/repos/bcollazo/deckgym-core'),
+  /** Fase 8: look at the tracker's `main` for new sets (production by default). */
+  TRACKER_UPSTREAM_CHECK: z.stringbool().optional(),
+  TRACKER_UPSTREAM_URL: z.url().default('https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker'),
   /** Express `trust proxy` hops (Fly sits one proxy in front of the app). */
   TRUST_PROXY: z.coerce.number().int().min(0).default(1),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).optional(),
@@ -58,6 +61,8 @@ export interface Env {
   limitlessSync: boolean
   limitlessBaseUrl: string
   engineUpstreamCheck: boolean
+  trackerUpstreamCheck: boolean
+  trackerUpstreamUrl: string
   engineUpstreamUrl: string
   trustProxy: number
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent'
@@ -106,6 +111,8 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
     limitlessSync: raw.LIMITLESS_SYNC ?? isProduction,
     limitlessBaseUrl: raw.LIMITLESS_BASE_URL.replace(/\/+$/, ''),
     engineUpstreamCheck: raw.ENGINE_UPSTREAM_CHECK ?? isProduction,
+    trackerUpstreamCheck: raw.TRACKER_UPSTREAM_CHECK ?? isProduction,
+    trackerUpstreamUrl: raw.TRACKER_UPSTREAM_URL.replace(/\/+$/, ''),
     engineUpstreamUrl: raw.ENGINE_UPSTREAM_URL.replace(/\/+$/, ''),
     trustProxy: raw.TRUST_PROXY,
     logLevel: raw.LOG_LEVEL ?? (isProduction ? 'info' : 'debug'),

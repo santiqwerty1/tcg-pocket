@@ -4,9 +4,10 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, type Chunk, type ChunkResult, WorkerClient } from '../src/client.js'
+import { ApiError, type Chunk, type ChunkResult, type LiveGame, WorkerClient } from '../src/client.js'
 import type { WorkerConfig } from '../src/config.js'
 import { EngineError, engineStatus, engineVersion, runJob } from '../src/engine.js'
+import { LiveRunner } from '../src/live.js'
 import { Worker } from '../src/worker.js'
 
 const FAKE_ENGINE = join(dirname(fileURLToPath(import.meta.url)), 'fake-engine.mjs')
@@ -188,6 +189,21 @@ describe('worker loop', () => {
     expect(calls.failures[0]?.error).toContain('deck inválido')
   })
 
+  it('a consistency chunk: ready and never-ready games as the tallies, the histograms in extra', async () => {
+    const { client, calls } = fakeClient([
+      chunk({
+        kind: 'consistency',
+        games: 20,
+        deckB: null,
+        replaySample: 0,
+        consistency: { keyCards: ['B1 036'], maxTurn: 3, bot: 'e2' },
+      }),
+    ])
+    await new Worker(config, client, silent).loop(new AbortController().signal, { once: true })
+    expect(calls.results[0]?.body).toMatchObject({ winsA: 18, winsB: 2, ties: 0, games: 20 })
+    expect(calls.results[0]?.body.extra).toMatchObject({ ready: { first: { games: 10, never: 1 } } })
+  })
+
   it('sums optimize combinations into the chunk result and keeps them in extra', async () => {
     const { client, calls } = fakeClient([
       chunk({
@@ -201,6 +217,98 @@ describe('worker loop', () => {
     await new Worker(config, client, silent).loop(new AbortController().signal, { once: true })
     expect(calls.results[0]?.body).toMatchObject({ winsA: 3, winsB: 1, ties: 0, games: 4, turns: 38 })
     expect(calls.results[0]?.body.extra).toMatchObject({ combinations: [expect.anything(), expect.anything()] })
+  })
+})
+
+describe('games against a bot (Fase 8)', () => {
+  let dataDir: string
+  let config: WorkerConfig
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), 'tcg-worker-live-'))
+    config = {
+      server: 'http://test',
+      token: 'tcg_wk_test',
+      cores: 2,
+      name: 'test',
+      enginePath: FAKE_ENGINE,
+      dataDir,
+      workerId: 'worker-test-1',
+    }
+  })
+  afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
+
+  const game = (choices: number[] = []): LiveGame => ({
+    id: 5,
+    deckHuman: 'Energy: Grass\n2 Bulbasaur A1 1\n',
+    deckBot: 'Energy: Fire\n2 Charmander A1 33\n',
+    bot: 'e2',
+    seed: '42',
+    choices,
+  })
+
+  /** The app's side: each decision is answered with the next of `answers` (null = abandoned). */
+  function liveClient(answers: (number | null)[]) {
+    const calls = {
+      decisions: [] as { ply: number; actions: number; log: number }[],
+      end: null as null | { winner: string; turns: number; log: number },
+      replay: null as null | Record<string, unknown>,
+      failures: [] as string[],
+    }
+    const client = {
+      liveDecision: vi.fn(async (_id: number, body: { ply: number; actions: unknown[]; log: unknown[] }) => {
+        calls.decisions.push({ ply: body.ply, actions: body.actions.length, log: body.log.length })
+        return { choice: null, status: 'waiting' }
+      }),
+      liveChoice: vi.fn(async () => {
+        const next = answers.shift()
+        return next === null || next === undefined
+          ? { choice: null, status: 'abandoned' }
+          : { choice: next, status: 'running' }
+      }),
+      liveEnd: vi.fn(async (_id: number, body: { winner: string; turns: number; log: unknown[] }) => {
+        calls.end = { winner: body.winner, turns: body.turns, log: body.log.length }
+        return { ok: true }
+      }),
+      liveReplay: vi.fn(async (_id: number, _worker: string, data: Uint8Array) => {
+        calls.replay = JSON.parse(gunzipSync(data).toString())
+        return { ok: true }
+      }),
+      liveFailure: vi.fn(async (_id: number, body: { error: string }) => {
+        calls.failures.push(body.error)
+        return { ok: true }
+      }),
+    }
+    return { client: client as unknown as WorkerClient, calls }
+  }
+
+  it('relays each decision with the log so far, sends the choices to the engine and reports the end', async () => {
+    const { client, calls } = liveClient([1, 1])
+    const runner = new LiveRunner(config, client, silent, dataDir)
+    await runner.run(game(), new AbortController().signal)
+    expect(calls.decisions).toEqual([
+      { ply: 1, actions: 2, log: 1 },
+      { ply: 2, actions: 2, log: 2 },
+    ])
+    expect(calls.end).toEqual({ winner: 'you', turns: 4, log: 3 })
+    expect(calls.replay).toMatchObject({ choices: [1, 1] })
+    expect(calls.failures).toEqual([])
+    expect(readdirSync(dataDir)).toEqual([])
+  })
+
+  it('rebuilds a game from the choices the app already has, asking only for the new ones', async () => {
+    const { client, calls } = liveClient([0])
+    await new LiveRunner(config, client, silent, dataDir).run(game([1]), new AbortController().signal)
+    expect(calls.decisions.map((decision) => decision.ply)).toEqual([2])
+    expect(calls.end?.winner).toBe('bot')
+    expect(calls.replay).toMatchObject({ choices: [1, 0] })
+  })
+
+  it('stops the engine when the owner abandons the game, without reporting a failure', async () => {
+    const { client, calls } = liveClient([null])
+    await new LiveRunner(config, client, silent, dataDir).run(game(), new AbortController().signal)
+    expect(calls.decisions).toHaveLength(1)
+    expect(calls.end).toBeNull()
+    expect(calls.failures).toEqual([])
   })
 })
 

@@ -96,7 +96,7 @@ export async function engineStatus(enginePath: string): Promise<EngineCardStatus
 /** Writes the job to a temp folder, runs the command, returns the parsed result and the folder (for replays). */
 export async function runJob<T>(
   enginePath: string,
-  command: 'simulate' | 'optimize',
+  command: 'simulate' | 'optimize' | 'consistency',
   job: Record<string, unknown>,
   workDir: string,
   options: RunOptions = {},

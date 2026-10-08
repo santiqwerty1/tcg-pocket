@@ -35,6 +35,7 @@ import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { BestVersionsSection } from './BestVersions'
 import { ClosestDecksSection } from './ClosestDecks'
+import { ConsistencySection } from './ConsistencySection'
 import { DeckPager } from './DeckPager'
 import { DeckPerformance } from './DeckPerformance'
 import { DeckBadges } from './DecksPage'
@@ -307,6 +308,8 @@ function DeckDetailView({ deckId }: { deckId: string | undefined }) {
       </Section>
 
       <TournamentVersionSection deckId={data.id} />
+
+      <ConsistencySection deck={data} />
 
       <BestVersionsSection deck={data} />
 

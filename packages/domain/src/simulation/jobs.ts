@@ -6,10 +6,11 @@
  * - optimize: fill the open slots of a deck with candidate cards, against a group of rivals (one chunk).
  * - explore: the Laboratorio's automatic search (T-008, lab/explore.ts): rounds of variants against the meta bank,
  *   queued by the API one round at a time.
+ * - consistency: how soon one deck has its key attacker ready, in goldfish games (Fase 8, simulation/consistency.ts).
  * A pairing with many games is split so a chunk stays short (heartbeats, resuming after the PC is turned off).
  */
 
-export const SIMULATION_KINDS = ['matrix', 'compare', 'optimize', 'explore'] as const
+export const SIMULATION_KINDS = ['matrix', 'compare', 'optimize', 'explore', 'consistency'] as const
 export type SimulationKind = (typeof SIMULATION_KINDS)[number]
 /** What POST /api/simulations queues: explore jobs start from the Laboratorio. */
 export const QUEUEABLE_SIMULATION_KINDS = ['matrix', 'compare', 'optimize'] as const

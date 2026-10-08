@@ -117,6 +117,7 @@ describe('MCP endpoint (e2e)', () => {
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       'cards_search',
       'collection_editions',
+      'collection_missions',
       'collection_playable_copies',
       'collection_summary',
       'decks_closest',
@@ -148,7 +149,7 @@ describe('MCP endpoint (e2e)', () => {
   it('serves 2026-07-28 clients from the same endpoint', async () => {
     const client = await connect('modern')
     const { tools } = await client.listTools()
-    expect(tools).toHaveLength(20)
+    expect(tools).toHaveLength(21)
     const summary = await call(client, 'collection_summary')
     expect(summary.structuredContent).toMatchObject({
       copies: 4714,
@@ -413,7 +414,7 @@ describe('MCP endpoint (e2e)', () => {
       .set('Cookie', cookie)
       .send({ name: 'temporal', kind: 'mcp', scopes: ['mcp:read'] })
     const client = await connect('legacy', created.body.token)
-    expect((await client.listTools()).tools.length).toBe(20)
+    expect((await client.listTools()).tools.length).toBe(21)
     expect((await test.http().delete(`/api/tokens/${created.body.id}`).set('Cookie', cookie)).status).toBe(204)
     await expect(client.listTools()).rejects.toThrow()
   })
