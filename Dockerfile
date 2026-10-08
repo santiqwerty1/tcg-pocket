@@ -14,6 +14,7 @@ COPY apps/api/package.json apps/api/prisma.config.ts apps/api/
 # `apps/api` runs `prisma generate` on postinstall: it needs the schema (and prisma.config.ts) before `pnpm install`.
 COPY apps/api/prisma/schema.prisma apps/api/prisma/schema.prisma
 COPY apps/web/package.json apps/web/
+COPY apps/worker/package.json apps/worker/
 COPY packages/domain/package.json packages/domain/
 RUN pnpm install --frozen-lockfile
 
