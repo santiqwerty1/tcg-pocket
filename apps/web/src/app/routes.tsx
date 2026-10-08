@@ -21,6 +21,10 @@ import { MatchEditPage } from '@/pages/partidas/MatchEditPage'
 import { MatchHistoryPage } from '@/pages/partidas/MatchHistoryPage'
 import { MatchStatsPage } from '@/pages/partidas/MatchStatsPage'
 import { PartidasPage } from '@/pages/partidas/PartidasPage'
+import { NewSimulationPage } from '@/pages/simulacion/NewSimulationPage'
+import { ReplayPage } from '@/pages/simulacion/ReplayPage'
+import { SimulacionPage } from '@/pages/simulacion/SimulacionPage'
+import { SimulationDetailPage } from '@/pages/simulacion/SimulationDetailPage'
 import { SobresPage } from '@/pages/sobres/SobresPage'
 import { ArchetypePage } from '@/pages/torneos/ArchetypePage'
 import { ListPage } from '@/pages/torneos/ListPage'
@@ -57,6 +61,14 @@ export const routes: RouteObject[] = [
       { path: 'torneos/ajustes', element: <TorneosAjustesPage />, handle: handle('Ajustes de torneos', '/torneos') },
       { path: 'torneos/arquetipos/:id', element: <ArchetypePage />, handle: handle('Arquetipo', '/torneos') },
       { path: 'torneos/listas/:key', element: <ListPage />, handle: handle('Lista de torneo', '/torneos') },
+      { path: 'simulacion', element: <SimulacionPage />, handle: handle('Simulación', '/mas') },
+      { path: 'simulacion/nueva', element: <NewSimulationPage />, handle: handle('Nueva simulación', '/simulacion') },
+      {
+        path: 'simulacion/repeticiones/:id',
+        element: <ReplayPage />,
+        handle: handle('Repetición', '/simulacion'),
+      },
+      { path: 'simulacion/:id', element: <SimulationDetailPage />, handle: handle('Simulación', '/simulacion') },
 
       { path: 'coleccion', element: <CollectionPage />, handle: handle('Colección') },
       { path: 'coleccion/importar', element: <ImportPage />, handle: handle('Importar colección', '/coleccion') },

@@ -18,10 +18,10 @@ import { McpModule } from './mcp/mcp.module.js'
 import { PacksModule } from './packs/packs.controller.js'
 import { PrismaModule } from './prisma/prisma.module.js'
 import { SettingsModule } from './settings/settings.module.js'
+import { SimulationModule } from './simulation/simulation.controller.js'
 import { TokensModule } from './tokens/tokens.module.js'
 import { TournamentsModule } from './tournaments/tournaments.controller.js'
 import { WebModule } from './web/web.module.js'
-import { WorkerModule } from './worker/worker.module.js'
 
 /**
  * Single process: REST API + PWA static serving + bearer-token integrations (PLAN §3). `WebModule` goes last so its
@@ -48,7 +48,7 @@ export class AppModule implements NestModule {
         SettingsModule,
         BackupModule,
         HttpModule,
-        WorkerModule,
+        SimulationModule,
         McpModule,
         WebModule,
       ],

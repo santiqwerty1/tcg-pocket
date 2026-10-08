@@ -1,0 +1,24 @@
+{
+  "name": "@tcg/worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Simulation worker for the owner's Windows PC: claims chunks from the app over HTTPS, runs engine-cli (deckgym) and reports results.",
+  "type": "module",
+  "bin": {
+    "tcg-worker": "./dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "start": "node dist/main.js",
+    "engine:build": "cargo build --release --manifest-path ../../engine/Cargo.toml",
+    "install-task": "node dist/install-task.js install",
+    "uninstall-task": "node dist/install-task.js uninstall"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "6.0.3",
+    "vitest": "5.0.3"
+  }
+}

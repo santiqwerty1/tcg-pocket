@@ -1086,3 +1086,189 @@ export const setReleaseSchema = z.object({
 })
 export type SetReleaseInfo = z.infer<typeof setReleaseSchema>
 export const setReleasesResponseSchema = z.object({ items: z.array(setReleaseSchema) })
+
+// ---------- Simulación (Fase 6) ----------
+
+export const SIMULATION_KINDS = ['matrix', 'compare', 'optimize'] as const
+export type SimulationKind = (typeof SIMULATION_KINDS)[number]
+export const SIMULATION_STATUSES = ['queued', 'running', 'done', 'failed', 'cancelled'] as const
+export type SimulationStatus = (typeof SIMULATION_STATUSES)[number]
+
+export const snapshotProblemSchema = z
+  .object({
+    kind: z.string(),
+    message: z.string(),
+    cardId: z.string().optional(),
+    nameEs: z.string().optional(),
+    suggested: z.array(selectableEnergySchema).nullable().optional(),
+  })
+  .passthrough()
+export type SnapshotProblem = z.infer<typeof snapshotProblemSchema>
+
+export const snapshotSchema = z.object({
+  id: z.number(),
+  key: z.string(),
+  label: z.string(),
+  sourceType: z.enum(['deck_revision', 'tournament_list', 'text']),
+  sourceId: z.string().nullable(),
+  deckId: z.string().nullable(),
+  energies: z.array(z.string()),
+  simulable: z.boolean(),
+  problems: z.array(snapshotProblemSchema),
+  remapped: z.array(z.object({ cardId: z.string(), playedAs: z.string() })),
+  deckgymText: z.string(),
+})
+export type Snapshot = z.infer<typeof snapshotSchema>
+
+export const jobProgressSchema = z.object({
+  totalGames: z.number(),
+  gamesDone: z.number(),
+  chunks: z.object({ total: z.number(), done: z.number(), running: z.number(), failed: z.number() }),
+  etaSeconds: z.number().nullable(),
+})
+
+export const jobSummarySchema = z.object({
+  id: z.number(),
+  kind: z.enum(SIMULATION_KINDS),
+  status: z.enum(SIMULATION_STATUSES),
+  label: z.string(),
+  players: z.tuple([z.string(), z.string()]),
+  playersEs: z.tuple([z.string(), z.string()]),
+  gamesPerPair: z.number(),
+  baseSeed: z.string(),
+  engineRev: z.string(),
+  replaySample: z.number(),
+  createdAt: isoDate,
+  startedAt: nullableDate,
+  finishedAt: nullableDate,
+  error: z.string().nullable(),
+  progress: jobProgressSchema,
+})
+export type JobSummary = z.infer<typeof jobSummarySchema>
+export const jobsResponseSchema = z.object({ items: z.array(jobSummarySchema) })
+
+const simulationCellSchema = z.object({
+  rival: z.number(),
+  record: gameRecordSchema.nullable(),
+  rate: winRateSchema.nullable(),
+})
+export const matrixRowSchema = z.object({
+  snapshot: z.number(),
+  total: gameRecordSchema,
+  rate: winRateSchema.nullable(),
+  cells: z.array(simulationCellSchema),
+})
+export type MatrixRow = z.infer<typeof matrixRowSchema>
+
+export const optimizeRowSchema = z.object({
+  cards: z.array(z.object({ engineId: z.string(), cardId: z.string().nullable(), nameEs: z.string() })),
+  record: gameRecordSchema,
+  rate: winRateSchema.nullable(),
+  perEnemy: z.array(z.object({ snapshot: z.number(), record: gameRecordSchema, rate: winRateSchema.nullable() })),
+})
+export type OptimizeRow = z.infer<typeof optimizeRowSchema>
+
+export const replaySummarySchema = z.object({
+  id: z.number(),
+  chunkId: z.number(),
+  a: z.number().nullable(),
+  b: z.number().nullable(),
+  gameIndex: z.number(),
+  seed: z.string(),
+  winner: z.enum(['a', 'b', 'tie']),
+  sizeBytes: z.number(),
+})
+export type ReplaySummary = z.infer<typeof replaySummarySchema>
+
+export const jobDetailSchema = jobSummarySchema.extend({
+  snapshots: z.array(snapshotSchema),
+  sideA: z.array(z.number()),
+  sideB: z.array(z.number()),
+  rows: z.array(matrixRowSchema),
+  optimize: z.array(optimizeRowSchema).nullable(),
+  replays: z.array(replaySummarySchema),
+  chunks: z.array(
+    z.object({
+      id: z.number(),
+      idx: z.number(),
+      a: z.number().nullable(),
+      b: z.number().nullable(),
+      games: z.number(),
+      gamesDone: z.number(),
+      status: z.string(),
+      seed: z.string(),
+      attempt: z.number(),
+      error: z.string().nullable(),
+    }),
+  ),
+})
+export type JobDetail = z.infer<typeof jobDetailSchema>
+
+export const workerInfoSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  engineRev: z.string().nullable(),
+  cliVersion: z.string().nullable(),
+  cores: z.number(),
+  version: z.string().nullable(),
+  lastSeenAt: isoDate,
+  online: z.boolean(),
+  current: z.object({ jobId: z.number(), chunkId: z.number(), gamesDone: z.number(), games: z.number() }).nullable(),
+})
+export type WorkerInfo = z.infer<typeof workerInfoSchema>
+
+export const engineInfoSchema = z.object({
+  engineRev: z.string(),
+  cards: z.number(),
+  incomplete: z.number(),
+  source: z.enum(['worker', 'fallback', 'none']),
+  workers: z.array(workerInfoSchema),
+  bots: z.array(z.object({ code: z.string(), label: z.string() })),
+})
+export type EngineInfo = z.infer<typeof engineInfoSchema>
+
+export const simulationPreviewSchema = z
+  .object({
+    sideA: z.array(snapshotSchema.extend({ id: z.number().optional() })),
+    sideB: z.array(snapshotSchema.extend({ id: z.number().optional() })),
+    pairings: z.number(),
+    totalGames: z.number(),
+    estimatedSeconds: z.number(),
+  })
+  .passthrough()
+export type SimulationPreview = z.infer<typeof simulationPreviewSchema>
+
+export type SimulationSource =
+  | { deckId: string; energies?: SelectableEnergy[] }
+  | { listKey: string; era?: string; format?: TournamentFormat; kind?: 'group' | 'name'; energies?: SelectableEnergy[] }
+
+export interface SimulationInput {
+  kind: SimulationKind
+  label?: string
+  sideA: SimulationSource[]
+  sideB: SimulationSource[]
+  gamesPerPair: number
+  players: [string, string]
+  seed?: number
+  bothOrders?: boolean
+  replaySample?: number
+  cores?: number
+  skipNotSimulable?: boolean
+  optimize?: { remove: { cardId: string; count: number }[]; candidates: string[] }
+}
+
+export const replayResponseSchema = z.object({
+  replay: z.unknown(),
+  names: z.record(z.string(), z.string()),
+  game: z.object({
+    jobId: z.number(),
+    jobLabel: z.string(),
+    engineRev: z.string(),
+    gameIndex: z.number(),
+    seed: z.string(),
+    winner: z.enum(['a', 'b', 'tie']),
+    decks: z.tuple([z.string().nullable(), z.string().nullable()]),
+    playersEs: z.tuple([z.string(), z.string()]),
+  }),
+})
+export type ReplayResponse = z.infer<typeof replayResponseSchema>

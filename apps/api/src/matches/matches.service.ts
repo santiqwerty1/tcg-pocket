@@ -5,6 +5,7 @@
  */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import {
+  botLabel,
   cleanOpponent,
   DEFAULT_MATCH_MODE,
   type DeckCardEntry,
@@ -17,12 +18,14 @@ import {
   opponentKey,
   orderDecksForPicker,
   revisionAt,
+  simulationRate,
   suggestOpponents,
 } from '@tcg/domain'
 import type { Prisma } from '../generated/prisma/client.js'
 import type { MatchSource } from '../generated/prisma/enums.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import { SimulationsService } from '../simulation/simulations.service.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
 import type {
   ComparisonColumnView,
@@ -136,6 +139,7 @@ export class MatchesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tournaments: TournamentsService,
+    private readonly simulations: SimulationsService,
   ) {}
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -282,14 +286,7 @@ export class MatchesService {
               : `Partidas registradas en la app${mode ? ' (filtradas por modalidad)' : ', todas las modalidades'}.`,
         },
         await this.tournamentColumn(Number(deck.id)),
-        {
-          source: 'simulation',
-          label: 'Simulación',
-          available: false,
-          record: null,
-          rate: null,
-          note: 'Las simulaciones con el motor deckgym llegan en la Fase 6.',
-        },
+        await this.simulationColumn(Number(deck.id)),
       ],
     }
   }
@@ -447,6 +444,29 @@ export class MatchesService {
       rate: headline?.rate ?? null,
       note: headline === null ? `Nadie jugó esta lista ni una parecida en la era. ${scope}` : scope,
       rows,
+    }
+  }
+
+  /** Simulation column: finished games of the deck's current list, for the bot pair with the most games. */
+  private async simulationColumn(deckId: number): Promise<ComparisonColumnView> {
+    const column = await this.simulations.deckColumn(deckId).catch(() => null)
+    if (!column || column.games === 0) {
+      return {
+        source: 'simulation',
+        label: 'Simulación',
+        available: false,
+        record: null,
+        rate: null,
+        note: 'Todavía no se simuló la lista actual de este mazo (Más → Simulación).',
+      }
+    }
+    return {
+      source: 'simulation',
+      label: 'Simulación',
+      available: true,
+      record: column.record,
+      rate: simulationRate(column.record),
+      note: `Bots ${botLabel(column.players[0])} vs ${botLabel(column.players[1])}, ${column.jobs === 1 ? '1 simulación' : `${column.jobs} simulaciones`}, motor ${column.engineRev.slice(0, 7)}. El porcentaje depende del bot.`,
     }
   }
 

@@ -36,3 +36,6 @@ Boveda/.obsidian/cache/
 Boveda/.obsidian/plugins/
 Boveda/.trash/
 Boveda/Adjuntos/
+
+# Rust build output of engine-cli
+engine/target/

@@ -1,0 +1,8 @@
+# Same native stack reservation as deckgym-core's own config: its generated card database needs more than the
+# Windows default when it is initialized.
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/STACK:8388608"]
+
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "link-arg=-Wl,--stack,8388608"]

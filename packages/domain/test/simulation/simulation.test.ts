@@ -1,0 +1,199 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { engineIdToTrackerId } from '../../src/catalog/index.js'
+import {
+  buildSnapshot,
+  chunkSeed,
+  comparePairings,
+  deckRecord,
+  type EngineStatus,
+  engineEdition,
+  estimateSeconds,
+  gameSeed,
+  isBotCode,
+  matrixPairings,
+  matrixRows,
+  planChunks,
+  randomBaseSeed,
+  simulationRate,
+  splitmix64,
+  suggestEnergies,
+} from '../../src/simulation/index.js'
+import { deckDraft, parsedDecks } from '../helpers/loadDecks.js'
+import { catalogIndex } from '../helpers/loadFixtures.js'
+
+const index = catalogIndex()
+const repoRoot = join(import.meta.dirname, '..', '..', '..', '..')
+/** The engine's own list of unimplemented cards at fb792ebf (docs/fase0): 46 B4b trainer reprints. */
+const missing = new Set(
+  (
+    JSON.parse(readFileSync(join(repoRoot, 'docs/fase0/deckgym-no-implementadas-fb792ebf.json'), 'utf8')) as {
+      id: string
+    }[]
+  ).map((card) => card.id),
+)
+const engine: EngineStatus = (engineId) => !missing.has(engineId)
+
+describe('seeds: the same values as engine-cli', () => {
+  it('splitmix64 matches the reference output and engine/src/main.rs', () => {
+    expect(splitmix64(0n)).toBe(0xe220a8397b1dcdafn)
+    expect(gameSeed(42, 0)).toBe(gameSeed(42, 0))
+    expect(gameSeed(42, 0)).not.toBe(gameSeed(42, 1))
+    expect(gameSeed(42, 0)).not.toBe(gameSeed(43, 0))
+    expect(BigInt(gameSeed(1, 2))).toBeLessThan(2n ** 64n)
+  })
+
+  it('chunk seeds are base + idx, and random base seeds stay exact JavaScript integers', () => {
+    expect(chunkSeed(1000, 7)).toBe(1007)
+    const seed = randomBaseSeed(() => 0xffffffff)
+    expect(Number.isSafeInteger(seed + 100_000)).toBe(true)
+  })
+})
+
+describe('snapshots of the 40 real decks', () => {
+  it('the 46 unimplemented B4b reprints all have an implemented edition of the same card', () => {
+    expect(missing.size).toBe(46)
+    for (const engineId of missing) {
+      const card = index.cardById(engineIdToTrackerId(engineId))
+      if (!card) throw new Error(engineId)
+      const played = engineEdition(card, index, engine)
+      expect(played, engineId).not.toBeNull()
+      expect(played?.id).not.toBe(card.id)
+      expect(played?.functionalGroupId).toBe(card.functionalGroupId)
+    }
+  })
+
+  it('all 40 decks are simulable', () => {
+    for (const deck of parsedDecks()) {
+      const draft = deck.draft
+      if (!draft) continue
+      const snapshot = buildSnapshot({
+        label: deck.title,
+        cards: draft.cards,
+        energies: draft.energies.length > 0 ? draft.energies : ['psychic'],
+        index,
+        engine,
+      })
+      expect(snapshot.problems, `${deck.number}. ${deck.title}`).toEqual([])
+      expect(snapshot.deckgymText.startsWith('Energy: ')).toBe(true)
+    }
+  })
+
+  it('a deck with B4b-198 and no remapping is not simulable, naming the card', () => {
+    const base = deckDraft(2)
+    const lucky = index.cardById('B4b-198')
+    expect(lucky).toBeDefined()
+    const cards = [...base.cards.slice(0, -1), { cardId: 'B4b-198', count: 1 }]
+    const strict = buildSnapshot({ label: 'prueba', cards, energies: base.energies, index, engine, remap: false })
+    expect(strict.simulable).toBe(false)
+    expect(strict.problems).toContainEqual(
+      expect.objectContaining({ kind: 'not_implemented', cardId: 'B4b-198', nameEs: lucky?.nameEs }),
+    )
+    const mapped = buildSnapshot({ label: 'prueba', cards, energies: base.energies, index, engine })
+    const line = mapped.cards.find((card) => card.cardId === 'B4b-198')
+    if (mapped.simulable) {
+      expect(line?.playedAs).not.toBe('B4b-198')
+      expect(index.cardById(line?.playedAs ?? '')?.functionalGroupId).toBe(lucky?.functionalGroupId)
+    }
+  })
+
+  it('a list without energy (NOEX) is not simulable until the energy is chosen, with a suggestion', () => {
+    const base = deckDraft(2)
+    const snapshot = buildSnapshot({ label: 'NOEX', cards: base.cards, energies: [], index, engine })
+    expect(snapshot.simulable).toBe(false)
+    expect(snapshot.problems).toEqual([expect.objectContaining({ kind: 'energy_required', suggested: ['fire'] })])
+    expect(suggestEnergies(base.cards, index)).toEqual(['fire'])
+  })
+
+  it('the same list gives the same key; a different energy, another key', () => {
+    const base = deckDraft(2)
+    const one = buildSnapshot({ label: 'x', cards: base.cards, energies: base.energies, index, engine })
+    const two = buildSnapshot({ label: 'y', cards: base.cards, energies: base.energies, index, engine })
+    const other = buildSnapshot({ label: 'z', cards: base.cards, energies: ['water'], index, engine })
+    expect(one.key).toBe(two.key)
+    expect(one.key).not.toBe(other.key)
+  })
+
+  it('size, basics and copies are checked as the engine does', () => {
+    const base = deckDraft(2)
+    const short = buildSnapshot({ label: 's', cards: base.cards.slice(1), energies: base.energies, index, engine })
+    expect(short.problems.map((problem) => problem.kind)).toContain('size')
+  })
+})
+
+describe('jobs', () => {
+  it('a 40-deck matrix is 780 unordered pairings (1.560 with both orders)', () => {
+    const decks = Array.from({ length: 40 }, (_, i) => i + 1)
+    expect(matrixPairings(decks, decks)).toHaveLength(780)
+    expect(matrixPairings(decks, decks, true)).toHaveLength(1560)
+    expect(matrixPairings([1, 2], [3, 4, 5])).toHaveLength(6)
+    expect(comparePairings([2, 22], [1, 2, 3])).toEqual([
+      { a: 2, b: 1 },
+      { a: 2, b: 3 },
+      { a: 22, b: 1 },
+      { a: 22, b: 2 },
+      { a: 22, b: 3 },
+    ])
+  })
+
+  it('chunks split long pairings and number every chunk', () => {
+    const chunks = planChunks(
+      [
+        { a: 1, b: 2 },
+        { a: 1, b: 3 },
+      ],
+      2500,
+      1000,
+    )
+    expect(chunks.map((chunk) => [chunk.idx, chunk.games, chunk.firstGame])).toEqual([
+      [0, 1000, 0],
+      [1, 1000, 1000],
+      [2, 500, 2000],
+      [3, 1000, 0],
+      [4, 1000, 1000],
+      [5, 500, 2000],
+    ])
+  })
+
+  it('bot codes and a rough time estimate (780 × 200 e2 games ≈ 1,5 h on two threads)', () => {
+    expect(isBotCode('e2')).toBe(true)
+    expect(isBotCode('h')).toBe(false)
+    expect(isBotCode('x')).toBe(false)
+    const hours = estimateSeconds(780 * 200, ['e2', 'e2'], 2) / 3600
+    expect(hours).toBeGreaterThan(1)
+    expect(hours).toBeLessThan(2.5)
+  })
+})
+
+describe('results', () => {
+  const chunks = [
+    { a: 1, b: 2, winsA: 120, winsB: 70, ties: 10 },
+    { a: 1, b: 3, winsA: 90, winsB: 100, ties: 10 },
+    { a: 2, b: 3, winsA: 100, winsB: 100, ties: 0 },
+  ]
+
+  it('wins, losses and ties apart, from each side; Wilson over games, «orientativo» under 30', () => {
+    expect(deckRecord(chunks, 1)).toEqual({ wins: 210, losses: 170, ties: 20 })
+    expect(deckRecord(chunks, 3)).toEqual({ wins: 200, losses: 190, ties: 10 })
+    const rate = simulationRate({ wins: 120, losses: 70, ties: 10 })
+    expect(rate).toMatchObject({
+      source: 'simulation',
+      sampleKind: 'simulations',
+      games: 200,
+      value: 60,
+      orientative: false,
+    })
+    expect(simulationRate({ wins: 5, losses: 4, ties: 1 })?.orientative).toBe(true)
+    expect(simulationRate({ wins: 0, losses: 0, ties: 0 })).toBeNull()
+  })
+
+  it('matrix rows: each deck against each rival, best total first', () => {
+    const rows = matrixRows(chunks, [1, 2, 3], [1, 2, 3])
+    expect(rows.map((row) => row.deck)).toEqual([1, 3, 2])
+    expect(rows[0]?.cells).toEqual([
+      { rival: 2, record: { wins: 120, losses: 70, ties: 10 } },
+      { rival: 3, record: { wins: 90, losses: 100, ties: 10 } },
+    ])
+  })
+})

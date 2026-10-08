@@ -53,3 +53,21 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -F @tcg/domain build
       - run: pnpm -F @tcg/api test:e2e
+
+  # engine-cli (AGPL, deckgym-core pinned in engine/Cargo.toml): unit tests and a Windows build kept as an artifact,
+  # for a PC without Rust (the worker takes any engine-cli.exe via TCG_ENGINE_PATH or config.json).
+  engine:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+      - run: cargo test --release --manifest-path engine/Cargo.toml
+      - run: cargo build --release --manifest-path engine/Cargo.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine-cli-windows
+          path: engine/target/release/engine-cli.exe
+          retention-days: 30

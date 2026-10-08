@@ -286,11 +286,63 @@ ListRow = Row & { key (14 hex), kind: 'group'|'name', archetype, otherKey,
 
 Lista exacta: las mismas 20 cartas sin mirar la edición, sin energías. `kind=group` (por defecto) agrupa por carta funcional y distingue homónimas con otro texto; `kind=name` es la del brief (nombre inglés de Limitless). Sync: backfill de 60 días en la primera corrida y una incremental cada 6 h (`LIMITLESS_SYNC`, encendido solo en producción), tope propio de 40 llamadas cada 5 min, 429 → pausa `max(Retry-After, t, 60 s)`, 5xx → reintentos a 1, 2, 4, 8 y 16 min.
 
+## Simulación (Fase 6)
+
+Partidas entre mazos con deckgym-core (`engine-cli`, `engine/`) que juega el worker de la PC (`apps/worker`). Un **trabajo** (`matrix`, `compare` u `optimize`) congela sus mazos en **fotos** (`deck_snapshots`) y se parte en **chunks** de hasta 1000 partidas, uno o más por cruce; cada chunk lleva su semilla (`baseSeed + idx`). Resultados: victorias, derrotas y empates aparte, `WinRate` con `source: 'simulation'` (victorias / partidas, Wilson 95 %, «orientativo» con menos de 30). Nunca se combinan con torneos ni partidas propias.
+
+| Método y ruta | Cuerpo / respuesta |
+|---|---|
+| `GET /api/simulations` | `{ items: JobSummary[] }` (50 más recientes) |
+| `GET /api/simulations/engine` | `{ engineRev, cards, incomplete, source: 'worker'|'fallback'|'none', workers: [{ id, name, engineRev, cliVersion, cores, version, lastSeenAt, online, current: { jobId, chunkId, gamesDone, games } | null }], bots: [{ code, label }] }`; `fallback` = la lista de la Fase 0 hasta que un worker sube `engine-cli status`; `online` = habló en los últimos 2 min |
+| `POST /api/simulations/preview` | `JobInput` → `{ sideA: Snapshot[], sideB: Snapshot[], pairings, totalGames, estimatedSeconds, engineRev }` (sin `id` en las fotos; no guarda nada) |
+| `POST /api/simulations` | `JobInput` → `201 JobSummary`; `422 not_simulable` si algún mazo no es simulable y no se pidió `skipNotSimulable`; `400 validation` (sin cruces, optimizar sin cartas o con más de 200 combinaciones) |
+| `GET /api/simulations/:id` | `JobDetail` |
+| `GET /api/simulations/:id/events` | SSE: un `JobSummary` cada 2 s mientras el trabajo está en cola o corriendo; el último lleva el estado final |
+| `POST /api/simulations/:id/cancel` | `JobSummary` (los chunks pendientes pasan a cancelados; el worker corta el motor en el próximo latido) |
+| `DELETE /api/simulations/:id` | `204`; borra chunks y repeticiones (las fotos quedan) |
+| `GET /api/simulations/replays/:id` | `{ replay (JSON de deckgym tal cual), names: { [engineId]: nombre en español }, game: { jobId, jobLabel, engineRev, gameIndex, seed, winner: 'a'|'b'|'tie', decks: [etiqueta A, etiqueta B], playersEs } }` |
+
+```ts
+Source = { deckId, energies? } | { listKey (14 hex), era?, format?: 'STANDARD'|'NOEX', kind?: 'group'|'name', energies? }
+JobInput = { kind: 'matrix'|'compare'|'optimize', label?, sideA: Source[1..60], sideB: Source[0..60],
+             gamesPerPair: 1..20000, players: [bot, bot], seed?: 0..2^52, bothOrders?, replaySample?: 0..5 (2),
+             cores?: hilos por chunk (si no, los del worker), skipNotSimulable?,
+             optimize?: { remove: [{ cardId, count: 1|2 }], candidates: cardId[] } }   // optimize: sideA = 1 mazo, sideB = rivales
+Snapshot = { id, key, label, sourceType: 'deck_revision'|'tournament_list'|'text', sourceId, deckId, energies,
+             simulable, problems: [{ kind: 'unknown_card'|'not_implemented'|'energy_required'|'size'|'no_basic'|'too_many_copies', message, … }],
+             remapped: [{ cardId, playedAs }],   // reimpresiones B4b jugadas como otra edición
+             deckgymText }
+JobSummary = { id, kind, status: 'queued'|'running'|'done'|'failed'|'cancelled', label, players, playersEs, gamesPerPair,
+               baseSeed (string), engineRev, replaySample, createdAt, startedAt, finishedAt, error,
+               progress: { totalGames, gamesDone, chunks: { total, done, running, failed }, etaSeconds | null } }
+JobDetail = JobSummary & { snapshots: Snapshot[], sideA: id[], sideB: id[],
+               rows: [{ snapshot, total: Record, rate, cells: [{ rival, record | null, rate | null }] }],   // matriz y comparar
+               optimize: [{ cards: [{ engineId, cardId, nameEs }], record, rate, perEnemy: [{ snapshot, record, rate }] }] | null,
+               replays: [{ id, chunkId, a, b, gameIndex, seed, winner, sizeBytes }],
+               chunks: [{ id, idx, a, b, games, gamesDone, status, seed, attempt, error }] }
+```
+
+Bots (`players`): `r` al azar, `w` al azar ponderado, `aa` adjunta y ataca, `et` termina el turno, `er` evoluciona primero, `v` función de valor, `m` MCTS (100 iteraciones), `e1`…`e9` expectiminimax de esa profundidad (`e3` tarda ~2× `e2`). La matriz por defecto: `e2` contra `e2`, 200 partidas por cruce.
+
+### Worker
+
+`Authorization: Bearer tcg_wk_…` (token de tipo worker, scope `worker:claim`); la sesión no sirve acá.
+
+| Método y ruta | Cuerpo / respuesta |
+|---|---|
+| `GET /api/worker/ping` | `{ ok: true, token: { name, kind } }` |
+| `POST /api/worker/claim` | `{ workerId, name, engineRev (40 hex), cliVersion?, cores, version? }` → long-poll de hasta 25 s → `{ chunk: { chunkId, jobId, kind, idx, games, firstGame, seed, players, threads, replaySample, leaseUntil, deckA, deckB, optimize } | null, requiredEngineRev, retryAfterSeconds }`; con `chunk: null` y `requiredEngineRev`, la cola espera otro motor |
+| `PUT /api/worker/chunks/:id/heartbeat` | `{ workerId, gamesDone, total? }` → `{ leaseUntil | null, cancelled }` (renueva el lease de 3 min) |
+| `PUT /api/worker/chunks/:id/result` | `{ workerId, engineRev, winsA, winsB, ties, games, turns?, durationMs, extra? }` → `{ accepted }` (idempotente: `false` si ya estaba) |
+| `PUT /api/worker/chunks/:id/failure` | `{ workerId, error }` → `{ status }` (`queued` o, a la tercera, `failed`) |
+| `PUT /api/worker/chunks/:id/replays/:gameId?index=&seed=&winner=` | Cuerpo: el JSON de la repetición en gzip (`application/gzip`, hasta 8 MB) → `{ id }` |
+| `PUT /api/worker/engine-status` | `{ engineRev, cards: [{ id, name, status, complete }] }` (salida de `engine-cli status`) → `{ cards, incomplete }` |
+
 ## MCP (Fase 3)
 
 `POST /api/mcp`: servidor MCP remoto, Streamable HTTP, sin sesiones, con el SDK v2 (`@modelcontextprotocol/server` 2.3.1). Atiende las dos eras del protocolo en el mismo endpoint: 2026-07-28 y la de 2025 con `initialize` (la que usan hoy las apps de Claude y Claude Code). `GET` y `DELETE` responden `405`. Autenticación: `Authorization: Bearer tcg_mcp_…` con scope `mcp:read` (`401` sin token o con uno inválido o revocado, `403` con un token de worker); la cookie de sesión no sirve acá.
 
-Tools de lectura (nombres con `_` porque la API de Claude no acepta `.`): `collection_summary`, `cards_search`, `collection_playable_copies`, `collection_editions`, `decks_list`, `decks_get` (incluye `bestVersions`), `decks_find_by_card`, `decks_validate`, `decks_missing`, `decks_closest`, `decks_random`, `matches_stats`, `matches_list` y `packs_recommend` (Fase 4: la misma recomendación, resumida, con lo guardado en la app por defecto; dice el último día de los sobres limitados, lo que solo dan ellos, el mejor sobre cuando terminen y cuándo intercambiar). Torneos (Fase 5): `tournaments_stats` (por arquetipo o lista exacta; con `archetype` el detalle y con `card` el récord con y sin esa carta), `tournaments_buildable` (listas que se pueden armar hoy y las que quedan a 1 o 2 copias) y `tournaments_unlock_cards` (qué carta sola destraba más listas), todas con la era, la media de la era y la atribución a Limitless. `simulations_results` responde `{ available: false, message }` hasta la Fase 6. Todas devuelven JSON compacto en `content[0].text` y el mismo objeto en `structuredContent`; los errores esperables (carta o mazo inexistente, entrada inválida) vuelven como `isError: true` con el mensaje en español. Cada porcentaje trae `text` con el formato canónico «70 % (n = 10, IC 39,7–89,2 %, orientativo)». Un mazo se indica por su número («13», «mazo 13»: el número con que empieza el nombre o, si no, el id), o por parte del nombre.
+Tools de lectura (nombres con `_` porque la API de Claude no acepta `.`): `collection_summary`, `cards_search`, `collection_playable_copies`, `collection_editions`, `decks_list`, `decks_get` (incluye `bestVersions`), `decks_find_by_card`, `decks_validate`, `decks_missing`, `decks_closest`, `decks_random`, `matches_stats`, `matches_list` y `packs_recommend` (Fase 4: la misma recomendación, resumida, con lo guardado en la app por defecto; dice el último día de los sobres limitados, lo que solo dan ellos, el mejor sobre cuando terminen y cuándo intercambiar). Torneos (Fase 5): `tournaments_stats` (por arquetipo o lista exacta; con `archetype` el detalle y con `card` el récord con y sin esa carta), `tournaments_buildable` (listas que se pueden armar hoy y las que quedan a 1 o 2 copias) y `tournaments_unlock_cards` (qué carta sola destraba más listas), todas con la era, la media de la era y la atribución a Limitless. Simulación (Fase 6): `simulations_results` (trabajos recientes; con `job`, el ranking de mazos o las combinaciones de optimizar; con `deck`, la columna «simulación» del mazo y, junto con `job`, sus cruces), siempre con bots, n, semilla y motor. Todas devuelven JSON compacto en `content[0].text` y el mismo objeto en `structuredContent`; los errores esperables (carta o mazo inexistente, entrada inválida) vuelven como `isError: true` con el mensaje en español. Cada porcentaje trae `text` con el formato canónico «70 % (n = 10, IC 39,7–89,2 %, orientativo)». Un mazo se indica por su número («13», «mazo 13»: el número con que empieza el nombre o, si no, el id), o por parte del nombre.
 
 Conectar:
 - **Claude Code:** crear un token MCP en Más → Tokens de API y registrar `claude mcp add --transport http tcg https://tcg-pocket.fly.dev/api/mcp --header "Authorization: Bearer tcg_mcp_…"`.

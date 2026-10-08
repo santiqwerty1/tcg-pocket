@@ -622,3 +622,158 @@ model LimitlessSyncRun {
   @@index([startedAt])
   @@map("limitless_sync_runs")
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Simulación (Fase 6, M7): jobs split into chunks that the worker on the owner's PC claims, plays and reports
+// ---------------------------------------------------------------------------------------------------------------
+
+enum SimulationKind {
+  matrix
+  compare
+  optimize
+}
+
+enum SimulationJobStatus {
+  queued
+  running
+  done
+  failed
+  cancelled
+}
+
+enum SimulationChunkStatus {
+  queued
+  leased
+  done
+  failed
+  cancelled
+}
+
+/// Implementation status of every engine card, per engine revision (uploaded by the worker from `engine-cli status`).
+model EngineCard {
+  engineRev String  @map("engine_rev")
+  engineId  String  @map("engine_id")
+  name      String
+  status    String
+  complete  Boolean
+
+  @@id([engineRev, engineId])
+  @@map("engine_cards")
+}
+
+model WorkerNode {
+  id         String   @id
+  name       String
+  engineRev  String?  @map("engine_rev")
+  cliVersion String?  @map("cli_version")
+  cores      Int      @default(1)
+  version    String?
+  lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@map("worker_nodes")
+}
+
+/// The exact deck the engine played: frozen when a job is queued (PLAN §4).
+model DeckSnapshot {
+  id           Int      @id @default(autoincrement())
+  /// Hash of `deckgym_text`: two snapshots of the same list share it.
+  key          String
+  label        String
+  /// deck_revision | tournament_list | text
+  sourceType   String   @map("source_type")
+  /// Deck revision id, tournament list key…
+  sourceId     String?  @map("source_id")
+  deckId       Int?     @map("deck_id")
+  deckgymText  String   @map("deckgym_text")
+  energies     String[]
+  /// declared | chosen
+  energySource String   @map("energy_source")
+  /// [{ cardId, playedAs, engineId, count }]
+  cards        Json
+  /// [{ kind, message, … }]; empty = simulable
+  problems     Json     @default("[]")
+  simulable    Boolean
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([key])
+  @@index([deckId])
+  @@map("deck_snapshots")
+}
+
+model SimulationJob {
+  id           Int                 @id @default(autoincrement())
+  kind         SimulationKind
+  status       SimulationJobStatus @default(queued)
+  label        String
+  /// { sideA: snapshotIds, sideB: snapshotIds, bothOrders } or the optimize payload
+  params       Json
+  engineRev    String              @map("engine_rev")
+  players      String[]
+  gamesPerPair Int                 @map("games_per_pair")
+  baseSeed     BigInt              @map("base_seed")
+  /// Threads per chunk the worker should use (null = what the worker has configured).
+  cores        Int?
+  replaySample Int                 @default(2) @map("replay_sample")
+  totalGames   Int                 @map("total_games")
+  createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  startedAt    DateTime?           @map("started_at") @db.Timestamptz(3)
+  finishedAt   DateTime?           @map("finished_at") @db.Timestamptz(3)
+  error        String?
+  chunks       SimulationChunk[]
+
+  @@index([status, createdAt])
+  @@map("simulation_jobs")
+}
+
+model SimulationChunk {
+  id          Int                   @id @default(autoincrement())
+  jobId       Int                   @map("job_id")
+  job         SimulationJob         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  idx         Int
+  snapshotAId Int?                  @map("snapshot_a_id")
+  snapshotBId Int?                  @map("snapshot_b_id")
+  games       Int
+  firstGame   Int                   @default(0) @map("first_game")
+  seed        BigInt
+  status      SimulationChunkStatus @default(queued)
+  attempt     Int                   @default(0)
+  leaseUntil  DateTime?             @map("lease_until") @db.Timestamptz(3)
+  workerId    String?               @map("worker_id")
+  gamesDone   Int                   @default(0) @map("games_done")
+  winsA       Int?                  @map("wins_a")
+  winsB       Int?                  @map("wins_b")
+  ties        Int?
+  turns       BigInt?
+  durationMs  Int?                  @map("duration_ms")
+  engineRev   String?               @map("engine_rev")
+  /// optimize: { combinations: [...] }
+  extra       Json?
+  error       String?
+  startedAt   DateTime?             @map("started_at") @db.Timestamptz(3)
+  finishedAt  DateTime?             @map("finished_at") @db.Timestamptz(3)
+  replays     SimulationReplay[]
+
+  @@unique([jobId, idx])
+  @@index([status, leaseUntil])
+  @@index([snapshotAId])
+  @@index([snapshotBId])
+  @@map("simulation_chunks")
+}
+
+model SimulationReplay {
+  id        Int             @id @default(autoincrement())
+  chunkId   Int             @map("chunk_id")
+  chunk     SimulationChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+  gameId    String          @map("game_id")
+  gameIndex Int             @map("game_index")
+  seed      String
+  /// a | b | tie
+  winner    String
+  dataGz    Bytes           @map("data_gz")
+  sizeBytes Int             @map("size_bytes")
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([chunkId, gameId])
+  @@map("simulation_replays")
+}

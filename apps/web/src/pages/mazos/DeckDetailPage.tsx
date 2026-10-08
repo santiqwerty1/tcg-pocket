@@ -1,4 +1,4 @@
-import { CopyIcon, DownloadIcon, EllipsisVerticalIcon, PencilIcon } from 'lucide-react'
+import { CopyIcon, CpuIcon, DownloadIcon, EllipsisVerticalIcon, PencilIcon, SlidersHorizontalIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
@@ -211,6 +211,18 @@ export function DeckDetailPage() {
               <DropdownMenuItem onSelect={() => setExportOpen(true)}>
                 <DownloadIcon />
                 Exportar…
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => navigate(`/simulacion/nueva?tipo=compare&a=${encodeURIComponent(`d:${data.id}`)}`)}
+              >
+                <CpuIcon />
+                Simular contra…
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => navigate(`/simulacion/nueva?tipo=optimize&a=${encodeURIComponent(`d:${data.id}`)}`)}
+              >
+                <SlidersHorizontalIcon />
+                Optimizar con simulación…
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem

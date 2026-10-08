@@ -1,0 +1,4002 @@
+{
+  "version": 1,
+  "game_id": "00000000-0135-2890-0000-000000000000",
+  "seed": 7447561036809819000,
+  "players": [
+    {
+      "name": "ExpectiMiniMaxPlayer",
+      "deck": [
+        "B3b 001",
+        "B3b 001",
+        "B3b 002",
+        "B3b 002",
+        "B3b 003",
+        "B3b 003",
+        "B3 005",
+        "B3 006",
+        "B3 008",
+        "P-A 007",
+        "P-A 007",
+        "B1 225",
+        "A1 225",
+        "A2 150",
+        "B1a 067",
+        "B1a 067",
+        "A2 147",
+        "B3 153",
+        "B3 153",
+        "A3 155"
+      ]
+    },
+    {
+      "name": "ExpectiMiniMaxPlayer",
+      "deck": [
+        "B1 033",
+        "B1 033",
+        "B1 036",
+        "B1 284",
+        "B1 044",
+        "B3 024",
+        "P-A 007",
+        "P-A 007",
+        "B1 225",
+        "B1 225",
+        "P-A 005",
+        "P-A 005",
+        "A3 144",
+        "A3 144",
+        "B1 217",
+        "B1 217",
+        "A2 150",
+        "B3 147",
+        "A2 148",
+        "B2b 069"
+      ]
+    }
+  ],
+  "cards": {
+    "A1 225": { "Trainer": { "id": "A1 225", "trainer_card_type": "Supporter", "name": "Sabrina" } },
+    "A2 147": { "Trainer": { "id": "A2 147", "trainer_card_type": "Tool", "name": "Giant Cape" } },
+    "A2 148": { "Trainer": { "id": "A2 148", "trainer_card_type": "Tool", "name": "Rocky Helmet" } },
+    "A2 150": { "Trainer": { "id": "A2 150", "trainer_card_type": "Supporter", "name": "Cyrus" } },
+    "A3 144": { "Trainer": { "id": "A3 144", "trainer_card_type": "Item", "name": "Rare Candy" } },
+    "A3 155": { "Trainer": { "id": "A3 155", "trainer_card_type": "Supporter", "name": "Lillie" } },
+    "B1 033": {
+      "Pokemon": {
+        "id": "B1 033",
+        "name": "Torchic",
+        "stage": 0,
+        "evolves_from": null,
+        "hp": 60,
+        "energy_type": "Fire"
+      }
+    },
+    "B1 036": {
+      "Pokemon": {
+        "id": "B1 036",
+        "name": "Mega Blaziken ex",
+        "stage": 2,
+        "evolves_from": "Combusken",
+        "hp": 210,
+        "energy_type": "Fire"
+      }
+    },
+    "B1 044": {
+      "Pokemon": {
+        "id": "B1 044",
+        "name": "Heatmor",
+        "stage": 0,
+        "evolves_from": null,
+        "hp": 80,
+        "energy_type": "Fire"
+      }
+    },
+    "B1 217": { "Trainer": { "id": "B1 217", "trainer_card_type": "Item", "name": "Flame Patch" } },
+    "B1 225": { "Trainer": { "id": "B1 225", "trainer_card_type": "Supporter", "name": "Copycat" } },
+    "B1 284": {
+      "Pokemon": {
+        "id": "B1 284",
+        "name": "Mega Blaziken ex",
+        "stage": 2,
+        "evolves_from": "Combusken",
+        "hp": 210,
+        "energy_type": "Fire"
+      }
+    },
+    "B1a 067": { "Trainer": { "id": "B1a 067", "trainer_card_type": "Item", "name": "Quick-Grow Extract" } },
+    "B2b 069": { "Trainer": { "id": "B2b 069", "trainer_card_type": "Stadium", "name": "Hiking Trail" } },
+    "B3 005": {
+      "Pokemon": {
+        "id": "B3 005",
+        "name": "Treecko",
+        "stage": 0,
+        "evolves_from": null,
+        "hp": 60,
+        "energy_type": "Grass"
+      }
+    },
+    "B3 006": {
+      "Pokemon": {
+        "id": "B3 006",
+        "name": "Grovyle",
+        "stage": 1,
+        "evolves_from": "Treecko",
+        "hp": 80,
+        "energy_type": "Grass"
+      }
+    },
+    "B3 008": {
+      "Pokemon": {
+        "id": "B3 008",
+        "name": "Mega Sceptile ex",
+        "stage": 2,
+        "evolves_from": "Grovyle",
+        "hp": 210,
+        "energy_type": "Grass"
+      }
+    },
+    "B3 024": {
+      "Pokemon": {
+        "id": "B3 024",
+        "name": "Castform Sunny Form",
+        "stage": 0,
+        "evolves_from": null,
+        "hp": 70,
+        "energy_type": "Fire"
+      }
+    },
+    "B3 147": { "Trainer": { "id": "B3 147", "trainer_card_type": "Item", "name": "Field Blower" } },
+    "B3 153": { "Trainer": { "id": "B3 153", "trainer_card_type": "Stadium", "name": "Fragrant Forest" } },
+    "B3b 001": {
+      "Pokemon": {
+        "id": "B3b 001",
+        "name": "Caterpie",
+        "stage": 0,
+        "evolves_from": null,
+        "hp": 40,
+        "energy_type": "Grass"
+      }
+    },
+    "B3b 002": {
+      "Pokemon": {
+        "id": "B3b 002",
+        "name": "Metapod",
+        "stage": 1,
+        "evolves_from": "Caterpie",
+        "hp": 80,
+        "energy_type": "Grass"
+      }
+    },
+    "B3b 003": {
+      "Pokemon": {
+        "id": "B3b 003",
+        "name": "Butterfree",
+        "stage": 2,
+        "evolves_from": "Metapod",
+        "hp": 130,
+        "energy_type": "Grass"
+      }
+    },
+    "P-A 005": { "Trainer": { "id": "P-A 005", "trainer_card_type": "Item", "name": "Poké Ball" } },
+    "P-A 007": { "Trainer": { "id": "P-A 007", "trainer_card_type": "Supporter", "name": "Professor's Research" } }
+  },
+  "steps": [
+    {
+      "ply": 0,
+      "turn": 0,
+      "actor": 0,
+      "state": {
+        "turn": 0,
+        "current_player": 0,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B3 005", "P-A 007", "A2 147", "B3 008", "B1a 067"],
+            "hand_count": 5,
+            "deck_count": 15,
+            "discard": [],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [null, null, null, null]
+          },
+          {
+            "hand": ["B1 033", "P-A 005", "P-A 005", "B1 225", "B1 217"],
+            "hand_count": 5,
+            "deck_count": 15,
+            "discard": [],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [null, null, null, null]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        {
+          "text": "Place(Treecko, 0)",
+          "action": {
+            "Place": [
+              {
+                "Pokemon": {
+                  "id": "B3 005",
+                  "name": "Treecko",
+                  "stage": 0,
+                  "evolves_from": null,
+                  "hp": 60,
+                  "energy_type": "Grass"
+                }
+              },
+              0
+            ]
+          }
+        }
+      ],
+      "chosen": 0,
+      "note": null
+    },
+    {
+      "ply": 1,
+      "turn": 0,
+      "actor": 0,
+      "state": {
+        "turn": 0,
+        "current_player": 0,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "P-A 007", "A2 147", "B3 008"],
+            "hand_count": 4,
+            "deck_count": 15,
+            "discard": [],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["B1 033", "P-A 005", "P-A 005", "B1 225", "B1 217"],
+            "hand_count": 5,
+            "deck_count": 15,
+            "discard": [],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [null, null, null, null]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [{ "text": "EndTurn", "action": "EndTurn" }],
+      "chosen": 0,
+      "note": null
+    },
+    {
+      "ply": 2,
+      "turn": 0,
+      "actor": 1,
+      "state": {
+        "turn": 0,
+        "current_player": 1,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "P-A 007", "A2 147", "B3 008"],
+            "hand_count": 4,
+            "deck_count": 15,
+            "discard": [],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["B1 033", "P-A 005", "P-A 005", "B1 225", "B1 217"],
+            "hand_count": 5,
+            "deck_count": 15,
+            "discard": [],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [null, null, null, null]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        {
+          "text": "Place(Torchic, 0)",
+          "action": {
+            "Place": [
+              {
+                "Pokemon": {
+                  "id": "B1 033",
+                  "name": "Torchic",
+                  "stage": 0,
+                  "evolves_from": null,
+                  "hp": 60,
+                  "energy_type": "Fire"
+                }
+              },
+              0
+            ]
+          }
+        }
+      ],
+      "chosen": 0,
+      "note": null
+    },
+    {
+      "ply": 3,
+      "turn": 0,
+      "actor": 1,
+      "state": {
+        "turn": 0,
+        "current_player": 1,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "P-A 007", "A2 147", "B3 008"],
+            "hand_count": 4,
+            "deck_count": 15,
+            "discard": [],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["B1 217", "P-A 005", "P-A 005", "B1 225"],
+            "hand_count": 4,
+            "deck_count": 15,
+            "discard": [],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              null,
+              null,
+              null
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [{ "text": "EndTurn", "action": "EndTurn" }],
+      "chosen": 0,
+      "note": null
+    },
+    {
+      "ply": 4,
+      "turn": 1,
+      "actor": 0,
+      "state": {
+        "turn": 1,
+        "current_player": 0,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "P-A 007", "A2 147", "B3 008"],
+            "hand_count": 4,
+            "deck_count": 15,
+            "discard": [],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["B1 217", "P-A 005", "P-A 005", "B1 225"],
+            "hand_count": 4,
+            "deck_count": 15,
+            "discard": [],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [{ "text": "DrawCard(1)", "action": { "DrawCard": { "amount": 1 } } }],
+      "chosen": 0,
+      "note": null
+    },
+    {
+      "ply": 5,
+      "turn": 1,
+      "actor": 0,
+      "state": {
+        "turn": 1,
+        "current_player": 0,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "P-A 007", "A2 147", "B3 008", "A3 155"],
+            "hand_count": 5,
+            "deck_count": 14,
+            "discard": [],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["B1 217", "P-A 005", "P-A 005", "B1 225"],
+            "hand_count": 4,
+            "deck_count": 15,
+            "discard": [],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Play(P-A 007 Professor's Research)",
+          "action": {
+            "Play": {
+              "trainer_card": { "id": "P-A 007", "trainer_card_type": "Supporter", "name": "Professor's Research" }
+            }
+          }
+        },
+        {
+          "text": "Play(A2 147 Giant Cape)",
+          "action": {
+            "Play": { "trainer_card": { "id": "A2 147", "trainer_card_type": "Tool", "name": "Giant Cape" } }
+          }
+        }
+      ],
+      "chosen": 2,
+      "note": null
+    },
+    {
+      "ply": 6,
+      "turn": 1,
+      "actor": 0,
+      "state": {
+        "turn": 1,
+        "current_player": 0,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "P-A 007", "A3 155", "B3 008"],
+            "hand_count": 4,
+            "deck_count": 14,
+            "discard": [],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["B1 217", "P-A 005", "P-A 005", "B1 225"],
+            "hand_count": 4,
+            "deck_count": 15,
+            "discard": [],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        {
+          "text": "AttachTool(0, Giant Cape)",
+          "action": {
+            "AttachTool": {
+              "in_play_idx": 0,
+              "tool_card": { "Trainer": { "id": "A2 147", "trainer_card_type": "Tool", "name": "Giant Cape" } }
+            }
+          }
+        }
+      ],
+      "chosen": 0,
+      "note": null
+    },
+    {
+      "ply": 7,
+      "turn": 1,
+      "actor": 0,
+      "state": {
+        "turn": 1,
+        "current_player": 0,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "P-A 007", "A3 155", "B3 008"],
+            "hand_count": 4,
+            "deck_count": 14,
+            "discard": [],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["B1 217", "P-A 005", "P-A 005", "B1 225"],
+            "hand_count": 4,
+            "deck_count": 15,
+            "discard": [],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Play(P-A 007 Professor's Research)",
+          "action": {
+            "Play": {
+              "trainer_card": { "id": "P-A 007", "trainer_card_type": "Supporter", "name": "Professor's Research" }
+            }
+          }
+        }
+      ],
+      "chosen": 1,
+      "note": null
+    },
+    {
+      "ply": 8,
+      "turn": 1,
+      "actor": 0,
+      "state": {
+        "turn": 1,
+        "current_player": 0,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "P-A 007"],
+            "hand_count": 5,
+            "deck_count": 12,
+            "discard": ["P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["B1 217", "P-A 005", "P-A 005", "B1 225"],
+            "hand_count": 4,
+            "deck_count": 15,
+            "discard": [],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [{ "text": "EndTurn", "action": "EndTurn" }],
+      "chosen": 0,
+      "note": null
+    },
+    {
+      "ply": 9,
+      "turn": 2,
+      "actor": 1,
+      "state": {
+        "turn": 2,
+        "current_player": 1,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "P-A 007"],
+            "hand_count": 5,
+            "deck_count": 12,
+            "discard": ["P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["B1 217", "P-A 005", "P-A 005", "B1 225"],
+            "hand_count": 4,
+            "deck_count": 15,
+            "discard": [],
+            "discard_energies": [],
+            "energy_zone": { "current": "Fire", "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [{ "text": "DrawCard(1)", "action": { "DrawCard": { "amount": 1 } } }],
+      "chosen": 0,
+      "note": null
+    },
+    {
+      "ply": 10,
+      "turn": 2,
+      "actor": 1,
+      "state": {
+        "turn": 2,
+        "current_player": 1,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "P-A 007"],
+            "hand_count": 5,
+            "deck_count": 12,
+            "discard": ["P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["B1 217", "P-A 005", "P-A 005", "B1 225", "A3 144"],
+            "hand_count": 5,
+            "deck_count": 14,
+            "discard": [],
+            "discard_energies": [],
+            "energy_zone": { "current": "Fire", "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Play(P-A 005 Poké Ball)",
+          "action": {
+            "Play": { "trainer_card": { "id": "P-A 005", "trainer_card_type": "Item", "name": "Poké Ball" } }
+          }
+        },
+        {
+          "text": "Play(P-A 005 Poké Ball)",
+          "action": {
+            "Play": { "trainer_card": { "id": "P-A 005", "trainer_card_type": "Item", "name": "Poké Ball" } }
+          }
+        }
+      ],
+      "chosen": 1,
+      "note": null
+    },
+    {
+      "ply": 11,
+      "turn": 2,
+      "actor": 1,
+      "state": {
+        "turn": 2,
+        "current_player": 1,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "P-A 007"],
+            "hand_count": 5,
+            "deck_count": 12,
+            "discard": ["P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["B1 217", "A3 144", "P-A 005", "B1 225", "B1 044"],
+            "hand_count": 5,
+            "deck_count": 13,
+            "discard": ["P-A 005"],
+            "discard_energies": [],
+            "energy_zone": { "current": "Fire", "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Play(P-A 005 Poké Ball)",
+          "action": {
+            "Play": { "trainer_card": { "id": "P-A 005", "trainer_card_type": "Item", "name": "Poké Ball" } }
+          }
+        },
+        {
+          "text": "Play(B1 225 Copycat)",
+          "action": {
+            "Play": { "trainer_card": { "id": "B1 225", "trainer_card_type": "Supporter", "name": "Copycat" } }
+          }
+        },
+        {
+          "text": "Attach(\"(1, Fire, 0)\", true)",
+          "action": { "Attach": { "attachments": [[1, "Fire", 0]], "is_turn_energy": true } }
+        }
+      ],
+      "chosen": 3,
+      "note": null
+    },
+    {
+      "ply": 12,
+      "turn": 2,
+      "actor": 1,
+      "state": {
+        "turn": 2,
+        "current_player": 1,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "P-A 007"],
+            "hand_count": 5,
+            "deck_count": 12,
+            "discard": ["P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["B1 217", "A3 144", "P-A 005", "B1 225", "B1 044"],
+            "hand_count": 5,
+            "deck_count": 13,
+            "discard": ["P-A 005"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Play(P-A 005 Poké Ball)",
+          "action": {
+            "Play": { "trainer_card": { "id": "P-A 005", "trainer_card_type": "Item", "name": "Poké Ball" } }
+          }
+        },
+        {
+          "text": "Play(B1 225 Copycat)",
+          "action": {
+            "Play": { "trainer_card": { "id": "B1 225", "trainer_card_type": "Supporter", "name": "Copycat" } }
+          }
+        },
+        {
+          "text": "Place(Heatmor, 3)",
+          "action": {
+            "Place": [
+              {
+                "Pokemon": {
+                  "id": "B1 044",
+                  "name": "Heatmor",
+                  "stage": 0,
+                  "evolves_from": null,
+                  "hp": 80,
+                  "energy_type": "Fire"
+                }
+              },
+              3
+            ]
+          }
+        }
+      ],
+      "chosen": 3,
+      "note": null
+    },
+    {
+      "ply": 13,
+      "turn": 2,
+      "actor": 1,
+      "state": {
+        "turn": 2,
+        "current_player": 1,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "P-A 007"],
+            "hand_count": 5,
+            "deck_count": 12,
+            "discard": ["P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["B1 217", "A3 144", "P-A 005", "B1 225"],
+            "hand_count": 4,
+            "deck_count": 13,
+            "discard": ["P-A 005"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Play(P-A 005 Poké Ball)",
+          "action": {
+            "Play": { "trainer_card": { "id": "P-A 005", "trainer_card_type": "Item", "name": "Poké Ball" } }
+          }
+        },
+        {
+          "text": "Play(B1 225 Copycat)",
+          "action": {
+            "Play": { "trainer_card": { "id": "B1 225", "trainer_card_type": "Supporter", "name": "Copycat" } }
+          }
+        }
+      ],
+      "chosen": 2,
+      "note": null
+    },
+    {
+      "ply": 14,
+      "turn": 2,
+      "actor": 1,
+      "state": {
+        "turn": 2,
+        "current_player": 1,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "P-A 007"],
+            "hand_count": 5,
+            "deck_count": 12,
+            "discard": ["P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["P-A 007", "B3 024", "P-A 007", "B1 033", "B1 217"],
+            "hand_count": 5,
+            "deck_count": 11,
+            "discard": ["P-A 005", "B1 225"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Place(Castform Sunny Form, 1)",
+          "action": {
+            "Place": [
+              {
+                "Pokemon": {
+                  "id": "B3 024",
+                  "name": "Castform Sunny Form",
+                  "stage": 0,
+                  "evolves_from": null,
+                  "hp": 70,
+                  "energy_type": "Fire"
+                }
+              },
+              1
+            ]
+          }
+        },
+        {
+          "text": "Place(Castform Sunny Form, 2)",
+          "action": {
+            "Place": [
+              {
+                "Pokemon": {
+                  "id": "B3 024",
+                  "name": "Castform Sunny Form",
+                  "stage": 0,
+                  "evolves_from": null,
+                  "hp": 70,
+                  "energy_type": "Fire"
+                }
+              },
+              2
+            ]
+          }
+        }
+      ],
+      "chosen": 2,
+      "note": null
+    },
+    {
+      "ply": 15,
+      "turn": 2,
+      "actor": 1,
+      "state": {
+        "turn": 2,
+        "current_player": 1,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "P-A 007"],
+            "hand_count": 5,
+            "deck_count": 12,
+            "discard": ["P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["P-A 007", "B1 217", "P-A 007", "B1 033"],
+            "hand_count": 4,
+            "deck_count": 11,
+            "discard": ["P-A 005", "B1 225"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              {
+                "card": "B3 024",
+                "hp": 70,
+                "max_hp": 70,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Place(Torchic, 1)",
+          "action": {
+            "Place": [
+              {
+                "Pokemon": {
+                  "id": "B1 033",
+                  "name": "Torchic",
+                  "stage": 0,
+                  "evolves_from": null,
+                  "hp": 60,
+                  "energy_type": "Fire"
+                }
+              },
+              1
+            ]
+          }
+        },
+        { "text": "Retreat(2)", "action": { "Retreat": 2 } }
+      ],
+      "chosen": 2,
+      "note": null
+    },
+    {
+      "ply": 16,
+      "turn": 2,
+      "actor": 1,
+      "state": {
+        "turn": 2,
+        "current_player": 1,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "P-A 007"],
+            "hand_count": 5,
+            "deck_count": 12,
+            "discard": ["P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["P-A 007", "B1 217", "P-A 007", "B1 033"],
+            "hand_count": 4,
+            "deck_count": 11,
+            "discard": ["P-A 005", "B1 225"],
+            "discard_energies": ["Fire"],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 70,
+                "max_hp": 70,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              null,
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Play(B1 217 Flame Patch)",
+          "action": {
+            "Play": { "trainer_card": { "id": "B1 217", "trainer_card_type": "Item", "name": "Flame Patch" } }
+          }
+        },
+        {
+          "text": "Place(Torchic, 1)",
+          "action": {
+            "Place": [
+              {
+                "Pokemon": {
+                  "id": "B1 033",
+                  "name": "Torchic",
+                  "stage": 0,
+                  "evolves_from": null,
+                  "hp": 60,
+                  "energy_type": "Fire"
+                }
+              },
+              1
+            ]
+          }
+        }
+      ],
+      "chosen": 1,
+      "note": null
+    },
+    {
+      "ply": 17,
+      "turn": 2,
+      "actor": 1,
+      "state": {
+        "turn": 2,
+        "current_player": 1,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "P-A 007"],
+            "hand_count": 5,
+            "deck_count": 12,
+            "discard": ["P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["P-A 007", "B1 033", "P-A 007"],
+            "hand_count": 3,
+            "deck_count": 11,
+            "discard": ["P-A 005", "B1 225", "B1 217"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 70,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              null,
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Place(Torchic, 1)",
+          "action": {
+            "Place": [
+              {
+                "Pokemon": {
+                  "id": "B1 033",
+                  "name": "Torchic",
+                  "stage": 0,
+                  "evolves_from": null,
+                  "hp": 60,
+                  "energy_type": "Fire"
+                }
+              },
+              1
+            ]
+          }
+        },
+        {
+          "text": "Attack(Sunny Scorching)",
+          "action": { "Attack": { "energy_required": ["Fire"], "title": "Sunny Scorching", "fixed_damage": 30 } }
+        }
+      ],
+      "chosen": 1,
+      "note": null
+    },
+    {
+      "ply": 18,
+      "turn": 2,
+      "actor": 1,
+      "state": {
+        "turn": 2,
+        "current_player": 1,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "P-A 007"],
+            "hand_count": 5,
+            "deck_count": 12,
+            "discard": ["P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["P-A 007", "P-A 007"],
+            "hand_count": 2,
+            "deck_count": 11,
+            "discard": ["P-A 005", "B1 225", "B1 217"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 70,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Attack(Sunny Scorching)",
+          "action": { "Attack": { "energy_required": ["Fire"], "title": "Sunny Scorching", "fixed_damage": 30 } }
+        }
+      ],
+      "chosen": 1,
+      "note": null
+    },
+    {
+      "ply": 19,
+      "turn": 2,
+      "actor": 1,
+      "state": {
+        "turn": 2,
+        "current_player": 1,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "P-A 007"],
+            "hand_count": 5,
+            "deck_count": 12,
+            "discard": ["P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 30,
+                "max_hp": 80,
+                "energy": [],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["P-A 007", "P-A 007"],
+            "hand_count": 2,
+            "deck_count": 11,
+            "discard": ["P-A 005", "B1 225", "B1 217"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 70,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [{ "text": "EndTurn", "action": "EndTurn" }],
+      "chosen": 0,
+      "note": null
+    },
+    {
+      "ply": 20,
+      "turn": 3,
+      "actor": 0,
+      "state": {
+        "turn": 3,
+        "current_player": 0,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "P-A 007"],
+            "hand_count": 5,
+            "deck_count": 12,
+            "discard": ["P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": "Grass", "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 30,
+                "max_hp": 80,
+                "energy": [],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["P-A 007", "P-A 007"],
+            "hand_count": 2,
+            "deck_count": 11,
+            "discard": ["P-A 005", "B1 225", "B1 217"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 70,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [{ "text": "DrawCard(1)", "action": { "DrawCard": { "amount": 1 } } }],
+      "chosen": 0,
+      "note": null
+    },
+    {
+      "ply": 21,
+      "turn": 3,
+      "actor": 0,
+      "state": {
+        "turn": 3,
+        "current_player": 0,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "P-A 007", "B3b 001"],
+            "hand_count": 6,
+            "deck_count": 11,
+            "discard": ["P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": "Grass", "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 30,
+                "max_hp": 80,
+                "energy": [],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["P-A 007", "P-A 007"],
+            "hand_count": 2,
+            "deck_count": 11,
+            "discard": ["P-A 005", "B1 225", "B1 217"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 70,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Play(B1a 067 Quick-Grow Extract)",
+          "action": {
+            "Play": { "trainer_card": { "id": "B1a 067", "trainer_card_type": "Item", "name": "Quick-Grow Extract" } }
+          }
+        },
+        {
+          "text": "Play(P-A 007 Professor's Research)",
+          "action": {
+            "Play": {
+              "trainer_card": { "id": "P-A 007", "trainer_card_type": "Supporter", "name": "Professor's Research" }
+            }
+          }
+        },
+        {
+          "text": "Attach(\"(1, Grass, 0)\", true)",
+          "action": { "Attach": { "attachments": [[1, "Grass", 0]], "is_turn_energy": true } }
+        }
+      ],
+      "chosen": 3,
+      "note": null
+    },
+    {
+      "ply": 22,
+      "turn": 3,
+      "actor": 0,
+      "state": {
+        "turn": 3,
+        "current_player": 0,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "P-A 007", "B3b 001"],
+            "hand_count": 6,
+            "deck_count": 11,
+            "discard": ["P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 30,
+                "max_hp": 80,
+                "energy": ["Grass"],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              null
+            ]
+          },
+          {
+            "hand": ["P-A 007", "P-A 007"],
+            "hand_count": 2,
+            "deck_count": 11,
+            "discard": ["P-A 005", "B1 225", "B1 217"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 70,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Play(B1a 067 Quick-Grow Extract)",
+          "action": {
+            "Play": { "trainer_card": { "id": "B1a 067", "trainer_card_type": "Item", "name": "Quick-Grow Extract" } }
+          }
+        },
+        {
+          "text": "Play(P-A 007 Professor's Research)",
+          "action": {
+            "Play": {
+              "trainer_card": { "id": "P-A 007", "trainer_card_type": "Supporter", "name": "Professor's Research" }
+            }
+          }
+        },
+        {
+          "text": "Place(Caterpie, 3)",
+          "action": {
+            "Place": [
+              {
+                "Pokemon": {
+                  "id": "B3b 001",
+                  "name": "Caterpie",
+                  "stage": 0,
+                  "evolves_from": null,
+                  "hp": 40,
+                  "energy_type": "Grass"
+                }
+              },
+              3
+            ]
+          }
+        }
+      ],
+      "chosen": 3,
+      "note": null
+    },
+    {
+      "ply": 23,
+      "turn": 3,
+      "actor": 0,
+      "state": {
+        "turn": 3,
+        "current_player": 0,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "P-A 007"],
+            "hand_count": 5,
+            "deck_count": 11,
+            "discard": ["P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 30,
+                "max_hp": 80,
+                "energy": ["Grass"],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              }
+            ]
+          },
+          {
+            "hand": ["P-A 007", "P-A 007"],
+            "hand_count": 2,
+            "deck_count": 11,
+            "discard": ["P-A 005", "B1 225", "B1 217"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 70,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Play(B1a 067 Quick-Grow Extract)",
+          "action": {
+            "Play": { "trainer_card": { "id": "B1a 067", "trainer_card_type": "Item", "name": "Quick-Grow Extract" } }
+          }
+        },
+        {
+          "text": "Play(P-A 007 Professor's Research)",
+          "action": {
+            "Play": {
+              "trainer_card": { "id": "P-A 007", "trainer_card_type": "Supporter", "name": "Professor's Research" }
+            }
+          }
+        }
+      ],
+      "chosen": 2,
+      "note": null
+    },
+    {
+      "ply": 24,
+      "turn": 3,
+      "actor": 0,
+      "state": {
+        "turn": 3,
+        "current_player": 0,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "B3 006", "B3b 001"],
+            "hand_count": 6,
+            "deck_count": 9,
+            "discard": ["P-A 007", "P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 30,
+                "max_hp": 80,
+                "energy": ["Grass"],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              null,
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              }
+            ]
+          },
+          {
+            "hand": ["P-A 007", "P-A 007"],
+            "hand_count": 2,
+            "deck_count": 11,
+            "discard": ["P-A 005", "B1 225", "B1 217"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 70,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Evolve(Grovyle, 0, from_deck: false)",
+          "action": {
+            "Evolve": {
+              "evolution": {
+                "Pokemon": {
+                  "id": "B3 006",
+                  "name": "Grovyle",
+                  "stage": 1,
+                  "evolves_from": "Treecko",
+                  "hp": 80,
+                  "energy_type": "Grass"
+                }
+              },
+              "in_play_idx": 0,
+              "from_deck": false
+            }
+          }
+        },
+        {
+          "text": "Place(Caterpie, 1)",
+          "action": {
+            "Place": [
+              {
+                "Pokemon": {
+                  "id": "B3b 001",
+                  "name": "Caterpie",
+                  "stage": 0,
+                  "evolves_from": null,
+                  "hp": 40,
+                  "energy_type": "Grass"
+                }
+              },
+              1
+            ]
+          }
+        },
+        {
+          "text": "Place(Caterpie, 2)",
+          "action": {
+            "Place": [
+              {
+                "Pokemon": {
+                  "id": "B3b 001",
+                  "name": "Caterpie",
+                  "stage": 0,
+                  "evolves_from": null,
+                  "hp": 40,
+                  "energy_type": "Grass"
+                }
+              },
+              2
+            ]
+          }
+        }
+      ],
+      "chosen": 3,
+      "note": null
+    },
+    {
+      "ply": 25,
+      "turn": 3,
+      "actor": 0,
+      "state": {
+        "turn": 3,
+        "current_player": 0,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "B3 006"],
+            "hand_count": 5,
+            "deck_count": 9,
+            "discard": ["P-A 007", "P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 30,
+                "max_hp": 80,
+                "energy": ["Grass"],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              }
+            ]
+          },
+          {
+            "hand": ["P-A 007", "P-A 007"],
+            "hand_count": 2,
+            "deck_count": 11,
+            "discard": ["P-A 005", "B1 225", "B1 217"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 70,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Evolve(Grovyle, 0, from_deck: false)",
+          "action": {
+            "Evolve": {
+              "evolution": {
+                "Pokemon": {
+                  "id": "B3 006",
+                  "name": "Grovyle",
+                  "stage": 1,
+                  "evolves_from": "Treecko",
+                  "hp": 80,
+                  "energy_type": "Grass"
+                }
+              },
+              "in_play_idx": 0,
+              "from_deck": false
+            }
+          }
+        },
+        { "text": "Retreat(2)", "action": { "Retreat": 2 } },
+        {
+          "text": "Attack(Pound)",
+          "action": { "Attack": { "energy_required": ["Grass"], "title": "Pound", "fixed_damage": 20 } }
+        }
+      ],
+      "chosen": 3,
+      "note": null
+    },
+    {
+      "ply": 26,
+      "turn": 3,
+      "actor": 0,
+      "state": {
+        "turn": 3,
+        "current_player": 0,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "B3 006"],
+            "hand_count": 5,
+            "deck_count": 9,
+            "discard": ["P-A 007", "P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 30,
+                "max_hp": 80,
+                "energy": ["Grass"],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              }
+            ]
+          },
+          {
+            "hand": ["P-A 007", "P-A 007"],
+            "hand_count": 2,
+            "deck_count": 11,
+            "discard": ["P-A 005", "B1 225", "B1 217"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 50,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [{ "text": "EndTurn", "action": "EndTurn" }],
+      "chosen": 0,
+      "note": null
+    },
+    {
+      "ply": 27,
+      "turn": 4,
+      "actor": 1,
+      "state": {
+        "turn": 4,
+        "current_player": 1,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "B3 006"],
+            "hand_count": 5,
+            "deck_count": 9,
+            "discard": ["P-A 007", "P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 30,
+                "max_hp": 80,
+                "energy": ["Grass"],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          },
+          {
+            "hand": ["P-A 007", "P-A 007"],
+            "hand_count": 2,
+            "deck_count": 11,
+            "discard": ["P-A 005", "B1 225", "B1 217"],
+            "discard_energies": [],
+            "energy_zone": { "current": "Fire", "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 50,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [{ "text": "DrawCard(1)", "action": { "DrawCard": { "amount": 1 } } }],
+      "chosen": 0,
+      "note": null
+    },
+    {
+      "ply": 28,
+      "turn": 4,
+      "actor": 1,
+      "state": {
+        "turn": 4,
+        "current_player": 1,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "B3 006"],
+            "hand_count": 5,
+            "deck_count": 9,
+            "discard": ["P-A 007", "P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 30,
+                "max_hp": 80,
+                "energy": ["Grass"],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          },
+          {
+            "hand": ["P-A 007", "P-A 007", "A2 148"],
+            "hand_count": 3,
+            "deck_count": 10,
+            "discard": ["P-A 005", "B1 225", "B1 217"],
+            "discard_energies": [],
+            "energy_zone": { "current": "Fire", "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 50,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Play(P-A 007 Professor's Research)",
+          "action": {
+            "Play": {
+              "trainer_card": { "id": "P-A 007", "trainer_card_type": "Supporter", "name": "Professor's Research" }
+            }
+          }
+        },
+        {
+          "text": "Play(P-A 007 Professor's Research)",
+          "action": {
+            "Play": {
+              "trainer_card": { "id": "P-A 007", "trainer_card_type": "Supporter", "name": "Professor's Research" }
+            }
+          }
+        },
+        {
+          "text": "Attach(\"(1, Fire, 3)\", true)",
+          "action": { "Attach": { "attachments": [[1, "Fire", 3]], "is_turn_energy": true } }
+        }
+      ],
+      "chosen": 3,
+      "note": null
+    },
+    {
+      "ply": 29,
+      "turn": 4,
+      "actor": 1,
+      "state": {
+        "turn": 4,
+        "current_player": 1,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "B3 006"],
+            "hand_count": 5,
+            "deck_count": 9,
+            "discard": ["P-A 007", "P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 30,
+                "max_hp": 80,
+                "energy": ["Grass"],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          },
+          {
+            "hand": ["P-A 007", "P-A 007", "A2 148"],
+            "hand_count": 3,
+            "deck_count": 10,
+            "discard": ["P-A 005", "B1 225", "B1 217"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 50,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Play(P-A 007 Professor's Research)",
+          "action": {
+            "Play": {
+              "trainer_card": { "id": "P-A 007", "trainer_card_type": "Supporter", "name": "Professor's Research" }
+            }
+          }
+        },
+        {
+          "text": "Play(P-A 007 Professor's Research)",
+          "action": {
+            "Play": {
+              "trainer_card": { "id": "P-A 007", "trainer_card_type": "Supporter", "name": "Professor's Research" }
+            }
+          }
+        }
+      ],
+      "chosen": 1,
+      "note": null
+    },
+    {
+      "ply": 30,
+      "turn": 4,
+      "actor": 1,
+      "state": {
+        "turn": 4,
+        "current_player": 1,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "B3 006"],
+            "hand_count": 5,
+            "deck_count": 9,
+            "discard": ["P-A 007", "P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 30,
+                "max_hp": 80,
+                "energy": ["Grass"],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          },
+          {
+            "hand": ["A2 148", "P-A 007", "P-A 005", "B1 036"],
+            "hand_count": 4,
+            "deck_count": 8,
+            "discard": ["P-A 005", "B1 225", "B1 217", "P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 50,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Play(A2 148 Rocky Helmet)",
+          "action": {
+            "Play": { "trainer_card": { "id": "A2 148", "trainer_card_type": "Tool", "name": "Rocky Helmet" } }
+          }
+        },
+        {
+          "text": "Play(P-A 005 Poké Ball)",
+          "action": {
+            "Play": { "trainer_card": { "id": "P-A 005", "trainer_card_type": "Item", "name": "Poké Ball" } }
+          }
+        }
+      ],
+      "chosen": 2,
+      "note": null
+    },
+    {
+      "ply": 31,
+      "turn": 4,
+      "actor": 1,
+      "state": {
+        "turn": 4,
+        "current_player": 1,
+        "points": [0, 0],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "B3 006"],
+            "hand_count": 5,
+            "deck_count": 9,
+            "discard": ["P-A 007", "P-A 007"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3 005",
+                "hp": 30,
+                "max_hp": 80,
+                "energy": ["Grass"],
+                "tools": ["A2 147"],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          },
+          {
+            "hand": ["A2 148", "P-A 007", "B1 036"],
+            "hand_count": 3,
+            "deck_count": 8,
+            "discard": ["P-A 005", "B1 225", "B1 217", "P-A 007", "P-A 005"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 50,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Play(A2 148 Rocky Helmet)",
+          "action": {
+            "Play": { "trainer_card": { "id": "A2 148", "trainer_card_type": "Tool", "name": "Rocky Helmet" } }
+          }
+        },
+        { "text": "Retreat(1)", "action": { "Retreat": 1 } },
+        {
+          "text": "Attack(Sunny Scorching)",
+          "action": { "Attack": { "energy_required": ["Fire"], "title": "Sunny Scorching", "fixed_damage": 30 } }
+        }
+      ],
+      "chosen": 3,
+      "note": null
+    },
+    {
+      "ply": 32,
+      "turn": 4,
+      "actor": 0,
+      "state": {
+        "turn": 4,
+        "current_player": 1,
+        "points": [0, 1],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "B3 006"],
+            "hand_count": 5,
+            "deck_count": 9,
+            "discard": ["P-A 007", "P-A 007", "A2 147", "B3 005"],
+            "discard_energies": ["Grass"],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              null,
+              null,
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          },
+          {
+            "hand": ["A2 148", "P-A 007", "B1 036"],
+            "hand_count": 3,
+            "deck_count": 8,
+            "discard": ["P-A 005", "B1 225", "B1 217", "P-A 007", "P-A 005"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 50,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "Activate(0, 2)", "action": { "Activate": { "player": 0, "in_play_idx": 2 } } },
+        { "text": "Activate(0, 3)", "action": { "Activate": { "player": 0, "in_play_idx": 3 } } }
+      ],
+      "chosen": 1,
+      "note": null
+    },
+    {
+      "ply": 33,
+      "turn": 4,
+      "actor": 1,
+      "state": {
+        "turn": 4,
+        "current_player": 1,
+        "points": [0, 1],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "B3 006"],
+            "hand_count": 5,
+            "deck_count": 9,
+            "discard": ["P-A 007", "P-A 007", "A2 147", "B3 005"],
+            "discard_energies": ["Grass"],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null
+            ]
+          },
+          {
+            "hand": ["A2 148", "P-A 007", "B1 036"],
+            "hand_count": 3,
+            "deck_count": 8,
+            "discard": ["P-A 005", "B1 225", "B1 217", "P-A 007", "P-A 005"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 50,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [{ "text": "EndTurn", "action": "EndTurn" }],
+      "chosen": 0,
+      "note": null
+    },
+    {
+      "ply": 34,
+      "turn": 5,
+      "actor": 0,
+      "state": {
+        "turn": 5,
+        "current_player": 0,
+        "points": [0, 1],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "B3 006"],
+            "hand_count": 5,
+            "deck_count": 8,
+            "discard": ["P-A 007", "P-A 007", "A2 147", "B3 005"],
+            "discard_energies": ["Grass"],
+            "energy_zone": { "current": "Grass", "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3b 002",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              null,
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null
+            ]
+          },
+          {
+            "hand": ["A2 148", "P-A 007", "B1 036"],
+            "hand_count": 3,
+            "deck_count": 8,
+            "discard": ["P-A 005", "B1 225", "B1 217", "P-A 007", "P-A 005"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 50,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [{ "text": "DrawCard(1)", "action": { "DrawCard": { "amount": 1 } } }],
+      "chosen": 0,
+      "note": null
+    },
+    {
+      "ply": 35,
+      "turn": 5,
+      "actor": 0,
+      "state": {
+        "turn": 5,
+        "current_player": 0,
+        "points": [0, 1],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "B3 006", "A1 225"],
+            "hand_count": 6,
+            "deck_count": 7,
+            "discard": ["P-A 007", "P-A 007", "A2 147", "B3 005"],
+            "discard_energies": ["Grass"],
+            "energy_zone": { "current": "Grass", "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3b 002",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              null,
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null
+            ]
+          },
+          {
+            "hand": ["A2 148", "P-A 007", "B1 036"],
+            "hand_count": 3,
+            "deck_count": 8,
+            "discard": ["P-A 005", "B1 225", "B1 217", "P-A 007", "P-A 005"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 50,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Evolve(Metapod, 2, from_deck: false)",
+          "action": {
+            "Evolve": {
+              "evolution": {
+                "Pokemon": {
+                  "id": "B3b 002",
+                  "name": "Metapod",
+                  "stage": 1,
+                  "evolves_from": "Caterpie",
+                  "hp": 80,
+                  "energy_type": "Grass"
+                }
+              },
+              "in_play_idx": 2,
+              "from_deck": false
+            }
+          }
+        },
+        {
+          "text": "Play(A1 225 Sabrina)",
+          "action": {
+            "Play": { "trainer_card": { "id": "A1 225", "trainer_card_type": "Supporter", "name": "Sabrina" } }
+          }
+        },
+        {
+          "text": "Attach(\"(1, Grass, 0)\", true)",
+          "action": { "Attach": { "attachments": [[1, "Grass", 0]], "is_turn_energy": true } }
+        }
+      ],
+      "chosen": 3,
+      "note": null
+    },
+    {
+      "ply": 36,
+      "turn": 5,
+      "actor": 0,
+      "state": {
+        "turn": 5,
+        "current_player": 0,
+        "points": [0, 1],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "B3b 002", "B3 006", "A1 225"],
+            "hand_count": 6,
+            "deck_count": 7,
+            "discard": ["P-A 007", "P-A 007", "A2 147", "B3 005"],
+            "discard_energies": ["Grass"],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3b 002",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": ["Grass"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              null,
+              {
+                "card": "B3b 001",
+                "hp": 40,
+                "max_hp": 40,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null
+            ]
+          },
+          {
+            "hand": ["A2 148", "P-A 007", "B1 036"],
+            "hand_count": 3,
+            "deck_count": 8,
+            "discard": ["P-A 005", "B1 225", "B1 217", "P-A 007", "P-A 005"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 50,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Evolve(Metapod, 2, from_deck: false)",
+          "action": {
+            "Evolve": {
+              "evolution": {
+                "Pokemon": {
+                  "id": "B3b 002",
+                  "name": "Metapod",
+                  "stage": 1,
+                  "evolves_from": "Caterpie",
+                  "hp": 80,
+                  "energy_type": "Grass"
+                }
+              },
+              "in_play_idx": 2,
+              "from_deck": false
+            }
+          }
+        },
+        {
+          "text": "Play(A1 225 Sabrina)",
+          "action": {
+            "Play": { "trainer_card": { "id": "A1 225", "trainer_card_type": "Supporter", "name": "Sabrina" } }
+          }
+        },
+        {
+          "text": "Attack(Ram)",
+          "action": { "Attack": { "energy_required": ["Grass"], "title": "Ram", "fixed_damage": 30 } }
+        }
+      ],
+      "chosen": 1,
+      "note": null
+    },
+    {
+      "ply": 37,
+      "turn": 5,
+      "actor": 0,
+      "state": {
+        "turn": 5,
+        "current_player": 0,
+        "points": [0, 1],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "A1 225", "B3 006"],
+            "hand_count": 5,
+            "deck_count": 7,
+            "discard": ["P-A 007", "P-A 007", "A2 147", "B3 005"],
+            "discard_energies": ["Grass"],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3b 002",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": ["Grass"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              null,
+              {
+                "card": "B3b 002",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              null
+            ]
+          },
+          {
+            "hand": ["A2 148", "P-A 007", "B1 036"],
+            "hand_count": 3,
+            "deck_count": 8,
+            "discard": ["P-A 005", "B1 225", "B1 217", "P-A 007", "P-A 005"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 50,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [
+        { "text": "EndTurn", "action": "EndTurn" },
+        {
+          "text": "Play(A1 225 Sabrina)",
+          "action": {
+            "Play": { "trainer_card": { "id": "A1 225", "trainer_card_type": "Supporter", "name": "Sabrina" } }
+          }
+        },
+        {
+          "text": "Attack(Ram)",
+          "action": { "Attack": { "energy_required": ["Grass"], "title": "Ram", "fixed_damage": 30 } }
+        }
+      ],
+      "chosen": 2,
+      "note": null
+    },
+    {
+      "ply": 38,
+      "turn": 5,
+      "actor": 0,
+      "state": {
+        "turn": 5,
+        "current_player": 0,
+        "points": [0, 1],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "A1 225", "B3 006"],
+            "hand_count": 5,
+            "deck_count": 7,
+            "discard": ["P-A 007", "P-A 007", "A2 147", "B3 005"],
+            "discard_energies": ["Grass"],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3b 002",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": ["Grass"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              null,
+              {
+                "card": "B3b 002",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": true
+              },
+              null
+            ]
+          },
+          {
+            "hand": ["A2 148", "P-A 007", "B1 036"],
+            "hand_count": 3,
+            "deck_count": 8,
+            "discard": ["P-A 005", "B1 225", "B1 217", "P-A 007", "P-A 005"],
+            "discard_energies": [],
+            "energy_zone": { "current": null, "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 20,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [{ "text": "EndTurn", "action": "EndTurn" }],
+      "chosen": 0,
+      "note": null
+    },
+    {
+      "ply": 39,
+      "turn": 6,
+      "actor": 1,
+      "state": {
+        "turn": 6,
+        "current_player": 1,
+        "points": [0, 1],
+        "winner": null,
+        "players": [
+          {
+            "hand": ["B1a 067", "B3 008", "A3 155", "A1 225", "B3 006"],
+            "hand_count": 5,
+            "deck_count": 7,
+            "discard": ["P-A 007", "P-A 007", "A2 147", "B3 005"],
+            "discard_energies": ["Grass"],
+            "energy_zone": { "current": null, "next": "Grass" },
+            "in_play": [
+              {
+                "card": "B3b 002",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": ["Grass"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null,
+              {
+                "card": "B3b 002",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              null
+            ]
+          },
+          {
+            "hand": ["A2 148", "P-A 007", "B1 036"],
+            "hand_count": 3,
+            "deck_count": 8,
+            "discard": ["P-A 005", "B1 225", "B1 217", "P-A 007", "P-A 005"],
+            "discard_energies": [],
+            "energy_zone": { "current": "Fire", "next": "Fire" },
+            "in_play": [
+              {
+                "card": "B3 024",
+                "hp": 20,
+                "max_hp": 70,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 033",
+                "hp": 60,
+                "max_hp": 60,
+                "energy": [],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              },
+              {
+                "card": "B1 044",
+                "hp": 80,
+                "max_hp": 80,
+                "energy": ["Fire"],
+                "tools": [],
+                "status": [],
+                "played_this_turn": false
+              }
+            ]
+          }
+        ],
+        "stadium": null
+      },
+      "options": [{ "text": "DrawCard(1)", "action": { "DrawCard": { "amount": 1 } } }],
+      "chosen": 0,
+      "note": null
+    }
+  ],
+  "final_state": {
+    "turn": 10,
+    "current_player": 1,
+    "points": [1, 3],
+    "winner": { "Win": 1 },
+    "players": [
+      {
+        "hand": ["A2 150", "B3 006"],
+        "hand_count": 2,
+        "deck_count": 5,
+        "discard": [
+          "P-A 007",
+          "P-A 007",
+          "A2 147",
+          "B3 005",
+          "B1a 067",
+          "B1 225",
+          "B3b 001",
+          "B3b 002",
+          "B3b 003",
+          "B3b 001",
+          "B3b 002",
+          "B3b 003"
+        ],
+        "discard_energies": ["Grass", "Grass", "Grass"],
+        "energy_zone": { "current": "Grass", "next": "Grass" },
+        "in_play": [null, null, null, null]
+      },
+      {
+        "hand": ["A2 148", "B1 284", "B2b 069"],
+        "hand_count": 3,
+        "deck_count": 3,
+        "discard": [
+          "P-A 005",
+          "B1 225",
+          "B1 217",
+          "P-A 007",
+          "P-A 005",
+          "A3 144",
+          "P-A 007",
+          "B3 024",
+          "A2 150",
+          "B1 217"
+        ],
+        "discard_energies": ["Fire", "Fire", "Fire"],
+        "energy_zone": { "current": null, "next": "Fire" },
+        "in_play": [
+          {
+            "card": "B1 036",
+            "hp": 150,
+            "max_hp": 210,
+            "energy": ["Fire", "Fire"],
+            "tools": [],
+            "status": [],
+            "played_this_turn": false
+          },
+          {
+            "card": "B1 033",
+            "hp": 60,
+            "max_hp": 60,
+            "energy": [],
+            "tools": [],
+            "status": [],
+            "played_this_turn": false
+          },
+          {
+            "card": "B1 044",
+            "hp": 80,
+            "max_hp": 80,
+            "energy": [],
+            "tools": [],
+            "status": [],
+            "played_this_turn": false
+          },
+          null
+        ]
+      }
+    ],
+    "stadium": "B3 153"
+  },
+  "outcome": { "Win": 1 }
+}

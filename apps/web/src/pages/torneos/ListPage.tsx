@@ -2,7 +2,7 @@
  * One exact tournament list: its record, the 20 cards (Spanish names, edition codes), what the collection lacks for
  * it, and where it was played. «Importar como mazo» opens the deck importer with the Limitless text.
  */
-import { CopyIcon, DownloadIcon } from 'lucide-react'
+import { CopyIcon, CpuIcon, DownloadIcon } from 'lucide-react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import type { CardLine } from '@/api/schemas'
@@ -12,6 +12,7 @@ import { RateHeadline } from '@/components/RateSummary'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
 import { formatRateValue, formatRecord } from '@/lib/matches'
+import { encodeSource } from '@/lib/simulation'
 import { formatCount, formatDayEs, scopeFromSearch, scopeSearch } from '@/lib/tournaments'
 import { cn } from '@/lib/utils'
 
@@ -95,6 +96,16 @@ export function ListPage() {
           >
             <DownloadIcon data-icon="inline-start" />
             Importar como mazo
+          </Button>
+          <Button size="sm" variant="outline" asChild>
+            <Link
+              to={`/simulacion/nueva?tipo=compare&b=${encodeURIComponent(
+                encodeSource({ listKey: list.key, era: info.era.code, format: info.format, kind }),
+              )}`}
+            >
+              <CpuIcon data-icon="inline-start" />
+              Simular contra mis mazos
+            </Link>
           </Button>
           {list.archetype.id ? (
             <Button size="sm" variant="ghost" asChild>

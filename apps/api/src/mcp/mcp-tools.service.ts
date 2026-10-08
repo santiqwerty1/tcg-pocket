@@ -18,7 +18,6 @@ import {
   type MatchMode,
   MCP_READ_TOOLS,
   MCP_SERVER_INSTRUCTIONS,
-  MCP_TOOL_NOT_AVAILABLE,
   type Rarity,
   type TournamentFormat,
   type WinRate,
@@ -34,6 +33,8 @@ import type { RowView } from '../matches/match-views.js'
 import { MatchesService } from '../matches/matches.service.js'
 import { PacksService } from '../packs/packs.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import type { JobSummaryView } from '../simulation/simulation-views.js'
+import { SimulationsService } from '../simulation/simulations.service.js'
 import type {
   ArchetypeRowView,
   ListAgainstCollectionView,
@@ -116,6 +117,7 @@ export class McpToolsService {
     private readonly matches: MatchesService,
     private readonly packs: PacksService,
     private readonly tournaments: TournamentsService,
+    private readonly simulations: SimulationsService,
     private readonly prisma: PrismaService,
     @Inject(ENV) private readonly env: Env,
     private readonly logger: PinoLogger,
@@ -175,10 +177,6 @@ export class McpToolsService {
     server.registerTool(t.matchesList.name, config(t.matchesList), (args) =>
       run(t.matchesList.name, () => this.matchesList(args)),
     )
-    const notYet = (def: ToolDefinition<StandardSchemaWithJSON>, message: string) =>
-      server.registerTool(def.name, config(def), () =>
-        run(def.name, async () => ({ available: false, message: `Todavía no disponible. ${message}` })),
-      )
     server.registerTool(t.packsRecommend.name, config(t.packsRecommend), (args) =>
       run(t.packsRecommend.name, () => this.packsRecommend(args)),
     )
@@ -191,7 +189,9 @@ export class McpToolsService {
     server.registerTool(t.tournamentsUnlockCards.name, config(t.tournamentsUnlockCards), (args) =>
       run(t.tournamentsUnlockCards.name, () => this.tournamentsUnlock(args)),
     )
-    notYet(t.simulationsResults, MCP_TOOL_NOT_AVAILABLE.simulations)
+    server.registerTool(t.simulationsResults.name, config(t.simulationsResults), (args) =>
+      run(t.simulationsResults.name, () => this.simulationsResults(args)),
+    )
     return server
   }
 
@@ -949,6 +949,79 @@ export class McpToolsService {
       })),
     }
   }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Simulations (Fase 6)
+  // ---------------------------------------------------------------------------------------------------------------
+
+  private async simulationsResults(args: { job?: number; deck?: string; limit?: number }): Promise<Json> {
+    const limit = args.limit ?? 15
+    const deck = args.deck ? await this.resolveDeck(args.deck) : null
+    const note = 'Juegan bots del motor deckgym: el porcentaje depende del bot y del motor, no predice partidas reales.'
+    if (args.job === undefined) {
+      const jobs = await this.simulations.list(limit)
+      const column = deck
+        ? (await this.matches.comparison(deck.id, undefined)).columns.find((c) => c.source === 'simulation')
+        : null
+      return {
+        note,
+        ...(deck && column
+          ? {
+              deck: { id: deck.id, name: deck.name },
+              simulation: { record: column.record, rate: rateView(column.rate), detail: column.note },
+            }
+          : {}),
+        jobs: jobs.map((job) => jobSummaryJson(job)),
+      }
+    }
+    const job = await this.simulations.detail(String(args.job))
+    const byId = new Map(job.snapshots.map((snapshot) => [snapshot.id, snapshot]))
+    const name = (id: number) => byId.get(id)?.label ?? `#${id}`
+    const base: Json = { note, job: jobSummaryJson(job) }
+    if (job.kind === 'optimize') {
+      return {
+        ...base,
+        deck: job.sideA[0] !== undefined ? name(job.sideA[0]) : null,
+        rivals: job.sideB.map(name),
+        combinations: (job.optimize ?? []).slice(0, limit).map((row) => ({
+          added: row.cards.map((card) => card.nameEs),
+          record: row.record,
+          rate: rateView(row.rate),
+        })),
+      }
+    }
+    const skipped = job.snapshots
+      .filter((snapshot) => !snapshot.simulable)
+      .map((snapshot) => ({ deck: snapshot.label, problems: snapshot.problems.map((problem) => problem.message) }))
+    if (deck) {
+      const own = job.rows.find((row) => byId.get(row.snapshot)?.deckId === deck.id)
+      if (!own) throw new NotFoundException(`El mazo «${deck.name}» no está en la simulación #${job.id}.`)
+      return {
+        ...base,
+        deck: name(own.snapshot),
+        record: own.total,
+        rate: rateView(own.rate),
+        pairings: [...own.cells]
+          .filter((cell) => cell.record !== null)
+          .sort((a, b) => (b.rate?.value ?? -1) - (a.rate?.value ?? -1))
+          .map((cell) => ({ rival: name(cell.rival), record: cell.record, rate: rateView(cell.rate) })),
+      }
+    }
+    const ranking = [...job.rows]
+      .filter((row) => row.rate !== null)
+      .sort((a, b) => (b.rate?.value ?? 0) - (a.rate?.value ?? 0))
+    return {
+      ...base,
+      decks: ranking.length,
+      ranking: ranking.slice(0, limit).map((row, at) => ({
+        position: at + 1,
+        deck: name(row.snapshot),
+        record: row.total,
+        rate: rateView(row.rate),
+      })),
+      ...(skipped.length > 0 ? { skippedNotSimulable: skipped } : {}),
+    }
+  }
 }
 
 /** Editions grouped by tracker row (twins such as A1-1 and A4b-1 share one quantity). */
@@ -961,4 +1034,29 @@ function stockUnits(detail: GroupDetail): { cardIds: string[]; rarity: string; o
     else units.set(key, { cardIds: [edition.card.id], rarity: edition.card.rarity, owned: edition.owned })
   }
   return [...units.values()]
+}
+
+/** A job as the tools return it: what was played, with which bots, n, seed and engine, and how far it got. */
+function jobSummaryJson(job: JobSummaryView): Json {
+  return {
+    id: job.id,
+    label: job.label,
+    kind: { matrix: 'matriz', compare: 'comparar', optimize: 'optimizar' }[job.kind],
+    status: { queued: 'en cola', running: 'corriendo', done: 'terminada', failed: 'falló', cancelled: 'cancelada' }[
+      job.status
+    ],
+    bots: job.playersEs,
+    gamesPerPairing: job.gamesPerPair,
+    seed: job.baseSeed,
+    engineRev: job.engineRev.slice(0, 7),
+    progress: {
+      games: job.progress.gamesDone,
+      totalGames: job.progress.totalGames,
+      pairingsDone: job.progress.chunks.done,
+      pairings: job.progress.chunks.total,
+      failed: job.progress.chunks.failed,
+    },
+    createdAt: job.createdAt.toISOString(),
+    finishedAt: job.finishedAt?.toISOString() ?? null,
+  }
 }

@@ -29,10 +29,6 @@ const deckRef = z
     'Mazo: su número («13» o «mazo 13»: el número con que empieza el nombre o, si no, el id del mazo) o parte del nombre',
   )
 
-export const MCP_TOOL_NOT_AVAILABLE = {
-  simulations: 'Las simulaciones con deckgym (M7) llegan en la Fase 6.',
-} as const
-
 const tournamentScope = {
   era: z
     .string()
@@ -256,8 +252,13 @@ export const MCP_READ_TOOLS = {
   simulationsResults: {
     name: 'simulations_results',
     title: 'Resultados de simulación',
-    description: `Resultados de simulaciones entre mazos con el motor deckgym. ${MCP_TOOL_NOT_AVAILABLE.simulations}`,
-    input: z.object({}),
+    description:
+      'Resultados de las simulaciones entre mazos con el motor deckgym (juegan bots, no personas). Sin «job»: las simulaciones recientes con estado, progreso, bots, partidas por cruce, semilla y motor. Con «job»: el ranking de mazos de esa simulación (victorias, derrotas y empates aparte; % con n e intervalo) o, si es de tipo optimizar, las combinaciones de cartas probadas. Con «deck»: la columna de simulación de ese mazo (la misma que la comparativa de la ficha) y, junto con «job», sus cruces contra cada rival. Los números dependen del bot y del motor: no predicen partidas reales y nunca se combinan con torneos ni con partidas propias.',
+    input: z.object({
+      job: z.number().int().positive().optional().describe('Número de la simulación («#12» → 12)'),
+      deck: deckRef.optional(),
+      limit: z.number().int().min(1).max(50).optional().describe('Filas a devolver (por defecto 15)'),
+    }),
   },
 } as const
 
@@ -265,7 +266,7 @@ export type McpReadToolKey = keyof typeof MCP_READ_TOOLS
 
 /** What the model reads before using the tools (MCP `instructions`). */
 export const MCP_SERVER_INSTRUCTIONS = [
-  'Datos personales de Pokémon TCG Pocket de un solo jugador: colección, mazos y partidas registradas, más resultados de torneo de Limitless por era.',
+  'Datos personales de Pokémon TCG Pocket de un solo jugador: colección, mazos y partidas registradas, resultados de torneo de Limitless por era y simulaciones entre mazos con el motor deckgym.',
   'Una carta funcional agrupa las ediciones con el mismo nombre y el mismo texto; sus copias se suman. Cartas con el mismo nombre y distinto texto (Riolu A2-91 y Riolu B3-79) son cartas funcionales distintas. Las copias no se reparten entre mazos: cada mazo se compara contra la colección entera.',
   'Los códigos de edición tienen la forma B4-103. Mostrá los nombres de cartas en español.',
   'Los mazos se nombran por número («mazo 13»): es el id del mazo (las 40 listas se importaron en orden) y las tools lo aceptan así. Al responder, nombrá cada mazo por su número y su nombre.',

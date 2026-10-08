@@ -314,16 +314,16 @@ describe('MCP endpoint (e2e)', () => {
     )
     expect(withMatches?.myMatches).toMatchObject({ record: { wins: 7, losses: 3, ties: 0 } })
 
-    // Tournament tools answer with the era even before the first sync (no lists yet); simulations come in Fase 6.
+    // Tournament tools answer with the era even before the first sync (no lists yet); simulations with no job yet.
     const noTournaments = await call(client, 'tournaments_stats')
     expect(noTournaments.isError).toBeFalsy()
     expect(noTournaments.structuredContent.scope).toMatchObject({ lists: 0, tournaments: 0 })
-    for (const [name, phase] of [['simulations_results', 'Fase 6']] as const) {
-      const result = await call(client, name)
-      expect(result.isError).toBeFalsy()
-      expect(result.structuredContent.available).toBe(false)
-      expect(String(result.structuredContent.message)).toContain(phase)
-    }
+    const noSimulations = await call(client, 'simulations_results', { deck: '13' })
+    expect(noSimulations.isError).toBeFalsy()
+    expect(noSimulations.structuredContent.jobs).toEqual([])
+    expect(noSimulations.structuredContent.simulation).toMatchObject({ record: null, rate: null })
+    const missingJob = await call(client, 'simulations_results', { job: 999 })
+    expect(missingJob.isError).toBe(true)
   })
 
   it('recommends packs (Fase 4): deck 13 with priority and a missing Hoopa ex points to the Deluxe Mega', async () => {

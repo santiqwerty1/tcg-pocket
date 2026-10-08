@@ -308,7 +308,7 @@ describe('matches (e2e)', () => {
     expect(columns[0]?.rate?.games).toBeGreaterThan(0)
     expect(columns[1]).toMatchObject({ rate: null, record: null })
     expect(columns[1]?.note).toContain('Sin listas de torneo en la era')
-    expect(columns[2]?.note).toContain('Fase 6')
+    expect(columns[2]?.note).toContain('Todavía no se simuló')
 
     const fresh = await post('/api/decks').send({ name: 'Sin partidas', energies: ['fire'], cards: [] })
     const none = await get(`/api/decks/${fresh.body.id}/comparison`)

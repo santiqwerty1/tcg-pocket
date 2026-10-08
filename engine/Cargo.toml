@@ -1,0 +1,22 @@
+[package]
+name = "engine-cli"
+version = "0.1.0"
+edition = "2021"
+# Links deckgym-core (AGPL-3.0): this executable is a derivative work under the same license (DECISIONES A.5).
+license = "AGPL-3.0-only"
+publish = false
+description = "JSON front end of deckgym-core for the TCG Pocket worker: validate, simulate and optimize decks."
+
+[dependencies]
+# The engine, pinned and unmodified. Bump the rev here (and nothing else) to update it.
+deckgym = { git = "https://github.com/bcollazo/deckgym-core", rev = "fb792ebfbaca995af9750c28101ce92a51282825" }
+rayon = "1.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+strum = "0.27"
+uuid = { version = "1", features = ["v4"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4

@@ -47,7 +47,9 @@ describe('MCP read tools', () => {
     expect(MCP_READ_TOOLS.tournamentsStats.description).toContain('media de la era')
     expect(MCP_READ_TOOLS.tournamentsStats.input.safeParse({ era: 'B4a', by: 'list' }).success).toBe(true)
     expect(MCP_READ_TOOLS.tournamentsStats.input.safeParse({ format: 'CUSTOM' }).success).toBe(false)
-    expect(MCP_READ_TOOLS.simulationsResults.description).toContain('Fase 6')
+    expect(MCP_READ_TOOLS.simulationsResults.description).toContain('dependen del bot')
+    expect(MCP_READ_TOOLS.simulationsResults.input.safeParse({ job: 3, deck: '13' }).success).toBe(true)
+    expect(MCP_READ_TOOLS.simulationsResults.input.safeParse({ job: 0 }).success).toBe(false)
   })
 
   it('validate their inputs', () => {
