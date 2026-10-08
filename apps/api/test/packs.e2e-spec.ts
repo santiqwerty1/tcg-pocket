@@ -152,6 +152,7 @@ describe('packs (e2e)', () => {
     expect(response.status).toBe(200)
     const body = response.body as {
       model: string
+      deckTarget: string
       goals: { decks: { id: string; priority: number }[] }
       rows: Row[]
       missing: Record<string, unknown>[]
