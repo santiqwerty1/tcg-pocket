@@ -47,6 +47,19 @@ const FORMAT_LABEL: Record<DeckExportFormat, { title: string; hint: string }> = 
   json: { title: 'JSON', hint: 'Formato propio de la app' },
 }
 
+/** Who made a revision or a change: the app, an import, Claude (MCP)… */
+const SOURCE_LABEL: Record<string, string> = {
+  ui: 'en la app',
+  import: 'importado',
+  mcp: 'desde Claude',
+  duplicate: 'duplicado',
+  restore: 'restaurado',
+}
+
+function sourceLabel(source: string): string {
+  return SOURCE_LABEL[source] ?? source
+}
+
 function DeckCardRow({ entry }: { entry: DeckCard }) {
   return (
     <li className="flex min-h-11 items-center gap-2 px-3 py-1.5">
@@ -335,7 +348,7 @@ export function DeckDetailPage() {
                 <span className="w-8 font-mono">#{revision.number}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block">
-                    {formatDateTime(revision.createdAt)} · {revision.source}
+                    {formatDateTime(revision.createdAt)} · {sourceLabel(revision.source)}
                     {current ? ' · actual' : ''}
                   </span>
                   {revision.note ? <span className="block text-xs text-muted-foreground">{revision.note}</span> : null}
@@ -363,7 +376,7 @@ export function DeckDetailPage() {
                 <span className="text-muted-foreground">{stringify(change.old)}</span> → {stringify(change.new)}
                 <span className="block text-xs text-muted-foreground">
                   {formatDateTime(change.at)}
-                  {change.source ? ` · ${change.source}` : ''}
+                  {change.source ? ` · ${sourceLabel(change.source)}` : ''}
                 </span>
               </li>
             ))}

@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-16 fichas: propuesta 9 · vigente 7. ⚑ = para revisar.
+17 fichas: propuesta 10 · vigente 7. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Actualizado |
 | --- | --- | --- | --- | --- |
@@ -33,3 +33,4 @@ revisar: false
 | [D-014](D-014.md) | Visor de repeticiones propio, en texto y en español | propuesta ⚑ | — | 2026-10-08 |
 | [D-015](D-015.md) | El backup no incluye las simulaciones | propuesta ⚑ | — | 2026-10-08 |
 | [D-016](D-016.md) | Versión de torneo de cada mazo y Sobres apuntando a ella | propuesta ⚑ | — | 2026-10-08 |
+| [D-017](D-017.md) | Qué puede escribir Claude | propuesta ⚑ | — | 2026-10-08 |

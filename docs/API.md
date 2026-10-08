@@ -347,11 +347,24 @@ Bots (`players`): `r` al azar, `w` al azar ponderado, `aa` adjunta y ataca, `et`
 | `PUT /api/worker/chunks/:id/replays/:gameId?index=&seed=&winner=` | Cuerpo: el JSON de la repetición en gzip (`application/gzip`, hasta 8 MB) → `{ id }` |
 | `PUT /api/worker/engine-status` | `{ engineRev, cards: [{ id, name, status, complete }] }` (salida de `engine-cli status`) → `{ cards, incomplete }` |
 
-## MCP (Fase 3)
+## MCP (Fases 3 y 7)
 
 `POST /api/mcp`: servidor MCP remoto, Streamable HTTP, sin sesiones, con el SDK v2 (`@modelcontextprotocol/server` 2.3.1). Atiende las dos eras del protocolo en el mismo endpoint: 2026-07-28 y la de 2025 con `initialize` (la que usan hoy las apps de Claude y Claude Code). `GET` y `DELETE` responden `405`. Autenticación: `Authorization: Bearer tcg_mcp_…` con scope `mcp:read` (`401` sin token o con uno inválido o revocado, `403` con un token de worker); la cookie de sesión no sirve acá.
 
 Tools de lectura (nombres con `_` porque la API de Claude no acepta `.`): `collection_summary`, `cards_search`, `collection_playable_copies`, `collection_editions`, `decks_list`, `decks_get` (incluye `bestVersions`), `decks_find_by_card`, `decks_validate`, `decks_missing`, `decks_closest`, `decks_random`, `matches_stats`, `matches_list` y `packs_recommend` (Fase 4: la misma recomendación, resumida, con lo guardado en la app por defecto; dice el último día de los sobres limitados, lo que solo dan ellos, el mejor sobre cuando terminen y cuándo intercambiar). Torneos (Fase 5): `tournaments_stats` (por arquetipo o lista exacta; con `archetype` el detalle y con `card` el récord con y sin esa carta), `tournaments_buildable` (listas que se pueden armar hoy y las que quedan a 1 o 2 copias) y `tournaments_unlock_cards` (qué carta sola destraba más listas), todas con la era, la media de la era y la atribución a Limitless. Simulación (Fase 6): `simulations_results` (trabajos recientes; con `job`, el ranking de mazos o las combinaciones de optimizar; con `deck`, la columna «simulación» del mazo y, junto con `job`, sus cruces), siempre con bots, n, semilla y motor. Todas devuelven JSON compacto en `content[0].text` y el mismo objeto en `structuredContent`; los errores esperables (carta o mazo inexistente, entrada inválida) vuelven como `isError: true` con el mensaje en español. Cada porcentaje trae `text` con el formato canónico «70 % (n = 10, IC 39,7–89,2 %, orientativo)». Un mazo se indica por su número («13», «mazo 13»: el número con que empieza el nombre o, si no, el id), o por parte del nombre.
+
+Tools de escritura (Fase 7), solo para un token con `mcp:write` (con `mcp:read` solo, ni aparecen en `tools/list`; las instrucciones del servidor suman las reglas de escritura):
+
+| Tool | Entrada → salida |
+|---|---|
+| `decks_create` | `{ text? \| cards?, energies?, name?, tags?, notes?, saveInvalid? }` → `{ saved, deck }` con validación y faltantes; si no valida no guarda (`saved: false` con `errors`) salvo `saveInvalid`. El texto acepta los formatos de `decks_validate`; un encabezado «### Nombre» da el nombre. Revisión con `source: mcp` |
+| `decks_update` | `{ deck, text? \| cards?, energies?, name?, tags?, notes?, revisionNote?, packPriority?, tournamentArchetype? (nombre o id; null = sugerido), builtInGame?, archived?, saveInvalid? }` → `{ saved, deck }`; cartas nuevas: revisión nueva con `source: mcp`, validada antes de guardar. No borra mazos |
+| `matches_log` | `{ deck, result: win\|loss\|tie, opponent?, wentFirst?, mode?, note?, playedAt? }` → `{ logged, match, deckRecord }` (`source: mcp`) |
+| `matches_update` | `{ id, …campos de matches_log }` → `{ updated, before, match }` |
+| `matches_delete` | `{ id }` → `{ deleted, match }` (marcada `destructiveHint`) |
+| `simulations_enqueue` | `{ kind: compare\|matrix\|optimize, decksA?, listsA?: [{ key, era?, format?, energies? }], decksB?, listsB?, games? (200), bots? (e2, e2), seed?, replaySample?, bothOrders?, label?, skipNotSimulable?, remove?: [{ card, count }], candidates?: string[] }` → `{ queued, jobId, seed, pairings, totalGames, estimatedMinutes, notSimulable, workerOnline }`; con mazos no simulables no encola (`queued: false` y los motivos) salvo `skipNotSimulable`. Cartas de optimizar por nombre o código (ambiguas: `isError` con las opciones) |
+
+Todas las de escritura llevan `readOnlyHint: false` e `idempotentHint: false` (registrar dos veces son dos partidas).
 
 Conectar:
 - **Claude Code:** crear un token MCP en Más → Tokens de API y registrar `claude mcp add --transport http tcg https://tcg-pocket.fly.dev/api/mcp --header "Authorization: Bearer tcg_mcp_…"`.

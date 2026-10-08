@@ -24,6 +24,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
+/** What each permission lets the holder do (Fase 7: Claude can write with `mcp:write`). */
+const SCOPE_HINT: Record<string, string> = {
+  'worker:claim': 'Tomar simulaciones de la cola y subir resultados (el worker de la PC).',
+  'mcp:read': 'Leer colección, mazos, partidas, sobres, torneos y simulaciones.',
+  'mcp:write': 'Crear y editar mazos, registrar y corregir partidas y encolar simulaciones.',
+}
+
 const KIND_LABEL: Record<TokenKind, string> = { worker: 'Worker (PC)', mcp: 'Claude (MCP)' }
 
 export function TokensPage() {
@@ -105,12 +112,17 @@ export function TokensPage() {
         <Field label="Permisos">
           <div className="flex flex-col gap-1">
             {SCOPES_BY_KIND[kind].map((scope) => (
-              <Label key={scope} className="flex min-h-11 items-center gap-2 font-mono text-sm">
+              <Label key={scope} className="flex min-h-11 items-center gap-2 text-sm">
                 <Checkbox
                   checked={scopes.includes(scope)}
                   onCheckedChange={(checked) => toggleScope(scope, checked === true)}
                 />
-                {scope}
+                <span>
+                  <span className="font-mono">{scope}</span>
+                  {SCOPE_HINT[scope] ? (
+                    <span className="block text-xs font-normal text-muted-foreground">{SCOPE_HINT[scope]}</span>
+                  ) : null}
+                </span>
               </Label>
             ))}
           </div>

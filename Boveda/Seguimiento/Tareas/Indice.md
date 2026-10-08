@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-8 fichas: hecho 3 · parcial 1 · pendiente 4. ⚑ = para revisar.
+9 fichas: hecho 3 · parcial 1 · pendiente 5. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Actualizado |
 | --- | --- | --- | --- | --- |
@@ -25,3 +25,4 @@ revisar: false
 | [T-006](T-006.md) | Verificar la Fase 5 con los datos reales de producción | hecho | — | 2026-10-08 |
 | [T-007](T-007.md) | Arrancar el worker en la PC contra producción | parcial ⚑ | — | 2026-10-08 |
 | [T-008](T-008.md) | Laboratorio: mazos nuevos con Claude y el simulador | pendiente ⚑ | — | 2026-10-08 |
+| [T-009](T-009.md) | Probar la Fase 7 desde el celu y desde Claude Code | pendiente ⚑ | — | 2026-10-08 |

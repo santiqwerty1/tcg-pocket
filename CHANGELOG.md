@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-08 (33 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-08 (35 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- «versión de torneo» of each deck and Sobres aiming at it (D-016, T-008) `bc19f7a`
 - one worker per folder; install-task starts it and says why schtasks failed (T-007) `a1d5140`
 - heat-map table, replay filter, phone layout and multi-worker ETA `bd7b381`
 - deckgym simulation with a Windows worker (phase 6, M7) `013890f`
@@ -43,6 +44,10 @@ _Borrador generado al 2026-10-08 (33 commits). Escribí el «porqué» fuera de 
 - REST contract for phase 1 (auth, catalog, collection, decks, backup, tokens) `a703dc7`
 - record phase 1 implementation decisions `189252b`
 - phase 0 plan, decisions, licenses and research `e8e477e`
+
+### Pruebas
+
+- type deckTarget in the packs e2e response `085a8ae`
 
 ### Mantenimiento
 

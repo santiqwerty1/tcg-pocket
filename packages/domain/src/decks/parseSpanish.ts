@@ -254,6 +254,12 @@ export function parseSpanishDeckText(
       }
       continue
     }
+    // A heading without number («### Zoroark de Claude») names a single pasted deck.
+    const plain = title === null ? /^#{1,6}\s+(.+?)\s*$/u.exec(line) : null
+    if (plain) {
+      title = (plain[1] ?? '').trim()
+      continue
+    }
     if (line.startsWith('#') || line.startsWith('|')) continue
     const bullet = BULLET.exec(line)
     const kind = bullet ? LINE_KINDS[foldText(bullet[1] as string)] : undefined

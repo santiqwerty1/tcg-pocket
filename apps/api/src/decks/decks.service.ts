@@ -411,7 +411,8 @@ export class DecksService {
     return records.map((record) => this.summary(context, record))
   }
 
-  async patch(rawId: string, patch: DeckPatch): Promise<DeckDetail> {
+  /** `source`: who made the change (the PWA, or Claude through the MCP write tools). */
+  async patch(rawId: string, patch: DeckPatch, source: DeckSource = 'ui'): Promise<DeckDetail> {
     const index = this.catalog.requireIndex()
     if (patch.cards) this.assertKnownCards(index, patch.cards)
     await this.prisma.$transaction(async (tx) => {
@@ -476,7 +477,7 @@ export class DecksService {
           energies: patch.energies ?? current.energies,
         }
         if (diffDeckDrafts(current, next, index).changed) {
-          const revision = await this.insertRevision(tx, record.id, next, 'ui', patch.note ?? '')
+          const revision = await this.insertRevision(tx, record.id, next, source, patch.note ?? '')
           data.currentRevisionId = revision.id
         }
       }
@@ -487,7 +488,7 @@ export class DecksService {
             field: change.field,
             old: change.old === null || change.old === undefined ? undefined : (change.old as Prisma.InputJsonValue),
             new: change.new === null || change.new === undefined ? undefined : (change.new as Prisma.InputJsonValue),
-            source: 'ui',
+            source,
           })),
         })
       }

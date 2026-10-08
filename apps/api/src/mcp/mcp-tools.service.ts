@@ -18,6 +18,7 @@ import {
   type MatchMode,
   MCP_READ_TOOLS,
   MCP_SERVER_INSTRUCTIONS,
+  MCP_WRITE_INSTRUCTIONS,
   type Rarity,
   type TournamentFormat,
   type WinRate,
@@ -43,6 +44,8 @@ import type {
   ScopeView,
 } from '../tournaments/tournament-views.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
+import { type DeckRef, DeckRefResolver } from './deck-ref.js'
+import { McpWriteToolsService } from './mcp-write-tools.service.js'
 
 type Json = Record<string, unknown>
 
@@ -102,12 +105,6 @@ function cardText(card: CardEdition): string[] {
   return lines
 }
 
-interface DeckRef {
-  id: string
-  name: string
-  archived: boolean
-}
-
 @Injectable()
 export class McpToolsService {
   constructor(
@@ -119,6 +116,8 @@ export class McpToolsService {
     private readonly tournaments: TournamentsService,
     private readonly simulations: SimulationsService,
     private readonly prisma: PrismaService,
+    private readonly deckRefs: DeckRefResolver,
+    private readonly writeTools: McpWriteToolsService,
     @Inject(ENV) private readonly env: Env,
     private readonly logger: PinoLogger,
   ) {
@@ -127,9 +126,16 @@ export class McpToolsService {
 
   /** One server per HTTP request (stateless, both protocol eras): cheap, only registrations. */
   buildServer(context: McpRequestContext): McpServer {
+    // Write tools only for a token with `mcp:write`: a read-only connector does not even see them.
+    const canWrite = context.authInfo?.scopes?.includes('mcp:write') ?? false
     const server = new McpServer(
       { name: 'tcg-pocket', title: 'TCG Pocket de Santi', version: this.env.version },
-      { instructions: MCP_SERVER_INSTRUCTIONS },
+      {
+        instructions: canWrite
+          ? `${MCP_SERVER_INSTRUCTIONS}
+${MCP_WRITE_INSTRUCTIONS}`
+          : MCP_SERVER_INSTRUCTIONS,
+      },
     )
     const t = MCP_READ_TOOLS
     const caller = context.authInfo?.clientId ?? 'unknown'
@@ -192,6 +198,7 @@ export class McpToolsService {
     server.registerTool(t.simulationsResults.name, config(t.simulationsResults), (args) =>
       run(t.simulationsResults.name, () => this.simulationsResults(args)),
     )
+    if (canWrite) this.writeTools.register(server, run)
     return server
   }
 
@@ -324,40 +331,8 @@ export class McpToolsService {
   // Decks
   // ---------------------------------------------------------------------------------------------------------------
 
-  /**
-   * A deck by its number in the name («13» → «13. Hoopa ex / Mega-Absol ex»), its database id, its exact name or
-   * part of it (accent- and case-insensitive). Active decks win over archived ones on ties.
-   */
-  private async resolveDeck(ref: string): Promise<DeckRef> {
-    const rows = await this.prisma.deck.findMany({
-      select: { id: true, name: true, archivedAt: true },
-      orderBy: { id: 'asc' },
-    })
-    const decks = rows.map((row) => ({ id: String(row.id), name: row.name, archived: row.archivedAt !== null }))
-    const pick = (candidates: DeckRef[]): DeckRef | null => {
-      if (candidates.length === 0) return null
-      if (candidates.length === 1) return candidates[0] as DeckRef
-      const active = candidates.filter((deck) => !deck.archived)
-      if (active.length === 1) return active[0] as DeckRef
-      throw new NotFoundException(
-        `«${ref}» coincide con varios mazos: ${candidates.map((deck) => `${deck.name} (id ${deck.id})`).join('; ')}. Indicá cuál.`,
-      )
-    }
-    const trimmed = ref.trim()
-    const number = /^(?:mazo\s*)?(?:n[.º°]?\s*)?#?(\d{1,6})$/iu.exec(trimmed)?.[1]
-    if (number) {
-      const pattern = new RegExp(`^${number}(?:[.)\\s:-]|$)`)
-      const byNumber = pick(decks.filter((deck) => pattern.test(deck.name.trim())))
-      if (byNumber) return byNumber
-      const byId = decks.find((deck) => deck.id === number)
-      if (byId) return byId
-    }
-    const key = foldText(trimmed)
-    const found =
-      pick(decks.filter((deck) => foldText(deck.name) === key)) ??
-      pick(decks.filter((deck) => foldText(deck.name).includes(key)))
-    if (!found) throw new NotFoundException(`No encontré ningún mazo «${ref}».`)
-    return found
+  private resolveDeck(ref: string): Promise<DeckRef> {
+    return this.deckRefs.resolve(ref)
   }
 
   private async decksList(args: { archived?: boolean; builtInGame?: boolean; tag?: string }): Promise<Json> {

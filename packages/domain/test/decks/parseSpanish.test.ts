@@ -125,6 +125,14 @@ describe('parseSpanishDeckText', () => {
     })
   })
 
+  it('takes the name from a heading without number (a single deck pasted to Claude)', () => {
+    const result = parseSpanishDeckText('### Zoroark de Claude\n- Pokémon: 2 Torchic (B1-33)', index)
+    expect(result.errors).toEqual([])
+    expect(result.number).toBeNull()
+    expect(result.title).toBe('Zoroark de Claude')
+    expect(result.value?.name).toBe('Zoroark de Claude')
+  })
+
   it('accepts an English Energy line, CRLF, no bullets and «Cualquiera»', () => {
     const text = 'Energy: Fire, Lightning\r\nPokémon: 2 Torchic (B1-33)\r\nEntrenadores: 1 Copycat\r\n'
     const result = parseSpanishDeckText(text, index)
