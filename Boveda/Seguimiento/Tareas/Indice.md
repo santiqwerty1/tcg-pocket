@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-11 fichas: hecho 11. ⚑ = para revisar.
+12 fichas: en_curso 1 · hecho 11. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Actualizado |
 | --- | --- | --- | --- | --- |
@@ -28,3 +28,4 @@ revisar: false
 | [T-009](T-009.md) | Probar la Fase 7 desde el celu y desde Claude Code | hecho | — | 2026-10-08 |
 | [T-010](T-010.md) | Saber cuándo hay una versión nueva de deckgym | hecho | — | 2026-10-08 |
 | [T-011](T-011.md) | Probar la Fase 8 desde el celu | hecho | — | 2026-10-08 |
+| [T-012](T-012.md) | Ideas de ampliación: fases 9 a 21 | en_curso | — | 2026-10-08 |

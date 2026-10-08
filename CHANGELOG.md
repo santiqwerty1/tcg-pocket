@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-08 (49 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-08 (51 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -46,6 +46,7 @@ _Borrador generado al 2026-10-08 (49 commits). Escribí el «porqué» fuera de 
 
 ### Documentado
 
+- Santi's approval of phases 2-8 and the lab (T-008, T-009, T-011, T-001, T-002, R-004) `adf0fc0`
 - D-019 answers deployed, worker 0.2.1 (D-019, T-011) `661ebb2`
 - phase 8 deployed — catalog with missions, worker 0.2.0 (T-011, D-019) `c1acadc`
 - lab deployed to production (T-008, D-018) `82da0d6`
@@ -65,6 +66,7 @@ _Borrador generado al 2026-10-08 (49 commits). Escribí el «porqué» fuera de 
 
 ### Mantenimiento
 
+- config written by posta (ci off, hooks via plugin) `aa90463`
 - worker package in the Docker deps stage; keep engine/target out of the context `a9a1b4c`
 - local Postgres 17 via docker compose and .env.example `9681c20`
 - scaffold apps/api (NestJS 12, ESM, Prisma 7) and apps/web (Vite 8, React 19, PWA deps) `338e565`

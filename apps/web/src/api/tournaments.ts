@@ -8,6 +8,7 @@ import {
   deckVersionsResponseSchema,
   listDetailSchema,
   listsResponseSchema,
+  matchupMatrixSchema,
   setReleaseSchema,
   setReleasesResponseSchema,
   type TournamentFormat,
@@ -36,6 +37,7 @@ export const tournamentKeys = {
   unlock: (scope: TournamentScopeParams) => ['tournaments', 'unlock', scope] as const,
   events: (scope: TournamentScopeParams) => ['tournaments', 'events', scope] as const,
   unknown: (scope: TournamentScopeParams) => ['tournaments', 'unknown', scope] as const,
+  matchups: (scope: TournamentScopeParams, top: number) => ['tournaments', 'matchups', scope, top] as const,
 }
 
 function query(params: Record<string, string | number | undefined | null>): string {
@@ -77,6 +79,16 @@ export function useTournamentStatus() {
     queryKey: tournamentKeys.status,
     queryFn: ({ signal }) => request('/api/tournaments/status', { schema: tournamentStatusSchema, signal }),
     refetchInterval: (q) => (q.state.data?.sync.running ? 10_000 : false),
+  })
+}
+
+/** Fase 9: the most played archetypes against each other, from the era's pairings. */
+export function useMatchupMatrix(scope: TournamentScopeParams, top: number) {
+  return useQuery({
+    queryKey: tournamentKeys.matchups(scope, top),
+    queryFn: ({ signal }) =>
+      request(`/api/tournaments/matchups${query({ ...scope, top })}`, { schema: matchupMatrixSchema, signal }),
+    placeholderData: keepPreviousData,
   })
 }
 

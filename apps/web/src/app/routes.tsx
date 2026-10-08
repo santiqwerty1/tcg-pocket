@@ -33,6 +33,7 @@ import { SimulationDetailPage } from '@/pages/simulacion/SimulationDetailPage'
 import { SobresPage } from '@/pages/sobres/SobresPage'
 import { ArchetypePage } from '@/pages/torneos/ArchetypePage'
 import { ListPage } from '@/pages/torneos/ListPage'
+import { MatchupsPage } from '@/pages/torneos/MatchupsPage'
 import { TorneosAjustesPage } from '@/pages/torneos/TorneosAjustesPage'
 import { TorneosPage } from '@/pages/torneos/TorneosPage'
 import { AppShell, type RouteHandle } from './AppShell'
@@ -66,6 +67,7 @@ export const routes: RouteObject[] = [
       { path: 'torneos/ajustes', element: <TorneosAjustesPage />, handle: handle('Ajustes de torneos', '/torneos') },
       { path: 'torneos/arquetipos/:id', element: <ArchetypePage />, handle: handle('Arquetipo', '/torneos') },
       { path: 'torneos/listas/:key', element: <ListPage />, handle: handle('Lista de torneo', '/torneos') },
+      { path: 'torneos/matchups', element: <MatchupsPage />, handle: handle('Matchups', '/torneos') },
       { path: 'simulacion', element: <SimulacionPage />, handle: handle('Simulación', '/mas') },
       { path: 'simulacion/nueva', element: <NewSimulationPage />, handle: handle('Nueva simulación', '/simulacion') },
       {

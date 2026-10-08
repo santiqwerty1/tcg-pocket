@@ -40,6 +40,8 @@ export interface ListCard {
 
 export interface DatasetEntry {
   tournamentId: string
+  /** Limitless player id (stable): links the list to the tournament's pairings (Fase 9). */
+  playerId: string
   date: Date
   playerName: string
   placing: number | null
@@ -207,6 +209,7 @@ export function buildDataset(input: BuildDatasetInput): TournamentDataset {
     }
     entries.push({
       tournamentId: tournament.id,
+      playerId: entry.playerId,
       date: tournament.date,
       playerName: entry.playerName,
       placing: entry.placing,

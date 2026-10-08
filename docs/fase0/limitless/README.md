@@ -7,6 +7,8 @@ Capturadas con curl el 6/10/2026 para fijar fixtures de M5 sin volver a consumir
 | README.md | 325 | encabezados de la respuesta homónima |
 | big.headers | 379 | encabezados de la respuesta homónima |
 | big_details.json | 486 | GET /tournaments/6a95b87b629039f77d8a6954/details |
+| big_pairings.json | 108044 | GET /tournaments/6a95b87b629039f77d8a6954/pairings (PMPT #45, 1.143 partidas; bajado el 8/10/2026, Fase 9) |
+| big_pairings.headers | — | encabezados de la respuesta homónima |
 | big_standings.json | 425829 | GET /tournaments/6a95b87b629039f77d8a6954/standings (PMPT #45, 393 jugadores) |
 | decks.headers | 381 | encabezados de la respuesta homónima |
 | decks_nokey.json | 20 | GET /games/POCKET/decks sin key (400 Invalid Access Key) |
@@ -20,6 +22,8 @@ Capturadas con curl el 6/10/2026 para fijar fixtures de M5 sin volver a consumir
 | lim500.headers | 378 | encabezados de la respuesta homónima |
 | lim500.json | 91358 | GET /tournaments?game=POCKET&limit=500&page=3 |
 | noex.headers | 378 | encabezados de la respuesta homónima |
+| noex_pairings.json | 21282 | GET /tournaments/6a9ebbfcab080c8c957fcc9a/pairings (NOEX, 228 partidas; bajado el 8/10/2026, Fase 9) |
+| noex_pairings.headers | — | encabezados de la respuesta homónima |
 | noex_standings.json | 78858 | GET /tournaments/6a9ebbfcab080c8c957fcc9a/standings (NOEX, 79 jugadores) |
 | t1.headers | 377 | encabezados de la respuesta homónima |
 | t1.json | 36567 | GET /tournaments?game=POCKET&limit=200 (página 1) |

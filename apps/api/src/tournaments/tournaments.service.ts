@@ -9,6 +9,7 @@ import {
   archetypeRows,
   buildableLists,
   buildDataset,
+  buildMatchups,
   type CardId,
   type CatalogIndex,
   cardUsage,
@@ -21,6 +22,7 @@ import {
   eraOf,
   eraRange,
   eraSets,
+  expectedVsMeta,
   type LimitlessDecklist,
   type ListAgainstCollection,
   type ListCard,
@@ -28,6 +30,11 @@ import {
   type ListRow,
   listRows,
   listsAgainstCollection,
+  type Matchups,
+  matchupRate,
+  matchupRecord,
+  matchupRows,
+  metaShares,
   mostCommonEnergies,
   newEraWarning,
   playableCopies,
@@ -35,6 +42,7 @@ import {
   recordOf,
   type SetRelease,
   type StoredEntry,
+  type StoredPairing,
   type StoredTournament,
   substitutesFor,
   type TournamentDataset,
@@ -55,6 +63,7 @@ import { TournamentDataVersion, TournamentSettings } from './tournament-settings
 import { TournamentSyncService } from './tournament-sync.service.js'
 import type {
   ArchetypeDetailView,
+  ArchetypeMatchupsView,
   ArchetypeRefView,
   ArchetypesView,
   BuildableView,
@@ -64,10 +73,12 @@ import type {
   DeckVersionsView,
   DeckVersionView,
   EraView,
+  ExpectedVsMetaView,
   ListAgainstCollectionView,
   ListDetailView,
   ListRowView,
   ListsView,
+  MatchupMatrixView,
   RecordRowView,
   ScopeView,
   SetReleaseView,
@@ -103,9 +114,18 @@ interface CacheEntry {
   dataset: TournamentDataset
 }
 
+/** Matchups of one era (Fase 9), cached with the dataset they were built on. */
+interface MatchupCacheEntry {
+  dataset: TournamentDataset
+  matchups: Matchups
+}
+
+const MATCHUP_TABLE_DEFAULT = 12
+
 @Injectable()
 export class TournamentsService {
   private cache: CacheEntry[] = []
+  private matchupCache: MatchupCacheEntry[] = []
 
   constructor(
     @Inject(ENV) private readonly env: Env,
@@ -190,6 +210,92 @@ export class TournamentsService {
     })
     this.cache = [{ key, index: scope.index, dataset }, ...this.cache].slice(0, CACHE_SIZE)
     return dataset
+  }
+
+  /** The era's matchups (Fase 9): the dataset's tournaments' pairings under each player's archetype. */
+  async matchupsOf(dataset: TournamentDataset): Promise<Matchups> {
+    const hit = this.matchupCache.find((entry) => entry.dataset === dataset)
+    if (hit) return hit.matchups
+    const rows = await this.prisma.tournamentPairing.findMany({
+      where: { tournamentId: { in: dataset.tournaments.map((t) => t.id) } },
+      select: { tournamentId: true, phase: true, round: true, player1: true, player2: true, result: true },
+    })
+    const matchups = buildMatchups(dataset, rows as StoredPairing[])
+    this.matchupCache = [{ dataset, matchups }, ...this.matchupCache].slice(0, CACHE_SIZE)
+    return matchups
+  }
+
+  private expectedView(matchups: Matchups, dataset: TournamentDataset, id: string): ExpectedVsMetaView | null {
+    return expectedVsMeta(matchups, dataset, id)
+  }
+
+  private archetypeMatchups(matchups: Matchups, dataset: TournamentDataset, id: string | null): ArchetypeMatchupsView {
+    return {
+      rows:
+        id === null
+          ? []
+          : matchupRows(matchups, dataset, id).map((row) => ({
+              rival: this.archetypeRef(dataset, row.rival),
+              share: row.share,
+              record: row.record,
+              rate: row.rate,
+            })),
+      expected: id === null ? null : this.expectedView(matchups, dataset, id),
+      tournamentsWithPairings: matchups.tournamentsWithPairings,
+    }
+  }
+
+  /** The table of the most played archetypes against each other, with their expected rate against the field. */
+  async matchupMatrix(query: ScopeQuery & { top?: number | undefined }): Promise<MatchupMatrixView> {
+    const scope = await this.scope(query)
+    const dataset = await this.dataset(scope)
+    const matchups = await this.matchupsOf(dataset)
+    const top = metaShares(dataset).slice(0, query.top ?? MATCHUP_TABLE_DEFAULT)
+    const cells: MatchupMatrixView['cells'] = []
+    for (const a of top) {
+      for (const b of top) {
+        const record = matchupRecord(matchups, a.archetypeId, b.archetypeId)
+        if (record.wins + record.losses + record.ties === 0) continue
+        cells.push({ a: a.archetypeId, b: b.archetypeId, record, rate: matchupRate(record) })
+      }
+    }
+    return {
+      scope: this.scopeView(scope, dataset),
+      coverage: {
+        tournaments: matchups.tournaments,
+        tournamentsWithPairings: matchups.tournamentsWithPairings,
+        matches: matchups.matches,
+        skipped: matchups.skipped,
+      },
+      archetypes: top.map((row) => {
+        const field = matchups.field.get(row.archetypeId) ?? { wins: 0, losses: 0, ties: 0 }
+        return {
+          archetype: this.archetypeRef(dataset, row.archetypeId),
+          share: row.share,
+          lists: row.lists,
+          field: { record: field, rate: matchupRate(field) },
+          expected: this.expectedView(matchups, dataset, row.archetypeId),
+        }
+      }),
+      cells,
+      attribution: LIMITLESS_ATTRIBUTION,
+    }
+  }
+
+  /** Archetypes of the era by share of lists (0–100), with their shown name. */
+  shares(dataset: TournamentDataset): { archetypeId: string; name: string; share: number; lists: number }[] {
+    return metaShares(dataset).map((row) => ({ ...row, name: this.archetypeRef(dataset, row.archetypeId).name }))
+  }
+
+  /** One archetype against each rival (Fase 9), for the deck sheet and Claude. */
+  async archetypeMatchupsOf(
+    archetypeId: string | null,
+    query: ScopeQuery = {},
+  ): Promise<{ scope: Scope; dataset: TournamentDataset; matchups: ArchetypeMatchupsView }> {
+    const scope = await this.scope(query)
+    const dataset = await this.dataset(scope)
+    const canonical = archetypeId === null ? null : ((await this.settings.aliases()).get(archetypeId) ?? archetypeId)
+    return { scope, dataset, matchups: this.archetypeMatchups(await this.matchupsOf(dataset), dataset, canonical) }
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -319,6 +425,7 @@ export class TournamentsService {
         nameEs: scope.index.groupById(usage.groupId)?.nameEs ?? usage.groupId,
       })),
       withWithout: withWithoutView,
+      matchups: this.archetypeMatchups(await this.matchupsOf(dataset), dataset, archetypeId),
     }
   }
 
@@ -512,7 +619,7 @@ export class TournamentsService {
   }
 
   async status(): Promise<StatusView> {
-    const [sets, minPlayers, groups, lastRun, newest] = await Promise.all([
+    const [sets, minPlayers, groups, lastRun, newest, pairingsFetched, pairingsMissing] = await Promise.all([
       this.settings.sets(),
       this.settings.minPlayers(),
       this.prisma.tournament.groupBy({ by: ['status'], _count: { _all: true } }),
@@ -522,6 +629,8 @@ export class TournamentsService {
         orderBy: { date: 'desc' },
         select: { date: true },
       }),
+      this.prisma.tournament.count({ where: { status: 'complete', pairingsFetchedAt: { not: null } } }),
+      this.prisma.tournament.count({ where: { status: 'complete', pairingsFetchedAt: null } }),
     ])
     const index = this.catalog.requireIndex()
     const today = todayInOwnerZone()
@@ -563,6 +672,7 @@ export class TournamentsService {
           : null,
         callsInWindow: this.sync.callsInWindow(),
         counts,
+        pairings: { fetched: pairingsFetched, missing: pairingsMissing },
         newestTournament: newest?.date.toISOString() ?? null,
       },
     }

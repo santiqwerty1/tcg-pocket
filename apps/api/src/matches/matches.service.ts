@@ -30,12 +30,17 @@ import { TournamentsService } from '../tournaments/tournaments.service.js'
 import type {
   ComparisonColumnView,
   DeckComparisonView,
+  DeckMatchupRowView,
+  DeckMatchupsView,
   MatchDeckRef,
   MatchStatsView,
   MatchSuggestionsView,
   MatchView,
   RowView,
 } from './match-views.js'
+
+/** Most played archetypes always shown in a deck's «Contra cada rival» (the rest only when the deck met them). */
+const DECK_MATCHUP_RIVALS = 10
 
 export interface MatchInput {
   deckId: string
@@ -288,6 +293,74 @@ export class MatchesService {
         await this.tournamentColumn(Number(deck.id)),
         await this.simulationColumn(Number(deck.id)),
       ],
+    }
+  }
+
+  /**
+   * Fase 9: against each rival, own matches with the deck and the tournament matchup of the deck's archetype, side by
+   * side. Rivals: the most played archetypes of the era and every opponent of the deck's matches; a typed opponent is
+   * the archetype whose name has the same key («Mega-Blaziken ex» ≡ «mega blaziken ex»).
+   */
+  async deckMatchups(rawDeckId: string, mode: MatchMode | undefined): Promise<DeckMatchupsView> {
+    const deck = await this.requireDeckRef(parseNumericId(rawDeckId, 'Mazo'))
+    const stats = await this.stats({ deckId: deck.id, mode })
+    const row = await this.prisma.deck.findUnique({
+      where: { id: Number(deck.id) },
+      select: { currentRevisionId: true, tournamentArchetypeId: true },
+    })
+    const revision =
+      row?.currentRevisionId == null
+        ? null
+        : await this.prisma.deckRevision.findUnique({ where: { id: row.currentRevisionId }, select: { cards: true } })
+    const placed = revision
+      ? await this.tournaments
+          .deckTournament(revision.cards as unknown as DeckCardEntry[], row?.tournamentArchetypeId ?? null)
+          .catch(() => null)
+      : null
+    const archetype = placed?.archetype?.archetype.id
+      ? {
+          id: placed.archetype.archetype.id,
+          name: placed.archetype.archetype.name,
+          source: placed.archetype.source === 'owner' ? ('owner' as const) : ('guessed' as const),
+        }
+      : null
+    const context = await this.tournaments.archetypeMatchupsOf(archetype?.id ?? null).catch(() => null)
+    const tournamentByRival = new Map(
+      (context?.matchups.rows ?? []).map((item) => [item.rival.id, { record: item.record, rate: item.rate }]),
+    )
+    const shares = context ? this.tournaments.shares(context.dataset) : []
+    const mine = new Map(stats.byOpponent.map((item) => [item.key, item]))
+    const used = new Set<string>()
+    const rows: DeckMatchupRowView[] = []
+    for (const [at, share] of shares.entries()) {
+      const key = opponentKey(share.name)
+      const own = key === null ? undefined : mine.get(key)
+      if (at >= DECK_MATCHUP_RIVALS && !own) continue
+      if (key !== null && own) used.add(key)
+      rows.push({
+        rival: { id: share.archetypeId, name: share.name },
+        share: share.share,
+        mine: own ? { record: own.record, rate: own.rate } : null,
+        tournament: tournamentByRival.get(share.archetypeId) ?? null,
+      })
+    }
+    for (const own of stats.byOpponent) {
+      if (own.key !== null && used.has(own.key)) continue
+      rows.push({
+        rival: { id: null, name: own.label },
+        share: null,
+        mine: { record: own.record, rate: own.rate },
+        tournament: null,
+      })
+    }
+    return {
+      deck,
+      archetype,
+      era: context?.scope.era ?? '',
+      tournamentsWithPairings: context?.matchups.tournamentsWithPairings ?? 0,
+      expected: context?.matchups.expected ?? null,
+      rows,
+      attribution: 'Datos de torneo: Limitless (play.limitlesstcg.com)',
     }
   }
 

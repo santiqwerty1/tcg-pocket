@@ -72,6 +72,28 @@ export interface ComparisonColumnView {
   rows?: { label: string; record: GameRecord; rate: WinRate | null; note?: string }[]
 }
 
+/** Fase 9: one rival of a deck, own matches and the tournament matchup side by side (never combined). */
+export interface DeckMatchupRowView {
+  /** Tournament archetype (id) or an opponent typed by hand that matches none (id null). */
+  rival: { id: string | null; name: string }
+  /** Share of the era's lists (0–100); null for a hand-typed opponent. */
+  share: number | null
+  mine: RowView | null
+  tournament: { record: GameRecord; rate: WinRate | null } | null
+}
+
+export interface DeckMatchupsView {
+  deck: MatchDeckRef
+  /** The deck's tournament archetype: chosen in the deck or suggested by the closest lists. */
+  archetype: { id: string; name: string; source: 'owner' | 'guessed' } | null
+  era: string
+  tournamentsWithPairings: number
+  /** What the archetype should score against the field (matchups weighted by meta share). */
+  expected: { value: number; coverage: number; matches: number; rivals: number } | null
+  rows: DeckMatchupRowView[]
+  attribution: string
+}
+
 /** Three separate columns, never combined into one number (PLAN §3.6, I9). */
 export interface DeckComparisonView {
   deck: MatchDeckRef

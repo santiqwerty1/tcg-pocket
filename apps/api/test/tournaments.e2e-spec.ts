@@ -10,7 +10,8 @@ import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /**
  * docs/PLAN.md §7 Fase 5 (M5) against a fake Limitless that serves the responses saved on 6/10/2026
- * (docs/fase0/limitless/): the 400 most recent tournaments, PMPT #45 (393 players) and a NOEX tournament (79).
+ * (docs/fase0/limitless/): the 400 most recent tournaments, PMPT #45 (393 players) and a NOEX tournament (79), with
+ * their pairings (saved on 8/10/2026, Fase 9).
  * The other tournaments answer «no decklists», so they are excluded after their details.
  */
 const LIMITLESS = join(REPO_ROOT, 'docs/fase0/limitless')
@@ -28,6 +29,7 @@ type Structured = Record<string, unknown>
 interface Rate {
   value: number
   games: number
+  sampleKind?: string
   samples: number
   orientative: boolean
   ci95: [number, number]
@@ -93,13 +95,18 @@ describe('tournaments (e2e)', () => {
         }
         return json(200, tournaments.slice((page - 1) * limit, page * limit))
       }
-      const detail = /^\/tournaments\/([0-9a-f]+)\/(details|standings)$/.exec(path)
+      const detail = /^\/tournaments\/([0-9a-f]+)\/(details|standings|pairings)$/.exec(path)
       if (detail) {
         const [, id, what] = detail
         if (what === 'details') {
           if (id === BIG) return json(200, read('big_details.json'))
           if (id === NOEX) return json(200, { id, decklists: true, isOnline: true, phases: [] })
           return json(200, { id, decklists: false })
+        }
+        if (what === 'pairings') {
+          if (id === BIG) return json(200, read('big_pairings.json'))
+          if (id === NOEX) return json(200, read('noex_pairings.json'))
+          return json(404, { message: 'not found' })
         }
         if (id === BIG) return json(200, read('big_standings.json'))
         if (id === NOEX) return json(200, read('noex_standings.json'))
@@ -324,6 +331,86 @@ describe('tournaments (e2e)', () => {
     expect((await patch(`/api/decks/${blaziken?.id}`).send({ tournamentArchetypeId: null })).status).toBe(200)
   })
 
+  it('matchups (Fase 9): the rounds of PMPT #45 under each player’s archetype, per archetype and per deck', async () => {
+    expect(paths.filter((path) => path.endsWith('/pairings')).sort()).toEqual(
+      [`/tournaments/${BIG}/pairings`, `/tournaments/${NOEX}/pairings`].sort(),
+    )
+    expect(await test.prisma.tournamentPairing.count({ where: { tournamentId: BIG } })).toBe(1143)
+    expect((await get('/api/tournaments/status')).body.sync.pairings).toEqual({ fetched: 2, missing: 0 })
+
+    interface Cell {
+      a: string
+      b: string
+      record: { wins: number; losses: number; ties: number }
+      rate: Rate | null
+    }
+    const matrix = (await get('/api/tournaments/matchups?top=6')).body as {
+      coverage: { tournaments: number; tournamentsWithPairings: number; matches: number; skipped: Structured }
+      archetypes: { archetype: { id: string; name: string }; share: number; expected: { value: number } | null }[]
+      cells: Cell[]
+      attribution: string
+    }
+    expect(matrix.coverage).toMatchObject({
+      tournaments: 1,
+      tournamentsWithPairings: 1,
+      skipped: { byes: 96, doubleLosses: 41 },
+    })
+    expect(matrix.archetypes).toHaveLength(6)
+    expect(matrix.cells.length).toBeGreaterThan(10)
+    for (const cell of matrix.cells) {
+      const back = matrix.cells.find((other) => other.a === cell.b && other.b === cell.a)
+      expect(back?.record).toEqual({ wins: cell.record.losses, losses: cell.record.wins, ties: cell.record.ties })
+      expect(cell.rate?.sampleKind).toBe('matches')
+    }
+    expect(matrix.attribution).toContain('Limitless')
+    expect((await get('/api/tournaments/matchups?top=1')).status).toBe(400)
+    const top = matrix.archetypes[0] as { archetype: { id: string; name: string } }
+    const detail = (await get(`/api/tournaments/archetypes/${top.archetype.id}`)).body.matchups as {
+      rows: { rival: { id: string }; share: number; rate: Rate | null }[]
+      expected: { value: number; coverage: number } | null
+      tournamentsWithPairings: number
+    }
+    expect(detail.rows.length).toBeGreaterThan(5)
+    expect(detail.tournamentsWithPairings).toBe(1)
+    expect(detail.expected?.value).toBeGreaterThan(20)
+    expect(detail.expected?.value).toBeLessThan(80)
+
+    // The deck sheet: Mega-Blaziken ex against each rival, own matches next to the tournament matchup.
+    const decks = (await get('/api/decks')).body.items as { id: string; name: string }[]
+    const blaziken = decks.find((deck) => deck.name === 'Mega-Blaziken ex')
+    const won = await post('/api/matches').send({ deckId: blaziken?.id, result: 'win', opponent: top.archetype.name })
+    const lost = await post('/api/matches').send({
+      deckId: blaziken?.id,
+      result: 'loss',
+      opponent: 'Un rival inventado',
+    })
+    const sheet = (await get(`/api/decks/${blaziken?.id}/matchups`)).body as {
+      archetype: { name: string; source: string } | null
+      rows: {
+        rival: { id: string | null; name: string }
+        share: number | null
+        mine: { record: Structured } | null
+        tournament: { rate: Rate | null } | null
+      }[]
+      expected: { value: number } | null
+    }
+    expect(sheet.archetype?.name).toMatch(/Blaziken/i)
+    expect(sheet.archetype?.source).toBe('guessed')
+    const row = sheet.rows.find((item) => item.rival.id === top.archetype.id)
+    expect(row?.mine?.record).toEqual({ wins: 1, losses: 0, ties: 0 })
+    expect(sheet.rows.filter((item) => item.share !== null).length).toBeGreaterThanOrEqual(10)
+    expect(sheet.rows.some((item) => item.tournament?.rate)).toBe(true)
+    expect(sheet.rows.find((item) => item.rival.id === null)).toMatchObject({
+      rival: { name: 'Un rival inventado' },
+      share: null,
+      tournament: null,
+      mine: { record: { wins: 0, losses: 1, ties: 0 } },
+    })
+    for (const created of [won, lost]) {
+      expect((await test.http().delete(`/api/matches/${created.body.id}`).set('Cookie', cookie)).status).toBe(204)
+    }
+  })
+
   it('«versión de torneo» of each deck, and Sobres aiming «Completar mazos» at it', async () => {
     interface Version {
       deckId: string
@@ -419,6 +506,12 @@ describe('tournaments (e2e)', () => {
       const ww = split.withWithout as { with: { lists: number }; without: { lists: number } }
       expect(ww.with.lists + ww.without.lists).toBe((detail.archetype as { lists: number }).lists)
       expect((await call('tournaments_stats', { by: 'list', limit: 2 })).lists).toHaveLength(2)
+      const table = await call('tournaments_matchups', { top: 4 })
+      expect(table.archetypes).toHaveLength(4)
+      expect((table.archetypes as { matchups: string[] }[])[0]?.matchups[0]).toMatch(/^vs .+: \d/)
+      const one = await call('tournaments_matchups', { archetype: top?.name })
+      expect((one.rivals as unknown[]).length).toBeGreaterThan(5)
+      expect(one.expectedAgainstMeta).toMatchObject({ value: expect.stringMatching(/ %$/) })
       const buildable = await call('tournaments_buildable', { limit: 2 })
       expect((buildable.buildable as unknown[]).length).toBeGreaterThan(0)
       const unlock = await call('tournaments_unlock_cards', { limit: 3 })

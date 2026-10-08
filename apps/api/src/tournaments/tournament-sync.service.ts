@@ -3,6 +3,8 @@
  * ones that count (finished, Standard or NOEX, at least `minPlayers`), newest first. Every tournament carries its own
  * status in the database, so a run can be cut at any point (deploy, 429, shutdown) and the next one goes on from
  * there. The first run downloads the last 60 days; then a run every 6 hours picks up what is new.
+ * Fase 9: each complete tournament also brings its pairings (one more call); the ones downloaded before that get
+ * them at the end of a run, newest first, until the window is covered.
  */
 import { createHash } from 'node:crypto'
 import { gzipSync } from 'node:zlib'
@@ -17,6 +19,8 @@ import {
   limitlessDetailsSchema,
   limitlessTournamentListSchema,
   type NormalizedEntry,
+  type NormalizedPairing,
+  parsePairings,
   parseStandings,
   standingsIncomplete,
 } from '@tcg/domain'
@@ -52,6 +56,9 @@ export interface SyncProgress {
   /** Candidates still to download when the listing finished. */
   pending: number
   current: string | null
+  /** Fase 9: pairings of tournaments downloaded before they existed. */
+  pairingsDone: number
+  pairingsPending: number
 }
 
 @Injectable()
@@ -141,6 +148,8 @@ export class TournamentSyncService implements OnApplicationBootstrap, OnModuleDe
       done: 0,
       pending: 0,
       current: null,
+      pairingsDone: 0,
+      pairingsPending: 0,
     }
     const signal = this.shutdown.signal
     const save = (data: Prisma.LimitlessSyncRunUpdateInput) =>
@@ -174,8 +183,29 @@ export class TournamentSyncService implements OnApplicationBootstrap, OnModuleDe
         this.bump({ done, calls: stats.calls, waitedMs: stats.waitedMs })
         await save({ tournamentsDone: done, calls: stats.calls, waitedMs: stats.waitedMs })
       }
+      // Pairings of tournaments downloaded before Fase 9 (or whose pairings failed), newest first.
+      const missing = await this.prisma.tournament.findMany({
+        where: {
+          status: 'complete',
+          pairingsFetchedAt: null,
+          pairingsAttempts: { lt: MAX_ATTEMPTS },
+          date: { gte: new Date(now.getTime() - backfillDays * DAY_MS) },
+        },
+        orderBy: { date: 'desc' },
+        select: { id: true, name: true, pairingsAttempts: true },
+      })
+      this.bump({ pairingsPending: missing.length })
+      let pairingsDone = 0
+      for (const tournament of missing) {
+        if (signal.aborted) throw signal.reason
+        this.bump({ current: `${tournament.name} (rondas)` })
+        await this.downloadPairings(tournament, stats, signal)
+        pairingsDone += 1
+        this.bump({ pairingsDone, calls: stats.calls, waitedMs: stats.waitedMs })
+        await save({ calls: stats.calls, waitedMs: stats.waitedMs })
+      }
       await save({ status: 'done', finishedAt: new Date(), calls: stats.calls, waitedMs: stats.waitedMs })
-      this.logger.info({ kind, listed, done, calls: stats.calls }, 'limitless sync done')
+      this.logger.info({ kind, listed, done, pairings: pairingsDone, calls: stats.calls }, 'limitless sync done')
     } catch (error) {
       const interrupted = signal.aborted
       await save({
@@ -363,6 +393,7 @@ export class TournamentSyncService implements OnApplicationBootstrap, OnModuleDe
         }),
       ])
       this.version.bump()
+      await this.downloadPairings({ id: tournament.id, name: tournament.name, pairingsAttempts: 0 }, stats, signal)
     } catch (error) {
       if (signal.aborted) throw signal.reason
       if (error instanceof LimitlessError && error.status === 404) {
@@ -375,5 +406,44 @@ export class TournamentSyncService implements OnApplicationBootstrap, OnModuleDe
       this.logger.warn({ tournament: tournament.id, err: error }, 'tournament download failed')
       await fail('listed', error instanceof Error ? error.message : String(error), RETRY_FAILED_MS)
     }
+  }
+
+  /**
+   * Who played whom (Fase 9). A failure never touches the tournament's standings: the pairings are tried again on the
+   * next runs (3 tries); a tournament without pairings (404) is marked as fetched with none.
+   */
+  private async downloadPairings(
+    tournament: { id: string; name: string; pairingsAttempts: number },
+    stats: CallStats,
+    signal: AbortSignal,
+  ): Promise<void> {
+    let pairings: NormalizedPairing[]
+    try {
+      const raw = await this.client.get(`/tournaments/${encodeURIComponent(tournament.id)}/pairings`, stats, signal)
+      pairings = parsePairings(raw)
+    } catch (error) {
+      if (signal.aborted) throw signal.reason
+      if (error instanceof LimitlessError && error.status === 404) {
+        pairings = []
+      } else {
+        this.logger.warn({ tournament: tournament.id, err: error }, 'pairings download failed')
+        await this.prisma.tournament.update({
+          where: { id: tournament.id },
+          data: { pairingsAttempts: tournament.pairingsAttempts + 1 },
+        })
+        return
+      }
+    }
+    await this.prisma.$transaction([
+      this.prisma.tournamentPairing.deleteMany({ where: { tournamentId: tournament.id } }),
+      this.prisma.tournamentPairing.createMany({
+        data: pairings.map((pairing) => ({ tournamentId: tournament.id, ...pairing })),
+      }),
+      this.prisma.tournament.update({
+        where: { id: tournament.id },
+        data: { pairingsFetchedAt: new Date(), pairingsAttempts: tournament.pairingsAttempts + 1 },
+      }),
+    ])
+    this.version.bump()
   }
 }

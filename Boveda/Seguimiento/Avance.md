@@ -29,14 +29,27 @@ revisar: false
 | 7.1 | Laboratorio de mazos (pedido del 08/10) | hecho 08/10 · desplegado (`dc2dcad`) · aprobado 08/10 | 7 | [T-008](Tareas/T-008.md), [D-018](Decisiones/D-018.md) |
 | 8 | Jugar contra un bot, consistencia, sustitutos, avisos y misiones | hecho 08/10 · desplegado (`d8728e7`), catálogo con misiones · aprobado 08/10 | 7.1 | [T-011](Tareas/T-011.md), [D-019](Decisiones/D-019.md) |
 | 8.1 | Respuestas de D-019 (consistencia contra el meta, backup v5), archivar simulaciones, instalar en Android | hecho 08/10 · desplegado (`ee6f4bd`), worker 0.2.1 · aprobado 08/10 | 8 | [D-019](Decisiones/D-019.md) |
+| 9 | Matchups de torneo (rondas de Limitless) | hecho 08/10 · falta subir y desplegar | 8 | [T-012](Tareas/T-012.md) |
+| 10 | Calculadora de mano inicial | pendiente | — | [T-012](Tareas/T-012.md) |
+| 11 | Meta semanal | pendiente | — | [T-012](Tareas/T-012.md) |
+| 12 | Notas por rival | pendiente | — | [T-012](Tareas/T-012.md) |
+| 13 | ¿Mala racha o mal matchup? | pendiente | 9 | [T-012](Tareas/T-012.md) |
+| 14 | ¿Cuántos días me faltan? | pendiente | — | [T-012](Tareas/T-012.md) |
+| 15 | ¿Qué mazo llevo hoy? | pendiente | 9 | [T-012](Tareas/T-012.md) |
+| 16 | Eventos con restricciones | pendiente | — | [T-012](Tareas/T-012.md) |
+| 17 | Suerte de los sobres | pendiente | — | [T-012](Tareas/T-012.md) |
+| 18 | Notificaciones al celu | pendiente | — | [T-012](Tareas/T-012.md) |
+| 19 | Armar desde un núcleo | pendiente | — | [T-012](Tareas/T-012.md) |
+| 20 | Modo entrenador contra el bot | pendiente | — | [T-012](Tareas/T-012.md) |
+| 21 | Mantenimiento: remapeo de ids (I12) y CI | pendiente | — | [R-001](Riesgos/R-001.md), [R-007](Riesgos/R-007.md) |
 | K | Bóveda con el kit de Posta | hecho 07/10 · aprobado 08/10 | — | [D-009](Decisiones/D-009.md) |
 
 ## Próximos pasos
 
-Las fases 0–8 del plan están hechas y aprobadas (visto bueno de Santiago el 08/10/2026). Lo que sigue lo elige Santiago:
+Las fases 0–8 del plan están hechas y aprobadas (visto bueno de Santiago el 08/10/2026). Santiago pidió las doce ideas de ampliación, cada una como su propia fase (9 a 21, [T-012](Tareas/T-012.md)):
 
-1. Usar la app con partidas reales y anotar lo que falte o moleste.
-2. Lo abierto del plan: remapeo de ids al cambiar el catálogo (I12, [R-001](Riesgos/R-001.md)) y tests en CI antes de cada deploy ([R-007](Riesgos/R-007.md)).
+1. Fases 10 a 21, en orden; al terminar cada una, resumen y commit (subir y desplegar cuando Santiago lo pida).
+2. Probar la Fase 9 en producción después del deploy: el sync baja las rondas de los torneos ya guardados (una llamada por torneo).
 
 ## Pendiente de decidir (para después)
 

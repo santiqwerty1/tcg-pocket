@@ -534,29 +534,33 @@ enum TournamentStatus {
 }
 
 model Tournament {
-  id              String            @id
-  name            String
-  date            DateTime          @db.Timestamptz(3)
+  id                String              @id
+  name              String
+  date              DateTime            @db.Timestamptz(3)
   /// `format` as Limitless sent it: null = Standard.
-  formatRaw       String?           @map("format_raw")
-  format          TournamentFormat
-  players         Int
-  organizerId     Int?              @map("organizer_id")
-  organizerName   String?           @map("organizer_name")
+  formatRaw         String?             @map("format_raw")
+  format            TournamentFormat
+  players           Int
+  organizerId       Int?                @map("organizer_id")
+  organizerName     String?             @map("organizer_name")
   /// { decklists, isOnline, phases, bannedCards, specialRules } from /details.
-  details         Json?
-  status          TournamentStatus  @default(listed)
-  excludedReason  String?           @map("excluded_reason")
-  attempts        Int               @default(0)
-  nextAttemptAt   DateTime?         @map("next_attempt_at") @db.Timestamptz(3)
-  lastError       String?           @map("last_error")
+  details           Json?
+  status            TournamentStatus    @default(listed)
+  excludedReason    String?             @map("excluded_reason")
+  attempts          Int                 @default(0)
+  nextAttemptAt     DateTime?           @map("next_attempt_at") @db.Timestamptz(3)
+  lastError         String?             @map("last_error")
   /// The standings JSON, gzipped (kept to re-normalize without calling Limitless again).
-  rawStandingsGz  Bytes?            @map("raw_standings_gz")
-  standingsSha256 String?           @map("standings_sha256")
-  firstSeenAt     DateTime          @default(now()) @map("first_seen_at") @db.Timestamptz(3)
-  lastSeenAt      DateTime          @default(now()) @map("last_seen_at") @db.Timestamptz(3)
-  fetchedAt       DateTime?         @map("fetched_at") @db.Timestamptz(3)
-  entries         TournamentEntry[]
+  rawStandingsGz    Bytes?              @map("raw_standings_gz")
+  standingsSha256   String?             @map("standings_sha256")
+  firstSeenAt       DateTime            @default(now()) @map("first_seen_at") @db.Timestamptz(3)
+  lastSeenAt        DateTime            @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  fetchedAt         DateTime?           @map("fetched_at") @db.Timestamptz(3)
+  /// Fase 9: when the pairings were downloaded (null = not yet) and how many tries failed.
+  pairingsFetchedAt DateTime?           @map("pairings_fetched_at") @db.Timestamptz(3)
+  pairingsAttempts  Int                 @default(0) @map("pairings_attempts")
+  entries           TournamentEntry[]
+  pairings          TournamentPairing[]
 
   @@index([date])
   @@index([status, date])
@@ -585,6 +589,23 @@ model TournamentEntry {
   @@unique([tournamentId, playerId])
   @@index([archetypeId])
   @@map("tournament_entries")
+}
+
+/// Who played whom in each round (Fase 9, `/tournaments/{id}/pairings`): the matchups between archetypes.
+model TournamentPairing {
+  id           Int        @id @default(autoincrement())
+  tournamentId String     @map("tournament_id")
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  phase        Int
+  round        Int
+  player1      String
+  /// Null: a bye or a no-show.
+  player2      String?
+  /// p1 | p2 | tie | double_loss | bye
+  result       String
+
+  @@index([tournamentId])
+  @@map("tournament_pairings")
 }
 
 /// Era table (PLAN Apéndice A.5): seeded with the known releases, edited by the owner when a set comes out.

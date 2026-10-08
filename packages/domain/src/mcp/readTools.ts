@@ -237,6 +237,22 @@ export const MCP_READ_TOOLS = {
       limit: z.number().int().min(1).max(50).optional().describe('Filas a devolver (por defecto 15)'),
     }),
   },
+  tournamentsMatchups: {
+    name: 'tournaments_matchups',
+    title: 'Matchups de torneo',
+    description: `Enfrentamientos entre arquetipos en torneos reales de la era (rondas de Limitless: quién jugó contra quién), contados por partida (un BO1 o un BO3 entero); sin byes, ausencias ni dobles derrotas. Con «archetype»: ese arquetipo contra cada rival (los más jugados primero) y lo que debería sacar contra el meta (cada matchup pesado por la cuota del rival; un matchup con pocas partidas se acerca a su récord contra todos, como si tuviera 10 partidas más a ese ritmo; «coversMeta» = cuota de los rivales con 10 partidas o más). Sin «archetype»: los «top» arquetipos más jugados entre sí. Son partidas de personas, no de bots. ${TOURNAMENT_NOTE}`,
+    input: z.object({
+      ...tournamentScope,
+      archetype: z
+        .string()
+        .trim()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe('Arquetipo: parte del nombre en inglés («Mega Blaziken») o su id de Limitless'),
+      top: z.number().int().min(2).max(30).optional().describe('Arquetipos de la tabla (por defecto 10)'),
+    }),
+  },
   tournamentsBuildable: {
     name: 'tournaments_buildable',
     title: 'Listas de torneo que puedo armar',

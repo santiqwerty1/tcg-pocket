@@ -2,6 +2,7 @@ import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tansta
 import { request } from './client'
 import {
   deckComparisonSchema,
+  deckMatchupsSchema,
   type MatchInput,
   type MatchMode,
   type MatchResult,
@@ -18,6 +19,7 @@ export const matchKeys = {
   suggestions: ['matches', 'suggestions'] as const,
   stats: (params: MatchStatsParams) => ['matches', 'stats', params] as const,
   comparison: (deckId: string, mode?: MatchMode) => ['matches', 'comparison', deckId, mode ?? null] as const,
+  deckMatchups: (deckId: string) => ['matches', 'deck-matchups', deckId] as const,
 }
 
 export interface MatchListParams {
@@ -69,6 +71,16 @@ export function useMatchStats(params: MatchStatsParams = {}) {
   return useQuery({
     queryKey: matchKeys.stats(params),
     queryFn: ({ signal }) => request('/api/matches/stats', { query: { ...params }, schema: matchStatsSchema, signal }),
+  })
+}
+
+/** Fase 9: the deck against each rival — own matches and the tournament matchup of its archetype. */
+export function useDeckMatchups(deckId: string | undefined) {
+  return useQuery({
+    queryKey: matchKeys.deckMatchups(deckId ?? ''),
+    queryFn: ({ signal }) =>
+      request(`/api/decks/${encodeURIComponent(deckId ?? '')}/matchups`, { schema: deckMatchupsSchema, signal }),
+    enabled: Boolean(deckId),
   })
 }
 

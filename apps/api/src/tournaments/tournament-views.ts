@@ -113,6 +113,55 @@ export interface ArchetypeDetailView {
   lists: ListRowView[]
   cards: CardUsageView[]
   withWithout: WithWithoutView | null
+  /** Fase 9: against each rival in the era's pairings, the most played first. */
+  matchups: ArchetypeMatchupsView
+}
+
+/** One rival of an archetype (Fase 9): matches of the era's pairings, a match being a whole BO1 or BO3. */
+export interface MatchupRowView {
+  rival: ArchetypeRefView
+  /** The rival's share of the era's lists (0–100). */
+  share: number
+  record: GameRecord
+  rate: WinRate | null
+}
+
+/** What an archetype should score against the field, from its matchups weighted by meta share. */
+export interface ExpectedVsMetaView {
+  value: number
+  /** Share of the meta (0–100) covered by rivals with enough matches. */
+  coverage: number
+  matches: number
+  rivals: number
+}
+
+export interface ArchetypeMatchupsView {
+  rows: MatchupRowView[]
+  expected: ExpectedVsMetaView | null
+  /** Tournaments of the scope with their pairings downloaded. */
+  tournamentsWithPairings: number
+}
+
+export interface MatchupMatrixView {
+  scope: ScopeView
+  coverage: {
+    tournaments: number
+    tournamentsWithPairings: number
+    matches: number
+    skipped: { byes: number; doubleLosses: number; noArchetype: number }
+  }
+  /** The most played archetypes, in order: rows and columns of the table. */
+  archetypes: {
+    archetype: ArchetypeRefView
+    share: number
+    lists: number
+    /** Its record against everyone in the pairings. */
+    field: { record: GameRecord; rate: WinRate | null }
+    expected: ExpectedVsMetaView | null
+  }[]
+  /** a → b for every pair of the table that met (both directions). */
+  cells: { a: string; b: string; record: GameRecord; rate: WinRate | null }[]
+  attribution: string
 }
 
 export interface SubstituteView {
@@ -194,6 +243,8 @@ export interface SyncStatusView {
     done: number
     pending: number
     current: string | null
+    pairingsDone: number
+    pairingsPending: number
   } | null
   lastRun: {
     id: number
@@ -209,6 +260,8 @@ export interface SyncStatusView {
   /** Calls to Limitless in the last 5 minutes (the client keeps it ≤ 40). */
   callsInWindow: number
   counts: Record<'listed' | 'complete' | 'incomplete' | 'excluded' | 'failed', number>
+  /** Fase 9: complete tournaments with their pairings downloaded, and without them yet. */
+  pairings: { fetched: number; missing: number }
   newestTournament: string | null
 }
 

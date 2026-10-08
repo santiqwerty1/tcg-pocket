@@ -3,7 +3,13 @@ import { MATCH_MODES, MATCH_NOTE_MAX_LENGTH, MATCH_RESULTS, OPPONENT_MAX_LENGTH 
 import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
 import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
-import type { DeckComparisonView, MatchStatsView, MatchSuggestionsView, MatchView } from './match-views.js'
+import type {
+  DeckComparisonView,
+  DeckMatchupsView,
+  MatchStatsView,
+  MatchSuggestionsView,
+  MatchView,
+} from './match-views.js'
 import { MatchesService } from './matches.service.js'
 
 const isoDateTime = z.iso.datetime({ offset: true, message: 'Fecha ISO 8601 inválida.' })
@@ -110,5 +116,15 @@ export class DeckComparisonController {
     @CurrentSession() _session: RequestSession,
   ): Promise<DeckComparisonView> {
     return this.matches.comparison(id, query.mode)
+  }
+
+  /** Fase 9: against each rival, own matches and the tournament matchup of the deck's archetype. */
+  @Get(':id/matchups')
+  matchups(
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(comparisonQuerySchema)) query: z.infer<typeof comparisonQuerySchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<DeckMatchupsView> {
+    return this.matches.deckMatchups(id, query.mode)
   }
 }

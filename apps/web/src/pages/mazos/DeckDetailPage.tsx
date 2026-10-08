@@ -36,6 +36,7 @@ import { cn } from '@/lib/utils'
 import { BestVersionsSection } from './BestVersions'
 import { ClosestDecksSection } from './ClosestDecks'
 import { ConsistencySection } from './ConsistencySection'
+import { DeckMatchupsSection } from './DeckMatchups'
 import { DeckPager } from './DeckPager'
 import { DeckPerformance } from './DeckPerformance'
 import { DeckBadges } from './DecksPage'
@@ -302,6 +303,8 @@ function DeckDetailView({ deckId }: { deckId: string | undefined }) {
         archived={Boolean(data.archivedAt)}
         tournamentArchetypeId={data.tournamentArchetypeId ?? null}
       />
+
+      <DeckMatchupsSection deckId={data.id} />
 
       <Section title={`Cartas (${totalCount(data.cards)})`}>
         <CardGroups deck={data} />

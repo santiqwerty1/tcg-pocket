@@ -656,6 +656,25 @@ export const comparisonColumnSchema = z.object({
 })
 export type ComparisonColumn = z.infer<typeof comparisonColumnSchema>
 export const deckComparisonSchema = z.object({ deck: matchDeckRefSchema, columns: z.array(comparisonColumnSchema) })
+
+/** Fase 9: against each rival, own matches and the tournament matchup of the deck's archetype. */
+export const deckMatchupsSchema = z.object({
+  deck: matchDeckRefSchema,
+  archetype: z.object({ id: z.string(), name: z.string(), source: z.enum(['owner', 'guessed']) }).nullable(),
+  era: z.string(),
+  tournamentsWithPairings: z.number(),
+  expected: z.object({ value: z.number(), coverage: z.number(), matches: z.number(), rivals: z.number() }).nullable(),
+  rows: z.array(
+    z.object({
+      rival: z.object({ id: z.string().nullable(), name: z.string() }),
+      share: z.number().nullable(),
+      mine: z.object({ record: gameRecordSchema, rate: winRateSchema.nullable() }).nullable(),
+      tournament: z.object({ record: gameRecordSchema, rate: winRateSchema.nullable() }).nullable(),
+    }),
+  ),
+  attribution: z.string(),
+})
+export type DeckMatchups = z.infer<typeof deckMatchupsSchema>
 export type DeckComparison = z.infer<typeof deckComparisonSchema>
 
 // ---------- Packs (Fase 4) ----------
@@ -984,6 +1003,52 @@ export const withWithoutSchema = z.object({
   with: recordRowSchema,
   without: recordRowSchema,
 })
+// ---------- Matchups de torneo (Fase 9) ----------
+
+export const expectedVsMetaSchema = z.object({
+  value: z.number(),
+  coverage: z.number(),
+  matches: z.number(),
+  rivals: z.number(),
+})
+export type ExpectedVsMeta = z.infer<typeof expectedVsMetaSchema>
+
+export const archetypeMatchupsSchema = z.object({
+  rows: z.array(
+    z.object({
+      rival: archetypeRefSchema,
+      share: z.number(),
+      record: gameRecordSchema,
+      rate: winRateSchema.nullable(),
+    }),
+  ),
+  expected: expectedVsMetaSchema.nullable(),
+  tournamentsWithPairings: z.number(),
+})
+export type ArchetypeMatchups = z.infer<typeof archetypeMatchupsSchema>
+
+export const matchupMatrixSchema = z.object({
+  scope: scopeSchema,
+  coverage: z.object({
+    tournaments: z.number(),
+    tournamentsWithPairings: z.number(),
+    matches: z.number(),
+    skipped: z.object({ byes: z.number(), doubleLosses: z.number(), noArchetype: z.number() }),
+  }),
+  archetypes: z.array(
+    z.object({
+      archetype: archetypeRefSchema,
+      share: z.number(),
+      lists: z.number(),
+      field: z.object({ record: gameRecordSchema, rate: winRateSchema.nullable() }),
+      expected: expectedVsMetaSchema.nullable(),
+    }),
+  ),
+  cells: z.array(z.object({ a: z.string(), b: z.string(), record: gameRecordSchema, rate: winRateSchema.nullable() })),
+  attribution: z.string(),
+})
+export type MatchupMatrix = z.infer<typeof matchupMatrixSchema>
+
 export const archetypeDetailSchema = z.object({
   scope: scopeSchema,
   archetype: archetypeRowSchema,
@@ -1000,6 +1065,7 @@ export const archetypeDetailSchema = z.object({
     }),
   ),
   withWithout: withWithoutSchema.nullable(),
+  matchups: archetypeMatchupsSchema.default({ rows: [], expected: null, tournamentsWithPairings: 0 }),
 })
 export type ArchetypeDetail = z.infer<typeof archetypeDetailSchema>
 
@@ -1133,6 +1199,7 @@ export const tournamentStatusSchema = z.object({
       excluded: z.number(),
       failed: z.number(),
     }),
+    pairings: z.object({ fetched: z.number(), missing: z.number() }).default({ fetched: 0, missing: 0 }),
     newestTournament: z.string().nullable(),
   }),
 })

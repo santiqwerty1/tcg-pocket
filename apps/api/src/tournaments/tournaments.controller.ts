@@ -16,6 +16,7 @@ import type {
   DeckVersionsView,
   ListDetailView,
   ListsView,
+  MatchupMatrixView,
   ScopeView,
   SetReleaseView,
   StatusView,
@@ -43,6 +44,7 @@ const archetypeQuerySchema = scopeSchema.extend({
   minCount: z.coerce.number().int().min(1).max(2).optional(),
 })
 const limitedScopeSchema = scopeSchema.extend({ limit })
+const matchupsQuerySchema = scopeSchema.extend({ top: z.coerce.number().int().min(2).max(30).optional() })
 const syncSchema = z.object({ backfillDays: z.number().int().min(1).max(180).optional() })
 const setReleaseSchema = z.object({
   nameEn: z.string().trim().min(1).max(80),
@@ -85,6 +87,15 @@ export class TournamentsController {
     @CurrentSession() _session: RequestSession,
   ): Promise<ArchetypesView> {
     return this.tournaments.archetypes(query)
+  }
+
+  /** Fase 9: the most played archetypes against each other, from the era's pairings. */
+  @Get('matchups')
+  matchups(
+    @Query(new ZodValidationPipe(matchupsQuerySchema)) query: z.infer<typeof matchupsQuerySchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<MatchupMatrixView> {
+    return this.tournaments.matchupMatrix(query)
   }
 
   /** `none` = lists without archetype. `card` (functional card or edition id) adds «con y sin». */

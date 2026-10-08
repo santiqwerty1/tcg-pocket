@@ -36,9 +36,9 @@ _Recuentos al 2026-10-08 (generados; no editar a mano)._
 | pregunta | 5 | cerrada 5 |
 | riesgo | 9 | abierto 7 · resuelto 2 |
 | supuesto | 3 | refutado 1 · verificado 2 |
-| tarea | 11 | hecho 11 |
+| tarea | 12 | en_curso 1 · hecho 11 |
 
-**Para revisar:** nada. **Abiertas:** 7.
+**Para revisar:** nada. **Abiertas:** 8.
 <!-- /posta:recuentos -->
 
 ## Fichas

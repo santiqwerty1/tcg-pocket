@@ -173,6 +173,9 @@ ${MCP_WRITE_INSTRUCTIONS}`
     server.registerTool(t.tournamentsStats.name, config(t.tournamentsStats), (args) =>
       run(t.tournamentsStats.name, () => this.tournamentsStats(args)),
     )
+    server.registerTool(t.tournamentsMatchups.name, config(t.tournamentsMatchups), (args) =>
+      run(t.tournamentsMatchups.name, () => this.tournamentsMatchups(args)),
+    )
     server.registerTool(t.tournamentsBuildable.name, config(t.tournamentsBuildable), (args) =>
       run(t.tournamentsBuildable.name, () => this.tournamentsBuildable(args)),
     )
@@ -908,6 +911,59 @@ ${MCP_WRITE_INSTRUCTIONS}`
         id: row.archetype.id,
         name: row.archetype.name,
         ...this.recordJson(row),
+      })),
+    }
+  }
+
+  private async tournamentsMatchups(args: {
+    era?: string
+    format?: TournamentFormat
+    archetype?: string
+    top?: number
+  }): Promise<Json> {
+    const scope = { era: args.era, format: args.format }
+    const percent = (value: number) => `${percentFormat.format(value)} %`
+    const expectedJson = (expected: { value: number; coverage: number; matches: number; rivals: number } | null) =>
+      expected
+        ? {
+            value: percent(expected.value),
+            coversMeta: percent(expected.coverage),
+            matches: expected.matches,
+            rivals: expected.rivals,
+          }
+        : null
+    if (args.archetype) {
+      const all = await this.tournaments.archetypes(scope)
+      const hit = this.findArchetype(all.rows, args.archetype)
+      const detail = await this.tournaments.archetype(hit.archetype.id ?? 'none', scope)
+      return {
+        scope: this.scopeJson(detail.scope),
+        archetype: { id: detail.archetype.archetype.id, name: detail.archetype.archetype.name },
+        tournamentsWithPairings: detail.matchups.tournamentsWithPairings,
+        expectedAgainstMeta: expectedJson(detail.matchups.expected),
+        rivals: detail.matchups.rows.slice(0, 25).map((row) => ({
+          rival: row.rival.name,
+          rivalShare: percent(row.share),
+          record: row.record,
+          rate: rateView(row.rate),
+        })),
+        note: 'Partidas de torneo entre personas; cada fila con su n e intervalo. El espejo (mismo arquetipo) da 50 % por construcción.',
+      }
+    }
+    const matrix = await this.tournaments.matchupMatrix({ ...scope, top: args.top ?? 10 })
+    const name = new Map(matrix.archetypes.map((row) => [row.archetype.id, row.archetype.name]))
+    return {
+      scope: this.scopeJson(matrix.scope),
+      coverage: matrix.coverage,
+      archetypes: matrix.archetypes.map((row) => ({
+        id: row.archetype.id,
+        name: row.archetype.name,
+        share: percent(row.share),
+        againstEveryone: rateView(row.field.rate),
+        expectedAgainstMeta: expectedJson(row.expected),
+        matchups: matrix.cells
+          .filter((cell) => cell.a === row.archetype.id && cell.b !== cell.a)
+          .map((cell) => `vs ${name.get(cell.b) ?? cell.b}: ${formatWinRateEs(cell.rate)}`),
       })),
     }
   }

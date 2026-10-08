@@ -63,6 +63,9 @@ function ArchetypesTab({ scope }: { scope: TournamentScopeParams }) {
   if (archetypes.data.scope.lists === 0) return <EmptyEra scope={archetypes.data.scope} />
   return (
     <div className="flex flex-col gap-2">
+      <Button asChild variant="outline" size="sm" className="self-start">
+        <Link to={`/torneos/matchups${search}`}>Matchups entre arquetipos</Link>
+      </Button>
       <SearchBox value={filter} onChange={setFilter} placeholder="Buscar arquetipo" />
       <RateRows
         empty="Ningún arquetipo coincide."

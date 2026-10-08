@@ -133,6 +133,41 @@ export function ArchetypePage() {
         </ul>
       </Section>
 
+      <Section
+        title="Matchups"
+        action={
+          <Button asChild size="xs" variant="ghost">
+            <Link to={`/torneos/matchups${query}`}>Tabla</Link>
+          </Button>
+        }
+      >
+        {detail.data.matchups.tournamentsWithPairings === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Las rondas de los torneos de {info.era.code} llegan con la próxima sincronización.
+          </p>
+        ) : (
+          <>
+            <p className="text-xs text-muted-foreground">
+              {detail.data.matchups.expected
+                ? `Contra el meta debería sacar ${formatRateValue(detail.data.matchups.expected.value)}: sus matchups pesados por la cuota de cada rival; un matchup con pocas partidas se acerca a su récord contra todos (${formatShare(detail.data.matchups.expected.coverage)} del meta con 10 partidas o más). `
+                : ''}
+              Partidas de torneo entre personas; cada una es un BO1 o un BO3 entero.
+            </p>
+            <RateRows
+              empty="Sin partidas contra otros arquetipos en las rondas bajadas."
+              rows={detail.data.matchups.rows.slice(0, 25).map((row) => ({
+                id: row.rival.id ?? '__none__',
+                label: row.rival.id === archetype.archetype.id ? `${row.rival.name} (espejo)` : row.rival.name,
+                hint: `${formatShare(row.share)} del meta`,
+                to: `/torneos/arquetipos/${encodeURIComponent(row.rival.id ?? 'none')}${query}`,
+                record: row.record,
+                rate: row.rate,
+              }))}
+            />
+          </>
+        )}
+      </Section>
+
       <Section title="Listas más jugadas">
         <RateRows
           rows={detail.data.lists.map((row) => ({
