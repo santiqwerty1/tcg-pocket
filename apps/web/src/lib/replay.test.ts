@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import fixture from './__fixtures__/replay.json'
-import { groupByTurn, isReplay, ReplayReader } from './replay'
+import { groupByTurn, isReplay, ReplayReader, scoreLabels } from './replay'
 
 // First 40 steps of a real game played by engine-cli at fb792eb (deck 1 vs deck 2, e2 vs e2), card texts stripped.
 const replay = fixture as unknown
@@ -48,6 +48,13 @@ describe('replay reader', () => {
     expect(groups[1]).toMatchObject({ turn: 0, actor: 1 })
     expect(groups[2]?.turn).toBe(1)
     expect(groups.flatMap((group) => group.steps).length).toBe(replay.steps.length)
+  })
+
+  it('shows the bot scores as percentages when they are probabilities, as numbers otherwise', () => {
+    expect(scoreLabels([0.05, 0.9, 0.05], 3)).toEqual(['5 %', '90 %', '5 %'])
+    expect(scoreLabels([1.5, -2], 2)).toEqual(['1,5', '-2'])
+    expect(scoreLabels([0.5], 2)).toBeNull()
+    expect(scoreLabels(null, 2)).toBeNull()
   })
 
   it('rejects what is not a replay', () => {

@@ -21,6 +21,7 @@ import {
   ReplayReader,
   type ReplaySlot,
   type ReplayState,
+  scoreLabels,
   statusEs,
 } from '@/lib/replay'
 import { cn } from '@/lib/utils'
@@ -266,14 +267,17 @@ function Viewer({ data, replay, replayId }: { data: ReplayResponse; replay: Repl
                           </span>
                           {step.options.length > 1 && isSelected ? (
                             <span className="text-xs text-muted-foreground">
-                              Opciones:{' '}
-                              {step.options
-                                .map((other, i) =>
-                                  i === step.chosen
-                                    ? `[${reader.describe(other.action, step.state, step.actor, other.text)}]`
-                                    : reader.describe(other.action, step.state, step.actor, other.text),
-                                )
-                                .join(' · ')}
+                              Opciones: {(() => {
+                                const scores = scoreLabels(step.scores, step.options.length)
+                                return step.options
+                                  .map((other, i) => {
+                                    const text = reader.describe(other.action, step.state, step.actor, other.text)
+                                    const scored = scores ? `${text} (${scores[i]})` : text
+                                    return i === step.chosen ? `[${scored}]` : scored
+                                  })
+                                  .join(' · ')
+                              })()}
+                              {step.note ? <span className="block italic">Nota del bot: {step.note}</span> : null}
                             </span>
                           ) : step.options.length > 1 ? (
                             <span className="text-xs text-muted-foreground">entre {step.options.length} opciones</span>

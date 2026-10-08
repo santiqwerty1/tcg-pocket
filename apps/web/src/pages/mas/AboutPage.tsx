@@ -45,7 +45,7 @@ export function AboutPage() {
             <a className="underline" href="https://github.com/bcollazo/deckgym-core" target="_blank" rel="noreferrer">
               bcollazo/deckgym-core
             </a>{' '}
-            (AGPL-3.0, commit <code className="font-mono">fb792ebf</code>) sin modificarlo; el ejecutable derivado no se
+            (AGPL-3.0, commit <code className="font-mono">33ff2a5</code>) sin modificarlo; el ejecutable derivado no se
             distribuye.
           </p>
           <p>

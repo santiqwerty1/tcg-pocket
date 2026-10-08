@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-08 (36 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-08 (38 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- owner decisions of 8/10 — limited ×3, retired points, deckgym viewer, upstream check, Posta on (D-007, D-008, D-009, D-014, T-010) (D-011, D-017, T-005, T-007) `595f973`
 - Claude can write — decks, matches and simulations (phase 7, M8 part 2) (D-017, T-009) `8a81661`
 - «versión de torneo» of each deck and Sobres aiming at it (D-016, T-008) `bc19f7a`
 - one worker per folder; install-task starts it and says why schtasks failed (T-007) `a1d5140`
@@ -29,6 +30,7 @@ _Borrador generado al 2026-10-08 (36 commits). Escribí el «porqué» fuera de 
 
 ### Corregido
 
+- a matrix with an empty «Contra» side plays side A against itself; engine status survives an engine update `212cd11`
 - engine off Windows efficiency mode; quick jobs first; phase 6 acceptance (H-001, T-004) `e81e220`
 - set NODE_EXTRA_CA_CERTS in fly.toml and record decision 1.32 `3574f78`
 - trust the Supabase pooler CA so sslmode=verify-full works in production `a9dac63`

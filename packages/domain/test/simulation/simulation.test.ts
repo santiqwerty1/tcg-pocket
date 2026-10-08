@@ -162,11 +162,10 @@ describe('jobs', () => {
     expect(isBotCode('e2')).toBe(true)
     expect(isBotCode('h')).toBe(false)
     expect(isBotCode('x')).toBe(false)
-    // The 40-deck matrix took 5,9 h of engine time on two threads (with the efficiency-core slowdown of H-001) and
-    // pairings measured alone run about twice as fast: the estimate sits in between.
-    const hours = estimateSeconds(780 * 200, ['e2', 'e2'], 2) / 3600
-    expect(hours).toBeGreaterThan(2)
-    expect(hours).toBeLessThan(4)
+    // The 40-deck matrix: ~52 min of engine time on 8 threads at fb792eb, ~35 min expected at 33ff2a5 (DECISIONES 9.1).
+    const minutes = estimateSeconds(780 * 200, ['e2', 'e2'], 8) / 60
+    expect(minutes).toBeGreaterThan(25)
+    expect(minutes).toBeLessThan(50)
     expect(estimateSeconds(10_000, ['r', 'r'], 2)).toBeCloseTo(15, -1)
   })
 })

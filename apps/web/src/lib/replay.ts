@@ -78,6 +78,8 @@ export interface ReplayStep {
   options: { text: string; action: unknown }[]
   chosen: number
   note?: string | null
+  /** deckgym 33ff2a5+: how much the player liked each option (external bots only), parallel to `options`. */
+  scores?: number[] | null
 }
 
 export interface Replay {
@@ -256,6 +258,19 @@ export class ReplayReader {
     if (outcome && typeof outcome === 'object' && typeof outcome.Win === 'number') return outcome.Win
     return null
   }
+}
+
+/**
+ * A bot's scores for the options as short labels: probabilities (non-negative, adding up to 1) as percentages,
+ * anything else as numbers. Null when there are none or they do not match the options.
+ */
+export function scoreLabels(scores: readonly number[] | null | undefined, options: number): string[] | null {
+  if (!scores || scores.length !== options || scores.some((value) => !Number.isFinite(value))) return null
+  const total = scores.reduce((sum, value) => sum + value, 0)
+  const probabilities = scores.every((value) => value >= 0) && Math.abs(total - 1) < 1e-6
+  return scores.map((value) =>
+    probabilities ? `${Math.round(value * 100)} %` : (Math.round(value * 100) / 100).toLocaleString('es-AR'),
+  )
 }
 
 export interface TurnGroup {

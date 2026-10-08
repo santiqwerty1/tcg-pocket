@@ -1,5 +1,5 @@
 /**
- * Bridge between the tracker's card ids and the deckgym engine (`refs/deckgym-core/database.json` @ fb792ebf).
+ * Bridge between the tracker's card ids and the deckgym engine (`refs/deckgym-core/database.json` @ fb792ebf; sin cambios hasta 33ff2a5, el motor del 8/10/2026).
  * The engine contributes `evolves_from` (the tracker has no pre-evolution), `trainer_card_type = Fossil` and
  * the engine id; everything else is cross-checked and the tracker wins on conflicts (PLAN §3.1).
  */
