@@ -95,7 +95,8 @@ export class SimulationsService {
     if (input.sideA.length > MAX_DECKS_PER_SIDE || input.sideB.length > MAX_DECKS_PER_SIDE) {
       throw new BadRequestException({ code: 'validation', message: `Hasta ${MAX_DECKS_PER_SIDE} mazos por lado.` })
     }
-    if (input.kind !== 'optimize' && input.sideB.length === 0) {
+    // A matrix needs no rivals (empty = every deck of side A against the others, see withRivals).
+    if (input.kind !== 'matrix' && input.sideB.length === 0) {
       throw new BadRequestException({ code: 'validation', message: 'Elegí al menos un rival.' })
     }
     if (input.kind === 'optimize' && (input.sideA.length !== 1 || !input.optimize)) {
@@ -116,6 +117,7 @@ export class SimulationsService {
     engineRev: string
   }> {
     this.validate(input)
+    input = withRivals(input)
     const sideA = await Promise.all(input.sideA.map((source) => this.snapshots.preview(source)))
     const sideB = await Promise.all(input.sideB.map((source) => this.snapshots.preview(source)))
     // Decks are told apart by the key of their list: the same list on both sides is one deck.
@@ -145,8 +147,9 @@ export class SimulationsService {
     }
   }
 
-  async create(input: CreateJobInput): Promise<JobSummaryView> {
-    this.validate(input)
+  async create(raw: CreateJobInput): Promise<JobSummaryView> {
+    this.validate(raw)
+    const input = withRivals(raw)
     if (!Number.isInteger(input.gamesPerPair) || input.gamesPerPair < 1 || input.gamesPerPair > MAX_GAMES_PER_PAIR) {
       throw new BadRequestException({
         code: 'validation',
@@ -669,6 +672,11 @@ export class SimulationsService {
       engineRev: chosen[0]?.job.engineRev ?? this.engine.engineRev(),
     }
   }
+}
+
+/** A matrix with an empty «Contra» side: side A against itself, every pair once (DECISIONES 6.4). */
+function withRivals(input: CreateJobInput): CreateJobInput {
+  return input.kind === 'matrix' && input.sideB.length === 0 ? { ...input, sideB: input.sideA } : input
 }
 
 function defaultLabel(kind: SimulationKind, sideA: readonly SnapshotView[], sideB: readonly SnapshotView[]): string {

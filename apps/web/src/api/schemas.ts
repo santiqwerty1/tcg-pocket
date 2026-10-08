@@ -1247,7 +1247,8 @@ export const engineInfoSchema = z.object({
   engineRev: z.string(),
   cards: z.number(),
   incomplete: z.number(),
-  source: z.enum(['worker', 'fallback', 'none']),
+  source: z.enum(['worker', 'previous', 'fallback', 'none']),
+  statusRev: z.string().nullable().default(null),
   /** deckgym-core's `main` against the pinned commit (T-010); null when not checked. */
   upstream: z
     .object({

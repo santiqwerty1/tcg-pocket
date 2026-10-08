@@ -54,7 +54,11 @@ export function EngineLine({ engine }: { engine: EngineInfo }) {
         </span>
         <span className="text-muted-foreground">
           · {engine.incomplete} cartas sin implementar
-          {engine.source === 'fallback' ? ' (lista de la Fase 0, hasta que el worker suba la suya)' : ''}
+          {engine.source === 'fallback'
+            ? ' (lista de la Fase 0, hasta que el worker suba la suya)'
+            : engine.source === 'previous'
+              ? ` (según el motor ${shortSha(engine.statusRev)}, hasta que un worker con este motor suba la suya)`
+              : ''}
         </span>
       </div>
       {engine.upstream && engine.upstream.aheadBy > 0 ? (

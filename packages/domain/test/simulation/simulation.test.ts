@@ -127,6 +127,8 @@ describe('jobs', () => {
     const decks = Array.from({ length: 40 }, (_, i) => i + 1)
     expect(matrixPairings(decks, decks)).toHaveLength(780)
     expect(matrixPairings(decks, decks, true)).toHaveLength(1560)
+    // «Contra» left empty: the same as the list against itself.
+    expect(matrixPairings(decks, [])).toEqual(matrixPairings(decks, decks))
     expect(matrixPairings([1, 2], [3, 4, 5])).toHaveLength(6)
     expect(comparePairings([2, 22], [1, 2, 3])).toEqual([
       { a: 2, b: 1 },

@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
+import { EngineStatusService } from '../src/simulation/snapshots.service.js'
 import { WorkerQueueService } from '../src/simulation/worker-queue.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
@@ -86,7 +87,26 @@ describe('simulation (e2e)', () => {
       ],
     })
     expect(uploaded.body).toEqual({ cards: 2, incomplete: 1 })
-    expect((await get('/api/simulations/engine')).body).toMatchObject({ source: 'worker', cards: 2, incomplete: 1 })
+    expect((await get('/api/simulations/engine')).body).toMatchObject({
+      source: 'worker',
+      cards: 2,
+      incomplete: 1,
+      statusRev: test.env.engineRev,
+    })
+
+    // Right after an engine update: the status of the engine a worker used last, until one reports the new one.
+    const older = 'a'.repeat(40)
+    await test.prisma.engineCard.updateMany({ data: { engineRev: older } })
+    await test.prisma.workerNode.create({
+      data: { id: 'worker-old-engine', name: 'pc vieja', engineRev: older, cores: 2 },
+    })
+    test.app.get(EngineStatusService).invalidate()
+    expect((await get('/api/simulations/engine')).body).toMatchObject({
+      source: 'previous',
+      statusRev: older,
+      incomplete: 1,
+    })
+    await test.prisma.workerNode.delete({ where: { id: 'worker-old-engine' } })
     // Back to the fallback list for the rest of the tests (a 2-card table would make every deck «no simulable»).
     await test.prisma.engineCard.deleteMany()
     test.app.get(WorkerQueueService)
@@ -104,6 +124,22 @@ describe('simulation (e2e)', () => {
     expect(preview.status).toBe(200)
     expect(preview.body).toMatchObject({ pairings: 10, totalGames: 500, engineRev: test.env.engineRev })
     expect(preview.body.sideA.every((s: { simulable: boolean }) => s.simulable)).toBe(true)
+    // «Contra (opcional)» left empty: the same 10 pairings (reported on 8/10: it asked for a rival).
+    const alone = await post('/api/simulations/preview').send({
+      kind: 'matrix',
+      sideA: decks(1, 5),
+      gamesPerPair: 50,
+      players: ['e2', 'e2'],
+    })
+    expect(alone.status).toBe(200)
+    expect(alone.body).toMatchObject({ pairings: 10, totalGames: 500 })
+    const compareAlone = await post('/api/simulations/preview').send({
+      kind: 'compare',
+      sideA: decks(1, 5),
+      gamesPerPair: 50,
+      players: ['e2', 'e2'],
+    })
+    expect(compareAlone.status).toBe(400)
     expect(preview.body.sideA[0].deckgymText).toMatch(/^Energy: /)
 
     const short = await post('/api/decks').send({

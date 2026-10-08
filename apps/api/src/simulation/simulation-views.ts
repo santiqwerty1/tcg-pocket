@@ -113,8 +113,13 @@ export interface EngineView {
   engineRev: string
   cards: number
   incomplete: number
-  /** worker = reported by `engine-cli status`; fallback = the Fase 0 list (46 B4b reprints). */
-  source: 'worker' | 'fallback' | 'none'
+  /**
+   * worker = reported by `engine-cli status` for this engine; previous = reported for the engine a worker used last
+   * (right after an engine update); fallback = the Fase 0 list (46 B4b reprints at fb792eb).
+   */
+  source: 'worker' | 'previous' | 'fallback' | 'none'
+  /** Engine revision the card status comes from. */
+  statusRev: string | null
   /** How far deckgym-core's `main` moved since the pinned commit (T-010); null when not checked or unreachable. */
   upstream: EngineUpstreamView | null
   workers: WorkerView[]

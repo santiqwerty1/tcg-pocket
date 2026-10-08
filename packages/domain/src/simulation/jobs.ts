@@ -43,7 +43,8 @@ export interface Pairing {
 /** Every A × B pairing; with the same set on both sides, unordered pairs (and both orders when `bothOrders`). */
 export function matrixPairings(sideA: readonly number[], sideB: readonly number[], bothOrders = false): Pairing[] {
   const a = [...new Set(sideA)]
-  const b = [...new Set(sideB)]
+  // No rivals: side A against itself.
+  const b = sideB.length === 0 ? a : [...new Set(sideB)]
   const same = a.length === b.length && a.every((id) => b.includes(id))
   const pairings: Pairing[] = []
   if (same) {

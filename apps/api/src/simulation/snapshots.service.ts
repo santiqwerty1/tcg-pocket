@@ -39,7 +39,8 @@ export type SnapshotSource =
 
 @Injectable()
 export class EngineStatusService {
-  private cache: { rev: string; map: Map<string, boolean> } | null = null
+  /** `from`: the engine revision the map was uploaded for (another one right after an engine update). */
+  private cache: { rev: string; from: string | null; map: Map<string, boolean> } | null = null
 
   constructor(
     @Inject(ENV) private readonly env: Env,
@@ -50,33 +51,68 @@ export class EngineStatusService {
     return this.env.engineRev
   }
 
-  private async load(): Promise<Map<string, boolean>> {
+  /**
+   * The card status of the current engine; right after an engine update, before a worker with the new engine
+   * uploads it, the one of the engine a worker used last (deckgym rarely changes which cards are implemented).
+   */
+  private async load(): Promise<{ from: string | null; map: Map<string, boolean> }> {
     const rev = this.env.engineRev
     if (this.cache?.rev !== rev) {
-      const rows = await this.prisma.engineCard.findMany({
-        where: { engineRev: rev },
-        select: { engineId: true, complete: true },
-      })
-      this.cache = { rev, map: new Map(rows.map((row) => [row.engineId, row.complete])) }
+      const read = async (engineRev: string) =>
+        this.prisma.engineCard.findMany({ where: { engineRev }, select: { engineId: true, complete: true } })
+      let from: string | null = rev
+      let rows = await read(rev)
+      if (rows.length === 0) {
+        const worker = await this.prisma.workerNode.findFirst({
+          where: { engineRev: { not: rev } },
+          orderBy: { lastSeenAt: 'desc' },
+          select: { engineRev: true },
+        })
+        const other =
+          worker?.engineRev ??
+          (await this.prisma.engineCard.findFirst({ where: { engineRev: { not: rev } }, select: { engineRev: true } }))
+            ?.engineRev ??
+          null
+        from = other
+        rows = other ? await read(other) : []
+      }
+      this.cache = {
+        rev,
+        from: rows.length > 0 ? from : null,
+        map: new Map(rows.map((row) => [row.engineId, row.complete])),
+      }
     }
-    return this.cache.map
+    return this.cache
   }
 
   async status(): Promise<EngineStatus> {
-    const map = await this.load()
+    const { map } = await this.load()
     if (map.size > 0) return (engineId) => map.get(engineId)
-    return this.env.engineRev === FALLBACK_ENGINE_REV ? fallbackEngineStatus : () => undefined
+    // Nothing uploaded by any worker yet: the Fase 0 list (46 B4b reprints at fb792eb).
+    return fallbackEngineStatus
   }
 
-  async summary(): Promise<{ cards: number; incomplete: number; source: 'worker' | 'fallback' | 'none' }> {
-    const map = await this.load()
+  async summary(): Promise<{
+    cards: number
+    incomplete: number
+    source: 'worker' | 'previous' | 'fallback' | 'none'
+    statusRev: string | null
+  }> {
+    const { from, map } = await this.load()
     if (map.size > 0) {
-      return { cards: map.size, incomplete: [...map.values()].filter((complete) => !complete).length, source: 'worker' }
+      return {
+        cards: map.size,
+        incomplete: [...map.values()].filter((complete) => !complete).length,
+        source: from === this.env.engineRev ? 'worker' : 'previous',
+        statusRev: from,
+      }
     }
-    if (this.env.engineRev === FALLBACK_ENGINE_REV) {
-      return { cards: 0, incomplete: UNIMPLEMENTED_AT_FB792EBF.size, source: 'fallback' }
-    }
-    return { cards: 0, incomplete: 0, source: 'none' }
+    return { cards: 0, incomplete: UNIMPLEMENTED_AT_FB792EBF.size, source: 'fallback', statusRev: FALLBACK_ENGINE_REV }
+  }
+
+  /** Forgets the cached status (tests; an upload does it by itself). */
+  invalidate(): void {
+    this.cache = null
   }
 
   /** Replaces the status of one engine revision with what `engine-cli status` printed. */
