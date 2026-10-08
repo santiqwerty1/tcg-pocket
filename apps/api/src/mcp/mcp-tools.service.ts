@@ -173,6 +173,9 @@ ${MCP_WRITE_INSTRUCTIONS}`
     server.registerTool(t.tournamentsStats.name, config(t.tournamentsStats), (args) =>
       run(t.tournamentsStats.name, () => this.tournamentsStats(args)),
     )
+    server.registerTool(t.decksDrawOdds.name, config(t.decksDrawOdds), (args) =>
+      run(t.decksDrawOdds.name, () => this.decksDrawOdds(args)),
+    )
     server.registerTool(t.tournamentsMatchups.name, config(t.tournamentsMatchups), (args) =>
       run(t.tournamentsMatchups.name, () => this.tournamentsMatchups(args)),
     )
@@ -912,6 +915,39 @@ ${MCP_WRITE_INSTRUCTIONS}`
         name: row.archetype.name,
         ...this.recordJson(row),
       })),
+    }
+  }
+
+  private async decksDrawOdds(args: {
+    deck: string
+    cards?: string[]
+    alsoCards?: string[]
+    turns?: number
+  }): Promise<Json> {
+    const deck = await this.resolveDeck(args.deck)
+    const ids = (queries?: string[]) => queries?.map((query) => this.resolveGroups(query).groups[0]?.id ?? query)
+    const odds = await this.decks.drawOdds(deck.id, {
+      cards: ids(args.cards),
+      cards2: ids(args.alsoCards),
+      turns: args.turns,
+    })
+    const percent = (value: number) => `${percentFormat.format(value * 100)} %`
+    const names = odds.groups.map((group) => group.cards.map((card) => card.nameEs).join(' o '))
+    return {
+      deck: odds.deck,
+      deckSize: odds.deckSize,
+      basicPokemon: odds.basics,
+      cards: odds.groups.map((group, at) => ({ cards: names[at], copies: group.copies })),
+      byTurn: odds.rows.map((row) => ({
+        turn: row.turn === 0 ? 'mano inicial' : `turno propio ${row.turn}`,
+        cardsSeen: row.cardsSeen,
+        ...Object.fromEntries(row.each.map((value, at) => [names[at] ?? `carta ${at + 1}`, percent(value)])),
+        ...(row.all === null ? {} : { both: percent(row.all) }),
+      })),
+      basicsInOpeningHand: odds.basicsInHand
+        .filter((row) => row.probability > 0)
+        .map((row) => `${row.count}: ${percent(row.probability)}`),
+      note: odds.note,
     }
   }
 

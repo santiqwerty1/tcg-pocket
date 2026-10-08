@@ -1787,3 +1787,24 @@ export const missionsSchema = z.object({
   ),
 })
 export type Missions = z.infer<typeof missionsSchema>
+
+// ---------- Mano inicial (Fase 10) ----------
+
+export const drawOddsSchema = z.object({
+  deck: z.object({ id: z.string(), name: z.string() }).nullable(),
+  deckSize: z.number(),
+  basics: z.number(),
+  groups: z.array(
+    z.object({
+      cards: z.array(z.object({ groupId: z.string(), nameEs: z.string() })),
+      copies: z.number(),
+      basicCopies: z.number(),
+    }),
+  ),
+  rows: z.array(
+    z.object({ turn: z.number(), cardsSeen: z.number(), each: z.array(z.number()), all: z.number().nullable() }),
+  ),
+  basicsInHand: z.array(z.object({ count: z.number(), probability: z.number() })),
+  note: z.string(),
+})
+export type DrawOdds = z.infer<typeof drawOddsSchema>

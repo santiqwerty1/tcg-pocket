@@ -41,6 +41,7 @@ import { DeckPager } from './DeckPager'
 import { DeckPerformance } from './DeckPerformance'
 import { DeckBadges } from './DecksPage'
 import { BUILT_IN_GAME_LIMIT, groupByType, totalCount } from './deckLogic'
+import { OpeningHandSection } from './OpeningHandSection'
 import { TournamentVersionSection } from './TournamentVersion'
 
 const FORMAT_LABEL: Record<DeckExportFormat, { title: string; hint: string }> = {
@@ -313,6 +314,8 @@ function DeckDetailView({ deckId }: { deckId: string | undefined }) {
       <TournamentVersionSection deckId={data.id} />
 
       <ConsistencySection deck={data} />
+
+      <OpeningHandSection deck={data} />
 
       <BestVersionsSection deck={data} />
 

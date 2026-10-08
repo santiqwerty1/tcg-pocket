@@ -14,6 +14,7 @@ import { AboutPage } from '@/pages/mas/AboutPage'
 import { AppSettingsPage } from '@/pages/mas/AppSettingsPage'
 import { BackupPage } from '@/pages/mas/BackupPage'
 import { CatalogPage } from '@/pages/mas/CatalogPage'
+import { HandCalculatorPage } from '@/pages/mas/HandCalculatorPage'
 import { MasPage } from '@/pages/mas/MasPage'
 import { SessionPage } from '@/pages/mas/SessionPage'
 import { TokensPage } from '@/pages/mas/TokensPage'
@@ -106,6 +107,7 @@ export const routes: RouteObject[] = [
       { path: 'mas/sesion', element: <SessionPage />, handle: handle('Sesión', '/mas') },
       { path: 'mas/ajustes', element: <AppSettingsPage />, handle: handle('Ajustes de la app', '/mas') },
       { path: 'mas/acerca', element: <AboutPage />, handle: handle('Acerca de', '/mas') },
+      { path: 'mas/mano', element: <HandCalculatorPage />, handle: handle('Calculadora de mano', '/mas') },
 
       { path: '*', element: <NotFoundPage />, handle: handle('No encontrado', '/') },
     ],

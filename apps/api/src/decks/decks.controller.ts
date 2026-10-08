@@ -10,6 +10,7 @@ import type {
   ClosestDecksResult,
   DeckDetail,
   DeckSummary,
+  DrawOddsView,
   ImportedDeckDraft,
   RandomDeckResult,
   ValidateResult,
@@ -77,6 +78,34 @@ const randomQuerySchema = z.object({
   exclude: z.string().trim().max(20).optional(),
 })
 
+const cardList = z
+  .string()
+  .trim()
+  .max(200)
+  .optional()
+  .transform((text) =>
+    text
+      ? text
+          .split(',')
+          .map((id) => id.trim())
+          .filter(Boolean)
+      : undefined,
+  )
+const drawOddsQuerySchema = z.object({
+  cards: cardList,
+  cards2: cardList,
+  turns: z.coerce.number().int().min(1).max(15).optional(),
+})
+const manualDrawOddsSchema = z.object({
+  deckSize: z.number().int().min(5).max(60).default(20),
+  basics: z.number().int().min(1).max(60),
+  groups: z
+    .array(z.object({ basic: z.number().int().min(0).max(20), other: z.number().int().min(0).max(20) }))
+    .min(1)
+    .max(2),
+  turns: z.number().int().min(1).max(15).optional(),
+})
+
 /** Session-protected deck API (docs/API.md «Mazos»). Static routes go first so they never match `:id`. */
 @Controller('api/decks')
 export class DecksController {
@@ -135,6 +164,16 @@ export class DecksController {
     return this.decks.closest(body)
   }
 
+  /** Fase 10: opening hand and natural draws from counts typed by hand. */
+  @Post('draw-odds')
+  @HttpCode(200)
+  manualDrawOdds(
+    @Body(new ZodValidationPipe(manualDrawOddsSchema)) body: z.infer<typeof manualDrawOddsSchema>,
+    @CurrentSession() _session: RequestSession,
+  ): DrawOddsView {
+    return this.decks.manualDrawOdds(body)
+  }
+
   @Get('random')
   random(
     @Query(new ZodValidationPipe(randomQuerySchema)) query: z.infer<typeof randomQuerySchema>,
@@ -149,6 +188,16 @@ export class DecksController {
     @CurrentSession() _session: RequestSession,
   ): Promise<{ items: GroupDeckUsage[] }> {
     return { items: await this.decks.byGroup(groupId) }
+  }
+
+  /** Fase 10: odds of having cards of the deck by own turn (`cards`, `cards2`: ids separated by commas). */
+  @Get(':id/draw-odds')
+  drawOdds(
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(drawOddsQuerySchema)) query: z.infer<typeof drawOddsQuerySchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<DrawOddsView> {
+    return this.decks.drawOdds(id, query)
   }
 
   @Get(':id')

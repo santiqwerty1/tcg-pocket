@@ -15,8 +15,13 @@ import {
   type DeckCardEntry,
   type DeckDraft,
   DeckFormatError,
+  DRAW_ODDS_TURNS,
   deckCompleteness,
+  deckDrawBase,
+  deckDrawGroup,
+  defaultKeyCards,
   diffDeckDrafts,
+  drawOdds,
   pickRandomDeck,
   playableCopies,
   recommendBestVersions,
@@ -43,6 +48,7 @@ import {
   type DeckCardView,
   type DeckDetail,
   type DeckSummary,
+  DrawOddsView,
   type ImportedCardView,
   type ImportedDeckDraft,
   type RandomDeckResult,
@@ -182,6 +188,9 @@ function draftOf(record: DeckRecord): DeckDraft {
   }
 }
 
+const DRAW_ODDS_NOTE =
+  'Mano inicial de 5 con al menos un Pokémon Básico (se reparte de nuevo si no hay) y una carta por turno propio, también en el primero. Solo robo natural: no cuenta cartas que roban o buscan.'
+
 @Injectable()
 export class DecksService {
   constructor(
@@ -211,6 +220,85 @@ export class DecksService {
   async detail(rawId: string): Promise<DeckDetail> {
     const record = await this.requireDeck(rawId)
     return this.toDetail(await this.context(), record)
+  }
+
+  /**
+   * Fase 10: the chance of having a card of the deck (any edition of its functional group; several cards = any of
+   * them) by each own turn, and of two groups at once. Without cards: the deck's key attacker (most prize points).
+   */
+  async drawOdds(
+    rawId: string,
+    input: {
+      cards?: readonly string[] | undefined
+      cards2?: readonly string[] | undefined
+      turns?: number | undefined
+    },
+  ): Promise<DrawOddsView> {
+    const index = this.catalog.requireIndex()
+    const detail = await this.detail(rawId)
+    const entries = detail.cards.map((entry) => ({ cardId: entry.card.id, count: entry.count }))
+    const base = deckDrawBase(entries, index)
+    if (base.basics === 0) {
+      throw new BadRequestException({ code: 'validation', message: 'El mazo no tiene ningún Pokémon Básico.' })
+    }
+    const inDeck = new Set(detail.cards.map((entry) => entry.card.functionalGroupId))
+    const groupIds = (ids: readonly string[]) => {
+      const groups = [
+        ...new Set(ids.map((id) => index.cardById(id)?.functionalGroupId ?? index.groupById(id)?.id ?? id)),
+      ]
+      const missing = groups.filter((id) => !inDeck.has(id))
+      if (missing.length > 0) {
+        throw new BadRequestException({
+          code: 'validation',
+          message: `Esas cartas no están en el mazo: ${missing.join(', ')}.`,
+        })
+      }
+      return groups
+    }
+    const first = groupIds(input.cards && input.cards.length > 0 ? input.cards : defaultKeyCards(entries, index))
+    const second = input.cards2 && input.cards2.length > 0 ? groupIds(input.cards2) : null
+    if (second?.some((id) => first.includes(id))) {
+      throw new BadRequestException({ code: 'validation', message: 'Las dos cartas tienen que ser distintas.' })
+    }
+    const sets = second ? [first, second] : [first]
+    const groups = sets.map((ids) => deckDrawGroup(entries, ids, index))
+    const odds = drawOdds({ ...base, groups, turns: input.turns ?? DRAW_ODDS_TURNS })
+    return {
+      deck: { id: detail.id, name: detail.name },
+      ...base,
+      groups: sets.map((ids, at) => ({
+        cards: ids.map((groupId) => ({ groupId, nameEs: index.groupById(groupId)?.nameEs ?? groupId })),
+        copies: (groups[at]?.basic ?? 0) + (groups[at]?.other ?? 0),
+        basicCopies: groups[at]?.basic ?? 0,
+      })),
+      rows: odds.rows,
+      basicsInHand: odds.basicsInHand,
+      note: DRAW_ODDS_NOTE,
+    }
+  }
+
+  /** Fase 10: the same odds from counts typed by hand (no deck). */
+  manualDrawOdds(input: {
+    deckSize: number
+    basics: number
+    groups: { basic: number; other: number }[]
+    turns?: number | undefined
+  }): DrawOddsView {
+    let odds: ReturnType<typeof drawOdds>
+    try {
+      odds = drawOdds({ ...input, turns: input.turns ?? DRAW_ODDS_TURNS })
+    } catch (error) {
+      throw new BadRequestException({ code: 'validation', message: (error as Error).message })
+    }
+    return {
+      deck: null,
+      deckSize: input.deckSize,
+      basics: input.basics,
+      groups: input.groups.map((group) => ({ cards: [], copies: group.basic + group.other, basicCopies: group.basic })),
+      rows: odds.rows,
+      basicsInHand: odds.basicsInHand,
+      note: DRAW_ODDS_NOTE,
+    }
   }
 
   /**

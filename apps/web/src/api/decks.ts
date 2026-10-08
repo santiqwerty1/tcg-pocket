@@ -9,6 +9,7 @@ import {
   deckDetailSchema,
   decksByCardResponseSchema,
   decksResponseSchema,
+  drawOddsSchema,
   importDecksResponseSchema,
   randomDeckSchema,
   type SelectableEnergy,
@@ -205,5 +206,35 @@ export function useCommitDecks() {
     mutationFn: (decks: DeckInput[]) =>
       request('/api/decks/import/commit', { method: 'POST', body: { decks }, schema: commitDecksResponseSchema }),
     onSuccess: () => invalidateDecks(queryClient),
+  })
+}
+
+/** Fase 10: odds of having cards of the deck by own turn (empty `cards` = the key attacker). */
+export function useDrawOdds(deckId: string, cards: string[], cards2: string[]) {
+  return useQuery({
+    queryKey: ['decks', 'draw-odds', deckId, cards, cards2] as const,
+    queryFn: ({ signal }) =>
+      request(`/api/decks/${encodeURIComponent(deckId)}/draw-odds`, {
+        query: { cards: cards.join(',') || undefined, cards2: cards2.join(',') || undefined },
+        schema: drawOddsSchema,
+        signal,
+      }),
+    placeholderData: (previous) => previous,
+  })
+}
+
+export interface ManualDrawInput {
+  basics: number
+  groups: { basic: number; other: number }[]
+}
+
+/** Fase 10: the same odds from counts typed by hand. */
+export function useManualDrawOdds(input: ManualDrawInput) {
+  return useQuery({
+    queryKey: ['decks', 'manual-draw-odds', input] as const,
+    queryFn: ({ signal }) =>
+      request('/api/decks/draw-odds', { method: 'POST', body: input, schema: drawOddsSchema, signal }),
+    placeholderData: (previous) => previous,
+    retry: false,
   })
 }

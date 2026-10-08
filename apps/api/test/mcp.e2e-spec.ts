@@ -121,6 +121,7 @@ describe('MCP endpoint (e2e)', () => {
       'collection_playable_copies',
       'collection_summary',
       'decks_closest',
+      'decks_draw_odds',
       'decks_find_by_card',
       'decks_get',
       'decks_list',
@@ -150,7 +151,7 @@ describe('MCP endpoint (e2e)', () => {
   it('serves 2026-07-28 clients from the same endpoint', async () => {
     const client = await connect('modern')
     const { tools } = await client.listTools()
-    expect(tools).toHaveLength(22)
+    expect(tools).toHaveLength(23)
     const summary = await call(client, 'collection_summary')
     expect(summary.structuredContent).toMatchObject({
       copies: 4714,
@@ -403,6 +404,12 @@ describe('MCP endpoint (e2e)', () => {
     expect(random.structuredContent.myMatches).toBe(0)
     expect(String((random.structuredContent.deck as Structured).id)).not.toBe('2')
 
+    const draws = await call(client, 'decks_draw_odds', { deck: '2', alsoCards: ['Investigación de Profesores'] })
+    expect(draws.isError, JSON.stringify(draws.content)).toBeFalsy()
+    const byTurn = draws.structuredContent.byTurn as Structured[]
+    expect(byTurn[0]).toMatchObject({ turn: 'mano inicial', cardsSeen: 5, both: expect.stringMatching(/ %$/) })
+    expect(byTurn).toHaveLength(7)
+
     const deck1 = await call(client, 'decks_get', { deck: '1' })
     const changes = (deck1.structuredContent.bestVersions as { changes: Structured[] }).changes
     expect(changes).toContainEqual({ nameEs: 'Copiona', listed: ['1× B1-225'], use: ['1× B4b-391 ◊◊ holográfica'] })
@@ -415,7 +422,7 @@ describe('MCP endpoint (e2e)', () => {
       .set('Cookie', cookie)
       .send({ name: 'temporal', kind: 'mcp', scopes: ['mcp:read'] })
     const client = await connect('legacy', created.body.token)
-    expect((await client.listTools()).tools.length).toBe(22)
+    expect((await client.listTools()).tools.length).toBe(23)
     expect((await test.http().delete(`/api/tokens/${created.body.id}`).set('Cookie', cookie)).status).toBe(204)
     await expect(client.listTools()).rejects.toThrow()
   })

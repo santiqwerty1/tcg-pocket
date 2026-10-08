@@ -151,6 +151,18 @@ export interface ClosestDecksResult {
 }
 
 /** `GET /api/decks/random`. */
+/** Fase 10: odds of having cards of the deck by own turn, natural draws only. */
+export interface DrawOddsView {
+  deck: { id: string; name: string } | null
+  deckSize: number
+  basics: number
+  groups: { cards: { groupId: string; nameEs: string }[]; copies: number; basicCopies: number }[]
+  /** turn 0 = opening hand; N = own turn N. Probabilities 0–1. */
+  rows: { turn: number; cardsSeen: number; each: number[]; all: number | null }[]
+  basicsInHand: { count: number; probability: number }[]
+  note: string
+}
+
 export interface RandomDeckResult {
   deck: DeckSummary
   /** Own matches logged with the picked deck. */

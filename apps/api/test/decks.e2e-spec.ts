@@ -354,4 +354,49 @@ describe('decks (e2e)', () => {
     expect((await get('/api/decks/by-card/ZZ-1')).status).toBe(404)
     expect((await test.http().get('/api/decks')).status).toBe(401)
   })
+
+  it('opening hand odds (Fase 10): the key attacker by default, two cards at once, and counts typed by hand', async () => {
+    interface Odds {
+      deck: { id: string } | null
+      deckSize: number
+      basics: number
+      groups: { cards: { nameEs: string }[]; copies: number; basicCopies: number }[]
+      rows: { turn: number; cardsSeen: number; each: number[]; all: number | null }[]
+      basicsInHand: { count: number; probability: number }[]
+      note: string
+    }
+    const blaziken = (await get(`/api/decks/${deckId(2)}/draw-odds`)).body as Odds
+    expect(blaziken).toMatchObject({ deck: { id: deckId(2) }, deckSize: 20 })
+    expect(blaziken.groups[0]?.cards[0]?.nameEs).toMatch(/Mega-Blaziken ex/)
+    expect(blaziken.rows).toHaveLength(7)
+    expect(blaziken.rows.map((row) => row.cardsSeen)).toEqual([5, 6, 7, 8, 9, 10, 11])
+    expect(blaziken.rows[6]?.each[0]).toBeGreaterThan(blaziken.rows[0]?.each[0] ?? 1)
+    expect(blaziken.basicsInHand.reduce((sum, row) => sum + row.probability, 0)).toBeCloseTo(1, 10)
+    expect(blaziken.note).toContain('robo natural')
+
+    const deck = (await get(`/api/decks/${deckId(2)}`)).body as {
+      cards: { card: { id: string; cardType: string; evolutionType: string; nameEs: string } }[]
+    }
+    const basic = deck.cards.find((entry) => entry.card.cardType === 'pokemon' && entry.card.evolutionType === 'basic')
+    const trainer = deck.cards.find((entry) => entry.card.cardType === 'trainer')
+    const both = (
+      await get(`/api/decks/${deckId(2)}/draw-odds?cards=${basic?.card.id}&cards2=${trainer?.card.id}&turns=3`)
+    ).body as Odds
+    expect(both.rows).toHaveLength(4)
+    expect(both.groups[0]?.basicCopies).toBeGreaterThan(0)
+    for (const row of both.rows) {
+      expect(row.all).not.toBeNull()
+      expect(row.all ?? 1).toBeLessThanOrEqual(Math.min(...row.each) + 1e-12)
+    }
+    expect((await get(`/api/decks/${deckId(2)}/draw-odds?cards=A1-1`)).status).toBe(400)
+    expect(
+      (await get(`/api/decks/${deckId(2)}/draw-odds?cards=${basic?.card.id}&cards2=${basic?.card.id}`)).status,
+    ).toBe(400)
+
+    const manual = await post('/api/decks/draw-odds').send({ basics: 18, groups: [{ basic: 0, other: 2 }] })
+    expect(manual.status).toBe(200)
+    expect((manual.body as Odds).rows[0]?.each[0]).toBeCloseTo(1 - 8568 / 15504, 10)
+    expect((await post('/api/decks/draw-odds').send({ basics: 2, groups: [{ basic: 3, other: 0 }] })).status).toBe(400)
+    expect((await post('/api/decks/draw-odds').send({ basics: 5, groups: [] })).status).toBe(400)
+  })
 })

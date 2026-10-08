@@ -237,6 +237,18 @@ export const MCP_READ_TOOLS = {
       limit: z.number().int().min(1).max(50).optional().describe('Filas a devolver (por defecto 15)'),
     }),
   },
+  decksDrawOdds: {
+    name: 'decks_draw_odds',
+    title: 'Probabilidad de robar una carta',
+    description:
+      'Probabilidad exacta de tener una carta del mazo (cualquier edición; varias cartas = cualquiera de ellas) en la mano inicial y en cada turno propio, y de tener dos cartas a la vez («alsoCards»), con las reglas del juego: mano inicial de 5 con al menos un Pokémon Básico (se reparte de nuevo si no hay) y una carta por turno propio, también en el primero. Solo robo natural: no cuenta cartas que roban o buscan (Investigación de Profesores, Poké Ball). Sin «cards», el atacante del mazo que más puntos da. También dice cuántos Básicos suele traer la mano inicial.',
+    input: z.object({
+      deck: deckRef,
+      cards: z.array(query).min(1).max(5).optional().describe('Cartas (nombre o código); cualquiera de ellas cuenta'),
+      alsoCards: z.array(query).min(1).max(5).optional().describe('Segunda carta para «las dos a la vez»'),
+      turns: z.number().int().min(1).max(15).optional().describe('Turnos propios a mostrar (por defecto 6)'),
+    }),
+  },
   tournamentsMatchups: {
     name: 'tournaments_matchups',
     title: 'Matchups de torneo',

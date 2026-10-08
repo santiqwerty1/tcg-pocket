@@ -20,6 +20,7 @@ describe('MCP read tools', () => {
         'collection_playable_copies',
         'collection_summary',
         'decks_closest',
+        'decks_draw_odds',
         'decks_find_by_card',
         'decks_get',
         'decks_list',
