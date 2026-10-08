@@ -9,6 +9,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router'
 import { deckDetailQuery, useDecks } from '@/api/decks'
 import type { DeckSummary } from '@/api/schemas'
 import { HeaderActions } from '@/app/AppShell'
+import { nameStartsWithNumber } from '@/components/DeckNumber'
 import { Button } from '@/components/ui/button'
 import { deckListSearch, deckNeighbors, deckPath, filterDecks, readDeckListFilters } from './deckList'
 
@@ -34,8 +35,9 @@ function arrowKeysTaken(target: EventTarget | null): boolean {
   return document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"]') !== null
 }
 
+/** «#3 Zoroark ex», or just the name when it already starts with the number («13. Hoopa ex»). */
 function deckLabel(deck: DeckSummary): string {
-  return `#${deck.id} ${deck.name}`
+  return nameStartsWithNumber(deck.id, deck.name) ? deck.name : `#${deck.id} ${deck.name}`
 }
 
 export function DeckPager({ deckId }: { deckId: string }) {
