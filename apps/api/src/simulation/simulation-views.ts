@@ -20,7 +20,7 @@ export interface JobProgressView {
   totalGames: number
   gamesDone: number
   chunks: { total: number; done: number; running: number; failed: number }
-  /** Seconds left at the pace of the finished chunks; null until one finishes. */
+  /** Seconds left at the pace of the finished chunks, split among the chunks playing now; null until one finishes. */
   etaSeconds: number | null
 }
 

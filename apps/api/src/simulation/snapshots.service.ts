@@ -164,8 +164,11 @@ export class SnapshotsService {
       const cards = (revision?.cards ?? []) as unknown as DeckCardEntry[]
       const declared = (revision?.energies ?? deck.energies) as SelectableEnergy[]
       const energies = source.energies && source.energies.length > 0 ? source.energies : declared
+      // «13. Hoopa ex» already carries its number (the 40 lists were imported in order); others get «#id».
+      const number = idToString(deck.id)
+      const numbered = deck.name.trim().startsWith(`${number}.`) || deck.name.trim().startsWith(`${number} `)
       const draft = buildSnapshot({
-        label: `#${idToString(deck.id)} ${deck.name}${revision ? ` (rev. ${revision.number})` : ''}`,
+        label: `${numbered ? '' : `#${number} `}${deck.name}${revision ? ` (rev. ${revision.number})` : ''}`,
         cards,
         energies,
         index,

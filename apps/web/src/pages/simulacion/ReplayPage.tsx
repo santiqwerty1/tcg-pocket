@@ -52,7 +52,9 @@ function Slot({ slot, reader, active }: { slot: ReplaySlot | null; reader: Repla
       </span>
       {slot.energy.length > 0 ? <span className="text-muted-foreground">{energySummary(slot.energy)}</span> : null}
       {slot.tools.length > 0 ? (
-        <span className="text-muted-foreground">{slot.tools.map((tool) => reader.name(tool)).join(', ')}</span>
+        <span className="hidden text-muted-foreground md:block">
+          {slot.tools.map((tool) => reader.name(tool)).join(', ')}
+        </span>
       ) : null}
       {slot.status.length > 0 ? (
         <span className="text-warning">{slot.status.map((status) => statusEs(status)).join(', ')}</span>
@@ -82,11 +84,14 @@ function PlayerBoard({
       <div className="flex items-baseline gap-2">
         <span className="font-semibold">{SIDE[player]}</span>
         <span className="min-w-0 flex-1 truncate text-sm">{deck ?? '—'}</span>
+        <span className="shrink-0 text-xs text-muted-foreground tabular md:hidden">
+          mano {data.hand_count} · mazo {data.deck_count}
+        </span>
         <span className="shrink-0 text-sm font-semibold tabular" title="Puntos">
           {state.points[player]} pts
         </span>
       </div>
-      <div className="text-xs text-muted-foreground">
+      <div className="hidden text-xs text-muted-foreground md:block">
         {bot} · mano {data.hand_count} · mazo {data.deck_count} · descarte {data.discard.length}
         {data.energy_zone.current || data.energy_zone.next
           ? ` · zona de energía: ${data.energy_zone.current ? energyEs(data.energy_zone.current) : '—'} (luego ${
@@ -102,7 +107,7 @@ function PlayerBoard({
         ))}
       </div>
       {data.hand.length > 0 ? (
-        <div className="text-xs">
+        <div className="hidden text-xs md:block">
           <span className="text-muted-foreground">Mano: </span>
           {data.hand.map((card) => reader.name(card)).join(', ')}
         </div>
@@ -195,14 +200,20 @@ function Viewer({ data, replay }: { data: ReplayResponse; replay: Replay }) {
               <ChevronsRightIcon />
             </Button>
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Switch id="replay-only-choices" checked={onlyChoices} onCheckedChange={setOnlyChoices} />
-            <label htmlFor="replay-only-choices">Solo decisiones (oculta los pasos con una sola opción)</label>
-          </div>
         </div>
       ) : null}
 
-      <Section title="Jugadas">
+      <Section
+        title="Jugadas"
+        action={
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Switch id="replay-only-choices" checked={onlyChoices} onCheckedChange={setOnlyChoices} />
+            <label htmlFor="replay-only-choices" title="Oculta los pasos con una sola opción">
+              Solo decisiones
+            </label>
+          </div>
+        }
+      >
         <ol className="flex flex-col gap-2">
           {groups.map((group) => {
             const steps = group.steps.filter(({ index }) => visibleSet.has(index))

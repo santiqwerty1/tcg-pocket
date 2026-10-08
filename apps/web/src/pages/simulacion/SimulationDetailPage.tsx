@@ -15,8 +15,10 @@ import { simulationKeys, useCancelSimulation, useDeleteSimulation, useSimulation
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { OrientativeBadge, RateDetails } from '@/components/RateSummary'
+import { SearchBox } from '@/components/SearchBox'
 import { KeyValue, Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatDateTime, formatNumber, shortSha } from '@/lib/format'
 import { formatRateValue } from '@/lib/matches'
 import { encodeSource, formatDuration, gamesLabel, isActive, KIND_LABEL, progressFraction } from '@/lib/simulation'
@@ -43,6 +45,13 @@ function useLiveProgress(id: string, active: boolean): JobSummary | null {
     return () => source.close()
   }, [id, active, queryClient])
   return live
+}
+
+function fold(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/\p{M}+/gu, '')
+    .toLowerCase()
 }
 
 function snapshotLink(snapshot: Snapshot | undefined): string | null {
@@ -135,6 +144,108 @@ function MatrixResults({ job }: { job: JobDetail }) {
   )
 }
 
+/** «#20 20. Mega-Steelix ex (rev. 1)» → «20. Mega-Steelix ex». */
+function shortLabel(label: string): string {
+  return label.replace(/^#\d+\s+/, '').replace(/\s*\(rev\. \d+\)$/, '')
+}
+
+/** 0 % red, 50 % yellow, 100 % green. */
+function heat(value: number): string {
+  const hue = Math.round(Math.max(0, Math.min(100, value)) * 1.3)
+  return `hsl(${hue} 65% 40%)`
+}
+
+/** Every deck against every rival at a glance: rows by win rate, a colored cell per pairing (title: W-L-T and n). */
+function MatrixGrid({ job }: { job: JobDetail }) {
+  const byId = useMemo(() => new Map(job.snapshots.map((snapshot) => [snapshot.id, snapshot])), [job.snapshots])
+  const rows = [...job.rows].sort((a, b) => (b.rate?.value ?? -1) - (a.rate?.value ?? -1))
+  const position = new Map(rows.map((row, at) => [row.snapshot, at + 1]))
+  const rivals = [...new Set(rows.flatMap((row) => row.cells.map((cell) => cell.rival)))].sort(
+    (a, b) => (position.get(a) ?? 1e6 + a) - (position.get(b) ?? 1e6 + b),
+  )
+  const outside = rivals.filter((rival) => !position.has(rival))
+  const code = (rival: number) => position.get(rival)?.toString() ?? `R${outside.indexOf(rival) + 1}`
+  const name = (id: number) => shortLabel(byId.get(id)?.label ?? `#${id}`)
+  if (rows.length === 0) return <p className="text-sm text-muted-foreground">Todavía no hay cruces terminados.</p>
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="max-h-[70vh] overflow-auto rounded-lg border">
+        <table className="border-separate border-spacing-0 text-[11px] tabular">
+          <thead>
+            <tr>
+              <th className="sticky top-0 left-0 z-20 min-w-40 bg-background px-2 py-1 text-left font-medium">
+                Mazo (total)
+              </th>
+              {rivals.map((rival) => (
+                <th
+                  key={rival}
+                  scope="col"
+                  className="sticky top-0 z-10 min-w-8 bg-background px-1 py-1 text-center font-medium"
+                  title={name(rival)}
+                >
+                  {code(rival)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const cells = new Map(row.cells.map((cell) => [cell.rival, cell]))
+              return (
+                <tr key={row.snapshot}>
+                  <th
+                    scope="row"
+                    className="sticky left-0 z-10 max-w-48 truncate bg-background px-2 py-0.5 text-left font-normal"
+                    title={byId.get(row.snapshot)?.label}
+                  >
+                    {position.get(row.snapshot)} · {name(row.snapshot)}{' '}
+                    <span className="text-muted-foreground">{row.rate ? Math.round(row.rate.value) : '—'}</span>
+                  </th>
+                  {rivals.map((rival) => {
+                    const cell = cells.get(rival)
+                    if (rival === row.snapshot) return <td key={rival} className="bg-muted" />
+                    if (!cell?.record || !cell.rate) {
+                      return (
+                        <td key={rival} className="text-center text-muted-foreground">
+                          ·
+                        </td>
+                      )
+                    }
+                    const { wins, losses, ties } = cell.record
+                    return (
+                      <td
+                        key={rival}
+                        className="px-0.5 py-0.5 text-center font-medium text-white"
+                        style={{ backgroundColor: heat(cell.rate.value) }}
+                        title={`${name(row.snapshot)} vs ${name(rival)}: ${formatRateValue(cell.rate.value)} · ${wins} V · ${losses} D · ${ties} E · n = ${cell.rate.games}`}
+                      >
+                        {Math.round(cell.rate.value)}
+                      </td>
+                    )
+                  })}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      {outside.length > 0 ? (
+        <ul className="text-xs text-muted-foreground">
+          {outside.map((rival) => (
+            <li key={rival}>
+              {code(rival)}: {name(rival)}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <p className="text-xs text-muted-foreground">
+        Cada celda es el % de victorias del mazo de la fila contra el de la columna; tocala o pasá el mouse para ver
+        victorias, derrotas, empates y n. El detalle con intervalos está en «Ranking».
+      </p>
+    </div>
+  )
+}
+
 function OptimizeResults({ job }: { job: JobDetail }) {
   const byId = new Map(job.snapshots.map((snapshot) => [snapshot.id, snapshot]))
   const rows = job.optimize ?? []
@@ -171,15 +282,29 @@ function OptimizeResults({ job }: { job: JobDetail }) {
   )
 }
 
+const REPLAYS_SHOWN = 200
+
 function Replays({ job }: { job: JobDetail }) {
-  const byId = new Map(job.snapshots.map((snapshot) => [snapshot.id, snapshot]))
+  const [filter, setFilter] = useState('')
+  const byId = useMemo(() => new Map(job.snapshots.map((snapshot) => [snapshot.id, snapshot])), [job.snapshots])
+  const rows = useMemo(() => {
+    const folded = fold(filter.trim())
+    return job.replays
+      .map((replay) => ({
+        replay,
+        a: replay.a !== null ? (byId.get(replay.a)?.label ?? null) : null,
+        b: replay.b !== null ? (byId.get(replay.b)?.label ?? null) : null,
+      }))
+      .filter(({ a, b }) => folded === '' || fold(`${a ?? ''} ${b ?? ''}`).includes(folded))
+  }, [job.replays, byId, filter])
   if (job.replays.length === 0) return null
   return (
     <Section title="Repeticiones">
+      {job.replays.length > 10 ? (
+        <SearchBox value={filter} onChange={setFilter} placeholder="Filtrar por mazo" />
+      ) : null}
       <ul className="max-h-96 divide-y overflow-y-auto rounded-lg border">
-        {job.replays.map((replay) => {
-          const a = replay.a !== null ? byId.get(replay.a)?.label : null
-          const b = replay.b !== null ? byId.get(replay.b)?.label : null
+        {rows.slice(0, REPLAYS_SHOWN).map(({ replay, a, b }) => {
           const winner = replay.winner === 'tie' ? 'empate' : `ganó ${replay.winner === 'a' ? a : b}`
           return (
             <li key={replay.id}>
@@ -200,7 +325,13 @@ function Replays({ job }: { job: JobDetail }) {
             </li>
           )
         })}
+        {rows.length === 0 ? <li className="p-3 text-sm text-muted-foreground">Ninguna coincide.</li> : null}
       </ul>
+      {rows.length > REPLAYS_SHOWN ? (
+        <p className="text-xs text-muted-foreground">
+          Se muestran {REPLAYS_SHOWN} de {formatNumber(rows.length)}: filtrá por mazo para ver el resto.
+        </p>
+      ) : null}
     </Section>
   )
 }
@@ -367,7 +498,22 @@ export function SimulationDetailPage() {
           Victorias, derrotas y empates por separado; el porcentaje es victorias sobre partidas (un empate no suma) con
           su intervalo de Wilson al 95 %. Depende del bot ({current.playersEs.join(' vs ')}).
         </p>
-        {current.kind === 'optimize' ? <OptimizeResults job={current} /> : <MatrixResults job={current} />}
+        {current.kind === 'optimize' ? (
+          <OptimizeResults job={current} />
+        ) : (
+          <Tabs defaultValue="list">
+            <TabsList className="w-full">
+              <TabsTrigger value="list">Ranking</TabsTrigger>
+              <TabsTrigger value="grid">Tabla</TabsTrigger>
+            </TabsList>
+            <TabsContent value="list">
+              <MatrixResults job={current} />
+            </TabsContent>
+            <TabsContent value="grid">
+              <MatrixGrid job={current} />
+            </TabsContent>
+          </Tabs>
+        )}
       </Section>
 
       <Replays job={current} />

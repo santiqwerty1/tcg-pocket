@@ -332,8 +332,11 @@ export class SimulationsService {
         totalGames: entry.totalGames,
         gamesDone: entry.gamesDone,
         chunks: entry.chunks,
+        // Engine time per game of the finished chunks × games left, shared by the chunks playing right now (workers).
         etaSeconds:
-          entry.doneGames > 0 && left > 0 ? Math.round(((entry.doneMs / entry.doneGames) * left) / 1000) : null,
+          entry.doneGames > 0 && left > 0
+            ? Math.round(((entry.doneMs / entry.doneGames) * left) / 1000 / Math.max(1, entry.chunks.running))
+            : null,
       })
     }
     return out

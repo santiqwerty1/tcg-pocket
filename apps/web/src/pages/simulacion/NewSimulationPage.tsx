@@ -419,6 +419,26 @@ export function NewSimulationPage() {
   const [bothOrders, setBothOrders] = useState(false)
   const [skipNotSimulable, setSkipNotSimulable] = useState(false)
   const [remove, setRemove] = useState<Record<string, number>>({})
+
+  // Decks that came in the URL show «Mazo 7» until the deck list arrives; then their name.
+  const deckList = useDecks()
+  useEffect(() => {
+    const names = new Map((deckList.data ?? []).map((deck) => [deck.id, deck.name]))
+    if (names.size === 0) return
+    const named = (items: Picked[]) => {
+      let changed = false
+      const next = items.map((item) => {
+        if (!('deckId' in item.source) || item.label !== `Mazo ${item.source.deckId}`) return item
+        const name = names.get(item.source.deckId)
+        if (!name) return item
+        changed = true
+        return { ...item, label: name }
+      })
+      return changed ? next : items
+    }
+    setSideA(named)
+    setSideB(named)
+  }, [deckList.data])
   const [candidates, setCandidates] = useState<{ id: string; nameEs: string }[]>([])
 
   const gamesNumber = Number(games)
