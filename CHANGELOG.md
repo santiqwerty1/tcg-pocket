@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-07 (23 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-08 (25 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- limited-time packs, trade advice and version-aware exclusives (phase 4) `07ebe68`
 - pack recommendation with the tracker model and a corrected one (phase 4, M4) `2a266b6`
 - read-only MCP server for Claude, closest deck, random deck and best prints (phase 3) `5d081ed`
 - match logging with Wilson statistics (phase 2, M6) `b7c4232`
@@ -28,6 +29,7 @@ _Borrador generado al 2026-10-07 (23 commits). Escribí el «porqué» fuera de 
 
 ### Documentado
 
+- Obsidian vault with the Posta kit (tablero dialect) (D-009, R-007) `cacfa8a`
 - production deployed on Fly + Supabase; ops notes `853bb69`
 - phase 1 implementation verified; deploy pending `b0c5b14`
 - record API implementation decisions and phase 1 state `629407b`

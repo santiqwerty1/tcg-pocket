@@ -27,17 +27,17 @@ Mapa de documentos y código: [Dónde vive cada cosa](Sistema/Mapa.md) · operac
 ![[Trabajo.base#Para revisar]]
 
 <!-- posta:recuentos -->
-_Recuentos al 2026-10-07 (generados; no editar a mano)._
+_Recuentos al 2026-10-08 (generados; no editar a mano)._
 
 | Tipo | Total | Por estado |
 | --- | --- | --- |
 | decision | 9 | propuesta 3 · vigente 6 |
-| pregunta | 5 | cerrada 1 · parcial 1 · pendiente 3 |
+| pregunta | 5 | cerrada 2 · parcial 1 · pendiente 2 |
 | riesgo | 7 | abierto 7 |
 | supuesto | 3 | por_validar 1 · verificado 2 |
-| tarea | 5 | pendiente 5 |
+| tarea | 5 | en_curso 1 · pendiente 4 |
 
-**Para revisar:** nada. **Abiertas:** 20.
+**Para revisar:** D-007, D-008, D-009, P-002, P-003, P-004, S-002. **Abiertas:** 19.
 <!-- /posta:recuentos -->
 
 ## Fichas
