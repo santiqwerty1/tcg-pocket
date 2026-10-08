@@ -887,3 +887,17 @@ model Event {
 
   @@map("events")
 }
+
+/// Fase 18: a device subscribed to Web Push (the owner's phone, the PC…).
+model PushSubscription {
+  id            Int       @id @default(autoincrement())
+  endpoint      String    @unique
+  p256dh        String
+  auth          String
+  userAgent     String    @default("") @map("user_agent")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSuccessAt DateTime? @map("last_success_at") @db.Timestamptz(3)
+  failures      Int       @default(0)
+
+  @@map("push_subscriptions")
+}

@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-08 (60 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-08 (61 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- phase 17 — pack luck between CSV imports (T-012) `495068b`
 - phase 16 — events with deck rules (T-012) `8e57fc4`
 - phase 15 — which deck to bring today (T-012) `79ade03`
 - phase 14 — how many days until a deck is complete (T-012) `03b1a41`

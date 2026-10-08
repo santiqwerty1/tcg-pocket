@@ -333,3 +333,11 @@ Pedido de Santi: hacer las doce ideas de ampliación, cada una como su propia fa
 | 20.2 | **Lo esperado** sale de las tasas publicadas de los sobres de la expansión de cada carta (la edición más vieja de la versión), promediadas por posición: en un sobre común, 3,3 % de las cartas son ☆ o más y 1,7 % ◊◊◊◊. Sin sobres raros ni de 6 cartas (cambian poco). Prueba binomial exacta: «mejor», «dentro de lo normal», «peor» (1 de cada 20 o menos), como la Fase 13. | Una medida simple y honesta. |
 | 20.3 | **Aproximado y dicho así**: también cuentan intercambios, Wonder Pick y premios, porque el CSV no dice de dónde vino cada carta. «≈ N sobres si todo vino de sobres» para dar escala. Con una sola importación, la sección espera a la próxima. | No vender precisión que no hay. |
 | 20.4 | Dónde: Colección → «Suerte de los sobres» (la última importación y desde la primera), `GET /api/collection/pack-luck`, tool `collection_pack_luck`. | |
+
+## Fase 18: notificaciones al celu (8/10/2026)
+
+| # | Decisión | Motivo |
+|---|---|---|
+| 21.1 | **Web Push con VAPID** (librería `web-push` 3.6.7, MIT): claves en el entorno (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`; en Fly, secretos); sin ellas todo queda apagado. Dispositivos en `push_subscriptions` (migración `20261009030000_push_subscriptions`; no van en el backup: son de cada aparato); un dispositivo que el servicio de push da por perdido (404/410) se borra. | Funciona con la PWA instalada en Android sin apps ni cuentas extra. |
+| 21.2 | **Qué se avisa**, revisado cada 15 segundos en el servidor: «Te toca» en una partida contra el bot que espera tu jugada si no la tenés abierta (la página consulta la partida cada pocos segundos; 20 s sin consultar = no la estás mirando), una vez por decisión; simulaciones y búsquedas del Laboratorio que terminaron (la búsqueda dice si encontró una versión mejor); avisos de la app una vez cada uno (el de un sobre limitado solo en sus últimos dos días). Nada de lo que pasó antes de arrancar el servidor. | Avisar lo que importa sin llenar el celu. |
+| 21.3 | Preferencias por tipo (ajuste `notifications`) y botón «Probar» en Más → Ajustes de la app. El manejador del service worker está en `/push-sw.js` (público, sin datos), importado por el `sw.js` de Workbox. | |

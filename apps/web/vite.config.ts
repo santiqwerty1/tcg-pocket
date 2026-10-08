@@ -41,6 +41,8 @@ export default defineConfig(({ mode }) => ({
             ],
           },
           workbox: {
+            // Fase 18: the push and notificationclick handlers (public/push-sw.js).
+            importScripts: ['/push-sw.js'],
             // Only the built shell is precached: nothing under /api is ever listed because the glob runs over dist/.
             globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
             // deckgym's replay viewer (D-014) is opened now and then: not worth 1,6 MB of precache.

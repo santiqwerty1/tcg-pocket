@@ -24,7 +24,7 @@ function startsWithSegment(pathname: string, prefix: string): boolean {
 }
 
 /** What Chrome needs to offer «Instalar app» before anyone logs in (no data of the owner in them). */
-const INSTALL_FILES = new Set(['/manifest.webmanifest', '/favicon.svg', '/apple-touch-icon.png'])
+const INSTALL_FILES = new Set(['/manifest.webmanifest', '/favicon.svg', '/apple-touch-icon.png', '/push-sw.js'])
 
 export function routeExposure(method: string, pathname: string): RouteExposure {
   const verb = method.toUpperCase() === 'HEAD' ? 'GET' : method.toUpperCase()

@@ -8,11 +8,12 @@
 import { randomInt } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { gunzipSync } from 'node:zlib'
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common'
 import { botLabel, isBotCode, MAX_BASE_SEED, randomBaseSeed, type SnapshotCard } from '@tcg/domain'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { Prisma } from '../generated/prisma/client.js'
 import { parseNumericId } from '../http/ids.js'
+import { PresenceService } from '../notifications/presence.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { EngineStatusService, type SnapshotSource, SnapshotsService } from '../simulation/snapshots.service.js'
 
@@ -91,6 +92,7 @@ export class LiveGamesService {
     private readonly catalog: CatalogService,
     private readonly snapshots: SnapshotsService,
     private readonly engine: EngineStatusService,
+    @Optional() private readonly presence?: PresenceService,
   ) {
     this.events.setMaxListeners(100)
   }
@@ -188,7 +190,9 @@ export class LiveGamesService {
   }
 
   async get(rawId: string): Promise<LiveGameView> {
-    return this.view(await this.requireGame(rawId))
+    const game = await this.requireGame(rawId)
+    this.presence?.saw(`live:${game.id}`)
+    return this.view(game)
   }
 
   private async view(game: GameRow): Promise<LiveGameView> {

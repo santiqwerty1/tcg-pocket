@@ -34,6 +34,15 @@ const envSchema = z.object({
   /** Fase 8: look at the tracker's `main` for new sets (production by default). */
   TRACKER_UPSTREAM_CHECK: z.stringbool().optional(),
   TRACKER_UPSTREAM_URL: z.url().default('https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker'),
+  /** Fase 18: Web Push (VAPID). Without the keys the notifications are off. */
+  VAPID_PUBLIC_KEY: z.string().min(20).optional(),
+  VAPID_PRIVATE_KEY: z.string().min(20).optional(),
+  VAPID_SUBJECT: z
+    .string()
+    .regex(/^(mailto:|https:\/\/)/, 'must be mailto: or https://')
+    .default('https://tcg-pocket.fly.dev'),
+  /** The 15-second check that sends the notifications; defaults to on outside tests. */
+  NOTIFICATIONS_WATCH: z.stringbool().optional(),
   /** Express `trust proxy` hops (Fly sits one proxy in front of the app). */
   TRUST_PROXY: z.coerce.number().int().min(0).default(1),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).optional(),
@@ -69,6 +78,9 @@ export interface Env {
   version: string
   /** argon2id parameters for new password hashes (`memoryCost` in KiB). */
   argon2: { memoryCost: number; timeCost: number; parallelism: number }
+  /** Fase 18: VAPID keys (null = notifications off) and whether the watcher runs. */
+  vapid: { publicKey: string; privateKey: string; subject: string } | null
+  notificationsWatch: boolean
 }
 
 export class EnvError extends Error {
@@ -118,6 +130,11 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
     logLevel: raw.LOG_LEVEL ?? (isProduction ? 'info' : 'debug'),
     version: raw.APP_VERSION ?? packageVersion(),
     argon2: { memoryCost: raw.ARGON2_MEMORY_KIB, timeCost: raw.ARGON2_TIME_COST, parallelism: raw.ARGON2_PARALLELISM },
+    vapid:
+      raw.VAPID_PUBLIC_KEY && raw.VAPID_PRIVATE_KEY
+        ? { publicKey: raw.VAPID_PUBLIC_KEY, privateKey: raw.VAPID_PRIVATE_KEY, subject: raw.VAPID_SUBJECT }
+        : null,
+    notificationsWatch: raw.NOTIFICATIONS_WATCH ?? raw.NODE_ENV !== 'test',
   }
 }
 

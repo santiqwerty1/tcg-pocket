@@ -276,6 +276,20 @@ Modelo: port de `stats.ts` del tracker @ `3ab58f1` (tablas por posición, mezcla
 
 Versiones: el objetivo mazos busca cartas funcionales (cualquier versión sirve); el objetivo colección busca versiones, identificadas por el `internal_id` del tracker. Dos números con el mismo `internal_id` son la misma versión y comparten copias (A1-1 = A4b-1, B1a-1 = B4b-1); un arte u holo nuevo es otra versión de la misma carta funcional (B4b-237, Bulbasaur holo). Sobres por tiempo limitado: lo que solo ellos dan frente a los sobres a la venta que quedan (carta funcional para mazos, versión para colección) pesa `limitedBoost` veces más hasta su último día (DECISIONES 4.9).
 
+## Notificaciones (Fase 18)
+
+Web Push con claves VAPID del entorno (sin ellas, `enabled: false` y nada se envía).
+
+| Método y ruta | Cuerpo / respuesta |
+|---|---|
+| `GET /api/notifications` | `{ enabled, publicKey | null, devices: [{ id, userAgent, createdAt, lastSuccessAt, endpoint }], preferences: { liveGame, simulations, lab, alerts } }` |
+| `POST /api/notifications/subscribe` | La suscripción del navegador (`{ endpoint, keys: { p256dh, auth }, userAgent? }`) → `204` |
+| `DELETE /api/notifications/subscribe` | `{ endpoint }` → `204` |
+| `PUT /api/notifications/preferences` | `{ liveGame?, simulations?, lab?, alerts? }` → las preferencias |
+| `POST /api/notifications/test` | Una notificación de prueba a cada dispositivo → `{ sent }` |
+
+El servidor revisa cada 15 s qué avisar (partida que espera tu jugada si no la tenés abierta, simulaciones y búsquedas que terminaron, avisos nuevos). El payload es `{ title, body, url, tag }`; tocar la notificación abre `url`.
+
 ## Eventos (Fase 16)
 
 Reglas de mazo de un evento del juego, cargadas a mano. `EventRules = { types?: EnergyType[], minOfType?: { type, count }, noEx?: boolean, rarities?: Rarity[], expansions?: string[], banned?: groupId[] }`.

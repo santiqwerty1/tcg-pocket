@@ -38,7 +38,7 @@ revisar: false
 | 15 | ¿Qué mazo llevo hoy? | hecho 08/10 · falta subir y desplegar | 9 | [T-012](Tareas/T-012.md) |
 | 16 | Eventos con restricciones | hecho 08/10 · falta subir y desplegar | — | [T-012](Tareas/T-012.md) |
 | 17 | Suerte de los sobres | hecho 08/10 · falta subir y desplegar | — | [T-012](Tareas/T-012.md) |
-| 18 | Notificaciones al celu | pendiente | — | [T-012](Tareas/T-012.md) |
+| 18 | Notificaciones al celu | hecho 08/10 · falta subir, cargar las claves VAPID en Fly y desplegar | — | [T-012](Tareas/T-012.md) |
 | 19 | Armar desde un núcleo | pendiente | — | [T-012](Tareas/T-012.md) |
 | 20 | Modo entrenador contra el bot | pendiente | — | [T-012](Tareas/T-012.md) |
 | 21 | Mantenimiento: remapeo de ids (I12) y CI | pendiente | — | [R-001](Riesgos/R-001.md), [R-007](Riesgos/R-007.md) |

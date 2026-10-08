@@ -20,6 +20,6 @@ export class AlertsController {
   imports: [CatalogModule, TournamentsModule, SimulationModule],
   controllers: [AlertsController],
   providers: [AlertsService, TrackerUpstreamService],
-  exports: [TrackerUpstreamService],
+  exports: [TrackerUpstreamService, AlertsService],
 })
 export class AlertsModule {}

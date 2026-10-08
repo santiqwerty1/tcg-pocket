@@ -106,7 +106,7 @@ Sigue `docs/API.md`. Errores siempre como `{ error: { code, message, details? } 
 | `/api/worker/*` | bearer `tcg_wk_*` con `worker:claim` | Stub: `GET /api/worker/ping`. |
 | `/api/mcp` | bearer `tcg_mcp_*` con `mcp:read` | Stub: 501 hasta la Fase 3. |
 | `/.well-known/*` | pública | 404 por ahora (reservado para OAuth si hiciera falta). |
-| `/manifest.webmanifest`, `/icons/*.png`, `/favicon.svg`, `/apple-touch-icon.png` | pública | Lo que Chrome necesita para ofrecer «Instalar app» (DECISIONES 11.14). |
+| `/manifest.webmanifest`, `/icons/*.png`, `/favicon.svg`, `/apple-touch-icon.png`, `/push-sw.js` | pública | Lo que Chrome necesita para ofrecer «Instalar app» (DECISIONES 11.14). |
 | resto (`/`, `/assets/*`, `/sw.js`…) | sesión | Estáticos de `WEB_DIST` (`/assets/*` inmutable; shell, sw y manifest `no-store`) y fallback a `index.html`. |
 
 Subidas de archivos: multipart con `multer` en memoria (`FileInterceptor`), CSV hasta 5 MB y backups hasta 50 MB (`413` si se pasan); un backup gzip se descomprime con tope de 128 MB (`400 invalid_backup` si lo supera: protege de una «bomba» gzip).

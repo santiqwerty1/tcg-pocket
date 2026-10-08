@@ -50,7 +50,7 @@ const ENTRIES = [
   { to: '/mas/backup', label: 'Copia de seguridad', hint: 'Exportar e importar todos tus datos', icon: DatabaseIcon },
   { to: '/mas/tokens', label: 'Tokens de API', hint: 'Para el worker y el conector de Claude', icon: KeyRoundIcon },
   { to: '/mas/sesion', label: 'Sesión', hint: 'Contraseña y cerrar sesión', icon: UserIcon },
-  { to: '/mas/ajustes', label: 'Ajustes de la app', hint: 'Miniaturas de cartas', icon: ImageIcon },
+  { to: '/mas/ajustes', label: 'Ajustes de la app', hint: 'Notificaciones y miniaturas de cartas', icon: ImageIcon },
   { to: '/mas/acerca', label: 'Acerca de', hint: 'Versión y licencias', icon: CircleHelpIcon },
 ]
 

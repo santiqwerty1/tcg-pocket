@@ -2033,3 +2033,23 @@ export const packLuckViewSchema = z.object({
   overall: z.object({ from: importRefSchema, to: importRefSchema, luck: packLuckSchema }).nullable(),
 })
 export type PackLuckView = z.infer<typeof packLuckViewSchema>
+
+// ---------- Notificaciones (Fase 18) ----------
+
+export const NOTIFICATION_KINDS = ['liveGame', 'simulations', 'lab', 'alerts'] as const
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
+export const notificationsSchema = z.object({
+  enabled: z.boolean(),
+  publicKey: z.string().nullable(),
+  devices: z.array(
+    z.object({
+      id: z.number(),
+      userAgent: z.string(),
+      createdAt: isoDate,
+      lastSuccessAt: nullableDate,
+      endpoint: z.string(),
+    }),
+  ),
+  preferences: z.object({ liveGame: z.boolean(), simulations: z.boolean(), lab: z.boolean(), alerts: z.boolean() }),
+})
+export type NotificationsStatus = z.infer<typeof notificationsSchema>

@@ -18,6 +18,8 @@ import { LabModule } from './lab/lab.controller.js'
 import { loggerModule } from './logging/logger.module.js'
 import { MatchesModule } from './matches/matches.module.js'
 import { McpModule } from './mcp/mcp.module.js'
+import { NotificationsModule } from './notifications/notifications.controller.js'
+import { PresenceModule } from './notifications/presence.service.js'
 import { PacksModule } from './packs/packs.controller.js'
 import { PickModule } from './pick/pick.controller.js'
 import { PlayModule } from './play/play.controller.js'
@@ -43,6 +45,7 @@ export class AppModule implements NestModule {
         loggerModule(env),
         ScheduleModule.forRoot(),
         PrismaModule,
+        PresenceModule,
         AuthModule,
         TokensModule,
         CatalogModule,
@@ -61,6 +64,7 @@ export class AppModule implements NestModule {
         PickModule,
         PlayModule,
         AlertsModule,
+        NotificationsModule,
         McpModule,
         WebModule,
       ],
