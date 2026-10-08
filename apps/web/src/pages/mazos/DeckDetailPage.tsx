@@ -259,7 +259,11 @@ export function DeckDetailPage() {
         {data.notes ? <p className="text-sm whitespace-pre-wrap text-muted-foreground">{data.notes}</p> : null}
       </div>
 
-      <DeckPerformance deckId={data.id} archived={Boolean(data.archivedAt)} />
+      <DeckPerformance
+        deckId={data.id}
+        archived={Boolean(data.archivedAt)}
+        tournamentArchetypeId={data.tournamentArchetypeId ?? null}
+      />
 
       <Section title={`Cartas (${totalCount(data.cards)})`}>
         <CardGroups deck={data} />

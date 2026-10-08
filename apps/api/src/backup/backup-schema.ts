@@ -1,14 +1,16 @@
 /**
  * The backup document (PLAN §3.9): everything the owner produced, versioned by `schemaVersion`. Version 2 (Fase 2)
- * adds `matches`; a version 1 file still reads, with no matches.
+ * adds `matches`; a version 1 file still reads, with no matches. Version 3 (Fase 4) adds the pack switches; version 4
+ * (Fase 5) the era table, the archetype merges and each deck's tournament archetype. Tournament data is not in the
+ * backup: it is Limitless's and the sync downloads it again (DECISIONES 5.7).
  * Dates are ISO strings; numeric ids keep their database values so a `replace` restores them verbatim.
  * Excluded on purpose: password hash, TOTP secret, token hashes (tokens travel as metadata only), raw CSV files.
  */
 import { z } from 'zod'
 
-export const BACKUP_SCHEMA_VERSION = 3
+export const BACKUP_SCHEMA_VERSION = 4
 /** Versions this app reads. Exports always write BACKUP_SCHEMA_VERSION. */
-export const READABLE_BACKUP_VERSIONS: readonly number[] = [1, 2, 3]
+export const READABLE_BACKUP_VERSIONS: readonly number[] = [1, 2, 3, 4]
 
 const isoDate = z.string().refine((value) => !Number.isNaN(Date.parse(value)), 'fecha ISO 8601 inválida')
 const nullableDate = isoDate.nullable()
@@ -87,6 +89,8 @@ const deckSchema = z.object({
   builtInGameSince: nullableDate,
   variantOfId: z.number().int().nullable(),
   packPriority: z.number().int(),
+  /** Version 4; older files have none (guessed from the closest lists). */
+  tournamentArchetypeId: z.string().nullable().default(null),
   keyCards: json,
   archivedAt: nullableDate,
   currentRevisionId: z.number().int().nullable(),
@@ -122,7 +126,7 @@ const tokenSchema = z.object({
 })
 
 export const backupDocumentSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
   exportedAt: isoDate,
   appVersion: z.string(),
   catalogCommit: z.string().nullable(),
@@ -152,6 +156,15 @@ export const backupDocumentSchema = z.object({
       }),
     )
     .default([]),
+  /** Owner's tournament settings (version 4): era table and archetype merges. Absent = keep the current ones. */
+  tournaments: z
+    .object({
+      sets: z.array(
+        z.object({ code: z.string(), nameEn: z.string(), releaseDate: z.iso.date(), opensEra: z.boolean() }),
+      ),
+      archetypeAliases: z.array(z.object({ archetypeId: z.string(), canonicalId: z.string() })),
+    })
+    .optional(),
   /** Metadata only: hashes are never exported, so tokens are not restored (they are created again). */
   tokens: z.array(tokenSchema),
 })
@@ -170,6 +183,8 @@ export interface BackupCounts {
   changes: number
   matches: number
   packs: number
+  setReleases: number
+  archetypeAliases: number
   tokens: number
 }
 
@@ -186,6 +201,8 @@ export function backupCounts(document: BackupDocument): BackupCounts {
     changes: document.decks.reduce((sum, deck) => sum + deck.changes.length, 0),
     matches: document.matches.length,
     packs: document.packs.length,
+    setReleases: document.tournaments?.sets.length ?? 0,
+    archetypeAliases: document.tournaments?.archetypeAliases.length ?? 0,
     tokens: document.tokens.length,
   }
 }

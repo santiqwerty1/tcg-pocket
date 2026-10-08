@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-08 (25 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-08 (26 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -29,6 +29,7 @@ _Borrador generado al 2026-10-08 (25 commits). Escribí el «porqué» fuera de 
 
 ### Documentado
 
+- phase 4 approved; pending decisions flagged for later review (P-005, T-003, D-007, D-008, D-009, P-002, P-004, S-002) `59eaf3d`
 - Obsidian vault with the Posta kit (tablero dialect) (D-009, R-007) `cacfa8a`
 - production deployed on Fly + Supabase; ops notes `853bb69`
 - phase 1 implementation verified; deploy pending `b0c5b14`

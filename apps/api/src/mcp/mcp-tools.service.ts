@@ -20,6 +20,7 @@ import {
   MCP_SERVER_INSTRUCTIONS,
   MCP_TOOL_NOT_AVAILABLE,
   type Rarity,
+  type TournamentFormat,
   type WinRate,
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
@@ -33,6 +34,14 @@ import type { RowView } from '../matches/match-views.js'
 import { MatchesService } from '../matches/matches.service.js'
 import { PacksService } from '../packs/packs.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import type {
+  ArchetypeRowView,
+  ListAgainstCollectionView,
+  ListRowView,
+  RecordRowView,
+  ScopeView,
+} from '../tournaments/tournament-views.js'
+import { TournamentsService } from '../tournaments/tournaments.service.js'
 
 type Json = Record<string, unknown>
 
@@ -106,6 +115,7 @@ export class McpToolsService {
     private readonly decks: DecksService,
     private readonly matches: MatchesService,
     private readonly packs: PacksService,
+    private readonly tournaments: TournamentsService,
     private readonly prisma: PrismaService,
     @Inject(ENV) private readonly env: Env,
     private readonly logger: PinoLogger,
@@ -172,9 +182,15 @@ export class McpToolsService {
     server.registerTool(t.packsRecommend.name, config(t.packsRecommend), (args) =>
       run(t.packsRecommend.name, () => this.packsRecommend(args)),
     )
-    notYet(t.tournamentsStats, MCP_TOOL_NOT_AVAILABLE.tournaments)
-    notYet(t.tournamentsBuildable, MCP_TOOL_NOT_AVAILABLE.tournaments)
-    notYet(t.tournamentsUnlockCards, MCP_TOOL_NOT_AVAILABLE.tournaments)
+    server.registerTool(t.tournamentsStats.name, config(t.tournamentsStats), (args) =>
+      run(t.tournamentsStats.name, () => this.tournamentsStats(args)),
+    )
+    server.registerTool(t.tournamentsBuildable.name, config(t.tournamentsBuildable), (args) =>
+      run(t.tournamentsBuildable.name, () => this.tournamentsBuildable(args)),
+    )
+    server.registerTool(t.tournamentsUnlockCards.name, config(t.tournamentsUnlockCards), (args) =>
+      run(t.tournamentsUnlockCards.name, () => this.tournamentsUnlock(args)),
+    )
     notYet(t.simulationsResults, MCP_TOOL_NOT_AVAILABLE.simulations)
     return server
   }
@@ -749,6 +765,164 @@ export class McpToolsService {
           }
         : {}),
       assumptions: result.assumptions,
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Tournaments (Fase 5)
+  // ---------------------------------------------------------------------------------------------------------------
+
+  private scopeJson(scope: ScopeView): Json {
+    return {
+      era: `${scope.era.code} (${scope.era.nameEs}), desde el ${scope.era.from}${scope.era.to ? ` hasta el ${scope.era.to}` : ''}`,
+      format: scope.format,
+      minPlayers: scope.minPlayers,
+      tournaments: scope.tournaments,
+      lists: scope.lists,
+      eraMean: rateView(scope.mean.rate),
+      ...(scope.conflicts.length > 0
+        ? {
+            warning: `${scope.conflicts.length} torneos traen cartas de un set posterior a su fecha o que la tabla de eras no conoce.`,
+          }
+        : {}),
+      source: scope.attribution,
+    }
+  }
+
+  private recordJson(row: RecordRowView): Json {
+    return {
+      lists: row.lists,
+      record: row.record,
+      share: `${percentFormat.format(row.share)} %`,
+      rate: rateView(row.rate),
+    }
+  }
+
+  private listJson(row: ListRowView): Json {
+    return {
+      key: row.key,
+      archetype: row.archetype.name,
+      ...this.recordJson(row),
+      cards: row.cards.map((card) => `${card.count} ${card.nameEs} (${card.set}-${card.number})`),
+    }
+  }
+
+  private againstJson(row: ListAgainstCollectionView): Json {
+    return {
+      ...this.listJson(row),
+      ...(row.missing.length > 0
+        ? { missing: row.missing.map((item) => `${item.nameEs}: tenés ${item.have} de ${item.need}`) }
+        : {}),
+    }
+  }
+
+  /** An archetype by Limitless id or by part of its name (case and accents folded). */
+  private findArchetype(rows: readonly ArchetypeRowView[], query: string): ArchetypeRowView {
+    const folded = foldText(query)
+    const exact = rows.find((row) => row.archetype.id === query || foldText(row.archetype.name) === folded)
+    const hit = exact ?? rows.find((row) => foldText(row.archetype.name).includes(folded))
+    if (!hit) throw new NotFoundException(`No hay listas de un arquetipo «${query}» en esta era.`)
+    return hit
+  }
+
+  private async tournamentsStats(args: {
+    era?: string
+    format?: TournamentFormat
+    by?: 'archetype' | 'list'
+    archetype?: string
+    card?: string
+    minCopies?: number
+    limit?: number
+  }): Promise<Json> {
+    const scope = { era: args.era, format: args.format }
+    const limit = args.limit ?? 15
+    if (args.card && !args.archetype) {
+      throw new BadRequestException({
+        code: 'validation',
+        message: '«card» va con «archetype»: con y sin esa carta dentro de un arquetipo.',
+      })
+    }
+    if (args.archetype) {
+      const all = await this.tournaments.archetypes(scope)
+      const hit = this.findArchetype(all.rows, args.archetype)
+      const card = args.card ? (this.resolveGroups(args.card).groups[0]?.id ?? undefined) : undefined
+      const detail = await this.tournaments.archetype(hit.archetype.id ?? 'none', {
+        ...scope,
+        card,
+        minCount: args.minCopies,
+      })
+      return {
+        scope: this.scopeJson(detail.scope),
+        archetype: {
+          id: detail.archetype.archetype.id,
+          name: detail.archetype.archetype.name,
+          ...this.recordJson(detail.archetype),
+        },
+        topLists: detail.lists.slice(0, Math.min(limit, 10)).map((row) => this.listJson(row)),
+        cards: detail.cards.slice(0, 30).map((usage) => ({
+          card: usage.nameEs,
+          lists: usage.lists,
+          share: `${percentFormat.format(usage.share)} %`,
+          oneCopy: usage.byCopies[1] ?? 0,
+          twoCopies: usage.byCopies[2] ?? 0,
+        })),
+        ...(detail.withWithout
+          ? {
+              withWithout: {
+                card: detail.withWithout.card.nameEs,
+                minCopies: detail.withWithout.minCount,
+                with: this.recordJson(detail.withWithout.with),
+                without: this.recordJson(detail.withWithout.without),
+                note: 'Dos filas con su propio n e intervalo; la diferencia no es un número aparte.',
+              },
+            }
+          : {}),
+      }
+    }
+    if (args.by === 'list') {
+      const lists = await this.tournaments.lists({ ...scope, limit })
+      return {
+        scope: this.scopeJson(lists.scope),
+        totalLists: lists.total,
+        lists: lists.rows.map((row) => this.listJson(row)),
+      }
+    }
+    const archetypes = await this.tournaments.archetypes(scope)
+    return {
+      scope: this.scopeJson(archetypes.scope),
+      totalArchetypes: archetypes.rows.length,
+      archetypes: archetypes.rows.slice(0, limit).map((row) => ({
+        id: row.archetype.id,
+        name: row.archetype.name,
+        ...this.recordJson(row),
+      })),
+    }
+  }
+
+  private async tournamentsBuildable(args: { era?: string; format?: TournamentFormat; limit?: number }): Promise<Json> {
+    const limit = args.limit ?? 10
+    const view = await this.tournaments.buildable({ era: args.era, format: args.format, limit })
+    return {
+      scope: this.scopeJson(view.scope),
+      buildable: view.buildable.map((row) => this.againstJson(row)),
+      nearlyBuildable: view.near.map((row) => this.againstJson(row)),
+    }
+  }
+
+  private async tournamentsUnlock(args: { era?: string; format?: TournamentFormat; limit?: number }): Promise<Json> {
+    const view = await this.tournaments.unlock({ era: args.era, format: args.format, limit: args.limit ?? 10 })
+    return {
+      scope: this.scopeJson(view.scope),
+      cards: view.cards.map((card) => ({
+        card: card.nameEs,
+        functionalGroupId: card.groupId,
+        have: card.have,
+        copiesToAdd: card.copies,
+        listsUnlocked: card.lists,
+        listsWithOneCopy: card.listsWithOneCopy,
+        unlockedListsRecord: { lists: card.entries, record: card.record, rate: rateView(card.rate) },
+        examples: card.unlocked.slice(0, 3).map((row) => `${row.archetype.name}: ${formatWinRateEs(row.rate)}`),
+      })),
     }
   }
 

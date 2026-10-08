@@ -11,6 +11,7 @@ import { dateOnly } from '../config/time-zone.js'
 import type { Prisma } from '../generated/prisma/client.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import { TournamentDataVersion } from '../tournaments/tournament-settings.js'
 import {
   BACKUP_SCHEMA_VERSION,
   type BackupCounts,
@@ -95,6 +96,7 @@ export class BackupService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly catalog: CatalogService,
+    private readonly tournamentData: TournamentDataVersion,
     @Inject(ENV) private readonly env: Env,
     private readonly logger: PinoLogger,
   ) {
@@ -106,27 +108,30 @@ export class BackupService {
   // ---------------------------------------------------------------------------------------------------------------
 
   async exportDocument(): Promise<BackupDocument> {
-    const [settings, rarityRules, stock, imports, adjustments, decks, matches, packs, tokens] = await Promise.all([
-      this.prisma.appSetting.findMany({ orderBy: { key: 'asc' } }),
-      this.prisma.rarityRule.findMany({ orderBy: { rarity: 'asc' } }),
-      this.prisma.collectionStock.findMany({ orderBy: { cardId: 'asc' } }),
-      this.prisma.collectionImport.findMany({
-        orderBy: { id: 'asc' },
-        include: { rows: { orderBy: { cardId: 'asc' } } },
-        omit: { rawFileGz: true },
-      }),
-      this.prisma.collectionAdjustment.findMany({ orderBy: { id: 'asc' } }),
-      this.prisma.deck.findMany({
-        orderBy: { id: 'asc' },
-        include: { revisions: { orderBy: { number: 'asc' } }, changes: { orderBy: { id: 'asc' } } },
-      }),
-      this.prisma.match.findMany({ orderBy: { id: 'asc' } }),
-      this.prisma.pack.findMany({
-        orderBy: { id: 'asc' },
-        select: { id: true, available: true, pointsBalance: true, limited: true, limitedUntil: true },
-      }),
-      this.prisma.apiToken.findMany({ orderBy: { id: 'asc' } }),
-    ])
+    const [settings, rarityRules, stock, imports, adjustments, decks, matches, packs, tokens, sets, aliases] =
+      await Promise.all([
+        this.prisma.appSetting.findMany({ orderBy: { key: 'asc' } }),
+        this.prisma.rarityRule.findMany({ orderBy: { rarity: 'asc' } }),
+        this.prisma.collectionStock.findMany({ orderBy: { cardId: 'asc' } }),
+        this.prisma.collectionImport.findMany({
+          orderBy: { id: 'asc' },
+          include: { rows: { orderBy: { cardId: 'asc' } } },
+          omit: { rawFileGz: true },
+        }),
+        this.prisma.collectionAdjustment.findMany({ orderBy: { id: 'asc' } }),
+        this.prisma.deck.findMany({
+          orderBy: { id: 'asc' },
+          include: { revisions: { orderBy: { number: 'asc' } }, changes: { orderBy: { id: 'asc' } } },
+        }),
+        this.prisma.match.findMany({ orderBy: { id: 'asc' } }),
+        this.prisma.pack.findMany({
+          orderBy: { id: 'asc' },
+          select: { id: true, available: true, pointsBalance: true, limited: true, limitedUntil: true },
+        }),
+        this.prisma.apiToken.findMany({ orderBy: { id: 'asc' } }),
+        this.prisma.setRelease.findMany({ orderBy: [{ releaseDate: 'asc' }, { code: 'asc' }] }),
+        this.prisma.archetypeAlias.findMany({ orderBy: { archetypeId: 'asc' } }),
+      ])
     return {
       schemaVersion: BACKUP_SCHEMA_VERSION,
       exportedAt: iso(new Date()),
@@ -189,6 +194,7 @@ export class BackupService {
         builtInGameSince: isoOrNull(deck.builtInGameSince),
         variantOfId: deck.variantOfId,
         packPriority: deck.packPriority,
+        tournamentArchetypeId: deck.tournamentArchetypeId,
         keyCards: deck.keyCards,
         archivedAt: isoOrNull(deck.archivedAt),
         currentRevisionId: deck.currentRevisionId,
@@ -212,6 +218,15 @@ export class BackupService {
           source: change.source,
         })),
       })),
+      tournaments: {
+        sets: sets.map((set) => ({
+          code: set.code,
+          nameEn: set.nameEn,
+          releaseDate: dateOnly(set.releaseDate) as string,
+          opensEra: set.opensEra,
+        })),
+        archetypeAliases: aliases.map((alias) => ({ archetypeId: alias.archetypeId, canonicalId: alias.canonicalId })),
+      },
       packs: packs.map((pack) => ({
         id: pack.id,
         available: pack.available,
@@ -378,6 +393,7 @@ export class BackupService {
               builtInGame: deck.builtInGame,
               builtInGameSince: deck.builtInGameSince,
               packPriority: deck.packPriority,
+              tournamentArchetypeId: deck.tournamentArchetypeId,
               keyCards: deck.keyCards as Prisma.InputJsonValue,
               archivedAt: deck.archivedAt,
               currentRevisionId: deck.currentRevisionId,
@@ -452,6 +468,24 @@ export class BackupService {
         if (document.matches.length > 0) {
           await tx.match.createMany({ data: document.matches })
         }
+        // Era table and archetype merges are replaced only when the file carries them (version 4).
+        if (document.tournaments) {
+          await tx.setRelease.deleteMany()
+          if (document.tournaments.sets.length > 0) {
+            await tx.setRelease.createMany({
+              data: document.tournaments.sets.map((set) => ({
+                code: set.code,
+                nameEn: set.nameEn,
+                releaseDate: new Date(`${set.releaseDate}T00:00:00Z`),
+                opensEra: set.opensEra,
+              })),
+            })
+          }
+          await tx.archetypeAlias.deleteMany()
+          if (document.tournaments.archetypeAliases.length > 0) {
+            await tx.archetypeAlias.createMany({ data: document.tournaments.archetypeAliases })
+          }
+        }
         if (document.settings.length > 0) {
           await tx.appSetting.createMany({
             data: document.settings.map((setting) => ({
@@ -483,6 +517,7 @@ export class BackupService {
       },
       { timeout: 120_000, maxWait: 10_000 },
     )
+    this.tournamentData.bump()
     this.logger.info({ counts: backupCounts(document) }, 'backup restored')
     return { applied: true, counts: backupCounts(document), notices }
   }
@@ -510,6 +545,11 @@ export class BackupService {
     if (unknown.size > 0) {
       notices.push(
         `${unknown.size} ids del backup no existen en el catálogo cargado; no se puede restaurar hasta sincronizarlo.`,
+      )
+    }
+    if (document.schemaVersion < 4) {
+      notices.push(
+        `Backup de la versión ${document.schemaVersion}, anterior a la Fase 5: no trae la tabla de eras ni los arquetipos fusionados; se mantiene lo que hay ahora.`,
       )
     }
     if (document.schemaVersion < 3) {

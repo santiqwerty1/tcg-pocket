@@ -60,6 +60,7 @@ export interface DeckInput {
   /** Id (string) of the deck this one is a variant of; null clears it. */
   variantOfId?: string | null | undefined
   packPriority?: number | undefined
+  tournamentArchetypeId?: string | null | undefined
 }
 
 export interface DeckPatch extends Partial<DeckInput> {
@@ -436,6 +437,14 @@ export class DecksService {
         changes.push({ field: 'packPriority', old: record.packPriority, new: patch.packPriority })
         data.packPriority = patch.packPriority
       }
+      if (patch.tournamentArchetypeId !== undefined && patch.tournamentArchetypeId !== record.tournamentArchetypeId) {
+        changes.push({
+          field: 'tournamentArchetype',
+          old: record.tournamentArchetypeId,
+          new: patch.tournamentArchetypeId,
+        })
+        data.tournamentArchetypeId = patch.tournamentArchetypeId
+      }
       if (variantOfId !== undefined && variantOfId !== record.variantOfId) {
         changes.push({
           field: 'variantOf',
@@ -521,6 +530,7 @@ export class DecksService {
           notes: record.notes,
           variantOfId: record.id,
           packPriority: record.packPriority,
+          tournamentArchetypeId: record.tournamentArchetypeId,
         },
         'duplicate',
       ),
@@ -586,6 +596,7 @@ export class DecksService {
       builtInGame: record.builtInGame,
       variantOfId: record.variantOfId === null ? null : idToString(record.variantOfId),
       packPriority: record.packPriority,
+      tournamentArchetypeId: record.tournamentArchetypeId,
       archivedAt: record.archivedAt,
       valid: validation.ok,
       errorCount: validation.errors.length,
@@ -734,6 +745,7 @@ export class DecksService {
         tags: input.tags ?? [],
         notes: input.notes ?? '',
         packPriority: input.packPriority ?? 0,
+        tournamentArchetypeId: input.tournamentArchetypeId ?? null,
         ...(input.variantOfId === null ? {} : { variantOf: { connect: { id: input.variantOfId } } }),
       },
     })

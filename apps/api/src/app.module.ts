@@ -19,6 +19,7 @@ import { PacksModule } from './packs/packs.controller.js'
 import { PrismaModule } from './prisma/prisma.module.js'
 import { SettingsModule } from './settings/settings.module.js'
 import { TokensModule } from './tokens/tokens.module.js'
+import { TournamentsModule } from './tournaments/tournaments.controller.js'
 import { WebModule } from './web/web.module.js'
 import { WorkerModule } from './worker/worker.module.js'
 
@@ -43,6 +44,7 @@ export class AppModule implements NestModule {
         DecksModule,
         MatchesModule,
         PacksModule,
+        TournamentsModule,
         SettingsModule,
         BackupModule,
         HttpModule,

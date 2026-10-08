@@ -56,6 +56,8 @@ export interface MatchSuggestionsView {
   lastDeckId: string | null
   lastMode: MatchMode
   opponents: { key: string; label: string; games: number; lastPlayedAt: Date }[]
+  /** Archetypes of the current Standard era with ≥ 5 tournament lists (Fase 5), most played first. */
+  tournamentArchetypes: { name: string; lists: number }[]
 }
 
 export interface ComparisonColumnView {
@@ -66,6 +68,8 @@ export interface ComparisonColumnView {
   rate: WinRate | null
   /** Where the column comes from, or why it has no data yet. */
   note: string
+  /** Separate rows of the same source (tournament: exact list and archetype), each with its own n and interval. */
+  rows?: { label: string; record: GameRecord; rate: WinRate | null; note?: string }[]
 }
 
 /** Three separate columns, never combined into one number (PLAN §3.6, I9). */

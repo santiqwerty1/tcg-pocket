@@ -9,6 +9,7 @@
 import { z } from 'zod'
 import { RARITIES } from '../catalog/types.js'
 import { MATCH_MODES } from '../matches/types.js'
+import { TOURNAMENT_FORMATS } from '../tournaments/eras.js'
 
 const query = z
   .string()
@@ -29,9 +30,21 @@ const deckRef = z
   )
 
 export const MCP_TOOL_NOT_AVAILABLE = {
-  tournaments: 'Los datos de torneo de Limitless (M5) llegan en la Fase 5.',
   simulations: 'Las simulaciones con deckgym (M7) llegan en la Fase 6.',
 } as const
+
+const tournamentScope = {
+  era: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9-]{1,8}$/)
+    .optional()
+    .describe('Era: código del último set del formato («B4a»); por defecto la vigente'),
+  format: z.enum(TOURNAMENT_FORMATS).optional().describe('STANDARD (por defecto) o NOEX'),
+}
+
+const TOURNAMENT_NOTE =
+  'Datos de torneo de Limitless (play.limitlesstcg.com), por era: cada fila trae listas, partidas e intervalo; con menos de 30 listas es orientativo; comparar contra la media de la era (no contra 50 %, porque cuenta empates y abandonos).'
 
 export const MCP_READ_TOOLS = {
   collectionSummary: {
@@ -206,20 +219,39 @@ export const MCP_READ_TOOLS = {
   tournamentsStats: {
     name: 'tournaments_stats',
     title: 'Estadísticas de torneo',
-    description: `Récord por arquetipo y por lista exacta en torneos de Limitless. ${MCP_TOOL_NOT_AVAILABLE.tournaments}`,
-    input: z.object({}),
+    description: `Récord por arquetipo («by: archetype», por defecto) o por lista exacta («by: list»: mismas 20 cartas, por carta funcional). Con «archetype» devuelve ese arquetipo: récord, sus listas más jugadas y qué cartas usa; si además se pasa «card», el récord con y sin esa carta (al menos «minCopies» copias), en dos filas separadas. ${TOURNAMENT_NOTE}`,
+    input: z.object({
+      ...tournamentScope,
+      by: z.enum(['archetype', 'list']).optional().describe('archetype (por defecto) o list'),
+      archetype: z
+        .string()
+        .trim()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe('Arquetipo: parte del nombre en inglés («Mega Blaziken») o su id de Limitless'),
+      card: query.optional().describe('Carta para «con y sin» (requiere archetype): nombre o código de edición'),
+      minCopies: z.number().int().min(1).max(2).optional().describe('Copias mínimas para contar «con» (1 o 2)'),
+      limit: z.number().int().min(1).max(50).optional().describe('Filas a devolver (por defecto 15)'),
+    }),
   },
   tournamentsBuildable: {
     name: 'tournaments_buildable',
     title: 'Listas de torneo que puedo armar',
-    description: `Listas de torneo que se pueden armar con la colección actual. ${MCP_TOOL_NOT_AVAILABLE.tournaments}`,
-    input: z.object({}),
+    description: `Listas exactas de torneo de la era que se pueden armar hoy con la colección (por carta funcional, cada lista contra la colección entera), las más jugadas primero, y las que quedan a 1 o 2 copias. ${TOURNAMENT_NOTE}`,
+    input: z.object({
+      ...tournamentScope,
+      limit: z.number().int().min(1).max(50).optional().describe('Listas a devolver por grupo (por defecto 10)'),
+    }),
   },
   tournamentsUnlockCards: {
     name: 'tournaments_unlock_cards',
     title: 'Cartas que destraban listas',
-    description: `Qué carta sola destraba más listas de torneo. ${MCP_TOOL_NOT_AVAILABLE.tournaments}`,
-    input: z.object({}),
+    description: `Qué carta sola destraba más listas de torneo de la era: para cada carta, cuántas listas exactas pasan a poder armarse si se consiguen las copias que faltan de esa carta (y ninguna otra), con el récord combinado de esas listas. ${TOURNAMENT_NOTE}`,
+    input: z.object({
+      ...tournamentScope,
+      limit: z.number().int().min(1).max(50).optional().describe('Cartas a devolver (por defecto 10)'),
+    }),
   },
   simulationsResults: {
     name: 'simulations_results',
@@ -233,7 +265,7 @@ export type McpReadToolKey = keyof typeof MCP_READ_TOOLS
 
 /** What the model reads before using the tools (MCP `instructions`). */
 export const MCP_SERVER_INSTRUCTIONS = [
-  'Datos personales de Pokémon TCG Pocket de un solo jugador: colección, mazos y partidas registradas.',
+  'Datos personales de Pokémon TCG Pocket de un solo jugador: colección, mazos y partidas registradas, más resultados de torneo de Limitless por era.',
   'Una carta funcional agrupa las ediciones con el mismo nombre y el mismo texto; sus copias se suman. Cartas con el mismo nombre y distinto texto (Riolu A2-91 y Riolu B3-79) son cartas funcionales distintas. Las copias no se reparten entre mazos: cada mazo se compara contra la colección entera.',
   'Los códigos de edición tienen la forma B4-103. Mostrá los nombres de cartas en español.',
   'Los mazos se nombran por número («mazo 13»): es el id del mazo (las 40 listas se importaron en orden) y las tools lo aceptan así. Al responder, nombrá cada mazo por su número y su nombre.',

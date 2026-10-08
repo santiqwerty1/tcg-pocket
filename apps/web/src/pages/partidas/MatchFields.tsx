@@ -126,7 +126,7 @@ export function OpponentField({
 }: {
   value: string
   onChange: (value: string) => void
-  suggestions: OpponentSuggestion[]
+  suggestions: Pick<OpponentSuggestion, 'key' | 'label'>[]
   max?: number
 }) {
   const typedKey = opponentKeyOf(value)

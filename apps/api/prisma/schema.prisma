@@ -315,27 +315,29 @@ enum DeckSource {
 }
 
 model Deck {
-  id                Int            @id @default(autoincrement())
-  name              String
-  energies          String[]
-  tags              String[]
-  notes             String         @default("")
-  builtInGame       Boolean        @default(false) @map("built_in_game")
-  builtInGameSince  DateTime?      @map("built_in_game_since") @db.Timestamptz(3)
-  variantOfId       Int?           @map("variant_of_id")
-  variantOf         Deck?          @relation("DeckVariants", fields: [variantOfId], references: [id], onDelete: SetNull)
-  variants          Deck[]         @relation("DeckVariants")
-  packPriority      Int            @default(0) @map("pack_priority")
+  id                    Int            @id @default(autoincrement())
+  name                  String
+  energies              String[]
+  tags                  String[]
+  notes                 String         @default("")
+  builtInGame           Boolean        @default(false) @map("built_in_game")
+  builtInGameSince      DateTime?      @map("built_in_game_since") @db.Timestamptz(3)
+  variantOfId           Int?           @map("variant_of_id")
+  variantOf             Deck?          @relation("DeckVariants", fields: [variantOfId], references: [id], onDelete: SetNull)
+  variants              Deck[]         @relation("DeckVariants")
+  packPriority          Int            @default(0) @map("pack_priority")
+  /// Limitless archetype chosen by the owner for the «torneo» column (null = guessed from the closest lists).
+  tournamentArchetypeId String?        @map("tournament_archetype_id")
   /// [{ functionalGroupId, role: attacker | setup }]
-  keyCards          Json           @default("[]") @map("key_cards")
-  archivedAt        DateTime?      @map("archived_at") @db.Timestamptz(3)
-  currentRevisionId Int?           @map("current_revision_id")
-  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt         DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
-  revisions         DeckRevision[]
-  changes           DeckChange[]
-  cards             DeckCard[]
-  matches           Match[]
+  keyCards              Json           @default("[]") @map("key_cards")
+  archivedAt            DateTime?      @map("archived_at") @db.Timestamptz(3)
+  currentRevisionId     Int?           @map("current_revision_id")
+  createdAt             DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  revisions             DeckRevision[]
+  changes               DeckChange[]
+  cards                 DeckCard[]
+  matches               Match[]
 
   @@index([archivedAt])
   @@map("decks")
@@ -509,4 +511,114 @@ model BackupBlob {
   dataGz    Bytes    @map("data_gz")
 
   @@map("backup_blobs")
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Torneos (Fase 5, M5): Limitless data as it came plus the owner's era table and archetype merges
+// ---------------------------------------------------------------------------------------------------------------
+
+enum TournamentFormat {
+  STANDARD
+  NOEX
+  EXCLUDED
+}
+
+enum TournamentStatus {
+  listed
+  complete
+  incomplete
+  excluded
+  failed
+}
+
+model Tournament {
+  id              String            @id
+  name            String
+  date            DateTime          @db.Timestamptz(3)
+  /// `format` as Limitless sent it: null = Standard.
+  formatRaw       String?           @map("format_raw")
+  format          TournamentFormat
+  players         Int
+  organizerId     Int?              @map("organizer_id")
+  organizerName   String?           @map("organizer_name")
+  /// { decklists, isOnline, phases, bannedCards, specialRules } from /details.
+  details         Json?
+  status          TournamentStatus  @default(listed)
+  excludedReason  String?           @map("excluded_reason")
+  attempts        Int               @default(0)
+  nextAttemptAt   DateTime?         @map("next_attempt_at") @db.Timestamptz(3)
+  lastError       String?           @map("last_error")
+  /// The standings JSON, gzipped (kept to re-normalize without calling Limitless again).
+  rawStandingsGz  Bytes?            @map("raw_standings_gz")
+  standingsSha256 String?           @map("standings_sha256")
+  firstSeenAt     DateTime          @default(now()) @map("first_seen_at") @db.Timestamptz(3)
+  lastSeenAt      DateTime          @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  fetchedAt       DateTime?         @map("fetched_at") @db.Timestamptz(3)
+  entries         TournamentEntry[]
+
+  @@index([date])
+  @@index([status, date])
+  @@map("tournaments")
+}
+
+model TournamentEntry {
+  id             Int        @id @default(autoincrement())
+  tournamentId   String     @map("tournament_id")
+  tournament     Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  playerId       String     @map("player_id")
+  playerName     String     @map("player_name")
+  country        String?
+  placing        Int?
+  drop           Int?
+  wins           Int
+  losses         Int
+  ties           Int
+  archetypeId    String?    @map("archetype_id")
+  archetypeName  String?    @map("archetype_name")
+  archetypeIcons String[]   @map("archetype_icons")
+  energies       String[]
+  /// { pokemon, trainer } as Limitless sent it; null = no list published.
+  decklist       Json?
+
+  @@unique([tournamentId, playerId])
+  @@index([archetypeId])
+  @@map("tournament_entries")
+}
+
+/// Era table (PLAN Apéndice A.5): seeded with the known releases, edited by the owner when a set comes out.
+model SetRelease {
+  code        String   @id
+  nameEn      String   @map("name_en")
+  releaseDate DateTime @map("release_date") @db.Date
+  opensEra    Boolean  @map("opens_era")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("set_releases")
+}
+
+/// Owner's merges of Limitless archetypes (their slugs change): `archetypeId` is shown as `canonicalId`.
+model ArchetypeAlias {
+  archetypeId String   @id @map("archetype_id")
+  canonicalId String   @map("canonical_id")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@map("archetype_aliases")
+}
+
+model LimitlessSyncRun {
+  id                Int       @id @default(autoincrement())
+  /// incremental | backfill
+  kind              String
+  /// running | done | failed | interrupted
+  status            String
+  startedAt         DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
+  finishedAt        DateTime? @map("finished_at") @db.Timestamptz(3)
+  calls             Int       @default(0)
+  tournamentsListed Int       @default(0) @map("tournaments_listed")
+  tournamentsDone   Int       @default(0) @map("tournaments_done")
+  waitedMs          Int       @default(0) @map("waited_ms")
+  error             String?
+
+  @@index([startedAt])
+  @@map("limitless_sync_runs")
 }

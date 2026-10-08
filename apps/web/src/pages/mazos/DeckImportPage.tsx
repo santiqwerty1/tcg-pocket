@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useLocation, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useCommitDecks, useImportDecks } from '@/api/decks'
@@ -102,7 +102,12 @@ interface DraftState {
 
 export function DeckImportPage() {
   const navigate = useNavigate()
-  const [text, setText] = useState('')
+  const location = useLocation()
+  // «Importar como mazo» from a tournament list arrives with its Limitless text.
+  const [text, setText] = useState(() => {
+    const state = location.state as { text?: unknown } | null
+    return typeof state?.text === 'string' ? state.text : ''
+  })
   const [format, setFormat] = useState<DeckImportFormat>('auto')
   const importDecks = useImportDecks()
   const commit = useCommitDecks()

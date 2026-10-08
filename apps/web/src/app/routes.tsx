@@ -22,6 +22,10 @@ import { MatchHistoryPage } from '@/pages/partidas/MatchHistoryPage'
 import { MatchStatsPage } from '@/pages/partidas/MatchStatsPage'
 import { PartidasPage } from '@/pages/partidas/PartidasPage'
 import { SobresPage } from '@/pages/sobres/SobresPage'
+import { ArchetypePage } from '@/pages/torneos/ArchetypePage'
+import { ListPage } from '@/pages/torneos/ListPage'
+import { TorneosAjustesPage } from '@/pages/torneos/TorneosAjustesPage'
+import { TorneosPage } from '@/pages/torneos/TorneosPage'
 import { AppShell, type RouteHandle } from './AppShell'
 
 function handle(title: string, back?: string): RouteHandle {
@@ -49,6 +53,10 @@ export const routes: RouteObject[] = [
       },
       { path: 'partidas/:matchId', element: <MatchEditPage />, handle: handle('Editar partida', '/partidas') },
       { path: 'sobres', element: <SobresPage />, handle: handle('Sobres') },
+      { path: 'torneos', element: <TorneosPage />, handle: handle('Torneos', '/mas') },
+      { path: 'torneos/ajustes', element: <TorneosAjustesPage />, handle: handle('Ajustes de torneos', '/torneos') },
+      { path: 'torneos/arquetipos/:id', element: <ArchetypePage />, handle: handle('Arquetipo', '/torneos') },
+      { path: 'torneos/listas/:key', element: <ListPage />, handle: handle('Lista de torneo', '/torneos') },
 
       { path: 'coleccion', element: <CollectionPage />, handle: handle('Colección') },
       { path: 'coleccion/importar', element: <ImportPage />, handle: handle('Importar colección', '/coleccion') },

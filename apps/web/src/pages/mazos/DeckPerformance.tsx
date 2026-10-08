@@ -5,12 +5,17 @@
  */
 import { PlusIcon } from 'lucide-react'
 import { Link } from 'react-router'
+import { toast } from 'sonner'
+import { errorMessage } from '@/api/client'
+import { useUpdateDeck } from '@/api/decks'
 import { useDeckComparison, useMatchStats } from '@/api/matches'
 import type { ComparisonColumn } from '@/api/schemas'
+import { useArchetypes } from '@/api/tournaments'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { OrientativeBadge, RateRows } from '@/components/RateSummary'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { formatInterval, formatRateValue, formatRecord, formatSample } from '@/lib/matches'
 import { cn } from '@/lib/utils'
 
@@ -40,7 +45,75 @@ function ColumnCard({ column }: { column: ComparisonColumn }) {
   )
 }
 
-export function DeckPerformance({ deckId, archived }: { deckId: string; archived: boolean }) {
+const GUESS = '__guess__'
+
+/** The tournament column in detail: exact list and archetype as separate rows, and the archetype of the deck. */
+function TournamentDetail({
+  deckId,
+  column,
+  tournamentArchetypeId,
+}: {
+  deckId: string
+  column: ComparisonColumn
+  tournamentArchetypeId: string | null
+}) {
+  const archetypes = useArchetypes({})
+  const update = useUpdateDeck()
+  const rows = column.rows ?? []
+  if (rows.length === 0 && (archetypes.data?.rows.length ?? 0) === 0) return null
+
+  async function choose(value: string) {
+    try {
+      await update.mutateAsync({ id: deckId, patch: { tournamentArchetypeId: value === GUESS ? null : value } })
+    } catch (error) {
+      toast.error(errorMessage(error))
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <h3 className="text-sm font-medium">Torneo, en detalle</h3>
+      {rows.length > 0 ? (
+        <RateRows
+          rows={rows.map((row) => ({
+            id: row.label,
+            label: row.label,
+            hint: row.note,
+            record: row.record,
+            rate: row.rate,
+          }))}
+        />
+      ) : null}
+      {archetypes.data && archetypes.data.rows.length > 0 ? (
+        <Select value={tournamentArchetypeId ?? GUESS} onValueChange={choose}>
+          <SelectTrigger aria-label="Arquetipo del mazo en torneos" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={GUESS}>Arquetipo: sugerido por las listas más parecidas</SelectItem>
+            {archetypes.data.rows
+              .filter((row) => row.archetype.id !== null)
+              .map((row) => (
+                <SelectItem key={row.archetype.id} value={row.archetype.id as string}>
+                  {row.archetype.name} ({row.lists})
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
+      ) : null}
+    </div>
+  )
+}
+
+export function DeckPerformance({
+  deckId,
+  archived,
+  tournamentArchetypeId = null,
+}: {
+  deckId: string
+  archived: boolean
+  tournamentArchetypeId?: string | null
+}) {
   const comparison = useDeckComparison(deckId)
   const stats = useMatchStats({ deckId })
   const games = stats.data?.overall.rate?.games ?? 0
@@ -67,6 +140,13 @@ export function DeckPerformance({ deckId, archived }: { deckId: string; archived
             <ColumnCard key={column.source} column={column} />
           ))}
         </div>
+      ) : null}
+      {comparison.data?.columns.find((column) => column.source === 'tournament') ? (
+        <TournamentDetail
+          deckId={deckId}
+          column={comparison.data.columns.find((column) => column.source === 'tournament') as ComparisonColumn}
+          tournamentArchetypeId={tournamentArchetypeId}
+        />
       ) : null}
 
       {stats.data && games > 0 ? (

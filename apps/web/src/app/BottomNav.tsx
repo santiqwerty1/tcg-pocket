@@ -15,7 +15,7 @@ export const NAV_DESTINATIONS: NavDestination[] = [
   { to: '/mazos', label: 'Mazos', icon: LayersIcon },
   { to: '/coleccion', label: 'Colección', icon: LibraryBigIcon, also: ['/cartas', '/grupos'] },
   { to: '/sobres', label: 'Sobres', icon: PackageIcon },
-  { to: '/mas', label: 'Más', icon: MenuIcon },
+  { to: '/mas', label: 'Más', icon: MenuIcon, also: ['/torneos'] },
 ]
 
 export function destinationFor(pathname: string): NavDestination | undefined {

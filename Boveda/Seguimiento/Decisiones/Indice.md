@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-9 fichas: propuesta 3 · vigente 6. ⚑ = para revisar.
+12 fichas: propuesta 5 · vigente 7. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Actualizado |
 | --- | --- | --- | --- | --- |
@@ -26,3 +26,6 @@ revisar: false
 | [D-007](D-007.md) | Sobres por tiempo limitado: lo que solo ellos dan pesa más | propuesta ⚑ | — | 2026-10-08 |
 | [D-008](D-008.md) | Consejo «intercambiar» para lo que ningún sobre a la venta da | propuesta ⚑ | — | 2026-10-08 |
 | [D-009](D-009.md) | Bóveda con el kit de Posta; hooks y CI sin activar | propuesta ⚑ | — | 2026-10-08 |
+| [D-010](D-010.md) | Torneos: sync de Limitless por era, con los valores del bloque B | vigente | — | 2026-10-08 |
+| [D-011](D-011.md) | Lista exacta sin ediciones y arquetipo de cada mazo sugerido | propuesta ⚑ | — | 2026-10-08 |
+| [D-012](D-012.md) | El backup no incluye los torneos de Limitless | propuesta ⚑ | — | 2026-10-08 |

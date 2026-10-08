@@ -1,0 +1,386 @@
+import { readFileSync } from 'node:fs'
+import type { AddressInfo } from 'node:net'
+import { join } from 'node:path'
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
+import { REPO_ROOT } from '../src/config/dotenv.js'
+import { type Clock, type FetchLike, LimitlessClient, LimitlessTransport } from '../src/tournaments/limitless.client.js'
+import { TournamentSyncService } from '../src/tournaments/tournament-sync.service.js'
+import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
+
+/**
+ * docs/PLAN.md §7 Fase 5 (M5) against a fake Limitless that serves the responses saved on 6/10/2026
+ * (docs/fase0/limitless/): the 400 most recent tournaments, PMPT #45 (393 players) and a NOEX tournament (79).
+ * The other tournaments answer «no decklists», so they are excluded after their details.
+ */
+const LIMITLESS = join(REPO_ROOT, 'docs/fase0/limitless')
+const CSV_PATH = join(REPO_ROOT, 'docs/context/tcgcollectiontracterexport-2026-10-06.csv')
+const DECKS_PATH = join(REPO_ROOT, 'docs/context/mazos_40_listas.md')
+const BIG = '6a95b87b629039f77d8a6954'
+const NOEX = '6a9ebbfcab080c8c957fcc9a'
+const SYNC_NOW = new Date('2026-10-07T00:00:00Z')
+
+const read = (file: string): unknown => JSON.parse(readFileSync(join(LIMITLESS, file), 'utf8'))
+const tournaments = [...(read('t1.json') as { id: string }[]), ...(read('t2.json') as { id: string }[])]
+
+type Structured = Record<string, unknown>
+
+interface Rate {
+  value: number
+  games: number
+  samples: number
+  orientative: boolean
+  ci95: [number, number]
+}
+interface RecordRow {
+  lists: number
+  record: { wins: number; losses: number; ties: number }
+  rate: Rate | null
+}
+
+describe('tournaments (e2e)', () => {
+  let test: TestApp
+  let cookie: string
+  const paths: string[] = []
+  let maxInWindow = 0
+  let throttled = false
+
+  beforeAll(async () => {
+    test = await createTestApp()
+    await seedOwner(test.app, { totp: false })
+    cookie = await login(test, { secret: null })
+    const summary = await test.app
+      .get(CatalogSyncService)
+      .sync({ trackerCommit: test.env.catalogCommit, engineRev: test.env.engineRev, source: 'fixtures' })
+    expect(summary.status).toBe('applied')
+    const preview = await post('/api/collection/imports').attach('file', readFileSync(CSV_PATH), 'export.csv')
+    expect((await post(`/api/collection/imports/${preview.body.id}/apply`)).status).toBe(200)
+    const drafts = (await post('/api/decks/import').send({ text: readFileSync(DECKS_PATH, 'utf8') })).body.drafts as {
+      title: string
+      draft: { energies: string[]; cards: unknown[] }
+    }[]
+    const decks = drafts.map((d) => ({
+      name: d.title,
+      energies: d.draft.energies.length > 0 ? d.draft.energies : ['psychic'],
+      cards: d.draft.cards,
+    }))
+    expect((await post('/api/decks/import/commit').send({ decks })).status).toBe(201)
+
+    // Fake Limitless: instant sleeps on a fake clock; one 429 on the second page of the listing.
+    let now = Date.parse('2026-10-07T00:00:00Z')
+    const clock: Clock = {
+      now: () => now,
+      sleep: async (ms) => {
+        now += ms
+      },
+    }
+    const limitless = test.app.get(LimitlessClient)
+    const fake: FetchLike = async (url) => {
+      const path = url.replace(test.env.limitlessBaseUrl, '')
+      paths.push(path)
+      maxInWindow = Math.max(maxInWindow, limitless.callsInWindow())
+      const json = (status: number, body: unknown, headers: Record<string, string> = {}) => ({
+        status,
+        headers: { get: (name: string) => headers[name.toLowerCase()] ?? null },
+        json: async () => body,
+      })
+      const listing = /^\/tournaments\?game=POCKET&limit=(\d+)&page=(\d+)$/.exec(path)
+      if (listing) {
+        const [limit, page] = [Number(listing[1]), Number(listing[2])]
+        if (page === 2 && !throttled) {
+          throttled = true
+          return json(429, { message: 'Too Many Requests' }, { 'retry-after': '75' })
+        }
+        return json(200, tournaments.slice((page - 1) * limit, page * limit))
+      }
+      const detail = /^\/tournaments\/([0-9a-f]+)\/(details|standings)$/.exec(path)
+      if (detail) {
+        const [, id, what] = detail
+        if (what === 'details') {
+          if (id === BIG) return json(200, read('big_details.json'))
+          if (id === NOEX) return json(200, { id, decklists: true, isOnline: true, phases: [] })
+          return json(200, { id, decklists: false })
+        }
+        if (id === BIG) return json(200, read('big_standings.json'))
+        if (id === NOEX) return json(200, read('noex_standings.json'))
+        return json(404, { message: 'not found' })
+      }
+      return json(404, { message: 'unknown path' })
+    }
+    const transport = test.app.get(LimitlessTransport)
+    transport.fetch = fake
+    transport.clock = clock
+    await test.app.get(TournamentSyncService).run({ now: SYNC_NOW })
+  }, 120_000)
+
+  afterAll(async () => {
+    await test.close()
+  })
+
+  function get(path: string) {
+    return test.http().get(path).set('Cookie', cookie)
+  }
+  function post(path: string) {
+    return test.http().post(path).set('Cookie', cookie)
+  }
+  function put(path: string) {
+    return test.http().put(path).set('Cookie', cookie)
+  }
+  function patch(path: string) {
+    return test.http().patch(path).set('Cookie', cookie)
+  }
+
+  it('sync: lists 60 days, downloads what counts, survives a 429 and never passes 40 calls per 5 minutes', async () => {
+    expect(throttled).toBe(true)
+    expect(maxInWindow).toBeLessThanOrEqual(40)
+    expect(paths.filter((path) => path.includes('&page=2'))).toHaveLength(2)
+    // Acceptance: era B4a (from 27/8), ≥ 12 players, CUSTOM out, cut at 6/10 → 154 tournaments, 12.616 players.
+    const b4a = await test.prisma.tournament.aggregate({
+      where: {
+        format: 'STANDARD',
+        players: { gte: 12 },
+        date: { gte: new Date('2026-08-27T00:00:00Z'), lt: new Date('2026-10-07T00:00:00Z') },
+      },
+      _count: { _all: true },
+      _sum: { players: true },
+    })
+    expect(b4a._count._all).toBe(154)
+    expect(b4a._sum.players).toBe(12_616)
+    expect(await test.prisma.tournament.count({ where: { status: 'complete' } })).toBe(2)
+    expect(await test.prisma.tournament.count({ where: { excludedReason: 'custom_format' } })).toBeGreaterThan(90)
+    expect(await test.prisma.tournament.count({ where: { excludedReason: 'no_decklists' } })).toBeGreaterThan(100)
+    // A small tournament is not downloaded at all.
+    const small = await test.prisma.tournament.findFirst({ where: { players: { lt: 12 }, format: 'STANDARD' } })
+    expect(small?.status).toBe('listed')
+    const run = await test.prisma.limitlessSyncRun.findFirstOrThrow({ orderBy: { id: 'desc' } })
+    expect(run).toMatchObject({ kind: 'backfill', status: 'done' })
+    expect(run.calls).toBe(paths.length)
+
+    // An incremental run reads one page (everything known and older than two days) and downloads nothing new.
+    const before = paths.length
+    await test.app.get(TournamentSyncService).run({ now: SYNC_NOW })
+    expect(paths.slice(before)).toEqual(['/tournaments?game=POCKET&limit=100&page=1'])
+    const status = (await get('/api/tournaments/status')).body
+    expect(status).toMatchObject({
+      currentEra: { code: 'B4a', from: '2026-08-27', to: null },
+      minPlayers: 12,
+      sync: { enabled: false, running: false, lastRun: { kind: 'incremental', status: 'done' } },
+    })
+    expect(status.sync.counts.complete).toBe(2)
+    expect(status.newEra).toMatchObject({ lastRelease: 'B4b' })
+  })
+
+  it('archetypes of the era: n, interval, «orientativo» and the era mean (48,0 % for PMPT #45, not 50 %)', async () => {
+    const response = await get('/api/tournaments/archetypes')
+    expect(response.status).toBe(200)
+    const { scope, rows } = response.body as {
+      scope: Structured & { mean: RecordRow }
+      rows: (RecordRow & Structured)[]
+    }
+    expect(scope).toMatchObject({ era: { code: 'B4a' }, format: 'STANDARD', tournaments: 1, lists: 393, games: 2190 })
+    expect(scope.mean.record).toEqual({ wins: 1051, losses: 1119, ties: 20 })
+    expect(scope.mean.rate?.value).toBeCloseTo((1051 / 2190) * 100, 9)
+    expect(String(scope.attribution)).toContain('Limitless')
+    expect(rows).toHaveLength(128)
+    for (const row of rows) expect(row.rate?.orientative).toBe(row.lists < 30)
+    expect(rows.reduce((sum, row) => sum + row.lists, 0)).toBe(393)
+
+    const noex = (await get('/api/tournaments/archetypes?format=NOEX')).body as {
+      scope: { mean: RecordRow; lists: number }
+    }
+    expect(noex.scope.lists).toBe(79)
+    expect(noex.scope.mean.record).toEqual({ wins: 190, losses: 204, ties: 40 })
+    expect((await get('/api/tournaments/archetypes?era=Z9')).status).toBe(404)
+    expect((await get('/api/tournaments/archetypes?format=CUSTOM')).status).toBe(400)
+    expect((await test.http().get('/api/tournaments/archetypes')).status).toBe(401)
+  })
+
+  it('exact lists by name (275) and by functional card, and the detail of one list', async () => {
+    const byName = (await get('/api/tournaments/lists?kind=name&limit=5')).body as { total: number; rows: Structured[] }
+    expect(byName.total).toBe(275)
+    const byGroup = (await get('/api/tournaments/lists?limit=3')).body as {
+      total: number
+      rows: (RecordRow & { key: string; cards: { count: number; nameEs: string }[] })[]
+    }
+    expect(byGroup.total).toBeGreaterThanOrEqual(275)
+    const top = byGroup.rows[0]
+    expect(top?.cards.reduce((sum, card) => sum + card.count, 0)).toBe(20)
+    const detail = (await get(`/api/tournaments/lists/${top?.key}`)).body as {
+      list: RecordRow & { missing: unknown[] }
+      text: string
+      entries: unknown[]
+    }
+    expect(detail.entries).toHaveLength(top?.lists ?? 0)
+    expect(detail.text).toMatch(/\r\n\r\nEnergy: /)
+    expect(Array.isArray(detail.list.missing)).toBe(true)
+    expect((await get('/api/tournaments/lists/zzz')).status).toBe(400)
+    expect((await get('/api/tournaments/lists/0123456789abcd')).status).toBe(404)
+  })
+
+  it('an archetype with and without a card: two rows that add up to the archetype', async () => {
+    const [top] = (await get('/api/tournaments/archetypes')).body.rows as { archetype: { id: string }; lists: number }[]
+    const detail = (await get(`/api/tournaments/archetypes/${top?.archetype.id}`)).body as {
+      cards: { groupId: string; lists: number }[]
+      lists: unknown[]
+    }
+    const split = detail.cards.find((card) => card.lists > 0 && card.lists < (top?.lists ?? 0))
+    expect(split).toBeDefined()
+    const both = (await get(`/api/tournaments/archetypes/${top?.archetype.id}?card=${split?.groupId}`)).body as {
+      withWithout: { with: RecordRow; without: RecordRow }
+    }
+    expect(both.withWithout.with.lists).toBe(split?.lists)
+    expect(both.withWithout.with.lists + both.withWithout.without.lists).toBe(top?.lists)
+  })
+
+  it('what I can build today and which card unlocks the most lists', async () => {
+    const buildable = (await get('/api/tournaments/buildable')).body as {
+      buildable: { missing: unknown[] }[]
+      near: { missingCopies: number }[]
+    }
+    expect(buildable.buildable.length).toBeGreaterThan(0)
+    expect(buildable.buildable.every((row) => row.missing.length === 0)).toBe(true)
+    expect(buildable.near.every((row) => row.missingCopies >= 1 && row.missingCopies <= 2)).toBe(true)
+    const unlock = (await get('/api/tournaments/unlock')).body as {
+      cards: { lists: number; nameEs: string; copies: number; unlocked: { missing: { groupId: string }[] }[] }[]
+    }
+    expect(unlock.cards.length).toBeGreaterThan(0)
+    for (let i = 1; i < unlock.cards.length; i++) {
+      expect(unlock.cards[i - 1]?.lists).toBeGreaterThanOrEqual(unlock.cards[i]?.lists ?? 0)
+    }
+    expect(unlock.cards[0]?.nameEs.length).toBeGreaterThan(0)
+  })
+
+  it('the era table is the owner’s: moving B4a’s release moves PMPT #45 to the B4 era', async () => {
+    const sets = (await get('/api/tournaments/sets')).body.items as {
+      code: string
+      releaseDate: string
+      opensEra: boolean
+    }[]
+    expect(sets.find((set) => set.code === 'B4b')).toMatchObject({ releaseDate: '2026-09-30', opensEra: false })
+    const moved = await put('/api/tournaments/sets/B4a').send({
+      nameEn: "Team Rocket's Ambition",
+      releaseDate: '2026-09-06',
+      opensEra: true,
+    })
+    expect(moved.status).toBe(200)
+    expect((await get('/api/tournaments/archetypes?era=B4')).body.scope.lists).toBe(393)
+    expect((await get('/api/tournaments/archetypes?era=B4a')).body.scope.lists).toBe(0)
+    await put('/api/tournaments/sets/B4a').send({
+      nameEn: "Team Rocket's Ambition",
+      releaseDate: '2026-08-27',
+      opensEra: true,
+    })
+    expect((await get('/api/tournaments/archetypes')).body.scope.lists).toBe(393)
+    expect(
+      (await put('/api/tournaments/sets/B4a').send({ nameEn: 'x', releaseDate: '27/8', opensEra: true })).status,
+    ).toBe(400)
+  })
+
+  it('archetype merges: the owner folds one Limitless archetype into another', async () => {
+    const rows = (await get('/api/tournaments/archetypes')).body.rows as { archetype: { id: string }; lists: number }[]
+    const [first, second] = rows
+    const merged = await put(`/api/tournaments/archetypes/${second?.archetype.id}/alias`).send({
+      canonicalId: first?.archetype.id,
+    })
+    expect(merged.status).toBe(200)
+    const after = (await get('/api/tournaments/archetypes')).body.rows as { archetype: { id: string }; lists: number }[]
+    expect(after).toHaveLength(127)
+    expect(after[0]?.lists).toBe((first?.lists ?? 0) + (second?.lists ?? 0))
+    expect((await get(`/api/tournaments/archetypes/${first?.archetype.id}`)).body.merged).toEqual([
+      second?.archetype.id,
+    ])
+    await put(`/api/tournaments/archetypes/${second?.archetype.id}/alias`).send({ canonicalId: null })
+    expect((await get('/api/tournaments/archetypes')).body.rows).toHaveLength(128)
+  })
+
+  it('matches: opponents from the tournament archetypes, and the «torneo» column of a deck', async () => {
+    const suggestions = (await get('/api/matches/suggestions')).body as {
+      tournamentArchetypes: { name: string; lists: number }[]
+    }
+    expect(suggestions.tournamentArchetypes.length).toBeGreaterThan(0)
+    expect(suggestions.tournamentArchetypes.every((item) => item.lists >= 5)).toBe(true)
+
+    const decks = (await get('/api/decks')).body.items as { id: string; name: string }[]
+    const blaziken = decks.find((deck) => deck.name === 'Mega-Blaziken ex')
+    const comparison = (await get(`/api/decks/${blaziken?.id}/comparison`)).body as {
+      columns: { source: string; available: boolean; note: string; rows?: { label: string; rate: Rate | null }[] }[]
+    }
+    const tournament = comparison.columns.find((column) => column.source === 'tournament')
+    expect(tournament?.available).toBe(true)
+    expect(tournament?.note).toContain('Limitless')
+    const archetypeRow = tournament?.rows?.find((row) => row.label.startsWith('Arquetipo'))
+    expect(archetypeRow?.label).toMatch(/Blaziken/i)
+    expect(comparison.columns.map((column) => column.source)).toEqual(['matches', 'tournament', 'simulation'])
+
+    // The owner pins another archetype for the deck: the column says so.
+    const [top] = (await get('/api/tournaments/archetypes')).body.rows as { archetype: { id: string; name: string } }[]
+    expect((await patch(`/api/decks/${blaziken?.id}`).send({ tournamentArchetypeId: top?.archetype.id })).status).toBe(
+      200,
+    )
+    const pinned = (await get(`/api/decks/${blaziken?.id}/comparison`)).body.columns[1] as {
+      rows: { label: string; note?: string }[]
+    }
+    expect(pinned.rows.find((row) => row.label.startsWith('Arquetipo'))?.note).toContain('elegido')
+    expect((await patch(`/api/decks/${blaziken?.id}`).send({ tournamentArchetypeId: null })).status).toBe(200)
+  })
+
+  it('MCP tools: stats by archetype and list, with and without a card, buildable lists and unlock cards', async () => {
+    const token = (await post('/api/tokens').send({ name: 'claude', kind: 'mcp', scopes: ['mcp:read'] })).body.token
+    await test.app.listen(0, '127.0.0.1')
+    const { port } = test.app.getHttpServer().address() as AddressInfo
+    const client = new Client({ name: 'e2e', version: '1.0.0' })
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/api/mcp`), {
+        requestInit: { headers: { Authorization: `Bearer ${token}` } },
+      }),
+    )
+    const call = async (name: string, args: Record<string, unknown> = {}) => {
+      const result = (await client.callTool({ name, arguments: args })) as {
+        structuredContent?: Structured
+        isError?: boolean
+        content: { text?: string }[]
+      }
+      expect(result.isError, result.content[0]?.text).toBeFalsy()
+      return result.structuredContent ?? {}
+    }
+    try {
+      const stats = await call('tournaments_stats', { limit: 3 })
+      expect(stats.scope).toMatchObject({ lists: 393, tournaments: 1, source: expect.stringContaining('Limitless') })
+      expect(String((stats.scope as { eraMean: { text: string } }).eraMean.text)).toContain('n = 2.190 en 393 listas')
+      expect(stats.archetypes).toHaveLength(3)
+      const top = (stats.archetypes as { name: string }[])[0]
+      const detail = await call('tournaments_stats', { archetype: top?.name })
+      const card = (detail.cards as { card: string; lists: number }[]).find(
+        (item) => item.lists < ((detail.archetype as { lists: number }).lists ?? 0),
+      )
+      const split = await call('tournaments_stats', { archetype: top?.name, card: card?.card })
+      const ww = split.withWithout as { with: { lists: number }; without: { lists: number } }
+      expect(ww.with.lists + ww.without.lists).toBe((detail.archetype as { lists: number }).lists)
+      expect((await call('tournaments_stats', { by: 'list', limit: 2 })).lists).toHaveLength(2)
+      const buildable = await call('tournaments_buildable', { limit: 2 })
+      expect((buildable.buildable as unknown[]).length).toBeGreaterThan(0)
+      const unlock = await call('tournaments_unlock_cards', { limit: 3 })
+      expect((unlock.cards as { listsUnlocked: number }[])[0]?.listsUnlocked).toBeGreaterThan(0)
+      const missing = (await client.callTool({ name: 'tournaments_stats', arguments: { card: 'Hoopa ex' } })) as {
+        isError?: boolean
+      }
+      expect(missing.isError).toBe(true)
+    } finally {
+      await client.close()
+    }
+  })
+
+  it('backup version 4 carries the era table, the merges and each deck’s archetype, not the tournaments', async () => {
+    const response = await get('/api/backup/export').responseType('blob')
+    const { gunzipSync } = await import('node:zlib')
+    const document = JSON.parse(gunzipSync(response.body as Buffer).toString('utf8')) as Structured & {
+      tournaments: { sets: unknown[]; archetypeAliases: unknown[] }
+      decks: { tournamentArchetypeId: string | null }[]
+    }
+    expect(document.schemaVersion).toBe(4)
+    expect(document.tournaments.sets).toHaveLength(22)
+    expect(document.tournaments.archetypeAliases).toEqual([])
+    expect(document.decks.every((deck) => deck.tournamentArchetypeId === null)).toBe(true)
+    expect(JSON.stringify(document)).not.toContain(BIG)
+  })
+})

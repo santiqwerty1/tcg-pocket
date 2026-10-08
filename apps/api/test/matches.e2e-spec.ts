@@ -288,7 +288,7 @@ describe('matches (e2e)', () => {
     expect((await get('/api/matches')).body.total).toBe(14)
   })
 
-  it('compares a deck in three separate columns; tournament and simulation say «sin datos»', async () => {
+  it('compares a deck in three separate columns; without synced tournaments and simulations they say why', async () => {
     const response = await get(`/api/decks/${deck(1).id}/comparison`)
     expect(response.status).toBe(200)
     const columns = response.body.columns as {
@@ -307,7 +307,7 @@ describe('matches (e2e)', () => {
     expect(columns[0]?.rate?.source).toBe('matches')
     expect(columns[0]?.rate?.games).toBeGreaterThan(0)
     expect(columns[1]).toMatchObject({ rate: null, record: null })
-    expect(columns[1]?.note).toContain('Fase 5')
+    expect(columns[1]?.note).toContain('Sin listas de torneo en la era')
     expect(columns[2]?.note).toContain('Fase 6')
 
     const fresh = await post('/api/decks').send({ name: 'Sin partidas', energies: ['fire'], cards: [] })

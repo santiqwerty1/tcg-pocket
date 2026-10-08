@@ -18,6 +18,7 @@ import { MatchesModule } from '../matches/matches.module.js'
 import { PacksModule } from '../packs/packs.controller.js'
 import { BearerTokenGuard, RequireScopes } from '../tokens/bearer-token.guard.js'
 import { TokensModule } from '../tokens/tokens.module.js'
+import { TournamentsModule } from '../tournaments/tournaments.controller.js'
 import { McpToolsService } from './mcp-tools.service.js'
 
 @Controller('api/mcp')
@@ -58,7 +59,7 @@ export class McpController implements OnModuleDestroy {
 }
 
 @Module({
-  imports: [TokensModule, CatalogModule, CollectionModule, DecksModule, MatchesModule, PacksModule],
+  imports: [TokensModule, CatalogModule, CollectionModule, DecksModule, MatchesModule, PacksModule, TournamentsModule],
   controllers: [McpController],
   providers: [McpToolsService],
 })

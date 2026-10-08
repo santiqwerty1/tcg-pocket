@@ -314,12 +314,11 @@ describe('MCP endpoint (e2e)', () => {
     )
     expect(withMatches?.myMatches).toMatchObject({ record: { wins: 7, losses: 3, ties: 0 } })
 
-    for (const [name, phase] of [
-      ['tournaments_stats', 'Fase 5'],
-      ['tournaments_buildable', 'Fase 5'],
-      ['tournaments_unlock_cards', 'Fase 5'],
-      ['simulations_results', 'Fase 6'],
-    ] as const) {
+    // Tournament tools answer with the era even before the first sync (no lists yet); simulations come in Fase 6.
+    const noTournaments = await call(client, 'tournaments_stats')
+    expect(noTournaments.isError).toBeFalsy()
+    expect(noTournaments.structuredContent.scope).toMatchObject({ lists: 0, tournaments: 0 })
+    for (const [name, phase] of [['simulations_results', 'Fase 6']] as const) {
       const result = await call(client, name)
       expect(result.isError).toBeFalsy()
       expect(result.structuredContent.available).toBe(false)

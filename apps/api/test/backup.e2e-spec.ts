@@ -140,7 +140,7 @@ describe('backup and settings (e2e)', () => {
     exported = response.body as Buffer
     document = JSON.parse(gunzipSync(exported).toString('utf8')) as Doc
     expect(document).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       catalogCommit: test.env.catalogCommit,
       engineRev: test.env.engineRev,
       settings: [
@@ -187,7 +187,7 @@ describe('backup and settings (e2e)', () => {
   it('dry-run reports counts and notices without touching the data', async () => {
     const response = await post('/api/backup/import?mode=dry-run').attach('file', exported, 'backup.json.gz')
     expect(response.status).toBe(200)
-    expect(response.body).toMatchObject({ schemaVersion: 3, catalogCommit: test.env.catalogCommit })
+    expect(response.body).toMatchObject({ schemaVersion: 4, catalogCommit: test.env.catalogCommit })
     expect(response.body.diff.incoming.matches).toBe(2)
     expect(response.body.diff.incoming).toEqual(response.body.diff.current)
     expect(response.body.diff.needsReview).toBe(false)
@@ -357,7 +357,7 @@ describe('backup and settings (e2e)', () => {
     expect(download.status).toBe(200)
     expect(download.headers['content-type']).toBe('application/gzip')
     const parsed = JSON.parse(gunzipSync(download.body as Buffer).toString('utf8')) as Doc
-    expect(parsed.schemaVersion).toBe(3)
+    expect(parsed.schemaVersion).toBe(4)
     expect(parsed.matches).toHaveLength(2)
     expect(parsed.decks).toHaveLength(4)
     expect((await get('/api/backup/blobs/999999')).status).toBe(404)

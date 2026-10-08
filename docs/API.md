@@ -1,4 +1,4 @@
-# Contrato REST · Fases 1 a 4
+# Contrato REST · Fases 1 a 5
 
 Contrato entre `apps/api` (NestJS) y `apps/web` (PWA). Identificadores en inglés; mensajes para el usuario en español. Todas las rutas van bajo `/api` y exigen la cookie de sesión salvo las marcadas como públicas. JSON en ambas direcciones salvo descargas.
 
@@ -110,7 +110,7 @@ ImportPreview = {
 | `GET /api/decks?tag=&archived=false&builtInGame=` | `{ items: DeckSummary[] }` en orden de creación; sin `archived` lista solo los no archivados, `archived=true` solo los archivados |
 | `POST /api/decks` | `DeckInput` → `201 DeckDetail` (se crea aunque tenga errores de validación: `valid: false`; cartas o energías vacías valen). `400 unknown_card` si algún `cardId` no existe en el catálogo (`details` lista los ids). Las entradas repetidas de una misma edición se suman |
 | `GET /api/decks/:id` | `DeckDetail` |
-| `PATCH /api/decks/:id` | `Partial<DeckInput> & { builtInGame?, archived?, note? }` → `DeckDetail`; crea una revisión (`source: 'ui'`, con `note`) solo si cambian cartas o energías; registra en `changes` los cambios de `name`, `tags`, `notes`, `packPriority`, `variantOf`, `builtInGame` y `archived`; `409 { code: 'built_in_game_limit', details: { built, max } }` cuando el mazo quedaría entre los armados no archivados y ya hay 25 (al marcarlo, al desarchivarlo si sigue marcado, o ambas cosas en el mismo PATCH: archivar **no** quita la marca `builtInGame`); `400` si `variantOfId` es el propio mazo |
+| `PATCH /api/decks/:id` | `Partial<DeckInput> & { builtInGame?, archived?, note? }` → `DeckDetail`; crea una revisión (`source: 'ui'`, con `note`) solo si cambian cartas o energías; registra en `changes` los cambios de `name`, `tags`, `notes`, `packPriority`, `tournamentArchetype`, `variantOf`, `builtInGame` y `archived`; `409 { code: 'built_in_game_limit', details: { built, max } }` cuando el mazo quedaría entre los armados no archivados y ya hay 25 (al marcarlo, al desarchivarlo si sigue marcado, o ambas cosas en el mismo PATCH: archivar **no** quita la marca `builtInGame`); `400` si `variantOfId` es el propio mazo |
 | `DELETE /api/decks/:id` | Borra (solo si está archivado y sin partidas) → `204`; `409 deck_not_archived` si no lo está; `409 deck_has_matches` (`details: { matches }`) si tiene partidas registradas |
 | `POST /api/decks/:id/duplicate` | `{ name? }` (default «<nombre> (copia)») → `201 DeckDetail` con `variantOfId` = el original, revisión 1 con `source: 'duplicate'` |
 | `POST /api/decks/:id/revisions/:number/restore` | → `DeckDetail` (nueva revisión con `source: 'restore'` y nota «Restaurada la revisión N»; si la revisión pedida es idéntica a la actual no se crea nada); `404` si no existe |
@@ -139,8 +139,9 @@ DeckDraft = { name?, energies: SelectableEnergy[], cards: [{ cardId, count }], n
 Cuando la lista dice «Cualquiera» (o la tabla resumen lo dice para ese número) el ítem trae el `draft` con `energies: []` y la advertencia `energy_choice_required` (en `warnings`; `validation.errors` trae `energy_required`): la UI elige la energía antes de confirmar. Sin ninguna indicación de energía la advertencia es `energy_missing`.
 
 ```ts
-DeckInput = { name, energies: SelectableEnergy[], cards: [{ cardId, count }], tags?: string[], notes?: string, variantOfId?: string | null, packPriority?: 0|1|2|3 }
-DeckSummary = { id, name, energies, tags, builtInGame, variantOfId: string | null, packPriority, archivedAt, valid, errorCount, complete, missingCount, cardCount, createdAt, updatedAt, revisionNumber }
+DeckInput = { name, energies: SelectableEnergy[], cards: [{ cardId, count }], tags?: string[], notes?: string, variantOfId?: string | null, packPriority?: 0|1|2|3,
+             tournamentArchetypeId?: string | null }   // arquetipo de Limitless para la columna «torneo»; null = sugerido
+DeckSummary = { id, name, energies, tags, builtInGame, variantOfId: string | null, packPriority, tournamentArchetypeId, archivedAt, valid, errorCount, complete, missingCount, cardCount, createdAt, updatedAt, revisionNumber }
 DeckDetail = DeckSummary & {
   cards: [{ card: CardSummary, count, group: GroupSummary, playable, missing }],   // una entrada por edición, en el orden de la lista
   validation: { ok, errors: Issue[], warnings: Issue[], infos: Issue[] },
@@ -174,7 +175,7 @@ Mejor versión: entre las ediciones de la misma carta funcional que tengo (por f
 |---|---|
 | `GET /api/matches?deckId=&mode=&result=&opponent=&from=&to=&limit=50&offset=0` | `{ items: Match[], total }`, más reciente primero (`playedAt`, después `id`). `opponent` busca «contiene» sobre la clave del rival (sin mayúsculas, tildes ni signos: `blaz` encuentra «Mega-Blaziken ex»). `from` inclusivo, `to` exclusivo (ISO 8601). `limit` ≤ 200. `404` si `deckId` no existe |
 | `POST /api/matches` | `MatchInput` → `201 Match`. Sin `playedAt`: hora del servidor y revisión actual del mazo; con `playedAt`: la revisión vigente en ese momento (la 1 si es anterior al mazo). Sin `mode`: el de la última partida registrada (la primera vez, `casual`). `404` mazo inexistente; `400 played_at_future` si la fecha está más de 10 min en el futuro; `400 validation` (rival > 80 caracteres, nota > 2000, resultado o modalidad inválidos). Se permite registrar con un mazo archivado |
-| `GET /api/matches/suggestions` | `{ decks: [{ id, name, energies, builtInGame, lastPlayedAt, games }], lastDeckId, lastMode, opponents: [{ key, label, games, lastPlayedAt }] }`: mazos no archivados en el orden del selector (jugados por fecha, después armados en el juego, después por nombre con orden numérico); `lastDeckId`/`lastMode` de la última partida **registrada** (`null` si su mazo está archivado); hasta 30 rivales del último año ordenados por conteo ponderado (vida media 14 días) |
+| `GET /api/matches/suggestions` | `{ decks: [{ id, name, energies, builtInGame, lastPlayedAt, games }], lastDeckId, lastMode, opponents: [{ key, label, games, lastPlayedAt }], tournamentArchetypes: [{ name, lists }] }`: mazos no archivados en el orden del selector (jugados por fecha, después armados en el juego, después por nombre con orden numérico); `lastDeckId`/`lastMode` de la última partida **registrada** (`null` si su mazo está archivado); hasta 30 rivales del último año ordenados por conteo ponderado (vida media 14 días); `tournamentArchetypes`: arquetipos de la era vigente (Estándar) con 5 listas o más, para el autocompletado |
 | `GET /api/matches/stats?deckId=&mode=&from=&to=` | `MatchStats` (solo partidas propias) |
 | `GET /api/matches/:id` | `Match`; `404` |
 | `PATCH /api/matches/:id` | `Partial<MatchInput>` (al menos un campo) → `Match`; si cambian `deckId` o `playedAt` se recalcula la revisión; `400` vacío; `404` |
@@ -197,8 +198,12 @@ MatchStats = {
   byRevision: (Row & { revision: number | null })[]                  // solo con deckId; la más nueva primero
 }
 DeckComparison = { deck: { id, name, archived },
-  columns: [{ source: 'matches'|'tournament'|'simulation', label, available, record: Record | null, rate: WinRate | null, note }] }
-  // siempre tres columnas en ese orden; torneo y simulación: available false, rate null hasta las Fases 5 y 6
+  columns: [{ source: 'matches'|'tournament'|'simulation', label, available, record: Record | null, rate: WinRate | null, note,
+               rows?: [{ label, record, rate, note? }] }] }
+  // siempre tres columnas en ese orden. Torneo (Fase 5): filas separadas «Lista exacta» (por carta funcional),
+  // «Lista exacta por nombre» (si difiere) y «Arquetipo: …» (elegido en el mazo o sugerido por las listas más
+  // parecidas, a 6 cambios o menos); el titular es la lista exacta si alguien la jugó, si no el arquetipo.
+  // Simulación: available false hasta la Fase 6
 ```
 
 El rival se guarda limpio (espacios colapsados); si no tiene letras ni números se guarda `null`. Las estadísticas agrupan por la clave y muestran la grafía más usada.
@@ -250,11 +255,42 @@ Modelo: port de `stats.ts` del tracker @ `3ab58f1` (tablas por posición, mezcla
 
 Versiones: el objetivo mazos busca cartas funcionales (cualquier versión sirve); el objetivo colección busca versiones, identificadas por el `internal_id` del tracker. Dos números con el mismo `internal_id` son la misma versión y comparten copias (A1-1 = A4b-1, B1a-1 = B4b-1); un arte u holo nuevo es otra versión de la misma carta funcional (B4b-237, Bulbasaur holo). Sobres por tiempo limitado: lo que solo ellos dan frente a los sobres a la venta que quedan (carta funcional para mazos, versión para colección) pesa `limitedBoost` veces más hasta su último día (DECISIONES 4.9).
 
+## Torneos (Fase 5)
+
+Datos de Limitless (play.limitlesstcg.com) por **era** y **formato**. La era de un torneo es el último set que abre era lanzado hasta su fecha (UTC; los Deluxe no abren era), según la tabla editable `set_releases`. Formato = `format ?? STANDARD`; `NOEX` aparte; `CUSTOM` y formatos desconocidos, fuera. Cuentan los torneos con `players ≥ minPlayers` (setting, 12 por defecto), con listas y sin bans ni reglas especiales. `?era=` (código, p. ej. `B4a`; por defecto la vigente) y `?format=STANDARD|NOEX` valen en todas las lecturas. Una lista es una fila de standings con lista; el récord es `W/(W+L+T)` con Wilson 95 % sobre partidas, «orientativo» con menos de 30 listas, y la media de la era al lado.
+
+| Método y ruta | Cuerpo / respuesta |
+|---|---|
+| `GET /api/tournaments/status` | `{ currentEra: Era | null, eras: Era[] (más nueva primero), newEra: { lastRelease, releaseDate, days, likely } | null, minPlayers, sync: { enabled, running, progress, lastRun, callsInWindow, counts: { listed, complete, incomplete, excluded, failed }, newestTournament } }`; `likely` = más de 35 días desde el último lanzamiento de la tabla |
+| `POST /api/tournaments/sync` | `{ backfillDays?: 1..180 }` → `202 { started }` (`false` si ya hay una corrida). Corre en segundo plano |
+| `GET /api/tournaments/archetypes` | `{ scope: Scope, rows: [{ archetype: { id | null, name, icons }, lists, record, rate, share }] }`, más listas primero (`id: null` = sin arquetipo) |
+| `GET /api/tournaments/archetypes/:id?card=&minCount=1|2` | `{ scope, archetype: Row, merged: string[], lists: ListRow[] (20 más jugadas), cards: [{ groupId, nameEs, lists, share, byCopies: [0, ×1, ×2], averageCopies }], withWithout: { card, minCount, with: Row, without: Row } | null }`; `card` = id de carta funcional o de edición; `:id` = `none` para las listas sin arquetipo; `404` sin listas |
+| `PUT /api/tournaments/archetypes/:id/alias` | `{ canonicalId: string | null }`: muestra `:id` como parte de `canonicalId` (sigue cadenas); `null` lo separa |
+| `GET /api/tournaments/lists?kind=group|name&archetype=&minLists=&limit=100` | `{ scope, rows: ListRow[], total }` |
+| `GET /api/tournaments/lists/:key?kind=` | `{ scope, list: ListRow & { missing, missingCopies }, energies: string[], text (portapapeles de Limitless, también deckgym), entries: [{ tournamentId, tournamentName, date, playerName, placing, record }] }`; `400` clave inválida, `404` |
+| `GET /api/tournaments/buildable?limit=100` | `{ scope, buildable: (ListRow & { missing: [], missingCopies: 0 })[], near: (ListRow & { missing: [{ groupId, nameEs, need, have }], missingCopies: 1|2 })[] }` |
+| `GET /api/tournaments/unlock?limit=50` | `{ scope, cards: [{ groupId, nameEs, have, copies, lists, listsWithOneCopy, entries, record, rate, unlocked: ListRow[] (5) }] }`: listas a las que les falta solo esa carta, más listas primero |
+| `GET /api/tournaments/events` | `{ scope, rows: [{ id, name, date, players, lists, organizerName, conflict }] }` |
+| `GET /api/tournaments/unknown-cards` | `{ scope, cards: [{ ref, set, number, name, occurrences }] }`: cartas de las listas que el catálogo no conoce (se re-mapean solas al sincronizarlo) |
+| `GET /api/tournaments/sets` · `PUT /api/tournaments/sets/:code` | `{ items: [{ code, nameEn, nameEs, releaseDate, opensEra }] }` · `{ nameEn, releaseDate: YYYY-MM-DD, opensEra }` → el set (alta o cambio) |
+
+```ts
+Scope = { era: { code, nameEs, from, to | null, current }, format, minPlayers, tournaments, lists, games,
+          mean: Row,                                   // media de la era: ΣW/Σ(W+L+T), la base (no 50 %)
+          conflicts: [{ tournamentId, name, date, set }],  // listas con un set posterior a la fecha (¿pre-release? ¿falta un set?)
+          unknownCards, attribution }
+Row = { lists, record: { wins, losses, ties }, rate: WinRate | null, share }   // share: % de las listas de la era
+ListRow = Row & { key (14 hex), kind: 'group'|'name', archetype, otherKey,
+                  cards: [{ groupId | null, cardId | null, nameEs, nameEn, set, number, count, cardType }] }
+```
+
+Lista exacta: las mismas 20 cartas sin mirar la edición, sin energías. `kind=group` (por defecto) agrupa por carta funcional y distingue homónimas con otro texto; `kind=name` es la del brief (nombre inglés de Limitless). Sync: backfill de 60 días en la primera corrida y una incremental cada 6 h (`LIMITLESS_SYNC`, encendido solo en producción), tope propio de 40 llamadas cada 5 min, 429 → pausa `max(Retry-After, t, 60 s)`, 5xx → reintentos a 1, 2, 4, 8 y 16 min.
+
 ## MCP (Fase 3)
 
 `POST /api/mcp`: servidor MCP remoto, Streamable HTTP, sin sesiones, con el SDK v2 (`@modelcontextprotocol/server` 2.3.1). Atiende las dos eras del protocolo en el mismo endpoint: 2026-07-28 y la de 2025 con `initialize` (la que usan hoy las apps de Claude y Claude Code). `GET` y `DELETE` responden `405`. Autenticación: `Authorization: Bearer tcg_mcp_…` con scope `mcp:read` (`401` sin token o con uno inválido o revocado, `403` con un token de worker); la cookie de sesión no sirve acá.
 
-Tools de lectura (nombres con `_` porque la API de Claude no acepta `.`): `collection_summary`, `cards_search`, `collection_playable_copies`, `collection_editions`, `decks_list`, `decks_get` (incluye `bestVersions`), `decks_find_by_card`, `decks_validate`, `decks_missing`, `decks_closest`, `decks_random`, `matches_stats`, `matches_list` y `packs_recommend` (Fase 4: la misma recomendación, resumida, con lo guardado en la app por defecto; dice el último día de los sobres limitados, lo que solo dan ellos, el mejor sobre cuando terminen y cuándo intercambiar). `tournaments_stats`, `tournaments_buildable`, `tournaments_unlock_cards` y `simulations_results` responden `{ available: false, message }` con la fase en que llegan. Todas devuelven JSON compacto en `content[0].text` y el mismo objeto en `structuredContent`; los errores esperables (carta o mazo inexistente, entrada inválida) vuelven como `isError: true` con el mensaje en español. Cada porcentaje trae `text` con el formato canónico «70 % (n = 10, IC 39,7–89,2 %, orientativo)». Un mazo se indica por su número («13», «mazo 13»: el número con que empieza el nombre o, si no, el id), o por parte del nombre.
+Tools de lectura (nombres con `_` porque la API de Claude no acepta `.`): `collection_summary`, `cards_search`, `collection_playable_copies`, `collection_editions`, `decks_list`, `decks_get` (incluye `bestVersions`), `decks_find_by_card`, `decks_validate`, `decks_missing`, `decks_closest`, `decks_random`, `matches_stats`, `matches_list` y `packs_recommend` (Fase 4: la misma recomendación, resumida, con lo guardado en la app por defecto; dice el último día de los sobres limitados, lo que solo dan ellos, el mejor sobre cuando terminen y cuándo intercambiar). Torneos (Fase 5): `tournaments_stats` (por arquetipo o lista exacta; con `archetype` el detalle y con `card` el récord con y sin esa carta), `tournaments_buildable` (listas que se pueden armar hoy y las que quedan a 1 o 2 copias) y `tournaments_unlock_cards` (qué carta sola destraba más listas), todas con la era, la media de la era y la atribución a Limitless. `simulations_results` responde `{ available: false, message }` hasta la Fase 6. Todas devuelven JSON compacto en `content[0].text` y el mismo objeto en `structuredContent`; los errores esperables (carta o mazo inexistente, entrada inválida) vuelven como `isError: true` con el mensaje en español. Cada porcentaje trae `text` con el formato canónico «70 % (n = 10, IC 39,7–89,2 %, orientativo)». Un mazo se indica por su número («13», «mazo 13»: el número con que empieza el nombre o, si no, el id), o por parte del nombre.
 
 Conectar:
 - **Claude Code:** crear un token MCP en Más → Tokens de API y registrar `claude mcp add --transport http tcg https://tcg-pocket.fly.dev/api/mcp --header "Authorization: Bearer tcg_mcp_…"`.
@@ -265,15 +301,15 @@ Conectar:
 | Método y ruta | Respuesta |
 |---|---|
 | `GET /api/backup/export` | Descarga `tcgpocket-backup-AAAAMMDD.json.gz` (`application/gzip`; todo lo propio, partidas incluidas; ver abajo y PLAN §3.9) |
-| `POST /api/backup/import?mode=dry-run|replace` | `multipart/form-data` con `file` (`.json.gz` o `.json`, ≤ 50 MB); sin `mode`: `dry-run` → `{ schemaVersion, exportedAt, appVersion, catalogCommit, diff: { current, incoming, notices: string[], needsReview, unknownCardIds } }` (`current`/`incoming` son conteos por tabla, `matches` incluido); `replace` → `{ applied: true, counts, notices }`. Errores: `400 invalid_backup` (no es gzip/JSON, no tiene la forma, descomprimido supera 128 MB o tiene partidas con referencias rotas), `400 unsupported_schema` (`schemaVersion` distinto de 1 y 2), `400 unknown_card` en `replace` si referencia cartas o grupos que no están en el catálogo cargado |
+| `POST /api/backup/import?mode=dry-run|replace` | `multipart/form-data` con `file` (`.json.gz` o `.json`, ≤ 50 MB); sin `mode`: `dry-run` → `{ schemaVersion, exportedAt, appVersion, catalogCommit, diff: { current, incoming, notices: string[], needsReview, unknownCardIds } }` (`current`/`incoming` son conteos por tabla, `matches` incluido); `replace` → `{ applied: true, counts, notices }`. Errores: `400 invalid_backup` (no es gzip/JSON, no tiene la forma, descomprimido supera 128 MB o tiene partidas con referencias rotas), `400 unsupported_schema` (`schemaVersion` distinto de 1 a 4), `400 unknown_card` en `replace` si referencia cartas o grupos que no están en el catálogo cargado |
 | `GET /api/backup/blobs` | `{ items: [{ id, createdAt, sizeBytes }] }` (copias diarias guardadas, más reciente primero; se conservan las últimas 14) |
 | `GET /api/backup/blobs/:id` | Descarga (`application/gzip`, nombre con la fecha de la copia) |
 
-Documento (`schemaVersion: 3`): `{ schemaVersion, exportedAt, appVersion, catalogCommit, engineRev, settings[], rarityRules[], collection: { stock[], imports[] (metadatos + filas, sin el archivo crudo), adjustments[] }, decks[] (con `revisions[]` y `changes[]`), matches[] (con `deckId` y `deckRevisionId`), packs[] (`{ id, available, pointsBalance, limited?, limitedUntil? }`, Fase 4; sin `limited`/`limitedUntil` se mantienen los actuales), tokens[] (solo metadatos: no se restauran) }`, con los ids numéricos y las fechas de la base, así `replace` deja una base idéntica (y un nuevo `export` igual salvo `exportedAt`). Se leen las versiones 1 (Fase 1, sin `matches`: el dry-run avisa que restaurarla borra las partidas actuales), 2 (sin `packs`: se mantiene la disponibilidad actual) y 3. Una partida cuyo mazo o revisión no está en el archivo da `400 invalid_backup` con `details` (`[{ id, deckId, deckRevisionId }]`). `replace` corre en una transacción: borra partidas, mazos, ajustes, stock, importaciones y configuración, inserta todo con sus ids, reconstruye `deck_cards` y reajusta las secuencias; `rarity_rules` se pisan por rareza. Si `catalogCommit` difiere del catálogo cargado, `notices` avisa `needs_review` (el remapeo I12 sigue pendiente). La copia diaria (04:00, `BACKUP_CRON`) guarda el mismo documento en `backup_blobs`.
+Documento (`schemaVersion: 4`): `{ schemaVersion, exportedAt, appVersion, catalogCommit, engineRev, settings[], rarityRules[], collection: { stock[], imports[] (metadatos + filas, sin el archivo crudo), adjustments[] }, decks[] (con `revisions[]` y `changes[]`), matches[] (con `deckId` y `deckRevisionId`), packs[] (`{ id, available, pointsBalance, limited?, limitedUntil? }`, Fase 4; sin `limited`/`limitedUntil` se mantienen los actuales), tournaments (`{ sets[], archetypeAliases[] }`, Fase 5; los mazos llevan `tournamentArchetypeId`; los torneos de Limitless no viajan: se vuelven a bajar), tokens[] (solo metadatos: no se restauran) }`, con los ids numéricos y las fechas de la base, así `replace` deja una base idéntica (y un nuevo `export` igual salvo `exportedAt`). Se leen las versiones 1 (Fase 1, sin `matches`: el dry-run avisa que restaurarla borra las partidas actuales), 2 (sin `packs`: se mantiene la disponibilidad actual), 3 (sin tabla de eras ni fusiones de arquetipos: se mantienen las actuales) y 4. Una partida cuyo mazo o revisión no está en el archivo da `400 invalid_backup` con `details` (`[{ id, deckId, deckRevisionId }]`). `replace` corre en una transacción: borra partidas, mazos, ajustes, stock, importaciones y configuración, inserta todo con sus ids, reconstruye `deck_cards` y reajusta las secuencias; `rarity_rules` se pisan por rareza. Si `catalogCommit` difiere del catálogo cargado, `notices` avisa `needs_review` (el remapeo I12 sigue pendiente). La copia diaria (04:00, `BACKUP_CRON`) guarda el mismo documento en `backup_blobs`.
 
 ## Configuración
 
 | Método y ruta | Respuesta |
 |---|---|
 | `GET /api/settings` | `{ [key]: value }` (solo las claves guardadas) |
-| `PUT /api/settings/:key` | `{ value }` (cualquier JSON) → `{ key, value }`; `400 validation` si la clave no es una de `ui`, `alpha`, `rarityFilter`, `tradeableRarities`, `rarityCosts`, `minPlayers`, `backfillDays`, `cores`, `defaultBot`, `packModel` |
+| `PUT /api/settings/:key` | `{ value }` (cualquier JSON) → `{ key, value }`; `400 validation` si la clave no es una de `ui`, `alpha`, `rarityFilter`, `tradeableRarities`, `rarityCosts`, `minPlayers` (torneos, entero ≥ 1), `backfillDays`, `cores`, `defaultBot`, `packModel`, `limitedBoost` |

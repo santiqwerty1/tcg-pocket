@@ -33,6 +33,8 @@ export interface DeckSummary {
   builtInGame: boolean
   variantOfId: string | null
   packPriority: number
+  /** Limitless archetype chosen for the «torneo» column (null = guessed). */
+  tournamentArchetypeId: string | null
   archivedAt: Date | null
   valid: boolean
   errorCount: number

@@ -5,11 +5,13 @@ import {
   ImageIcon,
   KeyRoundIcon,
   RefreshCwIcon,
+  TrophyIcon,
   UserIcon,
 } from 'lucide-react'
 import { Link } from 'react-router'
 
 const ENTRIES = [
+  { to: '/torneos', label: 'Torneos', hint: 'Limitless: arquetipos, listas y qué podés armar', icon: TrophyIcon },
   { to: '/mas/catalogo', label: 'Catálogo', hint: 'Commit, conteos y sincronización', icon: RefreshCwIcon },
   { to: '/mas/backup', label: 'Copia de seguridad', hint: 'Exportar e importar todos tus datos', icon: DatabaseIcon },
   { to: '/mas/tokens', label: 'Tokens de API', hint: 'Para el worker y el conector de Claude', icon: KeyRoundIcon },

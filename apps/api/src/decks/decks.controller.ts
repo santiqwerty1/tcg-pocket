@@ -29,6 +29,8 @@ const deckInputSchema = z.object({
   notes: z.string().max(5000).optional(),
   variantOfId: z.string().trim().max(20).nullable().optional(),
   packPriority: z.number().int().min(0).max(3).optional(),
+  /** Limitless archetype for the «torneo» column; null = guessed from the closest lists. */
+  tournamentArchetypeId: z.string().trim().min(1).max(200).nullable().optional(),
 })
 const deckPatchSchema = deckInputSchema.partial().extend({
   builtInGame: z.boolean().optional(),

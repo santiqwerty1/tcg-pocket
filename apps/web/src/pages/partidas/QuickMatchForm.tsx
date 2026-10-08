@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
-import { RESULT_LABEL } from '@/lib/matches'
+import { opponentKeyOf, RESULT_LABEL } from '@/lib/matches'
 import { DeckChips, ModePicker, OpponentField, ResultPicker, WentFirstPicker } from './MatchFields'
 
 function initialDeck(suggestions: MatchSuggestions, preferred: string | null | undefined): string | null {
@@ -42,6 +42,16 @@ export function QuickMatchForm({
   const [note, setNote] = useState('')
   const [pickerOpen, setPickerOpen] = useState(false)
   const [filter, setFilter] = useState('')
+
+  // Own opponents first (most recent and frequent), then the tournament archetypes of the era not typed yet.
+  const opponentChoices = useMemo(() => {
+    const own = suggestions.opponents.map((item) => ({ key: item.key, label: item.label }))
+    const seen = new Set(own.map((item) => item.key))
+    const fromTournaments = suggestions.tournamentArchetypes
+      .map((item) => ({ key: opponentKeyOf(item.name), label: item.name }))
+      .filter((item) => item.key !== '' && !seen.has(item.key))
+    return [...own, ...fromTournaments]
+  }, [suggestions])
 
   const filteredDecks = useMemo(() => {
     const text = filter.trim().toLocaleLowerCase('es')
@@ -91,7 +101,7 @@ export function QuickMatchForm({
     <form className="flex flex-col gap-4" onSubmit={save} aria-label="Nueva partida">
       <DeckChips decks={suggestions.decks} value={deckId} onChange={setDeckId} onMore={() => setPickerOpen(true)} />
       <ResultPicker value={result} onChange={setResult} />
-      <OpponentField value={opponent} onChange={setOpponent} suggestions={suggestions.opponents} />
+      <OpponentField value={opponent} onChange={setOpponent} suggestions={opponentChoices} />
       <WentFirstPicker value={wentFirst} onChange={setWentFirst} />
       <ModePicker value={mode} onChange={setMode} />
       {noteOpen ? (

@@ -7,7 +7,9 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import {
   cleanOpponent,
   DEFAULT_MATCH_MODE,
+  type DeckCardEntry,
   filterMatches,
+  formatPercentEs,
   type MatchFacts,
   type MatchMode,
   type MatchResult,
@@ -21,7 +23,9 @@ import type { Prisma } from '../generated/prisma/client.js'
 import type { MatchSource } from '../generated/prisma/enums.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import { TournamentsService } from '../tournaments/tournaments.service.js'
 import type {
+  ComparisonColumnView,
   DeckComparisonView,
   MatchDeckRef,
   MatchStatsView,
@@ -129,7 +133,10 @@ function assertRange(from: Date | undefined, to: Date | undefined): void {
 
 @Injectable()
 export class MatchesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tournaments: TournamentsService,
+  ) {}
 
   // ---------------------------------------------------------------------------------------------------------------
   // Reads
@@ -216,6 +223,7 @@ export class MatchesService {
         recent.map((row) => ({ opponent: row.opponentText, playedAt: row.playedAt })),
         { now, limit: SUGGESTED_OPPONENTS },
       ),
+      tournamentArchetypes: await this.tournaments.opponentArchetypes(),
     }
   }
 
@@ -273,14 +281,7 @@ export class MatchesService {
               ? 'Todavía no registraste partidas con este mazo.'
               : `Partidas registradas en la app${mode ? ' (filtradas por modalidad)' : ', todas las modalidades'}.`,
         },
-        {
-          source: 'tournament',
-          label: 'Torneo',
-          available: false,
-          record: null,
-          rate: null,
-          note: 'Los resultados de torneo (Limitless) llegan en la Fase 5.',
-        },
+        await this.tournamentColumn(Number(deck.id)),
         {
           source: 'simulation',
           label: 'Simulación',
@@ -375,6 +376,78 @@ export class MatchesService {
     })
     if (!deck) throw new NotFoundException(`Mazo ${rawDeckId} no encontrado.`)
     return deck
+  }
+
+  /**
+   * Tournament column: the exact list (by functional card, and by name when it differs) and the archetype, as
+   * separate rows; the headline is the exact list when someone played it, otherwise the archetype.
+   */
+  private async tournamentColumn(deckId: number): Promise<ComparisonColumnView> {
+    const deck = await this.prisma.deck.findUnique({
+      where: { id: deckId },
+      select: { currentRevisionId: true, tournamentArchetypeId: true },
+    })
+    const revision =
+      deck?.currentRevisionId == null
+        ? null
+        : await this.prisma.deckRevision.findUnique({ where: { id: deck.currentRevisionId }, select: { cards: true } })
+    const empty = (note: string): ComparisonColumnView => ({
+      source: 'tournament',
+      label: 'Torneo',
+      available: false,
+      record: null,
+      rate: null,
+      note,
+    })
+    if (!revision) return empty('El mazo no tiene lista guardada.')
+    let view: Awaited<ReturnType<TournamentsService['deckTournament']>>
+    try {
+      view = await this.tournaments.deckTournament(
+        revision.cards as unknown as DeckCardEntry[],
+        deck?.tournamentArchetypeId ?? null,
+      )
+    } catch {
+      return empty('Todavía no hay datos de torneo sincronizados.')
+    }
+    const tournaments = `${view.scope.tournaments} ${view.scope.tournaments === 1 ? 'torneo' : 'torneos'}`
+    const scope = `Era ${view.scope.era.code} (${view.scope.era.nameEs}), ${tournaments}, media ${
+      view.scope.mean.rate ? formatPercentEs(view.scope.mean.rate.value) : 'sin datos'
+    }. ${view.scope.attribution}.`
+    if (view.scope.lists === 0) return empty(`Sin listas de torneo en la era ${view.scope.era.code} todavía.`)
+    const rows: NonNullable<ComparisonColumnView['rows']> = []
+    if (view.exactByGroup)
+      rows.push({ label: 'Lista exacta', record: view.exactByGroup.record, rate: view.exactByGroup.rate })
+    if (view.exactByName && view.exactByName.lists !== view.exactByGroup?.lists) {
+      rows.push({
+        label: 'Lista exacta por nombre',
+        record: view.exactByName.record,
+        rate: view.exactByName.rate,
+        note: 'Mismas cartas por nombre, aunque alguna tenga otro texto.',
+      })
+    }
+    if (view.archetype) {
+      rows.push({
+        label: `Arquetipo: ${view.archetype.archetype.name}`,
+        record: view.archetype.record,
+        rate: view.archetype.rate,
+        note:
+          view.archetype.source === 'owner'
+            ? 'Arquetipo elegido en el mazo.'
+            : view.archetype.swaps === 0
+              ? 'Sugerido por las listas iguales a la del mazo.'
+              : `Sugerido por las listas más parecidas (${view.archetype.swaps === 1 ? '1 cambio' : `${view.archetype.swaps} cambios`}).`,
+      })
+    }
+    const headline = rows[0] ?? null
+    return {
+      source: 'tournament',
+      label: 'Torneo',
+      available: headline !== null,
+      record: headline?.record ?? null,
+      rate: headline?.rate ?? null,
+      note: headline === null ? `Nadie jugó esta lista ni una parecida en la era. ${scope}` : scope,
+      rows,
+    }
   }
 
   private async requireDeckRef(id: number): Promise<MatchDeckRef> {

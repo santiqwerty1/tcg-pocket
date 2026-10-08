@@ -385,6 +385,7 @@ export const deckInputSchema = z.object({
   notes: z.string().optional(),
   variantOfId: z.string().optional(),
   packPriority: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]).optional(),
+  tournamentArchetypeId: z.string().nullable().optional(),
 })
 export type DeckInput = z.infer<typeof deckInputSchema>
 
@@ -396,6 +397,7 @@ export const deckSummarySchema = z.object({
   builtInGame: z.boolean(),
   variantOfId: z.string().nullable(),
   packPriority: z.number().nullable().optional(),
+  tournamentArchetypeId: z.string().nullable().optional(),
   archivedAt: nullableDate,
   valid: z.boolean(),
   errorCount: z.number(),
@@ -609,6 +611,8 @@ export const matchSuggestionsSchema = z.object({
   lastDeckId: z.string().nullable(),
   lastMode: matchModeSchema,
   opponents: z.array(opponentSuggestionSchema),
+  /** Archetypes of the current tournament era with ≥ 5 lists (Fase 5). */
+  tournamentArchetypes: z.array(z.object({ name: z.string(), lists: z.number() })).default([]),
 })
 export type MatchSuggestions = z.infer<typeof matchSuggestionsSchema>
 
@@ -639,6 +643,16 @@ export const comparisonColumnSchema = z.object({
   record: gameRecordSchema.nullable(),
   rate: winRateSchema.nullable(),
   note: z.string(),
+  rows: z
+    .array(
+      z.object({
+        label: z.string(),
+        record: gameRecordSchema,
+        rate: winRateSchema.nullable(),
+        note: z.string().optional(),
+      }),
+    )
+    .optional(),
 })
 export type ComparisonColumn = z.infer<typeof comparisonColumnSchema>
 export const deckComparisonSchema = z.object({ deck: matchDeckRefSchema, columns: z.array(comparisonColumnSchema) })
@@ -849,3 +863,226 @@ export const healthSchema = z.object({
   catalogCommit: z.string().nullable().optional(),
   engineRev: z.string().nullable().optional(),
 })
+
+// ---------- Torneos (Fase 5) ----------
+
+export const TOURNAMENT_FORMATS = ['STANDARD', 'NOEX'] as const
+export type TournamentFormat = (typeof TOURNAMENT_FORMATS)[number]
+
+export const recordRowSchema = z.object({
+  lists: z.number(),
+  record: gameRecordSchema,
+  rate: winRateSchema.nullable(),
+  share: z.number(),
+})
+export type RecordRow = z.infer<typeof recordRowSchema>
+
+export const eraSchema = z.object({
+  code: z.string(),
+  nameEs: z.string(),
+  from: z.string(),
+  to: z.string().nullable(),
+  current: z.boolean(),
+})
+export type Era = z.infer<typeof eraSchema>
+
+export const scopeSchema = z.object({
+  era: eraSchema,
+  format: z.enum(TOURNAMENT_FORMATS),
+  minPlayers: z.number(),
+  tournaments: z.number(),
+  lists: z.number(),
+  games: z.number(),
+  mean: recordRowSchema,
+  conflicts: z.array(z.object({ tournamentId: z.string(), name: z.string(), date: z.string(), set: z.string() })),
+  unknownCards: z.number(),
+  attribution: z.string(),
+})
+export type TournamentScope = z.infer<typeof scopeSchema>
+
+export const archetypeRefSchema = z.object({ id: z.string().nullable(), name: z.string(), icons: z.array(z.string()) })
+export const archetypeRowSchema = recordRowSchema.extend({ archetype: archetypeRefSchema })
+export type ArchetypeRow = z.infer<typeof archetypeRowSchema>
+
+export const cardLineSchema = z.object({
+  groupId: z.string().nullable(),
+  cardId: z.string().nullable(),
+  nameEs: z.string(),
+  nameEn: z.string(),
+  set: z.string(),
+  number: z.string(),
+  count: z.number(),
+  cardType: z.enum(['pokemon', 'trainer']).nullable(),
+})
+export type CardLine = z.infer<typeof cardLineSchema>
+
+export const listRowSchema = recordRowSchema.extend({
+  key: z.string(),
+  kind: z.enum(['group', 'name']),
+  archetype: archetypeRefSchema,
+  cards: z.array(cardLineSchema),
+  otherKey: z.string().nullable(),
+})
+export type ListRow = z.infer<typeof listRowSchema>
+
+export const missingCopiesSchema = z.object({
+  groupId: z.string(),
+  nameEs: z.string(),
+  need: z.number(),
+  have: z.number(),
+})
+export const listAgainstSchema = listRowSchema.extend({
+  missing: z.array(missingCopiesSchema),
+  missingCopies: z.number(),
+})
+export type ListAgainstCollection = z.infer<typeof listAgainstSchema>
+
+export const archetypesResponseSchema = z.object({ scope: scopeSchema, rows: z.array(archetypeRowSchema) })
+export const listsResponseSchema = z.object({ scope: scopeSchema, rows: z.array(listRowSchema), total: z.number() })
+
+export const withWithoutSchema = z.object({
+  card: z.object({ groupId: z.string(), nameEs: z.string() }),
+  minCount: z.number(),
+  with: recordRowSchema,
+  without: recordRowSchema,
+})
+export const archetypeDetailSchema = z.object({
+  scope: scopeSchema,
+  archetype: archetypeRowSchema,
+  merged: z.array(z.string()),
+  lists: z.array(listRowSchema),
+  cards: z.array(
+    z.object({
+      groupId: z.string(),
+      nameEs: z.string(),
+      lists: z.number(),
+      share: z.number(),
+      byCopies: z.array(z.number()),
+      averageCopies: z.number(),
+    }),
+  ),
+  withWithout: withWithoutSchema.nullable(),
+})
+export type ArchetypeDetail = z.infer<typeof archetypeDetailSchema>
+
+export const listDetailSchema = z.object({
+  scope: scopeSchema,
+  list: listAgainstSchema,
+  energies: z.array(z.string()),
+  text: z.string(),
+  entries: z.array(
+    z.object({
+      tournamentId: z.string(),
+      tournamentName: z.string(),
+      date: z.string(),
+      playerName: z.string(),
+      placing: z.number().nullable(),
+      record: gameRecordSchema,
+    }),
+  ),
+})
+export type ListDetail = z.infer<typeof listDetailSchema>
+
+export const buildableResponseSchema = z.object({
+  scope: scopeSchema,
+  buildable: z.array(listAgainstSchema),
+  near: z.array(listAgainstSchema),
+})
+export const unlockResponseSchema = z.object({
+  scope: scopeSchema,
+  cards: z.array(
+    z.object({
+      groupId: z.string(),
+      nameEs: z.string(),
+      have: z.number(),
+      copies: z.number(),
+      lists: z.number(),
+      listsWithOneCopy: z.number(),
+      entries: z.number(),
+      record: gameRecordSchema,
+      rate: winRateSchema.nullable(),
+      unlocked: z.array(listAgainstSchema),
+    }),
+  ),
+})
+export type UnlockCard = z.infer<typeof unlockResponseSchema>['cards'][number]
+
+export const tournamentEventsSchema = z.object({
+  scope: scopeSchema,
+  rows: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      date: z.string(),
+      players: z.number(),
+      lists: z.number(),
+      organizerName: z.string().nullable(),
+      conflict: z.string().nullable(),
+    }),
+  ),
+})
+
+export const unknownCardsSchema = z.object({
+  scope: scopeSchema,
+  cards: z.array(
+    z.object({ ref: z.string(), set: z.string(), number: z.string(), name: z.string(), occurrences: z.number() }),
+  ),
+})
+
+export const tournamentStatusSchema = z.object({
+  currentEra: eraSchema.nullable(),
+  eras: z.array(eraSchema),
+  newEra: z
+    .object({ lastRelease: z.string(), releaseDate: z.string(), days: z.number(), likely: z.boolean() })
+    .nullable(),
+  minPlayers: z.number(),
+  sync: z.object({
+    enabled: z.boolean(),
+    running: z.boolean(),
+    progress: z
+      .object({
+        kind: z.string(),
+        startedAt: z.string(),
+        calls: z.number(),
+        waitedMs: z.number(),
+        listed: z.number(),
+        done: z.number(),
+        pending: z.number(),
+        current: z.string().nullable(),
+      })
+      .nullable(),
+    lastRun: z
+      .object({
+        id: z.number(),
+        kind: z.string(),
+        status: z.string(),
+        startedAt: z.string(),
+        finishedAt: z.string().nullable(),
+        calls: z.number(),
+        tournamentsListed: z.number(),
+        tournamentsDone: z.number(),
+        error: z.string().nullable(),
+      })
+      .nullable(),
+    callsInWindow: z.number(),
+    counts: z.object({
+      listed: z.number(),
+      complete: z.number(),
+      incomplete: z.number(),
+      excluded: z.number(),
+      failed: z.number(),
+    }),
+    newestTournament: z.string().nullable(),
+  }),
+})
+export type TournamentStatus = z.infer<typeof tournamentStatusSchema>
+
+export const setReleaseSchema = z.object({
+  code: z.string(),
+  nameEn: z.string(),
+  nameEs: z.string().nullable(),
+  releaseDate: z.string(),
+  opensEra: z.boolean(),
+})
+export type SetReleaseInfo = z.infer<typeof setReleaseSchema>
+export const setReleasesResponseSchema = z.object({ items: z.array(setReleaseSchema) })
