@@ -49,8 +49,9 @@ const botCode = z.string().regex(/^(r|w|aa|et|v|er|m|e[1-9])$/, 'Bot desconocido
 const jobSchema = z.object({
   kind: z.enum(SIMULATION_KINDS),
   label: z.string().trim().max(200).optional(),
-  sideA: z.array(sourceSchema).min(1).max(60),
-  sideB: z.array(sourceSchema).max(60).default([]),
+  // The real limit (150 per side, MAX_DECKS_PER_SIDE) is checked by the service with a Spanish message.
+  sideA: z.array(sourceSchema).min(1).max(500),
+  sideB: z.array(sourceSchema).max(500).default([]),
   gamesPerPair: z.number().int().min(1).max(20_000),
   players: z.tuple([botCode, botCode]),
   seed: z

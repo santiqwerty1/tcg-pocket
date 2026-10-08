@@ -199,7 +199,19 @@ export function isApiError(error: unknown): error is ApiError {
 }
 
 export function errorMessage(error: unknown): string {
-  if (isApiError(error)) return error.message
+  if (isApiError(error)) {
+    // A 400 `validation` lists which fields failed: say it instead of a bare «Datos inválidos.».
+    const details = Array.isArray(error.details)
+      ? (error.details as { path?: unknown; message?: unknown }[]).filter((item) => typeof item?.message === 'string')
+      : []
+    if (error.code !== 'validation' || details.length === 0) return error.message
+    const fields = details
+      .slice(0, 3)
+      .map((item) =>
+        typeof item.path === 'string' && item.path ? `${item.path}: ${item.message}` : String(item.message),
+      )
+    return `${error.message} ${fields.join('; ')}`
+  }
   if (error instanceof Error) return error.message
   return 'Algo salió mal.'
 }

@@ -140,6 +140,22 @@ describe('simulation (e2e)', () => {
       players: ['e2', 'e2'],
     })
     expect(compareAlone.status).toBe(400)
+    // 40 decks and 60 tournament lists on one side fit (reported on 8/10: 60 was the limit); 151 do not, said plainly.
+    const hundred = await post('/api/simulations/preview').send({
+      kind: 'matrix',
+      sideA: Array.from({ length: 100 }, (_, i) => decks((i % 40) + 1, (i % 40) + 1)[0]),
+      gamesPerPair: 10,
+      players: ['r', 'r'],
+    })
+    expect(hundred.status).toBe(200)
+    const tooMany = await post('/api/simulations/preview').send({
+      kind: 'matrix',
+      sideA: Array.from({ length: 151 }, () => decks(1, 1)[0]),
+      gamesPerPair: 10,
+      players: ['r', 'r'],
+    })
+    expect(tooMany.status).toBe(400)
+    expect(tooMany.body.error.message).toBe('Hasta 150 mazos por lado.')
     expect(preview.body.sideA[0].deckgymText).toMatch(/^Energy: /)
 
     const short = await post('/api/decks').send({

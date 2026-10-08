@@ -156,10 +156,10 @@ export const MCP_WRITE_TOOLS = {
       'Encola partidas entre mazos con el motor deckgym, que juega el worker de la PC de Santi. kind «compare»: cada mazo de A contra cada uno de B; «matrix»: todos contra todos dentro de A (o A contra B); «optimize»: un mazo de A sin las cartas de remove, probando las combinaciones de candidates contra los rivales de B. Los mazos pueden ser míos (decksA/decksB) o listas exactas de torneo (listsA/listsB). Antes de encolar dice qué no es simulable y por qué; con skipNotSimulable los saltea. Devuelve el número de simulación, cruces, partidas, la estimación de tiempo y si el worker está en línea; los resultados se leen con simulations_results. Juegan bots: el porcentaje depende del bot.',
     input: z.object({
       kind: z.enum(['compare', 'matrix', 'optimize']).describe('compare (por defecto), matrix u optimize'),
-      decksA: z.array(deckRef).max(60).optional().describe('Mis mazos del lado A'),
-      listsA: z.array(tournamentList).max(60).optional().describe('Listas de torneo del lado A'),
-      decksB: z.array(deckRef).max(60).optional().describe('Mis mazos del lado B (rivales)'),
-      listsB: z.array(tournamentList).max(60).optional().describe('Listas de torneo del lado B (rivales)'),
+      decksA: z.array(deckRef).max(150).optional().describe('Mis mazos del lado A'),
+      listsA: z.array(tournamentList).max(150).optional().describe('Listas de torneo del lado A'),
+      decksB: z.array(deckRef).max(150).optional().describe('Mis mazos del lado B (rivales)'),
+      listsB: z.array(tournamentList).max(150).optional().describe('Listas de torneo del lado B (rivales)'),
       games: z.number().int().min(1).max(20_000).optional().describe('Partidas por cruce (por defecto 200)'),
       bots: z.tuple([bot, bot]).optional().describe('Bot del lado A y del lado B (por defecto e2 y e2)'),
       seed: z

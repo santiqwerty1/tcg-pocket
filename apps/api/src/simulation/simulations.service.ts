@@ -43,7 +43,7 @@ import type {
 import { EngineStatusService, type SnapshotSource, SnapshotsService } from './snapshots.service.js'
 import { WorkerQueueService } from './worker-queue.service.js'
 
-export const MAX_DECKS_PER_SIDE = 60
+export const MAX_DECKS_PER_SIDE = 150
 export const MAX_GAMES_PER_PAIR = 20_000
 const WORKER_ONLINE_MS = 2 * 60 * 1000
 

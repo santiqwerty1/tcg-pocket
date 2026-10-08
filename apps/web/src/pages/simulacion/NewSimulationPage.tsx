@@ -59,6 +59,7 @@ function fold(text: string): string {
 }
 
 const MAX_SEED = 2 ** 52
+const MAX_DECKS_PER_SIDE = 150
 
 /** Decks and tournament lists to add to one side. */
 function SourceAdder({ picked, onAdd }: { picked: Picked[]; onAdd: (items: Picked[]) => void }) {
@@ -450,10 +451,12 @@ export function NewSimulationPage() {
   const gamesError =
     !Number.isInteger(gamesNumber) || gamesNumber < 1 || gamesNumber > 20_000 ? 'Entre 1 y 20.000 partidas.' : null
   const removed = Object.values(remove).reduce((sum, count) => sum + count, 0)
+  /** Same limit as the API (MAX_DECKS_PER_SIDE). */
+  const tooMany = sideA.length > MAX_DECKS_PER_SIDE || sideB.length > MAX_DECKS_PER_SIDE
   const optimizeDeckId = kind === 'optimize' && sideA[0] && 'deckId' in sideA[0].source ? sideA[0].source.deckId : null
 
   const input: SimulationInput | null = useMemo(() => {
-    if (sideA.length === 0 || gamesError || seedError) return null
+    if (sideA.length === 0 || gamesError || seedError || tooMany) return null
     if ((kind === 'compare' || kind === 'optimize') && sideB.length === 0) return null
     if (kind === 'optimize' && (!optimizeDeckId || removed === 0 || candidates.length === 0)) return null
     return {
@@ -491,6 +494,7 @@ export function NewSimulationPage() {
     removed,
     candidates,
     optimizeDeckId,
+    tooMany,
   ])
 
   const debounced = useDebouncedValue(input ? JSON.stringify(input) : null, 400)
@@ -656,11 +660,13 @@ export function NewSimulationPage() {
       <Section title="Resumen">
         {!input ? (
           <p className="text-sm text-muted-foreground">
-            {kind === 'optimize'
-              ? 'Elegí el mazo, las cartas a sacar, las candidatas y al menos un rival.'
-              : kind === 'compare'
-                ? 'Elegí al menos un mazo de cada lado.'
-                : 'Elegí al menos dos mazos.'}
+            {tooMany
+              ? `Hasta ${MAX_DECKS_PER_SIDE} mazos por lado (arriba hay ${sideA.length}, en «Contra» ${sideB.length}).`
+              : kind === 'optimize'
+                ? 'Elegí el mazo, las cartas a sacar, las candidatas y al menos un rival.'
+                : kind === 'compare'
+                  ? 'Elegí al menos un mazo de cada lado.'
+                  : 'Elegí al menos dos mazos.'}
           </p>
         ) : preview.isError ? (
           <ErrorState error={preview.error} />
