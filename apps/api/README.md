@@ -69,7 +69,7 @@ Pendiente (I12): cuando cambian unidades de stock o grupos y ya hay colección/m
 
 ## Rutas y exposición
 
-Sigue `docs/API.md`. Errores siempre como `{ error: { code, message, details? } }` (`validation`, `unauthenticated`, `invalid_credentials`, `totp_required`, `forbidden`, `not_found`, `conflict`, `rate_limited`, `not_implemented`, `unavailable`, más los códigos propios de cada módulo: `invalid_csv`, `import_blocked`, `import_not_pending`, `adjustment_active`, `adjustment_inactive`, `conversion_*`, `unknown_card`, `built_in_game_limit`, `deck_not_archived`, `energy_required`, `invalid_backup`, `unsupported_schema`…). Los ids numéricos (mazos, ajustes, importaciones, copias) salen como strings. Los booleanos de la query se escriben `true`/`false`. Todo exige la cookie de sesión salvo lo marcado. Las navegaciones sin sesión (GET fuera de `/api`, también chunks y manifest) redirigen 302 a `/login`; las llamadas a `/api/*`, los métodos no-GET y los clientes que piden JSON reciben `401 { error: { code: 'unauthenticated' } }`.
+Sigue `docs/API.md`. Errores siempre como `{ error: { code, message, details? } }` (`validation`, `unauthenticated`, `invalid_credentials`, `totp_required`, `forbidden`, `not_found`, `conflict`, `rate_limited`, `not_implemented`, `unavailable`, más los códigos propios de cada módulo: `invalid_csv`, `import_blocked`, `import_not_pending`, `adjustment_active`, `adjustment_inactive`, `conversion_*`, `unknown_card`, `built_in_game_limit`, `deck_not_archived`, `energy_required`, `invalid_backup`, `unsupported_schema`…). Los ids numéricos (mazos, ajustes, importaciones, copias) salen como strings. Los booleanos de la query se escriben `true`/`false`. Todo exige la cookie de sesión salvo lo marcado. Las navegaciones sin sesión (GET fuera de `/api`, también chunks y service worker) redirigen 302 a `/login`; el manifest y los íconos son públicos (DECISIONES 11.14); las llamadas a `/api/*`, los métodos no-GET y los clientes que piden JSON reciben `401 { error: { code: 'unauthenticated' } }`.
 
 | Ruta | Acceso | Qué hace |
 |---|---|---|
@@ -106,7 +106,8 @@ Sigue `docs/API.md`. Errores siempre como `{ error: { code, message, details? } 
 | `/api/worker/*` | bearer `tcg_wk_*` con `worker:claim` | Stub: `GET /api/worker/ping`. |
 | `/api/mcp` | bearer `tcg_mcp_*` con `mcp:read` | Stub: 501 hasta la Fase 3. |
 | `/.well-known/*` | pública | 404 por ahora (reservado para OAuth si hiciera falta). |
-| resto (`/`, `/assets/*`, `/sw.js`, `/manifest.webmanifest`…) | sesión | Estáticos de `WEB_DIST` (`/assets/*` inmutable; shell, sw y manifest `no-store`) y fallback a `index.html`. |
+| `/manifest.webmanifest`, `/icons/*.png`, `/favicon.svg`, `/apple-touch-icon.png` | pública | Lo que Chrome necesita para ofrecer «Instalar app» (DECISIONES 11.14). |
+| resto (`/`, `/assets/*`, `/sw.js`…) | sesión | Estáticos de `WEB_DIST` (`/assets/*` inmutable; shell, sw y manifest `no-store`) y fallback a `index.html`. |
 
 Subidas de archivos: multipart con `multer` en memoria (`FileInterceptor`), CSV hasta 5 MB y backups hasta 50 MB (`413` si se pasan); un backup gzip se descomprime con tope de 128 MB (`400 invalid_backup` si lo supera: protege de una «bomba» gzip).
 

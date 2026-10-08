@@ -380,6 +380,7 @@ export class SimulationsService {
       finishedAt: job.finishedAt,
       error: job.error,
       lab: labMode(job.params),
+      archived: job.archivedAt !== null,
       progress: progress.get(job.id) ?? {
         totalGames: job.totalGames,
         gamesDone: 0,
@@ -389,10 +390,29 @@ export class SimulationsService {
     }
   }
 
-  async list(limit = 50): Promise<JobSummaryView[]> {
-    const jobs = await this.prisma.simulationJob.findMany({ orderBy: { id: 'desc' }, take: limit })
+  /** Newest first: the ones in the list (default), the archived ones, or every job (`null`, for Claude). */
+  async list(limit = 50, archived: boolean | null = false): Promise<JobSummaryView[]> {
+    const jobs = await this.prisma.simulationJob.findMany({
+      where: archived === null ? {} : { archivedAt: archived ? { not: null } : null },
+      orderBy: { id: 'desc' },
+      take: limit,
+    })
     const progress = await this.progress(jobs.map((job) => job.id))
     return jobs.map((job) => this.summary(job, progress))
+  }
+
+  /** The list page: its jobs and how many are archived, cancelled or done (for the bulk buttons). */
+  async listView(archived: boolean): Promise<{
+    items: JobSummaryView[]
+    counts: { archived: number; cancelled: number; done: number }
+  }> {
+    const [items, archivedCount, cancelled, done] = await Promise.all([
+      this.list(archived ? 200 : 50, archived),
+      this.prisma.simulationJob.count({ where: { archivedAt: { not: null } } }),
+      this.prisma.simulationJob.count({ where: { status: 'cancelled' } }),
+      this.prisma.simulationJob.count({ where: { status: 'done', archivedAt: null } }),
+    ])
+    return { items, counts: { archived: archivedCount, cancelled, done } }
   }
 
   /** Summaries of some jobs, newest first (the Laboratorio's list). */
@@ -526,10 +546,18 @@ export class SimulationsService {
     games?: number | undefined
     bot?: string | undefined
     seed?: number | undefined
+    /** Against the meta (D-019): the bank's rivals with their games (the Laboratorio builds it). */
+    meta?: { era: string; format: string; rivals: ConsistencyRival[] } | undefined
   }): Promise<JobSummaryView> {
     const bot = input.bot ?? 'e2'
     if (!isBotCode(bot)) throw new BadRequestException({ code: 'validation', message: `Bot «${bot}» desconocido.` })
-    const games = input.games ?? DEFAULT_CONSISTENCY_GAMES
+    const rivals = input.meta?.rivals.filter((rival) => rival.games > 0) ?? []
+    if (input.meta && rivals.length === 0) {
+      throw new UnprocessableEntityException({ code: 'empty_bank', message: 'El banco del meta no tiene rivales.' })
+    }
+    const games = input.meta
+      ? rivals.reduce((sum, rival) => sum + rival.games, 0)
+      : (input.games ?? DEFAULT_CONSISTENCY_GAMES)
     if (!Number.isInteger(games) || games < 10 || games > 10_000) {
       throw new BadRequestException({ code: 'validation', message: 'Partidas: de 10 a 10.000.' })
     }
@@ -554,21 +582,25 @@ export class SimulationsService {
     if (!Number.isSafeInteger(baseSeed) || baseSeed < 0 || baseSeed > MAX_BASE_SEED) {
       throw new BadRequestException({ code: 'validation', message: 'Semilla: un entero de 0 a 2^52.' })
     }
-    const consistency = {
+    const consistency: ConsistencyParams = {
+      mode: input.meta ? 'meta' : 'goldfish',
       keyCards: [...new Set(key.map((card) => card.cardId))],
       engineIds: [...new Set(key.map((card) => card.engineId))],
       maxTurn: DEFAULT_CONSISTENCY_TURNS,
       bot,
+      ...(input.meta ? { era: input.meta.era, format: input.meta.format, rivals } : {}),
     }
     const keyName = index.cardById(key[0]?.cardId ?? '')?.nameEs ?? 'atacante'
     const job = await this.prisma.$transaction(async (tx) => {
       const created = await tx.simulationJob.create({
         data: {
           kind: 'consistency',
-          label: `Consistencia de ${snapshot.label}: ${keyName}`,
-          params: { sideA: [snapshot.id], sideB: [], consistency } as Prisma.InputJsonValue,
+          label: input.meta
+            ? `Consistencia contra el meta ${input.meta.era} de ${snapshot.label}: ${keyName}`
+            : `Consistencia de ${snapshot.label}: ${keyName}`,
+          params: { sideA: [snapshot.id], sideB: [], consistency } as unknown as Prisma.InputJsonValue,
           engineRev: this.engine.engineRev(),
-          players: [bot, 'et'],
+          players: input.meta ? [bot, bot] : [bot, 'et'],
           gamesPerPair: games,
           baseSeed: BigInt(baseSeed),
           replaySample: 0,
@@ -599,7 +631,7 @@ export class SimulationsService {
   ): ConsistencyView | null {
     const result = extra as { ready?: ConsistencySplit; attack?: ConsistencySplit } | null
     if (!result?.ready || !result.attack) return null
-    const params = (job.params as { consistency?: { keyCards?: string[]; maxTurn?: number; bot?: string } }).consistency
+    const params = (job.params as { consistency?: Partial<ConsistencyParams> }).consistency
     const index = this.catalog.requireIndex()
     const curves = (split: ConsistencySplit) => ({
       first: readinessCurve(split.first),
@@ -608,6 +640,9 @@ export class SimulationsService {
     })
     const bot = params?.bot ?? job.players[0] ?? 'e2'
     return {
+      mode: consistencyMode(job.params),
+      era: params?.era ?? null,
+      rivals: (params?.rivals ?? []).map((rival) => ({ label: rival.label, share: rival.share, games: rival.games })),
       deckId: snapshot?.deckId ?? null,
       deck: snapshot?.label ?? '',
       keyCards: (params?.keyCards ?? []).map((cardId) => ({
@@ -627,22 +662,30 @@ export class SimulationsService {
     }
   }
 
-  /** The latest finished consistency job of a deck (any revision), with its job summary; null when none. */
-  async deckConsistency(rawDeckId: string): Promise<{ job: JobSummaryView; consistency: ConsistencyView } | null> {
+  /** The latest finished consistency of a deck (any revision) in each mode, with its job summary; null when none. */
+  async deckConsistency(
+    rawDeckId: string,
+  ): Promise<Record<'goldfish' | 'meta', { job: JobSummaryView; consistency: ConsistencyView } | null>> {
     const deckId = parseNumericId(rawDeckId, 'Mazo')
     const snapshots = await this.prisma.deckSnapshot.findMany({ where: { deckId }, select: { id: true } })
-    if (snapshots.length === 0) return null
-    const job = await this.prisma.simulationJob.findFirst({
+    if (snapshots.length === 0) return { goldfish: null, meta: null }
+    const jobs = await this.prisma.simulationJob.findMany({
       where: {
         kind: 'consistency',
         status: 'done',
         chunks: { some: { snapshotAId: { in: snapshots.map((row) => row.id) } } },
       },
       orderBy: { id: 'desc' },
+      select: { id: true, params: true },
+      take: 50,
     })
-    if (!job) return null
-    const detail = await this.detail(String(job.id))
-    return detail.consistency ? { job: detail, consistency: detail.consistency } : null
+    const latest = async (mode: 'goldfish' | 'meta') => {
+      const job = jobs.find((row) => consistencyMode(row.params) === mode)
+      if (!job) return null
+      const detail = await this.detail(String(job.id))
+      return detail.consistency ? { job: detail, consistency: detail.consistency } : null
+    }
+    return { goldfish: await latest('goldfish'), meta: await latest('meta') }
   }
 
   async cancel(rawId: string): Promise<JobSummaryView> {
@@ -660,6 +703,36 @@ export class SimulationsService {
       ])
     }
     return this.progressOf(rawId)
+  }
+
+  /** Archive (hide from the list) or bring back a job that is not running. */
+  async archive(rawId: string, archived: boolean): Promise<JobSummaryView> {
+    const job = await this.requireJob(rawId)
+    if (archived && (job.status === 'queued' || job.status === 'running')) {
+      throw new BadRequestException({
+        code: 'job_running',
+        message: 'Esperá a que termine (o cancelala) antes de archivarla.',
+      })
+    }
+    if (archived !== (job.archivedAt !== null)) {
+      await this.prisma.simulationJob.update({
+        where: { id: job.id },
+        data: { archivedAt: archived ? new Date() : null },
+      })
+    }
+    return this.progressOf(rawId)
+  }
+
+  /** Bulk clean-up from the list: delete every cancelled job, or archive every finished one. */
+  async cleanup(action: 'delete_cancelled' | 'archive_done'): Promise<{ count: number }> {
+    if (action === 'delete_cancelled') {
+      return { count: (await this.prisma.simulationJob.deleteMany({ where: { status: 'cancelled' } })).count }
+    }
+    const archived = await this.prisma.simulationJob.updateMany({
+      where: { status: 'done', archivedAt: null },
+      data: { archivedAt: new Date() },
+    })
+    return { count: archived.count }
   }
 
   async remove(rawId: string): Promise<void> {
@@ -839,6 +912,33 @@ export class SimulationsService {
 }
 
 /** Whether a job belongs to the Laboratorio, from the `lab` block of its params (T-008). */
+/** A rival of a consistency «contra el meta» as the job stores it. */
+export interface ConsistencyRival {
+  snapshot: number
+  label: string
+  listKey: string
+  share: number
+  weight: number
+  games: number
+}
+
+/** What a consistency job stores in `params.consistency`. */
+export interface ConsistencyParams {
+  /** Missing in jobs from before D-019: goldfish. */
+  mode: 'goldfish' | 'meta'
+  keyCards: string[]
+  engineIds: string[]
+  maxTurn: number
+  bot: string
+  era?: string
+  format?: string
+  rivals?: ConsistencyRival[]
+}
+
+export function consistencyMode(params: Prisma.JsonValue): 'goldfish' | 'meta' {
+  return (params as { consistency?: { mode?: unknown } } | null)?.consistency?.mode === 'meta' ? 'meta' : 'goldfish'
+}
+
 export function labMode(params: Prisma.JsonValue): 'test' | 'explore' | null {
   const mode = (params as { lab?: { mode?: unknown } } | null)?.lab?.mode
   return mode === 'test' || mode === 'explore' ? mode : null

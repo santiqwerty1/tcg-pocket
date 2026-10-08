@@ -185,6 +185,53 @@ describe('laboratorio (e2e)', () => {
     expect((await get(`/api/simulations/${jobId}`)).body.lab).toBe('test')
   })
 
+  it('consistency against the meta (D-019): the games split by weight among the bank, for workers 0.2.1+', async () => {
+    const created = await post('/api/lab/consistency').send({ deckId: deckIds[1], size: 5, games: 100, seed: 11 })
+    expect(created.status).toBe(201)
+    expect(created.body).toMatchObject({ kind: 'consistency', players: ['e2', 'e2'], progress: { totalGames: 100 } })
+    expect(created.body.label).toMatch(/^Consistencia contra el meta B4a de .*Mega-Blaziken/)
+    const claimAs = (version: string) =>
+      bearer('post', '/api/worker/claim').send({ ...hello, version, engineRev: test.env.engineRev })
+    // A 0.2.0 worker would ignore the rivals and measure the goldfish curve: it does not get it.
+    expect((await claimAs('0.2.0')).body.chunk).toBeNull()
+    const chunk = (await claimAs('0.2.1')).body.chunk as {
+      chunkId: number
+      games: number
+      consistency: { bot: string; rivals: { deck: string; games: number }[] }
+    }
+    expect(chunk.games).toBe(100)
+    expect(chunk.consistency.bot).toBe('e2')
+    expect(chunk.consistency.rivals).toHaveLength(5)
+    expect(chunk.consistency.rivals.reduce((sum, rival) => sum + rival.games, 0)).toBe(100)
+    const bank = (await get('/api/lab/bank?size=5')).body.rivals as { weight: number }[]
+    chunk.consistency.rivals.forEach((rival, at) => {
+      expect(rival.deck).toMatch(/Energy:/)
+      expect(Math.abs(rival.games - (bank[at]?.weight ?? 0) * 100)).toBeLessThan(1)
+    })
+    const histogram = (games: number) => ({ games, firstOnTurn: [0, 5, games - 15, 0, 0, 0, 0, 0], never: 10 })
+    const result = await bearer('put', `/api/worker/chunks/${chunk.chunkId}/result`).send({
+      workerId: hello.workerId,
+      engineRev: test.env.engineRev,
+      winsA: 80,
+      winsB: 20,
+      ties: 0,
+      games: 100,
+      durationMs: 10,
+      extra: {
+        ready: { first: histogram(50), second: histogram(50) },
+        attack: { first: histogram(50), second: histogram(50) },
+      },
+    })
+    expect(result.body).toEqual({ accepted: true })
+    const latest = (await get(`/api/simulations/consistency/deck/${deckIds[1]}`)).body
+    expect(latest.result).toBeNull()
+    expect(latest.meta.job.id).toBe(created.body.id)
+    expect(latest.meta.consistency).toMatchObject({ mode: 'meta', era: 'B4a', games: { all: 100 } })
+    expect(latest.meta.consistency.rivals).toHaveLength(5)
+    expect(latest.meta.consistency.rivals[0]).toMatchObject({ label: expect.any(String), games: expect.any(Number) })
+    expect((await post('/api/lab/consistency').send({ deckId: deckIds[1], bot: 'et' })).status).toBe(400)
+  })
+
   it('a pasted list is tested like a deck; one that does not parse says why', async () => {
     const text = readFileSync(DECKS_PATH, 'utf8')
     const start = text.indexOf('\n### 2. ')

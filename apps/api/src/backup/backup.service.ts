@@ -108,7 +108,7 @@ export class BackupService {
   // ---------------------------------------------------------------------------------------------------------------
 
   async exportDocument(): Promise<BackupDocument> {
-    const [settings, rarityRules, stock, imports, adjustments, decks, matches, packs, tokens, sets, aliases] =
+    const [settings, rarityRules, stock, imports, adjustments, decks, matches, packs, tokens, sets, aliases, games] =
       await Promise.all([
         this.prisma.appSetting.findMany({ orderBy: { key: 'asc' } }),
         this.prisma.rarityRule.findMany({ orderBy: { rarity: 'asc' } }),
@@ -131,6 +131,7 @@ export class BackupService {
         this.prisma.apiToken.findMany({ orderBy: { id: 'asc' } }),
         this.prisma.setRelease.findMany({ orderBy: [{ releaseDate: 'asc' }, { code: 'asc' }] }),
         this.prisma.archetypeAlias.findMany({ orderBy: { archetypeId: 'asc' } }),
+        this.prisma.liveGame.findMany({ where: { status: 'done', winner: { not: null } }, orderBy: { id: 'asc' } }),
       ])
     return {
       schemaVersion: BACKUP_SCHEMA_VERSION,
@@ -258,6 +259,18 @@ export class BackupService {
         lastUsedAt: isoOrNull(token.lastUsedAt),
         expiresAt: isoOrNull(token.expiresAt),
         revokedAt: isoOrNull(token.revokedAt),
+      })),
+      playedGames: games.map((game) => ({
+        id: game.id,
+        humanLabel: game.humanLabel,
+        rivalLabel: game.rivalLabel,
+        bot: game.bot,
+        seed: game.seed.toString(),
+        engineRev: game.engineRev,
+        winner: game.winner as 'you' | 'bot' | 'tie',
+        turns: game.turns,
+        createdAt: iso(game.createdAt),
+        finishedAt: isoOrNull(game.finishedAt),
       })),
     } as BackupDocument
   }
@@ -495,6 +508,32 @@ export class BackupService {
             })),
           })
         }
+        // Games against the bot (version 5): the finished ones are replaced by the file's results (no moves, no
+        // snapshots); games still being played keep going. Older files keep the current ones.
+        if (document.playedGames) {
+          await tx.liveGame.deleteMany({ where: { status: { in: ['done', 'abandoned', 'failed'] } } })
+          if (document.playedGames.length > 0) {
+            await tx.liveGame.createMany({
+              skipDuplicates: true,
+              data: document.playedGames.map((game) => ({
+                id: game.id,
+                status: 'done' as const,
+                humanSnapshotId: 0,
+                botSnapshotId: 0,
+                humanLabel: game.humanLabel,
+                rivalLabel: game.rivalLabel,
+                bot: game.bot,
+                seed: BigInt(game.seed),
+                engineRev: game.engineRev,
+                choices: [],
+                winner: game.winner,
+                turns: game.turns,
+                createdAt: game.createdAt,
+                finishedAt: game.finishedAt,
+              })),
+            })
+          }
+        }
         for (const rule of document.rarityRules) {
           await tx.rarityRule.upsert({
             where: { rarity: rule.rarity },
@@ -509,6 +548,7 @@ export class BackupService {
           'deck_revisions',
           'deck_changes',
           'matches',
+          'live_games',
         ]) {
           await tx.$executeRawUnsafe(
             `SELECT setval(pg_get_serial_sequence('"${table}"', 'id'), COALESCE((SELECT MAX(id) FROM "${table}"), 0) + 1, false)`,
@@ -545,6 +585,11 @@ export class BackupService {
     if (unknown.size > 0) {
       notices.push(
         `${unknown.size} ids del backup no existen en el catálogo cargado; no se puede restaurar hasta sincronizarlo.`,
+      )
+    }
+    if (document.schemaVersion < 5) {
+      notices.push(
+        `Backup de la versión ${document.schemaVersion}, anterior a la Fase 8: no trae las partidas contra el bot; se mantienen las que hay ahora.`,
       )
     }
     if (document.schemaVersion < 4) {

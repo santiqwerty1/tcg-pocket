@@ -432,4 +432,49 @@ describe('simulation (e2e)', () => {
       expect((await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)).status).toBe(204)
     }
   })
+
+  it('list: archive finished jobs (one by one or all), bring them back, delete the cancelled ones', async () => {
+    const make = async () =>
+      (
+        await post('/api/simulations').send({
+          kind: 'compare',
+          sideA: decks(3, 3),
+          sideB: decks(5, 5),
+          gamesPerPair: 10,
+          players: ['r', 'r'],
+        })
+      ).body.id as number
+    const [cancelled, done, queued] = [await make(), await make(), await make()]
+    await post(`/api/simulations/${cancelled}/cancel`)
+    await test.prisma.simulationJob.update({ where: { id: done }, data: { status: 'done', finishedAt: new Date() } })
+
+    const refused = await post(`/api/simulations/${queued}/archive`)
+    expect(refused.status).toBe(400)
+    expect(refused.body.error.code).toBe('job_running')
+    const archived = await post(`/api/simulations/${done}/archive`)
+    expect(archived.status).toBe(200)
+    expect(archived.body.archived).toBe(true)
+    const list = (await get('/api/simulations')).body as { items: { id: number }[]; counts: Record<string, number> }
+    expect(list.items.map((job) => job.id)).toEqual(expect.arrayContaining([cancelled, queued]))
+    expect(list.items.map((job) => job.id)).not.toContain(done)
+    expect(list.counts).toMatchObject({ archived: 1, cancelled: 1, done: 0 })
+    expect((await get('/api/simulations?archived=true')).body.items.map((job: { id: number }) => job.id)).toEqual([
+      done,
+    ])
+    // Archived results still count: the job itself is still there.
+    expect((await get(`/api/simulations/${done}`)).body).toMatchObject({ status: 'done', archived: true })
+
+    expect((await post(`/api/simulations/${done}/unarchive`)).body.archived).toBe(false)
+    expect((await get('/api/simulations')).body.counts).toMatchObject({ archived: 0, done: 1 })
+    expect((await post('/api/simulations/cleanup').send({ action: 'archive_done' })).body).toEqual({ count: 1 })
+    expect(
+      (await post('/api/simulations/cleanup').send({ action: 'delete_cancelled' })).body.count,
+    ).toBeGreaterThanOrEqual(1)
+    expect((await get(`/api/simulations/${cancelled}`)).status).toBe(404)
+    expect((await post('/api/simulations/cleanup').send({ action: 'nope' })).status).toBe(400)
+
+    await post(`/api/simulations/${queued}/cancel`)
+    expect((await test.http().delete(`/api/simulations/${queued}`).set('Cookie', cookie)).status).toBe(204)
+    expect((await test.http().delete(`/api/simulations/${done}`).set('Cookie', cookie)).status).toBe(204)
+  })
 })

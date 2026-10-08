@@ -1009,7 +1009,7 @@ ${MCP_WRITE_INSTRUCTIONS}`
     const deck = args.deck ? await this.resolveDeck(args.deck) : null
     const note = 'Juegan bots del motor deckgym: el porcentaje depende del bot y del motor, no predice partidas reales.'
     if (args.job === undefined) {
-      const jobs = await this.simulations.list(limit)
+      const jobs = await this.simulations.list(limit, null)
       const column = deck
         ? (await this.matches.comparison(deck.id, undefined)).columns.find((c) => c.source === 'simulation')
         : null

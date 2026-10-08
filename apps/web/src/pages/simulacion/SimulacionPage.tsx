@@ -3,10 +3,20 @@
  * which workers are online. Simulated results stay here and in their own column of the deck comparison; they never
  * mix with own matches or tournaments.
  */
-import { CpuIcon, PlusIcon } from 'lucide-react'
+import { ArchiveIcon, ArchiveRestoreIcon, ArrowLeftIcon, CpuIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { useState } from 'react'
 import { Link } from 'react-router'
+import { toast } from 'sonner'
+import { errorMessage } from '@/api/client'
 import type { EngineInfo, JobSummary } from '@/api/schemas'
-import { useEngineInfo, useSimulations } from '@/api/simulations'
+import {
+  useArchiveSimulation,
+  useCleanupSimulations,
+  useDeleteSimulation,
+  useEngineInfo,
+  useSimulations,
+} from '@/api/simulations'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Badge } from '@/components/ui/badge'
@@ -121,13 +131,76 @@ export function EngineLine({ engine }: { engine: EngineInfo }) {
   )
 }
 
-function JobRow({ job }: { job: JobSummary }) {
+/** The row's own action: archive a finished job, bring back an archived one, delete a cancelled or failed one. */
+function RowAction({ job, onDelete }: { job: JobSummary; onDelete: (job: JobSummary) => void }) {
+  const archive = useArchiveSimulation()
+  function setArchived(archived: boolean) {
+    archive.mutate(
+      { id: job.id, archived },
+      {
+        onSuccess: () =>
+          toast.success(archived ? `#${job.id} archivada` : `#${job.id} vuelve a la lista`, {
+            duration: 8000,
+            action: archived
+              ? { label: 'Deshacer', onClick: () => archive.mutate({ id: job.id, archived: false }) }
+              : undefined,
+          }),
+        onError: (error) => toast.error(errorMessage(error)),
+      },
+    )
+  }
+  if (job.archived) {
+    return (
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label={`Desarchivar #${job.id}`}
+        title="Desarchivar"
+        disabled={archive.isPending}
+        onClick={() => setArchived(false)}
+      >
+        <ArchiveRestoreIcon />
+      </Button>
+    )
+  }
+  if (job.status === 'done') {
+    return (
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label={`Archivar #${job.id}`}
+        title="Archivar (sus resultados siguen valiendo)"
+        disabled={archive.isPending}
+        onClick={() => setArchived(true)}
+      >
+        <ArchiveIcon />
+      </Button>
+    )
+  }
+  if (job.status === 'cancelled' || job.status === 'failed') {
+    return (
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label={`Borrar #${job.id}`}
+        title="Borrar"
+        className="text-muted-foreground hover:text-destructive"
+        onClick={() => onDelete(job)}
+      >
+        <Trash2Icon />
+      </Button>
+    )
+  }
+  return null
+}
+
+function JobRow({ job, onDelete }: { job: JobSummary; onDelete: (job: JobSummary) => void }) {
   const active = isActive(job.status)
   return (
-    <li>
+    <li className="flex items-center">
       <Link
         to={job.lab ? `/laboratorio/${job.id}` : `/simulacion/${job.id}`}
-        className="flex flex-col gap-1.5 px-3 py-2.5 hover:bg-muted"
+        className="flex min-w-0 flex-1 flex-col gap-1.5 px-3 py-2.5 hover:bg-muted"
       >
         <div className="flex items-baseline gap-2">
           <span className="min-w-0 flex-1 truncate font-medium">{job.label}</span>
@@ -147,32 +220,65 @@ function JobRow({ job }: { job: JobSummary }) {
           </div>
         ) : null}
       </Link>
+      <div className="shrink-0 pr-1">
+        <RowAction job={job} onDelete={onDelete} />
+      </div>
     </li>
   )
 }
 
 export function SimulacionPage() {
-  const jobs = useSimulations()
+  const [showArchived, setShowArchived] = useState(false)
+  const jobs = useSimulations(showArchived)
   const engine = useEngineInfo()
+  const remove = useDeleteSimulation()
+  const cleanup = useCleanupSimulations()
+  const [toDelete, setToDelete] = useState<JobSummary | null>(null)
+  const [confirmCleanup, setConfirmCleanup] = useState(false)
+  const counts = jobs.data?.counts
+
+  function archiveDone() {
+    cleanup.mutate('archive_done', {
+      onSuccess: ({ count }) =>
+        toast.success(count === 1 ? '1 simulación archivada' : `${count} simulaciones archivadas`),
+      onError: (error) => toast.error(errorMessage(error)),
+    })
+  }
+
   return (
     <div className="flex flex-col gap-4">
-      {engine.data ? <EngineLine engine={engine.data} /> : null}
+      {engine.data && !showArchived ? <EngineLine engine={engine.data} /> : null}
       <Section
-        title="Simulaciones"
+        title={showArchived ? 'Simulaciones archivadas' : 'Simulaciones'}
         action={
-          <Button asChild size="sm">
-            <Link to="/simulacion/nueva">
-              <PlusIcon data-icon="inline-start" />
-              Nueva
-            </Link>
-          </Button>
+          showArchived ? (
+            <Button size="sm" variant="outline" onClick={() => setShowArchived(false)}>
+              <ArrowLeftIcon data-icon="inline-start" />
+              Volver
+            </Button>
+          ) : (
+            <Button asChild size="sm">
+              <Link to="/simulacion/nueva">
+                <PlusIcon data-icon="inline-start" />
+                Nueva
+              </Link>
+            </Button>
+          )
         }
       >
+        {showArchived ? (
+          <p className="text-xs text-muted-foreground">
+            Archivadas: no aparecen en la lista, pero sus resultados siguen contando (comparativa, consistencia,
+            laboratorio).
+          </p>
+        ) : null}
         {jobs.isPending ? (
           <LoadingRows />
         ) : jobs.isError ? (
           <ErrorState error={jobs.error} onRetry={() => jobs.refetch()} />
-        ) : jobs.data.length === 0 ? (
+        ) : showArchived && jobs.data.items.length === 0 ? (
+          <EmptyState title="No hay simulaciones archivadas" />
+        ) : jobs.data.items.length === 0 ? (
           <EmptyState
             title="Sin simulaciones todavía"
             description="Elegí mazos o listas de torneo, los bots y cuántas partidas; el worker de la PC las juega con deckgym-core."
@@ -184,12 +290,70 @@ export function SimulacionPage() {
           />
         ) : (
           <ul className="divide-y rounded-lg border">
-            {jobs.data.map((job) => (
-              <JobRow key={job.id} job={job} />
+            {jobs.data.items.map((job) => (
+              <JobRow key={job.id} job={job} onDelete={setToDelete} />
             ))}
           </ul>
         )}
+        {!showArchived && counts && (counts.done > 0 || counts.cancelled > 0 || counts.archived > 0) ? (
+          <div className="flex flex-wrap gap-2">
+            {counts.done > 0 ? (
+              <Button size="sm" variant="outline" disabled={cleanup.isPending} onClick={archiveDone}>
+                <ArchiveIcon data-icon="inline-start" />
+                Archivar terminadas ({counts.done})
+              </Button>
+            ) : null}
+            {counts.cancelled > 0 ? (
+              <Button size="sm" variant="outline" disabled={cleanup.isPending} onClick={() => setConfirmCleanup(true)}>
+                <Trash2Icon data-icon="inline-start" />
+                Borrar canceladas ({counts.cancelled})
+              </Button>
+            ) : null}
+            {counts.archived > 0 ? (
+              <Button size="sm" variant="ghost" onClick={() => setShowArchived(true)}>
+                Ver archivadas ({counts.archived})
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
       </Section>
+      <ConfirmDialog
+        open={toDelete !== null}
+        onOpenChange={(open) => (open ? null : setToDelete(null))}
+        title={`¿Borrar la simulación #${toDelete?.id ?? ''}?`}
+        description="Se borran sus resultados y repeticiones. Los mazos no se tocan."
+        confirmLabel="Borrar"
+        destructive
+        pending={remove.isPending}
+        onConfirm={async () => {
+          if (!toDelete) return
+          try {
+            await remove.mutateAsync(toDelete.id)
+            toast.success(`Simulación #${toDelete.id} borrada`)
+            setToDelete(null)
+          } catch (error) {
+            toast.error(errorMessage(error))
+          }
+        }}
+      />
+      <ConfirmDialog
+        open={confirmCleanup}
+        onOpenChange={setConfirmCleanup}
+        title={`¿Borrar las ${counts?.cancelled ?? 0} simulaciones canceladas?`}
+        description="Se borran con lo que hayan llegado a jugar y sus repeticiones. Los mazos no se tocan."
+        confirmLabel="Borrar"
+        destructive
+        pending={cleanup.isPending}
+        onConfirm={() =>
+          cleanup.mutate('delete_cancelled', {
+            onSuccess: ({ count }) => {
+              toast.success(count === 1 ? '1 simulación borrada' : `${count} simulaciones borradas`)
+              setConfirmCleanup(false)
+            },
+            onError: (error) => toast.error(errorMessage(error)),
+          })
+        }
+      />
       <p className="text-xs text-muted-foreground">
         Los porcentajes simulados dependen del bot y del motor: sirven para comparar mazos entre sí, no para predecir
         partidas reales.

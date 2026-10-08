@@ -14,8 +14,9 @@ import type { WorkerConfig } from './config.js'
 import { EngineError, engineStatus, engineVersion, runJob } from './engine.js'
 import { LiveRunner } from './live.js'
 
-/** 0.2.0: games against a bot and consistency chunks (Fase 8); the app gives consistency chunks only from 0.2.0 on. */
-export const WORKER_VERSION = '0.2.0'
+/** 0.2.0: games against a bot and consistency chunks (Fase 8); the app gives consistency chunks only from 0.2.0 on.
+ * 0.2.1: consistency against the meta (D-019), given only from 0.2.1 on. */
+export const WORKER_VERSION = '0.2.1'
 const HEARTBEAT_MS = 30_000
 
 interface SimulateResult {
@@ -45,6 +46,8 @@ interface ConsistencyResult {
   engineRev: string
   durationMs: number
   games: number
+  /** «meta» when it played the rivals; missing in engines from before D-019. */
+  mode?: string
   ready: { first: TurnHistogram; second: TurnHistogram }
   attack: { first: TurnHistogram; second: TurnHistogram }
 }
@@ -210,10 +213,19 @@ export class Worker {
             games: chunk.games,
             seed: Number(chunk.seed),
             threads,
+            ...(chunk.consistency?.rivals?.length ? { rivals: chunk.consistency.rivals } : {}),
           },
           this.workDir,
           { signal: controller.signal, onProgress: track },
         )
+        // An engine from before D-019 ignores the rivals and would measure the goldfish curve instead.
+        if (chunk.consistency?.rivals?.length && result.mode !== 'meta') {
+          throw new EngineError(
+            'engine-cli no conoce la consistencia contra el meta: recompilá el motor (cargo build).',
+            null,
+            'old_engine',
+          )
+        }
         // The tallies the queue keeps: games ready by the last turn reported, and games never ready.
         const never = result.ready.first.never + result.ready.second.never
         return {

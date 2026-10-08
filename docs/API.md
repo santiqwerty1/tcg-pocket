@@ -303,7 +303,9 @@ Partidas entre mazos con deckgym-core (`engine-cli`, `engine/`) que juega el wor
 
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
-| `GET /api/simulations` | `{ items: JobSummary[] }` (50 más recientes) |
+| `GET /api/simulations?archived=` | `{ items: JobSummary[], counts: { archived, cancelled, done } }`: las 50 más recientes sin archivar (`done` = terminadas sin archivar); con `archived=true`, solo las archivadas (200) |
+| `POST /api/simulations/cleanup` | `{ action: 'delete_cancelled' | 'archive_done' }` → `{ count }`: borra todas las canceladas o archiva todas las terminadas |
+| `POST /api/simulations/:id/archive` · `/unarchive` | `JobSummary`; archivada = fuera de la lista, sus resultados siguen contando (comparativa, consistencia, Laboratorio); `400 job_running` si está en cola o corriendo |
 | `GET /api/simulations/engine` | `{ engineRev, cards, incomplete, source: 'worker'|'fallback'|'none', upstream: { checkedAt, pinned, aheadBy, latest: { sha, date, message } | null, compareUrl } | null (commits de deckgym-core `main` desde el motor fijado; producción, cada 12 h, `ENGINE_UPSTREAM_CHECK`), workers: [{ id, name, engineRev, cliVersion, cores, version, lastSeenAt, online, current: { jobId, chunkId, gamesDone, games } | null }], bots: [{ code, label }] }`; `fallback` = la lista de la Fase 0 hasta que un worker sube `engine-cli status`; `online` = habló en los últimos 2 min |
 | `POST /api/simulations/preview` | `JobInput` → `{ sideA: Snapshot[], sideB: Snapshot[], pairings, totalGames, estimatedSeconds, engineRev }` (sin `id` en las fotos; no guarda nada) |
 | `POST /api/simulations` | `JobInput` → `201 JobSummary`; `422 not_simulable` si algún mazo no es simulable y no se pidió `skipNotSimulable`; `400 validation` (sin cruces, optimizar sin cartas o con más de 200 combinaciones) |
@@ -326,6 +328,7 @@ Snapshot = { id, key, label, sourceType: 'deck_revision'|'tournament_list'|'text
              deckgymText }
 JobSummary = { id, kind, status: 'queued'|'running'|'done'|'failed'|'cancelled', label, players, playersEs, gamesPerPair,
                baseSeed (string), engineRev, replaySample, createdAt, startedAt, finishedAt, error, lab: 'test'|'explore'|null,
+               archived: boolean,
                progress: { totalGames, gamesDone, chunks: { total, done, running, failed }, etaSeconds | null } }
 JobDetail = JobSummary & { snapshots: Snapshot[], sideA: id[], sideB: id[],
                rows: [{ snapshot, total: Record, rate, cells: [{ rival, record | null, rate | null }] }],   // matriz y comparar
@@ -355,16 +358,18 @@ Bots (`players`): `r` al azar, `w` al azar ponderado, `aa` adjunta y ataca, `et`
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
 | `POST /api/simulations/consistency` | `{ deckId, keyCards?: cardId[], games? (1000, 10–10.000), bot? (e2), seed? }` → `201 JobSummary` (`kind: 'consistency'`, un chunk, `players: [bot, 'et']`); sin `keyCards`, el Pokémon del mazo que más puntos da (todas sus ediciones); `422 not_simulable`, `400` si las cartas clave no están en el mazo |
-| `GET /api/simulations/consistency/deck/:deckId` | `{ result: { job: JobDetail, consistency: Consistency } | null }`: la última medición terminada del mazo (cualquier revisión) |
+| `POST /api/lab/consistency` | `{ deckId, keyCards?, games? (1000), bot? (e2, no `et`), seed?, era?, format?, size? (15) }` → `201 JobSummary`: **contra el meta** (D-019): las partidas se reparten entre los rivales del banco del Laboratorio según su peso (mayor resto) y se juegan de verdad, los dos mazos con `bot` (`players: [bot, bot]`); `422 empty_bank` |
+| `GET /api/simulations/consistency/deck/:deckId` | `{ result: Medida | null, meta: Medida | null }` con `Medida = { job: JobDetail, consistency: Consistency }`: la última medición terminada del mazo (cualquier revisión) contra un rival pasivo y contra el meta |
 
 ```ts
-Consistency = { deckId, deck, keyCards: [{ cardId, nameEs }], bot, botEs, maxTurn, games: { first, second, all },
+Consistency = { mode: 'goldfish'|'meta', era | null, rivals: [{ label, share, games }],   // meta: el banco y las partidas contra cada uno
+                deckId, deck, keyCards: [{ cardId, nameEs }], bot, botEs, maxTurn, games: { first, second, all },
                 ready: { first: Curve, second: Curve, all: Curve },    // atacante clave en juego con energía para un ataque
                 attack: { first: Curve, second: Curve, all: Curve } }  // activo y con un ataque posible
 Curve = [{ turn (turno propio 1…), ready, games, value (0–100), ci95 }]   // acumulada: P(listo en el turno propio ≤ N), Wilson 95 %
 ```
 
-`JobDetail.consistency` trae lo mismo en el detalle de la simulación. Partidas «goldfish»: el mazo lo juega el bot sin elegir atacar y el rival es el mismo mazo con `et` (solo termina el turno), así la partida dura y se mide cómo se arma la lista. El worker solo recibe estos chunks desde la versión 0.2.0.
+`JobDetail.consistency` trae lo mismo en el detalle de la simulación. Partidas «goldfish»: el mazo lo juega el bot sin elegir atacar y el rival es el mismo mazo con `et` (solo termina el turno), así la partida dura y se mide cómo se arma la lista. El worker solo recibe estos chunks desde la versión 0.2.0, y los de «contra el meta» desde la 0.2.1 (el claim trae `consistency.rivals: [{ deck, games }]`; en esas partidas el mazo ataca, y una partida que termina antes del atacante listo cuenta como «nunca»).
 
 ## Jugar contra un bot (Fase 8)
 
@@ -372,7 +377,7 @@ La partida corre en el worker de la PC (`engine-cli play`); la app muestra cada 
 
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
-| `GET /api/play` | `{ items: [{ id, status, botEs, human, rival, winner, turns, createdAt, finishedAt }] }` (30 más recientes; las que llevan 3 días sin movimiento pasan a `abandoned`) |
+| `GET /api/play` | `{ items: [{ id, status, botEs, human, rival, winner, turns, createdAt, finishedAt }] }` (30 más recientes; las que llevan una semana sin movimiento pasan a `abandoned`) |
 | `POST /api/play` | `{ human: Source, rival: Source, bot? (e2), seed? }` → `201 LiveGame`; `400 not_simulable` si un mazo no se puede jugar |
 | `GET /api/play/:id` | `LiveGame` |
 | `POST /api/play/:id/choice` | `{ ply, i }` → `LiveGame`; `409 not_your_turn` / `stale_decision`, `400` opción inexistente |
@@ -468,11 +473,11 @@ Conectar:
 | Método y ruta | Respuesta |
 |---|---|
 | `GET /api/backup/export` | Descarga `tcgpocket-backup-AAAAMMDD.json.gz` (`application/gzip`; todo lo propio, partidas incluidas; ver abajo y PLAN §3.9) |
-| `POST /api/backup/import?mode=dry-run|replace` | `multipart/form-data` con `file` (`.json.gz` o `.json`, ≤ 50 MB); sin `mode`: `dry-run` → `{ schemaVersion, exportedAt, appVersion, catalogCommit, diff: { current, incoming, notices: string[], needsReview, unknownCardIds } }` (`current`/`incoming` son conteos por tabla, `matches` incluido); `replace` → `{ applied: true, counts, notices }`. Errores: `400 invalid_backup` (no es gzip/JSON, no tiene la forma, descomprimido supera 128 MB o tiene partidas con referencias rotas), `400 unsupported_schema` (`schemaVersion` distinto de 1 a 4), `400 unknown_card` en `replace` si referencia cartas o grupos que no están en el catálogo cargado |
+| `POST /api/backup/import?mode=dry-run|replace` | `multipart/form-data` con `file` (`.json.gz` o `.json`, ≤ 50 MB); sin `mode`: `dry-run` → `{ schemaVersion, exportedAt, appVersion, catalogCommit, diff: { current, incoming, notices: string[], needsReview, unknownCardIds } }` (`current`/`incoming` son conteos por tabla, `matches` incluido); `replace` → `{ applied: true, counts, notices }`. Errores: `400 invalid_backup` (no es gzip/JSON, no tiene la forma, descomprimido supera 128 MB o tiene partidas con referencias rotas), `400 unsupported_schema` (`schemaVersion` distinto de 1 a 5), `400 unknown_card` en `replace` si referencia cartas o grupos que no están en el catálogo cargado |
 | `GET /api/backup/blobs` | `{ items: [{ id, createdAt, sizeBytes }] }` (copias diarias guardadas, más reciente primero; se conservan las últimas 14) |
 | `GET /api/backup/blobs/:id` | Descarga (`application/gzip`, nombre con la fecha de la copia) |
 
-Documento (`schemaVersion: 4`): `{ schemaVersion, exportedAt, appVersion, catalogCommit, engineRev, settings[], rarityRules[], collection: { stock[], imports[] (metadatos + filas, sin el archivo crudo), adjustments[] }, decks[] (con `revisions[]` y `changes[]`), matches[] (con `deckId` y `deckRevisionId`), packs[] (`{ id, available, pointsBalance, limited?, limitedUntil? }`, Fase 4; sin `limited`/`limitedUntil` se mantienen los actuales), tournaments (`{ sets[], archetypeAliases[] }`, Fase 5; los mazos llevan `tournamentArchetypeId`; los torneos de Limitless no viajan: se vuelven a bajar), tokens[] (solo metadatos: no se restauran) }`, con los ids numéricos y las fechas de la base, así `replace` deja una base idéntica (y un nuevo `export` igual salvo `exportedAt`). Se leen las versiones 1 (Fase 1, sin `matches`: el dry-run avisa que restaurarla borra las partidas actuales), 2 (sin `packs`: se mantiene la disponibilidad actual), 3 (sin tabla de eras ni fusiones de arquetipos: se mantienen las actuales) y 4. Una partida cuyo mazo o revisión no está en el archivo da `400 invalid_backup` con `details` (`[{ id, deckId, deckRevisionId }]`). `replace` corre en una transacción: borra partidas, mazos, ajustes, stock, importaciones y configuración, inserta todo con sus ids, reconstruye `deck_cards` y reajusta las secuencias; `rarity_rules` se pisan por rareza. Si `catalogCommit` difiere del catálogo cargado, `notices` avisa `needs_review` (el remapeo I12 sigue pendiente). La copia diaria (04:00, `BACKUP_CRON`) guarda el mismo documento en `backup_blobs`.
+Documento (`schemaVersion: 5`): `{ schemaVersion, exportedAt, appVersion, catalogCommit, engineRev, settings[], rarityRules[], collection: { stock[], imports[] (metadatos + filas, sin el archivo crudo), adjustments[] }, decks[] (con `revisions[]` y `changes[]`), matches[] (con `deckId` y `deckRevisionId`), packs[] (`{ id, available, pointsBalance, limited?, limitedUntil? }`, Fase 4; sin `limited`/`limitedUntil` se mantienen los actuales), tournaments (`{ sets[], archetypeAliases[] }`, Fase 5; los mazos llevan `tournamentArchetypeId`; los torneos de Limitless no viajan: se vuelven a bajar), tokens[] (solo metadatos: no se restauran), playedGames[] (Fase 8, D-019: las partidas contra el bot terminadas, solo el resultado: `{ id, humanLabel, rivalLabel, bot, seed, engineRev, winner: 'you'|'bot'|'tie', turns, createdAt, finishedAt }`; al restaurar reemplazan las terminadas y las que se están jugando siguen) }`, con los ids numéricos y las fechas de la base, así `replace` deja una base idéntica (y un nuevo `export` igual salvo `exportedAt`). Se leen las versiones 1 (Fase 1, sin `matches`: el dry-run avisa que restaurarla borra las partidas actuales), 2 (sin `packs`: se mantiene la disponibilidad actual), 3 (sin tabla de eras ni fusiones de arquetipos: se mantienen las actuales), 4 (sin `playedGames`: se mantienen las partidas contra el bot actuales) y 5. Una partida cuyo mazo o revisión no está en el archivo da `400 invalid_backup` con `details` (`[{ id, deckId, deckRevisionId }]`). `replace` corre en una transacción: borra partidas, mazos, ajustes, stock, importaciones y configuración, inserta todo con sus ids, reconstruye `deck_cards` y reajusta las secuencias; `rarity_rules` se pisan por rareza. Si `catalogCommit` difiere del catálogo cargado, `notices` avisa `needs_review` (el remapeo I12 sigue pendiente). La copia diaria (04:00, `BACKUP_CRON`) guarda el mismo documento en `backup_blobs`.
 
 ## Configuración
 

@@ -4,12 +4,14 @@
  * without counting as a failure; only an engine error counts (3 at most). Results are idempotent: a chunk's result
  * depends only on its seed, so a duplicate after `done` is ignored.
  */
+
 import { EventEmitter } from 'node:events'
 import { gunzipSync } from 'node:zlib'
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import type { Prisma } from '../generated/prisma/client.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import type { ConsistencyParams } from './simulations.service.js'
 import { EngineStatusService } from './snapshots.service.js'
 
 export const LEASE_MS = 3 * 60 * 1000
@@ -44,12 +46,19 @@ export interface ClaimedChunk {
   deckB: string | null
   /** optimize: the engine-cli optimize job without seed/threads. */
   optimize: Prisma.JsonValue | null
-  /** consistency: the key cards (engine ids), own turns reported and the deck's bot. */
-  consistency: { keyCards: string[]; maxTurn: number; bot: string } | null
+  /** consistency: the key cards (engine ids), own turns reported, the deck's bot and, against the meta, the rivals. */
+  consistency: {
+    keyCards: string[]
+    maxTurn: number
+    bot: string
+    rivals: { deck: string; games: number }[] | null
+  } | null
 }
 
 /** Workers older than this do not know consistency chunks (they would play them as a pairing). */
 export const CONSISTENCY_WORKER_VERSION = '0.2.0'
+/** …and older than this do not pass the rivals of a consistency «contra el meta» (D-019) to the engine. */
+export const META_CONSISTENCY_WORKER_VERSION = '0.2.1'
 
 export interface ChunkResultInput {
   workerId: string
@@ -125,6 +134,8 @@ export class WorkerQueueService {
         SELECT c.id FROM simulation_chunks c JOIN simulation_jobs j ON j.id = c.job_id
         WHERE j.status IN ('queued', 'running') AND j.engine_rev = ${hello.engineRev}
           AND (j.kind <> 'consistency' OR ${hello.version ?? '0'} >= ${CONSISTENCY_WORKER_VERSION})
+          AND (j.kind <> 'consistency' OR COALESCE(j.params->'consistency'->>'mode', 'goldfish') <> 'meta'
+               OR ${hello.version ?? '0'} >= ${META_CONSISTENCY_WORKER_VERSION})
           AND (c.status = 'queued' OR (c.status = 'leased' AND c.lease_until < now()))
         ORDER BY (SELECT count(*) FROM simulation_chunks r
                   WHERE r.job_id = j.id AND r.status IN ('queued', 'leased')), j.created_at, j.id, c.idx
@@ -145,6 +156,16 @@ export class WorkerQueueService {
       select: { id: true, deckgymText: true },
     })
     const text = (snapshotId: number | null) => texts.find((row) => row.id === snapshotId)?.deckgymText ?? null
+    const consistencyParams =
+      chunk.job.kind === 'consistency'
+        ? (chunk.job.params as { consistency?: Partial<ConsistencyParams> }).consistency
+        : undefined
+    const rivalTexts = consistencyParams?.rivals?.length
+      ? await this.prisma.deckSnapshot.findMany({
+          where: { id: { in: consistencyParams.rivals.map((rival) => rival.snapshot) } },
+          select: { id: true, deckgymText: true },
+        })
+      : []
     return {
       chunkId: chunk.id,
       jobId: chunk.jobId,
@@ -165,16 +186,17 @@ export class WorkerQueueService {
           : null,
       consistency:
         chunk.job.kind === 'consistency'
-          ? (() => {
-              const params = (
-                chunk.job.params as { consistency?: { engineIds?: string[]; maxTurn?: number; bot?: string } }
-              ).consistency
-              return {
-                keyCards: params?.engineIds ?? [],
-                maxTurn: params?.maxTurn ?? 8,
-                bot: params?.bot ?? chunk.job.players[0] ?? 'e2',
-              }
-            })()
+          ? {
+              keyCards: consistencyParams?.engineIds ?? [],
+              maxTurn: consistencyParams?.maxTurn ?? 8,
+              bot: consistencyParams?.bot ?? chunk.job.players[0] ?? 'e2',
+              rivals: consistencyParams?.rivals?.length
+                ? consistencyParams.rivals.map((rival) => ({
+                    deck: rivalTexts.find((row) => row.id === rival.snapshot)?.deckgymText ?? '',
+                    games: rival.games,
+                  }))
+                : null,
+            }
           : null,
     }
   }

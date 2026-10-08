@@ -18,8 +18,8 @@ import { EngineStatusService, type SnapshotSource, SnapshotsService } from '../s
 
 export const LIVE_LEASE_MS = 3 * 60 * 1000
 const LONG_POLL_MS = 25_000
-/** A game nobody touched for this long is given up (the engine process is released). */
-const STALE_MS = 3 * 24 * 60 * 60 * 1000
+/** A game nobody touched for a week is given up (the engine process is released; D-019, decided 8/10/2026). */
+const STALE_MS = 7 * 24 * 60 * 60 * 1000
 const WORKER_ONLINE_MS = 2 * 60 * 1000
 export const MAX_LIVE_REPLAY_BYTES = 8 * 1024 * 1024
 
@@ -142,6 +142,8 @@ export class LiveGamesService {
       data: {
         humanSnapshotId: human.id,
         botSnapshotId: rival.id,
+        humanLabel: human.label,
+        rivalLabel: rival.label,
         bot,
         seed: BigInt(seed),
         engineRev: this.engine.engineRev(),
@@ -152,11 +154,11 @@ export class LiveGamesService {
     return this.view(game)
   }
 
-  /** Recent games; games nobody touched in three days are given up first. */
+  /** Recent games; games nobody touched in a week are given up first. */
   async list(limit = 30): Promise<LiveGameSummaryView[]> {
     await this.prisma.liveGame.updateMany({
       where: { status: { in: ['queued', 'running', 'waiting'] }, updatedAt: { lt: new Date(Date.now() - STALE_MS) } },
-      data: { status: 'abandoned', finishedAt: new Date(), error: 'Sin movimientos en tres días.' },
+      data: { status: 'abandoned', finishedAt: new Date(), error: 'Sin movimientos en una semana.' },
     })
     const games = await this.prisma.liveGame.findMany({ orderBy: { id: 'desc' }, take: limit })
     const ids = [...new Set(games.flatMap((game) => [game.humanSnapshotId, game.botSnapshotId]))]
@@ -169,8 +171,8 @@ export class LiveGamesService {
       id: game.id,
       status: game.status,
       botEs: botLabel(game.bot),
-      human: labels.get(game.humanSnapshotId) ?? `#${game.humanSnapshotId}`,
-      rival: labels.get(game.botSnapshotId) ?? `#${game.botSnapshotId}`,
+      human: game.humanLabel || labels.get(game.humanSnapshotId) || `#${game.humanSnapshotId}`,
+      rival: game.rivalLabel || labels.get(game.botSnapshotId) || `#${game.botSnapshotId}`,
       winner: game.winner as LiveGameView['winner'],
       turns: game.turns,
       createdAt: game.createdAt,
@@ -215,12 +217,12 @@ export class LiveGamesService {
       engineRev: game.engineRev,
       human: {
         snapshot: game.humanSnapshotId,
-        label: human?.label ?? `#${game.humanSnapshotId}`,
+        label: game.humanLabel || human?.label || `#${game.humanSnapshotId}`,
         deckId: human?.deckId == null ? null : String(human.deckId),
       },
       rival: {
         snapshot: game.botSnapshotId,
-        label: rival?.label ?? `#${game.botSnapshotId}`,
+        label: game.rivalLabel || rival?.label || `#${game.botSnapshotId}`,
         deckId: rival?.deckId == null ? null : String(rival.deckId),
         listKey: rival?.sourceType === 'tournament_list' ? rival.sourceId : null,
       },

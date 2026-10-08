@@ -19,10 +19,18 @@ describe('exposure (e2e)', () => {
   })
 
   it('redirects unauthenticated chunk and shell requests too (nothing is served without the cookie)', async () => {
-    for (const path of ['/assets/index-abc123.js', '/index.html', '/manifest.webmanifest', '/sw.js']) {
+    for (const path of ['/assets/index-abc123.js', '/index.html', '/sw.js', '/icons/../index.html']) {
       const response = await test.http().get(path).set('Accept', '*/*')
       expect(response.status, path).toBe(302)
       expect(response.headers.location, path).toBe('/login')
+    }
+  })
+
+  it('serves the install metadata without the cookie, so Chrome can offer «Instalar app» on Android', async () => {
+    for (const path of ['/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png']) {
+      const response = await test.http().get(path)
+      expect(response.status, path).not.toBe(302)
+      expect(response.status, path).not.toBe(401)
     }
   })
 
@@ -52,6 +60,7 @@ describe('exposure (e2e)', () => {
     expect(html).toContain('id="password"')
     expect(html).toContain('id="totp"')
     expect(html).toContain("fetch('/api/auth/login'")
+    expect(html).toContain('<link rel="manifest" href="/manifest.webmanifest">')
     expect(html).not.toMatch(/<(script|link|img)[^>]+(src|href)=["']https?:/)
     const nonce = /<script nonce="([^"]+)">/.exec(html)?.[1]
     expect(nonce).toBeTruthy()

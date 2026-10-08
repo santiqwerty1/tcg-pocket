@@ -4,14 +4,28 @@
  * failed. Every number carries its bots, n, seed and engine revision.
  */
 import { useQueryClient } from '@tanstack/react-query'
-import { ChevronDownIcon, PlayIcon, RepeatIcon, Trash2Icon, XCircleIcon } from 'lucide-react'
+import {
+  ArchiveIcon,
+  ArchiveRestoreIcon,
+  ChevronDownIcon,
+  PlayIcon,
+  RepeatIcon,
+  Trash2Icon,
+  XCircleIcon,
+} from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import type { JobDetail, JobSummary, Snapshot } from '@/api/schemas'
 import { jobSummarySchema } from '@/api/schemas'
-import { simulationKeys, useCancelSimulation, useDeleteSimulation, useSimulation } from '@/api/simulations'
+import {
+  simulationKeys,
+  useArchiveSimulation,
+  useCancelSimulation,
+  useDeleteSimulation,
+  useSimulation,
+} from '@/api/simulations'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { ConsistencyTable } from '@/components/ConsistencyTable'
 import { ErrorState, LoadingRows } from '@/components/ListState'
@@ -412,6 +426,7 @@ export function SimulationDetailPage() {
   const query = useSimulation(id)
   const cancel = useCancelSimulation()
   const remove = useDeleteSimulation()
+  const archive = useArchiveSimulation()
   const [confirmDelete, setConfirmDelete] = useState(false)
   const job = query.data
   const live = useLiveProgress(id, job ? isActive(job.status) : false)
@@ -470,6 +485,34 @@ export function SimulationDetailPage() {
               Repetir con otros ajustes
             </Link>
           </Button>
+          {current.status === 'done' || current.archived ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={archive.isPending}
+              onClick={() =>
+                archive.mutate(
+                  { id: current.id, archived: !current.archived },
+                  {
+                    onSuccess: (job) =>
+                      toast.success(
+                        job.archived
+                          ? 'Archivada: no aparece en la lista, sus resultados siguen contando'
+                          : 'Vuelve a la lista',
+                      ),
+                    onError: (error) => toast.error(errorMessage(error)),
+                  },
+                )
+              }
+            >
+              {current.archived ? (
+                <ArchiveRestoreIcon data-icon="inline-start" />
+              ) : (
+                <ArchiveIcon data-icon="inline-start" />
+              )}
+              {current.archived ? 'Desarchivar' : 'Archivar'}
+            </Button>
+          ) : null}
           {!active ? (
             <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(true)}>
               <Trash2Icon data-icon="inline-start" />

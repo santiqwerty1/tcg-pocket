@@ -204,6 +204,49 @@ describe('worker loop', () => {
     expect(calls.results[0]?.body.extra).toMatchObject({ ready: { first: { games: 10, never: 1 } } })
   })
 
+  it('a consistency chunk against the meta passes the rivals to the engine (D-019)', async () => {
+    const { client, calls } = fakeClient([
+      chunk({
+        kind: 'consistency',
+        games: 20,
+        deckB: null,
+        replaySample: 0,
+        consistency: {
+          keyCards: ['B1 036'],
+          maxTurn: 3,
+          bot: 'e2',
+          rivals: [
+            { deck: 'rival 1', games: 12 },
+            { deck: 'rival 2', games: 8 },
+          ],
+        },
+      }),
+    ])
+    await new Worker(config, client, silent).loop(new AbortController().signal, { once: true })
+    expect(calls.failures).toHaveLength(0)
+    expect(calls.results[0]?.body).toMatchObject({ games: 20 })
+  })
+
+  it('a consistency chunk against the meta fails on an engine that ignores the rivals', async () => {
+    process.env.FAKE_ENGINE_OLD = '1'
+    try {
+      const { client, calls } = fakeClient([
+        chunk({
+          kind: 'consistency',
+          games: 20,
+          deckB: null,
+          replaySample: 0,
+          consistency: { keyCards: ['B1 036'], maxTurn: 3, bot: 'e2', rivals: [{ deck: 'rival', games: 20 }] },
+        }),
+      ])
+      await new Worker(config, client, silent).loop(new AbortController().signal, { once: true })
+      expect(calls.results).toHaveLength(0)
+      expect(calls.failures[0]?.error).toContain('recompilá el motor')
+    } finally {
+      delete process.env.FAKE_ENGINE_OLD
+    }
+  })
+
   it('sums optimize combinations into the chunk result and keeps them in extra', async () => {
     const { client, calls } = fakeClient([
       chunk({

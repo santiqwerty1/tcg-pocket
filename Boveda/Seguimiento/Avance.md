@@ -28,21 +28,21 @@ revisar: false
 | 7 | Claude de escritura (M8 parte 2) | hecho 08/10 · falta probarla desde el celu ([T-009](Tareas/T-009.md)) y tu visto bueno | 6 | [D-017](Decisiones/D-017.md) |
 | 7.1 | Laboratorio de mazos (pedido del 08/10) | hecho 08/10 · desplegado (`dc2dcad`) · falta tu visto bueno | 7 | [T-008](Tareas/T-008.md), [D-018](Decisiones/D-018.md) |
 | 8 | Jugar contra un bot, consistencia, sustitutos, avisos y misiones | hecho 08/10 · desplegado (`d8728e7`), catálogo con misiones, worker 0.2.0 · falta tu visto bueno | 7.1 | [T-011](Tareas/T-011.md), [D-019](Decisiones/D-019.md) |
+| 8.1 | Respuestas de D-019 (consistencia contra el meta, backup v5), archivar simulaciones, instalar en Android | hecho 08/10 · falta subir y desplegar, y el worker 0.2.1 en la PC | 8 | [D-019](Decisiones/D-019.md) |
 | K | Bóveda con el kit de Posta | hecho 07/10 · propuesto | — | [D-009](Decisiones/D-009.md) |
 
 ## Próximos pasos
 
 1. Probar la Fase 7 desde el celu ([T-009](Tareas/T-009.md)) y dar el visto bueno.
 2. Probar el laboratorio de mazos en producción ([T-008](Tareas/T-008.md)) y revisar cómo mide y busca ([D-018](Decisiones/D-018.md)).
-3. Probar la Fase 8 desde el celu ([T-011](Tareas/T-011.md)) y revisar [D-019](Decisiones/D-019.md).
+3. Probar la Fase 8 desde el celu ([T-011](Tareas/T-011.md)), con la consistencia contra el meta, e instalar la app desde Chrome.
 
 ## Pendiente de decidir (para después)
 
-Decididas por Santiago el 08/10/2026: D-007, D-008, D-009, D-011, D-012, D-013, D-014, D-015, D-016, D-017 (ver cada ficha). Queda:
+Decididas por Santiago el 08/10/2026: D-007, D-008, D-009, D-011, D-012, D-013, D-014, D-015, D-016, D-017, D-018, D-019 (ver cada ficha). Queda:
 
 | Ficha | Qué falta | Mientras tanto |
 |---|---|---|
 | [T-009](Tareas/T-009.md) | Probar la Fase 7 desde el celu y Claude Code | probada en tests de integración |
 | [T-008](Tareas/T-008.md) | Probar el laboratorio en producción | desplegado; probado en la demo con el motor real |
 | [T-011](Tareas/T-011.md) | Probar la Fase 8 desde el celu | probada en la demo con el motor real |
-| [D-019](Decisiones/D-019.md) | Cómo se juega contra el bot y cómo se mide la consistencia | implementado así |

@@ -9,7 +9,8 @@ import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /**
  * PLAN §7 (backup acceptance): export → import into an empty database → identical export except `exportedAt`.
- * Fase 2: matches travel in the backup (schemaVersion 2); Fase 4: pack switches (3). Older files still read.
+ * Fase 2: matches travel in the backup (schemaVersion 2); Fase 4: pack switches (3); Fase 8: the results of the games
+ * against the bot (5). Older files still read.
  */
 const CSV_PATH = join(REPO_ROOT, 'docs/context/tcgcollectiontracterexport-2026-10-06.csv')
 const DECKS_PATH = join(REPO_ROOT, 'docs/context/mazos_40_listas.md')
@@ -25,6 +26,7 @@ interface Doc {
   decks: { id: number; variantOfId: number | null; revisions: { id: number }[]; changes: unknown[] }[]
   matches: { id: number; deckId: number; deckRevisionId: number; result: string; opponentText: string | null }[]
   tokens: { name: string }[]
+  playedGames?: { id: number; humanLabel: string; rivalLabel: string; winner: string }[]
 }
 
 function withoutExportedAt(doc: Doc): Omit<Doc, 'exportedAt'> {
@@ -133,6 +135,39 @@ describe('backup and settings (e2e)', () => {
       200,
     )
 
+    // Games against the bot (Fase 8, D-019): only the finished one travels, and only its result.
+    const engineRev = test.env.engineRev ?? 'test'
+    await test.prisma.liveGame.create({
+      data: {
+        status: 'done',
+        humanSnapshotId: 901,
+        botSnapshotId: 902,
+        humanLabel: 'Editado (rev. 2)',
+        rivalLabel: 'Mega-Blaziken ex',
+        bot: 'e2',
+        seed: 12345678901234n,
+        engineRev,
+        choices: [0, 1, 2],
+        log: [{ turn: 1 }],
+        winner: 'you',
+        turns: 9,
+        finishedAt: new Date(),
+      },
+    })
+    await test.prisma.liveGame.create({
+      data: {
+        status: 'waiting',
+        humanSnapshotId: 901,
+        botSnapshotId: 903,
+        humanLabel: 'Editado (rev. 2)',
+        rivalLabel: 'Lucario',
+        bot: 'e2',
+        seed: 7n,
+        engineRev,
+        choices: [],
+      },
+    })
+
     const response = await get('/api/backup/export').responseType('blob')
     expect(response.status).toBe(200)
     expect(response.headers['content-type']).toBe('application/gzip')
@@ -140,7 +175,7 @@ describe('backup and settings (e2e)', () => {
     exported = response.body as Buffer
     document = JSON.parse(gunzipSync(exported).toString('utf8')) as Doc
     expect(document).toMatchObject({
-      schemaVersion: 4,
+      schemaVersion: 5,
       catalogCommit: test.env.catalogCommit,
       engineRev: test.env.engineRev,
       settings: [
@@ -182,13 +217,28 @@ describe('backup and settings (e2e)', () => {
     expect(document.tokens.map((t) => t.name)).toEqual(['worker'])
     expect(document.tokens[0]).not.toHaveProperty('tokenHash')
     expect(document.rarityRules.length).toBeGreaterThan(0)
+    expect(document.playedGames).toEqual([
+      {
+        id: expect.any(Number),
+        humanLabel: 'Editado (rev. 2)',
+        rivalLabel: 'Mega-Blaziken ex',
+        bot: 'e2',
+        seed: '12345678901234',
+        engineRev,
+        winner: 'you',
+        turns: 9,
+        createdAt: expect.any(String),
+        finishedAt: expect.any(String),
+      },
+    ])
   })
 
   it('dry-run reports counts and notices without touching the data', async () => {
     const response = await post('/api/backup/import?mode=dry-run').attach('file', exported, 'backup.json.gz')
     expect(response.status).toBe(200)
-    expect(response.body).toMatchObject({ schemaVersion: 4, catalogCommit: test.env.catalogCommit })
+    expect(response.body).toMatchObject({ schemaVersion: 5, catalogCommit: test.env.catalogCommit })
     expect(response.body.diff.incoming.matches).toBe(2)
+    expect(response.body.diff.incoming.playedGames).toBe(1)
     expect(response.body.diff.incoming).toEqual(response.body.diff.current)
     expect(response.body.diff.needsReview).toBe(false)
     expect(response.body.diff.unknownCardIds).toEqual([])
@@ -218,6 +268,7 @@ describe('backup and settings (e2e)', () => {
 
   it('restores into an emptied database and exports the same document (except exportedAt)', async () => {
     await test.prisma.match.deleteMany()
+    await test.prisma.liveGame.deleteMany({ where: { status: 'done' } })
     await test.prisma.deck.deleteMany()
     await test.prisma.collectionAdjustment.deleteMany()
     await test.prisma.collectionStock.deleteMany()
@@ -237,6 +288,7 @@ describe('backup and settings (e2e)', () => {
       adjustments: 2,
       settings: 2,
       matches: 2,
+      playedGames: 1,
     })
     const packs = (await get('/api/packs')).body.items as { id: string; available: boolean }[]
     expect(packs.find((pack) => pack.id === 'B4b/deluxepackmega')).toMatchObject({
@@ -278,6 +330,24 @@ describe('backup and settings (e2e)', () => {
     expect(logged.status).toBe(201)
     expect(Number(logged.body.id)).toBeGreaterThan(Math.max(...document.matches.map((m) => m.id)))
     expect((await test.http().delete(`/api/matches/${logged.body.id}`).set('Cookie', cookie)).status).toBe(204)
+
+    // The finished game comes back as a result (no moves, no replay); the one being played was left alone.
+    const games = (await get('/api/play')).body.items as { id: number; status: string; human: string; rival: string }[]
+    expect(games.map((game) => [game.status, game.rival])).toEqual([
+      ['waiting', 'Lucario'],
+      ['done', 'Mega-Blaziken ex'],
+    ])
+    const played = await get(`/api/play/${games[1]?.id}`)
+    expect(played.status).toBe(200)
+    expect(played.body).toMatchObject({
+      status: 'done',
+      winner: 'you',
+      turns: 9,
+      replay: false,
+      log: [],
+      human: { label: 'Editado (rev. 2)', deckId: null },
+      rival: { label: 'Mega-Blaziken ex' },
+    })
   })
 
   it('reads a version 1 backup (no matches) and warns that restoring it drops the current matches', async () => {
@@ -289,6 +359,7 @@ describe('backup and settings (e2e)', () => {
     expect(dry.body.diff.incoming.matches).toBe(0)
     expect(dry.body.diff.current.matches).toBe(2)
     expect(dry.body.diff.notices.some((n: string) => n.includes('no trae partidas'))).toBe(true)
+    expect(dry.body.diff.notices.some((n: string) => n.includes('partidas contra el bot'))).toBe(true)
   })
 
   it('refuses a backup whose matches point to a deck revision that is not in the file', async () => {
@@ -357,7 +428,7 @@ describe('backup and settings (e2e)', () => {
     expect(download.status).toBe(200)
     expect(download.headers['content-type']).toBe('application/gzip')
     const parsed = JSON.parse(gunzipSync(download.body as Buffer).toString('utf8')) as Doc
-    expect(parsed.schemaVersion).toBe(4)
+    expect(parsed.schemaVersion).toBe(5)
     expect(parsed.matches).toHaveLength(2)
     expect(parsed.decks).toHaveLength(4)
     expect((await get('/api/backup/blobs/999999')).status).toBe(404)

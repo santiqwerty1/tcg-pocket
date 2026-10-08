@@ -84,10 +84,12 @@ if (command === 'version') {
     never: 1,
   })
   const split = { first: histogram(half), second: histogram(job.games - half) }
+  const rivals = job.rivals ?? []
   writeFileSync(
     resultFile,
     JSON.stringify({
       engineRev: REV,
+      ...(process.env.FAKE_ENGINE_OLD ? {} : { mode: rivals.length > 0 ? 'meta' : 'goldfish', rivals: rivals.length }),
       games: job.games,
       keyCards: job.keyCards,
       ready: split,

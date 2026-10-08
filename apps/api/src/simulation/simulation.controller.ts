@@ -111,6 +111,9 @@ const resultSchema = z.object({
   extra: z.record(z.string(), z.unknown()).optional(),
 })
 const failureSchema = z.object({ workerId: z.string().min(8).max(64), error: z.string().min(1).max(20_000) })
+const listQuerySchema = z.object({ archived: z.enum(['true', 'false']).optional() })
+const cleanupSchema = z.object({ action: z.enum(['delete_cancelled', 'archive_done']) })
+
 const replayQuerySchema = z.object({
   index: z.coerce.number().int().min(0),
   seed: z.string().regex(/^\d{1,20}$/),
@@ -213,9 +216,23 @@ export class WorkerController {
 export class SimulationsController {
   constructor(private readonly simulations: SimulationsService) {}
 
+  /** The list (archived jobs left out), or only the archived ones with `?archived=true`. */
   @Get()
-  async list(@CurrentSession() _session: RequestSession): Promise<{ items: JobSummaryView[] }> {
-    return { items: await this.simulations.list() }
+  list(
+    @Query(new ZodValidationPipe(listQuerySchema)) query: z.infer<typeof listQuerySchema>,
+    @CurrentSession() _session: RequestSession,
+  ) {
+    return this.simulations.listView(query.archived === 'true')
+  }
+
+  /** Delete every cancelled job, or archive every finished one. */
+  @Post('cleanup')
+  @HttpCode(200)
+  cleanup(
+    @Body(new ZodValidationPipe(cleanupSchema)) body: z.infer<typeof cleanupSchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<{ count: number }> {
+    return this.simulations.cleanup(body.action)
   }
 
   @Get('engine')
@@ -252,10 +269,11 @@ export class SimulationsController {
     return this.simulations.createConsistency(body)
   }
 
-  /** The latest finished consistency of a deck, or `{ result: null }`. */
+  /** The latest finished consistency of a deck: `result` against a passive rival, `meta` against the meta. */
   @Get('consistency/deck/:deckId')
   async deckConsistency(@Param('deckId') deckId: string, @CurrentSession() _session: RequestSession) {
-    return { result: await this.simulations.deckConsistency(deckId) }
+    const latest = await this.simulations.deckConsistency(deckId)
+    return { result: latest.goldfish, meta: latest.meta }
   }
 
   /** The replay JSON as the engine wrote it, for deckgym's own viewer (`/viewer/index.html?url=…`, D-014). */
@@ -296,6 +314,18 @@ export class SimulationsController {
   @HttpCode(200)
   cancel(@Param('id') id: string, @CurrentSession() _session: RequestSession): Promise<JobSummaryView> {
     return this.simulations.cancel(id)
+  }
+
+  @Post(':id/archive')
+  @HttpCode(200)
+  archive(@Param('id') id: string, @CurrentSession() _session: RequestSession): Promise<JobSummaryView> {
+    return this.simulations.archive(id, true)
+  }
+
+  @Post(':id/unarchive')
+  @HttpCode(200)
+  unarchive(@Param('id') id: string, @CurrentSession() _session: RequestSession): Promise<JobSummaryView> {
+    return this.simulations.archive(id, false)
   }
 
   @Delete(':id')

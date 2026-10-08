@@ -19,6 +19,18 @@ describe('routeExposure', () => {
     expect(routeExposure('GET', '/.well-known')).toBe('public')
   })
 
+  it('exposes what Chrome needs to install the PWA, and nothing else of it', () => {
+    expect(routeExposure('GET', '/manifest.webmanifest')).toBe('public')
+    expect(routeExposure('HEAD', '/manifest.webmanifest')).toBe('public')
+    expect(routeExposure('GET', '/icons/icon-192.png')).toBe('public')
+    expect(routeExposure('GET', '/icons/icon-maskable-512.png')).toBe('public')
+    expect(routeExposure('GET', '/favicon.svg')).toBe('public')
+    expect(routeExposure('GET', '/apple-touch-icon.png')).toBe('public')
+    expect(routeExposure('GET', '/icons/../index.html')).toBe('session')
+    expect(routeExposure('GET', '/icons/x.js')).toBe('session')
+    expect(routeExposure('POST', '/manifest.webmanifest')).toBe('session')
+  })
+
   it('routes the integrations to the bearer guard', () => {
     expect(routeExposure('POST', '/api/mcp')).toBe('bearer')
     expect(routeExposure('GET', '/api/mcp/')).toBe('bearer')
@@ -29,7 +41,6 @@ describe('routeExposure', () => {
   it('requires the session for everything else, including the PWA shell and chunks', () => {
     expect(routeExposure('GET', '/')).toBe('session')
     expect(routeExposure('GET', '/index.html')).toBe('session')
-    expect(routeExposure('GET', '/manifest.webmanifest')).toBe('session')
     expect(routeExposure('GET', '/sw.js')).toBe('session')
     expect(routeExposure('GET', '/assets/index-abc123.js')).toBe('session')
     expect(routeExposure('GET', '/api/auth/me')).toBe('session')
@@ -51,7 +62,7 @@ describe('unauthenticatedAction', () => {
     })
     expect(unauthenticatedAction('GET', '/decks/3', 'text/html')).toEqual({ kind: 'redirect', location: '/login' })
     expect(unauthenticatedAction('GET', '/assets/x.js', '*/*')).toEqual({ kind: 'redirect', location: '/login' })
-    expect(unauthenticatedAction('HEAD', '/manifest.webmanifest', undefined)).toEqual({
+    expect(unauthenticatedAction('HEAD', '/sw.js', undefined)).toEqual({
       kind: 'redirect',
       location: '/login',
     })

@@ -40,9 +40,16 @@ export function ConsistencyTable({ data, turns = 5 }: { data: Consistency; turns
       </div>
       <p className="text-xs text-muted-foreground">
         «Listo»: {[...new Set(data.keyCards.map((card) => card.nameEs))].join(' o ')} en juego con energía para uno de
-        sus ataques. Partidas contra un rival que no juega, con el mazo jugado por el bot {data.botEs} sin atacar: mide
-        cómo se arma la lista, no la pelea.
+        sus ataques.{' '}
+        {data.mode === 'meta'
+          ? `Partidas de verdad contra los ${data.rivals.length} arquetipos más jugados${data.era ? ` de ${data.era}` : ''}, repartidas según cuánto se juega cada uno; los dos mazos los juega el bot ${data.botEs}. Si la partida termina antes, cuenta como que no llegó.`
+          : `Partidas contra un rival que no juega, con el mazo jugado por el bot ${data.botEs} sin atacar: mide cómo se arma la lista, no la pelea.`}
       </p>
+      {data.mode === 'meta' && data.rivals.length > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Rivales: {data.rivals.map((rival) => `${rival.label} (${rival.games})`).join(' · ')}
+        </p>
+      ) : null}
     </div>
   )
 }

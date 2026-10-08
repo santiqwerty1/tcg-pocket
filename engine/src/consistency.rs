@@ -7,6 +7,10 @@
 //! own turn in which the key card is active and the deck could attack with it. Split by who started. The cost check is
 //! the plain one (attached energy against the attack's cost, Colorless taking any type); abilities that change energy
 //! (Serperior) are not counted.
+//!
+//! With `rivals` (D-019, «contra el meta») the games are real ones instead: the deck, played by `bot` as usual
+//! (attacking), against each rival deck played by the same bot, `games` games each. A game that ends before the key
+//! card is ready counts as «never».
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
@@ -25,6 +29,14 @@ use uuid::Uuid;
 
 use crate::{game_id_for, game_seed, one, parse_players, require_simulable, thread_pool, CliError, Progress, CLI_VERSION, ENGINE_REV};
 
+/// A rival of the meta bank and how many games to play against it.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsistencyRival {
+    deck: String,
+    games: u32,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConsistencyJob {
@@ -41,6 +53,9 @@ pub struct ConsistencyJob {
     /// Own turns reported (default 8).
     #[serde(default = "default_max_turn")]
     max_turn: u8,
+    /// Against the meta: the rivals and their games (then `games` is their sum). Empty = goldfish.
+    #[serde(default)]
+    rivals: Vec<ConsistencyRival>,
 }
 
 fn default_bot() -> String {
@@ -87,6 +102,10 @@ pub struct Split {
 pub struct ConsistencyResult {
     engine_rev: &'static str,
     cli_version: &'static str,
+    /// «goldfish» or «meta».
+    mode: &'static str,
+    /// Rival decks played (0 in goldfish).
+    rivals: u32,
     bot: String,
     seed: u64,
     games: u32,
@@ -200,6 +219,11 @@ impl SimulationEventHandler for ReadyWatch {
     }
 }
 
+/// The rival a game index plays against, given each rival's first game index (ascending, starting at 0).
+fn rival_for_game(starts: &[u32], index: u32) -> usize {
+    starts.partition_point(|start| *start <= index).saturating_sub(1)
+}
+
 pub fn consistency(job: ConsistencyJob) -> Result<ConsistencyResult, CliError> {
     let deck = require_simulable("del mazo", &job.deck)?;
     if job.key_cards.is_empty() {
@@ -211,14 +235,29 @@ pub fn consistency(job: ConsistencyJob) -> Result<ConsistencyResult, CliError> {
     }
     // deckgym reads «et» as an expectiminimax depth: the passive bot is named directly.
     let bot = parse_players(&[job.bot.clone(), job.bot.clone()])?.remove(0);
-    let codes: Vec<PlayerCode> = vec![bot, PlayerCode::ET];
+    let meta = !job.rivals.is_empty();
+    let codes: Vec<PlayerCode> = if meta { vec![bot.clone(), bot] } else { vec![bot, PlayerCode::ET] };
+    let mut rival_decks: Vec<Deck> = Vec::with_capacity(job.rivals.len());
+    let mut starts: Vec<u32> = Vec::with_capacity(job.rivals.len());
+    let mut total = 0u32;
+    for (at, rival) in job.rivals.iter().enumerate() {
+        if rival.games == 0 {
+            return Err(CliError::input(format!("rivals[{at}]: games tiene que ser mayor que 0")));
+        }
+        rival_decks.push(require_simulable(&format!("del rival {}", at + 1), &rival.deck)?);
+        starts.push(total);
+        total = total
+            .checked_add(rival.games)
+            .ok_or_else(|| CliError::input("rivals: demasiadas partidas"))?;
+    }
+    let games = if meta { total } else { job.games };
     let key = Arc::new(job.key_cards.iter().cloned().collect::<BTreeSet<_>>());
     let pool = thread_pool(job.threads)?;
-    eprintln!("total {}", job.games);
+    eprintln!("total {games}");
     let progress = Progress::start();
     let started = Instant::now();
     let watches: Vec<Result<Watch, String>> = pool.install(|| {
-        (0..job.games)
+        (0..games)
             .into_par_iter()
             .map(|index| {
                 let seed = game_seed(job.seed, u64::from(index));
@@ -228,9 +267,14 @@ pub fn consistency(job: ConsistencyJob) -> Result<ConsistencyResult, CliError> {
                         key: key.clone(),
                         watch: watch.clone(),
                     })]);
-                    let mut players = create_players(deck.clone(), deck.clone(), codes.clone());
-                    let inner = players.remove(0);
-                    players.insert(0, Box::new(NoAttack { inner }));
+                    let players = if meta {
+                        create_players(deck.clone(), rival_decks[rival_for_game(&starts, index)].clone(), codes.clone())
+                    } else {
+                        let mut players = create_players(deck.clone(), deck.clone(), codes.clone());
+                        let inner = players.remove(0);
+                        players.insert(0, Box::new(NoAttack { inner }));
+                        players
+                    };
                     let mut game = Game::new_with_event_handlers(game_id_for(job.seed, u64::from(index)), players, seed, &mut handler);
                     game.play();
                 }));
@@ -258,9 +302,11 @@ pub fn consistency(job: ConsistencyJob) -> Result<ConsistencyResult, CliError> {
     Ok(ConsistencyResult {
         engine_rev: ENGINE_REV,
         cli_version: CLI_VERSION,
+        mode: if meta { "meta" } else { "goldfish" },
+        rivals: u32::try_from(job.rivals.len()).unwrap_or(u32::MAX),
         bot: job.bot,
         seed: job.seed,
-        games: job.games,
+        games,
         max_turn: job.max_turn,
         key_cards: job.key_cards,
         ready,
@@ -279,6 +325,17 @@ mod tests {
         assert_eq!(own_turn(3, true), 2);
         assert_eq!(own_turn(2, false), 1);
         assert_eq!(own_turn(4, false), 2);
+    }
+
+    #[test]
+    fn games_go_to_rivals_in_order() {
+        let starts = [0, 3, 3, 10];
+        assert_eq!(rival_for_game(&starts, 0), 0);
+        assert_eq!(rival_for_game(&starts, 2), 0);
+        assert_eq!(rival_for_game(&starts, 3), 2);
+        assert_eq!(rival_for_game(&starts, 9), 2);
+        assert_eq!(rival_for_game(&starts, 10), 3);
+        assert_eq!(rival_for_game(&starts, 500), 3);
     }
 
     #[test]

@@ -242,6 +242,9 @@ describe('playing against a bot (e2e)', () => {
     const detail = (await get(`/api/simulations/${created.body.id}`)).body
     expect(detail.status).toBe('done')
     expect(detail.consistency).toMatchObject({
+      mode: 'goldfish',
+      era: null,
+      rivals: [],
       keyCards: [
         { nameEs: expect.stringMatching(/Mega-Blaziken/) },
         { nameEs: expect.stringMatching(/Mega-Blaziken/) },
@@ -251,9 +254,10 @@ describe('playing against a bot (e2e)', () => {
     })
     expect(detail.consistency.ready.all[2]).toMatchObject({ turn: 3, ready: 96, games: 100, value: 96 })
     expect(detail.consistency.ready.first[1]).toMatchObject({ turn: 2, ready: 10, games: 50, value: 20 })
-    const column = (await get(`/api/simulations/consistency/deck/${deckIds[1]}`)).body.result
-    expect(column.job.id).toBe(created.body.id)
-    expect((await get(`/api/simulations/consistency/deck/${deckIds[2]}`)).body).toEqual({ result: null })
+    const column = (await get(`/api/simulations/consistency/deck/${deckIds[1]}`)).body
+    expect(column.result.job.id).toBe(created.body.id)
+    expect(column.meta).toBeNull()
+    expect((await get(`/api/simulations/consistency/deck/${deckIds[2]}`)).body).toEqual({ result: null, meta: null })
     expect((await post('/api/simulations/consistency').send({ deckId: deckIds[1], keyCards: ['A1-1'] })).status).toBe(
       400,
     )

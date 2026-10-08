@@ -19,6 +19,7 @@ import {
   type CatalogIndex,
   cardChanges,
   cardUsage,
+  DEFAULT_CONSISTENCY_GAMES,
   DEFAULT_GAUNTLET_SIZE,
   type DeckCardEntry,
   describeProblems,
@@ -55,6 +56,7 @@ import {
   type SnapshotCard,
   seededRandom,
   simulationRate,
+  splitGames,
   type TournamentDataset,
   type TournamentFormat,
   type Variant,
@@ -375,6 +377,49 @@ export class LabService implements OnApplicationBootstrap {
   // ---------------------------------------------------------------------------------------------------------------
   // Test against the meta
   // ---------------------------------------------------------------------------------------------------------------
+
+  /**
+   * How soon a deck has its key attacker ready in real games against the meta (D-019, «Las dos»): the games
+   * (1.000 by default) split among the bank's rivals by their weight, both sides played by the same bot.
+   */
+  async consistency(
+    input: LabScopeInput & {
+      deckId: string
+      keyCards?: string[] | undefined
+      games?: number | undefined
+      bot?: string | undefined
+      seed?: number | undefined
+    },
+  ): Promise<JobSummaryView> {
+    const bank = await this.bankOf(input)
+    if (bank.gauntlet.rivals.length === 0) {
+      throw new UnprocessableEntityException({ code: 'empty_bank', message: 'No hay listas del meta para medir.' })
+    }
+    const total = input.games ?? DEFAULT_CONSISTENCY_GAMES
+    if (!Number.isInteger(total) || total < 10 || total > 10_000) {
+      throw new BadRequestException({ code: 'validation', message: 'Partidas: de 10 a 10.000.' })
+    }
+    const games = splitGames(
+      total,
+      bank.gauntlet.rivals.map((rival) => rival.weight),
+    )
+    const saved = await Promise.all(bank.sources.map((source) => this.snapshots.save(source)))
+    const rivals = bank.gauntlet.rivals.map((rival, at) => ({
+      snapshot: saved[at]?.id ?? 0,
+      label: rival.archetypeName,
+      listKey: rival.list.key,
+      share: rival.share,
+      weight: rival.weight,
+      games: games[at] ?? 0,
+    }))
+    return this.simulations.createConsistency({
+      deckId: input.deckId,
+      keyCards: input.keyCards,
+      bot: input.bot,
+      seed: input.seed,
+      meta: { era: bank.scope.era, format: bank.scope.format, rivals },
+    })
+  }
 
   /** Decks against the meta bank: a «comparar» job whose rivals are the bank, scored with the bank's weights. */
   async test(input: LabTestInput): Promise<

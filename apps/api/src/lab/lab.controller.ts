@@ -55,6 +55,22 @@ const testSchema = runSchema.extend({
   decks: z.array(deckSchema).min(1).max(MAX_TEST_DECKS),
   gamesPerRival: z.number().int().min(10).max(5000).optional(),
 })
+const consistencySchema = scopeSchema.extend({
+  deckId: z.string().trim().min(1).max(20),
+  keyCards: z.array(z.string().min(1).max(20)).max(10).optional(),
+  games: z.number().int().min(10).max(10_000).optional(),
+  /** Both sides play with it; «et» (passive) is the goldfish measure, not this one. */
+  bot: z
+    .string()
+    .regex(/^(r|w|aa|v|er|m|e[1-9])$/, 'Bot desconocido.')
+    .optional(),
+  seed: z
+    .number()
+    .int()
+    .min(0)
+    .max(2 ** 52)
+    .optional(),
+})
 const limit = ([min, max]: readonly [number, number]) => z.number().min(min).max(max).optional()
 const exploreSchema = runSchema.extend({
   deck: deckSchema,
@@ -103,6 +119,16 @@ export class LabController {
     @CurrentSession() _s: RequestSession,
   ) {
     return this.lab.test(body)
+  }
+
+  /** How soon a deck has its key attacker ready in real games against the meta bank (D-019). */
+  @Post('consistency')
+  @HttpCode(201)
+  consistency(
+    @Body(new ZodValidationPipe(consistencySchema)) body: z.infer<typeof consistencySchema>,
+    @CurrentSession() _session: RequestSession,
+  ) {
+    return this.lab.consistency(body)
   }
 
   /** The automatic search of variants of a deck against the meta bank (with `dryRun`: the plan). */

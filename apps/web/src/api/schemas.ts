@@ -1209,9 +1209,17 @@ export const jobSummarySchema = z.object({
   progress: jobProgressSchema,
   /** Laboratorio (T-008): a test against the meta bank or an automatic search. */
   lab: z.enum(['test', 'explore']).nullable().default(null),
+  /** Hidden from the list; its results still count. */
+  archived: z.boolean().default(false),
 })
 export type JobSummary = z.infer<typeof jobSummarySchema>
-export const jobsResponseSchema = z.object({ items: z.array(jobSummarySchema) })
+export const jobsResponseSchema = z.object({
+  items: z.array(jobSummarySchema),
+  counts: z
+    .object({ archived: z.number(), cancelled: z.number(), done: z.number() })
+    .default({ archived: 0, cancelled: 0, done: 0 }),
+})
+export type JobsResponse = z.infer<typeof jobsResponseSchema>
 
 // ---------- Laboratorio de mazos (T-008) ----------
 
@@ -1431,6 +1439,10 @@ const curvesSchema = z.object({
   all: z.array(curvePointSchema),
 })
 export const consistencySchema = z.object({
+  /** goldfish: against a rival that does nothing; meta: real games against the meta bank (D-019). */
+  mode: z.enum(['goldfish', 'meta']).default('goldfish'),
+  era: z.string().nullable().default(null),
+  rivals: z.array(z.object({ label: z.string(), share: z.number(), games: z.number() })).default([]),
   deckId: z.string().nullable(),
   deck: z.string(),
   keyCards: z.array(z.object({ cardId: z.string(), nameEs: z.string() })),

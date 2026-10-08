@@ -14,7 +14,7 @@ import {
 
 export const simulationKeys = {
   all: ['simulations'] as const,
-  list: ['simulations', 'list'] as const,
+  list: (archived: boolean) => ['simulations', 'list', archived] as const,
   engine: ['simulations', 'engine'] as const,
   detail: (id: string) => ['simulations', 'detail', id] as const,
   replay: (id: string) => ['simulations', 'replay', id] as const,
@@ -22,13 +22,42 @@ export const simulationKeys = {
 
 const ACTIVE = new Set(['queued', 'running'])
 
-/** Refreshes every 5 s while a job is queued or running, every 30 s otherwise. */
-export function useSimulations() {
+/** The list (or the archived jobs), with the counts for the bulk buttons. Refreshes every 5 s while a job is queued
+ * or running, every 30 s otherwise. */
+export function useSimulations(archived = false) {
   return useQuery({
-    queryKey: simulationKeys.list,
-    queryFn: ({ signal }) => request('/api/simulations', { schema: jobsResponseSchema, signal }),
-    select: (data) => data.items,
+    queryKey: simulationKeys.list(archived),
+    queryFn: ({ signal }) =>
+      request(`/api/simulations${archived ? '?archived=true' : ''}`, { schema: jobsResponseSchema, signal }),
     refetchInterval: (q) => (q.state.data?.items.some((job) => ACTIVE.has(job.status)) ? 5000 : 30_000),
+    placeholderData: keepPreviousData,
+  })
+}
+
+/** Archive a finished job (hidden from the list; its results still count) or bring it back. */
+export function useArchiveSimulation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, archived }: { id: number; archived: boolean }) =>
+      request(`/api/simulations/${id}/${archived ? 'archive' : 'unarchive'}`, {
+        method: 'POST',
+        schema: jobSummarySchema,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: simulationKeys.all }),
+  })
+}
+
+/** Delete every cancelled job, or archive every finished one. */
+export function useCleanupSimulations() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (action: 'delete_cancelled' | 'archive_done') =>
+      request('/api/simulations/cleanup', {
+        method: 'POST',
+        body: { action },
+        schema: z.object({ count: z.number() }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: simulationKeys.all }),
   })
 }
 
@@ -93,11 +122,10 @@ export function useReplay(id: string) {
   })
 }
 
-const deckConsistencySchema = z.object({
-  result: z.object({ job: jobSummarySchema, consistency: consistencySchema }).nullable(),
-})
+const measuredSchema = z.object({ job: jobSummarySchema, consistency: consistencySchema }).nullable()
+const deckConsistencySchema = z.object({ result: measuredSchema, meta: measuredSchema.default(null) })
 
-/** The latest finished consistency of a deck (Fase 8). */
+/** The latest finished consistency of a deck: against a passive rival (Fase 8) and against the meta (D-019). */
 export function useDeckConsistency(deckId: string) {
   return useQuery({
     queryKey: [...simulationKeys.all, 'consistency', deckId] as const,
@@ -106,15 +134,20 @@ export function useDeckConsistency(deckId: string) {
         schema: deckConsistencySchema,
         signal,
       }),
-    select: (data) => data.result,
+    select: (data) => ({ goldfish: data.result, meta: data.meta }),
   })
 }
 
+/** Queues a consistency measure: `goldfish` against a passive rival, `meta` against the Laboratorio's meta bank. */
 export function useMeasureConsistency() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: { deckId: string; keyCards?: string[]; games?: number }) =>
-      request('/api/simulations/consistency', { method: 'POST', body, schema: jobSummarySchema }),
+    mutationFn: ({ mode, ...body }: { mode: 'goldfish' | 'meta'; deckId: string; keyCards?: string[] }) =>
+      request(mode === 'meta' ? '/api/lab/consistency' : '/api/simulations/consistency', {
+        method: 'POST',
+        body,
+        schema: jobSummarySchema,
+      }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: simulationKeys.all }),
   })
 }

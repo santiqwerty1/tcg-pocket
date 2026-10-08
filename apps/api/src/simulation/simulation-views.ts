@@ -43,6 +43,8 @@ export interface JobSummaryView {
   progress: JobProgressView
   /** A job of the Laboratorio (T-008): a test against the meta bank or an automatic search. */
   lab: 'test' | 'explore' | null
+  /** Hidden from the list; its results still count. */
+  archived: boolean
 }
 
 export interface CellView {
@@ -76,6 +78,11 @@ export interface ConsistencyCurveView {
 
 /** A consistency job's result: P(ready by own turn N) going first, second and both (Fase 8). */
 export interface ConsistencyView {
+  /** goldfish: against a rival that does nothing; meta: real games against the meta bank (D-019). */
+  mode: 'goldfish' | 'meta'
+  /** meta: the era of the bank and the games against each rival. */
+  era: string | null
+  rivals: { label: string; share: number; games: number }[]
   deckId: string | null
   deck: string
   keyCards: { cardId: string; nameEs: string }[]

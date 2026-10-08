@@ -10,6 +10,10 @@ export function renderLoginPage(options: { nonce: string }): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
+<meta name="theme-color" content="#2563eb">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <title>Entrar · TCG Pocket</title>
 <style>
   :root { color-scheme: light dark; --bg: #f6f7f9; --card: #ffffff; --text: #1b1f24; --muted: #5c6672; --accent: #d9312b; --border: #d7dce2; --error: #b42318; --error-bg: #fef3f2; }

@@ -34,6 +34,28 @@ export interface CurvePoint {
 export const DEFAULT_CONSISTENCY_GAMES = 1000
 export const DEFAULT_CONSISTENCY_TURNS = 8
 
+/**
+ * Splits `total` games by weight (largest remainder, ties to the earlier weight): the games against each rival of the
+ * meta bank in a consistency «contra el meta» (D-019). Rivals with no weight get none.
+ */
+export function splitGames(total: number, weights: readonly number[]): number[] {
+  const sum = weights.reduce((acc, weight) => acc + Math.max(0, weight), 0)
+  if (sum <= 0 || total <= 0) return weights.map(() => 0)
+  const exact = weights.map((weight) => (Math.max(0, weight) / sum) * total)
+  const games = exact.map((value) => Math.floor(value))
+  let left = total - games.reduce((acc, value) => acc + value, 0)
+  const order = exact
+    .map((value, at) => ({ at, rest: value - Math.floor(value) }))
+    .filter((entry) => (weights[entry.at] ?? 0) > 0)
+    .sort((x, y) => y.rest - x.rest || x.at - y.at)
+  for (const entry of order) {
+    if (left <= 0) break
+    games[entry.at] = (games[entry.at] ?? 0) + 1
+    left -= 1
+  }
+  return games
+}
+
 /** Both seats together. */
 export function mergeHistograms(a: TurnHistogram, b: TurnHistogram): TurnHistogram {
   const length = Math.max(a.firstOnTurn.length, b.firstOnTurn.length)

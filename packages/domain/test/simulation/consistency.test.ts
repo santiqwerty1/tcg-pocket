@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultKeyCards, mergeHistograms, readinessCurve } from '../../src/simulation/index.js'
+import { defaultKeyCards, mergeHistograms, readinessCurve, splitGames } from '../../src/simulation/index.js'
 import { deckDraft } from '../helpers/loadDecks.js'
 import { catalogIndex } from '../helpers/loadFixtures.js'
 
@@ -43,5 +43,15 @@ describe('consistency (Fase 8)', () => {
       expect(Math.min(...prizes)).toBe(best)
     }
     expect(defaultKeyCards([], index)).toEqual([])
+  })
+
+  it('splits the games against the meta by weight, largest remainder first', () => {
+    expect(splitGames(1000, [0.5, 0.3, 0.2])).toEqual([500, 300, 200])
+    expect(splitGames(10, [1, 1, 1])).toEqual([4, 3, 3])
+    expect(splitGames(7, [0.45, 0.35, 0.2])).toEqual([3, 3, 1])
+    expect(splitGames(5, [1, 0, 1])).toEqual([3, 0, 2])
+    expect(splitGames(1000, [0, 0])).toEqual([0, 0])
+    const many = splitGames(1000, [0.123, 0.0871, 0.0712, 0.066, 0.06, 0.055, 0.05, 0.04, 0.4477])
+    expect(many.reduce((a, b) => a + b, 0)).toBe(1000)
   })
 })

@@ -1,8 +1,10 @@
 /**
  * Exposure rules (docs/PLAN.md §3.9). Everything requires the session cookie except:
- * - public: GET /healthz, GET /login, POST /api/auth/login, /.well-known/*
+ * - public: GET /healthz, GET /login, POST /api/auth/login, /.well-known/*, and the PWA's install metadata: GET
+ *   /manifest.webmanifest, /icons/*, /favicon.svg, /apple-touch-icon.png (Chrome fetches the manifest without cookies
+ *   and Android builds the installed app from its icons; they carry no data of the owner)
  * - bearer: /api/mcp and /api/worker/* (API tokens, enforced by BearerTokenGuard on those controllers)
- * The PWA shell, manifest, service worker and chunks are NOT public.
+ * The PWA shell, service worker and chunks are NOT public.
  */
 export type RouteExposure = 'public' | 'bearer' | 'session'
 
@@ -21,9 +23,13 @@ function startsWithSegment(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(`${prefix}/`)
 }
 
+/** What Chrome needs to offer «Instalar app» before anyone logs in (no data of the owner in them). */
+const INSTALL_FILES = new Set(['/manifest.webmanifest', '/favicon.svg', '/apple-touch-icon.png'])
+
 export function routeExposure(method: string, pathname: string): RouteExposure {
   const verb = method.toUpperCase() === 'HEAD' ? 'GET' : method.toUpperCase()
   if (verb === 'GET' && (pathname === '/healthz' || pathname === '/login')) return 'public'
+  if (verb === 'GET' && (INSTALL_FILES.has(pathname) || /^\/icons\/[\w.-]+\.png$/.test(pathname))) return 'public'
   if (verb === 'POST' && pathname === '/api/auth/login') return 'public'
   if (startsWithSegment(pathname, '/.well-known')) return 'public'
   if (startsWithSegment(pathname, '/api/mcp') || startsWithSegment(pathname, '/api/worker')) return 'bearer'

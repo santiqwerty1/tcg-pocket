@@ -725,6 +725,8 @@ model SimulationJob {
   createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
   startedAt    DateTime?           @map("started_at") @db.Timestamptz(3)
   finishedAt   DateTime?           @map("finished_at") @db.Timestamptz(3)
+  /// Hidden from the list (its results still count: comparison, consistency, laboratorio).
+  archivedAt   DateTime?           @map("archived_at") @db.Timestamptz(3)
   error        String?
   chunks       SimulationChunk[]
 
@@ -807,6 +809,9 @@ model LiveGame {
   status          LiveGameStatus @default(queued)
   humanSnapshotId Int            @map("human_snapshot_id")
   botSnapshotId   Int            @map("bot_snapshot_id")
+  /// The decks' labels when the game started: a restored game (backup) has no snapshots.
+  humanLabel      String         @default("") @map("human_label")
+  rivalLabel      String         @default("") @map("rival_label")
   /// Bot code (e2, r…).
   bot             String
   seed            BigInt

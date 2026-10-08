@@ -1,16 +1,17 @@
 /**
  * The backup document (PLAN §3.9): everything the owner produced, versioned by `schemaVersion`. Version 2 (Fase 2)
  * adds `matches`; a version 1 file still reads, with no matches. Version 3 (Fase 4) adds the pack switches; version 4
- * (Fase 5) the era table, the archetype merges and each deck's tournament archetype. Tournament data is not in the
+ * (Fase 5) the era table, the archetype merges and each deck's tournament archetype; version 5 (Fase 8) the results of
+ * the games against the bot (D-019: the result only, not the moves). Tournament data is not in the
  * backup: it is Limitless's and the sync downloads it again (DECISIONES 5.7).
  * Dates are ISO strings; numeric ids keep their database values so a `replace` restores them verbatim.
  * Excluded on purpose: password hash, TOTP secret, token hashes (tokens travel as metadata only), raw CSV files.
  */
 import { z } from 'zod'
 
-export const BACKUP_SCHEMA_VERSION = 4
+export const BACKUP_SCHEMA_VERSION = 5
 /** Versions this app reads. Exports always write BACKUP_SCHEMA_VERSION. */
-export const READABLE_BACKUP_VERSIONS: readonly number[] = [1, 2, 3, 4]
+export const READABLE_BACKUP_VERSIONS: readonly number[] = [1, 2, 3, 4, 5]
 
 const isoDate = z.string().refine((value) => !Number.isNaN(Date.parse(value)), 'fecha ISO 8601 inválida')
 const nullableDate = isoDate.nullable()
@@ -126,7 +127,7 @@ const tokenSchema = z.object({
 })
 
 export const backupDocumentSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]),
   exportedAt: isoDate,
   appVersion: z.string(),
   catalogCommit: z.string().nullable(),
@@ -167,6 +168,23 @@ export const backupDocumentSchema = z.object({
     .optional(),
   /** Metadata only: hashes are never exported, so tokens are not restored (they are created again). */
   tokens: z.array(tokenSchema),
+  /** Finished games against the bot (version 5): who played, the bot, the seed and the result. Absent = keep them. */
+  playedGames: z
+    .array(
+      z.object({
+        id: z.number().int(),
+        humanLabel: z.string(),
+        rivalLabel: z.string(),
+        bot: z.string(),
+        seed: z.string().regex(/^\d{1,20}$/),
+        engineRev: z.string(),
+        winner: z.enum(['you', 'bot', 'tie']),
+        turns: z.number().int().nullable(),
+        createdAt: isoDate,
+        finishedAt: nullableDate,
+      }),
+    )
+    .optional(),
 })
 
 export type BackupDocument = z.infer<typeof backupDocumentSchema>
@@ -186,6 +204,7 @@ export interface BackupCounts {
   setReleases: number
   archetypeAliases: number
   tokens: number
+  playedGames: number
 }
 
 export function backupCounts(document: BackupDocument): BackupCounts {
@@ -204,5 +223,6 @@ export function backupCounts(document: BackupDocument): BackupCounts {
     setReleases: document.tournaments?.sets.length ?? 0,
     archetypeAliases: document.tournaments?.archetypeAliases.length ?? 0,
     tokens: document.tokens.length,
+    playedGames: document.playedGames?.length ?? 0,
   }
 }

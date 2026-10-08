@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-08 (46 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-08 (47 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -45,6 +45,7 @@ _Borrador generado al 2026-10-08 (46 commits). Escribí el «porqué» fuera de 
 
 ### Documentado
 
+- phase 8 deployed — catalog with missions, worker 0.2.0 (T-011, D-019) `c1acadc`
 - lab deployed to production (T-008, D-018) `82da0d6`
 - phase 5 acceptance verified on production data `5848fdb`
 - phase 4 approved; pending decisions flagged for later review (P-005, T-003, D-007, D-008, D-009, P-002, P-004, S-002) `59eaf3d`

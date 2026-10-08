@@ -29,8 +29,14 @@ export interface Chunk {
   deckA: string | null
   deckB: string | null
   optimize: Record<string, unknown> | null
-  /** consistency chunks (Fase 8): key cards as engine ids, own turns reported, the deck's bot. */
-  consistency?: { keyCards: string[]; maxTurn: number; bot: string } | null
+  /** consistency chunks (Fase 8): key cards as engine ids, own turns reported, the deck's bot and, against the meta
+   * (D-019), the rival decks with their games. */
+  consistency?: {
+    keyCards: string[]
+    maxTurn: number
+    bot: string
+    rivals?: { deck: string; games: number }[] | null
+  } | null
 }
 
 /** A game against a bot to run (Fase 8): the decks, the bot, the seed and the owner's choices so far. */
