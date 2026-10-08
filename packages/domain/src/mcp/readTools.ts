@@ -208,7 +208,7 @@ export const MCP_READ_TOOLS = {
         .min(1)
         .max(5)
         .optional()
-        .describe('Peso de lo que solo da un sobre por tiempo limitado (1 a 5; por defecto el guardado, 2)'),
+        .describe('Peso de lo que solo da un sobre por tiempo limitado (1 a 5; por defecto el guardado, 3)'),
       deckTarget: z
         .enum(['saved', 'tournament'])
         .optional()

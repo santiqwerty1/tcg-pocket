@@ -59,7 +59,7 @@ export const PACKS_LIMITED_BY_DEFAULT: ReadonlyMap<string, string | null> = new 
 ])
 
 /** Default weight of the wanted versions only a limited-time pack gives, while it lasts. */
-export const DEFAULT_LIMITED_BOOST = 2
+export const DEFAULT_LIMITED_BOOST = 3
 
 /** A pack on sale for a limited time; `until` = its last day (YYYY-MM-DD), null when unknown. */
 export interface LimitedPack {
@@ -157,6 +157,11 @@ export interface MissingCardRow {
   decks: GroupDeficit['decks']
   /** Cheapest print whose pack points can still be earned (its expansion has a pack on sale). */
   cheapest: PrintCost | null
+  /**
+   * When no print can be bought with points that can still be earned: the cheapest one in an expansion whose packs
+   * left the shop, for points already saved there (D-008, decided 8/10/2026). Null otherwise.
+   */
+  retiredCheapest: PrintCost | null
   /** Some version can be traded (tradeable rarity and expansion). */
   tradeable: boolean
   bestPack: { packId: string; probability: number; packsPerCopy: number; limited: boolean } | null
@@ -410,6 +415,9 @@ export function recommendPacks(input: RecommendInput): Recommendation {
       }
     }
     const cheapest = cheapestPrint(index, deficit.groupId, input.rarityRule, (id) => earnableExpansions.has(id))
+    const retiredCheapest = cheapest
+      ? null
+      : cheapestPrint(index, deficit.groupId, input.rarityRule, (id) => !earnableExpansions.has(id))
     const tradeable = index.cardsOfGroup(deficit.groupId).some((card) => isTradeable(index, card, input.rarityRule))
     const pointsInPacks = cheapest ? cheapest.points / PACK_POINTS_PER_PACK : null
     const advice: MissingCardRow['advice'] =
@@ -429,6 +437,7 @@ export function recommendPacks(input: RecommendInput): Recommendation {
       weight: deficit.weight,
       decks: deficit.decks,
       cheapest,
+      retiredCheapest,
       tradeable,
       bestPack,
       afterLimited: bestPack?.limited ? afterLimited : null,

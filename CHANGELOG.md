@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-08 (35 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-08 (36 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- Claude can write — decks, matches and simulations (phase 7, M8 part 2) (D-017, T-009) `8a81661`
 - «versión de torneo» of each deck and Sobres aiming at it (D-016, T-008) `bc19f7a`
 - one worker per folder; install-task starts it and says why schtasks failed (T-007) `a1d5140`
 - heat-map table, replay filter, phone layout and multi-worker ETA `bd7b381`

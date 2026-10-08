@@ -18,9 +18,22 @@ COPY apps/worker/package.json apps/worker/
 COPY packages/domain/package.json packages/domain/
 RUN pnpm install --frozen-lockfile
 
+# --- deckgym replay viewer (D-014): built unmodified at the engine's pinned commit ------------------------------
+FROM node:24-alpine AS viewer
+RUN apk add --no-cache git
+WORKDIR /viewer
+COPY engine/Cargo.toml Cargo.toml
+RUN REV="$(sed -n 's/^deckgym = .*rev = "\([0-9a-f]\{40\}\)".*/\1/p' Cargo.toml)" \
+ && test -n "$REV" \
+ && git init -q src && cd src \
+ && git fetch -q --depth 1 https://github.com/bcollazo/deckgym-core "$REV" && git checkout -q FETCH_HEAD \
+ && cd viewer && npm ci --no-audit --no-fund --loglevel=error \
+ && npx vite build --base=/viewer/ --outDir /viewer/dist --emptyOutDir
+
 # --- build ------------------------------------------------------------------------------------------------------
 FROM deps AS build
 COPY . .
+COPY --from=viewer /viewer/dist apps/web/public/viewer
 RUN pnpm -F @tcg/domain build \
  && pnpm -F @tcg/api db:generate \
  && pnpm -F @tcg/web build \

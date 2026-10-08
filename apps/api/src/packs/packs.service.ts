@@ -262,6 +262,7 @@ export class PacksService {
         weight: item.weight,
         decks: item.decks,
         cheapest: item.cheapest,
+        retiredCheapest: item.retiredCheapest,
         tradeable: item.tradeable,
         bestPack: item.bestPack
           ? {

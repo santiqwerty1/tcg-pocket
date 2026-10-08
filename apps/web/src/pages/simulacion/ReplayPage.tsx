@@ -116,7 +116,7 @@ function PlayerBoard({
   )
 }
 
-function Viewer({ data, replay }: { data: ReplayResponse; replay: Replay }) {
+function Viewer({ data, replay, replayId }: { data: ReplayResponse; replay: Replay; replayId: string }) {
   const reader = useMemo(() => new ReplayReader(replay, data.names), [replay, data.names])
   const [onlyChoices, setOnlyChoices] = useState(true)
   const visible = useMemo(
@@ -164,6 +164,28 @@ function Viewer({ data, replay }: { data: ReplayResponse; replay: Replay }) {
         <p className="text-xs text-muted-foreground">
           Partida {data.game.gameIndex + 1} · semilla <code className="font-mono">{data.game.seed}</code> · motor{' '}
           <code className="font-mono">{shortSha(data.game.engineRev)}</code> · {replay.steps.length} pasos
+        </p>
+        <p className="text-xs">
+          <a
+            href={`/viewer/index.html?url=${encodeURIComponent(`/api/simulations/replays/${replayId}/raw`)}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-primary hover:underline"
+          >
+            Ver en el visor gráfico de deckgym
+          </a>{' '}
+          <span className="text-muted-foreground">
+            (en inglés; código AGPL-3.0:{' '}
+            <a
+              href={`https://github.com/bcollazo/deckgym-core/tree/${data.game.engineRev}/viewer`}
+              target="_blank"
+              rel="noreferrer"
+              className="hover:underline"
+            >
+              fuente
+            </a>
+            )
+          </span>
         </p>
       </div>
 
@@ -278,5 +300,5 @@ export function ReplayPage() {
   if (!isReplay(query.data.replay)) {
     return <ErrorState error={new Error('La repetición no tiene el formato esperado del motor.')} />
   }
-  return <Viewer data={query.data} replay={query.data.replay} />
+  return <Viewer data={query.data} replay={query.data.replay} replayId={id} />
 }

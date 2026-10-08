@@ -82,7 +82,7 @@ export function useRecommendation(body: RecommendBody | null) {
         alpha: 0,
         collection: null,
         onlyAvailable: true,
-        limitedBoost: 2,
+        limitedBoost: 3,
         deckTarget: 'saved',
       },
     ),

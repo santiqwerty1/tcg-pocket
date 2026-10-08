@@ -1,5 +1,6 @@
 /** Response shapes of the simulation API (docs/API.md «Simulación»). Rates are `WinRate` (percent, Wilson 95 %). */
 import type { GameRecord, SimulationKind, SnapshotProblem, WinRate } from '@tcg/domain'
+import type { EngineUpstreamView } from './engine-upstream.service.js'
 
 export interface SnapshotView {
   id: number
@@ -114,6 +115,8 @@ export interface EngineView {
   incomplete: number
   /** worker = reported by `engine-cli status`; fallback = the Fase 0 list (46 B4b reprints). */
   source: 'worker' | 'fallback' | 'none'
+  /** How far deckgym-core's `main` moved since the pinned commit (T-010); null when not checked or unreachable. */
+  upstream: EngineUpstreamView | null
   workers: WorkerView[]
   bots: { code: string; label: string }[]
 }

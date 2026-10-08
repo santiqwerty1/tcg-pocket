@@ -5,10 +5,15 @@ import { ENV, type Env } from '../config/env.js'
 /**
  * Baseline CSP for the Vite SPA: own scripts/styles only (Tailwind emits inline styles, hence 'unsafe-inline' for
  * style-src), card images from the tracker's raw GitHub URLs (invariant I11: links, never copies), no framing.
- * The login page overrides script-src with a per-response nonce for its inline script.
+ * The login page overrides script-src with a per-response nonce for its inline script. deckgym's replay viewer
+ * (`/viewer/`, D-014) compiles PixiJS shaders with `new Function`: its pages alone get 'unsafe-eval'.
  */
-export function contentSecurityPolicy(scriptNonce?: string): string {
-  const scriptSrc = scriptNonce ? `'self' 'nonce-${scriptNonce}'` : "'self'"
+export function contentSecurityPolicy(scriptNonce?: string, options: { allowEval?: boolean } = {}): string {
+  const scriptSrc = [
+    "'self'",
+    ...(scriptNonce ? [`'nonce-${scriptNonce}'`] : []),
+    ...(options.allowEval ? ["'unsafe-eval'"] : []),
+  ].join(' ')
   return [
     "default-src 'self'",
     `script-src ${scriptSrc}`,
@@ -33,8 +38,9 @@ export class SecurityHeadersMiddleware implements NestMiddleware {
     this.hsts = env.cookieSecure
   }
 
-  use(_req: Request, res: Response, next: NextFunction): void {
-    res.setHeader('Content-Security-Policy', contentSecurityPolicy())
+  use(req: Request, res: Response, next: NextFunction): void {
+    const viewer = req.originalUrl.startsWith('/viewer/')
+    res.setHeader('Content-Security-Policy', contentSecurityPolicy(undefined, { allowEval: viewer }))
     res.setHeader('X-Content-Type-Options', 'nosniff')
     res.setHeader('Referrer-Policy', 'same-origin')
     res.setHeader('X-Frame-Options', 'DENY')

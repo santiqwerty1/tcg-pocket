@@ -12,7 +12,8 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "fixtures:extract": "node scripts/extract-fixtures.mjs"
+    "fixtures:extract": "node scripts/extract-fixtures.mjs",
+    "viewer:build": "node scripts/build-viewer.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

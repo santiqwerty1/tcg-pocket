@@ -177,6 +177,12 @@ function MissingRow({ item }: { item: MissingCard }) {
               </span>
             ) : null}
           </>
+        ) : item.retiredCheapest ? (
+          <>
+            No se compra con puntos que se puedan ganar; si te quedan puntos de su expansión:{' '}
+            <span className="font-mono">{item.retiredCheapest.cardId}</span> {rarityLabel(item.retiredCheapest.rarity)}{' '}
+            · {item.retiredCheapest.points} puntos{item.retiredCheapest.verified ? '' : ' (sin verificar)'}
+          </>
         ) : (
           'No se compra con puntos que se puedan ganar'
         )}

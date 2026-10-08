@@ -29,6 +29,7 @@ import { CatalogService } from '../catalog/catalog.service.js'
 import type { Prisma } from '../generated/prisma/client.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import { EngineUpstreamService } from './engine-upstream.service.js'
 import type {
   EngineView,
   JobDetailView,
@@ -78,6 +79,7 @@ export class SimulationsService {
     private readonly engine: EngineStatusService,
     private readonly snapshots: SnapshotsService,
     private readonly queue: WorkerQueueService,
+    private readonly upstream: EngineUpstreamService,
   ) {}
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -502,6 +504,15 @@ export class SimulationsService {
   }
 
   /** A replay with the Spanish name of every card it mentions (engine ids → catalog). */
+  async replayRaw(rawId: string): Promise<unknown> {
+    const row = await this.prisma.simulationReplay.findUnique({
+      where: { id: parseNumericId(rawId, 'Repetición') },
+      select: { dataGz: true },
+    })
+    if (!row) throw new NotFoundException(`Repetición ${rawId} no encontrada.`)
+    return JSON.parse(gunzipSync(row.dataGz).toString('utf8')) as unknown
+  }
+
   async replay(rawId: string): Promise<ReplayView> {
     const row = await this.prisma.simulationReplay.findUnique({
       where: { id: parseNumericId(rawId, 'Repetición') },
@@ -551,8 +562,9 @@ export class SimulationsService {
   }
 
   async engineView(): Promise<EngineView> {
-    const [summary, workers, leased] = await Promise.all([
+    const [summary, upstream, workers, leased] = await Promise.all([
       this.engine.summary(),
+      this.upstream.status(this.engine.engineRev()).catch(() => null),
       this.prisma.workerNode.findMany({ orderBy: { lastSeenAt: 'desc' } }),
       this.prisma.simulationChunk.findMany({
         where: { status: 'leased', leaseUntil: { gt: new Date() } },
@@ -563,6 +575,7 @@ export class SimulationsService {
     return {
       engineRev: this.engine.engineRev(),
       ...summary,
+      upstream,
       workers: workers.map((worker): WorkerView => {
         const current = leased.find((chunk) => chunk.workerId === worker.id)
         return {
@@ -625,12 +638,19 @@ export class SimulationsService {
       },
     })
     if (chunks.length === 0) return null
+    // One engine and one bot pair, never mixed: the current engine first (after a deckgym update the old results stay
+    // apart), then the bot pair with the most chunks.
+    const currentRev = this.engine.engineRev()
     const byPlayers = new Map<string, typeof chunks>()
     for (const chunk of chunks) {
-      const key = chunk.job.players.join(',')
+      const key = `${chunk.job.engineRev}|${chunk.job.players.join(',')}`
       byPlayers.set(key, [...(byPlayers.get(key) ?? []), chunk])
     }
-    const [pairKey, chosen] = [...byPlayers].sort((x, y) => y[1].length - x[1].length)[0] as [string, typeof chunks]
+    const isCurrent = (key: string) => (key.startsWith(`${currentRev}|`) ? 1 : 0)
+    const [groupKey, chosen] = [...byPlayers].sort(
+      (x, y) => isCurrent(y[0]) - isCurrent(x[0]) || y[1].length - x[1].length,
+    )[0] as [string, typeof chunks]
+    const pairKey = groupKey.split('|')[1] ?? ''
     const own = new Set(ids)
     const outcomes = chosen.map((chunk) => ({
       a: own.has(chunk.snapshotAId ?? -1) ? 0 : 1,

@@ -11,7 +11,7 @@ import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { formatDateTime, shortSha } from '@/lib/format'
+import { formatDate, formatDateTime, shortSha } from '@/lib/format'
 import { formatDuration, gamesLabel, isActive, KIND_LABEL, progressFraction, STATUS_LABEL } from '@/lib/simulation'
 import { ago } from '@/lib/tournaments'
 import { cn } from '@/lib/utils'
@@ -57,6 +57,25 @@ export function EngineLine({ engine }: { engine: EngineInfo }) {
           {engine.source === 'fallback' ? ' (lista de la Fase 0, hasta que el worker suba la suya)' : ''}
         </span>
       </div>
+      {engine.upstream && engine.upstream.aheadBy > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          deckgym tiene {engine.upstream.aheadBy} {engine.upstream.aheadBy === 1 ? 'commit nuevo' : 'commits nuevos'}{' '}
+          desde <code className="font-mono">{shortSha(engine.upstream.pinned)}</code>
+          {engine.upstream.latest?.date ? ` (el último del ${formatDate(engine.upstream.latest.date)})` : ''}.{' '}
+          <a
+            href={engine.upstream.compareUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-primary hover:underline"
+          >
+            Ver cambios
+          </a>
+          . El motor queda fijo hasta que decidas actualizarlo (se recompila y las simulaciones nuevas usan el motor
+          nuevo).
+        </p>
+      ) : engine.upstream ? (
+        <p className="text-xs text-muted-foreground">deckgym al día con el motor fijado.</p>
+      ) : null}
       {engine.workers.length === 0 ? (
         <p className="text-muted-foreground">
           Ningún worker se conectó todavía. Creá un token de tipo worker en Más → Tokens de API, guardalo en{' '}

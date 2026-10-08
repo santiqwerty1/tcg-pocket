@@ -757,6 +757,16 @@ export const missingCardSchema = z.object({
       tradeable: z.boolean(),
     })
     .nullable(),
+  retiredCheapest: z
+    .object({
+      cardId: z.string(),
+      rarity: z.string(),
+      points: z.number(),
+      verified: z.boolean(),
+      tradeable: z.boolean(),
+    })
+    .nullable()
+    .default(null),
   tradeable: z.boolean(),
   bestPack: z
     .object({ ...packRefFields, probability: z.number(), packsPerCopy: z.number(), limited: z.boolean() })
@@ -1238,6 +1248,17 @@ export const engineInfoSchema = z.object({
   cards: z.number(),
   incomplete: z.number(),
   source: z.enum(['worker', 'fallback', 'none']),
+  /** deckgym-core's `main` against the pinned commit (T-010); null when not checked. */
+  upstream: z
+    .object({
+      checkedAt: isoDate,
+      pinned: z.string(),
+      aheadBy: z.number(),
+      latest: z.object({ sha: z.string(), date: z.string().nullable(), message: z.string() }).nullable(),
+      compareUrl: z.string(),
+    })
+    .nullable()
+    .default(null),
   workers: z.array(workerInfoSchema),
   bots: z.array(z.object({ code: z.string(), label: z.string() })),
 })

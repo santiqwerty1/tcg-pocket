@@ -39,3 +39,6 @@ Boveda/Adjuntos/
 
 # Rust build output of engine-cli
 engine/target/
+
+# deckgym replay viewer, built by scripts/build-viewer.mjs (D-014)
+apps/web/public/viewer/

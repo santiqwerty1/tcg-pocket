@@ -290,6 +290,9 @@ describe('cards out of the packs on sale (the Deluxe ex left the shop, DECISIONE
       input({ decks: [deck], available: (packId) => !packId.startsWith('A1/') && packId !== 'A4b/deluxepack' }),
     )
     expect(retired.missing[0]).toMatchObject({ bestPack: null, cheapest: null, tradeable: true, advice: 'trade' })
+    // Points already saved in A1 can still buy it (D-008): its cost is shown apart.
+    expect(retired.missing[0]?.retiredCheapest).toMatchObject({ points: 35 })
+    expect(onSale.missing[0]?.retiredCheapest).toBeNull()
     expect(retired.decks[0]?.notInPacks).toEqual([absent.nameEs])
   })
 

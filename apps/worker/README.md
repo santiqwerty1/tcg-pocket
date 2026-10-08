@@ -41,3 +41,14 @@ El motor: `cargo build --release` en `engine/` (Rust estable y WinLibs en el `PA
 ## Tests
 
 `pnpm -F @tcg/worker test` usa `test/fake-engine.mjs`, un `engine-cli` falso en Node con la misma línea de comandos, archivos, progreso y códigos de salida (`games: 13` falla, `games: 99` no termina). Cubren el motor (progreso, error con código, corte por señal), el bucle (resultado y repeticiones, resultado pendiente tras un corte de red, rechazo 404, falla del motor, optimizar) y los reintentos del cliente.
+
+## Actualizar deckgym (T-010)
+
+El motor está fijado en un commit para que los resultados se puedan repetir y comparar. Más → Simulación avisa cuántos commits nuevos tiene deckgym-core (la app lo mira cada 12 h en producción). Para pasar a una versión nueva:
+
+1. Mirar los cambios («Ver cambios») y elegir el commit.
+2. Cambiar el `rev` de `engine/Cargo.toml` (nada más del motor) y `DEFAULT_ENGINE_REV` en `apps/api/src/config/env.ts`.
+3. Compilar el motor en la PC (`cargo build --release` en `engine/`, unos 14 min) y correr los tests (`cargo test --release`).
+4. Desplegar la API y sincronizar el catálogo con el motor nuevo (`POST /api/catalog/sync` o `catalog:sync --engine-rev <sha>`): ids y datos de cartas del motor.
+5. Reiniciar el worker: sube qué cartas implementa el motor nuevo y la marca «no simulable» se actualiza sola (también las reimpresiones B4b re-mapeadas).
+6. Las simulaciones encoladas con el motor anterior esperan un worker con ese motor (el worker lo dice en su log): cancelarlas y volver a encolarlas. Los resultados viejos quedan con su motor anotado y la columna «simulación» del mazo usa solo los del motor vigente.

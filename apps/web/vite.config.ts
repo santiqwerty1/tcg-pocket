@@ -43,9 +43,11 @@ export default defineConfig(({ mode }) => ({
           workbox: {
             // Only the built shell is precached: nothing under /api is ever listed because the glob runs over dist/.
             globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
+            // deckgym's replay viewer (D-014) is opened now and then: not worth 1,6 MB of precache.
+            globIgnores: ['viewer/**'],
             navigateFallback: '/index.html',
             // The login page is served by the API and must never be answered with the SPA shell.
-            navigateFallbackDenylist: [/^\/api/, /^\/login/, /^\/healthz/],
+            navigateFallbackDenylist: [/^\/api/, /^\/login/, /^\/healthz/, /^\/viewer\//],
             cleanupOutdatedCaches: true,
             clientsClaim: true,
             skipWaiting: true,

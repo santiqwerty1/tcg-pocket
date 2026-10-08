@@ -365,7 +365,7 @@ describe('MCP endpoint (e2e)', () => {
       }),
     ])
     expect(String((result.structuredContent.missingCards as Structured[])[0]?.bestPack)).toContain('(tiempo limitado)')
-    expect(result.structuredContent.limitedBoost).toBe(2)
+    expect(result.structuredContent.limitedBoost).toBe(3)
     const completion = (result.structuredContent.deckCompletion as Structured[])[0]
     expect(String((completion?.bestPacks as string[] | undefined)?.[0])).toContain('cubre 1 de 1 copias en ~70 sobres')
 

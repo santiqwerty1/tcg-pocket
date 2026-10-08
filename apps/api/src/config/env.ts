@@ -28,6 +28,9 @@ const envSchema = z.object({
   /** Limitless tournament sync (backfill at start, then every 6 h); defaults to on in production only. */
   LIMITLESS_SYNC: z.stringbool().optional(),
   LIMITLESS_BASE_URL: z.url().default('https://play.limitlesstcg.com/api'),
+  /** Look at deckgym-core's upstream `main` at most every 12 h (T-010); defaults to on in production only. */
+  ENGINE_UPSTREAM_CHECK: z.stringbool().optional(),
+  ENGINE_UPSTREAM_URL: z.url().default('https://api.github.com/repos/bcollazo/deckgym-core'),
   /** Express `trust proxy` hops (Fly sits one proxy in front of the app). */
   TRUST_PROXY: z.coerce.number().int().min(0).default(1),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).optional(),
@@ -54,6 +57,8 @@ export interface Env {
   backupCron: boolean
   limitlessSync: boolean
   limitlessBaseUrl: string
+  engineUpstreamCheck: boolean
+  engineUpstreamUrl: string
   trustProxy: number
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent'
   version: string
@@ -100,6 +105,8 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
     backupCron: raw.BACKUP_CRON ?? isProduction,
     limitlessSync: raw.LIMITLESS_SYNC ?? isProduction,
     limitlessBaseUrl: raw.LIMITLESS_BASE_URL.replace(/\/+$/, ''),
+    engineUpstreamCheck: raw.ENGINE_UPSTREAM_CHECK ?? isProduction,
+    engineUpstreamUrl: raw.ENGINE_UPSTREAM_URL.replace(/\/+$/, ''),
     trustProxy: raw.TRUST_PROXY,
     logLevel: raw.LOG_LEVEL ?? (isProduction ? 'info' : 'debug'),
     version: raw.APP_VERSION ?? packageVersion(),

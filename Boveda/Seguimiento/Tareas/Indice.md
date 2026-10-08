@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-9 fichas: hecho 3 · parcial 1 · pendiente 5. ⚑ = para revisar.
+10 fichas: hecho 6 · pendiente 3 · preparado 1. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Actualizado |
 | --- | --- | --- | --- | --- |
@@ -21,8 +21,9 @@ revisar: false
 | [T-002](T-002.md) | Confirmar costos ✵/✵✵ y rarezas intercambiables | pendiente | — | 2026-10-07 |
 | [T-003](T-003.md) | Fase 5: torneos (M5) | hecho | — | 2026-10-08 |
 | [T-004](T-004.md) | Worker de Windows para la simulación | hecho | — | 2026-10-08 |
-| [T-005](T-005.md) | Decidir si se activa el flujo completo de Posta | pendiente | — | 2026-10-07 |
+| [T-005](T-005.md) | Decidir si se activa el flujo completo de Posta | hecho | — | 2026-10-07 |
 | [T-006](T-006.md) | Verificar la Fase 5 con los datos reales de producción | hecho | — | 2026-10-08 |
-| [T-007](T-007.md) | Arrancar el worker en la PC contra producción | parcial ⚑ | — | 2026-10-08 |
-| [T-008](T-008.md) | Laboratorio: mazos nuevos con Claude y el simulador | pendiente ⚑ | — | 2026-10-08 |
+| [T-007](T-007.md) | Arrancar el worker en la PC contra producción | hecho | — | 2026-10-08 |
+| [T-008](T-008.md) | Laboratorio: mazos nuevos con Claude y el simulador | preparado | — | 2026-10-08 |
 | [T-009](T-009.md) | Probar la Fase 7 desde el celu y desde Claude Code | pendiente ⚑ | — | 2026-10-08 |
+| [T-010](T-010.md) | Saber cuándo hay una versión nueva de deckgym | hecho | — | 2026-10-08 |

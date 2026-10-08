@@ -34,7 +34,7 @@ function knobsFrom(settings: Record<string, unknown>): Knobs {
     collection = raw as CollectionGoal
   }
   const boost = settings.limitedBoost
-  const limitedBoost = typeof boost === 'number' && boost >= 1 && boost <= 5 ? boost : 2
+  const limitedBoost = typeof boost === 'number' && boost >= 1 && boost <= 5 ? boost : 3
   const deckTarget: DeckTarget = settings.packDeckTarget === 'tournament' ? 'tournament' : 'saved'
   return { model, alpha, collection, limitedBoost, deckTarget }
 }

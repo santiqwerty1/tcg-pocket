@@ -173,7 +173,7 @@ describe('Sobres page (Fase 4)', () => {
       alpha: 0.7,
       collection: null,
       onlyAvailable: true,
-      limitedBoost: 2,
+      limitedBoost: 3,
       deckTarget: 'saved',
     })
   })

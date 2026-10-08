@@ -171,3 +171,14 @@ Las preguntas del bloque B (orden de fases, sobres, torneos, simulación, texto 
 | 7.4 | Lo que escribe Claude queda marcado: revisiones y cambios de mazo y partidas con `source: mcp` («desde Claude» en la app). | Saber de dónde salió cada dato. |
 | 7.5 | `simulations_enqueue` revisa antes qué no es simulable y no encola nada si algo no lo es (salvo `skipNotSimulable`); acepta mis mazos y listas exactas de torneo (con energía para las NOEX), y las cartas de optimizar por nombre o código. Devuelve si el worker está en línea. | Mismas reglas que la pantalla Simulación (6.6). |
 | 7.6 | Un encabezado sin número («### Nombre») da el nombre de un mazo pegado en el formato en español. | Cuando Claude escribe una lista, no tiene número de mazo. |
+
+## Decisiones de Santi del 8/10/2026 (bóveda)
+
+| # | Decisión | Motivo |
+|---|---|---|
+| 8.1 | Aprobadas como estaban: D-011 (lista exacta sin ediciones, arquetipo sugerido), D-012 (backup sin torneos), D-015 (backup sin simulaciones), D-016 (versión de torneo), D-017 (qué escribe Claude) y D-013 (motor compilado en la PC, por recomendación). | Respuestas de Santi. |
+| 8.2 | D-007: lo exclusivo de un sobre por tiempo limitado pesa ×3 por defecto (antes ×2); el ajuste guardado en producción se pasó a 3. | Santi quiere priorizar más el Deluxe Mega mientras dure. |
+| 8.3 | D-008: una carta que no se compra con puntos que se puedan ganar muestra igual su costo en puntos de su expansión retirada (`retiredCheapest`), por si quedan puntos guardados; el consejo sigue siendo «intercambiar». | Santi puede tener puntos del Deluxe ex. |
+| 8.4 | D-014: además del visor propio, el viewer gráfico de deckgym, sin modificar, en `/viewer/` (enlace en cada repetición). | Santi quiere ver la partida también en el tablero gráfico. |
+| 8.5 | D-009: hooks y reglas de Posta activos (sin su CI); excepciones: commits en inglés, push y deploy a pedido. | Respuesta de Santi; los choques con lo acordado quedan resueltos a favor de lo acordado. |
+| 8.6 | T-010: la app avisa cuántos commits nuevos tiene deckgym-core desde el motor fijado (API de GitHub, cada 12 h en producción); la columna «simulación» del mazo usa solo resultados del motor vigente; procedimiento para actualizar en `apps/worker/README.md`. | «¿Cómo sabemos si se actualiza deckgym?» (el 8/10 iba 18 commits adelante). |

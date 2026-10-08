@@ -229,6 +229,8 @@ describe('simulation (e2e)', () => {
         playersEs: [expect.any(String), expect.any(String)],
       },
     })
+    // The same replay as the engine wrote it, for deckgym's viewer (D-014).
+    expect((await get(`/api/simulations/replays/${upload.body.id}/raw`)).body).toEqual(replay)
 
     // A lease that expires (PC turned off) goes back to the queue: another claim gets the same chunk.
     const second = (await claim()).body.chunk as Structured

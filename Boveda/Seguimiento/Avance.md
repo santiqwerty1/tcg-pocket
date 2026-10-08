@@ -31,28 +31,18 @@ revisar: false
 
 ## Próximos pasos
 
-1. Arrancar el worker en la PC con un token de producción ([T-007](Tareas/T-007.md)) y correr la matriz de los 40 mazos allá.
-2. Visto bueno de la Fase 6; después, Fase 7 (Claude de escritura).
-3. Confirmar en el juego el último día del Deluxe Mega ([T-001](Tareas/T-001.md)) antes del 28/10.
+1. Probar la Fase 7 desde el celu ([T-009](Tareas/T-009.md)) y dar el visto bueno.
+2. Laboratorio de mazos nuevos con Claude y el simulador ([T-008](Tareas/T-008.md)), antes de la Fase 8.
+3. Confirmar en el juego los datos de P-002, P-003, P-004 y S-002 (el Deluxe Mega antes del 28/10).
 
 ## Pendiente de decidir (para después)
 
-Registrado el 08/10/2026 a pedido de Santiago; todo con `revisar: true` (vista «Para revisar»).
+Decididas por Santiago el 08/10/2026: D-007, D-008, D-009, D-011, D-012, D-013, D-014, D-015, D-016, D-017 (ver cada ficha). Queda:
 
-| Ficha | Qué hay que decidir | Mientras tanto |
+| Ficha | Qué falta | Mientras tanto |
 |---|---|---|
-| [D-007](Decisiones/D-007.md) | Peso de los sobres por tiempo limitado (×2) y último día del B4b | aplicado como propuesta |
-| [D-008](Decisiones/D-008.md) | Consejo «intercambiar» y puntos solo de expansiones a la venta | aplicado como propuesta |
-| [D-009](Decisiones/D-009.md) | Activar hooks, reglas y CI de Posta | sin activar |
-| [D-011](Decisiones/D-011.md) | Lista exacta sin ediciones; arquetipo de cada mazo sugerido | aplicado como propuesta |
-| [D-012](Decisiones/D-012.md) | Backup sin los torneos de Limitless | aplicado como propuesta |
-| [D-013](Decisiones/D-013.md) | engine-cli compilado en la PC; Actions de respaldo | aplicado como propuesta |
-| [D-014](Decisiones/D-014.md) | Visor de repeticiones propio en texto | aplicado como propuesta |
-| [D-015](Decisiones/D-015.md) | Backup sin simulaciones | aplicado como propuesta |
-| [D-016](Decisiones/D-016.md) | Versión de torneo de cada mazo y Sobres apuntando a ella | aplicado como propuesta |
-| [D-017](Decisiones/D-017.md) | Qué puede escribir Claude (corregir y borrar partidas, no borrar mazos) | aplicado como propuesta |
-| [T-008](Tareas/T-008.md) | Laboratorio de mazos nuevos con Claude y el simulador: alcance y cuándo | después de la Fase 7 |
+| [T-009](Tareas/T-009.md) | Probar la Fase 7 desde el celu y Claude Code | probada en tests de integración |
 | [P-002](Preguntas/P-002.md) | Último día real del Deluxe Mega | 28/10/2026 |
 | [P-003](Preguntas/P-003.md) | Costos de ✵ y ✵✵ | 1000 y 1350 sin verificar |
 | [P-004](Preguntas/P-004.md) | Rarezas intercambiables | ◊ a ◊◊◊◊ y ☆ |
-| [S-002](Supuestos/S-002.md) | Si los puntos de un sobre retirado se pueden seguir usando | se supone que no |
+| [S-002](Supuestos/S-002.md) | Si los puntos de un sobre retirado se pueden seguir usando | se supone que no; la app igual muestra su costo |

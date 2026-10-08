@@ -25,6 +25,7 @@ import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
 import { BearerTokenGuard, RequireScopes } from '../tokens/bearer-token.guard.js'
 import { TokensModule } from '../tokens/tokens.module.js'
 import { TournamentsModule } from '../tournaments/tournaments.controller.js'
+import { EngineUpstreamService } from './engine-upstream.service.js'
 import type { EngineView, JobDetailView, JobSummaryView, ReplayView } from './simulation-views.js'
 import { SimulationsService } from './simulations.service.js'
 import { EngineStatusService, SnapshotsService } from './snapshots.service.js'
@@ -228,6 +229,12 @@ export class SimulationsController {
     return this.simulations.create(body)
   }
 
+  /** The replay JSON as the engine wrote it, for deckgym's own viewer (`/viewer/index.html?url=…`, D-014). */
+  @Get('replays/:id/raw')
+  replayRaw(@Param('id') id: string, @CurrentSession() _session: RequestSession): Promise<unknown> {
+    return this.simulations.replayRaw(id)
+  }
+
   @Get('replays/:id')
   replay(@Param('id') id: string, @CurrentSession() _session: RequestSession): Promise<ReplayView> {
     return this.simulations.replay(id)
@@ -272,7 +279,7 @@ export class SimulationsController {
 @Module({
   imports: [TokensModule, CatalogModule, TournamentsModule],
   controllers: [WorkerController, SimulationsController],
-  providers: [EngineStatusService, SnapshotsService, WorkerQueueService, SimulationsService],
+  providers: [EngineStatusService, EngineUpstreamService, SnapshotsService, WorkerQueueService, SimulationsService],
   exports: [SimulationsService, SnapshotsService, EngineStatusService],
 })
 export class SimulationModule {}

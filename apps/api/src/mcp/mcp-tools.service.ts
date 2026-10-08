@@ -764,6 +764,11 @@ ${MCP_WRITE_INSTRUCTIONS}`
               : item.advice === 'trade'
                 ? 'ningún sobre a la venta la da ni se compra con puntos que se puedan ganar: conseguirla por intercambio'
                 : null,
+        ...(item.retiredCheapest
+          ? {
+              withSavedPoints: `si quedan puntos de su expansión: ${item.retiredCheapest.cardId} ${item.retiredCheapest.rarity}, ${item.retiredCheapest.points} puntos${item.retiredCheapest.verified ? '' : ' (sin verificar)'}`,
+            }
+          : {}),
       })),
       deckCompletion: result.decks.map((deck) => ({
         deck: deck.name,

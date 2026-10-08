@@ -57,6 +57,8 @@ export interface MissingCardView {
   weight: number
   decks: { deckId: string; name: string; priority: number; need: number }[]
   cheapest: { cardId: string; rarity: string; points: number; verified: boolean; tradeable: boolean } | null
+  /** No print with points that can still be earned: the cheapest in a retired expansion (points already saved). */
+  retiredCheapest: { cardId: string; rarity: string; points: number; verified: boolean; tradeable: boolean } | null
   tradeable: boolean
   bestPack: (PackRef & { probability: number; packsPerCopy: number; limited: boolean }) | null
   /** When the best pack is a limited one: the best pack that stays. */
