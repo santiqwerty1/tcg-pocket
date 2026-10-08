@@ -3,15 +3,16 @@
  * archetype of the bank, with n and interval), its pairings, the cards it changes from the starting list and how new
  * it is against the era's tournament lists. A search also shows its rounds and the confirmation round. Bots play.
  */
-import { ChevronDownIcon, FlaskConicalIcon, SaveIcon, XCircleIcon } from 'lucide-react'
+import { ChevronDownIcon, FlaskConicalIcon, RefreshCwIcon, SaveIcon, SparklesIcon, XCircleIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
-import { useCreateDeck } from '@/api/decks'
+import { useCreateDeck, useDeck, useUpdateDeck } from '@/api/decks'
 import { useLabJob, useLabTest } from '@/api/lab'
 import type { LabDeck, LabJob, MetaScore, SelectableEnergy } from '@/api/schemas'
 import { useCancelSimulation } from '@/api/simulations'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { EnergyChips } from '@/components/EnergyChip'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { RateDetails } from '@/components/RateSummary'
@@ -65,6 +66,128 @@ function NoveltyBadge({ deck }: { deck: LabDeck }) {
       {novelty.label}
       {novelty.kind === 'known' && novelty.swaps !== null ? ` (${novelty.swaps})` : ''}
     </Badge>
+  )
+}
+
+/** Same cards (by edition) and energies, in any order. */
+function sameList(
+  a: { cards: { cardId: string; count: number }[]; energies: string[] },
+  b: { cards: { cardId: string; count: number }[]; energies: string[] },
+): boolean {
+  const key = (list: typeof a) =>
+    `${list.cards
+      .map((card) => `${card.cardId}×${card.count}`)
+      .sort()
+      .join(',')}|${[...list.energies].sort().join(',')}`
+  return key(a) === key(b)
+}
+
+/**
+ * «Actualizar el mazo original» (pedido del 8/10/2026): the search started from a saved deck and this list is a
+ * variant of it. Saves it as a new revision of that deck (the old one stays in Revisiones, one tap to restore).
+ */
+function UpdateOriginal({ deck, job, size }: { deck: LabDeck; job: LabJob; size: 'sm' | 'default' }) {
+  const base = job.decks.find((item) => item.role === 'base')
+  const original = useDeck(base?.deckId ?? undefined)
+  const update = useUpdateDeck()
+  const navigate = useNavigate()
+  const [confirm, setConfirm] = useState(false)
+  if (!base?.deckId || deck.role === 'base' || deck.role === 'deck') return null
+  const target = {
+    cards: deck.cards.map((card) => ({ cardId: card.cardId, count: card.count })),
+    energies: deck.energies,
+  }
+  const current = original.data
+    ? {
+        cards: original.data.cards.map((entry) => ({ cardId: entry.card.id, count: entry.count })),
+        energies: original.data.energies,
+      }
+    : null
+  if (current && sameList(current, target)) {
+    return <span className="self-center text-xs text-muted-foreground">El mazo ya tiene esta lista.</span>
+  }
+  const changedSince =
+    current !== null &&
+    !sameList(current, {
+      cards: base.cards.map((card) => ({ cardId: card.cardId, count: card.count })),
+      energies: base.energies,
+    })
+  const score = deck.confirm?.text ?? deck.search.text
+
+  async function apply() {
+    if (!base?.deckId) return
+    try {
+      await update.mutateAsync({
+        id: base.deckId,
+        patch: {
+          cards: target.cards,
+          energies: target.energies as SelectableEnergy[],
+          note: `Laboratorio #${job.job.id}: ${score}`.slice(0, 500),
+        },
+      })
+      toast.success('Mazo actualizado: la lista anterior queda en Revisiones')
+      navigate(`/mazos/${base.deckId}`)
+    } catch (error) {
+      toast.error(errorMessage(error))
+    }
+  }
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant={size === 'default' ? 'default' : 'outline'}
+        size={size}
+        onClick={() => setConfirm(true)}
+      >
+        <RefreshCwIcon aria-hidden="true" />
+        Actualizar el mazo original
+      </Button>
+      <ConfirmDialog
+        open={confirm}
+        onOpenChange={setConfirm}
+        title={`¿Actualizar «${original.data?.name ?? base.label}»?`}
+        description={
+          <span className="flex flex-col gap-2">
+            {deck.changes ? <ChangeLine add={deck.changes.add} remove={deck.changes.remove} /> : null}
+            <span>
+              Se guarda como una revisión nueva del mazo con la nota «Laboratorio #{job.job.id}». La lista anterior
+              queda en Revisiones y se restaura con un toque.
+            </span>
+            {changedSince ? (
+              <span className="text-warning">
+                El mazo cambió desde que empezó la búsqueda: esos cambios también se reemplazan.
+              </span>
+            ) : null}
+          </span>
+        }
+        confirmLabel="Actualizar"
+        pending={update.isPending}
+        onConfirm={() => void apply()}
+      />
+    </>
+  )
+}
+
+/** When a finished search beat the starting deck: say so at the top, with the button. */
+function FoundBetter({ job }: { job: LabJob }) {
+  if (job.mode !== 'explore' || job.explore?.phase !== 'done') return null
+  const best = job.decks.find((deck) => deck.role === 'best')
+  const base = job.decks.find((deck) => deck.role === 'base')
+  if (!best || !base?.deckId || best.snapshot === base.snapshot) return null
+  return (
+    <Alert>
+      <SparklesIcon aria-hidden="true" />
+      <AlertDescription className="flex flex-col gap-2">
+        <span>
+          Encontró una versión mejor de «{base.label}»: {best.confirm?.text ?? best.search.text}
+          {base.confirm ? ` (la de partida: ${base.confirm.text})` : ''}.
+        </span>
+        <span className="flex flex-wrap gap-2">
+          <UpdateOriginal deck={best} job={job} size="default" />
+        </span>
+      </AlertDescription>
+    </Alert>
   )
 }
 
@@ -185,6 +308,7 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
                 Guardar como mazo
               </Button>
             )}
+            <UpdateOriginal deck={deck} job={job} size="sm" />
             <Button type="button" variant="outline" size="sm" disabled={test.isPending} onClick={() => void retest()}>
               <FlaskConicalIcon aria-hidden="true" />
               Probar con 200 partidas
@@ -298,6 +422,7 @@ export function LabJobPage() {
           {data.note} El puntaje es el % de victorias contra cada arquetipo del banco, ponderado por su cuota en la era.
         </AlertDescription>
       </Alert>
+      <FoundBetter job={data} />
       <ExploreSummary job={data} />
       <Section title={data.mode === 'test' ? 'Resultado' : 'Listas'}>
         <ul className="divide-y rounded-lg border">

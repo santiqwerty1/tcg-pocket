@@ -272,3 +272,9 @@ Pedido de Santi: hacer las doce ideas de ampliación, cada una como su propia fa
 | 14.1 | Dos ventanas de 7 días (o 14) que **terminan en el torneo más nuevo de la era**, no en hoy: si el sync se atrasó, igual se comparan dos semanas completas. Por arquetipo y por carta: cuota de listas en cada ventana y la diferencia en puntos. | Lo que pide «qué sube y qué baja»; la fecha del último dato manda. |
 | 14.2 | **«Cambio claro»** = prueba de dos proporciones con |z| ≥ 1,96; si no, «puede ser ruido». Solo aparecen arquetipos y cartas con 5 listas o más en alguna de las dos semanas. «Nuevo» = no se jugó la semana anterior. Sin semana anterior (era recién empezada), la pantalla muestra lo más jugado de esta semana en vez de subas. | Con pocas listas, un salto de 2 o 3 no es tendencia. |
 | 14.3 | Solo cuota de listas: el porcentaje de victorias de la semana aparece como dato al costado, nunca combinado con el cambio. Torneos → «Meta semanal», `GET /api/tournaments/trends`, tool `tournaments_trends`. | Fuentes separadas. |
+
+## Pedido del 8/10/2026: actualizar el mazo desde el Laboratorio
+
+| # | Decisión | Motivo |
+|---|---|---|
+| 10.13 | **«Actualizar el mazo original»**: cuando una búsqueda arrancó de un mazo guardado, la mejor lista (y cada variante probada) se puede guardar sobre ese mazo como una **revisión nueva** con la nota «Laboratorio #N: puntaje»; la anterior queda en Revisiones y se restaura con un toque. Al terminar una búsqueda que mejoró la lista de partida, un aviso arriba lo ofrece. La confirmación muestra los cambios y avisa si el mazo cambió desde que empezó la búsqueda. Si el mazo ya tiene esa lista, no se ofrece. | Pedido de Santi; «Guardar como mazo» creaba uno nuevo. |
