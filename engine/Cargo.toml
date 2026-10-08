@@ -16,6 +16,10 @@ serde_json = "1"
 strum = "0.27"
 uuid = { version = "1", features = ["v4"] }
 
+# Opt out of Windows power throttling (EcoQoS): a hidden worker would otherwise run on the efficiency cores only.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_Threading"] }
+
 [profile.release]
 opt-level = 3
 lto = "thin"

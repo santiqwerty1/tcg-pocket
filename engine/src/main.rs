@@ -649,7 +649,36 @@ fn run(args: &[String]) -> Result<(), CliError> {
     }
 }
 
+/// Windows puts processes without a window (the worker runs hidden) in «efficiency mode» (EcoQoS) and the scheduler
+/// keeps them on the efficiency cores: measured on the owner's PC, six engines shared 4 of 20 logical processors. A
+/// process can opt out of that throttling for itself; nothing else changes (priority and affinity stay as they are).
+#[cfg(windows)]
+fn disable_power_throttling() {
+    use windows_sys::Win32::System::Threading::{
+        GetCurrentProcess, ProcessPowerThrottling, SetProcessInformation, PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+        PROCESS_POWER_THROTTLING_EXECUTION_SPEED, PROCESS_POWER_THROTTLING_STATE,
+    };
+    let state = PROCESS_POWER_THROTTLING_STATE {
+        Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+        ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+        StateMask: 0,
+    };
+    // Best effort: an older Windows without the class just keeps its default scheduling.
+    unsafe {
+        SetProcessInformation(
+            GetCurrentProcess(),
+            ProcessPowerThrottling,
+            &state as *const PROCESS_POWER_THROTTLING_STATE as *const core::ffi::c_void,
+            std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32,
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn disable_power_throttling() {}
+
 fn main() {
+    disable_power_throttling();
     // Panics inside games are caught and reported as JSON; keep the default hook from printing them twice.
     std::panic::set_hook(Box::new(|_| {}));
     let args: Vec<String> = std::env::args().skip(1).collect();

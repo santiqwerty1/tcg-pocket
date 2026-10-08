@@ -298,6 +298,7 @@ dependencies = [
  "serde_json",
  "strum",
  "uuid",
+ "windows-sys",
 ]
 
 [[package]]

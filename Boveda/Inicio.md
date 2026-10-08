@@ -31,13 +31,14 @@ _Recuentos al 2026-10-08 (generados; no editar a mano)._
 
 | Tipo | Total | Por estado |
 | --- | --- | --- |
-| decision | 12 | propuesta 5 · vigente 7 |
+| decision | 15 | propuesta 8 · vigente 7 |
+| hallazgo | 1 | resuelto 1 |
 | pregunta | 5 | cerrada 2 · parcial 1 · pendiente 2 |
-| riesgo | 9 | abierto 9 |
+| riesgo | 9 | abierto 8 · resuelto 1 |
 | supuesto | 3 | por_validar 1 · verificado 2 |
-| tarea | 6 | hecho 2 · pendiente 4 |
+| tarea | 7 | hecho 3 · pendiente 4 |
 
-**Para revisar:** D-007, D-008, D-009, D-011, D-012, P-002, P-003, P-004, S-002. **Abiertas:** 22.
+**Para revisar:** D-007, D-008, D-009, D-011, D-012, D-013, D-014, D-015, P-002, P-003, P-004, S-002, T-007. **Abiertas:** 24.
 <!-- /posta:recuentos -->
 
 ## Fichas

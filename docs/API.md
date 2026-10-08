@@ -331,7 +331,7 @@ Bots (`players`): `r` al azar, `w` al azar ponderado, `aa` adjunta y ataca, `et`
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
 | `GET /api/worker/ping` | `{ ok: true, token: { name, kind } }` |
-| `POST /api/worker/claim` | `{ workerId, name, engineRev (40 hex), cliVersion?, cores, version? }` → long-poll de hasta 25 s → `{ chunk: { chunkId, jobId, kind, idx, games, firstGame, seed, players, threads, replaySample, leaseUntil, deckA, deckB, optimize } | null, requiredEngineRev, retryAfterSeconds }`; con `chunk: null` y `requiredEngineRev`, la cola espera otro motor |
+| `POST /api/worker/claim` | `{ workerId, name, engineRev (40 hex), cliVersion?, cores, version? }` → long-poll de hasta 25 s; entrega un chunk del trabajo al que le quedan menos (a igualdad, el más viejo) → `{ chunk: { chunkId, jobId, kind, idx, games, firstGame, seed, players, threads, replaySample, leaseUntil, deckA, deckB, optimize } | null, requiredEngineRev, retryAfterSeconds }`; con `chunk: null` y `requiredEngineRev`, la cola espera otro motor |
 | `PUT /api/worker/chunks/:id/heartbeat` | `{ workerId, gamesDone, total? }` → `{ leaseUntil | null, cancelled }` (renueva el lease de 3 min) |
 | `PUT /api/worker/chunks/:id/result` | `{ workerId, engineRev, winsA, winsB, ties, games, turns?, durationMs, extra? }` → `{ accepted }` (idempotente: `false` si ya estaba) |
 | `PUT /api/worker/chunks/:id/failure` | `{ workerId, error }` → `{ status }` (`queued` o, a la tercera, `failed`) |

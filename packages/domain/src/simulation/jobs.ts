@@ -100,8 +100,9 @@ export function planChunks(
 }
 
 /**
- * Rough wall time on the owner's PC (PLAN §3.7: 200 e2 games in ~7 s on two threads ⇒ 35 ms per game; r ≈ 1.5 ms;
- * e3 ≈ 125 ms). A guide for the confirmation screen, not a promise.
+ * Rough wall time on the owner's PC, measured on two threads (DECISIONES 6.15): 10.000 r,r in 13,7 s ⇒ ~1,4 ms per
+ * game; e2 × 200 per pairing took 13,9 s median and 27 s mean over the 780 pairings of the 40 decks (5 s to 9 min:
+ * it depends a lot on the decks) ⇒ 65 ms per game; e3 ≈ 1,6 × e2. A guide for the confirmation screen, not a promise.
  */
 export function estimateSeconds(totalGames: number, players: readonly [string, string], cores: number): number {
   const cost = (code: string): number => {
@@ -109,8 +110,8 @@ export function estimateSeconds(totalGames: number, players: readonly [string, s
     if (code === 'v') return 0.004
     if (code === 'm') return 0.2
     const depth = /^e(\d)$/.exec(code)?.[1]
-    if (depth === undefined) return 0.035
-    return 0.035 * 3.6 ** (Number(depth) - 2)
+    if (depth === undefined) return 0.065
+    return 0.065 * 1.6 ** (Number(depth) - 2)
   }
   const perGame = Math.max(cost(players[0]), cost(players[1])) * 2
   return (totalGames * perGame) / Math.max(1, cores)

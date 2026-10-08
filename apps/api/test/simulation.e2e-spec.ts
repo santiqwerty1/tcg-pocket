@@ -353,4 +353,29 @@ describe('simulation (e2e)', () => {
         .reduce((sum, line) => sum + Number(line.split(' ')[0]), 0),
     ).toBe(19)
   })
+
+  it('queue: the job with the fewest chunks left goes first, then the oldest', async () => {
+    const long = await post('/api/simulations').send({
+      kind: 'compare',
+      sideA: decks(2, 2),
+      sideB: decks(5, 7),
+      gamesPerPair: 100,
+      players: ['r', 'r'],
+    })
+    const quick = await post('/api/simulations').send({
+      kind: 'compare',
+      sideA: decks(3, 3),
+      sideB: decks(5, 5),
+      gamesPerPair: 100,
+      players: ['r', 'r'],
+    })
+    expect(long.body.progress.chunks.total).toBe(3)
+    expect(quick.body.progress.chunks.total).toBe(1)
+    expect((await claim('worker-0002')).body.chunk).toMatchObject({ jobId: quick.body.id })
+    expect((await claim('worker-0003')).body.chunk).toMatchObject({ jobId: long.body.id, idx: 0 })
+    for (const id of [long.body.id, quick.body.id]) {
+      await post(`/api/simulations/${id}/cancel`)
+      expect((await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)).status).toBe(204)
+    }
+  })
 })

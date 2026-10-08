@@ -99,7 +99,11 @@ export class WorkerQueueService {
     })
   }
 
-  /** One attempt: the oldest claimable chunk of a job for this engine, locked and leased atomically. */
+  /**
+   * One attempt: a claimable chunk of a job for this engine, locked and leased atomically. The job with the fewest
+   * chunks left goes first (a quick comparison does not wait hours behind a 780-pairing matrix); then the oldest job,
+   * then chunk order.
+   */
   private async tryClaim(hello: WorkerHello): Promise<ClaimedChunk | null> {
     const rows = await this.prisma.$queryRaw<{ id: number }[]>`
       UPDATE simulation_chunks SET status = 'leased', lease_until = now() + interval '3 minutes',
@@ -108,7 +112,8 @@ export class WorkerQueueService {
         SELECT c.id FROM simulation_chunks c JOIN simulation_jobs j ON j.id = c.job_id
         WHERE j.status IN ('queued', 'running') AND j.engine_rev = ${hello.engineRev}
           AND (c.status = 'queued' OR (c.status = 'leased' AND c.lease_until < now()))
-        ORDER BY j.created_at, j.id, c.idx
+        ORDER BY (SELECT count(*) FROM simulation_chunks r
+                  WHERE r.job_id = j.id AND r.status IN ('queued', 'leased')), j.created_at, j.id, c.idx
         FOR UPDATE OF c SKIP LOCKED
         LIMIT 1)
       RETURNING id`
