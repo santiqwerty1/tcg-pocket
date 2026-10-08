@@ -31,7 +31,7 @@ revisar: false
 | 8.1 | Respuestas de D-019 (consistencia contra el meta, backup v5), archivar simulaciones, instalar en Android | hecho 08/10 · desplegado (`ee6f4bd`), worker 0.2.1 · aprobado 08/10 | 8 | [D-019](Decisiones/D-019.md) |
 | 9 | Matchups de torneo (rondas de Limitless) | hecho 08/10 · falta subir y desplegar | 8 | [T-012](Tareas/T-012.md) |
 | 10 | Calculadora de mano inicial | hecho 08/10 · falta subir y desplegar | — | [T-012](Tareas/T-012.md) |
-| 11 | Meta semanal | pendiente | — | [T-012](Tareas/T-012.md) |
+| 11 | Meta semanal | hecho 08/10 · falta subir y desplegar | — | [T-012](Tareas/T-012.md) |
 | 12 | Notas por rival | pendiente | — | [T-012](Tareas/T-012.md) |
 | 13 | ¿Mala racha o mal matchup? | pendiente | 9 | [T-012](Tareas/T-012.md) |
 | 14 | ¿Cuántos días me faltan? | pendiente | — | [T-012](Tareas/T-012.md) |

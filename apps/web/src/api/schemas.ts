@@ -1027,6 +1027,34 @@ export const archetypeMatchupsSchema = z.object({
 })
 export type ArchetypeMatchups = z.infer<typeof archetypeMatchupsSchema>
 
+const shareChangeFields = {
+  now: z.object({ lists: z.number(), share: z.number() }),
+  before: z.object({ lists: z.number(), share: z.number() }),
+  delta: z.number(),
+  clear: z.boolean(),
+}
+const trendWindowSchema = z.object({ from: z.string(), to: z.string(), tournaments: z.number(), lists: z.number() })
+
+/** Fase 11: this week against the week before. */
+export const metaTrendsSchema = z.object({
+  scope: scopeSchema,
+  days: z.number(),
+  now: trendWindowSchema,
+  before: trendWindowSchema,
+  archetypes: z.array(
+    z.object({
+      ...shareChangeFields,
+      archetype: archetypeRefSchema,
+      record: gameRecordSchema,
+      rate: winRateSchema.nullable(),
+      isNew: z.boolean(),
+    }),
+  ),
+  cards: z.array(z.object({ ...shareChangeFields, groupId: z.string(), nameEs: z.string() })),
+  attribution: z.string(),
+})
+export type MetaTrends = z.infer<typeof metaTrendsSchema>
+
 export const matchupMatrixSchema = z.object({
   scope: scopeSchema,
   coverage: z.object({

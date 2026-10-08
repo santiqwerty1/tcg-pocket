@@ -17,6 +17,7 @@ import type {
   ListDetailView,
   ListsView,
   MatchupMatrixView,
+  MetaTrendsView,
   ScopeView,
   SetReleaseView,
   StatusView,
@@ -44,6 +45,10 @@ const archetypeQuerySchema = scopeSchema.extend({
   minCount: z.coerce.number().int().min(1).max(2).optional(),
 })
 const limitedScopeSchema = scopeSchema.extend({ limit })
+const trendsQuerySchema = scopeSchema.extend({
+  days: z.coerce.number().int().min(3).max(30).optional(),
+  minLists: z.coerce.number().int().min(1).max(100).optional(),
+})
 const matchupsQuerySchema = scopeSchema.extend({ top: z.coerce.number().int().min(2).max(30).optional() })
 const syncSchema = z.object({ backfillDays: z.number().int().min(1).max(180).optional() })
 const setReleaseSchema = z.object({
@@ -87,6 +92,15 @@ export class TournamentsController {
     @CurrentSession() _session: RequestSession,
   ): Promise<ArchetypesView> {
     return this.tournaments.archetypes(query)
+  }
+
+  /** Fase 11: what is played more and less, this week against the week before. */
+  @Get('trends')
+  trends(
+    @Query(new ZodValidationPipe(trendsQuerySchema)) query: z.infer<typeof trendsQuerySchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<MetaTrendsView> {
+    return this.tournaments.trends(query)
   }
 
   /** Fase 9: the most played archetypes against each other, from the era's pairings. */

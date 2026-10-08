@@ -264,3 +264,11 @@ Pedido de Santi: hacer las doce ideas de ampliación, cada una como su propia fa
 | 13.2 | **Cálculo exacto** (hipergeométrica multivariada, sin simulación): la mano inicial se modela como un reparto justo que se repite hasta que haya un Básico. deckgym, en cambio, pone primero un Básico al azar y mezcla el resto; las dos cosas dan casi lo mismo y el juego no publica cómo lo hace. Una o dos cartas («cualquiera de estas», cada edición de la carta funcional cuenta) y las dos a la vez; también cuántos Básicos trae la mano inicial. Verificado contra una simulación de 60.000 repartos por caso (error < 1 punto). | Al instante y sin la PC. |
 | 13.3 | Solo **robo natural**: no cuenta Investigación de Profesores, Poké Ball ni otras cartas que roban o buscan. | Lo que se puede calcular exacto sin jugar la partida; la consistencia (Fase 8) mide lo demás. |
 | 13.4 | Dónde: sección «Mano inicial» en la ficha del mazo (por defecto el atacante que más puntos da), Más → «Calculadora de mano» con números a mano (Básicos del mazo y copias), `GET /api/decks/:id/draw-odds`, `POST /api/decks/draw-odds` y la tool `decks_draw_odds`. El cálculo vive en `packages/domain/src/decks/drawOdds.ts` y la PWA lo pide a la API, como el resto de los números. | Una sola fuente de verdad. |
+
+## Fase 11: meta semanal (8/10/2026)
+
+| # | Decisión | Motivo |
+|---|---|---|
+| 14.1 | Dos ventanas de 7 días (o 14) que **terminan en el torneo más nuevo de la era**, no en hoy: si el sync se atrasó, igual se comparan dos semanas completas. Por arquetipo y por carta: cuota de listas en cada ventana y la diferencia en puntos. | Lo que pide «qué sube y qué baja»; la fecha del último dato manda. |
+| 14.2 | **«Cambio claro»** = prueba de dos proporciones con |z| ≥ 1,96; si no, «puede ser ruido». Solo aparecen arquetipos y cartas con 5 listas o más en alguna de las dos semanas. «Nuevo» = no se jugó la semana anterior. Sin semana anterior (era recién empezada), la pantalla muestra lo más jugado de esta semana en vez de subas. | Con pocas listas, un salto de 2 o 3 no es tendencia. |
+| 14.3 | Solo cuota de listas: el porcentaje de victorias de la semana aparece como dato al costado, nunca combinado con el cambio. Torneos → «Meta semanal», `GET /api/tournaments/trends`, tool `tournaments_trends`. | Fuentes separadas. |

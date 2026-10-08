@@ -176,6 +176,9 @@ ${MCP_WRITE_INSTRUCTIONS}`
     server.registerTool(t.decksDrawOdds.name, config(t.decksDrawOdds), (args) =>
       run(t.decksDrawOdds.name, () => this.decksDrawOdds(args)),
     )
+    server.registerTool(t.tournamentsTrends.name, config(t.tournamentsTrends), (args) =>
+      run(t.tournamentsTrends.name, () => this.tournamentsTrends(args)),
+    )
     server.registerTool(t.tournamentsMatchups.name, config(t.tournamentsMatchups), (args) =>
       run(t.tournamentsMatchups.name, () => this.tournamentsMatchups(args)),
     )
@@ -948,6 +951,51 @@ ${MCP_WRITE_INSTRUCTIONS}`
         .filter((row) => row.probability > 0)
         .map((row) => `${row.count}: ${percent(row.probability)}`),
       note: odds.note,
+    }
+  }
+
+  private async tournamentsTrends(args: {
+    era?: string
+    format?: TournamentFormat
+    days?: number
+    limit?: number
+  }): Promise<Json> {
+    const view = await this.tournaments.trends({ era: args.era, format: args.format, days: args.days })
+    const limit = args.limit ?? 8
+    const points = (value: number) => `${value >= 0 ? '+' : ''}${percentFormat.format(value)} pts`
+    const share = (value: number) => `${percentFormat.format(value)} %`
+    const row = (
+      name: string,
+      item: {
+        now: { lists: number; share: number }
+        before: { lists: number; share: number }
+        delta: number
+        clear: boolean
+      },
+    ) => ({
+      name,
+      now: `${share(item.now.share)} (${item.now.lists} listas)`,
+      before: `${share(item.before.share)} (${item.before.lists} listas)`,
+      change: points(item.delta),
+      clear: item.clear,
+    })
+    const archetypes = view.archetypes.map((item) => ({ ...row(item.archetype.name, item), isNew: item.isNew }))
+    const cards = view.cards.map((item) => row(item.nameEs, item))
+    return {
+      scope: this.scopeJson(view.scope),
+      thisWeek: view.now,
+      weekBefore: view.before,
+      archetypesUp: archetypes.filter((_, at) => (view.archetypes[at]?.delta ?? 0) > 0).slice(0, limit),
+      archetypesDown: archetypes
+        .filter((_, at) => (view.archetypes[at]?.delta ?? 0) < 0)
+        .reverse()
+        .slice(0, limit),
+      cardsUp: cards.filter((_, at) => (view.cards[at]?.delta ?? 0) > 0).slice(0, limit),
+      cardsDown: cards
+        .filter((_, at) => (view.cards[at]?.delta ?? 0) < 0)
+        .reverse()
+        .slice(0, limit),
+      note: 'Cuota de listas de torneo; «clear» = cambio claro (prueba al 95 %). No mezcla porcentajes de victoria.',
     }
   }
 

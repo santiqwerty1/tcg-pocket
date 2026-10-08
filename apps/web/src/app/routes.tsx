@@ -37,6 +37,7 @@ import { ListPage } from '@/pages/torneos/ListPage'
 import { MatchupsPage } from '@/pages/torneos/MatchupsPage'
 import { TorneosAjustesPage } from '@/pages/torneos/TorneosAjustesPage'
 import { TorneosPage } from '@/pages/torneos/TorneosPage'
+import { TrendsPage } from '@/pages/torneos/TrendsPage'
 import { AppShell, type RouteHandle } from './AppShell'
 
 function handle(title: string, back?: string): RouteHandle {
@@ -69,6 +70,7 @@ export const routes: RouteObject[] = [
       { path: 'torneos/arquetipos/:id', element: <ArchetypePage />, handle: handle('Arquetipo', '/torneos') },
       { path: 'torneos/listas/:key', element: <ListPage />, handle: handle('Lista de torneo', '/torneos') },
       { path: 'torneos/matchups', element: <MatchupsPage />, handle: handle('Matchups', '/torneos') },
+      { path: 'torneos/semana', element: <TrendsPage />, handle: handle('Meta semanal', '/torneos') },
       { path: 'simulacion', element: <SimulacionPage />, handle: handle('Simulación', '/mas') },
       { path: 'simulacion/nueva', element: <NewSimulationPage />, handle: handle('Nueva simulación', '/simulacion') },
       {

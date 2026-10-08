@@ -35,6 +35,7 @@ describe('MCP read tools', () => {
         'simulations_results',
         'tournaments_buildable',
         'tournaments_stats',
+        'tournaments_trends',
         'tournaments_matchups',
         'tournaments_unlock_cards',
       ].sort(),

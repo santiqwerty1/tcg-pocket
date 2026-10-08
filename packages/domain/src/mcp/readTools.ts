@@ -249,6 +249,16 @@ export const MCP_READ_TOOLS = {
       turns: z.number().int().min(1).max(15).optional().describe('Turnos propios a mostrar (por defecto 6)'),
     }),
   },
+  tournamentsTrends: {
+    name: 'tournaments_trends',
+    title: 'Meta semanal',
+    description: `Qué se juega más y qué menos en torneos: la última semana (termina en el torneo más nuevo de la era) contra la anterior, por arquetipo y por carta, en puntos de cuota de listas. «clear» = el cambio pasa una prueba de dos proporciones al 95 % (con pocas listas, un salto de 2 o 3 no es tendencia). «isNew» = no se jugó la semana anterior. ${TOURNAMENT_NOTE}`,
+    input: z.object({
+      ...tournamentScope,
+      days: z.number().int().min(3).max(30).optional().describe('Días de cada ventana (por defecto 7)'),
+      limit: z.number().int().min(1).max(30).optional().describe('Filas por lista (por defecto 8)'),
+    }),
+  },
   tournamentsMatchups: {
     name: 'tournaments_matchups',
     title: 'Matchups de torneo',

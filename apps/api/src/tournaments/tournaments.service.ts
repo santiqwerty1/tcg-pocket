@@ -35,6 +35,7 @@ import {
   matchupRecord,
   matchupRows,
   metaShares,
+  metaTrends,
   mostCommonEnergies,
   newEraWarning,
   playableCopies,
@@ -79,6 +80,7 @@ import type {
   ListRowView,
   ListsView,
   MatchupMatrixView,
+  MetaTrendsView,
   RecordRowView,
   ScopeView,
   SetReleaseView,
@@ -285,6 +287,51 @@ export class TournamentsService {
   /** Archetypes of the era by share of lists (0–100), with their shown name. */
   shares(dataset: TournamentDataset): { archetypeId: string; name: string; share: number; lists: number }[] {
     return metaShares(dataset).map((row) => ({ ...row, name: this.archetypeRef(dataset, row.archetypeId).name }))
+  }
+
+  /** Fase 11: this week against the week before (windows ending at the newest tournament of the era). */
+  async trends(
+    query: ScopeQuery & { days?: number | undefined; minLists?: number | undefined },
+  ): Promise<MetaTrendsView> {
+    const scope = await this.scope(query)
+    const dataset = await this.dataset(scope)
+    const trends = metaTrends(dataset, { days: query.days, minLists: query.minLists })
+    const window = (w: typeof trends.now) => ({
+      from: w.from.toISOString(),
+      to: w.to.toISOString(),
+      tournaments: w.tournaments,
+      lists: w.lists,
+    })
+    const change = (row: {
+      now: { lists: number; share: number }
+      before: { lists: number; share: number }
+      delta: number
+      clear: boolean
+    }) => ({
+      now: row.now,
+      before: row.before,
+      delta: row.delta,
+      clear: row.clear,
+    })
+    return {
+      scope: this.scopeView(scope, dataset),
+      days: trends.days,
+      now: window(trends.now),
+      before: window(trends.before),
+      archetypes: trends.archetypes.map((row) => ({
+        ...change(row),
+        archetype: this.archetypeRef(dataset, row.archetypeId),
+        record: row.record,
+        rate: row.rate,
+        isNew: row.isNew,
+      })),
+      cards: trends.cards.map((row) => ({
+        ...change(row),
+        groupId: row.groupId,
+        nameEs: scope.index.groupById(row.groupId)?.nameEs ?? row.groupId,
+      })),
+      attribution: LIMITLESS_ATTRIBUTION,
+    }
   }
 
   /** One archetype against each rival (Fase 9), for the deck sheet and Claude. */

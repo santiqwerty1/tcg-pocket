@@ -142,6 +142,29 @@ export interface ArchetypeMatchupsView {
   tournamentsWithPairings: number
 }
 
+/** Fase 11: one archetype or card this week against the week before. */
+export interface ShareChangeView {
+  now: { lists: number; share: number }
+  before: { lists: number; share: number }
+  delta: number
+  clear: boolean
+}
+
+export interface MetaTrendsView {
+  scope: ScopeView
+  days: number
+  now: { from: string; to: string; tournaments: number; lists: number }
+  before: { from: string; to: string; tournaments: number; lists: number }
+  archetypes: (ShareChangeView & {
+    archetype: ArchetypeRefView
+    record: GameRecord
+    rate: WinRate | null
+    isNew: boolean
+  })[]
+  cards: (ShareChangeView & { groupId: string; nameEs: string })[]
+  attribution: string
+}
+
 export interface MatchupMatrixView {
   scope: ScopeView
   coverage: {

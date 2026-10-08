@@ -411,6 +411,24 @@ describe('tournaments (e2e)', () => {
     }
   })
 
+  it('meta semanal (Fase 11): the week of PMPT #45 against the week before (empty here)', async () => {
+    const trends = (await get('/api/tournaments/trends')).body as {
+      days: number
+      now: { tournaments: number; lists: number; from: string; to: string }
+      before: { tournaments: number; lists: number }
+      archetypes: { archetype: { name: string }; delta: number; clear: boolean; isNew: boolean }[]
+      cards: { nameEs: string; delta: number }[]
+      attribution: string
+    }
+    expect(trends).toMatchObject({ days: 7, now: { tournaments: 1, lists: 393 }, before: { tournaments: 0, lists: 0 } })
+    expect(new Date(trends.now.to).getTime() - new Date(trends.now.from).getTime()).toBe(7 * 24 * 60 * 60 * 1000)
+    expect(trends.archetypes.length).toBeGreaterThan(5)
+    expect(trends.archetypes.every((row) => !row.clear && !row.isNew)).toBe(true)
+    expect(trends.cards[0]?.nameEs.length).toBeGreaterThan(0)
+    expect(trends.attribution).toContain('Limitless')
+    expect((await get('/api/tournaments/trends?days=2')).status).toBe(400)
+  })
+
   it('«versión de torneo» of each deck, and Sobres aiming «Completar mazos» at it', async () => {
     interface Version {
       deckId: string
@@ -506,6 +524,9 @@ describe('tournaments (e2e)', () => {
       const ww = split.withWithout as { with: { lists: number }; without: { lists: number } }
       expect(ww.with.lists + ww.without.lists).toBe((detail.archetype as { lists: number }).lists)
       expect((await call('tournaments_stats', { by: 'list', limit: 2 })).lists).toHaveLength(2)
+      const week = await call('tournaments_trends', { limit: 3 })
+      expect(week.thisWeek).toMatchObject({ lists: 393 })
+      expect((week.archetypesUp as unknown[]).length + (week.archetypesDown as unknown[]).length).toBeGreaterThan(0)
       const table = await call('tournaments_matchups', { top: 4 })
       expect(table.archetypes).toHaveLength(4)
       expect((table.archetypes as { matchups: string[] }[])[0]?.matchups[0]).toMatch(/^vs .+: \d/)

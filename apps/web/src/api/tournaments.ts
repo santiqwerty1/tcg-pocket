@@ -9,6 +9,7 @@ import {
   listDetailSchema,
   listsResponseSchema,
   matchupMatrixSchema,
+  metaTrendsSchema,
   setReleaseSchema,
   setReleasesResponseSchema,
   type TournamentFormat,
@@ -38,6 +39,7 @@ export const tournamentKeys = {
   events: (scope: TournamentScopeParams) => ['tournaments', 'events', scope] as const,
   unknown: (scope: TournamentScopeParams) => ['tournaments', 'unknown', scope] as const,
   matchups: (scope: TournamentScopeParams, top: number) => ['tournaments', 'matchups', scope, top] as const,
+  trends: (scope: TournamentScopeParams, days: number) => ['tournaments', 'trends', scope, days] as const,
 }
 
 function query(params: Record<string, string | number | undefined | null>): string {
@@ -79,6 +81,16 @@ export function useTournamentStatus() {
     queryKey: tournamentKeys.status,
     queryFn: ({ signal }) => request('/api/tournaments/status', { schema: tournamentStatusSchema, signal }),
     refetchInterval: (q) => (q.state.data?.sync.running ? 10_000 : false),
+  })
+}
+
+/** Fase 11: what is played more and less, this week against the week before. */
+export function useMetaTrends(scope: TournamentScopeParams, days: number) {
+  return useQuery({
+    queryKey: tournamentKeys.trends(scope, days),
+    queryFn: ({ signal }) =>
+      request(`/api/tournaments/trends${query({ ...scope, days })}`, { schema: metaTrendsSchema, signal }),
+    placeholderData: keepPreviousData,
   })
 }
 
