@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-08 (41 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-08 (43 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- deck laboratory — meta bank, tests against it, automatic search of variants (T-008) (D-018) `dc2dcad`
 - «armado» checkbox in the deck list; ← → between decks `2a66a25`
 - deckgym 33ff2a5 — bounded bot search, turn action limit, Quick Growth fix (T-010) `43d103f`
 - owner decisions of 8/10 — limited ×3, retired points, deckgym viewer, upstream check, Posta on (D-007, D-008, D-009, D-014, T-010) (D-011, D-017, T-005, T-007) `595f973`
@@ -32,6 +33,7 @@ _Borrador generado al 2026-10-08 (41 commits). Escribí el «porqué» fuera de 
 
 ### Corregido
 
+- pager label does not repeat the deck number (#13) `9e426f9`
 - up to 150 decks per side, said plainly; validation errors name the field `2dbc3aa`
 - a matrix with an empty «Contra» side plays side A against itself; engine status survives an engine update `212cd11`
 - engine off Windows efficiency mode; quick jobs first; phase 6 acceptance (H-001, T-004) `e81e220`
