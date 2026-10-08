@@ -256,6 +256,16 @@ export const MCP_READ_TOOLS = {
       opponent: z.string().trim().min(1).max(200).optional().describe('Rival: arquetipo o como Santi lo anota'),
     }),
   },
+  decksPickToday: {
+    name: 'decks_pick_today',
+    title: '¿Qué mazo llevo hoy?',
+    description:
+      'Los mazos armados en el juego con tres números separados: el récord de Santi con cada uno, lo que su arquetipo de torneo debería sacar contra el meta de los últimos 14 días (matchups de torneo pesados por la cuota de cada rival) y el último puntaje del Laboratorio (bots contra el banco del meta). No los combines en uno: explicá qué dice cada fuente y dónde coinciden. «sort» ordena por una de las tres.',
+    input: z.object({
+      sort: z.enum(['tournament', 'matches', 'lab']).optional().describe('tournament (por defecto), matches o lab'),
+      limit: z.number().int().min(1).max(40).optional().describe('Mazos a devolver (por defecto 10)'),
+    }),
+  },
   decksDrawOdds: {
     name: 'decks_draw_odds',
     title: 'Probabilidad de robar una carta',

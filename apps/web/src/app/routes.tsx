@@ -23,6 +23,7 @@ import { DeckDetailPage } from '@/pages/mazos/DeckDetailPage'
 import { DeckEditorPage } from '@/pages/mazos/DeckEditorPage'
 import { DeckImportPage } from '@/pages/mazos/DeckImportPage'
 import { DecksPage } from '@/pages/mazos/DecksPage'
+import { PickTodayPage } from '@/pages/mazos/PickTodayPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import { MatchEditPage } from '@/pages/partidas/MatchEditPage'
 import { MatchHistoryPage } from '@/pages/partidas/MatchHistoryPage'
@@ -100,6 +101,7 @@ export const routes: RouteObject[] = [
       { path: 'mazos', element: <DecksPage />, handle: handle('Mazos') },
       { path: 'mazos/nuevo', element: <DeckEditorPage />, handle: handle('Nuevo mazo', '/mazos') },
       { path: 'mazos/importar', element: <DeckImportPage />, handle: handle('Importar mazos', '/mazos') },
+      { path: 'mazos/hoy', element: <PickTodayPage />, handle: handle('¿Qué mazo llevo hoy?', '/mazos') },
       { path: 'mazos/:deckId', element: <DeckDetailPage />, handle: handle('Mazo', '/mazos') },
       { path: 'mazos/:deckId/editar', element: <DeckEditorPage />, handle: handle('Editar mazo', '/mazos') },
 

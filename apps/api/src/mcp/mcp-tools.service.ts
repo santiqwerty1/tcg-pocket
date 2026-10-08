@@ -32,6 +32,7 @@ import { DecksService } from '../decks/decks.service.js'
 import type { RowView } from '../matches/match-views.js'
 import { MatchesService } from '../matches/matches.service.js'
 import { PacksService } from '../packs/packs.service.js'
+import { PickService } from '../pick/pick.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { RivalNotesService } from '../rivals/rival-notes.service.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
@@ -102,6 +103,7 @@ export class McpToolsService {
     private readonly prisma: PrismaService,
     private readonly deckRefs: DeckRefResolver,
     private readonly rivalNotes: RivalNotesService,
+    private readonly pick: PickService,
     private readonly writeTools: McpWriteToolsService,
     private readonly labTools: McpLabToolsService,
     @Inject(ENV) private readonly env: Env,
@@ -180,6 +182,9 @@ ${MCP_WRITE_INSTRUCTIONS}`
     )
     server.registerTool(t.rivalsNotes.name, config(t.rivalsNotes), (args) =>
       run(t.rivalsNotes.name, () => this.rivalsNotes(args)),
+    )
+    server.registerTool(t.decksPickToday.name, config(t.decksPickToday), (args) =>
+      run(t.decksPickToday.name, () => this.decksPickToday(args)),
     )
     server.registerTool(t.decksDrawOdds.name, config(t.decksDrawOdds), (args) =>
       run(t.decksDrawOdds.name, () => this.decksDrawOdds(args)),
@@ -964,6 +969,25 @@ ${MCP_WRITE_INSTRUCTIONS}`
     }
     const notes = await this.rivalNotes.list()
     return { total: notes.length, notes: notes.map(shape) }
+  }
+
+  private async decksPickToday(args: { sort?: 'tournament' | 'matches' | 'lab'; limit?: number }): Promise<Json> {
+    const view = await this.pick.today(args.sort)
+    const percent = (value: number) => `${percentFormat.format(value)} %`
+    return {
+      sortedBy: view.sort,
+      meta: view.meta,
+      decks: view.items.slice(0, args.limit ?? 10).map((row) => ({
+        deck: `#${row.deck.id} ${row.deck.name}`,
+        archetype: row.archetype?.name ?? null,
+        myMatches: row.mine ? rateView(row.mine.rate) : null,
+        tournamentAgainstToday: row.tournament
+          ? `${percent(row.tournament.value)} (matchups con datos: ${percent(row.tournament.coverage)} del meta)`
+          : null,
+        lab: row.lab?.text ?? null,
+      })),
+      note: view.note,
+    }
   }
 
   private async decksDrawOdds(args: {

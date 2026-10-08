@@ -182,6 +182,17 @@ describe('laboratorio (e2e)', () => {
     expect(deck.perRival).toHaveLength(5)
     expect(['played', 'known', 'new']).toContain((done.decks[0] as { novelty: { kind: string } }).novelty.kind)
     expect((await get('/api/lab/jobs')).body.items.map((item: { id: number }) => item.id)).toContain(jobId)
+    // Fase 15: the deck's latest Laboratorio score shows up in «¿qué mazo llevo hoy?».
+    expect(
+      (await test.http().patch(`/api/decks/${deckIds[1]}`).set('Cookie', cookie).send({ builtInGame: true })).status,
+    ).toBe(200)
+    const today = (await get('/api/decks-today?sort=lab')).body as {
+      items: { deck: { id: string }; lab: { value: number; jobId: number; text: string } | null }[]
+    }
+    const tested = today.items.find((item) => item.deck.id === deckIds[1])
+    expect(tested?.lab).toMatchObject({ jobId })
+    expect(tested?.lab?.value).toBeCloseTo(expected, 8)
+    await test.http().patch(`/api/decks/${deckIds[1]}`).set('Cookie', cookie).send({ builtInGame: false })
     expect((await get(`/api/simulations/${jobId}`)).body.lab).toBe('test')
   })
 

@@ -172,31 +172,40 @@ export interface ExpectedVsMeta {
 
 /** Matches a matchup «weighs» as a prior: with fewer than this, the archetype's own record dominates. */
 export const MATCHUP_PRIOR_MATCHES = 10
+/** Matches the archetype's own record weighs toward 50 % (an archetype seen 0–3 is not a 0 % deck). */
+export const FIELD_PRIOR_MATCHES = 20
 
 /**
  * What an archetype should score against the era's field if it met each rival as often as the rival is played: each
  * matchup's rate weighted by the rival's share. A matchup with few matches is pulled toward the archetype's record
  * against everyone (as if it had `prior` more matches at that rate), so one 0–3 against a rival does not sink the
- * estimate; a rival never met counts at that record. Null when the archetype has no counted matches at all.
+ * estimate; a rival never met counts at that record, which is itself pulled toward 50 % (20 matches of prior).
+ * Null when the archetype has no counted matches at all.
  */
 export function expectedVsMeta(
   matchups: Matchups,
   dataset: TournamentDataset,
   archetypeId: string,
-  options: { prior?: number; solidMatches?: number } = {},
+  options: {
+    prior?: number
+    solidMatches?: number
+    /** Weights other than the era's shares (Fase 15: this week's meta). */
+    shares?: readonly { archetypeId: string; share: number }[]
+  } = {},
 ): ExpectedVsMeta | null {
   const prior = options.prior ?? MATCHUP_PRIOR_MATCHES
   const solid = options.solidMatches ?? MATCHUP_PRIOR_MATCHES
   const field = matchups.field.get(archetypeId)
   const fieldGames = field ? recordGames(field) : 0
   if (!field || fieldGames === 0) return null
-  const base = field.wins / fieldGames
+  // The archetype's record against everyone, itself pulled toward 50 % when it has few matches.
+  const base = (field.wins + FIELD_PRIOR_MATCHES * 0.5) / (fieldGames + FIELD_PRIOR_MATCHES)
   let weighted = 0
   let shares = 0
   let covered = 0
   let matches = 0
   let rivals = 0
-  for (const { archetypeId: rival, share } of metaShares(dataset)) {
+  for (const { archetypeId: rival, share } of options.shares ?? metaShares(dataset)) {
     const record = matchupRecord(matchups, archetypeId, rival)
     const games = recordGames(record)
     weighted += share * ((record.wins + prior * base) / (games + prior))
@@ -207,4 +216,26 @@ export function expectedVsMeta(
   }
   if (shares === 0) return null
   return { value: (weighted / shares) * 100, coverage: covered, matches, rivals }
+}
+
+/** Lists from which the last weeks are enough to weigh the meta (Fase 15); fewer, the whole era. */
+export const RECENT_META_MIN_LISTS = 150
+export const RECENT_META_DAYS = 14
+
+/**
+ * The meta to weigh against «today»: the archetypes' shares in the last `days` days up to the newest tournament of
+ * the era when they hold enough lists, else the whole era.
+ */
+export function recentMeta(
+  dataset: TournamentDataset,
+  days = RECENT_META_DAYS,
+  minLists = RECENT_META_MIN_LISTS,
+): { kind: 'recent' | 'era'; days: number; lists: number; shares: { archetypeId: string; share: number }[] } {
+  const newest = dataset.entries.reduce((max, entry) => Math.max(max, entry.date.getTime()), 0)
+  const from = newest - (days - 1) * 24 * 60 * 60 * 1000
+  const recent = dataset.entries.filter((entry) => entry.date.getTime() >= from)
+  if (recent.length < minLists) {
+    return { kind: 'era', days, lists: dataset.entries.length, shares: metaShares(dataset) }
+  }
+  return { kind: 'recent', days, lists: recent.length, shares: metaShares({ ...dataset, entries: recent }) }
 }

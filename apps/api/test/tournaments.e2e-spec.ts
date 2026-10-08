@@ -458,6 +458,40 @@ describe('tournaments (e2e)', () => {
     expect((await get('/api/matches/luck?deckId=99999')).status).toBe(404)
   })
 
+  it('¿qué mazo llevo hoy? (Fase 15): built decks with three separate numbers, sorted by tournament', async () => {
+    const decks = (await get('/api/decks')).body.items as { id: string; name: string }[]
+    const blaziken = decks.find((deck) => deck.name === 'Mega-Blaziken ex')
+    const hoopa = decks.find((deck) => deck.name.startsWith('Hoopa ex'))
+    for (const deck of [blaziken, hoopa]) {
+      expect((await patch(`/api/decks/${deck?.id}`).send({ builtInGame: true })).status).toBe(200)
+    }
+    const today = (await get('/api/decks-today')).body as {
+      sort: string
+      meta: { era: string; kind: string; lists: number }
+      items: {
+        deck: { id: string }
+        archetype: { name: string } | null
+        tournament: { value: number } | null
+        lab: unknown
+        mine: unknown
+      }[]
+      note: string
+    }
+    expect(today.sort).toBe('tournament')
+    expect(today.meta).toMatchObject({ era: 'B4a', kind: 'recent', lists: 393 })
+    expect(today.items.map((item) => item.deck.id).sort()).toEqual([blaziken?.id, hoopa?.id].sort())
+    const row = today.items.find((item) => item.deck.id === blaziken?.id)
+    expect(row?.archetype?.name).toMatch(/Blaziken/i)
+    expect(row?.tournament?.value).toBeGreaterThan(20)
+    expect(row?.lab).toBeNull()
+    const values = today.items.map((item) => item.tournament?.value ?? -1)
+    expect(values[0]).toBeGreaterThanOrEqual(values[1] ?? -1)
+    expect(today.note).toContain('No se combinan')
+    expect((await get('/api/decks-today?sort=matches')).body.sort).toBe('matches')
+    expect((await get('/api/decks-today?sort=nope')).status).toBe(400)
+    for (const deck of [blaziken, hoopa]) await patch(`/api/decks/${deck?.id}`).send({ builtInGame: false })
+  })
+
   it('meta semanal (Fase 11): the week of PMPT #45 against the week before (empty here)', async () => {
     const trends = (await get('/api/tournaments/trends')).body as {
       days: number

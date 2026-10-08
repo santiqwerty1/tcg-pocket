@@ -24,6 +24,7 @@ describe('MCP read tools', () => {
         'decks_find_by_card',
         'decks_get',
         'decks_list',
+        'decks_pick_today',
         'decks_missing',
         'decks_random',
         'decks_validate',

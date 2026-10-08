@@ -304,3 +304,13 @@ Pedido de Santi: hacer las doce ideas de ampliación, cada una como su propia fa
 | 17.2 | **Mediana y «mala suerte»**: el plan entero se simula 600 veces con semilla fija (el mismo modelo de sobres de la Fase 4) y se informan la mediana y el percentil 80 de sobres; los días salen de dividir por los sobres por día, después de usar los relojes de arena guardados (12 por sobre). Con un solo sobre, la media del plan coincide con el cálculo exacto (verificado). | Una media sola esconde que a veces tarda el doble. |
 | 17.3 | **Ritmo** en Sobres → Ajustes → «Ritmo de apertura»: sobres por día (2 por defecto: uno cada 12 horas; 3 con el pase) y relojes de arena guardados (ajustes `packsPerDay` y `hourglasses`). Un sobre por tiempo limitado que deja de venderse antes de la mediana se marca «deja de venderse antes». | Cada uno abre a su ritmo. |
 | 17.4 | Dónde: debajo de cada mazo en «Sobres para completar cada mazo» y en `packs_recommend` (`daysToComplete`, `plan`). | Junto a los sobres esperados. |
+
+## Fase 15: ¿qué mazo llevo hoy? (8/10/2026)
+
+| # | Decisión | Motivo |
+|---|---|---|
+| 18.1 | **Tres números que no se combinan** (PLAN §3.6): para cada mazo armado en el juego, tus partidas, lo que su arquetipo de torneo debería sacar contra el meta de hoy y el último puntaje del Laboratorio. Se ordena por el que elijas (torneo por defecto); no hay un puntaje único. | Cada número viene de otro lado (vos, personas, bots). |
+| 18.2 | **Meta de hoy** = la cuota de cada arquetipo en los últimos 14 días hasta el torneo más nuevo de la era, si suman 150 listas o más; si no, toda la era. Los matchups son los de la era entera (Fase 9). | Lo que se está jugando ahora, con datos suficientes. |
+| 18.3 | El récord del arquetipo contra todos, base de los matchups con pocas partidas, también se acerca a 50 % (como si tuviera 20 partidas más a 50 %). | Cachorros salía «0 % contra el meta» con 3 partidas en un torneo. Cambia un poco los números de la Fase 9 (12.3). |
+| 18.4 | El puntaje del Laboratorio de un mazo se busca **por la lista** (la clave de la foto), no por la revisión: una revisión restaurada o una copia con las mismas cartas encuentra sus pruebas. Sirve la confirmación de una búsqueda o, si no hay, sus rondas. | El mazo 2 no encontraba su búsqueda después de restaurar una revisión. |
+| 18.5 | Dónde: Mazos → «¿Cuál llevo hoy?», `GET /api/decks-today?sort=`, tool `decks_pick_today`. | |

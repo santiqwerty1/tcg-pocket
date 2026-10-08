@@ -18,6 +18,7 @@ import { loggerModule } from './logging/logger.module.js'
 import { MatchesModule } from './matches/matches.module.js'
 import { McpModule } from './mcp/mcp.module.js'
 import { PacksModule } from './packs/packs.controller.js'
+import { PickModule } from './pick/pick.controller.js'
 import { PlayModule } from './play/play.controller.js'
 import { PrismaModule } from './prisma/prisma.module.js'
 import { RivalNotesModule } from './rivals/rival-notes.controller.js'
@@ -55,6 +56,7 @@ export class AppModule implements NestModule {
         HttpModule,
         SimulationModule,
         LabModule,
+        PickModule,
         PlayModule,
         AlertsModule,
         McpModule,

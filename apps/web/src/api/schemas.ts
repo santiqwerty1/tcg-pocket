@@ -1895,3 +1895,34 @@ export const rivalNoteSchema = z.object({
 export type RivalNote = z.infer<typeof rivalNoteSchema>
 export const rivalNotesSchema = z.object({ items: z.array(rivalNoteSchema) })
 export const rivalNoteResponseSchema = z.object({ note: rivalNoteSchema.nullable() })
+
+// ---------- ¿Qué mazo llevo hoy? (Fase 15) ----------
+
+export const PICK_SORTS = ['tournament', 'matches', 'lab'] as const
+export type PickSort = (typeof PICK_SORTS)[number]
+export const pickSchema = z.object({
+  sort: z.enum(PICK_SORTS),
+  meta: z.object({ era: z.string(), kind: z.enum(['recent', 'era']), days: z.number(), lists: z.number() }).nullable(),
+  items: z.array(
+    z.object({
+      deck: z.object({ id: z.string(), name: z.string() }),
+      archetype: z.object({ id: z.string(), name: z.string(), source: z.enum(['owner', 'guessed']) }).nullable(),
+      mine: z.object({ record: gameRecordSchema, rate: winRateSchema.nullable() }).nullable(),
+      tournament: z
+        .object({ value: z.number(), coverage: z.number(), matches: z.number(), rivals: z.number() })
+        .nullable(),
+      lab: z
+        .object({
+          value: z.number(),
+          ci95: z.tuple([z.number(), z.number()]),
+          games: z.number(),
+          text: z.string(),
+          jobId: z.number(),
+          era: z.string(),
+        })
+        .nullable(),
+    }),
+  ),
+  note: z.string(),
+})
+export type Pick = z.infer<typeof pickSchema>

@@ -40,6 +40,7 @@ import {
   newEraWarning,
   playableCopies,
   type RecordRow,
+  recentMeta,
   recordOf,
   type SetRelease,
   type StoredEntry,
@@ -281,6 +282,30 @@ export class TournamentsService {
       }),
       cells,
       attribution: LIMITLESS_ATTRIBUTION,
+    }
+  }
+
+  /**
+   * Fase 15: what each archetype should score against today's meta (the last two weeks, or the era when they are
+   * too few lists), from the era's matchups.
+   */
+  async todayExpectations(query: ScopeQuery = {}): Promise<{
+    scope: Scope
+    dataset: TournamentDataset
+    meta: { kind: 'recent' | 'era'; days: number; lists: number }
+    expected: (archetypeId: string) => ExpectedVsMetaView | null
+  }> {
+    const scope = await this.scope(query)
+    const dataset = await this.dataset(scope)
+    const matchups = await this.matchupsOf(dataset)
+    const meta = recentMeta(dataset)
+    const aliases = await this.settings.aliases()
+    return {
+      scope,
+      dataset,
+      meta: { kind: meta.kind, days: meta.days, lists: meta.lists },
+      expected: (archetypeId) =>
+        expectedVsMeta(matchups, dataset, aliases.get(archetypeId) ?? archetypeId, { shares: meta.shares }),
     }
   }
 

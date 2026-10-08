@@ -839,6 +839,37 @@ export class LabService implements OnApplicationBootstrap {
   // Read
   // ---------------------------------------------------------------------------------------------------------------
 
+  /**
+   * Fase 15: the latest finished Laboratorio score of a deck's current list (a test against the meta, or the
+   * starting list of a search), with its job; null when the list was never tested.
+   */
+  async deckScore(
+    deckId: number,
+  ): Promise<{ jobId: number; era: string; finishedAt: Date | null; score: LabScoreView } | null> {
+    // By the list itself (the snapshot key): a restored revision or a copy of the list finds its tests too.
+    const current = await this.snapshots.preview({ deckId: String(deckId) }).catch(() => null)
+    if (!current) return null
+    const snapshots = await this.prisma.deckSnapshot.findMany({ where: { key: current.key }, select: { id: true } })
+    if (snapshots.length === 0) return null
+    const ids = new Set(snapshots.map((row) => row.id))
+    const jobs = await this.prisma.simulationJob.findMany({
+      where: { status: 'done' },
+      orderBy: { id: 'desc' },
+      take: 300,
+      select: { id: true, params: true, finishedAt: true },
+    })
+    for (const job of jobs) {
+      if (labMode(job.params) === null) continue
+      const params = job.params as unknown as JobParams
+      if (!params.sideA.some((sid) => ids.has(sid))) continue
+      const view = await this.job(String(job.id))
+      const row = view.decks.find((item) => ids.has(item.snapshot))
+      const score = row ? (row.confirm?.score ? row.confirm : row.search) : null
+      if (score?.score) return { jobId: job.id, era: params.lab.era, finishedAt: job.finishedAt, score }
+    }
+    return null
+  }
+
   async jobs(limit = 50): Promise<LabJobsView> {
     const jobs = await this.prisma.simulationJob.findMany({
       orderBy: { id: 'desc' },

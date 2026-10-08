@@ -10,6 +10,7 @@ import {
   metaShares,
   parsePairings,
   parseStandings,
+  recentMeta,
   type StoredEntry,
   type StoredPairing,
   type StoredTournament,
@@ -117,10 +118,10 @@ describe('matchups between archetypes', () => {
     expect(expected?.coverage).toBeGreaterThanOrEqual(0)
     expect(expected?.coverage).toBeLessThanOrEqual(100)
     expect(expected?.rivals).toBe(rows.length)
-    // With a huge prior every matchup is the archetype's record against everyone: the estimate is that record.
+    // With a huge prior every matchup is the archetype's record against everyone (itself pulled toward 50 %).
     const field = matchups.field.get(top) as { wins: number; losses: number; ties: number }
     const flat = expectedVsMeta(matchups, dataset, top, { prior: 1e9 })
-    expect(flat?.value).toBeCloseTo((field.wins / recordGames(field)) * 100, 4)
+    expect(flat?.value).toBeCloseTo(((field.wins + 10) / (recordGames(field) + 20)) * 100, 4)
     // No shrinkage at all and only solid rivals counted would be the plain weighted mean; every archetype of the
     // table stays between its worst and its best matchup.
     for (const { archetypeId } of shares.slice(0, 6)) {
@@ -130,5 +131,17 @@ describe('matchups between archetypes', () => {
       expect(value).toBeLessThanOrEqual(Math.max(...rates) + 1e-9)
     }
     expect(expectedVsMeta(matchups, dataset, 'nobody')).toBeNull()
+    // Other weights (this week's meta): all the weight on one rival gives that (shrunk) matchup.
+    const rival = rows[1]?.rival as string
+    const only = expectedVsMeta(matchups, dataset, top, { shares: [{ archetypeId: rival, share: 100 }] })
+    const record = matchupRecord(matchups, top, rival)
+    const games = recordGames(record)
+    const base = (field.wins + 10) / (recordGames(field) + 20)
+    expect(only?.value).toBeCloseTo(((record.wins + 10 * base) / (games + 10)) * 100, 8)
+  })
+
+  it('recent meta: one tournament is too few lists for the last two weeks, so the era', () => {
+    expect(recentMeta(dataset).kind).toBe('recent')
+    expect(recentMeta(dataset, 14, 1000)).toMatchObject({ kind: 'era', lists: 393 })
   })
 })
