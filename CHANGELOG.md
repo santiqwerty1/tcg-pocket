@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-08 (32 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-08 (33 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- one worker per folder; install-task starts it and says why schtasks failed (T-007) `a1d5140`
 - heat-map table, replay filter, phone layout and multi-worker ETA `bd7b381`
 - deckgym simulation with a Windows worker (phase 6, M7) `013890f`
 - tournament results from Limitless by era (phase 5, M5) (D-010, D-012, R-008, R-009, T-006) `ca79964`

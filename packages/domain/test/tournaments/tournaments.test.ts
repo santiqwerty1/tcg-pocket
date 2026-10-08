@@ -26,7 +26,9 @@ import {
   type StoredEntry,
   type StoredTournament,
   standingsIncomplete,
+  TOURNAMENT_VERSION_MIN_LISTS,
   totalRecord,
+  tournamentVersion,
   unlockCards,
   withWithout,
 } from '../../src/tournaments/index.js'
@@ -244,5 +246,37 @@ describe('lists against the 6/10 collection', () => {
     const where = deckInTournaments(dataset, deckDraft(2).cards, index)
     expect(where.keyByGroup).toMatch(/^[0-9a-f]{14}$/)
     expect(where.guessed?.archetypeId).toMatch(/blaziken/)
+  })
+
+  it('tournament version of deck 2: a list of its archetype, the cards that change and what the collection lacks', () => {
+    const where = deckInTournaments(dataset, deckDraft(2).cards, index)
+    const archetypeId = where.guessed?.archetypeId ?? null
+    const lookup = (groupId: string) => playable.get(groupId) ?? 0
+    const version = tournamentVersion(dataset, archetypeId, deckDraft(2).cards, index, lookup)
+    if (!version) throw new Error('no tournament version for deck 2')
+    expect(version.list.archetypeId).toBe(archetypeId)
+    // Twenty cards on both sides: what goes in equals what goes out, and that is the distance.
+    const total = (changes: { count: number }[]) => changes.reduce((sum, change) => sum + change.count, 0)
+    expect(total(version.add)).toBe(total(version.remove))
+    expect(total(version.add)).toBe(version.swaps)
+    for (const item of version.missing) expect(item.have).toBeLessThan(item.need)
+    expect(version.missingCopies).toBe(version.missing.reduce((sum, item) => sum + item.need - item.have, 0))
+    // Repeated lists: none has a better lower bound. Otherwise: none was played more.
+    const candidates = listRows(dataset, 'group').filter((row) => row.archetypeId === archetypeId)
+    const repeated = candidates.filter((row) => row.lists >= TOURNAMENT_VERSION_MIN_LISTS)
+    if (repeated.length > 0) {
+      for (const row of repeated) expect(row.rate?.ci95[0] ?? -1).toBeLessThanOrEqual(version.list.rate?.ci95[0] ?? -1)
+    } else {
+      for (const row of candidates) expect(row.lists).toBeLessThanOrEqual(version.list.lists)
+    }
+    expect(version.alternatives.length).toBeLessThanOrEqual(3)
+
+    // A deck that is already that list changes nothing.
+    const same = version.list.cards
+      .filter((card) => card.cardId !== null)
+      .map((card) => ({ cardId: card.cardId as string, count: card.count }))
+    const itself = tournamentVersion(dataset, archetypeId, same, index, lookup)
+    expect(itself).toMatchObject({ swaps: 0, add: [], remove: [] })
+    expect(tournamentVersion(dataset, 'no-such-archetype', same, index, lookup)).toBeNull()
   })
 })

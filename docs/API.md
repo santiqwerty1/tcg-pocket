@@ -214,7 +214,7 @@ El rival se guarda limpio (espacios colapsados); si no tiene letras ni números 
 |---|---|
 | `GET /api/packs` | `{ items: [{ id, expansionId, expansionNameEs, name, nameEs, available, limited, limitedUntil, cardsPerPack, cardCount, containsShinies, containsBabies, inTrackerOverview }] }`: los 29 sobres que se abren (expansiones con estructura de sobre; sin los «everypack» de los sets con varios sobres ni las promos). El Deluxe ex (A4b) empieza apagado; el Deluxe Mega (B4b) empieza «por tiempo limitado» con último día 28/10/2026 (`limitedUntil`, YYYY-MM-DD, hora de Buenos Aires) |
 | `PATCH /api/packs/:expansionId/:name` | `{ available?, limited?, limitedUntil?: YYYY-MM-DD | null }` (al menos uno) → el sobre; `404` si no es un sobre abrible. Los interruptores son tuyos: el sync del catálogo no los pisa y viajan en el backup. Pasado `limitedUntil`, el sobre deja de contar como disponible |
-| `POST /api/packs/recommend` | `{ model?: 'corrected'|'tracker', alpha?: 0..1, collection?: { rarities: Rarity[], copies: 1..5 } | null, onlyAvailable?, limitedBoost?: 1..5 }` → `Recommendation`. Lo omitido sale de `app_settings` (`packModel`, `alpha`, `rarityFilter`, `limitedBoost`; por defecto corregido, 0,7, todas las rarezas con 1 copia y ×2). Objetivo mazos: los mazos activos con `packPriority` 1–3 |
+| `POST /api/packs/recommend` | `{ model?: 'corrected'|'tracker', alpha?: 0..1, collection?: { rarities: Rarity[], copies: 1..5 } | null, onlyAvailable?, limitedBoost?: 1..5, deckTarget?: 'saved'|'tournament' }` → `Recommendation`. Lo omitido sale de `app_settings` (`packModel`, `alpha`, `rarityFilter`, `limitedBoost`, `packDeckTarget`; por defecto corregido, 0,7, todas las rarezas con 1 copia, ×2 y `saved`). Objetivo mazos: los mazos activos con `packPriority` 1–3, cada uno con su lista guardada o, con `deckTarget: 'tournament'`, con su versión de torneo (ver Torneos; un mazo sin versión de torneo usa la suya). `Recommendation` trae `deckTarget` y, por mazo objetivo, `target` y `list: { key, lists } | null` |
 | `GET /api/rarity-rules` | `{ items: [{ rarity, points, verified, tradeable }] }` para todas las rarezas (tracker + ✵ 1000 y ✵✵ 1350 sin verificar; P sin costo) |
 | `PATCH /api/rarity-rules/:rarity` | `{ points?, verified?, tradeable? }` → la regla; `404` rareza desconocida |
 
@@ -269,6 +269,8 @@ Datos de Limitless (play.limitlesstcg.com) por **era** y **formato**. La era de 
 | `GET /api/tournaments/lists?kind=group|name&archetype=&minLists=&limit=100` | `{ scope, rows: ListRow[], total }` |
 | `GET /api/tournaments/lists/:key?kind=` | `{ scope, list: ListRow & { missing, missingCopies }, energies: string[], text (portapapeles de Limitless, también deckgym), entries: [{ tournamentId, tournamentName, date, playerName, placing, record }] }`; `400` clave inválida, `404` |
 | `GET /api/tournaments/buildable?limit=100` | `{ scope, buildable: (ListRow & { missing: [], missingCopies: 0 })[], near: (ListRow & { missing: [{ groupId, nameEs, need, have }], missingCopies: 1|2 })[] }` |
+| `GET /api/tournaments/decks/versions` | `{ scope, decks: DeckVersion[] }` de los mazos activos (sin `alternatives`) |
+| `GET /api/tournaments/decks/:id/version` | `{ scope } & DeckVersion` con hasta 3 `alternatives`; `404` si el mazo no existe |
 | `GET /api/tournaments/unlock?limit=50` | `{ scope, cards: [{ groupId, nameEs, have, copies, lists, listsWithOneCopy, entries, record, rate, unlocked: ListRow[] (5) }] }`: listas a las que les falta solo esa carta, más listas primero |
 | `GET /api/tournaments/events` | `{ scope, rows: [{ id, name, date, players, lists, organizerName, conflict }] }` |
 | `GET /api/tournaments/unknown-cards` | `{ scope, cards: [{ ref, set, number, name, occurrences }] }`: cartas de las listas que el catálogo no conoce (se re-mapean solas al sincronizarlo) |
@@ -284,7 +286,14 @@ ListRow = Row & { key (14 hex), kind: 'group'|'name', archetype, otherKey,
                   cards: [{ groupId | null, cardId | null, nameEs, nameEn, set, number, count, cardType }] }
 ```
 
-Lista exacta: las mismas 20 cartas sin mirar la edición, sin energías. `kind=group` (por defecto) agrupa por carta funcional y distingue homónimas con otro texto; `kind=name` es la del brief (nombre inglés de Limitless). Sync: backfill de 60 días en la primera corrida y una incremental cada 6 h (`LIMITLESS_SYNC`, encendido solo en producción), tope propio de 40 llamadas cada 5 min, 429 → pausa `max(Retry-After, t, 60 s)`, 5xx → reintentos a 1, 2, 4, 8 y 16 min.
+```ts
+DeckVersion = { deckId, deckName,
+                archetype: { id, name, icons, source: 'owner'|'guessed', swaps | null } | null,   // elegido en el mazo o sugerido (≤ 6 cambios)
+                version: { list: ListRow, swaps, add: [{ groupId, nameEs, count }], remove: [...],
+                           missing: [{ groupId, nameEs, need, have }], missingCopies, alternatives: ListRow[] } | null }
+```
+
+Versión de torneo de un mazo: entre las listas exactas (por carta funcional) de su arquetipo jugadas 5 veces o más en la era, la de mejor cota inferior del intervalo; si ninguna se repite tanto, la más jugada. Lista exacta: las mismas 20 cartas sin mirar la edición, sin energías. `kind=group` (por defecto) agrupa por carta funcional y distingue homónimas con otro texto; `kind=name` es la del brief (nombre inglés de Limitless). Sync: backfill de 60 días en la primera corrida y una incremental cada 6 h (`LIMITLESS_SYNC`, encendido solo en producción), tope propio de 40 llamadas cada 5 min, 429 → pausa `max(Retry-After, t, 60 s)`, 5xx → reintentos a 1, 2, 4, 8 y 16 min.
 
 ## Simulación (Fase 6)
 
@@ -364,4 +373,4 @@ Documento (`schemaVersion: 4`): `{ schemaVersion, exportedAt, appVersion, catalo
 | Método y ruta | Respuesta |
 |---|---|
 | `GET /api/settings` | `{ [key]: value }` (solo las claves guardadas) |
-| `PUT /api/settings/:key` | `{ value }` (cualquier JSON) → `{ key, value }`; `400 validation` si la clave no es una de `ui`, `alpha`, `rarityFilter`, `tradeableRarities`, `rarityCosts`, `minPlayers` (torneos, entero ≥ 1), `backfillDays`, `cores`, `defaultBot`, `packModel`, `limitedBoost` |
+| `PUT /api/settings/:key` | `{ value }` (cualquier JSON) → `{ key, value }`; `400 validation` si la clave no es una de `ui`, `alpha`, `rarityFilter`, `tradeableRarities`, `rarityCosts`, `minPlayers` (torneos, entero ≥ 1), `backfillDays`, `cores`, `defaultBot`, `packModel`, `limitedBoost`, `packDeckTarget` (`saved` o `tournament`) |

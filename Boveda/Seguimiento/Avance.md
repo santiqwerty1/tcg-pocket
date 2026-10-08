@@ -24,6 +24,7 @@ revisar: false
 | 4.1 | Tiempo limitado, «intercambiar» y versiones | hecho 07/10 · propuesto | 4 | [D-007](Decisiones/D-007.md), [D-008](Decisiones/D-008.md) |
 | 5 | Torneos (M5) | hecho 08/10 · verificado en producción ([T-006](Tareas/T-006.md)) · aprobada al pedir la Fase 6 | 4 | [T-003](Tareas/T-003.md) |
 | 6 | Simulación (M7) y worker de Windows | hecho 08/10 · desplegado · falta arrancar el worker con un token de producción ([T-007](Tareas/T-007.md)) y tu visto bueno | 5 | [T-004](Tareas/T-004.md) |
+| 6.1 | Versión de torneo de cada mazo (pedido del 08/10) | hecho 08/10 · propuesto | 6 | [D-016](Decisiones/D-016.md) |
 | 7 | Claude de escritura (M8 parte 2) | pendiente | 6 | [PLAN](../../docs/PLAN.md) |
 | 8 | Jugar contra un bot, consistencia | abierto | 7 | [PLAN](../../docs/PLAN.md) |
 | K | Bóveda con el kit de Posta | hecho 07/10 · propuesto | — | [D-009](Decisiones/D-009.md) |
@@ -48,6 +49,8 @@ Registrado el 08/10/2026 a pedido de Santiago; todo con `revisar: true` (vista �
 | [D-013](Decisiones/D-013.md) | engine-cli compilado en la PC; Actions de respaldo | aplicado como propuesta |
 | [D-014](Decisiones/D-014.md) | Visor de repeticiones propio en texto | aplicado como propuesta |
 | [D-015](Decisiones/D-015.md) | Backup sin simulaciones | aplicado como propuesta |
+| [D-016](Decisiones/D-016.md) | Versión de torneo de cada mazo y Sobres apuntando a ella | aplicado como propuesta |
+| [T-008](Tareas/T-008.md) | Laboratorio de mazos nuevos con Claude y el simulador: alcance y cuándo | después de la Fase 7 |
 | [P-002](Preguntas/P-002.md) | Último día real del Deluxe Mega | 28/10/2026 |
 | [P-003](Preguntas/P-003.md) | Costos de ✵ y ✵✵ | 1000 y 1350 sin verificar |
 | [P-004](Preguntas/P-004.md) | Rarezas intercambiables | ◊ a ◊◊◊◊ y ☆ |

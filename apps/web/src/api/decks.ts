@@ -64,6 +64,9 @@ async function invalidateDecks(queryClient: QueryClient): Promise<void> {
     queryClient.invalidateQueries({ queryKey: ['matches'] }),
     // Deck priorities and lists are the goals of the pack recommendation.
     queryClient.invalidateQueries({ queryKey: ['packs'] }),
+    // The «versión de torneo» follows the deck's list and its chosen archetype.
+    queryClient.invalidateQueries({ queryKey: ['tournaments', 'deck-version'] }),
+    queryClient.invalidateQueries({ queryKey: ['tournaments', 'deck-versions'] }),
   ])
 }
 

@@ -168,3 +168,82 @@ export function deckInTournaments(
     guessed,
   }
 }
+
+/** A list has to be repeated this many times to be a deck's «versión de torneo» (when the archetype has one). */
+export const TOURNAMENT_VERSION_MIN_LISTS = 5
+
+export interface ListCardChange {
+  groupId: CardId
+  count: number
+}
+
+export interface TournamentVersion {
+  /** The exact list aimed at. */
+  list: ListRow
+  /** Card changes from the deck to the list (by functional card). */
+  swaps: number
+  add: ListCardChange[]
+  remove: ListCardChange[]
+  /** What the collection lacks for the list. Empty: it can be built today. */
+  missing: MissingCopies[]
+  missingCopies: number
+  /** Other lists of the archetype worth a look, best first (up to 3). */
+  alternatives: ListRow[]
+}
+
+/** Lower end of the interval: a list that wins a lot over few games does not beat a solid one. */
+function lowerBound(row: ListRow): number {
+  return row.rate?.ci95[0] ?? -1
+}
+
+/**
+ * The «versión de torneo» of a deck: among the exact lists of its archetype played at least
+ * `TOURNAMENT_VERSION_MIN_LISTS` times, the one with the best lower bound of its interval (more lists on ties); when
+ * none is repeated that often, the most played one (a list played once that went 5-0 is luck, not a target). With the
+ * cards that change from the deck and what the collection lacks for it. Null when the archetype has no list in the era.
+ */
+export function tournamentVersion(
+  dataset: TournamentDataset,
+  archetypeId: string | null,
+  cards: readonly DeckCardEntry[],
+  index: CatalogIndex,
+  playable: (groupId: CardId) => number,
+): TournamentVersion | null {
+  const lists = listRows(dataset, 'group').filter((row) => row.archetypeId === archetypeId)
+  if (lists.length === 0) return null
+  const repeated = lists.filter((row) => row.lists >= TOURNAMENT_VERSION_MIN_LISTS)
+  const ranked =
+    repeated.length > 0
+      ? [...repeated].sort((a, b) => lowerBound(b) - lowerBound(a) || b.lists - a.lists || a.key.localeCompare(b.key))
+      : [...lists].sort((a, b) => b.lists - a.lists || lowerBound(b) - lowerBound(a) || a.key.localeCompare(b.key))
+  const list = ranked[0] as ListRow
+  const deck = new Map<CardId, number>()
+  for (const entry of cards) {
+    const groupId = index.cardById(entry.cardId)?.functionalGroupId
+    if (groupId) deck.set(groupId, (deck.get(groupId) ?? 0) + entry.count)
+  }
+  const add: ListCardChange[] = []
+  const remove: ListCardChange[] = []
+  for (const [groupId, count] of list.groups) {
+    const own = deck.get(groupId) ?? 0
+    if (count > own) add.push({ groupId, count: count - own })
+  }
+  for (const [groupId, count] of deck) {
+    const target = list.groups.get(groupId) ?? 0
+    if (count > target) remove.push({ groupId, count: count - target })
+  }
+  const missing: MissingCopies[] = []
+  for (const [groupId, need] of list.groups) {
+    const have = playable(groupId)
+    if (have < need) missing.push({ groupId, need, have })
+  }
+  return {
+    list,
+    swaps: swaps(deck, list.groups),
+    add,
+    remove,
+    missing,
+    missingCopies: missing.reduce((sum, item) => sum + item.need - item.have, 0),
+    alternatives: ranked.slice(1, 4),
+  }
+}

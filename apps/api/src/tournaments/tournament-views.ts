@@ -231,3 +231,38 @@ export interface DeckTournamentView {
   keyByName: string
   archetype: (ArchetypeRowView & { source: 'owner' | 'guessed'; swaps: number | null }) | null
 }
+
+export interface CardChangeView {
+  groupId: string
+  nameEs: string
+  count: number
+}
+
+/** A deck's «versión de torneo» (DECISIONES 6.16): the list of its archetype worth aiming at, and the way there. */
+export interface DeckVersionView {
+  deckId: string
+  deckName: string
+  /** Archetype chosen in the deck or guessed from the closest lists; null when no list is close (> 6 changes). */
+  archetype: (ArchetypeRefView & { source: 'owner' | 'guessed'; swaps: number | null }) | null
+  version: {
+    list: ListRowView
+    swaps: number
+    /** Cards to put in and take out (by functional card). */
+    add: CardChangeView[]
+    remove: CardChangeView[]
+    /** What the collection lacks for the list; empty = it can be built today. */
+    missing: MissingCopiesView[]
+    missingCopies: number
+    /** Other lists of the archetype, best first (only on the single-deck endpoint). */
+    alternatives: ListRowView[]
+  } | null
+}
+
+export interface DeckVersionsView {
+  scope: ScopeView
+  decks: DeckVersionView[]
+}
+
+export interface DeckVersionDetailView extends DeckVersionView {
+  scope: ScopeView
+}

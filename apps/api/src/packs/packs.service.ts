@@ -23,7 +23,9 @@ import { CollectionRepository } from '../collection/collection.repository.js'
 import { dateOnly, todayInOwnerZone } from '../config/time-zone.js'
 import { idToString } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
-import type { PackRef, PackView, RarityRuleView, RecommendationView } from './pack-views.js'
+import type { DeckVersionView } from '../tournaments/tournament-views.js'
+import { TournamentsService } from '../tournaments/tournaments.service.js'
+import type { DeckTarget, PackRef, PackView, RarityRuleView, RecommendationView } from './pack-views.js'
 
 export interface RecommendBody {
   model?: PackModel | undefined
@@ -33,6 +35,8 @@ export interface RecommendBody {
   onlyAvailable?: boolean | undefined
   /** 1…5: weight of the cards only a limited-time pack gives; undefined = the saved one (or 2). */
   limitedBoost?: number | undefined
+  /** undefined = the saved one (or `saved`). */
+  deckTarget?: DeckTarget | undefined
 }
 
 export interface PackPatch {
@@ -50,6 +54,7 @@ const settingSchemas = {
   packModel: z.enum(['corrected', 'tracker']),
   rarityFilter: z.object({ rarities: z.array(z.enum(RARITIES)), copies: z.number().int().min(1).max(5) }).nullable(),
   limitedBoost: z.number().min(1).max(5),
+  packDeckTarget: z.enum(['saved', 'tournament']),
 }
 
 const ASSUMPTIONS = [
@@ -61,6 +66,7 @@ const ASSUMPTIONS = [
   'Cada sobre se evalúa solo; la mejor política es volver a mirar después de cada importación.',
   'Sobres por tiempo limitado: lo que solo ellos dan (otra carta funcional para los mazos, otra versión para la colección) pesa más hasta su último día; después dejan de estar a la venta.',
   'Versiones: dos números con el mismo internal_id del tracker son la misma versión (A1-1 = A4b-1); un arte u holo nuevo es otra versión de la misma carta funcional.',
+  'Versión de torneo de un mazo: la lista exacta de su arquetipo jugada al menos 5 veces en la era con la mejor cota inferior del intervalo; sin datos de torneo se usa la lista guardada.',
 ]
 
 @Injectable()
@@ -69,6 +75,7 @@ export class PacksService {
     private readonly catalog: CatalogService,
     private readonly prisma: PrismaService,
     private readonly collection: CollectionRepository,
+    private readonly tournaments: TournamentsService,
   ) {}
 
   /** Packs that can be opened (with a pack structure; the set-wide «everypack» of multi-pack sets is not one). */
@@ -165,13 +172,14 @@ export class PacksService {
         : body.collection
     const onlyAvailable = body.onlyAvailable ?? false
     const limitedBoost = body.limitedBoost ?? settings.limitedBoost ?? DEFAULT_LIMITED_BOOST
+    const deckTarget = body.deckTarget ?? settings.packDeckTarget ?? 'saved'
     const today = todayInOwnerZone()
 
     const [{ stock, adjustments }, packRows, rules, goals] = await Promise.all([
       this.collection.loadState(),
       this.prisma.pack.findMany({ select: { id: true, available: true, limited: true, limitedUntil: true } }),
       this.rarityRules(),
-      this.deckGoals(),
+      this.deckGoals(deckTarget),
     ])
     const playable = new Map(
       [...playableCopies(index, stock, adjustments)].map(([groupId, copies]) => [groupId, copies.playable]),
@@ -183,7 +191,7 @@ export class PacksService {
     const ruleByRarity = new Map(rules.map((rule) => [rule.rarity, rule]))
     const result = recommendPacks({
       index,
-      decks: goals,
+      decks: goals.map((goal) => goal.goal),
       collection,
       alpha,
       playable: (groupId) => playable.get(groupId) ?? 0,
@@ -220,7 +228,16 @@ export class PacksService {
       onlyAvailable,
       limitedBoost,
       today,
-      goals: { decks: goals.map((goal) => ({ id: goal.deckId, name: goal.name, priority: goal.priority })) },
+      deckTarget,
+      goals: {
+        decks: goals.map(({ goal, name, target, list }) => ({
+          id: goal.deckId,
+          name,
+          priority: goal.priority,
+          target,
+          list,
+        })),
+      },
       rows: result.rows.map((row) => ({
         ...ref(row.packId),
         available: row.available,
@@ -273,8 +290,13 @@ export class PacksService {
     }
   }
 
-  /** Active decks with a pack priority, with the cards of their current revision. */
-  private async deckGoals(): Promise<DeckGoal[]> {
+  /**
+   * Active decks with a pack priority, with the cards of their current revision or, aimed at the tournament, the
+   * cards of their «versión de torneo» (decks without one keep their saved list).
+   */
+  private async deckGoals(
+    target: DeckTarget,
+  ): Promise<{ goal: DeckGoal; name: string; target: DeckTarget; list: { key: string; lists: number } | null }[]> {
     const decks = await this.prisma.deck.findMany({
       where: { archivedAt: null, packPriority: { gt: 0 } },
       select: { id: true, name: true, packPriority: true, currentRevisionId: true },
@@ -289,18 +311,45 @@ export class PacksService {
         })
       ).map((revision) => [revision.id, revision.cards as { cardId: string; count: number }[]]),
     )
-    return decks.map((deck) => ({
-      deckId: idToString(deck.id),
-      name: deck.name,
-      priority: deck.packPriority,
-      cards: deck.currentRevisionId === null ? [] : (revisions.get(deck.currentRevisionId) ?? []),
-    }))
+    type Version = DeckVersionView['version']
+    const versions: Map<string, Version> =
+      target === 'tournament' && decks.length > 0
+        ? await this.tournaments
+            .deckVersions(
+              {},
+              decks.map((deck) => deck.id),
+            )
+            .then((view) => new Map(view.decks.map((deck) => [deck.deckId, deck.version])))
+            .catch(() => new Map<string, Version>())
+        : new Map<string, Version>()
+    return decks.map((deck) => {
+      const id = idToString(deck.id)
+      const saved = deck.currentRevisionId === null ? [] : (revisions.get(deck.currentRevisionId) ?? [])
+      const version = versions.get(id)
+      const cards = version
+        ? version.list.cards
+            .filter((card) => card.cardId !== null)
+            .map((card) => ({ cardId: card.cardId as string, count: card.count }))
+        : saved
+      return {
+        // The missing-card rows and «Sobres para completar cada mazo» say which list is aimed at.
+        goal: {
+          deckId: id,
+          name: version ? `${deck.name} (versión de torneo)` : deck.name,
+          priority: deck.packPriority,
+          cards,
+        },
+        name: deck.name,
+        target: version ? ('tournament' as const) : ('saved' as const),
+        list: version ? { key: version.list.key, lists: version.list.lists } : null,
+      }
+    })
   }
 
   /** Saved knobs, ignoring values that do not parse (a bad setting must not break the page). */
   private async savedSettings(): Promise<SavedSettings> {
     const rows = await this.prisma.appSetting.findMany({
-      where: { key: { in: ['alpha', 'packModel', 'rarityFilter', 'limitedBoost'] } },
+      where: { key: { in: ['alpha', 'packModel', 'rarityFilter', 'limitedBoost', 'packDeckTarget'] } },
     })
     const out: SavedSettings = {}
     for (const row of rows) {
@@ -316,6 +365,9 @@ export class PacksService {
       } else if (row.key === 'limitedBoost') {
         const parsed = settingSchemas.limitedBoost.safeParse(row.value)
         if (parsed.success) out.limitedBoost = parsed.data
+      } else if (row.key === 'packDeckTarget') {
+        const parsed = settingSchemas.packDeckTarget.safeParse(row.value)
+        if (parsed.success) out.packDeckTarget = parsed.data
       }
     }
     return out
@@ -327,6 +379,7 @@ interface SavedSettings {
   packModel?: PackModel
   rarityFilter?: CollectionGoal | null
   limitedBoost?: number
+  packDeckTarget?: DeckTarget
 }
 
 export function assertPackId(expansionId: string, name: string): string {

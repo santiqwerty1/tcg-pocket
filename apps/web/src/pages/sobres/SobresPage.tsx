@@ -1,11 +1,11 @@
 /**
  * Packs (BRIEF M4, Fase 4): which pack to open for the target decks and the collection goal. The knobs are saved
- * in the app settings (`packModel`, `alpha`, `rarityFilter`, `limitedBoost`) so Claude's `packs_recommend` uses
+ * in the app settings (`packModel`, `alpha`, `rarityFilter`, `limitedBoost`, `packDeckTarget`) so Claude's `packs_recommend` uses
  * the same ones.
  */
 import { useEffect, useMemo, useState } from 'react'
 import { useRecommendation } from '@/api/packs'
-import type { CollectionGoal, PackModel, RecommendBody } from '@/api/schemas'
+import type { CollectionGoal, DeckTarget, PackModel, RecommendBody } from '@/api/schemas'
 import { useSetSetting, useSettings } from '@/api/settings'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { limitedLabel } from '@/lib/packs'
@@ -21,6 +21,7 @@ interface Knobs {
   alpha: number
   collection: CollectionGoal | null
   limitedBoost: number
+  deckTarget: DeckTarget
 }
 
 function knobsFrom(settings: Record<string, unknown>): Knobs {
@@ -34,7 +35,8 @@ function knobsFrom(settings: Record<string, unknown>): Knobs {
   }
   const boost = settings.limitedBoost
   const limitedBoost = typeof boost === 'number' && boost >= 1 && boost <= 5 ? boost : 2
-  return { model, alpha, collection, limitedBoost }
+  const deckTarget: DeckTarget = settings.packDeckTarget === 'tournament' ? 'tournament' : 'saved'
+  return { model, alpha, collection, limitedBoost, deckTarget }
 }
 
 export function SobresPage() {
@@ -51,7 +53,14 @@ export function SobresPage() {
   const body = useMemo<RecommendBody | null>(
     () =>
       knobs
-        ? { model: knobs.model, alpha, collection: knobs.collection, onlyAvailable, limitedBoost: knobs.limitedBoost }
+        ? {
+            model: knobs.model,
+            alpha,
+            collection: knobs.collection,
+            onlyAvailable,
+            limitedBoost: knobs.limitedBoost,
+            deckTarget: knobs.deckTarget,
+          }
         : null,
     [knobs, alpha, onlyAvailable],
   )
@@ -64,6 +73,7 @@ export function SobresPage() {
     if (patch.model !== undefined) setSetting.mutate({ key: 'packModel', value: patch.model })
     if (patch.collection !== undefined) setSetting.mutate({ key: 'rarityFilter', value: patch.collection })
     if (patch.limitedBoost !== undefined) setSetting.mutate({ key: 'limitedBoost', value: patch.limitedBoost })
+    if (patch.deckTarget !== undefined) setSetting.mutate({ key: 'packDeckTarget', value: patch.deckTarget })
   }
 
   const data = recommendation.data
@@ -93,6 +103,8 @@ export function SobresPage() {
         limitedBoost={knobs.limitedBoost}
         onLimitedBoostChange={(limitedBoost) => update({ limitedBoost })}
         limitedPacks={limitedPacks}
+        deckTarget={knobs.deckTarget}
+        onDeckTargetChange={(deckTarget) => update({ deckTarget })}
       />
 
       {recommendation.isPending ? <LoadingRows /> : null}

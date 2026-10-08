@@ -1,13 +1,15 @@
 /**
  * Goals of the recommendation (BRIEF M4): target decks with a priority (1–3, stored in each deck), the collection
  * goal with a rarity filter, α between them, the weight of what only a limited-time pack gives, the model switch
- * and «solo disponibles».
+ * and «solo disponibles». The decks goal aims at each deck's saved list or at its «versión de torneo» (the list of
+ * its archetype worth aiming at): the owner's lists are built with what he has, so the saved ones are complete.
  */
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useDecks, useUpdateDeck } from '@/api/decks'
-import type { CollectionGoal, PackModel } from '@/api/schemas'
+import type { CollectionGoal, DeckTarget, DeckVersion, PackModel } from '@/api/schemas'
+import { useDeckVersions } from '@/api/tournaments'
 import { DeckNumber } from '@/components/DeckNumber'
 import { Section } from '@/components/Section'
 import { Badge } from '@/components/ui/badge'
@@ -23,8 +25,32 @@ const PRESSED = 'aria-pressed:border-primary aria-pressed:bg-primary aria-presse
 const PRIORITY_LABEL = ['—', 'Baja', 'Media', 'Alta'] as const
 const LIMITED_BOOSTS = [1, 1.5, 2, 3] as const
 
-function TargetDecksSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+/** «torneo: faltan 2» next to each deck of the sheet. */
+function versionLabel(version: DeckVersion | undefined): { text: string; tone: string } | null {
+  if (!version) return null
+  if (!version.version) return { text: 'sin lista de torneo', tone: 'text-muted-foreground' }
+  if (version.version.missingCopies === 0) {
+    return {
+      text: version.version.swaps === 0 ? 'ya es la de torneo' : 'versión de torneo: la tenés',
+      tone: 'text-success',
+    }
+  }
+  const names = version.version.missing.map((item) => `${item.need - item.have} ${item.nameEs}`).join(', ')
+  return { text: `versión de torneo: faltan ${names}`, tone: 'text-warning' }
+}
+
+function TargetDecksSheet({
+  open,
+  onOpenChange,
+  deckTarget,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  deckTarget: DeckTarget
+}) {
   const decks = useDecks({ archived: false })
+  const versions = useDeckVersions(open && deckTarget === 'tournament')
+  const versionOf = new Map((versions.data?.decks ?? []).map((version) => [version.deckId, version]))
   const update = useUpdateDeck()
   const [filter, setFilter] = useState('')
   const items = (decks.data ?? []).filter((deck) =>
@@ -46,7 +72,10 @@ function TargetDecksSheet({ open, onOpenChange }: { open: boolean; onOpenChange:
       <SheetContent side="bottom" className="max-h-[85dvh] pb-safe">
         <SheetHeader>
           <SheetTitle>Mazos objetivo</SheetTitle>
-          <SheetDescription>La prioridad pesa las cartas que le faltan a cada mazo.</SheetDescription>
+          <SheetDescription>
+            La prioridad pesa las cartas que le faltan a cada mazo
+            {deckTarget === 'tournament' ? ' para su versión de torneo' : ''}.
+          </SheetDescription>
         </SheetHeader>
         <div className="flex min-h-0 flex-col gap-2 px-4 pb-4">
           <Input
@@ -67,6 +96,12 @@ function TargetDecksSheet({ open, onOpenChange }: { open: boolean; onOpenChange:
                     <span className="text-xs text-warning">faltan {deck.missingCount}</span>
                   )}
                 </div>
+                {deckTarget === 'tournament'
+                  ? (() => {
+                      const label = versionLabel(versionOf.get(deck.id))
+                      return label ? <span className={`text-xs ${label.tone}`}>{label.text}</span> : null
+                    })()
+                  : null}
                 <ChoiceGroup label={`Prioridad de ${deck.name}`} hiddenLabel className="grid grid-cols-4 gap-1">
                   {PRIORITY_LABEL.map((label, priority) => (
                     <Button
@@ -106,8 +141,16 @@ export function GoalsSection({
   limitedBoost,
   onLimitedBoostChange,
   limitedPacks,
+  deckTarget,
+  onDeckTargetChange,
 }: {
-  decks: { id: string; name: string; priority: number }[]
+  decks: {
+    id: string
+    name: string
+    priority: number
+    target: DeckTarget
+    list: { key: string; lists: number } | null
+  }[]
   collection: CollectionGoal | null
   onCollectionChange: (goal: CollectionGoal | null) => void
   alpha: number
@@ -122,6 +165,8 @@ export function GoalsSection({
   onLimitedBoostChange: (value: number) => void
   /** Limited-time packs on sale, e.g. «Sobre Deluxe Mega (hasta el 28/10)». */
   limitedPacks: string[]
+  deckTarget: DeckTarget
+  onDeckTargetChange: (target: DeckTarget) => void
 }) {
   const [sheetOpen, setSheetOpen] = useState(false)
   const toggleRarity = (rarity: (typeof PACK_RARITIES)[number]) => {
@@ -153,10 +198,24 @@ export function GoalsSection({
                 <span className="font-mono text-muted-foreground">#{deck.id}</span>
                 <span className="max-w-48 truncate">{deck.name}</span>
                 <span className="text-muted-foreground">{PRIORITY_LABEL[deck.priority] ?? deck.priority}</span>
+                {deck.target === 'tournament' ? <span className="text-primary">torneo</span> : null}
               </Badge>
             ))}
           </div>
         )}
+        <Label className="flex min-h-11 items-center justify-between gap-2 text-sm font-normal">
+          <span>
+            Apuntar a la versión de torneo
+            <span className="block text-xs text-muted-foreground">
+              Tus listas están armadas con lo que tenés; con esto se buscan las cartas de la lista de torneo de su
+              arquetipo (la más sólida de la era, jugada 5 veces o más). Un mazo sin lista de torneo usa la suya.
+            </span>
+          </span>
+          <Switch
+            checked={deckTarget === 'tournament'}
+            onCheckedChange={(on) => onDeckTargetChange(on ? 'tournament' : 'saved')}
+          />
+        </Label>
       </div>
 
       <div className="flex flex-col gap-2 rounded-lg border p-3">
@@ -267,7 +326,7 @@ export function GoalsSection({
           <Switch checked={onlyAvailable} onCheckedChange={onOnlyAvailableChange} />
         </Label>
       </div>
-      {sheetOpen ? <TargetDecksSheet open onOpenChange={setSheetOpen} /> : null}
+      {sheetOpen ? <TargetDecksSheet open onOpenChange={setSheetOpen} deckTarget={deckTarget} /> : null}
     </Section>
   )
 }

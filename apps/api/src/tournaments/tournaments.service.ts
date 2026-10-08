@@ -37,6 +37,7 @@ import {
   type StoredTournament,
   type TournamentDataset,
   type TournamentFormat,
+  tournamentVersion,
   unlockCards,
   withWithout,
 } from '@tcg/domain'
@@ -45,6 +46,8 @@ import { CollectionRepository } from '../collection/collection.repository.js'
 import { ENV, type Env } from '../config/env.js'
 import { dateOnly, todayInOwnerZone } from '../config/time-zone.js'
 
+import type { Prisma } from '../generated/prisma/client.js'
+import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { TournamentDataVersion, TournamentSettings } from './tournament-settings.js'
 import { TournamentSyncService } from './tournament-sync.service.js'
@@ -55,6 +58,9 @@ import type {
   BuildableView,
   CardLineView,
   DeckTournamentView,
+  DeckVersionDetailView,
+  DeckVersionsView,
+  DeckVersionView,
   EraView,
   ListAgainstCollectionView,
   ListDetailView,
@@ -559,6 +565,99 @@ export class TournamentsService {
       keyByGroup: where.keyByGroup,
       keyByName: where.keyByName,
       archetype,
+    }
+  }
+
+  /** The «versión de torneo» of one deck, with other lists of its archetype to look at. */
+  async deckVersion(rawDeckId: string, query: ScopeQuery = {}): Promise<DeckVersionDetailView> {
+    const scope = await this.scope(query)
+    const dataset = await this.dataset(scope)
+    const [deck] = await this.decksWithCards({ id: parseNumericId(rawDeckId, 'Mazo') })
+    if (!deck) throw new NotFoundException(`Mazo ${rawDeckId} no encontrado.`)
+    const context = await this.versionContext(scope)
+    return { scope: this.scopeView(scope, dataset), ...this.versionOf(dataset, scope, context, deck, true) }
+  }
+
+  /** The «versión de torneo» of every active deck (Sobres: «Completar mazos» aimed at it). */
+  async deckVersions(query: ScopeQuery = {}, deckIds?: readonly number[]): Promise<DeckVersionsView> {
+    const scope = await this.scope(query)
+    const dataset = await this.dataset(scope)
+    const where = deckIds ? { archivedAt: null, id: { in: [...deckIds] } } : { archivedAt: null }
+    const [decks, context] = await Promise.all([this.decksWithCards(where), this.versionContext(scope)])
+    return {
+      scope: this.scopeView(scope, dataset),
+      decks: decks.map((deck) => this.versionOf(dataset, scope, context, deck, false)),
+    }
+  }
+
+  private async decksWithCards(where: Prisma.DeckWhereInput) {
+    const decks = await this.prisma.deck.findMany({
+      where,
+      select: { id: true, name: true, tournamentArchetypeId: true, currentRevisionId: true },
+      orderBy: { id: 'asc' },
+    })
+    const revisionIds = decks.map((deck) => deck.currentRevisionId).filter((id): id is number => id !== null)
+    const revisions = new Map(
+      (
+        await this.prisma.deckRevision.findMany({
+          where: { id: { in: revisionIds } },
+          select: { id: true, cards: true },
+        })
+      ).map((revision) => [revision.id, revision.cards as unknown as DeckCardEntry[]]),
+    )
+    return decks.map((deck) => ({
+      id: idToString(deck.id),
+      name: deck.name,
+      archetypeId: deck.tournamentArchetypeId,
+      cards: deck.currentRevisionId === null ? [] : (revisions.get(deck.currentRevisionId) ?? []),
+    }))
+  }
+
+  private async versionContext(scope: Scope) {
+    const [aliases, playable] = await Promise.all([this.settings.aliases(), this.playable(scope.index)])
+    return { aliases, playable }
+  }
+
+  private versionOf(
+    dataset: TournamentDataset,
+    scope: Scope,
+    context: { aliases: Map<string, string>; playable: (groupId: CardId) => number },
+    deck: { id: string; name: string; archetypeId: string | null; cards: DeckCardEntry[] },
+    withAlternatives: boolean,
+  ): DeckVersionView {
+    const index = scope.index
+    const chosen = deck.archetypeId === null ? null : (context.aliases.get(deck.archetypeId) ?? deck.archetypeId)
+    const guessed = chosen === null ? deckInTournaments(dataset, deck.cards, index).guessed : null
+    const archetypeId = chosen ?? guessed?.archetypeId ?? null
+    const base = { deckId: deck.id, deckName: deck.name }
+    if (archetypeId === null) return { ...base, archetype: null, version: null }
+    const archetype = {
+      ...this.archetypeRef(dataset, archetypeId),
+      source: chosen !== null ? ('owner' as const) : ('guessed' as const),
+      swaps: chosen !== null ? null : (guessed?.swaps ?? null),
+    }
+    const version = tournamentVersion(dataset, archetypeId, deck.cards, index, context.playable)
+    if (!version) return { ...base, archetype, version: null }
+    const named = (change: { groupId: CardId; count: number }) => ({
+      groupId: change.groupId,
+      nameEs: index.groupById(change.groupId)?.nameEs ?? change.groupId,
+      count: change.count,
+    })
+    return {
+      ...base,
+      archetype,
+      version: {
+        list: this.listView(dataset, version.list, index),
+        swaps: version.swaps,
+        add: version.add.map(named),
+        remove: version.remove.map(named),
+        missing: version.missing.map((item) => ({
+          ...item,
+          nameEs: index.groupById(item.groupId)?.nameEs ?? item.groupId,
+        })),
+        missingCopies: version.missingCopies,
+        alternatives: withAlternatives ? version.alternatives.map((row) => this.listView(dataset, row, index)) : [],
+      },
     }
   }
 

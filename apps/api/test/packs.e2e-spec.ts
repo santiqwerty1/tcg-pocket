@@ -159,7 +159,10 @@ describe('packs (e2e)', () => {
       assumptions: string[]
     }
     expect(body.model).toBe('corrected')
-    expect(body.goals.decks).toEqual([{ id: '13', name: 'Hoopa ex / Mega-Absol ex', priority: 3 }])
+    expect(body.goals.decks).toEqual([
+      { id: '13', name: 'Hoopa ex / Mega-Absol ex', priority: 3, target: 'saved', list: null },
+    ])
+    expect(body.deckTarget).toBe('saved')
     expect(body.rows[0]).toMatchObject({ packId: 'B4b/deluxepackmega', expansionId: 'B4b', available: true })
     expect(body.rows[0]?.probability).toBeCloseTo(100 / 70, 9)
     expect(body.rows[1]?.packId).toBe('B4/ruleroftheskiespack')

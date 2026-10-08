@@ -17,7 +17,8 @@ describe('SecretBox', () => {
     const box = new SecretBox(secret)
     const sealed = box.seal('hello')
     const [v, iv, ct, tag] = sealed.split('.') as [string, string, string, string]
-    const flipped = `${ct.slice(0, -1)}${ct.endsWith('A') ? 'B' : 'A'}`
+    // Flip the first character: all its bits are data (the last one may be base64 padding bits only).
+    const flipped = `${ct.startsWith('A') ? 'B' : 'A'}${ct.slice(1)}`
     expect(() => box.open([v, iv, flipped, tag].join('.'))).toThrow(SecretBoxError)
     expect(() => new SecretBox(`${secret}-other`).open(sealed)).toThrow(SecretBoxError)
     expect(() => new SecretBox(secret, 'another-purpose').open(sealed)).toThrow(SecretBoxError)

@@ -89,7 +89,19 @@ export interface RecommendationView {
   limitedBoost: number
   /** The date the recommendation used (owner's time zone). */
   today: string
-  goals: { decks: { id: string; name: string; priority: number }[] }
+  /** What «Completar mazos» aims at: the saved list of each deck or its «versión de torneo» (DECISIONES 6.16). */
+  deckTarget: DeckTarget
+  goals: {
+    decks: {
+      id: string
+      name: string
+      priority: number
+      /** The list actually aimed at: `tournament` only when the deck has a «versión de torneo». */
+      target: DeckTarget
+      /** The tournament list aimed at (key and how often it was played), when `target` is `tournament`. */
+      list: { key: string; lists: number } | null
+    }[]
+  }
   rows: PackRowView[]
   missing: MissingCardView[]
   decks: DeckCompletionView[]
@@ -100,3 +112,5 @@ export interface RecommendationView {
 }
 
 export type { Rarity }
+
+export type DeckTarget = 'saved' | 'tournament'

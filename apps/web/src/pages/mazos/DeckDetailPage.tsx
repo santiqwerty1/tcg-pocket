@@ -38,6 +38,7 @@ import { ClosestDecksSection } from './ClosestDecks'
 import { DeckPerformance } from './DeckPerformance'
 import { DeckBadges } from './DecksPage'
 import { BUILT_IN_GAME_LIMIT, groupByType, totalCount } from './deckLogic'
+import { TournamentVersionSection } from './TournamentVersion'
 
 const FORMAT_LABEL: Record<DeckExportFormat, { title: string; hint: string }> = {
   spanish: { title: 'Texto en español', hint: 'Con códigos de edición y línea «- Energía:», como mazos_40_listas.md' },
@@ -280,6 +281,8 @@ export function DeckDetailPage() {
       <Section title={`Cartas (${totalCount(data.cards)})`}>
         <CardGroups deck={data} />
       </Section>
+
+      <TournamentVersionSection deckId={data.id} />
 
       <BestVersionsSection deck={data} />
 

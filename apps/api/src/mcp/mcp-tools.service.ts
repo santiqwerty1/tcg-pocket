@@ -390,11 +390,13 @@ export class McpToolsService {
 
   private async decksGet(ref: string): Promise<Json> {
     const deck = await this.resolveDeck(ref)
-    const [detail, exported, stats] = await Promise.all([
+    const [detail, exported, stats, tournament] = await Promise.all([
       this.decks.detail(deck.id),
       this.decks.export(deck.id, 'spanish').catch(() => null),
       this.matches.stats({ deckId: deck.id }),
+      this.tournaments.deckVersion(deck.id).catch(() => null),
     ])
+    const version = tournament?.version ?? null
     return {
       id: detail.id,
       name: detail.name,
@@ -434,6 +436,41 @@ export class McpToolsService {
           ),
         })),
       },
+      tournamentVersion:
+        tournament === null
+          ? null
+          : {
+              note: 'La lista de torneo de su arquetipo a la que conviene apuntar: jugada al menos 5 veces en la era, la de mejor cota inferior del intervalo. «missing» es lo que falta en la colección para armarla.',
+              archetype: tournament.archetype
+                ? {
+                    name: tournament.archetype.name,
+                    source: tournament.archetype.source === 'owner' ? 'elegido en el mazo' : 'sugerido',
+                  }
+                : null,
+              list: version
+                ? {
+                    key: version.list.key,
+                    lists: version.list.lists,
+                    record: version.list.record,
+                    rate: rateView(version.list.rate),
+                    cards: version.list.cards.map(
+                      (card) => `${card.count} ${card.nameEs} (${card.set}-${card.number})`,
+                    ),
+                  }
+                : null,
+              changes: version
+                ? {
+                    swaps: version.swaps,
+                    add: version.add.map((change) => `${change.count} ${change.nameEs}`),
+                    remove: version.remove.map((change) => `${change.count} ${change.nameEs}`),
+                  }
+                : null,
+              missing: version
+                ? version.missing.map((item) => ({ nameEs: item.nameEs, need: item.need, have: item.have }))
+                : [],
+              era: tournament.scope.era.code,
+              source: tournament.scope.attribution,
+            },
     }
   }
 
@@ -660,6 +697,7 @@ export class McpToolsService {
     collection?: { rarities: Rarity[]; copies: number } | null
     onlyAvailable?: boolean
     limitedBoost?: number
+    deckTarget?: 'saved' | 'tournament'
     limit?: number
   }): Promise<Json> {
     const result = await this.packs.recommend({
@@ -668,6 +706,7 @@ export class McpToolsService {
       collection: args.collection,
       onlyAvailable: args.onlyAvailable ?? true,
       limitedBoost: args.limitedBoost,
+      deckTarget: args.deckTarget,
     })
     const day = (iso: string) => iso.split('-').reverse().join('/')
     const lastDay = (limited: { until: string | null; daysLeft: number | null }) =>
@@ -688,6 +727,7 @@ export class McpToolsService {
       limitedBoost: result.limitedBoost,
       today: result.today,
       goals: {
+        deckTarget: result.deckTarget === 'tournament' ? 'versión de torneo' : 'lista guardada',
         decks: result.goals.decks,
         collection: result.collection,
         ...(result.goals.decks.length === 0

@@ -77,7 +77,14 @@ export function useSetRarityRule() {
 export function useRecommendation(body: RecommendBody | null) {
   return useQuery({
     queryKey: packKeys.recommend(
-      body ?? { model: 'corrected', alpha: 0, collection: null, onlyAvailable: true, limitedBoost: 2 },
+      body ?? {
+        model: 'corrected',
+        alpha: 0,
+        collection: null,
+        onlyAvailable: true,
+        limitedBoost: 2,
+        deckTarget: 'saved',
+      },
     ),
     queryFn: ({ signal }) =>
       request('/api/packs/recommend', { method: 'POST', body, schema: recommendationSchema, signal }),

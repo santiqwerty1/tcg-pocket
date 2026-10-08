@@ -100,7 +100,9 @@ export function PackTable({ recommendation }: { recommendation: Recommendation }
     <Section title="Qué sobre abrir">
       {nothingWanted ? (
         <p className="text-sm text-muted-foreground">
-          Nada que buscar con estos objetivos: elegí mazos o activá «Completar colección».
+          {recommendation.goals.decks.length > 0 && recommendation.deckTarget === 'saved'
+            ? 'Nada que buscar: los mazos marcados ya están completos con su lista guardada. Activá «Apuntar a la versión de torneo» para buscar lo que les falta para la lista de torneo, o «Completar colección».'
+            : 'Nada que buscar con estos objetivos: elegí mazos o activá «Completar colección».'}
         </p>
       ) : (
         <>

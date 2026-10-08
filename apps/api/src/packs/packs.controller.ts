@@ -5,6 +5,7 @@ import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
 import { CatalogModule } from '../catalog/catalog.module.js'
 import { CollectionModule } from '../collection/collection.module.js'
 import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
+import { TournamentsModule } from '../tournaments/tournaments.controller.js'
 import type { PackView, RarityRuleView, RecommendationView } from './pack-views.js'
 import { assertPackId, PacksService } from './packs.service.js'
 
@@ -18,6 +19,7 @@ const recommendSchema = z.object({
   collection: collectionGoalSchema.nullable().optional(),
   onlyAvailable: z.boolean().optional(),
   limitedBoost: z.number().min(1).max(5).optional(),
+  deckTarget: z.enum(['saved', 'tournament']).optional(),
 })
 const packPatchSchema = z
   .object({
@@ -80,7 +82,7 @@ export class PacksController {
 }
 
 @Module({
-  imports: [CatalogModule, CollectionModule],
+  imports: [CatalogModule, CollectionModule, TournamentsModule],
   controllers: [PacksController],
   providers: [PacksService],
   exports: [PacksService],

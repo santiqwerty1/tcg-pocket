@@ -4,6 +4,8 @@ import {
   archetypeDetailSchema,
   archetypesResponseSchema,
   buildableResponseSchema,
+  deckVersionDetailSchema,
+  deckVersionsResponseSchema,
   listDetailSchema,
   listsResponseSchema,
   setReleaseSchema,
@@ -43,6 +45,30 @@ function query(params: Record<string, string | number | undefined | null>): stri
   }
   const text = search.toString()
   return text ? `?${text}` : ''
+}
+
+/** The «versión de torneo» of one deck (current era, Estándar). */
+export function useDeckVersion(deckId: string | undefined) {
+  return useQuery({
+    queryKey: ['tournaments', 'deck-version', deckId ?? ''] as const,
+    queryFn: ({ signal }) =>
+      request(`/api/tournaments/decks/${encodeURIComponent(deckId ?? '')}/version`, {
+        schema: deckVersionDetailSchema,
+        signal,
+      }),
+    enabled: Boolean(deckId),
+    retry: false,
+  })
+}
+
+/** The «versión de torneo» of every active deck (Sobres). */
+export function useDeckVersions(enabled = true) {
+  return useQuery({
+    queryKey: ['tournaments', 'deck-versions'] as const,
+    queryFn: ({ signal }) => request('/api/tournaments/decks/versions', { schema: deckVersionsResponseSchema, signal }),
+    enabled,
+    retry: false,
+  })
 }
 
 /** Polls every 10 s while a sync runs, so the progress line moves. */

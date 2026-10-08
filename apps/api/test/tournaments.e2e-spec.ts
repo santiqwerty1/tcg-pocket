@@ -324,6 +324,68 @@ describe('tournaments (e2e)', () => {
     expect((await patch(`/api/decks/${blaziken?.id}`).send({ tournamentArchetypeId: null })).status).toBe(200)
   })
 
+  it('«versión de torneo» of each deck, and Sobres aiming «Completar mazos» at it', async () => {
+    interface Version {
+      deckId: string
+      deckName: string
+      archetype: { name: string; source: string } | null
+      version: {
+        list: { key: string; lists: number; cards: { count: number }[] }
+        swaps: number
+        add: { groupId: string; count: number }[]
+        remove: { count: number }[]
+        missing: { groupId: string; need: number; have: number }[]
+        missingCopies: number
+        alternatives: unknown[]
+      } | null
+    }
+    const all = (await get('/api/tournaments/decks/versions')).body as { scope: { lists: number }; decks: Version[] }
+    expect(all.scope.lists).toBe(393)
+    expect(all.decks).toHaveLength(40)
+    const sum = (items: { count: number }[]) => items.reduce((total, item) => total + item.count, 0)
+    for (const deck of all.decks) {
+      if (!deck.version) continue
+      expect(sum(deck.version.list.cards)).toBe(20)
+      expect(sum(deck.version.add)).toBe(deck.version.swaps)
+      expect(sum(deck.version.remove)).toBe(deck.version.swaps)
+      expect(deck.version.missingCopies).toBe(
+        deck.version.missing.reduce((total, item) => total + item.need - item.have, 0),
+      )
+      expect(deck.version.alternatives).toEqual([])
+    }
+    const blaziken = all.decks.find((deck) => deck.deckName === 'Mega-Blaziken ex')
+    expect(blaziken?.archetype?.name).toMatch(/Blaziken/i)
+    const one = (await get(`/api/tournaments/decks/${blaziken?.deckId}/version`)).body as Version & { scope: unknown }
+    expect(one.version?.list.key).toBe(blaziken?.version?.list.key)
+    expect(one.version?.alternatives.length).toBeLessThanOrEqual(3)
+    expect(one.scope).toBeDefined()
+    expect((await get('/api/tournaments/decks/999999/version')).status).toBe(404)
+
+    // A complete deck asks nothing of its saved list; aimed at its tournament version, it asks for what that lacks.
+    const target = all.decks.find((deck) => (deck.version?.missingCopies ?? 0) > 0)
+    if (!target?.version) throw new Error('no deck lacks anything for its tournament version')
+    expect((await patch(`/api/decks/${target.deckId}`).send({ packPriority: 3 })).status).toBe(200)
+    try {
+      const saved = (await post('/api/packs/recommend').send({ collection: null, deckTarget: 'saved' })).body
+      expect(saved.deckTarget).toBe('saved')
+      expect(saved.goals.decks).toEqual([expect.objectContaining({ id: target.deckId, target: 'saved', list: null })])
+      const aimed = (await post('/api/packs/recommend').send({ collection: null, deckTarget: 'tournament' })).body
+      expect(aimed.goals.decks[0]).toMatchObject({
+        id: target.deckId,
+        target: 'tournament',
+        list: { key: target.version.list.key },
+      })
+      const wanted = new Set((aimed.missing as { groupId: string }[]).map((item) => item.groupId))
+      for (const item of target.version.missing) expect(wanted.has(item.groupId)).toBe(true)
+      // The choice is saved with the other knobs.
+      expect((await put('/api/settings/packDeckTarget').send({ value: 'tournament' })).status).toBe(200)
+      expect((await post('/api/packs/recommend').send({ collection: null })).body.deckTarget).toBe('tournament')
+      expect((await put('/api/settings/packDeckTarget').send({ value: 'saved' })).status).toBe(200)
+    } finally {
+      await patch(`/api/decks/${target.deckId}`).send({ packPriority: 0 })
+    }
+  })
+
   it('MCP tools: stats by archetype and list, with and without a card, buildable lists and unlock cards', async () => {
     const token = (await post('/api/tokens').send({ name: 'claude', kind: 'mcp', scopes: ['mcp:read'] })).body.token
     await test.app.listen(0, '127.0.0.1')
@@ -361,6 +423,12 @@ describe('tournaments (e2e)', () => {
       expect((buildable.buildable as unknown[]).length).toBeGreaterThan(0)
       const unlock = await call('tournaments_unlock_cards', { limit: 3 })
       expect((unlock.cards as { listsUnlocked: number }[])[0]?.listsUnlocked).toBeGreaterThan(0)
+      const deck = await call('decks_get', { deck: 'Mega-Blaziken ex' })
+      const version = deck.tournamentVersion as { archetype: { name: string }; list: { cards: string[] } | null }
+      expect(version.archetype.name).toMatch(/Blaziken/i)
+      expect(version.list?.cards.length).toBeGreaterThan(0)
+      const packs = await call('packs_recommend', { deckTarget: 'tournament', collection: null })
+      expect((packs.goals as { deckTarget: string }).deckTarget).toBe('versión de torneo')
       const missing = (await client.callTool({ name: 'tournaments_stats', arguments: { card: 'Hoopa ex' } })) as {
         isError?: boolean
       }

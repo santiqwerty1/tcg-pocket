@@ -12,6 +12,8 @@ import type {
   ArchetypeDetailView,
   ArchetypesView,
   BuildableView,
+  DeckVersionDetailView,
+  DeckVersionsView,
   ListDetailView,
   ListsView,
   ScopeView,
@@ -128,6 +130,24 @@ export class TournamentsController {
     @CurrentSession() _session: RequestSession,
   ): Promise<BuildableView> {
     return this.tournaments.buildable(query)
+  }
+
+  /** «Versión de torneo» of every active deck: the list of its archetype worth aiming at and what it lacks. */
+  @Get('decks/versions')
+  deckVersions(
+    @Query(new ZodValidationPipe(scopeSchema)) query: z.infer<typeof scopeSchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<DeckVersionsView> {
+    return this.tournaments.deckVersions(query)
+  }
+
+  @Get('decks/:id/version')
+  deckVersion(
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(scopeSchema)) query: z.infer<typeof scopeSchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<DeckVersionDetailView> {
+    return this.tournaments.deckVersion(id, query)
   }
 
   @Get('unlock')

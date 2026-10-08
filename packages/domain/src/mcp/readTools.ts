@@ -182,7 +182,7 @@ export const MCP_READ_TOOLS = {
     name: 'packs_recommend',
     title: 'Recomendar sobres',
     description:
-      'Qué sobres conviene abrir. Por sobre: probabilidad de al menos una carta buscada, cartas buscadas esperadas, puntaje de 0 a 1 según los objetivos (cada objetivo medido contra su mejor sobre) y sobres para 50 % y 90 %. Objetivos: los mazos con prioridad de sobres (1 a 3, se marca en cada mazo) y la colección con filtro de rarezas, pesados con alpha. Incluye las cartas que faltan con su costo en puntos, si son intercambiables y si conviene comprarlas, abrir o intercambiarlas (cuando ningún sobre a la venta las da), y los sobres esperados para completar cada mazo objetivo. Los sobres por tiempo limitado (el Deluxe Mega, hasta el 28/10/2026) dicen su último día, los días que quedan y qué cartas solo dan ellos: para los mazos cuenta la carta funcional (cualquier versión sirve), para la colección cada versión (arte u holo nuevo; dos números con el mismo internal_id son la misma versión); esas exclusivas pesan limitedBoost veces más mientras dure. Modelo «corrected» por defecto; «tracker» reproduce los números de la web del tracker. Sin parámetros usa lo guardado en la app.',
+      'Qué sobres conviene abrir. Por sobre: probabilidad de al menos una carta buscada, cartas buscadas esperadas, puntaje de 0 a 1 según los objetivos (cada objetivo medido contra su mejor sobre) y sobres para 50 % y 90 %. Objetivos: los mazos con prioridad de sobres (1 a 3, se marca en cada mazo) y la colección con filtro de rarezas, pesados con alpha. Incluye las cartas que faltan con su costo en puntos, si son intercambiables y si conviene comprarlas, abrir o intercambiarlas (cuando ningún sobre a la venta las da), y los sobres esperados para completar cada mazo objetivo. Los sobres por tiempo limitado (el Deluxe Mega, hasta el 28/10/2026) dicen su último día, los días que quedan y qué cartas solo dan ellos: para los mazos cuenta la carta funcional (cualquier versión sirve), para la colección cada versión (arte u holo nuevo; dos números con el mismo internal_id son la misma versión); esas exclusivas pesan limitedBoost veces más mientras dure. Modelo «corrected» por defecto; «tracker» reproduce los números de la web del tracker. Con deckTarget «tournament», cada mazo objetivo apunta a su versión de torneo (la lista de su arquetipo más sólida de la era) en vez de a su lista guardada: sirve cuando los mazos ya están completos con reemplazos. Sin parámetros usa lo guardado en la app.',
     input: z.object({
       model: z
         .enum(['corrected', 'tracker'])
@@ -209,6 +209,12 @@ export const MCP_READ_TOOLS = {
         .max(5)
         .optional()
         .describe('Peso de lo que solo da un sobre por tiempo limitado (1 a 5; por defecto el guardado, 2)'),
+      deckTarget: z
+        .enum(['saved', 'tournament'])
+        .optional()
+        .describe(
+          'A qué apuntan los mazos objetivo: «saved» (su lista guardada) o «tournament» (su versión de torneo); por defecto el guardado',
+        ),
       limit: z.number().int().min(1).max(29).optional().describe('Sobres a devolver (por defecto 8)'),
     }),
   },

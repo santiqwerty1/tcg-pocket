@@ -174,6 +174,25 @@ describe('Sobres page (Fase 4)', () => {
       collection: null,
       onlyAvailable: true,
       limitedBoost: 2,
+      deckTarget: 'saved',
+    })
+  })
+
+  it('«Apuntar a la versión de torneo»: the request aims the decks at it and the choice is saved', async () => {
+    const user = userEvent.setup()
+    renderAt('/sobres')
+    const toggle = await screen.findByRole('switch', { name: /Apuntar a la versión de torneo/ })
+    expect(toggle).toHaveAttribute('aria-checked', 'false')
+    await user.click(toggle)
+    await waitFor(() =>
+      expect(requests.filter((r) => r.path === '/api/packs/recommend').at(-1)?.body).toMatchObject({
+        deckTarget: 'tournament',
+      }),
+    )
+    expect(requests).toContainEqual({
+      method: 'PUT',
+      path: '/api/settings/packDeckTarget',
+      body: { value: 'tournament' },
     })
   })
 

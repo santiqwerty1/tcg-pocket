@@ -786,6 +786,10 @@ export const deckCompletionSchema = z.object({
 })
 export type DeckCompletion = z.infer<typeof deckCompletionSchema>
 
+/** What «Completar mazos» aims at: each deck's saved list or its «versión de torneo». */
+export const DECK_TARGETS = ['saved', 'tournament'] as const
+export type DeckTarget = (typeof DECK_TARGETS)[number]
+
 export const recommendationSchema = z.object({
   model: z.enum(PACK_MODELS),
   alpha: z.number(),
@@ -793,7 +797,18 @@ export const recommendationSchema = z.object({
   onlyAvailable: z.boolean(),
   limitedBoost: z.number(),
   today: z.string(),
-  goals: z.object({ decks: z.array(z.object({ id: z.string(), name: z.string(), priority: z.number() })) }),
+  deckTarget: z.enum(DECK_TARGETS).default('saved'),
+  goals: z.object({
+    decks: z.array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        priority: z.number(),
+        target: z.enum(DECK_TARGETS).default('saved'),
+        list: z.object({ key: z.string(), lists: z.number() }).nullable().default(null),
+      }),
+    ),
+  }),
   rows: z.array(packRowSchema),
   missing: z.array(missingCardSchema),
   decks: z.array(deckCompletionSchema),
@@ -808,6 +823,7 @@ export interface RecommendBody {
   collection: CollectionGoal | null
   onlyAvailable: boolean
   limitedBoost: number
+  deckTarget: DeckTarget
 }
 
 // ---------- Auth, tokens, settings, backup ----------
@@ -1272,3 +1288,29 @@ export const replayResponseSchema = z.object({
   }),
 })
 export type ReplayResponse = z.infer<typeof replayResponseSchema>
+
+// ---------- Versión de torneo de un mazo ----------
+
+const listChangeSchema = z.object({ groupId: z.string(), nameEs: z.string(), count: z.number() })
+
+export const deckVersionSchema = z.object({
+  deckId: z.string(),
+  deckName: z.string(),
+  archetype: archetypeRefSchema
+    .extend({ source: z.enum(['owner', 'guessed']), swaps: z.number().nullable() })
+    .nullable(),
+  version: z
+    .object({
+      list: listRowSchema,
+      swaps: z.number(),
+      add: z.array(listChangeSchema),
+      remove: z.array(listChangeSchema),
+      missing: z.array(missingCopiesSchema),
+      missingCopies: z.number(),
+      alternatives: z.array(listRowSchema),
+    })
+    .nullable(),
+})
+export type DeckVersion = z.infer<typeof deckVersionSchema>
+export const deckVersionDetailSchema = deckVersionSchema.extend({ scope: scopeSchema })
+export const deckVersionsResponseSchema = z.object({ scope: scopeSchema, decks: z.array(deckVersionSchema) })
