@@ -60,11 +60,21 @@ export interface MissingCardView {
   /** No print with points that can still be earned: the cheapest in a retired expansion (points already saved). */
   retiredCheapest: { cardId: string; rarity: string; points: number; verified: boolean; tradeable: boolean } | null
   tradeable: boolean
+  /** The cheapest print the points saved in its expansion pay for; `copies` of the missing it covers. */
+  redeem: {
+    cardId: string
+    rarity: string
+    points: number
+    verified: boolean
+    tradeable: boolean
+    saved: number
+    copies: number
+  } | null
   bestPack: (PackRef & { probability: number; packsPerCopy: number; limited: boolean }) | null
   /** When the best pack is a limited one: the best pack that stays. */
   afterLimited: (PackRef & { probability: number; packsPerCopy: number }) | null
   pointsInPacks: number | null
-  advice: 'buy' | 'open' | 'trade' | null
+  advice: 'redeem' | 'buy' | 'open' | 'trade' | null
 }
 
 export interface DeckCompletionView {

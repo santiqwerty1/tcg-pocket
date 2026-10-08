@@ -321,7 +321,7 @@ describe('laboratorio (e2e)', () => {
       locked: ['Mega-Blaziken ex'],
       dryRun: true,
     })
-    expect(plan).toMatchObject({ queued: false, simulable: true, gamesPerRound: 3 * 3 * 40 })
+    expect(plan).toMatchObject({ queued: false, simulable: true, gamesPerRound: 3 * 3 * 60 })
     const firstRound = plan.firstRound as { out: string[] }[]
     expect(firstRound).toHaveLength(2)
     for (const variant of firstRound) for (const line of variant.out) expect(line).not.toMatch(/Mega-Blaziken ex/)

@@ -1,12 +1,14 @@
 /**
- * «Disponible» and «tiempo limitado» (with its last day) per pack, and the rarity rules (points, confirmed,
- * tradeable): owner settings.
+ * «Disponible» and «tiempo limitado» (with its last day) per pack, the rarity rules (points, confirmed, tradeable)
+ * and the pack points saved per expansion: owner settings.
  */
-import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
-import { type PackPatch, usePacks, useRarityRules, useSetRarityRule, useUpdatePack } from '@/api/packs'
+import { type PackPatch, packKeys, usePacks, useRarityRules, useSetRarityRule, useUpdatePack } from '@/api/packs'
 import type { PackInfo, RarityRuleInfo } from '@/api/schemas'
+import { useSetSetting, useSettings } from '@/api/settings'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Input } from '@/components/ui/input'
@@ -89,6 +91,101 @@ function PackRow({ pack, onChange }: { pack: PackInfo; onChange: (patch: PackPat
   )
 }
 
+const POINTS_KEY = 'packPoints'
+
+function readPoints(value: unknown): Record<string, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out: Record<string, number> = {}
+  for (const [key, points] of Object.entries(value)) {
+    if (typeof points === 'number' && Number.isInteger(points) && points >= 0) out[key] = points
+  }
+  return out
+}
+
+function PointsRow({
+  expansionId,
+  name,
+  value,
+  onSave,
+}: {
+  expansionId: string
+  name: string
+  value: number
+  onSave: (points: number) => void
+}) {
+  const [text, setText] = useState(value > 0 ? String(value) : '')
+  return (
+    <li className="grid min-h-11 grid-cols-[1fr_6rem] items-center gap-3 px-3 py-1 text-sm">
+      <span className="min-w-0 truncate">
+        {name} <span className="text-muted-foreground">· {expansionId}</span>
+      </span>
+      <Input
+        aria-label={`Puntos guardados de ${name}`}
+        inputMode="numeric"
+        className="h-9"
+        placeholder="0"
+        value={text}
+        onChange={(event) => setText(event.target.value.replace(/\D/g, ''))}
+        onBlur={() => {
+          const next = text === '' ? 0 : Math.min(1_000_000, Number(text))
+          if (next !== value) onSave(next)
+        }}
+      />
+    </li>
+  )
+}
+
+/** Pack points already saved per expansion: they can be spent even after its packs leave the shop (S-002). */
+function SavedPoints() {
+  const packs = usePacks()
+  const settings = useSettings()
+  const setSetting = useSetSetting()
+  const queryClient = useQueryClient()
+  const saved = readPoints(settings.data?.[POINTS_KEY])
+  const expansions = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const pack of packs.data ?? [])
+      if (!seen.has(pack.expansionId)) seen.set(pack.expansionId, pack.expansionNameEs)
+    return [...seen]
+  }, [packs.data])
+
+  async function save(expansionId: string, points: number) {
+    const next = { ...saved, [expansionId]: points }
+    if (points === 0) delete next[expansionId]
+    try {
+      await setSetting.mutateAsync({ key: POINTS_KEY, value: next })
+      await queryClient.invalidateQueries({ queryKey: packKeys.all })
+    } catch (error) {
+      toast.error(errorMessage(error))
+    }
+  }
+
+  return (
+    <details className="rounded-lg border">
+      <summary className="cursor-pointer px-3 py-2 font-medium select-none">Puntos de sobre guardados</summary>
+      <p className="px-3 pb-2 text-xs text-muted-foreground">
+        Los puntos de cada expansión se pueden canjear aunque sus sobres ya no estén a la venta. Si alcanzan para una
+        carta que te falta, la recomendación dice «canjear».
+      </p>
+      {packs.isPending || settings.isPending ? <LoadingRows rows={3} /> : null}
+      {settings.isError ? <ErrorState error={settings.error} onRetry={() => settings.refetch()} /> : null}
+      {settings.data ? (
+        <ul className="divide-y border-t">
+          {expansions.map(([expansionId, name]) => (
+            <PointsRow
+              key={expansionId}
+              expansionId={expansionId}
+              name={name}
+              value={saved[expansionId] ?? 0}
+              onSave={(points) => void save(expansionId, points)}
+            />
+          ))}
+        </ul>
+      ) : null}
+    </details>
+  )
+}
+
 export function PackSettings() {
   const packs = usePacks()
   const rules = useRarityRules()
@@ -126,7 +223,7 @@ export function PackSettings() {
       <details className="rounded-lg border">
         <summary className="cursor-pointer px-3 py-2 font-medium select-none">Puntos de sobre e intercambio</summary>
         <p className="px-3 pb-2 text-xs text-muted-foreground">
-          Costos del tracker; ✵ y ✵✵ vienen de fuentes de la comunidad. Marcá «confirmado» cuando lo veas en el juego.
+          Costos del tracker; ✵ y ✵✵ confirmados en el juego el 8/10/2026. Marcá «confirmado» cuando veas los demás.
         </p>
         {rules.isPending ? <LoadingRows rows={3} /> : null}
         {rules.isError ? <ErrorState error={rules.error} onRetry={() => rules.refetch()} /> : null}
@@ -136,6 +233,7 @@ export function PackSettings() {
           ))}
         </ul>
       </details>
+      <SavedPoints />
     </Section>
   )
 }

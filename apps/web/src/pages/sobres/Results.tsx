@@ -153,7 +153,9 @@ function MissingRow({ item }: { item: MissingCard }) {
           {item.nameEs}
         </Link>
         <span className="shrink-0 text-muted-foreground tabular">falta {item.missing}</span>
-        {item.advice === 'buy' ? (
+        {item.advice === 'redeem' ? (
+          <Badge className="bg-success text-white">canjear</Badge>
+        ) : item.advice === 'buy' ? (
           <Badge className="bg-success text-white">comprar</Badge>
         ) : item.advice === 'open' ? (
           <Badge variant="secondary">abrir</Badge>
@@ -164,6 +166,13 @@ function MissingRow({ item }: { item: MissingCard }) {
       <div className="text-xs text-muted-foreground">
         {item.decks.map((deck) => `${deck.name} (${deck.priority})`).join(' · ')}
       </div>
+      {item.redeem ? (
+        <div className="text-xs text-success">
+          Con tus puntos guardados: <span className="font-mono">{item.redeem.cardId}</span>{' '}
+          {rarityLabel(item.redeem.rarity)} · {item.redeem.points} puntos (tenés {item.redeem.saved}; alcanzan para{' '}
+          {item.redeem.copies} {item.redeem.copies === 1 ? 'copia' : 'copias'})
+        </div>
+      ) : null}
       <div className="text-xs">
         {item.cheapest ? (
           <>

@@ -34,10 +34,11 @@ export interface ExploreConfig {
   acceptZ: number
 }
 
+/** The «profunda» search Santi chose on 8/10/2026 (D-018): less noise, more changes tried, about an hour at most. */
 export const DEFAULT_EXPLORE_CONFIG: ExploreConfig = {
-  gamesPerRival: 40,
-  variantsPerRound: 6,
-  maxRounds: 8,
+  gamesPerRival: 60,
+  variantsPerRound: 8,
+  maxRounds: 12,
   patience: 3,
   confirmGames: 100,
   pool: 'collection',

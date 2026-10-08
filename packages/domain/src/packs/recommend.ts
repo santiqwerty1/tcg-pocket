@@ -29,17 +29,20 @@ export interface RarityRule {
   tradeable: boolean
 }
 
-/** Tracker craftingCost plus ✵/✵✵ from community sources, unverified (PLAN §3.4, B9). */
+/**
+ * Tracker craftingCost plus ✵/✵✵ (PLAN §3.4, B9). Confirmed by Santi in the game on 8/10/2026 (P-003, P-004): ✵ and ✵✵
+ * cost 1000 and 1350 points; ◊ to ◊◊◊◊, ☆, ☆☆, ✵ and ✵✵ can be traded, ☆☆☆, ♛ and promos cannot.
+ */
 export const DEFAULT_RARITY_RULES: Readonly<Record<Rarity, RarityRule>> = {
   '◊': { points: 35, verified: false, tradeable: true },
   '◊◊': { points: 70, verified: false, tradeable: true },
   '◊◊◊': { points: 150, verified: false, tradeable: true },
   '◊◊◊◊': { points: 500, verified: false, tradeable: true },
   '☆': { points: 400, verified: false, tradeable: true },
-  '☆☆': { points: 1250, verified: false, tradeable: false },
+  '☆☆': { points: 1250, verified: false, tradeable: true },
   '☆☆☆': { points: 1500, verified: false, tradeable: false },
-  '✵': { points: 1000, verified: false, tradeable: false },
-  '✵✵': { points: 1350, verified: false, tradeable: false },
+  '✵': { points: 1000, verified: true, tradeable: true },
+  '✵✵': { points: 1350, verified: true, tradeable: true },
   'Crown Rare': { points: 2500, verified: false, tradeable: false },
   P: { points: null, verified: false, tradeable: false },
 }
@@ -90,6 +93,11 @@ export interface RecommendInput {
   today?: string
   /** ≥ 1: weight of the wanted cards only a limited pack gives (no pack that stays does). Default 2. */
   limitedBoost?: number
+  /**
+   * Pack points already saved, per expansion (Sobres → Ajustes). They can be spent even after the expansion's packs
+   * left the shop (S-002, refuted by Santi on 8/10/2026). None when omitted.
+   */
+  savedPoints?: ((expansionId: string) => number) | undefined
 }
 
 export type ModelDifferenceReason = 'babies' | 'reprints'
@@ -164,16 +172,22 @@ export interface MissingCardRow {
   retiredCheapest: PrintCost | null
   /** Some version can be traded (tradeable rarity and expansion). */
   tradeable: boolean
+  /**
+   * The cheapest print the points already saved in its expansion pay for, with the balance and how many of the
+   * missing copies it covers. Each card is checked alone against the balance, like lists against the collection.
+   */
+  redeem: (PrintCost & { saved: number; copies: number }) | null
   bestPack: { packId: string; probability: number; packsPerCopy: number; limited: boolean } | null
   /** When the best pack is a limited one: the best pack that stays (null = none gives it). */
   afterLimited: { packId: string; probability: number; packsPerCopy: number } | null
   /** Points of the cheapest print, in packs opened (5 points each). */
   pointsInPacks: number | null
   /**
-   * «buy» when the points cost fewer packs than the expected packs to pull it; «trade» when no pack on sale gives it
-   * and it cannot be bought, but a version can be traded (the Deluxe ex left the shop, DECISIONES 4.10).
+   * «redeem» when the points already saved pay for it (nothing to open or earn); «buy» when the points cost fewer
+   * packs than the expected packs to pull it; «trade» when no pack on sale gives it and it cannot be bought, but a
+   * version can be traded (the Deluxe ex left the shop, DECISIONES 4.10).
    */
-  advice: 'buy' | 'open' | 'trade' | null
+  advice: 'redeem' | 'buy' | 'open' | 'trade' | null
 }
 
 export interface DeckCompletion {
@@ -244,6 +258,33 @@ export function cheapestPrint(
       points: rule.points,
       verified: rule.verified,
       tradeable: isTradeable(index, card, rarityRule),
+    }
+  }
+  return best
+}
+
+/** The cheapest print of a functional card that `saved` points of its own expansion already pay for. */
+export function redeemablePrint(
+  index: CatalogIndex,
+  groupId: CardId,
+  rarityRule: (rarity: Rarity) => RarityRule,
+  saved: (expansionId: string) => number,
+  missing: number,
+): (PrintCost & { saved: number; copies: number }) | null {
+  let best: (PrintCost & { saved: number; copies: number }) | null = null
+  for (const card of index.cardsOfGroup(groupId)) {
+    const rule = rarityRule(card.rarity)
+    if (rule.points === null || rule.points <= 0) continue
+    const balance = saved(card.expansionId)
+    if (balance < rule.points || (best && best.points <= rule.points)) continue
+    best = {
+      cardId: card.id,
+      rarity: card.rarity,
+      points: rule.points,
+      verified: rule.verified,
+      tradeable: isTradeable(index, card, rarityRule),
+      saved: balance,
+      copies: Math.min(Math.max(1, missing), Math.floor(balance / rule.points)),
     }
   }
   return best
@@ -420,8 +461,13 @@ export function recommendPacks(input: RecommendInput): Recommendation {
       : cheapestPrint(index, deficit.groupId, input.rarityRule, (id) => !earnableExpansions.has(id))
     const tradeable = index.cardsOfGroup(deficit.groupId).some((card) => isTradeable(index, card, input.rarityRule))
     const pointsInPacks = cheapest ? cheapest.points / PACK_POINTS_PER_PACK : null
-    const advice: MissingCardRow['advice'] =
-      pointsInPacks === null
+    const savedPoints = input.savedPoints
+    const redeem = savedPoints
+      ? redeemablePrint(index, deficit.groupId, input.rarityRule, savedPoints, deficit.missing)
+      : null
+    const advice: MissingCardRow['advice'] = redeem
+      ? 'redeem'
+      : pointsInPacks === null
         ? bestPack
           ? 'open'
           : tradeable
@@ -439,6 +485,7 @@ export function recommendPacks(input: RecommendInput): Recommendation {
       cheapest,
       retiredCheapest,
       tradeable,
+      redeem,
       bestPack,
       afterLimited: bestPack?.limited ? afterLimited : null,
       pointsInPacks,

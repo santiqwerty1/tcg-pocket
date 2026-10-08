@@ -296,6 +296,44 @@ describe('cards out of the packs on sale (the Deluxe ex left the shop, DECISIONE
     expect(retired.decks[0]?.notInPacks).toEqual([absent.nameEs])
   })
 
+  it('redeem with points already saved in its expansion, even when its packs left the shop (S-002, 8/10/2026)', () => {
+    const absent = index.catalog.cards.find(
+      (c) =>
+        c.expansionId === 'A1' &&
+        c.rarity === '◊' &&
+        (playableByGroup.get(c.functionalGroupId) ?? 0) === 0 &&
+        index.cardsOfGroup(c.functionalGroupId).every((other) => ['A1', 'A4b'].includes(other.expansionId)),
+    )
+    if (!absent) throw new Error('the collection has every A1 ◊ card')
+    const deck: DeckGoal = { deckId: '1', name: 'Prueba', priority: 1, cards: [{ cardId: absent.id, count: 2 }] }
+    const retiredPacks = (packId: string) => !packId.startsWith('A1/') && packId !== 'A4b/deluxepack'
+    // 80 points saved in A1 pay for two ◊ copies (35 each): «canjear» beats «intercambiar».
+    const enough = recommendPacks(
+      input({ decks: [deck], available: retiredPacks, savedPoints: (id) => (id === 'A1' ? 80 : 0) }),
+    )
+    expect(enough.missing[0]).toMatchObject({
+      advice: 'redeem',
+      redeem: { points: 35, saved: 80, copies: 2 },
+      tradeable: true,
+    })
+    // 50 points cover one of the two missing copies.
+    const one = recommendPacks(input({ decks: [deck], available: retiredPacks, savedPoints: () => 50 }))
+    expect(one.missing[0]?.redeem?.copies).toBe(1)
+    // Not enough points, or none saved: back to trading.
+    const short = recommendPacks(input({ decks: [deck], available: retiredPacks, savedPoints: () => 34 }))
+    expect(short.missing[0]).toMatchObject({ advice: 'trade', redeem: null })
+    expect(recommendPacks(input({ decks: [deck], available: retiredPacks })).missing[0]?.redeem).toBeNull()
+  })
+
+  it('rarity rules confirmed in the game (P-003, P-004): ✵ and ✵✵ verified; ☆☆, ✵ and ✵✵ can be traded', () => {
+    expect(DEFAULT_RARITY_RULES['✵']).toEqual({ points: 1000, verified: true, tradeable: true })
+    expect(DEFAULT_RARITY_RULES['✵✵']).toEqual({ points: 1350, verified: true, tradeable: true })
+    expect(DEFAULT_RARITY_RULES['☆☆'].tradeable).toBe(true)
+    expect(DEFAULT_RARITY_RULES['☆☆☆'].tradeable).toBe(false)
+    expect(DEFAULT_RARITY_RULES['Crown Rare'].tradeable).toBe(false)
+    expect(DEFAULT_RARITY_RULES.P.tradeable).toBe(false)
+  })
+
   it('counts the collection versions no pack on sale gives and how many can be traded', () => {
     const result = recommendPacks(input({ decks: [], collection: { rarities: [], copies: 1 } }))
     const out = result.collectionOutOfPacks

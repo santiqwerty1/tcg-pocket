@@ -768,12 +768,24 @@ export const missingCardSchema = z.object({
     .nullable()
     .default(null),
   tradeable: z.boolean(),
+  redeem: z
+    .object({
+      cardId: z.string(),
+      rarity: z.string(),
+      points: z.number(),
+      verified: z.boolean(),
+      tradeable: z.boolean(),
+      saved: z.number(),
+      copies: z.number(),
+    })
+    .nullable()
+    .default(null),
   bestPack: z
     .object({ ...packRefFields, probability: z.number(), packsPerCopy: z.number(), limited: z.boolean() })
     .nullable(),
   afterLimited: z.object({ ...packRefFields, probability: z.number(), packsPerCopy: z.number() }).nullable(),
   pointsInPacks: z.number().nullable(),
-  advice: z.enum(['buy', 'open', 'trade']).nullable(),
+  advice: z.enum(['redeem', 'buy', 'open', 'trade']).nullable(),
 })
 export type MissingCard = z.infer<typeof missingCardSchema>
 

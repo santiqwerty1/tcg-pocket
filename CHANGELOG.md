@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-08 (43 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-08 (44 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -43,6 +43,7 @@ _Borrador generado al 2026-10-08 (43 commits). Escribí el «porqué» fuera de 
 
 ### Documentado
 
+- lab deployed to production (T-008, D-018) `82da0d6`
 - phase 5 acceptance verified on production data `5848fdb`
 - phase 4 approved; pending decisions flagged for later review (P-005, T-003, D-007, D-008, D-009, P-002, P-004, S-002) `59eaf3d`
 - Obsidian vault with the Posta kit (tablero dialect) (D-009, R-007) `cacfa8a`

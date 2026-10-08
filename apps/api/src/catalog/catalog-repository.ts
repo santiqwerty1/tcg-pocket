@@ -20,6 +20,7 @@ import type {
   NameEsSource,
   Pack,
   Rarity,
+  RarityRule,
   StockUnit,
 } from '@tcg/domain'
 import { DEFAULT_RARITY_RULES, PACKS_LIMITED_BY_DEFAULT, PACKS_OFF_BY_DEFAULT } from '@tcg/domain'
@@ -28,8 +29,6 @@ import type { CatalogSyncStatus } from '../generated/prisma/enums.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { deleteNotIn, insertMany, upsertMany } from '../prisma/sql.js'
 
-/** Rarities tradeable by default (PLAN §8 B9); ✵/✵✵ costs stay "unverified" until confirmed in game. */
-const DEFAULT_TRADEABLE: ReadonlySet<string> = new Set(['◊', '◊◊', '◊◊◊', '◊◊◊◊', '☆'])
 /** Printed evolution exceptions (DECISIONES 0.15). */
 const EVOLUTION_ALIASES: ReadonlyArray<{ nameEn: string; countsAs: string }> = [
   { nameEn: 'Eevee ex', countsAs: 'Eevee' },
@@ -249,7 +248,8 @@ export class CatalogRepository {
         client,
         'rarity_rules',
         ['rarity', 'points', 'points_verified', 'tradeable'],
-        // Tracker craftingCost first; rarities it lacks (✵, ✵✵) come from the domain defaults, unverified.
+        // Tracker craftingCost first; rarities it lacks (✵, ✵✵) come from the domain defaults. Confirmed and tradeable
+        // flags are the domain defaults (P-003, P-004: confirmed by Santi in the game on 8/10/2026).
         Object.entries({
           ...Object.fromEntries(
             Object.entries(DEFAULT_RARITY_RULES)
@@ -257,7 +257,10 @@ export class CatalogRepository {
               .map(([rarity, rule]) => [rarity, rule.points]),
           ),
           ...catalog.craftingCost,
-        }).map(([rarity, points]) => [rarity, points, false, DEFAULT_TRADEABLE.has(rarity)]),
+        }).map(([rarity, points]) => {
+          const rule = DEFAULT_RARITY_RULES[rarity as Rarity] as RarityRule | undefined
+          return [rarity, points, rule?.verified ?? false, rule?.tradeable ?? false]
+        }),
         ['rarity'],
         { action: 'nothing' },
       )

@@ -745,13 +745,15 @@ ${MCP_WRITE_INSTRUCTIONS}`
             }
           : {}),
         advice:
-          item.advice === 'buy'
-            ? 'conviene comprarla con puntos'
-            : item.advice === 'open'
-              ? 'conviene abrir sobres'
-              : item.advice === 'trade'
-                ? 'ningún sobre a la venta la da ni se compra con puntos que se puedan ganar: conseguirla por intercambio'
-                : null,
+          item.advice === 'redeem' && item.redeem
+            ? `canjearla con los puntos guardados de su expansión: ${item.redeem.cardId} ${item.redeem.rarity}, ${item.redeem.points} puntos (tenés ${item.redeem.saved}; alcanzan para ${item.redeem.copies} ${item.redeem.copies === 1 ? 'copia' : 'copias'})`
+            : item.advice === 'buy'
+              ? 'conviene comprarla con puntos'
+              : item.advice === 'open'
+                ? 'conviene abrir sobres'
+                : item.advice === 'trade'
+                  ? 'ningún sobre a la venta la da ni se compra con puntos que se puedan ganar: conseguirla por intercambio'
+                  : null,
         ...(item.retiredCheapest
           ? {
               withSavedPoints: `si quedan puntos de su expansión: ${item.retiredCheapest.cardId} ${item.retiredCheapest.rarity}, ${item.retiredCheapest.points} puntos${item.retiredCheapest.verified ? '' : ' (sin verificar)'}`,

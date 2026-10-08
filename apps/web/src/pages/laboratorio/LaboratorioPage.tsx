@@ -337,9 +337,9 @@ function ExploreForm({ size }: { size: number }) {
   const [source, setSource] = useState<LabDeckSource | null>(null)
   const [pool, setPool] = useState<ExplorePool>('collection')
   const [locked, setLocked] = useState<string[]>([])
-  const [rounds, setRounds] = useState('8')
-  const [variants, setVariants] = useState('6')
-  const [games, setGames] = useState('40')
+  const [rounds, setRounds] = useState('12')
+  const [variants, setVariants] = useState('8')
+  const [games, setGames] = useState('60')
   const [confirmGames, setConfirmGames] = useState('100')
   const deckId = source && 'deckId' in source ? source.deckId : null
 
@@ -462,7 +462,7 @@ function LabJobsList() {
 }
 
 export function LaboratorioPage() {
-  const [size, setSize] = useState(10)
+  const [size, setSize] = useState(15)
   const bank = useLabBank(size)
   return (
     <div className="flex flex-col gap-6">

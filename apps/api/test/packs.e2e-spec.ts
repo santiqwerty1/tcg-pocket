@@ -117,7 +117,7 @@ describe('packs (e2e)', () => {
     expect((await patch('/api/packs/A1/mewtwopack').send({ limitedUntil: '30/11/2026' })).status).toBe(400)
   })
 
-  it('rarity rules: tracker costs plus ✵/✵✵ unverified; the owner can confirm them', async () => {
+  it('rarity rules: tracker costs plus ✵/✵✵ confirmed in the game (P-003, P-004); the owner can confirm the rest', async () => {
     const rules = (await get('/api/rarity-rules')).body.items as {
       rarity: string
       points: number | null
@@ -130,8 +130,10 @@ describe('packs (e2e)', () => {
       verified: false,
       tradeable: true,
     })
-    expect(rules.find((rule) => rule.rarity === '✵')).toMatchObject({ points: 1000, verified: false })
-    expect(rules.find((rule) => rule.rarity === '✵✵')).toMatchObject({ points: 1350, verified: false })
+    expect(rules.find((rule) => rule.rarity === '✵')).toMatchObject({ points: 1000, verified: true, tradeable: true })
+    expect(rules.find((rule) => rule.rarity === '✵✵')).toMatchObject({ points: 1350, verified: true, tradeable: true })
+    expect(rules.find((rule) => rule.rarity === '☆☆')).toMatchObject({ tradeable: true })
+    expect(rules.find((rule) => rule.rarity === '☆☆☆')).toMatchObject({ tradeable: false })
     expect(rules.find((rule) => rule.rarity === 'P')).toMatchObject({ points: null })
     const confirmed = await patch(`/api/rarity-rules/${encodeURIComponent('◊◊◊◊')}`).send({ verified: true })
     expect(confirmed.body).toEqual({ rarity: '◊◊◊◊', points: 500, verified: true, tradeable: true })
@@ -184,6 +186,14 @@ describe('packs (e2e)', () => {
         advice: 'open',
       }),
     ])
+    // 500 points saved in B4 already pay for the missing Hoopa ex: «canjear» first (S-002, 8/10/2026).
+    expect((await put('/api/settings/packPoints').send({ value: { B4: 500 } })).status).toBe(200)
+    const redeem = await post('/api/packs/recommend').send({ collection: null })
+    expect(redeem.body.missing[0]).toMatchObject({
+      advice: 'redeem',
+      redeem: { cardId: 'B4-103', points: 500, saved: 500, copies: 1 },
+    })
+    expect((await put('/api/settings/packPoints').send({ value: {} })).status).toBe(200)
     expect(body.decks[0]?.bestPacks[0]).toMatchObject({ packId: 'B4b/deluxepackmega', method: 'exact', limited: true })
     expect(body.decks[0]?.bestPacks[0]?.expectedPacks).toBeCloseTo(70, 6)
     expect(body.assumptions.length).toBeGreaterThan(3)

@@ -17,7 +17,8 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 - **Fase 7 (Claude de escritura, M8 parte 2) implementada el 8/10/2026**: `packages/domain/src/mcp/writeTools.ts` y `apps/api/src/mcp/mcp-write-tools.service.ts` (`decks_create`, `decks_update`, `matches_log`, `matches_update`, `matches_delete`, `simulations_enqueue`), registradas solo con `mcp:write`; `DeckRefResolver` compartido; revisiones y partidas con `source: mcp`. Aceptación en `apps/api/test/mcp-write.e2e-spec.ts`. Decisiones 7.1–7.6.
 - Decisiones de Santi del 8/10 aplicadas (DECISIONES 8.1–8.6): limitados ×3, costo en puntos de expansiones retiradas, viewer de deckgym en `/viewer/` (`pnpm viewer:build` lo compila en `apps/web/public/viewer`, no versionado; Docker lo hace solo), Posta activo, aviso de commits nuevos de deckgym.
 - **Laboratorio de mazos (T-008) implementado el 8/10/2026**: `packages/domain/src/lab` (banco del meta, puntaje ponderado, novedad, variantes con semilla y pesos por uso, reglas de la búsqueda), trabajo `explore` (migración `20261008180000_lab_explore`) orquestado por `apps/api/src/lab` (rondas en `LabService.advance`, llamado desde `WorkerQueueService.settle`), `/api/lab/*`, tools `lab_meta_bank`, `lab_results`, `lab_test` y `lab_explore`, y pantalla Más → Laboratorio de mazos. Decisiones 10.1–10.9.
-- Siguiente paso: visto bueno de la Fase 7 (T-009) y del laboratorio (T-008); después, la Fase 8.
+- Respuestas de Santi del 8/10 (tarde, DECISIONES 10.10–10.12): banco del meta de 15 y búsqueda profunda por defecto (D-018 vigente); rarezas confirmadas en el juego (✵ 1000, ✵✵ 1350; se intercambian ◊–◊◊◊◊, ☆, ☆☆, ✵, ✵✵; migración `20261008200000_rarity_rules_confirmed`); puntos guardados por expansión (ajuste `packPoints`, consejo «canjear»).
+- Siguiente paso: Fase 8 (jugar contra un bot y consistencia), pedida por Santi el 8/10; quedan para su prueba T-008 (laboratorio) y T-009 (Fase 7 desde el celu).
 
 ## Cómo trabajar acá
 

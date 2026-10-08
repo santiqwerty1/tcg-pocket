@@ -240,7 +240,8 @@ Recommendation = {
               tradeable,                                         // alguna versión se puede intercambiar
               bestPack: { packId, nameEs, expansionId, expansionNameEs, probability, packsPerCopy, limited } | null,
               afterLimited: { packId, nameEs, expansionId, expansionNameEs, probability, packsPerCopy } | null,
-              pointsInPacks, advice: 'buy'|'open'|'trade'|null }],
+              pointsInPacks, redeem: { cardId, rarity, points, verified, tradeable, saved, copies } | null,
+              advice: 'redeem'|'buy'|'open'|'trade'|null }],   // redeem: los puntos guardados de su expansión (ajuste packPoints) ya la pagan
               // «buy» si los puntos cuestan menos sobres que sacarla; «trade» si ningún sobre a la venta la da ni sus
               // puntos se pueden ganar; cheapest solo mira expansiones con algún sobre a la venta
   decks: [{ deckId, name, priority, missingCopies, notInPacks: string[],
@@ -350,13 +351,13 @@ Bots (`players`): `r` al azar, `w` al azar ponderado, `aa` adjunta y ataca, `et`
 
 ## Laboratorio de mazos (T-008)
 
-Probar mazos (míos, de torneo o pegados) contra el **banco del meta** y buscar variantes automáticamente. El banco: los N arquetipos más jugados de la era (5–20, 10 por defecto), cada uno con su lista representativa (la misma regla que la «versión de torneo»: entre las listas repetidas 5 veces o más, la de mejor piso del intervalo; si ninguna, la más jugada) y un **peso** = su cuota de listas normalizada sobre el banco. Una lista que el motor no puede simular cede su lugar a la siguiente del arquetipo (hasta 3) o el arquetipo se saltea. El **puntaje contra el meta** es el % de victorias contra cada rival ponderado por su peso (`W / (W + L + T)` por rival), con un intervalo aproximado (normal sobre las tasas por rival, cada una suavizada +2/+4 para su varianza). Juegan bots: es una pista, nunca se mezcla con torneos ni partidas propias.
+Probar mazos (míos, de torneo o pegados) contra el **banco del meta** y buscar variantes automáticamente. El banco: los N arquetipos más jugados de la era (5–20, 15 por defecto), cada uno con su lista representativa (la misma regla que la «versión de torneo»: entre las listas repetidas 5 veces o más, la de mejor piso del intervalo; si ninguna, la más jugada) y un **peso** = su cuota de listas normalizada sobre el banco. Una lista que el motor no puede simular cede su lugar a la siguiente del arquetipo (hasta 3) o el arquetipo se saltea. El **puntaje contra el meta** es el % de victorias contra cada rival ponderado por su peso (`W / (W + L + T)` por rival), con un intervalo aproximado (normal sobre las tasas por rival, cada una suavizada +2/+4 para su varianza). Juegan bots: es una pista, nunca se mezcla con torneos ni partidas propias.
 
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
 | `GET /api/lab/bank?era=&format=&size=` | `{ era, format, size, lists, coverage (0–100), rivals: [{ archetypeId, archetypeName, share, weight, listKey, listLists, listRate, rank, energies, cards: [{ cardId, nameEs, count }] }], skipped: [{ archetypeId, archetypeName, share, reason }], engineRev, attribution }` |
 | `POST /api/lab/test` | `{ decks: LabDeck[1..10], era?, format?, size?, gamesPerRival? (100), players? (e2, e2), seed?, label?, cores?, dryRun? }` → `JobSummary` (un trabajo `compare` contra el banco, `lab: 'test'`); con `dryRun`: `{ preview (como /api/simulations/preview), bank }` |
-| `POST /api/lab/explore` | `{ deck: LabDeck, locked?: cardId[], config?: { gamesPerRival 10–500 (40), variantsPerRound 1–12 (6), maxRounds 1–20 (8), patience 1–10 (3), confirmGames 0–1000 (100), pool: 'collection'\|'all', acceptZ 0–3 (1) }, era?, format?, size?, players?, seed?, label?, cores?, dryRun? }` → `JobSummary` (`kind: 'explore'`); con `dryRun`: `{ base (foto), bank, pool (cartas candidatas), firstRound: [{ add, remove }], config, games: { perRound, max }, estimatedSeconds: { perRound, max } }`; `400 no_variants` si no hay variantes válidas |
+| `POST /api/lab/explore` | `{ deck: LabDeck, locked?: cardId[], config?: { gamesPerRival 10–500 (60), variantsPerRound 1–12 (8), maxRounds 1–20 (12), patience 1–10 (3), confirmGames 0–1000 (100), pool: 'collection'\|'all', acceptZ 0–3 (1) }, era?, format?, size?, players?, seed?, label?, cores?, dryRun? }` → `JobSummary` (`kind: 'explore'`); con `dryRun`: `{ base (foto), bank, pool (cartas candidatas), firstRound: [{ add, remove }], config, games: { perRound, max }, estimatedSeconds: { perRound, max } }`; `400 no_variants` si no hay variantes válidas |
 | `GET /api/lab/jobs` | `{ items: (JobSummary & { mode, era })[] }` (pruebas y búsquedas, las más nuevas primero) |
 | `GET /api/lab/jobs/:id` | `LabJob` |
 
@@ -421,4 +422,4 @@ Documento (`schemaVersion: 4`): `{ schemaVersion, exportedAt, appVersion, catalo
 | Método y ruta | Respuesta |
 |---|---|
 | `GET /api/settings` | `{ [key]: value }` (solo las claves guardadas) |
-| `PUT /api/settings/:key` | `{ value }` (cualquier JSON) → `{ key, value }`; `400 validation` si la clave no es una de `ui`, `alpha`, `rarityFilter`, `tradeableRarities`, `rarityCosts`, `minPlayers` (torneos, entero ≥ 1), `backfillDays`, `cores`, `defaultBot`, `packModel`, `limitedBoost`, `packDeckTarget` (`saved` o `tournament`) |
+| `PUT /api/settings/:key` | `{ value }` (cualquier JSON) → `{ key, value }`; `400 validation` si la clave no es una de `ui`, `alpha`, `rarityFilter`, `tradeableRarities`, `rarityCosts`, `minPlayers` (torneos, entero ≥ 1), `backfillDays`, `cores`, `defaultBot`, `packModel`, `limitedBoost`, `packDeckTarget` (`saved` o `tournament`), `packPoints` (`{ [expansionId]: puntos guardados }`) |

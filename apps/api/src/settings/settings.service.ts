@@ -18,6 +18,8 @@ export const SETTING_KEYS = [
   'packModel',
   'limitedBoost',
   'packDeckTarget',
+  /** { [expansionId]: pack points saved } (S-002, 8/10/2026). */
+  'packPoints',
 ] as const
 export type SettingKey = (typeof SETTING_KEYS)[number]
 

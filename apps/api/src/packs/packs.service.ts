@@ -55,6 +55,7 @@ const settingSchemas = {
   rarityFilter: z.object({ rarities: z.array(z.enum(RARITIES)), copies: z.number().int().min(1).max(5) }).nullable(),
   limitedBoost: z.number().min(1).max(5),
   packDeckTarget: z.enum(['saved', 'tournament']),
+  packPoints: z.record(z.string(), z.number().int().min(0).max(1_000_000)),
 }
 
 const ASSUMPTIONS = [
@@ -62,7 +63,7 @@ const ASSUMPTIONS = [
   'Las posiciones de un sobre son independientes y una carta puede repetirse en el mismo sobre.',
   'Sobre raro (0,05 %) con cartas uniformes entre las elegibles; los Deluxe sin sobre raro.',
   'En sets con bebés, 8,33 % de sobres de 6 cartas con la sexta para bebés.',
-  'Los puntos de sobre son de la expansión: 5 por sobre abierto. Costos ✵/✵✵ sin verificar.',
+  'Los puntos de sobre son de la expansión: 5 por sobre abierto, y los guardados se pueden canjear aunque sus sobres ya no se vendan. Costos ✵/✵✵ confirmados en el juego.',
   'Cada sobre se evalúa solo; la mejor política es volver a mirar después de cada importación.',
   'Sobres por tiempo limitado: lo que solo ellos dan (otra carta funcional para los mazos, otra versión para la colección) pesa más hasta su último día; después dejan de estar a la venta.',
   'Versiones: dos números con el mismo internal_id del tracker son la misma versión (A1-1 = A4b-1); un arte u holo nuevo es otra versión de la misma carta funcional.',
@@ -202,6 +203,7 @@ export class PacksService {
       limited: (packId) => limited.get(packId) ?? null,
       today,
       limitedBoost,
+      savedPoints: (expansionId) => settings.packPoints?.[expansionId] ?? 0,
       rarityRule: (rarity: Rarity): RarityRule => {
         const rule = ruleByRarity.get(rarity)
         return rule
@@ -264,6 +266,7 @@ export class PacksService {
         cheapest: item.cheapest,
         retiredCheapest: item.retiredCheapest,
         tradeable: item.tradeable,
+        redeem: item.redeem,
         bestPack: item.bestPack
           ? {
               ...ref(item.bestPack.packId),
@@ -350,7 +353,7 @@ export class PacksService {
   /** Saved knobs, ignoring values that do not parse (a bad setting must not break the page). */
   private async savedSettings(): Promise<SavedSettings> {
     const rows = await this.prisma.appSetting.findMany({
-      where: { key: { in: ['alpha', 'packModel', 'rarityFilter', 'limitedBoost', 'packDeckTarget'] } },
+      where: { key: { in: ['alpha', 'packModel', 'rarityFilter', 'limitedBoost', 'packDeckTarget', 'packPoints'] } },
     })
     const out: SavedSettings = {}
     for (const row of rows) {
@@ -369,6 +372,9 @@ export class PacksService {
       } else if (row.key === 'packDeckTarget') {
         const parsed = settingSchemas.packDeckTarget.safeParse(row.value)
         if (parsed.success) out.packDeckTarget = parsed.data
+      } else if (row.key === 'packPoints') {
+        const parsed = settingSchemas.packPoints.safeParse(row.value)
+        if (parsed.success) out.packPoints = parsed.data
       }
     }
     return out
@@ -381,6 +387,7 @@ interface SavedSettings {
   rarityFilter?: CollectionGoal | null
   limitedBoost?: number
   packDeckTarget?: DeckTarget
+  packPoints?: Record<string, number>
 }
 
 export function assertPackId(expansionId: string, name: string): string {

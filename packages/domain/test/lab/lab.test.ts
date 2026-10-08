@@ -369,8 +369,8 @@ describe('search rules', () => {
 
   it('games per round and at most', () => {
     expect(exploreGames(DEFAULT_EXPLORE_CONFIG, 10)).toEqual({
-      perRound: 7 * 10 * 40,
-      max: 7 * 10 * 40 * 8 + 2 * 10 * 100,
+      perRound: 9 * 10 * 60,
+      max: 9 * 10 * 60 * 12 + 2 * 10 * 100,
     })
   })
 })

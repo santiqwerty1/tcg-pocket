@@ -10,7 +10,8 @@ import type { TournamentDataset } from '../tournaments/dataset.js'
 import { archetypeRows, entriesOfList, type ListRow, listRows, mostCommonEnergies } from '../tournaments/stats.js'
 
 export const GAUNTLET_SIZES = [5, 10, 15, 20] as const
-export const DEFAULT_GAUNTLET_SIZE = 10
+/** Santi chose 15 on 8/10/2026 (D-018): about 60 % of the era's lists. */
+export const DEFAULT_GAUNTLET_SIZE = 15
 export const MAX_GAUNTLET_SIZE = 20
 /** Lists of an archetype tried before skipping it. */
 const LISTS_TRIED = 3

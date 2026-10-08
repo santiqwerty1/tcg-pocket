@@ -210,7 +210,7 @@ export const MCP_WRITE_TOOLS = {
         .max(10)
         .optional()
         .describe('Listas pegadas (no se guardan como mazos)'),
-      size: z.number().int().min(1).max(20).optional().describe('Arquetipos del banco (por defecto 10)'),
+      size: z.number().int().min(1).max(20).optional().describe('Arquetipos del banco (por defecto 15)'),
       era: z
         .string()
         .regex(/^[A-Za-z0-9-]{1,8}$/)
@@ -248,15 +248,15 @@ export const MCP_WRITE_TOOLS = {
         .max(20)
         .optional()
         .describe('Cartas que nunca salen (nombre o código)'),
-      rounds: z.number().int().min(1).max(20).optional().describe('Rondas como máximo (por defecto 8)'),
-      variants: z.number().int().min(1).max(12).optional().describe('Variantes nuevas por ronda (por defecto 6)'),
+      rounds: z.number().int().min(1).max(20).optional().describe('Rondas como máximo (por defecto 12)'),
+      variants: z.number().int().min(1).max(12).optional().describe('Variantes nuevas por ronda (por defecto 8)'),
       games: z
         .number()
         .int()
         .min(10)
         .max(500)
         .optional()
-        .describe('Partidas por rival y lista en cada ronda (por defecto 40)'),
+        .describe('Partidas por rival y lista en cada ronda (por defecto 60)'),
       patience: z
         .number()
         .int()
@@ -271,7 +271,7 @@ export const MCP_WRITE_TOOLS = {
         .max(1000)
         .optional()
         .describe('Partidas por rival de la ronda de confirmación (por defecto 100; 0 sin confirmación)'),
-      size: z.number().int().min(1).max(20).optional().describe('Arquetipos del banco (por defecto 10)'),
+      size: z.number().int().min(1).max(20).optional().describe('Arquetipos del banco (por defecto 15)'),
       era: z
         .string()
         .regex(/^[A-Za-z0-9-]{1,8}$/)
