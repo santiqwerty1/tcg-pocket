@@ -27,7 +27,7 @@ revisar: false
 | 6.1 | Versión de torneo de cada mazo (pedido del 08/10) | hecho 08/10 · propuesto | 6 | [D-016](Decisiones/D-016.md) |
 | 7 | Claude de escritura (M8 parte 2) | hecho 08/10 · falta probarla desde el celu ([T-009](Tareas/T-009.md)) y tu visto bueno | 6 | [D-017](Decisiones/D-017.md) |
 | 7.1 | Laboratorio de mazos (pedido del 08/10) | hecho 08/10 · desplegado (`dc2dcad`) · falta tu visto bueno | 7 | [T-008](Tareas/T-008.md), [D-018](Decisiones/D-018.md) |
-| 8 | Jugar contra un bot, consistencia, sustitutos, avisos y misiones | hecho 08/10 · probado en la demo · falta subir, desplegar y tu visto bueno | 7.1 | [T-011](Tareas/T-011.md), [D-019](Decisiones/D-019.md) |
+| 8 | Jugar contra un bot, consistencia, sustitutos, avisos y misiones | hecho 08/10 · desplegado (`d8728e7`), catálogo con misiones, worker 0.2.0 · falta tu visto bueno | 7.1 | [T-011](Tareas/T-011.md), [D-019](Decisiones/D-019.md) |
 | K | Bóveda con el kit de Posta | hecho 07/10 · propuesto | — | [D-009](Decisiones/D-009.md) |
 
 ## Próximos pasos

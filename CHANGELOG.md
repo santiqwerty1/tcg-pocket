@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-08 (45 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-08 (46 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- phase 8 — play against a bot, deck consistency, substitutes, alerts, missions (D-019, T-011) `d8728e7`
 - Santi's answers of 8/10 — deep lab defaults, confirmed rarities, saved pack points (D-018, P-003, P-004, S-002) (P-002) `64e6e38`
 - deck laboratory — meta bank, tests against it, automatic search of variants (T-008) (D-018) `dc2dcad`
 - «armado» checkbox in the deck list; ← → between decks `2a66a25`
