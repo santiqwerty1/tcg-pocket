@@ -6,8 +6,8 @@
  */
 
 import { EventEmitter } from 'node:events'
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
-import { checkPerGame, PER_GAME_WORKER_VERSION, wantsPerGame } from '@tcg/domain'
+import { BadRequestException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
+import { checkPerGame, PER_GAME_CLI_VERSION, PER_GAME_WORKER_VERSION, wantsPerGame } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import type { Prisma } from '../generated/prisma/client.js'
 import { gunzipJson } from '../http/gunzip.js'
@@ -141,7 +141,9 @@ export class WorkerQueueService {
     // H-002: versions compared as numbers here, not as text in SQL («0.2.10» < «0.2.2» as text).
     const consistency = versionAtLeast(hello.version, CONSISTENCY_WORKER_VERSION)
     const metaConsistency = versionAtLeast(hello.version, META_CONSISTENCY_WORKER_VERSION)
-    const perGame = versionAtLeast(hello.version, PER_GAME_WORKER_VERSION)
+    // perGame needs both: a worker that forwards it and an engine that plays it.
+    const perGame =
+      versionAtLeast(hello.version, PER_GAME_WORKER_VERSION) && versionAtLeast(hello.cliVersion, PER_GAME_CLI_VERSION)
     const rows = await this.prisma.$queryRaw<{ id: number }[]>`
       UPDATE simulation_chunks SET status = 'leased', lease_until = now() + interval '3 minutes',
         worker_id = ${hello.workerId}, games_done = 0, started_at = COALESCE(started_at, now())
@@ -284,21 +286,24 @@ export class WorkerQueueService {
     return { leaseUntil: leaseUntil.toISOString(), cancelled: false, lost: false }
   }
 
+  /**
+   * A result that does not add up counts as an engine failure of the chunk (422): the same seed gives the same
+   * result, so turning it down without failing the chunk would hand it out, play it and turn it down forever.
+   */
   async result(id: number, input: ChunkResultInput): Promise<{ accepted: boolean }> {
     const chunk = await this.requireChunk(id)
     if (chunk.status === 'done' || chunk.status === 'cancelled') return { accepted: false }
-    if (input.winsA + input.winsB + input.ties !== input.games) {
-      throw new BadRequestException({ code: 'validation', message: 'winsA + winsB + ties tiene que sumar games.' })
-    }
-    if (chunk.job.kind !== 'optimize' && input.games !== chunk.games) {
-      throw new BadRequestException({
-        code: 'validation',
-        message: `El chunk tiene ${chunk.games} partidas, no ${input.games}.`,
-      })
-    }
-    if (perGamePairing(chunk.job.kind, chunk.job.params)) {
-      const problem = checkPerGame((input.extra as { perGame?: unknown } | undefined)?.perGame, input)
-      if (problem) throw new BadRequestException({ code: 'validation', message: problem })
+    const problem =
+      input.winsA + input.winsB + input.ties !== input.games
+        ? 'winsA + winsB + ties tiene que sumar games.'
+        : chunk.job.kind !== 'optimize' && input.games !== chunk.games
+          ? `El chunk tiene ${chunk.games} partidas, no ${input.games}.`
+          : perGamePairing(chunk.job.kind, chunk.job.params)
+            ? checkPerGame((input.extra as { perGame?: unknown } | undefined)?.perGame, input)
+            : null
+    if (problem) {
+      await this.failure(id, { workerId: input.workerId, error: `Resultado inválido: ${problem}` })
+      throw new UnprocessableEntityException({ code: 'invalid_result', message: problem })
     }
     await this.prisma.simulationChunk.update({
       where: { id },
