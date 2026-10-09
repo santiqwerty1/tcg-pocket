@@ -341,6 +341,27 @@ describe('matches (e2e)', () => {
     expect(hoopa.turn).toEqual({ first: { wins: 6, losses: 1, ties: 0 }, second: { wins: 1, losses: 5, ties: 0 } })
   })
 
+  it('sin señal (Fase 28): a match sent twice with its clientRef is stored once, dated by how long ago it was played', async () => {
+    const clientRef = '3f1c2b9e-8a47-4d1e-9c0b-5a6e7d8f9a01'
+    const body = {
+      deckId: deck(1).id,
+      result: 'win',
+      opponent: 'Pikachu ex',
+      clientRef,
+      playedAgoMs: 2 * 60 * 60 * 1000,
+    }
+    const first = await post('/api/matches').send(body)
+    expect(first.status).toBe(201)
+    const playedAgo = Date.now() - new Date(first.body.playedAt).getTime()
+    expect(playedAgo).toBeGreaterThan(2 * 60 * 60 * 1000 - 60_000)
+    expect(playedAgo).toBeLessThan(2 * 60 * 60 * 1000 + 60_000)
+    const again = await post('/api/matches').send(body)
+    expect(again.status).toBe(201)
+    expect(again.body.id).toBe(first.body.id)
+    expect((await get(`/api/matches?opponent=${encodeURIComponent('Pikachu ex')}`)).body.total).toBe(1)
+    expect((await post('/api/matches').send({ ...body, clientRef: 'nope' })).status).toBe(400)
+  })
+
   it('buscador único (Fase 27): cards, decks, matches and notes, accents and case ignored', async () => {
     await log({ deckId: deck(1).id, result: 'loss', opponent: 'Gyarados ex', note: 'me ganó con Dragonite' })
     await test

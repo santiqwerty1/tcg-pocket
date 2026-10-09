@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-09 (74 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-09 (75 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- one search box for the whole app (phase 27, T-013) `b12f3ca`
 - the «Hoy» screen (phase 26, T-013) `ec1e656`
 - does going first matter? (phase 25, T-013) `556f0fe`
 - situations to solve from your own games with the coach (phase 24) `ab29fd3`

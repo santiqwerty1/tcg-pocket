@@ -48,7 +48,7 @@ revisar: false
 | 25 | ¿Empezaste vos? y estadísticas por orden de turno | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
 | 26 | Pantalla «Hoy» | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
 | 27 | Buscador único | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
-| 28 | Cargar partidas sin señal | pendiente | — | [T-013](Tareas/T-013.md) |
+| 28 | Cargar partidas sin señal | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
 | 29 | Claude analiza una partida | pendiente | — | [T-013](Tareas/T-013.md) |
 | 30 | Ejercicios de cálculo | pendiente | — | [T-013](Tareas/T-013.md) |
 | 31 | Lista de intercambio | pendiente | — | [T-013](Tareas/T-013.md) |

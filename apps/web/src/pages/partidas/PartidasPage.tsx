@@ -5,6 +5,7 @@ import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
 import { MatchList } from './MatchList'
+import { PendingMatches } from './PendingMatches'
 import { QuickMatchForm } from './QuickMatchForm'
 import { TodayStrip } from './TodayStrip'
 
@@ -19,7 +20,9 @@ export function PartidasPage() {
       <TodayStrip />
       <Section title="Nueva partida">
         {suggestions.isPending ? <LoadingRows rows={5} /> : null}
-        {suggestions.isError ? <ErrorState error={suggestions.error} onRetry={() => suggestions.refetch()} /> : null}
+        {suggestions.isError && !suggestions.data ? (
+          <ErrorState error={suggestions.error} onRetry={() => suggestions.refetch()} />
+        ) : null}
         {suggestions.data && suggestions.data.decks.length === 0 ? (
           <EmptyState
             title="Primero necesitás un mazo"
@@ -35,6 +38,8 @@ export function PartidasPage() {
           <QuickMatchForm suggestions={suggestions.data} preferredDeckId={params.get('mazo')} />
         ) : null}
       </Section>
+
+      <PendingMatches />
 
       <div className="grid grid-cols-2 gap-2">
         <Button variant="outline" asChild>

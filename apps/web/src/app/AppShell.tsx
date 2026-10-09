@@ -3,6 +3,7 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 import { createPortal } from 'react-dom'
 import { Outlet, useMatches, useNavigate } from 'react-router'
 import { GlobalSearch } from '@/components/GlobalSearch'
+import { OfflineSync } from '@/components/OfflineSync'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
 import { BottomNav } from './BottomNav'
@@ -80,6 +81,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
             <div ref={setHeaderSlot} className="flex shrink-0 items-center empty:hidden" />
             <GlobalSearch />
           </div>
+          <OfflineSync />
         </header>
         <main className="mx-auto w-full max-w-3xl px-4 pt-4 pb-28">{children ?? <Outlet />}</main>
         <BottomNav />

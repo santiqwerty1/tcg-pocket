@@ -6,6 +6,12 @@
 let resetting = false
 
 export async function clearClientCaches(): Promise<void> {
+  // Fase 28: the copy of the match suggestions goes too (the matches not sent yet stay: they are Santi's).
+  try {
+    localStorage.removeItem('tcg.match-suggestions')
+  } catch {
+    // Storage blocked: nothing stored.
+  }
   if (typeof caches !== 'undefined') {
     try {
       const keys = await caches.keys()

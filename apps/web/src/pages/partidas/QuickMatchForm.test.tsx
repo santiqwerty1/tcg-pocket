@@ -138,6 +138,7 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
       opponent: 'Mega-Blaziken ex',
       wentFirst: true,
       mode: 'competitive',
+      clientRef: expect.stringMatching(/^[0-9a-f-]{36}$/),
     })
     expect(await screen.findByText('Victoria con Zoroark ex / Mega-Absol ex contra Mega-Blaziken ex')).toBeVisible()
     // Ready for the next match: same deck and mode, the rest cleared.
@@ -198,6 +199,52 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
     await user.click(within(form).getByRole('button', { name: 'Distendida' }))
     await user.click(within(form).getByRole('button', { name: /Guardar partida/ }))
     await waitFor(() => expect(posted).toHaveLength(1))
-    expect(posted[0]).toEqual({ deckId: '15', result: 'loss', opponent: 'garde', wentFirst: null, mode: 'casual' })
+    expect(posted[0]).toEqual({
+      deckId: '15',
+      result: 'loss',
+      opponent: 'garde',
+      wentFirst: null,
+      mode: 'casual',
+      clientRef: expect.any(String),
+    })
+  })
+
+  it('without signal keeps the match on the phone and sends it once the signal is back (Fase 28)', async () => {
+    const user = userEvent.setup()
+    const online = vi.mocked(fetch).getMockImplementation()
+    let signal = false
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (!signal && String(input).startsWith('/api/matches') && init?.method === 'POST') {
+        throw new TypeError('Failed to fetch')
+      }
+      return (online as typeof fetch)(input, init)
+    })
+    renderAt('/partidas')
+    const form = await screen.findByRole('form', { name: 'Nueva partida' })
+    await user.click(within(form).getByRole('button', { name: 'Victoria' }))
+    await user.click(within(form).getByRole('button', { name: 'Gardevoir ex' }))
+    await user.click(within(form).getByRole('button', { name: /Guardar partida/ }))
+
+    expect(await screen.findByText('Sin enviar (1)')).toBeVisible()
+    expect(screen.getByText('Sin señal: quedó en el celu y se envía sola cuando vuelva.')).toBeVisible()
+    expect(screen.getAllByText('Victoria con Zoroark ex / Mega-Absol ex contra Gardevoir ex').length).toBeGreaterThan(0)
+    expect(within(form).getByRole('button', { name: 'Victoria' })).not.toHaveAttribute('aria-pressed', 'true')
+    expect(posted).toHaveLength(0)
+
+    signal = true
+    await user.click(screen.getByRole('button', { name: /Enviar ahora/ }))
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toEqual({
+      deckId: '7',
+      result: 'win',
+      opponent: 'Gardevoir ex',
+      wentFirst: null,
+      mode: 'competitive',
+      clientRef: expect.any(String),
+      playedAgoMs: expect.any(Number),
+    })
+    await waitFor(() => expect(screen.queryByText('Sin enviar (1)')).toBeNull())
+    expect(await screen.findByText('Se envió la partida guardada sin señal')).toBeVisible()
+    expect(localStorage.getItem('tcg.pending-matches')).toBeNull()
   })
 })

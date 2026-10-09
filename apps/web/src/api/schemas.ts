@@ -588,6 +588,10 @@ export interface MatchInput {
   mode?: MatchMode
   note?: string
   playedAt?: string
+  /** Fase 28: the phone's id of the match (a second send stores it once). */
+  clientRef?: string
+  /** Fase 28: how long ago it was played, measured on the phone (for a match saved without signal). */
+  playedAgoMs?: number
 }
 
 export const pickerDeckSchema = z.object({

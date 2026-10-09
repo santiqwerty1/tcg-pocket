@@ -4,6 +4,8 @@ import { afterEach } from 'vitest'
 
 afterEach(() => {
   cleanup()
+  // Fase 28 keeps the match suggestions and the matches not sent yet in localStorage: each test starts clean.
+  if (typeof localStorage !== 'undefined') localStorage.clear()
 })
 
 // jsdom lacks matchMedia and ResizeObserver, which Radix and sonner read at render time.

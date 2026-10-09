@@ -41,6 +41,7 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 - **Fase 25 implementada el 9/10/2026** (DECISIONES 28.1–28.2): ¿importa empezar? — `turnOrderImpact`/`opponentTurns` (dominio), `turnOrder` en `/api/matches/stats` y `turn` en `/api/decks/:id/matchups`, `TurnOrderCard`, ajuste `askWentFirst`.
 - **Fase 26 implementada el 9/10/2026** (DECISIONES 29.1–29.2): pantalla «Hoy» — `TodayStrip` arriba de la carga rápida, pestaña «Hoy», `lib/seen.ts`.
 - **Fase 27 implementada el 9/10/2026** (DECISIONES 30.1–30.2): buscador único — `apps/api/src/search` (`GET /api/search`), `GlobalSearch` en el encabezado (lupa y tecla «/»).
+- **Fase 28 implementada el 9/10/2026** (DECISIONES 31.1–31.5): partidas sin señal — `matches.client_ref` (migración `20261009070000_match_client_ref`), `clientRef` y `playedAgoMs` en `POST /api/matches`, cola en el celu (`apps/web/src/lib/offlineMatches.ts`), `OfflineSync` en el marco de la app y «Sin enviar» en Hoy.
 - **Visto bueno de Santi para todo el 8/10/2026**: fases 0–8 del plan, laboratorio y ajustes aprobados; no queda nada esperando su revisión. Siguiente paso: lo que pida Santi (abiertos: remapeo I12 al cambiar el catálogo, R-001; CI antes de cada deploy, R-007).
 
 ## Cómo trabajar acá

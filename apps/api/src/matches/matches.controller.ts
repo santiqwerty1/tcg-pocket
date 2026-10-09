@@ -27,8 +27,18 @@ const matchInputSchema = z.object({
   mode: z.enum(MATCH_MODES).optional(),
   note: z.string().max(MATCH_NOTE_MAX_LENGTH).optional(),
   playedAt: isoDateTime.optional(),
+  /** Fase 28: the phone's id of the match (sending it again stores it once). */
+  clientRef: z.uuid().optional(),
+  /** Fase 28: how long ago it was played, by the phone's own clock (a wrong clock does not matter). */
+  playedAgoMs: z
+    .number()
+    .int()
+    .min(0)
+    .max(30 * 24 * 60 * 60 * 1000)
+    .optional(),
 })
 const matchPatchSchema = matchInputSchema
+  .omit({ clientRef: true, playedAgoMs: true })
   .partial()
   .refine((patch) => Object.keys(patch).length > 0, { message: 'Mandá al menos un campo.' })
 const listQuerySchema = z.object({

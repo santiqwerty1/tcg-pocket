@@ -102,6 +102,10 @@ export interface MatchInput {
   note?: string | undefined
   /** ISO 8601; default: now (server clock, so a phone with a wrong clock does not matter). */
   playedAt?: string | undefined
+  /** Fase 28: the phone's id of a match saved without signal; a second create with it returns the first match. */
+  clientRef?: string | undefined
+  /** Fase 28: how long ago it was played (measured on the phone, so its clock does not matter); `playedAt` wins. */
+  playedAgoMs?: number | undefined
 }
 
 export type MatchPatch = Partial<MatchInput>
@@ -499,8 +503,14 @@ export class MatchesService {
   // ---------------------------------------------------------------------------------------------------------------
 
   async create(input: MatchInput, source: MatchSource = 'ui'): Promise<MatchView> {
+    if (input.clientRef) {
+      const sent = await this.prisma.match.findUnique({ where: { clientRef: input.clientRef }, include: matchInclude })
+      if (sent) return toView(sent)
+    }
     const deck = await this.requireDeckWithRevisions(input.deckId)
-    const explicit = parseDate(input.playedAt, 'playedAt')
+    const explicit =
+      parseDate(input.playedAt, 'playedAt') ??
+      (input.playedAgoMs !== undefined ? new Date(Date.now() - input.playedAgoMs) : undefined)
     const playedAt = explicit ?? new Date()
     assertNotFuture(playedAt)
     // Logged now: the current revision. Dated by hand: the revision that was current at that time.
@@ -519,6 +529,7 @@ export class MatchesService {
         note: input.note?.trim() ?? '',
         playedAt,
         source,
+        clientRef: input.clientRef ?? null,
       },
       include: matchInclude,
     })

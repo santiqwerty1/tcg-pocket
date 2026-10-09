@@ -435,6 +435,8 @@ model Match {
   note           String       @default("")
   playedAt       DateTime     @default(now()) @map("played_at") @db.Timestamptz(3)
   source         MatchSource  @default(ui)
+  /// Fase 28: the phone's id of a match saved without signal (a retry stores it once).
+  clientRef      String?      @unique @map("client_ref")
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 

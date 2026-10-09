@@ -238,6 +238,10 @@ Fase 25: `GET /api/matches/stats` suma `turnOrder: { first, second, unknown, cov
 |---|---|
 | `GET /api/search?q=` | `{ q, cards: CardSearchHit[], decks: [{ id, name, archived }], archetypes: [{ id, name }], matches: [{ id, deck, opponent, result, playedAt, note }], notes: [{ key, label, archetypeId, text }], events: [{ id, name }] }` (hasta 6 de cada uno; con menos de 2 letras, todo vacío) |
 
+## Partidas sin señal (Fase 28)
+
+`POST /api/matches` acepta además `clientRef` (UUID que arma el celu; un segundo envío con el mismo devuelve la partida ya guardada, `201`) y `playedAgoMs` (entero, 0 a 30 días: cuánto hace que se jugó; `playedAt` gana si vienen los dos). `PATCH` no acepta ninguno de los dos.
+
 ## Sobres (Fase 4)
 
 | Método y ruta | Cuerpo / respuesta |

@@ -8,7 +8,7 @@ import { type FormEvent, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useCreateMatch, useDeleteMatch } from '@/api/matches'
-import type { MatchMode, MatchResult, MatchSuggestions } from '@/api/schemas'
+import type { MatchInput, MatchMode, MatchResult, MatchSuggestions } from '@/api/schemas'
 import { useUiSettings } from '@/api/settings'
 import { DeckNumber } from '@/components/DeckNumber'
 import { Spinner } from '@/components/ListState'
@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
 import { opponentKeyOf, RESULT_LABEL } from '@/lib/matches'
+import { discardPending, isOfflineError, newClientRef, queueMatch } from '@/lib/offlineMatches'
 import { DeckChips, ModePicker, OpponentField, ResultPicker, WentFirstPicker } from './MatchFields'
 
 function initialDeck(suggestions: MatchSuggestions, preferred: string | null | undefined): string | null {
@@ -77,30 +78,58 @@ export function QuickMatchForm({
     }
   }
 
+  function resetForm() {
+    setResult(null)
+    setOpponent('')
+    setWentFirst(null)
+    setNote('')
+    setNoteOpen(false)
+  }
+
+  /** Fase 28: no signal — the match stays on the phone and goes by itself when the signal is back. */
+  function keepOnPhone(clientRef: string, body: MatchInput, label: string) {
+    if (!queueMatch({ clientRef, body, label, savedAt: Date.now() })) {
+      toast.error('Sin señal, y el celu no dejó guardarla. Anotala y cargala después.')
+      return
+    }
+    setLastLoss(null)
+    resetForm()
+    toast.success(label, {
+      description: 'Sin señal: quedó en el celu y se envía sola cuando vuelva.',
+      duration: 10_000,
+      action: { label: 'Deshacer', onClick: () => discardPending(clientRef) },
+    })
+  }
+
   async function save(event?: FormEvent) {
     event?.preventDefault()
     if (!deckId || !result || create.isPending) return
+    const body: MatchInput = {
+      deckId,
+      result,
+      opponent: opponent.trim() || null,
+      wentFirst,
+      mode,
+      ...(note.trim() ? { note: note.trim() } : {}),
+    }
+    const clientRef = newClientRef()
+    const deckName = suggestions.decks.find((deck) => deck.id === deckId)?.name ?? `Mazo ${deckId}`
+    const label = `${RESULT_LABEL[result]} con ${deckName}${body.opponent ? ` contra ${body.opponent}` : ''}`
+    if (!navigator.onLine) {
+      keepOnPhone(clientRef, body, label)
+      return
+    }
     try {
-      const match = await create.mutateAsync({
-        deckId,
-        result,
-        opponent: opponent.trim() || null,
-        wentFirst,
-        mode,
-        ...(note.trim() ? { note: note.trim() } : {}),
-      })
+      const match = await create.mutateAsync({ ...body, clientRef })
       setLastLoss(match.result === 'loss' ? { deckId: match.deck.id, opponent: match.opponent } : null)
-      setResult(null)
-      setOpponent('')
-      setWentFirst(null)
-      setNote('')
-      setNoteOpen(false)
+      resetForm()
       toast.success(
         `${RESULT_LABEL[match.result]} con ${match.deck.name}${match.opponent ? ` contra ${match.opponent}` : ''}`,
         { duration: 10_000, action: { label: 'Deshacer', onClick: () => void undo(match.id) } },
       )
     } catch (error) {
-      toast.error(`No se guardó: ${errorMessage(error)}`)
+      if (isOfflineError(error)) keepOnPhone(clientRef, body, label)
+      else toast.error(`No se guardó: ${errorMessage(error)}`)
     }
   }
 

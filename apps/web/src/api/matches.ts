@@ -4,14 +4,21 @@ import {
   deckComparisonSchema,
   deckMatchupsSchema,
   luckSchema,
+  type Match,
   type MatchInput,
   type MatchMode,
   type MatchResult,
+  type MatchSuggestions,
   matchesResponseSchema,
   matchSchema,
   matchStatsSchema,
   matchSuggestionsSchema,
 } from './schemas'
+
+/** Fase 28: the last suggestions, so the quick-entry form opens without signal. */
+export const SUGGESTIONS_STORAGE_KEY = 'tcg.match-suggestions'
+/** Fase 28: a send that takes longer than this counts as «no signal» (the clientRef makes a retry safe). */
+const SEND_TIMEOUT_MS = 15_000
 
 export const matchKeys = {
   all: ['matches'] as const,
@@ -46,10 +53,31 @@ function invalidateMatches(queryClient: QueryClient): Promise<void> {
   return queryClient.invalidateQueries({ queryKey: matchKeys.all })
 }
 
+function storedSuggestions(): MatchSuggestions | undefined {
+  try {
+    const raw = localStorage.getItem(SUGGESTIONS_STORAGE_KEY)
+    const parsed = raw ? matchSuggestionsSchema.safeParse(JSON.parse(raw)) : null
+    return parsed?.success ? parsed.data : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function useMatchSuggestions() {
   return useQuery({
     queryKey: matchKeys.suggestions,
-    queryFn: ({ signal }) => request('/api/matches/suggestions', { schema: matchSuggestionsSchema, signal }),
+    queryFn: async ({ signal }) => {
+      const data = await request('/api/matches/suggestions', { schema: matchSuggestionsSchema, signal })
+      try {
+        localStorage.setItem(SUGGESTIONS_STORAGE_KEY, JSON.stringify(data))
+      } catch {
+        // Storage full or blocked: the form just needs the signal to open.
+      }
+      return data
+    },
+    // Fase 28: the stored copy shows at once (and without signal); it is refetched right away.
+    initialData: storedSuggestions,
+    initialDataUpdatedAt: 0,
   })
 }
 
@@ -112,10 +140,18 @@ export function useDeckComparison(deckId: string | undefined, mode?: MatchMode) 
   })
 }
 
+/** Saves a match; gives up after 15 s so a dead signal does not hang the form (the clientRef makes a retry safe). */
+export function sendMatch(body: MatchInput): Promise<Match> {
+  const signal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(SEND_TIMEOUT_MS) : undefined
+  return request('/api/matches', { method: 'POST', body, schema: matchSchema, ...(signal ? { signal } : {}) })
+}
+
 export function useCreateMatch() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: MatchInput) => request('/api/matches', { method: 'POST', body, schema: matchSchema }),
+    mutationFn: sendMatch,
+    // Without signal the form keeps the match on the phone, so the mutation must fail instead of pausing.
+    networkMode: 'always',
     onSuccess: () => invalidateMatches(queryClient),
   })
 }
