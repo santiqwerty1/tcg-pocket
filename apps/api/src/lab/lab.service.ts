@@ -254,6 +254,8 @@ interface ExploreState {
   /** T-017 C5: the swaps accepted so far, in order, and the variants that undid one of them. */
   accepted?: (MeasuredSwap & { variant: number })[]
   reverts?: number[]
+  /** By revert variant: the accepted swap (its variant id) it undoes (bots' review, item 7). */
+  revertOf?: Record<string, number>
   /** T-017 D2: «Frenar y confirmar»: the round in play ends with what it has, then the confirmation. */
   stopRequested?: boolean
 }
@@ -389,7 +391,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     return {
       era: bank.scope.era,
       format: bank.scope.format,
-      size: bank.gauntlet.rivals.length,
+      // Archetypes, not lists: the most played ones bring two (T-017 D3; bots' review, item 8).
+      size: new Set(bank.gauntlet.rivals.map((rival) => rival.archetypeId)).size,
       lists: bank.gauntlet.lists,
       coverage: bank.gauntlet.coverage,
       rivals: bank.gauntlet.rivals.map((rival) => ({
@@ -927,7 +930,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
   /**
    * T-017 D2: «Frenar y confirmar». The chunks of the search round in play that no worker took yet go away; when the
    * ones being played come back (or right away, if none), the round ends with what it has — an incomplete candidate
-   * cannot win — and the search goes to its confirmation as if it had run out of rounds. Nothing found: it just ends.
+   * cannot win, and a complete one that wins is verified first — and the search goes to its confirmation as if it had
+   * run out of rounds. Nothing found: it just ends.
    * A verification in play is left to finish (review of #22): cutting it would throw away the variant it is checking.
    */
   async stop(rawId: string): Promise<LabJobView> {
@@ -1091,8 +1095,14 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           }
           if (accepted !== null) {
             const swap = (state.swaps ?? []).find((item) => item.variant === accepted)
-            // T-017 C5: an accepted swap leaves the combo list and can be undone in later rounds.
-            if (swap) state.accepted = [...(state.accepted ?? []), swap]
+            const undone = state.revertOf?.[String(accepted)]
+            if (undone !== undefined) {
+              // Bots' review, item 7: an undo that wins takes the swap it undid out of the history (and is not one).
+              state.accepted = (state.accepted ?? []).filter((item) => item.variant !== undone)
+            } else if (swap) {
+              // T-017 C5: an accepted swap leaves the combo list and can be undone in later rounds.
+              state.accepted = [...(state.accepted ?? []), swap]
+            }
             state.swaps = (state.swaps ?? []).filter((item) => item.variant !== accepted)
           }
           round.accepted = accepted
@@ -1105,17 +1115,18 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           }
 
           const searchRounds = state.rounds.filter((item) => item.kind === 'search').length
-          // T-017 D2: stopped by hand, no verification is started; what was accepted goes to the confirmation.
-          if (state.stopRequested) verifyNext = null
-          let stop: ExploreStop | null = state.stopRequested
-            ? 'user'
-            : verifyNext !== null
+          // T-017 D2: stopped by hand, what was accepted goes to the confirmation. A complete variant that won the stopped
+          // round is still verified first (bots' review, item 5; H-010): nothing is accepted without fresh games.
+          let stop: ExploreStop | null =
+            verifyNext !== null
               ? null
-              : searchRounds >= state.config.maxRounds
-                ? 'rounds'
-                : state.stall >= state.config.patience
-                  ? 'patience'
-                  : null
+              : state.stopRequested
+                ? 'user'
+                : searchRounds >= state.config.maxRounds
+                  ? 'rounds'
+                  : state.stall >= state.config.patience
+                    ? 'patience'
+                    : null
           const index = this.catalog.requireIndex()
           // Review of #22: never inside the round just played, whose last chunks «Frenar» may have deleted.
           const nextIdx = Math.max(round.toIdx, Math.max(-1, ...chunks.map((chunk) => chunk.idx)) + 1)
@@ -1214,7 +1225,11 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             const comboSaved = combo ? at(1) : undefined
             const revertSaved = revert ? at(combo ? 2 : 1) : undefined
             if (comboSaved) state.combos = [...(state.combos ?? []), comboSaved.id]
-            if (revertSaved) state.reverts = [...(state.reverts ?? []), revertSaved.id]
+            if (revertSaved && revert) {
+              state.reverts = [...(state.reverts ?? []), revertSaved.id]
+              const undone = state.accepted?.[revert.undoes]
+              if (undone) state.revertOf = { ...state.revertOf, [String(revertSaved.id)]: undone.variant }
+            }
             if (saved.length === 0) stop = 'no_variants'
             else {
               for (const variant of saved) {

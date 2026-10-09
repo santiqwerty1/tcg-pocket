@@ -8,8 +8,11 @@
 //! clock of our own that (a) for its own side, looks through to the evolutions its deck and hand can still reach, one
 //! more turn per stage to go (the rival's hand and deck are hidden: for the rival it counts only what is in play), and
 //! (b) reads «N damage» out of attacks with no fixed damage that do some («This attack does 50 damage to 1 of your
-//! opponent's Pokémon»), leaving out healing and the signed numbers of defensive effects («do −20 damage»). It also
-//! doubles attached Grass Energy under Serperior's Jungle Totem. deckgym-core is not modified.
+//! opponent's Pokémon»), leaving out healing, the signed numbers of defensive effects («do −20 damage») and damage only
+//! to the Bench. It also doubles attached Grass Energy under Serperior's Jungle Totem. Review of the bots' comments
+//! (Laboratorio, 9/10): Energy and evolutions go on at the same time (one of each per turn), an attack needing an
+//! Energy the deck's Energy Zone cannot make is no threat, and a slow threat is never worse than none.
+//! deckgym-core is not modified.
 
 use deckgym::card_logic::get_highest_evolutions;
 use deckgym::models::{Attack, Card, EnergyType};
@@ -82,19 +85,29 @@ pub fn turns_to_win(state: &State, attacker: usize, see_evolutions: bool) -> f64
         (no_cards, no_cards)
     };
     let jungle_totem = has_serperior_jungle_totem(state, attacker);
+    // The Energy Zone is public: what it cannot make never gets attached.
+    let zone = state.decks[attacker].energy_types();
     let mut best: Option<f64> = None;
     for (_, pokemon) in state.enumerate_in_play_pokemon(attacker) {
-        for (setup, damage) in threats(pokemon, deck, hand, jungle_totem) {
+        for (setup, damage) in threats(pokemon, deck, hand, jungle_totem, zone) {
             let total = setup + knockout_turns(state, defender, damage, state.points[attacker]);
             best = Some(best.map_or(total, |b| b.min(total)));
         }
     }
-    best.unwrap_or(NO_THREAT)
+    // A slow threat is never worse than none (bots' review, item 2).
+    best.map_or(NO_THREAT, |b| b.min(NO_THREAT))
 }
 
 /// (turns before it can hit, damage) for each way a Pokémon in play can hit: its own attacks, and those of the
-/// highest evolutions still in its deck or hand (energy stays attached when it evolves; a turn per stage to go).
-fn threats(pokemon: &PlayedCard, deck: &[Card], hand: &[Card], jungle_totem: bool) -> Vec<(f64, f64)> {
+/// highest evolutions still in its deck or hand (energy stays attached when it evolves; a turn per stage to go, while
+/// an Energy goes on each of those turns too). Attacks with an Energy `zone` cannot make are left out.
+fn threats(
+    pokemon: &PlayedCard,
+    deck: &[Card],
+    hand: &[Card],
+    jungle_totem: bool,
+    zone: &[EnergyType],
+) -> Vec<(f64, f64)> {
     let mut out = Vec::new();
     let Card::Pokemon(own) = &pokemon.card else { return out };
     // Serperior's Jungle Totem: each Grass Energy on a Grass Pokémon counts twice.
@@ -105,7 +118,7 @@ fn threats(pokemon: &PlayedCard, deck: &[Card], hand: &[Card], jungle_totem: boo
         }
         energy
     };
-    push_attacks(&mut out, &own.attacks, &attached(own.energy_type == EnergyType::Grass), 0);
+    push_attacks(&mut out, &own.attacks, &attached(own.energy_type == EnergyType::Grass), 0, zone);
     if own.stage < 2 {
         let mut seen: Vec<String> = Vec::new();
         for evolution in get_highest_evolutions(&pokemon.card, deck).into_iter().chain(get_highest_evolutions(&pokemon.card, hand)) {
@@ -115,24 +128,51 @@ fn threats(pokemon: &PlayedCard, deck: &[Card], hand: &[Card], jungle_totem: boo
             }
             seen.push(evolved.id.clone());
             let energy = attached(evolved.energy_type == EnergyType::Grass);
-            push_attacks(&mut out, &evolved.attacks, &energy, usize::from(evolved.stage - own.stage));
+            push_attacks(&mut out, &evolved.attacks, &energy, usize::from(evolved.stage - own.stage), zone);
         }
     }
     out
 }
 
-fn push_attacks(out: &mut Vec<(f64, f64)>, attacks: &[Attack], attached: &[EnergyType], stages: usize) {
+fn push_attacks(
+    out: &mut Vec<(f64, f64)>,
+    attacks: &[Attack],
+    attached: &[EnergyType],
+    stages: usize,
+    zone: &[EnergyType],
+) {
     for attack in attacks {
         let damage = attack_damage(attack);
-        if damage > 0 {
-            out.push(((missing_energy(attached, &attack.energy_required) + stages) as f64, damage as f64));
+        if damage > 0 && reachable(attached, &attack.energy_required, zone) {
+            // One Energy and one evolution a turn, at the same time (bots' review, item 1).
+            let setup = missing_energy(attached, &attack.energy_required).max(stages);
+            out.push((setup as f64, damage as f64));
         }
     }
 }
 
+/// Whether the typed Energy an attack still lacks can come from `zone` (an empty zone is taken as unknown: anything).
+fn reachable(attached: &[EnergyType], cost: &[EnergyType], zone: &[EnergyType]) -> bool {
+    if zone.is_empty() {
+        return true;
+    }
+    let mut left: Vec<EnergyType> = attached.to_vec();
+    for energy in cost.iter().filter(|e| **e != EnergyType::Colorless) {
+        match left.iter().position(|e| e == energy) {
+            Some(at) => {
+                left.remove(at);
+            }
+            None if !zone.contains(energy) => return false,
+            None => {}
+        }
+    }
+    true
+}
+
 /// Fixed damage, or for an attack with none that still does some («This attack does 50 damage to 1 of your opponent's
-/// Pokémon»), the first «N damage» of its text that is not healing nor a signed defensive amount («do −20 damage»,
-/// «takes −50 damage»). 0 when it does none. (Attacks that do N per heads already carry it as fixed damage.)
+/// Pokémon»), the first «N damage» of its text that is not healing, nor a signed defensive amount («do −20 damage»,
+/// «takes −50 damage»), nor only to the Bench («… to 1 of your opponent's Benched Pokémon»: the clock knocks out the
+/// Active first). 0 when it does none. (Attacks that do N per heads already carry it as fixed damage.)
 pub fn attack_damage(attack: &Attack) -> u32 {
     if attack.fixed_damage > 0 {
         return attack.fixed_damage;
@@ -149,7 +189,10 @@ pub fn attack_damage(attack: &Attack) -> u32 {
         }
         let Ok(amount) = word.trim_matches(|c: char| !c.is_ascii_digit()).parse::<u32>() else { continue };
         let before = if at > 0 { words[at - 1].to_ascii_lowercase() } else { String::new() };
-        if amount > 0 && !before.starts_with("heal") {
+        // The rest of its sentence says where it lands.
+        let sentence = words[at + 1..].iter().position(|w| w.ends_with('.')).map_or(words.len(), |end| at + 2 + end);
+        let bench_only = words[at + 1..sentence.min(words.len())].iter().any(|w| w.starts_with("Benched"));
+        if amount > 0 && !before.starts_with("heal") && !bench_only {
             return amount;
         }
     }
@@ -245,6 +288,12 @@ mod tests {
         assert_eq!(text("During your opponent's next turn, attacks used by the Defending Pokémon do -20 damage."), 0); // Cubone
         assert_eq!(text("During your opponent's next turn, this Pokémon takes -50 damage from attacks."), 0); // Cosmoem
         assert_eq!(text("Heal 20 damage from this Pokémon."), 0); // Piplup
+        // Only to the Bench: it cannot knock out the Active (bots' review, item 4).
+        assert_eq!(text("This attack does 30 damage to 1 of your opponent's Benched Pokémon."), 0); // Hitmonlee
+        assert_eq!(text("This attack does 70 damage to 1 of your opponent's Benched Pokémon."), 0); // Indeedee
+        // The Active can be the target: these count.
+        assert_eq!(text("Choose a spot from among your opponent's Active Spot and Bench. At the end of your opponent's next turn, do 70 damage to the Pokémon in the spot you chose."), 70); // Meowscarada ex
+        assert_eq!(text("Switch in 1 of your opponent's Benched Pokémon to the Active Spot. If you do, this attack does 50 damage to the new Active Pokémon."), 50); // Sandy Shocks
         assert_eq!(text("Take a [G] Energy from your Energy Zone and attach it to 1 of your [G] Pokémon."), 0); // Ivysaur
     }
 
@@ -276,9 +325,10 @@ mod tests {
         // With the Mega Venusaur ex still in the deck: one stage and its Energy to go, then 70 HP at 120 a hit.
         let seen = turns_to_win(&ivysaur, 0, true);
         assert!(seen < NO_THREAT, "{seen}");
-        // The rival's Bulbasaur (Vine Whip 40, no Energy yet) against Ivysaur's 90 HP: 2 Energy, then 3 hits.
+        // The rival's Bulbasaur (Vine Whip 40) against Ivysaur's 90 HP: 3 hits. But the rival's deck (Altaria) only
+        // makes Psychic Energy, so its Vine Whip never gets its [G] (bots' review, item 3): no threat.
         assert_eq!(knockout_turns(&ivysaur, 0, 40.0, 0), 3.0);
-        assert_eq!(turns_to_win(&ivysaur, 1, false), 2.0 + 3.0);
+        assert_eq!(turns_to_win(&ivysaur, 1, false), NO_THREAT);
     }
 
     #[test]
@@ -321,6 +371,48 @@ mod tests {
         assert!(crate::parse_players(&["f2".to_string(), "e2".to_string()]).is_ok());
         assert!(crate::parse_players(&["f2".to_string(), "h".to_string()]).is_err());
         assert!(crate::parse_players(&["x".to_string(), "f2".to_string()]).is_err());
+    }
+
+    #[test]
+    fn energy_and_evolutions_go_on_together() {
+        // Bots' review, item 1: Bulbasaur (no Energy) with Mega Venusaur ex in the deck. Its Giant Bloom costs 3 [G] and
+        // 1 more: 4 Energy and 2 stages take 4 turns, not 6 (an Energy goes on while it evolves).
+        let bulbasaur = board("A1 001");
+        let pokemon = bulbasaur.enumerate_in_play_pokemon(0).next().expect("in play").1.clone();
+        let deck = bulbasaur.decks[0].cards.clone();
+        let zone = bulbasaur.decks[0].energy_types().to_vec();
+        let setups: Vec<f64> = threats(&pokemon, &deck, &[], false, &zone).into_iter().map(|(setup, _)| setup).collect();
+        let Card::Pokemon(mega) = PlayedCard::from_id(deckgym::card_ids::CardId::from_card_id("B1a 004").expect("id")).card else {
+            panic!("Mega Venusaur ex")
+        };
+        let cost = mega.attacks.iter().map(|attack| attack.energy_required.len()).max().expect("attack");
+        assert!(setups.contains(&(cost.max(2) as f64)), "{setups:?} (cost {cost})");
+        assert!(!setups.iter().any(|setup| *setup > cost.max(2) as f64), "{setups:?}");
+    }
+
+    #[test]
+    fn energy_the_zone_cannot_make_is_no_threat() {
+        use EnergyType::{Colorless, Grass, Water};
+        // Bots' review, item 3: a [W] attack in a Grass deck never gets its Energy.
+        assert!(!reachable(&[], &[Water, Colorless], &[Grass]));
+        assert!(reachable(&[Water], &[Water, Colorless], &[Grass]));
+        assert!(reachable(&[], &[Grass, Colorless], &[Grass]));
+        assert!(reachable(&[], &[Water], &[]));
+        // On a real board: the Venusaur deck is Grass only, so its Bulbasaur's [G] Vine Whip counts.
+        let bulbasaur = board("A1 001");
+        assert!(turns_to_win(&bulbasaur, 0, false) < NO_THREAT);
+    }
+
+    #[test]
+    fn a_slow_threat_is_never_worse_than_none() {
+        use deckgym::card_ids::CardId;
+        // Bots' review, item 2: Cottonee's Attach (10) against three 150 HP Pokémon of one point each takes 45 turns and
+        // 1 Energy; above NO_THREAT, having that attack would look worse than having none.
+        let id = |text: &str| PlayedCard::from_id(CardId::from_card_id(text).expect("card id"));
+        let mut state = board("A1 001");
+        state.set_board(vec![id("A1 027")], vec![id("A1 211"), id("A1 250"), id("B2 109")]);
+        assert_eq!(knockout_turns(&state, 1, 10.0, 0), 45.0);
+        assert_eq!(turns_to_win(&state, 0, false), NO_THREAT);
     }
 
     #[test]

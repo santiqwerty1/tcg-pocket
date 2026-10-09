@@ -53,6 +53,17 @@ describe('what a search learns between rounds (T-017 C4)', () => {
     )
   })
 
+  it('bots review, item 6: two copies of one card are two shares of one variant, not two variants', () => {
+    const learned: Learned = {}
+    const [x, a, b] = pool.map((card) => card.cardId)
+    if (!x || !a || !b) throw new Error('pool')
+    learnSwap(learned, { add: [x, x], remove: [group(a), group(b)], difference: 8 }, index)
+    // 8 points over 4 copies: +X takes two shares (4) in one variant; each card out, one share (2).
+    expect(learned[changeKey('+', group(x))]).toEqual({ sum: 4, n: 1 })
+    expect(learned[changeKey('-', group(a))]).toEqual({ sum: 2, n: 1 })
+    expect(learnedMean(learned, changeKey('+', group(x)))).toBeCloseTo(2, 8)
+  })
+
   it('a card that helped comes in far more often', () => {
     const target = pool.find((card) => index.cardById(card.cardId)?.cardType === 'trainer' && card.weight > 0)
     if (!target) throw new Error('no trainer')
@@ -111,6 +122,8 @@ describe('what a search learns between rounds (T-017 C4)', () => {
       deck.cards.find((entry) => group(entry.cardId) === groupId)?.cardId ?? groupId
     const back = revertVariant(variant.cards, [accepted], 0, index, editionOf, { valid })
     if (!back) throw new Error('no revert')
+    // Bots' review, item 7: it says which accepted swap it undid, so that one leaves the history if it wins.
+    expect(back.undoes).toBe(0)
     // Undoing it gives the starting list again, card by card and place by place.
     const slots = (cards: readonly { cardId: string; count: number }[]) =>
       cards.flatMap((entry) => Array.from({ length: entry.count }, () => group(entry.cardId)))

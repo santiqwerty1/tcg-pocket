@@ -443,11 +443,11 @@ function roundText(round: ExploreView['rounds'][number], explore: ExploreView, l
   ].filter(Boolean)
   const combo = notes.length > 0 ? ` (${notes.join('; ')})` : ''
   if (round.stopped) {
-    // T-017 D2: an incomplete candidate cannot win, and there is no verification after «Frenar».
+    // T-017 D2: an incomplete candidate cannot win; a complete one that wins is verified, then confirmed.
     if (!round.decided) return 'la frenaste: terminan las partidas en juego y pasa a confirmar'
     if (round.accepted !== null) return `la frenaste: ganó ${name(round.accepted)}`
     if (round.screened !== null)
-      return `la frenaste: ${name(round.screened)} le ganaba a la mejor, pero sin verificar no pasa`
+      return `la frenaste: ${name(round.screened)} le ganó a la mejor: se verifica y después se confirma`
     return 'la frenaste: ninguna variante completa mejoró a la mejor'
   }
   if (!round.decided) return `${round.candidates.length} variantes jugando${combo}`

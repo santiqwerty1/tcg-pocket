@@ -160,6 +160,11 @@ describe('laboratorio (e2e)', () => {
       10,
     )
     expect((await get('/api/lab/bank?size=99')).status).toBe(400)
+    // Bots' review, item 8: with second lists (banks of 10 or more) the size still counts archetypes.
+    const ten = (await get('/api/lab/bank?size=10')).body as { size: number; rivals: { archetypeId: string }[] }
+    expect(ten.size).toBe(new Set(ten.rivals.map((rival) => rival.archetypeId)).size)
+    expect(ten.size).toBeLessThanOrEqual(10)
+    expect(ten.rivals.length).toBeGreaterThan(ten.size)
   })
 
   it('T-017 D3: a bank of 10 or more brings a second list for its most played archetypes', async () => {
@@ -710,6 +715,55 @@ describe('laboratorio (e2e)', () => {
     expect(lab.explore).toMatchObject({ phase: 'done', stopReason: 'user', best: winner, stopRequested: true })
   }, 60_000)
 
+  it('bots review, item 5: a complete variant that wins the stopped round is verified, then confirmed', async () => {
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 2,
+      maxRounds: 6,
+      patience: 6,
+      confirmGames: 20,
+      verifyGames: 20,
+      pool: 'all',
+    }
+    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9530 })
+    const id = created.body.id as number
+    const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })
+    const [winner, other] =
+      (job.params as { lab: { explore: { rounds: { candidates: number[] }[] } } }).lab.explore.rounds[0]?.candidates ??
+      []
+    const wins = (a: number, _b: number, games: number) => (a === winner ? Math.round(games * 0.9) : games / 2)
+    // Round 0: the starting list and the winner play all their rivals; the other variant's chunks are still queued.
+    const queued = await test.prisma.simulationChunk.findMany({ where: { jobId: id }, orderBy: { idx: 'asc' } })
+    const others = queued.filter((chunk) => chunk.snapshotAId === other)
+    expect(others).toHaveLength(3)
+    // Hold the other variant back (leased by another worker for an hour), play the rest, then put it back in the queue.
+    const held = { id: { in: others.map((chunk) => chunk.id) } }
+    await test.prisma.simulationChunk.updateMany({
+      where: held,
+      data: { status: 'leased', workerId: 'held', leaseUntil: new Date(Date.now() + 60 * 60 * 1000) },
+    })
+    expect(await playAll(wins)).toBe(6)
+    await test.prisma.simulationChunk.updateMany({
+      where: held,
+      data: { status: 'queued', workerId: null, leaseUntil: null },
+    })
+    const stopped = await post(`/api/lab/jobs/${id}/stop`)
+    expect(stopped.status).toBe(200)
+    // The winner was complete: it goes to verification instead of being thrown away.
+    expect(stopped.body.explore.rounds.at(-2)).toMatchObject({ kind: 'search', stopped: true, screened: winner })
+    expect(stopped.body.explore.rounds.at(-1)).toMatchObject({ kind: 'verify', candidates: [winner] })
+    expect(await playAll(wins)).toBe(6 + 6)
+    const lab = (await get(`/api/lab/jobs/${id}`)).body
+    expect(
+      lab.explore.rounds.map((round: { kind: string; accepted: number | null }) => [round.kind, round.accepted]),
+    ).toEqual([
+      ['search', null],
+      ['verify', winner],
+      ['confirm', null],
+    ])
+    expect(lab.explore).toMatchObject({ phase: 'done', stopReason: 'user', best: winner })
+  }, 60_000)
+
   it('review of #22: «Frenar» needs a session', async () => {
     expect((await test.http().post('/api/lab/jobs/1/stop')).status).toBe(401)
   })
@@ -764,6 +818,14 @@ describe('laboratorio (e2e)', () => {
     // Round 2 tries undoing the first accepted change.
     expect(third.reverts).toHaveLength(1)
     expect(third.rounds[2]?.candidates).toContain(third.reverts?.[0])
+    // Bots' review, item 7: the undo wins round 2; the change it undid leaves the history, and the undo is not one.
+    const undo = third.reverts?.[0] as number
+    rate.set(second, 0.5)
+    rate.set(undo, 1)
+    await playRound(4 * 3)
+    const fourth = await read()
+    expect(fourth.rounds[2]).toMatchObject({ accepted: undo })
+    expect(fourth.accepted?.map((swap) => swap.variant)).toEqual([second])
     await post(`/api/simulations/${id}/cancel`)
   }, 60_000)
 

@@ -51,7 +51,10 @@ export function swapOf(
   return { add: copies(add, false), remove: copies(remove, true), difference }
 }
 
-/** Adds a measured swap to the estimate of each of its changes, split evenly among them. */
+/**
+ * Adds a measured swap to the estimate of each of its changes, split evenly among the copies that moved. A change
+ * counts one variant however many copies it moved (bots' review, item 6): two copies take two shares, not two variants.
+ */
 export function learnSwap(learned: Learned, swap: MeasuredSwap, index: CatalogIndex): void {
   const keys = [
     ...swap.add.map((cardId) => changeKey('+', index.cardById(cardId)?.functionalGroupId ?? cardId)),
@@ -59,9 +62,11 @@ export function learnSwap(learned: Learned, swap: MeasuredSwap, index: CatalogIn
   ]
   if (keys.length === 0) return
   const share = swap.difference / keys.length
-  for (const key of keys) {
+  const copies = new Map<string, number>()
+  for (const key of keys) copies.set(key, (copies.get(key) ?? 0) + 1)
+  for (const [key, count] of copies) {
     const item = learned[key] ?? { sum: 0, n: 0 }
-    item.sum += share
+    item.sum += share * count
     item.n += 1
     learned[key] = item
   }
@@ -98,7 +103,8 @@ export function learnedChanges(
  * T-017 C5: a variant of `deck` that undoes one swap accepted earlier — the `pick`-th, cycling — so the search does not
  * stay tied to its first change (search #11 kept +Gible, and the second Bulbasaur it then could have needed was never
  * weighed against taking Gible out). The cards that came in go out, in their places, and the ones that went out come
- * back in the edition `editionOf` gives. Null when none applies, or the result is not valid or not new.
+ * back in the edition `editionOf` gives. Null when none applies, or the result is not valid or not new. `undoes` is the
+ * position in `accepted` of the swap it undoes.
  */
 export function revertVariant(
   deck: readonly DeckCardEntry[],
@@ -111,11 +117,12 @@ export function revertVariant(
     locked?: ReadonlySet<CardId> | undefined
     valid: (cards: readonly DeckCardEntry[]) => boolean
   },
-): Variant | null {
+): (Variant & { undoes: number }) | null {
   if (accepted.length === 0) return null
   const baseKey = listKeyByGroup(groupsOfCards(deck, index))
   for (let k = 0; k < accepted.length; k++) {
-    const swap = accepted[(pick + k) % accepted.length] as MeasuredSwap
+    const undoes = (pick + k) % accepted.length
+    const swap = accepted[undoes] as MeasuredSwap
     const back = {
       add: swap.remove.map(editionOf),
       remove: swap.add.map((cardId) => index.cardById(cardId)?.functionalGroupId ?? cardId),
@@ -125,7 +132,7 @@ export function revertVariant(
     const key = listKeyByGroup(groupsOfCards(cards, index))
     if (key === baseKey || options.seen?.has(key) || !options.valid(cards)) continue
     const sorted = cards.filter((entry) => entry.count > 0)
-    return { cards: sorted, key, ...cardChanges(deck, sorted, index) }
+    return { cards: sorted, key, ...cardChanges(deck, sorted, index), undoes }
   }
   return null
 }
