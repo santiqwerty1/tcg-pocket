@@ -42,31 +42,40 @@ revisar: false
 | 19 | Armar desde un núcleo | hecho 08/10 · desplegado 09/10 (`87b36dc`) | — | [T-012](Tareas/T-012.md) |
 | 20 | Modo entrenador contra el bot | hecho 08/10 · desplegado 09/10 (`87b36dc`) | — | [T-012](Tareas/T-012.md) |
 | 21 | Mantenimiento: remapeo de ids (I12) y CI | hecho 08/10 · desplegado | — | [R-001](Riesgos/R-001.md), [R-007](Riesgos/R-007.md) |
-| 22 | La mesa: visor de repeticiones y partidas contra el bot | hecho 09/10 · desplegado | — | — |
-| 23 | Jugar contra la lista exacta de un torneo reciente | hecho 09/10 · desplegado | — | — |
-| 24 | Situaciones para resolver | hecho 09/10 · desplegado | — | — |
-| 25 | ¿Empezaste vos? y estadísticas por orden de turno | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
-| 26 | Pantalla «Hoy» | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
-| 27 | Buscador único | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
-| 28 | Cargar partidas sin señal | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
-| 29 | Claude analiza una partida | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
-| 30 | Ejercicios de cálculo | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
-| 31 | Lista de intercambio | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
-| 32 | Resumen semanal | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
-| 33 | Partidas contra el bot al instante | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
-| 34 | Tests de pantallas en la CI | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
-| 35 | Prueba mensual del backup | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
-| E | Evaluación de mejoras: 14 hallazgos, riesgos, preguntas y fases propuestas 36 a 45 | hecho 09/10 · propuesta, espera a Santiago ([D-020](Decisiones/D-020.md)) | 35 | [Evaluación](Evaluacion-2026-10-09.md), [T-014](Tareas/T-014.md) |
+| 22 | La mesa: visor de repeticiones y partidas contra el bot | hecho 09/10 · desplegado · aprobado 09/10 | — | — |
+| 23 | Jugar contra la lista exacta de un torneo reciente | hecho 09/10 · desplegado · aprobado 09/10 | — | — |
+| 24 | Situaciones para resolver | hecho 09/10 · desplegado · aprobado 09/10 | — | — |
+| 25 | ¿Empezaste vos? y estadísticas por orden de turno | hecho 09/10 · desplegado (`0524489`) · aprobado 09/10 | — | [T-013](Tareas/T-013.md) |
+| 26 | Pantalla «Hoy» | hecho 09/10 · desplegado (`0524489`) · aprobado 09/10 | — | [T-013](Tareas/T-013.md) |
+| 27 | Buscador único | hecho 09/10 · desplegado (`0524489`) · aprobado 09/10 | — | [T-013](Tareas/T-013.md) |
+| 28 | Cargar partidas sin señal | hecho 09/10 · desplegado (`0524489`) · aprobado 09/10 | — | [T-013](Tareas/T-013.md) |
+| 29 | Claude analiza una partida | hecho 09/10 · desplegado (`0524489`) · aprobado 09/10 | — | [T-013](Tareas/T-013.md) |
+| 30 | Ejercicios de cálculo | hecho 09/10 · desplegado (`0524489`) · aprobado 09/10 | — | [T-013](Tareas/T-013.md) |
+| 31 | Lista de intercambio | hecho 09/10 · desplegado (`0524489`) · aprobado 09/10 | — | [T-013](Tareas/T-013.md) |
+| 32 | Resumen semanal | hecho 09/10 · desplegado (`0524489`) · aprobado 09/10 | — | [T-013](Tareas/T-013.md) |
+| 33 | Partidas contra el bot al instante | hecho 09/10 · desplegado (`0524489`) · aprobado 09/10 | — | [T-013](Tareas/T-013.md) |
+| 34 | Tests de pantallas en la CI | hecho 09/10 · desplegado (`0524489`) · aprobado 09/10 | — | [T-013](Tareas/T-013.md) |
+| 35 | Prueba mensual del backup | hecho 09/10 · desplegado (`0524489`) · aprobado 09/10 | — | [T-013](Tareas/T-013.md) |
+| E | Evaluación de mejoras: 14 hallazgos, riesgos, preguntas y fases propuestas 36 a 45 | hecho 09/10 · verificada 09/10 · aprobada 09/10 ([D-020](Decisiones/D-020.md)) | 35 | [Evaluación](Evaluacion-2026-10-09.md), [T-014](Tareas/T-014.md) |
+| 36 | Arreglos confirmados (y tope de 3 energías, [P-006](Preguntas/P-006.md)) | pendiente | E | [T-014](Tareas/T-014.md) |
+| 37 | Números honestos | pendiente | 36 | [T-014](Tareas/T-014.md) |
+| 38 | Operación y avisos | pendiente | 37 | [T-014](Tareas/T-014.md) |
+| 39 | Copia fuera de Supabase y retención ([P-007](Preguntas/P-007.md): en la nube) | pendiente | 38 | [T-014](Tareas/T-014.md) |
+| 40 | Día de expansión en dos toques | pendiente | 39 | [T-014](Tareas/T-014.md) |
+| 41 | Interfaz | pendiente | 40 | [T-014](Tareas/T-014.md) |
+| 42 | Simulaciones más baratas y calibradas | pendiente | 41 | [T-014](Tareas/T-014.md) |
+| 43 | Claude | pendiente | 42 | [T-014](Tareas/T-014.md) |
+| 44 | Análisis nuevos | pendiente | 43 | [T-014](Tareas/T-014.md) |
+| W | Más workers: nube, Android y navegador (reemplaza la 45, [P-008](Preguntas/P-008.md)) | pendiente, después de la 44 | 44 | [T-015](Tareas/T-015.md) |
 | K | Bóveda con el kit de Posta | hecho 07/10 · aprobado 08/10 | — | [D-009](Decisiones/D-009.md) |
 
 ## Próximos pasos
 
-Las fases 0–8 del plan están aprobadas (visto bueno de Santiago el 08/10/2026). Las fases 9 a 24 están desplegadas; las 25 a 35 ([T-013](Tareas/T-013.md)) están en `main` y falta desplegarlas.
+Las fases 0–8 del plan están aprobadas (visto bueno de Santiago el 08/10/2026). Las fases 9 a 35 están desplegadas (las 25 a 35 en `0524489`, [T-013](Tareas/T-013.md)); las 22 a 35 tienen su visto bueno del 09/10/2026.
 
-1. Santiago prueba las fases 22 a 35 y da el visto bueno.
-2. Santiago decide [D-020](Decisiones/D-020.md): qué fases de la [evaluación del 09/10](Evaluacion-2026-10-09.md) ([T-014](Tareas/T-014.md), 36 a 45) y en qué orden. La propuesta es empezar por la 36 (arreglos confirmados, H-002 a H-015).
-3. Santiago contesta [P-006](Preguntas/P-006.md) (tope de energías), [P-007](Preguntas/P-007.md) (copia fuera de Supabase) y [P-008](Preguntas/P-008.md) (jugar sin la PC).
+1. Fases 36 a 44 de la [evaluación del 09/10](Evaluacion-2026-10-09.md) ([T-014](Tareas/T-014.md)), en el orden de [D-020](Decisiones/D-020.md) (decidido el 09/10/2026). Al empezar cada una, leer la nota «Verificación del 09/10» de sus hallazgos: corrige detalles de las fichas.
+2. Después, los workers de [T-015](Tareas/T-015.md) (nube, Android y navegador), que reemplazan la fase 45.
 
 ## Pendiente de decidir (para después)
 
-Decididas por Santiago el 08/10/2026: D-007, D-008, D-009, D-011, D-012, D-013, D-014, D-015, D-016, D-017, D-018 y D-019 (ver cada ficha). Esperan su visto bueno: [D-020](Decisiones/D-020.md), [P-006](Preguntas/P-006.md), [P-007](Preguntas/P-007.md) y [P-008](Preguntas/P-008.md).
+Decididas por Santiago el 08/10/2026: D-007, D-008, D-009, D-011, D-012, D-013, D-014, D-015, D-016, D-017, D-018 y D-019 (ver cada ficha). El 09/10/2026: [D-020](Decisiones/D-020.md), y respondidas [P-006](Preguntas/P-006.md) (máximo 3 energías), [P-007](Preguntas/P-007.md) (copia en la nube) y [P-008](Preguntas/P-008.md) (las tres opciones, en [T-015](Tareas/T-015.md)).

@@ -274,3 +274,12 @@ Son para decidir; no tienen ficha.
   - Los tokens se guardan con hash, y la importación de backups tiene límite de tamaño.
 - **Simulaciones.** Son reproducibles con la misma semilla ([R-003](Riesgos/R-003.md)).
 - **Respuestas para Claude.** Son compactas, con ids estables y el `text` canónico.
+
+## Verificación del 09/10
+
+Una segunda revisión (cuatro verificaciones en paralelo, en el código de `0524489`) contrastó cada hallazgo y cada afirmación concreta. El detalle está en la nota «Verificación del 09/10» de cada ficha. En resumen:
+
+- **Confirmados:** H-003, H-004 (peor de lo escrito: bajar el commit borra copias y cartas de mazos), H-006, H-007, H-009, H-010 (peor: la confirmación no se usa como filtro) y H-013.
+- **Parcialmente correctos:** H-002 (con la 0.2.10 solo se frena el entrenador), H-005 (el sesgo existe, pero el número es ~6,5 veces más chico), H-008 (la parte de la app no puede pasar; severidad baja), H-011, H-012 (el número principal es la mediana y casi no cambia), H-014 y H-015.
+- **Arreglos propuestos que hay que corregir:** H-002 (no castear la versión en SQL), H-003 (`this` dentro de `done`), H-013 (hace falta un estado «estacionada»), H-015 (excluir los eventos del servidor de la compresión).
+- **Otros puntos:** las misiones que cuentan dos veces son un error latente (ninguna de las 443 misiones comparte opciones); ordenar «qué carta destraba» por listas es lo que piden BRIEF M5 y DECISIONES 5.9, no un error; el chequeo de set nuevo no está bajo el límite de GitHub (solo el del motor).

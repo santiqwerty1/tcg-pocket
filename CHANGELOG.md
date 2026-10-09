@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-09 (82 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-09 (84 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- monthly backup restore drill (phase 35, T-013) `0524489`
 - games against the bot pushed live over SSE (phase 33, T-013) `e911c89`
 - weekly summary with a Monday push (phase 32, T-013) `4e3d9f2`
 - trade list by rarity (phase 31, T-013) `f409ece`
@@ -75,6 +76,7 @@ _Borrador generado al 2026-10-09 (82 commits). Escribí el «porqué» fuera de 
 
 ### Documentado
 
+- improvement review of 9/10 — 14 confirmed findings, risks, questions and proposed phases 36-45 (H-002..H-015, R-006, R-008, R-010, R-011, R-012, P-006, P-007, P-008, D-020, T-014) `fd5d4b8`
 - phases 23 and 24 deployed (8b97399) `c5c220e`
 - Santi's approval of phases 2-8 and the lab (T-008, T-009, T-011, T-001, T-002, R-004) `adf0fc0`
 - D-019 answers deployed, worker 0.2.1 (D-019, T-011) `661ebb2`
@@ -103,4 +105,8 @@ _Borrador generado al 2026-10-09 (82 commits). Escribí el «porqué» fuera de 
 - scaffold apps/api (NestJS 12, ESM, Prisma 7) and apps/web (Vite 8, React 19, PWA deps) `338e565`
 - scaffold pnpm monorepo, domain package skeleton, fixtures and CI `e133151`
 - enforce LF line endings and keep CSV fixtures byte-exact `461affb`
+
+### Decidido
+
+- 2026-10-09 — D-020 aprobada por Santiago: Decidió Santiago el 09/10/2026: «vamos a encargarnos de todo esto y luego volvemos a los workers». Todas las fases de T-014 (36 a 44) en el orden propuesto; la 45 (jugar sin la PC) se junta con los workers de T-015, que van después.
 <!-- /posta:cambios -->

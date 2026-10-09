@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-20 fichas: propuesta 1 · vigente 19. ⚑ = para revisar.
+20 fichas: vigente 20. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Actualizado |
 | --- | --- | --- | --- | --- |
@@ -36,4 +36,4 @@ revisar: false
 | [D-017](D-017.md) | Qué puede escribir Claude | vigente | — | 2026-10-08 |
 | [D-018](D-018.md) | Cómo mide y busca el laboratorio de mazos | vigente | — | 2026-10-08 |
 | [D-019](D-019.md) | Cómo se juega contra el bot y cómo se mide la consistencia | vigente | — | 2026-10-08 |
-| [D-020](D-020.md) | Consolidar antes de sumar funciones | propuesta ⚑ | — | 2026-10-09 |
+| [D-020](D-020.md) | Consolidar antes de sumar funciones | vigente | — | 2026-10-09 |
