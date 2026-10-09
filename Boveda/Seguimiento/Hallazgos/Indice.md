@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-16 fichas: abierto 15 · resuelto 1. ⚑ = para revisar.
+17 fichas: abierto 16 · resuelto 1. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Severidad | Actualizado |
 | --- | --- | --- | --- | --- | --- |
@@ -33,3 +33,4 @@ revisar: false
 | [H-014](H-014.md) | El worker no detecta un motor colgado y el latido no verifica de quién es el chunk | abierto | — | media | 2026-10-09 |
 | [H-015](H-015.md) | Descompresión sin límite, conexiones a la base sin tiempo máximo y respuestas sin comprimir | abierto | — | baja | 2026-10-09 |
 | [H-016](H-016.md) | El worker de la PC murió con la actualización de la app de Claude | abierto | — | media | 2026-10-09 |
+| [H-017](H-017.md) | En una sesión en la nube, posta generar recorta el CHANGELOG | abierto | — | baja | 2026-10-09 |
