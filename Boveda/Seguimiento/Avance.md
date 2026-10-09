@@ -57,7 +57,7 @@ revisar: false
 | 34 | Tests de pantallas en la CI | hecho 09/10 · desplegado (`0524489`) · aprobado 09/10 | — | [T-013](Tareas/T-013.md) |
 | 35 | Prueba mensual del backup | hecho 09/10 · desplegado (`0524489`) · aprobado 09/10 | — | [T-013](Tareas/T-013.md) |
 | E | Evaluación de mejoras: 14 hallazgos, riesgos, preguntas y fases propuestas 36 a 45 | hecho 09/10 · verificada 09/10 · aprobada 09/10 ([D-020](Decisiones/D-020.md)) | 35 | [Evaluación](Evaluacion-2026-10-09.md), [T-014](Tareas/T-014.md) |
-| 36 | Arreglos confirmados (y tope de 3 energías, [P-006](Preguntas/P-006.md)) | hecho 09/10 | E | [T-014](Tareas/T-014.md) |
+| 36 | Arreglos confirmados (y tope de 3 energías, [P-006](Preguntas/P-006.md)) | hecho 09/10 · desplegado (`55d658d`) | E | [T-014](Tareas/T-014.md) |
 | 37 | Números honestos | pendiente | 36 | [T-014](Tareas/T-014.md) |
 | 38 | Operación y avisos | pendiente | 37 | [T-014](Tareas/T-014.md) |
 | 39 | Copia fuera de Supabase y retención ([P-007](Preguntas/P-007.md): en la nube) | pendiente | 38 | [T-014](Tareas/T-014.md) |
@@ -73,7 +73,7 @@ revisar: false
 
 ## Próximos pasos
 
-Las fases 0–8 del plan están aprobadas (visto bueno de Santiago el 08/10/2026). Las fases 9 a 35 están desplegadas (las 25 a 35 en `0524489`, [T-013](Tareas/T-013.md)); las 22 a 35 tienen su visto bueno del 09/10/2026.
+Las fases 0–8 del plan están aprobadas (visto bueno de Santiago el 08/10/2026). Las fases 9 a 36 están desplegadas (las 25 a 35 en `0524489`, [T-013](Tareas/T-013.md); la 36 en `55d658d`); las 22 a 35 tienen su visto bueno del 09/10/2026.
 
 1. Fases 36 a 44 de la [evaluación del 09/10](Evaluacion-2026-10-09.md) ([T-014](Tareas/T-014.md)), en el orden de [D-020](Decisiones/D-020.md) (decidido el 09/10/2026). Al empezar cada una, leer la nota «Verificación del 09/10» de sus hallazgos: corrige detalles de las fichas.
 2. Después, los workers de [T-015](Tareas/T-015.md) (nube, Android y navegador), que reemplazan la fase 45.
