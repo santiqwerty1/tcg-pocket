@@ -416,7 +416,9 @@ export function NewSimulationPage() {
   const [games, setGames] = useState('200')
   const [seed, setSeed] = useState('')
   const [label, setLabel] = useState('')
-  const [replaySample, setReplaySample] = useState('2')
+  // Replays per pairing: one in a matrix and two in a comparison unless chosen (the matrices filled the database).
+  const [replayChoice, setReplayChoice] = useState<string | null>(null)
+  const replaySample = replayChoice ?? (kind === 'matrix' ? '1' : '2')
   const [bothOrders, setBothOrders] = useState(false)
   const [skipNotSimulable, setSkipNotSimulable] = useState(false)
   const [remove, setRemove] = useState<Record<string, number>>({})
@@ -631,7 +633,7 @@ export function NewSimulationPage() {
           </Field>
           {kind !== 'optimize' ? (
             <Field label="Repeticiones guardadas por cruce">
-              <Select value={replaySample} onValueChange={setReplaySample}>
+              <Select value={replaySample} onValueChange={setReplayChoice}>
                 <SelectTrigger className="w-full" aria-label="Repeticiones por cruce">
                   <SelectValue />
                 </SelectTrigger>

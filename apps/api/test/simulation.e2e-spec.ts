@@ -529,6 +529,21 @@ describe('simulation (e2e)', () => {
     }
   })
 
+  it('replays: one per pairing in a matrix and two in a comparison unless the request says (the database filled up)', async () => {
+    const make = async (body: Structured) =>
+      (await post('/api/simulations').send({ gamesPerPair: 10, players: ['r', 'r'], ...body })).body.id as number
+    const matrix = await make({ kind: 'matrix', sideA: decks(1, 3) })
+    const compare = await make({ kind: 'compare', sideA: decks(3, 3), sideB: decks(5, 5) })
+    const chosen = await make({ kind: 'matrix', sideA: decks(1, 3), replaySample: 3 })
+    const sample = async (id: number) =>
+      (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).replaySample
+    expect([await sample(matrix), await sample(compare), await sample(chosen)]).toEqual([1, 2, 3])
+    for (const id of [matrix, compare, chosen]) {
+      await post(`/api/simulations/${id}/cancel`)
+      await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)
+    }
+  })
+
   it('list: archive finished jobs (one by one or all), bring them back, delete the cancelled ones', async () => {
     const make = async () =>
       (

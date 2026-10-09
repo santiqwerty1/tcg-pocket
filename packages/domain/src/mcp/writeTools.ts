@@ -221,7 +221,7 @@ export const MCP_WRITE_TOOLS = {
         .min(0)
         .max(5)
         .optional()
-        .describe('Repeticiones guardadas por cruce (por defecto 2)'),
+        .describe('Repeticiones guardadas por cruce (por defecto 1 en una matriz y 2 en una comparación)'),
       bothOrders: z.boolean().optional().describe('matrix: cada cruce en los dos sentidos'),
       label: z.string().trim().max(200).optional().describe('Nombre de la simulación'),
       skipNotSimulable: z.boolean().optional().describe('Saltear los mazos no simulables en vez de rechazar'),

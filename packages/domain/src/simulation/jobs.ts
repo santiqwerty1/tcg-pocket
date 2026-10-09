@@ -74,6 +74,14 @@ export function comparePairings(variants: readonly number[], rivals: readonly nu
   return pairings
 }
 
+/**
+ * Replays kept per pairing when the request does not say: one in a matrix (a 40-deck matrix is 780 pairings, ~6 MB
+ * with one each; two each filled 61 MB of the database for matrix #4) and two in a comparison.
+ */
+export function defaultReplaySample(kind: SimulationKind): number {
+  return kind === 'matrix' ? 1 : 2
+}
+
 /** Games per chunk at most: a chunk of e2 bots takes about a minute on two threads. */
 export const MAX_GAMES_PER_CHUNK = 1000
 
