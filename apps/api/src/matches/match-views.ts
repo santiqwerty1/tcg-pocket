@@ -1,5 +1,6 @@
 /** Response shapes of the matches API (docs/API.md «Partidas»). Numeric ids travel as strings. */
 import type {
+  CoinAdjustedRate,
   GameRecord,
   MatchMode,
   MatchResult,
@@ -40,7 +41,8 @@ export interface RowView {
 export interface MatchStatsView {
   filters: { deckId: string | null; mode: MatchMode | null; from: string | null; to: string | null }
   overall: RowView
-  byDeck: (RowView & { deck: MatchDeckRef })[]
+  /** Fase 44: `coinAdjusted` = ½ going first + ½ going second, null without a match on each side. */
+  byDeck: (RowView & { deck: MatchDeckRef; coinAdjusted: CoinAdjustedRate | null })[]
   byOpponent: (RowView & { key: string | null; label: string })[]
   byWentFirst: (RowView & { key: WentFirstKey; label: string })[]
   byMode: (RowView & { mode: MatchMode; label: string })[]
@@ -48,6 +50,8 @@ export interface MatchStatsView {
   byRevision: (RowView & { revision: number | null })[]
   /** Fase 25: going first against going second, with the gap and whether it is more than chance. */
   turnOrder: TurnOrderImpact
+  /** Fase 44: the share adjusted by the coin over the selected matches. */
+  coinAdjusted: CoinAdjustedRate | null
 }
 
 export interface PickerDeckView {

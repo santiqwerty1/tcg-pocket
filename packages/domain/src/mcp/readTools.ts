@@ -186,7 +186,7 @@ export const MCP_READ_TOOLS = {
     name: 'matches_stats',
     title: 'Estadísticas de mis partidas',
     description:
-      'Porcentaje de victorias de mis partidas registradas, en total, por mazo, por rival, por quién empezó, por modalidad y por revisión del mazo. Cada porcentaje trae su n, intervalo de confianza de Wilson del 95 % y la marca «orientativo» con menos de 30 partidas: citá siempre el campo `text`. Son solo mis partidas: no las mezcles con torneos ni simulaciones.',
+      'Porcentaje de victorias de mis partidas registradas, en total, por mazo, por rival, por quién empezó, por modalidad y por revisión del mazo, y el porcentaje con la moneda pareja (`coinAdjusted`: mitad empezando, mitad yendo segundo; la moneda decide quién empieza, así que es lo que se espera a la larga). Cada porcentaje trae su n, intervalo de confianza de Wilson del 95 % y la marca «orientativo» con menos de 30 partidas: citá siempre el campo `text`. Son solo mis partidas: no las mezcles con torneos ni simulaciones.',
     input: z.object({
       deck: deckRef.optional(),
       mode: z.enum(MATCH_MODES).optional().describe('Modalidad'),

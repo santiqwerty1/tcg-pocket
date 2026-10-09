@@ -7,6 +7,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import {
   botLabel,
   cleanOpponent,
+  coinAdjustedRate,
   DEFAULT_MATCH_MODE,
   type DeckCardEntry,
   eraRange,
@@ -323,6 +324,7 @@ export class MatchesService {
       byDeck: report.byDeck.map((item) => ({
         deck: decks.get(item.deckId) ?? { id: item.deckId, name: `Mazo ${item.deckId}`, archived: false },
         ...row(item),
+        coinAdjusted: coinAdjustedRate(selected.filter((match) => match.deckId === item.deckId)),
       })),
       byOpponent: report.byOpponent.map((item) => ({ key: item.key, label: item.label, ...row(item) })),
       byWentFirst: report.byWentFirst.map((item) => ({ key: item.key, label: item.label, ...row(item) })),
@@ -330,6 +332,7 @@ export class MatchesService {
       byRevision:
         deckId === undefined ? [] : report.byRevision.map((item) => ({ revision: item.revision, ...row(item) })),
       turnOrder: turnOrderImpact(selected),
+      coinAdjusted: coinAdjustedRate(selected),
     }
   }
 

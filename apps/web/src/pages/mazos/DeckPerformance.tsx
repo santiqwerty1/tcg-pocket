@@ -171,7 +171,9 @@ export function DeckPerformance({
           </div>
           <div className="flex flex-col gap-1.5">
             <h3 className="text-sm font-medium">¿Importa empezar?</h3>
-            {stats.data.turnOrder ? <TurnOrderCard turnOrder={stats.data.turnOrder} /> : null}
+            {stats.data.turnOrder ? (
+              <TurnOrderCard turnOrder={stats.data.turnOrder} coinAdjusted={stats.data.coinAdjusted} />
+            ) : null}
             <RateRows
               rows={stats.data.byWentFirst
                 .filter((row) => row.rate !== null)

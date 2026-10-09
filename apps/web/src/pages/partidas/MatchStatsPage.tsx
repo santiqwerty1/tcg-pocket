@@ -8,7 +8,7 @@ import { Section } from '@/components/Section'
 import { TurnOrderCard } from '@/components/TurnOrderCard'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { MODE_LABEL, PERIODS, type PeriodKey, periodFrom } from '@/lib/matches'
+import { formatRateValue, MODE_LABEL, PERIODS, type PeriodKey, periodFrom } from '@/lib/matches'
 import { ChoiceGroup } from './MatchFields'
 
 const ALL_MODES = '__all__'
@@ -99,7 +99,16 @@ export function MatchStatsPage() {
               rows={stats.data.byDeck.map((row) => ({
                 id: row.deck.id,
                 label: row.deck.name,
-                ...(row.deck.archived ? { hint: 'archivado' } : {}),
+                ...(row.deck.archived || row.coinAdjusted
+                  ? {
+                      hint: [
+                        row.deck.archived ? 'archivado' : null,
+                        row.coinAdjusted ? `con la moneda pareja ${formatRateValue(row.coinAdjusted.value)}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · '),
+                    }
+                  : {}),
                 to: `/mazos/${encodeURIComponent(row.deck.id)}`,
                 record: row.record,
                 rate: row.rate,
@@ -123,7 +132,7 @@ export function MatchStatsPage() {
 
           {stats.data.turnOrder ? (
             <Section title="¿Importa empezar?">
-              <TurnOrderCard turnOrder={stats.data.turnOrder} />
+              <TurnOrderCard turnOrder={stats.data.turnOrder} coinAdjusted={stats.data.coinAdjusted} />
             </Section>
           ) : null}
 

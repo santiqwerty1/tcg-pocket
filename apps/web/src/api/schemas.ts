@@ -628,6 +628,22 @@ const rowFields = { record: gameRecordSchema, rate: winRateSchema.nullable() }
 export const statRowSchema = z.object(rowFields)
 export type StatRow = z.infer<typeof statRowSchema>
 
+/** Fase 44: ½ going first + ½ going second, with its interval. */
+export const coinAdjustedSchema = z.object({
+  value: z.number(),
+  ci95: z.tuple([z.number(), z.number()]),
+  first: gameRecordSchema,
+  second: gameRecordSchema,
+  firstShare: z.number(),
+  secondShare: z.number(),
+  games: z.number(),
+  unknown: z.number(),
+  orientative: z.boolean(),
+  plain: z.number(),
+  text: z.string(),
+})
+export type CoinAdjusted = z.infer<typeof coinAdjustedSchema>
+
 export const matchStatsSchema = z.object({
   filters: z.object({
     deckId: z.string().nullable(),
@@ -636,7 +652,9 @@ export const matchStatsSchema = z.object({
     to: nullableDate,
   }),
   overall: statRowSchema,
-  byDeck: z.array(z.object({ ...rowFields, deck: matchDeckRefSchema })),
+  byDeck: z.array(
+    z.object({ ...rowFields, deck: matchDeckRefSchema, coinAdjusted: coinAdjustedSchema.nullable().default(null) }),
+  ),
   byOpponent: z.array(z.object({ ...rowFields, key: z.string().nullable(), label: z.string() })),
   byWentFirst: z.array(z.object({ ...rowFields, key: z.enum(['first', 'second', 'unknown']), label: z.string() })),
   byMode: z.array(z.object({ ...rowFields, mode: matchModeSchema, label: z.string() })),
@@ -657,6 +675,7 @@ export const matchStatsSchema = z.object({
       text: z.string(),
     })
     .optional(),
+  coinAdjusted: coinAdjustedSchema.nullable().default(null),
 })
 export type MatchStats = z.infer<typeof matchStatsSchema>
 export type TurnOrder = NonNullable<MatchStats['turnOrder']>

@@ -339,6 +339,12 @@ describe('matches (e2e)', () => {
     // The deck already had matches without who went first from the tests above.
     expect(stats.turnOrder.unknown).toBeGreaterThanOrEqual(1)
     expect(stats.turnOrder.text).toMatch(/^Empezando ganás el 86 % \(n = 7\) y yendo segundo el 17 % \(n = 6\)/)
+    // Fase 44: half going first, half going second.
+    expect(stats.coinAdjusted.value).toBeCloseTo(((6 / 7 + 1 / 6) / 2) * 100, 6)
+    expect(stats.coinAdjusted.text).toMatch(/^Ajustado por la moneda: 51 % /)
+    const all = (await get('/api/matches/stats')).body
+    const row = all.byDeck.find((item: { deck: { id: string } }) => item.deck.id === target)
+    expect(row.coinAdjusted.value).toBeCloseTo(stats.coinAdjusted.value, 6)
     const matchups = (await get(`/api/decks/${target}/matchups`)).body
     const hoopa = matchups.rows.find((row: { rival: { name: string } }) => row.rival.name === 'Hoopa ex')
     expect(hoopa.turn).toEqual({ first: { wins: 6, losses: 1, ties: 0 }, second: { wins: 1, losses: 5, ties: 0 } })
