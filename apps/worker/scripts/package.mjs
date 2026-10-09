@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // The portable worker (Fase 21): build/tcg-worker-<version>-windows.zip with tcg-worker.exe (this worker bundled into a
-// Node single executable application: no Node, repository or Rust needed on the other PC), engine-cli.exe and LEEME.txt.
+// Node single executable application: no Node, repository or Rust needed on the other PC), engine-cli.exe and LEEME.txt,
+// with the licenses (D-022): the repository's AGPL-3.0 (worker and engine-cli) and Node's, whose binary goes inside.
 //
 //   node scripts/package.mjs [--engine <path to engine-cli.exe>]
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { build } from 'esbuild'
 import { inject } from 'postject'
 
@@ -45,8 +46,19 @@ await inject(exe, 'NODE_SEA_BLOB', readFileSync(join(out, 'sea-prep.blob')), {
   sentinelFuse: 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2',
 })
 
-// 3. The engine and the instructions.
+// 3. The engine, the licenses and the instructions.
 copyFileSync(engine, join(dir, 'engine-cli.exe'))
+copyFileSync(resolve(root, '../../LICENSE'), join(dir, 'LICENSE.txt'))
+// Node's LICENSE: next to node.exe in the zip installs (the CI); the MSI installer leaves it out, so then the one of
+// this exact version, from Node's repository.
+const nodeLicense = join(dirname(process.execPath), 'LICENSE')
+if (existsSync(nodeLicense)) copyFileSync(nodeLicense, join(dir, 'LICENSE-node.txt'))
+else {
+  const url = `https://raw.githubusercontent.com/nodejs/node/v${process.versions.node}/LICENSE`
+  const response = await fetch(url, { signal: AbortSignal.timeout(30_000) })
+  if (!response.ok) throw new Error(`no se pudo bajar el LICENSE de Node (${response.status}): ${url}`)
+  writeFileSync(join(dir, 'LICENSE-node.txt'), await response.text())
+}
 writeFileSync(
   join(dir, 'LEEME.txt'),
   `TCG Pocket: worker de simulación ${version}
@@ -68,7 +80,9 @@ Otros usos (desde una consola en esta carpeta):
 
 La configuración y el registro quedan en %LOCALAPPDATA%\\tcg-worker (config.json y worker.log).
 Si actualizás la app y el motor cambia, reemplazá los dos .exe por los del paquete nuevo y reiniciá la sesión.
-engine-cli.exe incluye deckgym-core (AGPL-3.0, https://github.com/bcollazo/deckgym-core).
+Licencias: el worker y engine-cli.exe son AGPL-3.0 (LICENSE.txt; fuentes en https://github.com/santiqwerty1/tcg-pocket);
+engine-cli.exe incluye deckgym-core (AGPL-3.0, https://github.com/bcollazo/deckgym-core); tcg-worker.exe lleva
+adentro Node.js (LICENSE-node.txt).
 `.replace(/\n/g, '\r\n'),
 )
 

@@ -12,6 +12,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# D-022 (public repository): the jobs only read the repository (checkout); artifacts do not need more.
+permissions:
+  contents: read
+
 jobs:
   # What changed against the base (the PR's base, or main before the push): decides the expensive jobs.
   changes:

@@ -1,6 +1,7 @@
 {
   "name": "@tcg/worker",
   "version": "0.1.0",
+  "license": "AGPL-3.0-only",
   "private": true,
   "description": "Simulation worker for the owner's Windows PC: claims chunks from the app over HTTPS, runs engine-cli (deckgym) and reports results.",
   "type": "module",
