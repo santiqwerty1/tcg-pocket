@@ -34,7 +34,11 @@ function PreviewPanel({
     <div className="flex flex-col gap-3 rounded-lg border p-3 text-sm">
       <p className="font-medium">
         Commit <code className="font-mono">{shortSha(preview.trackerCommit)}</code>
-        {preview.diffEmpty ? ': nada cambia.' : ''}
+        {preview.diffEmpty
+          ? preview.trackerCommit === preview.current
+            ? ': nada cambia.'
+            : ': las cartas no cambian, pero puede traer imágenes, misiones o sobres nuevos.'
+          : ''}
       </p>
       {preview.expansionsAdded.length > 0 ? (
         <ul className="list-disc pl-5">
@@ -95,7 +99,7 @@ function PreviewPanel({
           </span>
         </label>
       ) : null}
-      {!preview.diffEmpty ? (
+      {!preview.diffEmpty || preview.trackerCommit !== preview.current ? (
         <Button onClick={() => onApply(preview.destructive)} disabled={applying || (preview.destructive && !confirmed)}>
           {applying ? <Spinner /> : null}
           Aplicar

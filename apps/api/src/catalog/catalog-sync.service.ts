@@ -151,6 +151,18 @@ export class CatalogSyncService implements OnModuleInit {
    */
   async preview(request: SyncRequest): Promise<CatalogPreview> {
     if (this.running) throw new ConflictException('Ya hay una sincronización en curso.')
+    // One download per commit at a time: a second request for the same preview waits for the first.
+    const key = `${request.source}|${request.trackerCommit}|${request.engineRev}`
+    const pending = this.previews.get(key)
+    if (pending) return pending
+    const promise = this.buildPreview(request).finally(() => this.previews.delete(key))
+    this.previews.set(key, promise)
+    return promise
+  }
+
+  private previews = new Map<string, Promise<CatalogPreview>>()
+
+  private async buildPreview(request: SyncRequest): Promise<CatalogPreview> {
     const prepared = await this.prepare(request)
     const { catalog, report, diff, remap, previous } = prepared
     const added = new Set(diff?.added ?? catalog.cards.map((card) => card.id))
@@ -188,8 +200,22 @@ export class CatalogSyncService implements OnModuleInit {
 
   /** Of these engine ids: played (complete), incomplete, unknown — by the status of `engineRev` or the newest one. */
   private async engineStatusOf(engineRev: string, engineIds: string[]): Promise<CatalogPreview['engine']> {
-    const revs = await this.prisma.engineCard.groupBy({ by: ['engineRev'], _count: { _all: true } })
-    const rev = revs.some((row) => row.engineRev === engineRev) ? engineRev : (revs[0]?.engineRev ?? null)
+    const revs = await this.prisma.engineCard.groupBy({
+      by: ['engineRev'],
+      _count: { _all: true },
+      orderBy: { _count: { engineRev: 'desc' } },
+    })
+    const known = new Set(revs.map((row) => row.engineRev))
+    const newestWorker = await this.prisma.workerNode.findFirst({
+      where: { engineRev: { not: null } },
+      orderBy: { lastSeenAt: 'desc' },
+      select: { engineRev: true },
+    })
+    const rev = known.has(engineRev)
+      ? engineRev
+      : newestWorker?.engineRev && known.has(newestWorker.engineRev)
+        ? newestWorker.engineRev
+        : (revs[0]?.engineRev ?? null)
     if (!rev) return { engineRev: null, plays: 0, incomplete: 0, unknown: engineIds.length }
     const rows = await this.prisma.engineCard.findMany({
       where: { engineRev: rev, engineId: { in: engineIds } },
