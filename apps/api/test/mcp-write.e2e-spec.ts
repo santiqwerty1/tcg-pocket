@@ -513,6 +513,30 @@ describe('MCP write tools (e2e)', () => {
     const restored = await call(client, 'matches_restore', { id })
     expect(restored.structuredContent).toMatchObject({ restored: true, match: { id } })
     expect((await get(`/api/matches/${id}`)).status).toBe(200)
+
+    // The server died before the delete (no deletedAt) and Santi deleted the match himself: nothing to undo.
+    const undo = entry.undo as Record<string, unknown>
+    const { deletedAt, ...beforeDelete } = undo
+    expect(deletedAt).toEqual(expect.any(String))
+    const crashed = await prisma.mcpAudit.create({
+      data: {
+        tokenId: null,
+        tokenName: 'claude',
+        client: 'Claude-User',
+        tool: 'matches_delete',
+        args: { id },
+        ok: false,
+        error: 'Sin terminar: el servidor no llegó a anotar el resultado.',
+        ms: 0,
+        undo: beforeDelete as never,
+      },
+    })
+    expect((await test.http().delete(`/api/matches/${id}`).set('Cookie', cookie)).status).toBe(204)
+    const again = (await get('/api/mcp-audit?limit=5')).body.items as { id: string; undo: unknown }[]
+    expect(again.find((item) => item.id === String(crashed.id))?.undo).toBeNull()
+    expect((await test.http().post(`/api/mcp-audit/${crashed.id}/undo`).set('Cookie', cookie)).status).toBe(400)
+    expect((await call(client, 'matches_restore', { id })).isError).toBe(true)
+    expect((await get(`/api/matches/${id}`)).status).toBe(404)
   })
 
   it('Fase 43: a deleted rival note comes back with its archetype; one changed since is left alone', async () => {

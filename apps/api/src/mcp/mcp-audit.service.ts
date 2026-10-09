@@ -32,6 +32,11 @@ export type AuditUndo =
         clientRef: string | null
         createdAt: string
       }
+      /**
+       * When the match was deleted, written in the same transaction as the delete: an entry left «Sin terminar» is
+       * undoable only with it (without it, the delete may never have happened).
+       */
+      deletedAt?: string
       /** «Victoria con 7 Zoroark ex contra Mega-Blaziken» — for the list. */
       label: string
     }
@@ -69,19 +74,21 @@ export type AuditUndo =
 export interface AuditNote {
   undo: AuditUndo | null
   keep(undo: AuditUndo): Promise<void>
+  /** `keep` inside the caller's transaction: recorded only if the write it goes with commits. */
+  keepIn(tx: Prisma.TransactionClient, undo: AuditUndo): Promise<void>
 }
 
 /** What an entry says until the write finishes (it stays so if the server dies in between). */
 export const AUDIT_PENDING = 'Sin terminar: el servidor no llegó a anotar el resultado.'
 
 /**
- * What can be undone: a write that finished, or a deletion left «Sin terminar» (the server died after keeping the
- * match, maybe after deleting it: restoring says so if it is still there).
+ * What can be undone: a write that finished, or a deletion left «Sin terminar» whose delete committed (`deletedAt`,
+ * written with it): the server died after deleting, before closing the entry.
  */
 function undoable(row: Pick<McpAudit, 'ok' | 'error' | 'undo'>): boolean {
   const undo = row.undo as AuditUndo | null
   if (!undo) return false
-  return row.ok || (row.error === AUDIT_PENDING && undo.kind === 'match_delete')
+  return row.ok || (row.error === AUDIT_PENDING && undo.kind === 'match_delete' && undo.deletedAt !== undefined)
 }
 
 export interface McpAuditView {
@@ -166,8 +173,8 @@ export class McpAuditService {
     return row.id
   }
 
-  async keepUndo(id: number, undo: AuditUndo): Promise<void> {
-    await this.prisma.mcpAudit.update({ where: { id }, data: { undo: undo as unknown as Prisma.InputJsonValue } })
+  async keepUndo(id: number, undo: AuditUndo, db: Prisma.TransactionClient = this.prisma): Promise<void> {
+    await db.mcpAudit.update({ where: { id }, data: { undo: undo as unknown as Prisma.InputJsonValue } })
   }
 
   /** Closes the entry with what happened. */
@@ -206,7 +213,7 @@ export class McpAuditService {
 
   /** `matches_restore`: the latest deletion of that match by Claude, not undone yet. */
   async restoreMatch(matchId: number): Promise<McpAuditView> {
-    const row = await this.prisma.mcpAudit.findFirst({
+    const rows = await this.prisma.mcpAudit.findMany({
       where: {
         tool: MCP_WRITE_TOOLS.matchesDelete.name,
         OR: [{ ok: true }, { error: AUDIT_PENDING }],
@@ -215,6 +222,7 @@ export class McpAuditService {
       },
       orderBy: { id: 'desc' },
     })
+    const row = rows.find(undoable)
     if (!row) {
       throw new NotFoundException(
         `No hay una partida ${matchId} borrada por Claude para devolver (las que se borran en la app no pasan por el registro).`,

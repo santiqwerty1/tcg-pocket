@@ -30,7 +30,7 @@ import { EngineStatusService, type SnapshotSource } from '../simulation/snapshot
 import { TournamentsService } from '../tournaments/tournaments.service.js'
 import { resolveCardRef } from './card-ref.js'
 import { DeckRefResolver } from './deck-ref.js'
-import { type AuditNote, McpAuditService } from './mcp-audit.service.js'
+import { type AuditNote, type AuditUndo, McpAuditService } from './mcp-audit.service.js'
 import { jobSummaryJson } from './mcp-json.js'
 import type { WriteRun } from './mcp-run.js'
 
@@ -406,7 +406,7 @@ export class McpWriteToolsService {
     const row = await this.prisma.match.findUnique({ where: { id: Number(match.id) } })
     if (!row) throw new NotFoundException(`Partida ${id} no encontrada.`)
     // The copy is in the log before the row goes: undoing never depends on what happens after the delete.
-    await note.keep({
+    const undo: AuditUndo = {
       kind: 'match_delete',
       match: {
         id: row.id,
@@ -423,12 +423,17 @@ export class McpWriteToolsService {
         createdAt: row.createdAt.toISOString(),
       },
       label: `${MATCH_RESULT_LABEL_ES[match.result]} con ${match.deck.name}${match.opponent ? ` contra ${match.opponent}` : ''} (${match.playedAt.toISOString().slice(0, 10)})`,
-    })
-    // Only the version that was copied: if it changed in between, nothing is deleted.
-    const deleted = await this.prisma.match.deleteMany({ where: { id: row.id, updatedAt: row.updatedAt } })
-    if (deleted.count === 0) {
-      throw new ConflictException(`La partida ${id} cambió (o ya no está) mientras la borraba: no borré nada.`)
     }
+    await note.keep(undo)
+    await this.prisma.$transaction(async (tx) => {
+      // Only the version that was copied: if it changed in between, nothing is deleted.
+      const deleted = await tx.match.deleteMany({ where: { id: row.id, updatedAt: row.updatedAt } })
+      if (deleted.count === 0) {
+        throw new ConflictException(`La partida ${id} cambió (o ya no está) mientras la borraba: no borré nada.`)
+      }
+      // That it was deleted goes in the log with the delete itself: a «Sin terminar» entry is undoable only with it.
+      await note.keepIn(tx, { ...undo, deletedAt: new Date().toISOString() })
+    })
     return {
       deleted: true,
       match: matchView(match),
