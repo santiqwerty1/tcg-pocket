@@ -341,6 +341,7 @@ export class McpWriteToolsService {
             }
           : null,
         after,
+        ...(note ? { afterUpdatedAt: note.updatedAt.toISOString() } : {}),
         label: `Nota sobre «${opponent}»: ${after === null ? 'borrada' : previous === null ? 'nueva' : 'cambiada'}`,
       }
     }

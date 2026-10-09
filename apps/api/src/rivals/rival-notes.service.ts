@@ -105,12 +105,14 @@ export class RivalNotesService {
 
   /**
    * Fase 43, «Deshacer» of a Claude write: puts `before` back (null: deletes the note) only while the note is still
-   * `after` (null: there is none), in one conditional write. False when it changed since.
+   * what the write left (`after`, and its `updated_at` when known: a later change of label or archetype counts too;
+   * null: there is none), in one conditional write. False when it changed since.
    */
   async restore(
     key: string,
     after: string | null,
     before: { label: string; archetypeId: string | null; text: string; createdAt: string } | null,
+    afterUpdatedAt?: string | undefined,
   ): Promise<boolean> {
     if (after === null) {
       if (!before) return true
@@ -120,12 +122,13 @@ export class RivalNotesService {
       })
       return created.count > 0
     }
+    const where = { key, text: after, ...(afterUpdatedAt ? { updatedAt: new Date(afterUpdatedAt) } : {}) }
     const changed = before
       ? await this.prisma.rivalNote.updateMany({
-          where: { key, text: after },
+          where,
           data: { label: before.label, archetypeId: before.archetypeId, text: before.text },
         })
-      : await this.prisma.rivalNote.deleteMany({ where: { key, text: after } })
+      : await this.prisma.rivalNote.deleteMany({ where })
     return changed.count > 0
   }
 

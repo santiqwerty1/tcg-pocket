@@ -560,6 +560,17 @@ describe('MCP write tools (e2e)', () => {
     expect(relabeled?.undo?.label).toContain('cambiada')
     expect((await test.http().post(`/api/mcp-audit/${relabeled?.id}/undo`).set('Cookie', cookie)).status).toBe(200)
     expect(await lookup()).toMatchObject({ label: 'Mega Gyarados ex', text: 'Lo corrijo yo.' })
+
+    // Santi only links it to an archetype after Claude's write (same text): «Deshacer» leaves it alone.
+    await call(client, 'rivals_note_set', { opponent: 'Mega Gyarados ex', text: 'Otra idea.', append: false })
+    const rewritten = await latest()
+    await test
+      .http()
+      .put('/api/rival-notes')
+      .set('Cookie', cookie)
+      .send({ opponent: 'Mega Gyarados ex', text: 'Otra idea.', archetypeId: 'mega-gyarados-ex' })
+    expect((await test.http().post(`/api/mcp-audit/${rewritten?.id}/undo`).set('Cookie', cookie)).status).toBe(409)
+    expect(await lookup()).toMatchObject({ text: 'Otra idea.', archetypeId: 'mega-gyarados-ex' })
   })
 
   it('Fase 43: a match the phone sent again is not restored twice', async () => {
