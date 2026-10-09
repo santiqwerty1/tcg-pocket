@@ -28,7 +28,8 @@ Se validan al arrancar (`src/config/env.ts`, zod); si falta algo el proceso term
 | `TRUST_PROXY` | no | `1` | Saltos de proxy confiables (`X-Forwarded-For`): 1 en Fly. |
 | `BACKUP_CRON` | no | `true` en producción, `false` si no | Copia diaria de seguridad a las 04:00 **hora de Buenos Aires** (`America/Argentina/Buenos_Aires`; el contenedor corre en UTC) en `backup_blobs`, conservando las últimas 14. |
 | `LOG_LEVEL` | no | `info` en producción, `debug` si no | Nivel de pino (`silent` apaga). |
-| `APP_VERSION` | no | versión de `package.json` | Lo que informa `/healthz`. |
+| `APP_VERSION` | no | versión de `package.json` | Lo que informa `/healthz`; `scripts/deploy.mjs` pone el sha del commit (Fase 38). |
+| `GITHUB_TOKEN` | no | — | Token de GitHub para los chequeos de deckgym (5.000 pedidos por hora en vez de 60 por IP compartida; Fase 38). |
 | `ARGON2_MEMORY_KIB`, `ARGON2_TIME_COST`, `ARGON2_PARALLELISM` | no | `19456`, `2`, `1` | Costo de argon2id para hashes nuevos (mínimo recomendado por OWASP: 19 MiB, 2 pasadas, 1 hilo). Los valores por defecto de la librería (64 MiB × 4 hilos) no entran en la máquina de 512 MB con varios intentos de login a la vez. El costo queda guardado en el hash: cambiarlo solo afecta contraseñas nuevas. |
 
 ## Base de datos local
@@ -43,7 +44,7 @@ pnpm -F @tcg/api db:migrate          # aplica prisma/migrations (y crea una nuev
 Scripts de Prisma (`prisma.config.ts` lee `DATABASE_URL`):
 
 - `db:migrate`: `prisma migrate dev` (desarrollo; crea migraciones a partir de `prisma/schema.prisma`).
-- `db:deploy`: `prisma migrate deploy` (producción; lo corre el contenedor al arrancar).
+- `db:deploy`: `prisma migrate deploy` (producción; lo corre el `release_command` de Fly antes de cada versión nueva y, por las dudas, el contenedor al arrancar: Fase 38).
 - `db:generate`: regenera el cliente en `src/generated/prisma` (ignorado por git; también corre en `postinstall`).
 - `db:reset`: **borra** la base y reaplica todo (solo desarrollo).
 
@@ -134,7 +135,7 @@ La sincronización del catálogo desde fixtures tarda ~2 s, así que cada archiv
 
 ## Deploy (Fly.io)
 
-- `Dockerfile` (raíz): multi-stage con pnpm. La etapa `deps` copia `apps/api/prisma/schema.prisma` y `prisma.config.ts` antes de `pnpm install` (el `postinstall` de la API corre `prisma generate`); `build` compila `@tcg/domain`, genera el cliente de Prisma, compila la PWA y la API y vuelve a instalar solo las dependencias de producción de `@tcg/api` y `@tcg/domain` (`pnpm install --prod --filter "@tcg/api..."` desde el store local: ~330 MB de `node_modules`, la mayor parte el CLI de Prisma, DECISIONES 1.13); la imagen final es `node:24-alpine` con `WEB_DIST=/app/apps/web/dist`. `docker/entrypoint.sh` corre `prisma migrate deploy` (schema engine `linux-musl`) y arranca `node dist/main.js`.
+- `Dockerfile` (raíz): multi-stage con pnpm. La etapa `deps` copia `apps/api/prisma/schema.prisma` y `prisma.config.ts` antes de `pnpm install` (el `postinstall` de la API corre `prisma generate`); `build` compila `@tcg/domain`, genera el cliente de Prisma, compila la PWA y la API y vuelve a instalar solo las dependencias de producción de `@tcg/api` y `@tcg/domain` (`pnpm install --prod --filter "@tcg/api..."` desde el store local: ~330 MB de `node_modules`, la mayor parte el CLI de Prisma, DECISIONES 1.13); la imagen final es `node:24-alpine` con `WEB_DIST=/app/apps/web/dist`. `docker/entrypoint.sh` corre `prisma migrate deploy` (schema engine `linux-musl`) y arranca `node dist/main.js`; con argumentos, los ejecuta en su lugar. `docker/migrate.sh` es el `release_command` de Fly (Fase 38).
 - Probar la imagen en local contra el Postgres de Docker Compose (Docker Desktop en Windows: `host.docker.internal`; en Linux, `--network host` y `127.0.0.1`):
 
   ```bash

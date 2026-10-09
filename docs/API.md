@@ -552,7 +552,15 @@ Worker (`Bearer tcg_wk_…`, scope `worker:claim`):
 
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
-| `GET /api/alerts` | `{ items: [{ code: 'new_set'|'unknown_cards'|'new_era_likely'|'limited_pack'|'engine_update'|'backup_drill'|'era_missing_set'|'worker_idle'|'mcp_new_client', level: 'info'|'warning', title, detail, link }] }`: set nuevo en el `main` del tracker que el catálogo fijado no tiene (cada 12 h, en producción, `TRACKER_UPSTREAM_CHECK`), listas de la era con cartas que el catálogo no conoce, era nueva probable (35 días), sobre limitado en su última semana, commits nuevos de deckgym; `mcp_new_client` (Fase 43): un token usado por un cliente nuevo en la última semana (`info` el primero del token, `warning` los demás) |
+| `GET /api/alerts` | `{ items: [{ code: 'new_set'|'unknown_cards'|'new_era_likely'|'limited_pack'|'engine_update'|'backup_drill'|'era_missing_set'|'worker_idle'|'mcp_new_client'|'backup_stale'|'limitless_sync'|'catalog_sync'|'github_check'|'database_size', level: 'info'|'warning', title, detail, link }] }`: set nuevo en el `main` del tracker que el catálogo fijado no tiene (cada 12 h, en producción, `TRACKER_UPSTREAM_CHECK`), listas de la era con cartas que el catálogo no conoce, era nueva probable (35 días), sobre limitado en su última semana, commits nuevos de deckgym; `mcp_new_client` (Fase 43): un token usado por un cliente nuevo en la última semana (`info` el primero del token, `warning` los demás) |
+
+Fase 38 (operación, `docs/OPERACION.md`): `backup_stale` (la copia diaria falló o tiene más de 26 h; con `BACKUP_CRON`), `limitless_sync` (la última corrida falló o ninguna buena en 13 h; con `LIMITLESS_SYNC`), `catalog_sync` (la última actualización del catálogo falló), `github_check` (`info`: los chequeos de GitHub fallan) y `database_size` (la base pasa de 350 MB de los 500 del plan gratis).
+
+## Operación (Fase 38)
+
+| Método y ruta | Cuerpo / respuesta |
+|---|---|
+| `GET /api/ops/status` | `{ version, startedAt, uptimeSeconds, memory: { rssMb, heapUsedMb, heapTotalMb, heapLimitMb, externalMb }, database: { sizeMb | null, alertMb, limitMb }, backup: { enabled, last: { at, sizeKb } | null, copies, failure: { at, error } | null, drill: { at, ok } | null }, limitless: { enabled, running, last: { status, startedAt, finishedAt, error } | null, lastDoneAt }, catalog: { trackerCommit, engineRev, lastSync: { status, fetchedAt, error } | null }, github: { token, engineCheck, trackerCheck }, workers: { lastSeenAt, online: [{ name, version, cores, lastSeenAt }] }, queue: { chunks, liveGames } }`: el estado del servidor (con sesión). La tool `system_status` devuelve lo mismo más los avisos vigentes (`alerts: [{ code, level, title }]`). `/healthz` informa como `version` el sha desplegado (`APP_VERSION`, que pone `scripts/deploy.mjs`). |
 
 ## Laboratorio de mazos (T-008)
 
