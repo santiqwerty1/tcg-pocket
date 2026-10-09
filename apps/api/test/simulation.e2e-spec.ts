@@ -791,6 +791,37 @@ describe('simulation (e2e)', () => {
     }
   })
 
+  it('H-020: in a comparison every deck plays each rival with the same seeds, also in the parts of a split pairing', async () => {
+    const created = await post('/api/simulations').send({
+      kind: 'compare',
+      sideA: decks(2, 3),
+      sideB: decks(5, 7),
+      gamesPerPair: 1500,
+      players: ['r', 'r'],
+      seed: 9000,
+    })
+    expect(created.status).toBe(201)
+    const chunks = await test.prisma.simulationChunk.findMany({
+      where: { jobId: created.body.id },
+      orderBy: { idx: 'asc' },
+    })
+    // 2 decks × 3 rivals, each pairing split in 1000 + 500.
+    expect(chunks).toHaveLength(12)
+    const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: created.body.id } })
+    const rivals = (job.params as { sideB: number[] }).sideB
+    for (const chunk of chunks) {
+      const rival = rivals.indexOf(chunk.snapshotBId as number)
+      expect(Number(chunk.seed)).toBe(9000 + (chunk.firstGame / 1000) * 1000 + rival)
+    }
+    const seedsOf = (deck: number | null) =>
+      chunks
+        .filter((chunk) => chunk.snapshotAId === deck)
+        .map((chunk) => [chunk.snapshotBId, chunk.firstGame, chunk.seed])
+    expect(seedsOf(chunks[0]?.snapshotAId ?? null)).toEqual(seedsOf(chunks[11]?.snapshotAId ?? null))
+    await post(`/api/simulations/${created.body.id}/cancel`)
+    await test.http().delete(`/api/simulations/${created.body.id}`).set('Cookie', cookie)
+  })
+
   it('list: archive finished jobs (one by one or all), bring them back, delete the cancelled ones', async () => {
     const make = async () =>
       (

@@ -4,8 +4,10 @@ import { describe, expect, it } from 'vitest'
 import { engineIdToTrackerId } from '../../src/catalog/index.js'
 import {
   buildSnapshot,
+  COMPARE_SEED_STRIDE,
   chunkSeed,
   comparePairings,
+  comparisonSeed,
   deckRecord,
   defaultReplaySample,
   type EngineStatus,
@@ -13,6 +15,7 @@ import {
   estimateSeconds,
   gameSeed,
   isBotCode,
+  MAX_BASE_SEED,
   matrixPairings,
   matrixRows,
   planChunks,
@@ -55,6 +58,13 @@ describe('seeds: the same values as engine-cli', () => {
     expect(chunkSeed(1000, 7)).toBe(1007)
     const seed = randomBaseSeed(() => 0xffffffff)
     expect(Number.isSafeInteger(seed + 100_000)).toBe(true)
+  })
+
+  it('in a comparison the seed is the rival’s (and the part’s, for a split pairing), not the chunk’s (H-020)', () => {
+    expect(comparisonSeed(1000, 0)).toBe(1000)
+    expect(comparisonSeed(1000, 4)).toBe(1004)
+    expect(comparisonSeed(1000, 4, 2)).toBe(1000 + 2 * COMPARE_SEED_STRIDE + 4)
+    expect(Number.isSafeInteger(comparisonSeed(MAX_BASE_SEED, 149, 20))).toBe(true)
   })
 })
 

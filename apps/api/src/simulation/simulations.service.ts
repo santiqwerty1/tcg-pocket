@@ -11,6 +11,7 @@ import {
   type ConsistencySplit,
   chunkSeed,
   comparePairings,
+  comparisonSeed,
   DEFAULT_CONSISTENCY_GAMES,
   DEFAULT_CONSISTENCY_TURNS,
   type DeckCardEntry,
@@ -22,6 +23,7 @@ import {
   type GameRecord,
   isBotCode,
   MAX_BASE_SEED,
+  MAX_GAMES_PER_CHUNK,
   matrixPairings,
   matrixRows,
   mergeHistograms,
@@ -224,6 +226,12 @@ export class SimulationsService {
       chunks = planChunks(pairings, input.gamesPerPair)
     }
     const totalGames = chunks.reduce((sum, chunk) => sum + chunk.games, 0)
+    // H-020: in a comparison every deck plays each rival with the same seeds (variants face the same shuffles);
+    // a matrix keeps base + idx.
+    const seedOf = (chunk: { idx: number; b: number | null; firstGame: number }) =>
+      input.kind === 'compare' && chunk.b !== null
+        ? comparisonSeed(baseSeed, okB.indexOf(chunk.b), Math.floor(chunk.firstGame / MAX_GAMES_PER_CHUNK))
+        : chunkSeed(baseSeed, chunk.idx)
     const job = await this.prisma.$transaction(async (tx) => {
       const created = await tx.simulationJob.create({
         data: {
@@ -247,7 +255,7 @@ export class SimulationsService {
           snapshotBId: chunk.b,
           games: chunk.games,
           firstGame: chunk.firstGame,
-          seed: BigInt(chunkSeed(baseSeed, chunk.idx)),
+          seed: BigInt(seedOf(chunk)),
         })),
       })
       return created
