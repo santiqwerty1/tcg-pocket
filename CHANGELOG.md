@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-09 (93 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-09 (98 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -65,6 +65,10 @@ _Borrador generado al 2026-10-09 (93 commits). Escribí el «porqué» fuera de 
 
 ### Corregido
 
+- verify a round's winner on fresh seeds and let the confirmation decide (H-010) (H-020, H-021) `5e394fc`
+- a search plays the plan it showed and keeps its inputs for every round (H-021) `a6c40e6`
+- build each round's variants from the incumbent's lines in order (H-020) `3a7bb81`
+- variants keep every other card in its place so common seeds compare the swap (H-020) `0abb5f4`
 - confirmed findings of the 9/10 review (phase 36, T-014) (H-002, H-003, H-005, H-006, H-007, H-008, H-013, H-014, H-015, H-016, P-006) `ab68ba2`
 - report a catalog sync as running until the catalog finishes reloading `8b97399`
 - pager label does not repeat the deck number (#13) `9e426f9`
@@ -79,6 +83,7 @@ _Borrador generado al 2026-10-09 (93 commits). Escribí el «porqué» fuera de 
 
 - posta generar trims the CHANGELOG from a cloud session; today's log (H-017) `f9fda38`
 - improvement review of 9/10 — 14 confirmed findings, risks, questions and proposed phases 36-45 (H-002..H-015, R-006, R-008, R-010, R-011, R-012, P-006, P-007, P-008, D-020, T-014) `fd5d4b8`
+- phase 36 deployed at 55d658d (T-014) `0e46b77`
 - deck optimization review — bot blind spot, engine overhead, common seeds, search proposals; work split between sessions (H-018, H-019, H-020, H-021, T-017, P-009, D-021, H-010, R-012) `a21f89a`
 - findings of phase 36 point to the rebased commit ab68ba2 `55d658d`
 - close the findings fixed in phase 36 (H-002, H-003, H-005, H-006, H-007, H-008, H-013, H-014, H-015, H-016, P-006) `ffbf409`
@@ -115,20 +120,9 @@ _Borrador generado al 2026-10-09 (93 commits). Escribí el «porqué» fuera de 
 - scaffold pnpm monorepo, domain package skeleton, fixtures and CI `e133151`
 - enforce LF line endings and keep CSV fixtures byte-exact `461affb`
 
-### Decidido
-
-- 2026-10-09 — D-020 aprobada por Santiago: Decidió Santiago el 09/10/2026: «vamos a encargarnos de todo esto y luego volvemos a los workers». Todas las fases de T-014 (36 a 44) en el orden propuesto; la 45 (jugar sin la PC) se junta con los workers de T-015, que van después.
-
 ### Hallazgos cerrados
 
-- H-016 por `245fe7a` en main
-- H-015 por `245fe7a` en main
-- H-014 por `245fe7a` en main
-- H-013 por `245fe7a` en main
-- H-008 por `245fe7a` en main
-- H-007 por `245fe7a` en main
-- H-006 por `245fe7a` en main
-- H-005 por `245fe7a` en main
-- H-003 por `245fe7a` en main
-- H-002 por `245fe7a` en main
+- H-010 por `5e394fc` en lab/optimization
+- H-021 por `a6c40e6` en lab/optimization
+- H-020 por `3a7bb81` en lab/optimization
 <!-- /posta:cambios -->

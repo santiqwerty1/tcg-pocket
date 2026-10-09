@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-21 fichas: abierto 10 · resuelto 11. ⚑ = para revisar.
+21 fichas: abierto 7 · resuelto 14. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Severidad | Actualizado |
 | --- | --- | --- | --- | --- | --- |
@@ -26,7 +26,7 @@ revisar: false
 | [H-007](H-007.md) | «¿Cuál llevo hoy?» hace cientos de consultas y ahora corre al abrir «Hoy» | resuelto | — | media | 2026-10-09 |
 | [H-008](H-008.md) | Un valor nuevo del tracker rompe la sincronización del catálogo y las pantallas con cartas | resuelto | — | media | 2026-10-09 |
 | [H-009](H-009.md) | «¿Mala racha?» toma la tasa esperada como exacta y compara partidas sueltas con récords al mejor de 3 | abierto | — | media | 2026-10-09 |
-| [H-010](H-010.md) | El laboratorio acepta variantes por azar | abierto | — | media | 2026-10-09 |
+| [H-010](H-010.md) | El laboratorio acepta variantes por azar | resuelto | — | media | 2026-10-09 |
 | [H-011](H-011.md) | Intervalos y pruebas que prometen más precisión de la que hay | abierto | — | media | 2026-10-09 |
 | [H-012](H-012.md) | «Días para completar» no cuenta los puntos de sobre | abierto | — | media | 2026-10-09 |
 | [H-013](H-013.md) | Una partida tomada por el worker nunca se abandona sola | resuelto | — | baja | 2026-10-09 |
@@ -36,5 +36,5 @@ revisar: false
 | [H-017](H-017.md) | En una sesión en la nube, posta generar recorta el CHANGELOG | abierto | — | baja | 2026-10-09 |
 | [H-018](H-018.md) | El bot e2 no evoluciona a un Pokémon sin ataque de daño fijo | abierto | — | alta | 2026-10-09 |
 | [H-019](H-019.md) | engine-cli pierde medio segundo por corrida y los chunks chicos hunden la velocidad del laboratorio | abierto | — | media | 2026-10-09 |
-| [H-020](H-020.md) | Las semillas comunes del laboratorio casi no sirven porque las variantes reordenan la lista | abierto | — | media | 2026-10-09 |
-| [H-021](H-021.md) | Una búsqueda del laboratorio no se puede reproducir | abierto | — | baja | 2026-10-09 |
+| [H-020](H-020.md) | Las semillas comunes del laboratorio casi no sirven porque las variantes reordenan la lista | resuelto | — | media | 2026-10-09 |
+| [H-021](H-021.md) | Una búsqueda del laboratorio no se puede reproducir | resuelto | — | baja | 2026-10-09 |
