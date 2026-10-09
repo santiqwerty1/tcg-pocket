@@ -5,6 +5,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
 import { type Clock, type FetchLike, LimitlessClient, LimitlessTransport } from '../src/tournaments/limitless.client.js'
+import { TournamentDataVersion } from '../src/tournaments/tournament-settings.js'
 import { TournamentSyncService } from '../src/tournaments/tournament-sync.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
@@ -164,9 +165,14 @@ describe('tournaments (e2e)', () => {
     expect(run.calls).toBe(paths.length)
 
     // An incremental run reads one page (everything known and older than two days) and downloads nothing new.
+    // Fase 38 (R-008): the cached datasets expire once per run that saved something, not after every tournament.
+    const version = test.app.get(TournamentDataVersion)
+    const expiredBefore = version.current()
+    expect(expiredBefore).toBe(1)
     const before = paths.length
     await test.app.get(TournamentSyncService).run({ now: SYNC_NOW })
     expect(paths.slice(before)).toEqual(['/tournaments?game=POCKET&limit=100&page=1'])
+    expect(version.current()).toBe(expiredBefore)
     const status = (await get('/api/tournaments/status')).body
     expect(status).toMatchObject({
       currentEra: { code: 'B4a', from: '2026-08-27', to: null },

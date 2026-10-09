@@ -2,6 +2,8 @@
 import { Controller, Get, Module } from '@nestjs/common'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
 import { CatalogModule } from '../catalog/catalog.module.js'
+import { OpsController } from '../ops/ops.controller.js'
+import { OpsService } from '../ops/ops.service.js'
 import { SimulationModule } from '../simulation/simulation.controller.js'
 import { TournamentsModule } from '../tournaments/tournaments.controller.js'
 import { AlertsService, type AlertView, TrackerUpstreamService } from './alerts.service.js'
@@ -18,8 +20,8 @@ export class AlertsController {
 
 @Module({
   imports: [CatalogModule, TournamentsModule, SimulationModule],
-  controllers: [AlertsController],
-  providers: [AlertsService, TrackerUpstreamService],
-  exports: [TrackerUpstreamService, AlertsService],
+  controllers: [AlertsController, OpsController],
+  providers: [AlertsService, TrackerUpstreamService, OpsService],
+  exports: [TrackerUpstreamService, AlertsService, OpsService],
 })
 export class AlertsModule {}

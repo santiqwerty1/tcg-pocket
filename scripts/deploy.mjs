@@ -2,8 +2,8 @@
 // Deploy to Fly only what passed CI (Fase 21, R-007): the working tree is clean, HEAD is on origin/main, the CI run of
 // that commit (lint, unit tests, e2e against Postgres, screens; the engine and the Docker image when they changed,
 // Fase 38) finished green and the vault passes `posta check`.
-// Then `flyctl deploy` (migrations run when the container starts). It never pushes: that stays a separate,
-// confirmed step.
+// Then `flyctl deploy` (migrations run as Fly's release_command, Fase 38) with APP_VERSION set to the commit, and it
+// waits until /healthz answers with that version. It never pushes: that stays a separate, confirmed step.
 //
 //   node scripts/deploy.mjs            checks, then deploys
 //   node scripts/deploy.mjs --check    only the checks
@@ -68,6 +68,29 @@ if (checkOnly) {
 // 5. Deploy.
 const local = join(homedir(), '.fly', 'bin', process.platform === 'win32' ? 'flyctl.exe' : 'flyctl')
 const flyctl = existsSync(local) ? local : 'flyctl'
-const deploy = spawnSync(flyctl, ['deploy', '--app', APP, '--remote-only', '--ha=false'], { stdio: 'inherit' })
+const deploy = spawnSync(
+  flyctl,
+  ['deploy', '--app', APP, '--remote-only', '--ha=false', '--env', `APP_VERSION=${sha}`],
+  {
+    stdio: 'inherit',
+  },
+)
 if (deploy.status !== 0) fail('flyctl deploy falló.')
-ok(`desplegado ${sha.slice(0, 7)} en ${APP}`)
+
+// 6. Fase 38: the running server is this commit (/healthz reports APP_VERSION) and its database answers.
+const HEALTH_URL = `https://${APP}.fly.dev/healthz`
+const deadline = Date.now() + 3 * 60 * 1000
+let seen = 'sin respuesta'
+while (Date.now() < deadline) {
+  try {
+    const response = await fetch(HEALTH_URL, { signal: AbortSignal.timeout(10_000) })
+    const body = await response.json().catch(() => ({}))
+    seen = `${response.status} ${body.version ?? '?'}`
+    if (response.ok && body.version === sha) break
+  } catch (error) {
+    seen = error instanceof Error ? error.message : String(error)
+  }
+  await new Promise((resolve) => setTimeout(resolve, 5000))
+}
+if (!seen.startsWith(`200 ${sha}`)) fail(`/healthz no responde con la versión nueva en 3 minutos (último: ${seen}).`)
+ok(`desplegado ${sha.slice(0, 7)} en ${APP}: /healthz responde con esa versión`)

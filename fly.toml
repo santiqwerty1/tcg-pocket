@@ -2,9 +2,18 @@
 # Secrets (`fly secrets set …`): DATABASE_URL (Supabase pooler, session mode), SESSION_SECRET.
 app = "tcg-pocket"
 primary_region = "gru"
+# Fase 38 (R-008): 512 MB of swap on the machine's disk, so a peak (two eras built, a big import) slows down instead
+# of killing the process.
+swap_size_mb = 512
 
 [build]
   dockerfile = "Dockerfile"
+
+# Fase 38: migrations run in a throwaway machine before the new version replaces the old one; if they fail, the
+# deploy stops and the running app stays as it was. The container still runs them on start (a no-op by then), as a
+# fallback.
+[deploy]
+  release_command = "/app/migrate.sh"
 
 [env]
   NODE_ENV = "production"
@@ -13,6 +22,9 @@ primary_region = "gru"
   TRUST_PROXY = "1"
   # Supabase pooler certificate chain (apps/api/certs/README.md); required for sslmode=verify-full.
   NODE_EXTRA_CA_CERTS = "/app/apps/api/certs/supabase-prod-ca-2021.crt"
+  # Fase 38 (R-008): V8's heap ceiling below the machine's 512 MB, leaving room for the rest of the process (buffers,
+  # Prisma's engine); without it V8 sizes the heap from the container limit on its own.
+  NODE_OPTIONS = "--max-old-space-size=320"
 
 [http_service]
   internal_port = 3000

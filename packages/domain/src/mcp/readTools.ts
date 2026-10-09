@@ -495,6 +495,13 @@ export const MCP_READ_TOOLS = {
       '«¿En qué turno está listo?»: la última prueba de consistencia terminada de un mazo (un bot del motor juega muchas partidas): por turno propio, la probabilidad acumulada (con n e intervalo) de tener listo su atacante principal y de haber atacado, empezando primero, segundo y en total; contra un rival que no hace nada y, si se corrió, contra el meta. Juegan bots: son pistas, no predicciones. Si no hay ninguna prueba, lo dice (se corre desde la ficha del mazo).',
     input: z.object({ deck: deckRef }),
   },
+  systemStatus: {
+    name: 'system_status',
+    title: 'Estado del servidor',
+    description:
+      'Cómo anda el servidor de la app (Fase 38): versión desplegada (sha del commit), memoria del proceso, tamaño de la base contra el límite de 500 MB de Supabase, la última copia diaria (y si falló), la última sincronización de Limitless, la última actualización del catálogo, los chequeos de GitHub, los workers conectados con su versión, lo que espera en la cola y los avisos vigentes. Sirve para «¿anda todo?» o «¿por qué no avanzan las simulaciones?». Solo lectura.',
+    input: z.object({}),
+  },
 } as const
 
 export type McpReadToolKey = keyof typeof MCP_READ_TOOLS
