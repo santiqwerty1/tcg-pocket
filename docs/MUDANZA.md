@@ -42,45 +42,55 @@ Este documento es el plan. **Nada de esto se hace sin el OK de Santi**, y lo eje
 2. **Nombre.** Si el repo público se va a llamar `tcg-pocket`, primero se renombra el privado:
    - `gh repo rename tcg-pocket-privado --repo santiqwerty1/tcg-pocket`.
    - GitHub redirige las URL viejas al renombrado solo hasta que exista otro repo con el nombre viejo.
+   - **Enseguida, en la carpeta principal:** `git remote set-url origin https://github.com/santiqwerty1/tcg-pocket-privado.git` y `git remote -v`.
+     - Si no, el remoto viejo sigue apuntando a `…/tcg-pocket.git`, que en el paso 4 pasa a ser el **público**.
+     - Un push a ese remoto publicaría el historial privado, con el mail personal.
 3. **El commit 1.0.0:** en la carpeta principal, con main al día:
    ```bash
    node scripts/public-repo.mjs --ref origin/main --version 1.0.0 --notes <notas.md> --verify --out <carpeta>
    ```
-4. **El repo público, el tag y el release:**
+4. **El repo público vacío y la numeración, antes del primer push** (decisión de Santi):
    ```bash
    gh repo create santiqwerty1/tcg-pocket --public --description "App personal de Pokémon TCG Pocket (AGPL-3.0)"
+   node scripts/reserve-numbers.mjs --repo santiqwerty1/tcg-pocket --from santiqwerty1/tcg-pocket-privado
+   node scripts/reserve-numbers.mjs --repo santiqwerty1/tcg-pocket --from santiqwerty1/tcg-pocket-privado --apply
+   ```
+   - **Se reserva con el repo vacío**: sin main no hay Actions ni Dependabot que abran un PR en el medio.
+   - El primero es solo una prueba: dice del #N al #M.
+   - El segundo crea los issues «Número reservado: PR #N del repo anterior», cerrados, sin asignar ni mencionar a nadie.
+   - Comprueba que todo lo que ya hay sean marcadores. Si GitHub da un número inesperado, para. Si se corta, se vuelve a correr: cierra los marcadores que hayan quedado abiertos y sigue.
+5. **El commit, el tag y el release:**
+   ```bash
    # en <carpeta>:
    git remote add origin https://github.com/santiqwerty1/tcg-pocket.git
    git push -u origin main
    git push origin v1.0.0
    gh release create v1.0.0 --repo santiqwerty1/tcg-pocket --title "TCG Pocket 1.0.0" --notes-file <notas.md>
    ```
-5. **La numeración, antes de cualquier PR** (decisión de Santi):
-   ```bash
-   node scripts/reserve-numbers.mjs --repo santiqwerty1/tcg-pocket --from santiqwerty1/tcg-pocket-privado
-   node scripts/reserve-numbers.mjs --repo santiqwerty1/tcg-pocket --from santiqwerty1/tcg-pocket-privado --apply
-   ```
-   - El primero es solo una prueba: dice del #N al #M.
-   - El segundo crea los issues «Número reservado: PR #N del repo anterior», cerrados, sin asignar ni mencionar a nadie.
-   - Si GitHub da un número que no se esperaba, para.
    - El próximo PR sigue la numeración del privado.
 6. **La carpeta principal.** Los worktrees comparten los remotos y la config, así que esto vale para todos:
    ```bash
-   git remote rename origin privado
+   git remote rename origin privado        # ya apunta a …/tcg-pocket-privado.git (paso 2)
    git remote add origin https://github.com/santiqwerty1/tcg-pocket.git
+   git remote -v                            # privado → tcg-pocket-privado; origin → tcg-pocket
    git fetch origin --tags
    gh repo set-default santiqwerty1/tcg-pocket
    git config user.email 72237439+santiqwerty1@users.noreply.github.com
    git checkout main
+   test -z "$(git status --porcelain)"      # vacío, si no, parar
    git reset --hard origin/main
+   git branch -u origin/main main
    ```
    - `git config user.email` evita que el mail personal vuelva a aparecer en los commits.
-   - El `reset --hard` es seguro porque la carpeta principal no tiene cambios: nadie edita ahí. Queda el commit 1.0.0.
-7. **Las ramas de cada sesión que sigan vivas:**
+   - El `reset --hard` va solo con el árbol limpio. Queda el commit 1.0.0.
+7. **Las ramas de cada sesión que sigan vivas.** Con `user.email` ya en la dirección noreply (paso 6):
    ```bash
-   git rebase --onto origin/main $(git merge-base <rama> privado/main) <rama>
+   git rebase --onto origin/main $(git merge-base <rama> privado/main) <rama> \
+     --exec 'git commit --amend --no-edit --reset-author'
+   test -z "$(git log origin/main..<rama> --format='%ae %ce' | grep -v noreply)"   # vacío, si no, parar
    git push -u origin <rama>
    ```
+   - El `--exec` le pone el autor noreply a cada commit trasladado: el rebase solo conservaría el mail personal.
    - El PR va nuevo en el repo nuevo.
    - Con cero PR abiertos, solo quedan ramas a medio hacer.
    - Las sesiones en la nube no ven esta PC: el Coordinador trae sus ramas (`git fetch privado <rama>`) y hace lo mismo.

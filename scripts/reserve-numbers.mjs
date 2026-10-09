@@ -38,12 +38,50 @@ const lastNumber = (repo) => {
   return Number(top || 0)
 }
 
+const MARKER = /^Número reservado: PR #(\d+) del repo anterior$/
+/** Every issue and PR of the new repository (number, title, state, whether it is a PR). */
+const existing = () =>
+  gh([
+    'api',
+    '--paginate',
+    `repos/${values.repo}/issues?state=all&per_page=100`,
+    '--jq',
+    '.[] | [.number, .state, (.pull_request != null), .title] | @tsv',
+  ])
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [number, state, isPull, ...title] = line.split('\t')
+      return { number: Number(number), state, isPull: isPull === 'true', title: title.join('\t') }
+    })
+
 const upto = values.upto ? Number(values.upto) : lastNumber(values.from)
 if (!Number.isInteger(upto) || upto < 0) {
   console.error(`✗ número final inválido: ${values.upto ?? upto}`)
   process.exit(1)
 }
-const start = lastNumber(values.repo) + 1
+// What is already there must be markers only (and in order): anything else (a PR of Dependabot, an issue) means
+// the numbering already moved on, and reserving more would not make it follow the old repository's.
+const present = existing().sort((a, b) => a.number - b.number)
+const intruders = present.filter(
+  (item) => item.number <= upto && (item.isPull || MARKER.exec(item.title)?.[1] !== String(item.number)),
+)
+if (intruders.length > 0) {
+  console.error(
+    `✗ En ${values.repo} hay números que no son marcadores: ${intruders.map((item) => `#${item.number} «${item.title}»`).join(', ')}. Reservá antes del primer push.`,
+  )
+  process.exit(1)
+}
+const openMarkers = present.filter((item) => item.state === 'open' && MARKER.test(item.title))
+if (openMarkers.length > 0) {
+  console.log(
+    `${values.apply ? 'Cierro' : 'Cerraría'} ${openMarkers.length} marcadores abiertos de una corrida anterior.`,
+  )
+  if (values.apply)
+    for (const item of openMarkers)
+      gh(['issue', 'close', String(item.number), '--repo', values.repo, '--reason', 'not planned'])
+}
+const start = (present.at(-1)?.number ?? 0) + 1
 if (start > upto) {
   console.log(`Nada que reservar: ${values.repo} ya llega al #${start - 1} (el viejo, al #${upto}).`)
   process.exit(0)

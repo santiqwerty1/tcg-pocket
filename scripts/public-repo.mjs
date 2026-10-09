@@ -10,7 +10,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
 const { values } = parseArgs({
@@ -49,6 +49,14 @@ const ok = (message) => console.log(`✓ ${message}`)
 // 1. What goes: the tree of the ref, exactly (git archive: tracked files only, nothing ignored or local).
 const sha = run('git', ['rev-parse', '--verify', `${values.ref}^{commit}`])
 const out = values.out ?? join(tmpdir(), `tcg-pocket-public-${sha.slice(0, 7)}`)
+// Never inside (or above) the repository: --force deletes the folder.
+const top = resolve(run('git', ['rev-parse', '--show-toplevel']))
+const inside = (parent, child) => {
+  const rel = relative(parent, child)
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+}
+if (inside(top, resolve(out)) || inside(resolve(out), top))
+  fail(`--out no puede ser el repositorio ni estar adentro: ${out}`)
 if (existsSync(out) && readdirSync(out).length > 0) {
   if (!values.force) fail(`${out} ya existe y no está vacía (--force la borra).`)
   rmSync(out, { recursive: true, force: true })
@@ -183,9 +191,14 @@ if (values.notes) {
 if (!values.verify) process.exit(0)
 
 // 6. The copy: the vault passes, and nothing that must not travel is in it.
+let problems = 0
+const problem = (message) => {
+  problems += 1
+  console.error(`✗ ${message}`)
+}
 const posta = spawnSync('posta check .', { cwd: out, encoding: 'utf8', shell: true })
-if (posta.error || posta.status === null) console.warn('! posta no está en el PATH: la bóveda no se validó')
-else if (posta.status !== 0) console.warn(`! posta check falló en la copia:\n${posta.stdout}${posta.stderr}`)
+if (posta.error || posta.status === null) problem('posta no está en el PATH: la bóveda no se validó')
+else if (posta.status !== 0) problem(`posta check falló en la copia:\n${posta.stdout}${posta.stderr}`)
 else ok('posta check sin errores en la copia')
 const forbidden = [
   { what: 'archivos .env', test: (file) => /(^|\/)\.env(\.|$)/.test(file) && !file.endsWith('.env.example') },
@@ -193,13 +206,13 @@ const forbidden = [
 ]
 for (const rule of forbidden) {
   const hits = files.filter(rule.test)
-  if (hits.length > 0) console.warn(`! ${rule.what}: ${hits.slice(0, 5).join(', ')}`)
+  if (hits.length > 0) problem(`${rule.what}: ${hits.slice(0, 5).join(', ')}`)
   else ok(`sin ${rule.what}`)
 }
 const big = files
   .map((file) => ({ file, size: statSync(join(out, file)).size }))
   .filter((entry) => entry.size > 5 * 1024 * 1024)
-if (big.length > 0) console.warn(`! archivos de más de 5 MB: ${big.map((entry) => entry.file).join(', ')}`)
+if (big.length > 0) problem(`archivos de más de 5 MB: ${big.map((entry) => entry.file).join(', ')}`)
 else ok('sin archivos de más de 5 MB')
 const text = (file) => {
   try {
@@ -209,6 +222,7 @@ const text = (file) => {
   }
 }
 const personal = files.filter((file) => /@gmail\.com|@hotmail\.|@outlook\./i.test(text(file)))
-if (personal.length > 0) console.warn(`! mails personales en: ${personal.join(', ')}`)
+if (personal.length > 0) problem(`mails personales en: ${personal.join(', ')}`)
 else ok('sin mails personales en el árbol')
+if (problems > 0) fail(`${problems} problemas en la copia (${out}): no la publiques así.`)
 console.log(`Listo para revisar en ${out}. No se creó ni se empujó nada.`)
