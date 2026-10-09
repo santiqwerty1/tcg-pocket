@@ -6,7 +6,7 @@
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
 import type { CardId } from '../catalog/types.js'
 import type { DeckCardEntry } from '../decks/types.js'
-import { addRecords, EMPTY_RECORD, type GameRecord, type WinRate, winRate } from '../stats/rates.js'
+import { addRecords, clusteredWinRate, EMPTY_RECORD, type GameRecord, type WinRate } from '../stats/rates.js'
 import { type DatasetEntry, listKeyByGroup, listKeyByName, type TournamentDataset } from './dataset.js'
 import { type ListRow, listRows, type RecordRow, recordOf } from './stats.js'
 
@@ -86,7 +86,12 @@ export function unlockCards(rows: readonly ListAgainstCollection[]): UnlockCard[
         listsWithOneCopy: unlocked.filter((row) => row.missingCopies === 1).length,
         entries,
         record,
-        rate: winRate('tournament', record, entries, 'lists'),
+        rate: clusteredWinRate(
+          'tournament',
+          unlocked.map((row) => row.list.record),
+          entries,
+          'lists',
+        ),
         unlocked: [...unlocked].sort((a, b) => b.list.lists - a.list.lists),
       }
     })

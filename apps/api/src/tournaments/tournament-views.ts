@@ -126,11 +126,15 @@ export interface MatchupRowView {
   share: number
   record: GameRecord
   rate: WinRate | null
+  /** H-009: the same matches per game (each phase's BO1/BO3/BO5 converted), ties out; fractional. */
+  perGame: { wins: number; losses: number } | null
 }
 
 /** What an archetype should score against the field, from its matchups weighted by meta share. */
 export interface ExpectedVsMetaView {
   value: number
+  /** H-011: approximate 95 % interval (delta method), 0–100. */
+  ci95: [number, number]
   /** Share of the meta (0–100) covered by rivals with enough matches. */
   coverage: number
   matches: number
@@ -139,6 +143,8 @@ export interface ExpectedVsMetaView {
 
 export interface ArchetypeMatchupsView {
   rows: MatchupRowView[]
+  /** H-009: the archetype against everyone, per game. */
+  fieldPerGame: { wins: number; losses: number } | null
   expected: ExpectedVsMetaView | null
   /** Tournaments of the scope with their pairings downloaded. */
   tournamentsWithPairings: number
@@ -149,6 +155,9 @@ export interface ShareChangeView {
   now: { lists: number; share: number }
   before: { lists: number; share: number }
   delta: number
+  /** H-011: two-sided p of the change (clustered by tournament). */
+  p: number
+  /** Benjamini–Hochberg at 5 % over every archetype and card of the comparison. */
   clear: boolean
 }
 

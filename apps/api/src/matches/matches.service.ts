@@ -9,9 +9,12 @@ import {
   cleanOpponent,
   DEFAULT_MATCH_MODE,
   type DeckCardEntry,
+  eraRange,
   filterMatches,
   formatPercentEs,
   type GameRecord,
+  holmVerdicts,
+  type LuckCheck,
   losingStreak,
   luckCheck,
   type MatchFacts,
@@ -65,7 +68,8 @@ function luckText(
       ? 'Todavía no hay partidas.'
       : 'No hay datos de torneo para comparar: el mazo no tiene arquetipo de torneo en la era.'
   }
-  const own = `Vas ${record.wins}-${record.losses}${record.ties ? `-${record.ties}` : ''} (${formatPercentEs(check.actual)})`
+  const era = expected.era ? ` en la era ${expected.era}` : ''
+  const own = `Vas ${record.wins}-${record.losses}${record.ties ? `-${record.ties}` : ''}${era} (${formatPercentEs(check.actual)})`
   const base = `Lo esperable (${expected.label}) es ${formatPercentEs(expected.value)}`
   const parts: string[] = []
   if (check.verdict === 'too_few') {
@@ -381,12 +385,21 @@ export class MatchesService {
       : null
     const context = await this.tournaments.archetypeMatchupsOf(archetype?.id ?? null).catch(() => null)
     const tournamentByRival = new Map(
-      (context?.matchups.rows ?? []).map((item) => [item.rival.id, { record: item.record, rate: item.rate }]),
+      (context?.matchups.rows ?? []).map((item) => [
+        item.rival.id,
+        { record: item.record, rate: item.rate, perGame: item.perGame },
+      ]),
     )
     const shares = context ? this.tournaments.shares(context.dataset) : []
     const mine = new Map(stats.byOpponent.map((item) => [item.key, item]))
     const { facts } = await this.loadFacts()
-    const turns = opponentTurns(filterMatches(facts, { deckId: deck.id, mode: mode ?? null, from: null, to: null }))
+    const ofDeck = filterMatches(facts, { deckId: deck.id, mode: mode ?? null, from: null, to: null })
+    const turns = opponentTurns(ofDeck)
+    // H-009: the verdict compares the same era on both sides, per game, with the tournament's uncertainty, and the
+    // rivals together (Holm).
+    const eraFrom = context ? (eraRange(context.scope.era, context.scope.sets)?.from ?? null) : null
+    const inEra = eraFrom ? ofDeck.filter((fact) => fact.playedAt >= eraFrom) : ofDeck
+    const checks: { at: number; check: LuckCheck }[] = []
     const used = new Set<string>()
     const rows: DeckMatchupRowView[] = []
     for (const [at, share] of shares.entries()) {
@@ -395,17 +408,25 @@ export class MatchesService {
       if (at >= DECK_MATCHUP_RIVALS && !own) continue
       if (key !== null && own) used.add(key)
       const tournament = tournamentByRival.get(share.archetypeId) ?? null
+      const perGame = tournament?.perGame ?? null
+      if (own && perGame && tournament?.rate && tournament.rate.games >= LUCK_EXPECTED_MIN_MATCHES) {
+        const record = tallyMatches(inEra.filter((fact) => opponentKey(fact.opponent) === key))
+        const expected = (perGame.wins / (perGame.wins + perGame.losses)) * 100
+        checks.push({ at: rows.length, check: luckCheck(record, expected, { expectedRecord: perGame }) })
+      }
       rows.push({
         rival: { id: share.archetypeId, name: share.name },
         share: share.share,
         mine: own ? { record: own.record, rate: own.rate } : null,
-        tournament,
-        luck:
-          own && tournament?.rate && tournament.rate.games >= LUCK_EXPECTED_MIN_MATCHES
-            ? luckCheck(own.record, tournament.rate.value).verdict
-            : null,
+        tournament: tournament ? { record: tournament.record, rate: tournament.rate } : null,
+        luck: null,
         turn: key === null ? null : (turns.get(key) ?? null),
       })
+    }
+    const verdicts = holmVerdicts(checks.map((item) => item.check))
+    for (const [i, item] of checks.entries()) {
+      const row = rows[item.at]
+      if (row) row.luck = verdicts[i] ?? null
     }
     for (const own of stats.byOpponent) {
       if (own.key !== null && used.has(own.key)) continue
@@ -433,16 +454,20 @@ export class MatchesService {
    * Fase 13: is the deck's record (against one rival, or overall) unusual for what tournaments say it should do?
    * Expected rate: the matchup of the deck's archetype against the rival (10 matches or more), else the archetype's
    * record in the era. Also the current losing run of the deck.
+   *
+   * H-009 (Fase 37): both sides per game (the tournament's BO3 converted) and in the same era (own games since it
+   * started), with the uncertainty of the tournament record (beta-binomial).
    */
   async luck(rawDeckId: string, opponent: string | undefined, mode: MatchMode | undefined): Promise<LuckView> {
     const deck = await this.requireDeckRef(parseNumericId(rawDeckId, 'Mazo'))
     const { facts } = await this.loadFacts()
     const key = opponentKey(opponent ?? null)
-    const ofDeck = filterMatches(facts, { deckId: deck.id, mode: mode ?? null, from: null, to: null })
+    const expected = await this.expectedFor(deck.id, key)
+    const eraFrom = expected?.from ? new Date(expected.from) : null
+    const ofDeck = filterMatches(facts, { deckId: deck.id, mode: mode ?? null, from: eraFrom, to: null })
     const selected = key === null ? ofDeck : ofDeck.filter((fact) => opponentKey(fact.opponent) === key)
     const record = tallyMatches(selected)
-    const expected = await this.expectedFor(deck.id, key)
-    const check = expected ? luckCheck(record, expected.value) : null
+    const check = expected ? luckCheck(record, expected.value, { expectedRecord: expected.perGame }) : null
     const run = expected
       ? losingStreak(
           ofDeck.map((fact) => fact.result),
@@ -477,16 +502,36 @@ export class MatchesService {
       .catch(() => null)
     const archetype = placed?.archetype
     if (!archetype?.archetype.id) return null
+    const context = await this.tournaments.archetypeMatchupsOf(archetype.archetype.id).catch(() => null)
+    const era = context?.scope.era ?? null
+    const range = context ? eraRange(context.scope.era, context.scope.sets) : null
+    const from = range ? range.from.toISOString() : null
+    const rateOf = (record: { wins: number; losses: number }) => (record.wins / (record.wins + record.losses)) * 100
     if (key !== null) {
-      const context = await this.tournaments.archetypeMatchupsOf(archetype.archetype.id).catch(() => null)
       const hit = context?.matchups.rows.find((item) => opponentKey(item.rival.name) === key)
-      if (hit?.rate && hit.rate.games >= LUCK_EXPECTED_MIN_MATCHES) {
+      if (hit?.rate && hit.perGame && hit.rate.games >= LUCK_EXPECTED_MIN_MATCHES) {
         return {
-          value: hit.rate.value,
+          value: rateOf(hit.perGame),
           kind: 'matchup',
-          label: `${archetype.archetype.name} contra ${hit.rival.name} en torneos`,
+          label: `${archetype.archetype.name} contra ${hit.rival.name} en torneos, por partida`,
           games: hit.rate.games,
+          perGame: hit.perGame,
+          era,
+          from,
         }
+      }
+    }
+    // The archetype against everyone: per game from the pairings; without them, its standings record (as exact).
+    const field = context?.matchups.fieldPerGame ?? null
+    if (field && field.wins + field.losses >= LUCK_EXPECTED_MIN_MATCHES) {
+      return {
+        value: rateOf(field),
+        kind: 'archetype',
+        label: `${archetype.archetype.name} en torneos, por partida`,
+        games: Math.round(field.wins + field.losses),
+        perGame: field,
+        era,
+        from,
       }
     }
     if (!archetype.rate) return null
@@ -495,6 +540,9 @@ export class MatchesService {
       kind: 'archetype',
       label: `${archetype.archetype.name} en torneos`,
       games: archetype.rate.games,
+      perGame: null,
+      era,
+      from,
     }
   }
 

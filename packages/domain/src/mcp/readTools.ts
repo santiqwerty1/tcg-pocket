@@ -290,7 +290,7 @@ export const MCP_READ_TOOLS = {
   tournamentsTrends: {
     name: 'tournaments_trends',
     title: 'Meta semanal',
-    description: `Qué se juega más y qué menos en torneos: la última semana (termina en el torneo más nuevo de la era) contra la anterior, por arquetipo y por carta, en puntos de cuota de listas. «clear» = el cambio pasa una prueba de dos proporciones al 95 % (con pocas listas, un salto de 2 o 3 no es tendencia). «isNew» = no se jugó la semana anterior. ${TOURNAMENT_NOTE}`,
+    description: `Qué se juega más y qué menos en torneos: la última semana (termina en el torneo más nuevo de la era) contra la anterior, por arquetipo y por carta, en puntos de cuota de listas. «clear» = el cambio pasa una prueba de dos proporciones agrupada por torneo, con Benjamini–Hochberg al 5 % entre todos los arquetipos y cartas (con pocas listas, un salto de 2 o 3 no es tendencia); «p» = su valor p. «isNew» = no se jugó la semana anterior. ${TOURNAMENT_NOTE}`,
     input: z.object({
       ...tournamentScope,
       days: z.number().int().min(3).max(30).optional().describe('Días de cada ventana (por defecto 7)'),

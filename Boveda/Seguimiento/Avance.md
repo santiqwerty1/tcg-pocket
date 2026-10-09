@@ -58,7 +58,7 @@ revisar: false
 | 35 | Prueba mensual del backup | hecho 09/10 · desplegado (`0524489`) · aprobado 09/10 | — | [T-013](Tareas/T-013.md) |
 | E | Evaluación de mejoras: 14 hallazgos, riesgos, preguntas y fases propuestas 36 a 45 | hecho 09/10 · verificada 09/10 · aprobada 09/10 ([D-020](Decisiones/D-020.md)) | 35 | [Evaluación](Evaluacion-2026-10-09.md), [T-014](Tareas/T-014.md) |
 | 36 | Arreglos confirmados (y tope de 3 energías, [P-006](Preguntas/P-006.md)) | hecho 09/10 · desplegado (`55d658d`) | E | [T-014](Tareas/T-014.md) |
-| 37 | Números honestos | pendiente | 36 | [T-014](Tareas/T-014.md) |
+| 37 | Números honestos | hecho 09/10 (sin el punto 5 de [H-011](Hallazgos/H-011.md), propuesto para la 42) | 36 | [T-014](Tareas/T-014.md) |
 | 38 | Operación y avisos | pendiente | 37 | [T-014](Tareas/T-014.md) |
 | 39 | Copia fuera de Supabase y retención ([P-007](Preguntas/P-007.md): en la nube) | pendiente | 38 | [T-014](Tareas/T-014.md) |
 | 40 | Día de expansión en dos toques | pendiente | 39 | [T-014](Tareas/T-014.md) |

@@ -17,6 +17,7 @@ describe('¿importa empezar? (Fase 25)', () => {
       unknown: 4,
       verdict: 'few',
       z: null,
+      p: null,
     })
     expect(impact.coverage).toBeCloseTo((24 / 28) * 100, 10)
     expect(impact.text).toContain(`hacen falta ${TURN_ORDER_MIN} partidas`)
@@ -29,6 +30,9 @@ describe('¿importa empezar? (Fase 25)', () => {
     expect(impact.gap).toBeCloseTo(40, 10)
     // Pooled p = 26/50: se = sqrt(.52·.48·(2/25)) ≈ .1413, z ≈ 2.83.
     expect(impact.z).toBeCloseTo(0.4 / Math.sqrt(0.52 * 0.48 * (2 / 25)), 10)
+    // H-011: the verdict is Fisher's exact test.
+    expect(impact.p).toBeGreaterThan(0)
+    expect(impact.p).toBeLessThan(0.05)
     expect(impact.text).toBe(
       'Empezando ganás el 72 % (n = 25) y yendo segundo el 32 % (n = 25): 40 puntos más empezando, más de lo que explica el azar.',
     )
@@ -39,6 +43,14 @@ describe('¿importa empezar? (Fase 25)', () => {
     expect(impact).toMatchObject({ verdict: 'maybe', firstShare: 50, secondShare: 60 })
     expect(impact.text).toContain('10 puntos más yendo segundo, pero puede ser azar.')
     expect(turnOrderImpact([]).coverage).toBe(0)
+  })
+
+  it('H-011: 4 of 6 against 0 of 5 is z = 2,29 but Fisher p ≈ 0,06: maybe chance', () => {
+    const impact = turnOrderImpact([...games(true, 4, 2), ...games(false, 0, 5)])
+    expect(impact.z).toBeCloseTo(2.29, 2)
+    expect(impact.p).toBeCloseTo(0.0606, 3)
+    expect(impact.verdict).toBe('maybe')
+    expect(impact.text).toContain('pero puede ser azar')
   })
 
   it('against each rival', () => {

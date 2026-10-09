@@ -413,7 +413,9 @@ describe('MCP endpoint (e2e)', () => {
     expect(String((result.structuredContent.missingCards as Structured[])[0]?.bestPack)).toContain('(tiempo limitado)')
     expect(result.structuredContent.limitedBoost).toBe(3)
     const completion = (result.structuredContent.deckCompletion as Structured[])[0]
-    expect(String((completion?.bestPacks as string[] | undefined)?.[0])).toContain('cubre 1 de 1 copias en ~70 sobres')
+    expect(String((completion?.bestPacks as string[] | undefined)?.[0])).toMatch(
+      /cubre 1 de 1 copias en ~5\d sobres \(simulación\)/,
+    )
 
     // With the collection goal the B4b versions no other pack gives weigh more; some can only be traded.
     const collection = await call(client, 'packs_recommend', { alpha: 0, limit: 29, onlyAvailable: false })

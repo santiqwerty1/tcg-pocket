@@ -144,7 +144,9 @@ export function TrendsPage() {
         <p className="text-xs text-muted-foreground">
           {range(data.now)}: {tournamentsLabel(data.now.tournaments)}, {data.now.lists} listas. Antes (
           {range(data.before)}): {tournamentsLabel(data.before.tournaments)}, {data.before.lists} listas. Cambio en
-          puntos de cuota de listas; «claro» si una prueba de dos proporciones al 95 % dice que no es ruido.
+          puntos de cuota de listas; «claro» si el cambio pasa una prueba de dos proporciones que cuenta cada torneo
+          como un bloque (un torneo grande no arrastra todo) y, entre todos los arquetipos y cartas, se espera que como
+          mucho 1 de cada 20 «claros» sea ruido.
         </p>
         {data.before.lists === 0 ? (
           <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">

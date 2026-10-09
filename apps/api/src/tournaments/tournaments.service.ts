@@ -23,6 +23,7 @@ import {
   eraRange,
   eraSets,
   expectedVsMeta,
+  fieldPerGame,
   type LimitlessDecklist,
   type ListAgainstCollection,
   type ListCard,
@@ -38,6 +39,7 @@ import {
   metaTrends,
   mostCommonEnergies,
   newEraWarning,
+  phaseBestOf,
   playableCopies,
   type RecordRow,
   recentMeta,
@@ -219,11 +221,23 @@ export class TournamentsService {
   async matchupsOf(dataset: TournamentDataset): Promise<Matchups> {
     const hit = this.matchupCache.find((entry) => entry.dataset === dataset)
     if (hit) return hit.matchups
-    const rows = await this.prisma.tournamentPairing.findMany({
-      where: { tournamentId: { in: dataset.tournaments.map((t) => t.id) } },
-      select: { tournamentId: true, phase: true, round: true, player1: true, player2: true, result: true },
-    })
-    const matchups = buildMatchups(dataset, rows as StoredPairing[])
+    const ids = dataset.tournaments.map((t) => t.id)
+    const [rows, details] = await Promise.all([
+      this.prisma.tournamentPairing.findMany({
+        where: { tournamentId: { in: ids } },
+        select: { tournamentId: true, phase: true, round: true, player1: true, player2: true, result: true },
+      }),
+      this.prisma.tournament.findMany({ where: { id: { in: ids } }, select: { id: true, details: true } }),
+    ])
+    // H-009: the games of a match in each phase (BO1, BO3, BO5), to read the matchups per game.
+    const phases = new Map(details.map((row) => [row.id, phaseBestOf(row.details)]))
+    const matchups = buildMatchups(
+      dataset,
+      (rows as StoredPairing[]).map((row) => ({
+        ...row,
+        bestOf: phases.get(row.tournamentId)?.get(row.phase) ?? null,
+      })),
+    )
     this.matchupCache = [{ dataset, matchups }, ...this.matchupCache].slice(0, CACHE_SIZE)
     return matchups
   }
@@ -242,7 +256,9 @@ export class TournamentsService {
               share: row.share,
               record: row.record,
               rate: row.rate,
+              perGame: row.perGame,
             })),
+      fieldPerGame: id === null ? null : fieldPerGame(matchups, id),
       expected: id === null ? null : this.expectedView(matchups, dataset, id),
       tournamentsWithPairings: matchups.tournamentsWithPairings,
     }
@@ -334,11 +350,13 @@ export class TournamentsService {
       now: { lists: number; share: number }
       before: { lists: number; share: number }
       delta: number
+      p: number
       clear: boolean
     }) => ({
       now: row.now,
       before: row.before,
       delta: row.delta,
+      p: row.p,
       clear: row.clear,
     })
     return {

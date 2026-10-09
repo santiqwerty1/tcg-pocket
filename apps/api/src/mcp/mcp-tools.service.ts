@@ -1103,6 +1103,7 @@ ${MCP_WRITE_INSTRUCTIONS}`
         now: { lists: number; share: number }
         before: { lists: number; share: number }
         delta: number
+        p: number
         clear: boolean
       },
     ) => ({
@@ -1110,6 +1111,7 @@ ${MCP_WRITE_INSTRUCTIONS}`
       now: `${share(item.now.share)} (${item.now.lists} listas)`,
       before: `${share(item.before.share)} (${item.before.lists} listas)`,
       change: points(item.delta),
+      p: Number(item.p.toPrecision(2)),
       clear: item.clear,
     })
     const archetypes = view.archetypes.map((item) => ({ ...row(item.archetype.name, item), isNew: item.isNew }))

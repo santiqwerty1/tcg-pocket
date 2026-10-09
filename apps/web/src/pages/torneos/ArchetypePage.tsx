@@ -14,7 +14,7 @@ import { RivalNoteEditor } from '@/components/RivalNote'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { formatRateValue } from '@/lib/matches'
+import { formatInterval, formatRateValue } from '@/lib/matches'
 import { cardLabels, formatCount, formatShare, scopeFromSearch, scopeSearch } from '@/lib/tournaments'
 import { cn } from '@/lib/utils'
 
@@ -156,9 +156,10 @@ export function ArchetypePage() {
           <>
             <p className="text-xs text-muted-foreground">
               {detail.data.matchups.expected
-                ? `Contra el meta debería sacar ${formatRateValue(detail.data.matchups.expected.value)}: sus matchups pesados por la cuota de cada rival; un matchup con pocas partidas se acerca a su récord contra todos (${formatShare(detail.data.matchups.expected.coverage)} del meta con 10 partidas o más). `
+                ? `Contra el meta debería sacar ${formatRateValue(detail.data.matchups.expected.value)}${detail.data.matchups.expected.ci95 ? ` (IC ${formatInterval(detail.data.matchups.expected.ci95)})` : ''}: sus matchups pesados por la cuota de cada rival; un matchup con pocas partidas se acerca a su récord contra todos (${formatShare(detail.data.matchups.expected.coverage)} del meta con 10 partidas o más). `
                 : ''}
-              Partidas de torneo entre personas; cada una es un BO1 o un BO3 entero.
+              Partidas de torneo entre personas; cada una es un BO1 o un BO3 entero. Al compararlas con tus partidas,
+              «¿mala racha?» las pasa a partidas sueltas.
             </p>
             <RateRows
               empty="Sin partidas contra otros arquetipos en las rondas bajadas."

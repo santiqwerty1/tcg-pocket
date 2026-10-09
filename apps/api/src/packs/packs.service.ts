@@ -72,7 +72,7 @@ const ASSUMPTIONS = [
   'Cada sobre se evalúa solo; la mejor política es volver a mirar después de cada importación.',
   'Sobres por tiempo limitado: lo que solo ellos dan (otra carta funcional para los mazos, otra versión para la colección) pesa más hasta su último día; después dejan de estar a la venta.',
   'Versiones: dos números con el mismo internal_id del tracker son la misma versión (A1-1 = A4b-1); un arte u holo nuevo es otra versión de la misma carta funcional.',
-  'Días para completar un mazo: cada carta que falta del sobre que mejor la da, abriendo un sobre después del otro, a los sobres por día de Ajustes (los relojes de arena guardados primero, 12 por sobre). La mediana y el caso de mala suerte (8 de cada 10 veces se termina antes) salen de simular el plan entero. No cuenta lo que se canjea con puntos ya guardados.',
+  'Días para completar un mazo: cada carta que falta del sobre que mejor la da, abriendo un sobre después del otro, a los sobres por día de Ajustes (los relojes de arena guardados primero, 12 por sobre). La mediana y el caso de mala suerte (8 de cada 10 veces se termina antes) salen de simular el plan entero. Los puntos cuentan: lo que los guardados ya pagan no se abre (entre varias cartas, pagan primero las más importantes), y mientras se abre, los 5 puntos de cada sobre compran la carta en cuanto alcanzan (un ◊◊◊◊ cuesta 500: 100 sobres como mucho).',
   'Versión de torneo de un mazo: la lista exacta de su arquetipo jugada al menos 5 veces en la era con la mejor cota inferior del intervalo; sin datos de torneo se usa la lista guardada.',
 ]
 

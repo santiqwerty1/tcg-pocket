@@ -33,6 +33,8 @@ export interface WinRate<S extends RateSource = RateSource> {
   sampleKind: SampleKind
   ci95: [number, number]
   orientative: boolean
+  /** H-011: how much the clusters (lists) widened the interval, as a variance ratio; absent: games independent. */
+  designEffect?: number
 }
 
 export const EMPTY_RECORD: Readonly<GameRecord> = Object.freeze({ wins: 0, losses: 0, ties: 0 })
@@ -92,6 +94,71 @@ export function winRate<S extends RateSource>(
     ci95: [lo * 100, hi * 100],
     orientative: samples < ORIENTATIVE_BELOW,
   }
+}
+
+/** A cluster: what was counted (wins, lists of an archetype…) out of how many (games, lists of the tournament…). */
+export interface Cluster {
+  successes: number
+  trials: number
+}
+
+/**
+ * Variance of the ratio Σs/Σn when the observations come in clusters (cluster-robust, «sandwich»): k/(k−1) ·
+ * Σ(sᵢ − p·nᵢ)² / (Σn)². Null with fewer than two clusters (no way to tell clusters apart).
+ */
+export function clusteredVariance(clusters: readonly Cluster[]): number | null {
+  const used = clusters.filter((cluster) => cluster.trials > 0)
+  const k = used.length
+  if (k < 2) return null
+  const total = used.reduce((sum, cluster) => sum + cluster.trials, 0)
+  const p = used.reduce((sum, cluster) => sum + cluster.successes, 0) / total
+  const spread = used.reduce((sum, cluster) => sum + (cluster.successes - p * cluster.trials) ** 2, 0)
+  return ((k / (k - 1)) * spread) / (total * total)
+}
+
+/**
+ * How much wider than independent games the clusters make the interval, as a variance ratio (≥ 1: never narrower,
+ * the prudent side when by chance the clusters look more alike than independent games would).
+ */
+export function designEffect(clusters: readonly Cluster[]): number {
+  const clustered = clusteredVariance(clusters)
+  if (clustered === null) return 1
+  const total = clusters.reduce((sum, cluster) => sum + Math.max(0, cluster.trials), 0)
+  const p = clusters.reduce((sum, cluster) => sum + (cluster.trials > 0 ? cluster.successes : 0), 0) / total
+  const binomial = (p * (1 - p)) / total
+  if (binomial <= 0) return 1
+  return Math.max(1, clustered / binomial)
+}
+
+/** Wilson score interval for a proportion p over n samples, n not necessarily whole (an effective sample size). */
+export function wilsonFromRate(p: number, n: number, z: number = Z_95): [number, number] {
+  if (!(n > 0)) return [0, 1]
+  const z2 = z * z
+  const denominator = 1 + z2 / n
+  const center = (p + z2 / (2 * n)) / denominator
+  const half = (z * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n))) / denominator
+  return [p <= 0 ? 0 : Math.max(0, center - half), p >= 1 ? 1 : Math.min(1, center + half)]
+}
+
+/**
+ * H-011 (Fase 37): a tournament rate whose games come in clusters (a player plays 5 to 8 rounds with the same list):
+ * the same value, but Wilson over the effective number of games (games ÷ design effect), so the interval — and the
+ * lower bound that picks a deck's tournament version or the meta bank — is not narrower than the data allows.
+ */
+export function clusteredWinRate<S extends RateSource>(
+  source: S,
+  clusters: readonly GameRecord[],
+  samples: number,
+  sampleKind: SampleKind,
+): WinRate<S> | null {
+  let record: GameRecord = { ...EMPTY_RECORD }
+  for (const cluster of clusters) record = addRecords(record, cluster)
+  const rate = winRate(source, record, samples, sampleKind)
+  if (!rate) return null
+  const deff = designEffect(clusters.map((cluster) => ({ successes: cluster.wins, trials: recordGames(cluster) })))
+  if (deff <= 1) return { ...rate, designEffect: 1 }
+  const [lo, hi] = wilsonFromRate(record.wins / rate.games, rate.games / deff)
+  return { ...rate, ci95: [lo * 100, hi * 100], designEffect: deff }
 }
 
 /** Own matches: one sample per match, so `samples = games`. */

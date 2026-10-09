@@ -650,6 +650,7 @@ export const matchStatsSchema = z.object({
       secondShare: z.number().nullable(),
       gap: z.number().nullable(),
       z: z.number().nullable(),
+      p: z.number().nullable().default(null),
       verdict: z.enum(['few', 'clear', 'maybe']),
       text: z.string(),
     })
@@ -685,7 +686,15 @@ export const deckMatchupsSchema = z.object({
   archetype: z.object({ id: z.string(), name: z.string(), source: z.enum(['owner', 'guessed']) }).nullable(),
   era: z.string(),
   tournamentsWithPairings: z.number(),
-  expected: z.object({ value: z.number(), coverage: z.number(), matches: z.number(), rivals: z.number() }).nullable(),
+  expected: z
+    .object({
+      value: z.number(),
+      ci95: z.tuple([z.number(), z.number()]).nullable().default(null),
+      coverage: z.number(),
+      matches: z.number(),
+      rivals: z.number(),
+    })
+    .nullable(),
   rows: z.array(
     z.object({
       rival: z.object({ id: z.string().nullable(), name: z.string() }),
@@ -1085,6 +1094,8 @@ export const withWithoutSchema = z.object({
 
 export const expectedVsMetaSchema = z.object({
   value: z.number(),
+  /** H-011: approximate 95 % interval. */
+  ci95: z.tuple([z.number(), z.number()]).nullable().default(null),
   coverage: z.number(),
   matches: z.number(),
   rivals: z.number(),

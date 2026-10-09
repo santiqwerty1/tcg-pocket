@@ -193,12 +193,16 @@ describe('dataset and records', () => {
     expect(dataset.newSetTournaments).toEqual([])
   })
 
-  it('the era mean is ΣW / Σ(W+L+T), not 50 %: 48,0 % [45,9; 50,1] for PMPT #45', () => {
+  it('the era mean is ΣW / Σ(W+L+T), not 50 %: 48,0 % for PMPT #45, its interval counting lists (H-011)', () => {
     const mean = eraMean(dataset)
     expect(mean.record).toEqual({ wins: 1051, losses: 1119, ties: 20 })
     expect(mean.rate?.value).toBeCloseTo((1051 / 2190) * 100, 9)
-    expect(mean.rate?.ci95[0]).toBeCloseTo(45.9, 1)
-    expect(mean.rate?.ci95[1]).toBeCloseTo(50.1, 1)
+    // Over 2.190 independent games it would be 45,9–50,1 %; the games of a list come together, so it is wider.
+    expect(mean.rate?.designEffect).toBeGreaterThan(1)
+    expect(mean.rate?.ci95[0]).toBeLessThan(45.9)
+    expect(mean.rate?.ci95[1]).toBeGreaterThan(50.1)
+    expect(mean.rate?.ci95[0]).toBeGreaterThan(44)
+    expect(mean.rate?.ci95[1]).toBeLessThan(52)
     expect(mean.rate).toMatchObject({ source: 'tournament', sampleKind: 'lists', samples: 393, orientative: false })
   })
 

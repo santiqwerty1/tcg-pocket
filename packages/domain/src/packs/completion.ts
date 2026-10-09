@@ -2,6 +2,10 @@
  * Expected packs to get every missing card of a deck from one pack (coupon collector with unequal chances,
  * docs/fase0/sobres.md §4). Exact by inclusion–exclusion when every card is missing once and there are at most
  * 12 of them; otherwise a seeded Monte Carlo of the same pack model, reported with its 95 % interval.
+ *
+ * H-012 (Fase 37): every pack opened also gives pack points of its expansion; a missing card whose print that points
+ * pay for is bought as soon as they reach its cost (a ◊◊◊◊ costs 500 points: 100 packs at most, not «until it comes
+ * out»). With points the estimate is always simulated.
  */
 import type { PackStructure } from '../catalog/types.js'
 import { combineChances, type EditionChances } from './pullRate.js'
@@ -14,6 +18,14 @@ export interface MissingInPack {
   copies: number
   /** Chances of every edition of the card in this pack. */
   chances: EditionChances[]
+  /** Points (of this pack's expansion) its cheapest print costs; null or absent: not payable with them. */
+  pointsCost?: number | null
+}
+
+/** Pack points while opening one pack: the balance saved and what each pack adds. */
+export interface PackPoints {
+  saved: number
+  perPack: number
 }
 
 export interface CompletionEstimate {
@@ -92,8 +104,8 @@ export function preparePack(missing: readonly MissingInPack[], structure: PackSt
   }
 }
 
-/** One run: packs opened until every missing copy came out (capped). */
-export function packsNeededOnce(prepared: PreparedPack, random: () => number): number {
+/** One run: packs opened until every missing copy came out or was bought with the points (capped). */
+export function packsNeededOnce(prepared: PreparedPack, random: () => number, points?: PackPoints): number {
   const { missing, structure, regular, rare, baby } = prepared
   const positions = structure.cardsPerPack
   const draw = (entries: { upTo: number; group: number }[], have: number[]) => {
@@ -102,9 +114,29 @@ export function packsNeededOnce(prepared: PreparedPack, random: () => number): n
     if (hit) have[hit.group] = (have[hit.group] ?? 0) + 1
   }
   const have = missing.map(() => 0)
+  let balance = points?.saved ?? 0
+  // The cheapest missing copy the balance pays for, again and again.
+  const buy = () => {
+    if (!points) return
+    for (;;) {
+      let pick = -1
+      missing.forEach((item, at) => {
+        const cost = item.pointsCost
+        if (cost == null || cost <= 0 || (have[at] ?? 0) >= item.copies || cost > balance) return
+        if (pick === -1 || cost < (missing[pick]?.pointsCost ?? Number.POSITIVE_INFINITY)) pick = at
+      })
+      if (pick === -1) return
+      balance -= missing[pick]?.pointsCost ?? 0
+      have[pick] = (have[pick] ?? 0) + 1
+    }
+  }
+  buy()
   let packs = 0
   while (packs < SIMULATION_PACK_CAP && missing.some((item, at) => (have[at] ?? 0) < item.copies)) {
     packs += 1
+    if (points) {
+      balance += points.perPack
+    }
     const kind = random()
     if (positions === 5 && kind < PACK_MIX.rare) {
       for (let i = 0; i < 5; i += 1) draw(rare, have)
@@ -114,15 +146,21 @@ export function packsNeededOnce(prepared: PreparedPack, random: () => number): n
     if (structure.containsBabies && positions === 5 && kind >= PACK_MIX.rare + PACK_MIX.regularWithBabies) {
       draw(baby, have)
     }
+    buy()
   }
   return packs
 }
 
-function simulate(missing: readonly MissingInPack[], structure: PackStructure, seed: number): CompletionEstimate {
+function simulate(
+  missing: readonly MissingInPack[],
+  structure: PackStructure,
+  seed: number,
+  points?: PackPoints,
+): CompletionEstimate {
   const random = seededRandom(seed)
   const prepared = preparePack(missing, structure)
   const results: number[] = []
-  for (let run = 0; run < SIMULATION_RUNS; run += 1) results.push(packsNeededOnce(prepared, random))
+  for (let run = 0; run < SIMULATION_RUNS; run += 1) results.push(packsNeededOnce(prepared, random, points))
   const mean = results.reduce((sum, value) => sum + value, 0) / results.length
   const variance = results.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (results.length - 1)
   const half = 1.959963984540054 * Math.sqrt(variance / results.length)
@@ -137,14 +175,16 @@ export function expectedPacksToComplete(
   missing: readonly MissingInPack[],
   structure: PackStructure,
   seed = 1,
+  points?: PackPoints,
 ): CompletionEstimate | null {
   const wanted = missing.filter((item) => item.copies > 0)
   if (wanted.length === 0) return { expectedPacks: 0, method: 'exact', ci95: null }
   if (wanted.some((item) => combineChances(item.chances, structure).probability <= 0)) return null
-  if (wanted.length <= EXACT_COMPLETION_MAX_CARDS && wanted.every((item) => item.copies === 1)) {
+  const payable = points !== undefined && wanted.some((item) => item.pointsCost != null && item.pointsCost > 0)
+  if (!payable && wanted.length <= EXACT_COMPLETION_MAX_CARDS && wanted.every((item) => item.copies === 1)) {
     return { expectedPacks: exact(wanted, structure), method: 'exact', ci95: null }
   }
-  return simulate(wanted, structure, seed)
+  return simulate(wanted, structure, seed, payable ? points : undefined)
 }
 
 /** Packs of a plan (several packs opened one after the other): mean, median and the 80th percentile. */
@@ -161,18 +201,18 @@ const PLAN_RUNS = 600
  * whole (seeded) so the median and the «mala suerte» percentile are of the total, not sums of averages.
  */
 export function planPacks(
-  groups: readonly { missing: readonly MissingInPack[]; structure: PackStructure }[],
+  groups: readonly { missing: readonly MissingInPack[]; structure: PackStructure; points?: PackPoints }[],
   seed = 1,
 ): PlanPacks {
   const prepared = groups
     .map((group) => ({ ...group, missing: group.missing.filter((item) => item.copies > 0) }))
     .filter((group) => group.missing.length > 0)
-    .map((group) => preparePack(group.missing, group.structure))
+    .map((group) => ({ pack: preparePack(group.missing, group.structure), points: group.points }))
   if (prepared.length === 0) return { mean: 0, p50: 0, p80: 0 }
   const random = seededRandom(seed)
   const totals: number[] = []
   for (let run = 0; run < PLAN_RUNS; run += 1) {
-    totals.push(prepared.reduce((sum, pack) => sum + packsNeededOnce(pack, random), 0))
+    totals.push(prepared.reduce((sum, group) => sum + packsNeededOnce(group.pack, random, group.points), 0))
   }
   totals.sort((a, b) => a - b)
   const at = (q: number) => totals[Math.min(totals.length - 1, Math.floor(q * totals.length))] ?? 0

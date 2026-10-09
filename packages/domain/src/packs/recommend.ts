@@ -13,6 +13,7 @@ import {
   type CompletionEstimate,
   expectedPacksToComplete,
   type MissingInPack,
+  type PackPoints,
   type PlanPacks,
   planPacks,
 } from './completion.js'
@@ -456,6 +457,32 @@ export function recommendPacks(input: RecommendInput): Recommendation {
     const listed = deficit.listedCardIds.map((cardId) => index.cardById(cardId)).filter((c): c is CardEdition => !!c)
     return matchWanted(profile, listed, { model, byGroup: true }).map((card) => editionChances(card, profile, model))
   }
+  // «Canjear» with the balance shared out (Fase 37): the heaviest missing cards are paid first and each one uses up
+  // the points of its expansion, so two cards never count on the same points.
+  const balance = new Map<string, number>()
+  const balanceOf = (expansionId: string) => {
+    if (!balance.has(expansionId)) balance.set(expansionId, Math.max(0, input.savedPoints?.(expansionId) ?? 0))
+    return balance.get(expansionId) ?? 0
+  }
+  const redeems = new Map<CardId, (PrintCost & { saved: number; copies: number }) | null>()
+  for (const deficit of [...deficits].sort((a, b) => b.weight - a.weight)) {
+    const redeem = input.savedPoints
+      ? redeemablePrint(index, deficit.groupId, input.rarityRule, balanceOf, deficit.missing)
+      : null
+    redeems.set(deficit.groupId, redeem)
+    if (redeem) {
+      const expansionId = index.cardById(redeem.cardId)?.expansionId
+      if (expansionId) balance.set(expansionId, balanceOf(expansionId) - redeem.copies * redeem.points)
+    }
+  }
+  /** Points of a pack's expansion left after the redeems, and what each pack opened adds (H-012). */
+  const packPoints = (profile: PackProfile): PackPoints => ({
+    saved: balanceOf(profile.expansionId),
+    perPack: PACK_POINTS_PER_PACK,
+  })
+  /** Points of this pack's expansion the cheapest print of a card costs; null when none of its prints is there. */
+  const pointsCostIn = (profile: PackProfile, groupId: CardId) =>
+    cheapestPrint(index, groupId, input.rarityRule, (id) => id === profile.expansionId)?.points ?? null
   const missing: MissingCardRow[] = deficits.map((deficit) => {
     let bestPack: MissingCardRow['bestPack'] = null
     let afterLimited: MissingCardRow['afterLimited'] = null
@@ -476,10 +503,7 @@ export function recommendPacks(input: RecommendInput): Recommendation {
       : cheapestPrint(index, deficit.groupId, input.rarityRule, (id) => !earnableExpansions.has(id))
     const tradeable = index.cardsOfGroup(deficit.groupId).some((card) => isTradeable(index, card, input.rarityRule))
     const pointsInPacks = cheapest ? cheapest.points / PACK_POINTS_PER_PACK : null
-    const savedPoints = input.savedPoints
-    const redeem = savedPoints
-      ? redeemablePrint(index, deficit.groupId, input.rarityRule, savedPoints, deficit.missing)
-      : null
+    const redeem = redeems.get(deficit.groupId) ?? null
     const advice: MissingCardRow['advice'] = redeem
       ? 'redeem'
       : pointsInPacks === null
@@ -530,27 +554,37 @@ export function recommendPacks(input: RecommendInput): Recommendation {
               groupId: deficit.groupId,
               copies: deficit.missing,
               chances: groupChances(profile, deficit),
+              pointsCost: pointsCostIn(profile, deficit.groupId),
             }))
             .filter((item) => combineChances(item.chances, profile.structure).probability > 0)
           if (items.length === 0) continue
-          const estimate = expectedPacksToComplete(items, profile.structure)
+          const estimate = expectedPacksToComplete(items, profile.structure, 1, packPoints(profile))
           if (!estimate) continue
           const covered = items.reduce((sum, item) => sum + item.copies, 0)
           bestPacks.push({ packId: profile.packId, covered, limited: limitedOf(profile.packId) !== null, ...estimate })
         }
         bestPacks.sort((a, b) => b.covered - a.covered || a.expectedPacks - b.expectedPacks)
       }
-      // The plan: every reachable card from its best pack; the ones payable with saved points are not opened for.
+      // The plan: every reachable card from its best pack, but the copies the saved points already pay for (the
+      // rest of a card the points cover only in part is still opened for); while opening, each pack's points can buy
+      // a card (H-012).
       const advice = new Map(missing.map((row) => [row.groupId, row]))
       const redeemable = reachable.filter((deficit) => advice.get(deficit.groupId)?.advice === 'redeem')
       const byPack = new Map<string, { profile: PackProfile; items: MissingInPack[]; names: string[] }>()
       for (const deficit of reachable) {
-        if (advice.get(deficit.groupId)?.advice === 'redeem') continue
-        const best = advice.get(deficit.groupId)?.bestPack
+        const row = advice.get(deficit.groupId)
+        const copies = deficit.missing - (row?.advice === 'redeem' ? (row.redeem?.copies ?? 0) : 0)
+        if (copies <= 0) continue
+        const best = row?.bestPack
         const profile = best ? openable.find((item) => item.packId === best.packId) : undefined
         if (!profile) continue
         const entry = byPack.get(profile.packId) ?? { profile, items: [], names: [] }
-        entry.items.push({ groupId: deficit.groupId, copies: deficit.missing, chances: groupChances(profile, deficit) })
+        entry.items.push({
+          groupId: deficit.groupId,
+          copies,
+          chances: groupChances(profile, deficit),
+          pointsCost: pointsCostIn(profile, deficit.groupId),
+        })
         entry.names.push(deficit.nameEs)
         byPack.set(profile.packId, entry)
       }
@@ -560,7 +594,11 @@ export function recommendPacks(input: RecommendInput): Recommendation {
           ? null
           : {
               packs: planPacks(
-                groups.map((group) => ({ missing: group.items, structure: group.profile.structure })),
+                groups.map((group) => ({
+                  missing: group.items,
+                  structure: group.profile.structure,
+                  points: packPoints(group.profile),
+                })),
                 Number.parseInt(goal.deckId, 10) || 1,
               ),
               groups: groups

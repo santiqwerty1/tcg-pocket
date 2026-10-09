@@ -429,15 +429,28 @@ describe('tournaments (e2e)', () => {
       await get(`/api/matches/luck?deckId=${blaziken?.id}&opponent=${encodeURIComponent(top?.archetype.name ?? '')}`)
     ).body as {
       record: { wins: number; losses: number }
-      expected: { kind: string; value: number; label: string } | null
-      check: { verdict: string; lowerTail: number } | null
+      expected: {
+        kind: string
+        value: number
+        label: string
+        perGame: { wins: number; losses: number } | null
+        era: string | null
+        from: string | null
+      } | null
+      check: { verdict: string; lowerTail: number; games: number } | null
       streak: { losses: number; somewhere: number } | null
       text: string
     }
     expect(luck.record).toMatchObject({ wins: 0, losses: 8 })
     expect(luck.expected?.label).toMatch(/Blaziken/i)
     expect(luck.check?.verdict).toBe('unlucky')
-    expect(luck.check?.lowerTail).toBeLessThan(0.05)
+    expect(luck.check?.lowerTail).toBeLessThan(0.025)
+    // H-009: per game (the PMPT phases are BO3), with the tournament record behind it, in the same era.
+    expect(luck.expected?.label).toMatch(/por partida/)
+    expect(luck.expected?.perGame?.wins).toBeGreaterThan(0)
+    expect(luck.expected?.era).toBeTruthy()
+    expect(luck.expected?.from).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(luck.text).toContain(`en la era ${luck.expected?.era}`)
     expect(luck.streak?.losses).toBe(8)
     expect(luck.text).toContain('Es raro')
     expect(luck.text).toContain('8 derrotas seguidas')

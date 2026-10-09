@@ -2,4 +2,5 @@
 
 export * from './luck.js'
 export * from './rates.js'
+export * from './tests.js'
 export * from './week.js'

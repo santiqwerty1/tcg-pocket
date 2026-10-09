@@ -4,9 +4,13 @@
  * record of archetype A against archetype B over the era's matches; a match is a whole BO1 or BO3, as Limitless
  * reports it. Byes, no-shows (no second player) and double losses are left out, and so is any match where one of the
  * players has no list (no archetype to put it under).
+ *
+ * H-009 (Fase 37): a match can be a BO1, a BO3 or a BO5 (the `mode` of its tournament phase). Next to the match
+ * records, each cell keeps them by match length, so a matchup can also be read per game (`perGameRecord`): the match
+ * rate of each length turned into a game rate before adding them up, because the conversion is not linear.
  */
 import { z } from 'zod'
-import { addRecords, EMPTY_RECORD, type GameRecord, recordGames, type WinRate, winRate } from '../stats/rates.js'
+import { addRecords, EMPTY_RECORD, type GameRecord, recordGames, type WinRate, winRate, Z_95 } from '../stats/rates.js'
 import type { TournamentDataset } from './dataset.js'
 
 /** One item of `GET /tournaments/{id}/pairings` (docs/fase0/limitless/big_pairings.json). */
@@ -34,6 +38,81 @@ export interface NormalizedPairing {
 
 export interface StoredPairing extends NormalizedPairing {
   tournamentId: string
+  /** Games of a match in its phase (1, 3, 5); null or absent: unknown, taken as 1. */
+  bestOf?: number | null
+}
+
+/** `BO3` → 3; anything else → null. */
+export function bestOfFromMode(mode: string | null | undefined): number | null {
+  const hit = /^BO(\d{1,2})$/i.exec(mode?.trim() ?? '')
+  const games = hit ? Number(hit[1]) : Number.NaN
+  return Number.isInteger(games) && games >= 1 && games % 2 === 1 ? games : null
+}
+
+const detailsPhasesSchema = z.looseObject({
+  phases: z.array(z.looseObject({ phase: z.number().optional(), mode: z.string().optional() })).optional(),
+})
+
+/** Phase → games of a match, from a tournament's stored `/details` (phases without a known mode left out). */
+export function phaseBestOf(details: unknown): Map<number, number> {
+  const out = new Map<number, number>()
+  const parsed = detailsPhasesSchema.safeParse(details ?? {})
+  if (!parsed.success) return out
+  for (const phase of parsed.data.phases ?? []) {
+    const bestOf = bestOfFromMode(phase.mode)
+    if (phase.phase !== undefined && bestOf !== null) out.set(phase.phase, bestOf)
+  }
+  return out
+}
+
+/** Chance of winning a match to `bestOf` games (first to ⌈bestOf/2⌉) when each game is won with chance p. */
+export function matchWinProbability(p: number, bestOf: number): number {
+  const need = Math.ceil(bestOf / 2)
+  let sum = 0
+  let ways = 1
+  for (let lost = 0; lost < need; lost++) {
+    sum += ways * p ** need * (1 - p) ** lost
+    ways = (ways * (need + lost)) / (lost + 1)
+  }
+  return sum
+}
+
+/** The game rate that gives match rate m at `bestOf` (a 30 % at BO3 is a 36 % per game). */
+export function gameRateFromMatchRate(m: number, bestOf: number): number {
+  const target = Math.min(1, Math.max(0, m))
+  if (bestOf <= 1 || target === 0 || target === 1) return target
+  let low = 0
+  let high = 1
+  for (let step = 0; step < 60; step++) {
+    const mid = (low + high) / 2
+    if (matchWinProbability(mid, bestOf) < target) low = mid
+    else high = mid
+  }
+  return (low + high) / 2
+}
+
+/** Wins and losses per game (fractional), ties out. */
+export interface PerGameRecord {
+  wins: number
+  losses: number
+}
+
+/**
+ * A record kept by match length, read per game: each length's match rate turned into a game rate, every match
+ * weighing as one game (prudent: a BO3 says a bit more than one game). Ties and double losses out. Null: no match.
+ */
+export function perGameRecord(byBestOf: ReadonlyMap<number, GameRecord> | undefined): PerGameRecord | null {
+  if (!byBestOf) return null
+  let wins = 0
+  let losses = 0
+  for (const [bestOf, record] of byBestOf) {
+    const matches = record.wins + record.losses
+    if (matches === 0) continue
+    const p = gameRateFromMatchRate(record.wins / matches, bestOf)
+    wins += matches * p
+    losses += matches * (1 - p)
+  }
+  return wins + losses > 0 ? { wins, losses } : null
 }
 
 /** Pairings as Limitless sends them, normalized; throws (zod) when the shape is not the expected one. */
@@ -57,6 +136,11 @@ export interface Matchups {
   cells: ReadonlyMap<string, GameRecord>
   /** Archetype → its record against everyone else in the counted matches (mirrors included). */
   field: ReadonlyMap<string, GameRecord>
+  /** The same two, by match length (H-009): `perGameRecord` reads them per game. */
+  byBestOf: {
+    cells: ReadonlyMap<string, ReadonlyMap<number, GameRecord>>
+    field: ReadonlyMap<string, ReadonlyMap<number, GameRecord>>
+  }
   /** Matches counted, and why the others were not. */
   matches: number
   skipped: { byes: number; doubleLosses: number; noArchetype: number }
@@ -71,6 +155,12 @@ function add(map: Map<string, GameRecord>, key: string, record: GameRecord): voi
   map.set(key, addRecords(map.get(key) ?? EMPTY_RECORD, record))
 }
 
+function addByBestOf(map: Map<string, Map<number, GameRecord>>, key: string, bestOf: number, record: GameRecord) {
+  const inner = map.get(key) ?? new Map<number, GameRecord>()
+  inner.set(bestOf, addRecords(inner.get(bestOf) ?? EMPTY_RECORD, record))
+  map.set(key, inner)
+}
+
 const WIN: GameRecord = { wins: 1, losses: 0, ties: 0 }
 const LOSS: GameRecord = { wins: 0, losses: 1, ties: 0 }
 const TIE: GameRecord = { wins: 0, losses: 0, ties: 1 }
@@ -82,6 +172,8 @@ export function buildMatchups(dataset: TournamentDataset, pairings: readonly Sto
   for (const entry of dataset.entries) archetypeOf.set(`${entry.tournamentId}|${entry.playerId}`, entry.archetypeId)
   const cells = new Map<string, GameRecord>()
   const field = new Map<string, GameRecord>()
+  const cellsByBestOf = new Map<string, Map<number, GameRecord>>()
+  const fieldByBestOf = new Map<string, Map<number, GameRecord>>()
   const withPairings = new Set<string>()
   const skipped = { byes: 0, doubleLosses: 0, noArchetype: 0 }
   let matches = 0
@@ -107,12 +199,18 @@ export function buildMatchups(dataset: TournamentDataset, pairings: readonly Sto
     add(cells, cellKey(b, a), forB)
     add(field, a, forA)
     add(field, b, forB)
+    const bestOf = pairing.bestOf ?? 1
+    addByBestOf(cellsByBestOf, cellKey(a, b), bestOf, forA)
+    addByBestOf(cellsByBestOf, cellKey(b, a), bestOf, forB)
+    addByBestOf(fieldByBestOf, a, bestOf, forA)
+    addByBestOf(fieldByBestOf, b, bestOf, forB)
     matches += 1
   }
   return {
     era: dataset.era,
     cells,
     field,
+    byBestOf: { cells: cellsByBestOf, field: fieldByBestOf },
     matches,
     skipped,
     tournamentsWithPairings: withPairings.size,
@@ -123,6 +221,16 @@ export function buildMatchups(dataset: TournamentDataset, pairings: readonly Sto
 /** Record of a against b (empty when they never met). */
 export function matchupRecord(matchups: Matchups, a: string, b: string): GameRecord {
   return matchups.cells.get(cellKey(a, b)) ?? { ...EMPTY_RECORD }
+}
+
+/** Record of a against b per game (H-009); null when they never met (or only tied). */
+export function matchupPerGame(matchups: Matchups, a: string, b: string): PerGameRecord | null {
+  return perGameRecord(matchups.byBestOf.cells.get(cellKey(a, b)))
+}
+
+/** An archetype's record against everyone per game (H-009). */
+export function fieldPerGame(matchups: Matchups, archetypeId: string): PerGameRecord | null {
+  return perGameRecord(matchups.byBestOf.field.get(archetypeId))
 }
 
 /** A matchup rate: Wilson over the matches; «orientativo» under 30 of them. */
@@ -148,6 +256,8 @@ export interface MatchupRow {
   share: number
   record: GameRecord
   rate: WinRate<'tournament'> | null
+  /** The same matches per game (H-009): what one game of Santiago's compares with. */
+  perGame: PerGameRecord | null
 }
 
 /** An archetype against each rival it met, the most played rivals first. */
@@ -155,7 +265,7 @@ export function matchupRows(matchups: Matchups, dataset: TournamentDataset, arch
   return metaShares(dataset)
     .map(({ archetypeId: rival, share }) => {
       const record = matchupRecord(matchups, archetypeId, rival)
-      return { rival, share, record, rate: matchupRate(record) }
+      return { rival, share, record, rate: matchupRate(record), perGame: matchupPerGame(matchups, archetypeId, rival) }
     })
     .filter((row) => recordGames(row.record) > 0)
 }
@@ -163,6 +273,8 @@ export function matchupRows(matchups: Matchups, dataset: TournamentDataset, arch
 export interface ExpectedVsMeta {
   /** 0–100: Σ share × (shrunk) win rate over every archetype of the meta, the shares renormalized. */
   value: number
+  /** H-011: approximate 95 % interval (delta method), 0–100. */
+  ci95: [number, number]
   /** Share of the meta (0–100) of the rivals with at least `solidMatches` matches: how much is data, not prior. */
   coverage: number
   matches: number
@@ -172,14 +284,16 @@ export interface ExpectedVsMeta {
 
 /** Matches a matchup «weighs» as a prior: with fewer than this, the archetype's own record dominates. */
 export const MATCHUP_PRIOR_MATCHES = 10
-/** Matches the archetype's own record weighs toward 50 % (an archetype seen 0–3 is not a 0 % deck). */
+/** Matches the archetype's own record weighs toward the era mean (an archetype seen 0–3 is not a 0 % deck). */
 export const FIELD_PRIOR_MATCHES = 20
 
 /**
  * What an archetype should score against the era's field if it met each rival as often as the rival is played: each
  * matchup's rate weighted by the rival's share. A matchup with few matches is pulled toward the archetype's record
  * against everyone (as if it had `prior` more matches at that rate), so one 0–3 against a rival does not sink the
- * estimate; a rival never met counts at that record, which is itself pulled toward 50 % (20 matches of prior).
+ * estimate; a rival never met counts at that record, which is itself pulled toward the era mean (20 matches of
+ * prior; H-011: the era mean, 46,7 % in B4a, not 50 %: ties count as not won on both sides). The interval is the
+ * delta method's: each matchup's own matches, plus the archetype's record shared by every shrunk matchup.
  * Null when the archetype has no counted matches at all.
  */
 export function expectedVsMeta(
@@ -198,24 +312,35 @@ export function expectedVsMeta(
   const field = matchups.field.get(archetypeId)
   const fieldGames = field ? recordGames(field) : 0
   if (!field || fieldGames === 0) return null
-  // The archetype's record against everyone, itself pulled toward 50 % when it has few matches.
-  const base = (field.wins + FIELD_PRIOR_MATCHES * 0.5) / (fieldGames + FIELD_PRIOR_MATCHES)
-  let weighted = 0
-  let shares = 0
-  let covered = 0
-  let matches = 0
-  let rivals = 0
-  for (const { archetypeId: rival, share } of options.shares ?? metaShares(dataset)) {
+  // The archetype's record against everyone, itself pulled toward the era mean when it has few matches.
+  const totalGames = recordGames(dataset.total)
+  const mean = totalGames === 0 ? 0.5 : dataset.total.wins / totalGames
+  const base = (field.wins + FIELD_PRIOR_MATCHES * mean) / (fieldGames + FIELD_PRIOR_MATCHES)
+  const baseVariance = (base * (1 - base)) / (fieldGames + FIELD_PRIOR_MATCHES)
+  const rows = (options.shares ?? metaShares(dataset)).map(({ archetypeId: rival, share }) => {
     const record = matchupRecord(matchups, archetypeId, rival)
     const games = recordGames(record)
-    weighted += share * ((record.wins + prior * base) / (games + prior))
-    shares += share
-    if (games >= solid) covered += share
-    if (games > 0) rivals += 1
-    matches += games
-  }
+    return { share, games, rate: (record.wins + prior * base) / (games + prior) }
+  })
+  const shares = rows.reduce((sum, row) => sum + row.share, 0)
   if (shares === 0) return null
-  return { value: (weighted / shares) * 100, coverage: covered, matches, rivals }
+  let value = 0
+  let ownVariance = 0
+  let onBase = 0
+  for (const row of rows) {
+    const weight = row.share / shares
+    value += weight * row.rate
+    ownVariance += weight ** 2 * ((row.games * row.rate * (1 - row.rate)) / (row.games + prior) ** 2)
+    onBase += (weight * prior) / (row.games + prior)
+  }
+  const half = Z_95 * Math.sqrt(ownVariance + onBase ** 2 * baseVariance)
+  return {
+    value: value * 100,
+    ci95: [Math.max(0, value - half) * 100, Math.min(1, value + half) * 100],
+    coverage: rows.filter((row) => row.games >= solid).reduce((sum, row) => sum + row.share, 0),
+    matches: rows.reduce((sum, row) => sum + row.games, 0),
+    rivals: rows.filter((row) => row.games > 0).length,
+  }
 }
 
 /** Lists from which the last weeks are enough to weigh the meta (Fase 15); fewer, the whole era. */

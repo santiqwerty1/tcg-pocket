@@ -88,7 +88,19 @@ export interface LuckView {
   opponent: string | null
   record: GameRecord
   /** Where the expected rate comes from: the matchup of the deck's archetype against the rival, or its record. */
-  expected: { value: number; kind: 'matchup' | 'archetype'; label: string; games: number } | null
+  expected: {
+    /** 0–100, per game (H-009). */
+    value: number
+    kind: 'matchup' | 'archetype'
+    label: string
+    /** Tournament matches behind it. */
+    games: number
+    /** The tournament record per game (fractional), whose uncertainty the check counts; null: taken as exact. */
+    perGame: { wins: number; losses: number } | null
+    /** The era of both sides: own games since `from` (ISO) count. */
+    era: string | null
+    from: string | null
+  } | null
   check: {
     games: number
     actual: number
@@ -111,7 +123,10 @@ export interface DeckMatchupRowView {
   share: number | null
   mine: RowView | null
   tournament: { record: GameRecord; rate: WinRate | null } | null
-  /** Fase 13: own record against the tournament matchup (when both exist). */
+  /**
+   * Fase 13: own record against the tournament matchup (when both exist). H-009: own games of the era against the
+   * matchup per game, with its uncertainty, and Holm's correction over the rivals of the deck.
+   */
   luck: 'too_few' | 'normal' | 'unlucky' | 'lucky' | null
   /** Fase 25: own record going first and going second (matches with who went first noted). */
   turn: { first: GameRecord; second: GameRecord } | null

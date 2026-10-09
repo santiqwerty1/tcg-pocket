@@ -109,16 +109,16 @@ describe('recommendPacks: PLAN §7 Fase 4 acceptance (c), deck 13 missing one Ho
     expect(available.rows).toHaveLength(28)
   })
 
-  it('expected packs to complete the deck: exactly 70 from B4b', () => {
+  it('expected packs to complete the deck: 70 from B4b by luck alone, ~53 counting its pack points (H-012)', () => {
     const [deck] = recommendPacks(input()).decks
     expect(deck).toMatchObject({ deckId: '13', missingCopies: 1, notInPacks: [] })
-    expect(deck?.bestPacks[0]).toMatchObject({
-      packId: 'B4b/deluxepackmega',
-      covered: 1,
-      method: 'exact',
-      ci95: null,
-    })
-    expect(deck?.bestPacks[0]?.expectedPacks).toBeCloseTo(70, 9)
+    expect(deck?.bestPacks[0]).toMatchObject({ packId: 'B4b/deluxepackmega', covered: 1, method: 'simulation' })
+    // 1 in 70 per pack, but 100 packs give the 500 points of a ◊◊◊◊: E[min(T, 100)] = 70 · (1 − (69/70)^100) ≈ 53,4.
+    const exact = 70 * (1 - (69 / 70) ** 100)
+    expect(deck?.bestPacks[0]?.expectedPacks).toBeGreaterThan(exact - 4)
+    expect(deck?.bestPacks[0]?.expectedPacks).toBeLessThan(exact + 4)
+    // The plan's «mala suerte» is at most the 100 packs the points need.
+    expect(deck?.plan?.packs.p80).toBeLessThanOrEqual(100)
   })
 
   it('when the missing cards come from different packs, each pack says how many copies it covers', () => {
@@ -325,6 +325,36 @@ describe('cards out of the packs on sale (the Deluxe ex left the shop, DECISIONE
     const short = recommendPacks(input({ decks: [deck], available: retiredPacks, savedPoints: () => 34 }))
     expect(short.missing[0]).toMatchObject({ advice: 'trade', redeem: null })
     expect(recommendPacks(input({ decks: [deck], available: retiredPacks })).missing[0]?.redeem).toBeNull()
+  })
+
+  it('«canjear» shares the balance out: two cards never count on the same points (Fase 37)', () => {
+    const absent = index.catalog.cards.filter(
+      (c) =>
+        c.expansionId === 'A1' &&
+        c.rarity === '◊' &&
+        (playableByGroup.get(c.functionalGroupId) ?? 0) === 0 &&
+        index.cardsOfGroup(c.functionalGroupId).every((other) => ['A1', 'A4b'].includes(other.expansionId)),
+    )
+    const [first, second] = absent
+    if (!first || !second) throw new Error('need two A1 ◊ cards the collection lacks')
+    const deck: DeckGoal = {
+      deckId: '1',
+      name: 'Prueba',
+      priority: 1,
+      cards: [
+        { cardId: first.id, count: 1 },
+        { cardId: second.id, count: 1 },
+      ],
+    }
+    const retiredPacks = (packId: string) => !packId.startsWith('A1/') && packId !== 'A4b/deluxepack'
+    // 50 points of A1 pay for one ◊ (35), not for both: only one is «canjear».
+    const result = recommendPacks(input({ decks: [deck], available: retiredPacks, savedPoints: () => 50 }))
+    const redeemed = result.missing.filter((row) => row.advice === 'redeem')
+    expect(redeemed).toHaveLength(1)
+    expect(redeemed[0]?.redeem).toMatchObject({ copies: 1, points: 35 })
+    // With 70 points, both.
+    const both = recommendPacks(input({ decks: [deck], available: retiredPacks, savedPoints: () => 70 }))
+    expect(both.missing.filter((row) => row.advice === 'redeem')).toHaveLength(2)
   })
 
   it('rarity rules confirmed in the game (P-003, P-004): ✵ and ✵✵ verified; ☆☆, ✵ and ✵✵ can be traded', () => {

@@ -4,7 +4,7 @@
  * goes in here: own matches and simulations never mix with it (PLAN I9).
  */
 import type { CardId } from '../catalog/types.js'
-import { addRecords, EMPTY_RECORD, type GameRecord, type WinRate, winRate } from '../stats/rates.js'
+import { addRecords, clusteredWinRate, EMPTY_RECORD, type GameRecord, type WinRate } from '../stats/rates.js'
 import type { DatasetEntry, ListCard, TournamentDataset } from './dataset.js'
 import type { ArchetypeRef } from './limitless.js'
 
@@ -22,7 +22,13 @@ function summarize(entries: readonly DatasetEntry[], totalLists: number): Record
   return {
     lists: entries.length,
     record,
-    rate: winRate('tournament', record, entries.length, 'lists'),
+    // H-011: the games of a list come together (one player, 5 to 8 rounds): the interval counts lists, not games.
+    rate: clusteredWinRate(
+      'tournament',
+      entries.map((entry) => entry.record),
+      entries.length,
+      'lists',
+    ),
     share: totalLists === 0 ? 0 : (entries.length / totalLists) * 100,
   }
 }

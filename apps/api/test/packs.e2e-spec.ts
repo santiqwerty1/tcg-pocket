@@ -196,8 +196,15 @@ describe('packs (e2e)', () => {
     // Fase 14: with the points, nothing is left to open for the deck: «canjeá».
     expect(redeem.body.decks[0].plan).toMatchObject({ groups: [], redeemable: ['Hoopa ex'] })
     expect((await put('/api/settings/packPoints').send({ value: {} })).status).toBe(200)
-    expect(body.decks[0]?.bestPacks[0]).toMatchObject({ packId: 'B4b/deluxepackmega', method: 'exact', limited: true })
-    expect(body.decks[0]?.bestPacks[0]?.expectedPacks).toBeCloseTo(70, 6)
+    // H-012 (Fase 37): every pack gives 5 points of B4b and the ◊◊◊◊ costs 500, so it takes 100 packs at most:
+    // E[min(G, 100)] = 70·(1 − (69/70)^100) ≈ 53,4 instead of 70 (simulated, with the points).
+    expect(body.decks[0]?.bestPacks[0]).toMatchObject({
+      packId: 'B4b/deluxepackmega',
+      method: 'simulation',
+      limited: true,
+    })
+    expect(body.decks[0]?.bestPacks[0]?.expectedPacks).toBeGreaterThan(49)
+    expect(body.decks[0]?.bestPacks[0]?.expectedPacks).toBeLessThan(58)
     // Fase 14: the plan opens the Deluxe Mega for the Hoopa ex; days at 2 a day, then at 3 a day with 120 hourglasses.
     const plan = (
       body.decks[0] as unknown as {

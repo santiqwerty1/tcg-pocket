@@ -1,15 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import { recordGames } from '../../src/stats/rates.js'
 import {
+  bestOfFromMode,
   buildDataset,
   buildMatchups,
   DEFAULT_SET_RELEASES,
   expectedVsMeta,
+  fieldPerGame,
+  gameRateFromMatchRate,
+  matchupPerGame,
   matchupRecord,
   matchupRows,
+  matchWinProbability,
   metaShares,
   parsePairings,
   parseStandings,
+  perGameRecord,
+  phaseBestOf,
   recentMeta,
   type StoredEntry,
   type StoredPairing,
@@ -36,6 +43,50 @@ describe('pairings (Fase 9): the rounds of PMPT #45 and the NOEX tournament as L
     expect(new Set(big.map((pairing) => pairing.phase))).toEqual(new Set([1, 2]))
     expect(parsePairings(readLimitless('noex_pairings.json'))).toHaveLength(228)
     expect(() => parsePairings([{ round: 1 }])).toThrow()
+  })
+})
+
+describe('H-009: matches at BO1, BO3 or BO5 read per game', () => {
+  it('the phases of a tournament give the games of a match', () => {
+    expect(bestOfFromMode('BO3')).toBe(3)
+    expect(bestOfFromMode('bo1')).toBe(1)
+    expect(bestOfFromMode('BO5')).toBe(5)
+    expect(bestOfFromMode('BO2')).toBeNull()
+    expect(bestOfFromMode('SWISS')).toBeNull()
+    expect(bestOfFromMode(undefined)).toBeNull()
+    const details = readLimitless('big_details.json')
+    expect([...phaseBestOf(details)]).toEqual([
+      [1, 3],
+      [2, 3],
+    ])
+    expect(phaseBestOf(null).size).toBe(0)
+    expect(phaseBestOf({ phases: 'x' }).size).toBe(0)
+  })
+
+  it('match chance from the game chance, and back', () => {
+    expect(matchWinProbability(0.6, 1)).toBeCloseTo(0.6, 12)
+    expect(matchWinProbability(0.6, 3)).toBeCloseTo(0.36 * (3 - 1.2), 12)
+    // BO5: p³(10 − 15p + 6p²).
+    expect(matchWinProbability(0.6, 5)).toBeCloseTo(0.216 * (10 - 9 + 2.16), 12)
+    expect(matchWinProbability(0.5, 3)).toBeCloseTo(0.5, 12)
+    // The example of the review: 30 % of the matches at BO3 is about 36,3 % of the games.
+    expect(gameRateFromMatchRate(0.3, 3)).toBeCloseTo(0.363, 3)
+    expect(gameRateFromMatchRate(0.3, 1)).toBe(0.3)
+    expect(gameRateFromMatchRate(0, 3)).toBe(0)
+    for (const p of [0.1, 0.42, 0.77]) expect(gameRateFromMatchRate(matchWinProbability(p, 5), 5)).toBeCloseTo(p, 9)
+  })
+
+  it('converts length by length before adding up; ties out; each match weighs one game', () => {
+    const byBestOf = new Map([
+      [3, { wins: 3, losses: 7, ties: 1 }],
+      [1, { wins: 5, losses: 5, ties: 2 }],
+    ])
+    const record = perGameRecord(byBestOf)
+    const p3 = gameRateFromMatchRate(0.3, 3)
+    expect(record?.wins).toBeCloseTo(10 * p3 + 5, 9)
+    expect(record?.losses).toBeCloseTo(10 * (1 - p3) + 5, 9)
+    expect(perGameRecord(new Map([[3, { wins: 0, losses: 0, ties: 4 }]]))).toBeNull()
+    expect(perGameRecord(undefined)).toBeNull()
   })
 })
 
@@ -88,6 +139,31 @@ describe('matchups between archetypes', () => {
     expect(fieldGames).toBe(2 * matchups.matches)
   })
 
+  it('H-009: per game, with the BO3 of the PMPT phases, the rates move toward 50 %', () => {
+    const top = metaShares(dataset)[0]?.archetypeId ?? ''
+    // Without a mode, a match is one game: the per-game record is the match record without ties.
+    const plain = fieldPerGame(matchups, top)
+    const field = matchups.field.get(top) ?? { wins: 0, losses: 0, ties: 0 }
+    expect(plain?.wins).toBeCloseTo(field.wins, 9)
+    expect(plain?.losses).toBeCloseTo(field.losses, 9)
+    const phases = phaseBestOf(readLimitless('big_details.json'))
+    const bo3 = buildMatchups(
+      dataset,
+      pairings.map((pairing) => ({ ...pairing, bestOf: phases.get(pairing.phase) ?? null })),
+    )
+    expect(bo3.cells).toEqual(matchups.cells)
+    const perGame = fieldPerGame(bo3, top)
+    const matchRate = field.wins / (field.wins + field.losses)
+    const gameRate = (perGame?.wins ?? 0) / ((perGame?.wins ?? 0) + (perGame?.losses ?? 0))
+    expect(Math.abs(gameRate - 0.5)).toBeLessThan(Math.abs(matchRate - 0.5))
+    expect(gameRate).toBeCloseTo(gameRateFromMatchRate(matchRate, 3), 9)
+    expect((perGame?.wins ?? 0) + (perGame?.losses ?? 0)).toBeCloseTo(field.wins + field.losses, 9)
+    const rival = metaShares(dataset)[1]?.archetypeId ?? ''
+    expect(matchupRows(bo3, dataset, top).find((row) => row.rival === rival)?.perGame).toEqual(
+      matchupPerGame(bo3, top, rival),
+    )
+  })
+
   it('a player never has more matches in the pairings than in the standings', () => {
     const standings = new Map(dataset.entries.map((entry) => [entry.playerId, recordGames(entry.record)]))
     const counted = new Map<string, number>()
@@ -118,10 +194,16 @@ describe('matchups between archetypes', () => {
     expect(expected?.coverage).toBeGreaterThanOrEqual(0)
     expect(expected?.coverage).toBeLessThanOrEqual(100)
     expect(expected?.rivals).toBe(rows.length)
-    // With a huge prior every matchup is the archetype's record against everyone (itself pulled toward 50 %).
+    // H-011: with an interval around it.
+    expect(expected?.ci95[0]).toBeLessThan(expected?.value ?? 0)
+    expect(expected?.ci95[1]).toBeGreaterThan(expected?.value ?? 100)
+    expect((expected?.ci95[1] ?? 0) - (expected?.ci95[0] ?? 0)).toBeLessThan(30)
+    // With a huge prior every matchup is the archetype's record against everyone, itself pulled toward the era mean
+    // (H-011: 48,0 % here, not 50 %).
     const field = matchups.field.get(top) as { wins: number; losses: number; ties: number }
+    const mean = dataset.total.wins / recordGames(dataset.total)
     const flat = expectedVsMeta(matchups, dataset, top, { prior: 1e9 })
-    expect(flat?.value).toBeCloseTo(((field.wins + 10) / (recordGames(field) + 20)) * 100, 4)
+    expect(flat?.value).toBeCloseTo(((field.wins + 20 * mean) / (recordGames(field) + 20)) * 100, 4)
     // No shrinkage at all and only solid rivals counted would be the plain weighted mean; every archetype of the
     // table stays between its worst and its best matchup.
     for (const { archetypeId } of shares.slice(0, 6)) {
@@ -136,7 +218,7 @@ describe('matchups between archetypes', () => {
     const only = expectedVsMeta(matchups, dataset, top, { shares: [{ archetypeId: rival, share: 100 }] })
     const record = matchupRecord(matchups, top, rival)
     const games = recordGames(record)
-    const base = (field.wins + 10) / (recordGames(field) + 20)
+    const base = (field.wins + 20 * mean) / (recordGames(field) + 20)
     expect(only?.value).toBeCloseTo(((record.wins + 10 * base) / (games + 10)) * 100, 8)
   })
 
