@@ -62,7 +62,7 @@ Con esto, una caída se avisa dentro de los 5 minutos, y la vuelta también.
   - se arman de a uno: dos pedidos de la misma era comparten el armado;
   - después de cada armado, el log deja la memoria (`tournament dataset built`, con `rssMb` y `heapUsedMb`);
   - vencen una vez por corrida de Limitless, no después de cada torneo.
-- **Las situaciones para resolver:** guardan en memoria las de 50 partidas como máximo.
+- **Las situaciones para resolver:** guardan en memoria las de 64 partidas como máximo (la lista lee 60).
 
 Para mirar la memoria sin entrar a la app: `system_status`, o `GET /api/ops/status` con sesión.
 
