@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-09 (87 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-09 (88 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -77,6 +77,7 @@ _Borrador generado al 2026-10-09 (87 commits). Escribí el «porqué» fuera de 
 ### Documentado
 
 - improvement review of 9/10 — 14 confirmed findings, risks, questions and proposed phases 36-45 (H-002..H-015, R-006, R-008, R-010, R-011, R-012, P-006, P-007, P-008, D-020, T-014) `fd5d4b8`
+- the PC worker died with the Claude app update; restarted detached (H-016) `3982bc2`
 - Santi's answers — deploy each phase 36-44, free off-site copy, cloud worker simulates (P-007, T-015) `51b2b8b`
 - fix an anchor in today's log `125a1a9`
 - second verification of the 9/10 review, D-020 decided, workers as T-015 (D-020, P-006, P-007, P-008, T-013, T-014, T-015) (H-002, H-015) `aaf194a`

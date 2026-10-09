@@ -34,6 +34,12 @@ describe('EnergyPicker', () => {
     await user.click(screen.getByRole('button', { name: 'Rayo' }))
     expect(onChange).toHaveBeenLastCalledWith([])
   })
+
+  it('with 3 chosen, the others are off until one is taken out (P-006)', () => {
+    render(<EnergyPicker value={['fire', 'water', 'lightning']} onChange={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'Planta' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Fuego' })).toBeEnabled()
+  })
 })
 
 describe('EnergyChips', () => {

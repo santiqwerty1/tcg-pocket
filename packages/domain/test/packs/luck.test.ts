@@ -9,10 +9,16 @@ const rows = parseTrackerCsv(readFileSync(COLLECTION_CSV_PATH)).rows
 const before = new Map<number, number>()
 for (const row of rows) before.set(row.internalId, Math.max(before.get(row.internalId) ?? 0, row.numberOwned))
 
+/** Versions printed only in B4 (a Deluxe reprint shares the id and is left out, H-005). */
+const onlyB4 = (internalId: number) =>
+  index.cardsByInternalId(internalId).every((card) => card.expansionId === 'B4' || card.rarity === 'P')
+
 /** The 6/10 collection plus `copies` more of the first versions of B4 with that rarity. */
 function gain(base: ReadonlyMap<number, number>, rarity: string, versions: number, copies = 1): Map<number, number> {
   const after = new Map(base)
-  const cards = index.catalog.cards.filter((card) => card.expansionId === 'B4' && card.rarity === rarity)
+  const cards = index.catalog.cards.filter(
+    (card) => card.expansionId === 'B4' && card.rarity === rarity && onlyB4(card.internalId),
+  )
   const seen = new Set<number>()
   for (const card of cards) {
     if (seen.size >= versions) break
@@ -36,6 +42,23 @@ describe('suerte de los sobres (Fase 17)', () => {
     const rare = ['☆', '☆☆', '☆☆☆', 'Crown Rare'].reduce((sum, r) => sum + (share[r as '☆'] ?? 0), 0)
     expect(rare).toBeCloseTo((3.334 + 13.336) / 500, 10)
     expect(Object.values(share).reduce((sum, value) => sum + (value ?? 0), 0)).toBeCloseTo(1, 3)
+  })
+
+  it('H-005: a version also printed in the Deluxe is left out (it could come from either pack)', () => {
+    const reprinted = index.catalog.cards.filter(
+      (card) =>
+        card.expansionId === 'B4b' &&
+        card.rarity === '◊◊◊◊' &&
+        index.cardsByInternalId(card.internalId).some((other) => other.expansionId !== 'B4b'),
+    )
+    expect(reprinted.length).toBeGreaterThanOrEqual(60)
+    const after = gain(before, '◊', 30)
+    for (const card of reprinted.slice(0, 20)) after.set(card.internalId, (after.get(card.internalId) ?? 0) + 1)
+    const luck = packLuck(before, after, index)
+    expect(luck.ambiguous).toBe(20)
+    expect(luck.gained).toBe(30)
+    expect(luck.ex.observed).toBe(0)
+    expect(luck.ex.expected).toBeLessThan(1)
   })
 
   it('nothing in, nothing to say', () => {

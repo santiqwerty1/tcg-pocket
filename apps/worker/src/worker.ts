@@ -20,6 +20,8 @@ import { WORKER_VERSION } from './version.js'
 export { WORKER_VERSION } from './version.js'
 
 const HEARTBEAT_MS = 30_000
+/** An engine that prints no progress for this long is hung: it is stopped and the chunk reported (H-014). */
+const STALL_MS = 10 * 60_000
 
 interface SimulateResult {
   engineRev: string
@@ -70,6 +72,9 @@ interface State {
 export class Worker {
   private readonly stateFile: string
   private readonly workDir: string
+  /** Tests shorten them. */
+  heartbeatMs = HEARTBEAT_MS
+  stallMs = STALL_MS
 
   constructor(
     private readonly config: WorkerConfig,
@@ -155,20 +160,51 @@ export class Worker {
     const controller = new AbortController()
     const stop = () => controller.abort(new Error('detenido'))
     signal.addEventListener('abort', stop, { once: true })
-    const beat = setInterval(() => {
+    // H-014: one heartbeat at a time, a single attempt each; and a watchdog for an engine that stopped printing
+    // progress (a PC that slept is not a hung engine: the gap in the ticks says so).
+    let lastProgressAt = Date.now()
+    let lastTickAt = Date.now()
+    let beating = false
+    let stalled = false
+    const tick = () => {
+      const now = Date.now()
+      if (now - lastTickAt > this.heartbeatMs * 2) lastProgressAt = now
+      lastTickAt = now
+      if (now - lastProgressAt > this.stallMs) {
+        stalled = true
+        this.log('el motor no avanza: lo corto', { chunk: chunk.chunkId, seconds: Math.round(this.stallMs / 1000) })
+        controller.abort(new Error('colgado'))
+        return
+      }
+      if (beating) return
+      beating = true
       void this.client
-        .heartbeat(chunk.chunkId, { workerId: this.config.workerId, gamesDone, ...(total ? { total } : {}) })
+        .heartbeat(
+          chunk.chunkId,
+          { workerId: this.config.workerId, gamesDone, ...(total ? { total } : {}) },
+          controller.signal,
+        )
         .then((answer) => {
           if (answer.cancelled) {
             this.log('simulación cancelada en la app', { chunk: chunk.chunkId })
             controller.abort(new Error('cancelado'))
+          } else if (answer.lost) {
+            this.log('el chunk ya no es de este worker; lo suelto', { chunk: chunk.chunkId })
+            controller.abort(new Error('perdido'))
           }
         })
-        .catch((error) => this.log('latido fallido', { chunk: chunk.chunkId, error: String(error) }))
-    }, HEARTBEAT_MS)
+        .catch((error) => {
+          if (!controller.signal.aborted) this.log('latido fallido', { chunk: chunk.chunkId, error: String(error) })
+        })
+        .finally(() => {
+          beating = false
+        })
+    }
+    const beat = setInterval(tick, this.heartbeatMs)
     const threads = chunk.threads ?? this.config.cores
     const track = (done: number, all: number | null) => {
       gamesDone = done
+      lastProgressAt = Date.now()
       if (all !== null) total = all
     }
     try {
@@ -277,6 +313,18 @@ export class Worker {
         dir,
       }
     } catch (error) {
+      if (stalled) {
+        const minutes = Math.round(this.stallMs / 60_000)
+        await this.client
+          .failure(chunk.chunkId, {
+            workerId: this.config.workerId,
+            error: `El motor no avanzó en ${minutes} min y se cortó (¿colgado?).`,
+          })
+          .catch((reported: unknown) => {
+            if (!(reported instanceof ApiError) || reported.status === 401 || reported.status === 403) throw reported
+          })
+        return null
+      }
       if (controller.signal.aborted) return null
       if (error instanceof EngineError) {
         this.log('el motor falló', { chunk: chunk.chunkId, code: error.code, error: error.message.slice(0, 500) })

@@ -43,6 +43,7 @@ import type {
   ExpansionId,
   FunctionalGroup,
   Pack,
+  PackStructure,
   StockUnit,
 } from './types.js'
 
@@ -202,6 +203,25 @@ function parseInput(input: BuildCatalogInput): ParsedInput {
     enSets: input.enSets === undefined ? {} : parseLocaleTable(input.enSets),
     enPacks: input.enPacks === undefined ? {} : parseLocaleTable(input.enPacks),
   }
+}
+
+/**
+ * H-008: the pack rates exist for packs of 4 and 5 cards. A new size keeps the expansion and its cards but leaves it
+ * out of the pack math, with a warning, instead of failing the whole sync.
+ */
+function knownPackStructure(
+  expansionId: string,
+  structure: (Omit<PackStructure, 'cardsPerPack'> & { cardsPerPack: number }) | null,
+  warnings: string[],
+): PackStructure | null {
+  if (!structure) return null
+  if (structure.cardsPerPack === 4 || structure.cardsPerPack === 5) {
+    return { ...structure, cardsPerPack: structure.cardsPerPack }
+  }
+  warnings.push(
+    `Expansion ${expansionId}: packs of ${structure.cardsPerPack} cards have no known rates; left out of the pack math`,
+  )
+  return null
 }
 
 export function buildCatalogWithReport(input: BuildCatalogInput): BuildResult {
@@ -480,7 +500,7 @@ export function buildCatalogWithReport(input: BuildCatalogInput): BuildResult {
       isPromo: tracker.promo,
       tradeable: tracker.tradeable,
       openableTracker: tracker.openable,
-      packStructure: tracker.promo ? null : tracker.packStructure,
+      packStructure: tracker.promo ? null : knownPackStructure(expansionId, tracker.packStructure, warnings),
       packIds,
     })
   })

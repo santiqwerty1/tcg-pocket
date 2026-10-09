@@ -4,7 +4,6 @@
  * own source: never mixed with tournaments or own matches.
  */
 import { randomInt } from 'node:crypto'
-import { gunzipSync } from 'node:zlib'
 import { BadRequestException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
 import {
   BOT_LABEL_ES,
@@ -34,6 +33,7 @@ import {
 } from '@tcg/domain'
 import { CatalogService } from '../catalog/catalog.service.js'
 import type { Prisma } from '../generated/prisma/client.js'
+import { gunzipJson } from '../http/gunzip.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { EngineUpstreamService } from './engine-upstream.service.js'
@@ -750,7 +750,7 @@ export class SimulationsService {
       select: { dataGz: true },
     })
     if (!row) throw new NotFoundException(`Repetición ${rawId} no encontrada.`)
-    return JSON.parse(gunzipSync(row.dataGz).toString('utf8')) as unknown
+    return gunzipJson(row.dataGz)
   }
 
   async replay(rawId: string): Promise<ReplayView> {
@@ -771,7 +771,7 @@ export class SimulationsService {
       },
     })
     if (!row) throw new NotFoundException(`Repetición ${rawId} no encontrada.`)
-    const replay = JSON.parse(gunzipSync(row.dataGz).toString('utf8')) as { cards?: Record<string, unknown> }
+    const replay = gunzipJson<{ cards?: Record<string, unknown> }>(row.dataGz)
     const index = this.catalog.requireIndex()
     const names: Record<string, string> = {}
     const cardIds: Record<string, string> = {}

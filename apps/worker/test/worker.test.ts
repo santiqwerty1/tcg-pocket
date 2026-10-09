@@ -189,6 +189,27 @@ describe('worker loop', () => {
     expect(calls.failures[0]?.error).toContain('deck inválido')
   })
 
+  it('H-014: an engine that prints no progress is stopped by the watchdog and the chunk reported', async () => {
+    const { client, calls } = fakeClient([chunk({ chunkId: 12, games: 98 })])
+    const worker = new Worker(config, client, silent)
+    worker.heartbeatMs = 50
+    worker.stallMs = 300
+    await worker.loop(new AbortController().signal, { once: true })
+    expect(calls.results).toHaveLength(0)
+    expect(calls.failures).toEqual([{ chunkId: 12, error: 'El motor no avanzó en 0 min y se cortó (¿colgado?).' }])
+  })
+
+  it('H-014: a chunk that is no longer its own (requeued, or another worker has it) is let go without a failure', async () => {
+    const { client, calls } = fakeClient([chunk({ chunkId: 13, games: 99 })])
+    vi.mocked(client.heartbeat).mockResolvedValue({ leaseUntil: null, cancelled: false, lost: true })
+    const worker = new Worker(config, client, silent)
+    worker.heartbeatMs = 50
+    await worker.loop(new AbortController().signal, { once: true })
+    expect(calls.results).toHaveLength(0)
+    expect(calls.failures).toHaveLength(0)
+    expect(client.heartbeat).toHaveBeenCalled()
+  })
+
   it('a consistency chunk: ready and never-ready games as the tallies, the histograms in extra', async () => {
     const { client, calls } = fakeClient([
       chunk({

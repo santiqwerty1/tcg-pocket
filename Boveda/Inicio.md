@@ -36,7 +36,7 @@ _Recuentos al 2026-10-09 (generados; no editar a mano)._
 | pregunta | 8 | cerrada 5 · respondida 3 |
 | riesgo | 12 | abierto 9 · resuelto 3 |
 | supuesto | 3 | refutado 1 · verificado 2 |
-| tarea | 15 | en_curso 1 · hecho 12 · pendiente 1 · preparado 1 |
+| tarea | 16 | en_curso 2 · hecho 12 · pendiente 2 |
 
 **Para revisar:** nada. **Abiertas:** 28.
 <!-- /posta:recuentos -->

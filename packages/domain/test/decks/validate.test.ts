@@ -226,6 +226,16 @@ describe('validateDeck: rules', () => {
     const colorless = validateDeck({ ...deckDraft(9), energies: ['fire', 'colorless' as 'fire'] }, index)
     expect(colorless.errors.map((e) => e.code)).toEqual(['energy_not_selectable'])
 
+    // P-006: at most 3 types in the Energy Zone.
+    const three = validateDeck({ ...deckDraft(9), energies: ['fire', 'water', 'lightning'] }, index)
+    expect(three.errors.map((e) => e.code)).not.toContain('energy_too_many')
+    const four = validateDeck({ ...deckDraft(9), energies: ['fire', 'water', 'lightning', 'grass'] }, index)
+    expect(four.errors).toContainEqual({
+      code: 'energy_too_many',
+      level: 'error',
+      message: 'Un mazo puede tener como máximo 3 tipos de energía',
+    })
+
     const grassDeckWithFire = validateDeck({ ...deckDraft(1), energies: ['fire'] }, index)
     expect(grassDeckWithFire.errors.map((e) => e.code)).toEqual(['no_attacker'])
     expect(grassDeckWithFire.infos.filter((i) => i.code === 'energy_missing_for_card')).toHaveLength(6)

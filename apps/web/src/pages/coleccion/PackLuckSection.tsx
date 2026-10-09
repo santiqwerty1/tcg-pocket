@@ -63,6 +63,13 @@ function IntervalCard({ title, interval }: { title: string; interval: Interval }
           <Tier label="◊◊◊◊ (ex)" tier={luck.ex} />
         </>
       )}
+      {luck.ambiguous > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {luck.ambiguous}{' '}
+          {luck.ambiguous === 1 ? 'copia de una reimpresión no cuenta' : 'copias de reimpresiones no cuentan'} (como las
+          del Deluxe): pudieron salir de dos sobres distintos.
+        </p>
+      ) : null}
     </div>
   )
 }

@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-15 fichas: en_curso 1 · hecho 12 · pendiente 1 · preparado 1. ⚑ = para revisar.
+16 fichas: en_curso 2 · hecho 12 · pendiente 2. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Actualizado |
 | --- | --- | --- | --- | --- |
@@ -30,5 +30,6 @@ revisar: false
 | [T-011](T-011.md) | Probar la Fase 8 desde el celu | hecho | — | 2026-10-08 |
 | [T-012](T-012.md) | Ideas de ampliación: fases 9 a 21 | en_curso | — | 2026-10-08 |
 | [T-013](T-013.md) | Ideas de mejora: fases 25 a 35 | hecho | — | 2026-10-09 |
-| [T-014](T-014.md) | Evaluación del 09/10: fases propuestas 36 a 45 | preparado | — | 2026-10-09 |
+| [T-014](T-014.md) | Evaluación del 09/10: fases propuestas 36 a 45 | en_curso | — | 2026-10-09 |
 | [T-015](T-015.md) | Más workers: en la nube, en el celu y en el navegador | pendiente | — | 2026-10-09 |
+| [T-016](T-016.md) | Búsqueda del laboratorio: probar siempre los cambios obvios | pendiente | — | 2026-10-09 |

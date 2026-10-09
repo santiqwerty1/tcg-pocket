@@ -3,6 +3,10 @@
  * packs give per card (the published rates of each expansion's pack structure). Approximate on purpose: the CSV says
  * what you own, not where it came from, so trades, Wonder Pick and rewards count too; promos are left out. Copies are
  * counted per version (internal id), so a reprint sharing its id is not counted twice.
+ *
+ * H-005 (Fase 36): a version printed in packs of more than one expansion (the Deluxe reprints share the id of the
+ * original) could have come from either, at very different rates (a Deluxe pack always has an ex), so its copies are
+ * left out — of what came in, of what was expected and of the count — and reported apart.
  */
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
 import type { PackStructure, Rarity } from '../catalog/types.js'
@@ -42,6 +46,19 @@ export interface PackLuck {
   ex: PackLuckTier
   /** Packs it would be if everything came from packs (cards per pack of each expansion). */
   packsEstimate: number
+  /** Copies left out: versions printed in packs of more than one expansion (H-005). */
+  ambiguous: number
+}
+
+/** A version whose editions come from packs of different expansions: nobody knows which pack it came from. */
+function ambiguousVersion(index: CatalogIndex, internalId: number): boolean {
+  const expansions = new Set(
+    index
+      .cardsByInternalId(internalId)
+      .filter((card) => index.expansionById(card.expansionId)?.packStructure)
+      .map((card) => card.expansionId),
+  )
+  return expansions.size > 1
 }
 
 /**
@@ -58,12 +75,17 @@ export function packLuck(
   let expectedRare = 0
   let expectedEx = 0
   let packs = 0
+  let ambiguous = 0
   const shares = new Map<string, Partial<Record<Rarity, number>>>()
   for (const [internalId, count] of after) {
     const delta = count - (before.get(internalId) ?? 0)
     if (delta <= 0) continue
     const card = index.cardsByInternalId(internalId)[0]
     if (!card || card.rarity === 'P') continue
+    if (ambiguousVersion(index, internalId)) {
+      ambiguous += delta
+      continue
+    }
     const structure = index.expansionById(card.expansionId)?.packStructure
     if (!structure) continue
     let share = shares.get(card.expansionId)
@@ -93,5 +115,6 @@ export function packLuck(
     rare: tier(rareObserved, expectedRare),
     ex: tier(byRarity['◊◊◊◊'] ?? 0, expectedEx),
     packsEstimate: packs,
+    ambiguous,
   }
 }

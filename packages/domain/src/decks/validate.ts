@@ -19,6 +19,8 @@ import {
 
 export const DECK_SIZE = 20
 export const MAX_COPIES_PER_NAME = 2
+/** The Energy Zone takes at most 3 types (P-006, confirmed by Santi on 9/10/2026). */
+export const MAX_DECK_ENERGIES = 3
 const RARE_CANDY = 'Rare Candy'
 
 export type ValidationCode =
@@ -29,6 +31,7 @@ export type ValidationCode =
   | 'evolution_line'
   | 'energy_required'
   | 'energy_not_selectable'
+  | 'energy_too_many'
   | 'unknown_card'
   | 'no_attacker'
   | 'energy_unused'
@@ -278,6 +281,13 @@ export function validateDeck(draft: DeckDraft, index: CatalogIndex, options: Val
   const energies = draft.energies as readonly string[]
   if (energies.length === 0) {
     errors.push({ code: 'energy_required', level: 'error', message: 'Elegí al menos una energía para el mazo' })
+  }
+  if (new Set(energies).size > MAX_DECK_ENERGIES) {
+    errors.push({
+      code: 'energy_too_many',
+      level: 'error',
+      message: `Un mazo puede tener como máximo ${MAX_DECK_ENERGIES} tipos de energía`,
+    })
   }
   const selectable = new Set<SelectableEnergy>()
   for (const energy of new Set(energies)) {

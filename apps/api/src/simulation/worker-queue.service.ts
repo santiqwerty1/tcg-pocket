@@ -6,13 +6,14 @@
  */
 
 import { EventEmitter } from 'node:events'
-import { gunzipSync } from 'node:zlib'
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import type { Prisma } from '../generated/prisma/client.js'
+import { gunzipJson } from '../http/gunzip.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import type { ConsistencyParams } from './simulations.service.js'
 import { EngineStatusService } from './snapshots.service.js'
+import { versionAtLeast } from './worker-version.js'
 
 export const LEASE_MS = 3 * 60 * 1000
 const MAX_FAILURES = 3
@@ -127,15 +128,18 @@ export class WorkerQueueService {
    * then chunk order.
    */
   private async tryClaim(hello: WorkerHello): Promise<ClaimedChunk | null> {
+    // H-002: versions compared as numbers here, not as text in SQL («0.2.10» < «0.2.2» as text).
+    const consistency = versionAtLeast(hello.version, CONSISTENCY_WORKER_VERSION)
+    const metaConsistency = versionAtLeast(hello.version, META_CONSISTENCY_WORKER_VERSION)
     const rows = await this.prisma.$queryRaw<{ id: number }[]>`
       UPDATE simulation_chunks SET status = 'leased', lease_until = now() + interval '3 minutes',
         worker_id = ${hello.workerId}, games_done = 0, started_at = COALESCE(started_at, now())
       WHERE id = (
         SELECT c.id FROM simulation_chunks c JOIN simulation_jobs j ON j.id = c.job_id
         WHERE j.status IN ('queued', 'running') AND j.engine_rev = ${hello.engineRev}
-          AND (j.kind <> 'consistency' OR ${hello.version ?? '0'} >= ${CONSISTENCY_WORKER_VERSION})
+          AND (j.kind <> 'consistency' OR ${consistency}::boolean)
           AND (j.kind <> 'consistency' OR COALESCE(j.params->'consistency'->>'mode', 'goldfish') <> 'meta'
-               OR ${hello.version ?? '0'} >= ${META_CONSISTENCY_WORKER_VERSION})
+               OR ${metaConsistency}::boolean)
           AND (c.status = 'queued' OR (c.status = 'leased' AND c.lease_until < now()))
         ORDER BY (SELECT count(*) FROM simulation_chunks r
                   WHERE r.job_id = j.id AND r.status IN ('queued', 'leased')), j.created_at, j.id, c.idx
@@ -214,13 +218,16 @@ export class WorkerQueueService {
       select: { engineRev: true },
     })
     if (other) return { chunk: null, requiredEngineRev: other.engineRev }
+    // H-003: on the timeout the listener has to go too, or one is left behind every ~30 s.
+    const queued = this.queued
     await new Promise<void>((resolve) => {
       const timer = setTimeout(done, this.longPollMs)
       function done() {
         clearTimeout(timer)
+        queued.off('queued', done)
         resolve()
       }
-      this.queued.once('queued', done)
+      queued.once('queued', done)
       timer.unref?.()
     })
     return { chunk: await this.tryClaim(hello), requiredEngineRev: null }
@@ -232,27 +239,32 @@ export class WorkerQueueService {
     return chunk
   }
 
-  /** Renews the lease while the worker plays; tells it to stop when the job was cancelled. */
+  /**
+   * Renews the lease while the worker plays; tells it to stop when the job was cancelled, and that the chunk is no
+   * longer its own (`lost`, H-014) when it went back to the queue, failed or another worker holds it — a late
+   * heartbeat used to lease such a chunk again. A worker whose own lease expired can still renew it.
+   */
   async heartbeat(
     id: number,
     input: { workerId: string; gamesDone: number; total?: number | undefined },
-  ): Promise<{ leaseUntil: string | null; cancelled: boolean }> {
+  ): Promise<{ leaseUntil: string | null; cancelled: boolean; lost: boolean }> {
     const chunk = await this.requireChunk(id)
-    if (chunk.job.status === 'cancelled' || chunk.status === 'cancelled') return { leaseUntil: null, cancelled: true }
-    if (chunk.status === 'done') return { leaseUntil: null, cancelled: false }
+    if (chunk.job.status === 'cancelled' || chunk.status === 'cancelled') {
+      return { leaseUntil: null, cancelled: true, lost: false }
+    }
+    if (chunk.status === 'done') return { leaseUntil: null, cancelled: false, lost: false }
     const leaseUntil = new Date(Date.now() + LEASE_MS)
-    await this.prisma.simulationChunk.update({
-      where: { id },
+    const renewed = await this.prisma.simulationChunk.updateMany({
+      where: { id, status: 'leased', workerId: input.workerId },
       data: {
-        status: 'leased',
         leaseUntil,
-        workerId: input.workerId,
         gamesDone: Math.min(input.gamesDone, input.total ?? chunk.games),
         ...(chunk.job.kind === 'optimize' && input.total ? { games: input.total } : {}),
       },
     })
     await this.prisma.workerNode.updateMany({ where: { id: input.workerId }, data: { lastSeenAt: new Date() } })
-    return { leaseUntil: leaseUntil.toISOString(), cancelled: false }
+    if (renewed.count === 0) return { leaseUntil: null, cancelled: false, lost: true }
+    return { leaseUntil: leaseUntil.toISOString(), cancelled: false, lost: false }
   }
 
   async result(id: number, input: ChunkResultInput): Promise<{ accepted: boolean }> {
@@ -293,6 +305,10 @@ export class WorkerQueueService {
   async failure(id: number, input: { workerId: string; error: string }): Promise<{ status: string }> {
     const chunk = await this.requireChunk(id)
     if (chunk.status === 'done' || chunk.status === 'cancelled') return { status: chunk.status }
+    // H-014: only the worker that holds the chunk can fail it (a late report must not requeue another's work).
+    if (chunk.status !== 'leased' || (chunk.workerId !== null && chunk.workerId !== input.workerId)) {
+      return { status: chunk.status }
+    }
     const attempt = chunk.attempt + 1
     const status = attempt >= MAX_FAILURES ? 'failed' : 'queued'
     await this.prisma.simulationChunk.update({
@@ -339,7 +355,7 @@ export class WorkerQueueService {
       throw new BadRequestException({ code: 'too_large', message: 'La repetición supera 8 MB comprimida.' })
     }
     try {
-      JSON.parse(gunzipSync(input.body).toString('utf8'))
+      gunzipJson(input.body)
     } catch {
       throw new BadRequestException({
         code: 'invalid_replay',

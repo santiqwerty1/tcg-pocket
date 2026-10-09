@@ -22,6 +22,7 @@ import {
   listsAgainstCollection,
   mapDecklist,
   newEraWarning,
+  opensUnknownEra,
   parseStandings,
   type StoredEntry,
   type StoredTournament,
@@ -72,9 +73,9 @@ describe('format and era (PLAN §3.5)', () => {
     expect(eraConflict(day, ['B5'], sets)).toBe('B5')
   })
 
-  it('warns «era nueva probable» 35 days after the last release', () => {
-    expect(newEraWarning('2026-10-08', sets)).toMatchObject({ lastRelease: { code: 'B4b' }, days: 8, likely: false })
-    expect(newEraWarning('2026-11-05', sets)).toMatchObject({ days: 36, likely: true })
+  it('warns «era nueva probable» 35 days after the last era-opening release (a Deluxe pack does not count, H-006)', () => {
+    expect(newEraWarning('2026-09-30', sets)).toMatchObject({ lastRelease: { code: 'B4a' }, days: 34, likely: false })
+    expect(newEraWarning('2026-10-08', sets)).toMatchObject({ lastRelease: { code: 'B4a' }, days: 42, likely: true })
   })
 })
 
@@ -162,6 +163,34 @@ describe('dataset and records', () => {
     expect(
       buildDataset({ tournaments, entries, index, sets, era: 'B4a', format: 'STANDARD', minPlayers: 400 }).entries,
     ).toEqual([])
+  })
+
+  it('H-006: a tournament with a set the era table does not know is a new era, left out of the current one', () => {
+    // Without the B4a row, PMPT #45 (B4a cards, 05/09) would fall in the B4 era: it stays out of it instead.
+    const withoutB4a = sets.filter((set) => set.code !== 'B4a')
+    const b4 = buildDataset({
+      tournaments,
+      entries,
+      index,
+      sets: withoutB4a,
+      era: 'B4',
+      format: 'STANDARD',
+      minPlayers: 12,
+    })
+    expect(b4.tournaments).toEqual([])
+    expect(b4.entries).toEqual([])
+    expect(b4.newSetTournaments).toEqual([{ id: BIG_ID, name: 'PMPT #45', date: tournaments[0]?.date, set: 'B4a' }])
+    // A set the catalog knows as a Deluxe pack of reprints does not open an era: the tournament stays.
+    expect(
+      opensUnknownEra(
+        'B4b',
+        withoutB4a.filter((set) => set.code !== 'B4b'),
+        index,
+      ),
+    ).toBe(false)
+    expect(opensUnknownEra('B9', sets, index)).toBe(true)
+    expect(opensUnknownEra('B4a', sets, index)).toBe(false)
+    expect(dataset.newSetTournaments).toEqual([])
   })
 
   it('the era mean is ΣW / Σ(W+L+T), not 50 %: 48,0 % [45,9; 50,1] for PMPT #45', () => {

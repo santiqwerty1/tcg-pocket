@@ -99,6 +99,14 @@ export function ScopeSummary({ scope }: { scope: TournamentScope }) {
           de eras?
         </div>
       ) : null}
+      {scope.newSetTournaments.length > 0 ? (
+        <div className="flex gap-1.5 text-xs text-warning">
+          <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          {scope.newSetTournaments.length === 1 ? '1 torneo queda' : `${scope.newSetTournaments.length} torneos quedan`}{' '}
+          afuera de la era: juegan {[...new Set(scope.newSetTournaments.map((t) => t.set))].join(', ')}, que falta en la
+          tabla de eras (Torneos → Ajustes).
+        </div>
+      ) : null}
       {scope.unknownCards > 0 ? (
         <div className="text-xs text-warning">
           {scope.unknownCards} cartas de las listas todavía no están en el catálogo: esas listas no cuentan por carta

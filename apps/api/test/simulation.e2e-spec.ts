@@ -228,10 +228,30 @@ describe('simulation (e2e)', () => {
       workerId: 'worker-0001',
       gamesDone: 12,
     })
-    expect(beat.body).toMatchObject({ cancelled: false })
+    expect(beat.body).toMatchObject({ cancelled: false, lost: false })
     expect((await get(`/api/simulations/${jobId}`)).body).toMatchObject({
       status: 'running',
       progress: { gamesDone: 12 },
+    })
+    // H-014: another worker's heartbeat or failure does not touch it; the owner's lease is kept.
+    const intruder = await bearer('put', `/api/worker/chunks/${first.chunkId}/heartbeat`).send({
+      workerId: 'worker-0099',
+      gamesDone: 1,
+    })
+    expect(intruder.body).toEqual({ leaseUntil: null, cancelled: false, lost: true })
+    expect(
+      (
+        await bearer('put', `/api/worker/chunks/${first.chunkId}/failure`).send({
+          workerId: 'worker-0099',
+          error: 'tarde',
+        })
+      ).body,
+    ).toEqual({ status: 'leased' })
+    expect(await test.prisma.simulationChunk.findUnique({ where: { id: Number(first.chunkId) } })).toMatchObject({
+      status: 'leased',
+      workerId: 'worker-0001',
+      gamesDone: 12,
+      attempt: 0,
     })
 
     const result = {
@@ -375,6 +395,7 @@ describe('simulation (e2e)', () => {
     ).toEqual({
       leaseUntil: null,
       cancelled: true,
+      lost: false,
     })
     expect((await claim()).body.chunk).toBeNull()
     expect((await test.http().delete(`/api/simulations/${created.body.id}`).set('Cookie', cookie)).status).toBe(204)
@@ -476,5 +497,16 @@ describe('simulation (e2e)', () => {
     await post(`/api/simulations/${queued}/cancel`)
     expect((await test.http().delete(`/api/simulations/${queued}`).set('Cookie', cookie)).status).toBe(204)
     expect((await test.http().delete(`/api/simulations/${done}`).set('Cookie', cookie)).status).toBe(204)
+  })
+
+  it('H-003: a long poll that times out leaves no listener behind', async () => {
+    const queue = test.app.get(WorkerQueueService) as unknown as { queued: { listenerCount(event: string): number } }
+    const before = queue.queued.listenerCount('queued')
+    for (let i = 0; i < 3; i++) {
+      const response = await claim('worker-h003')
+      expect(response.status).toBe(200)
+      expect(response.body.chunk).toBeNull()
+    }
+    expect(queue.queued.listenerCount('queued')).toBe(before)
   })
 })

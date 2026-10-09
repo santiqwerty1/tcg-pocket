@@ -135,12 +135,15 @@ export function eraConflict(date: Date, codes: Iterable<string>, sets: readonly 
 /** Days after which a new era is likely (sets come every ~30 days): the UI warns «era nueva probable». */
 export const NEW_ERA_LIKELY_AFTER_DAYS = 35
 
-/** The last release in the table and how many days ago it was; `likely` when it is more than 35 days. */
+/**
+ * The last era-opening release in the table and how many days ago it was; `likely` when it is more than 35 days. A
+ * Deluxe pack (no new era) does not count (H-006: with B4b as the last row the warning waited a month more).
+ */
 export function newEraWarning(
   today: string,
   sets: readonly SetRelease[],
 ): { lastRelease: SetRelease; days: number; likely: boolean } | null {
-  const released = byRelease(sets).filter((set) => set.releaseDate <= today)
+  const released = eraSets(sets).filter((set) => set.releaseDate <= today)
   const lastRelease = released.at(-1)
   if (!lastRelease) return null
   const days = Math.round(

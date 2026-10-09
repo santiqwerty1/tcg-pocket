@@ -29,6 +29,8 @@ export interface ScopeView {
   mean: RecordRowView
   /** Tournaments whose lists carry a set newer than their day (pre-release, or a set missing from the table). */
   conflicts: { tournamentId: string; name: string; date: string; set: string }[]
+  /** H-006: tournaments left out of the era: they play a set the era table does not know. */
+  newSetTournaments: { tournamentId: string; name: string; date: string; set: string }[]
   unknownCards: number
   /** «Datos de torneo: Limitless (play.limitlesstcg.com)». */
   attribution: string

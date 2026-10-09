@@ -1223,6 +1223,7 @@ ${MCP_WRITE_INSTRUCTIONS}`
       to: item.to.appliedAt.slice(0, 10),
       gained: item.luck.gained,
       packsIfAllFromPacks: Math.round(item.luck.packsEstimate),
+      leftOutReprints: item.luck.ambiguous,
       byRarity: item.luck.byRarity,
       artRareOrBetter: {
         observed: item.luck.rare.observed,

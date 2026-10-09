@@ -4,7 +4,6 @@
  * coach's score of every option next to each of the owner's decisions. The owner plays the moment again and the answer
  * is graded like in the game; the attempts are kept so the failed ones come back and the solved ones go last.
  */
-import { gunzipSync } from 'node:zlib'
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import {
   type CoachVerdict,
@@ -15,6 +14,7 @@ import {
   puzzleSpots,
 } from '@tcg/domain'
 import type { Prisma } from '../generated/prisma/client.js'
+import { gunzipJson } from '../http/gunzip.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { LiveGamesService } from './live-games.service.js'
 
@@ -106,7 +106,7 @@ export class PuzzlesService {
     if (cached) return cached
     let steps: ReplayStep[] = []
     try {
-      const replay = JSON.parse(gunzipSync(game.replayGz ?? new Uint8Array()).toString('utf8')) as { steps?: unknown }
+      const replay = gunzipJson<{ steps?: unknown }>(game.replayGz ?? new Uint8Array())
       steps = Array.isArray(replay.steps) ? (replay.steps as ReplayStep[]) : []
     } catch {
       steps = []

@@ -84,6 +84,8 @@ export interface TournamentDataset {
   unknownCards: UnknownCardRef[]
   /** ΣW, ΣL, ΣT over the lists: the era mean is ΣW / Σ(W+L+T) (46,7 % for B4a in the brief, not 50 %). */
   total: GameRecord
+  /** H-006: tournaments left out because they play a set the era table does not know (a new era). */
+  newSetTournaments: { id: string; name: string; date: Date; set: string }[]
 }
 
 export interface BuildDatasetInput {
@@ -178,27 +180,47 @@ export function buildDataset(input: BuildDatasetInput): TournamentDataset {
   let withoutList = 0
   let total: GameRecord = { ...EMPTY_RECORD }
 
+  // First pass: map every list and see which sets each tournament plays (unknown cards count for all of them: they
+  // say the catalog lacks a set, whatever era the tournament ends up in).
+  const prepared: { tournament: StoredTournament; entry: (typeof input.entries)[number]; cards: ListCard[] | null }[] =
+    []
   for (const entry of input.entries) {
     const tournament = chosen.get(entry.tournamentId)
     if (!tournament) continue
     if (!entry.decklist) {
-      withoutList += 1
+      prepared.push({ tournament, entry, cards: null })
       continue
     }
     const cards = mapDecklist(entry.decklist, index)
-    const groups = groupCounts(cards)
     const seen = setsSeen.get(tournament.id) ?? new Set<string>()
     setsSeen.set(tournament.id, seen)
-    let complete = true
     for (const card of cards) {
       seen.add(card.set)
       if (card.groupId !== null) continue
-      complete = false
       const ref = `${card.set}-${card.number}`
       const known = unknown.get(ref)
       if (known) known.occurrences += 1
       else unknown.set(ref, { ref, set: card.set, number: card.number, name: card.name, occurrences: 1 })
     }
+    prepared.push({ tournament, entry, cards })
+  }
+
+  // H-006: a tournament with a set the era table does not know (and that is not a Deluxe reprint pack) is playing a
+  // new era: it stays out of this one until the set is in the table.
+  const leftOut = new Map<string, string>()
+  for (const [id, tournament] of chosen) {
+    const code = eraConflict(tournament.date, setsSeen.get(id) ?? [], sets)
+    if (code !== null && opensUnknownEra(code, sets, index)) leftOut.set(id, code)
+  }
+
+  for (const { tournament, entry, cards } of prepared) {
+    if (leftOut.has(tournament.id)) continue
+    if (!cards) {
+      withoutList += 1
+      continue
+    }
+    const groups = groupCounts(cards)
+    const complete = cards.every((card) => card.groupId !== null)
     const archetypeId = entry.archetype ? (aliases.get(entry.archetype.id) ?? entry.archetype.id) : null
     if (entry.archetype && archetypeId !== null) {
       const names = archetypeNames.get(archetypeId) ?? new Map()
@@ -232,6 +254,12 @@ export function buildDataset(input: BuildDatasetInput): TournamentDataset {
     if (best) archetypes.set(id, best.ref)
   }
 
+  const newSetTournaments = [...leftOut]
+    .map(([id, set]) => {
+      const tournament = chosen.get(id) as StoredTournament
+      return { id, name: tournament.name, date: tournament.date, set }
+    })
+    .sort((a, b) => b.date.getTime() - a.date.getTime())
   const tournaments = [...chosen.values()]
     .filter((t) => (lists.get(t.id) ?? 0) > 0)
     .map((t) => ({ ...t, conflict: eraConflict(t.date, setsSeen.get(t.id) ?? [], sets), lists: lists.get(t.id) ?? 0 }))
@@ -247,7 +275,18 @@ export function buildDataset(input: BuildDatasetInput): TournamentDataset {
     archetypes,
     unknownCards: [...unknown.values()].sort((a, b) => b.occurrences - a.occurrences || a.ref.localeCompare(b.ref)),
     total,
+    newSetTournaments,
   }
+}
+
+/**
+ * H-006: a set the era table does not know opens a new era, unless the catalog knows it as a Deluxe pack (4 cards of
+ * reprints: B4b did not open an era). A set the table knows is a pre-release event, not a new era.
+ */
+export function opensUnknownEra(code: string, sets: readonly { code: string }[], index: CatalogIndex): boolean {
+  if (sets.some((set) => set.code === code)) return false
+  const expansion = index.expansionById(code)
+  return !(expansion?.packStructure && expansion.packStructure.cardsPerPack === 4)
 }
 
 /** Games of a dataset: Σ(W+L+T) over its lists. */

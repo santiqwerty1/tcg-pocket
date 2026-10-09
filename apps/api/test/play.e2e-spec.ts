@@ -160,6 +160,8 @@ describe('playing against a bot (e2e)', () => {
       headers: { Cookie: cookie, Accept: 'text/event-stream' },
     })
     expect(response.headers.get('content-type')).toMatch(/^text\/event-stream/)
+    // H-015: a stream is never compressed (the compressor would hold the events back).
+    expect(response.headers.get('content-encoding')).toBeNull()
     const reader = (response.body as ReadableStream<Uint8Array>).getReader()
     const decoder = new TextDecoder()
     let buffer = ''
@@ -236,7 +238,8 @@ describe('playing against a bot (e2e)', () => {
       })
     expect((await claim('0.2.1')).body).toEqual({ game: null })
     expect((await claim()).body).toEqual({ game: null })
-    expect((await claim('0.2.2')).body.game).toMatchObject({ id, coach: true, choices: [] })
+    // H-002: «0.2.10» is newer than «0.2.2» (as text it is older).
+    expect((await claim('0.2.10')).body.game).toMatchObject({ id, coach: true, choices: [] })
 
     const coached = (ply: number, scores: number[], best: number) => ({
       ...decision(ply),
@@ -524,6 +527,30 @@ describe('playing against a bot (e2e)', () => {
       (await worker('put', `/api/worker/live/${id}/decision`).send({ ...decision(1), workerId: 'worker-live-02' }))
         .body,
     ).toEqual({ choice: 1, status: 'running' })
+  })
+
+  it('H-013: a game waiting a week for the owner is given up even while the worker keeps renewing its lease', async () => {
+    const created = await post('/api/play').send({ human: { deckId: deckIds[1] }, rival: { deckId: deckIds[12] } })
+    const id = created.body.id as number
+    // A worker holds it, waiting for the owner's move (lease set directly: other games may be queued).
+    await test.prisma.liveGame.update({
+      where: { id },
+      data: { status: 'running', workerId: 'worker-h013', leaseUntil: new Date(Date.now() + 60_000) },
+    })
+    await worker('put', `/api/worker/live/${id}/decision`).send({ ...decision(1), workerId: 'worker-h013' })
+    await test.prisma.$executeRaw`UPDATE live_games SET updated_at = now() - interval '8 days' WHERE id = ${id}`
+    // The worker long-polls for the choice: that renews the lease…
+    const polled = await worker('post', `/api/worker/live/${id}/choice`).send({ workerId: 'worker-h013', ply: 1 })
+    expect(polled.body).toEqual({ choice: null, status: 'waiting' })
+    const row = await test.prisma.liveGame.findUniqueOrThrow({ where: { id } })
+    expect(row.leaseUntil?.getTime()).toBeGreaterThan(Date.now())
+    // …but it is not a move: the week without moves still gives it up.
+    expect(row.updatedAt.getTime()).toBeLessThan(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    await get('/api/play')
+    expect((await get(`/api/play/${id}`)).body).toMatchObject({
+      status: 'abandoned',
+      error: 'Sin movimientos en una semana.',
+    })
   })
 
   it('abandon: the worker is told and stops; a deck that cannot be played is refused', async () => {

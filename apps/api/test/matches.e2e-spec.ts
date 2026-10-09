@@ -341,6 +341,14 @@ describe('matches (e2e)', () => {
     expect(hoopa.turn).toEqual({ first: { wins: 6, losses: 1, ties: 0 }, second: { wins: 1, losses: 5, ties: 0 } })
   })
 
+  it('H-015: JSON answers go compressed when the client accepts it', async () => {
+    // A deck's detail is well over the 1 KB the compressor starts at.
+    const response = await get(`/api/decks/${deck(0).id}`).set('Accept-Encoding', 'gzip')
+    expect(response.status).toBe(200)
+    expect(response.headers['content-encoding']).toBe('gzip')
+    expect(response.body.cards.length).toBeGreaterThan(0)
+  })
+
   it('ejercicios de cálculo (Fase 30): a question from a deck, rebuilt to grade the answer, and the tally', async () => {
     const draw = (await get(`/api/drills?kind=draw&deckId=${deck(0).id}&seed=12345`)).body
     expect(draw).toMatchObject({ kind: 'draw', seed: 12345, deckId: deck(0).id, deck: deck(0).name })

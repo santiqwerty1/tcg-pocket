@@ -7,7 +7,6 @@
 
 import { randomInt } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import { gunzipSync } from 'node:zlib'
 import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common'
 import {
   botLabel,
@@ -25,10 +24,12 @@ import {
 } from '@tcg/domain'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { Prisma } from '../generated/prisma/client.js'
+import { gunzipJson } from '../http/gunzip.js'
 import { parseNumericId } from '../http/ids.js'
 import { PresenceService } from '../notifications/presence.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { EngineStatusService, type SnapshotSource, SnapshotsService } from '../simulation/snapshots.service.js'
+import { versionAtLeast } from '../simulation/worker-version.js'
 
 export const LIVE_LEASE_MS = 3 * 60 * 1000
 const LONG_POLL_MS = 25_000
@@ -467,7 +468,7 @@ export class LiveGamesService {
   async replayRaw(rawId: string): Promise<unknown> {
     const game = await this.requireGame(rawId)
     if (!game.replayGz) throw new NotFoundException('La partida no tiene repetición (todavía no terminó).')
-    return JSON.parse(gunzipSync(game.replayGz).toString('utf8')) as unknown
+    return gunzipJson(game.replayGz)
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -475,13 +476,15 @@ export class LiveGamesService {
   // ---------------------------------------------------------------------------------------------------------------
 
   private async tryClaim(workerId: string, engineRev: string, version: string): Promise<ClaimedLiveGame | null> {
+    // H-002: compared as numbers here, not as text in SQL.
+    const coach = versionAtLeast(version, COACH_WORKER_VERSION)
     const rows = await this.prisma.$queryRaw<{ id: number }[]>`
       UPDATE live_games SET status = CASE WHEN status = 'queued' THEN 'running'::"LiveGameStatus" ELSE status END,
         worker_id = ${workerId}, lease_until = now() + interval '3 minutes'
       WHERE id = (
         SELECT id FROM live_games
         WHERE engine_rev = ${engineRev}
-          AND (coach = false OR ${version} >= ${COACH_WORKER_VERSION})
+          AND (coach = false OR ${coach}::boolean)
           AND (status = 'queued' OR (status IN ('running', 'waiting') AND (lease_until IS NULL OR lease_until < now())))
         ORDER BY id
         FOR UPDATE SKIP LOCKED
@@ -579,7 +582,10 @@ export class LiveGamesService {
       const taken = await this.takenBack(id, input.workerId)
       if (taken) return taken
       const game = await this.requireLease(id, input.workerId)
-      await this.prisma.liveGame.update({ where: { id }, data: { leaseUntil: new Date(Date.now() + LIVE_LEASE_MS) } })
+      // H-013: renewing the lease is not a move, so it must not touch `updated_at` (the week without moves that
+      // gives the game up is measured on it). Raw SQL: Prisma would stamp @updatedAt.
+      await this.prisma
+        .$executeRaw`UPDATE live_games SET lease_until = ${new Date(Date.now() + LIVE_LEASE_MS)} WHERE id = ${id}`
       await this.prisma.workerNode.updateMany({ where: { id: input.workerId }, data: { lastSeenAt: new Date() } })
       return { choice: game.choices[input.ply - 1] ?? null, status: game.status }
     }
@@ -633,7 +639,7 @@ export class LiveGamesService {
       throw new BadRequestException({ code: 'too_large', message: 'La repetición supera 8 MB comprimida.' })
     }
     try {
-      JSON.parse(gunzipSync(body).toString('utf8'))
+      gunzipJson(body)
     } catch {
       throw new BadRequestException({ code: 'invalid_replay', message: 'La repetición no es un JSON comprimido.' })
     }

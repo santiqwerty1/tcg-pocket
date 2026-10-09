@@ -57,7 +57,7 @@ revisar: false
 | 34 | Tests de pantallas en la CI | hecho 09/10 · desplegado (`0524489`) · aprobado 09/10 | — | [T-013](Tareas/T-013.md) |
 | 35 | Prueba mensual del backup | hecho 09/10 · desplegado (`0524489`) · aprobado 09/10 | — | [T-013](Tareas/T-013.md) |
 | E | Evaluación de mejoras: 14 hallazgos, riesgos, preguntas y fases propuestas 36 a 45 | hecho 09/10 · verificada 09/10 · aprobada 09/10 ([D-020](Decisiones/D-020.md)) | 35 | [Evaluación](Evaluacion-2026-10-09.md), [T-014](Tareas/T-014.md) |
-| 36 | Arreglos confirmados (y tope de 3 energías, [P-006](Preguntas/P-006.md)) | pendiente | E | [T-014](Tareas/T-014.md) |
+| 36 | Arreglos confirmados (y tope de 3 energías, [P-006](Preguntas/P-006.md)) | hecho 09/10 | E | [T-014](Tareas/T-014.md) |
 | 37 | Números honestos | pendiente | 36 | [T-014](Tareas/T-014.md) |
 | 38 | Operación y avisos | pendiente | 37 | [T-014](Tareas/T-014.md) |
 | 39 | Copia fuera de Supabase y retención ([P-007](Preguntas/P-007.md): en la nube) | pendiente | 38 | [T-014](Tareas/T-014.md) |
@@ -67,6 +67,7 @@ revisar: false
 | 43 | Claude | pendiente | 42 | [T-014](Tareas/T-014.md) |
 | 44 | Análisis nuevos | pendiente | 43 | [T-014](Tareas/T-014.md) |
 | W | Más workers: nube, Android y navegador (reemplaza la 45, [P-008](Preguntas/P-008.md)) | pendiente, después de la 44 | 44 | [T-015](Tareas/T-015.md) |
+| L | Búsqueda del laboratorio: probar siempre los cambios obvios (+1 copia, paso hacia la lista de torneo) | pendiente, para cuando Santiago la pida | — | [T-016](Tareas/T-016.md) |
 | K | Bóveda con el kit de Posta | hecho 07/10 · aprobado 08/10 | — | [D-009](Decisiones/D-009.md) |
 
 ## Próximos pasos
@@ -75,6 +76,7 @@ Las fases 0–8 del plan están aprobadas (visto bueno de Santiago el 08/10/2026
 
 1. Fases 36 a 44 de la [evaluación del 09/10](Evaluacion-2026-10-09.md) ([T-014](Tareas/T-014.md)), en el orden de [D-020](Decisiones/D-020.md) (decidido el 09/10/2026). Al empezar cada una, leer la nota «Verificación del 09/10» de sus hallazgos: corrige detalles de las fichas.
 2. Después, los workers de [T-015](Tareas/T-015.md) (nube, Android y navegador), que reemplazan la fase 45.
+3. Para después, cuando Santiago la pida: [T-016](Tareas/T-016.md) (variantes fijas en la búsqueda del laboratorio).
 
 ## Pendiente de decidir (para después)
 

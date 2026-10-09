@@ -69,4 +69,31 @@ describe('alerts (e2e)', () => {
     expect(calls).toBe(1)
     test.env.trackerUpstreamCheck = false
   })
+
+  it('H-016: work waiting and no worker in 30 minutes; the title says since when', async () => {
+    const titles = async () =>
+      ((await get('/api/alerts')).body.items as { code: string; title: string }[])
+        .filter((item) => item.code === 'worker_idle')
+        .map((item) => item.title)
+    expect(await titles()).toEqual([])
+    const game = await test.prisma.liveGame.create({
+      data: {
+        status: 'queued',
+        humanSnapshotId: 1,
+        botSnapshotId: 2,
+        bot: 'e2',
+        seed: 1n,
+        engineRev: test.env.engineRev ?? 'x',
+        choices: [],
+      },
+    })
+    expect(await titles()).toEqual(['Hay trabajo esperando y nunca se conectó un worker'])
+    await test.prisma.workerNode.create({
+      data: { id: 'worker-h016', name: 'PC', lastSeenAt: new Date('2026-10-09T05:35:59Z') },
+    })
+    expect(await titles()).toEqual(['Hay trabajo esperando y ningún worker desde el 9/10 02:35'])
+    await test.prisma.workerNode.update({ where: { id: 'worker-h016' }, data: { lastSeenAt: new Date() } })
+    expect(await titles()).toEqual([])
+    await test.prisma.liveGame.delete({ where: { id: game.id } })
+  })
 })

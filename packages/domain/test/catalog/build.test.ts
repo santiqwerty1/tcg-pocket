@@ -87,6 +87,19 @@ describe('buildCatalog: cards and expansions', () => {
     })
   })
 
+  it('H-008: a pack size without known rates leaves the expansion out of the pack math, with a warning', () => {
+    const input = buildInput()
+    const source = input.cardsDbSource.replace('cardsPerPack: 5,', 'cardsPerPack: 6,')
+    expect(source).not.toBe(input.cardsDbSource)
+    const result = buildCatalogWithReport({ ...input, cardsDbSource: source })
+    const changed = result.catalog.expansions.filter(
+      (expansion) => expansion.packStructure === null && !expansion.isPromo,
+    )
+    expect(changed).toHaveLength(1)
+    expect(result.report.warnings.some((w) => /packs of 6 cards have no known rates/.test(w))).toBe(true)
+    expect(result.catalog.cards).toHaveLength(builtCatalog().catalog.cards.length)
+  })
+
   it('keeps the crafting cost', () => {
     expect(catalog.craftingCost).toEqual({
       '◊': 35,

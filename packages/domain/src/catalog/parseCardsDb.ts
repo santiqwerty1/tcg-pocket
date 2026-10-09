@@ -23,7 +23,8 @@ export interface TrackerExpansion {
   tradeable: boolean
   openable: boolean
   promo: boolean
-  packStructure: PackStructure | null
+  /** `cardsPerPack` as the tracker writes it: the catalog keeps only the sizes with known rates (H-008). */
+  packStructure: (Omit<PackStructure, 'cardsPerPack'> & { cardsPerPack: number }) | null
 }
 
 const trackerExpansionSchema = z.object({
@@ -39,7 +40,8 @@ const trackerExpansionSchema = z.object({
       containsShinies: z.boolean(),
       containsBabies: z.boolean(),
       containsLinkedCards: z.boolean(),
-      cardsPerPack: z.union([z.literal(4), z.literal(5)]),
+      // H-008: any size parses; a size without known rates is left out of the pack math (with a warning).
+      cardsPerPack: z.number().int().positive(),
     })
     .optional(),
 })

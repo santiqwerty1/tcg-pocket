@@ -108,6 +108,14 @@ export type LabDeckInput =
   | { text: string; name?: string | undefined; energies?: SelectableEnergy[] | undefined }
   | { cards: DeckCardEntry[]; energies: SelectableEnergy[]; name?: string | undefined }
 
+/** The latest Laboratorio score of a deck's current list (H-007). */
+export interface DeckLabScore {
+  jobId: number
+  era: string
+  finishedAt: Date | null
+  score: LabScoreView
+}
+
 export interface LabScopeInput {
   era?: string | undefined
   format?: TournamentFormat | undefined
@@ -965,31 +973,62 @@ export class LabService implements OnApplicationBootstrap {
    * Fase 15: the latest finished Laboratorio score of a deck's current list (a test against the meta, or the
    * starting list of a search), with its job; null when the list was never tested.
    */
-  async deckScore(
-    deckId: number,
-  ): Promise<{ jobId: number; era: string; finishedAt: Date | null; score: LabScoreView } | null> {
-    // By the list itself (the snapshot key): a restored revision or a copy of the list finds its tests too.
-    const current = await this.snapshots.preview({ deckId: String(deckId) }).catch(() => null)
-    if (!current) return null
-    const snapshots = await this.prisma.deckSnapshot.findMany({ where: { key: current.key }, select: { id: true } })
-    if (snapshots.length === 0) return null
-    const ids = new Set(snapshots.map((row) => row.id))
-    const jobs = await this.prisma.simulationJob.findMany({
-      where: { status: 'done' },
-      orderBy: { id: 'desc' },
-      take: 300,
-      select: { id: true, params: true, finishedAt: true },
-    })
-    for (const job of jobs) {
-      if (labMode(job.params) === null) continue
-      const params = job.params as unknown as JobParams
-      if (!params.sideA.some((sid) => ids.has(sid))) continue
-      const view = await this.job(String(job.id))
-      const row = view.decks.find((item) => ids.has(item.snapshot))
-      const score = row ? (row.confirm?.score ? row.confirm : row.search) : null
-      if (score?.score) return { jobId: job.id, era: params.lab.era, finishedAt: job.finishedAt, score }
+  async deckScore(deckId: number): Promise<DeckLabScore | null> {
+    return (await this.deckScores([deckId])).get(deckId) ?? null
+  }
+
+  /**
+   * The latest Laboratorio score of each deck's current list (H-007, Fase 36): found by the list itself (the snapshot
+   * key, so a restored revision or a copy of the list finds its tests too), only among jobs of the current engine
+   * (a score of another engine is another game), with one query for the jobs and each job's view built once.
+   */
+  async deckScores(deckIds: readonly number[]): Promise<Map<number, DeckLabScore>> {
+    const result = new Map<number, DeckLabScore>()
+    const keys = new Map<number, string>()
+    for (const deckId of deckIds) {
+      const current = await this.snapshots.preview({ deckId: String(deckId) }).catch(() => null)
+      if (current) keys.set(deckId, current.key)
     }
-    return null
+    if (keys.size === 0) return result
+    const snapshots = await this.prisma.deckSnapshot.findMany({
+      where: { key: { in: [...new Set(keys.values())] } },
+      select: { id: true, key: true },
+    })
+    const idsByKey = new Map<string, Set<number>>()
+    for (const row of snapshots) {
+      const ids = idsByKey.get(row.key) ?? new Set<number>()
+      ids.add(row.id)
+      idsByKey.set(row.key, ids)
+    }
+    if (idsByKey.size === 0) return result
+    const jobs = (
+      await this.prisma.simulationJob.findMany({
+        where: { status: 'done', engineRev: this.engine.engineRev() },
+        orderBy: { id: 'desc' },
+        select: { id: true, params: true, finishedAt: true },
+      })
+    ).filter((job) => labMode(job.params) !== null)
+    const views = new Map<number, LabJobView>()
+    for (const [deckId, key] of keys) {
+      const ids = idsByKey.get(key)
+      if (!ids) continue
+      for (const job of jobs) {
+        const params = job.params as unknown as JobParams
+        if (!params.sideA.some((sid) => ids.has(sid))) continue
+        let view = views.get(job.id)
+        if (!view) {
+          view = await this.job(String(job.id))
+          views.set(job.id, view)
+        }
+        const row = view.decks.find((item) => ids.has(item.snapshot))
+        const score = row ? (row.confirm?.score ? row.confirm : row.search) : null
+        if (score?.score) {
+          result.set(deckId, { jobId: job.id, era: params.lab.era, finishedAt: job.finishedAt, score })
+          break
+        }
+      }
+    }
+    return result
   }
 
   async jobs(limit = 50): Promise<LabJobsView> {

@@ -13,7 +13,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   readonly pool: pg.Pool
 
   constructor(@Inject(ENV) env: Env) {
-    const pool = new pg.Pool({ connectionString: env.databaseUrl, max: 8 })
+    // H-015: waiting for a free connection gives up after 15 s instead of hanging the request forever.
+    const pool = new pg.Pool({ connectionString: env.databaseUrl, max: 8, connectionTimeoutMillis: 15_000 })
     super({ adapter: new PrismaPg(pool, { disposeExternalPool: true }), log: ['warn', 'error'] })
     this.pool = pool
   }

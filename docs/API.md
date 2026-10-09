@@ -281,6 +281,15 @@ Notificaciones: nuevo tipo `weekly` en `GET/PUT /api/notifications/preferences`.
 | `GET /api/backup/drill` | `{ drill: { at, ok, blobId, sizeBytes, counts, differences, ms, error } \| null }` |
 | `POST /api/backup/drill` | corre la prueba ahora (hace una copia nueva, la restaura en una transacción, compara y la deshace): `{ drill }` |
 
+## Arreglos de la Fase 36
+
+- `PUT /api/worker/chunks/:id/heartbeat` responde además `lost`: el chunk ya no es de ese worker (volvió a la cola, falló u otro lo tiene) y no se renueva. `PUT …/failure` de otro worker no cambia nada.
+- Mazos: `energies` admite hasta 3 (error de validación `energy_too_many`).
+- El alcance de Torneos (`scope`) trae `newSetTournaments`: torneos que quedaron afuera de la era por un set que falta en la tabla de eras.
+- `GET /api/alerts`: códigos nuevos `era_missing_set` y `worker_idle`.
+- `GET /api/collection/pack-luck`: cada intervalo trae `ambiguous` (copias de reimpresiones que no cuentan).
+- Las respuestas van comprimidas con gzip cuando el cliente lo acepta, salvo los eventos del servidor y `/api/mcp`.
+
 ## Sobres (Fase 4)
 
 | Método y ruta | Cuerpo / respuesta |

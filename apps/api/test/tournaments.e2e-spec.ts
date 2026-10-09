@@ -174,7 +174,8 @@ describe('tournaments (e2e)', () => {
       sync: { enabled: false, running: false, lastRun: { kind: 'incremental', status: 'done' } },
     })
     expect(status.sync.counts.complete).toBe(2)
-    expect(status.newEra).toMatchObject({ lastRelease: 'B4b' })
+    // H-006: the last era-opening release (the Deluxe B4b does not open one).
+    expect(status.newEra).toMatchObject({ lastRelease: 'B4a' })
   })
 
   it('archetypes of the era: n, interval, «orientativo» and the era mean (48,0 % for PMPT #45, not 50 %)', async () => {

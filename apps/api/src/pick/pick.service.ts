@@ -2,12 +2,15 @@
  * ¿Qué mazo llevo hoy? (Fase 15): the decks built in the game, each with three separate numbers — own matches, what
  * its tournament archetype should score against today's meta (matchups weighted by the last two weeks), and its
  * latest Laboratorio score — never combined into one. Sorted by the source asked for (tournament by default).
+ * H-007 (Fase 36): the era is resolved once per request and the Laboratorio scores come in one batch, of the current
+ * engine only (it used to cost hundreds of queries every time «Hoy» opened).
  */
 import { Injectable } from '@nestjs/common'
 import type { DeckCardEntry, GameRecord, WinRate } from '@tcg/domain'
-import { LabService } from '../lab/lab.service.js'
+import { type DeckLabScore, LabService } from '../lab/lab.service.js'
 import { MatchesService } from '../matches/matches.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import type { DeckTournamentView } from '../tournaments/tournament-views.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
 
 export type PickSort = 'tournament' | 'matches' | 'lab'
@@ -55,14 +58,20 @@ export class PickService {
     )
     const stats = await this.matches.stats({})
     const mine = new Map(stats.byDeck.map((row) => [row.deck.id, { record: row.record, rate: row.rate }]))
+    // H-007: the era, its dataset and the aliases once, and the Laboratorio scores in one go.
     const today = await this.tournaments.todayExpectations().catch(() => null)
+    const scores = await this.lab.deckScores(decks.map((deck) => deck.id)).catch(() => new Map<number, DeckLabScore>())
     const items: PickRowView[] = []
     for (const deck of decks) {
       const cards = deck.currentRevisionId === null ? null : revisions.get(deck.currentRevisionId)
-      const placed =
-        cards && today
-          ? await this.tournaments.deckTournament(cards, deck.tournamentArchetypeId ?? null).catch(() => null)
-          : null
+      let placed: DeckTournamentView | null = null
+      if (cards && today) {
+        try {
+          placed = today.place(cards, deck.tournamentArchetypeId ?? null)
+        } catch {
+          placed = null
+        }
+      }
       const ref = placed?.archetype?.archetype
       const archetype = ref?.id
         ? {
@@ -72,7 +81,7 @@ export class PickService {
           }
         : null
       const expected = archetype && today ? today.expected(archetype.id) : null
-      const score = await this.lab.deckScore(deck.id).catch(() => null)
+      const score = scores.get(deck.id) ?? null
       items.push({
         deck: { id: String(deck.id), name: deck.name },
         archetype,

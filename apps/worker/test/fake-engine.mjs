@@ -24,6 +24,8 @@ if (command === 'version') {
   }
   process.stderr.write(`total ${games}\n`)
   if (games === 99) setInterval(() => process.stderr.write('progress 1\n'), 50)
+  // games 98 → hangs without printing anything (watchdog tests, H-014).
+  else if (games === 98) setInterval(() => {}, 1000)
   else {
     for (let i = 1; i <= games; i++) process.stderr.write(`progress ${i}\n`)
     if (command === 'simulate') {

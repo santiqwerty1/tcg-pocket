@@ -294,6 +294,8 @@ export class TournamentsService {
     dataset: TournamentDataset
     meta: { kind: 'recent' | 'era'; days: number; lists: number }
     expected: (archetypeId: string) => ExpectedVsMetaView | null
+    /** H-007: a deck's place in the era, with the scope, dataset and aliases already resolved. */
+    place: (cards: readonly DeckCardEntry[], ownerArchetypeId: string | null) => DeckTournamentView
   }> {
     const scope = await this.scope(query)
     const dataset = await this.dataset(scope)
@@ -306,6 +308,7 @@ export class TournamentsService {
       meta: { kind: meta.kind, days: meta.days, lists: meta.lists },
       expected: (archetypeId) =>
         expectedVsMeta(matchups, dataset, aliases.get(archetypeId) ?? archetypeId, { shares: meta.shares }),
+      place: (cards, ownerArchetypeId) => this.placeDeck(scope, dataset, aliases, cards, ownerArchetypeId),
     }
   }
 
@@ -399,6 +402,12 @@ export class TournamentsService {
       conflicts: dataset.tournaments
         .filter((t) => t.conflict !== null)
         .map((t) => ({ tournamentId: t.id, name: t.name, date: t.date.toISOString(), set: t.conflict as string })),
+      newSetTournaments: dataset.newSetTournaments.map((t) => ({
+        tournamentId: t.id,
+        name: t.name,
+        date: t.date.toISOString(),
+        set: t.set,
+      })),
       unknownCards: dataset.unknownCards.length,
       attribution: LIMITLESS_ATTRIBUTION,
     }
@@ -595,6 +604,8 @@ export class TournamentsService {
     newEra: { lastRelease: string; days: number; likely: boolean } | null
     unknownCards: number
     unknownSets: string[]
+    /** H-006: sets the era table lacks, whose tournaments are left out of the current era. */
+    missingEraSets: { set: string; tournaments: number }[]
   }> {
     const sets = await this.settings.sets()
     const warning = newEraWarning(todayInOwnerZone(), sets)
@@ -603,6 +614,10 @@ export class TournamentsService {
       newEra: warning ? { lastRelease: warning.lastRelease.code, days: warning.days, likely: warning.likely } : null,
       unknownCards: dataset.unknownCards.length,
       unknownSets: [...new Set(dataset.unknownCards.map((card) => card.set))].sort(),
+      missingEraSets: [...new Set(dataset.newSetTournaments.map((t) => t.set))].sort().map((set) => ({
+        set,
+        tournaments: dataset.newSetTournaments.filter((t) => t.set === set).length,
+      })),
     }
   }
 
@@ -778,8 +793,17 @@ export class TournamentsService {
   ): Promise<DeckTournamentView> {
     const scope = await this.scope(query)
     const dataset = await this.dataset(scope)
+    return this.placeDeck(scope, dataset, await this.settings.aliases(), cards, ownerArchetypeId)
+  }
+
+  private placeDeck(
+    scope: Scope,
+    dataset: TournamentDataset,
+    aliases: ReadonlyMap<string, string>,
+    cards: readonly DeckCardEntry[],
+    ownerArchetypeId: string | null,
+  ): DeckTournamentView {
     const where = deckInTournaments(dataset, cards, scope.index)
-    const aliases = await this.settings.aliases()
     const chosen = ownerArchetypeId === null ? null : (aliases.get(ownerArchetypeId) ?? ownerArchetypeId)
     const archetypeId = chosen ?? where.guessed?.archetypeId ?? null
     let archetype: DeckTournamentView['archetype'] = null

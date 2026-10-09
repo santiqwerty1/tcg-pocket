@@ -88,7 +88,14 @@ export class WorkerClient {
     method: string,
     path: string,
     body?: unknown,
-    options: { signal?: AbortSignal; raw?: Uint8Array; query?: Record<string, string>; timeoutMs?: number } = {},
+    options: {
+      signal?: AbortSignal
+      raw?: Uint8Array
+      query?: Record<string, string>
+      timeoutMs?: number
+      /** One attempt, no retries (heartbeats: the next one comes anyway, H-014). */
+      once?: boolean
+    } = {},
   ): Promise<T> {
     let delay = 1000
     const url = new URL(`${this.server}${path}`)
@@ -128,6 +135,7 @@ export class WorkerClient {
       } catch (error) {
         if (options.signal?.aborted) throw error
         if (error instanceof ApiError && error.status < 500) throw error
+        if (options.once) throw error
         this.log('servidor no disponible, reintento', { path, delayMs: delay, error: String(error) })
         await sleep(delay, undefined, options.signal ? { signal: options.signal } : undefined)
         delay = Math.min(delay * 2, 300_000)
@@ -144,11 +152,12 @@ export class WorkerClient {
     )
   }
 
-  heartbeat(chunkId: number, body: { workerId: string; gamesDone: number; total?: number }) {
-    return this.request<{ leaseUntil: string | null; cancelled: boolean }>(
+  heartbeat(chunkId: number, body: { workerId: string; gamesDone: number; total?: number }, signal?: AbortSignal) {
+    return this.request<{ leaseUntil: string | null; cancelled: boolean; lost?: boolean }>(
       'PUT',
       `/api/worker/chunks/${chunkId}/heartbeat`,
       body,
+      { once: true, timeoutMs: 20_000, ...(signal ? { signal } : {}) },
     )
   }
 

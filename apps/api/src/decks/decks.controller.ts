@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Res } from '@nestjs/common'
-import { SELECTABLE_ENERGIES } from '@tcg/domain'
+import { MAX_DECK_ENERGIES, SELECTABLE_ENERGIES } from '@tcg/domain'
 import type { Response } from 'express'
 import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
@@ -18,7 +18,8 @@ import type {
 import { DecksService } from './decks.service.js'
 
 const queryBool = z.stringbool().optional()
-const energies = z.array(z.enum(SELECTABLE_ENERGIES)).max(8)
+// P-006: the Energy Zone takes at most 3 types.
+const energies = z.array(z.enum(SELECTABLE_ENERGIES)).max(MAX_DECK_ENERGIES, 'Como máximo 3 tipos de energía.')
 const cards = z
   .array(z.object({ cardId: z.string().trim().min(1).max(20), count: z.number().int().min(1).max(60) }))
   .max(60)

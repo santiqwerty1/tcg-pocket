@@ -45,9 +45,16 @@ export interface EnergyPickerProps {
   label?: string
 }
 
-/** Eight toggle chips (the Energy Zone types; dragon and colorless are never selectable). */
+/** The Energy Zone takes at most 3 types (P-006). */
+export const MAX_DECK_ENERGIES = 3
+
+/**
+ * Eight toggle chips (the Energy Zone types; dragon and colorless are never selectable). With 3 chosen, the rest are
+ * off until one is taken out.
+ */
 export function EnergyPicker({ value, onChange, disabled, label = 'Energías del mazo' }: EnergyPickerProps) {
   const selected = new Set(value)
+  const full = selected.size >= MAX_DECK_ENERGIES
   function toggle(energy: SelectableEnergy) {
     const next = new Set(selected)
     if (next.has(energy)) next.delete(energy)
@@ -65,7 +72,7 @@ export function EnergyPicker({ value, onChange, disabled, label = 'Energías del
             key={energy}
             type="button"
             aria-pressed={isOn}
-            disabled={disabled}
+            disabled={disabled || (full && !isOn)}
             onClick={() => toggle(energy)}
             className={cn(
               'inline-flex h-11 min-w-11 items-center justify-center rounded-full border-2 px-3 text-sm font-medium transition-colors select-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-50',

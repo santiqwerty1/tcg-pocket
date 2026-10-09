@@ -1026,6 +1026,10 @@ export const scopeSchema = z.object({
   games: z.number(),
   mean: recordRowSchema,
   conflicts: z.array(z.object({ tournamentId: z.string(), name: z.string(), date: z.string(), set: z.string() })),
+  /** H-006: tournaments left out of the era (a set the era table lacks). */
+  newSetTournaments: z
+    .array(z.object({ tournamentId: z.string(), name: z.string(), date: z.string(), set: z.string() }))
+    .default([]),
   unknownCards: z.number(),
   attribution: z.string(),
 })
@@ -2104,6 +2108,8 @@ export const packLuckSchema = z.object({
   rare: packLuckTierSchema,
   ex: packLuckTierSchema,
   packsEstimate: z.number(),
+  /** H-005: copies of versions printed in more than one expansion, left out. */
+  ambiguous: z.number().default(0),
 })
 const importRefSchema = z.object({ id: z.string(), fileName: z.string(), appliedAt: z.string() })
 export const packLuckViewSchema = z.object({

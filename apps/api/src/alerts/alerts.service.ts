@@ -9,14 +9,22 @@ import { parseExpansionIds } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { ENV, type Env } from '../config/env.js'
-import { todayInOwnerZone } from '../config/time-zone.js'
+import { OWNER_TIME_ZONE, todayInOwnerZone } from '../config/time-zone.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { EngineUpstreamService } from '../simulation/engine-upstream.service.js'
 import { EngineStatusService } from '../simulation/snapshots.service.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
 
 export interface AlertView {
-  code: 'new_set' | 'new_era_likely' | 'unknown_cards' | 'engine_update' | 'limited_pack' | 'backup_drill'
+  code:
+    | 'new_set'
+    | 'new_era_likely'
+    | 'unknown_cards'
+    | 'engine_update'
+    | 'limited_pack'
+    | 'backup_drill'
+    | 'era_missing_set'
+    | 'worker_idle'
   level: 'info' | 'warning'
   title: string
   detail: string
@@ -27,6 +35,22 @@ export interface AlertView {
 const FRESH_MS = 12 * 60 * 60 * 1000
 const RETRY_MS = 60 * 60 * 1000
 const LIMITED_SOON_DAYS = 7
+/** No worker for this long with work waiting is an outage (H-016). */
+const WORKER_IDLE_MS = 30 * 60 * 1000
+
+/** «9/10 02:35» in the owner's time zone. */
+function ownerDateTime(date: Date): string {
+  const parts = new Intl.DateTimeFormat('es-AR', {
+    timeZone: OWNER_TIME_ZONE,
+    day: 'numeric',
+    month: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date)
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
+  return `${get('day')}/${get('month')} ${get('hour')}:${get('minute')}`
+}
 
 /** Expansions the tracker's `main` declares that the pinned catalog does not have (checked every 12 hours). */
 @Injectable()
@@ -102,6 +126,15 @@ export class AlertsService {
         link: '/torneos/ajustes',
       })
     }
+    for (const missing of era?.missingEraSets ?? []) {
+      alerts.push({
+        code: 'era_missing_set',
+        level: 'warning',
+        title: `Torneos con un set que falta en la tabla de eras (${missing.set})`,
+        detail: `${missing.tournaments} ${missing.tournaments === 1 ? 'torneo juega' : 'torneos juegan'} ${missing.set}: quedan afuera de la era actual hasta cargar el set (fecha y si abre era) en Torneos → Ajustes.`,
+        link: '/torneos/ajustes',
+      })
+    }
     if (era?.newEra?.likely) {
       alerts.push({
         code: 'new_era_likely',
@@ -141,6 +174,18 @@ export class AlertsService {
         link: '/mas/backup',
       })
     }
+    const idle = await this.workerIdle()
+    if (idle) {
+      alerts.push({
+        code: 'worker_idle',
+        level: 'warning',
+        title: idle.since
+          ? `Hay trabajo esperando y ningún worker desde el ${idle.since}`
+          : 'Hay trabajo esperando y nunca se conectó un worker',
+        detail: `${idle.waiting} ${idle.waiting === 1 ? 'tarea espera' : 'tareas esperan'} (simulaciones o partidas contra el bot). Prendé la PC o reiniciá el worker.`,
+        link: '/simulacion',
+      })
+    }
     if (engine && engine.aheadBy > 0) {
       alerts.push({
         code: 'engine_update',
@@ -151,6 +196,28 @@ export class AlertsService {
       })
     }
     return alerts
+  }
+
+  /**
+   * H-016 (Fase 36): work waiting (a chunk queued or whose worker stopped renewing it, a game against the bot not
+   * taken) and no worker seen in 30 minutes. The title carries when the last one was seen, so each outage is pushed
+   * once (the notifications remember titles).
+   */
+  private async workerIdle(now = new Date()): Promise<{ waiting: number; since: string | null } | null> {
+    const [chunks, games, last] = await Promise.all([
+      this.prisma.simulationChunk.count({
+        where: {
+          job: { status: { in: ['queued', 'running'] } },
+          OR: [{ status: 'queued' }, { status: 'leased', leaseUntil: { lt: now } }],
+        },
+      }),
+      this.prisma.liveGame.count({ where: { status: 'queued' } }),
+      this.prisma.workerNode.findFirst({ orderBy: { lastSeenAt: 'desc' }, select: { lastSeenAt: true } }),
+    ])
+    const waiting = chunks + games
+    if (waiting === 0) return null
+    if (last && now.getTime() - last.lastSeenAt.getTime() < WORKER_IDLE_MS) return null
+    return { waiting, since: last ? ownerDateTime(last.lastSeenAt) : null }
   }
 
   private async limitedSoon(): Promise<{ name: string; until: string; days: number }[]> {
