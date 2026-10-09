@@ -32,13 +32,13 @@ _Recuentos al 2026-10-09 (generados; no editar a mano)._
 | Tipo | Total | Por estado |
 | --- | --- | --- |
 | decision | 20 | vigente 20 |
-| hallazgo | 15 | abierto 14 · resuelto 1 |
+| hallazgo | 16 | abierto 15 · resuelto 1 |
 | pregunta | 8 | cerrada 5 · respondida 3 |
 | riesgo | 12 | abierto 9 · resuelto 3 |
 | supuesto | 3 | refutado 1 · verificado 2 |
 | tarea | 15 | en_curso 1 · hecho 12 · pendiente 1 · preparado 1 |
 
-**Para revisar:** nada. **Abiertas:** 26.
+**Para revisar:** nada. **Abiertas:** 27.
 <!-- /posta:recuentos -->
 
 ## Fichas
