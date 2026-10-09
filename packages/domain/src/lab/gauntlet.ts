@@ -3,7 +3,9 @@
  * archetypes of the era, each played by its representative list (the same pick as a deck's «versión de torneo»: the
  * repeated list with the best lower bound, else the most played), weighted by its share of the era's lists. A list
  * the engine cannot play gives way to the next list of its archetype; an archetype with none playable is skipped and
- * the next archetype takes its place.
+ * the next archetype takes its place. T-017 D3: the `secondLists` most played archetypes also bring their next playable
+ * list, and the archetype's weight is split between its two lists by how often each was played, so a tech that only
+ * beats one exact list of a big archetype is not rewarded for the whole archetype.
  */
 import { rankArchetypeLists } from '../tournaments/buildable.js'
 import type { TournamentDataset } from '../tournaments/dataset.js'
@@ -15,6 +17,16 @@ export const DEFAULT_GAUNTLET_SIZE = 15
 export const MAX_GAUNTLET_SIZE = 20
 /** Lists of an archetype tried before skipping it. */
 const LISTS_TRIED = 3
+/** T-017 D3: what the Laboratorio asks for (the 3 most played archetypes are ~37 % of the bank in B4a). */
+export const DEFAULT_SECOND_LISTS = 3
+
+/**
+ * Second lists for a bank of `size` archetypes: 3 from 10 on (the bank in use is 15); none in the small banks of quick
+ * tests, where three more rivals would be 60 % more games.
+ */
+export function secondListsFor(size: number): number {
+  return size >= 10 ? DEFAULT_SECOND_LISTS : 0
+}
 
 export interface GauntletRival {
   archetypeId: string
@@ -30,6 +42,10 @@ export interface GauntletRival {
   energies: string[]
   /** 0 = the archetype's representative list; 1–2 = a later one because the earlier ones could not be played. */
   rank: number
+  /** T-017 D3: this is the archetype's second list in the bank. */
+  second: boolean
+  /** Its part of the archetype's weight (1 when the archetype has one list in the bank). */
+  part: number
 }
 
 export interface GauntletSkip {
@@ -53,7 +69,7 @@ export type GauntletCheck = (list: ListRow, energies: string[]) => string | null
 
 export function metaGauntlet(
   dataset: TournamentDataset,
-  options: { size?: number | undefined; check?: GauntletCheck | undefined } = {},
+  options: { size?: number | undefined; check?: GauntletCheck | undefined; secondLists?: number | undefined } = {},
 ): Gauntlet {
   const size = Math.min(MAX_GAUNTLET_SIZE, Math.max(1, Math.round(options.size ?? DEFAULT_GAUNTLET_SIZE)))
   const byArchetype = new Map<string, ListRow[]>()
@@ -85,6 +101,8 @@ export function metaGauntlet(
           list,
           energies,
           rank,
+          second: false,
+          part: 1,
         })
         taken = true
         break
@@ -101,6 +119,24 @@ export function metaGauntlet(
     }
   }
   const coverage = rivals.reduce((sum, rival) => sum + rival.share, 0)
-  for (const rival of rivals) rival.weight = coverage === 0 ? 0 : rival.share / coverage
-  return { rivals, skipped, coverage, lists: dataset.entries.length }
+  // T-017 D3: the most played archetypes bring their next playable list, right after the first one.
+  const seconds = Math.max(0, Math.round(options.secondLists ?? 0))
+  const withSeconds: GauntletRival[] = []
+  for (const [at, rival] of rivals.entries()) {
+    withSeconds.push(rival)
+    if (at >= seconds) continue
+    const ranked = rankArchetypeLists(byArchetype.get(rival.archetypeId) ?? []).slice(0, LISTS_TRIED + 2)
+    for (const [rank, list] of ranked.entries()) {
+      if (list.key === rival.list.key) continue
+      const energies = mostCommonEnergies(entriesOfList(dataset, list.key, 'group'))
+      if ((options.check?.(list, energies) ?? null) !== null) continue
+      const total = rival.list.lists + list.lists
+      const second: GauntletRival = { ...rival, list, energies, rank, second: true, part: list.lists / total }
+      rival.part = rival.list.lists / total
+      withSeconds.push(second)
+      break
+    }
+  }
+  for (const rival of withSeconds) rival.weight = coverage === 0 ? 0 : (rival.share * rival.part) / coverage
+  return { rivals: withSeconds, skipped, coverage, lists: dataset.entries.length }
 }

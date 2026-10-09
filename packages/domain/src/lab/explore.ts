@@ -151,10 +151,11 @@ export function confirmVerdict(
   return { verdict, difference }
 }
 
-export type ExploreStop = 'rounds' | 'patience' | 'no_variants'
+export type ExploreStop = 'rounds' | 'patience' | 'no_variants' | 'user'
 
 export const EXPLORE_STOP_ES: Record<ExploreStop, string> = {
   rounds: 'llegó al máximo de rondas',
   patience: 'varias rondas seguidas sin mejorar',
   no_variants: 'no quedan variantes nuevas para probar',
+  user: 'la frenaste',
 }

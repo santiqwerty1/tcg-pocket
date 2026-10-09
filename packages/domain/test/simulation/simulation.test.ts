@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { engineIdToTrackerId } from '../../src/catalog/index.js'
 import {
+  botLabel,
   buildSnapshot,
   COMPARE_SEED_STRIDE,
   chunkSeed,
@@ -179,6 +180,11 @@ describe('jobs', () => {
     expect(isBotCode('e2')).toBe(true)
     expect(isBotCode('h')).toBe(false)
     expect(isBotCode('x')).toBe(false)
+    // H-018: engine-cli's own expectiminimax that sees evolutions; about 1,3 times e2.
+    expect(isBotCode('f2')).toBe(true)
+    expect(isBotCode('f0')).toBe(false)
+    expect(botLabel('f2')).toBe('expectiminimax corregido, profundidad 2')
+    expect(estimateSeconds(1000, ['f2', 'f2'], 1)).toBeCloseTo(estimateSeconds(1000, ['e2', 'e2'], 1) * 1.3, 6)
     // The 40-deck matrix: ~52 min of engine time on 8 threads at fb792eb, ~35 min expected at 33ff2a5 (DECISIONES 9.1).
     const minutes = estimateSeconds(780 * 200, ['e2', 'e2'], 8) / 60
     expect(minutes).toBeGreaterThan(25)

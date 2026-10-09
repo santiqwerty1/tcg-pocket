@@ -25,7 +25,9 @@ import {
   cardBreaksEvent,
   cardChanges,
   cardUsage,
+  changeKey,
   checkEventDeck,
+  comboVariant,
   confirmVerdict,
   DEFAULT_CONSISTENCY_GAMES,
   DEFAULT_EXPLORE_CONFIG,
@@ -40,6 +42,8 @@ import {
   type ExploreConfig,
   type ExploreStop,
   energyFromNameEn,
+  energyKey,
+  energyVariant,
   engineEdition,
   estimateSeconds,
   eventRulesSchema,
@@ -52,10 +56,15 @@ import {
   type Gauntlet,
   groupsOfCards,
   isBotCode,
+  type Learned,
   type ListRow,
+  learnedChanges,
+  learnedFactor,
+  learnSwap,
   listKeyByGroup,
   listRows,
   MAX_BASE_SEED,
+  type MeasuredSwap,
   type MetaScore,
   metaGauntlet,
   metaScore,
@@ -72,16 +81,22 @@ import {
   perGameSummary,
   randomBaseSeed,
   readPerGame,
+  revertVariant,
   roundWinner,
   type ScoreDifference,
   type SelectableEnergy,
   type SnapshotCard,
+  scoreDifference,
+  secondListsFor,
   seededRandom,
   simulationRate,
   splitGames,
+  swapOf,
+  swapScore,
   type TournamentDataset,
   type TournamentFormat,
   type Variant,
+  validateDeck,
   variantOf,
   verifyAccepts,
 } from '@tcg/domain'
@@ -96,6 +111,7 @@ import { type CreateJobInput, labMode, SimulationsService } from '../simulation/
 import { EngineStatusService, type SnapshotSource, SnapshotsService } from '../simulation/snapshots.service.js'
 import { WorkerQueueService } from '../simulation/worker-queue.service.js'
 import { LIMITLESS_ATTRIBUTION, type Scope, TournamentsService } from '../tournaments/tournaments.service.js'
+import { type FrozenInputs, leftOutCards, whyCards } from './lab-explain.js'
 import type {
   CardLineView,
   LabBankView,
@@ -186,6 +202,8 @@ interface LabRival {
   weight: number
   /** Snapshot id (explore jobs; tests find it by list key). */
   snapshot?: number
+  /** T-017 D3: the archetype's second list in the bank. */
+  second?: boolean
 }
 
 interface ExploreRound {
@@ -202,6 +220,8 @@ interface ExploreRound {
   /** H-010: the search round's best variant that passed the screen and went to verification. */
   screened?: number | null
   decided: boolean
+  /** T-017 D2: «Frenar y confirmar» cut this round short (its chunks no worker had taken went away). */
+  stopped?: boolean
 }
 
 interface ExploreState {
@@ -225,12 +245,17 @@ interface ExploreState {
   frozen?: FrozenInputs
   /** H-010: what the confirmation says of the list found against the starting one. */
   confirmed?: { verdict: ConfirmVerdict; difference: ScoreDifference } | null
-}
-
-/** H-021: the pool (card, copies, weight, in draw order) and the archetype usage (group, share). */
-interface FrozenInputs {
-  pool: [string, number, number][]
-  affinity: [string, number][]
+  /** T-017 C4: what the rounds measured about each card change («+groupId», «-groupId»). */
+  learned?: Learned
+  /** The swaps measured in search rounds (the last 40), for the combo of each round; an accepted one leaves. */
+  swaps?: (MeasuredSwap & { variant: number })[]
+  /** Snapshot ids of the combo variants (the two best swaps joined). */
+  combos?: number[]
+  /** T-017 C5: the swaps accepted so far, in order, and the variants that undid one of them. */
+  accepted?: (MeasuredSwap & { variant: number })[]
+  reverts?: number[]
+  /** T-017 D2: «Frenar y confirmar»: the round in play ends with what it has, then the confirmation. */
+  stopRequested?: boolean
 }
 
 interface LabParams {
@@ -326,6 +351,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     const engine = await this.engine.status()
     const gauntlet = metaGauntlet(dataset, {
       size: input.size ?? DEFAULT_GAUNTLET_SIZE,
+      // T-017 D3: the 3 most played archetypes with two lists each (banks of 10 or more).
+      secondLists: secondListsFor(input.size ?? DEFAULT_GAUNTLET_SIZE),
       check: (list, energies) => {
         const unknown = list.cards.filter((card) => card.cardId === null)
         if (unknown.length > 0) {
@@ -374,6 +401,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         listLists: rival.list.lists,
         listRate: rival.list.rate,
         rank: rival.rank,
+        second: rival.second,
         energies: rival.energies,
         cards: rival.list.cards.map((card) => ({
           cardId: card.cardId ?? `${card.set}-${card.number}`,
@@ -392,13 +420,15 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       mode,
       era: bank.scope.era,
       format: bank.scope.format,
-      size: bank.gauntlet.rivals.length,
+      // Archetypes, not lists: the most played ones bring two (T-017 D3).
+      size: new Set(bank.gauntlet.rivals.map((rival) => rival.archetypeId)).size,
       rivals: bank.gauntlet.rivals.map((rival) => ({
         listKey: rival.list.key,
         archetypeId: rival.archetypeId,
         archetypeName: rival.archetypeName,
         share: rival.share,
         weight: rival.weight,
+        ...(rival.second ? { second: true } : {}),
       })),
     }
   }
@@ -669,6 +699,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     seen: Set<string>,
     affinity: ReadonlyMap<CardId, number>,
     rules?: EventRules,
+    learned?: Learned,
   ): Variant[] {
     const random = seededRandom(seed)
     const out: Variant[] = []
@@ -678,6 +709,13 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         seen,
         affinity: (groupId) => affinity.get(groupId) ?? 0,
         accept: rules ? (cards) => checkEventDeck(cards, rules, index).ok : undefined,
+        // T-017 C4: a card change that helped in earlier rounds comes up more often, one that hurt less.
+        ...(learned
+          ? {
+              boostIn: (groupId: CardId) => learnedFactor(learned, changeKey('+', groupId)),
+              boostOut: (groupId: CardId) => learnedFactor(learned, changeKey('-', groupId)),
+            }
+          : {}),
       })
       if (!variant) continue
       seen.add(variant.key)
@@ -697,7 +735,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     for (const [at, variant] of variants.entries()) {
       const snapshot = await this.snapshots.save({
         cards: variant.cards,
-        energies,
+        energies: variant.energies ?? energies,
         label: `${shortLabel(baseLabel)} · v${round}.${at + 1}`,
         origin: 'lab',
       })
@@ -886,6 +924,52 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       WHERE status IN ('queued', 'running') AND params ? 'lab' AND params->>'perGame' = 'true'`
   }
 
+  /**
+   * T-017 D2: «Frenar y confirmar». The chunks of the search round in play that no worker took yet go away; when the
+   * ones being played come back (or right away, if none), the round ends with what it has — an incomplete candidate
+   * cannot win — and the search goes to its confirmation as if it had run out of rounds. Nothing found: it just ends.
+   * A verification in play is left to finish (review of #22): cutting it would throw away the variant it is checking.
+   */
+  async stop(rawId: string): Promise<LabJobView> {
+    const id = parseNumericId(rawId, 'Simulación')
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM simulation_jobs WHERE id = ${id} FOR UPDATE`
+      const job = await tx.simulationJob.findUnique({ where: { id } })
+      if (job?.kind !== 'explore') throw new NotFoundException(`Búsqueda ${rawId} no encontrada.`)
+      const params = job.params as unknown as JobParams
+      const state = params.lab.explore
+      const round = state?.rounds.at(-1)
+      if ((job.status !== 'queued' && job.status !== 'running') || !state || !round || state.phase !== 'search') {
+        throw new BadRequestException({ code: 'validation', message: 'Esa búsqueda ya no está buscando.' })
+      }
+      if (state.stopRequested) {
+        throw new BadRequestException({
+          code: 'validation',
+          message: 'Ya la frenaste: termina lo que se está jugando.',
+        })
+      }
+      state.stopRequested = true
+      let removed = 0
+      if (round.kind === 'search') {
+        round.stopped = true
+        // Review of #22: only what is still queued at delete time (a worker may take a chunk meanwhile).
+        const deleted = await tx.$queryRaw<{ games: number }[]>`
+          DELETE FROM simulation_chunks
+          WHERE job_id = ${id} AND status = 'queued' AND idx >= ${round.fromIdx}
+          RETURNING games`
+        removed = deleted.reduce((sum, chunk) => sum + chunk.games, 0)
+      }
+      await tx.simulationJob.update({
+        where: { id },
+        data: { params: params as unknown as Prisma.InputJsonValue, totalGames: job.totalGames - removed },
+      })
+    })
+    // Review of #22: always — it does nothing while chunks are in play (their last result advances the search), and a
+    // result that landed during the transaction may have found the round still pending.
+    await this.advance(id)
+    return this.job(rawId)
+  }
+
   private async workerCores(): Promise<number> {
     const worker = await this.prisma.workerNode.findFirst({ orderBy: { lastSeenAt: 'desc' }, select: { cores: true } })
     return worker?.cores ?? 2
@@ -949,8 +1033,11 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             const [candidate] = round.candidates
             const paired =
               candidate === undefined ? null : pairedOf(chunks, rivals, candidate, round.incumbent, thisRound)
+            // An incomplete verification (failed chunks; «Frenar» lets it finish) never accepts.
             const ok =
               candidate !== undefined &&
+              complete(chunks, rivals, candidate, thisRound) &&
+              complete(chunks, rivals, round.incumbent, thisRound) &&
               (paired
                 ? differenceVerdict(paired, state.config.verifyZ) === 'better'
                 : verifyAccepts(
@@ -980,6 +1067,34 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             if (screened !== null && (state.config.verifyGames ?? 0) > 0) verifyNext = screened
             else accepted = screened
           }
+          // T-017 C4: what this round says about each card change, for the rounds to come.
+          const measured = await tx.deckSnapshot.findMany({
+            where: { id: { in: [round.incumbent, ...round.candidates] } },
+            select: { id: true, cards: true },
+          })
+          learnRound(
+            state,
+            round,
+            (id) => slotsOfSnapshot(measured.find((row) => row.id === id)?.cards as unknown as SnapshotCard[]),
+            // Review of #15: only what both played in full (a failed chunk would compare different rivals).
+            (id) =>
+              complete(chunks, rivals, id, thisRound) && complete(chunks, rivals, round.incumbent, thisRound)
+                ? (pairedOf(chunks, rivals, id, round.incumbent, thisRound)?.value ??
+                  independentDifference(chunks, rivals, id, round.incumbent, thisRound))
+                : null,
+            this.catalog.requireIndex(),
+          )
+          // Review of #15: a swap the verification rejected leaves the combo list (its round flattered it).
+          const [verified] = round.kind === 'verify' ? round.candidates : []
+          if (verified !== undefined && accepted === null) {
+            state.swaps = (state.swaps ?? []).filter((swap) => swap.variant !== verified)
+          }
+          if (accepted !== null) {
+            const swap = (state.swaps ?? []).find((item) => item.variant === accepted)
+            // T-017 C5: an accepted swap leaves the combo list and can be undone in later rounds.
+            if (swap) state.accepted = [...(state.accepted ?? []), swap]
+            state.swaps = (state.swaps ?? []).filter((item) => item.variant !== accepted)
+          }
           round.accepted = accepted
           round.decided = true
           if (verifyNext === null) {
@@ -990,8 +1105,11 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           }
 
           const searchRounds = state.rounds.filter((item) => item.kind === 'search').length
-          let stop: ExploreStop | null =
-            verifyNext !== null
+          // T-017 D2: stopped by hand, no verification is started; what was accepted goes to the confirmation.
+          if (state.stopRequested) verifyNext = null
+          let stop: ExploreStop | null = state.stopRequested
+            ? 'user'
+            : verifyNext !== null
               ? null
               : searchRounds >= state.config.maxRounds
                 ? 'rounds'
@@ -999,7 +1117,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                   ? 'patience'
                   : null
           const index = this.catalog.requireIndex()
-          const nextIdx = Math.max(-1, ...chunks.map((chunk) => chunk.idx)) + 1
+          // Review of #22: never inside the round just played, whose last chunks «Frenar» may have deleted.
+          const nextIdx = Math.max(round.toIdx, Math.max(-1, ...chunks.map((chunk) => chunk.idx)) + 1)
           const rivalIds = rivals.map((rival) => rival.snapshot as number)
           const baseSeed = Number(job.baseSeed)
           let decks: number[] = []
@@ -1025,21 +1144,77 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               pool = await this.pool(bank, energies, state.config.pool, affinity, state.event?.rules)
             }
             const seen = new Set(state.seen)
-            const fresh = this.variants(
-              incumbentCards,
-              energies,
-              pool,
-              index,
-              baseSeed + searchRounds,
-              state.config.variantsPerRound,
-              new Set(state.locked),
+            // T-017 C4: one variant joins the two best swaps measured so far; the draws lean on what was learned.
+            const rules = state.event?.rules
+            const caps = new Map(pool.map((card) => [card.groupId, card.maxCopies]))
+            const learned = state.learned ?? {}
+            const combo = comboVariant(incumbentCards, state.swaps ?? [], index, {
               seen,
-              affinity,
-              state.event?.rules,
+              locked: new Set(state.locked),
+              // Review of #15: within the copies the pool allows (the collection's), ordered by what was learned.
+              maxCopies: (groupId) => caps.get(groupId) ?? 2,
+              score: (swap) => swapScore(learned, swap, index),
+              valid: (cards) =>
+                validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
+                (!rules || checkEventDeck(cards, rules, index).ok),
+            })
+            if (combo) seen.add(combo.key)
+            // T-017 C5: one variant undoes a swap accepted earlier (a different one each round).
+            const baseSnapshot = await tx.deckSnapshot.findUniqueOrThrow({ where: { id: state.base } })
+            const baseCards = slotsOfSnapshot(baseSnapshot.cards as unknown as SnapshotCard[])
+            // The last one accepted was just verified: undo only the ones before it.
+            const revert = revertVariant(
+              incumbentCards,
+              (state.accepted ?? []).slice(0, -1),
+              searchRounds,
+              index,
+              (groupId) => {
+                const inBase = baseCards.find((entry) => index.cardById(entry.cardId)?.functionalGroupId === groupId)
+                return inBase?.cardId ?? index.groupById(groupId)?.displayCardId ?? groupId
+              },
+              {
+                seen,
+                locked: new Set(state.locked),
+                valid: (cards) =>
+                  validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
+                  (!rules || checkEventDeck(cards, rules, index).ok),
+              },
             )
+            if (revert) seen.add(revert.key)
+            // T-017 C6: one variant tries another Energy Zone with the same cards (a different option each round).
+            seen.add(energyKey(listKeyByGroup(groupsOfCards(incumbentCards, index)), energies))
+            const energyChange = energyVariant(incumbentCards, energies, searchRounds, index, seen)
+            if (energyChange) seen.add(energyChange.key)
+            const fixed = [
+              ...(combo ? [combo] : []),
+              ...(revert ? [revert] : []),
+              ...(energyChange ? [energyChange] : []),
+            ]
+            const fresh = [
+              ...fixed,
+              ...this.variants(
+                incumbentCards,
+                energies,
+                pool,
+                index,
+                baseSeed + searchRounds,
+                Math.max(0, state.config.variantsPerRound - fixed.length),
+                new Set(state.locked),
+                seen,
+                affinity,
+                rules,
+                state.learned,
+              ),
+            ]
             const base = await tx.deckSnapshot.findUniqueOrThrow({ where: { id: state.base }, select: { label: true } })
             const saved = await this.saveVariants(fresh, energies, base.label, searchRounds)
             state.seen = [...seen]
+            // The combo goes first and the revert after it, labelled «v<round>.1» and «.2» when they were simulable.
+            const at = (n: number) => saved.find((snapshot) => snapshot.label.endsWith(`v${searchRounds}.${n}`))
+            const comboSaved = combo ? at(1) : undefined
+            const revertSaved = revert ? at(combo ? 2 : 1) : undefined
+            if (comboSaved) state.combos = [...(state.combos ?? []), comboSaved.id]
+            if (revertSaved) state.reverts = [...(state.reverts ?? []), revertSaved.id]
             if (saved.length === 0) stop = 'no_variants'
             else {
               for (const variant of saved) {
@@ -1221,6 +1396,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       this.tournaments.scopedDataset({ era: lab.era, format: lab.format }).catch(() => null),
     ])
     const index = this.catalog.requireIndex()
+    // T-017 E2: the collection's playable copies, for «te falta» and what the search could not try.
+    const playable = await this.tournaments.playable(index)
     const byId = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot]))
     // Rivals: explore jobs store their snapshot; tests find it by the list key among side B.
     const rivals = lab.rivals.map((rival) => ({
@@ -1272,6 +1449,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               ? 'best'
               : 'variant'
         const changes = baseCards && sid !== state?.base ? cardChanges(baseCards, cards, index) : null
+        const vsParent = state ? parentDifference(state, chunks, scored, sid) : null
         return {
           snapshot: sid,
           label: snapshot.label,
@@ -1286,6 +1464,28 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             return { rival: rival.snapshot, record, rate: simulationRate(record) }
           }),
           changes: changes ? { add: lines(index, changes.add), remove: lines(index, changes.remove) } : null,
+          vsParent: vsParent
+            ? {
+                text: vsParent.main.difference
+                  ? formatDifferenceEs(vsParent.main.difference)
+                  : 'incompleta: faltan cruces de esa ronda',
+                value: vsParent.main.difference?.value ?? null,
+                ci95: vsParent.main.difference?.ci95 ?? null,
+                paired: vsParent.main.paired,
+                measuredIn: vsParent.measuredIn,
+                complete: vsParent.main.complete,
+                selectionText: vsParent.selection?.difference
+                  ? formatDifferenceEs(vsParent.selection.difference)
+                  : null,
+              }
+            : null,
+          why: changes ? whyCards(changes.add, cards, state?.frozen, index, playable) : [],
+          energyChange: (() => {
+            const from = state ? (byId.get(state.base)?.energies ?? []) : []
+            const to = snapshot.energies
+            const same = from.length === to.length && from.every((energy) => to.includes(energy))
+            return state && !same ? { from, to } : null
+          })(),
           novelty: noveltyView,
           cards: lines(index, cards),
           energies: snapshot.energies,
@@ -1309,6 +1509,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       share: rival.share,
       weight: rival.weight,
       listKey: rival.listKey,
+      second: rival.second ?? false,
     }))
     return {
       job: summary,
@@ -1325,13 +1526,25 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             phase: state.phase,
             stopReason: state.stopReason,
             stopReasonEs: state.stopReason ? EXPLORE_STOP_ES[state.stopReason] : null,
+            stopRequested: state.stopRequested ?? false,
             base: state.base,
             best: state.incumbent,
             roundsDone: state.rounds.filter((round) => round.kind === 'search' && round.decided).length,
             rounds: state.rounds.map(({ fromIdx: _from, toIdx: _to, ...round }) => ({
               ...round,
               screened: round.screened ?? null,
+              stopped: round.stopped ?? false,
             })),
+            leftOut: leftOutCards(state.frozen, state.config.pool, index, playable),
+            learned: learnedChanges(state.learned ?? {}).map((change) => ({
+              sign: change.sign,
+              cardId: change.groupId,
+              nameEs: index.groupById(change.groupId)?.nameEs ?? change.groupId,
+              mean: change.mean,
+              n: change.n,
+            })),
+            combos: state.combos ?? [],
+            reverts: state.reverts ?? [],
             confirmation: confirmationView(state, () =>
               confirm?.decided
                 ? confirmVerdict(
@@ -1497,6 +1710,88 @@ function unbiasedGames(state: ExploreState, id: number): (chunk: ChunkRow) => bo
 /** Whether a list plays a Stage 2 Pokémon (so «reached Stage 2» means something). */
 function hasStage2(cards: readonly SnapshotCard[] | null | undefined, index: CatalogIndex): boolean {
   return (cards ?? []).some((card) => index.cardById(card.cardId)?.evolutionType === 'stage2')
+}
+
+/**
+ * T-017 E1: a variant against the list it came from, on the games of the round it was born in (paired when both have
+ * per-game results there), or null for lists that were never a search candidate.
+ */
+function parentDifference(
+  state: ExploreState,
+  chunks: readonly ChunkRow[],
+  rivals: readonly { snapshot?: number | null; weight: number }[],
+  id: number,
+): { main: Measured; measuredIn: 'verify' | 'round'; selection: Measured | null } | null {
+  const search = state.rounds.find((item) => item.kind === 'search' && item.candidates.includes(id))
+  if (!search) return null
+  const range = (round: ExploreRound) => (chunk: ChunkRow) => chunk.idx >= round.fromIdx && chunk.idx < round.toIdx
+  const selection = measured(chunks, rivals, id, search.incumbent, range(search))
+  // Review of #20: the round that picked it flatters it (the best of K); its verification, on fresh seeds, does not.
+  const verify = state.rounds.find((item) => item.kind === 'verify' && item.candidates.includes(id))
+  if (verify)
+    return { main: measured(chunks, rivals, id, verify.incumbent, range(verify)), measuredIn: 'verify', selection }
+  return { main: selection, measuredIn: 'round', selection: null }
+}
+
+interface Measured {
+  difference: ScoreDifference | null
+  paired: boolean
+  /** Both lists played every rival of the round (a failed chunk or «Frenar» leave it incomplete). */
+  complete: boolean
+}
+
+/** `a − b` on the chunks `filter` keeps, game by game when it can; only when both played every rival in full. */
+function measured(
+  chunks: readonly ChunkRow[],
+  rivals: readonly { snapshot?: number | null; weight: number }[],
+  a: number,
+  b: number,
+  filter: (chunk: ChunkRow) => boolean,
+): Measured {
+  if (!complete(chunks, rivals, a, filter) || !complete(chunks, rivals, b, filter)) {
+    return { difference: null, paired: false, complete: false }
+  }
+  const paired = pairedOf(chunks, rivals, a, b, filter)
+  if (paired) return { difference: paired, paired: true, complete: true }
+  const x = scoreOf(chunks, rivals, a, filter)
+  const y = scoreOf(chunks, rivals, b, filter)
+  return { difference: x && y ? scoreDifference(x, y) : null, paired: false, complete: true }
+}
+
+/** T-017 C4: each candidate's swap against the round's incumbent and its measured difference go into `state`. */
+function learnRound(
+  state: ExploreState,
+  round: ExploreRound,
+  cardsOf: (id: number) => DeckCardEntry[],
+  differenceOf: (id: number) => number | null,
+  index: CatalogIndex,
+): void {
+  const parent = cardsOf(round.incumbent)
+  const learned = state.learned ?? {}
+  const swaps = state.swaps ?? []
+  for (const id of round.candidates) {
+    const difference = differenceOf(id)
+    if (difference === null) continue
+    const swap = swapOf(parent, cardsOf(id), index, difference)
+    learnSwap(learned, swap, index)
+    // A verification replays a swap already measured: it adds to the estimates, not to the swaps.
+    if (round.kind === 'search') swaps.push({ ...swap, variant: id })
+  }
+  state.learned = learned
+  state.swaps = swaps.slice(-40)
+}
+
+/** `a − b` in points from their scores on the chunks `filter` keeps (no per-game results), or null. */
+function independentDifference(
+  chunks: readonly ChunkRow[],
+  rivals: readonly { snapshot?: number | null; weight: number }[],
+  a: number,
+  b: number,
+  filter: (chunk: ChunkRow) => boolean,
+): number | null {
+  const x = scoreOf(chunks, rivals, a, filter)
+  const y = scoreOf(chunks, rivals, b, filter)
+  return x && y ? x.value - y.value : null
 }
 
 /** A list's games against a rival in the chunks `filter` keeps, in game order (1 a win); null when one has no `perGame`. */

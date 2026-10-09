@@ -19,6 +19,7 @@
 
 mod coach;
 mod consistency;
+mod fair_bot;
 mod play;
 
 use std::io::Write;
@@ -34,13 +35,14 @@ use deckgym::card_validation::get_implementation_status;
 use deckgym::database::get_card_by_enum;
 use deckgym::models::Card;
 use deckgym::optimize::generate_valid_combinations;
-use deckgym::players::{create_players, parse_player_code, PlayerCode};
+use deckgym::players::PlayerCode;
 use deckgym::replay::ReplayRecorder;
 use deckgym::simulation_event_handler::{
     CompositeSimulationEventHandler, GameStartMetadata, SimulationEventHandler,
 };
 use deckgym::state::GameOutcome;
 use deckgym::{Deck, Game, State};
+use fair_bot::{create_players, parse_bot_code, BotCode};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
@@ -48,9 +50,9 @@ use uuid::Uuid;
 
 const ENGINE_REV: &str = env!("DECKGYM_REV");
 const CLI_VERSION: &str = env!("CARGO_PKG_VERSION");
-/// What the worker and the queue can ask of this engine beyond the commands of 0.1.0: `perGame` (H-010, T-017 A2) and
-/// `batch`, several pairings in one process (B2).
-const FEATURES: [&str; 2] = ["perGame", "batch"];
+/// What the worker and the queue can ask of this engine beyond the commands of 0.1.0: `perGame` (H-010, T-017 A2),
+/// `batch`, several pairings in one process (B2), and `fairBots`, the f<N> bots (H-018).
+const FEATURES: [&str; 3] = ["perGame", "batch", "fairBots"];
 /// deckgym ties a game when turn 31 begins (`State::advance_turn`): reported so the app does not hard-code it.
 const TURN_LIMIT: u32 = 30;
 
@@ -196,16 +198,18 @@ fn check_deck(text: &str) -> DeckCheck {
     }
 }
 
-fn parse_players(codes: &[String]) -> Result<Vec<PlayerCode>, CliError> {
+fn parse_players(codes: &[String]) -> Result<Vec<BotCode>, CliError> {
     if codes.len() != 2 {
         return Err(CliError::input("players: hacen falta dos códigos de bot («e2», «r»…)"));
     }
     codes
         .iter()
         .map(|code| {
-            let parsed = parse_player_code(code).map_err(CliError::input)?;
+            let parsed = parse_bot_code(code).map_err(CliError::input)?;
             match parsed {
-                PlayerCode::H | PlayerCode::X => Err(CliError::input(format!("bot «{code}» no sirve para simular"))),
+                BotCode::Deckgym(PlayerCode::H | PlayerCode::X) => {
+                    Err(CliError::input(format!("bot «{code}» no sirve para simular")))
+                }
                 other => Ok(other),
             }
         })
@@ -300,7 +304,7 @@ impl SimulationEventHandler for StageWatch {
 fn play_game(
     deck_a: &Deck,
     deck_b: &Deck,
-    codes: &[PlayerCode],
+    codes: &[BotCode],
     seed: u64,
     game_id: Uuid,
     replay_dir: Option<&PathBuf>,
@@ -579,7 +583,7 @@ struct PairingOutcome {
 /// a game that fails (a panic in deckgym) fails its pairing only.
 fn play_pairings(
     pairings: &[Pairing],
-    codes: &[PlayerCode],
+    codes: &[BotCode],
     threads: usize,
     per_game: bool,
 ) -> Result<(Vec<PairingOutcome>, u128), CliError> {
@@ -1221,7 +1225,7 @@ mod tests {
     fn the_starter_is_who_plays_turn_one() {
         let deck = Deck::from_string(crate::coach::tests::ALTARIA).expect("deck");
         for seed in 0..12 {
-            let players = create_players(deck.clone(), deck.clone(), vec![PlayerCode::R, PlayerCode::R]);
+            let players = create_players(deck.clone(), deck.clone(), vec![BotCode::Deckgym(PlayerCode::R), BotCode::Deckgym(PlayerCode::R)]);
             let mut game = Game::new(players, seed);
             let starter = game.get_state_clone().current_player;
             while game.get_state_clone().turn_count == 0 {

@@ -23,7 +23,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use deckgym::actions::Action;
-use deckgym::players::{create_players, parse_player_code, Player, PlayerCode};
+use deckgym::players::{Player, PlayerCode};
 use deckgym::replay::{ReplayRecorder, ViewState};
 use deckgym::simulation_event_handler::{CompositeSimulationEventHandler, GameStartMetadata, SimulationEventHandler};
 use deckgym::state::GameOutcome;
@@ -33,6 +33,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use crate::fair_bot::{create_players, parse_bot_code, BotCode};
 use crate::coach::{best_option, coach_scores, COACH_SAMPLES};
 use crate::{game_seed, require_simulable, CliError, ENGINE_REV};
 
@@ -200,9 +201,9 @@ impl SimulationEventHandler for ActionLog {
     }
 }
 
-fn bot_code(code: &str) -> Result<PlayerCode, CliError> {
-    match parse_player_code(code).map_err(CliError::input)? {
-        PlayerCode::H | PlayerCode::X => Err(CliError::input(format!("«{code}» no sirve como rival"))),
+fn bot_code(code: &str) -> Result<BotCode, CliError> {
+    match parse_bot_code(code).map_err(CliError::input)? {
+        BotCode::Deckgym(PlayerCode::H | PlayerCode::X) => Err(CliError::input(format!("«{code}» no sirve como rival"))),
         other => Ok(other),
     }
 }

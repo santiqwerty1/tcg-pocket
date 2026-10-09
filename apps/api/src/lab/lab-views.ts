@@ -31,6 +31,8 @@ export interface LabBankRivalView {
   listRate: WinRate | null
   /** 0 = the archetype's representative list; more = a later one (the earlier could not be simulated). */
   rank: number
+  /** T-017 D3: the archetype's second list (it shares the archetype's weight with the first). */
+  second: boolean
   energies: string[]
   cards: CardLineView[]
 }
@@ -74,6 +76,8 @@ export interface LabRivalView {
   share: number
   weight: number
   listKey: string
+  /** T-017 D3: the archetype's second list in the bank. */
+  second: boolean
 }
 
 export interface LabDeckView {
@@ -97,6 +101,29 @@ export interface LabDeckView {
   perRival: { rival: number; record: GameRecord; rate: WinRate | null }[]
   /** Card changes from the starting list (search variants). */
   changes: { add: CardLineView[]; remove: CardLineView[] } | null
+  /**
+   * T-017 E1: a variant against the list it came from, in its round (game by game when there are per-game results):
+   * «+3,2 puntos (IC −1,0 a +7,4)». Null for the starting list and tests.
+   */
+  vsParent: {
+    text: string
+    value: number | null
+    ci95: [number, number] | null
+    paired: boolean
+    /** Review of #20: «verify» when its verification measured it (fresh seeds); «round», the round that picked it. */
+    measuredIn: 'verify' | 'round'
+    /** False when a list missed a rival in that round (a failed chunk, «Frenar»): no difference then. */
+    complete: boolean
+    /** With a verification: the difference in the round that picked it, which flatters it. */
+    selectionText: string | null
+  } | null
+  /** T-017 C6: the Energy Zone, when it is not the starting list's. */
+  energyChange: { from: string[]; to: string[] } | null
+  /**
+   * T-017 E1/E2: why each card that came in was proposed (share of the era's lists and of the archetype's lists that
+   * play it, when the search kept them) and how many copies the collection lacks for it.
+   */
+  why: { cardId: string; nameEs: string; eraShare: number | null; archetypeShare: number | null; missing: number }[]
   novelty: LabNoveltyView
   cards: CardLineView[]
   energies: string[]
@@ -120,6 +147,8 @@ export interface LabExploreView {
   phase: 'search' | 'confirm' | 'done'
   stopReason: ExploreStop | null
   stopReasonEs: string | null
+  /** T-017 D2: «Frenar y confirmar» was asked; the search ends its round (or its verification) and confirms. */
+  stopRequested: boolean
   base: number
   best: number
   roundsDone: number
@@ -133,7 +162,23 @@ export interface LabExploreView {
     /** The search round's best variant that passed the screen (it then goes to verification). */
     screened: number | null
     decided: boolean
+    /** T-017 D2: «Frenar y confirmar» cut this round short. */
+    stopped: boolean
   }[]
+  /**
+   * T-017 E2: cards most lists of the archetype play (30 % or more) that the search could not try because the
+   * collection has none, most played first.
+   */
+  leftOut: { cardId: string; nameEs: string; archetypeShare: number }[]
+  /**
+   * T-017 C4: what the rounds measured about each card change, the clearest first (points of meta score, shrunk toward
+   * 0; «+» came in, «−» went out). It steers the draws; it never decides what is accepted.
+   */
+  learned: { sign: '+' | '-'; cardId: string; nameEs: string; mean: number; n: number }[]
+  /** Snapshot ids of the variants that joined the two best swaps measured so far. */
+  combos: number[]
+  /** T-017 C5: snapshot ids of the variants that undid a change accepted earlier. */
+  reverts: number[]
   /**
    * H-010: what the confirmation says of the list found against the starting one; null without a confirmation.
    * «better» only past `verifyZ` standard errors.

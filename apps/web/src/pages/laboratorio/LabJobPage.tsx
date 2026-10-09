@@ -10,6 +10,7 @@ import {
   RefreshCwIcon,
   SaveIcon,
   SparklesIcon,
+  SquareIcon,
   XCircleIcon,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -17,7 +18,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useCreateDeck, useDeck, useUpdateDeck } from '@/api/decks'
-import { useLabJob, useLabTest } from '@/api/lab'
+import { useLabJob, useLabTest, useStopLabSearch } from '@/api/lab'
 import type { LabDeck, LabJob, MetaScore, SelectableEnergy } from '@/api/schemas'
 import { useCancelSimulation } from '@/api/simulations'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
@@ -240,6 +241,34 @@ function GamesLine({ games }: { games: NonNullable<LabDeck['games']> }) {
   )
 }
 
+/** «%» with one decimal at most. */
+function percent(value: number): string {
+  return `${value.toLocaleString('es-AR', { maximumFractionDigits: 1 })} %`
+}
+
+/** T-017 E1/E2: why each card that came in was proposed, and «te falta» when the collection lacks copies. */
+function WhyLine({ why }: { why: LabDeck['why'] }) {
+  return (
+    <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+      {why.map((card) => (
+        <li key={card.cardId}>
+          Entra {card.nameEs}
+          {card.eraShare !== null && card.archetypeShare !== null
+            ? `: la juega el ${percent(card.eraShare)} de las listas de la era y el ${percent(card.archetypeShare)} de las de su arquetipo`
+            : ''}
+          {card.missing > 0 ? (
+            <span className="text-warning">
+              {' '}
+              · te falta {card.missing} {card.missing === 1 ? 'copia' : 'copias'}
+            </span>
+          ) : null}
+          .
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defaultOpen: boolean }) {
   const navigate = useNavigate()
   const [open, setOpen] = useState(defaultOpen)
@@ -301,6 +330,23 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
           <ChangeLine add={deck.changes.add} remove={deck.changes.remove} />
         </div>
       ) : null}
+      {deck.vsParent ? (
+        <p className="text-xs text-muted-foreground">
+          {deck.vsParent.measuredIn === 'verify'
+            ? 'En la verificación, con partidas nuevas, contra la mejor de entonces: '
+            : 'Contra la mejor de su ronda: '}
+          {deck.vsParent.text}
+          {deck.vsParent.complete && deck.vsParent.paired ? ', partida por partida' : ''}
+          {deck.vsParent.selectionText ? ` (en la ronda que la eligió: ${deck.vsParent.selectionText})` : ''}.
+        </p>
+      ) : null}
+      {deck.energyChange ? (
+        <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+          Zona de Energía: <EnergyChips energies={deck.energyChange.from as SelectableEnergy[]} /> →{' '}
+          <EnergyChips energies={deck.energyChange.to as SelectableEnergy[]} />
+        </p>
+      ) : null}
+      {deck.why.length > 0 ? <WhyLine why={deck.why} /> : null}
       {deck.games ? <GamesLine games={deck.games} /> : null}
       <button
         type="button"
@@ -321,8 +367,7 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
                   <span className="min-w-0 sm:flex-1 sm:truncate">
                     {rival?.archetypeName ?? row.rival}
                     <span className="text-xs text-muted-foreground">
-                      {' '}
-                      · peso {formatRateValue((rival?.weight ?? 0) * 100)}
+                      {rival?.second ? ' · segunda lista' : ''} · peso {formatRateValue((rival?.weight ?? 0) * 100)}
                     </span>
                   </span>
                   {row.rate ? (
@@ -392,10 +437,23 @@ function roundText(round: ExploreView['rounds'][number], explore: ExploreView, l
       ? `${name(round.accepted)} se sostuvo con partidas nuevas: pasa a ser la mejor`
       : `${name(variant)} no se sostuvo con partidas nuevas`
   }
-  if (!round.decided) return `${round.candidates.length} variantes jugando`
+  const notes = [
+    round.candidates.some((id) => explore.combos.includes(id)) ? 'una junta los dos mejores cambios' : null,
+    round.candidates.some((id) => explore.reverts.includes(id)) ? 'una deshace un cambio anterior' : null,
+  ].filter(Boolean)
+  const combo = notes.length > 0 ? ` (${notes.join('; ')})` : ''
+  if (round.stopped) {
+    // T-017 D2: an incomplete candidate cannot win, and there is no verification after «Frenar».
+    if (!round.decided) return 'la frenaste: terminan las partidas en juego y pasa a confirmar'
+    if (round.accepted !== null) return `la frenaste: ganó ${name(round.accepted)}`
+    if (round.screened !== null)
+      return `la frenaste: ${name(round.screened)} le ganaba a la mejor, pero sin verificar no pasa`
+    return 'la frenaste: ninguna variante completa mejoró a la mejor'
+  }
+  if (!round.decided) return `${round.candidates.length} variantes jugando${combo}`
   if (round.accepted !== null) return `ganó ${name(round.accepted)}`
   if (round.screened !== null) return `${name(round.screened)} le ganó a la mejor: se verifica`
-  return `${round.candidates.length} variantes, ninguna mejoró a la mejor`
+  return `${round.candidates.length} variantes${combo}, ninguna mejoró a la mejor`
 }
 
 function ExploreSummary({ job }: { job: LabJob }) {
@@ -439,6 +497,38 @@ function ExploreSummary({ job }: { job: LabJob }) {
           </li>
         ))}
       </ol>
+      {explore.leftOut.length > 0 ? (
+        <p className="text-sm">
+          No pudo probar, porque no las tenés:{' '}
+          {explore.leftOut.map((card) => `${card.nameEs} (${percent(card.archetypeShare)} del arquetipo)`).join(', ')}.
+          {explore.poolEs === 'cartas de la colección'
+            ? ' Para incluirlas, buscá con «todas las cartas que el motor juega».'
+            : ''}
+        </p>
+      ) : null}
+      {explore.learned.length > 0 ? (
+        <div className="flex flex-col gap-1 text-sm">
+          <p className="text-xs text-muted-foreground">
+            Lo que midió por carta (puntos contra el meta, de lo más claro a lo menos; guía qué se prueba, no qué se
+            acepta):
+          </p>
+          <ul className="flex flex-wrap gap-x-3 gap-y-1">
+            {explore.learned.map((change) => (
+              <li key={`${change.sign}${change.cardId}`} className="text-xs">
+                {change.sign === '+' ? 'entra' : 'sale'} {change.nameEs}:{' '}
+                <span className={change.mean >= 0 ? 'text-success' : 'text-destructive'}>
+                  {change.mean >= 0 ? '+' : '−'}
+                  {Math.abs(change.mean).toLocaleString('es-AR', {
+                    maximumFractionDigits: 1,
+                    minimumFractionDigits: 1,
+                  })}
+                </span>{' '}
+                ({change.n} {change.n === 1 ? 'variante' : 'variantes'})
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {explore.confirmation ? (
         <p className="text-sm">
           Confirmación: {explore.confirmation.differenceText} sobre la lista de partida;{' '}
@@ -453,6 +543,7 @@ export function LabJobPage() {
   const { id = '' } = useParams()
   const lab = useLabJob(id)
   const cancel = useCancelSimulation()
+  const stop = useStopLabSearch()
   if (lab.isLoading) return <LoadingRows rows={5} />
   if (lab.isError || !lab.data) return <ErrorState error={lab.error} onRetry={() => void lab.refetch()} />
   const data = lab.data
@@ -481,6 +572,32 @@ export function LabJobPage() {
                 {job.progress.etaSeconds !== null ? ` · faltan ~${formatDuration(job.progress.etaSeconds)}` : ''}
                 {data.mode === 'explore' ? ' (de esta ronda en adelante se suman más)' : ''}
               </span>
+              {data.mode === 'explore' && data.explore?.phase === 'search' && data.explore.stopRequested ? (
+                <span className="text-xs text-muted-foreground">
+                  Frenando: termina lo que se está jugando y pasa a confirmar.
+                </span>
+              ) : null}
+              {data.mode === 'explore' && data.explore?.phase === 'search' && !data.explore.stopRequested ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={stop.isPending}
+                  title="Termina la ronda con lo que tiene y pasa a la confirmación: no se pierde lo encontrado"
+                  onClick={() =>
+                    stop.mutate(job.id, {
+                      onSuccess: () => {
+                        toast.success('Frenada: pasa a confirmar lo encontrado')
+                        void lab.refetch()
+                      },
+                      onError: (error) => toast.error(errorMessage(error)),
+                    })
+                  }
+                >
+                  <SquareIcon aria-hidden="true" />
+                  Frenar y confirmar
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="ghost"

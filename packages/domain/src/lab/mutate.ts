@@ -101,12 +101,18 @@ export interface Variant {
   key: string
   add: VariantChange[]
   remove: VariantChange[]
+  /** T-017 C6: another Energy Zone for the same cards (absent: the parent's). */
+  energies?: SelectableEnergy[]
 }
 
 export interface VariantOptions {
   /** Functional cards that never go out. */
   locked?: ReadonlySet<CardId> | undefined
-  /** Swaps per variant (default: 1 most of the time, 2 sometimes). */
+  /**
+   * Swaps per variant (default 1). T-017 C7: two random swaps at once blur which one helped and more often carry a
+   * harmful one; two changes are tried together only when they go together — an evolution with its pre-evolution, or
+   * the combo of the two best measured swaps (C4).
+   */
   swaps?: number | undefined
   /** Draws before giving up (default 40). */
   attempts?: number | undefined
@@ -116,6 +122,10 @@ export interface VariantOptions {
   affinity?: ((groupId: CardId) => number) | undefined
   /** Fase 16: a variant must also pass this (an event's counts, like «al menos 8 Pokémon de tipo Fuego»). */
   accept?: ((cards: readonly DeckCardEntry[]) => boolean) | undefined
+  /** T-017 C4: how much more often a card comes in, from what earlier rounds measured (`learnedFactor`). */
+  boostIn?: ((groupId: CardId) => number) | undefined
+  /** The same for a card going out. */
+  boostOut?: ((groupId: CardId) => number) | undefined
 }
 
 function weightedPick<T extends { weight: number }>(items: readonly T[], random: () => number): T | null {
@@ -166,9 +176,9 @@ export function variantOf(
   const attempts = options.attempts ?? 40
   for (let attempt = 0; attempt < attempts; attempt++) {
     const cards = deck.map((entry) => ({ ...entry }))
-    const swaps = options.swaps ?? (random() < 0.7 ? 1 : 2)
+    const swaps = options.swaps ?? 1
     let ok = true
-    for (let swap = 0; swap < swaps && ok; swap++) ok = swapOnce(cards, pool, index, random, locked, options.affinity)
+    for (let swap = 0; swap < swaps && ok; swap++) ok = swapOnce(cards, pool, index, random, locked, options)
     if (!ok) continue
     const groups = groupsOfCards(cards, index)
     const key = listKeyByGroup(groups)
@@ -198,6 +208,30 @@ function replaceCopy(cards: DeckCardEntry[], at: number, cardId: CardId): void {
 }
 
 /**
+ * T-017 C4: makes a swap measured earlier on `cards`, in place: each card that came in takes the place of a copy of
+ * the card that went out with it (H-020), in the edition the list already plays when it has one. False (and `cards`
+ * possibly half changed) when a card that went out is no longer there or is locked.
+ */
+export function applySwap(
+  cards: DeckCardEntry[],
+  swap: { add: readonly CardId[]; remove: readonly CardId[] },
+  index: CatalogIndex,
+  locked?: ReadonlySet<CardId>,
+): boolean {
+  for (let k = 0; k < swap.remove.length; k++) {
+    const out = swap.remove[k] as CardId
+    const incoming = swap.add[k]
+    if (incoming === undefined || locked?.has(out)) return false
+    const at = cards.findIndex((entry) => entry.count > 0 && index.cardById(entry.cardId)?.functionalGroupId === out)
+    if (at < 0) return false
+    const group = index.cardById(incoming)?.functionalGroupId ?? incoming
+    const edition = cards.find((entry) => index.cardById(entry.cardId)?.functionalGroupId === group)?.cardId ?? incoming
+    replaceCopy(cards, at, edition)
+  }
+  return true
+}
+
+/**
  * One swap in place: a pool card in (with its pre-evolution when missing), as many random copies out — weighted by
  * copies and away from the archetype's core (a card every similar list plays goes out 10 times less often). Each
  * copy that comes in takes the place of the one that goes out.
@@ -208,8 +242,9 @@ function swapOnce(
   index: CatalogIndex,
   random: () => number,
   locked: ReadonlySet<CardId>,
-  affinity: ((groupId: CardId) => number) | undefined,
+  options: Pick<VariantOptions, 'affinity' | 'boostIn' | 'boostOut'>,
 ): boolean {
+  const { affinity, boostIn, boostOut } = options
   const groupCount = (groupId: CardId) =>
     cards.reduce(
       (sum, entry) => sum + (index.cardById(entry.cardId)?.functionalGroupId === groupId ? entry.count : 0),
@@ -218,7 +253,11 @@ function swapOnce(
   const nameCount = (nameEn: string) =>
     cards.reduce((sum, entry) => sum + (index.cardById(entry.cardId)?.nameEn === nameEn ? entry.count : 0), 0)
   const fits = (item: PoolCard) => groupCount(item.groupId) < item.maxCopies && nameCount(item.nameEn) < 2
-  const pick = weightedPick(pool.filter(fits), random)
+  const candidates = pool.filter(fits)
+  const pick = weightedPick(
+    boostIn ? candidates.map((item) => ({ ...item, weight: item.weight * boostIn(item.groupId) })) : candidates,
+    random,
+  )
   if (!pick) return false
   const incoming = [pick]
   const card = index.cardById(pick.cardId)
@@ -234,7 +273,7 @@ function swapOnce(
       .filter(({ entry, groupId }) => entry.count > 0 && !locked.has(groupId) && !added.has(groupId))
       .map(({ entry, at, groupId }) => ({
         at,
-        weight: entry.count / (1 + 9 * ((affinity?.(groupId) ?? 0) / 100)),
+        weight: (entry.count / (1 + 9 * ((affinity?.(groupId) ?? 0) / 100))) * (boostOut?.(groupId) ?? 1),
       }))
     const victim = weightedPick(removable, random)
     if (!victim) return false

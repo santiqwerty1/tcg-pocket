@@ -23,6 +23,7 @@ import {
   roundWinner,
   scoreBeats,
   scoreDifference,
+  secondListsFor,
   seededRandom,
   usableWith,
   variantOf,
@@ -81,6 +82,29 @@ describe('meta bank', () => {
       expect(rival.weight).toBeCloseTo(rival.share / gauntlet.coverage, 10)
       expect(rival.energies.length).toBeGreaterThan(0)
     }
+  })
+
+  it('T-017 D3: the most played archetypes bring a second list, and share their weight with it', () => {
+    const one = metaGauntlet(dataset, { size: 10 })
+    const two = metaGauntlet(dataset, { size: 10, secondLists: 3 })
+    const seconds = two.rivals.filter((rival) => rival.second)
+    expect(seconds.length).toBeGreaterThan(0)
+    expect(seconds.length).toBeLessThanOrEqual(3)
+    expect(two.rivals).toHaveLength(one.rivals.length + seconds.length)
+    expect(two.rivals.reduce((sum, rival) => sum + rival.weight, 0)).toBeCloseTo(1, 10)
+    for (const second of seconds) {
+      const at = two.rivals.indexOf(second)
+      const first = two.rivals[at - 1]
+      // Right after its archetype's first list, another list, the archetype's weight split by how often each was played.
+      expect(first?.archetypeId).toBe(second.archetypeId)
+      expect(first?.second).toBe(false)
+      expect(second.list.key).not.toBe(first?.list.key)
+      expect((first?.part ?? 0) + second.part).toBeCloseTo(1, 10)
+      const alone = one.rivals.find((rival) => rival.archetypeId === second.archetypeId)
+      expect((first?.weight ?? 0) + second.weight).toBeCloseTo(alone?.weight ?? 0, 10)
+    }
+    expect(secondListsFor(15)).toBe(3)
+    expect(secondListsFor(5)).toBe(0)
   })
 
   it('a list the engine cannot play gives way to the next one of its archetype, or the archetype is skipped', () => {

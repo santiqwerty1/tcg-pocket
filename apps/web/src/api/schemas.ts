@@ -1465,6 +1465,8 @@ export const labBankSchema = z.object({
       listLists: z.number(),
       listRate: winRateSchema.nullable(),
       rank: z.number(),
+      /** T-017 D3: the archetype's second list (it shares the archetype's weight). */
+      second: z.boolean().default(false),
       energies: z.array(z.string()),
       cards: z.array(labCardSchema),
     }),
@@ -1506,6 +1508,36 @@ export const labDeckSchema = z.object({
     .default(null),
   perRival: z.array(z.object({ rival: z.number(), record: gameRecordSchema, rate: winRateSchema.nullable() })),
   changes: z.object({ add: z.array(labCardSchema), remove: z.array(labCardSchema) }).nullable(),
+  /** T-017 E1: against the list it came from, in its round. */
+  vsParent: z
+    .object({
+      text: z.string(),
+      value: z.number().nullable(),
+      ci95: z.tuple([z.number(), z.number()]).nullable(),
+      paired: z.boolean(),
+      measuredIn: z.enum(['verify', 'round']).default('round'),
+      complete: z.boolean().default(true),
+      selectionText: z.string().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
+  /** T-017 C6: the Energy Zone, when it is not the starting list's. */
+  energyChange: z
+    .object({ from: z.array(z.string()), to: z.array(z.string()) })
+    .nullable()
+    .default(null),
+  /** T-017 E1/E2: why each card that came in was proposed, and the copies the collection lacks. */
+  why: z
+    .array(
+      z.object({
+        cardId: z.string(),
+        nameEs: z.string(),
+        eraShare: z.number().nullable(),
+        archetypeShare: z.number().nullable(),
+        missing: z.number(),
+      }),
+    )
+    .default([]),
   novelty: z.object({
     kind: z.enum(['played', 'known', 'new']),
     label: z.string(),
@@ -1553,6 +1585,7 @@ export const labJobSchema = z.object({
       share: z.number(),
       weight: z.number(),
       listKey: z.string(),
+      second: z.boolean().default(false),
     }),
   ),
   decks: z.array(labDeckSchema),
@@ -1563,6 +1596,8 @@ export const labJobSchema = z.object({
       phase: z.enum(['search', 'confirm', 'done']),
       stopReason: z.string().nullable(),
       stopReasonEs: z.string().nullable(),
+      /** T-017 D2: «Frenar y confirmar» was asked and the search is finishing what is in play. */
+      stopRequested: z.boolean().default(false),
       base: z.number(),
       best: z.number(),
       roundsDone: z.number(),
@@ -1576,8 +1611,26 @@ export const labJobSchema = z.object({
           /** H-010: the search round's best variant that passed the screen and went to verification. */
           screened: z.number().nullable().default(null),
           decided: z.boolean(),
+          /** T-017 D2: «Frenar y confirmar» cut this round short. */
+          stopped: z.boolean().default(false),
         }),
       ),
+      /** T-017 E2: archetype cards the search could not try because the collection has none. */
+      leftOut: z.array(z.object({ cardId: z.string(), nameEs: z.string(), archetypeShare: z.number() })).default([]),
+      /** T-017 C4: what the rounds measured about each card change, the clearest first. */
+      learned: z
+        .array(
+          z.object({
+            sign: z.enum(['+', '-']),
+            cardId: z.string(),
+            nameEs: z.string(),
+            mean: z.number(),
+            n: z.number(),
+          }),
+        )
+        .default([]),
+      combos: z.array(z.number()).default([]),
+      reverts: z.array(z.number()).default([]),
       /** H-010: what the confirmation says of the list found against the starting one. */
       confirmation: z
         .object({

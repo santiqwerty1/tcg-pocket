@@ -15,7 +15,7 @@ import {
   Sse,
   UseGuards,
 } from '@nestjs/common'
-import { SELECTABLE_ENERGIES, TOURNAMENT_FORMATS } from '@tcg/domain'
+import { BOT_CODE_PATTERN, SELECTABLE_ENERGIES, TOURNAMENT_FORMATS } from '@tcg/domain'
 import type { Request } from 'express'
 import { Observable } from 'rxjs'
 import { z } from 'zod'
@@ -53,10 +53,7 @@ const sourceSchema = z.union([
 const createSchema = z.object({
   human: sourceSchema,
   rival: sourceSchema,
-  bot: z
-    .string()
-    .regex(/^(r|w|aa|et|v|er|m|e[1-9])$/, 'Bot desconocido.')
-    .optional(),
+  bot: z.string().regex(BOT_CODE_PATTERN, 'Bot desconocido.').optional(),
   seed: z
     .number()
     .int()
@@ -89,6 +86,8 @@ const claimSchema = z.object({
   workerId,
   engineRev: z.string().regex(/^[0-9a-f]{40}$/),
   version: z.string().max(20).optional(),
+  /** What its engine can play (#16, worker 0.2.6 on): a game against an f bot (H-018) needs «fairBots». */
+  engineFeatures: z.array(z.string().max(40)).max(20).optional(),
 })
 const decisionSchema = z.object({
   workerId,
