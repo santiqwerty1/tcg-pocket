@@ -28,6 +28,7 @@ import { PrismaModule } from './prisma/prisma.module.js'
 import { RivalNotesModule } from './rivals/rival-notes.controller.js'
 import { SearchModule } from './search/search.controller.js'
 import { SettingsModule } from './settings/settings.module.js'
+import { CalibrationModule } from './simulation/calibration.controller.js'
 import { SimulationModule } from './simulation/simulation.controller.js'
 import { TokensModule } from './tokens/tokens.module.js'
 import { TournamentsModule } from './tournaments/tournaments.controller.js'
@@ -65,6 +66,7 @@ export class AppModule implements NestModule {
         HttpModule,
         SimulationModule,
         LabModule,
+        CalibrationModule,
         PickModule,
         SearchModule,
         DrillsModule,

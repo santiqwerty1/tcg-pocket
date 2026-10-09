@@ -259,12 +259,17 @@ export function SimulacionPage() {
               Volver
             </Button>
           ) : (
-            <Button asChild size="sm">
-              <Link to="/simulacion/nueva">
-                <PlusIcon data-icon="inline-start" />
-                Nueva
-              </Link>
-            </Button>
+            <div className="flex gap-2">
+              <Button asChild size="sm" variant="outline">
+                <Link to="/simulacion/calibracion">Calibración</Link>
+              </Button>
+              <Button asChild size="sm">
+                <Link to="/simulacion/nueva">
+                  <PlusIcon data-icon="inline-start" />
+                  Nueva
+                </Link>
+              </Button>
+            </div>
           )
         }
       >
