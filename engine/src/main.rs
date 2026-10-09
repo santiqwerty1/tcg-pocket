@@ -556,6 +556,7 @@ fn game_id_for(seed: u64, index: u64) -> Uuid {
 }
 
 /// One pairing to play: `games` games of deck A against deck B from `seed`, the first `replay_sample` recorded.
+#[derive(Clone)]
 struct Pairing {
     deck_a: Deck,
     deck_b: Deck,
@@ -569,10 +570,13 @@ struct PairingOutcome {
     tally: Tally,
     replays: Vec<ReplayInfo>,
     per_game: Option<PerGame>,
+    /// The first game of the pairing that failed (by index): the pairing has no result, the others still do.
+    error: Option<String>,
 }
 
 /// Plays every game of every pairing on one pool of `threads` threads: a batch keeps the threads busy until its last
-/// game instead of waiting on the slowest game of each pairing (B2). Each game keeps the seed it has on its own.
+/// game instead of waiting on the slowest game of each pairing (B2). Each game keeps the seed it has on its own, and
+/// a game that fails (a panic in deckgym) fails its pairing only.
 fn play_pairings(
     pairings: &[Pairing],
     codes: &[PlayerCode],
@@ -610,12 +614,22 @@ fn play_pairings(
             tally: Tally::default(),
             replays: Vec::new(),
             per_game: per_game.then(|| PerGame::with_capacity(pairing.games as usize)),
+            error: None,
         })
         .collect();
     // `collect` keeps the order of the tasks, so each pairing's letters line up with its games 0, 1, 2…
     for (&(p, index), run) in tasks.iter().zip(runs) {
-        let run = run.map_err(CliError::engine)?;
         let (pairing, outcome) = (&pairings[p], &mut outcomes[p]);
+        if outcome.error.is_some() {
+            continue;
+        }
+        let run = match run {
+            Ok(run) => run,
+            Err(message) => {
+                outcome.error = Some(message);
+                continue;
+            }
+        };
         outcome.tally.add(&run);
         if let Some(per_game) = outcome.per_game.as_mut() {
             per_game.push(&run);
@@ -648,6 +662,9 @@ fn simulate(job: SimulateJob) -> Result<SimulateResult, CliError> {
     let codes = parse_players(&job.players)?;
     let (mut outcomes, duration_ms) = play_pairings(std::slice::from_ref(&pairing), &codes, job.threads, job.per_game)?;
     let outcome = outcomes.remove(0);
+    if let Some(message) = outcome.error {
+        return Err(CliError::engine(message));
+    }
     Ok(SimulateResult {
         engine_rev: ENGINE_REV,
         cli_version: CLI_VERSION,
@@ -699,6 +716,9 @@ struct BatchPairingResult {
     replays: Vec<ReplayInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     per_game: Option<PerGame>,
+    /// Why this pairing has no result (a deck that cannot be played, a game that failed); its tally is empty.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<CliError>,
 }
 
 #[derive(Debug, Serialize)]
@@ -718,7 +738,8 @@ fn batch(job: BatchJob) -> Result<BatchResult, CliError> {
     }
     let codes = parse_players(&job.players)?;
     let root = job.replay_dir.as_ref().map(PathBuf::from);
-    let pairings: Vec<Pairing> = job
+    // A deck that cannot be played fails its own pairing only, like a game that fails.
+    let checked: Vec<Result<Pairing, CliError>> = job
         .pairings
         .iter()
         .enumerate()
@@ -732,23 +753,38 @@ fn batch(job: BatchJob) -> Result<BatchResult, CliError> {
                 replay_dir: root.as_ref().filter(|_| item.replay_sample > 0).map(|dir| dir.join(i.to_string())),
             })
         })
-        .collect::<Result<_, CliError>>()?;
+        .collect();
+    let (playable, refused): (Vec<_>, Vec<_>) = checked.into_iter().enumerate().partition(|(_, pairing)| pairing.is_ok());
+    let playable: Vec<(usize, Pairing)> =
+        playable.into_iter().map(|(i, pairing)| (i, pairing.unwrap_or_else(|_| unreachable!()))).collect();
+    let pairings: Vec<Pairing> = playable.iter().map(|(_, pairing)| pairing.clone()).collect();
     let (outcomes, duration_ms) = play_pairings(&pairings, &codes, job.threads, job.per_game)?;
+    let mut results: Vec<Option<BatchPairingResult>> = (0..job.pairings.len()).map(|_| None).collect();
+    for ((i, pairing), outcome) in playable.iter().zip(outcomes) {
+        let failed = outcome.error.is_some();
+        results[*i] = Some(BatchPairingResult {
+            seed: pairing.seed,
+            tally: if failed { Tally::default() } else { outcome.tally },
+            replays: if failed { Vec::new() } else { outcome.replays },
+            per_game: if failed { None } else { outcome.per_game },
+            error: outcome.error.map(CliError::engine),
+        });
+    }
+    for (i, pairing) in refused {
+        results[i] = Some(BatchPairingResult {
+            seed: job.pairings[i].seed,
+            tally: Tally::default(),
+            replays: Vec::new(),
+            per_game: None,
+            error: pairing.err(),
+        });
+    }
     Ok(BatchResult {
         engine_rev: ENGINE_REV,
         cli_version: CLI_VERSION,
         players: job.players,
         duration_ms,
-        pairings: pairings
-            .iter()
-            .zip(outcomes)
-            .map(|(pairing, outcome)| BatchPairingResult {
-                seed: pairing.seed,
-                tally: outcome.tally,
-                replays: outcome.replays,
-                per_game: outcome.per_game,
-            })
-            .collect(),
+        pairings: results.into_iter().map(|result| result.unwrap_or_else(|| unreachable!())).collect(),
     })
 }
 
@@ -1110,6 +1146,71 @@ mod tests {
             assert_eq!(serde_json::to_string(&got.per_game).unwrap(), serde_json::to_string(&alone.per_game).unwrap());
         }
         assert!(batch(BatchJob { pairings: vec![], ..job_of_batch() }).is_err());
+    }
+
+    #[test]
+    fn a_pairing_that_fails_fails_alone_and_the_others_keep_their_results() {
+        let altaria = crate::coach::tests::ALTARIA.to_string();
+        // 19 cards: deckgym will not play it.
+        let short: String = altaria.lines().take(altaria.lines().count() - 1).collect::<Vec<_>>().join("\n");
+        let pairing = |deck_b: &str, seed: u64| BatchPairing {
+            deck_a: altaria.clone(),
+            deck_b: deck_b.to_string(),
+            games: 6,
+            seed,
+            replay_sample: 0,
+        };
+        let result = batch(BatchJob {
+            pairings: vec![pairing(&altaria, 1), pairing(&short, 2), pairing(&altaria, 3)],
+            ..job_of_batch()
+        })
+        .expect("batch");
+        assert!(result.pairings[0].error.is_none() && result.pairings[2].error.is_none());
+        let error = result.pairings[1].error.as_ref().expect("the short deck fails");
+        assert_eq!(error.code, "bad_input");
+        assert!(error.error.contains("cruce 2"), "{}", error.error);
+        assert_eq!(result.pairings[1].tally.games, 0);
+        assert_eq!(result.pairings[0].tally.games, 6);
+        let alone = simulate(SimulateJob { seed: 3, threads: 1, ..job(6, false) }).expect("simulate");
+        assert_eq!(serde_json::to_string(&result.pairings[2].tally).unwrap(), serde_json::to_string(&alone.tally).unwrap());
+        let text = serde_json::to_string(&result).expect("json");
+        assert!(text.contains("\"error\":{\"error\":"), "{text}");
+    }
+
+    #[test]
+    fn a_batch_writes_each_pairing_replays_in_its_folder_with_the_ids_and_seeds_of_simulate() {
+        let dir = std::env::temp_dir().join(format!("engine-cli-batch-{}", std::process::id()));
+        let altaria = crate::coach::tests::ALTARIA.to_string();
+        let pairing = |seed: u64| BatchPairing {
+            deck_a: altaria.clone(),
+            deck_b: altaria.clone(),
+            games: 3,
+            seed,
+            replay_sample: 2,
+        };
+        let together = batch(BatchJob {
+            pairings: vec![pairing(7), pairing(7)],
+            replay_dir: Some(dir.join("batch").display().to_string()),
+            ..job_of_batch()
+        })
+        .expect("batch");
+        let alone = simulate(SimulateJob {
+            seed: 7,
+            replay_sample: 2,
+            replay_dir: Some(dir.join("alone").display().to_string()),
+            ..job(3, false)
+        })
+        .expect("simulate");
+        for (i, got) in together.pairings.iter().enumerate() {
+            assert_eq!(got.replays.len(), 2);
+            for (replay, expected) in got.replays.iter().zip(&alone.replays) {
+                assert_eq!((replay.game_id.as_str(), replay.seed.as_str()), (expected.game_id.as_str(), expected.seed.as_str()));
+                // Two pairings with the same seed (a variant and its incumbent) do not overwrite each other's files.
+                assert!(replay.file.contains(&format!("batch{}{}", std::path::MAIN_SEPARATOR, i)), "{}", replay.file);
+                assert!(std::path::Path::new(&replay.file).exists());
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn job_of_batch() -> BatchJob {

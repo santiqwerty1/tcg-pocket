@@ -294,7 +294,7 @@ describe('worker loop', () => {
     expect(JSON.parse(readFileSync(join(dataDir, 'state.json'), 'utf8'))).toMatchObject({ pending: null, pendings: [] })
   })
 
-  it('B2: an engine without batch is never asked for one; a failed batch reports every chunk', async () => {
+  it('B2: an engine without batch is never asked for one', async () => {
     process.env.FAKE_ENGINE_OLD = '1'
     try {
       const { client } = fakeClient([chunk({ chunkId: 33, replaySample: 0 })])
@@ -303,28 +303,60 @@ describe('worker loop', () => {
     } finally {
       delete process.env.FAKE_ENGINE_OLD
     }
-    const failing = [chunk({ chunkId: 34, games: 60 }), chunk({ chunkId: 35, games: 13 })]
-    const { client, calls } = fakeClient([])
-    vi.mocked(client.claim).mockResolvedValueOnce({
-      chunk: failing[0] as Chunk,
-      chunks: failing,
+  })
+
+  /** A worker whose first claim answers `chunks` (a batch), then nothing. */
+  function batchClient(chunks: Chunk[]) {
+    const fake = fakeClient([])
+    vi.mocked(fake.client.claim).mockResolvedValueOnce({
+      chunk: chunks[0] as Chunk,
+      chunks,
       requiredEngineRev: null,
       retryAfterSeconds: 0,
     })
+    return fake
+  }
+
+  it('B2: a pairing that fails in the engine fails its own chunk only; the others report their results', async () => {
+    const { client, calls } = batchClient([
+      chunk({ chunkId: 34, games: 60, replaySample: 0 }),
+      chunk({ chunkId: 35, games: 13, replaySample: 0 }),
+      chunk({ chunkId: 36, games: 20, replaySample: 1 }),
+    ])
     await new Worker(config, client, silent).loop(new AbortController().signal, { once: true })
-    expect(calls.results).toEqual([])
-    expect(calls.failures.map((failure) => failure.chunkId)).toEqual([34, 35])
+    expect(calls.results.map((call) => call.chunkId)).toEqual([34, 36])
+    expect(calls.failures).toEqual([{ chunkId: 35, error: 'deck inválido' }])
+    expect(calls.replays.map((replay) => replay.chunkId)).toEqual([36])
+    expect(readdirSync(join(dataDir, 'work'))).toEqual([])
+  })
+
+  it('B2: a batch that fails as a whole is played chunk by chunk, so only a chunk that fails alone counts it', async () => {
+    const { client, calls } = batchClient([
+      chunk({ chunkId: 37, games: 60, replaySample: 0 }),
+      chunk({ chunkId: 38, games: 11, replaySample: 0 }),
+    ])
+    await new Worker(config, client, silent).loop(new AbortController().signal, { once: true })
+    expect(calls.failures).toEqual([])
+    expect(calls.results.map((call) => call.chunkId)).toEqual([37, 38])
+    expect(calls.results[1]?.body).toMatchObject({ games: 11 })
+  })
+
+  it('B2: a batch that hangs is played chunk by chunk too: only the chunk that hangs again is reported', async () => {
+    const { client, calls } = batchClient([
+      chunk({ chunkId: 39, games: 98, replaySample: 0 }),
+      chunk({ chunkId: 40, games: 10, replaySample: 0 }),
+    ])
+    const worker = new Worker(config, client, silent)
+    worker.heartbeatMs = 50
+    worker.stallMs = 300
+    await worker.loop(new AbortController().signal, { once: true })
+    expect(calls.failures.map((failure) => failure.chunkId)).toEqual([39])
+    expect(calls.results.map((call) => call.chunkId)).toEqual([40])
   })
 
   it('B2: a cancelled job stops the batch; a chunk that is lost is not renewed but still reported', async () => {
-    const hung = [chunk({ chunkId: 36, games: 98, replaySample: 0 }), chunk({ chunkId: 37, games: 10 })]
-    const { client, calls } = fakeClient([])
-    vi.mocked(client.claim).mockResolvedValueOnce({
-      chunk: hung[0] as Chunk,
-      chunks: hung,
-      requiredEngineRev: null,
-      retryAfterSeconds: 0,
-    })
+    const hung = [chunk({ chunkId: 41, games: 98, replaySample: 0 }), chunk({ chunkId: 42, games: 10 })]
+    const { client, calls } = batchClient(hung)
     vi.mocked(client.heartbeat).mockResolvedValue({ leaseUntil: null, cancelled: true, lost: false })
     const worker = new Worker(config, client, silent)
     worker.heartbeatMs = 50
@@ -332,21 +364,20 @@ describe('worker loop', () => {
     expect(calls.results).toEqual([])
     expect(calls.failures).toEqual([])
 
-    const second = fakeClient([])
-    const pair = [chunk({ chunkId: 38, games: 20, replaySample: 0 }), chunk({ chunkId: 39, games: 20 })]
-    vi.mocked(second.client.claim).mockResolvedValueOnce({
-      chunk: pair[0] as Chunk,
-      chunks: pair,
-      requiredEngineRev: null,
-      retryAfterSeconds: 0,
-    })
+    // The engine takes 300 ms (97 games): heartbeats run, chunk 43 is lost after the first one, 44 is renewed.
+    const second = batchClient([chunk({ chunkId: 43, games: 97, replaySample: 0 }), chunk({ chunkId: 44, games: 20 })])
     vi.mocked(second.client.heartbeat).mockImplementation(async (chunkId: number) => ({
       leaseUntil: null,
       cancelled: false,
-      lost: chunkId === 38,
+      lost: chunkId === 43,
     }))
-    await new Worker(config, second.client, silent).loop(new AbortController().signal, { once: true })
-    expect(second.calls.results.map((call) => call.chunkId)).toEqual([38, 39])
+    const watched = new Worker(config, second.client, silent)
+    watched.heartbeatMs = 50
+    await watched.loop(new AbortController().signal, { once: true })
+    const beats = (id: number) => vi.mocked(second.client.heartbeat).mock.calls.filter((call) => call[0] === id).length
+    expect(beats(43)).toBe(1)
+    expect(beats(44)).toBeGreaterThan(1)
+    expect(second.calls.results.map((call) => call.chunkId)).toEqual([43, 44])
   })
 
   it('reports an engine failure instead of a result', async () => {

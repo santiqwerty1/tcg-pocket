@@ -11,19 +11,34 @@ if (command === 'version') {
   const features = process.env.FAKE_ENGINE_OLD ? {} : { features: ['perGame', 'batch'] }
   process.stdout.write(JSON.stringify({ engineRev: REV, cliVersion: '0.1.0-fake', cards: 2, ...features }))
 } else if (command === 'batch') {
-  // B2: every pairing as simulate would play it; a pairing of 13 games fails the batch, of 98 hangs it.
+  // B2: every pairing as simulate would play it. A pairing of 13 games fails alone (like a deck the engine refuses),
+  // of 11 makes the whole batch fail, of 98 hangs it, of 97 takes 300 ms (so heartbeats run).
   const job = JSON.parse(readFileSync(jobFile, 'utf8'))
-  if (job.pairings.some((pairing) => pairing.games === 13)) {
-    process.stdout.write(JSON.stringify({ error: 'deck inválido', code: 'bad_deck' }))
+  if (job.pairings.some((pairing) => pairing.games === 11)) {
+    process.stdout.write(JSON.stringify({ error: 'el lote falló', code: 'engine_failure' }))
     process.exit(3)
   }
   const total = job.pairings.reduce((sum, pairing) => sum + pairing.games, 0)
   process.stderr.write(`total ${total}\n`)
+  const slow = job.pairings.some((pairing) => pairing.games === 97)
   if (job.pairings.some((pairing) => pairing.games === 98)) setInterval(() => {}, 1000)
-  else {
+  else setTimeout(finish, slow ? 300 : 0)
+  function finish() {
     for (let i = 1; i <= total; i++) process.stderr.write(`progress ${i}\n`)
     const pairings = job.pairings.map((pairing, p) => {
       const games = pairing.games
+      if (games === 13) {
+        return {
+          seed: pairing.seed,
+          winsA: 0,
+          winsB: 0,
+          ties: 0,
+          games: 0,
+          turns: 0,
+          replays: [],
+          error: { error: 'deck inválido', code: 'bad_input' },
+        }
+      }
       const winsA = Math.ceil(games / 2)
       const replays = []
       if (pairing.replaySample > 0) {

@@ -691,6 +691,61 @@ describe('simulation (e2e)', () => {
     await test.http().delete(`/api/simulations/${compare.body.id}`).set('Cookie', cookie)
   })
 
+  it('B2: two batch claims at once never share a chunk and each takes one job; the time left counts workers', async () => {
+    const make = async (sideB: { deckId: string }[]) =>
+      (
+        await post('/api/simulations').send({
+          kind: 'compare',
+          sideA: decks(3, 3),
+          sideB,
+          gamesPerPair: 60,
+          players: ['r', 'r'],
+        })
+      ).body.id as number
+    const small = await make(decks(5, 7))
+    const big = await make(decks(8, 13))
+    const hello = (id: string) =>
+      bearer('post', '/api/worker/claim').send({
+        ...worker(id),
+        version: '0.2.7',
+        batch: { maxChunks: 64, maxGames: 5000 },
+      })
+    const ids = (body: { chunks: Structured[] }) => body.chunks.map((chunk) => Number(chunk.chunkId))
+    const jobs = (body: { chunks: Structured[] }) => new Set(body.chunks.map((chunk) => chunk.jobId))
+    const [one, two] = await Promise.all([hello('worker-b2-x'), hello('worker-b2-y')])
+    expect(ids(one.body).filter((id) => ids(two.body).includes(id))).toEqual([])
+    expect([jobs(one.body).size, jobs(two.body).size]).toEqual([1, 1])
+    // Whatever the two took, the rest goes to the next claims, and nothing is handed out twice.
+    const seen = new Set([...ids(one.body), ...ids(two.body)])
+    for (let i = 0; i < 4 && seen.size < 9; i++) {
+      for (const id of ids((await hello('worker-b2-z')).body)) {
+        expect(seen.has(id)).toBe(false)
+        seen.add(id)
+      }
+    }
+    expect(seen.size).toBe(9)
+    for (const id of [small, big]) {
+      await post(`/api/simulations/${id}/cancel`)
+      await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)
+    }
+    // One worker holds the 6 chunks of a job: after one of them (60 games in 60 s), 300 games are left at 1 s each.
+    const alone = await make(decks(8, 13))
+    const held = (await hello('worker-b2-x')).body.chunks as Structured[]
+    expect(held).toHaveLength(6)
+    await bearer('put', `/api/worker/chunks/${held[0]?.chunkId}/result`).send({
+      workerId: 'worker-b2-x',
+      engineRev: test.env.engineRev,
+      winsA: 30,
+      winsB: 30,
+      ties: 0,
+      games: 60,
+      durationMs: 60_000,
+    })
+    expect((await get(`/api/simulations/${alone}`)).body.progress.etaSeconds).toBe(300)
+    await post(`/api/simulations/${alone}/cancel`)
+    await test.http().delete(`/api/simulations/${alone}`).set('Cookie', cookie)
+  })
+
   it('list: archive finished jobs (one by one or all), bring them back, delete the cancelled ones', async () => {
     const make = async () =>
       (

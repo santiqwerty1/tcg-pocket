@@ -44,7 +44,11 @@ interface BatchResult {
   engineRev: string
   /** For the whole batch: its pairings are played at the same time. */
   durationMs: number
-  pairings: (Omit<SimulateResult, 'engineRev' | 'durationMs'> & { seed: number })[]
+  /** `error`: this pairing has no result (the others do). */
+  pairings: (Omit<SimulateResult, 'engineRev' | 'durationMs'> & {
+    seed: number
+    error?: { error: string; code?: string; detail?: unknown }
+  })[]
 }
 
 interface OptimizeResult {
@@ -391,9 +395,10 @@ export class Worker {
    * game, and the claim, the start of the engine and the slowest game are paid once per batch instead of once per
    * chunk. Each chunk keeps its seed, its lease (a heartbeat each, one request at a time) and its own result. A
    * cancelled job stops the batch; a chunk that is no longer ours is not renewed, but its result still goes up (it
-   * only depends on its seed; the app keeps the first one).
+   * only depends on its seed; the app keeps the first one). A pairing that fails in the engine fails its own chunk;
+   * a batch that fails as a whole, or hangs, is played again chunk by chunk, so nothing else is blamed for it.
    */
-  async playBatch(chunks: Chunk[], signal: AbortSignal): Promise<PendingUpload[]> {
+  async playBatch(chunks: Chunk[], engineRev: string, signal: AbortSignal): Promise<PendingUpload[]> {
     const first = chunks[0] as Chunk
     const total = chunks.reduce((sum, chunk) => sum + chunk.games, 0)
     let gamesDone = 0
@@ -452,16 +457,15 @@ export class Worker {
       })
     }
     const beat = setInterval(tick, this.heartbeatMs)
-    const fail = async (message: string) => {
-      for (const chunk of chunks) {
-        await this.client
-          .failure(chunk.chunkId, { workerId: this.config.workerId, error: message })
-          .catch((reported: unknown) => {
-            if (!(reported instanceof ApiError) || reported.status === 401 || reported.status === 403) throw reported
-            this.log('el servidor rechazó la falla', { chunk: chunk.chunkId, error: reported.message })
-          })
-      }
+    const failOne = async (chunk: Chunk, message: string) => {
+      await this.client
+        .failure(chunk.chunkId, { workerId: this.config.workerId, error: message })
+        .catch((reported: unknown) => {
+          if (!(reported instanceof ApiError) || reported.status === 401 || reported.status === 403) throw reported
+          this.log('el servidor rechazó la falla', { chunk: chunk.chunkId, error: reported.message })
+        })
     }
+    let fallback: string
     try {
       const { result, dir } = await runJob<BatchResult>(
         this.config.enginePath,
@@ -487,7 +491,8 @@ export class Worker {
           },
         },
       )
-      if (result.pairings.length !== chunks.length || (first.perGame && result.pairings.some((p) => !p.perGame))) {
+      const missingPerGame = first.perGame && result.pairings.some((pairing) => !pairing.error && !pairing.perGame)
+      if (result.pairings.length !== chunks.length || missingPerGame) {
         await rm(dir, { recursive: true, force: true })
         throw new EngineError(
           'engine-cli devolvió un lote incompleto: recompilá el motor (cargo build).',
@@ -495,9 +500,23 @@ export class Worker {
           'old_engine',
         )
       }
-      return chunks.map((chunk, index) => {
+      const pendings: PendingUpload[] = []
+      for (const [index, chunk] of chunks.entries()) {
         const pairing = result.pairings[index] as BatchResult['pairings'][number]
-        return {
+        if (pairing.error) {
+          // Only this pairing failed (a deck the engine refuses, a game that panicked): only its chunk counts it.
+          const message = pairing.error.detail
+            ? `${pairing.error.error}: ${JSON.stringify(pairing.error.detail)}`
+            : pairing.error.error
+          this.log('un cruce del lote falló', {
+            chunk: chunk.chunkId,
+            code: pairing.error.code,
+            error: message.slice(0, 500),
+          })
+          await failOne(chunk, message)
+          continue
+        }
+        pendings.push({
           chunkId: chunk.chunkId,
           result: {
             workerId: this.config.workerId,
@@ -512,26 +531,31 @@ export class Worker {
             ...(pairing.perGame ? { extra: { perGame: pairing.perGame } } : {}),
           },
           replays: pairing.replays.map((replay) => ({ ...replay })),
-          // Every chunk's replays are in the batch's folder: it goes with the last upload.
-          dir: index === chunks.length - 1 ? dir : null,
-        }
-      })
+          dir: null,
+        })
+      }
+      // Every chunk's replays are in the batch's folder: it goes with the last upload (now, if none goes up).
+      const last = pendings.at(-1)
+      if (last) last.dir = dir
+      else await rm(dir, { recursive: true, force: true })
+      return pendings
     } catch (error) {
-      if (stalled) {
-        await fail(`El motor no avanzó en ${Math.round(this.stallMs / 60_000)} min y se cortó (¿colgado?).`)
-        return []
-      }
-      if (controller.signal.aborted) return []
-      if (error instanceof EngineError) {
-        this.log('el motor falló', { chunks: chunks.length, code: error.code, error: error.message.slice(0, 500) })
-        await fail(error.message)
-        return []
-      }
-      throw error
+      if (stalled) fallback = `el motor no avanzó en ${Math.round(this.stallMs / 60_000)} min`
+      else if (controller.signal.aborted) return []
+      else if (error instanceof EngineError) fallback = error.message
+      else throw error
     } finally {
       clearInterval(beat)
       signal.removeEventListener('abort', stop)
     }
+    // The batch as a whole failed or hung: each chunk on its own, so a failure or a hang counts only for its chunk.
+    this.log('el lote falló; juego sus chunks de a uno', { chunks: chunks.length, reason: fallback.slice(0, 300) })
+    for (const chunk of chunks) {
+      if (signal.aborted) break
+      const pending = await this.play(chunk, engineRev, signal)
+      if (pending) await this.uploadAll([pending])
+    }
+    return []
   }
 
   /** Claims and plays chunks until `signal` aborts (or once, for tests and `--once`). */
@@ -600,7 +624,7 @@ export class Worker {
           games: chunks.reduce((sum, chunk) => sum + chunk.games, 0),
           kind: claim.chunk.kind,
         })
-        pendings = await this.playBatch(chunks, signal)
+        pendings = await this.playBatch(chunks, engineRev, signal)
       } else {
         const chunk = claim.chunk
         this.log('chunk reclamado', {

@@ -318,12 +318,26 @@ export class SimulationsService {
   // ---------------------------------------------------------------------------------------------------------------
 
   private async progress(jobIds: readonly number[]): Promise<Map<number, JobProgressView>> {
-    const groups = await this.prisma.simulationChunk.groupBy({
-      by: ['jobId', 'status'],
-      where: { jobId: { in: [...jobIds] } },
-      _count: { _all: true },
-      _sum: { gamesDone: true, games: true, durationMs: true },
-    })
+    const [groups, leases] = await Promise.all([
+      this.prisma.simulationChunk.groupBy({
+        by: ['jobId', 'status'],
+        where: { jobId: { in: [...jobIds] } },
+        _count: { _all: true },
+        _sum: { gamesDone: true, games: true, durationMs: true },
+      }),
+      // Workers playing each job right now: a worker with a batch holds many chunks but plays them at once (B2).
+      this.prisma.simulationChunk.groupBy({
+        by: ['jobId', 'workerId'],
+        where: {
+          jobId: { in: [...jobIds] },
+          status: 'leased',
+          leaseUntil: { gt: new Date() },
+          workerId: { not: null },
+        },
+      }),
+    ])
+    const workers = new Map<number, number>()
+    for (const lease of leases) workers.set(lease.jobId, (workers.get(lease.jobId) ?? 0) + 1)
     const map = new Map<number, JobProgressView & { doneGames: number; doneMs: number }>()
     for (const id of jobIds) {
       map.set(id, {
@@ -356,10 +370,10 @@ export class SimulationsService {
         totalGames: entry.totalGames,
         gamesDone: entry.gamesDone,
         chunks: entry.chunks,
-        // Engine time per game of the finished chunks × games left, shared by the chunks playing right now (workers).
+        // Engine time per game of the finished chunks × games left, shared by the workers playing it right now.
         etaSeconds:
           entry.doneGames > 0 && left > 0
-            ? Math.round(((entry.doneMs / entry.doneGames) * left) / 1000 / Math.max(1, entry.chunks.running))
+            ? Math.round(((entry.doneMs / entry.doneGames) * left) / 1000 / Math.max(1, workers.get(id) ?? 0))
             : null,
       })
     }
