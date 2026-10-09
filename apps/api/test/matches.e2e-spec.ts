@@ -341,6 +341,36 @@ describe('matches (e2e)', () => {
     expect(hoopa.turn).toEqual({ first: { wins: 6, losses: 1, ties: 0 }, second: { wins: 1, losses: 5, ties: 0 } })
   })
 
+  it('ejercicios de cálculo (Fase 30): a question from a deck, rebuilt to grade the answer, and the tally', async () => {
+    const draw = (await get(`/api/drills?kind=draw&deckId=${deck(0).id}&seed=12345`)).body
+    expect(draw).toMatchObject({ kind: 'draw', seed: 12345, deckId: deck(0).id, deck: deck(0).name })
+    expect(draw.choices).toHaveLength(4)
+    expect(draw).not.toHaveProperty('answer')
+    expect((await get(`/api/drills?kind=draw&deckId=${deck(0).id}&seed=12345`)).body).toEqual(draw)
+    // Without a deck: one of the decks, decided by the seed.
+    const ko = (await get('/api/drills?kind=ko&seed=777')).body
+    expect(decks.map((item) => item.id)).toContain(ko.deckId)
+    expect(ko.facts.join(' ')).toContain('La debilidad suma 20')
+
+    const results: boolean[] = []
+    for (let choice = 0; choice < draw.choices.length; choice++) {
+      const graded = await post('/api/drills/answer').send({ kind: 'draw', deckId: deck(0).id, seed: 12345, choice })
+      expect(graded.status).toBe(200)
+      expect(graded.body.explanation).toMatch(/^Es \d+ %/)
+      results.push(graded.body.correct)
+    }
+    expect(results.filter(Boolean)).toHaveLength(1)
+    const stats = (await get('/api/drills/stats')).body
+    expect(stats.today).toEqual({ answered: 4, correct: 1 })
+    expect(stats.byKind.draw).toEqual({ answered: 4, correct: 1 })
+    expect(stats.streak).toBe(results.at(-1) ? 1 : 0)
+    expect(
+      (await post('/api/drills/answer').send({ kind: 'draw', deckId: deck(0).id, seed: 12345, choice: 7 })).status,
+    ).toBe(400)
+    expect((await get('/api/drills?kind=draw&deckId=999&seed=1')).status).toBe(400)
+    expect((await get('/api/drills?kind=nope&seed=1')).status).toBe(400)
+  })
+
   it('sin señal (Fase 28): a match sent twice with its clientRef is stored once, dated by how long ago it was played', async () => {
     const clientRef = '3f1c2b9e-8a47-4d1e-9c0b-5a6e7d8f9a01'
     const body = {

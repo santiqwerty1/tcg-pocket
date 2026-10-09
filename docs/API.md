@@ -248,6 +248,14 @@ Fase 25: `GET /api/matches/stats` suma `turnOrder: { first, second, unknown, cov
 |---|---|
 | `GET /api/play/:id/review?from=&to=&detail=summary\|full` | `{ id, status, deck, rival, bot, result, turns, coach: { decisions, agreement, hints, counts } \| null, lists: { you, bot }, review: { steps, turns: [{ turn, player, board, actions: [{ ply?, who, text, options?, coach?: { verdict, gap, rank, best? }, alternatives? }] }], keyMoments, omittedTurns } \| null, soFar, note }`; `review` es `null` mientras la partida no terminó (`soFar` trae lo que dijo el entrenador). MCP: `play_games`, `play_game_review`. |
 
+## Ejercicios de cálculo (Fase 30)
+
+| Método y ruta | Respuesta |
+|---|---|
+| `GET /api/drills?kind=draw\|ko&deckId=&seed=` | `{ kind, seed, prompt, facts, choices, deckId, deck }` (sin la respuesta; sin `deckId`, un mazo elegido por la semilla) |
+| `POST /api/drills/answer` `{ kind, deckId, seed, choice }` | `{ correct, answer, explanation, stats }` |
+| `GET /api/drills/stats` | `{ today: { answered, correct }, streak, byKind: { draw, ko } }` (30 días) |
+
 ## Sobres (Fase 4)
 
 | Método y ruta | Cuerpo / respuesta |

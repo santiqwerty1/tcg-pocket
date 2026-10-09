@@ -912,6 +912,20 @@ model PushSubscription {
 
 /// Fase 24: «situaciones para resolver» — the owner's attempts at a moment of a finished game with the coach (the
 /// situations themselves come from the game's replay). Practice data: not in the backup.
+/// Fase 30: an answer to a calculation exercise (the question is rebuilt from kind, deck and seed).
+model DrillAttempt {
+  id        Int      @id @default(autoincrement())
+  /// draw | ko
+  kind      String
+  deckId    Int?     @map("deck_id")
+  seed      BigInt
+  correct   Boolean
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([createdAt])
+  @@map("drill_attempts")
+}
+
 model PuzzleAttempt {
   gameId      Int       @map("game_id")
   /// Index of the step in the game's replay.

@@ -9,6 +9,7 @@ import { CollectionModule } from './collection/collection.module.js'
 import { configModule } from './config/config.module.js'
 import type { Env } from './config/env.js'
 import { DecksModule } from './decks/decks.module.js'
+import { DrillsModule } from './drills/drills.controller.js'
 import { EventsModule } from './events/events.controller.js'
 import { HttpModule } from './http/http.module.js'
 import { ApiExceptionFilter } from './http/http-exception.filter.js'
@@ -64,6 +65,7 @@ export class AppModule implements NestModule {
         LabModule,
         PickModule,
         SearchModule,
+        DrillsModule,
         PlayModule,
         AlertsModule,
         NotificationsModule,

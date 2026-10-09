@@ -80,7 +80,7 @@ function PuzzlesLink() {
   const puzzles = usePuzzles()
   const counts = puzzles.data?.counts
   return (
-    <Section title="Situaciones para resolver">
+    <Section title="Para practicar">
       <Link
         to="/jugar/situaciones"
         className="flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm hover:bg-muted"
@@ -91,6 +91,15 @@ function PuzzlesLink() {
             : 'Tus errores de las partidas con entrenador, para volver a jugarlos'}
         </span>
         <span className="text-primary">Ver</span>
+      </Link>
+      <Link
+        to="/jugar/ejercicios"
+        className="flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm hover:bg-muted"
+      >
+        <span className="min-w-0 flex-1">
+          Ejercicios de cálculo: ¿qué tan probable es robarla? ¿llega al KO? Con tus mazos.
+        </span>
+        <span className="text-primary">Practicar</span>
       </Link>
     </Section>
   )

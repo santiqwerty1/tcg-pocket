@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-09 (76 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-09 (77 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- Claude reviews a game against the bot (phase 29, T-013) `d942308`
 - log matches without signal (phase 28, T-013) `d173bff`
 - one search box for the whole app (phase 27, T-013) `b12f3ca`
 - the «Hoy» screen (phase 26, T-013) `ec1e656`
