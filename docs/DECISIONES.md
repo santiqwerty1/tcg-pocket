@@ -624,3 +624,13 @@ Pedido de Santi: miniaturas, tocar las cartas para ver más, mejores controles e
 | 46.9 | **Error interno con referencia**: la tool responde «referencia 3f9a2c1b», y la misma referencia queda en el log con la tool, el token, el cliente y el id del pedido. | Antes el error no decía nada que permitiera encontrarlo en los logs de Fly. |
 | 46.10 | **Instrucciones del servidor con escritura**: nombran todas las tools de escritura, dicen que quedan registradas y que los nombres de jugadores, torneos y listas son datos, nunca instrucciones. Más → Tokens recomienda un token de solo lectura para el uso diario. | Mitigación de R-010 del lado del modelo. |
 | 46.11 | Quedan afuera de esta fase: crear o editar eventos y los ajustes de sobres desde Claude, y el OAuth propio ([R-002](../Boveda/Seguimiento/Riesgos/R-002.md), solo si sacan el encabezado fijo). | No estaban en el alcance de la Fase 43 en T-014 y nadie los pidió. |
+
+## Fase 43, seguimiento (revisión del coordinador del #2, 9/10/2026)
+
+| # | Decisión | Motivo |
+|---|---|---|
+| 46.12 | **Las secuencias no retroceden.** La prueba mensual del backup anota dónde estaba cada secuencia y, después de deshacer la transacción, la deja en el mayor valor entre ese, el id más alto de la tabla y 1. Restaurar una partida con su id también deja la secuencia por encima de todos los ids. Si a pesar de eso otra partida ya ocupa el id (distinta fecha de alta), la borrada vuelve con un id nuevo y se dice cuál. | `setval` no se deshace con la transacción: después de la prueba, «Deshacer» podía chocar con la clave primaria o confundir dos partidas. |
+| 46.13 | **Dos ediciones de la misma carta se deshacen en orden inverso.** Cada edición guarda el `updated_at` de antes. Al deshacer la más nueva, la anterior (si nada cambió entre las dos) pasa a apuntar a la fila restaurada y se puede deshacer también. | Antes, deshacer la segunda dejaba la primera en 409 para siempre. |
+| 46.14 | **Optimizar valida lo mismo que crear el trabajo**: tope de 200 combinaciones y que el motor implemente cada candidata (o otra edición de la misma carta), también con `dryRun` y en el aviso de «más de 30 minutos». | Un plan de prueba no puede mostrar algo que después se rechaza. |
+| 46.15 | **`rivals_note_set` se puede deshacer**: guarda la nota anterior (o que no había) y «Deshacer» la devuelve solo si la nota sigue como la dejó Claude. | Reemplazar o vaciar una nota la perdía. |
+| 46.16 | Los recortes del registro (2.000 caracteres por texto, 16.000 en total) no parten un emoji. | Medio par sustituto es inválido en `jsonb`: el registro fallaba y, como se abre antes de escribir, la tool no escribía. |

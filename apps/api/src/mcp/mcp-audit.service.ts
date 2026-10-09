@@ -1,7 +1,8 @@
 /**
- * Fase 43 (R-010): the record of every write Claude makes through the MCP, and the way back for the two writes that
- * lose something — a deleted match (the row is kept here) and a collection edit (the row before the edit). The
- * owner sees it in Más → Tokens de API; `matches_restore` uses it too.
+ * Fase 43 (R-010): the record of every write Claude makes through the MCP, and the way back for the writes that
+ * lose something — a deleted match (the row is kept here), a collection edit (the row before the edit) and a rival
+ * note replaced or deleted (the text before). The owner sees it in Más → Tokens de API; `matches_restore` uses it
+ * too.
  */
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { MCP_WRITE_TOOLS } from '@tcg/domain'
@@ -9,6 +10,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { type McpAudit, Prisma } from '../generated/prisma/client.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import { RivalNotesService } from '../rivals/rival-notes.service.js'
 
 type Json = Record<string, unknown>
 
@@ -40,6 +42,16 @@ export type AuditUndo =
       after: { amountOwned: number; collected: boolean }
       /** The row's `updated_at` right after the edit: any later write (even back to the same values) blocks undo. */
       afterUpdatedAt?: string
+      /** The row's `updated_at` before the edit (null: no row): undoing a later edit hands its place back to this one. */
+      beforeUpdatedAt?: string | null
+      label: string
+    }
+  | {
+      kind: 'rival_note'
+      opponent: string
+      /** The note before the write (null: there was none) and after it (null: the write deleted it). */
+      before: string | null
+      after: string | null
       label: string
     }
 
@@ -70,17 +82,26 @@ export interface McpAuditView {
   /** What «Deshacer» would do, while it can still be undone. */
   undo: { kind: AuditUndo['kind']; label: string } | null
   undoneAt: Date | null
+  /** Right after undoing a deleted match: its id (another one if its own was taken meanwhile). */
+  restoredMatchId?: number
 }
 
 const TITLES = new Map<string, string>(Object.values(MCP_WRITE_TOOLS).map((tool) => [tool.name, tool.title]))
 const MAX_STRING = 2000
 const MAX_JSON = 16_000
 
+/** The first `max` UTF-16 units, without splitting a surrogate pair (a lone half is invalid in `jsonb`). */
+export function cutText(text: string, max: number): string {
+  if (text.length <= max) return text
+  const last = text.charCodeAt(max - 1)
+  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? max - 1 : max)
+}
+
 /** Long texts (a pasted deck list) cut, and anything still too big kept as a preview. */
 export function clipForAudit(value: unknown): Prisma.InputJsonValue {
   const walk = (item: unknown): unknown => {
     if (typeof item === 'string') {
-      return item.length > MAX_STRING ? `${item.slice(0, MAX_STRING)}… (+${item.length - MAX_STRING})` : item
+      return item.length > MAX_STRING ? `${cutText(item, MAX_STRING)}… (+${item.length - MAX_STRING})` : item
     }
     if (Array.isArray(item)) return item.map(walk)
     if (item && typeof item === 'object') {
@@ -91,13 +112,14 @@ export function clipForAudit(value: unknown): Prisma.InputJsonValue {
   const clipped = walk(value)
   const text = JSON.stringify(clipped) ?? 'null'
   if (text.length <= MAX_JSON) return (clipped ?? {}) as Prisma.InputJsonValue
-  return { truncated: true, preview: text.slice(0, MAX_JSON) }
+  return { truncated: true, preview: cutText(text, MAX_JSON) }
 }
 
 @Injectable()
 export class McpAuditService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly rivalNotes: RivalNotesService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(McpAuditService.name)
@@ -195,20 +217,27 @@ export class McpAuditService {
       data: { undoneAt: new Date() },
     })
     if (claimed.count === 0) throw new ConflictException({ code: 'already_undone', message: 'Ya estaba deshecha.' })
+    let restoredMatchId: number | undefined
     try {
-      if (undo.kind === 'match_delete') await this.restoreMatchRow(undo.match)
-      else await this.restoreStock(undo)
+      if (undo.kind === 'match_delete') restoredMatchId = await this.restoreMatchRow(undo.match)
+      else if (undo.kind === 'collection_stock') await this.restoreStock(undo)
+      else await this.restoreRivalNote(undo)
     } catch (error) {
       await this.prisma.mcpAudit.update({ where: { id: row.id }, data: { undoneAt: null } })
       throw error
     }
     const updated = await this.prisma.mcpAudit.findUniqueOrThrow({ where: { id: row.id } })
     this.logger.info({ audit: row.id, tool: row.tool, kind: undo.kind }, 'mcp write undone')
-    return this.view(updated)
+    return { ...this.view(updated), ...(restoredMatchId !== undefined ? { restoredMatchId } : {}) }
   }
 
-  private async restoreMatchRow(match: Extract<AuditUndo, { kind: 'match_delete' }>['match']): Promise<void> {
-    if (await this.prisma.match.findUnique({ where: { id: match.id }, select: { id: true } })) {
+  /**
+   * The deleted match again, with its id when it is free. The id is taken by another match only after something
+   * moved the sequence back (the monthly backup drill could, before Fase 43's follow-up): then it gets a new id.
+   */
+  private async restoreMatchRow(match: Extract<AuditUndo, { kind: 'match_delete' }>['match']): Promise<number> {
+    const holder = await this.prisma.match.findUnique({ where: { id: match.id }, select: { createdAt: true } })
+    if (holder && holder.createdAt.toISOString() === match.createdAt) {
       throw new ConflictException({ code: 'match_exists', message: `La partida ${match.id} ya está en la app.` })
     }
     const revision = await this.prisma.deckRevision.findUnique({
@@ -231,9 +260,9 @@ export class McpAuditService {
         message: `Esa partida ya volvió a entrar desde el celu (partida ${resent.id}): no la duplico.`,
       })
     }
-    await this.prisma.match.create({
+    const created = await this.prisma.match.create({
       data: {
-        id: match.id,
+        ...(holder ? {} : { id: match.id }),
         deckId: match.deckId,
         deckRevisionId: match.deckRevisionId,
         result: match.result,
@@ -246,34 +275,79 @@ export class McpAuditService {
         clientRef: match.clientRef,
         createdAt: new Date(match.createdAt),
       },
+      select: { id: true },
     })
+    // An explicit id does not move the sequence: keep it past every id, and never move it back.
+    await this.prisma.$executeRawUnsafe(
+      `SELECT setval(s.seq, GREATEST(COALESCE(pg_sequence_last_value(s.seq), 1), (SELECT COALESCE(MAX(id), 1) FROM "matches")), true)
+       FROM (SELECT pg_get_serial_sequence('"matches"', 'id')::regclass AS seq) s`,
+    )
+    return created.id
   }
 
   /**
    * Back to the row before the edit, in one conditional write: only if the row is still exactly what the edit left
    * (values and `updated_at`), so a later edit or CSV import, even one landing right now, is never overwritten.
+   * Undoing the newest of two edits of the same card hands the row back to the older one, which can then be undone
+   * too (in reverse order).
    */
   private async restoreStock(undo: Extract<AuditUndo, { kind: 'collection_stock' }>): Promise<void> {
-    const restored = await this.prisma.collectionStock.updateMany({
-      where: {
-        cardId: undo.cardId,
-        amountOwned: undo.after.amountOwned,
-        collected: undo.after.collected,
-        ...(undo.afterUpdatedAt !== undefined ? { updatedAt: new Date(undo.afterUpdatedAt) } : {}),
-      },
-      data: {
-        amountOwned: undo.before?.amountOwned ?? 0,
-        collected: undo.before?.collected ?? false,
-        source: 'manual',
-        importId: null,
-      },
+    await this.prisma.$transaction(async (tx) => {
+      const restored = await tx.collectionStock.updateMany({
+        where: {
+          cardId: undo.cardId,
+          amountOwned: undo.after.amountOwned,
+          collected: undo.after.collected,
+          ...(undo.afterUpdatedAt !== undefined ? { updatedAt: new Date(undo.afterUpdatedAt) } : {}),
+        },
+        data: {
+          amountOwned: undo.before?.amountOwned ?? 0,
+          collected: undo.before?.collected ?? false,
+          source: 'manual',
+          importId: null,
+        },
+      })
+      if (restored.count === 0) {
+        throw new ConflictException({
+          code: 'collection_changed',
+          message: `${undo.cardId} cambió después (otra edición o un CSV importado): no lo deshago para no pisarlo.`,
+        })
+      }
+      if (!undo.beforeUpdatedAt) return
+      const row = await tx.collectionStock.findUniqueOrThrow({ where: { cardId: undo.cardId } })
+      // The edit right before this one (the row had not changed in between) now matches the row again.
+      const previous = await tx.mcpAudit.findFirst({
+        where: {
+          tool: MCP_WRITE_TOOLS.collectionSet.name,
+          ok: true,
+          undoneAt: null,
+          AND: [
+            { undo: { path: ['cardId'], equals: undo.cardId } },
+            { undo: { path: ['afterUpdatedAt'], equals: undo.beforeUpdatedAt } },
+          ],
+        },
+        orderBy: { id: 'desc' },
+      })
+      if (!previous) return
+      const handed = { ...(previous.undo as Extract<AuditUndo, { kind: 'collection_stock' }>) }
+      handed.afterUpdatedAt = row.updatedAt.toISOString()
+      await tx.mcpAudit.update({
+        where: { id: previous.id },
+        data: { undo: handed as unknown as Prisma.InputJsonValue },
+      })
     })
-    if (restored.count === 0) {
+  }
+
+  /** The note as it was, only while it is still what the write left. */
+  private async restoreRivalNote(undo: Extract<AuditUndo, { kind: 'rival_note' }>): Promise<void> {
+    const current = (await this.rivalNotes.lookup(undo.opponent))?.text ?? null
+    if (current !== undo.after) {
       throw new ConflictException({
-        code: 'collection_changed',
-        message: `${undo.cardId} cambió después (otra edición o un CSV importado): no lo deshago para no pisarlo.`,
+        code: 'note_changed',
+        message: `La nota sobre «${undo.opponent}» cambió después: no la deshago para no pisarla.`,
       })
     }
+    await this.rivalNotes.save({ opponent: undo.opponent, text: undo.before ?? '', append: false })
   }
 
   private view(row: McpAudit): McpAuditView {

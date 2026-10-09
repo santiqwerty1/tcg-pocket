@@ -128,7 +128,7 @@ describe('Fase 43: bounds of the audit and the token clients', () => {
     const { McpAuditService } = await import('./mcp-audit.service.js')
     const updates: { data: Record<string, unknown> }[] = []
     const prisma = { mcpAudit: { update: async (args: { data: Record<string, unknown> }) => updates.push(args) } }
-    const audit = new McpAuditService(prisma as never, { setContext: () => undefined } as never)
+    const audit = new McpAuditService(prisma as never, {} as never, { setContext: () => undefined } as never)
     const undo = {
       kind: 'collection_stock' as const,
       cardId: 'B4-103',
@@ -164,5 +164,17 @@ describe('Fase 43: bounds of the audit and the token clients', () => {
     expect(fresh).toBe(MAX_CLIENTS_PER_TOKEN)
     expect(rows.size).toBe(MAX_CLIENTS_PER_TOKEN)
     expect(await tokens.noteClient(1, 'ua-0')).toBe(false)
+  })
+})
+
+describe('Fase 43: cutting text for the audit', () => {
+  it('never splits an emoji (a lone surrogate is invalid in jsonb)', async () => {
+    const { cutText } = await import('./mcp-audit.service.js')
+    const text = `${'a'.repeat(1999)}🃏 resto`
+    const cut = cutText(text, 2000)
+    expect(cut).toBe('a'.repeat(1999))
+    expect(() => JSON.parse(JSON.stringify(cut))).not.toThrow()
+    expect(cutText('🃏🃏', 4)).toBe('🃏🃏')
+    expect(cutText('🃏🃏', 3)).toBe('🃏')
   })
 })

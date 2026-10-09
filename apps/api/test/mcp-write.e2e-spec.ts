@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
+import { PrismaService } from '../src/prisma/prisma.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /**
@@ -320,6 +321,31 @@ describe('MCP write tools (e2e)', () => {
     })
     expect(notInDeck.isError).toBe(true)
     expect(notInDeck.content[0]?.text).toMatch(/no se pueden sacar 1/)
+    const tooMany = await call(client, 'simulations_enqueue', {
+      kind: 'optimize',
+      decksA: ['7'],
+      decksB: ['2'],
+      remove: [
+        { card: 'Bombirdier', count: 1 },
+        { card: 'Helado Suerte', count: 1 },
+        { card: 'Capa Gigante', count: 1 },
+      ],
+      candidates: [
+        'Helio',
+        'A1-225',
+        'Sabrina',
+        'Copiona',
+        'Poké Ball',
+        'Aguja Granuja',
+        'Chica del Centro Pokémon',
+        'Investigación de Profesores',
+        'Erika',
+        'Misty',
+      ],
+      dryRun: true,
+    })
+    expect(tooMany.isError).toBe(true)
+    expect(tooMany.content[0]?.text).toMatch(/combinaciones posibles superan el límite de 200/)
     const longOne = await call(client, 'simulations_enqueue', {
       kind: 'matrix',
       decksA: ['1', '2', '3', '4', '5', '6', '7', '8'],
@@ -391,6 +417,14 @@ describe('MCP write tools (e2e)', () => {
     expect(stale.status).toBe(409)
     expect(stale.body.error.code).toBe('collection_changed')
     expect((await patch(owned)).status).toBe(200)
+
+    // Two edits in a row: undoing the newest hands the row back to the older one, which can be undone too.
+    expect((await call(client, 'collection_set', { card: 'B4-103', add: 1 })).isError).toBeFalsy()
+    expect((await call(client, 'collection_set', { card: 'B4-103', add: 1 })).isError).toBeFalsy()
+    const [second, first] = (await get('/api/mcp-audit?limit=2')).body.items as { id: string }[]
+    expect((await test.http().post(`/api/mcp-audit/${second?.id}/undo`).set('Cookie', cookie)).status).toBe(200)
+    expect((await test.http().post(`/api/mcp-audit/${first?.id}/undo`).set('Cookie', cookie)).status).toBe(200)
+    expect((await editions())[0]?.editions.find((edition) => edition.cardId === 'B4-103')?.owned).toBe(owned)
   })
 
   it('Fase 43: a token used by a new client shows up in the tokens and as an alert', async () => {
@@ -413,6 +447,53 @@ describe('MCP write tools (e2e)', () => {
     expect((listed.structuredContent.alerts as { title: string }[]).map((alert) => alert.title)).toContainEqual(
       expect.stringContaining('Intruso'),
     )
+  })
+
+  it('Fase 43: the backup drill does not move the sequence back; a restored id never collides', async () => {
+    const client = await connect()
+    const logged = await call(client, 'matches_log', { deck: '5', result: 'win', opponent: 'Secuencia' })
+    const id = Number((logged.structuredContent.match as Structured).id)
+    expect((await call(client, 'matches_delete', { id: String(id) })).isError).toBeFalsy()
+    // The drill restores (and rolls back) a copy without that match: its setval used to move the sequence back.
+    const drill = await test.http().post('/api/backup/drill').set('Cookie', cookie)
+    expect(drill.body.drill).toMatchObject({ ok: true })
+    const next = await call(client, 'matches_log', { deck: '5', result: 'loss', opponent: 'Secuencia' })
+    expect(Number((next.structuredContent.match as Structured).id)).toBeGreaterThan(id)
+    // Restored with its own id; the next match does not collide with it.
+    const restored = await call(client, 'matches_restore', { id: String(id) })
+    expect(restored.structuredContent).toMatchObject({ restored: true, match: { id: String(id) } })
+    expect((await call(client, 'matches_log', { deck: '5', result: 'tie', opponent: 'Secuencia' })).isError).toBeFalsy()
+
+    // If something did move it back and another match took the id, the deleted one comes back with a new id.
+    expect((await call(client, 'matches_delete', { id: String(id) })).isError).toBeFalsy()
+    const prisma = test.app.get(PrismaService)
+    await prisma.$executeRawUnsafe(`SELECT setval(pg_get_serial_sequence('"matches"', 'id'), ${id - 1}, true)`)
+    const squatter = await test
+      .http()
+      .post('/api/matches')
+      .set('Cookie', cookie)
+      .send({ deckId: '5', result: 'win', mode: 'casual' })
+    expect(Number(squatter.body.id)).toBe(id)
+    await prisma.$executeRawUnsafe(
+      `SELECT setval(pg_get_serial_sequence('"matches"', 'id'), (SELECT MAX(id) FROM "matches"), true)`,
+    )
+    const moved = await call(client, 'matches_restore', { id: String(id) })
+    expect(moved.structuredContent.note).toMatch(/volvió como la partida \d+/)
+    expect(Number((moved.structuredContent.match as Structured).id)).not.toBe(id)
+  })
+
+  it('Fase 43: a replaced rival note comes back with «Deshacer»', async () => {
+    const client = await connect()
+    expect(
+      (await call(client, 'rivals_note_set', { opponent: 'Gardevoir', text: 'Primera idea.' })).isError,
+    ).toBeFalsy()
+    const replaced = await call(client, 'rivals_note_set', { opponent: 'Gardevoir', text: 'Otra cosa.', append: false })
+    expect(replaced.structuredContent).toMatchObject({ text: 'Otra cosa.' })
+    const audit = (await get('/api/mcp-audit?limit=1')).body.items as { id: string; undo: { label: string } | null }[]
+    expect(audit[0]?.undo?.label).toContain('cambiada')
+    expect((await test.http().post(`/api/mcp-audit/${audit[0]?.id}/undo`).set('Cookie', cookie)).status).toBe(200)
+    const read = await call(client, 'rivals_notes', { opponent: 'Gardevoir' })
+    expect((read.structuredContent.note as Structured).text).toBe('Primera idea.')
   })
 
   it('Fase 43: a match the phone sent again is not restored twice', async () => {

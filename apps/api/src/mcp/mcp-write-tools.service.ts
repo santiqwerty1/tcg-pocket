@@ -26,7 +26,7 @@ import { PrismaService } from '../prisma/prisma.service.js'
 import { RivalNotesService } from '../rivals/rival-notes.service.js'
 import type { CreateJobInput } from '../simulation/simulations.service.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
-import type { SnapshotSource } from '../simulation/snapshots.service.js'
+import { EngineStatusService, type SnapshotSource } from '../simulation/snapshots.service.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
 import { resolveCardRef } from './card-ref.js'
 import { DeckRefResolver } from './deck-ref.js'
@@ -38,6 +38,8 @@ type Json = Record<string, unknown>
 
 /** Fase 43: above this estimate, simulations_enqueue asks for confirmLong (R-010: a long job Claude cannot stop). */
 const LONG_JOB_MINUTES = 30
+/** The optimize job's own limit (SimulationsService refuses more combinations). */
+const MAX_OPTIMIZE_COMBINATIONS = 200
 
 interface ToolDefinition<S extends StandardSchemaWithJSON> {
   name: string
@@ -109,6 +111,7 @@ export class McpWriteToolsService {
     private readonly collection: CollectionService,
     private readonly prisma: PrismaService,
     private readonly audit: McpAuditService,
+    private readonly engineStatus: EngineStatusService,
   ) {}
 
   register(server: McpServer, run: WriteRun): void {
@@ -123,7 +126,7 @@ export class McpWriteToolsService {
       run(t.matchesLog.name, args, () => this.matchesLog(args)),
     )
     server.registerTool(t.rivalsNoteSet.name, config(t.rivalsNoteSet, WRITE), (args) =>
-      run(t.rivalsNoteSet.name, args, () => this.rivalsNoteSet(args)),
+      run(t.rivalsNoteSet.name, args, (note) => this.rivalsNoteSet(args, note)),
     )
     server.registerTool(t.matchesUpdate.name, config(t.matchesUpdate, WRITE), (args) =>
       run(t.matchesUpdate.name, args, () => this.matchesUpdate(args)),
@@ -309,8 +312,23 @@ export class McpWriteToolsService {
   // Matches
   // ---------------------------------------------------------------------------------------------------------------
 
-  private async rivalsNoteSet(args: { opponent: string; text: string; append?: boolean }): Promise<Json> {
+  /** The text before the write stays in the log: replacing or deleting a note can be undone (Fase 43). */
+  private async rivalsNoteSet(
+    args: { opponent: string; text: string; append?: boolean },
+    audit: AuditNote,
+  ): Promise<Json> {
+    const before = (await this.rivalNotes.lookup(args.opponent))?.text ?? null
     const note = await this.rivalNotes.save({ opponent: args.opponent, text: args.text, append: args.append ?? true })
+    const after = note?.text ?? null
+    if (before !== after) {
+      audit.undo = {
+        kind: 'rival_note',
+        opponent: note?.label ?? args.opponent,
+        before,
+        after,
+        label: `Nota sobre «${note?.label ?? args.opponent}»: ${after === null ? 'borrada' : before === null ? 'nueva' : 'cambiada'}`,
+      }
+    }
     return note
       ? { saved: true, rival: note.label, text: note.text, updatedAt: note.updatedAt.toISOString() }
       : { saved: true, deleted: true, rival: args.opponent }
@@ -403,10 +421,18 @@ export class McpWriteToolsService {
   }
 
   private async matchesRestore(id: string): Promise<Json> {
-    await this.audit.restoreMatch(Number(id))
-    const match = await this.matches.get(id)
+    const undone = await this.audit.restoreMatch(Number(id))
+    const restoredId = undone.restoredMatchId ?? Number(id)
+    const match = await this.matches.get(String(restoredId))
     const stats = await this.matches.stats({ deckId: match.deck.id })
-    return { restored: true, match: matchView(match), deckRecord: recordView(stats.overall) }
+    return {
+      restored: true,
+      match: matchView(match),
+      deckRecord: recordView(stats.overall),
+      ...(restoredId !== Number(id)
+        ? { note: `Su id ya lo usaba otra partida: volvió como la partida ${restoredId}.` }
+        : {}),
+    }
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -487,6 +513,7 @@ export class McpWriteToolsService {
       before: result.before,
       after: result.after,
       ...(written ? { afterUpdatedAt: written.updatedAt.toISOString() } : {}),
+      beforeUpdatedAt: current?.updatedAt.toISOString() ?? null,
       label: `${card?.nameEs ?? cardId} (${cardId}): de ${result.before?.amountOwned ?? 0} a ${result.after.amountOwned}`,
     }
     return {
@@ -577,6 +604,28 @@ export class McpWriteToolsService {
       if (asked.size === 0) throw new BadRequestException('Optimizar necesita al menos una carta para sacar (remove).')
       if (optimize.candidates.length === 0) {
         throw new BadRequestException('Optimizar necesita cartas candidatas (candidates).')
+      }
+      // The same limits creating the job applies, so a dry run never shows a plan that would be refused.
+      const status = await this.engineStatus.status()
+      const index = this.catalog.requireIndex()
+      for (const cardId of optimize.candidates) {
+        const card = index.cardById(cardId)
+        const playable =
+          card !== undefined &&
+          (status(card.engineId) === true ||
+            index.cardsOfGroup(card.functionalGroupId).some((other) => status(other.engineId) === true))
+        if (!playable) {
+          throw new BadRequestException(`${card?.nameEs ?? cardId} (${cardId}) no está implementada en el motor.`)
+        }
+      }
+      const combinations = multisetCount(
+        optimize.candidates.length,
+        [...asked.values()].reduce((a, b) => a + b, 0),
+      )
+      if (combinations > MAX_OPTIMIZE_COMBINATIONS) {
+        throw new BadRequestException(
+          `${combinations} combinaciones posibles superan el límite de ${MAX_OPTIMIZE_COMBINATIONS}: elegí menos candidatas o sacá menos cartas.`,
+        )
       }
     }
     const engine = await this.simulations.engineView()

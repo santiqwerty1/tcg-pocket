@@ -95,6 +95,18 @@ export function firstDifference(a: unknown, b: unknown, path: string): string | 
   return path
 }
 
+/** Tables a restore refills with their own ids; their sequences are set after it (and put back after a drill). */
+const SERIAL_TABLES = [
+  'collection_imports',
+  'collection_adjustments',
+  'decks',
+  'deck_revisions',
+  'deck_changes',
+  'matches',
+  'live_games',
+  'events',
+] as const
+
 /** Thrown inside the drill's transaction so nothing it restored stays. */
 class DrillRollback extends Error {}
 
@@ -480,6 +492,8 @@ export class BackupService {
       const { unknownCardIds } = this.inspect(document)
       if (unknownCardIds.length > 0) throw new Error(`${unknownCardIds.length} cartas que el catálogo no conoce`)
       let restored: BackupDocument | null = null
+      // `setval` is not undone with the transaction: the drill puts the sequences back where they were.
+      const sequences = await this.sequenceValues()
       try {
         await this.prisma.$transaction(
           async (tx) => {
@@ -491,6 +505,8 @@ export class BackupService {
         )
       } catch (error) {
         if (!(error instanceof DrillRollback)) throw error
+      } finally {
+        await this.restoreSequences(sequences)
       }
       if (!restored) throw new Error('la restauración no devolvió nada')
       const back = JSON.parse(JSON.stringify(restored)) as Record<string, unknown>
@@ -512,6 +528,27 @@ export class BackupService {
     })
     this.logger[result.ok ? 'info' : 'error']({ drill: result }, 'backup drill')
     return result
+  }
+
+  /** Where each sequence of the restored tables stands (the last id handed out, or 0). */
+  private async sequenceValues(): Promise<Map<string, number>> {
+    const values = new Map<string, number>()
+    for (const table of SERIAL_TABLES) {
+      const rows = await this.prisma.$queryRawUnsafe<{ value: bigint | number | null }[]>(
+        `SELECT pg_sequence_last_value(pg_get_serial_sequence('"${table}"', 'id')::regclass) AS value`,
+      )
+      values.set(table, Number(rows[0]?.value ?? 0))
+    }
+    return values
+  }
+
+  /** Each sequence past what it had handed out before the drill and past every id: it never moves back. */
+  private async restoreSequences(values: Map<string, number>): Promise<void> {
+    for (const [table, value] of values) {
+      await this.prisma.$executeRawUnsafe(
+        `SELECT setval(pg_get_serial_sequence('"${table}"', 'id'), GREATEST(${Math.trunc(value)}, (SELECT COALESCE(MAX(id), 0) FROM "${table}"), 1), true)`,
+      )
+    }
   }
 
   async lastDrill(): Promise<BackupDrillResult | null> {
@@ -723,16 +760,7 @@ export class BackupService {
         update: { points: rule.points, pointsVerified: rule.pointsVerified, tradeable: rule.tradeable },
       })
     }
-    for (const table of [
-      'collection_imports',
-      'collection_adjustments',
-      'decks',
-      'deck_revisions',
-      'deck_changes',
-      'matches',
-      'live_games',
-      'events',
-    ]) {
+    for (const table of SERIAL_TABLES) {
       await tx.$executeRawUnsafe(
         `SELECT setval(pg_get_serial_sequence('"${table}"', 'id'), COALESCE((SELECT MAX(id) FROM "${table}"), 0) + 1, false)`,
       )
