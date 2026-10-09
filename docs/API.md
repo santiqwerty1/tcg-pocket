@@ -69,6 +69,15 @@ GroupDetail = GroupSummary & {
 
 Remapeo (I12, Fase 21): si el commit nuevo mueve ediciones entre unidades de stock o cartas funcionales, o saca cartas, el stock, los ajustes, las cartas de los mazos, las cartas clave y las prohibidas de los eventos las siguen en la misma transacción. Lo que se tuvo que adivinar (fusión de unidades con cantidades distintas, una unidad o grupo que se separa, una carta de un mazo sin reemplazo) deja la sync en `needs_review`; cada caso es una línea en `warnings` y en `report.remap.notes` (`{ kind, review, text }`).
 
+### Día de expansión (Fase 40)
+
+| Método y ruta | Cuerpo / respuesta |
+|---|---|
+| `GET /api/catalog/latest` | `{ current: sha | null, latest: { sha, date, message } | null, comparison: { status: 'ahead'|'behind'|'identical'|'diverged', aheadBy, behindBy } | null, error: string | null }`: el último commit del `main` del tracker (API de GitHub, con `GITHUB_TOKEN` si está) contra el cargado; `latest: null` y `error` si GitHub no contesta |
+| `POST /api/catalog/preview` | `{ commit?, engineRev?, fromFixtures? }` (sin `commit`: el último del tracker) → `{ trackerCommit, engineRev, current, counts, diff: DiffCounts | null, diffEmpty, expansionsAdded: [{ id, nameEn, nameEs, cards }], removed: [{ cardId, nameEs }] (las primeras 50), remap: { needsReview, empty, notes: [{ kind, review, text }] } | null, engine: { engineRev, plays, incomplete, unknown } (de las cartas nuevas, según lo que informó un worker), destructive, older, warnings }`: lo que haría la sincronización, sin escribir nada (unos segundos: baja los archivos del tracker); `409` si hay una sincronización en curso |
+
+`POST /api/catalog/sync` (Fase 40, H-004): sin `commit` repite el **commit cargado** (antes volvía al fijado en la configuración); `confirm: true` hace falta para ir a un commit anterior al cargado (`409 confirm_required`) y para una actualización que saca cartas del catálogo o deja el remapeo en `needs_review` (si no, la fila de la sincronización queda `failed` diciendo por qué, sin escribir nada). La CLI `catalog:sync` no pide confirmación.
+
 ## Colección
 
 | Método y ruta | Cuerpo / respuesta |
@@ -393,6 +402,7 @@ Datos de Limitless (play.limitlesstcg.com) por **era** y **formato**. La era de 
 | `GET /api/tournaments/events` | `{ scope, rows: [{ id, name, date, players, lists, organizerName, conflict }] }` |
 | `GET /api/tournaments/unknown-cards` | `{ scope, cards: [{ ref, set, number, name, occurrences }] }`: cartas de las listas que el catálogo no conoce (se re-mapean solas al sincronizarlo) |
 | `GET /api/tournaments/sets` · `PUT /api/tournaments/sets/:code` | `{ items: [{ code, nameEn, nameEs, releaseDate, opensEra }] }` · `{ nameEn, releaseDate: YYYY-MM-DD, opensEra }` → el set (alta o cambio) |
+| `GET /api/tournaments/sets/proposals` | Fase 40 (H-006): `{ items: [{ code, nameEn, nameEs, releaseDate, opensEra, tournaments, firstTournament: { id, name, date }, inCatalog }] }`: las filas que le faltan a la tabla de eras, propuestas desde los torneos que ya juegan ese set (fecha del primero; abre era salvo que el catálogo lo llame Deluxe); se agregan con `PUT /api/tournaments/sets/:code` |
 
 ```ts
 Scope = { era: { code, nameEs, from, to | null, current }, format, minPlayers, tournaments, lists, games,

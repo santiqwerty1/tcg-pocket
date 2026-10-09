@@ -14,6 +14,7 @@ import {
 export const catalogKeys = {
   all: ['catalog'] as const,
   status: ['catalog', 'status'] as const,
+  latest: ['catalog', 'latest'] as const,
   expansions: ['expansions'] as const,
   search: (q: string, lang: string, limit: number) => ['cards', 'search', q, lang, limit] as const,
   card: (cardId: string) => ['cards', cardId] as const,
@@ -40,9 +41,82 @@ export function useCatalogStatus() {
 export function useSyncCatalog() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: { commit?: string; engineRev?: string }) =>
+    mutationFn: (body: { commit?: string; engineRev?: string; confirm?: boolean }) =>
       request<unknown>('/api/catalog/sync', { method: 'POST', body }),
     onSettled: () => queryClient.invalidateQueries({ queryKey: catalogKeys.all }),
+  })
+}
+
+// ---------- Día de expansión (Fase 40) ----------
+
+const trackerCommitSchema = z.object({ sha: z.string(), date: z.string().nullable(), message: z.string() })
+export const catalogLatestSchema = z.object({
+  current: z.string().nullable(),
+  latest: trackerCommitSchema.nullable(),
+  comparison: z
+    .object({
+      status: z.enum(['ahead', 'behind', 'identical', 'diverged']),
+      aheadBy: z.number(),
+      behindBy: z.number(),
+    })
+    .nullable(),
+  error: z.string().nullable(),
+})
+export type CatalogLatest = z.infer<typeof catalogLatestSchema>
+
+const diffCountsSchema = z.object({
+  added: z.number(),
+  removed: z.number(),
+  internalIdChanged: z.number(),
+  stockChanged: z.number(),
+  groupChanged: z.number(),
+  nameChanged: z.number(),
+  expansionsAdded: z.number(),
+  expansionsRemoved: z.number(),
+})
+export const catalogPreviewSchema = z.object({
+  trackerCommit: z.string(),
+  engineRev: z.string(),
+  current: z.string().nullable(),
+  counts: z.object({ cards: z.number() }).loose(),
+  diff: diffCountsSchema.nullable(),
+  diffEmpty: z.boolean(),
+  expansionsAdded: z.array(z.object({ id: z.string(), nameEn: z.string(), nameEs: z.string(), cards: z.number() })),
+  removed: z.array(z.object({ cardId: z.string(), nameEs: z.string() })),
+  remap: z
+    .object({
+      needsReview: z.boolean(),
+      empty: z.boolean(),
+      notes: z.array(z.object({ kind: z.string(), review: z.boolean(), text: z.string() })),
+    })
+    .nullable(),
+  engine: z.object({
+    engineRev: z.string().nullable(),
+    plays: z.number(),
+    incomplete: z.number(),
+    unknown: z.number(),
+  }),
+  destructive: z.boolean(),
+  older: z.boolean(),
+  warnings: z.array(z.string()),
+})
+export type CatalogPreview = z.infer<typeof catalogPreviewSchema>
+
+/** The tracker's newest commit against the loaded one (asked on demand: it calls GitHub). */
+export function useCatalogLatest(enabled: boolean) {
+  return useQuery({
+    queryKey: catalogKeys.latest,
+    queryFn: ({ signal }) => request('/api/catalog/latest', { schema: catalogLatestSchema, signal }),
+    enabled,
+    staleTime: 5 * 60_000,
+  })
+}
+
+/** What syncing a commit would change, nothing written (a few seconds: it downloads the tracker's files). */
+export function usePreviewCatalog() {
+  return useMutation({
+    mutationFn: (body: { commit?: string }) =>
+      request('/api/catalog/preview', { method: 'POST', body, schema: catalogPreviewSchema }),
   })
 }
 

@@ -8,7 +8,9 @@ import { errorMessage } from '@/api/client'
 import type { SetReleaseInfo } from '@/api/schemas'
 import { useSetSetting, useSettings } from '@/api/settings'
 import {
+  type SetProposal,
   useSaveSetRelease,
+  useSetProposals,
   useSetReleases,
   useStartSync,
   useTournamentEvents,
@@ -49,6 +51,39 @@ function SetRow({ set, onSave }: { set: SetReleaseInfo; onSave: (set: SetRelease
         />
         era
       </Label>
+    </li>
+  )
+}
+
+/** Fase 40 (H-006): a row the era table lacks, proposed from the tournaments that play the set; one tap adds it. */
+function ProposedSet({ proposal, onSave }: { proposal: SetProposal; onSave: (set: SetReleaseInfo) => void }) {
+  return (
+    <li className="flex flex-col gap-2 rounded-lg border border-dashed p-3 text-sm sm:flex-row sm:items-center">
+      <div className="min-w-0 flex-1">
+        <div className="font-medium">
+          <span className="font-mono">{proposal.code}</span> · {proposal.nameEs ?? proposal.nameEn}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Desde el {formatDayEs(proposal.releaseDate)} ({proposal.firstTournament.name}); lo juegan{' '}
+          {formatCount(proposal.tournaments)} {proposal.tournaments === 1 ? 'torneo' : 'torneos'}.{' '}
+          {proposal.opensEra ? 'Abre era.' : 'Deluxe: no abre era.'}
+          {proposal.inCatalog ? '' : ' El catálogo todavía no lo tiene: actualizalo en Más → Catálogo.'}
+        </p>
+      </div>
+      <Button
+        size="sm"
+        onClick={() =>
+          onSave({
+            code: proposal.code,
+            nameEn: proposal.nameEn,
+            nameEs: proposal.nameEs,
+            releaseDate: proposal.releaseDate,
+            opensEra: proposal.opensEra,
+          })
+        }
+      >
+        Agregar {proposal.code}
+      </Button>
     </li>
   )
 }
@@ -98,6 +133,7 @@ function NewSet({ onSave }: { onSave: (set: SetReleaseInfo) => void }) {
 export function TorneosAjustesPage() {
   const status = useTournamentStatus()
   const sets = useSetReleases()
+  const proposals = useSetProposals()
   const saveSet = useSaveSetRelease()
   const settings = useSettings()
   const setSetting = useSetSetting()
@@ -212,6 +248,13 @@ export function TorneosAjustesPage() {
         </p>
         {sets.isPending ? <LoadingRows rows={4} /> : null}
         {sets.isError ? <ErrorState error={sets.error} onRetry={() => sets.refetch()} /> : null}
+        {(proposals.data ?? []).length > 0 ? (
+          <ul className="flex flex-col gap-2" aria-label="Sets propuestos">
+            {(proposals.data ?? []).map((proposal) => (
+              <ProposedSet key={proposal.code} proposal={proposal} onSave={save} />
+            ))}
+          </ul>
+        ) : null}
         <NewSet onSave={save} />
         <ul className="divide-y rounded-lg border">
           {(sets.data ?? []).map((set) => (

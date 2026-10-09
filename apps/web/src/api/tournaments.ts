@@ -1,4 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { z } from 'zod'
 import { request } from './client'
 import {
   archetypeDetailSchema,
@@ -188,6 +189,28 @@ export function useSetReleases() {
   return useQuery({
     queryKey: tournamentKeys.sets,
     queryFn: ({ signal }) => request('/api/tournaments/sets', { schema: setReleasesResponseSchema, signal }),
+    select: (data) => data.items,
+  })
+}
+
+const setProposalSchema = z.object({
+  code: z.string(),
+  nameEn: z.string(),
+  nameEs: z.string().nullable(),
+  releaseDate: z.string(),
+  opensEra: z.boolean(),
+  tournaments: z.number(),
+  firstTournament: z.object({ id: z.string(), name: z.string(), date: z.string() }),
+  inCatalog: z.boolean(),
+})
+export type SetProposal = z.infer<typeof setProposalSchema>
+
+/** Fase 40 (H-006): the rows the era table lacks, proposed from the tournaments that play those sets. */
+export function useSetProposals() {
+  return useQuery({
+    queryKey: [...tournamentKeys.sets, 'proposals'] as const,
+    queryFn: ({ signal }) =>
+      request('/api/tournaments/sets/proposals', { schema: z.object({ items: z.array(setProposalSchema) }), signal }),
     select: (data) => data.items,
   })
 }

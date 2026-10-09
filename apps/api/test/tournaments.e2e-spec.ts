@@ -419,6 +419,42 @@ describe('tournaments (e2e)', () => {
     }
   })
 
+  it('Fase 40 (H-006): a set the era table lacks comes as a proposed row; one tap adds it', async () => {
+    const release = await test.prisma.setRelease.findUniqueOrThrow({ where: { code: 'B4a' } })
+    await test.prisma.setRelease.delete({ where: { code: 'B4a' } })
+    test.app.get(TournamentDataVersion).bump()
+    try {
+      const proposals = (await get('/api/tournaments/sets/proposals')).body.items as {
+        code: string
+        releaseDate: string
+        opensEra: boolean
+        tournaments: number
+        inCatalog: boolean
+        nameEn: string
+      }[]
+      expect(proposals).toEqual([
+        expect.objectContaining({
+          code: 'B4a',
+          releaseDate: '2026-09-05',
+          opensEra: true,
+          tournaments: 1,
+          inCatalog: true,
+          nameEn: "Team Rocket's Ambition",
+        }),
+      ])
+      const saved = await put('/api/tournaments/sets/B4a').send({
+        nameEn: proposals[0]?.nameEn,
+        releaseDate: release.releaseDate.toISOString().slice(0, 10),
+        opensEra: true,
+      })
+      expect(saved.status).toBe(200)
+      expect((await get('/api/tournaments/sets/proposals')).body.items).toEqual([])
+    } finally {
+      await test.prisma.setRelease.upsert({ where: { code: 'B4a' }, create: release, update: release })
+      test.app.get(TournamentDataVersion).bump()
+    }
+  })
+
   it('Fase 38 (R-008): one dataset build at a time; a failed build does not block the next; old versions leave memory', async () => {
     const service = test.app.get(TournamentsService)
     const internals = service as unknown as {

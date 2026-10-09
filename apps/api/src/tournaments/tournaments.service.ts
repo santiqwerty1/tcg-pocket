@@ -14,6 +14,7 @@ import {
   type CatalogIndex,
   cardUsage,
   type DatasetEntry,
+  DEFAULT_SET_RELEASES,
   type DeckCardEntry,
   deckInTournaments,
   entriesOfArchetype,
@@ -87,6 +88,7 @@ import type {
   MetaTrendsView,
   RecordRowView,
   ScopeView,
+  SetProposalView,
   SetReleaseView,
   StatusView,
   TournamentRowView,
@@ -839,6 +841,37 @@ export class TournamentsService {
     return (await this.settings.sets())
       .map((set) => ({ ...set, nameEs: index.expansionById(set.code)?.nameEs ?? null }))
       .reverse()
+  }
+
+  /** Fase 40 (H-006): the rows the era table lacks, proposed from the tournaments that already play those sets. */
+  async setProposals(): Promise<SetProposalView[]> {
+    const { dataset } = await this.scopedDataset({})
+    const known = new Set((await this.settings.sets()).map((set) => set.code))
+    const index = this.catalog.requireIndex()
+    const bySet = new Map<string, { id: string; name: string; date: Date }[]>()
+    for (const tournament of dataset.newSetTournaments) {
+      if (known.has(tournament.set)) continue
+      bySet.set(tournament.set, [...(bySet.get(tournament.set) ?? []), tournament])
+    }
+    return [...bySet]
+      .map(([code, tournaments]) => {
+        const first = [...tournaments].sort((a, b) => a.date.getTime() - b.date.getTime())[0] as (typeof tournaments)[0]
+        const expansion = index.expansionById(code)
+        // The known table's English name first; the tracker's is sometimes a slug («teamrocketsambition»).
+        const tableName = DEFAULT_SET_RELEASES.find((set) => set.code === code)?.nameEn
+        const trackerName = expansion && !/^[a-z0-9]+$/.test(expansion.nameEn) ? expansion.nameEn : undefined
+        return {
+          code,
+          nameEn: tableName ?? trackerName ?? expansion?.nameEs ?? code,
+          nameEs: expansion?.nameEs ?? null,
+          releaseDate: first.date.toISOString().slice(0, 10),
+          opensEra: !/deluxe/i.test(expansion?.nameEn ?? ''),
+          tournaments: tournaments.length,
+          firstTournament: { id: first.id, name: first.name, date: first.date.toISOString() },
+          inCatalog: expansion !== undefined,
+        }
+      })
+      .sort((a, b) => a.releaseDate.localeCompare(b.releaseDate) || a.code.localeCompare(b.code))
   }
 
   async saveSetRelease(set: SetRelease): Promise<SetReleaseView> {
