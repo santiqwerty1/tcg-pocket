@@ -4,7 +4,7 @@ titulo: >-
   Avance
 area: proyecto
 estado: vigente
-actualizado: '2026-10-08'
+actualizado: '2026-10-09'
 origen:
   - posta init
   - docs/PLAN.md §7
@@ -45,26 +45,28 @@ revisar: false
 | 22 | La mesa: visor de repeticiones y partidas contra el bot | hecho 09/10 · desplegado | — | — |
 | 23 | Jugar contra la lista exacta de un torneo reciente | hecho 09/10 · desplegado | — | — |
 | 24 | Situaciones para resolver | hecho 09/10 · desplegado | — | — |
-| 25 | ¿Empezaste vos? y estadísticas por orden de turno | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
-| 26 | Pantalla «Hoy» | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
-| 27 | Buscador único | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
-| 28 | Cargar partidas sin señal | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
-| 29 | Claude analiza una partida | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
-| 30 | Ejercicios de cálculo | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
-| 31 | Lista de intercambio | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
-| 32 | Resumen semanal | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
-| 33 | Partidas contra el bot al instante | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
-| 34 | Tests de pantallas en la CI | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
-| 35 | Prueba mensual del backup | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
+| 25 | ¿Empezaste vos? y estadísticas por orden de turno | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
+| 26 | Pantalla «Hoy» | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
+| 27 | Buscador único | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
+| 28 | Cargar partidas sin señal | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
+| 29 | Claude analiza una partida | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
+| 30 | Ejercicios de cálculo | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
+| 31 | Lista de intercambio | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
+| 32 | Resumen semanal | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
+| 33 | Partidas contra el bot al instante | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
+| 34 | Tests de pantallas en la CI | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
+| 35 | Prueba mensual del backup | hecho 09/10 · subido (`0524489`) · falta desplegar | — | [T-013](Tareas/T-013.md) |
+| E | Evaluación de mejoras: 14 hallazgos, riesgos, preguntas y fases propuestas 36 a 45 | hecho 09/10 · propuesta, espera a Santiago ([D-020](Decisiones/D-020.md)) | 35 | [Evaluación](Evaluacion-2026-10-09.md), [T-014](Tareas/T-014.md) |
 | K | Bóveda con el kit de Posta | hecho 07/10 · aprobado 08/10 | — | [D-009](Decisiones/D-009.md) |
 
 ## Próximos pasos
 
-Las fases 0–8 del plan están hechas y aprobadas (visto bueno de Santiago el 08/10/2026). Santiago pidió las doce ideas de ampliación, cada una como su propia fase (9 a 21, [T-012](Tareas/T-012.md)):
+Las fases 0–8 del plan están aprobadas (visto bueno de Santiago el 08/10/2026). Las fases 9 a 24 están desplegadas; las 25 a 35 ([T-013](Tareas/T-013.md)) están en `main` y falta desplegarlas.
 
-1. Fases 10 a 21, en orden; al terminar cada una, resumen y commit (subir y desplegar cuando Santiago lo pida).
-2. Probar la Fase 9 en producción después del deploy: el sync baja las rondas de los torneos ya guardados (una llamada por torneo).
+1. Santiago prueba las fases 22 a 35 y da el visto bueno.
+2. Santiago decide [D-020](Decisiones/D-020.md): qué fases de la [evaluación del 09/10](Evaluacion-2026-10-09.md) ([T-014](Tareas/T-014.md), 36 a 45) y en qué orden. La propuesta es empezar por la 36 (arreglos confirmados, H-002 a H-015).
+3. Santiago contesta [P-006](Preguntas/P-006.md) (tope de energías), [P-007](Preguntas/P-007.md) (copia fuera de Supabase) y [P-008](Preguntas/P-008.md) (jugar sin la PC).
 
 ## Pendiente de decidir (para después)
 
-Decididas por Santiago el 08/10/2026: D-007, D-008, D-009, D-011, D-012, D-013, D-014, D-015, D-016, D-017, D-018, D-019 (ver cada ficha). No queda nada esperando su visto bueno.
+Decididas por Santiago el 08/10/2026: D-007, D-008, D-009, D-011, D-012, D-013, D-014, D-015, D-016, D-017, D-018 y D-019 (ver cada ficha). Esperan su visto bueno: [D-020](Decisiones/D-020.md), [P-006](Preguntas/P-006.md), [P-007](Preguntas/P-007.md) y [P-008](Preguntas/P-008.md).

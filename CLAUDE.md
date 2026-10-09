@@ -49,6 +49,7 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 - **Fase 33 implementada el 9/10/2026** (DECISIONES 36.1–36.3): partidas contra el bot al instante — `GET /api/play/:id/events` (SSE; `LiveGamesService.watch`), `usePlayGame` con `EventSource` y la consulta como respaldo.
 - **Fase 34 implementada el 9/10/2026** (DECISIONES 37.1–37.3): tests de pantallas — Playwright en `apps/web/e2e` (`pnpm -F @tcg/web test:screens`, base `tcg_screens`, worker con el motor de mentira), job `screens` en la CI.
 - **Fase 35 implementada el 9/10/2026** (DECISIONES 38.1–38.4): prueba mensual del backup — `BackupService.drill` (copia nueva, restaurada en una transacción que se deshace, comparada con el archivo), el 1 de cada mes a las 04:30, `GET/POST /api/backup/drill`, aviso `backup_drill`, Más → Copia de seguridad → Prueba de restauración.
+- **Evaluación de mejoras del 9/10/2026** (propuesta, espera a Santi): `Boveda/Seguimiento/Evaluacion-2026-10-09.md`; 14 defectos confirmados en `0524489` (H-002 a H-015), riesgos R-010 a R-012 (y R-006, R-008 actualizados), preguntas P-006 a P-008, orden propuesto D-020 y fases propuestas 36 a 45 en T-014. Nada de eso está aprobado ni implementado.
 - **Visto bueno de Santi para todo el 8/10/2026**: fases 0–8 del plan, laboratorio y ajustes aprobados; no queda nada esperando su revisión. Siguiente paso: lo que pida Santi (abiertos: remapeo I12 al cambiar el catálogo, R-001; CI antes de cada deploy, R-007).
 
 ## Cómo trabajar acá
