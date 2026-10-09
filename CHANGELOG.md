@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-08 (69 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-09 (71 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- situations to solve from your own games with the coach (phase 24) `ab29fd3`
 - play against the exact list of a recent tournament (phase 23) `92e8b92`
 - the board — replay viewer and games against the bot (phase 22) `bc4947f`
 - board data, undo and rematch for games against the bot (phase 22, part 1) `739268e`
@@ -54,6 +55,7 @@ _Borrador generado al 2026-10-08 (69 commits). Escribí el «porqué» fuera de 
 
 ### Corregido
 
+- report a catalog sync as running until the catalog finishes reloading `8b97399`
 - pager label does not repeat the deck number (#13) `9e426f9`
 - up to 150 decks per side, said plainly; validation errors name the field `2dbc3aa`
 - a matrix with an empty «Contra» side plays side A against itself; engine status survives an engine update `212cd11`
