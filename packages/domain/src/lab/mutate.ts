@@ -66,6 +66,24 @@ export function usableWith(card: CardEdition, energies: readonly SelectableEnerg
   return card.attacks.some((attack) => attack.cost.every((type) => type === 'colorless' || have.has(type)))
 }
 
+/**
+ * The pool cards worth trying with an Energy Zone: Pokémon it can pay an attack of (or with an ability), and off-type
+ * Pokémon without an ability only when the era or the archetype plays them (weight above 1). Review of #27: a search
+ * freezes its pool for every zone and filters it with the zone in play, which an Energy variant may have changed.
+ */
+export function poolForZone(
+  pool: readonly PoolCard[],
+  energies: readonly SelectableEnergy[],
+  index: CatalogIndex,
+): PoolCard[] {
+  return pool.filter((item) => {
+    const card = index.cardById(item.cardId)
+    if (!card || !usableWith(card, energies)) return false
+    const ownType = (energies as readonly string[]).includes(card.energy)
+    return !(card.cardType === 'pokemon' && !ownType && card.ability === null && item.weight <= 1)
+  })
+}
+
 export function mutationPool(options: PoolOptions): PoolCard[] {
   const pool: PoolCard[] = []
   for (const group of options.index.catalog.groups) {
@@ -197,6 +215,37 @@ export function variantOf(
  * under the same seed: the common random numbers then compare the swap, not a reshuffled deck. A card already in the
  * list gets a line of its own here rather than a higher count on its first line.
  */
+/**
+ * Puts `cardId` at copy position `slot` of the deck (deck order, every copy counted), splitting its line when it had
+ * more copies (H-020). False when the deck has no such position.
+ */
+export function replaceSlot(cards: DeckCardEntry[], slot: number, cardId: CardId): boolean {
+  let start = 0
+  for (const [line, entry] of cards.entries()) {
+    if (slot < start + entry.count) {
+      const before = slot - start
+      const after = entry.count - before - 1
+      cards.splice(
+        line,
+        1,
+        ...(before > 0 ? [{ cardId: entry.cardId, count: before }] : []),
+        { cardId, count: 1 },
+        ...(after > 0 ? [{ cardId: entry.cardId, count: after }] : []),
+      )
+      return true
+    }
+    start += entry.count
+  }
+  return false
+}
+
+/** The functional card at each copy position of the deck, in deck order. */
+export function slotGroups(cards: readonly DeckCardEntry[], index: CatalogIndex): CardId[] {
+  return cards.flatMap((entry) =>
+    Array.from({ length: entry.count }, () => index.cardById(entry.cardId)?.functionalGroupId ?? entry.cardId),
+  )
+}
+
 function replaceCopy(cards: DeckCardEntry[], at: number, cardId: CardId): void {
   const entry = cards[at]
   if (!entry) return

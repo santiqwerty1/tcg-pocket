@@ -10,7 +10,7 @@ import type { CatalogIndex } from '../catalog/catalogIndex.js'
 import type { CardId } from '../catalog/types.js'
 import type { DeckCardEntry } from '../decks/types.js'
 import { listKeyByGroup } from '../tournaments/dataset.js'
-import { applySwap, cardChanges, type Variant, type VariantChange } from './mutate.js'
+import { applySwap, cardChanges, replaceSlot, slotGroups, type Variant, type VariantChange } from './mutate.js'
 import { groupsOfCards } from './novelty.js'
 
 export interface LearnedChange {
@@ -32,6 +32,11 @@ export interface MeasuredSwap {
   remove: CardId[]
   /** Points against the list it came from (0–100 scale). */
   difference: number
+  /**
+   * The copies that changed: their position in deck order and the functional card that was there (review of the stack:
+   * undoing a swap that added a second copy puts the old card back in that place, not in the first copy's line).
+   */
+  slots?: { at: number; was: CardId }[]
 }
 
 /** The swap a variant made against its parent, as `MeasuredSwap` (copies repeated). */
@@ -48,7 +53,46 @@ export function swapOf(
         group ? (index.cardById(change.cardId)?.functionalGroupId ?? change.cardId) : change.cardId,
       ),
     )
-  return { add: copies(add, false), remove: copies(remove, true), difference }
+  return {
+    add: copies(add, false),
+    remove: copies(remove, true),
+    difference,
+    slots: changedSlots(parent, variant, index),
+  }
+}
+
+/** Where `variant` differs from `parent`, copy by copy in deck order (a search keeps every other copy in place). */
+export function changedSlots(
+  parent: readonly DeckCardEntry[],
+  variant: readonly DeckCardEntry[],
+  index: CatalogIndex,
+): { at: number; was: CardId }[] {
+  const before = slotGroups(parent, index)
+  const after = slotGroups(variant, index)
+  if (before.length !== after.length) return []
+  const out: { at: number; was: CardId }[] = []
+  for (const [at, was] of before.entries()) if (after[at] !== was) out.push({ at, was })
+  return out
+}
+
+/** Undoes a swap at the positions it changed, when they still hold what it added; false otherwise (nothing changed). */
+function undoAtSlots(
+  cards: DeckCardEntry[],
+  swap: MeasuredSwap,
+  index: CatalogIndex,
+  editionOf: (groupId: CardId) => CardId,
+  locked: ReadonlySet<CardId> | undefined,
+): boolean {
+  const slots = swap.slots ?? []
+  if (slots.length === 0 || slots.length !== swap.add.length) return false
+  const added = new Set(swap.add.map((cardId) => index.cardById(cardId)?.functionalGroupId ?? cardId))
+  const now = slotGroups(cards, index)
+  for (const { at } of slots) {
+    const group = now[at]
+    if (group === undefined || !added.has(group) || locked?.has(group)) return false
+  }
+  for (const { at, was } of slots) replaceSlot(cards, at, editionOf(was))
+  return true
 }
 
 /**
@@ -127,8 +171,12 @@ export function revertVariant(
       add: swap.remove.map(editionOf),
       remove: swap.add.map((cardId) => index.cardById(cardId)?.functionalGroupId ?? cardId),
     }
-    const cards = deck.map((entry) => ({ ...entry }))
-    if (!applySwap(cards, back, index, options.locked)) continue
+    // In the places it changed when they still hold what it added; else the first copies, as a swap is replayed.
+    let cards = deck.map((entry) => ({ ...entry }))
+    if (!undoAtSlots(cards, swap, index, editionOf, options.locked)) {
+      cards = deck.map((entry) => ({ ...entry }))
+      if (!applySwap(cards, back, index, options.locked)) continue
+    }
     const key = listKeyByGroup(groupsOfCards(cards, index))
     if (key === baseKey || options.seen?.has(key) || !options.valid(cards)) continue
     const sorted = cards.filter((entry) => entry.count > 0)
@@ -152,8 +200,9 @@ export function swapScore(learned: Learned, swap: MeasuredSwap, index: CatalogIn
 
 /**
  * A variant of `deck` that makes the two best swaps measured so far (each worth more than nothing by `score`, by
- * default its measured difference), when both still apply (their cards are still in the deck), it is valid, it keeps
- * every card within `maxCopies` (the copies the collection has, with the pool «colección») and it is new; else null.
+ * default its measured difference), when both still apply (their cards are still in the deck), it is valid, what it
+ * adds stays within `maxCopies` (the copies the collection has, with the pool «colección»; a card the list already
+ * played above that may stay) and it is new; else null.
  */
 export function comboVariant(
   deck: readonly DeckCardEntry[],
@@ -171,10 +220,12 @@ export function comboVariant(
   const best = [...swaps]
     .filter((swap) => score(swap) > 0 && swap.add.length > 0 && swap.add.length === swap.remove.length)
     .sort((a, b) => score(b) - score(a))
+  const had = groupsOfCards(deck, index)
   const withinCopies = (cards: readonly DeckCardEntry[]) => {
     if (!options.maxCopies) return true
     for (const [groupId, count] of groupsOfCards(cards, index)) {
-      if (count > options.maxCopies(groupId)) return false
+      // Review of the stack: only what goes up, so a starting list above the collection still gets combos.
+      if (count > Math.max(options.maxCopies(groupId), had.get(groupId) ?? 0)) return false
     }
     return true
   }

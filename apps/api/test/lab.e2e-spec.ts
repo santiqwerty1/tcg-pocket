@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { poolForZone, type SelectableEnergy, usableWith } from '@tcg/domain'
+import { CatalogService } from '../src/catalog/catalog.service.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
 import { LabService } from '../src/lab/lab.service.js'
@@ -274,6 +276,12 @@ describe('laboratorio (e2e)', () => {
     expect(latest.meta.consistency.rivals).toHaveLength(5)
     expect(latest.meta.consistency.rivals[0]).toMatchObject({ label: expect.any(String), games: expect.any(Number) })
     expect((await post('/api/lab/consistency').send({ deckId: deckIds[1], bot: 'et' })).status).toBe(400)
+    // Review of #28: with a bank of 10, an archetype's second list says so.
+    const ten = await post('/api/lab/consistency').send({ deckId: deckIds[1], size: 10, games: 100, seed: 12 })
+    expect(ten.status).toBe(201)
+    const tenJob = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: ten.body.id } })
+    expect(JSON.stringify(tenJob.params)).toContain('(2.ª lista)')
+    expect((await post(`/api/simulations/${ten.body.id}/cancel`)).status).toBeLessThan(300)
   })
 
   it('recent tournament lists to play against (Fase 23): the top 8 of PMPT #45, checked against the engine', async () => {
@@ -414,14 +422,22 @@ describe('laboratorio (e2e)', () => {
           explore: {
             base: number
             rounds: { candidates: number[] }[]
-            frozen?: { pool: unknown[]; affinity: unknown[] }
+            frozen?: { pool: [string, number, number][]; affinity: unknown[] }
           }
         }
       }
     ).lab.explore
     const base = state.base
-    // H-021: the pool is kept as it was at the start, for every later round.
-    expect(state.frozen?.pool.length).toBe(dry.body.pool)
+    // H-021: the pool is kept as it was at the start, for every later round. Review of #27: for every Energy Zone, and
+    // filtered with the one in play (the plan shows the starting list's).
+    expect(state.frozen?.pool.length).toBeGreaterThan(dry.body.pool)
+    const thawed = (state.frozen?.pool ?? []).map(([cardId, maxCopies, weight]) => {
+      const card = test.app.get(CatalogService).requireIndex().cardById(cardId)
+      return { cardId, groupId: card?.functionalGroupId ?? cardId, nameEn: card?.nameEn ?? '', maxCopies, weight }
+    })
+    expect(poolForZone(thawed, dry.body.base.energies, test.app.get(CatalogService).requireIndex())).toHaveLength(
+      dry.body.pool,
+    )
     const [, winner] = state.rounds[0]?.candidates ?? []
     if (winner === undefined) throw new Error('no second variant')
 
@@ -517,8 +533,8 @@ describe('laboratorio (e2e)', () => {
     const played = await playAll((a, _b, games, chunkId) =>
       a === lucky && round0.has(chunkId) ? Math.round(games * 0.9) : games / 2,
     )
-    expect(played).toBe(9 + 6)
     const lab = (await get(`/api/lab/jobs/${created.body.id}`)).body
+    expect(played).toBe(9 + 6)
     expect(
       lab.explore.rounds.map((round: { kind: string; accepted: number | null }) => [round.kind, round.accepted]),
     ).toEqual([
@@ -569,7 +585,14 @@ describe('laboratorio (e2e)', () => {
     const read = async () =>
       (
         (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: created.body.id } })).params as {
-          lab: { explore: { base: number; rounds: { candidates: number[] }[]; combos?: number[] } }
+          lab: {
+            explore: {
+              base: number
+              rounds: { candidates: number[] }[]
+              combos?: number[]
+              swaps?: { variant: number }[]
+            }
+          }
         }
       ).lab.explore
     const [better, alsoBetter, worse] = (await read()).rounds[0]?.candidates ?? []
@@ -583,6 +606,8 @@ describe('laboratorio (e2e)', () => {
     // Round 1 opens with the combo of the two that helped.
     expect(state.combos).toHaveLength(1)
     expect(state.rounds[1]?.candidates[0]).toBe(state.combos?.[0])
+    // Review of the stack: once measured, the combo does not join the swaps a later combo is built from (C7).
+    expect((state.swaps ?? []).map((swap) => swap.variant)).not.toContain(state.combos?.[0])
     const lab = (await get(`/api/lab/jobs/${created.body.id}`)).body
     expect(lab.explore.combos).toEqual(state.combos)
     expect(lab.explore.learned.length).toBeGreaterThan(0)
@@ -762,6 +787,78 @@ describe('laboratorio (e2e)', () => {
       ['confirm', null],
     ])
     expect(lab.explore).toMatchObject({ phase: 'done', stopReason: 'user', best: winner })
+  }, 60_000)
+
+  it('review of the stack: an accepted Energy change sets the pool of the next rounds; fixed variants fit the round', async () => {
+    // A deck with two Energy types: from round 1, one variant tries one of them alone.
+    let deckId: string | undefined
+    for (const id of deckIds) {
+      if (((await get(`/api/decks/${id}`)).body.energies as string[]).length === 2) {
+        deckId = id
+        break
+      }
+    }
+    if (!deckId) throw new Error('no deck with two types')
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 1,
+      maxRounds: 3,
+      patience: 3,
+      confirmGames: 20,
+      verifyGames: 0,
+      pool: 'all',
+    }
+    const created = await post('/api/lab/explore').send({ deck: { deckId }, size: 3, config, seed: 9700 })
+    expect(created.status).toBe(200)
+    const id = created.body.id as number
+    type State = {
+      base: number
+      incumbent: number
+      rounds: { candidates: number[] }[]
+      accepted?: unknown[]
+    }
+    const read = async () =>
+      ((await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).params as { lab: { explore: State } }).lab
+        .explore
+    const energiesOf = async (sid: number) =>
+      (await test.prisma.deckSnapshot.findUniqueOrThrow({ where: { id: sid } })).energies as string[]
+    // Round 0: nothing better (everyone half). While it plays, the variant's difference says «jugando».
+    const claim = await bearer('post', '/api/worker/claim').send({ ...hello, engineRev: test.env.engineRev })
+    const playing = (await get(`/api/lab/jobs/${id}`)).body
+    const variantRow = playing.decks.find((deck: { role: string }) => deck.role === 'variant')
+    expect(variantRow.vsParent).toMatchObject({ text: 'jugando', complete: false })
+    await report((claim.body.chunk as Structured).chunkId as number, (_a, _b, games) => games / 2)
+    expect(await playAll((_a, _b, games) => games / 2, 5)).toBe(5)
+    const first = await read()
+    expect(first.rounds).toHaveLength(2)
+    // Round 1: one variant only (variantsPerRound 1), the Energy one first among the fixed ones; it wins.
+    const [energyOne] = first.rounds[1]?.candidates ?? []
+    if (energyOne === undefined) throw new Error('no round 1 variant')
+    expect(first.rounds[1]?.candidates).toHaveLength(1)
+    const zone = await energiesOf(energyOne)
+    expect(zone).not.toEqual(await energiesOf(first.base))
+    expect(zone).toHaveLength(1)
+    expect(await playAll((a, _b, games) => (a === energyOne ? games : games / 2), 6)).toBe(6)
+    const second = await read()
+    expect(second.incumbent).toBe(energyOne)
+    // An Energy change alone is not a card swap to undo later.
+    expect(second.accepted ?? []).toHaveLength(0)
+    const lab = (await get(`/api/lab/jobs/${id}`)).body
+    const best = lab.decks.find((deck: { snapshot: number }) => deck.snapshot === energyOne)
+    expect(best.energyChange).toMatchObject({ to: zone })
+    // Round 2: its variants are saved with the new zone, and what they add can be paid with it.
+    const index = test.app.get(CatalogService).requireIndex()
+    for (const sid of second.rounds[2]?.candidates ?? []) {
+      const energies = await energiesOf(sid)
+      if (energies.join() !== zone.join()) continue
+      const row = lab.decks.find((deck: { snapshot: number }) => deck.snapshot === sid)
+      for (const line of (row?.changes?.add ?? []) as { cardId: string }[]) {
+        const card = index.cardById(line.cardId)
+        if (card) expect(usableWith(card, zone as SelectableEnergy[])).toBe(true)
+      }
+    }
+    expect(second.rounds[2]?.candidates).toHaveLength(1)
+    await post(`/api/simulations/${id}/cancel`)
   }, 60_000)
 
   it('review of #22: «Frenar» needs a session', async () => {

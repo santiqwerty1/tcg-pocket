@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import type { SelectableEnergy } from '../../src/index.js'
-import { energyKey, energyOptions, energyVariant, groupsOfCards } from '../../src/lab/index.js'
+import { SELECTABLE_ENERGIES, type SelectableEnergy } from '../../src/index.js'
+import {
+  energyKey,
+  energyOptions,
+  energyVariant,
+  groupsOfCards,
+  mutationPool,
+  poolForZone,
+  usableWith,
+} from '../../src/lab/index.js'
 import { listKeyByGroup } from '../../src/tournaments/index.js'
 import { deckDraft } from '../helpers/loadDecks.js'
 import { catalogIndex } from '../helpers/loadFixtures.js'
@@ -9,6 +17,39 @@ const index = catalogIndex()
 const decks = Array.from({ length: 40 }, (_, i) => deckDraft(i + 1))
 
 describe('energy variants (T-017 C6)', () => {
+  it('review of #27: the pool frozen for every zone, filtered with the zone in play, is the pool of that zone', () => {
+    const edition = (groupId: string) => index.cardById(index.groupById(groupId)?.displayCardId ?? groupId) ?? null
+    const all = mutationPool({
+      index,
+      energies: SELECTABLE_ENERGIES,
+      edition,
+      maxCopies: () => 2,
+      usage: () => 1,
+    })
+    for (const zone of [['fire'], ['water', 'psychic']] as SelectableEnergy[][]) {
+      const direct = mutationPool({ index, energies: zone, edition, maxCopies: () => 2, usage: () => 1 })
+      const filtered = poolForZone(all, zone, index)
+      expect(filtered.map((card) => card.cardId).sort()).toEqual(direct.map((card) => card.cardId).sort())
+      for (const card of filtered) expect(usableWith(index.cardById(card.cardId) as never, zone)).toBe(true)
+    }
+    // Off-type Pokémon without an ability that nobody plays (weight 1) stay out, as in the pool of that zone.
+    const unused = mutationPool({
+      index,
+      energies: SELECTABLE_ENERGIES,
+      edition,
+      maxCopies: () => 2,
+    })
+    const fire = poolForZone(unused, ['fire'], index)
+    expect(
+      fire.every(
+        (card) =>
+          index.cardById(card.cardId)?.cardType !== 'pokemon' ||
+          index.cardById(card.cardId)?.energy === 'fire' ||
+          index.cardById(card.cardId)?.ability !== null,
+      ),
+    ).toBe(true)
+  })
+
   it('a deck with two types tries each one alone; the key tells the zones apart', () => {
     const two = decks.find((deck) => deck.energies.length === 2)
     if (!two) throw new Error('no deck with two types')

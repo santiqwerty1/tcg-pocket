@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { validateDeck } from '../../src/decks/index.js'
 import type { SelectableEnergy } from '../../src/index.js'
 import {
+  applySwap,
   changeKey,
   comboVariant,
+  groupsOfCards,
   type Learned,
   learnedChanges,
   learnedFactor,
@@ -13,6 +15,7 @@ import {
   mutationPool,
   revertVariant,
   seededRandom,
+  slotGroups,
   swapOf,
   variantOf,
 } from '../../src/lab/index.js'
@@ -102,6 +105,28 @@ describe('what a search learns between rounds (T-017 C4)', () => {
     // And the order is the score's: the worst two by difference first when the score says so.
     const reversed = comboVariant(deck.cards, swaps, index, { valid, score: (swap) => 20 - swap.difference })
     expect(reversed?.key).not.toBe(combo.key)
+    // Review of the stack: a starting list above the collection (none of its own cards owned) still gets the combo;
+    // only what goes up is checked.
+    const had = groupsOfCards(deck.cards, index)
+    const above = (groupId: string) => (had.has(groupId) && !added.includes(groupId) ? 0 : 2)
+    expect(comboVariant(deck.cards, swaps, index, { valid, maxCopies: above })?.key).toBe(combo.key)
+  })
+
+  it('review of the stack: undoing a swap that added a second copy puts the old card back in its own place', () => {
+    // A card the list plays once gets a second copy in the place of the list's last card.
+    const once = deck.cards.find((entry) => entry.count === 1 && index.cardById(entry.cardId)?.cardType === 'trainer')
+    const last = deck.cards.at(-1)
+    if (!once || !last || group(last.cardId) === group(once.cardId)) throw new Error('deck shape')
+    const variant = deck.cards.map((entry) => ({ ...entry }))
+    expect(applySwap(variant, { add: [once.cardId], remove: [group(last.cardId)] }, index)).toBe(true)
+    const accepted = swapOf(deck.cards, variant, index, 5)
+    expect(accepted.slots).toHaveLength(1)
+    const editionOf = (groupId: string) =>
+      deck.cards.find((entry) => group(entry.cardId) === groupId)?.cardId ?? groupId
+    const back = revertVariant(variant, [accepted], 0, index, editionOf, { valid: () => true })
+    if (!back) throw new Error('no revert')
+    // Every copy where it was: the second copy leaves, not the first one.
+    expect(slotGroups(back.cards, index)).toEqual(slotGroups(deck.cards, index))
   })
 
   it('review of #15: what was learned changes the draws the same way every time for the same seed', () => {

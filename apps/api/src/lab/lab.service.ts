@@ -79,11 +79,13 @@ import {
   pairedWinner,
   perGameEntries,
   perGameSummary,
+  poolForZone,
   randomBaseSeed,
   readPerGame,
   revertVariant,
   roundWinner,
   type ScoreDifference,
+  SELECTABLE_ENERGIES,
   type SelectableEnergy,
   type SnapshotCard,
   scoreDifference,
@@ -521,7 +523,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     const saved = await Promise.all(bank.sources.map((source) => this.snapshots.save(source)))
     const rivals = bank.gauntlet.rivals.map((rival, at) => ({
       snapshot: saved[at]?.id ?? 0,
-      label: rival.archetypeName,
+      // T-017 D3: an archetype's second list says so (review of #28).
+      label: rival.second ? `${rival.archetypeName} (2.ª lista)` : rival.archetypeName,
       listKey: rival.list.key,
       share: rival.share,
       weight: rival.weight,
@@ -789,7 +792,9 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     }
     const locked = this.lockedGroups(index, input.locked ?? [])
     const affinity = neighborhoodUsage(bank.dataset, baseCards, index)
-    const pool = await this.pool(bank, draft.energies, config.pool, affinity, event?.rules)
+    // Review of #27: the pool is frozen for every Energy Zone and filtered with the one in play, round by round.
+    const fullPool = await this.pool(bank, SELECTABLE_ENERGIES, config.pool, affinity, event?.rules)
+    const pool = poolForZone(fullPool, draft.energies, index)
     const baseSeed = this.baseSeed(input)
     const seen = new Set([listKeyByGroup(groupsOfCards(baseCards, index))])
     const first = this.variants(
@@ -870,7 +875,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       variants: Object.fromEntries(variants.map((variant) => [String(variant.id), { round: 0, parent: base.id }])),
       seen: [...seen],
       ...(event ? { event } : {}),
-      frozen: freezeInputs(pool, affinity),
+      frozen: freezeInputs(fullPool, affinity),
     }
     const params: JobParams = {
       sideA: decks,
@@ -1076,10 +1081,12 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             where: { id: { in: [round.incumbent, ...round.candidates] } },
             select: { id: true, cards: true },
           })
+          const cardsOf = (id: number) =>
+            slotsOfSnapshot(measured.find((row) => row.id === id)?.cards as unknown as SnapshotCard[])
           learnRound(
             state,
             round,
-            (id) => slotsOfSnapshot(measured.find((row) => row.id === id)?.cards as unknown as SnapshotCard[]),
+            cardsOf,
             // Review of #15: only what both played in full (a failed chunk would compare different rivals).
             (id) =>
               complete(chunks, rivals, id, thisRound) && complete(chunks, rivals, round.incumbent, thisRound)
@@ -1094,14 +1101,21 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             state.swaps = (state.swaps ?? []).filter((swap) => swap.variant !== verified)
           }
           if (accepted !== null) {
-            const swap = (state.swaps ?? []).find((item) => item.variant === accepted)
             const undone = state.revertOf?.[String(accepted)]
             if (undone !== undefined) {
               // Bots' review, item 7: an undo that wins takes the swap it undid out of the history (and is not one).
               state.accepted = (state.accepted ?? []).filter((item) => item.variant !== undone)
-            } else if (swap) {
-              // T-017 C5: an accepted swap leaves the combo list and can be undone in later rounds.
-              state.accepted = [...(state.accepted ?? []), swap]
+            } else {
+              // T-017 C5: an accepted swap can be undone in later rounds. Taken from the lists themselves (a combo's two
+              // swaps together; combos are not in `swaps`, review of the stack); an Energy change alone is not a swap.
+              const measuredBefore = (state.swaps ?? []).find((item) => item.variant === accepted)?.difference ?? 0
+              const swap = swapOf(
+                cardsOf(round.incumbent),
+                cardsOf(accepted),
+                this.catalog.requireIndex(),
+                measuredBefore,
+              )
+              if (swap.add.length > 0) state.accepted = [...(state.accepted ?? []), { ...swap, variant: accepted }]
             }
             state.swaps = (state.swaps ?? []).filter((item) => item.variant !== accepted)
           }
@@ -1147,7 +1161,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             let pool: PoolCard[]
             if (state.frozen) {
               affinity = new Map(state.frozen.affinity)
-              pool = thawPool(state.frozen, index)
+              // Review of #27: frozen for every zone; filtered with the one in play (an Energy variant may change it).
+              pool = poolForZone(thawPool(state.frozen, index), energies, index)
             } else {
               // A search queued before H-021: today's tournaments and collection, as it always did.
               const bank = await this.usageBank(params.lab)
@@ -1196,11 +1211,17 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             seen.add(energyKey(listKeyByGroup(groupsOfCards(incumbentCards, index)), energies))
             const energyChange = energyVariant(incumbentCards, energies, searchRounds, index, seen)
             if (energyChange) seen.add(energyChange.key)
+            // Review of the stack: the combo, the undo and the Energy variant never go past `variantsPerRound`.
             const fixed = [
               ...(combo ? [combo] : []),
               ...(revert ? [revert] : []),
               ...(energyChange ? [energyChange] : []),
-            ]
+            ].slice(0, state.config.variantsPerRound)
+            for (const left of [combo, revert, energyChange]) {
+              if (left && !fixed.includes(left)) seen.delete(left.key)
+            }
+            const keptCombo = combo && fixed.includes(combo) ? combo : null
+            const keptRevert = revert && fixed.includes(revert) ? revert : null
             const fresh = [
               ...fixed,
               ...this.variants(
@@ -1222,12 +1243,12 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             state.seen = [...seen]
             // The combo goes first and the revert after it, labelled «v<round>.1» and «.2» when they were simulable.
             const at = (n: number) => saved.find((snapshot) => snapshot.label.endsWith(`v${searchRounds}.${n}`))
-            const comboSaved = combo ? at(1) : undefined
-            const revertSaved = revert ? at(combo ? 2 : 1) : undefined
+            const comboSaved = keptCombo ? at(1) : undefined
+            const revertSaved = keptRevert ? at(keptCombo ? 2 : 1) : undefined
             if (comboSaved) state.combos = [...(state.combos ?? []), comboSaved.id]
-            if (revertSaved && revert) {
+            if (revertSaved && keptRevert) {
               state.reverts = [...(state.reverts ?? []), revertSaved.id]
-              const undone = state.accepted?.[revert.undoes]
+              const undone = state.accepted?.[keptRevert.undoes]
               if (undone) state.revertOf = { ...state.revertOf, [String(revertSaved.id)]: undone.variant }
             }
             if (saved.length === 0) stop = 'no_variants'
@@ -1481,9 +1502,11 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           changes: changes ? { add: lines(index, changes.add), remove: lines(index, changes.remove) } : null,
           vsParent: vsParent
             ? {
-                text: vsParent.main.difference
-                  ? formatDifferenceEs(vsParent.main.difference)
-                  : 'incompleta: faltan cruces de esa ronda',
+                text: vsParent.playing
+                  ? 'jugando'
+                  : vsParent.main.difference
+                    ? formatDifferenceEs(vsParent.main.difference)
+                    : 'incompleta: faltan cruces de esa ronda',
                 value: vsParent.main.difference?.value ?? null,
                 ci95: vsParent.main.difference?.ci95 ?? null,
                 paired: vsParent.main.paired,
@@ -1736,16 +1759,19 @@ function parentDifference(
   chunks: readonly ChunkRow[],
   rivals: readonly { snapshot?: number | null; weight: number }[],
   id: number,
-): { main: Measured; measuredIn: 'verify' | 'round'; selection: Measured | null } | null {
+): { main: Measured; measuredIn: 'verify' | 'round'; selection: Measured | null; playing: boolean } | null {
   const search = state.rounds.find((item) => item.kind === 'search' && item.candidates.includes(id))
   if (!search) return null
   const range = (round: ExploreRound) => (chunk: ChunkRow) => chunk.idx >= round.fromIdx && chunk.idx < round.toIdx
   const selection = measured(chunks, rivals, id, search.incumbent, range(search))
   // Review of #20: the round that picked it flatters it (the best of K); its verification, on fresh seeds, does not.
   const verify = state.rounds.find((item) => item.kind === 'verify' && item.candidates.includes(id))
-  if (verify)
-    return { main: measured(chunks, rivals, id, verify.incumbent, range(verify)), measuredIn: 'verify', selection }
-  return { main: selection, measuredIn: 'round', selection: null }
+  // Review of the stack: a round still in play is «jugando», not «incompleta».
+  if (verify) {
+    const main = measured(chunks, rivals, id, verify.incumbent, range(verify))
+    return { main, measuredIn: 'verify', selection, playing: !verify.decided }
+  }
+  return { main: selection, measuredIn: 'round', selection: null, playing: !search.decided }
 }
 
 interface Measured {
@@ -1789,8 +1815,10 @@ function learnRound(
     if (difference === null) continue
     const swap = swapOf(parent, cardsOf(id), index, difference)
     learnSwap(learned, swap, index)
-    // A verification replays a swap already measured: it adds to the estimates, not to the swaps.
-    if (round.kind === 'search') swaps.push({ ...swap, variant: id })
+    // A verification replays a swap already measured: it adds to the estimates, not to the swaps. Combos and undos
+    // neither (review of the stack): a combo built on them would stack three or more changes, against C7.
+    const special = state.combos?.includes(id) || state.reverts?.includes(id)
+    if (round.kind === 'search' && !special) swaps.push({ ...swap, variant: id })
   }
   state.learned = learned
   state.swaps = swaps.slice(-40)
