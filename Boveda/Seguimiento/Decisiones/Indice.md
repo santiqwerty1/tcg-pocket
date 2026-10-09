@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-22 fichas: vigente 22. ⚑ = para revisar.
+23 fichas: vigente 23. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Actualizado |
 | --- | --- | --- | --- | --- |
@@ -39,3 +39,4 @@ revisar: false
 | [D-020](D-020.md) | Consolidar antes de sumar funciones | vigente | — | 2026-10-09 |
 | [D-021](D-021.md) | Reparto del trabajo entre las tres sesiones de Claude | vigente | — | 2026-10-09 |
 | [D-022](D-022.md) | Repositorio público bajo AGPL-3.0, con seudónimos en los datos de Limitless | vigente | — | 2026-10-09 |
+| [D-023](D-023.md) | CI en runners propios de la PC mientras el repo sea privado | vigente | — | 2026-10-09 |

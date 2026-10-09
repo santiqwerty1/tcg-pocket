@@ -31,7 +31,7 @@ _Recuentos al 2026-10-09 (generados; no editar a mano)._
 
 | Tipo | Total | Por estado |
 | --- | --- | --- |
-| decision | 22 | vigente 22 |
+| decision | 23 | vigente 23 |
 | hallazgo | 21 | abierto 5 · resuelto 16 |
 | pregunta | 12 | cerrada 5 · respondida 7 |
 | riesgo | 12 | abierto 9 · resuelto 3 |
