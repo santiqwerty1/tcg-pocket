@@ -19,6 +19,7 @@ const rankCorrelationSchema = z.object({
   rho: z.number(),
   n: z.number(),
   ci95: z.tuple([z.number(), z.number()]).nullable(),
+  method: z.enum(['fisher', 'bootstrap']),
 })
 export type RankCorrelation = z.infer<typeof rankCorrelationSchema>
 
@@ -47,16 +48,25 @@ export const calibrationRowSchema = z.object({
   ties: z.number(),
   tournament: winRateSchema.nullable(),
   difference: z.number().nullable(),
-  inside: z.boolean().nullable(),
+  differenceCi95: z.tuple([z.number(), z.number()]).nullable(),
+  compatible: z.boolean().nullable(),
 })
 export type CalibrationRow = z.infer<typeof calibrationRowSchema>
+
+const weightedRateSchema = z.object({
+  value: z.number(),
+  ci95: z.tuple([z.number(), z.number()]),
+  games: z.number(),
+  orientative: z.boolean(),
+})
+export type WeightedRate = z.infer<typeof weightedRateSchema>
 
 const calibrationArchetypeSchema = z.object({
   id: z.string(),
   label: z.string(),
-  simulated: z.number().nullable(),
-  tournament: z.number().nullable(),
-  rivalsWithData: z.number(),
+  simulated: weightedRateSchema.nullable(),
+  tournament: weightedRateSchema.nullable(),
+  rivals: z.number(),
 })
 export type CalibrationArchetype = z.infer<typeof calibrationArchetypeSchema>
 
@@ -65,7 +75,7 @@ export const calibrationViewSchema = z.object({
   report: z.object({
     rows: z.array(calibrationRowSchema),
     compared: z.number(),
-    inside: z.number(),
+    compatible: z.number(),
     meanAbsDifference: z.number().nullable(),
     rankCorrelation: rankCorrelationSchema.nullable(),
     archetypes: z.array(calibrationArchetypeSchema),
@@ -79,6 +89,7 @@ export const calibrationViewSchema = z.object({
     tournamentsWithPairings: z.number(),
   }),
   pending: z.number(),
+  failed: z.number(),
 })
 export type CalibrationView = z.infer<typeof calibrationViewSchema>
 
@@ -86,11 +97,12 @@ const calibrationSummarySchema = calibrationJobSchema.extend({
   summary: z
     .object({
       compared: z.number(),
-      inside: z.number(),
+      compatible: z.number(),
       meanAbsDifference: z.number().nullable(),
       rankCorrelation: rankCorrelationSchema.nullable(),
     })
     .nullable(),
+  failed: z.number(),
 })
 export type CalibrationSummary = z.infer<typeof calibrationSummarySchema>
 

@@ -2,12 +2,14 @@
  * Calibration of the simulations against tournaments (R-012, A4 of the optimization review): the lists of the meta
  * bank played against each other by a bot, pairing by pairing next to what the same archetypes did against each
  * other in tournaments. The two are never combined into one number: each keeps its own rate, n and interval, and the
- * report says how often the simulated rate falls inside the tournament's interval and how well the two orders agree
+ * report says how often the two are compatible, by how much they differ and how well the two orders agree
  * (Spearman). The bot is a parameter: the same report with e2 and with another bot says which one is closer.
  *
  * Both sides are rates per game without ties: tournaments are read per game (H-009, `matchupPerGame`: each match
  * length's match rate turned into a game rate, ties out), and the simulation's ties — the engine's 30-turn limit,
- * not something people play to — are left out too and counted apart.
+ * not something people play to — are left out too and counted apart. Tournament games are taken as independent,
+ * as `matchupPerGame` gives them; a player's rounds with one list are not, so the tournament intervals are, if
+ * anything, a little narrow.
  */
 import { type GameRecord, ORIENTATIVE_BELOW, type WinRate, wilsonFromRate, Z_95 } from '../stats/rates.js'
 
@@ -40,46 +42,64 @@ export interface CalibrationRow {
   tournament: WinRate<'tournament'> | null
   /** Simulated − tournament, in points; null without both. */
   difference: number | null
-  /** Whether the simulated rate is inside the tournament's 95 % interval; null without both or with too few games. */
-  inside: boolean | null
+  /** 95 % interval of the difference, with the error of both sides. */
+  differenceCi95: [number, number] | null
+  /**
+   * Whether the two are compatible: the difference's interval holds 0 (|sim − tour| ≤ 1,96 · √(se_sim² + se_tour²)).
+   * Null without both, or with fewer tournament games than the report's minimum.
+   */
+  compatible: boolean | null
 }
 
-/** One archetype of the bank against the rest of it, weighted by the bank's shares. */
+/** A weighted mean of rates (0–100) with its interval (delta method over the rates it averages). */
+export interface WeightedRate {
+  value: number
+  ci95: [number, number]
+  /** Games behind it (per game, the tournament side may be fractional: rounded). */
+  games: number
+  orientative: boolean
+}
+
+/** One archetype of the bank against the rest of it, both sides over the same rivals, weighted by their shares. */
 export interface CalibrationArchetype {
   id: string
   label: string
-  /** Weighted mean of its simulated rates against the others (0–100). */
-  simulated: number | null
-  /** Weighted mean of its tournament rates against the others it met with enough games (0–100). */
-  tournament: number | null
-  /** Rivals with a tournament rate, of those in the bank. */
-  rivalsWithData: number
+  /** Over the rivals it met in tournaments with enough games, and only those (the same set on both sides). */
+  simulated: WeightedRate | null
+  tournament: WeightedRate | null
+  /** Rivals of the bank in both means. */
+  rivals: number
 }
 
 export interface RankCorrelation {
   rho: number
+  /** Points the correlation is computed on. */
   n: number
-  /** Fisher z with the Fieller–Hartley–Pearson standard error 1.06/√(n − 3); null below 5 pairs. */
   ci95: [number, number] | null
+  /** How the interval was made: Fisher z (independent points) or a bootstrap over archetypes (pairings share them). */
+  method: 'fisher' | 'bootstrap'
 }
 
 export interface CalibrationReport {
   rows: CalibrationRow[]
   /** Pairings with both rates and at least `minTournamentGames` tournament games: what the summary is computed on. */
   compared: number
-  inside: number
+  compatible: number
   /** Mean absolute difference (points) over the compared pairings. */
   meanAbsDifference: number | null
-  /** Rank correlation of the simulated and tournament rates over the compared pairings. */
+  /** Rank correlation of the simulated and tournament rates over the compared pairings, both ways of each. */
   rankCorrelation: RankCorrelation | null
   archetypes: CalibrationArchetype[]
-  /** Rank correlation of the archetypes' weighted simulated and tournament rates. */
+  /** Rank correlation of the archetypes' simulated and tournament means. */
   archetypeCorrelation: RankCorrelation | null
   minTournamentGames: number
 }
 
 /** Below this many tournament games a pairing is shown but left out of the summary. */
 export const CALIBRATION_MIN_TOURNAMENT_GAMES = 20
+
+/** Resamples of the bootstrap over archetypes. */
+const BOOTSTRAP_SAMPLES = 1000
 
 /** Ranks from 1, ties sharing the mean of the ranks they span. */
 export function averageRanks(values: readonly number[]): number[] {
@@ -114,7 +134,10 @@ function pearson(xs: readonly number[], ys: readonly number[]): number | null {
   return sxx === 0 || syy === 0 ? null : sxy / Math.sqrt(sxx * syy)
 }
 
-/** Spearman's rank correlation (Pearson's on average ranks, so ties are handled); null below 3 pairs or no spread. */
+/**
+ * Spearman's rank correlation (Pearson's on average ranks, so ties are handled); null below 3 pairs or no spread.
+ * The interval is Fisher's z with the Fieller–Hartley–Pearson standard error 1,06/√(n − 3), for independent points.
+ */
 export function spearman(xs: readonly number[], ys: readonly number[]): RankCorrelation | null {
   if (xs.length !== ys.length) throw new RangeError('spearman: the two lists differ in length')
   const n = xs.length
@@ -127,7 +150,7 @@ export function spearman(xs: readonly number[], ys: readonly number[]): RankCorr
     const se = 1.06 / Math.sqrt(n - 3)
     ci95 = [Math.tanh(z - Z_95 * se), Math.tanh(z + Z_95 * se)]
   }
-  return { rho, n, ci95 }
+  return { rho, n, ci95, method: 'fisher' }
 }
 
 /** A rate per game without ties, Wilson over the (possibly fractional) number of games. */
@@ -148,12 +171,34 @@ function perGameRate<S extends 'simulation' | 'tournament'>(source: S, tally: Pe
   }
 }
 
-const flipTally = (tally: PerGameTally): PerGameTally => ({ wins: tally.losses, losses: tally.wins })
+/**
+ * Standard error of a rate per game, in points. With p shrunk to (W + 1)/(n + 2) so that 0 % or 100 % over a few
+ * games does not claim no error at all.
+ */
+function standardError(tally: PerGameTally): number {
+  const games = tally.wins + tally.losses
+  const p = (tally.wins + 1) / (games + 2)
+  return Math.sqrt((p * (1 - p)) / games) * 100
+}
+
+const simTally = (record: GameRecord): PerGameTally => ({ wins: record.wins, losses: record.losses })
+const flip = (tally: PerGameTally): PerGameTally => ({ wins: tally.losses, losses: tally.wins })
+const games = (tally: PerGameTally) => tally.wins + tally.losses
+
+/** The pairings the summary is computed on: both rates, and enough tournament games. */
+function isCompared(
+  pairing: CalibrationPairing,
+  minimum: number,
+): pairing is CalibrationPairing & {
+  tournament: PerGameTally
+} {
+  return pairing.tournament !== null && games(pairing.tournament) >= minimum && games(simTally(pairing.simulated)) > 0
+}
 
 /**
- * The report for one simulation of the bank. `shares` weighs each archetype in the per-archetype contrast (the
- * bank's shares of the meta). Each pairing goes from A's side, once per unordered pair (as a matrix of the bank plays
- * them); the per-archetype contrast reads every one from both sides.
+ * The report for one simulation of the bank. `shares` weighs each rival in the per-archetype means (the bank's
+ * shares of the meta). Each pairing goes from A's side, once per unordered pair (as a matrix of the bank plays them);
+ * the correlation and the per-archetype means read every one from both sides.
  */
 export function calibrationReport(
   pairings: readonly CalibrationPairing[],
@@ -161,10 +206,17 @@ export function calibrationReport(
 ): CalibrationReport {
   const minTournamentGames = options.minTournamentGames ?? CALIBRATION_MIN_TOURNAMENT_GAMES
   const rows: CalibrationRow[] = pairings.map((pairing) => {
-    const simulated = perGameRate('simulation', pairing.simulated)
+    const sim = simTally(pairing.simulated)
+    const simulated = perGameRate('simulation', sim)
     const tournament = pairing.tournament ? perGameRate('tournament', pairing.tournament) : null
-    const both = simulated !== null && tournament !== null
-    const enough = both && tournament.games >= minTournamentGames
+    const both = simulated !== null && tournament !== null && pairing.tournament !== null
+    const difference = both ? simulated.value - tournament.value : null
+    const se = both ? Math.hypot(standardError(sim), standardError(pairing.tournament as PerGameTally)) : null
+    // A difference of two rates lies in ±100 points; with few games the normal approximation would step out of it.
+    const differenceCi95: [number, number] | null =
+      difference !== null && se !== null
+        ? [Math.max(-100, difference - Z_95 * se), Math.min(100, difference + Z_95 * se)]
+        : null
     return {
       a: pairing.a,
       b: pairing.b,
@@ -173,75 +225,155 @@ export function calibrationReport(
       simulated,
       ties: pairing.simulated.ties,
       tournament,
-      difference: both ? simulated.value - tournament.value : null,
-      inside: enough ? simulated.value >= tournament.ci95[0] && simulated.value <= tournament.ci95[1] : null,
+      difference,
+      differenceCi95,
+      compatible:
+        differenceCi95 && isCompared(pairing, minTournamentGames)
+          ? differenceCi95[0] <= 0 && differenceCi95[1] >= 0
+          : null,
     }
   })
-  const compared = rows.filter(
-    (row): row is CalibrationRow & { simulated: WinRate<'simulation'>; tournament: WinRate<'tournament'> } =>
-      row.inside !== null,
-  )
-  const archetypes = archetypeContrast(pairings, options.shares ?? new Map(), minTournamentGames)
+  const compared = pairings.filter((pairing) => isCompared(pairing, minTournamentGames))
+  const comparedRows = rows.filter((row) => row.compatible !== null)
+  const archetypes = archetypeContrast(compared, pairings, options.shares ?? new Map())
   const withBoth = archetypes.filter((row) => row.simulated !== null && row.tournament !== null)
   return {
     rows,
-    compared: compared.length,
-    inside: compared.filter((row) => row.inside).length,
+    compared: comparedRows.length,
+    compatible: comparedRows.filter((row) => row.compatible).length,
     meanAbsDifference:
-      compared.length > 0
-        ? compared.reduce((sum, row) => sum + Math.abs(row.simulated.value - row.tournament.value), 0) / compared.length
+      comparedRows.length > 0
+        ? comparedRows.reduce((sum, row) => sum + Math.abs(row.difference as number), 0) / comparedRows.length
         : null,
-    rankCorrelation: spearman(
-      compared.map((row) => row.simulated.value),
-      compared.map((row) => row.tournament.value),
-    ),
+    rankCorrelation: pairingCorrelation(compared),
     archetypes,
     archetypeCorrelation: spearman(
-      withBoth.map((row) => row.simulated as number),
-      withBoth.map((row) => row.tournament as number),
+      withBoth.map((row) => row.simulated?.value as number),
+      withBoth.map((row) => row.tournament?.value as number),
     ),
     minTournamentGames,
   }
 }
 
-function archetypeContrast(
-  pairings: readonly CalibrationPairing[],
-  shares: ReadonlyMap<string, number>,
-  minTournamentGames: number,
-): CalibrationArchetype[] {
-  // Every pairing seen from both sides (B's wins are A's losses), so each archetype has its rate against every other.
-  const views = new Map<string, { label: string; against: Map<string, { sim: number | null; tour: number | null }> }>()
-  const rate = (tally: PerGameTally | null, minimum: number) =>
-    tally && tally.wins + tally.losses >= minimum ? (tally.wins / (tally.wins + tally.losses)) * 100 : null
-  const add = (id: string, label: string, rival: string, sim: PerGameTally, tour: PerGameTally | null) => {
-    const entry = views.get(id) ?? { label, against: new Map() }
-    if (!entry.against.has(rival)) entry.against.set(rival, { sim: rate(sim, 1), tour: rate(tour, minTournamentGames) })
-    views.set(id, entry)
+/** Every compared pairing as two points, A's side and B's (per game without ties, B's rate is 100 − A's). */
+function bothWays(pairings: readonly (CalibrationPairing & { tournament: PerGameTally })[]): [number, number][] {
+  return pairings.flatMap((pairing) => {
+    const sim = simTally(pairing.simulated)
+    const rate = (tally: PerGameTally) => (tally.wins / games(tally)) * 100
+    return [
+      [rate(sim), rate(pairing.tournament)],
+      [rate(flip(sim)), rate(flip(pairing.tournament))],
+    ] as [number, number][]
+  })
+}
+
+/** A seeded generator (mulberry32): the same report gives the same interval every time. */
+function random(seed: number): () => number {
+  let state = seed >>> 0
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0
+    let t = state
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
-  for (const pairing of pairings) {
-    const sim = { wins: pairing.simulated.wins, losses: pairing.simulated.losses }
-    add(pairing.a, pairing.labelA, pairing.b, sim, pairing.tournament)
-    add(pairing.b, pairing.labelB, pairing.a, flipTally(sim), pairing.tournament && flipTally(pairing.tournament))
+}
+
+/**
+ * Spearman over the compared pairings both ways (so it does not depend on which side each pairing was played from),
+ * with a bootstrap over archetypes for its interval: the pairings of one archetype share it, so they are not
+ * independent and Fisher's interval would be too narrow.
+ */
+function pairingCorrelation(
+  compared: readonly (CalibrationPairing & { tournament: PerGameTally })[],
+): RankCorrelation | null {
+  const points = bothWays(compared)
+  const point = spearman(
+    points.map(([sim]) => sim),
+    points.map(([, tour]) => tour),
+  )
+  if (!point) return null
+  const ids = [...new Set(compared.flatMap((pairing) => [pairing.a, pairing.b]))]
+  const byPair = new Map(compared.map((pairing) => [[pairing.a, pairing.b].sort().join('|'), pairing]))
+  const next = random(20261009)
+  const rhos: number[] = []
+  for (let sample = 0; sample < BOOTSTRAP_SAMPLES; sample++) {
+    const picked = ids.map(() => ids[Math.floor(next() * ids.length)] as string)
+    const chosen: (CalibrationPairing & { tournament: PerGameTally })[] = []
+    for (let i = 0; i < picked.length; i++) {
+      for (let j = i + 1; j < picked.length; j++) {
+        const pairing = byPair.get([picked[i], picked[j]].sort().join('|'))
+        if (pairing && picked[i] !== picked[j]) chosen.push(pairing)
+      }
+    }
+    const resampled = bothWays(chosen)
+    const rho = spearman(
+      resampled.map(([sim]) => sim),
+      resampled.map(([, tour]) => tour),
+    )?.rho
+    if (rho !== undefined) rhos.push(rho)
+  }
+  rhos.sort((x, y) => x - y)
+  const ci95: [number, number] | null =
+    rhos.length >= BOOTSTRAP_SAMPLES / 2
+      ? [rhos[Math.floor(rhos.length * 0.025)] as number, rhos[Math.ceil(rhos.length * 0.975) - 1] as number]
+      : null
+  return { rho: point.rho, n: points.length, ci95, method: 'bootstrap' }
+}
+
+function weightedRate(
+  terms: readonly { rate: number; se: number; weight: number; games: number }[],
+): WeightedRate | null {
+  const total = terms.reduce((sum, term) => sum + term.weight, 0)
+  if (terms.length === 0 || !(total > 0)) return null
+  const value = terms.reduce((sum, term) => sum + term.rate * term.weight, 0) / total
+  const sd = Math.sqrt(terms.reduce((sum, term) => sum + (term.weight / total) ** 2 * term.se ** 2, 0))
+  const gamesBehind = Math.round(terms.reduce((sum, term) => sum + term.games, 0))
+  return {
+    value,
+    ci95: [Math.max(0, value - Z_95 * sd), Math.min(100, value + Z_95 * sd)],
+    games: gamesBehind,
+    orientative: gamesBehind < ORIENTATIVE_BELOW,
+  }
+}
+
+/**
+ * Each archetype against the rest of the bank: both means over the same rivals — those it met in tournaments with
+ * enough games — so the two columns are comparable; an archetype with none of them has neither.
+ */
+function archetypeContrast(
+  compared: readonly (CalibrationPairing & { tournament: PerGameTally })[],
+  all: readonly CalibrationPairing[],
+  shares: ReadonlyMap<string, number>,
+): CalibrationArchetype[] {
+  const labels = new Map<string, string>()
+  for (const pairing of all) {
+    labels.set(pairing.a, pairing.labelA)
+    labels.set(pairing.b, pairing.labelB)
+  }
+  const terms = new Map<string, { sim: PerGameTally; tour: PerGameTally; rival: string }[]>()
+  const add = (id: string, rival: string, sim: PerGameTally, tour: PerGameTally) => {
+    const list = terms.get(id) ?? []
+    list.push({ sim, tour, rival })
+    terms.set(id, list)
+  }
+  for (const pairing of compared) {
+    const sim = simTally(pairing.simulated)
+    add(pairing.a, pairing.b, sim, pairing.tournament)
+    add(pairing.b, pairing.a, flip(sim), flip(pairing.tournament))
   }
   const weight = (id: string) => shares.get(id) ?? 1
-  const mean = (values: [number, number][]) => {
-    const total = values.reduce((sum, [, w]) => sum + w, 0)
-    return total > 0 ? values.reduce((sum, [value, w]) => sum + value * w, 0) / total : null
-  }
-  return [...views].map(([id, entry]) => {
-    const rivals = [...entry.against]
-    const weighted = (pick: 'sim' | 'tour') =>
-      rivals.flatMap(([rival, rates]) => {
-        const value = rates[pick]
-        return value === null ? [] : [[value, weight(rival)] as [number, number]]
-      })
-    const tour = weighted('tour')
-    return {
-      id,
-      label: entry.label,
-      simulated: mean(weighted('sim')),
-      tournament: mean(tour),
-      rivalsWithData: tour.length,
-    }
+  const side = (list: { sim: PerGameTally; tour: PerGameTally; rival: string }[], pick: 'sim' | 'tour') =>
+    weightedRate(
+      list.map((term) => ({
+        rate: (term[pick].wins / games(term[pick])) * 100,
+        se: standardError(term[pick]),
+        weight: weight(term.rival),
+        games: games(term[pick]),
+      })),
+    )
+  return [...labels].map(([id, label]) => {
+    const list = terms.get(id) ?? []
+    return { id, label, simulated: side(list, 'sim'), tournament: side(list, 'tour'), rivals: list.length }
   })
 }

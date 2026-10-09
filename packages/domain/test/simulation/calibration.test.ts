@@ -14,7 +14,7 @@ describe('rank correlation', () => {
     // scipy.stats.spearmanr([1, 2, 3, 4, 5], [5, 6, 7, 8, 7]) = 0.8207826816681233
     const tied = spearman([1, 2, 3, 4, 5], [5, 6, 7, 8, 7])
     expect(tied?.rho).toBeCloseTo(0.8207826816681233, 10)
-    expect(tied?.n).toBe(5)
+    expect(tied).toMatchObject({ n: 5, method: 'fisher' })
     const [lo, hi] = tied?.ci95 ?? [Number.NaN, Number.NaN]
     expect(lo).toBeLessThan(0.82)
     expect(hi).toBeGreaterThan(0.82)
@@ -29,9 +29,31 @@ describe('rank correlation', () => {
   })
 })
 
+/** Every pairing of the archetypes with 200 simulated games and `tour` tournament games, A's chance by strength. */
+function bank(rates: Record<string, number>, tour: number): CalibrationPairing[] {
+  const ids = Object.keys(rates)
+  const out: CalibrationPairing[] = []
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const [a, b] = [ids[i] as string, ids[j] as string]
+      const p = Math.min(0.95, Math.max(0.05, 0.5 + ((rates[a] as number) - (rates[b] as number)) / 100))
+      const wins = Math.round(200 * p)
+      out.push({
+        a,
+        b,
+        labelA: a,
+        labelB: b,
+        simulated: { wins, losses: 200 - wins, ties: 3 },
+        tournament: { wins: tour * p, losses: tour * (1 - p) },
+      })
+    }
+  }
+  return out
+}
+
 describe('calibration report', () => {
   const pairings: CalibrationPairing[] = [
-    // Close to tournaments: 60 % against 55 % over 100 games, inside its interval.
+    // Close to tournaments: 60 % against 55 % over 100 games, compatible.
     {
       a: 'gyarados',
       b: 'darkrai',
@@ -49,7 +71,7 @@ describe('calibration report', () => {
       simulated: { wins: 80, losses: 20, ties: 0 },
       tournament: { wins: 30, losses: 70 },
     },
-    // Too few tournament games to judge: shown, left out of the summary.
+    // Too few tournament games to judge: shown, left out of the summary and of the archetype means.
     {
       a: 'darkrai',
       b: 'venusaur',
@@ -58,7 +80,7 @@ describe('calibration report', () => {
       simulated: { wins: 50, losses: 50, ties: 0 },
       tournament: { wins: 5.5, losses: 4.5 },
     },
-    // Never met in tournaments.
+    // Never met in tournaments: an archetype of the bank without tournament data.
     {
       a: 'darkrai',
       b: 'mew',
@@ -77,42 +99,114 @@ describe('calibration report', () => {
     ]),
   })
 
-  it('keeps each side apart, per game and without ties, with its own interval', () => {
+  it('keeps each side apart, per game and without ties; the difference has an interval with both errors', () => {
     const [close, far, few, never] = report.rows
     expect(close?.simulated).toMatchObject({ source: 'simulation', value: 60, games: 100 })
     expect(close?.ties).toBe(5)
     expect(close?.tournament).toMatchObject({ source: 'tournament', games: 100 })
-    expect(close?.tournament?.value).toBeCloseTo(55, 10)
     expect(close?.difference).toBeCloseTo(5, 10)
-    expect(close?.inside).toBe(true)
-    expect(far?.inside).toBe(false)
+    const [lo, hi] = close?.differenceCi95 ?? [Number.NaN, Number.NaN]
+    // Both sides have ~5 points of error: the interval of the difference is about ±14 points.
+    expect(hi - lo).toBeGreaterThan(25)
+    expect(hi - lo).toBeLessThan(30)
+    expect(close?.compatible).toBe(true)
+    expect(far?.compatible).toBe(false)
     expect(far?.difference).toBeCloseTo(50, 10)
+    // The interval of a difference stays within ±100 points, however few the games.
+    const tiny = calibrationReport([
+      {
+        a: 'x',
+        b: 'y',
+        labelA: 'X',
+        labelB: 'Y',
+        simulated: { wins: 0, losses: 3, ties: 0 },
+        tournament: { wins: 2, losses: 0 },
+      },
+    ]).rows[0]
+    expect(tiny?.differenceCi95?.[0]).toBeGreaterThanOrEqual(-100)
+    expect(tiny?.differenceCi95?.[1]).toBeLessThanOrEqual(100)
     expect(few?.tournament?.games).toBe(10)
-    expect(few?.inside).toBeNull()
-    expect(never).toMatchObject({ tournament: null, difference: null, inside: null })
+    expect(few?.compatible).toBeNull()
+    expect(few?.differenceCi95).not.toBeNull()
+    expect(never).toMatchObject({ tournament: null, difference: null, differenceCi95: null, compatible: null })
+  })
+
+  it('counts compatibility with the simulation’s error too: more tournament games do not make a good bot fail', () => {
+    // The simulated rate exactly at the tournament's: compatible with 20 tournament games and with 2.000.
+    const exact = (tour: number): CalibrationPairing => ({
+      a: 'x',
+      b: 'y',
+      labelA: 'X',
+      labelB: 'Y',
+      simulated: { wins: 110, losses: 90, ties: 0 },
+      tournament: { wins: tour * 0.55, losses: tour * 0.45 },
+    })
+    expect(calibrationReport([exact(20)]).rows[0]?.compatible).toBe(true)
+    expect(calibrationReport([exact(2000)]).rows[0]?.compatible).toBe(true)
+    // 5 points off with 200 simulated games is within the simulation's own error even against 2.000 tournament games.
+    const off = { ...exact(2000), tournament: { wins: 2000 * 0.5, losses: 2000 * 0.5 } }
+    expect(calibrationReport([off]).rows[0]?.compatible).toBe(true)
   })
 
   it('sums up only the pairings with enough tournament games', () => {
     expect(report.compared).toBe(2)
-    expect(report.inside).toBe(1)
+    expect(report.compatible).toBe(1)
     expect(report.meanAbsDifference).toBeCloseTo(27.5, 10)
-    // Two pairs are too few for a correlation.
-    expect(report.rankCorrelation).toBeNull()
     expect(report.minTournamentGames).toBe(20)
   })
 
-  it('contrasts each archetype against the rest of the bank, weighted by share, from both sides', () => {
+  it('averages each archetype over the same rivals on both sides, with n and an interval', () => {
     const gyarados = report.archetypes.find((row) => row.id === 'gyarados')
-    // Simulated: 60 % against Darkrai (weight 15) and 80 % against Venusaur (weight 10).
-    expect(gyarados?.simulated).toBeCloseTo((60 * 15 + 80 * 10) / 25, 10)
-    expect(gyarados?.tournament).toBeCloseTo((55 * 15 + 30 * 10) / 25, 10)
-    expect(gyarados?.rivalsWithData).toBe(2)
+    // Both rivals have 100 tournament games: Darkrai (weight 15) and Venusaur (weight 10).
+    expect(gyarados?.rivals).toBe(2)
+    expect(gyarados?.simulated?.value).toBeCloseTo((60 * 15 + 80 * 10) / 25, 10)
+    expect(gyarados?.tournament?.value).toBeCloseTo((55 * 15 + 30 * 10) / 25, 10)
+    expect(gyarados?.simulated?.games).toBe(200)
+    expect(gyarados?.tournament?.games).toBe(200)
+    const [lo, hi] = gyarados?.simulated?.ci95 ?? [Number.NaN, Number.NaN]
+    expect(lo).toBeLessThan(gyarados?.simulated?.value as number)
+    expect(hi).toBeGreaterThan(gyarados?.simulated?.value as number)
+    // Venusaur's only rival with enough tournament games is Gyarados: Darkrai (10 games) is out of both columns.
     const venusaur = report.archetypes.find((row) => row.id === 'venusaur')
-    // B's side: 20 % against Gyarados and 50 % against Darkrai; tournaments only count Gyarados (Darkrai has 10 games).
-    expect(venusaur?.simulated).toBeCloseTo((20 * 20 + 50 * 15) / 35, 10)
-    expect(venusaur?.tournament).toBeCloseTo(70, 10)
-    const mew = report.archetypes.find((row) => row.id === 'mew')
-    expect(mew).toMatchObject({ tournament: null, rivalsWithData: 0 })
-    expect(mew?.simulated).toBeCloseTo(70, 10)
+    expect(venusaur?.rivals).toBe(1)
+    expect(venusaur?.simulated?.value).toBeCloseTo(20, 10)
+    expect(venusaur?.tournament?.value).toBeCloseTo(70, 10)
+    // Mew never met anyone in tournaments: nothing on either side.
+    expect(report.archetypes.find((row) => row.id === 'mew')).toMatchObject({
+      simulated: null,
+      tournament: null,
+      rivals: 0,
+    })
+  })
+
+  it('correlates the pairings both ways, so it does not depend on which side each was played from', () => {
+    const rates = { a: 70, b: 55, c: 50, d: 40, e: 30, f: 20 }
+    const straight = calibrationReport(bank(rates, 100))
+    const turned = calibrationReport(
+      bank(rates, 100).map((pairing) => ({
+        ...pairing,
+        a: pairing.b,
+        b: pairing.a,
+        labelA: pairing.labelB,
+        labelB: pairing.labelA,
+        simulated: { wins: pairing.simulated.losses, losses: pairing.simulated.wins, ties: pairing.simulated.ties },
+        tournament: pairing.tournament && { wins: pairing.tournament.losses, losses: pairing.tournament.wins },
+      })),
+    )
+    expect(straight.rankCorrelation?.rho).toBeCloseTo(turned.rankCorrelation?.rho as number, 10)
+    expect(straight.rankCorrelation).toMatchObject({ n: 30, method: 'bootstrap' })
+    expect(straight.rankCorrelation?.rho).toBeGreaterThan(0.95)
+    const [lo, hi] = straight.rankCorrelation?.ci95 ?? [Number.NaN, Number.NaN]
+    expect(lo).toBeLessThanOrEqual(straight.rankCorrelation?.rho as number)
+    expect(hi).toBeLessThanOrEqual(1)
+    // The bootstrap is seeded: the same report, the same interval.
+    expect(calibrationReport(bank(rates, 100)).rankCorrelation?.ci95).toEqual(straight.rankCorrelation?.ci95)
+    // A bot that gets the order wrong shows it.
+    const wrong = bank(rates, 100).map((pairing) => ({
+      ...pairing,
+      simulated: { wins: pairing.simulated.losses, losses: pairing.simulated.wins, ties: 0 },
+    }))
+    expect(calibrationReport(wrong).rankCorrelation?.rho).toBeLessThan(-0.95)
+    expect(straight.archetypeCorrelation?.rho).toBeCloseTo(1, 10)
   })
 })

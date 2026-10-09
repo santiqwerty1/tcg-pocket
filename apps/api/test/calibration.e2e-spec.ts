@@ -1,10 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { matchupPerGame } from '@tcg/domain'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
 import { WorkerQueueService } from '../src/simulation/worker-queue.service.js'
 import { type FetchLike, LimitlessTransport } from '../src/tournaments/limitless.client.js'
 import { TournamentSyncService } from '../src/tournaments/tournament-sync.service.js'
+import { TournamentsService } from '../src/tournaments/tournaments.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /**
@@ -74,19 +76,39 @@ describe('calibration (e2e)', () => {
 
     // While nothing is played, the report waits for every pairing.
     const waiting = (await get(`/api/calibration/${id}`)).body
-    expect(waiting).toMatchObject({ pending: 10, report: { rows: [], compared: 0 } })
+    expect(waiting).toMatchObject({ pending: 10, failed: 0, report: { rows: [], compared: 0 } })
     expect(waiting.job).toMatchObject({ id, status: 'queued', bot: 'e2', lists: 5 })
 
-    // A fake worker: deck A wins 7 of 10 in every pairing.
+    // A fake worker with a different result in each pairing (deck A wins idx + 1 of 10); the last one fails 3 times.
+    const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })
+    const calibration = (job.params as { calibration: { bank: { listKey: string; archetypeId: string }[] } })
+      .calibration
+    const snapshots = await test.prisma.deckSnapshot.findMany({
+      where: { id: { in: (job.params as { sideA: number[] }).sideA } },
+    })
+    const archetypeOf = (snapshotId: number | null) =>
+      calibration.bank.find((entry) => entry.listKey === snapshots.find((s) => s.id === snapshotId)?.sourceId)
+        ?.archetypeId
+    const played = new Map<string, number>()
     for (;;) {
       const chunk = (await bearer('post', '/api/worker/claim').send({ ...hello, engineRev: test.env.engineRev })).body
         .chunk as Structured | null
       if (!chunk) break
+      const row = await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: Number(chunk.chunkId) } })
+      if (row.idx === 9) {
+        await bearer('put', `/api/worker/chunks/${chunk.chunkId}/failure`).send({
+          workerId: hello.workerId,
+          error: 'Unsupported Trainer Card',
+        })
+        continue
+      }
+      const wins = row.idx + 1
+      played.set(`${archetypeOf(row.snapshotAId)}|${archetypeOf(row.snapshotBId)}`, wins)
       const sent = await bearer('put', `/api/worker/chunks/${chunk.chunkId}/result`).send({
         workerId: hello.workerId,
         engineRev: test.env.engineRev,
-        winsA: 7,
-        winsB: 3,
+        winsA: wins,
+        winsB: 10 - wins,
         ties: 0,
         games: 10,
         durationMs: 100,
@@ -97,35 +119,49 @@ describe('calibration (e2e)', () => {
     const view = (await get(`/api/calibration/${id}`)).body as {
       job: Structured
       pending: number
-      tournaments: { matches: number; tournamentsWithPairings: number }
+      failed: number
+      tournaments: { era: string; matches: number; tournamentsWithPairings: number }
       report: {
         rows: {
+          a: string
+          b: string
           simulated: { value: number; games: number }
-          tournament: { games: number } | null
-          inside: boolean | null
+          tournament: { value: number; games: number } | null
+          compatible: boolean | null
         }[]
         compared: number
-        inside: number
-        archetypes: { id: string; simulated: number | null }[]
+        compatible: number
+        archetypes: { id: string; simulated: unknown; tournament: unknown; rivals: number }[]
         minTournamentGames: number
       }
     }
-    expect(view.job).toMatchObject({ status: 'done', era: expect.any(String) })
-    expect(view.pending).toBe(0)
-    expect(view.report.rows).toHaveLength(10)
-    expect(view.report.rows.every((row) => row.simulated.value === 70 && row.simulated.games === 10)).toBe(true)
+    // A failed pairing ends the job «failed», and the report still says what it has.
+    expect(view.job).toMatchObject({ status: 'failed', era: expect.any(String) })
+    expect(view).toMatchObject({ pending: 0, failed: 1 })
+    expect(view.report.rows).toHaveLength(9)
+    // Each row is A's side, simulated and in tournaments: the same direction as the chunk and as matchupPerGame(a, b).
+    const tournaments = test.app.get(TournamentsService)
+    const { dataset } = await tournaments.scopedDataset({ era: view.tournaments.era, format: 'STANDARD' })
+    const matchups = await tournaments.matchupsOf(dataset)
+    for (const row of view.report.rows) {
+      expect(row.simulated.value).toBeCloseTo(((played.get(`${row.a}|${row.b}`) as number) / 10) * 100, 10)
+      const expected = matchupPerGame(matchups, row.a, row.b)
+      if (expected === null) expect(row.tournament).toBeNull()
+      else expect(row.tournament?.value).toBeCloseTo((expected.wins / (expected.wins + expected.losses)) * 100, 10)
+    }
     expect(view.tournaments.tournamentsWithPairings).toBe(1)
-    expect(view.tournaments.matches).toBeGreaterThan(0)
-    // The top archetypes of PMPT #45 met each other there: some pairings have tournament games.
     expect(view.report.rows.some((row) => row.tournament !== null)).toBe(true)
-    const judged = view.report.rows.filter((row) => row.inside !== null)
-    expect(view.report.compared).toBe(judged.length)
-    expect(view.report.inside).toBe(judged.filter((row) => row.inside).length)
+    // One tournament: no pairing reaches 20 games, so nothing is judged and no archetype has a mean on either side.
+    expect(view.report.compared).toBe(view.report.rows.filter((row) => row.compatible !== null).length)
     expect(view.report.archetypes).toHaveLength(5)
+    for (const archetype of view.report.archetypes.filter((row) => row.rivals === 0)) {
+      expect(archetype).toMatchObject({ simulated: null, tournament: null })
+    }
 
-    const list = (await get('/api/calibration')).body as { id: number; summary: Structured | null }[]
+    const list = (await get('/api/calibration')).body as { id: number; failed: number; summary: Structured | null }[]
     expect(list.map((item) => item.id)).toEqual([id])
-    expect(list[0]?.summary).toMatchObject({ compared: view.report.compared, inside: view.report.inside })
+    expect(list[0]).toMatchObject({ failed: 1 })
+    expect(list[0]?.summary).toMatchObject({ compared: view.report.compared, compatible: view.report.compatible })
     expect((await get('/api/calibration/999999')).status).toBe(404)
   })
 })
