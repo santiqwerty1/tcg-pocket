@@ -16,6 +16,8 @@ import { TournamentSyncService } from '../tournaments/tournament-sync.service.js
 export const DATABASE_LIMIT_MB = 500
 /** Avisos from this size on: room for a few months of tournaments before the limit. */
 export const DATABASE_ALERT_MB = 350
+/** The alert's title moves in steps of this size (one push per step). */
+export const DATABASE_ALERT_STEP_MB = 50
 /** The daily copy runs at 04:00: more than this without one is a missed day (plus a margin). */
 export const BACKUP_STALE_MS = 26 * 60 * 60 * 1000
 /** The Limitless sync runs every 6 hours: more than this without a good run is two missed runs. */

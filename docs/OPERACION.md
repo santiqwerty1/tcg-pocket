@@ -74,4 +74,18 @@ Para mirar la memoria sin entrar a la app: `system_status`, o `GET /api/ops/stat
 3. Las migraciones corren en una máquina aparte, antes de reemplazar la que anda (`release_command`): si fallan, el deploy se corta y la app sigue como estaba. Al arrancar el contenedor se corren otra vez, y para entonces no hacen nada.
 4. Espera hasta 3 minutos a que `/healthz` responda con la versión nueva. Si no responde, falla.
 
+**Las migraciones tienen que ser compatibles hacia atrás.** Con `release_command`, la versión anterior sigue andando unos minutos con el esquema nuevo, mientras arranca la nueva. Por eso:
+- columnas nuevas con valor por defecto o que acepten nulos;
+- nada de borrar ni renombrar en el mismo deploy que el código que deja de usarlo: primero el código y después, en otro deploy, la migración que borra.
+
+### Una migración que falló
+
+- **Si falla en el `release_command`:** el deploy se corta y la versión anterior sigue andando. Prisma deja la migración marcada como fallida en `_prisma_migrations`.
+- **El contenedor no se cae por eso:** si `migrate deploy` falla al arrancar (P3009), lo deja en el log y arranca igual.
+- **Para destrabarla:**
+  1. Arreglar la migración en un commit nuevo.
+  2. Marcarla como deshecha: `flyctl machine exec <id> --app tcg-pocket "sh -c 'cd /app/apps/api && node node_modules/prisma/build/index.js migrate resolve --rolled-back <nombre_de_la_migración>'"`.
+     - Si en realidad se aplicó a mano, va `--applied` en vez de `--rolled-back`.
+  3. Desplegar de nuevo.
+
 La CI saltea el motor de Windows cuando no cambió y arma la imagen de Docker solo en main (DECISIONES 41.1–41.3). Dependabot abre como mucho un PR agrupado por mes para npm y otro para las Actions; el motor queda afuera porque deckgym está fijo (D-013).

@@ -166,6 +166,7 @@ export class TournamentsService {
 
   async dataset(scope: Scope): Promise<TournamentDataset> {
     const key = `${scope.era}|${scope.format}|${scope.minPlayers}|${this.version.current()}`
+    this.dropStale(scope.index)
     const hit = this.cache.find((entry) => entry.key === key && entry.index === scope.index)
     if (hit) return hit.dataset
     const pending = this.building.get(key)
@@ -183,6 +184,13 @@ export class TournamentsService {
     } finally {
       if (this.building.get(key)?.promise === promise) this.building.delete(key)
     }
+  }
+
+  /** Fase 38 (R-008): datasets of an older data version (or catalog) and the matchups built on them leave memory. */
+  private dropStale(index: CatalogIndex): void {
+    const version = `|${this.version.current()}`
+    this.cache = this.cache.filter((entry) => entry.key.endsWith(version) && entry.index === index)
+    this.matchupCache = this.matchupCache.filter((entry) => this.cache.some((item) => item.dataset === entry.dataset))
   }
 
   private async buildDataset(scope: Scope, key: string): Promise<TournamentDataset> {
@@ -243,6 +251,7 @@ export class TournamentsService {
       aliases: await this.settings.aliases(),
     })
     this.cache = [{ key, index: scope.index, dataset }, ...this.cache].slice(0, CACHE_SIZE)
+    this.dropStale(scope.index)
     // R-008: the memory after each build, to size the machine on real numbers.
     const memory = process.memoryUsage()
     this.logger.info(

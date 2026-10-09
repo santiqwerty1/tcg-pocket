@@ -89,8 +89,8 @@ export interface PuzzleAnswerView {
 }
 
 const ID = /^(\d{1,9})-(\d{1,6})$/
-/** Fase 38 (R-008): games whose situations stay in memory (the oldest go first). */
-const SPOTS_CACHE_SIZE = 50
+/** Fase 38 (R-008): games whose situations stay in memory (the oldest go first); the list reads MAX_GAMES. */
+const SPOTS_CACHE_SIZE = MAX_GAMES + 4
 
 @Injectable()
 export class PuzzlesService {
