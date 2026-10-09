@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-20 fichas: vigente 20. ⚑ = para revisar.
+21 fichas: vigente 21. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Actualizado |
 | --- | --- | --- | --- | --- |
@@ -37,3 +37,4 @@ revisar: false
 | [D-018](D-018.md) | Cómo mide y busca el laboratorio de mazos | vigente | — | 2026-10-08 |
 | [D-019](D-019.md) | Cómo se juega contra el bot y cómo se mide la consistencia | vigente | — | 2026-10-08 |
 | [D-020](D-020.md) | Consolidar antes de sumar funciones | vigente | — | 2026-10-09 |
+| [D-021](D-021.md) | Reparto del trabajo entre las tres sesiones de Claude | vigente | — | 2026-10-09 |

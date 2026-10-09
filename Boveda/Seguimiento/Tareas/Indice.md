@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-16 fichas: en_curso 2 · hecho 12 · pendiente 2. ⚑ = para revisar.
+17 fichas: en_curso 2 · hecho 12 · pendiente 3. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Actualizado |
 | --- | --- | --- | --- | --- |
@@ -33,3 +33,4 @@ revisar: false
 | [T-014](T-014.md) | Evaluación del 09/10: fases propuestas 36 a 45 | en_curso | — | 2026-10-09 |
 | [T-015](T-015.md) | Más workers: en la nube, en el celu y en el navegador | pendiente | — | 2026-10-09 |
 | [T-016](T-016.md) | Búsqueda del laboratorio: probar siempre los cambios obvios | pendiente | — | 2026-10-09 |
+| [T-017](T-017.md) | Optimización de mazos: lo nuevo del análisis del 09/10 | pendiente | — | 2026-10-09 |

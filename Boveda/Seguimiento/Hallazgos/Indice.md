@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-17 fichas: abierto 6 · resuelto 11. ⚑ = para revisar.
+21 fichas: abierto 10 · resuelto 11. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Severidad | Actualizado |
 | --- | --- | --- | --- | --- | --- |
@@ -34,3 +34,7 @@ revisar: false
 | [H-015](H-015.md) | Descompresión sin límite, conexiones a la base sin tiempo máximo y respuestas sin comprimir | resuelto | — | baja | 2026-10-09 |
 | [H-016](H-016.md) | El worker de la PC murió con la actualización de la app de Claude | resuelto | — | media | 2026-10-09 |
 | [H-017](H-017.md) | En una sesión en la nube, posta generar recorta el CHANGELOG | abierto | — | baja | 2026-10-09 |
+| [H-018](H-018.md) | El bot e2 no evoluciona a un Pokémon sin ataque de daño fijo | abierto | — | alta | 2026-10-09 |
+| [H-019](H-019.md) | engine-cli pierde medio segundo por corrida y los chunks chicos hunden la velocidad del laboratorio | abierto | — | media | 2026-10-09 |
+| [H-020](H-020.md) | Las semillas comunes del laboratorio casi no sirven porque las variantes reordenan la lista | abierto | — | media | 2026-10-09 |
+| [H-021](H-021.md) | Una búsqueda del laboratorio no se puede reproducir | abierto | — | baja | 2026-10-09 |

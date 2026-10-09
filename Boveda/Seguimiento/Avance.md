@@ -68,6 +68,7 @@ revisar: false
 | 44 | Análisis nuevos | pendiente | 43 | [T-014](Tareas/T-014.md) |
 | W | Más workers: nube, Android y navegador (reemplaza la 45, [P-008](Preguntas/P-008.md)) | pendiente, después de la 44 | 44 | [T-015](Tareas/T-015.md) |
 | L | Búsqueda del laboratorio: probar siempre los cambios obvios (+1 copia, paso hacia la lista de torneo) | pendiente, para cuando Santiago la pida | — | [T-016](Tareas/T-016.md) |
+| O | Optimización de mazos: análisis del 09/10 (bot que no evoluciona, velocidad, semillas, búsqueda) | análisis hecho 09/10 · lo nuevo espera [P-009](Preguntas/P-009.md) | — | [Optimización](Optimizacion-2026-10-09.md), [T-017](Tareas/T-017.md) |
 | K | Bóveda con el kit de Posta | hecho 07/10 · aprobado 08/10 | — | [D-009](Decisiones/D-009.md) |
 
 ## Próximos pasos
@@ -77,6 +78,12 @@ Las fases 0–8 del plan están aprobadas (visto bueno de Santiago el 08/10/2026
 1. Fases 36 a 44 de la [evaluación del 09/10](Evaluacion-2026-10-09.md) ([T-014](Tareas/T-014.md)), en el orden de [D-020](Decisiones/D-020.md) (decidido el 09/10/2026). Al empezar cada una, leer la nota «Verificación del 09/10» de sus hallazgos: corrige detalles de las fichas.
 2. Después, los workers de [T-015](Tareas/T-015.md) (nube, Android y navegador), que reemplazan la fase 45.
 3. Para después, cuando Santiago la pida: [T-016](Tareas/T-016.md) (variantes fijas en la búsqueda del laboratorio).
+
+Desde el 09/10/2026 las tres sesiones de Claude se reparten las fases según [D-021](Decisiones/D-021.md):
+
+- **«Fase 0»:** 37 a 40, y es la única que integra, sube y despliega.
+- **«Selección de cartas en simulación»:** [H-010](Hallazgos/H-010.md), la 42 y la optimización de mazos ([T-017](Tareas/T-017.md), si [P-009](Preguntas/P-009.md) lo aprueba).
+- **La sesión en la nube:** 41, 43 y 44.
 
 ## Pendiente de decidir (para después)
 
