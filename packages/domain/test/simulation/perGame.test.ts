@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   checkPerGame,
+  PER_GAME_CLI_VERSION,
   PER_GAME_WORKER_VERSION,
   type PerGameResults,
   perGameEntries,
@@ -26,6 +27,7 @@ describe('per-game results of a chunk', () => {
     expect(wantsPerGame({ perGame: 'yes' })).toBe(false)
     expect(wantsPerGame(null)).toBe(false)
     expect(PER_GAME_WORKER_VERSION).toBe('0.2.5')
+    expect(PER_GAME_CLI_VERSION).toBe('0.2.0')
   })
 
   it('accepts what the engine wrote when it matches the tallies', () => {
@@ -44,6 +46,35 @@ describe('per-game results of a chunk', () => {
     expect(checkPerGame(limit, { games: 10, winsA: 6, winsB: 3, ties: 1 })).toBeNull()
     const win = { ...SAMPLE, endings: 'LPPPPPPPPP' }
     expect(checkPerGame(win, TALLY)).toMatch(/partida 0/)
+  })
+
+  it('checks the turns: their sum is the chunk’s, and «L» goes with more than 30 turns and only then', () => {
+    const mixed: PerGameResults = {
+      winners: 'ABTT',
+      starters: 'ABAB',
+      endings: 'PNLT',
+      turns: [12, 9, 31, 20],
+      stagesA: '0120',
+      stagesB: '1002',
+    }
+    const tally = { games: 4, winsA: 1, winsB: 1, ties: 2 }
+    expect(checkPerGame(mixed, { ...tally, turns: 72 })).toBeNull()
+    expect(checkPerGame(mixed, tally)).toBeNull()
+    expect(checkPerGame(mixed, { ...tally, turns: 71 })).toMatch(/no suma/)
+    expect(checkPerGame({ ...mixed, turns: [12, 9, 30, 20] }, tally)).toMatch(/límite de 30 turnos/)
+    expect(checkPerGame({ ...mixed, turns: [12, 9, 31, 31] }, tally)).toMatch(/partida 3.*límite/)
+    expect(checkPerGame({ ...mixed, turns: [12, 9, 31, -1] }, tally)).toMatch(/turns/)
+    expect(checkPerGame({ ...mixed, turns: '12,9,31,20' }, tally)).toMatch(/turns/)
+    expect(checkPerGame({ ...mixed, endings: 'PNLX' }, tally)).toMatch(/endings/)
+    expect(checkPerGame({ ...mixed, winners: 'ABTX' }, tally)).toMatch(/winners/)
+    expect(checkPerGame({ ...mixed, stagesA: '01a0' }, tally)).toMatch(/stagesA/)
+    expect(checkPerGame([], tally)).toMatch(/winners/)
+    expect(perGameEntries(mixed)).toEqual([
+      { index: 0, winner: 'a', starter: 'a', ending: 'points', turns: 12, stageA: 0, stageB: 1 },
+      { index: 1, winner: 'b', starter: 'b', ending: 'no_pokemon', turns: 9, stageA: 1, stageB: 0 },
+      { index: 2, winner: 'tie', starter: 'a', ending: 'turn_limit', turns: 31, stageA: 2, stageB: 0 },
+      { index: 3, winner: 'tie', starter: 'b', ending: 'tie', turns: 20, stageA: 0, stageB: 2 },
+    ])
   })
 
   it('reads them back from a chunk’s extra, and decodes each game', () => {

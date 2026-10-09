@@ -38,8 +38,10 @@ export interface PerGameEntry {
   stageB: number
 }
 
-/** Workers from this version on run `perGame` jobs; the queue gives them to nobody else. */
+/** Workers from this version on forward `perGame`, and engines (`cliVersion`) from this one play it; the queue gives
+ * those jobs only to a worker with both. */
 export const PER_GAME_WORKER_VERSION = '0.2.5'
+export const PER_GAME_CLI_VERSION = '0.2.0'
 
 /** Whether a job asked for per-game results (`params.perGame: true`). */
 export function wantsPerGame(params: unknown): boolean {
@@ -52,7 +54,7 @@ export function wantsPerGame(params: unknown): boolean {
  */
 export function checkPerGame(
   value: unknown,
-  expected: { games: number; winsA: number; winsB: number; ties: number },
+  expected: { games: number; winsA: number; winsB: number; ties: number; turns?: number | undefined },
 ): string | null {
   if (typeof value !== 'object' || value === null) return 'falta perGame.'
   const results = value as Partial<Record<keyof PerGameResults, unknown>>
@@ -79,11 +81,18 @@ export function checkPerGame(
   if (count('A') !== expected.winsA || count('B') !== expected.winsB || count('T') !== expected.ties) {
     return 'perGame.winners no coincide con winsA, winsB y ties.'
   }
+  if (expected.turns !== undefined && (turns as number[]).reduce((sum, t) => sum + t, 0) !== expected.turns) {
+    return 'perGame.turns no suma los turnos del chunk.'
+  }
   const endings = results.endings as string
   for (let i = 0; i < games; i++) {
     const tie = winners[i] === 'T'
     const tieEnding = endings[i] === 'L' || endings[i] === 'T'
     if (tie !== tieEnding) return `perGame: la partida ${i} no termina como dice su resultado.`
+    // deckgym ties a game when turn 31 begins, and only then: «L» if and only if more than 30 turns were played.
+    if ((endings[i] === 'L') !== (turns[i] as number) > 30) {
+      return `perGame: la partida ${i} no coincide con el límite de 30 turnos.`
+    }
   }
   return null
 }

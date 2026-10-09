@@ -913,6 +913,21 @@ mod tests {
     }
 
     #[test]
+    fn each_game_is_the_same_whatever_the_threads_and_the_length_of_the_job() {
+        // Game i depends only on the job's seed and i: 12 games on 1 thread are the first 12 of 24 on 4 threads.
+        let short = simulate(SimulateJob { threads: 1, ..job(12, true) }).expect("simulate");
+        let long = simulate(SimulateJob { threads: 4, ..job(24, true) }).expect("simulate");
+        let (short, long) = (short.per_game.expect("perGame"), long.per_game.expect("perGame"));
+        let prefix = |text: &str| text[..12].to_string();
+        assert_eq!(short.winners, prefix(&long.winners));
+        assert_eq!(short.starters, prefix(&long.starters));
+        assert_eq!(short.endings, prefix(&long.endings));
+        assert_eq!(short.stages_a, prefix(&long.stages_a));
+        assert_eq!(short.stages_b, prefix(&long.stages_b));
+        assert_eq!(short.turns[..], long.turns[..12]);
+    }
+
+    #[test]
     fn the_starter_is_who_plays_turn_one() {
         let deck = Deck::from_string(crate::coach::tests::ALTARIA).expect("deck");
         for seed in 0..12 {
