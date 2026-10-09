@@ -11,6 +11,8 @@ import { EventsPage } from '@/pages/eventos/EventsPage'
 import { GamePage } from '@/pages/jugar/GamePage'
 import { GameReplayPage } from '@/pages/jugar/GameReplayPage'
 import { JugarPage } from '@/pages/jugar/JugarPage'
+import { PuzzlePage } from '@/pages/jugar/PuzzlePage'
+import { PuzzlesPage } from '@/pages/jugar/PuzzlesPage'
 import { LabJobPage } from '@/pages/laboratorio/LabJobPage'
 import { LaboratorioPage } from '@/pages/laboratorio/LaboratorioPage'
 import { AboutPage } from '@/pages/mas/AboutPage'
@@ -86,6 +88,12 @@ export const routes: RouteObject[] = [
       { path: 'simulacion/:id', element: <SimulationDetailPage />, handle: handle('Simulación', '/simulacion') },
       { path: 'laboratorio', element: <LaboratorioPage />, handle: handle('Laboratorio de mazos', '/mas') },
       { path: 'jugar', element: <JugarPage />, handle: handle('Jugar contra un bot', '/mas') },
+      { path: 'jugar/situaciones', element: <PuzzlesPage />, handle: handle('Situaciones para resolver', '/jugar') },
+      {
+        path: 'jugar/situaciones/:id',
+        element: <PuzzlePage />,
+        handle: handle('Situación', '/jugar/situaciones'),
+      },
       { path: 'jugar/:id', element: <GamePage />, handle: handle('Partida', '/jugar') },
       { path: 'jugar/:id/repeticion', element: <GameReplayPage />, handle: handle('Repetición', '/jugar') },
       { path: 'laboratorio/:id', element: <LabJobPage />, handle: handle('Laboratorio', '/laboratorio') },

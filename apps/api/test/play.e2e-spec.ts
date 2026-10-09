@@ -279,6 +279,83 @@ describe('playing against a bot (e2e)', () => {
     for (const game of [id, again.body.id, fresh.body.id]) await post(`/api/play/${game}/abandon`)
   })
 
+  it('situaciones para resolver (Fase 24): the costly choices of a finished game with the coach, graded again', async () => {
+    const created = await post('/api/play').send({
+      human: { deckId: deckIds[1] },
+      rival: { deckId: deckIds[12] },
+      seed: 31,
+      coach: true,
+    })
+    const id = created.body.id as number
+    const state = { turn: 3, current_player: 0, points: [0, 0], winner: null, players: [], stadium: null }
+    const step = (turn: number, actor: number, chosen: number, scores: number[] | null) => ({
+      ply: 0,
+      turn,
+      actor,
+      state,
+      options: (scores ?? [0, 0]).map((_, i) => ({
+        text: `Option ${i}`,
+        action: i === 0 ? 'EndTurn' : { Attack: { title: 'X' } },
+      })),
+      chosen,
+      note: null,
+      scores,
+    })
+    const replay = {
+      version: 1,
+      game_id: 'x',
+      seed: 31,
+      players: [],
+      cards: {},
+      steps: [
+        step(1, 0, 0, [0, 50]), // «Casi igual»: not a situation
+        step(1, 1, 0, null),
+        step(3, 0, 0, [0, 6000]), // «Error grave»
+        step(5, 0, 0, [-2500, 0, 100]), // «Peor» (best is 2)
+      ],
+      final_state: state,
+      outcome: { Win: 1 },
+    }
+    await test.prisma.liveGame.update({
+      where: { id },
+      data: {
+        status: 'done',
+        winner: 'bot',
+        turns: 6,
+        finishedAt: new Date(),
+        replayGz: gzipSync(Buffer.from(JSON.stringify(replay))),
+      },
+    })
+
+    const list = (await get('/api/puzzles')).body
+    const mine = list.items.filter((item: { gameId: number }) => item.gameId === id)
+    expect(mine.map((item: { id: string; verdict: string; ply: number }) => [item.id, item.verdict, item.ply])).toEqual(
+      [
+        [`${id}-2`, 'blunder', 2],
+        [`${id}-3`, 'mistake', 3],
+      ],
+    )
+    const puzzle = (await get(`/api/puzzles/${id}-2`)).body
+    expect(puzzle).toMatchObject({ gameId: id, ply: 2, turn: 3, attempts: 0, solved: false })
+    expect(puzzle.actions).toHaveLength(2)
+    expect(JSON.stringify(puzzle)).not.toContain('6000')
+    expect(Object.keys(puzzle.cardIds).length).toBeGreaterThan(5)
+
+    const wrong = (await post(`/api/puzzles/${id}-2/answer`).send({ i: 0 })).body
+    expect(wrong).toMatchObject({ verdict: 'blunder', solved: false, best: 1, attempts: 1, original: { chosen: 0 } })
+    expect(wrong.next).toBe(`${id}-3`)
+    const right = (await post(`/api/puzzles/${id}-2/answer`).send({ i: 1 })).body
+    expect(right).toMatchObject({ verdict: 'best', solved: true, attempts: 2, scores: [0, 6000] })
+    const after = (await get('/api/puzzles')).body
+    const order = after.items
+      .filter((item: { gameId: number }) => item.gameId === id)
+      .map((item: { id: string }) => item.id)
+    expect(order).toEqual([`${id}-3`, `${id}-2`]) // the solved one goes last
+    expect((await get(`/api/puzzles/${id}-0`)).status).toBe(404)
+    expect((await get('/api/puzzles/nope')).status).toBe(400)
+    expect((await post(`/api/puzzles/${id}-2/answer`).send({ i: 7 })).status).toBe(400)
+  })
+
   it('a worker that went away: the game is claimed again with the choices made so far', async () => {
     const created = await post('/api/play').send({
       human: { deckId: deckIds[1] },

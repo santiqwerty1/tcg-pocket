@@ -41,6 +41,8 @@ export interface ReplayViewerProps {
   reviews?: CoachReview[] | undefined
   /** How to say who won, by player index («Ganaste», «Ganó el bot»); by default «Ganó A». */
   outcome?: [string, string] | undefined
+  /** Step index to open at (a situation's moment). */
+  initialStep?: number | undefined
   header?: ReactNode
 }
 
@@ -102,6 +104,7 @@ function Viewer({
   short,
   reviews,
   outcome,
+  initialStep,
   header,
 }: ReplayViewerProps & { reader: ReplayReader }) {
   const [onlyChoices, setOnlyChoices] = useState(true)
@@ -112,7 +115,7 @@ function Viewer({
         .filter(({ step }) => !onlyChoices || step.options.length > 1 || step.turn === 0),
     [replay.steps, onlyChoices],
   )
-  const [selected, setSelected] = useState(0)
+  const [selected, setSelected] = useState(initialStep ?? 0)
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1)
   const [inspect, setInspect] = useState<{ engineId: string; at?: SlotRef } | null>(null)

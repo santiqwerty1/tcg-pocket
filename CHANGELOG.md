@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-08 (68 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-08 (69 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- play against the exact list of a recent tournament (phase 23) `92e8b92`
 - the board — replay viewer and games against the bot (phase 22) `bc4947f`
 - board data, undo and rematch for games against the bot (phase 22, part 1) `739268e`
 - portable worker package for another PC `97adf4b`

@@ -44,7 +44,7 @@ revisar: false
 | 21 | Mantenimiento: remapeo de ids (I12) y CI | hecho 08/10 · desplegado | — | [R-001](Riesgos/R-001.md), [R-007](Riesgos/R-007.md) |
 | 22 | La mesa: visor de repeticiones y partidas contra el bot | hecho 09/10 · desplegado | — | — |
 | 23 | Jugar contra la lista exacta de un torneo reciente | hecho 09/10 · falta subir y desplegar | — | — |
-| 24 | Situaciones para resolver | pendiente | — | — |
+| 24 | Situaciones para resolver | hecho 09/10 · falta subir y desplegar | — | — |
 | K | Bóveda con el kit de Posta | hecho 07/10 · aprobado 08/10 | — | [D-009](Decisiones/D-009.md) |
 
 ## Próximos pasos

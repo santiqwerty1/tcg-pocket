@@ -907,3 +907,19 @@ model PushSubscription {
 
   @@map("push_subscriptions")
 }
+
+/// Fase 24: «situaciones para resolver» — the owner's attempts at a moment of a finished game with the coach (the
+/// situations themselves come from the game's replay). Practice data: not in the backup.
+model PuzzleAttempt {
+  gameId      Int       @map("game_id")
+  /// Index of the step in the game's replay.
+  step        Int
+  attempts    Int       @default(0)
+  /// The latest attempt was «Como el entrenador» or «Casi igual».
+  solved      Boolean   @default(false)
+  lastVerdict String?   @map("last_verdict")
+  lastAt      DateTime? @map("last_at") @db.Timestamptz(3)
+
+  @@id([gameId, step])
+  @@map("puzzle_attempts")
+}

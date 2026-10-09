@@ -13,33 +13,20 @@ import { errorMessage } from '@/api/client'
 import { useAbandon, useChoose, useHint, usePlayGame, useRematch, useUndo } from '@/api/play'
 import type { LiveGame, LiveLogEntry } from '@/api/schemas'
 import { BoardProvider } from '@/components/board/BoardContext'
-import { CardGridSheet, CardSheet } from '@/components/board/CardSheet'
+import { CardGridSheet } from '@/components/board/CardSheet'
 import { Table, TurnBanner } from '@/components/board/Table'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { ErrorState, LoadingRows, Spinner } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
-import {
-  type ActionSource,
-  type BoardAction,
-  boardChanges,
-  classifyAction,
-  isPickDecision,
-  optionAt,
-  optionsFrom,
-  type Seat,
-  type SlotRef,
-  sameSource,
-  slotKey,
-  targetsOf,
-} from '@/lib/board'
+import { type BoardAction, boardChanges, type Seat } from '@/lib/board'
 import { type Replay, ReplayReader, type ReplayState } from '@/lib/replay'
 import { cn } from '@/lib/utils'
 import { CoachLast, CoachSummarySection } from './Coach'
-import { ActiveActions, BotTurn, EndScreen, OptionsSheet } from './GameParts'
+import { BotTurn, EndScreen, OptionsSheet } from './GameParts'
+import { TouchPlaySheet, useTouchPlay } from './useTouchPlay'
 
 const WHO = ['Vos', 'Bot'] as const
-const NONE: ActionSource = { kind: 'none' }
 
 /** A reader over the game's cards: Spanish names and the engine's English ones (to translate its own texts). */
 function readerFor(game: LiveGame): ReplayReader {
@@ -176,8 +163,6 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
   const [confirmAbandon, setConfirmAbandon] = useState(false)
   const [confirmEnd, setConfirmEnd] = useState(false)
   const [optionsOpen, setOptionsOpen] = useState(false)
-  const [selected, setSelected] = useState<ActionSource | null>(null)
-  const [sheet, setSheet] = useState<{ engineId: string; at?: SlotRef; actions: 'active' | 'hand' | null } | null>(null)
   const [discard, setDiscard] = useState<Seat | null>(null)
   const [rivalList, setRivalList] = useState(false)
 
@@ -197,13 +182,6 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
   const previous = ply !== null ? (seen.current.get(ply - 1) ?? null) : null
   const changes = useMemo(() => (state && previous ? boardChanges(previous, state) : null), [state, previous])
 
-  // A new decision clears what was selected for the previous one.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: ply is the trigger, not an input
-  useEffect(() => {
-    setSelected(null)
-    setSheet(null)
-  }, [ply])
-
   // A short buzz when it becomes your turn (Android), only if you are looking.
   const lastStatus = useRef(game.status)
   useEffect(() => {
@@ -213,30 +191,21 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
     lastStatus.current = game.status
   }, [game.status])
 
-  const actions: BoardAction[] = useMemo(
-    () => (decision ? decision.actions.map((option) => classifyAction(option.i, option.action, option.text, 0)) : []),
-    [decision],
-  )
+  const play = useTouchPlay({
+    options: decision?.actions ?? null,
+    state,
+    resetKey: ply,
+    onChoose: (i) => void send(i),
+  })
+  const { actions, selected, setSelected, targets, playable, energyPlayable, pick } = play
   const describe = (action: BoardAction) =>
     reader.describe(action.action, state ?? contextState({ turn: 0, actor: 0, text: '', action: null }), 0, action.text)
-  const pick = isPickDecision(actions)
-  const targets = useMemo(() => {
-    const refs = selected ? targetsOf(actions, selected) : pick ? targetsOf(actions, NONE) : []
-    return new Set(refs.map(slotKey))
-  }, [actions, selected, pick])
-  const playable = useMemo(
-    () => new Set(actions.flatMap((action) => (action.source.kind === 'hand' ? [action.source.engineId] : []))),
-    [actions],
-  )
-  const energyPlayable = actions.some((action) => action.source.kind === 'energy')
   const endTurn = actions.find((action) => action.kind === 'endTurn') ?? null
   const canAttack = actions.some((action) => action.kind === 'attack')
   const busy = choose.isPending || undo.isPending
 
   async function send(i: number) {
     if (!decision) return
-    setSelected(null)
-    setSheet(null)
     setOptionsOpen(false)
     try {
       await choose.mutateAsync({ ply: decision.ply, i })
@@ -246,68 +215,8 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
     }
   }
 
-  function inspect(engineId: string, at?: SlotRef) {
-    setSheet(at ? { engineId, at, actions: null } : { engineId, actions: null })
-  }
-
-  function onHandCard(engineId: string) {
-    if (!decision) return inspect(engineId)
-    const source: ActionSource = { kind: 'hand', engineId }
-    const options = optionsFrom(actions, source)
-    if (options.length === 0) return inspect(engineId)
-    if (selected && sameSource(selected, source)) return setSelected(null)
-    if (options.every((action) => action.target !== null)) return setSelected(source)
-    setSheet({ engineId, actions: 'hand' })
-  }
-
-  function onSlot(at: SlotRef) {
-    const card = state?.players[at.player]?.in_play[at.index]?.card ?? null
-    if (decision) {
-      if (selected) {
-        const option = optionAt(actions, selected, at)
-        if (option) return void send(option.i)
-        if (selected.kind === 'slot' && selected.player === at.player && selected.index === at.index) {
-          return setSelected(null)
-        }
-      }
-      if (pick) {
-        const option = optionAt(actions, NONE, at)
-        if (option) return void send(option.i)
-      }
-      if (
-        at.player === 0 &&
-        at.index === 0 &&
-        card &&
-        optionsFrom(actions, { kind: 'slot', player: 0, index: 0 }).length
-      ) {
-        return setSheet({ engineId: card, at, actions: 'active' })
-      }
-      const own = optionsFrom(actions, { kind: 'slot', player: at.player, index: at.index })
-      if (own.length === 1 && own[0]) {
-        // An ability of a benched Pokémon: one tap to see it, the sheet to confirm.
-        return setSheet({ engineId: card ?? '', at, actions: 'hand' })
-      }
-    }
-    if (card) inspect(card, at)
-  }
-
-  function onEnergy() {
-    if (!energyPlayable) return
-    const source: ActionSource = { kind: 'energy' }
-    setSelected(selected && sameSource(selected, source) ? null : source)
-  }
-
   const line = statusLine(game)
   const active = game.status === 'queued' || game.status === 'running' || game.status === 'waiting'
-  const sheetSlot =
-    sheet?.at !== undefined && state ? (state.players[sheet.at.player]?.in_play[sheet.at.index] ?? null) : null
-  const sheetOptions =
-    sheet?.actions === 'hand'
-      ? sheet.at
-        ? optionsFrom(actions, { kind: 'slot', player: sheet.at.player, index: sheet.at.index })
-        : optionsFrom(actions, { kind: 'hand', engineId: sheet.engineId })
-      : []
-
   return (
     <div className="flex flex-col gap-3 pb-28">
       <div className="flex items-start gap-2">
@@ -377,10 +286,10 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
           selected={selected}
           playable={playable}
           energyPlayable={energyPlayable}
-          onSlot={onSlot}
-          onHandCard={onHandCard}
-          onEnergy={onEnergy}
-          onInspect={inspect}
+          onSlot={play.onSlot}
+          onHandCard={play.onHandCard}
+          onEnergy={play.onEnergy}
+          onInspect={play.inspect}
           onDiscard={setDiscard}
           banner={
             decision && previous?.turn !== decision.turn ? (
@@ -473,7 +382,7 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
                 variant="secondary"
                 className="ml-auto"
                 disabled={busy}
-                onClick={() => (canAttack ? setConfirmEnd(true) : void send(endTurn.i))}
+                onClick={() => (canAttack ? setConfirmEnd(true) : play.choose(endTurn.i))}
               >
                 Terminar turno
               </Button>
@@ -497,44 +406,9 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
         describe={describe}
         hint={decision?.hint ?? null}
         disabled={busy}
-        onChoose={(i) => void send(i)}
+        onChoose={play.choose}
       />
-      <CardSheet
-        engineId={sheet?.engineId ?? null}
-        slot={sheetSlot}
-        open={sheet !== null}
-        onOpenChange={(open) => (open ? undefined : setSheet(null))}
-        hideAttacks={sheet?.actions === 'active'}
-        actions={
-          sheet?.actions === 'active' && state ? (
-            <ActiveActions
-              state={state}
-              actions={actions}
-              hint={decision?.hint ?? null}
-              disabled={busy}
-              describe={describe}
-              onChoose={(i) => void send(i)}
-              onRetreat={() => {
-                setSheet(null)
-                setSelected({ kind: 'slot', player: 0, index: 0 })
-              }}
-            />
-          ) : sheet?.actions === 'hand' && sheetOptions.length > 0 ? (
-            sheetOptions.map((action) => (
-              <Button
-                key={action.i}
-                type="button"
-                variant={decision?.hint === action.i ? 'default' : 'outline'}
-                className="h-auto justify-start py-2 text-left whitespace-normal"
-                disabled={busy}
-                onClick={() => void send(action.i)}
-              >
-                {describe(action)}
-              </Button>
-            ))
-          ) : null
-        }
-      />
+      <TouchPlaySheet play={play} state={state} describe={describe} hint={decision?.hint ?? null} busy={busy} />
       <CardGridSheet
         title={discard === null ? '' : discard === 0 ? 'Tu descarte' : 'Descarte del bot'}
         cards={
@@ -545,7 +419,7 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
         onOpenChange={(open) => (open ? undefined : setDiscard(null))}
         onInspect={(engineId) => {
           setDiscard(null)
-          inspect(engineId)
+          play.inspect(engineId)
         }}
       />
       <CardGridSheet
@@ -556,7 +430,7 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
         onOpenChange={setRivalList}
         onInspect={(engineId) => {
           setRivalList(false)
-          inspect(engineId)
+          play.inspect(engineId)
         }}
       />
       <ConfirmDialog
@@ -568,7 +442,7 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
         pending={busy}
         onConfirm={() => {
           setConfirmEnd(false)
-          if (endTurn) void send(endTurn.i)
+          if (endTurn) play.choose(endTurn.i)
         }}
       />
       <ConfirmDialog

@@ -449,6 +449,14 @@ La partida corre en el worker de la PC (`engine-cli play`); la app muestra cada 
 | `POST /api/play/:id/abandon` | `LiveGame` (el worker corta el motor en su próximo long-poll) |
 | `GET /api/play/:id/replay/raw` | La repetición de la partida terminada (para `/viewer/index.html?url=…`) |
 
+Situaciones para resolver (Fase 24), de tus partidas con entrenador terminadas:
+
+| Método y ruta | Cuerpo / respuesta |
+|---|---|
+| `GET /api/puzzles` | `{ items: [{ id: '<partida>-<paso>', gameId, step, ply, turn, options, verdict (lo que costó en la partida), gap, human, rival, finishedAt, attempts, solved, lastVerdict, lastAt }], counts: { total, pending, solved }, coachGames }` (nunca intentadas, falladas, resueltas) |
+| `GET /api/puzzles/:id` | `{ id, gameId, ply, turn, state, actions: [{ i, text, action }], human, rival, names, cards, cardIds, attempts, solved }` (sin puntajes) |
+| `POST /api/puzzles/:id/answer` | `{ i }` → `{ answer, verdict, gap, rank, best, solved, scores, original: { chosen, verdict, gap }, attempts, next }` |
+
 ```ts
 LiveGame = { id, status: 'queued'|'running'|'waiting'|'done'|'abandoned'|'failed', bot, botEs, seed, engineRev,
              human: { snapshot, label, deckId }, rival: { snapshot, label, deckId, listKey },

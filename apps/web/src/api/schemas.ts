@@ -2171,3 +2171,58 @@ export const recentListsSchema = z.object({
   ),
 })
 export type RecentLists = z.infer<typeof recentListsSchema>
+
+// ---------- Situaciones para resolver (Fase 24) ----------
+
+export const puzzleItemSchema = z.object({
+  id: z.string(),
+  gameId: z.number(),
+  step: z.number(),
+  ply: z.number(),
+  turn: z.number(),
+  options: z.number(),
+  verdict: z.enum(COACH_VERDICTS),
+  gap: z.number(),
+  human: z.string(),
+  rival: z.string(),
+  finishedAt: nullableDate,
+  attempts: z.number(),
+  solved: z.boolean(),
+  lastVerdict: z.enum(COACH_VERDICTS).nullable(),
+  lastAt: nullableDate,
+})
+export type PuzzleItem = z.infer<typeof puzzleItemSchema>
+export const puzzleListSchema = z.object({
+  items: z.array(puzzleItemSchema),
+  counts: z.object({ total: z.number(), pending: z.number(), solved: z.number() }),
+  coachGames: z.number(),
+})
+export const puzzleSchema = z.object({
+  id: z.string(),
+  gameId: z.number(),
+  ply: z.number(),
+  turn: z.number(),
+  state: z.record(z.string(), z.unknown()),
+  actions: z.array(z.object({ i: z.number(), text: z.string(), action: z.unknown() })),
+  human: z.string(),
+  rival: z.string(),
+  names: z.record(z.string(), z.string()),
+  cards: z.record(z.string(), z.object({ id: z.string(), name: z.string() })),
+  cardIds: z.record(z.string(), z.string()),
+  attempts: z.number(),
+  solved: z.boolean(),
+})
+export type Puzzle = z.infer<typeof puzzleSchema>
+export const puzzleAnswerSchema = z.object({
+  answer: z.number(),
+  verdict: z.enum(COACH_VERDICTS),
+  gap: z.number(),
+  rank: z.number(),
+  best: z.number(),
+  solved: z.boolean(),
+  scores: z.array(z.number()),
+  original: z.object({ chosen: z.number(), verdict: z.enum(COACH_VERDICTS), gap: z.number() }),
+  attempts: z.number(),
+  next: z.string().nullable(),
+})
+export type PuzzleAnswer = z.infer<typeof puzzleAnswerSchema>

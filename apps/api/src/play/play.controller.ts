@@ -31,6 +31,7 @@ import {
   MAX_LIVE_REPLAY_BYTES,
 } from './live-games.service.js'
 import { PlayRivalsService, type RecentListsView } from './play-rivals.service.js'
+import { type PuzzleAnswerView, type PuzzleListView, PuzzlesService, type PuzzleView } from './puzzles.service.js'
 
 const energies = z.array(z.enum(SELECTABLE_ENERGIES)).max(3).optional()
 const sourceSchema = z.union([
@@ -202,6 +203,34 @@ async function readBody(request: Request, limit: number): Promise<Buffer> {
   return Buffer.concat(parts)
 }
 
+const answerSchema = z.object({ i: z.number().int().min(0).max(500) })
+
+/** Fase 24: situations to solve, from the owner's finished games with the coach. */
+@Controller('api/puzzles')
+export class PuzzlesController {
+  constructor(private readonly puzzles: PuzzlesService) {}
+
+  @Get()
+  list(@CurrentSession() _session: RequestSession): Promise<PuzzleListView> {
+    return this.puzzles.list()
+  }
+
+  @Get(':id')
+  get(@Param('id') id: string, @CurrentSession() _session: RequestSession): Promise<PuzzleView> {
+    return this.puzzles.get(id)
+  }
+
+  @Post(':id/answer')
+  @HttpCode(200)
+  answer(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(answerSchema)) body: z.infer<typeof answerSchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<PuzzleAnswerView> {
+    return this.puzzles.answer(id, body)
+  }
+}
+
 /** The worker's side (bearer `tcg_wk_*` with `worker:claim`): claim a game, relay decisions and the end. */
 @Controller('api/worker/live')
 @UseGuards(BearerTokenGuard)
@@ -272,8 +301,8 @@ export class LiveWorkerController {
 
 @Module({
   imports: [TokensModule, CatalogModule, SimulationModule, TournamentsModule],
-  controllers: [PlayController, LiveWorkerController],
-  providers: [LiveGamesService, PlayRivalsService],
+  controllers: [PlayController, LiveWorkerController, PuzzlesController],
+  providers: [LiveGamesService, PlayRivalsService, PuzzlesService],
   exports: [LiveGamesService],
 })
 export class PlayModule {}

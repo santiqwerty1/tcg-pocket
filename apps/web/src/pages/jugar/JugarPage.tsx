@@ -10,6 +10,7 @@ import { errorMessage } from '@/api/client'
 import { useDecks } from '@/api/decks'
 import { useLabBank } from '@/api/lab'
 import { useCreateGame, usePlayGames } from '@/api/play'
+import { usePuzzles } from '@/api/puzzles'
 import type { LiveGameItem, PlaySource } from '@/api/schemas'
 import { useEngineInfo } from '@/api/simulations'
 import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
@@ -71,6 +72,27 @@ function GamesList() {
         </li>
       ))}
     </ul>
+  )
+}
+
+/** Fase 24: the situations to solve from your games with the coach. */
+function PuzzlesLink() {
+  const puzzles = usePuzzles()
+  const counts = puzzles.data?.counts
+  return (
+    <Section title="Situaciones para resolver">
+      <Link
+        to="/jugar/situaciones"
+        className="flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm hover:bg-muted"
+      >
+        <span className="min-w-0 flex-1">
+          {counts && counts.total > 0
+            ? `${counts.pending} para resolver · ${counts.solved} resueltas`
+            : 'Tus errores de las partidas con entrenador, para volver a jugarlos'}
+        </span>
+        <span className="text-primary">Ver</span>
+      </Link>
+    </Section>
   )
 }
 
@@ -212,6 +234,7 @@ export function JugarPage() {
           Empezar
         </Button>
       </Section>
+      <PuzzlesLink />
       <Section title="Partidas">
         <GamesList />
       </Section>
