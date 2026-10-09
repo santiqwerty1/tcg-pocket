@@ -6,11 +6,13 @@
  */
 import { getHeapStatistics } from 'node:v8'
 import { Inject, Injectable } from '@nestjs/common'
+import { OffsiteBackupService, type OffsiteResult } from '../backup/offsite.service.js'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { ENV, type Env } from '../config/env.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { EngineUpstreamService, type UpstreamFailure } from '../simulation/engine-upstream.service.js'
 import { TournamentSyncService } from '../tournaments/tournament-sync.service.js'
+import { type RetentionResult, RetentionService } from './retention.service.js'
 
 /** Supabase Free's database limit (R-006). */
 export const DATABASE_LIMIT_MB = 500
@@ -44,7 +46,11 @@ export interface OpsStatusView {
     /** The last failed daily copy, when it is newer than the last good one. */
     failure: { at: string; error: string } | null
     drill: { at: string; ok: boolean } | null
+    /** Fase 39: the copy outside Supabase (the bucket). */
+    offsite: { enabled: boolean; last: OffsiteResult | null }
   }
+  /** Fase 39: the last cleanup of old replays and raw standings. */
+  retention: RetentionResult | null
   limitless: {
     enabled: boolean
     running: boolean
@@ -76,6 +82,8 @@ export class OpsService {
     private readonly catalog: CatalogService,
     private readonly engineUpstream: EngineUpstreamService,
     private readonly sync: TournamentSyncService,
+    private readonly offsite: OffsiteBackupService,
+    private readonly retention: RetentionService,
   ) {}
 
   /** `pg_database_size` in bytes; null when the database does not say (or does not answer). */
@@ -89,7 +97,7 @@ export class OpsService {
   }
 
   async backup(): Promise<OpsStatusView['backup']> {
-    const [last, copies, failure, drill] = await Promise.all([
+    const [last, copies, failure, drill, offsite] = await Promise.all([
       this.prisma.backupBlob.findFirst({
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true, sizeBytes: true },
@@ -97,6 +105,7 @@ export class OpsService {
       this.prisma.backupBlob.count(),
       this.prisma.appSetting.findUnique({ where: { key: BACKUP_FAILURE_KEY } }),
       this.prisma.appSetting.findUnique({ where: { key: 'backupDrill' } }),
+      this.offsite.last(),
     ])
     const failed = failure?.value as { at?: string; error?: string } | undefined
     const tried = drill?.value as { at?: string; ok?: boolean } | undefined
@@ -109,6 +118,7 @@ export class OpsService {
           ? { at: failed.at, error: failed.error ?? 'error desconocido' }
           : null,
       drill: tried?.at ? { at: tried.at, ok: tried.ok !== false } : null,
+      offsite: { enabled: this.offsite.enabled(), last: offsite },
     }
   }
 
@@ -151,7 +161,7 @@ export class OpsService {
   async status(): Promise<OpsStatusView> {
     const now = Date.now()
     const memory = process.memoryUsage()
-    const [databaseBytes, backup, limitless, catalog, workers, chunks, liveGames] = await Promise.all([
+    const [databaseBytes, backup, limitless, catalog, workers, chunks, liveGames, retention] = await Promise.all([
       this.databaseBytes(),
       this.backup(),
       this.limitless(),
@@ -161,6 +171,7 @@ export class OpsService {
         where: { status: 'queued', job: { status: { in: ['queued', 'running'] } } },
       }),
       this.prisma.liveGame.count({ where: { status: 'queued' } }),
+      this.retention.last(),
     ])
     return {
       version: this.env.version,
@@ -198,6 +209,7 @@ export class OpsService {
           })),
       },
       queue: { chunks, liveGames },
+      retention,
     }
   }
 }

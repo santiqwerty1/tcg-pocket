@@ -42,6 +42,7 @@ export interface AlertView {
     | 'catalog_sync'
     | 'github_check'
     | 'database_size'
+    | 'backup_offsite'
   level: 'info' | 'warning'
   title: string
   detail: string
@@ -359,6 +360,31 @@ export class AlertsService {
           : 'Todavía no hay ninguna copia diaria',
         detail:
           'La copia corre sola a las 04:00. Mirá los logs del servidor y bajá una a mano en Más → Copia de seguridad.',
+        link: '/mas/backup',
+      })
+    }
+    // Fase 39: the copy outside Supabase failed, or has not gone up in 26 hours.
+    const offsite = backup.offsite
+    if (backup.enabled && offsite.enabled && offsite.last?.ok === false) {
+      alerts.push({
+        code: 'backup_offsite',
+        level: 'warning',
+        title: `Falló la subida de la copia a la nube del ${ownerDateTime(new Date(offsite.last.at))}`,
+        detail: `${(offsite.last.error ?? 'error desconocido').slice(0, 200)}. La copia sigue en la base; probá de nuevo en Más → Copia de seguridad.`,
+        link: '/mas/backup',
+      })
+    } else if (
+      backup.enabled &&
+      offsite.enabled &&
+      (!offsite.last || now - Date.parse(offsite.last.at) > BACKUP_STALE_MS)
+    ) {
+      alerts.push({
+        code: 'backup_offsite',
+        level: 'warning',
+        title: offsite.last
+          ? `La copia no se sube a la nube desde el ${ownerDateTime(new Date(offsite.last.at))}`
+          : 'Todavía no se subió ninguna copia a la nube',
+        detail: 'Se sube sola después de la copia de las 04:00. Probala a mano en Más → Copia de seguridad.',
         link: '/mas/backup',
       })
     }

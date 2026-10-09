@@ -4,11 +4,12 @@ import { TournamentsModule } from '../tournaments/tournaments.controller.js'
 import { BackupController } from './backup.controller.js'
 import { BackupService } from './backup.service.js'
 import { BackupCronService } from './backup-cron.service.js'
+import { OffsiteBackupService } from './offsite.service.js'
 
 @Module({
   imports: [CatalogModule, TournamentsModule],
   controllers: [BackupController],
-  providers: [BackupService, BackupCronService],
-  exports: [BackupService],
+  providers: [BackupService, BackupCronService, OffsiteBackupService],
+  exports: [BackupService, OffsiteBackupService],
 })
 export class BackupModule {}
