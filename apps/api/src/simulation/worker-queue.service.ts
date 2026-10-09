@@ -133,7 +133,9 @@ export class WorkerQueueService {
   /**
    * One attempt: a claimable chunk of a job for this engine, locked and leased atomically. The job with the fewest
    * chunks left goes first (a quick comparison does not wait hours behind a 780-pairing matrix); then the oldest job,
-   * then chunk order.
+   * then chunk order. The chunks left are counted once per job (B2): counted for every candidate row, a claim took
+   * 2,4 s locally and ~4 s in production with a matrix of 3.900 chunks in the queue, four times what a 60-game chunk
+   * of the Laboratorio plays.
    */
   private async tryClaim(hello: WorkerHello): Promise<ClaimedChunk | null> {
     // H-002: versions compared as numbers here, not as text in SQL («0.2.10» < «0.2.2» as text).
@@ -144,15 +146,19 @@ export class WorkerQueueService {
       UPDATE simulation_chunks SET status = 'leased', lease_until = now() + interval '3 minutes',
         worker_id = ${hello.workerId}, games_done = 0, started_at = COALESCE(started_at, now())
       WHERE id = (
-        SELECT c.id FROM simulation_chunks c JOIN simulation_jobs j ON j.id = c.job_id
+        WITH pending AS MATERIALIZED (
+          SELECT job_id, count(*) AS left_count FROM simulation_chunks
+          WHERE status IN ('queued', 'leased') GROUP BY job_id)
+        SELECT c.id FROM simulation_chunks c
+          JOIN simulation_jobs j ON j.id = c.job_id
+          JOIN pending p ON p.job_id = j.id
         WHERE j.status IN ('queued', 'running') AND j.engine_rev = ${hello.engineRev}
           AND (j.kind <> 'consistency' OR ${consistency}::boolean)
           AND (j.kind <> 'consistency' OR COALESCE(j.params->'consistency'->>'mode', 'goldfish') <> 'meta'
                OR ${metaConsistency}::boolean)
           AND (COALESCE(j.params->>'perGame', 'false') <> 'true' OR ${perGame}::boolean)
           AND (c.status = 'queued' OR (c.status = 'leased' AND c.lease_until < now()))
-        ORDER BY (SELECT count(*) FROM simulation_chunks r
-                  WHERE r.job_id = j.id AND r.status IN ('queued', 'leased')), j.created_at, j.id, c.idx
+        ORDER BY p.left_count, j.created_at, j.id, c.idx
         FOR UPDATE OF c SKIP LOCKED
         LIMIT 1)
       RETURNING id`
