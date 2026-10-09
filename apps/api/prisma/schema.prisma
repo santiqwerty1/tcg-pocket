@@ -543,10 +543,10 @@ model SessionChatMessage {
   id       Int               @id @default(autoincrement())
   at       DateTime          @default(now()) @db.Timestamptz(3)
   fromName String            @map("from_name")
-  /// `chatKey` of the sender: case, accents and separators folded.
+  /// `chatKey` of the sender: its name in the list, in lower case.
   fromKey  String            @map("from_key")
   toNames  String[]          @map("to_names")
-  /// `chatKey` of each recipient; «todos» reaches everyone.
+  /// `chatKey` of each recipient (lower case); «todos» reaches everyone.
   toKeys   String[]          @map("to_keys")
   topic    String
   body     String
@@ -590,6 +590,8 @@ model SessionChatParticipant {
   key       String             @id
   name      String
   channel   SessionChatChannel
+  /// A participant added later starts after this message: what came before counts as read.
+  sinceId   Int                @default(0) @map("since_id")
   createdAt DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@map("session_chat_participants")

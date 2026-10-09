@@ -42,10 +42,10 @@ describe('chat between sessions (e2e)', () => {
     writeToken = (await post('/api/tokens').send({ name: 'nube', kind: 'mcp', scopes: ['mcp:read', 'mcp:write'] })).body
       .token
     relayToken = (await post('/api/tokens').send({ name: 'puente', kind: 'mcp', scopes: ['chat:relay'] })).body.token
-    // The tests truncate every table: the list the migration starts with, plus two cloud sessions of the tests,
-    // added like Santi does in the app.
+    // The tests truncate every table: the list the migration starts with (Santi is always there), plus two cloud
+    // sessions of the tests, added like Santi does in the app.
     const list = [
-      ...CHAT_DEFAULT_PARTICIPANTS,
+      ...CHAT_DEFAULT_PARTICIPANTS.filter((participant) => participant.channel !== 'owner'),
       { name: 'Pruebas', channel: 'connector' },
       { name: 'Nube-Lab', channel: 'connector' },
     ]
@@ -175,14 +175,19 @@ describe('chat between sessions (e2e)', () => {
 
   it('only the names of the list, exactly; a cloud session writes and reads only as a cloud session', async () => {
     const nube = await connect()
-    // Look-alikes and variants of a name are not that name.
-    for (const from of ['Sаnti', 'Ｓａｎｔｉ', 'Santi 2', 'Nube 2', 'Nube2']) {
+    // Look-alikes (not ASCII) are not even names; variants of a name are not that name.
+    for (const from of ['Sаnti', 'Ｓａｎｔｉ', 'Kelvin\u212A']) {
+      expect(await refused(nube, 'chat_write', { from, to: 'Nube-2', topic: 'x', text: 'x' })).toContain(
+        'Solo letras sin tilde',
+      )
+    }
+    for (const from of ['Santi 2', 'Nube 2', 'Nube2']) {
       expect(await refused(nube, 'chat_write', { from, to: 'Nube-2', topic: 'x', text: 'x' })).toContain(
         'no está en la lista de participantes',
       )
     }
     expect(await refused(nube, 'chat_write', { from: 'Nube-2', to: 'Coordınador', topic: 'x', text: 'x' })).toContain(
-      'no está en la lista',
+      'letras sin tilde',
     )
     // In the list, but not a cloud session.
     for (const from of ['Santi', 'coordinador', 'Infra']) {
@@ -257,8 +262,18 @@ describe('chat between sessions (e2e)', () => {
     expect(posted.status).toBe(201)
     const message = (await posted.json()) as Message & { duplicate: boolean }
     expect(message).toMatchObject({ from: 'Santi', to: ['Nube-2', 'Nube-Mejoras'], via: 'puente', duplicate: false })
-    const again = await post({ from: 'Santi', to: 'Nube-2', topic: 'Prioridad', text: 'La 40.', ref: 'pc-17' })
+    const again = await post({
+      from: 'Santi',
+      to: 'nube-mejoras, Nube-2',
+      topic: 'Prioridad',
+      text: 'La 40.',
+      ref: 'pc-17',
+    })
     expect(((await again.json()) as { duplicate: boolean }).duplicate).toBe(true)
+    // The same ref with another message is an error, not a silent loss.
+    const clash = await post({ from: 'Santi', to: 'Nube-2', topic: 'Prioridad', text: 'La 41.', ref: 'pc-17' })
+    expect(clash.status).toBe(409)
+    expect(((await clash.json()) as { error: { code: string } }).error.code).toBe('ref_conflict')
     // The bridge always says which PC message it is copying, and writes only as Santi or a PC session.
     expect((await post({ from: 'Coordinador', to: 'Nube-2', topic: 'x', text: 'x' })).status).toBe(400)
     expect((await post({ from: 'Nube-2', to: 'Santi', topic: 'x', text: 'x', ref: 'pc-18' })).status).toBe(403)
@@ -297,6 +312,27 @@ describe('chat between sessions (e2e)', () => {
     expect(clientsSeen.map((row) => row.client)).toContain('curl')
   })
 
+  it('a session added later starts after the last message: the history before counts as read', async () => {
+    const nube = await connect()
+    await call(nube, 'chat_write', { from: 'Nube-2', to: 'todos', topic: 'Antes', text: 'Viejo.' })
+    expect(
+      (
+        await test
+          .http()
+          .put('/api/chat/participants')
+          .set('Cookie', cookie)
+          .send({ name: 'Nube-Nueva', channel: 'connector' })
+      ).status,
+    ).toBe(200)
+    expect((await call(nube, 'chat_read', { as: 'Nube-Nueva' })).messages).toEqual([])
+    await call(nube, 'chat_write', { from: 'Nube-2', to: 'Nube-Nueva', topic: 'Bienvenida', text: 'Hola.' })
+    const read = (await call(nube, 'chat_read', { as: 'Nube-Nueva' })).messages as Message[]
+    expect(read.map((m) => m.topic)).toEqual(['Bienvenida'])
+    // The history is still there to look at.
+    const history = (await call(nube, 'chat_read', { as: 'Nube-Nueva', all: true, limit: 5 })).messages as Message[]
+    expect(history.map((m) => m.topic)).toContain('Antes')
+  })
+
   it('Santi edits the list; the bridge only adds new PC or cloud sessions', async () => {
     const nube = await connect()
     const addByBridge = (body: Record<string, unknown>) =>
@@ -311,9 +347,11 @@ describe('chat between sessions (e2e)', () => {
       addByBridge({ name: 'Nube-4', channel: 'relay' }),
     ])
     expect(racing.map((response) => response.status).sort()).toEqual([201, 409])
-    // It cannot add Santi nor change a channel.
-    expect((await addByBridge({ name: 'Otro', channel: 'owner' })).status).toBe(403)
-    expect((await addByBridge({ name: 'Santi', channel: 'connector' })).status).toBe(409)
+    // It cannot give Santi's channel to anyone, touch Santi, change a channel or add a look-alike.
+    expect((await addByBridge({ name: 'Otro', channel: 'owner' })).status).toBe(400)
+    expect((await addByBridge({ name: 'Santi', channel: 'connector' })).status).toBe(403)
+    expect((await addByBridge({ name: 'Sаnti', channel: 'connector' })).status).toBe(400)
+    expect((await addByBridge({ name: 'Coordinador', channel: 'connector' })).status).toBe(409)
     const listed = (await (await relay('/participants')).json()) as { items: { name: string; channel: string }[] }
     expect(listed.items).toContainEqual(expect.objectContaining({ name: 'Nube-3', channel: 'connector' }))
 
@@ -333,6 +371,25 @@ describe('chat between sessions (e2e)', () => {
     )
     expect((await test.http().delete('/api/chat/participants/nube-3').set('Cookie', cookie)).status).toBe(404)
     expect((await test.http().get('/api/chat/participants')).status).toBe(401)
+    // Santi is always there and always himself: not changed, not removed, his channel for nobody else.
+    const session = (method: 'put' | 'delete', path: string) => test.http()[method](path).set('Cookie', cookie)
+    expect((await session('put', '/api/chat/participants').send({ name: 'Santi', channel: 'connector' })).status).toBe(
+      403,
+    )
+    expect((await session('delete', '/api/chat/participants/santi')).status).toBe(403)
+    expect((await session('put', '/api/chat/participants').send({ name: 'Nube-5', channel: 'owner' })).status).toBe(400)
+    const listedNow = (await session('put', '/api/chat/participants').send({ name: 'Nube-5', channel: 'connector' }))
+      .status
+    expect(listedNow).toBe(200)
+    const items = (await test.http().get('/api/chat/participants').set('Cookie', cookie)).body.items as {
+      name: string
+      channel: string
+    }[]
+    expect(items.filter((item) => item.channel === 'owner')).toEqual([expect.objectContaining({ name: 'Santi' })])
+    // Even if someone writes as Santi from the cloud, the connector cannot.
+    expect(await refused(nube, 'chat_write', { from: 'Santi', to: 'Nube-2', topic: 'x', text: 'x' })).toContain(
+      'desde la app',
+    )
     const everyone = await test
       .http()
       .put('/api/chat/participants')

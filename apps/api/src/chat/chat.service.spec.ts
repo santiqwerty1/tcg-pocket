@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { CHAT_DEFAULT_PARTICIPANTS, chatKey } from '@tcg/domain'
+import { REPO_ROOT } from '../config/dotenv.js'
 import { ChatService } from './chat.service.js'
 
 const LIST = [
@@ -55,5 +59,25 @@ describe('chat between sessions (D-021)', () => {
     // Stored with the list's spelling of each name.
     expect(created).toEqual([expect.objectContaining({ fromName: 'Nube-2', toNames: ['Santi'], toKeys: ['santi'] })])
     expect(warnings).toHaveLength(1)
+  })
+
+  it('the migration seeds exactly the default list of the domain', () => {
+    const sql = readFileSync(
+      join(REPO_ROOT, 'apps/api/prisma/migrations/20261009210000_session_chat/migration.sql'),
+      'utf8',
+    )
+    const insert = sql.slice(sql.indexOf('INSERT INTO "session_chat_participants"'))
+    const seeded = [...insert.matchAll(/\('([^']+)', '([^']+)', '([^']+)'\)/g)].map(([, key, name, channel]) => ({
+      key,
+      name,
+      channel,
+    }))
+    expect(seeded).toEqual(
+      CHAT_DEFAULT_PARTICIPANTS.map((participant) => ({
+        key: chatKey(participant.name),
+        name: participant.name,
+        channel: participant.channel,
+      })),
+    )
   })
 })

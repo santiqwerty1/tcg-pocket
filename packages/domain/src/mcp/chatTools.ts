@@ -13,6 +13,9 @@ import { z } from 'zod'
 /** The broadcast recipient: every participant reads it. */
 export const CHAT_EVERYONE = 'todos'
 
+/** Santi: always in the list and always `owner` (no other name gets that channel). */
+export const CHAT_OWNER = 'Santi'
+
 /**
  * Where a participant writes from: `owner`, Santi (his session in the app or the bridge); `relay`, a session at the
  * PC (only through the bridge, `chat:relay`); `connector`, a cloud session (the MCP connector, `mcp:write`).
@@ -28,7 +31,7 @@ export const CHAT_CHANNEL_LABEL: Record<ChatChannel, string> = {
 
 /** The list the migration starts with; Santi edits it in Más → Tokens de API. */
 export const CHAT_DEFAULT_PARTICIPANTS: readonly { name: string; channel: ChatChannel }[] = [
-  { name: 'Santi', channel: 'owner' },
+  { name: CHAT_OWNER, channel: 'owner' },
   { name: 'Coordinador', channel: 'relay' },
   { name: 'Principal', channel: 'relay' },
   { name: 'Laboratorio', channel: 'relay' },
@@ -49,13 +52,19 @@ export const CHAT_MAX_TEXT = 10_000
  */
 export const CHAT_READ_BUDGET = 30_000
 
-/** A participant's name as written in the list (and in `from`, `to` and `as`). */
+/**
+ * A participant's name as written in the list (and in `from`, `to` and `as`): ASCII only, so no letter of another
+ * alphabet that looks like a Latin one (a Cyrillic «а» in «Sаnti»), and case folding stays plain.
+ */
 export const chatParticipantName = z
   .string()
   .trim()
   .min(1)
   .max(40)
-  .regex(/^[\p{L}\p{N} ._·-]+$/u, 'Solo letras, números, espacios y . _ · -')
+  .regex(
+    /^[A-Za-z0-9][A-Za-z0-9 ._-]*$/,
+    'Solo letras sin tilde, números, espacios y . _ -, empezando por una letra o un número',
+  )
 
 /** «Principal, Laboratorio»: up to 10 names. */
 const recipientList = z
@@ -68,7 +77,7 @@ const recipientList = z
       .map((name) => name.trim())
       .filter(Boolean)
     return names.length >= 1 && names.length <= 10 && names.every((name) => chatParticipantName.safeParse(name).success)
-  }, 'Hasta 10 destinatarios separados por coma, de hasta 40 letras, números, espacios o . _ · - cada uno')
+  }, 'Hasta 10 destinatarios separados por coma, de hasta 40 letras sin tilde, números, espacios o . _ - cada uno')
 
 /** How a name is compared with the list: the exact name, without case («Santi» = «santi», nothing else). */
 export function chatKey(name: string): string {

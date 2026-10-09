@@ -53,7 +53,13 @@ describe('participantes del chat entre sesiones (D-021)', () => {
       </Providers>,
     )
     expect(await screen.findByText('Nube-2')).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: 'Canal de Santi' })).toHaveTextContent('Santi (app o puente)')
+    // Santi is always there and always himself: no channel change, no «Quitar».
+    const santi = screen.getByRole('combobox', { name: 'Canal de Santi' })
+    expect(santi).toHaveTextContent('Santi (app o puente)')
+    expect(santi).toBeDisabled()
+    const santiRow = screen.getByText('Santi').closest('li')
+    if (!santiRow) throw new Error('no row')
+    expect(within(santiRow).getByRole('button', { name: 'Quitar' })).toBeDisabled()
 
     await user.type(screen.getByRole('textbox', { name: 'Nombre de la sesión' }), 'Nube-3')
     await user.click(screen.getByRole('button', { name: 'Sumar' }))

@@ -3,7 +3,9 @@ import { z } from 'zod'
 import {
   CHAT_DEFAULT_PARTICIPANTS,
   CHAT_EVERYONE,
+  CHAT_OWNER,
   chatKey,
+  chatParticipantName,
   MCP_CHAT_TOOLS,
   MCP_READ_TOOLS,
   MCP_WRITE_TOOLS,
@@ -19,6 +21,16 @@ describe('chat between sessions (D-021)', () => {
     }
     expect(chatKey('Coordınador')).not.toBe(chatKey('Coordinador'))
     expect(chatKey('Nube 2')).not.toBe(chatKey('Nube-2'))
+  })
+
+  it('takes ASCII names only: no letter of another alphabet that looks Latin', () => {
+    for (const name of ['Santi', 'Nube-2', 'Nube Mejoras', 'lab_3', 'v1.2']) {
+      expect(chatParticipantName.safeParse(name).success).toBe(true)
+    }
+    for (const name of ['Sаnti', 'Ｓａｎｔｉ', 'Coordınador', 'Ιnfra', 'Kelvin\u212A', 'Selección', '-Nube', ' ']) {
+      expect(chatParticipantName.safeParse(name).success).toBe(false)
+    }
+    expect(CHAT_OWNER).toBe('Santi')
   })
 
   it('starts with the PC sessions, Santi and the two cloud sessions, each with its channel', () => {

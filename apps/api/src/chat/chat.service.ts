@@ -21,6 +21,7 @@ import {
 import {
   CHAT_EVERYONE,
   CHAT_MAX_WAIT_SECONDS,
+  CHAT_OWNER,
   CHAT_READ_BUDGET,
   type ChatChannel,
   chatKey,
@@ -73,6 +74,7 @@ const RETENTION_DAYS = 90
 const DAY_MS = 24 * 60 * 60 * 1000
 /** `pg_advisory_xact_lock` key that serializes the inserts (any constant no other lock uses). */
 const WRITE_LOCK = 20_261_009
+const OWNER_KEY = chatKey(CHAT_OWNER)
 
 /** The participant channels each caller can write as. */
 const WRITES_AS: Record<ChatCaller, readonly ChatChannel[]> = {
@@ -147,10 +149,14 @@ export class ChatService {
     caller: ChatCaller
     ref?: string | undefined
   }): Promise<{ message: ChatMessageView; duplicate: boolean }> {
-    // A retry of a message already copied returns it, even if the list changed since.
+    // A retry of a message already copied returns it, even if the list changed since; another message under the
+    // same ref is an error, never a silent loss.
     if (input.ref) {
       const copied = await this.prisma.sessionChatMessage.findUnique({ where: { relayRef: input.ref } })
-      if (copied) return { message: toView(copied), duplicate: true }
+      if (copied) {
+        this.sameAsCopied(copied, input)
+        return { message: toView(copied), duplicate: true }
+      }
     }
     const list = await this.list()
     const sender = this.member(list, input.from)
@@ -185,6 +191,7 @@ export class ChatService {
       // The same `ref` sent twice at once: the second one finds the first.
       if (input.ref && error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         const copied = await this.prisma.sessionChatMessage.findUniqueOrThrow({ where: { relayRef: input.ref } })
+        this.sameAsCopied(copied, input)
         return { message: toView(copied), duplicate: true }
       }
       throw error
@@ -219,8 +226,14 @@ export class ChatService {
     const limit = input.limit ?? DEFAULT_LIMIT
     const mine = input.scope === 'mine'
     const inScope: Prisma.SessionChatMessageWhereInput = mine ? { OR: [forKey(key), { fromKey: key }] } : {}
+    // A participant added later starts after the message that was the last one then.
     const unseen: Prisma.SessionChatMessageWhereInput = {
-      AND: [{ NOT: { fromKey: key } }, mine ? forKey(key) : {}, { seen: { none: { participant: key } } }],
+      AND: [
+        { id: { gt: reader.sinceId } },
+        { NOT: { fromKey: key } },
+        mine ? forKey(key) : {},
+        { seen: { none: { participant: key } } },
+      ],
     }
     let messages: SessionChatMessage[]
     if (input.all) {
@@ -295,13 +308,25 @@ export class ChatService {
     const name = input.name.trim()
     const key = chatKey(name)
     if (key === CHAT_EVERYONE) throw new BadRequestException(`«${CHAT_EVERYONE}» no es una sesión: llega a todas.`)
+    // Santi is always there and always `owner`; nobody else is.
+    if (key === OWNER_KEY) {
+      throw new ForbiddenException({
+        code: 'owner_fixed',
+        message: `«${CHAT_OWNER}» está siempre en la lista y siempre escribe como Santi: no se cambia.`,
+      })
+    }
+    if (input.channel === 'owner') {
+      throw new BadRequestException({
+        code: 'owner_fixed',
+        message: `El canal de Santi es solo para «${CHAT_OWNER}».`,
+      })
+    }
+    // A new participant starts after the last message: the history before it counts as read.
+    const sinceId = (await this.prisma.sessionChatMessage.aggregate({ _max: { id: true } }))._max.id ?? 0
     if (by === 'relay') {
-      if (input.channel === 'owner') {
-        throw new ForbiddenException({ code: 'wrong_channel', message: 'El puente no puede sumar a Santi.' })
-      }
       // Create-only, in one statement: a name already there (or added at the same moment) is never changed.
       const inserted = await this.prisma.sessionChatParticipant.createMany({
-        data: [{ key, name, channel: input.channel }],
+        data: [{ key, name, channel: input.channel, sinceId }],
         skipDuplicates: true,
       })
       const row = await this.prisma.sessionChatParticipant.findUniqueOrThrow({ where: { key } })
@@ -316,20 +341,52 @@ export class ChatService {
     const current = await this.prisma.sessionChatParticipant.findUnique({ where: { key } })
     const row = await this.prisma.sessionChatParticipant.upsert({
       where: { key },
-      create: { key, name, channel: input.channel },
+      create: { key, name, channel: input.channel, sinceId },
       update: { name, channel: input.channel },
     })
     return { participant: participantView(row), created: !current }
   }
 
-  /** Santi takes a participant out; its messages stay. */
+  /** Santi takes a participant out; its messages stay. Santi himself stays. */
   async removeParticipant(name: string): Promise<void> {
+    if (chatKey(name) === OWNER_KEY) {
+      throw new ForbiddenException({ code: 'owner_fixed', message: `«${CHAT_OWNER}» no se quita de la lista.` })
+    }
     const removed = await this.prisma.sessionChatParticipant.deleteMany({ where: { key: chatKey(name) } })
     if (removed.count === 0) throw new NotFoundException(`«${name}» no está en la lista de participantes.`)
   }
 
-  private list(): Promise<SessionChatParticipant[]> {
-    return this.prisma.sessionChatParticipant.findMany({ orderBy: [{ channel: 'asc' }, { name: 'asc' }] })
+  /** The same ref with another sender, recipients, topic or text: `409`, so the bridge notices. */
+  private sameAsCopied(
+    copied: SessionChatMessage,
+    input: { from: string; to: string | readonly string[]; topic: string; text: string },
+  ): void {
+    const keys = (names: readonly string[]) => [...names].map(chatKey).sort().join('\u0000')
+    const same =
+      copied.fromKey === chatKey(input.from) &&
+      keys(copied.toKeys) === keys(parseRecipients(input.to)) &&
+      copied.topic === input.topic.trim() &&
+      copied.body === input.text.trim()
+    if (!same) {
+      throw new ConflictException({
+        code: 'ref_conflict',
+        message: `El ref «${copied.relayRef}» ya se usó para otro mensaje (#${copied.id}): no lo pisa.`,
+        details: { id: copied.id },
+      })
+    }
+  }
+
+  /** The list, with Santi always there and always `owner` (even if its row was touched by hand). */
+  private async list(): Promise<SessionChatParticipant[]> {
+    const rows = await this.prisma.sessionChatParticipant.findMany({ orderBy: [{ channel: 'asc' }, { name: 'asc' }] })
+    const owner = rows.find((row) => row.key === OWNER_KEY)
+    const others = rows.filter((row) => row.key !== OWNER_KEY && row.channel !== 'owner')
+    return [
+      owner
+        ? { ...owner, name: CHAT_OWNER, channel: 'owner' }
+        : { key: OWNER_KEY, name: CHAT_OWNER, channel: 'owner', sinceId: 0, createdAt: new Date(0) },
+      ...others,
+    ]
   }
 
   /** The list's entry for a name: exactly that name, only the case does not matter. */

@@ -9,9 +9,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
+/** Channels a session can get here: Santi's (`owner`) is only his. */
+const SESSION_CHANNELS = CHAT_CHANNELS.filter((value) => value !== 'owner')
+
 /**
  * D-021: who takes part in the chat between the Claude sessions, and from where each one writes. A name has to be
- * exactly one of these (only the case does not matter): no variant passes.
+ * exactly one of these (only the case does not matter): no variant passes. Santi is always there, as himself.
  */
 export function ChatParticipantsSection() {
   const participants = useChatParticipants()
@@ -56,29 +59,38 @@ export function ChatParticipantsSection() {
       {participants.data && participants.data.length === 0 ? <EmptyState title="Nadie en la lista" /> : null}
       {participants.data && participants.data.length > 0 ? (
         <ul className="divide-y rounded-lg border">
-          {participants.data.map((participant) => (
-            <li key={participant.name} className="flex flex-wrap items-center gap-2 px-3 py-2">
-              <span className="min-w-0 flex-1 font-medium">{participant.name}</span>
-              <Select
-                value={participant.channel}
-                onValueChange={(value) => change(participant.name, value as ChatChannel)}
-              >
-                <SelectTrigger className="w-56" aria-label={`Canal de ${participant.name}`}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CHAT_CHANNELS.map((value) => (
-                    <SelectItem key={value} value={value}>
-                      {CHAT_CHANNEL_LABEL[value]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button variant="outline" size="sm" onClick={() => drop(participant.name)} disabled={remove.isPending}>
-                Quitar
-              </Button>
-            </li>
-          ))}
+          {participants.data.map((participant) => {
+            const fixed = participant.channel === 'owner'
+            return (
+              <li key={participant.name} className="flex flex-wrap items-center gap-2 px-3 py-2">
+                <span className="min-w-0 flex-1 font-medium">{participant.name}</span>
+                <Select
+                  value={participant.channel}
+                  onValueChange={(value) => change(participant.name, value as ChatChannel)}
+                  disabled={fixed}
+                >
+                  <SelectTrigger className="w-56" aria-label={`Canal de ${participant.name}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(fixed ? CHAT_CHANNELS : SESSION_CHANNELS).map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {CHAT_CHANNEL_LABEL[value]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => drop(participant.name)}
+                  disabled={fixed || remove.isPending}
+                >
+                  Quitar
+                </Button>
+              </li>
+            )
+          })}
         </ul>
       ) : null}
       <Field label="Sesión nueva">
@@ -95,7 +107,7 @@ export function ChatParticipantsSection() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {CHAT_CHANNELS.map((value) => (
+              {SESSION_CHANNELS.map((value) => (
                 <SelectItem key={value} value={value}>
                   {CHAT_CHANNEL_LABEL[value]}
                 </SelectItem>

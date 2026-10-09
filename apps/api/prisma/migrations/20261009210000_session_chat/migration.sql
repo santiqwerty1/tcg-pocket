@@ -22,8 +22,8 @@ CREATE UNIQUE INDEX "session_chat_messages_relay_ref_key" ON "session_chat_messa
 CREATE INDEX "session_chat_messages_at_idx" ON "session_chat_messages"("at");
 CREATE INDEX "session_chat_messages_to_keys_idx" ON "session_chat_messages" USING GIN ("to_keys");
 
--- Which messages each participant (by its key: «Nube 2» and «nube2» are the same) has already read. A set, not a
--- watermark: with concurrent writers ids can commit out of order, and a watermark would skip the late one.
+-- Which messages each participant (by its key, the name in lower case) has already read. A set, not a watermark: it
+-- does not depend on the order in which ids commit.
 CREATE TABLE "session_chat_seen" (
     "participant" TEXT NOT NULL,
     "message_id" INTEGER NOT NULL,
@@ -42,6 +42,8 @@ CREATE TABLE "session_chat_participants" (
     "key" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "channel" "session_chat_channel" NOT NULL,
+    -- A participant added later starts after this message: what came before counts as read.
+    "since_id" INTEGER NOT NULL DEFAULT 0,
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "session_chat_participants_pkey" PRIMARY KEY ("key")
