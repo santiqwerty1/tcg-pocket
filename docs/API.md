@@ -37,7 +37,7 @@ Contrato entre `apps/api` (NestJS) y `apps/web` (PWA). Identificadores en inglé
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
 | `GET /api/tokens` | `{ items: [{ id, name, kind: 'worker'|'mcp', scopes, prefix, lastUsedAt, expiresAt, revokedAt, createdAt, clients: [{ client, firstSeenAt }] }] }` (`clients`, Fase 43: los clientes vistos con el token, por el producto del `User-Agent`) |
-| `POST /api/tokens` | `{ name, kind, scopes: string[] }` → `201 { id, token }` (el token completo se muestra una sola vez) |
+| `POST /api/tokens` | `{ name, kind, scopes: string[] }` → `201 { id, token }` (el token completo se muestra una sola vez). Permisos: `worker:claim` (worker); `mcp:read`, `mcp:write` y `chat:relay` (MCP). `chat:relay` es el del puente del chat entre sesiones y va solo: combinado con otro, `400` |
 | `DELETE /api/tokens/:id` | Revoca → `204` |
 | `GET /api/mcp-audit?limit=50&tokenId=` | Fase 43: lo que Claude escribió por MCP, lo más nuevo primero: `{ items: [{ id, at, token: { id, name }, client, tool, title, args, ok, error, ms, undo: { kind: 'match_delete'|'collection_stock', label } | null, undoneAt }] }`. Los argumentos guardan los textos largos recortados (2.000 caracteres) |
 | `POST /api/mcp-audit/:id/undo` | Fase 43: deshace una escritura que se puede deshacer (una partida borrada vuelve con el mismo id; una edición de la colección vuelve a la cantidad anterior si nadie la cambió después) → la fila con `undoneAt`; `409` si ya estaba deshecha, si la partida ya está, si su mazo ya no existe o si la colección cambió |
@@ -629,16 +629,14 @@ Todas las de escritura llevan `readOnlyHint: false` e `idempotentHint: false` (r
 - **Prompts MCP:** `repaso_semanal` (`week?`), `que_llevo_hoy` y `revisar_mazo` (`deck`); solo encadenan tools de lectura.
 - **Errores internos:** devuelven una referencia de 8 caracteres que está en el registro del servidor junto con la tool, el token y el id del pedido.
 
-**Chat entre sesiones (D-021).** Lo usan las sesiones de Claude que programan la app; las de la nube solo llegan a la app por el MCP. Solo para tokens con `mcp:write`, fuera del registro de escrituras y de la copia de seguridad.
+**Chat entre sesiones (D-021).** Lo usan las sesiones de Claude que programan la app. El chat principal es un archivo en la PC de Santi (la ventana de Santi, el coordinador y las sesiones locales); este es su puente con las sesiones de la nube, que solo llegan a la app por el MCP. El `chat.mjs` del coordinador copia los mensajes en los dos sentidos. Fuera del registro de escrituras y de la copia de seguridad; los mensajes se borran a los 90 días.
 
 | Tool o ruta | Entrada → salida |
 |---|---|
-| `chat_write` | `{ from, to (un nombre, varios separados por coma o una lista; «todos» llega a todos), topic, text }` → `{ sent, id, at, from, to }` |
-| `chat_read` | `{ as, waitSeconds? (0 a 40), all?, limit? (30) }` → `{ as, messages: [{ id, at, from, to, topic, text }], unreadLeft, participants }`: los nuevos para `as` (dirigidos a esa sesión o a «todos» por otra), que quedan leídos (solo los devueltos); con `all`, los últimos `limit`, leídos o no. Los nombres no distinguen mayúsculas, tildes ni separadores («Nube 2» = «nube2») |
-| `POST /api/mcp/chat` | Lo mismo que `chat_write`, con `Authorization: Bearer tcg_mcp_…` (`mcp:write`) → `201` con el mensaje |
-| `GET /api/mcp/chat?as=&wait=&all=&limit=` | Lo mismo que `chat_read` → `{ as, messages, unreadLeft, participants }` |
-
-`scripts/chat.mjs` usa esas rutas con los mismos comandos que el chat anterior en la PC (`write --from --to --topic [--text | stdin]`, `read --as [--all]`, `wait --as [--minutes]`), con `TCG_CHAT_TOKEN` y `TCG_SERVER`.
+| `chat_write` | `{ from, to (un nombre, varios separados por coma o una lista; «todos» llega a todos), topic (una línea), text (hasta 10.000), allowNew? }` → `{ sent, id, at, from, to, newRecipients? }`. Un destinatario que nadie usó todavía es un error (`unknown_recipient`) salvo con `allowNew`. `from` no puede ser una sesión de la PC: Santi, Coordinador, Principal, Laboratorio, Infra |
+| `chat_read` | `{ as, scope? ('all' \| 'mine'), waitSeconds? (0 a 40), all?, limit? (30) }` → `{ as, messages: [{ id, at, from, to, forYou, topic, text, via }], unreadLeft, participants }`: lo nuevo para `as` (con `all` por defecto, todo lo que escribieron las demás; con `mine`, solo lo dirigido a `as` o a «todos»), que queda leído: solo lo devuelto y solo si el cliente sigue conectado. Con `all: true`, los últimos `limit`, sin marcar nada. `via`: el nombre del token por el que llegó. `as` tampoco puede ser una sesión de la PC. Los nombres no distinguen mayúsculas, tildes ni separadores («Nube 2» = «nube2») |
+| `GET /api/mcp/chat?after=&limit=` | El puente, con `Authorization: Bearer tcg_mcp_…` y solo `chat:relay`: los mensajes con id mayor que `after` (0 por defecto), en orden, hasta `limit` (100, máximo 500) → `{ messages: [{ id, at, from, to, topic, text, via, ref }], more }`. No marca nada: el puente guarda su posición. Las escrituras van de a una, así un id nunca aparece después de uno mayor |
+| `POST /api/mcp/chat` | El puente: `{ from, to, topic, text, ref? }` → `201` con el mensaje y `duplicate`. Puede escribir como las sesiones de la PC y no revisa destinatarios; `ref` (su id en el chat de la PC) hace que reenviarlo devuelva el ya copiado (`duplicate: true`) |
 
 Conectar:
 - **Claude Code:** crear un token MCP en Más → Tokens de API y registrar `claude mcp add --transport http tcg https://tcg-pocket.fly.dev/api/mcp --header "Authorization: Bearer tcg_mcp_…"`.

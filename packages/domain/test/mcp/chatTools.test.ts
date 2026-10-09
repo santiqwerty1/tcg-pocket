@@ -3,6 +3,7 @@ import { z } from 'zod'
 import {
   CHAT_EVERYONE,
   chatKey,
+  isReservedChatName,
   MCP_CHAT_TOOLS,
   MCP_READ_TOOLS,
   MCP_WRITE_TOOLS,
@@ -16,6 +17,13 @@ describe('chat between sessions (D-021)', () => {
     expect(chatKey('NUBE·2')).toBe('nube2')
     expect(chatKey('Selección')).toBe('seleccion')
     expect(chatKey('TCG · Principal')).toBe('tcgprincipal')
+  })
+
+  it("reserves the PC sessions' names, folded", () => {
+    for (const name of ['Santi', 'coordinador', 'PRINCIPAL', 'Laboratorio', 'in-fra']) {
+      expect(isReservedChatName(name)).toBe(true)
+    }
+    for (const name of ['Nube-2', 'Nube Mejoras', 'Santiago', 'todos']) expect(isReservedChatName(name)).toBe(false)
   })
 
   it('parses recipients: comma lists, duplicates out, «todos» swallows the rest', () => {

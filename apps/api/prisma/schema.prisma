@@ -537,8 +537,8 @@ model ApiTokenClient {
   @@map("api_token_clients")
 }
 
-/// D-021: a message of the chat between the Claude sessions that work on the app's code (the cloud ones reach it
-/// only through the MCP). Not Santi's data: not in the backup.
+/// D-021: a message of the chat between the Claude sessions that work on the app's code: the bridge between the chat
+/// file on Santi's PC and the cloud sessions (they reach it only through the MCP). Not Santi's data: not in the backup.
 model SessionChatMessage {
   id       Int               @id @default(autoincrement())
   at       DateTime          @default(now()) @db.Timestamptz(3)
@@ -551,6 +551,10 @@ model SessionChatMessage {
   topic    String
   body     String
   tokenId  Int?              @map("token_id")
+  /// How it arrived: the API token's name.
+  via      String            @default("")
+  /// The bridge's own id for a message copied from the PC chat (sending it again does not duplicate it).
+  relayRef String?           @unique @map("relay_ref")
   seen     SessionChatSeen[]
 
   @@index([at])

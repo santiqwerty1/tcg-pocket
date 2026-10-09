@@ -2,7 +2,14 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import type { ApiToken } from '../generated/prisma/client.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
-import { type ApiTokenKind, generateApiToken, hashApiToken, invalidScopes } from './token-format.js'
+import {
+  type ApiTokenKind,
+  CHAT_RELAY_SCOPE,
+  generateApiToken,
+  hashApiToken,
+  invalidScopes,
+  relayScopeMixed,
+} from './token-format.js'
 
 export interface ApiTokenView {
   /** Numeric database id, as a string like every other id in the API (docs/API.md «Convenciones»). */
@@ -73,6 +80,9 @@ export class TokensService {
   }): Promise<CreatedApiToken> {
     const bad = invalidScopes(input.kind, input.scopes)
     if (bad.length > 0) throw new BadRequestException(`Scopes inválidos para ${input.kind}: ${bad.join(', ')}`)
+    if (relayScopeMixed(input.scopes)) {
+      throw new BadRequestException(`${CHAT_RELAY_SCOPE} va solo: es el token del puente del chat de la PC.`)
+    }
     const generated = generateApiToken(input.kind)
     const row = await this.prisma.apiToken.create({
       data: {

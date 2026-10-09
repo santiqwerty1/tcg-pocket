@@ -955,8 +955,15 @@ export const tokenKindSchema = z.enum(['worker', 'mcp'])
 export type TokenKind = z.infer<typeof tokenKindSchema>
 export const SCOPES_BY_KIND: Record<TokenKind, readonly string[]> = {
   worker: ['worker:claim'],
+  mcp: ['mcp:read', 'mcp:write', 'chat:relay'],
+}
+/** What a new token of each kind starts with (the chat bridge's permission goes alone, only on purpose). */
+export const DEFAULT_SCOPES_BY_KIND: Record<TokenKind, readonly string[]> = {
+  worker: ['worker:claim'],
   mcp: ['mcp:read', 'mcp:write'],
 }
+/** The bridge of the session chat (D-021): alone in its token. */
+export const CHAT_RELAY_SCOPE = 'chat:relay'
 
 export const apiTokenSchema = z.object({
   id: z.union([z.string(), z.number()]).transform(String),

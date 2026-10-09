@@ -2,7 +2,7 @@ import { CopyIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
-import { type ApiToken, SCOPES_BY_KIND, type TokenKind } from '@/api/schemas'
+import { type ApiToken, CHAT_RELAY_SCOPE, DEFAULT_SCOPES_BY_KIND, SCOPES_BY_KIND, type TokenKind } from '@/api/schemas'
 import { useCreateToken, useRevokeToken, useTokens } from '@/api/tokens'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { EmptyState, ErrorState, LoadingRows, Spinner } from '@/components/ListState'
@@ -31,6 +31,8 @@ const SCOPE_HINT: Record<string, string> = {
   'mcp:read': 'Leer colección, mazos, partidas, sobres, torneos y simulaciones.',
   'mcp:write':
     'Crear y editar mazos, registrar, corregir y borrar partidas, editar la colección y encolar o cancelar simulaciones. Cada escritura queda en «Actividad de Claude».',
+  [CHAT_RELAY_SCOPE]:
+    'Solo para el puente del chat entre sesiones de la PC: escribe como Santi, Coordinador, Principal, Laboratorio e Infra. Va solo, sin los otros permisos.',
 }
 
 const KIND_LABEL: Record<TokenKind, string> = { worker: 'Worker (PC)', mcp: 'Claude (MCP)' }
@@ -41,17 +43,22 @@ export function TokensPage() {
   const revoke = useRevokeToken()
   const [name, setName] = useState('')
   const [kind, setKind] = useState<TokenKind>('mcp')
-  const [scopes, setScopes] = useState<string[]>([...SCOPES_BY_KIND.mcp])
+  const [scopes, setScopes] = useState<string[]>([...DEFAULT_SCOPES_BY_KIND.mcp])
   const [created, setCreated] = useState<string | null>(null)
   const [revoking, setRevoking] = useState<ApiToken | null>(null)
 
   function changeKind(next: TokenKind) {
     setKind(next)
-    setScopes([...SCOPES_BY_KIND[next]])
+    setScopes([...DEFAULT_SCOPES_BY_KIND[next]])
   }
 
+  /** The chat bridge's permission goes alone: checking it clears the others, and the other way round. */
   function toggleScope(scope: string, on: boolean) {
-    setScopes((prev) => (on ? Array.from(new Set([...prev, scope])) : prev.filter((s) => s !== scope)))
+    setScopes((prev) => {
+      if (!on) return prev.filter((s) => s !== scope)
+      if (scope === CHAT_RELAY_SCOPE) return [scope]
+      return Array.from(new Set([...prev.filter((s) => s !== CHAT_RELAY_SCOPE), scope]))
+    })
   }
 
   async function submit() {

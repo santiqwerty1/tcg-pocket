@@ -318,9 +318,10 @@ ${MCP_CHAT_INSTRUCTIONS}`
     server.registerTool(
       c.chatRead.name,
       { title: c.chatRead.title, description: c.chatRead.description, inputSchema: c.chatRead.input, annotations },
-      (args) =>
+      (args, ctx) =>
         run(c.chatRead.name, async () => {
-          const view = await this.chat.read(args)
+          // A cut request (the client went away) leaves the messages unread.
+          const view = await this.chat.read({ ...args, signal: ctx.mcpReq.signal })
           return {
             as: view.as,
             messages: view.messages.map((message) => ({
@@ -328,8 +329,10 @@ ${MCP_CHAT_INSTRUCTIONS}`
               at: ownerDateTime(message.at),
               from: message.from,
               to: message.to,
+              forYou: message.forYou,
               topic: message.topic,
               text: message.text,
+              via: message.via,
             })),
             unreadLeft: view.unreadLeft,
             participants: view.participants,
@@ -342,8 +345,19 @@ ${MCP_CHAT_INSTRUCTIONS}`
       { title: c.chatWrite.title, description: c.chatWrite.description, inputSchema: c.chatWrite.input, annotations },
       (args) =>
         run(c.chatWrite.name, async () => {
-          const message = await this.chat.write({ ...args, tokenId: caller.tokenId || null })
-          return { sent: true, id: message.id, at: ownerDateTime(message.at), from: message.from, to: message.to }
+          const { message, unknownRecipients } = await this.chat.write({
+            ...args,
+            via: caller.tokenName,
+            tokenId: caller.tokenId || null,
+          })
+          return {
+            sent: true,
+            id: message.id,
+            at: ownerDateTime(message.at),
+            from: message.from,
+            to: message.to,
+            ...(unknownRecipients.length > 0 ? { newRecipients: unknownRecipients } : {}),
+          }
         }),
     )
   }

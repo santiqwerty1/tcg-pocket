@@ -8,9 +8,12 @@ export type ApiTokenKind = 'worker' | 'mcp'
 
 export const TOKEN_PREFIX: Record<ApiTokenKind, string> = { worker: 'tcg_wk_', mcp: 'tcg_mcp_' }
 
+/** The bridge of the session chat (D-021): the coordinator's `chat.mjs` on the PC. Goes alone in its token. */
+export const CHAT_RELAY_SCOPE = 'chat:relay'
+
 export const SCOPES_BY_KIND: Record<ApiTokenKind, readonly string[]> = {
   worker: ['worker:claim'],
-  mcp: ['mcp:read', 'mcp:write'],
+  mcp: ['mcp:read', 'mcp:write', CHAT_RELAY_SCOPE],
 }
 
 /** Characters of the token kept in clear for display, e.g. "tcg_wk_AbCdEf". */
@@ -54,6 +57,14 @@ export function parseBearer(header: string | string[] | undefined): string | nul
 export function invalidScopes(kind: ApiTokenKind, scopes: readonly string[]): string[] {
   const allowed = new Set(SCOPES_BY_KIND[kind])
   return scopes.filter((scope) => !allowed.has(scope))
+}
+
+/**
+ * The bridge's token writes as the PC's sessions in the chat: mixed with the connector's scopes, a cloud session
+ * holding it could do the same.
+ */
+export function relayScopeMixed(scopes: readonly string[]): boolean {
+  return scopes.includes(CHAT_RELAY_SCOPE) && scopes.some((scope) => scope !== CHAT_RELAY_SCOPE)
 }
 
 export function hasScopes(granted: readonly string[], required: readonly string[]): boolean {

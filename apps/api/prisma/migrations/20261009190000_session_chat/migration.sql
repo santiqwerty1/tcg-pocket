@@ -1,5 +1,6 @@
--- Chat between the Claude sessions that work on the app's code (D-021): the cloud sessions only reach the app
--- through its MCP. Development chatter, not Santi's data: not in the backup.
+-- Chat between the Claude sessions that work on the app's code (D-021): the bridge between the chat file on Santi's
+-- PC and the cloud sessions, which only reach the app through its MCP. Development chatter, not Santi's data: not in
+-- the backup. Inserts are serialized (an advisory lock), so ids commit in order and the bridge can read `after` an id.
 CREATE TABLE "session_chat_messages" (
     "id" SERIAL NOT NULL,
     "at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -10,9 +11,14 @@ CREATE TABLE "session_chat_messages" (
     "topic" TEXT NOT NULL,
     "body" TEXT NOT NULL,
     "token_id" INTEGER,
+    -- How it arrived: the API token's name.
+    "via" TEXT NOT NULL DEFAULT '',
+    -- The bridge's own id for a message it copied from the PC: sending it again does not duplicate it.
+    "relay_ref" TEXT,
 
     CONSTRAINT "session_chat_messages_pkey" PRIMARY KEY ("id")
 );
+CREATE UNIQUE INDEX "session_chat_messages_relay_ref_key" ON "session_chat_messages"("relay_ref");
 CREATE INDEX "session_chat_messages_at_idx" ON "session_chat_messages"("at");
 CREATE INDEX "session_chat_messages_to_keys_idx" ON "session_chat_messages" USING GIN ("to_keys");
 

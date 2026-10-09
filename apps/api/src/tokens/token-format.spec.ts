@@ -4,6 +4,7 @@ import {
   hasScopes,
   invalidScopes,
   parseBearer,
+  relayScopeMixed,
   SCOPES_BY_KIND,
   tokenKindOf,
 } from './token-format.js'
@@ -44,5 +45,11 @@ describe('api token format', () => {
     expect(hasScopes(['mcp:read', 'mcp:write'], ['mcp:read'])).toBe(true)
     expect(hasScopes(['mcp:read'], ['mcp:write'])).toBe(false)
     expect(hasScopes([], [])).toBe(true)
+  })
+
+  it('keeps the chat bridge scope alone in its token', () => {
+    expect(relayScopeMixed(['chat:relay'])).toBe(false)
+    expect(relayScopeMixed(['mcp:read', 'mcp:write'])).toBe(false)
+    expect(relayScopeMixed(['mcp:write', 'chat:relay'])).toBe(true)
   })
 })
