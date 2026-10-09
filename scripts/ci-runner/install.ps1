@@ -33,19 +33,35 @@ foreach ($n in 1..$Count) {
   $name = "tcg-pc-$n"
   $dir = Join-Path $Base $name
   if (-not (Test-Path (Join-Path $dir 'config.cmd'))) { Expand-Archive $Zip -DestinationPath $dir }
-  & (Join-Path $dir 'config.cmd') --unattended --url "https://github.com/$Repo" --token $token --name $name --labels 'tcg-pc' --work '_work' --replace | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "config.cmd falló para $name" }
+  # Already registered (a second run of this script): keep it, only refresh start.cmd and restart.
+  if (-not (Test-Path (Join-Path $dir '.runner'))) {
+    & (Join-Path $dir 'config.cmd') --unattended --url "https://github.com/$Repo" --token $token --name $name --labels 'tcg-pc' --work '_work' --replace | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "config.cmd falló para $name" }
+  }
   # The jobs run with `shell: bash`: Git's bash first (WindowsApps\bash.exe is WSL's launcher).
   $pathFile = Join-Path $dir '.path'
   $current = if (Test-Path $pathFile) { (Get-Content $pathFile -Raw).Trim() } else { $env:PATH }
   if (-not $current.StartsWith($GitBin)) { Set-Content -Path $pathFile -Value "$GitBin;$current" -NoNewline -Encoding ascii }
+  # Started through start.cmd, with Git's bash first in the PATH the runner (and its jobs) inherit: the .path file
+  # alone was not enough, and `shell: bash` found WSL's launcher.
+  Set-Content -Path (Join-Path $dir 'start.cmd') -Encoding ascii -Value (@(
+    '@echo off',
+    "set `"PATH=$GitBin;%PATH%`"",
+    'call "%~dp0run.cmd"'
+  ) -join "`r`n")
   Write-Host "Registrado $name"
 }
+
+# Runners already running (a second install) stop first, so they come back with the new start.cmd.
+Get-CimInstance Win32_Process -Filter "Name='Runner.Listener.exe'" |
+  Where-Object { $_.ExecutablePath -like "$Base*" } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -Confirm:$false }
+Start-Sleep -Seconds 2
 
 # Started hidden at logon (and now, through WMI: a process started from a Claude session dies with the app, H-016).
 $lines = @('Set shell = CreateObject("WScript.Shell")')
 foreach ($n in 1..$Count) {
-  $run = Join-Path (Join-Path $Base "tcg-pc-$n") 'run.cmd'
+  $run = Join-Path (Join-Path $Base "tcg-pc-$n") 'start.cmd'
   $lines += "shell.Run """"""$run"""""", 0, False"
 }
 Set-Content -Path $Startup -Value ($lines -join "`r`n") -Encoding ascii

@@ -35,6 +35,10 @@ jobs:
       engine: ${{ steps.diff.outputs.engine }}
       docker: ${{ steps.diff.outputs.docker }}
     steps:
+      - name: Shell (on the PC it must be Git's bash, not WSL's)
+        run: |
+          command -v bash
+          bash --version | head -1
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -68,6 +72,8 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 12.9.1
+          # D-023: a folder of the job (two runners on the PC shared ~/setup-pnpm: EBUSY).
+          dest: ${{ runner.temp }}/setup-pnpm
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -90,6 +96,8 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 12.9.1
+          # D-023: a folder of the job (two runners on the PC shared ~/setup-pnpm: EBUSY).
+          dest: ${{ runner.temp }}/setup-pnpm
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -113,6 +121,8 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 12.9.1
+          # D-023: a folder of the job (two runners on the PC shared ~/setup-pnpm: EBUSY).
+          dest: ${{ runner.temp }}/setup-pnpm
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -180,6 +190,8 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           version: 12.9.1
+          # D-023: a folder of the job (two runners on the PC shared ~/setup-pnpm: EBUSY).
+          dest: ${{ runner.temp }}/setup-pnpm
       - uses: actions/setup-node@v4
         with:
           node-version: 24
