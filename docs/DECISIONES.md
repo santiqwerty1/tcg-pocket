@@ -535,6 +535,14 @@ Pedido de Santi: miniaturas, tocar las cartas para ver más, mejores controles e
 | 40.23 | Confirmación de **200** partidas por rival por defecto (antes 100). | Con 100, lo mínimo que se distingue es ~5 puntos; los cambios de una carta suelen ser de 1 a 3. |
 | 40.24 | Los errores de la diferencia se combinan como independientes (`Math.hypot`) hasta tener resultados por partida (`perGame`, de «Infra de simulación»); con semillas comunes eso es conservador. | La prueba apareada necesita el resultado de cada partida y hoy los chunks guardan totales. |
 
+## Fase 38: operación y avisos (9/10/2026)
+
+| # | Decisión | Motivo |
+|---|---|---|
+| 41.1 | **Minutos de la CI** (pedido de Santi, primero que el resto de la fase): `concurrency` por rama con `cancel-in-progress`; un job `changes` mira qué cambió contra la base (la del PR o main antes del push) y el job del motor (Windows) corre solo si cambian `engine/`, `apps/worker/` o la CI. | El repo privado tiene 2.000 minutos por mes y Windows cuenta doble: el motor eran ~10 de los ~18 minutos facturados por corrida, y con PR más main cada cambio corría dos veces. |
+| 41.2 | La **imagen de Docker** se arma en la CI solo en main y solo si cambió algo de lo que depende (Dockerfile, `docker/`, `fly.toml`, los `package.json`, el lockfile, el esquema de Prisma, el `Cargo.toml` del motor o la CI). | Un Dockerfile roto hoy se descubre recién en `flyctl deploy`; armarla en cada PR gastaría ~5 minutos más por corrida. |
+| 41.3 | Un job salteado deja la corrida en verde, así que `deploy.mjs` sigue igual; si la CI de un commit se canceló porque llegó otro más nuevo, lo dice y pide desplegar el más nuevo. | El deploy exige la CI verde del sha exacto de HEAD. |
+
 ## Fase 42, laboratorio (9/10/2026)
 
 | # | Decisión | Motivo |

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Deploy to Fly only what passed CI (Fase 21, R-007): the working tree is clean, HEAD is on origin/main, the CI run of
-// that commit (lint, unit tests, e2e against Postgres, engine) finished green and the vault passes `posta check`.
+// that commit (lint, unit tests, e2e against Postgres, screens; the engine and the Docker image when they changed,
+// Fase 38) finished green and the vault passes `posta check`.
 // Then `flyctl deploy` (migrations run when the container starts). It never pushes: that stays a separate,
 // confirmed step.
 //
@@ -45,6 +46,9 @@ const runs = JSON.parse(
 const ci = runs[0]
 if (!ci) fail('La CI todavía no corrió para este commit: probá en un rato.')
 if (ci.status !== 'completed') fail(`La CI sigue corriendo (${ci.url}): probá cuando termine.`)
+if (ci.conclusion === 'cancelled') {
+  fail(`La CI de este commit se canceló porque llegó uno más nuevo a la misma rama (${ci.url}): desplegá el más nuevo.`)
+}
 if (ci.conclusion !== 'success') fail(`La CI falló (${ci.conclusion}): ${ci.url}`)
 ok(`CI verde (${ci.url})`)
 
