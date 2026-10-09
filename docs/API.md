@@ -242,6 +242,12 @@ Fase 25: `GET /api/matches/stats` suma `turnOrder: { first, second, unknown, cov
 
 `POST /api/matches` acepta además `clientRef` (UUID que arma el celu; un segundo envío con el mismo devuelve la partida ya guardada, `201`) y `playedAgoMs` (entero, 0 a 30 días: cuánto hace que se jugó; `playedAt` gana si vienen los dos). `PATCH` no acepta ninguno de los dos.
 
+## Analizar una partida contra el bot (Fase 29)
+
+| Método y ruta | Respuesta |
+|---|---|
+| `GET /api/play/:id/review?from=&to=&detail=summary\|full` | `{ id, status, deck, rival, bot, result, turns, coach: { decisions, agreement, hints, counts } \| null, lists: { you, bot }, review: { steps, turns: [{ turn, player, board, actions: [{ ply?, who, text, options?, coach?: { verdict, gap, rank, best? }, alternatives? }] }], keyMoments, omittedTurns } \| null, soFar, note }`; `review` es `null` mientras la partida no terminó (`soFar` trae lo que dijo el entrenador). MCP: `play_games`, `play_game_review`. |
+
 ## Sobres (Fase 4)
 
 | Método y ruta | Cuerpo / respuesta |

@@ -37,6 +37,8 @@ describe('MCP read tools', () => {
         'matches_luck',
         'matches_stats',
         'packs_recommend',
+        'play_game_review',
+        'play_games',
         'rivals_notes',
         'simulations_results',
         'tournaments_buildable',

@@ -48,6 +48,7 @@ import { TournamentsService } from '../tournaments/tournaments.service.js'
 import { type DeckRef, DeckRefResolver } from './deck-ref.js'
 import { jobSummaryJson, rateView } from './mcp-json.js'
 import { McpLabToolsService } from './mcp-lab-tools.service.js'
+import { McpPlayToolsService } from './mcp-play-tools.service.js'
 import { McpWriteToolsService } from './mcp-write-tools.service.js'
 
 type Json = Record<string, unknown>
@@ -108,6 +109,7 @@ export class McpToolsService {
     private readonly events: EventsService,
     private readonly writeTools: McpWriteToolsService,
     private readonly labTools: McpLabToolsService,
+    private readonly playTools: McpPlayToolsService,
     @Inject(ENV) private readonly env: Env,
     private readonly logger: PinoLogger,
   ) {
@@ -216,6 +218,7 @@ ${MCP_WRITE_INSTRUCTIONS}`
       run(t.simulationsResults.name, () => this.simulationsResults(args)),
     )
     this.labTools.registerRead(server, run)
+    this.playTools.registerRead(server, run)
     if (canWrite) {
       this.writeTools.register(server, run)
       this.labTools.registerWrite(server, run)

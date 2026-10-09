@@ -3,6 +3,7 @@
 export * from './coach.js'
 export * from './consistency.js'
 export * from './engineFallback.js'
+export * from './gameReview.js'
 export * from './jobs.js'
 export * from './puzzles.js'
 export * from './results.js'

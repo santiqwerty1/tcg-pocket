@@ -241,6 +241,11 @@ export class LiveGamesService {
     return this.view(game)
   }
 
+  /** Fase 29: the game for Claude's review — without counting as the owner looking at it (notifications). */
+  async peek(rawId: string): Promise<LiveGameView> {
+    return this.view(await this.requireGame(rawId))
+  }
+
   private async view(game: GameRow): Promise<LiveGameView> {
     const [snapshots, worker] = await Promise.all([
       this.prisma.deckSnapshot.findMany({ where: { id: { in: [game.humanSnapshotId, game.botSnapshotId] } } }),

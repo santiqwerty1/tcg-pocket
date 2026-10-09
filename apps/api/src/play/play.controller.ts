@@ -24,6 +24,7 @@ import { SimulationModule } from '../simulation/simulation.controller.js'
 import { BearerTokenGuard, RequireScopes } from '../tokens/bearer-token.guard.js'
 import { TokensModule } from '../tokens/tokens.module.js'
 import { TournamentsModule } from '../tournaments/tournaments.controller.js'
+import { GameReviewService, type GameReviewView } from './game-review.service.js'
 import {
   type LiveGameSummaryView,
   LiveGamesService,
@@ -73,6 +74,11 @@ const recentSchema = z.object({
   format: z.enum(TOURNAMENT_FORMATS).optional(),
 })
 const rematchSchema = z.object({ sameSeed: z.boolean().optional() })
+const reviewSchema = z.object({
+  from: z.coerce.number().int().min(0).max(200).optional(),
+  to: z.coerce.number().int().min(0).max(200).optional(),
+  detail: z.enum(['summary', 'full']).optional(),
+})
 const choiceSchema = z.object({ ply: z.number().int().min(1), i: z.number().int().min(0).max(500) })
 const idParam = z.coerce.number().int().positive()
 const workerId = z.string().min(8).max(64)
@@ -110,6 +116,7 @@ export class PlayController {
   constructor(
     private readonly games: LiveGamesService,
     private readonly rivals: PlayRivalsService,
+    private readonly reviews: GameReviewService,
   ) {}
 
   /** Fase 23: the exact lists that placed well in the last days, to play against (before `:id`). */
@@ -183,6 +190,16 @@ export class PlayController {
   @HttpCode(200)
   abandon(@Param('id') id: string, @CurrentSession() _session: RequestSession): Promise<LiveGameView> {
     return this.games.abandon(id)
+  }
+
+  /** Fase 29: the game told turn by turn in Spanish, with the coach's opinion (what the MCP gives Claude). */
+  @Get(':id/review')
+  review(
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(reviewSchema)) query: z.infer<typeof reviewSchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<GameReviewView> {
+    return this.reviews.review(id, { fromTurn: query.from, toTurn: query.to, detail: query.detail })
   }
 
   /** The replay of a finished game, for deckgym's viewer (`/viewer/index.html?url=/api/play/:id/replay/raw`). */
@@ -302,7 +319,7 @@ export class LiveWorkerController {
 @Module({
   imports: [TokensModule, CatalogModule, SimulationModule, TournamentsModule],
   controllers: [PlayController, LiveWorkerController, PuzzlesController],
-  providers: [LiveGamesService, PlayRivalsService, PuzzlesService],
-  exports: [LiveGamesService],
+  providers: [LiveGamesService, PlayRivalsService, PuzzlesService, GameReviewService],
+  exports: [LiveGamesService, GameReviewService],
 })
 export class PlayModule {}

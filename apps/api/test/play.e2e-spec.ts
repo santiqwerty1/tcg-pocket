@@ -356,6 +356,77 @@ describe('playing against a bot (e2e)', () => {
     expect((await post(`/api/puzzles/${id}-2/answer`).send({ i: 7 })).status).toBe(400)
   })
 
+  it('Claude analiza una partida (Fase 29): the game told turn by turn with the board and the coach', async () => {
+    const created = await post('/api/play').send({
+      human: { deckId: deckIds[1] },
+      rival: { deckId: deckIds[12] },
+      seed: 41,
+      coach: true,
+    })
+    const id = created.body.id as number
+    const engineId = created.body.decks.human[0].engineId as string
+    const spanish = created.body.names[engineId] as string
+    // Still going: no replay, only what the coach said so far.
+    const going = (await get(`/api/play/${id}/review`)).body
+    expect(going).toMatchObject({ id, review: null, soFar: [], coach: { decisions: 0 } })
+    expect(going.note).toMatch(/^La partida no terminó/)
+    expect(going.lists.you.join(' ')).toContain(spanish)
+
+    const slot = { card: engineId, hp: 50, max_hp: 70, energy: ['Fire'], tools: [], status: [] }
+    const side = { hand: [engineId], hand_count: 1, deck_count: 10, discard: [], in_play: [slot] }
+    const state = (turn: number) => ({ turn, current_player: 0, points: [1, 0], players: [side, side], stadium: null })
+    const replay = {
+      version: 1,
+      players: [],
+      cards: {},
+      steps: [
+        {
+          turn: 2,
+          actor: 0,
+          state: state(2),
+          options: [
+            { text: 'EndTurn', action: 'EndTurn' },
+            { text: 'Attack', action: { Attack: { title: 'Peck', fixed_damage: 20 } } },
+          ],
+          chosen: 0,
+          scores: [0, 6000],
+        },
+        { turn: 3, actor: 1, state: state(3), options: [{ text: 'EndTurn', action: 'EndTurn' }], chosen: 0 },
+      ],
+      final_state: state(3),
+      outcome: { Win: 1 },
+    }
+    await test.prisma.liveGame.update({
+      where: { id },
+      data: {
+        status: 'done',
+        winner: 'bot',
+        turns: 3,
+        finishedAt: new Date(),
+        replayGz: gzipSync(Buffer.from(JSON.stringify(replay))),
+      },
+    })
+    const done = (await get(`/api/play/${id}/review`)).body
+    expect(done).toMatchObject({ status: 'terminada', result: 'ganó el bot', soFar: null })
+    expect(done.review.turns.map((turn: { turn: number }) => turn.turn)).toEqual([2, 3])
+    expect(done.review.turns[0].board).toMatchObject({
+      points: 'Vos 1 – Bot 0',
+      you: { active: `${spanish} 50/70 PS · 1 Fuego`, hand: spanish },
+    })
+    expect(done.review.turns[0].actions[0]).toMatchObject({
+      ply: 1,
+      text: 'Termina el turno',
+      coach: { verdict: 'Error grave', gap: 6000, best: 'Ataca con «Peck» (20)' },
+    })
+    expect(done.review.keyMoments).toHaveLength(1)
+    expect(done.note).toContain('10.000 = un punto de premio')
+    const full = (await get(`/api/play/${id}/review?detail=full&from=3`)).body
+    expect(full.review.turns.map((turn: { turn: number }) => turn.turn)).toEqual([3])
+    expect(full.review.omittedTurns).toBe(1)
+    expect((await get(`/api/play/${id}/review?detail=nope`)).status).toBe(400)
+    expect((await get('/api/play/999999/review')).status).toBe(404)
+  })
+
   it('a worker that went away: the game is claimed again with the choices made so far', async () => {
     const created = await post('/api/play').send({
       human: { deckId: deckIds[1] },

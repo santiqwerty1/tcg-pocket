@@ -365,6 +365,30 @@ export const MCP_READ_TOOLS = {
       limit: z.number().int().min(1).max(100).optional().describe('Misiones a devolver (por defecto 20)'),
     }),
   },
+  playGames: {
+    name: 'play_games',
+    title: 'Partidas contra el bot',
+    description:
+      'Las partidas de Santi contra un bot del motor deckgym (Más → Jugar contra un bot), las más nuevas primero: número, estado, su mazo, el rival, el bot, si tenía entrenador, el resultado, los turnos y, con entrenador, qué parte de sus jugadas fueron tan buenas como las del entrenador. Para analizar una, play_game_review con su número. Son partidas de práctica contra un bot: nunca se mezclan con las partidas registradas.',
+    input: z.object({
+      limit: z.number().int().min(1).max(30).optional().describe('Partidas a devolver (por defecto 15)'),
+    }),
+  },
+  playGameReview: {
+    name: 'play_game_review',
+    title: 'Analizar una partida contra el bot',
+    description:
+      'Una partida de Santi contra el bot contada turno por turno en español: el tablero al empezar cada turno (puntos, activo y banca con PS, energías, herramientas y estados, la mano de Santi y la del bot, que en la partida no veía, mazo y descarte), cada acción de los dos y, si jugó con entrenador, qué le pareció cada decisión de Santi (veredicto, cuánto valor perdió y la opción del entrenador) más los momentos más caros con su tablero y las tres mejores opciones. «detail: full» agrega todas las opciones de cada decisión con su valor; «fromTurn»/«toTurn» acotan los turnos. Una partida sin terminar devuelve lo que dijo el entrenador hasta ahora. Para explicar por qué se ganó o se perdió y qué conviene practicar: basate en el tablero y en lo que pasó, y aclarar que el entrenador mira solo el turno.',
+    input: z.object({
+      id: z.number().int().positive().describe('Número de la partida («#12» → 12; ver play_games)'),
+      detail: z
+        .enum(['summary', 'full'])
+        .optional()
+        .describe('summary (por defecto): la jugada elegida y el veredicto; full: además todas las opciones'),
+      fromTurn: z.number().int().min(0).max(200).optional().describe('Desde este turno (0 = preparación)'),
+      toTurn: z.number().int().min(0).max(200).optional().describe('Hasta este turno'),
+    }),
+  },
   labMetaBank: {
     name: 'lab_meta_bank',
     title: 'Banco del meta (laboratorio)',
