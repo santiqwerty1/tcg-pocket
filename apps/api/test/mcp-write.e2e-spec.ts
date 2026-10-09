@@ -573,6 +573,42 @@ describe('MCP write tools (e2e)', () => {
     expect(await lookup()).toMatchObject({ text: 'Otra idea.', archetypeId: 'mega-gyarados-ex' })
   })
 
+  it('Fase 43: an undo entry of the first shape (no key, the text before as a string) touches only its note', async () => {
+    const put = (opponent: string, text: string) =>
+      test.http().put('/api/rival-notes').set('Cookie', cookie).send({ opponent, text })
+    await put('Lugia', 'Misma idea.')
+    await put('Ho-Oh', 'Misma idea.')
+    await put('Suicune', 'Nueva.')
+    const prisma = test.app.get(PrismaService)
+    const legacy = (undo: Record<string, unknown>) =>
+      prisma.mcpAudit.create({
+        data: {
+          tokenId: null,
+          tokenName: 'viejo',
+          client: 'Claude-User',
+          tool: 'rivals_note_set',
+          args: {},
+          ok: true,
+          error: null,
+          ms: 1,
+          undo: { kind: 'rival_note', label: 'Nota', ...undo },
+        },
+      })
+    // It had created Lugia's note: undoing deletes that note only, not every note with the same text.
+    const created = await legacy({ opponent: 'Lugia', before: null, after: 'Misma idea.' })
+    expect((await test.http().post(`/api/mcp-audit/${created.id}/undo`).set('Cookie', cookie)).status).toBe(200)
+    const note = async (opponent: string) =>
+      (await get(`/api/rival-notes/lookup?opponent=${encodeURIComponent(opponent)}`)).body.note as {
+        text: string
+      } | null
+    expect(await note('Lugia')).toBeNull()
+    expect((await note('Ho-Oh'))?.text).toBe('Misma idea.')
+    // It had changed Suicune's text: undoing gives the text back.
+    const changed = await legacy({ opponent: 'Suicune', before: 'Vieja.', after: 'Nueva.' })
+    expect((await test.http().post(`/api/mcp-audit/${changed.id}/undo`).set('Cookie', cookie)).status).toBe(200)
+    expect((await note('Suicune'))?.text).toBe('Vieja.')
+  })
+
   it('Fase 43: a match the phone sent again is not restored twice', async () => {
     const client = await connect()
     const clientRef = '6c0a7e2f-1b3d-4c5e-8f9a-0b1c2d3e4f50'

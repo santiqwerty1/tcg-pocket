@@ -111,13 +111,25 @@ export class RivalNotesService {
   async restore(
     key: string,
     after: string | null,
-    before: { label: string; archetypeId: string | null; text: string; createdAt: string } | null,
+    /** Without label or archetype (an old entry), those stay as they are, or `label` names a recreated note. */
+    before: { text: string; label?: string; archetypeId?: string | null; createdAt?: string } | null,
     afterUpdatedAt?: string | undefined,
+    label?: string,
   ): Promise<boolean> {
+    // Never a write without the key: it would reach every note with that text.
+    if (!key) return false
     if (after === null) {
       if (!before) return true
       const created = await this.prisma.rivalNote.createMany({
-        data: [{ key, ...before, createdAt: new Date(before.createdAt) }],
+        data: [
+          {
+            key,
+            label: before.label ?? label ?? key,
+            archetypeId: before.archetypeId ?? null,
+            text: before.text,
+            ...(before.createdAt ? { createdAt: new Date(before.createdAt) } : {}),
+          },
+        ],
         skipDuplicates: true,
       })
       return created.count > 0
@@ -126,7 +138,11 @@ export class RivalNotesService {
     const changed = before
       ? await this.prisma.rivalNote.updateMany({
           where,
-          data: { label: before.label, archetypeId: before.archetypeId, text: before.text },
+          data: {
+            text: before.text,
+            ...(before.label !== undefined ? { label: before.label } : {}),
+            ...(before.archetypeId !== undefined ? { archetypeId: before.archetypeId } : {}),
+          },
         })
       : await this.prisma.rivalNote.deleteMany({ where })
     return changed.count > 0

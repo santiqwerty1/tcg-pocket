@@ -110,6 +110,9 @@ const SERIAL_TABLES = [
 /** Thrown inside the drill's transaction so nothing it restored stays. */
 class DrillRollback extends Error {}
 
+/** No other write to the tables with ids while the drill moves their sequences (reads go on). */
+const LOCK_SERIAL_TABLES = `LOCK TABLE ${SERIAL_TABLES.map((table) => `"${table}"`).join(', ')} IN EXCLUSIVE MODE`
+
 /** The client or a transaction, for raw statements. */
 type RawClient = Pick<Prisma.TransactionClient, '$queryRawUnsafe' | '$executeRawUnsafe'>
 
@@ -497,19 +500,16 @@ export class BackupService {
       let restored: BackupDocument | null = null
       // `setval` is not undone with the transaction: the drill puts the sequences back where they were, before
       // rolling back and while no one else can write these tables (nobody takes an id in between).
-      let sequences: Map<string, number> | null = null
-      let putBack = false
+      const drill: { sequences: Map<string, number> | null; putBack: boolean } = { sequences: null, putBack: false }
       try {
         await this.prisma.$transaction(
           async (tx) => {
-            await tx.$executeRawUnsafe(
-              `LOCK TABLE ${SERIAL_TABLES.map((table) => `"${table}"`).join(', ')} IN EXCLUSIVE MODE`,
-            )
-            sequences = await this.sequenceValues(tx)
+            await tx.$executeRawUnsafe(LOCK_SERIAL_TABLES)
+            drill.sequences = await this.sequenceValues(tx)
             await this.restoreInto(tx, document)
             restored = await this.exportDocument(tx)
-            await this.restoreSequences(tx, sequences)
-            putBack = true
+            await this.restoreSequences(tx, drill.sequences)
+            drill.putBack = true
             throw new DrillRollback()
           },
           { timeout: RESTORE_TIMEOUT_MS, maxWait: 10_000 },
@@ -517,8 +517,15 @@ export class BackupService {
       } catch (error) {
         if (!(error instanceof DrillRollback)) throw error
       } finally {
-        // A failure inside leaves the transaction unusable: then they go back after the rollback.
-        if (sequences && !putBack) await this.restoreSequences(this.prisma, sequences)
+        // A failure inside leaves the transaction unusable: then they go back after the rollback, with the tables
+        // locked again (no insert in flight that `MAX(id)` cannot see).
+        const saved = drill.sequences
+        if (saved && !drill.putBack) {
+          await this.prisma.$transaction(async (tx) => {
+            await tx.$executeRawUnsafe(LOCK_SERIAL_TABLES)
+            await this.restoreSequences(tx, saved)
+          })
+        }
       }
       if (!restored) throw new Error('la restauración no devolvió nada')
       const back = JSON.parse(JSON.stringify(restored)) as Record<string, unknown>

@@ -5,7 +5,7 @@
  * too.
  */
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import { MCP_WRITE_TOOLS } from '@tcg/domain'
+import { MCP_WRITE_TOOLS, opponentKey } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { type McpAudit, Prisma } from '../generated/prisma/client.js'
 import { idToString, parseNumericId } from '../http/ids.js'
@@ -48,11 +48,14 @@ export type AuditUndo =
     }
   | {
       kind: 'rival_note'
-      /** The note's key (`opponentKey`) and how it was written. */
-      key: string
+      /** The note's key (`opponentKey`; missing in the first entries, which only kept `opponent`). */
+      key?: string
       opponent: string
-      /** The whole note before the write (null: there was none), and its text after it (null: the write deleted it). */
-      before: { label: string; archetypeId: string | null; text: string; createdAt: string } | null
+      /**
+       * The whole note before the write (null: there was none), and its text after it (null: the write deleted it).
+       * The first entries kept only the text before, as a string.
+       */
+      before: { label: string; archetypeId: string | null; text: string; createdAt: string } | string | null
       after: string | null
       /** The note's `updated_at` right after the write: any later change (label or archetype too) blocks undo. */
       afterUpdatedAt?: string
@@ -362,9 +365,14 @@ export class McpAuditService {
     })
   }
 
-  /** The note as it was (label and archetype too), in one conditional write: only while it is still what the write left. */
+  /**
+   * The note as it was (label and archetype too), in one conditional write: only while it is still what the write left.
+   * An entry of the first shape (no key, the text before as a string) gives back the text only.
+   */
   private async restoreRivalNote(undo: Extract<AuditUndo, { kind: 'rival_note' }>): Promise<void> {
-    if (!(await this.rivalNotes.restore(undo.key, undo.after, undo.before, undo.afterUpdatedAt))) {
+    const key = undo.key ?? opponentKey(undo.opponent)
+    const before = typeof undo.before === 'string' ? { text: undo.before } : undo.before
+    if (!key || !(await this.rivalNotes.restore(key, undo.after, before, undo.afterUpdatedAt, undo.opponent))) {
       throw new ConflictException({
         code: 'note_changed',
         message: `La nota sobre «${undo.opponent}» cambió después: no la deshago para no pisarla.`,
