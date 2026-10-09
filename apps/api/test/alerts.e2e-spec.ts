@@ -144,7 +144,7 @@ describe('alerts (e2e)', () => {
         },
       })
       const titles = (await operationAlerts('limitless_sync')).map((item) => item.title)
-      expect(titles).toEqual(['Falló la sincronización de Limitless del 9/10 09:00'])
+      expect(titles).toEqual(['Falló la sincronización de Limitless del 9/10'])
       await test.prisma.limitlessSyncRun.update({
         where: { id: failed.id },
         data: { status: 'done', error: null, startedAt: new Date(Date.now() - 20 * 3_600_000), finishedAt: null },
@@ -196,7 +196,7 @@ describe('alerts (e2e)', () => {
     ops.databaseBytes = async () => 380 * 1024 * 1024
     try {
       expect((await operationAlerts('database_size')).map((item) => item.title)).toEqual([
-        'La base ocupa 380 MB de 500',
+        'La base pasó los 350 MB (de 500)',
       ])
     } finally {
       ops.databaseBytes = real

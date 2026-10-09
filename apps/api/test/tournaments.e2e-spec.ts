@@ -7,6 +7,7 @@ import { REPO_ROOT } from '../src/config/dotenv.js'
 import { type Clock, type FetchLike, LimitlessClient, LimitlessTransport } from '../src/tournaments/limitless.client.js'
 import { TournamentDataVersion } from '../src/tournaments/tournament-settings.js'
 import { TournamentSyncService } from '../src/tournaments/tournament-sync.service.js'
+import { TournamentsService } from '../src/tournaments/tournaments.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /**
@@ -415,6 +416,49 @@ describe('tournaments (e2e)', () => {
     })
     for (const created of [won, lost]) {
       expect((await test.http().delete(`/api/matches/${created.body.id}`).set('Cookie', cookie)).status).toBe(204)
+    }
+  })
+
+  it('Fase 38 (R-008): one dataset build at a time; a failed build does not block the next; old versions leave memory', async () => {
+    const service = test.app.get(TournamentsService)
+    const internals = service as unknown as {
+      scope(query: object): Promise<unknown>
+      dataset(scope: unknown): Promise<unknown>
+      buildDataset(scope: unknown, key: string): Promise<unknown>
+      cache: { key: string }[]
+    }
+    const original = internals.buildDataset.bind(service)
+    let builds = 0
+    let failNext = false
+    internals.buildDataset = async (scope, key) => {
+      builds += 1
+      if (failNext) {
+        failNext = false
+        throw new Error('boom')
+      }
+      return original(scope, key)
+    }
+    const version = test.app.get(TournamentDataVersion)
+    try {
+      const scope = await internals.scope({})
+      version.bump()
+      const [a, b] = await Promise.all([internals.dataset(scope), internals.dataset(scope)])
+      expect(builds).toBe(1)
+      expect(a).toBe(b)
+      // The previous version's datasets are gone from memory.
+      expect(internals.cache.every((entry) => entry.key.endsWith(`|${version.current()}`))).toBe(true)
+
+      version.bump()
+      failNext = true
+      const [failed, next] = await Promise.allSettled([internals.dataset(scope), internals.dataset(scope)])
+      expect(failed.status).toBe('rejected')
+      // The second request shared the failed build; a new one builds again.
+      expect(next.status).toBe('rejected')
+      const again = await internals.dataset(scope)
+      expect(again).toBeTruthy()
+      expect(builds).toBe(3)
+    } finally {
+      internals.buildDataset = original
     }
   })
 

@@ -7,6 +7,9 @@ if [ "$#" -gt 0 ]; then
 fi
 cd /app/apps/api
 echo "[entrypoint] prisma migrate deploy"
-node node_modules/prisma/build/index.js migrate deploy
+# Fly's release_command already ran them and stopped the deploy if they failed. Here a failure (a migration left
+# marked as failed, P3009) must not keep the app down on every restart: log it and start anyway
+# (docs/OPERACION.md, «Una migración que falló»).
+node node_modules/prisma/build/index.js migrate deploy || echo "[entrypoint] migrate deploy falló: arranco igual (ver docs/OPERACION.md)"
 echo "[entrypoint] starting api"
 exec node dist/main.js

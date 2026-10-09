@@ -16,6 +16,7 @@ import { OWNER_TIME_ZONE, todayInOwnerZone } from '../config/time-zone.js'
 import {
   BACKUP_STALE_MS,
   DATABASE_ALERT_MB,
+  DATABASE_ALERT_STEP_MB,
   DATABASE_LIMIT_MB,
   LIMITLESS_STALE_MS,
   OpsService,
@@ -55,6 +56,11 @@ const LIMITED_SOON_DAYS = 7
 const WORKER_IDLE_MS = 30 * 60 * 1000
 /** Fase 43 (R-010): how long «un cliente nuevo usó un token» stays in the list. */
 const NEW_CLIENT_DAYS = 7
+
+/** «9/10» in the owner's time zone. */
+function ownerDate(date: Date): string {
+  return ownerDateTime(date).split(' ')[0] ?? ''
+}
 
 /** «9/10 02:35» in the owner's time zone. */
 function ownerDateTime(date: Date): string {
@@ -331,7 +337,7 @@ export class AlertsService {
         alerts.push({
           code: 'limitless_sync',
           level: 'warning',
-          title: `Falló la sincronización de Limitless del ${ownerDateTime(new Date(limitless.last.startedAt))}`,
+          title: `Falló la sincronización de Limitless del ${ownerDate(new Date(limitless.last.startedAt))}`,
           detail: `${(limitless.last.error ?? 'error desconocido').slice(0, 200)}. Se vuelve a intentar sola cada 6 horas; el estado está en Torneos → Ajustes.`,
           link: '/torneos/ajustes',
         })
@@ -371,12 +377,13 @@ export class AlertsService {
     }
     if (databaseBytes !== null && databaseBytes / (1024 * 1024) >= DATABASE_ALERT_MB) {
       const sizeMb = Math.round(databaseBytes / (1024 * 1024))
+      // The title moves in steps of 50 MB, so the phone gets one push per step, not one per new megabyte.
+      const step = Math.floor(sizeMb / DATABASE_ALERT_STEP_MB) * DATABASE_ALERT_STEP_MB
       alerts.push({
         code: 'database_size',
         level: 'warning',
-        title: `La base ocupa ${sizeMb} MB de ${DATABASE_LIMIT_MB}`,
-        detail:
-          'El plan gratis de Supabase llega hasta 500 MB. Hay que borrar datos viejos (repeticiones, crudos de torneos) o cambiar de plan.',
+        title: `La base pasó los ${step} MB (de ${DATABASE_LIMIT_MB})`,
+        detail: `Ocupa ${sizeMb} MB. El plan gratis de Supabase llega hasta 500 MB. Hay que borrar datos viejos (repeticiones, crudos de torneos) o cambiar de plan.`,
         link: '/mas/backup',
       })
     }
