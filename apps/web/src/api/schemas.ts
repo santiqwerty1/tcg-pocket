@@ -1553,6 +1553,19 @@ export const labJobSchema = z.object({
           decided: z.boolean(),
         }),
       ),
+      /** T-017 C4: what the rounds measured about each card change, the clearest first. */
+      learned: z
+        .array(
+          z.object({
+            sign: z.enum(['+', '-']),
+            cardId: z.string(),
+            nameEs: z.string(),
+            mean: z.number(),
+            n: z.number(),
+          }),
+        )
+        .default([]),
+      combos: z.array(z.number()).default([]),
       /** H-010: what the confirmation says of the list found against the starting one. */
       confirmation: z
         .object({

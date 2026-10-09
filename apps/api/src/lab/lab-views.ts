@@ -135,6 +135,13 @@ export interface LabExploreView {
     decided: boolean
   }[]
   /**
+   * T-017 C4: what the rounds measured about each card change, the clearest first (points of meta score, shrunk toward
+   * 0; «+» came in, «−» went out). It steers the draws; it never decides what is accepted.
+   */
+  learned: { sign: '+' | '-'; cardId: string; nameEs: string; mean: number; n: number }[]
+  /** Snapshot ids of the variants that joined the two best swaps measured so far. */
+  combos: number[]
+  /**
    * H-010: what the confirmation says of the list found against the starting one; null without a confirmation.
    * «better» only past `verifyZ` standard errors.
    */

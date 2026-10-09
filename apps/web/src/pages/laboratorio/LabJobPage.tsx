@@ -392,10 +392,11 @@ function roundText(round: ExploreView['rounds'][number], explore: ExploreView, l
       ? `${name(round.accepted)} se sostuvo con partidas nuevas: pasa a ser la mejor`
       : `${name(variant)} no se sostuvo con partidas nuevas`
   }
-  if (!round.decided) return `${round.candidates.length} variantes jugando`
+  const combo = round.candidates.some((id) => explore.combos.includes(id)) ? ' (una junta los dos mejores cambios)' : ''
+  if (!round.decided) return `${round.candidates.length} variantes jugando${combo}`
   if (round.accepted !== null) return `ganó ${name(round.accepted)}`
   if (round.screened !== null) return `${name(round.screened)} le ganó a la mejor: se verifica`
-  return `${round.candidates.length} variantes, ninguna mejoró a la mejor`
+  return `${round.candidates.length} variantes${combo}, ninguna mejoró a la mejor`
 }
 
 function ExploreSummary({ job }: { job: LabJob }) {
@@ -439,6 +440,29 @@ function ExploreSummary({ job }: { job: LabJob }) {
           </li>
         ))}
       </ol>
+      {explore.learned.length > 0 ? (
+        <div className="flex flex-col gap-1 text-sm">
+          <p className="text-xs text-muted-foreground">
+            Lo que midió por carta (puntos contra el meta, de lo más claro a lo menos; guía qué se prueba, no qué se
+            acepta):
+          </p>
+          <ul className="flex flex-wrap gap-x-3 gap-y-1">
+            {explore.learned.map((change) => (
+              <li key={`${change.sign}${change.cardId}`} className="text-xs">
+                {change.sign === '+' ? 'entra' : 'sale'} {change.nameEs}:{' '}
+                <span className={change.mean >= 0 ? 'text-success' : 'text-destructive'}>
+                  {change.mean >= 0 ? '+' : '−'}
+                  {Math.abs(change.mean).toLocaleString('es-AR', {
+                    maximumFractionDigits: 1,
+                    minimumFractionDigits: 1,
+                  })}
+                </span>{' '}
+                ({change.n} {change.n === 1 ? 'variante' : 'variantes'})
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {explore.confirmation ? (
         <p className="text-sm">
           Confirmación: {explore.confirmation.differenceText} sobre la lista de partida;{' '}

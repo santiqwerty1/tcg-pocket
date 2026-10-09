@@ -25,7 +25,9 @@ import {
   cardBreaksEvent,
   cardChanges,
   cardUsage,
+  changeKey,
   checkEventDeck,
+  comboVariant,
   confirmVerdict,
   DEFAULT_CONSISTENCY_GAMES,
   DEFAULT_EXPLORE_CONFIG,
@@ -52,10 +54,15 @@ import {
   type Gauntlet,
   groupsOfCards,
   isBotCode,
+  type Learned,
   type ListRow,
+  learnedChanges,
+  learnedFactor,
+  learnSwap,
   listKeyByGroup,
   listRows,
   MAX_BASE_SEED,
+  type MeasuredSwap,
   type MetaScore,
   metaGauntlet,
   metaScore,
@@ -79,9 +86,11 @@ import {
   seededRandom,
   simulationRate,
   splitGames,
+  swapOf,
   type TournamentDataset,
   type TournamentFormat,
   type Variant,
+  validateDeck,
   variantOf,
   verifyAccepts,
 } from '@tcg/domain'
@@ -225,6 +234,12 @@ interface ExploreState {
   frozen?: FrozenInputs
   /** H-010: what the confirmation says of the list found against the starting one. */
   confirmed?: { verdict: ConfirmVerdict; difference: ScoreDifference } | null
+  /** T-017 C4: what the rounds measured about each card change («+groupId», «-groupId»). */
+  learned?: Learned
+  /** The swaps measured in search rounds (the last 40), for the combo of each round; an accepted one leaves. */
+  swaps?: (MeasuredSwap & { variant: number })[]
+  /** Snapshot ids of the combo variants (the two best swaps joined). */
+  combos?: number[]
 }
 
 /** H-021: the pool (card, copies, weight, in draw order) and the archetype usage (group, share). */
@@ -669,6 +684,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     seen: Set<string>,
     affinity: ReadonlyMap<CardId, number>,
     rules?: EventRules,
+    learned?: Learned,
   ): Variant[] {
     const random = seededRandom(seed)
     const out: Variant[] = []
@@ -678,6 +694,13 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         seen,
         affinity: (groupId) => affinity.get(groupId) ?? 0,
         accept: rules ? (cards) => checkEventDeck(cards, rules, index).ok : undefined,
+        // T-017 C4: a card change that helped in earlier rounds comes up more often, one that hurt less.
+        ...(learned
+          ? {
+              boostIn: (groupId: CardId) => learnedFactor(learned, changeKey('+', groupId)),
+              boostOut: (groupId: CardId) => learnedFactor(learned, changeKey('-', groupId)),
+            }
+          : {}),
       })
       if (!variant) continue
       seen.add(variant.key)
@@ -980,6 +1003,21 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             if (screened !== null && (state.config.verifyGames ?? 0) > 0) verifyNext = screened
             else accepted = screened
           }
+          // T-017 C4: what this round says about each card change, for the rounds to come.
+          const measured = await tx.deckSnapshot.findMany({
+            where: { id: { in: [round.incumbent, ...round.candidates] } },
+            select: { id: true, cards: true },
+          })
+          learnRound(
+            state,
+            round,
+            (id) => slotsOfSnapshot(measured.find((row) => row.id === id)?.cards as unknown as SnapshotCard[]),
+            (id) =>
+              pairedOf(chunks, rivals, id, round.incumbent, thisRound)?.value ??
+              independentDifference(chunks, rivals, id, round.incumbent, thisRound),
+            this.catalog.requireIndex(),
+          )
+          if (accepted !== null) state.swaps = (state.swaps ?? []).filter((swap) => swap.variant !== accepted)
           round.accepted = accepted
           round.decided = true
           if (verifyNext === null) {
@@ -1025,21 +1063,38 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               pool = await this.pool(bank, energies, state.config.pool, affinity, state.event?.rules)
             }
             const seen = new Set(state.seen)
-            const fresh = this.variants(
-              incumbentCards,
-              energies,
-              pool,
-              index,
-              baseSeed + searchRounds,
-              state.config.variantsPerRound,
-              new Set(state.locked),
+            // T-017 C4: one variant joins the two best swaps measured so far; the draws lean on what was learned.
+            const rules = state.event?.rules
+            const combo = comboVariant(incumbentCards, state.swaps ?? [], index, {
               seen,
-              affinity,
-              state.event?.rules,
-            )
+              locked: new Set(state.locked),
+              valid: (cards) =>
+                validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
+                (!rules || checkEventDeck(cards, rules, index).ok),
+            })
+            if (combo) seen.add(combo.key)
+            const fresh = [
+              ...(combo ? [combo] : []),
+              ...this.variants(
+                incumbentCards,
+                energies,
+                pool,
+                index,
+                baseSeed + searchRounds,
+                state.config.variantsPerRound - (combo ? 1 : 0),
+                new Set(state.locked),
+                seen,
+                affinity,
+                rules,
+                state.learned,
+              ),
+            ]
             const base = await tx.deckSnapshot.findUniqueOrThrow({ where: { id: state.base }, select: { label: true } })
             const saved = await this.saveVariants(fresh, energies, base.label, searchRounds)
             state.seen = [...seen]
+            // The combo goes first, so it is «v<round>.1» when it was simulable.
+            const first = saved[0]
+            if (combo && first?.label.endsWith(`v${searchRounds}.1`)) state.combos = [...(state.combos ?? []), first.id]
             if (saved.length === 0) stop = 'no_variants'
             else {
               for (const variant of saved) {
@@ -1332,6 +1387,14 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               ...round,
               screened: round.screened ?? null,
             })),
+            learned: learnedChanges(state.learned ?? {}).map((change) => ({
+              sign: change.sign,
+              cardId: change.groupId,
+              nameEs: index.groupById(change.groupId)?.nameEs ?? change.groupId,
+              mean: change.mean,
+              n: change.n,
+            })),
+            combos: state.combos ?? [],
             confirmation: confirmationView(state, () =>
               confirm?.decided
                 ? confirmVerdict(
@@ -1497,6 +1560,42 @@ function unbiasedGames(state: ExploreState, id: number): (chunk: ChunkRow) => bo
 /** Whether a list plays a Stage 2 Pokémon (so «reached Stage 2» means something). */
 function hasStage2(cards: readonly SnapshotCard[] | null | undefined, index: CatalogIndex): boolean {
   return (cards ?? []).some((card) => index.cardById(card.cardId)?.evolutionType === 'stage2')
+}
+
+/** T-017 C4: each candidate's swap against the round's incumbent and its measured difference go into `state`. */
+function learnRound(
+  state: ExploreState,
+  round: ExploreRound,
+  cardsOf: (id: number) => DeckCardEntry[],
+  differenceOf: (id: number) => number | null,
+  index: CatalogIndex,
+): void {
+  const parent = cardsOf(round.incumbent)
+  const learned = state.learned ?? {}
+  const swaps = state.swaps ?? []
+  for (const id of round.candidates) {
+    const difference = differenceOf(id)
+    if (difference === null) continue
+    const swap = swapOf(parent, cardsOf(id), index, difference)
+    learnSwap(learned, swap, index)
+    // A verification replays a swap already measured: it adds to the estimates, not to the swaps.
+    if (round.kind === 'search') swaps.push({ ...swap, variant: id })
+  }
+  state.learned = learned
+  state.swaps = swaps.slice(-40)
+}
+
+/** `a − b` in points from their scores on the chunks `filter` keeps (no per-game results), or null. */
+function independentDifference(
+  chunks: readonly ChunkRow[],
+  rivals: readonly { snapshot?: number | null; weight: number }[],
+  a: number,
+  b: number,
+  filter: (chunk: ChunkRow) => boolean,
+): number | null {
+  const x = scoreOf(chunks, rivals, a, filter)
+  const y = scoreOf(chunks, rivals, b, filter)
+  return x && y ? x.value - y.value : null
 }
 
 /** A list's games against a rival in the chunks `filter` keeps, in game order (1 a win); null when one has no `perGame`. */

@@ -498,6 +498,41 @@ describe('laboratorio (e2e)', () => {
     expect(await playAll(() => 0)).toBe(0)
   }, 60_000)
 
+  it('T-017 C4: what a round measured steers the next one, and two swaps that helped are tried together', async () => {
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 3,
+      maxRounds: 2,
+      patience: 3,
+      confirmGames: 20,
+      verifyGames: 20,
+      pool: 'all',
+    }
+    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9402 })
+    expect(created.status).toBe(200)
+    const read = async () =>
+      (
+        (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: created.body.id } })).params as {
+          lab: { explore: { base: number; rounds: { candidates: number[] }[]; combos?: number[] } }
+        }
+      ).lab.explore
+    const [better, alsoBetter, worse] = (await read()).rounds[0]?.candidates ?? []
+    // Round 0: two variants win 6 of 10 (not enough for the screen), one 4, the starting list 5. (With seed 9400 the two
+    // that win both bring in a Helio and together they would make an invalid deck: no combo, as it should be.)
+    const wins = (a: number, games: number) =>
+      a === better || a === alsoBetter ? Math.round(games * 0.6) : a === worse ? Math.round(games * 0.4) : games / 2
+    await playAll((a, _b, games) => wins(a, games))
+    const state = await read()
+    expect(state.rounds.map((round) => round.candidates.length)).toEqual([3, 3])
+    // Round 1 opens with the combo of the two that helped.
+    expect(state.combos).toHaveLength(1)
+    expect(state.rounds[1]?.candidates[0]).toBe(state.combos?.[0])
+    const lab = (await get(`/api/lab/jobs/${created.body.id}`)).body
+    expect(lab.explore.combos).toEqual(state.combos)
+    expect(lab.explore.learned.length).toBeGreaterThan(0)
+    expect(lab.explore.learned[0]).toMatchObject({ sign: expect.stringMatching(/^[+-]$/), n: expect.any(Number) })
+  }, 60_000)
+
   it('Claude: the bank, a pasted idea against the meta, the plan of a search and the results', async () => {
     const client = new Client({ name: 'e2e', version: '1.0.0' })
     await client.connect(
