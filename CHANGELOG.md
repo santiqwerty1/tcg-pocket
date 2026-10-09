@@ -9,6 +9,7 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 
 ### Agregado
 
+- honest numbers — luck per game, clustered intervals, FDR, Fisher, pack points (phase 37, H-009, H-011, H-012) `6af29d1`
 - monthly backup restore drill (phase 35, T-013) `0524489`
 - games against the bot pushed live over SSE (phase 33, T-013) `e911c89`
 - weekly summary with a Monday push (phase 32, T-013) `4e3d9f2`
@@ -106,7 +107,6 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 - record API implementation decisions and phase 1 state `629407b`
 - REST contract for phase 1 (auth, catalog, collection, decks, backup, tokens) `a703dc7`
 - record phase 1 implementation decisions `189252b`
-- phase 0 plan, decisions, licenses and research `e8e477e`
 
 ### Pruebas
 
@@ -128,6 +128,8 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 
 ### Hallazgos cerrados
 
+- H-012 por `6af29d1` en main
+- H-009 por `6af29d1` en main
 - H-016 por `245fe7a` en main
 - H-015 por `245fe7a` en main
 - H-014 por `245fe7a` en main
