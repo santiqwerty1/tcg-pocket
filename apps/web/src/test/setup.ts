@@ -1,10 +1,12 @@
+/// <reference types="node" />
 import '@testing-library/jest-dom/vitest'
 import { cleanup, configure } from '@testing-library/react'
 import { afterEach } from 'vitest'
 
 // Fase 41: screens opened through the router load their chunk first (lazy routes); on a busy machine that takes more
 // than testing-library's default second, and a `findBy` would give up while the screen still says «Cargando».
-configure({ asyncUtilTimeout: 5_000 })
+// D-023: allow lazy routes to finish under the shared PC's CI load.
+configure({ asyncUtilTimeout: process.env.CI ? 15_000 : 5_000 })
 
 afterEach(() => {
   cleanup()

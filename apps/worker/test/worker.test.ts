@@ -354,31 +354,40 @@ describe('worker loop', () => {
     expect(calls.results.map((call) => call.chunkId)).toEqual([40])
   })
 
-  it('B2: a cancelled job stops the batch; a chunk that is lost is not renewed but still reported', async () => {
-    const hung = [chunk({ chunkId: 41, games: 98, replaySample: 0 }), chunk({ chunkId: 42, games: 10 })]
-    const { client, calls } = batchClient(hung)
-    vi.mocked(client.heartbeat).mockResolvedValue({ leaseUntil: null, cancelled: true, lost: false })
-    const worker = new Worker(config, client, silent)
-    worker.heartbeatMs = 50
-    await worker.loop(new AbortController().signal, { once: true })
-    expect(calls.results).toEqual([])
-    expect(calls.failures).toEqual([])
+  // D-023: real engine processes need room to start and stop on the shared CI machine.
+  it(
+    'B2: a cancelled job stops the batch; a chunk that is lost is not renewed but still reported',
+    async () => {
+      const hung = [chunk({ chunkId: 41, games: 98, replaySample: 0 }), chunk({ chunkId: 42, games: 10 })]
+      const { client, calls } = batchClient(hung)
+      vi.mocked(client.heartbeat).mockResolvedValue({ leaseUntil: null, cancelled: true, lost: false })
+      const worker = new Worker(config, client, silent)
+      worker.heartbeatMs = 50
+      await worker.loop(new AbortController().signal, { once: true })
+      expect(calls.results).toEqual([])
+      expect(calls.failures).toEqual([])
 
-    // The engine takes 300 ms (97 games): heartbeats run, chunk 43 is lost after the first one, 44 is renewed.
-    const second = batchClient([chunk({ chunkId: 43, games: 97, replaySample: 0 }), chunk({ chunkId: 44, games: 20 })])
-    vi.mocked(second.client.heartbeat).mockImplementation(async (chunkId: number) => ({
-      leaseUntil: null,
-      cancelled: false,
-      lost: chunkId === 43,
-    }))
-    const watched = new Worker(config, second.client, silent)
-    watched.heartbeatMs = 50
-    await watched.loop(new AbortController().signal, { once: true })
-    const beats = (id: number) => vi.mocked(second.client.heartbeat).mock.calls.filter((call) => call[0] === id).length
-    expect(beats(43)).toBe(1)
-    expect(beats(44)).toBeGreaterThan(1)
-    expect(second.calls.results.map((call) => call.chunkId)).toEqual([43, 44])
-  })
+      // The engine takes 300 ms (97 games): heartbeats run, chunk 43 is lost after the first one, 44 is renewed.
+      const second = batchClient([
+        chunk({ chunkId: 43, games: 97, replaySample: 0 }),
+        chunk({ chunkId: 44, games: 20 }),
+      ])
+      vi.mocked(second.client.heartbeat).mockImplementation(async (chunkId: number) => ({
+        leaseUntil: null,
+        cancelled: false,
+        lost: chunkId === 43,
+      }))
+      const watched = new Worker(config, second.client, silent)
+      watched.heartbeatMs = 50
+      await watched.loop(new AbortController().signal, { once: true })
+      const beats = (id: number) =>
+        vi.mocked(second.client.heartbeat).mock.calls.filter((call) => call[0] === id).length
+      expect(beats(43)).toBe(1)
+      expect(beats(44)).toBeGreaterThan(1)
+      expect(second.calls.results.map((call) => call.chunkId)).toEqual([43, 44])
+    },
+    process.env.CI ? 20_000 : 5_000,
+  )
 
   it('reports an engine failure instead of a result', async () => {
     const { client, calls } = fakeClient([chunk({ chunkId: 10, games: 13 })])
@@ -398,16 +407,21 @@ describe('worker loop', () => {
     expect(calls.failures).toEqual([{ chunkId: 12, error: 'El motor no avanzó en 0 min y se cortó (¿colgado?).' }])
   })
 
-  it('H-014: a chunk that is no longer its own (requeued, or another worker has it) is let go without a failure', async () => {
-    const { client, calls } = fakeClient([chunk({ chunkId: 13, games: 99 })])
-    vi.mocked(client.heartbeat).mockResolvedValue({ leaseUntil: null, cancelled: false, lost: true })
-    const worker = new Worker(config, client, silent)
-    worker.heartbeatMs = 50
-    await worker.loop(new AbortController().signal, { once: true })
-    expect(calls.results).toHaveLength(0)
-    expect(calls.failures).toHaveLength(0)
-    expect(client.heartbeat).toHaveBeenCalled()
-  })
+  // D-023: real engine processes need room to start and stop on the shared CI machine.
+  it(
+    'H-014: a chunk that is no longer its own (requeued, or another worker has it) is let go without a failure',
+    async () => {
+      const { client, calls } = fakeClient([chunk({ chunkId: 13, games: 99 })])
+      vi.mocked(client.heartbeat).mockResolvedValue({ leaseUntil: null, cancelled: false, lost: true })
+      const worker = new Worker(config, client, silent)
+      worker.heartbeatMs = 50
+      await worker.loop(new AbortController().signal, { once: true })
+      expect(calls.results).toHaveLength(0)
+      expect(calls.failures).toHaveLength(0)
+      expect(client.heartbeat).toHaveBeenCalled()
+    },
+    process.env.CI ? 20_000 : 5_000,
+  )
 
   it('a consistency chunk: ready and never-ready games as the tallies, the histograms in extra', async () => {
     const { client, calls } = fakeClient([

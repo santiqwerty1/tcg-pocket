@@ -118,6 +118,8 @@ export default defineConfig(({ mode }) => ({
     target: 'es2022',
   },
   test: {
+    // D-023: two CI runners share the PC with Postgres and the simulation worker.
+    ...(process.env.CI ? { maxWorkers: 4 } : {}),
     environment: 'jsdom',
     globals: false,
     setupFiles: ['./src/test/setup.ts'],
