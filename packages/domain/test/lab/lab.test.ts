@@ -23,6 +23,7 @@ import {
   usableWith,
   variantOf,
 } from '../../src/lab/index.js'
+import { buildSnapshot } from '../../src/simulation/index.js'
 import {
   archetypeRows,
   buildDataset,
@@ -245,6 +246,50 @@ describe('variants (automatic search)', () => {
       expect(total(variant.add)).toBeLessThanOrEqual(4)
       expect(cardChanges(deck.cards, variant.cards, index)).toEqual({ add: variant.add, remove: variant.remove })
     }
+  })
+
+  it('H-020: every card that stays keeps its place, and the snapshot plays the list in that order', () => {
+    // The engine shuffles by position: the 20 cards as the deck text lists them, one by one.
+    const slots = (cards: readonly { cardId: string; count: number }[]) =>
+      cards.flatMap((entry) =>
+        Array.from({ length: entry.count }, () => index.cardById(entry.cardId)?.functionalGroupId ?? entry.cardId),
+      )
+    const random = seededRandom(20)
+    let checked = 0
+    for (let i = 0; i < 40; i++) {
+      const variant = variantOf(deck.cards, energies, pool, index, random, {})
+      if (!variant) continue
+      checked += 1
+      const before = slots(deck.cards)
+      const after = slots(variant.cards)
+      expect(after).toHaveLength(20)
+      const moved = after.filter((groupId, at) => groupId !== before[at]).length
+      // Only the places of the copies that went out change (an incoming card can land where the same card already was).
+      expect(moved).toBeLessThanOrEqual(variant.add.reduce((sum, change) => sum + change.count, 0))
+      const snapshot = buildSnapshot({ label: 'v', cards: variant.cards, energies, index, engine: () => true })
+      const played = snapshot.cards.flatMap((card) =>
+        Array.from({ length: card.count }, () => index.cardById(card.cardId)?.functionalGroupId),
+      )
+      expect(played).toEqual(after)
+    }
+    expect(checked).toBeGreaterThan(30)
+  })
+
+  it('H-020: the snapshot merges only a line right after the same card', () => {
+    const [first, second, third] = deck.cards
+    if (!first || !second || !third) throw new Error('short deck')
+    const cards = [
+      { cardId: first.cardId, count: 1 },
+      { cardId: first.cardId, count: 1 },
+      { cardId: second.cardId, count: 1 },
+      { cardId: first.cardId, count: 1 },
+    ]
+    const snapshot = buildSnapshot({ label: 'orden', cards, energies, index, engine: () => true })
+    expect(snapshot.cards.map((card) => [card.cardId, card.count])).toEqual([
+      [first.cardId, 2],
+      [second.cardId, 1],
+      [first.cardId, 1],
+    ])
   })
 
   it('locked cards never go out; an evolution comes in with its pre-evolution', () => {

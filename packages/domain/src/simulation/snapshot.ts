@@ -108,8 +108,10 @@ export function buildSnapshot(input: BuildSnapshotInput): DeckSnapshotDraft {
       })
       continue
     }
-    const existing = cards.find((item) => item.playedAs === played.id)
-    if (existing && existing.cardId === card.id) existing.count += entry.count
+    // Only a line right after the same card merges: the engine shuffles by position, and a lab variant puts a second
+    // copy where the card that went out was (H-020), so a copy further down keeps its own line.
+    const existing = cards.at(-1)
+    if (existing && existing.playedAs === played.id && existing.cardId === card.id) existing.count += entry.count
     else cards.push({ cardId: card.id, playedAs: played.id, engineId: played.engineId, count: entry.count })
   }
   if (total !== 20) problems.push({ kind: 'size', cards: total, message: `tiene ${total} cartas (el motor pide 20)` })

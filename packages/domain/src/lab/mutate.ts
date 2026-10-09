@@ -182,8 +182,25 @@ export function variantOf(
 }
 
 /**
+ * Puts a copy of `cardId` where one copy of `cards[at]` was (H-020). The engine shuffles a deck by position (the
+ * Basics and the rest apart), so a list that keeps every other card where it was faces the same shuffles as its parent
+ * under the same seed: the common random numbers then compare the swap, not a reshuffled deck. A card already in the
+ * list gets a line of its own here rather than a higher count on its first line.
+ */
+function replaceCopy(cards: DeckCardEntry[], at: number, cardId: CardId): void {
+  const entry = cards[at]
+  if (!entry) return
+  if (entry.count <= 1) cards[at] = { cardId, count: 1 }
+  else {
+    entry.count -= 1
+    cards.splice(at + 1, 0, { cardId, count: 1 })
+  }
+}
+
+/**
  * One swap in place: a pool card in (with its pre-evolution when missing), as many random copies out — weighted by
- * copies and away from the archetype's core (a card every similar list plays goes out 10 times less often).
+ * copies and away from the archetype's core (a card every similar list plays goes out 10 times less often). Each
+ * copy that comes in takes the place of the one that goes out.
  */
 function swapOnce(
   cards: DeckCardEntry[],
@@ -212,19 +229,19 @@ function swapOnce(
   }
   const added = new Set(incoming.map((item) => item.groupId))
   for (const item of incoming) {
-    const existing = cards.find((entry) => index.cardById(entry.cardId)?.functionalGroupId === item.groupId)
-    if (existing) existing.count += 1
-    else cards.push({ cardId: item.cardId, count: 1 })
-  }
-  for (let out = 0; out < incoming.length; out++) {
     const removable = cards
-      .map((entry) => ({ entry, groupId: index.cardById(entry.cardId)?.functionalGroupId ?? entry.cardId }))
+      .map((entry, at) => ({ entry, at, groupId: index.cardById(entry.cardId)?.functionalGroupId ?? entry.cardId }))
       .filter(({ entry, groupId }) => entry.count > 0 && !locked.has(groupId) && !added.has(groupId))
-      .map(({ entry, groupId }) => ({ entry, weight: entry.count / (1 + 9 * ((affinity?.(groupId) ?? 0) / 100)) }))
+      .map(({ entry, at, groupId }) => ({
+        at,
+        weight: entry.count / (1 + 9 * ((affinity?.(groupId) ?? 0) / 100)),
+      }))
     const victim = weightedPick(removable, random)
     if (!victim) return false
-    victim.entry.count -= 1
+    // The edition the list already plays of that card, if any (a second copy looks like the first).
+    const edition =
+      cards.find((entry) => index.cardById(entry.cardId)?.functionalGroupId === item.groupId)?.cardId ?? item.cardId
+    replaceCopy(cards, victim.at, edition)
   }
-  for (let i = cards.length - 1; i >= 0; i--) if ((cards[i]?.count ?? 0) <= 0) cards.splice(i, 1)
   return true
 }
