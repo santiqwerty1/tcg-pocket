@@ -61,7 +61,8 @@ COPY --from=build --chown=node:node /app/apps/api/node_modules ./apps/api/node_m
 COPY --from=build --chown=node:node /app/apps/api/dist ./apps/api/dist
 COPY --from=build --chown=node:node /app/apps/web/dist ./apps/web/dist
 COPY --chown=node:node docker/entrypoint.sh ./entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+COPY --chown=node:node docker/migrate.sh ./migrate.sh
+RUN chmod +x /app/entrypoint.sh /app/migrate.sh
 USER node
 EXPOSE 3000
 ENTRYPOINT ["/app/entrypoint.sh"]

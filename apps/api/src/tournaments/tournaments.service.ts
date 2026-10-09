@@ -55,6 +55,7 @@ import {
   unlockCards,
   withWithout,
 } from '@tcg/domain'
+import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { CollectionRepository } from '../collection/collection.repository.js'
 import { ENV, type Env } from '../config/env.js'
@@ -131,6 +132,12 @@ const MATCHUP_TABLE_DEFAULT = 12
 export class TournamentsService {
   private cache: CacheEntry[] = []
   private matchupCache: MatchupCacheEntry[] = []
+  /**
+   * Fase 38 (R-008): datasets being built, by key (two requests for the same era share one build), and the build
+   * in course: one at a time, so two eras never sit half-built in memory together.
+   */
+  private building = new Map<string, { index: CatalogIndex; promise: Promise<TournamentDataset> }>()
+  private buildQueue: Promise<unknown> = Promise.resolve()
 
   constructor(
     @Inject(ENV) private readonly env: Env,
@@ -140,7 +147,10 @@ export class TournamentsService {
     private readonly settings: TournamentSettings,
     private readonly version: TournamentDataVersion,
     private readonly sync: TournamentSyncService,
-  ) {}
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(TournamentsService.name)
+  }
 
   // ---------------------------------------------------------------------------------------------------------------
   // Scope and dataset
@@ -158,6 +168,25 @@ export class TournamentsService {
     const key = `${scope.era}|${scope.format}|${scope.minPlayers}|${this.version.current()}`
     const hit = this.cache.find((entry) => entry.key === key && entry.index === scope.index)
     if (hit) return hit.dataset
+    const pending = this.building.get(key)
+    if (pending && pending.index === scope.index) return pending.promise
+    const promise = this.buildQueue
+      .catch(() => undefined)
+      .then(() => {
+        const ready = this.cache.find((entry) => entry.key === key && entry.index === scope.index)
+        return ready ? ready.dataset : this.buildDataset(scope, key)
+      })
+    this.buildQueue = promise
+    this.building.set(key, { index: scope.index, promise })
+    try {
+      return await promise
+    } finally {
+      if (this.building.get(key)?.promise === promise) this.building.delete(key)
+    }
+  }
+
+  private async buildDataset(scope: Scope, key: string): Promise<TournamentDataset> {
+    const started = Date.now()
     const range = eraRange(scope.era, scope.sets)
     if (!range) throw new NotFoundException(`Era ${scope.era} desconocida.`)
     const tournaments = await this.prisma.tournament.findMany({
@@ -214,6 +243,19 @@ export class TournamentsService {
       aliases: await this.settings.aliases(),
     })
     this.cache = [{ key, index: scope.index, dataset }, ...this.cache].slice(0, CACHE_SIZE)
+    // R-008: the memory after each build, to size the machine on real numbers.
+    const memory = process.memoryUsage()
+    this.logger.info(
+      {
+        era: scope.era,
+        format: scope.format,
+        lists: dataset.entries.length,
+        ms: Date.now() - started,
+        rssMb: Math.round(memory.rss / 1048576),
+        heapUsedMb: Math.round(memory.heapUsed / 1048576),
+      },
+      'tournament dataset built',
+    )
     return dataset
   }
 

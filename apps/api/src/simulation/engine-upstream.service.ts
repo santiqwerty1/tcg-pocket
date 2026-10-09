@@ -21,6 +21,12 @@ export interface EngineUpstreamView {
 const FRESH_MS = 12 * 60 * 60 * 1000
 const RETRY_MS = 60 * 60 * 1000
 
+/** The last failed check (Fase 38, R-011): shown in Avisos instead of only a warning in the log. */
+export interface UpstreamFailure {
+  at: string
+  message: string
+}
+
 /** GitHub's `GET /repos/:owner/:repo/compare/:base...:head` → what the app shows. */
 export function parseCompare(json: unknown, pinned: string, checkedAt: Date): EngineUpstreamView | null {
   if (typeof json !== 'object' || json === null) return null
@@ -53,6 +59,8 @@ export function parseCompare(json: unknown, pinned: string, checkedAt: Date): En
 @Injectable()
 export class EngineUpstreamService {
   private cache: { at: number; ttl: number; value: EngineUpstreamView | null } | null = null
+  /** Null after a check that worked. */
+  lastFailure: UpstreamFailure | null = null
   /** Tests swap it. */
   fetchImpl: typeof fetch = fetch
 
@@ -69,13 +77,23 @@ export class EngineUpstreamService {
     let value: EngineUpstreamView | null = null
     try {
       const response = await this.fetchImpl(`${this.env.engineUpstreamUrl}/compare/${pinned}...main`, {
-        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'tcg-pocket' },
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'tcg-pocket',
+          ...(this.env.githubToken ? { Authorization: `Bearer ${this.env.githubToken}` } : {}),
+        },
         signal: AbortSignal.timeout(8000),
       })
       if (!response.ok) throw new Error(`GitHub ${response.status}`)
       value = parseCompare(await response.json(), pinned, new Date(now))
+      if (!value) throw new Error('GitHub: respuesta inesperada')
+      this.lastFailure = null
     } catch (error) {
       this.logger.warn({ err: error }, 'deckgym upstream check failed')
+      this.lastFailure = {
+        at: new Date(now).toISOString(),
+        message: error instanceof Error ? error.message : String(error),
+      }
     }
     this.cache = { at: now, ttl: value ? FRESH_MS : RETRY_MS, value }
     return value

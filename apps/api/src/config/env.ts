@@ -31,6 +31,8 @@ const envSchema = z.object({
   /** Look at deckgym-core's upstream `main` at most every 12 h (T-010); defaults to on in production only. */
   ENGINE_UPSTREAM_CHECK: z.stringbool().optional(),
   ENGINE_UPSTREAM_URL: z.url().default('https://api.github.com/repos/bcollazo/deckgym-core'),
+  /** Fase 38 (R-011): optional GitHub token for the API checks (5.000 calls an hour instead of 60 per shared IP). */
+  GITHUB_TOKEN: z.string().min(10).optional(),
   /** Fase 8: look at the tracker's `main` for new sets (production by default). */
   TRACKER_UPSTREAM_CHECK: z.stringbool().optional(),
   TRACKER_UPSTREAM_URL: z.url().default('https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker'),
@@ -73,6 +75,8 @@ export interface Env {
   trackerUpstreamCheck: boolean
   trackerUpstreamUrl: string
   engineUpstreamUrl: string
+  /** Fase 38: sent to api.github.com when set. */
+  githubToken: string | null
   trustProxy: number
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent'
   version: string
@@ -126,6 +130,7 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
     trackerUpstreamCheck: raw.TRACKER_UPSTREAM_CHECK ?? isProduction,
     trackerUpstreamUrl: raw.TRACKER_UPSTREAM_URL.replace(/\/+$/, ''),
     engineUpstreamUrl: raw.ENGINE_UPSTREAM_URL.replace(/\/+$/, ''),
+    githubToken: raw.GITHUB_TOKEN ?? null,
     trustProxy: raw.TRUST_PROXY,
     logLevel: raw.LOG_LEVEL ?? (isProduction ? 'info' : 'debug'),
     version: raw.APP_VERSION ?? packageVersion(),

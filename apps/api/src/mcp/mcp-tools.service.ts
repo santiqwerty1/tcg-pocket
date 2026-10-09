@@ -38,6 +38,7 @@ import { DecksService } from '../decks/decks.service.js'
 import { EventsService } from '../events/events.service.js'
 import type { RowView } from '../matches/match-views.js'
 import { MatchesService } from '../matches/matches.service.js'
+import { OpsService } from '../ops/ops.service.js'
 import { PacksService } from '../packs/packs.service.js'
 import { PickService } from '../pick/pick.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
@@ -162,6 +163,7 @@ export class McpToolsService {
     private readonly playTools: McpPlayToolsService,
     private readonly trades: TradesService,
     private readonly weekly: WeeklyService,
+    private readonly ops: OpsService,
     private readonly alerts: AlertsService,
     private readonly audit: McpAuditService,
     @Inject(ENV) private readonly env: Env,
@@ -265,6 +267,9 @@ ${MCP_WRITE_INSTRUCTIONS}`
     )
     server.registerTool(t.collectionPackLuck.name, config(t.collectionPackLuck), () =>
       run(t.collectionPackLuck.name, () => this.collectionPackLuck()),
+    )
+    server.registerTool(t.systemStatus.name, config(t.systemStatus), () =>
+      run(t.systemStatus.name, () => this.systemStatus()),
     )
     server.registerTool(t.weekSummary.name, config(t.weekSummary), (args) =>
       run(t.weekSummary.name, async () => ({ ...(await this.weekly.summary({ week: args.week })) })),
@@ -1188,6 +1193,15 @@ ${MCP_WRITE_INSTRUCTIONS}`
         name: row.archetype.name,
         ...this.recordJson(row),
       })),
+    }
+  }
+
+  /** Fase 38: the server's own state, with the alerts in force. */
+  private async systemStatus(): Promise<Json> {
+    const [status, alerts] = await Promise.all([this.ops.status(), this.alerts.list().catch(() => [])])
+    return {
+      ...status,
+      alerts: alerts.map((alert) => ({ code: alert.code, level: alert.level, title: alert.title })),
     }
   }
 

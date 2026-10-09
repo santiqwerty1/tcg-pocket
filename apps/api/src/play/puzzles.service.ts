@@ -89,6 +89,8 @@ export interface PuzzleAnswerView {
 }
 
 const ID = /^(\d{1,9})-(\d{1,6})$/
+/** Fase 38 (R-008): games whose situations stay in memory (the oldest go first). */
+const SPOTS_CACHE_SIZE = 50
 
 @Injectable()
 export class PuzzlesService {
@@ -113,6 +115,11 @@ export class PuzzlesService {
     }
     const value = { steps, spots: puzzleSpots(steps) }
     this.cache.set(key, value)
+    while (this.cache.size > SPOTS_CACHE_SIZE) {
+      const oldest = this.cache.keys().next().value
+      if (oldest === undefined) break
+      this.cache.delete(oldest)
+    }
     return value
   }
 

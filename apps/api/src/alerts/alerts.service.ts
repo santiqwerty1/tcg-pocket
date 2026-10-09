@@ -3,6 +3,9 @@
  * tracker the pinned catalog does not have, a probable new era, tournament lists with cards the catalog does not
  * know (a set is out), a newer deckgym, a limited pack about to leave the shop. Read-only: nothing changes by itself
  * (the catalog pin and the era table move by hand, PLAN §3.1).
+ *
+ * Fase 38 (R-011): also what fails without anyone seeing it — the daily copy, the Limitless sync, the catalog sync,
+ * the GitHub checks — and a database close to Supabase's limit.
  */
 import { Inject, Injectable } from '@nestjs/common'
 import { parseExpansionIds } from '@tcg/domain'
@@ -10,8 +13,15 @@ import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { ENV, type Env } from '../config/env.js'
 import { OWNER_TIME_ZONE, todayInOwnerZone } from '../config/time-zone.js'
+import {
+  BACKUP_STALE_MS,
+  DATABASE_ALERT_MB,
+  DATABASE_LIMIT_MB,
+  LIMITLESS_STALE_MS,
+  OpsService,
+} from '../ops/ops.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
-import { EngineUpstreamService } from '../simulation/engine-upstream.service.js'
+import { EngineUpstreamService, type UpstreamFailure } from '../simulation/engine-upstream.service.js'
 import { EngineStatusService } from '../simulation/snapshots.service.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
 
@@ -26,6 +36,11 @@ export interface AlertView {
     | 'era_missing_set'
     | 'worker_idle'
     | 'mcp_new_client'
+    | 'backup_stale'
+    | 'limitless_sync'
+    | 'catalog_sync'
+    | 'github_check'
+    | 'database_size'
   level: 'info' | 'warning'
   title: string
   detail: string
@@ -59,6 +74,8 @@ function ownerDateTime(date: Date): string {
 @Injectable()
 export class TrackerUpstreamService {
   private cache: { at: number; ttl: number; ids: string[] | null } | null = null
+  /** Fase 38: the last failed check (null after one that worked). */
+  lastFailure: UpstreamFailure | null = null
   /** Tests swap it. */
   fetchImpl: typeof fetch = fetch
 
@@ -80,8 +97,13 @@ export class TrackerUpstreamService {
       })
       if (!response.ok) throw new Error(`GitHub ${response.status}`)
       ids = parseExpansionIds(await response.text())
+      this.lastFailure = null
     } catch (error) {
       this.logger.warn({ err: error }, 'tracker upstream check failed')
+      this.lastFailure = {
+        at: new Date(now).toISOString(),
+        message: error instanceof Error ? error.message : String(error),
+      }
     }
     this.cache = { at: now, ttl: ids ? FRESH_MS : RETRY_MS, ids }
     return ids
@@ -97,7 +119,11 @@ export class AlertsService {
     private readonly tournaments: TournamentsService,
     private readonly engine: EngineStatusService,
     private readonly engineUpstream: EngineUpstreamService,
-  ) {}
+    private readonly ops: OpsService,
+    @Inject(ENV) private readonly env: Env,
+  ) {
+    this.ops.trackerFailure = () => this.tracker.lastFailure
+  }
 
   async list(): Promise<AlertView[]> {
     const alerts: AlertView[] = []
@@ -190,6 +216,7 @@ export class AlertsService {
       })
     }
     alerts.push(...(await this.newTokenClients()))
+    alerts.push(...(await this.operation()))
     if (engine && engine.aheadBy > 0) {
       alerts.push({
         code: 'engine_update',
@@ -265,6 +292,95 @@ export class AlertsService {
     if (waiting === 0) return null
     if (last && now.getTime() - last.lastSeenAt.getTime() < WORKER_IDLE_MS) return null
     return { waiting, since: last ? ownerDateTime(last.lastSeenAt) : null }
+  }
+
+  /**
+   * Fase 38 (R-011): the jobs that run on their own and fail in silence. Each title carries a date, so a new failure
+   * is pushed again (the notifications remember titles) and a fixed one goes away.
+   */
+  private async operation(now = Date.now()): Promise<AlertView[]> {
+    const alerts: AlertView[] = []
+    const [backup, limitless, catalog, databaseBytes] = await Promise.all([
+      this.ops.backup(),
+      this.ops.limitless(),
+      this.ops.catalogSync(),
+      this.ops.databaseBytes(),
+    ])
+    if (backup.enabled && backup.failure) {
+      alerts.push({
+        code: 'backup_stale',
+        level: 'warning',
+        title: `Falló la copia diaria del ${ownerDateTime(new Date(backup.failure.at))}`,
+        detail: `${backup.failure.error.slice(0, 200)}. Bajá una copia a mano en Más → Copia de seguridad mientras tanto.`,
+        link: '/mas/backup',
+      })
+    } else if (backup.enabled && (!backup.last || now - Date.parse(backup.last.at) > BACKUP_STALE_MS)) {
+      alerts.push({
+        code: 'backup_stale',
+        level: 'warning',
+        title: backup.last
+          ? `No hay copia diaria desde el ${ownerDateTime(new Date(backup.last.at))}`
+          : 'Todavía no hay ninguna copia diaria',
+        detail:
+          'La copia corre sola a las 04:00. Mirá los logs del servidor y bajá una a mano en Más → Copia de seguridad.',
+        link: '/mas/backup',
+      })
+    }
+    if (limitless.enabled && !limitless.running) {
+      if (limitless.last?.status === 'failed') {
+        alerts.push({
+          code: 'limitless_sync',
+          level: 'warning',
+          title: `Falló la sincronización de Limitless del ${ownerDateTime(new Date(limitless.last.startedAt))}`,
+          detail: `${(limitless.last.error ?? 'error desconocido').slice(0, 200)}. Se vuelve a intentar sola cada 6 horas; el estado está en Torneos → Ajustes.`,
+          link: '/torneos/ajustes',
+        })
+      } else if (!limitless.lastDoneAt || now - Date.parse(limitless.lastDoneAt) > LIMITLESS_STALE_MS) {
+        alerts.push({
+          code: 'limitless_sync',
+          level: 'warning',
+          title: limitless.lastDoneAt
+            ? `Limitless no se sincroniza desde el ${ownerDateTime(new Date(limitless.lastDoneAt))}`
+            : 'Limitless todavía no se sincronizó',
+          detail: 'Corre sola cada 6 horas: los torneos nuevos no están entrando. El estado está en Torneos → Ajustes.',
+          link: '/torneos/ajustes',
+        })
+      }
+    }
+    if (catalog.lastSync?.status === 'failed') {
+      alerts.push({
+        code: 'catalog_sync',
+        level: 'warning',
+        title: `Falló la actualización del catálogo del ${ownerDateTime(new Date(catalog.lastSync.fetchedAt))}`,
+        detail: `${(catalog.lastSync.error ?? 'error desconocido').slice(0, 200)}. Sigue el catálogo anterior; probala de nuevo en Más → Catálogo.`,
+        link: '/mas/catalogo',
+      })
+    }
+    const github = [this.engineUpstream.lastFailure, this.tracker.lastFailure].filter(
+      (failure): failure is UpstreamFailure => failure !== null,
+    )
+    if (github.length > 0) {
+      const first = github.sort((a, b) => a.at.localeCompare(b.at))[0] as UpstreamFailure
+      alerts.push({
+        code: 'github_check',
+        level: 'info',
+        title: `No se pudo consultar GitHub (${first.message.slice(0, 60)})`,
+        detail: `Los avisos de set nuevo y de motor nuevo no se están chequeando; se reintenta cada hora.${this.env.githubToken ? '' : ' Con el secreto GITHUB_TOKEN no hay límite por IP compartida.'}`,
+        link: null,
+      })
+    }
+    if (databaseBytes !== null && databaseBytes / (1024 * 1024) >= DATABASE_ALERT_MB) {
+      const sizeMb = Math.round(databaseBytes / (1024 * 1024))
+      alerts.push({
+        code: 'database_size',
+        level: 'warning',
+        title: `La base ocupa ${sizeMb} MB de ${DATABASE_LIMIT_MB}`,
+        detail:
+          'El plan gratis de Supabase llega hasta 500 MB. Hay que borrar datos viejos (repeticiones, crudos de torneos) o cambiar de plan.',
+        link: '/mas/backup',
+      })
+    }
+    return alerts
   }
 
   private async limitedSoon(): Promise<{ name: string; until: string; days: number }[]> {

@@ -130,8 +130,24 @@ export class TournamentSyncService implements OnApplicationBootstrap, OnModuleDe
     await this.running
   }
 
+  /**
+   * Fase 38 (R-008): whether this run saved tournaments or rounds. The cached datasets expire once, when the run
+   * ends, instead of after every tournament (each expiry rebuilds a whole era on the next request).
+   */
+  private changed = false
+
   /** One run: list, then download the pending tournaments. Exposed for the e2e tests (`await sync.run()`). */
   async run(options: { kind?: SyncKind; backfillDays?: number; now?: Date } = {}): Promise<void> {
+    this.changed = false
+    try {
+      await this.runOnce(options)
+    } finally {
+      if (this.changed) this.version.bump()
+      this.changed = false
+    }
+  }
+
+  private async runOnce(options: { kind?: SyncKind; backfillDays?: number; now?: Date }): Promise<void> {
     const now = options.now ?? new Date()
     const backfillDays = options.backfillDays ?? DEFAULT_BACKFILL_DAYS
     const known = await this.prisma.tournament.count({ where: { status: 'complete' } })
@@ -392,7 +408,7 @@ export class TournamentSyncService implements OnApplicationBootstrap, OnModuleDe
           },
         }),
       ])
-      this.version.bump()
+      this.changed = true
       await this.downloadPairings({ id: tournament.id, name: tournament.name, pairingsAttempts: 0 }, stats, signal)
     } catch (error) {
       if (signal.aborted) throw signal.reason
@@ -444,6 +460,6 @@ export class TournamentSyncService implements OnApplicationBootstrap, OnModuleDe
         data: { pairingsFetchedAt: new Date(), pairingsAttempts: tournament.pairingsAttempts + 1 },
       }),
     ])
-    this.version.bump()
+    this.changed = true
   }
 }
