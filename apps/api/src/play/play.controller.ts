@@ -5,16 +5,19 @@ import {
   Controller,
   Get,
   HttpCode,
+  type MessageEvent,
   Module,
   Param,
   Post,
   Put,
   Query,
   Req,
+  Sse,
   UseGuards,
 } from '@nestjs/common'
 import { SELECTABLE_ENERGIES, TOURNAMENT_FORMATS } from '@tcg/domain'
 import type { Request } from 'express'
+import { Observable } from 'rxjs'
 import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
 import { CatalogModule } from '../catalog/catalog.module.js'
@@ -190,6 +193,59 @@ export class PlayController {
   @HttpCode(200)
   abandon(@Param('id') id: string, @CurrentSession() _session: RequestSession): Promise<LiveGameView> {
     return this.games.abandon(id)
+  }
+
+  /**
+   * Fase 33: the game, pushed as it changes (server-sent events) — when the bot moves, when it is the owner's turn, from
+   * another device — instead of polling every second. A ping every 15 s keeps the connection and the owner's presence
+   * (no «te toca» push while the page is open). It ends once the game is over and its replay is in.
+   */
+  @Sse(':id/events')
+  events(@Param('id') id: string, @CurrentSession() _session: RequestSession): Observable<MessageEvent> {
+    return new Observable<MessageEvent>((subscriber) => {
+      let closed = false
+      let busy = false
+      let again = false
+      let unwatch: (() => void) | null = null
+      const push = async () => {
+        if (closed) return
+        if (busy) {
+          again = true
+          return
+        }
+        busy = true
+        try {
+          do {
+            again = false
+            const game = await this.games.get(id)
+            if (closed) return
+            unwatch ??= this.games.watch(game.id, () => void push())
+            subscriber.next({ data: game })
+            const over =
+              game.status === 'failed' || game.status === 'abandoned' || (game.status === 'done' && game.replay)
+            if (over) {
+              subscriber.complete()
+              return
+            }
+          } while (again && !closed)
+        } catch (error) {
+          subscriber.error(error)
+        } finally {
+          busy = false
+        }
+      }
+      const ping = setInterval(() => {
+        if (unwatch === null) return
+        this.games.stillWatching(Number(id))
+        subscriber.next({ type: 'ping', data: '' })
+      }, 15_000)
+      void push()
+      return () => {
+        closed = true
+        clearInterval(ping)
+        unwatch?.()
+      }
+    })
   }
 
   /** Fase 29: the game told turn by turn in Spanish, with the coach's opinion (what the MCP gives Claude). */

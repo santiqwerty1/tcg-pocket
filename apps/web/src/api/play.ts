@@ -1,4 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { type RefObject, useEffect, useRef } from 'react'
 import { request } from './client'
 import { type LiveGame, liveGameSchema, liveGamesSchema, type PlayInput, recentListsSchema } from './schemas'
 
@@ -26,17 +27,71 @@ export function usePlayGames() {
   })
 }
 
-/** Polls while the bot plays (1 s), while a worker is awaited (3 s) and slowly on the owner's turn (10 s, another device may answer). */
+const ACTIVE = new Set(['queued', 'running', 'waiting'])
+
+/** Over for good: nothing else will change (a finished game still waits for its replay). */
+function isOver(game: Pick<LiveGame, 'status' | 'replay'>): boolean {
+  return game.status === 'failed' || game.status === 'abandoned' || (game.status === 'done' && game.replay)
+}
+
+/**
+ * Fase 33: the server pushes the game whenever it changes (`GET /api/play/:id/events`, server-sent events): the bot's
+ * move shows at once instead of on the next poll. `live` says whether the stream is connected (the browser reconnects
+ * by itself after a cut; meanwhile the polling is fast again).
+ */
+function useGameEvents(id: string, open: boolean, live: RefObject<boolean>): void {
+  const queryClient = useQueryClient()
+  useEffect(() => {
+    if (!open || typeof EventSource === 'undefined') return
+    const source = new EventSource(`/api/play/${encodeURIComponent(id)}/events`, { withCredentials: true })
+    source.onopen = () => {
+      live.current = true
+    }
+    source.onmessage = (event) => {
+      let parsed: ReturnType<typeof liveGameSchema.safeParse>
+      try {
+        parsed = liveGameSchema.safeParse(JSON.parse(String(event.data)))
+      } catch {
+        return
+      }
+      if (!parsed.success) return
+      queryClient.setQueryData(playKeys.game(id), parsed.data)
+      // The server ends the stream once the game is over: close it so the browser does not reconnect.
+      if (isOver(parsed.data)) {
+        source.close()
+        live.current = false
+      }
+    }
+    source.onerror = () => {
+      live.current = false
+    }
+    return () => {
+      source.close()
+      live.current = false
+    }
+  }, [id, open, live, queryClient])
+}
+
+/**
+ * The game, pushed by the server while it is going (Fase 33). Polling is the safety net: every 15 s with the stream
+ * connected; without it, 1 s while the bot plays, 3 s while a worker is awaited and 10 s on the owner's turn.
+ */
 export function usePlayGame(id: string) {
-  return useQuery({
+  const live = useRef(false)
+  const query = useQuery({
     queryKey: playKeys.game(id),
     queryFn: ({ signal }) => request(`/api/play/${encodeURIComponent(id)}`, { schema: liveGameSchema, signal }),
     refetchInterval: (q) => {
       const status = q.state.data?.status
+      if (!status) return false
+      if (live.current) return ACTIVE.has(status) ? 15_000 : false
       return status === 'running' ? 1000 : status === 'queued' ? 3000 : status === 'waiting' ? 10_000 : false
     },
     placeholderData: keepPreviousData,
   })
+  const game = query.data
+  useGameEvents(id, game !== undefined && !isOver(game), live)
+  return query
 }
 
 export function useCreateGame() {

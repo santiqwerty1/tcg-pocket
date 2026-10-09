@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
@@ -145,6 +146,77 @@ describe('playing against a bot (e2e)', () => {
     expect(done).toMatchObject({ status: 'done', winner: 'you', turns: 9, choices: 2, replay: true, decision: null })
     expect((await get(`/api/play/${id}/replay/raw`)).body).toMatchObject({ version: 1 })
     expect((await get('/api/play')).body.items[0]).toMatchObject({ id, status: 'done', winner: 'you' })
+  })
+
+  it('al instante (Fase 33): each change is pushed to the owner page (server-sent events) until the game is over', async () => {
+    const created = await post('/api/play').send({
+      human: { deckId: deckIds[1] },
+      rival: { deckId: deckIds[12] },
+      seed: 88,
+    })
+    const id = created.body.id as number
+    const { port } = test.app.getHttpServer().address() as AddressInfo
+    const response = await fetch(`http://127.0.0.1:${port}/api/play/${id}/events`, {
+      headers: { Cookie: cookie, Accept: 'text/event-stream' },
+    })
+    expect(response.headers.get('content-type')).toMatch(/^text\/event-stream/)
+    const reader = (response.body as ReadableStream<Uint8Array>).getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    /** The next game pushed (pings skipped); fails if it takes more than 2 s (no polling behind it). */
+    async function next(): Promise<{ status: string; decision: { ply: number } | null; replay: boolean } | 'end'> {
+      const deadline = Date.now() + 2000
+      for (;;) {
+        const end = buffer.indexOf('\n\n')
+        if (end >= 0) {
+          const block = buffer.slice(0, end)
+          buffer = buffer.slice(end + 2)
+          if (block.split('\n').some((line) => line.startsWith('event:'))) continue
+          const data = block
+            .split('\n')
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.slice(5).trim())
+            .join('\n')
+          if (data) return JSON.parse(data)
+          continue
+        }
+        const read = await Promise.race([
+          reader.read(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('no event in 2 s')), deadline - Date.now()),
+          ),
+        ])
+        if (read.done) return 'end'
+        buffer += decoder.decode(read.value, { stream: true })
+      }
+    }
+    expect(await next()).toMatchObject({ status: 'queued' })
+    // A worker has it (lease set directly: other tests may have left games in the queue).
+    await test.prisma.liveGame.update({
+      where: { id },
+      data: { status: 'running', workerId: 'worker-sse', leaseUntil: new Date(Date.now() + 60_000) },
+    })
+    await worker('put', `/api/worker/live/${id}/decision`).send({ ...decision(1), workerId: 'worker-sse' })
+    expect(await next()).toMatchObject({ status: 'waiting', decision: { ply: 1 } })
+    await post(`/api/play/${id}/choice`).send({ ply: 1, i: 1 })
+    expect(await next()).toMatchObject({ status: 'running', decision: null })
+    const state = { turn: 3, current_player: 0, points: [3, 0], players: [], stadium: null }
+    await worker('put', `/api/worker/live/${id}/end`).send({
+      workerId: 'worker-sse',
+      winner: 'you',
+      turns: 3,
+      state,
+      log: [],
+    })
+    expect(await next()).toMatchObject({ status: 'done', replay: false })
+    const replay = gzipSync(Buffer.from(JSON.stringify({ version: 1, steps: [], players: [], cards: {} })))
+    await worker('put', `/api/worker/live/${id}/replay?workerId=worker-sse`)
+      .set('Content-Type', 'application/gzip')
+      .send(replay)
+    expect(await next()).toMatchObject({ status: 'done', replay: true })
+    expect(await next()).toBe('end')
+    // Not logged in: no stream.
+    expect((await fetch(`http://127.0.0.1:${port}/api/play/${id}/events`)).status).toBe(401)
   })
 
   it('modo entrenador (Fase 20): only workers 0.2.2+, scores hidden, the hint, a review of each choice', async () => {

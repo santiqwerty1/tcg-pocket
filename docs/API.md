@@ -270,6 +270,10 @@ Fase 25: `GET /api/matches/stats` suma `turnOrder: { first, second, unknown, cov
 
 Notificaciones: nuevo tipo `weekly` en `GET/PUT /api/notifications/preferences`.
 
+## Partidas contra el bot al instante (Fase 33)
+
+`GET /api/play/:id/events`: eventos del servidor (`text/event-stream`); cada mensaje es la partida como en `GET /api/play/:id`, cada vez que cambia; un evento `ping` cada 15 s. Termina cuando la partida está terminada con repetición, fallida o abandonada.
+
 ## Sobres (Fase 4)
 
 | Método y ruta | Cuerpo / respuesta |

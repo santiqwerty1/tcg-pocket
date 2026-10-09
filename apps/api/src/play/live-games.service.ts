@@ -140,6 +140,22 @@ export class LiveGamesService {
     this.events.setMaxListeners(100)
   }
 
+  /** Fase 33: the game changed (the owner's page gets it through `watch`, on every device). */
+  private changed(id: number): void {
+    this.events.emit(`game:${id}`)
+  }
+
+  /** Fase 33: calls `listener` whenever the game changes; returns the unsubscribe. */
+  watch(id: number, listener: () => void): () => void {
+    this.events.on(`game:${id}`, listener)
+    return () => this.events.off(`game:${id}`, listener)
+  }
+
+  /** Fase 33: an open live page keeps the owner «looking» (no «te toca» push while it is open). */
+  stillWatching(id: number): void {
+    this.presence?.saw(`live:${id}`)
+  }
+
   private wait(event: string): Promise<void> {
     return new Promise((resolve) => {
       const timer = setTimeout(done, this.longPollMs)
@@ -348,6 +364,7 @@ export class LiveGamesService {
       },
     })
     this.events.emit(`choice:${game.id}`)
+    this.changed(game.id)
     return this.view(updated)
   }
 
@@ -365,6 +382,7 @@ export class LiveGamesService {
       where: { id: game.id },
       data: { decision: { ...decision, hinted: true } as unknown as Prisma.InputJsonValue },
     })
+    this.changed(game.id)
     return this.view(updated)
   }
 
@@ -409,6 +427,7 @@ export class LiveGamesService {
     // The worker waiting on this game hears «restart»; any worker may take it again.
     this.events.emit(`choice:${game.id}`)
     this.events.emit('queued')
+    this.changed(game.id)
     return this.view(updated)
   }
 
@@ -441,6 +460,7 @@ export class LiveGamesService {
       data: { status: 'abandoned', finishedAt: new Date(), decision: Prisma.DbNull, leaseUntil: null },
     })
     this.events.emit(`choice:${game.id}`)
+    this.changed(game.id)
     return this.view(updated)
   }
 
@@ -469,6 +489,7 @@ export class LiveGamesService {
       RETURNING id`
     const id = rows[0]?.id
     if (id === undefined) return null
+    this.changed(id)
     const game = await this.requireGame(id)
     const snapshots = await this.prisma.deckSnapshot.findMany({
       where: { id: { in: [game.humanSnapshotId, game.botSnapshotId] } },
@@ -545,6 +566,7 @@ export class LiveGamesService {
         leaseUntil: new Date(Date.now() + LIVE_LEASE_MS),
       },
     })
+    this.changed(id)
     return { choice: null, status: 'waiting' }
   }
 
@@ -591,6 +613,7 @@ export class LiveGamesService {
         finishedAt: new Date(),
       },
     })
+    this.changed(id)
     return { ok: true }
   }
 
@@ -600,6 +623,7 @@ export class LiveGamesService {
       where: { id },
       data: { status: 'failed', error: input.error.slice(0, 2000), leaseUntil: null, finishedAt: new Date() },
     })
+    this.changed(id)
     return { ok: true }
   }
 
@@ -614,6 +638,7 @@ export class LiveGamesService {
       throw new BadRequestException({ code: 'invalid_replay', message: 'La repetición no es un JSON comprimido.' })
     }
     await this.prisma.liveGame.update({ where: { id }, data: { replayGz: new Uint8Array(body) } })
+    this.changed(id)
     return { ok: true }
   }
 }
