@@ -7,9 +7,67 @@ const REV = 'fb792ebfbaca995af9750c28101ce92a51282825'
 const [command, jobFile, resultFile] = process.argv.slice(2)
 
 if (command === 'version') {
-  // FAKE_ENGINE_OLD: an engine from before features (and before perGame).
-  const features = process.env.FAKE_ENGINE_OLD ? {} : { features: ['perGame'] }
+  // FAKE_ENGINE_OLD: an engine from before H-010 and B2 (no features).
+  const features = process.env.FAKE_ENGINE_OLD ? {} : { features: ['perGame', 'batch'] }
   process.stdout.write(JSON.stringify({ engineRev: REV, cliVersion: '0.1.0-fake', cards: 2, ...features }))
+} else if (command === 'batch') {
+  // B2: every pairing as simulate would play it; a pairing of 13 games fails the batch, of 98 hangs it.
+  const job = JSON.parse(readFileSync(jobFile, 'utf8'))
+  if (job.pairings.some((pairing) => pairing.games === 13)) {
+    process.stdout.write(JSON.stringify({ error: 'deck inválido', code: 'bad_deck' }))
+    process.exit(3)
+  }
+  const total = job.pairings.reduce((sum, pairing) => sum + pairing.games, 0)
+  process.stderr.write(`total ${total}\n`)
+  if (job.pairings.some((pairing) => pairing.games === 98)) setInterval(() => {}, 1000)
+  else {
+    for (let i = 1; i <= total; i++) process.stderr.write(`progress ${i}\n`)
+    const pairings = job.pairings.map((pairing, p) => {
+      const games = pairing.games
+      const winsA = Math.ceil(games / 2)
+      const replays = []
+      if (pairing.replaySample > 0) {
+        const dir = join(job.replayDir, String(p))
+        mkdirSync(dir, { recursive: true })
+        for (let i = 0; i < pairing.replaySample; i++) {
+          const file = join(dir, `game-${i}.json`)
+          writeFileSync(file, JSON.stringify({ version: 1, steps: [], pairing: p, index: i }))
+          replays.push({
+            gameId: `0000000${i}-0000-0000-0000-00000000000${p}`,
+            index: i,
+            seed: String(pairing.seed + i),
+            file,
+            winner: 'a',
+          })
+        }
+      }
+      return {
+        seed: pairing.seed,
+        winsA,
+        winsB: games - winsA,
+        ties: 0,
+        games,
+        turns: games * 10,
+        replays,
+        ...(job.perGame
+          ? {
+              perGame: {
+                winners: 'A'.repeat(winsA) + 'B'.repeat(games - winsA),
+                starters: 'AB'.repeat(games).slice(0, games),
+                endings: 'P'.repeat(games),
+                turns: Array.from({ length: games }, () => 10),
+                stagesA: '1'.repeat(games),
+                stagesB: '0'.repeat(games),
+              },
+            }
+          : {}),
+      }
+    })
+    writeFileSync(
+      resultFile,
+      JSON.stringify({ engineRev: REV, cliVersion: '0.1.0-fake', players: job.players, durationMs: 900, pairings }),
+    )
+  }
 } else if (command === 'status') {
   process.stdout.write(
     JSON.stringify([

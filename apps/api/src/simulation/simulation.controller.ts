@@ -95,6 +95,9 @@ const helloSchema = z.object({
   cores: z.number().int().min(1).max(256),
   version: z.string().max(40).optional(),
   engineFeatures: z.array(z.string().max(40)).max(32).optional(),
+  batch: z
+    .object({ maxChunks: z.number().int().min(1).max(256), maxGames: z.number().int().min(1).max(50_000) })
+    .optional(),
 })
 const heartbeatSchema = z.object({
   workerId: z.string().min(8).max(64),

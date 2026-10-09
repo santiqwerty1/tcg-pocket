@@ -632,6 +632,65 @@ describe('simulation (e2e)', () => {
     expect(nothing.hint).toBeUndefined()
   })
 
+  it('B2: a worker that asks for a batch gets several chunks of one job in order, within its limits', async () => {
+    const compare = await post('/api/simulations').send({
+      kind: 'compare',
+      sideA: decks(3, 3),
+      sideB: decks(5, 10),
+      gamesPerPair: 60,
+      players: ['r', 'r'],
+      seed: 500,
+    })
+    expect(compare.body.progress.chunks.total).toBe(6)
+    const hello = (id: string, batch?: { maxChunks: number; maxGames: number }) =>
+      bearer('post', '/api/worker/claim').send({ ...worker(id), version: '0.2.6', ...(batch ? { batch } : {}) })
+    // Without `batch`: one chunk and the old shape of the answer.
+    const single = (await hello('worker-b2-1')).body
+    expect(single.chunk).toMatchObject({ jobId: compare.body.id, idx: 0 })
+    expect(single.chunks).toBeUndefined()
+    // 200 games at most: the next three chunks (60 + 60 + 60), in order, each with its own seed and lease.
+    const batch = (await hello('worker-b2-2', { maxChunks: 10, maxGames: 200 })).body
+    expect(batch.chunk).toMatchObject({ idx: 1 })
+    expect(batch.chunks.map((chunk: Structured) => chunk.idx)).toEqual([1, 2, 3])
+    expect(new Set(batch.chunks.map((chunk: Structured) => chunk.seed)).size).toBe(3)
+    expect(batch.chunks.every((chunk: Structured) => String(chunk.deckB).startsWith('Energy: '))).toBe(true)
+    const leased = await test.prisma.simulationChunk.findMany({
+      where: { jobId: compare.body.id, status: 'leased' },
+      orderBy: { idx: 'asc' },
+    })
+    expect(leased.map((chunk) => [chunk.idx, chunk.workerId])).toEqual([
+      [0, 'worker-b2-1'],
+      [1, 'worker-b2-2'],
+      [2, 'worker-b2-2'],
+      [3, 'worker-b2-2'],
+    ])
+    // At most maxChunks, and never a chunk of another job.
+    const rest = (await hello('worker-b2-3', { maxChunks: 1, maxGames: 5000 })).body
+    expect(rest.chunks.map((chunk: Structured) => chunk.idx)).toEqual([4])
+    const last = (await hello('worker-b2-3', { maxChunks: 10, maxGames: 5000 })).body
+    expect(last.chunks.map((chunk: Structured) => chunk.idx)).toEqual([5])
+    expect((await hello('worker-b2-4', { maxChunks: 10, maxGames: 5000 })).body).toMatchObject({
+      chunk: null,
+      chunks: [],
+    })
+    // Each chunk of the batch reports on its own; the job ends with the last one.
+    for (const chunk of [single.chunk, ...batch.chunks, ...rest.chunks, ...last.chunks] as Structured[]) {
+      const owner = String(leased.find((row) => row.id === chunk.chunkId)?.workerId ?? 'worker-b2-3')
+      const sent = await bearer('put', `/api/worker/chunks/${chunk.chunkId}/result`).send({
+        workerId: owner,
+        engineRev: test.env.engineRev,
+        winsA: 30,
+        winsB: 30,
+        ties: 0,
+        games: 60,
+        durationMs: 100,
+      })
+      expect(sent.body).toEqual({ accepted: true })
+    }
+    expect((await get(`/api/simulations/${compare.body.id}`)).body.status).toBe('done')
+    await test.http().delete(`/api/simulations/${compare.body.id}`).set('Cookie', cookie)
+  })
+
   it('list: archive finished jobs (one by one or all), bring them back, delete the cancelled ones', async () => {
     const make = async () =>
       (

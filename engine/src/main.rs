@@ -6,6 +6,7 @@
 //!   engine-cli status                                → every engine card with its implementation status
 //!   engine-cli validate <job.json>                   → per deck: valid, errors, cards not implemented
 //!   engine-cli simulate <job.json> <result.json>     → one pairing: wins, losses, ties, replays
+//!   engine-cli batch <job.json> <result.json>        → several pairings of one job, on one pool of threads
 //!   engine-cli optimize <job.json> <result.json>     → every valid way to fill a deck, against a group of rivals
 //!   engine-cli play <job.json>                       → one game of the owner against a bot, decisions over stdin/stdout
 //!   engine-cli consistency <job.json> <result.json>  → how soon a deck has its key attacker ready (goldfish games)
@@ -47,8 +48,9 @@ use uuid::Uuid;
 
 const ENGINE_REV: &str = env!("DECKGYM_REV");
 const CLI_VERSION: &str = env!("CARGO_PKG_VERSION");
-/// What the worker and the queue can ask of this engine beyond the commands of 0.1.0 (`perGame`: H-010, T-017 A2).
-const FEATURES: [&str; 1] = ["perGame"];
+/// What the worker and the queue can ask of this engine beyond the commands of 0.1.0: `perGame` (H-010, T-017 A2) and
+/// `batch`, several pairings in one process (B2).
+const FEATURES: [&str; 2] = ["perGame", "batch"];
 /// deckgym ties a game when turn 31 begins (`State::advance_turn`): reported so the app does not hard-code it.
 const TURN_LIMIT: u32 = 30;
 
@@ -553,66 +555,200 @@ fn game_id_for(seed: u64, index: u64) -> Uuid {
     Uuid::from_u64_pair(seed, index)
 }
 
-fn simulate(job: SimulateJob) -> Result<SimulateResult, CliError> {
-    let deck_a = require_simulable("A", &job.deck_a)?;
-    let deck_b = require_simulable("B", &job.deck_b)?;
-    let codes = parse_players(&job.players)?;
-    let replay_dir = job.replay_dir.as_ref().map(PathBuf::from);
-    if let Some(dir) = &replay_dir {
+/// One pairing to play: `games` games of deck A against deck B from `seed`, the first `replay_sample` recorded.
+struct Pairing {
+    deck_a: Deck,
+    deck_b: Deck,
+    games: u32,
+    seed: u64,
+    replay_sample: u32,
+    replay_dir: Option<PathBuf>,
+}
+
+struct PairingOutcome {
+    tally: Tally,
+    replays: Vec<ReplayInfo>,
+    per_game: Option<PerGame>,
+}
+
+/// Plays every game of every pairing on one pool of `threads` threads: a batch keeps the threads busy until its last
+/// game instead of waiting on the slowest game of each pairing (B2). Each game keeps the seed it has on its own.
+fn play_pairings(
+    pairings: &[Pairing],
+    codes: &[PlayerCode],
+    threads: usize,
+    per_game: bool,
+) -> Result<(Vec<PairingOutcome>, u128), CliError> {
+    for dir in pairings.iter().filter_map(|pairing| pairing.replay_dir.as_ref()) {
         std::fs::create_dir_all(dir).map_err(|e| CliError::engine(format!("no se pudo crear {}: {e}", dir.display())))?;
     }
-    let pool = thread_pool(job.threads)?;
-    eprintln!("total {}", job.games);
+    let pool = thread_pool(threads)?;
+    let tasks: Vec<(usize, u32)> =
+        pairings.iter().enumerate().flat_map(|(p, pairing)| (0..pairing.games).map(move |index| (p, index))).collect();
+    eprintln!("total {}", tasks.len());
     let progress = Progress::start();
     let started = Instant::now();
-    let runs: Vec<Result<(u32, u64, GameRun), String>> = pool.install(|| {
-        (0..job.games)
-            .into_par_iter()
-            .map(|index| {
-                let seed = game_seed(job.seed, u64::from(index));
-                let dir = if index < job.replay_sample { replay_dir.as_ref() } else { None };
-                let game_id = game_id_for(job.seed, u64::from(index));
-                let run = play_game(&deck_a, &deck_b, &codes, seed, game_id, dir, job.per_game);
+    let runs: Vec<Result<GameRun, String>> = pool.install(|| {
+        tasks
+            .par_iter()
+            .map(|&(p, index)| {
+                let pairing = &pairings[p];
+                let seed = game_seed(pairing.seed, u64::from(index));
+                let dir = if index < pairing.replay_sample { pairing.replay_dir.as_ref() } else { None };
+                let game_id = game_id_for(pairing.seed, u64::from(index));
+                let run = play_game(&pairing.deck_a, &pairing.deck_b, codes, seed, game_id, dir, per_game);
                 progress.tick();
-                run.map(|run| (index, seed, run))
+                run
             })
             .collect()
     });
     let duration_ms = started.elapsed().as_millis();
     drop(progress);
-    let mut tally = Tally::default();
-    let mut replays = Vec::new();
-    // `collect` keeps the order of the indices, so the letters line up with games 0, 1, 2…
-    let mut per_game = job.per_game.then(|| PerGame::with_capacity(job.games as usize));
-    for run in runs {
-        let (index, seed, run) = run.map_err(CliError::engine)?;
-        tally.add(&run);
-        if let Some(per_game) = per_game.as_mut() {
+    let mut outcomes: Vec<PairingOutcome> = pairings
+        .iter()
+        .map(|pairing| PairingOutcome {
+            tally: Tally::default(),
+            replays: Vec::new(),
+            per_game: per_game.then(|| PerGame::with_capacity(pairing.games as usize)),
+        })
+        .collect();
+    // `collect` keeps the order of the tasks, so each pairing's letters line up with its games 0, 1, 2…
+    for (&(p, index), run) in tasks.iter().zip(runs) {
+        let run = run.map_err(CliError::engine)?;
+        let (pairing, outcome) = (&pairings[p], &mut outcomes[p]);
+        outcome.tally.add(&run);
+        if let Some(per_game) = outcome.per_game.as_mut() {
             per_game.push(&run);
         }
-        if index < job.replay_sample {
-            if let Some(dir) = &replay_dir {
-                let game_id = game_id_for(job.seed, u64::from(index));
-                replays.push(ReplayInfo {
+        if index < pairing.replay_sample {
+            if let Some(dir) = &pairing.replay_dir {
+                let game_id = game_id_for(pairing.seed, u64::from(index));
+                outcome.replays.push(ReplayInfo {
                     game_id: game_id.to_string(),
                     index,
-                    seed: seed.to_string(),
+                    seed: game_seed(pairing.seed, u64::from(index)).to_string(),
                     file: dir.join(format!("{game_id}.json")).display().to_string(),
                     winner: winner_label(run.winner),
                 });
             }
         }
     }
-    replays.sort_by_key(|replay| replay.index);
+    Ok((outcomes, duration_ms))
+}
+
+fn simulate(job: SimulateJob) -> Result<SimulateResult, CliError> {
+    let pairing = Pairing {
+        deck_a: require_simulable("A", &job.deck_a)?,
+        deck_b: require_simulable("B", &job.deck_b)?,
+        games: job.games,
+        seed: job.seed,
+        replay_sample: job.replay_sample,
+        replay_dir: job.replay_dir.as_ref().map(PathBuf::from),
+    };
+    let codes = parse_players(&job.players)?;
+    let (mut outcomes, duration_ms) = play_pairings(std::slice::from_ref(&pairing), &codes, job.threads, job.per_game)?;
+    let outcome = outcomes.remove(0);
     Ok(SimulateResult {
         engine_rev: ENGINE_REV,
         cli_version: CLI_VERSION,
         players: job.players,
         seed: job.seed,
-        tally,
+        tally: outcome.tally,
         duration_ms,
-        replays,
-        per_game,
+        replays: outcome.replays,
+        per_game: outcome.per_game,
+    })
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// batch
+// ---------------------------------------------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchPairing {
+    deck_a: String,
+    deck_b: String,
+    games: u32,
+    seed: u64,
+    #[serde(default)]
+    replay_sample: u32,
+}
+
+/// Several pairings of one job (same bots) in one process: what `simulate` would give for each, played together.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchJob {
+    pairings: Vec<BatchPairing>,
+    players: Vec<String>,
+    #[serde(default = "one")]
+    threads: usize,
+    /// Pairing `i` writes its replays into `<replay_dir>/<i>` (pairings of a Laboratorio round can share a seed).
+    #[serde(default)]
+    replay_dir: Option<String>,
+    #[serde(default)]
+    per_game: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchPairingResult {
+    seed: u64,
+    #[serde(flatten)]
+    tally: Tally,
+    replays: Vec<ReplayInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    per_game: Option<PerGame>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BatchResult {
+    engine_rev: &'static str,
+    cli_version: &'static str,
+    players: Vec<String>,
+    /// For the whole batch: the pairings played at the same time.
+    duration_ms: u128,
+    pairings: Vec<BatchPairingResult>,
+}
+
+fn batch(job: BatchJob) -> Result<BatchResult, CliError> {
+    if job.pairings.is_empty() {
+        return Err(CliError::input("pairings: hace falta al menos un cruce"));
+    }
+    let codes = parse_players(&job.players)?;
+    let root = job.replay_dir.as_ref().map(PathBuf::from);
+    let pairings: Vec<Pairing> = job
+        .pairings
+        .iter()
+        .enumerate()
+        .map(|(i, item)| {
+            Ok(Pairing {
+                deck_a: require_simulable(&format!("A del cruce {}", i + 1), &item.deck_a)?,
+                deck_b: require_simulable(&format!("B del cruce {}", i + 1), &item.deck_b)?,
+                games: item.games,
+                seed: item.seed,
+                replay_sample: item.replay_sample,
+                replay_dir: root.as_ref().filter(|_| item.replay_sample > 0).map(|dir| dir.join(i.to_string())),
+            })
+        })
+        .collect::<Result<_, CliError>>()?;
+    let (outcomes, duration_ms) = play_pairings(&pairings, &codes, job.threads, job.per_game)?;
+    Ok(BatchResult {
+        engine_rev: ENGINE_REV,
+        cli_version: CLI_VERSION,
+        players: job.players,
+        duration_ms,
+        pairings: pairings
+            .iter()
+            .zip(outcomes)
+            .map(|(pairing, outcome)| BatchPairingResult {
+                seed: pairing.seed,
+                tally: outcome.tally,
+                replays: outcome.replays,
+                per_game: outcome.per_game,
+            })
+            .collect(),
     })
 }
 
@@ -801,6 +937,11 @@ fn run(args: &[String]) -> Result<(), CliError> {
             let result = simulate(job)?;
             write_json(args.get(2).map(String::as_str), &result)
         }
+        Some("batch") => {
+            let job: BatchJob = read_job(args.get(1).ok_or_else(|| CliError::input("falta job.json"))?)?;
+            let result = batch(job)?;
+            write_json(args.get(2).map(String::as_str), &result)
+        }
         Some("consistency") => {
             let job: consistency::ConsistencyJob = read_job(args.get(1).ok_or_else(|| CliError::input("falta job.json"))?)?;
             let result = consistency::consistency(job)?;
@@ -816,7 +957,7 @@ fn run(args: &[String]) -> Result<(), CliError> {
             write_json(args.get(2).map(String::as_str), &result)
         }
         _ => Err(CliError::input(
-            "uso: engine-cli version | status [out.json] | validate job.json [out.json] | simulate job.json [out.json] | optimize job.json [out.json] | play job.json | consistency job.json [out.json]",
+            "uso: engine-cli version | status [out.json] | validate job.json [out.json] | simulate job.json [out.json] | batch job.json [out.json] | optimize job.json [out.json] | play job.json | consistency job.json [out.json]",
         )),
     }
 }
@@ -936,6 +1077,43 @@ mod tests {
         assert_eq!(short.stages_a, prefix(&long.stages_a));
         assert_eq!(short.stages_b, prefix(&long.stages_b));
         assert_eq!(short.turns[..], long.turns[..12]);
+    }
+
+    #[test]
+    fn a_batch_gives_each_pairing_what_it_gives_on_its_own() {
+        let altaria = crate::coach::tests::ALTARIA.to_string();
+        // Two pairings share a seed, as a Laboratorio variant and its incumbent do against the same rival.
+        let items = [(9, 20261009), (5, 20261010), (7, 20261009)];
+        let together = BatchJob {
+            pairings: items
+                .iter()
+                .map(|&(games, seed)| BatchPairing {
+                    deck_a: altaria.clone(),
+                    deck_b: altaria.clone(),
+                    games,
+                    seed,
+                    replay_sample: 0,
+                })
+                .collect(),
+            players: vec!["r".to_string(), "r".to_string()],
+            threads: 3,
+            replay_dir: None,
+            per_game: true,
+        };
+        let result = batch(together).expect("batch");
+        assert_eq!(result.pairings.len(), 3);
+        for (&(games, seed), got) in items.iter().zip(&result.pairings) {
+            let alone = simulate(SimulateJob { seed, ..job(games, true) }).expect("simulate");
+            assert_eq!(got.seed, seed);
+            assert_eq!(got.tally.games, games);
+            assert_eq!(serde_json::to_string(&got.tally).unwrap(), serde_json::to_string(&alone.tally).unwrap());
+            assert_eq!(serde_json::to_string(&got.per_game).unwrap(), serde_json::to_string(&alone.per_game).unwrap());
+        }
+        assert!(batch(BatchJob { pairings: vec![], ..job_of_batch() }).is_err());
+    }
+
+    fn job_of_batch() -> BatchJob {
+        BatchJob { pairings: vec![], players: vec!["r".into(), "r".into()], threads: 1, replay_dir: None, per_game: false }
     }
 
     #[test]

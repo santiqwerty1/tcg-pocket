@@ -10,7 +10,7 @@ export interface EngineVersion {
   engineRev: string
   cliVersion: string
   cards: number
-  /** What it can do beyond the commands of 0.1.0 (`perGame`…); missing in engines from before 0.2.1. */
+  /** What it can do beyond the commands of 0.1.0 (`perGame`, `batch`…); missing in engines from before 0.2.1. */
   features?: string[]
 }
 
@@ -98,7 +98,7 @@ export async function engineStatus(enginePath: string): Promise<EngineCardStatus
 /** Writes the job to a temp folder, runs the command, returns the parsed result and the folder (for replays). */
 export async function runJob<T>(
   enginePath: string,
-  command: 'simulate' | 'optimize' | 'consistency',
+  command: 'simulate' | 'batch' | 'optimize' | 'consistency',
   job: Record<string, unknown>,
   workDir: string,
   options: RunOptions = {},
@@ -108,7 +108,10 @@ export async function runJob<T>(
   const resultFile = join(dir, 'result.json')
   await writeFile(
     jobFile,
-    JSON.stringify({ ...job, ...(command === 'simulate' ? { replayDir: join(dir, 'replays') } : {}) }),
+    JSON.stringify({
+      ...job,
+      ...(command === 'simulate' || command === 'batch' ? { replayDir: join(dir, 'replays') } : {}),
+    }),
   )
   try {
     await run(enginePath, [command, jobFile, resultFile], options)

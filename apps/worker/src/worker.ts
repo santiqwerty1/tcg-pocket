@@ -2,7 +2,8 @@
  * The worker loop (PLAN §3.7): claim a chunk (long-poll), run engine-cli, send a heartbeat every 30 s with the games
  * played, report the result and the sample of replays, repeat. A result that could not be sent (no network) is kept
  * in `state.json` and sent first after a restart; a chunk cut by turning the PC off goes back to the queue when its
- * lease expires and is played again (same seed, same result).
+ * lease expires and is played again (same seed, same result). With an engine that has `batch` (B2), the worker asks
+ * for several pairings of one job at a time and plays them in one engine process.
  */
 import { existsSync, mkdirSync } from 'node:fs'
 import { readdir, readFile, rm, writeFile } from 'node:fs/promises'
@@ -20,6 +21,9 @@ import { WORKER_VERSION } from './version.js'
 export { WORKER_VERSION } from './version.js'
 
 const HEARTBEAT_MS = 30_000
+/** B2: a batch holds up to this many chunks, and this many games per core (8 cores: 2.000 e2 games, ~20–40 s). */
+const BATCH_MAX_CHUNKS = 64
+const BATCH_GAMES_PER_CORE = 250
 /** An engine that prints no progress for this long is hung: it is stopped and the chunk reported (H-014). */
 const STALL_MS = 10 * 60_000
 
@@ -34,6 +38,13 @@ interface SimulateResult {
   replays: { gameId: string; index: number; seed: string; file: string; winner: string }[]
   /** Only when the job asked for it; sent as is (the API checks it against the tallies). */
   perGame?: Record<string, unknown>
+}
+
+interface BatchResult {
+  engineRev: string
+  /** For the whole batch: its pairings are played at the same time. */
+  durationMs: number
+  pairings: (Omit<SimulateResult, 'engineRev' | 'durationMs'> & { seed: number })[]
 }
 
 interface OptimizeResult {
@@ -68,7 +79,14 @@ interface PendingUpload {
 interface State {
   /** Engine revision whose card status was already uploaded. */
   statusUploaded?: string
+  /** Workers before 0.2.7 kept one. */
   pending?: PendingUpload | null
+  /** Results still to send, in order (a batch leaves one per chunk). */
+  pendings?: PendingUpload[]
+}
+
+function pendingOf(state: State): PendingUpload[] {
+  return [...(state.pending ? [state.pending] : []), ...(state.pendings ?? [])]
 }
 
 export class Worker {
@@ -77,6 +95,8 @@ export class Worker {
   /** Tests shorten them. */
   heartbeatMs = HEARTBEAT_MS
   stallMs = STALL_MS
+  /** Whether the engine plays several pairings in one process (`features` of `engine-cli version`). */
+  private batchable = false
 
   constructor(
     private readonly config: WorkerConfig,
@@ -104,6 +124,7 @@ export class Worker {
   /** Engine version, and its card status uploaded once per revision (the app marks «no simulable» with it). */
   async prepare(): Promise<{ engineRev: string; cliVersion: string; engineFeatures: string[] }> {
     const version = await engineVersion(this.config.enginePath)
+    this.batchable = version.features?.includes('batch') ?? false
     const state = await this.readState()
     if (state.statusUploaded !== version.engineRev) {
       const cards = await engineStatus(this.config.enginePath)
@@ -114,12 +135,20 @@ export class Worker {
     return { engineRev: version.engineRev, cliVersion: version.cliVersion, engineFeatures: version.features ?? [] }
   }
 
-  /** Sends a result left over by a previous run (no network, PC turned off right after a chunk). */
+  /** Sends the results left over by a previous run (no network, PC turned off right after a chunk). */
   async flushPending(): Promise<void> {
-    const state = await this.readState()
-    if (!state.pending) return
-    await this.upload(state.pending)
-    await this.writeState({ ...state, pending: null })
+    await this.uploadAll(pendingOf(await this.readState()))
+  }
+
+  /** Keeps the results in `state.json` and sends them one by one, dropping each from the state once sent. */
+  private async uploadAll(pendings: PendingUpload[]): Promise<void> {
+    let left = [...pendings]
+    await this.writeState({ ...(await this.readState()), pending: null, pendings: left })
+    for (const pending of pendings) {
+      await this.upload(pending)
+      left = left.slice(1)
+      await this.writeState({ ...(await this.readState()), pending: null, pendings: left })
+    }
   }
 
   private async upload(pending: PendingUpload): Promise<void> {
@@ -357,6 +386,154 @@ export class Worker {
     }
   }
 
+  /**
+   * B2: several pairings of one job in one engine process (`engine-cli batch`): the threads stay busy until the last
+   * game, and the claim, the start of the engine and the slowest game are paid once per batch instead of once per
+   * chunk. Each chunk keeps its seed, its lease (a heartbeat each, one request at a time) and its own result. A
+   * cancelled job stops the batch; a chunk that is no longer ours is not renewed, but its result still goes up (it
+   * only depends on its seed; the app keeps the first one).
+   */
+  async playBatch(chunks: Chunk[], signal: AbortSignal): Promise<PendingUpload[]> {
+    const first = chunks[0] as Chunk
+    const total = chunks.reduce((sum, chunk) => sum + chunk.games, 0)
+    let gamesDone = 0
+    const controller = new AbortController()
+    const stop = () => controller.abort(new Error('detenido'))
+    signal.addEventListener('abort', stop, { once: true })
+    const lost = new Set<number>()
+    let lastProgressAt = Date.now()
+    let lastTickAt = Date.now()
+    let beating = false
+    let stalled = false
+    // The engine counts the games of the whole batch: they are handed to the chunks in order for the progress bar.
+    const doneOf = (index: number) => {
+      const before = chunks.slice(0, index).reduce((sum, chunk) => sum + chunk.games, 0)
+      return Math.max(0, Math.min((chunks[index] as Chunk).games, gamesDone - before))
+    }
+    const renew = async () => {
+      for (const [index, chunk] of chunks.entries()) {
+        if (controller.signal.aborted) return
+        if (lost.has(chunk.chunkId)) continue
+        try {
+          const answer = await this.client.heartbeat(
+            chunk.chunkId,
+            { workerId: this.config.workerId, gamesDone: doneOf(index) },
+            controller.signal,
+          )
+          if (answer.cancelled) {
+            this.log('simulación cancelada en la app', { chunk: chunk.chunkId })
+            controller.abort(new Error('cancelado'))
+            return
+          }
+          if (answer.lost) {
+            lost.add(chunk.chunkId)
+            this.log('el chunk ya no es de este worker; dejo de renovarlo', { chunk: chunk.chunkId })
+          }
+        } catch (error) {
+          if (!controller.signal.aborted) this.log('latido fallido', { chunk: chunk.chunkId, error: String(error) })
+        }
+      }
+      if (lost.size === chunks.length) controller.abort(new Error('perdido'))
+    }
+    const tick = () => {
+      const now = Date.now()
+      if (now - lastTickAt > this.heartbeatMs * 2) lastProgressAt = now
+      lastTickAt = now
+      if (now - lastProgressAt > this.stallMs) {
+        stalled = true
+        this.log('el motor no avanza: lo corto', { chunks: chunks.length, seconds: Math.round(this.stallMs / 1000) })
+        controller.abort(new Error('colgado'))
+        return
+      }
+      if (beating) return
+      beating = true
+      void renew().finally(() => {
+        beating = false
+      })
+    }
+    const beat = setInterval(tick, this.heartbeatMs)
+    const fail = async (message: string) => {
+      for (const chunk of chunks) {
+        await this.client
+          .failure(chunk.chunkId, { workerId: this.config.workerId, error: message })
+          .catch((reported: unknown) => {
+            if (!(reported instanceof ApiError) || reported.status === 401 || reported.status === 403) throw reported
+            this.log('el servidor rechazó la falla', { chunk: chunk.chunkId, error: reported.message })
+          })
+      }
+    }
+    try {
+      const { result, dir } = await runJob<BatchResult>(
+        this.config.enginePath,
+        'batch',
+        {
+          players: first.players,
+          threads: first.threads ?? this.config.cores,
+          ...(first.perGame ? { perGame: true } : {}),
+          pairings: chunks.map((chunk) => ({
+            deckA: chunk.deckA,
+            deckB: chunk.deckB,
+            games: chunk.games,
+            seed: Number(chunk.seed),
+            replaySample: chunk.replaySample,
+          })),
+        },
+        this.workDir,
+        {
+          signal: controller.signal,
+          onProgress: (done) => {
+            gamesDone = done
+            lastProgressAt = Date.now()
+          },
+        },
+      )
+      if (result.pairings.length !== chunks.length || (first.perGame && result.pairings.some((p) => !p.perGame))) {
+        await rm(dir, { recursive: true, force: true })
+        throw new EngineError(
+          'engine-cli devolvió un lote incompleto: recompilá el motor (cargo build).',
+          null,
+          'old_engine',
+        )
+      }
+      return chunks.map((chunk, index) => {
+        const pairing = result.pairings[index] as BatchResult['pairings'][number]
+        return {
+          chunkId: chunk.chunkId,
+          result: {
+            workerId: this.config.workerId,
+            engineRev: result.engineRev,
+            winsA: pairing.winsA,
+            winsB: pairing.winsB,
+            ties: pairing.ties,
+            games: pairing.games,
+            turns: pairing.turns,
+            // Played together: each chunk gets the share of the batch's time its games are.
+            durationMs: Math.round((result.durationMs * chunk.games) / total),
+            ...(pairing.perGame ? { extra: { perGame: pairing.perGame } } : {}),
+          },
+          replays: pairing.replays.map((replay) => ({ ...replay })),
+          // Every chunk's replays are in the batch's folder: it goes with the last upload.
+          dir: index === chunks.length - 1 ? dir : null,
+        }
+      })
+    } catch (error) {
+      if (stalled) {
+        await fail(`El motor no avanzó en ${Math.round(this.stallMs / 60_000)} min y se cortó (¿colgado?).`)
+        return []
+      }
+      if (controller.signal.aborted) return []
+      if (error instanceof EngineError) {
+        this.log('el motor falló', { chunks: chunks.length, code: error.code, error: error.message.slice(0, 500) })
+        await fail(error.message)
+        return []
+      }
+      throw error
+    } finally {
+      clearInterval(beat)
+      signal.removeEventListener('abort', stop)
+    }
+  }
+
   /** Claims and plays chunks until `signal` aborts (or once, for tests and `--once`). */
   async loop(signal: AbortSignal, options: { once?: boolean } = {}): Promise<void> {
     const { engineRev, cliVersion, engineFeatures } = await this.prepare()
@@ -385,6 +562,9 @@ export class Worker {
             cores: this.config.cores,
             version: WORKER_VERSION,
             ...(engineFeatures.length ? { engineFeatures } : {}),
+            ...(this.batchable
+              ? { batch: { maxChunks: BATCH_MAX_CHUNKS, maxGames: this.config.cores * BATCH_GAMES_PER_CORE } }
+              : {}),
           },
           signal,
         )
@@ -411,21 +591,29 @@ export class Worker {
         await sleep(claim.retryAfterSeconds * 1000, undefined, { signal }).catch(() => undefined)
         continue
       }
-      const chunk = claim.chunk
-      this.log('chunk reclamado', {
-        job: chunk.jobId,
-        chunk: chunk.chunkId,
-        idx: chunk.idx,
-        games: chunk.games,
-        kind: chunk.kind,
-      })
-      const pending = await this.play(chunk, engineRev, signal)
-      if (pending) {
-        const state = await this.readState()
-        await this.writeState({ ...state, pending })
-        await this.upload(pending)
-        await this.writeState({ ...(await this.readState()), pending: null })
+      const chunks = claim.chunks?.length ? claim.chunks : [claim.chunk]
+      let pendings: PendingUpload[]
+      if (chunks.length > 1) {
+        this.log('lote reclamado', {
+          job: claim.chunk.jobId,
+          chunks: chunks.map((chunk) => chunk.chunkId),
+          games: chunks.reduce((sum, chunk) => sum + chunk.games, 0),
+          kind: claim.chunk.kind,
+        })
+        pendings = await this.playBatch(chunks, signal)
+      } else {
+        const chunk = claim.chunk
+        this.log('chunk reclamado', {
+          job: chunk.jobId,
+          chunk: chunk.chunkId,
+          idx: chunk.idx,
+          games: chunk.games,
+          kind: chunk.kind,
+        })
+        const pending = await this.play(chunk, engineRev, signal)
+        pendings = pending ? [pending] : []
       }
+      if (pendings.length > 0) await this.uploadAll(pendings)
       if (options.once) return
     }
     await live
@@ -433,11 +621,10 @@ export class Worker {
 
   /** Removes work folders left by a crash (results are in state.json, folders without one are useless). */
   async cleanWorkDir(): Promise<void> {
-    const state = await this.readState()
-    const keep = state.pending?.dir ?? null
+    const keep = new Set(pendingOf(await this.readState()).flatMap((pending) => (pending.dir ? [pending.dir] : [])))
     for (const entry of await readdir(this.workDir)) {
       const path = join(this.workDir, entry)
-      if (path !== keep) await rm(path, { recursive: true, force: true })
+      if (!keep.has(path)) await rm(path, { recursive: true, force: true })
     }
   }
 }

@@ -30,6 +30,8 @@ export interface WorkerHello {
   version?: string | undefined
   /** What its engine can do (`engine-cli version`), from worker 0.2.6 on. */
   engineFeatures?: string[] | undefined
+  /** B2: the worker plays several pairings of one job in one engine process, up to these limits. */
+  batch?: { maxChunks: number; maxGames: number } | undefined
 }
 
 /** Said to a worker that got nothing while there is work it cannot play: it writes it in its log. */
@@ -70,9 +72,14 @@ export const CONSISTENCY_WORKER_VERSION = '0.2.0'
 /** …and older than this do not pass the rivals of a consistency «contra el meta» (D-019) to the engine. */
 export const META_CONSISTENCY_WORKER_VERSION = '0.2.1'
 
+/** Chunks that play one pairing (deck A against deck B); optimize and consistency run their own engine commands. */
+function isPairing(kind: ClaimedChunk['kind']): boolean {
+  return kind !== 'optimize' && kind !== 'consistency'
+}
+
 /** Pairing chunks of a job that asked for per-game results; optimize and consistency report their own way. */
 function perGamePairing(kind: ClaimedChunk['kind'], params: Prisma.JsonValue): boolean {
-  return kind !== 'optimize' && kind !== 'consistency' && wantsPerGame(params)
+  return isPairing(kind) && wantsPerGame(params)
 }
 
 export interface ChunkResultInput {
@@ -145,7 +152,7 @@ export class WorkerQueueService {
    * 2,4 s locally and ~4 s in production with a matrix of 3.900 chunks in the queue, four times what a 60-game chunk
    * of the Laboratorio plays.
    */
-  private async tryClaim(hello: WorkerHello): Promise<ClaimedChunk | null> {
+  private async tryClaim(hello: WorkerHello): Promise<ClaimedChunk[]> {
     // H-002: versions compared as numbers here, not as text in SQL («0.2.10» < «0.2.2» as text).
     const consistency = versionAtLeast(hello.version, CONSISTENCY_WORKER_VERSION)
     const metaConsistency = versionAtLeast(hello.version, META_CONSISTENCY_WORKER_VERSION)
@@ -172,54 +179,56 @@ export class WorkerQueueService {
         LIMIT 1)
       RETURNING id`
     const id = rows[0]?.id
-    if (id === undefined) return null
-    const chunk = await this.prisma.simulationChunk.findUniqueOrThrow({ where: { id }, include: { job: true } })
-    if (chunk.job.status === 'queued') {
+    if (id === undefined) return []
+    const first = await this.prisma.simulationChunk.findUniqueOrThrow({ where: { id }, include: { job: true } })
+    const job = first.job
+    if (job.status === 'queued') {
       await this.prisma.simulationJob.update({
-        where: { id: chunk.jobId },
+        where: { id: job.id },
         data: { status: 'running', startedAt: new Date() },
       })
     }
+    const more = hello.batch && isPairing(job.kind) ? await this.claimMore(hello, first) : []
+    const chunks = more.length === 0 ? [first] : await this.chunksInOrder([first.id, ...more])
     const texts = await this.prisma.deckSnapshot.findMany({
-      where: { id: { in: [chunk.snapshotAId, chunk.snapshotBId].filter((x): x is number => x !== null) } },
+      where: {
+        id: {
+          in: chunks.flatMap((chunk) => [chunk.snapshotAId, chunk.snapshotBId]).filter((x): x is number => x !== null),
+        },
+      },
       select: { id: true, deckgymText: true },
     })
     const text = (snapshotId: number | null) => texts.find((row) => row.id === snapshotId)?.deckgymText ?? null
     const consistencyParams =
-      chunk.job.kind === 'consistency'
-        ? (chunk.job.params as { consistency?: Partial<ConsistencyParams> }).consistency
-        : undefined
+      job.kind === 'consistency' ? (job.params as { consistency?: Partial<ConsistencyParams> }).consistency : undefined
     const rivalTexts = consistencyParams?.rivals?.length
       ? await this.prisma.deckSnapshot.findMany({
           where: { id: { in: consistencyParams.rivals.map((rival) => rival.snapshot) } },
           select: { id: true, deckgymText: true },
         })
       : []
-    return {
+    return chunks.map((chunk) => ({
       chunkId: chunk.id,
       jobId: chunk.jobId,
-      kind: chunk.job.kind,
+      kind: job.kind,
       idx: chunk.idx,
       games: chunk.games,
       firstGame: chunk.firstGame,
       seed: chunk.seed.toString(),
-      players: chunk.job.players,
-      threads: chunk.job.cores,
-      replaySample: chunk.firstGame === 0 ? chunk.job.replaySample : 0,
+      players: job.players,
+      threads: job.cores,
+      replaySample: chunk.firstGame === 0 ? job.replaySample : 0,
       leaseUntil: (chunk.leaseUntil ?? new Date(Date.now() + LEASE_MS)).toISOString(),
       deckA: text(chunk.snapshotAId),
       deckB: text(chunk.snapshotBId),
-      perGame: perGamePairing(chunk.job.kind, chunk.job.params),
-      optimize:
-        chunk.job.kind === 'optimize'
-          ? ((chunk.job.params as { engineJob?: Prisma.JsonValue }).engineJob ?? null)
-          : null,
+      perGame: perGamePairing(job.kind, job.params),
+      optimize: job.kind === 'optimize' ? ((job.params as { engineJob?: Prisma.JsonValue }).engineJob ?? null) : null,
       consistency:
-        chunk.job.kind === 'consistency'
+        job.kind === 'consistency'
           ? {
               keyCards: consistencyParams?.engineIds ?? [],
               maxTurn: consistencyParams?.maxTurn ?? 8,
-              bot: consistencyParams?.bot ?? chunk.job.players[0] ?? 'e2',
+              bot: consistencyParams?.bot ?? job.players[0] ?? 'e2',
               rivals: consistencyParams?.rivals?.length
                 ? consistencyParams.rivals.map((rival) => ({
                     deck: rivalTexts.find((row) => row.id === rival.snapshot)?.deckgymText ?? '',
@@ -228,24 +237,64 @@ export class WorkerQueueService {
                 : null,
             }
           : null,
-    }
+    }))
+  }
+
+  /**
+   * B2: more claimable chunks of the same job for a worker that plays them in one engine process (`batch` in its
+   * hello), in chunk order, up to its limits of chunks and games. Each keeps its own seed, lease and result.
+   */
+  private async claimMore(hello: WorkerHello, first: { id: number; jobId: number; games: number }): Promise<number[]> {
+    const batch = hello.batch
+    if (!batch || batch.maxChunks <= 1 || first.games >= batch.maxGames) return []
+    const rows = await this.prisma.$queryRaw<{ id: number }[]>`
+      WITH candidates AS (
+        SELECT id, games, idx FROM simulation_chunks
+        WHERE job_id = ${first.jobId} AND id <> ${first.id}
+          AND (status = 'queued' OR (status = 'leased' AND lease_until < now()))
+        ORDER BY idx
+        FOR UPDATE SKIP LOCKED
+        LIMIT ${batch.maxChunks - 1}),
+      picked AS (
+        SELECT id FROM (SELECT id, sum(games) OVER (ORDER BY idx) AS games_so_far FROM candidates) t
+        WHERE games_so_far <= ${batch.maxGames - first.games})
+      UPDATE simulation_chunks SET status = 'leased', lease_until = now() + interval '3 minutes',
+        worker_id = ${hello.workerId}, games_done = 0, started_at = COALESCE(started_at, now())
+      WHERE id IN (SELECT id FROM picked)
+      RETURNING id`
+    return rows.map((row) => row.id)
+  }
+
+  private async chunksInOrder(ids: number[]) {
+    const rows = await this.prisma.simulationChunk.findMany({ where: { id: { in: ids } }, orderBy: { idx: 'asc' } })
+    // The first one claimed stays first: it is the one an old reader of `chunk` would play.
+    return [...rows.filter((row) => row.id === ids[0]), ...rows.filter((row) => row.id !== ids[0])]
   }
 
   /**
    * Claims a chunk, waiting up to 25 s for one. Null = nothing to do; `requiredEngineRev` tells a worker with another
    * engine which one the queued jobs need.
    */
-  async claim(
-    hello: WorkerHello,
-  ): Promise<{ chunk: ClaimedChunk | null; requiredEngineRev: string | null; hint?: string }> {
+  async claim(hello: WorkerHello): Promise<{
+    chunk: ClaimedChunk | null
+    chunks?: ClaimedChunk[]
+    requiredEngineRev: string | null
+    hint?: string
+  }> {
     await this.seen(hello)
+    // `chunk` is the first one (what a worker without `batch` plays); `chunks`, all of them, only for `batch`.
+    const answer = (chunks: ClaimedChunk[], requiredEngineRev: string | null = null) => ({
+      chunk: chunks[0] ?? null,
+      ...(hello.batch ? { chunks } : {}),
+      requiredEngineRev,
+    })
     const immediate = await this.tryClaim(hello)
-    if (immediate) return { chunk: immediate, requiredEngineRev: null }
+    if (immediate.length > 0) return answer(immediate)
     const other = await this.prisma.simulationJob.findFirst({
       where: { status: { in: ['queued', 'running'] }, engineRev: { not: hello.engineRev } },
       select: { engineRev: true },
     })
-    if (other) return { chunk: null, requiredEngineRev: other.engineRev }
+    if (other) return answer([], other.engineRev)
     // H-003: on the timeout the listener has to go too, or one is left behind every ~30 s.
     const queued = this.queued
     await new Promise<void>((resolve) => {
@@ -258,10 +307,10 @@ export class WorkerQueueService {
       queued.once('queued', done)
       timer.unref?.()
     })
-    const chunk = await this.tryClaim(hello)
-    if (chunk) return { chunk, requiredEngineRev: null }
+    const chunks = await this.tryClaim(hello)
+    if (chunks.length > 0) return answer(chunks)
     const hint = await this.hintFor(hello)
-    return { chunk: null, requiredEngineRev: null, ...(hint ? { hint } : {}) }
+    return { ...answer([]), ...(hint ? { hint } : {}) }
   }
 
   /** Why a worker that got nothing cannot take what is waiting for its engine, if that is the case. */

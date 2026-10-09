@@ -13,6 +13,8 @@ export interface Hello {
   version: string
   /** What the engine can do (`features` of `engine-cli version`); missing in engines from before 0.2.1. */
   engineFeatures?: string[]
+  /** B2: several pairings of one job in one engine process, up to these limits (only with an engine that has `batch`). */
+  batch?: { maxChunks: number; maxGames: number }
 }
 
 export interface Chunk {
@@ -150,6 +152,8 @@ export class WorkerClient {
   claim(hello: Hello, signal?: AbortSignal) {
     return this.request<{
       chunk: Chunk | null
+      /** With `batch` in the hello: every chunk claimed, `chunk` first (servers before B2 leave it out). */
+      chunks?: Chunk[]
       requiredEngineRev: string | null
       retryAfterSeconds: number
       /** Why there is waiting work this worker cannot play (an old engine, for instance). */
