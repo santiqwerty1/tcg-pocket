@@ -629,6 +629,17 @@ Todas las de escritura llevan `readOnlyHint: false` e `idempotentHint: false` (r
 - **Prompts MCP:** `repaso_semanal` (`week?`), `que_llevo_hoy` y `revisar_mazo` (`deck`); solo encadenan tools de lectura.
 - **Errores internos:** devuelven una referencia de 8 caracteres que está en el registro del servidor junto con la tool, el token y el id del pedido.
 
+**Chat entre sesiones (D-021).** Lo usan las sesiones de Claude que programan la app; las de la nube solo llegan a la app por el MCP. Solo para tokens con `mcp:write`, fuera del registro de escrituras y de la copia de seguridad.
+
+| Tool o ruta | Entrada → salida |
+|---|---|
+| `chat_write` | `{ from, to (un nombre, varios separados por coma o una lista; «todos» llega a todos), topic, text }` → `{ sent, id, at, from, to }` |
+| `chat_read` | `{ as, waitSeconds? (0 a 40), all?, limit? (30) }` → `{ as, messages: [{ id, at, from, to, topic, text }], unreadLeft, participants }`: los nuevos para `as` (dirigidos a esa sesión o a «todos» por otra), que quedan leídos; con `all`, también los leídos. Los nombres no distinguen mayúsculas, tildes ni separadores («Nube 2» = «nube2») |
+| `POST /api/mcp/chat` | Lo mismo que `chat_write`, con `Authorization: Bearer tcg_mcp_…` (`mcp:write`) → `201` con el mensaje |
+| `GET /api/mcp/chat?as=&wait=&all=&limit=` | Lo mismo que `chat_read` → `{ as, messages, unreadLeft, participants }` |
+
+`scripts/chat.mjs` usa esas rutas con los mismos comandos que el chat anterior en la PC (`write --from --to --topic [--text | stdin]`, `read --as [--all]`, `wait --as [--minutes]`), con `TCG_CHAT_TOKEN` y `TCG_SERVER`.
+
 Conectar:
 - **Claude Code:** crear un token MCP en Más → Tokens de API y registrar `claude mcp add --transport http tcg https://tcg-pocket.fly.dev/api/mcp --header "Authorization: Bearer tcg_mcp_…"`.
 - **Apps de Claude (web, escritorio, celular):** Configuración → Conectores → Añadir conector personalizado, URL `https://tcg-pocket.fly.dev/api/mcp`, «Encabezados de solicitud»: `Authorization` = `Bearer tcg_mcp_…` (DECISIONES A.6).

@@ -19,6 +19,8 @@ import {
   MATCH_RESULT_LABEL_ES,
   type MatchMode,
   type MatchResult,
+  MCP_CHAT_INSTRUCTIONS,
+  MCP_CHAT_TOOLS,
   MCP_PROMPTS,
   MCP_READ_TOOLS,
   MCP_SERVER_INSTRUCTIONS,
@@ -30,6 +32,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { AlertsService } from '../alerts/alerts.service.js'
 import { CatalogService } from '../catalog/catalog.service.js'
 import type { GroupDetail } from '../catalog/catalog-views.js'
+import { ChatService } from '../chat/chat.service.js'
 import { CollectionService } from '../collection/collection.service.js'
 import { ENV, type Env } from '../config/env.js'
 import { OWNER_TIME_ZONE } from '../config/time-zone.js'
@@ -168,6 +171,7 @@ export class McpToolsService {
     private readonly ops: OpsService,
     private readonly alerts: AlertsService,
     private readonly audit: McpAuditService,
+    private readonly chat: ChatService,
     @Inject(ENV) private readonly env: Env,
     private readonly logger: PinoLogger,
   ) {
@@ -183,7 +187,8 @@ export class McpToolsService {
       {
         instructions: canWrite
           ? `${MCP_SERVER_INSTRUCTIONS}
-${MCP_WRITE_INSTRUCTIONS}`
+${MCP_WRITE_INSTRUCTIONS}
+${MCP_CHAT_INSTRUCTIONS}`
           : MCP_SERVER_INSTRUCTIONS,
       },
     )
@@ -297,9 +302,50 @@ ${MCP_WRITE_INSTRUCTIONS}`
     if (canWrite) {
       this.writeTools.register(server, write)
       this.labTools.registerWrite(server, write)
+      this.registerChat(server, run, caller)
     }
     this.registerPrompts(server)
     return server
+  }
+
+  /**
+   * D-021: the chat between the Claude sessions that work on the app's code. Only for tokens that can write, and
+   * outside the write log (it is not Santi's data).
+   */
+  private registerChat(server: McpServer, run: ReadRun, caller: McpCallerInfo): void {
+    const c = MCP_CHAT_TOOLS
+    const annotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+    server.registerTool(
+      c.chatRead.name,
+      { title: c.chatRead.title, description: c.chatRead.description, inputSchema: c.chatRead.input, annotations },
+      (args) =>
+        run(c.chatRead.name, async () => {
+          const view = await this.chat.read(args)
+          return {
+            as: view.as,
+            messages: view.messages.map((message) => ({
+              id: message.id,
+              at: ownerDateTime(message.at),
+              from: message.from,
+              to: message.to,
+              topic: message.topic,
+              text: message.text,
+            })),
+            unreadLeft: view.unreadLeft,
+            participants: view.participants,
+            ...(view.messages.length === 0 ? { note: 'No hay mensajes nuevos.' } : {}),
+          }
+        }),
+    )
+    server.registerTool(
+      c.chatWrite.name,
+      { title: c.chatWrite.title, description: c.chatWrite.description, inputSchema: c.chatWrite.input, annotations },
+      (args) =>
+        run(c.chatWrite.name, async () => {
+          const message = await this.chat.write({ ...args, tokenId: caller.tokenId || null })
+          return { sent: true, id: message.id, at: ownerDateTime(message.at), from: message.from, to: message.to }
+        }),
+    )
   }
 
   /** Fase 43: ready-made requests for the prompt menu of the Claude apps (they only chain read tools). */

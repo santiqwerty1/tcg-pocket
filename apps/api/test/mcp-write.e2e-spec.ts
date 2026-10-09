@@ -18,6 +18,8 @@ const DECKS_PATH = join(REPO_ROOT, 'docs/context/mazos_40_listas.md')
 type Structured = Record<string, unknown>
 
 const WRITE_TOOLS = [
+  'chat_read',
+  'chat_write',
   'collection_set',
   'decks_create',
   'decks_update',

@@ -13,6 +13,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { AlertsModule } from '../alerts/alerts.controller.js'
 import { CurrentApiToken, type RequestApiToken } from '../auth/request-auth.js'
 import { CatalogModule } from '../catalog/catalog.module.js'
+import { ChatModule } from '../chat/chat.controller.js'
 import { CollectionModule } from '../collection/collection.module.js'
 import { DecksModule } from '../decks/decks.module.js'
 import { EventsModule } from '../events/events.controller.js'
@@ -90,6 +91,7 @@ export class McpController implements OnModuleDestroy {
 @Module({
   imports: [
     AlertsModule,
+    ChatModule,
     TokensModule,
     CatalogModule,
     CollectionModule,
