@@ -46,6 +46,12 @@ export interface CatalogPreview {
   engine: { engineRev: string | null; plays: number; incomplete: number; unknown: number }
   /** Applying needs `confirm: true` (it would take the owner's cards away or leave things to review). */
   destructive: boolean
+  /**
+   * The catalog state this preview was computed against (loaded commit and last sync). «Aplicar» sends it back, and
+   * the sync is refused if the catalog changed in between (another tab, a manual sync): the user confirmed what this
+   * preview showed, not what a newer baseline would do.
+   */
+  baseline: string
   warnings: string[]
 }
 
@@ -162,7 +168,18 @@ export class CatalogSyncService implements OnModuleInit {
 
   private previews = new Map<string, Promise<CatalogPreview>>()
 
+  /** The loaded catalog's state: its commit and the last sync that wrote it. */
+  async baseline(): Promise<string> {
+    const last = await this.prisma.catalogSync.findFirst({
+      where: { status: { in: ['applied', 'needs_review'] } },
+      orderBy: { id: 'desc' },
+      select: { id: true, commitSha: true },
+    })
+    return last ? `${last.commitSha}@${last.id}` : 'empty'
+  }
+
   private async buildPreview(request: SyncRequest): Promise<CatalogPreview> {
+    const baseline = await this.baseline()
     const prepared = await this.prepare(request)
     const { catalog, report, diff, remap, previous } = prepared
     const added = new Set(diff?.added ?? catalog.cards.map((card) => card.id))
@@ -194,6 +211,7 @@ export class CatalogSyncService implements OnModuleInit {
       remap: remap ? { needsReview: remap.needsReview, empty: remap.empty, notes: notes.slice(0, 50) } : null,
       engine,
       destructive: isDestructive(diff, remap),
+      baseline,
       warnings: prepared.warnings,
     }
   }

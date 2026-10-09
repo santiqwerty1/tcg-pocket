@@ -18,6 +18,8 @@ const syncSchema = z.object({
   fromFixtures: z.boolean().optional(),
   /** Fase 40: apply even if it takes the owner's cards away or goes back to an older commit (after the preview). */
   confirm: z.boolean().optional(),
+  /** Fase 40: the preview's `baseline`; the sync is refused (409 `stale_preview`) if the catalog changed since. */
+  baseline: z.string().max(100).optional(),
 })
 
 const previewSchema = z.object({
@@ -136,6 +138,12 @@ export class CatalogController {
     @CurrentSession() _session: RequestSession,
   ): Promise<{ syncId: number }> {
     const commit = body.commit ?? this.catalog.trackerCommit ?? this.env.catalogCommit
+    if (body.baseline !== undefined && body.baseline !== (await this.sync.baseline())) {
+      throw new ConflictException({
+        code: 'stale_preview',
+        message: 'El catálogo cambió desde la vista previa (otra sincronización): volvé a mirarla antes de aplicar.',
+      })
+    }
     if (!body.confirm && !body.fromFixtures) {
       const position = await this.position(commit)
       if (position === 'older' || position === 'unknown') {
