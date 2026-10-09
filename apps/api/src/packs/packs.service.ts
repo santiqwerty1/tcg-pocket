@@ -13,6 +13,8 @@ import {
   type DeckGoal,
   daysBetween,
   daysForPacks,
+  missionProgress,
+  missionWants,
   type PackModel,
   playableCopies,
   RARITIES,
@@ -40,6 +42,8 @@ export interface RecommendBody {
   limitedBoost?: number | undefined
   /** undefined = the saved one (or `saved`). */
   deckTarget?: DeckTarget | undefined
+  /** Fase 44: the missions as a third goal; undefined = the saved one (or off). */
+  missions?: boolean | undefined
 }
 
 export interface PackPatch {
@@ -61,6 +65,7 @@ const settingSchemas = {
   packPoints: z.record(z.string(), z.number().int().min(0).max(1_000_000)),
   packsPerDay: z.number().min(0.5).max(20),
   hourglasses: z.number().int().min(0).max(100_000),
+  packMissions: z.boolean(),
 }
 
 const ASSUMPTIONS = [
@@ -182,6 +187,7 @@ export class PacksService {
     const deckTarget = body.deckTarget ?? settings.packDeckTarget ?? 'saved'
     const packsPerDay = settings.packsPerDay ?? DEFAULT_PACKS_PER_DAY
     const hourglasses = settings.hourglasses ?? 0
+    const missionsOn = body.missions ?? settings.packMissions ?? false
     const today = todayInOwnerZone()
 
     const [{ stock, adjustments }, packRows, rules, goals] = await Promise.all([
@@ -212,6 +218,12 @@ export class PacksService {
       today,
       limitedBoost,
       savedPoints: (expansionId) => settings.packPoints?.[expansionId] ?? 0,
+      // Fase 44: the slots of the missions still missing copies, against the whole collection.
+      missions: missionsOn
+        ? missionWants(
+            missionProgress(index.catalog.missions ?? [], index, (stockCardId) => stock[stockCardId]?.amountOwned ?? 0),
+          )
+        : null,
       rarityRule: (rarity: Rarity): RarityRule => {
         const rule = ruleByRarity.get(rarity)
         return rule
@@ -261,6 +273,9 @@ export class PacksService {
         decks: row.decks ? { probability: percent(row.decks.probability), expected: row.decks.expected } : null,
         collection: row.collection
           ? { probability: percent(row.collection.probability), expected: row.collection.expected }
+          : null,
+        missions: row.missions
+          ? { probability: percent(row.missions.probability), expected: row.missions.expected }
           : null,
         otherModel: { ...row.otherModel, probability: percent(row.otherModel.probability) },
         limited: row.limited,
@@ -319,6 +334,7 @@ export class PacksService {
           : null,
       })),
       collectionOutOfPacks: result.collectionOutOfPacks,
+      missions: result.missions,
       planner: { packsPerDay, hourglasses },
       assumptions: ASSUMPTIONS,
     }
@@ -394,6 +410,7 @@ export class PacksService {
             'packPoints',
             'packsPerDay',
             'hourglasses',
+            'packMissions',
           ],
         },
       },
@@ -424,6 +441,9 @@ export class PacksService {
       } else if (row.key === 'hourglasses') {
         const parsed = settingSchemas.hourglasses.safeParse(row.value)
         if (parsed.success) out.hourglasses = parsed.data
+      } else if (row.key === 'packMissions') {
+        const parsed = settingSchemas.packMissions.safeParse(row.value)
+        if (parsed.success) out.packMissions = parsed.data
       }
     }
     return out
@@ -439,6 +459,7 @@ interface SavedSettings {
   packPoints?: Record<string, number>
   packsPerDay?: number
   hourglasses?: number
+  packMissions?: boolean
 }
 
 export function assertPackId(expansionId: string, name: string): string {

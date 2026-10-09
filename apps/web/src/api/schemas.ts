@@ -856,6 +856,8 @@ export const packRowSchema = z.object({
   packsFor90: z.number().nullable(),
   decks: pullFields.nullable(),
   collection: pullFields.nullable(),
+  /** Fase 44: cards of the missions' missing slots. */
+  missions: pullFields.nullable().default(null),
   otherModel: z.object({
     model: z.enum(PACK_MODELS),
     probability: z.number(),
@@ -982,6 +984,11 @@ export const recommendationSchema = z.object({
   missing: z.array(missingCardSchema),
   decks: z.array(deckCompletionSchema),
   collectionOutOfPacks: z.object({ versions: z.number(), tradeable: z.number() }).nullable(),
+  /** Fase 44: the missions goal; null when off. */
+  missions: z
+    .object({ slots: z.number(), missingCopies: z.number(), outOfPacks: z.number(), weight: z.number() })
+    .nullable()
+    .default(null),
   planner: z.object({ packsPerDay: z.number(), hourglasses: z.number() }).default({ packsPerDay: 2, hourglasses: 0 }),
   assumptions: z.array(z.string()),
 })
@@ -994,6 +1001,8 @@ export interface RecommendBody {
   onlyAvailable: boolean
   limitedBoost: number
   deckTarget: DeckTarget
+  /** Fase 44: the missions as a third goal. */
+  missions: boolean
 }
 
 // ---------- Auth, tokens, settings, backup ----------

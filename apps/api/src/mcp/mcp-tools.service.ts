@@ -1026,6 +1026,7 @@ ${MCP_CHAT_INSTRUCTIONS}`
     onlyAvailable?: boolean
     limitedBoost?: number
     deckTarget?: 'saved' | 'tournament'
+    missions?: boolean
     limit?: number
   }): Promise<Json> {
     const result = await this.packs.recommend({
@@ -1035,6 +1036,7 @@ ${MCP_CHAT_INSTRUCTIONS}`
       onlyAvailable: args.onlyAvailable ?? true,
       limitedBoost: args.limitedBoost,
       deckTarget: args.deckTarget,
+      missions: args.missions,
     })
     const day = (iso: string) => iso.split('-').reverse().join('/')
     const lastDay = (limited: { until: string | null; daysLeft: number | null }) =>
@@ -1058,6 +1060,11 @@ ${MCP_CHAT_INSTRUCTIONS}`
         deckTarget: result.deckTarget === 'tournament' ? 'versión de torneo' : 'lista guardada',
         decks: result.goals.decks,
         collection: result.collection,
+        ...(result.missions
+          ? {
+              missions: `${result.missions.slots} huecos de misiones con ${result.missions.missingCopies} copias por conseguir (pesan ${pct(result.missions.weight * 100)} del puntaje)${result.missions.outOfPacks > 0 ? `; ${result.missions.outOfPacks} no salen de ningún sobre a la venta` : ''}`,
+            }
+          : {}),
         ...(result.goals.decks.length === 0
           ? { note: 'Ningún mazo tiene prioridad de sobres: se marca en cada mazo (1 a 3).' }
           : {}),

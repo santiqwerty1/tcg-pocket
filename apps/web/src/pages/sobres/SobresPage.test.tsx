@@ -175,7 +175,22 @@ describe('Sobres page (Fase 4)', () => {
       onlyAvailable: true,
       limitedBoost: 3,
       deckTarget: 'saved',
+      missions: false,
     })
+  })
+
+  it('«Completar misiones» (Fase 44): the request adds the missions goal and the choice is saved', async () => {
+    const user = userEvent.setup()
+    renderAt('/sobres')
+    const toggle = await screen.findByRole('switch', { name: /Completar misiones/ })
+    expect(toggle).toHaveAttribute('aria-checked', 'false')
+    await user.click(toggle)
+    await waitFor(() =>
+      expect(requests.filter((r) => r.path === '/api/packs/recommend').at(-1)?.body).toMatchObject({
+        missions: true,
+      }),
+    )
+    expect(requests).toContainEqual({ method: 'PUT', path: '/api/settings/packMissions', body: { value: true } })
   })
 
   it('«Apuntar a la versión de torneo»: the request aims the decks at it and the choice is saved', async () => {

@@ -22,6 +22,8 @@ interface Knobs {
   collection: CollectionGoal | null
   limitedBoost: number
   deckTarget: DeckTarget
+  /** Fase 44: the missions as a third goal. */
+  missions: boolean
 }
 
 function knobsFrom(settings: Record<string, unknown>): Knobs {
@@ -36,7 +38,7 @@ function knobsFrom(settings: Record<string, unknown>): Knobs {
   const boost = settings.limitedBoost
   const limitedBoost = typeof boost === 'number' && boost >= 1 && boost <= 5 ? boost : 3
   const deckTarget: DeckTarget = settings.packDeckTarget === 'tournament' ? 'tournament' : 'saved'
-  return { model, alpha, collection, limitedBoost, deckTarget }
+  return { model, alpha, collection, limitedBoost, deckTarget, missions: settings.packMissions === true }
 }
 
 export function SobresPage() {
@@ -60,6 +62,7 @@ export function SobresPage() {
             onlyAvailable,
             limitedBoost: knobs.limitedBoost,
             deckTarget: knobs.deckTarget,
+            missions: knobs.missions,
           }
         : null,
     [knobs, alpha, onlyAvailable],
@@ -74,6 +77,7 @@ export function SobresPage() {
     if (patch.collection !== undefined) setSetting.mutate({ key: 'rarityFilter', value: patch.collection })
     if (patch.limitedBoost !== undefined) setSetting.mutate({ key: 'limitedBoost', value: patch.limitedBoost })
     if (patch.deckTarget !== undefined) setSetting.mutate({ key: 'packDeckTarget', value: patch.deckTarget })
+    if (patch.missions !== undefined) setSetting.mutate({ key: 'packMissions', value: patch.missions })
   }
 
   const data = recommendation.data
@@ -105,6 +109,9 @@ export function SobresPage() {
         limitedPacks={limitedPacks}
         deckTarget={knobs.deckTarget}
         onDeckTargetChange={(deckTarget) => update({ deckTarget })}
+        missions={knobs.missions}
+        onMissionsChange={(missions) => update({ missions })}
+        missionsGoal={recommendation.data?.missions ?? null}
       />
 
       {recommendation.isPending ? <LoadingRows /> : null}

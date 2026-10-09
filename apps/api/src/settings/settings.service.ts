@@ -23,6 +23,8 @@ export const SETTING_KEYS = [
   /** Fase 14: packs opened a day and pack hourglasses saved, for «¿cuántos días me faltan?». */
   'packsPerDay',
   'hourglasses',
+  /** Fase 44: the missions as a third goal of Sobres. */
+  'packMissions',
   /** Fase 18: which notifications to send ({ liveGame, simulations, lab, alerts }). */
   'notifications',
   /** Fase 18: alerts already notified (keys), so each goes out once. */

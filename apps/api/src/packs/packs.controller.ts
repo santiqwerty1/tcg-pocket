@@ -20,6 +20,7 @@ const recommendSchema = z.object({
   onlyAvailable: z.boolean().optional(),
   limitedBoost: z.number().min(1).max(5).optional(),
   deckTarget: z.enum(['saved', 'tournament']).optional(),
+  missions: z.boolean().optional(),
 })
 const packPatchSchema = z
   .object({

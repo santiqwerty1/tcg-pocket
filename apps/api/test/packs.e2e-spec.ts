@@ -241,6 +241,24 @@ describe('packs (e2e)', () => {
     expect((await put('/api/settings/packModel').send({ value: 'corrected' })).status).toBe(200)
   })
 
+  it('missions as the third goal (Fase 44): they weigh as one more goal and the choice is saved', async () => {
+    const off = (await post('/api/packs/recommend').send({ collection: null })).body
+    expect(off.missions).toBeNull()
+    const on = (await post('/api/packs/recommend').send({ collection: null, missions: true })).body as {
+      missions: { slots: number; missingCopies: number; outOfPacks: number; weight: number }
+      rows: (Row & { missions: { probability: number; expected: number } | null })[]
+    }
+    expect(on.missions.slots).toBeGreaterThan(100)
+    expect(on.missions.missingCopies).toBeGreaterThanOrEqual(on.missions.slots)
+    // With the deck missing a Hoopa ex: two goals on, half each.
+    expect(on.missions.weight).toBeCloseTo(1 / 2, 10)
+    expect(on.rows.some((row) => (row.missions?.expected ?? 0) > 0)).toBe(true)
+    expect((await put('/api/settings/packMissions').send({ value: true })).status).toBe(200)
+    expect((await post('/api/packs/recommend').send({ collection: null })).body.missions).not.toBeNull()
+    expect((await put('/api/settings/packMissions').send({ value: false })).status).toBe(200)
+    expect((await post('/api/packs/recommend').send({ missions: 'yes' })).status).toBe(400)
+  })
+
   it('collection goal and α: filter (a) with the tracker model puts the Deluxe ex first when it is available', async () => {
     const collection = { rarities: [], copies: 1 }
     const onlyCollection = await post('/api/packs/recommend').send({ collection, alpha: 0, model: 'tracker' })

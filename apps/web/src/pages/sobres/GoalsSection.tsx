@@ -4,7 +4,9 @@
  * and «solo disponibles». The decks goal aims at each deck's saved list or at its «versión de torneo» (the list of
  * its archetype worth aiming at): the owner's lists are built with what he has, so the saved ones are complete.
  */
+
 import { useState } from 'react'
+import { Link } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useDecks, useUpdateDeck } from '@/api/decks'
@@ -143,6 +145,9 @@ export function GoalsSection({
   limitedPacks,
   deckTarget,
   onDeckTargetChange,
+  missions,
+  onMissionsChange,
+  missionsGoal,
 }: {
   decks: {
     id: string
@@ -167,6 +172,10 @@ export function GoalsSection({
   limitedPacks: string[]
   deckTarget: DeckTarget
   onDeckTargetChange: (target: DeckTarget) => void
+  /** Fase 44: the missions as a third goal. */
+  missions: boolean
+  onMissionsChange: (value: boolean) => void
+  missionsGoal: { slots: number; missingCopies: number; outOfPacks: number; weight: number } | null
 }) {
   const [sheetOpen, setSheetOpen] = useState(false)
   const toggleRarity = (rarity: (typeof PACK_RARITIES)[number]) => {
@@ -259,6 +268,23 @@ export function GoalsSection({
               ))}
             </ChoiceGroup>
           </>
+        ) : null}
+      </div>
+
+      <div className="flex flex-col gap-1 rounded-lg border p-3">
+        <Label className="flex min-h-11 items-center justify-between gap-2 font-medium">
+          Completar misiones
+          <Switch checked={missions} onCheckedChange={onMissionsChange} />
+        </Label>
+        {missions ? (
+          <p className="text-xs text-muted-foreground">
+            {missionsGoal
+              ? `${missionsGoal.slots} huecos de misiones con ${missionsGoal.missingCopies} copias por conseguir; pesan ${Math.round(missionsGoal.weight * 100)} % del puntaje (lo mismo que cada objetivo prendido)${missionsGoal.outOfPacks > 0 ? `. ${missionsGoal.outOfPacks} no salen de ningún sobre a la venta` : ''}.`
+              : 'Las misiones de colección incompletas: cada hueco pesa por las copias que le faltan.'}{' '}
+            <Link to="/coleccion/misiones" className="text-primary hover:underline">
+              Ver las misiones
+            </Link>
+          </p>
         ) : null}
       </div>
 

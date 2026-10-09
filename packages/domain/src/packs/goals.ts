@@ -5,6 +5,7 @@
  * - Collection: editions not owned (fewer than `copies`) whose rarity passes the filter, one point each.
  */
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
+import type { MissionProgress } from '../catalog/missions.js'
 import type { CardEdition, CardId, Rarity } from '../catalog/types.js'
 import type { DeckCardEntry } from '../decks/types.js'
 
@@ -102,4 +103,28 @@ export function collectionWanted(
       : ownedByInternalId(card.internalId)
     return amount <= goal.copies - 1
   })
+}
+
+/** Fase 44: a mission slot still missing copies — the third goal of the recommendation. */
+export interface MissionWant {
+  mission: string
+  expansionId: string
+  /** Editions that count for the slot (any of them). */
+  options: CardId[]
+  /** Copies still missing for the slot. */
+  missing: number
+}
+
+/** The slots of the missions not complete yet, from `missionProgress`. */
+export function missionWants(progress: readonly MissionProgress[]): MissionWant[] {
+  return progress.flatMap((item) =>
+    item.slots
+      .filter((slot) => slot.have < slot.amount)
+      .map((slot) => ({
+        mission: item.mission.name,
+        expansionId: item.mission.expansionId,
+        options: [...slot.options],
+        missing: slot.amount - slot.have,
+      })),
+  )
 }
