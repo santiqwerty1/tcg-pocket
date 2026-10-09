@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-10 fichas: cerrada 5 · respondida 5. ⚑ = para revisar.
+12 fichas: cerrada 5 · respondida 7. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Sector | Actualizado |
 | --- | --- | --- | --- | --- | --- |
@@ -26,4 +26,6 @@ revisar: false
 | [P-007](P-007.md) | ¿Dónde guardamos la copia de seguridad fuera de Supabase? | respondida | — | copia de seguridad | 2026-10-09 |
 | [P-008](P-008.md) | ¿Querés jugar contra el bot sin la PC prendida? | respondida | — | jugar contra un bot | 2026-10-09 |
 | [P-009](P-009.md) | ¿Qué mejoras nuevas de la optimización de mazos hacemos, y cuándo? | respondida | — | laboratorio de mazos | 2026-10-09 |
+| [P-010](P-010.md) | ¿Creamos un bucket de Tigris en Fly para la copia fuera de Supabase? | respondida | — | copia de seguridad | 2026-10-09 |
+| [P-011](P-011.md) | ¿Con qué chequeamos desde afuera que la app está viva? | respondida | — | operación | 2026-10-09 |
 | [P-012](P-012.md) | ¿Cuando vence la sesión, la app tiene que seguir desregistrando el service worker? | respondida | — | sesión y notificaciones | 2026-10-09 |

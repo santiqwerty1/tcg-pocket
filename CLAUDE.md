@@ -62,6 +62,17 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
   - tokens `*-foreground` y P-012: un 401 conserva el service worker;
   - tests de pantallas con `src/test/fakeApi.ts`.
 - **Repo público (D-022, 9/10/2026):** LICENSE AGPL-3.0 y seudónimos en los datos de Limitless (`scripts/pseudonymize-limitless.mjs`). Santi eligió publicar en un repo nuevo con historial limpio; la mudanza queda para un momento tranquilo.
+- **Fase 38 implementada el 9/10/2026** (DECISIONES 41.1–41.12):
+  - avisos de operación (`backup_stale`, `limitless_sync`, `catalog_sync`, `github_check`, `database_size`);
+  - `GET /api/ops/status` y la tool `system_status`;
+  - `GITHUB_TOKEN` opcional;
+  - swap y `--max-old-space-size=320`;
+  - `release_command` (`docker/migrate.sh`);
+  - `deploy.mjs` con `APP_VERSION` y verificación de `/healthz`;
+  - Dependabot mensual y agrupado.
+  Guía en `docs/OPERACION.md`.
+- **Worker 0.2.6 (#16):** manda las features de su motor (`engineFeatures`), y la cola decide con `simulation/capabilities.ts` de `@tcg/domain`.
+- **Laboratorio (#7):** prueba apareada con `perGame` cuando hay un worker capaz (DECISIONES 45.5) y resumen por partida de cada lista (45.6).
 - **Organización desde el 9/10/2026 (tarde)**, pedido de Santi (D-021):
   - La sesión «TCG · Coordinador e integrador» reparte, revisa cada PR, mergea, despliega, recompila el motor y reinicia el worker. Es la única que edita la carpeta principal y los archivos compartidos de la bóveda (Avance, Inicio, la bitácora, CLAUDE.md, CHANGELOG, los Indice).
   - Las demás trabajan en su worktree o en la nube y entregan por PR, con «Para la bóveda» en la descripción.

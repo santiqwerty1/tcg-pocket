@@ -33,7 +33,7 @@ _Recuentos al 2026-10-09 (generados; no editar a mano)._
 | --- | --- | --- |
 | decision | 22 | vigente 22 |
 | hallazgo | 21 | abierto 5 · resuelto 16 |
-| pregunta | 10 | cerrada 5 · respondida 5 |
+| pregunta | 12 | cerrada 5 · respondida 7 |
 | riesgo | 12 | abierto 9 · resuelto 3 |
 | supuesto | 3 | refutado 1 · verificado 2 |
 | tarea | 17 | en_curso 3 · hecho 12 · pendiente 2 |

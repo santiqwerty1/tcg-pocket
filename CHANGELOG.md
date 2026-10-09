@@ -10,7 +10,11 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 ### Agregado
 
 - Claude write log with undo, new MCP tools and leaner answers (phase 43, T-014, R-010) `af1265b`
+- one replay per pairing in new matrices, two in comparisons (database size) (#4) `348fffd`
+- engine features decide what a worker can play; work nobody can play is said (H-010, H-018) `1eba88a`
 - interface — phase 41 (T-014, P-012) (#1) `773ad00`
+- operation alerts, /api/ops/status and system_status, memory limits, release_command, deploy verification (phase 38, WIP) `4004ce7`
+- paired test on per-game results and what each list's games say (H-010, T-017) `d5a806b`
 - honest numbers — luck per game, clustered intervals, FDR, Fisher, pack points (phase 37, H-009, H-011, H-012) `6af29d1`
 - engine-cli exits right after its games and reports each game on request (H-019, H-010, T-017) `9a27fe6`
 - monthly backup restore drill (phase 35, T-013) `0524489`
@@ -55,16 +59,14 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 - heat-map table, replay filter, phone layout and multi-worker ETA `bd7b381`
 - deckgym simulation with a Windows worker (phase 6, M7) `013890f`
 - tournament results from Limitless by era (phase 5, M5) (D-010, D-012, R-008, R-009, T-006) `ca79964`
-- limited-time packs, trade advice and version-aware exclusives (phase 4) `07ebe68`
-- pack recommendation with the tracker model and a corrected one (phase 4, M4) `2a266b6`
-- read-only MCP server for Claude, closest deck, random deck and best prints (phase 3) `5d081ed`
-- match logging with Wilson statistics (phase 2, M6) `b7c4232`
-- show card names in the deck import preview `4f751b7`
-- collection, decks, backup and settings endpoints per docs/API.md `b0fa80d`
 
 ### Corregido
 
 - audit entry before the write, no duplicate restore, versioned collection undo (phase 43, R-010) `14e0c59`
+- turnLimit is an integer from 1 to 100; the alert names its oldest job; negative tests (review of #16) `61050bf`
+- review of phase 38 — one push per 50 MB step, a failed migration never keeps the app down, Limitless alert by day, majors apart in Dependabot, situations cache of 64, stale datasets leave memory `90cb692`
+- review of #7 — perGame decided round by round, a sweep, partial pairing, rates with intervals (H-010, T-017) `2d3aa73`
+- ask for perGame only when a worker's engine-cli plays it too (H-010) (#7, #8) `de71216`
 - a result that does not add up fails the chunk; perGame needs engine-cli 0.2.0 (H-010) (#3) `b5e241c`
 - verify a round's winner on fresh seeds and let the confirmation decide (H-010) (H-020, H-021) `5e394fc`
 - a search plays the plan it showed and keeps its inputs for every round (H-021) `a6c40e6`
@@ -76,19 +78,21 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 - up to 150 decks per side, said plainly; validation errors name the field `2dbc3aa`
 - a matrix with an empty «Contra» side plays side A against itself; engine status survives an engine update `212cd11`
 - engine off Windows efficiency mode; quick jobs first; phase 6 acceptance (H-001, T-004) `e81e220`
-- set NODE_EXTRA_CA_CERTS in fly.toml and record decision 1.32 `3574f78`
-- trust the Supabase pooler CA so sslmode=verify-full works in production `a9dac63`
-- address the adversarial review `72b2082`
 
 ### Cambiado
 
+- perGameReady uses the queue's canPlayPerGame (engine features, #16) (H-010) `de3ab51`
 - a claim counts each job's pending chunks once (B2, H-019) `d39a89b`
 - one bot-code pattern for every schema (H-018) `ce80e50`
 
 ### Documentado
 
 - posta generar trims the CHANGELOG from a cloud session; today's log (H-017) `f9fda38`
+- situations cache size in the operation guide `2af3002`
 - improvement review of 9/10 — 14 confirmed findings, risks, questions and proposed phases 36-45 (H-002..H-015, R-006, R-008, R-010, R-011, R-012, P-006, P-007, P-008, D-020, T-014) `fd5d4b8`
+- PRs #1, #8 and #11 integrated; Supabase ref out of CLAUDE.md; public repo and chat bridge decisions (D-021, D-022, T-014, P-012) `280a6f3`
+- operation guide (alerts, ops status, UptimeRobot, memory, deploy) and decisions 41.5-41.12 (phase 38) `20a9c6e`
+- P-010 (Tigris) and P-011 (UptimeRobot), answered by Santi through the coordinator `98d2d55`
 - PRs #2, #3, #4 and #6 integrated; the coordinator integrates and deploys; chat between sessions (D-021, T-014) `2ba94cd`
 - close H-009 and H-012 (phase 37); D-021 records the coordinator and the five sessions `e02c074`
 - P-009 answered by Santi, T-017 under way (P-009, T-017) `9869d97`
@@ -108,10 +112,6 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 - lab deployed to production (T-008, D-018) `82da0d6`
 - phase 5 acceptance verified on production data `5848fdb`
 - phase 4 approved; pending decisions flagged for later review (P-005, T-003, D-007, D-008, D-009, P-002, P-004, S-002) `59eaf3d`
-- Obsidian vault with the Posta kit (tablero dialect) (D-009, R-007) `cacfa8a`
-- production deployed on Fly + Supabase; ops notes `853bb69`
-- phase 1 implementation verified; deploy pending `b0c5b14`
-- record API implementation decisions and phase 1 state `629407b`
 
 ### Pruebas
 

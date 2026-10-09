@@ -59,16 +59,16 @@ revisar: false
 | E | Evaluación de mejoras: 14 hallazgos, riesgos, preguntas y fases propuestas 36 a 45 | hecho 09/10 · verificada 09/10 · aprobada 09/10 ([D-020](Decisiones/D-020.md)) | 35 | [Evaluación](Evaluacion-2026-10-09.md), [T-014](Tareas/T-014.md) |
 | 36 | Arreglos confirmados (y tope de 3 energías, [P-006](Preguntas/P-006.md)) | hecho 09/10 · desplegado (`55d658d`) | E | [T-014](Tareas/T-014.md) |
 | 37 | Números honestos | hecho 09/10 · desplegado (`e02c074`) · el punto 5 de [H-011](Hallazgos/H-011.md) pasó a Infra, con la 42 | 36 | [T-014](Tareas/T-014.md) |
-| 38 | Operación y avisos | en curso (Principal) · parte 1, minutos de la CI, desplegada · el resto en el PR #14, en revisión | 37 | [T-014](Tareas/T-014.md) |
-| 39 | Copia fuera de Supabase y retención ([P-007](Preguntas/P-007.md): en la nube) | en curso (Principal) · la copia va a Tigris en Fly (P-010, respondida por Santiago el 09/10) | 38 | [T-014](Tareas/T-014.md) |
-| 40 | Día de expansión en dos toques | pendiente · Nube-2, después del chat en el MCP | 39 | [T-014](Tareas/T-014.md) |
+| 38 | Operación y avisos | hecho 09/10 (Principal, PR #6 y #14; DECISIONES 41.1–41.12) | 37 | [T-014](Tareas/T-014.md) |
+| 39 | Copia fuera de Supabase y retención ([P-007](Preguntas/P-007.md): en la nube) | en curso (Principal) · PR #19, con un bloqueante de la revisión: la limpieza no corre sin el OK de Santiago · la copia va a Tigris (P-010) | 38 | [T-014](Tareas/T-014.md) |
+| 40 | Día de expansión en dos toques | pendiente · Principal, después de la 39 y del ensayo de la mudanza al repo público | 39 | [T-014](Tareas/T-014.md) |
 | 41 | Interfaz | hecho 09/10 (Nube-Mejoras, DECISIONES 44.1–44.11) · desplegado (`773ad00`) · [P-012](Preguntas/P-012.md): un 401 conserva el service worker | 40 | [T-014](Tareas/T-014.md) |
-| 42 | Simulaciones más baratas y calibradas | en curso · H-019, `perGame`, el reclamo rápido y los arreglos de `perGame` (#8) desplegados · el resto en Infra y Laboratorio | 41 | [T-014](Tareas/T-014.md) |
+| 42 | Simulaciones más baratas y calibradas | en curso · en main: H-019, `perGame` (#3, #8), el reclamo rápido (#4), las capacidades del motor (#16) y 1 repetición por cruce en las matrices (#18) · en PR: lotes (#9), B3 (#10), semilla por rival (#13) · calibración en curso (Infra) | 41 | [T-014](Tareas/T-014.md) |
 | 43 | Claude | hecho 09/10 · integrado y desplegado (`14e0c59`) | 42 | [T-014](Tareas/T-014.md), [R-010](Riesgos/R-010.md) |
 | 44 | Análisis nuevos | en curso (Nube-Mejoras): techs, núcleo y conversión al top hechos en local | 43 | [T-014](Tareas/T-014.md) |
 | W | Más workers: nube, Android y navegador (reemplaza la 45, [P-008](Preguntas/P-008.md)) | pendiente, después de la 44 | 44 | [T-015](Tareas/T-015.md) |
 | L | Búsqueda del laboratorio: probar siempre los cambios obvios (+1 copia, paso hacia la lista de torneo) | pendiente, para cuando Santiago la pida | — | [T-016](Tareas/T-016.md) |
-| O | Optimización de mazos: análisis del 09/10 (bot que no evoluciona, velocidad, semillas, búsqueda) | análisis hecho 09/10 · H-010, H-020 y H-021 en `lab/optimization` · T-017 en curso ([P-009](Preguntas/P-009.md) respondida) | — | [Optimización](Optimizacion-2026-10-09.md), [T-017](Tareas/T-017.md) |
+| O | Optimización de mazos: análisis del 09/10 (bot que no evoluciona, velocidad, semillas, búsqueda) | T-017 en curso (Laboratorio) · en main: H-010, H-020 y H-021, más la prueba apareada y el resumen por partida (#7) · en PR: bot `f<N>` (#5), aprendizaje entre rondas (#15), explicaciones (#20), «Frenar y confirmar» (#22) y deshacer cambios (#25) | — | [Optimización](Optimizacion-2026-10-09.md), [T-017](Tareas/T-017.md) |
 | K | Bóveda con el kit de Posta | hecho 07/10 · aprobado 08/10 | — | [D-009](Decisiones/D-009.md) |
 
 ## Próximos pasos
