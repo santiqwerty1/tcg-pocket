@@ -494,6 +494,25 @@ describe('MCP write tools (e2e)', () => {
     expect((read.structuredContent.note as Structured).text).toBe('Primera idea.')
   })
 
+  it('Fase 43: a deletion left «Sin terminar» can still be undone', async () => {
+    const client = await connect()
+    const logged = await call(client, 'matches_log', { deck: '6', result: 'win', opponent: 'Corte' })
+    const id = String((logged.structuredContent.match as Structured).id)
+    expect((await call(client, 'matches_delete', { id })).isError).toBeFalsy()
+    // The server died after the delete, before closing the entry: it stays pending, with the match kept.
+    const prisma = test.app.get(PrismaService)
+    const entry = await prisma.mcpAudit.findFirstOrThrow({ where: { tool: 'matches_delete' }, orderBy: { id: 'desc' } })
+    await prisma.mcpAudit.update({
+      where: { id: entry.id },
+      data: { ok: false, error: 'Sin terminar: el servidor no llegó a anotar el resultado.', result: undefined },
+    })
+    const listed = (await get('/api/mcp-audit?limit=5')).body.items as { id: string; undo: { kind: string } | null }[]
+    expect(listed.find((item) => item.id === String(entry.id))?.undo).toMatchObject({ kind: 'match_delete' })
+    const restored = await call(client, 'matches_restore', { id })
+    expect(restored.structuredContent).toMatchObject({ restored: true, match: { id } })
+    expect((await get(`/api/matches/${id}`)).status).toBe(200)
+  })
+
   it('Fase 43: a deleted rival note comes back with its archetype; one changed since is left alone', async () => {
     const client = await connect()
     const saved = await test

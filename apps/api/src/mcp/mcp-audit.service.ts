@@ -69,6 +69,16 @@ export interface AuditNote {
 /** What an entry says until the write finishes (it stays so if the server dies in between). */
 export const AUDIT_PENDING = 'Sin terminar: el servidor no llegó a anotar el resultado.'
 
+/**
+ * What can be undone: a write that finished, or a deletion left «Sin terminar» (the server died after keeping the
+ * match, maybe after deleting it: restoring says so if it is still there).
+ */
+function undoable(row: Pick<McpAudit, 'ok' | 'error' | 'undo'>): boolean {
+  const undo = row.undo as AuditUndo | null
+  if (!undo) return false
+  return row.ok || (row.error === AUDIT_PENDING && undo.kind === 'match_delete')
+}
+
 export interface McpAuditView {
   id: string
   at: Date
@@ -194,7 +204,7 @@ export class McpAuditService {
     const row = await this.prisma.mcpAudit.findFirst({
       where: {
         tool: MCP_WRITE_TOOLS.matchesDelete.name,
-        ok: true,
+        OR: [{ ok: true }, { error: AUDIT_PENDING }],
         undoneAt: null,
         undo: { path: ['match', 'id'], equals: matchId },
       },
@@ -210,7 +220,7 @@ export class McpAuditService {
 
   private async apply(row: McpAudit): Promise<McpAuditView> {
     const undo = row.undo as AuditUndo | null
-    if (!undo || !row.ok) {
+    if (!undo || !undoable(row)) {
       throw new BadRequestException({ code: 'not_undoable', message: 'Esta escritura no se puede deshacer.' })
     }
     // Claimed first, so two «Deshacer» at once do not both run; released again if undoing fails.
@@ -373,7 +383,7 @@ export class McpAuditService {
       ok: row.ok,
       error: row.error,
       ms: row.ms,
-      undo: undo && row.ok && !row.undoneAt ? { kind: undo.kind, label: undo.label } : null,
+      undo: undo && undoable(row) && !row.undoneAt ? { kind: undo.kind, label: undo.label } : null,
       undoneAt: row.undoneAt,
     }
   }
