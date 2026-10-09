@@ -55,7 +55,8 @@ jobs:
       - run: pnpm -F @tcg/api test:e2e
 
   # engine-cli (AGPL, deckgym-core pinned in engine/Cargo.toml): unit tests and a Windows build kept as an artifact,
-  # for a PC without Rust (the worker takes any engine-cli.exe via TCG_ENGINE_PATH or config.json).
+  # for a PC without Rust (the worker takes any engine-cli.exe via TCG_ENGINE_PATH or config.json). Also the portable
+  # worker (tcg-worker.exe + engine-cli.exe + LEEME.txt) for another PC without Node, Rust or the repository.
   engine:
     runs-on: windows-latest
     steps:
@@ -70,4 +71,18 @@ jobs:
         with:
           name: engine-cli-windows
           path: engine/target/release/engine-cli.exe
+          retention-days: 30
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.9.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter @tcg/worker
+      - run: pnpm -F @tcg/worker package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tcg-worker-windows
+          path: apps/worker/build/tcg-worker-*-windows.zip
           retention-days: 30

@@ -14,10 +14,13 @@
     "start": "node dist/main.js",
     "engine:build": "cargo build --release --manifest-path ../../engine/Cargo.toml",
     "install-task": "node dist/install-task.js install",
-    "uninstall-task": "node dist/install-task.js uninstall"
+    "uninstall-task": "node dist/install-task.js uninstall",
+    "package": "node scripts/package.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "esbuild": "0.27.7",
+    "postject": "1.0.0-alpha.6",
     "typescript": "6.0.3",
     "vitest": "5.0.3"
   }

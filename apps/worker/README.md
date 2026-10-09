@@ -40,6 +40,16 @@ Worker 0.2.2 (Fase 20): las partidas con modo entrenador necesitan un motor comp
 
 El motor: `cargo build --release` en `engine/` (Rust estable y WinLibs en el `PATH`, ver CLAUDE.md) o `pnpm -F @tcg/worker engine:build`.
 
+## Otra PC: el paquete portable
+
+Para que otra PC juegue chunks (la app los reparte entre todos los workers prendidos; cada uno reclama el suyo):
+
+```bash
+pnpm -F @tcg/worker package   # apps/worker/build/tcg-worker-<versión>-windows.zip
+```
+
+El zip trae `tcg-worker.exe` (este worker empaquetado con Node como ejecutable único: la otra PC no necesita Node, Rust ni el repositorio), `engine-cli.exe` (el motor de `engine/target/release`, solo usa DLLs de Windows) y `LEEME.txt`. La CI lo arma en Windows en cada push a `main` (artefacto `tcg-worker-windows`, 30 días). En la otra PC: descomprimir, doble clic en `tcg-worker.exe` (pide un token de tipo worker, núcleos y nombre; prueba el motor y la conexión; instala el arranque al iniciar sesión y lo deja corriendo). `tcg-worker.exe --check`, `--once`, `--run` (lo que arranca el inicio de sesión) y `--uninstall`. Configuración y log en `%LOCALAPPDATA%\tcg-worker`, como acá; el motor se busca al lado del `.exe`. No está firmado: si vino de internet, Windows avisa («Más información → Ejecutar de todas formas»). Al actualizar el motor o el worker, reemplazar los dos `.exe` por los de un paquete nuevo.
+
 ## Tests
 
 `pnpm -F @tcg/worker test` usa `test/fake-engine.mjs`, un `engine-cli` falso en Node con la misma línea de comandos, archivos, progreso y códigos de salida (`games: 13` falla, `games: 99` no termina). Cubren el motor (progreso, error con código, corte por señal), el bucle (resultado y repeticiones, resultado pendiente tras un corte de red, rechazo 404, falla del motor, optimizar) y los reintentos del cliente.

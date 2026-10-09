@@ -3,6 +3,8 @@
 node_modules
 **/node_modules
 **/dist
+# the portable worker package (apps/worker/build): not part of the app
+**/build
 **/coverage
 **/*.tsbuildinfo
 apps/api/src/generated

@@ -14,6 +14,7 @@ Qué código o datos se toman de cada fuente, bajo qué licencia y qué implica 
 | `mogja9/ptcgp-tracker` | MIT | — | Idea del cliente con reintentos y del criterio de elegibilidad (reimplementado) | Aviso de atribución si se copia código | — |
 | `KevinGutowski/tcgp-deck-qr` | MIT | — | Referencia del formato QR del juego («más adelante») | Aviso si se copia | — |
 | `@modelcontextprotocol/server`, `/node` 2.x (y `/client` solo en tests) | Apache-2.0 | 2.3.1 / 2.1.1 | Dependencia npm del servidor MCP (Fase 3), sin modificar | Ninguna mientras sea privado | Incluir el aviso de licencia Apache-2.0 al distribuir |
+| Node.js (`node.exe` dentro de `tcg-worker.exe`, paquete portable del worker) | MIT (y las licencias de sus dependencias, en su `LICENSE`) | 24.x de la PC o de la CI | Se copia `node.exe` y se le inyecta el worker (aplicación ejecutable única) | Ninguna mientras el paquete sea para PCs propias | Si se distribuye a terceros: incluir el `LICENSE` de Node.js y las fuentes de `engine/` (AGPL) |
 | `PocketDecks/pokemon-tcg-pocket-tier-list`, `PocketDecks/pokemon-tcg-pocket-cards` | AGPL-3.0 | — | Solo lectura de su documentación de scoring; **no se copia código** | — | — |
 | Imágenes de cartas | © The Pokémon Company / DeNA / Creatures | — | Nunca en el repo ni en la DB; solo enlaces al raw del tracker | — | — |
 

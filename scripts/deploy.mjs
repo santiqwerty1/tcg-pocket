@@ -49,8 +49,10 @@ if (ci.conclusion !== 'success') fail(`La CI falló (${ci.conclusion}): ${ci.url
 ok(`CI verde (${ci.url})`)
 
 // 4. The vault (Posta's CI cannot run on GitHub: R-007).
-const posta = spawnSync('posta', ['check', '.'], { encoding: 'utf8', shell: process.platform === 'win32' })
-if (posta.error || posta.status === null) console.warn('! posta no está en el PATH: la bóveda no se validó')
+// One command string: on Windows `posta` is a .cmd shim, which needs the shell.
+const posta = spawnSync('posta check .', { encoding: 'utf8', shell: true })
+const missing = /no se reconoce|not recognized|not found/i.test(`${posta.stderr}`)
+if (posta.error || posta.status === null || missing) console.warn('! posta no está en el PATH: la bóveda no se validó')
 else if (posta.status !== 0) fail(`posta check falló:\n${posta.stdout}${posta.stderr}`)
 else ok('bóveda sin errores (posta check)')
 

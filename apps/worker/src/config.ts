@@ -32,7 +32,7 @@ export function defaultEnginePath(): string {
   return resolve(here, '..', '..', '..', 'engine', 'target', 'release', exe)
 }
 
-interface FileConfig {
+export interface FileConfig {
   server?: string
   token?: string
   cores?: number
@@ -40,7 +40,31 @@ interface FileConfig {
   enginePath?: string
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
+/** What a caller knows better than the repository layout (the portable package: the engine next to the exe). */
+export interface ConfigDefaults {
+  enginePath?: string | undefined
+}
+
+export function configFile(): string {
+  return join(dataDir(), 'config.json')
+}
+
+export function readFileConfig(): FileConfig {
+  const file = configFile()
+  return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as FileConfig) : {}
+}
+
+/** Saves the file configuration (the portable package's setup). */
+export function writeFileConfig(config: FileConfig): void {
+  mkdirSync(dataDir(), { recursive: true })
+  writeFileSync(
+    configFile(),
+    `${JSON.stringify(config, null, 2)}
+`,
+  )
+}
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env, defaults: ConfigDefaults = {}): WorkerConfig {
   const dir = dataDir()
   mkdirSync(dir, { recursive: true })
   const file = join(dir, 'config.json')
@@ -59,7 +83,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     token,
     cores: Number.isInteger(cores) && cores > 0 ? cores : 2,
     name: env.TCG_WORKER_NAME ?? fromFile.name ?? hostname(),
-    enginePath: env.TCG_ENGINE_PATH ?? fromFile.enginePath ?? defaultEnginePath(),
+    enginePath: env.TCG_ENGINE_PATH ?? fromFile.enginePath ?? defaults.enginePath ?? defaultEnginePath(),
     dataDir: dir,
     workerId: readFileSync(idFile, 'utf8').trim(),
   }
