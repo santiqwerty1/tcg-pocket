@@ -266,6 +266,9 @@ ${MCP_CHAT_INSTRUCTIONS}`
     server.registerTool(t.tournamentsMatchups.name, config(t.tournamentsMatchups), (args) =>
       run(t.tournamentsMatchups.name, () => this.tournamentsMatchups(args)),
     )
+    server.registerTool(t.tournamentsArchetypeCards.name, config(t.tournamentsArchetypeCards), (args) =>
+      run(t.tournamentsArchetypeCards.name, () => this.tournamentsArchetypeCards(args)),
+    )
     server.registerTool(t.tournamentsBuildable.name, config(t.tournamentsBuildable), (args) =>
       run(t.tournamentsBuildable.name, () => this.tournamentsBuildable(args)),
     )
@@ -1479,6 +1482,52 @@ ${MCP_CHAT_INSTRUCTIONS}`
           .filter((cell) => cell.a === row.archetype.id && cell.b !== cell.a)
           .map((cell) => `vs ${name.get(cell.b) ?? cell.b}: ${formatWinRateEs(cell.rate)}`),
       })),
+    }
+  }
+
+  private async tournamentsArchetypeCards(args: {
+    era?: string
+    format?: TournamentFormat
+    archetype: string
+  }): Promise<Json> {
+    const scope = { era: args.era, format: args.format }
+    const all = await this.tournaments.archetypes(scope)
+    const hit = this.findArchetype(all.rows, args.archetype)
+    const cards = await this.tournaments.archetypeCards(hit.archetype.id ?? 'none', scope)
+    const percent = (value: number) => `${percentFormat.format(value)} %`
+    const copies = (value: number) => percentFormat.format(value)
+    const card = (row: { nameEs: string; groupId: string }) => `${row.nameEs} (${row.groupId})`
+    return {
+      scope: await this.scopeJson(cards.scope),
+      archetype: { id: cards.archetype.id, name: cards.archetype.name },
+      lists: cards.lists,
+      ...(cards.incomplete > 0
+        ? { incompleteListsLeftOut: `${cards.incomplete} listas con cartas que el catálogo todavía no conoce` }
+        : {}),
+      core: {
+        slots: `${copies(cards.coreSlots)} de 20 (quedan ${copies(cards.freeSlots)} libres)`,
+        cards: cards.core.map((row) => `${card(row)}: ${percent(row.share)}, ${copies(row.averageCopies)} copias`),
+      },
+      techs: cards.techs.map((row) => ({
+        card: card(row),
+        playedBy: percent(row.share),
+        averageCopies: copies(row.averageCopies),
+        with: rateView(row.with.rate),
+        without: rateView(row.without.rate),
+        difference: row.difference
+          ? { text: row.difference.text, clear: row.difference.clear, orientative: row.difference.orientative }
+          : null,
+      })),
+      twoCopiesAgainstOne: cards.copies.map((row) => ({
+        card: card(row),
+        two: rateView(row.two.rate),
+        one: rateView(row.one.rate),
+        difference: row.difference
+          ? { text: row.difference.text, clear: row.difference.clear, orientative: row.difference.orientative }
+          : null,
+      })),
+      topConversion: cards.conversion?.text ?? 'Sin listas en torneos de 32 jugadores o más.',
+      note: cards.note,
     }
   }
 

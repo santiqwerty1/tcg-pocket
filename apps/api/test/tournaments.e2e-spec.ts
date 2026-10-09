@@ -247,6 +247,42 @@ describe('tournaments (e2e)', () => {
     expect(both.withWithout.with.lists + both.withWithout.without.lists).toBe(top?.lists)
   })
 
+  it('Fase 44: núcleo, techs with the difference and its interval, and conversion to the top 8', async () => {
+    const [top] = (await get('/api/tournaments/archetypes')).body.rows as { archetype: { id: string }; lists: number }[]
+    const bootstrap = vi.spyOn(test.app.get(TournamentsService), 'bootstrapCards')
+    const response = await get(`/api/tournaments/archetypes/${top?.archetype.id}/cards`)
+    expect(response.status).toBe(200)
+    const cards = response.body as {
+      lists: number
+      incomplete: number
+      coreSlots: number
+      freeSlots: number
+      core: { share: number }[]
+      techs: {
+        share: number
+        with: RecordRow
+        without: RecordRow
+        difference: { ci95: number[]; text: string } | null
+      }[]
+      conversion: { lists: number; topLists: number; excluded: { lists: number }; text: string } | null
+    }
+    // Lists with a card the catalog does not map are left out of the card tables.
+    expect(cards.lists + cards.incomplete).toBe(top?.lists)
+    expect(cards.coreSlots + cards.freeSlots).toBeCloseTo(20)
+    for (const core of cards.core) expect(core.share).toBeGreaterThanOrEqual(90)
+    for (const tech of cards.techs) expect(tech.with.lists + tech.without.lists).toBe(cards.lists)
+    const compared = cards.techs.find((tech) => tech.difference)
+    expect(compared?.difference?.text).toMatch(/puntos \(IC /)
+    // Every list counts toward the top 8 or is left out with its tournament (published too little).
+    expect((cards.conversion?.lists ?? 0) + (cards.conversion?.excluded.lists ?? 0)).toBe(top?.lists)
+    expect(cards.conversion?.text).toMatch(/llegaron al top 8/)
+    // Cached per dataset: the same answer again, without running the bootstrap a second time.
+    expect((await get(`/api/tournaments/archetypes/${top?.archetype.id}/cards`)).body).toEqual(cards)
+    expect(bootstrap).toHaveBeenCalledTimes(1)
+    bootstrap.mockRestore()
+    expect((await get('/api/tournaments/archetypes/no-such-archetype/cards')).status).toBe(404)
+  })
+
   it('what I can build today and which card unlocks the most lists', async () => {
     const buildable = (await get('/api/tournaments/buildable')).body as {
       buildable: { missing: unknown[] }[]
@@ -759,6 +795,10 @@ describe('tournaments (e2e)', () => {
       const one = await call('tournaments_matchups', { archetype: top?.name })
       expect((one.rivals as unknown[]).length).toBeGreaterThan(5)
       expect(one.expectedAgainstMeta).toMatchObject({ value: expect.stringMatching(/ %$/) })
+      const techs = await call('tournaments_archetype_cards', { archetype: top?.name })
+      expect((techs.core as { slots: string }).slots).toMatch(/de 20 \(quedan/)
+      expect(Array.isArray(techs.techs)).toBe(true)
+      expect(String(techs.topConversion)).toMatch(/top 8/)
       const buildable = await call('tournaments_buildable', { limit: 2 })
       expect((buildable.buildable as unknown[]).length).toBeGreaterThan(0)
       const unlock = await call('tournaments_unlock_cards', { limit: 3 })

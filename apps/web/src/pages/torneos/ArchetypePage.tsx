@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { formatInterval, formatRateValue } from '@/lib/matches'
 import { cardLabels, formatCount, formatShare, scopeFromSearch, scopeSearch } from '@/lib/tournaments'
 import { cn } from '@/lib/utils'
+import { ArchetypeCards } from './ArchetypeCards'
 import { ArchetypeMine } from './ArchetypeMine'
 
 export function ArchetypePage() {
@@ -134,6 +135,8 @@ export function ArchetypePage() {
           ))}
         </ul>
       </Section>
+
+      <ArchetypeCards id={archetype.archetype.id ?? 'none'} scope={scope} />
 
       {archetype.archetype.id ? (
         <ArchetypeMine

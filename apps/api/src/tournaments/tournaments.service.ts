@@ -6,6 +6,7 @@
  */
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import {
+  archetypeCards,
   archetypeRows,
   buildableLists,
   buildDataset,
@@ -25,6 +26,7 @@ import {
   eraSets,
   expectedVsMeta,
   fieldPerGame,
+  formatRateDifferenceEs,
   type LimitlessDecklist,
   type ListAgainstCollection,
   type ListCard,
@@ -42,6 +44,7 @@ import {
   newEraWarning,
   phaseBestOf,
   playableCopies,
+  type RateDifference,
   type RecordRow,
   recentMeta,
   recordOf,
@@ -52,6 +55,7 @@ import {
   substitutesFor,
   type TournamentDataset,
   type TournamentFormat,
+  topConversion,
   tournamentVersion,
   unlockCards,
   withWithout,
@@ -68,6 +72,7 @@ import { PrismaService } from '../prisma/prisma.service.js'
 import { TournamentDataVersion, TournamentSettings } from './tournament-settings.js'
 import { TournamentSyncService } from './tournament-sync.service.js'
 import type {
+  ArchetypeCardsView,
   ArchetypeDetailView,
   ArchetypeMatchupsView,
   ArchetypeRefView,
@@ -134,6 +139,8 @@ const MATCHUP_TABLE_DEFAULT = 12
 export class TournamentsService {
   private cache: CacheEntry[] = []
   private matchupCache: MatchupCacheEntry[] = []
+  /** Fase 44: the bootstrap of an archetype's cards takes up to half a second; once per dataset is enough. */
+  private cardsCache = new WeakMap<TournamentDataset, Map<string, ArchetypeCardsView>>()
   /**
    * Fase 38 (R-008): datasets being built, by key (two requests for the same era share one build), and the build
    * in course: one at a time, so two eras never sit half-built in memory together.
@@ -579,6 +586,65 @@ export class TournamentsService {
       withWithout: withWithoutView,
       matchups: this.archetypeMatchups(await this.matchupsOf(dataset), dataset, archetypeId),
     }
+  }
+
+  /** The bootstrap itself, apart so a test can count how often it runs (the cache must spare it). */
+  bootstrapCards(dataset: TournamentDataset, entries: readonly DatasetEntry[]): ReturnType<typeof archetypeCards> {
+    return archetypeCards(dataset, entries)
+  }
+
+  /** Fase 44: núcleo, techs (con y sin, con la diferencia), copias (2 contra 1) y conversión al top 8. */
+  async archetypeCards(id: string, query: ScopeQuery): Promise<ArchetypeCardsView> {
+    const scope = await this.scope(query)
+    const dataset = await this.dataset(scope)
+    const archetypeId = id === 'none' ? null : ((await this.settings.aliases()).get(id) ?? id)
+    const key = archetypeId ?? 'none'
+    const cached = this.cardsCache.get(dataset)?.get(key)
+    if (cached) return cached
+    const entries = entriesOfArchetype(dataset, archetypeId)
+    if (entries.length === 0) throw new NotFoundException(`No hay listas del arquetipo ${id} en esta era.`)
+    const result = this.bootstrapCards(dataset, entries)
+    const name = (groupId: CardId) => scope.index.groupById(groupId)?.nameEs ?? groupId
+    const difference = (value: RateDifference | null) =>
+      value === null ? null : { ...value, text: formatRateDifferenceEs(value) }
+    const view: ArchetypeCardsView = {
+      scope: this.scopeView(scope, dataset),
+      archetype: this.archetypeRef(dataset, archetypeId),
+      lists: result.lists,
+      incomplete: result.incomplete,
+      resamples: result.resamples,
+      core: result.core.map((row) => ({ ...row, nameEs: name(row.groupId) })),
+      coreSlots: result.coreSlots,
+      freeSlots: result.freeSlots,
+      techs: result.techs.map((row) => ({
+        groupId: row.groupId,
+        nameEs: name(row.groupId),
+        lists: row.lists,
+        share: row.share,
+        averageCopies: row.averageCopies,
+        with: rowView(row.with),
+        without: rowView(row.without),
+        difference: difference(row.difference),
+      })),
+      copies: result.copies.map((row) => ({
+        groupId: row.groupId,
+        nameEs: name(row.groupId),
+        lists: row.lists,
+        share: row.share,
+        one: rowView(row.one),
+        two: rowView(row.two),
+        difference: difference(row.difference),
+      })),
+      conversion: topConversion(dataset, archetypeId),
+      note:
+        'Diferencias entre las listas que juegan la carta y las que no: no prueban que la carta sea la causa (quien la ' +
+        'juega puede jugar mejor). El intervalo sale de remuestrear listas enteras; «clara» corrige por mirar muchas ' +
+        'cartas a la vez (Benjamini–Hochberg).',
+    }
+    const byArchetype = this.cardsCache.get(dataset) ?? new Map<string, ArchetypeCardsView>()
+    byArchetype.set(key, view)
+    this.cardsCache.set(dataset, byArchetype)
+    return view
   }
 
   async lists(

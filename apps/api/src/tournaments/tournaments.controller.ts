@@ -9,6 +9,7 @@ import { LimitlessClient, LimitlessTransport } from './limitless.client.js'
 import { TournamentDataVersion, TournamentSettings } from './tournament-settings.js'
 import { TournamentSyncService } from './tournament-sync.service.js'
 import type {
+  ArchetypeCardsView,
   ArchetypeDetailView,
   ArchetypesView,
   BuildableView,
@@ -121,6 +122,16 @@ export class TournamentsController {
     @CurrentSession() _session: RequestSession,
   ): Promise<ArchetypeDetailView> {
     return this.tournaments.archetype(id, query)
+  }
+
+  /** Fase 44: núcleo, techs, copias y conversión al top 8 del arquetipo (`none` = listas sin arquetipo). */
+  @Get('archetypes/:id/cards')
+  archetypeCards(
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(scopeSchema)) query: z.infer<typeof scopeSchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<ArchetypeCardsView> {
+    return this.tournaments.archetypeCards(id, query)
   }
 
   @Put('archetypes/:id/alias')

@@ -2,6 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { z } from 'zod'
 import { request } from './client'
 import {
+  archetypeCardsSchema,
   archetypeDetailSchema,
   archetypesResponseSchema,
   buildableResponseSchema,
@@ -32,6 +33,7 @@ export const tournamentKeys = {
   archetypes: (scope: TournamentScopeParams) => ['tournaments', 'archetypes', scope] as const,
   archetype: (id: string, scope: TournamentScopeParams, card: string | null, minCount: number) =>
     ['tournaments', 'archetype', id, scope, card, minCount] as const,
+  archetypeCards: (id: string, scope: TournamentScopeParams) => ['tournaments', 'archetype-cards', id, scope] as const,
   lists: (scope: TournamentScopeParams, kind: 'group' | 'name') => ['tournaments', 'lists', scope, kind] as const,
   list: (key: string, scope: TournamentScopeParams, kind: 'group' | 'name') =>
     ['tournaments', 'list', key, scope, kind] as const,
@@ -123,6 +125,18 @@ export function useArchetype(id: string, scope: TournamentScopeParams, card: str
         { schema: archetypeDetailSchema, signal },
       ),
     placeholderData: keepPreviousData,
+  })
+}
+
+/** Fase 44: núcleo, techs, copias y conversión al top 8 (bootstrap en el servidor: se pide al abrir la sección). */
+export function useArchetypeCards(id: string, scope: TournamentScopeParams) {
+  return useQuery({
+    queryKey: tournamentKeys.archetypeCards(id, scope),
+    queryFn: ({ signal }) =>
+      request(`/api/tournaments/archetypes/${encodeURIComponent(id)}/cards${query({ ...scope })}`, {
+        schema: archetypeCardsSchema,
+        signal,
+      }),
   })
 }
 

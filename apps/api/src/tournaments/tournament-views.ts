@@ -1,5 +1,5 @@
 /** Response shapes of the tournaments API (docs/API.md «Torneos»). Rates are `WinRate` (percent, Wilson 95 %). */
-import type { GameRecord, TournamentFormat, WinRate } from '@tcg/domain'
+import type { GameRecord, TopConversion, TournamentFormat, WinRate } from '@tcg/domain'
 
 export interface RecordRowView {
   lists: number
@@ -117,6 +117,53 @@ export interface ArchetypeDetailView {
   withWithout: WithWithoutView | null
   /** Fase 9: against each rival in the era's pairings, the most played first. */
   matchups: ArchetypeMatchupsView
+}
+
+/** Fase 44: a difference between two rates, in points, with its bootstrap interval (resampling lists). */
+export interface RateDifferenceView {
+  value: number
+  ci95: [number, number]
+  p: number
+  /** Passes Benjamini–Hochberg at 5 % over the rows of its table. */
+  clear: boolean
+  /** The smaller side has fewer than 30 lists. */
+  orientative: boolean
+  text: string
+}
+
+export interface CardRefView {
+  groupId: string
+  nameEs: string
+}
+
+/** Fase 44: núcleo, techs, copies and conversion to the top of an archetype. */
+export interface ArchetypeCardsView {
+  scope: ScopeView
+  archetype: ArchetypeRefView
+  lists: number
+  /** Lists left out: a card of theirs does not map to the catalog yet. */
+  incomplete: number
+  resamples: number
+  core: (CardRefView & { lists: number; share: number; averageCopies: number; byCopies: number[] })[]
+  coreSlots: number
+  freeSlots: number
+  techs: (CardRefView & {
+    lists: number
+    share: number
+    averageCopies: number
+    with: RecordRowView
+    without: RecordRowView
+    difference: RateDifferenceView | null
+  })[]
+  copies: (CardRefView & {
+    lists: number
+    share: number
+    one: RecordRowView
+    two: RecordRowView
+    difference: RateDifferenceView | null
+  })[]
+  conversion: TopConversion | null
+  note: string
 }
 
 /** One rival of an archetype (Fase 9): matches of the era's pairings, a match being a whole BO1 or BO3. */

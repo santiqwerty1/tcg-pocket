@@ -1215,6 +1215,82 @@ export const archetypeDetailSchema = z.object({
 })
 export type ArchetypeDetail = z.infer<typeof archetypeDetailSchema>
 
+// ---------- Núcleo, techs y conversión (Fase 44) ----------
+
+export const rateDifferenceSchema = z.object({
+  value: z.number(),
+  ci95: z.tuple([z.number(), z.number()]),
+  p: z.number(),
+  clear: z.boolean(),
+  orientative: z.boolean().default(false),
+  text: z.string(),
+})
+export type RateDifference = z.infer<typeof rateDifferenceSchema>
+
+const cardRefSchema = { groupId: z.string(), nameEs: z.string() }
+
+export const topConversionSchema = z.object({
+  top: z.number(),
+  minPlayers: z.number(),
+  minCoverage: z.number().default(0.9),
+  tournaments: z.number(),
+  lists: z.number(),
+  topLists: z.number(),
+  rate: z.number().nullable(),
+  ci95: z.tuple([z.number(), z.number()]).nullable(),
+  expected: z.number(),
+  baseline: z.number().nullable(),
+  ratio: z.number().nullable(),
+  ratioCi95: z.tuple([z.number(), z.number()]).nullable(),
+  excluded: z.object({ tournaments: z.number(), lists: z.number() }).default({ tournaments: 0, lists: 0 }),
+  orientative: z.boolean(),
+  text: z.string(),
+})
+export type TopConversion = z.infer<typeof topConversionSchema>
+
+export const archetypeCardsSchema = z.object({
+  scope: scopeSchema,
+  archetype: archetypeRefSchema,
+  lists: z.number(),
+  incomplete: z.number().default(0),
+  resamples: z.number(),
+  core: z.array(
+    z.object({
+      ...cardRefSchema,
+      lists: z.number(),
+      share: z.number(),
+      averageCopies: z.number(),
+      byCopies: z.array(z.number()),
+    }),
+  ),
+  coreSlots: z.number(),
+  freeSlots: z.number(),
+  techs: z.array(
+    z.object({
+      ...cardRefSchema,
+      lists: z.number(),
+      share: z.number(),
+      averageCopies: z.number(),
+      with: recordRowSchema,
+      without: recordRowSchema,
+      difference: rateDifferenceSchema.nullable(),
+    }),
+  ),
+  copies: z.array(
+    z.object({
+      ...cardRefSchema,
+      lists: z.number(),
+      share: z.number(),
+      one: recordRowSchema,
+      two: recordRowSchema,
+      difference: rateDifferenceSchema.nullable(),
+    }),
+  ),
+  conversion: topConversionSchema.nullable(),
+  note: z.string(),
+})
+export type ArchetypeCards = z.infer<typeof archetypeCardsSchema>
+
 export const listDetailSchema = z.object({
   scope: scopeSchema,
   list: listAgainstSchema,

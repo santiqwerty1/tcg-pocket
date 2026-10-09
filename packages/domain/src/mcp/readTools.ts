@@ -327,6 +327,20 @@ export const MCP_READ_TOOLS = {
       top: z.number().int().min(2).max(30).optional().describe('Arquetipos de la tabla (por defecto 10)'),
     }),
   },
+  tournamentsArchetypeCards: {
+    name: 'tournaments_archetype_cards',
+    title: 'Núcleo, techs y conversión de un arquetipo',
+    description: `Qué juegan las listas de un arquetipo de torneo, carta por carta: el núcleo (cartas que juega el 90 % o más y cuántos de los 20 lugares ocupan), los techs (cartas del 10 al 90 %: récord con y sin la carta y la diferencia en puntos, con un intervalo que remuestrea listas enteras; «clear» = pasa Benjamini–Hochberg al 5 % entre las cartas de la tabla), 2 copias contra 1 de las cartas que se juegan de las dos formas, y la conversión al top 8 en torneos de 32 jugadores o más que publicaron el 90 % de las listas y todo su top (cuántas de sus listas llegaron, contra las que se esperaban: cada lista espera la cuota de top 8 del resto de las listas publicadas de su propio torneo, sumadas; «razón ajustada por torneo» es la de Mantel–Haenszel, con su intervalo (no es lo observado sobre lo esperado cuando la cuota cambia entre torneos); dice cuántos torneos quedaron afuera). Una diferencia dice que las listas con la carta rindieron distinto, no que la carta sea la causa. ${TOURNAMENT_NOTE}`,
+    input: z.object({
+      ...tournamentScope,
+      archetype: z
+        .string()
+        .trim()
+        .min(1)
+        .max(100)
+        .describe('Arquetipo: parte del nombre en inglés («Mega Blaziken») o su id de Limitless'),
+    }),
+  },
   tournamentsBuildable: {
     name: 'tournaments_buildable',
     title: 'Listas de torneo que puedo armar',

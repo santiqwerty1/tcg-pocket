@@ -146,6 +146,7 @@ describe('MCP endpoint (e2e)', () => {
       'rivals_notes',
       'simulations_results',
       'system_status',
+      'tournaments_archetype_cards',
       'tournaments_buildable',
       'tournaments_matchups',
       'tournaments_stats',
@@ -166,7 +167,7 @@ describe('MCP endpoint (e2e)', () => {
   it('serves 2026-07-28 clients from the same endpoint', async () => {
     const client = await connect('modern')
     const { tools } = await client.listTools()
-    expect(tools).toHaveLength(38)
+    expect(tools).toHaveLength(39)
     // Fase 29: the games against the bot (none here) and the review of one.
     expect((await call(client, 'play_games')).structuredContent).toEqual({ games: [] })
     // Fase 38: the server's own state, with the alerts in force.
@@ -487,7 +488,7 @@ describe('MCP endpoint (e2e)', () => {
       .set('Cookie', cookie)
       .send({ name: 'temporal', kind: 'mcp', scopes: ['mcp:read'] })
     const client = await connect('legacy', created.body.token)
-    expect((await client.listTools()).tools.length).toBe(38)
+    expect((await client.listTools()).tools.length).toBe(39)
     expect((await test.http().delete(`/api/tokens/${created.body.id}`).set('Cookie', cookie)).status).toBe(204)
     await expect(client.listTools()).rejects.toThrow()
   })

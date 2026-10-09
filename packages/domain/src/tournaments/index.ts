@@ -1,4 +1,5 @@
 // Public API of the tournaments module (apps import it through '@tcg/domain').
+export * from './archetypeCards.js'
 export * from './buildable.js'
 export * from './dataset.js'
 export * from './eras.js'
@@ -7,4 +8,5 @@ export * from './matchups.js'
 export * from './recentLists.js'
 export * from './stats.js'
 export * from './substitutes.js'
+export * from './topConversion.js'
 export * from './trends.js'
