@@ -62,6 +62,9 @@ describe('per-game results of a chunk', () => {
     expect(checkPerGame(mixed, tally)).toBeNull()
     expect(checkPerGame(mixed, { ...tally, turns: 71 })).toMatch(/no suma/)
     expect(checkPerGame({ ...mixed, turns: [12, 9, 30, 20] }, tally)).toMatch(/límite de 30 turnos/)
+    // The engine says its limit (0.2.1 on): with 25, 26 turns is the limit and 26 in a tie by points is not.
+    expect(checkPerGame({ ...mixed, turnLimit: 25, turns: [12, 9, 26, 20] }, tally)).toBeNull()
+    expect(checkPerGame({ ...mixed, turnLimit: 25, turns: [12, 9, 26, 26] }, tally)).toMatch(/límite de 25 turnos/)
     expect(checkPerGame({ ...mixed, turns: [12, 9, 31, 31] }, tally)).toMatch(/partida 3.*límite/)
     expect(checkPerGame({ ...mixed, turns: [12, 9, 31, -1] }, tally)).toMatch(/turns/)
     expect(checkPerGame({ ...mixed, turns: '12,9,31,20' }, tally)).toMatch(/turns/)

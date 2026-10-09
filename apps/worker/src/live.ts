@@ -41,10 +41,10 @@ export class LiveRunner {
   ) {}
 
   /** Runs until the signal aborts; an unexpected error restarts the loop a minute later. Never rejects. */
-  async start(engineRev: string, signal: AbortSignal): Promise<void> {
+  async start(engineRev: string, signal: AbortSignal, engineFeatures: string[] = []): Promise<void> {
     while (!signal.aborted) {
       try {
-        await this.loop(engineRev, signal)
+        await this.loop(engineRev, signal, engineFeatures)
       } catch (error) {
         if (signal.aborted) return
         this.log('las partidas contra el bot fallaron; vuelvo a empezar en 60 s', {
@@ -55,12 +55,20 @@ export class LiveRunner {
     }
   }
 
-  async loop(engineRev: string, signal: AbortSignal): Promise<void> {
+  async loop(engineRev: string, signal: AbortSignal, engineFeatures: string[] = []): Promise<void> {
     while (!signal.aborted) {
       let game: LiveGame | null
       try {
         game = (
-          await this.client.liveClaim({ workerId: this.config.workerId, engineRev, version: WORKER_VERSION }, signal)
+          await this.client.liveClaim(
+            {
+              workerId: this.config.workerId,
+              engineRev,
+              version: WORKER_VERSION,
+              ...(engineFeatures.length ? { engineFeatures } : {}),
+            },
+            signal,
+          )
         ).game
       } catch (error) {
         if (signal.aborted) return

@@ -1,5 +1,6 @@
 // Public API of the simulation module (apps import it through '@tcg/domain').
 
+export * from './capabilities.js'
 export * from './coach.js'
 export * from './consistency.js'
 export * from './engineFallback.js'

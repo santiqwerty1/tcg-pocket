@@ -47,6 +47,10 @@ use uuid::Uuid;
 
 const ENGINE_REV: &str = env!("DECKGYM_REV");
 const CLI_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// What the worker and the queue can ask of this engine beyond the commands of 0.1.0 (`perGame`: H-010, T-017 A2).
+const FEATURES: [&str; 1] = ["perGame"];
+/// deckgym ties a game when turn 31 begins (`State::advance_turn`): reported so the app does not hard-code it.
+const TURN_LIMIT: u32 = 30;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Errors and output
@@ -490,6 +494,8 @@ struct PerGame {
     stages_a: String,
     /// The same for deck B.
     stages_b: String,
+    /// More turns than this and the game is a tie («L»).
+    turn_limit: u32,
 }
 
 impl PerGame {
@@ -501,6 +507,7 @@ impl PerGame {
             turns: Vec::with_capacity(games),
             stages_a: String::with_capacity(games),
             stages_b: String::with_capacity(games),
+            turn_limit: TURN_LIMIT,
         }
     }
 
@@ -775,7 +782,12 @@ fn run(args: &[String]) -> Result<(), CliError> {
     match args.first().map(String::as_str) {
         Some("version") => write_json(
             None,
-            &serde_json::json!({ "engineRev": ENGINE_REV, "cliVersion": CLI_VERSION, "cards": CardId::iter().count() }),
+            &serde_json::json!({
+                "engineRev": ENGINE_REV,
+                "cliVersion": CLI_VERSION,
+                "cards": CardId::iter().count(),
+                "features": FEATURES,
+            }),
         ),
         Some("status") => write_json(args.get(1).map(String::as_str), &status()),
         Some("validate") => {
@@ -896,9 +908,7 @@ mod tests {
                 'T' => assert!(ending == 'L' || ending == 'T', "game {i}: {ending}"),
                 _ => assert!(ending == 'P' || ending == 'N', "game {i}: {ending}"),
             }
-            if ending == 'L' {
-                assert!(games.turns[i] > 30);
-            }
+            assert_eq!(ending == 'L', games.turns[i] > games.turn_limit, "game {i}: {ending} in {} turns", games.turns[i]);
         }
         // Altaria evolves Swablu (stage 1): random bots get there in some games, and never past stage 2.
         assert!(games.stages_a.chars().chain(games.stages_b.chars()).all(|c| ('0'..='2').contains(&c)));

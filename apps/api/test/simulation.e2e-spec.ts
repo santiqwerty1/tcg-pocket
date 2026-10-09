@@ -544,6 +544,78 @@ describe('simulation (e2e)', () => {
     }
   })
 
+  it('H-010: three results that do not add up, each after a claim, fail the chunk and end the job; a stale one does not count', async () => {
+    const created = await post('/api/simulations').send({
+      kind: 'compare',
+      sideA: decks(3, 3),
+      sideB: decks(5, 5),
+      gamesPerPair: 4,
+      players: ['r', 'r'],
+    })
+    const bad = (workerId: string) => ({
+      workerId,
+      engineRev: test.env.engineRev,
+      winsA: 1,
+      winsB: 1,
+      ties: 1,
+      games: 4,
+      durationMs: 1,
+    })
+    const attemptOf = async (id: unknown) =>
+      (await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: Number(id) } })).attempt
+    let chunkId: unknown = null
+    for (const attempt of [1, 2]) {
+      chunkId = ((await claim('worker-bad')).body.chunk as Structured).chunkId
+      expect((await bearer('put', `/api/worker/chunks/${chunkId}/result`).send(bad('worker-bad'))).status).toBe(422)
+      expect(await attemptOf(chunkId)).toBe(attempt)
+    }
+    // A worker that does not hold the chunk (it went back to the queue) sends a bad result: it does not count.
+    expect((await bearer('put', `/api/worker/chunks/${chunkId}/result`).send(bad('worker-late'))).status).toBe(422)
+    expect(await attemptOf(chunkId)).toBe(2)
+    expect(((await claim('worker-bad')).body.chunk as Structured).chunkId).toBe(chunkId)
+    expect((await bearer('put', `/api/worker/chunks/${chunkId}/result`).send(bad('worker-bad'))).status).toBe(422)
+    expect(await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: Number(chunkId) } })).toMatchObject({
+      status: 'failed',
+      attempt: 3,
+    })
+    expect((await get(`/api/simulations/${created.body.id}`)).body.status).toBe('failed')
+    await test.http().delete(`/api/simulations/${created.body.id}`).set('Cookie', cookie)
+  })
+
+  it('capabilities: engine features decide perGame; an incapable worker gets a hint and the alert says nobody can play it', async () => {
+    const created = await post('/api/simulations').send({
+      kind: 'compare',
+      sideA: decks(3, 3),
+      sideB: decks(5, 5),
+      gamesPerPair: 4,
+      players: ['r', 'r'],
+      perGame: true,
+    })
+    // Only the workers of this test count as seen in the last 30 minutes.
+    await test.prisma.workerNode.updateMany({ data: { lastSeenAt: new Date(Date.now() - 2 * 60 * 60 * 1000) } })
+    const hello = (id: string, cliVersion: string, engineFeatures: string[]) =>
+      bearer('post', '/api/worker/claim').send({ ...worker(id), version: '0.2.6', cliVersion, engineFeatures })
+    const idleTitles = async () =>
+      ((await get('/api/alerts')).body.items as { code: string; title: string }[])
+        .filter((item) => item.code === 'worker_idle')
+        .map((item) => item.title)
+    // An engine that lists its features without perGame: nothing, and the hint says why.
+    const blocked = (await hello('worker-feat-1', '0.9.0', ['batch'])).body
+    expect(blocked.chunk).toBeNull()
+    expect(blocked.hint).toContain('partida por partida')
+    expect(await test.prisma.workerNode.findUniqueOrThrow({ where: { id: 'worker-feat-1' } })).toMatchObject({
+      engineFeatures: ['batch'],
+    })
+    // The only worker of the last 30 minutes cannot play what waits: the alert says so.
+    expect(await idleTitles()).toEqual(['Hay simulaciones que ningún worker puede jugar'])
+    // An engine that lists perGame plays it, whatever its version number says.
+    const chunk = (await hello('worker-feat-2', '0.1.0', ['perGame'])).body.chunk as Structured
+    expect(chunk).toMatchObject({ jobId: created.body.id, perGame: true })
+    expect(await idleTitles()).toEqual([])
+    await post(`/api/simulations/${created.body.id}/cancel`)
+    await test.http().delete(`/api/simulations/${created.body.id}`).set('Cookie', cookie)
+  })
+
   it('list: archive finished jobs (one by one or all), bring them back, delete the cancelled ones', async () => {
     const make = async () =>
       (

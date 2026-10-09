@@ -7,7 +7,9 @@ const REV = 'fb792ebfbaca995af9750c28101ce92a51282825'
 const [command, jobFile, resultFile] = process.argv.slice(2)
 
 if (command === 'version') {
-  process.stdout.write(JSON.stringify({ engineRev: REV, cliVersion: '0.1.0-fake', cards: 2 }))
+  // FAKE_ENGINE_OLD: an engine from before features (and before perGame).
+  const features = process.env.FAKE_ENGINE_OLD ? {} : { features: ['perGame'] }
+  process.stdout.write(JSON.stringify({ engineRev: REV, cliVersion: '0.1.0-fake', cards: 2, ...features }))
 } else if (command === 'status') {
   process.stdout.write(
     JSON.stringify([

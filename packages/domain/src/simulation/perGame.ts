@@ -21,7 +21,12 @@ export interface PerGameResults {
   stagesA: string
   /** The same for deck B. */
   stagesB: string
+  /** More turns than this is a tie at the limit («L»); engines from before 0.2.1 leave it out (deckgym's 30). */
+  turnLimit?: number
 }
+
+/** deckgym's limit, for results that do not say it. */
+export const DEFAULT_TURN_LIMIT = 30
 
 export type PerGameEnding = 'points' | 'no_pokemon' | 'turn_limit' | 'tie'
 
@@ -85,13 +90,14 @@ export function checkPerGame(
     return 'perGame.turns no suma los turnos del chunk.'
   }
   const endings = results.endings as string
+  const limit = typeof results.turnLimit === 'number' ? results.turnLimit : DEFAULT_TURN_LIMIT
   for (let i = 0; i < games; i++) {
     const tie = winners[i] === 'T'
     const tieEnding = endings[i] === 'L' || endings[i] === 'T'
     if (tie !== tieEnding) return `perGame: la partida ${i} no termina como dice su resultado.`
-    // deckgym ties a game when turn 31 begins, and only then: «L» if and only if more than 30 turns were played.
-    if ((endings[i] === 'L') !== (turns[i] as number) > 30) {
-      return `perGame: la partida ${i} no coincide con el límite de 30 turnos.`
+    // deckgym ties a game when the turn after the limit begins, and only then: «L» if and only if more were played.
+    if ((endings[i] === 'L') !== (turns[i] as number) > limit) {
+      return `perGame: la partida ${i} no coincide con el límite de ${limit} turnos.`
     }
   }
   return null

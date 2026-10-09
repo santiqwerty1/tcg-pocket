@@ -10,6 +10,8 @@ export interface EngineVersion {
   engineRev: string
   cliVersion: string
   cards: number
+  /** What it can do beyond the commands of 0.1.0 (`perGame`…); missing in engines from before 0.2.1. */
+  features?: string[]
 }
 
 export interface EngineCardStatus {

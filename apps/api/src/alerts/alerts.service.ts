@@ -8,7 +8,7 @@
  * the GitHub checks — and a database close to Supabase's limit.
  */
 import { Inject, Injectable } from '@nestjs/common'
-import { parseExpansionIds } from '@tcg/domain'
+import { canPlayPerGame, parseExpansionIds } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { ENV, type Env } from '../config/env.js'
@@ -210,7 +210,15 @@ export class AlertsService {
       })
     }
     const idle = await this.workerIdle()
-    if (idle) {
+    if (idle?.reason === 'perGame') {
+      alerts.push({
+        code: 'worker_idle',
+        level: 'warning',
+        title: 'Hay simulaciones que ningún worker puede jugar',
+        detail: `${idle.waiting} ${idle.waiting === 1 ? 'chunk pide' : 'chunks piden'} resultados partida por partida y ningún worker de los últimos 30 minutos los juega: actualizá el worker (0.2.5 o más nuevo) y recompilá el motor.`,
+        link: '/simulacion',
+      })
+    } else if (idle) {
       alerts.push({
         code: 'worker_idle',
         level: 'warning',
@@ -283,21 +291,37 @@ export class AlertsService {
     return alerts
   }
 
-  private async workerIdle(now = new Date()): Promise<{ waiting: number; since: string | null } | null> {
-    const [chunks, games, last] = await Promise.all([
-      this.prisma.simulationChunk.count({
-        where: {
-          job: { status: { in: ['queued', 'running'] } },
-          OR: [{ status: 'queued' }, { status: 'leased', leaseUntil: { lt: now } }],
-        },
-      }),
+  private async workerIdle(
+    now = new Date(),
+  ): Promise<{ waiting: number; since: string | null; reason: 'none' | 'perGame' } | null> {
+    const waitingChunk = { OR: [{ status: 'queued' as const }, { status: 'leased' as const, leaseUntil: { lt: now } }] }
+    const [chunks, games, last, recent] = await Promise.all([
+      this.prisma.simulationChunk.count({ where: { job: { status: { in: ['queued', 'running'] } }, ...waitingChunk } }),
       this.prisma.liveGame.count({ where: { status: 'queued' } }),
       this.prisma.workerNode.findFirst({ orderBy: { lastSeenAt: 'desc' }, select: { lastSeenAt: true } }),
+      this.prisma.workerNode.findMany({
+        where: { lastSeenAt: { gte: new Date(now.getTime() - WORKER_IDLE_MS) } },
+        select: { version: true, cliVersion: true, engineFeatures: true },
+      }),
     ])
     const waiting = chunks + games
     if (waiting === 0) return null
-    if (last && now.getTime() - last.lastSeenAt.getTime() < WORKER_IDLE_MS) return null
-    return { waiting, since: last ? ownerDateTime(last.lastSeenAt) : null }
+    if (recent.length === 0) {
+      return { waiting, since: last ? ownerDateTime(last.lastSeenAt) : null, reason: 'none' }
+    }
+    // Some worker is alive, but work that none of them can play waits all the same (a job with perGame, H-010).
+    if (recent.some((worker) => canPlayPerGame(worker))) return null
+    const perGame = await this.prisma.simulationChunk.count({
+      where: {
+        job: {
+          status: { in: ['queued', 'running'] },
+          kind: { in: ['matrix', 'compare', 'explore'] },
+          params: { path: ['perGame'], equals: true },
+        },
+        ...waitingChunk,
+      },
+    })
+    return perGame > 0 ? { waiting: perGame, since: null, reason: 'perGame' } : null
   }
 
   /**

@@ -102,7 +102,7 @@ export class Worker {
   }
 
   /** Engine version, and its card status uploaded once per revision (the app marks «no simulable» with it). */
-  async prepare(): Promise<{ engineRev: string; cliVersion: string }> {
+  async prepare(): Promise<{ engineRev: string; cliVersion: string; engineFeatures: string[] }> {
     const version = await engineVersion(this.config.enginePath)
     const state = await this.readState()
     if (state.statusUploaded !== version.engineRev) {
@@ -111,7 +111,7 @@ export class Worker {
       this.log('estado del motor subido', { engineRev: version.engineRev.slice(0, 7), ...summary })
       await this.writeState({ ...state, statusUploaded: version.engineRev })
     }
-    return { engineRev: version.engineRev, cliVersion: version.cliVersion }
+    return { engineRev: version.engineRev, cliVersion: version.cliVersion, engineFeatures: version.features ?? [] }
   }
 
   /** Sends a result left over by a previous run (no network, PC turned off right after a chunk). */
@@ -359,7 +359,7 @@ export class Worker {
 
   /** Claims and plays chunks until `signal` aborts (or once, for tests and `--once`). */
   async loop(signal: AbortSignal, options: { once?: boolean } = {}): Promise<void> {
-    const { engineRev, cliVersion } = await this.prepare()
+    const { engineRev, cliVersion, engineFeatures } = await this.prepare()
     await this.flushPending()
     this.log('worker listo', {
       server: this.config.server,
@@ -370,7 +370,9 @@ export class Worker {
     // Games against a bot run next to the chunks (they wait on the owner most of the time).
     const live = options.once
       ? null
-      : new LiveRunner(this.config, this.client, this.log, this.workDir).start(engineRev, signal)
+      : new LiveRunner(this.config, this.client, this.log, this.workDir).start(engineRev, signal, engineFeatures)
+    // The app's hint about waiting work this worker cannot play, written once each time it changes.
+    let lastHint: string | null = null
     while (!signal.aborted) {
       let claim: Awaited<ReturnType<WorkerClient['claim']>>
       try {
@@ -382,6 +384,7 @@ export class Worker {
             cliVersion,
             cores: this.config.cores,
             version: WORKER_VERSION,
+            ...(engineFeatures.length ? { engineFeatures } : {}),
           },
           signal,
         )
@@ -392,6 +395,10 @@ export class Worker {
           throw error
         }
         throw error
+      }
+      if ((claim.hint ?? null) !== lastHint) {
+        lastHint = claim.hint ?? null
+        if (lastHint) this.log(lastHint, { version: WORKER_VERSION, engine: cliVersion })
       }
       if (!claim.chunk) {
         if (claim.requiredEngineRev) {

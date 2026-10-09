@@ -11,6 +11,8 @@ export interface Hello {
   cliVersion: string
   cores: number
   version: string
+  /** What the engine can do (`features` of `engine-cli version`); missing in engines from before 0.2.1. */
+  engineFeatures?: string[]
 }
 
 export interface Chunk {
@@ -146,12 +148,13 @@ export class WorkerClient {
   }
 
   claim(hello: Hello, signal?: AbortSignal) {
-    return this.request<{ chunk: Chunk | null; requiredEngineRev: string | null; retryAfterSeconds: number }>(
-      'POST',
-      '/api/worker/claim',
-      hello,
-      { ...(signal ? { signal } : {}), timeoutMs: 60_000 },
-    )
+    return this.request<{
+      chunk: Chunk | null
+      requiredEngineRev: string | null
+      retryAfterSeconds: number
+      /** Why there is waiting work this worker cannot play (an old engine, for instance). */
+      hint?: string
+    }>('POST', '/api/worker/claim', hello, { ...(signal ? { signal } : {}), timeoutMs: 60_000 })
   }
 
   heartbeat(chunkId: number, body: { workerId: string; gamesDone: number; total?: number }, signal?: AbortSignal) {
@@ -178,7 +181,10 @@ export class WorkerClient {
     })
   }
 
-  liveClaim(body: { workerId: string; engineRev: string; version: string }, signal?: AbortSignal) {
+  liveClaim(
+    body: { workerId: string; engineRev: string; version: string; engineFeatures?: string[] },
+    signal?: AbortSignal,
+  ) {
     return this.request<{ game: LiveGame | null }>('POST', '/api/worker/live/claim', body, {
       ...(signal ? { signal } : {}),
       timeoutMs: 60_000,

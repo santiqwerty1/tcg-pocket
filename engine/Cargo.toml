@@ -1,6 +1,6 @@
 [package]
 name = "engine-cli"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 # Links deckgym-core (AGPL-3.0): this executable is a derivative work under the same license (DECISIONES A.5).
 license = "AGPL-3.0-only"

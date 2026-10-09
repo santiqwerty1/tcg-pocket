@@ -7,7 +7,7 @@
 
 import { EventEmitter } from 'node:events'
 import { BadRequestException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
-import { checkPerGame, PER_GAME_CLI_VERSION, PER_GAME_WORKER_VERSION, wantsPerGame } from '@tcg/domain'
+import { canPlayPerGame, checkPerGame, wantsPerGame } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import type { Prisma } from '../generated/prisma/client.js'
 import { gunzipJson } from '../http/gunzip.js'
@@ -28,7 +28,13 @@ export interface WorkerHello {
   cliVersion?: string | undefined
   cores: number
   version?: string | undefined
+  /** What its engine can do (`engine-cli version`), from worker 0.2.6 on. */
+  engineFeatures?: string[] | undefined
 }
+
+/** Said to a worker that got nothing while there is work it cannot play: it writes it in its log. */
+export const PER_GAME_HINT =
+  'Hay simulaciones que piden resultados partida por partida y este worker no puede jugarlas: hace falta el worker 0.2.5 o más nuevo y recompilar el motor (engine-cli con perGame).'
 
 export interface ClaimedChunk {
   chunkId: number
@@ -118,6 +124,7 @@ export class WorkerQueueService {
         cliVersion: hello.cliVersion ?? null,
         cores: hello.cores,
         version: hello.version ?? null,
+        engineFeatures: hello.engineFeatures ?? [],
       },
       update: {
         name: hello.name,
@@ -125,6 +132,7 @@ export class WorkerQueueService {
         cliVersion: hello.cliVersion ?? null,
         cores: hello.cores,
         version: hello.version ?? null,
+        engineFeatures: hello.engineFeatures ?? [],
         lastSeenAt: new Date(),
       },
     })
@@ -141,9 +149,8 @@ export class WorkerQueueService {
     // H-002: versions compared as numbers here, not as text in SQL («0.2.10» < «0.2.2» as text).
     const consistency = versionAtLeast(hello.version, CONSISTENCY_WORKER_VERSION)
     const metaConsistency = versionAtLeast(hello.version, META_CONSISTENCY_WORKER_VERSION)
-    // perGame needs both: a worker that forwards it and an engine that plays it.
-    const perGame =
-      versionAtLeast(hello.version, PER_GAME_WORKER_VERSION) && versionAtLeast(hello.cliVersion, PER_GAME_CLI_VERSION)
+    // perGame needs both: a worker that forwards it and an engine that plays it (capabilities.ts).
+    const perGame = canPlayPerGame(hello)
     const rows = await this.prisma.$queryRaw<{ id: number }[]>`
       UPDATE simulation_chunks SET status = 'leased', lease_until = now() + interval '3 minutes',
         worker_id = ${hello.workerId}, games_done = 0, started_at = COALESCE(started_at, now())
@@ -228,7 +235,9 @@ export class WorkerQueueService {
    * Claims a chunk, waiting up to 25 s for one. Null = nothing to do; `requiredEngineRev` tells a worker with another
    * engine which one the queued jobs need.
    */
-  async claim(hello: WorkerHello): Promise<{ chunk: ClaimedChunk | null; requiredEngineRev: string | null }> {
+  async claim(
+    hello: WorkerHello,
+  ): Promise<{ chunk: ClaimedChunk | null; requiredEngineRev: string | null; hint?: string }> {
     await this.seen(hello)
     const immediate = await this.tryClaim(hello)
     if (immediate) return { chunk: immediate, requiredEngineRev: null }
@@ -249,7 +258,27 @@ export class WorkerQueueService {
       queued.once('queued', done)
       timer.unref?.()
     })
-    return { chunk: await this.tryClaim(hello), requiredEngineRev: null }
+    const chunk = await this.tryClaim(hello)
+    if (chunk) return { chunk, requiredEngineRev: null }
+    const hint = await this.hintFor(hello)
+    return { chunk: null, requiredEngineRev: null, ...(hint ? { hint } : {}) }
+  }
+
+  /** Why a worker that got nothing cannot take what is waiting for its engine, if that is the case. */
+  private async hintFor(hello: WorkerHello): Promise<string | null> {
+    if (canPlayPerGame(hello)) return null
+    const waiting = await this.prisma.simulationChunk.count({
+      where: {
+        job: {
+          status: { in: ['queued', 'running'] },
+          engineRev: hello.engineRev,
+          kind: { in: ['matrix', 'compare', 'explore'] },
+          params: { path: ['perGame'], equals: true },
+        },
+        OR: [{ status: 'queued' }, { status: 'leased', leaseUntil: { lt: new Date() } }],
+      },
+    })
+    return waiting > 0 ? PER_GAME_HINT : null
   }
 
   private async requireChunk(id: number) {

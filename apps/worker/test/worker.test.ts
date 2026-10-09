@@ -217,6 +217,36 @@ describe('worker loop', () => {
     }
   })
 
+  it('reports its engine’s features in the claim, and writes the app’s hint once while it does not change', async () => {
+    const lines: string[] = []
+    const log = (message: string) => {
+      lines.push(message)
+    }
+    const { client } = fakeClient([])
+    const hint = 'Hay simulaciones que piden resultados partida por partida y este worker no puede jugarlas.'
+    vi.mocked(client.claim).mockResolvedValue({ chunk: null, requiredEngineRev: null, retryAfterSeconds: 0, hint })
+    const stop = new AbortController()
+    let claims = 0
+    vi.mocked(client.claim).mockImplementation(async () => {
+      if (++claims === 3) stop.abort()
+      return { chunk: null, requiredEngineRev: null, retryAfterSeconds: 0, hint }
+    })
+    await new Worker(config, client, log).loop(stop.signal, { once: false })
+    expect(vi.mocked(client.claim).mock.calls[0]?.[0]).toMatchObject({ version: '0.2.6', engineFeatures: ['perGame'] })
+    expect(lines.filter((line) => line === hint)).toHaveLength(1)
+  })
+
+  it('an engine without features is not said to have any', async () => {
+    process.env.FAKE_ENGINE_OLD = '1'
+    try {
+      const { client } = fakeClient([chunk({ chunkId: 41, replaySample: 0 })])
+      await new Worker(config, client, silent).loop(new AbortController().signal, { once: true })
+      expect(vi.mocked(client.claim).mock.calls[0]?.[0]).not.toHaveProperty('engineFeatures')
+    } finally {
+      delete process.env.FAKE_ENGINE_OLD
+    }
+  })
+
   it('reports an engine failure instead of a result', async () => {
     const { client, calls } = fakeClient([chunk({ chunkId: 10, games: 13 })])
     await new Worker(config, client, silent).loop(new AbortController().signal, { once: true })

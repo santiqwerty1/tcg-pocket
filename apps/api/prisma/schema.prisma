@@ -734,6 +734,8 @@ model WorkerNode {
   cliVersion String?  @map("cli_version")
   cores      Int      @default(1)
   version    String?
+  /// What its engine can do (`engine-cli version` features), reported from worker 0.2.6 on; empty before.
+  engineFeatures String[] @default([]) @map("engine_features")
   lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(3)
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
