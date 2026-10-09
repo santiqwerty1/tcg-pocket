@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-09 (90 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-09 (91 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -79,6 +79,7 @@ _Borrador generado al 2026-10-09 (90 commits). Escribí el «porqué» fuera de 
 
 - posta generar trims the CHANGELOG from a cloud session; today's log (H-017) `f9fda38`
 - improvement review of 9/10 — 14 confirmed findings, risks, questions and proposed phases 36-45 (H-002..H-015, R-006, R-008, R-010, R-011, R-012, P-006, P-007, P-008, D-020, T-014) `fd5d4b8`
+- close the findings fixed in phase 36 (H-002, H-003, H-005, H-006, H-007, H-008, H-013, H-014, H-015, H-016, P-006) `ffbf409`
 - the PC worker died with the Claude app update; restarted detached (H-016) `3982bc2`
 - Santi's answers — deploy each phase 36-44, free off-site copy, cloud worker simulates (P-007, T-015) `51b2b8b`
 - fix an anchor in today's log `125a1a9`
