@@ -118,34 +118,38 @@ export class RivalNotesService {
   ): Promise<boolean> {
     // Never a write without the key: it would reach every note with that text.
     if (!key) return false
-    if (after === null) {
-      if (!before) return true
-      const created = await this.prisma.rivalNote.createMany({
-        data: [
-          {
-            key,
-            label: before.label ?? label ?? key,
-            archetypeId: before.archetypeId ?? null,
-            text: before.text,
-            ...(before.createdAt ? { createdAt: new Date(before.createdAt) } : {}),
-          },
-        ],
-        skipDuplicates: true,
-      })
-      return created.count > 0
-    }
-    const where = { key, text: after, ...(afterUpdatedAt ? { updatedAt: new Date(afterUpdatedAt) } : {}) }
-    const changed = before
-      ? await this.prisma.rivalNote.updateMany({
-          where,
-          data: {
-            text: before.text,
-            ...(before.label !== undefined ? { label: before.label } : {}),
-            ...(before.archetypeId !== undefined ? { archetypeId: before.archetypeId } : {}),
-          },
+    // Under the same per-note lock as `write`: a write landing now reads either the note before or after the undo.
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RIVAL_NOTE_LOCK}::int, hashtext(${key}))`
+      if (after === null) {
+        if (!before) return true
+        const created = await tx.rivalNote.createMany({
+          data: [
+            {
+              key,
+              label: before.label ?? label ?? key,
+              archetypeId: before.archetypeId ?? null,
+              text: before.text,
+              ...(before.createdAt ? { createdAt: new Date(before.createdAt) } : {}),
+            },
+          ],
+          skipDuplicates: true,
         })
-      : await this.prisma.rivalNote.deleteMany({ where })
-    return changed.count > 0
+        return created.count > 0
+      }
+      const where = { key, text: after, ...(afterUpdatedAt ? { updatedAt: new Date(afterUpdatedAt) } : {}) }
+      const changed = before
+        ? await tx.rivalNote.updateMany({
+            where,
+            data: {
+              text: before.text,
+              ...(before.label !== undefined ? { label: before.label } : {}),
+              ...(before.archetypeId !== undefined ? { archetypeId: before.archetypeId } : {}),
+            },
+          })
+        : await tx.rivalNote.deleteMany({ where })
+      return changed.count > 0
+    })
   }
 
   async remove(key: string): Promise<void> {

@@ -279,6 +279,8 @@ export class McpAuditService {
     }
     // One transaction: if the sequence cannot be fixed, the match is not back either (and «Deshacer» can be retried).
     return this.prisma.$transaction(async (tx) => {
+      // No other insert into matches until this commits: the sequence moves and the id is taken with nobody in between.
+      await tx.$executeRawUnsafe('LOCK TABLE "matches" IN SHARE ROW EXCLUSIVE MODE')
       // A taken id means the sequence was moved back: past every id first, or the new one could be taken too.
       if (holder) await this.matchSequencePastIds(tx)
       const created = await tx.match.create({
