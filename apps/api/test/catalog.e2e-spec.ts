@@ -77,9 +77,10 @@ describe('catalog (e2e)', () => {
     expect(health.body.engineRev).toBe(test.env.engineRev)
 
     const row = await test.prisma.catalogSync.findUniqueOrThrow({ where: { id: summary.syncId } })
-    // Nine files plus the 21 mission files of the pinned tracker (Fase 8).
     const hashes = Object.keys(row.fileHashes as Record<string, unknown>)
-    expect(hashes).toHaveLength(9 + 21)
+    // 9 tracker and engine files, the image manifest (Fase 22) and 21 mission files.
+    expect(hashes).toHaveLength(9 + 1 + 21)
+    expect(hashes).toContain('imageLocales')
     expect(hashes.filter((key) => key.startsWith('missions:'))).toHaveLength(21)
     expect(row.missions as unknown[]).toHaveLength(EXPECTED_MISSIONS)
     // Missions against an empty collection: none complete, every one listed.

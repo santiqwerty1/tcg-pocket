@@ -86,6 +86,12 @@ export interface LiveGameView {
   /** Engine id («A1 001») → Spanish name; and the engine's English name, to translate its own texts. */
   names: Record<string, string>
   cards: Record<string, { id: string; name: string }>
+  /** Fase 22: engine id → the catalog edition played (images and the card sheet). */
+  cardIds: Record<string, string>
+  /** Fase 22: both lists (the bot's list is known: it is a practice game). */
+  decks: { human: { engineId: string; count: number }[]; rival: { engineId: string; count: number }[] }
+  /** Fase 22: times the owner went back to an earlier decision. */
+  undos: number
   workerOnline: boolean
   error: string | null
   createdAt: Date
@@ -245,13 +251,20 @@ export class LiveGamesService {
     const index = this.catalog.requireIndex()
     const names: Record<string, string> = {}
     const cards: Record<string, { id: string; name: string }> = {}
+    const cardIds: Record<string, string> = {}
     for (const snapshot of snapshots) {
       for (const card of snapshot.cards as unknown as SnapshotCard[]) {
         const played = index.cardById(card.playedAs)
         names[card.engineId] = played?.nameEs ?? card.engineId
         cards[card.engineId] = { id: card.engineId, name: played?.nameEn ?? card.engineId }
+        if (played) cardIds[card.engineId] = played.id
       }
     }
+    const list = (snapshot: (typeof snapshots)[number] | undefined) =>
+      ((snapshot?.cards ?? []) as unknown as SnapshotCard[]).map((card) => ({
+        engineId: card.engineId,
+        count: card.count,
+      }))
     return {
       id: game.id,
       status: game.status,
@@ -282,6 +295,9 @@ export class LiveGamesService {
       replay: game.replayGz !== null,
       names,
       cards,
+      cardIds,
+      decks: { human: list(human), rival: list(rival) },
+      undos: game.undos,
       workerOnline: worker ? Date.now() - worker.lastSeenAt.getTime() < WORKER_ONLINE_MS : false,
       error: game.error,
       createdAt: game.createdAt,
@@ -345,6 +361,71 @@ export class LiveGamesService {
       data: { decision: { ...decision, hinted: true } as unknown as Prisma.InputJsonValue },
     })
     return this.view(updated)
+  }
+
+  /**
+   * Fase 22: back to the previous decision. The game is its seed and the owner's choices, so dropping the last choice
+   * and queueing it again makes the worker rebuild it right up to that decision (the coach's reviews from there on go
+   * too). Only while it is the owner's turn or once it ended: while the PC is moving, wait.
+   */
+  async undo(rawId: string): Promise<LiveGameView> {
+    const game = await this.requireGame(rawId)
+    if (game.status !== 'waiting' && game.status !== 'done') {
+      throw new ConflictException({
+        code: game.status === 'queued' || game.status === 'running' ? 'busy' : 'finished',
+        message:
+          game.status === 'queued' || game.status === 'running'
+            ? 'La PC está moviendo: esperá tu turno para deshacer.'
+            : 'Esta partida ya no se puede deshacer.',
+      })
+    }
+    if (game.choices.length === 0) {
+      throw new ConflictException({ code: 'nothing_to_undo', message: 'Todavía no elegiste nada.' })
+    }
+    const keep = game.choices.length - 1
+    const reviews = (game.coachLog as unknown as CoachReview[]).filter((review) => review.ply <= keep)
+    const updated = await this.prisma.liveGame.update({
+      where: { id: game.id },
+      data: {
+        status: 'queued',
+        choices: { set: game.choices.slice(0, keep) },
+        coachLog: reviews as unknown as Prisma.InputJsonValue,
+        undos: { increment: 1 },
+        decision: Prisma.DbNull,
+        workerId: null,
+        leaseUntil: null,
+        winner: null,
+        turns: null,
+        finalState: Prisma.DbNull,
+        replayGz: null,
+        finishedAt: null,
+      },
+    })
+    // The worker waiting on this game hears «restart»; any worker may take it again.
+    this.events.emit(`choice:${game.id}`)
+    this.events.emit('queued')
+    return this.view(updated)
+  }
+
+  /** Fase 22: the same decks and bot again; with `sameSeed`, the very same shuffle (another line from the start). */
+  async rematch(rawId: string, input: { sameSeed?: boolean | undefined }): Promise<LiveGameView> {
+    const game = await this.requireGame(rawId)
+    const seed = input.sameSeed ? game.seed : BigInt(randomBaseSeed(() => randomInt(0, 2 ** 32 - 1) >>> 0))
+    const created = await this.prisma.liveGame.create({
+      data: {
+        humanSnapshotId: game.humanSnapshotId,
+        botSnapshotId: game.botSnapshotId,
+        humanLabel: game.humanLabel,
+        rivalLabel: game.rivalLabel,
+        bot: game.bot,
+        seed,
+        engineRev: this.engine.engineRev(),
+        choices: [],
+        coach: game.coach,
+      },
+    })
+    this.events.emit('queued')
+    return this.view(created)
   }
 
   async abandon(rawId: string): Promise<LiveGameView> {
@@ -413,6 +494,12 @@ export class LiveGamesService {
     return { game: await this.tryClaim(input.workerId, input.engineRev, version) }
   }
 
+  /** Fase 22: the game went back to the queue (undo) while this worker had it: it must stop and claim again. */
+  private async takenBack(id: number, workerId: string): Promise<{ choice: null; status: 'restart' } | null> {
+    const game = await this.requireGame(id)
+    return game.status === 'queued' && game.workerId !== workerId ? { choice: null, status: 'restart' } : null
+  }
+
   private async requireLease(id: number, workerId: string): Promise<GameRow> {
     const game = await this.requireGame(id)
     if (game.workerId !== workerId) {
@@ -428,7 +515,9 @@ export class LiveGamesService {
   async decision(
     id: number,
     input: { workerId: string } & LiveDecision & { log: Prisma.InputJsonValue },
-  ): Promise<{ choice: number | null; status: GameRow['status'] }> {
+  ): Promise<{ choice: number | null; status: GameRow['status'] | 'restart' }> {
+    const taken = await this.takenBack(id, input.workerId)
+    if (taken) return taken
     const game = await this.requireLease(id, input.workerId)
     if (game.status === 'abandoned' || game.status === 'done' || game.status === 'failed') {
       return { choice: null, status: game.status }
@@ -460,6 +549,8 @@ export class LiveGamesService {
     input: { workerId: string; ply: number },
   ): Promise<{ choice: number | null; status: string }> {
     const read = async () => {
+      const taken = await this.takenBack(id, input.workerId)
+      if (taken) return taken
       const game = await this.requireLease(id, input.workerId)
       await this.prisma.liveGame.update({ where: { id }, data: { leaseUntil: new Date(Date.now() + LIVE_LEASE_MS) } })
       await this.prisma.workerNode.updateMany({ where: { id: input.workerId }, data: { lastSeenAt: new Date() } })

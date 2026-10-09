@@ -774,9 +774,11 @@ export class SimulationsService {
     const replay = JSON.parse(gunzipSync(row.dataGz).toString('utf8')) as { cards?: Record<string, unknown> }
     const index = this.catalog.requireIndex()
     const names: Record<string, string> = {}
+    const cardIds: Record<string, string> = {}
     for (const engineId of Object.keys(replay.cards ?? {})) {
       const card = index.cardByEngineId(engineId)
       names[engineId] = card?.nameEs ?? engineId
+      if (card) cardIds[engineId] = card.id
     }
     const ids = [row.chunk.snapshotAId, row.chunk.snapshotBId].filter((id): id is number => id !== null)
     const snapshots = await this.prisma.deckSnapshot.findMany({
@@ -788,6 +790,7 @@ export class SimulationsService {
     return {
       replay,
       names,
+      cardIds,
       game: {
         jobId: job.id,
         jobLabel: job.label,

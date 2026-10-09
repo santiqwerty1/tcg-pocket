@@ -130,8 +130,11 @@ export class LiveRunner {
             continue
           }
           const choice = await this.ask(game.id, message, actions, signal)
-          if (choice === null) {
-            this.log('partida abandonada', { game: game.id })
+          if (typeof choice !== 'number') {
+            // «restart»: the owner went back a decision (Fase 22); the game is queued again and rebuilt from there.
+            this.log(choice === 'restart' ? 'partida reiniciada para deshacer una jugada' : 'partida abandonada', {
+              game: game.id,
+            })
             abandoned = true
             kill()
             break
@@ -172,13 +175,13 @@ export class LiveRunner {
     }
   }
 
-  /** Sends a decision and waits for the owner's choice; null when the game was abandoned. */
+  /** Sends a decision and waits for the owner's choice; «stop» when the game was abandoned, «restart» after an undo. */
   private async ask(
     id: number,
     decision: Extract<EngineLine, { type: 'decide' }>,
     log: Record<string, unknown>[],
     signal: AbortSignal,
-  ): Promise<number | null> {
+  ): Promise<number | 'stop' | 'restart'> {
     const workerId = this.config.workerId
     const sent = await this.client.liveDecision(id, {
       workerId,
@@ -190,12 +193,14 @@ export class LiveRunner {
       ...(decision.coach ? { coach: decision.coach } : {}),
     })
     if (sent.choice !== null) return sent.choice
-    if (!['running', 'waiting'].includes(sent.status)) return null
+    if (sent.status === 'restart') return 'restart'
+    if (!['running', 'waiting'].includes(sent.status)) return 'stop'
     for (;;) {
-      if (signal.aborted) return null
+      if (signal.aborted) return 'stop'
       const reply = await this.client.liveChoice(id, { workerId, ply: decision.ply }, signal)
       if (reply.choice !== null) return reply.choice
-      if (!['running', 'waiting'].includes(reply.status)) return null
+      if (reply.status === 'restart') return 'restart'
+      if (!['running', 'waiting'].includes(reply.status)) return 'stop'
     }
   }
 }

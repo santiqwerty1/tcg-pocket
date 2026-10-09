@@ -22,6 +22,8 @@ const copies = [
   ['frontend/public/locales/es-ES/common/packs.json', 'tracker/es-ES.packs.json'],
   ['frontend/public/locales/en-US/common/sets.json', 'tracker/en-US.sets.json'],
   ['frontend/public/locales/en-US/common/packs.json', 'tracker/en-US.packs.json'],
+  // Fase 22: which card images exist in Spanish.
+  ['frontend/assets/image-locales.json', 'tracker/image-locales.json'],
 ]
 for (const [src, dst] of copies) copyFileSync(join(tracker, src), join(out, dst))
 

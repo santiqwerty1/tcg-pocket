@@ -162,6 +162,8 @@ export interface EngineView {
 export interface ReplayView {
   replay: unknown
   names: Record<string, string>
+  /** Fase 22: engine id → catalog card id (images and the card sheet). */
+  cardIds: Record<string, string>
   game: {
     jobId: number
     jobLabel: string

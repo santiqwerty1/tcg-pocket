@@ -41,6 +41,9 @@ export const FIXTURE_ENGINE_PATH = 'deckgym/engine-cards.json'
 /** Missions (themed collections, Fase 8): one file per expansion that has them. */
 export const MISSIONS_DIR = 'frontend/assets/themed-collections'
 export const FIXTURE_MISSIONS_DIR = 'tracker/themed-collections'
+/** Which card images exist in which language (Fase 22: Spanish images when there are). Optional. */
+export const IMAGE_LOCALES_PATH = 'frontend/assets/image-locales.json'
+export const FIXTURE_IMAGE_LOCALES_PATH = 'tracker/image-locales.json'
 export const DEFAULT_FIXTURES_DIR = resolve(REPO_ROOT, 'packages/domain/test/fixtures')
 
 export interface SourceFile {
@@ -90,6 +93,7 @@ function assemble(
   engineCards: unknown,
   files: Record<string, SourceFile>,
   missions: Record<string, unknown> = {},
+  imageLocales?: unknown,
 ): CatalogSources {
   const input: BuildCatalogInput = {
     cardsJson: parseJson(texts.cardsJson, TRACKER_PATHS.cardsJson),
@@ -106,6 +110,7 @@ function assemble(
     trackerCommit: pins.trackerCommit,
     engineRev: pins.engineRev,
     missions,
+    imageLocales,
   }
   return { input, files }
 }
@@ -146,7 +151,17 @@ export async function fetchCatalogSources(pins: CatalogPins, fetchImpl: FetchLik
       files[`missions:${id}`] = fileRecord(path, text)
     }),
   )
-  return assemble(pins, texts, engineCards, files, missions)
+  // The image manifest: optional (a 404 means English images only).
+  let imageLocales: unknown
+  const localesResponse = await fetchImpl(`${TRACKER_RAW_BASE}/${pins.trackerCommit}/${IMAGE_LOCALES_PATH}`)
+  if (localesResponse.ok) {
+    const text = await localesResponse.text()
+    imageLocales = parseJson(text, IMAGE_LOCALES_PATH)
+    files.imageLocales = fileRecord(IMAGE_LOCALES_PATH, text)
+  } else if (localesResponse.status !== 404) {
+    throw new CatalogSourceError(`HTTP ${localesResponse.status} fetching ${IMAGE_LOCALES_PATH}`)
+  }
+  return assemble(pins, texts, engineCards, files, missions, imageLocales)
 }
 
 /** Reads the same files from packages/domain/test/fixtures (already reduced engine data). */
@@ -179,5 +194,11 @@ export function readFixtureSources(pins: CatalogPins, fixturesDir: string = DEFA
       files[`missions:${id}`] = fileRecord(`${FIXTURE_MISSIONS_DIR}/${file}`, text)
     }
   }
-  return assemble(pins, texts, parseJson(engineText, FIXTURE_ENGINE_PATH), files, missions)
+  let imageLocales: unknown
+  if (existsSync(join(fixturesDir, FIXTURE_IMAGE_LOCALES_PATH))) {
+    const text = read(FIXTURE_IMAGE_LOCALES_PATH)
+    imageLocales = parseJson(text, FIXTURE_IMAGE_LOCALES_PATH)
+    files.imageLocales = fileRecord(FIXTURE_IMAGE_LOCALES_PATH, text)
+  }
+  return assemble(pins, texts, parseJson(engineText, FIXTURE_ENGINE_PATH), files, missions, imageLocales)
 }

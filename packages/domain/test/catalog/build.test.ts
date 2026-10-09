@@ -122,7 +122,8 @@ describe('buildCatalog: cards and expansions', () => {
       weakness: 'fire',
       retreat: 1,
       engineId: 'A1 001',
-      imageUrl: `https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/${TRACKER_COMMIT}/frontend/public/images/en-US/A1-1.webp`,
+      // Fase 22: A1-1 has a Spanish image in the tracker's manifest.
+      imageUrl: `https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/${TRACKER_COMMIT}/frontend/public/images/es-ES/A1-1.webp`,
       alternateVersionsRaw: [65600, 80068, 406664, 721024, 12584400],
     })
     expect(card('A1-1').attacks).toEqual([

@@ -22,6 +22,7 @@ export interface Fixtures {
   enSets: unknown
   enPacks: unknown
   engineCards: unknown
+  imageLocales: unknown
 }
 
 function readText(relative: string): string {
@@ -46,6 +47,7 @@ export function loadFixtures(): Fixtures {
     enSets: readJson('tracker/en-US.sets.json'),
     enPacks: readJson('tracker/en-US.packs.json'),
     engineCards: readJson('deckgym/engine-cards.json'),
+    imageLocales: readJson('tracker/image-locales.json'),
   }
   return fixtures
 }
@@ -62,6 +64,7 @@ export function buildInput(): BuildCatalogInput {
     enSets: f.enSets,
     enPacks: f.enPacks,
     engineCards: f.engineCards,
+    imageLocales: f.imageLocales,
     trackerCommit: TRACKER_COMMIT,
     engineRev: ENGINE_REV,
   }

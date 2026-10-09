@@ -60,6 +60,7 @@ const createSchema = z.object({
   coach: z.boolean().optional(),
 })
 const hintSchema = z.object({ ply: z.number().int().min(1) })
+const rematchSchema = z.object({ sameSeed: z.boolean().optional() })
 const choiceSchema = z.object({ ply: z.number().int().min(1), i: z.number().int().min(0).max(500) })
 const idParam = z.coerce.number().int().positive()
 const workerId = z.string().min(8).max(64)
@@ -134,6 +135,24 @@ export class PlayController {
     @CurrentSession() _session: RequestSession,
   ): Promise<LiveGameView> {
     return this.games.hint(id, body)
+  }
+
+  /** Fase 22: back to the previous decision (the PC rebuilds the game up to it). */
+  @Post(':id/undo')
+  @HttpCode(200)
+  undo(@Param('id') id: string, @CurrentSession() _session: RequestSession): Promise<LiveGameView> {
+    return this.games.undo(id)
+  }
+
+  /** Fase 22: same decks and bot; `sameSeed` for the very same shuffle. */
+  @Post(':id/rematch')
+  @HttpCode(201)
+  rematch(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(rematchSchema)) body: z.infer<typeof rematchSchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<LiveGameView> {
+    return this.games.rematch(id, body)
   }
 
   @Post(':id/abandon')

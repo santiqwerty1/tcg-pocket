@@ -213,6 +213,72 @@ describe('playing against a bot (e2e)', () => {
     await post(`/api/play/${id}/abandon`)
   })
 
+  it('the board (Fase 22): catalog ids and both lists; undo goes back a decision; rematch', async () => {
+    const created = await post('/api/play').send({
+      human: { deckId: deckIds[1] },
+      rival: { deckId: deckIds[12] },
+      seed: 515,
+      coach: true,
+    })
+    const id = created.body.id as number
+    expect(created.body.undos).toBe(0)
+    const engineIds = Object.keys(created.body.names)
+    expect(Object.keys(created.body.cardIds).sort()).toEqual([...engineIds].sort())
+    expect(created.body.cardIds['B1 036']).toMatch(/^B1-36$|^B1-/)
+    const total = (list: { count: number }[]) => list.reduce((sum, card) => sum + card.count, 0)
+    expect(total(created.body.decks.human)).toBe(20)
+    expect(total(created.body.decks.rival)).toBe(20)
+    const batch = await get(`/api/cards/batch?ids=${Object.values(created.body.cardIds).join(',')},ZZ-1`)
+    expect(batch.body.items).toHaveLength(new Set(Object.values(created.body.cardIds)).size)
+    expect(batch.body.items[0]).toHaveProperty('attacks')
+    expect((await get('/api/cards/batch')).status).toBe(400)
+
+    // Nothing to undo yet; while the PC moves, wait.
+    expect((await post(`/api/play/${id}/undo`)).status).toBe(409)
+    const worker1 = { workerId: 'worker-undo-01', engineRev: engineRev(), version: '0.2.3' }
+    expect((await worker('post', '/api/worker/live/claim').send(worker1)).body.game).toMatchObject({ id })
+    const coached = (ply: number) => ({
+      ...decision(ply),
+      workerId: worker1.workerId,
+      coach: { scores: [0, -50], best: 0 },
+    })
+    await worker('put', `/api/worker/live/${id}/decision`).send(coached(1))
+    await post(`/api/play/${id}/choice`).send({ ply: 1, i: 1 })
+    expect((await post(`/api/play/${id}/undo`)).body.error?.code).toBe('busy')
+    await worker('put', `/api/worker/live/${id}/decision`).send(coached(2))
+    await post(`/api/play/${id}/choice`).send({ ply: 2, i: 0 })
+    await worker('put', `/api/worker/live/${id}/decision`).send(coached(3))
+    expect((await get(`/api/play/${id}`)).body.coachReviews).toHaveLength(2)
+
+    // Waiting at decision 3 → back to decision 2: choice 2 and its review go, the game is queued again.
+    const pending = worker('post', `/api/worker/live/${id}/choice`).send({ workerId: worker1.workerId, ply: 3 })
+    const undone = await post(`/api/play/${id}/undo`)
+    expect(undone.status).toBe(200)
+    expect(undone.body).toMatchObject({ status: 'queued', choices: 1, undos: 1, decision: null })
+    expect(undone.body.coachReviews.map((review: { ply: number }) => review.ply)).toEqual([1])
+    expect((await pending).body).toEqual({ choice: null, status: 'restart' })
+    expect((await worker('put', `/api/worker/live/${id}/decision`).send(coached(3))).body).toEqual({
+      choice: null,
+      status: 'restart',
+    })
+    // Claimed again with the choices kept: the worker rebuilds it up to decision 2.
+    expect((await worker('post', '/api/worker/live/claim').send(worker1)).body.game).toMatchObject({
+      id,
+      choices: [1],
+    })
+    await worker('put', `/api/worker/live/${id}/decision`).send(coached(2))
+    expect((await get(`/api/play/${id}`)).body).toMatchObject({ status: 'waiting', decision: { ply: 2 } })
+
+    // Rematch: same decks, bot and coach; the same seed only when asked.
+    const again = await post(`/api/play/${id}/rematch`).send({ sameSeed: true })
+    expect(again.status).toBe(201)
+    expect(again.body).toMatchObject({ status: 'queued', seed: '515', coach: true, choices: 0 })
+    expect(again.body.human.snapshot).toBe(created.body.human.snapshot)
+    const fresh = await post(`/api/play/${again.body.id}/rematch`).send({})
+    expect(fresh.body.seed).not.toBe('515')
+    for (const game of [id, again.body.id, fresh.body.id]) await post(`/api/play/${game}/abandon`)
+  })
+
   it('a worker that went away: the game is claimed again with the choices made so far', async () => {
     const created = await post('/api/play').send({
       human: { deckId: deckIds[1] },

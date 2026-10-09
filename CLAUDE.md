@@ -80,3 +80,5 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 - Deploy: `pnpm deploy:fly` (Fase 21: exige árbol limpio, el commit en `origin/main`, la CI verde y `posta check`; después corre `flyctl deploy --app tcg-pocket --remote-only --ha=false`). `pnpm deploy:check` solo revisa. Secretos: `flyctl secrets set` (`DATABASE_URL` en `.env.fly`, nunca en el repo).
 - Fly crea 2 máquinas por defecto; siempre `--ha=false` (un usuario).
 - Notificaciones (Fase 18): las claves VAPID se generan una vez y van como secretos, sin pasar por el chat ni la terminal visible: `node -e` con `require('web-push').generateVAPIDKeys()` escribiendo directo a `flyctl secrets set VAPID_PUBLIC_KEY=… VAPID_PRIVATE_KEY=… --app tcg-pocket` (cambiarlas invalida las suscripciones: cada dispositivo vuelve a activar).
+
+<!-- posta: fusionado 730949684919 -->

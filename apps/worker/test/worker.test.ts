@@ -367,6 +367,21 @@ describe('games against a bot (Fase 8)', () => {
     ).rejects.toThrow(OLD_ENGINE_COACH)
   })
 
+  it('an undo (Fase 22): the app says «restart», the engine stops without a failure', async () => {
+    const { client, calls } = liveClient([1])
+    const choice = client.liveChoice as unknown as ReturnType<typeof vi.fn>
+    choice.mockImplementationOnce(async () => ({ choice: null, status: 'restart' }))
+    const logs: string[] = []
+    await new LiveRunner(config, client, (message) => logs.push(message), dataDir).run(
+      game(),
+      new AbortController().signal,
+    )
+    expect(calls.decisions).toHaveLength(1)
+    expect(calls.end).toBeNull()
+    expect(calls.failures).toEqual([])
+    expect(logs).toContain('partida reiniciada para deshacer una jugada')
+  })
+
   it('stops the engine when the owner abandons the game, without reporting a failure', async () => {
     const { client, calls } = liveClient([null])
     await new LiveRunner(config, client, silent, dataDir).run(game(), new AbortController().signal)

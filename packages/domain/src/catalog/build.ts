@@ -70,6 +70,8 @@ export interface BuildCatalogInput {
   engineRev: string
   /** `assets/themed-collections/<expansion>-missions.json`, parsed, by expansion id (Fase 8). Optional. */
   missions?: Record<string, unknown> | undefined
+  /** `assets/image-locales.json` (card id → bitmask of image locales), parsed. Optional: without it, English images. */
+  imageLocales?: unknown
 }
 
 export interface BuildCounts {
@@ -132,8 +134,20 @@ function cardNumberOf(cardId: CardId, expansionId: ExpansionId): number {
   return number
 }
 
-export function trackerImageUrl(trackerCommit: string, cardId: CardId): string {
-  return `${TRACKER_RAW_BASE}/${trackerCommit}/frontend/public/images/en-US/${cardId}.webp`
+export type ImageLocale = 'en-US' | 'es-ES'
+
+export function trackerImageUrl(trackerCommit: string, cardId: CardId, locale: ImageLocale = 'en-US'): string {
+  return `${TRACKER_RAW_BASE}/${trackerCommit}/frontend/public/images/${locale}/${cardId}.webp`
+}
+
+/** Bit of es-ES in the tracker's image manifest (`[en-US, es-ES, fr-FR, de-DE, it-IT, pt-BR]`). */
+const ES_IMAGE_BIT = 1 << 1
+
+/** Fase 22: the Spanish image when the tracker has one (its manifest), else the English one. */
+export function preferredImageLocale(imageLocales: unknown, cardId: CardId): ImageLocale {
+  if (typeof imageLocales !== 'object' || imageLocales === null) return 'en-US'
+  const mask = (imageLocales as Record<string, unknown>)[cardId]
+  return typeof mask === 'number' && (mask & ES_IMAGE_BIT) !== 0 ? 'es-ES' : 'en-US'
 }
 
 /** Disjoint sets over card indexes; the root of every set is its smallest index (= earliest card). */
@@ -353,7 +367,11 @@ export function buildCatalogWithReport(input: BuildCatalogInput): BuildResult {
       ability,
       weakness,
       retreat: raw.retreat ?? null,
-      imageUrl: trackerImageUrl(input.trackerCommit, raw.card_id),
+      imageUrl: trackerImageUrl(
+        input.trackerCommit,
+        raw.card_id,
+        preferredImageLocale(input.imageLocales, raw.card_id),
+      ),
       engineId: engine.engineId,
       searchText: buildSearchText({
         id: raw.card_id,

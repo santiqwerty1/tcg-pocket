@@ -24,6 +24,13 @@ const searchSchema = z.object({
   expansion: z.string().trim().max(10).optional(),
 })
 
+const batchSchema = z.object({
+  ids: z
+    .string()
+    .max(2000)
+    .refine((value) => value.split(',').length <= 80, 'hasta 80 cartas'),
+})
+
 /** Session-protected read API over the in-memory catalog, plus the manual sync trigger (docs/API.md). */
 @Controller('api')
 export class CatalogController {
@@ -69,6 +76,17 @@ export class CatalogController {
       return { items: cards.slice(0, query.limit), total: cards.length }
     }
     return { items: [] }
+  }
+
+  /** Fase 22: several editions at once (the cards of a game or a replay), unknown ids left out. */
+  @Get('cards/batch')
+  batch(
+    @Query(new ZodValidationPipe(batchSchema)) query: z.infer<typeof batchSchema>,
+    @CurrentSession() _session: RequestSession,
+  ): { items: CardEdition[] } {
+    const index = this.catalog.requireIndex()
+    const ids = [...new Set(query.ids.split(',').map((id) => id.trim()))].filter(Boolean)
+    return { items: ids.map((id) => index.cardById(id)).filter((card): card is CardEdition => card !== undefined) }
   }
 
   @Get('cards/:id')

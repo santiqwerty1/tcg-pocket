@@ -849,6 +849,8 @@ model LiveGame {
   coach           Boolean        @default(false)
   /// One review per owner choice (`CoachReview` of @tcg/domain).
   coachLog        Json           @default("[]") @map("coach_log")
+  /// Fase 22: times the owner went back to an earlier decision («deshacer»).
+  undos           Int            @default(0)
   /// you | bot | tie
   winner          String?
   turns           Int?
