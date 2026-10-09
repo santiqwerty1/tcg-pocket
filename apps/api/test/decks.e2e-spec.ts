@@ -356,6 +356,16 @@ describe('decks (e2e)', () => {
   })
 
   it('opening hand odds (Fase 10): the key attacker by default, two cards at once, and counts typed by hand', async () => {
+    interface EnergyOdds {
+      attacker: { nameEs: string }
+      types: string[]
+      attacks: {
+        name: string
+        payable: boolean
+        first: { energies: number; probability: number }[]
+        second: { energies: number; probability: number }[]
+      }[]
+    }
     interface Odds {
       deck: { id: string } | null
       deckSize: number
@@ -373,6 +383,22 @@ describe('decks (e2e)', () => {
     expect(blaziken.rows[6]?.each[0]).toBeGreaterThan(blaziken.rows[0]?.each[0] ?? 1)
     expect(blaziken.basicsInHand.reduce((sum, row) => sum + row.probability, 0)).toBeCloseTo(1, 10)
     expect(blaziken.note).toContain('robo natural')
+    // Fase 44: the Energy Zone for the attacker's attacks, and the odds counting the search cards.
+    const energy = (blaziken as unknown as { energy: EnergyOdds }).energy
+    expect(energy.attacker.nameEs).toMatch(/Mega-Blaziken ex/)
+    expect(energy.types.length).toBeGreaterThan(0)
+    for (const attack of energy.attacks) {
+      expect(attack.first[0]?.energies).toBe(0)
+      expect(attack.second[0]?.energies).toBe(1)
+      expect(attack.first.at(-1)?.probability).toBeGreaterThanOrEqual(attack.first[0]?.probability ?? 0)
+    }
+    expect((blaziken as unknown as { search: { cards: Record<string, number> } }).search.cards.pokeball).toBe(2)
+    const manectric = (await get(`/api/decks/${deckId(4)}/draw-odds`)).body as {
+      search: { cards: Record<string, number>; rows: { turn: number; probability: number }[] }
+      rows: { each: number[] }[]
+    }
+    expect(manectric.search.cards).toEqual({ pokeball: 2, research: 2, communication: 1 })
+    expect(manectric.search.rows[4]?.probability).toBeGreaterThan(manectric.rows[4]?.each[0] ?? 1)
 
     const deck = (await get(`/api/decks/${deckId(2)}`)).body as {
       cards: { card: { id: string; cardType: string; evolutionType: string; nameEs: string } }[]
@@ -396,6 +422,7 @@ describe('decks (e2e)', () => {
     const manual = await post('/api/decks/draw-odds').send({ basics: 18, groups: [{ basic: 0, other: 2 }] })
     expect(manual.status).toBe(200)
     expect((manual.body as Odds).rows[0]?.each[0]).toBeCloseTo(1 - 8568 / 15504, 10)
+    expect(manual.body).toMatchObject({ search: null, energy: null })
     expect((await post('/api/decks/draw-odds').send({ basics: 2, groups: [{ basic: 3, other: 0 }] })).status).toBe(400)
     expect((await post('/api/decks/draw-odds').send({ basics: 5, groups: [] })).status).toBe(400)
   })

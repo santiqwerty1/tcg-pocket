@@ -1464,6 +1464,37 @@ ${MCP_CHAT_INSTRUCTIONS}`
       basicsInOpeningHand: odds.basicsInHand
         .filter((row) => row.probability > 0)
         .map((row) => `${row.count}: ${percent(row.probability)}`),
+      // Fase 44: the first card counting the search cards, and the Energy Zone for the attacker.
+      ...(odds.search
+        ? {
+            withSearchCards: {
+              searchCards: `${odds.search.cards.pokeball} Poké Ball, ${odds.search.cards.research} Investigación de Profesores, ${odds.search.cards.communication} Comunicación Pokémon`,
+              byTurn: odds.search.rows.map(
+                (row) => `${row.turn === 0 ? 'mano inicial' : `turno propio ${row.turn}`}: ${percent(row.probability)}`,
+              ),
+              note: odds.search.note,
+            },
+          }
+        : {}),
+      ...(odds.energy
+        ? {
+            energyZone: {
+              attacker: odds.energy.attacker.nameEs,
+              types: odds.energy.types,
+              attacks: odds.energy.attacks.map((attack) => ({
+                attack: attack.name,
+                cost: attack.cost.join(' + ') || 'sin costo',
+                ...(attack.payable
+                  ? {
+                      goingFirst: attack.first.map((row) => `turno ${row.turn}: ${percent(row.probability)}`),
+                      goingSecond: attack.second.map((row) => `turno ${row.turn}: ${percent(row.probability)}`),
+                    }
+                  : { never: 'pide una energía que el mazo no tiene' }),
+              })),
+              note: odds.energy.note,
+            },
+          }
+        : {}),
       note: odds.note,
     }
   }

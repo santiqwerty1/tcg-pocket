@@ -4,6 +4,8 @@ import { formatRateValue } from '@/lib/matches'
 
 export function DrawOddsTable({ data, labels }: { data: DrawOdds; labels: string[] }) {
   const two = data.groups.length === 2
+  // Fase 44: the first card counting the search cards, next to the natural draws.
+  const search = data.search
   const basics = data.basicsInHand.filter((row) => row.probability > 0.0005)
   return (
     <div className="flex flex-col gap-2">
@@ -17,6 +19,7 @@ export function DrawOddsTable({ data, labels }: { data: DrawOdds; labels: string
                   {label}
                 </th>
               ))}
+              {search ? <th className="px-2 py-1 text-right font-normal">Con búsqueda</th> : null}
               {two ? <th className="px-2 py-1 text-right font-normal">Las dos</th> : null}
             </tr>
           </thead>
@@ -33,6 +36,11 @@ export function DrawOddsTable({ data, labels }: { data: DrawOdds; labels: string
                     {formatRateValue(value * 100)}
                   </td>
                 ))}
+                {search ? (
+                  <td className="px-2 py-1 text-right tabular text-muted-foreground">
+                    {formatRateValue((search.rows[row.turn]?.probability ?? 0) * 100)}
+                  </td>
+                ) : null}
                 {two ? (
                   <td className="px-2 py-1 text-right font-medium tabular">{formatRateValue((row.all ?? 0) * 100)}</td>
                 ) : null}
@@ -45,6 +53,19 @@ export function DrawOddsTable({ data, labels }: { data: DrawOdds; labels: string
         Básicos en la mano inicial ({data.basics} en el mazo):{' '}
         {basics.map((row) => `${row.count}: ${formatRateValue(row.probability * 100)}`).join(' · ')}. {data.note}
       </p>
+      {search ? (
+        <p className="text-xs text-muted-foreground">
+          «Con búsqueda» es {labels[0]} contando{' '}
+          {[
+            search.cards.pokeball ? `${search.cards.pokeball} Poké Ball` : null,
+            search.cards.research ? `${search.cards.research} Investigación de Profesores` : null,
+            search.cards.communication ? `${search.cards.communication} Comunicación Pokémon` : null,
+          ]
+            .filter(Boolean)
+            .join(', ')}
+          . {search.note}
+        </p>
+      ) : null}
     </div>
   )
 }

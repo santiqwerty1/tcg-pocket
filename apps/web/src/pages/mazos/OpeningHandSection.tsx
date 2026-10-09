@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { useDrawOdds } from '@/api/decks'
 import type { DeckDetail } from '@/api/schemas'
 import { DrawOddsTable } from '@/components/DrawOddsTable'
+import { EnergyZoneTable } from '@/components/EnergyZoneTable'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -62,6 +63,7 @@ export function OpeningHandSection({ deck }: { deck: DeckDetail }) {
       {odds.isPending ? <LoadingRows rows={3} /> : null}
       {odds.isError ? <ErrorState error={odds.error} onRetry={() => odds.refetch()} /> : null}
       {odds.data ? <DrawOddsTable data={odds.data} labels={labels} /> : null}
+      {odds.data?.energy ? <EnergyZoneTable energy={odds.data.energy} /> : null}
     </Section>
   )
 }

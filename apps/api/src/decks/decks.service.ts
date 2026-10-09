@@ -22,10 +22,13 @@ import {
   defaultKeyCards,
   diffDeckDrafts,
   drawOdds,
+  energyZoneOdds,
   pickRandomDeck,
   playableCopies,
   recommendBestVersions,
   type SelectableEnergy,
+  searchDeckCards,
+  searchOdds,
   validateDeck,
   writeDeckgymText,
   writeDeckJson,
@@ -188,6 +191,10 @@ function draftOf(record: DeckRecord): DeckDraft {
   }
 }
 
+const SEARCH_ODDS_NOTE =
+  'Con búsqueda: mientras la carta no está en la mano, cada turno se juegan las Poké Ball (un Pokémon Básico al azar del mazo), las Comunicación Pokémon si la carta es un Pokémon y hay otro Pokémon en la mano, y una Investigación de Profesores (roba 2). Simulación con semilla fija: los mismos números cada vez.'
+const ENERGY_ZONE_NOTE =
+  'Zona de Energía: una energía por turno propio de uno de los tipos del mazo al azar, salvo el primer turno de quien empieza. Supone que toda la energía va al atacante: es el mejor caso.'
 const DRAW_ODDS_NOTE =
   'Mano inicial de 5 con al menos un Pokémon Básico (se reparte de nuevo si no hay) y una carta por turno propio, también en el primero. Solo robo natural: no cuenta cartas que roban o buscan.'
 
@@ -262,7 +269,13 @@ export class DecksService {
     }
     const sets = second ? [first, second] : [first]
     const groups = sets.map((ids) => deckDrawGroup(entries, ids, index))
-    const odds = drawOdds({ ...base, groups, turns: input.turns ?? DRAW_ODDS_TURNS })
+    const turns = input.turns ?? DRAW_ODDS_TURNS
+    const odds = drawOdds({ ...base, groups, turns })
+    // Fase 44: the same first card counting Poké Ball, Investigación de Profesores and Comunicación Pokémon.
+    const searchCards = searchDeckCards(entries, index)
+    const search = searchCards.some((card) => card.search !== null)
+      ? searchOdds({ cards: searchCards, targets: first, turns })
+      : null
     return {
       deck: { id: detail.id, name: detail.name },
       ...base,
@@ -273,7 +286,58 @@ export class DecksService {
       })),
       rows: odds.rows,
       basicsInHand: odds.basicsInHand,
+      search: search
+        ? { cards: search.searchCards, runs: search.runs, seed: search.seed, rows: search.rows, note: SEARCH_ODDS_NOTE }
+        : null,
+      energy: this.energyOdds(detail.energies, entries, first, turns),
       note: DRAW_ODDS_NOTE,
+    }
+  }
+
+  /**
+   * Fase 44: the Energy Zone for the first card's attacks when it is a Pokémon that attacks (else the deck's key
+   * attacker): the chance of paying each attack by own turn, going first and going second.
+   */
+  private energyOdds(
+    types: readonly SelectableEnergy[],
+    entries: readonly DeckCardEntry[],
+    firstGroups: readonly string[],
+    turns: number,
+  ): DrawOddsView['energy'] {
+    if (types.length === 0 || types.length > 3) return null
+    const index = this.catalog.requireIndex()
+    const attackerOf = (groupIds: readonly string[]) =>
+      entries
+        .map((entry) => index.cardById(entry.cardId))
+        .find(
+          (card) =>
+            card !== undefined &&
+            card.cardType === 'pokemon' &&
+            card.attacks.length > 0 &&
+            groupIds.includes(card.functionalGroupId),
+        )
+    const attacker =
+      attackerOf(firstGroups) ??
+      attackerOf(defaultKeyCards(entries, index).map((id) => index.cardById(id)?.functionalGroupId ?? id))
+    if (!attacker) return null
+    return {
+      attacker: {
+        groupId: attacker.functionalGroupId,
+        nameEs: index.groupById(attacker.functionalGroupId)?.nameEs ?? attacker.nameEs,
+      },
+      types: [...types],
+      attacks: attacker.attacks.map((attack) => {
+        const odds = energyZoneOdds(types, attack.cost, turns)
+        return {
+          name: attack.name,
+          cost: attack.cost,
+          payable: odds.payable,
+          first: odds.first,
+          second: odds.second,
+          likelyTurn: odds.likelyTurn,
+        }
+      }),
+      note: ENERGY_ZONE_NOTE,
     }
   }
 
@@ -297,6 +361,8 @@ export class DecksService {
       groups: input.groups.map((group) => ({ cards: [], copies: group.basic + group.other, basicCopies: group.basic })),
       rows: odds.rows,
       basicsInHand: odds.basicsInHand,
+      search: null,
+      energy: null,
       note: DRAW_ODDS_NOTE,
     }
   }
