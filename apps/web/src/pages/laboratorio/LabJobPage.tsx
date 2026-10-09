@@ -367,8 +367,7 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
                   <span className="min-w-0 sm:flex-1 sm:truncate">
                     {rival?.archetypeName ?? row.rival}
                     <span className="text-xs text-muted-foreground">
-                      {' '}
-                      · peso {formatRateValue((rival?.weight ?? 0) * 100)}
+                      {rival?.second ? ' · segunda lista' : ''} · peso {formatRateValue((rival?.weight ?? 0) * 100)}
                     </span>
                   </span>
                   {row.rate ? (

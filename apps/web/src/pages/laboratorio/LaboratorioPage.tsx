@@ -42,14 +42,14 @@ function BankList({ bank }: { bank: LabBank }) {
       </p>
       <ol className="divide-y rounded-lg border text-sm">
         {bank.rivals.map((rival, at) => (
-          <li key={rival.archetypeId} className="flex items-baseline gap-2 px-3 py-2">
+          <li key={rival.listKey} className="flex items-baseline gap-2 px-3 py-2">
             <span className="w-5 shrink-0 text-xs text-muted-foreground tabular">{at + 1}</span>
             <Link to={`/torneos/listas/${rival.listKey}`} className="min-w-0 flex-1 truncate hover:underline">
               {rival.archetypeName}
             </Link>
             <span className="shrink-0 text-xs text-muted-foreground tabular">
               {pct(rival.share)} · peso {pct(rival.weight * 100)}
-              {rival.rank > 0 ? ' · otra lista' : ''}
+              {rival.second ? ' · segunda lista del arquetipo' : rival.rank > 0 ? ' · otra lista' : ''}
             </span>
           </li>
         ))}

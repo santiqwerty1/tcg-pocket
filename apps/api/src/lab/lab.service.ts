@@ -87,6 +87,7 @@ import {
   type SelectableEnergy,
   type SnapshotCard,
   scoreDifference,
+  secondListsFor,
   seededRandom,
   simulationRate,
   splitGames,
@@ -201,6 +202,8 @@ interface LabRival {
   weight: number
   /** Snapshot id (explore jobs; tests find it by list key). */
   snapshot?: number
+  /** T-017 D3: the archetype's second list in the bank. */
+  second?: boolean
 }
 
 interface ExploreRound {
@@ -348,6 +351,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     const engine = await this.engine.status()
     const gauntlet = metaGauntlet(dataset, {
       size: input.size ?? DEFAULT_GAUNTLET_SIZE,
+      // T-017 D3: the 3 most played archetypes with two lists each (banks of 10 or more).
+      secondLists: secondListsFor(input.size ?? DEFAULT_GAUNTLET_SIZE),
       check: (list, energies) => {
         const unknown = list.cards.filter((card) => card.cardId === null)
         if (unknown.length > 0) {
@@ -396,6 +401,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         listLists: rival.list.lists,
         listRate: rival.list.rate,
         rank: rival.rank,
+        second: rival.second,
         energies: rival.energies,
         cards: rival.list.cards.map((card) => ({
           cardId: card.cardId ?? `${card.set}-${card.number}`,
@@ -414,13 +420,15 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       mode,
       era: bank.scope.era,
       format: bank.scope.format,
-      size: bank.gauntlet.rivals.length,
+      // Archetypes, not lists: the most played ones bring two (T-017 D3).
+      size: new Set(bank.gauntlet.rivals.map((rival) => rival.archetypeId)).size,
       rivals: bank.gauntlet.rivals.map((rival) => ({
         listKey: rival.list.key,
         archetypeId: rival.archetypeId,
         archetypeName: rival.archetypeName,
         share: rival.share,
         weight: rival.weight,
+        ...(rival.second ? { second: true } : {}),
       })),
     }
   }
@@ -1501,6 +1509,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       share: rival.share,
       weight: rival.weight,
       listKey: rival.listKey,
+      second: rival.second ?? false,
     }))
     return {
       job: summary,

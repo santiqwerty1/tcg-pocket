@@ -1440,6 +1440,8 @@ export const labBankSchema = z.object({
       listLists: z.number(),
       listRate: winRateSchema.nullable(),
       rank: z.number(),
+      /** T-017 D3: the archetype's second list (it shares the archetype's weight). */
+      second: z.boolean().default(false),
       energies: z.array(z.string()),
       cards: z.array(labCardSchema),
     }),
@@ -1558,6 +1560,7 @@ export const labJobSchema = z.object({
       share: z.number(),
       weight: z.number(),
       listKey: z.string(),
+      second: z.boolean().default(false),
     }),
   ),
   decks: z.array(labDeckSchema),

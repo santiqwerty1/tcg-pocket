@@ -162,6 +162,21 @@ describe('laboratorio (e2e)', () => {
     expect((await get('/api/lab/bank?size=99')).status).toBe(400)
   })
 
+  it('T-017 D3: a bank of 10 or more brings a second list for its most played archetypes', async () => {
+    const bank = (await get('/api/lab/bank?size=10')).body as {
+      rivals: { archetypeId: string; listKey: string; weight: number; second: boolean }[]
+    }
+    const seconds = bank.rivals.filter((rival) => rival.second)
+    expect(seconds.length).toBeGreaterThan(0)
+    expect(seconds.length).toBeLessThanOrEqual(3)
+    expect(new Set(bank.rivals.map((rival) => rival.archetypeId)).size).toBe(10)
+    expect(new Set(bank.rivals.map((rival) => rival.listKey)).size).toBe(bank.rivals.length)
+    expect(bank.rivals.reduce((sum, rival) => sum + rival.weight, 0)).toBeCloseTo(1, 8)
+    // Small banks stay one list per archetype.
+    const small = (await get('/api/lab/bank?size=5')).body as { rivals: { second: boolean }[] }
+    expect(small.rivals.some((rival) => rival.second)).toBe(false)
+  })
+
   it('test against the meta: a «comparar» job against the bank, scored with its weights', async () => {
     const dry = await post('/api/lab/test').send({ decks: [{ deckId: deckIds[1] }], size: 5, dryRun: true })
     expect(dry.status).toBe(200)

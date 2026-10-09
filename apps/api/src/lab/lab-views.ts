@@ -31,6 +31,8 @@ export interface LabBankRivalView {
   listRate: WinRate | null
   /** 0 = the archetype's representative list; more = a later one (the earlier could not be simulated). */
   rank: number
+  /** T-017 D3: the archetype's second list (it shares the archetype's weight with the first). */
+  second: boolean
   energies: string[]
   cards: CardLineView[]
 }
@@ -74,6 +76,8 @@ export interface LabRivalView {
   share: number
   weight: number
   listKey: string
+  /** T-017 D3: the archetype's second list in the bank. */
+  second: boolean
 }
 
 export interface LabDeckView {
