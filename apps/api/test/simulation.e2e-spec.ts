@@ -1,10 +1,12 @@
+import type { EventEmitter } from 'node:events'
 import { readFileSync } from 'node:fs'
+import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
 import { EngineStatusService } from '../src/simulation/snapshots.service.js'
-import { WorkerQueueService } from '../src/simulation/worker-queue.service.js'
+import { type ClaimedChunk, WorkerQueueService } from '../src/simulation/worker-queue.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /** docs/PLAN.md §7 Fase 6 (M7): jobs, the worker protocol and results, with a fake worker (no engine). */
@@ -54,6 +56,7 @@ describe('simulation (e2e)', () => {
       .sort((a, b) => Number(a) - Number(b))
     workerToken = (await post('/api/tokens').send({ name: 'pc', kind: 'worker', scopes: ['worker:claim'] })).body.token
     mcpToken = (await post('/api/tokens').send({ name: 'claude', kind: 'mcp', scopes: ['mcp:read'] })).body.token
+    await test.app.listen(0, '127.0.0.1')
   })
 
   afterAll(async () => {
@@ -71,6 +74,116 @@ describe('simulation (e2e)', () => {
   }
   const claim = (id?: string) => bearer('post', '/api/worker/claim').send(worker(id))
   const decks = (from: number, to: number) => deckIds.slice(from - 1, to).map((deckId) => ({ deckId }))
+
+  it('a disconnected chunk poll stops waiting and cannot lease the next batch', async () => {
+    const queue = test.app.get(WorkerQueueService)
+    const events = (queue as unknown as { queued: EventEmitter }).queued
+    const controller = new AbortController()
+    const { port } = test.app.getHttpServer().address() as AddressInfo
+    queue.longPollMs = 25_000
+    let id: number | undefined
+    const hello = { ...worker('worker-gone-poll'), batch: { maxChunks: 3, maxGames: 300 } }
+    const pending = fetch(`http://127.0.0.1:${port}/api/worker/claim`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${workerToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(hello),
+      signal: controller.signal,
+    }).catch(() => undefined)
+    try {
+      await vi.waitFor(() => expect(events.listenerCount('queued')).toBe(1))
+      controller.abort()
+      await pending
+      await vi.waitFor(() => expect(events.listenerCount('queued')).toBe(0))
+      const created = await post('/api/simulations').send({
+        kind: 'compare',
+        sideA: decks(2, 2),
+        sideB: decks(5, 7),
+        gamesPerPair: 100,
+        players: ['r', 'r'],
+      })
+      expect(created.status).toBe(201)
+      id = created.body.id as number
+      expect(await test.prisma.simulationChunk.findMany({ where: { jobId: id } })).toEqual(
+        expect.arrayContaining([expect.objectContaining({ status: 'queued', workerId: null })]),
+      )
+      const next = await queue.claim({ ...hello, workerId: 'worker-next-poll' })
+      expect(next.chunks).toHaveLength(3)
+      expect(next.chunks?.every((chunk) => chunk.jobId === id)).toBe(true)
+    } finally {
+      controller.abort()
+      await pending
+      queue.longPollMs = 100
+      queue.notifyQueued()
+      if (id !== undefined) {
+        await post(`/api/simulations/${id}/cancel`)
+        await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)
+      }
+    }
+  })
+
+  it.each(['immediate', 'after waiting'])(
+    'releases every chunk if the worker disconnects during the %s batch claim',
+    async (when) => {
+      const queue = test.app.get(WorkerQueueService)
+      const events = (queue as unknown as { queued: EventEmitter }).queued
+      const controller = new AbortController()
+      const hello = { ...worker('worker-gone-batch'), batch: { maxChunks: 3, maxGames: 300 } }
+      const internals = queue as unknown as { tryClaim(input: typeof hello): Promise<ClaimedChunk[]> }
+      const take = internals.tryClaim.bind(queue)
+      const queued = vi.fn()
+      let leased: number[] = []
+      const spy = vi.spyOn(internals, 'tryClaim').mockImplementation(async (input) => {
+        const chunks = await take(input)
+        if (chunks.length) {
+          leased = chunks.map((chunk) => chunk.chunkId)
+          events.once('queued', queued)
+          controller.abort()
+        }
+        return chunks
+      })
+      let id: number | undefined
+      let pending: ReturnType<WorkerQueueService['claim']> | undefined
+      const create = async () => {
+        const created = await post('/api/simulations').send({
+          kind: 'compare',
+          sideA: decks(2, 2),
+          sideB: decks(5, 7),
+          gamesPerPair: 100,
+          players: ['r', 'r'],
+        })
+        expect(created.status).toBe(201)
+        id = created.body.id as number
+      }
+      try {
+        queue.longPollMs = 25_000
+        if (when === 'immediate') await create()
+        pending = queue.claim(hello, controller.signal)
+        if (when === 'after waiting') {
+          await vi.waitFor(() => expect(events.listenerCount('queued')).toBe(1))
+          await create()
+        }
+        expect(await pending).toMatchObject({ chunk: null, chunks: [] })
+        expect(leased).toHaveLength(3)
+        expect(queued).toHaveBeenCalledOnce()
+        const rows = await test.prisma.simulationChunk.findMany({ where: { jobId: id }, orderBy: { idx: 'asc' } })
+        expect(rows.map((row) => row.id)).toEqual(leased)
+        for (const row of rows) expect(row).toMatchObject({ status: 'queued', workerId: null, leaseUntil: null })
+        spy.mockRestore()
+        const next = await queue.claim({ ...hello, workerId: 'worker-next-batch' })
+        expect(next.chunks?.map((chunk) => chunk.chunkId)).toEqual(leased)
+      } finally {
+        controller.abort()
+        await pending
+        spy.mockRestore()
+        events.off('queued', queued)
+        queue.longPollMs = 100
+        if (id !== undefined) {
+          await post(`/api/simulations/${id}/cancel`)
+          await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)
+        }
+      }
+    },
+  )
 
   it('engine status: the Fase 0 list until a worker reports, then the worker’s', async () => {
     expect((await get('/api/simulations/engine')).body).toMatchObject({

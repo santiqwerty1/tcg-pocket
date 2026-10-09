@@ -536,12 +536,28 @@ export class LiveGamesService {
     if (signal?.aborted) return { game: null }
     const version = input.version ?? '0'
     const fairBots = canPlayFairBots(input)
-    const now = await this.tryClaim(input.workerId, input.engineRev, version, fairBots)
+    const take = async () => {
+      const game = await this.tryClaim(input.workerId, input.engineRev, version, fairBots)
+      // The socket may close during UPDATE RETURNING or the reads that build the answer.
+      if (signal?.aborted) {
+        if (game) await this.releaseLease(game.id, input.workerId)
+        return null
+      }
+      return game
+    }
+    const now = await take()
     if (now) return { game: now }
     await this.wait('queued', signal)
     // A worker that disconnected while waiting must not take a game from the next worker.
     if (signal?.aborted) return { game: null }
-    return { game: await this.tryClaim(input.workerId, input.engineRev, version, fairBots) }
+    return { game: await take() }
+  }
+
+  private async releaseLease(id: number, workerId: string): Promise<void> {
+    // Keep updated_at (last move) and never release a lease taken over by another worker.
+    await this.prisma.$executeRaw`UPDATE live_games SET lease_until = NULL WHERE id = ${id} AND worker_id = ${workerId}`
+    this.events.emit('queued')
+    this.changed(id)
   }
 
   /** Fase 22: the game went back to the queue (undo) while this worker had it: it must stop and claim again. */
@@ -598,21 +614,29 @@ export class LiveGamesService {
   async choice(
     id: number,
     input: { workerId: string; ply: number },
+    signal?: AbortSignal,
   ): Promise<{ choice: number | null; status: string }> {
+    const cancelled = async () => {
+      await this.releaseLease(id, input.workerId)
+      return { choice: null, status: 'restart' }
+    }
     const read = async () => {
+      if (signal?.aborted) return cancelled()
       const taken = await this.takenBack(id, input.workerId)
       if (taken) return taken
       const game = await this.requireLease(id, input.workerId)
+      if (signal?.aborted) return cancelled()
       // H-013: renewing the lease is not a move, so it must not touch `updated_at` (the week without moves that
       // gives the game up is measured on it). Raw SQL: Prisma would stamp @updatedAt.
-      await this.prisma
-        .$executeRaw`UPDATE live_games SET lease_until = ${new Date(Date.now() + LIVE_LEASE_MS)} WHERE id = ${id}`
+      await this.prisma.$executeRaw`UPDATE live_games SET lease_until = ${new Date(Date.now() + LIVE_LEASE_MS)}
+          WHERE id = ${id} AND worker_id = ${input.workerId}`
       await this.prisma.workerNode.updateMany({ where: { id: input.workerId }, data: { lastSeenAt: new Date() } })
+      if (signal?.aborted) return cancelled()
       return { choice: game.choices[input.ply - 1] ?? null, status: game.status }
     }
     const first = await read()
     if (first.choice !== null || !['running', 'waiting'].includes(first.status)) return first
-    await this.wait(`choice:${id}`)
+    await this.wait(`choice:${id}`, signal)
     return read()
   }
 

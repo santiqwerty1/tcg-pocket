@@ -291,21 +291,41 @@ export class WorkerQueueService {
    * Claims a chunk, waiting up to 25 s for one. Null = nothing to do; `requiredEngineRev` tells a worker with another
    * engine which one the queued jobs need.
    */
-  async claim(hello: WorkerHello): Promise<{
+  async claim(
+    hello: WorkerHello,
+    signal?: AbortSignal,
+  ): Promise<{
     chunk: ClaimedChunk | null
     chunks?: ClaimedChunk[]
     requiredEngineRev: string | null
     hint?: string
   }> {
-    await this.seen(hello)
     // `chunk` is the first one (what a worker without `batch` plays); `chunks`, all of them, only for `batch`.
     const answer = (chunks: ClaimedChunk[], requiredEngineRev: string | null = null) => ({
       chunk: chunks[0] ?? null,
       ...(hello.batch ? { chunks } : {}),
       requiredEngineRev,
     })
-    const immediate = await this.tryClaim(hello)
+    if (signal?.aborted) return answer([])
+    await this.seen(hello)
+    const take = async () => {
+      if (signal?.aborted) return []
+      const chunks = await this.tryClaim(hello)
+      if (signal?.aborted) {
+        if (chunks.length > 0) {
+          await this.prisma.simulationChunk.updateMany({
+            where: { id: { in: chunks.map((chunk) => chunk.chunkId) }, workerId: hello.workerId, status: 'leased' },
+            data: { status: 'queued', leaseUntil: null, workerId: null },
+          })
+          this.notifyQueued()
+        }
+        return []
+      }
+      return chunks
+    }
+    const immediate = await take()
     if (immediate.length > 0) return answer(immediate)
+    if (signal?.aborted) return answer([])
     const other = await this.prisma.simulationJob.findFirst({
       where: { status: { in: ['queued', 'running'] }, engineRev: { not: hello.engineRev } },
       select: { engineRev: true },
@@ -318,13 +338,18 @@ export class WorkerQueueService {
       function done() {
         clearTimeout(timer)
         queued.off('queued', done)
+        signal?.removeEventListener('abort', done)
         resolve()
       }
       queued.once('queued', done)
+      signal?.addEventListener('abort', done, { once: true })
+      if (signal?.aborted) done()
       timer.unref?.()
     })
-    const chunks = await this.tryClaim(hello)
+    if (signal?.aborted) return answer([])
+    const chunks = await take()
     if (chunks.length > 0) return answer(chunks)
+    if (signal?.aborted) return answer([])
     const hint = await this.hintFor(hello)
     return { ...answer([]), ...(hint ? { hint } : {}) }
   }

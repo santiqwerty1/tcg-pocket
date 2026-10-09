@@ -23,6 +23,7 @@ import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
 import { CatalogModule } from '../catalog/catalog.module.js'
 import type { Prisma } from '../generated/prisma/client.js'
+import { abortOnClose } from '../http/abort-on-close.js'
 import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
 import { SimulationModule } from '../simulation/simulation.controller.js'
 import { BearerTokenGuard, RequireScopes } from '../tokens/bearer-token.guard.js'
@@ -318,14 +319,11 @@ export class LiveWorkerController {
     @Body(new ZodValidationPipe(claimSchema)) body: z.infer<typeof claimSchema>,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const controller = new AbortController()
-    const disconnected = () => controller.abort()
-    response.once('close', disconnected)
-    if (response.destroyed) disconnected()
+    const { signal, dispose } = abortOnClose(response)
     try {
-      return await this.games.claim(body, controller.signal)
+      return await this.games.claim(body, signal)
     } finally {
-      response.off('close', disconnected)
+      dispose()
     }
   }
 
@@ -345,11 +343,17 @@ export class LiveWorkerController {
   /** Long-poll up to 25 s for the owner's choice at `ply`; renews the lease. */
   @Post(':id/choice')
   @HttpCode(200)
-  choice(
+  async choice(
     @Param('id', new ZodValidationPipe(idParam)) id: number,
     @Body(new ZodValidationPipe(waitSchema)) body: z.infer<typeof waitSchema>,
+    @Res({ passthrough: true }) response: Response,
   ) {
-    return this.games.choice(id, body)
+    const { signal, dispose } = abortOnClose(response)
+    try {
+      return await this.games.choice(id, body, signal)
+    } finally {
+      dispose()
+    }
   }
 
   @Put(':id/end')

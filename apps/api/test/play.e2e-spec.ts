@@ -5,7 +5,8 @@ import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
-import { LiveGamesService } from '../src/play/live-games.service.js'
+import type { Prisma } from '../src/generated/prisma/client.js'
+import { type ClaimedLiveGame, LiveGamesService } from '../src/play/live-games.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /** Fase 8: a game against a bot, relayed by a fake worker through the worker API (no engine). */
@@ -58,6 +59,11 @@ describe('playing against a bot (e2e)', () => {
     return test.http()[method](path).set('Authorization', `Bearer ${workerToken}`)
   }
   const engineRev = () => test.env.engineRev
+  const deckId = (index: number) => {
+    const id = deckIds[index]
+    if (id === undefined) throw new Error(`Missing fixture deck ${index}`)
+    return id
+  }
   const decision = (ply: number, log: unknown[] = []) => ({
     workerId: 'worker-live-01',
     ply,
@@ -108,6 +114,139 @@ describe('playing against a bot (e2e)', () => {
       games.longPollMs = 100
       events.emit('queued')
       if (id !== undefined) await post(`/api/play/${id}/abandon`).send({})
+    }
+  })
+
+  it.each(['immediate', 'after waiting'])(
+    'releases a game when the worker disconnects during the %s claim',
+    async (when) => {
+      const games = test.app.get(LiveGamesService)
+      const events = (games as unknown as { events: EventEmitter }).events
+      const controller = new AbortController()
+      const internals = games as unknown as {
+        tryClaim(workerId: string, engineRev: string, version: string): Promise<ClaimedLiveGame | null>
+      }
+      const take = internals.tryClaim.bind(games)
+      const queued = vi.fn()
+      // Real UPDATE and reads, but the socket closes just before their result reaches claim().
+      const spy = vi.spyOn(internals, 'tryClaim').mockImplementation(async (...args) => {
+        const game = await take(...args)
+        if (game) {
+          events.once('queued', queued)
+          controller.abort()
+        }
+        return game
+      })
+      let id: number | undefined
+      let pending: ReturnType<LiveGamesService['claim']> | undefined
+      const create = async () => {
+        const created = await games.create({
+          human: { deckId: deckId(1) },
+          rival: { deckId: deckId(12) },
+          seed: 77,
+        })
+        id = created.id
+      }
+      try {
+        games.longPollMs = 25_000
+        if (when === 'immediate') await create()
+        pending = games.claim({ workerId: 'worker-gone-02', engineRev: engineRev() }, controller.signal)
+        if (when === 'after waiting') {
+          await vi.waitFor(() => expect(events.listenerCount('queued')).toBe(1))
+          await create()
+        }
+        expect(await pending).toEqual({ game: null })
+        expect(queued).toHaveBeenCalledOnce()
+        expect(await test.prisma.liveGame.findUniqueOrThrow({ where: { id } })).toMatchObject({
+          status: 'running',
+          workerId: 'worker-gone-02',
+          leaseUntil: null,
+        })
+        spy.mockRestore()
+        const next = await games.claim({ workerId: 'worker-next-02', engineRev: engineRev() })
+        expect(next.game?.id).toBe(id)
+      } finally {
+        controller.abort()
+        await pending
+        spy.mockRestore()
+        events.off('queued', queued)
+        games.longPollMs = 100
+        if (id !== undefined) await games.abandon(String(id))
+      }
+    },
+  )
+
+  it('a disconnected choice poll releases its lease without renewing it after the wait', async () => {
+    const games = test.app.get(LiveGamesService)
+    const events = (games as unknown as { events: EventEmitter }).events
+    const created = await games.create({ human: { deckId: deckId(1) }, rival: { deckId: deckId(12) }, seed: 77 })
+    const id = created.id
+    const workerId = 'worker-gone-choice'
+    expect((await games.claim({ workerId, engineRev: engineRev() })).game?.id).toBe(id)
+    const controller = new AbortController()
+    const { port } = test.app.getHttpServer().address() as AddressInfo
+    games.longPollMs = 25_000
+    const pending = fetch(`http://127.0.0.1:${port}/api/worker/live/${id}/choice`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${workerToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workerId, ply: 1 }),
+      signal: controller.signal,
+    }).catch(() => undefined)
+    try {
+      await vi.waitFor(() => expect(events.listenerCount(`choice:${id}`)).toBe(1))
+      const updatedAt = (await test.prisma.liveGame.findUniqueOrThrow({ where: { id } })).updatedAt
+      const renew = vi.spyOn(test.prisma, '$executeRaw')
+      controller.abort()
+      await pending
+      await vi.waitFor(() => expect(events.listenerCount(`choice:${id}`)).toBe(0))
+      await vi.waitFor(async () => {
+        const row = await test.prisma.liveGame.findUniqueOrThrow({ where: { id } })
+        expect(row.leaseUntil).toBeNull()
+        expect(row.updatedAt).toEqual(updatedAt)
+      })
+      // Only release SQL, no second renewal after the aborted wait.
+      expect(renew).toHaveBeenCalledOnce()
+      expect(String(renew.mock.calls[0]?.[0])).toContain('lease_until = NULL')
+      renew.mockRestore()
+      expect((await games.claim({ workerId: 'worker-next-choice', engineRev: engineRev() })).game?.id).toBe(id)
+    } finally {
+      controller.abort()
+      await pending
+      vi.restoreAllMocks()
+      games.longPollMs = 100
+      events.emit(`choice:${id}`)
+      await games.abandon(String(id))
+    }
+  })
+
+  it.each([1, 2])('releases the lease if choice disconnects during read %i', async (abortAtRead) => {
+    const games = test.app.get(LiveGamesService)
+    const game = await games.create({ human: { deckId: deckId(1) }, rival: { deckId: deckId(12) }, seed: 77 })
+    const workerId = 'worker-gone-read'
+    expect((await games.claim({ workerId, engineRev: engineRev() })).game?.id).toBe(game.id)
+    const controller = new AbortController()
+    const internals = games as unknown as {
+      requireLease(id: number, workerId: string): Promise<Prisma.LiveGameGetPayload<object>>
+    }
+    const read = internals.requireLease.bind(games)
+    let reads = 0
+    const spy = vi.spyOn(internals, 'requireLease').mockImplementation(async (...args) => {
+      const row = await read(...args)
+      if (++reads === abortAtRead) controller.abort()
+      return row
+    })
+    try {
+      expect(await games.choice(game.id, { workerId, ply: 1 }, controller.signal)).toEqual({
+        choice: null,
+        status: 'restart',
+      })
+      expect(await test.prisma.liveGame.findUniqueOrThrow({ where: { id: game.id } })).toMatchObject({
+        leaseUntil: null,
+      })
+      expect((await games.claim({ workerId: 'worker-next-read', engineRev: engineRev() })).game?.id).toBe(game.id)
+    } finally {
+      spy.mockRestore()
+      await games.abandon(String(game.id))
     }
   })
 

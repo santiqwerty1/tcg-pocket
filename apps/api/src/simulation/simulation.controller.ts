@@ -12,15 +12,17 @@ import {
   Put,
   Query,
   Req,
+  Res,
   Sse,
   UseGuards,
 } from '@nestjs/common'
 import { BOT_CODE_PATTERN, QUEUEABLE_SIMULATION_KINDS, SELECTABLE_ENERGIES, TOURNAMENT_FORMATS } from '@tcg/domain'
-import type { Request } from 'express'
+import type { Request, Response } from 'express'
 import { from, interval, type Observable, startWith, switchMap, takeWhile } from 'rxjs'
 import { z } from 'zod'
 import { CurrentApiToken, CurrentSession, type RequestApiToken, type RequestSession } from '../auth/request-auth.js'
 import { CatalogModule } from '../catalog/catalog.module.js'
+import { abortOnClose } from '../http/abort-on-close.js'
 import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
 import { BearerTokenGuard, RequireScopes } from '../tokens/bearer-token.guard.js'
 import { TokensModule } from '../tokens/tokens.module.js'
@@ -165,9 +167,17 @@ export class WorkerController {
   /** Long-poll up to 25 s. `chunk: null` = nothing to do; `retryAfterSeconds` paces the next claim. */
   @Post('claim')
   @HttpCode(200)
-  async claim(@Body(new ZodValidationPipe(helloSchema)) body: z.infer<typeof helloSchema>) {
-    const result = await this.queue.claim(body)
-    return { ...result, retryAfterSeconds: result.chunk ? 0 : result.requiredEngineRev ? 300 : 5 }
+  async claim(
+    @Body(new ZodValidationPipe(helloSchema)) body: z.infer<typeof helloSchema>,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const { signal, dispose } = abortOnClose(response)
+    try {
+      const result = await this.queue.claim(body, signal)
+      return { ...result, retryAfterSeconds: result.chunk ? 0 : result.requiredEngineRev ? 300 : 5 }
+    } finally {
+      dispose()
+    }
   }
 
   @Put('chunks/:id/heartbeat')
