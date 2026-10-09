@@ -308,6 +308,17 @@ describe('laboratorio (e2e)', () => {
     expect(dry.body.firstRound).toHaveLength(3)
     expect(dry.body.pool).toBeGreaterThan(50)
     expect(dry.body.games).toEqual({ perRound: 4 * 5 * 10, max: 4 * 5 * 10 * 2 + 2 * 5 * 20 })
+    // H-021: the plan says its seed, and that seed plays this same first round.
+    expect(typeof dry.body.seed).toBe('number')
+    const again = await post('/api/lab/explore').send({
+      deck: { deckId: deckIds[1] },
+      size: 5,
+      config,
+      dryRun: true,
+      seed: dry.body.seed,
+    })
+    expect(again.body.seed).toBe(dry.body.seed)
+    expect(again.body.firstRound).toEqual(dry.body.firstRound)
     // Fase 16: under an event's rules. «Sin ex» breaks the starting list (Mega-Blaziken ex): refused, with why.
     const noEx = await test
       .http()
@@ -356,8 +367,16 @@ describe('laboratorio (e2e)', () => {
     expect(created.body.progress.totalGames).toBe(200)
     const jobId = created.body.id as number
     const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: jobId } })
-    const state = (job.params as { lab: { explore: { base: number; rounds: { candidates: number[] }[] } } }).lab.explore
+    const state = (
+      job.params as {
+        lab: {
+          explore: { base: number; rounds: { candidates: number[] }[]; frozen?: { pool: unknown[]; affinity: unknown[] } }
+        }
+      }
+    ).lab.explore
     const base = state.base
+    // H-021: the pool is kept as it was at the start, for every later round.
+    expect(state.frozen?.pool.length).toBe(dry.body.pool)
     const [, winner] = state.rounds[0]?.candidates ?? []
     if (winner === undefined) throw new Error('no second variant')
 

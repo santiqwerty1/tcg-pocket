@@ -259,7 +259,9 @@ function PlanView({ plan }: { plan: LabExplorePlan }) {
       </p>
       {plan.firstRound.length > 0 ? (
         <div className="flex flex-col gap-1">
-          <p className="text-xs text-muted-foreground">Variantes de la primera ronda:</p>
+          <p className="text-xs text-muted-foreground">
+            Variantes de la primera ronda (si empezás sin cambiar nada, se juegan estas):
+          </p>
           <ul className="flex flex-col gap-1 text-xs">
             {plan.firstRound.map((variant) => (
               <li key={[...variant.add, ...variant.remove].map((card) => card.cardId).join(',')}>
@@ -361,10 +363,14 @@ function ExploreForm({ size }: { size: number }) {
     }
   }, [source, size, deckId, locked, pool, rounds, variants, games, confirmGames])
 
+  // H-021: the plan on screen is the search that starts (same seed) while nothing changed since «Ver el plan».
+  const [plannedFor, setPlannedFor] = useState<string | null>(null)
+  const plannedSeed = plan.data?.seed !== undefined && plannedFor === JSON.stringify(input) ? plan.data.seed : undefined
+
   async function start() {
     if (!input) return
     try {
-      const job = await explore.mutateAsync(input)
+      const job = await explore.mutateAsync(plannedSeed === undefined ? input : { ...input, seed: plannedSeed })
       toast.success(`Búsqueda #${job.id} en cola`)
       navigate(`/laboratorio/${job.id}`)
     } catch (error) {
@@ -420,7 +426,11 @@ function ExploreForm({ size }: { size: number }) {
           type="button"
           variant="outline"
           disabled={!input || plan.isPending}
-          onClick={() => input && plan.mutate(input, { onError: (error) => toast.error(errorMessage(error)) })}
+          onClick={() => {
+            if (!input) return
+            setPlannedFor(JSON.stringify(input))
+            plan.mutate(input, { onError: (error) => toast.error(errorMessage(error)) })
+          }}
         >
           <SearchIcon aria-hidden="true" />
           Ver el plan

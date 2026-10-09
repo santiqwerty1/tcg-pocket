@@ -1567,6 +1567,8 @@ export const labExplorePlanSchema = z.object({
   pool: z.number(),
   firstRound: z.array(z.object({ add: z.array(labCardSchema), remove: z.array(labCardSchema) })),
   config: exploreConfigSchema,
+  /** H-021: the plan's seed; starting with it plays these same first-round variants. */
+  seed: z.number().optional(),
   games: z.object({ perRound: z.number(), max: z.number() }),
   estimatedSeconds: z.object({ perRound: z.number(), max: z.number() }),
 })

@@ -199,6 +199,14 @@ interface ExploreState {
   seen: string[]
   /** Fase 16: the event's rules every variant keeps, and its name. */
   event?: { id: string; name: string; rules: EventRules }
+  /** H-021: what the variants are drawn from, as it was when the search started (absent in older searches). */
+  frozen?: FrozenInputs
+}
+
+/** H-021: the pool (card, copies, weight, in draw order) and the archetype usage (group, share). */
+interface FrozenInputs {
+  pool: [string, number, number][]
+  affinity: [string, number][]
 }
 
 interface LabParams {
@@ -662,6 +670,8 @@ export class LabService implements OnApplicationBootstrap {
         pool: number
         firstRound: { add: CardLineView[]; remove: CardLineView[] }[]
         config: ExploreConfig
+        /** H-021: sent back, the search starts with these same first-round variants. */
+        seed: number
         games: { perRound: number; max: number }
         estimatedSeconds: { perRound: number; max: number }
       }
@@ -722,6 +732,7 @@ export class LabService implements OnApplicationBootstrap {
           remove: lines(index, variant.remove),
         })),
         config,
+        seed: baseSeed,
         games,
         estimatedSeconds: {
           perRound: Math.round(estimateSeconds(games.perRound, players, cores)),
@@ -774,6 +785,7 @@ export class LabService implements OnApplicationBootstrap {
       variants: Object.fromEntries(variants.map((variant) => [String(variant.id), { round: 0, parent: base.id }])),
       seen: [...seen],
       ...(event ? { event } : {}),
+      frozen: freezeInputs(pool, affinity),
     }
     const params: JobParams = { sideA: decks, sideB: rivalSnapshots.map((rival) => rival.id), bothOrders: false, lab }
     const job = await this.prisma.$transaction(async (tx) => {
@@ -873,10 +885,18 @@ export class LabService implements OnApplicationBootstrap {
           if (!stop) {
             const incumbent = await tx.deckSnapshot.findUniqueOrThrow({ where: { id: state.incumbent } })
             const energies = incumbent.energies as SelectableEnergy[]
-            const bank = await this.usageBank(params.lab)
             const incumbentCards = slotsOfSnapshot(incumbent.cards as unknown as SnapshotCard[])
-            const affinity = neighborhoodUsage(bank.dataset, incumbentCards, index)
-            const pool = await this.pool(bank, energies, state.config.pool, affinity, state.event?.rules)
+            let affinity: ReadonlyMap<CardId, number>
+            let pool: PoolCard[]
+            if (state.frozen) {
+              affinity = new Map(state.frozen.affinity)
+              pool = thawPool(state.frozen, index)
+            } else {
+              // A search queued before H-021: today's tournaments and collection, as it always did.
+              const bank = await this.usageBank(params.lab)
+              affinity = neighborhoodUsage(bank.dataset, incumbentCards, index)
+              pool = await this.pool(bank, energies, state.config.pool, affinity, state.event?.rules)
+            }
             const seen = new Set(state.seen)
             const fresh = this.variants(
               incumbentCards,
@@ -1207,6 +1227,22 @@ function selectableEnergies(words: readonly string[]): SelectableEnergy[] {
   return words
     .map((word) => energyFromNameEn(word))
     .filter((energy): energy is SelectableEnergy => energy !== undefined)
+}
+
+/** H-021: the pool and the archetype usage of a search as it starts, kept in its state for every later round. */
+function freezeInputs(pool: readonly PoolCard[], affinity: ReadonlyMap<CardId, number>): FrozenInputs {
+  return {
+    pool: pool.map((card) => [card.cardId, card.maxCopies, card.weight]),
+    affinity: [...affinity].filter(([, share]) => share > 0),
+  }
+}
+
+/** The frozen pool back as pool cards (a card the catalog no longer has is left out). */
+function thawPool(frozen: FrozenInputs, index: CatalogIndex): PoolCard[] {
+  return frozen.pool.flatMap(([cardId, maxCopies, weight]) => {
+    const card = index.cardById(cardId)
+    return card ? [{ cardId, groupId: card.functionalGroupId, nameEn: card.nameEn, maxCopies, weight }] : []
+  })
 }
 
 /**
