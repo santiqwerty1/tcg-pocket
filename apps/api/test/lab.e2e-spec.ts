@@ -548,4 +548,85 @@ describe('laboratorio (e2e)', () => {
     expect(deck?.novelty).toMatch(/^(jugada en torneo|conocida|nueva)/)
     expect(String(results.note)).toMatch(/^Juegan bots/)
   }, 60_000)
+
+  // Last on purpose: once a 0.2.5 worker was seen, every new lab job asks for per-game results.
+  it('per-game results (T-017 A2): the paired test decides, and each list says how its games went', async () => {
+    const hello25 = { ...hello, workerId: 'worker-lab-25', version: '0.2.5' }
+    // The worker introduces itself first: lab jobs ask for perGame only when one that plays it was seen.
+    await bearer('post', '/api/worker/claim').send({ ...hello25, engineRev: test.env.engineRev })
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 2,
+      maxRounds: 1,
+      patience: 3,
+      confirmGames: 20,
+      verifyGames: 20,
+      pool: 'all',
+    }
+    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9200 })
+    expect(created.status).toBe(200)
+    const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: created.body.id } })
+    const params = job.params as {
+      perGame?: boolean
+      lab: { explore: { base: number; rounds: { candidates: number[] }[] } }
+    }
+    expect(params.perGame).toBe(true)
+    const [winner] = params.lab.explore.rounds[0]?.candidates ?? []
+    if (winner === undefined) throw new Error('no variant')
+    // Game i of a chunk: the winner wins its first 9 of 10, everything else its first 5 (the same games, so paired).
+    let played = 0
+    for (;;) {
+      const claim = await bearer('post', '/api/worker/claim').send({ ...hello25, engineRev: test.env.engineRev })
+      const chunk = claim.body.chunk as Structured | null
+      if (!chunk) break
+      expect(chunk.perGame).toBe(true)
+      const row = await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: chunk.chunkId as number } })
+      const winsA = row.snapshotAId === winner ? Math.round(row.games * 0.9) : row.games / 2
+      const each = (f: (i: number) => string) => Array.from({ length: row.games }, (_, i) => f(i)).join('')
+      const result = await bearer('put', `/api/worker/chunks/${row.id}/result`).send({
+        workerId: hello25.workerId,
+        engineRev: test.env.engineRev,
+        winsA,
+        winsB: row.games - winsA,
+        ties: 0,
+        games: row.games,
+        durationMs: 100,
+        extra: {
+          perGame: {
+            winners: each((i) => (i < winsA ? 'A' : 'B')),
+            starters: each((i) => (i % 2 === 0 ? 'A' : 'B')),
+            endings: each((i) => (i < winsA || i % 3 !== 0 ? 'P' : 'N')),
+            turns: Array.from({ length: row.games }, () => 12),
+            stagesA: each(() => '2'),
+            stagesB: each(() => '1'),
+          },
+        },
+      })
+      expect(result.body).toEqual({ accepted: true })
+      played += 1
+    }
+    // Round 0 (3 lists × 3 rivals), the verification (2 × 3), then the confirmation (2 × 3).
+    expect(played).toBe(9 + 6 + 6)
+    const lab = (await get(`/api/lab/jobs/${created.body.id}`)).body
+    expect(
+      lab.explore.rounds.map((round: { kind: string; accepted: number | null }) => [round.kind, round.accepted]),
+    ).toEqual([
+      ['search', null],
+      ['verify', winner],
+      ['confirm', null],
+    ])
+    // Paired: the 4 extra wins of every rival are the same 4 games, so the difference is sharp.
+    expect(lab.explore.confirmation).toMatchObject({ verdict: 'better' })
+    expect(lab.explore.confirmation.difference.value).toBeCloseTo(40, 8)
+    expect(lab.explore.confirmation.difference.se).toBeLessThan(10)
+    const best = lab.decks.find((deck: { role: string }) => deck.role === 'best')
+    const base = lab.decks.find((deck: { role: string }) => deck.role === 'base')
+    // Game by game, the error is smaller than for two independent scores.
+    expect(lab.explore.confirmation.difference.se).toBeLessThan(
+      Math.hypot(best.confirm.score.se, base.confirm.score.se),
+    )
+    expect(best.games).toMatchObject({ games: 60, stages: [0, 0, 60] })
+    expect(best.games.first.games + best.games.second.games).toBe(60)
+    expect(best.games.losses.points + best.games.losses.noPokemon).toBe(6)
+  }, 60_000)
 })

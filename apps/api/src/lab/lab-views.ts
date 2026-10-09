@@ -6,6 +6,7 @@ import type {
   GauntletSkip,
   MetaScore,
   NoveltyKind,
+  PerGameSummary,
   TournamentFormat,
   WinRate,
 } from '@tcg/domain'
@@ -87,6 +88,11 @@ export interface LabDeckView {
   search: LabScoreView
   /** The confirmation round's games (only base and best of a finished search). */
   confirm: LabScoreView | null
+  /**
+   * T-017 A2: what its games say beyond the rate (going first and second, how its losses ended, how far it evolved),
+   * over the headline games, every rival together and unweighted; null without per-game results.
+   */
+  games: PerGameSummary | null
   /** Per rival, over the games of the headline score (the confirmation when there is one). */
   perRival: { rival: number; record: GameRecord; rate: WinRate | null }[]
   /** Card changes from the starting list (search variants). */

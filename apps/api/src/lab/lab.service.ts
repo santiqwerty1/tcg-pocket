@@ -31,6 +31,7 @@ import {
   type DeckCardEntry,
   describeEventRulesEs,
   describeProblems,
+  differenceVerdict,
   type EventRules,
   EXPLORE_POOL_LABEL_ES,
   EXPLORE_STOP_ES,
@@ -60,8 +61,17 @@ import {
   NOVELTY_LABEL_ES,
   neighborhoodUsage,
   novelty,
+  type PairedRival,
+  PER_GAME_WORKER_VERSION,
+  type PerGameEntry,
+  type PerGameSummary,
   type PoolCard,
+  pairedDifference,
+  pairedWinner,
+  perGameEntries,
+  perGameSummary,
   randomBaseSeed,
+  readPerGame,
   roundWinner,
   type ScoreDifference,
   type SelectableEnergy,
@@ -85,6 +95,7 @@ import type { JobSummaryView, SnapshotView } from '../simulation/simulation-view
 import { type CreateJobInput, labMode, SimulationsService } from '../simulation/simulations.service.js'
 import { EngineStatusService, type SnapshotSource, SnapshotsService } from '../simulation/snapshots.service.js'
 import { WorkerQueueService } from '../simulation/worker-queue.service.js'
+import { versionAtLeast } from '../simulation/worker-version.js'
 import { LIMITLESS_ATTRIBUTION, type Scope, TournamentsService } from '../tournaments/tournaments.service.js'
 import type {
   CardLineView,
@@ -235,6 +246,8 @@ interface JobParams {
   sideA: number[]
   sideB: number[]
   bothOrders?: boolean
+  /** Each game by index (`perGame`): the paired test of H-010 and what the games say (T-017 A2). */
+  perGame?: boolean
   lab: LabParams
 }
 
@@ -255,6 +268,9 @@ interface ChunkRow {
   winsA: number | null
   winsB: number | null
   ties: number | null
+  firstGame: number
+  /** `perGame` (T-017 A2, H-010): each game by index, when the job asked for it. */
+  extra: Prisma.JsonValue | null
 }
 
 @Injectable()
@@ -501,6 +517,7 @@ export class LabService implements OnApplicationBootstrap {
       replaySample: 1,
       cores: input.cores,
       lab: this.labParams(bank, 'test') as unknown as Prisma.InputJsonValue,
+      ...((await this.perGameReady()) ? { perGame: true } : {}),
     }
     if (input.dryRun) return { preview: await this.simulations.preview(job), bank: await this.bank(input) }
     return this.simulations.create(job)
@@ -800,7 +817,13 @@ export class LabService implements OnApplicationBootstrap {
       ...(event ? { event } : {}),
       frozen: freezeInputs(pool, affinity),
     }
-    const params: JobParams = { sideA: decks, sideB: rivalSnapshots.map((rival) => rival.id), bothOrders: false, lab }
+    const params: JobParams = {
+      sideA: decks,
+      sideB: rivalSnapshots.map((rival) => rival.id),
+      bothOrders: false,
+      ...((await this.perGameReady()) ? { perGame: true } : {}),
+      lab,
+    }
     const job = await this.prisma.$transaction(async (tx) => {
       const created = await tx.simulationJob.create({
         data: {
@@ -821,6 +844,19 @@ export class LabService implements OnApplicationBootstrap {
     })
     this.queue.notifyQueued()
     return this.simulations.progressOf(String(job.id))
+  }
+
+  /**
+   * Whether to ask for per-game results: a worker that plays them (0.2.5 on) was seen in the last day. Without one, a
+   * job that asks for them would wait in the queue; the lab then falls back to independent scores.
+   */
+  private async perGameReady(): Promise<boolean> {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    const workers = await this.prisma.workerNode.findMany({
+      where: { lastSeenAt: { gte: since } },
+      select: { version: true },
+    })
+    return workers.some((worker) => versionAtLeast(worker.version, PER_GAME_WORKER_VERSION))
   }
 
   private async workerCores(): Promise<number> {
@@ -867,11 +903,15 @@ export class LabService implements OnApplicationBootstrap {
           if (round.kind === 'confirm') {
             round.decided = true
             // H-010: the search says it found a better list only when the confirmation's fresh games back it.
-            state.confirmed = confirmVerdict(
-              scoreOf(chunks, rivals, state.incumbent, thisRound),
-              scoreOf(chunks, rivals, state.base, thisRound),
-              state.config.verifyZ ?? DEFAULT_EXPLORE_CONFIG.verifyZ,
-            )
+            const z = state.config.verifyZ ?? DEFAULT_EXPLORE_CONFIG.verifyZ
+            const paired = pairedOf(chunks, rivals, state.incumbent, state.base, thisRound)
+            state.confirmed = paired
+              ? { verdict: differenceVerdict(paired, z), difference: paired }
+              : confirmVerdict(
+                  scoreOf(chunks, rivals, state.incumbent, thisRound),
+                  scoreOf(chunks, rivals, state.base, thisRound),
+                  z,
+                )
             return finish(null)
           }
 
@@ -880,13 +920,17 @@ export class LabService implements OnApplicationBootstrap {
           if (round.kind === 'verify') {
             // H-010: fresh seeds for both; the variant stays only if it wins there too.
             const [candidate] = round.candidates
+            const paired =
+              candidate === undefined ? null : pairedOf(chunks, rivals, candidate, round.incumbent, thisRound)
             const ok =
               candidate !== undefined &&
-              verifyAccepts(
-                scoreOf(chunks, rivals, candidate, thisRound),
-                scoreOf(chunks, rivals, round.incumbent, thisRound),
-                state.config.verifyZ,
-              )
+              (paired
+                ? differenceVerdict(paired, state.config.verifyZ) === 'better'
+                : verifyAccepts(
+                    scoreOf(chunks, rivals, candidate, thisRound),
+                    scoreOf(chunks, rivals, round.incumbent, thisRound),
+                    state.config.verifyZ,
+                  ))
             accepted = ok ? (candidate as number) : null
           } else {
             // The screen: each candidate with this round's games; the incumbent without the round that picked it.
@@ -896,7 +940,14 @@ export class LabService implements OnApplicationBootstrap {
               score: scoreOf(chunks, rivals, id, thisRound),
               complete: complete(chunks, rivals, id, thisRound),
             }))
-            const screened = roundWinner(incumbentScore, candidates, state.config.acceptZ)
+            // With per-game results, each candidate against the incumbent game by game in this same round (same seeds).
+            const paired = candidates.map((candidate) => ({
+              ...candidate,
+              difference: pairedOf(chunks, rivals, candidate.id, state.incumbent, thisRound),
+            }))
+            const screened = paired.every((candidate) => candidate.difference)
+              ? pairedWinner(paired, state.config.acceptZ)
+              : roundWinner(incumbentScore, candidates, state.config.acceptZ)
             round.screened = screened
             if (screened !== null && (state.config.verifyGames ?? 0) > 0) verifyNext = screened
             else accepted = screened
@@ -1198,6 +1249,7 @@ export class LabService implements OnApplicationBootstrap {
           round: state?.variants[String(sid)]?.round ?? null,
           search,
           confirm: confirmed,
+          games: gamesOf(chunks, sid, headline),
           perRival: scored.map((rival) => {
             const record = recordOf(chunks, sid, rival.snapshot, headline)
             return { rival: rival.snapshot, record, rate: simulationRate(record) }
@@ -1281,6 +1333,8 @@ const CHUNK_SELECT = {
   winsA: true,
   winsB: true,
   ties: true,
+  firstGame: true,
+  extra: true,
 } as const
 
 function selectableEnergies(words: readonly string[]): SelectableEnergy[] {
@@ -1407,6 +1461,65 @@ function unbiasedGames(state: ExploreState, id: number): (chunk: ChunkRow) => bo
   return (chunk) =>
     (!confirm || chunk.idx < confirm.fromIdx) &&
     !picked.some((round) => chunk.idx >= round.fromIdx && chunk.idx < round.toIdx)
+}
+
+/** A list's games against a rival in the chunks `filter` keeps, in game order (1 a win); null when one has no `perGame`. */
+function outcomesOf(
+  chunks: readonly ChunkRow[],
+  deck: number,
+  rival: number,
+  filter: (chunk: ChunkRow) => boolean,
+): number[] | null {
+  const mine = chunks
+    .filter(
+      (chunk) => chunk.status === 'done' && chunk.snapshotAId === deck && chunk.snapshotBId === rival && filter(chunk),
+    )
+    .sort((x, y) => x.firstGame - y.firstGame)
+  const out: number[] = []
+  for (const chunk of mine) {
+    const results = readPerGame(chunk.extra)
+    if (!results) return null
+    for (const winner of results.winners) out.push(winner === 'A' ? 1 : 0)
+  }
+  return out
+}
+
+/**
+ * H-010: `a − b` game by game over the rivals both played in the chunks `filter` keeps (same seeds); null when a chunk
+ * has no per-game results or the two lists did not play the same games.
+ */
+function pairedOf(
+  chunks: readonly ChunkRow[],
+  rivals: readonly { snapshot?: number | null; weight: number }[],
+  a: number,
+  b: number,
+  filter: (chunk: ChunkRow) => boolean,
+): ScoreDifference | null {
+  const rows: PairedRival[] = []
+  for (const rival of rivals) {
+    if (typeof rival.snapshot !== 'number') continue
+    const x = outcomesOf(chunks, a, rival.snapshot, filter)
+    const y = outcomesOf(chunks, b, rival.snapshot, filter)
+    if (!x || !y || x.length !== y.length) return null
+    rows.push({ weight: rival.weight, a: x, b: y })
+  }
+  return pairedDifference(rows)
+}
+
+/** T-017 A2: what a list's games say beyond its rate, over the chunks `filter` keeps; null without per-game results. */
+function gamesOf(
+  chunks: readonly ChunkRow[],
+  deck: number,
+  filter: (chunk: ChunkRow) => boolean,
+): PerGameSummary | null {
+  const mine = chunks.filter((chunk) => chunk.status === 'done' && chunk.snapshotAId === deck && filter(chunk))
+  const entries: PerGameEntry[] = []
+  for (const chunk of mine) {
+    const results = readPerGame(chunk.extra)
+    if (!results) return null
+    entries.push(...perGameEntries(results))
+  }
+  return entries.length > 0 ? perGameSummary(entries) : null
 }
 
 function scoreOf(

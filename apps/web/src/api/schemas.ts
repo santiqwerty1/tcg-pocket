@@ -1462,6 +1462,18 @@ export const labDeckSchema = z.object({
   round: z.number().nullable(),
   search: labScoreSchema,
   confirm: labScoreSchema.nullable(),
+  /** T-017 A2: what its games say beyond the rate; null without per-game results. */
+  games: z
+    .object({
+      games: z.number(),
+      first: z.object({ wins: z.number(), games: z.number() }),
+      second: z.object({ wins: z.number(), games: z.number() }),
+      losses: z.object({ points: z.number(), noPokemon: z.number() }),
+      ties: z.object({ turnLimit: z.number(), other: z.number() }),
+      stages: z.tuple([z.number(), z.number(), z.number()]),
+    })
+    .nullable()
+    .default(null),
   perRival: z.array(z.object({ rival: z.number(), record: gameRecordSchema, rate: winRateSchema.nullable() })),
   changes: z.object({ add: z.array(labCardSchema), remove: z.array(labCardSchema) }).nullable(),
   novelty: z.object({

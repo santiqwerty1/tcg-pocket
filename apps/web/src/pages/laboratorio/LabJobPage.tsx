@@ -216,6 +216,30 @@ function FoundBetter({ job }: { job: LabJob }) {
   )
 }
 
+/** «x de y» as a whole percentage, or «—» without games. */
+function share(part: number, total: number): string {
+  return total > 0 ? `${Math.round((100 * part) / total)} %` : '—'
+}
+
+/**
+ * T-017 A2: what the games say beyond the rate, every rival together. «Sin Pokémon en juego» high means it runs out of
+ * Pokémon (few Basics, or the bot does not evolve); a low Stage 2 share, that its evolutions rarely come out.
+ */
+function GamesLine({ games }: { games: NonNullable<LabDeck['games']> }) {
+  const losses = games.losses.points + games.losses.noPokemon
+  return (
+    <p className="text-xs text-muted-foreground">
+      Empezando {share(games.first.wins, games.first.games)} (de {games.first.games}) · yendo segundo{' '}
+      {share(games.second.wins, games.second.games)} (de {games.second.games})
+      {losses > 0
+        ? ` · derrotas: ${share(games.losses.points, losses)} por puntos, ${share(games.losses.noPokemon, losses)} sin Pokémon en juego`
+        : ''}
+      {games.ties.turnLimit > 0 ? ` · ${games.ties.turnLimit} empates por el límite de turnos` : ''} · llegó a Fase 2 en
+      el {share(games.stages[2], games.games)} de {games.games} partidas.
+    </p>
+  )
+}
+
 function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defaultOpen: boolean }) {
   const navigate = useNavigate()
   const [open, setOpen] = useState(defaultOpen)
@@ -277,6 +301,7 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
           <ChangeLine add={deck.changes.add} remove={deck.changes.remove} />
         </div>
       ) : null}
+      {deck.games ? <GamesLine games={deck.games} /> : null}
       <button
         type="button"
         className="flex items-center gap-1 self-start text-xs text-primary hover:underline"
