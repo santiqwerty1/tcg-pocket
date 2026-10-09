@@ -34,7 +34,11 @@ const sha = run('git', ['rev-parse', 'HEAD'])
 ok(`commit ${sha.slice(0, 7)}`)
 
 // 2. The commit is on GitHub's main (CI only runs there).
-run('git', ['fetch', '--quiet', 'origin', 'main'])
+try {
+  run('git', ['fetch', '--quiet', 'origin', 'main'])
+} catch {
+  fail('No se pudo leer origin/main: revisá el remoto con «git remote -v» (después de la mudanza, docs/MUDANZA.md).')
+}
 const onMain = spawnSync('git', ['merge-base', '--is-ancestor', sha, 'origin/main']).status === 0
 if (!onMain) fail('Ese commit no está en origin/main: subilo primero (git push) y esperá la CI.')
 ok('está en origin/main')
