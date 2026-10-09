@@ -1795,14 +1795,22 @@ export const optimizeRowSchema = z.object({
 })
 export type OptimizeRow = z.infer<typeof optimizeRowSchema>
 
-/** H-011.5: an optimize's best combinations played again with fresh seeds (missing in servers before it). */
+/**
+ * H-011.5: an optimize's best combinations played again with fresh seeds (missing in servers before it). `pending`:
+ * not queued yet (retried when the optimize is read); `skipped`: no combination makes a deck the engine plays.
+ */
 export const optimizeConfirmationSchema = z.object({
-  jobId: z.number(),
-  status: z.enum(SIMULATION_STATUSES),
+  jobId: z.number().nullable(),
+  status: z.enum([...SIMULATION_STATUSES, 'pending', 'skipped']),
+  error: z.string().nullable().default(null),
+  rivals: z.number().default(0),
   rows: z.array(
     z.object({
       rank: z.number(),
       cards: optimizeRowSchema.shape.cards,
+      rivalsPlayed: z.number().default(0),
+      rivalsFailed: z.number().default(0),
+      /** Only once every rival was played. */
       record: gameRecordSchema.nullable(),
       rate: winRateSchema.nullable(),
       playable: z.boolean(),
@@ -1919,7 +1927,9 @@ export const simulationPreviewSchema = z
     sideA: z.array(snapshotSchema.extend({ id: z.number().optional() })),
     sideB: z.array(snapshotSchema.extend({ id: z.number().optional() })),
     pairings: z.number(),
+    /** Every game, an optimize's confirmation (`confirmationGames`, H-011.5) included. */
     totalGames: z.number(),
+    confirmationGames: z.number().default(0),
     estimatedSeconds: z.number(),
   })
   .passthrough()

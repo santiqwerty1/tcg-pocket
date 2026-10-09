@@ -4,6 +4,7 @@ import { request } from './client'
 import {
   consistencySchema,
   engineInfoSchema,
+  type JobDetail,
   jobDetailSchema,
   jobSummarySchema,
   jobsResponseSchema,
@@ -70,12 +71,26 @@ export function useEngineInfo() {
   })
 }
 
-/** The job with its results; refetched every 10 s while it runs (SSE moves the progress bar in between). */
+/**
+ * How often a job's page is read again: every 10 s while it runs (SSE moves the progress bar in between), and while
+ * the confirmation of a finished optimize waits to be queued or plays (H-011.5); never once all of it ended.
+ */
+export function detailRefetchMs(job: Pick<JobDetail, 'status' | 'optimizeConfirmation'> | undefined): number | false {
+  if (!job) return false
+  const confirmation = job.optimizeConfirmation?.status
+  return ACTIVE.has(job.status) ||
+    confirmation === 'pending' ||
+    (confirmation !== undefined && ACTIVE.has(confirmation))
+    ? 10_000
+    : false
+}
+
+/** The job with its results (refetched as `detailRefetchMs` says). */
 export function useSimulation(id: string) {
   return useQuery({
     queryKey: simulationKeys.detail(id),
     queryFn: ({ signal }) => request(`/api/simulations/${encodeURIComponent(id)}`, { schema: jobDetailSchema, signal }),
-    refetchInterval: (q) => (q.state.data && ACTIVE.has(q.state.data.status) ? 10_000 : false),
+    refetchInterval: (q) => detailRefetchMs(q.state.data),
     placeholderData: keepPreviousData,
   })
 }

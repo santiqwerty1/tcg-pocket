@@ -32,9 +32,10 @@ import { ErrorState, LoadingRows } from '@/components/ListState'
 import { OrientativeBadge, RateDetails } from '@/components/RateSummary'
 import { SearchBox } from '@/components/SearchBox'
 import { KeyValue, Section } from '@/components/Section'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { formatDateTime, formatNumber, shortSha } from '@/lib/format'
+import { formatDateTime, formatNumber, plural, shortSha } from '@/lib/format'
 import { formatRateValue } from '@/lib/matches'
 import { encodeSource, formatDuration, gamesLabel, isActive, KIND_LABEL, progressFraction } from '@/lib/simulation'
 import { cn } from '@/lib/utils'
@@ -274,41 +275,66 @@ function OptimizeConfirmation({ job }: { job: JobDetail }) {
     <div className="flex flex-col gap-2 rounded-lg border p-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium">Confirmación con semillas nuevas</span>
-        <StatusBadge status={confirmation.status} />
-        <Link to={`/simulacion/${confirmation.jobId}`} className="text-xs text-primary hover:underline">
-          simulación #{confirmation.jobId}
-        </Link>
+        {confirmation.status === 'pending' ? (
+          <Badge variant="outline">por encolar</Badge>
+        ) : confirmation.status === 'skipped' ? (
+          <Badge variant="secondary">no se juega</Badge>
+        ) : (
+          <StatusBadge status={confirmation.status} />
+        )}
+        {confirmation.jobId !== null ? (
+          <Link to={`/simulacion/${confirmation.jobId}`} className="text-xs text-primary hover:underline">
+            simulación #{confirmation.jobId}
+          </Link>
+        ) : null}
       </div>
-      <ol className="flex flex-col gap-1">
-        {confirmation.rows.map((row) => {
-          const before = original[row.rank - 1]
-          return (
-            <li key={row.rank} className="flex items-start gap-2 text-sm">
-              <span className="w-6 shrink-0 pt-0.5 text-xs text-muted-foreground tabular">{row.rank}</span>
-              <span className="min-w-0 flex-1">
-                + {row.cards.map((card) => card.nameEs).join(', ')}
-                {before?.rate ? (
-                  <span className="block text-xs text-muted-foreground">
-                    en la búsqueda: {formatRateValue(before.rate.value)}
-                  </span>
-                ) : null}
-              </span>
-              {row.playable ? (
-                row.record && row.rate ? (
+      {confirmation.status === 'pending' ? (
+        <p className="text-sm text-muted-foreground">
+          {confirmation.error
+            ? `No se pudo encolar (${confirmation.error}); se vuelve a intentar sola mientras esta página está abierta.`
+            : 'Se encola en unos segundos.'}
+        </p>
+      ) : confirmation.status === 'skipped' ? (
+        <p className="text-sm text-muted-foreground">{confirmation.error}</p>
+      ) : (
+        <ol className="flex flex-col gap-1">
+          {confirmation.rows.map((row) => {
+            const before = original[row.rank - 1]
+            return (
+              <li key={row.rank} className="flex items-start gap-2 text-sm">
+                <span className="w-6 shrink-0 pt-0.5 text-xs text-muted-foreground tabular">{row.rank}</span>
+                <span className="min-w-0 flex-1">
+                  + {row.cards.map((card) => card.nameEs).join(', ')}
+                  {before?.rate ? (
+                    <span className="block text-xs text-muted-foreground">
+                      en la búsqueda: {formatRateValue(before.rate.value)} ·{' '}
+                      <RateDetails record={before.record} rate={before.rate} />
+                    </span>
+                  ) : null}
+                </span>
+                {!row.playable ? (
+                  <span className="text-xs text-muted-foreground">el motor no juega ese mazo</span>
+                ) : row.record && row.rate ? (
                   <RateCell record={row.record} rate={row.rate} />
                 ) : (
-                  <span className="text-xs text-muted-foreground">sin jugar todavía</span>
-                )
-              ) : (
-                <span className="text-xs text-muted-foreground">el motor no juega ese mazo</span>
-              )}
-            </li>
-          )
-        })}
-      </ol>
+                  <span className="text-right text-xs text-muted-foreground">
+                    {row.rivalsPlayed} de {plural(confirmation.rivals, 'rival', 'rivales')}
+                    {row.rivalsFailed > 0 ? (
+                      <span className="block text-destructive">
+                        {plural(row.rivalsFailed, 'falló', 'fallaron')} en el motor
+                      </span>
+                    ) : null}
+                  </span>
+                )}
+              </li>
+            )
+          })}
+        </ol>
+      )}
       <p className="text-xs text-muted-foreground">
         La mejor de muchas combinaciones medidas con las mismas partidas también es la que tuvo más suerte: las primeras
-        se vuelven a jugar contra los mismos rivales con otras semillas y más partidas. Ese es el número para decidir.
+        se vuelven a jugar contra los mismos rivales con otras semillas y más partidas. Ese es el número para decidir;
+        el porcentaje sale cuando jugó contra todos los rivales.
       </p>
     </div>
   )

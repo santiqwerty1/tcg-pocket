@@ -28,6 +28,9 @@ import {
   matrixPairings,
   matrixRows,
   mergeHistograms,
+  optimizeConfirmationGames,
+  optimizeConfirmGamesPerRival,
+  optimizeFinalists,
   optimizeRanking,
   planChunks,
   randomBaseSeed,
@@ -36,6 +39,7 @@ import {
   type SimulationKind,
   simulationRate,
 } from '@tcg/domain'
+import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
 import type { Prisma } from '../generated/prisma/client.js'
 import { gunzipJson } from '../http/gunzip.js'
@@ -58,13 +62,28 @@ import { WorkerQueueService } from './worker-queue.service.js'
 
 export const MAX_DECKS_PER_SIDE = 150
 export const MAX_GAMES_PER_PAIR = 20_000
-/** H-011.5: how many of an optimize's best combinations are confirmed, and with at least how many games per rival. */
-export const OPTIMIZE_CONFIRM_TOP = 3
-export const OPTIMIZE_CONFIRM_GAMES = 200
+/** A claim on an optimize's confirmation older than this was a crash halfway: the next read queues it again. */
+const CONFIRM_CLAIM_MS = 60_000
 const WORKER_ONLINE_MS = 2 * 60 * 1000
 
 /** A snapshot that already exists: the app's own jobs (the confirmation of an optimize) reuse its rivals. */
 type JobSource = SnapshotSource | { snapshotId: number }
+
+/** H-011.5: the combinations a confirmation plays (engine ids, in the optimize's order) and each one's snapshot. */
+type ConfirmationPlan = {
+  combinations: string[][]
+  /** null: the deck with that combination is not one the engine plays. */
+  snapshots: (number | null)[]
+}
+
+/**
+ * What an optimize keeps in `params.confirmation`: `pending` from the update that ends it (with `claimedAt` while one
+ * reader queues it, and the last `error`, retried when the optimize is read), then the comparison, or `skipped`.
+ */
+type ConfirmationParams =
+  | { pending: true; claimedAt?: number; error?: string }
+  | ({ jobId: number } & ConfirmationPlan)
+  | { skipped: string }
 
 export interface CreateJobInput {
   kind: SimulationKind
@@ -85,6 +104,8 @@ export interface CreateJobInput {
   perGame?: boolean | undefined
   /** The meta bank a calibration matrix plays (R-012, calibration.service.ts). */
   calibration?: Prisma.InputJsonValue | undefined
+  /** The confirmation of an optimize (H-011.5): stored as `params.confirmationOf`, kept out of the decks' column. */
+  confirmationOf?: ({ jobId: number } & ConfirmationPlan) | undefined
   /** optimize: the deck (side A, one), the cards to take out, the candidates to try. */
   optimize?:
     | {
@@ -105,7 +126,9 @@ export class SimulationsService {
     private readonly snapshots: SnapshotsService,
     private readonly queue: WorkerQueueService,
     private readonly upstream: EngineUpstreamService,
+    private readonly logger: PinoLogger,
   ) {
+    this.logger.setContext(SimulationsService.name)
     this.queue.onJobDone((jobId) => this.afterDone(jobId))
   }
 
@@ -145,7 +168,9 @@ export class SimulationsService {
     sideA: Omit<SnapshotView, 'id'>[]
     sideB: Omit<SnapshotView, 'id'>[]
     pairings: number
+    /** Every game the job plays; for an optimize, its confirmation's too (`confirmationGames`). */
     totalGames: number
+    confirmationGames: number
     estimatedSeconds: number
     engineRev: string
   }> {
@@ -171,13 +196,25 @@ export class SimulationsService {
         ? comparePairings(aIds, bIds).length
         : input.kind === 'matrix'
           ? matrixPairings(aIds, bIds, input.bothOrders).length
-          : 1
-    const totalGames = pairings * input.gamesPerPair
+          : bIds.length
+    // optimize: every combination against every rival, then its confirmation (H-011.5) when it ends.
+    const combinations =
+      input.kind === 'optimize' && input.optimize
+        ? multisetCount(
+            new Set(input.optimize.candidates).size,
+            input.optimize.remove.reduce((sum, item) => sum + item.count, 0),
+          )
+        : 0
+    const confirmationGames =
+      input.kind === 'optimize' ? optimizeConfirmationGames(combinations, bIds.length, input.gamesPerPair) : 0
+    const totalGames =
+      (input.kind === 'optimize' ? combinations * bIds.length : pairings) * input.gamesPerPair + confirmationGames
     return {
       sideA,
       sideB,
       pairings,
       totalGames,
+      confirmationGames,
       estimatedSeconds: Math.round(estimateSeconds(totalGames, input.players, input.cores ?? 2)),
       engineRev: this.engine.engineRev(),
     }
@@ -251,6 +288,7 @@ export class SimulationsService {
         ...(input.lab === undefined ? {} : { lab: input.lab }),
         ...(input.perGame ? { perGame: true } : {}),
         ...(input.calibration === undefined ? {} : { calibration: input.calibration }),
+        ...(input.confirmationOf ? { confirmationOf: input.confirmationOf } : {}),
       }
       chunks = planChunks(pairings, input.gamesPerPair)
     }
@@ -301,25 +339,63 @@ export class SimulationsService {
 
   /**
    * H-011.5: the best of up to 200 combinations, measured on the same games, is the luckiest one too (the winner's
-   * curse). The `OPTIMIZE_CONFIRM_TOP` best are played again against the same rivals with fresh seeds and more games,
-   * as the Laboratorio's confirmation does; the optimize's view shows both. Once per optimize; null when there is
-   * nothing to confirm (not an optimize, not done, already confirmed, or from before the cards taken out were kept).
+   * curse). The `OPTIMIZE_CONFIRM_TOP` best (and the ones tied with the last) are played again against the same rivals
+   * with fresh seeds and more games, as the Laboratorio's confirmation does; the optimize's view shows both.
+   *
+   * Once per optimize: the update that ends it marks it `pending` (WorkerQueueService.settle), and this claims the mark
+   * in one statement, so two readers never queue it twice. A failed attempt goes back to `pending` with its error and
+   * is retried when the optimize is read (`detail`). null when there is nothing to do.
    */
   async confirmOptimize(jobId: number): Promise<JobSummaryView | null> {
-    const job = await this.prisma.simulationJob.findUnique({ where: { id: jobId } })
-    if (job?.kind !== 'optimize' || job.status !== 'done') return null
-    const params = job.params as {
-      sideA?: number[]
-      sideB?: number[]
-      remove?: { cardId: string; count: number }[]
-      confirmation?: unknown
+    const now = Date.now()
+    const claimed = await this.prisma.$executeRaw`
+      UPDATE "simulation_jobs"
+      SET "params" = jsonb_set("params", '{confirmation}', jsonb_build_object('pending', true, 'claimedAt', ${now}::bigint))
+      WHERE "id" = ${jobId} AND "kind" = 'optimize' AND "status" = 'done'
+        AND "params"->'confirmation'->>'pending' = 'true'
+        AND COALESCE(("params"->'confirmation'->>'claimedAt')::bigint, 0) < ${now - CONFIRM_CLAIM_MS}::bigint`
+    if (claimed === 0) return null
+    try {
+      const { confirmation, job } = await this.queueConfirmation(jobId)
+      await this.setConfirmation(jobId, confirmation)
+      return job
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      await this.setConfirmation(jobId, { pending: true, error: message.slice(0, 300) })
+      throw error
     }
-    if (params.confirmation !== undefined || !params.remove || !params.sideA?.[0] || !params.sideB?.length) return null
+  }
+
+  /** `params.confirmation` of an optimize, written alone (nothing else of its params changes). */
+  private async setConfirmation(jobId: number, confirmation: ConfirmationParams): Promise<void> {
+    await this.prisma.$executeRaw`
+      UPDATE "simulation_jobs" SET "params" = jsonb_set("params", '{confirmation}', ${JSON.stringify(confirmation)}::jsonb)
+      WHERE "id" = ${jobId}`
+  }
+
+  /** The comparison that confirms an optimize: the one already queued (a crash after creating it), or a new one. */
+  private async queueConfirmation(
+    jobId: number,
+  ): Promise<{ confirmation: ConfirmationParams; job: JobSummaryView | null }> {
+    const queued = await this.prisma.simulationJob.findFirst({
+      where: { kind: 'compare', params: { path: ['confirmationOf', 'jobId'], equals: jobId } },
+    })
+    if (queued) {
+      const plan = (queued.params as unknown as { confirmationOf: ConfirmationPlan }).confirmationOf
+      return {
+        confirmation: { jobId: queued.id, combinations: plan.combinations, snapshots: plan.snapshots },
+        job: this.summary(queued, await this.progress([queued.id])),
+      }
+    }
+    const job = await this.prisma.simulationJob.findUniqueOrThrow({ where: { id: jobId } })
+    const params = job.params as { sideA?: number[]; sideB?: number[]; remove?: { cardId: string; count: number }[] }
+    const skipped = (reason: string) => ({ confirmation: { skipped: reason }, job: null })
+    if (!params.remove || !params.sideA?.[0] || !params.sideB?.length) return skipped('El trabajo no guardó sus datos.')
     const chunk = await this.prisma.simulationChunk.findFirst({ where: { jobId, status: 'done' } })
     const combinations = (chunk?.extra as { combinations?: unknown } | null)?.combinations
-    if (!Array.isArray(combinations)) return null
-    const best = optimizeRanking(combinations as Parameters<typeof optimizeRanking>[0]).slice(0, OPTIMIZE_CONFIRM_TOP)
-    if (best.length === 0) return null
+    if (!Array.isArray(combinations)) return skipped('El motor no devolvió combinaciones.')
+    const best = optimizeFinalists(optimizeRanking(combinations as Parameters<typeof optimizeRanking>[0]))
+    if (best.length === 0) return skipped('El motor no devolvió combinaciones.')
     const index = this.catalog.requireIndex()
     const base = await this.prisma.deckSnapshot.findUniqueOrThrow({ where: { id: params.sideA[0] } })
     const removed = new Map(params.remove.map((item) => [item.cardId, item.count]))
@@ -352,30 +428,24 @@ export class SimulationsService {
       variants.push(snapshot.simulable ? snapshot : null)
     }
     const playable = variants.filter((snapshot): snapshot is SnapshotView => snapshot !== null)
-    if (playable.length === 0) return null
+    if (playable.length === 0) {
+      return skipped('Ninguna de las mejores combinaciones da un mazo que el motor juegue.')
+    }
+    const plan: ConfirmationPlan = {
+      combinations: best.map((combination) => combination.cards),
+      snapshots: variants.map((snapshot) => snapshot?.id ?? null),
+    }
     const confirmation = await this.create({
       kind: 'compare',
       label: `Confirmación de «${job.label}» (#${job.id})`,
       sideA: playable.map((snapshot) => ({ snapshotId: snapshot.id })),
       sideB: params.sideB.map((snapshotId) => ({ snapshotId })),
-      gamesPerPair: Math.min(MAX_GAMES_PER_PAIR, Math.max(job.gamesPerPair, OPTIMIZE_CONFIRM_GAMES)),
+      gamesPerPair: Math.min(MAX_GAMES_PER_PAIR, optimizeConfirmGamesPerRival(job.gamesPerPair)),
       players: [job.players[0] ?? 'e2', job.players[1] ?? 'e2'],
       replaySample: 0,
+      confirmationOf: { jobId, ...plan },
     })
-    await this.prisma.simulationJob.update({
-      where: { id: jobId },
-      data: {
-        params: {
-          ...(job.params as Prisma.JsonObject),
-          confirmation: {
-            jobId: confirmation.id,
-            combinations: best.map((combination) => combination.cards),
-            snapshots: variants.map((snapshot) => snapshot?.id ?? null),
-          },
-        },
-      },
-    })
-    return confirmation
+    return { confirmation: { jobId: confirmation.id, ...plan }, job: confirmation }
   }
 
   /** The engine-cli optimize job: deck minus the removed cards, candidates as implemented engine ids, rivals. */
@@ -574,7 +644,15 @@ export class SimulationsService {
   }
 
   async detail(rawId: string): Promise<JobDetailView> {
-    const job = await this.requireJob(rawId)
+    let job = await this.requireJob(rawId)
+    // H-011.5: a confirmation that could not be queued when the optimize ended is retried when it is read.
+    if (confirmationPending(job)) {
+      const id = job.id
+      await this.confirmOptimize(id).catch((error: unknown) => {
+        this.logger.warn({ job: id, error: String(error).slice(0, 300) }, 'optimize confirmation not queued')
+      })
+      job = await this.requireJob(rawId)
+    }
     const params = job.params as { sideA?: number[]; sideB?: number[] }
     const sideA = params.sideA ?? []
     const sideB = params.sideB ?? []
@@ -654,46 +732,65 @@ export class SimulationsService {
     }
   }
 
-  /** What the confirmation of an optimize measured for each of its best combinations, in the optimize's order. */
+  /**
+   * What the confirmation of an optimize measured for each of its best combinations, in the optimize's order. A row
+   * has a rate only once every rival was played: until then (or when a rival failed in the engine) it says how many.
+   */
   private async optimizeConfirmation(params: Prisma.JsonValue): Promise<JobDetailView['optimizeConfirmation']> {
-    const confirmation = (
-      params as {
-        confirmation?: { jobId: number; combinations: string[][]; snapshots: (number | null)[] }
-      } | null
-    )?.confirmation
+    const own = params as { sideB?: number[]; confirmation?: ConfirmationParams } | null
+    const confirmation = own?.confirmation
     if (!confirmation) return null
+    const rivals = own?.sideB?.length ?? 0
+    if ('pending' in confirmation) {
+      return { jobId: null, status: 'pending', error: confirmation.error ?? null, rivals, rows: [] }
+    }
+    if ('skipped' in confirmation) {
+      return { jobId: null, status: 'skipped', error: confirmation.skipped, rivals, rows: [] }
+    }
     const job = await this.prisma.simulationJob.findUnique({ where: { id: confirmation.jobId } })
     if (!job) return null
     const chunks = await this.prisma.simulationChunk.findMany({
-      where: { jobId: job.id, status: 'done' },
-      select: { snapshotAId: true, winsA: true, winsB: true, ties: true },
+      where: { jobId: job.id },
+      select: { snapshotAId: true, snapshotBId: true, status: true, winsA: true, winsB: true, ties: true },
     })
+    const sideB = (job.params as { sideB?: number[] }).sideB ?? []
     const index = this.catalog.requireIndex()
     return {
       jobId: job.id,
       status: job.status,
+      error: null,
+      rivals: sideB.length,
       rows: confirmation.combinations.map((cards, at) => {
         const snapshot = confirmation.snapshots[at] ?? null
-        const played = snapshot === null ? [] : chunks.filter((chunk) => chunk.snapshotAId === snapshot)
-        const record =
-          played.length > 0
-            ? played.reduce(
-                (sum, chunk) => ({
-                  wins: sum.wins + (chunk.winsA ?? 0),
-                  losses: sum.losses + (chunk.winsB ?? 0),
-                  ties: sum.ties + (chunk.ties ?? 0),
-                }),
-                { wins: 0, losses: 0, ties: 0 },
-              )
-            : null
+        // A variant that is also a rival does not play itself (comparePairings).
+        const opponents = sideB.filter((rival) => rival !== snapshot)
+        let rivalsPlayed = 0
+        let rivalsFailed = 0
+        const record = { wins: 0, losses: 0, ties: 0 }
+        for (const rival of opponents) {
+          // A pairing may be split in several chunks: it counts once all of them are done.
+          const pairing = chunks.filter((chunk) => chunk.snapshotAId === snapshot && chunk.snapshotBId === rival)
+          if (pairing.some((chunk) => chunk.status === 'failed')) rivalsFailed++
+          else if (pairing.length > 0 && pairing.every((chunk) => chunk.status === 'done')) {
+            rivalsPlayed++
+            for (const chunk of pairing) {
+              record.wins += chunk.winsA ?? 0
+              record.losses += chunk.winsB ?? 0
+              record.ties += chunk.ties ?? 0
+            }
+          }
+        }
+        const complete = snapshot !== null && opponents.length > 0 && rivalsPlayed === opponents.length
         return {
           rank: at + 1,
           cards: cards.map((engineId) => {
             const card = index.cardByEngineId(engineId)
             return { engineId, cardId: card?.id ?? null, nameEs: card?.nameEs ?? engineId }
           }),
-          record,
-          rate: record ? simulationRate(record) : null,
+          rivalsPlayed: snapshot === null ? 0 : rivalsPlayed,
+          rivalsFailed: snapshot === null ? 0 : rivalsFailed,
+          record: complete ? record : null,
+          rate: complete ? simulationRate(record) : null,
           playable: snapshot !== null,
         }
       }),
@@ -1051,11 +1148,14 @@ export class SimulationsService {
     })
     const ids = snapshots.map((row) => row.id)
     if (ids.length === 0) return null
+    // H-011.5: the confirmation of an optimize replays its rivals, which would count them twice.
+    const confirmations = await this.prisma.$queryRaw<{ id: number }[]>`
+      SELECT "id" FROM "simulation_jobs" WHERE "kind" = 'compare' AND "params"->'confirmationOf' IS NOT NULL`
     const chunks = await this.prisma.simulationChunk.findMany({
       where: {
         status: 'done',
         OR: [{ snapshotAId: { in: ids } }, { snapshotBId: { in: ids } }],
-        job: { kind: { in: ['matrix', 'compare'] } },
+        job: { kind: { in: ['matrix', 'compare'] }, id: { notIn: confirmations.map((row) => row.id) } },
       },
       select: {
         snapshotAId: true,
@@ -1132,6 +1232,12 @@ export function consistencyMode(params: Prisma.JsonValue): 'goldfish' | 'meta' {
 export function labMode(params: Prisma.JsonValue): 'test' | 'explore' | null {
   const mode = (params as { lab?: { mode?: unknown } } | null)?.lab?.mode
   return mode === 'test' || mode === 'explore' ? mode : null
+}
+
+/** An optimize that ended well and whose confirmation is not queued yet (H-011.5). */
+function confirmationPending(job: JobRow): boolean {
+  const confirmation = (job.params as { confirmation?: { pending?: unknown } } | null)?.confirmation
+  return job.kind === 'optimize' && job.status === 'done' && confirmation?.pending === true
 }
 
 /** A matrix with an empty «Contra» side: side A against itself, every pair once (DECISIONES 6.4). */

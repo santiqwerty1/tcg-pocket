@@ -312,6 +312,21 @@ describe('MCP write tools (e2e)', () => {
       dryRun: true,
       plan: { pairings: 2, totalGames: 100, workerOnline: false },
     })
+    // H-011.5: an optimize's plan counts the confirmation it queues when it ends (2 combinations × 1 rival × 10, then
+    // both × 200).
+    const optimizePlan = await call(client, 'simulations_enqueue', {
+      kind: 'optimize',
+      decksA: ['7'],
+      decksB: ['2'],
+      games: 10,
+      remove: [{ card: 'Bombirdier', count: 1 }],
+      candidates: ['Helio', 'A1-225'],
+      dryRun: true,
+    })
+    expect(optimizePlan.structuredContent).toMatchObject({
+      queued: false,
+      plan: { pairings: 1, totalGames: 20 + 400, confirmationGames: 400 },
+    })
     // An optimize plan is checked like the real job: a card the deck does not have cannot be taken out.
     const notInDeck = await call(client, 'simulations_enqueue', {
       kind: 'optimize',

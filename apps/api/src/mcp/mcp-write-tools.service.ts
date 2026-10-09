@@ -7,12 +7,12 @@ import type { McpServer, StandardSchemaWithJSON } from '@modelcontextprotocol/se
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import {
   type DeckCardEntry,
-  estimateSeconds,
   foldText,
   formatWinRateEs,
   MATCH_MODE_LABEL_ES,
   MATCH_RESULT_LABEL_ES,
   MCP_WRITE_TOOLS,
+  OPTIMIZE_CONFIRM_GAMES,
   type SelectableEnergy,
   type WinRate,
 } from '@tcg/domain'
@@ -680,20 +680,20 @@ export class McpWriteToolsService {
         notSimulable,
       }
     }
-    // Fase 43: optimize plays every combination of candidates against every rival; the preview counts one pairing.
-    const rivals = preview.sideB.filter((snapshot) => snapshot.simulable).length
-    const slots = optimize ? optimize.remove.reduce((sum, item) => sum + item.count, 0) : 0
-    const totalGames = optimize
-      ? multisetCount(optimize.candidates.length, slots) * rivals * input.gamesPerPair
-      : preview.totalGames
-    const seconds = optimize
-      ? estimateSeconds(totalGames, input.players, online[0]?.cores ?? 8)
-      : preview.estimatedSeconds
-    const minutes = Math.max(1, Math.round(seconds / 60))
+    // An optimize plays every combination against every rival, and then its confirmation (H-011.5): the preview
+    // counts both.
+    const totalGames = preview.totalGames
+    const minutes = Math.max(1, Math.round(preview.estimatedSeconds / 60))
     const plan = {
       kind: args.kind,
-      pairings: optimize ? rivals : preview.pairings,
+      pairings: preview.pairings,
       totalGames,
+      ...(optimize
+        ? {
+            confirmationGames: preview.confirmationGames,
+            confirmation: `Incluye la confirmación: al terminar, las 3 mejores combinaciones (hasta 5 si hay empate en el tercer puesto) se juegan otra vez contra los mismos rivales con semillas nuevas y al menos ${OPTIMIZE_CONFIRM_GAMES} partidas por rival (${preview.confirmationGames} partidas).`,
+          }
+        : {}),
       gamesPerPairing: input.gamesPerPair,
       bots: input.players,
       estimatedMinutes: minutes,

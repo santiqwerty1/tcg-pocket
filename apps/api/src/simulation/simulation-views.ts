@@ -69,13 +69,25 @@ export interface OptimizeRowView {
 }
 
 export interface OptimizeConfirmationView {
-  /** The comparison that plays them. */
-  jobId: number
-  status: JobSummaryView['status']
+  /** The comparison that plays them; null while it is not queued yet (`pending`) or when there was nothing to play. */
+  jobId: number | null
+  /**
+   * The comparison's status, or `pending` (it is queued when the optimize ends; a failed attempt is retried when the
+   * optimize is read) or `skipped` (none of the best combinations makes a deck the engine plays).
+   */
+  status: JobSummaryView['status'] | 'pending' | 'skipped'
+  /** Why the last attempt to queue it failed (it is retried), or why it was skipped. */
+  error: string | null
+  /** Rivals each combination plays. */
+  rivals: number
   /** In the optimize's order (rank 1 first): what the confirmation measured with its own seeds. */
   rows: {
     rank: number
     cards: OptimizeRowView['cards']
+    /** Rivals whose games all finished, and the ones the engine failed. */
+    rivalsPlayed: number
+    rivalsFailed: number
+    /** Only once every rival was played: a rate over fewer rivals would not be the same measure. */
     record: GameRecord | null
     rate: WinRate | null
     /** False: the deck with this combination is not one the engine plays (it was left out of the confirmation). */

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
 import { SimulationsService } from '../src/simulation/simulations.service.js'
@@ -543,12 +544,13 @@ describe('simulation (e2e)', () => {
     ).toBe(19)
   })
 
-  it('H-011.5: a finished optimize queues its 3 best combinations again, with fresh seeds and more games', async () => {
+  /** An optimize of deck 2 (one card out, three candidates) against decks 5 and 6, claimed by `worker`. */
+  async function claimedOptimize(label: string, worker = 'worker-opt') {
     const deck = (await get(`/api/decks/${deckIds[1]}`)).body as { cards: { card: { id: string }; count: number }[] }
     const out = deck.cards.filter((entry) => entry.count === 1).slice(0, 1)
     const created = await post('/api/simulations').send({
       kind: 'optimize',
-      label: 'Optimizar el 2',
+      label,
       sideA: [{ deckId: deckIds[1] }],
       sideB: decks(5, 6),
       gamesPerPair: 20,
@@ -559,7 +561,7 @@ describe('simulation (e2e)', () => {
       },
     })
     const id = created.body.id as number
-    const chunk = (await claim('worker-opt')).body.chunk as Structured
+    const chunk = (await claim(worker)).body.chunk as Structured
     expect(chunk).toMatchObject({ jobId: id, kind: 'optimize' })
     const tally = (wins: number) => ({ winsA: wins, winsB: 20 - wins, ties: 0, games: 20, turns: 200 })
     const combination = (card: string, wins: number) => ({
@@ -572,8 +574,7 @@ describe('simulation (e2e)', () => {
       perEnemy: [tally(wins), tally(wins)],
     })
     // The engine's combinations in its own order; the confirmation takes the best 3 by raw rate.
-    const combinations = [combination('A2 150', 9), combination('A1 219', 15), combination('P-A 005', 12)]
-    const sent = await bearer('put', `/api/worker/chunks/${chunk.chunkId}/result`).send({
+    const result = {
       workerId: 'worker-0001',
       engineRev: test.env.engineRev,
       winsA: 72,
@@ -582,41 +583,94 @@ describe('simulation (e2e)', () => {
       games: 120,
       turns: 1200,
       durationMs: 1000,
-      extra: { combinations },
+      extra: { combinations: [combination('A2 150', 9), combination('A1 219', 15), combination('P-A 005', 12)] },
+    }
+    const send = () => bearer('put', `/api/worker/chunks/${chunk.chunkId}/result`).send(result)
+    return { id, send }
+  }
+
+  /** Comparisons queued to confirm the optimize `id`. */
+  const confirmationsOf = (id: number) =>
+    test.prisma.simulationJob.findMany({ where: { params: { path: ['confirmationOf', 'jobId'], equals: id } } })
+
+  it('H-011.5: the preview and the plan count the confirmation an optimize queues when it ends', async () => {
+    const deck = (await get(`/api/decks/${deckIds[1]}`)).body as { cards: { card: { id: string }; count: number }[] }
+    const out = deck.cards.filter((entry) => entry.count === 1).slice(0, 1)
+    const preview = await post('/api/simulations/preview').send({
+      kind: 'optimize',
+      sideA: [{ deckId: deckIds[1] }],
+      sideB: decks(5, 6),
+      gamesPerPair: 20,
+      players: ['e2', 'e2'],
+      optimize: { remove: [{ cardId: out[0]?.card.id, count: 1 }], candidates: ['A1-219', 'P-A-5', 'A2-150'] },
     })
-    expect(sent.body).toEqual({ accepted: true })
+    expect(preview.status).toBe(200)
+    // 3 combinations × 2 rivals × 20, then the best 3 × 2 rivals × 200.
+    expect(preview.body).toMatchObject({ pairings: 2, totalGames: 120 + 1200, confirmationGames: 1200 })
+  })
+
+  it('H-011.5: a finished optimize queues its 3 best combinations again, with fresh seeds and more games', async () => {
+    const { id, send } = await claimedOptimize('Optimizar el 2')
+    // The same result twice at once (a worker retrying a slow answer): one confirmation.
+    const sent = await Promise.all([send(), send()])
+    expect(sent.map((response) => response.status)).toEqual([200, 200])
+    expect(sent.some((response) => response.body.accepted === true)).toBe(true)
+    expect((await send()).body).toEqual({ accepted: false })
+    expect(await confirmationsOf(id)).toHaveLength(1)
     const detail = (await get(`/api/simulations/${id}`)).body as {
       status: string
+      baseSeed: string
       sideB: number[]
+      chunks: { seed: string }[]
       optimizeConfirmation: {
         jobId: number
         status: string
-        rows: { rank: number; cards: { engineId: string }[]; record: Structured | null; playable: boolean }[]
+        rivals: number
+        rows: {
+          rank: number
+          cards: { engineId: string }[]
+          record: Structured | null
+          rivalsPlayed: number
+          playable: boolean
+        }[]
       }
     }
     expect(detail.status).toBe('done')
-    expect(detail.optimizeConfirmation).toMatchObject({ status: 'queued' })
+    expect(detail.optimizeConfirmation).toMatchObject({ status: 'queued', rivals: 2 })
     // Deck 2 already plays 2 Poké Ball: with a third the engine would not play it, so it is left out (marked).
     expect(
-      detail.optimizeConfirmation.rows.map((row) => [row.rank, row.cards[0]?.engineId, row.record, row.playable]),
+      detail.optimizeConfirmation.rows.map((row) => [
+        row.rank,
+        row.cards[0]?.engineId,
+        row.record,
+        row.rivalsPlayed,
+        row.playable,
+      ]),
     ).toEqual([
-      [1, 'A1 219', null, true],
-      [2, 'P-A 005', null, false],
-      [3, 'A2 150', null, true],
+      [1, 'A1 219', null, 0, true],
+      [2, 'P-A 005', null, 0, false],
+      [3, 'A2 150', null, 0, true],
     ])
-    const confirmation = (await get(`/api/simulations/${detail.optimizeConfirmation.jobId}`)).body as {
+    const confirmationId = detail.optimizeConfirmation.jobId
+    const confirmation = (await get(`/api/simulations/${confirmationId}`)).body as {
       kind: string
       label: string
       gamesPerPair: number
       players: string[]
+      baseSeed: string
       sideA: number[]
       sideB: number[]
       snapshots: { id: number; label: string; deckgymText: string; simulable: boolean }[]
+      chunks: { id: number; a: number; b: number; seed: string }[]
     }
     expect(confirmation).toMatchObject({ kind: 'compare', gamesPerPair: 200, players: ['e2', 'e2'] })
     expect(confirmation.label).toBe(`Confirmación de «Optimizar el 2» (#${id})`)
     expect(confirmation.sideB).toEqual(detail.sideB)
     expect(confirmation.sideA).toHaveLength(2)
+    // Fresh seeds: none of the optimize's.
+    expect(confirmation.baseSeed).not.toBe(detail.baseSeed)
+    const optimizeSeeds = new Set(detail.chunks.map((chunk) => chunk.seed))
+    expect(confirmation.chunks.some((chunk) => optimizeSeeds.has(chunk.seed))).toBe(false)
     const variants = confirmation.snapshots.filter((snapshot) => confirmation.sideA.includes(snapshot.id))
     for (const variant of variants) {
       expect(variant.simulable).toBe(true)
@@ -627,11 +681,29 @@ describe('simulation (e2e)', () => {
       expect(cards).toBe(20)
     }
     expect(variants.find((variant) => variant.id === confirmation.sideA[0])?.label).toMatch(/· 1\.º: \+ /)
-    // Played with its own seeds: rank 1 holds up at 60 %.
+
+    // The confirmation replays the rivals: it stays out of their «simulación» column.
+    const simulations = test.app.get(SimulationsService)
+    const rivalDeck = Number(deckIds[4])
+    const columnBefore = await simulations.deckColumn(rivalDeck)
+    // Played with its own seeds: rank 1 holds up at 60 %; rank 3 fails in the engine against the second rival.
+    const failing = new Set(
+      confirmation.chunks
+        .filter((chunk) => chunk.a === confirmation.sideA[1] && chunk.b === confirmation.sideB[1])
+        .map((chunk) => chunk.id),
+    )
+    let checkedHalf = false
     for (;;) {
       const next = (await claim('worker-opt')).body.chunk as Structured | null
       if (!next) break
-      expect(next.jobId).toBe(detail.optimizeConfirmation.jobId)
+      expect(next.jobId).toBe(confirmationId)
+      if (failing.has(next.chunkId as number)) {
+        await bearer('put', `/api/worker/chunks/${next.chunkId}/failure`).send({
+          workerId: 'worker-opt',
+          error: 'el motor se cayó',
+        })
+        continue
+      }
       await bearer('put', `/api/worker/chunks/${next.chunkId}/result`).send({
         workerId: 'worker-opt',
         engineRev: test.env.engineRev,
@@ -641,18 +713,112 @@ describe('simulation (e2e)', () => {
         games: 200,
         durationMs: 1000,
       })
+      // Against one rival of two: no percentage yet.
+      const half = (await get(`/api/simulations/${id}`)).body.optimizeConfirmation.rows.find(
+        (row: { rivalsPlayed: number }) => row.rivalsPlayed === 1,
+      )
+      if (half && !checkedHalf) {
+        expect(half).toMatchObject({ record: null, rate: null })
+        checkedHalf = true
+      }
     }
+    expect(checkedHalf).toBe(true)
     const after = (await get(`/api/simulations/${id}`)).body.optimizeConfirmation as {
       status: string
-      rows: { record: { wins: number; losses: number }; rate: { value: number } }[]
+      rows: {
+        record: { wins: number; losses: number } | null
+        rate: { value: number } | null
+        rivalsPlayed: number
+        rivalsFailed: number
+      }[]
     }
-    expect(after.status).toBe('done')
-    expect(after.rows[0]?.record).toEqual({ wins: 240, losses: 160, ties: 0 })
-    expect(after.rows[0]?.rate.value).toBeCloseTo(60, 10)
+    expect(after.status).toBe('failed')
+    expect(after.rows[0]).toMatchObject({ record: { wins: 240, losses: 160, ties: 0 }, rivalsPlayed: 2 })
+    expect(after.rows[0]?.rate?.value).toBeCloseTo(60, 10)
+    expect(after.rows[2]).toMatchObject({ record: null, rate: null, rivalsPlayed: 1, rivalsFailed: 1 })
+    expect(await simulations.deckColumn(rivalDeck)).toEqual(columnBefore)
+    // Claude sees both numbers, and which one to decide with.
+    await test.app.listen(0, '127.0.0.1')
+    const { port } = test.app.getHttpServer().address() as AddressInfo
+    const client = new Client({ name: 'e2e', version: '1.0.0' })
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/api/mcp`), {
+        requestInit: { headers: { Authorization: `Bearer ${mcpToken}` } },
+      }),
+    )
+    const results = (await client.callTool({ name: 'simulations_results', arguments: { job: id } })) as {
+      structuredContent?: Structured
+    }
+    await client.close()
+    expect(results.structuredContent?.confirmation).toMatchObject({
+      job: confirmationId,
+      status: 'falló',
+      note: expect.stringContaining('El número para decidir es el de la confirmación'),
+      combinations: [
+        {
+          position: 1,
+          added: ['Erika'],
+          search: { rate: { value: 75, games: 40 } },
+          confirmation: { record: { wins: 240, losses: 160, ties: 0 }, rate: { value: 60, games: 400 } },
+        },
+        { position: 2, confirmation: 'el motor no juega ese mazo: quedó afuera' },
+        { position: 3, confirmation: expect.stringContaining('1 de 2 rivales jugados (falló 1 en el motor)') },
+      ],
+    })
     // Once per optimize.
-    expect(await test.app.get(SimulationsService).confirmOptimize(id)).toBeNull()
-    for (const job of [id, detail.optimizeConfirmation.jobId]) {
+    expect(await simulations.confirmOptimize(id)).toBeNull()
+    expect(await confirmationsOf(id)).toHaveLength(1)
+    for (const job of [id, confirmationId]) {
       expect((await test.http().delete(`/api/simulations/${job}`).set('Cookie', cookie)).status).toBe(204)
+    }
+  })
+
+  it('H-011.5: a confirmation that could not be queued is retried when the optimize is read, and only once', async () => {
+    const simulations = test.app.get(SimulationsService)
+    const { id, send } = await claimedOptimize('Optimizar el 2 (reintento)')
+    const create = vi.spyOn(simulations, 'create').mockRejectedValueOnce(new Error('la base no contestó'))
+    try {
+      expect((await send()).body).toEqual({ accepted: true })
+      const params = async () =>
+        ((await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).params as { confirmation?: Structured })
+          .confirmation
+      expect(await params()).toEqual({ pending: true, error: expect.stringContaining('la base no contestó') })
+      expect(await confirmationsOf(id)).toHaveLength(0)
+      // While another reader holds the claim, the view says it is waiting.
+      const now = Date.now()
+      await test.prisma.$executeRaw`
+        UPDATE "simulation_jobs"
+        SET "params" = jsonb_set("params", '{confirmation}', jsonb_build_object('pending', true, 'claimedAt', ${now}::bigint))
+        WHERE "id" = ${id}`
+      expect((await get(`/api/simulations/${id}`)).body.optimizeConfirmation).toMatchObject({
+        jobId: null,
+        status: 'pending',
+        rows: [],
+      })
+      // A claim older than a minute was a crash: reading the optimize queues it.
+      await test.prisma.$executeRaw`
+        UPDATE "simulation_jobs"
+        SET "params" = jsonb_set("params", '{confirmation}', jsonb_build_object('pending', true, 'claimedAt', 1))
+        WHERE "id" = ${id}`
+      const read = (await get(`/api/simulations/${id}`)).body.optimizeConfirmation as { jobId: number; status: string }
+      expect(read).toMatchObject({ status: 'queued' })
+      expect((await confirmationsOf(id)).map((job) => job.id)).toEqual([read.jobId])
+      // A crash after queueing it and before saving it: two readers at once find the same comparison.
+      await test.prisma.$executeRaw`
+        UPDATE "simulation_jobs"
+        SET "params" = jsonb_set("params", '{confirmation}', jsonb_build_object('pending', true))
+        WHERE "id" = ${id}`
+      const both = await Promise.all([simulations.confirmOptimize(id), simulations.confirmOptimize(id)])
+      expect(both.filter((job) => job !== null).map((job) => job?.id)).toEqual([read.jobId])
+      expect(await confirmationsOf(id)).toHaveLength(1)
+      expect(await params()).toMatchObject({ jobId: read.jobId })
+      // A queued job is cancelled before it can be deleted.
+      expect((await post(`/api/simulations/${read.jobId}/cancel`)).body.status).toBe('cancelled')
+      for (const job of [id, read.jobId]) {
+        expect((await test.http().delete(`/api/simulations/${job}`).set('Cookie', cookie)).status).toBe(204)
+      }
+    } finally {
+      create.mockRestore()
     }
   })
 

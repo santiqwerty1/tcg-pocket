@@ -108,3 +108,44 @@ export function optimizeRanking(
       return rate(y.record) - rate(x.record)
     })
 }
+
+/** H-011.5: how many of an optimize's best combinations are played again, and with at least how many games per rival. */
+export const OPTIMIZE_CONFIRM_TOP = 3
+export const OPTIMIZE_CONFIRM_GAMES = 200
+/** Combinations tied with the last of the `OPTIMIZE_CONFIRM_TOP` go too, up to this many. */
+export const OPTIMIZE_CONFIRM_MAX = 5
+
+/**
+ * The combinations an optimize confirms, from its ranking (best first): the first `top`, plus the ones that tied with
+ * the last of them (same share of wins), up to `max`. A tie at the edge is not decided by the order the engine wrote.
+ */
+export function optimizeFinalists<T extends { record: GameRecord }>(
+  ranking: readonly T[],
+  top = OPTIMIZE_CONFIRM_TOP,
+  max = OPTIMIZE_CONFIRM_MAX,
+): T[] {
+  const picked = ranking.slice(0, top)
+  const last = picked.at(-1)
+  if (!last) return picked
+  const games = (record: GameRecord) => record.wins + record.losses + record.ties
+  // Cross-multiplied, so equal shares compare equal whatever the games.
+  const tied = (record: GameRecord) => record.wins * games(last.record) === last.record.wins * games(record)
+  for (const row of ranking.slice(top)) {
+    if (picked.length >= max || !tied(row.record)) break
+    picked.push(row)
+  }
+  return picked
+}
+
+/** Games per rival of an optimize's confirmation: the optimize's own, but at least `OPTIMIZE_CONFIRM_GAMES`. */
+export function optimizeConfirmGamesPerRival(gamesPerPair: number): number {
+  return Math.max(gamesPerPair, OPTIMIZE_CONFIRM_GAMES)
+}
+
+/**
+ * The games the confirmation of an optimize adds (for the estimates before queuing it): its first
+ * `OPTIMIZE_CONFIRM_TOP` combinations against every rival. A tie at the edge may add up to two more.
+ */
+export function optimizeConfirmationGames(combinations: number, rivals: number, gamesPerPair: number): number {
+  return Math.min(OPTIMIZE_CONFIRM_TOP, Math.max(0, combinations)) * rivals * optimizeConfirmGamesPerRival(gamesPerPair)
+}

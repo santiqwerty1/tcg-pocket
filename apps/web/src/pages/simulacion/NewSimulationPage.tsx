@@ -512,11 +512,10 @@ export function NewSimulationPage() {
   const notSimulable = data ? [...data.sideA, ...data.sideB].filter((snapshot) => !snapshot.simulable).length : 0
   const rivals = data ? data.sideB.filter((snapshot) => snapshot.simulable).length : 0
   const combinations = kind === 'optimize' ? multisetCount(candidates.length, removed) : 0
-  const totalGames = kind === 'optimize' ? combinations * rivals * gamesNumber : (data?.totalGames ?? 0)
-  const estimate =
-    kind === 'optimize' && data && data.totalGames > 0
-      ? (data.estimatedSeconds * totalGames) / data.totalGames
-      : (data?.estimatedSeconds ?? 0)
+  // The server counts an optimize's confirmation too (H-011.5): the search alone is the rest.
+  const confirmationGames = data?.confirmationGames ?? 0
+  const searchGames = combinations * rivals * gamesNumber
+  const estimate = data?.estimatedSeconds ?? 0
 
   async function submit() {
     if (!input) return
@@ -679,13 +678,22 @@ export function NewSimulationPage() {
         ) : (
           <div className="flex flex-col gap-1.5 rounded-lg border p-3 text-sm">
             {kind === 'optimize' ? (
-              <p>
-                {plural(combinations, 'combinación', 'combinaciones')} × {plural(rivals, 'rival', 'rivales')} ×{' '}
-                {gamesLabel(gamesNumber)} = <strong>{gamesLabel(totalGames)}</strong>
-                {combinations > 200 ? (
-                  <span className="block text-destructive">El límite es 200 combinaciones.</span>
+              <>
+                <p>
+                  {plural(combinations, 'combinación', 'combinaciones')} × {plural(rivals, 'rival', 'rivales')} ×{' '}
+                  {gamesLabel(gamesNumber)} = <strong>{gamesLabel(searchGames)}</strong>
+                  {combinations > 200 ? (
+                    <span className="block text-destructive">El límite es 200 combinaciones.</span>
+                  ) : null}
+                </p>
+                {confirmationGames > 0 ? (
+                  <p>
+                    Después, la confirmación:{' '}
+                    {combinations === 1 ? 'la única' : `las ${Math.min(3, combinations)} mejores`} contra los mismos
+                    rivales con semillas nuevas = <strong>{gamesLabel(confirmationGames)}</strong> más
+                  </p>
                 ) : null}
-              </p>
+              </>
             ) : (
               <p>
                 {plural(data.pairings, 'cruce', 'cruces')} × {gamesLabel(gamesNumber)} ={' '}

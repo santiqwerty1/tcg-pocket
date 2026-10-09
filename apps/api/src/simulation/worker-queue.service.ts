@@ -487,15 +487,20 @@ export class WorkerQueueService {
       }
     }
     const failed = await this.prisma.simulationChunk.count({ where: { jobId, status: 'failed' } })
-    const ended = await this.prisma.simulationJob.updateMany({
-      where: { id: jobId, status: { in: ['queued', 'running'] } },
-      data: {
-        status: failed > 0 ? 'failed' : 'done',
-        finishedAt: new Date(),
-        error: failed > 0 ? `${failed} cruces fallaron en el motor; el resto quedó.` : null,
-      },
-    })
-    if (ended.count > 0 && failed === 0 && this.doneHandler) {
+    const status = failed > 0 ? 'failed' : 'done'
+    const error = failed > 0 ? `${failed} cruces fallaron en el motor; el resto quedó.` : null
+    // H-011.5: an optimize that ends well is marked for its confirmation in the same update, so a crash right after
+    // never loses it (SimulationsService.confirmOptimize claims the mark; the jobs from before #32 kept no `remove`).
+    const ended = await this.prisma.$executeRaw`
+      UPDATE "simulation_jobs"
+      SET "status" = CAST(${status} AS "SimulationJobStatus"), "finished_at" = ${new Date()}, "error" = ${error},
+        "params" = CASE
+          WHEN ${failed === 0} AND "kind" = 'optimize' AND "params"->'remove' IS NOT NULL
+            AND "params"->'confirmation' IS NULL
+          THEN jsonb_set("params", '{confirmation}', '{"pending": true}'::jsonb)
+          ELSE "params" END
+      WHERE "id" = ${jobId} AND "status" IN ('queued', 'running')`
+    if (ended > 0 && failed === 0 && this.doneHandler) {
       await this.doneHandler(jobId).catch((error: unknown) => {
         this.logger.warn({ job: jobId, error: String(error).slice(0, 300) }, 'after a finished job')
       })

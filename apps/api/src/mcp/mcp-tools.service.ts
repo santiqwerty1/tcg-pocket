@@ -110,6 +110,16 @@ function callerOf(context: McpRequestContext): McpCallerInfo {
 const percentFormat = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 })
 /** workers_status lists this many jobs of the queue (the end time counts them all). */
 const QUEUE_LISTED = 20
+/** The states of an optimize's confirmation (H-011.5) as the tools say them. */
+const CONFIRMATION_STATUS_ES = {
+  pending: 'por encolar (se reintenta al leer la optimización)',
+  skipped: 'no se juega',
+  queued: 'en cola',
+  running: 'corriendo',
+  done: 'terminada',
+  failed: 'falló',
+  cancelled: 'cancelada',
+} as const
 const twoDecimals = (value: number) => Math.round(value * 100) / 100
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const
@@ -1725,11 +1735,42 @@ ${MCP_CHAT_INSTRUCTIONS}`
     const name = (id: number) => byId.get(id)?.label ?? `#${id}`
     const base: Json = { note, job: jobSummaryJson(job) }
     if (job.kind === 'optimize') {
+      const search = job.optimize ?? []
+      const confirmation = job.optimizeConfirmation
       return {
         ...base,
         deck: job.sideA[0] !== undefined ? name(job.sideA[0]) : null,
         rivals: job.sideB.map(name),
-        combinations: (job.optimize ?? []).slice(0, limit).map((row) => ({
+        // H-011.5: the best of many combinations measured on the same games is also the luckiest.
+        ...(confirmation
+          ? {
+              confirmation: {
+                job: confirmation.jobId,
+                status: CONFIRMATION_STATUS_ES[confirmation.status],
+                ...(confirmation.error ? { error: confirmation.error } : {}),
+                note: 'El número para decidir es el de la confirmación: las mejores de la búsqueda se jugaron otra vez contra los mismos rivales con semillas nuevas y más partidas. La búsqueda elige; su porcentaje sale inflado por quedarse con la de más suerte.',
+                combinations: confirmation.rows.map((row) => {
+                  // The confirmation takes the first ones of the same ranking: position n is row n − 1 of the search.
+                  const before = search[row.rank - 1]
+                  const failed =
+                    row.rivalsFailed === 0
+                      ? ''
+                      : ` (${row.rivalsFailed === 1 ? 'falló 1' : `fallaron ${row.rivalsFailed}`} en el motor)`
+                  return {
+                    position: row.rank,
+                    added: row.cards.map((card) => card.nameEs),
+                    search: before ? { record: before.record, rate: rateView(before.rate) } : null,
+                    confirmation: !row.playable
+                      ? 'el motor no juega ese mazo: quedó afuera'
+                      : row.rate
+                        ? { record: row.record, rate: rateView(row.rate) }
+                        : `${row.rivalsPlayed} de ${confirmation.rivals} rivales jugados${failed}: sin porcentaje hasta tenerlos todos`,
+                  }
+                }),
+              },
+            }
+          : {}),
+        combinations: search.slice(0, limit).map((row) => ({
           added: row.cards.map((card) => card.nameEs),
           record: row.record,
           rate: rateView(row.rate),
