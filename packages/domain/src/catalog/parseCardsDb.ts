@@ -2,10 +2,12 @@
  * Extracts the `expansions` and `craftingCost` literals from the source text of the tracker's
  * `frontend/src/lib/CardsDB.ts`, and `expansionIds` from `frontend/src/types/index.ts`
  * (docs/fase0/catalogo.md §5). Both literals are plain JavaScript (objects, strings, numbers, booleans and
- * `//` comments), so the text is evaluated with `new Function` and then validated with zod. The regexes only
+ * `//` comments): the text is parsed as a data literal (`parseJsLiteral`, never evaluated: since Fase 40 it can come
+ * from a tracker commit nobody reviewed) and then validated with zod. The regexes only
  * depend on the declaration name and on the closing bracket sitting at column 0, not on the type annotation.
  */
 import { z } from 'zod'
+import { parseJsLiteral } from './literal.js'
 import { type CraftingCost, type ExpansionId, type PackStructure, RARITIES } from './types.js'
 
 export interface TrackerPack {
@@ -55,12 +57,12 @@ export class CardsDbParseError extends Error {
   }
 }
 
-/** Evaluates a JS object/array literal (comments allowed). The text comes from a pinned commit we chose. */
+/** Parses a JS object/array literal (comments allowed); anything that is not data is refused, nothing runs. */
 function evaluateLiteral(text: string, what: string): unknown {
   try {
-    return new Function(`return (${text});`)()
+    return parseJsLiteral(text)
   } catch (error) {
-    throw new CardsDbParseError(`${what}: literal is not valid JavaScript (${(error as Error).message})`)
+    throw new CardsDbParseError(`${what}: not a plain data literal (${(error as Error).message})`)
   }
 }
 
