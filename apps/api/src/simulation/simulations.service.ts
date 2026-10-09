@@ -75,6 +75,8 @@ export interface CreateJobInput {
   lab?: Prisma.InputJsonValue | undefined
   /** Every game reported by index (`params.perGame`, H-010): pairings only, played by workers from 0.2.5 on. */
   perGame?: boolean | undefined
+  /** The meta bank a calibration matrix plays (R-012, calibration.service.ts). */
+  calibration?: Prisma.InputJsonValue | undefined
   /** optimize: the deck (side A, one), the cards to take out, the candidates to try. */
   optimize?:
     | {
@@ -222,6 +224,7 @@ export class SimulationsService {
         bothOrders: input.bothOrders ?? false,
         ...(input.lab === undefined ? {} : { lab: input.lab }),
         ...(input.perGame ? { perGame: true } : {}),
+        ...(input.calibration === undefined ? {} : { calibration: input.calibration }),
       }
       chunks = planChunks(pairings, input.gamesPerPair)
     }
