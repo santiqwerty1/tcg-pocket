@@ -6,7 +6,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { stopWorker } from './worker-process.ts'
+import { removeWorkerDir, stopWorker } from './worker-process.ts'
 
 test('waits for the worker final write before removing its directory', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'tcg-screens-shutdown-'))
@@ -42,9 +42,11 @@ test('waits for the worker final write before removing its directory', async (t)
   worker.stdout.on('data', (data) => {
     output += String(data)
   })
-  await stopWorker(worker, dir)
+  await stopWorker(worker)
   assert.equal(worker.exitCode, 0)
   assert.equal(output, 'final write done')
+  assert.equal(existsSync(join(dir, 'last-write')), true)
+  await removeWorkerDir(dir)
   assert.equal(existsSync(dir), false)
 })
 
@@ -53,7 +55,10 @@ test('cleans up when the worker has already exited and tolerates a missing direc
   await writeFile(join(dir, 'state.json'), '{}')
   const worker = spawn(process.execPath, ['-e', ''], { windowsHide: true })
   await once(worker, 'close')
-  await stopWorker(worker, dir)
-  await stopWorker(null, dir)
+  await stopWorker(worker)
+  assert.equal(existsSync(dir), true)
+  await removeWorkerDir(dir)
+  await stopWorker(null)
+  await removeWorkerDir(dir)
   assert.equal(existsSync(dir), false)
 })

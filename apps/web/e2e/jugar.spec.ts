@@ -4,17 +4,18 @@
  * two decisions of two options; attacking both times wins).
  */
 import { type ChildProcess, spawn } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { type APIRequestContext, expect, test } from '@playwright/test'
 import { BASE_URL, DATABASE_URL, FAKE_ENGINE_REV, REPO_ROOT } from './settings.ts'
-import { stopWorker } from './worker-process.ts'
+import { removeWorkerDir, stopWorker } from './worker-process.ts'
 
 let worker: ChildProcess | null = null
 let workerDir = ''
+let gameId: number | null = null
 
 /**
  * The PC comes in once the game is queued (as in real life). Keep the server's fixture card status: the stand-in's
@@ -42,10 +43,26 @@ async function startWorker(request: APIRequestContext): Promise<void> {
   })
 }
 
-test.afterEach(async () => {
-  await stopWorker(worker, workerDir)
-  worker = null
-  workerDir = ''
+test.afterEach(async ({ request }, testInfo) => {
+  try {
+    if (gameId !== null) {
+      const response = await request.post(`/api/play/${gameId}/abandon`)
+      expect(response.ok(), await response.text()).toBe(true)
+    }
+  } finally {
+    try {
+      await stopWorker(worker)
+      const path = join(workerDir, 'worker.log')
+      if (workerDir && testInfo.status !== testInfo.expectedStatus && existsSync(path)) {
+        await testInfo.attach('worker.log', { path })
+      }
+    } finally {
+      await removeWorkerDir(workerDir)
+      worker = null
+      workerDir = ''
+      gameId = null
+    }
+  }
 })
 
 /** Replaces a finished game's replay (the engine stand-in writes an empty one) with one where a choice cost a lot. */
@@ -102,8 +119,8 @@ test('plays a game against the bot with the coach, then solves the costly moment
   ])
   expect(created.status(), await created.text()).toBe(201)
   const game = (await created.json()) as { id: number; status: string }
+  gameId = Number(game.id)
   expect(game.status).toBe('queued')
-  const gameId = Number(game.id)
   await expect(page).toHaveURL(`${BASE_URL}/jugar/${gameId}`)
   await startWorker(request)
 

@@ -1,7 +1,7 @@
 /**
  * Tests de pantallas (Fase 34): `pnpm -F @tcg/web test:screens` builds nothing — it needs `@tcg/domain`, `@tcg/api`,
  * `@tcg/web` and `@tcg/worker` built — prepares a throwaway database, starts the API serving the built PWA on port
- * 3210 and drives Chromium (phone size) through the main flows.
+ * SCREENS_PORT (3210 by default) and drives Chromium (phone size) through the main flows.
  */
 import { defineConfig, devices } from '@playwright/test'
 import { BASE_URL, DATABASE_URL, FAKE_ENGINE_REV, OWNER, PORT, SESSION_SECRET, STORAGE_STATE } from './e2e/settings.ts'
