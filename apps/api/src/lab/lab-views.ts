@@ -101,7 +101,18 @@ export interface LabDeckView {
    * T-017 E1: a variant against the list it came from, in its round (game by game when there are per-game results):
    * «+3,2 puntos (IC −1,0 a +7,4)». Null for the starting list and tests.
    */
-  vsParent: { text: string; value: number; ci95: [number, number]; paired: boolean } | null
+  vsParent: {
+    text: string
+    value: number | null
+    ci95: [number, number] | null
+    paired: boolean
+    /** Review of #20: «verify» when its verification measured it (fresh seeds); «round», the round that picked it. */
+    measuredIn: 'verify' | 'round'
+    /** False when a list missed a rival in that round (a failed chunk, «Frenar»): no difference then. */
+    complete: boolean
+    /** With a verification: the difference in the round that picked it, which flatters it. */
+    selectionText: string | null
+  } | null
   /**
    * T-017 E1/E2: why each card that came in was proposed (share of the era's lists and of the archetype's lists that
    * play it, when the search kept them) and how many copies the collection lacks for it.

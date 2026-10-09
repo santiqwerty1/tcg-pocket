@@ -331,8 +331,12 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
       ) : null}
       {deck.vsParent ? (
         <p className="text-xs text-muted-foreground">
-          Contra la mejor de su ronda: {deck.vsParent.text}
-          {deck.vsParent.paired ? ', partida por partida' : ''}.
+          {deck.vsParent.measuredIn === 'verify'
+            ? 'En la verificación, con partidas nuevas, contra la mejor de entonces: '
+            : 'Contra la mejor de su ronda: '}
+          {deck.vsParent.text}
+          {deck.vsParent.complete && deck.vsParent.paired ? ', partida por partida' : ''}
+          {deck.vsParent.selectionText ? ` (en la ronda que la eligió: ${deck.vsParent.selectionText})` : ''}.
         </p>
       ) : null}
       {deck.why.length > 0 ? <WhyLine why={deck.why} /> : null}

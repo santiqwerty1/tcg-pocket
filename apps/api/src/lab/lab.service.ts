@@ -92,7 +92,6 @@ import {
   type TournamentDataset,
   type TournamentFormat,
   type Variant,
-  type VariantChange,
   validateDeck,
   variantOf,
   verifyAccepts,
@@ -108,6 +107,7 @@ import { type CreateJobInput, labMode, SimulationsService } from '../simulation/
 import { EngineStatusService, type SnapshotSource, SnapshotsService } from '../simulation/snapshots.service.js'
 import { WorkerQueueService } from '../simulation/worker-queue.service.js'
 import { LIMITLESS_ATTRIBUTION, type Scope, TournamentsService } from '../tournaments/tournaments.service.js'
+import { type FrozenInputs, leftOutCards, whyCards } from './lab-explain.js'
 import type {
   CardLineView,
   LabBankView,
@@ -243,12 +243,6 @@ interface ExploreState {
   swaps?: (MeasuredSwap & { variant: number })[]
   /** Snapshot ids of the combo variants (the two best swaps joined). */
   combos?: number[]
-}
-
-/** H-021: the pool (card, copies, weight, in draw order) and the archetype usage (group, share). */
-interface FrozenInputs {
-  pool: [string, number, number][]
-  affinity: [string, number][]
 }
 
 interface LabParams {
@@ -1362,13 +1356,20 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           changes: changes ? { add: lines(index, changes.add), remove: lines(index, changes.remove) } : null,
           vsParent: vsParent
             ? {
-                text: formatDifferenceEs(vsParent.difference),
-                value: vsParent.difference.value,
-                ci95: vsParent.difference.ci95,
-                paired: vsParent.paired,
+                text: vsParent.main.difference
+                  ? formatDifferenceEs(vsParent.main.difference)
+                  : 'incompleta: faltan cruces de esa ronda',
+                value: vsParent.main.difference?.value ?? null,
+                ci95: vsParent.main.difference?.ci95 ?? null,
+                paired: vsParent.main.paired,
+                measuredIn: vsParent.measuredIn,
+                complete: vsParent.main.complete,
+                selectionText: vsParent.selection?.difference
+                  ? formatDifferenceEs(vsParent.selection.difference)
+                  : null,
               }
             : null,
-          why: changes ? whyCards(changes.add, cards, state, index, playable) : [],
+          why: changes ? whyCards(changes.add, cards, state?.frozen, index, playable) : [],
           novelty: noveltyView,
           cards: lines(index, cards),
           energies: snapshot.energies,
@@ -1415,7 +1416,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               ...round,
               screened: round.screened ?? null,
             })),
-            leftOut: leftOutCards(state, index, playable),
+            leftOut: leftOutCards(state.frozen, state.config.pool, index, playable),
             learned: learnedChanges(state.learned ?? {}).map((change) => ({
               sign: change.sign,
               cardId: change.groupId,
@@ -1600,71 +1601,41 @@ function parentDifference(
   chunks: readonly ChunkRow[],
   rivals: readonly { snapshot?: number | null; weight: number }[],
   id: number,
-): { difference: ScoreDifference; paired: boolean } | null {
-  const round = state.rounds.find((item) => item.kind === 'search' && item.candidates.includes(id))
-  if (!round) return null
-  const inRound = (chunk: ChunkRow) => chunk.idx >= round.fromIdx && chunk.idx < round.toIdx
-  const paired = pairedOf(chunks, rivals, id, round.incumbent, inRound)
-  if (paired) return { difference: paired, paired: true }
-  const a = scoreOf(chunks, rivals, id, inRound)
-  const b = scoreOf(chunks, rivals, round.incumbent, inRound)
-  return a && b ? { difference: scoreDifference(a, b), paired: false } : null
+): { main: Measured; measuredIn: 'verify' | 'round'; selection: Measured | null } | null {
+  const search = state.rounds.find((item) => item.kind === 'search' && item.candidates.includes(id))
+  if (!search) return null
+  const range = (round: ExploreRound) => (chunk: ChunkRow) => chunk.idx >= round.fromIdx && chunk.idx < round.toIdx
+  const selection = measured(chunks, rivals, id, search.incumbent, range(search))
+  // Review of #20: the round that picked it flatters it (the best of K); its verification, on fresh seeds, does not.
+  const verify = state.rounds.find((item) => item.kind === 'verify' && item.candidates.includes(id))
+  if (verify)
+    return { main: measured(chunks, rivals, id, verify.incumbent, range(verify)), measuredIn: 'verify', selection }
+  return { main: selection, measuredIn: 'round', selection: null }
 }
 
-/**
- * T-017 E1/E2: for each card that came in, the share of the era's lists and of the archetype's lists that play it
- * (from what the search froze at its start: the draw weight is ×2 for trainers, ×(1 + 10·era) and ×(1 + 10·archetype)),
- * and the copies the collection lacks.
- */
-function whyCards(
-  added: readonly VariantChange[],
-  cards: readonly DeckCardEntry[],
-  state: ExploreState | null,
-  index: CatalogIndex,
-  playable: (groupId: CardId) => number,
-): LabDeckView['why'] {
-  const affinity = new Map(state?.frozen?.affinity ?? [])
-  const weights = new Map((state?.frozen?.pool ?? []).map(([cardId, , weight]) => [cardId, weight]))
-  return added.map((change) => {
-    const card = index.cardById(change.cardId)
-    const groupId = card?.functionalGroupId ?? change.cardId
-    const archetypeShare = state?.frozen ? (affinity.get(groupId) ?? 0) : null
-    const poolCard = state?.frozen?.pool.find(([cardId]) => index.cardById(cardId)?.functionalGroupId === groupId)
-    const weight = poolCard ? weights.get(poolCard[0]) : undefined
-    const eraShare =
-      weight !== undefined && archetypeShare !== null
-        ? Math.max(0, ((weight / ((card?.cardType === 'trainer' ? 2 : 1) * (1 + archetypeShare / 10)) - 1) / 10) * 100)
-        : null
-    const copies = cards.reduce(
-      (sum, entry) => sum + (index.cardById(entry.cardId)?.functionalGroupId === groupId ? entry.count : 0),
-      0,
-    )
-    return {
-      cardId: change.cardId,
-      nameEs: card?.nameEs ?? change.cardId,
-      eraShare: eraShare === null ? null : Math.round(eraShare * 10) / 10,
-      archetypeShare,
-      missing: Math.max(0, copies - playable(groupId)),
-    }
-  })
+interface Measured {
+  difference: ScoreDifference | null
+  paired: boolean
+  /** Both lists played every rival of the round (a failed chunk or «Frenar» leave it incomplete). */
+  complete: boolean
 }
 
-/** T-017 E2: what most lists of the archetype play (30 % or more) and the collection does not have, most played first. */
-function leftOutCards(
-  state: ExploreState,
-  index: CatalogIndex,
-  playable: (groupId: CardId) => number,
-): LabExploreView['leftOut'] {
-  if (!state.frozen) return []
-  const inPool = new Set(state.frozen.pool.map(([cardId]) => index.cardById(cardId)?.functionalGroupId ?? cardId))
-  return state.frozen.affinity
-    .filter(([groupId, share]) => share >= 30 && !inPool.has(groupId) && playable(groupId) === 0)
-    .sort((a, b) => b[1] - a[1])
-    .map(([groupId, share]) => ({
-      cardId: groupId,
-      nameEs: index.groupById(groupId)?.nameEs ?? groupId,
-      archetypeShare: Math.round(share * 10) / 10,
-    }))
+/** `a − b` on the chunks `filter` keeps, game by game when it can; only when both played every rival in full. */
+function measured(
+  chunks: readonly ChunkRow[],
+  rivals: readonly { snapshot?: number | null; weight: number }[],
+  a: number,
+  b: number,
+  filter: (chunk: ChunkRow) => boolean,
+): Measured {
+  if (!complete(chunks, rivals, a, filter) || !complete(chunks, rivals, b, filter)) {
+    return { difference: null, paired: false, complete: false }
+  }
+  const paired = pairedOf(chunks, rivals, a, b, filter)
+  if (paired) return { difference: paired, paired: true, complete: true }
+  const x = scoreOf(chunks, rivals, a, filter)
+  const y = scoreOf(chunks, rivals, b, filter)
+  return { difference: x && y ? scoreDifference(x, y) : null, paired: false, complete: true }
 }
 
 /** T-017 C4: each candidate's swap against the round's incumbent and its measured difference go into `state`. */

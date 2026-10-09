@@ -435,13 +435,18 @@ describe('laboratorio (e2e)', () => {
     expect(best.confirm.score.value).toBeCloseTo(90, 8)
     expect(best.changes.add.length).toBeGreaterThan(0)
     expect(best.changes.remove.map((change) => change.cardId)).not.toContain('B1-36')
-    // T-017 E1/E2: against the list it came from in its round (90 % against 50 %), and why its cards came in.
+    // T-017 E1/E2: against the list it came from (90 % against 50 %), and why its cards came in. Review of #20: the
+    // number shown is its verification's, on fresh games; the round that picked it, which flatters it, goes alongside.
     const explained = lab.decks[0] as {
-      vsParent: { value: number; paired: boolean }
+      vsParent: { value: number; paired: boolean; measuredIn: string; complete: boolean; selectionText: string }
       why: { archetypeShare: number | null; eraShare: number | null; missing: number }[]
     }
-    expect(explained.vsParent).toMatchObject({ paired: false })
+    expect(explained.vsParent).toMatchObject({ paired: false, measuredIn: 'verify', complete: true })
     expect(explained.vsParent.value).toBeCloseTo(40, 6)
+    expect(explained.vsParent.selectionText).toMatch(/^\+40,0 puntos/u)
+    // A variant that was never verified is measured in its round.
+    const other = lab.decks.find((deck: { role: string }) => deck.role === 'variant')
+    expect(other.vsParent).toMatchObject({ measuredIn: 'round', complete: true, selectionText: null })
     expect(explained.why.length).toBeGreaterThan(0)
     for (const card of explained.why) {
       expect(card.archetypeShare).not.toBeNull()
@@ -687,6 +692,9 @@ describe('laboratorio (e2e)', () => {
     // Review of #7: the rates come with n and interval; the list plays a Stage 2 (Mega-Blaziken ex).
     expect(best.games).toMatchObject({ total: 60, hasStage2: true })
     expect(best.games.firstRate.games + best.games.secondRate.games).toBe(60)
+    // Review of #20: against the starting list in its verification, game by game.
+    expect(best.vsParent).toMatchObject({ measuredIn: 'verify', paired: true, complete: true })
+    expect(best.vsParent.value).toBeCloseTo(40, 8)
 
     // Review of #7: with no capable worker seen for 30 minutes, the lab jobs still waiting stop asking for perGame.
     const waiting = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9300 })

@@ -1483,7 +1483,15 @@ export const labDeckSchema = z.object({
   changes: z.object({ add: z.array(labCardSchema), remove: z.array(labCardSchema) }).nullable(),
   /** T-017 E1: against the list it came from, in its round. */
   vsParent: z
-    .object({ text: z.string(), value: z.number(), ci95: z.tuple([z.number(), z.number()]), paired: z.boolean() })
+    .object({
+      text: z.string(),
+      value: z.number().nullable(),
+      ci95: z.tuple([z.number(), z.number()]).nullable(),
+      paired: z.boolean(),
+      measuredIn: z.enum(['verify', 'round']).default('round'),
+      complete: z.boolean().default(true),
+      selectionText: z.string().nullable().default(null),
+    })
     .nullable()
     .default(null),
   /** T-017 E1/E2: why each card that came in was proposed, and the copies the collection lacks. */
