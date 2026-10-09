@@ -105,6 +105,8 @@ function callerOf(context: McpRequestContext): McpCallerInfo {
 }
 
 const percentFormat = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 })
+/** workers_status lists this many jobs of the queue (the end time counts them all). */
+const QUEUE_LISTED = 20
 const twoDecimals = (value: number) => Math.round(value * 100) / 100
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const
@@ -1667,11 +1669,11 @@ ${MCP_WRITE_INSTRUCTIONS}`
   private async workersStatus(): Promise<Json> {
     const [engine, pending] = await Promise.all([
       this.simulations.engineView(),
+      // Every active job counts for the end of the queue; only the first ones are listed.
       this.prisma.simulationJob.findMany({
         where: { status: { in: ['queued', 'running'] } },
         orderBy: { id: 'asc' },
         select: { id: true },
-        take: 50,
       }),
     ])
     const online = engine.workers.filter((worker) => worker.online)
@@ -1707,7 +1709,9 @@ ${MCP_WRITE_INSTRUCTIONS}`
       })),
       online: online.length,
       engineRev: engine.engineRev.slice(0, 7),
-      queue,
+      queued: queue.length,
+      queue: queue.slice(0, QUEUE_LISTED),
+      ...(queue.length > QUEUE_LISTED ? { moreJobs: queue.length - QUEUE_LISTED } : {}),
       ...(queue.length > 0
         ? {
             queueEndsAround:
@@ -1758,7 +1762,11 @@ ${MCP_WRITE_INSTRUCTIONS}`
             }
           : {}),
         readyByTurn: { all: curve(c.ready.all), goingFirst: curve(c.ready.first), goingSecond: curve(c.ready.second) },
-        attackedByTurn: { all: curve(c.attack.all) },
+        attackedByTurn: {
+          all: curve(c.attack.all),
+          goingFirst: curve(c.attack.first),
+          goingSecond: curve(c.attack.second),
+        },
       }
     }
     if (!latest.goldfish && !latest.meta) {

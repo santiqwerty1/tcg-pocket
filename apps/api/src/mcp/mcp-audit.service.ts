@@ -6,8 +6,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { MCP_WRITE_TOOLS } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
-import { CollectionService } from '../collection/collection.service.js'
-import type { McpAudit, Prisma } from '../generated/prisma/client.js'
+import { type McpAudit, Prisma } from '../generated/prisma/client.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 
@@ -99,7 +98,6 @@ export function clipForAudit(value: unknown): Prisma.InputJsonValue {
 export class McpAuditService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly collection: CollectionService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(McpAuditService.name)
@@ -145,7 +143,8 @@ export class McpAuditService {
         ...(outcome.result ? { result: clipForAudit(outcome.result) } : {}),
         error: outcome.error,
         ms: outcome.ms,
-        ...(outcome.undo ? { undo: outcome.undo as unknown as Prisma.InputJsonValue } : {}),
+        // A failed write has nothing to undo, even if it kept a copy before failing.
+        undo: outcome.ok && outcome.undo ? (outcome.undo as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
       },
     })
   }
@@ -168,14 +167,14 @@ export class McpAuditService {
 
   /** `matches_restore`: the latest deletion of that match by Claude, not undone yet. */
   async restoreMatch(matchId: number): Promise<McpAuditView> {
-    const rows = await this.prisma.mcpAudit.findMany({
-      where: { tool: MCP_WRITE_TOOLS.matchesDelete.name, ok: true, undoneAt: null },
+    const row = await this.prisma.mcpAudit.findFirst({
+      where: {
+        tool: MCP_WRITE_TOOLS.matchesDelete.name,
+        ok: true,
+        undoneAt: null,
+        undo: { path: ['match', 'id'], equals: matchId },
+      },
       orderBy: { id: 'desc' },
-      take: 200,
-    })
-    const row = rows.find((item) => {
-      const undo = item.undo as AuditUndo | null
-      return undo?.kind === 'match_delete' && undo.match.id === matchId
     })
     if (!row) {
       throw new NotFoundException(
@@ -187,7 +186,9 @@ export class McpAuditService {
 
   private async apply(row: McpAudit): Promise<McpAuditView> {
     const undo = row.undo as AuditUndo | null
-    if (!undo) throw new BadRequestException({ code: 'not_undoable', message: 'Esta escritura no se puede deshacer.' })
+    if (!undo || !row.ok) {
+      throw new BadRequestException({ code: 'not_undoable', message: 'Esta escritura no se puede deshacer.' })
+    }
     // Claimed first, so two «Deshacer» at once do not both run; released again if undoing fails.
     const claimed = await this.prisma.mcpAudit.updateMany({
       where: { id: row.id, undoneAt: null },
@@ -248,23 +249,31 @@ export class McpAuditService {
     })
   }
 
+  /**
+   * Back to the row before the edit, in one conditional write: only if the row is still exactly what the edit left
+   * (values and `updated_at`), so a later edit or CSV import, even one landing right now, is never overwritten.
+   */
   private async restoreStock(undo: Extract<AuditUndo, { kind: 'collection_stock' }>): Promise<void> {
-    const current = await this.prisma.collectionStock.findUnique({ where: { cardId: undo.cardId } })
-    if (
-      !current ||
-      current.amountOwned !== undo.after.amountOwned ||
-      current.collected !== undo.after.collected ||
-      (undo.afterUpdatedAt !== undefined && current.updatedAt.toISOString() !== undo.afterUpdatedAt)
-    ) {
+    const restored = await this.prisma.collectionStock.updateMany({
+      where: {
+        cardId: undo.cardId,
+        amountOwned: undo.after.amountOwned,
+        collected: undo.after.collected,
+        ...(undo.afterUpdatedAt !== undefined ? { updatedAt: new Date(undo.afterUpdatedAt) } : {}),
+      },
+      data: {
+        amountOwned: undo.before?.amountOwned ?? 0,
+        collected: undo.before?.collected ?? false,
+        source: 'manual',
+        importId: null,
+      },
+    })
+    if (restored.count === 0) {
       throw new ConflictException({
         code: 'collection_changed',
         message: `${undo.cardId} cambió después (otra edición o un CSV importado): no lo deshago para no pisarlo.`,
       })
     }
-    await this.collection.patchStock(undo.cardId, {
-      amountOwned: undo.before?.amountOwned ?? 0,
-      collected: undo.before?.collected ?? false,
-    })
   }
 
   private view(row: McpAudit): McpAuditView {
@@ -280,7 +289,7 @@ export class McpAuditService {
       ok: row.ok,
       error: row.error,
       ms: row.ms,
-      undo: undo && !row.undoneAt ? { kind: undo.kind, label: undo.label } : null,
+      undo: undo && row.ok && !row.undoneAt ? { kind: undo.kind, label: undo.label } : null,
       undoneAt: row.undoneAt,
     }
   }

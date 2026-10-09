@@ -24,6 +24,9 @@ export interface CreatedApiToken extends ApiTokenView {
   token: string
 }
 
+/** Fase 43: clients remembered per token; past this, a new one is not stored (a leaked token could vary it forever). */
+export const MAX_CLIENTS_PER_TOKEN = 20
+
 /** How often `last_used_at` is written (per token), to keep the hot path to a single SELECT. */
 const LAST_USED_WRITE_INTERVAL_MS = 60_000
 
@@ -104,6 +107,12 @@ export class TokensService {
   async noteClient(tokenId: number, client: string): Promise<boolean> {
     const key = `${tokenId}\u0000${client}`
     if (this.seenClients.has(key)) return false
+    // Bounded: past the cap nothing is stored or remembered (the alerts already show the token is being abused).
+    if ((await this.prisma.apiTokenClient.count({ where: { tokenId } })) >= MAX_CLIENTS_PER_TOKEN) {
+      const known = await this.prisma.apiTokenClient.findUnique({ where: { tokenId_client: { tokenId, client } } })
+      if (known) this.seenClients.add(key)
+      return false
+    }
     const created = await this.prisma.apiTokenClient.createMany({ data: [{ tokenId, client }], skipDuplicates: true })
     this.seenClients.add(key)
     return created.count > 0

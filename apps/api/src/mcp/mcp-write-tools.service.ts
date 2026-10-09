@@ -4,7 +4,7 @@
  * tagged `mcp` where the data model keeps a source (deck revisions and changes, matches).
  */
 import type { McpServer, StandardSchemaWithJSON } from '@modelcontextprotocol/server'
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import {
   type DeckCardEntry,
   estimateSeconds,
@@ -390,7 +390,11 @@ export class McpWriteToolsService {
       },
       label: `${MATCH_RESULT_LABEL_ES[match.result]} con ${match.deck.name}${match.opponent ? ` contra ${match.opponent}` : ''} (${match.playedAt.toISOString().slice(0, 10)})`,
     })
-    await this.matches.delete(id)
+    // Only the version that was copied: if it changed in between, nothing is deleted.
+    const deleted = await this.prisma.match.deleteMany({ where: { id: row.id, updatedAt: row.updatedAt } })
+    if (deleted.count === 0) {
+      throw new ConflictException(`La partida ${id} cambió (o ya no está) mientras la borraba: no borré nada.`)
+    }
     return {
       deleted: true,
       match: matchView(match),

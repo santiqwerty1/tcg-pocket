@@ -122,3 +122,47 @@ describe('Fase 43: a write is recorded before it runs', () => {
     expect(calls).toEqual(['start', 'keep 42', 'delete', 'finish 42 true'])
   })
 })
+
+describe('Fase 43: bounds of the audit and the token clients', () => {
+  it('a failed write keeps no undo, even if it stored one before failing', async () => {
+    const { McpAuditService } = await import('./mcp-audit.service.js')
+    const updates: { data: Record<string, unknown> }[] = []
+    const prisma = { mcpAudit: { update: async (args: { data: Record<string, unknown> }) => updates.push(args) } }
+    const audit = new McpAuditService(prisma as never, { setContext: () => undefined } as never)
+    const undo = {
+      kind: 'collection_stock' as const,
+      cardId: 'B4-103',
+      before: null,
+      after: { amountOwned: 1, collected: true },
+      label: 'x',
+    }
+    await audit.finish(1, { ok: false, result: null, error: 'boom', ms: 3, undo })
+    await audit.finish(2, { ok: true, result: {}, error: null, ms: 3, undo })
+    const { Prisma } = await import('../generated/prisma/client.js')
+    expect(updates[0]?.data.undo).toBe(Prisma.DbNull)
+    expect(updates[1]?.data.undo).toEqual(undo)
+  })
+
+  it('stores at most MAX_CLIENTS_PER_TOKEN clients per token', async () => {
+    const { TokensService, MAX_CLIENTS_PER_TOKEN } = await import('../tokens/tokens.service.js')
+    const rows = new Set<string>()
+    const prisma = {
+      apiTokenClient: {
+        count: async () => rows.size,
+        findUnique: async ({ where }: { where: { tokenId_client: { client: string } } }) =>
+          rows.has(where.tokenId_client.client) ? {} : null,
+        createMany: async ({ data }: { data: { client: string }[] }) => {
+          const fresh = data.filter((row) => !rows.has(row.client))
+          for (const row of fresh) rows.add(row.client)
+          return { count: fresh.length }
+        },
+      },
+    }
+    const tokens = new TokensService(prisma as never)
+    let fresh = 0
+    for (let at = 0; at < MAX_CLIENTS_PER_TOKEN + 15; at++) if (await tokens.noteClient(1, `ua-${at}`)) fresh++
+    expect(fresh).toBe(MAX_CLIENTS_PER_TOKEN)
+    expect(rows.size).toBe(MAX_CLIENTS_PER_TOKEN)
+    expect(await tokens.noteClient(1, 'ua-0')).toBe(false)
+  })
+})
