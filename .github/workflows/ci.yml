@@ -77,7 +77,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
+          # D-023: on the PC the pnpm store is already local; saving it to GitHub's cache hung the runners.
+          cache: ${{ !vars.CI_RUNNER && 'pnpm' || '' }}
       - run: pnpm install --frozen-lockfile
       - run: pnpm -F @tcg/domain build
       - run: pnpm lint
@@ -101,7 +102,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
+          # D-023: on the PC the pnpm store is already local; saving it to GitHub's cache hung the runners.
+          cache: ${{ !vars.CI_RUNNER && 'pnpm' || '' }}
       - name: Postgres (the one already running, or docker compose)
         run: scripts/ci-postgres.sh
       - name: Database of this runner
@@ -126,7 +128,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
+          # D-023: on the PC the pnpm store is already local; saving it to GitHub's cache hung the runners.
+          cache: ${{ !vars.CI_RUNNER && 'pnpm' || '' }}
       - name: Postgres (the one already running, or docker compose)
         run: scripts/ci-postgres.sh
       - name: Database and port of this runner
@@ -195,7 +198,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
+          # D-023: on the PC the pnpm store is already local; saving it to GitHub's cache hung the runners.
+          cache: ${{ !vars.CI_RUNNER && 'pnpm' || '' }}
       - run: pnpm install --frozen-lockfile --filter @tcg/worker
       - run: pnpm -F @tcg/worker package --engine "$GITHUB_WORKSPACE/engine-dist/engine-cli.exe"
       - uses: actions/upload-artifact@v4
