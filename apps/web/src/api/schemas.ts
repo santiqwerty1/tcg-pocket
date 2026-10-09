@@ -1563,6 +1563,8 @@ export const labJobSchema = z.object({
       phase: z.enum(['search', 'confirm', 'done']),
       stopReason: z.string().nullable(),
       stopReasonEs: z.string().nullable(),
+      /** T-017 D2: «Frenar y confirmar» was asked and the search is finishing what is in play. */
+      stopRequested: z.boolean().default(false),
       base: z.number(),
       best: z.number(),
       roundsDone: z.number(),
@@ -1576,6 +1578,8 @@ export const labJobSchema = z.object({
           /** H-010: the search round's best variant that passed the screen and went to verification. */
           screened: z.number().nullable().default(null),
           decided: z.boolean(),
+          /** T-017 D2: «Frenar y confirmar» cut this round short. */
+          stopped: z.boolean().default(false),
         }),
       ),
       /** T-017 E2: archetype cards the search could not try because the collection has none. */

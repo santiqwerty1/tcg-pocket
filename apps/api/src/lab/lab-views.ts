@@ -141,6 +141,8 @@ export interface LabExploreView {
   phase: 'search' | 'confirm' | 'done'
   stopReason: ExploreStop | null
   stopReasonEs: string | null
+  /** T-017 D2: «Frenar y confirmar» was asked; the search ends its round (or its verification) and confirms. */
+  stopRequested: boolean
   base: number
   best: number
   roundsDone: number
@@ -154,6 +156,8 @@ export interface LabExploreView {
     /** The search round's best variant that passed the screen (it then goes to verification). */
     screened: number | null
     decided: boolean
+    /** T-017 D2: «Frenar y confirmar» cut this round short. */
+    stopped: boolean
   }[]
   /**
    * T-017 E2: cards most lists of the archetype play (30 % or more) that the search could not try because the

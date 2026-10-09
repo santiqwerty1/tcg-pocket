@@ -214,6 +214,8 @@ interface ExploreRound {
   /** H-010: the search round's best variant that passed the screen and went to verification. */
   screened?: number | null
   decided: boolean
+  /** T-017 D2: «Frenar y confirmar» cut this round short (its chunks no worker had taken went away). */
+  stopped?: boolean
 }
 
 interface ExploreState {
@@ -909,13 +911,14 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
   }
 
   /**
-   * T-017 D2: «Frenar y confirmar». The chunks of the round in play that no worker took yet go away; when the ones
-   * being played come back (or right away, if none), the round ends with what it has — an incomplete candidate cannot
-   * win — and the search goes to its confirmation as if it had run out of rounds. Nothing found: it just ends.
+   * T-017 D2: «Frenar y confirmar». The chunks of the search round in play that no worker took yet go away; when the
+   * ones being played come back (or right away, if none), the round ends with what it has — an incomplete candidate
+   * cannot win — and the search goes to its confirmation as if it had run out of rounds. Nothing found: it just ends.
+   * A verification in play is left to finish (review of #22): cutting it would throw away the variant it is checking.
    */
   async stop(rawId: string): Promise<LabJobView> {
     const id = parseNumericId(rawId, 'Simulación')
-    const playing = await this.prisma.$transaction(async (tx) => {
+    await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM simulation_jobs WHERE id = ${id} FOR UPDATE`
       const job = await tx.simulationJob.findUnique({ where: { id } })
       if (job?.kind !== 'explore') throw new NotFoundException(`Búsqueda ${rawId} no encontrada.`)
@@ -925,23 +928,31 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       if ((job.status !== 'queued' && job.status !== 'running') || !state || !round || state.phase !== 'search') {
         throw new BadRequestException({ code: 'validation', message: 'Esa búsqueda ya no está buscando.' })
       }
+      if (state.stopRequested) {
+        throw new BadRequestException({
+          code: 'validation',
+          message: 'Ya la frenaste: termina lo que se está jugando.',
+        })
+      }
       state.stopRequested = true
-      const queued = await tx.simulationChunk.findMany({
-        where: { jobId: id, status: 'queued', idx: { gte: round.fromIdx } },
-        select: { id: true, games: true },
-      })
-      await tx.simulationChunk.deleteMany({ where: { id: { in: queued.map((chunk) => chunk.id) } } })
+      let removed = 0
+      if (round.kind === 'search') {
+        round.stopped = true
+        // Review of #22: only what is still queued at delete time (a worker may take a chunk meanwhile).
+        const deleted = await tx.$queryRaw<{ games: number }[]>`
+          DELETE FROM simulation_chunks
+          WHERE job_id = ${id} AND status = 'queued' AND idx >= ${round.fromIdx}
+          RETURNING games`
+        removed = deleted.reduce((sum, chunk) => sum + chunk.games, 0)
+      }
       await tx.simulationJob.update({
         where: { id },
-        data: {
-          params: params as unknown as Prisma.InputJsonValue,
-          totalGames: job.totalGames - queued.reduce((sum, chunk) => sum + chunk.games, 0),
-        },
+        data: { params: params as unknown as Prisma.InputJsonValue, totalGames: job.totalGames - removed },
       })
-      return tx.simulationChunk.count({ where: { jobId: id, status: 'leased' } })
     })
-    // With chunks still in play, the last result advances the search as always.
-    if (playing === 0) await this.advance(id)
+    // Review of #22: always — it does nothing while chunks are in play (their last result advances the search), and a
+    // result that landed during the transaction may have found the round still pending.
+    await this.advance(id)
     return this.job(rawId)
   }
 
@@ -1008,7 +1019,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             const [candidate] = round.candidates
             const paired =
               candidate === undefined ? null : pairedOf(chunks, rivals, candidate, round.incumbent, thisRound)
-            // An incomplete verification (stopped by hand, or with failed chunks) never accepts.
+            // An incomplete verification (failed chunks; «Frenar» lets it finish) never accepts.
             const ok =
               candidate !== undefined &&
               complete(chunks, rivals, candidate, thisRound) &&
@@ -1087,7 +1098,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                   ? 'patience'
                   : null
           const index = this.catalog.requireIndex()
-          const nextIdx = Math.max(-1, ...chunks.map((chunk) => chunk.idx)) + 1
+          // Review of #22: never inside the round just played, whose last chunks «Frenar» may have deleted.
+          const nextIdx = Math.max(round.toIdx, Math.max(-1, ...chunks.map((chunk) => chunk.idx)) + 1)
           const rivalIds = rivals.map((rival) => rival.snapshot as number)
           const baseSeed = Number(job.baseSeed)
           let decks: number[] = []
@@ -1454,12 +1466,14 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             phase: state.phase,
             stopReason: state.stopReason,
             stopReasonEs: state.stopReason ? EXPLORE_STOP_ES[state.stopReason] : null,
+            stopRequested: state.stopRequested ?? false,
             base: state.base,
             best: state.incumbent,
             roundsDone: state.rounds.filter((round) => round.kind === 'search' && round.decided).length,
             rounds: state.rounds.map(({ fromIdx: _from, toIdx: _to, ...round }) => ({
               ...round,
               screened: round.screened ?? null,
+              stopped: round.stopped ?? false,
             })),
             leftOut: leftOutCards(state.frozen, state.config.pool, index, playable),
             learned: learnedChanges(state.learned ?? {}).map((change) => ({

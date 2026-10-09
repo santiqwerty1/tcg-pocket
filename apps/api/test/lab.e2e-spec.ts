@@ -106,27 +106,39 @@ describe('laboratorio (e2e)', () => {
   }
   const hello = { workerId: 'worker-lab-01', name: 'pc-de-prueba', cliVersion: '0.1.0', cores: 8, version: '0.1.0' }
 
-  /** Plays every chunk handed out until the queue is empty; `wins` decides the result from the snapshots. */
-  async function playAll(wins: (a: number, b: number, games: number, chunkId: number) => number): Promise<number> {
+  /**
+   * Plays every chunk handed out until the queue is empty (or `limit` chunks); `wins` decides the result from the
+   * snapshots.
+   */
+  async function playAll(
+    wins: (a: number, b: number, games: number, chunkId: number) => number,
+    limit = Number.POSITIVE_INFINITY,
+  ): Promise<number> {
     let played = 0
-    for (;;) {
+    while (played < limit) {
       const claim = await bearer('post', '/api/worker/claim').send({ ...hello, engineRev: test.env.engineRev })
       const chunk = claim.body.chunk as Structured | null
       if (!chunk) return played
-      const row = await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: chunk.chunkId as number } })
-      const winsA = wins(row.snapshotAId as number, row.snapshotBId as number, row.games, row.id)
-      const result = await bearer('put', `/api/worker/chunks/${row.id}/result`).send({
-        workerId: hello.workerId,
-        engineRev: test.env.engineRev,
-        winsA,
-        winsB: row.games - winsA,
-        ties: 0,
-        games: row.games,
-        durationMs: 100,
-      })
-      expect(result.body).toEqual({ accepted: true })
+      await report(chunk.chunkId as number, wins)
       played += 1
     }
+    return played
+  }
+
+  /** The result of a chunk already claimed. */
+  async function report(chunkId: number, wins: (a: number, b: number, games: number, chunkId: number) => number) {
+    const row = await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: chunkId } })
+    const winsA = wins(row.snapshotAId as number, row.snapshotBId as number, row.games, row.id)
+    const result = await bearer('put', `/api/worker/chunks/${row.id}/result`).send({
+      workerId: hello.workerId,
+      engineRev: test.env.engineRev,
+      winsA,
+      winsB: row.games - winsA,
+      ties: 0,
+      games: row.games,
+      durationMs: 100,
+    })
+    expect(result.body).toEqual({ accepted: true })
   }
 
   it('meta bank: the most played archetypes of the era with their list, weights adding up to 1', async () => {
@@ -574,24 +586,7 @@ describe('laboratorio (e2e)', () => {
       (job.params as { lab: { explore: { rounds: { candidates: number[] }[] } } }).lab.explore.rounds[0]?.candidates ??
       []
     // Round 0 (3 lists × 3 rivals) and the verification (2 × 3): the winner stays.
-    let played = 0
-    while (played < 9 + 6) {
-      const claim = await bearer('post', '/api/worker/claim').send({ ...hello, engineRev: test.env.engineRev })
-      const chunk = claim.body.chunk as Structured | null
-      if (!chunk) break
-      const row = await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: chunk.chunkId as number } })
-      const winsA = row.snapshotAId === winner ? Math.round(row.games * 0.9) : row.games / 2
-      await bearer('put', `/api/worker/chunks/${row.id}/result`).send({
-        workerId: hello.workerId,
-        engineRev: test.env.engineRev,
-        winsA,
-        winsB: row.games - winsA,
-        ties: 0,
-        games: row.games,
-        durationMs: 100,
-      })
-      played += 1
-    }
+    const played = await playAll((a, _b, games) => (a === winner ? Math.round(games * 0.9) : games / 2), 9 + 6)
     expect(played).toBe(15)
     // Round 1 is queued: stop it. Nothing is in play, so it ends right away and the confirmation is queued.
     const stopped = await post(`/api/lab/jobs/${id}/stop`)
@@ -605,6 +600,104 @@ describe('laboratorio (e2e)', () => {
     // Stopping twice is refused.
     expect((await post(`/api/lab/jobs/${id}/stop`)).status).toBe(400)
   }, 60_000)
+
+  it('review of #22: with a chunk in play, «Frenar» waits for it; the confirmation never lands in the stopped round', async () => {
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 2,
+      maxRounds: 6,
+      patience: 6,
+      confirmGames: 20,
+      verifyGames: 20,
+      pool: 'all',
+    }
+    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9510 })
+    const id = created.body.id as number
+    type Rounds = {
+      lab: { explore: { rounds: { kind: string; candidates: number[]; fromIdx: number; toIdx: number }[] } }
+    }
+    const rounds = async () =>
+      ((await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).params as unknown as Rounds).lab.explore
+        .rounds
+    const [winner] = (await rounds())[0]?.candidates ?? []
+    const wins = (a: number, _b: number, games: number) => (a === winner ? Math.round(games * 0.9) : games / 2)
+    // Round 0 (3 lists × 3 rivals) and the verification (2 × 3): the winner stays and round 1 is queued.
+    expect(await playAll(wins, 9 + 6)).toBe(15)
+    const before = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })
+    // A worker takes one chunk of round 1; the other 8 are still queued.
+    const claim = await bearer('post', '/api/worker/claim').send({ ...hello, engineRev: test.env.engineRev })
+    const inPlay = (claim.body.chunk as Structured).chunkId as number
+    const stopped = await post(`/api/lab/jobs/${id}/stop`)
+    expect(stopped.status).toBe(200)
+    expect(stopped.body.explore).toMatchObject({ phase: 'search', stopRequested: true })
+    expect(stopped.body.explore.rounds.at(-1)).toMatchObject({ kind: 'search', stopped: true, decided: false })
+    expect(await test.prisma.simulationChunk.count({ where: { jobId: id, status: 'queued' } })).toBe(0)
+    const after = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })
+    expect(after.totalGames).toBe(before.totalGames - 8 * 10)
+    // Asked again while it finishes: refused, with the reason.
+    const again = await post(`/api/lab/jobs/${id}/stop`)
+    expect(again.status).toBe(400)
+    expect(again.body.error.message).toMatch(/^Ya la frenaste/u)
+    // The chunk in play comes back: the round ends with what it has and the confirmation is queued after its range.
+    await report(inPlay, wins)
+    const confirming = (await get(`/api/lab/jobs/${id}`)).body
+    expect(confirming.explore).toMatchObject({ phase: 'confirm', stopReason: 'user' })
+    const all = await rounds()
+    const cut = all.at(-2)
+    const confirm = all.at(-1)
+    expect(cut?.kind).toBe('search')
+    expect(confirm?.kind).toBe('confirm')
+    expect(confirm?.fromIdx).toBeGreaterThanOrEqual(cut?.toIdx ?? Number.POSITIVE_INFINITY)
+    const confirmChunks = await test.prisma.simulationChunk.findMany({
+      where: { jobId: id, idx: { gte: confirm?.fromIdx ?? 0 } },
+    })
+    expect(confirmChunks).toHaveLength(6)
+    expect(await playAll(wins)).toBe(6)
+    const lab = (await get(`/api/lab/jobs/${id}`)).body
+    expect(lab.explore).toMatchObject({ phase: 'done', stopReason: 'user', best: winner })
+    expect(lab.explore.confirmation).toMatchObject({ verdict: 'better' })
+  }, 60_000)
+
+  it('review of #22: «Frenar» during a verification lets it finish, so the variant it checks can still stay', async () => {
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 2,
+      maxRounds: 6,
+      patience: 6,
+      confirmGames: 20,
+      verifyGames: 20,
+      pool: 'all',
+    }
+    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9520 })
+    const id = created.body.id as number
+    const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })
+    const [winner] =
+      (job.params as { lab: { explore: { rounds: { candidates: number[] }[] } } }).lab.explore.rounds[0]?.candidates ??
+      []
+    const wins = (a: number, _b: number, games: number) => (a === winner ? Math.round(games * 0.9) : games / 2)
+    // Round 0 only: its winner goes to verification (2 lists × 3 rivals, queued).
+    expect(await playAll(wins, 9)).toBe(9)
+    const stopped = await post(`/api/lab/jobs/${id}/stop`)
+    expect(stopped.status).toBe(200)
+    expect(stopped.body.explore).toMatchObject({ phase: 'search', stopRequested: true })
+    expect(stopped.body.explore.rounds.at(-1)).toMatchObject({ kind: 'verify', stopped: false, decided: false })
+    expect(await test.prisma.simulationChunk.count({ where: { jobId: id, status: 'queued' } })).toBe(6)
+    // The verification plays in full and backs it; then the confirmation, and no new round.
+    expect(await playAll(wins)).toBe(6 + 6)
+    const lab = (await get(`/api/lab/jobs/${id}`)).body
+    expect(
+      lab.explore.rounds.map((round: { kind: string; accepted: number | null }) => [round.kind, round.accepted]),
+    ).toEqual([
+      ['search', null],
+      ['verify', winner],
+      ['confirm', null],
+    ])
+    expect(lab.explore).toMatchObject({ phase: 'done', stopReason: 'user', best: winner, stopRequested: true })
+  }, 60_000)
+
+  it('review of #22: «Frenar» needs a session', async () => {
+    expect((await test.http().post('/api/lab/jobs/1/stop')).status).toBe(401)
+  })
 
   it('Claude: the bank, a pasted idea against the meta, the plan of a search and the results', async () => {
     const client = new Client({ name: 'e2e', version: '1.0.0' })
