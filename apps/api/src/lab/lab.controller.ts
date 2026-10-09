@@ -98,6 +98,8 @@ const exploreSchema = runSchema.extend({
       patience: limit(EXPLORE_LIMITS.patience),
       confirmGames: limit(EXPLORE_LIMITS.confirmGames),
       acceptZ: limit(EXPLORE_LIMITS.acceptZ),
+      verifyGames: limit(EXPLORE_LIMITS.verifyGames),
+      verifyZ: limit(EXPLORE_LIMITS.verifyZ),
       pool: z.enum(EXPLORE_POOLS).optional(),
     })
     .optional(),

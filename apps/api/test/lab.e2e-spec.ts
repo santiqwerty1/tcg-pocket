@@ -106,14 +106,14 @@ describe('laboratorio (e2e)', () => {
   const hello = { workerId: 'worker-lab-01', name: 'pc-de-prueba', cliVersion: '0.1.0', cores: 8, version: '0.1.0' }
 
   /** Plays every chunk handed out until the queue is empty; `wins` decides the result from the snapshots. */
-  async function playAll(wins: (a: number, b: number, games: number) => number): Promise<number> {
+  async function playAll(wins: (a: number, b: number, games: number, chunkId: number) => number): Promise<number> {
     let played = 0
     for (;;) {
       const claim = await bearer('post', '/api/worker/claim').send({ ...hello, engineRev: test.env.engineRev })
       const chunk = claim.body.chunk as Structured | null
       if (!chunk) return played
       const row = await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: chunk.chunkId as number } })
-      const winsA = wins(row.snapshotAId as number, row.snapshotBId as number, row.games)
+      const winsA = wins(row.snapshotAId as number, row.snapshotBId as number, row.games, row.id)
       const result = await bearer('put', `/api/worker/chunks/${row.id}/result`).send({
         workerId: hello.workerId,
         engineRev: test.env.engineRev,
@@ -301,13 +301,21 @@ describe('laboratorio (e2e)', () => {
     expect(bad.status).toBe(400)
   })
 
-  it('automatic search: rounds of variants, the winner replaces the incumbent, a confirmation round, the end', async () => {
-    const config = { gamesPerRival: 10, variantsPerRound: 3, maxRounds: 2, patience: 2, confirmGames: 20, pool: 'all' }
+  it('automatic search: rounds of variants, the winner is verified and replaces the incumbent, a confirmation, the end', async () => {
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 3,
+      maxRounds: 2,
+      patience: 2,
+      confirmGames: 20,
+      verifyGames: 20,
+      pool: 'all',
+    }
     const dry = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 5, config, dryRun: true })
     expect(dry.status).toBe(200)
     expect(dry.body.firstRound).toHaveLength(3)
     expect(dry.body.pool).toBeGreaterThan(50)
-    expect(dry.body.games).toEqual({ perRound: 4 * 5 * 10, max: 4 * 5 * 10 * 2 + 2 * 5 * 20 })
+    expect(dry.body.games).toEqual({ perRound: 4 * 5 * 10, max: (4 * 5 * 10 + 2 * 5 * 20) * 2 + 2 * 5 * 20 })
     // H-021: the plan says its seed, and that seed plays this same first round.
     expect(typeof dry.body.seed).toBe('number')
     const again = await post('/api/lab/explore').send({
@@ -370,7 +378,11 @@ describe('laboratorio (e2e)', () => {
     const state = (
       job.params as {
         lab: {
-          explore: { base: number; rounds: { candidates: number[] }[]; frozen?: { pool: unknown[]; affinity: unknown[] } }
+          explore: {
+            base: number
+            rounds: { candidates: number[] }[]
+            frozen?: { pool: unknown[]; affinity: unknown[] }
+          }
         }
       }
     ).lab.explore
@@ -391,9 +403,10 @@ describe('laboratorio (e2e)', () => {
     expect([...seeds.values()].every((set) => set.size === 1)).toBe(true)
     expect(new Set([...seeds.values()].map((set) => [...set][0])).size).toBe(5)
 
-    // Round 0: the second variant wins 9 of 10, everything else half. Round 1: nobody beats it. Then confirm.
+    // Round 0: the second variant wins 9 of 10, everything else half: it passes the screen. The verification
+    // (H-010) replays it against the starting list on fresh seeds and it wins again. Round 1: nobody beats it.
     const played = await playAll((a, _b, games) => (a === winner ? Math.round(games * 0.9) : games / 2))
-    expect(played).toBe(20 + 20 + 10)
+    expect(played).toBe(20 + 10 + 20 + 10)
 
     const lab = (await get(`/api/lab/jobs/${jobId}`)).body
     expect(lab).toMatchObject({ mode: 'explore', job: { status: 'done' } })
@@ -401,10 +414,15 @@ describe('laboratorio (e2e)', () => {
     expect(
       lab.explore.rounds.map((round: { kind: string; accepted: number | null }) => [round.kind, round.accepted]),
     ).toEqual([
-      ['search', winner],
+      ['search', null],
+      ['verify', winner],
       ['search', null],
       ['confirm', null],
     ])
+    expect(lab.explore.rounds[0].screened).toBe(winner)
+    // H-010: the confirmation backs it (90 % against 50 % on fresh games).
+    expect(lab.explore.confirmation).toMatchObject({ verdict: 'better' })
+    expect(lab.explore.confirmation.differenceText).toMatch(/^\+40,0 puntos \(IC \+/u)
     const best = lab.decks[0] as {
       role: string
       snapshot: number
@@ -421,7 +439,41 @@ describe('laboratorio (e2e)', () => {
     expect(baseRow.confirm.score.value).toBeCloseTo(50, 8)
     expect(lab.decks.filter((deck: { role: string }) => deck.role === 'variant')).toHaveLength(5)
     const total = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: jobId } })
-    expect(total.totalGames).toBe(200 + 200 + 200)
+    expect(total.totalGames).toBe(200 + 200 + 200 + 200)
+  }, 60_000)
+
+  it('H-010: a variant that only won the screen by luck does not stay; the confirmation says when it is unclear', async () => {
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 2,
+      maxRounds: 1,
+      patience: 3,
+      confirmGames: 20,
+      verifyGames: 20,
+      pool: 'all',
+    }
+    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9100 })
+    expect(created.status).toBe(200)
+    const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: created.body.id } })
+    const state = (job.params as { lab: { explore: { base: number; rounds: { candidates: number[] }[] } } }).lab.explore
+    const [lucky] = state.rounds[0]?.candidates ?? []
+    if (lucky === undefined) throw new Error('no variant')
+    // The lucky variant wins 9 of 10 in the search round (chunk seeds of round 0) and half on fresh seeds.
+    const round0 = new Set(
+      (await test.prisma.simulationChunk.findMany({ where: { jobId: created.body.id } })).map((chunk) => chunk.id),
+    )
+    const played = await playAll((a, _b, games, chunkId) =>
+      a === lucky && round0.has(chunkId) ? Math.round(games * 0.9) : games / 2,
+    )
+    expect(played).toBe(9 + 6)
+    const lab = (await get(`/api/lab/jobs/${created.body.id}`)).body
+    expect(
+      lab.explore.rounds.map((round: { kind: string; accepted: number | null }) => [round.kind, round.accepted]),
+    ).toEqual([
+      ['search', null],
+      ['verify', null],
+    ])
+    expect(lab.explore).toMatchObject({ phase: 'done', stopReason: 'rounds', best: state.base, confirmation: null })
   }, 60_000)
 
   it('a search that finds nothing better ends without a confirmation; a cancelled one stops queueing', async () => {

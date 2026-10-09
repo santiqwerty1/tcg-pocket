@@ -108,12 +108,26 @@ export interface LabExploreView {
   roundsDone: number
   rounds: {
     index: number
-    kind: 'search' | 'confirm'
+    /** H-010: «verify» replays the incumbent and the screened variant with fresh seeds before accepting it. */
+    kind: 'search' | 'verify' | 'confirm'
     incumbent: number
     candidates: number[]
     accepted: number | null
+    /** The search round's best variant that passed the screen (it then goes to verification). */
+    screened: number | null
     decided: boolean
   }[]
+  /**
+   * H-010: what the confirmation says of the list found against the starting one; null without a confirmation.
+   * «better» only past `verifyZ` standard errors.
+   */
+  confirmation: {
+    verdict: 'better' | 'unclear' | 'worse'
+    verdictEs: string
+    /** Points of the found list over the starting one, with its 95 % interval («+5,2 puntos (IC +1,0 a +9,4)»). */
+    differenceText: string
+    difference: { value: number; se: number; ci95: [number, number] }
+  } | null
   locked: CardLineView[]
   /** Fase 16: the event whose rules every variant keeps. */
   event: { id: string; name: string; rules: string[] } | null

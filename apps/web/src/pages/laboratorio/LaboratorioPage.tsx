@@ -344,7 +344,8 @@ function ExploreForm({ size }: { size: number }) {
   const [rounds, setRounds] = useState('12')
   const [variants, setVariants] = useState('8')
   const [games, setGames] = useState('60')
-  const [confirmGames, setConfirmGames] = useState('100')
+  const [confirmGames, setConfirmGames] = useState('200')
+  const [verifyGames, setVerifyGames] = useState('120')
   const deckId = source && 'deckId' in source ? source.deckId : null
 
   const input: LabExploreInput | null = useMemo(() => {
@@ -359,9 +360,10 @@ function ExploreForm({ size }: { size: number }) {
         variantsPerRound: Number(variants),
         gamesPerRival: Number(games),
         confirmGames: Number(confirmGames),
+        verifyGames: Number(verifyGames),
       },
     }
-  }, [source, size, deckId, locked, pool, rounds, variants, games, confirmGames])
+  }, [source, size, deckId, locked, pool, rounds, variants, games, confirmGames, verifyGames])
 
   // H-021: the plan on screen is the search that starts (same seed) while nothing changed since «Ver el plan».
   const [plannedFor, setPlannedFor] = useState<string | null>(null)
@@ -381,9 +383,10 @@ function ExploreForm({ size }: { size: number }) {
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-muted-foreground">
-        Prueba variantes de 1 o 2 cambios de cartas contra el banco, ronda por ronda; una variante se queda solo si le
-        gana con claridad a la mejor hasta ahora. Al final, una ronda de confirmación juega la lista de partida y la
-        encontrada con partidas nuevas.
+        Prueba variantes de 1 o 2 cambios de cartas contra el banco, ronda por ronda. La mejor de cada ronda, si le gana
+        a la mejor hasta ahora, se verifica con partidas nuevas y se queda solo si vuelve a ganar con claridad. Al
+        final, una ronda de confirmación juega la lista de partida y la encontrada con partidas nuevas: dice si la
+        mejora se sostiene.
       </p>
       <DeckSourcePicker
         value={source}
@@ -413,6 +416,13 @@ function ExploreForm({ size }: { size: number }) {
         <NumberField label="Rondas como máximo" value={rounds} onChange={setRounds} min={1} max={20} />
         <NumberField label="Variantes por ronda" value={variants} onChange={setVariants} min={1} max={12} />
         <NumberField label="Partidas por rival" value={games} onChange={setGames} min={10} max={500} />
+        <NumberField
+          label="Verificación (por rival)"
+          value={verifyGames}
+          onChange={setVerifyGames}
+          min={0}
+          max={1000}
+        />
         <NumberField
           label="Confirmación (por rival)"
           value={confirmGames}

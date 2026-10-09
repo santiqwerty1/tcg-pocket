@@ -18,11 +18,15 @@ import {
   buildSnapshot,
   type CardId,
   type CatalogIndex,
+  CONFIRM_VERDICT_ES,
+  type ConfirmVerdict,
   cardBreaksEvent,
   cardChanges,
   cardUsage,
   checkEventDeck,
+  confirmVerdict,
   DEFAULT_CONSISTENCY_GAMES,
+  DEFAULT_EXPLORE_CONFIG,
   DEFAULT_GAUNTLET_SIZE,
   type DeckCardEntry,
   describeEventRulesEs,
@@ -39,6 +43,7 @@ import {
   exploreConfig,
   exploreGames,
   exploreSeed,
+  formatDifferenceEs,
   formatMetaScoreEs,
   type GameRecord,
   type Gauntlet,
@@ -58,6 +63,7 @@ import {
   type PoolCard,
   randomBaseSeed,
   roundWinner,
+  type ScoreDifference,
   type SelectableEnergy,
   type SnapshotCard,
   seededRandom,
@@ -67,6 +73,7 @@ import {
   type TournamentFormat,
   type Variant,
   variantOf,
+  verifyAccepts,
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
@@ -84,6 +91,7 @@ import type {
   LabBankView,
   LabCoreView,
   LabDeckView,
+  LabExploreView,
   LabJobsView,
   LabJobView,
   LabNoveltyView,
@@ -172,13 +180,16 @@ interface LabRival {
 interface ExploreRound {
   /** Seed round (`exploreSeed`). */
   index: number
-  kind: 'search' | 'confirm'
+  /** H-010: a «verify» round replays the incumbent and the screened variant with fresh seeds. */
+  kind: 'search' | 'verify' | 'confirm'
   incumbent: number
   candidates: number[]
   /** Chunk idx range [fromIdx, toIdx). */
   fromIdx: number
   toIdx: number
   accepted: number | null
+  /** H-010: the search round's best variant that passed the screen and went to verification. */
+  screened?: number | null
   decided: boolean
 }
 
@@ -201,6 +212,8 @@ interface ExploreState {
   event?: { id: string; name: string; rules: EventRules }
   /** H-021: what the variants are drawn from, as it was when the search started (absent in older searches). */
   frozen?: FrozenInputs
+  /** H-010: what the confirmation says of the list found against the starting one. */
+  confirmed?: { verdict: ConfirmVerdict; difference: ScoreDifference } | null
 }
 
 /** H-021: the pool (card, copies, weight, in draw order) and the archetype usage (group, share). */
@@ -850,39 +863,74 @@ export class LabService implements OnApplicationBootstrap {
             })
             return false
           }
+          const thisRound = (chunk: ChunkRow) => chunk.idx >= round.fromIdx && chunk.idx < round.toIdx
           if (round.kind === 'confirm') {
             round.decided = true
+            // H-010: the search says it found a better list only when the confirmation's fresh games back it.
+            state.confirmed = confirmVerdict(
+              scoreOf(chunks, rivals, state.incumbent, thisRound),
+              scoreOf(chunks, rivals, state.base, thisRound),
+              state.config.verifyZ ?? DEFAULT_EXPLORE_CONFIG.verifyZ,
+            )
             return finish(null)
           }
 
-          // Score the round: the incumbent with every search game so far, each candidate with this round's games.
-          const search = (chunk: ChunkRow) => chunk.idx < round.toIdx
-          const thisRound = (chunk: ChunkRow) => chunk.idx >= round.fromIdx && chunk.idx < round.toIdx
-          const incumbentScore = scoreOf(chunks, rivals, state.incumbent, search)
-          const candidates = round.candidates.map((id) => ({
-            id,
-            score: scoreOf(chunks, rivals, id, thisRound),
-            complete: complete(chunks, rivals, id, thisRound),
-          }))
-          const accepted = roundWinner(incumbentScore, candidates, state.config.acceptZ)
+          let accepted: number | null = null
+          let verifyNext: number | null = null
+          if (round.kind === 'verify') {
+            // H-010: fresh seeds for both; the variant stays only if it wins there too.
+            const [candidate] = round.candidates
+            const ok =
+              candidate !== undefined &&
+              verifyAccepts(
+                scoreOf(chunks, rivals, candidate, thisRound),
+                scoreOf(chunks, rivals, round.incumbent, thisRound),
+                state.config.verifyZ,
+              )
+            accepted = ok ? (candidate as number) : null
+          } else {
+            // The screen: each candidate with this round's games; the incumbent without the round that picked it.
+            const incumbentScore = scoreOf(chunks, rivals, state.incumbent, unbiasedGames(state, state.incumbent))
+            const candidates = round.candidates.map((id) => ({
+              id,
+              score: scoreOf(chunks, rivals, id, thisRound),
+              complete: complete(chunks, rivals, id, thisRound),
+            }))
+            const screened = roundWinner(incumbentScore, candidates, state.config.acceptZ)
+            round.screened = screened
+            if (screened !== null && (state.config.verifyGames ?? 0) > 0) verifyNext = screened
+            else accepted = screened
+          }
           round.accepted = accepted
           round.decided = true
-          if (accepted !== null) {
-            state.incumbent = accepted
-            state.stall = 0
-          } else state.stall += 1
+          if (verifyNext === null) {
+            if (accepted !== null) {
+              state.incumbent = accepted
+              state.stall = 0
+            } else state.stall += 1
+          }
 
           const searchRounds = state.rounds.filter((item) => item.kind === 'search').length
           let stop: ExploreStop | null =
-            searchRounds >= state.config.maxRounds ? 'rounds' : state.stall >= state.config.patience ? 'patience' : null
+            verifyNext !== null
+              ? null
+              : searchRounds >= state.config.maxRounds
+                ? 'rounds'
+                : state.stall >= state.config.patience
+                  ? 'patience'
+                  : null
           const index = this.catalog.requireIndex()
           const nextIdx = Math.max(-1, ...chunks.map((chunk) => chunk.idx)) + 1
           const rivalIds = rivals.map((rival) => rival.snapshot as number)
           const baseSeed = Number(job.baseSeed)
           let decks: number[] = []
           let games = state.config.gamesPerRival
-          let kind: 'search' | 'confirm' = 'search'
-          if (!stop) {
+          let kind: ExploreRound['kind'] = 'search'
+          if (verifyNext !== null) {
+            kind = 'verify'
+            decks = [state.incumbent, verifyNext]
+            games = state.config.verifyGames
+          } else if (!stop) {
             const incumbent = await tx.deckSnapshot.findUniqueOrThrow({ where: { id: state.incumbent } })
             const energies = incumbent.energies as SelectableEnergy[]
             const incumbentCards = slotsOfSnapshot(incumbent.cards as unknown as SnapshotCard[])
@@ -935,7 +983,7 @@ export class LabService implements OnApplicationBootstrap {
             index: seedRound,
             kind,
             incumbent: state.incumbent,
-            candidates: kind === 'search' ? decks.slice(1) : [],
+            candidates: kind === 'confirm' ? [] : decks.slice(1),
             fromIdx: nextIdx,
             toIdx: nextIdx + next.length,
             accepted: null,
@@ -1197,7 +1245,19 @@ export class LabService implements OnApplicationBootstrap {
             base: state.base,
             best: state.incumbent,
             roundsDone: state.rounds.filter((round) => round.kind === 'search' && round.decided).length,
-            rounds: state.rounds.map(({ fromIdx: _from, toIdx: _to, ...round }) => round),
+            rounds: state.rounds.map(({ fromIdx: _from, toIdx: _to, ...round }) => ({
+              ...round,
+              screened: round.screened ?? null,
+            })),
+            confirmation: confirmationView(state, () =>
+              confirm?.decided
+                ? confirmVerdict(
+                    scoreOf(chunks, scored, state.incumbent, confirmFilter),
+                    scoreOf(chunks, scored, state.base, confirmFilter),
+                    DEFAULT_EXPLORE_CONFIG.verifyZ,
+                  )
+                : null,
+            ),
             locked: state.locked.map((groupId) => ({
               cardId: groupId,
               nameEs: index.groupById(groupId)?.nameEs ?? groupId,
@@ -1320,6 +1380,33 @@ function recordOf(
     }
   }
   return record
+}
+
+/** H-010: the confirmation's verdict (a search before H-010 gets it from its confirmation games). */
+function confirmationView(
+  state: ExploreState,
+  fallback: () => { verdict: ConfirmVerdict; difference: ScoreDifference } | null,
+): LabExploreView['confirmation'] {
+  const found = state.confirmed !== undefined ? state.confirmed : fallback()
+  if (!found) return null
+  return {
+    verdict: found.verdict,
+    verdictEs: CONFIRM_VERDICT_ES[found.verdict],
+    differenceText: formatDifferenceEs(found.difference),
+    difference: found.difference,
+  }
+}
+
+/**
+ * H-010: the games of `id` that did not pick it — every search and verification round except the search round where
+ * it won as a candidate (the best of K noisy measures flatters it), and never the confirmation.
+ */
+function unbiasedGames(state: ExploreState, id: number): (chunk: ChunkRow) => boolean {
+  const picked = state.rounds.filter((round) => round.kind === 'search' && round.candidates.includes(id))
+  const confirm = state.rounds.find((round) => round.kind === 'confirm')
+  return (chunk) =>
+    (!confirm || chunk.idx < confirm.fromIdx) &&
+    !picked.some((round) => chunk.idx >= round.fromIdx && chunk.idx < round.toIdx)
 }
 
 function scoreOf(

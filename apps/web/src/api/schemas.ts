@@ -1475,6 +1475,9 @@ const exploreConfigSchema = z.object({
   confirmGames: z.number(),
   pool: z.enum(EXPLORE_POOLS),
   acceptZ: z.number(),
+  /** H-010: games per rival of the verification round (0: none; absent in searches from before). */
+  verifyGames: z.number().optional(),
+  verifyZ: z.number().optional(),
 })
 export type ExploreConfig = z.infer<typeof exploreConfigSchema>
 
@@ -1509,13 +1512,24 @@ export const labJobSchema = z.object({
       rounds: z.array(
         z.object({
           index: z.number(),
-          kind: z.enum(['search', 'confirm']),
+          kind: z.enum(['search', 'verify', 'confirm']),
           incumbent: z.number(),
           candidates: z.array(z.number()),
           accepted: z.number().nullable(),
+          /** H-010: the search round's best variant that passed the screen and went to verification. */
+          screened: z.number().nullable().default(null),
           decided: z.boolean(),
         }),
       ),
+      /** H-010: what the confirmation says of the list found against the starting one. */
+      confirmation: z
+        .object({
+          verdict: z.enum(['better', 'unclear', 'worse']),
+          verdictEs: z.string(),
+          differenceText: z.string(),
+        })
+        .nullable()
+        .default(null),
       locked: z.array(labCardSchema),
       /** Fase 16: the event whose rules every variant keeps. */
       event: z
@@ -1556,7 +1570,7 @@ export interface LabTestInput extends LabRunInput {
 export interface LabExploreInput extends LabRunInput {
   deck: LabDeckSource
   locked?: string[]
-  config?: Partial<Omit<ExploreConfig, 'acceptZ'>>
+  config?: Partial<Omit<ExploreConfig, 'acceptZ' | 'verifyZ'>>
   /** Fase 16: keep this event's rules in every variant. */
   eventId?: string
 }

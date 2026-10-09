@@ -2,14 +2,16 @@
  * The automatic search of the Laboratorio (T-008), as pure rules the API applies between rounds. Each round plays the
  * current best list (the incumbent) and K new variants of it against the meta bank, every list of the round with the
  * same seed per rival (common random numbers: a one-card change faces the same shuffles and coin flips, so the
- * comparison is sharper). The best variant replaces the incumbent only when its meta score beats the incumbent's
- * (every game the incumbent has played so far) by more than z standard errors of the difference. After `patience`
- * rounds without a change, or `maxRounds`, the search stops and, when it found something, a confirmation round plays
- * the starting list and the one found with fresh seeds and more games: the final numbers do not carry the luck that
- * picked the winner. Bots play, not people: a lead is a hint to try, not a verdict.
+ * comparison is sharper). The best variant of a round only passes a screen: its meta score beats the incumbent's by
+ * more than `acceptZ` standard errors of the difference. Being the best of K noisy measures flatters it (H-010), so
+ * before it replaces the incumbent a verification round plays the two again with fresh seeds, and the variant stays
+ * only if it wins there by `verifyZ`. The incumbent's score leaves out the round where it was picked. After
+ * `patience` rounds without a change, or `maxRounds`, the search stops and, when it found something, a confirmation
+ * round plays the starting list and the one found with fresh seeds and more games; the search says it found a better
+ * list only when the confirmation backs it. Bots play, not people: a lead is a hint to try, not a verdict.
  */
 import { chunkSeed } from '../simulation/seeds.js'
-import { type MetaScore, scoreBeats } from './score.js'
+import { type MetaScore, type ScoreDifference, scoreBeats, scoreDifference } from './score.js'
 
 export const EXPLORE_POOLS = ['collection', 'all'] as const
 export type ExplorePool = (typeof EXPLORE_POOLS)[number]
@@ -30,8 +32,12 @@ export interface ExploreConfig {
   /** Games per rival of the confirmation round (0: no confirmation). */
   confirmGames: number
   pool: ExplorePool
-  /** How many standard errors of the difference a variant has to win by. */
+  /** How many standard errors of the difference the round's best variant has to win by to be verified. */
   acceptZ: number
+  /** Games per rival of the verification round (0: accept on the screen alone, as before H-010). */
+  verifyGames: number
+  /** Standard errors it has to win by in the verification round (and the confirmation, to say «better»). */
+  verifyZ: number
 }
 
 /** The «profunda» search Santi chose on 8/10/2026 (D-018): less noise, more changes tried, about an hour at most. */
@@ -40,9 +46,11 @@ export const DEFAULT_EXPLORE_CONFIG: ExploreConfig = {
   variantsPerRound: 8,
   maxRounds: 12,
   patience: 3,
-  confirmGames: 100,
+  confirmGames: 200,
   pool: 'collection',
   acceptZ: 1,
+  verifyGames: 120,
+  verifyZ: 1.645,
 }
 
 export const EXPLORE_LIMITS = {
@@ -52,6 +60,8 @@ export const EXPLORE_LIMITS = {
   patience: [1, 10],
   confirmGames: [0, 1000],
   acceptZ: [0, 3],
+  verifyGames: [0, 1000],
+  verifyZ: [0, 3],
 } as const satisfies Record<string, readonly [number, number]>
 
 /** The config with every number inside its limits (counts rounded); what is missing takes the default. */
@@ -70,6 +80,8 @@ export function exploreConfig(input: Partial<ExploreConfig> = {}): ExploreConfig
     confirmGames: pick('confirmGames'),
     pool: input.pool && EXPLORE_POOLS.includes(input.pool) ? input.pool : DEFAULT_EXPLORE_CONFIG.pool,
     acceptZ: pick('acceptZ', false),
+    verifyGames: pick('verifyGames'),
+    verifyZ: pick('verifyZ', false),
   }
 }
 
@@ -102,10 +114,41 @@ export function roundWinner(
   return scoreBeats(best.score, incumbent, z) ? best.id : null
 }
 
-/** Games of a search: per round, and at most (every round plus the confirmation). */
+/** Games of a search: per round, and at most (every round verified, plus the confirmation). */
 export function exploreGames(config: ExploreConfig, rivals: number): { perRound: number; max: number } {
   const perRound = (config.variantsPerRound + 1) * rivals * config.gamesPerRival
-  return { perRound, max: perRound * config.maxRounds + 2 * rivals * config.confirmGames }
+  const verify = 2 * rivals * config.verifyGames
+  return { perRound, max: (perRound + verify) * config.maxRounds + 2 * rivals * config.confirmGames }
+}
+
+/** The verification round (H-010): the variant stays when, on fresh seeds, it beats the incumbent by `verifyZ`. */
+export function verifyAccepts(variant: MetaScore | null, incumbent: MetaScore | null, z: number): boolean {
+  return !!variant && !!incumbent && scoreBeats(variant, incumbent, z)
+}
+
+export type ConfirmVerdict = 'better' | 'unclear' | 'worse'
+
+export const CONFIRM_VERDICT_ES: Record<ConfirmVerdict, string> = {
+  better: 'la confirmación la sostiene',
+  unclear: 'la confirmación no alcanza para decir que es mejor',
+  worse: 'en la confirmación salió peor',
+}
+
+/**
+ * What the confirmation says of the list found against the starting one (H-010): the difference of their scores on
+ * the confirmation's fresh seeds, its 95 % interval, and «better» only past `z` standard errors. The errors are
+ * combined as if independent; with common seeds that is conservative.
+ */
+export function confirmVerdict(
+  found: MetaScore | null,
+  base: MetaScore | null,
+  z: number,
+): { verdict: ConfirmVerdict; difference: ScoreDifference } | null {
+  if (!found || !base) return null
+  const difference = scoreDifference(found, base)
+  const verdict =
+    difference.value > z * difference.se ? 'better' : difference.value < -z * difference.se ? 'worse' : 'unclear'
+  return { verdict, difference }
 }
 
 export type ExploreStop = 'rounds' | 'patience' | 'no_variants'

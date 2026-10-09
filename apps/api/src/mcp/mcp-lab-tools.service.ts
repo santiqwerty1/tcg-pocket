@@ -196,8 +196,12 @@ export class McpLabToolsService {
               stopReason: explore.stopReasonEs,
               roundsDone: explore.roundsDone,
               locked: explore.locked.map((card) => card.nameEs),
+              // H-010: what the confirmation says of the list found (null without one).
+              confirmation: explore.confirmation
+                ? `${explore.confirmation.differenceText}: ${explore.confirmation.verdictEs}`
+                : null,
               rounds: explore.rounds.map((round) => ({
-                kind: round.kind === 'search' ? 'búsqueda' : 'confirmación',
+                kind: { search: 'búsqueda', verify: 'verificación', confirm: 'confirmación' }[round.kind],
                 best: labelOf.get(round.incumbent) ?? round.incumbent,
                 tried: round.candidates.length,
                 winner: round.accepted === null ? null : (labelOf.get(round.accepted) ?? round.accepted),

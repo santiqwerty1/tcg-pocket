@@ -59,6 +59,28 @@ export function scoreBeats(challenger: MetaScore, incumbent: MetaScore, z: numbe
   return challenger.value - incumbent.value > z * Math.hypot(challenger.se, incumbent.se)
 }
 
+export interface ScoreDifference {
+  /** Points (0–100 scale): positive when the first score is ahead. */
+  value: number
+  se: number
+  ci95: [number, number]
+}
+
+/** `a − b` with the standard error of the difference (independent errors, as `scoreBeats`). */
+export function scoreDifference(a: MetaScore, b: MetaScore): ScoreDifference {
+  const value = a.value - b.value
+  const se = Math.hypot(a.se, b.se)
+  return { value, se, ci95: [value - Z_95 * se, value + Z_95 * se] }
+}
+
+const pointsFormat = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+
+/** «+5,2 puntos (IC +1,0 a +9,4)»: always one decimal, like the intervals. */
+export function formatDifferenceEs(difference: ScoreDifference): string {
+  const points = (n: number) => `${n >= 0 ? '+' : '−'}${pointsFormat.format(Math.abs(n))}`
+  return `${points(difference.value)} puntos (IC ${points(difference.ci95[0])} a ${points(difference.ci95[1])})`
+}
+
 /** «52,3 % contra el meta (n = 1.000, IC 48,1–56,5 %)», like a win rate (DECISIONES 0.10). */
 export function formatMetaScoreEs(score: MetaScore | null): string {
   if (!score) return 'sin datos'

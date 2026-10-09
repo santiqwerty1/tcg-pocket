@@ -3,7 +3,15 @@
  * archetype of the bank, with n and interval), its pairings, the cards it changes from the starting list and how new
  * it is against the era's tournament lists. A search also shows its rounds and the confirmation round. Bots play.
  */
-import { ChevronDownIcon, FlaskConicalIcon, RefreshCwIcon, SaveIcon, SparklesIcon, XCircleIcon } from 'lucide-react'
+import {
+  ChevronDownIcon,
+  CircleHelpIcon,
+  FlaskConicalIcon,
+  RefreshCwIcon,
+  SaveIcon,
+  SparklesIcon,
+  XCircleIcon,
+} from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
@@ -169,19 +177,36 @@ function UpdateOriginal({ deck, job, size }: { deck: LabDeck; job: LabJob; size:
   )
 }
 
-/** When a finished search beat the starting deck: say so at the top, with the button. */
+/**
+ * When a finished search found a list: at the top, with the button, only if the confirmation backs it (H-010);
+ * otherwise, that it was not clear.
+ */
 function FoundBetter({ job }: { job: LabJob }) {
   if (job.mode !== 'explore' || job.explore?.phase !== 'done') return null
   const best = job.decks.find((deck) => deck.role === 'best')
   const base = job.decks.find((deck) => deck.role === 'base')
-  if (!best || !base?.deckId || best.snapshot === base.snapshot) return null
+  if (!best || !base || best.snapshot === base.snapshot) return null
+  const confirmation = job.explore.confirmation
+  if (confirmation && confirmation.verdict !== 'better') {
+    return (
+      <Alert>
+        <CircleHelpIcon aria-hidden="true" />
+        <AlertDescription>
+          La búsqueda eligió «{best.label}», pero {confirmation.verdictEs}: {confirmation.differenceText} contra la
+          lista de partida, con partidas nuevas. Antes de cambiar el mazo, probala con más partidas.
+        </AlertDescription>
+      </Alert>
+    )
+  }
+  if (!base.deckId) return null
   return (
     <Alert>
       <SparklesIcon aria-hidden="true" />
       <AlertDescription className="flex flex-col gap-2">
         <span>
           Encontró una versión mejor de «{base.label}»: {best.confirm?.text ?? best.search.text}
-          {base.confirm ? ` (la de partida: ${base.confirm.text})` : ''}.
+          {base.confirm ? ` (la de partida: ${base.confirm.text})` : ''}
+          {confirmation ? `; ${confirmation.differenceText}` : ''}.
         </span>
         <span className="flex flex-wrap gap-2">
           <UpdateOriginal deck={best} job={job} size="default" />
@@ -320,6 +345,34 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
   )
 }
 
+type ExploreView = NonNullable<LabJob['explore']>
+
+/** «Ronda 2» (search rounds counted on their own), «Verificación» or «Confirmación». */
+function roundTitle(rounds: ExploreView['rounds'], at: number): string {
+  const round = rounds[at]
+  if (round?.kind === 'verify') return 'Verificación'
+  if (round?.kind === 'confirm') return 'Confirmación'
+  return `Ronda ${rounds.slice(0, at + 1).filter((item) => item.kind === 'search').length}`
+}
+
+function roundText(round: ExploreView['rounds'][number], explore: ExploreView, label: Map<number, string>): string {
+  const name = (id: number | null) => (id === null ? '' : (label.get(id) ?? String(id)))
+  if (round.kind === 'confirm') {
+    return `lista de partida y la mejor encontrada, ${explore.config.confirmGames} partidas por rival`
+  }
+  if (round.kind === 'verify') {
+    const [variant = null] = round.candidates
+    if (!round.decided) return `${name(variant)} contra la mejor, con partidas nuevas`
+    return round.accepted !== null
+      ? `${name(round.accepted)} se sostuvo con partidas nuevas: pasa a ser la mejor`
+      : `${name(variant)} no se sostuvo con partidas nuevas`
+  }
+  if (!round.decided) return `${round.candidates.length} variantes jugando`
+  if (round.accepted !== null) return `ganó ${name(round.accepted)}`
+  if (round.screened !== null) return `${name(round.screened)} le ganó a la mejor: se verifica`
+  return `${round.candidates.length} variantes, ninguna mejoró a la mejor`
+}
+
 function ExploreSummary({ job }: { job: LabJob }) {
   const explore = job.explore
   if (!explore) return null
@@ -335,6 +388,14 @@ function ExploreSummary({ job }: { job: LabJob }) {
             label: 'Por ronda',
             value: `${explore.config.variantsPerRound} variantes · ${explore.config.gamesPerRival} partidas por rival`,
           },
+          ...(explore.config.verifyGames
+            ? [
+                {
+                  label: 'Antes de aceptar',
+                  value: `se verifica con ${explore.config.verifyGames} partidas nuevas por rival`,
+                },
+              ]
+            : []),
           {
             label: 'Paradas',
             value: `${explore.config.maxRounds} rondas como máximo, o ${explore.config.patience} seguidas sin mejora`,
@@ -346,21 +407,19 @@ function ExploreSummary({ job }: { job: LabJob }) {
         ]}
       />
       <ol className="flex flex-col gap-1 text-sm">
-        {explore.rounds.map((round) => (
+        {explore.rounds.map((round, at) => (
           <li key={round.index} className="flex flex-wrap gap-x-2">
-            <span className="font-medium">{round.kind === 'search' ? `Ronda ${round.index + 1}` : 'Confirmación'}</span>
-            <span className="text-muted-foreground">
-              {round.kind === 'confirm'
-                ? `lista de partida y la mejor encontrada, ${explore.config.confirmGames} partidas por rival`
-                : !round.decided
-                  ? `${round.candidates.length} variantes jugando`
-                  : round.accepted !== null
-                    ? `ganó ${label.get(round.accepted) ?? round.accepted}`
-                    : `${round.candidates.length} variantes, ninguna mejoró a la mejor`}
-            </span>
+            <span className="font-medium">{roundTitle(explore.rounds, at)}</span>
+            <span className="text-muted-foreground">{roundText(round, explore, label)}</span>
           </li>
         ))}
       </ol>
+      {explore.confirmation ? (
+        <p className="text-sm">
+          Confirmación: {explore.confirmation.differenceText} sobre la lista de partida;{' '}
+          {explore.confirmation.verdictEs}.
+        </p>
+      ) : null}
     </Section>
   )
 }

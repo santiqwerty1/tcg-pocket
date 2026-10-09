@@ -3,13 +3,16 @@ import { validateDeck } from '../../src/decks/index.js'
 import type { SelectableEnergy } from '../../src/index.js'
 import {
   cardChanges,
+  confirmVerdict,
   DEFAULT_EXPLORE_CONFIG,
   EXPLORE_SEED_STRIDE,
   exploreConfig,
   exploreGames,
   exploreSeed,
+  formatDifferenceEs,
   formatMetaScoreEs,
   groupsOfCards,
+  type MetaScore,
   metaGauntlet,
   metaScore,
   mutationPool,
@@ -19,9 +22,11 @@ import {
   poolWeight,
   roundWinner,
   scoreBeats,
+  scoreDifference,
   seededRandom,
   usableWith,
   variantOf,
+  verifyAccepts,
 } from '../../src/lab/index.js'
 import { buildSnapshot } from '../../src/simulation/index.js'
 import {
@@ -385,6 +390,9 @@ describe('search rules', () => {
       exploreConfig({ gamesPerRival: 5, variantsPerRound: 99, maxRounds: 2.6, acceptZ: 0.5, pool: 'all' }),
     ).toMatchObject({ gamesPerRival: 10, variantsPerRound: 12, maxRounds: 3, acceptZ: 0.5, pool: 'all' })
     expect(exploreConfig({ pool: 'nope' as never }).pool).toBe('collection')
+    // H-010: verification on by default; 0 games turns it off; z between 0 and 3.
+    expect(DEFAULT_EXPLORE_CONFIG).toMatchObject({ confirmGames: 200, verifyGames: 120, verifyZ: 1.645 })
+    expect(exploreConfig({ verifyGames: 0, verifyZ: 9 })).toMatchObject({ verifyGames: 0, verifyZ: 3 })
   })
 
   it('every list of a round plays the same seed against the same rival; rounds do not overlap', () => {
@@ -412,10 +420,33 @@ describe('search rules', () => {
     expect(roundWinner(incumbent, [], 1)).toBeNull()
   })
 
-  it('games per round and at most', () => {
+  it('games per round and at most (every round verified, plus the confirmation)', () => {
     expect(exploreGames(DEFAULT_EXPLORE_CONFIG, 10)).toEqual({
       perRound: 9 * 10 * 60,
-      max: 9 * 10 * 60 * 12 + 2 * 10 * 100,
+      max: (9 * 10 * 60 + 2 * 10 * 120) * 12 + 2 * 10 * 200,
     })
+    expect(exploreGames({ ...DEFAULT_EXPLORE_CONFIG, verifyGames: 0 }, 10).max).toBe(9 * 10 * 60 * 12 + 2 * 10 * 200)
+  })
+
+  it('H-010: the verification and the confirmation ask for a clear win on fresh games', () => {
+    const score = (wins: number, games: number) =>
+      metaScore([{ weight: 1, record: { wins, losses: games - wins, ties: 0 } }])
+    // 60 % against 50 % over 400 games each: ~2,8 standard errors apart.
+    expect(verifyAccepts(score(240, 400), score(200, 400), 1.645)).toBe(true)
+    // 53 % against 50 %: not enough.
+    expect(verifyAccepts(score(212, 400), score(200, 400), 1.645)).toBe(false)
+    expect(verifyAccepts(null, score(200, 400), 1.645)).toBe(false)
+
+    const better = confirmVerdict(score(240, 400), score(200, 400), 1.645)
+    expect(better?.verdict).toBe('better')
+    expect(better?.difference.value).toBeCloseTo(10, 8)
+    expect(better?.difference.ci95[0]).toBeGreaterThan(0)
+    expect(confirmVerdict(score(212, 400), score(200, 400), 1.645)?.verdict).toBe('unclear')
+    expect(confirmVerdict(score(160, 400), score(200, 400), 1.645)?.verdict).toBe('worse')
+    expect(confirmVerdict(null, score(200, 400), 1.645)).toBeNull()
+
+    const difference = scoreDifference(score(240, 400) as MetaScore, score(200, 400) as MetaScore)
+    expect(formatDifferenceEs(difference)).toMatch(/^\+10,0 puntos \(IC \+\d+,\d a \+\d+,\d\)$/u)
+    expect(formatDifferenceEs({ value: -2.5, se: 1, ci95: [-4.5, -0.5] })).toBe('−2,5 puntos (IC −4,5 a −0,5)')
   })
 })
