@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-09 (81 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-09 (82 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -92,6 +92,7 @@ _Borrador generado al 2026-10-09 (81 commits). Escribí el «porqué» fuera de 
 
 ### Pruebas
 
+- screen tests with Playwright in CI (phase 34, T-013) `4e4f2e5`
 - type deckTarget in the packs e2e response `085a8ae`
 
 ### Mantenimiento

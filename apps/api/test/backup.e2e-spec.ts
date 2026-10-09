@@ -444,4 +444,43 @@ describe('backup and settings (e2e)', () => {
     expect((await get('/api/backup/blobs/999999')).status).toBe(404)
     expect((await test.http().get('/api/backup/export')).status).toBe(401)
   })
+
+  /** The owner's data, without the drill's own record (it is the one thing the drill keeps). */
+  const owned = (doc: unknown) => {
+    const copy = withoutExportedAt(JSON.parse(JSON.stringify(doc)) as Doc)
+    return { ...copy, settings: (copy.settings as { key: string }[]).filter((row) => row.key !== 'backupDrill') }
+  }
+
+  it('prueba del backup (Fase 35): restores a fresh copy inside a transaction, compares it and rolls back', async () => {
+    const backup = test.app.get(BackupService)
+    const before = owned(await backup.exportDocument())
+    const blobs = await test.prisma.backupBlob.count()
+    expect((await get('/api/backup/drill')).body).toEqual({ drill: null })
+
+    const ran = await test.http().post('/api/backup/drill').set('Cookie', cookie)
+    expect(ran.status).toBe(200)
+    expect(ran.body.drill).toMatchObject({ ok: true, differences: [], error: null })
+    expect(ran.body.drill.counts).toMatchObject({ decks: 4, matches: 2 })
+    expect(ran.body.drill.sizeBytes).toBeGreaterThan(1000)
+    expect((await get('/api/backup/drill')).body.drill.blobId).toBe(ran.body.drill.blobId)
+    // The copy it made is kept like a daily one (the oldest goes); the data did not move.
+    expect(await test.prisma.backupBlob.count()).toBe(Math.min(blobs + 1, BACKUP_BLOBS_KEPT))
+    expect(owned(await backup.exportDocument())).toEqual(before)
+
+    // A restore that does not give the file back: the drill says what changed and Avisos warns.
+    const real = backup.exportDocument.bind(backup)
+    const spy = vi.spyOn(backup, 'exportDocument').mockImplementation(async (db) => {
+      const doc = await real(db)
+      return db ? { ...doc, matches: [] } : doc
+    })
+    try {
+      const failed = await backup.drill()
+      expect(failed).toMatchObject({ ok: false, differences: ['matches (2 → 0)'], error: null })
+    } finally {
+      spy.mockRestore()
+    }
+    const alerts = (await get('/api/alerts')).body.items as { code: string; title: string }[]
+    expect(alerts.find((alert) => alert.code === 'backup_drill')?.title).toBe('Falló la prueba del backup')
+    expect(owned(await backup.exportDocument())).toEqual(before)
+  })
 })

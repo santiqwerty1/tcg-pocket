@@ -8,6 +8,7 @@ import { EmptyState, ErrorState, LoadingRows, Spinner } from '@/components/ListS
 import { KeyValue, Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
 import { formatBytes, formatDateTime, shortSha } from '@/lib/format'
+import { BackupDrillSection } from './BackupDrillSection'
 
 /** The dry-run notices (catalog mismatch, tokens, an old backup without matches…) as readable text. */
 function Notices({ diff }: { diff: Record<string, unknown> }) {
@@ -151,6 +152,8 @@ export function BackupPage() {
           </div>
         ) : null}
       </Section>
+
+      <BackupDrillSection />
 
       <Section title="Copias diarias guardadas">
         {blobs.isPending ? <LoadingRows rows={3} /> : null}

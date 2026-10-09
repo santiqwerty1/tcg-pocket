@@ -23,6 +23,13 @@ export class BackupCronService implements OnModuleInit {
     this.logger.info({ enabled: this.env.backupCron, timeZone: BACKUP_CRON_TIMEZONE }, 'daily backup cron')
   }
 
+  /** Fase 35: the 1st of each month at 04:30, the restore drill (a failure shows up in Avisos and is pushed). */
+  @Cron('30 4 1 * *', { timeZone: BACKUP_CRON_TIMEZONE })
+  async monthly(): Promise<void> {
+    if (!this.env.backupCron) return
+    await this.backup.drill().catch((error) => this.logger.error({ err: error }, 'backup drill crashed'))
+  }
+
   @Cron('0 4 * * *', { timeZone: BACKUP_CRON_TIMEZONE })
   async daily(): Promise<void> {
     if (!this.env.backupCron) return

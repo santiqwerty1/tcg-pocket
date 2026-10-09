@@ -16,7 +16,13 @@ import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
 import { BACKUP_UPLOAD_LIMIT_BYTES, type UploadedFileShape, uploadOptions } from '../http/upload.js'
 import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
-import { type BackupBlobView, type BackupDryRun, type BackupReplaceResult, BackupService } from './backup.service.js'
+import {
+  type BackupBlobView,
+  type BackupDrillResult,
+  type BackupDryRun,
+  type BackupReplaceResult,
+  BackupService,
+} from './backup.service.js'
 
 const importQuerySchema = z.object({ mode: z.enum(['dry-run', 'replace']).default('dry-run') })
 
@@ -57,6 +63,19 @@ export class BackupController {
   @Get('blobs')
   async blobs(@CurrentSession() _session: RequestSession): Promise<{ items: BackupBlobView[] }> {
     return { items: await this.backup.listBlobs() }
+  }
+
+  /** Fase 35: the last restore drill (null before the first). */
+  @Get('drill')
+  async lastDrill(@CurrentSession() _session: RequestSession): Promise<{ drill: BackupDrillResult | null }> {
+    return { drill: await this.backup.lastDrill() }
+  }
+
+  /** Fase 35: runs the restore drill now (it also stores a daily copy). */
+  @Post('drill')
+  @HttpCode(200)
+  async runDrill(@CurrentSession() _session: RequestSession): Promise<{ drill: BackupDrillResult }> {
+    return { drill: await this.backup.drill() }
   }
 
   @Get('blobs/:id')

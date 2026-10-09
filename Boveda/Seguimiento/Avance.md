@@ -55,7 +55,7 @@ revisar: false
 | 32 | Resumen semanal | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
 | 33 | Partidas contra el bot al instante | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
 | 34 | Tests de pantallas en la CI | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
-| 35 | Prueba mensual del backup | pendiente | — | [T-013](Tareas/T-013.md) |
+| 35 | Prueba mensual del backup | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
 | K | Bóveda con el kit de Posta | hecho 07/10 · aprobado 08/10 | — | [D-009](Decisiones/D-009.md) |
 
 ## Próximos pasos

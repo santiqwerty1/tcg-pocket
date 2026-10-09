@@ -16,7 +16,7 @@ import { EngineStatusService } from '../simulation/snapshots.service.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
 
 export interface AlertView {
-  code: 'new_set' | 'new_era_likely' | 'unknown_cards' | 'engine_update' | 'limited_pack'
+  code: 'new_set' | 'new_era_likely' | 'unknown_cards' | 'engine_update' | 'limited_pack' | 'backup_drill'
   level: 'info' | 'warning'
   title: string
   detail: string
@@ -118,6 +118,27 @@ export class AlertsService {
         title: `${pack.name}: ${pack.days === 0 ? 'hoy es el último día' : `quedan ${pack.days} ${pack.days === 1 ? 'día' : 'días'}`}`,
         detail: `Sale de la tienda después del ${pack.until.split('-').reverse().join('/')}. Lo que solo da este sobre está marcado en Sobres.`,
         link: '/sobres',
+      })
+    }
+    // Fase 35: the monthly restore drill failed, or the last one is more than 40 days old.
+    const drill = (await this.prisma.appSetting.findUnique({ where: { key: 'backupDrill' } }))?.value as
+      | { at?: string; ok?: boolean; error?: string | null; differences?: string[] }
+      | undefined
+    if (drill?.at && drill.ok === false) {
+      alerts.push({
+        code: 'backup_drill',
+        level: 'warning',
+        title: 'Falló la prueba del backup',
+        detail: `El ${drill.at.slice(0, 10).split('-').reverse().join('/')}: ${drill.error ?? `al restaurarlo cambiaron ${(drill.differences ?? []).join(', ')}`}. Probalo de nuevo en Más → Copia de seguridad.`,
+        link: '/mas/backup',
+      })
+    } else if (drill?.at && Date.now() - new Date(drill.at).getTime() > 40 * 24 * 60 * 60 * 1000) {
+      alerts.push({
+        code: 'backup_drill',
+        level: 'info',
+        title: 'Hace más de 40 días que no se prueba el backup',
+        detail: 'La prueba corre sola el 1 de cada mes; podés correrla en Más → Copia de seguridad.',
+        link: '/mas/backup',
       })
     }
     if (engine && engine.aheadBy > 0) {

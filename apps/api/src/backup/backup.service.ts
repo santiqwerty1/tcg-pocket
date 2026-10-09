@@ -22,6 +22,8 @@ import {
 } from './backup-schema.js'
 
 export const BACKUP_BLOBS_KEPT = 14
+/** A restore (and the monthly drill) runs in one transaction of at most this long. */
+const RESTORE_TIMEOUT_MS = 120_000
 /**
  * Upper bound of an uploaded backup once inflated. A real backup is a few MB (one row per stock unit, per import row,
  * per deck revision); without a cap a 50 MB gzip of zeros inflates to ~50 GB and takes the 512 MB machine down.
@@ -48,6 +50,53 @@ export interface BackupDryRun {
     unknownCardIds: string[]
   }
 }
+
+/** Fase 35: the result of a restore drill, kept in `app_settings.backupDrill`. */
+export interface BackupDrillResult {
+  at: string
+  ok: boolean
+  /** The snapshot made for the drill (also one of the daily copies). */
+  blobId: string | null
+  sizeBytes: number
+  counts: BackupCounts | null
+  /** Sections of the document that came back different after restoring it (empty when ok). */
+  differences: string[]
+  ms: number
+  error: string | null
+}
+
+/** JSON with object keys sorted: Postgres `jsonb` reorders keys, so the order is not part of the data. */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, inner: unknown) =>
+    inner && typeof inner === 'object' && !Array.isArray(inner)
+      ? Object.fromEntries(Object.entries(inner as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)))
+      : inner,
+  )
+}
+
+/** Where two JSON values first differ («decks[2].updatedAt»), or null when they are equal (key order aside). */
+export function firstDifference(a: unknown, b: unknown, path: string): string | null {
+  if (canonical(a) === canonical(b)) return null
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return `${path} (${a.length} → ${b.length})`
+    for (let i = 0; i < a.length; i++) {
+      const inner = firstDifference(a[i], b[i], `${path}[${i}]`)
+      if (inner) return inner
+    }
+  }
+  if (a && b && typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b)) {
+    const left = a as Record<string, unknown>
+    const right = b as Record<string, unknown>
+    for (const key of new Set([...Object.keys(left), ...Object.keys(right)])) {
+      const inner = firstDifference(left[key], right[key], `${path}.${key}`)
+      if (inner) return inner
+    }
+  }
+  return path
+}
+
+/** Thrown inside the drill's transaction so nothing it restored stays. */
+class DrillRollback extends Error {}
 
 export interface BackupReplaceResult {
   applied: true
@@ -107,7 +156,8 @@ export class BackupService {
   // Export
   // ---------------------------------------------------------------------------------------------------------------
 
-  async exportDocument(): Promise<BackupDocument> {
+  /** Everything the owner produced; `db` lets the restore drill (Fase 35) read inside its transaction. */
+  async exportDocument(db: Prisma.TransactionClient = this.prisma): Promise<BackupDocument> {
     const [
       settings,
       rarityRules,
@@ -124,30 +174,30 @@ export class BackupService {
       notes,
       events,
     ] = await Promise.all([
-      this.prisma.appSetting.findMany({ orderBy: { key: 'asc' } }),
-      this.prisma.rarityRule.findMany({ orderBy: { rarity: 'asc' } }),
-      this.prisma.collectionStock.findMany({ orderBy: { cardId: 'asc' } }),
-      this.prisma.collectionImport.findMany({
+      db.appSetting.findMany({ orderBy: { key: 'asc' } }),
+      db.rarityRule.findMany({ orderBy: { rarity: 'asc' } }),
+      db.collectionStock.findMany({ orderBy: { cardId: 'asc' } }),
+      db.collectionImport.findMany({
         orderBy: { id: 'asc' },
         include: { rows: { orderBy: { cardId: 'asc' } } },
         omit: { rawFileGz: true },
       }),
-      this.prisma.collectionAdjustment.findMany({ orderBy: { id: 'asc' } }),
-      this.prisma.deck.findMany({
+      db.collectionAdjustment.findMany({ orderBy: { id: 'asc' } }),
+      db.deck.findMany({
         orderBy: { id: 'asc' },
         include: { revisions: { orderBy: { number: 'asc' } }, changes: { orderBy: { id: 'asc' } } },
       }),
-      this.prisma.match.findMany({ orderBy: { id: 'asc' } }),
-      this.prisma.pack.findMany({
+      db.match.findMany({ orderBy: { id: 'asc' } }),
+      db.pack.findMany({
         orderBy: { id: 'asc' },
         select: { id: true, available: true, pointsBalance: true, limited: true, limitedUntil: true },
       }),
-      this.prisma.apiToken.findMany({ orderBy: { id: 'asc' } }),
-      this.prisma.setRelease.findMany({ orderBy: [{ releaseDate: 'asc' }, { code: 'asc' }] }),
-      this.prisma.archetypeAlias.findMany({ orderBy: { archetypeId: 'asc' } }),
-      this.prisma.liveGame.findMany({ where: { status: 'done', winner: { not: null } }, orderBy: { id: 'asc' } }),
-      this.prisma.rivalNote.findMany({ orderBy: { key: 'asc' } }),
-      this.prisma.event.findMany({ orderBy: { id: 'asc' } }),
+      db.apiToken.findMany({ orderBy: { id: 'asc' } }),
+      db.setRelease.findMany({ orderBy: [{ releaseDate: 'asc' }, { code: 'asc' }] }),
+      db.archetypeAlias.findMany({ orderBy: { archetypeId: 'asc' } }),
+      db.liveGame.findMany({ where: { status: 'done', winner: { not: null } }, orderBy: { id: 'asc' } }),
+      db.rivalNote.findMany({ orderBy: { key: 'asc' } }),
+      db.event.findMany({ orderBy: { id: 'asc' } }),
     ])
     return {
       schemaVersion: BACKUP_SCHEMA_VERSION,
@@ -394,230 +444,299 @@ export class BackupService {
         details: unknownCardIds,
       })
     }
-    await this.prisma.$transaction(
-      async (tx) => {
-        // Matches first: they restrict the deletion of their deck and revision.
-        await tx.match.deleteMany()
-        await tx.deck.deleteMany()
-        await tx.collectionAdjustment.deleteMany()
-        await tx.collectionStock.deleteMany()
-        await tx.collectionImport.deleteMany()
-        await tx.appSetting.deleteMany()
-
-        for (const item of document.collection.imports) {
-          await tx.collectionImport.create({
-            data: {
-              id: item.id,
-              fileName: item.fileName,
-              sha256: item.sha256,
-              importedAt: item.importedAt,
-              appliedAt: item.appliedAt,
-              status: item.status,
-              rowCount: item.rowCount,
-              naiveTotal: item.naiveTotal,
-              dedupTotal: item.dedupTotal,
-              unknownIds: item.unknownIds,
-              diffSummary: nullableJson(item.diffSummary),
-              rawFileGz: Buffer.alloc(0),
-              rows: { createMany: { data: item.rows, skipDuplicates: true } },
-            },
-          })
-        }
-        if (document.collection.stock.length > 0) {
-          await tx.collectionStock.createMany({ data: document.collection.stock })
-        }
-        if (document.collection.adjustments.length > 0) {
-          await tx.collectionAdjustment.createMany({ data: document.collection.adjustments })
-        }
-        if (document.decks.length > 0) {
-          await tx.deck.createMany({
-            data: document.decks.map((deck) => ({
-              id: deck.id,
-              name: deck.name,
-              energies: deck.energies,
-              tags: deck.tags,
-              notes: deck.notes,
-              builtInGame: deck.builtInGame,
-              builtInGameSince: deck.builtInGameSince,
-              packPriority: deck.packPriority,
-              tournamentArchetypeId: deck.tournamentArchetypeId,
-              keyCards: deck.keyCards as Prisma.InputJsonValue,
-              archivedAt: deck.archivedAt,
-              currentRevisionId: deck.currentRevisionId,
-              createdAt: deck.createdAt,
-              updatedAt: deck.updatedAt,
-            })),
-          })
-          await tx.deckRevision.createMany({
-            data: document.decks.flatMap((deck) =>
-              deck.revisions.map((revision) => ({
-                id: revision.id,
-                deckId: deck.id,
-                number: revision.number,
-                cards: revision.cards as Prisma.InputJsonValue,
-                energies: revision.energies,
-                note: revision.note,
-                source: revision.source,
-                createdAt: revision.createdAt,
-              })),
-            ),
-          })
-          await tx.deckChange.createMany({
-            data: document.decks.flatMap((deck) =>
-              deck.changes.map((change) => ({
-                id: change.id,
-                deckId: deck.id,
-                field: change.field,
-                old: nullableJson(change.old),
-                new: nullableJson(change.new),
-                at: change.at,
-                source: change.source,
-              })),
-            ),
-          })
-          for (const deck of document.decks) {
-            if (deck.variantOfId !== null) {
-              await tx.deck.update({
-                where: { id: deck.id },
-                data: { variantOfId: deck.variantOfId, updatedAt: deck.updatedAt },
-              })
-            }
-            const current =
-              deck.revisions.find((revision) => revision.id === deck.currentRevisionId) ??
-              deck.revisions[deck.revisions.length - 1]
-            if (current && current.cards.length > 0) {
-              await tx.deckCard.createMany({
-                data: current.cards.map((entry, position) => ({
-                  deckId: deck.id,
-                  cardId: entry.cardId,
-                  count: entry.count,
-                  position,
-                })),
-                skipDuplicates: true,
-              })
-            }
-          }
-        }
-        // Pack switches only touch packs the catalog has; a backup without them keeps the current ones.
-        for (const pack of document.packs) {
-          await tx.pack.updateMany({
-            where: { id: pack.id },
-            data: {
-              available: pack.available,
-              pointsBalance: pack.pointsBalance,
-              ...(pack.limited === undefined ? {} : { limited: pack.limited }),
-              ...(pack.limitedUntil === undefined
-                ? {}
-                : { limitedUntil: pack.limitedUntil === null ? null : new Date(`${pack.limitedUntil}T00:00:00Z`) }),
-            },
-          })
-        }
-        if (document.matches.length > 0) {
-          await tx.match.createMany({ data: document.matches })
-        }
-        // Era table and archetype merges are replaced only when the file carries them (version 4).
-        if (document.tournaments) {
-          await tx.setRelease.deleteMany()
-          if (document.tournaments.sets.length > 0) {
-            await tx.setRelease.createMany({
-              data: document.tournaments.sets.map((set) => ({
-                code: set.code,
-                nameEn: set.nameEn,
-                releaseDate: new Date(`${set.releaseDate}T00:00:00Z`),
-                opensEra: set.opensEra,
-              })),
-            })
-          }
-          await tx.archetypeAlias.deleteMany()
-          if (document.tournaments.archetypeAliases.length > 0) {
-            await tx.archetypeAlias.createMany({ data: document.tournaments.archetypeAliases })
-          }
-        }
-        if (document.settings.length > 0) {
-          await tx.appSetting.createMany({
-            data: document.settings.map((setting) => ({
-              key: setting.key,
-              value: setting.value as Prisma.InputJsonValue,
-              updatedAt: setting.updatedAt,
-            })),
-          })
-        }
-        // Games against the bot (version 5): the finished ones are replaced by the file's results (no moves, no
-        // snapshots); games still being played keep going. Older files keep the current ones.
-        if (document.playedGames) {
-          await tx.liveGame.deleteMany({ where: { status: { in: ['done', 'abandoned', 'failed'] } } })
-          if (document.playedGames.length > 0) {
-            await tx.liveGame.createMany({
-              skipDuplicates: true,
-              data: document.playedGames.map((game) => ({
-                id: game.id,
-                status: 'done' as const,
-                humanSnapshotId: 0,
-                botSnapshotId: 0,
-                humanLabel: game.humanLabel,
-                rivalLabel: game.rivalLabel,
-                bot: game.bot,
-                seed: BigInt(game.seed),
-                engineRev: game.engineRev,
-                choices: [],
-                winner: game.winner,
-                turns: game.turns,
-                createdAt: game.createdAt,
-                finishedAt: game.finishedAt,
-              })),
-            })
-          }
-        }
-        // Events (version 7): replaced by the file's; older files keep the current ones.
-        if (document.events) {
-          await tx.event.deleteMany()
-          if (document.events.length > 0) {
-            await tx.event.createMany({
-              data: document.events.map((event) => ({
-                id: event.id,
-                name: event.name,
-                startsOn: event.startsOn ? new Date(`${event.startsOn}T00:00:00Z`) : null,
-                endsOn: event.endsOn ? new Date(`${event.endsOn}T00:00:00Z`) : null,
-                rules: event.rules as Prisma.InputJsonValue,
-                notes: event.notes,
-                createdAt: event.createdAt,
-                updatedAt: event.updatedAt,
-              })),
-            })
-          }
-        }
-        // Notes by rival (version 6): replaced by the file's; older files keep the current ones.
-        if (document.rivalNotes) {
-          await tx.rivalNote.deleteMany()
-          if (document.rivalNotes.length > 0) await tx.rivalNote.createMany({ data: document.rivalNotes })
-        }
-        for (const rule of document.rarityRules) {
-          await tx.rarityRule.upsert({
-            where: { rarity: rule.rarity },
-            create: rule,
-            update: { points: rule.points, pointsVerified: rule.pointsVerified, tradeable: rule.tradeable },
-          })
-        }
-        for (const table of [
-          'collection_imports',
-          'collection_adjustments',
-          'decks',
-          'deck_revisions',
-          'deck_changes',
-          'matches',
-          'live_games',
-          'events',
-        ]) {
-          await tx.$executeRawUnsafe(
-            `SELECT setval(pg_get_serial_sequence('"${table}"', 'id'), COALESCE((SELECT MAX(id) FROM "${table}"), 0) + 1, false)`,
-          )
-        }
-      },
-      { timeout: 120_000, maxWait: 10_000 },
-    )
+    await this.prisma.$transaction((tx) => this.restoreInto(tx, document), {
+      timeout: RESTORE_TIMEOUT_MS,
+      maxWait: 10_000,
+    })
     this.tournamentData.bump()
     this.logger.info({ counts: backupCounts(document) }, 'backup restored')
     return { applied: true, counts: backupCounts(document), notices }
+  }
+
+  /**
+   * Prueba del backup (Fase 35): a fresh snapshot is stored, read back from `backup_blobs`, parsed like an upload and
+   * restored inside a transaction; the export read inside that same transaction must equal the file (except
+   * `exportedAt`), and then the transaction is rolled back — nothing changes. The tables are locked for the few
+   * seconds it takes (it runs at 04:30 on the 1st of each month).
+   */
+  async drill(): Promise<BackupDrillResult> {
+    const started = Date.now()
+    const result: BackupDrillResult = {
+      at: new Date().toISOString(),
+      ok: false,
+      blobId: null,
+      sizeBytes: 0,
+      counts: null,
+      differences: [],
+      ms: 0,
+      error: null,
+    }
+    try {
+      const snapshot = await this.snapshot()
+      result.blobId = snapshot.id
+      result.sizeBytes = snapshot.sizeBytes
+      const document = this.parseUpload((await this.blob(snapshot.id)).dataGz)
+      result.counts = backupCounts(document)
+      const { unknownCardIds } = this.inspect(document)
+      if (unknownCardIds.length > 0) throw new Error(`${unknownCardIds.length} cartas que el catálogo no conoce`)
+      let restored: BackupDocument | null = null
+      try {
+        await this.prisma.$transaction(
+          async (tx) => {
+            await this.restoreInto(tx, document)
+            restored = await this.exportDocument(tx)
+            throw new DrillRollback()
+          },
+          { timeout: RESTORE_TIMEOUT_MS, maxWait: 10_000 },
+        )
+      } catch (error) {
+        if (!(error instanceof DrillRollback)) throw error
+      }
+      if (!restored) throw new Error('la restauración no devolvió nada')
+      const back = JSON.parse(JSON.stringify(restored)) as Record<string, unknown>
+      const original = JSON.parse(JSON.stringify(document)) as Record<string, unknown>
+      result.differences = Object.keys({ ...original, ...back }).flatMap((key) => {
+        if (key === 'exportedAt') return []
+        const where = firstDifference(original[key], back[key], key)
+        return where === null ? [] : [where]
+      })
+      result.ok = result.differences.length === 0
+    } catch (error) {
+      result.error = error instanceof Error ? error.message : String(error)
+    }
+    result.ms = Date.now() - started
+    await this.prisma.appSetting.upsert({
+      where: { key: 'backupDrill' },
+      create: { key: 'backupDrill', value: result as unknown as Prisma.InputJsonValue },
+      update: { value: result as unknown as Prisma.InputJsonValue },
+    })
+    this.logger[result.ok ? 'info' : 'error']({ drill: result }, 'backup drill')
+    return result
+  }
+
+  async lastDrill(): Promise<BackupDrillResult | null> {
+    const row = await this.prisma.appSetting.findUnique({ where: { key: 'backupDrill' } })
+    return (row?.value as unknown as BackupDrillResult | undefined) ?? null
+  }
+
+  /** Replaces every owner table with the document's content, inside the caller's transaction. */
+  private async restoreInto(tx: Prisma.TransactionClient, document: BackupDocument): Promise<void> {
+    // Matches first: they restrict the deletion of their deck and revision.
+    await tx.match.deleteMany()
+    await tx.deck.deleteMany()
+    await tx.collectionAdjustment.deleteMany()
+    await tx.collectionStock.deleteMany()
+    await tx.collectionImport.deleteMany()
+    await tx.appSetting.deleteMany()
+
+    for (const item of document.collection.imports) {
+      await tx.collectionImport.create({
+        data: {
+          id: item.id,
+          fileName: item.fileName,
+          sha256: item.sha256,
+          importedAt: item.importedAt,
+          appliedAt: item.appliedAt,
+          status: item.status,
+          rowCount: item.rowCount,
+          naiveTotal: item.naiveTotal,
+          dedupTotal: item.dedupTotal,
+          unknownIds: item.unknownIds,
+          diffSummary: nullableJson(item.diffSummary),
+          rawFileGz: Buffer.alloc(0),
+          rows: { createMany: { data: item.rows, skipDuplicates: true } },
+        },
+      })
+    }
+    if (document.collection.stock.length > 0) {
+      await tx.collectionStock.createMany({ data: document.collection.stock })
+    }
+    if (document.collection.adjustments.length > 0) {
+      await tx.collectionAdjustment.createMany({ data: document.collection.adjustments })
+    }
+    if (document.decks.length > 0) {
+      await tx.deck.createMany({
+        data: document.decks.map((deck) => ({
+          id: deck.id,
+          name: deck.name,
+          energies: deck.energies,
+          tags: deck.tags,
+          notes: deck.notes,
+          builtInGame: deck.builtInGame,
+          builtInGameSince: deck.builtInGameSince,
+          packPriority: deck.packPriority,
+          tournamentArchetypeId: deck.tournamentArchetypeId,
+          keyCards: deck.keyCards as Prisma.InputJsonValue,
+          archivedAt: deck.archivedAt,
+          currentRevisionId: deck.currentRevisionId,
+          createdAt: deck.createdAt,
+          updatedAt: deck.updatedAt,
+        })),
+      })
+      await tx.deckRevision.createMany({
+        data: document.decks.flatMap((deck) =>
+          deck.revisions.map((revision) => ({
+            id: revision.id,
+            deckId: deck.id,
+            number: revision.number,
+            cards: revision.cards as Prisma.InputJsonValue,
+            energies: revision.energies,
+            note: revision.note,
+            source: revision.source,
+            createdAt: revision.createdAt,
+          })),
+        ),
+      })
+      await tx.deckChange.createMany({
+        data: document.decks.flatMap((deck) =>
+          deck.changes.map((change) => ({
+            id: change.id,
+            deckId: deck.id,
+            field: change.field,
+            old: nullableJson(change.old),
+            new: nullableJson(change.new),
+            at: change.at,
+            source: change.source,
+          })),
+        ),
+      })
+      for (const deck of document.decks) {
+        if (deck.variantOfId !== null) {
+          await tx.deck.update({
+            where: { id: deck.id },
+            data: { variantOfId: deck.variantOfId, updatedAt: deck.updatedAt },
+          })
+        }
+        const current =
+          deck.revisions.find((revision) => revision.id === deck.currentRevisionId) ??
+          deck.revisions[deck.revisions.length - 1]
+        if (current && current.cards.length > 0) {
+          await tx.deckCard.createMany({
+            data: current.cards.map((entry, position) => ({
+              deckId: deck.id,
+              cardId: entry.cardId,
+              count: entry.count,
+              position,
+            })),
+            skipDuplicates: true,
+          })
+        }
+      }
+    }
+    // Pack switches only touch packs the catalog has; a backup without them keeps the current ones.
+    for (const pack of document.packs) {
+      await tx.pack.updateMany({
+        where: { id: pack.id },
+        data: {
+          available: pack.available,
+          pointsBalance: pack.pointsBalance,
+          ...(pack.limited === undefined ? {} : { limited: pack.limited }),
+          ...(pack.limitedUntil === undefined
+            ? {}
+            : { limitedUntil: pack.limitedUntil === null ? null : new Date(`${pack.limitedUntil}T00:00:00Z`) }),
+        },
+      })
+    }
+    if (document.matches.length > 0) {
+      await tx.match.createMany({ data: document.matches })
+    }
+    // Era table and archetype merges are replaced only when the file carries them (version 4).
+    if (document.tournaments) {
+      await tx.setRelease.deleteMany()
+      if (document.tournaments.sets.length > 0) {
+        await tx.setRelease.createMany({
+          data: document.tournaments.sets.map((set) => ({
+            code: set.code,
+            nameEn: set.nameEn,
+            releaseDate: new Date(`${set.releaseDate}T00:00:00Z`),
+            opensEra: set.opensEra,
+          })),
+        })
+      }
+      await tx.archetypeAlias.deleteMany()
+      if (document.tournaments.archetypeAliases.length > 0) {
+        await tx.archetypeAlias.createMany({ data: document.tournaments.archetypeAliases })
+      }
+    }
+    if (document.settings.length > 0) {
+      await tx.appSetting.createMany({
+        data: document.settings.map((setting) => ({
+          key: setting.key,
+          value: setting.value as Prisma.InputJsonValue,
+          updatedAt: setting.updatedAt,
+        })),
+      })
+    }
+    // Games against the bot (version 5): the finished ones are replaced by the file's results (no moves, no
+    // snapshots); games still being played keep going. Older files keep the current ones.
+    if (document.playedGames) {
+      await tx.liveGame.deleteMany({ where: { status: { in: ['done', 'abandoned', 'failed'] } } })
+      if (document.playedGames.length > 0) {
+        await tx.liveGame.createMany({
+          skipDuplicates: true,
+          data: document.playedGames.map((game) => ({
+            id: game.id,
+            status: 'done' as const,
+            humanSnapshotId: 0,
+            botSnapshotId: 0,
+            humanLabel: game.humanLabel,
+            rivalLabel: game.rivalLabel,
+            bot: game.bot,
+            seed: BigInt(game.seed),
+            engineRev: game.engineRev,
+            choices: [],
+            winner: game.winner,
+            turns: game.turns,
+            createdAt: game.createdAt,
+            finishedAt: game.finishedAt,
+          })),
+        })
+      }
+    }
+    // Events (version 7): replaced by the file's; older files keep the current ones.
+    if (document.events) {
+      await tx.event.deleteMany()
+      if (document.events.length > 0) {
+        await tx.event.createMany({
+          data: document.events.map((event) => ({
+            id: event.id,
+            name: event.name,
+            startsOn: event.startsOn ? new Date(`${event.startsOn}T00:00:00Z`) : null,
+            endsOn: event.endsOn ? new Date(`${event.endsOn}T00:00:00Z`) : null,
+            rules: event.rules as Prisma.InputJsonValue,
+            notes: event.notes,
+            createdAt: event.createdAt,
+            updatedAt: event.updatedAt,
+          })),
+        })
+      }
+    }
+    // Notes by rival (version 6): replaced by the file's; older files keep the current ones.
+    if (document.rivalNotes) {
+      await tx.rivalNote.deleteMany()
+      if (document.rivalNotes.length > 0) await tx.rivalNote.createMany({ data: document.rivalNotes })
+    }
+    for (const rule of document.rarityRules) {
+      await tx.rarityRule.upsert({
+        where: { rarity: rule.rarity },
+        create: rule,
+        update: { points: rule.points, pointsVerified: rule.pointsVerified, tradeable: rule.tradeable },
+      })
+    }
+    for (const table of [
+      'collection_imports',
+      'collection_adjustments',
+      'decks',
+      'deck_revisions',
+      'deck_changes',
+      'matches',
+      'live_games',
+      'events',
+    ]) {
+      await tx.$executeRawUnsafe(
+        `SELECT setval(pg_get_serial_sequence('"${table}"', 'id'), COALESCE((SELECT MAX(id) FROM "${table}"), 0) + 1, false)`,
+      )
+    }
   }
 
   /** Catalog consistency of a document: notices for the UI, unknown ids that block a replace. */

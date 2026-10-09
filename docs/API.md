@@ -274,6 +274,13 @@ Notificaciones: nuevo tipo `weekly` en `GET/PUT /api/notifications/preferences`.
 
 `GET /api/play/:id/events`: eventos del servidor (`text/event-stream`); cada mensaje es la partida como en `GET /api/play/:id`, cada vez que cambia; un evento `ping` cada 15 s. Termina cuando la partida está terminada con repetición, fallida o abandonada.
 
+## Prueba del backup (Fase 35)
+
+| Método y ruta | Respuesta |
+|---|---|
+| `GET /api/backup/drill` | `{ drill: { at, ok, blobId, sizeBytes, counts, differences, ms, error } \| null }` |
+| `POST /api/backup/drill` | corre la prueba ahora (hace una copia nueva, la restaura en una transacción, compara y la deshace): `{ drill }` |
+
 ## Sobres (Fase 4)
 
 | Método y ruta | Cuerpo / respuesta |
