@@ -54,6 +54,52 @@ jobs:
       - run: pnpm -F @tcg/domain build
       - run: pnpm -F @tcg/api test:e2e
 
+  # Tests de pantallas (Fase 34): the API serving the built PWA on a throwaway database, a worker with the engine
+  # stand-in of its tests, and Chromium (phone size) through logging a match (also without signal), a game against
+  # the bot with the coach and a situation to solve.
+  screens:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: tcg
+          POSTGRES_PASSWORD: tcg
+          POSTGRES_DB: tcg
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U tcg -d tcg"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      SCREENS_DATABASE_URL: postgresql://tcg:tcg@127.0.0.1:5433/tcg_screens
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.9.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -F @tcg/domain build
+      - run: pnpm -F @tcg/api build
+      - run: pnpm -F @tcg/web build
+      - run: pnpm -F @tcg/worker build
+      - run: pnpm -F @tcg/web exec playwright install --with-deps chromium
+      - run: pnpm -F @tcg/web test:screens
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: screens-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 14
+
   # engine-cli (AGPL, deckgym-core pinned in engine/Cargo.toml): unit tests and a Windows build kept as an artifact,
   # for a PC without Rust (the worker takes any engine-cli.exe via TCG_ENGINE_PATH or config.json). Also the portable
   # worker (tcg-worker.exe + engine-cli.exe + LEEME.txt) for another PC without Node, Rust or the repository.

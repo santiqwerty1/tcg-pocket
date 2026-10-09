@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-09 (80 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-09 (81 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- games against the bot pushed live over SSE (phase 33, T-013) `e911c89`
 - weekly summary with a Monday push (phase 32, T-013) `4e3d9f2`
 - trade list by rarity (phase 31, T-013) `f409ece`
 - calculation exercises with your own decks (phase 30, T-013) `8ec5660`

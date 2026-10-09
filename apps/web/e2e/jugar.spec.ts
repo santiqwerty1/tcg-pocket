@@ -1,0 +1,121 @@
+/**
+ * Jugar contra un bot (Fase 8) con el modo entrenador, empujado por el servidor (Fase 33), y una situación para
+ * resolver (Fase 24). The PC is the real worker with the engine stand-in of its tests (apps/worker/test/fake-engine.mjs:
+ * two decisions of two options; attacking both times wins).
+ */
+import { type ChildProcess, spawn } from 'node:child_process'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { gzipSync } from 'node:zlib'
+import { type APIRequestContext, expect, test } from '@playwright/test'
+import { BASE_URL, DATABASE_URL, REPO_ROOT } from './settings.ts'
+
+let worker: ChildProcess | null = null
+let workerDir = ''
+
+/**
+ * The PC comes in once the game is queued (as in real life): it uploads its engine's card list on start, and the
+ * stand-in only knows two cards, so a deck checked after that would not be playable.
+ */
+async function startWorker(request: APIRequestContext): Promise<void> {
+  const created = await request.post('/api/tokens', {
+    data: { name: 'pc de pantallas', kind: 'worker', scopes: ['worker:claim'] },
+  })
+  expect(created.status()).toBe(201)
+  const { token } = (await created.json()) as { token: string }
+  workerDir = mkdtempSync(join(tmpdir(), 'tcg-screens-worker-'))
+  worker = spawn(process.execPath, [join(REPO_ROOT, 'apps', 'worker', 'dist', 'main.js')], {
+    env: {
+      ...process.env,
+      TCG_WORKER_TOKEN: token,
+      TCG_SERVER: BASE_URL,
+      TCG_ENGINE_PATH: join(REPO_ROOT, 'apps', 'worker', 'test', 'fake-engine.mjs'),
+      TCG_WORKER_DIR: workerDir,
+      TCG_WORKER_CORES: '1',
+    },
+    stdio: 'ignore',
+  })
+}
+
+test.afterAll(() => {
+  worker?.kill()
+  if (workerDir) rmSync(workerDir, { recursive: true, force: true })
+})
+
+/** Replaces a finished game's replay (the engine stand-in writes an empty one) with one where a choice cost a lot. */
+async function costlyReplay(gameId: number): Promise<void> {
+  const require = createRequire(join(REPO_ROOT, 'apps', 'api', 'package.json'))
+  // pg comes from the API's dependencies (the web does not depend on it).
+  const pg = require('pg') as {
+    Client: new (options: {
+      connectionString: string
+    }) => {
+      connect(): Promise<void>
+      query(sql: string, values: unknown[]): Promise<unknown>
+      end(): Promise<void>
+    }
+  }
+  const state = { turn: 3, current_player: 0, points: [0, 0], players: [], stadium: null }
+  const options = [
+    { text: 'EndTurn', action: 'EndTurn' },
+    { text: 'Attack(Vine Whip)', action: { Attack: { title: 'Vine Whip', fixed_damage: 40 } } },
+  ]
+  const replay = {
+    version: 1,
+    players: [],
+    cards: {},
+    steps: [{ ply: 0, turn: 3, actor: 0, state, options, chosen: 0, note: null, scores: [0, 6000] }],
+    final_state: state,
+    outcome: { Win: 1 },
+  }
+  const client = new pg.Client({ connectionString: DATABASE_URL })
+  await client.connect()
+  try {
+    await client.query('UPDATE live_games SET replay_gz = $1 WHERE id = $2', [
+      gzipSync(Buffer.from(JSON.stringify(replay))),
+      gameId,
+    ])
+  } finally {
+    await client.end()
+  }
+}
+
+test('plays a game against the bot with the coach, then solves the costly moment', async ({ page, request }) => {
+  await page.goto('/jugar')
+  await page.getByRole('combobox', { name: 'Tu mazo' }).click()
+  await page.getByRole('option').first().click()
+  await page.getByRole('tab', { name: 'Mis mazos' }).click()
+  await page.getByRole('combobox', { name: 'El mazo del bot' }).click()
+  await page.getByRole('option').nth(1).click()
+  await page.getByText('Modo entrenador').click()
+  await page.getByRole('button', { name: 'Empezar' }).click()
+  await page.waitForURL(/\/jugar\/\d+$/)
+  const gameId = Number(new URL(page.url()).pathname.split('/').at(-1))
+  await startWorker(request)
+
+  // Two decisions: attack both times (the coach agrees) and win.
+  for (let decision = 1; decision <= 2; decision++) {
+    await page.getByRole('button', { name: /^Opciones \(2\)$/ }).click()
+    const sheet = page.getByRole('dialog', { name: 'Todas tus opciones' })
+    await sheet.getByRole('button', { name: /Vine Whip/ }).click()
+    await expect(sheet).toBeHidden()
+  }
+  await expect(page.getByText('¡Ganaste!')).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByRole('link', { name: 'Ver la repetición' }).first()).toBeVisible({ timeout: 20_000 })
+
+  // The situation: the moment of that game where another move was much better.
+  await costlyReplay(gameId)
+  await page.goto('/jugar/situaciones')
+  await page
+    .getByRole('link', { name: /Error grave/ })
+    .first()
+    .click()
+  await page.getByRole('button', { name: /^Opciones \(2\)$/ }).click()
+  await page
+    .getByRole('dialog', { name: 'Todas tus opciones' })
+    .getByRole('button', { name: /Vine Whip/ })
+    .click()
+  await expect(page.getByText('Como el entrenador').first()).toBeVisible()
+})

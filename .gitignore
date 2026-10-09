@@ -43,3 +43,8 @@ engine/target/
 # deckgym replay viewer, built by scripts/build-viewer.mjs (D-014)
 apps/web/public/viewer/
 engine/target-*/
+
+# Tests de pantallas (Fase 34)
+apps/web/e2e/.auth/
+apps/web/test-results/
+apps/web/playwright-report/
