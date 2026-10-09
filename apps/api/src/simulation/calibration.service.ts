@@ -53,13 +53,16 @@ export interface CalibrationView {
   report: CalibrationReport
   /** The tournament side, read now (the era's matchups keep growing while a calibration is kept). */
   tournaments: { era: string; format: TournamentFormat; matches: number; tournamentsWithPairings: number }
-  /** Pairings of the bank without a simulated result yet (the job is still running, or a chunk failed). */
+  /** Pairings of the bank still to be played. */
   pending: number
+  /** Pairings whose chunks failed in the engine: they will not come (the job ends «failed» with the rest). */
+  failed: number
 }
 
 export interface CalibrationSummaryView extends CalibrationJobView {
-  /** Done jobs only. */
-  summary: Pick<CalibrationReport, 'compared' | 'inside' | 'meanAbsDifference' | 'rankCorrelation'> | null
+  /** Finished jobs only (done, or failed with the pairings that did play). */
+  summary: Pick<CalibrationReport, 'compared' | 'compatible' | 'meanAbsDifference' | 'rankCorrelation'> | null
+  failed: number
 }
 
 /** Games per pairing by default: 105 pairings × 200 is 21.000 games, ~4 minutes of the PC's worker with e2. */
@@ -154,10 +157,12 @@ export class CalibrationService {
     const out: CalibrationSummaryView[] = []
     for (const job of jobs.slice(0, 50)) {
       const view = await this.report(job.id)
-      const { compared, inside, meanAbsDifference, rankCorrelation } = view.report
+      const { compared, compatible, meanAbsDifference, rankCorrelation } = view.report
+      const finished = view.job.status === 'done' || view.job.status === 'failed'
       out.push({
         ...view.job,
-        summary: view.job.status === 'done' ? { compared, inside, meanAbsDifference, rankCorrelation } : null,
+        summary: finished ? { compared, compatible, meanAbsDifference, rankCorrelation } : null,
+        failed: view.failed,
       })
     }
     return out
@@ -178,10 +183,15 @@ export class CalibrationService {
         return entry ? [[snapshot.id, entry] as const] : []
       }),
     )
-    const chunks = await this.prisma.simulationChunk.findMany({
-      where: { jobId: id, status: 'done', snapshotAId: { not: null }, snapshotBId: { not: null } },
-      select: { snapshotAId: true, snapshotBId: true, winsA: true, winsB: true, ties: true },
+    const all = await this.prisma.simulationChunk.findMany({
+      where: { jobId: id, snapshotAId: { not: null }, snapshotBId: { not: null } },
+      select: { snapshotAId: true, snapshotBId: true, winsA: true, winsB: true, ties: true, status: true },
     })
+    const chunks = all.filter((chunk) => chunk.status === 'done')
+    // A pairing with a failed chunk has no result to wait for.
+    const failedPairs = new Set(
+      all.filter((chunk) => chunk.status === 'failed').map((chunk) => `${chunk.snapshotAId}:${chunk.snapshotBId}`),
+    )
     const records = pairingRecords(
       chunks.map(
         (chunk): ChunkOutcome => ({
@@ -200,11 +210,16 @@ export class CalibrationService {
     const matchups = await this.tournaments.matchupsOf(dataset)
     const pairings: CalibrationPairing[] = []
     let pending = 0
+    let failed = 0
     for (let i = 0; i < sideA.length; i++) {
       for (let j = i + 1; j < sideA.length; j++) {
         const [x, y] = [sideA[i] as number, sideA[j] as number]
         const [a, b] = [archetypeOf.get(x), archetypeOf.get(y)]
         if (!a || !b) continue
+        if (failedPairs.has(`${x}:${y}`)) {
+          failed++
+          continue
+        }
         const record = records.get(`${x}:${y}`)?.record
         if (!record) {
           pending++
@@ -232,6 +247,7 @@ export class CalibrationService {
         tournamentsWithPairings: matchups.tournamentsWithPairings,
       },
       pending,
+      failed,
     }
   }
 }

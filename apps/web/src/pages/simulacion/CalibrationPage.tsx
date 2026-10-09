@@ -14,6 +14,7 @@ import {
   useCalibration,
   useCalibrations,
   useStartCalibration,
+  type WeightedRate,
 } from '@/api/calibration'
 import { errorMessage } from '@/api/client'
 import { useEngineInfo } from '@/api/simulations'
@@ -24,7 +25,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatDateTime, shortSha } from '@/lib/format'
-import { formatRate, formatRateValue } from '@/lib/matches'
+import { formatInterval, formatRate, formatRateValue } from '@/lib/matches'
 import { progressFraction } from '@/lib/simulation'
 import { ProgressBar, StatusBadge } from './SimulacionPage'
 
@@ -40,15 +41,32 @@ function formatRho(correlation: RankCorrelation | null, unit: string): string {
   return `ρ = ${decimal.format(correlation.rho)} (${interval}${correlation.n} ${unit})`
 }
 
+/** «55,6 % (n = 120, IC 47,2–64,0 %, orientativo)» for a weighted mean of rates. */
+function formatWeighted(rate: WeightedRate | null): string {
+  if (!rate) return 'sin datos'
+  const parts = [`n = ${rate.games}`, `IC ${formatInterval(rate.ci95)}`]
+  if (rate.orientative) parts.push('orientativo')
+  return `${formatRateValue(rate.value)} (${parts.join(', ')})`
+}
+
+/** «+5,0 pts (IC −8,9 a +18,9)». */
+function formatDifference(value: number | null, ci95: [number, number] | null): string {
+  if (value === null) return '—'
+  const interval = ci95 ? ` (IC ${points.format(ci95[0])} a ${points.format(ci95[1])})` : ''
+  return `${points.format(value)} pts${interval}`
+}
+
+const absolute = (value: number) => points.format(value).replace('+', '')
+
 function SummaryLine({ summary }: { summary: NonNullable<CalibrationSummary['summary']> }) {
   if (summary.compared === 0) {
     return <p className="text-xs text-muted-foreground">Ningún cruce con partidas de torneo suficientes.</p>
   }
   return (
     <p className="text-xs text-muted-foreground">
-      Dentro del intervalo de torneo: {summary.inside} de {summary.compared} · diferencia media{' '}
-      {summary.meanAbsDifference === null ? '—' : `${points.format(summary.meanAbsDifference).replace('+', '')} puntos`}{' '}
-      · orden: {formatRho(summary.rankCorrelation, 'cruces')}
+      Compatibles con el torneo: {summary.compatible} de {summary.compared} · diferencia media (en valor absoluto){' '}
+      {summary.meanAbsDifference === null ? '—' : `${absolute(summary.meanAbsDifference)} puntos`} · orden:{' '}
+      {formatRho(summary.rankCorrelation, 'puntos')}
     </p>
   )
 }
@@ -156,6 +174,12 @@ export function CalibrationPage() {
                   <ProgressBar fraction={progressFraction(item)} />
                 ) : null}
                 {item.summary ? <SummaryLine summary={item.summary} /> : null}
+                {item.failed > 0 ? (
+                  <p className="text-xs text-warning">
+                    {item.failed} {item.failed === 1 ? 'cruce falló' : 'cruces fallaron'} en el motor: el resumen es sin
+                    ellos.
+                  </p>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -165,19 +189,19 @@ export function CalibrationPage() {
   )
 }
 
-function Inside({ value }: { value: boolean | null }) {
+function Compatible({ value }: { value: boolean | null }) {
   if (value === null) return <MinusIcon className="size-4 text-muted-foreground" aria-label="sin juzgar" />
   return value ? (
-    <CheckIcon className="size-4 text-success" aria-label="dentro" />
+    <CheckIcon className="size-4 text-success" aria-label="compatibles" />
   ) : (
-    <XIcon className="size-4 text-destructive" aria-label="fuera" />
+    <XIcon className="size-4 text-destructive" aria-label="distintos" />
   )
 }
 
 function Report({ view }: { view: CalibrationView }) {
   const { report } = view
   const rows = [...report.rows].sort((x, y) => Math.abs(y.difference ?? -1) - Math.abs(x.difference ?? -1))
-  const archetypes = [...report.archetypes].sort((x, y) => (y.tournament ?? -1) - (x.tournament ?? -1))
+  const archetypes = [...report.archetypes].sort((x, y) => (y.tournament?.value ?? -1) - (x.tournament?.value ?? -1))
   return (
     <>
       <Section title="Resumen">
@@ -185,26 +209,33 @@ function Report({ view }: { view: CalibrationView }) {
           <li>
             Cruces con partidas de torneo suficientes (≥ {report.minTournamentGames}): {report.compared} de{' '}
             {report.rows.length}
-            {view.pending > 0 ? ` (faltan ${view.pending} por jugar)` : ''}.
-          </li>
-          <li>
-            El simulado cae dentro del intervalo del torneo en {report.inside} de {report.compared}.
-          </li>
-          <li>
-            Diferencia media:{' '}
-            {report.meanAbsDifference === null
-              ? '—'
-              : `${points.format(report.meanAbsDifference).replace('+', '')} puntos`}
+            {view.pending > 0 ? ` · faltan ${view.pending} por jugar` : ''}
+            {view.failed === 1
+              ? ' · falló 1 en el motor'
+              : view.failed > 1
+                ? ` · fallaron ${view.failed} en el motor`
+                : ''}
             .
           </li>
-          <li>Orden de los cruces: {formatRho(report.rankCorrelation, 'cruces')}.</li>
+          <li>
+            Compatibles (la diferencia, con el error de los dos lados, puede ser 0): {report.compatible} de{' '}
+            {report.compared}.
+          </li>
+          <li>
+            Diferencia media, en valor absoluto:{' '}
+            {report.meanAbsDifference === null ? '—' : `${absolute(report.meanAbsDifference)} puntos`}.
+          </li>
+          <li>
+            Orden de los cruces (cada uno en los dos sentidos; IC por bootstrap de arquetipos):{' '}
+            {formatRho(report.rankCorrelation, 'puntos')}.
+          </li>
           <li>Orden de los arquetipos contra el banco: {formatRho(report.archetypeCorrelation, 'arquetipos')}.</li>
         </ul>
         <p className="text-xs text-muted-foreground">
           Torneos: {view.tournaments.era}, {view.tournaments.matches} partidas de{' '}
           {view.tournaments.tournamentsWithPairings} torneos con rondas. Las dos fuentes no se mezclan: cada una con su
           n e intervalo. Todo por partida y sin empates (los del motor salen del límite de 30 turnos; se cuentan
-          aparte).
+          aparte). Las partidas de torneo se toman como independientes, así que su intervalo puede ser un poco angosto.
         </p>
       </Section>
       <Section title="Arquetipos contra el resto del banco">
@@ -219,18 +250,32 @@ function Report({ view }: { view: CalibrationView }) {
           <TableBody>
             {archetypes.map((row) => (
               <TableRow key={row.id}>
-                <TableCell>{row.label}</TableCell>
-                <TableCell>{row.simulated === null ? '—' : formatRateValue(row.simulated)}</TableCell>
                 <TableCell>
-                  {row.tournament === null
-                    ? `menos de ${report.minTournamentGames} partidas por cruce`
-                    : `${formatRateValue(row.tournament)} (${row.rivalsWithData} rivales)`}
+                  {row.label}
+                  {row.rivals > 0 ? (
+                    <span className="block text-xs text-muted-foreground">
+                      {row.rivals} {row.rivals === 1 ? 'rival' : 'rivales'}
+                    </span>
+                  ) : null}
                 </TableCell>
+                {row.rivals === 0 ? (
+                  <TableCell colSpan={2} className="text-muted-foreground">
+                    ningún rival con {report.minTournamentGames} partidas de torneo o más
+                  </TableCell>
+                ) : (
+                  <>
+                    <TableCell>{formatWeighted(row.simulated)}</TableCell>
+                    <TableCell>{formatWeighted(row.tournament)}</TableCell>
+                  </>
+                )}
               </TableRow>
             ))}
           </TableBody>
         </Table>
-        <p className="text-xs text-muted-foreground">Promedios pesados por la cuota de cada rival en el meta.</p>
+        <p className="text-xs text-muted-foreground">
+          Los dos lados sobre los mismos rivales (los que tienen {report.minTournamentGames} partidas de torneo o más),
+          pesados por su cuota en el meta.
+        </p>
       </Section>
       <Section title="Cruce por cruce">
         <Table>
@@ -240,7 +285,7 @@ function Report({ view }: { view: CalibrationView }) {
               <TableHead>Simulado</TableHead>
               <TableHead>Torneo</TableHead>
               <TableHead>Diferencia</TableHead>
-              <TableHead>Dentro</TableHead>
+              <TableHead>Compatibles</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -254,9 +299,9 @@ function Report({ view }: { view: CalibrationView }) {
                   {row.ties > 0 ? <span className="text-xs text-muted-foreground"> · {row.ties} empates</span> : null}
                 </TableCell>
                 <TableCell>{formatRate(row.tournament)}</TableCell>
-                <TableCell>{row.difference === null ? '—' : `${points.format(row.difference)} pts`}</TableCell>
+                <TableCell>{formatDifference(row.difference, row.differenceCi95)}</TableCell>
                 <TableCell>
-                  <Inside value={row.inside} />
+                  <Compatible value={row.compatible} />
                 </TableCell>
               </TableRow>
             ))}
