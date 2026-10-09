@@ -281,6 +281,15 @@ describe('chat between sessions (e2e)', () => {
     expect(page.messages).toHaveLength(2)
     expect(page.more).toBe(true)
 
+    // A retry after the list changed still finds the message it already copied.
+    const fromInfra = await post({ from: 'Infra', to: 'Nube-2', topic: 'Worker', text: 'Reinicio.', ref: 'pc-30' })
+    expect(fromInfra.status).toBe(201)
+    const toCloud = { name: 'Infra', channel: 'connector' }
+    await test.http().put('/api/chat/participants').set('Cookie', cookie).send(toCloud)
+    const retried = await post({ from: 'Infra', to: 'Nube-2', topic: 'Worker', text: 'Reinicio.', ref: 'pc-30' })
+    expect(((await retried.json()) as { duplicate: boolean }).duplicate).toBe(true)
+    await test.http().put('/api/chat/participants').set('Cookie', cookie).send({ name: 'Infra', channel: 'relay' })
+
     // Another client using the bridge's token is recorded (and shows up in Avisos).
     expect((await relay('?after=0&limit=1', {}, { 'User-Agent': 'curl/8.5' })).status).toBe(200)
     const prisma = test.app.get(PrismaService)
@@ -296,6 +305,12 @@ describe('chat between sessions (e2e)', () => {
     expect((await addByBridge({ name: 'Nube-3', channel: 'connector' })).status).toBe(201)
     expect((await addByBridge({ name: 'nube-3', channel: 'connector' })).status).toBe(200)
     await call(nube, 'chat_write', { from: 'Nube-3', to: 'Coordinador', topic: 'Hola', text: 'Recién llego.' })
+    // Two bridge requests adding the same new name with different channels: one is created, the other refused.
+    const racing = await Promise.all([
+      addByBridge({ name: 'Nube-4', channel: 'connector' }),
+      addByBridge({ name: 'Nube-4', channel: 'relay' }),
+    ])
+    expect(racing.map((response) => response.status).sort()).toEqual([201, 409])
     // It cannot add Santi nor change a channel.
     expect((await addByBridge({ name: 'Otro', channel: 'owner' })).status).toBe(403)
     expect((await addByBridge({ name: 'Santi', channel: 'connector' })).status).toBe(409)

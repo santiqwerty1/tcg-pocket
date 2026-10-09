@@ -147,6 +147,11 @@ export class ChatService {
     caller: ChatCaller
     ref?: string | undefined
   }): Promise<{ message: ChatMessageView; duplicate: boolean }> {
+    // A retry of a message already copied returns it, even if the list changed since.
+    if (input.ref) {
+      const copied = await this.prisma.sessionChatMessage.findUnique({ where: { relayRef: input.ref } })
+      if (copied) return { message: toView(copied), duplicate: true }
+    }
     const list = await this.list()
     const sender = this.member(list, input.from)
     if (!WRITES_AS[input.caller].includes(sender.channel)) {
@@ -158,10 +163,6 @@ export class ChatService {
     const named = parseRecipients(input.to)
     if (named.length === 0) throw new BadRequestException('Indicá a quién va el mensaje (o «todos»).')
     const to = named[0] === CHAT_EVERYONE ? [CHAT_EVERYONE] : named.map((name) => this.member(list, name).name)
-    if (input.ref) {
-      const copied = await this.prisma.sessionChatMessage.findUnique({ where: { relayRef: input.ref } })
-      if (copied) return { message: toView(copied), duplicate: true }
-    }
     const data: Prisma.SessionChatMessageCreateInput = {
       fromName: sender.name,
       fromKey: sender.key,
@@ -294,19 +295,25 @@ export class ChatService {
     const name = input.name.trim()
     const key = chatKey(name)
     if (key === CHAT_EVERYONE) throw new BadRequestException(`«${CHAT_EVERYONE}» no es una sesión: llega a todas.`)
-    const current = await this.prisma.sessionChatParticipant.findUnique({ where: { key } })
     if (by === 'relay') {
       if (input.channel === 'owner') {
         throw new ForbiddenException({ code: 'wrong_channel', message: 'El puente no puede sumar a Santi.' })
       }
-      if (current) {
-        if (current.channel === input.channel) return { participant: participantView(current), created: false }
+      // Create-only, in one statement: a name already there (or added at the same moment) is never changed.
+      const inserted = await this.prisma.sessionChatParticipant.createMany({
+        data: [{ key, name, channel: input.channel }],
+        skipDuplicates: true,
+      })
+      const row = await this.prisma.sessionChatParticipant.findUniqueOrThrow({ where: { key } })
+      if (inserted.count === 0 && row.channel !== input.channel) {
         throw new ConflictException({
           code: 'participant_exists',
-          message: `«${current.name}» ya está en la lista con otro canal: lo cambia Santi en la app.`,
+          message: `«${row.name}» ya está en la lista con otro canal: lo cambia Santi en la app.`,
         })
       }
+      return { participant: participantView(row), created: inserted.count > 0 }
     }
+    const current = await this.prisma.sessionChatParticipant.findUnique({ where: { key } })
     const row = await this.prisma.sessionChatParticipant.upsert({
       where: { key },
       create: { key, name, channel: input.channel },
