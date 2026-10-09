@@ -2183,6 +2183,8 @@ export type Missions = z.infer<typeof missionsSchema>
 
 // ---------- Mano inicial (Fase 10) ----------
 
+const energyZoneRowSchema = z.object({ turn: z.number(), energies: z.number(), probability: z.number() })
+
 export const drawOddsSchema = z.object({
   deck: z.object({ id: z.string(), name: z.string() }).nullable(),
   deckSize: z.number(),
@@ -2198,9 +2200,40 @@ export const drawOddsSchema = z.object({
     z.object({ turn: z.number(), cardsSeen: z.number(), each: z.array(z.number()), all: z.number().nullable() }),
   ),
   basicsInHand: z.array(z.object({ count: z.number(), probability: z.number() })),
+  /** Fase 44: the first card counting Poké Ball, Investigación de Profesores and Comunicación Pokémon. */
+  search: z
+    .object({
+      cards: z.object({ pokeball: z.number(), research: z.number(), communication: z.number() }),
+      runs: z.number(),
+      seed: z.number(),
+      rows: z.array(z.object({ turn: z.number(), probability: z.number(), se: z.number() })),
+      note: z.string(),
+    })
+    .nullable()
+    .default(null),
+  /** Fase 44: the Energy Zone for the attacker's attacks. */
+  energy: z
+    .object({
+      attacker: z.object({ groupId: z.string(), nameEs: z.string() }),
+      types: z.array(selectableEnergySchema),
+      attacks: z.array(
+        z.object({
+          name: z.string(),
+          cost: z.array(energyTypeSchema),
+          payable: z.boolean(),
+          first: z.array(energyZoneRowSchema),
+          second: z.array(energyZoneRowSchema),
+          likelyTurn: z.object({ first: z.number().nullable(), second: z.number().nullable() }),
+        }),
+      ),
+      note: z.string(),
+    })
+    .nullable()
+    .default(null),
   note: z.string(),
 })
 export type DrawOdds = z.infer<typeof drawOddsSchema>
+export type EnergyZone = NonNullable<DrawOdds['energy']>
 
 // ---------- Notas por rival (Fase 12) ----------
 

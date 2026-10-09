@@ -313,7 +313,7 @@ export const MCP_READ_TOOLS = {
     name: 'decks_draw_odds',
     title: 'Probabilidad de robar una carta',
     description:
-      'Probabilidad exacta de tener una carta del mazo (cualquier edición; varias cartas = cualquiera de ellas) en la mano inicial y en cada turno propio, y de tener dos cartas a la vez («alsoCards»), con las reglas del juego: mano inicial de 5 con al menos un Pokémon Básico (se reparte de nuevo si no hay) y una carta por turno propio, también en el primero. Solo robo natural: no cuenta cartas que roban o buscan (Investigación de Profesores, Poké Ball). Sin «cards», el atacante del mazo que más puntos da. También dice cuántos Básicos suele traer la mano inicial.',
+      'Probabilidad exacta de tener una carta del mazo (cualquier edición; varias cartas = cualquiera de ellas) en la mano inicial y en cada turno propio, y de tener dos cartas a la vez («alsoCards»), con las reglas del juego: mano inicial de 5 con al menos un Pokémon Básico (se reparte de nuevo si no hay) y una carta por turno propio, también en el primero. «byTurn» es robo natural; si el mazo juega Poké Ball, Investigación de Profesores o Comunicación Pokémon, «withSearchCards» da la misma carta contándolas (simulación con semilla fija). «energyZone»: la chance de pagar cada ataque del atacante con la Zona de Energía, empezando y yendo segundo (toda la energía al atacante: el mejor caso). Sin «cards», el atacante del mazo que más puntos da. También dice cuántos Básicos suele traer la mano inicial.',
     input: z.object({
       deck: deckRef,
       cards: z.array(query).min(1).max(5).optional().describe('Cartas (nombre o código); cualquiera de ellas cuenta'),
