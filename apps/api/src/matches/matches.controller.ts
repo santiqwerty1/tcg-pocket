@@ -10,6 +10,7 @@ import type {
   MatchStatsView,
   MatchSuggestionsView,
   MatchView,
+  MyMetaView,
 } from './match-views.js'
 import { MatchesService } from './matches.service.js'
 
@@ -60,6 +61,10 @@ const statsQuerySchema = z.object({
   to: isoDateTime.optional(),
 })
 const comparisonQuerySchema = z.object({ mode: z.enum(MATCH_MODES).optional() })
+const myMetaQuerySchema = z.object({
+  mode: z.enum(MATCH_MODES).optional(),
+  days: z.coerce.number().int().min(1).max(3650).optional(),
+})
 const luckQuerySchema = z.object({
   deckId: z.string().trim().min(1).max(20),
   opponent: z.string().trim().max(OPPONENT_MAX_LENGTH).optional(),
@@ -108,6 +113,15 @@ export class MatchesController {
     @CurrentSession() _session: RequestSession,
   ): Promise<MatchStatsView> {
     return this.matches.stats(query)
+  }
+
+  /** Fase 44: «mi meta», the rivals of my matches as tournament archetypes, the recent ones weighing more. */
+  @Get('my-meta')
+  myMeta(
+    @Query(new ZodValidationPipe(myMetaQuerySchema)) query: z.infer<typeof myMetaQuerySchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<MyMetaView> {
+    return this.matches.myMeta(query)
   }
 
   @Get(':id')

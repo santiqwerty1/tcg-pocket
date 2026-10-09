@@ -8,7 +8,11 @@ import { MatchesModule } from '../matches/matches.module.js'
 import { TournamentsModule } from '../tournaments/tournaments.controller.js'
 import { PickService, type PickView } from './pick.service.js'
 
-const querySchema = z.object({ sort: z.enum(['tournament', 'matches', 'lab']).optional() })
+const querySchema = z.object({
+  sort: z.enum(['tournament', 'matches', 'lab']).optional(),
+  /** Fase 44: weigh the rivals by today's tournament meta (default) or by «mi meta». */
+  meta: z.enum(['tournament', 'mine']).optional(),
+})
 
 @Controller('api/decks-today')
 export class PickController {
@@ -19,7 +23,7 @@ export class PickController {
     @Query(new ZodValidationPipe(querySchema)) query: z.infer<typeof querySchema>,
     @CurrentSession() _session: RequestSession,
   ): Promise<PickView> {
-    return this.pick.today(query.sort)
+    return this.pick.today(query.sort, query.meta)
   }
 }
 

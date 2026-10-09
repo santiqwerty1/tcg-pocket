@@ -701,6 +701,25 @@ export const comparisonColumnSchema = z.object({
 export type ComparisonColumn = z.infer<typeof comparisonColumnSchema>
 export const deckComparisonSchema = z.object({ deck: matchDeckRefSchema, columns: z.array(comparisonColumnSchema) })
 
+/** Fase 44: «mi meta», the rivals of my matches as tournament archetypes. */
+export const myMetaSummarySchema = z.object({
+  text: z.string(),
+  enough: z.boolean(),
+  coverage: z.number(),
+  matched: z.number(),
+})
+export type MyMetaSummary = z.infer<typeof myMetaSummarySchema>
+
+export const myMetaSchema = myMetaSummarySchema.extend({
+  era: z.string(),
+  halfLifeDays: z.number(),
+  matches: z.number(),
+  withoutRival: z.number(),
+  shares: z.array(z.object({ archetypeId: z.string(), name: z.string(), share: z.number(), games: z.number() })),
+  unmatched: z.array(z.object({ key: z.string(), label: z.string(), games: z.number() })),
+})
+export type MyMeta = z.infer<typeof myMetaSchema>
+
 /** Fase 9: against each rival, own matches and the tournament matchup of the deck's archetype. */
 export const deckMatchupsSchema = z.object({
   deck: matchDeckRefSchema,
@@ -716,6 +735,18 @@ export const deckMatchupsSchema = z.object({
       rivals: z.number(),
     })
     .nullable(),
+  /** Fase 44: the same with the rivals weighted by «mi meta». */
+  expectedMine: z
+    .object({
+      value: z.number(),
+      ci95: z.tuple([z.number(), z.number()]).nullable().default(null),
+      coverage: z.number(),
+      matches: z.number(),
+      rivals: z.number(),
+    })
+    .nullable()
+    .default(null),
+  myMeta: myMetaSummarySchema.nullable().default(null),
   rows: z.array(
     z.object({
       rival: z.object({ id: z.string().nullable(), name: z.string() }),
@@ -2239,16 +2270,33 @@ export const rivalNoteResponseSchema = z.object({ note: rivalNoteSchema.nullable
 
 export const PICK_SORTS = ['tournament', 'matches', 'lab'] as const
 export type PickSort = (typeof PICK_SORTS)[number]
+export const PICK_METAS = ['tournament', 'mine'] as const
+export type PickMeta = (typeof PICK_METAS)[number]
+
 export const pickSchema = z.object({
   sort: z.enum(PICK_SORTS),
   meta: z.object({ era: z.string(), kind: z.enum(['recent', 'era']), days: z.number(), lists: z.number() }).nullable(),
+  /** Fase 44: the weights of the tournament number (tournament meta or «mi meta»). */
+  weights: z
+    .object({
+      asked: z.enum(PICK_METAS),
+      used: z.enum(PICK_METAS),
+      mine: myMetaSummarySchema.nullable(),
+    })
+    .default({ asked: 'tournament', used: 'tournament', mine: null }),
   items: z.array(
     z.object({
       deck: z.object({ id: z.string(), name: z.string() }),
       archetype: z.object({ id: z.string(), name: z.string(), source: z.enum(['owner', 'guessed']) }).nullable(),
       mine: z.object({ record: gameRecordSchema, rate: winRateSchema.nullable() }).nullable(),
       tournament: z
-        .object({ value: z.number(), coverage: z.number(), matches: z.number(), rivals: z.number() })
+        .object({
+          value: z.number(),
+          ci95: z.tuple([z.number(), z.number()]).nullable().default(null),
+          coverage: z.number(),
+          matches: z.number(),
+          rivals: z.number(),
+        })
         .nullable(),
       lab: z
         .object({

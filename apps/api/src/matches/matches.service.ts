@@ -22,6 +22,7 @@ import {
   type MatchMode,
   type MatchResult,
   matchStats,
+  myMeta,
   oneIn,
   opponentKey,
   opponentTurns,
@@ -48,6 +49,7 @@ import type {
   MatchStatsView,
   MatchSuggestionsView,
   MatchView,
+  MyMetaView,
   RowView,
 } from './match-views.js'
 
@@ -445,14 +447,48 @@ export class MatchesService {
         turn: turns.get(own.key) ?? null,
       })
     }
+    // Fase 44: the same expected figure with the rivals weighted by «mi meta» (every deck's matches, every mode).
+    const mineMeta = context ? await this.myMeta({}).catch(() => null) : null
+    const expectedMine =
+      archetype && mineMeta?.enough
+        ? await this.tournaments.expectedWith(archetype.id, mineMeta.shares).catch(() => null)
+        : null
     return {
       deck,
       archetype,
       era: context?.scope.era ?? '',
       tournamentsWithPairings: context?.matchups.tournamentsWithPairings ?? 0,
       expected: context?.matchups.expected ?? null,
+      expectedMine,
+      myMeta: mineMeta
+        ? { text: mineMeta.text, enough: mineMeta.enough, coverage: mineMeta.coverage, matched: mineMeta.matched }
+        : null,
       rows,
       attribution: 'Datos de torneo: Limitless (play.limitlesstcg.com)',
+    }
+  }
+
+  /**
+   * Fase 44: «mi meta» — the rivals of my matches (every deck) as shares of the era's tournament archetypes, the
+   * recent ones weighing more. A rival is an archetype by name, or by the archetype its note was written from.
+   */
+  async myMeta(query: { mode?: MatchMode | undefined; days?: number | undefined }): Promise<MyMetaView> {
+    const now = new Date()
+    const from = query.days ? new Date(now.getTime() - query.days * 24 * 60 * 60 * 1000) : null
+    const { facts } = await this.loadFacts()
+    const selected = filterMatches(facts, { deckId: null, mode: query.mode ?? null, from, to: null })
+    const era = await this.tournaments.eraArchetypes()
+    const notes = await this.prisma.rivalNote.findMany({
+      where: { archetypeId: { not: null } },
+      select: { key: true, archetypeId: true },
+    })
+    const links = new Map(
+      notes.flatMap((note) => (note.archetypeId ? [[note.key, era.canonical(note.archetypeId)] as const] : [])),
+    )
+    return {
+      era: era.era,
+      filters: { mode: query.mode ?? null, days: query.days ?? null },
+      ...myMeta(selected, era.archetypes, { now, links }),
     }
   }
 

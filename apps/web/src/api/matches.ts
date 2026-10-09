@@ -13,6 +13,7 @@ import {
   matchSchema,
   matchStatsSchema,
   matchSuggestionsSchema,
+  myMetaSchema,
 } from './schemas'
 
 /** Fase 28: the last suggestions, so the quick-entry form opens without signal. */
@@ -102,6 +103,14 @@ export function useMatchStats(params: MatchStatsParams = {}) {
   return useQuery({
     queryKey: matchKeys.stats(params),
     queryFn: ({ signal }) => request('/api/matches/stats', { query: { ...params }, schema: matchStatsSchema, signal }),
+  })
+}
+
+/** Fase 44: «mi meta», the rivals of my matches as shares of tournament archetypes. */
+export function useMyMeta(params: { mode?: MatchMode; days?: number } = {}) {
+  return useQuery({
+    queryKey: ['matches', 'my-meta', params] as const,
+    queryFn: ({ signal }) => request('/api/matches/my-meta', { query: { ...params }, schema: myMetaSchema, signal }),
   })
 }
 

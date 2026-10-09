@@ -365,7 +365,11 @@ export class TournamentsService {
    * Fase 15: what each archetype should score against today's meta (the last two weeks, or the era when they are
    * too few lists), from the era's matchups.
    */
-  async todayExpectations(query: ScopeQuery = {}): Promise<{
+  async todayExpectations(
+    query: ScopeQuery = {},
+    /** Fase 44: other weights for the rivals («mi meta»); by default, the recent meta. */
+    options: { shares?: readonly { archetypeId: string; share: number }[] } = {},
+  ): Promise<{
     scope: Scope
     dataset: TournamentDataset
     meta: { kind: 'recent' | 'era'; days: number; lists: number }
@@ -383,7 +387,9 @@ export class TournamentsService {
       dataset,
       meta: { kind: meta.kind, days: meta.days, lists: meta.lists },
       expected: (archetypeId) =>
-        expectedVsMeta(matchups, dataset, aliases.get(archetypeId) ?? archetypeId, { shares: meta.shares }),
+        expectedVsMeta(matchups, dataset, aliases.get(archetypeId) ?? archetypeId, {
+          shares: options.shares ?? meta.shares,
+        }),
       place: (cards, ownerArchetypeId) => this.placeDeck(scope, dataset, aliases, cards, ownerArchetypeId),
     }
   }
@@ -438,6 +444,34 @@ export class TournamentsService {
       })),
       attribution: LIMITLESS_ATTRIBUTION,
     }
+  }
+
+  /** Fase 44: the era's archetypes (canonical id and name) and the owner's merges, to read «mi meta». */
+  async eraArchetypes(query: ScopeQuery = {}): Promise<{
+    era: string
+    archetypes: { id: string; name: string }[]
+    canonical: (id: string) => string
+  }> {
+    const scope = await this.scope(query)
+    const dataset = await this.dataset(scope)
+    const aliases = await this.settings.aliases()
+    return {
+      era: scope.era,
+      archetypes: [...dataset.archetypes.values()].map((ref) => ({ id: ref.id, name: ref.name })),
+      canonical: (id) => aliases.get(id) ?? id,
+    }
+  }
+
+  /** Fase 44: what an archetype should score with the rivals weighted by `shares` («mi meta») instead of the era's. */
+  async expectedWith(
+    archetypeId: string,
+    shares: readonly { archetypeId: string; share: number }[],
+    query: ScopeQuery = {},
+  ): Promise<ExpectedVsMetaView | null> {
+    const scope = await this.scope(query)
+    const dataset = await this.dataset(scope)
+    const canonical = (await this.settings.aliases()).get(archetypeId) ?? archetypeId
+    return expectedVsMeta(await this.matchupsOf(dataset), dataset, canonical, { shares })
   }
 
   /** One archetype against each rival (Fase 9), for the deck sheet and Claude. */

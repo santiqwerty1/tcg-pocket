@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { formatRateValue, MODE_LABEL, PERIODS, type PeriodKey, periodFrom } from '@/lib/matches'
 import { ChoiceGroup } from './MatchFields'
+import { MyMetaSection } from './MyMetaSection'
 
 const ALL_MODES = '__all__'
 
@@ -129,6 +130,11 @@ export function MatchStatsPage() {
               }))}
             />
           </Section>
+
+          <MyMetaSection
+            mode={mode === ALL_MODES ? undefined : mode}
+            days={PERIODS.find((item) => item.key === period)?.days ?? undefined}
+          />
 
           {stats.data.turnOrder ? (
             <Section title="¿Importa empezar?">

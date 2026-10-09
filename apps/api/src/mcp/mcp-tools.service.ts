@@ -270,6 +270,9 @@ ${MCP_CHAT_INSTRUCTIONS}`
     server.registerTool(t.decksPickToday.name, config(t.decksPickToday), (args) =>
       run(t.decksPickToday.name, () => this.decksPickToday(args)),
     )
+    server.registerTool(t.matchesMyMeta.name, config(t.matchesMyMeta), (args) =>
+      run(t.matchesMyMeta.name, () => this.matchesMyMeta(args)),
+    )
     server.registerTool(t.decksDrawOdds.name, config(t.decksDrawOdds), (args) =>
       run(t.decksDrawOdds.name, () => this.decksDrawOdds(args)),
     )
@@ -1384,22 +1387,51 @@ ${MCP_CHAT_INSTRUCTIONS}`
     return { total: notes.length, notes: notes.map(shape) }
   }
 
-  private async decksPickToday(args: { sort?: 'tournament' | 'matches' | 'lab'; limit?: number }): Promise<Json> {
-    const view = await this.pick.today(args.sort)
+  private async decksPickToday(args: {
+    sort?: 'tournament' | 'matches' | 'lab'
+    meta?: 'tournament' | 'mine'
+    limit?: number
+  }): Promise<Json> {
+    const view = await this.pick.today(args.sort, args.meta)
     const percent = (value: number) => `${percentFormat.format(value)} %`
     return {
       sortedBy: view.sort,
       meta: view.meta,
+      weights: {
+        used: view.weights.used === 'mine' ? 'mi meta' : 'meta de torneos',
+        ...(view.weights.mine ? { myMeta: view.weights.mine.text } : {}),
+      },
       decks: view.items.slice(0, args.limit ?? 10).map((row) => ({
         deck: `#${row.deck.id} ${row.deck.name}`,
         archetype: row.archetype?.name ?? null,
         myMatches: row.mine ? rateView(row.mine.rate) : null,
         tournamentAgainstToday: row.tournament
-          ? `${percent(row.tournament.value)} (matchups con datos: ${percent(row.tournament.coverage)} del meta)`
+          ? `${percent(row.tournament.value)} (IC ${percent(row.tournament.ci95[0])}–${percent(row.tournament.ci95[1])}; matchups con datos: ${percent(row.tournament.coverage)} del meta)`
           : null,
         lab: row.lab?.text ?? null,
       })),
       note: view.note,
+    }
+  }
+
+  private async matchesMyMeta(args: { mode?: MatchMode; days?: number; limit?: number }): Promise<Json> {
+    const view = await this.matches.myMeta({ mode: args.mode, days: args.days })
+    const percent = (value: number) => `${percentFormat.format(value)} %`
+    return {
+      source: 'Mis partidas registradas en la app (no son cuotas de torneo).',
+      era: view.era,
+      text: view.text,
+      enough: view.enough,
+      matches: view.matches,
+      withoutRival: view.withoutRival,
+      coverage: `${percent(view.coverage)} de las partidas con rival son de un arquetipo de torneo`,
+      archetypes: view.shares.slice(0, args.limit ?? 10).map((row) => ({
+        archetype: row.name,
+        id: row.archetypeId,
+        share: percent(row.share),
+        games: row.games,
+      })),
+      unmatched: view.unmatched.slice(0, 10).map((row) => `${row.label} (${row.games})`),
     }
   }
 

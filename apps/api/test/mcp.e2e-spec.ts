@@ -139,6 +139,7 @@ describe('MCP endpoint (e2e)', () => {
       'lab_results',
       'matches_list',
       'matches_luck',
+      'matches_my_meta',
       'matches_stats',
       'packs_recommend',
       'play_game_review',

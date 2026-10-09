@@ -303,10 +303,25 @@ export const MCP_READ_TOOLS = {
     name: 'decks_pick_today',
     title: '¿Qué mazo llevo hoy?',
     description:
-      'Los mazos armados en el juego con tres números separados: el récord de Santi con cada uno, lo que su arquetipo de torneo debería sacar contra el meta de los últimos 14 días (matchups de torneo pesados por la cuota de cada rival) y el último puntaje del Laboratorio (bots contra el banco del meta). No los combines en uno: explicá qué dice cada fuente y dónde coinciden. «sort» ordena por una de las tres.',
+      'Los mazos armados en el juego con tres números separados: el récord de Santi con cada uno, lo que su arquetipo de torneo debería sacar contra el meta de los últimos 14 días (matchups de torneo pesados por la cuota de cada rival) y el último puntaje del Laboratorio (bots contra el banco del meta). No los combines en uno: explicá qué dice cada fuente y dónde coinciden. «sort» ordena por una de las tres. Con «meta: mine» el número de torneo pesa los rivales por «mi meta» (los rivales de las partidas de Santi, las recientes más) en lugar del meta de torneos; «weights.used» dice cuál se usó (vuelve al de torneos hasta tener 10 partidas contra arquetipos).',
     input: z.object({
       sort: z.enum(['tournament', 'matches', 'lab']).optional().describe('tournament (por defecto), matches o lab'),
+      meta: z
+        .enum(['tournament', 'mine'])
+        .optional()
+        .describe('tournament (por defecto): meta de torneos; mine: los rivales de mis partidas'),
       limit: z.number().int().min(1).max(40).optional().describe('Mazos a devolver (por defecto 10)'),
+    }),
+  },
+  matchesMyMeta: {
+    name: 'matches_my_meta',
+    title: 'Mi meta',
+    description:
+      'Contra qué arquetipos de torneo juega Santi: los rivales de sus partidas registradas como cuota de cada arquetipo de la era, con más peso a las recientes (una partida de hace 14 días pesa la mitad). Un rival cuenta para un arquetipo si se llama igual o si su nota se escribió desde ese arquetipo; los demás van aparte en «unmatched». «coverage» = qué parte de las partidas con rival se pudo asociar. Hacen falta 10 partidas contra arquetipos para usarlo como pesos («enough»). Son solo las partidas de Santi: no lo mezcles con cuotas de torneo.',
+    input: z.object({
+      mode: z.enum(MATCH_MODES).optional().describe('Modalidad'),
+      days: z.number().int().min(1).max(3650).optional().describe('Solo las partidas de los últimos N días'),
+      limit: z.number().int().min(1).max(30).optional().describe('Arquetipos a devolver (por defecto 10)'),
     }),
   },
   decksDrawOdds: {

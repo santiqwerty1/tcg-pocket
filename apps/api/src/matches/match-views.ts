@@ -4,11 +4,13 @@ import type {
   GameRecord,
   MatchMode,
   MatchResult,
+  MyMeta,
   RateSource,
   TurnOrderImpact,
   WentFirstKey,
   WinRate,
 } from '@tcg/domain'
+import type { ExpectedVsMetaView } from '../tournaments/tournament-views.js'
 
 export interface MatchDeckRef {
   id: string
@@ -143,7 +145,10 @@ export interface DeckMatchupsView {
   era: string
   tournamentsWithPairings: number
   /** What the archetype should score against the field (matchups weighted by meta share). */
-  expected: { value: number; coverage: number; matches: number; rivals: number } | null
+  expected: ExpectedVsMetaView | null
+  /** Fase 44: the same with the rivals weighted by «mi meta»; null until it has enough matches. */
+  expectedMine: ExpectedVsMetaView | null
+  myMeta: MyMetaSummary | null
   rows: DeckMatchupRowView[]
   attribution: string
 }
@@ -153,3 +158,11 @@ export interface DeckComparisonView {
   deck: MatchDeckRef
   columns: ComparisonColumnView[]
 }
+
+/** Fase 44: «mi meta» — the rivals of my matches as shares of the era's tournament archetypes. */
+export interface MyMetaView extends MyMeta {
+  era: string
+  filters: { mode: MatchMode | null; days: number | null }
+}
+
+export type MyMetaSummary = Pick<MyMeta, 'text' | 'enough' | 'coverage' | 'matched'>

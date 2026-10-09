@@ -628,6 +628,67 @@ describe('tournaments (e2e)', () => {
     for (const deck of [blaziken, hoopa]) await patch(`/api/decks/${deck?.id}`).send({ builtInGame: false })
   })
 
+  it('mi meta (Fase 44): my rivals as tournament archetypes, as weights for today and for the deck sheet', async () => {
+    const decks = (await get('/api/decks')).body.items as { id: string; name: string }[]
+    const blaziken = decks.find((deck) => deck.name === 'Mega-Blaziken ex')
+    const rows = (await get('/api/tournaments/archetypes')).body.rows as { archetype: { id: string; name: string } }[]
+    const [first, second] = rows
+    const ids: string[] = []
+    const log = async (opponent: string, times: number) => {
+      for (let i = 0; i < times; i++) {
+        const created = await post('/api/matches').send({ deckId: blaziken?.id, result: 'win', opponent })
+        ids.push(created.body.id)
+      }
+    }
+    expect((await get('/api/matches/my-meta')).body).toMatchObject({ era: 'B4a', enough: false, matched: 0 })
+    await log(first?.archetype.name ?? '', 8)
+    await log((second?.archetype.name ?? '').toUpperCase(), 4)
+    await log('el de los fantasmas', 2)
+    const meta = (await get('/api/matches/my-meta')).body as {
+      enough: boolean
+      matched: number
+      shares: { archetypeId: string; share: number; games: number }[]
+      unmatched: { label: string; games: number }[]
+      text: string
+    }
+    expect(meta.enough).toBe(true)
+    expect(meta.matched).toBe(12)
+    expect(meta.shares.map((row) => [row.archetypeId, row.games])).toEqual([
+      [first?.archetype.id, 8],
+      [second?.archetype.id, 4],
+    ])
+    expect(meta.shares[0]?.share).toBeCloseTo((8 / 12) * 100, 1)
+    expect(meta.unmatched).toEqual([{ key: 'el de los fantasmas', label: 'el de los fantasmas', games: 2 }])
+    expect(meta.text).toMatch(/^Tu meta \(12 partidas/)
+    expect((await get('/api/matches/my-meta?days=0')).status).toBe(400)
+
+    expect((await patch(`/api/decks/${blaziken?.id}`).send({ builtInGame: true })).status).toBe(200)
+    const mine = (await get('/api/decks-today?meta=mine')).body as {
+      weights: { asked: string; used: string; mine: { enough: boolean } }
+      items: { deck: { id: string }; tournament: { value: number; ci95: number[] } | null }[]
+      note: string
+    }
+    expect(mine.weights).toMatchObject({ asked: 'mine', used: 'mine', mine: { enough: true } })
+    expect(mine.note).toContain('rivales que te tocan')
+    const row = mine.items.find((item) => item.deck.id === blaziken?.id)
+    expect(row?.tournament?.ci95).toHaveLength(2)
+    const plain = (await get('/api/decks-today')).body as { weights: { used: string } }
+    expect(plain.weights.used).toBe('tournament')
+    expect((await get('/api/decks-today?meta=nope')).status).toBe(400)
+    await patch(`/api/decks/${blaziken?.id}`).send({ builtInGame: false })
+
+    const sheet = (await get(`/api/decks/${blaziken?.id}/matchups`)).body as {
+      expected: { value: number } | null
+      expectedMine: { value: number; ci95: number[] } | null
+      myMeta: { enough: boolean } | null
+    }
+    expect(sheet.myMeta?.enough).toBe(true)
+    expect(sheet.expectedMine?.value).toBeGreaterThan(0)
+    expect(sheet.expectedMine?.ci95).toHaveLength(2)
+    for (const id of ids)
+      expect((await test.http().delete(`/api/matches/${id}`).set('Cookie', cookie)).status).toBe(204)
+  })
+
   it('eventos (Fase 16): which decks and which tournament lists comply with an event', async () => {
     const created = await post('/api/events').send({
       name: 'Copa sin ex',
@@ -795,6 +856,10 @@ describe('tournaments (e2e)', () => {
       const one = await call('tournaments_matchups', { archetype: top?.name })
       expect((one.rivals as unknown[]).length).toBeGreaterThan(5)
       expect(one.expectedAgainstMeta).toMatchObject({ value: expect.stringMatching(/ %$/) })
+      const myMeta = await call('matches_my_meta', {})
+      expect(typeof myMeta.enough).toBe('boolean')
+      expect(String(myMeta.text).length).toBeGreaterThan(10)
+      expect((await call('decks_pick_today', { meta: 'mine' })).weights).toMatchObject({ used: 'meta de torneos' })
       const techs = await call('tournaments_archetype_cards', { archetype: top?.name })
       expect((techs.core as { slots: string }).slots).toMatch(/de 20 \(quedan/)
       expect(Array.isArray(techs.techs)).toBe(true)

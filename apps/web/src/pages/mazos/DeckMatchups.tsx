@@ -7,7 +7,7 @@ import { useDeckMatchups } from '@/api/matches'
 import type { WinRate } from '@/api/schemas'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
-import { formatRateValue, formatRecord } from '@/lib/matches'
+import { formatInterval, formatRateValue, formatRecord } from '@/lib/matches'
 import { matchupTone, TONE_CLASS } from '@/lib/matchups'
 import { formatShare } from '@/lib/tournaments'
 import { cn } from '@/lib/utils'
@@ -60,6 +60,14 @@ export function DeckMatchupsSection({ deckId }: { deckId: string }) {
         {data.expected ? `; contra el meta debería sacar ${formatRateValue(data.expected.value)}` : ''}. Vos: tus
         partidas con este mazo.
       </p>
+      {data.expectedMine ? (
+        <p className="text-xs text-muted-foreground">
+          {/* Fase 44: the same matchups weighted by the rivals you actually meet. */}
+          Contra los rivales que te tocan a vos (tus partidas recientes) debería sacar{' '}
+          <span className="font-semibold text-foreground">{formatRateValue(data.expectedMine.value)}</span>
+          {data.expectedMine.ci95 ? ` (IC ${formatInterval(data.expectedMine.ci95)})` : ''}.
+        </p>
+      ) : null}
       <ul className="divide-y rounded-lg border">
         {data.rows.map((row) => (
           <li key={row.rival.id ?? `text-${row.rival.name}`} className="flex flex-col gap-0.5 px-3 py-2 text-sm">

@@ -11,6 +11,7 @@ import {
   decksResponseSchema,
   drawOddsSchema,
   importDecksResponseSchema,
+  type PickMeta,
   type PickSort,
   pickSchema,
   randomDeckSchema,
@@ -242,10 +243,10 @@ export function useManualDrawOdds(input: ManualDrawInput) {
 }
 
 /** Fase 15: built decks with own matches, tournament against today's meta and the latest Laboratorio score. */
-export function usePickToday(sort: PickSort) {
+export function usePickToday(sort: PickSort, meta: PickMeta = 'tournament') {
   return useQuery({
-    queryKey: ['decks', 'today', sort] as const,
-    queryFn: ({ signal }) => request('/api/decks-today', { query: { sort }, schema: pickSchema, signal }),
+    queryKey: ['decks', 'today', sort, meta] as const,
+    queryFn: ({ signal }) => request('/api/decks-today', { query: { sort, meta }, schema: pickSchema, signal }),
     placeholderData: (previous) => previous,
   })
 }
