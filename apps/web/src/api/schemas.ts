@@ -965,6 +965,24 @@ export const DEFAULT_SCOPES_BY_KIND: Record<TokenKind, readonly string[]> = {
 /** The bridge of the session chat (D-021): alone in its token. */
 export const CHAT_RELAY_SCOPE = 'chat:relay'
 
+/** Mirrors CHAT_CHANNELS / CHAT_CHANNEL_LABEL of @tcg/domain. */
+export const CHAT_CHANNELS = ['owner', 'relay', 'connector'] as const
+export type ChatChannel = (typeof CHAT_CHANNELS)[number]
+export const CHAT_CHANNEL_LABEL: Record<ChatChannel, string> = {
+  owner: 'Santi (app o puente)',
+  relay: 'Sesión de la PC (puente)',
+  connector: 'Sesión en la nube (conector)',
+}
+
+/** D-021: who takes part in the session chat, each with the channel it writes from. */
+export const chatParticipantSchema = z.object({
+  name: z.string(),
+  channel: z.enum(CHAT_CHANNELS),
+  createdAt: isoDate,
+})
+export type ChatParticipant = z.infer<typeof chatParticipantSchema>
+export const chatParticipantsResponseSchema = z.object({ items: z.array(chatParticipantSchema) })
+
 export const apiTokenSchema = z.object({
   id: z.union([z.string(), z.number()]).transform(String),
   name: z.string(),

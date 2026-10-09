@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import {
+  CHAT_DEFAULT_PARTICIPANTS,
   CHAT_EVERYONE,
   chatKey,
-  isReservedChatName,
   MCP_CHAT_TOOLS,
   MCP_READ_TOOLS,
   MCP_WRITE_TOOLS,
@@ -11,19 +11,26 @@ import {
 } from '../../src/mcp/index.js'
 
 describe('chat between sessions (D-021)', () => {
-  it('folds case, accents and separators in the names', () => {
-    expect(chatKey('Nube 2')).toBe('nube2')
-    expect(chatKey('nube-2')).toBe('nube2')
-    expect(chatKey('NUBE·2')).toBe('nube2')
-    expect(chatKey('Selección')).toBe('seleccion')
-    expect(chatKey('TCG · Principal')).toBe('tcgprincipal')
+  it('compares names exactly, only without case: no look-alike letter or variant passes', () => {
+    expect(chatKey(' Santi ')).toBe('santi')
+    expect(chatKey('SANTI')).toBe(chatKey('santi'))
+    for (const variant of ['Sаnti', 'Ｓａｎｔｉ', 'Santi 2', 'Sánti', 'San-ti']) {
+      expect(chatKey(variant)).not.toBe(chatKey('Santi'))
+    }
+    expect(chatKey('Coordınador')).not.toBe(chatKey('Coordinador'))
+    expect(chatKey('Nube 2')).not.toBe(chatKey('Nube-2'))
   })
 
-  it("reserves the PC sessions' names, folded", () => {
-    for (const name of ['Santi', 'coordinador', 'PRINCIPAL', 'Laboratorio', 'in-fra']) {
-      expect(isReservedChatName(name)).toBe(true)
-    }
-    for (const name of ['Nube-2', 'Nube Mejoras', 'Santiago', 'todos']) expect(isReservedChatName(name)).toBe(false)
+  it('starts with the PC sessions, Santi and the two cloud sessions, each with its channel', () => {
+    expect(CHAT_DEFAULT_PARTICIPANTS.map((participant) => `${participant.name}:${participant.channel}`)).toEqual([
+      'Santi:owner',
+      'Coordinador:relay',
+      'Principal:relay',
+      'Laboratorio:relay',
+      'Infra:relay',
+      'Nube-Mejoras:connector',
+      'Nube-2:connector',
+    ])
   })
 
   it('parses recipients: comma lists, duplicates out, «todos» swallows the rest', () => {

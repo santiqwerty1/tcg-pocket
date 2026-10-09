@@ -31,14 +31,29 @@ CREATE TABLE "session_chat_seen" (
 
     CONSTRAINT "session_chat_seen_pkey" PRIMARY KEY ("participant","message_id")
 );
--- Everyone who used the chat (wrote or read, even with nothing to read), by key: a recipient nobody has used is
--- refused unless the sender confirms it.
+-- For the cascade when the retention deletes old messages.
+CREATE INDEX "session_chat_seen_message_id_idx" ON "session_chat_seen"("message_id");
+-- Who takes part (decision of Santi, 09/10/2026): `from`, `to` and `as` must be one of these names exactly (only
+-- the case does not matter: `key` is the name in lower case), and each writes only from its channel: `owner`, Santi
+-- (his session or the bridge); `relay`, a session at the PC (the bridge); `connector`, a cloud session (the MCP).
+CREATE TYPE "session_chat_channel" AS ENUM ('owner', 'relay', 'connector');
+
 CREATE TABLE "session_chat_participants" (
     "key" TEXT NOT NULL,
     "name" TEXT NOT NULL,
-    "last_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "channel" "session_chat_channel" NOT NULL,
+    "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "session_chat_participants_pkey" PRIMARY KEY ("key")
 );
+
+INSERT INTO "session_chat_participants" ("key", "name", "channel") VALUES
+    ('santi', 'Santi', 'owner'),
+    ('coordinador', 'Coordinador', 'relay'),
+    ('principal', 'Principal', 'relay'),
+    ('laboratorio', 'Laboratorio', 'relay'),
+    ('infra', 'Infra', 'relay'),
+    ('nube-mejoras', 'Nube-Mejoras', 'connector'),
+    ('nube-2', 'Nube-2', 'connector');
 
 ALTER TABLE "session_chat_seen" ADD CONSTRAINT "session_chat_seen_message_id_fkey" FOREIGN KEY ("message_id") REFERENCES "session_chat_messages"("id") ON DELETE CASCADE ON UPDATE CASCADE;

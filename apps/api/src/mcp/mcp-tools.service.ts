@@ -345,19 +345,13 @@ ${MCP_CHAT_INSTRUCTIONS}`
       { title: c.chatWrite.title, description: c.chatWrite.description, inputSchema: c.chatWrite.input, annotations },
       (args) =>
         run(c.chatWrite.name, async () => {
-          const { message, unknownRecipients } = await this.chat.write({
+          const { message } = await this.chat.write({
             ...args,
             via: caller.tokenName,
             tokenId: caller.tokenId || null,
+            caller: 'connector',
           })
-          return {
-            sent: true,
-            id: message.id,
-            at: ownerDateTime(message.at),
-            from: message.from,
-            to: message.to,
-            ...(unknownRecipients.length > 0 ? { newRecipients: unknownRecipients } : {}),
-          }
+          return { sent: true, id: message.id, at: ownerDateTime(message.at), from: message.from, to: message.to }
         }),
     )
   }

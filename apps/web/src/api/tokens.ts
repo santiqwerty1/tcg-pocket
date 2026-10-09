@@ -1,9 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from './client'
-import { createdTokenSchema, type TokenKind, tokensResponseSchema } from './schemas'
+import {
+  type ChatChannel,
+  chatParticipantSchema,
+  chatParticipantsResponseSchema,
+  createdTokenSchema,
+  type TokenKind,
+  tokensResponseSchema,
+} from './schemas'
 
 export const tokenKeys = {
   list: ['tokens'] as const,
+  chatParticipants: ['chat-participants'] as const,
 }
 
 export function useTokens() {
@@ -33,5 +41,31 @@ export function useRevokeToken() {
   return useMutation({
     mutationFn: (id: string) => request(`/api/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: tokenKeys.list }),
+  })
+}
+
+/** D-021: who takes part in the session chat (Más → Tokens de API). */
+export function useChatParticipants() {
+  return useQuery({
+    queryKey: tokenKeys.chatParticipants,
+    queryFn: ({ signal }) => request('/api/chat/participants', { schema: chatParticipantsResponseSchema, signal }),
+    select: (data) => data.items,
+  })
+}
+
+export function useSaveChatParticipant() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { name: string; channel: ChatChannel }) =>
+      request('/api/chat/participants', { method: 'PUT', body, schema: chatParticipantSchema }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: tokenKeys.chatParticipants }),
+  })
+}
+
+export function useRemoveChatParticipant() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => request(`/api/chat/participants/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: tokenKeys.chatParticipants }),
   })
 }

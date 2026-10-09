@@ -23,6 +23,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { ChatParticipantsSection } from './ChatParticipantsSection'
 import { ClaudeActivitySection } from './ClaudeActivitySection'
 
 /** What each permission lets the holder do (Fase 7: Claude can write with `mcp:write`). */
@@ -185,6 +186,8 @@ export function TokensPage() {
       </Section>
 
       <ClaudeActivitySection />
+
+      <ChatParticipantsSection />
 
       <Dialog open={created !== null} onOpenChange={(open) => !open && setCreated(null)}>
         <DialogContent showCloseButton={false}>

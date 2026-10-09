@@ -1,24 +1,33 @@
 /**
  * Chat between the Claude sessions that work on the app's code (D-021). The main chat is a file on Santi's PC; this
  * is its bridge to the cloud sessions, which only reach the app through the MCP (`chat_read`, `chat_write`). The
- * coordinator's `chat.mjs` copies messages both ways through `/api/mcp/chat` with a `chat:relay` token: only it can
- * write as the PC's participants (`CHAT_RESERVED`). Not Santi's data.
+ * coordinator's `chat.mjs` copies messages both ways through `/api/mcp/chat` with a `chat:relay` token. Not Santi's
+ * data.
+ *
+ * Who takes part is a list (`session_chat_participants`): `from`, `to` and `as` must be one of its names exactly (only
+ * the case does not matter), and each participant writes only from its channel. No variant of a name passes.
  *
  * What a cloud session has read is a set of message ids, not a watermark. The bridge keeps its own position (`after`
  * an id): inserts are serialized, so ids commit in order and nothing written later gets a smaller id.
  */
 import { EventEmitter } from 'node:events'
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import {
   CHAT_EVERYONE,
   CHAT_MAX_WAIT_SECONDS,
-  CHAT_RESERVED,
+  CHAT_READ_BUDGET,
+  type ChatChannel,
   chatKey,
-  isReservedChatName,
   parseRecipients,
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
-import { Prisma, type SessionChatMessage } from '../generated/prisma/client.js'
+import { Prisma, type SessionChatMessage, type SessionChatParticipant } from '../generated/prisma/client.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 
 export interface ChatMessageView {
@@ -38,32 +47,71 @@ export interface ChatReadView {
   messages: (ChatMessageView & { forYou: boolean })[]
   /** What is still new for the reader in the same scope after this read. */
   unreadLeft: number
-  /** Who wrote in the last week, the most recent first. */
+  /** The names in the list of participants. */
   participants: string[]
 }
 
 export interface ChatFeedView {
-  /** In id order; `ref` is the bridge's own id for the ones it copied from the PC. */
-  messages: (ChatMessageView & { ref: string | null })[]
+  /** In id order; `relayed`: the bridge copied it from the PC (`ref`: its id there). */
+  messages: (ChatMessageView & { relayed: boolean; ref: string | null })[]
   /** There are more after the last one: ask again with its id. */
   more: boolean
 }
 
+export interface ChatParticipantView {
+  name: string
+  channel: ChatChannel
+  createdAt: Date
+}
+
+/** Who is writing: a cloud session through the MCP, or the bridge from the PC. */
+export type ChatCaller = 'connector' | 'relay'
+
 const DEFAULT_LIMIT = 30
-const PARTICIPANTS_DAYS = 7
 /** Development chatter is kept three months (D-021). */
 const RETENTION_DAYS = 90
 const DAY_MS = 24 * 60 * 60 * 1000
 /** `pg_advisory_xact_lock` key that serializes the inserts (any constant no other lock uses). */
 const WRITE_LOCK = 20_261_009
-const RESERVED_TEXT = CHAT_RESERVED.join(', ')
+
+/** The participant channels each caller can write as. */
+const WRITES_AS: Record<ChatCaller, readonly ChatChannel[]> = {
+  connector: ['connector'],
+  relay: ['relay', 'owner'],
+}
+
+const CHANNEL_RULE: Record<ChatChannel, string> = {
+  owner: 'Santi escribe solo desde la app o por el puente de la PC',
+  relay: 'es una sesión de la PC: escribe solo por el puente',
+  connector: 'es una sesión en la nube: escribe solo por el conector MCP',
+}
 
 function addressedTo(row: Pick<SessionChatMessage, 'toKeys'>, key: string): boolean {
   return row.toKeys.includes(key) || row.toKeys.includes(CHAT_EVERYONE)
 }
 
+/**
+ * The messages that fit in one read (`CHAT_READ_BUDGET`, at least one): the first ones, or with `newest` the last
+ * ones (the history).
+ */
+function withinBudget(rows: SessionChatMessage[], newest: boolean): SessionChatMessage[] {
+  const ordered = newest ? [...rows].reverse() : rows
+  const kept: SessionChatMessage[] = []
+  let used = 0
+  for (const row of ordered) {
+    used += row.body.length + row.topic.length
+    if (kept.length > 0 && used > CHAT_READ_BUDGET) break
+    kept.push(row)
+  }
+  return newest ? kept.reverse() : kept
+}
+
 function toView(row: SessionChatMessage): ChatMessageView {
   return { id: row.id, at: row.at, from: row.fromName, to: row.toNames, topic: row.topic, text: row.body, via: row.via }
+}
+
+function participantView(row: SessionChatParticipant): ChatParticipantView {
+  return { name: row.name, channel: row.channel, createdAt: row.createdAt }
 }
 
 /** Messages addressed to `key` or to everyone. */
@@ -85,8 +133,9 @@ export class ChatService {
   }
 
   /**
-   * `relay`: written by the bridge (`chat:relay`), which may use the PC's names and does not check recipients (the PC
-   * chat already did); `ref` makes a retry return the message already copied.
+   * `caller`: a cloud session (`connector`) writes only as a cloud participant; the bridge (`relay`) as Santi or a PC
+   * session. `ref` (the bridge's id for the message, required by its route) makes a retry return the one already
+   * copied.
    */
   async write(input: {
     from: string
@@ -95,62 +144,59 @@ export class ChatService {
     text: string
     via: string
     tokenId: number | null
-    allowNew?: boolean | undefined
-    relay?: boolean
+    caller: ChatCaller
     ref?: string | undefined
-  }): Promise<{ message: ChatMessageView; unknownRecipients: string[]; duplicate: boolean }> {
-    const relay = input.relay ?? false
-    const fromKey = this.participantKey(input.from, relay)
-    const to = parseRecipients(input.to)
-    if (to.length === 0) throw new BadRequestException('Indicá a quién va el mensaje (o «todos»).')
-    if (relay && input.ref) {
-      const copied = await this.prisma.sessionChatMessage.findUnique({ where: { relayRef: input.ref } })
-      if (copied) return { message: toView(copied), unknownRecipients: [], duplicate: true }
-    }
-    const unknownRecipients = await this.unknown(to)
-    if (unknownRecipients.length > 0 && !input.allowNew && !relay) {
-      throw new BadRequestException({
-        code: 'unknown_recipient',
-        message: `Nadie usó todavía el chat como ${unknownRecipients.map((name) => `«${name}»`).join(', ')}: revisá el nombre (o mandalo con allowNew).`,
-        details: { unknownRecipients },
+  }): Promise<{ message: ChatMessageView; duplicate: boolean }> {
+    const list = await this.list()
+    const sender = this.member(list, input.from)
+    if (!WRITES_AS[input.caller].includes(sender.channel)) {
+      throw new ForbiddenException({
+        code: 'wrong_channel',
+        message: `«${sender.name}» ${CHANNEL_RULE[sender.channel]}.`,
       })
     }
+    const named = parseRecipients(input.to)
+    if (named.length === 0) throw new BadRequestException('Indicá a quién va el mensaje (o «todos»).')
+    const to = named[0] === CHAT_EVERYONE ? [CHAT_EVERYONE] : named.map((name) => this.member(list, name).name)
+    if (input.ref) {
+      const copied = await this.prisma.sessionChatMessage.findUnique({ where: { relayRef: input.ref } })
+      if (copied) return { message: toView(copied), duplicate: true }
+    }
     const data: Prisma.SessionChatMessageCreateInput = {
-      fromName: input.from.trim(),
-      fromKey,
+      fromName: sender.name,
+      fromKey: sender.key,
       toNames: to,
       toKeys: to.map(chatKey),
       topic: input.topic.trim(),
       body: input.text.trim(),
       tokenId: input.tokenId,
       via: input.via,
-      relayRef: relay ? (input.ref ?? null) : null,
+      relayRef: input.ref ?? null,
     }
     let row: SessionChatMessage
     try {
       row = await this.prisma.$transaction(async (tx) => {
         // One insert at a time: the id comes after the lock and the commit releases it, so ids commit in order.
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(${WRITE_LOCK}::bigint)`
-        const created = await tx.sessionChatMessage.create({ data })
-        await this.seenParticipant(fromKey, input.from, tx)
-        return created
+        return tx.sessionChatMessage.create({ data })
       })
     } catch (error) {
       // The same `ref` sent twice at once: the second one finds the first.
       if (input.ref && error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         const copied = await this.prisma.sessionChatMessage.findUniqueOrThrow({ where: { relayRef: input.ref } })
-        return { message: toView(copied), unknownRecipients: [], duplicate: true }
+        return { message: toView(copied), duplicate: true }
       }
       throw error
     }
     this.events.emit('message', row)
     await this.cleanUp()
-    return { message: toView(row), unknownRecipients, duplicate: false }
+    return { message: toView(row), duplicate: false }
   }
 
   /**
-   * What is new for `as` (scope «all»: everything the others wrote; «mine»: only what is addressed to it), marked read
-   * only if the client is still there (`signal`). `all`: the history, nothing marked.
+   * What is new for `as`, a cloud participant (scope «all»: everything the others wrote; «mine»: only what is addressed
+   * to it), up to `CHAT_READ_BUDGET` characters, marked read last and only if the client is still there (`signal`).
+   * `all`: the history, nothing marked.
    */
   async read(input: {
     as: string
@@ -160,9 +206,15 @@ export class ChatService {
     limit?: number | undefined
     signal?: AbortSignal | undefined
   }): Promise<ChatReadView> {
-    const key = this.participantKey(input.as, false)
-    // Known from its first read, even with nothing to read: the others can write to it.
-    await this.seenParticipant(key, input.as)
+    const list = await this.list()
+    const reader = this.member(list, input.as)
+    if (reader.channel !== 'connector') {
+      throw new ForbiddenException({
+        code: 'wrong_channel',
+        message: `«${reader.name}» no lee el chat por acá: usá el nombre de esta sesión, nunca el de otra.`,
+      })
+    }
+    const key = reader.key
     const limit = input.limit ?? DEFAULT_LIMIT
     const mine = input.scope === 'mine'
     const inScope: Prisma.SessionChatMessageWhereInput = mine ? { OR: [forKey(key), { fromKey: key }] } : {}
@@ -171,9 +223,12 @@ export class ChatService {
     }
     let messages: SessionChatMessage[]
     if (input.all) {
-      messages = (
-        await this.prisma.sessionChatMessage.findMany({ where: inScope, orderBy: { id: 'desc' }, take: limit })
-      ).reverse()
+      messages = withinBudget(
+        (
+          await this.prisma.sessionChatMessage.findMany({ where: inScope, orderBy: { id: 'desc' }, take: limit })
+        ).reverse(),
+        true,
+      )
     } else {
       const wait = Math.min(input.waitSeconds ?? 0, CHAT_MAX_WAIT_SECONDS)
       // Listening before the first look, so a message written in between is not missed until the timeout.
@@ -185,23 +240,26 @@ export class ChatService {
         messages = await look()
       }
       next?.cancel()
-      // Marked read only if the client is still there to get them: a cut wait leaves them new.
-      if (messages.length > 0 && !input.signal?.aborted) {
-        await this.prisma.sessionChatSeen.createMany({
-          data: messages.map((message) => ({ participant: key, messageId: message.id })),
-          skipDuplicates: true,
-        })
-      }
+      // What does not fit stays new for the next read.
+      messages = withinBudget(messages, false)
     }
-    const [unreadLeft, participants] = await Promise.all([
-      this.prisma.sessionChatMessage.count({ where: unseen }),
-      this.participants(),
-    ])
+    const marking = !input.all && messages.length > 0
+    const unreadLeft = await this.prisma.sessionChatMessage.count({
+      where: marking ? { AND: [unseen, { id: { notIn: messages.map((message) => message.id) } }] } : unseen,
+    })
+    // Marked read last, and only if the client is still there to get them: a cut wait, or a failure before this
+    // point, leaves them new.
+    if (marking && !input.signal?.aborted) {
+      await this.prisma.sessionChatSeen.createMany({
+        data: messages.map((message) => ({ participant: key, messageId: message.id })),
+        skipDuplicates: true,
+      })
+    }
     return {
-      as: input.as.trim(),
+      as: reader.name,
       messages: messages.map((row) => ({ ...toView(row), forYou: addressedTo(row, key) })),
       unreadLeft,
-      participants,
+      participants: list.map((participant) => participant.name),
     }
   }
 
@@ -214,33 +272,71 @@ export class ChatService {
       take: limit + 1,
     })
     return {
-      messages: rows.slice(0, limit).map((row) => ({ ...toView(row), ref: row.relayRef })),
+      messages: rows
+        .slice(0, limit)
+        .map((row) => ({ ...toView(row), relayed: row.relayRef !== null, ref: row.relayRef })),
       more: rows.length > limit,
     }
   }
 
-  /** The PC's names only through the bridge; «todos» is not a participant. */
-  private participantKey(name: string, relay: boolean): string {
-    const key = chatKey(name)
-    if (key === '' || key === CHAT_EVERYONE) {
-      throw new BadRequestException(`«${name}» no sirve como nombre de una sesión del chat.`)
-    }
-    if (!relay && isReservedChatName(name)) {
-      throw new ForbiddenException(
-        `«${name.trim()}» es una sesión de la PC (${RESERVED_TEXT}): sus mensajes llegan por el puente. Usá el nombre de esta sesión («Nube-2», «Nube-Mejoras»…).`,
-      )
-    }
-    return key
+  async participants(): Promise<ChatParticipantView[]> {
+    return (await this.list()).map(participantView)
   }
 
-  /** Known from now on (its name as last written). */
-  private async seenParticipant(key: string, name: string, db: Prisma.TransactionClient = this.prisma): Promise<void> {
-    const now = new Date()
-    await db.sessionChatParticipant.upsert({
+  /**
+   * Santi's list (Más → Tokens de API): adds a participant or changes its channel (or how its name is written).
+   * The bridge adds new ones only: a PC or cloud session, never one already in the list.
+   */
+  async saveParticipant(
+    input: { name: string; channel: ChatChannel },
+    by: 'owner' | 'relay',
+  ): Promise<{ participant: ChatParticipantView; created: boolean }> {
+    const name = input.name.trim()
+    const key = chatKey(name)
+    if (key === CHAT_EVERYONE) throw new BadRequestException(`«${CHAT_EVERYONE}» no es una sesión: llega a todas.`)
+    const current = await this.prisma.sessionChatParticipant.findUnique({ where: { key } })
+    if (by === 'relay') {
+      if (input.channel === 'owner') {
+        throw new ForbiddenException({ code: 'wrong_channel', message: 'El puente no puede sumar a Santi.' })
+      }
+      if (current) {
+        if (current.channel === input.channel) return { participant: participantView(current), created: false }
+        throw new ConflictException({
+          code: 'participant_exists',
+          message: `«${current.name}» ya está en la lista con otro canal: lo cambia Santi en la app.`,
+        })
+      }
+    }
+    const row = await this.prisma.sessionChatParticipant.upsert({
       where: { key },
-      create: { key, name: name.trim(), lastAt: now },
-      update: { name: name.trim(), lastAt: now },
+      create: { key, name, channel: input.channel },
+      update: { name, channel: input.channel },
     })
+    return { participant: participantView(row), created: !current }
+  }
+
+  /** Santi takes a participant out; its messages stay. */
+  async removeParticipant(name: string): Promise<void> {
+    const removed = await this.prisma.sessionChatParticipant.deleteMany({ where: { key: chatKey(name) } })
+    if (removed.count === 0) throw new NotFoundException(`«${name}» no está en la lista de participantes.`)
+  }
+
+  private list(): Promise<SessionChatParticipant[]> {
+    return this.prisma.sessionChatParticipant.findMany({ orderBy: [{ channel: 'asc' }, { name: 'asc' }] })
+  }
+
+  /** The list's entry for a name: exactly that name, only the case does not matter. */
+  private member(list: readonly SessionChatParticipant[], name: string): SessionChatParticipant {
+    const key = chatKey(name)
+    const found = list.find((participant) => participant.key === key)
+    if (!found) {
+      throw new BadRequestException({
+        code: 'unknown_participant',
+        message: `«${name.trim()}» no está en la lista de participantes del chat (${list.map((participant) => participant.name).join(', ')}). Una sesión nueva la suma Santi en Más → Tokens de API.`,
+        details: { participants: list.map((participant) => participant.name) },
+      })
+    }
+    return found
   }
 
   /**
@@ -251,36 +347,9 @@ export class ChatService {
     try {
       const before = new Date(Date.now() - RETENTION_DAYS * DAY_MS)
       await this.prisma.sessionChatMessage.deleteMany({ where: { at: { lt: before } } })
-      await this.prisma.sessionChatParticipant.deleteMany({ where: { lastAt: { lt: before } } })
     } catch (error) {
       this.logger.warn({ err: error }, 'chat clean-up failed')
     }
-  }
-
-  /** Recipients nobody has used: neither written nor read (the PC's names always exist). */
-  private async unknown(to: readonly string[]): Promise<string[]> {
-    const keys = to.map(chatKey).filter((key) => key !== CHAT_EVERYONE && !isReservedChatName(key))
-    if (keys.length === 0) return []
-    const rows = await this.prisma.sessionChatParticipant.findMany({
-      where: { key: { in: keys } },
-      select: { key: true },
-    })
-    const known = new Set(rows.map((row) => row.key))
-    return to.filter((name) => {
-      const key = chatKey(name)
-      return keys.includes(key) && !known.has(key)
-    })
-  }
-
-  /** Everyone who wrote in the last week, the most recent first. */
-  private async participants(): Promise<string[]> {
-    const since = new Date(Date.now() - PARTICIPANTS_DAYS * DAY_MS)
-    const rows = await this.prisma.$queryRaw<{ from_name: string; id: number }[]>`
-      SELECT DISTINCT ON (from_key) from_name, id
-      FROM session_chat_messages
-      WHERE at >= ${since}
-      ORDER BY from_key, id DESC`
-    return rows.sort((a, b) => b.id - a.id).map((row) => row.from_name)
   }
 
   /**

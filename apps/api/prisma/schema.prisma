@@ -571,14 +571,26 @@ model SessionChatSeen {
   at          DateTime           @default(now()) @db.Timestamptz(3)
 
   @@id([participant, messageId])
+  @@index([messageId])
   @@map("session_chat_seen")
 }
 
-/// D-021: everyone who used the chat (wrote, or read even with nothing to read), by `chatKey`.
+/// D-021: where a chat participant writes from (Santi: his session or the bridge; the PC: the bridge; the cloud: the MCP).
+enum SessionChatChannel {
+  owner
+  relay
+  connector
+
+  @@map("session_chat_channel")
+}
+
+/// D-021: who takes part in the session chat. `from`, `to` and `as` must be one of these names exactly; only the case
+/// does not matter (`key` is the name in lower case).
 model SessionChatParticipant {
-  key    String   @id
-  name   String
-  lastAt DateTime @default(now()) @map("last_at") @db.Timestamptz(3)
+  key       String             @id
+  name      String
+  channel   SessionChatChannel
+  createdAt DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@map("session_chat_participants")
 }

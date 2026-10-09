@@ -1,12 +1,14 @@
 import type { AddressInfo } from 'node:net'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { CHAT_DEFAULT_PARTICIPANTS } from '@tcg/domain'
 import { ChatService } from '../src/chat/chat.service.js'
+import { PrismaService } from '../src/prisma/prisma.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /**
  * D-021: the chat between the Claude sessions that work on the app. The cloud sessions use the MCP tools (tokens with
- * `mcp:write`); the bridge to the chat file on Santi's PC uses `/api/mcp/chat` with a `chat:relay` token, the only one
- * that writes as the PC's sessions.
+ * `mcp:write`); the bridge to the chat file on Santi's PC uses `/api/mcp/chat` with a `chat:relay` token. Who takes
+ * part is a list, each name with its channel: anything that is not exactly one of its names is refused.
  */
 type Structured = Record<string, unknown>
 interface Message {
@@ -17,6 +19,7 @@ interface Message {
   text: string
   via: string
   forYou?: boolean
+  relayed?: boolean
   ref?: string | null
 }
 
@@ -39,6 +42,17 @@ describe('chat between sessions (e2e)', () => {
     writeToken = (await post('/api/tokens').send({ name: 'nube', kind: 'mcp', scopes: ['mcp:read', 'mcp:write'] })).body
       .token
     relayToken = (await post('/api/tokens').send({ name: 'puente', kind: 'mcp', scopes: ['chat:relay'] })).body.token
+    // The tests truncate every table: the list the migration starts with, plus two cloud sessions of the tests,
+    // added like Santi does in the app.
+    const list = [
+      ...CHAT_DEFAULT_PARTICIPANTS,
+      { name: 'Pruebas', channel: 'connector' },
+      { name: 'Nube-Lab', channel: 'connector' },
+    ]
+    for (const participant of list) {
+      const added = await test.http().put('/api/chat/participants').set('Cookie', cookie).send(participant)
+      expect(added.status).toBe(200)
+    }
     await test.app.listen(0, '127.0.0.1')
     const { port } = test.app.getHttpServer().address() as AddressInfo
     base = `http://127.0.0.1:${port}`
@@ -78,10 +92,10 @@ describe('chat between sessions (e2e)', () => {
     return result.content[0]?.text ?? ''
   }
 
-  const relay = (path: string, init: RequestInit = {}) =>
+  const relay = (path: string, init: RequestInit = {}, headers: Record<string, string> = {}) =>
     fetch(`${base}/api/mcp/chat${path}`, {
       ...init,
-      headers: { Authorization: `Bearer ${relayToken}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${relayToken}`, 'Content-Type': 'application/json', ...headers },
     })
 
   async function feed(after = 0, limit?: number): Promise<{ messages: Message[]; more: boolean }> {
@@ -125,32 +139,33 @@ describe('chat between sessions (e2e)', () => {
     expect(mixed.body.error.message).toContain('chat:relay va solo')
   })
 
-  it('a cloud session reads what is new once, with forYou on what is addressed to it; names fold', async () => {
+  it('a cloud session reads what is new once, with forYou on what is addressed to it', async () => {
     const nube = await connect()
     const sent = await call(nube, 'chat_write', {
-      from: 'Nube 2',
-      to: 'Coordinador',
+      from: 'nube-2',
+      to: 'coordinador',
       topic: 'Fase 43',
       text: 'Lista para integrar.',
     })
-    expect(sent).toMatchObject({ sent: true, from: 'Nube 2', to: ['Coordinador'] })
+    // Stored with the list's spelling.
+    expect(sent).toMatchObject({ sent: true, from: 'Nube-2', to: ['Coordinador'] })
 
     // Another cloud session sees it too (the whole chat), not addressed to it.
     const other = await call(nube, 'chat_read', { as: 'Nube-Mejoras' })
     expect(other.messages).toEqual([
-      expect.objectContaining({ from: 'Nube 2', to: ['Coordinador'], topic: 'Fase 43', via: 'nube', forYou: false }),
+      expect.objectContaining({ from: 'Nube-2', to: ['Coordinador'], topic: 'Fase 43', via: 'nube', forYou: false }),
     ])
-    expect(other.participants).toContain('Nube 2')
-    expect((await call(nube, 'chat_read', { as: 'nube mejoras' })).messages).toEqual([])
+    expect(other.participants).toEqual(expect.arrayContaining(['Santi', 'Coordinador', 'Nube-2', 'Pruebas']))
+    expect((await call(nube, 'chat_read', { as: 'NUBE-MEJORAS' })).messages).toEqual([])
     // The sender does not get its own message.
-    expect((await call(nube, 'chat_read', { as: 'nube-2' })).messages).toEqual([])
+    expect((await call(nube, 'chat_read', { as: 'Nube-2' })).messages).toEqual([])
 
     await call(nube, 'chat_write', { from: 'Nube-Mejoras', to: 'Principal, todos', topic: 'Deploy', text: 'A las 16.' })
-    const forNube = (await call(nube, 'chat_read', { as: 'Nube2' })).messages as Message[]
+    const forNube = (await call(nube, 'chat_read', { as: 'Nube-2' })).messages as Message[]
     expect(forNube.map((m) => [m.topic, m.forYou])).toEqual([['Deploy', true]])
     // «mine»: only what is addressed to it (or to everyone).
-    await call(nube, 'chat_write', { from: 'Nube 2', to: 'Coordinador', topic: 'Otra cosa', text: 'x' })
-    await call(nube, 'chat_write', { from: 'Nube 2', to: 'Nube-Mejoras', topic: 'Para vos', text: 'y' })
+    await call(nube, 'chat_write', { from: 'Nube-2', to: 'Coordinador', topic: 'Otra cosa', text: 'x' })
+    await call(nube, 'chat_write', { from: 'Nube-2', to: 'Nube-Mejoras', topic: 'Para vos', text: 'y' })
     const mine = await call(nube, 'chat_read', { as: 'Nube-Mejoras', scope: 'mine' })
     expect((mine.messages as Message[]).map((m) => m.topic)).toEqual(['Para vos'])
     expect(((await call(nube, 'chat_read', { as: 'Nube-Mejoras' })).messages as Message[]).map((m) => m.topic)).toEqual(
@@ -158,59 +173,55 @@ describe('chat between sessions (e2e)', () => {
     )
   })
 
-  it('a cloud session cannot write or read as the PC sessions; recipients are checked', async () => {
+  it('only the names of the list, exactly; a cloud session writes and reads only as a cloud session', async () => {
     const nube = await connect()
-    for (const from of ['Santi', 'coordinador', 'PRINCIPAL', 'Laboratorio', 'infra']) {
-      expect(await refused(nube, 'chat_write', { from, to: 'Nube 2', topic: 'x', text: 'x' })).toContain(
-        'sesión de la PC',
+    // Look-alikes and variants of a name are not that name.
+    for (const from of ['Sаnti', 'Ｓａｎｔｉ', 'Santi 2', 'Nube 2', 'Nube2']) {
+      expect(await refused(nube, 'chat_write', { from, to: 'Nube-2', topic: 'x', text: 'x' })).toContain(
+        'no está en la lista de participantes',
       )
     }
-    expect(await refused(nube, 'chat_read', { as: 'Coordinador' })).toContain('sesión de la PC')
-    // Writing to them is fine, and so is to someone who already used the chat.
-    await call(nube, 'chat_write', { from: 'Nube 2', to: 'Santi, Infra', topic: 'Hola', text: 'x' })
-    expect(await refused(nube, 'chat_write', { from: 'Nube 2', to: 'Nube-Mejora', topic: 'x', text: 'x' })).toContain(
-      '«Nube-Mejora»',
+    expect(await refused(nube, 'chat_write', { from: 'Nube-2', to: 'Coordınador', topic: 'x', text: 'x' })).toContain(
+      'no está en la lista',
     )
-    const allowed = await call(nube, 'chat_write', {
-      from: 'Nube 2',
-      to: 'Nube-3',
-      topic: 'Bienvenida',
-      text: 'x',
-      allowNew: true,
-    })
-    expect(allowed.newRecipients).toEqual(['Nube-3'])
-    // A session that only read (even with nothing to read) is known too.
-    await call(nube, 'chat_read', { as: 'Nube-Silenciosa', scope: 'mine' })
-    const toReader = await call(nube, 'chat_write', { from: 'Nube 2', to: 'nube silenciosa', topic: 'Hola', text: 'x' })
-    expect(toReader.newRecipients).toBeUndefined()
-    await refused(nube, 'chat_write', { from: 'Nube2', to: 'Principal, Nube<2>', topic: 'x', text: 'x' })
-    await refused(nube, 'chat_write', { from: 'Nube2', to: 'Principal', topic: 'dos\nlíneas', text: 'x' })
+    // In the list, but not a cloud session.
+    for (const from of ['Santi', 'coordinador', 'Infra']) {
+      expect(await refused(nube, 'chat_write', { from, to: 'Nube-2', topic: 'x', text: 'x' })).toMatch(
+        /escribe solo (por el puente|desde la app)/,
+      )
+    }
+    expect(await refused(nube, 'chat_read', { as: 'Coordinador' })).toContain('nunca el de otra')
+    // Writing to them is fine.
+    await call(nube, 'chat_write', { from: 'Nube-2', to: 'Santi, Infra', topic: 'Hola', text: 'x' })
+    await refused(nube, 'chat_write', { from: 'Nube-2', to: 'Principal, Nube<2>', topic: 'x', text: 'x' })
+    await refused(nube, 'chat_write', { from: 'Nube-2', to: 'Principal', topic: 'dos\nlíneas', text: 'x' })
   })
 
-  it('«all» marks nothing read; a cut read leaves the messages new', async () => {
+  it('a read stops at its budget and marks only what it returned; «all» and a cut read mark nothing', async () => {
     const nube = await connect()
     await call(nube, 'chat_read', { as: 'Pruebas' })
-    for (const topic of ['uno', 'dos', 'tres']) {
-      await call(nube, 'chat_write', { from: 'Nube 2', to: 'Pruebas', topic, text: topic, allowNew: true })
+    const long = 'x'.repeat(10_000)
+    for (const topic of ['uno', 'dos', 'tres', 'cuatro']) {
+      await call(nube, 'chat_write', { from: 'Nube-2', to: 'Pruebas', topic, text: long })
     }
     const newest = await call(nube, 'chat_read', { as: 'Pruebas', all: true, limit: 1 })
-    expect((newest.messages as Message[]).map((m) => m.topic)).toEqual(['tres'])
-    expect(newest.unreadLeft).toBe(3)
+    expect((newest.messages as Message[]).map((m) => m.topic)).toEqual(['cuatro'])
+    expect(newest.unreadLeft).toBe(4)
 
     // The client went away: what the read found stays new.
     const chat = test.app.get(ChatService)
     const gone = new AbortController()
     gone.abort()
     const cut = await chat.read({ as: 'Pruebas', signal: gone.signal })
-    expect(cut.messages.map((m) => m.topic)).toEqual(['uno', 'dos', 'tres'])
-    expect(cut.unreadLeft).toBe(3)
+    expect(cut.messages.map((m) => m.topic)).toEqual(['uno', 'dos'])
 
-    const rest = await call(nube, 'chat_read', { as: 'Pruebas', limit: 2 })
-    expect((rest.messages as Message[]).map((m) => m.topic)).toEqual(['uno', 'dos'])
-    expect(rest.unreadLeft).toBe(1)
-    expect(((await call(nube, 'chat_read', { as: 'Pruebas' })).messages as Message[]).map((m) => m.topic)).toEqual([
-      'tres',
-    ])
+    // About 30.000 characters per read: two messages of 10.000 and their topics; the rest stays new.
+    const first = await call(nube, 'chat_read', { as: 'Pruebas' })
+    expect((first.messages as Message[]).map((m) => m.topic)).toEqual(['uno', 'dos'])
+    expect(first.unreadLeft).toBe(2)
+    const second = await call(nube, 'chat_read', { as: 'Pruebas' })
+    expect((second.messages as Message[]).map((m) => m.topic)).toEqual(['tres', 'cuatro'])
+    expect(second.unreadLeft).toBe(0)
   })
 
   it('a reader that waits wakes up when something is written', async () => {
@@ -220,15 +231,9 @@ describe('chat between sessions (e2e)', () => {
     const waiting = call(nube, 'chat_read', { as: 'Nube-Lab', waitSeconds: 20, scope: 'mine' })
     await new Promise((resolve) => setTimeout(resolve, 300))
     // Not addressed to it: a «mine» reader keeps waiting.
-    await call(nube, 'chat_write', { from: 'Nube 2', to: 'Santi', topic: 'Aparte', text: 'z' })
+    await call(nube, 'chat_write', { from: 'Nube-2', to: 'Santi', topic: 'Aparte', text: 'z' })
     await new Promise((resolve) => setTimeout(resolve, 300))
-    await call(nube, 'chat_write', {
-      from: 'Nube 2',
-      to: ['Nube-Lab'],
-      topic: 'perGame',
-      text: 'Ya está.',
-      allowNew: true,
-    })
+    await call(nube, 'chat_write', { from: 'Nube-2', to: ['Nube-Lab'], topic: 'perGame', text: 'Ya está.' })
     const view = await waiting
     expect((view.messages as Message[]).map((m) => m.text)).toEqual(['Ya está.'])
     expect(Date.now() - started).toBeLessThan(10_000)
@@ -238,50 +243,86 @@ describe('chat between sessions (e2e)', () => {
   it('the bridge copies both ways: writes as the PC, reads after its own position, a retry does not duplicate', async () => {
     const start = await feed()
     const last = start.messages.at(-1)?.id ?? 0
-    // Everything so far, in id order, with how it arrived.
     expect(start.messages.map((m) => m.id)).toEqual([...start.messages.map((m) => m.id)].sort((a, b) => a - b))
-    expect(start.messages[0]).toMatchObject({ from: 'Nube 2', via: 'nube', ref: null })
+    expect(start.messages[0]).toMatchObject({ from: 'Nube-2', via: 'nube', relayed: false, ref: null })
 
-    const posted = await relay('', {
-      method: 'POST',
-      body: JSON.stringify({
-        from: 'Santi',
-        to: 'Nube 2, Nube-Nueva',
-        topic: 'Prioridad',
-        text: 'Primero la 40.',
-        ref: 'pc-17',
-      }),
+    const post = (body: Record<string, unknown>) => relay('', { method: 'POST', body: JSON.stringify(body) })
+    const posted = await post({
+      from: 'santi',
+      to: 'Nube-2, Nube-Mejoras',
+      topic: 'Prioridad',
+      text: 'La 40.',
+      ref: 'pc-17',
     })
     expect(posted.status).toBe(201)
     const message = (await posted.json()) as Message & { duplicate: boolean }
-    expect(message).toMatchObject({ from: 'Santi', to: ['Nube 2', 'Nube-Nueva'], via: 'puente', duplicate: false })
-    const again = await relay('', {
-      method: 'POST',
-      body: JSON.stringify({ from: 'Santi', to: 'Nube 2', topic: 'Prioridad', text: 'Primero la 40.', ref: 'pc-17' }),
-    })
-    expect(((await again.json()) as { id: number; duplicate: boolean }).duplicate).toBe(true)
+    expect(message).toMatchObject({ from: 'Santi', to: ['Nube-2', 'Nube-Mejoras'], via: 'puente', duplicate: false })
+    const again = await post({ from: 'Santi', to: 'Nube-2', topic: 'Prioridad', text: 'La 40.', ref: 'pc-17' })
+    expect(((await again.json()) as { duplicate: boolean }).duplicate).toBe(true)
+    // The bridge always says which PC message it is copying, and writes only as Santi or a PC session.
+    expect((await post({ from: 'Coordinador', to: 'Nube-2', topic: 'x', text: 'x' })).status).toBe(400)
+    expect((await post({ from: 'Nube-2', to: 'Santi', topic: 'x', text: 'x', ref: 'pc-18' })).status).toBe(403)
+    expect((await post({ from: 'Sаnti', to: 'Nube-2', topic: 'x', text: 'x', ref: 'pc-19' })).status).toBe(400)
+    expect((await post({ from: 'Coordinador', to: 'Nube-9', topic: 'x', text: 'x', ref: 'pc-20' })).status).toBe(400)
 
     // The cloud session reads it like any other message, with where it came from.
     const nube = await connect()
-    const read = (await call(nube, 'chat_read', { as: 'Nube 2', scope: 'mine' })).messages as Message[]
-    expect(read.at(-1)).toMatchObject({ from: 'Santi', via: 'puente', forYou: true, text: 'Primero la 40.' })
+    const read = (await call(nube, 'chat_read', { as: 'Nube-2', scope: 'mine' })).messages as Message[]
+    expect(read.at(-1)).toMatchObject({ from: 'Santi', via: 'puente', forYou: true, text: 'La 40.' })
 
     // The bridge's reads touch nobody's: what is after its position, and nothing more.
     const after = await feed(last)
-    expect(after.messages).toEqual([expect.objectContaining({ id: message.id, from: 'Santi', ref: 'pc-17' })])
+    expect(after.messages).toEqual([
+      expect.objectContaining({ id: message.id, from: 'Santi', relayed: true, ref: 'pc-17' }),
+    ])
     expect(after.more).toBe(false)
     expect((await feed(message.id)).messages).toEqual([])
     const page = await feed(0, 2)
     expect(page.messages).toHaveLength(2)
     expect(page.more).toBe(true)
 
-    expect(
-      (
-        await relay('', {
-          method: 'POST',
-          body: JSON.stringify({ from: 'todos', to: 'Nube 2', topic: 'x', text: 'x' }),
-        })
-      ).status,
-    ).toBe(400)
+    // Another client using the bridge's token is recorded (and shows up in Avisos).
+    expect((await relay('?after=0&limit=1', {}, { 'User-Agent': 'curl/8.5' })).status).toBe(200)
+    const prisma = test.app.get(PrismaService)
+    const clientsSeen = await prisma.apiTokenClient.findMany({ select: { client: true } })
+    expect(clientsSeen.map((row) => row.client)).toContain('curl')
+  })
+
+  it('Santi edits the list; the bridge only adds new PC or cloud sessions', async () => {
+    const nube = await connect()
+    const addByBridge = (body: Record<string, unknown>) =>
+      relay('/participants', { method: 'POST', body: JSON.stringify(body) })
+    // The bridge adds a cloud session: from then on it can use the chat.
+    expect((await addByBridge({ name: 'Nube-3', channel: 'connector' })).status).toBe(201)
+    expect((await addByBridge({ name: 'nube-3', channel: 'connector' })).status).toBe(200)
+    await call(nube, 'chat_write', { from: 'Nube-3', to: 'Coordinador', topic: 'Hola', text: 'Recién llego.' })
+    // It cannot add Santi nor change a channel.
+    expect((await addByBridge({ name: 'Otro', channel: 'owner' })).status).toBe(403)
+    expect((await addByBridge({ name: 'Santi', channel: 'connector' })).status).toBe(409)
+    const listed = (await (await relay('/participants')).json()) as { items: { name: string; channel: string }[] }
+    expect(listed.items).toContainEqual(expect.objectContaining({ name: 'Nube-3', channel: 'connector' }))
+
+    // Santi changes and removes (with his session).
+    const changed = await test
+      .http()
+      .put('/api/chat/participants')
+      .set('Cookie', cookie)
+      .send({ name: 'Nube-3', channel: 'relay' })
+    expect(changed.body).toMatchObject({ name: 'Nube-3', channel: 'relay' })
+    expect(await refused(nube, 'chat_write', { from: 'Nube-3', to: 'Santi', topic: 'x', text: 'x' })).toContain(
+      'puente',
+    )
+    expect((await test.http().delete('/api/chat/participants/nube-3').set('Cookie', cookie)).status).toBe(204)
+    expect(await refused(nube, 'chat_write', { from: 'Nube-3', to: 'Santi', topic: 'x', text: 'x' })).toContain(
+      'no está en la lista',
+    )
+    expect((await test.http().delete('/api/chat/participants/nube-3').set('Cookie', cookie)).status).toBe(404)
+    expect((await test.http().get('/api/chat/participants')).status).toBe(401)
+    const everyone = await test
+      .http()
+      .put('/api/chat/participants')
+      .set('Cookie', cookie)
+      .send({ name: 'todos', channel: 'relay' })
+    expect(everyone.status).toBe(400)
   })
 })
