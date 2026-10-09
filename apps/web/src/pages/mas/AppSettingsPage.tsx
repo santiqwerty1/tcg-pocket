@@ -10,6 +10,15 @@ export function AppSettingsPage() {
   const ui = useUiSettings()
   const setUi = useSetUiSettings()
 
+  async function toggleBoardImages(checked: boolean) {
+    try {
+      await setUi.update({ boardImages: checked })
+      toast.success(checked ? 'Mesa con imágenes' : 'Mesa solo con texto')
+    } catch (error) {
+      toast.error(errorMessage(error))
+    }
+  }
+
   async function toggleThumbnails(checked: boolean) {
     try {
       await setUi.update({ thumbnails: checked })
@@ -31,6 +40,16 @@ export function AppSettingsPage() {
             </span>
           </span>
           <Switch checked={ui.thumbnails} onCheckedChange={toggleThumbnails} disabled={setUi.isPending} />
+        </Label>
+        <Label className="flex min-h-14 items-center justify-between gap-3 rounded-lg border px-3">
+          <span>
+            <span className="block font-medium">Imágenes en la mesa</span>
+            <span className="block text-xs text-muted-foreground">
+              Las cartas de las partidas contra el bot y de las repeticiones, con su imagen (en español cuando el
+              tracker la tiene). Las que ya viste quedan guardadas en el celu.
+            </span>
+          </span>
+          <Switch checked={ui.boardImages} onCheckedChange={toggleBoardImages} disabled={setUi.isPending} />
         </Label>
         <p className="text-xs text-muted-foreground">
           El tema (claro u oscuro) sigue al sistema. Esta preferencia se guarda en el servidor (clave <code>ui</code>).

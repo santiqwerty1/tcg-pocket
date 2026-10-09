@@ -1,7 +1,9 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { z } from 'zod'
 import { request } from './client'
 import {
   type CatalogStatus,
+  cardEditionSchema,
   cardResponseSchema,
   cardSearchResponseSchema,
   catalogStatusSchema,
@@ -77,6 +79,21 @@ export function useCard(cardId: string | undefined) {
     queryFn: ({ signal }) =>
       request(`/api/cards/${encodeURIComponent(cardId ?? '')}`, { schema: cardResponseSchema, signal }),
     enabled: Boolean(cardId),
+  })
+}
+
+const batchSchema = z.object({ items: z.array(cardEditionSchema) })
+
+/** Fase 22: the editions of a game or a replay, once (they never change while the catalog is the same). */
+export function useCardsBatch(cardIds: readonly string[]) {
+  const ids = [...new Set(cardIds)].sort()
+  return useQuery({
+    queryKey: ['cards-batch', ids.join(',')] as const,
+    queryFn: ({ signal }) =>
+      request(`/api/cards/batch?ids=${encodeURIComponent(ids.join(','))}`, { schema: batchSchema, signal }),
+    enabled: ids.length > 0,
+    staleTime: Number.POSITIVE_INFINITY,
+    select: (data) => new Map(data.items.map((card) => [card.id, card])),
   })
 }
 

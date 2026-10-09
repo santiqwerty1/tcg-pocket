@@ -53,8 +53,21 @@ export default defineConfig(({ mode }) => ({
             cleanupOutdatedCaches: true,
             clientsClaim: true,
             skipWaiting: true,
-            // No runtime caching: API responses always hit the network (the session cookie decides).
-            runtimeCaching: [],
+            // API responses always hit the network (the session cookie decides). Card images (Fase 22): the
+            // tracker's raw GitHub files, fetched with CORS, kept after the first view so the board loads fast and
+            // works with a bad signal.
+            runtimeCaching: [
+              {
+                urlPattern:
+                  /^https:\/\/raw\.githubusercontent\.com\/marcelpanse\/tcg-pocket-collection-tracker\/.*\.webp$/,
+                handler: 'CacheFirst',
+                options: {
+                  cacheName: 'card-images',
+                  expiration: { maxEntries: 800, maxAgeSeconds: 180 * 24 * 60 * 60 },
+                  cacheableResponse: { statuses: [200] },
+                },
+              },
+            ],
           },
           devOptions: { enabled: false },
         }),

@@ -4,7 +4,8 @@ import { ENV, type Env } from '../config/env.js'
 
 /**
  * Baseline CSP for the Vite SPA: own scripts/styles only (Tailwind emits inline styles, hence 'unsafe-inline' for
- * style-src), card images from the tracker's raw GitHub URLs (invariant I11: links, never copies), no framing.
+ * style-src), card images from the tracker's raw GitHub URLs (invariant I11: links, never copies; the service worker
+ * fetches them too, to keep the ones already seen — Fase 22 — hence connect-src), no framing.
  * The login page overrides script-src with a per-response nonce for its inline script. deckgym's replay viewer
  * (`/viewer/`, D-014) compiles PixiJS shaders with `new Function`: its pages alone get 'unsafe-eval'.
  */
@@ -20,7 +21,7 @@ export function contentSecurityPolicy(scriptNonce?: string, options: { allowEval
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https://raw.githubusercontent.com",
     "font-src 'self' data:",
-    "connect-src 'self'",
+    "connect-src 'self' https://raw.githubusercontent.com",
     "manifest-src 'self'",
     "worker-src 'self'",
     "frame-ancestors 'none'",

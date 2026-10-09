@@ -9,6 +9,7 @@ import { MissionsPage } from '@/pages/coleccion/MissionsPage'
 import { EventPage } from '@/pages/eventos/EventPage'
 import { EventsPage } from '@/pages/eventos/EventsPage'
 import { GamePage } from '@/pages/jugar/GamePage'
+import { GameReplayPage } from '@/pages/jugar/GameReplayPage'
 import { JugarPage } from '@/pages/jugar/JugarPage'
 import { LabJobPage } from '@/pages/laboratorio/LabJobPage'
 import { LaboratorioPage } from '@/pages/laboratorio/LaboratorioPage'
@@ -86,6 +87,7 @@ export const routes: RouteObject[] = [
       { path: 'laboratorio', element: <LaboratorioPage />, handle: handle('Laboratorio de mazos', '/mas') },
       { path: 'jugar', element: <JugarPage />, handle: handle('Jugar contra un bot', '/mas') },
       { path: 'jugar/:id', element: <GamePage />, handle: handle('Partida', '/jugar') },
+      { path: 'jugar/:id/repeticion', element: <GameReplayPage />, handle: handle('Repetición', '/jugar') },
       { path: 'laboratorio/:id', element: <LabJobPage />, handle: handle('Laboratorio', '/laboratorio') },
 
       { path: 'coleccion', element: <CollectionPage />, handle: handle('Colección') },

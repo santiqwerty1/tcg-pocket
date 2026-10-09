@@ -944,7 +944,11 @@ export const createdTokenSchema = z.object({
 
 export const settingsSchema = z.record(z.string(), z.unknown())
 export const settingValueSchema = z.object({ key: z.string(), value: z.unknown() })
-export const uiSettingsSchema = z.object({ thumbnails: z.boolean().default(false) })
+export const uiSettingsSchema = z.object({
+  thumbnails: z.boolean().default(false),
+  /** Fase 22: card images on the board (games against the bot and replays); off = text tiles. */
+  boardImages: z.boolean().default(true),
+})
 export type UiSettings = z.infer<typeof uiSettingsSchema>
 
 export const backupDryRunSchema = z.object({
@@ -1695,6 +1699,7 @@ export interface SimulationInput {
 export const replayResponseSchema = z.object({
   replay: z.unknown(),
   names: z.record(z.string(), z.string()),
+  cardIds: z.record(z.string(), z.string()).default({}),
   game: z.object({
     jobId: z.number(),
     jobLabel: z.string(),
@@ -1820,6 +1825,15 @@ export const liveGameSchema = z.object({
   coach: z.boolean().default(false),
   coachReviews: z.array(coachReviewSchema).default([]),
   coachSummary: coachSummarySchema.nullable().default(null),
+  /** Fase 22: engine id → catalog card id, both lists and the undos. */
+  cardIds: z.record(z.string(), z.string()).default({}),
+  decks: z
+    .object({
+      human: z.array(z.object({ engineId: z.string(), count: z.number() })),
+      rival: z.array(z.object({ engineId: z.string(), count: z.number() })),
+    })
+    .default({ human: [], rival: [] }),
+  undos: z.number().default(0),
   winner: z.enum(['you', 'bot', 'tie']).nullable(),
   turns: z.number().nullable(),
   finalState: z.record(z.string(), z.unknown()).nullable(),

@@ -48,6 +48,7 @@ Contrato entre `apps/api` (NestJS) y `apps/web` (PWA). Identificadores en inglé
 | `POST /api/catalog/sync` | `{ commit?, engineRev?, fromFixtures? }` → `202 { syncId }`; corre en segundo plano; estado en `status`; `409` si ya hay uno corriendo |
 | `GET /api/expansions` | `{ items: Expansion[] }` con `packs: Pack[]` (sin `cardIds`) |
 | `GET /api/cards?q=&lang=es|en|any&limit=20` | `{ items: CardSearchHit[] }` donde `CardSearchHit = { card: CardSummary, group: GroupSummary, score, matchedOn }`; con `?expansion=A1` y sin `q`: `{ items: CardSummary[], total }` |
+| `GET /api/cards/batch?ids=A1-1,B1-36` | Fase 22: `{ items: CardEdition[] }` (hasta 80; los ids desconocidos se omiten) |
 | `GET /api/cards/:cardId` | `{ card: CardEdition, group: GroupDetail }` |
 | `GET /api/groups/:groupId` | `{ group: GroupDetail }` |
 
@@ -374,7 +375,7 @@ Partidas entre mazos con deckgym-core (`engine-cli`, `engine/`) que juega el wor
 | `POST /api/simulations/:id/cancel` | `JobSummary` (los chunks pendientes pasan a cancelados; el worker corta el motor en el próximo latido) |
 | `DELETE /api/simulations/:id` | `204`; borra chunks y repeticiones (las fotos quedan) |
 | `GET /api/simulations/replays/:id/raw` | El JSON de la repetición tal cual lo escribió el motor (para el viewer de deckgym: `/viewer/index.html?url=/api/simulations/replays/:id/raw`, D-014) |
-| `GET /api/simulations/replays/:id` | `{ replay (JSON de deckgym tal cual), names: { [engineId]: nombre en español }, game: { jobId, jobLabel, engineRev, gameIndex, seed, winner: 'a'|'b'|'tie', decks: [etiqueta A, etiqueta B], playersEs } }` |
+| `GET /api/simulations/replays/:id` | `{ replay (JSON de deckgym tal cual), names: { [engineId]: nombre en español }, cardIds: { [engineId]: cardId } (Fase 22), game: { jobId, jobLabel, engineRev, gameIndex, seed, winner: 'a'|'b'|'tie', decks: [etiqueta A, etiqueta B], playersEs } }` |
 
 ```ts
 Source = { deckId, energies? } | { listKey (14 hex), era?, format?: 'STANDARD'|'NOEX', kind?: 'group'|'name', energies? }
@@ -441,6 +442,8 @@ La partida corre en el worker de la PC (`engine-cli play`); la app muestra cada 
 | `POST /api/play` | `{ human: Source, rival: Source, bot? (e2), seed?, coach? (false) }` → `201 LiveGame`; `400 not_simulable` si un mazo no se puede jugar. `coach`: modo entrenador (Fase 20) |
 | `GET /api/play/:id` | `LiveGame` |
 | `POST /api/play/:id/choice` | `{ ply, i }` → `LiveGame`; `409 not_your_turn` / `stale_decision`, `400` opción inexistente |
+| `POST /api/play/:id/undo` | Fase 22: vuelve a tu decisión anterior (en tu turno o con la partida terminada) → `LiveGame` en `queued` con una elección menos; `409 busy` mientras mueve la PC, `nothing_to_undo`, `finished` |
+| `POST /api/play/:id/rematch` | Fase 22: `{ sameSeed? }` → `201 LiveGame` nueva con los mismos mazos, bot y entrenador |
 | `POST /api/play/:id/hint` | Fase 20: `{ ply }` → `LiveGame` con `decision.hint` = la opción del entrenador; `409 stale_decision` / `no_coach` |
 | `POST /api/play/:id/abandon` | `LiveGame` (el worker corta el motor en su próximo long-poll) |
 | `GET /api/play/:id/replay/raw` | La repetición de la partida terminada (para `/viewer/index.html?url=…`) |
@@ -455,6 +458,7 @@ LiveGame = { id, status: 'queued'|'running'|'waiting'|'done'|'abandoned'|'failed
              log: [{ ply, turn, actor (0 vos, 1 bot), forced, text, action, ctx: { in_play: [[cardId|null]×4]×2, stadium } }],
              choices, winner: 'you'|'bot'|'tie'|null, turns, finalState, replay: boolean,
              names: { [engineId]: nombre en español }, cards: { [engineId]: { id, name (inglés) } },
+             cardIds: { [engineId]: cardId del catálogo }, decks: { human, rival: [{ engineId, count }] }, undos,
              workerOnline, error, createdAt, updatedAt, finishedAt }
 CoachReview = { ply, turn, options, chosen, best, chosenText, bestText, gap, rank, verdict: 'best'|'close'|'inaccuracy'|
                 'mistake'|'blunder', hinted, chosenAction, bestAction, ctx }
@@ -465,8 +469,8 @@ Worker (`Bearer tcg_wk_…`, scope `worker:claim`):
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
 | `POST /api/worker/live/claim` | `{ workerId, engineRev, version? }` → long-poll de hasta 25 s → `{ game: { id, deckHuman, deckBot, bot, seed, choices, coach } | null }` (una nueva, o una cuyo worker se fue; las de entrenador, solo para `version` ≥ 0.2.2) |
-| `PUT /api/worker/live/:id/decision` | `{ workerId, ply, turn, state, actions, log, coach?: { scores, best } }` → `{ choice | null, status }` (`choice` ya está si la partida se reconstruye o la elegiste con la PC apagada) |
-| `POST /api/worker/live/:id/choice` | `{ workerId, ply }` → long-poll de hasta 25 s → `{ choice | null, status }`; renueva el lease; `status: abandoned` corta |
+| `PUT /api/worker/live/:id/decision` | `{ workerId, ply, turn, state, actions, log, coach?: { scores, best } }` → `{ choice | null, status }` (`choice` ya está si la partida se reconstruye o la elegiste con la PC apagada; `status: restart` si la deshiciste: cortar y volver a pedirla) |
+| `POST /api/worker/live/:id/choice` | `{ workerId, ply }` → long-poll de hasta 25 s → `{ choice | null, status }`; renueva el lease; `status: abandoned` corta; `status: restart` (Fase 22, deshacer): cortar el motor y volver a pedir partidas |
 | `PUT /api/worker/live/:id/end` | `{ workerId, winner, turns, state, log }` → `{ ok }` |
 | `PUT /api/worker/live/:id/failure` | `{ workerId, error }` → `{ ok }` |
 | `PUT /api/worker/live/:id/replay?workerId=` | La repetición en gzip → `{ ok }` |

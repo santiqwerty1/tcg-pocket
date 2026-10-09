@@ -9,7 +9,7 @@ export const settingsKeys = {
 const UI_KEY = 'ui'
 const LOCAL_UI_KEY = 'tcg.ui'
 
-const DEFAULT_UI: UiSettings = { thumbnails: false }
+const DEFAULT_UI: UiSettings = { thumbnails: false, boardImages: true }
 
 function readLocalUi(): UiSettings {
   try {

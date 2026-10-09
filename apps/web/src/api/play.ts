@@ -56,6 +56,35 @@ export function useHint(id: string) {
   })
 }
 
+/** Fase 22: back to the previous decision (the PC rebuilds the game up to it). */
+export function useUndo(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => request(`/api/play/${encodeURIComponent(id)}/undo`, { method: 'POST', schema: liveGameSchema }),
+    onSuccess: (game: LiveGame) => queryClient.setQueryData(playKeys.game(id), game),
+  })
+}
+
+/** Fase 22: the same decks and bot again; `sameSeed` for the very same shuffle. */
+export function useRematch(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { sameSeed?: boolean }) =>
+      request(`/api/play/${encodeURIComponent(id)}/rematch`, { method: 'POST', body, schema: liveGameSchema }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: playKeys.list }),
+  })
+}
+
+/** Fase 22: the replay of a finished game (deckgym's JSON), for the app's own viewer. */
+export function useGameReplay(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['play', 'replay', id] as const,
+    queryFn: ({ signal }) => request(`/api/play/${encodeURIComponent(id)}/replay/raw`, { signal }),
+    enabled,
+    staleTime: Number.POSITIVE_INFINITY,
+  })
+}
+
 export function useAbandon(id: string) {
   const queryClient = useQueryClient()
   return useMutation({

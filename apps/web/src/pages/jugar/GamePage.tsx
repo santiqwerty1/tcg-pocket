@@ -1,26 +1,45 @@
 /**
- * A game against a bot (PLAN §3.7, Fase 8): the table as you see it (your hand, both boards, points), the legal
- * actions of your turn as buttons, and what happened, the bot's moves included. The game runs on the PC; this page
- * shows it and sends your choices.
+ * A game against the bot (PLAN §3.7, Fase 8; the board of Fase 22). The game runs on the PC; this page shows the
+ * table as your seat sees it and plays by touch: a card of your hand lights the spots where it can go, the Energy
+ * Zone lights where the energy can be attached, your active opens its attacks and the retreat; a long press shows
+ * any card. Every option stays one tap away under «Opciones». The coach, undo, the bot's last moves and the
+ * end-of-game screen with the rematch complete it.
  */
-import { FlagIcon, LightbulbIcon, PlayIcon } from 'lucide-react'
+import { FlagIcon, LayersIcon, LightbulbIcon, ListIcon, Undo2Icon, XIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
-import { useAbandon, useChoose, useHint, usePlayGame } from '@/api/play'
+import { useAbandon, useChoose, useHint, usePlayGame, useRematch, useUndo } from '@/api/play'
 import type { LiveGame, LiveLogEntry } from '@/api/schemas'
+import { BoardProvider } from '@/components/board/BoardContext'
+import { CardGridSheet, CardSheet } from '@/components/board/CardSheet'
+import { Table, TurnBanner } from '@/components/board/Table'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { ErrorState, LoadingRows, Spinner } from '@/components/ListState'
 import { Section } from '@/components/Section'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { energyEs, type Replay, ReplayReader, type ReplaySlot, type ReplayState } from '@/lib/replay'
+import {
+  type ActionSource,
+  type BoardAction,
+  boardChanges,
+  classifyAction,
+  isPickDecision,
+  optionAt,
+  optionsFrom,
+  type Seat,
+  type SlotRef,
+  sameSource,
+  slotKey,
+  targetsOf,
+} from '@/lib/board'
+import { type Replay, ReplayReader, type ReplayState } from '@/lib/replay'
 import { cn } from '@/lib/utils'
-import { Slot } from '../simulacion/ReplayPage'
 import { CoachLast, CoachSummarySection } from './Coach'
+import { ActiveActions, BotTurn, EndScreen, OptionsSheet } from './GameParts'
 
 const WHO = ['Vos', 'Bot'] as const
+const NONE: ActionSource = { kind: 'none' }
 
 /** A reader over the game's cards: Spanish names and the engine's English ones (to translate its own texts). */
 function readerFor(game: LiveGame): ReplayReader {
@@ -40,7 +59,7 @@ function readerFor(game: LiveGame): ReplayReader {
 /** Just enough of a state to name the cards an action points at (the log keeps only what is in play). */
 function contextState(entry: LiveLogEntry): ReplayState {
   const inPlay = entry.ctx?.in_play ?? [[], []]
-  const slot = (card: string | null): ReplaySlot | null =>
+  const slot = (card: string | null) =>
     card ? { card, hp: 0, max_hp: 0, energy: [], tools: [], status: [], played_this_turn: false } : null
   const player = (cards: (string | null)[] | undefined) => ({
     hand: [],
@@ -61,76 +80,30 @@ function contextState(entry: LiveLogEntry): ReplayState {
   }
 }
 
-function TableSide({
-  state,
-  player,
-  reader,
-  title,
-}: {
-  state: ReplayState
-  player: 0 | 1
-  reader: ReplayReader
-  title: string
-}) {
-  const data = state.players[player]
-  if (!data) return null
-  const [active, ...bench] = data.in_play
-  const turn = state.current_player === player
-  const hand = Array.isArray(data.hand) ? data.hand : null
-  return (
-    <div className={cn('flex flex-col gap-1.5 rounded-lg border p-2', turn && 'border-primary/60')}>
-      <div className="flex items-baseline gap-2">
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{title}</span>
-        <span className="shrink-0 text-sm font-semibold tabular" title="Puntos">
-          {state.points[player]} pts
-        </span>
-      </div>
-      <div className="text-xs text-muted-foreground">
-        mano {data.hand_count} · mazo {data.deck_count} · descarte {data.discard.length}
-        {data.energy_zone.current || data.energy_zone.next
-          ? ` · energía: ${data.energy_zone.current ? energyEs(data.energy_zone.current) : '—'} (luego ${
-              data.energy_zone.next ? energyEs(data.energy_zone.next) : '—'
-            })`
-          : ''}
-      </div>
-      <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
-        <Slot slot={active ?? null} reader={reader} active />
-        {bench.map((slot, index) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: bench spots are positional
-          <Slot key={index} slot={slot} reader={reader} />
-        ))}
-      </div>
-      {hand && hand.length > 0 ? (
-        <div className="flex flex-wrap gap-1 pt-0.5">
-          {hand.map((card, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: a hand can hold two copies of a card
-            <Badge key={`${card}-${index}`} variant="secondary" className="font-normal">
-              {reader.name(card)}
-            </Badge>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  )
+/** In the game both players set up at once; the engine does it in turns: the bot's spots stay hidden until yours. */
+function masked(state: ReplayState, setup: boolean): ReplayState {
+  if (!setup) return state
+  const bot = state.players[1]
+  return {
+    ...state,
+    players: [state.players[0], { ...bot, in_play: bot.in_play.map(() => null) }],
+  }
 }
 
 function statusLine(game: LiveGame): { text: string; tone: 'muted' | 'turn' | 'end' | 'error' } {
   switch (game.status) {
     case 'queued':
       return game.workerOnline
-        ? { text: 'La PC está tomando la partida…', tone: 'muted' }
-        : { text: 'La PC está apagada: la partida empieza cuando la prendas.', tone: 'muted' }
+        ? { text: 'La PC está preparando la partida…', tone: 'muted' }
+        : { text: 'La PC está apagada: la partida sigue cuando la prendas.', tone: 'muted' }
     case 'running':
       return game.workerOnline
         ? { text: 'Juega el bot…', tone: 'muted' }
         : { text: 'Esperando a la PC (la partida sigue donde quedó cuando se prenda).', tone: 'muted' }
     case 'waiting':
-      return { text: 'Tu turno: elegí qué hacer.', tone: 'turn' }
+      return { text: 'Tu turno', tone: 'turn' }
     case 'done':
-      return {
-        text: `${game.winner === 'you' ? '¡Ganaste!' : game.winner === 'bot' ? 'Perdiste.' : 'Empate.'} ${game.turns ?? 0} turnos.`,
-        tone: 'end',
-      }
+      return { text: 'Partida terminada', tone: 'end' }
     case 'abandoned':
       return { text: 'Partida abandonada.', tone: 'end' }
     case 'failed':
@@ -138,53 +111,43 @@ function statusLine(game: LiveGame): { text: string; tone: 'muted' | 'turn' | 'e
   }
 }
 
-/**
- * In the game both players place their Pokémon at the same time; the engine does it in turns. Until your setup is
- * done (a decision of turn 0 is pending), the bot's placement stays hidden.
- */
-function inSetup(game: LiveGame): boolean {
-  return game.decision?.turn === 0
-}
-
 function LogList({ game, reader }: { game: LiveGame; reader: ReplayReader }) {
-  const [all, setAll] = useState(false)
-  const hideBotSetup = inSetup(game)
+  const [open, setOpen] = useState(false)
   const entries = useMemo(
     () =>
       game.log
         .map((entry, index) => ({ entry, index }))
-        .filter(({ entry }) => !(hideBotSetup && entry.turn === 0 && entry.actor === 1))
-        .filter(({ entry }) => all || !entry.forced || entry.actor === 1)
+        .filter(({ entry }) => !entry.forced || entry.actor === 1)
         .reverse(),
-    [game.log, all, hideBotSetup],
+    [game.log],
   )
   if (game.log.length === 0) return null
-  const first = game.log.find((entry) => entry.turn === 1)
   return (
     <Section
       title="Lo que pasó"
       action={
-        <Button type="button" variant="ghost" size="sm" onClick={() => setAll(!all)}>
-          {all ? 'Menos' : 'Todo'}
+        <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(!open)}>
+          {open ? 'Ocultar' : 'Mostrar'}
         </Button>
       }
     >
-      {first ? <p className="text-xs text-muted-foreground">Empezó {first.actor === 0 ? 'vos' : 'el bot'}.</p> : null}
-      <ol className="flex flex-col gap-0.5 text-sm">
-        {entries.slice(0, all ? undefined : 40).map(({ entry, index }) => (
-          <li key={index} className={cn('flex gap-2', entry.forced && 'text-muted-foreground')}>
-            <span className="w-14 shrink-0 text-xs text-muted-foreground tabular">
-              {entry.turn === 0 ? 'inicio' : `turno ${entry.turn}`}
-            </span>
-            <span className={cn('w-8 shrink-0 text-xs font-medium', entry.actor === 1 && 'text-primary')}>
-              {WHO[entry.actor] ?? '?'}
-            </span>
-            <span className="min-w-0 flex-1">
-              {reader.describe(entry.action, contextState(entry), entry.actor, entry.text)}
-            </span>
-          </li>
-        ))}
-      </ol>
+      {open ? (
+        <ol className="flex flex-col gap-0.5 text-sm">
+          {entries.map(({ entry, index }) => (
+            <li key={index} className={cn('flex gap-2', entry.forced && 'text-muted-foreground')}>
+              <span className="w-14 shrink-0 text-xs text-muted-foreground tabular">
+                {entry.turn === 0 ? 'inicio' : `turno ${entry.turn}`}
+              </span>
+              <span className={cn('w-8 shrink-0 text-xs font-medium', entry.actor === 1 && 'text-primary')}>
+                {WHO[entry.actor] ?? '?'}
+              </span>
+              <span className="min-w-0 flex-1">
+                {reader.describe(entry.action, contextState(entry), entry.actor, entry.text)}
+              </span>
+            </li>
+          ))}
+        </ol>
+      ) : null}
     </Section>
   )
 }
@@ -192,158 +155,425 @@ function LogList({ game, reader }: { game: LiveGame; reader: ReplayReader }) {
 export function GamePage() {
   const { id = '' } = useParams()
   const query = usePlayGame(id)
-  const choose = useChoose(id)
-  const abandon = useAbandon(id)
-  const hint = useHint(id)
-  const [confirm, setConfirm] = useState(false)
-  const lastState = useRef<ReplayState | null>(null)
   const game = query.data
   const reader = useMemo(() => (game ? readerFor(game) : null), [game])
-
-  useEffect(() => {
-    if (game?.decision) lastState.current = game.decision.state as unknown as ReplayState
-  }, [game?.decision])
-
   if (query.isLoading) return <LoadingRows rows={6} />
   if (query.isError || !game || !reader) return <ErrorState error={query.error} onRetry={() => void query.refetch()} />
+  return (
+    <BoardProvider reader={reader} cardIds={game.cardIds}>
+      <Game game={game} reader={reader} refetch={() => void query.refetch()} />
+    </BoardProvider>
+  )
+}
 
-  const state =
-    (game.decision?.state as unknown as ReplayState | undefined) ??
-    (game.finalState as unknown as ReplayState | null) ??
-    lastState.current
-  const line = statusLine(game)
-  const active = game.status === 'queued' || game.status === 'running' || game.status === 'waiting'
+function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader; refetch: () => void }) {
+  const navigate = useNavigate()
+  const choose = useChoose(String(game.id))
+  const abandon = useAbandon(String(game.id))
+  const hint = useHint(String(game.id))
+  const undo = useUndo(String(game.id))
+  const rematch = useRematch(String(game.id))
+  const [confirmAbandon, setConfirmAbandon] = useState(false)
+  const [confirmEnd, setConfirmEnd] = useState(false)
+  const [optionsOpen, setOptionsOpen] = useState(false)
+  const [selected, setSelected] = useState<ActionSource | null>(null)
+  const [sheet, setSheet] = useState<{ engineId: string; at?: SlotRef; actions: 'active' | 'hand' | null } | null>(null)
+  const [discard, setDiscard] = useState<Seat | null>(null)
+  const [rivalList, setRivalList] = useState(false)
 
-  async function pick(i: number) {
-    if (!game?.decision) return
+  const decision = game.decision
+  const ply = decision?.ply ?? null
+  // States seen at each decision: what changed since the previous one floats over the cards.
+  const seen = useRef(new Map<number, ReplayState>())
+  const lastState = useRef<ReplayState | null>(null)
+  if (decision) {
+    seen.current.set(decision.ply, decision.state as unknown as ReplayState)
+    lastState.current = decision.state as unknown as ReplayState
+  }
+  const finalState = game.finalState as unknown as ReplayState | null
+  const raw = (decision?.state as unknown as ReplayState | undefined) ?? finalState ?? lastState.current
+  const setup = decision?.turn === 0
+  const state = raw ? masked(raw, setup) : null
+  const previous = ply !== null ? (seen.current.get(ply - 1) ?? null) : null
+  const changes = useMemo(() => (state && previous ? boardChanges(previous, state) : null), [state, previous])
+
+  // A new decision clears what was selected for the previous one.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: ply is the trigger, not an input
+  useEffect(() => {
+    setSelected(null)
+    setSheet(null)
+  }, [ply])
+
+  // A short buzz when it becomes your turn (Android), only if you are looking.
+  const lastStatus = useRef(game.status)
+  useEffect(() => {
+    if (game.status === 'waiting' && lastStatus.current !== 'waiting' && document.visibilityState === 'visible') {
+      navigator.vibrate?.(40)
+    }
+    lastStatus.current = game.status
+  }, [game.status])
+
+  const actions: BoardAction[] = useMemo(
+    () => (decision ? decision.actions.map((option) => classifyAction(option.i, option.action, option.text, 0)) : []),
+    [decision],
+  )
+  const describe = (action: BoardAction) =>
+    reader.describe(action.action, state ?? contextState({ turn: 0, actor: 0, text: '', action: null }), 0, action.text)
+  const pick = isPickDecision(actions)
+  const targets = useMemo(() => {
+    const refs = selected ? targetsOf(actions, selected) : pick ? targetsOf(actions, NONE) : []
+    return new Set(refs.map(slotKey))
+  }, [actions, selected, pick])
+  const playable = useMemo(
+    () => new Set(actions.flatMap((action) => (action.source.kind === 'hand' ? [action.source.engineId] : []))),
+    [actions],
+  )
+  const energyPlayable = actions.some((action) => action.source.kind === 'energy')
+  const endTurn = actions.find((action) => action.kind === 'endTurn') ?? null
+  const canAttack = actions.some((action) => action.kind === 'attack')
+  const busy = choose.isPending || undo.isPending
+
+  async function send(i: number) {
+    if (!decision) return
+    setSelected(null)
+    setSheet(null)
+    setOptionsOpen(false)
     try {
-      await choose.mutateAsync({ ply: game.decision.ply, i })
+      await choose.mutateAsync({ ply: decision.ply, i })
     } catch (error) {
       toast.error(errorMessage(error))
-      void query.refetch()
+      refetch()
     }
   }
 
+  function inspect(engineId: string, at?: SlotRef) {
+    setSheet(at ? { engineId, at, actions: null } : { engineId, actions: null })
+  }
+
+  function onHandCard(engineId: string) {
+    if (!decision) return inspect(engineId)
+    const source: ActionSource = { kind: 'hand', engineId }
+    const options = optionsFrom(actions, source)
+    if (options.length === 0) return inspect(engineId)
+    if (selected && sameSource(selected, source)) return setSelected(null)
+    if (options.every((action) => action.target !== null)) return setSelected(source)
+    setSheet({ engineId, actions: 'hand' })
+  }
+
+  function onSlot(at: SlotRef) {
+    const card = state?.players[at.player]?.in_play[at.index]?.card ?? null
+    if (decision) {
+      if (selected) {
+        const option = optionAt(actions, selected, at)
+        if (option) return void send(option.i)
+        if (selected.kind === 'slot' && selected.player === at.player && selected.index === at.index) {
+          return setSelected(null)
+        }
+      }
+      if (pick) {
+        const option = optionAt(actions, NONE, at)
+        if (option) return void send(option.i)
+      }
+      if (
+        at.player === 0 &&
+        at.index === 0 &&
+        card &&
+        optionsFrom(actions, { kind: 'slot', player: 0, index: 0 }).length
+      ) {
+        return setSheet({ engineId: card, at, actions: 'active' })
+      }
+      const own = optionsFrom(actions, { kind: 'slot', player: at.player, index: at.index })
+      if (own.length === 1 && own[0]) {
+        // An ability of a benched Pokémon: one tap to see it, the sheet to confirm.
+        return setSheet({ engineId: card ?? '', at, actions: 'hand' })
+      }
+    }
+    if (card) inspect(card, at)
+  }
+
+  function onEnergy() {
+    if (!energyPlayable) return
+    const source: ActionSource = { kind: 'energy' }
+    setSelected(selected && sameSource(selected, source) ? null : source)
+  }
+
+  const line = statusLine(game)
+  const active = game.status === 'queued' || game.status === 'running' || game.status === 'waiting'
+  const sheetSlot =
+    sheet?.at !== undefined && state ? (state.players[sheet.at.player]?.in_play[sheet.at.index] ?? null) : null
+  const sheetOptions =
+    sheet?.actions === 'hand'
+      ? sheet.at
+        ? optionsFrom(actions, { kind: 'slot', player: sheet.at.player, index: sheet.at.index })
+        : optionsFrom(actions, { kind: 'hand', engineId: sheet.engineId })
+      : []
+
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1">
-        <p className="text-sm">
-          <span className="font-medium">{game.human.label}</span>
-          <span className="text-muted-foreground"> contra </span>
-          <span className="font-medium">{game.rival.label}</span>
-        </p>
-        <p className="text-xs text-muted-foreground">
-          #{game.id} · bot {game.botEs} · semilla {game.seed}
-        </p>
+    <div className="flex flex-col gap-3 pb-28">
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm">
+            <span className="font-medium">{game.human.label}</span>
+            <span className="text-muted-foreground"> contra </span>
+            <span className="font-medium">{game.rival.label}</span>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            #{game.id} · bot {game.botEs}
+            {game.coach ? ' · entrenador' : ''}
+            {game.undos > 0 ? ` · ${game.undos} ${game.undos === 1 ? 'deshecha' : 'deshechas'}` : ''}
+          </p>
+        </div>
+        <Button type="button" variant="ghost" size="sm" onClick={() => setRivalList(true)}>
+          <LayersIcon aria-hidden="true" />
+          Mazo del bot
+        </Button>
       </div>
 
       <div
         className={cn(
           'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm',
-          line.tone === 'turn' && 'border-primary text-primary',
+          line.tone === 'turn' && 'border-primary font-medium text-primary',
           line.tone === 'error' && 'border-destructive text-destructive',
         )}
         role="status"
       >
         {game.status === 'running' && game.workerOnline ? <Spinner className="size-4" /> : null}
-        <span className="flex-1">{line.text}</span>
+        <span className="flex-1">
+          {line.text}
+          {decision && pick ? ': elegí un Pokémon marcado' : ''}
+          {decision && setup ? ': prepará tu mesa (el bot pone la suya a la vez)' : ''}
+        </span>
       </div>
 
+      {game.status === 'done' ? (
+        <EndScreen
+          game={game}
+          reader={reader}
+          pending={rematch.isPending || undo.isPending}
+          onRematch={(sameSeed) =>
+            rematch.mutate(
+              { sameSeed },
+              {
+                onSuccess: (created) => navigate(`/jugar/${created.id}`),
+                onError: (error) => toast.error(errorMessage(error)),
+              },
+            )
+          }
+          onUndo={() => undo.mutate(undefined, { onError: (error) => toast.error(errorMessage(error)) })}
+        />
+      ) : null}
+
+      {game.status === 'waiting' ? <BotTurn game={game} reader={reader} context={contextState} /> : null}
+
       {state ? (
-        <div className="flex flex-col gap-2">
-          {inSetup(game) ? (
-            <div className="rounded-lg border border-dashed p-2 text-sm text-muted-foreground">
-              Bot: {game.rival.label} · prepara su mesa (la ves cuando pongas la tuya)
-            </div>
-          ) : (
-            <TableSide state={state} player={1} reader={reader} title={`Bot: ${game.rival.label}`} />
-          )}
-          {state.stadium ? (
-            <p className="text-center text-xs text-muted-foreground">Estadio: {reader.name(state.stadium)}</p>
-          ) : null}
-          <TableSide state={state} player={0} reader={reader} title={`Vos: ${game.human.label}`} />
-        </div>
+        <Table
+          state={state}
+          bottom={0}
+          labels={[`Vos: ${game.human.label}`, `Bot: ${game.rival.label}`]}
+          changes={changes}
+          stamp={ply ?? 'end'}
+          hiddenHand={1}
+          targets={targets}
+          selected={selected}
+          playable={playable}
+          energyPlayable={energyPlayable}
+          onSlot={onSlot}
+          onHandCard={onHandCard}
+          onEnergy={onEnergy}
+          onInspect={inspect}
+          onDiscard={setDiscard}
+          banner={
+            decision && previous?.turn !== decision.turn ? (
+              <TurnBanner
+                text={decision.turn === 0 ? 'Prepará tu mesa' : `Tu turno · ${decision.turn}`}
+                stamp={decision.ply}
+              />
+            ) : null
+          }
+        />
       ) : null}
 
       {game.coach ? <CoachLast game={game} reader={reader} /> : null}
-
-      {game.decision ? (
-        <Section
-          title={`Tu decisión (turno ${game.decision.turn})`}
-          action={
-            game.decision.hintAvailable && game.decision.hint === null ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={hint.isPending}
-                onClick={() =>
-                  game.decision &&
-                  hint.mutate({ ply: game.decision.ply }, { onError: (error) => toast.error(errorMessage(error)) })
-                }
-              >
-                <LightbulbIcon aria-hidden="true" />
-                Pista
-              </Button>
-            ) : null
-          }
-        >
-          <div className="flex flex-col gap-1.5">
-            {game.decision.actions.map((option) => (
-              <Button
-                key={option.i}
-                type="button"
-                variant="outline"
-                className={cn(
-                  'h-auto min-h-11 justify-start py-2 text-left whitespace-normal',
-                  game.decision?.hint === option.i && 'border-primary',
-                )}
-                disabled={choose.isPending}
-                onClick={() => void pick(option.i)}
-              >
-                <PlayIcon className="shrink-0" aria-hidden="true" />
-                {reader.describe(
-                  option.action,
-                  state ?? (game.decision?.state as unknown as ReplayState),
-                  0,
-                  option.text,
-                )}
-                {game.decision?.hint === option.i ? <Badge className="ml-auto shrink-0">entrenador</Badge> : null}
-              </Button>
-            ))}
-          </div>
-        </Section>
-      ) : null}
-
-      {game.coachSummary && game.coachSummary.decisions > 0 ? (
-        <CoachSummarySection summary={game.coachSummary} reader={reader} final={!active} />
+      {game.coachSummary && game.coachSummary.decisions > 0 && game.status !== 'done' ? (
+        <CoachSummarySection summary={game.coachSummary} reader={reader} final={false} />
       ) : null}
 
       <LogList game={game} reader={reader} />
 
       <div className="flex flex-wrap gap-2">
         {active ? (
-          <Button type="button" variant="ghost" onClick={() => setConfirm(true)}>
+          <Button type="button" variant="ghost" onClick={() => setConfirmAbandon(true)}>
             <FlagIcon aria-hidden="true" />
             Abandonar
           </Button>
         ) : null}
         {game.replay ? (
           <Button asChild variant="outline">
-            <a href={`/viewer/index.html?url=${encodeURIComponent(`/api/play/${game.id}/replay/raw`)}`}>
-              Ver en el visor de deckgym
-            </a>
+            <Link to={`/jugar/${game.id}/repeticion`}>Ver la repetición</Link>
           </Button>
         ) : null}
         {!active ? (
-          <Button asChild>
+          <Button asChild variant="ghost">
             <Link to="/jugar">Otra partida</Link>
           </Button>
         ) : null}
       </div>
+
+      {decision ? (
+        <div className="fixed inset-x-0 bottom-16 z-30 border-t bg-background/95 px-3 py-2 backdrop-blur pb-safe">
+          {selected ? (
+            <div className="mb-1.5 flex items-center gap-2 text-sm">
+              <span className="flex-1 text-primary">Tocá un lugar marcado</span>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setSelected(null)}>
+                <XIcon aria-hidden="true" />
+                Cancelar
+              </Button>
+            </div>
+          ) : null}
+          <div className="mx-auto flex max-w-3xl items-center gap-1.5">
+            <Button type="button" variant="outline" size="sm" onClick={() => setOptionsOpen(true)}>
+              <ListIcon aria-hidden="true" />
+              Opciones ({actions.length})
+            </Button>
+            {decision.hintAvailable ? (
+              <Button
+                type="button"
+                variant={decision.hint !== null ? 'secondary' : 'ghost'}
+                size="sm"
+                disabled={hint.isPending || decision.hint !== null}
+                onClick={() =>
+                  hint.mutate({ ply: decision.ply }, { onError: (error) => toast.error(errorMessage(error)) })
+                }
+              >
+                <LightbulbIcon aria-hidden="true" />
+                {decision.hint !== null ? 'Pista abajo' : 'Pista'}
+              </Button>
+            ) : null}
+            {game.choices > 0 ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() =>
+                  undo.mutate(undefined, {
+                    onSuccess: () => toast.success('Volviendo a tu jugada anterior…'),
+                    onError: (error) => toast.error(errorMessage(error)),
+                  })
+                }
+              >
+                <Undo2Icon aria-hidden="true" />
+                Deshacer
+              </Button>
+            ) : null}
+            {endTurn ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="ml-auto"
+                disabled={busy}
+                onClick={() => (canAttack ? setConfirmEnd(true) : void send(endTurn.i))}
+              >
+                Terminar turno
+              </Button>
+            ) : null}
+          </div>
+          {decision.hint !== null ? (
+            <p className="mt-1 text-xs text-primary">
+              Entrenador: {(() => {
+                const option = actions.find((action) => action.i === decision.hint)
+                return option ? describe(option) : '—'
+              })()}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <OptionsSheet
+        open={optionsOpen}
+        onOpenChange={setOptionsOpen}
+        actions={actions}
+        describe={describe}
+        hint={decision?.hint ?? null}
+        disabled={busy}
+        onChoose={(i) => void send(i)}
+      />
+      <CardSheet
+        engineId={sheet?.engineId ?? null}
+        slot={sheetSlot}
+        open={sheet !== null}
+        onOpenChange={(open) => (open ? undefined : setSheet(null))}
+        hideAttacks={sheet?.actions === 'active'}
+        actions={
+          sheet?.actions === 'active' && state ? (
+            <ActiveActions
+              state={state}
+              actions={actions}
+              hint={decision?.hint ?? null}
+              disabled={busy}
+              describe={describe}
+              onChoose={(i) => void send(i)}
+              onRetreat={() => {
+                setSheet(null)
+                setSelected({ kind: 'slot', player: 0, index: 0 })
+              }}
+            />
+          ) : sheet?.actions === 'hand' && sheetOptions.length > 0 ? (
+            sheetOptions.map((action) => (
+              <Button
+                key={action.i}
+                type="button"
+                variant={decision?.hint === action.i ? 'default' : 'outline'}
+                className="h-auto justify-start py-2 text-left whitespace-normal"
+                disabled={busy}
+                onClick={() => void send(action.i)}
+              >
+                {describe(action)}
+              </Button>
+            ))
+          ) : null
+        }
+      />
+      <CardGridSheet
+        title={discard === null ? '' : discard === 0 ? 'Tu descarte' : 'Descarte del bot'}
+        cards={
+          discard === null || !state ? [] : (state.players[discard]?.discard ?? []).map((engineId) => ({ engineId }))
+        }
+        energies={discard === null || !state ? [] : state.players[discard]?.discard_energies}
+        open={discard !== null}
+        onOpenChange={(open) => (open ? undefined : setDiscard(null))}
+        onInspect={(engineId) => {
+          setDiscard(null)
+          inspect(engineId)
+        }}
+      />
+      <CardGridSheet
+        title={`Mazo del bot: ${game.rival.label}`}
+        description="Es una partida de práctica: la lista del bot se ve entera."
+        cards={game.decks.rival}
+        open={rivalList}
+        onOpenChange={setRivalList}
+        onInspect={(engineId) => {
+          setRivalList(false)
+          inspect(engineId)
+        }}
+      />
       <ConfirmDialog
-        open={confirm}
-        onOpenChange={setConfirm}
+        open={confirmEnd}
+        onOpenChange={setConfirmEnd}
+        title="¿Terminar el turno sin atacar?"
+        description="Tu activo todavía puede atacar."
+        confirmLabel="Terminar turno"
+        pending={busy}
+        onConfirm={() => {
+          setConfirmEnd(false)
+          if (endTurn) void send(endTurn.i)
+        }}
+      />
+      <ConfirmDialog
+        open={confirmAbandon}
+        onOpenChange={setConfirmAbandon}
         title="¿Abandonar la partida?"
         description="La PC deja de jugarla; queda en la lista como abandonada."
         confirmLabel="Abandonar"
@@ -351,7 +581,7 @@ export function GamePage() {
         pending={abandon.isPending}
         onConfirm={() =>
           abandon.mutate(undefined, {
-            onSuccess: () => setConfirm(false),
+            onSuccess: () => setConfirmAbandon(false),
             onError: (error) => toast.error(errorMessage(error)),
           })
         }
