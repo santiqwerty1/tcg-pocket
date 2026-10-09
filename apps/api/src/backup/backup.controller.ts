@@ -23,7 +23,7 @@ import {
   type BackupReplaceResult,
   BackupService,
 } from './backup.service.js'
-import { OffsiteBackupService, type OffsiteResult } from './offsite.service.js'
+import { OffsiteBackupService, type OffsiteCheck, type OffsiteResult } from './offsite.service.js'
 
 const importQuerySchema = z.object({ mode: z.enum(['dry-run', 'replace']).default('dry-run') })
 
@@ -43,7 +43,10 @@ export class BackupController {
     private readonly offsite: OffsiteBackupService,
   ) {}
 
-  /** Fase 39: a fresh copy, stored here and uploaded to the bucket now (400 when the bucket is not configured). */
+  /**
+   * Fase 39: the newest daily copy, uploaded to the bucket now (a new copy only when there is none, so the local ones
+   * do not rotate); 400 when the bucket is not configured.
+   */
   @Post('offsite')
   @HttpCode(200)
   async offsiteNow(@CurrentSession() _session: RequestSession): Promise<{ result: OffsiteResult }> {
@@ -53,16 +56,18 @@ export class BackupController {
         message: 'La copia en la nube no está configurada: faltan las claves del bucket (flyctl storage create).',
       })
     }
-    const snapshot = await this.backup.snapshot()
-    const { dataGz } = await this.backup.blob(snapshot.id)
-    return { result: await this.offsite.upload(dataGz, snapshot.createdAt) }
+    const [newest] = await this.backup.listBlobs()
+    const view = newest ?? (await this.backup.snapshot())
+    const { dataGz } = await this.backup.blob(view.id)
+    return { result: await this.offsite.upload(dataGz, view.createdAt) }
   }
 
   @Get('offsite')
   async offsiteLast(
     @CurrentSession() _session: RequestSession,
-  ): Promise<{ enabled: boolean; last: OffsiteResult | null }> {
-    return { enabled: this.offsite.enabled(), last: await this.offsite.last() }
+  ): Promise<{ enabled: boolean; last: OffsiteResult | null; check: OffsiteCheck | null }> {
+    const [last, check] = await Promise.all([this.offsite.last(), this.offsite.lastCheck()])
+    return { enabled: this.offsite.enabled(), last, check }
   }
 
   @Get('export')

@@ -388,6 +388,15 @@ export class AlertsService {
         link: '/mas/backup',
       })
     }
+    if (backup.enabled && offsite.enabled && offsite.check?.ok === false) {
+      alerts.push({
+        code: 'backup_offsite',
+        level: 'warning',
+        title: `Falló la comprobación de la copia en la nube del ${ownerDate(new Date(offsite.check.at))}`,
+        detail: `La copia más nueva del bucket no se pudo bajar o leer: ${(offsite.check.error ?? 'error desconocido').slice(0, 200)}.`,
+        link: '/mas/backup',
+      })
+    }
     if (limitless.enabled && !limitless.running) {
       if (limitless.last?.status === 'failed') {
         alerts.push({

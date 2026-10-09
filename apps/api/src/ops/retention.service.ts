@@ -2,7 +2,8 @@
  * Retención (Fase 39, R-006): Supabase Free has 500 MB, and the replays of the simulations were most of it (84 of
  * 153 MB on 9/10/2026: a 100×100 matrix keeps ~9 000 replays, ~70 MB). Every day after the copy, and on demand:
  *
- * 1. replays of archived jobs go (the owner hid them);
+ * 1. jobs archived more than 7 days ago keep one replay per pairing (archiving is undone in a tap; a week later the
+ *    rest goes, and the screen says so);
  * 2. replays of jobs finished more than 30 days ago go (the results stay: only the replays);
  * 3. a matrix keeps one replay per pairing (the first game of its first chunk);
  * 4. all replays together stay under 100 MB: past that, the oldest go;
@@ -21,6 +22,7 @@ import { OWNER_TIME_ZONE } from '../config/time-zone.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 
 export const RETENTION_OLD_JOB_DAYS = 30
+export const RETENTION_ARCHIVED_DAYS = 7
 export const RETENTION_REPLAY_BUDGET_MB = 100
 export const RETENTION_RAW_STANDINGS_DAYS = 180
 /** `app_settings` key of the last run. */
@@ -59,10 +61,10 @@ export class RetentionService {
     this.logger.setContext(RetentionService.name)
   }
 
-  /** Every day at 04:20 (after the 04:00 copy), where the copy runs (production). */
+  /** Every day at 04:20 (after the 04:00 copy), only with RETENTION_CRON=true (off until the owner saw a dry run). */
   @Cron('20 4 * * *', { timeZone: OWNER_TIME_ZONE })
   async daily(): Promise<void> {
-    if (!this.env.backupCron) return
+    if (!this.env.retentionCron) return
     await this.run().catch((error) => this.logger.error({ err: error }, 'retention failed'))
   }
 
@@ -79,6 +81,7 @@ export class RetentionService {
     const now = options.now ?? new Date()
     const dryRun = options.dryRun ?? false
     const oldBefore = new Date(now.getTime() - RETENTION_OLD_JOB_DAYS * 86_400_000)
+    const archivedBefore = new Date(now.getTime() - RETENTION_ARCHIVED_DAYS * 86_400_000)
     const rawBefore = new Date(now.getTime() - RETENTION_RAW_STANDINGS_DAYS * 86_400_000)
     const budget = RETENTION_REPLAY_BUDGET_MB * 1024 * 1024
     let counts: Omit<RetentionResult, 'at' | 'dryRun' | 'vacuumed'>
@@ -93,8 +96,16 @@ export class RetentionService {
           }
           const before = await weight()
           const archived = await tx.$executeRaw`
-            DELETE FROM simulation_replays r USING simulation_chunks ch, simulation_jobs j
-            WHERE r.chunk_id = ch.id AND ch.job_id = j.id AND j.archived_at IS NOT NULL`
+            DELETE FROM simulation_replays r USING (
+              SELECT r2.id, row_number() OVER (
+                PARTITION BY ch.job_id, ch.snapshot_a_id, ch.snapshot_b_id ORDER BY ch.idx, r2.game_index, r2.id
+              ) AS n
+              FROM simulation_replays r2
+              JOIN simulation_chunks ch ON ch.id = r2.chunk_id
+              JOIN simulation_jobs j ON j.id = ch.job_id
+              WHERE j.archived_at IS NOT NULL AND j.archived_at < ${archivedBefore}
+            ) x
+            WHERE r.id = x.id AND x.n > 1`
           const oldJobs = await tx.$executeRaw`
             DELETE FROM simulation_replays r USING simulation_chunks ch, simulation_jobs j
             WHERE r.chunk_id = ch.id AND ch.job_id = j.id

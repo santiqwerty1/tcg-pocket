@@ -33,18 +33,16 @@ export class BackupCronService implements OnModuleInit {
   async monthly(): Promise<void> {
     if (!this.env.backupCron) return
     await this.backup.drill().catch((error) => this.logger.error({ err: error }, 'backup drill crashed'))
+    // Fase 39: the newest copy of the bucket comes back and reads as a backup (a failure is an alert).
+    if (this.offsite.enabled()) await this.offsite.verifyLatest((bytes) => this.backup.parseUpload(bytes))
   }
 
   @Cron('0 4 * * *', { timeZone: BACKUP_CRON_TIMEZONE })
   async daily(): Promise<void> {
     if (!this.env.backupCron) return
+    let snapshot: Awaited<ReturnType<BackupService['snapshot']>>
     try {
-      const snapshot = await this.backup.snapshot()
-      // Fase 39: the same copy, outside Supabase (it records its own failure for Avisos).
-      if (this.offsite.enabled()) {
-        const { dataGz } = await this.backup.blob(snapshot.id)
-        await this.offsite.upload(dataGz, snapshot.createdAt)
-      }
+      snapshot = await this.backup.snapshot()
     } catch (error) {
       this.logger.error({ err: error }, 'daily backup failed')
       // Fase 38 (R-011): kept for Avisos, which push it to the phone (a log line alone nobody reads).
@@ -55,6 +53,17 @@ export class BackupCronService implements OnModuleInit {
       await this.prisma.appSetting
         .upsert({ where: { key: BACKUP_FAILURE_KEY }, create: { key: BACKUP_FAILURE_KEY, value }, update: { value } })
         .catch((saveError) => this.logger.error({ err: saveError }, 'could not record the backup failure'))
+      return
+    }
+    // Fase 39: the same copy, outside Supabase. Its failures are its own (`backup_offsite`), never the daily copy's.
+    if (this.offsite.enabled()) {
+      try {
+        const { dataGz } = await this.backup.blob(snapshot.id)
+        await this.offsite.upload(dataGz, snapshot.createdAt)
+      } catch (error) {
+        this.logger.error({ err: error }, 'offsite backup failed')
+        await this.offsite.recordFailure(error).catch(() => undefined)
+      }
     }
   }
 }

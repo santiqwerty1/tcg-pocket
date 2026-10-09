@@ -170,7 +170,7 @@ function RowAction({ job, onDelete }: { job: JobSummary; onDelete: (job: JobSumm
         variant="ghost"
         size="icon"
         aria-label={`Archivar #${job.id}`}
-        title="Archivar (sus resultados siguen valiendo)"
+        title="Archivar (sus resultados siguen valiendo; a la semana queda una repetición por cruce)"
         disabled={archive.isPending}
         onClick={() => setArchived(true)}
       >

@@ -20,7 +20,17 @@ const resultSchema = z.object({
   error: z.string().nullable(),
   kept: z.number().nullable(),
 })
-const statusSchema = z.object({ enabled: z.boolean(), last: resultSchema.nullable() })
+const checkSchema = z.object({
+  at: z.string(),
+  ok: z.boolean(),
+  key: z.string().nullable(),
+  error: z.string().nullable(),
+})
+const statusSchema = z.object({
+  enabled: z.boolean(),
+  last: resultSchema.nullable(),
+  check: checkSchema.nullable().default(null),
+})
 const uploadSchema = z.object({ result: resultSchema })
 const offsiteKey = ['backup', 'offsite'] as const
 
@@ -33,7 +43,11 @@ export function BackupOffsiteSection() {
   const upload = useMutation({
     mutationFn: () => request('/api/backup/offsite', { method: 'POST', schema: uploadSchema }),
     onSuccess: (data) => {
-      queryClient.setQueryData(offsiteKey, { enabled: true, last: data.result })
+      queryClient.setQueryData(offsiteKey, (old: z.infer<typeof statusSchema> | undefined) => ({
+        enabled: true,
+        last: data.result,
+        check: old?.check ?? null,
+      }))
       void queryClient.invalidateQueries({ queryKey: backupKeys.blobs })
       void queryClient.invalidateQueries({ queryKey: ['alerts'] })
       if (data.result.ok) toast.success('Copia subida a la nube')
@@ -43,6 +57,7 @@ export function BackupOffsiteSection() {
   })
   const enabled = status.data?.enabled ?? false
   const last = status.data?.last ?? null
+  const check = status.data?.check ?? null
 
   return (
     <Section
@@ -58,7 +73,7 @@ export function BackupOffsiteSection() {
     >
       <p className="text-sm text-muted-foreground">
         {enabled
-          ? 'Después de la copia de las 04:00 se sube otra igual fuera de Supabase (quedan las últimas 30). Si se perdiera la base, se restaura desde ahí.'
+          ? 'Después de la copia de las 04:00 se sube otra igual fuera de Supabase (quedan las de los últimos 30 días). Si se perdiera la base, se restaura desde ahí. Una vez por mes se baja la más nueva y se comprueba que se lee.'
           : 'Todavía no está configurada: falta crear el bucket (flyctl storage create). Mientras tanto, la copia queda solo en la base.'}
       </p>
       {enabled && last === null && status.isSuccess ? <p className="text-sm">Todavía no se subió ninguna.</p> : null}
@@ -78,6 +93,13 @@ export function BackupOffsiteSection() {
             </p>
           </div>
         </div>
+      ) : null}
+      {check ? (
+        <p className={check.ok ? 'text-sm text-muted-foreground' : 'text-sm text-destructive'}>
+          {check.ok
+            ? `Comprobada el ${formatDateTime(check.at)}: se bajó y se leyó bien.`
+            : `La comprobación del ${formatDateTime(check.at)} falló: ${check.error ?? 'error desconocido'}`}
+        </p>
       ) : null}
     </Section>
   )
