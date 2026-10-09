@@ -7,6 +7,7 @@ import {
   chunkSeed,
   comparePairings,
   deckRecord,
+  defaultReplaySample,
   type EngineStatus,
   engineEdition,
   estimateSeconds,
@@ -42,6 +43,12 @@ describe('seeds: the same values as engine-cli', () => {
     expect(gameSeed(42, 0)).not.toBe(gameSeed(42, 1))
     expect(gameSeed(42, 0)).not.toBe(gameSeed(43, 0))
     expect(BigInt(gameSeed(1, 2))).toBeLessThan(2n ** 64n)
+  })
+
+  it('replays kept per pairing by default: one in a matrix, two in a comparison', () => {
+    expect(defaultReplaySample('matrix')).toBe(1)
+    expect(defaultReplaySample('compare')).toBe(2)
+    expect(defaultReplaySample('explore')).toBe(2)
   })
 
   it('chunk seeds are base + idx, and random base seeds stay exact JavaScript integers', () => {

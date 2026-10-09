@@ -16,6 +16,7 @@ import {
   type DeckCardEntry,
   deckRecord,
   defaultKeyCards,
+  defaultReplaySample,
   describeProblems,
   estimateSeconds,
   type GameRecord,
@@ -199,7 +200,7 @@ export class SimulationsService {
     if (!Number.isSafeInteger(baseSeed) || baseSeed < 0 || baseSeed > MAX_BASE_SEED) {
       throw new BadRequestException({ code: 'validation', message: 'Semilla: un entero de 0 a 2^52.' })
     }
-    const replaySample = Math.min(5, Math.max(0, input.replaySample ?? 2))
+    const replaySample = Math.min(5, Math.max(0, input.replaySample ?? defaultReplaySample(input.kind)))
     const label = input.label?.trim() || defaultLabel(input.kind, sideA, sideB)
 
     let params: Prisma.InputJsonValue
