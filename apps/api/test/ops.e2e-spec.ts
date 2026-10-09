@@ -1,6 +1,8 @@
 import { gzipSync } from 'node:zlib'
-import { OFFSITE_KEPT, OffsiteBackupService } from '../src/backup/offsite.service.js'
+import { BackupCronService } from '../src/backup/backup-cron.service.js'
+import { OffsiteBackupService } from '../src/backup/offsite.service.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
+import { RetentionService } from '../src/ops/retention.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /** Fase 39: the cleanup of old replays and raw standings, and the copy outside Supabase. */
@@ -73,9 +75,17 @@ describe('retention and the copy outside Supabase (e2e)', () => {
     await chunk(matrix.id, 0, 1, 2, [{ at: t(50) }, { at: t(50) }])
     await chunk(matrix.id, 1, 1, 2, [{ at: t(49) }, { at: t(49) }])
     await chunk(matrix.id, 2, 1, 3, [{ at: t(48) }, { at: t(48) }])
-    // Archived: every replay goes. Finished 40 days ago: every replay goes.
-    await chunk((await job('compare', { archivedAt: t(1), finishedAt: t(10) })).id, 0, 4, 5, [{}, {}])
-    await chunk((await job('compare', { finishedAt: new Date(now - 40 * DAY) })).id, 0, 6, 7, [{}])
+    // Archived a minute ago: untouched (archiving is undone in a tap). Archived 8 days ago: one per pairing stays.
+    await chunk((await job('compare', { archivedAt: t(1), finishedAt: t(10) })).id, 0, 4, 5, [
+      { at: t(3) },
+      { at: t(3) },
+    ])
+    await chunk((await job('compare', { archivedAt: new Date(now - 8 * DAY), finishedAt: t(20) })).id, 0, 10, 11, [
+      { at: t(60) },
+      { at: t(60) },
+    ])
+    // Finished 40 days ago: every replay goes.
+    await chunk((await job('compare', { finishedAt: new Date(now - 40 * DAY) })).id, 0, 6, 7, [{ at: t(70) }])
     // Recent comparison: two big replays (60 MB each by their size field) push the total over 100 MB.
     await chunk((await job('compare', { finishedAt: t(5) })).id, 0, 8, 9, [
       { size: 60 * 1024 * 1024, at: t(2) },
@@ -99,10 +109,12 @@ describe('retention and the copy outside Supabase (e2e)', () => {
       })
     }
     const replaysBefore = await test.prisma.simulationReplay.count()
-    expect(replaysBefore).toBe(11)
+    expect(replaysBefore).toBe(13)
 
+    // Over budget, newest first: the newest big one stays (60 MB), the other big one is past 100 MB, and so is all
+    // that is older (the 2 archived a minute ago, 2 of the matrix, 1 of the one archived 8 days ago).
     const expected = {
-      replays: { archived: 2, oldJobs: 1, matrixExtra: 4, overBudget: 3 },
+      replays: { archived: 1, oldJobs: 1, matrixExtra: 4, overBudget: 6 },
       rawStandings: 1,
     }
     const dry = await post('/api/ops/retention')
@@ -120,8 +132,8 @@ describe('retention and the copy outside Supabase (e2e)', () => {
     // The newest big replay is the only one left; the chunks, jobs and tournaments stay.
     const left = await test.prisma.simulationReplay.findMany({ select: { sizeBytes: true } })
     expect(left).toEqual([{ sizeBytes: 60 * 1024 * 1024 }])
-    expect(await test.prisma.simulationChunk.count()).toBe(6)
-    expect(await test.prisma.simulationJob.count()).toBe(4)
+    expect(await test.prisma.simulationChunk.count()).toBe(7)
+    expect(await test.prisma.simulationJob.count()).toBe(5)
     const tournaments = await test.prisma.tournament.findMany({
       orderBy: { id: 'asc' },
       select: { id: true, rawStandingsGz: true },
@@ -139,10 +151,26 @@ describe('retention and the copy outside Supabase (e2e)', () => {
     })
   })
 
+  it('the daily run only with RETENTION_CRON (off by default, even in production)', async () => {
+    const archived = await job('compare', { archivedAt: new Date(Date.now() - 9 * DAY), finishedAt: new Date() })
+    await chunk(archived.id, 0, 20, 21, [{}, {}])
+    const retention = test.app.get(RetentionService)
+    expect(test.env.retentionCron).toBe(false)
+    await retention.daily()
+    expect(await test.prisma.simulationReplay.count({ where: { chunk: { jobId: archived.id } } })).toBe(2)
+    test.env.retentionCron = true
+    try {
+      await retention.daily()
+      expect(await test.prisma.simulationReplay.count({ where: { chunk: { jobId: archived.id } } })).toBe(1)
+    } finally {
+      test.env.retentionCron = false
+    }
+  })
+
   it('the copy outside Supabase: off without the bucket, then uploaded to a fake one; a failure is an alert', async () => {
-    expect((await get('/api/backup/offsite')).body).toEqual({ enabled: false, last: null })
+    expect((await get('/api/backup/offsite')).body).toEqual({ enabled: false, last: null, check: null })
     expect((await post('/api/backup/offsite')).status).toBe(400)
-    expect((await get('/api/ops/status')).body.backup.offsite).toEqual({ enabled: false, last: null })
+    expect((await get('/api/ops/status')).body.backup.offsite).toEqual({ enabled: false, last: null, check: null })
 
     test.env.offsite = {
       accessKeyId: 'AKIATEST',
@@ -156,7 +184,7 @@ describe('retention and the copy outside Supabase (e2e)', () => {
     const offsite = test.app.get(OffsiteBackupService)
     offsite.fetchImpl = async (request) => {
       expect(request.headers.get('authorization')).toMatch(/^AWS4-HMAC-SHA256 /)
-      const key = decodeURIComponent(new URL(request.url).pathname.replace(/^\/tcg\/?/, ''))
+      const key = decodeURIComponent(new URL(request.url).pathname.replace(/^\//, ''))
       if (request.method === 'PUT') {
         if (fail) return new Response('denied', { status: 403 })
         stored.set(key, (await request.arrayBuffer()).byteLength)
@@ -166,25 +194,32 @@ describe('retention and the copy outside Supabase (e2e)', () => {
         stored.delete(key)
         return new Response(null, { status: 204 })
       }
+      expect(new URL(request.url).host).toBe('tcg.bucket.test')
       const contents = [...stored.keys()]
         .map((name) => `<Contents><Key>${name}</Key><Size>1</Size></Contents>`)
         .join('')
       return new Response(`<ListBucketResult><IsTruncated>false</IsTruncated>${contents}</ListBucketResult>`)
     }
     try {
+      // «Subir ahora» with no daily copy yet makes one; with copies, it uploads the newest (the local ones do not rotate).
       const uploaded = await post('/api/backup/offsite')
       expect(uploaded.status).toBe(200)
       expect(uploaded.body.result).toMatchObject({ ok: true, error: null, kept: 1 })
+      const blobs = await test.prisma.backupBlob.count()
+      expect((await post('/api/backup/offsite')).body.result).toMatchObject({ ok: true, kept: 1 })
+      expect(await test.prisma.backupBlob.count()).toBe(blobs)
       expect([...stored.keys()]).toEqual([uploaded.body.result.key])
       expect([...stored.values()][0]).toBeGreaterThan(100)
-      expect((await get('/api/backup/offsite')).body).toMatchObject({ enabled: true, last: { ok: true } })
-      expect(OFFSITE_KEPT).toBe(30)
+      expect((await get('/api/backup/offsite')).body).toMatchObject({ enabled: true, last: { ok: true }, check: null })
 
-      // With the daily copy on, a failed upload is an alert (and so is none at all in 26 h).
+      // The daily task with the bucket refusing: the daily copy is fine (no backup_stale), the cloud one failed.
       test.env.backupCron = true
       fail = true
-      expect((await post('/api/backup/offsite')).body.result).toMatchObject({ ok: false })
+      await test.app.get(BackupCronService).daily()
+      expect(await test.prisma.appSetting.findUnique({ where: { key: 'backupFailure' } })).toBeNull()
+      expect((await get('/api/backup/offsite')).body.last).toMatchObject({ ok: false })
       const alerts = (await get('/api/alerts')).body.items as { code: string; title: string }[]
+      expect(alerts.filter((item) => item.code === 'backup_stale')).toEqual([])
       expect(alerts.filter((item) => item.code === 'backup_offsite').map((item) => item.title)[0]).toMatch(
         /^Falló la subida de la copia a la nube del /,
       )

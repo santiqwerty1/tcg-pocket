@@ -6,7 +6,7 @@
  */
 import { getHeapStatistics } from 'node:v8'
 import { Inject, Injectable } from '@nestjs/common'
-import { OffsiteBackupService, type OffsiteResult } from '../backup/offsite.service.js'
+import { OffsiteBackupService, type OffsiteCheck, type OffsiteResult } from '../backup/offsite.service.js'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { ENV, type Env } from '../config/env.js'
 import { PrismaService } from '../prisma/prisma.service.js'
@@ -47,7 +47,7 @@ export interface OpsStatusView {
     failure: { at: string; error: string } | null
     drill: { at: string; ok: boolean } | null
     /** Fase 39: the copy outside Supabase (the bucket). */
-    offsite: { enabled: boolean; last: OffsiteResult | null }
+    offsite: { enabled: boolean; last: OffsiteResult | null; check: OffsiteCheck | null }
   }
   /** Fase 39: the last cleanup of old replays and raw standings. */
   retention: RetentionResult | null
@@ -97,7 +97,7 @@ export class OpsService {
   }
 
   async backup(): Promise<OpsStatusView['backup']> {
-    const [last, copies, failure, drill, offsite] = await Promise.all([
+    const [last, copies, failure, drill, offsite, check] = await Promise.all([
       this.prisma.backupBlob.findFirst({
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true, sizeBytes: true },
@@ -106,6 +106,7 @@ export class OpsService {
       this.prisma.appSetting.findUnique({ where: { key: BACKUP_FAILURE_KEY } }),
       this.prisma.appSetting.findUnique({ where: { key: 'backupDrill' } }),
       this.offsite.last(),
+      this.offsite.lastCheck(),
     ])
     const failed = failure?.value as { at?: string; error?: string } | undefined
     const tried = drill?.value as { at?: string; ok?: boolean } | undefined
@@ -118,7 +119,7 @@ export class OpsService {
           ? { at: failed.at, error: failed.error ?? 'error desconocido' }
           : null,
       drill: tried?.at ? { at: tried.at, ok: tried.ok !== false } : null,
-      offsite: { enabled: this.offsite.enabled(), last: offsite },
+      offsite: { enabled: this.offsite.enabled(), last: offsite, check },
     }
   }
 

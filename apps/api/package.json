@@ -20,6 +20,7 @@
     "db:reset": "prisma migrate reset --force",
     "owner:init": "nest build && node dist/cli/owner-init.js",
     "catalog:sync": "nest build && node dist/cli/catalog-sync.js",
+    "retention": "nest build && node dist/cli/retention.js",
     "postinstall": "prisma generate"
   },
   "dependencies": {

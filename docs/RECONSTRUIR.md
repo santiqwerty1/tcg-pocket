@@ -18,8 +18,9 @@ Si se perdió Supabase, la del bucket es la que sirve.
 1. `flyctl storage list` muestra el bucket y `flyctl storage dashboard <bucket>` abre su consola en Tigris.
 2. Bajar el `backups/tcg-pocket-<fecha>.json.gz` más nuevo.
 
-**Con un cliente S3**, por ejemplo `aws` con el endpoint de Tigris:
+**Con un cliente S3**, por ejemplo `aws` con el endpoint de Tigris. Los buckets nuevos de Tigris solo aceptan direcciones de subdominio (`https://<bucket>.fly.storage.tigris.dev/…`), y `aws` las usa así:
 ```bash
+aws configure set default.s3.addressing_style virtual
 aws s3 ls s3://<bucket>/backups/ --endpoint-url https://fly.storage.tigris.dev
 aws s3 cp s3://<bucket>/backups/<archivo> . --endpoint-url https://fly.storage.tigris.dev
 ```
@@ -27,7 +28,7 @@ aws s3 cp s3://<bucket>/backups/<archivo> . --endpoint-url https://fly.storage.t
 - Si se perdieron, se generan unas nuevas desde la consola de Tigris.
 - Nunca se pegan en el chat.
 
-**De la app** (si sigue andando): Más → Copia de seguridad → descargar.
+**De la app**, solo si sigue andando y la base no se perdió: Más → Copia de seguridad → descargar. Si se perdió Supabase, la app no tiene copias para dar: la del bucket es la única.
 
 ## 2. Una base nueva
 
@@ -43,7 +44,10 @@ aws s3 cp s3://<bucket>/backups/<archivo> . --endpoint-url https://fly.storage.t
    - `SESSION_SECRET` (32 caracteres o más, nuevo);
    - `DATABASE_URL`;
    - `VAPID_PUBLIC_KEY` y `VAPID_PRIVATE_KEY`: generarlas de nuevo como dice CLAUDE.md. Cada celu vuelve a activar las notificaciones.
-3. El bucket: `flyctl storage create`, que deja los `AWS_*` y `BUCKET_NAME`.
+3. **El bucket que ya existe, no uno nuevo:** `flyctl storage create` haría un bucket vacío.
+   - Cargar las claves guardadas: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3` (`https://fly.storage.tigris.dev`) y `BUCKET_NAME`, con `flyctl secrets set`.
+   - Las claves se muestran una sola vez, al crear el bucket: guardarlas en el gestor de contraseñas ese día.
+   - Si se perdieron, se generan unas nuevas para el mismo bucket desde la consola de Tigris (`flyctl storage dashboard <bucket>`).
 
 **Desplegar:** `pnpm deploy:fly`. Las migraciones corren solas: dejan la base vacía con el esquema actual.
 
@@ -62,7 +66,8 @@ aws s3 cp s3://<bucket>/backups/<archivo> . --endpoint-url https://fly.storage.t
    - primero sale el **ensayo**: qué cambia, tabla por tabla;
    - después, **Reemplazar**.
 3. Si la copia es de otro commit del catálogo, el aviso `needs_review` pide revisar la colección y los mazos.
-4. La primera vez, después de restaurar, correr la **Prueba de restauración** (Más → Copia de seguridad). Compara la base con el archivo.
+4. Después de restaurar, correr la **Prueba de restauración** (Más → Copia de seguridad). Hace una copia nueva de la base y la restaura en una transacción que se deshace: confirma que la base quedó sana y legible.
+   - Para confirmar que es la misma que se subió, comparar el sha256 del archivo bajado con el de la última comprobación mensual del bucket (`/api/ops/status`, `backup.offsite.check`) o con `sha256sum`.
 
 ## 5. Lo que queda afuera
 
@@ -78,8 +83,9 @@ aws s3 cp s3://<bucket>/backups/<archivo> . --endpoint-url https://fly.storage.t
 
 ## Retención
 
-- **Limpieza diaria a las 04:20**, después de la copia. Se puede ver antes qué borraría con `POST /api/ops/retention`, que es solo una vista previa; `?apply=1` la corre.
-  - Borra las repeticiones de las simulaciones archivadas o terminadas hace más de 30 días.
+- **Limpieza diaria a las 04:20**, después de la copia, **apagada hasta prender `RETENTION_CRON=true`**.
+  - Antes se ve qué borraría: `node /app/apps/api/dist/cli/retention.js` (con `flyctl machine exec`) o `POST /api/ops/retention`. Las dos son una vista previa; `--apply` y `?apply=1` borran.
+  - En las simulaciones archivadas hace más de 7 días deja una repetición por cruce; borra las de las terminadas hace más de 30 días.
   - Deja una sola repetición por cruce en las matrices.
   - Mantiene todas las repeticiones juntas por debajo de 100 MB.
   - Borra los crudos de standings de los torneos de más de 180 días.

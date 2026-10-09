@@ -29,7 +29,8 @@ Se validan al arrancar (`src/config/env.ts`, zod); si falta algo el proceso term
 | `BACKUP_CRON` | no | `true` en producción, `false` si no | Copia diaria de seguridad a las 04:00 **hora de Buenos Aires** (`America/Argentina/Buenos_Aires`; el contenedor corre en UTC) en `backup_blobs`, conservando las últimas 14. |
 | `LOG_LEVEL` | no | `info` en producción, `debug` si no | Nivel de pino (`silent` apaga). |
 | `APP_VERSION` | no | versión de `package.json` | Lo que informa `/healthz`; `scripts/deploy.mjs` pone el sha del commit (Fase 38). |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`, `BUCKET_NAME` (y `AWS_REGION`, `auto`) | no | — | Fase 39: bucket S3 de la copia fuera de Supabase (los deja `flyctl storage create`, Tigris). Sin los cuatro, la copia queda solo en la base. |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`, `BUCKET_NAME` (y `AWS_REGION`, `auto`) | no | — | Fase 39: bucket S3 de la copia fuera de Supabase (los deja `flyctl storage create`, Tigris). Sin los cuatro, la copia queda solo en la base. `BUCKET_NAME` sin puntos (direcciones de subdominio). |
+| `RETENTION_CRON` | no | `false` | Fase 39: la limpieza diaria de repeticiones viejas (04:20). Apagada hasta que el dueño vio la vista previa (`pnpm -F @tcg/api retention` o `node dist/cli/retention.js`; `--apply` borra). |
 | `GITHUB_TOKEN` | no | — | Token de GitHub para los chequeos de deckgym (5.000 pedidos por hora en vez de 60 por IP compartida; Fase 38). |
 | `ARGON2_MEMORY_KIB`, `ARGON2_TIME_COST`, `ARGON2_PARALLELISM` | no | `19456`, `2`, `1` | Costo de argon2id para hashes nuevos (mínimo recomendado por OWASP: 19 MiB, 2 pasadas, 1 hilo). Los valores por defecto de la librería (64 MiB × 4 hilos) no entran en la máquina de 512 MB con varios intentos de login a la vez. El costo queda guardado en el hash: cambiarlo solo afecta contraseñas nuevas. |
 

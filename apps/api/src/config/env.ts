@@ -39,7 +39,15 @@ const envSchema = z.object({
   AWS_SECRET_ACCESS_KEY: z.string().min(1).optional(),
   AWS_ENDPOINT_URL_S3: z.url().optional(),
   AWS_REGION: z.string().min(1).default('auto'),
-  BUCKET_NAME: z.string().min(1).optional(),
+  BUCKET_NAME: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/, 'must be a bucket name without dots (virtual-hosted URLs)')
+    .optional(),
+  /**
+   * Fase 39: the daily cleanup of old replays (04:20). Off by default everywhere: it deletes for good, so it is turned
+   * on (`flyctl secrets set RETENTION_CRON=true`) after the owner saw a dry run.
+   */
+  RETENTION_CRON: z.stringbool().optional(),
   /** Fase 38 (R-011): optional GitHub token for the API checks (5.000 calls an hour instead of 60 per shared IP). */
   GITHUB_TOKEN: z.string().min(10).optional(),
   /** Fase 8: look at the tracker's `main` for new sets (production by default). */
@@ -86,6 +94,8 @@ export interface Env {
   engineUpstreamUrl: string
   /** Fase 38: sent to api.github.com when set. */
   githubToken: string | null
+  /** Fase 39: the daily cleanup runs (off unless RETENTION_CRON=true). */
+  retentionCron: boolean
   /** Fase 39: the bucket of the copy outside Supabase (null = off). */
   offsite: { accessKeyId: string; secretAccessKey: string; endpoint: string; region: string; bucket: string } | null
   trustProxy: number
@@ -142,6 +152,7 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
     trackerUpstreamUrl: raw.TRACKER_UPSTREAM_URL.replace(/\/+$/, ''),
     engineUpstreamUrl: raw.ENGINE_UPSTREAM_URL.replace(/\/+$/, ''),
     githubToken: raw.GITHUB_TOKEN ?? null,
+    retentionCron: raw.RETENTION_CRON ?? false,
     offsite:
       raw.AWS_ACCESS_KEY_ID && raw.AWS_SECRET_ACCESS_KEY && raw.AWS_ENDPOINT_URL_S3 && raw.BUCKET_NAME
         ? {
