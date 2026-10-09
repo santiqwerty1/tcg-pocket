@@ -1,6 +1,7 @@
 {
   "name": "@tcg/api",
   "version": "0.0.0",
+  "license": "AGPL-3.0-only",
   "description": "NestJS single process: REST API, PWA static serving, worker queue, Limitless scheduler and MCP endpoint.",
   "private": true,
   "type": "module",

@@ -1,6 +1,7 @@
 {
   "name": "@tcg/domain",
   "version": "0.0.0",
+  "license": "AGPL-3.0-only",
   "private": true,
   "description": "Pure domain logic for the TCG Pocket app: catalog, collection, decks, packs, stats. No I/O, no frameworks.",
   "type": "module",

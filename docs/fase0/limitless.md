@@ -133,7 +133,7 @@ Cadencia: set grande el último jueves/miércoles de un mes, mini a los ~30 día
 ## 4. Formatos de texto de mazos
 
 ### 4a. Limitless, página de decklist de torneo (`/tournament/<id|alias>/player/<player>/decklist`)
-Tiene botón `button.export` "Copy to Clipboard" que copia la constante JS `decklist` (verificado en `decklist.html` de PMPT #45, jugador `jugador-194`). Texto exacto (CRLF, bloques separados por línea vacía, sin encabezados `Pokémon:`/`Trainer:`, energía al final):
+Tiene botón `button.export` "Copy to Clipboard" que copia la constante JS `decklist` (verificado en `decklist.html` de un jugador de PMPT #45). Texto exacto (CRLF, bloques separados por línea vacía, sin encabezados `Pokémon:`/`Trainer:`, energía al final):
 ```
 2 Treecko B3 5
 1 Grovyle B3 6
@@ -281,7 +281,7 @@ Sitios que ya hacen esto (no OSS): pokemonmeta.com y trainerhill.com (showcase o
 **Web**
 - https://docs.limitlesstcg.com/developer.html, /developer/tournaments.html, /developer/games.html, /developer/webhooks.html
 - https://play.limitlesstcg.com/api/tournaments?game=POCKET&limit=200 (+page=2, limit=500&page=3, format=NOEX, format=STANDARD); /api/tournaments/6a9ebbfcab080c8c957fcc9a/standings; /api/tournaments/6a95b87b629039f77d8a6954/standings y /details; /api/games; /api/games/POCKET/decks
-- https://play.limitlesstcg.com/decks?game=POCKET (y &format=standard&set=B4 / B3b / B4a); https://play.limitlesstcg.com/tournament/6a95b87b629039f77d8a6954/standings; https://play.limitlesstcg.com/tournament/pmpt45/player/jugador-194/decklist
+- https://play.limitlesstcg.com/decks?game=POCKET (y &format=standard&set=B4 / B3b / B4a); https://play.limitlesstcg.com/tournament/6a95b87b629039f77d8a6954/standings; https://play.limitlesstcg.com/tournament/pmpt45/player/<jugador>/decklist
 - https://pocket.limitlesstcg.com/cards (tabla de sets con fechas), /cards/B2/113, /cards/B2/113?lang=es, /es/cards/B2/113 (404)
 - https://my.limitlesstcg.com/builder?game=pocket
 - https://api.tcgdex.net/v2/es/series/tcgp, /v2/es/cards/A1-001, /v2/es/sets/B2, /v2/en/series/tcgp
