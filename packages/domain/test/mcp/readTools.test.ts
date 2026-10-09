@@ -30,6 +30,7 @@ describe('MCP read tools', () => {
         'decks_list',
         'decks_pick_today',
         'decks_missing',
+        'decks_next_build',
         'decks_random',
         'decks_validate',
         'events_check',

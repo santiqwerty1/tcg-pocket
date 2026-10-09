@@ -1170,6 +1170,24 @@ export const listAgainstSchema = listRowSchema.extend({
 export type ListAgainstCollection = z.infer<typeof listAgainstSchema>
 
 export const archetypesResponseSchema = z.object({ scope: scopeSchema, rows: z.array(archetypeRowSchema) })
+
+/** Fase 44: «¿qué mazo armo después?» — per archetype, its closest list and what finishing it costs. */
+export const nextBuildSchema = z.object({
+  scope: scopeSchema,
+  maxMissing: z.number(),
+  rows: z.array(
+    z.object({
+      archetype: archetypeRowSchema,
+      closest: listAgainstSchema,
+      points: z.number().nullable(),
+      unpriced: z.number(),
+      tradeable: z.number(),
+      built: z.boolean(),
+    }),
+  ),
+  note: z.string(),
+})
+export type NextBuild = z.infer<typeof nextBuildSchema>
 export const listsResponseSchema = z.object({ scope: scopeSchema, rows: z.array(listRowSchema), total: z.number() })
 
 export const withWithoutSchema = z.object({

@@ -317,6 +317,22 @@ export const MCP_READ_TOOLS = {
       limit: z.number().int().min(1).max(40).optional().describe('Mazos a devolver (por defecto 10)'),
     }),
   },
+  decksNextBuild: {
+    name: 'decks_next_build',
+    title: '¿Qué mazo armo después?',
+    description: `Para cada arquetipo de torneo de la era, la lista exacta más cercana a la colección de Santi (menos copias faltantes y, a igualdad, la más jugada), qué le falta, cuánto cuesta en puntos de sobre (la versión más barata de cada carta) y cuántas copias se pueden intercambiar, con el récord del arquetipo en torneos. Orden: el extremo bajo del intervalo del arquetipo (uno con pocas listas no pasa adelante por suerte); los arquetipos de los que ya tiene un mazo van al final («alreadyHaveADeck»). ${TOURNAMENT_NOTE}`,
+    input: z.object({
+      ...tournamentScope,
+      maxMissing: z
+        .number()
+        .int()
+        .min(0)
+        .max(20)
+        .optional()
+        .describe('Copias faltantes como máximo (por defecto 8; 0 = solo lo que se arma hoy)'),
+      limit: z.number().int().min(1).max(30).optional().describe('Arquetipos a devolver (por defecto 8)'),
+    }),
+  },
   matchesMyMeta: {
     name: 'matches_my_meta',
     title: 'Mi meta',

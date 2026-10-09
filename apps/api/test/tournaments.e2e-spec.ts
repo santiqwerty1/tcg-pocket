@@ -689,6 +689,34 @@ describe('tournaments (e2e)', () => {
       expect((await test.http().delete(`/api/matches/${id}`).set('Cookie', cookie)).status).toBe(204)
   })
 
+  it('¿qué mazo armo después? (Fase 44): per archetype its closest list, the cost and whether I have one', async () => {
+    const view = (await get('/api/decks-next')).body as {
+      maxMissing: number
+      rows: {
+        archetype: { archetype: { id: string; name: string }; lists: number; rate: { ci95: number[] } | null }
+        closest: { missingCopies: number; missing: { nameEs: string; need: number; have: number }[] }
+        points: number | null
+        unpriced: number
+        built: boolean
+      }[]
+      note: string
+    }
+    expect(view.maxMissing).toBe(8)
+    expect(view.rows.length).toBeGreaterThan(0)
+    for (const row of view.rows) {
+      expect(row.closest.missingCopies).toBeLessThanOrEqual(8)
+      expect(row.archetype.lists).toBeGreaterThanOrEqual(10)
+      if (row.closest.missingCopies === 0) expect(row.points).toBe(0)
+    }
+    // Not built first, then by the low end of the interval.
+    const firstBuilt = view.rows.findIndex((row) => row.built)
+    if (firstBuilt >= 0) expect(view.rows.slice(firstBuilt).every((row) => row.built)).toBe(true)
+    const ready = (await get('/api/decks-next?maxMissing=0')).body as typeof view
+    expect(ready.rows.every((row) => row.closest.missingCopies === 0)).toBe(true)
+    expect(view.note).toContain('extremo bajo')
+    expect((await get('/api/decks-next?maxMissing=99')).status).toBe(400)
+  })
+
   it('eventos (Fase 16): which decks and which tournament lists comply with an event', async () => {
     const created = await post('/api/events').send({
       name: 'Copa sin ex',
@@ -856,6 +884,9 @@ describe('tournaments (e2e)', () => {
       const one = await call('tournaments_matchups', { archetype: top?.name })
       expect((one.rivals as unknown[]).length).toBeGreaterThan(5)
       expect(one.expectedAgainstMeta).toMatchObject({ value: expect.stringMatching(/ %$/) })
+      const next = await call('decks_next_build', { limit: 3 })
+      expect((next.archetypes as unknown[]).length).toBeGreaterThan(0)
+      expect(String((next.archetypes as { cost: string }[])[0]?.cost)).toMatch(/puntos de sobre|sin precio/)
       const myMeta = await call('matches_my_meta', {})
       expect(typeof myMeta.enough).toBe('boolean')
       expect(String(myMeta.text).length).toBeGreaterThan(10)

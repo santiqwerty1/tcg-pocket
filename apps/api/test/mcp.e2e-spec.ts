@@ -130,6 +130,7 @@ describe('MCP endpoint (e2e)', () => {
       'decks_get',
       'decks_list',
       'decks_missing',
+      'decks_next_build',
       'decks_pick_today',
       'decks_random',
       'decks_validate',

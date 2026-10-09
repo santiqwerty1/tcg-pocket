@@ -426,3 +426,19 @@ export interface DeckVersionsView {
 export interface DeckVersionDetailView extends DeckVersionView {
   scope: ScopeView
 }
+
+/** Fase 44: «¿qué mazo armo después?» — per archetype, its closest list and what finishing it costs. */
+export interface NextBuildView {
+  scope: ScopeView
+  maxMissing: number
+  rows: {
+    archetype: ArchetypeRowView
+    closest: ListAgainstCollectionView
+    /** Pack points for every missing copy (cheapest print); null when some copy has no point price. */
+    points: number | null
+    unpriced: number
+    tradeable: number
+    built: boolean
+  }[]
+  note: string
+}

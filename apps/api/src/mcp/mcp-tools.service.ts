@@ -41,6 +41,7 @@ import { DecksService } from '../decks/decks.service.js'
 import { EventsService } from '../events/events.service.js'
 import type { RowView } from '../matches/match-views.js'
 import { MatchesService } from '../matches/matches.service.js'
+import { NextBuildService } from '../next-build/next-build.controller.js'
 import { OpsService } from '../ops/ops.service.js'
 import { PacksService } from '../packs/packs.service.js'
 import { PickService } from '../pick/pick.service.js'
@@ -175,6 +176,7 @@ export class McpToolsService {
     private readonly deckRefs: DeckRefResolver,
     private readonly rivalNotes: RivalNotesService,
     private readonly pick: PickService,
+    private readonly nextBuild: NextBuildService,
     private readonly events: EventsService,
     private readonly writeTools: McpWriteToolsService,
     private readonly labTools: McpLabToolsService,
@@ -272,6 +274,9 @@ ${MCP_CHAT_INSTRUCTIONS}`
     )
     server.registerTool(t.matchesMyMeta.name, config(t.matchesMyMeta), (args) =>
       run(t.matchesMyMeta.name, () => this.matchesMyMeta(args)),
+    )
+    server.registerTool(t.decksNextBuild.name, config(t.decksNextBuild), (args) =>
+      run(t.decksNextBuild.name, () => this.decksNextBuild(args)),
     )
     server.registerTool(t.decksDrawOdds.name, config(t.decksDrawOdds), (args) =>
       run(t.decksDrawOdds.name, () => this.decksDrawOdds(args)),
@@ -1439,6 +1444,43 @@ ${MCP_CHAT_INSTRUCTIONS}`
         games: row.games,
       })),
       unmatched: view.unmatched.slice(0, 10).map((row) => `${row.label} (${row.games})`),
+    }
+  }
+
+  private async decksNextBuild(args: {
+    era?: string
+    format?: TournamentFormat
+    maxMissing?: number
+    limit?: number
+  }): Promise<Json> {
+    const view = await this.nextBuild.next({
+      era: args.era,
+      format: args.format,
+      maxMissing: args.maxMissing,
+      limit: args.limit ?? 8,
+    })
+    return {
+      scope: await this.scopeJson(view.scope),
+      maxMissingCopies: view.maxMissing,
+      archetypes: view.rows.map((row) => ({
+        archetype: row.archetype.archetype.name,
+        tournamentRate: rateView(row.archetype.rate),
+        alreadyHaveADeck: row.built,
+        closestList: {
+          key: row.closest.key,
+          playedBy: row.closest.lists,
+          rate: rateView(row.closest.rate),
+          missing:
+            row.closest.missing.length === 0
+              ? 'nada: se puede armar hoy'
+              : row.closest.missing.map((item) => `${item.nameEs}: tenés ${item.have} de ${item.need}`),
+        },
+        cost:
+          row.points === null
+            ? `${row.unpriced} copias sin precio en puntos`
+            : `${row.points} puntos de sobre (${row.tradeable} copias intercambiables)`,
+      })),
+      note: view.note,
     }
   }
 

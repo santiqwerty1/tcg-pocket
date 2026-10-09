@@ -41,7 +41,10 @@ import {
   metaShares,
   metaTrends,
   mostCommonEnergies,
+  NEXT_BUILD_MAX_MISSING,
+  type NextBuildCost,
   newEraWarning,
+  nextBuilds,
   phaseBestOf,
   playableCopies,
   type RateDifference,
@@ -91,6 +94,7 @@ import type {
   ListsView,
   MatchupMatrixView,
   MetaTrendsView,
+  NextBuildView,
   RecordRowView,
   ScopeView,
   SetProposalView,
@@ -820,6 +824,38 @@ export class TournamentsService {
         .sort((a, b) => a.missingCopies - b.missingCopies || b.list.lists - a.list.lists)
         .slice(0, limit)
         .map((row) => this.againstView(dataset, row, scope.index)),
+    }
+  }
+
+  /**
+   * Fase 44: per archetype of the era, the exact list closest to the collection and what finishing it costs (`cost`
+   * comes from the pack rules), ranked by the archetype's rate at the low end of its interval.
+   */
+  async nextBuilds(
+    query: ScopeQuery & { maxMissing?: number | undefined; limit?: number | undefined },
+    options: { cost: (groupId: CardId) => NextBuildCost | null; built: (archetypeId: string) => boolean },
+  ): Promise<NextBuildView> {
+    const scope = await this.scope(query)
+    const dataset = await this.dataset(scope)
+    const maxMissing = query.maxMissing ?? NEXT_BUILD_MAX_MISSING
+    const rows = nextBuilds(dataset, {
+      playable: await this.playable(scope.index),
+      cost: options.cost,
+      built: options.built,
+      maxMissing,
+    })
+    return {
+      scope: this.scopeView(scope, dataset),
+      maxMissing,
+      rows: rows.slice(0, query.limit ?? 20).map((row) => ({
+        archetype: { archetype: this.archetypeRef(dataset, row.archetypeId), ...rowView(row.archetype) },
+        closest: this.againstView(dataset, row.closest, scope.index),
+        points: row.points,
+        unpriced: row.unpriced,
+        tradeable: row.tradeable,
+        built: row.built,
+      })),
+      note: 'Por arquetipo, la lista exacta de torneo más cercana a tu colección (menos copias faltantes y, a igualdad, la más jugada). Orden: el récord del arquetipo en torneos por el extremo bajo de su intervalo, así uno con pocas listas no pasa adelante por suerte. El costo es la versión más barata de cada carta en puntos de sobre; también se pueden intercambiar las que dicen «intercambiables».',
     }
   }
 

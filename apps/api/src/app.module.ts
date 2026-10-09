@@ -19,6 +19,7 @@ import { LabModule } from './lab/lab.controller.js'
 import { loggerModule } from './logging/logger.module.js'
 import { MatchesModule } from './matches/matches.module.js'
 import { McpModule } from './mcp/mcp.module.js'
+import { NextBuildModule } from './next-build/next-build.controller.js'
 import { NotificationsModule } from './notifications/notifications.controller.js'
 import { PresenceModule } from './notifications/presence.service.js'
 import { PacksModule } from './packs/packs.controller.js'
@@ -70,6 +71,7 @@ export class AppModule implements NestModule {
         LabModule,
         CalibrationModule,
         PickModule,
+        NextBuildModule,
         SearchModule,
         DrillsModule,
         TradesModule,
