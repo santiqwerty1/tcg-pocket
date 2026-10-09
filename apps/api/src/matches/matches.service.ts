@@ -120,6 +120,7 @@ export interface MatchListQuery {
   result?: MatchResult | undefined
   /** Free text: matches whose opponent key contains its key («blaz» finds «Mega-Blaziken ex»). */
   opponent?: string | undefined
+  opponentMatch?: 'contains' | 'exact' | undefined
   from?: string | undefined
   to?: string | undefined
   limit: number
@@ -229,9 +230,11 @@ export class MatchesService {
       return { items: records.map(toView), total }
     }
     // The opponent groups by a normalized key the database does not know: filter in memory (a few thousand rows).
-    const records = (await this.prisma.match.findMany({ where, include: matchInclude, orderBy })).filter(
-      (record) => opponentKey(record.opponentText)?.includes(key) ?? false,
-    )
+    const exact = query.opponentMatch === 'exact'
+    const records = (await this.prisma.match.findMany({ where, include: matchInclude, orderBy })).filter((record) => {
+      const recordKey = opponentKey(record.opponentText)
+      return exact ? recordKey === key : (recordKey?.includes(key) ?? false)
+    })
     return {
       items: records.slice(query.offset, query.offset + query.limit).map(toView),
       total: records.length,

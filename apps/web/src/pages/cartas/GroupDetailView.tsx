@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
+import { WhereToGet } from './WhereToGet'
 
 const EVOLUTION_LABEL: Record<string, string> = {
   basic: 'Básico',
@@ -143,6 +144,8 @@ export function GroupDetailView({ group, highlightCardId }: { group: GroupDetail
           ★ edición que se usa al armar mazos. Las gemelas comparten el stock.
         </p>
       </Section>
+
+      <WhereToGet group={group} />
 
       <Section title={`Mazos que la usan (${group.decks.length})`}>
         {group.decks.length === 0 ? (

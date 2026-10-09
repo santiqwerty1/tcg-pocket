@@ -67,7 +67,10 @@ export function QuickMatchForm({
   }, [filter, suggestions.decks])
 
   const { askWentFirst } = useUiSettings()
-  const canSave = deckId !== null && result !== null && (!askWentFirst || wentFirst !== null) && !create.isPending
+  // Fase 41: a rival note being edited is saved or cancelled first; saving the match resets the rival and would drop it.
+  const [noteEditing, setNoteEditing] = useState(false)
+  const canSave =
+    deckId !== null && result !== null && (!askWentFirst || wentFirst !== null) && !noteEditing && !create.isPending
 
   async function undo(id: string) {
     try {
@@ -138,7 +141,10 @@ export function QuickMatchForm({
       <DeckChips decks={suggestions.decks} value={deckId} onChange={setDeckId} onMore={() => setPickerOpen(true)} />
       <ResultPicker value={result} onChange={setResult} />
       <OpponentField value={opponent} onChange={setOpponent} suggestions={opponentChoices} />
-      <RivalNoteHint opponent={opponent} />
+      <RivalNoteHint key={opponentKeyOf(opponent)} opponent={opponent} onEditingChange={setNoteEditing} />
+      {noteEditing ? (
+        <p className="-mt-2 text-xs text-warning">Guardá o cancelá la nota del rival antes de guardar la partida.</p>
+      ) : null}
       <WentFirstPicker value={wentFirst} onChange={setWentFirst} />
       {askWentFirst && wentFirst === null && deckId !== null && result !== null ? (
         <p className="-mt-2 text-xs text-warning">Falta quién empezó (lo pediste en los ajustes).</p>
@@ -154,15 +160,18 @@ export function QuickMatchForm({
           onChange={(event) => setNote(event.target.value)}
         />
       ) : (
-        <Button type="button" variant="ghost" size="sm" className="self-start" onClick={() => setNoteOpen(true)}>
+        <Button type="button" variant="ghost" className="self-start" onClick={() => setNoteOpen(true)}>
           <ChevronDownIcon data-icon="inline-start" />
           Agregar nota
         </Button>
       )}
-      <Button type="submit" size="lg" className="h-14 text-base" disabled={!canSave}>
-        {create.isPending ? <Spinner /> : <SaveIcon data-icon="inline-start" />}
-        Guardar partida
-      </Button>
+      {/* Fase 41: always in reach above the bottom bar, however long the form above gets. */}
+      <div className="sticky bottom-20 z-20 rounded-lg border bg-background/95 p-2 backdrop-blur">
+        <Button type="submit" size="lg" className="h-14 w-full text-base" disabled={!canSave}>
+          {create.isPending ? <Spinner /> : <SaveIcon data-icon="inline-start" />}
+          Guardar partida
+        </Button>
+      </div>
       {lastLoss ? (
         <LuckCard
           key={`${lastLoss.deckId}|${lastLoss.opponent ?? ''}`}

@@ -258,6 +258,9 @@ describe('matches (e2e)', () => {
     expect((await get('/api/matches?opponent=mega-blaziken%20EX')).body.total).toBe(11)
     expect((await get('/api/matches?opponent=BLAZ%C3%8DKEN')).body.total).toBe(11)
     expect((await get('/api/matches?opponent=gardevoir')).body.total).toBe(0)
+    // Fase 41: a stats row opens its own matches only — «exact» compares the whole key, not a part of it.
+    expect((await get('/api/matches?opponent=Mega-Blaziken%20ex&opponentMatch=exact')).body.total).toBe(11)
+    expect((await get('/api/matches?opponent=blaziken&opponentMatch=exact')).body.total).toBe(0)
     expect((await get(`/api/matches?deckId=${deck(1).id}&result=loss`)).body.total).toBe(3)
     expect((await get('/api/matches?limit=500')).status).toBe(400)
 

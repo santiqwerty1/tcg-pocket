@@ -41,8 +41,8 @@ export function buildUrl(path: string, query?: Query): string {
   return qs ? `${path}?${qs}` : path
 }
 
-/** Hook used on 401; replaced in tests. */
-let unauthenticatedHandler: () => void | Promise<void> = () => resetClientAndLogin()
+/** Hook used on 401 (an expired session keeps the service worker, P-012); replaced in tests. */
+let unauthenticatedHandler: () => void | Promise<void> = () => resetClientAndLogin('expired')
 export function setUnauthenticatedHandler(handler: () => void | Promise<void>): void {
   unauthenticatedHandler = handler
 }

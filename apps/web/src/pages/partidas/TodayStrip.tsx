@@ -8,6 +8,7 @@ import {
   BellIcon,
   CalendarDaysIcon,
   CpuIcon,
+  FileSpreadsheetIcon,
   FlaskConicalIcon,
   type LucideIcon,
   SwordsIcon,
@@ -18,6 +19,7 @@ import {
 import { useMemo } from 'react'
 import { Link } from 'react-router'
 import { useAlerts } from '@/api/alerts'
+import { useCollectionSummary } from '@/api/collection'
 import { usePickToday } from '@/api/decks'
 import { useLabJobs } from '@/api/lab'
 import { useMatchStats } from '@/api/matches'
@@ -26,6 +28,7 @@ import { usePuzzles } from '@/api/puzzles'
 import { useSimulations } from '@/api/simulations'
 import { useMetaTrends } from '@/api/tournaments'
 import { useWeekSummary } from '@/api/weekly'
+import { csvAgeNotice } from '@/lib/csvAge'
 import { formatRecord } from '@/lib/matches'
 import { lastSeen } from '@/lib/seen'
 import { cn } from '@/lib/utils'
@@ -54,6 +57,7 @@ export function TodayStrip() {
   const simulations = useSimulations()
   const lab = useLabJobs()
   const pick = usePickToday('tournament')
+  const collection = useCollectionSummary()
   const today = useMatchStats({ from })
   const trends = useMetaTrends({}, 7)
   // Fase 32: last week, on Mondays and Tuesdays.
@@ -81,6 +85,18 @@ export function TodayStrip() {
       detail: alert.detail,
       to: alert.link ?? '/mas',
       tone: alert.level === 'warning' ? 'warning' : undefined,
+    })
+  }
+  // Fase 41: the CSV goes stale (BRIEF §1); after a week, say it here.
+  const csvNotice = collection.data ? csvAgeNotice(collection.data.lastImportAt) : null
+  if (csvNotice) {
+    lines.push({
+      key: 'csv',
+      icon: FileSpreadsheetIcon,
+      text: csvNotice,
+      detail: 'Importá uno nuevo para que los mazos y los sobres usen tu colección de hoy',
+      to: '/coleccion/importar',
+      tone: 'warning',
     })
   }
   const pending = puzzles.data?.counts.pending ?? 0

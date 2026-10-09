@@ -85,6 +85,12 @@ function TournamentDetail({
           }))}
         />
       ) : null}
+      {/* Only when the archetype has lists in this era: an id kept from an older era would open a 404. */}
+      {tournamentArchetypeId && archetypes.data?.rows.some((row) => row.archetype.id === tournamentArchetypeId) ? (
+        <Link to={`/torneos/arquetipos/${encodeURIComponent(tournamentArchetypeId)}`} className="text-sm underline">
+          Ver el arquetipo en Torneos
+        </Link>
+      ) : null}
       {archetypes.data && archetypes.data.rows.length > 0 ? (
         <Select value={tournamentArchetypeId ?? GUESS} onValueChange={choose}>
           <SelectTrigger aria-label="Arquetipo del mazo en torneos" className="w-full">

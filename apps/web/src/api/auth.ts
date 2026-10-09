@@ -18,8 +18,8 @@ export function useMe() {
 export function useLogout() {
   return useMutation({
     mutationFn: () => request('/api/auth/logout', { method: 'POST' }),
-    // Whether or not the API answered, the local caches go and the browser lands on /login.
-    onSettled: () => resetClientAndLogin(),
+    // Whether or not the API answered, the local caches and the service worker go and the browser lands on /login.
+    onSettled: () => resetClientAndLogin('logout'),
   })
 }
 

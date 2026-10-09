@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { formatInterval, formatRateValue } from '@/lib/matches'
 import { cardLabels, formatCount, formatShare, scopeFromSearch, scopeSearch } from '@/lib/tournaments'
 import { cn } from '@/lib/utils'
+import { ArchetypeMine } from './ArchetypeMine'
 
 export function ArchetypePage() {
   const { id = '' } = useParams()
@@ -133,6 +134,14 @@ export function ArchetypePage() {
           ))}
         </ul>
       </Section>
+
+      {archetype.archetype.id ? (
+        <ArchetypeMine
+          archetypeId={archetype.archetype.id}
+          merged={detail.data.merged}
+          name={archetype.archetype.name}
+        />
+      ) : null}
 
       {archetype.archetype.id ? (
         <Section title="Mis notas">

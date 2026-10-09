@@ -137,4 +137,36 @@ describe('clearClientCaches', () => {
     expect(deleted).toEqual(['workbox-precache-v2', 'other'])
     expect(unregister).toHaveBeenCalledTimes(2)
   })
+
+  it('keeps the service worker, its caches and what was shared when the session only expired (P-012)', async () => {
+    const deleted: string[] = []
+    vi.stubGlobal('caches', {
+      keys: async () => ['workbox-precache-v2', 'shared-files'],
+      delete: async (key: string) => {
+        deleted.push(key)
+        return true
+      },
+    })
+    const unregister = vi.fn(async () => true)
+    vi.stubGlobal('navigator', { serviceWorker: { getRegistrations: async () => [{ unregister }] } })
+    localStorage.setItem('tcg.match-suggestions', '{}')
+    await clearClientCaches('expired')
+    expect(deleted).toEqual([])
+    expect(unregister).not.toHaveBeenCalled()
+    expect(localStorage.getItem('tcg.match-suggestions')).toBeNull()
+  })
+
+  it('keeps what was shared even when logging out', async () => {
+    const deleted: string[] = []
+    vi.stubGlobal('caches', {
+      keys: async () => ['workbox-precache-v2', 'shared-files'],
+      delete: async (key: string) => {
+        deleted.push(key)
+        return true
+      },
+    })
+    vi.stubGlobal('navigator', { serviceWorker: { getRegistrations: async () => [] } })
+    await clearClientCaches('logout')
+    expect(deleted).toEqual(['workbox-precache-v2'])
+  })
 })

@@ -8,6 +8,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }
 const API_ORIGIN = process.env.VITE_API_ORIGIN ?? 'http://localhost:3000'
+const SHORTCUT_ICON = { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }
 
 export default defineConfig(({ mode }) => ({
   define: {
@@ -39,6 +40,33 @@ export default defineConfig(({ mode }) => ({
               { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
               { src: '/icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
             ],
+            // Fase 41: long-press on the icon. Logging a match is the most frequent action.
+            shortcuts: [
+              { name: 'Cargar partida', short_name: 'Partida', url: '/partidas', icons: [SHORTCUT_ICON] },
+              { name: 'Mazos', url: '/mazos', icons: [SHORTCUT_ICON] },
+              { name: 'Sobres', url: '/sobres', icons: [SHORTCUT_ICON] },
+              {
+                name: 'Importar el CSV',
+                short_name: 'Importar CSV',
+                url: '/coleccion/importar',
+                icons: [SHORTCUT_ICON],
+              },
+            ],
+            // Fase 41: «Compartir» from Files or a chat sends the tracker's CSV or a deck's text straight here
+            // (public/push-sw.js answers the POST and opens the import screen).
+            share_target: {
+              action: '/compartir',
+              method: 'POST',
+              enctype: 'multipart/form-data',
+              params: {
+                title: 'title',
+                text: 'text',
+                url: 'url',
+                files: [
+                  { name: 'file', accept: ['text/csv', '.csv', 'text/comma-separated-values', 'text/plain', '.txt'] },
+                ],
+              },
+            },
           },
           workbox: {
             // Fase 18: the push and notificationclick handlers (public/push-sw.js).
@@ -95,5 +123,7 @@ export default defineConfig(({ mode }) => ({
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
     css: false,
+    // Screen tests walk whole flows through lazy routes: room for a slow or busy machine (CI, Windows).
+    testTimeout: 20_000,
   },
 }))

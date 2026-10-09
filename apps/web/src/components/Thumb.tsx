@@ -18,6 +18,9 @@ export function Thumb({ src, alt, className }: { src: string | null | undefined;
       height={50}
       loading="lazy"
       decoding="async"
+      // CORS like the board's images (Fase 41): the service worker can only keep a non-opaque answer, so with this
+      // the thumbnails are cached too and show without signal.
+      crossOrigin="anonymous"
       onError={() => setFailed(true)}
       className={cn('h-[50px] w-9 shrink-0 rounded bg-muted object-cover', className)}
     />

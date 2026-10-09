@@ -4,8 +4,8 @@ import { formatPlayedAt, MODE_LABEL, RESULT_LABEL, RESULT_SHORT } from '@/lib/ma
 import { cn } from '@/lib/utils'
 
 const RESULT_BADGE: Record<MatchResult, string> = {
-  win: 'bg-success text-white',
-  loss: 'bg-destructive text-white',
+  win: 'bg-success text-success-foreground',
+  loss: 'bg-destructive text-destructive-foreground',
   tie: 'bg-muted text-foreground',
 }
 

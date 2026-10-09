@@ -1,13 +1,13 @@
-import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
+import { ChevronLeftIcon, ChevronRightIcon, XIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { type MatchListParams, useMatches, useMatchSuggestions } from '@/api/matches'
-import { MATCH_RESULTS, type MatchResult } from '@/api/schemas'
+import { MATCH_MODES, MATCH_RESULTS, type MatchMode, type MatchResult } from '@/api/schemas'
 import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { RESULT_LABEL } from '@/lib/matches'
+import { MODE_LABEL, PERIODS, type PeriodKey, periodFrom, RESULT_LABEL } from '@/lib/matches'
 import { useDebouncedValue } from '@/lib/useDebounce'
 import { ChoiceGroup } from './MatchFields'
 import { MatchList } from './MatchList'
@@ -20,7 +20,16 @@ export function MatchHistoryPage() {
   const [params, setParams] = useSearchParams()
   const deckId = params.get('mazo') ?? ALL
   const [result, setResult] = useState<MatchResult | null>(null)
-  const [opponent, setOpponent] = useState('')
+  // `?rival=` from a stats row or an archetype (Fase 41).
+  const [opponent, setOpponent] = useState(() => params.get('rival') ?? '')
+  // With `?exacto=1` only that rival, not every name that contains it; typing goes back to a search.
+  const [exact, setExact] = useState(() => params.get('exacto') === '1')
+  // A stats row also passes its modality and period (Fase 41), so the history shows the matches the row counted.
+  const modeParam = params.get('modalidad')
+  const mode = (MATCH_MODES as readonly string[]).includes(modeParam ?? '') ? (modeParam as MatchMode) : null
+  const periodParam = params.get('periodo')
+  const period = PERIODS.find((item) => item.key === periodParam && item.key !== 'all')
+  const from = useMemo(() => (period ? periodFrom(period.key as PeriodKey) : undefined), [period])
   const [page, setPage] = useState(0)
   const debouncedOpponent = useDebouncedValue(opponent.trim(), 300)
   const suggestions = useMatchSuggestions()
@@ -29,11 +38,14 @@ export function MatchHistoryPage() {
     () => ({
       ...(deckId === ALL ? {} : { deckId }),
       ...(result ? { result } : {}),
+      ...(mode ? { mode } : {}),
+      ...(from ? { from } : {}),
       ...(debouncedOpponent ? { opponent: debouncedOpponent } : {}),
+      ...(debouncedOpponent && exact ? { opponentMatch: 'exact' as const } : {}),
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
     }),
-    [deckId, result, debouncedOpponent, page],
+    [deckId, result, mode, from, debouncedOpponent, exact, page],
   )
   const matches = useMatches(query)
   const total = matches.data?.total ?? 0
@@ -41,12 +53,20 @@ export function MatchHistoryPage() {
   const deckOptions = suggestions.data?.decks ?? []
   const unknownDeck = deckId !== ALL && !deckOptions.some((deck) => deck.id === deckId)
 
+  function clearStatsFilters() {
+    setPage(0)
+    const next = new URLSearchParams(params)
+    next.delete('modalidad')
+    next.delete('periodo')
+    setParams(next, { replace: true, preventScrollReset: true })
+  }
+
   function setDeck(value: string) {
     setPage(0)
     const next = new URLSearchParams(params)
     if (value === ALL) next.delete('mazo')
     else next.set('mazo', value)
-    setParams(next, { replace: true })
+    setParams(next, { replace: true, preventScrollReset: true })
   }
 
   return (
@@ -84,12 +104,25 @@ export function MatchHistoryPage() {
             </Button>
           ))}
         </ChoiceGroup>
+        {mode || period ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span className="min-w-0 flex-1">
+              Como en las estadísticas:{' '}
+              {[mode ? MODE_LABEL[mode] : null, period ? `últimos ${period.label}` : null].filter(Boolean).join(' · ')}
+            </span>
+            <Button type="button" size="sm" variant="ghost" onClick={clearStatsFilters}>
+              <XIcon data-icon="inline-start" />
+              Quitar
+            </Button>
+          </div>
+        ) : null}
         <Input
           aria-label="Rival"
           placeholder="Filtrar por rival"
           value={opponent}
           onChange={(event) => {
             setPage(0)
+            setExact(false)
             setOpponent(event.target.value)
           }}
         />

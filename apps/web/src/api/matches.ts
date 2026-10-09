@@ -35,6 +35,8 @@ export interface MatchListParams {
   mode?: MatchMode
   result?: MatchResult
   opponent?: string
+  /** Fase 41: «exact» for a drill-down from a stats row or an archetype (the default is a search). */
+  opponentMatch?: 'contains' | 'exact'
   from?: string
   to?: string
   limit?: number

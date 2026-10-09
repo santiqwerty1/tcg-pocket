@@ -19,6 +19,8 @@ export interface CardSummary {
   functionalGroupId: string
   stockCardId: string
   isDisplayEdition: boolean
+  /** Tracker pack name inside its expansion («mewtwopack», «everypack»): where the edition comes from (Fase 41). */
+  pack: string
 }
 
 export interface GroupSummary {
@@ -91,6 +93,7 @@ export function toCardSummary(card: CardEdition): CardSummary {
     functionalGroupId: card.functionalGroupId,
     stockCardId: card.stockCardId,
     isDisplayEdition: card.isDisplayEdition,
+    pack: card.pack,
   }
 }
 

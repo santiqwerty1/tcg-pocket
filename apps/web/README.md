@@ -29,15 +29,16 @@ La API sirve `dist/` detrás del middleware de sesión (`WEB_DIST`).
 
 | Qué | Dónde |
 |---|---|
-| Config de Vite, proxy de desarrollo, **PWA** (`vite-plugin-pwa`: manifest, `registerType: 'autoUpdate'`, `navigateFallback: '/index.html'`, denylist `/api`, `/login`, `/healthz`, sin runtime caching) | `vite.config.ts` |
+| Config de Vite, proxy de desarrollo, **PWA** (`vite-plugin-pwa`: manifest con atajos y `share_target`, `registerType: 'autoUpdate'`, `navigateFallback: '/index.html'`, denylist `/api`, `/login`, `/healthz`, `/viewer/`; caché de imágenes de cartas) | `vite.config.ts` |
+| Código extra del service worker: Web Push (Fase 18) y «Compartir» hacia la app (Fase 41) | `public/push-sw.js` |
 | Registro del service worker (solo en producción) | `src/pwa.ts`, llamado desde `src/main.tsx` |
 | Limpieza ante 401 o cierre de sesión (`caches.delete` + `unregister` + `/login`) | `src/api/session.ts` |
 | Cliente HTTP (`fetch` + JSON, errores `{ error: { code, message } }` → `ApiError`, 401) | `src/api/client.ts` |
 | Esquemas zod de cada respuesta de `docs/API.md` | `src/api/schemas.ts` |
-| Hooks de TanStack Query por recurso | `src/api/{catalog,collection,decks,backup,auth,tokens,settings}.ts` |
+| Hooks de TanStack Query por recurso | `src/api/*.ts` |
 | Fixtures de respuestas realistas (ids reales como `B2-113`, `B3b-64`) | `src/api/__fixtures__/` |
-| Rutas y shell (cabecera con título, barra inferior) | `src/app/routes.tsx`, `src/app/AppShell.tsx`, `src/app/BottomNav.tsx` |
-| Páginas | `src/pages/{coleccion,cartas,mazos,mas,partidas,sobres}/` |
+| Rutas (las pantallas pesadas se cargan al abrirlas), errores de pantalla en español y shell (cabecera con título y buscador, barra inferior) | `src/app/routes.tsx`, `src/app/RouteError.tsx`, `src/app/AppShell.tsx`, `src/app/BottomNav.tsx` |
+| Páginas | `src/pages/*/` (partidas = «Hoy», mazos, coleccion, cartas, sobres, torneos, simulacion, laboratorio, jugar, eventos, mas) |
 | Componentes propios (`Stat` con n e IC 95 %, chips de energía, stepper, estados de lista) | `src/components/` |
 | Componentes generados con la CLI de shadcn (MIT; `components.json`) | `src/components/ui/` |
 | Tema (variables, modo oscuro por `prefers-color-scheme`, fuente del sistema) | `src/index.css` |
@@ -45,15 +46,16 @@ La API sirve `dist/` detrás del middleware de sesión (`WEB_DIST`).
 
 ## Rutas
 
-- `/` → `/coleccion`
-- `/partidas`, `/sobres`: marcadores («Llega en la Fase 2/4»)
-- `/coleccion` (`?vista=edicion` para la vista por edición), `/coleccion/importar`, `/coleccion/importar/:importId`, `/coleccion/ajustes` (`?grupo=ID` preselecciona la carta)
-- `/cartas/:cardId`, `/grupos/:groupId`
-- `/mazos`, `/mazos/nuevo`, `/mazos/importar`, `/mazos/:deckId`, `/mazos/:deckId/editar`
-- `/mas`, `/mas/catalogo`, `/mas/backup`, `/mas/tokens`, `/mas/sesion`, `/mas/ajustes`, `/mas/acerca`
+La tabla completa está en `src/app/routes.tsx`. Las principales:
+
+- `/` → `/partidas` («Hoy»: para hoy, carga rápida de partidas y últimas partidas); `/partidas/estadisticas` (`?modalidad=`, `?periodo=`), `/partidas/historial` (`?mazo=`, `?rival=`), `/partidas/semana`
+- `/mazos`, `/mazos/hoy`, `/mazos/nuevo`, `/mazos/importar` (`?compartido=1` toma el texto compartido), `/mazos/:deckId`, `/mazos/:deckId/editar`
+- `/coleccion`, `/coleccion/importar` (`?compartido=1` sube el CSV compartido), `/coleccion/importar/:importId`, `/coleccion/ajustes`, `/coleccion/misiones`, `/coleccion/intercambio`, `/cartas/:cardId`, `/grupos/:groupId`
+- `/sobres`
+- Desde «Más»: `/torneos/*`, `/simulacion/*`, `/laboratorio/*`, `/jugar/*`, `/eventos/*` y `/mas/*` (cargadas al abrirlas)
 
 ## Notas
 
 - Las miniaturas de cartas están apagadas por defecto («Más → Ajustes de la app»); la preferencia se guarda en `PUT /api/settings/ui` y en `localStorage` para aplicarse al instante.
-- `@tcg/domain` es dependencia del workspace pero la app no importa de él todavía: su `dist` no trae `.d.ts` (el paso `dts` de tsup falla con TypeScript 6 por `baseUrl`). La lista de energías seleccionables está espejada en `src/api/schemas.ts`.
+- La app no importa `@tcg/domain` en el navegador (DECISIONES 32.2): las formas de la API están espejadas en `src/api/schemas.ts`.
 - Para agregar componentes de shadcn: `pnpm dlx shadcn@latest add <componente>` desde `apps/web`.

@@ -5,7 +5,7 @@
 import { Link } from 'react-router'
 import { useDeckMatchups } from '@/api/matches'
 import type { WinRate } from '@/api/schemas'
-import { LoadingRows } from '@/components/ListState'
+import { ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { formatRateValue, formatRecord } from '@/lib/matches'
 import { matchupTone, TONE_CLASS } from '@/lib/matchups'
@@ -26,15 +26,34 @@ function Rate({ rate, prefix }: { rate: WinRate | null; prefix: string }) {
 export function DeckMatchupsSection({ deckId }: { deckId: string }) {
   const matchups = useDeckMatchups(deckId)
   if (matchups.isPending) return <LoadingRows rows={3} />
-  if (matchups.isError || !matchups.data) return null
+  if (matchups.isError) return <ErrorState error={matchups.error} onRetry={() => matchups.refetch()} />
+  if (!matchups.data) return null
   const data = matchups.data
-  if (data.rows.length === 0) return null
+  if (data.rows.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Todavía no hay rivales: ni partidas tuyas con este mazo ni rondas de torneo de su arquetipo.
+      </p>
+    )
+  }
   return (
     <Section title="Contra cada rival">
       <p className="text-xs text-muted-foreground">
-        {data.archetype
-          ? `Torneo: ${data.archetype.name} (${data.archetype.source === 'owner' ? 'elegido en el mazo' : 'el arquetipo de las listas más parecidas'}) contra cada rival en ${data.era}`
-          : 'El mazo no tiene arquetipo de torneo: solo tus partidas'}
+        {data.archetype ? (
+          <>
+            Torneo: {/* Fase 41: from the deck to its archetype in one tap. */}
+            <Link
+              to={`/torneos/arquetipos/${encodeURIComponent(data.archetype.id)}`}
+              className="font-medium text-foreground underline"
+            >
+              {data.archetype.name}
+            </Link>{' '}
+            ({data.archetype.source === 'owner' ? 'elegido en el mazo' : 'el arquetipo de las listas más parecidas'})
+            contra cada rival en {data.era}
+          </>
+        ) : (
+          'El mazo no tiene arquetipo de torneo: solo tus partidas'
+        )}
         {data.archetype && data.tournamentsWithPairings === 0
           ? ' (las rondas llegan con la próxima sincronización)'
           : ''}

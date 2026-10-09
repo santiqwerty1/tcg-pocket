@@ -260,7 +260,7 @@ export function TorneosPage() {
     if (nextScope.format === 'NOEX') params.set('formato', 'NOEX')
     const nextView = next.view ?? view
     if (nextView !== 'arquetipos') params.set('vista', nextView)
-    setSearch(params, { replace: true })
+    setSearch(params, { replace: true, preventScrollReset: true })
   }
 
   async function sync() {

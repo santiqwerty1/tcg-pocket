@@ -1,7 +1,6 @@
 /** Notas por rival (Fase 12): the note shown read-only (quick entry) or with its editor (archetype page, list). */
 import { NotebookPenIcon, PencilIcon, Trash2Icon } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useDeleteRivalNote, useRivalNote, useSaveRivalNote } from '@/api/rivals'
@@ -9,10 +8,33 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 
-/** Read-only, under the opponent field of the quick entry: only when there is a note. */
-export function RivalNoteHint({ opponent }: { opponent: string }) {
+/**
+ * Read-only, under the opponent field of the quick entry: only when there is a note. The quick entry keys it by the
+ * rival, so another rival starts fresh; `onEditingChange` tells it a note is being edited, so the match is not saved
+ * (and the form reset) over a note that was not saved yet.
+ */
+export function RivalNoteHint({
+  opponent,
+  onEditingChange,
+}: {
+  opponent: string
+  onEditingChange?: (editing: boolean) => void
+}) {
   const note = useRivalNote(opponent.trim() || null)
   const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
+  useEffect(() => {
+    onEditingChange?.(editing)
+  }, [editing, onEditingChange])
+  // Leaving (another rival, the form reset) never leaves the quick entry thinking a note is still open.
+  useEffect(() => () => onEditingChange?.(false), [onEditingChange])
+  if (editing) {
+    return (
+      <div className="rounded-lg border border-dashed px-3 py-2">
+        <RivalNoteEditor opponent={opponent.trim()} startEditing onDone={() => setEditing(false)} />
+      </div>
+    )
+  }
   if (!note) return null
   return (
     <div className="flex flex-col gap-1 rounded-lg border border-dashed px-3 py-2 text-sm">
@@ -27,9 +49,10 @@ export function RivalNoteHint({ opponent }: { opponent: string }) {
             {open ? 'Ver menos' : 'Ver todo'}
           </button>
         ) : null}
-        <Link to="/mas/notas" className="text-primary hover:underline">
+        {/* Fase 41: edited right here, so the half-filled match stays as it was. */}
+        <button type="button" className="text-primary hover:underline" onClick={() => setEditing(true)}>
           Editar nota
-        </Link>
+        </button>
       </span>
     </div>
   )
@@ -40,10 +63,13 @@ export function RivalNoteEditor({
   opponent,
   archetypeId,
   startEditing = false,
+  onDone,
 }: {
   opponent: string
   archetypeId?: string | null
   startEditing?: boolean
+  /** Called after saving or cancelling (the quick entry closes the editor). */
+  onDone?: () => void
 }) {
   const note = useRivalNote(opponent)
   const save = useSaveRivalNote()
@@ -59,6 +85,7 @@ export function RivalNoteEditor({
       await save.mutateAsync({ opponent, text, ...(archetypeId === undefined ? {} : { archetypeId }) })
       toast.success(text.trim() ? 'Nota guardada' : 'Nota borrada')
       setEditing(false)
+      onDone?.()
     } catch (error) {
       toast.error(errorMessage(error))
     }
@@ -79,7 +106,15 @@ export function RivalNoteEditor({
           <Button type="button" size="sm" disabled={save.isPending} onClick={() => void submit()}>
             Guardar
           </Button>
-          <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)}>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setEditing(false)
+              onDone?.()
+            }}
+          >
             Cancelar
           </Button>
         </div>

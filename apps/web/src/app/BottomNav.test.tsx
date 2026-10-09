@@ -24,6 +24,10 @@ describe('destinationFor', () => {
     expect(destinationFor('/grupos/B3b-64')?.label).toBe('Colección')
     expect(destinationFor('/mazos/abc/editar')?.label).toBe('Mazos')
     expect(destinationFor('/mas/tokens')?.label).toBe('Más')
+    // Fase 41: the screens opened from «Más» keep it lit.
+    for (const path of ['/torneos/semana', '/simulacion/3', '/laboratorio', '/jugar/12', '/eventos/1']) {
+      expect(destinationFor(path)?.label).toBe('Más')
+    }
     expect(destinationFor('/nada')).toBeUndefined()
   })
 })

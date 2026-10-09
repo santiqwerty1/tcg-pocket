@@ -83,7 +83,10 @@ export function DecksPage() {
 
   // In the URL, so they survive opening a deck and coming back, and the deck page steps through the same list.
   function setFilters(patch: Partial<DeckListFilters>) {
-    setParams(new URLSearchParams(deckListSearch({ ...filters, ...patch })), { replace: true })
+    setParams(new URLSearchParams(deckListSearch({ ...filters, ...patch })), {
+      replace: true,
+      preventScrollReset: true,
+    })
   }
 
   const tags = useMemo(() => {

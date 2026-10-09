@@ -24,7 +24,7 @@ export function WeekPage() {
   const [params, setParams] = useSearchParams()
   const week = params.get('semana')
   const summary = useWeekSummary(week)
-  const go = (start: string) => setParams({ semana: start }, { replace: true })
+  const go = (start: string) => setParams({ semana: start }, { replace: true, preventScrollReset: true })
 
   if (summary.isPending) return <LoadingRows rows={6} />
   if (summary.isError) return <ErrorState error={summary.error} onRetry={() => summary.refetch()} />

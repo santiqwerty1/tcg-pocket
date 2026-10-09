@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { csvAgeNotice } from '@/lib/csvAge'
 import { formatDate, formatNumber } from '@/lib/format'
 import { ByEditionTab } from './ByEditionTab'
 import { ByGroupTab } from './ByGroupTab'
@@ -28,7 +29,7 @@ export function CollectionPage() {
     const copy = new URLSearchParams(params)
     if (next === 'carta') copy.delete('vista')
     else copy.set('vista', next)
-    setParams(copy, { replace: true })
+    setParams(copy, { replace: true, preventScrollReset: true })
   }
 
   async function exportCsv() {
@@ -43,8 +44,21 @@ export function CollectionPage() {
     }
   }
 
+  const csvNotice = summary.data ? csvAgeNotice(summary.data.lastImportAt) : null
+
   return (
     <div className="flex flex-col gap-4">
+      {csvNotice ? (
+        <Link
+          to="/coleccion/importar"
+          className="flex flex-col gap-0.5 rounded-lg border border-warning/60 px-3 py-2 text-sm hover:bg-muted"
+        >
+          <span className="font-medium">{csvNotice}</span>
+          <span className="text-xs text-muted-foreground">
+            Importá uno nuevo para que los mazos y los sobres usen tu colección de hoy.
+          </span>
+        </Link>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         <Button asChild>
           <Link to="/coleccion/importar">

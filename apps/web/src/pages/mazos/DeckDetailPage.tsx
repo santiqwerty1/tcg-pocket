@@ -20,7 +20,7 @@ import { DeckNumber } from '@/components/DeckNumber'
 import { EnergyChips } from '@/components/EnergyChip'
 import { IssueList } from '@/components/IssueList'
 import { ErrorState, LoadingRows, Spinner } from '@/components/ListState'
-import { CardCode, Section } from '@/components/Section'
+import { CardCode, Fold, Section } from '@/components/Section'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -138,6 +138,7 @@ function DeckDetailView({ deckId }: { deckId: string | undefined }) {
   if (deck.isError) return <ErrorState error={deck.error} onRetry={() => deck.refetch()} />
   const data = deck.data
   const builtCount = (activeDecks.data ?? []).filter((d) => d.builtInGame && !d.archivedAt).length
+  const deckNames = new Map((activeDecks.data ?? []).map((d) => [d.id, d.name]))
 
   async function patch(patchBody: Parameters<typeof update.mutateAsync>[0]['patch'], done: string) {
     try {
@@ -170,23 +171,30 @@ function DeckDetailView({ deckId }: { deckId: string | undefined }) {
     }
   }
 
-  async function exportAs(format: DeckExportFormat) {
+  /**
+   * Fase 41: copying is the usual thing (to paste in a chat or in Limitless); the file only when asked, or when the
+   * clipboard is not available — so the phone does not fill Downloads with one file per export.
+   */
+  async function exportAs(format: DeckExportFormat, mode: 'copy' | 'download') {
     setExporting(format)
     try {
       const text = await fetchDeckExport(data.id, format)
-      let copied = false
-      try {
-        await navigator.clipboard.writeText(text)
-        copied = true
-      } catch {
-        copied = false
+      if (mode === 'copy') {
+        try {
+          await navigator.clipboard.writeText(text)
+          toast.success('Copiado al portapapeles')
+          setExportOpen(false)
+          return
+        } catch {
+          // No clipboard (no permission or no HTTPS): fall back to the file.
+        }
       }
       const safeName = data.name.replace(/[^\p{L}\p{N}_-]+/gu, '_')
       saveBlob(
         new Blob([text], { type: format === 'json' ? 'application/json' : 'text/plain' }),
         `${safeName}.${EXPORT_EXTENSION[format]}`,
       )
-      toast.success(copied ? 'Copiado al portapapeles y descargado' : 'Descargado (no se pudo copiar al portapapeles)')
+      toast.success(mode === 'copy' ? 'No se pudo copiar: se descargó como archivo' : 'Descargado')
       setExportOpen(false)
     } catch (error) {
       toast.error(errorMessage(error))
@@ -292,51 +300,32 @@ function DeckDetailView({ deckId }: { deckId: string | undefined }) {
           <div className="text-sm">
             Variante de{' '}
             <Link to={`/mazos/${encodeURIComponent(data.variantOfId)}`} className="underline">
-              otro mazo
+              {deckNames.get(data.variantOfId)
+                ? `#${data.variantOfId} ${deckNames.get(data.variantOfId)}`
+                : 'otro mazo'}
             </Link>
           </div>
         ) : null}
         {data.notes ? <p className="text-sm whitespace-pre-wrap text-muted-foreground">{data.notes}</p> : null}
       </div>
 
-      <DeckPerformance
-        deckId={data.id}
-        archived={Boolean(data.archivedAt)}
-        tournamentArchetypeId={data.tournamentArchetypeId ?? null}
-      />
-
-      <DeckMatchupsSection deckId={data.id} />
-
-      <Section title={`Cartas (${totalCount(data.cards)})`}>
-        <CardGroups deck={data} />
-      </Section>
-
-      <TournamentVersionSection deckId={data.id} />
-
-      <ConsistencySection deck={data} />
-
-      <OpeningHandSection deck={data} />
-
-      <BestVersionsSection deck={data} />
-
-      <ClosestDecksSection deckId={data.id} />
-
-      <Section title="Validación">
-        {data.validation.ok ? (
-          <p className="text-sm text-success">El mazo cumple las reglas del juego.</p>
-        ) : (
+      {/* Fase 41: what needs attention first — the rules it breaks and the cards it lacks. */}
+      {!data.validation.ok ? (
+        <Section title="Validación">
           <IssueList issues={data.validation.errors} level="error" />
-        )}
-        <IssueList issues={data.validation.warnings} level="warning" />
-        <IssueList issues={data.validation.infos} level="info" />
-      </Section>
-
-      <Section title="Completitud">
-        {data.completeness.complete ? (
-          <p className="text-sm text-success">
-            Tenés todas las cartas (contra la colección entera; las copias no se reparten).
-          </p>
-        ) : (
+          <IssueList issues={data.validation.warnings} level="warning" />
+          <IssueList issues={data.validation.infos} level="info" />
+        </Section>
+      ) : null}
+      {!data.completeness.complete ? (
+        <Section
+          title="Falta"
+          action={
+            <Button size="sm" variant="outline" asChild>
+              <Link to="/sobres">Qué sobre abrir</Link>
+            </Button>
+          }
+        >
           <ul className="divide-y rounded-lg border">
             {data.completeness.missing.map((item) => (
               <li key={item.groupId} className="flex min-h-11 items-center gap-2 px-3 py-1.5 text-sm">
@@ -353,79 +342,138 @@ function DeckDetailView({ deckId }: { deckId: string | undefined }) {
               </li>
             ))}
           </ul>
-        )}
+        </Section>
+      ) : null}
+      {data.validation.ok && data.completeness.complete ? (
+        <p className="text-sm text-success">
+          Cumple las reglas del juego y tenés todas las cartas (contra la colección entera; las copias no se reparten).
+        </p>
+      ) : null}
+
+      <Section title={`Cartas (${totalCount(data.cards)})`}>
+        <CardGroups deck={data} />
       </Section>
 
-      <Section title={`Revisiones (${data.revisions.length})`}>
-        <ul className="divide-y rounded-lg border">
-          {data.revisions.map((revision) => {
-            const current = revision.number === data.revisionNumber
-            return (
-              <li
-                key={revision.number}
-                className={cn('flex min-h-12 items-center gap-2 px-3 py-1.5 text-sm', current && 'bg-muted/50')}
-              >
-                <span className="w-8 font-mono">#{revision.number}</span>
-                <span className="min-w-0 flex-1">
-                  <span className="block">
-                    {formatDateTime(revision.createdAt)} · {sourceLabel(revision.source)}
-                    {current ? ' · actual' : ''}
+      <DeckPerformance
+        deckId={data.id}
+        archived={Boolean(data.archivedAt)}
+        tournamentArchetypeId={data.tournamentArchetypeId ?? null}
+      />
+
+      {/* The rest opens on demand and only then asks the server (Fase 41); each one remembers if it was left open. */}
+      <div className="flex flex-col gap-2">
+        <Fold id="contra-cada-rival" title="Contra cada rival" remember="tcg.fold.deck.matchups">
+          <DeckMatchupsSection deckId={data.id} />
+        </Fold>
+        <Fold id="version-de-torneo" title="Versión de torneo" remember="tcg.fold.deck.version">
+          <TournamentVersionSection deckId={data.id} />
+        </Fold>
+        <Fold id="consistencia" title="¿En qué turno está listo?" remember="tcg.fold.deck.consistency">
+          <ConsistencySection deck={data} />
+        </Fold>
+        <Fold id="mano-inicial" title="Mano inicial" remember="tcg.fold.deck.hand">
+          <OpeningHandSection deck={data} />
+        </Fold>
+        <Fold id="mejores-versiones" title="Mejores versiones" remember="tcg.fold.deck.prints">
+          <BestVersionsSection deck={data} />
+        </Fold>
+        <Fold id="mas-cercano" title="Mazo armado más cercano" remember="tcg.fold.deck.closest">
+          <ClosestDecksSection deckId={data.id} />
+        </Fold>
+        {data.validation.ok && data.validation.warnings.length + data.validation.infos.length > 0 ? (
+          <Fold
+            id="avisos"
+            title="Avisos de la validación"
+            hint={data.validation.warnings.length + data.validation.infos.length}
+          >
+            <IssueList issues={data.validation.warnings} level="warning" />
+            <IssueList issues={data.validation.infos} level="info" />
+          </Fold>
+        ) : null}
+        <Fold id="revisiones" title="Revisiones" hint={data.revisions.length}>
+          <ul className="divide-y rounded-lg border">
+            {data.revisions.map((revision) => {
+              const current = revision.number === data.revisionNumber
+              return (
+                <li
+                  key={revision.number}
+                  className={cn('flex min-h-12 items-center gap-2 px-3 py-1.5 text-sm', current && 'bg-muted/50')}
+                >
+                  <span className="w-8 font-mono">#{revision.number}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block">
+                      {formatDateTime(revision.createdAt)} · {sourceLabel(revision.source)}
+                      {current ? ' · actual' : ''}
+                    </span>
+                    {revision.note ? (
+                      <span className="block text-xs text-muted-foreground">{revision.note}</span>
+                    ) : null}
                   </span>
-                  {revision.note ? <span className="block text-xs text-muted-foreground">{revision.note}</span> : null}
-                </span>
-                <span className="text-muted-foreground tabular">{revision.cardCount} cartas</span>
-                {!current ? (
-                  <Button size="sm" variant="outline" onClick={() => setRestoring(revision.number)}>
-                    Restaurar
-                  </Button>
-                ) : null}
-              </li>
-            )
-          })}
-        </ul>
-      </Section>
-
-      <Section title={`Cambios (${data.changes.length})`}>
-        {data.changes.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Sin cambios registrados.</p>
-        ) : (
-          <ul className="divide-y rounded-lg border text-sm">
-            {data.changes.map((change) => (
-              <li key={`${change.at}:${change.field}:${stringify(change.new)}`} className="px-3 py-1.5">
-                <span className="font-medium">{change.field}</span>:{' '}
-                <span className="text-muted-foreground">{stringify(change.old)}</span> → {stringify(change.new)}
-                <span className="block text-xs text-muted-foreground">
-                  {formatDateTime(change.at)}
-                  {change.source ? ` · ${sourceLabel(change.source)}` : ''}
-                </span>
-              </li>
-            ))}
+                  <span className="text-muted-foreground tabular">{revision.cardCount} cartas</span>
+                  {!current ? (
+                    <Button size="sm" variant="outline" onClick={() => setRestoring(revision.number)}>
+                      Restaurar
+                    </Button>
+                  ) : null}
+                </li>
+              )
+            })}
           </ul>
-        )}
-      </Section>
+        </Fold>
+        <Fold id="cambios" title="Cambios" hint={data.changes.length}>
+          {data.changes.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Sin cambios registrados.</p>
+          ) : (
+            <ul className="divide-y rounded-lg border text-sm">
+              {data.changes.map((change) => (
+                <li key={`${change.at}:${change.field}:${stringify(change.new)}`} className="px-3 py-1.5">
+                  <span className="font-medium">{fieldLabel(change.field)}</span>:{' '}
+                  <span className="text-muted-foreground">{changeValue(change.field, change.old, deckNames)}</span> →{' '}
+                  {changeValue(change.field, change.new, deckNames)}
+                  <span className="block text-xs text-muted-foreground">
+                    {formatDateTime(change.at)}
+                    {change.source ? ` · ${sourceLabel(change.source)}` : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Fold>
+      </div>
 
       <Sheet open={exportOpen} onOpenChange={setExportOpen}>
         <SheetContent side="bottom" className="pb-safe">
           <SheetHeader>
             <SheetTitle>Exportar «{data.name}»</SheetTitle>
-            <SheetDescription>Se copia al portapapeles y se descarga como archivo.</SheetDescription>
+            <SheetDescription>Se copia al portapapeles; con la flecha se descarga como archivo.</SheetDescription>
           </SheetHeader>
           <div className="flex flex-col gap-2 px-4 pb-4">
             {DECK_EXPORT_FORMATS.map((format) => (
-              <Button
-                key={format}
-                variant="outline"
-                size="lg"
-                className="h-auto justify-start py-2"
-                disabled={exporting !== null}
-                onClick={() => exportAs(format)}
-              >
-                {exporting === format ? <Spinner /> : <DownloadIcon data-icon="inline-start" />}
-                <span className="flex flex-col items-start text-left">
-                  <span>{FORMAT_LABEL[format].title}</span>
-                  <span className="text-xs font-normal text-muted-foreground">{FORMAT_LABEL[format].hint}</span>
-                </span>
-              </Button>
+              <div key={format} className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="h-auto flex-1 justify-start py-2"
+                  disabled={exporting !== null}
+                  onClick={() => exportAs(format, 'copy')}
+                >
+                  {exporting === format ? <Spinner /> : <CopyIcon data-icon="inline-start" />}
+                  <span className="flex flex-col items-start text-left">
+                    <span>{FORMAT_LABEL[format].title}</span>
+                    <span className="text-xs font-normal text-muted-foreground">{FORMAT_LABEL[format].hint}</span>
+                  </span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-auto min-h-11 self-stretch"
+                  aria-label={`Descargar ${FORMAT_LABEL[format].title}`}
+                  disabled={exporting !== null}
+                  onClick={() => exportAs(format, 'download')}
+                >
+                  <DownloadIcon />
+                </Button>
+              </div>
             ))}
           </div>
         </SheetContent>
@@ -455,6 +503,33 @@ function DeckDetailView({ deckId }: { deckId: string | undefined }) {
       />
     </div>
   )
+}
+
+/** «Cambios» in words (Fase 41): the field names the API records (`deck_changes.field`). */
+const FIELD_LABEL: Record<string, string> = {
+  name: 'Nombre',
+  tags: 'Etiquetas',
+  notes: 'Notas',
+  packPriority: 'Prioridad de sobres',
+  tournamentArchetype: 'Arquetipo de torneo',
+  variantOf: 'Variante de',
+  builtInGame: 'Armado en el juego',
+  archived: 'Archivado',
+}
+
+function fieldLabel(field: string): string {
+  return FIELD_LABEL[field] ?? field
+}
+
+function changeValue(field: string, value: unknown, deckNames: Map<string, string>): string {
+  if (typeof value === 'boolean') return value ? 'sí' : 'no'
+  if (value === null || value === undefined || value === '') return '—'
+  if (field === 'variantOf' && (typeof value === 'string' || typeof value === 'number')) {
+    const name = deckNames.get(String(value))
+    return name ? `#${value} ${name}` : `mazo ${value}`
+  }
+  if (field === 'packPriority' && typeof value === 'number') return value === 0 ? 'sin prioridad' : String(value)
+  return stringify(value)
 }
 
 function stringify(value: unknown): string {

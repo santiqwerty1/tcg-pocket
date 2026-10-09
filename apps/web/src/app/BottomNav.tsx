@@ -16,7 +16,13 @@ export const NAV_DESTINATIONS: NavDestination[] = [
   { to: '/mazos', label: 'Mazos', icon: LayersIcon },
   { to: '/coleccion', label: 'Colección', icon: LibraryBigIcon, also: ['/cartas', '/grupos'] },
   { to: '/sobres', label: 'Sobres', icon: PackageIcon },
-  { to: '/mas', label: 'Más', icon: MenuIcon, also: ['/torneos'] },
+  // Everything opened from «Más» keeps it lit (Fase 41).
+  {
+    to: '/mas',
+    label: 'Más',
+    icon: MenuIcon,
+    also: ['/torneos', '/simulacion', '/laboratorio', '/jugar', '/eventos'],
+  },
 ]
 
 export function destinationFor(pathname: string): NavDestination | undefined {

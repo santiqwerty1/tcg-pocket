@@ -83,6 +83,8 @@ export const cardSummarySchema = z.object({
   functionalGroupId: z.string(),
   stockCardId: z.string(),
   isDisplayEdition: z.boolean(),
+  /** Tracker pack name inside the expansion (Fase 41); optional so an older API still parses. */
+  pack: z.string().optional(),
 })
 export type CardSummary = z.infer<typeof cardSummarySchema>
 
@@ -145,7 +147,6 @@ export const cardEditionSchema = cardSummarySchema.extend({
   evolvesFrom: z.string().nullable().optional(),
   isFossil: z.boolean().optional(),
   baby: z.boolean().optional(),
-  pack: z.string().optional(),
   artist: z.string().optional(),
   attacks: z.array(attackSchema).default([]),
   ability: abilitySchema.nullable().default(null),
@@ -179,6 +180,7 @@ export const expansionSchema = z.object({
   nameEs: z.string(),
   sortOrder: z.number().optional(),
   isPromo: z.boolean().optional(),
+  tradeable: z.boolean().optional(),
   packs: z.array(packSchema).optional(),
 })
 export type Expansion = z.infer<typeof expansionSchema>

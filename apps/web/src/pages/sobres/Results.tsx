@@ -63,7 +63,7 @@ function PackRowItem({ row, rank, today, boost }: { row: PackRow; rank: number; 
         <span className="w-6 shrink-0 text-right text-xs text-muted-foreground tabular">{rank}</span>
         <span className="min-w-0 flex-1 truncate font-medium">{packLabel(row)}</span>
         {row.limited && row.available ? (
-          <Badge className="bg-warning text-white">limitado</Badge>
+          <Badge className="bg-warning text-warning-foreground">limitado</Badge>
         ) : !row.available ? (
           <Badge variant="outline">no disponible</Badge>
         ) : null}
@@ -154,9 +154,9 @@ function MissingRow({ item }: { item: MissingCard }) {
         </Link>
         <span className="shrink-0 text-muted-foreground tabular">falta {item.missing}</span>
         {item.advice === 'redeem' ? (
-          <Badge className="bg-success text-white">canjear</Badge>
+          <Badge className="bg-success text-success-foreground">canjear</Badge>
         ) : item.advice === 'buy' ? (
-          <Badge className="bg-success text-white">comprar</Badge>
+          <Badge className="bg-success text-success-foreground">comprar</Badge>
         ) : item.advice === 'open' ? (
           <Badge variant="secondary">abrir</Badge>
         ) : item.advice === 'trade' ? (

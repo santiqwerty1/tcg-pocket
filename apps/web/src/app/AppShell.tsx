@@ -1,7 +1,7 @@
 import { ChevronLeftIcon } from 'lucide-react'
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Outlet, useMatches, useNavigate } from 'react-router'
+import { Outlet, ScrollRestoration, useMatches, useNavigate } from 'react-router'
 import { GlobalSearch } from '@/components/GlobalSearch'
 import { OfflineSync } from '@/components/OfflineSync'
 import { Button } from '@/components/ui/button'
@@ -86,6 +86,8 @@ export function AppShell({ children }: { children?: ReactNode }) {
         <main className="mx-auto w-full max-w-3xl px-4 pt-4 pb-28">{children ?? <Outlet />}</main>
         <BottomNav />
         <Toaster />
+        {/* Back returns to where the list was; a new screen opens at the top (Fase 41). */}
+        <ScrollRestoration />
       </HeaderSlotContext.Provider>
     </TitleContext.Provider>
   )

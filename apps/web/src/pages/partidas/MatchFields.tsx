@@ -18,8 +18,8 @@ import { MODE_LABEL, opponentKeyOf, RESULT_LABEL, WENT_FIRST_LABEL } from '@/lib
 import { cn } from '@/lib/utils'
 
 const RESULT_STYLE: Record<MatchResult, string> = {
-  win: 'aria-pressed:border-success aria-pressed:bg-success aria-pressed:text-white',
-  loss: 'aria-pressed:border-destructive aria-pressed:bg-destructive aria-pressed:text-white',
+  win: 'aria-pressed:border-success aria-pressed:bg-success aria-pressed:text-success-foreground',
+  loss: 'aria-pressed:border-destructive aria-pressed:bg-destructive aria-pressed:text-destructive-foreground',
   tie: 'aria-pressed:border-foreground aria-pressed:bg-foreground aria-pressed:text-background',
 }
 
@@ -105,8 +105,8 @@ export function ModePicker({ value, onChange }: { value: MatchMode; onChange: (v
           key={mode}
           type="button"
           variant="outline"
-          size="sm"
           aria-pressed={value === mode}
+          // Default size, 44 px: the size the thumb hits without looking (Fase 41).
           className={PRESSED}
           onClick={() => onChange(mode)}
         >
@@ -157,7 +157,6 @@ export function OpponentField({
                 key={item.key}
                 type="button"
                 variant="outline"
-                size="sm"
                 aria-pressed={selected}
                 className={cn('max-w-full', PRESSED)}
                 onClick={() => onChange(selected ? '' : item.label)}

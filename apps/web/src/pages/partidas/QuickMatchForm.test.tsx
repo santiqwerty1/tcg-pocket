@@ -172,6 +172,19 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
     expect(within(form).getByText('Tu nota contra Gardevoir ex')).toBeVisible()
   })
 
+  it('does not save the match over a rival note being edited (Fase 41)', async () => {
+    const user = userEvent.setup()
+    renderAt('/partidas')
+    const form = await screen.findByRole('form', { name: 'Nueva partida' })
+    await user.click(within(form).getByRole('button', { name: 'Victoria' }))
+    await user.click(within(form).getByRole('button', { name: 'Gardevoir ex' }))
+    await user.click(await within(form).findByRole('button', { name: 'Editar nota' }))
+    expect(within(form).getByRole('button', { name: /Guardar partida/ })).toBeDisabled()
+    expect(within(form).getByText(/Guardá o cancelá la nota del rival/)).toBeVisible()
+    await user.click(within(form).getByRole('button', { name: 'Cancelar' }))
+    expect(within(form).getByRole('button', { name: /Guardar partida/ })).toBeEnabled()
+  })
+
   it('preselects the deck from ?mazo=, picks another from the full list and filters opponents while typing', async () => {
     const user = userEvent.setup()
     renderAt('/partidas?mazo=2')

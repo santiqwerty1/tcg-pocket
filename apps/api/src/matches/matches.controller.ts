@@ -46,6 +46,8 @@ const listQuerySchema = z.object({
   mode: z.enum(MATCH_MODES).optional(),
   result: z.enum(MATCH_RESULTS).optional(),
   opponent: z.string().max(OPPONENT_MAX_LENGTH).optional(),
+  /** «exact»: only that rival (a stats row or an archetype opening its history); «contains» (default): a search. */
+  opponentMatch: z.enum(['contains', 'exact']).optional(),
   from: isoDateTime.optional(),
   to: isoDateTime.optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),

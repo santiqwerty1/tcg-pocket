@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useLocation, useNavigate } from 'react-router'
+import { useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useCommitDecks, useImportDecks } from '@/api/decks'
@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { forgetSharedText, sharedText } from '@/lib/shared'
 import { cn } from '@/lib/utils'
 import { draftTitle, draftToDeckInput, isDraftReady, needsEnergyChoice, totalCount } from './deckLogic'
 
@@ -109,6 +110,31 @@ export function DeckImportPage() {
     return typeof state?.text === 'string' ? state.text : ''
   })
   const [format, setFormat] = useState<DeckImportFormat>('auto')
+  // Fase 41: a deck shared from a chat or a text file (manifest `share_target`) fills the box; it is forgotten once
+  // it was analyzed, so an expired session in between does not lose it.
+  const [params] = useSearchParams()
+  const shared = params.get('compartido') === '1'
+  const [fromShare, setFromShare] = useState(false)
+  // A share that arrived while the box already had text: offered, never mixed in or forgotten silently.
+  const [waitingShare, setWaitingShare] = useState<string | null>(null)
+  const textRef = useRef(text)
+  textRef.current = text
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new share (another `?compartido=1`) checks again.
+  useEffect(() => {
+    let cancelled = false
+    void sharedText().then((found) => {
+      if (cancelled || !found) return
+      if (textRef.current.trim()) {
+        setWaitingShare(found)
+        return
+      }
+      setText(found)
+      setFromShare(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [shared])
   const importDecks = useImportDecks()
   const commit = useCommitDecks()
   const [drafts, setDrafts] = useState<ImportedDeckDraft[] | null>(null)
@@ -117,6 +143,10 @@ export function DeckImportPage() {
   async function analyze() {
     try {
       const result = await importDecks.mutateAsync({ text, format })
+      if (fromShare) {
+        setFromShare(false)
+        void forgetSharedText()
+      }
       setDrafts(result.drafts)
       setStates(
         result.drafts.map((draft) => {
@@ -154,6 +184,31 @@ export function DeckImportPage() {
   return (
     <div className="flex flex-col gap-6">
       <Section title="Pegá las listas">
+        {waitingShare ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed p-3 text-sm">
+            <span className="min-w-0 flex-1">Hay un mazo compartido que todavía no se importó.</span>
+            <Button
+              size="sm"
+              onClick={() => {
+                setText(waitingShare)
+                setFromShare(true)
+                setWaitingShare(null)
+              }}
+            >
+              Usarlo
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setWaitingShare(null)
+                void forgetSharedText()
+              }}
+            >
+              Descartar
+            </Button>
+          </div>
+        ) : null}
         <Field label="Texto" htmlFor="deck-import-text">
           <Textarea
             id="deck-import-text"

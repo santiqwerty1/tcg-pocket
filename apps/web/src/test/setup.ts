@@ -1,6 +1,10 @@
 import '@testing-library/jest-dom/vitest'
-import { cleanup } from '@testing-library/react'
+import { cleanup, configure } from '@testing-library/react'
 import { afterEach } from 'vitest'
+
+// Fase 41: screens opened through the router load their chunk first (lazy routes); on a busy machine that takes more
+// than testing-library's default second, and a `findBy` would give up while the screen still says «Cargando».
+configure({ asyncUtilTimeout: 5_000 })
 
 afterEach(() => {
   cleanup()
@@ -33,4 +37,6 @@ if (typeof window !== 'undefined') {
   if (!Element.prototype.scrollIntoView) {
     Element.prototype.scrollIntoView = () => {}
   }
+  // jsdom prints «Not implemented» for scrollTo, which ScrollRestoration calls on every navigation.
+  window.scrollTo = (() => {}) as typeof window.scrollTo
 }
