@@ -9,7 +9,9 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 
 ### Agregado
 
+- Claude write log with undo, new MCP tools and leaner answers (phase 43, T-014, R-010) `af1265b`
 - honest numbers — luck per game, clustered intervals, FDR, Fisher, pack points (phase 37, H-009, H-011, H-012) `6af29d1`
+- engine-cli exits right after its games and reports each game on request (H-019, H-010, T-017) `9a27fe6`
 - monthly backup restore drill (phase 35, T-013) `0524489`
 - games against the bot pushed live over SSE (phase 33, T-013) `e911c89`
 - weekly summary with a Monday push (phase 32, T-013) `4e3d9f2`
@@ -61,11 +63,10 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 - PWA shell and phase 1 screens against docs/API.md `f269441`
 - infrastructure — Prisma 7 schema, auth (password+TOTP, sessions), protected static serving, API tokens, catalog sync, deploy files `556cacc`
 - decks module (Spanish/deckgym/Limitless/JSON formats, validation, completeness, limits, revisions) `2fd9f0c`
-- collection module (tracker CSV, stock units, playable copies, adjustments, import diff) `e1216fb`
-- catalog module built from the tracker and deckgym data `ed1375d`
 
 ### Corregido
 
+- audit entry before the write, no duplicate restore, versioned collection undo (phase 43, R-010) `14e0c59`
 - verify a round's winner on fresh seeds and let the confirmation decide (H-010) (H-020, H-021) `5e394fc`
 - a search plays the plan it showed and keeps its inputs for every round (H-021) `a6c40e6`
 - build each round's variants from the incumbent's lines in order (H-020) `3a7bb81`
@@ -80,10 +81,16 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 - trust the Supabase pooler CA so sslmode=verify-full works in production `a9dac63`
 - address the adversarial review `72b2082`
 
+### Cambiado
+
+- a claim counts each job's pending chunks once (B2, H-019) `d39a89b`
+- one bot-code pattern for every schema (H-018) `ce80e50`
+
 ### Documentado
 
 - posta generar trims the CHANGELOG from a cloud session; today's log (H-017) `f9fda38`
 - improvement review of 9/10 — 14 confirmed findings, risks, questions and proposed phases 36-45 (H-002..H-015, R-006, R-008, R-010, R-011, R-012, P-006, P-007, P-008, D-020, T-014) `fd5d4b8`
+- close H-009 and H-012 (phase 37); D-021 records the coordinator and the five sessions `e02c074`
 - P-009 answered by Santi, T-017 under way (P-009, T-017) `9869d97`
 - close the lab findings fixed on lab/optimization (H-010, H-020, H-021) `9532297`
 - phase 36 deployed at 55d658d (T-014) `0e46b77`
@@ -106,7 +113,6 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 - phase 1 implementation verified; deploy pending `b0c5b14`
 - record API implementation decisions and phase 1 state `629407b`
 - REST contract for phase 1 (auth, catalog, collection, decks, backup, tokens) `a703dc7`
-- record phase 1 implementation decisions `189252b`
 
 ### Pruebas
 
@@ -115,12 +121,9 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 
 ### Mantenimiento
 
+- run the Windows engine job only when it changed, build the Docker image on main, cancel superseded runs (phase 38) `ff39a7c`
 - config written by posta (ci off, hooks via plugin) `aa90463`
 - worker package in the Docker deps stage; keep engine/target out of the context `a9a1b4c`
-- local Postgres 17 via docker compose and .env.example `9681c20`
-- scaffold apps/api (NestJS 12, ESM, Prisma 7) and apps/web (Vite 8, React 19, PWA deps) `338e565`
-- scaffold pnpm monorepo, domain package skeleton, fixtures and CI `e133151`
-- enforce LF line endings and keep CSV fixtures byte-exact `461affb`
 
 ### Decidido
 

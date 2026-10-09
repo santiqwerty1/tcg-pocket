@@ -58,14 +58,14 @@ revisar: false
 | 35 | Prueba mensual del backup | hecho 09/10 · desplegado (`0524489`) · aprobado 09/10 | — | [T-013](Tareas/T-013.md) |
 | E | Evaluación de mejoras: 14 hallazgos, riesgos, preguntas y fases propuestas 36 a 45 | hecho 09/10 · verificada 09/10 · aprobada 09/10 ([D-020](Decisiones/D-020.md)) | 35 | [Evaluación](Evaluacion-2026-10-09.md), [T-014](Tareas/T-014.md) |
 | 36 | Arreglos confirmados (y tope de 3 energías, [P-006](Preguntas/P-006.md)) | hecho 09/10 · desplegado (`55d658d`) | E | [T-014](Tareas/T-014.md) |
-| 37 | Números honestos | hecho 09/10 (sin el punto 5 de [H-011](Hallazgos/H-011.md), propuesto para la 42) | 36 | [T-014](Tareas/T-014.md) |
-| 38 | Operación y avisos | pendiente | 37 | [T-014](Tareas/T-014.md) |
-| 39 | Copia fuera de Supabase y retención ([P-007](Preguntas/P-007.md): en la nube) | pendiente | 38 | [T-014](Tareas/T-014.md) |
-| 40 | Día de expansión en dos toques | pendiente | 39 | [T-014](Tareas/T-014.md) |
-| 41 | Interfaz | pendiente | 40 | [T-014](Tareas/T-014.md) |
-| 42 | Simulaciones más baratas y calibradas | pendiente | 41 | [T-014](Tareas/T-014.md) |
-| 43 | Claude | hecho 09/10 en la rama `claude/eloquent-mccarthy-gz9btg` (sesión «Nube 2»), con PR; falta integrar y desplegar | 42 | [T-014](Tareas/T-014.md), [R-010](Riesgos/R-010.md) |
-| 44 | Análisis nuevos | pendiente | 43 | [T-014](Tareas/T-014.md) |
+| 37 | Números honestos | hecho 09/10 · desplegado (`e02c074`) · el punto 5 de [H-011](Hallazgos/H-011.md) pasó a Infra, con la 42 | 36 | [T-014](Tareas/T-014.md) |
+| 38 | Operación y avisos | en curso (Principal) · parte 1, minutos de la CI, integrada (`ff39a7c`) | 37 | [T-014](Tareas/T-014.md) |
+| 39 | Copia fuera de Supabase y retención ([P-007](Preguntas/P-007.md): en la nube) | en curso (Principal) · la copia va a Tigris en Fly (P-010, respondida por Santiago el 09/10) | 38 | [T-014](Tareas/T-014.md) |
+| 40 | Día de expansión en dos toques | pendiente · Nube-2, después del chat en el MCP | 39 | [T-014](Tareas/T-014.md) |
+| 41 | Interfaz | hecho 09/10 en el PR #1 (Nube-Mejoras) · revisado sin bloqueantes · falta rebasear sobre main (6 tests de la web chocan con la 43) | 40 | [T-014](Tareas/T-014.md) |
+| 42 | Simulaciones más baratas y calibradas | en curso · H-019, `perGame` y el reclamo rápido integrados y desplegados (`d39a89b`) · el resto en Infra y Laboratorio | 41 | [T-014](Tareas/T-014.md) |
+| 43 | Claude | hecho 09/10 · integrado y desplegado (`14e0c59`) | 42 | [T-014](Tareas/T-014.md), [R-010](Riesgos/R-010.md) |
+| 44 | Análisis nuevos | en curso (Nube-Mejoras) | 43 | [T-014](Tareas/T-014.md) |
 | W | Más workers: nube, Android y navegador (reemplaza la 45, [P-008](Preguntas/P-008.md)) | pendiente, después de la 44 | 44 | [T-015](Tareas/T-015.md) |
 | L | Búsqueda del laboratorio: probar siempre los cambios obvios (+1 copia, paso hacia la lista de torneo) | pendiente, para cuando Santiago la pida | — | [T-016](Tareas/T-016.md) |
 | O | Optimización de mazos: análisis del 09/10 (bot que no evoluciona, velocidad, semillas, búsqueda) | análisis hecho 09/10 · H-010, H-020 y H-021 en `lab/optimization` · T-017 en curso ([P-009](Preguntas/P-009.md) respondida) | — | [Optimización](Optimizacion-2026-10-09.md), [T-017](Tareas/T-017.md) |
@@ -79,11 +79,16 @@ Las fases 0–8 del plan están aprobadas (visto bueno de Santiago el 08/10/2026
 2. Después, los workers de [T-015](Tareas/T-015.md) (nube, Android y navegador), que reemplazan la fase 45.
 3. Para después, cuando Santiago la pida: [T-016](Tareas/T-016.md) (variantes fijas en la búsqueda del laboratorio).
 
-Desde el 09/10/2026 las tres sesiones de Claude se reparten las fases según [D-021](Decisiones/D-021.md):
+Desde el 09/10/2026 (tarde), por pedido de Santiago, trabaja así ([D-021](Decisiones/D-021.md)):
 
-- **«Fase 0»:** 37 a 40, y es la única que integra, sube y despliega.
-- **«Selección de cartas en simulación»:** [H-010](Hallazgos/H-010.md), la 42 y la optimización de mazos ([T-017](Tareas/T-017.md), si [P-009](Preguntas/P-009.md) lo aprueba).
-- **La sesión en la nube:** 41, 43 y 44.
+- **«TCG · Coordinador e integrador»:** reparte, revisa cada PR, mergea, despliega y opera. Es el único que toca los archivos compartidos de la bóveda.
+- **«TCG · Principal»:** fases 38 y 39, en el worktree `tcg-pocket-ops`.
+- **«TCG · Laboratorio»:** T-017 (bot corregido `f<N>`, PR #5) y el algoritmo del laboratorio.
+- **«TCG · Infra de simulación»:** el resto de la 42, la calibración y H-011.5.
+- **Nube-Mejoras:** la 41 (PR #1) y la 44.
+- **Nube-2:** chat entre sesiones en el MCP, y después la 40.
+
+Todo entra por PR, con la CI verde y la revisión del coordinador. Las sesiones se hablan por el chat de `C:/Users/<usuario>/Personal/tcg-pocket-chat/`, fuera del repo.
 
 ## Pendiente de decidir (para después)
 
