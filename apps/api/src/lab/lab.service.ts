@@ -11,6 +11,7 @@ import {
   Injectable,
   NotFoundException,
   type OnApplicationBootstrap,
+  type OnApplicationShutdown,
   UnprocessableEntityException,
 } from '@nestjs/common'
 import {
@@ -65,7 +66,6 @@ import {
   PER_GAME_CLI_VERSION,
   PER_GAME_WORKER_VERSION,
   type PerGameEntry,
-  type PerGameSummary,
   type PoolCard,
   pairedDifference,
   pairedWinner,
@@ -104,6 +104,7 @@ import type {
   LabCoreView,
   LabDeckView,
   LabExploreView,
+  LabGamesView,
   LabJobsView,
   LabJobView,
   LabNoveltyView,
@@ -274,8 +275,21 @@ interface ChunkRow {
   extra: Prisma.JsonValue | null
 }
 
+/** Review of #7: a capable worker counts if seen this recently; the sweep runs this often. */
+const PER_GAME_WORKER_WINDOW_MS = 30 * 60 * 1000
+const PER_GAME_SWEEP_MS = 5 * 60 * 1000
+
+/** Plays per-game results: worker 0.2.5 on with engine-cli 0.2.0 on (the queue's rule, #8). */
+function canPlayPerGame(worker: { version: string | null; cliVersion: string | null }): boolean {
+  return (
+    versionAtLeast(worker.version, PER_GAME_WORKER_VERSION) && versionAtLeast(worker.cliVersion, PER_GAME_CLI_VERSION)
+  )
+}
+
 @Injectable()
-export class LabService implements OnApplicationBootstrap {
+export class LabService implements OnApplicationBootstrap, OnApplicationShutdown {
+  private sweepTimer: NodeJS.Timeout | undefined
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly catalog: CatalogService,
@@ -302,6 +316,14 @@ export class LabService implements OnApplicationBootstrap {
       })
       if (pending === 0) await this.advance(job.id)
     }
+    this.sweepTimer = setInterval(() => {
+      this.sweepPerGame().catch((error: unknown) => this.logger.error({ err: error }, 'perGame sweep failed'))
+    }, PER_GAME_SWEEP_MS)
+    this.sweepTimer.unref()
+  }
+
+  onApplicationShutdown(): void {
+    if (this.sweepTimer) clearInterval(this.sweepTimer)
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -849,20 +871,27 @@ export class LabService implements OnApplicationBootstrap {
 
   /**
    * Whether to ask for per-game results: a worker that plays them (0.2.5 on, with engine-cli 0.2.0 on) was seen in the
-   * last day. Without one, a job that asks for them would wait in the queue; the lab then falls back to independent
-   * scores.
+   * last `PER_GAME_WORKER_WINDOW_MS`. Without one, a job that asks for them would wait in the queue; the lab then
+   * falls back to independent scores. Asked again before every round of a search (review of #7).
    */
   private async perGameReady(): Promise<boolean> {
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000)
+    const since = new Date(Date.now() - PER_GAME_WORKER_WINDOW_MS)
     const workers = await this.prisma.workerNode.findMany({
       where: { lastSeenAt: { gte: since } },
       select: { version: true, cliVersion: true },
     })
-    return workers.some(
-      (worker) =>
-        versionAtLeast(worker.version, PER_GAME_WORKER_VERSION) &&
-        versionAtLeast(worker.cliVersion, PER_GAME_CLI_VERSION),
-    )
+    return workers.some(canPlayPerGame)
+  }
+
+  /**
+   * Review of #7: when no worker that plays per-game results has been seen for `PER_GAME_WORKER_WINDOW_MS`, the lab
+   * jobs still waiting stop asking for them, so their chunks go to whoever is there instead of waiting in silence.
+   */
+  async sweepPerGame(): Promise<number> {
+    if (await this.perGameReady()) return 0
+    return this.prisma.$executeRaw`
+      UPDATE simulation_jobs SET params = params - 'perGame'
+      WHERE status IN ('queued', 'running') AND params ? 'lab' AND params->>'perGame' = 'true'`
   }
 
   private async workerCores(): Promise<number> {
@@ -951,7 +980,8 @@ export class LabService implements OnApplicationBootstrap {
               ...candidate,
               difference: pairedOf(chunks, rivals, candidate.id, state.incumbent, thisRound),
             }))
-            const screened = paired.every((candidate) => candidate.difference)
+            // Those without per-game results (a chunk played by a worker without them) sit this screen out.
+            const screened = paired.some((candidate) => candidate.difference)
               ? pairedWinner(paired, state.config.acceptZ)
               : roundWinner(incumbentScore, candidates, state.config.acceptZ)
             round.screened = screened
@@ -1047,6 +1077,9 @@ export class LabService implements OnApplicationBootstrap {
             decided: false,
           })
           params.sideA = [...new Set([...params.sideA, ...decks])]
+          // Review of #7: per-game results only while a worker that plays them is around, round by round.
+          if (await this.perGameReady()) params.perGame = true
+          else delete params.perGame
           await tx.simulationChunk.createMany({ data: next.map((chunk) => ({ ...chunk, jobId })) })
           await tx.simulationJob.update({
             where: { id: jobId },
@@ -1255,7 +1288,7 @@ export class LabService implements OnApplicationBootstrap {
           round: state?.variants[String(sid)]?.round ?? null,
           search,
           confirm: confirmed,
-          games: gamesOf(chunks, sid, headline),
+          games: gamesOf(chunks, sid, headline, hasStage2(snapshot.cards as unknown as SnapshotCard[], index)),
           perRival: scored.map((rival) => {
             const record = recordOf(chunks, sid, rival.snapshot, headline)
             return { rival: rival.snapshot, record, rate: simulationRate(record) }
@@ -1469,6 +1502,11 @@ function unbiasedGames(state: ExploreState, id: number): (chunk: ChunkRow) => bo
     !picked.some((round) => chunk.idx >= round.fromIdx && chunk.idx < round.toIdx)
 }
 
+/** Whether a list plays a Stage 2 Pokémon (so «reached Stage 2» means something). */
+function hasStage2(cards: readonly SnapshotCard[] | null | undefined, index: CatalogIndex): boolean {
+  return (cards ?? []).some((card) => index.cardById(card.cardId)?.evolutionType === 'stage2')
+}
+
 /** A list's games against a rival in the chunks `filter` keeps, in game order (1 a win); null when one has no `perGame`. */
 function outcomesOf(
   chunks: readonly ChunkRow[],
@@ -1517,15 +1555,22 @@ function gamesOf(
   chunks: readonly ChunkRow[],
   deck: number,
   filter: (chunk: ChunkRow) => boolean,
-): PerGameSummary | null {
+  hasStage2: boolean,
+): LabGamesView | null {
   const mine = chunks.filter((chunk) => chunk.status === 'done' && chunk.snapshotAId === deck && filter(chunk))
   const entries: PerGameEntry[] = []
+  let total = 0
   for (const chunk of mine) {
+    total += (chunk.winsA ?? 0) + (chunk.winsB ?? 0) + (chunk.ties ?? 0)
+    // Review of #7: a chunk without per-game results (an older worker) is left out; `total` says how many games.
     const results = readPerGame(chunk.extra)
-    if (!results) return null
-    entries.push(...perGameEntries(results))
+    if (results) entries.push(...perGameEntries(results))
   }
-  return entries.length > 0 ? perGameSummary(entries) : null
+  if (entries.length === 0) return null
+  const summary = perGameSummary(entries)
+  const rate = (split: { wins: number; games: number }) =>
+    simulationRate({ wins: split.wins, losses: split.games - split.wins, ties: 0 })
+  return { ...summary, total, hasStage2, firstRate: rate(summary.first), secondRate: rate(summary.second) }
 }
 
 function scoreOf(

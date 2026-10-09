@@ -92,7 +92,7 @@ export interface LabDeckView {
    * T-017 A2: what its games say beyond the rate (going first and second, how its losses ended, how far it evolved),
    * over the headline games, every rival together and unweighted; null without per-game results.
    */
-  games: PerGameSummary | null
+  games: LabGamesView | null
   /** Per rival, over the games of the headline score (the confirmation when there is one). */
   perRival: { rival: number; record: GameRecord; rate: WinRate | null }[]
   /** Card changes from the starting list (search variants). */
@@ -101,6 +101,17 @@ export interface LabDeckView {
   cards: CardLineView[]
   energies: string[]
   simulable: boolean
+}
+
+/** T-017 A2: `PerGameSummary` plus what the screen needs (review of #7). */
+export interface LabGamesView extends PerGameSummary {
+  /** Games in those chunks; `games` is how many of them carry per-game results. */
+  total: number
+  /** Whether the list plays a Stage 2 Pokémon: without one, «reached Stage 2» is left out. */
+  hasStage2: boolean
+  /** Win rates going first and second, with n and interval («orientativo» under 30 games). */
+  firstRate: WinRate | null
+  secondRate: WinRate | null
 }
 
 export interface LabExploreView {

@@ -1471,6 +1471,11 @@ export const labDeckSchema = z.object({
       losses: z.object({ points: z.number(), noPokemon: z.number() }),
       ties: z.object({ turnLimit: z.number(), other: z.number() }),
       stages: z.tuple([z.number(), z.number(), z.number()]),
+      /** Games in those chunks; `games` is how many carry per-game results. */
+      total: z.number(),
+      hasStage2: z.boolean(),
+      firstRate: winRateSchema.nullable(),
+      secondRate: winRateSchema.nullable(),
     })
     .nullable()
     .default(null),

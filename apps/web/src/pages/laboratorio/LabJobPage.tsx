@@ -29,7 +29,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { formatNumber, shortSha } from '@/lib/format'
-import { formatInterval, formatRateValue } from '@/lib/matches'
+import { formatInterval, formatRate, formatRateValue } from '@/lib/matches'
 import { formatDuration, isActive, progressFraction } from '@/lib/simulation'
 import { cn } from '@/lib/utils'
 import { ProgressBar, StatusBadge } from '../simulacion/SimulacionPage'
@@ -229,13 +229,13 @@ function GamesLine({ games }: { games: NonNullable<LabDeck['games']> }) {
   const losses = games.losses.points + games.losses.noPokemon
   return (
     <p className="text-xs text-muted-foreground">
-      Empezando {share(games.first.wins, games.first.games)} (de {games.first.games}) · yendo segundo{' '}
-      {share(games.second.wins, games.second.games)} (de {games.second.games})
+      Empezando: {formatRate(games.firstRate)} · yendo segundo: {formatRate(games.secondRate)}
       {losses > 0
         ? ` · derrotas: ${share(games.losses.points, losses)} por puntos, ${share(games.losses.noPokemon, losses)} sin Pokémon en juego`
         : ''}
-      {games.ties.turnLimit > 0 ? ` · ${games.ties.turnLimit} empates por el límite de turnos` : ''} · llegó a Fase 2 en
-      el {share(games.stages[2], games.games)} de {games.games} partidas.
+      {games.ties.turnLimit > 0 ? ` · ${games.ties.turnLimit} empates por el límite de turnos` : ''}
+      {games.hasStage2 ? ` · llegó a Fase 2 en el ${share(games.stages[2], games.games)} de las partidas` : ''}
+      {games.games < games.total ? ` (detalle de ${games.games} de ${games.total} partidas)` : ''}.
     </p>
   )
 }

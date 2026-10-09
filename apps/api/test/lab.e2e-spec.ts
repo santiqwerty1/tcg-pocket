@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
+import { LabService } from '../src/lab/lab.service.js'
 import { WorkerQueueService } from '../src/simulation/worker-queue.service.js'
 import { type FetchLike, LimitlessTransport } from '../src/tournaments/limitless.client.js'
 import { TournamentSyncService } from '../src/tournaments/tournament-sync.service.js'
@@ -629,5 +630,20 @@ describe('laboratorio (e2e)', () => {
     expect(best.games).toMatchObject({ games: 60, stages: [0, 0, 60] })
     expect(best.games.first.games + best.games.second.games).toBe(60)
     expect(best.games.losses.points + best.games.losses.noPokemon).toBe(6)
+    // Review of #7: the rates come with n and interval; the list plays a Stage 2 (Mega-Blaziken ex).
+    expect(best.games).toMatchObject({ total: 60, hasStage2: true })
+    expect(best.games.firstRate.games + best.games.secondRate.games).toBe(60)
+
+    // Review of #7: with no capable worker seen for 30 minutes, the lab jobs still waiting stop asking for perGame.
+    const waiting = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9300 })
+    const asked = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: waiting.body.id } })
+    expect((asked.params as { perGame?: boolean }).perGame).toBe(true)
+    const labService = test.app.get(LabService)
+    expect(await labService.sweepPerGame()).toBe(0)
+    await test.prisma.workerNode.updateMany({ data: { lastSeenAt: new Date(Date.now() - 60 * 60 * 1000) } })
+    expect(await labService.sweepPerGame()).toBeGreaterThanOrEqual(1)
+    const swept = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: waiting.body.id } })
+    expect((swept.params as { perGame?: boolean }).perGame).toBeUndefined()
+    await post(`/api/simulations/${waiting.body.id}/cancel`)
   }, 60_000)
 })
