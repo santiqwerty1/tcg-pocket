@@ -6,8 +6,9 @@ import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
 import { MatchList } from './MatchList'
 import { QuickMatchForm } from './QuickMatchForm'
+import { TodayStrip } from './TodayStrip'
 
-/** Home screen: the quick-entry sheet on top, the last matches below. */
+/** Home screen («Hoy», Fase 26): what matters today, the quick-entry sheet, the last matches. */
 export function PartidasPage() {
   const [params] = useSearchParams()
   const suggestions = useMatchSuggestions()
@@ -15,6 +16,7 @@ export function PartidasPage() {
 
   return (
     <div className="flex flex-col gap-6">
+      <TodayStrip />
       <Section title="Nueva partida">
         {suggestions.isPending ? <LoadingRows rows={5} /> : null}
         {suggestions.isError ? <ErrorState error={suggestions.error} onRetry={() => suggestions.refetch()} /> : null}

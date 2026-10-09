@@ -407,3 +407,10 @@ Pedido de Santi: miniaturas, tocar las cartas para ver más, mejores controles e
 |---|---|---|
 | 28.1 | «Quién empezó» ya se anotaba desde la Fase 2 (opcional) y había una tabla por orden de turno; se suma **¿Importa empezar?** (`turnOrderImpact`, `packages/domain/src/matches/turnOrder.ts`): porcentaje de victorias empezando y yendo segundo (los empates cuentan como partidas no ganadas), la diferencia y una prueba de dos proporciones (\|z\| ≥ 1,96: «más de lo que explica el azar»; si no, «puede ser azar»); con menos de 5 partidas de cada lado dice cuántas faltan. Va en Estadísticas, en la ficha del mazo y en `matches_stats` para Claude. | Saber si el orden de turno pesa en tus mazos, sin confundir azar con diferencia. | | undefined |
 | 28.2 | «Contra cada rival» muestra el récord empezando y yendo segundo (`opponentTurns`); cuánto % de las partidas tiene el dato anotado. Ajuste **«Pedir siempre quién empezó»** (`askWentFirst`, apagado por defecto): la carga rápida no guarda hasta responderlo. | Que el dato se llene sin volverlo obligatorio para todos. | | undefined |
+
+## Fase 26: pantalla «Hoy» (9/10/2026)
+
+| # | Decisión | Motivo |
+|---|---|---|
+| 29.1 | La pestaña **Partidas pasa a llamarse «Hoy»** (misma ruta `/partidas`): arriba, «Para hoy» con solo lo que tiene algo — partida contra el bot que espera tu jugada, avisos, situaciones pendientes, simulaciones y búsquedas del laboratorio terminadas, el mazo para llevar (`/api/decks-today`), el récord del día y el arquetipo que más sube; debajo, la carga rápida como siempre (los 4 toques no cambian) y las últimas partidas. | Abrir la app y ver qué hacer sin perder la carga rápida. | | undefined |
+| 29.2 | Se arma en el celu con los endpoints que ya existían (sin uno nuevo); lo que no carga se omite. Las simulaciones y búsquedas terminadas cuentan desde la última visita a esa pantalla en el dispositivo (`lib/seen.ts`, almacenamiento del navegador) y como mucho del último día. | Sin acoplar módulos en la API; lo ya visto no vuelve a aparecer. | | undefined |

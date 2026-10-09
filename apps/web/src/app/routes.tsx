@@ -59,7 +59,7 @@ export const routes: RouteObject[] = [
     children: [
       // Home: logging a match is the most frequent action (PLAN §7 Fase 2: ≤ 4 taps from the home screen).
       { index: true, element: <Navigate to="/partidas" replace /> },
-      { path: 'partidas', element: <PartidasPage />, handle: handle('Partidas') },
+      { path: 'partidas', element: <PartidasPage />, handle: handle('Hoy') },
       {
         path: 'partidas/estadisticas',
         element: <MatchStatsPage />,

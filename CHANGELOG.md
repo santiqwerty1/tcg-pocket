@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-09 (72 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-09 (73 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- does going first matter? (phase 25, T-013) `556f0fe`
 - situations to solve from your own games with the coach (phase 24) `ab29fd3`
 - play against the exact list of a recent tournament (phase 23) `92e8b92`
 - the board — replay viewer and games against the bot (phase 22) `bc4947f`

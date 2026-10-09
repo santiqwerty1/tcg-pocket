@@ -39,6 +39,7 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 - **Fase 22 desplegada el 9/10/2026** (`bc4947f`, catálogo sincronizado: 1.778 cartas con imagen en español; worker 0.2.3). **Fase 23 implementada el 9/10/2026** (DECISIONES 26.1–26.2): jugar contra la lista exacta de un torneo reciente — `recentLists` (dominio), `GET /api/play/recent-lists` (`PlayRivalsService`), pestaña «Lista de torneo» en Jugar y «Jugar contra esta lista» en la ficha de una lista.
 - **Fase 24 implementada el 9/10/2026** (DECISIONES 27.1–27.3): situaciones para resolver — `puzzleSpots`/`gradeAnswer` (dominio), `PuzzlesService` y `/api/puzzles*` (migración `20261009060000_puzzle_attempts`), `useTouchPlay` compartido entre la partida y las situaciones, pantallas Jugar → Situaciones para resolver (`/jugar/situaciones`, `/jugar/situaciones/:id`) y la repetición con `?paso=`.
 - **Fase 25 implementada el 9/10/2026** (DECISIONES 28.1–28.2): ¿importa empezar? — `turnOrderImpact`/`opponentTurns` (dominio), `turnOrder` en `/api/matches/stats` y `turn` en `/api/decks/:id/matchups`, `TurnOrderCard`, ajuste `askWentFirst`.
+- **Fase 26 implementada el 9/10/2026** (DECISIONES 29.1–29.2): pantalla «Hoy» — `TodayStrip` arriba de la carga rápida, pestaña «Hoy», `lib/seen.ts`.
 - **Visto bueno de Santi para todo el 8/10/2026**: fases 0–8 del plan, laboratorio y ajustes aprobados; no queda nada esperando su revisión. Siguiente paso: lo que pida Santi (abiertos: remapeo I12 al cambiar el catálogo, R-001; CI antes de cada deploy, R-007).
 
 ## Cómo trabajar acá

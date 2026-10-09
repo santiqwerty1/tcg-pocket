@@ -43,22 +43,22 @@ describe('bottom navigation', () => {
   })
 
   it('has the five destinations in order', () => {
-    expect(NAV_DESTINATIONS.map((d) => d.label)).toEqual(['Partidas', 'Mazos', 'Colección', 'Sobres', 'Más'])
+    expect(NAV_DESTINATIONS.map((d) => d.label)).toEqual(['Hoy', 'Mazos', 'Colección', 'Sobres', 'Más'])
   })
 
-  it('redirects / to Partidas (the quick-entry sheet) and marks the active tab', async () => {
+  it('redirects / to Hoy (the quick-entry sheet, Fase 26) and marks the active tab', async () => {
     const router = renderAt('/')
     expect(router.state.location.pathname).toBe('/partidas')
     const nav = await screen.findByRole('navigation', { name: 'Secciones' })
     expect(nav).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Partidas' })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Partidas')
+    expect(screen.getByRole('link', { name: 'Hoy' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Hoy')
   })
 
   it('navigates between destinations and updates the header title', async () => {
     const user = userEvent.setup()
     const router = renderAt('/partidas')
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Partidas')
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Hoy')
     expect(screen.getByRole('heading', { name: 'Nueva partida' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('link', { name: 'Mazos' }))

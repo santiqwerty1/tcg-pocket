@@ -22,6 +22,7 @@ import { Section } from '@/components/Section'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { formatDate, formatDateTime, shortSha } from '@/lib/format'
+import { useMarkSeen } from '@/lib/seen'
 import { formatDuration, gamesLabel, isActive, KIND_LABEL, progressFraction, STATUS_LABEL } from '@/lib/simulation'
 import { ago } from '@/lib/tournaments'
 import { cn } from '@/lib/utils'
@@ -228,6 +229,7 @@ function JobRow({ job, onDelete }: { job: JobSummary; onDelete: (job: JobSummary
 }
 
 export function SimulacionPage() {
+  useMarkSeen('simulacion')
   const [showArchived, setShowArchived] = useState(false)
   const jobs = useSimulations(showArchived)
   const engine = useEngineInfo()

@@ -12,7 +12,7 @@ export interface NavDestination {
 }
 
 export const NAV_DESTINATIONS: NavDestination[] = [
-  { to: '/partidas', label: 'Partidas', icon: SwordsIcon },
+  { to: '/partidas', label: 'Hoy', icon: SwordsIcon },
   { to: '/mazos', label: 'Mazos', icon: LayersIcon },
   { to: '/coleccion', label: 'Colección', icon: LibraryBigIcon, also: ['/cartas', '/grupos'] },
   { to: '/sobres', label: 'Sobres', icon: PackageIcon },

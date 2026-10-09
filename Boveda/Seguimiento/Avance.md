@@ -46,7 +46,7 @@ revisar: false
 | 23 | Jugar contra la lista exacta de un torneo reciente | hecho 09/10 · desplegado | — | — |
 | 24 | Situaciones para resolver | hecho 09/10 · desplegado | — | — |
 | 25 | ¿Empezaste vos? y estadísticas por orden de turno | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
-| 26 | Pantalla «Hoy» | pendiente | — | [T-013](Tareas/T-013.md) |
+| 26 | Pantalla «Hoy» | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
 | 27 | Buscador único | pendiente | — | [T-013](Tareas/T-013.md) |
 | 28 | Cargar partidas sin señal | pendiente | — | [T-013](Tareas/T-013.md) |
 | 29 | Claude analiza una partida | pendiente | — | [T-013](Tareas/T-013.md) |

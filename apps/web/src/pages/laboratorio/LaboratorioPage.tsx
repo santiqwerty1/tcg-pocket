@@ -21,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { formatDateTime, formatNumber } from '@/lib/format'
+import { useMarkSeen } from '@/lib/seen'
 import { formatDuration, isActive, progressFraction } from '@/lib/simulation'
 import { ProgressBar, StatusBadge } from '../simulacion/SimulacionPage'
 import { CoreBuilder } from './CoreBuilder'
@@ -463,6 +464,7 @@ function LabJobsList() {
 }
 
 export function LaboratorioPage() {
+  useMarkSeen('laboratorio')
   const [size, setSize] = useState(15)
   const bank = useLabBank(size)
   return (
