@@ -551,7 +551,8 @@ describe('laboratorio (e2e)', () => {
 
   // Last on purpose: once a 0.2.5 worker was seen, every new lab job asks for per-game results.
   it('per-game results (T-017 A2): the paired test decides, and each list says how its games went', async () => {
-    const hello25 = { ...hello, workerId: 'worker-lab-25', version: '0.2.5' }
+    // A worker that plays per-game results: 0.2.5 on, with engine-cli 0.2.0 on (the queue checks both).
+    const hello25 = { ...hello, workerId: 'worker-lab-25', version: '0.2.5', cliVersion: '0.2.0' }
     // The worker introduces itself first: lab jobs ask for perGame only when one that plays it was seen.
     await bearer('post', '/api/worker/claim').send({ ...hello25, engineRev: test.env.engineRev })
     const config = {

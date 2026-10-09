@@ -62,6 +62,7 @@ import {
   neighborhoodUsage,
   novelty,
   type PairedRival,
+  PER_GAME_CLI_VERSION,
   PER_GAME_WORKER_VERSION,
   type PerGameEntry,
   type PerGameSummary,
@@ -847,16 +848,21 @@ export class LabService implements OnApplicationBootstrap {
   }
 
   /**
-   * Whether to ask for per-game results: a worker that plays them (0.2.5 on) was seen in the last day. Without one, a
-   * job that asks for them would wait in the queue; the lab then falls back to independent scores.
+   * Whether to ask for per-game results: a worker that plays them (0.2.5 on, with engine-cli 0.2.0 on) was seen in the
+   * last day. Without one, a job that asks for them would wait in the queue; the lab then falls back to independent
+   * scores.
    */
   private async perGameReady(): Promise<boolean> {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000)
     const workers = await this.prisma.workerNode.findMany({
       where: { lastSeenAt: { gte: since } },
-      select: { version: true },
+      select: { version: true, cliVersion: true },
     })
-    return workers.some((worker) => versionAtLeast(worker.version, PER_GAME_WORKER_VERSION))
+    return workers.some(
+      (worker) =>
+        versionAtLeast(worker.version, PER_GAME_WORKER_VERSION) &&
+        versionAtLeast(worker.cliVersion, PER_GAME_CLI_VERSION),
+    )
   }
 
   private async workerCores(): Promise<number> {
