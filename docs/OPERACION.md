@@ -73,6 +73,24 @@ La guía para levantar todo desde cero (base nueva, app nueva, restaurar la copi
 
 Para mirar la memoria sin entrar a la app: `system_status`, o `GET /api/ops/status` con sesión.
 
+## CI en la PC (D-023)
+
+Mientras el repo sea privado y sin minutos de Actions, la CI corre en dos runners propios de la PC: `tcg-pc-1` y `tcg-pc-2`, con la etiqueta `tcg-pc`.
+- **Dónde están:** en `%USERPROFILE%\actions-runner`.
+- **Arranque:** al iniciar sesión, por `tcg-pocket-ci-runners.vbs` en Inicio.
+- **Instalar:** `powershell -ExecutionPolicy Bypass -File scripts\ci-runner\install.ps1`.
+- **Cómo elige runner la CI:** con las variables del repo `CI_RUNNER` y `CI_RUNNER_WINDOWS` (`tcg-pc`). Sin ellas, vuelve a los de GitHub.
+- **Base y puerto por runner:** `tcg_ci_test_<runner>` y `tcg_ci_screens_<runner>`, en el Postgres de `docker compose`, y un puerto propio para las pantallas. No pisan los de las sesiones.
+- **El motor:** se compila con el Rust y el WinLibs de la PC, en `%USERPROFILE%\actions-runner\tcg-pc-<n>\_work\tcg-pocket\cargo-target`.
+- **Ver si andan:** `gh api repos/santiqwerty1/tcg-pocket/actions/runners` (`online`).
+  - Si están caídos: `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = "wscript.exe `"$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\tcg-pocket-ci-runners.vbs`"" }`.
+  - Nunca `Start-Process` desde una sesión de Claude (H-016).
+- **Seguridad:** solo corren código de este repo privado. Los PR de Dependabot no corren en la PC, y Dependabot queda en pausa hasta la mudanza.
+- **Sacarlos (antes de pasar el repo a público):**
+  1. `powershell -ExecutionPolicy Bypass -File scripts\ci-runner\uninstall.ps1`.
+  2. `gh variable delete CI_RUNNER` y `gh variable delete CI_RUNNER_WINDOWS`.
+  3. `open-pull-requests-limit` de Dependabot a 2 y 1.
+
 ## Deploy
 
 `pnpm deploy:fly` (`scripts/deploy.mjs`) hace todo esto:

@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url'
 
 export const E2E_DIR = dirname(fileURLToPath(import.meta.url))
 export const REPO_ROOT = join(E2E_DIR, '..', '..', '..')
-export const PORT = 3210
+/** `SCREENS_PORT` moves it (the CI on the PC's runner, so it never meets a session running the screens). */
+export const PORT = Number(process.env.SCREENS_PORT ?? 3210)
 export const BASE_URL = `http://127.0.0.1:${PORT}`
 /** Next to the API's e2e database (same Postgres: docker compose locally, the service in CI). */
 export const DATABASE_URL = process.env.SCREENS_DATABASE_URL ?? 'postgresql://tcg:tcg@127.0.0.1:5433/tcg_screens'
