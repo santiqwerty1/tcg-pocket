@@ -2115,7 +2115,7 @@ export type PackLuckView = z.infer<typeof packLuckViewSchema>
 
 // ---------- Notificaciones (Fase 18) ----------
 
-export const NOTIFICATION_KINDS = ['liveGame', 'simulations', 'lab', 'alerts'] as const
+export const NOTIFICATION_KINDS = ['liveGame', 'simulations', 'lab', 'alerts', 'weekly'] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 export const notificationsSchema = z.object({
   enabled: z.boolean(),
@@ -2129,7 +2129,14 @@ export const notificationsSchema = z.object({
       endpoint: z.string(),
     }),
   ),
-  preferences: z.object({ liveGame: z.boolean(), simulations: z.boolean(), lab: z.boolean(), alerts: z.boolean() }),
+  preferences: z.object({
+    liveGame: z.boolean(),
+    simulations: z.boolean(),
+    lab: z.boolean(),
+    alerts: z.boolean(),
+    // Fase 32 (an older server does not send it).
+    weekly: z.boolean().default(true),
+  }),
 })
 export type NotificationsStatus = z.infer<typeof notificationsSchema>
 

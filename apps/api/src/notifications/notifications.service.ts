@@ -11,7 +11,7 @@ import { ENV, type Env } from '../config/env.js'
 import type { Prisma } from '../generated/prisma/client.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 
-export const NOTIFICATION_KINDS = ['liveGame', 'simulations', 'lab', 'alerts'] as const
+export const NOTIFICATION_KINDS = ['liveGame', 'simulations', 'lab', 'alerts', 'weekly'] as const
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number]
 export type NotificationPreferences = Record<NotificationKind, boolean>
 
@@ -20,6 +20,8 @@ export const DEFAULT_PREFERENCES: NotificationPreferences = {
   simulations: true,
   lab: true,
   alerts: true,
+  /** Fase 32: last week's summary, on Mondays. */
+  weekly: true,
 }
 const preferencesSchema = z.object(
   Object.fromEntries(NOTIFICATION_KINDS.map((kind) => [kind, z.boolean().optional()])) as Record<

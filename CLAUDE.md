@@ -45,6 +45,7 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 - **Fase 29 implementada el 9/10/2026** (DECISIONES 32.1–32.3): Claude analiza una partida — `packages/domain/src/simulation/gameReview.ts` (narración en español, tablero, veredictos), `GameReviewService` (`GET /api/play/:id/review`), tools `play_games` y `play_game_review`.
 - **Fase 30 implementada el 9/10/2026** (DECISIONES 33.1–33.4): ejercicios de cálculo — `packages/domain/src/drills` (`drawDrill`, `koDrill`), `drill_attempts` (migración `20261009080000_drill_attempts`), `apps/api/src/drills` (`/api/drills*`), pantalla `/jugar/ejercicios`.
 - **Fase 31 implementada el 9/10/2026** (DECISIONES 34.1–34.3): lista de intercambio — `packages/domain/src/collection/trades.ts` (`tradeList`, `tradeText`), `apps/api/src/trades` (`GET /api/trades`), tool `collection_trades`, Colección → Intercambio.
+- **Fase 32 implementada el 9/10/2026** (DECISIONES 35.1–35.4): resumen semanal — `packages/domain/src/stats/week.ts`, `apps/api/src/weekly` (`GET /api/weekly`, `WeeklyCron` los lunes 10:00, notificación `weekly`), tool `week_summary`, Hoy → Semana (`/partidas/semana`).
 - **Visto bueno de Santi para todo el 8/10/2026**: fases 0–8 del plan, laboratorio y ajustes aprobados; no queda nada esperando su revisión. Siguiente paso: lo que pida Santi (abiertos: remapeo I12 al cambiar el catálogo, R-001; CI antes de cada deploy, R-007).
 
 ## Cómo trabajar acá

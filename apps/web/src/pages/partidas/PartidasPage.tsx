@@ -1,4 +1,4 @@
-import { ChartColumnIcon, HistoryIcon } from 'lucide-react'
+import { CalendarDaysIcon, ChartColumnIcon, HistoryIcon } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router'
 import { useMatches, useMatchSuggestions } from '@/api/matches'
 import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
@@ -41,7 +41,7 @@ export function PartidasPage() {
 
       <PendingMatches />
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         <Button variant="outline" asChild>
           <Link to="/partidas/estadisticas">
             <ChartColumnIcon data-icon="inline-start" />
@@ -52,6 +52,12 @@ export function PartidasPage() {
           <Link to="/partidas/historial">
             <HistoryIcon data-icon="inline-start" />
             Historial
+          </Link>
+        </Button>
+        <Button variant="outline" asChild>
+          <Link to="/partidas/semana">
+            <CalendarDaysIcon data-icon="inline-start" />
+            Semana
           </Link>
         </Button>
       </div>

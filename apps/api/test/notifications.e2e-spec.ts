@@ -2,6 +2,7 @@ import webpush from 'web-push'
 import { PushSender } from '../src/notifications/notifications.service.js'
 import { NotificationsWatcher } from '../src/notifications/notifications.watcher.js'
 import { PresenceService } from '../src/notifications/presence.service.js'
+import { WeeklyCron, WeeklyService } from '../src/weekly/weekly.controller.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /**
@@ -117,5 +118,47 @@ describe('notifications (e2e)', () => {
     failNext = 410
     expect((await post('/api/notifications/test')).body).toEqual({ sent: 0 })
     expect((await get('/api/notifications')).body.devices).toEqual([])
+  })
+
+  it('resumen semanal (Fase 32): last week from Monday to Sunday in Buenos Aires, pushed once on Monday', async () => {
+    const now = new Date('2026-10-12T14:00:00Z') // Monday 11:00 in Buenos Aires
+    await test.prisma.drillAttempt.createMany({
+      data: [
+        { kind: 'draw', seed: 1n, correct: true, createdAt: new Date('2026-10-07T15:00:00Z') },
+        { kind: 'ko', seed: 2n, correct: true, createdAt: new Date('2026-10-11T23:00:00Z') }, // Sunday 20:00 local
+        { kind: 'ko', seed: 3n, correct: false, createdAt: new Date('2026-10-08T15:00:00Z') },
+        { kind: 'ko', seed: 4n, correct: true, createdAt: new Date('2026-10-12T04:00:00Z') }, // Monday 01:00 local: next week
+      ],
+    })
+    const summary = await test.app.get(WeeklyService).summary({ now })
+    expect(summary.week).toMatchObject({
+      start: '2026-10-05',
+      label: '5/10 al 11/10',
+      previous: '2026-09-28',
+      next: '2026-10-12',
+      current: false,
+    })
+    expect(summary.practice).toMatchObject({ drillsAnswered: 3, drillsCorrect: 2 })
+    expect(summary.matches.overall.games).toBe(0)
+    expect(summary).toMatchObject({ headline: '2/3 ejercicios', quiet: false })
+
+    expect((await post('/api/notifications/subscribe').send(device(7))).status).toBe(204)
+    sent.length = 0
+    const cron = test.app.get(WeeklyCron)
+    expect(await cron.send(now)).toBe(1)
+    expect(sent.at(-1)?.payload).toMatchObject({
+      title: 'Tu semana (5/10 al 11/10)',
+      body: '2/3 ejercicios',
+      url: '/partidas/semana?semana=2026-10-05',
+    })
+    expect(await cron.send(now)).toBe(0) // once per week
+    // Two weeks later nothing happened: no push.
+    expect(await cron.send(new Date('2026-10-26T14:00:00Z'))).toBe(0)
+
+    const http = (await get('/api/weekly?semana=2026-10-08')).body
+    expect(http.week.start).toBe('2026-10-05')
+    expect(http.practice.drillsAnswered).toBe(3)
+    expect((await get('/api/weekly?semana=ayer')).status).toBe(400)
+    expect((await get('/api/notifications')).body.preferences.weekly).toBe(true)
   })
 })

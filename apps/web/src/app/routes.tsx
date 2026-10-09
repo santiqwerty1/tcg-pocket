@@ -36,6 +36,7 @@ import { MatchEditPage } from '@/pages/partidas/MatchEditPage'
 import { MatchHistoryPage } from '@/pages/partidas/MatchHistoryPage'
 import { MatchStatsPage } from '@/pages/partidas/MatchStatsPage'
 import { PartidasPage } from '@/pages/partidas/PartidasPage'
+import { WeekPage } from '@/pages/partidas/WeekPage'
 import { NewSimulationPage } from '@/pages/simulacion/NewSimulationPage'
 import { ReplayPage } from '@/pages/simulacion/ReplayPage'
 import { SimulacionPage } from '@/pages/simulacion/SimulacionPage'
@@ -72,6 +73,7 @@ export const routes: RouteObject[] = [
         element: <MatchHistoryPage />,
         handle: handle('Historial de partidas', '/partidas'),
       },
+      { path: 'partidas/semana', element: <WeekPage />, handle: handle('Tu semana', '/partidas') },
       { path: 'partidas/:matchId', element: <MatchEditPage />, handle: handle('Editar partida', '/partidas') },
       { path: 'sobres', element: <SobresPage />, handle: handle('Sobres') },
       { path: 'torneos', element: <TorneosPage />, handle: handle('Torneos', '/mas') },

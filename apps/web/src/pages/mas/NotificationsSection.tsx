@@ -27,6 +27,7 @@ const KINDS: { kind: NotificationKind; label: string; hint: string }[] = [
   { kind: 'simulations', label: 'Simulaciones', hint: 'Cuando termina una simulación' },
   { kind: 'lab', label: 'Laboratorio', hint: 'Cuando termina una búsqueda (y si encontró algo mejor)' },
   { kind: 'alerts', label: 'Avisos', hint: 'Set nuevo, era nueva, motor nuevo, último día de un sobre' },
+  { kind: 'weekly', label: 'Resumen semanal', hint: 'Los lunes a las 10, cómo te fue la semana anterior' },
 ]
 
 export function NotificationsSection() {

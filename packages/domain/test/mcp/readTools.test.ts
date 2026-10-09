@@ -47,6 +47,7 @@ describe('MCP read tools', () => {
         'tournaments_trends',
         'tournaments_matchups',
         'tournaments_unlock_cards',
+        'week_summary',
       ].sort(),
     )
   })

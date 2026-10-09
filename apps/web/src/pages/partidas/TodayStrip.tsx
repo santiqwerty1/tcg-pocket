@@ -6,6 +6,7 @@
  */
 import {
   BellIcon,
+  CalendarDaysIcon,
   CpuIcon,
   FlaskConicalIcon,
   type LucideIcon,
@@ -24,6 +25,7 @@ import { usePlayGames } from '@/api/play'
 import { usePuzzles } from '@/api/puzzles'
 import { useSimulations } from '@/api/simulations'
 import { useMetaTrends } from '@/api/tournaments'
+import { useWeekSummary } from '@/api/weekly'
 import { formatRecord } from '@/lib/matches'
 import { lastSeen } from '@/lib/seen'
 import { cn } from '@/lib/utils'
@@ -54,6 +56,9 @@ export function TodayStrip() {
   const pick = usePickToday('tournament')
   const today = useMatchStats({ from })
   const trends = useMetaTrends({}, 7)
+  // Fase 32: last week, on Mondays and Tuesdays.
+  const earlyWeek = [1, 2].includes(new Date().getDay())
+  const week = useWeekSummary(null, { enabled: earlyWeek })
 
   const lines: Line[] = []
   const waiting = (games.data ?? []).filter((game) => game.status === 'waiting')
@@ -148,6 +153,16 @@ export function TodayStrip() {
       text: `Sube: ${rising.archetype.name}`,
       detail: `+${Math.round(rising.delta * 10) / 10} puntos de cuota esta semana`,
       to: '/torneos/semana',
+    })
+  }
+
+  if (earlyWeek && week.data && !week.data.quiet) {
+    lines.push({
+      key: 'week',
+      icon: CalendarDaysIcon,
+      text: `Tu semana: ${week.data.headline}`,
+      detail: week.data.week.label,
+      to: `/partidas/semana?semana=${week.data.week.start}`,
     })
   }
 

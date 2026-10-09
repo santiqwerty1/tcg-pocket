@@ -262,6 +262,14 @@ Fase 25: `GET /api/matches/stats` suma `turnOrder: { first, second, unknown, cov
 |---|---|
 | `GET /api/trades?rarities=◊◊◊◊,☆` | `{ gives: [{ cardId, groupId, nameEs, nameEn, rarity, owned, spare }], wants: [{ groupId, nameEs, nameEn, missing, decks, options: [{ cardId, rarity }] }], untradeable, byRarity: [{ rarity, wants, gives }], rarities, text, totals: { wants, gives, spare } }` |
 
+## Resumen semanal (Fase 32)
+
+| Método y ruta | Respuesta |
+|---|---|
+| `GET /api/weekly?semana=YYYY-MM-DD` | `{ week: { start, from, to, label, previous, next, current }, matches: { overall, previousWeek, byDeck, bestRival, worstRival }, bot: { games, wins, losses, ties, coachGames, coachAgreement }, practice: { situationsTried, situationsSolved, drillsAnswered, drillsCorrect }, work: { simulations, lab }, imports, meta: { rising, falling } \| null, headline, quiet }` (por defecto la última semana completa) |
+
+Notificaciones: nuevo tipo `weekly` en `GET/PUT /api/notifications/preferences`.
+
 ## Sobres (Fase 4)
 
 | Método y ruta | Cuerpo / respuesta |

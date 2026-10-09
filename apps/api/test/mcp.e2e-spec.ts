@@ -148,6 +148,7 @@ describe('MCP endpoint (e2e)', () => {
       'tournaments_stats',
       'tournaments_trends',
       'tournaments_unlock_cards',
+      'week_summary',
     ])
     for (const tool of tools) {
       expect(tool.annotations?.readOnlyHint).toBe(true)
@@ -161,7 +162,7 @@ describe('MCP endpoint (e2e)', () => {
   it('serves 2026-07-28 clients from the same endpoint', async () => {
     const client = await connect('modern')
     const { tools } = await client.listTools()
-    expect(tools).toHaveLength(33)
+    expect(tools).toHaveLength(34)
     // Fase 29: the games against the bot (none here) and the review of one.
     expect((await call(client, 'play_games')).structuredContent).toEqual({ games: [] })
     const missing = await client.callTool({ name: 'play_game_review', arguments: { id: 999 } })
@@ -462,7 +463,7 @@ describe('MCP endpoint (e2e)', () => {
       .set('Cookie', cookie)
       .send({ name: 'temporal', kind: 'mcp', scopes: ['mcp:read'] })
     const client = await connect('legacy', created.body.token)
-    expect((await client.listTools()).tools.length).toBe(33)
+    expect((await client.listTools()).tools.length).toBe(34)
     expect((await test.http().delete(`/api/tokens/${created.body.id}`).set('Cookie', cookie)).status).toBe(204)
     await expect(client.listTools()).rejects.toThrow()
   })

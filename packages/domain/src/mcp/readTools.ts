@@ -349,6 +349,19 @@ export const MCP_READ_TOOLS = {
       'Qué entró a la colección entre dos importaciones del CSV (y desde la primera), por rareza, contra lo que dan los sobres: cuántas cartas ☆ o más y ◊◊◊◊ salieron y cuántas se esperaban, con una prueba binomial («mejor de lo normal», «dentro de lo normal», «peor»). Aproximado: el CSV dice qué tenés, no de dónde vino (cuenta intercambios, Wonder Pick y premios); las promos no cuentan.',
     input: z.object({}),
   },
+  weekSummary: {
+    name: 'week_summary',
+    title: 'Resumen de una semana',
+    description:
+      'Una semana de lunes a domingo (hora de Buenos Aires), por defecto la última completa: las partidas registradas (récord con su texto, la semana anterior, los mazos más jugados y el mejor y el peor rival con 2 partidas o más), las partidas contra el bot (y qué parte de las jugadas coincidió con el entrenador), la práctica (situaciones y ejercicios de cálculo), las simulaciones y búsquedas del laboratorio terminadas, las importaciones del CSV y, para las últimas semanas, los arquetipos que más subieron y bajaron en torneos. Es lo mismo que la pantalla «Tu semana» y el aviso de los lunes.',
+    input: z.object({
+      week: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/)
+        .optional()
+        .describe('Cualquier día de la semana, «2026-10-05»; por defecto la última semana completa'),
+    }),
+  },
   collectionTrades: {
     name: 'collection_trades',
     title: 'Lista de intercambio',

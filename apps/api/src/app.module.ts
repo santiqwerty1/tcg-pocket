@@ -33,6 +33,7 @@ import { TokensModule } from './tokens/tokens.module.js'
 import { TournamentsModule } from './tournaments/tournaments.controller.js'
 import { TradesModule } from './trades/trades.controller.js'
 import { WebModule } from './web/web.module.js'
+import { WeeklyModule } from './weekly/weekly.controller.js'
 
 /**
  * Single process: REST API + PWA static serving + bearer-token integrations (PLAN §3). `WebModule` goes last so its
@@ -68,6 +69,7 @@ export class AppModule implements NestModule {
         SearchModule,
         DrillsModule,
         TradesModule,
+        WeeklyModule,
         PlayModule,
         AlertsModule,
         NotificationsModule,

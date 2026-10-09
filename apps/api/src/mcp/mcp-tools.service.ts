@@ -46,6 +46,7 @@ import type {
 } from '../tournaments/tournament-views.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
 import { TradesService } from '../trades/trades.controller.js'
+import { WeeklyService } from '../weekly/weekly.controller.js'
 import { type DeckRef, DeckRefResolver } from './deck-ref.js'
 import { jobSummaryJson, rateView } from './mcp-json.js'
 import { McpLabToolsService } from './mcp-lab-tools.service.js'
@@ -112,6 +113,7 @@ export class McpToolsService {
     private readonly labTools: McpLabToolsService,
     private readonly playTools: McpPlayToolsService,
     private readonly trades: TradesService,
+    private readonly weekly: WeeklyService,
     @Inject(ENV) private readonly env: Env,
     private readonly logger: PinoLogger,
   ) {
@@ -212,6 +214,9 @@ ${MCP_WRITE_INSTRUCTIONS}`
     )
     server.registerTool(t.collectionPackLuck.name, config(t.collectionPackLuck), () =>
       run(t.collectionPackLuck.name, () => this.collectionPackLuck()),
+    )
+    server.registerTool(t.weekSummary.name, config(t.weekSummary), (args) =>
+      run(t.weekSummary.name, async () => ({ ...(await this.weekly.summary({ week: args.week })) })),
     )
     server.registerTool(t.collectionTrades.name, config(t.collectionTrades), (args) =>
       run(t.collectionTrades.name, () => this.collectionTrades(args)),
