@@ -39,13 +39,22 @@ export type AuditUndo =
       cardId: string
       before: { amountOwned: number; collected: boolean } | null
       after: { amountOwned: number; collected: boolean }
+      /** The row's `updated_at` right after the edit: any later write (even back to the same values) blocks undo. */
+      afterUpdatedAt?: string
       label: string
     }
 
-/** Collects what a write tool wants recorded besides its arguments and answer. */
+/**
+ * Collects what a write tool wants recorded besides its arguments and answer. `keep` stores the undo at once, before
+ * the write that loses something (a deleted match must not depend on the final update of the log).
+ */
 export interface AuditNote {
   undo: AuditUndo | null
+  keep(undo: AuditUndo): Promise<void>
 }
+
+/** What an entry says until the write finishes (it stays so if the server dies in between). */
+export const AUDIT_PENDING = 'Sin terminar: el servidor no llegó a anotar el resultado.'
 
 export interface McpAuditView {
   id: string
@@ -96,30 +105,47 @@ export class McpAuditService {
     this.logger.setContext(McpAuditService.name)
   }
 
-  async record(entry: {
+  /** Opens the entry before the write runs: if it cannot be recorded, the write does not happen. */
+  async start(entry: {
     tokenId: number | null
     tokenName: string
     client: string
     tool: string
     args: unknown
-    ok: boolean
-    result: Json | null
-    error: string | null
-    ms: number
-    undo: AuditUndo | null
-  }): Promise<void> {
-    await this.prisma.mcpAudit.create({
+  }): Promise<number> {
+    const row = await this.prisma.mcpAudit.create({
       data: {
         tokenId: entry.tokenId,
         tokenName: entry.tokenName,
         client: entry.client,
         tool: entry.tool,
         args: clipForAudit(entry.args ?? {}),
-        ok: entry.ok,
-        ...(entry.result ? { result: clipForAudit(entry.result) } : {}),
-        error: entry.error,
-        ms: entry.ms,
-        ...(entry.undo ? { undo: entry.undo as unknown as Prisma.InputJsonValue } : {}),
+        ok: false,
+        error: AUDIT_PENDING,
+        ms: 0,
+      },
+      select: { id: true },
+    })
+    return row.id
+  }
+
+  async keepUndo(id: number, undo: AuditUndo): Promise<void> {
+    await this.prisma.mcpAudit.update({ where: { id }, data: { undo: undo as unknown as Prisma.InputJsonValue } })
+  }
+
+  /** Closes the entry with what happened. */
+  async finish(
+    id: number,
+    outcome: { ok: boolean; result: Json | null; error: string | null; ms: number; undo: AuditUndo | null },
+  ): Promise<void> {
+    await this.prisma.mcpAudit.update({
+      where: { id },
+      data: {
+        ok: outcome.ok,
+        ...(outcome.result ? { result: clipForAudit(outcome.result) } : {}),
+        error: outcome.error,
+        ms: outcome.ms,
+        ...(outcome.undo ? { undo: outcome.undo as unknown as Prisma.InputJsonValue } : {}),
       },
     })
   }
@@ -194,10 +220,16 @@ export class McpAuditService {
         message: 'El mazo (o la revisión) de esa partida ya no existe: no se puede devolver.',
       })
     }
-    const clientRef =
-      match.clientRef && (await this.prisma.match.findUnique({ where: { clientRef: match.clientRef } }))
-        ? null
-        : match.clientRef
+    // The phone may have sent the same match again (Fase 28): restoring it too would count it twice.
+    const resent = match.clientRef
+      ? await this.prisma.match.findUnique({ where: { clientRef: match.clientRef }, select: { id: true } })
+      : null
+    if (resent) {
+      throw new ConflictException({
+        code: 'match_resent',
+        message: `Esa partida ya volvió a entrar desde el celu (partida ${resent.id}): no la duplico.`,
+      })
+    }
     await this.prisma.match.create({
       data: {
         id: match.id,
@@ -210,7 +242,7 @@ export class McpAuditService {
         note: match.note,
         playedAt: new Date(match.playedAt),
         source: match.source,
-        clientRef,
+        clientRef: match.clientRef,
         createdAt: new Date(match.createdAt),
       },
     })
@@ -218,7 +250,12 @@ export class McpAuditService {
 
   private async restoreStock(undo: Extract<AuditUndo, { kind: 'collection_stock' }>): Promise<void> {
     const current = await this.prisma.collectionStock.findUnique({ where: { cardId: undo.cardId } })
-    if (!current || current.amountOwned !== undo.after.amountOwned || current.collected !== undo.after.collected) {
+    if (
+      !current ||
+      current.amountOwned !== undo.after.amountOwned ||
+      current.collected !== undo.after.collected ||
+      (undo.afterUpdatedAt !== undefined && current.updatedAt.toISOString() !== undo.afterUpdatedAt)
+    ) {
       throw new ConflictException({
         code: 'collection_changed',
         message: `${undo.cardId} cambió después (otra edición o un CSV importado): no lo deshago para no pisarlo.`,

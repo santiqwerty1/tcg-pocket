@@ -349,15 +349,42 @@ ${MCP_WRITE_INSTRUCTIONS}`
     }
   }
 
-  /** A write tool: runs like a read and is recorded in the audit log (Fase 43, R-010), failed or not. */
+  /**
+   * A write tool (Fase 43, R-010): the audit entry is opened first (if it cannot be written, neither is anything
+   * else), then the tool runs like a read and the entry is closed with what happened, failed or not.
+   */
   private async runWrite(
     name: string,
     caller: McpCallerInfo,
     args: unknown,
     work: (note: AuditNote) => Promise<Json>,
   ): Promise<CallToolResult> {
-    const note: AuditNote = { undo: null }
     const started = Date.now()
+    let auditId: number
+    try {
+      auditId = await this.audit.start({
+        tokenId: caller.tokenId || null,
+        tokenName: caller.tokenName,
+        client: caller.client,
+        tool: name,
+        args,
+      })
+    } catch (error) {
+      this.logger.error({ tool: name, err: error }, 'mcp audit start failed')
+      return {
+        content: [
+          { type: 'text', text: 'No pude anotar la escritura en el registro, así que no hice nada. Probá de nuevo.' },
+        ],
+        isError: true,
+      }
+    }
+    const note: AuditNote = {
+      undo: null,
+      keep: async (undo) => {
+        await this.audit.keepUndo(auditId, undo)
+        note.undo = undo
+      },
+    }
     let data: Json | null = null
     const result = await this.run(name, caller, async () => {
       data = await work(note)
@@ -366,19 +393,14 @@ ${MCP_WRITE_INSTRUCTIONS}`
     const failed = result.isError === true
     const first = result.content?.[0]
     await this.audit
-      .record({
-        tokenId: caller.tokenId || null,
-        tokenName: caller.tokenName,
-        client: caller.client,
-        tool: name,
-        args,
+      .finish(auditId, {
         ok: !failed,
         result: failed ? null : data,
         error: failed ? (first && first.type === 'text' ? first.text : 'error') : null,
         ms: Date.now() - started,
         undo: failed ? null : note.undo,
       })
-      .catch((error: unknown) => this.logger.error({ tool: name, err: error }, 'mcp audit write failed'))
+      .catch((error: unknown) => this.logger.error({ tool: name, err: error }, 'mcp audit finish failed'))
     return result
   }
 

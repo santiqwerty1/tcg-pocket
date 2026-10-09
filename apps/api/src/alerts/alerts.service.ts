@@ -222,7 +222,7 @@ export class AlertsService {
     const [tokens, older] = await Promise.all([
       this.prisma.apiToken.findMany({
         where: { id: { in: tokenIds } },
-        select: { id: true, name: true, revokedAt: true },
+        select: { id: true, name: true, prefix: true, revokedAt: true },
       }),
       this.prisma.apiTokenClient.findMany({
         where: { tokenId: { in: tokenIds } },
@@ -235,12 +235,14 @@ export class AlertsService {
       const token = tokens.find((item) => item.id === row.tokenId)
       if (!token || token.revokedAt) continue
       const first = older.find((item) => item.tokenId === row.tokenId)?.client === row.client
+      // The prefix tells two tokens with the same name apart: notifications are sent once per title.
+      const label = `«${token.name}» (${token.prefix}…)`
       alerts.push({
         code: 'mcp_new_client',
         level: first ? 'info' : 'warning',
         title: first
-          ? `El token «${token.name}» empezó a usarse (${row.client})`
-          : `Un cliente nuevo usó el token «${token.name}»: ${row.client}`,
+          ? `El token ${label} empezó a usarse (${row.client})`
+          : `Un cliente nuevo usó el token ${label}: ${row.client}`,
         detail: `${first ? 'Primer uso' : 'Primera vez'} el ${ownerDateTime(row.firstSeenAt)}.${first ? '' : ' Si no lo conectaste vos, revocalo en Más → Tokens de API y creá otro.'}`,
         link: '/mas/tokens',
       })

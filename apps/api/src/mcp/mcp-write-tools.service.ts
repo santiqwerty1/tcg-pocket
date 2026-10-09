@@ -371,8 +371,8 @@ export class McpWriteToolsService {
     const match = await this.matches.get(id)
     const row = await this.prisma.match.findUnique({ where: { id: Number(match.id) } })
     if (!row) throw new NotFoundException(`Partida ${id} no encontrada.`)
-    await this.matches.delete(id)
-    note.undo = {
+    // The copy is in the log before the row goes: undoing never depends on what happens after the delete.
+    await note.keep({
       kind: 'match_delete',
       match: {
         id: row.id,
@@ -389,7 +389,8 @@ export class McpWriteToolsService {
         createdAt: row.createdAt.toISOString(),
       },
       label: `${MATCH_RESULT_LABEL_ES[match.result]} con ${match.deck.name}${match.opponent ? ` contra ${match.opponent}` : ''} (${match.playedAt.toISOString().slice(0, 10)})`,
-    }
+    })
+    await this.matches.delete(id)
     return {
       deleted: true,
       match: matchView(match),
@@ -472,12 +473,16 @@ export class McpWriteToolsService {
       ...(args.collected !== undefined ? { collected: args.collected } : {}),
     })
     const card = index.cardById(cardId)
-    const group = card ? await this.catalog.groupDetail(card.functionalGroupId) : null
+    const [group, written] = await Promise.all([
+      card ? this.catalog.groupDetail(card.functionalGroupId) : null,
+      this.prisma.collectionStock.findUnique({ where: { cardId: result.stockCardId }, select: { updatedAt: true } }),
+    ])
     note.undo = {
       kind: 'collection_stock',
       cardId: result.stockCardId,
       before: result.before,
       after: result.after,
+      ...(written ? { afterUpdatedAt: written.updatedAt.toISOString() } : {}),
       label: `${card?.nameEs ?? cardId} (${cardId}): de ${result.before?.amountOwned ?? 0} a ${result.after.amountOwned}`,
     }
     return {
@@ -550,6 +555,24 @@ export class McpWriteToolsService {
       optimize = {
         remove: (args.remove ?? []).map((item) => ({ cardId: this.resolveCard(item.card, own), count: item.count })),
         candidates: (args.candidates ?? []).map((card) => this.resolveCard(card)),
+      }
+      // Checked here too, so a dry run or a «too long» answer never shows a plan that creating would refuse.
+      const copies = new Map<string, number>()
+      for (const entry of detail.cards) copies.set(entry.card.id, (copies.get(entry.card.id) ?? 0) + entry.count)
+      const asked = new Map<string, number>()
+      for (const item of optimize.remove) asked.set(item.cardId, (asked.get(item.cardId) ?? 0) + item.count)
+      for (const [cardId, count] of asked) {
+        const have = copies.get(cardId) ?? 0
+        if (have < count) {
+          const nameEs = this.catalog.requireIndex().cardById(cardId)?.nameEs ?? cardId
+          throw new BadRequestException(
+            `El mazo ${detail.name} lleva ${have} ${nameEs} (${cardId}): no se pueden sacar ${count}.`,
+          )
+        }
+      }
+      if (asked.size === 0) throw new BadRequestException('Optimizar necesita al menos una carta para sacar (remove).')
+      if (optimize.candidates.length === 0) {
+        throw new BadRequestException('Optimizar necesita cartas candidatas (candidates).')
       }
     }
     const engine = await this.simulations.engineView()

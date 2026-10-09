@@ -309,6 +309,17 @@ describe('MCP write tools (e2e)', () => {
       dryRun: true,
       plan: { pairings: 2, totalGames: 100, workerOnline: false },
     })
+    // An optimize plan is checked like the real job: a card the deck does not have cannot be taken out.
+    const notInDeck = await call(client, 'simulations_enqueue', {
+      kind: 'optimize',
+      decksA: ['7'],
+      decksB: ['2'],
+      remove: [{ card: 'B4-103', count: 1 }],
+      candidates: ['Helio'],
+      dryRun: true,
+    })
+    expect(notInDeck.isError).toBe(true)
+    expect(notInDeck.content[0]?.text).toMatch(/no se pueden sacar 1/)
     const longOne = await call(client, 'simulations_enqueue', {
       kind: 'matrix',
       decksA: ['1', '2', '3', '4', '5', '6', '7', '8'],
@@ -368,6 +379,18 @@ describe('MCP write tools (e2e)', () => {
     expect(edit?.undo).toMatchObject({ kind: 'collection_stock', label: expect.stringContaining('Hoopa ex') })
     expect((await test.http().post(`/api/mcp-audit/${edit?.id}/undo`).set('Cookie', cookie)).status).toBe(200)
     expect((await editions())[0]?.editions.find((edition) => edition.cardId === 'B4-103')?.owned).toBe(owned)
+
+    // Edited again by Claude, then by hand there and back (3 → 4 → 3): the later write blocks the stale undo.
+    expect((await call(client, 'collection_set', { card: 'B4-103', add: 1 })).isError).toBeFalsy()
+    const patch = (amountOwned: number) =>
+      test.http().patch('/api/collection/stock/B4-103').set('Cookie', cookie).send({ amountOwned })
+    expect((await patch(owned + 2)).status).toBe(200)
+    expect((await patch(owned + 1)).status).toBe(200)
+    const latest = ((await get('/api/mcp-audit?limit=1')).body.items as { id: string }[])[0]
+    const stale = await test.http().post(`/api/mcp-audit/${latest?.id}/undo`).set('Cookie', cookie)
+    expect(stale.status).toBe(409)
+    expect(stale.body.error.code).toBe('collection_changed')
+    expect((await patch(owned)).status).toBe(200)
   })
 
   it('Fase 43: a token used by a new client shows up in the tokens and as an alert', async () => {
@@ -380,7 +403,9 @@ describe('MCP write tools (e2e)', () => {
     ])
     const alerts = (await get('/api/alerts')).body.items as { code: string; level: string; title: string }[]
     const mine = alerts.filter((alert) => alert.code === 'mcp_new_client')
-    expect(mine).toContainEqual(expect.objectContaining({ level: 'info', title: expect.stringContaining('«claude»') }))
+    expect(mine).toContainEqual(
+      expect.objectContaining({ level: 'info', title: expect.stringMatching(/«claude» \(tcg_mcp_[\w-]{6}…\)/) }),
+    )
     expect(mine).toContainEqual(
       expect.objectContaining({ level: 'warning', title: expect.stringContaining('Intruso') }),
     )
@@ -388,6 +413,23 @@ describe('MCP write tools (e2e)', () => {
     expect((listed.structuredContent.alerts as { title: string }[]).map((alert) => alert.title)).toContainEqual(
       expect.stringContaining('Intruso'),
     )
+  })
+
+  it('Fase 43: a match the phone sent again is not restored twice', async () => {
+    const client = await connect()
+    const clientRef = '6c0a7e2f-1b3d-4c5e-8f9a-0b1c2d3e4f50'
+    const body = { deckId: '3', result: 'win', mode: 'casual', clientRef }
+    const sent = await test.http().post('/api/matches').set('Cookie', cookie).send(body)
+    expect(sent.status).toBe(201)
+    expect((await call(client, 'matches_delete', { id: sent.body.id })).isError).toBeFalsy()
+    // The phone retries (no answer reached it): the same clientRef comes in again as a new row.
+    const again = await test.http().post('/api/matches').set('Cookie', cookie).send(body)
+    expect(again.status).toBe(201)
+    expect(again.body.id).not.toBe(sent.body.id)
+    const restored = await call(client, 'matches_restore', { id: sent.body.id })
+    expect(restored.isError).toBe(true)
+    expect(restored.content[0]?.text).toContain(`partida ${again.body.id}`)
+    expect((await get(`/api/matches/${sent.body.id}`)).status).toBe(404)
   })
 
   it('Fase 43: matches_list pages, decks_consistency says when there is none, and the prompts', async () => {

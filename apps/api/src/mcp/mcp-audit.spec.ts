@@ -67,3 +67,58 @@ describe('Fase 43: edition codes as typed', () => {
     expect(codeCandidates('Hoopa ex')).toEqual(['Hoopa ex'])
   })
 })
+
+describe('Fase 43: a write is recorded before it runs', () => {
+  type WriteFn = (
+    name: string,
+    caller: { tokenId: number; tokenName: string; client: string; requestId: string },
+    args: unknown,
+    work: (note: { keep(undo: unknown): Promise<void> }) => Promise<Record<string, unknown>>,
+  ) => Promise<{ isError?: boolean; content: { text: string }[] }>
+  const caller = { tokenId: 1, tokenName: 'claude', client: 'Claude-User', requestId: '7' }
+
+  function service(audit: Record<string, unknown>) {
+    const instance = Object.create(McpToolsService.prototype) as McpToolsService
+    Object.assign(instance, { audit, logger: { info: () => undefined, error: () => undefined } })
+    return (instance as unknown as { runWrite: WriteFn }).runWrite.bind(instance) as WriteFn
+  }
+
+  it('does nothing when the entry cannot be opened', async () => {
+    let ran = false
+    const runWrite = service({
+      start: async () => {
+        throw new Error('db down')
+      },
+    })
+    const result = await runWrite('matches_delete', caller, { id: '1' }, async () => {
+      ran = true
+      return {}
+    })
+    expect(ran).toBe(false)
+    expect(result.isError).toBe(true)
+    expect(result.content[0]?.text).toContain('no hice nada')
+  })
+
+  it('keeps the undo before the write and closes the entry after it', async () => {
+    const calls: string[] = []
+    const runWrite = service({
+      start: async () => {
+        calls.push('start')
+        return 42
+      },
+      keepUndo: async (id: number) => {
+        calls.push(`keep ${id}`)
+      },
+      finish: async (id: number, outcome: { ok: boolean }) => {
+        calls.push(`finish ${id} ${outcome.ok}`)
+      },
+    })
+    const result = await runWrite('matches_delete', caller, { id: '1' }, async (note) => {
+      await note.keep({ kind: 'match_delete' })
+      calls.push('delete')
+      return { deleted: true }
+    })
+    expect(result.isError).toBeUndefined()
+    expect(calls).toEqual(['start', 'keep 42', 'delete', 'finish 42 true'])
+  })
+})
