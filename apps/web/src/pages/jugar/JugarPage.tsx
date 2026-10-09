@@ -4,7 +4,7 @@
  */
 import { SwordsIcon } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useDecks } from '@/api/decks'
@@ -21,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatDateTime } from '@/lib/format'
+import { RecentListPicker } from './RecentListPicker'
 
 const BOTS = [
   { code: 'e2', label: 'Normal (expectiminimax 2)' },
@@ -80,8 +81,14 @@ export function JugarPage() {
   const engine = useEngineInfo()
   const create = useCreateGame()
   const [mine, setMine] = useState('')
-  const [rivalKind, setRivalKind] = useState<'meta' | 'deck'>('meta')
-  const [rival, setRival] = useState('')
+  // Fase 23: «Jugar contra esta lista» from Torneos arrives as ?lista=&era=&formato=.
+  const [search] = useSearchParams()
+  const [rivalKind, setRivalKind] = useState<'meta' | 'list' | 'deck'>(search.get('lista') ? 'list' : 'meta')
+  const [rival, setRival] = useState(search.get('lista') ?? '')
+  const [listScope, setListScope] = useState<{ era?: string; format?: string }>({
+    ...(search.get('era') ? { era: search.get('era') as string } : {}),
+    ...(search.get('formato') ? { format: search.get('formato') as string } : {}),
+  })
   const [bot, setBot] = useState('e2')
   const [coach, setCoach] = useState(false)
   const online = (engine.data?.workers ?? []).some((worker) => worker.online)
@@ -89,7 +96,13 @@ export function JugarPage() {
   const rivalSource: PlaySource | null = rival
     ? rivalKind === 'deck'
       ? { deckId: rival }
-      : { listKey: rival, ...(bank.data ? { era: bank.data.era } : {}) }
+      : rivalKind === 'list'
+        ? {
+            listKey: rival,
+            ...(listScope.era ? { era: listScope.era } : {}),
+            ...(listScope.format ? { format: listScope.format as 'STANDARD' | 'NOEX' } : {}),
+          }
+        : { listKey: rival, ...(bank.data ? { era: bank.data.era } : {}) }
     : null
 
   async function start() {
@@ -132,33 +145,44 @@ export function JugarPage() {
           <Tabs
             value={rivalKind}
             onValueChange={(value) => {
-              setRivalKind(value as 'meta' | 'deck')
+              setRivalKind(value as 'meta' | 'list' | 'deck')
               setRival('')
             }}
           >
             <TabsList className="w-full">
-              <TabsTrigger value="meta">Un arquetipo del meta</TabsTrigger>
-              <TabsTrigger value="deck">Uno de mis mazos</TabsTrigger>
+              <TabsTrigger value="meta">Arquetipo</TabsTrigger>
+              <TabsTrigger value="list">Lista de torneo</TabsTrigger>
+              <TabsTrigger value="deck">Mis mazos</TabsTrigger>
             </TabsList>
           </Tabs>
-          <Select value={rival} onValueChange={setRival}>
-            <SelectTrigger aria-label="El mazo del bot" className="w-full">
-              <SelectValue placeholder={rivalKind === 'meta' ? 'Elegí un arquetipo' : 'Elegí un mazo'} />
-            </SelectTrigger>
-            <SelectContent>
-              {rivalKind === 'meta'
-                ? (bank.data?.rivals ?? []).map((item) => (
-                    <SelectItem key={item.listKey} value={item.listKey}>
-                      {item.archetypeName} ({Math.round(item.share * 10) / 10} %)
-                    </SelectItem>
-                  ))
-                : (decks.data ?? []).map((deck) => (
-                    <SelectItem key={deck.id} value={deck.id}>
-                      {deck.name}
-                    </SelectItem>
-                  ))}
-            </SelectContent>
-          </Select>
+          {rivalKind === 'list' ? (
+            <RecentListPicker
+              value={rival}
+              onChange={(listKey, era, format) => {
+                setRival(listKey)
+                setListScope({ era, format })
+              }}
+            />
+          ) : (
+            <Select value={rival} onValueChange={setRival}>
+              <SelectTrigger aria-label="El mazo del bot" className="w-full">
+                <SelectValue placeholder={rivalKind === 'meta' ? 'Elegí un arquetipo' : 'Elegí un mazo'} />
+              </SelectTrigger>
+              <SelectContent>
+                {rivalKind === 'meta'
+                  ? (bank.data?.rivals ?? []).map((item) => (
+                      <SelectItem key={item.listKey} value={item.listKey}>
+                        {item.archetypeName} ({Math.round(item.share * 10) / 10} %)
+                      </SelectItem>
+                    ))
+                  : (decks.data ?? []).map((deck) => (
+                      <SelectItem key={deck.id} value={deck.id}>
+                        {deck.name}
+                      </SelectItem>
+                    ))}
+              </SelectContent>
+            </Select>
+          )}
         </Field>
         <Field label="Bot">
           <Select value={bot} onValueChange={setBot}>

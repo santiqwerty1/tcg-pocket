@@ -442,6 +442,7 @@ La partida corre en el worker de la PC (`engine-cli play`); la app muestra cada 
 | `POST /api/play` | `{ human: Source, rival: Source, bot? (e2), seed?, coach? (false) }` → `201 LiveGame`; `400 not_simulable` si un mazo no se puede jugar. `coach`: modo entrenador (Fase 20) |
 | `GET /api/play/:id` | `LiveGame` |
 | `POST /api/play/:id/choice` | `{ ply, i }` → `LiveGame`; `409 not_your_turn` / `stale_decision`, `400` opción inexistente |
+| `GET /api/play/recent-lists?days=7&top=8&era=&format=` | Fase 23: `{ era, format, days, from, to, items: [{ listKey, archetypeId, archetypeName, tournamentId, tournamentName, date, players, playerName, placing, record, pilots, energies, playable, problem }], attribution }` (hasta 80) |
 | `POST /api/play/:id/undo` | Fase 22: vuelve a tu decisión anterior (en tu turno o con la partida terminada) → `LiveGame` en `queued` con una elección menos; `409 busy` mientras mueve la PC, `nothing_to_undo`, `finished` |
 | `POST /api/play/:id/rematch` | Fase 22: `{ sameSeed? }` → `201 LiveGame` nueva con los mismos mazos, bot y entrenador |
 | `POST /api/play/:id/hint` | Fase 20: `{ ply }` → `LiveGame` con `decision.hint` = la opción del entrenador; `409 stale_decision` / `no_coach` |

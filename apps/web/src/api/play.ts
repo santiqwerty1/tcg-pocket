@@ -1,11 +1,21 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from './client'
-import { type LiveGame, liveGameSchema, liveGamesSchema, type PlayInput } from './schemas'
+import { type LiveGame, liveGameSchema, liveGamesSchema, type PlayInput, recentListsSchema } from './schemas'
 
 export const playKeys = {
   all: ['play'] as const,
   list: ['play', 'list'] as const,
   game: (id: string) => ['play', 'game', id] as const,
+}
+
+/** Fase 23: the exact lists that placed well in the last days, checked against the engine. */
+export function useRecentLists(enabled: boolean) {
+  return useQuery({
+    queryKey: ['play', 'recent-lists'] as const,
+    queryFn: ({ signal }) => request('/api/play/recent-lists', { schema: recentListsSchema, signal }),
+    enabled,
+    staleTime: 10 * 60_000,
+  })
 }
 
 export function usePlayGames() {

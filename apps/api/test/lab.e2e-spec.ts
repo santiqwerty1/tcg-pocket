@@ -243,6 +243,25 @@ describe('laboratorio (e2e)', () => {
     expect((await post('/api/lab/consistency').send({ deckId: deckIds[1], bot: 'et' })).status).toBe(400)
   })
 
+  it('recent tournament lists to play against (Fase 23): the top 8 of PMPT #45, checked against the engine', async () => {
+    const recent = await get('/api/play/recent-lists')
+    expect(recent.status).toBe(200)
+    expect(recent.body).toMatchObject({ era: 'B4a', format: 'STANDARD', days: 7 })
+    const items = recent.body.items as { placing: number; listKey: string; playable: boolean; tournamentName: string }[]
+    expect(items.length).toBeGreaterThan(0)
+    expect(items[0]).toMatchObject({ placing: 1, tournamentName: expect.stringMatching(/^PMPT #45/) })
+    expect(items.every((item) => item.placing <= 8)).toBe(true)
+    const playable = items.find((item) => item.playable)
+    expect(playable).toBeDefined()
+    // That list can be the bot's deck.
+    const game = await post('/api/play').send({ human: { deckId: deckIds[1] }, rival: { listKey: playable?.listKey } })
+    expect(game.status).toBe(201)
+    expect(game.body.rival.listKey).toBe(playable?.listKey)
+    await post(`/api/play/${game.body.id}/abandon`)
+    expect((await get('/api/play/recent-lists?top=1')).body.items).toHaveLength(1)
+    expect((await get('/api/play/recent-lists?top=0')).status).toBe(400)
+  })
+
   it('build from a core (Fase 19): the lists that play the core give the rest; the collection caps it', async () => {
     const all = await post('/api/lab/core').send({ cards: ['B1-36'], pool: 'all' })
     expect(all.status).toBe(200)

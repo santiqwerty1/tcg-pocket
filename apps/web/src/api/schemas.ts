@@ -2141,3 +2141,33 @@ export interface LabCoreInput {
   era?: string
   eventId?: string
 }
+
+// ---------- Listas de torneo para jugar (Fase 23) ----------
+
+export const recentListsSchema = z.object({
+  era: z.string(),
+  format: z.string(),
+  days: z.number(),
+  from: nullableDate,
+  to: nullableDate,
+  attribution: z.string(),
+  items: z.array(
+    z.object({
+      listKey: z.string(),
+      archetypeId: z.string().nullable(),
+      archetypeName: z.string().nullable(),
+      tournamentId: z.string(),
+      tournamentName: z.string(),
+      date: isoDate,
+      players: z.number(),
+      playerName: z.string(),
+      placing: z.number(),
+      record: z.object({ wins: z.number(), losses: z.number(), ties: z.number() }),
+      pilots: z.number(),
+      energies: z.array(selectableEnergySchema),
+      playable: z.boolean(),
+      problem: z.string().nullable(),
+    }),
+  ),
+})
+export type RecentLists = z.infer<typeof recentListsSchema>

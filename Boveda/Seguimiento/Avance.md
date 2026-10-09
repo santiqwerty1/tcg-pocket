@@ -42,7 +42,9 @@ revisar: false
 | 19 | Armar desde un núcleo | hecho 08/10 · falta subir y desplegar | — | [T-012](Tareas/T-012.md) |
 | 20 | Modo entrenador contra el bot | hecho 08/10 · falta subir, desplegar, recompilar el motor y reiniciar el worker | — | [T-012](Tareas/T-012.md) |
 | 21 | Mantenimiento: remapeo de ids (I12) y CI | hecho 08/10 · desplegado | — | [R-001](Riesgos/R-001.md), [R-007](Riesgos/R-007.md) |
-| 22 | La mesa: visor de repeticiones y partidas contra el bot | hecho 09/10 · falta subir, desplegar, sync del catálogo y reiniciar el worker | — | — |
+| 22 | La mesa: visor de repeticiones y partidas contra el bot | hecho 09/10 · desplegado | — | — |
+| 23 | Jugar contra la lista exacta de un torneo reciente | hecho 09/10 · falta subir y desplegar | — | — |
+| 24 | Situaciones para resolver | pendiente | — | — |
 | K | Bóveda con el kit de Posta | hecho 07/10 · aprobado 08/10 | — | [D-009](Decisiones/D-009.md) |
 
 ## Próximos pasos

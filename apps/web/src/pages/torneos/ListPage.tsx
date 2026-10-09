@@ -2,7 +2,7 @@
  * One exact tournament list: its record, the 20 cards (Spanish names, edition codes), what the collection lacks for
  * it, and where it was played. «Importar como mazo» opens the deck importer with the Limitless text.
  */
-import { CopyIcon, CpuIcon, DownloadIcon } from 'lucide-react'
+import { CopyIcon, CpuIcon, DownloadIcon, SwordsIcon } from 'lucide-react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import type { CardLine } from '@/api/schemas'
@@ -138,6 +138,16 @@ export function ListPage() {
               Simular contra mis mazos
             </Link>
           </Button>
+          {kind === 'group' ? (
+            <Button size="sm" variant="outline" asChild>
+              <Link
+                to={`/jugar?lista=${encodeURIComponent(list.key)}&era=${encodeURIComponent(info.era.code)}&formato=${info.format}`}
+              >
+                <SwordsIcon data-icon="inline-start" />
+                Jugar contra esta lista
+              </Link>
+            </Button>
+          ) : null}
           {list.archetype.id ? (
             <Button size="sm" variant="ghost" asChild>
               <Link to={`/torneos/arquetipos/${encodeURIComponent(list.archetype.id)}${query}`}>Ver arquetipo</Link>

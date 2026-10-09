@@ -23,12 +23,14 @@ import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
 import { SimulationModule } from '../simulation/simulation.controller.js'
 import { BearerTokenGuard, RequireScopes } from '../tokens/bearer-token.guard.js'
 import { TokensModule } from '../tokens/tokens.module.js'
+import { TournamentsModule } from '../tournaments/tournaments.controller.js'
 import {
   type LiveGameSummaryView,
   LiveGamesService,
   type LiveGameView,
   MAX_LIVE_REPLAY_BYTES,
 } from './live-games.service.js'
+import { PlayRivalsService, type RecentListsView } from './play-rivals.service.js'
 
 const energies = z.array(z.enum(SELECTABLE_ENERGIES)).max(3).optional()
 const sourceSchema = z.union([
@@ -60,6 +62,15 @@ const createSchema = z.object({
   coach: z.boolean().optional(),
 })
 const hintSchema = z.object({ ply: z.number().int().min(1) })
+const recentSchema = z.object({
+  days: z.coerce.number().int().min(1).max(60).optional(),
+  top: z.coerce.number().int().min(1).max(64).optional(),
+  era: z
+    .string()
+    .regex(/^[A-Za-z0-9-]{1,8}$/)
+    .optional(),
+  format: z.enum(TOURNAMENT_FORMATS).optional(),
+})
 const rematchSchema = z.object({ sameSeed: z.boolean().optional() })
 const choiceSchema = z.object({ ply: z.number().int().min(1), i: z.number().int().min(0).max(500) })
 const idParam = z.coerce.number().int().positive()
@@ -95,7 +106,19 @@ const failureSchema = z.object({ workerId, error: z.string().min(1).max(20_000) 
 /** The owner's side: start a game, read it, answer each decision. */
 @Controller('api/play')
 export class PlayController {
-  constructor(private readonly games: LiveGamesService) {}
+  constructor(
+    private readonly games: LiveGamesService,
+    private readonly rivals: PlayRivalsService,
+  ) {}
+
+  /** Fase 23: the exact lists that placed well in the last days, to play against (before `:id`). */
+  @Get('recent-lists')
+  recentLists(
+    @Query(new ZodValidationPipe(recentSchema)) query: z.infer<typeof recentSchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<RecentListsView> {
+    return this.rivals.recentLists(query)
+  }
 
   @Get()
   async list(@CurrentSession() _session: RequestSession): Promise<{ items: LiveGameSummaryView[] }> {
@@ -248,9 +271,9 @@ export class LiveWorkerController {
 }
 
 @Module({
-  imports: [TokensModule, CatalogModule, SimulationModule],
+  imports: [TokensModule, CatalogModule, SimulationModule, TournamentsModule],
   controllers: [PlayController, LiveWorkerController],
-  providers: [LiveGamesService],
+  providers: [LiveGamesService, PlayRivalsService],
   exports: [LiveGamesService],
 })
 export class PlayModule {}
