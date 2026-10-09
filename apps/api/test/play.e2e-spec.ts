@@ -641,4 +641,26 @@ describe('playing against a bot (e2e)', () => {
       400,
     )
   })
+
+  // Last on purpose: the game stays leased.
+  it('H-018: a game against an f bot goes only to a worker whose engine lists «fairBots»', async () => {
+    const created = await post('/api/play').send({
+      human: { deckId: deckIds[1] },
+      rival: { deckId: deckIds[12] },
+      seed: 92,
+      bot: 'f2',
+    })
+    expect(created.body).toMatchObject({ bot: 'f2' })
+    const id = created.body.id as number
+    const claim = (engineFeatures?: string[]) =>
+      worker('post', '/api/worker/live/claim').send({
+        workerId: 'worker-fair-01',
+        engineRev: engineRev(),
+        version: '0.2.6',
+        ...(engineFeatures ? { engineFeatures } : {}),
+      })
+    expect((await claim(['perGame'])).body).toEqual({ game: null })
+    expect((await claim()).body).toEqual({ game: null })
+    expect((await claim(['perGame', 'fairBots'])).body.game).toMatchObject({ id, bot: 'f2' })
+  })
 })

@@ -6,6 +6,7 @@
 import { z } from 'zod'
 import { SELECTABLE_ENERGIES } from '../catalog/types.js'
 import { MATCH_MODES, MATCH_RESULTS } from '../matches/types.js'
+import { BOT_CODE_PATTERN } from '../simulation/jobs.js'
 import { TOURNAMENT_FORMATS } from '../tournaments/eras.js'
 
 const deckRef = z
@@ -36,9 +37,9 @@ const deckText = z
 
 const bot = z
   .string()
-  .regex(/^(r|w|aa|et|v|er|m|e[1-9])$/)
+  .regex(BOT_CODE_PATTERN)
   .describe(
-    'Bot de deckgym: r al azar, w al azar ponderado, aa adjunta y ataca, et termina el turno, v función de valor, er evoluciona primero, m MCTS, e1…e9 expectiminimax (e2 por defecto; e3 tarda ~2 veces más)',
+    'Bot de deckgym: r al azar, w al azar ponderado, aa adjunta y ataca, et termina el turno, v función de valor, er evoluciona primero, m MCTS, e1…e9 expectiminimax (e2 por defecto; e3 tarda ~2 veces más); f1…f9 expectiminimax corregido (ve las evoluciones y el daño variable, H-018; tarda ~1,3 veces más que e)',
   )
 
 const tournamentList = z.object({

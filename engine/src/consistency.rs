@@ -18,7 +18,7 @@ use std::time::Instant;
 
 use deckgym::actions::{Action, SimpleAction};
 use deckgym::models::{Card, EnergyType};
-use deckgym::players::{create_players, Player, PlayerCode};
+use deckgym::players::{Player, PlayerCode};
 use deckgym::simulation_event_handler::{CompositeSimulationEventHandler, SimulationEventHandler};
 use deckgym::state::PlayedCard;
 use deckgym::{Deck, Game, State};
@@ -27,6 +27,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::fair_bot::{create_players, BotCode};
 use crate::{game_id_for, game_seed, one, parse_players, require_simulable, thread_pool, CliError, Progress, CLI_VERSION, ENGINE_REV};
 
 /// A rival of the meta bank and how many games to play against it.
@@ -236,7 +237,7 @@ pub fn consistency(job: ConsistencyJob) -> Result<ConsistencyResult, CliError> {
     // deckgym reads «et» as an expectiminimax depth: the passive bot is named directly.
     let bot = parse_players(&[job.bot.clone(), job.bot.clone()])?.remove(0);
     let meta = !job.rivals.is_empty();
-    let codes: Vec<PlayerCode> = if meta { vec![bot.clone(), bot] } else { vec![bot, PlayerCode::ET] };
+    let codes: Vec<BotCode> = if meta { vec![bot.clone(), bot] } else { vec![bot, BotCode::Deckgym(PlayerCode::ET)] };
     let mut rival_decks: Vec<Deck> = Vec::with_capacity(job.rivals.len());
     let mut starts: Vec<u32> = Vec::with_capacity(job.rivals.len());
     let mut total = 0u32;

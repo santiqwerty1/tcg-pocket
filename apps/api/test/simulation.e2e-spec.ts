@@ -822,6 +822,25 @@ describe('simulation (e2e)', () => {
     await test.http().delete(`/api/simulations/${created.body.id}`).set('Cookie', cookie)
   })
 
+  it('H-018: a job with the f bots goes only to workers whose engine lists «fairBots»', async () => {
+    const created = await post('/api/simulations').send({
+      kind: 'compare',
+      sideA: decks(3, 3),
+      sideB: decks(5, 5),
+      gamesPerPair: 4,
+      players: ['f2', 'e2'],
+      seed: 78,
+    })
+    expect(created.status).toBe(201)
+    const claim = (id: string, engineFeatures: string[]) =>
+      bearer('post', '/api/worker/claim').send({ ...worker(id), version: '0.2.6', cliVersion: '0.3.1', engineFeatures })
+    expect((await claim('worker-f-old', ['perGame', 'batch'])).body.chunk).toBeNull()
+    const fresh = (await claim('worker-f-new', ['perGame', 'batch', 'fairBots'])).body.chunk as Structured
+    expect(fresh).toMatchObject({ jobId: created.body.id, players: ['f2', 'e2'] })
+    await post(`/api/simulations/${created.body.id}/cancel`)
+    await test.http().delete(`/api/simulations/${created.body.id}`).set('Cookie', cookie)
+  })
+
   it('list: archive finished jobs (one by one or all), bring them back, delete the cancelled ones', async () => {
     const make = async () =>
       (

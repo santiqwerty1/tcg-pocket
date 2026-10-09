@@ -1,6 +1,13 @@
 /** Laboratorio de mazos (T-008, docs/API.md «Laboratorio»): session-protected, like the rest of the PWA's API. */
 import { Body, Controller, Get, HttpCode, Module, Param, Post, Query } from '@nestjs/common'
-import { EXPLORE_LIMITS, EXPLORE_POOLS, MAX_GAUNTLET_SIZE, SELECTABLE_ENERGIES, TOURNAMENT_FORMATS } from '@tcg/domain'
+import {
+  BOT_CODE_PATTERN,
+  EXPLORE_LIMITS,
+  EXPLORE_POOLS,
+  MAX_GAUNTLET_SIZE,
+  SELECTABLE_ENERGIES,
+  TOURNAMENT_FORMATS,
+} from '@tcg/domain'
 import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
 import { CatalogModule } from '../catalog/catalog.module.js'
@@ -38,7 +45,7 @@ const deckSchema = z.union([
     name: z.string().trim().max(200).optional(),
   }),
 ])
-const botCode = z.string().regex(/^(r|w|aa|et|v|er|m|e[1-9])$/, 'Bot desconocido.')
+const botCode = z.string().regex(BOT_CODE_PATTERN, 'Bot desconocido.')
 const runSchema = scopeSchema.extend({
   players: z.tuple([botCode, botCode]).optional(),
   seed: z
@@ -62,7 +69,8 @@ const consistencySchema = scopeSchema.extend({
   /** Both sides play with it; «et» (passive) is the goldfish measure, not this one. */
   bot: z
     .string()
-    .regex(/^(r|w|aa|v|er|m|e[1-9])$/, 'Bot desconocido.')
+    .regex(BOT_CODE_PATTERN, 'Bot desconocido.')
+    .refine((code) => code !== 'et', 'Bot desconocido.')
     .optional(),
   seed: z
     .number()

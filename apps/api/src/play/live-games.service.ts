@@ -13,8 +13,10 @@ import {
   type CoachReview,
   type CoachScores,
   type CoachSummary,
+  canPlayFairBots,
   coachContext,
   coachSummary,
+  FAIR_BOT_CODES,
   isBotCode,
   MAX_BASE_SEED,
   parseCoachScores,
@@ -475,9 +477,16 @@ export class LiveGamesService {
   // Worker
   // ---------------------------------------------------------------------------------------------------------------
 
-  private async tryClaim(workerId: string, engineRev: string, version: string): Promise<ClaimedLiveGame | null> {
+  private async tryClaim(
+    workerId: string,
+    engineRev: string,
+    version: string,
+    fairBots: boolean,
+  ): Promise<ClaimedLiveGame | null> {
     // H-002: compared as numbers here, not as text in SQL.
     const coach = versionAtLeast(version, COACH_WORKER_VERSION)
+    // H-018: a game against an f bot needs an engine that lists «fairBots».
+    const fairBotCodes = [...FAIR_BOT_CODES]
     const rows = await this.prisma.$queryRaw<{ id: number }[]>`
       UPDATE live_games SET status = CASE WHEN status = 'queued' THEN 'running'::"LiveGameStatus" ELSE status END,
         worker_id = ${workerId}, lease_until = now() + interval '3 minutes'
@@ -485,6 +494,7 @@ export class LiveGamesService {
         SELECT id FROM live_games
         WHERE engine_rev = ${engineRev}
           AND (coach = false OR ${coach}::boolean)
+          AND (bot <> ALL(${fairBotCodes}::text[]) OR ${fairBots}::boolean)
           AND (status = 'queued' OR (status IN ('running', 'waiting') AND (lease_until IS NULL OR lease_until < now())))
         ORDER BY id
         FOR UPDATE SKIP LOCKED
@@ -515,12 +525,14 @@ export class LiveGamesService {
     workerId: string
     engineRev: string
     version?: string | undefined
+    engineFeatures?: string[] | undefined
   }): Promise<{ game: ClaimedLiveGame | null }> {
     const version = input.version ?? '0'
-    const now = await this.tryClaim(input.workerId, input.engineRev, version)
+    const fairBots = canPlayFairBots(input)
+    const now = await this.tryClaim(input.workerId, input.engineRev, version, fairBots)
     if (now) return { game: now }
     await this.wait('queued')
-    return { game: await this.tryClaim(input.workerId, input.engineRev, version) }
+    return { game: await this.tryClaim(input.workerId, input.engineRev, version, fairBots) }
   }
 
   /** Fase 22: the game went back to the queue (undo) while this worker had it: it must stop and claim again. */

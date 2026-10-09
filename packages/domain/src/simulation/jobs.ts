@@ -28,10 +28,25 @@ export const BOT_LABEL_ES: Record<string, string> = {
   e2: 'expectiminimax, profundidad 2',
   e3: 'expectiminimax, profundidad 3',
   e4: 'expectiminimax, profundidad 4',
+  // H-018: the same search with a clock that sees evolutions and variable damage (engine/src/fair_bot.rs).
+  f1: 'expectiminimax corregido, profundidad 1',
+  f2: 'expectiminimax corregido, profundidad 2',
+  f3: 'expectiminimax corregido, profundidad 3',
+  f4: 'expectiminimax corregido, profundidad 4',
 }
 
-/** `r`, `e2`… (deckgym's codes without the human and external players): the one list every schema checks against. */
-export const BOT_CODE_PATTERN = /^(r|w|aa|et|v|er|m|e[1-9])$/
+/**
+ * `r`, `e2`… (deckgym's codes without the human and external players) and `f1`–`f9` (H-018: engine-cli's own
+ * expectiminimax that sees evolutions): the one list every schema checks against.
+ */
+export const BOT_CODE_PATTERN = /^(r|w|aa|et|v|er|m|e[1-9]|f[1-9])$/
+
+/** The f bots (H-018), for the queue's filter: only engines with the «fairBots» feature play them (capabilities.ts). */
+export const FAIR_BOT_CODES = ['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9'] as const
+
+export function usesFairBot(players: readonly string[]): boolean {
+  return players.some((code) => (FAIR_BOT_CODES as readonly string[]).includes(code))
+}
 
 export function isBotCode(code: string): boolean {
   return BOT_CODE_PATTERN.test(code)
@@ -119,17 +134,18 @@ export function planChunks(
  * Rough wall time on the owner's PC (DECISIONES 6.15 and 9.1): 10.000 r,r in 14 s on two threads ⇒ ~1,4 ms per
  * game. e2: the 40-deck matrix on 8 threads took 52 min of engine time at fb792eb, 37 % of it in the pairings
  * against one deck whose search exploded; deckgym 33ff2a5 caps that search (8–10 times faster there), which puts
- * the matrix near 35 min ⇒ 50 ms per game and thread. e3 ≈ 1,6 × e2. A guide for the confirmation screen, not a
- * promise: some pairings take much longer than others.
+ * the matrix near 35 min ⇒ 50 ms per game and thread. e3 ≈ 1,6 × e2. f<N> (H-018) ≈ 1,3 × e<N>: its clock looks
+ * through evolutions (measured 09/10: 20–100 % slower depending on the decks). A guide for the confirmation screen,
+ * not a promise: some pairings take much longer than others.
  */
 export function estimateSeconds(totalGames: number, players: readonly [string, string], cores: number): number {
   const cost = (code: string): number => {
     if (code === 'r' || code === 'w' || code === 'aa' || code === 'et' || code === 'er') return 0.0015
     if (code === 'v') return 0.004
     if (code === 'm') return 0.2
-    const depth = /^e(\d)$/.exec(code)?.[1]
+    const [, kind, depth] = /^([ef])(\d)$/.exec(code) ?? []
     if (depth === undefined) return 0.05
-    return 0.05 * 1.6 ** (Number(depth) - 2)
+    return 0.05 * 1.6 ** (Number(depth) - 2) * (kind === 'f' ? 1.3 : 1)
   }
   const perGame = Math.max(cost(players[0]), cost(players[1])) * 2
   return (totalGames * perGame) / Math.max(1, cores)

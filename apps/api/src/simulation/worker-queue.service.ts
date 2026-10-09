@@ -7,7 +7,7 @@
 
 import { EventEmitter } from 'node:events'
 import { BadRequestException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
-import { canPlayPerGame, checkPerGame, wantsPerGame } from '@tcg/domain'
+import { canPlayFairBots, canPlayPerGame, checkPerGame, FAIR_BOT_CODES, wantsPerGame } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import type { Prisma } from '../generated/prisma/client.js'
 import { gunzipJson } from '../http/gunzip.js'
@@ -159,6 +159,9 @@ export class WorkerQueueService {
     const metaConsistency = versionAtLeast(hello.version, META_CONSISTENCY_WORKER_VERSION)
     // perGame needs both: a worker that forwards it and an engine that plays it (capabilities.ts).
     const perGame = canPlayPerGame(hello)
+    // H-018: a job played with the f bots needs an engine that says it has them («fairBots», capabilities.ts).
+    const fairBot = canPlayFairBots(hello)
+    const fairBotCodes = [...FAIR_BOT_CODES]
     const rows = await this.prisma.$queryRaw<{ id: number }[]>`
       UPDATE simulation_chunks SET status = 'leased', lease_until = now() + interval '3 minutes',
         worker_id = ${hello.workerId}, games_done = 0, started_at = COALESCE(started_at, now())
@@ -185,6 +188,7 @@ export class WorkerQueueService {
           AND (j.kind <> 'consistency' OR COALESCE(j.params->'consistency'->>'mode', 'goldfish') <> 'meta'
                OR ${metaConsistency}::boolean)
           AND (COALESCE(j.params->>'perGame', 'false') <> 'true' OR ${perGame}::boolean)
+          AND (NOT (j.players && ${fairBotCodes}::text[]) OR ${fairBot}::boolean)
           AND (c.status = 'queued' OR (c.status = 'leased' AND c.lease_until < now()))
         ORDER BY p.left_count, j.created_at, j.id, c.idx
         FOR UPDATE OF c SKIP LOCKED
