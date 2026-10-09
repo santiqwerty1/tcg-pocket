@@ -117,14 +117,24 @@ describe('playing against a bot (e2e)', () => {
     }
   })
 
-  it.each(['immediate', 'after waiting'])(
-    'releases a game when the worker disconnects during the %s claim',
-    async (when) => {
+  it.each([
+    ['immediate', '0.2.6'],
+    ['after waiting', '0.2.6'],
+    ['immediate', '0.2.7'],
+    ['after waiting', '0.2.7'],
+  ] as const)(
+    'releases a fair-bot game when the worker disconnects during the %s claim (worker %s)',
+    async (when, version) => {
       const games = test.app.get(LiveGamesService)
       const events = (games as unknown as { events: EventEmitter }).events
       const controller = new AbortController()
       const internals = games as unknown as {
-        tryClaim(workerId: string, engineRev: string, version: string): Promise<ClaimedLiveGame | null>
+        tryClaim(
+          workerId: string,
+          engineRev: string,
+          version: string,
+          fairBots: boolean,
+        ): Promise<ClaimedLiveGame | null>
       }
       const take = internals.tryClaim.bind(games)
       const queued = vi.fn()
@@ -137,6 +147,12 @@ describe('playing against a bot (e2e)', () => {
         }
         return game
       })
+      const hello = {
+        workerId: 'worker-gone-02',
+        engineRev: engineRev(),
+        version,
+        engineFeatures: ['fairBots'],
+      }
       let id: number | undefined
       let pending: ReturnType<LiveGamesService['claim']> | undefined
       const create = async () => {
@@ -144,13 +160,14 @@ describe('playing against a bot (e2e)', () => {
           human: { deckId: deckId(1) },
           rival: { deckId: deckId(12) },
           seed: 77,
+          bot: 'f2',
         })
         id = created.id
       }
       try {
         games.longPollMs = 25_000
         if (when === 'immediate') await create()
-        pending = games.claim({ workerId: 'worker-gone-02', engineRev: engineRev() }, controller.signal)
+        pending = games.claim(hello, controller.signal)
         if (when === 'after waiting') {
           await vi.waitFor(() => expect(events.listenerCount('queued')).toBe(1))
           await create()
@@ -163,7 +180,7 @@ describe('playing against a bot (e2e)', () => {
           leaseUntil: null,
         })
         spy.mockRestore()
-        const next = await games.claim({ workerId: 'worker-next-02', engineRev: engineRev() })
+        const next = await games.claim({ ...hello, workerId: 'worker-next-02' })
         expect(next.game?.id).toBe(id)
       } finally {
         controller.abort()
