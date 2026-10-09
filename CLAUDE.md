@@ -73,6 +73,12 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
   Guía en `docs/OPERACION.md`.
 - **Worker 0.2.6 (#16):** manda las features de su motor (`engineFeatures`), y la cola decide con `simulation/capabilities.ts` de `@tcg/domain`.
 - **Laboratorio (#7):** prueba apareada con `perGame` cuando hay un worker capaz (DECISIONES 45.5) y resumen por partida de cada lista (45.6).
+- **Fase 39 implementada el 9/10/2026** (DECISIONES 42.1–42.5):
+  - `RetentionService`: apagado salvo `RETENTION_CRON=true`. Vista previa con `node /app/apps/api/dist/cli/retention.js`; borra con `--apply`.
+  - `OffsiteBackupService`: copia en Tigris con `aws4fetch`, URL de subdominio y Content-MD5. Secretos `AWS_*` y `BUCKET_NAME` de `flyctl storage create`. `GET`/`POST /api/backup/offsite`, aviso `backup_offsite` y una comprobación mensual.
+  - `docs/RECONSTRUIR.md`.
+  - En producción falta crear el bucket y correr la primera limpieza con el OK de Santi.
+- **Worker 0.2.7 (#9):** con un motor que anuncia `batch` (engine-cli 0.3.0), juega varios cruces de un trabajo por proceso. Si un cruce falla, falla solo ese chunk.
 - **Organización desde el 9/10/2026 (tarde)**, pedido de Santi (D-021):
   - La sesión «TCG · Coordinador e integrador» reparte, revisa cada PR, mergea, despliega, recompila el motor y reinicia el worker. Es la única que edita la carpeta principal y los archivos compartidos de la bóveda (Avance, Inicio, la bitácora, CLAUDE.md, CHANGELOG, los Indice).
   - Las demás trabajan en su worktree o en la nube y entregan por PR, con «Para la bóveda» en la descripción.

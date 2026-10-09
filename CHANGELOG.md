@@ -10,9 +10,13 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 ### Agregado
 
 - Claude write log with undo, new MCP tools and leaner answers (phase 43, T-014, R-010) `af1265b`
+- daily cleanup of old replays with a dry run, the copy outside Supabase on Tigris, rebuild guide (phase 39, R-006, P-010) `163b21c`
 - one replay per pairing in new matrices, two in comparisons (database size) (#4) `348fffd`
 - engine features decide what a worker can play; work nobody can play is said (H-010, H-018) `1eba88a`
 - interface — phase 41 (T-014, P-012) (#1) `773ad00`
+- in a comparison every deck plays each rival with the same seeds (H-020) `bfe8a4d`
+- matrix chunks wait while a search prepares its next round (B3) (T-015) `bf7a371`
+- several pairings of one job in one engine process (B2) `d49a602`
 - operation alerts, /api/ops/status and system_status, memory limits, release_command, deploy verification (phase 38, WIP) `4004ce7`
 - paired test on per-game results and what each list's games say (H-010, T-017) `d5a806b`
 - honest numbers — luck per game, clustered intervals, FDR, Fisher, pack points (phase 37, H-009, H-011, H-012) `6af29d1`
@@ -54,15 +58,14 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 - deckgym 33ff2a5 — bounded bot search, turn action limit, Quick Growth fix (T-010) `43d103f`
 - owner decisions of 8/10 — limited ×3, retired points, deckgym viewer, upstream check, Posta on (D-007, D-008, D-009, D-014, T-010) (D-011, D-017, T-005, T-007) `595f973`
 - Claude can write — decks, matches and simulations (phase 7, M8 part 2) (D-017, T-009) `8a81661`
-- «versión de torneo» of each deck and Sobres aiming at it (D-016, T-008) `bc19f7a`
-- one worker per folder; install-task starts it and says why schtasks failed (T-007) `a1d5140`
-- heat-map table, replay filter, phone layout and multi-worker ETA `bd7b381`
-- deckgym simulation with a Windows worker (phase 6, M7) `013890f`
-- tournament results from Limitless by era (phase 5, M5) (D-010, D-012, R-008, R-009, T-006) `ca79964`
 
 ### Corregido
 
+- sequences never move back, chained collection undo, undoable rival notes (phase 43 follow-up, R-010) `f2cb594`
+- atomic collection undo, versioned match delete, bounded token clients (phase 43, R-010) `53784cb`
 - audit entry before the write, no duplicate restore, versioned collection undo (phase 43, R-010) `14e0c59`
+- review of phase 39 — cleanup off until RETENTION_CRON and a CLI dry run, virtual-hosted Tigris URLs with Content-MD5, archived replays kept a week (one per pairing), separate failure states, pruning by date, monthly check of the bucket copy `22302b2`
+- a failure in a batch is its pairing's only; a broken batch is played chunk by chunk (review of #9) `97cf1ac`
 - turnLimit is an integer from 1 to 100; the alert names its oldest job; negative tests (review of #16) `61050bf`
 - review of phase 38 — one push per 50 MB step, a failed migration never keeps the app down, Limitless alert by day, majors apart in Dependabot, situations cache of 64, stale datasets leave memory `90cb692`
 - review of #7 — perGame decided round by round, a sweep, partial pairing, rates with intervals (H-010, T-017) `2d3aa73`
@@ -77,7 +80,6 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 - pager label does not repeat the deck number (#13) `9e426f9`
 - up to 150 decks per side, said plainly; validation errors name the field `2dbc3aa`
 - a matrix with an empty «Contra» side plays side A against itself; engine status survives an engine update `212cd11`
-- engine off Windows efficiency mode; quick jobs first; phase 6 acceptance (H-001, T-004) `e81e220`
 
 ### Cambiado
 
@@ -88,6 +90,7 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 ### Documentado
 
 - posta generar trims the CHANGELOG from a cloud session; today's log (H-017) `f9fda38`
+- PRs #7, #14, #16 and #18 integrated; question indexes regenerated (P-010, P-011, T-014, T-017) `9dc4c17`
 - situations cache size in the operation guide `2af3002`
 - improvement review of 9/10 — 14 confirmed findings, risks, questions and proposed phases 36-45 (H-002..H-015, R-006, R-008, R-010, R-011, R-012, P-006, P-007, P-008, D-020, T-014) `fd5d4b8`
 - PRs #1, #8 and #11 integrated; Supabase ref out of CLAUDE.md; public repo and chat bridge decisions (D-021, D-022, T-014, P-012) `280a6f3`
@@ -110,8 +113,6 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 - D-019 answers deployed, worker 0.2.1 (D-019, T-011) `661ebb2`
 - phase 8 deployed — catalog with missions, worker 0.2.0 (T-011, D-019) `c1acadc`
 - lab deployed to production (T-008, D-018) `82da0d6`
-- phase 5 acceptance verified on production data `5848fdb`
-- phase 4 approved; pending decisions flagged for later review (P-005, T-003, D-007, D-008, D-009, P-002, P-004, S-002) `59eaf3d`
 
 ### Pruebas
 
@@ -123,7 +124,6 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 - prepare the repository to go public — AGPL-3.0 license, pseudonyms in the Limitless fixtures, read-only CI token (D-022) `4d16ea8`
 - run the Windows engine job only when it changed, build the Docker image on main, cancel superseded runs (phase 38) `ff39a7c`
 - config written by posta (ci off, hooks via plugin) `aa90463`
-- worker package in the Docker deps stage; keep engine/target out of the context `a9a1b4c`
 
 ### Decidido
 
