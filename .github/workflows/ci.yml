@@ -8,6 +8,12 @@ on:
 # or PR cancels the run in course; the Windows engine job runs only when the engine, the worker or the CI changed;
 # the Docker image is built only on main, when something it depends on changed. A skipped job leaves the run green,
 # so scripts/deploy.mjs still finds the commit's CI «success».
+#
+# D-023 (the minutes ran out on 9/10/2026): until the move to the public repository the jobs run on the owner's PC
+# (self-hosted runners labelled `tcg-pc`), chosen by the repository variables CI_RUNNER and CI_RUNNER_WINDOWS; without
+# them, on GitHub's runners as before. The same steps work on both: Postgres from docker compose (or the one already
+# running on the PC), bash everywhere, a database and a port per runner, and on the PC the Rust and WinLibs already
+# installed. Dependabot's PRs never run on the PC (they would run new dependencies' install scripts there).
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -16,10 +22,15 @@ concurrency:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   # What changed against the base (the PR's base, or main before the push): decides the expensive jobs.
   changes:
-    runs-on: ubuntu-latest
+    if: ${{ !(vars.CI_RUNNER && github.actor == 'dependabot[bot]') }}
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     outputs:
       engine: ${{ steps.diff.outputs.engine }}
       docker: ${{ steps.diff.outputs.docker }}
@@ -50,7 +61,8 @@ jobs:
           fi
 
   test:
-    runs-on: ubuntu-latest
+    if: ${{ !(vars.CI_RUNNER && github.actor == 'dependabot[bot]') }}
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -66,25 +78,12 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
 
-  # Supertest suite against a real Postgres 17 (migrations applied by test/global-setup.ts).
+  # Supertest suite against a real Postgres 17 (migrations applied by test/global-setup.ts), on a database of its own
+  # per runner (two runners on the PC never share one, and the sessions' tcg_test stays theirs).
   e2e:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: tcg
-          POSTGRES_PASSWORD: tcg
-          POSTGRES_DB: tcg
-        ports:
-          - 5433:5432
-        options: >-
-          --health-cmd "pg_isready -U tcg -d tcg"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
+    if: ${{ !(vars.CI_RUNNER && github.actor == 'dependabot[bot]') }}
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     env:
-      TEST_DATABASE_URL: postgresql://tcg:tcg@127.0.0.1:5433/tcg_test
       SESSION_SECRET: ci-session-secret-ci-session-secret-0123456789
     steps:
       - uses: actions/checkout@v4
@@ -95,31 +94,20 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: Postgres (the one already running, or docker compose)
+        run: scripts/ci-postgres.sh
+      - name: Database of this runner
+        run: echo "TEST_DATABASE_URL=postgresql://tcg:tcg@127.0.0.1:5433/tcg_ci_test_$(scripts/ci-runner-id.sh)" >> "$GITHUB_ENV"
       - run: pnpm install --frozen-lockfile
       - run: pnpm -F @tcg/domain build
       - run: pnpm -F @tcg/api test:e2e
 
   # Tests de pantallas (Fase 34): the API serving the built PWA on a throwaway database, a worker with the engine
   # stand-in of its tests, and Chromium (phone size) through logging a match (also without signal), a game against
-  # the bot with the coach and a situation to solve.
+  # the bot with the coach and a situation to solve. Database and port of their own per runner.
   screens:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: tcg
-          POSTGRES_PASSWORD: tcg
-          POSTGRES_DB: tcg
-        ports:
-          - 5433:5432
-        options: >-
-          --health-cmd "pg_isready -U tcg -d tcg"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
-    env:
-      SCREENS_DATABASE_URL: postgresql://tcg:tcg@127.0.0.1:5433/tcg_screens
+    if: ${{ !(vars.CI_RUNNER && github.actor == 'dependabot[bot]') }}
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -129,15 +117,23 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - name: Postgres (the one already running, or docker compose)
+        run: scripts/ci-postgres.sh
+      - name: Database and port of this runner
+        run: |
+          ID="$(scripts/ci-runner-id.sh)"
+          echo "SCREENS_DATABASE_URL=postgresql://tcg:tcg@127.0.0.1:5433/tcg_ci_screens_${ID}" >> "$GITHUB_ENV"
+          echo "SCREENS_PORT=$((3300 + $(printf '%s' "$ID" | cksum | cut -d' ' -f1) % 90))" >> "$GITHUB_ENV"
       - run: pnpm install --frozen-lockfile
       - run: pnpm -F @tcg/domain build
       - run: pnpm -F @tcg/api build
       - run: pnpm -F @tcg/web build
       - run: pnpm -F @tcg/worker build
-      - run: pnpm -F @tcg/web exec playwright install --with-deps chromium
+      - run: pnpm -F @tcg/web exec playwright install ${{ runner.os == 'Linux' && '--with-deps' || '' }} chromium
       - run: pnpm -F @tcg/web test:screens
       - uses: actions/upload-artifact@v4
         if: failure()
+        continue-on-error: true
         with:
           name: screens-report
           path: |
@@ -148,22 +144,38 @@ jobs:
   # engine-cli (AGPL, deckgym-core pinned in engine/Cargo.toml): unit tests and a Windows build kept as an artifact,
   # for a PC without Rust (the worker takes any engine-cli.exe via TCG_ENGINE_PATH or config.json). Also the portable
   # worker (tcg-worker.exe + engine-cli.exe + LEEME.txt) for another PC without Node, Rust or the repository.
+  # On the PC: its own Rust (GNU) and WinLibs, and a cargo target of the runner's, never the repository folder's.
   engine:
     needs: changes
     if: needs.changes.outputs.engine == 'true'
-    runs-on: windows-latest
+    runs-on: ${{ vars.CI_RUNNER_WINDOWS || 'windows-latest' }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - if: ${{ !vars.CI_RUNNER_WINDOWS }}
+        uses: dtolnay/rust-toolchain@stable
+      - if: ${{ !vars.CI_RUNNER_WINDOWS }}
+        uses: Swatinem/rust-cache@v2
         with:
           workspaces: engine
+      - name: Rust of the PC (cargo and WinLibs)
+        if: ${{ vars.CI_RUNNER_WINDOWS }}
+        run: |
+          W="$(ls -d "$LOCALAPPDATA"/Microsoft/WinGet/Packages/BrechtSanders.WinLibs*/mingw64/bin | head -1)"
+          test -n "$W" || { echo "WinLibs no está instalado en esta PC"; exit 1; }
+          echo "$USERPROFILE/.cargo/bin" >> "$GITHUB_PATH"
+          echo "$W" >> "$GITHUB_PATH"
+          echo "CARGO_TARGET_DIR=$RUNNER_WORKSPACE/../cargo-target" >> "$GITHUB_ENV"
       - run: cargo test --release --manifest-path engine/Cargo.toml
       - run: cargo build --release --manifest-path engine/Cargo.toml
+      - name: The engine where the next steps find it
+        run: |
+          mkdir -p engine-dist
+          cp "${CARGO_TARGET_DIR:-engine/target}/release/engine-cli.exe" engine-dist/engine-cli.exe
       - uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: engine-cli-windows
-          path: engine/target/release/engine-cli.exe
+          path: engine-dist/engine-cli.exe
           retention-days: 30
       - uses: pnpm/action-setup@v4
         with:
@@ -173,8 +185,9 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile --filter @tcg/worker
-      - run: pnpm -F @tcg/worker package
+      - run: pnpm -F @tcg/worker package --engine "$GITHUB_WORKSPACE/engine-dist/engine-cli.exe"
       - uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: tcg-worker-windows
           path: apps/worker/build/tcg-worker-*-windows.zip
@@ -184,7 +197,7 @@ jobs:
   docker:
     needs: changes
     if: github.event_name == 'push' && needs.changes.outputs.docker == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - run: docker build --tag tcg-pocket:ci .
