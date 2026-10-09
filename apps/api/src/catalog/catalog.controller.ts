@@ -40,9 +40,13 @@ export class CatalogController {
     @Inject(ENV) private readonly env: Env,
   ) {}
 
+  /**
+   * `syncRunning`: a sync is still working — its row says «applied» once the tables are written, but the in-memory
+   * catalog is reloaded right after, and a new sync is refused (409) until then.
+   */
   @Get('catalog/status')
-  status(@CurrentSession() _session: RequestSession): Promise<CatalogStatus> {
-    return this.catalog.status()
+  async status(@CurrentSession() _session: RequestSession): Promise<CatalogStatus & { syncRunning: boolean }> {
+    return { ...(await this.catalog.status()), syncRunning: this.sync.isRunning }
   }
 
   /** Starts a sync in the background; follow it through `GET /api/catalog/status`. 409 while one is running. */

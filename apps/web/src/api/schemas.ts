@@ -192,6 +192,8 @@ export const catalogSyncSchema = z.object({
   report: z.unknown().optional(),
 })
 export const catalogStatusSchema = z.object({
+  /** A sync is still reloading the catalog (its row may already say «applied»). */
+  syncRunning: z.boolean().optional(),
   trackerCommit: z.string().nullable(),
   engineRev: z.string().nullable(),
   syncedAt: nullableDate.optional(),

@@ -23,6 +23,7 @@ export const catalogKeys = {
 const RUNNING_STATES = new Set(['running', 'pending', 'queued', 'started', 'in_progress'])
 
 export function isSyncRunning(status: CatalogStatus | undefined): boolean {
+  if (status?.syncRunning) return true
   const state = status?.lastSync?.status
   return state !== undefined && RUNNING_STATES.has(state)
 }

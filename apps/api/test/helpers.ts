@@ -82,7 +82,8 @@ export async function waitForSync(test: TestApp, cookie: string, syncId: number,
   while (Date.now() - started < timeoutMs) {
     const status = await test.http().get('/api/catalog/status').set('Cookie', cookie)
     const last = status.body.lastSync as { id: number; status: string } | null
-    if (last && last.id === syncId && last.status !== 'running') return status.body
+    // Done means the row says so and the in-memory catalog finished reloading (a new sync would get a 409 before).
+    if (last && last.id === syncId && last.status !== 'running' && !status.body.syncRunning) return status.body
     await new Promise((resolve) => setTimeout(resolve, 200))
   }
   throw new Error(`sync ${syncId} still running after ${timeoutMs} ms`)
