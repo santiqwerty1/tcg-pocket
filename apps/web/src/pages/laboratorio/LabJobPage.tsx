@@ -10,6 +10,7 @@ import {
   RefreshCwIcon,
   SaveIcon,
   SparklesIcon,
+  SquareIcon,
   XCircleIcon,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -17,7 +18,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useCreateDeck, useDeck, useUpdateDeck } from '@/api/decks'
-import { useLabJob, useLabTest } from '@/api/lab'
+import { useLabJob, useLabTest, useStopLabSearch } from '@/api/lab'
 import type { LabDeck, LabJob, MetaScore, SelectableEnergy } from '@/api/schemas'
 import { useCancelSimulation } from '@/api/simulations'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
@@ -525,6 +526,7 @@ export function LabJobPage() {
   const { id = '' } = useParams()
   const lab = useLabJob(id)
   const cancel = useCancelSimulation()
+  const stop = useStopLabSearch()
   if (lab.isLoading) return <LoadingRows rows={5} />
   if (lab.isError || !lab.data) return <ErrorState error={lab.error} onRetry={() => void lab.refetch()} />
   const data = lab.data
@@ -553,6 +555,27 @@ export function LabJobPage() {
                 {job.progress.etaSeconds !== null ? ` · faltan ~${formatDuration(job.progress.etaSeconds)}` : ''}
                 {data.mode === 'explore' ? ' (de esta ronda en adelante se suman más)' : ''}
               </span>
+              {data.mode === 'explore' && data.explore?.phase === 'search' ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={stop.isPending}
+                  title="Termina la ronda con lo que tiene y pasa a la confirmación: no se pierde lo encontrado"
+                  onClick={() =>
+                    stop.mutate(job.id, {
+                      onSuccess: () => {
+                        toast.success('Frenada: pasa a confirmar lo encontrado')
+                        void lab.refetch()
+                      },
+                      onError: (error) => toast.error(errorMessage(error)),
+                    })
+                  }
+                >
+                  <SquareIcon aria-hidden="true" />
+                  Frenar y confirmar
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="ghost"

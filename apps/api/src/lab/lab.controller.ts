@@ -136,6 +136,13 @@ export class LabController {
     return this.lab.job(id)
   }
 
+  /** T-017 D2: «Frenar y confirmar» a search: the round in play ends with what it has, then the confirmation. */
+  @Post('jobs/:id/stop')
+  @HttpCode(200)
+  stop(@Param('id') id: string, @CurrentSession() _session: RequestSession): Promise<LabJobView> {
+    return this.lab.stop(id)
+  }
+
   /** Decks against the meta bank (with `dryRun`: what it would play and how long). */
   @Post('test')
   @HttpCode(200)

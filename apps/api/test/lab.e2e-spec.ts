@@ -557,6 +557,55 @@ describe('laboratorio (e2e)', () => {
     expect(lab.explore.learned[0]).toMatchObject({ sign: expect.stringMatching(/^[+-]$/), n: expect.any(Number) })
   }, 60_000)
 
+  it('T-017 D2: «Frenar y confirmar» ends the round in play with what it has and confirms what was found', async () => {
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 2,
+      maxRounds: 6,
+      patience: 6,
+      confirmGames: 20,
+      verifyGames: 20,
+      pool: 'all',
+    }
+    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9500 })
+    const id = created.body.id as number
+    const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })
+    const [winner] =
+      (job.params as { lab: { explore: { rounds: { candidates: number[] }[] } } }).lab.explore.rounds[0]?.candidates ??
+      []
+    // Round 0 (3 lists × 3 rivals) and the verification (2 × 3): the winner stays.
+    let played = 0
+    while (played < 9 + 6) {
+      const claim = await bearer('post', '/api/worker/claim').send({ ...hello, engineRev: test.env.engineRev })
+      const chunk = claim.body.chunk as Structured | null
+      if (!chunk) break
+      const row = await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: chunk.chunkId as number } })
+      const winsA = row.snapshotAId === winner ? Math.round(row.games * 0.9) : row.games / 2
+      await bearer('put', `/api/worker/chunks/${row.id}/result`).send({
+        workerId: hello.workerId,
+        engineRev: test.env.engineRev,
+        winsA,
+        winsB: row.games - winsA,
+        ties: 0,
+        games: row.games,
+        durationMs: 100,
+      })
+      played += 1
+    }
+    expect(played).toBe(15)
+    // Round 1 is queued: stop it. Nothing is in play, so it ends right away and the confirmation is queued.
+    const stopped = await post(`/api/lab/jobs/${id}/stop`)
+    expect(stopped.status).toBe(200)
+    expect(stopped.body.explore).toMatchObject({ phase: 'confirm', stopReason: 'user', stopReasonEs: 'la frenaste' })
+    expect(await playAll((a, _b, games) => (a === winner ? Math.round(games * 0.9) : games / 2))).toBe(6)
+    const lab = (await get(`/api/lab/jobs/${id}`)).body
+    expect(lab.job.status).toBe('done')
+    expect(lab.explore).toMatchObject({ phase: 'done', stopReason: 'user', best: winner })
+    expect(lab.explore.confirmation).toMatchObject({ verdict: 'better' })
+    // Stopping twice is refused.
+    expect((await post(`/api/lab/jobs/${id}/stop`)).status).toBe(400)
+  }, 60_000)
+
   it('Claude: the bank, a pasted idea against the meta, the plan of a search and the results', async () => {
     const client = new Client({ name: 'e2e', version: '1.0.0' })
     await client.connect(

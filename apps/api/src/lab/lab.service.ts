@@ -243,6 +243,8 @@ interface ExploreState {
   swaps?: (MeasuredSwap & { variant: number })[]
   /** Snapshot ids of the combo variants (the two best swaps joined). */
   combos?: number[]
+  /** T-017 D2: «Frenar y confirmar»: the round in play ends with what it has, then the confirmation. */
+  stopRequested?: boolean
 }
 
 interface LabParams {
@@ -906,6 +908,43 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       WHERE status IN ('queued', 'running') AND params ? 'lab' AND params->>'perGame' = 'true'`
   }
 
+  /**
+   * T-017 D2: «Frenar y confirmar». The chunks of the round in play that no worker took yet go away; when the ones
+   * being played come back (or right away, if none), the round ends with what it has — an incomplete candidate cannot
+   * win — and the search goes to its confirmation as if it had run out of rounds. Nothing found: it just ends.
+   */
+  async stop(rawId: string): Promise<LabJobView> {
+    const id = parseNumericId(rawId, 'Simulación')
+    const playing = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM simulation_jobs WHERE id = ${id} FOR UPDATE`
+      const job = await tx.simulationJob.findUnique({ where: { id } })
+      if (job?.kind !== 'explore') throw new NotFoundException(`Búsqueda ${rawId} no encontrada.`)
+      const params = job.params as unknown as JobParams
+      const state = params.lab.explore
+      const round = state?.rounds.at(-1)
+      if ((job.status !== 'queued' && job.status !== 'running') || !state || !round || state.phase !== 'search') {
+        throw new BadRequestException({ code: 'validation', message: 'Esa búsqueda ya no está buscando.' })
+      }
+      state.stopRequested = true
+      const queued = await tx.simulationChunk.findMany({
+        where: { jobId: id, status: 'queued', idx: { gte: round.fromIdx } },
+        select: { id: true, games: true },
+      })
+      await tx.simulationChunk.deleteMany({ where: { id: { in: queued.map((chunk) => chunk.id) } } })
+      await tx.simulationJob.update({
+        where: { id },
+        data: {
+          params: params as unknown as Prisma.InputJsonValue,
+          totalGames: job.totalGames - queued.reduce((sum, chunk) => sum + chunk.games, 0),
+        },
+      })
+      return tx.simulationChunk.count({ where: { jobId: id, status: 'leased' } })
+    })
+    // With chunks still in play, the last result advances the search as always.
+    if (playing === 0) await this.advance(id)
+    return this.job(rawId)
+  }
+
   private async workerCores(): Promise<number> {
     const worker = await this.prisma.workerNode.findFirst({ orderBy: { lastSeenAt: 'desc' }, select: { cores: true } })
     return worker?.cores ?? 2
@@ -969,8 +1008,11 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             const [candidate] = round.candidates
             const paired =
               candidate === undefined ? null : pairedOf(chunks, rivals, candidate, round.incumbent, thisRound)
+            // An incomplete verification (stopped by hand, or with failed chunks) never accepts.
             const ok =
               candidate !== undefined &&
+              complete(chunks, rivals, candidate, thisRound) &&
+              complete(chunks, rivals, round.incumbent, thisRound) &&
               (paired
                 ? differenceVerdict(paired, state.config.verifyZ) === 'better'
                 : verifyAccepts(
@@ -1033,8 +1075,11 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           }
 
           const searchRounds = state.rounds.filter((item) => item.kind === 'search').length
-          let stop: ExploreStop | null =
-            verifyNext !== null
+          // T-017 D2: stopped by hand, no verification is started; what was accepted goes to the confirmation.
+          if (state.stopRequested) verifyNext = null
+          let stop: ExploreStop | null = state.stopRequested
+            ? 'user'
+            : verifyNext !== null
               ? null
               : searchRounds >= state.config.maxRounds
                 ? 'rounds'

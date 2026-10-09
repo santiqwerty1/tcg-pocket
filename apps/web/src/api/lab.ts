@@ -85,6 +85,19 @@ export function usePlanLabExplore() {
   })
 }
 
+/** T-017 D2: «Frenar y confirmar» a search (the round in play ends with what it has, then the confirmation). */
+export function useStopLabSearch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number | string) =>
+      request(`/api/lab/jobs/${encodeURIComponent(String(id))}/stop`, { method: 'POST', schema: labJobSchema }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: labKeys.all })
+      void queryClient.invalidateQueries({ queryKey: simulationKeys.all })
+    },
+  })
+}
+
 export function useLabExplore() {
   const queryClient = useQueryClient()
   return useMutation({
