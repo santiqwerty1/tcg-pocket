@@ -256,6 +256,12 @@ Fase 25: `GET /api/matches/stats` suma `turnOrder: { first, second, unknown, cov
 | `POST /api/drills/answer` `{ kind, deckId, seed, choice }` | `{ correct, answer, explanation, stats }` |
 | `GET /api/drills/stats` | `{ today: { answered, correct }, streak, byKind: { draw, ko } }` (30 días) |
 
+## Lista de intercambio (Fase 31)
+
+| Método y ruta | Respuesta |
+|---|---|
+| `GET /api/trades?rarities=◊◊◊◊,☆` | `{ gives: [{ cardId, groupId, nameEs, nameEn, rarity, owned, spare }], wants: [{ groupId, nameEs, nameEn, missing, decks, options: [{ cardId, rarity }] }], untradeable, byRarity: [{ rarity, wants, gives }], rarities, text, totals: { wants, gives, spare } }` |
+
 ## Sobres (Fase 4)
 
 | Método y ruta | Cuerpo / respuesta |

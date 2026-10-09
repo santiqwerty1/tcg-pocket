@@ -44,6 +44,7 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 - **Fase 28 implementada el 9/10/2026** (DECISIONES 31.1–31.5): partidas sin señal — `matches.client_ref` (migración `20261009070000_match_client_ref`), `clientRef` y `playedAgoMs` en `POST /api/matches`, cola en el celu (`apps/web/src/lib/offlineMatches.ts`), `OfflineSync` en el marco de la app y «Sin enviar» en Hoy.
 - **Fase 29 implementada el 9/10/2026** (DECISIONES 32.1–32.3): Claude analiza una partida — `packages/domain/src/simulation/gameReview.ts` (narración en español, tablero, veredictos), `GameReviewService` (`GET /api/play/:id/review`), tools `play_games` y `play_game_review`.
 - **Fase 30 implementada el 9/10/2026** (DECISIONES 33.1–33.4): ejercicios de cálculo — `packages/domain/src/drills` (`drawDrill`, `koDrill`), `drill_attempts` (migración `20261009080000_drill_attempts`), `apps/api/src/drills` (`/api/drills*`), pantalla `/jugar/ejercicios`.
+- **Fase 31 implementada el 9/10/2026** (DECISIONES 34.1–34.3): lista de intercambio — `packages/domain/src/collection/trades.ts` (`tradeList`, `tradeText`), `apps/api/src/trades` (`GET /api/trades`), tool `collection_trades`, Colección → Intercambio.
 - **Visto bueno de Santi para todo el 8/10/2026**: fases 0–8 del plan, laboratorio y ajustes aprobados; no queda nada esperando su revisión. Siguiente paso: lo que pida Santi (abiertos: remapeo I12 al cambiar el catálogo, R-001; CI antes de cada deploy, R-007).
 
 ## Cómo trabajar acá

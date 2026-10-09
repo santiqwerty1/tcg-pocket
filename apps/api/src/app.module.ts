@@ -31,6 +31,7 @@ import { SettingsModule } from './settings/settings.module.js'
 import { SimulationModule } from './simulation/simulation.controller.js'
 import { TokensModule } from './tokens/tokens.module.js'
 import { TournamentsModule } from './tournaments/tournaments.controller.js'
+import { TradesModule } from './trades/trades.controller.js'
 import { WebModule } from './web/web.module.js'
 
 /**
@@ -66,6 +67,7 @@ export class AppModule implements NestModule {
         PickModule,
         SearchModule,
         DrillsModule,
+        TradesModule,
         PlayModule,
         AlertsModule,
         NotificationsModule,

@@ -349,6 +349,16 @@ export const MCP_READ_TOOLS = {
       'Qué entró a la colección entre dos importaciones del CSV (y desde la primera), por rareza, contra lo que dan los sobres: cuántas cartas ☆ o más y ◊◊◊◊ salieron y cuántas se esperaban, con una prueba binomial («mejor de lo normal», «dentro de lo normal», «peor»). Aproximado: el CSV dice qué tenés, no de dónde vino (cuenta intercambios, Wonder Pick y premios); las promos no cuentan.',
     input: z.object({}),
   },
+  collectionTrades: {
+    name: 'collection_trades',
+    title: 'Lista de intercambio',
+    description:
+      'Para intercambiar en el juego (una carta por otra de la misma rareza; solo ◊ a ◊◊◊◊, ☆, ☆☆, ✵ y ✵✵ de expansiones que se intercambian): «Busco», las cartas que les faltan a los mazos sin archivar, con las ediciones que se pueden pedir (la rareza más común primero) y qué mazos las usan; «Doy», las copias que sobran en la colección (se guarda una de cada edición y al menos 2 de cada carta, lo que sea más; una carta con un ajuste activo no se ofrece); lo que falta y no se puede intercambiar; y el texto para pegar en un chat. Con «rarities» el texto y las filas se acotan a esas rarezas (por defecto: las que tienen algo para buscar, o de ◊◊◊ para arriba).',
+    input: z.object({
+      rarities: z.array(z.enum(RARITIES)).max(11).optional().describe('Rarezas («◊◊◊◊», «☆»…)'),
+      limit: z.number().int().min(1).max(100).optional().describe('Filas de «Doy» por rareza (por defecto 15)'),
+    }),
+  },
   collectionMissions: {
     name: 'collection_missions',
     title: 'Misiones de colección',

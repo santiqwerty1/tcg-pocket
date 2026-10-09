@@ -45,6 +45,7 @@ import type {
   ScopeView,
 } from '../tournaments/tournament-views.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
+import { TradesService } from '../trades/trades.controller.js'
 import { type DeckRef, DeckRefResolver } from './deck-ref.js'
 import { jobSummaryJson, rateView } from './mcp-json.js'
 import { McpLabToolsService } from './mcp-lab-tools.service.js'
@@ -110,6 +111,7 @@ export class McpToolsService {
     private readonly writeTools: McpWriteToolsService,
     private readonly labTools: McpLabToolsService,
     private readonly playTools: McpPlayToolsService,
+    private readonly trades: TradesService,
     @Inject(ENV) private readonly env: Env,
     private readonly logger: PinoLogger,
   ) {
@@ -210,6 +212,9 @@ ${MCP_WRITE_INSTRUCTIONS}`
     )
     server.registerTool(t.collectionPackLuck.name, config(t.collectionPackLuck), () =>
       run(t.collectionPackLuck.name, () => this.collectionPackLuck()),
+    )
+    server.registerTool(t.collectionTrades.name, config(t.collectionTrades), (args) =>
+      run(t.collectionTrades.name, () => this.collectionTrades(args)),
     )
     server.registerTool(t.collectionMissions.name, config(t.collectionMissions), (args) =>
       run(t.collectionMissions.name, () => this.collectionMissions(args)),
@@ -1231,6 +1236,31 @@ ${MCP_WRITE_INSTRUCTIONS}`
       latest: view.intervals[0] ? shape(view.intervals[0]) : null,
       overall: view.overall ? shape(view.overall) : null,
       caveat: 'Aproximado: cuenta todo lo que entró (también intercambios, Wonder Pick y premios); las promos no.',
+    }
+  }
+
+  /** Fase 31: the trade list, the gives cut per rarity (the game shows few at a time anyway). */
+  private async collectionTrades(args: { rarities?: Rarity[]; limit?: number }): Promise<Json> {
+    const view = await this.trades.trades(args.rarities)
+    const limit = args.limit ?? 15
+    const rows = view.byRarity.filter((row) => view.rarities.includes(row.rarity))
+    return {
+      rarities: view.rarities,
+      totals: view.totals,
+      byRarity: rows.map((row) => ({
+        rarity: row.rarity,
+        wants: row.wants.map((want) => ({
+          card: want.nameEs,
+          missing: want.missing,
+          decks: want.decks,
+          ask: want.options.filter((option) => option.rarity === row.rarity).map((option) => option.cardId),
+          otherPrints: want.options.filter((option) => option.rarity !== row.rarity),
+        })),
+        gives: row.gives.slice(0, limit).map((give) => ({ card: give.nameEs, cardId: give.cardId, spare: give.spare })),
+        moreGives: Math.max(0, row.gives.length - limit),
+      })),
+      untradeable: view.untradeable.map((row) => ({ card: row.nameEs, missing: row.missing, decks: row.decks })),
+      text: view.text,
     }
   }
 

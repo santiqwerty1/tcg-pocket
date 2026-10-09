@@ -1,4 +1,4 @@
-import { DownloadIcon, SlidersHorizontalIcon, TrophyIcon, UploadIcon } from 'lucide-react'
+import { ArrowLeftRightIcon, DownloadIcon, SlidersHorizontalIcon, TrophyIcon, UploadIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
@@ -69,6 +69,12 @@ export function CollectionPage() {
           <Link to="/coleccion/misiones">
             <TrophyIcon data-icon="inline-start" />
             Misiones
+          </Link>
+        </Button>
+        <Button variant="outline" asChild>
+          <Link to="/coleccion/intercambio">
+            <ArrowLeftRightIcon data-icon="inline-start" />
+            Intercambio
           </Link>
         </Button>
       </div>

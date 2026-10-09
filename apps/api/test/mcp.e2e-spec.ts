@@ -121,6 +121,7 @@ describe('MCP endpoint (e2e)', () => {
       'collection_pack_luck',
       'collection_playable_copies',
       'collection_summary',
+      'collection_trades',
       'decks_closest',
       'decks_draw_odds',
       'decks_find_by_card',
@@ -160,7 +161,7 @@ describe('MCP endpoint (e2e)', () => {
   it('serves 2026-07-28 clients from the same endpoint', async () => {
     const client = await connect('modern')
     const { tools } = await client.listTools()
-    expect(tools).toHaveLength(32)
+    expect(tools).toHaveLength(33)
     // Fase 29: the games against the bot (none here) and the review of one.
     expect((await call(client, 'play_games')).structuredContent).toEqual({ games: [] })
     const missing = await client.callTool({ name: 'play_game_review', arguments: { id: 999 } })
@@ -171,6 +172,32 @@ describe('MCP endpoint (e2e)', () => {
       functionalCardsWithAtLeastOne: 1853,
       functionalCardsWithAtLeastTwo: 1255,
     })
+  })
+
+  it('lista de intercambio (Fase 31): the 40 decks lack nothing; spares by rarity and the text to paste', async () => {
+    const client = await connect()
+    const trades = (await call(client, 'collection_trades', { rarities: ['✵', '✵✵'], limit: 1 })).structuredContent as {
+      rarities: string[]
+      totals: { wants: number; gives: number; spare: number }
+      byRarity: { rarity: string; gives: unknown[]; moreGives: number }[]
+      text: string
+    }
+    expect(trades.rarities).toEqual(['✵', '✵✵'])
+    expect(trades.totals).toEqual({ wants: 0, gives: 758, spare: 1548 })
+    expect(trades.byRarity.map((row) => [row.rarity, row.gives.length])).toEqual([
+      ['✵', 1],
+      ['✵✵', 1],
+    ])
+    expect(trades.text.split('\n').slice(0, 4)).toEqual([
+      'Intercambio en TCG Pocket (misma rareza)',
+      '',
+      'Busco:',
+      '· nada por ahora',
+    ])
+    // The same over HTTP; without rarities and nothing to ask for, ◊◊◊ and up.
+    const http = (await test.http().get('/api/trades').set('Cookie', cookie)).body
+    expect(http.rarities).toEqual(['◊◊◊', '◊◊◊◊', '☆', '☆☆', '✵', '✵✵'])
+    expect((await test.http().get('/api/trades?rarities=nope').set('Cookie', cookie)).status).toBe(400)
   })
 
   it('BRIEF M8 acceptance: Hoopa ex has 1 playable copy (B4-103) and decks 13 and 19 use it', async () => {
@@ -435,7 +462,7 @@ describe('MCP endpoint (e2e)', () => {
       .set('Cookie', cookie)
       .send({ name: 'temporal', kind: 'mcp', scopes: ['mcp:read'] })
     const client = await connect('legacy', created.body.token)
-    expect((await client.listTools()).tools.length).toBe(32)
+    expect((await client.listTools()).tools.length).toBe(33)
     expect((await test.http().delete(`/api/tokens/${created.body.id}`).set('Cookie', cookie)).status).toBe(204)
     await expect(client.listTools()).rejects.toThrow()
   })

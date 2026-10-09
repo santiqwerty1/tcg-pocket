@@ -6,6 +6,7 @@ import { CollectionPage } from '@/pages/coleccion/CollectionPage'
 import { ImportPage } from '@/pages/coleccion/ImportPage'
 import { ImportPreviewPage } from '@/pages/coleccion/ImportPreviewPage'
 import { MissionsPage } from '@/pages/coleccion/MissionsPage'
+import { TradesPage } from '@/pages/coleccion/TradesPage'
 import { EventPage } from '@/pages/eventos/EventPage'
 import { EventsPage } from '@/pages/eventos/EventsPage'
 import { DrillsPage } from '@/pages/jugar/DrillsPage'
@@ -109,6 +110,7 @@ export const routes: RouteObject[] = [
       },
       { path: 'coleccion/ajustes', element: <AdjustmentsPage />, handle: handle('Ajustes manuales', '/coleccion') },
       { path: 'coleccion/misiones', element: <MissionsPage />, handle: handle('Misiones de colección', '/coleccion') },
+      { path: 'coleccion/intercambio', element: <TradesPage />, handle: handle('Lista de intercambio', '/coleccion') },
       { path: 'cartas/:cardId', element: <CardPage />, handle: handle('Carta', '/coleccion') },
       { path: 'grupos/:groupId', element: <GroupPage />, handle: handle('Carta funcional', '/coleccion') },
 

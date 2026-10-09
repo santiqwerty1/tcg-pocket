@@ -25,6 +25,7 @@ import { SimulationModule } from '../simulation/simulation.controller.js'
 import { BearerTokenGuard, RequireScopes } from '../tokens/bearer-token.guard.js'
 import { TokensModule } from '../tokens/tokens.module.js'
 import { TournamentsModule } from '../tournaments/tournaments.controller.js'
+import { TradesModule } from '../trades/trades.controller.js'
 import { DeckRefResolver } from './deck-ref.js'
 import { McpLabToolsService } from './mcp-lab-tools.service.js'
 import { McpPlayToolsService } from './mcp-play-tools.service.js'
@@ -83,6 +84,7 @@ export class McpController implements OnModuleDestroy {
     PickModule,
     EventsModule,
     PlayModule,
+    TradesModule,
   ],
   controllers: [McpController],
   providers: [McpToolsService, McpWriteToolsService, McpLabToolsService, McpPlayToolsService, DeckRefResolver],
