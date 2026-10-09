@@ -746,6 +746,51 @@ describe('simulation (e2e)', () => {
     await test.http().delete(`/api/simulations/${alone}`).set('Cookie', cookie)
   })
 
+  it('B3: while a search waits for its next round matrix chunks wait; comparisons do not, and the matrix goes on after 2 minutes', async () => {
+    const matrix = await post('/api/simulations').send({
+      kind: 'matrix',
+      sideA: decks(1, 3),
+      gamesPerPair: 10,
+      players: ['r', 'r'],
+    })
+    expect(matrix.status).toBe(201)
+    // A search between two rounds: its last chunk finished just now and nothing of it is queued.
+    const search = await test.prisma.simulationJob.create({
+      data: {
+        kind: 'explore',
+        status: 'running',
+        label: 'Explorar',
+        params: {},
+        engineRev: test.env.engineRev,
+        players: ['r', 'r'],
+        gamesPerPair: 10,
+        baseSeed: 1n,
+        totalGames: 10,
+        chunks: { create: [{ idx: 0, games: 10, seed: 1n, status: 'done', finishedAt: new Date() }] },
+      },
+    })
+    expect((await claim('worker-b3')).body.chunk).toBeNull()
+    const compare = await post('/api/simulations').send({
+      kind: 'compare',
+      sideA: decks(3, 3),
+      sideB: decks(5, 5),
+      gamesPerPair: 10,
+      players: ['r', 'r'],
+    })
+    expect((await claim('worker-b3')).body.chunk).toMatchObject({ jobId: compare.body.id })
+    // No new round for two minutes (the Laboratorio failed?): the matrix is not held any longer.
+    await test.prisma.simulationChunk.updateMany({
+      where: { jobId: search.id },
+      data: { finishedAt: new Date(Date.now() - 3 * 60_000) },
+    })
+    expect((await claim('worker-b3')).body.chunk).toMatchObject({ jobId: matrix.body.id })
+    await test.prisma.simulationJob.delete({ where: { id: search.id } })
+    for (const id of [matrix.body.id, compare.body.id]) {
+      await post(`/api/simulations/${id}/cancel`)
+      await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)
+    }
+  })
+
   it('list: archive finished jobs (one by one or all), bring them back, delete the cancelled ones', async () => {
     const make = async () =>
       (

@@ -150,7 +150,8 @@ export class WorkerQueueService {
    * chunks left goes first (a quick comparison does not wait hours behind a 780-pairing matrix); then the oldest job,
    * then chunk order. The chunks left are counted once per job (B2): counted for every candidate row, a claim took
    * 2,4 s locally and ~4 s in production with a matrix of 3.900 chunks in the queue, four times what a 60-game chunk
-   * of the Laboratorio plays.
+   * of the Laboratorio plays. While a search waits for its next round, matrix chunks are held back (B3); quick
+   * comparisons are not, and after two minutes without a new round the matrix goes on.
    */
   private async tryClaim(hello: WorkerHello): Promise<ClaimedChunk[]> {
     // H-002: versions compared as numbers here, not as text in SQL («0.2.10» < «0.2.2» as text).
@@ -164,11 +165,22 @@ export class WorkerQueueService {
       WHERE id = (
         WITH pending AS MATERIALIZED (
           SELECT job_id, count(*) AS left_count FROM simulation_chunks
-          WHERE status IN ('queued', 'leased') GROUP BY job_id)
+          WHERE status IN ('queued', 'leased') GROUP BY job_id),
+        -- B3: a search between two rounds (nothing pending, a chunk finished in the last two minutes) is having its
+        -- next round prepared; a matrix chunk taken now would make it wait up to minutes.
+        between_rounds AS MATERIALIZED (
+          SELECT EXISTS (
+            SELECT 1 FROM simulation_jobs e
+            WHERE e.kind = 'explore' AND e.status = 'running' AND e.engine_rev = ${hello.engineRev}
+              AND NOT EXISTS (SELECT 1 FROM pending q WHERE q.job_id = e.id)
+              AND EXISTS (SELECT 1 FROM simulation_chunks d
+                          WHERE d.job_id = e.id AND d.finished_at > now() - interval '2 minutes')) AS waiting)
         SELECT c.id FROM simulation_chunks c
           JOIN simulation_jobs j ON j.id = c.job_id
           JOIN pending p ON p.job_id = j.id
+          CROSS JOIN between_rounds b
         WHERE j.status IN ('queued', 'running') AND j.engine_rev = ${hello.engineRev}
+          AND (j.kind <> 'matrix' OR NOT b.waiting)
           AND (j.kind <> 'consistency' OR ${consistency}::boolean)
           AND (j.kind <> 'consistency' OR COALESCE(j.params->'consistency'->>'mode', 'goldfish') <> 'meta'
                OR ${metaConsistency}::boolean)
