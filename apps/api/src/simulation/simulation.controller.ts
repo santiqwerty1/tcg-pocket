@@ -15,7 +15,7 @@ import {
   Sse,
   UseGuards,
 } from '@nestjs/common'
-import { QUEUEABLE_SIMULATION_KINDS, SELECTABLE_ENERGIES, TOURNAMENT_FORMATS } from '@tcg/domain'
+import { BOT_CODE_PATTERN, QUEUEABLE_SIMULATION_KINDS, SELECTABLE_ENERGIES, TOURNAMENT_FORMATS } from '@tcg/domain'
 import type { Request } from 'express'
 import { from, interval, type Observable, startWith, switchMap, takeWhile } from 'rxjs'
 import { z } from 'zod'
@@ -45,7 +45,7 @@ const sourceSchema = z.union([
     energies,
   }),
 ])
-const botCode = z.string().regex(/^(r|w|aa|et|v|er|m|e[1-9])$/, 'Bot desconocido.')
+const botCode = z.string().regex(BOT_CODE_PATTERN, 'Bot desconocido.')
 const jobSchema = z.object({
   kind: z.enum(QUEUEABLE_SIMULATION_KINDS),
   label: z.string().trim().max(200).optional(),

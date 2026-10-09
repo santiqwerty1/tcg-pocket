@@ -30,9 +30,11 @@ export const BOT_LABEL_ES: Record<string, string> = {
   e4: 'expectiminimax, profundidad 4',
 }
 
-/** `r`, `e2`… (deckgym's codes without the human and external players). */
+/** `r`, `e2`… (deckgym's codes without the human and external players): the one list every schema checks against. */
+export const BOT_CODE_PATTERN = /^(r|w|aa|et|v|er|m|e[1-9])$/
+
 export function isBotCode(code: string): boolean {
-  return /^(r|w|aa|et|v|er|m|e[1-9])$/.test(code)
+  return BOT_CODE_PATTERN.test(code)
 }
 
 export function botLabel(code: string): string {
