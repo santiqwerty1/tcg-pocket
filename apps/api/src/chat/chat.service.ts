@@ -87,57 +87,47 @@ export class ChatService {
     const key = participantKey(input.as)
     const limit = input.limit ?? DEFAULT_LIMIT
     const mine = forParticipant(key)
+    const unseen: Prisma.SessionChatMessageWhereInput = { AND: [mine, { seen: { none: { participant: key } } }] }
     let messages: SessionChatMessage[]
     if (input.all) {
       messages = (
         await this.prisma.sessionChatMessage.findMany({ where: mine, orderBy: { id: 'desc' }, take: limit })
       ).reverse()
     } else {
-      const lastRead = (await this.prisma.sessionChatRead.findUnique({ where: { participant: key } }))?.lastReadId ?? 0
-      const unread = () =>
-        this.prisma.sessionChatMessage.findMany({
-          where: { AND: [mine, { id: { gt: lastRead } }] },
-          orderBy: { id: 'asc' },
-          take: limit,
-        })
       const wait = Math.min(input.waitSeconds ?? 0, CHAT_MAX_WAIT_SECONDS)
       // Listening before the first look, so a message written in between is not missed until the timeout.
       const next = wait > 0 ? this.nextFor(key, wait * 1000) : null
-      messages = await unread()
+      const look = () => this.prisma.sessionChatMessage.findMany({ where: unseen, orderBy: { id: 'asc' }, take: limit })
+      messages = await look()
       if (messages.length === 0 && next) {
         await next.arrived
-        messages = await unread()
+        messages = await look()
       }
       next?.cancel()
     }
-    const newest = messages.at(-1)?.id
-    if (newest !== undefined) {
-      await this.prisma.sessionChatRead.upsert({
-        where: { participant: key },
-        create: { participant: key, lastReadId: newest },
-        update: { lastReadId: { set: newest } },
+    // Exactly the messages returned are marked as read: an older one not returned (or committed late) stays unread.
+    if (messages.length > 0) {
+      await this.prisma.sessionChatSeen.createMany({
+        data: messages.map((message) => ({ participant: key, messageId: message.id })),
+        skipDuplicates: true,
       })
     }
-    const readUpTo =
-      newest ?? (await this.prisma.sessionChatRead.findUnique({ where: { participant: key } }))?.lastReadId ?? 0
     const [unreadLeft, participants] = await Promise.all([
-      this.prisma.sessionChatMessage.count({ where: { AND: [mine, { id: { gt: readUpTo } }] } }),
+      this.prisma.sessionChatMessage.count({ where: unseen }),
       this.participants(),
     ])
     return { as: input.as.trim(), messages: messages.map(toView), unreadLeft, participants }
   }
 
-  /** Senders of the last week, most recent first. */
+  /** Everyone who wrote in the last week, the most recent first. */
   private async participants(): Promise<string[]> {
-    const rows = await this.prisma.sessionChatMessage.findMany({
-      where: { at: { gte: new Date(Date.now() - PARTICIPANTS_DAYS * 24 * 60 * 60 * 1000) } },
-      orderBy: { id: 'desc' },
-      select: { fromName: true, fromKey: true },
-      take: 500,
-    })
-    const seen = new Map<string, string>()
-    for (const row of rows) if (!seen.has(row.fromKey)) seen.set(row.fromKey, row.fromName)
-    return [...seen.values()]
+    const since = new Date(Date.now() - PARTICIPANTS_DAYS * 24 * 60 * 60 * 1000)
+    const rows = await this.prisma.$queryRaw<{ from_name: string; id: number }[]>`
+      SELECT DISTINCT ON (from_key) from_name, id
+      FROM session_chat_messages
+      WHERE at >= ${since}
+      ORDER BY from_key, id DESC`
+    return rows.sort((a, b) => b.id - a.id).map((row) => row.from_name)
   }
 
   /** `arrived` resolves when a message for `key` is written, or after `ms`; `cancel` stops listening. */

@@ -634,7 +634,7 @@ Todas las de escritura llevan `readOnlyHint: false` e `idempotentHint: false` (r
 | Tool o ruta | Entrada → salida |
 |---|---|
 | `chat_write` | `{ from, to (un nombre, varios separados por coma o una lista; «todos» llega a todos), topic, text }` → `{ sent, id, at, from, to }` |
-| `chat_read` | `{ as, waitSeconds? (0 a 40), all?, limit? (30) }` → `{ as, messages: [{ id, at, from, to, topic, text }], unreadLeft, participants }`: los nuevos para `as` (dirigidos a esa sesión o a «todos» por otra), que quedan leídos; con `all`, también los leídos. Los nombres no distinguen mayúsculas, tildes ni separadores («Nube 2» = «nube2») |
+| `chat_read` | `{ as, waitSeconds? (0 a 40), all?, limit? (30) }` → `{ as, messages: [{ id, at, from, to, topic, text }], unreadLeft, participants }`: los nuevos para `as` (dirigidos a esa sesión o a «todos» por otra), que quedan leídos (solo los devueltos); con `all`, los últimos `limit`, leídos o no. Los nombres no distinguen mayúsculas, tildes ni separadores («Nube 2» = «nube2») |
 | `POST /api/mcp/chat` | Lo mismo que `chat_write`, con `Authorization: Bearer tcg_mcp_…` (`mcp:write`) → `201` con el mensaje |
 | `GET /api/mcp/chat?as=&wait=&all=&limit=` | Lo mismo que `chat_read` → `{ as, messages, unreadLeft, participants }` |
 

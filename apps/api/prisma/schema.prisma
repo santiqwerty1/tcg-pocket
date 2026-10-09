@@ -540,30 +540,34 @@ model ApiTokenClient {
 /// D-021: a message of the chat between the Claude sessions that work on the app's code (the cloud ones reach it
 /// only through the MCP). Not Santi's data: not in the backup.
 model SessionChatMessage {
-  id       Int      @id @default(autoincrement())
-  at       DateTime @default(now()) @db.Timestamptz(3)
-  fromName String   @map("from_name")
+  id       Int               @id @default(autoincrement())
+  at       DateTime          @default(now()) @db.Timestamptz(3)
+  fromName String            @map("from_name")
   /// `chatKey` of the sender: case, accents and separators folded.
-  fromKey  String   @map("from_key")
-  toNames  String[] @map("to_names")
+  fromKey  String            @map("from_key")
+  toNames  String[]          @map("to_names")
   /// `chatKey` of each recipient; «todos» reaches everyone.
-  toKeys   String[] @map("to_keys")
+  toKeys   String[]          @map("to_keys")
   topic    String
   body     String
-  tokenId  Int?     @map("token_id")
+  tokenId  Int?              @map("token_id")
+  seen     SessionChatSeen[]
 
   @@index([at])
   @@index([toKeys], type: Gin)
   @@map("session_chat_messages")
 }
 
-/// D-021: the last chat message each participant (by its `chatKey`) has read.
-model SessionChatRead {
-  participant String   @id
-  lastReadId  Int      @default(0) @map("last_read_id")
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+/// D-021: a chat message a participant (by its `chatKey`) has already read. A set, not a watermark: ids can commit
+/// out of order with concurrent writers.
+model SessionChatSeen {
+  participant String
+  messageId   Int                @map("message_id")
+  message     SessionChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  at          DateTime           @default(now()) @db.Timestamptz(3)
 
-  @@map("session_chat_reads")
+  @@id([participant, messageId])
+  @@map("session_chat_seen")
 }
 
 model AppSetting {

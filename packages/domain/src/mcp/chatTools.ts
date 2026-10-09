@@ -19,6 +19,19 @@ const participant = z
   .max(40)
   .regex(/^[\p{L}\p{N} ._·-]+$/u, 'Solo letras, números, espacios y . _ · -')
 
+/** «Principal, Laboratorio»: each name valid like a participant (one that `chat_read` could never use is refused). */
+const recipientList = z
+  .string()
+  .trim()
+  .min(1)
+  .refine((value) => {
+    const names = value
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean)
+    return names.length >= 1 && names.length <= 10 && names.every((name) => participant.safeParse(name).success)
+  }, 'Hasta 10 destinatarios separados por coma, de hasta 40 letras, números, espacios o . _ · - cada uno')
+
 /**
  * How a participant is compared: case, accents, spaces and separators do not matter («Nube 2», «nube-2» and
  * «NUBE2» are the same session).
@@ -73,7 +86,7 @@ export const MCP_CHAT_TOOLS = {
     input: z.object({
       from: participant.describe('Nombre de esta sesión en el chat'),
       to: z
-        .union([z.string().trim().min(1).max(200), z.array(participant).min(1).max(10)])
+        .union([recipientList, z.array(participant).min(1).max(10)])
         .describe(`Destinatario: un nombre, varios separados por coma, o «${CHAT_EVERYONE}»`),
       topic: z.string().trim().min(1).max(200).describe('Tema, en una línea'),
       text: z.string().trim().min(1).max(20_000).describe('El mensaje'),

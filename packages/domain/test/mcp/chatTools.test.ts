@@ -40,5 +40,9 @@ describe('chat between sessions (D-021)', () => {
     const write = MCP_CHAT_TOOLS.chatWrite.input
     expect(write.safeParse({ from: 'Nube2', to: ['Coordinador'], topic: 'hola', text: 'listo' }).success).toBe(true)
     expect(write.safeParse({ from: 'Nube2', to: 'Coordinador', topic: '', text: 'x' }).success).toBe(false)
+    // Each comma-separated recipient is checked like a name chat_read accepts.
+    expect(write.safeParse({ from: 'Nube2', to: 'Principal, Laboratorio', topic: 't', text: 'x' }).success).toBe(true)
+    expect(write.safeParse({ from: 'Nube2', to: 'Principal, Nube<2>', topic: 't', text: 'x' }).success).toBe(false)
+    expect(write.safeParse({ from: 'Nube2', to: 'x'.repeat(41), topic: 't', text: 'x' }).success).toBe(false)
   })
 })

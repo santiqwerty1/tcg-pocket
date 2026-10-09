@@ -132,6 +132,27 @@ describe('chat between sessions (e2e)', () => {
     expect((all.messages as Message[]).map((m) => m.topic)).toEqual(['Fase 43'])
   })
 
+  it('only what was returned is marked read: «all» with more unread than its limit loses nothing', async () => {
+    const nube = await connect()
+    // The broadcast of an earlier test is unread for any new participant: read it first.
+    await call(nube, 'chat_read', { as: 'Pruebas' })
+    for (const topic of ['uno', 'dos', 'tres']) {
+      await call(nube, 'chat_write', { from: 'Coordinador', to: 'Pruebas', topic, text: topic })
+    }
+    const newest = await call(nube, 'chat_read', { as: 'Pruebas', all: true, limit: 1 })
+    expect((newest.messages as Message[]).map((m) => m.topic)).toEqual(['tres'])
+    expect(newest.unreadLeft).toBe(2)
+    const rest = await call(nube, 'chat_read', { as: 'Pruebas' })
+    expect((rest.messages as Message[]).map((m) => m.topic)).toEqual(['uno', 'dos'])
+    expect(rest.unreadLeft).toBe(0)
+    // A recipient chat_read could never use is refused when writing.
+    const refused = (await nube.callTool({
+      name: 'chat_write',
+      arguments: { from: 'Nube2', to: 'Principal, Nube<2>', topic: 'x', text: 'x' },
+    })) as { isError?: boolean }
+    expect(refused.isError).toBe(true)
+  })
+
   it('a reader that waits wakes up when its message is written', async () => {
     const nube = await connect()
     // The broadcast of the previous test is still unread for Laboratorio: read it first.
