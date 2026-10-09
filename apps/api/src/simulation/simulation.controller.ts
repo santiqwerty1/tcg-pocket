@@ -64,6 +64,7 @@ const jobSchema = z.object({
   replaySample: z.number().int().min(0).max(5).optional(),
   cores: z.number().int().min(1).max(64).optional(),
   skipNotSimulable: z.boolean().optional(),
+  perGame: z.boolean().optional(),
   optimize: z
     .object({
       remove: z

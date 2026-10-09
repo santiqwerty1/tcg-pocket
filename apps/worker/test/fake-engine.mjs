@@ -45,6 +45,20 @@ if (command === 'version') {
         }
       }
       const winsA = Math.ceil(games / 2)
+      // perGame (H-010): A wins the first half, B the rest; FAKE_ENGINE_OLD plays an engine that ignores the flag.
+      const perGame =
+        job.perGame && !process.env.FAKE_ENGINE_OLD
+          ? {
+              perGame: {
+                winners: 'A'.repeat(winsA) + 'B'.repeat(games - winsA),
+                starters: 'AB'.repeat(games).slice(0, games),
+                endings: 'P'.repeat(games),
+                turns: Array.from({ length: games }, () => 10),
+                stagesA: '1'.repeat(games),
+                stagesB: '0'.repeat(games),
+              },
+            }
+          : {}
       writeFileSync(
         resultFile,
         JSON.stringify({
@@ -59,6 +73,7 @@ if (command === 'version') {
           turns: games * 10,
           durationMs: 5,
           replays,
+          ...perGame,
         }),
       )
     } else {

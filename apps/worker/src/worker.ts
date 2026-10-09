@@ -32,6 +32,8 @@ interface SimulateResult {
   turns: number
   durationMs: number
   replays: { gameId: string; index: number; seed: string; file: string; winner: string }[]
+  /** Only when the job asked for it; sent as is (the API checks it against the tallies). */
+  perGame?: Record<string, unknown>
 }
 
 interface OptimizeResult {
@@ -293,10 +295,20 @@ export class Worker {
           seed: Number(chunk.seed),
           threads,
           replaySample: chunk.replaySample,
+          ...(chunk.perGame ? { perGame: true } : {}),
         },
         this.workDir,
         { signal: controller.signal, onProgress: track },
       )
+      // An engine from before H-010 ignores the flag: the paired comparison of the Laboratorio needs every game.
+      if (chunk.perGame && !result.perGame) {
+        await rm(dir, { recursive: true, force: true })
+        throw new EngineError(
+          'engine-cli no informa las partidas una por una: recompilá el motor (cargo build).',
+          null,
+          'old_engine',
+        )
+      }
       return {
         chunkId: chunk.chunkId,
         result: {
@@ -308,6 +320,7 @@ export class Worker {
           games: result.games,
           turns: result.turns,
           durationMs: result.durationMs,
+          ...(result.perGame ? { extra: { perGame: result.perGame } } : {}),
         },
         replays: result.replays.map((replay) => ({ ...replay })),
         dir,

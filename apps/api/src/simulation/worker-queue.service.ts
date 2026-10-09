@@ -7,6 +7,7 @@
 
 import { EventEmitter } from 'node:events'
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import { checkPerGame, PER_GAME_WORKER_VERSION, wantsPerGame } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import type { Prisma } from '../generated/prisma/client.js'
 import { gunzipJson } from '../http/gunzip.js'
@@ -45,6 +46,8 @@ export interface ClaimedChunk {
   leaseUntil: string
   deckA: string | null
   deckB: string | null
+  /** Report every game by index (`params.perGame`, H-010): pairings only, workers from 0.2.5 on. */
+  perGame: boolean
   /** optimize: the engine-cli optimize job without seed/threads. */
   optimize: Prisma.JsonValue | null
   /** consistency: the key cards (engine ids), own turns reported, the deck's bot and, against the meta, the rivals. */
@@ -60,6 +63,11 @@ export interface ClaimedChunk {
 export const CONSISTENCY_WORKER_VERSION = '0.2.0'
 /** …and older than this do not pass the rivals of a consistency «contra el meta» (D-019) to the engine. */
 export const META_CONSISTENCY_WORKER_VERSION = '0.2.1'
+
+/** Pairing chunks of a job that asked for per-game results; optimize and consistency report their own way. */
+function perGamePairing(kind: ClaimedChunk['kind'], params: Prisma.JsonValue): boolean {
+  return kind !== 'optimize' && kind !== 'consistency' && wantsPerGame(params)
+}
 
 export interface ChunkResultInput {
   workerId: string
@@ -131,6 +139,7 @@ export class WorkerQueueService {
     // H-002: versions compared as numbers here, not as text in SQL («0.2.10» < «0.2.2» as text).
     const consistency = versionAtLeast(hello.version, CONSISTENCY_WORKER_VERSION)
     const metaConsistency = versionAtLeast(hello.version, META_CONSISTENCY_WORKER_VERSION)
+    const perGame = versionAtLeast(hello.version, PER_GAME_WORKER_VERSION)
     const rows = await this.prisma.$queryRaw<{ id: number }[]>`
       UPDATE simulation_chunks SET status = 'leased', lease_until = now() + interval '3 minutes',
         worker_id = ${hello.workerId}, games_done = 0, started_at = COALESCE(started_at, now())
@@ -140,6 +149,7 @@ export class WorkerQueueService {
           AND (j.kind <> 'consistency' OR ${consistency}::boolean)
           AND (j.kind <> 'consistency' OR COALESCE(j.params->'consistency'->>'mode', 'goldfish') <> 'meta'
                OR ${metaConsistency}::boolean)
+          AND (COALESCE(j.params->>'perGame', 'false') <> 'true' OR ${perGame}::boolean)
           AND (c.status = 'queued' OR (c.status = 'leased' AND c.lease_until < now()))
         ORDER BY (SELECT count(*) FROM simulation_chunks r
                   WHERE r.job_id = j.id AND r.status IN ('queued', 'leased')), j.created_at, j.id, c.idx
@@ -184,6 +194,7 @@ export class WorkerQueueService {
       leaseUntil: (chunk.leaseUntil ?? new Date(Date.now() + LEASE_MS)).toISOString(),
       deckA: text(chunk.snapshotAId),
       deckB: text(chunk.snapshotBId),
+      perGame: perGamePairing(chunk.job.kind, chunk.job.params),
       optimize:
         chunk.job.kind === 'optimize'
           ? ((chunk.job.params as { engineJob?: Prisma.JsonValue }).engineJob ?? null)
@@ -278,6 +289,10 @@ export class WorkerQueueService {
         code: 'validation',
         message: `El chunk tiene ${chunk.games} partidas, no ${input.games}.`,
       })
+    }
+    if (perGamePairing(chunk.job.kind, chunk.job.params)) {
+      const problem = checkPerGame((input.extra as { perGame?: unknown } | undefined)?.perGame, input)
+      if (problem) throw new BadRequestException({ code: 'validation', message: problem })
     }
     await this.prisma.simulationChunk.update({
       where: { id },

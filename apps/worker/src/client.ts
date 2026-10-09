@@ -28,6 +28,8 @@ export interface Chunk {
   leaseUntil: string
   deckA: string | null
   deckB: string | null
+  /** Pairings: report every game by index (H-010); missing from servers before 0.2.5 of the worker. */
+  perGame?: boolean
   optimize: Record<string, unknown> | null
   /** consistency chunks (Fase 8): key cards as engine ids, own turns reported, the deck's bot and, against the meta
    * (D-019), the rival decks with their games. */

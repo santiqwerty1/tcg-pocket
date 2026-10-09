@@ -66,10 +66,10 @@ pub fn best_option(scores: &[f64]) -> usize {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    const ALTARIA: &str = "Energy: Psychic
+    pub(crate) const ALTARIA: &str = "Energy: Psychic
 2 Swablu A4a 64
 2 Mega Altaria ex B1 102
 1 Jirachi B1 106

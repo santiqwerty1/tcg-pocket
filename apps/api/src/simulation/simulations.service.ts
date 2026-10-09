@@ -70,6 +70,8 @@ export interface CreateJobInput {
   skipNotSimulable?: boolean | undefined
   /** Stored with the job's params (the Laboratorio's meta bank and weights, T-008). */
   lab?: Prisma.InputJsonValue | undefined
+  /** Every game reported by index (`params.perGame`, H-010): pairings only, played by workers from 0.2.5 on. */
+  perGame?: boolean | undefined
   /** optimize: the deck (side A, one), the cards to take out, the candidates to try. */
   optimize?:
     | {
@@ -216,6 +218,7 @@ export class SimulationsService {
         sideB: okB,
         bothOrders: input.bothOrders ?? false,
         ...(input.lab === undefined ? {} : { lab: input.lab }),
+        ...(input.perGame ? { perGame: true } : {}),
       }
       chunks = planChunks(pairings, input.gamesPerPair)
     }

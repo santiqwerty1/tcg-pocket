@@ -23,10 +23,11 @@ mod play;
 use std::io::Write;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
+use deckgym::actions::Action;
 use deckgym::card_ids::CardId;
 use deckgym::card_validation::get_implementation_status;
 use deckgym::database::get_card_by_enum;
@@ -38,7 +39,7 @@ use deckgym::simulation_event_handler::{
     CompositeSimulationEventHandler, GameStartMetadata, SimulationEventHandler,
 };
 use deckgym::state::GameOutcome;
-use deckgym::{Deck, Game};
+use deckgym::{Deck, Game, State};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
@@ -216,12 +217,80 @@ enum Winner {
     Tie,
 }
 
+/// How a game ended, from its final state (deckgym checks points before the empty board, and ties at turn 31).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Ending {
+    /// The winner reached 3 points.
+    Points,
+    /// The loser had no Pokémon left in play.
+    NoPokemon,
+    /// The 30-turn limit: a tie.
+    TurnLimit,
+    /// Any other tie (both reached 3 points, or both boards emptied, on the same action).
+    Tie,
+}
+
+impl Ending {
+    fn of(outcome: Option<GameOutcome>, state: &State) -> Ending {
+        match outcome {
+            Some(GameOutcome::Win(winner)) if state.points[winner] >= 3 => Ending::Points,
+            Some(GameOutcome::Win(_)) => Ending::NoPokemon,
+            _ if state.turn_count > 30 => Ending::TurnLimit,
+            _ => Ending::Tie,
+        }
+    }
+
+    fn letter(self) -> char {
+        match self {
+            Ending::Points => 'P',
+            Ending::NoPokemon => 'N',
+            Ending::TurnLimit => 'L',
+            Ending::Tie => 'T',
+        }
+    }
+}
+
 struct GameRun {
     winner: Winner,
     turns: u32,
+    /// Who plays turn 1 (0 = deck A): deckgym's coin flip when the game is set up.
+    starter: usize,
+    ending: Ending,
+    /// Highest stage each side had in play (0 Basic, 1, 2); only watched with `details`.
+    stages: [u8; 2],
 }
 
-/// Plays one game; with `replay_dir`, writes its replay (`<game_id>.json`) through deckgym's `ReplayRecorder`.
+/// The highest stage each side has had in play, looked at before every action and at the end of the game.
+struct StageWatch {
+    max: Arc<[AtomicU8; 2]>,
+}
+
+impl StageWatch {
+    fn note(&self, state: &State) {
+        for (player, slots) in state.in_play_pokemon.iter().enumerate() {
+            for played in slots.iter().flatten() {
+                if let Card::Pokemon(pokemon) = &played.card {
+                    self.max[player].fetch_max(pokemon.stage, Ordering::Relaxed);
+                }
+            }
+        }
+    }
+}
+
+impl SimulationEventHandler for StageWatch {
+    fn merge(&mut self, _other: &dyn SimulationEventHandler) {}
+
+    fn on_action(&mut self, _game_id: Uuid, state: &State, _actor: usize, _playable: &[Action], _action: &Action) {
+        self.note(state);
+    }
+
+    fn on_game_end(&mut self, _game_id: Uuid, state: State, _result: Option<GameOutcome>) {
+        self.note(&state);
+    }
+}
+
+/// Plays one game; with `replay_dir`, writes its replay (`<game_id>.json`) through deckgym's `ReplayRecorder`; with
+/// `details`, also watches the highest stage of each side (what `perGame` reports).
 fn play_game(
     deck_a: &Deck,
     deck_b: &Deck,
@@ -229,11 +298,16 @@ fn play_game(
     seed: u64,
     game_id: Uuid,
     replay_dir: Option<&PathBuf>,
+    details: bool,
 ) -> Result<GameRun, String> {
     catch_unwind(AssertUnwindSafe(|| {
         let mut handlers: Vec<Box<dyn SimulationEventHandler>> = Vec::new();
         if let Some(dir) = replay_dir {
             handlers.push(Box::new(ReplayRecorder::new(dir.clone(), Arc::new(AtomicUsize::new(0)), None)));
+        }
+        let stages = Arc::new([AtomicU8::new(0), AtomicU8::new(0)]);
+        if details {
+            handlers.push(Box::new(StageWatch { max: stages.clone() }));
         }
         let mut handler = CompositeSimulationEventHandler::new(handlers);
         let players = create_players(deck_a.clone(), deck_b.clone(), codes.to_vec());
@@ -241,19 +315,23 @@ fn play_game(
         let decks = [players[0].get_deck(), players[1].get_deck()];
         let metadata = GameStartMetadata { seed, player_names, decks: [&decks[0], &decks[1]] };
         handler.on_game_start_with_metadata(game_id, &metadata);
-        let (outcome, state) = {
+        let (outcome, state, starter) = {
             let mut game = Game::new_with_event_handlers(game_id, players, seed, &mut handler);
+            // The setup starts with the player that won the coin flip, and turn 1 goes back to them.
+            let starter = game.get_state_clone().current_player;
             let outcome = game.play();
-            (outcome, game.get_state_clone())
+            (outcome, game.get_state_clone(), starter)
         };
         let turns = u32::from(state.turn_count);
+        let ending = Ending::of(outcome, &state);
         handler.on_game_end(game_id, state, outcome);
         let winner = match outcome {
             Some(GameOutcome::Win(0)) => Winner::A,
             Some(GameOutcome::Win(_)) => Winner::B,
             Some(GameOutcome::Tie) | None => Winner::Tie,
         };
-        GameRun { winner, turns }
+        let stages = [stages[0].load(Ordering::Relaxed), stages[1].load(Ordering::Relaxed)];
+        GameRun { winner, turns, starter, ending, stages }
     }))
     .map_err(|panic| {
         let message = panic
@@ -266,30 +344,35 @@ fn play_game(
 }
 
 /// Prints `progress <n>` on stderr every half second while games run (the worker turns it into heartbeats).
+/// The thread waits on a channel, not a sleep: dropping the sender wakes it at once, so a short run does not wait out
+/// the rest of a half second before exiting (H-019: 2 games took ~0,58 s, ~0,06 s of them playing).
 struct Progress {
     done: Arc<AtomicUsize>,
-    stop: Arc<AtomicBool>,
+    stop: Option<mpsc::Sender<()>>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Progress {
     fn start() -> Self {
         let done = Arc::new(AtomicUsize::new(0));
-        let stop = Arc::new(AtomicBool::new(false));
-        let (d, s) = (done.clone(), stop.clone());
+        let (stop, stopped) = mpsc::channel::<()>();
+        let d = done.clone();
         let thread = std::thread::spawn(move || {
             let mut last = usize::MAX;
-            while !s.load(Ordering::Relaxed) {
+            loop {
                 let now = d.load(Ordering::Relaxed);
                 if now != last {
                     eprintln!("progress {now}");
                     let _ = std::io::stderr().flush();
                     last = now;
                 }
-                std::thread::sleep(Duration::from_millis(500));
+                match stopped.recv_timeout(Duration::from_millis(500)) {
+                    Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                    _ => break,
+                }
             }
         });
-        Progress { done, stop, thread: Some(thread) }
+        Progress { done, stop: Some(stop), thread: Some(thread) }
     }
 
     fn tick(&self) {
@@ -299,7 +382,7 @@ impl Progress {
 
 impl Drop for Progress {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
+        drop(self.stop.take());
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -355,6 +438,9 @@ struct SimulateJob {
     replay_sample: u32,
     #[serde(default)]
     replay_dir: Option<String>,
+    /// Also report each game by index (`perGame`, `starters`): the Laboratorio pairs games played with the same seed.
+    #[serde(default)]
+    per_game: bool,
 }
 
 fn one() -> usize {
@@ -383,6 +469,57 @@ struct SimulateResult {
     tally: Tally,
     duration_ms: u128,
     replays: Vec<ReplayInfo>,
+    /// Only with `perGame` in the job.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    per_game: Option<PerGame>,
+}
+
+/// Each game of a job by index (game `i` played with `game_seed(seed, i)`), one character or number per game.
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PerGame {
+    /// «A» deck A won, «B» deck B won, «T» tie.
+    winners: String,
+    /// Who played turn 1: «A» or «B».
+    starters: String,
+    /// «P» the winner reached 3 points, «N» the loser had no Pokémon in play, «L» tie at the 30-turn limit, «T» other tie.
+    endings: String,
+    /// Turns played (deckgym's global turn count: both players' turns).
+    turns: Vec<u32>,
+    /// Highest stage deck A had in play: «0» only Basic, «1», «2».
+    stages_a: String,
+    /// The same for deck B.
+    stages_b: String,
+}
+
+impl PerGame {
+    fn with_capacity(games: usize) -> Self {
+        PerGame {
+            winners: String::with_capacity(games),
+            starters: String::with_capacity(games),
+            endings: String::with_capacity(games),
+            turns: Vec::with_capacity(games),
+            stages_a: String::with_capacity(games),
+            stages_b: String::with_capacity(games),
+        }
+    }
+
+    fn push(&mut self, run: &GameRun) {
+        self.winners.push(winner_letter(run.winner));
+        self.starters.push(if run.starter == 0 { 'A' } else { 'B' });
+        self.endings.push(run.ending.letter());
+        self.turns.push(run.turns);
+        self.stages_a.push(char::from(b'0' + run.stages[0].min(9)));
+        self.stages_b.push(char::from(b'0' + run.stages[1].min(9)));
+    }
+}
+
+fn winner_letter(winner: Winner) -> char {
+    match winner {
+        Winner::A => 'A',
+        Winner::B => 'B',
+        Winner::Tie => 'T',
+    }
 }
 
 fn winner_label(winner: Winner) -> &'static str {
@@ -426,7 +563,8 @@ fn simulate(job: SimulateJob) -> Result<SimulateResult, CliError> {
             .map(|index| {
                 let seed = game_seed(job.seed, u64::from(index));
                 let dir = if index < job.replay_sample { replay_dir.as_ref() } else { None };
-                let run = play_game(&deck_a, &deck_b, &codes, seed, game_id_for(job.seed, u64::from(index)), dir);
+                let game_id = game_id_for(job.seed, u64::from(index));
+                let run = play_game(&deck_a, &deck_b, &codes, seed, game_id, dir, job.per_game);
                 progress.tick();
                 run.map(|run| (index, seed, run))
             })
@@ -436,9 +574,14 @@ fn simulate(job: SimulateJob) -> Result<SimulateResult, CliError> {
     drop(progress);
     let mut tally = Tally::default();
     let mut replays = Vec::new();
+    // `collect` keeps the order of the indices, so the letters line up with games 0, 1, 2…
+    let mut per_game = job.per_game.then(|| PerGame::with_capacity(job.games as usize));
     for run in runs {
         let (index, seed, run) = run.map_err(CliError::engine)?;
         tally.add(&run);
+        if let Some(per_game) = per_game.as_mut() {
+            per_game.push(&run);
+        }
         if index < job.replay_sample {
             if let Some(dir) = &replay_dir {
                 let game_id = game_id_for(job.seed, u64::from(index));
@@ -461,6 +604,7 @@ fn simulate(job: SimulateJob) -> Result<SimulateResult, CliError> {
         tally,
         duration_ms,
         replays,
+        per_game,
     })
 }
 
@@ -568,7 +712,7 @@ fn optimize(job: OptimizeJob) -> Result<OptimizeResult, CliError> {
             .map(|(c, e, g)| {
                 let index = (c as u64) * games_per_combo + (e as u64) * u64::from(job.games_per_enemy) + u64::from(g);
                 let seed = game_seed(job.seed, index);
-                let run = play_game(&decks[c].1, &enemies[e], &codes, seed, game_id_for(job.seed, index), None);
+                let run = play_game(&decks[c].1, &enemies[e], &codes, seed, game_id_for(job.seed, index), None, false);
                 progress.tick();
                 run.map(|run| (c, e, run))
             })
@@ -715,5 +859,70 @@ mod tests {
         assert_ne!(game_seed(42, 0), game_seed(43, 0));
         // Reference values shared with @tcg/domain (simulation/seeds.ts).
         assert_eq!(splitmix64(0), 0xE220_A839_7B1D_CDAF);
+    }
+
+    fn job(games: u32, per_game: bool) -> SimulateJob {
+        SimulateJob {
+            deck_a: crate::coach::tests::ALTARIA.to_string(),
+            deck_b: crate::coach::tests::ALTARIA.to_string(),
+            players: vec!["r".to_string(), "r".to_string()],
+            games,
+            seed: 20261009,
+            threads: 2,
+            replay_sample: 0,
+            replay_dir: None,
+            per_game,
+        }
+    }
+
+    #[test]
+    fn per_game_lines_up_with_the_tally_and_repeats_with_the_seed() {
+        let result = simulate(job(24, true)).expect("simulate");
+        let games = result.per_game.as_ref().expect("perGame");
+        for text in [&games.winners, &games.starters, &games.endings, &games.stages_a, &games.stages_b] {
+            assert_eq!(text.len(), 24);
+        }
+        assert_eq!(games.turns.len(), 24);
+        let count = |text: &str, letter: char| text.chars().filter(|c| *c == letter).count() as u32;
+        assert_eq!(count(&games.winners, 'A'), result.tally.wins_a);
+        assert_eq!(count(&games.winners, 'B'), result.tally.wins_b);
+        assert_eq!(count(&games.winners, 'T'), result.tally.ties);
+        assert_eq!(games.turns.iter().map(|t| u64::from(*t)).sum::<u64>(), result.tally.turns);
+        assert!(games.starters.chars().all(|c| c == 'A' || c == 'B'));
+        assert!(count(&games.starters, 'A') > 0 && count(&games.starters, 'B') > 0, "24 coin flips: {}", games.starters);
+        // A win ends on points or an empty board, a tie on the limit or a tie; ties at the limit played 31 turns.
+        for (i, (winner, ending)) in games.winners.chars().zip(games.endings.chars()).enumerate() {
+            match winner {
+                'T' => assert!(ending == 'L' || ending == 'T', "game {i}: {ending}"),
+                _ => assert!(ending == 'P' || ending == 'N', "game {i}: {ending}"),
+            }
+            if ending == 'L' {
+                assert!(games.turns[i] > 30);
+            }
+        }
+        // Altaria evolves Swablu (stage 1): random bots get there in some games, and never past stage 2.
+        assert!(games.stages_a.chars().chain(games.stages_b.chars()).all(|c| ('0'..='2').contains(&c)));
+        assert!(games.stages_a.contains('1') || games.stages_b.contains('1'), "{} {}", games.stages_a, games.stages_b);
+        let again = simulate(job(24, true)).expect("simulate");
+        let text = |result: &SimulateResult| serde_json::to_string(&result.per_game).expect("json");
+        assert_eq!(text(&again), text(&result));
+        // Without the flag nothing is added to the result.
+        let plain = simulate(job(4, false)).expect("simulate");
+        assert!(plain.per_game.is_none());
+        assert!(!serde_json::to_string(&plain).expect("json").contains("perGame"));
+    }
+
+    #[test]
+    fn the_starter_is_who_plays_turn_one() {
+        let deck = Deck::from_string(crate::coach::tests::ALTARIA).expect("deck");
+        for seed in 0..12 {
+            let players = create_players(deck.clone(), deck.clone(), vec![PlayerCode::R, PlayerCode::R]);
+            let mut game = Game::new(players, seed);
+            let starter = game.get_state_clone().current_player;
+            while game.get_state_clone().turn_count == 0 {
+                game.play_tick();
+            }
+            assert_eq!(game.get_state_clone().current_player, starter, "seed {seed}");
+        }
     }
 }

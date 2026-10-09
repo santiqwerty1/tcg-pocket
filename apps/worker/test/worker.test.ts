@@ -181,6 +181,42 @@ describe('worker loop', () => {
     expect(readdirSync(join(dataDir, 'work'))).toEqual([])
   })
 
+  it('H-010: a pairing with perGame sends every game in extra; without it, nothing extra', async () => {
+    const { client, calls } = fakeClient([
+      chunk({ chunkId: 20, perGame: true, replaySample: 0 }),
+      chunk({ chunkId: 21 }),
+    ])
+    const worker = new Worker(config, client, silent)
+    await worker.loop(new AbortController().signal, { once: true })
+    expect(calls.failures).toHaveLength(0)
+    expect(calls.results[0]?.body).toMatchObject({ winsA: 5, winsB: 5, games: 10 })
+    expect(calls.results[0]?.body.extra).toEqual({
+      perGame: {
+        winners: 'AAAAABBBBB',
+        starters: 'ABABABABAB',
+        endings: 'PPPPPPPPPP',
+        turns: [10, 10, 10, 10, 10, 10, 10, 10, 10, 10],
+        stagesA: '1111111111',
+        stagesB: '0000000000',
+      },
+    })
+    await worker.loop(new AbortController().signal, { once: true })
+    expect(calls.results[1]?.body.extra).toBeUndefined()
+  })
+
+  it('H-010: a pairing with perGame fails clearly on an engine that ignores the flag', async () => {
+    process.env.FAKE_ENGINE_OLD = '1'
+    try {
+      const { client, calls } = fakeClient([chunk({ chunkId: 22, perGame: true })])
+      await new Worker(config, client, silent).loop(new AbortController().signal, { once: true })
+      expect(calls.results).toHaveLength(0)
+      expect(calls.failures[0]?.error).toContain('recompilá el motor')
+      expect(readdirSync(join(dataDir, 'work'))).toEqual([])
+    } finally {
+      delete process.env.FAKE_ENGINE_OLD
+    }
+  })
+
   it('reports an engine failure instead of a result', async () => {
     const { client, calls } = fakeClient([chunk({ chunkId: 10, games: 13 })])
     await new Worker(config, client, silent).loop(new AbortController().signal, { once: true })

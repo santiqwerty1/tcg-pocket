@@ -454,6 +454,68 @@ describe('simulation (e2e)', () => {
     }
   })
 
+  it('H-010: perGame goes to workers from 0.2.5 on, and the result has to carry every game, matching the tallies', async () => {
+    const created = await post('/api/simulations').send({
+      kind: 'compare',
+      sideA: decks(3, 3),
+      sideB: decks(5, 5),
+      gamesPerPair: 4,
+      players: ['r', 'r'],
+      seed: 77,
+      perGame: true,
+    })
+    expect(created.status).toBe(201)
+    const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: created.body.id } })
+    expect(job.params).toMatchObject({ perGame: true })
+    const old = await bearer('post', '/api/worker/claim').send({ ...worker('worker-0204'), version: '0.2.4' })
+    expect(old.body.chunk).toBeNull()
+    const chunk = (await bearer('post', '/api/worker/claim').send({ ...worker('worker-0205'), version: '0.2.5' })).body
+      .chunk as Structured
+    expect(chunk).toMatchObject({ jobId: created.body.id, games: 4, perGame: true })
+    const result = {
+      workerId: 'worker-0205',
+      engineRev: test.env.engineRev,
+      winsA: 2,
+      winsB: 1,
+      ties: 1,
+      games: 4,
+      turns: 60,
+      durationMs: 40,
+    }
+    const perGame = {
+      winners: 'ABTA',
+      starters: 'AABB',
+      endings: 'PNLP',
+      turns: [12, 9, 31, 8],
+      stagesA: '1201',
+      stagesB: '0110',
+    }
+    const put = (body: Structured) => bearer('put', `/api/worker/chunks/${chunk.chunkId}/result`).send(body)
+    const missing = await put(result)
+    expect(missing.status).toBe(400)
+    expect(missing.body.error.message).toContain('perGame')
+    expect((await put({ ...result, extra: { perGame: { ...perGame, winners: 'AATA' } } })).status).toBe(400)
+    expect((await put({ ...result, extra: { perGame: { ...perGame, endings: 'PNPP' } } })).status).toBe(400)
+    expect((await put({ ...result, extra: { perGame } })).body).toEqual({ accepted: true })
+    const stored = await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: Number(chunk.chunkId) } })
+    expect(stored.extra).toEqual({ perGame })
+    // A job without the flag says so to the worker.
+    const plain = await post('/api/simulations').send({
+      kind: 'compare',
+      sideA: decks(3, 3),
+      sideB: decks(5, 5),
+      gamesPerPair: 4,
+      players: ['r', 'r'],
+    })
+    const plainChunk = (await bearer('post', '/api/worker/claim').send({ ...worker('worker-0205'), version: '0.2.5' }))
+      .body.chunk as Structured
+    expect(plainChunk).toMatchObject({ jobId: plain.body.id, perGame: false })
+    for (const id of [created.body.id, plain.body.id]) {
+      await post(`/api/simulations/${id}/cancel`)
+      await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)
+    }
+  })
+
   it('list: archive finished jobs (one by one or all), bring them back, delete the cancelled ones', async () => {
     const make = async () =>
       (
