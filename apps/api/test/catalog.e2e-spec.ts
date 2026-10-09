@@ -1,3 +1,7 @@
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { DEFAULT_FIXTURES_DIR as FIXTURES_DIR } from '../src/catalog/catalog-sources.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { createTestApp, login, seedOwner, type TestApp, waitForSync } from './helpers.js'
 
@@ -266,6 +270,93 @@ describe('catalog (e2e)', () => {
     expect(status.body.loaded).toBe(true)
     expect(status.body.trackerCommit).toBe(test.env.catalogCommit)
     expect(await test.prisma.card.count()).toBe(EXPECTED.cards)
+  })
+
+  it('a commit that merges stock units and drops an edition takes the owner data with it (I12, Fase 21)', async () => {
+    // A copy of the fixtures where B4b-391 shares B1-225's internal id (one stock unit) and B4b-424 is gone.
+    const dir = mkdtempSync(join(tmpdir(), 'tcg-catalog-'))
+    cpSync(FIXTURES_DIR, dir, { recursive: true })
+    const cardsPath = join(dir, 'tracker/cards.json')
+    const original = JSON.parse(readFileSync(cardsPath, 'utf8')) as {
+      card_id: string
+      internal_id: number
+      alternate_versions: number[]
+    }[]
+    const gone = original.find((card) => card.card_id === 'B4b-424')?.internal_id
+    const changed = original
+      .filter((card) => card.card_id !== 'B4b-424')
+      .map((card) => ({
+        ...card,
+        internal_id: card.card_id === 'B4b-391' ? 800833 : card.internal_id,
+        alternate_versions: card.alternate_versions.filter((id) => id !== gone && id !== 1466817),
+      }))
+    writeFileSync(cardsPath, JSON.stringify(changed))
+
+    await test.prisma.collectionStock.createMany({
+      data: [
+        { cardId: 'B1-225', amountOwned: 2, collected: true, source: 'manual' },
+        { cardId: 'B4b-391', amountOwned: 1, collected: true, source: 'manual' },
+      ],
+    })
+    const deck = await test.prisma.deck.create({
+      data: {
+        name: 'Remapeo',
+        energies: ['psychic'],
+        tags: [],
+        keyCards: [{ functionalGroupId: 'B1-225', role: 'setup' }],
+      },
+    })
+    await test.prisma.deckCard.create({ data: { deckId: deck.id, cardId: 'B4b-424', count: 1, position: 0 } })
+    const adjustment = await test.prisma.collectionAdjustment.create({
+      data: { functionalGroupId: 'B1-225', playableCopies: 2 },
+    })
+    try {
+      const merged = await sync.sync({
+        trackerCommit: test.env.catalogCommit,
+        engineRev: test.env.engineRev,
+        source: 'fixtures',
+        fixturesDir: dir,
+      })
+      expect(merged.status).toBe('needs_review')
+      expect(merged.diff).toMatchObject({ removed: 1 })
+      expect(merged.warnings.join('\n')).toMatch(/junta ahora ediciones que tenían cantidades distintas \(2, 1\)/)
+      expect(await test.prisma.collectionStock.findMany({ orderBy: { cardId: 'asc' } })).toEqual([
+        expect.objectContaining({ cardId: 'B1-225', amountOwned: 2, collected: true }),
+      ])
+      const group = (await get('/api/groups/B1-225')).body.group as { displayCardId: string }
+      const cards = await test.prisma.deckCard.findMany({ where: { deckId: deck.id } })
+      expect(cards).toEqual([expect.objectContaining({ cardId: group.displayCardId, count: 1, position: 0 })])
+      expect(await test.prisma.card.findUnique({ where: { id: 'B4b-424' } })).toBeNull()
+      expect((await test.prisma.collectionAdjustment.findUnique({ where: { id: adjustment.id } }))?.active).toBe(true)
+      const report = (await test.prisma.catalogSync.findUniqueOrThrow({ where: { id: merged.syncId } })).report as {
+        remap: { notes: { kind: string }[] }
+      }
+      expect(report.remap.notes.map((note) => note.kind)).toEqual(['stock_merge', 'deck_card_replaced'])
+
+      // Back to the pinned fixtures: the unit splits again and both editions keep the copies (for review).
+      const split = await sync.sync({
+        trackerCommit: test.env.catalogCommit,
+        engineRev: test.env.engineRev,
+        source: 'fixtures',
+      })
+      expect(split.status).toBe('needs_review')
+      expect(split.warnings.join('\n')).toMatch(/se separó en/)
+      expect(
+        (await test.prisma.collectionStock.findMany({ orderBy: { cardId: 'asc' } })).map((row) => [
+          row.cardId,
+          row.amountOwned,
+        ]),
+      ).toEqual([
+        ['B1-225', 2],
+        ['B4b-391', 2],
+      ])
+      expect(await test.prisma.card.count()).toBe(EXPECTED.cards)
+    } finally {
+      await test.prisma.collectionAdjustment.deleteMany({})
+      await test.prisma.deck.deleteMany({})
+      await test.prisma.collectionStock.deleteMany({})
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('guards the sync trigger and the read API behind the session', async () => {

@@ -34,11 +34,11 @@ _Recuentos al 2026-10-08 (generados; no editar a mano)._
 | decision | 19 | vigente 19 |
 | hallazgo | 1 | resuelto 1 |
 | pregunta | 5 | cerrada 5 |
-| riesgo | 9 | abierto 7 · resuelto 2 |
+| riesgo | 9 | abierto 6 · resuelto 3 |
 | supuesto | 3 | refutado 1 · verificado 2 |
 | tarea | 12 | en_curso 1 · hecho 11 |
 
-**Para revisar:** nada. **Abiertas:** 8.
+**Para revisar:** nada. **Abiertas:** 7.
 <!-- /posta:recuentos -->
 
 ## Fichas

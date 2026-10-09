@@ -1,8 +1,8 @@
 /**
  * Persistence of a built `Catalog`. Writes are bulk upserts in one SQL transaction over the `pg` pool (4.3 k cards
  * in a handful of statements); reads go through Prisma and rebuild the domain `Catalog` in catalog order.
- * Rows that disappeared from the catalog are deleted; a card still referenced by the collection or a deck makes the
- * transaction fail (the remap of invariant I12 is a TODO: the sync is then recorded as failed).
+ * Rows that disappeared from the catalog are deleted. When editions moved between stock units or groups, or left the
+ * catalog, the owner's data follows them first, in the same transaction (invariant I12, Fase 21: `planCatalogRemap`).
  */
 import { Injectable } from '@nestjs/common'
 import type {
@@ -12,6 +12,7 @@ import type {
   CardEdition,
   CardType,
   Catalog,
+  CatalogRemap,
   CraftingCost,
   EnergyType,
   EvolutionType,
@@ -19,12 +20,14 @@ import type {
   FunctionalGroup,
   Mission,
   NameEsSource,
+  OwnerRefs,
   Pack,
   Rarity,
   RarityRule,
   StockUnit,
 } from '@tcg/domain'
 import { DEFAULT_RARITY_RULES, PACKS_LIMITED_BY_DEFAULT, PACKS_OFF_BY_DEFAULT } from '@tcg/domain'
+import type pg from 'pg'
 import type { CatalogSync } from '../generated/prisma/client.js'
 import type { CatalogSyncStatus } from '../generated/prisma/enums.js'
 import { PrismaService } from '../prisma/prisma.service.js'
@@ -65,6 +68,8 @@ export interface SyncOutcome {
   missions: Mission[]
   report: unknown
   changes: readonly SyncChangeRow[]
+  /** I12: the owner's data that follows the catalog (applied before the old rows are deleted). */
+  remap?: CatalogRemap | null
 }
 
 @Injectable()
@@ -268,6 +273,8 @@ export class CatalogRepository {
         { action: 'nothing' },
       )
 
+      if (outcome.remap && !outcome.remap.empty) await applyRemap(client, outcome.remap)
+
       const deleted = {
         cards: await deleteNotIn(
           client,
@@ -329,6 +336,47 @@ export class CatalogRepository {
       throw error
     } finally {
       client.release()
+    }
+  }
+
+  /** Everything of the owner's that points at the catalog (I12). */
+  async ownerRefs(): Promise<OwnerRefs> {
+    const [stock, adjustments, deckCards, decks, events] = await Promise.all([
+      this.prisma.collectionStock.findMany(),
+      this.prisma.collectionAdjustment.findMany(),
+      this.prisma.deckCard.findMany(),
+      this.prisma.deck.findMany({ select: { id: true, keyCards: true } }),
+      this.prisma.event.findMany({ select: { id: true, rules: true } }),
+    ])
+    return {
+      stock: stock.map((row) => ({
+        cardId: row.cardId,
+        amountOwned: row.amountOwned,
+        collected: row.collected,
+        source: row.source,
+        importId: row.importId,
+      })),
+      adjustments: adjustments.map((row) => ({
+        id: row.id,
+        groupId: row.functionalGroupId,
+        active: row.active,
+        createdAt: row.createdAt,
+      })),
+      deckCards: deckCards.map((row) => ({
+        deckId: row.deckId,
+        cardId: row.cardId,
+        count: row.count,
+        position: row.position,
+      })),
+      keyCards: decks
+        .filter((deck) => Array.isArray(deck.keyCards) && deck.keyCards.length > 0)
+        .map((deck) => ({
+          deckId: deck.id,
+          items: deck.keyCards as unknown as { functionalGroupId: string; role: string }[],
+        })),
+      eventBans: events
+        .map((event) => ({ eventId: event.id, banned: (event.rules as { banned?: string[] } | null)?.banned ?? [] }))
+        .filter((event) => event.banned.length > 0),
     }
   }
 
@@ -480,5 +528,58 @@ export class CatalogRepository {
       missions: (sync.missions ?? []) as unknown as Mission[],
     }
     return { catalog, sync }
+  }
+}
+
+type Client = pg.PoolClient
+
+/** Writes a remap plan (I12). Runs after the new cards and groups exist and before the old ones are deleted. */
+async function applyRemap(client: Client, remap: CatalogRemap): Promise<void> {
+  if (remap.stock.delete.length > 0) {
+    await client.query('DELETE FROM "collection_stock" WHERE "card_id" = ANY($1::text[])', [remap.stock.delete])
+  }
+  for (const row of remap.stock.upsert) {
+    await client.query(
+      `INSERT INTO "collection_stock" ("card_id", "amount_owned", "collected", "source", "import_id", "updated_at")
+       VALUES ($1, $2, $3, $4::"collection_stock_source", $5, now())
+       ON CONFLICT ("card_id") DO UPDATE SET "amount_owned" = EXCLUDED."amount_owned",
+         "collected" = EXCLUDED."collected", "updated_at" = now()`,
+      [row.cardId, row.amountOwned, row.collected, row.source, row.importId],
+    )
+  }
+  for (const id of remap.adjustments.resolve) {
+    await client.query(
+      `UPDATE "collection_adjustments" SET "active" = false, "resolved_at" = now(),
+         "resolution" = 'catalog_change'::"adjustment_resolution" WHERE "id" = $1`,
+      [id],
+    )
+  }
+  for (const move of remap.adjustments.move) {
+    await client.query('UPDATE "collection_adjustments" SET "functional_group_id" = $2 WHERE "id" = $1', [
+      move.id,
+      move.groupId,
+    ])
+  }
+  if (remap.adjustments.delete.length > 0) {
+    await client.query('DELETE FROM "collection_adjustments" WHERE "id" = ANY($1::int[])', [remap.adjustments.delete])
+  }
+  for (const change of remap.deckCards) {
+    if (change.to) {
+      await client.query(
+        `INSERT INTO "deck_cards" ("deck_id", "card_id", "count", "position") VALUES ($1, $2, $3, $4)
+         ON CONFLICT ("deck_id", "card_id") DO UPDATE SET "count" = "deck_cards"."count" + EXCLUDED."count"`,
+        [change.deckId, change.to, change.count, change.position],
+      )
+    }
+    await client.query('DELETE FROM "deck_cards" WHERE "deck_id" = $1 AND "card_id" = $2', [change.deckId, change.from])
+  }
+  for (const deck of remap.keyCards) {
+    await client.query('UPDATE "decks" SET "key_cards" = $2::jsonb WHERE "id" = $1', [deck.deckId, json(deck.items)])
+  }
+  for (const event of remap.eventBans) {
+    await client.query(`UPDATE "events" SET "rules" = jsonb_set("rules", '{banned}', $2::jsonb) WHERE "id" = $1`, [
+      event.eventId,
+      json(event.banned),
+    ])
   }
 }

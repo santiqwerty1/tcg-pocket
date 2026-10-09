@@ -13,7 +13,9 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "fixtures:extract": "node scripts/extract-fixtures.mjs",
-    "viewer:build": "node scripts/build-viewer.mjs"
+    "viewer:build": "node scripts/build-viewer.mjs",
+    "deploy:fly": "node scripts/deploy.mjs",
+    "deploy:check": "node scripts/deploy.mjs --check"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

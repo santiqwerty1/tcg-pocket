@@ -1,5 +1,13 @@
 import { ConflictException, Injectable, type OnModuleInit } from '@nestjs/common'
-import { type BuildCounts, buildCatalogWithReport, type CatalogDiff, diffCatalog, isEmptyDiff } from '@tcg/domain'
+import {
+  type BuildCounts,
+  buildCatalogWithReport,
+  type CatalogDiff,
+  type CatalogRemap,
+  diffCatalog,
+  isEmptyDiff,
+  planCatalogRemap,
+} from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import type { CatalogSyncSource, CatalogSyncStatus } from '../generated/prisma/enums.js'
 import { PrismaService } from '../prisma/prisma.service.js'
@@ -146,16 +154,17 @@ export class CatalogSyncService implements OnModuleInit {
       const previous = await this.repository.loadCatalog()
       const diff = previous ? diffCatalog(previous.catalog, catalog) : null
 
-      // TODO(I12): when stock units or groups change and the owner has data, remap collection stock, adjustments and
-      // deck cards in the same transaction. Until then the sync applies the catalog and flags `needs_review`.
-      const structuralChange = diff !== null && (diff.stockChanged.length > 0 || diff.groupChanged.length > 0)
-      const needsReview = structuralChange && (await this.repository.hasOwnerData())
+      // I12 (Fase 21): editions that moved between stock units or groups, or left the catalog, take the owner's data
+      // with them in the same transaction; anything the remap had to guess leaves the sync in `needs_review`.
+      const structuralChange =
+        diff !== null && (diff.stockChanged.length > 0 || diff.groupChanged.length > 0 || diff.removed.length > 0)
+      const remap: CatalogRemap | null =
+        structuralChange && previous && (await this.repository.hasOwnerData())
+          ? planCatalogRemap(previous.catalog, catalog, await this.repository.ownerRefs())
+          : null
       const warnings = [...report.warnings]
-      if (needsReview) {
-        warnings.push(
-          `Stock units or functional groups changed (${diff?.stockChanged.length ?? 0} stock, ${diff?.groupChanged.length ?? 0} groups) with owner data present: review the collection and decks (remap not implemented yet).`,
-        )
-      }
+      for (const note of remap?.notes ?? []) if (note.review) warnings.push(note.text)
+      const needsReview = remap?.needsReview ?? false
 
       const status = needsReview ? 'needs_review' : 'applied'
       // Catalog tables, change rows and the sync status are committed together (one pg transaction).
@@ -168,8 +177,10 @@ export class CatalogSyncService implements OnModuleInit {
         report: {
           build: { ...report, warnings },
           diff: diff ? { counts: diffCounts(diff), detail: diff } : null,
+          remap: remap ? { notes: remap.notes, empty: remap.empty } : null,
         },
         changes: diff ? changeRows(diff) : [],
+        remap,
       })
       await this.catalog.reload()
 
