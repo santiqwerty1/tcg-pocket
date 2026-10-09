@@ -253,34 +253,35 @@ export class McpAuditService {
    * moved the sequence back (the monthly backup drill could, before Fase 43's follow-up): then it gets a new id.
    */
   private async restoreMatchRow(match: Extract<AuditUndo, { kind: 'match_delete' }>['match']): Promise<number> {
-    const holder = await this.prisma.match.findUnique({ where: { id: match.id }, select: { createdAt: true } })
-    if (holder && holder.createdAt.toISOString() === match.createdAt) {
-      throw new ConflictException({ code: 'match_exists', message: `La partida ${match.id} ya está en la app.` })
-    }
-    const revision = await this.prisma.deckRevision.findUnique({
-      where: { id: match.deckRevisionId },
-      select: { deckId: true },
-    })
-    if (!revision || revision.deckId !== match.deckId) {
-      throw new ConflictException({
-        code: 'deck_gone',
-        message: 'El mazo (o la revisión) de esa partida ya no existe: no se puede devolver.',
-      })
-    }
-    // The phone may have sent the same match again (Fase 28): restoring it too would count it twice.
-    const resent = match.clientRef
-      ? await this.prisma.match.findUnique({ where: { clientRef: match.clientRef }, select: { id: true } })
-      : null
-    if (resent) {
-      throw new ConflictException({
-        code: 'match_resent',
-        message: `Esa partida ya volvió a entrar desde el celu (partida ${resent.id}): no la duplico.`,
-      })
-    }
     // One transaction: if the sequence cannot be fixed, the match is not back either (and «Deshacer» can be retried).
     return this.prisma.$transaction(async (tx) => {
-      // No other insert into matches until this commits: the sequence moves and the id is taken with nobody in between.
+      // No other insert into matches until this commits, and the checks below run after any insert in flight:
+      // nobody takes the id or the phone's clientRef in between.
       await tx.$executeRawUnsafe('LOCK TABLE "matches" IN SHARE ROW EXCLUSIVE MODE')
+      const holder = await tx.match.findUnique({ where: { id: match.id }, select: { createdAt: true } })
+      if (holder && holder.createdAt.toISOString() === match.createdAt) {
+        throw new ConflictException({ code: 'match_exists', message: `La partida ${match.id} ya está en la app.` })
+      }
+      const revision = await tx.deckRevision.findUnique({
+        where: { id: match.deckRevisionId },
+        select: { deckId: true },
+      })
+      if (!revision || revision.deckId !== match.deckId) {
+        throw new ConflictException({
+          code: 'deck_gone',
+          message: 'El mazo (o la revisión) de esa partida ya no existe: no se puede devolver.',
+        })
+      }
+      // The phone may have sent the same match again (Fase 28): restoring it too would count it twice.
+      const resent = match.clientRef
+        ? await tx.match.findUnique({ where: { clientRef: match.clientRef }, select: { id: true } })
+        : null
+      if (resent) {
+        throw new ConflictException({
+          code: 'match_resent',
+          message: `Esa partida ya volvió a entrar desde el celu (partida ${resent.id}): no la duplico.`,
+        })
+      }
       // A taken id means the sequence was moved back: past every id first, or the new one could be taken too.
       if (holder) await this.matchSequencePastIds(tx)
       const created = await tx.match.create({
