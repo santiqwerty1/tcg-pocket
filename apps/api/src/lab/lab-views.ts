@@ -97,6 +97,16 @@ export interface LabDeckView {
   perRival: { rival: number; record: GameRecord; rate: WinRate | null }[]
   /** Card changes from the starting list (search variants). */
   changes: { add: CardLineView[]; remove: CardLineView[] } | null
+  /**
+   * T-017 E1: a variant against the list it came from, in its round (game by game when there are per-game results):
+   * «+3,2 puntos (IC −1,0 a +7,4)». Null for the starting list and tests.
+   */
+  vsParent: { text: string; value: number; ci95: [number, number]; paired: boolean } | null
+  /**
+   * T-017 E1/E2: why each card that came in was proposed (share of the era's lists and of the archetype's lists that
+   * play it, when the search kept them) and how many copies the collection lacks for it.
+   */
+  why: { cardId: string; nameEs: string; eraShare: number | null; archetypeShare: number | null; missing: number }[]
   novelty: LabNoveltyView
   cards: CardLineView[]
   energies: string[]
@@ -134,6 +144,11 @@ export interface LabExploreView {
     screened: number | null
     decided: boolean
   }[]
+  /**
+   * T-017 E2: cards most lists of the archetype play (30 % or more) that the search could not try because the
+   * collection has none, most played first.
+   */
+  leftOut: { cardId: string; nameEs: string; archetypeShare: number }[]
   /**
    * T-017 C4: what the rounds measured about each card change, the clearest first (points of meta score, shrunk toward
    * 0; «+» came in, «−» went out). It steers the draws; it never decides what is accepted.

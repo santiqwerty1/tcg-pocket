@@ -83,6 +83,7 @@ import {
   type ScoreDifference,
   type SelectableEnergy,
   type SnapshotCard,
+  scoreDifference,
   seededRandom,
   simulationRate,
   splitGames,
@@ -91,6 +92,7 @@ import {
   type TournamentDataset,
   type TournamentFormat,
   type Variant,
+  type VariantChange,
   validateDeck,
   variantOf,
   verifyAccepts,
@@ -1290,6 +1292,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       this.tournaments.scopedDataset({ era: lab.era, format: lab.format }).catch(() => null),
     ])
     const index = this.catalog.requireIndex()
+    // T-017 E2: the collection's playable copies, for «te falta» and what the search could not try.
+    const playable = await this.tournaments.playable(index)
     const byId = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot]))
     // Rivals: explore jobs store their snapshot; tests find it by the list key among side B.
     const rivals = lab.rivals.map((rival) => ({
@@ -1341,6 +1345,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               ? 'best'
               : 'variant'
         const changes = baseCards && sid !== state?.base ? cardChanges(baseCards, cards, index) : null
+        const vsParent = state ? parentDifference(state, chunks, scored, sid) : null
         return {
           snapshot: sid,
           label: snapshot.label,
@@ -1355,6 +1360,15 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             return { rival: rival.snapshot, record, rate: simulationRate(record) }
           }),
           changes: changes ? { add: lines(index, changes.add), remove: lines(index, changes.remove) } : null,
+          vsParent: vsParent
+            ? {
+                text: formatDifferenceEs(vsParent.difference),
+                value: vsParent.difference.value,
+                ci95: vsParent.difference.ci95,
+                paired: vsParent.paired,
+              }
+            : null,
+          why: changes ? whyCards(changes.add, cards, state, index, playable) : [],
           novelty: noveltyView,
           cards: lines(index, cards),
           energies: snapshot.energies,
@@ -1401,6 +1415,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               ...round,
               screened: round.screened ?? null,
             })),
+            leftOut: leftOutCards(state, index, playable),
             learned: learnedChanges(state.learned ?? {}).map((change) => ({
               sign: change.sign,
               cardId: change.groupId,
@@ -1574,6 +1589,82 @@ function unbiasedGames(state: ExploreState, id: number): (chunk: ChunkRow) => bo
 /** Whether a list plays a Stage 2 Pokémon (so «reached Stage 2» means something). */
 function hasStage2(cards: readonly SnapshotCard[] | null | undefined, index: CatalogIndex): boolean {
   return (cards ?? []).some((card) => index.cardById(card.cardId)?.evolutionType === 'stage2')
+}
+
+/**
+ * T-017 E1: a variant against the list it came from, on the games of the round it was born in (paired when both have
+ * per-game results there), or null for lists that were never a search candidate.
+ */
+function parentDifference(
+  state: ExploreState,
+  chunks: readonly ChunkRow[],
+  rivals: readonly { snapshot?: number | null; weight: number }[],
+  id: number,
+): { difference: ScoreDifference; paired: boolean } | null {
+  const round = state.rounds.find((item) => item.kind === 'search' && item.candidates.includes(id))
+  if (!round) return null
+  const inRound = (chunk: ChunkRow) => chunk.idx >= round.fromIdx && chunk.idx < round.toIdx
+  const paired = pairedOf(chunks, rivals, id, round.incumbent, inRound)
+  if (paired) return { difference: paired, paired: true }
+  const a = scoreOf(chunks, rivals, id, inRound)
+  const b = scoreOf(chunks, rivals, round.incumbent, inRound)
+  return a && b ? { difference: scoreDifference(a, b), paired: false } : null
+}
+
+/**
+ * T-017 E1/E2: for each card that came in, the share of the era's lists and of the archetype's lists that play it
+ * (from what the search froze at its start: the draw weight is ×2 for trainers, ×(1 + 10·era) and ×(1 + 10·archetype)),
+ * and the copies the collection lacks.
+ */
+function whyCards(
+  added: readonly VariantChange[],
+  cards: readonly DeckCardEntry[],
+  state: ExploreState | null,
+  index: CatalogIndex,
+  playable: (groupId: CardId) => number,
+): LabDeckView['why'] {
+  const affinity = new Map(state?.frozen?.affinity ?? [])
+  const weights = new Map((state?.frozen?.pool ?? []).map(([cardId, , weight]) => [cardId, weight]))
+  return added.map((change) => {
+    const card = index.cardById(change.cardId)
+    const groupId = card?.functionalGroupId ?? change.cardId
+    const archetypeShare = state?.frozen ? (affinity.get(groupId) ?? 0) : null
+    const poolCard = state?.frozen?.pool.find(([cardId]) => index.cardById(cardId)?.functionalGroupId === groupId)
+    const weight = poolCard ? weights.get(poolCard[0]) : undefined
+    const eraShare =
+      weight !== undefined && archetypeShare !== null
+        ? Math.max(0, ((weight / ((card?.cardType === 'trainer' ? 2 : 1) * (1 + archetypeShare / 10)) - 1) / 10) * 100)
+        : null
+    const copies = cards.reduce(
+      (sum, entry) => sum + (index.cardById(entry.cardId)?.functionalGroupId === groupId ? entry.count : 0),
+      0,
+    )
+    return {
+      cardId: change.cardId,
+      nameEs: card?.nameEs ?? change.cardId,
+      eraShare: eraShare === null ? null : Math.round(eraShare * 10) / 10,
+      archetypeShare,
+      missing: Math.max(0, copies - playable(groupId)),
+    }
+  })
+}
+
+/** T-017 E2: what most lists of the archetype play (30 % or more) and the collection does not have, most played first. */
+function leftOutCards(
+  state: ExploreState,
+  index: CatalogIndex,
+  playable: (groupId: CardId) => number,
+): LabExploreView['leftOut'] {
+  if (!state.frozen) return []
+  const inPool = new Set(state.frozen.pool.map(([cardId]) => index.cardById(cardId)?.functionalGroupId ?? cardId))
+  return state.frozen.affinity
+    .filter(([groupId, share]) => share >= 30 && !inPool.has(groupId) && playable(groupId) === 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([groupId, share]) => ({
+      cardId: groupId,
+      nameEs: index.groupById(groupId)?.nameEs ?? groupId,
+      archetypeShare: Math.round(share * 10) / 10,
+    }))
 }
 
 /** T-017 C4: each candidate's swap against the round's incumbent and its measured difference go into `state`. */

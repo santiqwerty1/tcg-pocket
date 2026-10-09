@@ -1481,6 +1481,23 @@ export const labDeckSchema = z.object({
     .default(null),
   perRival: z.array(z.object({ rival: z.number(), record: gameRecordSchema, rate: winRateSchema.nullable() })),
   changes: z.object({ add: z.array(labCardSchema), remove: z.array(labCardSchema) }).nullable(),
+  /** T-017 E1: against the list it came from, in its round. */
+  vsParent: z
+    .object({ text: z.string(), value: z.number(), ci95: z.tuple([z.number(), z.number()]), paired: z.boolean() })
+    .nullable()
+    .default(null),
+  /** T-017 E1/E2: why each card that came in was proposed, and the copies the collection lacks. */
+  why: z
+    .array(
+      z.object({
+        cardId: z.string(),
+        nameEs: z.string(),
+        eraShare: z.number().nullable(),
+        archetypeShare: z.number().nullable(),
+        missing: z.number(),
+      }),
+    )
+    .default([]),
   novelty: z.object({
     kind: z.enum(['played', 'known', 'new']),
     label: z.string(),
@@ -1553,6 +1570,8 @@ export const labJobSchema = z.object({
           decided: z.boolean(),
         }),
       ),
+      /** T-017 E2: archetype cards the search could not try because the collection has none. */
+      leftOut: z.array(z.object({ cardId: z.string(), nameEs: z.string(), archetypeShare: z.number() })).default([]),
       /** T-017 C4: what the rounds measured about each card change, the clearest first. */
       learned: z
         .array(

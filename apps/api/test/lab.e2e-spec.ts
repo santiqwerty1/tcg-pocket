@@ -435,6 +435,20 @@ describe('laboratorio (e2e)', () => {
     expect(best.confirm.score.value).toBeCloseTo(90, 8)
     expect(best.changes.add.length).toBeGreaterThan(0)
     expect(best.changes.remove.map((change) => change.cardId)).not.toContain('B1-36')
+    // T-017 E1/E2: against the list it came from in its round (90 % against 50 %), and why its cards came in.
+    const explained = lab.decks[0] as {
+      vsParent: { value: number; paired: boolean }
+      why: { archetypeShare: number | null; eraShare: number | null; missing: number }[]
+    }
+    expect(explained.vsParent).toMatchObject({ paired: false })
+    expect(explained.vsParent.value).toBeCloseTo(40, 6)
+    expect(explained.why.length).toBeGreaterThan(0)
+    for (const card of explained.why) {
+      expect(card.archetypeShare).not.toBeNull()
+      expect(card.eraShare).toBeGreaterThanOrEqual(0)
+      expect(card.missing).toBeGreaterThanOrEqual(0)
+    }
+    expect(Array.isArray(lab.explore.leftOut)).toBe(true)
     const baseRow = lab.decks.find((deck: { role: string }) => deck.role === 'base')
     expect(baseRow.confirm.score.games).toBe(100)
     expect(baseRow.confirm.score.value).toBeCloseTo(50, 8)

@@ -240,6 +240,34 @@ function GamesLine({ games }: { games: NonNullable<LabDeck['games']> }) {
   )
 }
 
+/** «%» with one decimal at most. */
+function percent(value: number): string {
+  return `${value.toLocaleString('es-AR', { maximumFractionDigits: 1 })} %`
+}
+
+/** T-017 E1/E2: why each card that came in was proposed, and «te falta» when the collection lacks copies. */
+function WhyLine({ why }: { why: LabDeck['why'] }) {
+  return (
+    <ul className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+      {why.map((card) => (
+        <li key={card.cardId}>
+          Entra {card.nameEs}
+          {card.eraShare !== null && card.archetypeShare !== null
+            ? `: la juega el ${percent(card.eraShare)} de las listas de la era y el ${percent(card.archetypeShare)} de las de su arquetipo`
+            : ''}
+          {card.missing > 0 ? (
+            <span className="text-warning">
+              {' '}
+              · te falta {card.missing} {card.missing === 1 ? 'copia' : 'copias'}
+            </span>
+          ) : null}
+          .
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defaultOpen: boolean }) {
   const navigate = useNavigate()
   const [open, setOpen] = useState(defaultOpen)
@@ -301,6 +329,13 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
           <ChangeLine add={deck.changes.add} remove={deck.changes.remove} />
         </div>
       ) : null}
+      {deck.vsParent ? (
+        <p className="text-xs text-muted-foreground">
+          Contra la mejor de su ronda: {deck.vsParent.text}
+          {deck.vsParent.paired ? ', partida por partida' : ''}.
+        </p>
+      ) : null}
+      {deck.why.length > 0 ? <WhyLine why={deck.why} /> : null}
       {deck.games ? <GamesLine games={deck.games} /> : null}
       <button
         type="button"
@@ -440,6 +475,15 @@ function ExploreSummary({ job }: { job: LabJob }) {
           </li>
         ))}
       </ol>
+      {explore.leftOut.length > 0 ? (
+        <p className="text-sm">
+          No pudo probar, porque no las tenés:{' '}
+          {explore.leftOut.map((card) => `${card.nameEs} (${percent(card.archetypeShare)} del arquetipo)`).join(', ')}.
+          {explore.poolEs === 'cartas de la colección'
+            ? ' Para incluirlas, buscá con «todas las cartas que el motor juega».'
+            : ''}
+        </p>
+      ) : null}
       {explore.learned.length > 0 ? (
         <div className="flex flex-col gap-1 text-sm">
           <p className="text-xs text-muted-foreground">
