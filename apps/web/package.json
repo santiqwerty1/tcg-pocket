@@ -10,7 +10,7 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "preview": "vite preview",
-    "test:screens": "playwright test"
+    "test:screens": "node --test e2e/worker-process.test.ts && playwright test"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.1",

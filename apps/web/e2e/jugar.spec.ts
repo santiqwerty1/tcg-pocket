@@ -4,20 +4,21 @@
  * two decisions of two options; attacking both times wins).
  */
 import { type ChildProcess, spawn } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { type APIRequestContext, expect, test } from '@playwright/test'
-import { BASE_URL, DATABASE_URL, REPO_ROOT } from './settings.ts'
+import { BASE_URL, DATABASE_URL, FAKE_ENGINE_REV, REPO_ROOT } from './settings.ts'
+import { stopWorker } from './worker-process.ts'
 
 let worker: ChildProcess | null = null
 let workerDir = ''
 
 /**
- * The PC comes in once the game is queued (as in real life): it uploads its engine's card list on start, and the
- * stand-in only knows two cards, so a deck checked after that would not be playable.
+ * The PC comes in once the game is queued (as in real life). Keep the server's fixture card status: the stand-in's
+ * two-card list would invalidate the imported decks for subsequent attempts, retries and other screen flows.
  */
 async function startWorker(request: APIRequestContext): Promise<void> {
   const created = await request.post('/api/tokens', {
@@ -26,6 +27,7 @@ async function startWorker(request: APIRequestContext): Promise<void> {
   expect(created.status()).toBe(201)
   const { token } = (await created.json()) as { token: string }
   workerDir = mkdtempSync(join(tmpdir(), 'tcg-screens-worker-'))
+  writeFileSync(join(workerDir, 'state.json'), JSON.stringify({ statusUploaded: FAKE_ENGINE_REV }))
   worker = spawn(process.execPath, [join(REPO_ROOT, 'apps', 'worker', 'dist', 'main.js')], {
     env: {
       ...process.env,
@@ -36,12 +38,14 @@ async function startWorker(request: APIRequestContext): Promise<void> {
       TCG_WORKER_CORES: '1',
     },
     stdio: 'ignore',
+    windowsHide: true,
   })
 }
 
-test.afterAll(() => {
-  worker?.kill()
-  if (workerDir) rmSync(workerDir, { recursive: true, force: true })
+test.afterEach(async () => {
+  await stopWorker(worker, workerDir)
+  worker = null
+  workerDir = ''
 })
 
 /** Replaces a finished game's replay (the engine stand-in writes an empty one) with one where a choice cost a lot. */
@@ -90,13 +94,29 @@ test('plays a game against the bot with the coach, then solves the costly moment
   await page.getByRole('combobox', { name: 'El mazo del bot' }).click()
   await page.getByRole('option').nth(1).click()
   await page.getByText('Modo entrenador').click()
-  await page.getByRole('button', { name: 'Empezar' }).click()
-  await page.waitForURL(/\/jugar\/\d+$/)
-  const gameId = Number(new URL(page.url()).pathname.split('/').at(-1))
+  const [created] = await Promise.all([
+    page.waitForResponse(
+      (response) => new URL(response.url()).pathname === '/api/play' && response.request().method() === 'POST',
+    ),
+    page.getByRole('button', { name: 'Empezar' }).click(),
+  ])
+  expect(created.status(), await created.text()).toBe(201)
+  const game = (await created.json()) as { id: number; status: string }
+  expect(game.status).toBe('queued')
+  const gameId = Number(game.id)
+  await expect(page).toHaveURL(`${BASE_URL}/jugar/${gameId}`)
   await startWorker(request)
 
   // Two decisions: attack both times (the coach agrees) and win.
   for (let decision = 1; decision <= 2; decision++) {
+    await expect
+      .poll(async () => {
+        const response = await request.get(`/api/play/${gameId}`)
+        expect(response.ok()).toBe(true)
+        const state = (await response.json()) as { status: string; decision: { ply: number } | null }
+        return { status: state.status, ply: state.decision?.ply }
+      })
+      .toEqual({ status: 'waiting', ply: decision })
     await page.getByRole('button', { name: /^Opciones \(2\)$/ }).click()
     const sheet = page.getByRole('dialog', { name: 'Todas tus opciones' })
     await sheet.getByRole('button', { name: /Vine Whip/ }).click()
