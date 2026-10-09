@@ -414,3 +414,10 @@ Pedido de Santi: miniaturas, tocar las cartas para ver más, mejores controles e
 |---|---|---|
 | 29.1 | La pestaña **Partidas pasa a llamarse «Hoy»** (misma ruta `/partidas`): arriba, «Para hoy» con solo lo que tiene algo — partida contra el bot que espera tu jugada, avisos, situaciones pendientes, simulaciones y búsquedas del laboratorio terminadas, el mazo para llevar (`/api/decks-today`), el récord del día y el arquetipo que más sube; debajo, la carga rápida como siempre (los 4 toques no cambian) y las últimas partidas. | Abrir la app y ver qué hacer sin perder la carga rápida. | | undefined |
 | 29.2 | Se arma en el celu con los endpoints que ya existían (sin uno nuevo); lo que no carga se omite. Las simulaciones y búsquedas terminadas cuentan desde la última visita a esa pantalla en el dispositivo (`lib/seen.ts`, almacenamiento del navegador) y como mucho del último día. | Sin acoplar módulos en la API; lo ya visto no vuelve a aparecer. | | undefined |
+
+## Fase 27: buscador único (9/10/2026)
+
+| # | Decisión | Motivo |
+|---|---|---|
+| 30.1 | **Un solo buscador** (`GET /api/search?q=`, `SearchService`): cartas (el buscador del catálogo; con varias palabras, si la frase no aparece, las que tienen todas las palabras en el nombre), mazos (por nombre o número), arquetipos de la era, tus partidas (rival, nota o mazo; las 2.000 más recientes), notas por rival y eventos; hasta 6 de cada uno. Cada palabra tiene que aparecer; tildes y mayúsculas no importan. | Encontrar cualquier cosa sin saber en qué pantalla está. | | undefined |
+| 30.2 | En la app: la lupa del encabezado (en la compu también la tecla «/») abre la búsqueda; Enter abre el primer resultado. | Un gesto, en todas las pantallas. | | undefined |

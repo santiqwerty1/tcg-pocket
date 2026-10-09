@@ -232,6 +232,12 @@ El rival se guarda limpio (espacios colapsados); si no tiene letras ni números 
 
 Fase 25: `GET /api/matches/stats` suma `turnOrder: { first, second, unknown, coverage, firstShare, secondShare, gap, z, verdict: 'few'|'clear'|'maybe', text }` y cada fila de `GET /api/decks/:id/matchups` suma `turn: { first, second } | null`.
 
+## Buscador (Fase 27)
+
+| Método y ruta | Respuesta |
+|---|---|
+| `GET /api/search?q=` | `{ q, cards: CardSearchHit[], decks: [{ id, name, archived }], archetypes: [{ id, name }], matches: [{ id, deck, opponent, result, playedAt, note }], notes: [{ key, label, archetypeId, text }], events: [{ id, name }] }` (hasta 6 de cada uno; con menos de 2 letras, todo vacío) |
+
 ## Sobres (Fase 4)
 
 | Método y ruta | Cuerpo / respuesta |

@@ -341,6 +341,33 @@ describe('matches (e2e)', () => {
     expect(hoopa.turn).toEqual({ first: { wins: 6, losses: 1, ties: 0 }, second: { wins: 1, losses: 5, ties: 0 } })
   })
 
+  it('buscador único (Fase 27): cards, decks, matches and notes, accents and case ignored', async () => {
+    await log({ deckId: deck(1).id, result: 'loss', opponent: 'Gyarados ex', note: 'me ganó con Dragonite' })
+    await test
+      .http()
+      .put('/api/rival-notes')
+      .set('Cookie', cookie)
+      .send({ opponent: 'Gyarados ex', text: 'Guardar el Soplador' })
+    const found = (await get('/api/search?q=GYARADOS')).body
+    expect(found.q).toBe('GYARADOS')
+    expect(found.cards.length).toBeGreaterThan(0)
+    expect(found.cards[0].card.nameEn).toMatch(/Gyarados/)
+    expect(found.matches[0]).toMatchObject({ opponent: 'Gyarados ex', result: 'loss', deck: deck(1).name })
+    expect(found.notes).toEqual([expect.objectContaining({ label: 'Gyarados ex', text: 'Guardar el Soplador' })])
+    // Every word counts, accents do not.
+    const deckWord =
+      deck(0)
+        .name.split(/\s+/)
+        .find((word) => word.length > 3) ?? deck(0).name
+    expect((await get(`/api/search?q=${encodeURIComponent(deckWord.toUpperCase())}`)).body.decks).toContainEqual(
+      expect.objectContaining({ id: deck(0).id }),
+    )
+    expect((await get('/api/search?q=dragonite%20gyarados')).body.matches).toHaveLength(1)
+    expect((await get('/api/search?q=investigacion%20profesores')).body.cards.length).toBeGreaterThan(0)
+    expect((await get('/api/search?q=a')).body).toMatchObject({ cards: [], decks: [], matches: [] })
+    expect((await test.http().get('/api/search?q=pikachu')).status).toBe(401)
+  })
+
   it('a deck with matches is not deleted, even archived: the matches stay in the statistics', async () => {
     expect((await patch(`/api/decks/${deck(0).id}`).send({ archived: true })).status).toBe(200)
     const refused = await del(`/api/decks/${deck(0).id}`)

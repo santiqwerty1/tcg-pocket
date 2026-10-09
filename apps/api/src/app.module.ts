@@ -25,6 +25,7 @@ import { PickModule } from './pick/pick.controller.js'
 import { PlayModule } from './play/play.controller.js'
 import { PrismaModule } from './prisma/prisma.module.js'
 import { RivalNotesModule } from './rivals/rival-notes.controller.js'
+import { SearchModule } from './search/search.controller.js'
 import { SettingsModule } from './settings/settings.module.js'
 import { SimulationModule } from './simulation/simulation.controller.js'
 import { TokensModule } from './tokens/tokens.module.js'
@@ -62,6 +63,7 @@ export class AppModule implements NestModule {
         SimulationModule,
         LabModule,
         PickModule,
+        SearchModule,
         PlayModule,
         AlertsModule,
         NotificationsModule,

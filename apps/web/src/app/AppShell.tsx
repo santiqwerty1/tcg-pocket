@@ -2,6 +2,7 @@ import { ChevronLeftIcon } from 'lucide-react'
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Outlet, useMatches, useNavigate } from 'react-router'
+import { GlobalSearch } from '@/components/GlobalSearch'
 import { Button } from '@/components/ui/button'
 import { Toaster } from '@/components/ui/sonner'
 import { BottomNav } from './BottomNav'
@@ -77,6 +78,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
             )}
             <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">{title}</h1>
             <div ref={setHeaderSlot} className="flex shrink-0 items-center empty:hidden" />
+            <GlobalSearch />
           </div>
         </header>
         <main className="mx-auto w-full max-w-3xl px-4 pt-4 pb-28">{children ?? <Outlet />}</main>
