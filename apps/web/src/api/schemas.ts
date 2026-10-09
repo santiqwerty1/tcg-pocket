@@ -635,8 +635,24 @@ export const matchStatsSchema = z.object({
   byWentFirst: z.array(z.object({ ...rowFields, key: z.enum(['first', 'second', 'unknown']), label: z.string() })),
   byMode: z.array(z.object({ ...rowFields, mode: matchModeSchema, label: z.string() })),
   byRevision: z.array(z.object({ ...rowFields, revision: z.number().nullable() })),
+  /** Fase 25: going first against going second. */
+  turnOrder: z
+    .object({
+      first: gameRecordSchema,
+      second: gameRecordSchema,
+      unknown: z.number(),
+      coverage: z.number(),
+      firstShare: z.number().nullable(),
+      secondShare: z.number().nullable(),
+      gap: z.number().nullable(),
+      z: z.number().nullable(),
+      verdict: z.enum(['few', 'clear', 'maybe']),
+      text: z.string(),
+    })
+    .optional(),
 })
 export type MatchStats = z.infer<typeof matchStatsSchema>
+export type TurnOrder = NonNullable<MatchStats['turnOrder']>
 
 export const comparisonColumnSchema = z.object({
   source: z.enum(['matches', 'tournament', 'simulation']),
@@ -673,6 +689,7 @@ export const deckMatchupsSchema = z.object({
       mine: z.object({ record: gameRecordSchema, rate: winRateSchema.nullable() }).nullable(),
       tournament: z.object({ record: gameRecordSchema, rate: winRateSchema.nullable() }).nullable(),
       luck: z.enum(['too_few', 'normal', 'unlucky', 'lucky']).nullable().default(null),
+      turn: z.object({ first: gameRecordSchema, second: gameRecordSchema }).nullable().default(null),
     }),
   ),
   attribution: z.string(),
@@ -950,6 +967,8 @@ export const uiSettingsSchema = z.object({
   thumbnails: z.boolean().default(false),
   /** Fase 22: card images on the board (games against the bot and replays); off = text tiles. */
   boardImages: z.boolean().default(true),
+  /** Fase 25: the quick match form does not save until who went first is answered. */
+  askWentFirst: z.boolean().default(false),
 })
 export type UiSettings = z.infer<typeof uiSettingsSchema>
 

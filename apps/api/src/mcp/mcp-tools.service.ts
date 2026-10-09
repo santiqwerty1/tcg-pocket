@@ -678,6 +678,11 @@ ${MCP_WRITE_INSTRUCTIONS}`
       byDeck: stats.byDeck.map((row) => ({ deck: row.deck.name, deckId: row.deck.id, ...rowView(row) })),
       byOpponent: stats.byOpponent.map((row) => ({ opponent: row.label, ...rowView(row) })),
       byWentFirst: stats.byWentFirst.map((row) => ({ who: row.label, ...rowView(row) })),
+      turnOrder: {
+        text: stats.turnOrder.text,
+        verdict: stats.turnOrder.verdict,
+        coverage: `${Math.round(stats.turnOrder.coverage)} % de las partidas tienen anotado quién empezó`,
+      },
       byMode: stats.byMode.map((row) => ({ mode: row.label, ...rowView(row) })),
       byRevision: stats.byRevision.map((row) => ({ revision: row.revision, ...rowView(row) })),
     }

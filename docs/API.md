@@ -230,6 +230,8 @@ DeckComparison = { deck: { id, name, archived },
 
 El rival se guarda limpio (espacios colapsados); si no tiene letras ni números se guarda `null`. Las estadísticas agrupan por la clave y muestran la grafía más usada.
 
+Fase 25: `GET /api/matches/stats` suma `turnOrder: { first, second, unknown, coverage, firstShare, secondShare, gap, z, verdict: 'few'|'clear'|'maybe', text }` y cada fila de `GET /api/decks/:id/matchups` suma `turn: { first, second } | null`.
+
 ## Sobres (Fase 4)
 
 | Método y ruta | Cuerpo / respuesta |

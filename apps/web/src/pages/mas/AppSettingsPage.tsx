@@ -19,6 +19,15 @@ export function AppSettingsPage() {
     }
   }
 
+  async function toggleAskWentFirst(checked: boolean) {
+    try {
+      await setUi.update({ askWentFirst: checked })
+      toast.success(checked ? 'Se va a pedir quién empezó' : 'Quién empezó vuelve a ser opcional')
+    } catch (error) {
+      toast.error(errorMessage(error))
+    }
+  }
+
   async function toggleThumbnails(checked: boolean) {
     try {
       await setUi.update({ thumbnails: checked })
@@ -50,6 +59,16 @@ export function AppSettingsPage() {
             </span>
           </span>
           <Switch checked={ui.boardImages} onCheckedChange={toggleBoardImages} disabled={setUi.isPending} />
+        </Label>
+        <Label className="flex min-h-14 items-center justify-between gap-3 rounded-lg border px-3">
+          <span>
+            <span className="block font-medium">Pedir siempre quién empezó</span>
+            <span className="block text-xs text-muted-foreground">
+              La carga rápida no guarda hasta que digas si empezaste vos: así las estadísticas por orden de turno se
+              llenan.
+            </span>
+          </span>
+          <Switch checked={ui.askWentFirst} onCheckedChange={toggleAskWentFirst} disabled={setUi.isPending} />
         </Label>
         <p className="text-xs text-muted-foreground">
           El tema (claro u oscuro) sigue al sistema. Esta preferencia se guarda en el servidor (clave <code>ui</code>).

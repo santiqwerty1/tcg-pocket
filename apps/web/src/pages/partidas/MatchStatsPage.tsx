@@ -4,6 +4,7 @@ import { MATCH_MODES, type MatchMode } from '@/api/schemas'
 import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { RateHeadline, RateRows } from '@/components/RateSummary'
 import { Section } from '@/components/Section'
+import { TurnOrderCard } from '@/components/TurnOrderCard'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { MODE_LABEL, PERIODS, type PeriodKey, periodFrom } from '@/lib/matches'
@@ -95,6 +96,12 @@ export function MatchStatsPage() {
               }))}
             />
           </Section>
+
+          {stats.data.turnOrder ? (
+            <Section title="¿Importa empezar?">
+              <TurnOrderCard turnOrder={stats.data.turnOrder} />
+            </Section>
+          ) : null}
 
           <Section title="¿Quién empezó?">
             <RateRows

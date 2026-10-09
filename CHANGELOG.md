@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-09 (71 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-09 (72 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -66,6 +66,7 @@ _Borrador generado al 2026-10-09 (71 commits). Escribí el «porqué» fuera de 
 
 ### Documentado
 
+- phases 23 and 24 deployed (8b97399) `c5c220e`
 - Santi's approval of phases 2-8 and the lab (T-008, T-009, T-011, T-001, T-002, R-004) `adf0fc0`
 - D-019 answers deployed, worker 0.2.1 (D-019, T-011) `661ebb2`
 - phase 8 deployed — catalog with missions, worker 0.2.0 (T-011, D-019) `c1acadc`

@@ -14,6 +14,7 @@ import { useArchetypes } from '@/api/tournaments'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { OrientativeBadge, RateRows } from '@/components/RateSummary'
 import { Section } from '@/components/Section'
+import { TurnOrderCard } from '@/components/TurnOrderCard'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { formatInterval, formatRateValue, formatRecord, formatSample } from '@/lib/matches'
@@ -163,7 +164,8 @@ export function DeckPerformance({
             />
           </div>
           <div className="flex flex-col gap-1.5">
-            <h3 className="text-sm font-medium">¿Quién empezó?</h3>
+            <h3 className="text-sm font-medium">¿Importa empezar?</h3>
+            {stats.data.turnOrder ? <TurnOrderCard turnOrder={stats.data.turnOrder} /> : null}
             <RateRows
               rows={stats.data.byWentFirst
                 .filter((row) => row.rate !== null)

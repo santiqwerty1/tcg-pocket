@@ -29,22 +29,33 @@ revisar: false
 | 7.1 | Laboratorio de mazos (pedido del 08/10) | hecho 08/10 · desplegado (`dc2dcad`) · aprobado 08/10 | 7 | [T-008](Tareas/T-008.md), [D-018](Decisiones/D-018.md) |
 | 8 | Jugar contra un bot, consistencia, sustitutos, avisos y misiones | hecho 08/10 · desplegado (`d8728e7`), catálogo con misiones · aprobado 08/10 | 7.1 | [T-011](Tareas/T-011.md), [D-019](Decisiones/D-019.md) |
 | 8.1 | Respuestas de D-019 (consistencia contra el meta, backup v5), archivar simulaciones, instalar en Android | hecho 08/10 · desplegado (`ee6f4bd`), worker 0.2.1 · aprobado 08/10 | 8 | [D-019](Decisiones/D-019.md) |
-| 9 | Matchups de torneo (rondas de Limitless) | hecho 08/10 · falta subir y desplegar | 8 | [T-012](Tareas/T-012.md) |
-| 10 | Calculadora de mano inicial | hecho 08/10 · falta subir y desplegar | — | [T-012](Tareas/T-012.md) |
-| 11 | Meta semanal | hecho 08/10 · falta subir y desplegar | — | [T-012](Tareas/T-012.md) |
-| 12 | Notas por rival | hecho 08/10 · falta subir y desplegar | — | [T-012](Tareas/T-012.md) |
-| 13 | ¿Mala racha o mal matchup? | hecho 08/10 · falta subir y desplegar | 9 | [T-012](Tareas/T-012.md) |
-| 14 | ¿Cuántos días me faltan? | hecho 08/10 · falta subir y desplegar | — | [T-012](Tareas/T-012.md) |
-| 15 | ¿Qué mazo llevo hoy? | hecho 08/10 · falta subir y desplegar | 9 | [T-012](Tareas/T-012.md) |
-| 16 | Eventos con restricciones | hecho 08/10 · falta subir y desplegar | — | [T-012](Tareas/T-012.md) |
-| 17 | Suerte de los sobres | hecho 08/10 · falta subir y desplegar | — | [T-012](Tareas/T-012.md) |
-| 18 | Notificaciones al celu | hecho 08/10 · falta subir, cargar las claves VAPID en Fly y desplegar | — | [T-012](Tareas/T-012.md) |
-| 19 | Armar desde un núcleo | hecho 08/10 · falta subir y desplegar | — | [T-012](Tareas/T-012.md) |
-| 20 | Modo entrenador contra el bot | hecho 08/10 · falta subir, desplegar, recompilar el motor y reiniciar el worker | — | [T-012](Tareas/T-012.md) |
+| 9 | Matchups de torneo (rondas de Limitless) | hecho 08/10 · desplegado 09/10 (`87b36dc`) | 8 | [T-012](Tareas/T-012.md) |
+| 10 | Calculadora de mano inicial | hecho 08/10 · desplegado 09/10 (`87b36dc`) | — | [T-012](Tareas/T-012.md) |
+| 11 | Meta semanal | hecho 08/10 · desplegado 09/10 (`87b36dc`) | — | [T-012](Tareas/T-012.md) |
+| 12 | Notas por rival | hecho 08/10 · desplegado 09/10 (`87b36dc`) | — | [T-012](Tareas/T-012.md) |
+| 13 | ¿Mala racha o mal matchup? | hecho 08/10 · desplegado 09/10 (`87b36dc`) | 9 | [T-012](Tareas/T-012.md) |
+| 14 | ¿Cuántos días me faltan? | hecho 08/10 · desplegado 09/10 (`87b36dc`) | — | [T-012](Tareas/T-012.md) |
+| 15 | ¿Qué mazo llevo hoy? | hecho 08/10 · desplegado 09/10 (`87b36dc`) | 9 | [T-012](Tareas/T-012.md) |
+| 16 | Eventos con restricciones | hecho 08/10 · desplegado 09/10 (`87b36dc`) | — | [T-012](Tareas/T-012.md) |
+| 17 | Suerte de los sobres | hecho 08/10 · desplegado 09/10 (`87b36dc`) | — | [T-012](Tareas/T-012.md) |
+| 18 | Notificaciones al celu | hecho 08/10 · desplegado 09/10 (`87b36dc`) | — | [T-012](Tareas/T-012.md) |
+| 19 | Armar desde un núcleo | hecho 08/10 · desplegado 09/10 (`87b36dc`) | — | [T-012](Tareas/T-012.md) |
+| 20 | Modo entrenador contra el bot | hecho 08/10 · desplegado 09/10 (`87b36dc`) | — | [T-012](Tareas/T-012.md) |
 | 21 | Mantenimiento: remapeo de ids (I12) y CI | hecho 08/10 · desplegado | — | [R-001](Riesgos/R-001.md), [R-007](Riesgos/R-007.md) |
 | 22 | La mesa: visor de repeticiones y partidas contra el bot | hecho 09/10 · desplegado | — | — |
 | 23 | Jugar contra la lista exacta de un torneo reciente | hecho 09/10 · desplegado | — | — |
 | 24 | Situaciones para resolver | hecho 09/10 · desplegado | — | — |
+| 25 | ¿Empezaste vos? y estadísticas por orden de turno | hecho 09/10 · falta subir y desplegar | — | [T-013](Tareas/T-013.md) |
+| 26 | Pantalla «Hoy» | pendiente | — | [T-013](Tareas/T-013.md) |
+| 27 | Buscador único | pendiente | — | [T-013](Tareas/T-013.md) |
+| 28 | Cargar partidas sin señal | pendiente | — | [T-013](Tareas/T-013.md) |
+| 29 | Claude analiza una partida | pendiente | — | [T-013](Tareas/T-013.md) |
+| 30 | Ejercicios de cálculo | pendiente | — | [T-013](Tareas/T-013.md) |
+| 31 | Lista de intercambio | pendiente | — | [T-013](Tareas/T-013.md) |
+| 32 | Resumen semanal | pendiente | — | [T-013](Tareas/T-013.md) |
+| 33 | Partidas contra el bot al instante | pendiente | — | [T-013](Tareas/T-013.md) |
+| 34 | Tests de pantallas en la CI | pendiente | — | [T-013](Tareas/T-013.md) |
+| 35 | Prueba mensual del backup | pendiente | — | [T-013](Tareas/T-013.md) |
 | K | Bóveda con el kit de Posta | hecho 07/10 · aprobado 08/10 | — | [D-009](Decisiones/D-009.md) |
 
 ## Próximos pasos

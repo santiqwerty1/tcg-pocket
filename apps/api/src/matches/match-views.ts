@@ -1,5 +1,13 @@
 /** Response shapes of the matches API (docs/API.md «Partidas»). Numeric ids travel as strings. */
-import type { GameRecord, MatchMode, MatchResult, RateSource, WentFirstKey, WinRate } from '@tcg/domain'
+import type {
+  GameRecord,
+  MatchMode,
+  MatchResult,
+  RateSource,
+  TurnOrderImpact,
+  WentFirstKey,
+  WinRate,
+} from '@tcg/domain'
 
 export interface MatchDeckRef {
   id: string
@@ -38,6 +46,8 @@ export interface MatchStatsView {
   byMode: (RowView & { mode: MatchMode; label: string })[]
   /** Only with a `deckId` filter (newest revision first); `[]` otherwise. */
   byRevision: (RowView & { revision: number | null })[]
+  /** Fase 25: going first against going second, with the gap and whether it is more than chance. */
+  turnOrder: TurnOrderImpact
 }
 
 export interface PickerDeckView {
@@ -103,6 +113,8 @@ export interface DeckMatchupRowView {
   tournament: { record: GameRecord; rate: WinRate | null } | null
   /** Fase 13: own record against the tournament matchup (when both exist). */
   luck: 'too_few' | 'normal' | 'unlucky' | 'lucky' | null
+  /** Fase 25: own record going first and going second (matches with who went first noted). */
+  turn: { first: GameRecord; second: GameRecord } | null
 }
 
 export interface DeckMatchupsView {

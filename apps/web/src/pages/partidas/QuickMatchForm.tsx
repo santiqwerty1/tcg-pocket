@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useCreateMatch, useDeleteMatch } from '@/api/matches'
 import type { MatchMode, MatchResult, MatchSuggestions } from '@/api/schemas'
+import { useUiSettings } from '@/api/settings'
 import { DeckNumber } from '@/components/DeckNumber'
 import { Spinner } from '@/components/ListState'
 import { LuckCard } from '@/components/LuckCard'
@@ -64,7 +65,8 @@ export function QuickMatchForm({
       : suggestions.decks
   }, [filter, suggestions.decks])
 
-  const canSave = deckId !== null && result !== null && !create.isPending
+  const { askWentFirst } = useUiSettings()
+  const canSave = deckId !== null && result !== null && (!askWentFirst || wentFirst !== null) && !create.isPending
 
   async function undo(id: string) {
     try {
@@ -109,6 +111,9 @@ export function QuickMatchForm({
       <OpponentField value={opponent} onChange={setOpponent} suggestions={opponentChoices} />
       <RivalNoteHint opponent={opponent} />
       <WentFirstPicker value={wentFirst} onChange={setWentFirst} />
+      {askWentFirst && wentFirst === null && deckId !== null && result !== null ? (
+        <p className="-mt-2 text-xs text-warning">Falta quién empezó (lo pediste en los ajustes).</p>
+      ) : null}
       <ModePicker value={mode} onChange={setMode} />
       {noteOpen ? (
         <Textarea

@@ -320,6 +320,27 @@ describe('matches (e2e)', () => {
     expect((await get('/api/decks/999999/comparison')).status).toBe(404)
   })
 
+  it('¿importa empezar? (Fase 25): going first against going second, overall and against each rival', async () => {
+    const target = deck(2).id
+    for (let i = 0; i < 6; i++) await log({ deckId: target, result: 'win', opponent: 'Hoopa ex', wentFirst: true })
+    await log({ deckId: target, result: 'loss', opponent: 'Hoopa ex', wentFirst: true })
+    for (let i = 0; i < 5; i++) await log({ deckId: target, result: 'loss', opponent: 'Hoopa ex', wentFirst: false })
+    await log({ deckId: target, result: 'win', opponent: 'Hoopa ex', wentFirst: false })
+    await log({ deckId: target, result: 'win', opponent: 'Hoopa ex' })
+    const stats = (await get(`/api/matches/stats?deckId=${target}`)).body
+    expect(stats.turnOrder).toMatchObject({
+      first: { wins: 6, losses: 1, ties: 0 },
+      second: { wins: 1, losses: 5, ties: 0 },
+      verdict: 'clear',
+    })
+    // The deck already had matches without who went first from the tests above.
+    expect(stats.turnOrder.unknown).toBeGreaterThanOrEqual(1)
+    expect(stats.turnOrder.text).toMatch(/^Empezando ganás el 86 % \(n = 7\) y yendo segundo el 17 % \(n = 6\)/)
+    const matchups = (await get(`/api/decks/${target}/matchups`)).body
+    const hoopa = matchups.rows.find((row: { rival: { name: string } }) => row.rival.name === 'Hoopa ex')
+    expect(hoopa.turn).toEqual({ first: { wins: 6, losses: 1, ties: 0 }, second: { wins: 1, losses: 5, ties: 0 } })
+  })
+
   it('a deck with matches is not deleted, even archived: the matches stay in the statistics', async () => {
     expect((await patch(`/api/decks/${deck(0).id}`).send({ archived: true })).status).toBe(200)
     const refused = await del(`/api/decks/${deck(0).id}`)

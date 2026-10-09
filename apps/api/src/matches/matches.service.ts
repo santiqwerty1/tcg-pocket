@@ -20,11 +20,13 @@ import {
   matchStats,
   oneIn,
   opponentKey,
+  opponentTurns,
   orderDecksForPicker,
   revisionAt,
   simulationRate,
   suggestOpponents,
   tallyMatches,
+  turnOrderImpact,
 } from '@tcg/domain'
 import type { Prisma } from '../generated/prisma/client.js'
 import type { MatchSource } from '../generated/prisma/enums.js'
@@ -316,6 +318,7 @@ export class MatchesService {
       byMode: report.byMode.map((item) => ({ mode: item.mode, label: item.label, ...row(item) })),
       byRevision:
         deckId === undefined ? [] : report.byRevision.map((item) => ({ revision: item.revision, ...row(item) })),
+      turnOrder: turnOrderImpact(selected),
     }
   }
 
@@ -378,6 +381,8 @@ export class MatchesService {
     )
     const shares = context ? this.tournaments.shares(context.dataset) : []
     const mine = new Map(stats.byOpponent.map((item) => [item.key, item]))
+    const { facts } = await this.loadFacts()
+    const turns = opponentTurns(filterMatches(facts, { deckId: deck.id, mode: mode ?? null, from: null, to: null }))
     const used = new Set<string>()
     const rows: DeckMatchupRowView[] = []
     for (const [at, share] of shares.entries()) {
@@ -395,6 +400,7 @@ export class MatchesService {
           own && tournament?.rate && tournament.rate.games >= LUCK_EXPECTED_MIN_MATCHES
             ? luckCheck(own.record, tournament.rate.value).verdict
             : null,
+        turn: key === null ? null : (turns.get(key) ?? null),
       })
     }
     for (const own of stats.byOpponent) {
@@ -405,6 +411,7 @@ export class MatchesService {
         mine: { record: own.record, rate: own.rate },
         tournament: null,
         luck: null,
+        turn: turns.get(own.key) ?? null,
       })
     }
     return {
