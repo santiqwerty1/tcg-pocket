@@ -10,6 +10,7 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 ### Agregado
 
 - Claude write log with undo, new MCP tools and leaner answers (phase 43, T-014, R-010) `af1265b`
+- interface — phase 41 (T-014, P-012) (#1) `773ad00`
 - honest numbers — luck per game, clustered intervals, FDR, Fisher, pack points (phase 37, H-009, H-011, H-012) `6af29d1`
 - engine-cli exits right after its games and reports each game on request (H-019, H-010, T-017) `9a27fe6`
 - monthly backup restore drill (phase 35, T-013) `0524489`
@@ -60,13 +61,11 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 - match logging with Wilson statistics (phase 2, M6) `b7c4232`
 - show card names in the deck import preview `4f751b7`
 - collection, decks, backup and settings endpoints per docs/API.md `b0fa80d`
-- PWA shell and phase 1 screens against docs/API.md `f269441`
-- infrastructure — Prisma 7 schema, auth (password+TOTP, sessions), protected static serving, API tokens, catalog sync, deploy files `556cacc`
-- decks module (Spanish/deckgym/Limitless/JSON formats, validation, completeness, limits, revisions) `2fd9f0c`
 
 ### Corregido
 
 - audit entry before the write, no duplicate restore, versioned collection undo (phase 43, R-010) `14e0c59`
+- a result that does not add up fails the chunk; perGame needs engine-cli 0.2.0 (H-010) (#3) `b5e241c`
 - verify a round's winner on fresh seeds and let the confirmation decide (H-010) (H-020, H-021) `5e394fc`
 - a search plays the plan it showed and keeps its inputs for every round (H-021) `a6c40e6`
 - build each round's variants from the incumbent's lines in order (H-020) `3a7bb81`
@@ -90,6 +89,7 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 
 - posta generar trims the CHANGELOG from a cloud session; today's log (H-017) `f9fda38`
 - improvement review of 9/10 — 14 confirmed findings, risks, questions and proposed phases 36-45 (H-002..H-015, R-006, R-008, R-010, R-011, R-012, P-006, P-007, P-008, D-020, T-014) `fd5d4b8`
+- PRs #2, #3, #4 and #6 integrated; the coordinator integrates and deploys; chat between sessions (D-021, T-014) `2ba94cd`
 - close H-009 and H-012 (phase 37); D-021 records the coordinator and the five sessions `e02c074`
 - P-009 answered by Santi, T-017 under way (P-009, T-017) `9869d97`
 - close the lab findings fixed on lab/optimization (H-010, H-020, H-021) `9532297`
@@ -112,7 +112,6 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 - production deployed on Fly + Supabase; ops notes `853bb69`
 - phase 1 implementation verified; deploy pending `b0c5b14`
 - record API implementation decisions and phase 1 state `629407b`
-- REST contract for phase 1 (auth, catalog, collection, decks, backup, tokens) `a703dc7`
 
 ### Pruebas
 
@@ -121,6 +120,7 @@ _Borrador generado al 2026-10-09 (100 commits). Escribí el «porqué» fuera de
 
 ### Mantenimiento
 
+- prepare the repository to go public — AGPL-3.0 license, pseudonyms in the Limitless fixtures, read-only CI token (D-022) `4d16ea8`
 - run the Windows engine job only when it changed, build the Docker image on main, cancel superseded runs (phase 38) `ff39a7c`
 - config written by posta (ci off, hooks via plugin) `aa90463`
 - worker package in the Docker deps stage; keep engine/target out of the context `a9a1b4c`
