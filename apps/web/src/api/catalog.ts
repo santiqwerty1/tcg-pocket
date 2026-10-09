@@ -41,7 +41,7 @@ export function useCatalogStatus() {
 export function useSyncCatalog() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: { commit?: string; engineRev?: string; confirm?: boolean }) =>
+    mutationFn: (body: { commit?: string; engineRev?: string; confirm?: boolean; baseline?: string }) =>
       request<unknown>('/api/catalog/sync', { method: 'POST', body }),
     onSettled: () => queryClient.invalidateQueries({ queryKey: catalogKeys.all }),
   })
@@ -98,6 +98,7 @@ export const catalogPreviewSchema = z.object({
   }),
   destructive: z.boolean(),
   older: z.boolean(),
+  baseline: z.string(),
   warnings: z.array(z.string()),
 })
 export type CatalogPreview = z.infer<typeof catalogPreviewSchema>

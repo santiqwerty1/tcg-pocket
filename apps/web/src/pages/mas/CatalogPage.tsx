@@ -137,7 +137,12 @@ export function CatalogPage() {
   async function apply(confirm: boolean) {
     if (!preview.data) return
     try {
-      await sync.mutateAsync({ commit: preview.data.trackerCommit, engineRev: preview.data.engineRev, confirm })
+      await sync.mutateAsync({
+        commit: preview.data.trackerCommit,
+        engineRev: preview.data.engineRev,
+        confirm,
+        baseline: preview.data.baseline,
+      })
       preview.reset()
       setChecking(false)
       toast.success('Actualización iniciada; el estado se actualiza solo.')

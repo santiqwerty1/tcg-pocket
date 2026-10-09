@@ -34,6 +34,7 @@ const PREVIEW = {
   engine: { engineRev: '33ff2a5942dd4ce09d1ebc3041ffe48f604409e6', plays: 0, incomplete: 0, unknown: 120 },
   destructive: true,
   older: false,
+  baseline: `${CURRENT}@7`,
   warnings: [],
 }
 
@@ -100,7 +101,7 @@ describe('día de expansión (Fase 40)', () => {
     await user.click(screen.getByRole('button', { name: /^Aplicar$/ }))
     expect(sent.at(-1)).toEqual({
       url: '/api/catalog/sync',
-      body: { commit: NEWEST, engineRev: PREVIEW.engineRev, confirm: false },
+      body: { commit: NEWEST, engineRev: PREVIEW.engineRev, confirm: false, baseline: `${CURRENT}@7` },
     })
   })
 
@@ -124,7 +125,7 @@ describe('día de expansión (Fase 40)', () => {
     await user.click(apply)
     expect(sent.at(-1)).toEqual({
       url: '/api/catalog/sync',
-      body: { commit: NEWEST, engineRev: PREVIEW.engineRev, confirm: true },
+      body: { commit: NEWEST, engineRev: PREVIEW.engineRev, confirm: true, baseline: `${CURRENT}@7` },
     })
   })
 })

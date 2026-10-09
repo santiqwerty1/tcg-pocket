@@ -430,6 +430,24 @@ describe('catalog (e2e)', () => {
     const same = await test.http().post('/api/catalog/preview').set('Cookie', cookie).send({ fromFixtures: true })
     expect(same.status).toBe(200)
     expect(same.body).toMatchObject({ diffEmpty: true, destructive: false, older: false, removed: [] })
+    expect(same.body.baseline).toMatch(/^[0-9a-f]{40}@\d+$/)
+    // Another sync after the preview: applying what the preview showed is refused (the baseline moved).
+    await sync.sync({ trackerCommit: test.env.catalogCommit, engineRev: test.env.engineRev, source: 'fixtures' })
+    const stale = await test
+      .http()
+      .post('/api/catalog/sync')
+      .set('Cookie', cookie)
+      .send({ fromFixtures: true, baseline: same.body.baseline })
+    expect(stale.status).toBe(409)
+    expect(stale.body.error.code).toBe('stale_preview')
+    const fresh = await test.http().post('/api/catalog/preview').set('Cookie', cookie).send({ fromFixtures: true })
+    const applied = await test
+      .http()
+      .post('/api/catalog/sync')
+      .set('Cookie', cookie)
+      .send({ fromFixtures: true, baseline: fresh.body.baseline })
+    expect(applied.status).toBe(202)
+    await waitForSync(test, cookie, applied.body.syncId)
   })
 
   it('Fase 40 (H-004): «Sincronizar» repeats the loaded commit, never the configured pin', async () => {
