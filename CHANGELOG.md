@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-09 (88 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-09 (90 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -65,6 +65,7 @@ _Borrador generado al 2026-10-09 (88 commits). Escribí el «porqué» fuera de 
 
 ### Corregido
 
+- confirmed findings of the 9/10 review (phase 36, T-014) (H-002, H-003, H-005, H-006, H-007, H-008, H-013, H-014, H-015, H-016, P-006) `ab68ba2`
 - report a catalog sync as running until the catalog finishes reloading `8b97399`
 - pager label does not repeat the deck number (#13) `9e426f9`
 - up to 150 decks per side, said plainly; validation errors name the field `2dbc3aa`
@@ -76,6 +77,7 @@ _Borrador generado al 2026-10-09 (88 commits). Escribí el «porqué» fuera de 
 
 ### Documentado
 
+- posta generar trims the CHANGELOG from a cloud session; today's log (H-017) `f9fda38`
 - improvement review of 9/10 — 14 confirmed findings, risks, questions and proposed phases 36-45 (H-002..H-015, R-006, R-008, R-010, R-011, R-012, P-006, P-007, P-008, D-020, T-014) `fd5d4b8`
 - the PC worker died with the Claude app update; restarted detached (H-016) `3982bc2`
 - Santi's answers — deploy each phase 36-44, free off-site copy, cloud worker simulates (P-007, T-015) `51b2b8b`
@@ -113,4 +115,17 @@ _Borrador generado al 2026-10-09 (88 commits). Escribí el «porqué» fuera de 
 ### Decidido
 
 - 2026-10-09 — D-020 aprobada por Santiago: Decidió Santiago el 09/10/2026: «vamos a encargarnos de todo esto y luego volvemos a los workers». Todas las fases de T-014 (36 a 44) en el orden propuesto; la 45 (jugar sin la PC) se junta con los workers de T-015, que van después.
+
+### Hallazgos cerrados
+
+- H-016 por `245fe7a` en main
+- H-015 por `245fe7a` en main
+- H-014 por `245fe7a` en main
+- H-013 por `245fe7a` en main
+- H-008 por `245fe7a` en main
+- H-007 por `245fe7a` en main
+- H-006 por `245fe7a` en main
+- H-005 por `245fe7a` en main
+- H-003 por `245fe7a` en main
+- H-002 por `245fe7a` en main
 <!-- /posta:cambios -->
