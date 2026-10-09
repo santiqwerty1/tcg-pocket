@@ -5,17 +5,21 @@
  * («70 % (n = 10, IC 39,7–89,2 %, orientativo)») so the model quotes n and interval with it.
  */
 
+import { randomBytes } from 'node:crypto'
 import type { CallToolResult, McpRequestContext, StandardSchemaWithJSON } from '@modelcontextprotocol/server'
 import { McpServer } from '@modelcontextprotocol/server'
 import { BadRequestException, HttpException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import {
   type CardEdition,
+  estimateSeconds,
   type FunctionalGroup,
   foldText,
   formatWinRateEs,
   MATCH_MODE_LABEL_ES,
   MATCH_RESULT_LABEL_ES,
   type MatchMode,
+  type MatchResult,
+  MCP_PROMPTS,
   MCP_READ_TOOLS,
   MCP_SERVER_INSTRUCTIONS,
   MCP_WRITE_INSTRUCTIONS,
@@ -23,10 +27,12 @@ import {
   type TournamentFormat,
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
+import { AlertsService } from '../alerts/alerts.service.js'
 import { CatalogService } from '../catalog/catalog.service.js'
 import type { GroupDetail } from '../catalog/catalog-views.js'
 import { CollectionService } from '../collection/collection.service.js'
 import { ENV, type Env } from '../config/env.js'
+import { OWNER_TIME_ZONE } from '../config/time-zone.js'
 import type { DeckImportFormat } from '../decks/deck-formats.js'
 import { DecksService } from '../decks/decks.service.js'
 import { EventsService } from '../events/events.service.js'
@@ -48,12 +54,54 @@ import { TournamentsService } from '../tournaments/tournaments.service.js'
 import { TradesService } from '../trades/trades.controller.js'
 import { WeeklyService } from '../weekly/weekly.controller.js'
 import { type DeckRef, DeckRefResolver } from './deck-ref.js'
+import { type AuditNote, McpAuditService } from './mcp-audit.service.js'
 import { jobSummaryJson, rateView } from './mcp-json.js'
 import { McpLabToolsService } from './mcp-lab-tools.service.js'
 import { McpPlayToolsService } from './mcp-play-tools.service.js'
+import type { ReadRun, WriteRun } from './mcp-run.js'
 import { McpWriteToolsService } from './mcp-write-tools.service.js'
 
 type Json = Record<string, unknown>
+
+/** Who is calling (McpController puts it in `authInfo.extra`): for the write log and the error references. */
+export interface McpCallerInfo {
+  tokenId: number
+  tokenName: string
+  client: string
+  requestId: string
+}
+
+const ownerParts = new Intl.DateTimeFormat('es-AR', {
+  timeZone: OWNER_TIME_ZONE,
+  day: 'numeric',
+  month: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+})
+
+/** Fase 43: «9/10» and «9/10 18:40» in the owner's time zone. */
+function ownerDay(date: Date): string {
+  const parts = ownerParts.formatToParts(date)
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
+  return `${get('day')}/${get('month')}`
+}
+
+function ownerDateTime(date: Date): string {
+  const parts = ownerParts.formatToParts(date)
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
+  return `${get('day')}/${get('month')} ${get('hour')}:${get('minute')}`
+}
+
+function callerOf(context: McpRequestContext): McpCallerInfo {
+  const extra = (context.authInfo?.extra ?? {}) as Partial<McpCallerInfo>
+  return {
+    tokenId: typeof extra.tokenId === 'number' ? extra.tokenId : 0,
+    tokenName: extra.tokenName ?? context.authInfo?.clientId ?? 'desconocido',
+    client: extra.client ?? 'desconocido',
+    requestId: extra.requestId ?? '',
+  }
+}
 
 const percentFormat = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 })
 const twoDecimals = (value: number) => Math.round(value * 100) / 100
@@ -114,6 +162,8 @@ export class McpToolsService {
     private readonly playTools: McpPlayToolsService,
     private readonly trades: TradesService,
     private readonly weekly: WeeklyService,
+    private readonly alerts: AlertsService,
+    private readonly audit: McpAuditService,
     @Inject(ENV) private readonly env: Env,
     private readonly logger: PinoLogger,
   ) {
@@ -134,8 +184,9 @@ ${MCP_WRITE_INSTRUCTIONS}`
       },
     )
     const t = MCP_READ_TOOLS
-    const caller = context.authInfo?.clientId ?? 'unknown'
-    const run = (name: string, work: () => Promise<Json>) => this.run(name, caller, work)
+    const caller = callerOf(context)
+    const run: ReadRun = (name, work) => this.run(name, caller, work)
+    const write: WriteRun = (name, args, work) => this.runWrite(name, caller, args, work)
 
     server.registerTool(t.collectionSummary.name, config(t.collectionSummary), () =>
       run(t.collectionSummary.name, () => this.collectionSummary()),
@@ -153,7 +204,7 @@ ${MCP_WRITE_INSTRUCTIONS}`
       run(t.decksList.name, () => this.decksList(args)),
     )
     server.registerTool(t.decksGet.name, config(t.decksGet), (args) =>
-      run(t.decksGet.name, () => this.decksGet(args.deck)),
+      run(t.decksGet.name, () => this.decksGet(args.deck, args.detail ?? 'compact')),
     )
     server.registerTool(t.decksFindByCard.name, config(t.decksFindByCard), (args) =>
       run(t.decksFindByCard.name, () => this.decksFindByCard(args.query)),
@@ -227,33 +278,108 @@ ${MCP_WRITE_INSTRUCTIONS}`
     server.registerTool(t.simulationsResults.name, config(t.simulationsResults), (args) =>
       run(t.simulationsResults.name, () => this.simulationsResults(args)),
     )
+    server.registerTool(t.workersStatus.name, config(t.workersStatus), () =>
+      run(t.workersStatus.name, () => this.workersStatus()),
+    )
+    server.registerTool(t.alertsList.name, config(t.alertsList), () => run(t.alertsList.name, () => this.alertsList()))
+    server.registerTool(t.decksConsistency.name, config(t.decksConsistency), (args) =>
+      run(t.decksConsistency.name, () => this.decksConsistency(args.deck)),
+    )
     this.labTools.registerRead(server, run)
     this.playTools.registerRead(server, run)
     if (canWrite) {
-      this.writeTools.register(server, run)
-      this.labTools.registerWrite(server, run)
+      this.writeTools.register(server, write)
+      this.labTools.registerWrite(server, write)
     }
+    this.registerPrompts(server)
     return server
   }
 
-  /** Runs a tool: expected failures (unknown card or deck, invalid input) become `isError` results the model reads. */
-  private async run(name: string, caller: string, work: () => Promise<Json>): Promise<CallToolResult> {
+  /** Fase 43: ready-made requests for the prompt menu of the Claude apps (they only chain read tools). */
+  private registerPrompts(server: McpServer): void {
+    const p = MCP_PROMPTS
+    const message = (text: string) => ({
+      messages: [{ role: 'user' as const, content: { type: 'text' as const, text } }],
+    })
+    server.registerPrompt(
+      p.weeklyReview.name,
+      { title: p.weeklyReview.title, description: p.weeklyReview.description, argsSchema: p.weeklyReview.args },
+      (args) => message(p.weeklyReview.text(args)),
+    )
+    server.registerPrompt(p.pickToday.name, { title: p.pickToday.title, description: p.pickToday.description }, () =>
+      message(p.pickToday.text()),
+    )
+    server.registerPrompt(
+      p.deckCheckup.name,
+      { title: p.deckCheckup.title, description: p.deckCheckup.description, argsSchema: p.deckCheckup.args },
+      (args) => message(p.deckCheckup.text(args)),
+    )
+  }
+
+  /**
+   * Runs a tool: expected failures (unknown card or deck, invalid input) become `isError` results the model reads.
+   * An unexpected one answers a short reference that is also in the server log (Fase 43), to find it later.
+   */
+  private async run(name: string, caller: McpCallerInfo, work: () => Promise<Json>): Promise<CallToolResult> {
     const started = Date.now()
+    const who = { caller: `${caller.tokenName} (${caller.client})`, reqId: caller.requestId }
     try {
       const data = await work()
-      this.logger.info({ tool: name, caller, ms: Date.now() - started }, 'mcp tool call')
+      this.logger.info({ tool: name, ...who, ms: Date.now() - started }, 'mcp tool call')
       return ok(data)
     } catch (error) {
       if (error instanceof HttpException) {
         const body = error.getResponse()
         const message =
           typeof body === 'object' && body !== null && 'message' in body ? String(body.message) : error.message
-        this.logger.info({ tool: name, caller, ms: Date.now() - started, status: error.getStatus() }, 'mcp tool error')
+        this.logger.info({ tool: name, ...who, ms: Date.now() - started, status: error.getStatus() }, 'mcp tool error')
         return { content: [{ type: 'text', text: message }], isError: true }
       }
-      this.logger.error({ tool: name, caller, err: error }, 'mcp tool failed')
-      return { content: [{ type: 'text', text: 'Error interno del servidor al ejecutar la tool.' }], isError: true }
+      const ref = randomBytes(4).toString('hex')
+      this.logger.error({ tool: name, ...who, ref, err: error }, 'mcp tool failed')
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error interno del servidor al ejecutar la tool (referencia ${ref}: con ella se encuentra en el registro del servidor).`,
+          },
+        ],
+        isError: true,
+      }
     }
+  }
+
+  /** A write tool: runs like a read and is recorded in the audit log (Fase 43, R-010), failed or not. */
+  private async runWrite(
+    name: string,
+    caller: McpCallerInfo,
+    args: unknown,
+    work: (note: AuditNote) => Promise<Json>,
+  ): Promise<CallToolResult> {
+    const note: AuditNote = { undo: null }
+    const started = Date.now()
+    let data: Json | null = null
+    const result = await this.run(name, caller, async () => {
+      data = await work(note)
+      return data
+    })
+    const failed = result.isError === true
+    const first = result.content?.[0]
+    await this.audit
+      .record({
+        tokenId: caller.tokenId || null,
+        tokenName: caller.tokenName,
+        client: caller.client,
+        tool: name,
+        args,
+        ok: !failed,
+        result: failed ? null : data,
+        error: failed ? (first && first.type === 'text' ? first.text : 'error') : null,
+        ms: Date.now() - started,
+        undo: failed ? null : note.undo,
+      })
+      .catch((error: unknown) => this.logger.error({ tool: name, err: error }, 'mcp audit write failed'))
+    return result
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -397,15 +523,49 @@ ${MCP_WRITE_INSTRUCTIONS}`
     }
   }
 
-  private async decksGet(ref: string): Promise<Json> {
+  /**
+   * Fase 43: compact by default (each card once, as «2 Riolu (A2-91)»; no export text, no fixed notes); «full» adds
+   * the export text, type, stage and prize points of each card, and the tournament list's cards.
+   */
+  private async decksGet(ref: string, detailLevel: 'compact' | 'full'): Promise<Json> {
+    const full = detailLevel === 'full'
     const deck = await this.resolveDeck(ref)
     const [detail, exported, stats, tournament] = await Promise.all([
       this.decks.detail(deck.id),
-      this.decks.export(deck.id, 'spanish').catch(() => null),
+      full ? this.decks.export(deck.id, 'spanish').catch(() => null) : Promise.resolve(null),
       this.matches.stats({ deckId: deck.id }),
       this.tournaments.deckVersion(deck.id).catch(() => null),
     ])
     const version = tournament?.version ?? null
+    const cards = full
+      ? detail.cards.map((entry) => ({
+          count: entry.count,
+          cardId: entry.card.id,
+          nameEs: entry.card.nameEs,
+          nameEn: entry.card.nameEn,
+          cardType: entry.card.cardType,
+          stage: entry.card.evolutionType,
+          prizePoints: entry.card.prizePoints,
+          playableCopies: entry.playable,
+          missing: entry.missing,
+        }))
+      : detail.cards.map(
+          (entry) =>
+            `${entry.count} ${entry.card.nameEs} (${entry.card.id})${entry.missing > 0 ? `: faltan ${entry.missing}` : ''}`,
+        )
+    const changes = detail.bestVersions.groups.map((group) =>
+      full
+        ? {
+            nameEs: group.nameEs,
+            listed: group.current.map((entry) => `${entry.count}× ${entry.cardId}`),
+            use: group.recommended.map(
+              (pick) => `${pick.count}× ${pick.cardId} ${pick.rarity}${pick.holo ? ' holográfica' : ''}`,
+            ),
+          }
+        : `${group.nameEs}: ${group.recommended
+            .map((pick) => `${pick.count}× ${pick.cardId} ${pick.rarity}${pick.holo ? ' holo' : ''}`)
+            .join(', ')}`,
+    )
     return {
       id: detail.id,
       name: detail.name,
@@ -415,41 +575,43 @@ ${MCP_WRITE_INSTRUCTIONS}`
       archived: detail.archivedAt !== null,
       revision: detail.revisionNumber,
       cardCount: detail.cardCount,
-      cards: detail.cards.map((entry) => ({
-        count: entry.count,
-        cardId: entry.card.id,
-        nameEs: entry.card.nameEs,
-        nameEn: entry.card.nameEn,
-        cardType: entry.card.cardType,
-        stage: entry.card.evolutionType,
-        prizePoints: entry.card.prizePoints,
-        playableCopies: entry.playable,
-        missing: entry.missing,
-      })),
+      cards,
       valid: detail.validation.ok,
       errors: detail.validation.errors.map((issue) => issue.message),
       warnings: detail.validation.warnings.map((issue) => issue.message),
       complete: detail.completeness.complete,
-      missing: detail.completeness.missing.map((item) => ({ nameEs: item.nameEs, need: item.need, have: item.have })),
+      ...(full || !detail.completeness.complete
+        ? {
+            missing: detail.completeness.missing.map((item) => ({
+              nameEs: item.nameEs,
+              need: item.need,
+              have: item.have,
+            })),
+          }
+        : {}),
       notes: detail.notes,
       revisions: detail.revisions.length,
-      text: exported?.body ?? null,
+      ...(full ? { text: exported?.body ?? null } : {}),
       myMatches: rowView(stats.overall),
-      bestVersions: {
-        note: 'Al armarlo en el juego, usá estas versiones que tenés de la misma carta (más rara o holográfica).',
-        changes: detail.bestVersions.groups.map((group) => ({
-          nameEs: group.nameEs,
-          listed: group.current.map((entry) => `${entry.count}× ${entry.cardId}`),
-          use: group.recommended.map(
-            (pick) => `${pick.count}× ${pick.cardId} ${pick.rarity}${pick.holo ? ' holográfica' : ''}`,
-          ),
-        })),
-      },
+      ...(changes.length > 0
+        ? {
+            bestVersions: full
+              ? {
+                  note: 'Al armarlo en el juego, usá estas versiones que tenés de la misma carta (más rara o holográfica).',
+                  changes,
+                }
+              : changes,
+          }
+        : {}),
       tournamentVersion:
         tournament === null
           ? null
           : {
-              note: 'La lista de torneo de su arquetipo a la que conviene apuntar: jugada al menos 5 veces en la era, la de mejor cota inferior del intervalo. «missing» es lo que falta en la colección para armarla.',
+              ...(full
+                ? {
+                    note: 'La lista de torneo de su arquetipo a la que conviene apuntar: jugada al menos 5 veces en la era, la de mejor cota inferior del intervalo. «missing» es lo que falta en la colección para armarla.',
+                  }
+                : {}),
               archetype: tournament.archetype
                 ? {
                     name: tournament.archetype.name,
@@ -462,9 +624,13 @@ ${MCP_WRITE_INSTRUCTIONS}`
                     lists: version.list.lists,
                     record: version.list.record,
                     rate: rateView(version.list.rate),
-                    cards: version.list.cards.map(
-                      (card) => `${card.count} ${card.nameEs} (${card.set}-${card.number})`,
-                    ),
+                    ...(full
+                      ? {
+                          cards: version.list.cards.map(
+                            (card) => `${card.count} ${card.nameEs} (${card.set}-${card.number})`,
+                          ),
+                        }
+                      : {}),
                   }
                 : null,
               changes: version
@@ -475,7 +641,11 @@ ${MCP_WRITE_INSTRUCTIONS}`
                   }
                 : null,
               missing: version
-                ? version.missing.map((item) => ({ nameEs: item.nameEs, need: item.need, have: item.have }))
+                ? version.missing.map((item) =>
+                    full
+                      ? { nameEs: item.nameEs, need: item.need, have: item.have }
+                      : `${item.nameEs}: tenés ${item.have} de ${item.need}`,
+                  )
                 : [],
               era: tournament.scope.era.code,
               source: tournament.scope.attribution,
@@ -843,8 +1013,37 @@ ${MCP_WRITE_INSTRUCTIONS}`
   // Tournaments (Fase 5)
   // ---------------------------------------------------------------------------------------------------------------
 
-  private scopeJson(scope: ScopeView): Json {
+  private freshnessCache: { at: number; text: string } | null = null
+
+  /** Fase 43: how recent the tournament data is (the newest tournament and the last Limitless download), 60 s cache. */
+  private async tournamentDataAsOf(): Promise<string> {
+    if (this.freshnessCache && Date.now() - this.freshnessCache.at < 60_000) return this.freshnessCache.text
+    const [newest, run] = await Promise.all([
+      this.prisma.tournament.findFirst({
+        where: { status: 'complete' },
+        orderBy: { date: 'desc' },
+        select: { date: true },
+      }),
+      this.prisma.limitlessSyncRun.findFirst({
+        where: { status: { not: 'running' } },
+        orderBy: { startedAt: 'desc' },
+        select: { status: true, finishedAt: true, startedAt: true },
+      }),
+    ])
+    const parts = [
+      newest ? `último torneo del ${ownerDay(newest.date)}` : 'todavía no hay torneos descargados',
+      run
+        ? `última descarga de Limitless ${ownerDateTime(run.finishedAt ?? run.startedAt)}${run.status === 'done' ? '' : ` (${run.status === 'failed' ? 'falló' : 'interrumpida'})`}`
+        : 'Limitless nunca se descargó',
+    ]
+    const text = parts.join('; ')
+    this.freshnessCache = { at: Date.now(), text }
+    return text
+  }
+
+  private async scopeJson(scope: ScopeView): Promise<Json> {
     return {
+      dataAsOf: await this.tournamentDataAsOf(),
       era: `${scope.era.code} (${scope.era.nameEs}), desde el ${scope.era.from}${scope.era.to ? ` hasta el ${scope.era.to}` : ''}`,
       format: scope.format,
       minPlayers: scope.minPlayers,
@@ -923,7 +1122,7 @@ ${MCP_WRITE_INSTRUCTIONS}`
         minCount: args.minCopies,
       })
       return {
-        scope: this.scopeJson(detail.scope),
+        scope: await this.scopeJson(detail.scope),
         archetype: {
           id: detail.archetype.archetype.id,
           name: detail.archetype.archetype.name,
@@ -953,14 +1152,14 @@ ${MCP_WRITE_INSTRUCTIONS}`
     if (args.by === 'list') {
       const lists = await this.tournaments.lists({ ...scope, limit })
       return {
-        scope: this.scopeJson(lists.scope),
+        scope: await this.scopeJson(lists.scope),
         totalLists: lists.total,
         lists: lists.rows.map((row) => this.listJson(row)),
       }
     }
     const archetypes = await this.tournaments.archetypes(scope)
     return {
-      scope: this.scopeJson(archetypes.scope),
+      scope: await this.scopeJson(archetypes.scope),
       totalArchetypes: archetypes.rows.length,
       archetypes: archetypes.rows.slice(0, limit).map((row) => ({
         id: row.archetype.id,
@@ -1117,7 +1316,7 @@ ${MCP_WRITE_INSTRUCTIONS}`
     const archetypes = view.archetypes.map((item) => ({ ...row(item.archetype.name, item), isNew: item.isNew }))
     const cards = view.cards.map((item) => row(item.nameEs, item))
     return {
-      scope: this.scopeJson(view.scope),
+      scope: await this.scopeJson(view.scope),
       thisWeek: view.now,
       weekBefore: view.before,
       archetypesUp: archetypes.filter((_, at) => (view.archetypes[at]?.delta ?? 0) > 0).slice(0, limit),
@@ -1156,7 +1355,7 @@ ${MCP_WRITE_INSTRUCTIONS}`
       const hit = this.findArchetype(all.rows, args.archetype)
       const detail = await this.tournaments.archetype(hit.archetype.id ?? 'none', scope)
       return {
-        scope: this.scopeJson(detail.scope),
+        scope: await this.scopeJson(detail.scope),
         archetype: { id: detail.archetype.archetype.id, name: detail.archetype.archetype.name },
         tournamentsWithPairings: detail.matchups.tournamentsWithPairings,
         expectedAgainstMeta: expectedJson(detail.matchups.expected),
@@ -1172,7 +1371,7 @@ ${MCP_WRITE_INSTRUCTIONS}`
     const matrix = await this.tournaments.matchupMatrix({ ...scope, top: args.top ?? 10 })
     const name = new Map(matrix.archetypes.map((row) => [row.archetype.id, row.archetype.name]))
     return {
-      scope: this.scopeJson(matrix.scope),
+      scope: await this.scopeJson(matrix.scope),
       coverage: matrix.coverage,
       archetypes: matrix.archetypes.map((row) => ({
         id: row.archetype.id,
@@ -1206,7 +1405,7 @@ ${MCP_WRITE_INSTRUCTIONS}`
       }),
     )
     return {
-      scope: this.scopeJson(view.scope),
+      scope: await this.scopeJson(view.scope),
       buildable: view.buildable.map((row) => this.againstJson(row)),
       nearlyBuildable: near,
     }
@@ -1297,7 +1496,7 @@ ${MCP_WRITE_INSTRUCTIONS}`
   private async tournamentsUnlock(args: { era?: string; format?: TournamentFormat; limit?: number }): Promise<Json> {
     const view = await this.tournaments.unlock({ era: args.era, format: args.format, limit: args.limit ?? 10 })
     return {
-      scope: this.scopeJson(view.scope),
+      scope: await this.scopeJson(view.scope),
       cards: view.cards.map((card) => ({
         card: card.nameEs,
         functionalGroupId: card.groupId,
@@ -1311,16 +1510,33 @@ ${MCP_WRITE_INSTRUCTIONS}`
     }
   }
 
-  private async matchesList(args: { deck?: string; opponent?: string; limit?: number }): Promise<Json> {
+  private async matchesList(args: {
+    deck?: string
+    opponent?: string
+    mode?: MatchMode
+    result?: MatchResult
+    from?: string
+    to?: string
+    limit?: number
+    offset?: number
+  }): Promise<Json> {
     const deck = args.deck ? await this.resolveDeck(args.deck) : null
+    const limit = args.limit ?? 20
+    const offset = args.offset ?? 0
     const page = await this.matches.list({
       deckId: deck?.id,
       opponent: args.opponent,
-      limit: args.limit ?? 20,
-      offset: 0,
+      mode: args.mode,
+      result: args.result,
+      from: args.from,
+      to: args.to,
+      limit,
+      offset,
     })
     return {
       total: page.total,
+      offset,
+      ...(offset + page.items.length < page.total ? { next: { offset: offset + page.items.length } } : {}),
       matches: page.items.map((match) => ({
         id: match.id,
         playedAt: match.playedAt.toISOString(),
@@ -1405,6 +1621,123 @@ ${MCP_WRITE_INSTRUCTIONS}`
         rate: rateView(row.rate),
       })),
       ...(skipped.length > 0 ? { skippedNotSimulable: skipped } : {}),
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Workers, alerts and consistency (Fase 43)
+  // ---------------------------------------------------------------------------------------------------------------
+
+  private async workersStatus(): Promise<Json> {
+    const [engine, pending] = await Promise.all([
+      this.simulations.engineView(),
+      this.prisma.simulationJob.findMany({
+        where: { status: { in: ['queued', 'running'] } },
+        orderBy: { id: 'asc' },
+        select: { id: true },
+        take: 50,
+      }),
+    ])
+    const online = engine.workers.filter((worker) => worker.online)
+    const cores = online.reduce((sum, worker) => sum + worker.cores, 0)
+    const jobs = (await this.simulations.summariesOf(pending.map((row) => row.id))).reverse()
+    const now = Date.now()
+    let queueSeconds = 0
+    const queue = jobs.map((job) => {
+      const left = job.progress.totalGames - job.progress.gamesDone
+      // The pace of its finished chunks when there is one; otherwise the engine's rough cost per game.
+      const seconds = job.progress.etaSeconds ?? Math.round(estimateSeconds(left, job.players, Math.max(1, cores || 8)))
+      queueSeconds += seconds
+      return {
+        ...jobSummaryJson(job),
+        remainingMinutes: Math.max(1, Math.round(seconds / 60)),
+        estimate:
+          job.progress.etaSeconds === null
+            ? 'aproximada (todavía no terminó ningún cruce)'
+            : 'al ritmo de los cruces terminados',
+      }
+    })
+    return {
+      workers: engine.workers.map((worker) => ({
+        name: worker.name,
+        online: worker.online,
+        cores: worker.cores,
+        version: worker.version,
+        engineRev: worker.engineRev?.slice(0, 7) ?? null,
+        lastSeen: ownerDateTime(worker.lastSeenAt),
+        playing: worker.current
+          ? `simulación #${worker.current.jobId}: ${worker.current.gamesDone} de ${worker.current.games} partidas del cruce`
+          : null,
+      })),
+      online: online.length,
+      engineRev: engine.engineRev.slice(0, 7),
+      queue,
+      ...(queue.length > 0
+        ? {
+            queueEndsAround:
+              online.length > 0
+                ? `${ownerDateTime(new Date(now + queueSeconds * 1000))} (hora de Buenos Aires, aproximada)`
+                : 'sin worker en línea: empieza cuando Santi prenda la PC',
+          }
+        : { note: 'No hay simulaciones en cola.' }),
+    }
+  }
+
+  private async alertsList(): Promise<Json> {
+    const alerts = await this.alerts.list()
+    return {
+      total: alerts.length,
+      alerts: alerts.map((alert) => ({
+        level: alert.level === 'warning' ? 'atención' : 'info',
+        title: alert.title,
+        detail: alert.detail,
+        where: alert.link,
+      })),
+      ...(alerts.length === 0 ? { note: 'No hay avisos.' } : {}),
+    }
+  }
+
+  private async decksConsistency(ref: string): Promise<Json> {
+    const deck = await this.resolveDeck(ref)
+    const latest = await this.simulations.deckConsistency(deck.id)
+    const note = 'Juegan bots del motor deckgym: la curva es una pista de consistencia, no una predicción.'
+    const curve = (rows: readonly { turn: number; value: number; games: number; ci95: [number, number] }[]) =>
+      rows.map(
+        (row) =>
+          `turno ${row.turn}: ${percentFormat.format(row.value)} % (n = ${row.games}, IC ${percentFormat.format(row.ci95[0])}–${percentFormat.format(row.ci95[1])} %)`,
+      )
+    const shape = (entry: NonNullable<typeof latest.goldfish>) => {
+      const c = entry.consistency
+      return {
+        job: entry.job.id,
+        finishedAt: entry.job.finishedAt?.toISOString() ?? null,
+        deckAsPlayed: c.deck,
+        keyCards: c.keyCards.map((card) => `${card.nameEs} (${card.cardId})`),
+        bot: c.botEs,
+        games: c.games,
+        ...(c.mode === 'meta'
+          ? {
+              era: c.era,
+              rivals: c.rivals.map((rival) => `${rival.label} (${percentFormat.format(rival.share)} % del meta)`),
+            }
+          : {}),
+        readyByTurn: { all: curve(c.ready.all), goingFirst: curve(c.ready.first), goingSecond: curve(c.ready.second) },
+        attackedByTurn: { all: curve(c.attack.all) },
+      }
+    }
+    if (!latest.goldfish && !latest.meta) {
+      return {
+        deck: { id: deck.id, name: deck.name },
+        consistency: null,
+        message:
+          'Este mazo no tiene pruebas de consistencia terminadas: se corren desde su ficha («¿En qué turno está listo?»).',
+      }
+    }
+    return {
+      deck: { id: deck.id, name: deck.name },
+      note,
+      againstPassiveRival: latest.goldfish ? shape(latest.goldfish) : null,
+      againstMeta: latest.meta ? shape(latest.meta) : null,
     }
   }
 }

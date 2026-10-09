@@ -966,6 +966,8 @@ export const apiTokenSchema = z.object({
   expiresAt: nullableDate.optional(),
   revokedAt: nullableDate.optional(),
   createdAt: isoDate,
+  /** Fase 43: the clients seen with the token (a new one raises an alert). */
+  clients: z.array(z.object({ client: z.string(), firstSeenAt: isoDate })).default([]),
 })
 export type ApiToken = z.infer<typeof apiTokenSchema>
 export const tokensResponseSchema = z.object({ items: z.array(apiTokenSchema) })

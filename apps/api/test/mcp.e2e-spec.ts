@@ -115,6 +115,7 @@ describe('MCP endpoint (e2e)', () => {
     expect(client.getInstructions()).toContain('carta funcional')
     const { tools } = await client.listTools()
     expect(tools.map((tool) => tool.name).sort()).toEqual([
+      'alerts_list',
       'cards_search',
       'collection_editions',
       'collection_missions',
@@ -123,6 +124,7 @@ describe('MCP endpoint (e2e)', () => {
       'collection_summary',
       'collection_trades',
       'decks_closest',
+      'decks_consistency',
       'decks_draw_odds',
       'decks_find_by_card',
       'decks_get',
@@ -149,6 +151,7 @@ describe('MCP endpoint (e2e)', () => {
       'tournaments_trends',
       'tournaments_unlock_cards',
       'week_summary',
+      'workers_status',
     ])
     for (const tool of tools) {
       expect(tool.annotations?.readOnlyHint).toBe(true)
@@ -162,7 +165,7 @@ describe('MCP endpoint (e2e)', () => {
   it('serves 2026-07-28 clients from the same endpoint', async () => {
     const client = await connect('modern')
     const { tools } = await client.listTools()
-    expect(tools).toHaveLength(34)
+    expect(tools).toHaveLength(37)
     // Fase 29: the games against the bot (none here) and the review of one.
     expect((await call(client, 'play_games')).structuredContent).toEqual({ games: [] })
     const missing = await client.callTool({ name: 'play_game_review', arguments: { id: 999 } })
@@ -267,7 +270,14 @@ describe('MCP endpoint (e2e)', () => {
       cardCount: 20,
       valid: true,
     })
-    expect(deck13.structuredContent.text).toContain('Hoopa ex (B4-103)')
+    // Fase 43: compact by default (each card once, no export text); «full» adds the text.
+    expect(deck13.structuredContent.text).toBeUndefined()
+    expect(deck13.structuredContent.cards).toContainEqual(expect.stringMatching(/^1 Hoopa ex \(B4-103\)$/))
+    const full13 = await call(client, 'decks_get', { deck: '13', detail: 'full' })
+    expect(full13.structuredContent.text).toContain('Hoopa ex (B4-103)')
+    expect(JSON.stringify(deck13.structuredContent).length).toBeLessThan(
+      JSON.stringify(full13.structuredContent).length,
+    )
     expect((await call(client, 'decks_get', { deck: 'mazo 1' })).structuredContent.name).toBe(
       'Butterfree / Mega-Sceptile ex',
     )
@@ -277,7 +287,7 @@ describe('MCP endpoint (e2e)', () => {
     expect(ambiguous.content[0]?.text).toContain('varios mazos')
 
     // A second Hoopa ex (the note of deck 13 says it is missing): one copy short, cheapest edition 500 points.
-    const detail = deck13.structuredContent.cards as { cardId: string; count: number }[]
+    const detail = full13.structuredContent.cards as { cardId: string; count: number }[]
     const cards = detail.map((entry) => ({ cardId: entry.cardId, count: entry.cardId === 'B4-103' ? 2 : entry.count }))
     const darkrai = cards.findIndex((entry) => entry.cardId === 'A2-110')
     cards.splice(darkrai, 1)
@@ -453,9 +463,11 @@ describe('MCP endpoint (e2e)', () => {
     expect(byTurn[0]).toMatchObject({ turn: 'mano inicial', cardsSeen: 5, both: expect.stringMatching(/ %$/) })
     expect(byTurn).toHaveLength(7)
 
-    const deck1 = await call(client, 'decks_get', { deck: '1' })
+    const deck1 = await call(client, 'decks_get', { deck: '1', detail: 'full' })
     const changes = (deck1.structuredContent.bestVersions as { changes: Structured[] }).changes
     expect(changes).toContainEqual({ nameEs: 'Copiona', listed: ['1× B1-225'], use: ['1× B4b-391 ◊◊ holográfica'] })
+    const compact1 = await call(client, 'decks_get', { deck: '1' })
+    expect(compact1.structuredContent.bestVersions).toContain('Copiona: 1× B4b-391 ◊◊ holo')
   })
 
   it('a revoked token stops working at once', async () => {
@@ -465,7 +477,7 @@ describe('MCP endpoint (e2e)', () => {
       .set('Cookie', cookie)
       .send({ name: 'temporal', kind: 'mcp', scopes: ['mcp:read'] })
     const client = await connect('legacy', created.body.token)
-    expect((await client.listTools()).tools.length).toBe(34)
+    expect((await client.listTools()).tools.length).toBe(37)
     expect((await test.http().delete(`/api/tokens/${created.body.id}`).set('Cookie', cookie)).status).toBe(204)
     await expect(client.listTools()).rejects.toThrow()
   })

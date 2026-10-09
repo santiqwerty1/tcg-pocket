@@ -36,9 +36,11 @@ Contrato entre `apps/api` (NestJS) y `apps/web` (PWA). Identificadores en inglé
 
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
-| `GET /api/tokens` | `{ items: [{ id, name, kind: 'worker'|'mcp', scopes, prefix, lastUsedAt, expiresAt, revokedAt, createdAt }] }` |
+| `GET /api/tokens` | `{ items: [{ id, name, kind: 'worker'|'mcp', scopes, prefix, lastUsedAt, expiresAt, revokedAt, createdAt, clients: [{ client, firstSeenAt }] }] }` (`clients`, Fase 43: los clientes vistos con el token, por el producto del `User-Agent`) |
 | `POST /api/tokens` | `{ name, kind, scopes: string[] }` → `201 { id, token }` (el token completo se muestra una sola vez) |
 | `DELETE /api/tokens/:id` | Revoca → `204` |
+| `GET /api/mcp-audit?limit=50&tokenId=` | Fase 43: lo que Claude escribió por MCP, lo más nuevo primero: `{ items: [{ id, at, token: { id, name }, client, tool, title, args, ok, error, ms, undo: { kind: 'match_delete'|'collection_stock', label } | null, undoneAt }] }`. Los argumentos guardan los textos largos recortados (2.000 caracteres) |
+| `POST /api/mcp-audit/:id/undo` | Fase 43: deshace una escritura que se puede deshacer (una partida borrada vuelve con el mismo id; una edición de la colección vuelve a la cantidad anterior si nadie la cambió después) → la fila con `undoneAt`; `409` si ya estaba deshecha, si la partida ya está, si su mazo ya no existe o si la colección cambió |
 
 ## Catálogo
 
@@ -550,7 +552,7 @@ Worker (`Bearer tcg_wk_…`, scope `worker:claim`):
 
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
-| `GET /api/alerts` | `{ items: [{ code: 'new_set'|'unknown_cards'|'new_era_likely'|'limited_pack'|'engine_update', level: 'info'|'warning', title, detail, link }] }`: set nuevo en el `main` del tracker que el catálogo fijado no tiene (cada 12 h, en producción, `TRACKER_UPSTREAM_CHECK`), listas de la era con cartas que el catálogo no conoce, era nueva probable (35 días), sobre limitado en su última semana, commits nuevos de deckgym |
+| `GET /api/alerts` | `{ items: [{ code: 'new_set'|'unknown_cards'|'new_era_likely'|'limited_pack'|'engine_update'|'backup_drill'|'era_missing_set'|'worker_idle'|'mcp_new_client', level: 'info'|'warning', title, detail, link }] }`: set nuevo en el `main` del tracker que el catálogo fijado no tiene (cada 12 h, en producción, `TRACKER_UPSTREAM_CHECK`), listas de la era con cartas que el catálogo no conoce, era nueva probable (35 días), sobre limitado en su última semana, commits nuevos de deckgym; `mcp_new_client` (Fase 43): un token usado por un cliente nuevo en la última semana (`info` el primero del token, `warning` los demás) |
 
 ## Laboratorio de mazos (T-008)
 
@@ -584,7 +586,7 @@ LabJob = { job: JobSummary, mode: 'test'|'explore', era, format, size,
 
 **Búsqueda** (`explore`): cada ronda juega la mejor lista hasta ahora y K variantes nuevas (1 o 2 cambios de cartas: entra una carta del pool —la colección o todo lo que el motor juega—, con su preevolución si falta, y sale una copia; validadas como mazo) contra el banco; todas las listas de una ronda usan la misma semilla por rival (`baseSeed + ronda × 1000 + rival`). Las cartas que juega la era, y sobre todo las que juegan las listas del arquetipo del mazo, salen más seguido; las que juega todo el arquetipo salen 10 veces menos del mazo. La mejor variante reemplaza a la vigente si su puntaje la supera por más de `acceptZ` errores estándar de la diferencia (la vigente suma todas sus partidas). Para con `maxRounds` rondas, `patience` seguidas sin cambio o sin variantes nuevas; si encontró algo, una ronda de confirmación juega la lista de partida y la encontrada con `confirmGames` partidas nuevas por rival. La API encola cada ronda cuando termina la anterior (el worker no cambia); `advance` bloquea la fila del trabajo para avanzar una sola vez y, si la app se reinicia entre rondas, la retoma al arrancar. **Novedad**: «jugada en torneo» (una lista de la era es exactamente esa), «conocida» (alguna a 6 cambios o menos) o «nueva».
 
-## MCP (Fases 3 y 7)
+## MCP (Fases 3, 7 y 43)
 
 `POST /api/mcp`: servidor MCP remoto, Streamable HTTP, sin sesiones, con el SDK v2 (`@modelcontextprotocol/server` 2.3.1). Atiende las dos eras del protocolo en el mismo endpoint: 2026-07-28 y la de 2025 con `initialize` (la que usan hoy las apps de Claude y Claude Code). `GET` y `DELETE` responden `405`. Autenticación: `Authorization: Bearer tcg_mcp_…` con scope `mcp:read` (`401` sin token o con uno inválido o revocado, `403` con un token de worker); la cookie de sesión no sirve acá.
 
@@ -598,13 +600,25 @@ Tools de escritura (Fase 7), solo para un token con `mcp:write` (con `mcp:read` 
 | `decks_update` | `{ deck, text? \| cards?, energies?, name?, tags?, notes?, revisionNote?, packPriority?, tournamentArchetype? (nombre o id; null = sugerido), builtInGame?, archived?, saveInvalid? }` → `{ saved, deck }`; cartas nuevas: revisión nueva con `source: mcp`, validada antes de guardar. No borra mazos |
 | `matches_log` | `{ deck, result: win\|loss\|tie, opponent?, wentFirst?, mode?, note?, playedAt? }` → `{ logged, match, deckRecord }` (`source: mcp`) |
 | `matches_update` | `{ id, …campos de matches_log }` → `{ updated, before, match }` |
-| `matches_delete` | `{ id }` → `{ deleted, match }` (marcada `destructiveHint`) |
-| `simulations_enqueue` | `{ kind: compare\|matrix\|optimize, decksA?, listsA?: [{ key, era?, format?, energies? }], decksB?, listsB?, games? (200), bots? (e2, e2), seed?, replaySample?, bothOrders?, label?, skipNotSimulable?, remove?: [{ card, count }], candidates?: string[] }` → `{ queued, jobId, seed, pairings, totalGames, estimatedMinutes, notSimulable, workerOnline }`; con mazos no simulables no encola (`queued: false` y los motivos) salvo `skipNotSimulable`. Cartas de optimizar por nombre o código (ambiguas: `isError` con las opciones) |
+| `matches_delete` | `{ id }` → `{ deleted, match }` (marcada `destructiveHint`); la fila queda en el registro de Claude (Fase 43) |
+| `matches_restore` | Fase 43: `{ id }` → `{ restored, match, deckRecord }`: devuelve una partida que Claude borró, con el mismo id, mazo, revisión y fecha |
+| `collection_set` | Fase 43: `{ card (código o nombre), add? \| amount?, collected? }` → `{ changed, card, before, after, playableCopies, sameRowAs?, warning? }`; un nombre con varias ediciones (salvo para restar, si solo hay una con copias) no cambia nada y devuelve `editions` para preguntar |
+| `simulations_cancel` | Fase 43: `{ job, archive? }` → `{ cancelled, archived, job }` (marcada `destructiveHint`) |
+| `simulations_enqueue` | `{ kind: compare\|matrix\|optimize, decksA?, listsA?: [{ key, era?, format?, energies? }], decksB?, listsB?, games? (200), bots? (e2, e2), seed?, replaySample?, bothOrders?, label?, skipNotSimulable?, remove?: [{ card, count }], candidates?: string[] }` → `{ queued, jobId, seed, pairings, totalGames, estimatedMinutes, notSimulable, workerOnline }`; con mazos no simulables no encola (`queued: false` y los motivos) salvo `skipNotSimulable`. Cartas de optimizar por nombre o código (ambiguas: `isError` con las opciones). Fase 43: `dryRun` devuelve `{ queued: false, dryRun: true, plan }` sin encolar; si la estimación pasa de 30 minutos no encola sin `confirmLong: true` |
 
 | `lab_test` | `{ decks?, lists?, texts?: [{ text, name?, energies? }], size?, era?, format?, games? (100), bots?, seed?, label? }` → `{ queued, jobId, pairings, totalGames, estimatedMinutes, workerOnline }` (mazos contra el banco del meta; las listas pegadas no se guardan como mazos) |
 | `lab_explore` | `{ deck? \| list? \| text?, energies?, pool?, locked?: string[] (nombre o código), rounds?, variants?, games?, patience?, confirmGames?, size?, era?, format?, bots?, seed?, label?, dryRun? }` → con `dryRun`, el plan (variantes de la primera ronda, partidas y minutos); si no, `{ queued, jobId, config, rivals, gamesPerRound, maxGames, estimatedMinutes, workerOnline }` |
 
 Todas las de escritura llevan `readOnlyHint: false` e `idempotentHint: false` (registrar dos veces son dos partidas).
+
+**Fase 43.**
+- **Registro de escrituras:** cada llamada a una tool de escritura (también las que fallan) queda en `mcp_audit` con el token, el cliente (el producto del `User-Agent`), la tool, los argumentos, la respuesta y el tiempo; se ve en Más → Tokens de API → «Actividad de Claude» y en `GET /api/mcp-audit`. No va en la copia de seguridad.
+- **Cliente nuevo:** la primera vez que un cliente usa un token queda en `api_token_clients` y aparece una semana en Avisos (`mcp_new_client`), que llega como notificación.
+- **Tools de lectura nuevas:** `workers_status` (workers y cola con la hora estimada de fin), `alerts_list` (los avisos) y `decks_consistency` (la última prueba de consistencia de un mazo). Las tools de torneos suman `scope.dataAsOf` («último torneo del 8/10; última descarga de Limitless 9/10 12:00»).
+- **Respuestas más cortas:** `decks_get` es compacto por defecto: cada carta una vez, como «2 Riolu (A2-91): faltan 1», sin el texto exportado ni notas fijas. Con `detail: 'full'` vuelve la forma anterior.
+- **`matches_list`:** suma `offset`, `from`, `to`, `mode` y `result`, hasta 100 por página, y devuelve `next: { offset }` cuando hay más.
+- **Prompts MCP:** `repaso_semanal` (`week?`), `que_llevo_hoy` y `revisar_mazo` (`deck`); solo encadenan tools de lectura.
+- **Errores internos:** devuelven una referencia de 8 caracteres que está en el registro del servidor junto con la tool, el token y el id del pedido.
 
 Conectar:
 - **Claude Code:** crear un token MCP en Más → Tokens de API y registrar `claude mcp add --transport http tcg https://tcg-pocket.fly.dev/api/mcp --header "Authorization: Bearer tcg_mcp_…"`.

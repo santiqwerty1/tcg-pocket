@@ -21,7 +21,9 @@ describe('MCP read tools', () => {
         'collection_playable_copies',
         'collection_summary',
         'collection_trades',
+        'alerts_list',
         'decks_closest',
+        'decks_consistency',
         'decks_draw_odds',
         'decks_find_by_card',
         'decks_get',
@@ -48,6 +50,7 @@ describe('MCP read tools', () => {
         'tournaments_matchups',
         'tournaments_unlock_cards',
         'week_summary',
+        'workers_status',
       ].sort(),
     )
   })

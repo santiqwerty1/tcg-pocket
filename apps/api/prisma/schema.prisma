@@ -500,6 +500,43 @@ model ApiToken {
   @@map("api_tokens")
 }
 
+/// Fase 43 (R-010): one write made by Claude through the MCP. `undo` keeps what is needed to revert it (the deleted
+/// match, the collection row before the edit); `undoneAt` marks it reverted. Operational log: not in the backup.
+model McpAudit {
+  id        Int       @id @default(autoincrement())
+  at        DateTime  @default(now()) @db.Timestamptz(3)
+  /// The api_tokens id (no foreign key: a log outlives the token and a backup restore).
+  tokenId   Int?      @map("token_id")
+  tokenName String    @map("token_name")
+  /// Product of the client's User-Agent («Claude-User», «python-httpx»…).
+  client    String    @default("")
+  tool      String
+  /// The arguments, long texts cut.
+  args      Json
+  ok        Boolean
+  /// The tool's answer (cut when long); null when it failed.
+  result    Json?
+  error     String?
+  ms        Int
+  undo      Json?
+  undoneAt  DateTime? @map("undone_at") @db.Timestamptz(3)
+
+  @@index([at])
+  @@index([tokenId, at])
+  @@map("mcp_audit")
+}
+
+/// Fase 43 (R-010): a client seen with a token, and when it was first seen (a new one raises an alert).
+model ApiTokenClient {
+  tokenId     Int      @map("token_id")
+  client      String
+  firstSeenAt DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(3)
+
+  @@id([tokenId, client])
+  @@index([firstSeenAt])
+  @@map("api_token_clients")
+}
+
 model AppSetting {
   key       String   @id
   value     Json

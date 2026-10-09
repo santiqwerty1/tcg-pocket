@@ -677,7 +677,7 @@ describe('tournaments (e2e)', () => {
       expect((buildable.buildable as unknown[]).length).toBeGreaterThan(0)
       const unlock = await call('tournaments_unlock_cards', { limit: 3 })
       expect((unlock.cards as { listsUnlocked: number }[])[0]?.listsUnlocked).toBeGreaterThan(0)
-      const deck = await call('decks_get', { deck: 'Mega-Blaziken ex' })
+      const deck = await call('decks_get', { deck: 'Mega-Blaziken ex', detail: 'full' })
       const version = deck.tournamentVersion as { archetype: { name: string }; list: { cards: string[] } | null }
       expect(version.archetype.name).toMatch(/Blaziken/i)
       expect(version.list?.cards.length).toBeGreaterThan(0)

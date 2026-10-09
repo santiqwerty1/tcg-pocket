@@ -25,6 +25,7 @@ export interface AlertView {
     | 'backup_drill'
     | 'era_missing_set'
     | 'worker_idle'
+    | 'mcp_new_client'
   level: 'info' | 'warning'
   title: string
   detail: string
@@ -37,6 +38,8 @@ const RETRY_MS = 60 * 60 * 1000
 const LIMITED_SOON_DAYS = 7
 /** No worker for this long with work waiting is an outage (H-016). */
 const WORKER_IDLE_MS = 30 * 60 * 1000
+/** Fase 43 (R-010): how long «un cliente nuevo usó un token» stays in the list. */
+const NEW_CLIENT_DAYS = 7
 
 /** «9/10 02:35» in the owner's time zone. */
 function ownerDateTime(date: Date): string {
@@ -186,6 +189,7 @@ export class AlertsService {
         link: '/simulacion',
       })
     }
+    alerts.push(...(await this.newTokenClients()))
     if (engine && engine.aheadBy > 0) {
       alerts.push({
         code: 'engine_update',
@@ -203,6 +207,47 @@ export class AlertsService {
    * taken) and no worker seen in 30 minutes. The title carries when the last one was seen, so each outage is pushed
    * once (the notifications remember titles).
    */
+  /**
+   * Fase 43 (R-010): an API token used by a client it had not seen in the last week. The first client of a token is
+   * information (Santi just connected it); another one is a warning: maybe the token leaked.
+   */
+  private async newTokenClients(): Promise<AlertView[]> {
+    const since = new Date(Date.now() - NEW_CLIENT_DAYS * 24 * 60 * 60 * 1000)
+    const fresh = await this.prisma.apiTokenClient.findMany({
+      where: { firstSeenAt: { gte: since } },
+      orderBy: { firstSeenAt: 'asc' },
+    })
+    if (fresh.length === 0) return []
+    const tokenIds = [...new Set(fresh.map((row) => row.tokenId))]
+    const [tokens, older] = await Promise.all([
+      this.prisma.apiToken.findMany({
+        where: { id: { in: tokenIds } },
+        select: { id: true, name: true, revokedAt: true },
+      }),
+      this.prisma.apiTokenClient.findMany({
+        where: { tokenId: { in: tokenIds } },
+        orderBy: { firstSeenAt: 'asc' },
+        select: { tokenId: true, client: true },
+      }),
+    ])
+    const alerts: AlertView[] = []
+    for (const row of fresh) {
+      const token = tokens.find((item) => item.id === row.tokenId)
+      if (!token || token.revokedAt) continue
+      const first = older.find((item) => item.tokenId === row.tokenId)?.client === row.client
+      alerts.push({
+        code: 'mcp_new_client',
+        level: first ? 'info' : 'warning',
+        title: first
+          ? `El token «${token.name}» empezó a usarse (${row.client})`
+          : `Un cliente nuevo usó el token «${token.name}»: ${row.client}`,
+        detail: `${first ? 'Primer uso' : 'Primera vez'} el ${ownerDateTime(row.firstSeenAt)}.${first ? '' : ' Si no lo conectaste vos, revocalo en Más → Tokens de API y creá otro.'}`,
+        link: '/mas/tokens',
+      })
+    }
+    return alerts
+  }
+
   private async workerIdle(now = new Date()): Promise<{ waiting: number; since: string | null } | null> {
     const [chunks, games, last] = await Promise.all([
       this.prisma.simulationChunk.count({

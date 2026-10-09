@@ -64,7 +64,7 @@ revisar: false
 | 40 | Día de expansión en dos toques | pendiente | 39 | [T-014](Tareas/T-014.md) |
 | 41 | Interfaz | pendiente | 40 | [T-014](Tareas/T-014.md) |
 | 42 | Simulaciones más baratas y calibradas | pendiente | 41 | [T-014](Tareas/T-014.md) |
-| 43 | Claude | pendiente | 42 | [T-014](Tareas/T-014.md) |
+| 43 | Claude | hecho 09/10 en la rama `claude/eloquent-mccarthy-gz9btg` (sesión «Nube 2»), con PR; falta integrar y desplegar | 42 | [T-014](Tareas/T-014.md), [R-010](Riesgos/R-010.md) |
 | 44 | Análisis nuevos | pendiente | 43 | [T-014](Tareas/T-014.md) |
 | W | Más workers: nube, Android y navegador (reemplaza la 45, [P-008](Preguntas/P-008.md)) | pendiente, después de la 44 | 44 | [T-015](Tareas/T-015.md) |
 | L | Búsqueda del laboratorio: probar siempre los cambios obvios (+1 copia, paso hacia la lista de torneo) | pendiente, para cuando Santiago la pida | — | [T-016](Tareas/T-016.md) |

@@ -8,7 +8,7 @@
  */
 import { z } from 'zod'
 import { RARITIES, SELECTABLE_ENERGIES } from '../catalog/types.js'
-import { MATCH_MODES } from '../matches/types.js'
+import { MATCH_MODES, MATCH_RESULTS } from '../matches/types.js'
 import { TOURNAMENT_FORMATS } from '../tournaments/eras.js'
 
 const query = z
@@ -90,8 +90,14 @@ export const MCP_READ_TOOLS = {
     name: 'decks_get',
     title: 'Ver un mazo',
     description:
-      'Detalle de un mazo: las 20 cartas con nombre y código, energías, validación con mensajes, qué falta contra la colección, revisiones, notas, el texto en el formato de mazos_40_listas.md y el resumen de mis partidas.',
-    input: z.object({ deck: deckRef }),
+      'Detalle de un mazo: las 20 cartas con nombre y código (y lo que falta de cada una contra la colección), energías, validación con mensajes, revisiones, notas, el resumen de mis partidas, las versiones de cartas que conviene usar al armarlo y su versión de torneo. Por defecto compacto; con detail «full» agrega el texto en el formato de mazos_40_listas.md, el tipo y la fase de cada carta, y la lista de torneo completa.',
+    input: z.object({
+      deck: deckRef,
+      detail: z
+        .enum(['compact', 'full'])
+        .optional()
+        .describe('compact (por defecto) o full (con el texto del mazo y más datos por carta)'),
+    }),
   },
   decksFindByCard: {
     name: 'decks_find_by_card',
@@ -171,11 +177,19 @@ export const MCP_READ_TOOLS = {
     name: 'matches_list',
     title: 'Últimas partidas',
     description:
-      'Mis últimas partidas registradas, la más reciente primero, con mazo, resultado, rival, quién empezó, modalidad y nota.',
+      'Mis partidas registradas, la más reciente primero, con id, mazo, resultado, rival, quién empezó, modalidad y nota. Se pagina con offset y se filtra por mazo, rival, modalidad, resultado y fechas; «total» dice cuántas hay con esos filtros.',
     input: z.object({
       deck: deckRef.optional(),
       opponent: z.string().trim().max(80).optional().describe('Parte del nombre del rival'),
-      limit: z.number().int().min(1).max(50).optional().describe('Cantidad (por defecto 20)'),
+      mode: z.enum(MATCH_MODES).optional().describe('Modalidad'),
+      result: z.enum(MATCH_RESULTS).optional().describe('win, loss o tie'),
+      from: z.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Desde (ISO 8601, incluido), por ejemplo 2026-10-01T00:00:00-03:00'),
+      to: z.iso.datetime({ offset: true }).optional().describe('Hasta (ISO 8601, sin incluir)'),
+      limit: z.number().int().min(1).max(100).optional().describe('Cantidad (por defecto 20)'),
+      offset: z.number().int().min(0).max(100_000).optional().describe('Cuántas saltear (por defecto 0)'),
     }),
   },
   packsRecommend: {
@@ -459,6 +473,27 @@ export const MCP_READ_TOOLS = {
       job: z.number().int().positive().optional().describe('Número de la simulación («#12» → 12)'),
       limit: z.number().int().min(1).max(60).optional().describe('Mazos a devolver (por defecto 10)'),
     }),
+  },
+  workersStatus: {
+    name: 'workers_status',
+    title: 'Workers y cola de simulaciones',
+    description:
+      'Si los workers que juegan las simulaciones están en línea (nombre, núcleos, versión, última señal y qué están jugando) y la cola: cada simulación en cola o corriendo con su progreso y la hora estimada de fin. Sirve para decirle a Santi cuándo va a tener un resultado o si tiene que prender la PC.',
+    input: z.object({}),
+  },
+  alertsList: {
+    name: 'alerts_list',
+    title: 'Avisos de la app',
+    description:
+      'Los avisos que la app muestra en Más: set nuevo en el tracker, cartas de torneo que el catálogo no conoce, era nueva probable, sobre limitado por terminar, prueba del backup, worker caído con trabajo esperando, motor con commits nuevos, un cliente nuevo usando un token de Claude, entre otros. Cada uno con nivel, detalle y dónde se resuelve.',
+    input: z.object({}),
+  },
+  decksConsistency: {
+    name: 'decks_consistency',
+    title: 'Consistencia de un mazo',
+    description:
+      '«¿En qué turno está listo?»: la última prueba de consistencia terminada de un mazo (un bot del motor juega muchas partidas): por turno propio, la probabilidad acumulada (con n e intervalo) de tener listo su atacante principal y de haber atacado, empezando primero, segundo y en total; contra un rival que no hace nada y, si se corrió, contra el meta. Juegan bots: son pistas, no predicciones. Si no hay ninguna prueba, lo dice (se corre desde la ficha del mazo).',
+    input: z.object({ deck: deckRef }),
   },
 } as const
 

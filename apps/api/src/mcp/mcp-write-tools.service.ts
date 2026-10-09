@@ -3,10 +3,11 @@
  * token with `mcp:write` (McpToolsService.buildServer). Every write goes through the same services as the PWA and is
  * tagged `mcp` where the data model keeps a source (deck revisions and changes, matches).
  */
-import type { CallToolResult, McpServer, StandardSchemaWithJSON } from '@modelcontextprotocol/server'
+import type { McpServer, StandardSchemaWithJSON } from '@modelcontextprotocol/server'
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import {
   type DeckCardEntry,
+  estimateSeconds,
   foldText,
   formatWinRateEs,
   MATCH_MODE_LABEL_ES,
@@ -16,10 +17,12 @@ import {
   type WinRate,
 } from '@tcg/domain'
 import { CatalogService } from '../catalog/catalog.service.js'
+import { CollectionService } from '../collection/collection.service.js'
 import type { DeckDetail } from '../decks/deck-views.js'
 import { DecksService } from '../decks/decks.service.js'
 import type { MatchView, RowView } from '../matches/match-views.js'
 import { MatchesService } from '../matches/matches.service.js'
+import { PrismaService } from '../prisma/prisma.service.js'
 import { RivalNotesService } from '../rivals/rival-notes.service.js'
 import type { CreateJobInput } from '../simulation/simulations.service.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
@@ -27,9 +30,14 @@ import type { SnapshotSource } from '../simulation/snapshots.service.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
 import { resolveCardRef } from './card-ref.js'
 import { DeckRefResolver } from './deck-ref.js'
+import { type AuditNote, McpAuditService } from './mcp-audit.service.js'
+import { jobSummaryJson } from './mcp-json.js'
+import type { WriteRun } from './mcp-run.js'
 
 type Json = Record<string, unknown>
-type Run = (name: string, work: () => Promise<Json>) => Promise<CallToolResult>
+
+/** Fase 43: above this estimate, simulations_enqueue asks for confirmLong (R-010: a long job Claude cannot stop). */
+const LONG_JOB_MINUTES = 30
 
 interface ToolDefinition<S extends StandardSchemaWithJSON> {
   name: string
@@ -98,30 +106,42 @@ export class McpWriteToolsService {
     private readonly tournaments: TournamentsService,
     private readonly deckRefs: DeckRefResolver,
     private readonly rivalNotes: RivalNotesService,
+    private readonly collection: CollectionService,
+    private readonly prisma: PrismaService,
+    private readonly audit: McpAuditService,
   ) {}
 
-  register(server: McpServer, run: Run): void {
+  register(server: McpServer, run: WriteRun): void {
     const t = MCP_WRITE_TOOLS
     server.registerTool(t.decksCreate.name, config(t.decksCreate, WRITE), (args) =>
-      run(t.decksCreate.name, () => this.decksCreate(args)),
+      run(t.decksCreate.name, args, () => this.decksCreate(args)),
     )
     server.registerTool(t.decksUpdate.name, config(t.decksUpdate, WRITE), (args) =>
-      run(t.decksUpdate.name, () => this.decksUpdate(args)),
+      run(t.decksUpdate.name, args, () => this.decksUpdate(args)),
     )
     server.registerTool(t.matchesLog.name, config(t.matchesLog, WRITE), (args) =>
-      run(t.matchesLog.name, () => this.matchesLog(args)),
+      run(t.matchesLog.name, args, () => this.matchesLog(args)),
     )
     server.registerTool(t.rivalsNoteSet.name, config(t.rivalsNoteSet, WRITE), (args) =>
-      run(t.rivalsNoteSet.name, () => this.rivalsNoteSet(args)),
+      run(t.rivalsNoteSet.name, args, () => this.rivalsNoteSet(args)),
     )
     server.registerTool(t.matchesUpdate.name, config(t.matchesUpdate, WRITE), (args) =>
-      run(t.matchesUpdate.name, () => this.matchesUpdate(args)),
+      run(t.matchesUpdate.name, args, () => this.matchesUpdate(args)),
     )
     server.registerTool(t.matchesDelete.name, config(t.matchesDelete, DELETE), (args) =>
-      run(t.matchesDelete.name, () => this.matchesDelete(args.id)),
+      run(t.matchesDelete.name, args, (note) => this.matchesDelete(args.id, note)),
+    )
+    server.registerTool(t.matchesRestore.name, config(t.matchesRestore, WRITE), (args) =>
+      run(t.matchesRestore.name, args, () => this.matchesRestore(args.id)),
+    )
+    server.registerTool(t.collectionSet.name, config(t.collectionSet, WRITE), (args) =>
+      run(t.collectionSet.name, args, (note) => this.collectionSet(args, note)),
     )
     server.registerTool(t.simulationsEnqueue.name, config(t.simulationsEnqueue, WRITE), (args) =>
-      run(t.simulationsEnqueue.name, () => this.simulationsEnqueue(args)),
+      run(t.simulationsEnqueue.name, args, () => this.simulationsEnqueue(args)),
+    )
+    server.registerTool(t.simulationsCancel.name, config(t.simulationsCancel, DELETE), (args) =>
+      run(t.simulationsCancel.name, args, () => this.simulationsCancel(args)),
     )
   }
 
@@ -346,10 +366,134 @@ export class McpWriteToolsService {
     return { updated: true, before: matchView(before), match: matchView(after) }
   }
 
-  private async matchesDelete(id: string): Promise<Json> {
+  /** Fase 43: the row is kept in the audit log, so matches_restore (or «Deshacer» in the app) brings it back. */
+  private async matchesDelete(id: string, note: AuditNote): Promise<Json> {
     const match = await this.matches.get(id)
+    const row = await this.prisma.match.findUnique({ where: { id: Number(match.id) } })
+    if (!row) throw new NotFoundException(`Partida ${id} no encontrada.`)
     await this.matches.delete(id)
-    return { deleted: true, match: matchView(match) }
+    note.undo = {
+      kind: 'match_delete',
+      match: {
+        id: row.id,
+        deckId: row.deckId,
+        deckRevisionId: row.deckRevisionId,
+        result: row.result,
+        opponentText: row.opponentText,
+        wentFirst: row.wentFirst,
+        mode: row.mode,
+        note: row.note,
+        playedAt: row.playedAt.toISOString(),
+        source: row.source,
+        clientRef: row.clientRef,
+        createdAt: row.createdAt.toISOString(),
+      },
+      label: `${MATCH_RESULT_LABEL_ES[match.result]} con ${match.deck.name}${match.opponent ? ` contra ${match.opponent}` : ''} (${match.playedAt.toISOString().slice(0, 10)})`,
+    }
+    return {
+      deleted: true,
+      match: matchView(match),
+      note: 'Quedó en el registro de Claude: matches_restore la devuelve.',
+    }
+  }
+
+  private async matchesRestore(id: string): Promise<Json> {
+    await this.audit.restoreMatch(Number(id))
+    const match = await this.matches.get(id)
+    const stats = await this.matches.stats({ deckId: match.deck.id })
+    return { restored: true, match: matchView(match), deckRecord: recordView(stats.overall) }
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Collection (Fase 43)
+  // ---------------------------------------------------------------------------------------------------------------
+
+  /**
+   * «Saqué 2 Hoopa ex»: one edition's quantity, by code or by name. A name with several editions is only resolved
+   * when it is unambiguous (one edition, or, to subtract, the only one owned); otherwise nothing changes and the
+   * editions come back so Claude can ask.
+   */
+  private async collectionSet(
+    args: { card: string; add?: number; amount?: number; collected?: boolean },
+    note: AuditNote,
+  ): Promise<Json> {
+    if (args.add === undefined && args.amount === undefined && args.collected === undefined) {
+      throw new BadRequestException('Indicá add (sumar o restar), amount (cantidad final) o collected.')
+    }
+    if (args.add !== undefined && args.amount !== undefined) {
+      throw new BadRequestException('Mandá add o amount, no los dos.')
+    }
+    const index = this.catalog.requireIndex()
+    const query = args.card.trim()
+    const byCode = codeCandidates(query)
+      .map((code) => index.cardById(code))
+      .find((card) => card !== undefined)
+    let cardId: string | null = byCode?.id ?? null
+    if (!cardId) {
+      const hits = index.searchGroups(query, { limit: 10 }).filter((hit) => hit.matchedOn !== 'text')
+      const best = hits[0]
+      if (!best) throw new NotFoundException(`No encontré ninguna carta «${query}» en el catálogo.`)
+      const groups = hits.filter((hit) => hit.score === best.score).map((hit) => hit.group)
+      const stock = await this.prisma.collectionStock.findMany({
+        where: {
+          cardId: { in: groups.flatMap((group) => index.cardsOfGroup(group.id).map((card) => card.stockCardId)) },
+        },
+      })
+      const owned = new Map(stock.map((row) => [row.cardId, row.amountOwned]))
+      const editions = groups.flatMap((group) => index.cardsOfGroup(group.id))
+      const units = [...new Map(editions.map((card) => [card.stockCardId, card])).values()]
+      const ownedUnits = units.filter((card) => (owned.get(card.stockCardId) ?? 0) > 0)
+      const pick = units.length === 1 ? units[0] : (args.add ?? 0) < 0 && ownedUnits.length === 1 ? ownedUnits[0] : null
+      if (!pick) {
+        return {
+          changed: false,
+          message: `«${query}» tiene varias ediciones: preguntale a Santi cuál y mandá su código.`,
+          editions: units.map((card) => ({
+            cardId: card.id,
+            nameEs: card.nameEs,
+            rarity: card.rarity,
+            expansion: card.expansionId,
+            owned: owned.get(card.stockCardId) ?? 0,
+          })),
+        }
+      }
+      cardId = pick.id
+    }
+    const current = await this.prisma.collectionStock.findUnique({
+      where: { cardId: index.cardById(cardId)?.stockCardId ?? cardId },
+    })
+    const before = current?.amountOwned ?? 0
+    const amountOwned = args.amount ?? (args.add !== undefined ? before + args.add : undefined)
+    if (amountOwned !== undefined && amountOwned < 0) {
+      return { changed: false, message: `Hay ${before} de ${cardId}: no se pueden restar ${-(args.add ?? 0)}.` }
+    }
+    const result = await this.collection.patchStock(cardId, {
+      ...(amountOwned !== undefined ? { amountOwned } : {}),
+      ...(args.collected !== undefined ? { collected: args.collected } : {}),
+    })
+    const card = index.cardById(cardId)
+    const group = card ? await this.catalog.groupDetail(card.functionalGroupId) : null
+    note.undo = {
+      kind: 'collection_stock',
+      cardId: result.stockCardId,
+      before: result.before,
+      after: result.after,
+      label: `${card?.nameEs ?? cardId} (${cardId}): de ${result.before?.amountOwned ?? 0} a ${result.after.amountOwned}`,
+    }
+    return {
+      changed: true,
+      card: { cardId, nameEs: card?.nameEs ?? null, rarity: card?.rarity ?? null },
+      ...(result.affectedTwinIds.length > 0 ? { sameRowAs: result.affectedTwinIds } : {}),
+      before: result.before,
+      after: result.after,
+      playableCopies: group?.playable ?? null,
+      ...(result.activeAdjustment
+        ? {
+            warning: `Hay un ajuste manual activo para esta carta (${result.activeAdjustment.playableCopies} copias jugables): manda sobre la suma hasta que se resuelva en Colección → Ajustes.`,
+          }
+        : {}),
+      note: 'Si después se importa un CSV del tracker que no tiene este cambio, el CSV lo pisa.',
+    }
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -376,6 +520,8 @@ export class McpWriteToolsService {
     skipNotSimulable?: boolean
     remove?: { card: string; count: number }[]
     candidates?: string[]
+    dryRun?: boolean
+    confirmLong?: boolean
   }): Promise<Json> {
     const side = async (
       decks: readonly string[] | undefined,
@@ -432,6 +578,35 @@ export class McpWriteToolsService {
         notSimulable,
       }
     }
+    // Fase 43: optimize plays every combination of candidates against every rival; the preview counts one pairing.
+    const rivals = preview.sideB.filter((snapshot) => snapshot.simulable).length
+    const slots = optimize ? optimize.remove.reduce((sum, item) => sum + item.count, 0) : 0
+    const totalGames = optimize
+      ? multisetCount(optimize.candidates.length, slots) * rivals * input.gamesPerPair
+      : preview.totalGames
+    const seconds = optimize
+      ? estimateSeconds(totalGames, input.players, online[0]?.cores ?? 8)
+      : preview.estimatedSeconds
+    const minutes = Math.max(1, Math.round(seconds / 60))
+    const plan = {
+      kind: args.kind,
+      pairings: optimize ? rivals : preview.pairings,
+      totalGames,
+      gamesPerPairing: input.gamesPerPair,
+      bots: input.players,
+      estimatedMinutes: minutes,
+      estimate: `~${minutes < 90 ? `${minutes} min` : `${Math.round((minutes / 60) * 10) / 10} h`} con ${online[0]?.cores ?? 8} núcleos${online.length === 0 ? ' (ningún worker en línea)' : ''}`,
+      notSimulable,
+      workerOnline: online.length > 0,
+    }
+    if (args.dryRun) return { queued: false, dryRun: true, plan }
+    if (minutes > LONG_JOB_MINUTES && !args.confirmLong) {
+      return {
+        queued: false,
+        message: `La estimación es de ${plan.estimate}: más de ${LONG_JOB_MINUTES} minutos. Contale a Santi cuánto tarda y, si está de acuerdo, repetí con confirmLong: true (o bajá games).`,
+        plan,
+      }
+    }
     const job = await this.simulations.create(input)
     return {
       queued: true,
@@ -444,7 +619,7 @@ export class McpWriteToolsService {
       engineRev: job.engineRev.slice(0, 7),
       pairings: job.progress.chunks.total,
       totalGames: job.progress.totalGames,
-      estimatedMinutes: args.kind === 'optimize' ? null : Math.max(1, Math.round(preview.estimatedSeconds / 60)),
+      estimatedMinutes: minutes,
       notSimulable,
       workerOnline: online.length > 0,
       note:
@@ -453,4 +628,39 @@ export class McpWriteToolsService {
           : 'En cola, pero ningún worker está en línea: empieza cuando Santi prenda la PC.',
     }
   }
+  /** Fase 43: stop a job Claude (or Santi) queued; optionally archive it. */
+  private async simulationsCancel(args: { job: number; archive?: boolean }): Promise<Json> {
+    const before = await this.simulations.progressOf(String(args.job))
+    const wasActive = before.status === 'queued' || before.status === 'running'
+    let job = wasActive ? await this.simulations.cancel(String(args.job)) : before
+    if (args.archive) job = await this.simulations.archive(String(args.job), true)
+    return {
+      cancelled: wasActive,
+      archived: job.archived,
+      job: jobSummaryJson(job),
+      message: wasActive
+        ? 'Cancelada: los cruces sin terminar no se juegan; lo ya jugado queda en sus resultados.'
+        : `No estaba en cola ni corriendo (${job.status}): no había nada que cancelar.`,
+    }
+  }
+}
+
+/** «b4 103», «a4b-1», «A4b-1»: the ways a code may be typed, as the catalog writes it (A4b keeps its lowercase b). */
+export function codeCandidates(query: string): string[] {
+  const trimmed = query.trim()
+  const match = /^([a-z]+\d*)([a-z]?)[-\s]+(\d+)$/i.exec(trimmed)
+  if (!match) return [trimmed]
+  const [, set = '', suffix = '', number = ''] = match
+  return [
+    trimmed,
+    `${set.toUpperCase()}${suffix.toLowerCase()}-${number}`,
+    `${set.toUpperCase()}${suffix.toUpperCase()}-${number}`,
+  ]
+}
+
+/** Multisets of size k from n candidates: C(n + k − 1, k) (the optimize job's combinations). */
+function multisetCount(n: number, k: number): number {
+  let result = 1
+  for (let i = 1; i <= k; i++) result = (result * (n + i - 1)) / i
+  return Math.round(result)
 }

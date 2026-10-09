@@ -15,6 +15,8 @@ export interface ApiTokenView {
   lastUsedAt: Date | null
   expiresAt: Date | null
   revokedAt: Date | null
+  /** Fase 43 (R-010): the clients seen with the token, oldest first. */
+  clients: { client: string; firstSeenAt: Date }[]
 }
 
 export interface CreatedApiToken extends ApiTokenView {
@@ -25,7 +27,7 @@ export interface CreatedApiToken extends ApiTokenView {
 /** How often `last_used_at` is written (per token), to keep the hot path to a single SELECT. */
 const LAST_USED_WRITE_INTERVAL_MS = 60_000
 
-function toView(row: ApiToken): ApiTokenView {
+function toView(row: ApiToken, clients: ApiTokenView['clients'] = []): ApiTokenView {
   return {
     id: idToString(row.id),
     name: row.name,
@@ -36,11 +38,26 @@ function toView(row: ApiToken): ApiTokenView {
     lastUsedAt: row.lastUsedAt,
     expiresAt: row.expiresAt,
     revokedAt: row.revokedAt,
+    clients,
   }
+}
+
+/**
+ * Fase 43 (R-010): a short, stable name of the client behind a request, from its User-Agent: the product inside
+ * «(compatible; X/1.0)» when there is one, otherwise the first product, without its version.
+ */
+export function clientFromUserAgent(userAgent: string | undefined | null): string {
+  const ua = (userAgent ?? '').trim()
+  const compatible = /compatible;\s*([^\s;/)]+)/i.exec(ua)?.[1]
+  const first = ua.split(/\s+/)[0]?.split('/')[0]
+  const name = (compatible ?? first ?? '').replace(/[^\w.@+-]/g, '').slice(0, 60)
+  return name || 'desconocido'
 }
 
 @Injectable()
 export class TokensService {
+  private readonly seenClients = new Set<string>()
+
   constructor(private readonly prisma: PrismaService) {}
 
   async create(input: {
@@ -66,8 +83,30 @@ export class TokensService {
   }
 
   async list(): Promise<ApiTokenView[]> {
-    const rows = await this.prisma.apiToken.findMany({ orderBy: { id: 'asc' } })
-    return rows.map(toView)
+    const [rows, clients] = await Promise.all([
+      this.prisma.apiToken.findMany({ orderBy: { id: 'asc' } }),
+      this.prisma.apiTokenClient.findMany({ orderBy: { firstSeenAt: 'asc' } }),
+    ])
+    return rows.map((row) =>
+      toView(
+        row,
+        clients
+          .filter((client) => client.tokenId === row.id)
+          .map((client) => ({ client: client.client, firstSeenAt: client.firstSeenAt })),
+      ),
+    )
+  }
+
+  /**
+   * Fase 43 (R-010): records that `client` used the token; true the first time (the alerts show it for a week).
+   * Remembered in memory too, so the usual request costs nothing.
+   */
+  async noteClient(tokenId: number, client: string): Promise<boolean> {
+    const key = `${tokenId}\u0000${client}`
+    if (this.seenClients.has(key)) return false
+    const created = await this.prisma.apiTokenClient.createMany({ data: [{ tokenId, client }], skipDuplicates: true })
+    this.seenClients.add(key)
+    return created.count > 0
   }
 
   /** Revokes by id (anything that is not a positive integer is a 404, like the other resources). */

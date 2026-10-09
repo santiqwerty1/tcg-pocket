@@ -10,6 +10,7 @@ import { type AuthInfo, createMcpHandler, type McpHttpHandler } from '@modelcont
 import { All, Controller, Module, type OnModuleDestroy, Req, Res, UseGuards } from '@nestjs/common'
 import type { Request, Response } from 'express'
 import { PinoLogger } from 'nestjs-pino'
+import { AlertsModule } from '../alerts/alerts.controller.js'
 import { CurrentApiToken, type RequestApiToken } from '../auth/request-auth.js'
 import { CatalogModule } from '../catalog/catalog.module.js'
 import { CollectionModule } from '../collection/collection.module.js'
@@ -24,13 +25,16 @@ import { RivalNotesModule } from '../rivals/rival-notes.controller.js'
 import { SimulationModule } from '../simulation/simulation.controller.js'
 import { BearerTokenGuard, RequireScopes } from '../tokens/bearer-token.guard.js'
 import { TokensModule } from '../tokens/tokens.module.js'
+import { clientFromUserAgent, TokensService } from '../tokens/tokens.service.js'
 import { TournamentsModule } from '../tournaments/tournaments.controller.js'
 import { TradesModule } from '../trades/trades.controller.js'
 import { WeeklyModule } from '../weekly/weekly.controller.js'
 import { DeckRefResolver } from './deck-ref.js'
+import { McpAuditController } from './mcp-audit.controller.js'
+import { McpAuditService } from './mcp-audit.service.js'
 import { McpLabToolsService } from './mcp-lab-tools.service.js'
 import { McpPlayToolsService } from './mcp-play-tools.service.js'
-import { McpToolsService } from './mcp-tools.service.js'
+import { type McpCallerInfo, McpToolsService } from './mcp-tools.service.js'
 import { McpWriteToolsService } from './mcp-write-tools.service.js'
 
 @Controller('api/mcp')
@@ -42,6 +46,7 @@ export class McpController implements OnModuleDestroy {
 
   constructor(
     tools: McpToolsService,
+    private readonly tokens: TokensService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(McpController.name)
@@ -56,11 +61,23 @@ export class McpController implements OnModuleDestroy {
   /** Every method goes to the SDK: POST serves, GET/DELETE answer 405 (no sessions, no standalone stream). */
   @All()
   async serve(
-    @Req() req: Request & { auth?: AuthInfo },
+    @Req() req: Request & { auth?: AuthInfo; id?: unknown },
     @Res() res: Response,
     @CurrentApiToken() token: RequestApiToken,
   ): Promise<void> {
-    req.auth = { token: `api-token:${token.id}`, clientId: `${token.kind}:${token.name}`, scopes: token.scopes }
+    // Fase 43 (R-010): who is calling, for the write log and the «cliente nuevo» alert.
+    const client = clientFromUserAgent(req.headers['user-agent'])
+    const tokenId = Number(token.id)
+    if (await this.tokens.noteClient(tokenId, client).catch(() => false)) {
+      this.logger.warn({ token: token.name, client }, 'mcp token used by a new client')
+    }
+    const extra: McpCallerInfo = { tokenId, tokenName: token.name, client, requestId: String(req.id ?? '') }
+    req.auth = {
+      token: `api-token:${token.id}`,
+      clientId: `${token.kind}:${token.name}`,
+      scopes: token.scopes,
+      extra: { ...extra },
+    }
     // Express already parsed the JSON body (app.useBodyParser): hand it over instead of re-reading the stream.
     await this.serveNode(req, res, req.body)
   }
@@ -72,6 +89,7 @@ export class McpController implements OnModuleDestroy {
 
 @Module({
   imports: [
+    AlertsModule,
     TokensModule,
     CatalogModule,
     CollectionModule,
@@ -88,7 +106,14 @@ export class McpController implements OnModuleDestroy {
     TradesModule,
     WeeklyModule,
   ],
-  controllers: [McpController],
-  providers: [McpToolsService, McpWriteToolsService, McpLabToolsService, McpPlayToolsService, DeckRefResolver],
+  controllers: [McpController, McpAuditController],
+  providers: [
+    McpToolsService,
+    McpWriteToolsService,
+    McpLabToolsService,
+    McpPlayToolsService,
+    McpAuditService,
+    DeckRefResolver,
+  ],
 })
 export class McpModule {}

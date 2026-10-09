@@ -24,6 +24,7 @@ import { LIMITLESS_ATTRIBUTION } from '../tournaments/tournaments.service.js'
 import { resolveCardRef } from './card-ref.js'
 import { DeckRefResolver } from './deck-ref.js'
 import { jobSummaryJson, rateView } from './mcp-json.js'
+import type { WriteRun } from './mcp-run.js'
 
 type Json = Record<string, unknown>
 type Run = (name: string, work: () => Promise<Json>) => Promise<CallToolResult>
@@ -86,11 +87,13 @@ export class McpLabToolsService {
     )
   }
 
-  registerWrite(server: McpServer, run: Run): void {
+  registerWrite(server: McpServer, run: WriteRun): void {
     const t = MCP_WRITE_TOOLS
-    server.registerTool(t.labTest.name, config(t.labTest, WRITE), (args) => run(t.labTest.name, () => this.test(args)))
+    server.registerTool(t.labTest.name, config(t.labTest, WRITE), (args) =>
+      run(t.labTest.name, args, () => this.test(args)),
+    )
     server.registerTool(t.labExplore.name, config(t.labExplore, WRITE), (args) =>
-      run(t.labExplore.name, () => this.explore(args)),
+      run(t.labExplore.name, args, () => this.explore(args)),
     )
   }
 

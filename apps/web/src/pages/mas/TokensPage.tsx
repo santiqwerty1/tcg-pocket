@@ -23,12 +23,14 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { ClaudeActivitySection } from './ClaudeActivitySection'
 
 /** What each permission lets the holder do (Fase 7: Claude can write with `mcp:write`). */
 const SCOPE_HINT: Record<string, string> = {
   'worker:claim': 'Tomar simulaciones de la cola y subir resultados (el worker de la PC).',
   'mcp:read': 'Leer colección, mazos, partidas, sobres, torneos y simulaciones.',
-  'mcp:write': 'Crear y editar mazos, registrar y corregir partidas y encolar simulaciones.',
+  'mcp:write':
+    'Crear y editar mazos, registrar, corregir y borrar partidas, editar la colección y encolar o cancelar simulaciones. Cada escritura queda en «Actividad de Claude».',
 }
 
 const KIND_LABEL: Record<TokenKind, string> = { worker: 'Worker (PC)', mcp: 'Claude (MCP)' }
@@ -155,6 +157,14 @@ export function TokensPage() {
                     {token.lastUsedAt ? ` · usado ${formatDateTime(token.lastUsedAt)}` : ' · nunca usado'}
                     {token.expiresAt ? ` · vence ${formatDateTime(token.expiresAt)}` : ''}
                   </div>
+                  {token.clients.length > 0 ? (
+                    <div className="text-xs text-muted-foreground">
+                      {token.clients.length === 1 ? 'Cliente: ' : 'Clientes: '}
+                      {token.clients
+                        .map((row) => `${row.client} (desde ${formatDateTime(row.firstSeenAt)})`)
+                        .join(', ')}
+                    </div>
+                  ) : null}
                 </div>
                 {!token.revokedAt ? (
                   <Button variant="outline" size="sm" onClick={() => setRevoking(token)}>
@@ -166,6 +176,8 @@ export function TokensPage() {
           </ul>
         ) : null}
       </Section>
+
+      <ClaudeActivitySection />
 
       <Dialog open={created !== null} onOpenChange={(open) => !open && setCreated(null)}>
         <DialogContent showCloseButton={false}>
