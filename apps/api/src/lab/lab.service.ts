@@ -681,7 +681,7 @@ export class LabService implements OnApplicationBootstrap {
         message: `No se puede simular ${draft.label}: ${describeProblems(draft.problems)}.`,
       })
     }
-    const baseCards = cardsOfSnapshot(draft.cards)
+    const baseCards = slotsOfSnapshot(draft.cards)
     const event = input.eventId ? await this.eventRules(input.eventId) : null
     if (event) {
       const check = checkEventDeck(baseCards, event.rules, index)
@@ -874,7 +874,7 @@ export class LabService implements OnApplicationBootstrap {
             const incumbent = await tx.deckSnapshot.findUniqueOrThrow({ where: { id: state.incumbent } })
             const energies = incumbent.energies as SelectableEnergy[]
             const bank = await this.usageBank(params.lab)
-            const incumbentCards = cardsOfSnapshot(incumbent.cards as unknown as SnapshotCard[])
+            const incumbentCards = slotsOfSnapshot(incumbent.cards as unknown as SnapshotCard[])
             const affinity = neighborhoodUsage(bank.dataset, incumbentCards, index)
             const pool = await this.pool(bank, energies, state.config.pool, affinity, state.event?.rules)
             const seen = new Set(state.seen)
@@ -1207,6 +1207,14 @@ function selectableEnergies(words: readonly string[]): SelectableEnergy[] {
   return words
     .map((word) => energyFromNameEn(word))
     .filter((energy): energy is SelectableEnergy => energy !== undefined)
+}
+
+/**
+ * A snapshot's cards line by line, in the order the engine plays them (H-020): what a search builds variants from, so
+ * each variant keeps its parent's places. A card can have more than one line.
+ */
+function slotsOfSnapshot(cards: readonly SnapshotCard[] | null | undefined): DeckCardEntry[] {
+  return (cards ?? []).map((card) => ({ cardId: card.cardId, count: card.count }))
 }
 
 /** A snapshot's cards as deck entries (the deck's own editions, one entry per edition). */
