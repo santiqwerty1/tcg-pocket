@@ -445,6 +445,10 @@ ${MCP_CHAT_INSTRUCTIONS}`
         await this.audit.keepUndo(auditId, undo)
         note.undo = undo
       },
+      keepIn: async (tx, undo) => {
+        await this.audit.keepUndo(auditId, undo, tx)
+        note.undo = undo
+      },
     }
     let data: Json | null = null
     const result = await this.run(name, caller, async () => {
