@@ -479,7 +479,8 @@ struct SimulateResult {
 }
 
 /// Each game of a job by index (game `i` played with `game_seed(seed, i)`), one character or number per game.
-#[derive(Debug, Default, Serialize)]
+/// No `Default`: an empty one would say `turnLimit: 0` (built with `with_capacity`, which sets the real limit).
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PerGame {
     /// «A» deck A won, «B» deck B won, «T» tie.

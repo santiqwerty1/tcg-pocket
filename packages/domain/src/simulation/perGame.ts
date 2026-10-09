@@ -90,7 +90,10 @@ export function checkPerGame(
     return 'perGame.turns no suma los turnos del chunk.'
   }
   const endings = results.endings as string
-  const limit = typeof results.turnLimit === 'number' ? results.turnLimit : DEFAULT_TURN_LIMIT
+  const limit = results.turnLimit === undefined ? DEFAULT_TURN_LIMIT : results.turnLimit
+  if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return 'perGame.turnLimit tiene que ser un entero de 1 a 100.'
+  }
   for (let i = 0; i < games; i++) {
     const tie = winners[i] === 'T'
     const tieEnding = endings[i] === 'L' || endings[i] === 'T'

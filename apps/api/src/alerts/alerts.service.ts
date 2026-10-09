@@ -214,7 +214,8 @@ export class AlertsService {
       alerts.push({
         code: 'worker_idle',
         level: 'warning',
-        title: 'Hay simulaciones que ningún worker puede jugar',
+        // The oldest job's date in the title: a new case is pushed again (notifications remember titles).
+        title: `Hay simulaciones que ningún worker puede jugar (desde el ${idle.since})`,
         detail: `${idle.waiting} ${idle.waiting === 1 ? 'chunk pide' : 'chunks piden'} resultados partida por partida y ningún worker de los últimos 30 minutos los juega: actualizá el worker (0.2.5 o más nuevo) y recompilá el motor.`,
         link: '/simulacion',
       })
@@ -311,17 +312,22 @@ export class AlertsService {
     }
     // Some worker is alive, but work that none of them can play waits all the same (a job with perGame, H-010).
     if (recent.some((worker) => canPlayPerGame(worker))) return null
-    const perGame = await this.prisma.simulationChunk.count({
-      where: {
-        job: {
-          status: { in: ['queued', 'running'] },
-          kind: { in: ['matrix', 'compare', 'explore'] },
-          params: { path: ['perGame'], equals: true },
-        },
-        ...waitingChunk,
-      },
-    })
-    return perGame > 0 ? { waiting: perGame, since: null, reason: 'perGame' } : null
+    const perGameJob = {
+      status: { in: ['queued' as const, 'running' as const] },
+      kind: { in: ['matrix' as const, 'compare' as const, 'explore' as const] },
+      params: { path: ['perGame'], equals: true },
+    }
+    const [perGame, oldest] = await Promise.all([
+      this.prisma.simulationChunk.count({ where: { job: perGameJob, ...waitingChunk } }),
+      this.prisma.simulationJob.findFirst({
+        where: { ...perGameJob, chunks: { some: waitingChunk } },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      }),
+    ])
+    return perGame > 0 && oldest
+      ? { waiting: perGame, since: ownerDateTime(oldest.createdAt), reason: 'perGame' }
+      : null
   }
 
   /**

@@ -517,6 +517,13 @@ describe('simulation (e2e)', () => {
     expect((await put({ ...result, extra: { perGame: { ...perGame, winners: 'AATA' } } })).status).toBe(422)
     expect((await put({ ...result, extra: { perGame: { ...perGame, endings: 'PNPP' } } })).status).toBe(422)
     expect((await put({ ...result, turns: 61, extra: { perGame } })).status).toBe(422)
+    for (const turnLimit of [0, 30.5, 1e9, '30']) {
+      expect((await put({ ...result, extra: { perGame: { ...perGame, turnLimit } } })).status).toBe(422)
+    }
+    // With a limit of 20, a game won in 21 turns does not add up (a game past the limit is a tie).
+    expect(
+      (await put({ ...result, extra: { perGame: { ...perGame, turnLimit: 20, turns: [21, 9, 31, 8] } } })).status,
+    ).toBe(422)
     // The worker that claims it again sends it right.
     const again = (await hello('worker-0205', '0.2.5', '0.2.0')).body.chunk as Structured
     expect(again).toMatchObject({ chunkId: chunk.chunkId })
@@ -607,13 +614,22 @@ describe('simulation (e2e)', () => {
       engineFeatures: ['batch'],
     })
     // The only worker of the last 30 minutes cannot play what waits: the alert says so.
-    expect(await idleTitles()).toEqual(['Hay simulaciones que ningún worker puede jugar'])
+    expect(await idleTitles()).toEqual([
+      expect.stringMatching(/^Hay simulaciones que ningún worker puede jugar \(desde el \d+\/\d+ \d\d:\d\d\)$/),
+    ])
     // An engine that lists perGame plays it, whatever its version number says.
     const chunk = (await hello('worker-feat-2', '0.1.0', ['perGame'])).body.chunk as Structured
     expect(chunk).toMatchObject({ jobId: created.body.id, perGame: true })
     expect(await idleTitles()).toEqual([])
+    // A capable worker with nothing left gets no hint; nor does an incapable one once nothing with perGame waits.
+    const capable = (await hello('worker-feat-2', '0.1.0', ['perGame'])).body
+    expect(capable).toMatchObject({ chunk: null })
+    expect(capable.hint).toBeUndefined()
     await post(`/api/simulations/${created.body.id}/cancel`)
     await test.http().delete(`/api/simulations/${created.body.id}`).set('Cookie', cookie)
+    const nothing = (await hello('worker-feat-1', '0.9.0', ['batch'])).body
+    expect(nothing).toMatchObject({ chunk: null })
+    expect(nothing.hint).toBeUndefined()
   })
 
   it('list: archive finished jobs (one by one or all), bring them back, delete the cancelled ones', async () => {

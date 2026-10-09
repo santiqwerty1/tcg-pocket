@@ -224,16 +224,20 @@ describe('worker loop', () => {
     }
     const { client } = fakeClient([])
     const hint = 'Hay simulaciones que piden resultados partida por partida y este worker no puede jugarlas.'
-    vi.mocked(client.claim).mockResolvedValue({ chunk: null, requiredEngineRev: null, retryAfterSeconds: 0, hint })
     const stop = new AbortController()
     let claims = 0
+    // Two claims with the hint (written once), one that gets a chunk (no hint), and the hint again (written again).
     vi.mocked(client.claim).mockImplementation(async () => {
-      if (++claims === 3) stop.abort()
+      claims++
+      if (claims === 4) stop.abort()
+      if (claims === 3) {
+        return { chunk: chunk({ chunkId: 42, replaySample: 0 }), requiredEngineRev: null, retryAfterSeconds: 0 }
+      }
       return { chunk: null, requiredEngineRev: null, retryAfterSeconds: 0, hint }
     })
     await new Worker(config, client, log).loop(stop.signal, { once: false })
     expect(vi.mocked(client.claim).mock.calls[0]?.[0]).toMatchObject({ version: '0.2.6', engineFeatures: ['perGame'] })
-    expect(lines.filter((line) => line === hint)).toHaveLength(1)
+    expect(lines.filter((line) => line === hint)).toHaveLength(2)
   })
 
   it('an engine without features is not said to have any', async () => {
