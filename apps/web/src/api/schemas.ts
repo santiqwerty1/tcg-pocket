@@ -1494,6 +1494,11 @@ export const labDeckSchema = z.object({
     })
     .nullable()
     .default(null),
+  /** T-017 C6: the Energy Zone, when it is not the starting list's. */
+  energyChange: z
+    .object({ from: z.array(z.string()), to: z.array(z.string()) })
+    .nullable()
+    .default(null),
   /** T-017 E1/E2: why each card that came in was proposed, and the copies the collection lacks. */
   why: z
     .array(

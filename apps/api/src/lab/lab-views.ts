@@ -113,6 +113,8 @@ export interface LabDeckView {
     /** With a verification: the difference in the round that picked it, which flatters it. */
     selectionText: string | null
   } | null
+  /** T-017 C6: the Energy Zone, when it is not the starting list's. */
+  energyChange: { from: string[]; to: string[] } | null
   /**
    * T-017 E1/E2: why each card that came in was proposed (share of the era's lists and of the archetype's lists that
    * play it, when the search kept them) and how many copies the collection lacks for it.

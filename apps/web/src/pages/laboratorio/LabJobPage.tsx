@@ -340,6 +340,12 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
           {deck.vsParent.selectionText ? ` (en la ronda que la eligió: ${deck.vsParent.selectionText})` : ''}.
         </p>
       ) : null}
+      {deck.energyChange ? (
+        <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+          Zona de Energía: <EnergyChips energies={deck.energyChange.from as SelectableEnergy[]} /> →{' '}
+          <EnergyChips energies={deck.energyChange.to as SelectableEnergy[]} />
+        </p>
+      ) : null}
       {deck.why.length > 0 ? <WhyLine why={deck.why} /> : null}
       {deck.games ? <GamesLine games={deck.games} /> : null}
       <button

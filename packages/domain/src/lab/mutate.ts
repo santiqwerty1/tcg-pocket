@@ -101,6 +101,8 @@ export interface Variant {
   key: string
   add: VariantChange[]
   remove: VariantChange[]
+  /** T-017 C6: another Energy Zone for the same cards (absent: the parent's). */
+  energies?: SelectableEnergy[]
 }
 
 export interface VariantOptions {

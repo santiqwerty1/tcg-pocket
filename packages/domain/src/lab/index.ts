@@ -1,6 +1,7 @@
 // Public API of the Laboratorio de mazos (T-008; apps import it through '@tcg/domain').
 
 export * from './core.js'
+export * from './energy.js'
 export * from './explore.js'
 export * from './gauntlet.js'
 export * from './learn.js'

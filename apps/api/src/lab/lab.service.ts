@@ -42,6 +42,8 @@ import {
   type ExploreConfig,
   type ExploreStop,
   energyFromNameEn,
+  energyKey,
+  energyVariant,
   engineEdition,
   estimateSeconds,
   eventRulesSchema,
@@ -725,7 +727,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     for (const [at, variant] of variants.entries()) {
       const snapshot = await this.snapshots.save({
         cards: variant.cards,
-        energies,
+        energies: variant.energies ?? energies,
         label: `${shortLabel(baseLabel)} · v${round}.${at + 1}`,
         origin: 'lab',
       })
@@ -1171,7 +1173,15 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               },
             )
             if (revert) seen.add(revert.key)
-            const fixed = [...(combo ? [combo] : []), ...(revert ? [revert] : [])]
+            // T-017 C6: one variant tries another Energy Zone with the same cards (a different option each round).
+            seen.add(energyKey(listKeyByGroup(groupsOfCards(incumbentCards, index)), energies))
+            const energyChange = energyVariant(incumbentCards, energies, searchRounds, index, seen)
+            if (energyChange) seen.add(energyChange.key)
+            const fixed = [
+              ...(combo ? [combo] : []),
+              ...(revert ? [revert] : []),
+              ...(energyChange ? [energyChange] : []),
+            ]
             const fresh = [
               ...fixed,
               ...this.variants(
@@ -1462,6 +1472,12 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               }
             : null,
           why: changes ? whyCards(changes.add, cards, state?.frozen, index, playable) : [],
+          energyChange: (() => {
+            const from = state ? (byId.get(state.base)?.energies ?? []) : []
+            const to = snapshot.energies
+            const same = from.length === to.length && from.every((energy) => to.includes(energy))
+            return state && !same ? { from, to } : null
+          })(),
           novelty: noveltyView,
           cards: lines(index, cards),
           energies: snapshot.energies,
