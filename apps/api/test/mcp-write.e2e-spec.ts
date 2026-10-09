@@ -552,6 +552,14 @@ describe('MCP write tools (e2e)', () => {
       .send({ opponent: 'Mega Gyarados ex', text: 'Lo corrijo yo.' })
     expect((await test.http().post(`/api/mcp-audit/${replaced?.id}/undo`).set('Cookie', cookie)).status).toBe(409)
     expect((await lookup())?.text).toBe('Lo corrijo yo.')
+
+    // Same text, another spelling of the rival: the label changed, and that can be undone too.
+    await call(client, 'rivals_note_set', { opponent: 'MEGA GYARADOS EX', text: 'Lo corrijo yo.', append: false })
+    expect((await lookup())?.label).toBe('MEGA GYARADOS EX')
+    const relabeled = await latest()
+    expect(relabeled?.undo?.label).toContain('cambiada')
+    expect((await test.http().post(`/api/mcp-audit/${relabeled?.id}/undo`).set('Cookie', cookie)).status).toBe(200)
+    expect(await lookup()).toMatchObject({ label: 'Mega Gyarados ex', text: 'Lo corrijo yo.' })
   })
 
   it('Fase 43: a match the phone sent again is not restored twice', async () => {

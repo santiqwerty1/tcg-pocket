@@ -325,7 +325,8 @@ export class McpWriteToolsService {
     })
     const after = note?.text ?? null
     const key = note?.key ?? previous?.key
-    if (key && (previous?.text ?? null) !== after) {
+    // A new text, or the same one under another spelling of the rival: both can be undone.
+    if (key && ((previous?.text ?? null) !== after || (note && previous && note.label !== previous.label))) {
       const opponent = note?.label ?? previous?.label ?? args.opponent
       audit.undo = {
         kind: 'rival_note',
@@ -527,7 +528,12 @@ export class McpWriteToolsService {
       before: result.before,
       after: result.after,
       ...(written ? { afterUpdatedAt: written.updatedAt.toISOString() } : {}),
-      beforeUpdatedAt: current?.updatedAt.toISOString() ?? null,
+      // Only when the row read before is the one this write replaced: an edit landing in between breaks the chain.
+      ...(current === null
+        ? { beforeUpdatedAt: null }
+        : current.amountOwned === result.before?.amountOwned && current.collected === result.before?.collected
+          ? { beforeUpdatedAt: current.updatedAt.toISOString() }
+          : {}),
       label: `${card?.nameEs ?? cardId} (${cardId}): de ${result.before?.amountOwned ?? 0} a ${result.after.amountOwned}`,
     }
     return {

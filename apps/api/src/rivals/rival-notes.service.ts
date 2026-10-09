@@ -9,6 +9,8 @@ import type { RivalNote } from '../generated/prisma/client.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 
 export const RIVAL_NOTE_MAX_LENGTH = 5000
+/** First key of the per-note advisory lock (the second one is the hash of the note's key). */
+const RIVAL_NOTE_LOCK = 43_012
 
 export interface RivalNoteView {
   key: string
@@ -61,8 +63,8 @@ export class RivalNotesService {
   }
 
   /**
-   * `save`, also returning the note it replaced (Fase 43: what «Deshacer» brings back). The row is locked while it is
-   * read and written, so `previous` is exactly what this write changed.
+   * `save`, also returning the note it replaced (Fase 43: what «Deshacer» brings back). The note's key is locked while
+   * it is read and written (also when there is no note yet), so `previous` is exactly what this write changed.
    */
   async write(input: {
     opponent: string
@@ -76,7 +78,7 @@ export class RivalNotesService {
       throw new BadRequestException({ code: 'validation', message: 'Escribí contra quién es la nota.' })
     }
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT key FROM rival_notes WHERE key = ${key} FOR UPDATE`
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RIVAL_NOTE_LOCK}::int, hashtext(${key}))`
       const current = await tx.rivalNote.findUnique({ where: { key } })
       const previous = current ? view(current) : null
       const added = input.text.trim()
