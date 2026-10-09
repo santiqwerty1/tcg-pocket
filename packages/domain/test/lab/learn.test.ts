@@ -11,6 +11,7 @@ import {
   learnSwap,
   type MeasuredSwap,
   mutationPool,
+  revertVariant,
   seededRandom,
   swapOf,
   variantOf,
@@ -100,5 +101,24 @@ describe('what a search learns between rounds (T-017 C4)', () => {
         variantOf(deck.cards, energies, pool, index, seededRandom(70 + i), { swaps: 1, boostIn }),
       ).map((variant) => variant?.key)
     expect(run()).toEqual(run())
+  })
+
+  it('T-017 C5: a swap accepted earlier can be undone, putting the cards back where they were', () => {
+    const variant = variantOf(deck.cards, energies, pool, index, seededRandom(31), { swaps: 1 })
+    if (!variant) throw new Error('no variant')
+    const accepted = swapOf(deck.cards, variant.cards, index, 8)
+    const editionOf = (groupId: string) =>
+      deck.cards.find((entry) => group(entry.cardId) === groupId)?.cardId ?? groupId
+    const back = revertVariant(variant.cards, [accepted], 0, index, editionOf, { valid })
+    if (!back) throw new Error('no revert')
+    // Undoing it gives the starting list again, card by card and place by place.
+    const slots = (cards: readonly { cardId: string; count: number }[]) =>
+      cards.flatMap((entry) => Array.from({ length: entry.count }, () => group(entry.cardId)))
+    expect(slots(back.cards)).toEqual(slots(deck.cards))
+    // Already seen, or nothing accepted: no revert.
+    expect(
+      revertVariant(variant.cards, [accepted], 0, index, editionOf, { valid, seen: new Set([back.key]) }),
+    ).toBeNull()
+    expect(revertVariant(variant.cards, [], 0, index, editionOf, { valid })).toBeNull()
   })
 })

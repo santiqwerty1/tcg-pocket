@@ -432,7 +432,11 @@ function roundText(round: ExploreView['rounds'][number], explore: ExploreView, l
       ? `${name(round.accepted)} se sostuvo con partidas nuevas: pasa a ser la mejor`
       : `${name(variant)} no se sostuvo con partidas nuevas`
   }
-  const combo = round.candidates.some((id) => explore.combos.includes(id)) ? ' (una junta los dos mejores cambios)' : ''
+  const notes = [
+    round.candidates.some((id) => explore.combos.includes(id)) ? 'una junta los dos mejores cambios' : null,
+    round.candidates.some((id) => explore.reverts.includes(id)) ? 'una deshace un cambio anterior' : null,
+  ].filter(Boolean)
+  const combo = notes.length > 0 ? ` (${notes.join('; ')})` : ''
   if (round.stopped) {
     // T-017 D2: an incomplete candidate cannot win, and there is no verification after «Frenar».
     if (!round.decided) return 'la frenaste: terminan las partidas en juego y pasa a confirmar'

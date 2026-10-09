@@ -95,6 +95,42 @@ export function learnedChanges(
 }
 
 /**
+ * T-017 C5: a variant of `deck` that undoes one swap accepted earlier — the `pick`-th, cycling — so the search does not
+ * stay tied to its first change (search #11 kept +Gible, and the second Bulbasaur it then could have needed was never
+ * weighed against taking Gible out). The cards that came in go out, in their places, and the ones that went out come
+ * back in the edition `editionOf` gives. Null when none applies, or the result is not valid or not new.
+ */
+export function revertVariant(
+  deck: readonly DeckCardEntry[],
+  accepted: readonly MeasuredSwap[],
+  pick: number,
+  index: CatalogIndex,
+  editionOf: (groupId: CardId) => CardId,
+  options: {
+    seen?: ReadonlySet<string> | undefined
+    locked?: ReadonlySet<CardId> | undefined
+    valid: (cards: readonly DeckCardEntry[]) => boolean
+  },
+): Variant | null {
+  if (accepted.length === 0) return null
+  const baseKey = listKeyByGroup(groupsOfCards(deck, index))
+  for (let k = 0; k < accepted.length; k++) {
+    const swap = accepted[(pick + k) % accepted.length] as MeasuredSwap
+    const back = {
+      add: swap.remove.map(editionOf),
+      remove: swap.add.map((cardId) => index.cardById(cardId)?.functionalGroupId ?? cardId),
+    }
+    const cards = deck.map((entry) => ({ ...entry }))
+    if (!applySwap(cards, back, index, options.locked)) continue
+    const key = listKeyByGroup(groupsOfCards(cards, index))
+    if (key === baseKey || options.seen?.has(key) || !options.valid(cards)) continue
+    const sorted = cards.filter((entry) => entry.count > 0)
+    return { cards: sorted, key, ...cardChanges(deck, sorted, index) }
+  }
+  return null
+}
+
+/**
  * What a swap is worth by what the search learned of its changes (review of #15): the round that measured it flatters
  * the variant that won it (the best of K noisy measures), and a verification that rejected it lowered its changes'
  * estimates since; the raw difference of that round is not a good order.

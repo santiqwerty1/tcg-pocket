@@ -106,7 +106,11 @@ export interface Variant {
 export interface VariantOptions {
   /** Functional cards that never go out. */
   locked?: ReadonlySet<CardId> | undefined
-  /** Swaps per variant (default: 1 most of the time, 2 sometimes). */
+  /**
+   * Swaps per variant (default 1). T-017 C7: two random swaps at once blur which one helped and more often carry a
+   * harmful one; two changes are tried together only when they go together — an evolution with its pre-evolution, or
+   * the combo of the two best measured swaps (C4).
+   */
   swaps?: number | undefined
   /** Draws before giving up (default 40). */
   attempts?: number | undefined
@@ -170,7 +174,7 @@ export function variantOf(
   const attempts = options.attempts ?? 40
   for (let attempt = 0; attempt < attempts; attempt++) {
     const cards = deck.map((entry) => ({ ...entry }))
-    const swaps = options.swaps ?? (random() < 0.7 ? 1 : 2)
+    const swaps = options.swaps ?? 1
     let ok = true
     for (let swap = 0; swap < swaps && ok; swap++) ok = swapOnce(cards, pool, index, random, locked, options)
     if (!ok) continue

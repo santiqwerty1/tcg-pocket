@@ -1597,6 +1597,7 @@ export const labJobSchema = z.object({
         )
         .default([]),
       combos: z.array(z.number()).default([]),
+      reverts: z.array(z.number()).default([]),
       /** H-010: what the confirmation says of the list found against the starting one. */
       confirmation: z
         .object({

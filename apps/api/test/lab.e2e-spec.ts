@@ -699,6 +699,59 @@ describe('laboratorio (e2e)', () => {
     expect((await test.http().post('/api/lab/jobs/1/stop')).status).toBe(401)
   })
 
+  it('T-017 C5: after a second accepted change, a variant undoes the first one', async () => {
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 3,
+      maxRounds: 4,
+      patience: 4,
+      confirmGames: 20,
+      verifyGames: 0,
+      pool: 'all',
+    }
+    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9600 })
+    const id = created.body.id as number
+    type State = { rounds: { candidates: number[] }[]; accepted?: { variant: number }[]; reverts?: number[] }
+    const read = async () =>
+      ((await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).params as { lab: { explore: State } }).lab
+        .explore
+    // Each round's first variant wins (90 % in round 0, all in round 1); it is accepted on the screen (no verification).
+    const rate = new Map<number, number>()
+    const playRound = async (chunks: number) => {
+      for (let n = 0; n < chunks; n++) {
+        const claim = await bearer('post', '/api/worker/claim').send({ ...hello, engineRev: test.env.engineRev })
+        const chunk = claim.body.chunk as Structured
+        const row = await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: chunk.chunkId as number } })
+        const winsA = Math.round(row.games * (rate.get(row.snapshotAId as number) ?? 0.5))
+        await bearer('put', `/api/worker/chunks/${row.id}/result`).send({
+          workerId: hello.workerId,
+          engineRev: test.env.engineRev,
+          winsA,
+          winsB: row.games - winsA,
+          ties: 0,
+          games: row.games,
+          durationMs: 100,
+        })
+      }
+    }
+    rate.set((await read()).rounds[0]?.candidates[0] as number, 0.9)
+    await playRound(4 * 3)
+    const first = await read()
+    expect(first.accepted?.map((swap) => swap.variant)).toEqual([first.rounds[0]?.candidates[0]])
+    // Round 1 opens with its own variants (nothing to undo yet: the only accepted change was just verified).
+    expect(first.reverts ?? []).toEqual([])
+    const second = first.rounds[1]?.candidates.find((sid) => sid !== undefined) as number
+    rate.set(first.rounds[0]?.candidates[0] as number, 0.9)
+    rate.set(second, 1)
+    await playRound(4 * 3)
+    const third = await read()
+    expect(third.accepted).toHaveLength(2)
+    // Round 2 tries undoing the first accepted change.
+    expect(third.reverts).toHaveLength(1)
+    expect(third.rounds[2]?.candidates).toContain(third.reverts?.[0])
+    await post(`/api/simulations/${id}/cancel`)
+  }, 60_000)
+
   it('Claude: the bank, a pasted idea against the meta, the plan of a search and the results', async () => {
     const client = new Client({ name: 'e2e', version: '1.0.0' })
     await client.connect(

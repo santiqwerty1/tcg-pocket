@@ -171,6 +171,8 @@ export interface LabExploreView {
   learned: { sign: '+' | '-'; cardId: string; nameEs: string; mean: number; n: number }[]
   /** Snapshot ids of the variants that joined the two best swaps measured so far. */
   combos: number[]
+  /** T-017 C5: snapshot ids of the variants that undid a change accepted earlier. */
+  reverts: number[]
   /**
    * H-010: what the confirmation says of the list found against the starting one; null without a confirmation.
    * «better» only past `verifyZ` standard errors.

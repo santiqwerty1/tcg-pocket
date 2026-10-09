@@ -79,6 +79,7 @@ import {
   perGameSummary,
   randomBaseSeed,
   readPerGame,
+  revertVariant,
   roundWinner,
   type ScoreDifference,
   type SelectableEnergy,
@@ -245,6 +246,9 @@ interface ExploreState {
   swaps?: (MeasuredSwap & { variant: number })[]
   /** Snapshot ids of the combo variants (the two best swaps joined). */
   combos?: number[]
+  /** T-017 C5: the swaps accepted so far, in order, and the variants that undid one of them. */
+  accepted?: (MeasuredSwap & { variant: number })[]
+  reverts?: number[]
   /** T-017 D2: «Frenar y confirmar»: the round in play ends with what it has, then the confirmation. */
   stopRequested?: boolean
 }
@@ -1075,7 +1079,12 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           if (verified !== undefined && accepted === null) {
             state.swaps = (state.swaps ?? []).filter((swap) => swap.variant !== verified)
           }
-          if (accepted !== null) state.swaps = (state.swaps ?? []).filter((swap) => swap.variant !== accepted)
+          if (accepted !== null) {
+            const swap = (state.swaps ?? []).find((item) => item.variant === accepted)
+            // T-017 C5: an accepted swap leaves the combo list and can be undone in later rounds.
+            if (swap) state.accepted = [...(state.accepted ?? []), swap]
+            state.swaps = (state.swaps ?? []).filter((item) => item.variant !== accepted)
+          }
           round.accepted = accepted
           round.decided = true
           if (verifyNext === null) {
@@ -1140,15 +1149,38 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                 (!rules || checkEventDeck(cards, rules, index).ok),
             })
             if (combo) seen.add(combo.key)
+            // T-017 C5: one variant undoes a swap accepted earlier (a different one each round).
+            const baseSnapshot = await tx.deckSnapshot.findUniqueOrThrow({ where: { id: state.base } })
+            const baseCards = slotsOfSnapshot(baseSnapshot.cards as unknown as SnapshotCard[])
+            // The last one accepted was just verified: undo only the ones before it.
+            const revert = revertVariant(
+              incumbentCards,
+              (state.accepted ?? []).slice(0, -1),
+              searchRounds,
+              index,
+              (groupId) => {
+                const inBase = baseCards.find((entry) => index.cardById(entry.cardId)?.functionalGroupId === groupId)
+                return inBase?.cardId ?? index.groupById(groupId)?.displayCardId ?? groupId
+              },
+              {
+                seen,
+                locked: new Set(state.locked),
+                valid: (cards) =>
+                  validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
+                  (!rules || checkEventDeck(cards, rules, index).ok),
+              },
+            )
+            if (revert) seen.add(revert.key)
+            const fixed = [...(combo ? [combo] : []), ...(revert ? [revert] : [])]
             const fresh = [
-              ...(combo ? [combo] : []),
+              ...fixed,
               ...this.variants(
                 incumbentCards,
                 energies,
                 pool,
                 index,
                 baseSeed + searchRounds,
-                state.config.variantsPerRound - (combo ? 1 : 0),
+                Math.max(0, state.config.variantsPerRound - fixed.length),
                 new Set(state.locked),
                 seen,
                 affinity,
@@ -1159,9 +1191,12 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             const base = await tx.deckSnapshot.findUniqueOrThrow({ where: { id: state.base }, select: { label: true } })
             const saved = await this.saveVariants(fresh, energies, base.label, searchRounds)
             state.seen = [...seen]
-            // The combo goes first, so it is «v<round>.1» when it was simulable.
-            const first = saved[0]
-            if (combo && first?.label.endsWith(`v${searchRounds}.1`)) state.combos = [...(state.combos ?? []), first.id]
+            // The combo goes first and the revert after it, labelled «v<round>.1» and «.2» when they were simulable.
+            const at = (n: number) => saved.find((snapshot) => snapshot.label.endsWith(`v${searchRounds}.${n}`))
+            const comboSaved = combo ? at(1) : undefined
+            const revertSaved = revert ? at(combo ? 2 : 1) : undefined
+            if (comboSaved) state.combos = [...(state.combos ?? []), comboSaved.id]
+            if (revertSaved) state.reverts = [...(state.reverts ?? []), revertSaved.id]
             if (saved.length === 0) stop = 'no_variants'
             else {
               for (const variant of saved) {
@@ -1484,6 +1519,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               n: change.n,
             })),
             combos: state.combos ?? [],
+            reverts: state.reverts ?? [],
             confirmation: confirmationView(state, () =>
               confirm?.decided
                 ? confirmVerdict(
