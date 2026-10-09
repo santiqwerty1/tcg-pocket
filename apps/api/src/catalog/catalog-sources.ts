@@ -115,12 +115,18 @@ function assemble(
   return { input, files }
 }
 
-export type FetchLike = (url: string) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>
+export type FetchLike = (
+  url: string,
+  init?: { signal?: AbortSignal },
+) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>
+
+/** Fase 40: a download that hangs fails instead of holding the sync (or a preview) forever. */
+export const CATALOG_DOWNLOAD_TIMEOUT_MS = 60_000
 
 /** Downloads the pinned files (9 requests in parallel). */
 export async function fetchCatalogSources(pins: CatalogPins, fetchImpl: FetchLike = fetch): Promise<CatalogSources> {
   const download = async (url: string): Promise<string> => {
-    const response = await fetchImpl(url)
+    const response = await fetchImpl(url, { signal: AbortSignal.timeout(CATALOG_DOWNLOAD_TIMEOUT_MS) })
     if (!response.ok) throw new CatalogSourceError(`HTTP ${response.status} fetching ${url}`)
     return response.text()
   }

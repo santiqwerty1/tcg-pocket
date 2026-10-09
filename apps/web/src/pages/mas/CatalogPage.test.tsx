@@ -72,6 +72,38 @@ describe('día de expansión (Fase 40)', () => {
   })
   afterEach(() => vi.unstubAllGlobals())
 
+  it('the same cards but another commit: «Aplicar» is still there (images, missions or packs may change)', async () => {
+    const same = {
+      ...PREVIEW,
+      diff: { ...PREVIEW.diff, added: 0, removed: 0, nameChanged: 0, expansionsAdded: 0 },
+      diffEmpty: true,
+      expansionsAdded: [],
+      removed: [],
+      destructive: false,
+    }
+    const original = vi.mocked(fetch).getMockImplementation()
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const url = new URL(String(input), 'http://localhost')
+      if (url.pathname === '/api/catalog/preview') return json(same)
+      return (original as (input: unknown, init?: RequestInit) => Promise<Response>)(input, init)
+    })
+    const user = userEvent.setup()
+    const router = createMemoryRouter(routes, { initialEntries: ['/mas/catalogo'] })
+    render(
+      <Providers queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <RouterProvider router={router} />
+      </Providers>,
+    )
+    await user.click(await screen.findByRole('button', { name: /Buscar novedades/ }))
+    await user.click(await screen.findByRole('button', { name: /Actualizar al último del tracker/ }))
+    expect(await screen.findByText(/las cartas no cambian, pero puede traer/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^Aplicar$/ }))
+    expect(sent.at(-1)).toEqual({
+      url: '/api/catalog/sync',
+      body: { commit: NEWEST, engineRev: PREVIEW.engineRev, confirm: false },
+    })
+  })
+
   it('looks for news, shows what changes and applies only after confirming what leaves', async () => {
     const user = userEvent.setup()
     const router = createMemoryRouter(routes, { initialEntries: ['/mas/catalogo'] })

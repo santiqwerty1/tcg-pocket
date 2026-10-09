@@ -483,6 +483,10 @@ describe('catalog (e2e)', () => {
         latest: null,
         error: expect.stringMatching(/403/),
       })
+      // And a sync to a commit it cannot compare asks for confirmation (it may be going back).
+      const unknown = await test.http().post('/api/catalog/sync').set('Cookie', cookie).send({ commit: newest })
+      expect(unknown.status).toBe(409)
+      expect(unknown.body.error.message).toMatch(/No se pudo comparar/)
     } finally {
       commits.fetchImpl = fetch
     }

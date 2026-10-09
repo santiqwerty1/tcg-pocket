@@ -90,21 +90,27 @@ export class CatalogController {
     const commit = body.commit ?? (body.fromFixtures ? this.env.catalogCommit : (await this.commits.latest()).sha)
     const preview = await this.sync.preview({
       trackerCommit: commit,
-      engineRev: body.engineRev ?? this.catalog.engineRev ?? this.env.engineRev,
+      engineRev: body.engineRev ?? this.env.engineRev,
       source: body.fromFixtures ? 'fixtures' : 'github',
     })
-    const older = await this.isOlder(commit)
-    return { ...preview, older, destructive: preview.destructive || older }
+    const position = body.fromFixtures ? 'same' : await this.position(commit)
+    const older = position === 'older'
+    // Unknown (GitHub did not answer): it may be going back, so it asks too.
+    return { ...preview, older, destructive: preview.destructive || older || position === 'unknown' }
   }
 
-  /** The commit is behind the loaded one on the tracker (going back); false when unknown or GitHub does not answer. */
-  private async isOlder(commit: string): Promise<boolean> {
+  /**
+   * Where a commit stands against the loaded one on the tracker: `older` (going back), `unknown` when GitHub does not
+   * answer (treated as needing confirmation), else `same`/`newer`.
+   */
+  private async position(commit: string): Promise<'same' | 'newer' | 'older' | 'unknown'> {
     const current = this.catalog.trackerCommit
-    if (!current || current === commit) return false
+    if (!current || current === commit) return 'same'
     try {
-      return (await this.commits.compare(current, commit)).status === 'behind'
+      const status = (await this.commits.compare(current, commit)).status
+      return status === 'behind' ? 'older' : status === 'identical' ? 'same' : status === 'ahead' ? 'newer' : 'unknown'
     } catch {
-      return false
+      return 'unknown'
     }
   }
 
@@ -130,16 +136,21 @@ export class CatalogController {
     @CurrentSession() _session: RequestSession,
   ): Promise<{ syncId: number }> {
     const commit = body.commit ?? this.catalog.trackerCommit ?? this.env.catalogCommit
-    if (!body.confirm && !body.fromFixtures && (await this.isOlder(commit))) {
-      throw new ConflictException({
-        code: 'confirm_required',
-        message:
-          'Ese commit del tracker es anterior al cargado: volver atrás puede sacar cartas de la colección y de los mazos. Mirá la vista previa y confirmalo.',
-      })
+    if (!body.confirm && !body.fromFixtures) {
+      const position = await this.position(commit)
+      if (position === 'older' || position === 'unknown') {
+        throw new ConflictException({
+          code: 'confirm_required',
+          message:
+            position === 'older'
+              ? 'Ese commit del tracker es anterior al cargado: volver atrás puede sacar cartas de la colección y de los mazos. Mirá la vista previa y confirmalo.'
+              : 'No se pudo comparar ese commit con el cargado (GitHub no respondió): puede ser anterior. Mirá la vista previa y confirmalo.',
+        })
+      }
     }
     return this.sync.start({
       trackerCommit: commit,
-      engineRev: body.engineRev ?? this.catalog.engineRev ?? this.env.engineRev,
+      engineRev: body.engineRev ?? this.env.engineRev,
       source: body.fromFixtures ? 'fixtures' : 'github',
       guard: true,
       confirm: body.confirm ?? false,
