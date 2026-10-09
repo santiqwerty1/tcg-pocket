@@ -147,6 +147,72 @@ describe('playing against a bot (e2e)', () => {
     expect((await get('/api/play')).body.items[0]).toMatchObject({ id, status: 'done', winner: 'you' })
   })
 
+  it('modo entrenador (Fase 20): only workers 0.2.2+, scores hidden, the hint, a review of each choice', async () => {
+    const created = await post('/api/play').send({
+      human: { deckId: deckIds[1] },
+      rival: { deckId: deckIds[12] },
+      seed: 91,
+      coach: true,
+    })
+    expect(created.body).toMatchObject({ coach: true, coachReviews: [], coachSummary: { decisions: 0 } })
+    const id = created.body.id as number
+    const claim = (version?: string) =>
+      worker('post', '/api/worker/live/claim').send({
+        workerId: 'worker-coach-01',
+        engineRev: engineRev(),
+        ...(version ? { version } : {}),
+      })
+    expect((await claim('0.2.1')).body).toEqual({ game: null })
+    expect((await claim()).body).toEqual({ game: null })
+    expect((await claim('0.2.2')).body.game).toMatchObject({ id, coach: true, choices: [] })
+
+    const coached = (ply: number, scores: number[], best: number) => ({
+      ...decision(ply),
+      workerId: 'worker-coach-01',
+      coach: { scores, best },
+    })
+    await worker('put', `/api/worker/live/${id}/decision`).send(coached(1, [-100, 50], 1))
+    const waiting = (await get(`/api/play/${id}`)).body
+    expect(waiting.decision).toMatchObject({ ply: 1, hintAvailable: true, hint: null })
+    expect(JSON.stringify(waiting.decision)).not.toContain('scores')
+    expect((await post(`/api/play/${id}/hint`).send({ ply: 2 })).status).toBe(409)
+    expect((await post(`/api/play/${id}/hint`).send({ ply: 1 })).body.decision).toMatchObject({ hint: 1 })
+    const first = (await post(`/api/play/${id}/choice`).send({ ply: 1, i: 0 })).body
+    expect(first.coachReviews).toEqual([
+      {
+        ply: 1,
+        turn: 2,
+        options: 2,
+        chosen: 0,
+        best: 1,
+        chosenText: 'EndTurn',
+        bestText: 'Attack(Blaze Kick)',
+        gap: 150,
+        rank: 2,
+        verdict: 'inaccuracy',
+        hinted: true,
+        chosenAction: 'EndTurn',
+        bestAction: { Attack: { title: 'Blaze Kick' } },
+        ctx: { in_play: [], stadium: null },
+      },
+    ])
+
+    await worker('put', `/api/worker/live/${id}/decision`).send(coached(2, [0, -6000], 0))
+    const second = (await post(`/api/play/${id}/choice`).send({ ply: 2, i: 1 })).body
+    expect(second.coachReviews.map((review: { verdict: string }) => review.verdict)).toEqual(['inaccuracy', 'blunder'])
+    expect(second.coachSummary).toMatchObject({
+      decisions: 2,
+      counts: { best: 0, close: 0, inaccuracy: 1, mistake: 0, blunder: 1 },
+      agreement: 0,
+      hints: 1,
+      worst: [{ ply: 2, verdict: 'blunder', gap: 6000 }],
+    })
+    await worker('put', `/api/worker/live/${id}/decision`).send({ ...decision(3), workerId: 'worker-coach-01' })
+    expect((await post(`/api/play/${id}/hint`).send({ ply: 3 })).status).toBe(409)
+    expect((await get('/api/play')).body.items[0]).toMatchObject({ id, coach: true })
+    await post(`/api/play/${id}/abandon`)
+  })
+
   it('a worker that went away: the game is claimed again with the choices made so far', async () => {
     const created = await post('/api/play').send({
       human: { deckId: deckIds[1] },

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, type Chunk, type ChunkResult, type LiveGame, WorkerClient } from '../src/client.js'
 import type { WorkerConfig } from '../src/config.js'
 import { EngineError, engineStatus, engineVersion, runJob } from '../src/engine.js'
-import { LiveRunner } from '../src/live.js'
+import { LiveRunner, OLD_ENGINE_COACH } from '../src/live.js'
 import { Worker } from '../src/worker.js'
 
 const FAKE_ENGINE = join(dirname(fileURLToPath(import.meta.url)), 'fake-engine.mjs')
@@ -344,6 +344,27 @@ describe('games against a bot (Fase 8)', () => {
     expect(calls.decisions.map((decision) => decision.ply)).toEqual([2])
     expect(calls.end?.winner).toBe('bot')
     expect(calls.replay).toMatchObject({ choices: [1, 0] })
+  })
+
+  it('modo entrenador: the job asks for the coach and its scores go to the app; an old engine is a clear failure', async () => {
+    const { client } = liveClient([1, 1])
+    const decide = client.liveDecision as unknown as ReturnType<typeof vi.fn>
+    await new LiveRunner(config, client, silent, dataDir).run({ ...game(), coach: true }, new AbortController().signal)
+    expect(decide.mock.calls.map(([, body]) => body.coach)).toEqual([
+      { scores: [-120.5, 30], best: 1 },
+      { scores: [-120.5, 30], best: 1 },
+    ])
+    const plain = liveClient([1, 1])
+    await new LiveRunner(config, plain.client, silent, dataDir).run(game(), new AbortController().signal)
+    const plainDecide = plain.client.liveDecision as unknown as ReturnType<typeof vi.fn>
+    expect(plainDecide.mock.calls.every(([, body]) => body.coach === undefined)).toBe(true)
+    const old = liveClient([1, 1])
+    await expect(
+      new LiveRunner(config, old.client, silent, dataDir).run(
+        { ...game(), seed: '666', coach: true },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(OLD_ENGINE_COACH)
   })
 
   it('stops the engine when the owner abandons the game, without reporting a failure', async () => {

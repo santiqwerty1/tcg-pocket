@@ -12,6 +12,11 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { gzipSync } from 'node:zlib'
 import { ApiError, type LiveGame, type Log, type WorkerClient } from './client.js'
 import type { WorkerConfig } from './config.js'
+import { WORKER_VERSION } from './version.js'
+
+/** An engine built before the coach (Fase 20) ignores `coach` in the job: say how to fix it. */
+export const OLD_ENGINE_COACH =
+  'El motor de esta PC no tiene el modo entrenador: recompilá el motor (cargo build --release en engine/) y reiniciá el worker.'
 
 type EngineLine =
   | { type: 'start'; seed: string }
@@ -22,6 +27,7 @@ type EngineLine =
       turn: number
       state: Record<string, unknown>
       actions: { i: number; text: string; action: unknown }[]
+      coach?: { scores: number[]; best: number }
     }
   | { type: 'invalid'; ply: number; message: string }
   | { type: 'end'; winner: 'you' | 'bot' | 'tie'; turns: number; state: Record<string, unknown>; replay: string | null }
@@ -53,7 +59,9 @@ export class LiveRunner {
     while (!signal.aborted) {
       let game: LiveGame | null
       try {
-        game = (await this.client.liveClaim({ workerId: this.config.workerId, engineRev }, signal)).game
+        game = (
+          await this.client.liveClaim({ workerId: this.config.workerId, engineRev, version: WORKER_VERSION }, signal)
+        ).game
       } catch (error) {
         if (signal.aborted) return
         if (error instanceof ApiError && error.status === 404) {
@@ -89,6 +97,7 @@ export class LiveRunner {
         bot: game.bot,
         seed: Number(game.seed),
         replayDir: join(dir, 'replays'),
+        coach: game.coach === true,
       }),
     )
     const [command, prefix] = /\.m?js$/.test(this.config.enginePath)
@@ -114,6 +123,7 @@ export class LiveRunner {
           const { type: _type, ...entry } = message
           actions.push(entry)
         } else if (message.type === 'decide') {
+          if (game.coach === true && !message.coach) throw new Error(OLD_ENGINE_COACH)
           const known = game.choices[message.ply - 1]
           if (known !== undefined) {
             answer(known)
@@ -177,6 +187,7 @@ export class LiveRunner {
       state: decision.state,
       actions: decision.actions,
       log,
+      ...(decision.coach ? { coach: decision.coach } : {}),
     })
     if (sent.choice !== null) return sent.choice
     if (!['running', 'waiting'].includes(sent.status)) return null

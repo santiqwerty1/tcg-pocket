@@ -7,7 +7,9 @@
 //! stdout lines:
 //!   {"type":"start","engineRev","seed","you":0,"bot"}
 //!   {"type":"action","ply","turn","actor","text","action","ctx"}   every action of either player, in order
-//!   {"type":"decide","ply","turn","state","actions":[{"i","text","action"}]}   the owner chooses (2+ options)
+//!   {"type":"decide","ply","turn","state","actions":[{"i","text","action"}],"coach"?:{"scores","best"}}
+//!                                                                   the owner chooses (2+ options); with the coach
+//!                                                                   (Fase 20), the value of each option first
 //!   {"type":"invalid","ply","message"}                              a choice out of range: `decide` comes again
 //!   {"type":"end","winner":"you"|"bot"|"tie","turns","state","replay"}
 //! `ply` numbers the owner's decisions (1, 2…); a forced move (one option) is taken without asking. The game is fully
@@ -31,7 +33,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::{require_simulable, CliError, ENGINE_REV};
+use crate::coach::{best_option, coach_scores, COACH_SAMPLES};
+use crate::{game_seed, require_simulable, CliError, ENGINE_REV};
 
 /// The owner's seat.
 const HUMAN: usize = 0;
@@ -47,6 +50,15 @@ pub struct PlayJob {
     /// Where the replay of the finished game is written (`<game_id>.json`).
     #[serde(default)]
     replay_dir: Option<String>,
+    /// Modo entrenador (Fase 20): score every option of each decision before asking.
+    #[serde(default)]
+    coach: bool,
+}
+
+/// What the coach needs: both decks and its own seed (never the game's).
+struct CoachSetup {
+    decks: [Deck; 2],
+    seed: u64,
 }
 
 fn emit(value: &Value) {
@@ -70,6 +82,9 @@ fn context(state: &State) -> Value {
 struct RemoteHuman {
     deck: Deck,
     ply: u32,
+    coach: Option<CoachSetup>,
+    /// The coach's values for the last decision: the replay records them next to it.
+    last_scores: Option<Vec<f64>>,
 }
 
 impl std::fmt::Debug for RemoteHuman {
@@ -94,6 +109,10 @@ impl Player for RemoteHuman {
         self.deck.clone()
     }
 
+    fn last_scores(&self) -> Option<Vec<f64>> {
+        self.last_scores.clone()
+    }
+
     fn decision_fn(&mut self, _rng: &mut StdRng, state: &State, possible_actions: &[Action]) -> Action {
         if possible_actions.len() == 1 {
             return possible_actions[0].clone();
@@ -105,13 +124,26 @@ impl Player for RemoteHuman {
             .enumerate()
             .map(|(i, a)| json!({ "i": i, "text": a.action.to_string(), "action": a.action }))
             .collect();
-        let decide = json!({
+        let mut decide = json!({
             "type": "decide",
             "ply": self.ply,
             "turn": state.turn_count,
             "state": ViewState::for_player(state, actor),
             "actions": actions,
         });
+        self.last_scores = None;
+        if let Some(coach) = &self.coach {
+            let scores = coach_scores(
+                state,
+                possible_actions,
+                &coach.decks,
+                game_seed(coach.seed, u64::from(self.ply)),
+                COACH_SAMPLES,
+            );
+            let rounded: Vec<f64> = scores.iter().map(|score| (score * 10.0).round() / 10.0).collect();
+            decide["coach"] = json!({ "scores": rounded, "best": best_option(&scores) });
+            self.last_scores = Some(scores);
+        }
         emit(&decide);
         let stdin = std::io::stdin();
         loop {
@@ -190,6 +222,7 @@ pub fn play(job: PlayJob) -> Result<(), CliError> {
         "seed": job.seed.to_string(),
         "you": HUMAN,
         "bot": job.bot,
+        "coach": job.coach,
         "gameId": game_id.to_string(),
     }));
     let outcome = catch_unwind(AssertUnwindSafe(|| {
@@ -201,7 +234,12 @@ pub fn play(job: PlayJob) -> Result<(), CliError> {
         let bot = create_players(deck_human.clone(), deck_bot.clone(), vec![code.clone(), code.clone()])
             .pop()
             .expect("two players");
-        let players: Vec<Box<dyn Player>> = vec![Box::new(RemoteHuman { deck: deck_human.clone(), ply: 0 }), bot];
+        let coach = job.coach.then(|| CoachSetup {
+            decks: [deck_human.clone(), deck_bot.clone()],
+            seed: job.seed ^ 0xC0AC_4000_0000_0000,
+        });
+        let human = RemoteHuman { deck: deck_human.clone(), ply: 0, coach, last_scores: None };
+        let players: Vec<Box<dyn Player>> = vec![Box::new(human), bot];
         let player_names = ["Santi".to_string(), format!("bot {}", job.bot)];
         let decks = [players[0].get_deck(), players[1].get_deck()];
         let metadata = GameStartMetadata { seed: job.seed, player_names, decks: [&decks[0], &decks[1]] };

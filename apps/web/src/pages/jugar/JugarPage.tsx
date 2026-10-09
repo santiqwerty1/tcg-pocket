@@ -16,7 +16,9 @@ import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Field, Section } from '@/components/Section'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatDateTime } from '@/lib/format'
 
@@ -60,7 +62,8 @@ function GamesList() {
               <Badge variant={game.status === 'waiting' ? 'default' : 'outline'}>{resultLabel(game)}</Badge>
             </div>
             <span className="text-xs text-muted-foreground">
-              #{game.id} · bot {game.botEs} · {formatDateTime(game.createdAt)}
+              #{game.id} · bot {game.botEs}
+              {game.coach ? ' · entrenador' : ''} · {formatDateTime(game.createdAt)}
               {game.turns ? ` · ${game.turns} turnos` : ''}
             </span>
           </Link>
@@ -80,6 +83,7 @@ export function JugarPage() {
   const [rivalKind, setRivalKind] = useState<'meta' | 'deck'>('meta')
   const [rival, setRival] = useState('')
   const [bot, setBot] = useState('e2')
+  const [coach, setCoach] = useState(false)
   const online = (engine.data?.workers ?? []).some((worker) => worker.online)
 
   const rivalSource: PlaySource | null = rival
@@ -91,7 +95,7 @@ export function JugarPage() {
   async function start() {
     if (!mine || !rivalSource) return
     try {
-      const game = await create.mutateAsync({ human: { deckId: mine }, rival: rivalSource, bot })
+      const game = await create.mutateAsync({ human: { deckId: mine }, rival: rivalSource, bot, coach })
       navigate(`/jugar/${game.id}`)
     } catch (error) {
       toast.error(errorMessage(error))
@@ -170,6 +174,15 @@ export function JugarPage() {
             </SelectContent>
           </Select>
         </Field>
+        <Label className="flex min-h-14 items-center justify-between gap-3 rounded-lg border px-3">
+          <span>
+            <span className="block font-medium">Modo entrenador</span>
+            <span className="block text-xs text-muted-foreground">
+              Después de cada jugada te dice qué habría hecho el motor y cuánto se pierde; podés pedir una pista.
+            </span>
+          </span>
+          <Switch checked={coach} onCheckedChange={setCoach} />
+        </Label>
         <Button type="button" disabled={!mine || !rivalSource || create.isPending} onClick={() => void start()}>
           <SwordsIcon aria-hidden="true" />
           Empezar

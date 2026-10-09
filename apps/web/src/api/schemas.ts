@@ -1744,7 +1744,41 @@ export const liveDecisionSchema = z.object({
   turn: z.number(),
   state: z.record(z.string(), z.unknown()),
   actions: z.array(z.object({ i: z.number(), text: z.string(), action: z.unknown() })),
+  /** Modo entrenador (Fase 20). */
+  hintAvailable: z.boolean().default(false),
+  hint: z.number().nullable().default(null),
 })
+
+export const COACH_VERDICTS = ['best', 'close', 'inaccuracy', 'mistake', 'blunder'] as const
+export type CoachVerdict = (typeof COACH_VERDICTS)[number]
+export const coachReviewSchema = z.object({
+  ply: z.number(),
+  turn: z.number(),
+  options: z.number(),
+  chosen: z.number(),
+  best: z.number(),
+  chosenText: z.string(),
+  bestText: z.string(),
+  gap: z.number(),
+  rank: z.number(),
+  verdict: z.enum(COACH_VERDICTS),
+  hinted: z.boolean(),
+  chosenAction: z.unknown().optional(),
+  bestAction: z.unknown().optional(),
+  ctx: z
+    .object({ in_play: z.array(z.array(z.string().nullable())), stadium: z.string().nullable() })
+    .nullable()
+    .optional(),
+})
+export type CoachReview = z.infer<typeof coachReviewSchema>
+export const coachSummarySchema = z.object({
+  decisions: z.number(),
+  counts: z.record(z.enum(COACH_VERDICTS), z.number()),
+  agreement: z.number(),
+  hints: z.number(),
+  worst: z.array(coachReviewSchema),
+})
+export type CoachSummary = z.infer<typeof coachSummarySchema>
 export type LiveDecision = z.infer<typeof liveDecisionSchema>
 
 export const liveLogEntrySchema = z
@@ -1783,6 +1817,9 @@ export const liveGameSchema = z.object({
   decision: liveDecisionSchema.nullable(),
   log: z.array(liveLogEntrySchema),
   choices: z.number(),
+  coach: z.boolean().default(false),
+  coachReviews: z.array(coachReviewSchema).default([]),
+  coachSummary: coachSummarySchema.nullable().default(null),
   winner: z.enum(['you', 'bot', 'tie']).nullable(),
   turns: z.number().nullable(),
   finalState: z.record(z.string(), z.unknown()).nullable(),
@@ -1802,6 +1839,7 @@ export const liveGamesSchema = z.object({
     z.object({
       id: z.number(),
       status: z.enum(LIVE_GAME_STATUSES),
+      coach: z.boolean().default(false),
       botEs: z.string(),
       human: z.string(),
       rival: z.string(),
@@ -1823,6 +1861,8 @@ export interface PlayInput {
   rival: PlaySource
   bot?: string
   seed?: number
+  /** Modo entrenador (Fase 20). */
+  coach?: boolean
 }
 
 // ---------- Avisos (Fase 8) ----------

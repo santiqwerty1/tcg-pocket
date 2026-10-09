@@ -36,6 +36,8 @@ pnpm -F @tcg/worker install-task        # arranca oculto al iniciar sesión (tar
 pnpm -F @tcg/worker uninstall-task
 ```
 
+Worker 0.2.2 (Fase 20): las partidas con modo entrenador necesitan un motor compilado con `engine/src/coach.rs`; un motor anterior hace fallar la partida con «recompilá el motor».
+
 El motor: `cargo build --release` en `engine/` (Rust estable y WinLibs en el `PATH`, ver CLAUDE.md) o `pnpm -F @tcg/worker engine:build`.
 
 ## Tests

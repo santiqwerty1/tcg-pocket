@@ -845,6 +845,10 @@ model LiveGame {
   decision        Json?
   /// Every action so far, as the engine reported it.
   log             Json           @default("[]")
+  /// Modo entrenador (Fase 20): the engine scores every option of each decision.
+  coach           Boolean        @default(false)
+  /// One review per owner choice (`CoachReview` of @tcg/domain).
+  coachLog        Json           @default("[]") @map("coach_log")
   /// you | bot | tie
   winner          String?
   turns           Int?

@@ -9,7 +9,20 @@ import { randomInt } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { gunzipSync } from 'node:zlib'
 import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common'
-import { botLabel, isBotCode, MAX_BASE_SEED, randomBaseSeed, type SnapshotCard } from '@tcg/domain'
+import {
+  botLabel,
+  type CoachReview,
+  type CoachScores,
+  type CoachSummary,
+  coachContext,
+  coachSummary,
+  isBotCode,
+  MAX_BASE_SEED,
+  parseCoachScores,
+  randomBaseSeed,
+  reviewChoice,
+  type SnapshotCard,
+} from '@tcg/domain'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { Prisma } from '../generated/prisma/client.js'
 import { parseNumericId } from '../http/ids.js'
@@ -23,6 +36,8 @@ const LONG_POLL_MS = 25_000
 const STALE_MS = 7 * 24 * 60 * 60 * 1000
 const WORKER_ONLINE_MS = 2 * 60 * 1000
 export const MAX_LIVE_REPLAY_BYTES = 8 * 1024 * 1024
+/** Workers older than this do not pass `coach` to the engine nor its scores back (Fase 20). */
+export const COACH_WORKER_VERSION = '0.2.2'
 
 type GameRow = Prisma.LiveGameGetPayload<object>
 
@@ -31,6 +46,21 @@ export interface LiveDecision {
   turn: number
   state: Prisma.JsonValue
   actions: { i: number; text: string; action: Prisma.JsonValue }[]
+  /** Modo entrenador: the engine's value of each option (never shown before the choice). */
+  coach?: CoachScores | null
+  /** The owner asked for the hint. */
+  hinted?: boolean
+}
+
+/** The pending decision as the owner sees it: no scores, only the hint once asked for. */
+export interface LiveDecisionView {
+  ply: number
+  turn: number
+  state: Prisma.JsonValue
+  actions: { i: number; text: string; action: Prisma.JsonValue }[]
+  hintAvailable: boolean
+  /** The coach's option, once the owner asked for it. */
+  hint: number | null
 }
 
 export interface LiveGameView {
@@ -42,9 +72,13 @@ export interface LiveGameView {
   engineRev: string
   human: { snapshot: number; label: string; deckId: string | null }
   rival: { snapshot: number; label: string; deckId: string | null; listKey: string | null }
-  decision: LiveDecision | null
+  decision: LiveDecisionView | null
   log: Prisma.JsonValue
   choices: number
+  /** Modo entrenador (Fase 20). */
+  coach: boolean
+  coachReviews: CoachReview[]
+  coachSummary: CoachSummary | null
   winner: 'you' | 'bot' | 'tie' | null
   turns: number | null
   finalState: Prisma.JsonValue | null
@@ -62,6 +96,7 @@ export interface LiveGameView {
 export interface LiveGameSummaryView {
   id: number
   status: GameRow['status']
+  coach: boolean
   botEs: string
   human: string
   rival: string
@@ -79,6 +114,8 @@ export interface ClaimedLiveGame {
   seed: string
   /** Choices already made: replay them before asking for more. */
   choices: number[]
+  /** Modo entrenador: the engine scores every option (workers 0.2.2+). */
+  coach: boolean
 }
 
 @Injectable()
@@ -120,6 +157,7 @@ export class LiveGamesService {
     rival: SnapshotSource
     bot?: string
     seed?: number
+    coach?: boolean
   }): Promise<LiveGameView> {
     const bot = input.bot ?? 'e2'
     if (!isBotCode(bot)) throw new BadRequestException({ code: 'validation', message: `Bot «${bot}» desconocido.` })
@@ -150,6 +188,7 @@ export class LiveGamesService {
         seed: BigInt(seed),
         engineRev: this.engine.engineRev(),
         choices: [],
+        coach: input.coach ?? false,
       },
     })
     this.events.emit('queued')
@@ -172,6 +211,7 @@ export class LiveGamesService {
     return games.map((game) => ({
       id: game.id,
       status: game.status,
+      coach: game.coach,
       botEs: botLabel(game.bot),
       human: game.humanLabel || labels.get(game.humanSnapshotId) || `#${game.humanSnapshotId}`,
       rival: game.rivalLabel || labels.get(game.botSnapshotId) || `#${game.botSnapshotId}`,
@@ -230,9 +270,12 @@ export class LiveGamesService {
         deckId: rival?.deckId == null ? null : String(rival.deckId),
         listKey: rival?.sourceType === 'tournament_list' ? rival.sourceId : null,
       },
-      decision: game.status === 'waiting' ? (game.decision as unknown as LiveDecision | null) : null,
+      decision: game.status === 'waiting' ? decisionView(game.decision as unknown as LiveDecision | null) : null,
       log: game.log,
       choices: game.choices.length,
+      coach: game.coach,
+      coachReviews: game.coachLog as unknown as CoachReview[],
+      coachSummary: game.coach ? coachSummary(game.coachLog as unknown as CoachReview[]) : null,
       winner: game.winner as LiveGameView['winner'],
       turns: game.turns,
       finalState: game.finalState,
@@ -260,11 +303,47 @@ export class LiveGamesService {
     if (!Number.isInteger(input.i) || input.i < 0 || input.i >= decision.actions.length) {
       throw new BadRequestException({ code: 'validation', message: 'Esa opción no existe.' })
     }
+    const coach = parseCoachScores(decision.coach)
+    const reviews = game.coachLog as unknown as CoachReview[]
+    const review = coach
+      ? reviewChoice({
+          ply: decision.ply,
+          turn: decision.turn,
+          coach,
+          chosen: input.i,
+          texts: decision.actions.map((action) => action.text),
+          hinted: decision.hinted,
+          actions: decision.actions.map((action) => action.action),
+          ctx: coachContext(decision.state),
+        })
+      : null
     const updated = await this.prisma.liveGame.update({
       where: { id: game.id },
-      data: { choices: { push: input.i }, status: 'running', decision: Prisma.DbNull },
+      data: {
+        choices: { push: input.i },
+        status: 'running',
+        decision: Prisma.DbNull,
+        ...(review ? { coachLog: [...reviews, review] as unknown as Prisma.InputJsonValue } : {}),
+      },
     })
     this.events.emit(`choice:${game.id}`)
+    return this.view(updated)
+  }
+
+  /** Modo entrenador: the coach's option for the pending decision (the review remembers it was asked for). */
+  async hint(rawId: string, input: { ply: number }): Promise<LiveGameView> {
+    const game = await this.requireGame(rawId)
+    const decision = game.decision as unknown as LiveDecision | null
+    if (game.status !== 'waiting' || !decision || decision.ply !== input.ply) {
+      throw new ConflictException({ code: 'stale_decision', message: 'Esa decisión ya pasó: recargá la partida.' })
+    }
+    if (!parseCoachScores(decision.coach)) {
+      throw new ConflictException({ code: 'no_coach', message: 'Esta partida no tiene el modo entrenador.' })
+    }
+    const updated = await this.prisma.liveGame.update({
+      where: { id: game.id },
+      data: { decision: { ...decision, hinted: true } as unknown as Prisma.InputJsonValue },
+    })
     return this.view(updated)
   }
 
@@ -289,13 +368,14 @@ export class LiveGamesService {
   // Worker
   // ---------------------------------------------------------------------------------------------------------------
 
-  private async tryClaim(workerId: string, engineRev: string): Promise<ClaimedLiveGame | null> {
+  private async tryClaim(workerId: string, engineRev: string, version: string): Promise<ClaimedLiveGame | null> {
     const rows = await this.prisma.$queryRaw<{ id: number }[]>`
       UPDATE live_games SET status = CASE WHEN status = 'queued' THEN 'running'::"LiveGameStatus" ELSE status END,
         worker_id = ${workerId}, lease_until = now() + interval '3 minutes'
       WHERE id = (
         SELECT id FROM live_games
         WHERE engine_rev = ${engineRev}
+          AND (coach = false OR ${version} >= ${COACH_WORKER_VERSION})
           AND (status = 'queued' OR (status IN ('running', 'waiting') AND (lease_until IS NULL OR lease_until < now())))
         ORDER BY id
         FOR UPDATE SKIP LOCKED
@@ -316,15 +396,21 @@ export class LiveGamesService {
       bot: game.bot,
       seed: game.seed.toString(),
       choices: game.choices,
+      coach: game.coach,
     }
   }
 
   /** A game for this worker (a new one, or one whose worker went away), waiting up to 25 s. */
-  async claim(input: { workerId: string; engineRev: string }): Promise<{ game: ClaimedLiveGame | null }> {
-    const now = await this.tryClaim(input.workerId, input.engineRev)
+  async claim(input: {
+    workerId: string
+    engineRev: string
+    version?: string | undefined
+  }): Promise<{ game: ClaimedLiveGame | null }> {
+    const version = input.version ?? '0'
+    const now = await this.tryClaim(input.workerId, input.engineRev, version)
     if (now) return { game: now }
     await this.wait('queued')
-    return { game: await this.tryClaim(input.workerId, input.engineRev) }
+    return { game: await this.tryClaim(input.workerId, input.engineRev, version) }
   }
 
   private async requireLease(id: number, workerId: string): Promise<GameRow> {
@@ -349,7 +435,13 @@ export class LiveGamesService {
     }
     const made = game.choices[input.ply - 1]
     if (made !== undefined) return { choice: made, status: game.status }
-    const decision: LiveDecision = { ply: input.ply, turn: input.turn, state: input.state, actions: input.actions }
+    const decision: LiveDecision = {
+      ply: input.ply,
+      turn: input.turn,
+      state: input.state,
+      actions: input.actions,
+      coach: parseCoachScores(input.coach),
+    }
     await this.prisma.liveGame.update({
       where: { id },
       data: {
@@ -427,5 +519,18 @@ export class LiveGamesService {
     }
     await this.prisma.liveGame.update({ where: { id }, data: { replayGz: new Uint8Array(body) } })
     return { ok: true }
+  }
+}
+
+function decisionView(decision: LiveDecision | null): LiveDecisionView | null {
+  if (!decision) return null
+  const coach = parseCoachScores(decision.coach)
+  return {
+    ply: decision.ply,
+    turn: decision.turn,
+    state: decision.state,
+    actions: decision.actions,
+    hintAvailable: coach !== null,
+    hint: coach && decision.hinted ? coach.best : null,
   }
 }

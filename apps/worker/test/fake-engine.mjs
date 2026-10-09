@@ -112,7 +112,9 @@ if (command === 'version') {
   let ply = 0
   const ask = () => {
     ply++
-    say({ type: 'decide', ply, turn: ply, state, actions: options })
+    // Modo entrenador: scores for each option, unless the seed plays an engine built before the coach (666).
+    const coach = job.coach && job.seed !== 666 ? { coach: { scores: [-120.5, 30], best: 1 } } : {}
+    say({ type: 'decide', ply, turn: ply, state, actions: options, ...coach })
   }
   ask()
   let buffer = ''

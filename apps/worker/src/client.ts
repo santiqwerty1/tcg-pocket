@@ -47,6 +47,8 @@ export interface LiveGame {
   bot: string
   seed: string
   choices: number[]
+  /** Modo entrenador (Fase 20): the engine scores every option of each decision. */
+  coach?: boolean
 }
 
 export interface ChunkResult {
@@ -165,7 +167,7 @@ export class WorkerClient {
     })
   }
 
-  liveClaim(body: { workerId: string; engineRev: string }, signal?: AbortSignal) {
+  liveClaim(body: { workerId: string; engineRev: string; version: string }, signal?: AbortSignal) {
     return this.request<{ game: LiveGame | null }>('POST', '/api/worker/live/claim', body, {
       ...(signal ? { signal } : {}),
       timeoutMs: 60_000,
@@ -181,6 +183,7 @@ export class WorkerClient {
       state: Record<string, unknown>
       actions: { i: number; text: string; action: unknown }[]
       log: Record<string, unknown>[]
+      coach?: { scores: number[]; best: number }
     },
   ) {
     return this.request<{ choice: number | null; status: string }>('PUT', `/api/worker/live/${id}/decision`, body)

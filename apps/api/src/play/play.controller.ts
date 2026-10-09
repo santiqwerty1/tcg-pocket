@@ -56,11 +56,18 @@ const createSchema = z.object({
     .min(0)
     .max(2 ** 52)
     .optional(),
+  /** Modo entrenador (Fase 20). */
+  coach: z.boolean().optional(),
 })
+const hintSchema = z.object({ ply: z.number().int().min(1) })
 const choiceSchema = z.object({ ply: z.number().int().min(1), i: z.number().int().min(0).max(500) })
 const idParam = z.coerce.number().int().positive()
 const workerId = z.string().min(8).max(64)
-const claimSchema = z.object({ workerId, engineRev: z.string().regex(/^[0-9a-f]{40}$/) })
+const claimSchema = z.object({
+  workerId,
+  engineRev: z.string().regex(/^[0-9a-f]{40}$/),
+  version: z.string().max(20).optional(),
+})
 const decisionSchema = z.object({
   workerId,
   ply: z.number().int().min(1),
@@ -71,6 +78,8 @@ const decisionSchema = z.object({
     .min(1)
     .max(500),
   log: z.array(z.record(z.string(), z.unknown())).max(20_000),
+  /** Modo entrenador: the engine's value of each option. */
+  coach: z.object({ scores: z.array(z.number()).max(500), best: z.number().int().min(0) }).optional(),
 })
 const waitSchema = z.object({ workerId, ply: z.number().int().min(1) })
 const endSchema = z.object({
@@ -114,6 +123,17 @@ export class PlayController {
     @CurrentSession() _session: RequestSession,
   ): Promise<LiveGameView> {
     return this.games.choose(id, body)
+  }
+
+  /** Modo entrenador: reveal the coach's option for the pending decision. */
+  @Post(':id/hint')
+  @HttpCode(200)
+  hint(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(hintSchema)) body: z.infer<typeof hintSchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<LiveGameView> {
+    return this.games.hint(id, body)
   }
 
   @Post(':id/abandon')

@@ -16,6 +16,7 @@
 //!
 //! Exit codes: 0 ok · 2 bad input (bad JSON, invalid deck, unknown card) · 3 the engine failed (a game panicked).
 
+mod coach;
 mod consistency;
 mod play;
 

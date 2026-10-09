@@ -435,29 +435,35 @@ La partida corre en el worker de la PC (`engine-cli play`); la app muestra cada 
 
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
-| `GET /api/play` | `{ items: [{ id, status, botEs, human, rival, winner, turns, createdAt, finishedAt }] }` (30 más recientes; las que llevan una semana sin movimiento pasan a `abandoned`) |
-| `POST /api/play` | `{ human: Source, rival: Source, bot? (e2), seed? }` → `201 LiveGame`; `400 not_simulable` si un mazo no se puede jugar |
+| `GET /api/play` | `{ items: [{ id, status, coach, botEs, human, rival, winner, turns, createdAt, finishedAt }] }` (30 más recientes; las que llevan una semana sin movimiento pasan a `abandoned`) |
+| `POST /api/play` | `{ human: Source, rival: Source, bot? (e2), seed?, coach? (false) }` → `201 LiveGame`; `400 not_simulable` si un mazo no se puede jugar. `coach`: modo entrenador (Fase 20) |
 | `GET /api/play/:id` | `LiveGame` |
 | `POST /api/play/:id/choice` | `{ ply, i }` → `LiveGame`; `409 not_your_turn` / `stale_decision`, `400` opción inexistente |
+| `POST /api/play/:id/hint` | Fase 20: `{ ply }` → `LiveGame` con `decision.hint` = la opción del entrenador; `409 stale_decision` / `no_coach` |
 | `POST /api/play/:id/abandon` | `LiveGame` (el worker corta el motor en su próximo long-poll) |
 | `GET /api/play/:id/replay/raw` | La repetición de la partida terminada (para `/viewer/index.html?url=…`) |
 
 ```ts
 LiveGame = { id, status: 'queued'|'running'|'waiting'|'done'|'abandoned'|'failed', bot, botEs, seed, engineRev,
              human: { snapshot, label, deckId }, rival: { snapshot, label, deckId, listKey },
-             decision: { ply, turn, state: ViewState (lo que ve tu asiento: la mano del bot oculta), actions: [{ i, text, action }] } | null,
+             decision: { ply, turn, state: ViewState (lo que ve tu asiento: la mano del bot oculta), actions: [{ i, text, action }],
+                         hintAvailable, hint: number | null } | null,
+             coach: boolean, coachReviews: CoachReview[], coachSummary: { decisions, counts: { best, close, inaccuracy,
+                         mistake, blunder }, agreement (0–100), hints, worst: CoachReview[≤3] } | null,
              log: [{ ply, turn, actor (0 vos, 1 bot), forced, text, action, ctx: { in_play: [[cardId|null]×4]×2, stadium } }],
              choices, winner: 'you'|'bot'|'tie'|null, turns, finalState, replay: boolean,
              names: { [engineId]: nombre en español }, cards: { [engineId]: { id, name (inglés) } },
              workerOnline, error, createdAt, updatedAt, finishedAt }
+CoachReview = { ply, turn, options, chosen, best, chosenText, bestText, gap, rank, verdict: 'best'|'close'|'inaccuracy'|
+                'mistake'|'blunder', hinted, chosenAction, bestAction, ctx }
 ```
 
 Worker (`Bearer tcg_wk_…`, scope `worker:claim`):
 
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
-| `POST /api/worker/live/claim` | `{ workerId, engineRev }` → long-poll de hasta 25 s → `{ game: { id, deckHuman, deckBot, bot, seed, choices } | null }` (una nueva, o una cuyo worker se fue) |
-| `PUT /api/worker/live/:id/decision` | `{ workerId, ply, turn, state, actions, log }` → `{ choice | null, status }` (`choice` ya está si la partida se reconstruye o la elegiste con la PC apagada) |
+| `POST /api/worker/live/claim` | `{ workerId, engineRev, version? }` → long-poll de hasta 25 s → `{ game: { id, deckHuman, deckBot, bot, seed, choices, coach } | null }` (una nueva, o una cuyo worker se fue; las de entrenador, solo para `version` ≥ 0.2.2) |
+| `PUT /api/worker/live/:id/decision` | `{ workerId, ply, turn, state, actions, log, coach?: { scores, best } }` → `{ choice | null, status }` (`choice` ya está si la partida se reconstruye o la elegiste con la PC apagada) |
 | `POST /api/worker/live/:id/choice` | `{ workerId, ply }` → long-poll de hasta 25 s → `{ choice | null, status }`; renueva el lease; `status: abandoned` corta |
 | `PUT /api/worker/live/:id/end` | `{ workerId, winner, turns, state, log }` → `{ ok }` |
 | `PUT /api/worker/live/:id/failure` | `{ workerId, error }` → `{ ok }` |

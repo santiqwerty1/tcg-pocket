@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-08 (62 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-08 (63 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- phase 19 — build a deck from a core of cards (T-012) `b3e9216`
 - phase 18 — notifications to the phone (T-012) `625a9d4`
 - phase 17 — pack luck between CSV imports (T-012) `495068b`
 - phase 16 — events with deck rules (T-012) `8e57fc4`

@@ -3,12 +3,12 @@
  * actions of your turn as buttons, and what happened, the bot's moves included. The game runs on the PC; this page
  * shows it and sends your choices.
  */
-import { FlagIcon, PlayIcon } from 'lucide-react'
+import { FlagIcon, LightbulbIcon, PlayIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
-import { useAbandon, useChoose, usePlayGame } from '@/api/play'
+import { useAbandon, useChoose, useHint, usePlayGame } from '@/api/play'
 import type { LiveGame, LiveLogEntry } from '@/api/schemas'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { ErrorState, LoadingRows, Spinner } from '@/components/ListState'
@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import { energyEs, type Replay, ReplayReader, type ReplaySlot, type ReplayState } from '@/lib/replay'
 import { cn } from '@/lib/utils'
 import { Slot } from '../simulacion/ReplayPage'
+import { CoachLast, CoachSummarySection } from './Coach'
 
 const WHO = ['Vos', 'Bot'] as const
 
@@ -193,6 +194,7 @@ export function GamePage() {
   const query = usePlayGame(id)
   const choose = useChoose(id)
   const abandon = useAbandon(id)
+  const hint = useHint(id)
   const [confirm, setConfirm] = useState(false)
   const lastState = useRef<ReplayState | null>(null)
   const game = query.data
@@ -263,15 +265,39 @@ export function GamePage() {
         </div>
       ) : null}
 
+      {game.coach ? <CoachLast game={game} reader={reader} /> : null}
+
       {game.decision ? (
-        <Section title={`Tu decisión (turno ${game.decision.turn})`}>
+        <Section
+          title={`Tu decisión (turno ${game.decision.turn})`}
+          action={
+            game.decision.hintAvailable && game.decision.hint === null ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={hint.isPending}
+                onClick={() =>
+                  game.decision &&
+                  hint.mutate({ ply: game.decision.ply }, { onError: (error) => toast.error(errorMessage(error)) })
+                }
+              >
+                <LightbulbIcon aria-hidden="true" />
+                Pista
+              </Button>
+            ) : null
+          }
+        >
           <div className="flex flex-col gap-1.5">
             {game.decision.actions.map((option) => (
               <Button
                 key={option.i}
                 type="button"
                 variant="outline"
-                className="h-auto min-h-11 justify-start py-2 text-left whitespace-normal"
+                className={cn(
+                  'h-auto min-h-11 justify-start py-2 text-left whitespace-normal',
+                  game.decision?.hint === option.i && 'border-primary',
+                )}
                 disabled={choose.isPending}
                 onClick={() => void pick(option.i)}
               >
@@ -282,10 +308,15 @@ export function GamePage() {
                   0,
                   option.text,
                 )}
+                {game.decision?.hint === option.i ? <Badge className="ml-auto shrink-0">entrenador</Badge> : null}
               </Button>
             ))}
           </div>
         </Section>
+      ) : null}
+
+      {game.coachSummary && game.coachSummary.decisions > 0 ? (
+        <CoachSummarySection summary={game.coachSummary} reader={reader} final={!active} />
       ) : null}
 
       <LogList game={game} reader={reader} />

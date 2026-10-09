@@ -13,10 +13,12 @@ import { ApiError, type Chunk, type ChunkResult, type Log, type WorkerClient } f
 import type { WorkerConfig } from './config.js'
 import { EngineError, engineStatus, engineVersion, runJob } from './engine.js'
 import { LiveRunner } from './live.js'
+import { WORKER_VERSION } from './version.js'
 
 /** 0.2.0: games against a bot and consistency chunks (Fase 8); the app gives consistency chunks only from 0.2.0 on.
  * 0.2.1: consistency against the meta (D-019), given only from 0.2.1 on. */
-export const WORKER_VERSION = '0.2.1'
+export { WORKER_VERSION } from './version.js'
+
 const HEARTBEAT_MS = 30_000
 
 interface SimulateResult {

@@ -46,6 +46,16 @@ export function useChoose(id: string) {
   })
 }
 
+/** Modo entrenador: reveal the coach's option for the pending decision. */
+export function useHint(id: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { ply: number }) =>
+      request(`/api/play/${encodeURIComponent(id)}/hint`, { method: 'POST', body, schema: liveGameSchema }),
+    onSuccess: (game: LiveGame) => queryClient.setQueryData(playKeys.game(id), game),
+  })
+}
+
 export function useAbandon(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
