@@ -68,7 +68,7 @@ revisar: false
 | 44 | Análisis nuevos | pendiente | 43 | [T-014](Tareas/T-014.md) |
 | W | Más workers: nube, Android y navegador (reemplaza la 45, [P-008](Preguntas/P-008.md)) | pendiente, después de la 44 | 44 | [T-015](Tareas/T-015.md) |
 | L | Búsqueda del laboratorio: probar siempre los cambios obvios (+1 copia, paso hacia la lista de torneo) | pendiente, para cuando Santiago la pida | — | [T-016](Tareas/T-016.md) |
-| O | Optimización de mazos: análisis del 09/10 (bot que no evoluciona, velocidad, semillas, búsqueda) | análisis hecho 09/10 · lo nuevo espera [P-009](Preguntas/P-009.md) | — | [Optimización](Optimizacion-2026-10-09.md), [T-017](Tareas/T-017.md) |
+| O | Optimización de mazos: análisis del 09/10 (bot que no evoluciona, velocidad, semillas, búsqueda) | análisis hecho 09/10 · H-010, H-020 y H-021 en `lab/optimization` · T-017 en curso ([P-009](Preguntas/P-009.md) respondida) | — | [Optimización](Optimizacion-2026-10-09.md), [T-017](Tareas/T-017.md) |
 | K | Bóveda con el kit de Posta | hecho 07/10 · aprobado 08/10 | — | [D-009](Decisiones/D-009.md) |
 
 ## Próximos pasos

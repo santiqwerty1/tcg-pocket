@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-9 fichas: cerrada 5 · pendiente 1 · respondida 3. ⚑ = para revisar.
+9 fichas: cerrada 5 · respondida 4. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Sector | Actualizado |
 | --- | --- | --- | --- | --- | --- |
@@ -25,4 +25,4 @@ revisar: false
 | [P-006](P-006.md) | ¿Cuántos tipos de energía puede tener un mazo en el juego? | respondida | — | validación de mazos | 2026-10-09 |
 | [P-007](P-007.md) | ¿Dónde guardamos la copia de seguridad fuera de Supabase? | respondida | — | copia de seguridad | 2026-10-09 |
 | [P-008](P-008.md) | ¿Querés jugar contra el bot sin la PC prendida? | respondida | — | jugar contra un bot | 2026-10-09 |
-| [P-009](P-009.md) | ¿Qué mejoras nuevas de la optimización de mazos hacemos, y cuándo? | pendiente | — | laboratorio de mazos | 2026-10-09 |
+| [P-009](P-009.md) | ¿Qué mejoras nuevas de la optimización de mazos hacemos, y cuándo? | respondida | — | laboratorio de mazos | 2026-10-09 |
