@@ -17,6 +17,7 @@ import {
   isReservedChatName,
   parseRecipients,
 } from '@tcg/domain'
+import { PinoLogger } from 'nestjs-pino'
 import { Prisma, type SessionChatMessage } from '../generated/prisma/client.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 
@@ -75,7 +76,11 @@ export class ChatService {
   /** Wakes the readers that are waiting (one process: the app runs on a single machine). */
   private readonly events = new EventEmitter()
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(ChatService.name)
     this.events.setMaxListeners(100)
   }
 
@@ -126,7 +131,9 @@ export class ChatService {
       row = await this.prisma.$transaction(async (tx) => {
         // One insert at a time: the id comes after the lock and the commit releases it, so ids commit in order.
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(${WRITE_LOCK}::bigint)`
-        return tx.sessionChatMessage.create({ data })
+        const created = await tx.sessionChatMessage.create({ data })
+        await this.seenParticipant(fromKey, input.from, tx)
+        return created
       })
     } catch (error) {
       // The same `ref` sent twice at once: the second one finds the first.
@@ -137,9 +144,7 @@ export class ChatService {
       throw error
     }
     this.events.emit('message', row)
-    await this.prisma.sessionChatMessage.deleteMany({
-      where: { at: { lt: new Date(Date.now() - RETENTION_DAYS * DAY_MS) } },
-    })
+    await this.cleanUp()
     return { message: toView(row), unknownRecipients, duplicate: false }
   }
 
@@ -156,6 +161,8 @@ export class ChatService {
     signal?: AbortSignal | undefined
   }): Promise<ChatReadView> {
     const key = this.participantKey(input.as, false)
+    // Known from its first read, even with nothing to read: the others can write to it.
+    await this.seenParticipant(key, input.as)
     const limit = input.limit ?? DEFAULT_LIMIT
     const mine = input.scope === 'mine'
     const inScope: Prisma.SessionChatMessageWhereInput = mine ? { OR: [forKey(key), { fromKey: key }] } : {}
@@ -226,23 +233,39 @@ export class ChatService {
     return key
   }
 
-  /** Recipients nobody has used: neither as a sender nor as a reader (the PC's names always exist). */
+  /** Known from now on (its name as last written). */
+  private async seenParticipant(key: string, name: string, db: Prisma.TransactionClient = this.prisma): Promise<void> {
+    const now = new Date()
+    await db.sessionChatParticipant.upsert({
+      where: { key },
+      create: { key, name: name.trim(), lastAt: now },
+      update: { name: name.trim(), lastAt: now },
+    })
+  }
+
+  /**
+   * After a message is in, what is past the retention goes. Best effort: the message is already sent, so a failure
+   * here is logged, never answered (a retry would send it twice).
+   */
+  private async cleanUp(): Promise<void> {
+    try {
+      const before = new Date(Date.now() - RETENTION_DAYS * DAY_MS)
+      await this.prisma.sessionChatMessage.deleteMany({ where: { at: { lt: before } } })
+      await this.prisma.sessionChatParticipant.deleteMany({ where: { lastAt: { lt: before } } })
+    } catch (error) {
+      this.logger.warn({ err: error }, 'chat clean-up failed')
+    }
+  }
+
+  /** Recipients nobody has used: neither written nor read (the PC's names always exist). */
   private async unknown(to: readonly string[]): Promise<string[]> {
     const keys = to.map(chatKey).filter((key) => key !== CHAT_EVERYONE && !isReservedChatName(key))
     if (keys.length === 0) return []
-    const [senders, readers] = await Promise.all([
-      this.prisma.sessionChatMessage.findMany({
-        where: { fromKey: { in: keys } },
-        distinct: ['fromKey'],
-        select: { fromKey: true },
-      }),
-      this.prisma.sessionChatSeen.findMany({
-        where: { participant: { in: keys } },
-        distinct: ['participant'],
-        select: { participant: true },
-      }),
-    ])
-    const known = new Set([...senders.map((row) => row.fromKey), ...readers.map((row) => row.participant)])
+    const rows = await this.prisma.sessionChatParticipant.findMany({
+      where: { key: { in: keys } },
+      select: { key: true },
+    })
+    const known = new Set(rows.map((row) => row.key))
     return to.filter((name) => {
       const key = chatKey(name)
       return keys.includes(key) && !known.has(key)

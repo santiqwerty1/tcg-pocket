@@ -179,6 +179,10 @@ describe('chat between sessions (e2e)', () => {
       allowNew: true,
     })
     expect(allowed.newRecipients).toEqual(['Nube-3'])
+    // A session that only read (even with nothing to read) is known too.
+    await call(nube, 'chat_read', { as: 'Nube-Silenciosa', scope: 'mine' })
+    const toReader = await call(nube, 'chat_write', { from: 'Nube 2', to: 'nube silenciosa', topic: 'Hola', text: 'x' })
+    expect(toReader.newRecipients).toBeUndefined()
     await refused(nube, 'chat_write', { from: 'Nube2', to: 'Principal, Nube<2>', topic: 'x', text: 'x' })
     await refused(nube, 'chat_write', { from: 'Nube2', to: 'Principal', topic: 'dos\nlíneas', text: 'x' })
   })

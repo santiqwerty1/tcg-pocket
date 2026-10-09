@@ -574,6 +574,15 @@ model SessionChatSeen {
   @@map("session_chat_seen")
 }
 
+/// D-021: everyone who used the chat (wrote, or read even with nothing to read), by `chatKey`.
+model SessionChatParticipant {
+  key    String   @id
+  name   String
+  lastAt DateTime @default(now()) @map("last_at") @db.Timestamptz(3)
+
+  @@map("session_chat_participants")
+}
+
 model AppSetting {
   key       String   @id
   value     Json

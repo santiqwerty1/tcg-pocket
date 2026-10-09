@@ -31,4 +31,14 @@ CREATE TABLE "session_chat_seen" (
 
     CONSTRAINT "session_chat_seen_pkey" PRIMARY KEY ("participant","message_id")
 );
+-- Everyone who used the chat (wrote or read, even with nothing to read), by key: a recipient nobody has used is
+-- refused unless the sender confirms it.
+CREATE TABLE "session_chat_participants" (
+    "key" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "last_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "session_chat_participants_pkey" PRIMARY KEY ("key")
+);
+
 ALTER TABLE "session_chat_seen" ADD CONSTRAINT "session_chat_seen_message_id_fkey" FOREIGN KEY ("message_id") REFERENCES "session_chat_messages"("id") ON DELETE CASCADE ON UPDATE CASCADE;
