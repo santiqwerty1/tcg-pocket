@@ -1,3 +1,4 @@
+import type { EventEmitter } from 'node:events'
 import { readFileSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
@@ -67,6 +68,47 @@ describe('playing against a bot (e2e)', () => {
       { i: 1, text: 'Attack(Blaze Kick)', action: { Attack: { title: 'Blaze Kick' } } },
     ],
     log,
+  })
+
+  it('a disconnected worker stops waiting and cannot claim the next game', async () => {
+    const games = test.app.get(LiveGamesService)
+    const events = (games as unknown as { events: EventEmitter }).events
+    const controller = new AbortController()
+    const address = test.app.getHttpServer().address() as AddressInfo
+    games.longPollMs = 25_000
+    let id: number | undefined
+    const pending = fetch(`http://127.0.0.1:${address.port}/api/worker/live/claim`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${workerToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workerId: 'worker-gone-01', engineRev: engineRev() }),
+      signal: controller.signal,
+    }).catch(() => undefined)
+    try {
+      await vi.waitFor(() => expect(events.listenerCount('queued')).toBe(1))
+      controller.abort()
+      await pending
+      await vi.waitFor(() => expect(events.listenerCount('queued')).toBe(0))
+
+      const created = await post('/api/play').send({
+        human: { deckId: deckIds[1] },
+        rival: { deckId: deckIds[12] },
+        seed: 77,
+      })
+      expect(created.status).toBe(201)
+      id = created.body.id as number
+      expect((await get(`/api/play/${id}`)).body.status).toBe('queued')
+      const claim = await worker('post', '/api/worker/live/claim').send({
+        workerId: 'worker-next-01',
+        engineRev: engineRev(),
+      })
+      expect(claim.body.game.id).toBe(id)
+    } finally {
+      controller.abort()
+      await pending
+      games.longPollMs = 100
+      events.emit('queued')
+      if (id !== undefined) await post(`/api/play/${id}/abandon`).send({})
+    }
   })
 
   it('a whole game: the worker claims it, relays each decision, the owner answers, the end and the replay', async () => {

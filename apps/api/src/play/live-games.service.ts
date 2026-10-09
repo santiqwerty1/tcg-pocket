@@ -159,16 +159,19 @@ export class LiveGamesService {
     this.presence?.saw(`live:${id}`)
   }
 
-  private wait(event: string): Promise<void> {
+  private wait(event: string, signal?: AbortSignal): Promise<void> {
     return new Promise((resolve) => {
       const timer = setTimeout(done, this.longPollMs)
       const events = this.events
       function done() {
         clearTimeout(timer)
         events.off(event, done)
+        signal?.removeEventListener('abort', done)
         resolve()
       }
       this.events.once(event, done)
+      signal?.addEventListener('abort', done, { once: true })
+      if (signal?.aborted) done()
       timer.unref?.()
     })
   }
@@ -521,17 +524,23 @@ export class LiveGamesService {
   }
 
   /** A game for this worker (a new one, or one whose worker went away), waiting up to 25 s. */
-  async claim(input: {
-    workerId: string
-    engineRev: string
-    version?: string | undefined
-    engineFeatures?: string[] | undefined
-  }): Promise<{ game: ClaimedLiveGame | null }> {
+  async claim(
+    input: {
+      workerId: string
+      engineRev: string
+      version?: string | undefined
+      engineFeatures?: string[] | undefined
+    },
+    signal?: AbortSignal,
+  ): Promise<{ game: ClaimedLiveGame | null }> {
+    if (signal?.aborted) return { game: null }
     const version = input.version ?? '0'
     const fairBots = canPlayFairBots(input)
     const now = await this.tryClaim(input.workerId, input.engineRev, version, fairBots)
     if (now) return { game: now }
-    await this.wait('queued')
+    await this.wait('queued', signal)
+    // A worker that disconnected while waiting must not take a game from the next worker.
+    if (signal?.aborted) return { game: null }
     return { game: await this.tryClaim(input.workerId, input.engineRev, version, fairBots) }
   }
 

@@ -12,11 +12,12 @@ import {
   Put,
   Query,
   Req,
+  Res,
   Sse,
   UseGuards,
 } from '@nestjs/common'
 import { BOT_CODE_PATTERN, SELECTABLE_ENERGIES, TOURNAMENT_FORMATS } from '@tcg/domain'
-import type { Request } from 'express'
+import type { Request, Response } from 'express'
 import { Observable } from 'rxjs'
 import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
@@ -313,8 +314,19 @@ export class LiveWorkerController {
   /** Long-poll up to 25 s: a game to run (new or abandoned by another worker) or `game: null`. */
   @Post('claim')
   @HttpCode(200)
-  claim(@Body(new ZodValidationPipe(claimSchema)) body: z.infer<typeof claimSchema>) {
-    return this.games.claim(body)
+  async claim(
+    @Body(new ZodValidationPipe(claimSchema)) body: z.infer<typeof claimSchema>,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const controller = new AbortController()
+    const disconnected = () => controller.abort()
+    response.once('close', disconnected)
+    if (response.destroyed) disconnected()
+    try {
+      return await this.games.claim(body, controller.signal)
+    } finally {
+      response.off('close', disconnected)
+    }
   }
 
   @Put(':id/decision')
