@@ -31,6 +31,15 @@ const envSchema = z.object({
   /** Look at deckgym-core's upstream `main` at most every 12 h (T-010); defaults to on in production only. */
   ENGINE_UPSTREAM_CHECK: z.stringbool().optional(),
   ENGINE_UPSTREAM_URL: z.url().default('https://api.github.com/repos/bcollazo/deckgym-core'),
+  /**
+   * Fase 39 (P-010): the S3-compatible bucket for the copy outside Supabase. The names are the ones
+   * `flyctl storage create` (Tigris) sets as secrets; without the four of them the copy stays only in the database.
+   */
+  AWS_ACCESS_KEY_ID: z.string().min(1).optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  AWS_ENDPOINT_URL_S3: z.url().optional(),
+  AWS_REGION: z.string().min(1).default('auto'),
+  BUCKET_NAME: z.string().min(1).optional(),
   /** Fase 38 (R-011): optional GitHub token for the API checks (5.000 calls an hour instead of 60 per shared IP). */
   GITHUB_TOKEN: z.string().min(10).optional(),
   /** Fase 8: look at the tracker's `main` for new sets (production by default). */
@@ -77,6 +86,8 @@ export interface Env {
   engineUpstreamUrl: string
   /** Fase 38: sent to api.github.com when set. */
   githubToken: string | null
+  /** Fase 39: the bucket of the copy outside Supabase (null = off). */
+  offsite: { accessKeyId: string; secretAccessKey: string; endpoint: string; region: string; bucket: string } | null
   trustProxy: number
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent'
   version: string
@@ -131,6 +142,16 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
     trackerUpstreamUrl: raw.TRACKER_UPSTREAM_URL.replace(/\/+$/, ''),
     engineUpstreamUrl: raw.ENGINE_UPSTREAM_URL.replace(/\/+$/, ''),
     githubToken: raw.GITHUB_TOKEN ?? null,
+    offsite:
+      raw.AWS_ACCESS_KEY_ID && raw.AWS_SECRET_ACCESS_KEY && raw.AWS_ENDPOINT_URL_S3 && raw.BUCKET_NAME
+        ? {
+            accessKeyId: raw.AWS_ACCESS_KEY_ID,
+            secretAccessKey: raw.AWS_SECRET_ACCESS_KEY,
+            endpoint: raw.AWS_ENDPOINT_URL_S3.replace(/\/+$/, ''),
+            region: raw.AWS_REGION,
+            bucket: raw.BUCKET_NAME,
+          }
+        : null,
     trustProxy: raw.TRUST_PROXY,
     logLevel: raw.LOG_LEVEL ?? (isProduction ? 'info' : 'debug'),
     version: raw.APP_VERSION ?? packageVersion(),

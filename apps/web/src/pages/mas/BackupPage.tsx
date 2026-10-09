@@ -9,6 +9,7 @@ import { KeyValue, Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
 import { formatBytes, formatDateTime, shortSha } from '@/lib/format'
 import { BackupDrillSection } from './BackupDrillSection'
+import { BackupOffsiteSection } from './BackupOffsiteSection'
 
 /** The dry-run notices (catalog mismatch, tokens, an old backup without matches…) as readable text. */
 function Notices({ diff }: { diff: Record<string, unknown> }) {
@@ -154,6 +155,8 @@ export function BackupPage() {
       </Section>
 
       <BackupDrillSection />
+
+      <BackupOffsiteSection />
 
       <Section title="Copias diarias guardadas">
         {blobs.isPending ? <LoadingRows rows={3} /> : null}

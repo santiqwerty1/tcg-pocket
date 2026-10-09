@@ -23,6 +23,7 @@ import {
   type BackupReplaceResult,
   BackupService,
 } from './backup.service.js'
+import { OffsiteBackupService, type OffsiteResult } from './offsite.service.js'
 
 const importQuerySchema = z.object({ mode: z.enum(['dry-run', 'replace']).default('dry-run') })
 
@@ -37,7 +38,32 @@ function sendGzip(res: Response, bytes: Buffer, fileName: string): void {
 /** Session-protected backup API (docs/API.md «Copia de seguridad»). */
 @Controller('api/backup')
 export class BackupController {
-  constructor(private readonly backup: BackupService) {}
+  constructor(
+    private readonly backup: BackupService,
+    private readonly offsite: OffsiteBackupService,
+  ) {}
+
+  /** Fase 39: a fresh copy, stored here and uploaded to the bucket now (400 when the bucket is not configured). */
+  @Post('offsite')
+  @HttpCode(200)
+  async offsiteNow(@CurrentSession() _session: RequestSession): Promise<{ result: OffsiteResult }> {
+    if (!this.offsite.enabled()) {
+      throw new BadRequestException({
+        code: 'validation',
+        message: 'La copia en la nube no está configurada: faltan las claves del bucket (flyctl storage create).',
+      })
+    }
+    const snapshot = await this.backup.snapshot()
+    const { dataGz } = await this.backup.blob(snapshot.id)
+    return { result: await this.offsite.upload(dataGz, snapshot.createdAt) }
+  }
+
+  @Get('offsite')
+  async offsiteLast(
+    @CurrentSession() _session: RequestSession,
+  ): Promise<{ enabled: boolean; last: OffsiteResult | null }> {
+    return { enabled: this.offsite.enabled(), last: await this.offsite.last() }
+  }
 
   @Get('export')
   async export(@Res() res: Response, @CurrentSession() _session: RequestSession): Promise<void> {

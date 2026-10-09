@@ -7,6 +7,8 @@ Cómo se sabe si la app anda, qué corre sola y qué hacer cuando algo falla (Fa
 | Tarea | Cuándo | Si falla |
 |---|---|---|
 | Copia diaria (`backup_blobs`) | 04:00 de Buenos Aires (`BACKUP_CRON`, en producción) | Aviso `backup_stale`: «Falló la copia diaria del …» o «No hay copia diaria desde …» (más de 26 h) |
+| Copia fuera de Supabase (bucket de Tigris, Fase 39) | Después de la copia diaria; a mano con `POST /api/backup/offsite` | Aviso `backup_offsite`: la subida falló o no hubo una buena en 26 h |
+| Limpieza (repeticiones viejas, crudos de standings, Fase 39) | 04:20; vista previa con `POST /api/ops/retention` | En el log; el resultado en `/api/ops/status` (`retention`) |
 | Prueba de restauración | El 1 de cada mes a las 04:30 | Aviso `backup_drill` |
 | Sincronización de Limitless | Al arrancar y cada 6 h (`LIMITLESS_SYNC`, en producción) | Aviso `limitless_sync`: la última corrida falló, o ninguna buena en 13 h |
 | Actualización del catálogo | A mano (Más → Catálogo) | Aviso `catalog_sync` si la última falló (sigue el catálogo anterior) |
@@ -47,6 +49,10 @@ Los avisos los manda el mismo servidor: si se cae, o si Supabase se pausa, no av
 4. Opcional: una **Status Page** pública, si querés ver el historial sin entrar a la cuenta.
 
 Con esto, una caída se avisa dentro de los 5 minutos, y la vuelta también.
+
+## Copia fuera de Supabase y reconstrucción
+
+La guía para levantar todo desde cero (base nueva, app nueva, restaurar la copia del bucket) está en `docs/RECONSTRUIR.md`.
 
 ## Secretos opcionales
 
