@@ -95,8 +95,22 @@ export function learnedChanges(
 }
 
 /**
- * A variant of `deck` that makes the two best swaps measured so far (each better than its parent), when both still
- * apply (their cards are still in the deck), it is valid and it is new; otherwise null.
+ * What a swap is worth by what the search learned of its changes (review of #15): the round that measured it flatters
+ * the variant that won it (the best of K noisy measures), and a verification that rejected it lowered its changes'
+ * estimates since; the raw difference of that round is not a good order.
+ */
+export function swapScore(learned: Learned, swap: MeasuredSwap, index: CatalogIndex): number {
+  const keys = [
+    ...swap.add.map((cardId) => changeKey('+', index.cardById(cardId)?.functionalGroupId ?? cardId)),
+    ...swap.remove.map((groupId) => changeKey('-', groupId)),
+  ]
+  return keys.reduce((sum, key) => sum + learnedMean(learned, key), 0)
+}
+
+/**
+ * A variant of `deck` that makes the two best swaps measured so far (each worth more than nothing by `score`, by
+ * default its measured difference), when both still apply (their cards are still in the deck), it is valid, it keeps
+ * every card within `maxCopies` (the copies the collection has, with the pool «colección») and it is new; else null.
  */
 export function comboVariant(
   deck: readonly DeckCardEntry[],
@@ -106,11 +120,21 @@ export function comboVariant(
     seen?: ReadonlySet<string> | undefined
     locked?: ReadonlySet<CardId> | undefined
     valid: (cards: readonly DeckCardEntry[]) => boolean
+    maxCopies?: ((groupId: CardId) => number) | undefined
+    score?: ((swap: MeasuredSwap) => number) | undefined
   },
 ): Variant | null {
+  const score = options.score ?? ((swap: MeasuredSwap) => swap.difference)
   const best = [...swaps]
-    .filter((swap) => swap.difference > 0 && swap.add.length > 0 && swap.add.length === swap.remove.length)
-    .sort((a, b) => b.difference - a.difference)
+    .filter((swap) => score(swap) > 0 && swap.add.length > 0 && swap.add.length === swap.remove.length)
+    .sort((a, b) => score(b) - score(a))
+  const withinCopies = (cards: readonly DeckCardEntry[]) => {
+    if (!options.maxCopies) return true
+    for (const [groupId, count] of groupsOfCards(cards, index)) {
+      if (count > options.maxCopies(groupId)) return false
+    }
+    return true
+  }
   const baseKey = listKeyByGroup(groupsOfCards(deck, index))
   for (let i = 0; i < best.length; i++) {
     for (let j = i + 1; j < best.length; j++) {
@@ -119,7 +143,7 @@ export function comboVariant(
       const cards = deck.map((entry) => ({ ...entry }))
       if (!applySwap(cards, first, index, options.locked) || !applySwap(cards, second, index, options.locked)) continue
       const key = listKeyByGroup(groupsOfCards(cards, index))
-      if (key === baseKey || options.seen?.has(key) || !options.valid(cards)) continue
+      if (key === baseKey || options.seen?.has(key) || !options.valid(cards) || !withinCopies(cards)) continue
       const sorted = cards.filter((entry) => entry.count > 0)
       return { cards: sorted, key, ...cardChanges(deck, sorted, index) }
     }

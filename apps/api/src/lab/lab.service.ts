@@ -87,6 +87,7 @@ import {
   simulationRate,
   splitGames,
   swapOf,
+  swapScore,
   type TournamentDataset,
   type TournamentFormat,
   type Variant,
@@ -1012,11 +1013,19 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             state,
             round,
             (id) => slotsOfSnapshot(measured.find((row) => row.id === id)?.cards as unknown as SnapshotCard[]),
+            // Review of #15: only what both played in full (a failed chunk would compare different rivals).
             (id) =>
-              pairedOf(chunks, rivals, id, round.incumbent, thisRound)?.value ??
-              independentDifference(chunks, rivals, id, round.incumbent, thisRound),
+              complete(chunks, rivals, id, thisRound) && complete(chunks, rivals, round.incumbent, thisRound)
+                ? (pairedOf(chunks, rivals, id, round.incumbent, thisRound)?.value ??
+                  independentDifference(chunks, rivals, id, round.incumbent, thisRound))
+                : null,
             this.catalog.requireIndex(),
           )
+          // Review of #15: a swap the verification rejected leaves the combo list (its round flattered it).
+          const [verified] = round.kind === 'verify' ? round.candidates : []
+          if (verified !== undefined && accepted === null) {
+            state.swaps = (state.swaps ?? []).filter((swap) => swap.variant !== verified)
+          }
           if (accepted !== null) state.swaps = (state.swaps ?? []).filter((swap) => swap.variant !== accepted)
           round.accepted = accepted
           round.decided = true
@@ -1065,9 +1074,14 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             const seen = new Set(state.seen)
             // T-017 C4: one variant joins the two best swaps measured so far; the draws lean on what was learned.
             const rules = state.event?.rules
+            const caps = new Map(pool.map((card) => [card.groupId, card.maxCopies]))
+            const learned = state.learned ?? {}
             const combo = comboVariant(incumbentCards, state.swaps ?? [], index, {
               seen,
               locked: new Set(state.locked),
+              // Review of #15: within the copies the pool allows (the collection's), ordered by what was learned.
+              maxCopies: (groupId) => caps.get(groupId) ?? 2,
+              score: (swap) => swapScore(learned, swap, index),
               valid: (cards) =>
                 validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
                 (!rules || checkEventDeck(cards, rules, index).ok),

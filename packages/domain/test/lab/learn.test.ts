@@ -9,6 +9,7 @@ import {
   learnedFactor,
   learnedMean,
   learnSwap,
+  type MeasuredSwap,
   mutationPool,
   seededRandom,
   swapOf,
@@ -68,7 +69,7 @@ describe('what a search learns between rounds (T-017 C4)', () => {
 
   it('the combo joins the two best swaps that still apply', () => {
     const random = seededRandom(21)
-    const swaps = []
+    const swaps: MeasuredSwap[] = []
     for (let i = 0; swaps.length < 4 && i < 50; i++) {
       const variant = variantOf(deck.cards, energies, pool, index, random, { swaps: 1 })
       if (variant) swaps.push(swapOf(deck.cards, variant.cards, index, 10 - swaps.length * 3))
@@ -80,6 +81,24 @@ describe('what a search learns between rounds (T-017 C4)', () => {
     // The two best (10 and 7 points) are in, unless they clash and the next pair is used.
     expect(added.length).toBeGreaterThanOrEqual(1)
     // Nothing worse than its parent is ever joined.
-    expect(comboVariant(deck.cards, [{ ...(swaps[0] as never), difference: -1 }], index, { valid })).toBeNull()
+    const [first] = swaps
+    if (!first) throw new Error('no swap')
+    expect(comboVariant(deck.cards, [{ ...first, difference: -1 }], index, { valid })).toBeNull()
+    // Review of #15: with the collection's copies as the cap, a combo never asks for more than it has.
+    const owned = (groupId: string) => (combo.add.some((change) => group(change.cardId) === groupId) ? 0 : 2)
+    expect(comboVariant(deck.cards, swaps, index, { valid, maxCopies: owned })?.key).not.toBe(combo.key)
+    // And the order is the score's: the worst two by difference first when the score says so.
+    const reversed = comboVariant(deck.cards, swaps, index, { valid, score: (swap) => 20 - swap.difference })
+    expect(reversed?.key).not.toBe(combo.key)
+  })
+
+  it('review of #15: what was learned changes the draws the same way every time for the same seed', () => {
+    const learned: Learned = { [changeKey('+', group(pool[0]?.cardId ?? ''))]: { sum: 40, n: 2 } }
+    const boostIn = (groupId: string) => learnedFactor(learned, changeKey('+', groupId))
+    const run = () =>
+      Array.from({ length: 6 }, (_, i) =>
+        variantOf(deck.cards, energies, pool, index, seededRandom(70 + i), { swaps: 1, boostIn }),
+      ).map((variant) => variant?.key)
+    expect(run()).toEqual(run())
   })
 })

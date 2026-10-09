@@ -475,6 +475,11 @@ describe('laboratorio (e2e)', () => {
       ['verify', null],
     ])
     expect(lab.explore).toMatchObject({ phase: 'done', stopReason: 'rounds', best: state.base, confirmation: null })
+    // Review of #15: the swap the verification rejected is no longer a candidate for the combos.
+    const after = (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: created.body.id } })).params as {
+      lab: { explore: { swaps?: { variant: number }[] } }
+    }
+    expect((after.lab.explore.swaps ?? []).map((swap) => swap.variant)).not.toContain(lucky)
   }, 60_000)
 
   it('a search that finds nothing better ends without a confirmation; a cancelled one stops queueing', async () => {
