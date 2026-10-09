@@ -21,6 +21,7 @@ import {
   type CatalogIndex,
   CONFIRM_VERDICT_ES,
   type ConfirmVerdict,
+  canPlayPerGame,
   cardBreaksEvent,
   cardChanges,
   cardUsage,
@@ -63,8 +64,6 @@ import {
   neighborhoodUsage,
   novelty,
   type PairedRival,
-  PER_GAME_CLI_VERSION,
-  PER_GAME_WORKER_VERSION,
   type PerGameEntry,
   type PoolCard,
   pairedDifference,
@@ -96,7 +95,6 @@ import type { JobSummaryView, SnapshotView } from '../simulation/simulation-view
 import { type CreateJobInput, labMode, SimulationsService } from '../simulation/simulations.service.js'
 import { EngineStatusService, type SnapshotSource, SnapshotsService } from '../simulation/snapshots.service.js'
 import { WorkerQueueService } from '../simulation/worker-queue.service.js'
-import { versionAtLeast } from '../simulation/worker-version.js'
 import { LIMITLESS_ATTRIBUTION, type Scope, TournamentsService } from '../tournaments/tournaments.service.js'
 import type {
   CardLineView,
@@ -278,13 +276,6 @@ interface ChunkRow {
 /** Review of #7: a capable worker counts if seen this recently; the sweep runs this often. */
 const PER_GAME_WORKER_WINDOW_MS = 30 * 60 * 1000
 const PER_GAME_SWEEP_MS = 5 * 60 * 1000
-
-/** Plays per-game results: worker 0.2.5 on with engine-cli 0.2.0 on (the queue's rule, #8). */
-function canPlayPerGame(worker: { version: string | null; cliVersion: string | null }): boolean {
-  return (
-    versionAtLeast(worker.version, PER_GAME_WORKER_VERSION) && versionAtLeast(worker.cliVersion, PER_GAME_CLI_VERSION)
-  )
-}
 
 @Injectable()
 export class LabService implements OnApplicationBootstrap, OnApplicationShutdown {
@@ -870,7 +861,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
   }
 
   /**
-   * Whether to ask for per-game results: a worker that plays them (0.2.5 on, with engine-cli 0.2.0 on) was seen in the
+   * Whether to ask for per-game results: a worker that plays them (`canPlayPerGame`: its engine says so) was seen in the
    * last `PER_GAME_WORKER_WINDOW_MS`. Without one, a job that asks for them would wait in the queue; the lab then
    * falls back to independent scores. Asked again before every round of a search (review of #7).
    */
@@ -878,8 +869,9 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     const since = new Date(Date.now() - PER_GAME_WORKER_WINDOW_MS)
     const workers = await this.prisma.workerNode.findMany({
       where: { lastSeenAt: { gte: since } },
-      select: { version: true, cliVersion: true },
+      select: { version: true, cliVersion: true, engineFeatures: true },
     })
+    // The queue's own rule (`canPlayPerGame`, #16): the engine's features, or the versions for engines without them.
     return workers.some(canPlayPerGame)
   }
 
