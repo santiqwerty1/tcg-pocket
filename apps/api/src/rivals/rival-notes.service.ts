@@ -57,31 +57,74 @@ export class RivalNotesService {
     archetypeId?: string | null | undefined
     append?: boolean | undefined
   }): Promise<RivalNoteView | null> {
+    return (await this.write(input)).note
+  }
+
+  /**
+   * `save`, also returning the note it replaced (Fase 43: what «Deshacer» brings back). The row is locked while it is
+   * read and written, so `previous` is exactly what this write changed.
+   */
+  async write(input: {
+    opponent: string
+    text: string
+    archetypeId?: string | null | undefined
+    append?: boolean | undefined
+  }): Promise<{ note: RivalNoteView | null; previous: RivalNoteView | null }> {
     const label = cleanOpponent(input.opponent)
     const key = opponentKey(input.opponent)
     if (label === null || key === null) {
       throw new BadRequestException({ code: 'validation', message: 'Escribí contra quién es la nota.' })
     }
-    const current = await this.prisma.rivalNote.findUnique({ where: { key } })
-    const added = input.text.trim()
-    const text = input.append && current ? [current.text, added].filter(Boolean).join('\n\n') : added
-    if (text.length > RIVAL_NOTE_MAX_LENGTH) {
-      throw new BadRequestException({
-        code: 'validation',
-        message: `La nota supera los ${RIVAL_NOTE_MAX_LENGTH} caracteres.`,
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT key FROM rival_notes WHERE key = ${key} FOR UPDATE`
+      const current = await tx.rivalNote.findUnique({ where: { key } })
+      const previous = current ? view(current) : null
+      const added = input.text.trim()
+      const text = input.append && current ? [current.text, added].filter(Boolean).join('\n\n') : added
+      if (text.length > RIVAL_NOTE_MAX_LENGTH) {
+        throw new BadRequestException({
+          code: 'validation',
+          message: `La nota supera los ${RIVAL_NOTE_MAX_LENGTH} caracteres.`,
+        })
+      }
+      if (text === '') {
+        if (current) await tx.rivalNote.delete({ where: { key } })
+        return { note: null, previous }
+      }
+      const archetypeId = input.archetypeId === undefined ? (current?.archetypeId ?? null) : input.archetypeId
+      const saved = await tx.rivalNote.upsert({
+        where: { key },
+        create: { key, label, archetypeId, text },
+        update: { label, archetypeId, text },
       })
-    }
-    if (text === '') {
-      if (current) await this.prisma.rivalNote.delete({ where: { key } })
-      return null
-    }
-    const archetypeId = input.archetypeId === undefined ? (current?.archetypeId ?? null) : input.archetypeId
-    const saved = await this.prisma.rivalNote.upsert({
-      where: { key },
-      create: { key, label, archetypeId, text },
-      update: { label, archetypeId, text },
+      return { note: view(saved), previous }
     })
-    return view(saved)
+  }
+
+  /**
+   * Fase 43, «Deshacer» of a Claude write: puts `before` back (null: deletes the note) only while the note is still
+   * `after` (null: there is none), in one conditional write. False when it changed since.
+   */
+  async restore(
+    key: string,
+    after: string | null,
+    before: { label: string; archetypeId: string | null; text: string; createdAt: string } | null,
+  ): Promise<boolean> {
+    if (after === null) {
+      if (!before) return true
+      const created = await this.prisma.rivalNote.createMany({
+        data: [{ key, ...before, createdAt: new Date(before.createdAt) }],
+        skipDuplicates: true,
+      })
+      return created.count > 0
+    }
+    const changed = before
+      ? await this.prisma.rivalNote.updateMany({
+          where: { key, text: after },
+          data: { label: before.label, archetypeId: before.archetypeId, text: before.text },
+        })
+      : await this.prisma.rivalNote.deleteMany({ where: { key, text: after } })
+    return changed.count > 0
   }
 
   async remove(key: string): Promise<void> {

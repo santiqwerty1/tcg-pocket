@@ -110,6 +110,9 @@ const SERIAL_TABLES = [
 /** Thrown inside the drill's transaction so nothing it restored stays. */
 class DrillRollback extends Error {}
 
+/** The client or a transaction, for raw statements. */
+type RawClient = Pick<Prisma.TransactionClient, '$queryRawUnsafe' | '$executeRawUnsafe'>
+
 export interface BackupReplaceResult {
   applied: true
   counts: BackupCounts
@@ -492,13 +495,21 @@ export class BackupService {
       const { unknownCardIds } = this.inspect(document)
       if (unknownCardIds.length > 0) throw new Error(`${unknownCardIds.length} cartas que el catálogo no conoce`)
       let restored: BackupDocument | null = null
-      // `setval` is not undone with the transaction: the drill puts the sequences back where they were.
-      const sequences = await this.sequenceValues()
+      // `setval` is not undone with the transaction: the drill puts the sequences back where they were, before
+      // rolling back and while no one else can write these tables (nobody takes an id in between).
+      let sequences: Map<string, number> | null = null
+      let putBack = false
       try {
         await this.prisma.$transaction(
           async (tx) => {
+            await tx.$executeRawUnsafe(
+              `LOCK TABLE ${SERIAL_TABLES.map((table) => `"${table}"`).join(', ')} IN EXCLUSIVE MODE`,
+            )
+            sequences = await this.sequenceValues(tx)
             await this.restoreInto(tx, document)
             restored = await this.exportDocument(tx)
+            await this.restoreSequences(tx, sequences)
+            putBack = true
             throw new DrillRollback()
           },
           { timeout: RESTORE_TIMEOUT_MS, maxWait: 10_000 },
@@ -506,7 +517,8 @@ export class BackupService {
       } catch (error) {
         if (!(error instanceof DrillRollback)) throw error
       } finally {
-        await this.restoreSequences(sequences)
+        // A failure inside leaves the transaction unusable: then they go back after the rollback.
+        if (sequences && !putBack) await this.restoreSequences(this.prisma, sequences)
       }
       if (!restored) throw new Error('la restauración no devolvió nada')
       const back = JSON.parse(JSON.stringify(restored)) as Record<string, unknown>
@@ -531,10 +543,10 @@ export class BackupService {
   }
 
   /** Where each sequence of the restored tables stands (the last id handed out, or 0). */
-  private async sequenceValues(): Promise<Map<string, number>> {
+  private async sequenceValues(db: RawClient): Promise<Map<string, number>> {
     const values = new Map<string, number>()
     for (const table of SERIAL_TABLES) {
-      const rows = await this.prisma.$queryRawUnsafe<{ value: bigint | number | null }[]>(
+      const rows = await db.$queryRawUnsafe<{ value: bigint | number | null }[]>(
         `SELECT pg_sequence_last_value(pg_get_serial_sequence('"${table}"', 'id')::regclass) AS value`,
       )
       values.set(table, Number(rows[0]?.value ?? 0))
@@ -543,9 +555,9 @@ export class BackupService {
   }
 
   /** Each sequence past what it had handed out before the drill and past every id: it never moves back. */
-  private async restoreSequences(values: Map<string, number>): Promise<void> {
+  private async restoreSequences(db: RawClient, values: Map<string, number>): Promise<void> {
     for (const [table, value] of values) {
-      await this.prisma.$executeRawUnsafe(
+      await db.$executeRawUnsafe(
         `SELECT setval(pg_get_serial_sequence('"${table}"', 'id'), GREATEST(${Math.trunc(value)}, (SELECT COALESCE(MAX(id), 0) FROM "${table}"), 1), true)`,
       )
     }

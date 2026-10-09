@@ -146,24 +146,31 @@ describe('Fase 43: bounds of the audit and the token clients', () => {
   it('stores at most MAX_CLIENTS_PER_TOKEN clients per token', async () => {
     const { TokensService, MAX_CLIENTS_PER_TOKEN } = await import('../tokens/tokens.service.js')
     const rows = new Set<string>()
-    const prisma = {
+    const locks: number[] = []
+    const tx = {
+      $executeRaw: async (_sql: TemplateStringsArray, ...values: number[]) => {
+        locks.push(values[1] ?? -1)
+        return 1
+      },
       apiTokenClient: {
         count: async () => rows.size,
         findUnique: async ({ where }: { where: { tokenId_client: { client: string } } }) =>
           rows.has(where.tokenId_client.client) ? {} : null,
-        createMany: async ({ data }: { data: { client: string }[] }) => {
-          const fresh = data.filter((row) => !rows.has(row.client))
-          for (const row of fresh) rows.add(row.client)
-          return { count: fresh.length }
+        create: async ({ data }: { data: { client: string } }) => {
+          rows.add(data.client)
+          return data
         },
       },
     }
+    const prisma = { $transaction: async <T>(work: (client: typeof tx) => Promise<T>) => work(tx) }
     const tokens = new TokensService(prisma as never)
     let fresh = 0
     for (let at = 0; at < MAX_CLIENTS_PER_TOKEN + 15; at++) if (await tokens.noteClient(1, `ua-${at}`)) fresh++
     expect(fresh).toBe(MAX_CLIENTS_PER_TOKEN)
     expect(rows.size).toBe(MAX_CLIENTS_PER_TOKEN)
     expect(await tokens.noteClient(1, 'ua-0')).toBe(false)
+    // Each new client is checked under the token's lock.
+    expect(locks.every((tokenId) => tokenId === 1)).toBe(true)
   })
 })
 

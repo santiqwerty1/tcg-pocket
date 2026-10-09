@@ -317,16 +317,30 @@ export class McpWriteToolsService {
     args: { opponent: string; text: string; append?: boolean },
     audit: AuditNote,
   ): Promise<Json> {
-    const before = (await this.rivalNotes.lookup(args.opponent))?.text ?? null
-    const note = await this.rivalNotes.save({ opponent: args.opponent, text: args.text, append: args.append ?? true })
+    // The note it replaced comes from the same locked read as the write.
+    const { note, previous } = await this.rivalNotes.write({
+      opponent: args.opponent,
+      text: args.text,
+      append: args.append ?? true,
+    })
     const after = note?.text ?? null
-    if (before !== after) {
+    const key = note?.key ?? previous?.key
+    if (key && (previous?.text ?? null) !== after) {
+      const opponent = note?.label ?? previous?.label ?? args.opponent
       audit.undo = {
         kind: 'rival_note',
-        opponent: note?.label ?? args.opponent,
-        before,
+        key,
+        opponent,
+        before: previous
+          ? {
+              label: previous.label,
+              archetypeId: previous.archetypeId,
+              text: previous.text,
+              createdAt: previous.createdAt.toISOString(),
+            }
+          : null,
         after,
-        label: `Nota sobre «${note?.label ?? args.opponent}»: ${after === null ? 'borrada' : before === null ? 'nueva' : 'cambiada'}`,
+        label: `Nota sobre «${opponent}»: ${after === null ? 'borrada' : previous === null ? 'nueva' : 'cambiada'}`,
       }
     }
     return note

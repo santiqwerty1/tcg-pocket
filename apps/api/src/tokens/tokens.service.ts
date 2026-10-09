@@ -26,6 +26,8 @@ export interface CreatedApiToken extends ApiTokenView {
 
 /** Fase 43: clients remembered per token; past this, a new one is not stored (a leaked token could vary it forever). */
 export const MAX_CLIENTS_PER_TOKEN = 20
+/** First key of the per-token advisory lock that guards that cap (the second one is the token's id). */
+const CLIENTS_LOCK = 43_020
 
 /** How often `last_used_at` is written (per token), to keep the hot path to a single SELECT. */
 const LAST_USED_WRITE_INTERVAL_MS = 60_000
@@ -107,15 +109,17 @@ export class TokensService {
   async noteClient(tokenId: number, client: string): Promise<boolean> {
     const key = `${tokenId}\u0000${client}`
     if (this.seenClients.has(key)) return false
-    // Bounded: past the cap nothing is stored or remembered (the alerts already show the token is being abused).
-    if ((await this.prisma.apiTokenClient.count({ where: { tokenId } })) >= MAX_CLIENTS_PER_TOKEN) {
-      const known = await this.prisma.apiTokenClient.findUnique({ where: { tokenId_client: { tokenId, client } } })
-      if (known) this.seenClients.add(key)
-      return false
-    }
-    const created = await this.prisma.apiTokenClient.createMany({ data: [{ tokenId, client }], skipDuplicates: true })
-    this.seenClients.add(key)
-    return created.count > 0
+    // One request per token at a time (an advisory lock on the token), so parallel new clients cannot pass the cap
+    // together. Past the cap nothing is stored or remembered (the alerts already show the token is being abused).
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${CLIENTS_LOCK}::int, ${tokenId}::int)`
+      if (await tx.apiTokenClient.findUnique({ where: { tokenId_client: { tokenId, client } } })) return 'known'
+      if ((await tx.apiTokenClient.count({ where: { tokenId } })) >= MAX_CLIENTS_PER_TOKEN) return 'full'
+      await tx.apiTokenClient.create({ data: { tokenId, client } })
+      return 'new'
+    })
+    if (outcome !== 'full') this.seenClients.add(key)
+    return outcome === 'new'
   }
 
   /** Revokes by id (anything that is not a positive integer is a 404, like the other resources). */

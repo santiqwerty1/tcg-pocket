@@ -474,9 +474,7 @@ describe('MCP write tools (e2e)', () => {
       .set('Cookie', cookie)
       .send({ deckId: '5', result: 'win', mode: 'casual' })
     expect(Number(squatter.body.id)).toBe(id)
-    await prisma.$executeRawUnsafe(
-      `SELECT setval(pg_get_serial_sequence('"matches"', 'id'), (SELECT MAX(id) FROM "matches"), true)`,
-    )
+    // The sequence is still behind: the ids after it are taken too, and the new id must not be one of them.
     const moved = await call(client, 'matches_restore', { id: String(id) })
     expect(moved.structuredContent.note).toMatch(/volvió como la partida \d+/)
     expect(Number((moved.structuredContent.match as Structured).id)).not.toBe(id)
@@ -494,6 +492,47 @@ describe('MCP write tools (e2e)', () => {
     expect((await test.http().post(`/api/mcp-audit/${audit[0]?.id}/undo`).set('Cookie', cookie)).status).toBe(200)
     const read = await call(client, 'rivals_notes', { opponent: 'Gardevoir' })
     expect((read.structuredContent.note as Structured).text).toBe('Primera idea.')
+  })
+
+  it('Fase 43: a deleted rival note comes back with its archetype; one changed since is left alone', async () => {
+    const client = await connect()
+    const saved = await test
+      .http()
+      .put('/api/rival-notes')
+      .set('Cookie', cookie)
+      .send({ opponent: 'Mega Gyarados ex', text: 'Ojo con el turno 2.', archetypeId: 'mega-gyarados-ex' })
+    expect(saved.status).toBe(200)
+    const lookup = async () =>
+      (await get('/api/rival-notes/lookup?opponent=mega%20gyarados%20ex')).body.note as {
+        label: string
+        archetypeId: string | null
+        text: string
+      } | null
+    expect(
+      (await call(client, 'rivals_note_set', { opponent: 'mega gyarados ex', text: '', append: false })).isError,
+    ).toBeFalsy()
+    expect(await lookup()).toBeNull()
+    const latest = async () =>
+      ((await get('/api/mcp-audit?limit=1')).body.items as { id: string; undo: { label: string } | null }[])[0]
+    const deleted = await latest()
+    expect(deleted?.undo?.label).toContain('borrada')
+    expect((await test.http().post(`/api/mcp-audit/${deleted?.id}/undo`).set('Cookie', cookie)).status).toBe(200)
+    expect(await lookup()).toMatchObject({
+      label: 'Mega Gyarados ex',
+      archetypeId: 'mega-gyarados-ex',
+      text: 'Ojo con el turno 2.',
+    })
+
+    // Santi edits it after Claude: «Deshacer» does not overwrite his text.
+    await call(client, 'rivals_note_set', { opponent: 'Mega Gyarados ex', text: 'Según Claude.', append: false })
+    const replaced = await latest()
+    await test
+      .http()
+      .put('/api/rival-notes')
+      .set('Cookie', cookie)
+      .send({ opponent: 'Mega Gyarados ex', text: 'Lo corrijo yo.' })
+    expect((await test.http().post(`/api/mcp-audit/${replaced?.id}/undo`).set('Cookie', cookie)).status).toBe(409)
+    expect((await lookup())?.text).toBe('Lo corrijo yo.')
   })
 
   it('Fase 43: a match the phone sent again is not restored twice', async () => {

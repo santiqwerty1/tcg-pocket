@@ -48,9 +48,11 @@ export type AuditUndo =
     }
   | {
       kind: 'rival_note'
+      /** The note's key (`opponentKey`) and how it was written. */
+      key: string
       opponent: string
-      /** The note before the write (null: there was none) and after it (null: the write deleted it). */
-      before: string | null
+      /** The whole note before the write (null: there was none), and its text after it (null: the write deleted it). */
+      before: { label: string; archetypeId: string | null; text: string; createdAt: string } | null
       after: string | null
       label: string
     }
@@ -260,29 +262,39 @@ export class McpAuditService {
         message: `Esa partida ya volvió a entrar desde el celu (partida ${resent.id}): no la duplico.`,
       })
     }
-    const created = await this.prisma.match.create({
-      data: {
-        ...(holder ? {} : { id: match.id }),
-        deckId: match.deckId,
-        deckRevisionId: match.deckRevisionId,
-        result: match.result,
-        opponentText: match.opponentText,
-        wentFirst: match.wentFirst,
-        mode: match.mode,
-        note: match.note,
-        playedAt: new Date(match.playedAt),
-        source: match.source,
-        clientRef: match.clientRef,
-        createdAt: new Date(match.createdAt),
-      },
-      select: { id: true },
+    // One transaction: if the sequence cannot be fixed, the match is not back either (and «Deshacer» can be retried).
+    return this.prisma.$transaction(async (tx) => {
+      // A taken id means the sequence was moved back: past every id first, or the new one could be taken too.
+      if (holder) await this.matchSequencePastIds(tx)
+      const created = await tx.match.create({
+        data: {
+          ...(holder ? {} : { id: match.id }),
+          deckId: match.deckId,
+          deckRevisionId: match.deckRevisionId,
+          result: match.result,
+          opponentText: match.opponentText,
+          wentFirst: match.wentFirst,
+          mode: match.mode,
+          note: match.note,
+          playedAt: new Date(match.playedAt),
+          source: match.source,
+          clientRef: match.clientRef,
+          createdAt: new Date(match.createdAt),
+        },
+        select: { id: true },
+      })
+      // An explicit id does not move the sequence: keep it past every id.
+      await this.matchSequencePastIds(tx)
+      return created.id
     })
-    // An explicit id does not move the sequence: keep it past every id, and never move it back.
-    await this.prisma.$executeRawUnsafe(
+  }
+
+  /** The matches sequence past every id, never moved back (one statement). */
+  private async matchSequencePastIds(db: Prisma.TransactionClient): Promise<void> {
+    await db.$executeRawUnsafe(
       `SELECT setval(s.seq, GREATEST(COALESCE(pg_sequence_last_value(s.seq), 1), (SELECT COALESCE(MAX(id), 1) FROM "matches")), true)
        FROM (SELECT pg_get_serial_sequence('"matches"', 'id')::regclass AS seq) s`,
     )
-    return created.id
   }
 
   /**
@@ -338,16 +350,14 @@ export class McpAuditService {
     })
   }
 
-  /** The note as it was, only while it is still what the write left. */
+  /** The note as it was (label and archetype too), in one conditional write: only while it is still what the write left. */
   private async restoreRivalNote(undo: Extract<AuditUndo, { kind: 'rival_note' }>): Promise<void> {
-    const current = (await this.rivalNotes.lookup(undo.opponent))?.text ?? null
-    if (current !== undo.after) {
+    if (!(await this.rivalNotes.restore(undo.key, undo.after, undo.before))) {
       throw new ConflictException({
         code: 'note_changed',
         message: `La nota sobre «${undo.opponent}» cambió después: no la deshago para no pisarla.`,
       })
     }
-    await this.rivalNotes.save({ opponent: undo.opponent, text: undo.before ?? '', append: false })
   }
 
   private view(row: McpAudit): McpAuditView {
