@@ -1795,6 +1795,22 @@ export const optimizeRowSchema = z.object({
 })
 export type OptimizeRow = z.infer<typeof optimizeRowSchema>
 
+/** H-011.5: an optimize's best combinations played again with fresh seeds (missing in servers before it). */
+export const optimizeConfirmationSchema = z.object({
+  jobId: z.number(),
+  status: z.enum(SIMULATION_STATUSES),
+  rows: z.array(
+    z.object({
+      rank: z.number(),
+      cards: optimizeRowSchema.shape.cards,
+      record: gameRecordSchema.nullable(),
+      rate: winRateSchema.nullable(),
+      playable: z.boolean(),
+    }),
+  ),
+})
+export type OptimizeConfirmation = z.infer<typeof optimizeConfirmationSchema>
+
 export const replaySummarySchema = z.object({
   id: z.number(),
   chunkId: z.number(),
@@ -1843,6 +1859,7 @@ export const jobDetailSchema = jobSummarySchema.extend({
   sideB: z.array(z.number()),
   rows: z.array(matrixRowSchema),
   optimize: z.array(optimizeRowSchema).nullable(),
+  optimizeConfirmation: optimizeConfirmationSchema.nullable().default(null),
   consistency: consistencySchema.nullable().default(null),
   replays: z.array(replaySummarySchema),
   chunks: z.array(

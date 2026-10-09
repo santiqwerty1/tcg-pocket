@@ -68,6 +68,21 @@ export interface OptimizeRowView {
   perEnemy: { snapshot: number; record: GameRecord; rate: WinRate | null }[]
 }
 
+export interface OptimizeConfirmationView {
+  /** The comparison that plays them. */
+  jobId: number
+  status: JobSummaryView['status']
+  /** In the optimize's order (rank 1 first): what the confirmation measured with its own seeds. */
+  rows: {
+    rank: number
+    cards: OptimizeRowView['cards']
+    record: GameRecord | null
+    rate: WinRate | null
+    /** False: the deck with this combination is not one the engine plays (it was left out of the confirmation). */
+    playable: boolean
+  }[]
+}
+
 export interface ConsistencyCurveView {
   turn: number
   ready: number
@@ -100,6 +115,8 @@ export interface JobDetailView extends JobSummaryView {
   sideB: number[]
   rows: MatrixRowView[]
   optimize: OptimizeRowView[] | null
+  /** optimize jobs: the best combinations played again with fresh seeds (H-011.5), once the optimize finished. */
+  optimizeConfirmation: OptimizeConfirmationView | null
   /** consistency jobs: the curves (null until it finished). */
   consistency: ConsistencyView | null
   replays: ReplaySummaryView[]

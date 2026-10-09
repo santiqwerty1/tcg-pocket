@@ -261,39 +261,95 @@ function MatrixGrid({ job }: { job: JobDetail }) {
   )
 }
 
+/**
+ * H-011.5: the best of many combinations measured on the same games is also the luckiest. The first ones were played
+ * again with fresh seeds and more games; that is the number to trust.
+ */
+function OptimizeConfirmation({ job }: { job: JobDetail }) {
+  const confirmation = job.optimizeConfirmation
+  if (!confirmation) return null
+  // The confirmation takes the first ones of the same ranking: rank n is row n − 1 of the optimize.
+  const original = job.optimize ?? []
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-medium">Confirmación con semillas nuevas</span>
+        <StatusBadge status={confirmation.status} />
+        <Link to={`/simulacion/${confirmation.jobId}`} className="text-xs text-primary hover:underline">
+          simulación #{confirmation.jobId}
+        </Link>
+      </div>
+      <ol className="flex flex-col gap-1">
+        {confirmation.rows.map((row) => {
+          const before = original[row.rank - 1]
+          return (
+            <li key={row.rank} className="flex items-start gap-2 text-sm">
+              <span className="w-6 shrink-0 pt-0.5 text-xs text-muted-foreground tabular">{row.rank}</span>
+              <span className="min-w-0 flex-1">
+                + {row.cards.map((card) => card.nameEs).join(', ')}
+                {before?.rate ? (
+                  <span className="block text-xs text-muted-foreground">
+                    en la búsqueda: {formatRateValue(before.rate.value)}
+                  </span>
+                ) : null}
+              </span>
+              {row.playable ? (
+                row.record && row.rate ? (
+                  <RateCell record={row.record} rate={row.rate} />
+                ) : (
+                  <span className="text-xs text-muted-foreground">sin jugar todavía</span>
+                )
+              ) : (
+                <span className="text-xs text-muted-foreground">el motor no juega ese mazo</span>
+              )}
+            </li>
+          )
+        })}
+      </ol>
+      <p className="text-xs text-muted-foreground">
+        La mejor de muchas combinaciones medidas con las mismas partidas también es la que tuvo más suerte: las primeras
+        se vuelven a jugar contra los mismos rivales con otras semillas y más partidas. Ese es el número para decidir.
+      </p>
+    </div>
+  )
+}
+
 function OptimizeResults({ job }: { job: JobDetail }) {
   const byId = new Map(job.snapshots.map((snapshot) => [snapshot.id, snapshot]))
   const rows = job.optimize ?? []
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">Todavía no hay resultados.</p>
   return (
-    <ol className="divide-y rounded-lg border">
-      {rows.map((row, position) => (
-        <li key={row.cards.map((card) => card.engineId).join('+')} className="flex flex-col gap-1 px-3 py-2">
-          <div className="flex items-start gap-2">
-            <span className="w-6 shrink-0 pt-0.5 text-xs text-muted-foreground tabular">{position + 1}</span>
-            <span className="min-w-0 flex-1 text-sm font-medium">
-              + {row.cards.map((card) => card.nameEs).join(', ')}
-            </span>
-            <RateCell record={row.record} rate={row.rate} />
-          </div>
-          {row.perEnemy.length > 1 ? (
-            <details className="pl-8 text-xs text-muted-foreground">
-              <summary className="cursor-pointer">Por rival</summary>
-              <ul>
-                {row.perEnemy.map((enemy) => (
-                  <li key={enemy.snapshot} className="flex justify-between gap-2 py-0.5">
-                    <span className="truncate">vs {byId.get(enemy.snapshot)?.label ?? `#${enemy.snapshot}`}</span>
-                    <span className="shrink-0 tabular">
-                      {enemy.rate ? formatRateValue(enemy.rate.value) : 'sin datos'}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          ) : null}
-        </li>
-      ))}
-    </ol>
+    <>
+      <OptimizeConfirmation job={job} />
+      <ol className="divide-y rounded-lg border">
+        {rows.map((row, position) => (
+          <li key={row.cards.map((card) => card.engineId).join('+')} className="flex flex-col gap-1 px-3 py-2">
+            <div className="flex items-start gap-2">
+              <span className="w-6 shrink-0 pt-0.5 text-xs text-muted-foreground tabular">{position + 1}</span>
+              <span className="min-w-0 flex-1 text-sm font-medium">
+                + {row.cards.map((card) => card.nameEs).join(', ')}
+              </span>
+              <RateCell record={row.record} rate={row.rate} />
+            </div>
+            {row.perEnemy.length > 1 ? (
+              <details className="pl-8 text-xs text-muted-foreground">
+                <summary className="cursor-pointer">Por rival</summary>
+                <ul>
+                  {row.perEnemy.map((enemy) => (
+                    <li key={enemy.snapshot} className="flex justify-between gap-2 py-0.5">
+                      <span className="truncate">vs {byId.get(enemy.snapshot)?.label ?? `#${enemy.snapshot}`}</span>
+                      <span className="shrink-0 tabular">
+                        {enemy.rate ? formatRateValue(enemy.rate.value) : 'sin datos'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+    </>
   )
 }
 

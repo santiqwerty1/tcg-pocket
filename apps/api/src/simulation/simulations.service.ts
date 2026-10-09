@@ -8,6 +8,7 @@ import { BadRequestException, Injectable, NotFoundException, UnprocessableEntity
 import {
   BOT_LABEL_ES,
   botLabel,
+  type CardId,
   type ConsistencySplit,
   chunkSeed,
   comparePairings,
@@ -31,6 +32,7 @@ import {
   planChunks,
   randomBaseSeed,
   readinessCurve,
+  type SelectableEnergy,
   type SimulationKind,
   simulationRate,
 } from '@tcg/domain'
@@ -56,13 +58,19 @@ import { WorkerQueueService } from './worker-queue.service.js'
 
 export const MAX_DECKS_PER_SIDE = 150
 export const MAX_GAMES_PER_PAIR = 20_000
+/** H-011.5: how many of an optimize's best combinations are confirmed, and with at least how many games per rival. */
+export const OPTIMIZE_CONFIRM_TOP = 3
+export const OPTIMIZE_CONFIRM_GAMES = 200
 const WORKER_ONLINE_MS = 2 * 60 * 1000
+
+/** A snapshot that already exists: the app's own jobs (the confirmation of an optimize) reuse its rivals. */
+type JobSource = SnapshotSource | { snapshotId: number }
 
 export interface CreateJobInput {
   kind: SimulationKind
   label?: string | undefined
-  sideA: SnapshotSource[]
-  sideB: SnapshotSource[]
+  sideA: JobSource[]
+  sideB: JobSource[]
   gamesPerPair: number
   players: [string, string]
   seed?: number | undefined
@@ -97,7 +105,15 @@ export class SimulationsService {
     private readonly snapshots: SnapshotsService,
     private readonly queue: WorkerQueueService,
     private readonly upstream: EngineUpstreamService,
-  ) {}
+  ) {
+    this.queue.onJobDone((jobId) => this.afterDone(jobId))
+  }
+
+  /** H-011.5: a finished optimize queues the confirmation of its best combinations. */
+  private async afterDone(jobId: number): Promise<void> {
+    const job = await this.prisma.simulationJob.findUnique({ where: { id: jobId }, select: { kind: true } })
+    if (job?.kind === 'optimize') await this.confirmOptimize(jobId)
+  }
 
   // ---------------------------------------------------------------------------------------------------------------
   // Create
@@ -135,8 +151,11 @@ export class SimulationsService {
   }> {
     this.validate(input)
     input = withRivals(input)
-    const sideA = await Promise.all(input.sideA.map((source) => this.snapshots.preview(source)))
-    const sideB = await Promise.all(input.sideB.map((source) => this.snapshots.preview(source)))
+    // Only the app's own jobs name an existing snapshot; a preview comes from the screen, with decks and lists.
+    const previewOf = (source: JobSource) =>
+      'snapshotId' in source ? this.existingSnapshot(source.snapshotId) : this.snapshots.preview(source)
+    const sideA = await Promise.all(input.sideA.map(previewOf))
+    const sideB = await Promise.all(input.sideB.map(previewOf))
     // Decks are told apart by the key of their list: the same list on both sides is one deck.
     const ids = new Map<string, number>()
     const idOf = (key: string) => {
@@ -175,11 +194,12 @@ export class SimulationsService {
     }
     // Snapshots are shared by identical sources: the same deck on both sides is one snapshot.
     const saved = new Map<string, SnapshotView>()
-    const snapshotOf = async (source: SnapshotSource) => {
+    const snapshotOf = async (source: JobSource) => {
       const key = JSON.stringify(source)
       const hit = saved.get(key)
       if (hit) return hit
-      const snapshot = await this.snapshots.save(source)
+      const snapshot =
+        'snapshotId' in source ? await this.existingSnapshot(source.snapshotId) : await this.snapshots.save(source)
       saved.set(key, snapshot)
       return snapshot
     }
@@ -211,7 +231,13 @@ export class SimulationsService {
     let chunks: { idx: number; a: number | null; b: number | null; games: number; firstGame: number }[]
     if (input.kind === 'optimize') {
       const optimize = await this.optimizeJob(input, sideA[0] as SnapshotView, sideB)
-      params = { sideA: okA, sideB: okB, engineJob: optimize.engineJob } as Prisma.InputJsonValue
+      // The cards taken out stay with the job: the confirmation rebuilds each combination's deck from them.
+      params = {
+        sideA: okA,
+        sideB: okB,
+        engineJob: optimize.engineJob,
+        remove: input.optimize?.remove ?? [],
+      } as Prisma.InputJsonValue
       chunks = [{ idx: 0, a: okA[0] ?? null, b: null, games: optimize.estimatedGames, firstGame: 0 }]
     } else {
       const pairings = input.kind === 'compare' ? comparePairings(okA, okB) : matrixPairings(okA, okB, input.bothOrders)
@@ -265,6 +291,91 @@ export class SimulationsService {
     })
     this.queue.notifyQueued()
     return this.summary(job, await this.progress([job.id]))
+  }
+
+  private async existingSnapshot(id: number): Promise<SnapshotView> {
+    const [snapshot] = await this.snapshots.byIds([id])
+    if (!snapshot) throw new NotFoundException(`La foto de mazo ${id} no existe.`)
+    return snapshot
+  }
+
+  /**
+   * H-011.5: the best of up to 200 combinations, measured on the same games, is the luckiest one too (the winner's
+   * curse). The `OPTIMIZE_CONFIRM_TOP` best are played again against the same rivals with fresh seeds and more games,
+   * as the Laboratorio's confirmation does; the optimize's view shows both. Once per optimize; null when there is
+   * nothing to confirm (not an optimize, not done, already confirmed, or from before the cards taken out were kept).
+   */
+  async confirmOptimize(jobId: number): Promise<JobSummaryView | null> {
+    const job = await this.prisma.simulationJob.findUnique({ where: { id: jobId } })
+    if (job?.kind !== 'optimize' || job.status !== 'done') return null
+    const params = job.params as {
+      sideA?: number[]
+      sideB?: number[]
+      remove?: { cardId: string; count: number }[]
+      confirmation?: unknown
+    }
+    if (params.confirmation !== undefined || !params.remove || !params.sideA?.[0] || !params.sideB?.length) return null
+    const chunk = await this.prisma.simulationChunk.findFirst({ where: { jobId, status: 'done' } })
+    const combinations = (chunk?.extra as { combinations?: unknown } | null)?.combinations
+    if (!Array.isArray(combinations)) return null
+    const best = optimizeRanking(combinations as Parameters<typeof optimizeRanking>[0]).slice(0, OPTIMIZE_CONFIRM_TOP)
+    if (best.length === 0) return null
+    const index = this.catalog.requireIndex()
+    const base = await this.prisma.deckSnapshot.findUniqueOrThrow({ where: { id: params.sideA[0] } })
+    const removed = new Map(params.remove.map((item) => [item.cardId, item.count]))
+    const kept = new Map<string, number>()
+    for (const card of base.cards as unknown as { cardId: string; count: number }[]) {
+      const left = card.count - Math.min(card.count, removed.get(card.cardId) ?? 0)
+      if (left > 0) kept.set(card.cardId, (kept.get(card.cardId) ?? 0) + left)
+    }
+    const sources: SnapshotSource[] = best.map((combination, at) => {
+      const cards = new Map(kept)
+      const names: string[] = []
+      for (const engineId of combination.cards) {
+        const card = index.cardByEngineId(engineId)
+        if (!card)
+          throw new UnprocessableEntityException({ code: 'unknown_card', message: `Carta ${engineId} desconocida.` })
+        cards.set(card.id, (cards.get(card.id) ?? 0) + 1)
+        names.push(card.nameEs)
+      }
+      return {
+        cards: [...cards].map(([cardId, count]) => ({ cardId: cardId as CardId, count })),
+        energies: base.energies as SelectableEnergy[],
+        label: `${base.label} · ${at + 1}.º: + ${names.join(', ')}`,
+        origin: 'lab',
+      }
+    })
+    // Saved one by one so each combination keeps its snapshot (null: the engine would not play it).
+    const variants: (SnapshotView | null)[] = []
+    for (const source of sources) {
+      const snapshot = await this.snapshots.save(source)
+      variants.push(snapshot.simulable ? snapshot : null)
+    }
+    const playable = variants.filter((snapshot): snapshot is SnapshotView => snapshot !== null)
+    if (playable.length === 0) return null
+    const confirmation = await this.create({
+      kind: 'compare',
+      label: `Confirmación de «${job.label}» (#${job.id})`,
+      sideA: playable.map((snapshot) => ({ snapshotId: snapshot.id })),
+      sideB: params.sideB.map((snapshotId) => ({ snapshotId })),
+      gamesPerPair: Math.min(MAX_GAMES_PER_PAIR, Math.max(job.gamesPerPair, OPTIMIZE_CONFIRM_GAMES)),
+      players: [job.players[0] ?? 'e2', job.players[1] ?? 'e2'],
+      replaySample: 0,
+    })
+    await this.prisma.simulationJob.update({
+      where: { id: jobId },
+      data: {
+        params: {
+          ...(job.params as Prisma.JsonObject),
+          confirmation: {
+            jobId: confirmation.id,
+            combinations: best.map((combination) => combination.cards),
+            snapshots: variants.map((snapshot) => snapshot?.id ?? null),
+          },
+        },
+      },
+    })
+    return confirmation
   }
 
   /** The engine-cli optimize job: deck minus the removed cards, candidates as implemented engine ids, rivals. */
@@ -507,6 +618,7 @@ export class SimulationsService {
       sideB,
       rows,
       optimize: job.kind === 'optimize' ? this.optimizeRows(chunks[0]?.extra ?? null, sideB) : null,
+      optimizeConfirmation: job.kind === 'optimize' ? await this.optimizeConfirmation(job.params) : null,
       consistency:
         job.kind === 'consistency'
           ? this.consistencyView(
@@ -539,6 +651,52 @@ export class SimulationsService {
         attempt: chunk.attempt,
         error: chunk.error,
       })),
+    }
+  }
+
+  /** What the confirmation of an optimize measured for each of its best combinations, in the optimize's order. */
+  private async optimizeConfirmation(params: Prisma.JsonValue): Promise<JobDetailView['optimizeConfirmation']> {
+    const confirmation = (
+      params as {
+        confirmation?: { jobId: number; combinations: string[][]; snapshots: (number | null)[] }
+      } | null
+    )?.confirmation
+    if (!confirmation) return null
+    const job = await this.prisma.simulationJob.findUnique({ where: { id: confirmation.jobId } })
+    if (!job) return null
+    const chunks = await this.prisma.simulationChunk.findMany({
+      where: { jobId: job.id, status: 'done' },
+      select: { snapshotAId: true, winsA: true, winsB: true, ties: true },
+    })
+    const index = this.catalog.requireIndex()
+    return {
+      jobId: job.id,
+      status: job.status,
+      rows: confirmation.combinations.map((cards, at) => {
+        const snapshot = confirmation.snapshots[at] ?? null
+        const played = snapshot === null ? [] : chunks.filter((chunk) => chunk.snapshotAId === snapshot)
+        const record =
+          played.length > 0
+            ? played.reduce(
+                (sum, chunk) => ({
+                  wins: sum.wins + (chunk.winsA ?? 0),
+                  losses: sum.losses + (chunk.winsB ?? 0),
+                  ties: sum.ties + (chunk.ties ?? 0),
+                }),
+                { wins: 0, losses: 0, ties: 0 },
+              )
+            : null
+        return {
+          rank: at + 1,
+          cards: cards.map((engineId) => {
+            const card = index.cardByEngineId(engineId)
+            return { engineId, cardId: card?.id ?? null, nameEs: card?.nameEs ?? engineId }
+          }),
+          record,
+          rate: record ? simulationRate(record) : null,
+          playable: snapshot !== null,
+        }
+      }),
     }
   }
 

@@ -894,7 +894,9 @@ fn optimize(job: OptimizeJob) -> Result<OptimizeResult, CliError> {
         tasks
             .into_par_iter()
             .map(|(c, e, g)| {
-                let index = (c as u64) * games_per_combo + (e as u64) * u64::from(job.games_per_enemy) + u64::from(g);
+                // Common seeds (C8 of the optimization review): game g against enemy e has the same seed for every
+                // combination, so two combinations are compared on the same shuffles and coin flips.
+                let index = (e as u64) * u64::from(job.games_per_enemy) + u64::from(g);
                 let seed = game_seed(job.seed, index);
                 let run = play_game(&decks[c].1, &enemies[e], &codes, seed, game_id_for(job.seed, index), None, false);
                 progress.tick();
@@ -1219,6 +1221,50 @@ mod tests {
 
     fn job_of_batch() -> BatchJob {
         BatchJob { pairings: vec![], players: vec!["r".into(), "r".into()], threads: 1, replay_dir: None, per_game: false }
+    }
+
+    #[test]
+    fn optimize_plays_every_combination_with_the_same_seeds() {
+        // Altaria without its two Rocky Helmets: fill the two slots with Rocky Helmet or Poké Ball.
+        let base: String = crate::coach::tests::ALTARIA
+            .lines()
+            .filter(|line| !line.contains("Rocky Helmet"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let run = |candidates: &[&str]| {
+            let result = optimize(OptimizeJob {
+                deck: base.clone(),
+                candidates: candidates.iter().map(|id| id.to_string()).collect(),
+                missing: 2,
+                enemies: vec![crate::coach::tests::ALTARIA.to_string(), crate::coach::tests::ALTARIA.to_string()],
+                games_per_enemy: 6,
+                players: vec!["r".to_string(), "r".to_string()],
+                seed: 20261009,
+                threads: 2,
+                max_combinations: 200,
+            })
+            .expect("optimize");
+            result
+                .combinations
+                .into_iter()
+                .map(|combination| {
+                    let mut cards = combination.cards.clone();
+                    cards.sort();
+                    (cards, serde_json::to_string(&combination.per_enemy).unwrap())
+                })
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+        // deckgym combines without repetition: a card listed twice can take both slots.
+        let both = run(&["A2 148", "A2 148", "A2b 111"]);
+        let reversed = run(&["A2b 111", "A2 148", "A2 148"]);
+        let alone = run(&["A2 148", "A2 148"]);
+        assert!(both.len() >= 2, "{both:?}");
+        // A combination plays the same games whatever else is tried with it and wherever it falls in the job. (The
+        // order of its own cards does matter: deckgym shuffles by position, so «+A +B» and «+B +A» are other decks.)
+        let pair = vec!["A2 148".to_string(), "A2 148".to_string()];
+        assert_eq!(alone.get(&pair), both.get(&pair));
+        assert_eq!(alone.get(&pair), reversed.get(&pair));
+        assert!(alone.get(&pair).is_some());
     }
 
     #[test]

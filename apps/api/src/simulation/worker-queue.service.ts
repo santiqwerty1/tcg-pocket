@@ -102,6 +102,8 @@ export class WorkerQueueService {
   longPollMs = LONG_POLL_MS
   /** Who decides what an explore job plays next when a round ends (the Laboratorio, T-008). */
   private roundHandler: ((jobId: number) => Promise<void>) | null = null
+  /** What runs when a job ends well (the confirmation of an optimize, H-011.5). */
+  private doneHandler: ((jobId: number) => Promise<void>) | null = null
 
   constructor(
     private readonly prisma: PrismaService,
@@ -114,6 +116,11 @@ export class WorkerQueueService {
 
   notifyQueued(): void {
     this.queued.emit('queued')
+  }
+
+  /** `handler` runs after a job (not a search) ends with every chunk done; its errors are logged, not thrown. */
+  onJobDone(handler: (jobId: number) => Promise<void>): void {
+    this.doneHandler = handler
   }
 
   /** An explore job does not end when its chunks do: `handler` queues the next round or finishes it. */
@@ -480,7 +487,7 @@ export class WorkerQueueService {
       }
     }
     const failed = await this.prisma.simulationChunk.count({ where: { jobId, status: 'failed' } })
-    await this.prisma.simulationJob.updateMany({
+    const ended = await this.prisma.simulationJob.updateMany({
       where: { id: jobId, status: { in: ['queued', 'running'] } },
       data: {
         status: failed > 0 ? 'failed' : 'done',
@@ -488,6 +495,11 @@ export class WorkerQueueService {
         error: failed > 0 ? `${failed} cruces fallaron en el motor; el resto quedó.` : null,
       },
     })
+    if (ended.count > 0 && failed === 0 && this.doneHandler) {
+      await this.doneHandler(jobId).catch((error: unknown) => {
+        this.logger.warn({ job: jobId, error: String(error).slice(0, 300) }, 'after a finished job')
+      })
+    }
   }
 
   async saveReplay(

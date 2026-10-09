@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
+import { SimulationsService } from '../src/simulation/simulations.service.js'
 import { EngineStatusService } from '../src/simulation/snapshots.service.js'
 import { type ClaimedChunk, WorkerQueueService } from '../src/simulation/worker-queue.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
@@ -540,6 +541,119 @@ describe('simulation (e2e)', () => {
         .filter((line) => /^\d/.test(line))
         .reduce((sum, line) => sum + Number(line.split(' ')[0]), 0),
     ).toBe(19)
+  })
+
+  it('H-011.5: a finished optimize queues its 3 best combinations again, with fresh seeds and more games', async () => {
+    const deck = (await get(`/api/decks/${deckIds[1]}`)).body as { cards: { card: { id: string }; count: number }[] }
+    const out = deck.cards.filter((entry) => entry.count === 1).slice(0, 1)
+    const created = await post('/api/simulations').send({
+      kind: 'optimize',
+      label: 'Optimizar el 2',
+      sideA: [{ deckId: deckIds[1] }],
+      sideB: decks(5, 6),
+      gamesPerPair: 20,
+      players: ['e2', 'e2'],
+      optimize: {
+        remove: out.map((entry) => ({ cardId: entry.card.id, count: 1 })),
+        candidates: ['A1-219', 'P-A-5', 'A2-150'],
+      },
+    })
+    const id = created.body.id as number
+    const chunk = (await claim('worker-opt')).body.chunk as Structured
+    expect(chunk).toMatchObject({ jobId: id, kind: 'optimize' })
+    const tally = (wins: number) => ({ winsA: wins, winsB: 20 - wins, ties: 0, games: 20, turns: 200 })
+    const combination = (card: string, wins: number) => ({
+      cards: [card],
+      winsA: wins * 2,
+      winsB: 40 - wins * 2,
+      ties: 0,
+      games: 40,
+      turns: 400,
+      perEnemy: [tally(wins), tally(wins)],
+    })
+    // The engine's combinations in its own order; the confirmation takes the best 3 by raw rate.
+    const combinations = [combination('A2 150', 9), combination('A1 219', 15), combination('P-A 005', 12)]
+    const sent = await bearer('put', `/api/worker/chunks/${chunk.chunkId}/result`).send({
+      workerId: 'worker-0001',
+      engineRev: test.env.engineRev,
+      winsA: 72,
+      winsB: 48,
+      ties: 0,
+      games: 120,
+      turns: 1200,
+      durationMs: 1000,
+      extra: { combinations },
+    })
+    expect(sent.body).toEqual({ accepted: true })
+    const detail = (await get(`/api/simulations/${id}`)).body as {
+      status: string
+      sideB: number[]
+      optimizeConfirmation: {
+        jobId: number
+        status: string
+        rows: { rank: number; cards: { engineId: string }[]; record: Structured | null; playable: boolean }[]
+      }
+    }
+    expect(detail.status).toBe('done')
+    expect(detail.optimizeConfirmation).toMatchObject({ status: 'queued' })
+    // Deck 2 already plays 2 Poké Ball: with a third the engine would not play it, so it is left out (marked).
+    expect(
+      detail.optimizeConfirmation.rows.map((row) => [row.rank, row.cards[0]?.engineId, row.record, row.playable]),
+    ).toEqual([
+      [1, 'A1 219', null, true],
+      [2, 'P-A 005', null, false],
+      [3, 'A2 150', null, true],
+    ])
+    const confirmation = (await get(`/api/simulations/${detail.optimizeConfirmation.jobId}`)).body as {
+      kind: string
+      label: string
+      gamesPerPair: number
+      players: string[]
+      sideA: number[]
+      sideB: number[]
+      snapshots: { id: number; label: string; deckgymText: string; simulable: boolean }[]
+    }
+    expect(confirmation).toMatchObject({ kind: 'compare', gamesPerPair: 200, players: ['e2', 'e2'] })
+    expect(confirmation.label).toBe(`Confirmación de «Optimizar el 2» (#${id})`)
+    expect(confirmation.sideB).toEqual(detail.sideB)
+    expect(confirmation.sideA).toHaveLength(2)
+    const variants = confirmation.snapshots.filter((snapshot) => confirmation.sideA.includes(snapshot.id))
+    for (const variant of variants) {
+      expect(variant.simulable).toBe(true)
+      const cards = variant.deckgymText
+        .split('\n')
+        .filter((line) => /^\d/.test(line))
+        .reduce((sum, line) => sum + Number(line.split(' ')[0]), 0)
+      expect(cards).toBe(20)
+    }
+    expect(variants.find((variant) => variant.id === confirmation.sideA[0])?.label).toMatch(/· 1\.º: \+ /)
+    // Played with its own seeds: rank 1 holds up at 60 %.
+    for (;;) {
+      const next = (await claim('worker-opt')).body.chunk as Structured | null
+      if (!next) break
+      expect(next.jobId).toBe(detail.optimizeConfirmation.jobId)
+      await bearer('put', `/api/worker/chunks/${next.chunkId}/result`).send({
+        workerId: 'worker-opt',
+        engineRev: test.env.engineRev,
+        winsA: 120,
+        winsB: 80,
+        ties: 0,
+        games: 200,
+        durationMs: 1000,
+      })
+    }
+    const after = (await get(`/api/simulations/${id}`)).body.optimizeConfirmation as {
+      status: string
+      rows: { record: { wins: number; losses: number }; rate: { value: number } }[]
+    }
+    expect(after.status).toBe('done')
+    expect(after.rows[0]?.record).toEqual({ wins: 240, losses: 160, ties: 0 })
+    expect(after.rows[0]?.rate.value).toBeCloseTo(60, 10)
+    // Once per optimize.
+    expect(await test.app.get(SimulationsService).confirmOptimize(id)).toBeNull()
+    for (const job of [id, detail.optimizeConfirmation.jobId]) {
+      expect((await test.http().delete(`/api/simulations/${job}`).set('Cookie', cookie)).status).toBe(204)
+    }
   })
 
   it('queue: the job with the fewest chunks left goes first, then the oldest', async () => {
