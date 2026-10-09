@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DEFAULT_FIXTURES_DIR as FIXTURES_DIR } from '../src/catalog/catalog-sources.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
+import { TrackerCommitsService } from '../src/catalog/tracker-commits.service.js'
 import { createTestApp, login, seedOwner, type TestApp, waitForSync } from './helpers.js'
 
 /** Expected values from docs/PLAN.md §7 (M1 acceptance) for the pinned commit 3ab58f1. */
@@ -357,6 +358,133 @@ describe('catalog (e2e)', () => {
       await test.prisma.deck.deleteMany({})
       await test.prisma.collectionStock.deleteMany({})
       rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('Fase 40 (H-004): preview first, nothing written; a sync that takes cards away needs confirming', async () => {
+    // The same altered fixtures as above: B4b-391 joins B1-225's stock unit and B4b-424 leaves the catalog.
+    const dir = mkdtempSync(join(tmpdir(), 'tcg-catalog-'))
+    cpSync(FIXTURES_DIR, dir, { recursive: true })
+    const cardsPath = join(dir, 'tracker/cards.json')
+    const original = JSON.parse(readFileSync(cardsPath, 'utf8')) as {
+      card_id: string
+      internal_id: number
+      alternate_versions: number[]
+    }[]
+    const gone = original.find((card) => card.card_id === 'B4b-424')?.internal_id
+    writeFileSync(
+      cardsPath,
+      JSON.stringify(
+        original
+          .filter((card) => card.card_id !== 'B4b-424')
+          .map((card) => ({
+            ...card,
+            internal_id: card.card_id === 'B4b-391' ? 800833 : card.internal_id,
+            alternate_versions: card.alternate_versions.filter((id) => id !== gone && id !== 1466817),
+          })),
+      ),
+    )
+    const deck = await test.prisma.deck.create({ data: { name: 'Vista previa', energies: ['psychic'], tags: [] } })
+    await test.prisma.deckCard.create({ data: { deckId: deck.id, cardId: 'B4b-424', count: 1, position: 0 } })
+    const request = {
+      trackerCommit: test.env.catalogCommit,
+      engineRev: test.env.engineRev,
+      source: 'fixtures' as const,
+      fixturesDir: dir,
+    }
+    try {
+      const syncsBefore = await test.prisma.catalogSync.count()
+      const preview = await sync.preview(request)
+      expect(preview).toMatchObject({
+        destructive: true,
+        diffEmpty: false,
+        diff: { removed: 1, added: 0 },
+        removed: [{ cardId: 'B4b-424' }],
+        remap: { needsReview: false },
+      })
+      // The deck card moves to another edition of the same card: nothing to review, but a card leaves the catalog.
+      expect(preview.remap?.notes.map((note) => note.kind)).toEqual(['deck_card_replaced'])
+      // Nothing written: no sync row, the card and the deck card are still there.
+      expect(await test.prisma.catalogSync.count()).toBe(syncsBefore)
+      expect(await test.prisma.card.findUnique({ where: { id: 'B4b-424' } })).not.toBeNull()
+
+      // From the app (guarded) without confirming: the row fails saying why, and nothing changes.
+      await expect(sync.sync({ ...request, guard: true })).rejects.toThrow(/Hace falta confirmar/)
+      const refused = await test.prisma.catalogSync.findFirstOrThrow({ orderBy: { id: 'desc' } })
+      expect(refused).toMatchObject({ status: 'failed' })
+      expect(refused.error).toMatch(/Hace falta confirmar/)
+      expect(await test.prisma.card.findUnique({ where: { id: 'B4b-424' } })).not.toBeNull()
+      expect(await test.prisma.deckCard.count({ where: { deckId: deck.id, cardId: 'B4b-424' } })).toBe(1)
+
+      // Confirmed: it applies.
+      const applied = await sync.sync({ ...request, guard: true, confirm: true })
+      expect(applied.status).toBe('applied')
+      expect(await test.prisma.card.findUnique({ where: { id: 'B4b-424' } })).toBeNull()
+    } finally {
+      await sync.sync({ trackerCommit: test.env.catalogCommit, engineRev: test.env.engineRev, source: 'fixtures' })
+      await test.prisma.deck.deleteMany({})
+      await test.prisma.collectionStock.deleteMany({})
+      rmSync(dir, { recursive: true, force: true })
+    }
+    // Through HTTP, the loaded commit against itself: nothing changes, nothing to confirm.
+    const same = await test.http().post('/api/catalog/preview').set('Cookie', cookie).send({ fromFixtures: true })
+    expect(same.status).toBe(200)
+    expect(same.body).toMatchObject({ diffEmpty: true, destructive: false, older: false, removed: [] })
+  })
+
+  it('Fase 40 (H-004): «Sincronizar» repeats the loaded commit, never the configured pin', async () => {
+    const loaded = 'a'.repeat(40)
+    await sync.sync({ trackerCommit: loaded, engineRev: test.env.engineRev, source: 'fixtures' })
+    try {
+      const started = await test.http().post('/api/catalog/sync').set('Cookie', cookie).send({ fromFixtures: true })
+      expect(started.status).toBe(202)
+      await waitForSync(test, cookie, started.body.syncId)
+      const row = await test.prisma.catalogSync.findUniqueOrThrow({ where: { id: started.body.syncId } })
+      expect(row.commitSha).toBe(loaded)
+      expect(row.commitSha).not.toBe(test.env.catalogCommit)
+    } finally {
+      await sync.sync({ trackerCommit: test.env.catalogCommit, engineRev: test.env.engineRev, source: 'fixtures' })
+    }
+  })
+
+  it("Fase 40: the tracker's newest commit, and going back to an older one needs confirming", async () => {
+    const commits = test.app.get(TrackerCommitsService)
+    const newest = 'b'.repeat(40)
+    const older = 'c'.repeat(40)
+    const calls: string[] = []
+    commits.fetchImpl = async (input) => {
+      const url = String(input)
+      calls.push(url)
+      if (url.endsWith('/commits/main')) {
+        return Response.json({
+          sha: newest,
+          commit: { message: 'Add B5\n\nlong text', committer: { date: '2026-10-29T12:00:00Z' } },
+        })
+      }
+      if (url.endsWith(`...${newest}`)) return Response.json({ status: 'ahead', ahead_by: 3, behind_by: 0 })
+      if (url.endsWith(`...${older}`)) return Response.json({ status: 'behind', ahead_by: 0, behind_by: 7 })
+      return new Response('not found', { status: 404 })
+    }
+    try {
+      const latest = await get('/api/catalog/latest')
+      expect(latest.body).toEqual({
+        current: test.env.catalogCommit,
+        latest: { sha: newest, date: '2026-10-29T12:00:00Z', message: 'Add B5' },
+        comparison: { status: 'ahead', aheadBy: 3, behindBy: 0 },
+        error: null,
+      })
+      expect(calls[1]).toContain(`/compare/${test.env.catalogCommit}...${newest}`)
+      const back = await test.http().post('/api/catalog/sync').set('Cookie', cookie).send({ commit: older })
+      expect(back.status).toBe(409)
+      expect(back.body.error.code).toBe('confirm_required')
+      // GitHub down: the page says so instead of failing.
+      commits.fetchImpl = async () => new Response('rate limited', { status: 403 })
+      expect((await get('/api/catalog/latest')).body).toMatchObject({
+        latest: null,
+        error: expect.stringMatching(/403/),
+      })
+    } finally {
+      commits.fetchImpl = fetch
     }
   })
 

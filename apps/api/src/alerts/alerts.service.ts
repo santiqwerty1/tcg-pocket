@@ -149,7 +149,7 @@ export class AlertsService {
         level: 'warning',
         title: `Set nuevo en el tracker: ${fresh.join(', ')}`,
         detail:
-          'El tracker ya tiene cartas que el catálogo fijado no conoce. Cuando quieras, actualizá el catálogo (Más → Catálogo) y cargá su fecha en la tabla de eras de Torneos.',
+          'El tracker ya tiene cartas que el catálogo no conoce. Más → Catálogo → «Actualizar al último del tracker» muestra qué cambia antes de aplicarlo; después, Torneos → Ajustes propone la fila del set para la tabla de eras.',
         link: '/mas/catalogo',
       })
     }
@@ -167,7 +167,7 @@ export class AlertsService {
         code: 'era_missing_set',
         level: 'warning',
         title: `Torneos con un set que falta en la tabla de eras (${missing.set})`,
-        detail: `${missing.tournaments} ${missing.tournaments === 1 ? 'torneo juega' : 'torneos juegan'} ${missing.set}: quedan afuera de la era actual hasta cargar el set (fecha y si abre era) en Torneos → Ajustes.`,
+        detail: `${missing.tournaments} ${missing.tournaments === 1 ? 'torneo juega' : 'torneos juegan'} ${missing.set}: quedan afuera de la era actual hasta cargar el set. Torneos → Ajustes ya tiene la fila propuesta (fecha del primer torneo y si abre era): revisala y agregala.`,
         link: '/torneos/ajustes',
       })
     }

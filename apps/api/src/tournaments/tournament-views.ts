@@ -316,6 +316,17 @@ export interface SetReleaseView {
   opensEra: boolean
 }
 
+/**
+ * Fase 40 (H-006): a row the era table lacks, proposed from the tournaments that play the set: the date of the first
+ * one, «opens an era» unless the catalog calls the set a Deluxe pack, the names from the catalog when it has the set.
+ */
+export interface SetProposalView extends SetReleaseView {
+  tournaments: number
+  firstTournament: { id: string; name: string; date: string }
+  /** The loaded catalog has the set (if not, update the catalog first: the lists' cards are unknown to it). */
+  inCatalog: boolean
+}
+
 export interface UnknownCardView {
   ref: string
   set: string

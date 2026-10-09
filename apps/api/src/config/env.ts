@@ -53,6 +53,8 @@ const envSchema = z.object({
   /** Fase 8: look at the tracker's `main` for new sets (production by default). */
   TRACKER_UPSTREAM_CHECK: z.stringbool().optional(),
   TRACKER_UPSTREAM_URL: z.url().default('https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker'),
+  /** Fase 40: the tracker on GitHub's API («Actualizar al último del tracker»). */
+  TRACKER_API_URL: z.url().default('https://api.github.com/repos/marcelpanse/tcg-pocket-collection-tracker'),
   /** Fase 18: Web Push (VAPID). Without the keys the notifications are off. */
   VAPID_PUBLIC_KEY: z.string().min(20).optional(),
   VAPID_PRIVATE_KEY: z.string().min(20).optional(),
@@ -91,6 +93,7 @@ export interface Env {
   engineUpstreamCheck: boolean
   trackerUpstreamCheck: boolean
   trackerUpstreamUrl: string
+  trackerApiUrl: string
   engineUpstreamUrl: string
   /** Fase 38: sent to api.github.com when set. */
   githubToken: string | null
@@ -150,6 +153,7 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
     engineUpstreamCheck: raw.ENGINE_UPSTREAM_CHECK ?? isProduction,
     trackerUpstreamCheck: raw.TRACKER_UPSTREAM_CHECK ?? isProduction,
     trackerUpstreamUrl: raw.TRACKER_UPSTREAM_URL.replace(/\/+$/, ''),
+    trackerApiUrl: raw.TRACKER_API_URL.replace(/\/+$/, ''),
     engineUpstreamUrl: raw.ENGINE_UPSTREAM_URL.replace(/\/+$/, ''),
     githubToken: raw.GITHUB_TOKEN ?? null,
     retentionCron: raw.RETENTION_CRON ?? false,

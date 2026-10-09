@@ -552,6 +552,16 @@ Pedido de Santi: miniaturas, tocar las cartas para ver más, mejores controles e
 | 41.11 | `GITHUB_TOKEN` opcional para `api.github.com`. | Sin token, el límite es de 60 pedidos por hora por IP compartida de Fly, y el 403 se tragaba. |
 | 41.12 | **Dependabot** una vez por mes, agrupado (npm: producción y desarrollo; Actions), con 2 y 1 PR abiertos como máximo; las versiones mayores van aparte, de a una. Cargo queda afuera. | Cada PR gasta minutos de CI. deckgym está fijo a propósito (D-013). |
 
+## Fase 40: día de expansión en dos toques (9/10/2026)
+
+| # | Decisión | Motivo |
+|---|---|---|
+| 43.1 | **«Sincronizar» repite el commit cargado** (H-004): sin `commit`, `POST /api/catalog/sync` usa el del catálogo en memoria y solo cae al fijado (`CATALOG_COMMIT`) antes del primer sync; el motor, igual. | Volvía siempre al commit fijado: el set nuevo nunca entraba por la app y, peor, apretar el botón después de actualizar a mano borraba lo nuevo de la colección y los mazos. |
+| 43.2 | **«Actualizar al último del tracker»**: `GET /api/catalog/latest` (el sha de `main` y cuántos commits está adelante, por la API de GitHub con `GITHUB_TOKEN` si está) y `POST /api/catalog/preview`: el mismo armado, diff y plan de remapeo que una sincronización, sin escribir nada; muestra los sets y cartas nuevos, lo que sale, las notas del remapeo y **qué cartas nuevas juega el motor** (por lo que informó un worker en `engine_cards`). | El día que sale un set alcanza con mirar y aplicar; el motor fijo (D-013) casi nunca conoce un set del día, y conviene saberlo antes de simular. |
+| 43.3 | **Confirmación**: ir a un commit anterior al cargado (`409 confirm_required`) o una actualización que saca cartas del catálogo o deja el remapeo en `needs_review` necesita `confirm: true`; sin eso, la sincronización desde la app (`guard`) termina `failed` diciendo por qué, antes de escribir. La CLI no pregunta. | Lo que el remapeo saca no vuelve al volver a subir: hace falta el backup (verificación de H-004). |
+| 43.4 | **Fila propuesta para la tabla de eras** (H-006): `GET /api/tournaments/sets/proposals` arma, por cada set que los torneos ya juegan y la tabla no tiene, la fila con la fecha del primer torneo, «abre era» salvo que el catálogo lo llame Deluxe, y el nombre de la tabla conocida o del catálogo (el del tracker a veces es un slug); Torneos → Ajustes la muestra con «Agregar». | Desde la Fase 36 esos torneos quedan afuera hasta cargar la fila; ahora cargarla es un toque, y la fecha se puede corregir después. |
+| 43.5 | Los avisos `new_set` y `era_missing_set` nombran los dos toques (Más → Catálogo y Torneos → Ajustes). | Que el aviso diga qué apretar. |
+
 ## Fase 41: interfaz (9/10/2026)
 
 | # | Decisión | Motivo |

@@ -19,6 +19,7 @@ import type {
   MatchupMatrixView,
   MetaTrendsView,
   ScopeView,
+  SetProposalView,
   SetReleaseView,
   StatusView,
   TournamentRowView,
@@ -202,6 +203,12 @@ export class TournamentsController {
   @Get('sets')
   async sets(@CurrentSession() _session: RequestSession): Promise<{ items: SetReleaseView[] }> {
     return { items: await this.tournaments.setReleases() }
+  }
+
+  /** Fase 40 (H-006): rows the era table lacks, proposed from the tournaments that play those sets. */
+  @Get('sets/proposals')
+  async setProposals(@CurrentSession() _session: RequestSession): Promise<{ items: SetProposalView[] }> {
+    return { items: await this.tournaments.setProposals() }
   }
 
   /** Adds a set or fixes its release date (the era of every tournament is recomputed). */
