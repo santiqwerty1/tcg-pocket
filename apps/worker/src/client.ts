@@ -268,8 +268,10 @@ export class WorkerClient {
     return this.request<{ ok: true }>('PUT', `/api/worker/live/${id}/end`, body, { ...(signal ? { signal } : {}) })
   }
 
-  liveFailure(id: number, body: { workerId: string; error: string }) {
-    return this.request<{ ok: true }>('PUT', `/api/worker/live/${id}/failure`, body)
+  liveFailure(id: number, body: { workerId: string; error: string }, signal?: AbortSignal) {
+    return this.request<{ ok: true }>('PUT', `/api/worker/live/${id}/failure`, body, {
+      ...(signal ? { signal } : {}),
+    })
   }
 
   liveReplay(id: number, workerId: string, data: Uint8Array, signal?: AbortSignal) {
@@ -280,7 +282,16 @@ export class WorkerClient {
     })
   }
 
-  engineStatus(engineRev: string, cards: { id: string; name: string; status: string; complete: boolean }[]) {
-    return this.request<{ cards: number; incomplete: number }>('PUT', '/api/worker/engine-status', { engineRev, cards })
+  engineStatus(
+    engineRev: string,
+    cards: { id: string; name: string; status: string; complete: boolean }[],
+    signal?: AbortSignal,
+  ) {
+    return this.request<{ cards: number; incomplete: number }>(
+      'PUT',
+      '/api/worker/engine-status',
+      { engineRev, cards },
+      { ...(signal ? { signal } : {}) },
+    )
   }
 }

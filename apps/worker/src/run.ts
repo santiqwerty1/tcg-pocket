@@ -31,57 +31,67 @@ export async function run(argv: readonly string[], defaults: ConfigDefaults = {}
   const config = loadConfig(process.env, defaults)
   const log = logger(join(config.dataDir, 'worker.log'))
   const client = new WorkerClient(config.server, config.token, log)
-  if (defaults.determinismPath) {
-    await checkDeterminism(config.enginePath, defaults.determinismPath, config.dataDir)
-    const reference = JSON.parse(readFileSync(defaults.determinismPath, 'utf8')) as {
-      version: { engineRev: string; cliVersion: string }
-    }
-    client.requiredEngine = reference.version
-    const required = await client.request<{ engineRev: string; cliVersion: string }>(
-      'GET',
-      '/api/worker/packages/android-arm64/version',
-      undefined,
-      { once: true, timeoutMs: 15_000 },
-    )
-    if (required.engineRev !== reference.version.engineRev || required.cliVersion !== reference.version.cliVersion) {
-      throw new Error('Cambió el motor del servidor. Volvé a correr el instalador Android antes de tomar trabajo.')
-    }
-    log('determinismo verificado contra la PC')
-  }
-  if (args.has('--check')) {
-    const version = await engineVersion(config.enginePath)
-    log('configuración', {
-      server: config.server,
-      cores: config.cores,
-      name: config.name,
-      enginePath: config.enginePath,
-      engineRev: version.engineRev,
-      cards: version.cards,
-      dataDir: config.dataDir,
-    })
-    const ping = await client.request<{ ok: boolean; token: { name: string } }>('GET', '/api/worker/ping')
-    log('servidor alcanzable', { token: ping.token.name })
-    return
-  }
-  const running = acquireLock(config.dataDir)
-  if (running !== null) {
-    log('ya hay un worker corriendo en esta carpeta; no arranco otro', { pid: running })
-    return
-  }
-  process.on('exit', () => releaseLock(config.dataDir))
-  const worker = new Worker(config, client, log)
-  await worker.cleanWorkDir()
   const controller = new AbortController()
+  let locked = false
   const stop = () => {
     log('deteniendo el worker')
     controller.abort(new Error('detenido'))
   }
+  const onExit = () => {
+    if (locked) releaseLock(config.dataDir)
+  }
   process.on('SIGINT', stop)
   process.on('SIGTERM', stop)
-  const once = args.has('--once')
-  // Supervisor: an unexpected error restarts the loop a minute later (the logon task does not restart the process);
-  // a token the app rejects stops it for good.
+  process.on('exit', onExit)
   try {
+    if (defaults.determinismPath) {
+      await checkDeterminism(config.enginePath, defaults.determinismPath, config.dataDir, controller.signal)
+      const reference = JSON.parse(readFileSync(defaults.determinismPath, 'utf8')) as {
+        version: { engineRev: string; cliVersion: string }
+      }
+      client.requiredEngine = reference.version
+      const required = await client.request<{ engineRev: string; cliVersion: string }>(
+        'GET',
+        '/api/worker/packages/android-arm64/version',
+        undefined,
+        { once: args.has('--check'), timeoutMs: 15_000, signal: controller.signal },
+      )
+      if (required.engineRev !== reference.version.engineRev || required.cliVersion !== reference.version.cliVersion) {
+        throw new Error('Cambió el motor del servidor. Volvé a correr el instalador Android antes de tomar trabajo.')
+      }
+      log('determinismo verificado contra la PC')
+    }
+    if (args.has('--check')) {
+      const version = await engineVersion(config.enginePath, controller.signal)
+      log('configuración', {
+        server: config.server,
+        cores: config.cores,
+        name: config.name,
+        enginePath: config.enginePath,
+        engineRev: version.engineRev,
+        cards: version.cards,
+        dataDir: config.dataDir,
+      })
+      const ping = await client.request<{ ok: boolean; token: { name: string } }>(
+        'GET',
+        '/api/worker/ping',
+        undefined,
+        { once: true, timeoutMs: 15_000, signal: controller.signal },
+      )
+      log('servidor alcanzable', { token: ping.token.name })
+      return
+    }
+    const running = acquireLock(config.dataDir)
+    if (running !== null) {
+      log('ya hay un worker corriendo en esta carpeta; no arranco otro', { pid: running })
+      return
+    }
+    locked = true
+    const worker = new Worker(config, client, log)
+    await worker.cleanWorkDir()
+    const once = args.has('--once')
+    // Supervisor: an unexpected error restarts the loop a minute later (the logon task does not restart the process);
+    // a token the app rejects stops it for good.
     for (;;) {
       try {
         await worker.loop(controller.signal, { once })
@@ -95,11 +105,15 @@ export async function run(argv: readonly string[], defaults: ConfigDefaults = {}
         await sleep(60_000, undefined, { signal: controller.signal }).catch(() => undefined)
       }
     }
+  } catch (error) {
+    if (!controller.signal.aborted) throw error
   } finally {
     controller.abort()
-    await client.release(config.workerId).catch(() => log('sin conexión al liberar leases; vencen en 3 minutos'))
+    if (locked)
+      await client.release(config.workerId).catch(() => log('sin conexión al liberar leases; vencen en 3 minutos'))
     process.removeListener('SIGINT', stop)
     process.removeListener('SIGTERM', stop)
-    releaseLock(config.dataDir)
+    process.removeListener('exit', onExit)
+    onExit()
   }
 }

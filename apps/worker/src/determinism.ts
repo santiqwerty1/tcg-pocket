@@ -13,16 +13,21 @@ export function deterministicResult(result: Record<string, unknown>): Record<str
   return stable
 }
 
-export async function checkDeterminism(engine: string, referenceFile: string, workDir: string): Promise<void> {
+export async function checkDeterminism(
+  engine: string,
+  referenceFile: string,
+  workDir: string,
+  signal?: AbortSignal,
+): Promise<void> {
   const reference = JSON.parse(await readFile(referenceFile, 'utf8')) as DeterminismReference
-  const version = await engineVersion(engine)
+  const version = await engineVersion(engine, signal)
   if (version.engineRev !== reference.version.engineRev || version.cliVersion !== reference.version.cliVersion) {
     throw new Error('El motor no corresponde a la referencia de determinismo. Volvé a instalar el paquete completo.')
   }
   if (!reference.cases?.length) throw new Error('Falta la prueba de determinismo del paquete.')
   for (const test of reference.cases) {
     const { result, dir } = await runJob<Record<string, unknown>>(engine, 'simulate', test.job, workDir, {
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.any([AbortSignal.timeout(60_000), ...(signal ? [signal] : [])]),
     })
     try {
       if (!isDeepStrictEqual(deterministicResult(result), test.expected)) {
