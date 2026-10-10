@@ -67,10 +67,13 @@ it.skipIf(process.platform === 'win32')(
       `
 import fs from 'node:fs';
 const lock = process.argv[2];
-process.on('SIGTERM', () => setTimeout(() => { fs.unlinkSync(lock); process.exit(0); }, 150));
+let signals = 0;
+process.on('SIGTERM', () => fs.writeFileSync(lock + '.signals', String(++signals)));
 fs.writeFileSync(lock, String(process.pid));
 console.log('ready');
-setInterval(() => {}, 1000);
+setInterval(() => {
+  if (signals && fs.existsSync(lock + '.cleanup')) { fs.unlinkSync(lock); process.exit(0); }
+}, 10);
 `,
     )
     const child = spawn(process.execPath, [entry, join(dir, 'worker.lock')], { stdio: ['ignore', 'pipe', 'pipe'] })
@@ -90,9 +93,35 @@ setInterval(() => {}, 1000);
       await writeFile(join(dir, 'worker.lock'), String(child.pid))
       await expect(stopAndroidWorker(dir, entry, 0)).rejects.toThrow('no se detuvo a tiempo')
       expect(await readFile(join(dir, 'worker.lock'), 'utf8')).toBe(String(child.pid))
-      const stopped = await execute(process.execPath, [stopper, '--stop'], {
+      for (const file of ['worker.lock', 'android/worker.lock']) {
+        await expect
+          .poll(async () => Number(await readFile(join(dir, `${file}.signals`), 'utf8')), { timeout: 5000 })
+          .toBe(1)
+      }
+      let finished = false
+      const stopping = execute(process.execPath, [stopper, '--stop'], {
         env: { ...process.env, TCG_WORKER_DIR: dir, TCG_ANDROID_WORKER_ENTRY: entry },
+        timeout: 10_000,
       })
+      void stopping.then(
+        () => {
+          finished = true
+        },
+        () => {
+          finished = true
+        },
+      )
+      // Let the CLI inspect and signal both holders before allowing either cleanup.
+      for (const file of ['worker.lock', 'android/worker.lock']) {
+        await expect
+          .poll(async () => Number(await readFile(join(dir, `${file}.signals`), 'utf8')), { timeout: 5000 })
+          .toBe(2)
+      }
+      await writeFile(join(dir, 'worker.lock.cleanup'), '')
+      await exited
+      expect(finished).toBe(false)
+      await writeFile(join(dir, 'android/worker.lock.cleanup'), '')
+      const stopped = await stopping
       expect(stopped.stdout).toContain('Worker detenido')
       await Promise.all([exited, supervisorExited])
       expect(await stopAndroidWorker(dir, entry)).toContain('No hay un worker')
@@ -102,4 +131,5 @@ setInterval(() => {}, 1000);
       await rm(dir, { recursive: true, force: true })
     }
   },
+  15_000,
 )
