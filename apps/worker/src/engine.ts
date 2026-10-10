@@ -38,6 +38,7 @@ export interface RunOptions {
 }
 
 function run(enginePath: string, args: string[], options: RunOptions = {}): Promise<string> {
+  if (options.signal?.aborted) return Promise.reject(options.signal.reason)
   return new Promise((resolve, reject) => {
     // A .js/.mjs engine is a script run with this Node (the fake engine of the tests).
     const [command, prefix] = /\.m?js$/.test(enginePath) ? [process.execPath, [enginePath]] : [enginePath, []]

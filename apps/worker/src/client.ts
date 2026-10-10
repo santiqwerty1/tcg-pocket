@@ -82,6 +82,8 @@ export class ApiError extends Error {
 export type Log = (message: string, data?: Record<string, unknown>) => void
 
 export class WorkerClient {
+  /** Android checks the image's exact engine before every chunk/game claim, also after a server update. */
+  requiredEngine: { engineRev: string; cliVersion: string } | null = null
   constructor(
     private readonly server: string,
     private readonly token: string,
@@ -103,6 +105,23 @@ export class WorkerClient {
       once?: boolean
     } = {},
   ): Promise<T> {
+    if (this.requiredEngine && method === 'POST' && ['/api/worker/claim', '/api/worker/live/claim'].includes(path)) {
+      const required = await this.request<{ engineRev: string; cliVersion: string }>(
+        'GET',
+        '/api/worker/packages/android-arm64/version',
+        undefined,
+        { once: true, timeoutMs: 15_000, ...(options.signal ? { signal: options.signal } : {}) },
+      )
+      if (
+        required.engineRev !== this.requiredEngine.engineRev ||
+        required.cliVersion !== this.requiredEngine.cliVersion
+      ) {
+        throw new ApiError(
+          'Cambió el motor del servidor. Volvé a correr el instalador Android antes de tomar trabajo.',
+          409,
+        )
+      }
+    }
     let delay = 1000
     const url = new URL(`${this.server}${path}`)
     for (const [key, value] of Object.entries(options.query ?? {})) url.searchParams.set(key, value)
@@ -161,6 +180,10 @@ export class WorkerClient {
     }>('POST', '/api/worker/claim', hello, { ...(signal ? { signal } : {}), timeoutMs: 60_000 })
   }
 
+  release(workerId: string) {
+    return this.request('POST', '/api/worker/release', { workerId }, { once: true, timeoutMs: 10_000 })
+  }
+
   heartbeat(chunkId: number, body: { workerId: string; gamesDone: number; total?: number }, signal?: AbortSignal) {
     return this.request<{ leaseUntil: string | null; cancelled: boolean; lost?: boolean }>(
       'PUT',
@@ -170,18 +193,29 @@ export class WorkerClient {
     )
   }
 
-  result(chunkId: number, body: ChunkResult) {
-    return this.request<{ accepted: boolean }>('PUT', `/api/worker/chunks/${chunkId}/result`, body)
+  result(chunkId: number, body: ChunkResult, signal?: AbortSignal) {
+    return this.request<{ accepted: boolean }>('PUT', `/api/worker/chunks/${chunkId}/result`, body, {
+      ...(signal ? { signal } : {}),
+    })
   }
 
-  failure(chunkId: number, body: { workerId: string; error: string }) {
-    return this.request<{ status: string }>('PUT', `/api/worker/chunks/${chunkId}/failure`, body)
+  failure(chunkId: number, body: { workerId: string; error: string }, signal?: AbortSignal) {
+    return this.request<{ status: string }>('PUT', `/api/worker/chunks/${chunkId}/failure`, body, {
+      ...(signal ? { signal } : {}),
+    })
   }
 
-  replay(chunkId: number, gameId: string, data: Uint8Array, meta: { index: number; seed: string; winner: string }) {
+  replay(
+    chunkId: number,
+    gameId: string,
+    data: Uint8Array,
+    meta: { index: number; seed: string; winner: string },
+    signal?: AbortSignal,
+  ) {
     return this.request<{ id: number }>('PUT', `/api/worker/chunks/${chunkId}/replays/${gameId}`, undefined, {
       raw: data,
       query: { index: String(meta.index), seed: meta.seed, winner: meta.winner },
+      ...(signal ? { signal } : {}),
     })
   }
 
@@ -206,8 +240,11 @@ export class WorkerClient {
       log: Record<string, unknown>[]
       coach?: { scores: number[]; best: number }
     },
+    signal?: AbortSignal,
   ) {
-    return this.request<{ choice: number | null; status: string }>('PUT', `/api/worker/live/${id}/decision`, body)
+    return this.request<{ choice: number | null; status: string }>('PUT', `/api/worker/live/${id}/decision`, body, {
+      ...(signal ? { signal } : {}),
+    })
   }
 
   liveChoice(id: number, body: { workerId: string; ply: number }, signal?: AbortSignal) {
@@ -226,18 +263,20 @@ export class WorkerClient {
       state: Record<string, unknown>
       log: Record<string, unknown>[]
     },
+    signal?: AbortSignal,
   ) {
-    return this.request<{ ok: true }>('PUT', `/api/worker/live/${id}/end`, body)
+    return this.request<{ ok: true }>('PUT', `/api/worker/live/${id}/end`, body, { ...(signal ? { signal } : {}) })
   }
 
   liveFailure(id: number, body: { workerId: string; error: string }) {
     return this.request<{ ok: true }>('PUT', `/api/worker/live/${id}/failure`, body)
   }
 
-  liveReplay(id: number, workerId: string, data: Uint8Array) {
+  liveReplay(id: number, workerId: string, data: Uint8Array, signal?: AbortSignal) {
     return this.request<{ ok: true }>('PUT', `/api/worker/live/${id}/replay`, undefined, {
       raw: data,
       query: { workerId },
+      ...(signal ? { signal } : {}),
     })
   }
 

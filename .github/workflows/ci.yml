@@ -209,6 +209,28 @@ jobs:
           path: apps/worker/build/tcg-worker-*-windows.zip
           retention-days: 30
 
+  # T-015: the same Docker target used by Fly, plus ARM execution against its native reference (qemu-user).
+  android:
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node apps/worker/scripts/build-android.mjs
+      - name: Worker shutdown and Termux installer with doubles on Linux
+        run: docker run --rm --entrypoint sh tcg-worker-android-build -c 'apk add --no-cache bash util-linux coreutils && cd /app && pnpm -F @tcg/worker test shutdown installer'
+      - name: ARM determinism under qemu (one and two threads)
+        run: docker run --rm --entrypoint sh tcg-worker-android-build -c 'apk add --no-cache qemu-aarch64 && node /app/apps/worker/scripts/check-arm.mjs /android-package/android-package/tcg-worker'
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: tcg-worker-android
+          path: apps/worker/build/tcg-worker-*-android-arm64.tar.gz*
+          retention-days: 30
+
   # The production image (Dockerfile), built and thrown away: only on main and only when its inputs changed.
   docker:
     needs: changes
