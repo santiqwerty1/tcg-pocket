@@ -84,6 +84,16 @@ export function poolForZone(
   })
 }
 
+/**
+ * The copies a combo may reach of each card: the pool's (the collection's, with «colección»), taken from the pool
+ * frozen for every zone (review of #35 by Codex: the zone's filter must not drop a card's cap), 0 for a card outside
+ * it with the pool «colección» and 2 with «todas».
+ */
+export function poolCaps(pool: readonly PoolCard[], which: 'collection' | 'all'): (groupId: CardId) => number {
+  const caps = new Map(pool.map((card) => [card.groupId, card.maxCopies]))
+  return (groupId) => caps.get(groupId) ?? (which === 'collection' ? 0 : 2)
+}
+
 export function mutationPool(options: PoolOptions): PoolCard[] {
   const pool: PoolCard[] = []
   for (const group of options.index.catalog.groups) {

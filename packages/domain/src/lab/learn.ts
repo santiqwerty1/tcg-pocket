@@ -36,7 +36,7 @@ export interface MeasuredSwap {
    * The copies that changed: their position in deck order and the functional card that was there (review of the stack:
    * undoing a swap that added a second copy puts the old card back in that place, not in the first copy's line).
    */
-  slots?: { at: number; was: CardId }[]
+  slots?: { at: number; was: CardId; now?: CardId }[]
 }
 
 /** The swap a variant made against its parent, as `MeasuredSwap` (copies repeated). */
@@ -66,33 +66,50 @@ export function changedSlots(
   parent: readonly DeckCardEntry[],
   variant: readonly DeckCardEntry[],
   index: CatalogIndex,
-): { at: number; was: CardId }[] {
+): { at: number; was: CardId; now: CardId }[] {
   const before = slotGroups(parent, index)
   const after = slotGroups(variant, index)
   if (before.length !== after.length) return []
-  const out: { at: number; was: CardId }[] = []
-  for (const [at, was] of before.entries()) if (after[at] !== was) out.push({ at, was })
+  const out: { at: number; was: CardId; now: CardId }[] = []
+  for (const [at, was] of before.entries()) {
+    const now = after[at]
+    if (now !== undefined && now !== was) out.push({ at, was, now })
+  }
   return out
 }
 
-/** Undoes a swap at the positions it changed, when they still hold what it added; false otherwise (nothing changed). */
+/**
+ * Undoes a swap at the positions it changed. «done»: done, in place. «stale»: it knows what it put in each place
+ * (`now`) and those places hold something else today, so it is no longer an undo (review of #35 by Codex: a chained
+ * combo, +B/−A and +C/−B, changes two places for one card in). «none»: a history without places, or without `now`
+ * that is not a plain swap: undo it card by card, as a swap is replayed.
+ */
 function undoAtSlots(
   cards: DeckCardEntry[],
   swap: MeasuredSwap,
   index: CatalogIndex,
   editionOf: (groupId: CardId) => CardId,
   locked: ReadonlySet<CardId> | undefined,
-): boolean {
+): 'done' | 'stale' | 'none' {
   const slots = swap.slots ?? []
-  if (slots.length === 0 || slots.length !== swap.add.length) return false
+  if (slots.length === 0) return 'none'
   const added = new Set(swap.add.map((cardId) => index.cardById(cardId)?.functionalGroupId ?? cardId))
-  const now = slotGroups(cards, index)
-  for (const { at } of slots) {
-    const group = now[at]
-    if (group === undefined || !added.has(group) || locked?.has(group)) return false
+  const current = slotGroups(cards, index)
+  if (slots.every((slot) => slot.now !== undefined)) {
+    for (const { at, now } of slots) {
+      const group = current[at]
+      if (group === undefined || group !== now || (added.has(group) && locked?.has(group))) return 'stale'
+    }
+  } else {
+    // A history from before `now`: only a plain swap, one place per card in.
+    if (slots.length !== swap.add.length) return 'none'
+    for (const { at } of slots) {
+      const group = current[at]
+      if (group === undefined || !added.has(group) || locked?.has(group)) return 'none'
+    }
   }
   for (const { at, was } of slots) replaceSlot(cards, at, editionOf(was))
-  return true
+  return 'done'
 }
 
 /**
@@ -171,9 +188,11 @@ export function revertVariant(
       add: swap.remove.map(editionOf),
       remove: swap.add.map((cardId) => index.cardById(cardId)?.functionalGroupId ?? cardId),
     }
-    // In the places it changed when they still hold what it added; else the first copies, as a swap is replayed.
+    // In the places it changed when they still hold what it put there; a history without places, card by card.
     let cards = deck.map((entry) => ({ ...entry }))
-    if (!undoAtSlots(cards, swap, index, editionOf, options.locked)) {
+    const undone = undoAtSlots(cards, swap, index, editionOf, options.locked)
+    if (undone === 'stale') continue
+    if (undone === 'none') {
       cards = deck.map((entry) => ({ ...entry }))
       if (!applySwap(cards, back, index, options.locked)) continue
     }

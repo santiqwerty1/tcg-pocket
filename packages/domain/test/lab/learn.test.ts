@@ -13,6 +13,9 @@ import {
   learnSwap,
   type MeasuredSwap,
   mutationPool,
+  poolCaps,
+  poolForZone,
+  replaceSlot,
   revertVariant,
   seededRandom,
   slotGroups,
@@ -127,6 +130,65 @@ describe('what a search learns between rounds (T-017 C4)', () => {
     if (!back) throw new Error('no revert')
     // Every copy where it was: the second copy leaves, not the first one.
     expect(slotGroups(back.cards, index)).toEqual(slotGroups(deck.cards, index))
+  })
+
+  it('review of #35 (Codex): a chained combo (+B/−A, +C/−B) is undone in its places too', () => {
+    // Two trainers the list plays once each, A before B; C, a trainer it does not play.
+    const trainers = deck.cards.filter(
+      (entry) => entry.count === 1 && index.cardById(entry.cardId)?.cardType === 'trainer',
+    )
+    const [a, b] = trainers
+    const c = pool.find(
+      (card) =>
+        index.cardById(card.cardId)?.cardType === 'trainer' &&
+        !deck.cards.some((entry) => group(entry.cardId) === card.groupId),
+    )
+    if (!a || !b || !c) throw new Error('deck shape')
+    const slotOf = (cardId: string) => slotGroups(deck.cards, index).indexOf(group(cardId))
+    const variant = deck.cards.map((entry) => ({ ...entry }))
+    // A's place gets a B and the old B's place gets C: one card in (C), one out (A), two places changed.
+    expect(replaceSlot(variant, slotOf(a.cardId), b.cardId)).toBe(true)
+    expect(replaceSlot(variant, slotOf(b.cardId), c.cardId)).toBe(true)
+    const accepted = swapOf(deck.cards, variant, index, 6)
+    expect(accepted.add.map(group)).toEqual([c.groupId])
+    expect(accepted.slots).toHaveLength(2)
+    const editionOf = (groupId: string) =>
+      deck.cards.find((entry) => group(entry.cardId) === groupId)?.cardId ?? groupId
+    const back = revertVariant(variant, [accepted], 0, index, editionOf, { valid: () => true })
+    if (!back) throw new Error('no revert')
+    expect(slotGroups(back.cards, index)).toEqual(slotGroups(deck.cards, index))
+    // When those places hold something else now, it is no longer an undo: none (not a reshuffled list).
+    const moved = variant.map((entry) => ({ ...entry }))
+    expect(replaceSlot(moved, slotOf(a.cardId), a.cardId)).toBe(true)
+    expect(revertVariant(moved, [accepted], 0, index, editionOf, { valid: () => true })).toBeNull()
+  })
+
+  it('review of #35 (Codex): a combo keeps the collection cap of a card the Energy Zone no longer draws', () => {
+    // Bulbasaur, owned once, in the pool frozen for every zone; the Fire zone leaves it out of the draws.
+    const bulbasaur = group('A1-1')
+    const full = mutationPool({
+      index,
+      energies: ['grass', 'fire'],
+      edition: (groupId) => index.cardById(index.groupById(groupId)?.displayCardId ?? groupId) ?? null,
+      maxCopies: (groupId) => (groupId === bulbasaur ? 1 : 2),
+    })
+    expect(full.some((card) => card.groupId === bulbasaur)).toBe(true)
+    expect(poolForZone(full, ['fire'], index).some((card) => card.groupId === bulbasaur)).toBe(false)
+    const [x, y] = deck.cards.filter((entry) => index.cardById(entry.cardId)?.cardType === 'trainer')
+    if (!x || !y) throw new Error('deck shape')
+    const swaps: MeasuredSwap[] = [
+      { add: ['A1-1'], remove: [group(x.cardId)], difference: 5 },
+      { add: ['A1-1'], remove: [group(y.cardId)], difference: 4 },
+    ]
+    const anyDeck = { valid: () => true }
+    // Caps from the zone's pool would let two in (Bulbasaur is not there: no cap); the frozen pool's keep one.
+    const zoneCaps = new Map(poolForZone(full, ['fire'], index).map((card) => [card.groupId, card.maxCopies]))
+    expect(
+      comboVariant(deck.cards, swaps, index, { ...anyDeck, maxCopies: (g) => zoneCaps.get(g) ?? 2 }),
+    ).not.toBeNull()
+    expect(comboVariant(deck.cards, swaps, index, { ...anyDeck, maxCopies: poolCaps(full, 'collection') })).toBeNull()
+    expect(poolCaps(full, 'collection')('nothing')).toBe(0)
+    expect(poolCaps(full, 'all')('nothing')).toBe(2)
   })
 
   it('review of #15: what was learned changes the draws the same way every time for the same seed', () => {

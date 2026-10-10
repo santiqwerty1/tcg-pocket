@@ -79,6 +79,7 @@ import {
   pairedWinner,
   perGameEntries,
   perGameSummary,
+  poolCaps,
   poolForZone,
   randomBaseSeed,
   readPerGame,
@@ -1159,26 +1160,30 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             const incumbentCards = slotsOfSnapshot(incumbent.cards as unknown as SnapshotCard[])
             let affinity: ReadonlyMap<CardId, number>
             let pool: PoolCard[]
+            // The copies the collection allows, from the pool before the zone's filter (review of #35 by Codex).
+            let capsPool: PoolCard[]
             if (state.frozen) {
               affinity = new Map(state.frozen.affinity)
               // Review of #27: frozen for every zone; filtered with the one in play (an Energy variant may change it).
-              pool = poolForZone(thawPool(state.frozen, index), energies, index)
+              capsPool = thawPool(state.frozen, index)
+              pool = poolForZone(capsPool, energies, index)
             } else {
               // A search queued before H-021: today's tournaments and collection, as it always did.
               const bank = await this.usageBank(params.lab)
               affinity = neighborhoodUsage(bank.dataset, incumbentCards, index)
               pool = await this.pool(bank, energies, state.config.pool, affinity, state.event?.rules)
+              capsPool = pool
             }
             const seen = new Set(state.seen)
             // T-017 C4: one variant joins the two best swaps measured so far; the draws lean on what was learned.
             const rules = state.event?.rules
-            const caps = new Map(pool.map((card) => [card.groupId, card.maxCopies]))
+            const caps = poolCaps(capsPool, state.config.pool)
             const learned = state.learned ?? {}
             const combo = comboVariant(incumbentCards, state.swaps ?? [], index, {
               seen,
               locked: new Set(state.locked),
               // Review of #15: within the copies the pool allows (the collection's), ordered by what was learned.
-              maxCopies: (groupId) => caps.get(groupId) ?? 2,
+              maxCopies: caps,
               score: (swap) => swapScore(learned, swap, index),
               valid: (cards) =>
                 validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
