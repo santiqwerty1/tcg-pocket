@@ -79,7 +79,7 @@ Mientras el repo sea privado y sin minutos de Actions, la CI corre en dos runner
 - **Dónde están:** en `%USERPROFILE%\actions-runner`.
 - **Arranque:** al iniciar sesión, por `tcg-pocket-ci-runners.vbs` en Inicio.
 - **Instalar:** `powershell -ExecutionPolicy Bypass -File scripts\ci-runner\install.ps1`.
-- **Otra PC** (por ejemplo la del Ryzen): clonar el repo y correr el mismo script con otro prefijo, `install.ps1 -Prefix tcg-ryzen`. Con el mismo nombre, `config.cmd --replace` se llevaría los runners de la primera PC. El script revisa antes Git, gh con sesión, Docker Desktop, Rust (GNU) y WinLibs, y dice con qué `winget` instalar lo que falte. La etiqueta sigue siendo `tcg-pc`, así que la CI usa los runners de las dos PC. Si esa PC también corre el worker, conviene bajarle núcleos para que los tests no venzan por tiempo.
+- **Otra PC** (por ejemplo la del Ryzen): clonar el repo y correr el mismo script con otro prefijo, `install.ps1 -Prefix tcg-ryzen`. Con el mismo nombre, `config.cmd --replace` se llevaría los runners de la primera PC. El script revisa antes Git, gh con sesión, Docker Desktop, Rust (GNU) y WinLibs, y dice con qué `winget` instalar lo que falte. La etiqueta sigue siendo `tcg-pc`, así que la CI usa los runners de las dos PC. Si esa PC también corre el worker, el worker 0.2.8 usa prioridad baja para los motores de fondo: la CI mantiene prioridad normal y recibe CPU primero (D-023). El asistente sugiere todos los hilos disponibles; se puede conservar otro presupuesto.
 - **Cómo elige runner la CI:** con las variables del repo `CI_RUNNER` y `CI_RUNNER_WINDOWS` (`tcg-pc`). Sin ellas, vuelve a los de GitHub.
 - **Base y puerto por runner:** `tcg_ci_test_<runner>` y `tcg_ci_screens_<runner>`, en el Postgres de `docker compose`, y un puerto propio para las pantallas. No pisan los de las sesiones.
 - **El motor:** se compila con el Rust y el WinLibs de la PC, en `%USERPROFILE%\actions-runner\tcg-pc-<n>\_work\tcg-pocket\cargo-target`.
@@ -115,6 +115,16 @@ Mientras el repo sea privado y sin minutos de Actions, la CI corre en dos runner
   3. Desplegar de nuevo.
 
 La CI saltea el motor de Windows cuando no cambió y arma la imagen de Docker solo en main (DECISIONES 41.1–41.3). Dependabot abre como mucho un PR agrupado por mes para npm y otro para las Actions; el motor queda afuera porque deckgym está fijo (D-013).
+
+## Prioridad del worker 0.2.8 (D-023, T-015)
+
+En `config.json`, `"priority": "below_normal"` es el valor por defecto. `TCG_WORKER_PRIORITY` manda sobre el archivo; los otros valores admitidos son `normal` e `idle`. `--check` muestra `priority`. El cambio toma efecto en el siguiente arranque del worker; lo opera el Coordinador.
+
+Cada motor de simulación, lote, consistencia u optimización (incluido explorar) recibe la prioridad inmediatamente después de crearse. Las partidas en vivo contra el bot y las pistas del entrenador piden normal; las situaciones se resuelven desde repeticiones. El proceso del worker conserva la suya para atender latidos y red. Si el sistema rechaza el cambio (por ejemplo permisos en Android), queda un aviso con PID y prioridad en `worker.log` y el trabajo continúa con la prioridad heredada.
+
+[Node documenta las constantes portables](https://nodejs.org/api/os.html#priority-constants): `below_normal` es Below Normal en Windows / nice 10 en Linux y Android; `idle` es Idle / nice 19; normal es Normal / nice 0. La prioridad reparte CPU; no reserva núcleos ni memoria, ni elimina el calor. `engine-cli` conserva la exclusión de EcoQoS (H-001) y su versión 0.3.3.
+
+Medición y comandos para repetirla: [prioridad del worker](WORKER-PRIORIDAD.md).
 
 ## Worker en Android arm64 (T-015)
 

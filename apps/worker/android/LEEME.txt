@@ -1,4 +1,4 @@
-TCG Pocket: worker en Android arm64 (T-015)
+TCG Pocket: worker 0.2.8 en Android arm64 (T-015)
 
 1. Instalá Termux desde F-Droid o los releases oficiales de GitHub, no desde Play Store.
    Termux:API y Termux:Boot deben venir del MISMO origen: las firmas de los APK son distintas.
@@ -10,7 +10,8 @@ TCG Pocket: worker en Android arm64 (T-015)
    comprueba la suma SHA256 antes de instalar. Node se instala con pkg install nodejs-lts.
    Paquete oficial consultado el 10/10/2026: Node 24.18.0. Se requiere Node >=24.
    https://github.com/termux/termux-packages/blob/master/packages/nodejs-lts/build.sh
-3. Elegí cuántos núcleos usar (por defecto la mitad) y si trabaja solo enchufado.
+3. Elegí cuántos núcleos usar (por defecto la mitad, por el calor) y si trabaja solo enchufado.
+   El motor de fondo usa prioridad baja para dejar CPU a otras tareas. La prioridad no reduce el calor.
    Para esa opción instalá Termux:API y pkg install termux-api. Se revisa cada 15 segundos;
    una lectura de batería fallida pausa el trabajo. Desenchufar manda SIGTERM, libera los
    leases sin contar fallas y al enchufar se reanudan los resultados pendientes.
@@ -23,6 +24,12 @@ TCG Pocket: worker en Android arm64 (T-015)
 6. Para actualizar, repetí el mismo comando. Detiene el worker, instala motor y JS juntos,
    conserva el id del worker y resultados pendientes, pide nuevamente las preferencias.
    Solo trabaja con la versión del motor que corresponde a la imagen de la API.
+
+Prioridad:
+En data/config.json: "priority": "below_normal" (por defecto), "normal" o "idle".
+TCG_WORKER_PRIORITY manda sobre el archivo. --check muestra el valor. Si Android rechaza cambiar
+la prioridad, se registra en worker.log y sigue con la heredada. Las partidas contra el bot y las
+pistas del entrenador mantienen prioridad normal; los latidos del worker conservan su prioridad.
 
 Batería y calor:
 Android → Apps → Termux → Batería: elegí «Sin restricciones» / excluir optimización;

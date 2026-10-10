@@ -20,10 +20,13 @@ Un error inesperado reinicia el bucle al minuto; un token rechazado (401/403) lo
 |---|---|---|---|
 | `token` | `TCG_WORKER_TOKEN` | — (obligatorio) | Token `tcg_wk_…` de tipo worker (Más → Tokens de API). Solo viaja como `Authorization` a la app. |
 | `server` | `TCG_SERVER` | `https://tcg-pocket.fly.dev` | URL de la app. |
-| `cores` | `TCG_WORKER_CORES` | 8 (o los hilos de la PC si son menos) | Hilos por chunk. |
+| `cores` | `TCG_WORKER_CORES` | Todos los hilos disponibles (Android: la mitad) | Hilos por chunk. |
+| `priority` | `TCG_WORKER_PRIORITY` | `below_normal` | Prioridad de los motores de fondo: `below_normal`, `normal` o `idle`. |
 | `name` | `TCG_WORKER_NAME` | nombre de la PC | Cómo aparece en Más → Simulación. |
 | `enginePath` | `TCG_ENGINE_PATH` | `engine/target/release/engine-cli.exe` del repo | Otro binario (por ejemplo el artefacto `engine-cli-windows` de CI). |
 | — | `TCG_WORKER_DIR` | `%LOCALAPPDATA%\tcg-worker` | Carpeta de `config.json`, `worker-id`, `state.json`, `work/` y `worker.log`. |
+
+Worker 0.2.8: el motor de simulación, lotes, consistencia y explorar se lanza con prioridad baja para dejar CPU a la CI. `normal` desactiva esa preferencia; `idle` cede más. Las partidas contra el bot y sus pistas del entrenador siguen en normal, incluso con `priority: "idle"`. El proceso del worker conserva su prioridad para sostener los latidos. `--check` muestra la opción; si el sistema rechaza el cambio de prioridad se registra y el trabajo sigue con la heredada. La exclusión de EcoQoS del motor no cambia (H-001).
 
 ## Uso
 

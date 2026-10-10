@@ -70,6 +70,7 @@ No hace falta instalar Node, Rust ni el repositorio: alcanza con esta carpeta.
 2. En la app: Más → Tokens de API → nuevo token de tipo worker (uno por PC: así lo podés revocar solo).
 3. Doble clic en tcg-worker.exe: pide el token, cuántos núcleos usar y un nombre para la PC, prueba el motor y la
    conexión, y deja el worker corriendo oculto. Arranca solo cada vez que inicies sesión.
+   Sugiere todos los hilos: el motor de fondo tiene prioridad baja para dejar CPU a la CI.
    Si Windows dice «Windows protegió su PC» (el archivo vino de internet y no está firmado): Más información →
    Ejecutar de todas formas.
 4. En la app, Más → Simulación muestra las PCs conectadas.
@@ -79,6 +80,10 @@ Otros usos (desde una consola en esta carpeta):
   tcg-worker.exe --uninstall  saca el arranque automático (para cambiar algo, volvé a hacer doble clic)
 
 La configuración y el registro quedan en %LOCALAPPDATA%\\tcg-worker (config.json y worker.log).
+En config.json, priority puede ser "below_normal" (por defecto), "normal" o "idle".
+TCG_WORKER_PRIORITY manda sobre el archivo; --check muestra la opción. Un cambio rechazado por el sistema
+queda en worker.log y el trabajo sigue. Partidas contra el bot y pistas del entrenador usan prioridad normal.
+El worker mantiene los latidos en su prioridad habitual; el motor sigue excluido de EcoQoS.
 Si actualizás la app y el motor cambia, reemplazá los dos .exe por los del paquete nuevo y reiniciá la sesión.
 Licencias: el worker y engine-cli.exe son AGPL-3.0 (LICENSE.txt; fuentes en https://github.com/santiqwerty1/tcg-pocket);
 engine-cli.exe incluye deckgym-core (AGPL-3.0, https://github.com/bcollazo/deckgym-core); tcg-worker.exe lleva
