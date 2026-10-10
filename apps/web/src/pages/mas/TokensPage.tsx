@@ -23,6 +23,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { AndroidWorkerSection } from './AndroidWorkerSection'
 import { ChatParticipantsSection } from './ChatParticipantsSection'
 import { ClaudeActivitySection } from './ClaudeActivitySection'
 
@@ -36,7 +37,7 @@ const SCOPE_HINT: Record<string, string> = {
     'Solo para el puente del chat entre sesiones de la PC: escribe como Santi, Coordinador, Principal, Laboratorio e Infra. Va solo, sin los otros permisos.',
 }
 
-const KIND_LABEL: Record<TokenKind, string> = { worker: 'Worker (PC)', mcp: 'Claude (MCP)' }
+const KIND_LABEL: Record<TokenKind, string> = { worker: 'Worker (PC o Android)', mcp: 'Claude (MCP)' }
 
 export function TokensPage() {
   const tokens = useTokens()
@@ -185,6 +186,7 @@ export function TokensPage() {
         ) : null}
       </Section>
 
+      <AndroidWorkerSection />
       <ClaudeActivitySection />
 
       <ChatParticipantsSection />
