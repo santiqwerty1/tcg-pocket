@@ -8,12 +8,15 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { availableParallelism, homedir, hostname } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { EnginePriority } from './priority.js'
 
 export interface WorkerConfig {
   server: string
   token: string
   /** Threads per chunk (the engine plays the games of a chunk in parallel). */
   cores: number
+  /** Background engines yield CPU to CI; interactive engines always use normal priority. */
+  priority: EnginePriority
   name: string
   enginePath: string
   dataDir: string
@@ -35,6 +38,7 @@ export function defaultEnginePath(): string {
 }
 
 export interface FileConfig {
+  priority?: EnginePriority
   server?: string
   token?: string
   cores?: number
@@ -83,11 +87,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, defaults: Confi
   }
   const idFile = join(dir, 'worker-id')
   if (!existsSync(idFile)) writeFileSync(idFile, randomUUID())
-  const cores = Number(env.TCG_WORKER_CORES ?? fromFile.cores ?? Math.min(8, availableParallelism()))
+  const cores = Number(
+    env.TCG_WORKER_CORES ??
+      fromFile.cores ??
+      (defaults.capThreads ? Math.max(1, Math.floor(availableParallelism() / 2)) : availableParallelism()),
+  )
+  const priority = env.TCG_WORKER_PRIORITY ?? fromFile.priority ?? 'below_normal'
+  if (priority !== 'below_normal' && priority !== 'normal' && priority !== 'idle') {
+    throw new Error('Prioridad inválida: usá below_normal, normal o idle en priority o TCG_WORKER_PRIORITY.')
+  }
   return {
     server: (env.TCG_SERVER ?? fromFile.server ?? 'https://tcg-pocket.fly.dev').replace(/\/+$/, ''),
     token,
     cores: Number.isInteger(cores) && cores > 0 ? cores : 2,
+    priority,
     name: env.TCG_WORKER_NAME ?? fromFile.name ?? hostname(),
     enginePath: env.TCG_ENGINE_PATH ?? fromFile.enginePath ?? defaults.enginePath ?? defaultEnginePath(),
     dataDir: dir,

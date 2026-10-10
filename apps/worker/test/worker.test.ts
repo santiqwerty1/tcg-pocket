@@ -1,5 +1,5 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { constants, setPriority, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
@@ -14,6 +14,14 @@ import { Worker } from '../src/worker.js'
 const FAKE_ENGINE = join(dirname(fileURLToPath(import.meta.url)), 'fake-engine.mjs')
 const REV = 'fb792ebfbaca995af9750c28101ce92a51282825'
 const silent = () => undefined
+
+vi.mock('node:os', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:os')>()),
+  setPriority: vi.fn(),
+}))
+beforeEach(() => {
+  vi.mocked(setPriority).mockReset()
+})
 
 function chunk(overrides: Partial<Chunk> = {}): Chunk {
   return {
@@ -82,6 +90,23 @@ describe('engine runner', () => {
   })
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
+  it.each(['simulate', 'batch', 'optimize', 'consistency'] as const)(
+    'requests below-normal priority for %s',
+    async (command) => {
+      await runJob(FAKE_ENGINE, command, { games: 10, seed: 1, pairings: [] }, dir)
+      expect(setPriority).toHaveBeenCalledWith(expect.any(Number), constants.priority.PRIORITY_BELOW_NORMAL)
+    },
+  )
+
+  it('keeps metadata commands at normal priority', async () => {
+    await engineVersion(FAKE_ENGINE)
+    await engineStatus(FAKE_ENGINE)
+    expect(vi.mocked(setPriority).mock.calls.map(([, priority]) => priority)).toEqual([
+      constants.priority.PRIORITY_NORMAL,
+      constants.priority.PRIORITY_NORMAL,
+    ])
+  })
+
   it('reads version and status, and runs a job with progress', async () => {
     expect(await engineVersion(FAKE_ENGINE)).toMatchObject({ engineRev: REV })
     expect(await engineStatus(FAKE_ENGINE)).toHaveLength(2)
@@ -126,6 +151,7 @@ describe('worker loop', () => {
       server: 'http://test',
       token: 'tcg_wk_test',
       cores: 2,
+      priority: 'below_normal',
       name: 'test',
       enginePath: FAKE_ENGINE,
       dataDir,
@@ -133,6 +159,35 @@ describe('worker loop', () => {
     }
   })
   afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
+
+  it.each(['below_normal', 'normal', 'idle'] as const)('passes configured %s priority to chunks', async (priority) => {
+    const { client, calls } = fakeClient([chunk({ kind: 'explore' })])
+    await new Worker({ ...config, priority }, client, silent).loop(new AbortController().signal, { once: true })
+    expect(calls.results).toHaveLength(1)
+    const expected = {
+      below_normal: constants.priority.PRIORITY_BELOW_NORMAL,
+      normal: constants.priority.PRIORITY_NORMAL,
+      idle: constants.priority.PRIORITY_LOW,
+    }
+    expect(setPriority).toHaveBeenLastCalledWith(expect.any(Number), expected[priority])
+  })
+
+  it('logs a priority permission failure and still reports the completed chunk', async () => {
+    vi.mocked(setPriority).mockImplementation((_pid, priority) => {
+      if (priority !== constants.priority.PRIORITY_NORMAL) throw new Error('EPERM')
+    })
+    const log = vi.fn()
+    const { client, calls } = fakeClient([chunk()])
+    await new Worker(config, client, log).loop(new AbortController().signal, { once: true })
+    expect(calls.failures).toEqual([])
+    expect(calls.results).toHaveLength(1)
+    expect(
+      log.mock.calls.find(([message]) => message.startsWith('no se pudo cambiar la prioridad'))?.[1],
+    ).toMatchObject({
+      priority: 'below_normal',
+      error: 'Error: EPERM',
+    })
+  })
 
   it('plays a chunk, reports the result and uploads the replays gzipped', async () => {
     const { client, calls } = fakeClient([chunk()])
@@ -507,6 +562,7 @@ describe('games against a bot (Fase 8)', () => {
       server: 'http://test',
       token: 'tcg_wk_test',
       cores: 2,
+      priority: 'below_normal',
       name: 'test',
       enginePath: FAKE_ENGINE,
       dataDir,
@@ -522,6 +578,16 @@ describe('games against a bot (Fase 8)', () => {
     bot: 'e2',
     seed: '42',
     choices,
+  })
+
+  it.each([false, true])('requests normal priority for interactive play, coach=%s', async (coach) => {
+    const { client, calls } = liveClient([1, 1])
+    await new LiveRunner({ ...config, priority: 'idle' }, client, silent, dataDir).run(
+      { ...game(), coach },
+      new AbortController().signal,
+    )
+    expect(calls.end?.winner).toBe('you')
+    expect(setPriority).toHaveBeenCalledExactlyOnceWith(expect.any(Number), constants.priority.PRIORITY_NORMAL)
   })
 
   /** The app's side: each decision is answered with the next of `answers` (null = abandoned). */

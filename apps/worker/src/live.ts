@@ -12,6 +12,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { gzipSync } from 'node:zlib'
 import { ApiError, type LiveGame, type Log, type WorkerClient } from './client.js'
 import type { WorkerConfig } from './config.js'
+import { setEnginePriority } from './priority.js'
 import { WORKER_VERSION } from './version.js'
 
 /** An engine built before the coach (Fase 20) ignores `coach` in the job: say how to fix it. */
@@ -112,6 +113,8 @@ export class LiveRunner {
       ? [process.execPath, [this.config.enginePath]]
       : [this.config.enginePath, []]
     const child = spawn(command, [...prefix, 'play', jobFile], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+    // Includes coach hints: the owner is waiting, regardless of chunk configuration.
+    setEnginePriority(child.pid, 'normal', this.log)
     let stderr = ''
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
       stderr = (stderr + chunk).slice(-4000)

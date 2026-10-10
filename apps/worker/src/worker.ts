@@ -251,7 +251,7 @@ export class Worker {
           'optimize',
           { ...chunk.optimize, seed: Number(chunk.seed), threads },
           this.workDir,
-          { signal: controller.signal, onProgress: track },
+          { signal: controller.signal, onProgress: track, priority: this.config.priority, log: this.log },
         )
         const totals = result.combinations.reduce(
           (sum, item) => ({
@@ -291,7 +291,7 @@ export class Worker {
             ...(chunk.consistency?.rivals?.length ? { rivals: chunk.consistency.rivals } : {}),
           },
           this.workDir,
-          { signal: controller.signal, onProgress: track },
+          { signal: controller.signal, onProgress: track, priority: this.config.priority, log: this.log },
         )
         // An engine from before D-019 ignores the rivals and would measure the goldfish curve instead.
         if (chunk.consistency?.rivals?.length && result.mode !== 'meta') {
@@ -333,7 +333,7 @@ export class Worker {
           ...(chunk.perGame ? { perGame: true } : {}),
         },
         this.workDir,
-        { signal: controller.signal, onProgress: track },
+        { signal: controller.signal, onProgress: track, priority: this.config.priority, log: this.log },
       )
       // An engine from before H-010 ignores the flag: the paired comparison of the Laboratorio needs every game.
       if (chunk.perGame && !result.perGame) {
@@ -493,6 +493,8 @@ export class Worker {
         this.workDir,
         {
           signal: controller.signal,
+          priority: this.config.priority,
+          log: this.log,
           onProgress: (done) => {
             gamesDone = done
             lastProgressAt = Date.now()

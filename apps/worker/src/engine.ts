@@ -5,6 +5,8 @@
 import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { Log } from './client.js'
+import { type EnginePriority, setEnginePriority } from './priority.js'
 
 export interface EngineVersion {
   engineRev: string
@@ -33,6 +35,8 @@ export class EngineError extends Error {
 }
 
 export interface RunOptions {
+  priority?: EnginePriority | undefined
+  log?: Log | undefined
   signal?: AbortSignal | undefined
   onProgress?: ((done: number, total: number | null) => void) | undefined
 }
@@ -43,6 +47,7 @@ function run(enginePath: string, args: string[], options: RunOptions = {}): Prom
     // A .js/.mjs engine is a script run with this Node (the fake engine of the tests).
     const [command, prefix] = /\.m?js$/.test(enginePath) ? [process.execPath, [enginePath]] : [enginePath, []]
     const child = spawn(command, [...prefix, ...args], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    setEnginePriority(child.pid, options.priority ?? 'normal', options.log ?? console.error)
     let stdout = ''
     let stderrTail = ''
     let total: number | null = null
@@ -115,7 +120,7 @@ export async function runJob<T>(
     }),
   )
   try {
-    await run(enginePath, [command, jobFile, resultFile], options)
+    await run(enginePath, [command, jobFile, resultFile], { ...options, priority: options.priority ?? 'below_normal' })
     return { result: JSON.parse(await readFile(resultFile, 'utf8')) as T, dir }
   } catch (error) {
     await rm(dir, { recursive: true, force: true })

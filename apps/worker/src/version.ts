@@ -4,5 +4,6 @@
  * 0.2.5 (H-010, T-017 A2): pairings with `perGame` report every game (winner, who started, ending, turns, stages).
  * 0.2.6: reports its engine's features in its claims and writes the app's hints about work it cannot play.
  * 0.2.7 (B2): with an engine that has `batch`, several pairings of one job in one engine process.
+ * 0.2.8 (T-015, D-023): Android package and configurable background engine priority; interactive games stay normal.
  */
 export const WORKER_VERSION = '0.2.8'

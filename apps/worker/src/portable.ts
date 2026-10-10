@@ -46,13 +46,24 @@ async function setup(): Promise<void> {
       console.log('Ese no es un token de worker: empieza con tcg_wk_.')
     }
     const max = availableParallelism()
-    const suggested = current.cores ?? Math.max(1, max - 1)
-    const coresAnswer = (await rl.question(`Núcleos a usar (esta PC tiene ${max}; Enter = ${suggested}): `)).trim()
+    const suggested = current.cores ?? max
+    const coresAnswer = (
+      await rl.question(
+        `Hilos a usar (esta PC tiene ${max}; la prioridad baja deja CPU a la CI; Enter = ${suggested}): `,
+      )
+    ).trim()
     const parsed = Number(coresAnswer)
     const cores = coresAnswer && Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, max) : suggested
     const name = current.name ?? hostname()
     const nameAnswer = (await rl.question(`Nombre de esta PC en la app (Enter = ${name}): `)).trim()
-    writeFileConfig({ ...current, server, token, cores, name: nameAnswer || name })
+    writeFileConfig({
+      ...current,
+      server,
+      token,
+      cores,
+      priority: current.priority ?? 'below_normal',
+      name: nameAnswer || name,
+    })
     console.log(`\nConfiguración guardada en ${configFile()}.`)
     console.log('Probando el motor y la conexión con la app…')
     await run(['--check'], defaults)

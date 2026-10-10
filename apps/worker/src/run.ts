@@ -66,6 +66,7 @@ export async function run(argv: readonly string[], defaults: ConfigDefaults = {}
       log('configuración', {
         server: config.server,
         cores: config.cores,
+        priority: config.priority,
         name: config.name,
         enginePath: config.enginePath,
         engineRev: version.engineRev,

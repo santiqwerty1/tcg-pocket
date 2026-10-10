@@ -38,7 +38,7 @@ chmod 700 "$work/tcg-worker/engine-cli"
 # Verify offline before replacing a working install or storing a new token.
 node "$work/tcg-worker/worker.mjs" --check-engine
 cores=$(node -p 'Math.max(1, Math.floor(require("os").availableParallelism()/2))')
-printf 'Núcleos (Enter = la mitad, %s): ' "$cores" >/dev/tty
+printf 'Núcleos (prioridad baja deja CPU a otras tareas; por el calor, Enter = la mitad, %s): ' "$cores" >/dev/tty
 IFS= read -r answer </dev/tty
 cores=${answer:-$cores}
 [[ $cores =~ ^[1-9][0-9]*$ ]] || { echo 'Núcleos: usá un entero positivo.'; exit 1; }
@@ -90,7 +90,7 @@ printf '%s' "$token" | node -e '
 const fs=require("fs"), os=require("os"), path=require("path")
 const [dir,server,cores,charging,engine]=process.argv.slice(1)
 let token=""; process.stdin.setEncoding("utf8").on("data",d=>token+=d).on("end",()=>{
-  const config={server,token,cores:Number(cores),name:"Android "+os.hostname(),enginePath:engine,onlyCharging:/^s$/i.test(charging)}
+  const config={server,token,cores:Number(cores),priority:"below_normal",name:"Android "+os.hostname(),enginePath:engine,onlyCharging:/^s$/i.test(charging)}
   const file=path.join(dir,"config.json")
   fs.writeFileSync(file,JSON.stringify(config,null,2)+"\n",{mode:0o600}); fs.chmodSync(file,0o600)
 })' "$data" "$server" "$cores" "$charging" "$root/current/engine-cli"

@@ -101,10 +101,12 @@ fs.writeFileSync(args[args.indexOf('--dump-header')+1],'HTTP/1.1 200 OK\\r\\nX-C
       const config = JSON.parse(await readFile(configPath, 'utf8')) as {
         token: string
         cores: number
+        priority: string
         onlyCharging: boolean
       }
       expect(config.token).toBe(token)
       expect(config.cores).toBe(Math.max(1, Math.floor(availableParallelism() / 2)))
+      expect(config.priority).toBe('below_normal')
       expect(config.onlyCharging).toBe(false)
       expect((await stat(configPath)).mode & 0o777).toBe(0o600)
       const launcher = join(prefix, 'bin/tcg-worker')
