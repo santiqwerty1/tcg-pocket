@@ -2,7 +2,7 @@
 
 Qué código o datos se toman de cada fuente, bajo qué licencia y qué implica (BRIEF §3.5). Esto no es asesoramiento legal.
 
-**Desde el 9/10/2026 el repositorio es público ([D-022](../Boveda/Seguimiento/Decisiones/D-022.md)) y todo el repo se publica bajo AGPL-3.0** (`LICENSE` en la raíz, `"license": "AGPL-3.0-only"` en cada `package.json` y en `engine/Cargo.toml`). AGPL y no GPL: el motor y el visor de deckgym ya son AGPL, la app es un servicio en red, y el código portado del tracker (GPL-3.0) se puede combinar con AGPL-3.0 (§13 de las dos licencias). La app sigue siendo de uso personal: nadie más la usa.
+**Desde el 9/10/2026 está decidida la publicación bajo AGPL-3.0 ([D-022](../Boveda/Seguimiento/Decisiones/D-022.md)); la mudanza al repo público nuevo sigue pendiente.** `LICENSE` está en la raíz, `"license": "AGPL-3.0-only"` en cada `package.json` y en `engine/Cargo.toml`. AGPL y no GPL: el motor y el visor de deckgym ya son AGPL, la app es un servicio en red, y el código portado del tracker (GPL-3.0) se puede combinar con AGPL-3.0 (§13 de las dos licencias). La app sigue siendo de uso personal: nadie más la usa.
 
 Los fixtures de Limitless (`docs/fase0/limitless/`) llevan **seudónimos** («Jugador 001», id `jugador-001`, sin país) en vez de los nombres de los jugadores (`scripts/pseudonymize-limitless.mjs`). El historial de git anterior al 9/10/2026 todavía tiene los nombres originales: son los que publica Limitless en sus standings.
 
@@ -24,3 +24,9 @@ Los fixtures de Limitless (`docs/fase0/limitless/`) llevan **seudónimos** («Ju
 | Imágenes de cartas | © The Pokémon Company / DeNA / Creatures | — | Nunca en el repo ni en la DB; solo enlaces al raw del tracker | — | — |
 
 Regla práctica: todo lo que se agregue al repo queda bajo AGPL-3.0; lo que se tome de otro lado va a esta tabla con su licencia y su commit. Nada de imágenes de cartas, datos personales de terceros ni secretos en el repo.
+
+## Distribución del motor Android (T-015, 10/10/2026)
+
+El motor se reparte al celular, por lo que ofrecer su código es parte del paquete, como la fuente del visor en `/viewer/`. El tar Android contiene `LICENSE.txt`, `LICENSE-musl.txt`, los avisos de Rust y `sources.tar.gz`: fuentes exactas de `engine-cli`, el worker, locks y scripts, y todas las dependencias Rust vendorizadas (incluido deckgym-core **sin modificar** al commit de `engine/Cargo.toml`, hoy `33ff2a5942dd4ce09d1ebc3041ffe48f604409e6`), con sus licencias. `BUILD.txt` explica la reconstrucción. Descargar las fuentes no requiere acceso al repo privado: vienen junto al binario, autorizadas por el mismo token de worker. El paquete no lleva datos de Santi, tokens ni configuración local.
+
+Node lo instala Termux; su binario no se distribuye en este tar. musl (libc estática) es MIT y se incluye su [aviso completo](https://git.musl-libc.org/cgit/musl/plain/COPYRIGHT). Rust aporta sus avisos y licencias de las bibliotecas enlazadas desde el toolchain usado para compilar.

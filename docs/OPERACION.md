@@ -114,3 +114,33 @@ Mientras el repo sea privado y sin minutos de Actions, la CI corre en dos runner
   3. Desplegar de nuevo.
 
 La CI saltea el motor de Windows cuando no cambió y arma la imagen de Docker solo en main (DECISIONES 41.1–41.3). Dependabot abre como mucho un PR agrupado por mes para npm y otro para las Actions; el motor queda afuera porque deckgym está fijo (D-013).
+
+## Worker en Android arm64 (T-015)
+
+En Más → Tokens de API → «Worker en Android» están los pasos y un comando sin token. Instalá Termux desde [F-Droid](https://f-droid.org/packages/com.termux/) o [GitHub oficial](https://github.com/termux/termux-app#installation), fuera de Play Store. Termux:API y Termux:Boot deben venir del mismo origen que Termux: sus firmas no se pueden mezclar. Creá un token de tipo worker para el celu y pegalo cuando el instalador lo pide oculto dentro de Termux.
+
+El comando baja `/api/worker/install/android.sh` por HTTPS, sin autenticación porque no contiene datos. El script descarga `/api/worker/packages/android-arm64` con Bearer por stdin, verifica `X-Checksum-Sha256` y no sigue redirecciones. Guarda la config en `~/.local/share/tcg-worker-android/data/config.json` (600), conserva la identidad y crea `$PREFIX/bin/tcg-worker`. Node se instala con `pkg install nodejs-lts`: el [paquete oficial consultado el 10/10/2026](https://github.com/termux/termux-packages/blob/master/packages/nodejs-lts/build.sh) es 24.18.0; el JS requiere >=24.
+
+- `tcg-worker`: pide wake-lock y trabaja hasta Ctrl+C/SIGTERM; lo libera al terminar.
+- `tcg-worker --check`: determinismo, versión exacta del motor de la imagen, configuración y conexión, sin tomar trabajo.
+- Solo mientras carga: requiere Termux:API, `pkg install termux-api` y los permisos que solicite. Cada 15 s revisa si está enchufado (también batería llena); una lectura fallida pausa. Desenchufar corta el motor y devuelve leases sin contar fallas; enchufar inicia otro proceso que reanuda resultados.
+- Inicio automático: elegirlo en el instalador, instalar Termux:Boot y abrirlo una vez. Escribe solo `~/.termux/boot/tcg-worker`; su log queda en `data/boot.log`.
+- Actualizar: repetir el comando. Primero prueba el motor nuevo, después detiene el viejo por SIGTERM y cambia motor/JS juntos. Conserva el id; si cambió el motor, aparta `state.json` con sufijo `.motor-anterior-...` y los pendientes se vuelven a jugar. No mezclar archivos de paquetes distintos.
+
+Por defecto usa la mitad de los núcleos y respeta ese tope aun si el trabajo pide más. Simular consume batería y calienta, incluso enchufado: empezá con pocos núcleos, dejá ventilación y frenalo si calienta demasiado. El supervisor conserva wake-lock al esperar el cargador; esto también consume energía. En Android → Apps → Termux → Batería, elegí «Sin restricciones» o excluí la optimización; aplicalo también a Termux:API y habilitá el inicio automático del fabricante si existe. El wake-lock no impide cierres por memoria o por políticas del fabricante. SIGKILL no permite cleanup; sin red al apagar, los leases vencen en 3 minutos.
+
+### Restricciones de procesos de Android 12+
+
+[Guía mantenida por un desarrollador de Termux](https://github.com/agnostic-apollo/Android-Docs/blob/master/en/docs/apps/processes/phantom-cached-and-empty-processes.md), consultada el 10/10/2026. Los nombres de las opciones varían por fabricante:
+
+- Android 14+: Opciones de desarrollador → «Disable child process restrictions» / «Desactivar restricciones de procesos secundarios». Mantené las opciones de desarrollador activadas; al desactivarlas se revierte este toggle.
+- Android 12L/13 y superiores: desde una PC con adb autorizado, `adb shell settings put global settings_enable_monitor_phantom_procs false`. Verificar: `adb shell settings get global settings_enable_monitor_phantom_procs`. Deshacer: `adb shell settings delete global settings_enable_monitor_phantom_procs`.
+- Android 12 original: no ofrece un ajuste para impedir la matanza por CPU excesiva. Para ampliar el límite de procesos: `adb shell device_config set_sync_disabled_for_tests persistent` y `adb shell device_config put activity_manager max_phantom_processes 2147483647`. Deshacer: `adb shell device_config delete activity_manager max_phantom_processes` y `adb shell device_config set_sync_disabled_for_tests none`. La guía describe las limitaciones de Google Play Services y cada fabricante.
+
+Son cambios globales del dispositivo. El instalador no los ejecuta. El LEEME del paquete lleva los mismos pasos.
+
+### Construir y verificar sin el teléfono
+
+`pnpm -F @tcg/worker package:android` requiere Docker y arma `apps/worker/build/tcg-worker-0.2.8-android-arm64.tar.gz`; la versión sale de `WORKER_VERSION`. Fly lo construye dentro de su imagen con el target `android-package` y Cargo con locks y cachés de BuildKit. En runtime solo se copian el tar, el instalador y el manifiesto de versión: no Rust, Zig ni qemu. No hay que subir un artefacto separado ni guardar credenciales de GitHub en el servidor.
+
+Con Linux/WSL y qemu-user, extraé el tar en una carpeta temporal y corré `node apps/worker/scripts/check-arm.mjs <carpeta>/tcg-worker`. Repite la referencia con 1 y 2 hilos. La CI ejecuta esto y la prueba SIGTERM con servidor/motor de mentira. La prueba local ARM coincidió con Windows: 24 partidas con r/e2/f2, semilla 20261010, 1 y 2 hilos; comparar totales y cada partida, excluyendo tiempos/rutas. Falta el teléfono real: musl ejecutable, permisos API, calor, suspensión y Boot se verifican ahí con `--check` y una simulación chica.
