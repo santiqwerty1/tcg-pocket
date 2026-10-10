@@ -4,7 +4,7 @@ titulo: >-
   Avance
 area: proyecto
 estado: vigente
-actualizado: '2026-10-09'
+actualizado: '2026-10-10'
 origen:
   - posta init
   - docs/PLAN.md §7
@@ -58,37 +58,31 @@ revisar: false
 | 35 | Prueba mensual del backup | hecho 09/10 · desplegado (`0524489`) · aprobado 09/10 | — | [T-013](Tareas/T-013.md) |
 | E | Evaluación de mejoras: 14 hallazgos, riesgos, preguntas y fases propuestas 36 a 45 | hecho 09/10 · verificada 09/10 · aprobada 09/10 ([D-020](Decisiones/D-020.md)) | 35 | [Evaluación](Evaluacion-2026-10-09.md), [T-014](Tareas/T-014.md) |
 | 36 | Arreglos confirmados (y tope de 3 energías, [P-006](Preguntas/P-006.md)) | hecho 09/10 · desplegado (`55d658d`) | E | [T-014](Tareas/T-014.md) |
-| 37 | Números honestos | hecho 09/10 · desplegado (`e02c074`) · el punto 5 de [H-011](Hallazgos/H-011.md) pasó a Infra, con la 42 | 36 | [T-014](Tareas/T-014.md) |
-| 38 | Operación y avisos | hecho 09/10 (Principal, PR #6 y #14; DECISIONES 41.1–41.12) | 37 | [T-014](Tareas/T-014.md) |
-| 39 | Copia fuera de Supabase y retención ([P-007](Preguntas/P-007.md): en la nube) | hecho 09/10 (Principal, PR #19; DECISIONES 42.1–42.5) · en producción falta crear el bucket de Tigris, y la primera limpieza espera el OK de Santiago | 38 | [T-014](Tareas/T-014.md) |
-| 40 | Día de expansión en dos toques | pendiente · Principal, después de la 39 y del ensayo de la mudanza al repo público | 39 | [T-014](Tareas/T-014.md) |
+| 37 | Números honestos | hecho 09/10 · desplegado · H-011.5 completado por #32 el 10/10 | 36 | [T-014](Tareas/T-014.md) |
+| 38 | Operación y avisos | hecho 09/10 · desplegado en `52c87e3` · pendiente configurar UptimeRobot ([P-011](Preguntas/P-011.md)) | 37 | [T-014](Tareas/T-014.md) |
+| 39 | Copia fuera de Supabase y retención ([P-007](Preguntas/P-007.md): en la nube) | código hecho 09/10 · desplegado en `52c87e3` · pendiente bucket de Tigris, primera subida y primera limpieza con el OK de Santi | 38 | [T-014](Tareas/T-014.md) |
+| 40 | Día de expansión en dos toques | hecho 09/10 (#31, DECISIONES 43.1–43.8) · desplegado en `52c87e3` · [H-004](Hallazgos/H-004.md) resuelto | 39 | [T-014](Tareas/T-014.md) |
 | 41 | Interfaz | hecho 09/10 (Nube-Mejoras, DECISIONES 44.1–44.11) · desplegado (`773ad00`) · [P-012](Preguntas/P-012.md): un 401 conserva el service worker | 40 | [T-014](Tareas/T-014.md) |
-| 42 | Simulaciones más baratas y calibradas | en curso · en main: H-019, `perGame` (#3, #8), el reclamo rápido (#4), los lotes (#9), B3 (#10), la semilla por rival (#13), las capacidades del motor (#16) y 1 repetición por cruce (#18) · faltan la calibración (R-012), H-011.5 y el resto (Infra) | 41 | [T-014](Tareas/T-014.md) |
-| 43 | Claude | hecho 09/10 · desplegado (`14e0c59`) · seguimiento de la revisión en main · el chat-puente sigue en el PR #12 | 42 | [T-014](Tareas/T-014.md), [R-010](Riesgos/R-010.md) |
-| 44 | Análisis nuevos | en curso (Nube-Mejoras): techs, núcleo y conversión al top hechos en local | 43 | [T-014](Tareas/T-014.md) |
+| 42 | Simulaciones más baratas y calibradas | en curso · informe de calibración #29 y optimize con semillas comunes y confirmación #32 hechos ([H-011](Hallazgos/H-011.md) resuelto), junto a capacidades, perGame, lotes y caché ya integrados · seguimiento de #29 preparado localmente por Infra, sin PR · [R-012](Riesgos/R-012.md) y [H-050](Hallazgos/H-050.md) abiertos | 41 | [T-014](Tareas/T-014.md) |
+| 43 | Claude | hecho 09/10 · chat-puente #12 y seguimiento #34 integrados · desplegado en `52c87e3` · locks en deshacer/restaurar y marca transaccional para borrados «Sin terminar» | 42 | [T-014](Tareas/T-014.md), [R-010](Riesgos/R-010.md) |
+| 44 | Análisis nuevos | parte 1 (44a–c) integrada en #17 y desplegada en `52c87e3`: núcleo, techs, 2 copias contra 1 y conversión al top 8 · resto pendiente | 43 | [T-014](Tareas/T-014.md) |
 | W | Más workers: nube, Android y navegador (reemplaza la 45, [P-008](Preguntas/P-008.md)) | pendiente, después de la 44 | 44 | [T-015](Tareas/T-015.md) |
 | L | Búsqueda del laboratorio: probar siempre los cambios obvios (+1 copia, paso hacia la lista de torneo) | pendiente, para cuando Santiago la pida | — | [T-016](Tareas/T-016.md) |
-| O | Optimización de mazos: análisis del 09/10 (bot que no evoluciona, velocidad, semillas, búsqueda) | T-017 en curso (Laboratorio) · en main: H-010, H-020 y H-021, más la prueba apareada y el resumen por partida (#7) · en PR: bot `f<N>` (#5), aprendizaje entre rondas (#15), explicaciones (#20), «Frenar y confirmar» (#22) y deshacer cambios (#25) | — | [Optimización](Optimizacion-2026-10-09.md), [T-017](Tareas/T-017.md) |
+| O | Optimización de mazos: análisis del 09/10 (bot que no evoluciona, velocidad, semillas, búsqueda) | T-017 en curso · #5, #15, #20, #22, #25, #27 y #28 integrados: bot f, aprendizaje/combo, explicaciones, frenar, deshacer, Energía y segundas listas del banco · revisión #35 integrada · D4 y resto pendientes; e2 sigue por defecto hasta comparar contra torneos | — | [Optimización](Optimizacion-2026-10-09.md), [T-017](Tareas/T-017.md) |
 | K | Bóveda con el kit de Posta | hecho 07/10 · aprobado 08/10 | — | [D-009](Decisiones/D-009.md) |
 
 ## Próximos pasos
 
-Las fases 0–8 del plan están aprobadas (visto bueno de Santiago el 08/10/2026). Las fases 9 a 36 están desplegadas (las 25 a 35 en `0524489`, [T-013](Tareas/T-013.md); la 36 en `55d658d`); las 22 a 35 tienen su visto bueno del 09/10/2026.
+**Producción al 10/10/2026:** `52c87e3`, desplegado por el Coordinador y verificado en `/healthz`. Worker 0.2.7 en la PC, engine-cli 0.3.3 con `perGame`, `batch` y `fairBots`. Las fases 0–8 y 22–35 conservan los vistos buenos ya registrados; integrar y desplegar no agrega aprobaciones nuevas.
 
-1. Fases 36 a 44 de la [evaluación del 09/10](Evaluacion-2026-10-09.md) ([T-014](Tareas/T-014.md)), en el orden de [D-020](Decisiones/D-020.md) (decidido el 09/10/2026). Al empezar cada una, leer la nota «Verificación del 09/10» de sus hallazgos: corrige detalles de las fichas.
-2. Después, los workers de [T-015](Tareas/T-015.md) (nube, Android y navegador), que reemplazan la fase 45.
-3. Para después, cuando Santiago la pida: [T-016](Tareas/T-016.md) (variantes fijas en la búsqueda del laboratorio).
+1. **Modo mínimo hasta el domingo (11/10):** no abrir trabajo nuevo. El Coordinador revisa e integra; las sesiones atienden lo delegado ([D-021](Decisiones/D-021.md)).
+2. **Fase 39 en producción:** crear el bucket de Tigris y verificar la primera subida; primera limpieza con el OK de Santi ([P-010](Preguntas/P-010.md), [R-006](Riesgos/R-006.md)).
+3. **Fase 38:** configurar UptimeRobot; la cuenta la crea Santi y los pasos están en `docs/OPERACION.md` ([P-011](Preguntas/P-011.md), [R-011](Riesgos/R-011.md)).
+4. **Infra:** seguimiento de #29 preparado localmente, sin PR; subirlo cuando lo indique el Coordinador. Después, comparar e2/f2 con el mismo banco y registrar la calibración antes de cambiar el bot por defecto ([R-012](Riesgos/R-012.md), [P-009](Preguntas/P-009.md)).
+5. **Repo público:** ensayo de la mudanza hecho (#26), con 1.0.0 y numeración reservada. La ejecuta el Coordinador con el OK de Santi cuando no quede ningún PR abierto; al iniciar esta actualización quedan Dependabot #21, #23 y #24 ([D-022](Decisiones/D-022.md)). Retirar runners propios antes de publicar ([D-023](Decisiones/D-023.md)).
+6. Al salir del modo mínimo, retomar el resto de la 42 y la 44 ([T-014](Tareas/T-014.md)) y de [T-017](Tareas/T-017.md), incluido D4. Después, los workers de [T-015](Tareas/T-015.md). [T-016](Tareas/T-016.md) sigue para cuando Santi lo pida.
 
-Desde el 09/10/2026 (tarde), por pedido de Santiago, trabaja así ([D-021](Decisiones/D-021.md)):
-
-- **«TCG · Coordinador e integrador»:** reparte, revisa cada PR, mergea, despliega y opera. Es el único que toca los archivos compartidos de la bóveda.
-- **«TCG · Principal»:** fases 38 y 39, en el worktree `tcg-pocket-ops`.
-- **«TCG · Laboratorio»:** T-017 (bot corregido `f<N>`, PR #5) y el algoritmo del laboratorio.
-- **«TCG · Infra de simulación»:** el resto de la 42, la calibración y H-011.5.
-- **Nube-Mejoras:** la 41 (PR #1) y la 44.
-- **Nube-2:** chat entre sesiones en el MCP, y después la 40.
-
-Todo entra por PR, con la CI verde y la revisión del coordinador. Las sesiones se hablan por el chat de `C:/Users/<usuario>/Personal/tcg-pocket-chat/`, fuera del repo.
+Todo entra por PR, con la CI verde y la revisión del Coordinador. Las sesiones se hablan por el chat externo al repo. La actualización compartida de este día se delegó excepcionalmente a Codex en un PR; la revisión e integración siguen a cargo del Coordinador.
 
 ## Pendiente de decidir (para después)
 

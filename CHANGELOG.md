@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-09 (99 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-10 (99 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -14,6 +14,7 @@ _Borrador generado al 2026-10-09 (99 commits). Escribí el «porqué» fuera de 
 - the server chat is a bridge to the cloud sessions (D-021) `fad9a59`
 - chat between the Claude sessions in the app's MCP (D-021) `20a75ae`
 - Claude write log with undo, new MCP tools and leaner answers (phase 43, T-014, R-010) `af1265b`
+- optimize plays every combination with the same seeds and confirms its best 3 with fresh ones (H-011, C8) `008beee`
 - expansion day in two taps — sync repeats the loaded commit, update to the tracker's newest with a preview (diff, remap, engine), confirmation before taking cards away, proposed era-table rows (phase 40, H-004, H-006) `8ed4097`
 - f<N> bots, an expectiminimax whose clock sees evolutions, by engine feature «fairBots» (H-018, T-017) (P-009) `010313c`
 - calibration against tournaments — the meta bank played by a chosen bot next to the matchups (R-012) `9a40a72`
@@ -34,24 +35,16 @@ _Borrador generado al 2026-10-09 (99 commits). Escribí el «porqué» fuera de 
 - paired test on per-game results and what each list's games say (H-010, T-017) `d5a806b`
 - honest numbers — luck per game, clustered intervals, FDR, Fisher, pack points (phase 37, H-009, H-011, H-012) `6af29d1`
 - engine-cli exits right after its games and reports each game on request (H-019, H-010, T-017) `9a27fe6`
-- monthly backup restore drill (phase 35, T-013) `0524489`
-- games against the bot pushed live over SSE (phase 33, T-013) `e911c89`
-- weekly summary with a Monday push (phase 32, T-013) `4e3d9f2`
-- trade list by rarity (phase 31, T-013) `f409ece`
-- calculation exercises with your own decks (phase 30, T-013) `8ec5660`
-- Claude reviews a game against the bot (phase 29, T-013) `d942308`
-- log matches without signal (phase 28, T-013) `d173bff`
-- one search box for the whole app (phase 27, T-013) `b12f3ca`
-- the «Hoy» screen (phase 26, T-013) `ec1e656`
-- does going first matter? (phase 25, T-013) `556f0fe`
 
 ### Corregido
 
 - a «Sin terminar» deletion is undoable only if its delete committed (phase 43 follow-up, R-010) (#34) `3675361`
+- review of #35 by Codex — combo caps from the frozen pool, chained combos undone in place (T-017) `d70a410`
 - restoring a match checks its id and clientRef after locking inserts (phase 43 follow-up, R-010) (#34) `8318df9`
 - undoing a rival note takes the note's lock; restoring a match locks inserts into matches (phase 43 follow-up, R-010) `ffcb7b5`
 - Santi anchored to owner, ASCII names, ref conflicts refused, new sessions start after the history (D-021) (#12) `59c9234`
 - old rival-note undo entries touch only their note; the drill's fallback relocks the tables (phase 43 follow-up, R-010) `03c5f28`
+- estabiliza tests bajo carga de runners (D-023) `3324682`
 - a relay retry is found before the list is checked; the bridge adds participants create-only (D-021) `b20b974`
 - a rival-note undo also checks the note's version, not only its text (phase 43 follow-up, R-010) `1c5df4f`
 - rival notes locked by key even before they exist, label-only writes undoable, no stale collection chain (phase 43 follow-up, R-010) `583df5e`
@@ -60,12 +53,20 @@ _Borrador generado al 2026-10-09 (99 commits). Escribí el «porqué» fuera de 
 - atomic rival-note undo with its archetype, drill sequences under a lock, client cap per token lock (phase 43 follow-up, R-010) `437519f`
 - a seen set instead of a read watermark; recipients validated one by one (D-021) `5ebf22b`
 - sequences never move back, chained collection undo, undoable rival notes (phase 43 follow-up, R-010) `f2cb594`
+- review of the stack — no stacked combos, undo in place, fixed variants within the round, combos above the collection, «jugando», the pool follows the Energy Zone (T-017) `b74e31f`
+- optimize confirmation visible to Claude, only complete rows, never lost or doubled (review of #32, H-011) `ec934f2`
 - atomic collection undo, versioned match delete, bounded token clients (phase 43, R-010) `53784cb`
+- what the review bots found and the coordinator approved — f's clock, Frenar keeps a winner, learned changes and the bank size (T-017, H-018) (H-010) `e0f577f`
 - audit entry before the write, no duplicate restore, versioned collection undo (phase 43, R-010) `14e0c59`
+- retain failure logs and abandon attempts (T-014) `0988ebb`
+- release disconnected long-poll leases (T-014) `c57e913`
 - «Aplicar» carries the preview's baseline and is refused if the catalog changed in between (phase 40) `7c9a34e`
 - read the tracker's CardsDB literals with a data-only parser, never new Function — the expansion-day preview fetches unreviewed commits (phase 40) `2076173`
+- review of the move plan — the private remote points to the renamed private repository, moved branches take the noreply author, numbers reserved on the empty repository with marker checks, --verify fails on problems, --force never on the repository (D-022) `ba45ea8`
 - review of phase 40 — the CLI repeats the loaded commit with the guard and --confirm, the configured engine by default, unknown comparison asks, apply on a new commit with the same cards, one preview per commit, download timeout `12a339c`
 - review of #29 — compatible with both errors, Spearman both ways with a bootstrap, archetypes over the same rivals with n and interval, failed pairings apart `8766e8d`
+- isolate game workers and await shutdown (T-014) `ac1def5`
+- cancel claims when workers disconnect (T-014) `4650462`
 - review of #22 — the next round starts after the stopped one, a verification in play finishes, no stuck search (T-017) `bb12fc1`
 - review of #20 — the difference shown is the verification's, only on complete rounds; explanations in their own module (T-017) `0efcece`
 - review of #15 — typed test, combos within the copies and by what was learned, complete rounds only (T-017) `edb3d45`
@@ -80,7 +81,6 @@ _Borrador generado al 2026-10-09 (99 commits). Escribí el «porqué» fuera de 
 - a search plays the plan it showed and keeps its inputs for every round (H-021) `a6c40e6`
 - build each round's variants from the incumbent's lines in order (H-020) `3a7bb81`
 - variants keep every other card in its place so common seeds compare the swap (H-020) `0abb5f4`
-- confirmed findings of the 9/10 review (phase 36, T-014) (H-002, H-003, H-005, H-006, H-007, H-008, H-013, H-014, H-015, H-016, P-006) `ab68ba2`
 
 ### Cambiado
 
@@ -90,11 +90,10 @@ _Borrador generado al 2026-10-09 (99 commits). Escribí el «porqué» fuera de 
 
 ### Documentado
 
-- posta generar trims the CHANGELOG from a cloud session; today's log (H-017) `f9fda38`
+- regenerate indexes so D-023 is linked (D-023) `5501f0c`
 - PRs #9, #10, #13 and #19 and the phase 43 follow-up integrated (T-014, R-006, P-007, R-010) `3643df4`
 - PRs #7, #14, #16 and #18 integrated; question indexes regenerated (P-010, P-011, T-014, T-017) `9dc4c17`
 - situations cache size in the operation guide `2af3002`
-- improvement review of 9/10 — 14 confirmed findings, risks, questions and proposed phases 36-45 (H-002..H-015, R-006, R-008, R-010, R-011, R-012, P-006, P-007, P-008, D-020, T-014) `fd5d4b8`
 - PRs #1, #8 and #11 integrated; Supabase ref out of CLAUDE.md; public repo and chat bridge decisions (D-021, D-022, T-014, P-012) `280a6f3`
 - operation guide (alerts, ops status, UptimeRobot, memory, deploy) and decisions 41.5-41.12 (phase 38) `20a9c6e`
 - P-010 (Tigris) and P-011 (UptimeRobot), answered by Santi through the coordinator `98d2d55`
@@ -106,40 +105,27 @@ _Borrador generado al 2026-10-09 (99 commits). Escribí el «porqué» fuera de 
 - deck optimization review — bot blind spot, engine overhead, common seeds, search proposals; work split between sessions (H-018, H-019, H-020, H-021, T-017, P-009, D-021, H-010, R-012) `a21f89a`
 - findings of phase 36 point to the rebased commit ab68ba2 `55d658d`
 - close the findings fixed in phase 36 (H-002, H-003, H-005, H-006, H-007, H-008, H-013, H-014, H-015, H-016, P-006) `ffbf409`
-- the PC worker died with the Claude app update; restarted detached (H-016) `3982bc2`
-- Santi's answers — deploy each phase 36-44, free off-site copy, cloud worker simulates (P-007, T-015) `51b2b8b`
-- fix an anchor in today's log `125a1a9`
-- second verification of the 9/10 review, D-020 decided, workers as T-015 (D-020, P-006, P-007, P-008, T-013, T-014, T-015) (H-002, H-015) `aaf194a`
 
 ### Pruebas
 
-- screen tests with Playwright in CI (phase 34, T-013) `4e4f2e5`
+- the optimize confirmation test reuses the app that beforeAll already started — #32 and #33 each called listen (H-011, T-014) `52c87e3`
+- verifica reclamos con workers 0.2.6 y 0.2.7 (T-014) `e2a084e`
 
 ### Mantenimiento
 
+- engine-cli 0.3.3 — f's clock changes what the bots play, so cached chunks of 0.3.2 must not be reused (T-017) `a574691`
+- engine-cli 0.3.2 — #5 took 0.3.1 first (H-011) `c4fe38d`
 - the chat migration after the worker engine features one (D-021) `c920ded`
 - no GitHub cache of the pnpm store on the PC's runners — it hung their post steps (D-023) `c6ac546`
+- the move to the public repository starts at 1.0.0 (versions, tag, release notes) and keeps the PR numbering (reserved issues); zero open PRs first (D-022) `9d5ffdc`
 - start the PC's runners with Git's bash first in the PATH, a pnpm folder per job, a shell check (D-023) `8b52ed0`
 - run on the PC's own runners while the repository is private and out of Actions minutes — runner chosen by repo variables, Postgres and a port per runner, the PC's Rust, Dependabot paused (D-023) `c1a4f47`
+- rehearsal of the move to a new public repository — one-commit tree with the noreply author, checks, step-by-step plan (D-022) `30bd68e`
 - prepare the repository to go public — AGPL-3.0 license, pseudonyms in the Limitless fixtures, read-only CI token (D-022) `4d16ea8`
 - run the Windows engine job only when it changed, build the Docker image on main, cancel superseded runs (phase 38) `ff39a7c`
 
-### Decidido
-
-- 2026-10-09 — D-020 aprobada por Santiago: Decidió Santiago el 09/10/2026: «vamos a encargarnos de todo esto y luego volvemos a los workers». Todas las fases de T-014 (36 a 44) en el orden propuesto; la 45 (jugar sin la PC) se junta con los workers de T-015, que van después.
-
 ### Hallazgos cerrados
 
-- H-012 por `6af29d1` en main
-- H-009 por `6af29d1` en main
-- H-016 por `245fe7a` en main
-- H-015 por `245fe7a` en main
-- H-014 por `245fe7a` en main
-- H-013 por `245fe7a` en main
-- H-008 por `245fe7a` en main
-- H-007 por `245fe7a` en main
-- H-006 por `245fe7a` en main
-- H-005 por `245fe7a` en main
-- H-003 por `245fe7a` en main
-- H-002 por `245fe7a` en main
+- H-011 por `c4fe38d` en main
+- H-004 por `7c9a34e` en main
 <!-- /posta:cambios -->

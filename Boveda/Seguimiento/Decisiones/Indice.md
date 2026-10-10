@@ -3,7 +3,7 @@ tipo: indice
 titulo: 'Decisiones'
 area: proyecto
 estado: vigente
-actualizado: '2026-10-09'
+actualizado: '2026-10-10'
 origen:
   - posta generar
 revisar: false
@@ -37,6 +37,6 @@ revisar: false
 | [D-018](D-018.md) | Cómo mide y busca el laboratorio de mazos | vigente | — | 2026-10-08 |
 | [D-019](D-019.md) | Cómo se juega contra el bot y cómo se mide la consistencia | vigente | — | 2026-10-08 |
 | [D-020](D-020.md) | Consolidar antes de sumar funciones | vigente | — | 2026-10-09 |
-| [D-021](D-021.md) | Reparto del trabajo entre las tres sesiones de Claude | vigente | — | 2026-10-09 |
-| [D-022](D-022.md) | Repositorio público bajo AGPL-3.0, con seudónimos en los datos de Limitless | vigente | — | 2026-10-09 |
-| [D-023](D-023.md) | CI en runners propios de la PC mientras el repo sea privado | vigente | — | 2026-10-09 |
+| [D-021](D-021.md) | Reparto del trabajo entre las tres sesiones de Claude | vigente | — | 2026-10-10 |
+| [D-022](D-022.md) | Repositorio público bajo AGPL-3.0, con seudónimos en los datos de Limitless | vigente | — | 2026-10-10 |
+| [D-023](D-023.md) | CI en runners propios de la PC mientras el repo sea privado | vigente | — | 2026-10-10 |
