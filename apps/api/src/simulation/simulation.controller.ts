@@ -159,12 +159,6 @@ async function readBody(request: Request, limit: number): Promise<Buffer> {
 export class WorkerController {
   constructor(private readonly queue: WorkerQueueService) {}
 
-  @Post('release')
-  @HttpCode(200)
-  release(@Body(new ZodValidationPipe(z.object({ workerId: z.string().uuid() }))) body: { workerId: string }) {
-    return this.queue.release(body.workerId)
-  }
-
   @Get('ping')
   ping(@CurrentApiToken() token: RequestApiToken): { ok: true; token: { name: string; kind: string } } {
     return { ok: true, token: { name: token.name, kind: token.kind } }

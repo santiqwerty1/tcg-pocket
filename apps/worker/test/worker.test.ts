@@ -581,6 +581,29 @@ describe('games against a bot (Fase 8)', () => {
     expect(calls.replay).toMatchObject({ choices: [1, 0] })
   })
 
+  it('finishes the end and replay uploads when shutdown arrives after the server commits the end', async () => {
+    const { client, calls } = liveClient([1, 1])
+    const controller = new AbortController()
+    const end = vi.mocked(client.liveEnd).getMockImplementation()
+    if (!end) throw new Error('missing end double')
+    vi.spyOn(client, 'liveEnd').mockImplementation(async (id, body, signal) => {
+      await end(id, body)
+      controller.abort(new Error('SIGTERM'))
+      if (signal?.aborted) throw signal.reason
+      return { ok: true }
+    })
+    const replay = vi.mocked(client.liveReplay).getMockImplementation()
+    if (!replay) throw new Error('missing replay double')
+    vi.spyOn(client, 'liveReplay').mockImplementation(async (id, workerId, data, signal) => {
+      if (signal?.aborted) throw signal.reason
+      return replay(id, workerId, data)
+    })
+    await new LiveRunner(config, client, silent, dataDir).run(game(), controller.signal)
+    expect(calls.end?.winner).toBe('you')
+    expect(calls.replay).toMatchObject({ choices: [1, 1] })
+    expect(readdirSync(dataDir)).toEqual([])
+  })
+
   it('modo entrenador: the job asks for the coach and its scores go to the app; an old engine is a clear failure', async () => {
     const { client } = liveClient([1, 1])
     const decide = client.liveDecision as unknown as ReturnType<typeof vi.fn>
