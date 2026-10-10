@@ -79,6 +79,7 @@ Mientras el repo sea privado y sin minutos de Actions, la CI corre en dos runner
 - **Dónde están:** en `%USERPROFILE%\actions-runner`.
 - **Arranque:** al iniciar sesión, por `tcg-pocket-ci-runners.vbs` en Inicio.
 - **Instalar:** `powershell -ExecutionPolicy Bypass -File scripts\ci-runner\install.ps1`.
+- **Otra PC** (por ejemplo la del Ryzen): clonar el repo y correr el mismo script con otro prefijo, `install.ps1 -Prefix tcg-ryzen`. Con el mismo nombre, `config.cmd --replace` se llevaría los runners de la primera PC. El script revisa antes Git, gh con sesión, Docker Desktop, Rust (GNU) y WinLibs, y dice con qué `winget` instalar lo que falte. La etiqueta sigue siendo `tcg-pc`, así que la CI usa los runners de las dos PC. Si esa PC también corre el worker, conviene bajarle núcleos para que los tests no venzan por tiempo.
 - **Cómo elige runner la CI:** con las variables del repo `CI_RUNNER` y `CI_RUNNER_WINDOWS` (`tcg-pc`). Sin ellas, vuelve a los de GitHub.
 - **Base y puerto por runner:** `tcg_ci_test_<runner>` y `tcg_ci_screens_<runner>`, en el Postgres de `docker compose`, y un puerto propio para las pantallas. No pisan los de las sesiones.
 - **El motor:** se compila con el Rust y el WinLibs de la PC, en `%USERPROFILE%\actions-runner\tcg-pc-<n>\_work\tcg-pocket\cargo-target`.

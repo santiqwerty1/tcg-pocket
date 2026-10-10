@@ -3,9 +3,12 @@
 # servicio de Windows (no pide administrador), y un .vbs en Inicio que los arranca ocultos al iniciar sesión, como el
 # worker. El token de registro sale de `gh` (dueño del repo) y nunca se muestra.
 #
-#   powershell -ExecutionPolicy Bypass -File scripts\ci-runner\install.ps1 [-Count 2]
-#   powershell -ExecutionPolicy Bypass -File scripts\ci-runner\uninstall.ps1      (para sacarlos)
-param([int]$Count = 2)
+#   powershell -ExecutionPolicy Bypass -File scripts\ci-runner\install.ps1 [-Count 2] [-Prefix tcg-pc]
+#   powershell -ExecutionPolicy Bypass -File scripts\ci-runner\uninstall.ps1 [-Prefix tcg-pc]   (para sacarlos)
+#
+# En otra PC, otro prefijo (por ejemplo -Prefix tcg-ryzen): config.cmd --replace reemplaza por nombre, y con el mismo
+# nombre se llevaría los runners de la primera PC. La etiqueta sigue siendo «tcg-pc», así la CI usa todos.
+param([int]$Count = 2, [string]$Prefix = 'tcg-pc')
 $ErrorActionPreference = 'Stop'
 
 $Version = '2.338.0'
@@ -24,13 +27,34 @@ if (-not (Test-Path $Zip)) {
 $hash = (Get-FileHash $Zip -Algorithm SHA256).Hash.ToLower()
 if ($hash -ne $Sha256) { throw "El sha256 del runner no coincide ($hash): no se instala." }
 Write-Host 'sha256 verificado'
-if (-not (Test-Path (Join-Path $GitBin 'bash.exe'))) { throw "No está el bash de Git en $GitBin" }
+if ($Prefix -notmatch '^[a-z0-9-]+$') { throw "El prefijo va en minúsculas, números y guiones: $Prefix" }
+# What the jobs need on this PC, checked now so a missing piece does not show up later as a red job.
+$missing = @()
+if (-not (Test-Path (Join-Path $GitBin 'bash.exe'))) { $missing += "Git (bash en $GitBin): winget install --id Git.Git -e" }
+if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+  $missing += 'GitHub CLI: winget install --id GitHub.cli -e; después gh auth login (cuenta dueña del repo)'
+} else {
+  gh auth status *> $null
+  if ($LASTEXITCODE -ne 0) { $missing += 'gh sin sesión: gh auth login (cuenta dueña del repo)' }
+}
+if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+  $missing += 'Docker Desktop (el Postgres de la CI): winget install --id Docker.DockerDesktop -e, y abrirlo una vez'
+}
+if (-not (Test-Path (Join-Path $env:USERPROFILE '.cargo\bin\cargo.exe'))) {
+  $missing += 'Rust: winget install --id Rustlang.Rustup -e; después rustup default stable-x86_64-pc-windows-gnu'
+}
+$winget = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages'
+if (-not (Get-ChildItem $winget -Directory -Filter 'BrechtSanders.WinLibs*' -ErrorAction SilentlyContinue)) {
+  $missing += 'WinLibs (compila el motor): winget install --id BrechtSanders.WinLibs.POSIX.UCRT -e'
+}
+if ($missing) { throw ("Falta en esta PC:`n - " + ($missing -join "`n - ")) }
+Write-Host 'Git, gh, Docker, Rust y WinLibs: presentes'
 
 $token = gh api -X POST "repos/$Repo/actions/runners/registration-token" --jq .token
 if (-not $token) { throw 'gh no devolvió el token de registro' }
 
 foreach ($n in 1..$Count) {
-  $name = "tcg-pc-$n"
+  $name = "$Prefix-$n"
   $dir = Join-Path $Base $name
   if (-not (Test-Path (Join-Path $dir 'config.cmd'))) { Expand-Archive $Zip -DestinationPath $dir }
   # Already registered (a second run of this script): keep it, only refresh start.cmd and restart.
@@ -61,7 +85,7 @@ Start-Sleep -Seconds 2
 # Started hidden at logon (and now, through WMI: a process started from a Claude session dies with the app, H-016).
 $lines = @('Set shell = CreateObject("WScript.Shell")')
 foreach ($n in 1..$Count) {
-  $run = Join-Path (Join-Path $Base "tcg-pc-$n") 'start.cmd'
+  $run = Join-Path (Join-Path $Base "$Prefix-$n") 'start.cmd'
   $lines += "shell.Run """"""$run"""""", 0, False"
 }
 Set-Content -Path $Startup -Value ($lines -join "`r`n") -Encoding ascii
