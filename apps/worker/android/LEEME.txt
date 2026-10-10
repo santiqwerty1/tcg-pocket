@@ -1,0 +1,57 @@
+TCG Pocket: worker en Android arm64 (T-015)
+
+1. Instalá Termux desde F-Droid o los releases oficiales de GitHub, no desde Play Store.
+   Termux:API y Termux:Boot deben venir del MISMO origen: las firmas de los APK son distintas.
+   https://github.com/termux/termux-app#installation
+2. En la app, Más → Tokens de API: creá un token de tipo worker exclusivo para el celu.
+   Copiá el comando de «Worker en Android» y pegalo en Termux.
+   El instalador pide el token oculto dentro de Termux. No lo pongas en el comando ni en la URL.
+   Guarda la config con permisos 600. La descarga requiere HTTPS y Authorization: Bearer;
+   comprueba la suma SHA256 antes de instalar. Node se instala con pkg install nodejs-lts.
+   Paquete oficial consultado el 10/10/2026: Node 24.18.0. Se requiere Node >=24.
+   https://github.com/termux/termux-packages/blob/master/packages/nodejs-lts/build.sh
+3. Elegí cuántos núcleos usar (por defecto la mitad) y si trabaja solo enchufado.
+   Para esa opción instalá Termux:API y pkg install termux-api. Se revisa cada 15 segundos;
+   una lectura de batería fallida pausa el trabajo. Desenchufar manda SIGTERM, libera los
+   leases sin contar fallas y al enchufar se reanudan los resultados pendientes.
+4. tcg-worker arranca, pide termux-wake-lock y lo libera al salir. Ctrl+C lo detiene.
+   tcg-worker --check prueba determinismo, configuración y servidor sin reclamar trabajo.
+   Si ARM no reproduce la referencia de la PC, se detiene y explica la diferencia.
+   La prueba es corta: no demuestra que todas las partidas posibles sean idénticas.
+5. Arranque opcional: instalá Termux:Boot y abrilo una vez antes de reiniciar el celu.
+   El instalador escribe ~/.termux/boot/tcg-worker solo si lo elegís.
+6. Para actualizar, repetí el mismo comando. Detiene el worker, instala motor y JS juntos,
+   conserva el id del worker y resultados pendientes, pide nuevamente las preferencias.
+   Solo trabaja con la versión del motor que corresponde a la imagen de la API.
+
+Batería y calor:
+Android → Apps → Termux → Batería: elegí «Sin restricciones» / excluir optimización;
+permití también Termux:API y el arranque automático que ofrezca el fabricante.
+Simular consume batería y calienta, incluso mientras carga. Empezá con pocos núcleos,
+dejá ventilación y frenalo si calienta demasiado. El wake-lock evita dormir la CPU y consume
+energía; «solo mientras carga» mantiene el supervisor despierto para detectar el enchufe.
+Android puede matar Termux por memoria o políticas del fabricante: el trabajo vuelve a la
+cola al vencer el lease (3 minutos si no se pudo liberar al salir). SIGKILL no permite cleanup.
+
+Phantom process killer (documentación consultada el 10/10/2026):
+Android 14+: Opciones de desarrollador → «Disable child process restrictions» /
+«Desactivar restricciones de procesos secundarios», y mantené las opciones activadas.
+Android 12L/13 y superiores, desde una PC con adb autorizado:
+  adb shell settings put global settings_enable_monitor_phantom_procs false
+Verificar: adb shell settings get global settings_enable_monitor_phantom_procs
+Deshacer: adb shell settings delete global settings_enable_monitor_phantom_procs
+Android 12 original: no tiene esa opción para CPU excesiva. Para el límite de procesos:
+  adb shell device_config set_sync_disabled_for_tests persistent
+  adb shell device_config put activity_manager max_phantom_processes 2147483647
+Deshacer: adb shell device_config delete activity_manager max_phantom_processes
+  adb shell device_config set_sync_disabled_for_tests none
+Esto afecta la política de procesos del dispositivo; el instalador NO cambia esos ajustes.
+Guía de un mantenedor de Termux, con las diferencias por versión y fabricante:
+https://github.com/agnostic-apollo/Android-Docs/blob/master/en/docs/apps/processes/phantom-cached-and-empty-processes.md
+
+Licencia y fuentes:
+Worker y engine-cli: AGPL-3.0-only (LICENSE.txt). engine-cli enlaza deckgym-core sin modificar.
+El paquete lleva sources.tar.gz con las fuentes exactas del motor, dependencias Rust
+vendorizadas con sus licencias, worker, locks y scripts de compilación; no requiere acceso
+al repo privado. BUILD.txt adentro explica cómo reconstruirlo.
+Node no se reparte: lo instala Termux bajo sus propias licencias.

@@ -5,4 +5,4 @@
  * 0.2.6: reports its engine's features in its claims and writes the app's hints about work it cannot play.
  * 0.2.7 (B2): with an engine that has `batch`, several pairings of one job in one engine process.
  */
-export const WORKER_VERSION = '0.2.7'
+export const WORKER_VERSION = '0.2.8'

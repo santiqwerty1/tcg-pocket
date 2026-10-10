@@ -140,25 +140,25 @@ export class Worker {
   }
 
   /** Sends the results left over by a previous run (no network, PC turned off right after a chunk). */
-  async flushPending(): Promise<void> {
-    await this.uploadAll(pendingOf(await this.readState()))
+  async flushPending(signal?: AbortSignal): Promise<void> {
+    await this.uploadAll(pendingOf(await this.readState()), signal)
   }
 
   /** Keeps the results in `state.json` and sends them one by one, dropping each from the state once sent. */
-  private async uploadAll(pendings: PendingUpload[]): Promise<void> {
+  private async uploadAll(pendings: PendingUpload[], signal?: AbortSignal): Promise<void> {
     let left = [...pendings]
     await this.writeState({ ...(await this.readState()), pending: null, pendings: left })
     for (const pending of pendings) {
-      await this.upload(pending)
+      await this.upload(pending, signal)
       left = left.slice(1)
       await this.writeState({ ...(await this.readState()), pending: null, pendings: left })
     }
   }
 
-  private async upload(pending: PendingUpload): Promise<void> {
+  private async upload(pending: PendingUpload, signal?: AbortSignal): Promise<void> {
     let accepted: boolean
     try {
-      accepted = (await this.client.result(pending.chunkId, pending.result)).accepted
+      accepted = (await this.client.result(pending.chunkId, pending.result, signal)).accepted
     } catch (error) {
       // 400/404/409: the app does not want it (job deleted, chunk taken over). Drop it; auth errors stop the worker.
       if (!(error instanceof ApiError) || error.status === 401 || error.status === 403) throw error
@@ -170,7 +170,7 @@ export class Worker {
       for (const replay of pending.replays) {
         try {
           const data = gzipSync(await readFile(replay.file))
-          await this.client.replay(pending.chunkId, replay.gameId, data, replay)
+          await this.client.replay(pending.chunkId, replay.gameId, data, replay, signal)
         } catch (error) {
           this.log('no se pudo subir una repetición', {
             chunk: pending.chunkId,
@@ -236,7 +236,9 @@ export class Worker {
         })
     }
     const beat = setInterval(tick, this.heartbeatMs)
-    const threads = chunk.threads ?? this.config.cores
+    const threads = this.config.capThreads
+      ? Math.min(chunk.threads ?? this.config.cores, this.config.cores)
+      : (chunk.threads ?? this.config.cores)
     const track = (done: number, all: number | null) => {
       gamesDone = done
       lastProgressAt = Date.now()
@@ -362,10 +364,14 @@ export class Worker {
       if (stalled) {
         const minutes = Math.round(this.stallMs / 60_000)
         await this.client
-          .failure(chunk.chunkId, {
-            workerId: this.config.workerId,
-            error: `El motor no avanzó en ${minutes} min y se cortó (¿colgado?).`,
-          })
+          .failure(
+            chunk.chunkId,
+            {
+              workerId: this.config.workerId,
+              error: `El motor no avanzó en ${minutes} min y se cortó (¿colgado?).`,
+            },
+            signal,
+          )
           .catch((reported: unknown) => {
             if (!(reported instanceof ApiError) || reported.status === 401 || reported.status === 403) throw reported
           })
@@ -375,7 +381,7 @@ export class Worker {
       if (error instanceof EngineError) {
         this.log('el motor falló', { chunk: chunk.chunkId, code: error.code, error: error.message.slice(0, 500) })
         await this.client
-          .failure(chunk.chunkId, { workerId: this.config.workerId, error: error.message })
+          .failure(chunk.chunkId, { workerId: this.config.workerId, error: error.message }, signal)
           .catch((reported: unknown) => {
             if (!(reported instanceof ApiError) || reported.status === 401 || reported.status === 403) throw reported
             this.log('el servidor rechazó la falla', { chunk: chunk.chunkId, error: reported.message })
@@ -459,7 +465,7 @@ export class Worker {
     const beat = setInterval(tick, this.heartbeatMs)
     const failOne = async (chunk: Chunk, message: string) => {
       await this.client
-        .failure(chunk.chunkId, { workerId: this.config.workerId, error: message })
+        .failure(chunk.chunkId, { workerId: this.config.workerId, error: message }, signal)
         .catch((reported: unknown) => {
           if (!(reported instanceof ApiError) || reported.status === 401 || reported.status === 403) throw reported
           this.log('el servidor rechazó la falla', { chunk: chunk.chunkId, error: reported.message })
@@ -472,7 +478,9 @@ export class Worker {
         'batch',
         {
           players: first.players,
-          threads: first.threads ?? this.config.cores,
+          threads: this.config.capThreads
+            ? Math.min(first.threads ?? this.config.cores, this.config.cores)
+            : (first.threads ?? this.config.cores),
           ...(first.perGame ? { perGame: true } : {}),
           pairings: chunks.map((chunk) => ({
             deckA: chunk.deckA,
@@ -553,94 +561,105 @@ export class Worker {
     for (const chunk of chunks) {
       if (signal.aborted) break
       const pending = await this.play(chunk, engineRev, signal)
-      if (pending) await this.uploadAll([pending])
+      if (pending) await this.uploadAll([pending], signal)
     }
     return []
   }
 
   /** Claims and plays chunks until `signal` aborts (or once, for tests and `--once`). */
-  async loop(signal: AbortSignal, options: { once?: boolean } = {}): Promise<void> {
-    const { engineRev, cliVersion, engineFeatures } = await this.prepare()
-    await this.flushPending()
-    this.log('worker listo', {
-      server: this.config.server,
-      engineRev: engineRev.slice(0, 7),
-      cores: this.config.cores,
-      name: this.config.name,
-    })
-    // Games against a bot run next to the chunks (they wait on the owner most of the time).
-    const live = options.once
-      ? null
-      : new LiveRunner(this.config, this.client, this.log, this.workDir).start(engineRev, signal, engineFeatures)
-    // The app's hint about waiting work this worker cannot play, written once each time it changes.
-    let lastHint: string | null = null
-    while (!signal.aborted) {
-      let claim: Awaited<ReturnType<WorkerClient['claim']>>
-      try {
-        claim = await this.client.claim(
-          {
-            workerId: this.config.workerId,
-            name: this.config.name,
-            engineRev,
-            cliVersion,
-            cores: this.config.cores,
-            version: WORKER_VERSION,
-            ...(engineFeatures.length ? { engineFeatures } : {}),
-            ...(this.batchable
-              ? { batch: { maxChunks: BATCH_MAX_CHUNKS, maxGames: this.config.cores * BATCH_GAMES_PER_CORE } }
-              : {}),
-          },
-          signal,
-        )
-      } catch (error) {
-        if (signal.aborted) break
-        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
-          this.log('el token no sirve: creá uno de tipo worker en la app', { status: error.status })
+  async loop(outerSignal: AbortSignal, options: { once?: boolean } = {}): Promise<void> {
+    const controller = new AbortController()
+    const stop = () => controller.abort(outerSignal.reason)
+    outerSignal.addEventListener('abort', stop, { once: true })
+    if (outerSignal.aborted) stop()
+    const signal = controller.signal
+    let live: Promise<void> | null = null
+    try {
+      const { engineRev, cliVersion, engineFeatures } = await this.prepare()
+      await this.flushPending(signal)
+      this.log('worker listo', {
+        server: this.config.server,
+        engineRev: engineRev.slice(0, 7),
+        cores: this.config.cores,
+        name: this.config.name,
+      })
+      // Games against a bot run next to the chunks (they wait on the owner most of the time).
+      live = options.once
+        ? null
+        : new LiveRunner(this.config, this.client, this.log, this.workDir).start(engineRev, signal, engineFeatures)
+      // The app's hint about waiting work this worker cannot play, written once each time it changes.
+      let lastHint: string | null = null
+      while (!signal.aborted) {
+        let claim: Awaited<ReturnType<WorkerClient['claim']>>
+        try {
+          claim = await this.client.claim(
+            {
+              workerId: this.config.workerId,
+              name: this.config.name,
+              engineRev,
+              cliVersion,
+              cores: this.config.cores,
+              version: WORKER_VERSION,
+              ...(engineFeatures.length ? { engineFeatures } : {}),
+              ...(this.batchable
+                ? { batch: { maxChunks: BATCH_MAX_CHUNKS, maxGames: this.config.cores * BATCH_GAMES_PER_CORE } }
+                : {}),
+            },
+            signal,
+          )
+        } catch (error) {
+          if (signal.aborted) break
+          if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+            this.log('el token no sirve: creá uno de tipo worker en la app', { status: error.status })
+            throw error
+          }
           throw error
         }
-        throw error
-      }
-      if ((claim.hint ?? null) !== lastHint) {
-        lastHint = claim.hint ?? null
-        if (lastHint) this.log(lastHint, { version: WORKER_VERSION, engine: cliVersion })
-      }
-      if (!claim.chunk) {
-        if (claim.requiredEngineRev) {
-          this.log('la cola pide otro motor: actualizá engine/Cargo.toml y compilá', {
-            required: claim.requiredEngineRev.slice(0, 7),
-            have: engineRev.slice(0, 7),
-          })
+        if ((claim.hint ?? null) !== lastHint) {
+          lastHint = claim.hint ?? null
+          if (lastHint) this.log(lastHint, { version: WORKER_VERSION, engine: cliVersion })
         }
+        if (!claim.chunk) {
+          if (claim.requiredEngineRev) {
+            this.log('la cola pide otro motor: actualizá engine/Cargo.toml y compilá', {
+              required: claim.requiredEngineRev.slice(0, 7),
+              have: engineRev.slice(0, 7),
+            })
+          }
+          if (options.once) return
+          await sleep(claim.retryAfterSeconds * 1000, undefined, { signal }).catch(() => undefined)
+          continue
+        }
+        const chunks = claim.chunks?.length ? claim.chunks : [claim.chunk]
+        let pendings: PendingUpload[]
+        if (chunks.length > 1) {
+          this.log('lote reclamado', {
+            job: claim.chunk.jobId,
+            chunks: chunks.map((chunk) => chunk.chunkId),
+            games: chunks.reduce((sum, chunk) => sum + chunk.games, 0),
+            kind: claim.chunk.kind,
+          })
+          pendings = await this.playBatch(chunks, engineRev, signal)
+        } else {
+          const chunk = claim.chunk
+          this.log('chunk reclamado', {
+            job: chunk.jobId,
+            chunk: chunk.chunkId,
+            idx: chunk.idx,
+            games: chunk.games,
+            kind: chunk.kind,
+          })
+          const pending = await this.play(chunk, engineRev, signal)
+          pendings = pending ? [pending] : []
+        }
+        if (pendings.length > 0) await this.uploadAll(pendings, signal)
         if (options.once) return
-        await sleep(claim.retryAfterSeconds * 1000, undefined, { signal }).catch(() => undefined)
-        continue
       }
-      const chunks = claim.chunks?.length ? claim.chunks : [claim.chunk]
-      let pendings: PendingUpload[]
-      if (chunks.length > 1) {
-        this.log('lote reclamado', {
-          job: claim.chunk.jobId,
-          chunks: chunks.map((chunk) => chunk.chunkId),
-          games: chunks.reduce((sum, chunk) => sum + chunk.games, 0),
-          kind: claim.chunk.kind,
-        })
-        pendings = await this.playBatch(chunks, engineRev, signal)
-      } else {
-        const chunk = claim.chunk
-        this.log('chunk reclamado', {
-          job: chunk.jobId,
-          chunk: chunk.chunkId,
-          idx: chunk.idx,
-          games: chunk.games,
-          kind: chunk.kind,
-        })
-        const pending = await this.play(chunk, engineRev, signal)
-        pendings = pending ? [pending] : []
-      }
-      if (pendings.length > 0) await this.uploadAll(pendings)
-      if (options.once) return
+    } finally {
+      controller.abort()
+      await live
+      outerSignal.removeEventListener('abort', stop)
     }
-    await live
   }
 
   /** Removes work folders left by a crash (results are in state.json, folders without one are useless). */

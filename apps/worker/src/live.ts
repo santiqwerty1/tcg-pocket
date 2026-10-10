@@ -152,18 +152,22 @@ export class LiveRunner {
         } else if (message.type === 'invalid') {
           throw new Error(`el motor rechazó una elección: ${message.message}`)
         } else if (message.type === 'end') {
-          await this.client.liveEnd(game.id, {
-            workerId: this.config.workerId,
-            winner: message.winner,
-            turns: message.turns,
-            state: message.state,
-            log: actions,
-          })
+          await this.client.liveEnd(
+            game.id,
+            {
+              workerId: this.config.workerId,
+              winner: message.winner,
+              turns: message.turns,
+              state: message.state,
+              log: actions,
+            },
+            signal,
+          )
           if (message.replay) {
             const data = await readFile(message.replay).catch(() => null)
             if (data) {
               await this.client
-                .liveReplay(game.id, this.config.workerId, gzipSync(data))
+                .liveReplay(game.id, this.config.workerId, gzipSync(data), signal)
                 .catch((error) => this.log('no se pudo subir la repetición', { game: game.id, error: String(error) }))
             }
           }
@@ -191,15 +195,19 @@ export class LiveRunner {
     signal: AbortSignal,
   ): Promise<number | 'stop' | 'restart'> {
     const workerId = this.config.workerId
-    const sent = await this.client.liveDecision(id, {
-      workerId,
-      ply: decision.ply,
-      turn: decision.turn,
-      state: decision.state,
-      actions: decision.actions,
-      log,
-      ...(decision.coach ? { coach: decision.coach } : {}),
-    })
+    const sent = await this.client.liveDecision(
+      id,
+      {
+        workerId,
+        ply: decision.ply,
+        turn: decision.turn,
+        state: decision.state,
+        actions: decision.actions,
+        log,
+        ...(decision.coach ? { coach: decision.coach } : {}),
+      },
+      signal,
+    )
     if (sent.choice !== null) return sent.choice
     if (sent.status === 'restart') return 'restart'
     if (!['running', 'waiting'].includes(sent.status)) return 'stop'

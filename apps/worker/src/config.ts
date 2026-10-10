@@ -18,6 +18,8 @@ export interface WorkerConfig {
   enginePath: string
   dataDir: string
   workerId: string
+  /** Mobile packages cap a job's requested threads at the configured budget. */
+  capThreads?: boolean
 }
 
 export function dataDir(): string {
@@ -38,11 +40,14 @@ export interface FileConfig {
   cores?: number
   name?: string
   enginePath?: string
+  onlyCharging?: boolean
 }
 
 /** What a caller knows better than the repository layout (the portable package: the engine next to the exe). */
 export interface ConfigDefaults {
   enginePath?: string | undefined
+  determinismPath?: string | undefined
+  capThreads?: boolean
 }
 
 export function configFile(): string {
@@ -56,11 +61,12 @@ export function readFileConfig(): FileConfig {
 
 /** Saves the file configuration (the portable package's setup). */
 export function writeFileConfig(config: FileConfig): void {
-  mkdirSync(dataDir(), { recursive: true })
+  mkdirSync(dataDir(), { recursive: true, mode: 0o700 })
   writeFileSync(
     configFile(),
     `${JSON.stringify(config, null, 2)}
 `,
+    { mode: 0o600 },
   )
 }
 
@@ -86,5 +92,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, defaults: Confi
     enginePath: env.TCG_ENGINE_PATH ?? fromFile.enginePath ?? defaults.enginePath ?? defaultEnginePath(),
     dataDir: dir,
     workerId: readFileSync(idFile, 'utf8').trim(),
+    ...(defaults.capThreads ? { capThreads: true } : {}),
   }
 }

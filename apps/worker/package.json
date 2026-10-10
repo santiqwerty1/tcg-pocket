@@ -16,7 +16,8 @@
     "engine:build": "cargo build --release --manifest-path ../../engine/Cargo.toml",
     "install-task": "node dist/install-task.js install",
     "uninstall-task": "node dist/install-task.js uninstall",
-    "package": "node scripts/package.mjs"
+    "package": "node scripts/package.mjs",
+    "package:android": "node scripts/build-android.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

@@ -8,6 +8,7 @@ import { ApiError, type Chunk, type ChunkResult, type LiveGame, WorkerClient } f
 import type { WorkerConfig } from '../src/config.js'
 import { EngineError, engineStatus, engineVersion, runJob } from '../src/engine.js'
 import { LiveRunner, OLD_ENGINE_COACH } from '../src/live.js'
+import { WORKER_VERSION } from '../src/version.js'
 import { Worker } from '../src/worker.js'
 
 const FAKE_ENGINE = join(dirname(fileURLToPath(import.meta.url)), 'fake-engine.mjs')
@@ -237,7 +238,7 @@ describe('worker loop', () => {
     })
     await new Worker(config, client, log).loop(stop.signal, { once: false })
     expect(vi.mocked(client.claim).mock.calls[0]?.[0]).toMatchObject({
-      version: '0.2.7',
+      version: WORKER_VERSION,
       engineFeatures: ['perGame', 'batch'],
     })
     expect(lines.filter((line) => line === hint)).toHaveLength(2)
@@ -269,7 +270,7 @@ describe('worker loop', () => {
     })
     await new Worker(config, client, silent).loop(new AbortController().signal, { once: true })
     expect(vi.mocked(client.claim).mock.calls[0]?.[0]).toMatchObject({
-      version: '0.2.7',
+      version: WORKER_VERSION,
       batch: { maxChunks: 64, maxGames: 500 },
     })
     expect(calls.failures).toEqual([])

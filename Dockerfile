@@ -6,6 +6,30 @@ ENV CI=true PNPM_HOME=/pnpm PATH=/pnpm:$PATH
 RUN apk add --no-cache libc6-compat && npm install -g pnpm@12.9.1
 WORKDIR /app
 
+# --- Android engine: same pinned source/lock as every other worker (T-015) --------------------------------------
+FROM rust:1.99.0-slim-bookworm AS android-engine
+RUN apt-get update && apt-get install -y --no-install-recommends python3-venv gcc libc6-dev ca-certificates git \
+ && rm -rf /var/lib/apt/lists/* \
+ && python3 -m venv /tools \
+ && /tools/bin/pip install --no-cache-dir ziglang==0.13.0 cargo-zigbuild==0.23.4 \
+ && rustup target add aarch64-unknown-linux-musl
+ENV PATH=/tools/bin:$PATH
+WORKDIR /engine
+COPY engine/Cargo.toml engine/Cargo.lock engine/build.rs ./
+COPY engine/src ./src
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/engine/target \
+    cargo zigbuild --locked --release --target aarch64-unknown-linux-musl \
+ && cargo build --locked --release \
+ && mkdir /engine-out \
+ && cp target/aarch64-unknown-linux-musl/release/engine-cli /engine-out/engine-cli \
+ && cp target/release/engine-cli /engine-out/reference-engine \
+ && cp "$(rustc --print sysroot)/share/doc/rust/COPYRIGHT-library.html" /engine-out/COPYRIGHT-library.html \
+ && cp -r "$(rustc --print sysroot)/share/doc/rust/licenses" /engine-out/licenses \
+ && cargo vendor --locked --versioned-dirs /engine-out/vendor > /engine-out/vendor-config.toml \
+ && sed -i 's|directory = "/engine-out/vendor"|directory = "vendor"|' /engine-out/vendor-config.toml
+
 # --- dependencies (native modules such as argon2 may need a toolchain on Alpine) ---------------------------------
 FROM base AS deps
 RUN apk add --no-cache python3 make g++
@@ -17,6 +41,15 @@ COPY apps/web/package.json apps/web/
 COPY apps/worker/package.json apps/worker/
 COPY packages/domain/package.json packages/domain/
 RUN pnpm install --frozen-lockfile
+
+# Package built on the remote Fly builder as part of the same image; no release login/token on the phone.
+FROM deps AS android-package
+COPY apps/worker apps/worker
+COPY LICENSE tsconfig.base.json ./
+COPY engine engine
+COPY --from=android-engine /engine-out /engine-out
+RUN node apps/worker/scripts/package-android.mjs --engine /engine-out/engine-cli \
+    --reference-engine /engine-out/reference-engine --vendor /engine-out/vendor --runtime-licenses /engine-out --out /android-package
 
 # --- deckgym replay viewer (D-014): built unmodified at the engine's pinned commit ------------------------------
 FROM node:24-alpine AS viewer
@@ -60,6 +93,7 @@ COPY --from=build --chown=node:node /app/apps/api/certs ./apps/api/certs
 COPY --from=build --chown=node:node /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=build --chown=node:node /app/apps/api/dist ./apps/api/dist
 COPY --from=build --chown=node:node /app/apps/web/dist ./apps/web/dist
+COPY --from=android-package --chown=node:node /android-package/android-arm64.tar.gz /android-package/android-version.json /android-package/install-android.sh ./apps/worker/build/
 COPY --chown=node:node docker/entrypoint.sh ./entrypoint.sh
 COPY --chown=node:node docker/migrate.sh ./migrate.sh
 RUN chmod +x /app/entrypoint.sh /app/migrate.sh
