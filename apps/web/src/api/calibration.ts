@@ -90,6 +90,10 @@ export const calibrationViewSchema = z.object({
   }),
   pending: z.number(),
   failed: z.number(),
+  /** Left unplayed by a cancelled job. */
+  cancelled: z.number().default(0),
+  /** Two lists of one archetype: not compared. */
+  mirrors: z.number().default(0),
 })
 export type CalibrationView = z.infer<typeof calibrationViewSchema>
 
@@ -103,6 +107,7 @@ const calibrationSummarySchema = calibrationJobSchema.extend({
     })
     .nullable(),
   failed: z.number(),
+  cancelled: z.number().default(0),
 })
 export type CalibrationSummary = z.infer<typeof calibrationSummarySchema>
 

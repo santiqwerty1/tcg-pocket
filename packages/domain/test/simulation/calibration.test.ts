@@ -208,5 +208,15 @@ describe('calibration report', () => {
     }))
     expect(calibrationReport(wrong).rankCorrelation?.rho).toBeLessThan(-0.95)
     expect(straight.archetypeCorrelation?.rho).toBeCloseTo(1, 10)
+    // The archetypes' correlation too: its points share pairings, so the same bootstrap over archetypes.
+    expect(straight.archetypeCorrelation).toMatchObject({ n: 6, method: 'bootstrap' })
+    const [aLo, aHi] = straight.archetypeCorrelation?.ci95 ?? [Number.NaN, Number.NaN]
+    expect(aLo).toBeLessThanOrEqual(1)
+    expect(aHi).toBeLessThanOrEqual(1)
+    expect(aLo).toBeLessThanOrEqual(aHi)
+    expect(calibrationReport(bank(rates, 100)).archetypeCorrelation?.ci95).toEqual(straight.archetypeCorrelation?.ci95)
+    // Below 5 archetypes there is no interval.
+    const four = calibrationReport(bank({ a: 70, b: 50, c: 40, d: 20 }, 100)).archetypeCorrelation
+    expect(four).toMatchObject({ n: 4, ci95: null, method: 'bootstrap' })
   })
 })
