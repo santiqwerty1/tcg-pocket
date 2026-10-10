@@ -126,13 +126,13 @@ export class Worker {
   }
 
   /** Engine version, and its card status uploaded once per revision (the app marks «no simulable» with it). */
-  async prepare(): Promise<{ engineRev: string; cliVersion: string; engineFeatures: string[] }> {
-    const version = await engineVersion(this.config.enginePath)
+  async prepare(signal?: AbortSignal): Promise<{ engineRev: string; cliVersion: string; engineFeatures: string[] }> {
+    const version = await engineVersion(this.config.enginePath, signal)
     this.batchable = version.features?.includes('batch') ?? false
     const state = await this.readState()
     if (state.statusUploaded !== version.engineRev) {
-      const cards = await engineStatus(this.config.enginePath)
-      const summary = await this.client.engineStatus(version.engineRev, cards)
+      const cards = await engineStatus(this.config.enginePath, signal)
+      const summary = await this.client.engineStatus(version.engineRev, cards, signal)
       this.log('estado del motor subido', { engineRev: version.engineRev.slice(0, 7), ...summary })
       await this.writeState({ ...state, statusUploaded: version.engineRev })
     }
@@ -575,7 +575,7 @@ export class Worker {
     const signal = controller.signal
     let live: Promise<void> | null = null
     try {
-      const { engineRev, cliVersion, engineFeatures } = await this.prepare()
+      const { engineRev, cliVersion, engineFeatures } = await this.prepare(signal)
       await this.flushPending(signal)
       this.log('worker listo', {
         server: this.config.server,

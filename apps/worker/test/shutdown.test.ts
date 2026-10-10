@@ -9,9 +9,9 @@ import { build } from 'esbuild'
 import { expect, it } from 'vitest'
 
 // Windows does not deliver POSIX SIGTERM to Node. Run this test on Linux (CI's Android Docker stage).
-it.skipIf(process.platform === 'win32')(
-  'SIGTERM stops an active engine and releases leases without reporting failure',
-  async () => {
+it.skipIf(process.platform === 'win32').each([false, true])(
+  'SIGTERM releases leases without reporting failure (startup offline: %s)',
+  async (offline) => {
     const dir = await mkdtemp(join(tmpdir(), 'tcg-shutdown-'))
     const entry = join(dir, 'worker.mjs')
     await build({
@@ -27,8 +27,12 @@ it.skipIf(process.platform === 'win32')(
       output = ''
     const server = createServer((request, response) => {
       response.setHeader('Content-Type', 'application/json')
-      if (request.url === '/api/worker/engine-status') response.end('{"cards":2}')
-      else if (request.url === '/api/worker/release') {
+      if (request.url === '/api/worker/engine-status') {
+        if (offline) {
+          response.statusCode = 503
+          response.end('{}')
+        } else response.end('{"cards":2}')
+      } else if (request.url === '/api/worker/release') {
         released = true
         response.end('{"chunks":1,"games":0}')
       } else if (request.url?.endsWith('/failure')) {
@@ -83,7 +87,9 @@ it.skipIf(process.platform === 'win32')(
       output += data.toString()
     })
     try {
-      await expect.poll(() => output.includes('chunk reclamado'), { timeout: 10_000 }).toBe(true)
+      await expect
+        .poll(() => output.includes(offline ? 'servidor no disponible' : 'chunk reclamado'), { timeout: 10_000 })
+        .toBe(true)
       // Wait until the fake engine has actually spawned (it will play forever).
       await new Promise((resolve) => setTimeout(resolve, 200))
       child.kill('SIGTERM')

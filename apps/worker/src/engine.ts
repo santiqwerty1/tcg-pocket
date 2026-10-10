@@ -88,12 +88,12 @@ function run(enginePath: string, args: string[], options: RunOptions = {}): Prom
   })
 }
 
-export async function engineVersion(enginePath: string): Promise<EngineVersion> {
-  return JSON.parse(await run(enginePath, ['version'])) as EngineVersion
+export async function engineVersion(enginePath: string, signal?: AbortSignal): Promise<EngineVersion> {
+  return JSON.parse(await run(enginePath, ['version'], { signal })) as EngineVersion
 }
 
-export async function engineStatus(enginePath: string): Promise<EngineCardStatus[]> {
-  return JSON.parse(await run(enginePath, ['status'])) as EngineCardStatus[]
+export async function engineStatus(enginePath: string, signal?: AbortSignal): Promise<EngineCardStatus[]> {
+  return JSON.parse(await run(enginePath, ['status'], { signal })) as EngineCardStatus[]
 }
 
 /** Writes the job to a temp folder, runs the command, returns the parsed result and the folder (for replays). */
