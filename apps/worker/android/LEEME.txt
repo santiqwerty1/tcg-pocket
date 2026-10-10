@@ -1,7 +1,7 @@
-TCG Pocket: worker 0.2.8 en Android arm64 (T-015)
+TCG Pocket: worker 0.2.9 en Android arm64 (T-015)
 
 1. Instalá Termux desde F-Droid o los releases oficiales de GitHub, no desde Play Store.
-   Termux:API y Termux:Boot deben venir del MISMO origen: las firmas de los APK son distintas.
+   Termux:API, Termux:Boot y Termux:Widget deben venir del MISMO origen: las firmas de los APK son distintas.
    https://github.com/termux/termux-app#installation
 2. En la app, Más → Tokens de API: creá un token de tipo worker exclusivo para el celu.
    Copiá el comando de «Worker en Android» y pegalo en Termux.
@@ -15,7 +15,9 @@ TCG Pocket: worker 0.2.8 en Android arm64 (T-015)
    Para esa opción instalá Termux:API y pkg install termux-api. Se revisa cada 15 segundos;
    una lectura de batería fallida pausa el trabajo. Desenchufar manda SIGTERM, libera los
    leases sin contar fallas y al enchufar se reanudan los resultados pendientes.
-4. tcg-worker arranca, pide termux-wake-lock y lo libera al salir. Ctrl+C lo detiene.
+4. tcg-worker arranca, pide termux-wake-lock y lo libera al salir. Ctrl+C o tcg-worker --stop lo detienen.
+   --stop verifica el PID de nuestros locks, manda SIGTERM y espera la limpieza de leases.
+   Si no corre ninguno, lo dice. Si el PID es de otro proceso, no lo mata y avisa.
    tcg-worker --check prueba determinismo, configuración y servidor sin reclamar trabajo.
    Si ARM no reproduce la referencia de la PC, se detiene y explica la diferencia.
    La prueba es corta: no demuestra que todas las partidas posibles sean idénticas.
@@ -24,6 +26,29 @@ TCG Pocket: worker 0.2.8 en Android arm64 (T-015)
 6. Para actualizar, repetí el mismo comando. Detiene el worker, instala motor y JS juntos,
    conserva el id del worker y resultados pendientes, pide nuevamente las preferencias.
    Solo trabaja con la versión del motor que corresponde a la imagen de la API.
+7. Para manejarlo con un toque: instalá Termux:Widget desde F-Droid (si Termux vino de ahí)
+   y respondé «s» a «¿Accesos directos para Termux:Widget?» en el instalador.
+   Mantené presionado un espacio vacío de la pantalla de inicio → Widgets → Termux:Widget;
+   arrastrá el widget y tocá su botón de refrescar. Los nombres son:
+   - Arrancar worker: abre una sesión con el wake-lock del lanzador; si ya corre, avisa.
+   - Detener worker: corre sin ventana, espera el apagado y muestra un termux-toast
+     si está instalado pkg install termux-api y la app Termux:API responde.
+   - Estado del worker: comprueba motor y conexión, y espera Enter para cerrar la sesión.
+   Al reinstalar se actualizan; con «n» se borran esos tres scripts. Refrescá el widget.
+   El instalador usa ~/.shortcuts/ y ~/.shortcuts/tasks/ (Detener), con permisos 700
+   y shebang absoluto de Termux. Otros accesos que tengas se conservan.
+
+Permisos del widget (también Android 12+):
+La documentación oficial pide opcionalmente «Mostrar sobre otras apps» a TERMUX,
+no a Termux:Widget, desde Android 10 para abrir las sesiones desde segundo plano:
+Ajustes → Apps → Termux → Acceso especial / Mostrar sobre otras apps → Permitir.
+Si no lo concedés y la sesión no aparece, tocá la notificación de Termux para abrirla.
+Detener worker no necesita abrir una sesión. Widget no declara permisos adicionales
+en su manifiesto; no necesita acceso al almacenamiento compartido para estos scripts.
+Fuentes oficiales verificadas el 10/10/2026:
+https://github.com/termux/termux-widget#setup-instructions
+https://github.com/termux/termux-widget#draw-over-apps-permission-optional
+https://github.com/termux/termux-widget/blob/master/app/src/main/AndroidManifest.xml
 
 Prioridad:
 En data/config.json: "priority": "below_normal" (por defecto), "normal" o "idle".

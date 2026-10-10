@@ -32,10 +32,28 @@ export function AndroidWorkerSection() {
         </li>
         <li>Creá arriba un token de tipo worker exclusivo para el celu.</li>
         <li>Copiá este comando y pegalo en Termux. El token se pide ahí, oculto; el comando no lo incluye.</li>
-        <li>Elegí los núcleos (la mitad por defecto), si trabaja solo mientras carga y el arranque con Termux:Boot.</li>
+        <li>
+          Elegí los núcleos (la mitad por defecto), si trabaja solo mientras carga, el arranque con Termux:Boot y los
+          accesos para Termux:Widget.
+        </li>
         <li>
           Arrancá con <code>tcg-worker</code>. <code>tcg-worker --check</code> comprueba el motor y la conexión; Ctrl+C
-          lo detiene.
+          o <code>tcg-worker --stop</code> lo detienen.
+        </li>
+        <li>
+          Para un toque desde el inicio, instalá{' '}
+          <a
+            className="underline"
+            href="https://f-droid.org/packages/com.termux.widget/"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Termux:Widget
+          </a>{' '}
+          del mismo origen que Termux y elegí «s» para sus accesos. Mantené presionado un espacio vacío de la pantalla
+          de inicio → Widgets → Termux:Widget, arrastralo y tocá refrescar. Vas a ver «Arrancar worker», «Detener
+          worker» (sin ventana, con aviso si está Termux:API) y «Estado del worker» (Enter para cerrar). Al reinstalar
+          se actualizan; con «n» se borran. Refrescá el widget después.
         </li>
       </ol>
       {command ? (
@@ -59,6 +77,20 @@ export function AndroidWorkerSection() {
       ) : (
         <p className="text-sm">Abrí la app por HTTPS para copiar el comando de instalación.</p>
       )}
+      <p className="text-sm text-muted-foreground">
+        En Android 12+ (desde Android 10), si las sesiones no aparecen, permití «Mostrar sobre otras apps» en Ajustes →
+        Apps → Termux → Acceso especial. Es un permiso de Termux para abrir la sesión; si no lo concedés, tocá su
+        notificación. «Detener worker» funciona sin abrir una sesión. Termux:Widget no necesita permisos adicionales ni
+        acceso al almacenamiento compartido para estos accesos.{' '}
+        <a
+          className="underline"
+          href="https://github.com/termux/termux-widget#setup-instructions"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Guía oficial de Termux:Widget
+        </a>
+      </p>
       <p className="text-sm text-muted-foreground">
         Repetí el comando para actualizar cuando cambie el motor. Excluí Termux de la optimización de batería. Simular
         calienta el celu y consume batería: empezá con pocos núcleos. Leé el LEEME del paquete para Android 12+ y sus
