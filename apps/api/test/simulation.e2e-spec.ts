@@ -737,8 +737,7 @@ describe('simulation (e2e)', () => {
     expect(after.rows[0]?.rate?.value).toBeCloseTo(60, 10)
     expect(after.rows[2]).toMatchObject({ record: null, rate: null, rivalsPlayed: 1, rivalsFailed: 1 })
     expect(await simulations.deckColumn(rivalDeck)).toEqual(columnBefore)
-    // Claude sees both numbers, and which one to decide with.
-    await test.app.listen(0, '127.0.0.1')
+    // Claude sees both numbers, and which one to decide with (the app already listens, from beforeAll).
     const { port } = test.app.getHttpServer().address() as AddressInfo
     const client = new Client({ name: 'e2e', version: '1.0.0' })
     await client.connect(
