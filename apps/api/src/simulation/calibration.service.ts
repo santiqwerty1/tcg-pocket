@@ -18,6 +18,7 @@ import {
 import type { Prisma } from '../generated/prisma/client.js'
 import { LabService } from '../lab/lab.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import { TournamentDataVersion } from '../tournaments/tournament-settings.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
 import type { JobSummaryView } from './simulation-views.js'
 import { SimulationsService } from './simulations.service.js'
@@ -53,17 +54,28 @@ export interface CalibrationView {
   report: CalibrationReport
   /** The tournament side, read now (the era's matchups keep growing while a calibration is kept). */
   tournaments: { era: string; format: TournamentFormat; matches: number; tournamentsWithPairings: number }
-  /** Pairings of the bank still to be played. */
+  /** Pairings of the bank still to be played (all their chunks, when a pairing is split). */
   pending: number
   /** Pairings whose chunks failed in the engine: they will not come (the job ends «failed» with the rest). */
   failed: number
+  /** Pairings a cancelled job left unplayed, whole or in part: they will not come either. */
+  cancelled: number
+  /**
+   * Pairings of two lists of one archetype (the bank's second lists, or archetypes an alias merged after the bank was
+   * kept): tournaments have no matchup for an archetype against itself, so they are not compared.
+   */
+  mirrors: number
 }
 
 export interface CalibrationSummaryView extends CalibrationJobView {
   /** Finished jobs only (done, or failed with the pairings that did play). */
   summary: Pick<CalibrationReport, 'compared' | 'compatible' | 'meanAbsDifference' | 'rankCorrelation'> | null
   failed: number
+  cancelled: number
 }
+
+/** Calibrations the list shows, newest first. */
+const LISTED = 50
 
 /** Games per pairing by default: 105 pairings × 200 is 21.000 games, ~4 minutes of the PC's worker with e2. */
 export const CALIBRATION_GAMES_PER_PAIR = 200
@@ -81,7 +93,14 @@ export class CalibrationService {
     private readonly tournaments: TournamentsService,
     private readonly simulations: SimulationsService,
     private readonly snapshots: SnapshotsService,
+    private readonly tournamentData: TournamentDataVersion,
   ) {}
+
+  /**
+   * Summaries of finished calibrations: their chunks no longer change, so a summary only goes stale when the
+   * tournaments, the settings or the aliases do (the key carries `TournamentDataVersion`).
+   */
+  private readonly summaries = new Map<string, Pick<CalibrationSummaryView, 'summary' | 'failed' | 'cancelled'>>()
 
   /** Queues the bank against itself with `bot` on both sides. */
   async start(input: {
@@ -149,21 +168,49 @@ export class CalibrationService {
     }
   }
 
-  /** Every calibration, newest first, with the summary of the finished ones. */
+  /**
+   * Every calibration, newest first, with the summary of the finished ones (made once and kept until the tournament
+   * data change: the list is read every few seconds while one plays).
+   */
   async list(): Promise<CalibrationSummaryView[]> {
-    const jobs = (
-      await this.prisma.simulationJob.findMany({ where: { kind: 'matrix' }, orderBy: { createdAt: 'desc' }, take: 200 })
-    ).filter((job) => calibrationOf(job.params) !== null)
+    const ids = await this.prisma.$queryRaw<{ id: number }[]>`
+      SELECT "id" FROM "simulation_jobs"
+      WHERE "kind" = 'matrix' AND "params"->'calibration' IS NOT NULL
+      ORDER BY "created_at" DESC LIMIT ${LISTED}`
+    const jobs = await this.prisma.simulationJob.findMany({
+      where: { id: { in: ids.map((row) => row.id) } },
+      orderBy: { createdAt: 'desc' },
+    })
+    const byId = new Map((await this.simulations.summariesOf(jobs.map((job) => job.id))).map((job) => [job.id, job]))
+    // While a calibration plays, only how many pairings already failed (cheap: no report).
+    const failedChunks = await this.prisma.simulationChunk.groupBy({
+      by: ['jobId', 'snapshotAId', 'snapshotBId'],
+      where: { jobId: { in: jobs.map((job) => job.id) }, status: 'failed' },
+    })
     const out: CalibrationSummaryView[] = []
-    for (const job of jobs.slice(0, 50)) {
-      const view = await this.report(job.id)
-      const { compared, compatible, meanAbsDifference, rankCorrelation } = view.report
-      const finished = view.job.status === 'done' || view.job.status === 'failed'
-      out.push({
-        ...view.job,
-        summary: finished ? { compared, compatible, meanAbsDifference, rankCorrelation } : null,
-        failed: view.failed,
-      })
+    for (const job of jobs) {
+      const summary = byId.get(job.id)
+      if (!summary) continue
+      const view = this.jobView(job, summary)
+      if (summary.status === 'queued' || summary.status === 'running') {
+        const failed = failedChunks.filter((row) => row.jobId === job.id).length
+        out.push({ ...view, summary: null, failed, cancelled: 0 })
+        continue
+      }
+      const key = `${job.id}:${summary.status}:${job.finishedAt?.getTime() ?? 0}:${this.tournamentData.current()}`
+      let kept = this.summaries.get(key)
+      if (!kept) {
+        const full = await this.report(job.id)
+        const { compared, compatible, meanAbsDifference, rankCorrelation } = full.report
+        kept = {
+          summary: { compared, compatible, meanAbsDifference, rankCorrelation },
+          failed: full.failed,
+          cancelled: full.cancelled,
+        }
+        for (const old of this.summaries.keys()) if (old.startsWith(`${job.id}:`)) this.summaries.delete(old)
+        this.summaries.set(key, kept)
+      }
+      out.push({ ...view, ...kept })
     }
     return out
   }
@@ -173,35 +220,61 @@ export class CalibrationService {
     const job = await this.prisma.simulationJob.findUnique({ where: { id } })
     const calibration = job ? calibrationOf(job.params) : null
     if (!job || !calibration) throw new NotFoundException(`No hay una calibración ${id}.`)
-    const summary = await this.simulations.detail(String(id))
+    const summary = await this.simulations.progressOf(String(id))
     const sideA = ((job.params as { sideA?: number[] }).sideA ?? []) as number[]
-    const snapshots = await this.snapshots.byIds(sideA)
-    const bankByList = new Map(calibration.bank.map((entry) => [entry.listKey, entry]))
-    const archetypeOf = new Map(
+    const [snapshots, aliases] = await Promise.all([this.snapshots.byIds(sideA), this.tournaments.aliases()])
+    // Each list of the bank under the archetype it is now (an alias merged since must still find its matchups), and
+    // with an id of its own: a second list of one archetype is another point, never added to the first.
+    const lists = new Map<string, { id: string; archetypeId: string; label: string; weight: number }>()
+    const nth = new Map<string, number>()
+    for (const entry of calibration.bank) {
+      const archetypeId = aliases.get(entry.archetypeId) ?? entry.archetypeId
+      const n = (nth.get(archetypeId) ?? 0) + 1
+      nth.set(archetypeId, n)
+      lists.set(entry.listKey, {
+        id: n === 1 ? archetypeId : `${archetypeId}#${n}`,
+        archetypeId,
+        label: n === 1 ? entry.archetypeName : `${entry.archetypeName} (${n}.ª lista)`,
+        // The list's part of the meta (a second list splits its archetype's share with the first).
+        weight: entry.weight,
+      })
+    }
+    const listOf = new Map(
       snapshots.flatMap((snapshot) => {
-        const entry = snapshot.sourceType === 'tournament_list' ? bankByList.get(snapshot.sourceId ?? '') : undefined
-        return entry ? [[snapshot.id, entry] as const] : []
+        const list = snapshot.sourceType === 'tournament_list' ? lists.get(snapshot.sourceId ?? '') : undefined
+        return list ? [[snapshot.id, list] as const] : []
       }),
     )
     const all = await this.prisma.simulationChunk.findMany({
       where: { jobId: id, snapshotAId: { not: null }, snapshotBId: { not: null } },
       select: { snapshotAId: true, snapshotBId: true, winsA: true, winsB: true, ties: true, status: true },
     })
-    const chunks = all.filter((chunk) => chunk.status === 'done')
-    // A pairing with a failed chunk has no result to wait for.
-    const failedPairs = new Set(
-      all.filter((chunk) => chunk.status === 'failed').map((chunk) => `${chunk.snapshotAId}:${chunk.snapshotBId}`),
-    )
+    const statusesOf = new Map<string, string[]>()
+    for (const chunk of all) {
+      const key = `${chunk.snapshotAId}:${chunk.snapshotBId}`
+      statusesOf.set(key, [...(statusesOf.get(key) ?? []), chunk.status])
+    }
+    // A pairing split in several chunks is played once all of them are; a cancelled part leaves it unplayed.
+    const active = summary.status === 'queued' || summary.status === 'running'
+    const stateOf = (key: string): 'played' | 'pending' | 'failed' | 'cancelled' => {
+      const statuses = statusesOf.get(key) ?? []
+      if (statuses.includes('failed')) return 'failed'
+      if (statuses.length > 0 && statuses.every((status) => status === 'done')) return 'played'
+      if (statuses.some((status) => status === 'queued' || status === 'leased')) return 'pending'
+      return active ? 'pending' : 'cancelled'
+    }
     const records = pairingRecords(
-      chunks.map(
-        (chunk): ChunkOutcome => ({
-          a: chunk.snapshotAId as number,
-          b: chunk.snapshotBId as number,
-          winsA: chunk.winsA ?? 0,
-          winsB: chunk.winsB ?? 0,
-          ties: chunk.ties ?? 0,
-        }),
-      ),
+      all
+        .filter((chunk) => chunk.status === 'done')
+        .map(
+          (chunk): ChunkOutcome => ({
+            a: chunk.snapshotAId as number,
+            b: chunk.snapshotBId as number,
+            winsA: chunk.winsA ?? 0,
+            winsB: chunk.winsB ?? 0,
+            ties: chunk.ties ?? 0,
+          }),
+        ),
     )
     const { scope, dataset } = await this.tournaments.scopedDataset({
       era: calibration.era,
@@ -209,27 +282,27 @@ export class CalibrationService {
     })
     const matchups = await this.tournaments.matchupsOf(dataset)
     const pairings: CalibrationPairing[] = []
-    let pending = 0
-    let failed = 0
+    const counts = { pending: 0, failed: 0, cancelled: 0, mirrors: 0 }
     for (let i = 0; i < sideA.length; i++) {
       for (let j = i + 1; j < sideA.length; j++) {
         const [x, y] = [sideA[i] as number, sideA[j] as number]
-        const [a, b] = [archetypeOf.get(x), archetypeOf.get(y)]
+        const [a, b] = [listOf.get(x), listOf.get(y)]
         if (!a || !b) continue
-        if (failedPairs.has(`${x}:${y}`)) {
-          failed++
+        if (a.archetypeId === b.archetypeId) {
+          counts.mirrors++
           continue
         }
+        const state = stateOf(`${x}:${y}`)
         const record = records.get(`${x}:${y}`)?.record
-        if (!record) {
-          pending++
+        if (state !== 'played' || !record) {
+          counts[state === 'played' ? 'pending' : state]++
           continue
         }
         pairings.push({
-          a: a.archetypeId,
-          b: b.archetypeId,
-          labelA: a.archetypeName,
-          labelB: b.archetypeName,
+          a: a.id,
+          b: b.id,
+          labelA: a.label,
+          labelB: b.label,
           simulated: record,
           tournament: matchupPerGame(matchups, a.archetypeId, b.archetypeId),
         })
@@ -238,7 +311,7 @@ export class CalibrationService {
     return {
       job: this.jobView(job, summary),
       report: calibrationReport(pairings, {
-        shares: new Map(calibration.bank.map((entry) => [entry.archetypeId, entry.share])),
+        shares: new Map([...lists.values()].map((list) => [list.id, list.weight])),
       }),
       tournaments: {
         era: scope.era,
@@ -246,8 +319,7 @@ export class CalibrationService {
         matches: matchups.matches,
         tournamentsWithPairings: matchups.tournamentsWithPairings,
       },
-      pending,
-      failed,
+      ...counts,
     }
   }
 }

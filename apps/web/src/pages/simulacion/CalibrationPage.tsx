@@ -180,6 +180,12 @@ export function CalibrationPage() {
                     ellos.
                   </p>
                 ) : null}
+                {item.cancelled > 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Se canceló con {item.cancelled} {item.cancelled === 1 ? 'cruce' : 'cruces'} sin jugar: el resumen es
+                    sin ellos.
+                  </p>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -215,6 +221,10 @@ export function CalibrationReport({ view }: { view: CalibrationView }) {
               : view.failed > 1
                 ? ` · fallaron ${view.failed} en el motor`
                 : ''}
+            {view.cancelled > 0 ? ` · ${view.cancelled} sin jugar (se canceló)` : ''}
+            {view.mirrors > 0
+              ? ` · ${view.mirrors} de un arquetipo contra sí mismo, que los torneos no pueden comparar`
+              : ''}
             .
           </li>
           <li>
@@ -229,7 +239,10 @@ export function CalibrationReport({ view }: { view: CalibrationView }) {
             Orden de los cruces (cada uno en los dos sentidos; IC por bootstrap de arquetipos):{' '}
             {formatRho(report.rankCorrelation, 'puntos')}.
           </li>
-          <li>Orden de los arquetipos contra el banco: {formatRho(report.archetypeCorrelation, 'arquetipos')}.</li>
+          <li>
+            Orden de los arquetipos contra el banco (IC por bootstrap de arquetipos):{' '}
+            {formatRho(report.archetypeCorrelation, 'arquetipos')}.
+          </li>
         </ul>
         <p className="text-xs text-muted-foreground">
           Torneos: {view.tournaments.era}, {view.tournaments.matches} partidas de{' '}

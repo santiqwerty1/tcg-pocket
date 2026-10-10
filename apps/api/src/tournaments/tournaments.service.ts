@@ -277,6 +277,11 @@ export class TournamentsService {
     return dataset
   }
 
+  /** Archetype aliases as they are now: alias id → the archetype it was merged into. */
+  async aliases(): Promise<ReadonlyMap<string, string>> {
+    return this.settings.aliases()
+  }
+
   /** The era's matchups (Fase 9): the dataset's tournaments' pairings under each player's archetype. */
   async matchupsOf(dataset: TournamentDataset): Promise<Matchups> {
     const hit = this.matchupCache.find((entry) => entry.dataset === dataset)

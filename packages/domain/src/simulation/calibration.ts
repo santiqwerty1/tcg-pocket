@@ -235,8 +235,8 @@ export function calibrationReport(
   })
   const compared = pairings.filter((pairing) => isCompared(pairing, minTournamentGames))
   const comparedRows = rows.filter((row) => row.compatible !== null)
-  const archetypes = archetypeContrast(compared, pairings, options.shares ?? new Map())
-  const withBoth = archetypes.filter((row) => row.simulated !== null && row.tournament !== null)
+  const shares = options.shares ?? new Map<string, number>()
+  const archetypes = archetypeContrast(compared, pairings, shares)
   return {
     rows,
     compared: comparedRows.length,
@@ -247,10 +247,7 @@ export function calibrationReport(
         : null,
     rankCorrelation: pairingCorrelation(compared),
     archetypes,
-    archetypeCorrelation: spearman(
-      withBoth.map((row) => row.simulated?.value as number),
-      withBoth.map((row) => row.tournament?.value as number),
-    ),
+    archetypeCorrelation: archetypeCorrelation(compared, archetypes, shares),
     minTournamentGames,
   }
 }
@@ -279,46 +276,94 @@ function random(seed: number): () => number {
   }
 }
 
-/**
- * Spearman over the compared pairings both ways (so it does not depend on which side each pairing was played from),
- * with a bootstrap over archetypes for its interval: the pairings of one archetype share it, so they are not
- * independent and Fisher's interval would be too narrow.
- */
-function pairingCorrelation(
-  compared: readonly (CalibrationPairing & { tournament: PerGameTally })[],
-): RankCorrelation | null {
-  const points = bothWays(compared)
-  const point = spearman(
+type Compared = CalibrationPairing & { tournament: PerGameTally }
+
+/** Spearman of the simulated against the tournament rate over the compared pairings, both ways of each. */
+const pairingRho = (pairings: readonly Compared[]) => {
+  const points = bothWays(pairings)
+  return spearman(
     points.map(([sim]) => sim),
     points.map(([, tour]) => tour),
   )
-  if (!point) return null
+}
+
+/** Spearman of the archetypes' two means, each archetype counted as many times as it was drawn. */
+function archetypeRho(rows: readonly CalibrationArchetype[], draws: ReadonlyMap<string, number> | null) {
+  const points = rows.flatMap((row) =>
+    row.simulated && row.tournament
+      ? Array.from({ length: draws?.get(row.id) ?? 1 }, () => [row.simulated?.value, row.tournament?.value])
+      : [],
+  ) as [number, number][]
+  return spearman(
+    points.map(([sim]) => sim),
+    points.map(([, tour]) => tour),
+  )
+}
+
+/**
+ * A 95 % interval by a bootstrap over archetypes: each sample draws the archetypes with replacement and keeps the
+ * compared pairings among the drawn ones (one per pair of draws), so the pairings that share an archetype move
+ * together. Fisher's interval would treat them as independent and come out too narrow. Seeded: the same report, the
+ * same interval.
+ */
+function bootstrapOverArchetypes(
+  compared: readonly Compared[],
+  statistic: (pairings: Compared[], draws: Map<string, number>) => number | undefined,
+): [number, number] | null {
   const ids = [...new Set(compared.flatMap((pairing) => [pairing.a, pairing.b]))]
   const byPair = new Map(compared.map((pairing) => [[pairing.a, pairing.b].sort().join('|'), pairing]))
   const next = random(20261009)
-  const rhos: number[] = []
+  const values: number[] = []
   for (let sample = 0; sample < BOOTSTRAP_SAMPLES; sample++) {
     const picked = ids.map(() => ids[Math.floor(next() * ids.length)] as string)
-    const chosen: (CalibrationPairing & { tournament: PerGameTally })[] = []
+    const draws = new Map<string, number>()
+    for (const id of picked) draws.set(id, (draws.get(id) ?? 0) + 1)
+    const chosen: Compared[] = []
     for (let i = 0; i < picked.length; i++) {
       for (let j = i + 1; j < picked.length; j++) {
         const pairing = byPair.get([picked[i], picked[j]].sort().join('|'))
         if (pairing && picked[i] !== picked[j]) chosen.push(pairing)
       }
     }
-    const resampled = bothWays(chosen)
-    const rho = spearman(
-      resampled.map(([sim]) => sim),
-      resampled.map(([, tour]) => tour),
-    )?.rho
-    if (rho !== undefined) rhos.push(rho)
+    const value = statistic(chosen, draws)
+    if (value !== undefined) values.push(value)
   }
-  rhos.sort((x, y) => x - y)
-  const ci95: [number, number] | null =
-    rhos.length >= BOOTSTRAP_SAMPLES / 2
-      ? [rhos[Math.floor(rhos.length * 0.025)] as number, rhos[Math.ceil(rhos.length * 0.975) - 1] as number]
+  values.sort((x, y) => x - y)
+  return values.length >= BOOTSTRAP_SAMPLES / 2
+    ? [values[Math.floor(values.length * 0.025)] as number, values[Math.ceil(values.length * 0.975) - 1] as number]
+    : null
+}
+
+/**
+ * Spearman over the compared pairings both ways (so it does not depend on which side each pairing was played from),
+ * with the bootstrap over archetypes for its interval.
+ */
+function pairingCorrelation(compared: readonly Compared[]): RankCorrelation | null {
+  const point = pairingRho(compared)
+  if (!point) return null
+  const ci95 = bootstrapOverArchetypes(compared, (chosen) => pairingRho(chosen)?.rho)
+  return { rho: point.rho, n: point.n, ci95, method: 'bootstrap' }
+}
+
+/**
+ * Spearman of the archetypes' simulated and tournament means. Its points share pairings too (each pairing is in two
+ * archetypes' means), so the interval is the same bootstrap, with the means made again from the drawn pairings.
+ */
+function archetypeCorrelation(
+  compared: readonly Compared[],
+  archetypes: readonly CalibrationArchetype[],
+  shares: ReadonlyMap<string, number>,
+): RankCorrelation | null {
+  const point = archetypeRho(archetypes, null)
+  if (!point) return null
+  const ci95 =
+    point.n >= 5
+      ? bootstrapOverArchetypes(
+          compared,
+          (chosen, draws) => archetypeRho(archetypeContrast(chosen, chosen, shares), draws)?.rho,
+        )
       : null
-  return { rho: point.rho, n: points.length, ci95, method: 'bootstrap' }
+  return { rho: point.rho, n: point.n, ci95, method: 'bootstrap' }
 }
 
 function weightedRate(
