@@ -1,0 +1,112 @@
+{
+  "date": "2026-10-10T19:01:30.366Z",
+  "engineSha256": "919224a8179e9f5a53279ea600cdc2e9012616eaac8e745e1c6514e8ff9a343f",
+  "iterationsPerThread": 20000000,
+  "runs": [
+    {
+      "repeat": 1,
+      "concurrent": false,
+      "normalLoadMs": 16436,
+      "engineMs": null,
+      "identical": true,
+      "ciBefore": {
+        "checkedAt": "2026-10-10T19:01:30.854Z",
+        "localRunnerPrefix": "tcg-pc-",
+        "activeJobsElsewhere": []
+      },
+      "ciAfter": {
+        "checkedAt": "2026-10-10T19:01:47.982Z",
+        "localRunnerPrefix": "tcg-pc-",
+        "activeJobsElsewhere": []
+      }
+    },
+    {
+      "repeat": 1,
+      "concurrent": true,
+      "normalLoadMs": 15927,
+      "engineMs": 20022,
+      "actualPriority": 10,
+      "identical": true,
+      "ciBefore": {
+        "checkedAt": "2026-10-10T19:01:48.528Z",
+        "localRunnerPrefix": "tcg-pc-",
+        "activeJobsElsewhere": []
+      },
+      "ciAfter": {
+        "checkedAt": "2026-10-10T19:02:09.228Z",
+        "localRunnerPrefix": "tcg-pc-",
+        "activeJobsElsewhere": []
+      }
+    },
+    {
+      "repeat": 2,
+      "concurrent": true,
+      "normalLoadMs": 17814,
+      "engineMs": 21210,
+      "actualPriority": 10,
+      "identical": true,
+      "ciBefore": {
+        "checkedAt": "2026-10-10T19:02:09.725Z",
+        "localRunnerPrefix": "tcg-pc-",
+        "activeJobsElsewhere": []
+      },
+      "ciAfter": {
+        "checkedAt": "2026-10-10T19:02:31.630Z",
+        "localRunnerPrefix": "tcg-pc-",
+        "activeJobsElsewhere": []
+      }
+    },
+    {
+      "repeat": 2,
+      "concurrent": false,
+      "normalLoadMs": 17986,
+      "engineMs": null,
+      "identical": true,
+      "ciBefore": {
+        "checkedAt": "2026-10-10T19:02:32.155Z",
+        "localRunnerPrefix": "tcg-pc-",
+        "activeJobsElsewhere": []
+      },
+      "ciAfter": {
+        "checkedAt": "2026-10-10T19:02:50.857Z",
+        "localRunnerPrefix": "tcg-pc-",
+        "activeJobsElsewhere": []
+      }
+    },
+    {
+      "repeat": 3,
+      "concurrent": false,
+      "normalLoadMs": 16380,
+      "engineMs": null,
+      "identical": true,
+      "ciBefore": {
+        "checkedAt": "2026-10-10T19:02:51.403Z",
+        "localRunnerPrefix": "tcg-pc-",
+        "activeJobsElsewhere": []
+      },
+      "ciAfter": {
+        "checkedAt": "2026-10-10T19:03:08.507Z",
+        "localRunnerPrefix": "tcg-pc-",
+        "activeJobsElsewhere": []
+      }
+    },
+    {
+      "repeat": 3,
+      "concurrent": true,
+      "normalLoadMs": 16913,
+      "engineMs": 20552,
+      "actualPriority": 10,
+      "identical": true,
+      "ciBefore": {
+        "checkedAt": "2026-10-10T19:03:09.009Z",
+        "localRunnerPrefix": "tcg-pc-",
+        "activeJobsElsewhere": []
+      },
+      "ciAfter": {
+        "checkedAt": "2026-10-10T19:03:30.227Z",
+        "localRunnerPrefix": "tcg-pc-",
+        "activeJobsElsewhere": []
+      }
+    }
+  ]
+}
