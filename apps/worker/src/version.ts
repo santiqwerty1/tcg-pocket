@@ -6,4 +6,5 @@
  * 0.2.7 (B2): with an engine that has `batch`, several pairings of one job in one engine process.
  * 0.2.8 (T-015, D-023): Android package and configurable background engine priority; interactive games stay normal.
  */
-export const WORKER_VERSION = '0.2.8'
+// 0.2.9 (T-015): shared graceful Android stop and Termux:Widget shortcuts.
+export const WORKER_VERSION = '0.2.9'

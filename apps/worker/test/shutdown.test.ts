@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { build } from 'esbuild'
 import { expect, it } from 'vitest'
+import { stopAndroidWorker } from '../src/android-stop.js'
 
 // Windows does not deliver POSIX SIGTERM to Node. Run this test on Linux (CI's Android Docker stage).
 it.skipIf(process.platform === 'win32').each([false, true])(
@@ -92,7 +93,7 @@ it.skipIf(process.platform === 'win32').each([false, true])(
         .toBe(true)
       // Wait until the fake engine has actually spawned (it will play forever).
       await new Promise((resolve) => setTimeout(resolve, 200))
-      child.kill('SIGTERM')
+      expect(await stopAndroidWorker(dir, entry)).toContain('Worker detenido')
       await Promise.race([
         exited,
         new Promise((_, reject) => {

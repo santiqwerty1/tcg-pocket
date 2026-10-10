@@ -50,28 +50,9 @@ if [[ $charging == [sS] ]]; then
   timeout 20s termux-battery-status > "$work/battery.json" || { echo 'Termux:API no respondió. Instalá la app, abrila y revisá sus permisos.'; exit 1; }
   node -e 'const b=JSON.parse(require("fs").readFileSync(process.argv[1])); if(typeof b.plugged!=="string") process.exit(1)' "$work/battery.json"
 fi
-# Stop both supervisor and child, allowing SIGTERM to release leases before the update.
-node - "$data" "$root/current/worker.mjs" <<'NODE'
-const fs = require('fs'), path = require('path')
-const dir = process.argv[2]
-for (const file of ['android/worker.lock', 'worker.lock']) {
-  const lock = path.join(dir, file)
-  try {
-    const pid = Number(fs.readFileSync(lock, 'utf8'))
-    if (!Number.isInteger(pid) || pid <= 0) throw new Error('Lock inválido; no detengo ningún proceso.')
-    let command
-    try { command = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0') }
-    catch (e) { if (e.code === 'ENOENT') { fs.unlinkSync(lock); continue } throw e }
-    if (!command.includes(process.argv[3])) throw new Error('El PID del lock corresponde a otro proceso; revisá el lock antes de actualizar.')
-    process.kill(pid, 'SIGTERM')
-  } catch (e) { if (!['ENOENT', 'ESRCH'].includes(e.code)) throw e }
-}
-NODE
-for ((n=0; n<35; n++)); do
-  [[ ! -f $data/worker.lock && ! -f $data/android/worker.lock ]] && break
-  sleep 1
-done
-[[ ! -f $data/worker.lock && ! -f $data/android/worker.lock ]] || { echo 'El worker no se detuvo. No actualizo mientras corre.'; exit 1; }
+# Share the launcher's graceful stop, even when upgrading an older installation without --stop.
+TCG_WORKER_DIR="$data" TCG_ANDROID_WORKER_ENTRY="$root/current/worker.mjs" \
+  node "$work/tcg-worker/worker.mjs" --stop
 release=$root/releases/$sha
 if [[ ! -d $release ]]; then mv -- "$work/tcg-worker" "$release"; fi
 node - "$root/current/determinism.json" "$release/determinism.json" "$data/state.json" <<'NODE'
@@ -114,6 +95,27 @@ if [[ $boot == [sS] ]]; then
   chmod 700 "$bootFile"
 else
   rm -f -- "$bootFile"
+fi
+printf '¿Accesos directos para Termux:Widget? [s/N]: ' >/dev/tty
+IFS= read -r widget </dev/tty
+shortcuts=$HOME/.shortcuts
+startFile=$shortcuts/'Arrancar worker'
+stopFile=$shortcuts/tasks/'Detener worker'
+statusFile=$shortcuts/'Estado del worker'
+if [[ $widget == [sS] ]]; then
+  echo 'Instalá Termux:Widget del mismo origen. Agregá su widget a la pantalla de inicio y tocá refrescar.'
+  mkdir -p "$shortcuts/tasks"
+  chmod 700 "$shortcuts" "$shortcuts/tasks"
+  printf '#!%s/bin/bash\nexec %q\n' "$PREFIX" "$PREFIX/bin/tcg-worker" > "$startFile"
+  {
+    printf '#!%s/bin/bash\n' "$PREFIX"
+    printf 'message=$(%q --stop 2>&1)\nresult=$?\nprintf "%%s\\n" "$message"\n' "$PREFIX/bin/tcg-worker"
+    printf 'if [[ -x %q ]]; then timeout 10s %q "$message" || true; fi\nexit "$result"\n' "$PREFIX/bin/termux-toast" "$PREFIX/bin/termux-toast"
+  } > "$stopFile"
+  printf '#!%s/bin/bash\n%q --check\nresult=$?\nread -r -p "Enter para cerrar…"\nexit "$result"\n' "$PREFIX" "$PREFIX/bin/tcg-worker" > "$statusFile"
+  chmod 700 "$startFile" "$stopFile" "$statusFile"
+else
+  rm -f -- "$startFile" "$stopFile" "$statusFile"
 fi
 echo "Listo. Arrancá con tcg-worker; Ctrl+C lo detiene. Config y logs: $data."
 echo 'Para actualizar, volvé a correr este instalador. Leé el LEEME.txt para batería y Android 12+.'

@@ -4,6 +4,7 @@ import { once } from 'node:events'
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { availableParallelism, tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { build } from 'esbuild'
 import { expect, it } from 'vitest'
 
 it.skipIf(process.platform === 'win32')(
@@ -21,12 +22,19 @@ it.skipIf(process.platform === 'win32')(
     await symlink('/bin/bash', join(prefix, 'bin/bash'))
     await mkdir(join(fixture, 'tcg-worker'), { recursive: true })
     for (const [file, content] of Object.entries({
-      'worker.mjs': '',
       'engine-cli': 'fake',
       'determinism.json': '{"version":{"engineRev":"test","cliVersion":"test"}}',
     })) {
       await writeFile(join(fixture, 'tcg-worker', file), content)
     }
+    await build({
+      entryPoints: [join(import.meta.dirname, '../src/android.ts')],
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      target: 'node24',
+      outfile: join(fixture, 'tcg-worker/worker.mjs'),
+    })
     const archive = join(dir, 'package.tar.gz')
     execFileSync('tar', ['-czf', archive, '-C', fixture, 'tcg-worker'])
     const sha = createHash('sha256')
@@ -47,14 +55,14 @@ fs.writeFileSync(args[args.indexOf('--dump-header')+1],'HTTP/1.1 200 OK\\r\\nX-C
       uname: '#!/bin/sh\necho aarch64\n',
       pkg: '#!/bin/sh\nexit 0\n',
       curl: `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(helper)} "$@"\n`,
-      node: `#!/bin/sh\ncase "$1" in */worker.mjs) exit 0;; esac\nexec ${quote(process.execPath)} "$@"\n`,
+      node: `#!/bin/sh\ncase "$1" in */worker.mjs) if [ "$2" != '--stop' ]; then echo "worker $2"; exit 0; fi;; esac\nexec ${quote(process.execPath)} "$@"\n`,
     }
     for (const [name, content] of Object.entries(scripts)) {
       await writeFile(join(bin, name), content)
       await chmod(join(bin, name), 0o755)
     }
     const installer = join(import.meta.dirname, '../android/install.sh')
-    async function install(updating: boolean) {
+    async function install(updating: boolean, widgets = 's') {
       const child = spawn('script', ['-e', '-q', '-c', `bash ${quote(installer)} https://tcg.example`, '/dev/null'], {
         env: {
           ...process.env,
@@ -62,11 +70,18 @@ fs.writeFileSync(args[args.indexOf('--dump-header')+1],'HTTP/1.1 200 OK\\r\\nX-C
           TCG_ANDROID_HOME: root,
           TCG_ANDROID_BOOT_DIR: boot,
           PREFIX: prefix,
+          HOME: dir,
         },
         stdio: ['pipe', 'pipe', 'pipe'],
       })
-      const prompts = ['Token de worker', 'Núcleos', '¿Solo mientras carga?', '¿Arrancar al encender']
-      const answers = [updating ? '' : token, '', 'n', 's']
+      const prompts = [
+        'Token de worker',
+        'Núcleos',
+        '¿Solo mientras carga?',
+        '¿Arrancar al encender',
+        '¿Accesos directos',
+      ]
+      const answers = [updating ? '' : token, '', 'n', widgets, widgets]
       let step = 0,
         output = ''
       child.stdout.on('data', (data: Buffer) => {
@@ -85,6 +100,7 @@ fs.writeFileSync(args[args.indexOf('--dump-header')+1],'HTTP/1.1 200 OK\\r\\nX-C
         expect(output).not.toContain(token)
         expect(code, output).toBe(0)
         expect(step).toBe(prompts.length)
+        expect(output).toContain('No hay un worker corriendo.')
       } finally {
         clearTimeout(timer)
       }
@@ -114,6 +130,51 @@ fs.writeFileSync(args[args.indexOf('--dump-header')+1],'HTTP/1.1 200 OK\\r\\nX-C
       execFileSync('bash', [launcher, '--check'], { env: launchEnv })
       expect(await readFile(launcher, 'utf8')).not.toContain(token)
       expect(await readFile(join(boot, 'tcg-worker'), 'utf8')).not.toContain(token)
+      const shortcuts = join(dir, '.shortcuts')
+      const start = join(shortcuts, 'Arrancar worker')
+      const stop = join(shortcuts, 'tasks/Detener worker')
+      const status = join(shortcuts, 'Estado del worker')
+      for (const file of [shortcuts, join(shortcuts, 'tasks'), start, stop, status])
+        expect((await stat(file)).mode & 0o777).toBe(0o700)
+      for (const file of [start, stop, status]) {
+        expect(await readFile(file, 'utf8')).toMatch(new RegExp(`^#!${prefix}/bin/bash`))
+        expect(await readFile(file, 'utf8')).not.toContain(token)
+      }
+      expect(execFileSync('bash', [start], { env: launchEnv, encoding: 'utf8' })).toContain('worker')
+      expect(execFileSync('bash', [stop], { env: launchEnv, encoding: 'utf8' })).toContain('No hay un worker')
+      const toastFile = join(dir, 'toast.txt')
+      await writeFile(join(prefix, 'bin/termux-toast'), `#!/bin/sh\nprintf '%s' "$1" > ${quote(toastFile)}\n`)
+      await chmod(join(prefix, 'bin/termux-toast'), 0o700)
+      execFileSync('bash', [stop], { env: launchEnv })
+      expect(await readFile(toastFile, 'utf8')).toContain('No hay un worker')
+      await writeFile(join(root, 'data/worker.lock'), String(process.pid))
+      expect(() => execFileSync('bash', [stop], { env: launchEnv, stdio: 'pipe' })).toThrow()
+      expect(await readFile(toastFile, 'utf8')).toContain('otro proceso')
+      await rm(join(root, 'data/worker.lock'))
+      const checking = spawn('bash', [status], { env: launchEnv, stdio: ['pipe', 'pipe', 'pipe'] })
+      const checked = once(checking, 'exit')
+      let checkOutput = ''
+      checking.stdout.on('data', (data: Buffer) => {
+        checkOutput += data.toString()
+      })
+      try {
+        await expect.poll(() => checkOutput, { timeout: 2000 }).toContain('worker --check')
+        expect(checking.exitCode).toBeNull()
+        checking.stdin.write('\n')
+        expect((await checked)[0]).toBe(0)
+      } finally {
+        if (checking.exitCode === null) checking.kill('SIGKILL')
+      }
+      // Reinstallation replaces edited scripts, then opting out removes only our shortcuts.
+      await writeFile(start, 'obsolete')
+      await install(true)
+      expect(await readFile(start, 'utf8')).not.toContain('obsolete')
+      const other = join(shortcuts, 'Mi otro acceso')
+      await writeFile(other, 'keep')
+      await install(true, 'n')
+      for (const file of [start, stop, status, join(boot, 'tcg-worker')])
+        await expect(stat(file)).rejects.toMatchObject({ code: 'ENOENT' })
+      expect(await readFile(other, 'utf8')).toBe('keep')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

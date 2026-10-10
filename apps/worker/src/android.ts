@@ -3,8 +3,9 @@ import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { stopAndroidWorker } from './android-stop.js'
 import { isPluggedIn, whileCharging } from './battery.js'
-import { loadConfig, readFileConfig } from './config.js'
+import { dataDir, loadConfig, readFileConfig } from './config.js'
 import { checkDeterminism } from './determinism.js'
 import { acquireLock, releaseLock } from './lock.js'
 import { run } from './run.js'
@@ -19,6 +20,11 @@ const defaults = {
 
 async function main() {
   const args = process.argv.slice(2)
+  if (args.includes('--stop')) {
+    // The installer runs the newly downloaded bundle against the previous install before replacing it.
+    console.log(await stopAndroidWorker(dataDir(), process.env.TCG_ANDROID_WORKER_ENTRY ?? process.argv[1] ?? ''))
+    return
+  }
   if (args.includes('--check-engine')) {
     await checkDeterminism(defaults.enginePath, defaults.determinismPath, here)
     console.log('Motor y determinismo: OK')
