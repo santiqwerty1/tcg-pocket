@@ -87,7 +87,7 @@ export class LiveRunner {
         if (signal.aborted) return
         this.log('la partida falló', { game: game.id, error: String(error).slice(0, 500) })
         await this.client
-          .liveFailure(game.id, { workerId: this.config.workerId, error: String(error) })
+          .liveFailure(game.id, { workerId: this.config.workerId, error: String(error) }, signal)
           .catch(() => undefined)
       }
     }
@@ -152,6 +152,9 @@ export class LiveRunner {
         } else if (message.type === 'invalid') {
           throw new Error(`el motor rechazó una elección: ${message.message}`)
         } else if (message.type === 'end') {
+          // Once the server commits the end it will never requeue this game. Finish its replay despite SIGTERM,
+          // within a shared 15 s budget (the Android supervisor waits 30 s, including lease release).
+          const terminalSignal = AbortSignal.timeout(15_000)
           await this.client.liveEnd(
             game.id,
             {
@@ -161,13 +164,13 @@ export class LiveRunner {
               state: message.state,
               log: actions,
             },
-            signal,
+            terminalSignal,
           )
           if (message.replay) {
             const data = await readFile(message.replay).catch(() => null)
             if (data) {
               await this.client
-                .liveReplay(game.id, this.config.workerId, gzipSync(data), signal)
+                .liveReplay(game.id, this.config.workerId, gzipSync(data), terminalSignal)
                 .catch((error) => this.log('no se pudo subir la repetición', { game: game.id, error: String(error) }))
             }
           }

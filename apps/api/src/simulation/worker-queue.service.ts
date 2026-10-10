@@ -102,12 +102,8 @@ export class WorkerQueueService {
       where: { workerId, status: 'leased' },
       data: { status: 'queued', workerId: null, leaseUntil: null, gamesDone: 0 },
     })
-    const games = await this.prisma.liveGame.updateMany({
-      where: { workerId, status: { in: ['running', 'waiting'] } },
-      data: { status: 'queued', workerId: null, leaseUntil: null },
-    })
     this.notifyQueued()
-    return { chunks: chunks.count, games: games.count }
+    return { chunks: chunks.count }
   }
   /** Wakes long-polling claims when something is queued. */
   private readonly queued = new EventEmitter()

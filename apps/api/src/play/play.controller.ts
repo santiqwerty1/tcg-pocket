@@ -26,6 +26,7 @@ import type { Prisma } from '../generated/prisma/client.js'
 import { abortOnClose } from '../http/abort-on-close.js'
 import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
 import { SimulationModule } from '../simulation/simulation.controller.js'
+import { WorkerQueueService } from '../simulation/worker-queue.service.js'
 import { BearerTokenGuard, RequireScopes } from '../tokens/bearer-token.guard.js'
 import { TokensModule } from '../tokens/tokens.module.js'
 import { TournamentsModule } from '../tournaments/tournaments.controller.js'
@@ -387,9 +388,28 @@ export class LiveWorkerController {
   }
 }
 
+/** Coordinates shutdown across both queues without a dependency from SimulationModule back to PlayModule. */
+@Controller('api/worker')
+@UseGuards(BearerTokenGuard)
+@RequireScopes('worker:claim')
+export class WorkerReleaseController {
+  constructor(
+    private readonly queue: WorkerQueueService,
+    private readonly games: LiveGamesService,
+  ) {}
+
+  @Post('release')
+  @HttpCode(200)
+  async release(@Body(new ZodValidationPipe(z.object({ workerId: z.string().uuid() }))) body: { workerId: string }) {
+    const chunks = await this.queue.release(body.workerId)
+    const games = await this.games.releaseWorker(body.workerId)
+    return { ...chunks, games }
+  }
+}
+
 @Module({
   imports: [TokensModule, CatalogModule, SimulationModule, TournamentsModule],
-  controllers: [PlayController, LiveWorkerController, PuzzlesController],
+  controllers: [PlayController, LiveWorkerController, PuzzlesController, WorkerReleaseController],
   providers: [LiveGamesService, PlayRivalsService, PuzzlesService, GameReviewService],
   exports: [LiveGamesService, GameReviewService],
 })

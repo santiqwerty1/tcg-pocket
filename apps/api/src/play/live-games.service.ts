@@ -560,6 +560,21 @@ export class LiveGamesService {
     this.changed(id)
   }
 
+  /** Graceful shutdown keeps the owner's choices, and wakes both claiming workers and open game pages. */
+  async releaseWorker(workerId: string): Promise<number> {
+    // RETURNING reports only rows still owned by this worker; keep updated_at (the owner's last move).
+    const rows = await this.prisma.$queryRaw<{ id: number }[]>`
+      UPDATE live_games SET status = 'queued', worker_id = NULL, lease_until = NULL
+      WHERE worker_id = ${workerId} AND status IN ('running', 'waiting')
+      RETURNING id`
+    if (rows.length) this.events.emit('queued')
+    for (const row of rows) {
+      this.events.emit(`choice:${row.id}`)
+      this.changed(row.id)
+    }
+    return rows.length
+  }
+
   /** Fase 22: the game went back to the queue (undo) while this worker had it: it must stop and claim again. */
   private async takenBack(id: number, workerId: string): Promise<{ choice: null; status: 'restart' } | null> {
     const game = await this.requireGame(id)

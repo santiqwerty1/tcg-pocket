@@ -3,7 +3,8 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { LiveGamesService } from '../src/play/live-games.service.js'
 import { WorkerPackages } from '../src/simulation/worker-packages.controller.js'
 import { WorkerQueueService } from '../src/simulation/worker-queue.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
@@ -100,6 +101,59 @@ describe('Android worker distribution', () => {
     expect(response.body).toEqual({ chunks: 1, games: 0 })
     expect(await test.prisma.simulationChunk.findMany({ where: { workerId: other } })).toHaveLength(1)
     expect((await test.prisma.simulationChunk.findFirstOrThrow({ where: { jobId: job.id, idx: 0 } })).attempt).toBe(0)
-    expect(await test.app.get(WorkerQueueService).release(id)).toEqual({ chunks: 0, games: 0 })
+    expect(await test.app.get(WorkerQueueService).release(id)).toEqual({ chunks: 0 })
+  })
+  it('released live games notify open pages and wake claiming workers immediately', async () => {
+    const owner = randomUUID(),
+      other = randomUUID(),
+      rev = randomUUID()
+    const games = test.app.get(LiveGamesService)
+    const created = await Promise.all(
+      ['waiting', 'running', 'done'].map((status) =>
+        test.prisma.liveGame.create({
+          data: {
+            humanSnapshotId: 0,
+            botSnapshotId: 0,
+            bot: 'r',
+            seed: 42n,
+            engineRev: rev,
+            choices: [1],
+            workerId: owner,
+            status: status as 'waiting' | 'running' | 'done',
+            leaseUntil: new Date(Date.now() + 60_000),
+          },
+        }),
+      ),
+    )
+    const first = created[0],
+      done = created[2]
+    if (!first || !done) throw new Error('missing live game fixture')
+    const changed = vi.fn()
+    const unsubscribe = games.watch(first.id, changed)
+    const controller = new AbortController()
+    const claiming = games.claim({ workerId: other, engineRev: rev, version: '0.2.8' }, controller.signal)
+    try {
+      // Wait until the long-poll subscribes, so a missing notification cannot pass by claiming after release.
+      const events = (games as unknown as { events: import('node:events').EventEmitter }).events
+      await expect.poll(() => events.listenerCount('queued')).toBeGreaterThan(0)
+      const response = await test
+        .http()
+        .post('/api/worker/release')
+        .set('Authorization', `Bearer ${worker}`)
+        .send({ workerId: owner })
+      expect(response.body).toEqual({ chunks: 0, games: 2 })
+      expect(changed).toHaveBeenCalled()
+      const reply = await Promise.race([
+        claiming,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 1000)),
+      ])
+      expect(reply?.game?.id).toBe(first.id)
+      expect(reply?.game?.choices).toEqual([1])
+      expect((await test.prisma.liveGame.findUniqueOrThrow({ where: { id: done.id } })).status).toBe('done')
+    } finally {
+      controller.abort()
+      await claiming
+      unsubscribe()
+    }
   })
 })
