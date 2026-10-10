@@ -30,6 +30,7 @@ import { SearchModule } from './search/search.controller.js'
 import { SettingsModule } from './settings/settings.module.js'
 import { CalibrationModule } from './simulation/calibration.controller.js'
 import { SimulationModule } from './simulation/simulation.controller.js'
+import { WorkerPackagesModule } from './simulation/worker-packages.controller.js'
 import { TokensModule } from './tokens/tokens.module.js'
 import { TournamentsModule } from './tournaments/tournaments.controller.js'
 import { TradesModule } from './trades/trades.controller.js'
@@ -65,6 +66,7 @@ export class AppModule implements NestModule {
         BackupModule,
         HttpModule,
         SimulationModule,
+        WorkerPackagesModule,
         LabModule,
         CalibrationModule,
         PickModule,

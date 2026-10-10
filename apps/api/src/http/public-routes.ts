@@ -28,6 +28,7 @@ const INSTALL_FILES = new Set(['/manifest.webmanifest', '/favicon.svg', '/apple-
 
 export function routeExposure(method: string, pathname: string): RouteExposure {
   const verb = method.toUpperCase() === 'HEAD' ? 'GET' : method.toUpperCase()
+  if (verb === 'GET' && pathname === '/api/worker/install/android.sh') return 'public'
   if (verb === 'GET' && (pathname === '/healthz' || pathname === '/login')) return 'public'
   if (verb === 'GET' && (INSTALL_FILES.has(pathname) || /^\/icons\/[\w.-]+\.png$/.test(pathname))) return 'public'
   if (verb === 'POST' && pathname === '/api/auth/login') return 'public'

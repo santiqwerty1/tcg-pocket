@@ -96,6 +96,19 @@ export interface ChunkResultInput {
 
 @Injectable()
 export class WorkerQueueService {
+  /** Graceful shutdown/unplug: ownership is checked in each update; this never counts as an engine failure. */
+  async release(workerId: string) {
+    const chunks = await this.prisma.simulationChunk.updateMany({
+      where: { workerId, status: 'leased' },
+      data: { status: 'queued', workerId: null, leaseUntil: null, gamesDone: 0 },
+    })
+    const games = await this.prisma.liveGame.updateMany({
+      where: { workerId, status: { in: ['running', 'waiting'] } },
+      data: { status: 'queued', workerId: null, leaseUntil: null },
+    })
+    this.notifyQueued()
+    return { chunks: chunks.count, games: games.count }
+  }
   /** Wakes long-polling claims when something is queued. */
   private readonly queued = new EventEmitter()
   /** How long a claim waits for work (tests shorten it). */
