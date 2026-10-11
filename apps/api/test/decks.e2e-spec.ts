@@ -409,6 +409,12 @@ describe('decks (e2e)', () => {
       cards: blazikenDeck.cards.map((entry) => ({ cardId: entry.card.id, count: entry.count })),
     })
     expect(repeated.status).toBe(201)
+    // Codex on #55: the deck itself keeps each type once, so the list and the deck page show one chip.
+    expect(repeated.body.energies).toEqual(['fire'])
+    const listed = (await get('/api/decks')).body.items as { id: string; energies: string[] }[]
+    expect(listed.find((item) => item.id === repeated.body.id)?.energies).toEqual(['fire'])
+    const patched = await patch(`/api/decks/${repeated.body.id}`).send({ energies: ['fire', 'fire', 'fire'] })
+    expect(patched.body).toMatchObject({ energies: ['fire'], revisionNumber: 1 })
     const twice = (await get(`/api/decks/${repeated.body.id}/draw-odds`)).body as { energy: EnergyOdds | null }
     expect(twice.energy?.types).toEqual(['fire'])
     expect((await patch(`/api/decks/${repeated.body.id}`).send({ archived: true })).status).toBe(200)

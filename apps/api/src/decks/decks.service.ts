@@ -180,11 +180,19 @@ function currentRevision(record: DeckRecord): DeckRevision {
   return revision
 }
 
+/**
+ * A deck's energy types once each, in their order: the input schemas (REST, MCP, imports) accept a repeated type, so
+ * it is normalized where a revision is written and where one is read (decks saved before; Codex on #55).
+ */
+function energySet(energies: readonly unknown[]): SelectableEnergy[] {
+  return [...new Set(energies as SelectableEnergy[])]
+}
+
 function draftOf(record: DeckRecord): DeckDraft {
   const revision = currentRevision(record)
   return {
     name: record.name,
-    energies: revision.energies as SelectableEnergy[],
+    energies: energySet(revision.energies),
     cards: revisionCards(revision),
     notes: record.notes,
     source: 'ui',
@@ -304,8 +312,8 @@ export class DecksService {
     firstGroups: readonly string[],
     turns: number,
   ): DrawOddsView['energy'] {
-    // A saved deck can repeat a type: the zone gives each type once, and the chips show it once.
-    const types = [...new Set(deckTypes)]
+    // The zone gives each type once (the deck's energies are already a set; `energySet` keeps it so here too).
+    const types = energySet(deckTypes)
     if (types.length === 0 || types.length > 3) return null
     const index = this.catalog.requireIndex()
     const attackerOf = (groupIds: readonly string[]) =>
@@ -630,7 +638,7 @@ export class DecksService {
         const next: DeckDraft = {
           ...current,
           cards: patch.cards ?? current.cards,
-          energies: patch.energies ?? current.energies,
+          energies: energySet(patch.energies ?? current.energies),
         }
         if (diffDeckDrafts(current, next, index).changed) {
           const revision = await this.insertRevision(tx, record.id, next, source, patch.note ?? '')
@@ -704,7 +712,7 @@ export class DecksService {
     const current = draftOf(record)
     const next: DeckDraft = {
       ...current,
-      energies: target.energies as SelectableEnergy[],
+      energies: energySet(target.energies),
       cards: revisionCards(target),
     }
     if (diffDeckDrafts(current, next, index).changed) {
@@ -797,7 +805,7 @@ export class DecksService {
         source: revision.source,
         note: revision.note,
         cardCount: countCards({ cards: revisionCards(revision) }),
-        energies: revision.energies as SelectableEnergy[],
+        energies: energySet(revision.energies),
       })),
       changes: record.changes.map((change) => ({
         field: change.field,
@@ -895,10 +903,11 @@ export class DecksService {
     source: DeckSource,
   ): Promise<number> {
     const entries = aggregateEntries(input.cards)
+    const energies = energySet(input.energies)
     const deck = await tx.deck.create({
       data: {
         name: input.name,
-        energies: input.energies,
+        energies,
         tags: input.tags ?? [],
         notes: input.notes ?? '',
         packPriority: input.packPriority ?? 0,
@@ -907,7 +916,7 @@ export class DecksService {
       },
     })
     const revision = await tx.deckRevision.create({
-      data: { deckId: deck.id, number: 1, cards: cardsJson(entries), energies: input.energies, note: '', source },
+      data: { deckId: deck.id, number: 1, cards: cardsJson(entries), energies, note: '', source },
     })
     await tx.deck.update({ where: { id: deck.id }, data: { currentRevisionId: revision.id } })
     await this.materialize(tx, deck.id, entries)
@@ -926,7 +935,7 @@ export class DecksService {
     const latest = await tx.deckRevision.aggregate({ where: { deckId }, _max: { number: true } })
     const number = (latest._max.number ?? 0) + 1
     const revision = await tx.deckRevision.create({
-      data: { deckId, number, cards: cardsJson(entries), energies: draft.energies, note, source },
+      data: { deckId, number, cards: cardsJson(entries), energies: energySet(draft.energies), note, source },
     })
     await this.materialize(tx, deckId, entries)
     return revision
