@@ -448,6 +448,7 @@ Partidas entre mazos con deckgym-core (`engine-cli`, `engine/`) que juega el wor
 | `GET /api/simulations/:id` | `JobDetail` |
 | `GET /api/simulations/:id/events` | SSE: un `JobSummary` cada 2 s mientras el trabajo está en cola o corriendo; el último lleva el estado final |
 | `POST /api/simulations/:id/cancel` | `JobSummary` (los chunks pendientes pasan a cancelados; el worker corta el motor en el próximo latido) |
+| `POST /api/simulations/:id/priority` | `{ priority: entero de 0 a 2147483647 }` → `JobSummary` con la prioridad nueva; solo en cola o corriendo (`400 job_finished` en cualquier estado terminado). La app alterna 1 («Adelantar») y 0 («Volver a normal»); no interrumpe chunks ya reclamados. |
 | `DELETE /api/simulations/:id` | `204`; borra chunks y repeticiones (las fotos quedan) |
 | `GET /api/simulations/replays/:id/raw` | El JSON de la repetición tal cual lo escribió el motor (para el viewer de deckgym: `/viewer/index.html?url=/api/simulations/replays/:id/raw`, D-014) |
 | `GET /api/simulations/replays/:id` | `{ replay (JSON de deckgym tal cual), names: { [engineId]: nombre en español }, cardIds: { [engineId]: cardId } (Fase 22), game: { jobId, jobLabel, engineRev, gameIndex, seed, winner: 'a'|'b'|'tie', decks: [etiqueta A, etiqueta B], playersEs } }` |
@@ -464,7 +465,7 @@ Snapshot = { id, key, label, sourceType: 'deck_revision'|'tournament_list'|'text
              deckgymText }
 JobSummary = { id, kind, status: 'queued'|'running'|'done'|'failed'|'cancelled', label, players, playersEs, gamesPerPair,
                baseSeed (string), engineRev, replaySample, createdAt, startedAt, finishedAt, error, lab: 'test'|'explore'|null,
-               archived: boolean,
+               archived: boolean, priority: number,   // 0 = normal; más alto va primero al reclamar
                progress: { totalGames, gamesDone, chunks: { total, done, running, failed }, etaSeconds | null } }
 JobDetail = JobSummary & { snapshots: Snapshot[], sideA: id[], sideB: id[],
                rows: [{ snapshot, total: Record, rate, cells: [{ rival, record | null, rate | null }] }],   // matriz y comparar
