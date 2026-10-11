@@ -94,7 +94,7 @@ export function TodayStrip() {
       key: 'csv',
       icon: FileSpreadsheetIcon,
       text: csvNotice,
-      detail: 'Importá uno nuevo para que los mazos y los sobres usen tu colección de hoy',
+      detail: 'Sincronizá con el tracker o importá un CSV para usar tu colección de hoy',
       to: '/coleccion/importar',
       tone: 'warning',
     })

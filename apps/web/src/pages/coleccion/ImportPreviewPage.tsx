@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useApplyImport, useDiscardImport, useImport, useResolveAdjustment } from '@/api/collection'
+import { useApplyTracker } from '@/api/trackerSync'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { ErrorState, LoadingRows, Spinner } from '@/components/ListState'
 import { Badge } from '@/components/ui/badge'
@@ -15,6 +16,7 @@ export function ImportPreviewPage() {
   const navigate = useNavigate()
   const preview = useImport(importId)
   const apply = useApplyImport()
+  const trackerApply = useApplyTracker()
   const discard = useDiscardImport()
   const resolve = useResolveAdjustment()
   const [confirmDiscard, setConfirmDiscard] = useState(false)
@@ -28,7 +30,7 @@ export function ImportPreviewPage() {
   async function applyImport() {
     if (!importId) return
     try {
-      const result = await apply.mutateAsync(importId)
+      const result = await (data.source === 'tracker' ? trackerApply : apply).mutateAsync(importId)
       toast.success(
         result.summary ? `Import aplicado: ${result.summary.unitsChanged} unidades cambiaron` : 'Import aplicado',
       )
@@ -80,8 +82,13 @@ export function ImportPreviewPage() {
 
       {data.status === 'pending' ? (
         <div className="sticky bottom-20 z-20 flex gap-2 rounded-lg border bg-background/95 p-2 backdrop-blur">
-          <Button className="flex-1" size="lg" onClick={applyImport} disabled={blocked || apply.isPending}>
-            {apply.isPending ? <Spinner /> : null}
+          <Button
+            className="flex-1"
+            size="lg"
+            onClick={applyImport}
+            disabled={blocked || apply.isPending || trackerApply.isPending}
+          >
+            {apply.isPending || trackerApply.isPending ? <Spinner /> : null}
             Aplicar
           </Button>
           <Button variant="outline" size="lg" onClick={() => setConfirmDiscard(true)} disabled={discard.isPending}>

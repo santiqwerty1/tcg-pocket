@@ -10,10 +10,10 @@ describe('csvAgeNotice', () => {
   })
 
   it('says how old the CSV is after a week', () => {
-    expect(csvAgeNotice('2026-10-08T18:58:42Z', now)).toBe('Tu último CSV es de hace 11 días')
+    expect(csvAgeNotice('2026-10-08T18:58:42Z', now)).toBe('Tu última sincronización es de hace 11 días')
   })
 
   it('asks for a first import', () => {
-    expect(csvAgeNotice(null, now)).toBe('Todavía no importaste el CSV del tracker')
+    expect(csvAgeNotice(null, now)).toBe('Todavía no sincronizaste tu colección')
   })
 })

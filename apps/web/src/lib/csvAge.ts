@@ -16,7 +16,7 @@ export function csvAgeDays(lastImportAt: string | null | undefined, now: Date = 
 /** The notice to show, or null while the CSV is fresh. */
 export function csvAgeNotice(lastImportAt: string | null | undefined, now: Date = new Date()): string | null {
   const days = csvAgeDays(lastImportAt, now)
-  if (days === null) return 'Todavía no importaste el CSV del tracker'
+  if (days === null) return 'Todavía no sincronizaste tu colección'
   if (days < CSV_STALE_DAYS) return null
-  return `Tu último CSV es de hace ${days} días`
+  return `Tu última sincronización es de hace ${days} días`
 }
