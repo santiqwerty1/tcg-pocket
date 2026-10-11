@@ -1,4 +1,4 @@
-TCG Pocket: worker 0.2.11 en Android arm64 (T-015)
+TCG Pocket: worker 0.3.0 en Android arm64 (T-015, D-026)
 
 1. Instalá Termux desde F-Droid o los releases oficiales de GitHub, no desde Play Store.
    Termux:API, Termux:Boot y Termux:Widget deben venir del MISMO origen: las firmas de los APK son distintas.
@@ -32,8 +32,12 @@ TCG Pocket: worker 0.2.11 en Android arm64 (T-015)
    resultado, informa la falla del chunk y continúa con el siguiente.
 5. Arranque opcional: instalá Termux:Boot y abrilo una vez antes de reiniciar el celu.
    El instalador escribe ~/.termux/boot/tcg-worker solo si lo elegís.
-6. Para actualizar, repetí el mismo comando. Detiene el worker, instala motor y JS juntos,
-   conserva el id del worker y resultados pendientes, pide nuevamente las preferencias.
+6. Se actualiza solo (D-026): al arrancar y cada 10 minutos pregunta a la app si hay otro paquete.
+   Lo baja con el token, comprueba la suma SHA256 y prueba el motor nuevo antes de usarlo.
+   Cambia entre chunks, nunca a mitad de uno, y espera que termine la partida contra el bot en curso
+   si cambia el motor. Si la versión nueva no arranca, vuelve a la anterior.
+   Para no actualizar: "autoUpdate": false en data/config.json o TCG_WORKER_AUTO_UPDATE=false.
+   Repetir el mismo comando también actualiza (y vuelve a pedir las preferencias).
    Solo trabaja con la versión del motor que corresponde a la imagen de la API.
 7. Para manejarlo con un toque: instalá Termux:Widget desde F-Droid (si Termux vino de ahí)
    y respondé «s» a «¿Accesos directos para Termux:Widget?» en el instalador.

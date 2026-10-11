@@ -8,6 +8,7 @@ import { ApiError, type Chunk, type ChunkResult, type LiveGame, WorkerClient } f
 import type { WorkerConfig } from '../src/config.js'
 import { EngineError, engineStatus, engineVersion, runJob } from '../src/engine.js'
 import { LiveRunner, OLD_ENGINE_COACH } from '../src/live.js'
+import type { ReadyRelease, Updater } from '../src/update.js'
 import { WORKER_VERSION } from '../src/version.js'
 import { Worker } from '../src/worker.js'
 
@@ -188,6 +189,7 @@ describe('worker loop', () => {
       enginePath: FAKE_ENGINE,
       dataDir,
       workerId: 'worker-test-1',
+      autoUpdate: false,
     }
   })
   afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
@@ -721,6 +723,7 @@ describe('games against a bot (Fase 8)', () => {
       enginePath: FAKE_ENGINE,
       dataDir,
       workerId: 'worker-test-1',
+      autoUpdate: false,
     }
   })
   afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
@@ -985,5 +988,128 @@ describe('worker lock', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('self-update in the loop (D-026)', () => {
+  let dataDir: string
+  let config: WorkerConfig
+  const READY: ReadyRelease = { engineRev: REV, cliVersion: '0.1.0-fake', sha256: 'e'.repeat(64), size: 10 }
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), 'tcg-worker-update-'))
+    config = {
+      server: 'http://test',
+      token: 'tcg_wk_test',
+      cores: 2,
+      priority: 'below_normal',
+      allowSlowBots: true,
+      name: 'test',
+      enginePath: FAKE_ENGINE,
+      dataDir,
+      workerId: 'worker-test-1',
+      autoUpdate: true,
+    }
+  })
+  afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
+
+  /** What the loop uses of an Updater: `ready`, `check` and `intervalMs`. */
+  function fakeUpdater(check: (updater: { ready: ReadyRelease | null }) => ReadyRelease | null = () => null) {
+    const updater = { ready: null as ReadyRelease | null, intervalMs: 3_600_000, check: vi.fn() }
+    updater.check.mockImplementation(async () => check(updater))
+    return updater
+  }
+
+  it('finishes and uploads the chunk in progress, then stops claiming once a release is ready', async () => {
+    const { client, calls } = fakeClient([chunk(), chunk({ chunkId: 8 })])
+    const updater = fakeUpdater()
+    vi.mocked(client.result).mockImplementationOnce(async (chunkId, body) => {
+      // The release gets ready while chunk 7 is being reported.
+      updater.ready = READY
+      calls.results.push({ chunkId, body })
+      return { accepted: true }
+    })
+    const onReady = vi.fn()
+    const outcome = await new Worker(config, client, silent).loop(new AbortController().signal, {
+      updater: updater as unknown as Updater,
+      onReady,
+    })
+    expect(outcome).toBe('update')
+    expect(onReady).toHaveBeenCalledOnce()
+    expect(client.claim).toHaveBeenCalledOnce()
+    expect(calls.results.map((call) => call.chunkId)).toEqual([7])
+  })
+
+  it('cuts a waiting claim short when the periodic check finds a release', async () => {
+    const { client } = fakeClient([])
+    vi.mocked(client.claim).mockImplementation(
+      (_hello, signal) =>
+        new Promise((_resolve, reject) => signal?.addEventListener('abort', () => reject(signal.reason))),
+    )
+    let checks = 0
+    const updater = fakeUpdater((self) => {
+      checks++
+      if (checks < 2) return null
+      self.ready = READY
+      return READY
+    })
+    updater.intervalMs = 10
+    const outcome = await new Worker(config, client, silent).loop(new AbortController().signal, {
+      updater: updater as unknown as Updater,
+    })
+    expect(outcome).toBe('update')
+    expect(checks).toBe(2)
+  })
+
+  it("Android's engine gate (409) looks for the package instead of stopping the worker", async () => {
+    const { client } = fakeClient([])
+    vi.mocked(client.claim).mockRejectedValueOnce(new ApiError('Cambió el motor del servidor.', 409))
+    const updater = fakeUpdater((self) => {
+      self.ready = READY
+      return READY
+    })
+    const outcome = await new Worker(config, client, silent).loop(new AbortController().signal, {
+      updater: updater as unknown as Updater,
+    })
+    expect(outcome).toBe('update')
+    expect(updater.check).toHaveBeenCalledOnce()
+    // Without an updater the same answer stops it, as before.
+    vi.mocked(client.claim).mockRejectedValueOnce(new ApiError('Cambió el motor del servidor.', 409))
+    await expect(new Worker(config, client, silent).loop(new AbortController().signal)).rejects.toThrow(
+      'Cambió el motor',
+    )
+  })
+
+  it('a drained bot runner plays the game in progress to its end and claims no other', async () => {
+    let runner: LiveRunner | null = null
+    const live = {
+      liveClaim: vi.fn(async (_body: unknown, signal?: AbortSignal) => {
+        if (live.liveClaim.mock.calls.length === 1) {
+          return {
+            game: {
+              id: 5,
+              deckHuman: 'Energy: Grass\n2 Bulbasaur A1 1\n',
+              deckBot: 'Energy: Fire\n2 Charmander A1 33\n',
+              bot: 'e2',
+              seed: '42',
+              choices: [],
+            },
+          }
+        }
+        return new Promise((_resolve, reject) => signal?.addEventListener('abort', () => reject(signal.reason)))
+      }),
+      liveDecision: vi.fn(async () => {
+        // A new release got ready mid-game.
+        runner?.drain()
+        return { choice: 1, status: 'running' }
+      }),
+      liveChoice: vi.fn(),
+      liveEnd: vi.fn(async () => ({ ok: true })),
+      liveReplay: vi.fn(async () => ({ ok: true })),
+      liveFailure: vi.fn(async () => ({ ok: true })),
+    }
+    runner = new LiveRunner(config, live as unknown as WorkerClient, silent, dataDir)
+    await runner.start(REV, new AbortController().signal)
+    expect(live.liveEnd).toHaveBeenCalledOnce()
+    expect(live.liveClaim).toHaveBeenCalledOnce()
   })
 })

@@ -32,4 +32,9 @@ Regla práctica: todo lo que se agregue al repo queda bajo AGPL-3.0; lo que se t
 
 El motor se reparte al celular, por lo que ofrecer su código es parte del paquete, como la fuente del visor en `/viewer/`. El tar Android contiene `LICENSE.txt`, `LICENSE-musl.txt`, los avisos de Rust y `sources.tar.gz`: fuentes exactas de `engine-cli`, el worker, locks y scripts, y todas las dependencias Rust vendorizadas (incluido deckgym-core **sin modificar** al commit de `engine/Cargo.toml`, hoy `33ff2a5942dd4ce09d1ebc3041ffe48f604409e6`), con sus licencias. `BUILD.txt` explica la reconstrucción. Descargar las fuentes no requiere acceso al repo privado: vienen junto al binario, autorizadas por el mismo token de worker. El paquete no lleva datos de Santi, tokens ni configuración local.
 
-Node lo instala Termux; su binario no se distribuye en este tar. musl (libc estática) es MIT y se incluye su [aviso completo](https://git.musl-libc.org/cgit/musl/plain/COPYRIGHT). Rust aporta sus avisos y licencias de las bibliotecas enlazadas desde el toolchain usado para compilar.
+Node lo instala Termux; su binario no se distribuye en este tar.
+
+## Actualizaciones del worker de Windows (D-026, 11/10/2026)
+
+El paquete que baja `tcg-worker.exe` para actualizarse (`windows-x64.tar.gz`, armado en el Dockerfile) lleva `worker.cjs` y `engine-cli.exe` (AGPL-3.0, `LICENSE.txt`). El motor está cruzado con zig (`x86_64-pc-windows-gnu`), así que también lleva los avisos de lo que enlaza el toolchain: las bibliotecas de Rust (`COPYRIGHT-library.html` y `licenses/`) y el runtime de MinGW-w64 que trae zig (`LICENSE-mingw-w64.txt`, su `COPYING`: dominio público y licencias permisivas). Node no va adentro: es el de `tcg-worker.exe` (`LICENSE-node.txt` del zip). Las fuentes completas del mismo motor y worker, con las dependencias de Rust, son las de `sources.tar.gz` del paquete Android que sirve la misma imagen, con el mismo token.
+ musl (libc estática) es MIT y se incluye su [aviso completo](https://git.musl-libc.org/cgit/musl/plain/COPYRIGHT). Rust aporta sus avisos y licencias de las bibliotecas enlazadas desde el toolchain usado para compilar.

@@ -2,7 +2,22 @@
  * The app's worker API (docs/API.md «Simulación»), outbound HTTPS only. Network errors and 5xx are retried with
  * backoff (the PC may wake up offline); 4xx are returned to the caller.
  */
+import { createHash } from 'node:crypto'
+import { createWriteStream } from 'node:fs'
+import { Readable, Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
+import type { ReadableStream } from 'node:stream/web'
 import { setTimeout as sleep } from 'node:timers/promises'
+
+/** The worker package the server offers for a platform (D-026); servers before it send only the engine. */
+export interface PackageInfo {
+  platform?: string
+  workerVersion?: string
+  engineRev: string
+  cliVersion: string
+  sha256?: string
+  size?: number
+}
 
 export interface Hello {
   workerId: string
@@ -190,6 +205,46 @@ export class WorkerClient {
 
   release(workerId: string) {
     return this.request('POST', '/api/worker/release', { workerId }, { once: true, timeoutMs: 10_000 })
+  }
+
+  /** What the server offers for `platform`: version, engine and the package's sha256 (D-026). One attempt. */
+  packageInfo(platform: string, signal?: AbortSignal) {
+    return this.request<PackageInfo>('GET', `/api/worker/packages/${platform}/version`, undefined, {
+      once: true,
+      timeoutMs: 15_000,
+      ...(signal ? { signal } : {}),
+    })
+  }
+
+  /**
+   * Streams the package of `platform` to `file`, hashing it on the way (never the whole package in memory). Returns
+   * what arrived; the caller compares it with what `packageInfo` announced. One attempt: the next check retries.
+   */
+  async download(
+    platform: string,
+    file: string,
+    maxBytes: number,
+    signal?: AbortSignal,
+  ): Promise<{ sha256: string; size: number; announced: string | null }> {
+    const response = await this.fetchImpl(new URL(`${this.server}/api/worker/packages/${platform}`), {
+      headers: { Authorization: `Bearer ${this.token}` },
+      signal: AbortSignal.any([AbortSignal.timeout(10 * 60_000), ...(signal ? [signal] : [])]),
+    })
+    if (!response.ok || !response.body) {
+      throw new ApiError(`GET /api/worker/packages/${platform}: ${response.status}`, response.status)
+    }
+    const hash = createHash('sha256')
+    let size = 0
+    const meter = new Transform({
+      transform(chunk: Buffer, _encoding, done) {
+        size += chunk.length
+        if (size > maxBytes) return done(new Error(`el paquete pasa de ${maxBytes} bytes`))
+        hash.update(chunk)
+        done(null, chunk)
+      },
+    })
+    await pipeline(Readable.fromWeb(response.body as ReadableStream<Uint8Array>), meter, createWriteStream(file))
+    return { sha256: hash.digest('hex'), size, announced: response.headers.get('x-checksum-sha256') }
   }
 
   heartbeat(chunkId: number, body: { workerId: string; gamesDone: number; total?: number }, signal?: AbortSignal) {

@@ -3,29 +3,94 @@
  * `engine-cli.exe`, for another PC without the repository, Node or Rust. More PCs play the chunks of a simulation in
  * parallel; each one claims its own.
  *
- *   tcg-worker.exe              setup: token, cores and name; a check against the engine and the app; logon start
- *   tcg-worker.exe --run        what the logon start runs (the worker, hidden)
- *   tcg-worker.exe --check      configuration, engine and server reachability
- *   tcg-worker.exe --once       at most one chunk, then exit
- *   tcg-worker.exe --uninstall  removes the logon start
+ *   tcg-worker.exe                setup: token, cores and name; a check against the engine and the app; logon start
+ *   tcg-worker.exe --run          what the logon start runs: the supervisor, which keeps a `--child` going (D-026)
+ *   tcg-worker.exe --check        configuration, engine, server reachability and updates
+ *   tcg-worker.exe --once         at most one chunk, then exit
+ *   tcg-worker.exe --uninstall    removes the logon start
+ *   tcg-worker.exe --check-engine the engine check of a downloaded release (run by the updater, D-026)
+ *
+ * This module is also the code of each downloaded release (`worker.cjs`): `sea.ts`, built into the executable, loads
+ * the current release and calls its `main`. Keep `main` and `PortableContext` compatible with older executables.
  */
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { availableParallelism, hostname } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { installAutostart, uninstallAutostart } from './autostart.js'
-import { configFile, readFileConfig, writeFileConfig } from './config.js'
+import { type ConfigDefaults, configFile, dataDir, readFileConfig, writeFileConfig } from './config.js'
+import { checkDeterminism, DETERMINISM_MISMATCH, DeterminismError } from './determinism.js'
 import { run } from './run.js'
+import { type Installation, windowsInstallation } from './update.js'
 import { WORKER_VERSION } from './version.js'
 
 const DEFAULT_SERVER = 'https://tcg-pocket.fly.dev'
-const exe = process.execPath
-const defaults = { enginePath: join(dirname(exe), process.platform === 'win32' ? 'engine-cli.exe' : 'engine-cli') }
 
-async function setup(): Promise<void> {
+/** What tcg-worker.exe tells the code it runs (the contract between the executable and its releases). */
+export interface PortableContext {
+  /** The downloaded release being run, or null for the code built into the executable. */
+  releaseDir: string | null
+  /** The executable's build: its releases' pointer carries it, so a zip installed by hand starts on its own code. */
+  buildId: string
+}
+
+function defaultsOf(context: PortableContext): ConfigDefaults {
+  const folder = context.releaseDir ?? dirname(process.execPath)
+  return {
+    enginePath: join(folder, process.platform === 'win32' ? 'engine-cli.exe' : 'engine-cli'),
+    packageEngine: true,
+  }
+}
+
+function installationOf(context: PortableContext): Installation | null {
+  return process.platform === 'win32' ? windowsInstallation(dataDir(), context.releaseDir, context.buildId) : null
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** The worker (or supervisor) already running from this folder, if any: setup offers to stop it. */
+function runningWorkers(): number[] {
+  const pids: number[] = []
+  for (const lock of [join(dataDir(), 'worker.lock'), join(dataDir(), 'supervisor', 'worker.lock')]) {
+    try {
+      const pid = Number(readFileSync(lock, 'utf8').trim())
+      if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && alive(pid)) pids.push(pid)
+    } catch {
+      // No lock.
+    }
+  }
+  return pids
+}
+
+async function setup(context: PortableContext): Promise<void> {
   console.log(`TCG Pocket: worker de simulación ${WORKER_VERSION}\n`)
   const current = readFileConfig()
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   try {
+    // An older worker (another folder, or the repository's) keeps the lock: the new one would not start.
+    const running = runningWorkers()
+    if (running.length > 0) {
+      const answer = (
+        await rl.question(
+          `Hay un worker corriendo (PID ${running.join(', ')}). ¿Lo detengo para usar este? Lo que esté jugando vuelve a la cola. [S/n]: `,
+        )
+      ).trim()
+      if (/^n/i.test(answer)) {
+        console.log('No toco nada. Cerralo (Administrador de tareas o cerrar sesión) y volvé a abrir este programa.')
+        return
+      }
+      for (const pid of running) process.kill(pid)
+      for (let i = 0; i < 50 && running.some(alive); i++) await sleep(100)
+      console.log('Worker anterior detenido.')
+    }
     const server = current.server ?? DEFAULT_SERVER
     console.log(`Servidor: ${server}`)
     const hasToken = current.token?.startsWith('tcg_wk_') === true
@@ -56,8 +121,10 @@ async function setup(): Promise<void> {
     const cores = coresAnswer && Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, max) : suggested
     const name = current.name ?? hostname()
     const nameAnswer = (await rl.question(`Nombre de esta PC en la app (Enter = ${name}): `)).trim()
+    // D-026: the engine is the package's (the updates replace it); an old `enginePath` would only confuse.
+    const { enginePath: _engine, ...kept } = current
     writeFileConfig({
-      ...current,
+      ...kept,
       server,
       token,
       cores,
@@ -66,11 +133,12 @@ async function setup(): Promise<void> {
     })
     console.log(`\nConfiguración guardada en ${configFile()}.`)
     console.log('Probando el motor y la conexión con la app…')
-    await run(['--check'], defaults)
-    installAutostart([exe, '--run'])
+    await run(['--check'], defaultsOf(context), { installation: installationOf(context) })
+    installAutostart([process.execPath, '--run'])
     console.log(
       '\nListo: el worker queda corriendo y arranca solo cada vez que inicies sesión. En la app lo ves en Más → Simulación.',
     )
+    console.log('Se actualiza solo cuando la app tiene una versión nueva (entre partidas, nunca a mitad de un chunk).')
   } catch (error) {
     console.log(`\nNo se pudo terminar: ${error instanceof Error ? error.message : String(error)}`)
   } finally {
@@ -79,19 +147,39 @@ async function setup(): Promise<void> {
   }
 }
 
-async function main(): Promise<void> {
-  const args = process.argv.slice(2)
-  if (args.includes('--uninstall')) return uninstallAutostart()
-  if (args.some((arg) => arg === '--run' || arg === '--check' || arg === '--once')) {
+/** Resolves with the process's exit code (`RESTART_FOR_UPDATE` from `--child` after switching releases). */
+export async function main(args: readonly string[], context: PortableContext): Promise<number> {
+  if (args.includes('--uninstall')) {
+    uninstallAutostart()
+    return 0
+  }
+  if (args.includes('--check-engine')) {
+    if (!context.releaseDir) throw new Error('--check-engine prueba una versión bajada (TCG_WORKER_RELEASE).')
+    const reference = join(context.releaseDir, 'determinism.json')
+    if (!existsSync(reference)) throw new Error('La versión no trae su prueba de determinismo.')
+    const work = join(context.releaseDir, 'check')
+    mkdirSync(work, { recursive: true })
+    try {
+      // A few seconds at normal priority: at below normal, a PC busy with the CI starved it past its time limit.
+      await checkDeterminism(defaultsOf(context).enginePath ?? '', reference, work, undefined, {
+        priority: 'normal',
+        caseTimeoutMs: 120_000,
+      })
+    } catch (error) {
+      if (!(error instanceof DeterminismError)) throw error
+      console.error(error.message)
+      return DETERMINISM_MISMATCH
+    }
+    console.log('Motor y determinismo: OK')
+    return 0
+  }
+  if (args.some((arg) => arg === '--run' || arg === '--child' || arg === '--check' || arg === '--once')) {
     return run(
-      args.filter((arg) => arg !== '--run'),
-      defaults,
+      args.filter((arg) => arg !== '--run' && arg !== '--child'),
+      defaultsOf(context),
+      { installation: installationOf(context) },
     )
   }
-  return setup()
+  await setup(context)
+  return 0
 }
-
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error)
-  process.exit(1)
-})

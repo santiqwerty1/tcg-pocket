@@ -14,6 +14,7 @@ import { ApiError, type Chunk, type ChunkResult, type Log, type WorkerClient } f
 import type { WorkerConfig } from './config.js'
 import { EngineError, engineStatus, engineVersion, runJob } from './engine.js'
 import { LiveRunner } from './live.js'
+import type { Updater } from './update.js'
 import { WORKER_VERSION } from './version.js'
 import { removeWorkDir, workDirInUse } from './work-dir.js'
 
@@ -27,6 +28,19 @@ const BATCH_MAX_CHUNKS = 64
 const BATCH_GAMES_PER_CORE = 250
 /** An engine that prints no progress for this long is hung: it is stopped and the chunk reported (H-014). */
 const STALL_MS = 10 * 60_000
+/**
+ * D-026: with a new engine ready, how long a game against the bot in progress may hold the restart. The bot is
+ * recomputed when a game is rebuilt, so another engine could answer the owner's choices differently.
+ */
+const LIVE_DRAIN_MS = 6 * 60 * 60_000
+
+export interface LoopOptions {
+  once?: boolean
+  /** D-026: a managed install's updater; the loop stops between chunks once a new release is ready. */
+  updater?: Updater | null
+  /** Called once the worker is ready (engine checked, pending results sent): the release worked. */
+  onReady?: () => void
+}
 
 interface SimulateResult {
   engineRev: string
@@ -100,6 +114,7 @@ export class Worker {
   /** Tests shorten them. */
   heartbeatMs = HEARTBEAT_MS
   stallMs = STALL_MS
+  liveDrainMs = LIVE_DRAIN_MS
   /** Whether the engine plays several pairings in one process (`features` of `engine-cli version`). */
   private batchable = false
 
@@ -611,14 +626,22 @@ export class Worker {
     return []
   }
 
-  /** Claims and plays chunks until `signal` aborts (or once, for tests and `--once`). */
-  async loop(outerSignal: AbortSignal, options: { once?: boolean } = {}): Promise<void> {
+  /**
+   * Claims and plays chunks until `signal` aborts (or once, for tests and `--once`). With an updater, resolves with
+   * «update» once a new release is ready and nothing is left half played: the caller switches and restarts.
+   */
+  async loop(outerSignal: AbortSignal, options: LoopOptions = {}): Promise<'update' | undefined> {
     const controller = new AbortController()
     const stop = () => controller.abort(outerSignal.reason)
     outerSignal.addEventListener('abort', stop, { once: true })
     if (outerSignal.aborted) stop()
     const signal = controller.signal
+    const updater = options.once ? null : (options.updater ?? null)
+    // Cuts a claim's long-poll short when a release becomes ready (a chunk being played is never cut).
+    const wake = new AbortController()
     let live: Promise<void> | null = null
+    let liveRunner: LiveRunner | null = null
+    let watching: Promise<void> | null = null
     try {
       const { engineRev, cliVersion, engineFeatures } = await this.prepare(signal)
       await this.flushPending(signal)
@@ -628,13 +651,16 @@ export class Worker {
         cores: this.config.cores,
         name: this.config.name,
       })
+      options.onReady?.()
+      if (updater) watching = this.watchUpdates(updater, signal, () => wake.abort())
       // Games against a bot run next to the chunks (they wait on the owner most of the time).
-      live = options.once
-        ? null
-        : new LiveRunner(this.config, this.client, this.log, this.workDir).start(engineRev, signal, engineFeatures)
+      if (!options.once) {
+        liveRunner = new LiveRunner(this.config, this.client, this.log, this.workDir)
+        live = liveRunner.start(engineRev, signal, engineFeatures)
+      }
       // The app's hint about waiting work this worker cannot play, written once each time it changes.
       let lastHint: string | null = null
-      while (!signal.aborted) {
+      while (!signal.aborted && !updater?.ready) {
         let claim: Awaited<ReturnType<WorkerClient['claim']>>
         try {
           claim = await this.client.claim(
@@ -651,13 +677,20 @@ export class Worker {
                 ? { batch: { maxChunks: BATCH_MAX_CHUNKS, maxGames: this.config.cores * BATCH_GAMES_PER_CORE } }
                 : {}),
             },
-            signal,
+            AbortSignal.any([signal, wake.signal]),
           )
         } catch (error) {
-          if (signal.aborted) break
+          if (signal.aborted || updater?.ready) break
           if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
             this.log('el token no sirve: creá uno de tipo worker en la app', { status: error.status })
             throw error
+          }
+          if (updater && error instanceof ApiError && error.status === 409) {
+            // Android's exact-engine gate: the app moved to another engine, and its package brings it.
+            this.log('el servidor cambió de motor: busco la versión nueva')
+            if (await updater.check(signal)) break
+            await sleep(60_000, undefined, { signal }).catch(() => undefined)
+            continue
           }
           throw error
         }
@@ -666,7 +699,10 @@ export class Worker {
           if (lastHint) this.log(lastHint, { version: WORKER_VERSION, engine: cliVersion })
         }
         if (!claim.chunk) {
-          if (claim.requiredEngineRev) {
+          if (claim.requiredEngineRev && updater) {
+            // The app's package brings the engine its queue asks for: look now instead of in ten minutes.
+            if (await updater.check(signal)) break
+          } else if (claim.requiredEngineRev) {
             this.log('la cola pide otro motor: actualizá engine/Cargo.toml y compilá', {
               required: claim.requiredEngineRev.slice(0, 7),
               have: engineRev.slice(0, 7),
@@ -701,10 +737,35 @@ export class Worker {
         if (pendings.length > 0) await this.uploadAll(pendings, signal)
         if (options.once) return
       }
+      const ready = updater?.ready
+      if (ready && !signal.aborted) {
+        liveRunner?.drain()
+        // Same engine: a game in progress is rebuilt by the next start from the owner's choices, so no waiting.
+        const sameEngine = ready.engineRev === engineRev && ready.cliVersion === cliVersion
+        if (live && !sameEngine) {
+          this.log('espero que termine la partida contra el bot antes de cambiar de versión')
+          await Promise.race([live, sleep(this.liveDrainMs, undefined, { signal }).catch(() => undefined)])
+        }
+        return 'update'
+      }
+      return undefined
     } finally {
       controller.abort()
       await live
+      await watching
       outerSignal.removeEventListener('abort', stop)
+    }
+  }
+
+  /** Asks for a new release every `updater.intervalMs` (the start already asked once); `ready` once there is one. */
+  private async watchUpdates(updater: Updater, signal: AbortSignal, ready: () => void): Promise<void> {
+    while (!signal.aborted) {
+      await sleep(updater.intervalMs, undefined, { signal }).catch(() => undefined)
+      if (signal.aborted) return
+      if (await updater.check(signal)) {
+        ready()
+        return
+      }
     }
   }
 

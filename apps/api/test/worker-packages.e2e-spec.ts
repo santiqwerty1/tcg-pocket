@@ -9,9 +9,11 @@ import { WorkerPackages } from '../src/simulation/worker-packages.controller.js'
 import { WorkerQueueService } from '../src/simulation/worker-queue.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
-describe('Android worker distribution', () => {
+describe('worker packages (Android, and Windows updates, D-026)', () => {
   let test: TestApp, folder: string, worker: string, mcp: string
   const bytes = gzipSync('synthetic package: no real owner data')
+  const windows = gzipSync('synthetic windows update package')
+  const sum = (data: Buffer) => createHash('sha256').update(data).digest('hex')
   beforeAll(async () => {
     test = await createTestApp()
     folder = await mkdtemp(join(tmpdir(), 'tcg-package-'))
@@ -19,6 +21,11 @@ describe('Android worker distribution', () => {
     await writeFile(join(folder, 'android-arm64.tar.gz'), bytes)
     await writeFile(join(folder, 'install-android.sh'), '#!/bin/bash\nread -rs token\n')
     await writeFile(join(folder, 'android-version.json'), '{"engineRev":"pinned","cliVersion":"0.3.3"}')
+    await writeFile(join(folder, 'windows-x64.tar.gz'), windows)
+    await writeFile(
+      join(folder, 'windows-x64-version.json'),
+      '{"platform":"windows-x64","workerVersion":"0.3.0","engineRev":"pinned","cliVersion":"0.3.3"}',
+    )
     await seedOwner(test.app, { totp: false })
     const cookie = await login(test, { secret: null })
     const create = (kind: string, scopes: string[]) =>
@@ -47,13 +54,68 @@ describe('Android worker distribution', () => {
       .buffer(true)
     expect(response.status).toBe(200)
     expect(response.body).toEqual(bytes)
-    expect(response.headers['x-checksum-sha256']).toBe(createHash('sha256').update(bytes).digest('hex'))
+    expect(response.headers['x-checksum-sha256']).toBe(sum(bytes))
     expect(response.headers['cache-control']).toBe('no-store')
     const version = await test
       .http()
       .get('/api/worker/packages/android-arm64/version')
       .set('Authorization', `Bearer ${worker}`)
-    expect(version.body).toEqual({ engineRev: 'pinned', cliVersion: '0.3.3' })
+    // Workers 0.2.8–0.2.11 read only the engine; 0.3.0 compares the sum with the package it runs.
+    expect(version.body).toEqual({
+      platform: 'android-arm64',
+      engineRev: 'pinned',
+      cliVersion: '0.3.3',
+      sha256: sum(bytes),
+      size: bytes.length,
+    })
+  })
+  it('serves the Windows update package with the sum its version announces', async () => {
+    const version = await test
+      .http()
+      .get('/api/worker/packages/windows-x64/version')
+      .set('Authorization', `Bearer ${worker}`)
+    expect(version.status).toBe(200)
+    expect(version.body).toEqual({
+      platform: 'windows-x64',
+      workerVersion: '0.3.0',
+      engineRev: 'pinned',
+      cliVersion: '0.3.3',
+      sha256: sum(windows),
+      size: windows.length,
+    })
+    const response = await test
+      .http()
+      .get('/api/worker/packages/windows-x64')
+      .set('Authorization', `Bearer ${worker}`)
+      .buffer(true)
+      .parse((res, done) => {
+        const parts: Buffer[] = []
+        res.on('data', (part: Buffer) => parts.push(part))
+        res.on('end', () => done(null, Buffer.concat(parts)))
+      })
+    expect(response.status).toBe(200)
+    expect(response.body).toEqual(windows)
+    expect(response.headers['x-checksum-sha256']).toBe(version.body.sha256)
+    expect(response.headers['content-length']).toBe(String(windows.length))
+    for (const path of ['/api/worker/packages/windows-x64', '/api/worker/packages/windows-x64/version']) {
+      expect((await test.http().get(path)).status).toBe(401)
+      expect((await test.http().get(path).set('Authorization', `Bearer ${mcp}`)).status).toBe(401)
+    }
+  })
+  it('404 for a platform without a package; 503 when the image did not build it', async () => {
+    for (const path of ['/api/worker/packages/linux-x64', '/api/worker/packages/constructor/version']) {
+      expect((await test.http().get(path).set('Authorization', `Bearer ${worker}`)).status).toBe(404)
+    }
+    await rm(join(folder, 'windows-x64.tar.gz'))
+    try {
+      const missing = await test
+        .http()
+        .get('/api/worker/packages/windows-x64/version')
+        .set('Authorization', `Bearer ${worker}`)
+      expect(missing.status).toBe(503)
+    } finally {
+      await writeFile(join(folder, 'windows-x64.tar.gz'), windows)
+    }
   })
   it('bootstrap is public; other worker routes still require bearer', async () => {
     expect((await test.http().get('/api/worker/install/android.sh')).status).toBe(200)

@@ -125,4 +125,4 @@ else
   rm -f -- "$startFile" "$stopFile" "$statusFile"
 fi
 echo "Listo. Arrancá con tcg-worker; Ctrl+C lo detiene. Config y logs: $data."
-echo 'Para actualizar, volvé a correr este instalador. Leé el LEEME.txt para batería y Android 12+.'
+echo 'Se actualiza solo con cada versión nueva de la app. Leé el LEEME.txt para batería y Android 12+.'

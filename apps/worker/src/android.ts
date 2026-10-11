@@ -6,12 +6,15 @@ import { promisify } from 'node:util'
 import { stopAndroidWorker } from './android-stop.js'
 import { isPluggedIn, whileCharging } from './battery.js'
 import { dataDir, loadConfig, readFileConfig } from './config.js'
-import { checkDeterminism } from './determinism.js'
+import { checkDeterminism, DETERMINISM_MISMATCH, DeterminismError } from './determinism.js'
 import { acquireLock, releaseLock } from './lock.js'
-import { run } from './run.js'
+import { logger, run } from './run.js'
+import { androidInstallation, RESTART_FOR_UPDATE, rollBackUnhealthy } from './update.js'
 
 const execute = promisify(execFile)
+// The release folder itself (`releases/<sha256>`): Node resolves the `current` symlink of the launcher's path.
 const here = dirname(fileURLToPath(import.meta.url))
+const installation = androidInstallation(here)
 const defaults = {
   enginePath: join(here, 'engine-cli'),
   determinismPath: join(here, 'determinism.json'),
@@ -27,14 +30,25 @@ async function main() {
     return
   }
   if (args.includes('--check-engine')) {
-    await checkDeterminism(defaults.enginePath, defaults.determinismPath, here)
+    try {
+      await checkDeterminism(defaults.enginePath, defaults.determinismPath, here)
+    } catch (error) {
+      if (!(error instanceof DeterminismError)) throw error
+      console.error(error.message)
+      process.exitCode = DETERMINISM_MISMATCH
+      return
+    }
     console.log('Motor y determinismo: OK')
     return
   }
   if (args.includes('--child') || args.includes('--check') || args.includes('--once')) {
-    return run(args, defaults)
+    const code = await run(args, defaults, { installation })
+    // The supervisor starts `current/worker.mjs` again, which now is the new release (D-026).
+    if (code === RESTART_FOR_UPDATE) process.exit(code)
+    return
   }
   const config = loadConfig(process.env, defaults)
+  const log = logger(join(config.dataDir, 'worker.log'))
   const supervisorDir = join(config.dataDir, 'android')
   mkdirSync(supervisorDir, { recursive: true })
   if (acquireLock(supervisorDir) !== null) throw new Error('Ya hay un lanzador Android corriendo.')
@@ -45,6 +59,11 @@ async function main() {
   let child: ChildProcess | null = null
   let exited: Promise<void> = Promise.resolve()
   let stoppingChild = false
+  // The worker ended on its own with 0 (another one already runs here, for instance): so does the launcher.
+  let done = () => {}
+  const finished = new Promise<void>((resolve) => {
+    done = resolve
+  })
   const start = async () => {
     stoppingChild = false
     child = spawn(process.execPath, [process.argv[1] ?? '', '--child'], { stdio: 'inherit' })
@@ -53,9 +72,15 @@ async function main() {
       current.once('error', reject)
       current.once('exit', (code, signal) => {
         child = null
-        if ((code || signal) && !stoppingChild && !controller.signal.aborted)
-          controller.abort(new Error(`El worker terminó (${code ?? signal}).`))
         resolve()
+        if (stoppingChild || controller.signal.aborted) return
+        // D-026: a new release was switched in (or a bad one rolled back): the same path runs it.
+        if (code === RESTART_FOR_UPDATE || ((code || signal) && installation && rollBackUnhealthy(installation, log))) {
+          void start()
+          return
+        }
+        if (code || signal) controller.abort(new Error(`El worker terminó (${code ?? signal}).`))
+        else done()
       })
     })
   }
@@ -88,7 +113,7 @@ async function main() {
       await start()
       await new Promise<void>((resolve) => {
         controller.signal.addEventListener('abort', () => resolve(), { once: true })
-        void exited.then(() => resolve())
+        void finished.then(() => resolve())
       })
     }
     if (controller.signal.reason instanceof Error) throw controller.signal.reason

@@ -25,6 +25,8 @@ export interface WorkerConfig {
   workerId: string
   /** Mobile packages cap a job's requested threads at the configured budget. */
   capThreads?: boolean
+  /** D-026: a managed install (portable or Android package) follows the app's package; false keeps this one. */
+  autoUpdate: boolean
 }
 
 export function dataDir(): string {
@@ -48,6 +50,7 @@ export interface FileConfig {
   name?: string
   enginePath?: string
   onlyCharging?: boolean
+  autoUpdate?: boolean
 }
 
 /** What a caller knows better than the repository layout (the portable package: the engine next to the exe). */
@@ -56,6 +59,11 @@ export interface ConfigDefaults {
   determinismPath?: string | undefined
   capThreads?: boolean
   allowSlowBots?: boolean
+  /**
+   * D-026: the engine of the package that runs, never `enginePath` from config.json or TCG_ENGINE_PATH (an old setting
+   * would keep an engine the updates no longer replace). Ignored when the owner turned updates off.
+   */
+  packageEngine?: boolean
 }
 
 export function configFile(): string {
@@ -109,6 +117,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, defaults: Confi
   if (typeof allowSlowBots !== 'boolean') {
     throw new Error('allowSlowBots inválido: usá un booleano true o false en config.json.')
   }
+  const autoUpdateEnv = env.TCG_WORKER_AUTO_UPDATE
+  if (autoUpdateEnv !== undefined && autoUpdateEnv !== 'true' && autoUpdateEnv !== 'false') {
+    throw new Error('TCG_WORKER_AUTO_UPDATE inválido: usá true o false.')
+  }
+  const autoUpdate = autoUpdateEnv !== undefined ? autoUpdateEnv === 'true' : (fromFile.autoUpdate ?? true)
+  if (typeof autoUpdate !== 'boolean') {
+    throw new Error('autoUpdate inválido: usá un booleano true o false en config.json.')
+  }
+  const configuredEngine = env.TCG_ENGINE_PATH ?? fromFile.enginePath
+  const enginePath =
+    defaults.packageEngine && autoUpdate && defaults.enginePath
+      ? defaults.enginePath
+      : (configuredEngine ?? defaults.enginePath ?? defaultEnginePath())
   return {
     server: (env.TCG_SERVER ?? fromFile.server ?? 'https://tcg-pocket.fly.dev').replace(/\/+$/, ''),
     token,
@@ -116,9 +137,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, defaults: Confi
     priority,
     allowSlowBots,
     name: env.TCG_WORKER_NAME ?? fromFile.name ?? hostname(),
-    enginePath: env.TCG_ENGINE_PATH ?? fromFile.enginePath ?? defaults.enginePath ?? defaultEnginePath(),
+    enginePath,
     dataDir: dir,
     workerId: readFileSync(idFile, 'utf8').trim(),
     ...(defaults.capThreads ? { capThreads: true } : {}),
+    autoUpdate,
   }
 }

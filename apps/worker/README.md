@@ -55,7 +55,37 @@ Para que otra PC juegue chunks (la app los reparte entre todos los workers prend
 pnpm -F @tcg/worker package   # apps/worker/build/tcg-worker-<versión>-windows.zip
 ```
 
-El zip trae `tcg-worker.exe` (este worker empaquetado con Node como ejecutable único: la otra PC no necesita Node, Rust ni el repositorio), `engine-cli.exe` (el motor de `engine/target/release`, solo usa DLLs de Windows) y `LEEME.txt`. La CI lo arma en Windows en cada push a `main` (artefacto `tcg-worker-windows`, 30 días). En la otra PC: descomprimir, doble clic en `tcg-worker.exe` (pide un token de tipo worker, núcleos y nombre; prueba el motor y la conexión; instala el arranque al iniciar sesión y lo deja corriendo). `tcg-worker.exe --check`, `--once`, `--run` (lo que arranca el inicio de sesión) y `--uninstall`. Configuración y log en `%LOCALAPPDATA%\tcg-worker`, como acá; el motor se busca al lado del `.exe`. No está firmado: si vino de internet, Windows avisa («Más información → Ejecutar de todas formas»). Al actualizar el motor o el worker, reemplazar los dos `.exe` por los de un paquete nuevo.
+El zip trae `tcg-worker.exe` (este worker empaquetado con Node como ejecutable único: la otra PC no necesita Node, Rust ni el repositorio), `engine-cli.exe` (el motor de `engine/target/release`, solo usa DLLs de Windows) y `LEEME.txt`. La CI lo arma en Windows en cada push a `main` (artefacto `tcg-worker-windows`, 30 días). En la otra PC: descomprimir, doble clic en `tcg-worker.exe` (pide un token de tipo worker, núcleos y nombre; prueba el motor y la conexión; instala el arranque al iniciar sesión y lo deja corriendo). `tcg-worker.exe --check`, `--once`, `--run` (lo que arranca el inicio de sesión) y `--uninstall`. Configuración y log en `%LOCALAPPDATA%\tcg-worker`, como acá; el motor se busca al lado del `.exe`. No está firmado: si vino de internet, Windows avisa («Más información → Ejecutar de todas formas»).
+
+## Se actualiza solo (Fase 42, D-026)
+
+El paquete portable de Windows y el de Android siguen a la app: decisión de Santiago del 11/10/2026, confiando en el servidor (HTTPS, el token de worker de cada máquina y SHA-256). El worker del repositorio (`node dist/main.js`) no se actualiza.
+
+- **Qué baja.** `GET /api/worker/packages/<plataforma>/version` dice qué paquete trae la imagen y su `sha256`. Windows (`windows-x64`, ~3 MB) lleva `worker.cjs`, `engine-cli.exe` cruzado con zig en el Dockerfile y `determinism.json`, sin Node: el de `tcg-worker.exe` sigue. Android (`android-arm64`) es el mismo paquete del instalador.
+- **Cuándo.** Al arrancar, cada 10 minutos y cuando la cola pide otro motor (`requiredEngineRev`, o el `409` de Android).
+- **Antes de cambiar.** Baja a `releases/<sha256>.partial` (en stream, con la suma), verifica la suma, desempaqueta con `tar` (el de `System32` en Windows) y corre la prueba de determinismo de la versión nueva en otro proceso (`--check-engine`, a prioridad normal).
+  - Si juega distinto (código 3), la marca `releases/<sha256>.bad` y no la vuelve a bajar.
+  - Si falla de otra forma (un timeout con la PC cargada), reintenta, y a la tercera la marca.
+- **El cambio.** Deja de reclamar, termina el chunk o lote en curso y sube los resultados. Si cambia el motor, espera además que termine la partida contra el bot en curso (hasta 6 h): al reconstruirla, el bot se recalcula. Después apunta `releases/current.json` (en Android, el enlace `current`) a la versión nueva, devuelve los leases y sale con el código 75.
+- **El supervisor.** En Windows, `tcg-worker.exe --run` es un supervisor que mantiene un `tcg-worker.exe --child`: la parte que trae el `.exe` (`src/sea.ts`) carga la versión de `current.json` o, si no hay, la propia. En Android, el lanzador de `android.ts`. Si el hijo sale con 75, lo vuelve a arrancar.
+- **Vuelta atrás.** Si la versión nueva sale con error antes de llegar a «worker listo» (`releases/<sha256>/healthy`), se marca mala y vuelve a la anterior.
+- **Para no actualizar una máquina:** `"autoUpdate": false` en config.json o `TCG_WORKER_AUTO_UPDATE=false`. `--check` dice qué versión corre y cuál ofrece la app.
+- **Motor.** Con las actualizaciones prendidas, el motor es siempre el del paquete; `enginePath` y `TCG_ENGINE_PATH` solo valen con `autoUpdate: false`.
+
+### Pasar cada máquina, una sola vez
+
+- **El Ryzen (paquete portable viejo).**
+  1. Copiar la carpeta `tcg-worker` del zip nuevo (artefacto `tcg-worker-windows` de la CI) a la otra PC.
+  2. Doble clic en `tcg-worker.exe`. Si hay un worker corriendo, ofrece detenerlo: lo que esté jugando vuelve a la cola.
+  3. Enter en el token, los núcleos y el nombre para conservarlos.
+- **Esta PC (hoy `node apps/worker/dist/main.js` del repositorio, motor compilado acá).** Lo mismo que el Ryzen, con la carpeta en `%LOCALAPPDATA%\tcg-worker\app` o donde se prefiera.
+  - El doble clic detiene el worker del repo y conserva el token, los 18 núcleos y el nombre.
+  - Saca `enginePath` de config.json y reemplaza el lanzador `tcg-pocket-worker.vbs` de la carpeta Inicio.
+  - Desde ahí no hace falta recompilar el motor ni reiniciar el worker después de cada deploy.
+  - Para reiniciarlo desde una sesión de Claude: `wscript.exe` sobre `%LOCALAPPDATA%\tcg-worker\launch.vbs` (o el de la carpeta Inicio si la tarea programada no se pudo crear), con `Invoke-CimMethod`, nunca con `Start-Process` (H-016).
+- **El celu.**
+  1. Volver a pegar el comando del instalador (Más → Tokens de API → «Worker en Android»), una vez.
+  2. Enter conserva el token y las preferencias.
 
 ## Tests
 
