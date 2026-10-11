@@ -107,6 +107,11 @@ export const routes: RouteObject[] = [
             handle: handle('Nueva simulación', '/simulacion'),
           },
           {
+            path: 'simulacion/analisis',
+            lazy: page(() => import('@/pages/simulacion/SimulationAnalysisPage'), 'SimulationAnalysisPage'),
+            handle: handle('Análisis', '/simulacion'),
+          },
+          {
             path: 'simulacion/calibracion',
             lazy: page(() => import('@/pages/simulacion/CalibrationPage'), 'CalibrationPage'),
             handle: handle('Calibración', '/simulacion'),
