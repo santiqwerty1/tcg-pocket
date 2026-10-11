@@ -1429,6 +1429,102 @@ describe('simulation (e2e)', () => {
     expect((await test.http().delete(`/api/simulations/${done}`).set('Cookie', cookie)).status).toBe(204)
   })
 
+  it('phase 42: a chunk that would play exactly what a finished one played takes its result, with its replays', async () => {
+    const hello = { ...worker('worker-cache'), cliVersion: '0.3.3' }
+    // Only this worker is recent with this engine: its engine-cli is the one that would play.
+    await test.prisma.workerNode.updateMany({ data: { lastSeenAt: new Date(0) } })
+    const job = (overrides: Structured = {}) =>
+      post('/api/simulations').send({
+        kind: 'compare',
+        sideA: decks(2, 2),
+        sideB: decks(5, 6),
+        gamesPerPair: 10,
+        players: ['r', 'r'],
+        seed: 4242,
+        replaySample: 1,
+        ...overrides,
+      })
+    const first = (await job()).body as { id: number }
+    const played = new Map<number, number>()
+    for (;;) {
+      const chunk = (await bearer('post', '/api/worker/claim').send(hello)).body.chunk as Structured | null
+      if (!chunk) break
+      expect(chunk.jobId).toBe(first.id)
+      const wins = 3 + played.size
+      played.set(chunk.chunkId as number, wins)
+      await bearer(
+        'put',
+        `/api/worker/chunks/${chunk.chunkId}/replays/00000000-0000-0000-0000-00000000000${played.size}`,
+      )
+        .query({ index: 0, seed: '42', winner: 'a' })
+        .set('Content-Type', 'application/gzip')
+        .send(gzipSync(JSON.stringify({ version: 1, steps: [], outcome: { Win: 0 } })))
+      await bearer('put', `/api/worker/chunks/${chunk.chunkId}/result`).send({
+        workerId: 'worker-cache',
+        engineRev: test.env.engineRev,
+        winsA: wins,
+        winsB: 10 - wins,
+        ties: 0,
+        games: 10,
+        durationMs: 500,
+      })
+    }
+    expect(played.size).toBe(2)
+    const rivalDeck = Number(deckIds[4])
+    const simulations = test.app.get(SimulationsService)
+    const columnBefore = await simulations.deckColumn(rivalDeck)
+
+    // The same job again: done at once, every chunk from the cache, with the same results and replays.
+    const again = (await job()).body as { id: number; status: string; progress: Structured }
+    expect(again).toMatchObject({ status: 'done', progress: { gamesDone: 20, chunks: { done: 2 } } })
+    expect((await bearer('post', '/api/worker/claim').send(hello)).body.chunk).toBeNull()
+    const copied = (await get(`/api/simulations/${again.id}`)).body as {
+      chunks: { id: number; cachedFrom: number | null }[]
+      rows: { total: Structured }[]
+      replays: { chunkId: number; gameIndex: number }[]
+    }
+    expect(copied.chunks.map((chunk) => chunk.cachedFrom).sort()).toEqual([...played.keys()].sort())
+    expect(copied.rows[0]?.total).toEqual({ wins: 7, losses: 13, ties: 0 })
+    expect(copied.replays.map((replay) => replay.gameIndex)).toEqual([0, 0])
+    // A third copy is taken from the chunks a worker played, not from the copies.
+    const third = (await job()).body as { id: number; status: string }
+    expect(third.status).toBe('done')
+    const thirdChunks = (await get(`/api/simulations/${third.id}`)).body.chunks as { cachedFrom: number }[]
+    expect(thirdChunks.map((chunk) => chunk.cachedFrom).sort()).toEqual([...played.keys()].sort())
+    // The copies are the same games: the rival's «simulación» column does not count them again.
+    expect(await simulations.deckColumn(rivalDeck)).toEqual(columnBefore)
+
+    // Anything else and it goes to the worker: another seed, other bots, more replays, per-game results.
+    const others = [
+      await job({ seed: 4243 }),
+      await job({ players: ['r', 'w'] }),
+      await job({ replaySample: 2 }),
+      await job({ perGame: true }),
+    ]
+    for (const other of others) {
+      expect(other.body.status).toBe('queued')
+      expect(other.body.progress).toMatchObject({ chunks: { done: 0 } })
+    }
+    // Two engine-cli versions among the recent workers: which one would play is not known, nothing is copied.
+    await test.prisma.workerNode.create({
+      data: { id: 'worker-cache-old', name: 'celu', engineRev: test.env.engineRev, cliVersion: '0.3.2', cores: 4 },
+    })
+    expect((await job()).body.status).toBe('queued')
+    await test.prisma.workerNode.delete({ where: { id: 'worker-cache-old' } })
+
+    for (const id of (await test.prisma.simulationJob.findMany({ where: { id: { gt: first.id } } })).map(
+      (row) => row.id,
+    )) {
+      await post(`/api/simulations/${id}/cancel`)
+    }
+    for (const id of [
+      first.id,
+      ...(await test.prisma.simulationJob.findMany({ where: { id: { gt: first.id } } })).map((row) => row.id),
+    ]) {
+      expect((await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)).status).toBe(204)
+    }
+  })
+
   it('H-003: a long poll that times out leaves no listener behind', async () => {
     const queue = test.app.get(WorkerQueueService) as unknown as { queued: { listenerCount(event: string): number } }
     const before = queue.queued.listenerCount('queued')

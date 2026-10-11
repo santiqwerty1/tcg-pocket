@@ -45,6 +45,7 @@ import type { Prisma } from '../generated/prisma/client.js'
 import { gunzipJson } from '../http/gunzip.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import { ChunkCacheService } from './chunk-cache.service.js'
 import { EngineUpstreamService } from './engine-upstream.service.js'
 import type {
   ConsistencyView,
@@ -134,6 +135,7 @@ export class SimulationsService {
     private readonly queue: WorkerQueueService,
     private readonly upstream: EngineUpstreamService,
     private readonly logger: PinoLogger,
+    private readonly cache: ChunkCacheService,
   ) {
     this.logger.setContext(SimulationsService.name)
     this.queue.onJobDone((jobId) => this.afterDone(jobId))
@@ -343,8 +345,11 @@ export class SimulationsService {
       })
       return created
     })
+    // Phase 42: what a finished chunk already played exactly is copied, not played again.
+    if (input.kind === 'matrix' || input.kind === 'compare') await this.cache.fill(job.id)
     this.queue.notifyQueued()
-    return this.summary(job, await this.progress([job.id]))
+    const current = await this.prisma.simulationJob.findUniqueOrThrow({ where: { id: job.id } })
+    return this.summary(current, await this.progress([job.id]))
   }
 
   private async existingSnapshot(id: number): Promise<SnapshotView> {
@@ -745,6 +750,7 @@ export class SimulationsService {
         seed: chunk.seed.toString(),
         attempt: chunk.attempt,
         error: chunk.error,
+        cachedFrom: chunk.cachedFrom,
       })),
     }
   }
@@ -1188,6 +1194,8 @@ export class SimulationsService {
     const chunks = await this.prisma.simulationChunk.findMany({
       where: {
         status: 'done',
+        // Phase 42: a chunk copied from the cache is the same games as the one it came from.
+        cachedFrom: null,
         OR: [{ snapshotAId: { in: ids } }, { snapshotBId: { in: ids } }],
         job: { kind: { in: ['matrix', 'compare'] }, id: { notIn: confirmations.map((row) => row.id) } },
       },

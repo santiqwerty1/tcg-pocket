@@ -456,6 +456,11 @@ export class WorkerQueueService {
       await this.failure(id, { workerId: input.workerId, error: `Resultado inválido: ${problem}` })
       throw new UnprocessableEntityException({ code: 'invalid_result', message: problem })
     }
+    // Phase 42: the engine-cli that played it, so the exact cache copies it only for the same version.
+    const node = await this.prisma.workerNode.findUnique({
+      where: { id: input.workerId },
+      select: { cliVersion: true },
+    })
     await this.prisma.simulationChunk.update({
       where: { id },
       data: {
@@ -468,6 +473,7 @@ export class WorkerQueueService {
         turns: input.turns === undefined ? null : BigInt(input.turns),
         durationMs: Math.round(input.durationMs),
         engineRev: input.engineRev,
+        cliVersion: node?.cliVersion ?? null,
         // Never trust a summary supplied by a client. This field belongs to the API.
         ...(input.extra === undefined
           ? {}

@@ -542,6 +542,8 @@ export function SimulationDetailPage() {
   if (!current) return null
   const active = isActive(current.status)
   const fraction = progressFraction(current)
+  // Phase 42: chunks copied from the exact cache instead of played.
+  const cached = current.chunks.filter((chunk) => chunk.cachedFrom !== null).length
 
   return (
     <div className="flex flex-col gap-5">
@@ -641,6 +643,14 @@ export function SimulationDetailPage() {
           { label: 'Motor', value: <code className="font-mono text-xs">{shortSha(current.engineRev)}</code> },
           { label: 'Creada', value: formatDateTime(current.createdAt) },
           ...(current.finishedAt ? [{ label: 'Terminó', value: formatDateTime(current.finishedAt) }] : []),
+          ...(cached > 0
+            ? [
+                {
+                  label: 'De la caché',
+                  value: `${plural(cached, 'chunk', 'chunks')} de ${formatNumber(current.chunks.length)}: ya jugados con la misma semilla, los mismos bots y el mismo motor`,
+                },
+              ]
+            : []),
         ]}
       />
 

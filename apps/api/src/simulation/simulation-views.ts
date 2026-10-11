@@ -142,6 +142,8 @@ export interface JobDetailView extends JobSummaryView {
     gamesDone: number
     status: string
     seed: string
+    /** Phase 42: the chunk its result was copied from (the exact cache); null when a worker played it. */
+    cachedFrom: number | null
     attempt: number
     error: string | null
   }[]

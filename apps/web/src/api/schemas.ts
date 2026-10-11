@@ -2034,6 +2034,8 @@ export const jobDetailSchema = jobSummarySchema.extend({
       seed: z.string(),
       attempt: z.number(),
       error: z.string().nullable(),
+      /** Phase 42: copied from this chunk (the exact cache) instead of played. */
+      cachedFrom: z.number().nullable().default(null),
     }),
   ),
 })

@@ -28,6 +28,7 @@ import { BearerTokenGuard, RequireScopes } from '../tokens/bearer-token.guard.js
 import { TokensModule } from '../tokens/tokens.module.js'
 import { TournamentsModule } from '../tournaments/tournaments.controller.js'
 import { SimulationAnalysisService } from './analysis.service.js'
+import { ChunkCacheService } from './chunk-cache.service.js'
 import { EngineUpstreamService } from './engine-upstream.service.js'
 import type { EngineView, JobDetailView, JobSummaryView, ReplayView } from './simulation-views.js'
 import { SimulationsService } from './simulations.service.js'
@@ -396,6 +397,7 @@ export class SimulationsController {
     EngineUpstreamService,
     SnapshotsService,
     WorkerQueueService,
+    ChunkCacheService,
     SimulationsService,
     SimulationAnalysisService,
   ],

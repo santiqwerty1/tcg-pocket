@@ -880,6 +880,10 @@ model SimulationChunk {
   turns       BigInt?
   durationMs  Int?                  @map("duration_ms")
   engineRev   String?               @map("engine_rev")
+  /// engine-cli version of the worker that played it: a result is reused only by the same version (phase 42).
+  cliVersion  String?               @map("cli_version")
+  /// Copied from this chunk (the exact cache, phase 42): no worker played it.
+  cachedFrom  Int?                  @map("cached_from_id")
   /// optimize: { combinations: [...] }
   extra       Json?
   error       String?
@@ -891,6 +895,7 @@ model SimulationChunk {
   @@index([status, leaseUntil])
   @@index([snapshotAId])
   @@index([snapshotBId])
+  @@index([seed])
   @@map("simulation_chunks")
 }
 
