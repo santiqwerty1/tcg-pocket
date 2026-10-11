@@ -47,6 +47,8 @@ cores=${answer:-$cores}
 printf 'Nombre en la app (Enter = %s): ' "$name" >/dev/tty
 IFS= read -r answer </dev/tty
 name=${answer:-$name}
+printf '¿Tomar también bots lentos (MCTS, profundidad 3 o más)? [s/N]: ' >/dev/tty
+IFS= read -r slowBots </dev/tty
 printf '¿Solo mientras carga? [s/N]: ' >/dev/tty
 IFS= read -r charging </dev/tty
 if [[ $charging == [sS] ]]; then
@@ -74,12 +76,12 @@ NODE
 ln -sfn "$release" "$root/current"
 printf '%s' "$token" | node -e '
 const fs=require("fs"), path=require("path")
-const [dir,server,cores,charging,engine,name]=process.argv.slice(1)
+const [dir,server,cores,charging,engine,name,slowBots]=process.argv.slice(1)
 let token=""; process.stdin.setEncoding("utf8").on("data",d=>token+=d).on("end",()=>{
-  const config={server,token,cores:Number(cores),priority:"below_normal",name,enginePath:engine,onlyCharging:/^s$/i.test(charging)}
+  const config={server,token,cores:Number(cores),priority:"below_normal",name,enginePath:engine,onlyCharging:/^s$/i.test(charging),allowSlowBots:/^s$/i.test(slowBots)}
   const file=path.join(dir,"config.json")
   fs.writeFileSync(file,JSON.stringify(config,null,2)+"\n",{mode:0o600}); fs.chmodSync(file,0o600)
-})' "$data" "$server" "$cores" "$charging" "$root/current/engine-cli" "$name"
+})' "$data" "$server" "$cores" "$charging" "$root/current/engine-cli" "$name" "$slowBots"
 unset token
 mkdir -p "$PREFIX/bin"
 {

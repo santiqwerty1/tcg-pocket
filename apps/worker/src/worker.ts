@@ -15,6 +15,7 @@ import type { WorkerConfig } from './config.js'
 import { EngineError, engineStatus, engineVersion, runJob } from './engine.js'
 import { LiveRunner } from './live.js'
 import { WORKER_VERSION } from './version.js'
+import { removeWorkDir, workDirInUse } from './work-dir.js'
 
 /** 0.2.0: games against a bot and consistency chunks (Fase 8); the app gives consistency chunks only from 0.2.0 on.
  * 0.2.1: consistency against the meta (D-019), given only from 0.2.1 on. */
@@ -163,7 +164,7 @@ export class Worker {
       // 400/404/409: the app does not want it (job deleted, chunk taken over). Drop it; auth errors stop the worker.
       if (!(error instanceof ApiError) || error.status === 401 || error.status === 403) throw error
       this.log('el servidor rechazó el resultado; lo descarto', { chunk: pending.chunkId, error: error.message })
-      if (pending.dir) await rm(pending.dir, { recursive: true, force: true })
+      if (pending.dir) await removeWorkDir(pending.dir)
       return
     }
     if (accepted) {
@@ -180,7 +181,7 @@ export class Worker {
         }
       }
     }
-    if (pending.dir) await rm(pending.dir, { recursive: true, force: true })
+    if (pending.dir) await removeWorkDir(pending.dir)
     this.log(accepted ? 'resultado subido' : 'resultado ya estaba', {
       chunk: pending.chunkId,
       record: `${pending.result.winsA}-${pending.result.winsB}-${pending.result.ties}`,
@@ -195,13 +196,16 @@ export class Worker {
     const controller = new AbortController()
     const stop = () => controller.abort(new Error('detenido'))
     signal.addEventListener('abort', stop, { once: true })
+    if (signal.aborted) stop()
     // H-014: one heartbeat at a time, a single attempt each; and a watchdog for an engine that stopped printing
     // progress (a PC that slept is not a hung engine: the gap in the ticks says so).
     let lastProgressAt = Date.now()
     let lastTickAt = Date.now()
     let beating = false
+    let disconnected = false
     let stalled = false
     const tick = () => {
+      if (controller.signal.aborted) return
       const now = Date.now()
       if (now - lastTickAt > this.heartbeatMs * 2) lastProgressAt = now
       lastTickAt = now
@@ -220,15 +224,25 @@ export class Worker {
           controller.signal,
         )
         .then((answer) => {
+          if (disconnected) {
+            this.log('latido recuperado', { chunk: chunk.chunkId, leaseUntil: answer.leaseUntil })
+            disconnected = false
+          }
           if (answer.cancelled) {
             this.log('simulación cancelada en la app', { chunk: chunk.chunkId })
             controller.abort(new Error('cancelado'))
-          } else if (answer.lost) {
+          } else if (answer.lost || (answer.lost === false && !answer.leaseUntil)) {
             this.log('el chunk ya no es de este worker; lo suelto', { chunk: chunk.chunkId })
             controller.abort(new Error('perdido'))
           }
         })
         .catch((error) => {
+          if (error instanceof ApiError && (error.status === 404 || error.status === 409)) {
+            this.log('el chunk ya no está disponible; lo suelto', { chunk: chunk.chunkId, status: error.status })
+            controller.abort(new Error('perdido'))
+            return
+          }
+          disconnected = true
           if (!controller.signal.aborted) this.log('latido fallido', { chunk: chunk.chunkId, error: String(error) })
         })
         .finally(() => {
@@ -295,6 +309,7 @@ export class Worker {
         )
         // An engine from before D-019 ignores the rivals and would measure the goldfish curve instead.
         if (chunk.consistency?.rivals?.length && result.mode !== 'meta') {
+          await removeWorkDir(dir)
           throw new EngineError(
             'engine-cli no conoce la consistencia contra el meta: recompilá el motor (cargo build).',
             null,
@@ -337,7 +352,7 @@ export class Worker {
       )
       // An engine from before H-010 ignores the flag: the paired comparison of the Laboratorio needs every game.
       if (chunk.perGame && !result.perGame) {
-        await rm(dir, { recursive: true, force: true })
+        await removeWorkDir(dir)
         throw new EngineError(
           'engine-cli no informa las partidas una por una: recompilá el motor (cargo build).',
           null,
@@ -400,8 +415,8 @@ export class Worker {
    * B2: several pairings of one job in one engine process (`engine-cli batch`): the threads stay busy until the last
    * game, and the claim, the start of the engine and the slowest game are paid once per batch instead of once per
    * chunk. Each chunk keeps its seed, its lease (a heartbeat each, one request at a time) and its own result. A
-   * cancelled job stops the batch; a chunk that is no longer ours is not renewed, but its result still goes up (it
-   * only depends on its seed; the app keeps the first one). A pairing that fails in the engine fails its own chunk;
+   * cancelled job stops the batch; losing any chunk stops the shared process and retries the remaining chunks
+   * individually. A pairing that fails in the engine fails its own chunk;
    * a batch that fails as a whole, or hangs, is played again chunk by chunk, so nothing else is blamed for it.
    */
   async playBatch(chunks: Chunk[], engineRev: string, signal: AbortSignal): Promise<PendingUpload[]> {
@@ -411,6 +426,7 @@ export class Worker {
     const controller = new AbortController()
     const stop = () => controller.abort(new Error('detenido'))
     signal.addEventListener('abort', stop, { once: true })
+    if (signal.aborted) stop()
     const lost = new Set<number>()
     let lastProgressAt = Date.now()
     let lastTickAt = Date.now()
@@ -436,17 +452,28 @@ export class Worker {
             controller.abort(new Error('cancelado'))
             return
           }
-          if (answer.lost) {
+          if (answer.lost || (answer.lost === false && !answer.leaseUntil)) {
             lost.add(chunk.chunkId)
-            this.log('el chunk ya no es de este worker; dejo de renovarlo', { chunk: chunk.chunkId })
+            this.log('el chunk ya no es de este worker; corto el lote', { chunk: chunk.chunkId })
+            controller.abort(new Error('perdido'))
+            return
           }
         } catch (error) {
+          if (error instanceof ApiError && (error.status === 404 || error.status === 409)) {
+            lost.add(chunk.chunkId)
+            controller.abort(new Error('perdido'))
+            return
+          }
           if (!controller.signal.aborted) this.log('latido fallido', { chunk: chunk.chunkId, error: String(error) })
+          // One network timeout must not make a 64-chunk renewal cycle wait 64 × 20 s.
+          // Retry the cycle on the next tick; expired leases still renew if nobody took them.
+          return
         }
       }
       if (lost.size === chunks.length) controller.abort(new Error('perdido'))
     }
     const tick = () => {
+      if (controller.signal.aborted) return
       const now = Date.now()
       if (now - lastTickAt > this.heartbeatMs * 2) lastProgressAt = now
       lastTickAt = now
@@ -503,7 +530,7 @@ export class Worker {
       )
       const missingPerGame = first.perGame && result.pairings.some((pairing) => !pairing.error && !pairing.perGame)
       if (result.pairings.length !== chunks.length || missingPerGame) {
-        await rm(dir, { recursive: true, force: true })
+        await removeWorkDir(dir)
         throw new EngineError(
           'engine-cli devolvió un lote incompleto: recompilá el motor (cargo build).',
           null,
@@ -547,10 +574,11 @@ export class Worker {
       // Every chunk's replays are in the batch's folder: it goes with the last upload (now, if none goes up).
       const last = pendings.at(-1)
       if (last) last.dir = dir
-      else await rm(dir, { recursive: true, force: true })
+      else await removeWorkDir(dir)
       return pendings
     } catch (error) {
       if (stalled) fallback = `el motor no avanzó en ${Math.round(this.stallMs / 60_000)} min`
+      else if (lost.size > 0) fallback = 'un chunk del lote ya no es de este worker'
       else if (controller.signal.aborted) return []
       else if (error instanceof EngineError) fallback = error.message
       else throw error
@@ -562,6 +590,21 @@ export class Worker {
     this.log('el lote falló; juego sus chunks de a uno', { chunks: chunks.length, reason: fallback.slice(0, 300) })
     for (const chunk of chunks) {
       if (signal.aborted) break
+      if (lost.has(chunk.chunkId)) continue
+      // Ownership may have changed while the shared engine was stopping. Recheck before replaying.
+      if (lost.size > 0) {
+        try {
+          const answer = await this.client.heartbeat(
+            chunk.chunkId,
+            { workerId: this.config.workerId, gamesDone: 0 },
+            signal,
+          )
+          if (answer.cancelled || answer.lost || (answer.lost === false && !answer.leaseUntil)) continue
+        } catch (error) {
+          this.log('no pude renovar el chunk; queda para otro reclamo', { chunk: chunk.chunkId, error: String(error) })
+          continue
+        }
+      }
       const pending = await this.play(chunk, engineRev, signal)
       if (pending) await this.uploadAll([pending], signal)
     }
@@ -602,6 +645,7 @@ export class Worker {
               cliVersion,
               cores: this.config.cores,
               version: WORKER_VERSION,
+              allowSlowBots: this.config.allowSlowBots,
               ...(engineFeatures.length ? { engineFeatures } : {}),
               ...(this.batchable
                 ? { batch: { maxChunks: BATCH_MAX_CHUNKS, maxGames: this.config.cores * BATCH_GAMES_PER_CORE } }
@@ -669,7 +713,7 @@ export class Worker {
     const keep = new Set(pendingOf(await this.readState()).flatMap((pending) => (pending.dir ? [pending.dir] : [])))
     for (const entry of await readdir(this.workDir)) {
       const path = join(this.workDir, entry)
-      if (!keep.has(path)) await rm(path, { recursive: true, force: true })
+      if (!keep.has(path) && !workDirInUse(path)) await rm(path, { recursive: true, force: true })
     }
   }
 }

@@ -1,6 +1,7 @@
-import { readFile, rm } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { isDeepStrictEqual } from 'node:util'
 import { engineVersion, runJob } from './engine.js'
+import { removeWorkDir } from './work-dir.js'
 
 export interface DeterminismReference {
   version: { engineRev: string; cliVersion: string }
@@ -36,7 +37,7 @@ export async function checkDeterminism(
         )
       }
     } finally {
-      await rm(dir, { recursive: true, force: true })
+      await removeWorkDir(dir)
     }
   }
 }

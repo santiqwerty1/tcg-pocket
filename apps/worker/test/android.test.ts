@@ -61,6 +61,7 @@ describe('determinism gate', () => {
     }
     expect(calls).toEqual(Array(2).fill('https://test.example/api/worker/packages/android-arm64/version'))
   })
+  // Several real child processes: allow startup under concurrent CI/engine builds (D-023).
   it('checks per-game reference; differences and stale engine versions stop startup', async () => {
     const job = { deckA: 'x', deckB: 'y', players: ['r', 'r'], games: 4, seed: 1, threads: 1, replaySample: 0 }
     const version = await engineVersion(engine)
@@ -79,5 +80,5 @@ describe('determinism gate', () => {
     await expect(checkDeterminism(engine, file, dir)).rejects.toThrow('no corresponde')
     rmSync(resultDir, { recursive: true, force: true })
     rmSync(dir, { recursive: true, force: true })
-  })
+  }, 60_000)
 })

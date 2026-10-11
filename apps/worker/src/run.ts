@@ -67,6 +67,7 @@ export async function run(argv: readonly string[], defaults: ConfigDefaults = {}
         server: config.server,
         cores: config.cores,
         priority: config.priority,
+        allowSlowBots: config.allowSlowBots,
         name: config.name,
         enginePath: config.enginePath,
         engineRev: version.engineRev,

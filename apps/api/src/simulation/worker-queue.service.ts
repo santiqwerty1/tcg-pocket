@@ -20,6 +20,8 @@ export const LEASE_MS = 3 * 60 * 1000
 const MAX_FAILURES = 3
 const LONG_POLL_MS = 25_000
 export const MAX_REPLAY_BYTES = 8 * 1024 * 1024
+/** D-025: filter whole jobs before taking any lease, preserving chunks and their seeds. */
+const SLOW_BOT_CODES = ['m', 'e3', 'e4', 'e5', 'e6', 'e7', 'e8', 'e9', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9']
 
 export interface WorkerHello {
   workerId: string
@@ -28,6 +30,8 @@ export interface WorkerHello {
   cliVersion?: string | undefined
   cores: number
   version?: string | undefined
+  /** Omitted by earlier workers: they keep accepting every bot. */
+  allowSlowBots?: boolean | undefined
   /** What its engine can do (`engine-cli version`), from worker 0.2.6 on. */
   engineFeatures?: string[] | undefined
   /** B2: the worker plays several pairings of one job in one engine process, up to these limits. */
@@ -178,6 +182,7 @@ export class WorkerQueueService {
     // H-018: a job played with the f bots needs an engine that says it has them («fairBots», capabilities.ts).
     const fairBot = canPlayFairBots(hello)
     const fairBotCodes = [...FAIR_BOT_CODES]
+    const allowSlowBots = hello.allowSlowBots ?? true
     const rows = await this.prisma.$queryRaw<{ id: number }[]>`
       UPDATE simulation_chunks SET status = 'leased', lease_until = now() + interval '3 minutes',
         worker_id = ${hello.workerId}, games_done = 0, started_at = COALESCE(started_at, now())
@@ -205,6 +210,7 @@ export class WorkerQueueService {
                OR ${metaConsistency}::boolean)
           AND (COALESCE(j.params->>'perGame', 'false') <> 'true' OR ${perGame}::boolean)
           AND (NOT (j.players && ${fairBotCodes}::text[]) OR ${fairBot}::boolean)
+          AND (${allowSlowBots}::boolean OR NOT (j.players && ${SLOW_BOT_CODES}::text[]))
           AND (c.status = 'queued' OR (c.status = 'leased' AND c.lease_until < now()))
         ORDER BY CASE WHEN j.kind IN ('explore', 'consistency') OR j.params ? 'lab' THEN 0 ELSE 1 END,
           j.priority DESC, p.left_count, j.created_at, j.id, c.idx

@@ -97,6 +97,7 @@ const helloSchema = z.object({
   cliVersion: z.string().max(40).optional(),
   cores: z.number().int().min(1).max(256),
   version: z.string().max(40).optional(),
+  allowSlowBots: z.boolean().default(true),
   engineFeatures: z.array(z.string().max(40)).max(32).optional(),
   batch: z
     .object({ maxChunks: z.number().int().min(1).max(256), maxGames: z.number().int().min(1).max(50_000) })

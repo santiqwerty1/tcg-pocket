@@ -5,7 +5,7 @@
  * sending those choices again: the same seed and choices give the same game. At the end, the result and the replay.
  */
 import { spawn } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -14,6 +14,7 @@ import { ApiError, type LiveGame, type Log, type WorkerClient } from './client.j
 import type { WorkerConfig } from './config.js'
 import { setEnginePriority } from './priority.js'
 import { WORKER_VERSION } from './version.js'
+import { createWorkDir, removeWorkDir } from './work-dir.js'
 
 /** An engine built before the coach (Fase 20) ignores `coach` in the job: say how to fix it. */
 export const OLD_ENGINE_COACH =
@@ -96,7 +97,7 @@ export class LiveRunner {
 
   /** Runs one game to its end (or until the owner abandons it). */
   async run(game: LiveGame, signal: AbortSignal): Promise<void> {
-    const dir = await mkdtemp(join(this.workDir, 'play-'))
+    const dir = createWorkDir(this.workDir, 'play-')
     const jobFile = join(dir, 'job.json')
     await writeFile(
       jobFile,
@@ -119,7 +120,12 @@ export class LiveRunner {
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
       stderr = (stderr + chunk).slice(-4000)
     })
-    const exited = new Promise<number | null>((resolve) => child.on('close', (code) => resolve(code)))
+    const exited = new Promise<number | null>((resolve) =>
+      child.on('close', (code, signal) => {
+        this.log('motor terminado', { command: 'play', pid: child.pid, exitCode: code, signal })
+        resolve(code)
+      }),
+    )
     const kill = () => child.kill()
     signal.addEventListener('abort', kill, { once: true })
     const actions: Record<string, unknown>[] = []
@@ -189,7 +195,8 @@ export class LiveRunner {
     } finally {
       signal.removeEventListener('abort', kill)
       if (!child.killed && child.exitCode === null) child.kill()
-      await rm(dir, { recursive: true, force: true }).catch(() => undefined)
+      await exited
+      await removeWorkDir(dir).catch(() => undefined)
     }
   }
 

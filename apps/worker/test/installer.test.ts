@@ -62,7 +62,7 @@ fs.writeFileSync(args[args.indexOf('--dump-header')+1],'HTTP/1.1 200 OK\\r\\nX-C
       await chmod(join(bin, name), 0o755)
     }
     const installer = join(import.meta.dirname, '../android/install.sh')
-    async function install(updating: boolean, widgets = 's', name = '', defaultName = 'Android') {
+    async function install(updating: boolean, widgets = 's', name = '', defaultName = 'Android', slowBots = '') {
       const child = spawn('script', ['-e', '-q', '-c', `bash ${quote(installer)} https://tcg.example`, '/dev/null'], {
         env: {
           ...process.env,
@@ -78,11 +78,12 @@ fs.writeFileSync(args[args.indexOf('--dump-header')+1],'HTTP/1.1 200 OK\\r\\nX-C
         'Token de worker',
         'Núcleos',
         `Nombre en la app (Enter = ${defaultName})`,
+        '¿Tomar también bots lentos (MCTS, profundidad 3 o más)? [s/N]',
         '¿Solo mientras carga?',
         '¿Arrancar al encender',
         '¿Accesos directos',
       ]
-      const answers = [updating ? '' : token, '', name, 'n', widgets, widgets]
+      const answers = [updating ? '' : token, '', name, slowBots, 'n', widgets, widgets]
       let step = 0,
         output = ''
       child.stdout.on('data', (data: Buffer) => {
@@ -111,11 +112,14 @@ fs.writeFileSync(args[args.indexOf('--dump-header')+1],'HTTP/1.1 200 OK\\r\\nX-C
       const configPath = join(root, 'data/config.json')
       const readConfig = async () => JSON.parse(await readFile(configPath, 'utf8'))
       expect((await readConfig()).name).toBe('Android')
+      expect((await readConfig()).allowSlowBots).toBe(false)
       await writeFile(configPath, JSON.stringify({ ...(await readConfig()), name: 'Android localhost' }))
-      await install(true, 's', 'Celu de Santi')
+      await install(true, 's', 'Celu de Santi', 'Android', 's')
       expect((await readConfig()).name).toBe('Celu de Santi')
+      expect((await readConfig()).allowSlowBots).toBe(true)
       await install(true, 's', '', 'Celu de Santi')
       expect((await readConfig()).name).toBe('Celu de Santi')
+      expect((await readConfig()).allowSlowBots).toBe(false)
       const curl = JSON.parse(await readFile(trace, 'utf8')) as { args: string[]; stdin: string; envToken?: string }
       expect(curl.stdin).toContain(`Authorization: Bearer ${token}`)
       expect(curl.args.join(' ')).not.toContain(token)
