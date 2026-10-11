@@ -11,6 +11,7 @@ import {
   exploreSeed,
   formatDifferenceEs,
   formatMetaScoreEs,
+  gamesByWeight,
   groupsOfCards,
   type MetaScore,
   metaGauntlet,
@@ -20,6 +21,11 @@ import {
   neighborhoodUsage,
   novelty,
   poolWeight,
+  raceDrops,
+  raceHalves,
+  robustnessEs,
+  robustnessOf,
+  roundGames,
   roundWinner,
   scoreBeats,
   scoreDifference,
@@ -82,6 +88,50 @@ describe('meta bank', () => {
       expect(rival.weight).toBeCloseTo(rival.share / gauntlet.coverage, 10)
       expect(rival.energies.length).toBeGreaterThan(0)
     }
+  })
+
+  it('fase 42, carreras: the halves of each rival, and who leaves after the first one', () => {
+    expect(raceHalves([60, 21, 10])).toEqual([
+      [30, 11, 5],
+      [30, 10, 5],
+    ])
+    const diff = (value: number, se: number) => ({
+      value,
+      se,
+      ci95: [value - 1.96 * se, value + 1.96 * se] as [number, number],
+    })
+    expect(
+      raceDrops([
+        { id: 1, complete: true, difference: diff(-12, 5) },
+        { id: 2, complete: true, difference: diff(-4, 5) },
+        { id: 3, complete: true, difference: diff(8, 5) },
+        { id: 4, complete: false, difference: null },
+        { id: 5, complete: true, difference: null },
+      ]),
+    ).toEqual([1, 4])
+    // Review of #53: off by default until measured; asked for, on.
+    expect(exploreConfig({}).race).toBe(false)
+    expect(exploreConfig({ race: true }).race).toBe(true)
+  })
+
+  it('fase 42: games by weight — the same total, at least a quarter of the even share, the heaviest the most', () => {
+    // 180 in all: 15 each, and the other 135 by weight (largest remainders).
+    expect(gamesByWeight(60, [0.5, 0.3, 0.2])).toEqual([83, 55, 42])
+    expect(gamesByWeight(10, [0.9, 0.1])).toEqual([10, 10])
+    expect(gamesByWeight(100, [0.97, 0.01, 0.01, 0.01])).toEqual([316, 28, 28, 28])
+    const many = gamesByWeight(60, [0.2, 0.15, 0.1, 0.1, 0.1, 0.1, 0.05, 0.05, 0.05, 0.05, 0.03, 0.02])
+    expect(many.reduce((sum, games) => sum + games, 0)).toBe(60 * 12)
+    expect(Math.min(...many)).toBeGreaterThanOrEqual(15)
+    expect(roundGames({ ...DEFAULT_EXPLORE_CONFIG, byWeight: false }, 60, [0.9, 0.1])).toEqual([60, 60])
+    expect(exploreConfig({}).byWeight).toBe(true)
+    expect(exploreConfig({}).confirmBot).toBe('e3')
+    expect(exploreConfig({ confirmBot: null }).confirmBot).toBeNull()
+    // Review of #49: three outcomes; «no alcanza» is not the bot disagreeing.
+    expect(robustnessOf('better')).toBe('robust')
+    expect(robustnessOf('worse')).toBe('bot_sensitive')
+    expect(robustnessOf('unclear')).toBe('inconclusive')
+    expect(robustnessEs('bot_sensitive', 'e3')).toMatch(/^sensible al bot: con e3 sale peor/)
+    expect(robustnessEs('inconclusive', 'e3')).toMatch(/^con e3 no alcanza para decir/)
   })
 
   it('T-017 D3: the most played archetypes bring a second list, and share their weight with it', () => {

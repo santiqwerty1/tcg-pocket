@@ -1644,6 +1644,10 @@ const exploreConfigSchema = z.object({
   /** H-010: games per rival of the verification round (0: none; absent in searches from before). */
   verifyGames: z.number().optional(),
   verifyZ: z.number().optional(),
+  /** Fase 42: games by weight, the replay with another bot, and carreras (absent in searches from before). */
+  byWeight: z.boolean().optional(),
+  confirmBot: z.string().nullable().optional(),
+  race: z.boolean().optional(),
 })
 export type ExploreConfig = z.infer<typeof exploreConfigSchema>
 
@@ -1690,6 +1694,8 @@ export const labJobSchema = z.object({
           decided: z.boolean(),
           /** T-017 D2: «Frenar y confirmar» cut this round short. */
           stopped: z.boolean().default(false),
+          /** Fase 42, carreras: the variants that left after the round's first half. */
+          dropped: z.array(z.number()).default([]),
         }),
       ),
       /** T-017 E2: archetype cards the search could not try because the collection has none. */
@@ -1708,6 +1714,21 @@ export const labJobSchema = z.object({
         .default([]),
       combos: z.array(z.number()).default([]),
       reverts: z.array(z.number()).default([]),
+      /** Fase 42: the confirmation played again with another bot, «robusto» or «sensible al bot». */
+      robustness: z
+        .object({
+          bot: z.string(),
+          jobId: z.number().nullable(),
+          status: z.string(),
+          verdict: z.enum(['better', 'unclear', 'worse']).nullable(),
+          verdictEs: z.string().nullable(),
+          differenceText: z.string().nullable(),
+          robustness: z.enum(['robust', 'bot_sensitive', 'inconclusive']).nullable(),
+          robustnessEs: z.string().nullable(),
+          error: z.string().nullable().default(null),
+        })
+        .nullable()
+        .default(null),
       /** H-010: what the confirmation says of the list found against the starting one. */
       confirmation: z
         .object({

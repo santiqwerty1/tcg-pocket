@@ -351,12 +351,20 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
+      byWeight: false,
+      confirmBot: null,
+      race: false,
     }
     const dry = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 5, config, dryRun: true })
     expect(dry.status).toBe(200)
     expect(dry.body.firstRound).toHaveLength(3)
     expect(dry.body.pool).toBeGreaterThan(50)
-    expect(dry.body.games).toEqual({ perRound: 4 * 5 * 10, max: (4 * 5 * 10 + 2 * 5 * 20) * 2 + 2 * 5 * 20 })
+    expect(dry.body.games).toEqual({
+      perRound: 4 * 5 * 10,
+      max: (4 * 5 * 10 + 2 * 5 * 20) * 2 + 2 * 5 * 20,
+      robustness: 0,
+    })
     // H-021: the plan says its seed, and that seed plays this same first round.
     expect(typeof dry.body.seed).toBe('number')
     const again = await post('/api/lab/explore').send({
@@ -519,6 +527,10 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
+      byWeight: false,
+      confirmBot: null,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9100 })
     expect(created.status).toBe(200)
@@ -557,6 +569,8 @@ describe('laboratorio (e2e)', () => {
       patience: 1,
       confirmGames: 20,
       pool: 'collection',
+      byWeight: false,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[0] }, size: 3, config, seed: 4000 })
     expect(created.status).toBe(200)
@@ -579,6 +593,10 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
+      byWeight: false,
+      confirmBot: null,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9402 })
     expect(created.status).toBe(200)
@@ -623,6 +641,10 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
+      byWeight: false,
+      confirmBot: null,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9500 })
     const id = created.body.id as number
@@ -655,6 +677,10 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
+      byWeight: false,
+      confirmBot: null,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9510 })
     const id = created.body.id as number
@@ -712,6 +738,10 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
+      byWeight: false,
+      confirmBot: null,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9520 })
     const id = created.body.id as number
@@ -749,6 +779,10 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
+      byWeight: false,
+      confirmBot: null,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9530 })
     const id = created.body.id as number
@@ -807,6 +841,10 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 0,
       pool: 'all',
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
+      byWeight: false,
+      confirmBot: null,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId }, size: 3, config, seed: 9700 })
     expect(created.status).toBe(200)
@@ -861,6 +899,359 @@ describe('laboratorio (e2e)', () => {
     await post(`/api/simulations/${id}/cancel`)
   }, 60_000)
 
+  it('fase 42: each rival plays by its weight, the same for every list; a confirmed find is replayed with e3', async () => {
+    const config = {
+      gamesPerRival: 20,
+      variantsPerRound: 2,
+      maxRounds: 1,
+      patience: 3,
+      confirmGames: 20,
+      verifyGames: 20,
+      pool: 'all',
+    }
+    const created = await post('/api/lab/explore').send({
+      deck: { deckId: deckIds[1] },
+      size: 3,
+      config: { ...config, race: false },
+      seed: 9800,
+    })
+    expect(created.status).toBe(200)
+    const id = created.body.id as number
+    const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })
+    const params = job.params as {
+      lab: { rivals: { snapshot: number; weight: number }[]; explore: { rounds: { candidates: number[] }[] } }
+    }
+    const [winner] = params.lab.explore.rounds[0]?.candidates ?? []
+    // Round 0: 3 lists × 3 rivals; each rival's games follow its weight (10 at least), 60 per list in all.
+    const chunks = await test.prisma.simulationChunk.findMany({ where: { jobId: id } })
+    const byRival = new Map<number, Set<number>>()
+    for (const chunk of chunks) {
+      const set = byRival.get(chunk.snapshotBId as number) ?? new Set<number>()
+      set.add(chunk.games)
+      byRival.set(chunk.snapshotBId as number, set)
+    }
+    expect([...byRival.values()].every((set) => set.size === 1)).toBe(true)
+    const perRival = params.lab.rivals.map((rival) => [...(byRival.get(rival.snapshot) ?? [])][0] ?? 0)
+    expect(perRival.reduce((sum, games) => sum + games, 0)).toBe(60)
+    expect(Math.min(...perRival)).toBeGreaterThanOrEqual(10)
+    const heaviest = params.lab.rivals.reduce(
+      (top, rival, at) => (rival.weight > (params.lab.rivals[top]?.weight ?? 0) ? at : top),
+      0,
+    )
+    expect(perRival[heaviest]).toBe(Math.max(...perRival))
+
+    // The winner wins 9 of 10 with any bot: verified, confirmed, and replayed with e3 as a test of its own.
+    const wins = (a: number, _b: number, games: number) =>
+      a === winner ? Math.round(games * 0.9) : Math.floor(games / 2)
+    expect(await playAll(wins, 9 + 6 + 6)).toBe(21)
+    const confirmed = (await get(`/api/lab/jobs/${id}`)).body
+    expect(confirmed.explore.confirmation).toMatchObject({ verdict: 'better' })
+    expect(confirmed.explore.robustness).toMatchObject({ bot: 'e3', status: 'queued', robustness: null })
+    const replay = await test.prisma.simulationJob.findUniqueOrThrow({
+      where: { id: confirmed.explore.robustness.jobId },
+    })
+    expect(replay).toMatchObject({
+      kind: 'compare',
+      players: ['e3', 'e3'],
+      label: `Confirmación con e3 de #${id}`,
+      // Review of #49: behind the rest (D-024).
+      priority: -1,
+    })
+    expect((replay.params as { lab: { robustnessOf: number } }).lab.robustnessOf).toBe(id)
+    expect(await playAll(wins)).toBe(6)
+    const done = (await get(`/api/lab/jobs/${id}`)).body
+    expect(done.explore.robustness).toMatchObject({
+      bot: 'e3',
+      status: 'done',
+      verdict: 'better',
+      robustness: 'robust',
+      robustnessEs: 'robusto: con e3 también sale mejor',
+    })
+    // The replay is not a test of the deck: its score stays the search's.
+    const score = await test.app.get(LabService).deckScore(Number(deckIds[1]))
+    expect(score?.jobId === replay.id).toBe(false)
+  }, 60_000)
+
+  it('review of #49: «sensible al bot» when e3 says worse, «no alcanza» when it cannot tell; none with e3 already', async () => {
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 2,
+      maxRounds: 1,
+      patience: 3,
+      confirmGames: 20,
+      verifyGames: 20,
+      pool: 'all',
+      race: false,
+    }
+    const search = async (seed: number, players?: [string, string]) => {
+      const created = await post('/api/lab/explore').send({
+        deck: { deckId: deckIds[1] },
+        size: 3,
+        config,
+        seed,
+        ...(players ? { players } : {}),
+      })
+      expect(created.status).toBe(200)
+      const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: created.body.id } })
+      const [winner] =
+        (job.params as { lab: { explore: { rounds: { candidates: number[] }[] } } }).lab.explore.rounds[0]
+          ?.candidates ?? []
+      return { id: created.body.id as number, winner: winner as number }
+    }
+    const findsIt = (winner: number) => (a: number, _b: number, games: number) =>
+      a === winner ? Math.round(games * 0.9) : Math.floor(games / 2)
+    const view = async (id: number) => (await get(`/api/lab/jobs/${id}`)).body
+
+    // e3 says the found list is worse: «sensible al bot».
+    const worse = await search(9810)
+    expect(await playAll(findsIt(worse.winner), 9 + 6 + 6)).toBe(21)
+    const replayId = (await view(worse.id)).explore.robustness.jobId as number
+    // Its games by weight, as the confirmation's: 60 per list in all, not 20 for every rival.
+    const replayChunks = await test.prisma.simulationChunk.findMany({ where: { jobId: replayId } })
+    const ofList = replayChunks.filter((chunk) => chunk.snapshotAId === worse.winner)
+    expect(ofList.reduce((sum, chunk) => sum + chunk.games, 0)).toBe(60)
+    expect(new Set(ofList.map((chunk) => chunk.games)).size).toBeGreaterThan(1)
+    expect(
+      await playAll((a, _b, games) => (a === worse.winner ? Math.round(games * 0.1) : Math.floor(games / 2))),
+    ).toBe(6)
+    expect((await view(worse.id)).explore.robustness).toMatchObject({
+      status: 'done',
+      verdict: 'worse',
+      robustness: 'bot_sensitive',
+    })
+
+    // e3 cannot tell (both at half): «no alcanza», not «sensible al bot».
+    const even = await search(9820)
+    expect(await playAll(findsIt(even.winner), 21)).toBe(21)
+    expect(await playAll((_a, _b, games) => Math.floor(games / 2))).toBe(6)
+    expect((await view(even.id)).explore.robustness).toMatchObject({
+      status: 'done',
+      verdict: 'unclear',
+      robustness: 'inconclusive',
+      robustnessEs: expect.stringMatching(/^con e3 no alcanza para decir/),
+    })
+
+    // A search already played with e3 is not replayed with it.
+    const withE3 = await search(9830, ['e3', 'e3'])
+    expect(await playAll(findsIt(withE3.winner), 21)).toBe(21)
+    const played = await view(withE3.id)
+    expect(played.explore.confirmation).toMatchObject({ verdict: 'better' })
+    expect(played.explore.robustness).toBeNull()
+
+    // A replay marked pending (the app restarted before queueing it) is queued by the sweep; cancelled, it says so.
+    const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: withE3.id } })
+    const params = job.params as { lab: { explore: { robustness?: unknown } } }
+    params.lab.explore.robustness = { jobId: null, bot: 'e2' }
+    await test.prisma.simulationJob.update({ where: { id: withE3.id }, data: { params: params as never } })
+    expect((await view(withE3.id)).explore.robustness).toMatchObject({ status: 'pending', jobId: null })
+    expect(await test.app.get(LabService).sweepRobustness()).toBe(1)
+    const swept = (await view(withE3.id)).explore.robustness
+    expect(swept).toMatchObject({ bot: 'e2', status: 'queued' })
+    expect(await test.app.get(LabService).sweepRobustness()).toBe(0)
+    await post(`/api/simulations/${swept.jobId}/cancel`)
+    expect((await view(withE3.id)).explore.robustness).toMatchObject({ status: 'cancelled', robustness: null })
+  }, 120_000)
+  it('fase 42, carreras: after the first half the clearly worse variant stops; the rest play the second half', async () => {
+    const config = {
+      gamesPerRival: 20,
+      variantsPerRound: 3,
+      maxRounds: 1,
+      patience: 3,
+      confirmGames: 0,
+      verifyGames: 0,
+      pool: 'all',
+      byWeight: false,
+      confirmBot: null,
+      // Off by default until measured (review of #53).
+      race: true,
+    }
+    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9900 })
+    expect(created.status).toBe(200)
+    const id = created.body.id as number
+    type Round = {
+      candidates: number[]
+      stage?: number
+      dropped?: number[]
+      stageIdx?: number
+      accepted: number | null
+    }
+    const read = async () =>
+      (
+        (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).params as {
+          lab: { explore: { base: number; rounds: Round[] } }
+        }
+      ).lab.explore
+    const [good, even, bad] = (await read()).rounds[0]?.candidates ?? []
+    if (good === undefined || even === undefined || bad === undefined) throw new Error('three variants')
+    // The first half: 4 lists × 3 rivals, 10 games each (half of 20).
+    const first = await test.prisma.simulationChunk.findMany({ where: { jobId: id }, orderBy: { idx: 'asc' } })
+    expect(first).toHaveLength(12)
+    expect(first.every((chunk) => chunk.games === 10 && chunk.firstGame === 0)).toBe(true)
+    const wins = (a: number, _b: number, games: number) =>
+      a === good ? Math.round(games * 0.9) : a === bad ? Math.round(games * 0.1) : Math.round(games / 2)
+    expect(await playAll(wins, 12)).toBe(12)
+    // The bad one (10 % against 50 %) leaves; the even one and the good one play the second half with the incumbent,
+    // from game 10, with seeds of their own (the same for every list against each rival).
+    const half = (await read()).rounds[0]
+    expect(half).toMatchObject({ stage: 2, dropped: [bad] })
+    const second = await test.prisma.simulationChunk.findMany({
+      where: { jobId: id, idx: { gte: half?.stageIdx ?? 0 } },
+      orderBy: { idx: 'asc' },
+    })
+    expect(second).toHaveLength(9)
+    expect(new Set(second.map((chunk) => chunk.snapshotAId))).toEqual(new Set([(await read()).base, good, even]))
+    expect(second.some((chunk) => chunk.snapshotAId === bad)).toBe(false)
+    expect(second.every((chunk) => chunk.games === 10 && chunk.firstGame === 10)).toBe(true)
+    const seedsOf = (rows: typeof first) => {
+      const byRival = new Map<number, Set<string>>()
+      for (const chunk of rows) {
+        const set = byRival.get(chunk.snapshotBId as number) ?? new Set<string>()
+        set.add(chunk.seed.toString())
+        byRival.set(chunk.snapshotBId as number, set)
+      }
+      return byRival
+    }
+    const firstSeeds = seedsOf(first)
+    for (const [rival, seeds] of seedsOf(second)) {
+      expect(seeds.size).toBe(1)
+      expect(firstSeeds.get(rival)?.has([...seeds][0] ?? '')).toBe(false)
+    }
+    expect(await playAll(wins)).toBe(9)
+    const lab = (await get(`/api/lab/jobs/${id}`)).body
+    expect(lab.explore).toMatchObject({ phase: 'done', best: good })
+    expect(lab.explore.rounds[0]).toMatchObject({ accepted: good, dropped: [bad] })
+    const total = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })
+    expect(total.totalGames).toBe(12 * 10 + 9 * 10)
+    // The one that left is measured against the incumbent on the first half.
+    const left = lab.decks.find((deck: { snapshot: number }) => deck.snapshot === bad)
+    expect(left.vsParent.value).toBeCloseTo(-40, 6)
+  }, 60_000)
+
+  it('review of #53: «Frenar» in a first half skips the second; an incumbent that missed a pairing keeps everyone', async () => {
+    const config = {
+      gamesPerRival: 20,
+      variantsPerRound: 2,
+      maxRounds: 2,
+      patience: 3,
+      confirmGames: 0,
+      verifyGames: 0,
+      pool: 'all',
+      byWeight: false,
+      confirmBot: null,
+      race: true,
+    }
+    type Round = { candidates: number[]; incumbent: number; stage?: number; dropped?: number[]; toIdx: number }
+    const read = async (id: number) =>
+      (
+        (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).params as {
+          lab: { explore: { rounds: Round[] } }
+        }
+      ).lab.explore
+    const half = (_a: number, _b: number, games: number) => Math.floor(games / 2)
+
+    // «Frenar» while the first half plays: it decides with what it has, no second half.
+    const stopped = (await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9910 }))
+      .body.id as number
+    expect(await playAll(half, 4)).toBe(4)
+    expect((await post(`/api/lab/jobs/${stopped}/stop`)).status).toBe(200)
+    const cut = (await read(stopped)).rounds[0]
+    expect(cut?.stage).toBe(1)
+    expect(cut?.dropped).toBeUndefined()
+    expect(await test.prisma.simulationChunk.count({ where: { jobId: stopped, idx: { gte: cut?.toIdx ?? 0 } } })).toBe(
+      0,
+    )
+    expect((await get(`/api/lab/jobs/${stopped}`)).body.job.status).toBe('done')
+
+    // The incumbent's first pairing fails in the first half: nobody can be compared with it, so nobody leaves, not even
+    // the variant at 10 %.
+    const failing = (await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9920 }))
+      .body.id as number
+    const start = (await read(failing)).rounds[0]
+    const [, bad] = start?.candidates ?? []
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const chunk = (await bearer('post', '/api/worker/claim').send({ ...hello, engineRev: test.env.engineRev })).body
+        .chunk as Structured
+      const row = await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: chunk.chunkId as number } })
+      expect(row.snapshotAId).toBe(start?.incumbent)
+      await bearer('put', `/api/worker/chunks/${row.id}/failure`).send({ workerId: hello.workerId, error: 'panic' })
+    }
+    expect(await playAll((a, _b, games) => (a === bad ? Math.round(games * 0.1) : Math.floor(games / 2)), 8)).toBe(8)
+    const kept = (await read(failing)).rounds[0]
+    expect(kept).toMatchObject({ stage: 2, dropped: [] })
+    expect(
+      await test.prisma.simulationChunk.count({ where: { jobId: failing, idx: { gte: start?.toIdx ?? 0 } } }),
+    ).toBe(9)
+    await post(`/api/simulations/${failing}/cancel`)
+  }, 60_000)
+
+  it('review of #53: with per-game results the two halves pair game by game', async () => {
+    const hello25 = { ...hello, workerId: 'worker-lab-race', version: '0.2.5', cliVersion: '0.2.0' }
+    await bearer('post', '/api/worker/claim').send({ ...hello25, engineRev: test.env.engineRev })
+    const config = {
+      gamesPerRival: 20,
+      variantsPerRound: 2,
+      maxRounds: 1,
+      patience: 3,
+      confirmGames: 0,
+      verifyGames: 0,
+      pool: 'all',
+      byWeight: false,
+      confirmBot: null,
+      race: true,
+    }
+    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9930 })
+    const id = created.body.id as number
+    const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })
+    expect((job.params as { perGame?: boolean }).perGame).toBe(true)
+    const [good, bad] =
+      (job.params as { lab: { explore: { rounds: { candidates: number[] }[] } } }).lab.explore.rounds[0]?.candidates ??
+      []
+    // Game i: the good one wins its first 9 of 10, the bad one its first 1, the rest their first 5 (the same games).
+    let played = 0
+    for (;;) {
+      const claim = await bearer('post', '/api/worker/claim').send({ ...hello25, engineRev: test.env.engineRev })
+      const chunk = claim.body.chunk as Structured | null
+      if (!chunk) break
+      const row = await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: chunk.chunkId as number } })
+      const rate = row.snapshotAId === good ? 0.9 : row.snapshotAId === bad ? 0.1 : 0.5
+      const winsA = Math.round(row.games * rate)
+      const each = (f: (i: number) => string) => Array.from({ length: row.games }, (_, i) => f(i)).join('')
+      await bearer('put', `/api/worker/chunks/${row.id}/result`).send({
+        workerId: hello25.workerId,
+        engineRev: test.env.engineRev,
+        winsA,
+        winsB: row.games - winsA,
+        ties: 0,
+        games: row.games,
+        durationMs: 100,
+        extra: {
+          perGame: {
+            winners: each((i) => (i < winsA ? 'A' : 'B')),
+            starters: each((i) => (i % 2 === 0 ? 'A' : 'B')),
+            endings: each(() => 'P'),
+            turns: Array.from({ length: row.games }, () => 12),
+            stagesA: each(() => '1'),
+            stagesB: each(() => '1'),
+          },
+        },
+      })
+      played += 1
+    }
+    // The first half (3 lists × 3 rivals), then the second half of the incumbent and the good one (2 × 3).
+    expect(played).toBe(9 + 6)
+    const lab = (await get(`/api/lab/jobs/${id}`)).body
+    expect(lab.explore.rounds[0]).toMatchObject({ accepted: good, dropped: [bad] })
+    const best = lab.decks.find((deck: { snapshot: number }) => deck.snapshot === good)
+    const left = lab.decks.find((deck: { snapshot: number }) => deck.snapshot === bad)
+    // Both halves together, game by game (20 games each against every rival), and the one out on its first half.
+    expect(best.vsParent).toMatchObject({ paired: true, complete: true })
+    expect(best.vsParent.value).toBeCloseTo(40, 6)
+    expect(left.vsParent).toMatchObject({ paired: true })
+    expect(left.vsParent.value).toBeCloseTo(-40, 6)
+    // The per-game worker leaves: the next tests' jobs must not ask for per-game results.
+    await test.prisma.workerNode.updateMany({ data: { lastSeenAt: new Date(Date.now() - 60 * 60 * 1000) } })
+  }, 60_000)
+
   it('review of #22: «Frenar» needs a session', async () => {
     expect((await test.http().post('/api/lab/jobs/1/stop')).status).toBe(401)
   })
@@ -874,6 +1265,10 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 0,
       pool: 'all',
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
+      byWeight: false,
+      confirmBot: null,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9600 })
     const id = created.body.id as number
@@ -992,6 +1387,10 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
+      byWeight: false,
+      confirmBot: null,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9200 })
     expect(created.status).toBe(200)

@@ -10,6 +10,7 @@
  * round plays the starting list and the one found with fresh seeds and more games; the search says it found a better
  * list only when the confirmation backs it. Bots play, not people: a lead is a hint to try, not a verdict.
  */
+import { splitGames } from '../simulation/consistency.js'
 import { chunkSeed } from '../simulation/seeds.js'
 import { type MetaScore, type ScoreDifference, scoreBeats, scoreDifference } from './score.js'
 
@@ -38,6 +39,22 @@ export interface ExploreConfig {
   verifyGames: number
   /** Standard errors it has to win by in the verification round (and the confirmation, to say «better»). */
   verifyZ: number
+  /**
+   * Fase 42: each rival's games follow its weight in the score, `games × rivals` per list and round in all (a rival of
+   * 2 % no longer costs what one of 15 % does). Absent in searches from before it: the same games for every rival.
+   */
+  byWeight?: boolean
+  /**
+   * Fase 42 (R-012): when the confirmation backs the list found, it is played again with this bot (both sides) and
+   * the search says «robusto» or «sensible al bot». null: not played. Absent in searches from before it.
+   */
+  confirmBot?: string | null
+  /**
+   * Fase 42, carreras: a search round is played in two halves; after the first, the variants clearly worse than the
+   * incumbent (`RACE_DROP_Z`) stop there and only the rest play the second half. Off by default until its wall time is
+   * measured with the real workers (review of #53: the round waits for its first half's slowest chunk).
+   */
+  race?: boolean
 }
 
 /** The «profunda» search Santi chose on 8/10/2026 (D-018): less noise, more changes tried, about an hour at most. */
@@ -51,6 +68,9 @@ export const DEFAULT_EXPLORE_CONFIG: ExploreConfig = {
   acceptZ: 1,
   verifyGames: 120,
   verifyZ: 1.645,
+  byWeight: true,
+  confirmBot: 'e3',
+  race: false,
 }
 
 export const EXPLORE_LIMITS = {
@@ -82,7 +102,84 @@ export function exploreConfig(input: Partial<ExploreConfig> = {}): ExploreConfig
     acceptZ: pick('acceptZ', false),
     verifyGames: pick('verifyGames'),
     verifyZ: pick('verifyZ', false),
+    byWeight: input.byWeight ?? true,
+    race: input.race ?? false,
+    confirmBot: input.confirmBot === undefined ? (DEFAULT_EXPLORE_CONFIG.confirmBot ?? null) : input.confirmBot,
   }
+}
+
+/**
+ * Fase 42: `perRival × weights.length` games split by weight (largest remainders), each rival with at least `min`
+ * (by default a quarter of the even share, and 10). The variance of a weighted score is Σ w² p(1 − p) / n: with n ∝ w
+ * it is p(1 − p) / N, against R Σ w² p(1 − p) / N with the same games for all (the B4a bank: R Σ w² ≈ 1,6).
+ */
+export function gamesByWeight(
+  perRival: number,
+  weights: readonly number[],
+  min = Math.max(10, Math.round(perRival / 4)),
+): number[] {
+  const total = perRival * weights.length
+  if (weights.length === 0 || total <= 0) return weights.map(() => 0)
+  const floor = Math.min(min, perRival)
+  const extra = splitGames(total - floor * weights.length, weights)
+  return extra.map((games) => games + floor)
+}
+
+/** The games of each rival in a round: by weight, or the same for all in a search from before fase 42. */
+export function roundGames(config: ExploreConfig, games: number, weights: readonly number[]): number[] {
+  return config.byWeight ? gamesByWeight(games, weights) : weights.map(() => games)
+}
+
+/**
+ * Fase 42, carreras: a variant leaves the round after its first half when its difference with the incumbent is below 0
+ * by this many standard errors (one-sided, about 84 %): with half the games it can no longer win the screen, which asks
+ * it to be above 0 by `acceptZ`.
+ */
+export const RACE_DROP_Z = 1
+
+/** Where a round's second half takes its seeds: rival `j` plays it with `exploreSeed(base, round, j + offset)`. */
+export const RACE_SEED_OFFSET = 500
+
+/** Each rival's games split in the two halves of a race (the first one rounded up). */
+export function raceHalves(games: readonly number[]): [number[], number[]] {
+  const first = games.map((count) => Math.ceil(count / 2))
+  return [first, games.map((count, at) => count - (first[at] ?? 0))]
+}
+
+/**
+ * The variants that leave a race after its first half: incomplete ones (a failed pairing: they cannot win) and those
+ * whose difference with the incumbent is below 0 by `z` standard errors.
+ */
+export function raceDrops(
+  candidates: readonly { id: number; complete: boolean; difference: ScoreDifference | null }[],
+  z = RACE_DROP_Z,
+): number[] {
+  return candidates
+    .filter(
+      (candidate) =>
+        !candidate.complete ||
+        (candidate.difference !== null && candidate.difference.value + z * candidate.difference.se < 0),
+    )
+    .map((candidate) => candidate.id)
+}
+
+export type Robustness = 'robust' | 'bot_sensitive' | 'inconclusive'
+
+/**
+ * What the replay with the other bot says (R-012): «robusto» when it also backs the list found, «sensible al bot» when
+ * it comes out worse, and «no alcanza» when it cannot tell (review of #49: with e3's games, about 37 % of real
+ * improvements land there, and that is not the bot disagreeing).
+ */
+export function robustnessOf(replayed: ConfirmVerdict): Robustness {
+  return replayed === 'better' ? 'robust' : replayed === 'worse' ? 'bot_sensitive' : 'inconclusive'
+}
+
+export function robustnessEs(robustness: Robustness, bot: string): string {
+  if (robustness === 'robust') return `robusto: con ${bot} también sale mejor`
+  if (robustness === 'bot_sensitive') {
+    return `sensible al bot: con ${bot} sale peor, probala en el juego antes de cambiar el mazo`
+  }
+  return `con ${bot} no alcanza para decir: ni mejor ni peor con esas partidas`
 }
 
 /** Rounds are this far apart in seed space: rival j of round r plays with chunk seed `base + r × stride + j`. */

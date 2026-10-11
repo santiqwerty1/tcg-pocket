@@ -203,10 +203,17 @@ export class McpLabToolsService {
               confirmation: explore.confirmation
                 ? `${explore.confirmation.differenceText}: ${explore.confirmation.verdictEs}`
                 : null,
+              // Fase 42: the confirmation played again with a stronger bot («robusto» / «sensible al bot»).
+              robustness: explore.robustness
+                ? (explore.robustness.robustnessEs ??
+                  `jugándose con ${explore.robustness.bot} (#${explore.robustness.jobId})`)
+                : null,
               rounds: explore.rounds.map((round) => ({
                 kind: { search: 'búsqueda', verify: 'verificación', confirm: 'confirmación' }[round.kind],
                 best: labelOf.get(round.incumbent) ?? round.incumbent,
                 tried: round.candidates.length,
+                // Fase 42, carreras: variants out after the round's first half.
+                leftAtHalf: round.dropped.length,
                 winner: round.accepted === null ? null : (labelOf.get(round.accepted) ?? round.accepted),
                 decided: round.decided,
               })),

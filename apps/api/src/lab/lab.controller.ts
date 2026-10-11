@@ -109,6 +109,12 @@ const exploreSchema = runSchema.extend({
       verifyGames: limit(EXPLORE_LIMITS.verifyGames),
       verifyZ: limit(EXPLORE_LIMITS.verifyZ),
       pool: z.enum(EXPLORE_POOLS).optional(),
+      /** Fase 42: each rival's games by its weight (default true). */
+      byWeight: z.boolean().optional(),
+      /** Fase 42: the bot that plays the confirmation again («robusto» / «sensible al bot»); null, none (default e3). */
+      confirmBot: botCode.nullable().optional(),
+      /** Fase 42, carreras: a search round in two halves, the clearly worse variants out after the first (default true). */
+      race: z.boolean().optional(),
     })
     .optional(),
 })

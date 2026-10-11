@@ -27,6 +27,7 @@ import {
   cardUsage,
   changeKey,
   checkEventDeck,
+  chunkSeed,
   comboVariant,
   confirmVerdict,
   DEFAULT_CONSISTENCY_GAMES,
@@ -81,9 +82,15 @@ import {
   perGameSummary,
   poolCaps,
   poolForZone,
+  RACE_SEED_OFFSET,
+  raceDrops,
+  raceHalves,
   randomBaseSeed,
   readPerGame,
   revertVariant,
+  robustnessEs,
+  robustnessOf,
+  roundGames,
   roundWinner,
   type ScoreDifference,
   SELECTABLE_ENERGIES,
@@ -223,6 +230,12 @@ interface ExploreRound {
   /** H-010: the search round's best variant that passed the screen and went to verification. */
   screened?: number | null
   decided: boolean
+  /** Fase 42, carreras: 1 while its first half plays, 2 once the second half (of the variants left) is queued. */
+  stage?: 1 | 2
+  /** Where its second half starts (chunk idx). */
+  stageIdx?: number
+  /** The variants that left after the first half (clearly worse than the incumbent, or incomplete). */
+  dropped?: number[]
   /** T-017 D2: «Frenar y confirmar» cut this round short (its chunks no worker had taken went away). */
   stopped?: boolean
 }
@@ -261,12 +274,16 @@ interface ExploreState {
   revertOf?: Record<string, number>
   /** T-017 D2: «Frenar y confirmar»: the round in play ends with what it has, then the confirmation. */
   stopRequested?: boolean
+  /** Fase 42 (R-012): the confirmation played again with `config.confirmBot`, a job of its own. */
+  robustness?: { jobId: number | null; bot: string; error?: string }
 }
 
 interface LabParams {
   mode: 'test' | 'explore'
   era: string
   format: TournamentFormat
+  /** Fase 42: this test is the confirmation of search #N played again with another bot. */
+  robustnessOf?: number
   size: number
   rivals: LabRival[]
   explore?: ExploreState
@@ -337,8 +354,10 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       })
       if (pending === 0) await this.advance(job.id)
     }
+    await this.sweepRobustness().catch((error: unknown) => this.logger.error({ err: error }, 'replay sweep failed'))
     this.sweepTimer = setInterval(() => {
       this.sweepPerGame().catch((error: unknown) => this.logger.error({ err: error }, 'perGame sweep failed'))
+      this.sweepRobustness().catch((error: unknown) => this.logger.error({ err: error }, 'replay sweep failed'))
     }, PER_GAME_SWEEP_MS)
     this.sweepTimer.unref()
   }
@@ -761,8 +780,9 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         config: ExploreConfig
         /** H-021: sent back, the search starts with these same first-round variants. */
         seed: number
-        games: { perRound: number; max: number }
-        estimatedSeconds: { perRound: number; max: number }
+        /** Fase 42: `robustness`, the replay of the confirmation with `confirmBot` when it backs what was found. */
+        games: { perRound: number; max: number; robustness: number }
+        estimatedSeconds: { perRound: number; max: number; robustness: number }
       }
   > {
     const config = exploreConfig(input.config)
@@ -812,6 +832,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     )
     const rivals = bank.gauntlet.rivals.length
     const games = exploreGames(config, rivals)
+    const robustnessGames = config.confirmBot && config.confirmGames > 0 ? 2 * rivals * config.confirmGames : 0
     if (input.dryRun) {
       const cores = input.cores ?? (await this.workerCores())
       return {
@@ -824,10 +845,14 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         })),
         config,
         seed: baseSeed,
-        games,
+        games: { ...games, robustness: robustnessGames },
         estimatedSeconds: {
           perRound: Math.round(estimateSeconds(games.perRound, players, cores)),
           max: Math.round(estimateSeconds(games.max, players, cores)),
+          robustness:
+            robustnessGames > 0 && config.confirmBot
+              ? Math.round(estimateSeconds(robustnessGames, [config.confirmBot, config.confirmBot], cores))
+              : 0,
         },
       }
     }
@@ -848,7 +873,11 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     const chunks = roundChunks(
       decks,
       rivalSnapshots.map((rival) => rival.id),
-      config.gamesPerRival,
+      // Fase 42: each rival's games by its weight; with carreras, the first half.
+      searchGames(
+        config,
+        lab.rivals.map((rival) => rival.weight),
+      ),
       baseSeed,
       0,
       0,
@@ -871,6 +900,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           toIdx: chunks.length,
           accepted: null,
           decided: false,
+          ...(config.race && variants.length > 1 ? { stage: 1 as const } : {}),
         },
       ],
       variants: Object.fromEntries(variants.map((variant) => [String(variant.id), { round: 0, parent: base.id }])),
@@ -980,6 +1010,120 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     return this.job(rawId)
   }
 
+  /**
+   * Fase 42 (R-012): the confirmation of search `parentId` played again with `config.confirmBot` (both sides) — the
+   * list found and the starting one against the same rivals' snapshots, with fresh seeds and each rival's games by its
+   * weight, as a test of its own («Confirmación con e3 de #N») that waits behind the rest (priority −1, D-024). The
+   * search marks it pending in the transaction that decides the confirmation; this queues it, now or from the sweep
+   * (review of #49), and a failure leaves it pending with the error for the next sweep.
+   */
+  private async enqueueRobustness(parentId: number): Promise<void> {
+    try {
+      const job = await this.prisma.simulationJob.findUniqueOrThrow({ where: { id: parentId } })
+      const params = job.params as unknown as JobParams
+      const state = params.lab.explore
+      const replay = state?.robustness
+      if (!state || !replay || replay.jobId !== null) return
+      const rivals = params.lab.rivals.filter((rival) => typeof rival.snapshot === 'number')
+      const { explore: _explore, ...lab } = params.lab
+      const child = await this.simulations.create({
+        kind: 'compare',
+        label: `Confirmación con ${replay.bot} de #${parentId}`,
+        sideA: [{ snapshotId: state.incumbent }, { snapshotId: state.base }],
+        sideB: rivals.map((rival) => ({ snapshotId: rival.snapshot as number })),
+        gamesPerPair: state.config.confirmGames,
+        // Review of #49: by weight, as the confirmation it replays.
+        gamesByRival: roundGames(
+          state.config,
+          state.config.confirmGames,
+          rivals.map((rival) => rival.weight),
+        ),
+        players: [replay.bot, replay.bot],
+        seed: chunkSeed(Number(job.baseSeed), 7_777_777),
+        replaySample: 0,
+        priority: -1,
+        lab: { ...lab, mode: 'test', robustnessOf: parentId } as unknown as Prisma.InputJsonValue,
+        ...(params.perGame ? { perGame: true } : {}),
+      })
+      await this.setRobustness(parentId, { jobId: child.id, bot: replay.bot })
+    } catch (error) {
+      this.logger.error({ err: error, job: parentId }, 'robustness confirmation not queued')
+      const message = error instanceof Error ? error.message : String(error)
+      await this.setRobustness(parentId, null, message.slice(0, 300)).catch(() => undefined)
+    }
+  }
+
+  /** Records the replay's job (or, with `error`, why it could not be queued yet) on its search. */
+  private async setRobustness(
+    parentId: number,
+    replay: { jobId: number; bot: string } | null,
+    error?: string,
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM simulation_jobs WHERE id = ${parentId} FOR UPDATE`
+      const fresh = await tx.simulationJob.findUniqueOrThrow({ where: { id: parentId } })
+      const params = fresh.params as unknown as JobParams
+      const state = params.lab.explore
+      if (!state?.robustness) return
+      state.robustness = replay ?? { ...state.robustness, ...(error ? { error } : {}) }
+      await tx.simulationJob.update({
+        where: { id: parentId },
+        data: { params: params as unknown as Prisma.InputJsonValue },
+      })
+    })
+  }
+
+  /** Fase 42: the replays a search marked pending and that are not queued yet (the app restarted, or it failed). */
+  async sweepRobustness(): Promise<number> {
+    const pending = await this.prisma.$queryRaw<{ id: number }[]>`
+      SELECT id FROM simulation_jobs
+      WHERE kind = 'explore' AND params->'lab'->'explore'->'robustness' IS NOT NULL
+        AND params->'lab'->'explore'->'robustness'->>'jobId' IS NULL`
+    for (const { id } of pending) await this.enqueueRobustness(id)
+    return pending.length
+  }
+
+  /** Fase 42: what the replay with another bot says of the list found against the starting one, once played. */
+  private async robustnessView(
+    state: ExploreState,
+    rivals: readonly { snapshot: number; weight: number }[],
+  ): Promise<LabExploreView['robustness']> {
+    const replay = state.robustness
+    if (!replay) return null
+    const empty = {
+      bot: replay.bot,
+      jobId: replay.jobId,
+      verdict: null,
+      verdictEs: null,
+      differenceText: null,
+      robustness: null,
+      robustnessEs: null,
+      error: replay.error ?? null,
+    }
+    if (replay.jobId === null) return { ...empty, status: 'pending' }
+    const job = await this.prisma.simulationJob.findUnique({ where: { id: replay.jobId }, select: { status: true } })
+    if (!job) return { ...empty, status: 'failed' }
+    const playing = { ...empty, status: job.status as string }
+    if (job.status !== 'done') return playing
+    const chunks = await this.prisma.simulationChunk.findMany({ where: { jobId: replay.jobId }, select: CHUNK_SELECT })
+    const all = () => true
+    const z = state.config.verifyZ ?? DEFAULT_EXPLORE_CONFIG.verifyZ
+    const paired = pairedOf(chunks, rivals, state.incumbent, state.base, all)
+    const found = paired
+      ? { verdict: differenceVerdict(paired, z), difference: paired }
+      : confirmVerdict(scoreOf(chunks, rivals, state.incumbent, all), scoreOf(chunks, rivals, state.base, all), z)
+    if (!found) return playing
+    const robustness = robustnessOf(found.verdict)
+    return {
+      ...playing,
+      verdict: found.verdict,
+      verdictEs: CONFIRM_VERDICT_ES[found.verdict],
+      differenceText: formatDifferenceEs(found.difference),
+      robustness,
+      robustnessEs: robustnessEs(robustness, replay.bot),
+    }
+  }
+
   private async workerCores(): Promise<number> {
     const worker = await this.prisma.workerNode.findFirst({ orderBy: { lastSeenAt: 'desc' }, select: { cores: true } })
     return worker?.cores ?? 2
@@ -991,6 +1135,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
    * row is locked so two results landing together advance it once.
    */
   async advance(jobId: number): Promise<void> {
+    // Fase 42: set when the confirmation backs the list found and the search plays it again with another bot.
+    let robust = false
     try {
       const queued = await this.prisma.$transaction(
         async (tx) => {
@@ -1033,8 +1179,73 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                   scoreOf(chunks, rivals, state.base, thisRound),
                   z,
                 )
+            // Fase 42 (R-012): is the improvement the bot's? Played again with another one, unless it is the same.
+            const bot = state.config.confirmBot
+            robust =
+              state.confirmed?.verdict === 'better' &&
+              !!bot &&
+              !(job.players[0] === bot && job.players[1] === bot) &&
+              !state.robustness
+            // Review of #49: marked here, in the transaction; queued right after it (or by the sweep).
+            if (robust && bot) state.robustness = { jobId: null, bot }
             return finish(null)
           }
+
+          // Fase 42, carreras: after a search round's first half, the clearly worse variants leave and the rest play the
+          // second half (seeds of their own, the same for every list). With «Frenar», what it has is decided now.
+          if (round.kind === 'search' && round.stage === 1 && !state.stopRequested) {
+            round.stage = 2
+            const difference = (id: number) => {
+              const x = scoreOf(chunks, rivals, id, thisRound)
+              const y = scoreOf(chunks, rivals, round.incumbent, thisRound)
+              return pairedOf(chunks, rivals, id, round.incumbent, thisRound) ?? (x && y ? scoreDifference(x, y) : null)
+            }
+            // Review of #53: if the incumbent missed a pairing, nobody can be compared with it: nobody leaves.
+            const incumbentWhole = complete(chunks, rivals, round.incumbent, thisRound)
+            round.dropped = incumbentWhole
+              ? raceDrops(
+                  round.candidates.map((id) => {
+                    const whole = complete(chunks, rivals, id, thisRound)
+                    return { id, complete: whole, difference: whole ? difference(id) : null }
+                  }),
+                )
+              : []
+            const survivors = round.candidates.filter((id) => !round.dropped?.includes(id))
+            if (survivors.length > 0) {
+              const [first, second] = raceHalves(
+                roundGames(
+                  state.config,
+                  state.config.gamesPerRival,
+                  rivals.map((rival) => rival.weight),
+                ),
+              )
+              const fromIdx = Math.max(round.toIdx, Math.max(-1, ...chunks.map((chunk) => chunk.idx)) + 1)
+              const half = roundChunks(
+                [round.incumbent, ...survivors],
+                rivals.map((rival) => rival.snapshot as number),
+                second,
+                Number(job.baseSeed),
+                round.index,
+                fromIdx,
+                { seedOffset: RACE_SEED_OFFSET, firstGame: first },
+              )
+              round.stageIdx = fromIdx
+              round.toIdx = fromIdx + half.length
+              await tx.simulationChunk.createMany({ data: half.map((chunk) => ({ ...chunk, jobId })) })
+              await tx.simulationJob.update({
+                where: { id: jobId },
+                data: {
+                  params: params as unknown as Prisma.InputJsonValue,
+                  totalGames: job.totalGames + half.reduce((sum, chunk) => sum + chunk.games, 0),
+                },
+              })
+              return true
+            }
+          }
+          // The first half of a race: what the variants that left were measured on.
+          const firstHalf = (chunk: ChunkRow) =>
+            chunk.idx >= round.fromIdx && chunk.idx < (round.stageIdx ?? round.toIdx)
+          const left = new Set(round.dropped ?? [])
 
           let accepted: number | null = null
           let verifyNext: number | null = null
@@ -1059,11 +1270,14 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           } else {
             // The screen: each candidate with this round's games; the incumbent without the round that picked it.
             const incumbentScore = scoreOf(chunks, rivals, state.incumbent, unbiasedGames(state, state.incumbent))
-            const candidates = round.candidates.map((id) => ({
-              id,
-              score: scoreOf(chunks, rivals, id, thisRound),
-              complete: complete(chunks, rivals, id, thisRound),
-            }))
+            // Fase 42, carreras: those that left after the first half are out of the screen.
+            const candidates = round.candidates
+              .filter((id) => !left.has(id))
+              .map((id) => ({
+                id,
+                score: scoreOf(chunks, rivals, id, thisRound),
+                complete: complete(chunks, rivals, id, thisRound),
+              }))
             // With per-game results, each candidate against the incumbent game by game in this same round (same seeds).
             const paired = candidates.map((candidate) => ({
               ...candidate,
@@ -1088,12 +1302,15 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             state,
             round,
             cardsOf,
-            // Review of #15: only what both played in full (a failed chunk would compare different rivals).
-            (id) =>
-              complete(chunks, rivals, id, thisRound) && complete(chunks, rivals, round.incumbent, thisRound)
-                ? (pairedOf(chunks, rivals, id, round.incumbent, thisRound)?.value ??
-                  independentDifference(chunks, rivals, id, round.incumbent, thisRound))
-                : null,
+            // Review of #15: only what both played in full (a failed chunk would compare different rivals). Fase 42: the
+            // variants that left a race, on its first half (what both played).
+            (id) => {
+              const games = left.has(id) ? firstHalf : thisRound
+              return complete(chunks, rivals, id, games) && complete(chunks, rivals, round.incumbent, games)
+                ? (pairedOf(chunks, rivals, id, round.incumbent, games)?.value ??
+                    independentDifference(chunks, rivals, id, round.incumbent, games))
+                : null
+            },
             this.catalog.requireIndex(),
           )
           // Review of #15: a swap the verification rejected leaves the combo list (its round flattered it).
@@ -1273,7 +1490,17 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             games = state.config.confirmGames
           }
           const seedRound = state.rounds.length
-          const next = roundChunks(decks, rivalIds, games, baseSeed, seedRound, nextIdx)
+          const weights = rivals.map((rival) => rival.weight)
+          // Fase 42, carreras: a search round with two or more variants plays its first half first.
+          const racing = kind === 'search' && !!state.config.race && decks.length > 2
+          const next = roundChunks(
+            decks,
+            rivalIds,
+            racing ? searchGames(state.config, weights) : roundGames(state.config, games, weights),
+            baseSeed,
+            seedRound,
+            nextIdx,
+          )
           state.rounds.push({
             index: seedRound,
             kind,
@@ -1283,6 +1510,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             toIdx: nextIdx + next.length,
             accepted: null,
             decided: false,
+            ...(racing ? { stage: 1 as const } : {}),
           })
           params.sideA = [...new Set([...params.sideA, ...decks])]
           // Review of #7: per-game results only while a worker that plays them is around, round by round.
@@ -1302,6 +1530,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         { timeout: 60_000 },
       )
       if (queued) this.queue.notifyQueued()
+      if (robust) await this.enqueueRobustness(jobId)
     } catch (error) {
       this.logger.error({ err: error, job: jobId }, 'explore round failed')
       await this.prisma.simulationJob.updateMany({
@@ -1373,7 +1602,9 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         orderBy: { id: 'desc' },
         select: { id: true, params: true, finishedAt: true },
       })
-    ).filter((job) => labMode(job.params) !== null)
+    )
+      // Fase 42: a search's replay with another bot is not a test of the deck (its search already is).
+      .filter((job) => labMode(job.params) !== null && !(job.params as unknown as JobParams).lab.robustnessOf)
     const views = new Map<number, LabJobView>()
     for (const [deckId, key] of keys) {
       const ids = idsByKey.get(key)
@@ -1554,6 +1785,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       listKey: rival.listKey,
       second: rival.second ?? false,
     }))
+    const robustness = state ? await this.robustnessView(state, scored) : null
     return {
       job: summary,
       mode,
@@ -1577,6 +1809,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               ...round,
               screened: round.screened ?? null,
               stopped: round.stopped ?? false,
+              dropped: round.dropped ?? [],
             })),
             leftOut: leftOutCards(state.frozen, state.config.pool, index, playable),
             learned: learnedChanges(state.learned ?? {}).map((change) => ({
@@ -1597,6 +1830,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                   )
                 : null,
             ),
+            robustness,
             locked: state.locked.map((groupId) => ({
               cardId: groupId,
               nameEs: index.groupById(groupId)?.nameEs ?? groupId,
@@ -1636,6 +1870,12 @@ function freezeInputs(pool: readonly PoolCard[], affinity: ReadonlyMap<CardId, n
     pool: pool.map((card) => [card.cardId, card.maxCopies, card.weight]),
     affinity: [...affinity].filter(([, share]) => share > 0),
   }
+}
+
+/** A search round's games by rival: by weight (fase 42), and only the first half with carreras. */
+function searchGames(config: ExploreConfig, weights: readonly number[]): number[] {
+  const games = roundGames(config, config.gamesPerRival, weights)
+  return config.race ? raceHalves(games)[0] : games
 }
 
 /** The frozen pool back as pool cards (a card the catalog no longer has is left out). */
@@ -1683,22 +1923,25 @@ function shortLabel(label: string): string {
 function roundChunks(
   decks: readonly number[],
   rivals: readonly number[],
-  games: number,
+  /** By rival (fase 42: by weight); the same for every list, so the lists of a round share each rival's seeds. */
+  games: readonly number[],
   baseSeed: number,
   round: number,
   fromIdx: number,
+  /** Fase 42, carreras: the second half's seeds (`RACE_SEED_OFFSET`) and where its games start, by rival. */
+  half?: { seedOffset: number; firstGame: readonly number[] },
 ): { idx: number; snapshotAId: number; snapshotBId: number; games: number; firstGame: number; seed: bigint }[] {
   const chunks: ReturnType<typeof roundChunks> = []
   for (const deck of decks) {
     for (const [at, rival] of rivals.entries()) {
-      if (deck === rival) continue
+      if (deck === rival || (games[at] ?? 0) <= 0) continue
       chunks.push({
         idx: fromIdx + chunks.length,
         snapshotAId: deck,
         snapshotBId: rival,
-        games,
-        firstGame: 0,
-        seed: BigInt(exploreSeed(baseSeed, round, at)),
+        games: games[at] ?? 0,
+        firstGame: half?.firstGame[at] ?? 0,
+        seed: BigInt(exploreSeed(baseSeed, round, at + (half?.seedOffset ?? 0))),
       })
     }
   }
@@ -1768,7 +2011,11 @@ function parentDifference(
   const search = state.rounds.find((item) => item.kind === 'search' && item.candidates.includes(id))
   if (!search) return null
   const range = (round: ExploreRound) => (chunk: ChunkRow) => chunk.idx >= round.fromIdx && chunk.idx < round.toIdx
-  const selection = measured(chunks, rivals, id, search.incumbent, range(search))
+  // Fase 42, carreras: a variant that left after the first half is compared on that half (what both played).
+  const searchRange = search.dropped?.includes(id)
+    ? (chunk: ChunkRow) => chunk.idx >= search.fromIdx && chunk.idx < (search.stageIdx ?? search.toIdx)
+    : range(search)
+  const selection = measured(chunks, rivals, id, search.incumbent, searchRange)
   // Review of #20: the round that picked it flatters it (the best of K); its verification, on fresh seeds, does not.
   const verify = state.rounds.find((item) => item.kind === 'verify' && item.candidates.includes(id))
   // Review of the stack: a round still in play is «jugando», not «incompleta».
@@ -1776,7 +2023,12 @@ function parentDifference(
     const main = measured(chunks, rivals, id, verify.incumbent, range(verify))
     return { main, measuredIn: 'verify', selection, playing: !verify.decided }
   }
-  return { main: selection, measuredIn: 'round', selection: null, playing: !search.decided }
+  return {
+    main: selection,
+    measuredIn: 'round',
+    selection: null,
+    playing: !search.decided && !search.dropped?.includes(id),
+  }
 }
 
 interface Measured {
@@ -1819,7 +2071,8 @@ function learnRound(
     const difference = differenceOf(id)
     if (difference === null) continue
     const swap = swapOf(parent, cardsOf(id), index, difference)
-    learnSwap(learned, swap, index)
+    // Review of #53: a variant that left a race was measured on half the round (and truncated there): it counts half.
+    learnSwap(learned, swap, index, round.dropped?.includes(id) ? 0.5 : 1)
     // A verification replays a swap already measured: it adds to the estimates, not to the swaps. Combos and undos
     // neither (review of the stack): a combo built on them would stack three or more changes, against C7.
     const special = state.combos?.includes(id) || state.reverts?.includes(id)

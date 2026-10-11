@@ -122,6 +122,12 @@ function UpdateOriginal({ deck, job, size }: { deck: LabDeck; job: LabJob; size:
       energies: base.energies,
     })
   const score = deck.confirm?.text ?? deck.search.text
+  // Review of #49: while the replay with another bot plays, the dialog says so.
+  const robustness = job.explore?.robustness
+  const replaying =
+    robustness && ['pending', 'queued', 'running'].includes(robustness.status) && deck.role === 'best'
+      ? robustness
+      : null
 
   async function apply() {
     if (!base?.deckId) return
@@ -168,6 +174,17 @@ function UpdateOriginal({ deck, job, size }: { deck: LabDeck; job: LabJob; size:
                 El mazo cambió desde que empezó la búsqueda: esos cambios también se reemplazan.
               </span>
             ) : null}
+            {replaying ? (
+              <span className="text-warning">
+                La confirmación con {replaying.bot} todavía se está jugando: si querés saber si la mejora depende del
+                bot, esperá a que termine.
+              </span>
+            ) : null}
+            {job.explore?.robustness?.robustness === 'bot_sensitive' ? (
+              <span className="text-warning">
+                Con {job.explore.robustness.bot} salió peor: probala en el juego antes.
+              </span>
+            ) : null}
           </span>
         }
         confirmLabel="Actualizar"
@@ -208,12 +225,58 @@ function FoundBetter({ job }: { job: LabJob }) {
           Encontró una versión mejor de «{base.label}»: {best.confirm?.text ?? best.search.text}
           {base.confirm ? ` (la de partida: ${base.confirm.text})` : ''}
           {confirmation ? `; ${confirmation.differenceText}` : ''}.
+          {job.explore.robustness?.robustnessEs ? ` ${capitalize(job.explore.robustness.robustnessEs)}.` : ''}
         </span>
         <span className="flex flex-wrap gap-2">
           <UpdateOriginal deck={best} job={job} size="default" />
         </span>
       </AlertDescription>
     </Alert>
+  )
+}
+
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
+
+type RobustnessView = NonNullable<NonNullable<LabJob['explore']>['robustness']>
+
+/** Fase 42: the confirmation played again with a stronger bot, in each of its states (review of #49). */
+function RobustnessLine({ robustness }: { robustness: RobustnessView }) {
+  const link =
+    robustness.jobId === null ? null : (
+      <>
+        {' '}
+        <Link to={`/laboratorio/${robustness.jobId}`} className="underline">
+          #{robustness.jobId}
+        </Link>
+      </>
+    )
+  if (robustness.robustnessEs) {
+    return (
+      <p className="text-sm">
+        Con {robustness.bot}: {robustness.differenceText}. {capitalize(robustness.robustnessEs)}.{link}
+      </p>
+    )
+  }
+  if (robustness.status === 'failed' || robustness.status === 'cancelled') {
+    return (
+      <p className="text-sm text-muted-foreground">
+        La confirmación con {robustness.bot} {robustness.status === 'failed' ? 'falló' : 'se canceló'}: el resultado
+        queda sin esa marca.{link}
+      </p>
+    )
+  }
+  if (robustness.status === 'pending') {
+    return (
+      <p className="text-sm text-muted-foreground">
+        La confirmación con {robustness.bot} está por encolarse
+        {robustness.error ? ` (no se pudo todavía: ${robustness.error}; se reintenta sola)` : ''}.
+      </p>
+    )
+  }
+  return (
+    <p className="text-sm text-muted-foreground">
+      Se está confirmando con {robustness.bot}, un bot más fuerte:{link}
+    </p>
   )
 }
 
@@ -441,6 +504,14 @@ function roundText(round: ExploreView['rounds'][number], explore: ExploreView, l
     round.candidates.some((id) => explore.combos.includes(id)) ? 'una junta los dos mejores cambios' : null,
     round.candidates.some((id) => explore.reverts.includes(id)) ? 'una deshace un cambio anterior' : null,
   ].filter(Boolean)
+  // Fase 42, carreras: the variants clearly worse after the first half did not play the second.
+  if (round.dropped.length > 0) {
+    notes.push(
+      round.dropped.length === 1
+        ? 'una quedó afuera a mitad de ronda'
+        : `${round.dropped.length} quedaron afuera a mitad de ronda`,
+    )
+  }
   const combo = notes.length > 0 ? ` (${notes.join('; ')})` : ''
   if (round.stopped) {
     // T-017 D2: an incomplete candidate cannot win; a complete one that wins is verified, then confirmed.
@@ -535,6 +606,7 @@ function ExploreSummary({ job }: { job: LabJob }) {
           {explore.confirmation.verdictEs}.
         </p>
       ) : null}
+      {explore.robustness ? <RobustnessLine robustness={explore.robustness} /> : null}
     </Section>
   )
 }
