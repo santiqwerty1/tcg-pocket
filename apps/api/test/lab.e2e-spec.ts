@@ -351,9 +351,10 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
-      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
       byWeight: false,
       confirmBot: null,
+      race: false,
     }
     const dry = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 5, config, dryRun: true })
     expect(dry.status).toBe(200)
@@ -526,9 +527,10 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
-      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
       byWeight: false,
       confirmBot: null,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9100 })
     expect(created.status).toBe(200)
@@ -568,6 +570,7 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       pool: 'collection',
       byWeight: false,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[0] }, size: 3, config, seed: 4000 })
     expect(created.status).toBe(200)
@@ -590,9 +593,10 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
-      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
       byWeight: false,
       confirmBot: null,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9402 })
     expect(created.status).toBe(200)
@@ -637,9 +641,10 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
-      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
       byWeight: false,
       confirmBot: null,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9500 })
     const id = created.body.id as number
@@ -672,9 +677,10 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
-      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
       byWeight: false,
       confirmBot: null,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9510 })
     const id = created.body.id as number
@@ -732,9 +738,10 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
-      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
       byWeight: false,
       confirmBot: null,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9520 })
     const id = created.body.id as number
@@ -772,9 +779,10 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
-      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
       byWeight: false,
       confirmBot: null,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9530 })
     const id = created.body.id as number
@@ -833,9 +841,10 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 0,
       pool: 'all',
-      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
       byWeight: false,
       confirmBot: null,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId }, size: 3, config, seed: 9700 })
     expect(created.status).toBe(200)
@@ -900,7 +909,12 @@ describe('laboratorio (e2e)', () => {
       verifyGames: 20,
       pool: 'all',
     }
-    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9800 })
+    const created = await post('/api/lab/explore').send({
+      deck: { deckId: deckIds[1] },
+      size: 3,
+      config: { ...config, race: false },
+      seed: 9800,
+    })
     expect(created.status).toBe(200)
     const id = created.body.id as number
     const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })
@@ -1037,6 +1051,79 @@ describe('laboratorio (e2e)', () => {
     await post(`/api/simulations/${swept.jobId}/cancel`)
     expect((await view(withE3.id)).explore.robustness).toMatchObject({ status: 'cancelled', robustness: null })
   }, 120_000)
+  it('fase 42, carreras: after the first half the clearly worse variant stops; the rest play the second half', async () => {
+    const config = {
+      gamesPerRival: 20,
+      variantsPerRound: 3,
+      maxRounds: 1,
+      patience: 3,
+      confirmGames: 0,
+      verifyGames: 0,
+      pool: 'all',
+      byWeight: false,
+      confirmBot: null,
+    }
+    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9900 })
+    expect(created.status).toBe(200)
+    const id = created.body.id as number
+    type Round = {
+      candidates: number[]
+      stage?: number
+      dropped?: number[]
+      stageIdx?: number
+      accepted: number | null
+    }
+    const read = async () =>
+      (
+        (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).params as {
+          lab: { explore: { base: number; rounds: Round[] } }
+        }
+      ).lab.explore
+    const [good, even, bad] = (await read()).rounds[0]?.candidates ?? []
+    if (good === undefined || even === undefined || bad === undefined) throw new Error('three variants')
+    // The first half: 4 lists × 3 rivals, 10 games each (half of 20).
+    const first = await test.prisma.simulationChunk.findMany({ where: { jobId: id }, orderBy: { idx: 'asc' } })
+    expect(first).toHaveLength(12)
+    expect(first.every((chunk) => chunk.games === 10 && chunk.firstGame === 0)).toBe(true)
+    const wins = (a: number, _b: number, games: number) =>
+      a === good ? Math.round(games * 0.9) : a === bad ? Math.round(games * 0.1) : Math.round(games / 2)
+    expect(await playAll(wins, 12)).toBe(12)
+    // The bad one (10 % against 50 %) leaves; the even one and the good one play the second half with the incumbent,
+    // from game 10, with seeds of their own (the same for every list against each rival).
+    const half = (await read()).rounds[0]
+    expect(half).toMatchObject({ stage: 2, dropped: [bad] })
+    const second = await test.prisma.simulationChunk.findMany({
+      where: { jobId: id, idx: { gte: half?.stageIdx ?? 0 } },
+      orderBy: { idx: 'asc' },
+    })
+    expect(second).toHaveLength(9)
+    expect(new Set(second.map((chunk) => chunk.snapshotAId))).toEqual(new Set([(await read()).base, good, even]))
+    expect(second.some((chunk) => chunk.snapshotAId === bad)).toBe(false)
+    expect(second.every((chunk) => chunk.games === 10 && chunk.firstGame === 10)).toBe(true)
+    const seedsOf = (rows: typeof first) => {
+      const byRival = new Map<number, Set<string>>()
+      for (const chunk of rows) {
+        const set = byRival.get(chunk.snapshotBId as number) ?? new Set<string>()
+        set.add(chunk.seed.toString())
+        byRival.set(chunk.snapshotBId as number, set)
+      }
+      return byRival
+    }
+    const firstSeeds = seedsOf(first)
+    for (const [rival, seeds] of seedsOf(second)) {
+      expect(seeds.size).toBe(1)
+      expect(firstSeeds.get(rival)?.has([...seeds][0] ?? '')).toBe(false)
+    }
+    expect(await playAll(wins)).toBe(9)
+    const lab = (await get(`/api/lab/jobs/${id}`)).body
+    expect(lab.explore).toMatchObject({ phase: 'done', best: good })
+    expect(lab.explore.rounds[0]).toMatchObject({ accepted: good, dropped: [bad] })
+    const total = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })
+    expect(total.totalGames).toBe(12 * 10 + 9 * 10)
+    // The one that left is measured against the incumbent on the first half.
+    const left = lab.decks.find((deck: { snapshot: number }) => deck.snapshot === bad)
+    expect(left.vsParent.value).toBeCloseTo(-40, 6)
+  }, 60_000)
 
   it('review of #22: «Frenar» needs a session', async () => {
     expect((await test.http().post('/api/lab/jobs/1/stop')).status).toBe(401)
@@ -1051,9 +1138,10 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 0,
       pool: 'all',
-      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
       byWeight: false,
       confirmBot: null,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9600 })
     const id = created.body.id as number
@@ -1172,9 +1260,10 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
-      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      // Fase 42: these predate the games by weight, the replay with e3 and carreras (their own tests below).
       byWeight: false,
       confirmBot: null,
+      race: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9200 })
     expect(created.status).toBe(200)

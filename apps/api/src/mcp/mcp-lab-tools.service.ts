@@ -212,6 +212,8 @@ export class McpLabToolsService {
                 kind: { search: 'búsqueda', verify: 'verificación', confirm: 'confirmación' }[round.kind],
                 best: labelOf.get(round.incumbent) ?? round.incumbent,
                 tried: round.candidates.length,
+                // Fase 42, carreras: variants out after the round's first half.
+                leftAtHalf: round.dropped.length,
                 winner: round.accepted === null ? null : (labelOf.get(round.accepted) ?? round.accepted),
                 decided: round.decided,
               })),

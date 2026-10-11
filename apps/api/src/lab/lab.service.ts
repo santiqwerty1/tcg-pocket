@@ -82,6 +82,9 @@ import {
   perGameSummary,
   poolCaps,
   poolForZone,
+  RACE_SEED_OFFSET,
+  raceDrops,
+  raceHalves,
   randomBaseSeed,
   readPerGame,
   revertVariant,
@@ -227,6 +230,12 @@ interface ExploreRound {
   /** H-010: the search round's best variant that passed the screen and went to verification. */
   screened?: number | null
   decided: boolean
+  /** Fase 42, carreras: 1 while its first half plays, 2 once the second half (of the variants left) is queued. */
+  stage?: 1 | 2
+  /** Where its second half starts (chunk idx). */
+  stageIdx?: number
+  /** The variants that left after the first half (clearly worse than the incumbent, or incomplete). */
+  dropped?: number[]
   /** T-017 D2: «Frenar y confirmar» cut this round short (its chunks no worker had taken went away). */
   stopped?: boolean
 }
@@ -864,10 +873,9 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     const chunks = roundChunks(
       decks,
       rivalSnapshots.map((rival) => rival.id),
-      // Fase 42: each rival's games by its weight.
-      roundGames(
+      // Fase 42: each rival's games by its weight; with carreras, the first half.
+      searchGames(
         config,
-        config.gamesPerRival,
         lab.rivals.map((rival) => rival.weight),
       ),
       baseSeed,
@@ -892,6 +900,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           toIdx: chunks.length,
           accepted: null,
           decided: false,
+          ...(config.race && variants.length > 1 ? { stage: 1 as const } : {}),
         },
       ],
       variants: Object.fromEntries(variants.map((variant) => [String(variant.id), { round: 0, parent: base.id }])),
@@ -1182,6 +1191,59 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             return finish(null)
           }
 
+          // Fase 42, carreras: after a search round's first half, the clearly worse variants leave and the rest play the
+          // second half (seeds of their own, the same for every list). With «Frenar», what it has is decided now.
+          if (round.kind === 'search' && round.stage === 1 && !state.stopRequested) {
+            round.stage = 2
+            const difference = (id: number) => {
+              const x = scoreOf(chunks, rivals, id, thisRound)
+              const y = scoreOf(chunks, rivals, round.incumbent, thisRound)
+              return pairedOf(chunks, rivals, id, round.incumbent, thisRound) ?? (x && y ? scoreDifference(x, y) : null)
+            }
+            const incumbentWhole = complete(chunks, rivals, round.incumbent, thisRound)
+            round.dropped = raceDrops(
+              round.candidates.map((id) => {
+                const whole = incumbentWhole && complete(chunks, rivals, id, thisRound)
+                return { id, complete: whole, difference: whole ? difference(id) : null }
+              }),
+            )
+            const survivors = round.candidates.filter((id) => !round.dropped?.includes(id))
+            if (survivors.length > 0 && incumbentWhole) {
+              const [first, second] = raceHalves(
+                roundGames(
+                  state.config,
+                  state.config.gamesPerRival,
+                  rivals.map((rival) => rival.weight),
+                ),
+              )
+              const fromIdx = Math.max(round.toIdx, Math.max(-1, ...chunks.map((chunk) => chunk.idx)) + 1)
+              const half = roundChunks(
+                [round.incumbent, ...survivors],
+                rivals.map((rival) => rival.snapshot as number),
+                second,
+                Number(job.baseSeed),
+                round.index,
+                fromIdx,
+                { seedOffset: RACE_SEED_OFFSET, firstGame: first },
+              )
+              round.stageIdx = fromIdx
+              round.toIdx = fromIdx + half.length
+              await tx.simulationChunk.createMany({ data: half.map((chunk) => ({ ...chunk, jobId })) })
+              await tx.simulationJob.update({
+                where: { id: jobId },
+                data: {
+                  params: params as unknown as Prisma.InputJsonValue,
+                  totalGames: job.totalGames + half.reduce((sum, chunk) => sum + chunk.games, 0),
+                },
+              })
+              return true
+            }
+          }
+          // The first half of a race: what the variants that left were measured on.
+          const firstHalf = (chunk: ChunkRow) =>
+            chunk.idx >= round.fromIdx && chunk.idx < (round.stageIdx ?? round.toIdx)
+          const left = new Set(round.dropped ?? [])
+
           let accepted: number | null = null
           let verifyNext: number | null = null
           if (round.kind === 'verify') {
@@ -1205,11 +1267,14 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           } else {
             // The screen: each candidate with this round's games; the incumbent without the round that picked it.
             const incumbentScore = scoreOf(chunks, rivals, state.incumbent, unbiasedGames(state, state.incumbent))
-            const candidates = round.candidates.map((id) => ({
-              id,
-              score: scoreOf(chunks, rivals, id, thisRound),
-              complete: complete(chunks, rivals, id, thisRound),
-            }))
+            // Fase 42, carreras: those that left after the first half are out of the screen.
+            const candidates = round.candidates
+              .filter((id) => !left.has(id))
+              .map((id) => ({
+                id,
+                score: scoreOf(chunks, rivals, id, thisRound),
+                complete: complete(chunks, rivals, id, thisRound),
+              }))
             // With per-game results, each candidate against the incumbent game by game in this same round (same seeds).
             const paired = candidates.map((candidate) => ({
               ...candidate,
@@ -1234,12 +1299,15 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             state,
             round,
             cardsOf,
-            // Review of #15: only what both played in full (a failed chunk would compare different rivals).
-            (id) =>
-              complete(chunks, rivals, id, thisRound) && complete(chunks, rivals, round.incumbent, thisRound)
-                ? (pairedOf(chunks, rivals, id, round.incumbent, thisRound)?.value ??
-                  independentDifference(chunks, rivals, id, round.incumbent, thisRound))
-                : null,
+            // Review of #15: only what both played in full (a failed chunk would compare different rivals). Fase 42: the
+            // variants that left a race, on its first half (what both played).
+            (id) => {
+              const games = left.has(id) ? firstHalf : thisRound
+              return complete(chunks, rivals, id, games) && complete(chunks, rivals, round.incumbent, games)
+                ? (pairedOf(chunks, rivals, id, round.incumbent, games)?.value ??
+                    independentDifference(chunks, rivals, id, round.incumbent, games))
+                : null
+            },
             this.catalog.requireIndex(),
           )
           // Review of #15: a swap the verification rejected leaves the combo list (its round flattered it).
@@ -1419,14 +1487,13 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             games = state.config.confirmGames
           }
           const seedRound = state.rounds.length
+          const weights = rivals.map((rival) => rival.weight)
+          // Fase 42, carreras: a search round with two or more variants plays its first half first.
+          const racing = kind === 'search' && !!state.config.race && decks.length > 2
           const next = roundChunks(
             decks,
             rivalIds,
-            roundGames(
-              state.config,
-              games,
-              rivals.map((rival) => rival.weight),
-            ),
+            racing ? searchGames(state.config, weights) : roundGames(state.config, games, weights),
             baseSeed,
             seedRound,
             nextIdx,
@@ -1440,6 +1507,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             toIdx: nextIdx + next.length,
             accepted: null,
             decided: false,
+            ...(racing ? { stage: 1 as const } : {}),
           })
           params.sideA = [...new Set([...params.sideA, ...decks])]
           // Review of #7: per-game results only while a worker that plays them is around, round by round.
@@ -1738,6 +1806,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               ...round,
               screened: round.screened ?? null,
               stopped: round.stopped ?? false,
+              dropped: round.dropped ?? [],
             })),
             leftOut: leftOutCards(state.frozen, state.config.pool, index, playable),
             learned: learnedChanges(state.learned ?? {}).map((change) => ({
@@ -1800,6 +1869,12 @@ function freezeInputs(pool: readonly PoolCard[], affinity: ReadonlyMap<CardId, n
   }
 }
 
+/** A search round's games by rival: by weight (fase 42), and only the first half with carreras. */
+function searchGames(config: ExploreConfig, weights: readonly number[]): number[] {
+  const games = roundGames(config, config.gamesPerRival, weights)
+  return config.race ? raceHalves(games)[0] : games
+}
+
 /** The frozen pool back as pool cards (a card the catalog no longer has is left out). */
 function thawPool(frozen: FrozenInputs, index: CatalogIndex): PoolCard[] {
   return frozen.pool.flatMap(([cardId, maxCopies, weight]) => {
@@ -1850,6 +1925,8 @@ function roundChunks(
   baseSeed: number,
   round: number,
   fromIdx: number,
+  /** Fase 42, carreras: the second half's seeds (`RACE_SEED_OFFSET`) and where its games start, by rival. */
+  half?: { seedOffset: number; firstGame: readonly number[] },
 ): { idx: number; snapshotAId: number; snapshotBId: number; games: number; firstGame: number; seed: bigint }[] {
   const chunks: ReturnType<typeof roundChunks> = []
   for (const deck of decks) {
@@ -1860,8 +1937,8 @@ function roundChunks(
         snapshotAId: deck,
         snapshotBId: rival,
         games: games[at] ?? 0,
-        firstGame: 0,
-        seed: BigInt(exploreSeed(baseSeed, round, at)),
+        firstGame: half?.firstGame[at] ?? 0,
+        seed: BigInt(exploreSeed(baseSeed, round, at + (half?.seedOffset ?? 0))),
       })
     }
   }
@@ -1931,7 +2008,11 @@ function parentDifference(
   const search = state.rounds.find((item) => item.kind === 'search' && item.candidates.includes(id))
   if (!search) return null
   const range = (round: ExploreRound) => (chunk: ChunkRow) => chunk.idx >= round.fromIdx && chunk.idx < round.toIdx
-  const selection = measured(chunks, rivals, id, search.incumbent, range(search))
+  // Fase 42, carreras: a variant that left after the first half is compared on that half (what both played).
+  const searchRange = search.dropped?.includes(id)
+    ? (chunk: ChunkRow) => chunk.idx >= search.fromIdx && chunk.idx < (search.stageIdx ?? search.toIdx)
+    : range(search)
+  const selection = measured(chunks, rivals, id, search.incumbent, searchRange)
   // Review of #20: the round that picked it flatters it (the best of K); its verification, on fresh seeds, does not.
   const verify = state.rounds.find((item) => item.kind === 'verify' && item.candidates.includes(id))
   // Review of the stack: a round still in play is «jugando», not «incompleta».
@@ -1939,7 +2020,12 @@ function parentDifference(
     const main = measured(chunks, rivals, id, verify.incumbent, range(verify))
     return { main, measuredIn: 'verify', selection, playing: !verify.decided }
   }
-  return { main: selection, measuredIn: 'round', selection: null, playing: !search.decided }
+  return {
+    main: selection,
+    measuredIn: 'round',
+    selection: null,
+    playing: !search.decided && !search.dropped?.includes(id),
+  }
 }
 
 interface Measured {

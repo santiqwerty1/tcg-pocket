@@ -21,6 +21,8 @@ import {
   neighborhoodUsage,
   novelty,
   poolWeight,
+  raceDrops,
+  raceHalves,
   robustnessEs,
   robustnessOf,
   roundGames,
@@ -86,6 +88,28 @@ describe('meta bank', () => {
       expect(rival.weight).toBeCloseTo(rival.share / gauntlet.coverage, 10)
       expect(rival.energies.length).toBeGreaterThan(0)
     }
+  })
+
+  it('fase 42, carreras: the halves of each rival, and who leaves after the first one', () => {
+    expect(raceHalves([60, 21, 10])).toEqual([
+      [30, 11, 5],
+      [30, 10, 5],
+    ])
+    const diff = (value: number, se: number) => ({
+      value,
+      se,
+      ci95: [value - 1.96 * se, value + 1.96 * se] as [number, number],
+    })
+    expect(
+      raceDrops([
+        { id: 1, complete: true, difference: diff(-12, 5) },
+        { id: 2, complete: true, difference: diff(-4, 5) },
+        { id: 3, complete: true, difference: diff(8, 5) },
+        { id: 4, complete: false, difference: null },
+        { id: 5, complete: true, difference: null },
+      ]),
+    ).toEqual([1, 4])
+    expect(exploreConfig({}).race).toBe(true)
   })
 
   it('fase 42: games by weight — the same total, at least a quarter of the even share, the heaviest the most', () => {

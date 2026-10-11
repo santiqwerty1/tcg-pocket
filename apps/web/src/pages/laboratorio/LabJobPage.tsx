@@ -504,6 +504,14 @@ function roundText(round: ExploreView['rounds'][number], explore: ExploreView, l
     round.candidates.some((id) => explore.combos.includes(id)) ? 'una junta los dos mejores cambios' : null,
     round.candidates.some((id) => explore.reverts.includes(id)) ? 'una deshace un cambio anterior' : null,
   ].filter(Boolean)
+  // Fase 42, carreras: the variants clearly worse after the first half did not play the second.
+  if (round.dropped.length > 0) {
+    notes.push(
+      round.dropped.length === 1
+        ? 'una quedó afuera a mitad de ronda'
+        : `${round.dropped.length} quedaron afuera a mitad de ronda`,
+    )
+  }
   const combo = notes.length > 0 ? ` (${notes.join('; ')})` : ''
   if (round.stopped) {
     // T-017 D2: an incomplete candidate cannot win; a complete one that wins is verified, then confirmed.

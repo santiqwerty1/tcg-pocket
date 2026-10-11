@@ -164,6 +164,8 @@ export interface LabExploreView {
     decided: boolean
     /** T-017 D2: «Frenar y confirmar» cut this round short. */
     stopped: boolean
+    /** Fase 42, carreras: the variants that left after the round's first half. */
+    dropped: number[]
   }[]
   /**
    * T-017 E2: cards most lists of the archetype play (30 % or more) that the search could not try because the

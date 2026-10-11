@@ -49,6 +49,11 @@ export interface ExploreConfig {
    * the search says «robusto» or «sensible al bot». null: not played. Absent in searches from before it.
    */
   confirmBot?: string | null
+  /**
+   * Fase 42, carreras: a search round is played in two halves; after the first, the variants clearly worse than the
+   * incumbent (`RACE_DROP_Z`) stop there and only the rest play the second half. Absent in searches from before it.
+   */
+  race?: boolean
 }
 
 /** The «profunda» search Santi chose on 8/10/2026 (D-018): less noise, more changes tried, about an hour at most. */
@@ -64,6 +69,7 @@ export const DEFAULT_EXPLORE_CONFIG: ExploreConfig = {
   verifyZ: 1.645,
   byWeight: true,
   confirmBot: 'e3',
+  race: true,
 }
 
 export const EXPLORE_LIMITS = {
@@ -96,6 +102,7 @@ export function exploreConfig(input: Partial<ExploreConfig> = {}): ExploreConfig
     verifyGames: pick('verifyGames'),
     verifyZ: pick('verifyZ', false),
     byWeight: input.byWeight ?? true,
+    race: input.race ?? true,
     confirmBot: input.confirmBot === undefined ? (DEFAULT_EXPLORE_CONFIG.confirmBot ?? null) : input.confirmBot,
   }
 }
@@ -120,6 +127,39 @@ export function gamesByWeight(
 /** The games of each rival in a round: by weight, or the same for all in a search from before fase 42. */
 export function roundGames(config: ExploreConfig, games: number, weights: readonly number[]): number[] {
   return config.byWeight ? gamesByWeight(games, weights) : weights.map(() => games)
+}
+
+/**
+ * Fase 42, carreras: a variant leaves the round after its first half when its difference with the incumbent is below 0
+ * by this many standard errors (one-sided, about 84 %): with half the games it can no longer win the screen, which asks
+ * it to be above 0 by `acceptZ`.
+ */
+export const RACE_DROP_Z = 1
+
+/** Where a round's second half takes its seeds: rival `j` plays it with `exploreSeed(base, round, j + offset)`. */
+export const RACE_SEED_OFFSET = 500
+
+/** Each rival's games split in the two halves of a race (the first one rounded up). */
+export function raceHalves(games: readonly number[]): [number[], number[]] {
+  const first = games.map((count) => Math.ceil(count / 2))
+  return [first, games.map((count, at) => count - (first[at] ?? 0))]
+}
+
+/**
+ * The variants that leave a race after its first half: incomplete ones (a failed pairing: they cannot win) and those
+ * whose difference with the incumbent is below 0 by `z` standard errors.
+ */
+export function raceDrops(
+  candidates: readonly { id: number; complete: boolean; difference: ScoreDifference | null }[],
+  z = RACE_DROP_Z,
+): number[] {
+  return candidates
+    .filter(
+      (candidate) =>
+        !candidate.complete ||
+        (candidate.difference !== null && candidate.difference.value + z * candidate.difference.se < 0),
+    )
+    .map((candidate) => candidate.id)
 }
 
 export type Robustness = 'robust' | 'bot_sensitive' | 'inconclusive'

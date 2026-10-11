@@ -1690,6 +1690,8 @@ export const labJobSchema = z.object({
           decided: z.boolean(),
           /** T-017 D2: «Frenar y confirmar» cut this round short. */
           stopped: z.boolean().default(false),
+          /** Fase 42, carreras: the variants that left after the round's first half. */
+          dropped: z.array(z.number()).default([]),
         }),
       ),
       /** T-017 E2: archetype cards the search could not try because the collection has none. */
