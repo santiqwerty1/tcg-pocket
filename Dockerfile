@@ -59,7 +59,8 @@ COPY --from=worker-engines /engine-out /engine-out
 RUN node apps/worker/scripts/package-android.mjs --engine /engine-out/engine-cli \
     --reference-engine /engine-out/reference-engine --vendor /engine-out/vendor --runtime-licenses /engine-out --out /android-package
 
-# The PCs' update package (D-026): worker.cjs, engine-cli.exe and its determinism reference, ~4 MB (no Node inside).
+# The PCs' update package (D-026): worker.cjs, engine-cli.exe, its determinism reference and the notices, ~2.7 MB
+# (no Node inside), as a reproducible tar.gz: the same worker and engine give the same sha256 on every deploy.
 FROM deps AS windows-package
 COPY apps/worker apps/worker
 COPY LICENSE tsconfig.base.json ./

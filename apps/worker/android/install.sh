@@ -19,9 +19,12 @@ work=$(mktemp -d "$root/install.XXXXXX")
 trap 'unset token; rm -rf -- "$work"' EXIT
 token=''
 name=Android
+autoUpdate=''
 if [[ -f $data/config.json ]]; then
   token=$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.argv[1])); process.stdout.write(c.token || "")' "$data/config.json")
   name=$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.argv[1])); process.stdout.write(typeof c.name === "string" && c.name.trim() && c.name !== "Android localhost" ? c.name : "Android")' "$data/config.json")
+  # D-026: a phone where updates were turned off keeps them off after a reinstall.
+  autoUpdate=$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.argv[1])); process.stdout.write(c.autoUpdate === false ? "false" : "")' "$data/config.json")
 fi
 printf 'Token de worker (se oculta; Enter conserva el guardado): ' >/dev/tty
 IFS= read -r -s answer </dev/tty
@@ -73,15 +76,25 @@ if (fs.existsSync(before) && fs.existsSync(state)) {
   }
 }
 NODE
+previous=''
+if [[ -L $root/current ]]; then previous=$(basename -- "$(readlink -- "$root/current")"); fi
 ln -sfn "$release" "$root/current"
+# D-026: the pointer the worker's updates and rollbacks read says the same as the link (and keeps the way back).
+node -e '
+const fs=require("fs"), path=require("path")
+const [releases,sha,previous]=process.argv.slice(1)
+const pointer={sha,previous:/^[0-9a-f]{64}$/.test(previous)&&previous!==sha?previous:null}
+const file=path.join(releases,"current.json"), temporary=file+".tmp"
+fs.writeFileSync(temporary,JSON.stringify(pointer,null,2)+"\n"); fs.renameSync(temporary,file)
+' "$root/releases" "$sha" "$previous"
 printf '%s' "$token" | node -e '
 const fs=require("fs"), path=require("path")
-const [dir,server,cores,charging,engine,name,slowBots]=process.argv.slice(1)
+const [dir,server,cores,charging,engine,name,slowBots,autoUpdate]=process.argv.slice(1)
 let token=""; process.stdin.setEncoding("utf8").on("data",d=>token+=d).on("end",()=>{
-  const config={server,token,cores:Number(cores),priority:"below_normal",name,enginePath:engine,onlyCharging:/^s$/i.test(charging),allowSlowBots:/^s$/i.test(slowBots)}
+  const config={server,token,cores:Number(cores),priority:"below_normal",name,enginePath:engine,onlyCharging:/^s$/i.test(charging),allowSlowBots:/^s$/i.test(slowBots),...(autoUpdate==="false"?{autoUpdate:false}:{})}
   const file=path.join(dir,"config.json")
   fs.writeFileSync(file,JSON.stringify(config,null,2)+"\n",{mode:0o600}); fs.chmodSync(file,0o600)
-})' "$data" "$server" "$cores" "$charging" "$root/current/engine-cli" "$name" "$slowBots"
+})' "$data" "$server" "$cores" "$charging" "$root/current/engine-cli" "$name" "$slowBots" "$autoUpdate"
 unset token
 mkdir -p "$PREFIX/bin"
 {

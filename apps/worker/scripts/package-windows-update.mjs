@@ -8,12 +8,12 @@
 //     [--runtime-licenses <dir with Rust's COPYRIGHT-library.html, licenses/ and LICENSE-mingw-w64.txt>] [--out <dir>]
 //
 // Writes windows-x64.tar.gz and windows-x64-version.json (what the API serves) and a copy named by version.
-import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { build } from 'esbuild'
 import { determinismReference } from './determinism-reference.mjs'
+import { writeTarGz } from './deterministic-tar.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const repo = resolve(root, '../..')
@@ -55,7 +55,12 @@ await build({
   outfile: join(dir, 'worker.cjs'),
   logLevel: 'warning',
 })
-copyFileSync(engine, join(dir, 'engine-cli.exe'))
+// The link date in the PE header is the only difference between two builds of the same code (zig's linker has no
+// option to leave it out): zeroed in the package's copy, so the same engine keeps the same sum. Windows does not use it
+// to run the program, and the header checksum is 0.
+const normalized = Buffer.from(pe)
+normalized.writeUInt32LE(0, peOffset + 8)
+writeFileSync(join(dir, 'engine-cli.exe'), normalized)
 copyFileSync(join(repo, 'LICENSE'), join(dir, 'LICENSE.txt'))
 // The notices of what the toolchain linked in (the image's build): Rust's libraries and the MinGW-w64 runtime.
 const runtimeLicenses = argument('--runtime-licenses', null)
@@ -81,11 +86,11 @@ de MinGW-w64 (LICENSE-mingw-w64.txt).
 rmSync(join(work, 'job.json'), { force: true })
 rmSync(join(work, 'result.json'), { force: true })
 
-// tar.gz with the folder tcg-worker/: Windows' bsdtar unpacks it on the PC (and writes it here, on Windows).
-const tar = process.platform === 'win32' ? join(process.env.SystemRoot ?? 'C:/Windows', 'System32', 'tar.exe') : 'tar'
+// tar.gz with the folder tcg-worker/, reproducible: the same files give the same sha256, so a deploy that changes
+// nothing in the worker or the engine does not make every PC download and restart (revisión del #50).
 const archive = join(out, `tcg-worker-${version}-windows-x64-update.tar.gz`)
 rmSync(archive, { force: true })
-execFileSync(tar, ['-czf', archive, '-C', work, 'tcg-worker'], { stdio: 'inherit' })
+await writeTarGz(dir, 'tcg-worker', archive, ['engine-cli.exe'])
 const sha = createHash('sha256').update(readFileSync(archive)).digest('hex')
 writeFileSync(`${archive}.sha256`, `${sha}  tcg-worker-${version}-windows-x64-update.tar.gz\n`)
 copyFileSync(archive, join(out, 'windows-x64.tar.gz'))

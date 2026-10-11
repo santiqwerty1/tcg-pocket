@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, copyFileSync, cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { build } from 'esbuild'
 import { determinismReference } from './determinism-reference.mjs'
+import { writeTarGz } from './deterministic-tar.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const repo = resolve(root, '../..')
@@ -31,6 +32,8 @@ const version = /WORKER_VERSION = '([^']+)'/.exec(readFileSync(join(root, 'src/v
 if (!version) throw new Error('Falta WORKER_VERSION')
 const work = join(out, 'android-package')
 const dir = join(work, 'tcg-worker')
+// From scratch: a file left by an earlier run would end up in the archive (and change its sum).
+rmSync(work, { recursive: true, force: true })
 mkdirSync(dir, { recursive: true })
 const reference = determinismReference(referenceEngine, work)
 const nativeVersion = reference.version
@@ -101,10 +104,10 @@ Las dependencias Rust y sus licencias están en engine/vendor. No se modificó d
 Los scripts originales de empaquetado están en apps/worker/scripts.
 `,
 )
-const tar = process.platform === 'win32' ? join(process.env.SystemRoot ?? 'C:/Windows', 'System32/tar.exe') : 'tar'
-execFileSync(tar, ['-czf', join(dir, 'sources.tar.gz'), '-C', work, 'sources'])
+// Reproducible archives (D-026): the phone downloads ~15 MB only when its worker or engine really changed.
+await writeTarGz(join(work, 'sources'), 'sources', join(dir, 'sources.tar.gz'))
 const archive = join(out, `tcg-worker-${version}-android-arm64.tar.gz`)
-execFileSync(tar, ['-czf', archive, '-C', work, 'tcg-worker'])
+await writeTarGz(dir, 'tcg-worker', archive, ['engine-cli', 'install.sh'])
 const sha = createHash('sha256').update(readFileSync(archive)).digest('hex')
 writeFileSync(`${archive}.sha256`, `${sha}  tcg-worker-${version}-android-arm64.tar.gz\n`)
 copyFileSync(archive, join(out, 'android-arm64.tar.gz'))

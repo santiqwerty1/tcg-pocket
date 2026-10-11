@@ -1012,9 +1012,9 @@ describe('self-update in the loop (D-026)', () => {
   })
   afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
 
-  /** What the loop uses of an Updater: `ready`, `check` and `intervalMs`. */
+  /** What the loop uses of an Updater: `ready`, `check`, `intervalMs` and `retryInMs`. */
   function fakeUpdater(check: (updater: { ready: ReadyRelease | null }) => ReadyRelease | null = () => null) {
-    const updater = { ready: null as ReadyRelease | null, intervalMs: 3_600_000, check: vi.fn() }
+    const updater = { ready: null as ReadyRelease | null, intervalMs: 3_600_000, check: vi.fn(), retryInMs: () => 0 }
     updater.check.mockImplementation(async () => check(updater))
     return updater
   }

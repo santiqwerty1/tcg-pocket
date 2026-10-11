@@ -8,6 +8,7 @@
 import { join } from 'node:path'
 import { chooseRelease, type Entry, loadRelease } from './bootstrap.js'
 import { dataDir } from './config.js'
+import { DETERMINISM_MISMATCH, DeterminismError } from './determinism.js'
 import { main as builtIn } from './portable.js'
 import { logger } from './run.js'
 import { supervise } from './supervisor.js'
@@ -45,6 +46,7 @@ start().then(
   (code) => process.exit(code),
   (error: unknown) => {
     console.error(error instanceof Error ? error.message : error)
-    process.exit(1)
+    // Another engine, or other games for the same seeds: the supervisor rolls back at once (D-026).
+    process.exit(error instanceof DeterminismError ? DETERMINISM_MISMATCH : 1)
   },
 )
