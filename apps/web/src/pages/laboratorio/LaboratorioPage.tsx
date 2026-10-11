@@ -51,14 +51,16 @@ function BankList({ bank }: { bank: LabBank }) {
         </p>
       ) : objective.kind === 'mine' ? (
         <p className="text-xs text-muted-foreground">
-          Mi meta en la era {bank.era}: los rivales de {objective.matched ?? 0} partidas, cada uno con el peso de
-          cuántas veces lo enfrentaste (una partida de hace {objective.halfLifeDays ?? 14} días pesa la mitad).
+          Mi meta en la era {bank.era}: los rivales de {objective.matched ?? 0} partidas (n efectivo{' '}
+          {formatNumber(objective.effectiveMatches ?? 0)}
+          {objective.orientative ? ', orientativo' : ''}), cada uno con el peso de cuántas veces lo enfrentaste (una
+          partida de hace {objective.halfLifeDays ?? 14} días pesa la mitad). Son el {pct(objective.coverage ?? 0)} de
+          tus partidas con rival, ponderadas por fecha. El intervalo de cada puntaje toma estos pesos como fijos.
           {(objective.unmatched ?? 0) > 0
             ? ` ${objective.unmatched} no se cuentan porque el rival no es un arquetipo de la era${
                 objective.unmatchedNames?.length ? ` (${objective.unmatchedNames.join(', ')})` : ''
               }: cargalo con el nombre que sugiere la lista.`
             : ''}
-          {objective.notice ? ` ${objective.notice}` : ''}
         </p>
       ) : (
         <p className="text-xs text-muted-foreground">
@@ -74,6 +76,9 @@ function BankList({ bank }: { bank: LabBank }) {
               {rival.archetypeName}
             </Link>
             <span className="shrink-0 text-xs text-muted-foreground tabular">
+              {objective.games?.[rival.archetypeId] !== undefined && !rival.second
+                ? `${objective.games[rival.archetypeId]} partidas · `
+                : ''}
               {pct(rival.share)} · peso {pct(rival.weight * 100)}
               {rival.second ? ' · segunda lista del arquetipo' : rival.rank > 0 ? ' · otra lista' : ''}
             </span>

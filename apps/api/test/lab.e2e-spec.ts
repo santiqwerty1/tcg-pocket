@@ -196,7 +196,7 @@ describe('laboratorio (e2e)', () => {
     const none = await get('/api/lab/bank?objective=mine')
     expect(none.status).toBe(422)
     expect(none.body.error.code).toBe('empty_bank')
-    // Three matches against the first, one against the second, one against something else, on the same day.
+    // Nine matches against the first, three against the second, one against something else, on the same day.
     const sets = await test.prisma.setRelease.findMany()
     const range = eraRange(
       'B4a',
@@ -210,7 +210,26 @@ describe('laboratorio (e2e)', () => {
     if (!range) throw new Error('no era B4a')
     const deck = await test.prisma.deck.findUniqueOrThrow({ where: { id: Number(deckIds[0]) } })
     const playedAt = new Date(range.from.getTime() + 86_400_000)
-    const opponents = [first.archetypeName, first.archetypeName, first.archetypeName, second.archetypeName, 'otro mazo']
+    // Review of #47: 4 matches against archetypes (an effective n under 10) are too few for a bank.
+    await test.prisma.match.createMany({
+      data: [first, first, first, second].map((rival) => ({
+        deckId: deck.id,
+        deckRevisionId: deck.currentRevisionId as number,
+        result: 'win' as const,
+        mode: 'competitive' as const,
+        opponentText: rival.archetypeName,
+        playedAt,
+      })),
+    })
+    const thin = await get('/api/lab/bank?objective=mine')
+    expect(thin.status).toBe(422)
+    expect(thin.body.error.message).toMatch(/^Todavía no alcanza/)
+    await test.prisma.match.deleteMany({ where: { deckId: deck.id } })
+    const opponents = [
+      ...Array.from({ length: 9 }, () => first.archetypeName),
+      ...Array.from({ length: 3 }, () => second.archetypeName),
+      'otro mazo',
+    ]
     await test.prisma.match.createMany({
       data: opponents.map((opponentText) => ({
         deckId: deck.id,
@@ -224,16 +243,17 @@ describe('laboratorio (e2e)', () => {
     const mine = (await get('/api/lab/bank?objective=mine&size=5')).body
     expect(mine.objective).toMatchObject({
       kind: 'mine',
-      labelEs: 'mi meta (4 partidas)',
-      matched: 4,
+      labelEs: 'mi meta (12 partidas)',
+      matched: 12,
       unmatched: 1,
       unmatchedNames: ['otro mazo'],
       halfLifeDays: 14,
-      // Fewer than 10 matches against archetypes: it still goes, and says it is thin (fase 44).
-      enough: false,
-      notice: expect.stringMatching(/^Todavía no alcanza/),
+      // All on the same day: an effective n of 12, under 30 (orientativo).
+      effectiveMatches: 12,
+      orientative: true,
     })
-    // All four on the same day: 3 to 1.
+    expect(mine.objective.games[first.archetypeId]).toBe(9)
+    // All on the same day: 9 to 3.
     expect(mine.rivals.map((rival: { archetypeId: string }) => rival.archetypeId)).toEqual([
       first.archetypeId,
       second.archetypeId,

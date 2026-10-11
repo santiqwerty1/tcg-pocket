@@ -407,16 +407,14 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     let gauntlet: Gauntlet
     let objective: LabObjectiveView
     if (input.objective === 'mine') {
-      // T-017 D4: «mi meta» as fase 44 measures it (MatchesService.myMeta: the same rivals, links and half-life as
-      // «¿Cuál llevo hoy?»), its shares as the bank's weights. Thin (under 10 matches) it still goes, with the notice.
-      const mine = await this.matches.myMeta({})
-      const targets = mine.shares.map((share) => ({ archetypeId: share.archetypeId, weight: share.share }))
-      if (targets.length === 0) {
-        throw new UnprocessableEntityException({
-          code: 'empty_bank',
-          message: `Todavía no hay partidas tuyas contra arquetipos de torneo: cargá el rival con el nombre que sugiere la lista.`,
-        })
+      // T-017 D4: «mi meta» as fase 44 measures it (MatchesService.myMeta: the same rivals, links, modes and half-life
+      // as «¿Cuál llevo hoy?», in the bank's era), its shares as the bank's weights. Review of #47: under 10 effective
+      // matches against archetypes it is too thin to weigh a bank with.
+      const mine = await this.matches.myMeta({ era: scope.era })
+      if (!mine.enough || mine.shares.length === 0) {
+        throw new UnprocessableEntityException({ code: 'empty_bank', message: mine.text })
       }
+      const targets = mine.shares.map((share) => ({ archetypeId: share.archetypeId, weight: share.share }))
       // T-017 D3: the first ones bring a second list (banks of 10 or more).
       gauntlet = customGauntlet(dataset, targets, { size, secondLists: secondListsFor(size), check })
       objective = {
@@ -424,10 +422,12 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         labelEs: `mi meta (${mine.matched} ${mine.matched === 1 ? 'partida' : 'partidas'})`,
         halfLifeDays: mine.halfLifeDays,
         matched: mine.matched,
+        effectiveMatches: Math.round(mine.effectiveMatches * 10) / 10,
+        orientative: mine.orientative,
+        coverage: mine.coverage,
         unmatched: mine.unmatched.reduce((sum, rival) => sum + rival.games, 0),
         unmatchedNames: mine.unmatched.slice(0, 5).map((rival) => rival.label),
-        enough: mine.enough,
-        ...(mine.enough ? {} : { notice: mine.text }),
+        games: Object.fromEntries(mine.shares.map((share) => [share.archetypeId, share.games])),
       }
     } else if (input.objective === 'rival') {
       // T-017 D4: one archetype, played by its two most representative lists.
