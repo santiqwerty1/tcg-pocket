@@ -15,12 +15,19 @@ describe('win share adjusted by the coin (Fase 44)', () => {
     const rate = coinAdjustedRate([...games(true, 15, 5), ...games(false, 3, 7), ...games(null, 4, 0)])
     expect(rate?.value).toBeCloseTo(52.5, 10)
     expect(rate?.plain).toBeCloseTo(60, 10)
-    expect(rate).toMatchObject({ games: 30, unknown: 4, orientative: false, firstShare: 75, secondShare: 30 })
+    // 20 and 10 matches a side are worth 26,7 balanced ones (4 / (1/20 + 1/10)), and 10 is under 15: orientative.
+    expect(rate).toMatchObject({ games: 30, unknown: 4, orientative: true, firstShare: 75, secondShare: 30 })
     expect(rate?.ci95[0]).toBeLessThan(52.5)
     expect(rate?.ci95[1]).toBeGreaterThan(52.5)
     expect(rate?.text).toBe(
-      'Ajustado por la moneda: 53 % (mitad empezando, 75 % en 20; mitad yendo segundo, 30 % en 10; IC 37–69 %). Sin ajustar: 60 %.',
+      'Ajustado por la moneda: 52,5 % (n = 30, IC 36,8–69,3 %, orientativo): mitad empezando (75 % en 20) y mitad yendo segundo (30 % en 10). Sin ajustar: 60 %.',
     )
+  })
+
+  it('orientative by the sides, not their sum: the balanced size under 30 or a side under 15', () => {
+    expect(coinAdjustedRate([...games(true, 20, 10), ...games(false, 12, 18)])?.orientative).toBe(false)
+    // 54 matches, but 14 going second.
+    expect(coinAdjustedRate([...games(true, 30, 10), ...games(false, 7, 7)])?.orientative).toBe(true)
   })
 
   it('a tie is a game not won; without a match on each side there is nothing to say', () => {

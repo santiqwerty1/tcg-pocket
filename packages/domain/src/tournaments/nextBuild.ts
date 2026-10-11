@@ -39,13 +39,18 @@ export function nextBuildCost(
   }
 }
 
+const copies = (count: number) => `${count} ${count === 1 ? 'copia' : 'copias'}`
+
 /**
- * What finishing a list costs, in words: its points (or how many copies have no point price) and how many copies can
- * be traded, which is said in both cases (Codex on #52: without a price it was lost).
+ * What finishing a list costs, in words: the points of the priced copies, plus the copies with no point price, and
+ * how many copies can be traded, which is said in every case (Codex on #52: without a price it was lost).
  */
-export function nextBuildCostText(row: { points: number | null; unpriced: number; tradeable: number }): string {
-  const price = row.points === null ? `${row.unpriced} copias sin precio en puntos` : `${row.points} puntos de sobre`
-  return `${price} (${row.tradeable} copias intercambiables)`
+export function nextBuildCostText(row: { points: number; unpriced: number; tradeable: number }): string {
+  const parts: string[] = []
+  if (row.points > 0 || row.unpriced === 0) parts.push(`${row.points.toLocaleString('es-AR')} puntos de sobre`)
+  if (row.unpriced > 0) parts.push(`${copies(row.unpriced)} sin precio en puntos`)
+  const tradeable = `${copies(row.tradeable)} ${row.tradeable === 1 ? 'intercambiable' : 'intercambiables'}`
+  return `${parts.join(' + ')} (${tradeable})`
 }
 
 export interface NextBuildRow {
@@ -54,8 +59,8 @@ export interface NextBuildRow {
   archetype: RecordRow
   /** The closest list of the archetype, with what the collection lacks. */
   closest: ListAgainstCollection
-  /** Points for every missing copy; null when some copy cannot be bought with points (`unpriced`). */
-  points: number | null
+  /** Points of the missing copies that can be bought with points; the rest are `unpriced`. */
+  points: number
   unpriced: number
   /** Missing copies of a card that can be traded. */
   tradeable: number
@@ -92,19 +97,16 @@ export function nextBuilds(
   for (const [archetypeId, closest] of best) {
     const archetype = recordOf(dataset, entriesOfArchetype(dataset, archetypeId))
     if (archetype.lists < minLists || !archetype.rate) continue
-    let points: number | null = 0
+    let points = 0
     let unpriced = 0
     let tradeable = 0
     for (const item of closest.missing as MissingCopies[]) {
-      const copies = item.need - item.have
+      const missing = item.need - item.have
       const cost = options.cost(item.groupId)
-      if (cost?.points == null) {
-        unpriced += copies
-        points = null
-      } else if (points !== null) {
-        points += cost.points * copies
-      }
-      if (cost?.tradeable) tradeable += copies
+      // A copy without a point price does not hide what the others cost (review of #52).
+      if (cost?.points == null) unpriced += missing
+      else points += cost.points * missing
+      if (cost?.tradeable) tradeable += missing
     }
     rows.push({ archetypeId, archetype, closest, points, unpriced, tradeable, built: options.built(archetypeId) })
   }

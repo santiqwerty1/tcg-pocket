@@ -162,7 +162,13 @@ export interface DeckComparisonView {
 /** Fase 44: «mi meta» — the rivals of my matches as shares of the era's tournament archetypes. */
 export interface MyMetaView extends MyMeta {
   era: string
-  filters: { mode: MatchMode | null; days: number | null }
+  /** First day counted: the era's start, or `days` ago when that is later. */
+  from: string | null
+  /** `modes`: the modes read (the one asked, or competitive and casual). */
+  filters: { mode: MatchMode | null; modes: MatchMode[]; days: number | null }
 }
 
-export type MyMetaSummary = Pick<MyMeta, 'text' | 'enough' | 'coverage' | 'matched'>
+export type MyMetaSummary = Pick<
+  MyMeta,
+  'text' | 'enough' | 'coverage' | 'matched' | 'effectiveMatches' | 'orientative'
+>

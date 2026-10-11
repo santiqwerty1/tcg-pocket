@@ -64,7 +64,7 @@ describe('¿Qué mazo armo después? (Fase 44)', () => {
             },
             closest: list('0123456789abcd', [{ groupId: 'B1-10', nameEs: 'Swablu', need: 2, have: 0 }]),
             points: 140,
-            unpriced: 0,
+            unpriced: 1,
             tradeable: 2,
             built: false,
           },
@@ -95,7 +95,10 @@ describe('¿Qué mazo armo después? (Fase 44)', () => {
     )
     expect(await screen.findByText('Mega Altaria ex Espeon')).toBeInTheDocument()
     expect(screen.getByText(/Swablu ×2/)).toBeInTheDocument()
-    expect(screen.getByText(/140 puntos de sobre · 2 intercambiables/)).toBeInTheDocument()
+    // Review of #52: a copy without a price does not hide the others' points.
+    expect(
+      screen.getByText(/140 puntos de sobre \+ 1 copia sin precio en puntos · 2 copias intercambiables/),
+    ).toBeInTheDocument()
     expect(screen.getByText('ya tenés uno')).toBeInTheDocument()
     expect(screen.getByText('Se arma hoy con tu colección.')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Hoy' }))

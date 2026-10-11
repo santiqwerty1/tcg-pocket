@@ -20,6 +20,21 @@ const REACH = [
   { value: 8, label: 'Hasta 8' },
 ] as const
 
+const copies = (count: number) => `${count} ${count === 1 ? 'copia' : 'copias'}`
+
+/** Points of the priced copies, plus the ones without a point price, and what can be traded (review of #52). */
+function costText(row: NextBuild['rows'][number]): string {
+  const parts: string[] = []
+  const points = row.points ?? 0
+  if (points > 0 || row.unpriced === 0) parts.push(`${formatCount(points)} puntos de sobre`)
+  if (row.unpriced > 0) parts.push(`${copies(row.unpriced)} sin precio en puntos`)
+  if (row.tradeable > 0) {
+    parts[parts.length - 1] +=
+      ` · ${copies(row.tradeable)} ${row.tradeable === 1 ? 'intercambiable' : 'intercambiables'}`
+  }
+  return parts.join(' + ')
+}
+
 function Row({ row }: { row: NextBuild['rows'][number] }) {
   const { archetype, closest } = row
   const id = archetype.archetype.id ?? 'none'
@@ -48,14 +63,7 @@ function Row({ row }: { row: NextBuild['rows'][number] }) {
         ) : (
           <>
             Falta: {closest.missing.map((item) => `${item.nameEs} ×${item.need - item.have}`).join(', ')}
-            <span className="text-muted-foreground">
-              {' '}
-              ·{' '}
-              {row.points === null
-                ? `${row.unpriced} sin precio en puntos`
-                : `${formatCount(row.points)} puntos de sobre`}
-              {row.tradeable > 0 ? ` · ${row.tradeable} intercambiables` : ''}
-            </span>
+            <span className="text-muted-foreground"> · {costText(row)}</span>
           </>
         )}
       </p>

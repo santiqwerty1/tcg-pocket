@@ -9,7 +9,7 @@ import { Injectable } from '@nestjs/common'
 import type { DeckCardEntry, GameRecord, WinRate } from '@tcg/domain'
 import { type DeckLabScore, LabService } from '../lab/lab.service.js'
 import type { MyMetaSummary } from '../matches/match-views.js'
-import { MatchesService } from '../matches/matches.service.js'
+import { MatchesService, myMetaSummary } from '../matches/matches.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import type { DeckTournamentView } from '../tournaments/tournament-views.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
@@ -67,7 +67,10 @@ export class PickService {
     const mineMeta = asked === 'mine' ? await this.matches.myMeta({}).catch(() => null) : null
     const used: PickMeta = mineMeta?.enough ? 'mine' : 'tournament'
     const today = await this.tournaments
-      .todayExpectations({}, used === 'mine' && mineMeta ? { shares: mineMeta.shares } : {})
+      .todayExpectations(
+        {},
+        used === 'mine' && mineMeta ? { shares: mineMeta.shares, sharesSample: mineMeta.effectiveMatches } : {},
+      )
       .catch(() => null)
     const scores = await this.lab.deckScores(decks.map((deck) => deck.id)).catch(() => new Map<number, DeckLabScore>())
     const items: PickRowView[] = []
@@ -128,14 +131,12 @@ export class PickService {
       weights: {
         asked,
         used,
-        mine: mineMeta
-          ? { text: mineMeta.text, enough: mineMeta.enough, coverage: mineMeta.coverage, matched: mineMeta.matched }
-          : null,
+        mine: mineMeta ? myMetaSummary(mineMeta) : null,
       },
       items,
       note:
         used === 'mine'
-          ? 'Tres números separados: tus partidas, lo que el arquetipo del mazo debería sacar contra los rivales que te tocan a vos (tus partidas recientes, con los matchups de torneos entre personas), y el último puntaje del Laboratorio (bots). No se combinan: ordená por el que te importe.'
+          ? 'Tres números separados: tus partidas, lo que el arquetipo del mazo debería sacar según torneos (personas) pesado por tus rivales de la era («mi meta»: los matchups son de torneos, los pesos salen de tus partidas, y su intervalo cuenta las dos cosas), y el último puntaje del Laboratorio (bots). No se combinan: ordená por el que te importe.'
           : 'Tres números separados: tus partidas, lo que el arquetipo del mazo debería sacar contra el meta de los últimos días según torneos (personas), y el último puntaje del Laboratorio (bots). No se combinan: ordená por el que te importe.',
     }
   }

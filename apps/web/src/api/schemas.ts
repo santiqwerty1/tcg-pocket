@@ -705,17 +705,30 @@ export const deckComparisonSchema = z.object({ deck: matchDeckRefSchema, columns
 export const myMetaSummarySchema = z.object({
   text: z.string(),
   enough: z.boolean(),
+  /** Weighted by age, 0–100. */
   coverage: z.number(),
   matched: z.number(),
+  /** Kish's effective sample size of the matched matches. */
+  effectiveMatches: z.number().default(0),
+  orientative: z.boolean().default(true),
 })
 export type MyMetaSummary = z.infer<typeof myMetaSummarySchema>
 
 export const myMetaSchema = myMetaSummarySchema.extend({
   era: z.string(),
+  from: z.string().nullable().default(null),
   halfLifeDays: z.number(),
   matches: z.number(),
   withoutRival: z.number(),
-  shares: z.array(z.object({ archetypeId: z.string(), name: z.string(), share: z.number(), games: z.number() })),
+  shares: z.array(
+    z.object({
+      archetypeId: z.string(),
+      name: z.string(),
+      share: z.number(),
+      ci95: z.tuple([z.number(), z.number()]).nullable().default(null),
+      games: z.number(),
+    }),
+  ),
   unmatched: z.array(z.object({ key: z.string(), label: z.string(), games: z.number() })),
 })
 export type MyMeta = z.infer<typeof myMetaSchema>

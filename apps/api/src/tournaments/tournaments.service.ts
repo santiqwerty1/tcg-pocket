@@ -371,8 +371,11 @@ export class TournamentsService {
    */
   async todayExpectations(
     query: ScopeQuery = {},
-    /** Fase 44: other weights for the rivals («mi meta»); by default, the recent meta. */
-    options: { shares?: readonly { archetypeId: string; share: number }[] } = {},
+    /**
+     * Fase 44: other weights for the rivals («mi meta»), and the effective matches they were read from, so their own
+     * sampling error joins the interval; by default, the recent meta (known shares).
+     */
+    options: { shares?: readonly { archetypeId: string; share: number }[]; sharesSample?: number | undefined } = {},
   ): Promise<{
     scope: Scope
     dataset: TournamentDataset
@@ -393,6 +396,7 @@ export class TournamentsService {
       expected: (archetypeId) =>
         expectedVsMeta(matchups, dataset, aliases.get(archetypeId) ?? archetypeId, {
           shares: options.shares ?? meta.shares,
+          sharesSample: options.shares ? options.sharesSample : undefined,
         }),
       place: (cards, ownerArchetypeId) => this.placeDeck(scope, dataset, aliases, cards, ownerArchetypeId),
     }
@@ -450,9 +454,13 @@ export class TournamentsService {
     }
   }
 
-  /** Fase 44: the era's archetypes (canonical id and name) and the owner's merges, to read «mi meta». */
+  /**
+   * Fase 44: the era's archetypes (canonical id and name), its dates and the owner's merges, to read «mi meta» over
+   * the same era as the tournament numbers it weighs.
+   */
   async eraArchetypes(query: ScopeQuery = {}): Promise<{
     era: string
+    range: { from: Date; to: Date | null } | null
     archetypes: { id: string; name: string }[]
     canonical: (id: string) => string
   }> {
@@ -461,21 +469,28 @@ export class TournamentsService {
     const aliases = await this.settings.aliases()
     return {
       era: scope.era,
+      range: eraRange(scope.era, scope.sets),
       archetypes: [...dataset.archetypes.values()].map((ref) => ({ id: ref.id, name: ref.name })),
       canonical: (id) => aliases.get(id) ?? id,
     }
   }
 
-  /** Fase 44: what an archetype should score with the rivals weighted by `shares` («mi meta») instead of the era's. */
+  /**
+   * Fase 44: what an archetype should score with the rivals weighted by `shares` («mi meta») instead of the era's;
+   * `sample` is the effective matches the shares come from, so their sampling error widens the interval.
+   */
   async expectedWith(
     archetypeId: string,
-    shares: readonly { archetypeId: string; share: number }[],
+    weights: { shares: readonly { archetypeId: string; share: number }[]; sample: number },
     query: ScopeQuery = {},
   ): Promise<ExpectedVsMetaView | null> {
     const scope = await this.scope(query)
     const dataset = await this.dataset(scope)
     const canonical = (await this.settings.aliases()).get(archetypeId) ?? archetypeId
-    return expectedVsMeta(await this.matchupsOf(dataset), dataset, canonical, { shares })
+    return expectedVsMeta(await this.matchupsOf(dataset), dataset, canonical, {
+      shares: weights.shares,
+      sharesSample: weights.sample,
+    })
   }
 
   /** One archetype against each rival (Fase 9), for the deck sheet and Claude. */

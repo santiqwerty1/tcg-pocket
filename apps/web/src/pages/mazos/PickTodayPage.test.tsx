@@ -20,10 +20,12 @@ const answer = (used: 'tournament' | 'mine') => ({
     mine:
       used === 'mine'
         ? {
-            text: 'Tu meta (12 partidas contra arquetipos de torneo, las recientes pesan más): Hoopa ex 67 %.',
+            text: 'Tu meta (12 partidas contra arquetipos de torneo, 12 efectivas, porque las recientes pesan más; orientativo): Hoopa ex 66,7 % (IC 39,1–86,2 %).',
             enough: true,
             coverage: 86,
             matched: 12,
+            effectiveMatches: 12,
+            orientative: true,
           }
         : null,
   },
@@ -55,8 +57,10 @@ describe('¿Qué mazo llevo hoy? with «mi meta» (Fase 44)', () => {
     expect(await screen.findByText('Torneo hoy')).toBeInTheDocument()
     expect(screen.getByText(/IC 47,1–57,7 %/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Los que me tocan' }))
-    expect(await screen.findByText('Tus rivales')).toBeInTheDocument()
-    expect(screen.getByText(/^Tu meta \(12 partidas/)).toBeInTheDocument()
+    expect(await screen.findByText('Torneo, tus rivales')).toBeInTheDocument()
+    // Review of #52: still tournament matchups (people), weighed by my rivals, with its interval and «orientativo».
+    expect(screen.getByText(/^Torneos \(personas\), pesado por tus 12 rivales de la era/)).toBeInTheDocument()
+    expect(screen.getByText(/IC 47,1–57,7 %, orientativo/)).toBeInTheDocument()
     await waitFor(() => expect(calls.at(-1)?.query.get('meta')).toBe('mine'))
     expect(router.state.location.search).toBe('?meta=mio')
   })

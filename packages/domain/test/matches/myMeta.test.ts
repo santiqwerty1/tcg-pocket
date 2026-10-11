@@ -24,9 +24,34 @@ describe('«mi meta» (Fase 44)', () => {
       ['mega-blaziken-ex-b1', 67, 6],
       ['hoopa-ex-b2', 33, 6],
     ])
+    // Kish: (6 + 3)² / (6 + 6 · ¼) = 10,8 effective matches, so every share is a thin estimate.
+    expect(meta.effectiveMatches).toBeCloseTo(81 / 7.5, 10)
+    expect(meta.orientative).toBe(true)
+    const [blaziken] = meta.shares
+    expect(blaziken?.ci95[0]).toBeLessThan(blaziken?.share ?? 0)
+    expect(blaziken?.ci95[1]).toBeGreaterThan(blaziken?.share ?? 100)
+    expect(blaziken?.ci95[1]).toBeLessThanOrEqual(100)
     expect(meta.text).toBe(
-      'Tu meta (12 partidas contra arquetipos de torneo, las recientes pesan más): Mega Blaziken ex 67 %, Hoopa ex 33 %.',
+      'Tu meta (12 partidas contra arquetipos de torneo, 10,8 efectivas, porque las recientes pesan más; orientativo): Mega Blaziken ex 66,7 % (IC 37,8–86,8 %), Hoopa ex 33,3 % (IC 13,2–62,2 %).',
     )
+  })
+
+  it('enough looks at the effective matches: ten matches, half of them two months old, are not enough', () => {
+    const meta = myMeta([...played('Hoopa ex', 0, 5), ...played('Hoopa ex', 60, 5)], archetypes, { now })
+    expect(meta.matched).toBe(10)
+    expect(meta.effectiveMatches).toBeLessThan(6)
+    expect(meta.enough).toBe(false)
+    expect(meta.text).toMatch(/^Todavía no alcanza: hacen falta 10 partidas efectivas .* \(tenés 10, 5,5 efectivas/)
+    // The same ten, all recent, are.
+    const recent = myMeta(played('Hoopa ex', 1, 10), archetypes, { now })
+    expect(recent.enough).toBe(true)
+    expect(recent.effectiveMatches).toBeCloseTo(10, 10)
+  })
+
+  it('coverage is weighted by age: an old unmatched rival counts less than a recent one', () => {
+    const meta = myMeta([...played('Hoopa ex', 0, 4), ...played('el de los fantasmas', 28, 4)], archetypes, { now })
+    // 4 against 4 × ¼.
+    expect(meta.coverage).toBeCloseTo(80, 10)
   })
 
   it('a rival named otherwise counts when a note links it to an archetype; the rest stay apart', () => {

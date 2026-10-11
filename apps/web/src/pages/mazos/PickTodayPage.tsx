@@ -26,7 +26,16 @@ function Line({ label, active, children }: { label: string; active: boolean; chi
   )
 }
 
-function Row({ row, sort, mine }: { row: Pick['items'][number]; sort: PickSort; mine: boolean }) {
+function Row({
+  row,
+  sort,
+  mine,
+}: {
+  row: Pick['items'][number]
+  sort: PickSort
+  /** Fase 44: the tournament number is weighed by «mi meta» (how many rivals, and whether it is orientative). */
+  mine: { matched: number; orientative: boolean } | null
+}) {
   return (
     <li className="flex flex-col gap-1 px-3 py-2">
       <div className="flex items-baseline gap-2">
@@ -37,12 +46,18 @@ function Row({ row, sort, mine }: { row: Pick['items'][number]; sort: PickSort; 
           <span className="shrink-0 truncate text-xs text-muted-foreground">{row.archetype.name}</span>
         ) : null}
       </div>
-      <Line label={mine ? 'Tus rivales' : 'Torneo hoy'} active={sort === 'tournament'}>
+      <Line label={mine ? 'Torneo, tus rivales' : 'Torneo hoy'} active={sort === 'tournament'}>
         {row.tournament ? (
           <>
             <span className="font-semibold tabular">{formatRateValue(row.tournament.value)}</span>
-            {row.tournament.ci95 ? <> (IC {formatInterval(row.tournament.ci95)})</> : null} · n ={' '}
-            {row.tournament.matches} partidas de su arquetipo; matchups con datos en{' '}
+            {row.tournament.ci95 ? (
+              <>
+                {' '}
+                (IC {formatInterval(row.tournament.ci95)}
+                {mine?.orientative ? ', orientativo' : ''})
+              </>
+            ) : null}{' '}
+            · n = {row.tournament.matches} partidas de su arquetipo; matchups con datos en{' '}
             {formatShare(row.tournament.coverage)} {mine ? 'de tus rivales' : 'del meta'}
           </>
         ) : (
@@ -126,6 +141,9 @@ export function PickTodayPage() {
         </fieldset>
         {pick.data?.weights.mine ? (
           <p className={cn('text-xs', usedMine ? 'text-muted-foreground' : 'text-warning')}>
+            {usedMine
+              ? `Torneos (personas), pesado por tus ${pick.data.weights.mine.matched} rivales de la era: los matchups son de torneos y los pesos, de tus partidas. `
+              : ''}
             {pick.data.weights.mine.text}
             {usedMine ? '' : ' Mientras tanto, el número de torneo usa el meta de torneos.'}
           </p>
@@ -147,7 +165,12 @@ export function PickTodayPage() {
       {pick.data && pick.data.items.length > 0 ? (
         <ul className="divide-y rounded-lg border">
           {pick.data.items.map((row) => (
-            <Row key={row.deck.id} row={row} sort={sort} mine={usedMine} />
+            <Row
+              key={row.deck.id}
+              row={row}
+              sort={sort}
+              mine={usedMine && pick.data?.weights.mine ? pick.data.weights.mine : null}
+            />
           ))}
         </ul>
       ) : null}

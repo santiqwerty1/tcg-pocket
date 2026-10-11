@@ -62,6 +62,10 @@ const statsQuerySchema = z.object({
 })
 const comparisonQuerySchema = z.object({ mode: z.enum(MATCH_MODES).optional() })
 const myMetaQuerySchema = z.object({
+  era: z
+    .string()
+    .regex(/^[A-Za-z0-9-]{1,8}$/)
+    .optional(),
   mode: z.enum(MATCH_MODES).optional(),
   days: z.coerce.number().int().min(1).max(3650).optional(),
 })

@@ -23,6 +23,12 @@ function Rate({ rate, prefix }: { rate: WinRate | null; prefix: string }) {
   )
 }
 
+/** « (IC 40,1–58,3 %, orientativo)», or nothing when there is neither. */
+function sampleNote(ci95: [number, number] | null, orientative: boolean): string {
+  const parts = [ci95 ? `IC ${formatInterval(ci95)}` : null, orientative ? 'orientativo' : null].filter(Boolean)
+  return parts.length > 0 ? ` (${parts.join(', ')})` : ''
+}
+
 export function DeckMatchupsSection({ deckId }: { deckId: string }) {
   const matchups = useDeckMatchups(deckId)
   if (matchups.isPending) return <LoadingRows rows={3} />
@@ -60,12 +66,13 @@ export function DeckMatchupsSection({ deckId }: { deckId: string }) {
         {data.expected ? `; contra el meta debería sacar ${formatRateValue(data.expected.value)}` : ''}. Vos: tus
         partidas con este mazo.
       </p>
-      {data.expectedMine ? (
+      {data.expectedMine && data.myMeta ? (
         <p className="text-xs text-muted-foreground">
-          {/* Fase 44: the same matchups weighted by the rivals you actually meet. */}
-          Contra los rivales que te tocan a vos (tus partidas recientes) debería sacar{' '}
+          {/* Fase 44: tournament matchups (people), weighed by the rivals you meet — not your own results. */}
+          Torneos (personas), pesado por tus {data.myMeta.matched} rivales de {data.era} («mi meta»;{' '}
+          {Math.round(data.myMeta.coverage)} % de tus partidas con rival, ponderadas por fecha): debería sacar{' '}
           <span className="font-semibold text-foreground">{formatRateValue(data.expectedMine.value)}</span>
-          {data.expectedMine.ci95 ? ` (IC ${formatInterval(data.expectedMine.ci95)})` : ''}.
+          {sampleNote(data.expectedMine.ci95, data.myMeta.orientative)}. El intervalo cuenta los matchups y tus pesos.
         </p>
       ) : null}
       <ul className="divide-y rounded-lg border">

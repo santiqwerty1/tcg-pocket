@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { recordGames } from '../../src/stats/rates.js'
+import { seededRandom } from '../../src/lab/mutate.js'
+import { recordGames, Z_95 } from '../../src/stats/rates.js'
 import {
   bestOfFromMode,
   buildDataset,
@@ -220,6 +221,44 @@ describe('matchups between archetypes', () => {
     const games = recordGames(record)
     const base = (field.wins + 20 * mean) / (recordGames(field) + 20)
     expect(only?.value).toBeCloseTo(((record.wins + 10 * base) / (games + 10)) * 100, 8)
+  })
+
+  it('«mi meta» weights (Fase 44): shares read from a dozen matches add their own sampling error to the interval', () => {
+    const top = metaShares(dataset)[0]?.archetypeId as string
+    // The truth: the owner meets the six most played archetypes as often as the field plays them.
+    const truthShares = metaShares(dataset).slice(0, 6)
+    const n = 12
+    const exact = expectedVsMeta(matchups, dataset, top, { shares: truthShares })
+    const sampledAtTruth = expectedVsMeta(matchups, dataset, top, { shares: truthShares, sharesSample: n })
+    const halfWidth = (ci?: [number, number]) => ((ci?.[1] ?? 0) - (ci?.[0] ?? 0)) / 2
+    // What the weights add to the interval, as a standard deviation (points of the 0–100 value).
+    const added = Math.sqrt(halfWidth(sampledAtTruth?.ci95) ** 2 - halfWidth(exact?.ci95) ** 2) / Z_95
+    expect(sampledAtTruth?.value).toBe(exact?.value)
+    // The value is linear in the weights, so the delta method is exact: the spread of the value over shares drawn
+    // from n matches is what the interval adds.
+    const total = truthShares.reduce((sum, row) => sum + row.share, 0)
+    const random = seededRandom(44)
+    const values: number[] = []
+    for (let run = 0; run < 4000; run++) {
+      const counts = new Map<string, number>()
+      for (let i = 0; i < n; i++) {
+        let left = random() * total
+        const pick = truthShares.find((row) => {
+          left -= row.share
+          return left < 0
+        })
+        const id = (pick ?? truthShares.at(-1))?.archetypeId as string
+        counts.set(id, (counts.get(id) ?? 0) + 1)
+      }
+      const sampled = [...counts].map(([archetypeId, count]) => ({ archetypeId, share: (count / n) * 100 }))
+      values.push(expectedVsMeta(matchups, dataset, top, { shares: sampled })?.value ?? 0)
+    }
+    const mean = values.reduce((sum, value) => sum + value, 0) / values.length
+    const spread = Math.sqrt(values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (values.length - 1))
+    expect(added).toBeGreaterThan(0.5)
+    expect(Math.abs(added / spread - 1)).toBeLessThan(0.08)
+    // Known shares (the meta's) add nothing.
+    expect(expectedVsMeta(matchups, dataset, top, { shares: truthShares, sharesSample: 0 })?.ci95).toEqual(exact?.ci95)
   })
 
   it('recent meta: one tournament is too few lists for the last two weeks, so the era', () => {

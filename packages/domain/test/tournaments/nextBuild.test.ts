@@ -60,9 +60,9 @@ describe('¿qué mazo armo después? (Fase 44)', () => {
         (sum, item) => sum + (cost(item.groupId)?.points ?? 0) * (item.need - item.have),
         0,
       )
-      if (row.unpriced === 0) expect(row.points).toBe(expected)
-      else expect(row.points).toBeNull()
-      if (row.closest.missingCopies === 0) expect(row.points).toBe(0)
+      // Copies without a point price leave the others' points standing.
+      expect(row.points).toBe(expected)
+      if (row.closest.missingCopies === 0) expect(row).toMatchObject({ points: 0, unpriced: 0 })
     }
   })
 
@@ -83,8 +83,11 @@ describe('¿qué mazo armo después? (Fase 44)', () => {
     expect(nextBuildCostText({ points: 400, unpriced: 0, tradeable: 2 })).toBe(
       '400 puntos de sobre (2 copias intercambiables)',
     )
-    expect(nextBuildCostText({ points: null, unpriced: 1, tradeable: 1 })).toBe(
-      '1 copias sin precio en puntos (1 copias intercambiables)',
+    expect(nextBuildCostText({ points: 0, unpriced: 1, tradeable: 1 })).toBe(
+      '1 copia sin precio en puntos (1 copia intercambiable)',
+    )
+    expect(nextBuildCostText({ points: 1350, unpriced: 2, tradeable: 0 })).toBe(
+      '1.350 puntos de sobre + 2 copias sin precio en puntos (0 copias intercambiables)',
     )
   })
 

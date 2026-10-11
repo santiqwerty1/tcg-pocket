@@ -194,7 +194,7 @@ function draftOf(record: DeckRecord): DeckDraft {
 const SEARCH_ODDS_NOTE =
   'Con búsqueda: mientras la carta no está en la mano, cada turno se juegan las Poké Ball (un Pokémon Básico al azar del mazo), las Comunicación Pokémon si la carta es un Pokémon y hay otro Pokémon en la mano, y una Investigación de Profesores (roba 2). Simulación con semilla fija: los mismos números cada vez.'
 const ENERGY_ZONE_NOTE =
-  'Zona de Energía: una energía por turno propio de uno de los tipos del mazo al azar, salvo el primer turno de quien empieza. Supone que toda la energía va al atacante: es el mejor caso.'
+  'Zona de Energía: una energía por turno propio de uno de los tipos del mazo al azar, salvo el primer turno de quien empieza. Cuenta solo la Zona: supone que el atacante está en juego desde el principio y recibe toda esa energía, sin cartas ni habilidades que aceleren energía.'
 const DRAW_ODDS_NOTE =
   'Mano inicial de 5 con al menos un Pokémon Básico (se reparte de nuevo si no hay) y una carta por turno propio, también en el primero. Solo robo natural: no cuenta cartas que roban o buscan.'
 

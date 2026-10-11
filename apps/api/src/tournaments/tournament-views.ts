@@ -434,8 +434,8 @@ export interface NextBuildView {
   rows: {
     archetype: ArchetypeRowView
     closest: ListAgainstCollectionView
-    /** Pack points for every missing copy (cheapest print); null when some copy has no point price. */
-    points: number | null
+    /** Pack points of the missing copies that have a point price (cheapest print); the rest are `unpriced`. */
+    points: number
     unpriced: number
     tradeable: number
     built: boolean

@@ -7,7 +7,15 @@
  * with the few matches a side of own matches has. Ties count as games not won, as in `turnOrderImpact`. Only matches
  * with who went first noted enter.
  */
-import { EMPTY_RECORD, type GameRecord, ORIENTATIVE_BELOW, recordGames, Z_95 } from '../stats/rates.js'
+import {
+  EMPTY_RECORD,
+  formatIntervalEs,
+  formatPercentEs,
+  type GameRecord,
+  ORIENTATIVE_BELOW,
+  recordGames,
+  Z_95,
+} from '../stats/rates.js'
 import type { MatchFacts } from './types.js'
 
 export interface CoinAdjustedRate {
@@ -21,7 +29,10 @@ export interface CoinAdjustedRate {
   /** Matches with who went first noted, and without. */
   games: number
   unknown: number
-  /** Under 30 matches with the turn noted. */
+  /**
+   * The halves weigh the same, so the sides' sizes matter, not their sum: orientative when the equivalent sample
+   * 4 / (1/n₁ + 1/n₂) is under 30 or a side has fewer than `COIN_MIN_SIDE` matches.
+   */
   orientative: boolean
   /** The plain share of those same matches, to compare. */
   plain: number
@@ -38,7 +49,8 @@ function add(record: GameRecord, result: Fact['result']): GameRecord {
   }
 }
 
-const percent = (value: number) => `${Math.round(value).toLocaleString('es-AR')} %`
+/** Matches on a side below which the adjusted share is orientative whatever the other side has. */
+export const COIN_MIN_SIDE = 15
 
 /** Null until there is at least one match going first and one going second. */
 export function coinAdjustedRate(matches: readonly Fact[]): CoinAdjustedRate | null {
@@ -64,9 +76,8 @@ export function coinAdjustedRate(matches: readonly Fact[]): CoinAdjustedRate | n
   const low = Math.max(0, Math.min(center - Z_95 * se, value / 100)) * 100
   const high = Math.min(1, Math.max(center + Z_95 * se, value / 100)) * 100
   const games = n1 + n2
-  const orientative = games < ORIENTATIVE_BELOW
+  const orientative = 4 / (1 / n1 + 1 / n2) < ORIENTATIVE_BELOW || Math.min(n1, n2) < COIN_MIN_SIDE
   const plain = ((first.wins + second.wins) / games) * 100
-  const ci = `IC ${Math.round(low).toLocaleString('es-AR')}–${percent(high)}`
   return {
     value,
     ci95: [low, high],
@@ -79,7 +90,8 @@ export function coinAdjustedRate(matches: readonly Fact[]): CoinAdjustedRate | n
     orientative,
     plain,
     text:
-      `Ajustado por la moneda: ${percent(value)} (mitad empezando, ${percent(p1 * 100)} en ${n1}; mitad yendo segundo, ` +
-      `${percent(p2 * 100)} en ${n2}; ${ci}${orientative ? ', orientativo' : ''}). Sin ajustar: ${percent(plain)}.`,
+      `Ajustado por la moneda: ${formatPercentEs(value)} (n = ${games}, IC ${formatIntervalEs([low, high])}` +
+      `${orientative ? ', orientativo' : ''}): mitad empezando (${formatPercentEs(p1 * 100)} en ${n1}) y mitad ` +
+      `yendo segundo (${formatPercentEs(p2 * 100)} en ${n2}). Sin ajustar: ${formatPercentEs(plain)}.`,
   }
 }

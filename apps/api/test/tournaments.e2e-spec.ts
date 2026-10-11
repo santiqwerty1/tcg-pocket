@@ -634,9 +634,16 @@ describe('tournaments (e2e)', () => {
     const rows = (await get('/api/tournaments/archetypes')).body.rows as { archetype: { id: string; name: string } }[]
     const [first, second] = rows
     const ids: string[] = []
-    const log = async (opponent: string, times: number) => {
+    const log = async (opponent: string, times: number, extra: { mode?: string; playedAt?: string } = {}) => {
       for (let i = 0; i < times; i++) {
-        const created = await post('/api/matches').send({ deckId: blaziken?.id, result: 'win', opponent })
+        const created = await post('/api/matches').send({
+          deckId: blaziken?.id,
+          result: 'win',
+          opponent,
+          mode: 'competitive',
+          ...extra,
+        })
+        expect(created.status).toBe(201)
         ids.push(created.body.id)
       }
     }
@@ -644,15 +651,30 @@ describe('tournaments (e2e)', () => {
     await log(first?.archetype.name ?? '', 8)
     await log((second?.archetype.name ?? '').toUpperCase(), 4)
     await log('el de los fantasmas', 2)
+    // Review of #52: matches before the era (B4a starts on 27/8) and friendly matches stay out by default.
+    await log(second?.archetype.name ?? '', 3, { playedAt: '2026-08-01T15:00:00.000Z' })
+    await log(second?.archetype.name ?? '', 3, { mode: 'friend' })
     const meta = (await get('/api/matches/my-meta')).body as {
       enough: boolean
       matched: number
-      shares: { archetypeId: string; share: number; games: number }[]
+      effectiveMatches: number
+      orientative: boolean
+      from: string
+      filters: { modes: string[] }
+      shares: { archetypeId: string; share: number; ci95: [number, number]; games: number }[]
       unmatched: { label: string; games: number }[]
       text: string
     }
     expect(meta.enough).toBe(true)
     expect(meta.matched).toBe(12)
+    expect(meta.from.slice(0, 10)).toBe('2026-08-27')
+    expect(meta.filters.modes).toEqual(['competitive', 'casual'])
+    // All of today: the effective matches are the matches, and 12 are still few.
+    expect(meta.effectiveMatches).toBeCloseTo(12, 6)
+    expect(meta.orientative).toBe(true)
+    expect(meta.shares[0]?.ci95[0]).toBeLessThan(meta.shares[0]?.share ?? 0)
+    const friends = (await get('/api/matches/my-meta?mode=friend')).body as { matched: number; enough: boolean }
+    expect(friends).toMatchObject({ matched: 3, enough: false })
     expect(meta.shares.map((row) => [row.archetypeId, row.games])).toEqual([
       [first?.archetype.id, 8],
       [second?.archetype.id, 4],
@@ -668,8 +690,8 @@ describe('tournaments (e2e)', () => {
       items: { deck: { id: string }; tournament: { value: number; ci95: number[] } | null }[]
       note: string
     }
-    expect(mine.weights).toMatchObject({ asked: 'mine', used: 'mine', mine: { enough: true } })
-    expect(mine.note).toContain('rivales que te tocan')
+    expect(mine.weights).toMatchObject({ asked: 'mine', used: 'mine', mine: { enough: true, orientative: true } })
+    expect(mine.note).toContain('pesado por tus rivales de la era')
     const row = mine.items.find((item) => item.deck.id === blaziken?.id)
     expect(row?.tournament?.ci95).toHaveLength(2)
     const plain = (await get('/api/decks-today')).body as { weights: { used: string } }
@@ -680,11 +702,15 @@ describe('tournaments (e2e)', () => {
     const sheet = (await get(`/api/decks/${blaziken?.id}/matchups`)).body as {
       expected: { value: number } | null
       expectedMine: { value: number; ci95: number[] } | null
-      myMeta: { enough: boolean } | null
+      myMeta: { enough: boolean; matched: number; effectiveMatches: number } | null
     }
-    expect(sheet.myMeta?.enough).toBe(true)
+    expect(sheet.myMeta).toMatchObject({ enough: true, matched: 12 })
     expect(sheet.expectedMine?.value).toBeGreaterThan(0)
     expect(sheet.expectedMine?.ci95).toHaveLength(2)
+    // The sheet's mode filter reaches «mi meta» too: three friendly matches are not enough to weigh with.
+    const friendly = (await get(`/api/decks/${blaziken?.id}/matchups?mode=friend`)).body as typeof sheet
+    expect(friendly.myMeta).toMatchObject({ matched: 3, enough: false })
+    expect(friendly.expectedMine).toBeNull()
     for (const id of ids)
       expect((await test.http().delete(`/api/matches/${id}`).set('Cookie', cookie)).status).toBe(204)
   })

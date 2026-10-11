@@ -14,6 +14,8 @@ import {
   estimateSeconds,
   type FunctionalGroup,
   foldText,
+  formatIntervalEs,
+  formatPercentEs,
   formatWinRateEs,
   MATCH_MODE_LABEL_ES,
   MATCH_RESULT_LABEL_ES,
@@ -1407,11 +1409,16 @@ ${MCP_CHAT_INSTRUCTIONS}`
   }): Promise<Json> {
     const view = await this.pick.today(args.sort, args.meta)
     const percent = (value: number) => `${percentFormat.format(value)} %`
+    // Fase 44: with «mi meta» the number is still tournament matchups (people), only weighed by the owner's rivals.
+    const mine = view.weights.used === 'mine' ? view.weights.mine : null
     return {
       sortedBy: view.sort,
       meta: view.meta,
       weights: {
-        used: view.weights.used === 'mine' ? 'mi meta' : 'meta de torneos',
+        used: mine ? 'mi meta' : 'meta de torneos',
+        tournamentNumber: mine
+          ? `Torneos (personas), pesado por tus ${mine.matched} rivales de la era (${percentFormat.format(mine.effectiveMatches)} partidas efectivas${mine.orientative ? ', orientativo' : ''})`
+          : 'Torneos (personas), contra el meta de los últimos días',
         ...(view.weights.mine ? { myMeta: view.weights.mine.text } : {}),
       },
       decks: view.items.slice(0, args.limit ?? 10).map((row) => ({
@@ -1419,7 +1426,7 @@ ${MCP_CHAT_INSTRUCTIONS}`
         archetype: row.archetype?.name ?? null,
         myMatches: row.mine ? rateView(row.mine.rate) : null,
         tournamentAgainstToday: row.tournament
-          ? `${percent(row.tournament.value)} (IC ${percent(row.tournament.ci95[0])}–${percent(row.tournament.ci95[1])}; matchups con datos: ${percent(row.tournament.coverage)} del meta)`
+          ? `${percent(row.tournament.value)} (IC ${formatIntervalEs(row.tournament.ci95)}${mine?.orientative ? ', orientativo' : ''}; matchups con datos: ${percent(row.tournament.coverage)} ${mine ? 'de tus rivales' : 'del meta'})`
           : null,
         lab: row.lab?.text ?? null,
       })),
@@ -1433,15 +1440,19 @@ ${MCP_CHAT_INSTRUCTIONS}`
     return {
       source: 'Mis partidas registradas en la app (no son cuotas de torneo).',
       era: view.era,
+      window: `desde ${view.from ? view.from.slice(0, 10).split('-').reverse().join('/') : 'el principio'}, modalidades: ${view.filters.modes.join(', ')}`,
       text: view.text,
       enough: view.enough,
+      orientative: view.orientative,
       matches: view.matches,
+      matched: view.matched,
+      effectiveMatches: Number(view.effectiveMatches.toFixed(1)),
       withoutRival: view.withoutRival,
-      coverage: `${percent(view.coverage)} de las partidas con rival son de un arquetipo de torneo`,
+      coverage: `${percent(view.coverage)} de las partidas con rival (ponderadas por fecha) son de un arquetipo de torneo`,
       archetypes: view.shares.slice(0, args.limit ?? 10).map((row) => ({
         archetype: row.name,
         id: row.archetypeId,
-        share: percent(row.share),
+        share: `${formatPercentEs(row.share)} (IC ${formatIntervalEs(row.ci95)}${view.orientative ? ', orientativo' : ''})`,
         games: row.games,
       })),
       unmatched: view.unmatched.slice(0, 10).map((row) => `${row.label} (${row.games})`),

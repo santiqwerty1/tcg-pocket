@@ -305,6 +305,12 @@ export function expectedVsMeta(
     solidMatches?: number
     /** Weights other than the era's shares (Fase 15: this week's meta). */
     shares?: readonly { archetypeId: string; share: number }[]
+    /**
+     * Fase 44: the shares are an estimate from this many (effective) samples — «mi meta», from the owner's matches —
+     * so their sampling error joins the interval (delta method on multinomial shares: Σ wᵢ (rᵢ − r̄)² / n). Omitted,
+     * the shares count as known (the meta's, from hundreds of lists).
+     */
+    sharesSample?: number | undefined
   } = {},
 ): ExpectedVsMeta | null {
   const prior = options.prior ?? MATCHUP_PRIOR_MATCHES
@@ -333,7 +339,13 @@ export function expectedVsMeta(
     ownVariance += weight ** 2 * ((row.games * row.rate * (1 - row.rate)) / (row.games + prior) ** 2)
     onBase += (weight * prior) / (row.games + prior)
   }
-  const half = Z_95 * Math.sqrt(ownVariance + onBase ** 2 * baseVariance)
+  // Fase 44: weights estimated from n samples add Var(Σ ŵᵢ rᵢ) = Σ wᵢ (rᵢ − r̄)² / n (multinomial covariance).
+  const sample = options.sharesSample
+  const weightVariance =
+    sample !== undefined && sample > 0
+      ? rows.reduce((sum, row) => sum + (row.share / shares) * (row.rate - value) ** 2, 0) / sample
+      : 0
+  const half = Z_95 * Math.sqrt(ownVariance + onBase ** 2 * baseVariance + weightVariance)
   return {
     value: value * 100,
     ci95: [Math.max(0, value - half) * 100, Math.min(1, value + half) * 100],

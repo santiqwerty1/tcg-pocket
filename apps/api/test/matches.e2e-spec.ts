@@ -341,7 +341,7 @@ describe('matches (e2e)', () => {
     expect(stats.turnOrder.text).toMatch(/^Empezando ganás el 86 % \(n = 7\) y yendo segundo el 17 % \(n = 6\)/)
     // Fase 44: half going first, half going second.
     expect(stats.coinAdjusted.value).toBeCloseTo(((6 / 7 + 1 / 6) / 2) * 100, 6)
-    expect(stats.coinAdjusted.text).toMatch(/^Ajustado por la moneda: 51 % /)
+    expect(stats.coinAdjusted.text).toMatch(/^Ajustado por la moneda: 51,2 % \(n = 13, IC .*, orientativo\)/)
     const all = (await get('/api/matches/stats')).body
     const row = all.byDeck.find((item: { deck: { id: string } }) => item.deck.id === target)
     expect(row.coinAdjusted.value).toBeCloseTo(stats.coinAdjusted.value, 6)
