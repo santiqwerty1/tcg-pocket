@@ -287,6 +287,18 @@ export const twinConflictSchema = z.object({
 })
 
 export const importPreviewSchema = z.object({
+  source: z.enum(['csv', 'tracker']).default('csv'),
+  tracker: z
+    .object({
+      friendId: z.string(),
+      baseline: z.string(),
+      increased: z.number(),
+      decreased: z.number(),
+      removedCopies: z.number(),
+      currentCopies: z.number(),
+      requiresReview: z.boolean(),
+    })
+    .optional(),
   id: z.string(),
   fileName: z.string().nullable(),
   status: importStatusSchema,
@@ -319,6 +331,7 @@ export const importPreviewSchema = z.object({
 export type ImportPreview = z.infer<typeof importPreviewSchema>
 
 export const importListItemSchema = z.object({
+  source: z.enum(['csv', 'tracker']).default('csv'),
   id: z.string(),
   fileName: z.string().nullable(),
   importedAt: isoDate,

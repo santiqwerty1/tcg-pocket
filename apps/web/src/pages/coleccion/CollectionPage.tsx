@@ -1,9 +1,10 @@
 import { ArrowLeftRightIcon, DownloadIcon, SlidersHorizontalIcon, TrophyIcon, UploadIcon } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useSearchParams } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { exportCollectionCsv, useCollectionSummary } from '@/api/collection'
+import { useTrackerPreview } from '@/api/trackerSync'
 import { ErrorState } from '@/components/ListState'
 import { Stat } from '@/components/Stat'
 import { Badge } from '@/components/ui/badge'
@@ -20,6 +21,16 @@ type View = 'carta' | 'edicion'
 const SUMMARY_SKELETONS = ['copies', 'units', 'one', 'two', 'missing', 'last']
 
 export function CollectionPage() {
+  const tracker = useTrackerPreview()
+  const navigate = useNavigate()
+  async function syncTracker() {
+    try {
+      const preview = await tracker.mutateAsync()
+      navigate(`/coleccion/importar/${preview.id}`)
+    } catch (error) {
+      toast.error(errorMessage(error))
+    }
+  }
   const [params, setParams] = useSearchParams()
   const view: View = params.get('vista') === 'edicion' ? 'edicion' : 'carta'
   const summary = useCollectionSummary()
@@ -55,11 +66,14 @@ export function CollectionPage() {
         >
           <span className="font-medium">{csvNotice}</span>
           <span className="text-xs text-muted-foreground">
-            Importá uno nuevo para que los mazos y los sobres usen tu colección de hoy.
+            Sincronizá con el tracker o importá un CSV para usar tu colección de hoy.
           </span>
         </Link>
       ) : null}
       <div className="flex flex-wrap gap-2">
+        <Button onClick={syncTracker} disabled={tracker.isPending}>
+          {tracker.isPending ? 'Consultando el tracker…' : 'Sincronizar con el tracker'}
+        </Button>
         <Button asChild>
           <Link to="/coleccion/importar">
             <UploadIcon data-icon="inline-start" />
@@ -117,7 +131,7 @@ export function CollectionPage() {
           />
           <Stat label="Faltantes" value={formatNumber(summary.data.groupsMissing)} hint="cartas funcionales con 0" />
           <Stat
-            label="Último import"
+            label="Última sincronización"
             value={<span className="text-base">{formatDate(summary.data.lastImportAt)}</span>}
           />
         </div>

@@ -63,9 +63,24 @@ export function ImportPreviewView({ preview, onResolveAdjustment, resolvingId }:
     <div className="flex flex-col gap-6">
       <div className="text-sm text-muted-foreground">
         {preview.fileName ?? 'CSV pegado'} · {formatDateTime(preview.importedAt)}
-        {preview.bom !== undefined ? ` · ${preview.bom ? 'con BOM' : 'sin BOM'}` : ''}
-        {preview.lineEnding ? ` · ${preview.lineEnding}` : ''}
+        {preview.source !== 'tracker' && preview.bom !== undefined ? ` · ${preview.bom ? 'con BOM' : 'sin BOM'}` : ''}
+        {preview.source !== 'tracker' && preview.lineEnding ? ` · ${preview.lineEnding}` : ''}
       </div>
+
+      {preview.tracker ? (
+        <div className="rounded-lg border p-3 text-sm">
+          <p>
+            {preview.tracker.increased} unidades suben · {preview.tracker.decreased} bajan ·{' '}
+            {preview.summary.zeroedUnits} quedan en cero · {preview.unknownIds.length} desconocidas.
+          </p>
+          {preview.tracker.requiresReview ? (
+            <p className="text-warning-foreground">
+              Bajan más del 10 % de las copias ({preview.tracker.removedCopies} de {preview.tracker.currentCopies}).
+              Revisá los cambios antes de aplicar.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="Filas" value={formatNumber(preview.rowCount)} />
@@ -141,7 +156,7 @@ export function ImportPreviewView({ preview, onResolveAdjustment, resolvingId }:
       {preview.adjustmentsMatching.length > 0 ? (
         <Section title="Ajustes que ya coinciden">
           <p className="text-sm text-muted-foreground">
-            El CSV ya trae las copias que fijaba el ajuste. Si lo retirás, vale el stock importado.
+            La sincronización ya trae las copias que fijaba el ajuste. Si lo retirás, vale el stock importado.
           </p>
           <ul className="divide-y rounded-lg border">
             {preview.adjustmentsMatching.map((item) => (
@@ -194,7 +209,9 @@ export function ImportPreviewView({ preview, onResolveAdjustment, resolvingId }:
 
       <Section title={`Cambios (${formatNumber(preview.changes.length)})`}>
         {preview.changes.length === 0 ? (
-          <p className="text-sm text-muted-foreground">El CSV coincide con la colección: no hay nada que aplicar.</p>
+          <p className="text-sm text-muted-foreground">
+            La fuente coincide con la colección: no hay cambios de cantidades.
+          </p>
         ) : null}
         {groups.map((group, index) => (
           <details key={group.expansion} open={groups.length <= 3 || index === 0} className="rounded-lg border">
