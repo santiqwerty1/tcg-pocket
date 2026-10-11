@@ -1640,8 +1640,10 @@ export const labObjectiveSchema = z.object({
   matched: z.number().optional(),
   unmatched: z.number().optional(),
   unmatchedNames: z.array(z.string()).optional(),
-  enough: z.boolean().optional(),
-  notice: z.string().optional(),
+  effectiveMatches: z.number().optional(),
+  orientative: z.boolean().optional(),
+  coverage: z.number().optional(),
+  games: z.record(z.string(), z.number()).optional(),
 })
 export type LabObjective = z.infer<typeof labObjectiveSchema>
 const META_OBJECTIVE: LabObjective = { kind: 'meta', labelEs: 'el meta de los torneos' }

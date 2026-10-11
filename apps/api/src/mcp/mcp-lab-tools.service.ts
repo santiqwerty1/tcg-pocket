@@ -116,7 +116,10 @@ export class McpLabToolsService {
               unmatched: bank.objective.unmatched,
               unmatchedNames: bank.objective.unmatchedNames,
               halfLifeDays: bank.objective.halfLifeDays,
-              ...(bank.objective.notice ? { notice: bank.objective.notice } : {}),
+              effectiveMatches: bank.objective.effectiveMatches,
+              orientative: bank.objective.orientative,
+              weightedCoverage: bank.objective.coverage,
+              note: 'El intervalo de cada puntaje toma estos pesos como fijos.',
             },
           }
         : {}),

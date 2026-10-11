@@ -50,9 +50,13 @@ export interface LabObjectiveView {
   matched?: number
   unmatched?: number
   unmatchedNames?: string[]
-  /** «Mi meta»: 10 matches against archetypes or more (fase 44); under that the bank still goes, with `notice`. */
-  enough?: boolean
-  notice?: string
+  /** «Mi meta»: Kish's effective sample size of those matches (10 at least to build the bank), and under 30. */
+  effectiveMatches?: number
+  orientative?: boolean
+  /** «Mi meta»: 0–100 of my matches with a rival that are an archetype, each weighed by its age. */
+  coverage?: number
+  /** «Mi meta»: my matches against each archetype of the bank. */
+  games?: Record<string, number>
 }
 
 export interface LabBankView {
