@@ -71,6 +71,17 @@ describe('draws counting the cards that search (Fase 44)', () => {
     expect(research.rows[2]?.probability).toBeGreaterThan((natural.rows[2]?.probability ?? 0) + 0.05)
   })
 
+  it('the opening Active is not in hand: with no other Pokémon, Communication has nothing to give', () => {
+    // Codex on #52: one Basic in the deck, always in the opening hand and then Active. The target is a Stage 1; with
+    // four Communications and no Pokémon left in hand they never play, so the odds are those of the same deck with
+    // fillers in their place (the same seed, the same draws).
+    const cards = deck({ count: 2, basic: false }, 1, { communication: 4 })
+    const fillers = cards.map((card) => (card.search ? { ...card, search: null } : card))
+    const withCommunication = searchOdds({ cards, targets: ['target'], turns: 3, runs: 4000 })
+    const without = searchOdds({ cards: fillers, targets: ['target'], turns: 3, runs: 4000 })
+    expect(withCommunication.rows.map((row) => row.probability)).toEqual(without.rows.map((row) => row.probability))
+  })
+
   it('the same deck and seed give the same numbers', () => {
     const cards = deck({ count: 1, basic: false }, 5, { research: 2, communication: 1 })
     const a = searchOdds({ cards, targets: ['target'], runs: 3000 })

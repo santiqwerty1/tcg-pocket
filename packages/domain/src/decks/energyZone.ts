@@ -61,10 +61,12 @@ function payProbability(types: readonly SelectableEnergy[], cost: readonly Energ
 }
 
 export function energyZoneOdds(
-  types: readonly SelectableEnergy[],
+  deckTypes: readonly SelectableEnergy[],
   cost: readonly EnergyType[],
   turns: number = ENERGY_ZONE_TURNS,
 ): EnergyZoneOdds {
+  // A saved deck can repeat a type (the input schema accepts it): the zone gives each type once (Codex on #52).
+  const types = [...new Set(deckTypes)]
   if (types.length < 1 || types.length > 3) throw new RangeError('energyZoneOdds: one to three energy types')
   const payable = cost.every((energy) => energy === 'colorless' || types.includes(energy as SelectableEnergy))
   const rows = (offset: number) =>
