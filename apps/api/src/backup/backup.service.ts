@@ -240,6 +240,7 @@ export class BackupService {
           updatedAt: iso(row.updatedAt),
         })),
         imports: imports.map((row) => ({
+          source: row.source,
           id: row.id,
           fileName: row.fileName,
           sha256: row.sha256,
@@ -588,6 +589,7 @@ export class BackupService {
     for (const item of document.collection.imports) {
       await tx.collectionImport.create({
         data: {
+          source: item.source,
           id: item.id,
           fileName: item.fileName,
           sha256: item.sha256,

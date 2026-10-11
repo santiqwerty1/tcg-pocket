@@ -87,6 +87,16 @@ export interface AdjustmentHiddenChangeView {
 }
 
 export interface ImportPreview {
+  source: string
+  tracker?: {
+    friendId: string
+    baseline: string
+    increased: number
+    decreased: number
+    removedCopies: number
+    currentCopies: number
+    requiresReview: boolean
+  }
   id: string
   /** Null when the CSV was pasted as JSON `{ csv }`. */
   fileName: string | null
@@ -114,6 +124,7 @@ export interface ImportPreview {
 }
 
 export interface ImportListItem {
+  source: string
   id: string
   fileName: string | null
   importedAt: Date

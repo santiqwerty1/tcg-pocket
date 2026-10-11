@@ -43,6 +43,7 @@ export interface AlertView {
     | 'github_check'
     | 'database_size'
     | 'backup_offsite'
+    | 'tracker_sync'
   level: 'info' | 'warning'
   title: string
   detail: string
@@ -189,6 +190,18 @@ export class AlertsService {
         link: '/sobres',
       })
     }
+    const trackerWarning = (await this.prisma.appSetting.findUnique({ where: { key: 'trackerSyncWarning' } }))?.value as
+      | { at?: string; message?: string; previewId?: string | null }
+      | null
+      | undefined
+    if (trackerWarning?.message)
+      alerts.push({
+        code: 'tracker_sync',
+        level: 'warning',
+        title: `Revisar sincronización del tracker (${trackerWarning.at ?? ''})`,
+        detail: trackerWarning.message,
+        link: trackerWarning.previewId ? `/coleccion/importar/${trackerWarning.previewId}` : '/mas/ajustes',
+      })
     // Fase 35: the monthly restore drill failed, or the last one is more than 40 days old.
     const drill = (await this.prisma.appSetting.findUnique({ where: { key: 'backupDrill' } }))?.value as
       | { at?: string; ok?: boolean; error?: string | null; differences?: string[] }

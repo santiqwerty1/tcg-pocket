@@ -20,16 +20,21 @@ import {
   missionProgress,
   normalizeImportRows,
   type PackLuck,
+  type ParsedCsv,
   packLuck,
   parseTrackerCsv,
   planAdjustmentConversion,
   playableCopies,
   type StockQuantities,
   stockValueOf,
+  type TrackerCollectionRow,
   type TwinConflict,
   totalCopies,
+  trackerDiffStats,
+  trackerImportRows,
   writeTrackerCsv,
 } from '@tcg/domain'
+import type { PoolClient } from 'pg'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { toCardSummary, toGroupSummary } from '../catalog/catalog-views.js'
 import type { CollectionAdjustment as AdjustmentRow, CollectionImport, Prisma } from '../generated/prisma/client.js'
@@ -84,6 +89,7 @@ type ImportRecord = Omit<CollectionImport, 'rawFileGz'>
 
 /** What `collection_imports.diff_summary` holds: parse metadata (fixed) plus the diff (refreshed while pending). */
 interface StoredImport {
+  tracker?: NonNullable<ImportPreview['tracker']>
   meta: {
     bom: boolean
     lineEnding: string
@@ -368,44 +374,81 @@ export class CollectionService {
         details: parsed.errors,
       })
     }
+    return this.createRows(index, parsed, source)
+  }
+
+  async createTrackerImport(rows: readonly TrackerCollectionRow[], friendId: string): Promise<ImportPreview> {
+    const index = this.catalog.requireIndex()
+    const csvRows = trackerImportRows(rows, index)
+    return this.createRows(
+      index,
+      { rows: csvRows, errors: [], columns: [], bom: false, lineEnding: 'LF', trailingNewline: false },
+      { bytes: Buffer.from(JSON.stringify(rows)), fileName: `Tracker ${friendId}` },
+      friendId,
+    )
+  }
+
+  private async createRows(
+    index: CatalogIndex,
+    parsed: ParsedCsv,
+    source: ImportSource,
+    friendId?: string,
+  ): Promise<ImportPreview> {
     const normalized = normalizeImportRows(parsed.rows, index)
-    const { stock, adjustments } = await this.repository.loadState()
-    const diff = diffImport(index, stock, normalized.units, adjustments)
-    const stored: StoredImport = {
-      meta: {
-        bom: parsed.bom,
-        lineEnding: parsed.lineEnding,
-        errors: parsed.errors,
-        conflicts: normalized.conflicts,
-        internalIdMismatches: normalized.internalIdMismatches.length,
-        twinRows: normalized.twinRows,
-      },
-      diff,
-    }
-    const row = await this.prisma.collectionImport.create({
-      data: {
-        fileName: source.fileName ?? '',
-        sha256: createHash('sha256').update(source.bytes).digest('hex'),
-        rowCount: parsed.rows.length,
-        naiveTotal: normalized.naiveTotal,
-        dedupTotal: normalized.dedupTotal,
-        unknownIds: normalized.unknownIds,
-        diffSummary: toJson(stored),
-        rawFileGz: gzipSync(source.bytes),
-        rows: {
-          createMany: {
-            data: parsed.rows.map((csvRow) => ({
-              cardId: csvRow.id,
-              internalId: csvRow.internalId,
-              numberOwned: csvRow.numberOwned,
-              collected: csvRow.collected,
-            })),
-            skipDuplicates: true,
-          },
+    const client = await this.prisma.pool.connect()
+    try {
+      await client.query('BEGIN')
+      // Same lock order as apply; also excludes catalogue remaps and manual/MCP collection writes.
+      await client.query('LOCK TABLE cards, collection_stock, collection_adjustments IN SHARE ROW EXCLUSIVE MODE')
+      const { stock, adjustments, baseline } = await this.importBaseline(client, index)
+      const diff = diffImport(index, stock, normalized.units, adjustments)
+      const stored: StoredImport = {
+        ...(friendId ? { tracker: { friendId, baseline, ...trackerDiffStats(diff, totalCopies(stock)) } } : {}),
+        meta: {
+          bom: parsed.bom,
+          lineEnding: parsed.lineEnding,
+          errors: parsed.errors,
+          conflicts: normalized.conflicts,
+          internalIdMismatches: normalized.internalIdMismatches.length,
+          twinRows: normalized.twinRows,
         },
-      },
-    })
-    return this.toPreview(index, row, stored)
+        diff,
+      }
+      const created = await client.query<{ id: number }>(
+        `INSERT INTO collection_imports (source, file_name, sha256, row_count, naive_total, dedup_total, unknown_ids, diff_summary, raw_file_gz)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9) RETURNING id`,
+        [
+          friendId ? 'tracker' : 'csv',
+          source.fileName ?? '',
+          createHash('sha256').update(source.bytes).digest('hex'),
+          parsed.rows.length,
+          normalized.naiveTotal,
+          normalized.dedupTotal,
+          normalized.unknownIds,
+          JSON.stringify(toJson(stored)),
+          gzipSync(source.bytes),
+        ],
+      )
+      const id = created.rows[0]?.id
+      if (!id) throw new Error('Import insert returned no id')
+      const uniqueRows = new Map<string, CsvRow>()
+      for (const csvRow of parsed.rows) if (!uniqueRows.has(csvRow.id)) uniqueRows.set(csvRow.id, csvRow)
+      await upsertMany(
+        client,
+        'collection_import_rows',
+        ['import_id', 'card_id', 'internal_id', 'number_owned', 'collected'],
+        [...uniqueRows.values()].map((r) => [id, r.id, r.internalId, r.numberOwned, r.collected]),
+        ['import_id', 'card_id'],
+      )
+      await client.query('COMMIT')
+      const row = await this.requireImport(String(id))
+      return this.toPreview(index, row, stored)
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined)
+      throw error
+    } finally {
+      client.release()
+    }
   }
 
   async listImports(): Promise<ImportListItem[]> {
@@ -413,6 +456,7 @@ export class CollectionService {
     return rows.map((row) => {
       const stored = readStored(row)
       return {
+        source: row.source,
         id: idToString(row.id),
         fileName: row.fileName === '' ? null : row.fileName,
         importedAt: row.importedAt,
@@ -432,7 +476,7 @@ export class CollectionService {
     const index = this.catalog.requireIndex()
     const row = await this.requireImport(rawId)
     const stored = readStored(row)
-    if (row.status === 'pending') {
+    if (row.status === 'pending' && row.source !== 'tracker') {
       const { stock, adjustments } = await this.repository.loadState()
       stored.diff = diffImport(index, stock, this.unitsOf(index, row.rows), adjustments)
     }
@@ -443,7 +487,7 @@ export class CollectionService {
    * Applies a pending import in one SQL transaction: every changed stock unit is upserted (source `import`), the
    * row is marked `applied` with the diff that was actually applied. 409 when not pending or blocked.
    */
-  async applyImport(rawId: string): Promise<{ applied: true; summary: ImportDiff['summary'] }> {
+  async applyImport(rawId: string, automatic = false): Promise<{ applied: true; summary: ImportDiff['summary'] }> {
     const index = this.catalog.requireIndex()
     const row = await this.requireImport(rawId)
     if (row.status !== 'pending') throw notPending(row)
@@ -455,22 +499,29 @@ export class CollectionService {
       })
     }
     const incoming = this.unitsOf(index, row.rows)
-    const adjustments = await this.repository.loadActiveAdjustments()
     const client = await this.prisma.pool.connect()
     try {
       await client.query('BEGIN')
+      await client.query('LOCK TABLE cards, collection_stock, collection_adjustments IN SHARE ROW EXCLUSIVE MODE')
       const locked = await client.query<{ status: string }>(
         'SELECT status FROM collection_imports WHERE id = $1 FOR UPDATE',
         [row.id],
       )
       if (locked.rows[0]?.status !== 'pending') throw notPending(row)
-      const currentRows = await client.query<{ card_id: string; amount_owned: number; collected: boolean }>(
-        'SELECT card_id, amount_owned, collected FROM collection_stock',
-      )
-      const current = stockFromRows(
-        currentRows.rows.map((r) => ({ cardId: r.card_id, amountOwned: r.amount_owned, collected: r.collected })),
-      )
+      const { stock: current, adjustments, baseline } = await this.importBaseline(client, index)
+      if (row.source === 'tracker' && (!stored.tracker || stored.tracker.baseline !== baseline)) {
+        throw new ConflictException({
+          code: 'tracker_stale_preview',
+          message: 'La colección, sus ajustes o el catálogo cambiaron. Obtené otra vista previa antes de aplicar.',
+        })
+      }
       const diff = diffImport(index, current, incoming, adjustments)
+      if (automatic && trackerDiffStats(diff, totalCopies(current)).requiresReview) {
+        throw new ConflictException({
+          code: 'tracker_drop',
+          message: 'Bajan más del 10 % de las copias. Revisá la vista previa antes de aplicar.',
+        })
+      }
       const appliedAt = new Date()
       await upsertMany(
         client,
@@ -480,7 +531,7 @@ export class CollectionService {
           change.stockCardId,
           change.after.amountOwned,
           change.after.collected,
-          'import',
+          row.source === 'tracker' ? 'tracker' : 'import',
           row.id,
           appliedAt,
         ]),
@@ -492,6 +543,23 @@ export class CollectionService {
         'UPDATE collection_imports SET status = $2::collection_import_status, applied_at = $3, diff_summary = $4 WHERE id = $1',
         [row.id, 'applied', appliedAt, JSON.stringify(toJson(stored))],
       )
+      if (row.source === 'tracker') {
+        await client.query(
+          `INSERT INTO app_settings (key, value, updated_at) VALUES ('trackerLastAppliedAt', $1::jsonb, $2)
+          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
+          [JSON.stringify(appliedAt.toISOString()), appliedAt],
+        )
+        await client.query(
+          `INSERT INTO app_settings (key, value, updated_at) VALUES ('trackerSyncState', $1::jsonb, $2)
+           ON CONFLICT (key) DO UPDATE SET value = app_settings.value || EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
+          [JSON.stringify({ result: 'applied', error: null, previewId: String(row.id), automatic }), appliedAt],
+        )
+        await client.query(
+          `INSERT INTO app_settings (key, value, updated_at) VALUES ('trackerSyncWarning', 'null'::jsonb, $1)
+          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
+          [appliedAt],
+        )
+      }
       await client.query('COMMIT')
       return { applied: true, summary: diff.summary }
     } catch (error) {
@@ -624,6 +692,30 @@ export class CollectionService {
     return row
   }
 
+  private async importBaseline(client: PoolClient, index: CatalogIndex) {
+    const catalog = await client.query<{ id: number }>(
+      "SELECT id FROM catalog_syncs WHERE status IN ('applied', 'needs_review') ORDER BY id DESC LIMIT 1",
+    )
+    if (catalog.rows[0]?.id !== this.catalog.loadedSyncId || index !== this.catalog.requireIndex()) {
+      throw new ConflictException({
+        code: 'catalog_changed',
+        message: 'El catálogo cambió. Volvé a obtener una vista previa.',
+      })
+    }
+    const stockRows = await client.query<{ cardId: string; amountOwned: number; collected: boolean }>(
+      'SELECT card_id AS "cardId", amount_owned AS "amountOwned", collected FROM collection_stock ORDER BY card_id',
+    )
+    const adjustmentRows =
+      await client.query<AdjustmentRow>(`SELECT id, functional_group_id AS "functionalGroupId", playable_copies AS "playableCopies", reason, active,
+      created_at AS "createdAt", resolved_at AS "resolvedAt", resolution FROM collection_adjustments WHERE active ORDER BY id`)
+    const stock = stockFromRows(stockRows.rows)
+    const adjustments = adjustmentRows.rows.map(toDomainAdjustment)
+    const baseline = createHash('sha256')
+      .update(JSON.stringify([catalog.rows[0]?.id, stockRows.rows, adjustments]))
+      .digest('hex')
+    return { stock, adjustments, baseline }
+  }
+
   private async requireAdjustment(rawId: string): Promise<AdjustmentRow> {
     const id = parseNumericId(rawId, 'Ajuste')
     const row = await this.prisma.collectionAdjustment.findUnique({ where: { id } })
@@ -658,6 +750,8 @@ export class CollectionService {
     }))
     return {
       id: idToString(row.id),
+      source: row.source,
+      ...(stored.tracker ? { tracker: stored.tracker } : {}),
       fileName: row.fileName === '' ? null : row.fileName,
       status: row.status,
       importedAt: row.importedAt,
@@ -736,6 +830,7 @@ function toJson(value: unknown): InputJsonObject {
 function readStored(row: ImportRecord): StoredImport {
   const raw = row.diffSummary as Partial<StoredImport> | null
   return {
+    ...(raw?.tracker ? { tracker: raw.tracker } : {}),
     meta: {
       bom: raw?.meta?.bom ?? true,
       lineEnding: raw?.meta?.lineEnding ?? 'LF',

@@ -6,6 +6,8 @@ import { PrismaService } from '../prisma/prisma.service.js'
  * Keys of `app_settings` (PLAN §4.2): UI preferences plus the knobs of later phases, so the PWA can save them now.
  */
 export const SETTING_KEYS = [
+  'trackerFriendId',
+  'trackerAutoSync',
   'ui',
   'alpha',
   'rarityFilter',
@@ -46,6 +48,15 @@ export class SettingsService {
   }
 
   async set(key: string, value: unknown): Promise<{ key: string; value: unknown }> {
+    if (key === 'trackerFriendId' && (typeof value !== 'string' || (value !== '' && !/^\d{16}$/.test(value)))) {
+      throw new BadRequestException({ code: 'validation', message: 'Pegá el friend_id de 16 dígitos del tracker.' })
+    }
+    if (key === 'trackerAutoSync' && typeof value !== 'boolean') {
+      throw new BadRequestException({
+        code: 'validation',
+        message: 'La sincronización automática debe ser verdadera o falsa.',
+      })
+    }
     if (!isSettingKey(key)) {
       throw new BadRequestException({
         code: 'validation',
