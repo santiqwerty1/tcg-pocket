@@ -12,7 +12,13 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { formatDateTime } from '@/lib/format'
 
-const RESULT = { preview: 'Vista previa lista', applied: 'Aplicada', review: 'Requiere revisión', error: 'Error' }
+const RESULT = {
+  preview: 'Vista previa lista',
+  applied: 'Aplicada',
+  unchanged: 'Sin cambios',
+  review: 'Requiere revisión',
+  error: 'Error',
+}
 export function TrackerSettingsSection() {
   const status = useTrackerStatus()
   const save = useSetSetting()
@@ -58,9 +64,12 @@ export function TrackerSettingsSection() {
             />
           </Label>
           <p className="text-sm text-muted-foreground">
-            Si bajan más del 10 % de las copias, deja un aviso para que revises los cambios.
+            Si hay bajas de más del 10 %, cambios manuales recientes o dudas sobre el catálogo, deja una revisión
+            pendiente.
           </p>
-          <p className="text-sm">Última sincronización aplicada: {formatDateTime(status.data.lastAppliedAt)}</p>
+          <p className="text-sm">
+            Última sincronización: {formatDateTime(status.data.lastCheckedAt ?? status.data.lastAppliedAt)}
+          </p>
           <p className="text-sm">
             Última consulta: {formatDateTime(status.data.lastAttemptAt)} ·{' '}
             {status.data.result ? RESULT[status.data.result] : 'Sin consultas'}

@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -57,7 +57,14 @@ describe('tracker sync screen', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe(`/coleccion/importar/${preview.id}`))
     expect(await screen.findByText(/Bajan más del 10 %/)).toBeInTheDocument()
     expect(await screen.findByRole('heading', { name: 'Cambios (4)' })).toBeInTheDocument()
+    expect(screen.queryByText('Filas')).not.toBeInTheDocument()
+    expect(screen.queryByText('Suma ingenua')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Retirar' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Aplicar' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(/Bajan 20 copias de las 100 actuales/)).toBeInTheDocument()
+    expect(calls.some((c) => c.path === '/api/collection/tracker-sync/apply')).toBe(false)
+    await user.click(within(dialog).getByRole('button', { name: 'Aplicar cambios' }))
     await waitFor(() => expect(router.state.location.pathname).toBe('/coleccion'))
     const applied = calls.find((c) => c.path === '/api/collection/tracker-sync/apply')
     expect(JSON.parse(applied?.body as string)).toEqual({ id: preview.id })

@@ -8,8 +8,9 @@ const statusSchema = z.object({
   friendId: z.string(),
   enabled: z.boolean(),
   lastAppliedAt: z.string().nullable(),
+  lastCheckedAt: z.string().nullable().default(null),
   lastAttemptAt: z.string().nullable(),
-  result: z.enum(['preview', 'applied', 'review', 'error']).nullable(),
+  result: z.enum(['preview', 'applied', 'unchanged', 'review', 'error']).nullable(),
   error: z.string().nullable(),
   previewId: z.string().nullable(),
 })

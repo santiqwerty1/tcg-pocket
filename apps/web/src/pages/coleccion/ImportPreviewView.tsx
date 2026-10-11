@@ -73,18 +73,25 @@ export function ImportPreviewView({ preview, onResolveAdjustment, resolvingId }:
             {preview.tracker.increased} unidades suben · {preview.tracker.decreased} bajan ·{' '}
             {preview.summary.zeroedUnits} quedan en cero · {preview.unknownIds.length} desconocidas.
           </p>
-          {preview.tracker.requiresReview ? (
+          {preview.tracker.removedCopies > preview.tracker.currentCopies * 0.1 ? (
             <p className="text-warning-foreground">
               Bajan más del 10 % de las copias ({preview.tracker.removedCopies} de {preview.tracker.currentCopies}).
               Revisá los cambios antes de aplicar.
             </p>
           ) : null}
+          {preview.tracker.reviewReasons?.map((reason) => (
+            <p key={reason} className="text-warning-foreground">
+              {reason}
+            </p>
+          ))}
         </div>
       ) : null}
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Stat label="Filas" value={formatNumber(preview.rowCount)} />
-        <Stat label="Suma ingenua" value={formatNumber(preview.naiveTotal)} hint="sumando las gemelas dos veces" />
+        {preview.source !== 'tracker' ? <Stat label="Filas" value={formatNumber(preview.rowCount)} /> : null}
+        {preview.source !== 'tracker' ? (
+          <Stat label="Suma ingenua" value={formatNumber(preview.naiveTotal)} hint="sumando las gemelas dos veces" />
+        ) : null}
         <Stat
           label="Copias (deduplicadas)"
           value={formatNumber(preview.dedupTotal)}
