@@ -97,3 +97,78 @@ test('analysis charts and touch heatmap fit a phone with current synthetic evide
   await page.setViewportSize({ width: 1280, height: 800 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
+
+test('81-list heatmap stays compact and scrolls within a phone', async ({ page }, testInfo) => {
+  const ids = Array.from({ length: 81 }, (_, i) => i + 1)
+  const outcomes = ids.flatMap((a) => ids.filter((b) => b > a).map((b) => ({ a, b, winsA: 700, winsB: 300, ties: 0 })))
+  const matrix = analysisMatrix({
+    id: 81,
+    label: '81 listas',
+    bot: 'e2/e2',
+    engineRev: 'a'.repeat(40),
+    era: null,
+    decks: ids.map((id) => ({ id, key: `list-${id}`, label: `Mazo ${id}` })),
+    sideA: ids,
+    sideB: ids,
+    outcomes,
+  })
+  const games = analyzeGames(
+    { wins: 700 * outcomes.length, losses: 300 * outcomes.length, ties: 0 },
+    {
+      games: 0,
+      firstWins: 0,
+      secondWins: 0,
+      ties: 0,
+      turnSum: 0,
+      turnSquares: 0,
+      histogram: [],
+    },
+  )
+  const patterns = matchupPatterns(matrix)
+  await page.route('**/api/simulations/analysis*', (route) =>
+    route.fulfill({
+      json: {
+        source: 'simulation',
+        options: { bots: ['e2'], eras: [], expansions: [] },
+        summary: {
+          simulations: 1,
+          activeJobs: 0,
+          games: outcomes.length * 1000,
+          unknownEra: 1,
+          failedChunks: 0,
+          byBot: [],
+          byExpansion: [],
+        },
+        matrices: [
+          {
+            ...matrix,
+            status: 'done',
+            botEs: 'e2',
+            symmetric: true,
+            games: outcomes.length * 1000,
+            archived: false,
+            calibration: false,
+          },
+        ],
+        matrix,
+        rankings: [],
+        agreement: null,
+        comparison: { left: null, right: null },
+        games,
+        patterns,
+        findings: analysisFindings(patterns, games, null),
+        calibrationJobId: null,
+      },
+    }),
+  )
+  await page.goto('/simulacion/analisis')
+  const table = page.getByRole('table')
+  await table.scrollIntoViewIfNeeded()
+  await expect(table.getByRole('rowheader').first()).toContainText('%')
+  const target = page.getByRole('button', { name: 'Mazo 1 contra Mazo 81', exact: true })
+  expect((await target.boundingBox())?.height).toBeLessThanOrEqual(28)
+  await target.click()
+  await expect(page.locator('[aria-live="polite"]', { hasText: 'Mazo 1 contra Mazo 81' })).toContainText('n = 1.000')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('analisis-81-mobile.png') })
+})

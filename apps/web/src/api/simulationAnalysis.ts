@@ -17,14 +17,23 @@ const matrixBase = z.object({
   bot: z.string(),
   engineRev: z.string(),
   era: z.string().nullable(),
+  status: z.string().default('done'),
 })
-const edge = z.object({ a: z.string(), b: z.string(), labelA: z.string(), labelB: z.string(), rate: winRateSchema })
+const edge = z.object({
+  a: z.string(),
+  b: z.string(),
+  labelA: z.string(),
+  labelB: z.string(),
+  rate: winRateSchema,
+  ties: z.number(),
+})
 const weighted = z.object({ value: z.number(), ci95: interval, games: z.number() })
 export const simulationAnalysisSchema = z.object({
   source: z.literal('simulation'),
   options: z.object({ bots: z.array(z.string()), eras: z.array(z.string()), expansions: z.array(z.string()) }),
   summary: z.object({
     simulations: z.number(),
+    activeJobs: z.number().default(0),
     games: z.number(),
     unknownEra: z.number(),
     failedChunks: z.number(),
@@ -64,6 +73,13 @@ export const simulationAnalysisSchema = z.object({
       left: z.number(),
       right: z.number(),
       orientative: z.boolean(),
+      sameEngine: z.boolean(),
+      leftBot: z.string(),
+      rightBot: z.string(),
+      leftEngine: z.string(),
+      rightEngine: z.string(),
+      leftStatus: z.string(),
+      rightStatus: z.string(),
       correlation: z
         .object({ rho: z.number(), n: z.number(), ci95: interval.nullable(), method: z.literal('bootstrap') })
         .nullable(),
@@ -71,6 +87,8 @@ export const simulationAnalysisSchema = z.object({
         z.object({
           key: z.string(),
           label: z.string(),
+          pValue: z.number(),
+          significant: z.boolean(),
           before: weighted,
           after: weighted,
           difference: z.object({ value: z.number(), ci95: interval, se: z.number() }),
@@ -93,8 +111,12 @@ export const simulationAnalysisSchema = z.object({
       .nullable(),
     histogram: z.array(z.object({ turns: z.number(), games: z.number() })),
   }),
+  gameSample: z
+    .object({ scope: z.enum(['matrix', 'laboratory']), jobIds: z.array(z.number()), games: z.number() })
+    .optional(),
   patterns: z.object({
     dominant: z.array(edge),
+    dominantTotal: z.number(),
     cycles: z.array(z.tuple([edge, edge, edge])),
     cyclesTotal: z.number(),
   }),
@@ -108,6 +130,6 @@ export function useSimulationAnalysis(params: URLSearchParams) {
     queryKey: [...simulationKeys.all, 'analysis', query],
     queryFn: ({ signal }) =>
       request(`/api/simulations/analysis${query ? `?${query}` : ''}`, { schema: simulationAnalysisSchema, signal }),
-    refetchInterval: 30_000,
+    refetchInterval: (q) => (q.state.data?.summary.activeJobs ? 30_000 : false),
   })
 }

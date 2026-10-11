@@ -36,7 +36,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatDateTime, formatNumber, plural, shortSha } from '@/lib/format'
-import { formatRateValue } from '@/lib/matches'
+import { formatRate, formatRateValue } from '@/lib/matches'
 import { encodeSource, formatDuration, gamesLabel, isActive, KIND_LABEL, progressFraction } from '@/lib/simulation'
 import { cn } from '@/lib/utils'
 import { ProgressBar, StatusBadge } from './SimulacionPage'
@@ -215,7 +215,14 @@ export function MatrixGrid({ job }: { job: { snapshots: Pick<Snapshot, 'id' | 'l
                     className="sticky left-0 z-10 max-w-48 truncate bg-background px-2 py-0.5 text-left font-normal"
                     title={byId.get(row.snapshot)?.label}
                   >
-                    {position.get(row.snapshot)} · {name(row.snapshot)}{' '}
+                    <span className="flex items-center gap-2">
+                      <span className="max-w-32 truncate">
+                        {position.get(row.snapshot)} · {name(row.snapshot)}
+                      </span>
+                      <span className="text-muted-foreground" title={formatRate(row.rate)}>
+                        {row.rate ? formatRateValue(row.rate.value) : 'sin datos'}
+                      </span>
+                    </span>
                   </th>
                   {rivals.map((rival) => {
                     const cell = cells.get(rival)
@@ -237,7 +244,7 @@ export function MatrixGrid({ job }: { job: { snapshots: Pick<Snapshot, 'id' | 'l
                       >
                         <button
                           type="button"
-                          className="min-h-11 min-w-9 px-1 focus-visible:outline-2 focus-visible:outline-offset-2"
+                          className="min-h-6 min-w-8 px-1 focus-visible:outline-2 focus-visible:outline-offset-2"
                           aria-label={`${name(row.snapshot)} contra ${name(rival)}`}
                           onClick={() => setSelected({ a: row.snapshot, b: rival })}
                         >

@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { useCalibration } from '@/api/calibration'
 import type { SimulationStatus } from '@/api/schemas'
@@ -72,6 +73,28 @@ export function SimulationAnalysisPage() {
     Number(params.get('calibration')) || view?.calibrationJobId || view?.matrices.find((m) => m.calibration)?.id
   const selected = view?.matrices.find((m) => m.id === matrix?.id)
   const correlation = view?.agreement?.correlation
+  const charts = useMemo(
+    () =>
+      new Map(
+        view?.rankings.map((ranking) => {
+          const top = ranking.rows.filter((row) => row.rate).slice(0, 12)
+          return [
+            ranking.id,
+            {
+              x: top.map((_, i) => i + 1),
+              values: top.map((r) => r.rate?.value ?? 0),
+              lower: top.map((r) => r.rate?.ci95[0] ?? 0),
+              upper: top.map((r) => r.rate?.ci95[1] ?? 0),
+            },
+          ]
+        }),
+      ),
+    [view?.rankings],
+  )
+  const histogram = useMemo(
+    () => ({ x: games?.histogram.map((r) => r.turns) ?? [], values: games?.histogram.map((r) => r.games) ?? [] }),
+    [games?.histogram],
+  )
   return (
     <div className="flex min-w-0 flex-col gap-6">
       <div>
@@ -155,21 +178,16 @@ export function SimulationAnalysisPage() {
             </p>
             {view.rankings.length ? (
               view.rankings.map((ranking) => {
-                const top = ranking.rows.filter((row) => row.rate).slice(0, 12)
+                const chart = charts.get(ranking.id)
+                if (!chart) return null
                 return (
                   <details key={ranking.id} open={ranking.id === matrix?.id} className="min-w-0 rounded-lg border p-3">
                     <summary className="min-h-11 cursor-pointer text-sm font-medium">
                       {ranking.bot} · {ranking.era ?? 'sin era'} · motor {shortSha(ranking.engineRev)} · #{ranking.id}
                     </summary>
-                    <AnalysisChart
-                      title={`Ranking ${ranking.bot} con intervalos`}
-                      x={top.map((_, i) => i + 1)}
-                      values={top.map((row) => row.rate?.value ?? 0)}
-                      lower={top.map((row) => row.rate?.ci95[0] ?? 0)}
-                      upper={top.map((row) => row.rate?.ci95[1] ?? 0)}
-                    />
+                    <AnalysisChart title={`Ranking ${ranking.bot} con intervalos`} {...chart} />
                     <p className="text-xs text-muted-foreground">
-                      Gráfico: primeras {top.length} listas. Ranking completo:
+                      Gráfico: primeras {chart.x.length} listas. Ranking completo:
                     </p>
                     <ol className="list-inside list-decimal text-sm">
                       {ranking.rows.map((row) => (
@@ -202,7 +220,8 @@ export function SimulationAnalysisPage() {
                       .filter((m) => m.symmetric)
                       .map((m) => (
                         <option key={m.id} value={m.id}>
-                          #{m.id} · {m.bot} · {m.era ?? 'sin era'} · {shortSha(m.engineRev)}
+                          #{m.id} · {m.bot} · {m.era ?? 'sin era'} · {shortSha(m.engineRev)} ·{' '}
+                          {STATUS_LABEL[m.status as SimulationStatus]}
                         </option>
                       ))}
                   </select>
@@ -215,6 +234,14 @@ export function SimulationAnalysisPage() {
               prueba apareada. Cambiar motor o banco también puede explicar diferencias. La correlación bootstrap
               remuestrea listas; refleja estabilidad del orden entre listas, no incertidumbre por partida.
             </p>
+            {view.agreement ? (
+              <p className="text-sm">
+                {view.agreement.leftBot} ({STATUS_LABEL[view.agreement.leftStatus as SimulationStatus]}) →{' '}
+                {view.agreement.rightBot} ({STATUS_LABEL[view.agreement.rightStatus as SimulationStatus]}).{' '}
+                {view.agreement.sameEngine ? 'Mismo motor' : 'Motores distintos'}: {shortSha(view.agreement.leftEngine)}{' '}
+                / {shortSha(view.agreement.rightEngine)}.
+              </p>
+            ) : null}
             {correlation ? (
               <p>
                 Spearman ρ = {decimal(correlation.rho)} · n = {correlation.n} listas · IC 95 %{' '}
@@ -222,7 +249,10 @@ export function SimulationAnalysisPage() {
                 {view.agreement?.orientative ? ' · orientativo' : ''}
               </p>
             ) : (
-              <p>No hay al menos tres listas comparables con rangos distintos entre dos bots de la misma era.</p>
+              <p>
+                No hay al menos tres listas comparables con rangos distintos entre dos bots con eras compatibles cuando
+                se conocen.
+              </p>
             )}
             <p className="text-sm">Mazos que más suben o bajan (por diferencia en puntos):</p>
             <ul className="text-sm">
@@ -278,10 +308,14 @@ export function SimulationAnalysisPage() {
           </Section>
           <Section title="Empezar, duración y empates">
             <p className="text-xs text-muted-foreground">
-              Matriz elegida. Cobertura por partida: {formatNumber(games?.coverage ?? 0)} de{' '}
-              {formatNumber(selected?.games ?? 0)}. Empezar y el histograma necesitan datos por partida y el mismo bot
-              en ambos lados. La media puede usar turnos agregados; sin datos por partida no se estima su IC. Se cuenta
-              cada juego una vez; turnos globales suman los turnos de ambos jugadores.
+              {view.gameSample?.scope === 'laboratory'
+                ? `Laboratorio del mismo bot y motor (trabajos ${view.gameSample.jobIds.join(', ')}); muestra de búsqueda, puede compartir semillas; IC exploratorios.`
+                : 'Matriz elegida.'}{' '}
+              Cobertura por partida: {formatNumber(games?.coverage ?? 0)} de{' '}
+              {formatNumber(view.gameSample?.scope === 'laboratory' ? view.gameSample.games : (selected?.games ?? 0))}.
+              Empezar y el histograma necesitan datos por partida y el mismo bot en ambos lados. La media puede usar
+              turnos agregados; sin datos por partida no se estima su IC. Se cuenta cada juego una vez; turnos globales
+              suman los turnos de ambos jugadores.
             </p>
             {games ? (
               <>
@@ -303,12 +337,7 @@ export function SimulationAnalysisPage() {
                       {formatNumber(games.duration.n)}
                       {games.duration.orientative ? '; orientativo' : ''}).
                     </p>
-                    <AnalysisChart
-                      histogram
-                      title="Distribución de duración de partidas"
-                      x={games.histogram.map((row) => row.turns)}
-                      values={games.histogram.map((row) => row.games)}
-                    />
+                    <AnalysisChart histogram title="Distribución de duración de partidas" {...histogram} />
                     <details>
                       <summary className="min-h-11 cursor-pointer">Partidas por duración</summary>
                       <ul>
@@ -363,8 +392,9 @@ export function SimulationAnalysisPage() {
           </Section>
           <Section title="Hallazgos">
             <p className="text-xs text-muted-foreground">
-              Generados desde los resultados actuales. Exploratorios: los IC son puntuales y no están corregidos por
-              buscar entre muchos cruces. No prueban causalidad del bot ni aseguran rendimiento en torneos.
+              Generados desde los resultados actuales. Exploratorios: selección con Benjamini–Hochberg (FDR 5 %) sobre
+              cruces y cambios; los IC son puntuales. Cruces con al menos 55 % de las partidas decididas, cambios de al
+              menos 5 puntos. No prueban causalidad del bot ni aseguran rendimiento en torneos.
             </p>
             <ul className="list-inside list-disc text-sm">
               {view.findings.map((finding) => (
@@ -375,8 +405,8 @@ export function SimulationAnalysisPage() {
             </ul>
             {!view.findings.length ? <p>Sin evidencia suficiente para generar hallazgos.</p> : null}
             <p className="text-xs text-muted-foreground">
-              {view.patterns.dominant.length} matchups con límite inferior por encima de la mitad;{' '}
-              {view.patterns.cyclesTotal} ciclos A &gt; B &gt; C &gt; A sostenidos por sus tres intervalos. Se muestran
+              {view.patterns.dominantTotal} matchups seleccionados por efecto y corrección múltiple;{' '}
+              {view.patterns.cyclesTotal} ciclos A &gt; B &gt; C &gt; A ordenados por su arista más débil. Se muestran
               hasta tres de cada clase.
             </p>
           </Section>
