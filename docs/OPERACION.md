@@ -13,11 +13,28 @@ Cómo se sabe si la app anda, qué corre sola y qué hacer cuando algo falla (Fa
 | Prueba de restauración | El 1 de cada mes a las 04:30 | Aviso `backup_drill` |
 | Sincronización de Limitless | Al arrancar y cada 6 h (`LIMITLESS_SYNC`, en producción) | Aviso `limitless_sync`: la última corrida falló, o ninguna buena en 13 h |
 | Actualización del catálogo | A mano (Más → Catálogo) | Aviso `catalog_sync` si la última falló (sigue el catálogo anterior) |
+| Colección del tracker | Cada 6 h si se habilita en Más → Ajustes; apagada por defecto | Aviso `tracker_sync`; deja revisión ante bajas grandes, cambios manuales recientes o dudas sobre el catálogo |
 | Chequeos de GitHub (set nuevo del tracker, commits nuevos de deckgym) | Cada 12 h (cada hora después de una falla) | Aviso `github_check` (info) |
 | Workers | Cuando hay trabajo | Aviso `worker_idle`: hay trabajo y ningún worker en 30 min |
 | Tamaño de la base | — | Aviso `database_size` desde 350 MB (el plan gratis de Supabase llega a 500) |
 
-Los avisos se ven en Más → Avisos y llegan al celu como notificación (`NotificationsWatcher`, cada 15 s), una vez por título. Cada título lleva la fecha, así que una falla nueva vuelve a avisar.
+Los avisos se ven en Más → Avisos y llegan al celu como notificación (`NotificationsWatcher`, cada 15 s), una vez por título. El aviso del tracker conserva el título y lleva la fecha en el detalle: las consultas repetidas no repiten el push.
+
+## Configurar la colección pública del tracker (T-020)
+
+La API necesita `TRACKER_COLLECTION_ANON_KEY`. Su defecto está vacío: la app arranca y el CSV sigue disponible, pero la consulta del tracker devuelve `tracker_config` hasta configurarla. La URL por defecto es la instancia pública de Supabase; `TRACKER_COLLECTION_URL` permite reemplazarla.
+
+Obtener la **clave anon pública** que publica el frontend oficial del tracker en `frontend/src/lib/supabase.ts`, o desde el header `apikey` de una consulta de su frontend a Supabase en las herramientas de red del navegador. Debe ser la clave anon de esa instancia, nunca una `service_role`. No copiar su valor al repositorio, a la bóveda ni al chat.
+
+En producción, cargarla como secreto de Fly de la app `tcg-pocket`: `fly secrets set TRACKER_COLLECTION_ANON_KEY=<valor obtenido> -a tcg-pocket`. Fly la entrega como variable de entorno a la API. También se puede cargar mediante el panel de secretos de Fly. En un servidor sin Fly, definir esa misma variable al iniciar el proceso. Si se rota, reemplazar el secreto y verificar una vista previa manual.
+
+Guardar el friend_id de 16 dígitos en Más → Ajustes → Colección del tracker y habilitar la colección pública en el tracker. `tracker_empty` significa que el conteo fue cero: puede ser un friend_id equivocado, una colección privada o sin filas públicas; nunca se interpreta como una colección de cero copias. `tracker_auth` indica rechazo de la clave configurada.
+
+La automática conserva la primera importación aplicada del tracker y las siete últimas para las comparaciones de sobres; descarta las previas pendientes al crear una nueva y conserva hasta siete descartadas. Sólo persiste filas con copias o marca de coleccionada (y los ids desconocidos para revisarlos). Una consulta sin cambios sólo actualiza `trackerLastCheckedAt`, usada por «Última sincronización», y no agrega importaciones. Si hay dudas de catálogo sin cambios de stock, deja un aviso sin guardar otra foto. El historial CSV se conserva.
+
+Las bajas mayores al 10 %, unidades editadas a mano desde la última aplicación, internal_id desconocidos y un commit remoto diferente del catálogo local dejan una revisión. La comparación del commit remoto utiliza el chequeo de GitHub existente; si no se puede verificar, queda en revisión. Aplicar manualmente requiere confirmar las copias que bajan. «Retirar» ajustes se ofrece en la previa CSV; para el tracker se retiran desde Ajustes y se obtiene otra previa.
+
+El aviso se limpia al aplicar un tracker o CSV, descartar la previa correspondiente, apagar la automática o cambiar/vaciar el friend_id. Restaurar un backup con automática encendida retrasa seis horas la próxima consulta para permitir revisar la colección restaurada.
 
 ## Estado del servidor
 
