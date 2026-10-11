@@ -16,6 +16,7 @@ const defaults = {
   enginePath: join(here, 'engine-cli'),
   determinismPath: join(here, 'determinism.json'),
   capThreads: true,
+  allowSlowBots: false,
 }
 
 async function main() {

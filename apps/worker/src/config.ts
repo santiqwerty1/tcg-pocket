@@ -17,6 +17,8 @@ export interface WorkerConfig {
   cores: number
   /** Background engines yield CPU to CI; interactive engines always use normal priority. */
   priority: EnginePriority
+  /** D-025: Android opts out of MCTS and depth 3+ jobs before leasing; PC opts in. */
+  allowSlowBots: boolean
   name: string
   enginePath: string
   dataDir: string
@@ -39,6 +41,7 @@ export function defaultEnginePath(): string {
 
 export interface FileConfig {
   priority?: EnginePriority
+  allowSlowBots?: boolean
   server?: string
   token?: string
   cores?: number
@@ -52,6 +55,7 @@ export interface ConfigDefaults {
   enginePath?: string | undefined
   determinismPath?: string | undefined
   capThreads?: boolean
+  allowSlowBots?: boolean
 }
 
 export function configFile(): string {
@@ -96,11 +100,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, defaults: Confi
   if (priority !== 'below_normal' && priority !== 'normal' && priority !== 'idle') {
     throw new Error('Prioridad inválida: usá below_normal, normal o idle en priority o TCG_WORKER_PRIORITY.')
   }
+  const slowBotsEnv = env.TCG_WORKER_ALLOW_SLOW_BOTS
+  if (slowBotsEnv !== undefined && slowBotsEnv !== 'true' && slowBotsEnv !== 'false') {
+    throw new Error('TCG_WORKER_ALLOW_SLOW_BOTS inválido: usá true o false.')
+  }
+  const allowSlowBots =
+    slowBotsEnv !== undefined ? slowBotsEnv === 'true' : (fromFile.allowSlowBots ?? defaults.allowSlowBots ?? true)
+  if (typeof allowSlowBots !== 'boolean') {
+    throw new Error('allowSlowBots inválido: usá un booleano true o false en config.json.')
+  }
   return {
     server: (env.TCG_SERVER ?? fromFile.server ?? 'https://tcg-pocket.fly.dev').replace(/\/+$/, ''),
     token,
     cores: Number.isInteger(cores) && cores > 0 ? cores : 2,
     priority,
+    allowSlowBots,
     name: env.TCG_WORKER_NAME ?? fromFile.name ?? hostname(),
     enginePath: env.TCG_ENGINE_PATH ?? fromFile.enginePath ?? defaults.enginePath ?? defaultEnginePath(),
     dataDir: dir,

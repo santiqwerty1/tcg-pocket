@@ -11,6 +11,7 @@ export interface Hello {
   cliVersion: string
   cores: number
   version: string
+  allowSlowBots?: boolean
   /** What the engine can do (`features` of `engine-cli version`); missing in engines from before 0.2.1. */
   engineFeatures?: string[]
   /** B2: several pairings of one job in one engine process, up to these limits (only with an engine that has `batch`). */

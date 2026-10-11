@@ -645,6 +645,7 @@ export class Worker {
               cliVersion,
               cores: this.config.cores,
               version: WORKER_VERSION,
+              allowSlowBots: this.config.allowSlowBots,
               ...(engineFeatures.length ? { engineFeatures } : {}),
               ...(this.batchable
                 ? { batch: { maxChunks: BATCH_MAX_CHUNKS, maxGames: this.config.cores * BATCH_GAMES_PER_CORE } }

@@ -183,6 +183,7 @@ describe('worker loop', () => {
       token: 'tcg_wk_test',
       cores: 2,
       priority: 'below_normal',
+      allowSlowBots: true,
       name: 'test',
       enginePath: FAKE_ENGINE,
       dataDir,
@@ -429,6 +430,12 @@ describe('worker loop', () => {
       engineFeatures: ['perGame', 'batch'],
     })
     expect(lines.filter((line) => line === hint)).toHaveLength(2)
+  })
+
+  it.each([false, true])('sends allowSlowBots=%s in the claim hello (D-025)', async (allowSlowBots) => {
+    const { client } = fakeClient([])
+    await new Worker({ ...config, allowSlowBots }, client, silent).loop(new AbortController().signal, { once: true })
+    expect(vi.mocked(client.claim).mock.calls[0]?.[0]).toMatchObject({ allowSlowBots })
   })
 
   it('an engine without features is not said to have any', async () => {
@@ -709,6 +716,7 @@ describe('games against a bot (Fase 8)', () => {
       token: 'tcg_wk_test',
       cores: 2,
       priority: 'below_normal',
+      allowSlowBots: true,
       name: 'test',
       enginePath: FAKE_ENGINE,
       dataDir,

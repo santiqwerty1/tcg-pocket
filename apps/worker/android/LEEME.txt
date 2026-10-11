@@ -13,6 +13,8 @@ TCG Pocket: worker 0.2.11 en Android arm64 (T-015)
 3. Elegí cuántos núcleos usar (por defecto la mitad, por el calor) y si trabaja solo enchufado.
    «Nombre en la app» permite identificar tu celu. Enter conserva el nombre guardado;
    la primera vez propone «Android», también si el nombre viejo era «Android localhost».
+   «¿Tomar también bots lentos (MCTS, profundidad 3 o más)? [s/N]»: Enter o «n» los excluye;
+   respondé «s» para tomarlos también. Se vuelve a preguntar al actualizar.
    El motor de fondo usa prioridad baja para dejar CPU a otras tareas. La prioridad no reduce el calor.
    Para esa opción instalá Termux:API y pkg install termux-api. Se revisa cada 15 segundos;
    una lectura de batería fallida pausa el trabajo. Desenchufar manda SIGTERM, libera los
@@ -56,6 +58,17 @@ Fuentes oficiales verificadas el 10/10/2026:
 https://github.com/termux/termux-widget#setup-instructions
 https://github.com/termux/termux-widget#draw-over-apps-permission-optional
 https://github.com/termux/termux-widget/blob/master/app/src/main/AndroidManifest.xml
+
+Bots lentos (D-025):
+Android guarda "allowSlowBots": false en data/config.json por defecto, también si una
+configuración anterior no trae el campo. "allowSlowBots": true permite tomarlos.
+TCG_WORKER_ALLOW_SLOW_BOTS=true o false manda sobre el archivo. Reiniciá el worker después
+de cambiarlo; --check muestra el valor efectivo. En PC y workers anteriores que no envían
+la preferencia, el servidor permite todos los bots.
+Con false, el servidor excluye trabajos con m (MCTS), e3…e9 o f3…f9 antes de asignar un lease.
+Los chunks y sus semillas se conservan para otros workers; no se dividen ni se rechazan
+después del reclamo. La preferencia rige para simulaciones, incluidas las de consistencia,
+optimización y laboratorio. Las partidas contra el bot y pistas del entrenador siguen igual.
 
 Prioridad:
 En data/config.json: "priority": "below_normal" (por defecto), "normal" o "idle".
