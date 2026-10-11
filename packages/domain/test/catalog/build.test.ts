@@ -315,7 +315,8 @@ describe('buildCatalog: contract and performance', () => {
   it('builds in under 2 seconds', () => {
     const start = performance.now()
     const built = buildCatalog(buildInput())
-    expect(performance.now() - start).toBeLessThan(2000)
+    // D-023: the shared CI machines run several suites at once; 2 s is the local budget.
+    expect(performance.now() - start).toBeLessThan(process.env.CI ? 6000 : 2000)
     expect(built.cards).toHaveLength(4317)
   })
 
