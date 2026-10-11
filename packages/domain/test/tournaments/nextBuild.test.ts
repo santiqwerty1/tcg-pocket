@@ -7,6 +7,7 @@ import {
   DEFAULT_SET_RELEASES,
   NEXT_BUILD_MAX_MISSING,
   NEXT_BUILD_MIN_LISTS,
+  nextBuildCost,
   nextBuilds,
   parseStandings,
 } from '../../src/tournaments/index.js'
@@ -62,6 +63,19 @@ describe('¿qué mazo armo después? (Fase 44)', () => {
       else expect(row.points).toBeNull()
       if (row.closest.missingCopies === 0) expect(row.points).toBe(0)
     }
+  })
+
+  it('a copy without a point price can still be traded', () => {
+    // Codex on #52: the rarity rules set points and trading apart; with no priced print the copy was not tradeable.
+    expect(index.expansionById('A1')?.tradeable).toBe(true)
+    const card = index.cardsOfExpansion('A1')[0]
+    const groupId = card?.functionalGroupId ?? ''
+    const cost = nextBuildCost(index, groupId, () => ({ points: null, verified: true, tradeable: true }))
+    expect(cost).toEqual({ points: null, tradeable: true })
+    expect(nextBuildCost(index, groupId, () => ({ points: 100, verified: true, tradeable: false }))).toEqual({
+      points: 100,
+      tradeable: false,
+    })
   })
 
   it('archetypes I already have a deck of go last; a tighter reach leaves only what is close', () => {

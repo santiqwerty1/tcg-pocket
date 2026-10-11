@@ -44,6 +44,13 @@ describe('Energy Zone, turn by turn (Fase 44)', () => {
     }
   })
 
+  it('a type repeated in the deck counts once: the zone always gives it', () => {
+    // Codex on #52: a saved deck can repeat a type; as two categories, one Fire was 0 % after one energy.
+    const odds = energyZoneOdds(['fire', 'fire'], ['fire'])
+    expect(odds.types).toEqual(['fire'])
+    expect(odds.second[0]).toEqual({ turn: 1, energies: 1, probability: 1 })
+  })
+
   it('a type the deck does not select can never be paid; a free attack always can', () => {
     const odds = energyZoneOdds(['fire', 'water'], ['lightning'])
     expect(odds.payable).toBe(false)

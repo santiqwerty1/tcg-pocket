@@ -5,7 +5,8 @@
  * give the same numbers), with the rules as deckgym plays them:
  *
  * - Opening hand of 5 with at least one Basic Pokémon (redealt otherwise), one card drawn every own turn (the first
- *   player's first turn included). Turn 0 is the opening hand: nothing is played before it.
+ *   player's first turn included). Turn 0 is the opening hand: nothing is played before it. One Basic of the opening
+ *   hand goes to the Active Spot and leaves the hand.
  * - While the card is not in hand, every turn plays, in this order and again while something changes: each Poké Ball
  *   (a random Basic Pokémon of the deck to the hand), each Comunicación Pokémon when the card is a Pokémon and the hand
  *   holds another Pokémon (that one goes to the deck and a random Pokémon of the deck comes), and one Investigación de
@@ -158,6 +159,9 @@ export function searchOdds(input: SearchOddsInput): SearchOdds {
       for (let turn = 0; turn <= turns; turn++) found[turn] = (found[turn] ?? 0) + 1
       continue
     }
+    // Setup: one Basic of the opening hand (not the card looked for, or it would have counted) goes to the Active
+    // Spot, so Comunicación Pokémon cannot give it (Codex on #52).
+    removeFrom(hand, (card) => card.basic)
     for (let turn = 1; turn <= turns; turn++) {
       const drawn = pile.shift()
       if (drawn) hand.push(drawn)

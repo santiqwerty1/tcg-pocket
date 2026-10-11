@@ -5,7 +5,9 @@
  * tournaments. Ranked by the archetype's rate at the low end of its interval (an archetype with few lists does not
  * jump ahead on luck), then by the copies missing. Archetypes the owner already has a deck of go last.
  */
-import type { CardId } from '../catalog/types.js'
+import type { CatalogIndex } from '../catalog/catalogIndex.js'
+import type { CardId, Rarity } from '../catalog/types.js'
+import { cheapestPrint, isTradeable, type RarityRule } from '../packs/recommend.js'
 import { type ListAgainstCollection, listsAgainstCollection, type MissingCopies } from './buildable.js'
 import type { TournamentDataset } from './dataset.js'
 import { entriesOfArchetype, type RecordRow, recordOf } from './stats.js'
@@ -18,7 +20,23 @@ export const NEXT_BUILD_MIN_LISTS = 10
 export interface NextBuildCost {
   /** Pack points of the cheapest print; null when no print can be bought with points. */
   points: number | null
+  /** Some print of the functional card can be traded (priced or not). */
   tradeable: boolean
+}
+
+/**
+ * What a missing copy costs: the cheapest print's points and whether any print can be traded. A copy without a
+ * point price can still be traded (the rarity rules set both apart; Codex on #52).
+ */
+export function nextBuildCost(
+  index: CatalogIndex,
+  groupId: CardId,
+  rarityRule: (rarity: Rarity) => RarityRule,
+): NextBuildCost {
+  return {
+    points: cheapestPrint(index, groupId, rarityRule)?.points ?? null,
+    tradeable: index.cardsOfGroup(groupId).some((card) => isTradeable(index, card, rarityRule)),
+  }
 }
 
 export interface NextBuildRow {

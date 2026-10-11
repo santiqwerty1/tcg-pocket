@@ -1,10 +1,10 @@
 /** ¿Qué mazo armo después? (Fase 44, docs/API.md «Mazos»). */
 import { Controller, Get, Injectable, Module, Query } from '@nestjs/common'
 import {
-  cheapestPrint,
   DEFAULT_RARITY_RULES,
   type DeckCardEntry,
   type NextBuildCost,
+  nextBuildCost,
   TOURNAMENT_FORMATS,
 } from '@tcg/domain'
 import { z } from 'zod'
@@ -41,18 +41,19 @@ export class NextBuildService {
   async next(query: z.infer<typeof querySchema>): Promise<NextBuildView> {
     const index = this.catalog.requireIndex()
     const rules = new Map((await this.packs.rarityRules()).map((rule) => [rule.rarity, rule]))
-    const costs = new Map<string, NextBuildCost | null>()
-    const cost = (groupId: string): NextBuildCost | null => {
-      if (!costs.has(groupId)) {
-        const print = cheapestPrint(index, groupId, (rarity) => {
+    const costs = new Map<string, NextBuildCost>()
+    const cost = (groupId: string): NextBuildCost => {
+      let known = costs.get(groupId)
+      if (!known) {
+        known = nextBuildCost(index, groupId, (rarity) => {
           const rule = rules.get(rarity)
           return rule
             ? { points: rule.points, verified: rule.verified, tradeable: rule.tradeable }
             : DEFAULT_RARITY_RULES[rarity]
         })
-        costs.set(groupId, print ? { points: print.points, tradeable: print.tradeable } : null)
+        costs.set(groupId, known)
       }
-      return costs.get(groupId) ?? null
+      return known
     }
     // The archetypes of my active decks: the one chosen in the deck, or the one its closest lists suggest.
     const decks = await this.prisma.deck.findMany({
