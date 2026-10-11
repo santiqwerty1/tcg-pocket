@@ -44,6 +44,7 @@ describe('MCP read tools', () => {
         'play_games',
         'rivals_notes',
         'simulations_results',
+        'simulations_analysis',
         'system_status',
         'tournaments_archetype_cards',
         'tournaments_buildable',

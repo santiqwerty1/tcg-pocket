@@ -198,7 +198,7 @@ function Compatible({ value }: { value: boolean | null }) {
   )
 }
 
-function Report({ view }: { view: CalibrationView }) {
+export function CalibrationReport({ view }: { view: CalibrationView }) {
   const { report } = view
   const rows = [...report.rows].sort((x, y) => Math.abs(y.difference ?? -1) - Math.abs(x.difference ?? -1))
   const archetypes = [...report.archetypes].sort((x, y) => (y.tournament?.value ?? -1) - (x.tournament?.value ?? -1))
@@ -345,7 +345,7 @@ export function CalibrationDetailPage() {
           </div>
         )}
       </Section>
-      {calibration.data ? <Report view={calibration.data} /> : null}
+      {calibration.data ? <CalibrationReport view={calibration.data} /> : null}
     </div>
   )
 }

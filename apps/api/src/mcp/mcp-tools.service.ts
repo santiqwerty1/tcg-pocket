@@ -46,6 +46,7 @@ import { PacksService } from '../packs/packs.service.js'
 import { PickService } from '../pick/pick.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { RivalNotesService } from '../rivals/rival-notes.service.js'
+import { SimulationAnalysisService } from '../simulation/analysis.service.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
 import type {
   ArchetypeRowView,
@@ -58,6 +59,7 @@ import { TournamentsService } from '../tournaments/tournaments.service.js'
 import { TradesService } from '../trades/trades.controller.js'
 import { WeeklyService } from '../weekly/weekly.controller.js'
 import { type DeckRef, DeckRefResolver } from './deck-ref.js'
+import { analysisJson } from './mcp-analysis-json.js'
 import { type AuditNote, McpAuditService } from './mcp-audit.service.js'
 import { jobSummaryJson, rateView } from './mcp-json.js'
 import { McpLabToolsService } from './mcp-lab-tools.service.js'
@@ -168,6 +170,7 @@ export class McpToolsService {
     private readonly packs: PacksService,
     private readonly tournaments: TournamentsService,
     private readonly simulations: SimulationsService,
+    private readonly analysis: SimulationAnalysisService,
     private readonly prisma: PrismaService,
     private readonly deckRefs: DeckRefResolver,
     private readonly rivalNotes: RivalNotesService,
@@ -303,6 +306,9 @@ ${MCP_CHAT_INSTRUCTIONS}`
     server.registerTool(t.simulationsResults.name, config(t.simulationsResults), (args) =>
       run(t.simulationsResults.name, () => this.simulationsResults(args)),
     )
+    server.registerTool(t.simulationsAnalysis.name, config(t.simulationsAnalysis), (args) =>
+      this.simulationsAnalysis(args, caller),
+    )
     server.registerTool(t.workersStatus.name, config(t.workersStatus), () =>
       run(t.workersStatus.name, () => this.workersStatus()),
     )
@@ -319,6 +325,34 @@ ${MCP_CHAT_INSTRUCTIONS}`
     }
     this.registerPrompts(server)
     return server
+  }
+
+  private async simulationsAnalysis(
+    args: {
+      bot?: string
+      era?: string
+      expansion?: string
+      matrix?: number
+      left?: number
+      right?: number
+      limit?: number
+      detail?: 'compact' | 'full'
+    },
+    caller: McpCallerInfo,
+  ): Promise<CallToolResult> {
+    const result = await this.run('simulations_analysis', caller, async () => {
+      if (args.detail === 'full' && args.matrix === undefined)
+        throw new BadRequestException('detail full requiere una matriz explícita (matrix).')
+      const { limit, detail, ...query } = args
+      return analysisJson(await this.analysis.read(query), limit ?? 5, detail === 'full')
+    })
+    if (result.isError || !result.structuredContent) return result
+    // Text-only clients also need the compact rankings and canonical rate text. Large cells travel once.
+    const { matrix: _matrix, ...compact } = result.structuredContent as Json
+    return {
+      ...result,
+      content: [{ type: 'text', text: JSON.stringify(compact) }],
+    }
   }
 
   /**

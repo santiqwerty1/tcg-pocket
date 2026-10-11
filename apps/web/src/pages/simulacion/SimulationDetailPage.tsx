@@ -36,7 +36,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatDateTime, formatNumber, plural, shortSha } from '@/lib/format'
-import { formatRateValue } from '@/lib/matches'
+import { formatRate, formatRateValue } from '@/lib/matches'
 import { encodeSource, formatDuration, gamesLabel, isActive, KIND_LABEL, progressFraction } from '@/lib/simulation'
 import { cn } from '@/lib/utils'
 import { ProgressBar, StatusBadge } from './SimulacionPage'
@@ -171,7 +171,8 @@ function heat(value: number): string {
 }
 
 /** Every deck against every rival at a glance: rows by win rate, a colored cell per pairing (title: W-L-T and n). */
-function MatrixGrid({ job }: { job: JobDetail }) {
+export function MatrixGrid({ job }: { job: { snapshots: Pick<Snapshot, 'id' | 'label'>[]; rows: JobDetail['rows'] } }) {
+  const [selected, setSelected] = useState<{ a: number; b: number } | null>(null)
   const byId = useMemo(() => new Map(job.snapshots.map((snapshot) => [snapshot.id, snapshot])), [job.snapshots])
   const rows = [...job.rows].sort((a, b) => (b.rate?.value ?? -1) - (a.rate?.value ?? -1))
   const position = new Map(rows.map((row, at) => [row.snapshot, at + 1]))
@@ -181,6 +182,9 @@ function MatrixGrid({ job }: { job: JobDetail }) {
   const outside = rivals.filter((rival) => !position.has(rival))
   const code = (rival: number) => position.get(rival)?.toString() ?? `R${outside.indexOf(rival) + 1}`
   const name = (id: number) => shortLabel(byId.get(id)?.label ?? `#${id}`)
+  const selectedCell = job.rows
+    .find((row) => row.snapshot === selected?.a)
+    ?.cells.find((cell) => cell.rival === selected?.b)
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">Todavía no hay cruces terminados.</p>
   return (
     <div className="flex flex-col gap-2">
@@ -188,9 +192,7 @@ function MatrixGrid({ job }: { job: JobDetail }) {
         <table className="border-separate border-spacing-0 text-[11px] tabular">
           <thead>
             <tr>
-              <th className="sticky top-0 left-0 z-20 min-w-40 bg-background px-2 py-1 text-left font-medium">
-                Mazo (total)
-              </th>
+              <th className="sticky top-0 left-0 z-20 min-w-40 bg-background px-2 py-1 text-left font-medium">Mazo</th>
               {rivals.map((rival) => (
                 <th
                   key={rival}
@@ -213,8 +215,14 @@ function MatrixGrid({ job }: { job: JobDetail }) {
                     className="sticky left-0 z-10 max-w-48 truncate bg-background px-2 py-0.5 text-left font-normal"
                     title={byId.get(row.snapshot)?.label}
                   >
-                    {position.get(row.snapshot)} · {name(row.snapshot)}{' '}
-                    <span className="text-muted-foreground">{row.rate ? Math.round(row.rate.value) : '—'}</span>
+                    <span className="flex items-center gap-2">
+                      <span className="max-w-32 truncate">
+                        {position.get(row.snapshot)} · {name(row.snapshot)}
+                      </span>
+                      <span className="text-muted-foreground" title={formatRate(row.rate)}>
+                        {row.rate ? formatRateValue(row.rate.value) : 'sin datos'}
+                      </span>
+                    </span>
                   </th>
                   {rivals.map((rival) => {
                     const cell = cells.get(rival)
@@ -230,11 +238,18 @@ function MatrixGrid({ job }: { job: JobDetail }) {
                     return (
                       <td
                         key={rival}
-                        className="px-0.5 py-0.5 text-center font-medium text-white"
+                        className="text-center font-medium text-white"
                         style={{ backgroundColor: heat(cell.rate.value) }}
-                        title={`${name(row.snapshot)} vs ${name(rival)}: ${formatRateValue(cell.rate.value)} · ${wins} V · ${losses} D · ${ties} E · n = ${cell.rate.games}`}
+                        title={`${name(row.snapshot)} vs ${name(rival)}: ${formatRateValue(cell.rate.value)} · ${wins} V · ${losses} D · ${ties} E · n = ${cell.rate.games} · IC 95 % ${cell.rate.ci95.map((v) => v.toFixed(1)).join('–')} %${cell.rate.orientative ? ' · orientativo' : ''}`}
                       >
-                        {Math.round(cell.rate.value)}
+                        <button
+                          type="button"
+                          className="min-h-6 min-w-8 px-1 focus-visible:outline-2 focus-visible:outline-offset-2"
+                          aria-label={`${name(row.snapshot)} contra ${name(rival)}`}
+                          onClick={() => setSelected({ a: row.snapshot, b: rival })}
+                        >
+                          {Math.round(cell.rate.value)}
+                        </button>
                       </td>
                     )
                   })}
@@ -244,6 +259,15 @@ function MatrixGrid({ job }: { job: JobDetail }) {
           </tbody>
         </table>
       </div>
+      {selected && selectedCell?.record ? (
+        <div aria-live="polite" className="rounded-lg border p-3 text-sm">
+          <p>
+            {name(selected.a)} contra {name(selected.b)}
+          </p>
+          <RateCell record={selectedCell.record} rate={selectedCell.rate} />
+          {selectedCell.rate?.orientative ? <OrientativeBadge /> : null}
+        </div>
+      ) : null}
       {outside.length > 0 ? (
         <ul className="text-xs text-muted-foreground">
           {outside.map((rival) => (
@@ -255,7 +279,7 @@ function MatrixGrid({ job }: { job: JobDetail }) {
       ) : null}
       <p className="text-xs text-muted-foreground">
         Cada celda es el % de victorias del mazo de la fila contra el de la columna; tocala o pasá el mouse para ver
-        victorias, derrotas, empates y n. El detalle con intervalos está en «Ranking».
+        victorias, derrotas, empates, n e intervalo. Los intervalos son puntuales; los cruces son exploratorios.
       </p>
     </div>
   )

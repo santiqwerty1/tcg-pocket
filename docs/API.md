@@ -440,6 +440,7 @@ Partidas entre mazos con deckgym-core (`engine-cli`, `engine/`) que juega el wor
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
 | `GET /api/simulations?archived=` | `{ items: JobSummary[], counts: { archived, cancelled, done } }`: las 50 más recientes sin archivar (`done` = terminadas sin archivar); con `archived=true`, solo las archivadas (200) |
+| `GET /api/simulations/analysis` | Análisis de lectura de todos los trabajos (archivados incluidos), con `source: 'simulation'`, `summary`, `options`, `matrices`, `rankings`, `matrix`, `comparison`, `agreement`, `games`, `patterns`, `findings` y `calibrationJobId`. Filtros opcionales `bot`, `era`, `expansion`; selección `matrix`, `left`, `right` (ids positivos de matrices dentro del filtro; 400 si no pertenecen). |
 | `POST /api/simulations/cleanup` | `{ action: 'delete_cancelled' | 'archive_done' }` → `{ count }`: borra todas las canceladas o archiva todas las terminadas |
 | `POST /api/simulations/:id/archive` · `/unarchive` | `JobSummary`; archivada = fuera de la lista, sus resultados siguen contando (comparativa, consistencia, Laboratorio); `400 job_running` si está en cola o corriendo |
 | `GET /api/simulations/engine` | `{ engineRev, cards, incomplete, source: 'worker'|'fallback'|'none', upstream: { checkedAt, pinned, aheadBy, latest: { sha, date, message } | null, compareUrl } | null (commits de deckgym-core `main` desde el motor fijado; producción, cada 12 h, `ENGINE_UPSTREAM_CHECK`), workers: [{ id, name, engineRev, cliVersion, cores, version, lastSeenAt, online, current: { jobId, chunkId, gamesDone, games } | null }], bots: [{ code, label }] }`; `fallback` = la lista de la Fase 0 hasta que un worker sube `engine-cli status`; `online` = habló en los últimos 2 min |
@@ -475,6 +476,8 @@ JobDetail = JobSummary & { snapshots: Snapshot[], sideA: id[], sideB: id[],
 ```
 
 Bots (`players`): `r` al azar, `w` al azar ponderado, `aa` adjunta y ataca, `et` termina el turno, `er` evoluciona primero, `v` función de valor, `m` MCTS (100 iteraciones), `e1`…`e9` expectiminimax de esa profundidad (`e3` tarda ~2× `e2`). La matriz por defecto: `e2` contra `e2`, 200 partidas por cruce.
+
+Análisis (`T-019`, DECISIONES 52): `summary` cuenta partidas de chunks terminados una sola vez y todos los tipos de trabajo; los rankings usan matrices con el mismo bot en ambos lados. Cada matriz conserva su bot, motor y era. `expansion` filtra sets de las cartas de las fotos (subtotales solapados), y `era` solo metadatos guardados; no se inventa una era para las corridas antiguas. Comparación sobre listas exactas y rivales comunes, con pesos iguales, diferencias en puntos e IC del laboratorio y Spearman/bootstrap de 1.000 remuestras de listas. `games.coverage` indica cuántas partidas tienen `perGame`: empezar y el histograma solo usan esa muestra; la duración agregada puede tener media y n sin IC. `patterns` tiene cruces dominantes, hasta 50 ciclos y `cyclesTotal`; los hallazgos son exploratorios con IC puntuales. La caché se invalida por versión de resultados y metadatos. `simulations_analysis` acepta los mismos argumentos y devuelve exactamente el mismo objeto; `calibrationJobId` referencia el reporte independiente de `/api/calibration/:id`, que la pantalla reutiliza lado a lado.
 
 ### Worker
 

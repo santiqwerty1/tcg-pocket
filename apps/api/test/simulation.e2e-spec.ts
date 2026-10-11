@@ -1071,7 +1071,7 @@ describe('simulation (e2e)', () => {
     expect(again).toMatchObject({ chunkId: chunk.chunkId })
     expect((await put({ ...result, extra: { perGame } })).body).toEqual({ accepted: true })
     const stored = await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: Number(chunk.chunkId) } })
-    expect(stored.extra).toEqual({ perGame })
+    expect(stored.extra).toMatchObject({ perGame, analysisGames: { version: 1 } })
     for (const id of [created.body.id, plain.body.id]) {
       await post(`/api/simulations/${id}/cancel`)
       await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)

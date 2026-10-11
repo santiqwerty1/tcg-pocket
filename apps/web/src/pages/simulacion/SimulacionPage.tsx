@@ -277,6 +277,9 @@ export function SimulacionPage() {
               <Button asChild size="sm" variant="outline">
                 <Link to="/simulacion/calibracion">Calibración</Link>
               </Button>
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/simulacion/analisis">Análisis</Link>
+              </Button>
               <Button asChild size="sm">
                 <Link to="/simulacion/nueva">
                   <PlusIcon data-icon="inline-start" />

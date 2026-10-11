@@ -27,6 +27,7 @@ import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
 import { BearerTokenGuard, RequireScopes } from '../tokens/bearer-token.guard.js'
 import { TokensModule } from '../tokens/tokens.module.js'
 import { TournamentsModule } from '../tournaments/tournaments.controller.js'
+import { SimulationAnalysisService } from './analysis.service.js'
 import { EngineUpstreamService } from './engine-upstream.service.js'
 import type { EngineView, JobDetailView, JobSummaryView, ReplayView } from './simulation-views.js'
 import { SimulationsService } from './simulations.service.js'
@@ -142,6 +143,20 @@ const engineStatusSchema = z.object({
     .max(20_000),
 })
 const idParam = z.coerce.number().int().positive()
+const analysisQuerySchema = z.object({
+  bot: botCode.optional(),
+  era: z
+    .string()
+    .regex(/^[A-Za-z0-9-]{1,8}$/)
+    .optional(),
+  expansion: z
+    .string()
+    .regex(/^[A-Za-z0-9-]{1,8}$/)
+    .optional(),
+  matrix: idParam.optional(),
+  left: idParam.optional(),
+  right: idParam.optional(),
+})
 
 async function readBody(request: Request, limit: number): Promise<Buffer> {
   const parts: Buffer[] = []
@@ -231,7 +246,18 @@ export class WorkerController {
 /** Session-protected simulation API (docs/API.md «Simulación»). */
 @Controller('api/simulations')
 export class SimulationsController {
-  constructor(private readonly simulations: SimulationsService) {}
+  constructor(
+    private readonly simulations: SimulationsService,
+    private readonly analysis: SimulationAnalysisService,
+  ) {}
+
+  @Get('analysis')
+  readAnalysis(
+    @Query(new ZodValidationPipe(analysisQuerySchema)) query: z.infer<typeof analysisQuerySchema>,
+    @CurrentSession() _session: RequestSession,
+  ) {
+    return this.analysis.read(query)
+  }
 
   @Post(':id/priority')
   @HttpCode(200)
@@ -365,7 +391,21 @@ export class SimulationsController {
 @Module({
   imports: [TokensModule, CatalogModule, TournamentsModule],
   controllers: [WorkerController, SimulationsController],
-  providers: [EngineStatusService, EngineUpstreamService, SnapshotsService, WorkerQueueService, SimulationsService],
-  exports: [SimulationsService, SnapshotsService, EngineStatusService, WorkerQueueService, EngineUpstreamService],
+  providers: [
+    EngineStatusService,
+    EngineUpstreamService,
+    SnapshotsService,
+    WorkerQueueService,
+    SimulationsService,
+    SimulationAnalysisService,
+  ],
+  exports: [
+    SimulationsService,
+    SnapshotsService,
+    EngineStatusService,
+    WorkerQueueService,
+    EngineUpstreamService,
+    SimulationAnalysisService,
+  ],
 })
 export class SimulationModule {}
