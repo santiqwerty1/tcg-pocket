@@ -68,6 +68,10 @@ describe('what a search learns between rounds (T-017 C4)', () => {
     expect(learned[changeKey('+', group(x))]).toEqual({ sum: 4, n: 1 })
     expect(learned[changeKey('-', group(a))]).toEqual({ sum: 2, n: 1 })
     expect(learnedMean(learned, changeKey('+', group(x)))).toBeCloseTo(2, 8)
+    // Review of #53: half a round (a variant out of a race) counts half.
+    const half: Learned = {}
+    learnSwap(half, { add: [x], remove: [group(a)], difference: 8 }, index, 0.5)
+    expect(half[changeKey('+', group(x))]).toEqual({ sum: 2, n: 0.5 })
   })
 
   it('a card that helped comes in far more often', () => {

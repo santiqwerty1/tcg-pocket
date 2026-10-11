@@ -51,7 +51,8 @@ export interface ExploreConfig {
   confirmBot?: string | null
   /**
    * Fase 42, carreras: a search round is played in two halves; after the first, the variants clearly worse than the
-   * incumbent (`RACE_DROP_Z`) stop there and only the rest play the second half. Absent in searches from before it.
+   * incumbent (`RACE_DROP_Z`) stop there and only the rest play the second half. Off by default until its wall time is
+   * measured with the real workers (review of #53: the round waits for its first half's slowest chunk).
    */
   race?: boolean
 }
@@ -69,7 +70,7 @@ export const DEFAULT_EXPLORE_CONFIG: ExploreConfig = {
   verifyZ: 1.645,
   byWeight: true,
   confirmBot: 'e3',
-  race: true,
+  race: false,
 }
 
 export const EXPLORE_LIMITS = {
@@ -102,7 +103,7 @@ export function exploreConfig(input: Partial<ExploreConfig> = {}): ExploreConfig
     verifyGames: pick('verifyGames'),
     verifyZ: pick('verifyZ', false),
     byWeight: input.byWeight ?? true,
-    race: input.race ?? true,
+    race: input.race ?? false,
     confirmBot: input.confirmBot === undefined ? (DEFAULT_EXPLORE_CONFIG.confirmBot ?? null) : input.confirmBot,
   }
 }

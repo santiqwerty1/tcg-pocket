@@ -1644,6 +1644,10 @@ const exploreConfigSchema = z.object({
   /** H-010: games per rival of the verification round (0: none; absent in searches from before). */
   verifyGames: z.number().optional(),
   verifyZ: z.number().optional(),
+  /** Fase 42: games by weight, the replay with another bot, and carreras (absent in searches from before). */
+  byWeight: z.boolean().optional(),
+  confirmBot: z.string().nullable().optional(),
+  race: z.boolean().optional(),
 })
 export type ExploreConfig = z.infer<typeof exploreConfigSchema>
 

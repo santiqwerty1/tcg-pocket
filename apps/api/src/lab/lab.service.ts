@@ -1200,15 +1200,18 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               const y = scoreOf(chunks, rivals, round.incumbent, thisRound)
               return pairedOf(chunks, rivals, id, round.incumbent, thisRound) ?? (x && y ? scoreDifference(x, y) : null)
             }
+            // Review of #53: if the incumbent missed a pairing, nobody can be compared with it: nobody leaves.
             const incumbentWhole = complete(chunks, rivals, round.incumbent, thisRound)
-            round.dropped = raceDrops(
-              round.candidates.map((id) => {
-                const whole = incumbentWhole && complete(chunks, rivals, id, thisRound)
-                return { id, complete: whole, difference: whole ? difference(id) : null }
-              }),
-            )
+            round.dropped = incumbentWhole
+              ? raceDrops(
+                  round.candidates.map((id) => {
+                    const whole = complete(chunks, rivals, id, thisRound)
+                    return { id, complete: whole, difference: whole ? difference(id) : null }
+                  }),
+                )
+              : []
             const survivors = round.candidates.filter((id) => !round.dropped?.includes(id))
-            if (survivors.length > 0 && incumbentWhole) {
+            if (survivors.length > 0) {
               const [first, second] = raceHalves(
                 roundGames(
                   state.config,
@@ -2068,7 +2071,8 @@ function learnRound(
     const difference = differenceOf(id)
     if (difference === null) continue
     const swap = swapOf(parent, cardsOf(id), index, difference)
-    learnSwap(learned, swap, index)
+    // Review of #53: a variant that left a race was measured on half the round (and truncated there): it counts half.
+    learnSwap(learned, swap, index, round.dropped?.includes(id) ? 0.5 : 1)
     // A verification replays a swap already measured: it adds to the estimates, not to the swaps. Combos and undos
     // neither (review of the stack): a combo built on them would stack three or more changes, against C7.
     const special = state.combos?.includes(id) || state.reverts?.includes(id)

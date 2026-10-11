@@ -116,7 +116,7 @@ function undoAtSlots(
  * Adds a measured swap to the estimate of each of its changes, split evenly among the copies that moved. A change
  * counts one variant however many copies it moved (bots' review, item 6): two copies take two shares, not two variants.
  */
-export function learnSwap(learned: Learned, swap: MeasuredSwap, index: CatalogIndex): void {
+export function learnSwap(learned: Learned, swap: MeasuredSwap, index: CatalogIndex, weight = 1): void {
   const keys = [
     ...swap.add.map((cardId) => changeKey('+', index.cardById(cardId)?.functionalGroupId ?? cardId)),
     ...swap.remove.map((groupId) => changeKey('-', groupId)),
@@ -125,10 +125,11 @@ export function learnSwap(learned: Learned, swap: MeasuredSwap, index: CatalogIn
   const share = swap.difference / keys.length
   const copies = new Map<string, number>()
   for (const key of keys) copies.set(key, (copies.get(key) ?? 0) + 1)
+  // `weight` < 1: a measure worth less than a whole round's (a variant that left a race after its first half).
   for (const [key, count] of copies) {
     const item = learned[key] ?? { sum: 0, n: 0 }
-    item.sum += share * count
-    item.n += 1
+    item.sum += share * count * weight
+    item.n += weight
     learned[key] = item
   }
 }

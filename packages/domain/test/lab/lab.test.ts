@@ -109,7 +109,9 @@ describe('meta bank', () => {
         { id: 5, complete: true, difference: null },
       ]),
     ).toEqual([1, 4])
-    expect(exploreConfig({}).race).toBe(true)
+    // Review of #53: off by default until measured; asked for, on.
+    expect(exploreConfig({}).race).toBe(false)
+    expect(exploreConfig({ race: true }).race).toBe(true)
   })
 
   it('fase 42: games by weight — the same total, at least a quarter of the even share, the heaviest the most', () => {

@@ -346,6 +346,8 @@ function ExploreForm({ size }: { size: number }) {
   const [games, setGames] = useState('60')
   const [confirmGames, setConfirmGames] = useState('200')
   const [verifyGames, setVerifyGames] = useState('120')
+  // Fase 42, carreras: off by default until measured (review of #53).
+  const [race, setRace] = useState(false)
   const deckId = source && 'deckId' in source ? source.deckId : null
 
   const input: LabExploreInput | null = useMemo(() => {
@@ -361,9 +363,10 @@ function ExploreForm({ size }: { size: number }) {
         gamesPerRival: Number(games),
         confirmGames: Number(confirmGames),
         verifyGames: Number(verifyGames),
+        race,
       },
     }
-  }, [source, size, deckId, locked, pool, rounds, variants, games, confirmGames, verifyGames])
+  }, [source, size, deckId, locked, pool, rounds, variants, games, confirmGames, verifyGames, race])
 
   // H-021: the plan on screen is the search that starts (same seed) while nothing changed since «Ver el plan».
   const [plannedFor, setPlannedFor] = useState<string | null>(null)
@@ -430,6 +433,13 @@ function ExploreForm({ size }: { size: number }) {
           min={0}
           max={1000}
         />
+      </div>
+      <div className="flex items-start gap-2 text-sm">
+        <Checkbox id="explore-race" checked={race} onCheckedChange={(checked) => setRace(checked === true)} />
+        <label htmlFor="explore-race">
+          Carreras (en prueba): a mitad de cada ronda, las variantes claramente peores dejan de jugar y las partidas van
+          a las demás.
+        </label>
       </div>
       <div className="flex flex-wrap gap-2">
         <Button
