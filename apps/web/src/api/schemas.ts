@@ -297,6 +297,8 @@ export const importPreviewSchema = z.object({
       removedCopies: z.number(),
       currentCopies: z.number(),
       requiresReview: z.boolean(),
+      reviewReasons: z.array(z.string()).optional(),
+      catalogCommit: z.string().nullable().optional(),
     })
     .optional(),
   id: z.string(),

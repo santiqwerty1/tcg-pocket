@@ -20,6 +20,7 @@ export function ImportPreviewPage() {
   const discard = useDiscardImport()
   const resolve = useResolveAdjustment()
   const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const [confirmApply, setConfirmApply] = useState(false)
   const [resolvingId, setResolvingId] = useState<string | null>(null)
 
   if (preview.isPending) return <LoadingRows />
@@ -37,6 +38,8 @@ export function ImportPreviewPage() {
       navigate('/coleccion')
     } catch (error) {
       toast.error(errorMessage(error))
+    } finally {
+      setConfirmApply(false)
     }
   }
 
@@ -77,7 +80,9 @@ export function ImportPreviewPage() {
 
       <ImportPreviewView
         preview={data}
-        {...(data.status === 'pending' ? { onResolveAdjustment: resolveAdjustment, resolvingId } : {})}
+        {...(data.status === 'pending' && data.source !== 'tracker'
+          ? { onResolveAdjustment: resolveAdjustment, resolvingId }
+          : {})}
       />
 
       {data.status === 'pending' ? (
@@ -85,7 +90,7 @@ export function ImportPreviewPage() {
           <Button
             className="flex-1"
             size="lg"
-            onClick={applyImport}
+            onClick={() => (data.tracker?.requiresReview ? setConfirmApply(true) : void applyImport())}
             disabled={blocked || apply.isPending || trackerApply.isPending}
           >
             {apply.isPending || trackerApply.isPending ? <Spinner /> : null}
@@ -97,6 +102,16 @@ export function ImportPreviewPage() {
         </div>
       ) : null}
 
+      <ConfirmDialog
+        open={confirmApply}
+        onOpenChange={setConfirmApply}
+        title="¿Aplicar los cambios del tracker?"
+        description={`Bajan ${data.tracker?.removedCopies ?? 0} copias de las ${data.tracker?.currentCopies ?? 0} actuales. ${data.tracker?.reviewReasons?.join(' ') ?? 'Revisá los cambios antes de confirmar.'}`}
+        confirmLabel="Aplicar cambios"
+        destructive
+        pending={trackerApply.isPending}
+        onConfirm={applyImport}
+      />
       <ConfirmDialog
         open={confirmDiscard}
         onOpenChange={setConfirmDiscard}
