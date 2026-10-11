@@ -116,6 +116,7 @@ export class McpLabToolsService {
               unmatched: bank.objective.unmatched,
               unmatchedNames: bank.objective.unmatchedNames,
               halfLifeDays: bank.objective.halfLifeDays,
+              ...(bank.objective.notice ? { notice: bank.objective.notice } : {}),
             },
           }
         : {}),

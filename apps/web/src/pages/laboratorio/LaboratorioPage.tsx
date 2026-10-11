@@ -58,6 +58,7 @@ function BankList({ bank }: { bank: LabBank }) {
                 objective.unmatchedNames?.length ? ` (${objective.unmatchedNames.join(', ')})` : ''
               }: cargalo con el nombre que sugiere la lista.`
             : ''}
+          {objective.notice ? ` ${objective.notice}` : ''}
         </p>
       ) : (
         <p className="text-xs text-muted-foreground">

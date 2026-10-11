@@ -12,6 +12,7 @@ import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
 import { CatalogModule } from '../catalog/catalog.module.js'
 import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
+import { MatchesModule } from '../matches/matches.module.js'
 import { SimulationModule } from '../simulation/simulation.controller.js'
 import { TournamentsModule } from '../tournaments/tournaments.controller.js'
 import { LabService, MAX_TEST_DECKS } from './lab.service.js'
@@ -32,7 +33,6 @@ const scopeSchema = z.object({
     .string()
     .regex(/^[A-Za-z0-9_.:-]{1,120}$/)
     .optional(),
-  halfLifeDays: z.coerce.number().int().min(1).max(365).optional(),
 })
 
 const deckSchema = z.union([
@@ -199,7 +199,7 @@ export class LabController {
 }
 
 @Module({
-  imports: [CatalogModule, TournamentsModule, SimulationModule],
+  imports: [CatalogModule, TournamentsModule, SimulationModule, MatchesModule],
   controllers: [LabController],
   providers: [LabService],
   exports: [LabService],
