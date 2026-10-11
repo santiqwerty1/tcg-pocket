@@ -33,6 +33,8 @@ interface Aggregate {
   turnGames: number
   finished: number
   failed: number
+  /** Phase 42: games of chunks copied from the exact cache (in `games` too): not played again. */
+  cachedGames: number
 }
 interface Params {
   sideA?: number[]
@@ -86,6 +88,7 @@ export class SimulationAnalysisService {
           COALESCE(SUM(ties) FILTER (WHERE status = 'done' AND snapshot_b_id IS NOT NULL), 0)::float8 AS ties,
           COALESCE(SUM(turns) FILTER (WHERE status = 'done' AND snapshot_b_id IS NOT NULL), 0)::float8 AS turns,
           COALESCE(SUM(games_done) FILTER (WHERE status = 'done' AND snapshot_b_id IS NOT NULL AND turns IS NOT NULL), 0)::float8 AS "turnGames",
+          COALESCE(SUM(games_done) FILTER (WHERE status = 'done' AND cached_from_id IS NOT NULL), 0)::float8 AS "cachedGames",
           COUNT(*) FILTER (WHERE status = 'done')::int AS finished,
           COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
         FROM simulation_chunks GROUP BY job_id`,
@@ -153,6 +156,8 @@ export class SimulationAnalysisService {
       simulations: selected.length,
       activeJobs: selected.filter(({ job }) => ['queued', 'running'].includes(job.status)).length,
       games: selected.reduce((n, j) => n + (j.aggregate?.games ?? 0), 0),
+      // Phase 42: of those, the ones copied from the exact cache (the same games as the chunk they came from).
+      cachedGames: selected.reduce((n, j) => n + (j.aggregate?.cachedGames ?? 0), 0),
       byBot: [...new Set(selected.map((j) => j.job.players.join('/')))].map((bot) => ({
         bot,
         botEs: bot.split('/').map(botLabel).join(' / '),

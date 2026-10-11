@@ -1493,6 +1493,8 @@ describe('simulation (e2e)', () => {
     expect(thirdChunks.map((chunk) => chunk.cachedFrom).sort()).toEqual([...played.keys()].sort())
     // The copies are the same games: the rival's «simulación» column does not count them again.
     expect(await simulations.deckColumn(rivalDeck)).toEqual(columnBefore)
+    // The analysis tells the copied games apart: two copies of 2 chunks × 10 games.
+    expect((await get('/api/simulations/analysis')).body.summary.cachedGames).toBe(40)
 
     // Anything else and it goes to the worker: another seed, other bots, more replays, per-game results.
     const others = [

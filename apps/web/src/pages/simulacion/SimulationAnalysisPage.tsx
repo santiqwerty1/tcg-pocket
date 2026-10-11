@@ -149,6 +149,9 @@ export function SimulationAnalysisPage() {
               Incluye archivadas, laboratorio, consistencia y optimizaciones; cuenta cada partida reportada una vez, sin
               duplicar los dos lados. {view.summary.failedChunks} chunks fallaron. Los rankings usan matrices y no
               mezclan trabajos de búsqueda.
+              {view.summary.cachedGames > 0
+                ? ` De esas partidas, ${formatNumber(view.summary.cachedGames)} salieron de la caché: son las mismas que un worker ya jugó con la misma semilla.`
+                : ''}
             </p>
             <div className="grid gap-4 sm:grid-cols-2">
               <ul className="text-sm">
