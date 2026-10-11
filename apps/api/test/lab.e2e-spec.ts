@@ -351,12 +351,19 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
+      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      byWeight: false,
+      confirmBot: null,
     }
     const dry = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 5, config, dryRun: true })
     expect(dry.status).toBe(200)
     expect(dry.body.firstRound).toHaveLength(3)
     expect(dry.body.pool).toBeGreaterThan(50)
-    expect(dry.body.games).toEqual({ perRound: 4 * 5 * 10, max: (4 * 5 * 10 + 2 * 5 * 20) * 2 + 2 * 5 * 20 })
+    expect(dry.body.games).toEqual({
+      perRound: 4 * 5 * 10,
+      max: (4 * 5 * 10 + 2 * 5 * 20) * 2 + 2 * 5 * 20,
+      robustness: 0,
+    })
     // H-021: the plan says its seed, and that seed plays this same first round.
     expect(typeof dry.body.seed).toBe('number')
     const again = await post('/api/lab/explore').send({
@@ -519,6 +526,9 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
+      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      byWeight: false,
+      confirmBot: null,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9100 })
     expect(created.status).toBe(200)
@@ -557,6 +567,7 @@ describe('laboratorio (e2e)', () => {
       patience: 1,
       confirmGames: 20,
       pool: 'collection',
+      byWeight: false,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[0] }, size: 3, config, seed: 4000 })
     expect(created.status).toBe(200)
@@ -579,6 +590,9 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
+      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      byWeight: false,
+      confirmBot: null,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9402 })
     expect(created.status).toBe(200)
@@ -623,6 +637,9 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
+      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      byWeight: false,
+      confirmBot: null,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9500 })
     const id = created.body.id as number
@@ -655,6 +672,9 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
+      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      byWeight: false,
+      confirmBot: null,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9510 })
     const id = created.body.id as number
@@ -712,6 +732,9 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
+      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      byWeight: false,
+      confirmBot: null,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9520 })
     const id = created.body.id as number
@@ -749,6 +772,9 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
+      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      byWeight: false,
+      confirmBot: null,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9530 })
     const id = created.body.id as number
@@ -807,6 +833,9 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 0,
       pool: 'all',
+      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      byWeight: false,
+      confirmBot: null,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId }, size: 3, config, seed: 9700 })
     expect(created.status).toBe(200)
@@ -861,6 +890,68 @@ describe('laboratorio (e2e)', () => {
     await post(`/api/simulations/${id}/cancel`)
   }, 60_000)
 
+  it('fase 42: each rival plays by its weight, the same for every list; a confirmed find is replayed with e3', async () => {
+    const config = {
+      gamesPerRival: 20,
+      variantsPerRound: 2,
+      maxRounds: 1,
+      patience: 3,
+      confirmGames: 20,
+      verifyGames: 20,
+      pool: 'all',
+    }
+    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9800 })
+    expect(created.status).toBe(200)
+    const id = created.body.id as number
+    const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })
+    const params = job.params as {
+      lab: { rivals: { snapshot: number; weight: number }[]; explore: { rounds: { candidates: number[] }[] } }
+    }
+    const [winner] = params.lab.explore.rounds[0]?.candidates ?? []
+    // Round 0: 3 lists × 3 rivals; each rival's games follow its weight (10 at least), 60 per list in all.
+    const chunks = await test.prisma.simulationChunk.findMany({ where: { jobId: id } })
+    const byRival = new Map<number, Set<number>>()
+    for (const chunk of chunks) {
+      const set = byRival.get(chunk.snapshotBId as number) ?? new Set<number>()
+      set.add(chunk.games)
+      byRival.set(chunk.snapshotBId as number, set)
+    }
+    expect([...byRival.values()].every((set) => set.size === 1)).toBe(true)
+    const perRival = params.lab.rivals.map((rival) => [...(byRival.get(rival.snapshot) ?? [])][0] ?? 0)
+    expect(perRival.reduce((sum, games) => sum + games, 0)).toBe(60)
+    expect(Math.min(...perRival)).toBeGreaterThanOrEqual(10)
+    const heaviest = params.lab.rivals.reduce(
+      (top, rival, at) => (rival.weight > (params.lab.rivals[top]?.weight ?? 0) ? at : top),
+      0,
+    )
+    expect(perRival[heaviest]).toBe(Math.max(...perRival))
+
+    // The winner wins 9 of 10 with any bot: verified, confirmed, and replayed with e3 as a test of its own.
+    const wins = (a: number, _b: number, games: number) =>
+      a === winner ? Math.round(games * 0.9) : Math.floor(games / 2)
+    expect(await playAll(wins, 9 + 6 + 6)).toBe(21)
+    const confirmed = (await get(`/api/lab/jobs/${id}`)).body
+    expect(confirmed.explore.confirmation).toMatchObject({ verdict: 'better' })
+    expect(confirmed.explore.robustness).toMatchObject({ bot: 'e3', status: 'queued', robustness: null })
+    const replay = await test.prisma.simulationJob.findUniqueOrThrow({
+      where: { id: confirmed.explore.robustness.jobId },
+    })
+    expect(replay).toMatchObject({ kind: 'compare', players: ['e3', 'e3'], label: `Confirmación con e3 de #${id}` })
+    expect((replay.params as { lab: { robustnessOf: number } }).lab.robustnessOf).toBe(id)
+    expect(await playAll(wins)).toBe(6)
+    const done = (await get(`/api/lab/jobs/${id}`)).body
+    expect(done.explore.robustness).toMatchObject({
+      bot: 'e3',
+      status: 'done',
+      verdict: 'better',
+      robustness: 'robust',
+      robustnessEs: 'robusto: con e3 también sale mejor',
+    })
+    // The replay is not a test of the deck: its score stays the search's.
+    const score = await test.app.get(LabService).deckScore(Number(deckIds[1]))
+    expect(score?.jobId === replay.id).toBe(false)
+  }, 60_000)
+
   it('review of #22: «Frenar» needs a session', async () => {
     expect((await test.http().post('/api/lab/jobs/1/stop')).status).toBe(401)
   })
@@ -874,6 +965,9 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 0,
       pool: 'all',
+      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      byWeight: false,
+      confirmBot: null,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9600 })
     const id = created.body.id as number
@@ -992,6 +1086,9 @@ describe('laboratorio (e2e)', () => {
       confirmGames: 20,
       verifyGames: 20,
       pool: 'all',
+      // Fase 42: these predate the games by weight and the replay with e3 (their own tests below).
+      byWeight: false,
+      confirmBot: null,
     }
     const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9200 })
     expect(created.status).toBe(200)

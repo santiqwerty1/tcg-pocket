@@ -208,6 +208,7 @@ function FoundBetter({ job }: { job: LabJob }) {
           Encontró una versión mejor de «{base.label}»: {best.confirm?.text ?? best.search.text}
           {base.confirm ? ` (la de partida: ${base.confirm.text})` : ''}
           {confirmation ? `; ${confirmation.differenceText}` : ''}.
+          {job.explore.robustness?.robustnessEs ? ` ${capitalize(job.explore.robustness.robustnessEs)}.` : ''}
         </span>
         <span className="flex flex-wrap gap-2">
           <UpdateOriginal deck={best} job={job} size="default" />
@@ -216,6 +217,8 @@ function FoundBetter({ job }: { job: LabJob }) {
     </Alert>
   )
 }
+
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1)
 
 /** «x de y» as a whole percentage, or «—» without games. */
 function share(part: number, total: number): string {
@@ -533,6 +536,20 @@ function ExploreSummary({ job }: { job: LabJob }) {
         <p className="text-sm">
           Confirmación: {explore.confirmation.differenceText} sobre la lista de partida;{' '}
           {explore.confirmation.verdictEs}.
+        </p>
+      ) : null}
+      {explore.robustness ? (
+        <p className="text-sm">
+          {explore.robustness.robustnessEs ? (
+            <>
+              Con {explore.robustness.bot}: {explore.robustness.differenceText}. {explore.robustness.robustnessEs}.
+            </>
+          ) : (
+            <>Se está confirmando con {explore.robustness.bot}, un bot más fuerte: </>
+          )}{' '}
+          <Link to={`/laboratorio/${explore.robustness.jobId}`} className="underline">
+            #{explore.robustness.jobId}
+          </Link>
         </p>
       ) : null}
     </Section>

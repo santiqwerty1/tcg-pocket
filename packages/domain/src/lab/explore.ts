@@ -10,6 +10,7 @@
  * round plays the starting list and the one found with fresh seeds and more games; the search says it found a better
  * list only when the confirmation backs it. Bots play, not people: a lead is a hint to try, not a verdict.
  */
+import { splitGames } from '../simulation/consistency.js'
 import { chunkSeed } from '../simulation/seeds.js'
 import { type MetaScore, type ScoreDifference, scoreBeats, scoreDifference } from './score.js'
 
@@ -38,6 +39,16 @@ export interface ExploreConfig {
   verifyGames: number
   /** Standard errors it has to win by in the verification round (and the confirmation, to say «better»). */
   verifyZ: number
+  /**
+   * Fase 42: each rival's games follow its weight in the score, `games × rivals` per list and round in all (a rival of
+   * 2 % no longer costs what one of 15 % does). Absent in searches from before it: the same games for every rival.
+   */
+  byWeight?: boolean
+  /**
+   * Fase 42 (R-012): when the confirmation backs the list found, it is played again with this bot (both sides) and
+   * the search says «robusto» or «sensible al bot». null: not played. Absent in searches from before it.
+   */
+  confirmBot?: string | null
 }
 
 /** The «profunda» search Santi chose on 8/10/2026 (D-018): less noise, more changes tried, about an hour at most. */
@@ -51,6 +62,8 @@ export const DEFAULT_EXPLORE_CONFIG: ExploreConfig = {
   acceptZ: 1,
   verifyGames: 120,
   verifyZ: 1.645,
+  byWeight: true,
+  confirmBot: 'e3',
 }
 
 export const EXPLORE_LIMITS = {
@@ -82,7 +95,44 @@ export function exploreConfig(input: Partial<ExploreConfig> = {}): ExploreConfig
     acceptZ: pick('acceptZ', false),
     verifyGames: pick('verifyGames'),
     verifyZ: pick('verifyZ', false),
+    byWeight: input.byWeight ?? true,
+    confirmBot: input.confirmBot === undefined ? (DEFAULT_EXPLORE_CONFIG.confirmBot ?? null) : input.confirmBot,
   }
+}
+
+/**
+ * Fase 42: `perRival × weights.length` games split by weight (largest remainders), each rival with at least `min`
+ * (by default a quarter of the even share, and 10). The variance of a weighted score is Σ w² p(1 − p) / n: with n ∝ w
+ * it is p(1 − p) / N, against R Σ w² p(1 − p) / N with the same games for all (the B4a bank: R Σ w² ≈ 1,6).
+ */
+export function gamesByWeight(
+  perRival: number,
+  weights: readonly number[],
+  min = Math.max(10, Math.round(perRival / 4)),
+): number[] {
+  const total = perRival * weights.length
+  if (weights.length === 0 || total <= 0) return weights.map(() => 0)
+  const floor = Math.min(min, perRival)
+  const extra = splitGames(total - floor * weights.length, weights)
+  return extra.map((games) => games + floor)
+}
+
+/** The games of each rival in a round: by weight, or the same for all in a search from before fase 42. */
+export function roundGames(config: ExploreConfig, games: number, weights: readonly number[]): number[] {
+  return config.byWeight ? gamesByWeight(games, weights) : weights.map(() => games)
+}
+
+export type Robustness = 'robust' | 'bot_sensitive'
+
+/** «robusto» when the replay with the other bot also backs it, «sensible al bot» when it does not (R-012). */
+export function robustnessOf(replayed: ConfirmVerdict): Robustness {
+  return replayed === 'better' ? 'robust' : 'bot_sensitive'
+}
+
+export function robustnessEs(robustness: Robustness, bot: string): string {
+  return robustness === 'robust'
+    ? `robusto: con ${bot} también sale mejor`
+    : `sensible al bot: con ${bot} no se sostiene, probala en el juego antes de cambiar el mazo`
 }
 
 /** Rounds are this far apart in seed space: rival j of round r plays with chunk seed `base + r × stride + j`. */

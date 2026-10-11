@@ -1708,6 +1708,20 @@ export const labJobSchema = z.object({
         .default([]),
       combos: z.array(z.number()).default([]),
       reverts: z.array(z.number()).default([]),
+      /** Fase 42: the confirmation played again with another bot, «robusto» or «sensible al bot». */
+      robustness: z
+        .object({
+          bot: z.string(),
+          jobId: z.number(),
+          status: z.string(),
+          verdict: z.enum(['better', 'unclear', 'worse']).nullable(),
+          verdictEs: z.string().nullable(),
+          differenceText: z.string().nullable(),
+          robustness: z.enum(['robust', 'bot_sensitive']).nullable(),
+          robustnessEs: z.string().nullable(),
+        })
+        .nullable()
+        .default(null),
       /** H-010: what the confirmation says of the list found against the starting one. */
       confirmation: z
         .object({

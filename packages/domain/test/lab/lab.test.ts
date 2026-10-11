@@ -11,6 +11,7 @@ import {
   exploreSeed,
   formatDifferenceEs,
   formatMetaScoreEs,
+  gamesByWeight,
   groupsOfCards,
   type MetaScore,
   metaGauntlet,
@@ -20,6 +21,9 @@ import {
   neighborhoodUsage,
   novelty,
   poolWeight,
+  robustnessEs,
+  robustnessOf,
+  roundGames,
   roundWinner,
   scoreBeats,
   scoreDifference,
@@ -82,6 +86,23 @@ describe('meta bank', () => {
       expect(rival.weight).toBeCloseTo(rival.share / gauntlet.coverage, 10)
       expect(rival.energies.length).toBeGreaterThan(0)
     }
+  })
+
+  it('fase 42: games by weight — the same total, at least a quarter of the even share, the heaviest the most', () => {
+    // 180 in all: 15 each, and the other 135 by weight (largest remainders).
+    expect(gamesByWeight(60, [0.5, 0.3, 0.2])).toEqual([83, 55, 42])
+    expect(gamesByWeight(10, [0.9, 0.1])).toEqual([10, 10])
+    expect(gamesByWeight(100, [0.97, 0.01, 0.01, 0.01])).toEqual([316, 28, 28, 28])
+    const many = gamesByWeight(60, [0.2, 0.15, 0.1, 0.1, 0.1, 0.1, 0.05, 0.05, 0.05, 0.05, 0.03, 0.02])
+    expect(many.reduce((sum, games) => sum + games, 0)).toBe(60 * 12)
+    expect(Math.min(...many)).toBeGreaterThanOrEqual(15)
+    expect(roundGames({ ...DEFAULT_EXPLORE_CONFIG, byWeight: false }, 60, [0.9, 0.1])).toEqual([60, 60])
+    expect(exploreConfig({}).byWeight).toBe(true)
+    expect(exploreConfig({}).confirmBot).toBe('e3')
+    expect(exploreConfig({ confirmBot: null }).confirmBot).toBeNull()
+    expect(robustnessOf('better')).toBe('robust')
+    expect(robustnessOf('unclear')).toBe('bot_sensitive')
+    expect(robustnessEs('bot_sensitive', 'e3')).toMatch(/^sensible al bot: con e3 no se sostiene/)
   })
 
   it('T-017 D3: the most played archetypes bring a second list, and share their weight with it', () => {

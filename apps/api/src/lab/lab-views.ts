@@ -190,6 +190,20 @@ export interface LabExploreView {
     differenceText: string
     difference: { value: number; se: number; ci95: [number, number] }
   } | null
+  /**
+   * Fase 42 (R-012): the confirmation played again with another bot (e3), when the first one backed the list found.
+   * «robusto» if it backs it too, «sensible al bot» if not; null fields while it plays.
+   */
+  robustness: {
+    bot: string
+    jobId: number
+    status: string
+    verdict: 'better' | 'unclear' | 'worse' | null
+    verdictEs: string | null
+    differenceText: string | null
+    robustness: 'robust' | 'bot_sensitive' | null
+    robustnessEs: string | null
+  } | null
   locked: CardLineView[]
   /** Fase 16: the event whose rules every variant keeps. */
   event: { id: string; name: string; rules: string[] } | null
