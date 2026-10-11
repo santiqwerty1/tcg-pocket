@@ -261,28 +261,37 @@ jobs:
   # D-026: the engine-cli.exe the app serves (cross-compiled with zig in the Dockerfile) plays the Linux reference's
   # games on Windows, loaded by the same tcg-worker.exe every PC runs, exactly as a PC checks it before switching.
   windows-update:
-    needs: [changes, engine, android]
-    if: needs.changes.outputs.engine == 'true'
+    needs: [changes, android]
+    # Also a change of the Dockerfile alone (zig, Rust, cargo-zigbuild): the served engine is checked without the
+    # engine job, with a tcg-worker.exe built here around it.
+    if: needs.changes.outputs.engine == 'true' || needs.changes.outputs.docker == 'true'
     runs-on: ${{ vars.CI_RUNNER_WINDOWS || 'windows-latest' }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
         with:
-          name: tcg-worker-windows
-          path: zip
+          version: 12.9.1
+          # D-023: a folder of the job (two runners on the PC shared ~/setup-pnpm: EBUSY).
+          dest: ${{ runner.temp }}/setup-pnpm
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          # D-023: on the PC the pnpm store is already local; saving it to GitHub's cache hung the runners.
+          cache: ${{ !vars.CI_RUNNER && 'pnpm' || '' }}
+      - run: pnpm install --frozen-lockfile --filter @tcg/worker
       - uses: actions/download-artifact@v4
         with:
           name: tcg-worker-windows-update
           path: update
       - name: The served engine plays the reference games
         run: |
-          zip="$(ls zip/tcg-worker-*-windows.zip | head -1)"
-          C:/Windows/System32/tar.exe -xf "$(cygpath -w "$zip")" -C "$(cygpath -w zip)"
           package="$(ls update/tcg-worker-*-windows-x64-update.tar.gz | head -1)"
           release="$RUNNER_TEMP/served"
           rm -rf "$release" && mkdir -p "$release"
           C:/Windows/System32/tar.exe -xzf "$(cygpath -w "$package")" -C "$(cygpath -w "$release")"
+          pnpm -F @tcg/worker package --engine "$release/tcg-worker/engine-cli.exe"
           TCG_WORKER_RELEASE="$(cygpath -w "$release/tcg-worker")" TCG_WORKER_DIR="$(cygpath -w "$RUNNER_TEMP/worker-data")" \
-            zip/tcg-worker/tcg-worker.exe --check-engine
+            apps/worker/build/package/tcg-worker/tcg-worker.exe --check-engine
 
   # The production image (Dockerfile), built and thrown away: only on main and only when its inputs changed.
   docker:
