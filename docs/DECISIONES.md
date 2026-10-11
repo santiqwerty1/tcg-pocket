@@ -704,6 +704,8 @@ Pedido de Santi: miniaturas, tocar las cartas para ver más, mejores controles e
 | 48.10 | Worker **0.2.9**: `tcg-worker --stop` comprueba ambos locks y `/proc/<pid>/cmdline` contra el `worker.mjs` instalado antes de SIGTERM, espera hasta 35 s la limpieza y rechaza PIDs ajenos. El instalador ejecuta ese mismo código desde el paquete nuevo contra la ruta anterior. | Permite detener desde el inicio y actualizar instalaciones viejas sin duplicar el apagado; no necesita token ni conexión para pedir SIGTERM. Sin red, los leases vencen como antes. Motor sin cambios. |
 | 48.11 | Termux:Widget opcional: «Arrancar worker» y «Estado del worker» en `~/.shortcuts/`; «Detener worker» en `tasks/`, sin ventana y con toast si está API. Directorios/scripts 700, shebang absoluto, rutas entrecomilladas. Reinstalar actualiza; «n» retira solo los tres accesos propios. | [Documentación oficial](https://github.com/termux/termux-widget#setup-instructions), consultada el 10/10/2026: sesiones frente a tareas, refresco y permiso opcional de Termux «Mostrar sobre otras apps» desde Android 10 (incluye 12+). [Manifiesto de Widget](https://github.com/termux/termux-widget/blob/master/app/src/main/AndroidManifest.xml) sin permisos adicionales. Guías en el paquete y en Tokens de API; prueba en teléfono pendiente. |
 
+| 48.12 | Worker **0.2.10**: el instalador pregunta «Nombre en la app», conserva el guardado con Enter y propone «Android» si falta o es «Android localhost». Lo guarda en config sin derivarlo del hostname. | Termux informa localhost; Santi necesita identificar su celu y conservar el nombre al actualizar (T-015). |
+
 ## La CI primero, worker 0.2.8 (D-023, T-015, 10/10/2026)
 
 | # | Decisión | Motivo |
