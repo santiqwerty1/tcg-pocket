@@ -187,7 +187,13 @@ describe('simulation analysis (e2e, synthetic records)', () => {
     const clone = async (engineRev: string, status: 'running' | 'done') => {
       const { id: _id, ...data } = original
       const job = await test.prisma.simulationJob.create({
-        data: { ...data, engineRev, status, createdAt: new Date() },
+        data: {
+          ...data,
+          params: { sideA: snapshots, sideB: snapshots, era: 'B4a' },
+          engineRev,
+          status,
+          createdAt: new Date(),
+        },
       })
       await test.prisma.simulationChunk.create({
         data: {

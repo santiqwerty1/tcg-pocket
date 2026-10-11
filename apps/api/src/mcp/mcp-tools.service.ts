@@ -348,7 +348,7 @@ ${MCP_CHAT_INSTRUCTIONS}`
     })
     if (result.isError || !result.structuredContent) return result
     // Text-only clients also need the compact rankings and canonical rate text. Large cells travel once.
-    const { matrix: _matrix, ...compact } = result.structuredContent
+    const { matrix: _matrix, ...compact } = result.structuredContent as Json
     return {
       ...result,
       content: [{ type: 'text', text: JSON.stringify(compact) }],
