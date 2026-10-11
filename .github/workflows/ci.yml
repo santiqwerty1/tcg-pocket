@@ -33,6 +33,7 @@ jobs:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     outputs:
       engine: ${{ steps.diff.outputs.engine }}
+      wasm: ${{ steps.diff.outputs.wasm }}
       docker: ${{ steps.diff.outputs.docker }}
     steps:
       - name: Shell (on the PC it must be Git's bash, not WSL's)
@@ -48,6 +49,7 @@ jobs:
         run: |
           if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
             echo "engine=true" >> "$GITHUB_OUTPUT"
+            echo "wasm=true" >> "$GITHUB_OUTPUT"
             echo "docker=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -58,7 +60,12 @@ jobs:
           else
             echo "engine=false" >> "$GITHUB_OUTPUT"
           fi
-          if echo "$FILES" | grep -qE '^(Dockerfile|\.dockerignore|docker/|fly\.toml|package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|(apps|packages)/[^/]+/package\.json|apps/api/prisma/|engine/Cargo\.toml|\.github/workflows/)'; then
+          if echo "$FILES" | grep -qE '^(engine/|scripts/build-engine-wasm\.mjs|Dockerfile|\.github/workflows/)'; then
+            echo "wasm=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "wasm=false" >> "$GITHUB_OUTPUT"
+          fi
+          if echo "$FILES" | grep -qE '^(Dockerfile|\.dockerignore|docker/|fly\.toml|package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|(apps|packages)/[^/]+/package\.json|apps/api/prisma/|engine/|scripts/build-engine-wasm\.mjs|\.github/workflows/)'; then
             echo "docker=true" >> "$GITHUB_OUTPUT"
           else
             echo "docker=false" >> "$GITHUB_OUTPUT"
@@ -230,6 +237,16 @@ jobs:
           name: tcg-worker-android
           path: apps/worker/build/tcg-worker-*-android-arm64.tar.gz*
           retention-days: 30
+
+  # T-015: the engine of the browser (engine/wasm) — its native tests, the WebAssembly build with wasm-bindgen and a
+  # smoke test of the .wasm in Node — through the same Dockerfile stages that build it for Fly.
+  wasm:
+    needs: changes
+    if: needs.changes.outputs.wasm == 'true'
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --target wasm-check --tag tcg-wasm-check .
 
   # The production image (Dockerfile), built and thrown away: only on main and only when its inputs changed.
   docker:

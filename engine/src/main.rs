@@ -21,6 +21,7 @@ mod coach;
 mod consistency;
 mod fair_bot;
 mod play;
+mod seeds;
 
 use std::io::Write;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -44,6 +45,9 @@ use deckgym::state::GameOutcome;
 use deckgym::{Deck, Game, State};
 use fair_bot::{create_players, parse_bot_code, BotCode};
 use rayon::prelude::*;
+use seeds::game_seed;
+#[cfg(test)]
+use seeds::splitmix64;
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use uuid::Uuid;
@@ -99,22 +103,6 @@ fn write_json<T: Serialize>(path: Option<&str>, value: &T) -> Result<(), CliErro
             Ok(())
         }
     }
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// Seeds
-// ---------------------------------------------------------------------------------------------------------------
-
-fn splitmix64(x: u64) -> u64 {
-    let mut z = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    z ^ (z >> 31)
-}
-
-/// Seed of game `index` of a job with seed `seed`.
-fn game_seed(seed: u64, index: u64) -> u64 {
-    splitmix64(seed ^ splitmix64(index))
 }
 
 // ---------------------------------------------------------------------------------------------------------------

@@ -73,8 +73,9 @@ export default defineConfig(({ mode }) => ({
             importScripts: ['/push-sw.js'],
             // Only the built shell is precached: nothing under /api is ever listed because the glob runs over dist/.
             globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
-            // deckgym's replay viewer (D-014) is opened now and then: not worth 1,6 MB of precache.
-            globIgnores: ['viewer/**'],
+            // deckgym's replay viewer (D-014) is opened now and then: not worth 1,6 MB of precache. The engine of the
+            // browser (T-015, 5 MB) is fetched by its Web Worker when a game needs it, with the HTTP cache.
+            globIgnores: ['viewer/**', 'engine/**'],
             navigateFallback: '/index.html',
             // The login page is served by the API and must never be answered with the SPA shell.
             navigateFallbackDenylist: [/^\/api/, /^\/login/, /^\/healthz/, /^\/viewer\//],
@@ -117,6 +118,8 @@ export default defineConfig(({ mode }) => ({
     sourcemap: false,
     target: 'es2022',
   },
+  // T-015: the engine's Web Worker is an ES module (it imports the WebAssembly glue from /engine/ at run time).
+  worker: { format: 'es' },
   test: {
     // D-023: two CI runners share the PC with Postgres and the simulation worker.
     ...(process.env.CI ? { maxWorkers: 4 } : {}),

@@ -104,6 +104,8 @@ async function costlyReplay(gameId: number): Promise<void> {
 }
 
 test('plays a game against the bot with the coach, then solves the costly moment', async ({ page, request }) => {
+  // The PC's game: without the engine of the browser (T-015, navegador.spec.ts), whatever the build has.
+  await page.route('**/engine/manifest.json', (route) => route.fulfill({ status: 404, body: '' }))
   await page.goto('/jugar')
   await page.getByRole('combobox', { name: 'Tu mazo' }).click()
   await page.getByRole('option').first().click()

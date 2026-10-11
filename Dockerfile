@@ -30,6 +30,45 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
  && cargo vendor --locked --versioned-dirs /engine-out/vendor > /engine-out/vendor-config.toml \
  && sed -i 's|directory = "/engine-out/vendor"|directory = "vendor"|' /engine-out/vendor-config.toml
 
+# --- engine of the browser (T-015): engine/wasm to WebAssembly, then wasm-bindgen at the crate's pinned version ----
+# The PWA serves it in /engine/ and plays games against the bot with it while their page is open (never simulation
+# chunks: R-003). wasm-bindgen's CLI must be the crate's version (engine/wasm/Cargo.lock): the release, checked by sum.
+FROM rust:1.99.0-slim-bookworm AS wasm-engine
+ARG WASM_BINDGEN_VERSION=0.2.129
+ARG WASM_BINDGEN_SHA256=82d12bb940e2d4e72e0d5605387fc1b8ca179044e012b620f0ce4e7440e8320e
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git \
+ && rm -rf /var/lib/apt/lists/* \
+ && rustup target add wasm32-unknown-unknown \
+ && curl -fsSL -o /tmp/wasm-bindgen.tar.gz \
+    "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${WASM_BINDGEN_VERSION}/wasm-bindgen-${WASM_BINDGEN_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+ && echo "${WASM_BINDGEN_SHA256}  /tmp/wasm-bindgen.tar.gz" | sha256sum -c - \
+ && tar -xzf /tmp/wasm-bindgen.tar.gz -C /usr/local/bin --strip-components=1 \
+    "wasm-bindgen-${WASM_BINDGEN_VERSION}-x86_64-unknown-linux-musl/wasm-bindgen" \
+ && rm /tmp/wasm-bindgen.tar.gz
+WORKDIR /repo/engine
+COPY engine/Cargo.toml engine/Cargo.lock engine/build.rs ./
+COPY engine/src ./src
+COPY engine/wasm ./wasm
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/repo/engine/wasm/target \
+    cargo build --locked --release --target wasm32-unknown-unknown --manifest-path wasm/Cargo.toml \
+ && wasm-bindgen --target web --no-typescript --out-name engine --out-dir /wasm-out \
+    wasm/target/wasm32-unknown-unknown/release/engine_wasm.wasm
+
+# CI only (job «wasm»): the native tests of the browser's engine (the code the .wasm runs) and the smoke test of the
+# build in Node (whole games, a rebuild from the choices, the coach).
+FROM wasm-engine AS wasm-check
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs && rm -rf /var/lib/apt/lists/*
+COPY LICENSE /repo/LICENSE
+COPY scripts/build-engine-wasm.mjs /repo/scripts/build-engine-wasm.mjs
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/repo/engine/wasm/target \
+    cargo test --locked --release --manifest-path wasm/Cargo.toml \
+ && node /repo/scripts/build-engine-wasm.mjs --from /wasm-out --out /engine-check \
+ && node wasm/smoke.mjs /engine-check
+
 # --- dependencies (native modules such as argon2 may need a toolchain on Alpine) ---------------------------------
 FROM base AS deps
 RUN apk add --no-cache python3 make g++
@@ -67,7 +106,11 @@ RUN REV="$(sed -n 's/^deckgym = .*rev = "\([0-9a-f]\{40\}\)".*/\1/p' Cargo.toml)
 FROM deps AS build
 COPY . .
 COPY --from=viewer /viewer/dist apps/web/public/viewer
-RUN pnpm -F @tcg/domain build \
+COPY --from=wasm-engine /wasm-out /wasm-out
+# T-015: the engine of the browser into the PWA (with its source, AGPL), tried in Node before it is served.
+RUN node scripts/build-engine-wasm.mjs --from /wasm-out \
+ && node engine/wasm/smoke.mjs apps/web/public/engine \
+ && pnpm -F @tcg/domain build \
  && pnpm -F @tcg/api db:generate \
  && pnpm -F @tcg/web build \
  && pnpm -F @tcg/api build \

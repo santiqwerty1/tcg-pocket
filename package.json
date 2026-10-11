@@ -15,6 +15,7 @@
     "lint:fix": "biome check --write .",
     "fixtures:extract": "node scripts/extract-fixtures.mjs",
     "viewer:build": "node scripts/build-viewer.mjs",
+    "engine:wasm": "node scripts/build-engine-wasm.mjs",
     "deploy:fly": "node scripts/deploy.mjs",
     "deploy:check": "node scripts/deploy.mjs --check"
   },
