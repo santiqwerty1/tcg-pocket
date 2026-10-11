@@ -463,11 +463,13 @@ export class BackupService {
         details: unknownCardIds,
       })
     }
-    await this.prisma.$transaction((tx) => this.restoreInto(tx, document), {
+    await this.prisma.$transaction((tx) => this.restoreInto(tx, document, true), {
       timeout: RESTORE_TIMEOUT_MS,
       maxWait: 10_000,
     })
     this.tournamentData.bump()
+    if (document.settings.some((s) => s.key === 'trackerAutoSync' && s.value === true))
+      notices.push('La sincronización automática del tracker esperará 6 horas después de restaurar.')
     this.logger.info({ counts: backupCounts(document) }, 'backup restored')
     return { applied: true, counts: backupCounts(document), notices }
   }
@@ -577,7 +579,11 @@ export class BackupService {
   }
 
   /** Replaces every owner table with the document's content, inside the caller's transaction. */
-  private async restoreInto(tx: Prisma.TransactionClient, document: BackupDocument): Promise<void> {
+  private async restoreInto(
+    tx: Prisma.TransactionClient,
+    document: BackupDocument,
+    deferTracker = false,
+  ): Promise<void> {
     // Matches first: they restrict the deletion of their deck and revision.
     await tx.match.deleteMany()
     await tx.deck.deleteMany()
@@ -723,6 +729,21 @@ export class BackupService {
           value: setting.value as Prisma.InputJsonValue,
           updatedAt: setting.updatedAt,
         })),
+      })
+    }
+    // Restoring an old scheduler state must allow six hours to inspect the restored collection.
+    const trackerState = document.settings.find((s) => s.key === 'trackerSyncState')?.value
+    if (deferTracker && document.settings.some((s) => s.key === 'trackerAutoSync' && s.value === true)) {
+      const value = {
+        ...(typeof trackerState === 'object' && trackerState !== null && !Array.isArray(trackerState)
+          ? trackerState
+          : {}),
+        lastAttemptAt: new Date().toISOString(),
+      }
+      await tx.appSetting.upsert({
+        where: { key: 'trackerSyncState' },
+        create: { key: 'trackerSyncState', value },
+        update: { value },
       })
     }
     // Games against the bot (version 5): the finished ones are replaced by the file's results (no moves, no

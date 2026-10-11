@@ -198,8 +198,10 @@ export class AlertsService {
       alerts.push({
         code: 'tracker_sync',
         level: 'warning',
-        title: `Revisar sincronización del tracker (${trackerWarning.at ?? ''})`,
-        detail: trackerWarning.message,
+        title: 'Revisar sincronización del tracker',
+        detail: trackerWarning.at
+          ? `${new Date(trackerWarning.at).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}: ${trackerWarning.message}`
+          : trackerWarning.message,
         link: trackerWarning.previewId ? `/coleccion/importar/${trackerWarning.previewId}` : '/mas/ajustes',
       })
     // Fase 35: the monthly restore drill failed, or the last one is more than 40 days old.

@@ -32,6 +32,7 @@ import {
   totalCopies,
   trackerDiffStats,
   trackerImportRows,
+  trackerUnits,
   writeTrackerCsv,
 } from '@tcg/domain'
 import type { PoolClient } from 'pg'
@@ -86,6 +87,7 @@ export interface ImportSource {
 
 /** An import row as the service reads it: everything but the gzipped CSV (`raw_file_gz` is only written, never served). */
 type ImportRecord = Omit<CollectionImport, 'rawFileGz'>
+type UnchangedTrackerImport = { unchanged: true; reviewReasons: string[] }
 
 /** What `collection_imports.diff_summary` holds: parse metadata (fixed) plus the diff (refreshed while pending). */
 interface StoredImport {
@@ -157,10 +159,11 @@ export class CollectionService {
 
   async summary(): Promise<CollectionSummaryView> {
     const index = this.catalog.requireIndex()
-    const [{ stock, adjustments }, lastImport, collectedCount] = await Promise.all([
+    const [{ stock, adjustments }, lastImport, collectedCount, checked] = await Promise.all([
       this.repository.loadState(),
       this.prisma.collectionImport.findFirst({ where: { status: 'applied' }, orderBy: { appliedAt: 'desc' } }),
       this.prisma.collectionStock.count({ where: { collected: true } }),
+      this.prisma.appSetting.findUnique({ where: { key: 'trackerLastCheckedAt' } }),
     ])
     let one = 0
     let two = 0
@@ -175,7 +178,10 @@ export class CollectionService {
       stockUnitsCollected: collectedCount,
       groupsWithAtLeast: { one, two },
       groupsMissing: missing,
-      lastImportAt: lastImport?.appliedAt ?? null,
+      lastImportAt:
+        typeof checked?.value === 'string' && Date.parse(checked.value) > (lastImport?.appliedAt?.getTime() ?? 0)
+          ? new Date(checked.value)
+          : (lastImport?.appliedAt ?? null),
       activeAdjustments: adjustments.length,
     }
   }
@@ -374,10 +380,18 @@ export class CollectionService {
         details: parsed.errors,
       })
     }
-    return this.createRows(index, parsed, source)
+    const preview = await this.createRows(index, parsed, source)
+    if ('unchanged' in preview) throw new Error('CSV preview missing')
+    return preview
   }
 
-  async createTrackerImport(rows: readonly TrackerCollectionRow[], friendId: string): Promise<ImportPreview> {
+  async createTrackerImport(
+    rows: readonly TrackerCollectionRow[],
+    friendId: string,
+    automatic = false,
+    checkedAt = new Date(),
+    upstreamReview?: string,
+  ): Promise<ImportPreview | UnchangedTrackerImport> {
     const index = this.catalog.requireIndex()
     const csvRows = trackerImportRows(rows, index)
     return this.createRows(
@@ -385,6 +399,9 @@ export class CollectionService {
       { rows: csvRows, errors: [], columns: [], bom: false, lineEnding: 'LF', trailingNewline: false },
       { bytes: Buffer.from(JSON.stringify(rows)), fileName: `Tracker ${friendId}` },
       friendId,
+      automatic,
+      checkedAt,
+      upstreamReview,
     )
   }
 
@@ -393,17 +410,46 @@ export class CollectionService {
     parsed: ParsedCsv,
     source: ImportSource,
     friendId?: string,
-  ): Promise<ImportPreview> {
+    automatic = false,
+    checkedAt = new Date(),
+    upstreamReview?: string,
+  ): Promise<ImportPreview | UnchangedTrackerImport> {
     const normalized = normalizeImportRows(parsed.rows, index)
     const client = await this.prisma.pool.connect()
     try {
       await client.query('BEGIN')
       // Same lock order as apply; also excludes catalogue remaps and manual/MCP collection writes.
       await client.query('LOCK TABLE cards, collection_stock, collection_adjustments IN SHARE ROW EXCLUSIVE MODE')
+      await client.query('SELECT pg_advisory_xact_lock(994202)')
+      if (automatic && friendId) await this.requireAutomaticConfig(client, friendId)
       const { stock, adjustments, baseline } = await this.importBaseline(client, index)
-      const diff = diffImport(index, stock, normalized.units, adjustments)
+      const incoming = friendId ? trackerUnits(normalized.units, index) : normalized.units
+      const diff = diffImport(index, stock, incoming, adjustments)
+      const tracker = friendId
+        ? await this.trackerReview(client, diff, stock, friendId, baseline, normalized.unknownIds)
+        : undefined
+      if (tracker && upstreamReview) {
+        tracker.reviewReasons?.push(upstreamReview)
+        tracker.requiresReview = true
+      }
+      if (friendId) {
+        await client.query(
+          "UPDATE collection_imports SET status = 'discarded' WHERE source = 'tracker' AND status = 'pending'",
+        )
+        await client.query("DELETE FROM app_settings WHERE key = 'trackerSyncWarning'")
+        await this.pruneTrackerImports(client)
+      }
+      if (automatic && diff.changes.length === 0) {
+        await client.query(
+          `INSERT INTO app_settings (key, value) VALUES ('trackerLastCheckedAt', $1::jsonb)
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+          [JSON.stringify(checkedAt.toISOString())],
+        )
+        await client.query('COMMIT')
+        return { unchanged: true, reviewReasons: tracker?.reviewReasons ?? [] }
+      }
       const stored: StoredImport = {
-        ...(friendId ? { tracker: { friendId, baseline, ...trackerDiffStats(diff, totalCopies(stock)) } } : {}),
+        ...(tracker ? { tracker } : {}),
         meta: {
           bom: parsed.bom,
           lineEnding: parsed.lineEnding,
@@ -498,11 +544,13 @@ export class CollectionService {
         message: 'El archivo tiene errores o gemelas con valores distintos; corregilo y volvé a importarlo.',
       })
     }
-    const incoming = this.unitsOf(index, row.rows)
+    const incoming = this.unitsOf(index, row.rows, row.source)
     const client = await this.prisma.pool.connect()
     try {
       await client.query('BEGIN')
       await client.query('LOCK TABLE cards, collection_stock, collection_adjustments IN SHARE ROW EXCLUSIVE MODE')
+      await client.query('SELECT pg_advisory_xact_lock(994202)')
+      if (automatic) await this.requireAutomaticConfig(client, stored.tracker?.friendId ?? '')
       const locked = await client.query<{ status: string }>(
         'SELECT status FROM collection_imports WHERE id = $1 FOR UPDATE',
         [row.id],
@@ -516,11 +564,17 @@ export class CollectionService {
         })
       }
       const diff = diffImport(index, current, incoming, adjustments)
-      if (automatic && trackerDiffStats(diff, totalCopies(current)).requiresReview) {
-        throw new ConflictException({
-          code: 'tracker_drop',
-          message: 'Bajan más del 10 % de las copias. Revisá la vista previa antes de aplicar.',
-        })
+      if (automatic && row.source === 'tracker') {
+        const review = await this.trackerReview(
+          client,
+          diff,
+          current,
+          stored.tracker?.friendId ?? '',
+          baseline,
+          row.unknownIds,
+        )
+        if (review.requiresReview || stored.tracker?.requiresReview)
+          throw new ConflictException({ code: 'tracker_review', message: review.reviewReasons?.join(' ') })
       }
       const appliedAt = new Date()
       await upsertMany(
@@ -550,16 +604,19 @@ export class CollectionService {
           [JSON.stringify(appliedAt.toISOString()), appliedAt],
         )
         await client.query(
+          `INSERT INTO app_settings (key, value) VALUES ('trackerLastAppliedCommit', $1::jsonb), ('trackerLastCheckedAt', $2::jsonb)
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+          [JSON.stringify(this.catalog.trackerCommit), JSON.stringify(appliedAt.toISOString())],
+        )
+        await client.query(
           `INSERT INTO app_settings (key, value, updated_at) VALUES ('trackerSyncState', $1::jsonb, $2)
            ON CONFLICT (key) DO UPDATE SET value = app_settings.value || EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
           [JSON.stringify({ result: 'applied', error: null, previewId: String(row.id), automatic }), appliedAt],
         )
-        await client.query(
-          `INSERT INTO app_settings (key, value, updated_at) VALUES ('trackerSyncWarning', 'null'::jsonb, $1)
-          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
-          [appliedAt],
-        )
+        await this.pruneTrackerImports(client)
       }
+      // Any successful import (including CSV) resolves the previous automatic warning.
+      await client.query("DELETE FROM app_settings WHERE key = 'trackerSyncWarning'")
       await client.query('COMMIT')
       return { applied: true, summary: diff.summary }
     } catch (error) {
@@ -573,7 +630,18 @@ export class CollectionService {
   async discardImport(rawId: string): Promise<void> {
     const row = await this.requireImport(rawId)
     if (row.status !== 'pending') throw notPending(row)
-    await this.prisma.collectionImport.update({ where: { id: row.id }, data: { status: 'discarded' } })
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(994202)`
+      const discarded = await tx.collectionImport.updateMany({
+        where: { id: row.id, status: 'pending' },
+        data: { status: 'discarded' },
+      })
+      if (!discarded.count) throw notPending(row)
+      if (row.source === 'tracker') {
+        // An older preview must not clear a warning for a newer one.
+        await tx.$executeRaw`DELETE FROM app_settings WHERE key = 'trackerSyncWarning' AND value->>'previewId' = ${String(row.id)}`
+      }
+    })
   }
 
   /** The collection in the tracker's exact format (BOM + LF, Spanish names, twins identical, no trailing newline). */
@@ -703,7 +771,7 @@ export class CollectionService {
       })
     }
     const stockRows = await client.query<{ cardId: string; amountOwned: number; collected: boolean }>(
-      'SELECT card_id AS "cardId", amount_owned AS "amountOwned", collected FROM collection_stock ORDER BY card_id',
+      'SELECT card_id AS "cardId", amount_owned AS "amountOwned", collected, source, updated_at FROM collection_stock ORDER BY card_id',
     )
     const adjustmentRows =
       await client.query<AdjustmentRow>(`SELECT id, functional_group_id AS "functionalGroupId", playable_copies AS "playableCopies", reason, active,
@@ -724,7 +792,7 @@ export class CollectionService {
   }
 
   /** Stored rows → stock units (same fold as the original normalization; line numbers are not needed here). */
-  private unitsOf(index: CatalogIndex, rows: readonly ImportRowLike[]): StockQuantities {
+  private unitsOf(index: CatalogIndex, rows: readonly ImportRowLike[], source = 'csv'): StockQuantities {
     const csvRows: CsvRow[] = rows.map((row, at) => ({
       line: at + 2,
       id: row.cardId,
@@ -736,7 +804,81 @@ export class CollectionService {
       pack: null,
       rarity: null,
     }))
-    return normalizeImportRows(csvRows, index).units
+    const units = normalizeImportRows(csvRows, index).units
+    return source === 'tracker' ? trackerUnits(units, index) : units
+  }
+
+  private async trackerReview(
+    client: PoolClient,
+    diff: ImportDiff,
+    stock: StockQuantities,
+    friendId: string,
+    baseline: string,
+    unknownIds: readonly string[],
+  ): Promise<NonNullable<ImportPreview['tracker']>> {
+    const stats = trackerDiffStats(diff, totalCopies(stock))
+    const reviewReasons: string[] = []
+    if (stats.requiresReview)
+      reviewReasons.push(`Bajan ${stats.removedCopies} de ${stats.currentCopies} copias (más del 10 %).`)
+    const settings = await client.query<{ key: string; value: unknown }>(
+      "SELECT key, value FROM app_settings WHERE key IN ('trackerLastAppliedAt', 'trackerLastAppliedCommit')",
+    )
+    const values = Object.fromEntries(settings.rows.map((r) => [r.key, r.value]))
+    const manual = await client.query<{ card_id: string }>(
+      `SELECT card_id FROM collection_stock WHERE source = 'manual' AND card_id = ANY($1::text[])
+       AND updated_at > $2::timestamptz`,
+      [diff.changes.map((c) => c.stockCardId), values.trackerLastAppliedAt ?? new Date(0).toISOString()],
+    )
+    if (manual.rowCount)
+      reviewReasons.push(
+        `${manual.rowCount} unidades tienen cambios manuales posteriores a la última sincronización aplicada.`,
+      )
+    if (unknownIds.length) reviewReasons.push(`Hay ${unknownIds.length} internal_id desconocidos; revisá el catálogo.`)
+    if (
+      typeof values.trackerLastAppliedCommit === 'string' &&
+      values.trackerLastAppliedCommit !== this.catalog.trackerCommit
+    )
+      reviewReasons.push(
+        'El commit del catálogo cambió desde la última sincronización aplicada; revisá los internal_id.',
+      )
+    return {
+      friendId,
+      baseline,
+      catalogCommit: this.catalog.trackerCommit,
+      ...stats,
+      requiresReview: reviewReasons.length > 0,
+      reviewReasons,
+    }
+  }
+
+  private async requireAutomaticConfig(client: PoolClient, friendId: string) {
+    const rows = await client.query<{ key: string; value: unknown }>(
+      "SELECT key, value FROM app_settings WHERE key IN ('trackerAutoSync', 'trackerFriendId')",
+    )
+    const config = Object.fromEntries(rows.rows.map((r) => [r.key, r.value]))
+    if (config.trackerAutoSync !== true || config.trackerFriendId !== friendId)
+      throw new ConflictException({
+        code: 'tracker_config_changed',
+        message: 'La configuración del tracker cambió durante la consulta. No se aplicó nada.',
+      })
+  }
+
+  /** Keep the first applied tracker baseline and seven recent snapshots for pack-luck comparisons. */
+  private async pruneTrackerImports(client: PoolClient) {
+    const removed = await client.query<{ id: number }>(
+      `DELETE FROM collection_imports WHERE source = 'tracker' AND (
+        (status = 'applied' AND id NOT IN (
+          SELECT id FROM collection_imports WHERE source = 'tracker' AND status = 'applied' ORDER BY applied_at DESC, id DESC LIMIT 7
+        ) AND id <> (SELECT id FROM collection_imports WHERE source = 'tracker' AND status = 'applied' ORDER BY applied_at, id LIMIT 1))
+        OR (status = 'discarded' AND id NOT IN (
+          SELECT id FROM collection_imports WHERE source = 'tracker' AND status = 'discarded' ORDER BY id DESC LIMIT 7
+        ))
+      ) RETURNING id`,
+    )
+    if (removed.rows.length)
+      await client.query('UPDATE collection_stock SET import_id = NULL WHERE import_id = ANY($1::int[])', [
+        removed.rows.map((r) => r.id),
+      ])
   }
 
   private toPreview(index: CatalogIndex, row: ImportRecord, stored: StoredImport): ImportPreview {

@@ -1,8 +1,10 @@
 import { createServer, type Server } from 'node:http'
 import { gunzipSync } from 'node:zlib'
 import webpush from 'web-push'
+import { BackupService } from '../src/backup/backup.service.js'
 import { CatalogService } from '../src/catalog/catalog.service.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
+import { TrackerCommitsService } from '../src/catalog/tracker-commits.service.js'
 import { TrackerClient } from '../src/collection/tracker-client.js'
 import { TRACKER_SYNC_INTERVAL_MS, TrackerSync } from '../src/collection/tracker-sync.service.js'
 import { PushSender } from '../src/notifications/notifications.service.js'
@@ -31,7 +33,7 @@ describe('tracker collection sync (local HTTP tracker only)', () => {
   const seedStock = (amount: number) =>
     test.prisma.collectionStock.upsert({
       where: { cardId: 'A1-1' },
-      create: { cardId: 'A1-1', amountOwned: amount, collected: true, source: 'manual' },
+      create: { cardId: 'A1-1', amountOwned: amount, collected: true, source: 'import' },
       update: { amountOwned: amount, collected: true },
     })
 
@@ -86,6 +88,8 @@ describe('tracker collection sync (local HTTP tracker only)', () => {
     await test.prisma.collectionAdjustment.deleteMany()
     await test.prisma.collectionImport.deleteMany()
     await test.prisma.appSetting.deleteMany({ where: { key: { startsWith: 'tracker' } } })
+    test.app.get(TrackerCommitsService).fetchImpl = async () =>
+      Response.json({ sha: test.app.get(CatalogService).trackerCommit })
     await setting('trackerFriendId', FRIEND)
   })
   afterAll(async () => {
@@ -147,7 +151,7 @@ describe('tracker collection sync (local HTTP tracker only)', () => {
     expect((await preview()).status).toBe(200)
     expect(calls.map((c) => c.method)).toEqual(['HEAD', 'GET', 'GET', 'GET', 'GET'])
   })
-  it('aborts incomplete counts before creating a revision or changing the collection, with an alert', async () => {
+  it('aborts manual incomplete counts without a revision, stock changes or an automatic alert', async () => {
     await seedStock(100)
     countOverride = 2
     const response = await preview()
@@ -155,9 +159,7 @@ describe('tracker collection sync (local HTTP tracker only)', () => {
     expect(response.body.error.code).toBe('tracker_count')
     expect(await test.prisma.collectionImport.count()).toBe(0)
     expect((await get('/api/collection/summary')).body.copies).toBe(100)
-    expect((await get('/api/alerts')).body.items).toEqual(
-      expect.arrayContaining([expect.objectContaining({ code: 'tracker_sync' })]),
-    )
+    expect((await get('/api/alerts')).body.items.some((a: { code: string }) => a.code === 'tracker_sync')).toBe(false)
   })
   it('surfaces a changed public key (401) without retrying, and leaves CSV import usable', async () => {
     httpError = 401
@@ -233,7 +235,7 @@ describe('tracker collection sync (local HTTP tracker only)', () => {
   })
   it('zeroes missing rows and shows increases/decreases; manual apply accepts a reviewed large drop', async () => {
     await seedStock(100)
-    remote = []
+    remote = [row(0, 65601)] // A public carddex/wanted row is different from an empty/private view.
     const response = await preview()
     expect(response.body).toMatchObject({
       summary: { zeroedUnits: 1 },
@@ -326,4 +328,205 @@ describe('tracker collection sync (local HTTP tracker only)', () => {
     })
     expect((await get(`/api/collection/imports/${response.body.id}`)).body.summary).toEqual(response.body.summary)
   })
+  it('rejects a private/incorrect friend collection (200 empty) without saving a revision or changing stock', async () => {
+    await seedStock(100)
+    remote = []
+    const response = await preview()
+    expect(response.status).toBe(503)
+    expect(response.body.error.code).toBe('tracker_empty')
+    expect(calls.map((c) => c.method)).toEqual(['HEAD'])
+    expect(await test.prisma.collectionImport.count()).toBe(0)
+    expect((await get('/api/collection/summary')).body.copies).toBe(100)
+    await setting('trackerAutoSync', true)
+    await test.app.get(TrackerSync).tick()
+    expect((await get('/api/collection/tracker-sync/status')).body.result).toBe('error')
+    expect(await test.prisma.collectionImport.count()).toBe(0)
+    expect((await get('/api/collection/summary')).body.copies).toBe(100)
+  })
+  it('ten automatic runs without changes add no imports or rows and advance the successful check date', async () => {
+    const first = await preview()
+    await apply(first.body.id)
+    expect(await test.prisma.collectionImportRow.count()).toBe(1)
+    await setting('trackerAutoSync', true)
+    const start = new Date(Date.now() + TRACKER_SYNC_INTERVAL_MS)
+    for (let at = 0; at < 10; at++) {
+      const checkedAt = new Date(start.getTime() + at * TRACKER_SYNC_INTERVAL_MS)
+      expect(await test.app.get(TrackerSync).tick(checkedAt)).toBeNull()
+      expect((await get('/api/collection/tracker-sync/status')).body).toMatchObject({
+        result: 'unchanged',
+        lastCheckedAt: checkedAt.toISOString(),
+        previewId: null,
+      })
+    }
+    expect(await test.prisma.collectionImport.count()).toBe(1)
+    expect(await test.prisma.collectionImportRow.count()).toBe(1)
+    expect((await get('/api/collection/summary')).body.lastImportAt).toBe(
+      new Date(start.getTime() + 9 * TRACKER_SYNC_INTERVAL_MS).toISOString(),
+    )
+  })
+  it('discards superseded tracker previews and bounds applied snapshots while retaining CSV history and the first baseline', async () => {
+    const csv = await post('/api/collection/imports').send({
+      csv: 'Id,InternalId,NumberOwned,Collected\nA1-1,65600,2,TRUE',
+    })
+    await post(`/api/collection/imports/${csv.body.id}/apply`)
+    const first = await preview()
+    const second = await preview()
+    expect((await get(`/api/collection/imports/${first.body.id}`)).body.status).toBe('discarded')
+    await apply(second.body.id)
+    for (let at = 0; at < 10; at++) {
+      remote = [row(4 + at)]
+      const next = await preview()
+      expect((await apply(next.body.id)).status).toBe(200)
+    }
+    expect(await test.prisma.collectionImport.count({ where: { source: 'tracker', status: 'applied' } })).toBe(8)
+    expect((await get(`/api/collection/imports/${second.body.id}`)).body.status).toBe('applied')
+    expect((await get(`/api/collection/imports/${csv.body.id}`)).body.status).toBe('applied')
+    expect(
+      await test.prisma.collectionImportRow.count({ where: { import: { source: 'tracker', status: 'applied' } } }),
+    ).toBe(8)
+  })
+  it('protects recent manual edits at less than 10% and allows reviewed manual application', async () => {
+    remote = [row(100)]
+    const first = await preview()
+    await apply(first.body.id)
+    await test.prisma.appSetting.update({
+      where: { key: 'trackerLastAppliedAt' },
+      data: { value: new Date(Date.now() - 60000).toISOString() },
+    })
+    await test.http().patch('/api/collection/stock/A1-1').set('Cookie', cookie).send({ amountOwned: 101 })
+    await setting('trackerAutoSync', true)
+    const guarded = await test.app.get(TrackerSync).tick(new Date(Date.now() + TRACKER_SYNC_INTERVAL_MS))
+    expect(guarded?.tracker).toMatchObject({ requiresReview: true, removedCopies: 1 })
+    expect(guarded?.tracker?.reviewReasons?.join(' ')).toContain('manuales')
+    expect((await get('/api/collection/summary')).body.copies).toBe(101)
+    expect((await apply(guarded?.id ?? '')).status).toBe(200)
+    expect((await get('/api/collection/summary')).body.copies).toBe(100)
+  })
+  it.each(['discard', 'disable', 'clear friend', 'csv'])('clears an automatic warning after %s', async (action) => {
+    await seedStock(100)
+    await setting('trackerAutoSync', true)
+    const pending = await test.app.get(TrackerSync).tick()
+    expect((await get('/api/alerts')).body.items.some((a: { code: string }) => a.code === 'tracker_sync')).toBe(true)
+    if (action === 'discard') await post(`/api/collection/imports/${pending?.id}/discard`)
+    if (action === 'disable') await setting('trackerAutoSync', false)
+    if (action === 'clear friend') await setting('trackerFriendId', '')
+    if (action === 'csv') {
+      const csv = await post('/api/collection/imports').send({
+        csv: 'Id,InternalId,NumberOwned,Collected\nA1-1,65600,2,TRUE',
+      })
+      await post(`/api/collection/imports/${csv.body.id}/apply`)
+    }
+    expect((await get('/api/alerts')).body.items.some((a: { code: string }) => a.code === 'tracker_sync')).toBe(false)
+  })
+  it('keeps the alert title stable across repeated errors so the watcher sends only one push', async () => {
+    await test.prisma.appSetting.deleteMany({ where: { key: 'notifiedAlerts' } })
+    await test.prisma.pushSubscription.deleteMany()
+    await post('/api/notifications/subscribe').send({
+      endpoint: 'https://push.example.test/repeated-tracker',
+      keys: { p256dh: 'fake-public-key-for-test', auth: 'fake' },
+    })
+    await setting('trackerAutoSync', true)
+    httpError = 401
+    const now = new Date()
+    await test.app.get(TrackerSync).tick(now)
+    const alert = (await get('/api/alerts')).body.items.find((a: { code: string }) => a.code === 'tracker_sync')
+    expect(alert.title).toBe('Revisar sincronización del tracker')
+    expect(alert.detail).not.toContain(now.toISOString())
+    await test.app.get(NotificationsWatcher).tick(new Date(now.getTime() + 24 * 60 * 60 * 1000))
+    const count = sent.filter((s) => s.title.includes('tracker')).length
+    expect(count).toBe(1)
+    await test.app.get(TrackerSync).tick(new Date(now.getTime() + TRACKER_SYNC_INTERVAL_MS))
+    await test.app
+      .get(NotificationsWatcher)
+      .tick(new Date(now.getTime() + 24 * 60 * 60 * 1000 + TRACKER_SYNC_INTERVAL_MS))
+    expect(sent.filter((s) => s.title.includes('tracker'))).toHaveLength(count)
+  })
+  it('reviews unknown internal ids even with an empty diff and reviews a newer upstream commit', async () => {
+    await setting('trackerAutoSync', true)
+    remote = [row(0, 2147483647)]
+    const now = new Date()
+    const unknown = await test.app.get(TrackerSync).tick(now)
+    expect(unknown).toBeNull()
+    expect(await test.prisma.collectionImport.count()).toBe(0)
+    expect((await get('/api/collection/tracker-sync/status')).body.error).toContain('internal_id desconocidos')
+    expect((await get('/api/collection/tracker-sync/status')).body.result).toBe('review')
+    remote = [row(3)]
+    test.app.get(TrackerCommitsService).fetchImpl = async () => Response.json({ sha: 'a'.repeat(40) })
+    const changed = await test.app.get(TrackerSync).tick(new Date(now.getTime() + TRACKER_SYNC_INTERVAL_MS))
+    expect(changed?.tracker?.requiresReview).toBe(true)
+    expect(changed?.tracker?.reviewReasons?.join(' ')).toContain('commit publicado')
+    expect((await get('/api/collection/summary')).body.copies).toBe(0)
+  })
+  it('restores an old automatic schedule with a six-hour delay and keeps the restore drill valid', async () => {
+    const first = await preview()
+    await apply(first.body.id)
+    await setting('trackerAutoSync', true)
+    await test.prisma.appSetting.update({
+      where: { key: 'trackerSyncState' },
+      data: { value: { lastAttemptAt: '2020-01-01T00:00:00Z', result: 'applied' } },
+    })
+    expect((await test.app.get(BackupService).drill()).ok).toBe(true)
+    const exported = await get('/api/backup/export').responseType('blob')
+    const bytes = Buffer.from(exported.body)
+    const before = Date.now()
+    const restored = await post('/api/backup/import?mode=replace').attach('file', bytes, 'backup.json.gz')
+    expect(restored.status).toBe(200)
+    const state = (await get('/api/collection/tracker-sync/status')).body
+    expect(Date.parse(state.lastAttemptAt)).toBeGreaterThanOrEqual(before)
+    const count = calls.length
+    remote = [row(100)]
+    expect(await test.app.get(TrackerSync).tick(new Date(Date.parse(state.lastAttemptAt) + 60000))).toBeNull()
+    expect(calls).toHaveLength(count)
+    expect((await get('/api/collection/summary')).body.copies).toBe(3)
+  })
+  it('allows automatic changes to manual units edited before the last applied sync', async () => {
+    await seedStock(100)
+    await test.prisma.collectionStock.update({
+      where: { cardId: 'A1-1' },
+      data: { source: 'manual', updatedAt: new Date(Date.now() - 120000) },
+    })
+    await test.prisma.appSetting.create({
+      data: { key: 'trackerLastAppliedAt', value: new Date(Date.now() - 60000).toISOString() },
+    })
+    await setting('trackerAutoSync', true)
+    remote = [row(99)]
+    await test.app.get(TrackerSync).tick()
+    expect((await get('/api/collection/summary')).body.copies).toBe(99)
+  })
+  it.each([false, true])(
+    'does not recreate an alert or apply when sync is disabled during a request (failure=%s)',
+    async (failure) => {
+      await setting('trackerAutoSync', true)
+      const client = test.app.get(TrackerClient)
+      const original = client.fetchImpl
+      let started: () => void = () => undefined
+      let release: () => void = () => undefined
+      const waiting = new Promise<void>((resolve) => {
+        started = resolve
+      })
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      client.fetchImpl = async (input, init) => {
+        started()
+        await gate
+        return failure ? new Response(null, { status: 401 }) : original(input, init)
+      }
+      const request = test.app.get(TrackerSync).tick()
+      try {
+        await waiting
+        await setting('trackerAutoSync', false)
+        release()
+        await request
+        expect(await test.prisma.collectionImport.count()).toBe(0)
+        expect((await get('/api/collection/summary')).body.copies).toBe(0)
+        expect((await get('/api/alerts')).body.items.some((a: { code: string }) => a.code === 'tracker_sync')).toBe(
+          false,
+        )
+      } finally {
+        release()
+        client.fetchImpl = original
+      }
+    },
+  )
 })

@@ -8,6 +8,8 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
+import { CatalogService } from '../catalog/catalog.service.js'
+import { TrackerCommitsService } from '../catalog/tracker-commits.service.js'
 import { ENV, type Env } from '../config/env.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { CollectionService } from './collection.service.js'
@@ -16,7 +18,7 @@ import { TrackerClient, TrackerError } from './tracker-client.js'
 export const TRACKER_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000
 export interface TrackerSyncState {
   lastAttemptAt: string | null
-  result: 'preview' | 'applied' | 'review' | 'error' | null
+  result: 'preview' | 'applied' | 'unchanged' | 'review' | 'error' | null
   error: string | null
   previewId: string | null
   automatic: boolean
@@ -32,11 +34,16 @@ export class TrackerSync implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly logger: PinoLogger,
     @Inject(ENV) private readonly env: Env,
+    private readonly commits: TrackerCommitsService,
+    private readonly catalog: CatalogService,
   ) {}
 
   onApplicationBootstrap() {
     if (this.env.isTest) return
-    this.timer = setInterval(() => void this.tick().catch(() => this.logger.warn('tracker sync tick failed')), 60_000)
+    this.timer = setInterval(
+      () => void this.tick().catch((err) => this.logger.warn({ err }, 'tracker sync tick failed')),
+      60_000,
+    )
     this.timer.unref()
   }
   onModuleDestroy() {
@@ -45,12 +52,23 @@ export class TrackerSync implements OnApplicationBootstrap, OnModuleDestroy {
 
   async status() {
     const rows = await this.prisma.appSetting.findMany({
-      where: { key: { in: ['trackerFriendId', 'trackerAutoSync', 'trackerSyncState', 'trackerLastAppliedAt'] } },
+      where: {
+        key: {
+          in: [
+            'trackerFriendId',
+            'trackerAutoSync',
+            'trackerSyncState',
+            'trackerLastAppliedAt',
+            'trackerLastCheckedAt',
+          ],
+        },
+      },
     })
     const settings = Object.fromEntries(rows.map((r) => [r.key, r.value]))
     return {
       friendId: typeof settings.trackerFriendId === 'string' ? settings.trackerFriendId : '',
       lastAppliedAt: typeof settings.trackerLastAppliedAt === 'string' ? settings.trackerLastAppliedAt : null,
+      lastCheckedAt: typeof settings.trackerLastCheckedAt === 'string' ? settings.trackerLastCheckedAt : null,
       ...EMPTY,
       ...(settings.trackerSyncState as Partial<TrackerSyncState> | undefined),
       // `enabled` reports the current switch; `automatic` is the mode of the last request.
@@ -96,15 +114,37 @@ export class TrackerSync implements OnApplicationBootstrap, OnModuleDestroy {
       await this.write('trackerSyncState', state)
       try {
         const rows = await this.client.collection(config.friendId)
-        const preview = await this.collection.createTrackerImport(rows, config.friendId)
+        let upstreamReview: string | undefined
+        if (automatic) {
+          try {
+            const latest = await this.commits.latest()
+            if (latest.sha !== this.catalog.trackerCommit)
+              upstreamReview =
+                'El commit publicado por el tracker difiere del catálogo local; revisá los internal_id antes de aplicar.'
+          } catch (err) {
+            this.logger.warn({ err }, 'tracker commit check failed')
+            upstreamReview = 'No se pudo verificar el commit del tracker; revisá el catálogo antes de aplicar.'
+          }
+        }
+        const currentConfig = await this.status()
+        if (automatic && (!currentConfig.enabled || currentConfig.friendId !== config.friendId)) return null
+        const preview = await this.collection.createTrackerImport(rows, config.friendId, automatic, now, upstreamReview)
+        if ('unchanged' in preview) {
+          state.result = preview.reviewReasons.length ? 'review' : 'unchanged'
+          if (preview.reviewReasons.length) {
+            state.error = preview.reviewReasons.join(' ')
+            await this.warning(config.friendId, { at: state.lastAttemptAt, message: state.error, previewId: null })
+          }
+          await this.write('trackerSyncState', state)
+          return null
+        }
         state.previewId = preview.id
         state.result = 'preview'
-        const currentConfig = await this.status()
         if (automatic && currentConfig.enabled && currentConfig.friendId === config.friendId) {
           if (preview.tracker?.requiresReview) {
             state.result = 'review'
-            state.error = `Bajan ${preview.tracker.removedCopies} de ${preview.tracker.currentCopies} copias (más del 10 %). Revisá la vista previa antes de aplicar.`
-            await this.write('trackerSyncWarning', {
+            state.error = `${preview.tracker.reviewReasons?.join(' ') ?? 'La sincronización requiere revisión.'} Revisá la vista previa antes de aplicar.`
+            await this.warning(config.friendId, {
               at: state.lastAttemptAt,
               message: state.error,
               previewId: preview.id,
@@ -118,16 +158,18 @@ export class TrackerSync implements OnApplicationBootstrap, OnModuleDestroy {
         await this.write('trackerSyncState', state)
         return preview
       } catch (error) {
+        this.logger.warn({ err: error }, 'tracker collection sync failed')
         const message =
           error instanceof TrackerError
             ? error.message
             : error instanceof ConflictException
               ? error.message
               : 'No se pudo sincronizar la colección del tracker. Podés importar el CSV.'
-        state.result = 'error'
+        state.result = state.previewId && error instanceof ConflictException ? 'review' : 'error'
         state.error = message
         await this.write('trackerSyncState', state)
-        await this.write('trackerSyncWarning', { at: state.lastAttemptAt, message, previewId: state.previewId })
+        if (automatic)
+          await this.warning(config.friendId, { at: state.lastAttemptAt, message, previewId: state.previewId })
         if (automatic) return null
         if (error instanceof ConflictException) throw error
         throw new ServiceUnavailableException({
@@ -166,5 +208,26 @@ export class TrackerSync implements OnApplicationBootstrap, OnModuleDestroy {
   private async write(key: string, value: unknown) {
     const json = JSON.parse(JSON.stringify(value))
     await this.prisma.appSetting.upsert({ where: { key }, create: { key, value: json }, update: { value: json } })
+  }
+
+  private async warning(friendId: string, value: unknown) {
+    await this.prisma.$transaction(async (tx) => {
+      // Serialize with disabling sync, changing friend id, applying or discarding the preview.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(994202)`
+      const rows = await tx.appSetting.findMany({ where: { key: { in: ['trackerAutoSync', 'trackerFriendId'] } } })
+      const config = Object.fromEntries(rows.map((r) => [r.key, r.value]))
+      if (config.trackerAutoSync !== true || config.trackerFriendId !== friendId) return
+      const json = JSON.parse(JSON.stringify(value))
+      if (
+        json.previewId &&
+        !(await tx.collectionImport.findFirst({ where: { id: Number(json.previewId), status: 'pending' } }))
+      )
+        return
+      await tx.appSetting.upsert({
+        where: { key: 'trackerSyncWarning' },
+        create: { key: 'trackerSyncWarning', value: json },
+        update: { value: json },
+      })
+    })
   }
 }

@@ -1,18 +1,25 @@
 import { describe, expect, it } from 'vitest'
-import { diffImport, normalizeImportRows, trackerDiffStats, trackerImportRows } from '../../src/collection/index.js'
+import {
+  diffImport,
+  normalizeImportRows,
+  trackerDiffStats,
+  trackerImportRows,
+  trackerUnits,
+} from '../../src/collection/index.js'
 import fixture from '../fixtures/tracker/public-collection.json'
 import { realCsvParsed } from '../helpers/collectionCsv.js'
 import { catalogIndex } from '../helpers/loadFixtures.js'
 
 const index = catalogIndex()
 describe('public tracker snapshot', () => {
-  it('maps saved rows, zero-fills missing cards, reports unknowns and never duplicates reprints', () => {
+  it('stores sparse rows, reports unknowns and never duplicates reprints', () => {
     const normalized = normalizeImportRows(trackerImportRows(fixture, index), index)
     expect(normalized.units['A1-1']).toMatchObject({ amountOwned: 3, collected: true })
     expect(normalized.units['A4b-1']).toBeUndefined()
     expect(normalized.unknownIds).toEqual(['internal_id:2147483647'])
     expect(normalized.dedupTotal).toBe(3)
-    expect(Object.keys(normalized.units)).toHaveLength(3866)
+    expect(Object.keys(normalized.units)).toHaveLength(1)
+    expect(trackerImportRows(fixture, index)).toHaveLength(2)
     expect(normalized.conflicts).toEqual([])
     expect(normalized.internalIdMismatches).toEqual([])
   })
@@ -30,7 +37,7 @@ describe('public tracker snapshot', () => {
     expect(sparse.length).toBeLessThan(saved.size)
     const api = normalizeImportRows(trackerImportRows(sparse, index), index)
     const file = normalizeImportRows(csv.rows, index)
-    expect(api.units).toEqual(file.units)
+    expect(trackerUnits(api.units, index)).toEqual(file.units)
     expect(api.dedupTotal).toBe(4714)
     expect(api.naiveTotal).toBe(4714)
     expect(file.naiveTotal).toBe(5844)
@@ -59,7 +66,11 @@ describe('public tracker snapshot', () => {
       requiresReview: true,
     })
     expect(trackerDiffStats(diffImport(index, current, { 'A1-1': unit('A1-1', 90) }), 100).requiresReview).toBe(false)
-    const zeroes = diffImport(index, current, normalizeImportRows(trackerImportRows([], index), index).units)
+    const zeroes = diffImport(
+      index,
+      current,
+      trackerUnits(normalizeImportRows(trackerImportRows([], index), index).units, index),
+    )
     expect(zeroes.summary.zeroedUnits).toBe(1)
   })
 })
