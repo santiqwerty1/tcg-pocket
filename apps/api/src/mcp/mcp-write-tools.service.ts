@@ -580,6 +580,7 @@ export class McpWriteToolsService {
     bothOrders?: boolean
     label?: string
     skipNotSimulable?: boolean
+    cache?: boolean
     remove?: { card: string; count: number }[]
     candidates?: string[]
     dryRun?: boolean
@@ -667,6 +668,8 @@ export class McpWriteToolsService {
       ...(args.bothOrders !== undefined ? { bothOrders: args.bothOrders } : {}),
       ...(args.replaySample !== undefined ? { replaySample: args.replaySample } : {}),
       ...(args.skipNotSimulable ? { skipNotSimulable: true } : {}),
+      // Phase 42: false plays it all again, even what the exact cache has.
+      ...(args.cache === false ? { cache: false } : {}),
       ...(optimize ? { optimize } : {}),
     }
     const preview = await this.simulations.preview({ ...input, cores: online[0]?.cores ?? 8 })

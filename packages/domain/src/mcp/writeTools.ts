@@ -226,6 +226,12 @@ export const MCP_WRITE_TOOLS = {
       bothOrders: z.boolean().optional().describe('matrix: cada cruce en los dos sentidos'),
       label: z.string().trim().max(200).optional().describe('Nombre de la simulación'),
       skipNotSimulable: z.boolean().optional().describe('Saltear los mazos no simulables en vez de rechazar'),
+      cache: z
+        .boolean()
+        .optional()
+        .describe(
+          'false: jugar todo otra vez aunque ya haya cruces jugados exactamente igual (misma semilla, mazos, bots y motor); por defecto se copian',
+        ),
       remove: z
         .array(z.object({ card: z.string().trim().min(1).max(100), count: z.number().int().min(1).max(2) }))
         .max(20)

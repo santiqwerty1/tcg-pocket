@@ -1430,9 +1430,8 @@ describe('simulation (e2e)', () => {
   })
 
   it('phase 42: a chunk that would play exactly what a finished one played takes its result, with its replays', async () => {
-    const hello = { ...worker('worker-cache'), cliVersion: '0.3.3' }
-    // Only this worker is recent with this engine: its engine-cli is the one that would play.
-    await test.prisma.workerNode.updateMany({ data: { lastSeenAt: new Date(0) } })
+    const hello = worker('worker-cache')
+    const engine = '0.3.4+0123456789abcdef'
     const job = (overrides: Structured = {}) =>
       post('/api/simulations').send({
         kind: 'compare',
@@ -1444,35 +1443,51 @@ describe('simulation (e2e)', () => {
         replaySample: 1,
         ...overrides,
       })
-    const first = (await job()).body as { id: number }
-    const played = new Map<number, number>()
-    for (;;) {
-      const chunk = (await bearer('post', '/api/worker/claim').send(hello)).body.chunk as Structured | null
-      if (!chunk) break
-      expect(chunk.jobId).toBe(first.id)
-      const wins = 3 + played.size
-      played.set(chunk.chunkId as number, wins)
-      await bearer(
-        'put',
-        `/api/worker/chunks/${chunk.chunkId}/replays/00000000-0000-0000-0000-00000000000${played.size}`,
-      )
-        .query({ index: 0, seed: '42', winner: 'a' })
-        .set('Content-Type', 'application/gzip')
-        .send(gzipSync(JSON.stringify({ version: 1, steps: [], outcome: { Win: 0 } })))
-      await bearer('put', `/api/worker/chunks/${chunk.chunkId}/result`).send({
-        workerId: 'worker-cache',
-        engineRev: test.env.engineRev,
-        winsA: wins,
-        winsB: 10 - wins,
-        ties: 0,
-        games: 10,
-        durationMs: 500,
-      })
+    const play = async (jobId: number, cliVersion: string | undefined, wins: (n: number) => number) => {
+      const played = new Map<number, number>()
+      for (;;) {
+        const chunk = (await bearer('post', '/api/worker/claim').send(hello)).body.chunk as Structured | null
+        if (!chunk) break
+        expect(chunk.jobId).toBe(jobId)
+        played.set(chunk.chunkId as number, wins(played.size))
+        await bearer(
+          'put',
+          `/api/worker/chunks/${chunk.chunkId}/replays/00000000-0000-0000-0000-00000000000${played.size}`,
+        )
+          .query({ index: 0, seed: '42', winner: 'a' })
+          .set('Content-Type', 'application/gzip')
+          .send(gzipSync(JSON.stringify({ version: 1, steps: [], outcome: { Win: 0 } })))
+        await bearer('put', `/api/worker/chunks/${chunk.chunkId}/result`).send({
+          workerId: 'worker-cache',
+          engineRev: test.env.engineRev,
+          ...(cliVersion ? { cliVersion } : {}),
+          winsA: played.get(chunk.chunkId as number),
+          winsB: 10 - (played.get(chunk.chunkId as number) as number),
+          ties: 0,
+          games: 10,
+          durationMs: 500,
+        })
+      }
+      return played
     }
+    // A worker that does not say which engine played (before worker 0.2.12): never a source.
+    const unstamped = (await job({ seed: 4241 })).body as { id: number }
+    await play(unstamped.id, undefined, (n) => 3 + n)
+    expect((await job({ seed: 4241 })).body.status).toBe('queued')
+    for (const id of (await test.prisma.simulationJob.findMany({ where: { id: { gt: unstamped.id } } })).map(
+      (row) => row.id,
+    )) {
+      await post(`/api/simulations/${id}/cancel`)
+    }
+
+    const first = (await job()).body as { id: number }
+    const played = await play(first.id, engine, (n) => 3 + n)
     expect(played.size).toBe(2)
     const rivalDeck = Number(deckIds[4])
     const simulations = test.app.get(SimulationsService)
     const columnBefore = await simulations.deckColumn(rivalDeck)
+    const gamesBefore = (await get('/api/simulations/analysis')).body.summary.games as number
+    const replaysBefore = await test.prisma.simulationReplay.count()
 
     // The same job again: done at once, every chunk from the cache, with the same results and replays.
     const again = (await job()).body as { id: number; status: string; progress: Structured }
@@ -1485,44 +1500,82 @@ describe('simulation (e2e)', () => {
     }
     expect(copied.chunks.map((chunk) => chunk.cachedFrom).sort()).toEqual([...played.keys()].sort())
     expect(copied.rows[0]?.total).toEqual({ wins: 7, losses: 13, ties: 0 })
+    // The replays are the source's, shown under the copy: none is stored twice.
     expect(copied.replays.map((replay) => replay.gameIndex)).toEqual([0, 0])
-    // A third copy is taken from the chunks a worker played, not from the copies.
+    expect(copied.replays.map((replay) => replay.chunkId).sort()).toEqual(copied.chunks.map((chunk) => chunk.id).sort())
+    expect(await test.prisma.simulationReplay.count()).toBe(replaysBefore)
     const third = (await job()).body as { id: number; status: string }
     expect(third.status).toBe('done')
     const thirdChunks = (await get(`/api/simulations/${third.id}`)).body.chunks as { cachedFrom: number }[]
     expect(thirdChunks.map((chunk) => chunk.cachedFrom).sort()).toEqual([...played.keys()].sort())
-    // The copies are the same games: the rival's «simulación» column does not count them again.
+    // The copies are the same games: neither the rival's «simulación» column nor the analysis counts them again.
     expect(await simulations.deckColumn(rivalDeck)).toEqual(columnBefore)
-    // The analysis tells the copied games apart: two copies of 2 chunks × 10 games.
-    expect((await get('/api/simulations/analysis')).body.summary.cachedGames).toBe(40)
+    const analysis = (await get('/api/simulations/analysis')).body.summary as { games: number; cachedGames: number }
+    expect(analysis).toMatchObject({ games: gamesBefore, cachedGames: 40 })
 
-    // Anything else and it goes to the worker: another seed, other bots, more replays, per-game results.
+    // Anything else and it goes to the worker: another seed, other bots, more replays, per-game results, or asking
+    // for a real repeat.
     const others = [
       await job({ seed: 4243 }),
       await job({ players: ['r', 'w'] }),
       await job({ replaySample: 2 }),
       await job({ perGame: true }),
+      await job({ cache: false }),
     ]
     for (const other of others) {
       expect(other.body.status).toBe('queued')
       expect(other.body.progress).toMatchObject({ chunks: { done: 0 } })
     }
-    // Two engine-cli versions among the recent workers: which one would play is not known, nothing is copied.
-    await test.prisma.workerNode.create({
-      data: { id: 'worker-cache-old', name: 'celu', engineRev: test.env.engineRev, cliVersion: '0.3.2', cores: 4 },
+    // Two engines among the recent results: which one would play is not known, nothing is copied.
+    const otherChunk = (await bearer('post', '/api/worker/claim').send(hello)).body.chunk as Structured
+    await bearer('put', `/api/worker/chunks/${otherChunk.chunkId}/result`).send({
+      workerId: 'worker-cache',
+      engineRev: test.env.engineRev,
+      cliVersion: '0.3.4+fedcba9876543210',
+      winsA: 5,
+      winsB: 5,
+      ties: 0,
+      games: 10,
+      durationMs: 500,
     })
     expect((await job()).body.status).toBe('queued')
-    await test.prisma.workerNode.delete({ where: { id: 'worker-cache-old' } })
 
-    for (const id of (await test.prisma.simulationJob.findMany({ where: { id: { gt: first.id } } })).map(
+    // When the original goes, the oldest copy takes its place (and its replays); the other copies point to it.
+    const columnBeforeDelete = await simulations.deckColumn(rivalDeck)
+    expect((await test.http().delete(`/api/simulations/${first.id}`).set('Cookie', cookie)).status).toBe(204)
+    const heir = (await get(`/api/simulations/${again.id}`)).body as typeof copied
+    expect(heir.chunks.every((chunk) => chunk.cachedFrom === null)).toBe(true)
+    expect(heir.replays).toHaveLength(2)
+    const after = (await get(`/api/simulations/${third.id}`)).body as typeof copied
+    expect(after.chunks.map((chunk) => chunk.cachedFrom).sort()).toEqual(heir.chunks.map((chunk) => chunk.id).sort())
+    expect(after.replays).toHaveLength(2)
+    expect(await simulations.deckColumn(rivalDeck)).toEqual(columnBeforeDelete)
+
+    // The cache is optional: a copy that fails leaves the chunks to the workers and the job is still created.
+    const original = test.prisma.$transaction.bind(test.prisma)
+    let calls = 0
+    const failing = vi.spyOn(test.prisma, '$transaction').mockImplementation(((
+      ...args: Parameters<typeof original>
+    ) => {
+      calls++
+      return calls === 2 ? Promise.reject(new Error('timeout')) : original(...args)
+    }) as typeof original)
+    try {
+      const created = await job()
+      expect(created.status).toBe(201)
+      expect(created.body.status).toBe('queued')
+    } finally {
+      failing.mockRestore()
+    }
+
+    for (const id of (await test.prisma.simulationJob.findMany({ where: { id: { gt: unstamped.id } } })).map(
       (row) => row.id,
     )) {
       await post(`/api/simulations/${id}/cancel`)
     }
-    for (const id of [
-      first.id,
-      ...(await test.prisma.simulationJob.findMany({ where: { id: { gt: first.id } } })).map((row) => row.id),
-    ]) {
+    for (const id of (await test.prisma.simulationJob.findMany({ where: { id: { gte: unstamped.id } } })).map(
+      (row) => row.id,
+    )) {
       expect((await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)).status).toBe(204)
     }
   })

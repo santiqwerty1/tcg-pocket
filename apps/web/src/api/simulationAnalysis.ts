@@ -37,7 +37,7 @@ export const simulationAnalysisSchema = z.object({
     games: z.number(),
     unknownEra: z.number(),
     failedChunks: z.number(),
-    /** Phase 42: of `games`, the ones copied from the exact cache. */
+    /** Phase 42: games copied from the exact cache, apart (not in `games`). */
     cachedGames: z.number().default(0),
     byBot: z.array(z.object({ bot: z.string(), botEs: z.string(), simulations: z.number(), games: z.number() })),
     byExpansion: z.array(z.object({ expansion: z.string(), simulations: z.number(), games: z.number() })),

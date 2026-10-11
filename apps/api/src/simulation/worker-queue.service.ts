@@ -103,6 +103,8 @@ export interface ChunkResultInput {
   games: number
   turns?: number | undefined
   durationMs: number
+  /** Phase 42: the engine that played it, «0.3.4+<build>» (worker 0.2.12 on); the exact cache reuses only those. */
+  cliVersion?: string | undefined
   extra?: Prisma.InputJsonValue | undefined
 }
 
@@ -456,11 +458,6 @@ export class WorkerQueueService {
       await this.failure(id, { workerId: input.workerId, error: `Resultado inválido: ${problem}` })
       throw new UnprocessableEntityException({ code: 'invalid_result', message: problem })
     }
-    // Phase 42: the engine-cli that played it, so the exact cache copies it only for the same version.
-    const node = await this.prisma.workerNode.findUnique({
-      where: { id: input.workerId },
-      select: { cliVersion: true },
-    })
     await this.prisma.simulationChunk.update({
       where: { id },
       data: {
@@ -473,7 +470,9 @@ export class WorkerQueueService {
         turns: input.turns === undefined ? null : BigInt(input.turns),
         durationMs: Math.round(input.durationMs),
         engineRev: input.engineRev,
-        cliVersion: node?.cliVersion ?? null,
+        // Phase 42: the engine that played it, as engine-cli said (not the worker's last hello: it may be recompiled
+        // without restarting). Without it the chunk is never a source of the exact cache.
+        cliVersion: input.cliVersion ?? null,
         // Never trust a summary supplied by a client. This field belongs to the API.
         ...(input.extra === undefined
           ? {}

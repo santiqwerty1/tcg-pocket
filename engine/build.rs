@@ -1,8 +1,13 @@
 //! Exposes the pinned deckgym revision (from Cargo.toml) as `DECKGYM_REV`, so every result names the engine it came
-//! from without a second place to update.
+//! from without a second place to update; and `ENGINE_BUILD`, a fingerprint of the code that plays (phase 42, the
+//! exact cache of chunks): two engines with the same fingerprint play the same games, whatever the version says.
+
+use std::path::{Path, PathBuf};
 
 fn main() {
     println!("cargo:rerun-if-changed=Cargo.toml");
+    println!("cargo:rerun-if-changed=Cargo.lock");
+    println!("cargo:rerun-if-changed=src");
     let manifest = std::fs::read_to_string("Cargo.toml").expect("Cargo.toml");
     let rev = manifest
         .lines()
@@ -11,4 +16,42 @@ fn main() {
         .and_then(|rest| rest.split('"').next())
         .expect("deckgym must be pinned with rev = \"<sha>\"");
     println!("cargo:rustc-env=DECKGYM_REV={rev}");
+    println!("cargo:rustc-env=ENGINE_BUILD={}", fingerprint());
+}
+
+/// FNV-1a (64 bits) over the sources, the manifest and the lock file: paths sorted and line ends as LF, so a Windows
+/// checkout and a Linux one of the same commit give the same value. Not a security hash: it only tells builds apart.
+fn fingerprint() -> String {
+    let mut files: Vec<PathBuf> = vec![PathBuf::from("Cargo.toml"), PathBuf::from("Cargo.lock")];
+    collect(Path::new("src"), &mut files);
+    files.sort();
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut feed = |bytes: &[u8]| {
+        for byte in bytes {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    };
+    for file in files {
+        let name = file.to_string_lossy().replace('\\', "/");
+        feed(name.as_bytes());
+        feed(&[0]);
+        let text = std::fs::read(&file).unwrap_or_default();
+        let lf: Vec<u8> = text.into_iter().filter(|byte| *byte != b'\r').collect();
+        feed(&lf);
+        feed(&[0]);
+    }
+    format!("{hash:016x}")
+}
+
+fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect(&path, out);
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            out.push(path);
+        }
+    }
 }

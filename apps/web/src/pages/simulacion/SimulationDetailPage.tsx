@@ -502,7 +502,8 @@ function Skipped({ job }: { job: JobDetail }) {
 
 /** «Repetir»: the same decks, bots and games in the form; the same seed only when asked (it gives the same result). */
 function rerunLink(job: JobDetail): string {
-  const params = new URLSearchParams({ tipo: job.kind })
+  // Phase 42: a repeat plays again, unless the form says to copy what was already played the same way.
+  const params = new URLSearchParams({ tipo: job.kind, cache: '0' })
   const byId = new Map(job.snapshots.map((snapshot) => [snapshot.id, snapshot]))
   const token = (id: number) => {
     const snapshot = byId.get(id)

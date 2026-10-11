@@ -42,7 +42,19 @@ export interface LoopOptions {
   onReady?: () => void
 }
 
-interface SimulateResult {
+/** Phase 42: who played a result, `cliVersion` and `build` (the fingerprint of the code, engine-cli 0.3.4 on). */
+interface EngineStamp {
+  cliVersion?: string
+  build?: string
+}
+
+/** The exact engine for the API's cache of chunks: «0.3.4+<build>», or the version alone from older engines. */
+function playedBy(result: EngineStamp): { cliVersion?: string } {
+  if (!result.cliVersion) return {}
+  return { cliVersion: result.build ? `${result.cliVersion}+${result.build}` : result.cliVersion }
+}
+
+interface SimulateResult extends EngineStamp {
   engineRev: string
   winsA: number
   winsB: number
@@ -55,7 +67,7 @@ interface SimulateResult {
   perGame?: Record<string, unknown>
 }
 
-interface BatchResult {
+interface BatchResult extends EngineStamp {
   engineRev: string
   /** For the whole batch: its pairings are played at the same time. */
   durationMs: number
@@ -66,7 +78,7 @@ interface BatchResult {
   })[]
 }
 
-interface OptimizeResult {
+interface OptimizeResult extends EngineStamp {
   engineRev: string
   durationMs: number
   combinations: { cards: string[]; winsA: number; winsB: number; ties: number; games: number; turns: number }[]
@@ -297,6 +309,7 @@ export class Worker {
           result: {
             workerId: this.config.workerId,
             engineRev: result.engineRev,
+            ...playedBy(result),
             ...totals,
             durationMs: result.durationMs,
             extra: { combinations: result.combinations },
@@ -379,6 +392,7 @@ export class Worker {
         result: {
           workerId: this.config.workerId,
           engineRev: result.engineRev,
+          ...playedBy(result),
           winsA: result.winsA,
           winsB: result.winsB,
           ties: result.ties,
@@ -573,6 +587,7 @@ export class Worker {
           result: {
             workerId: this.config.workerId,
             engineRev: result.engineRev,
+            ...playedBy(result),
             winsA: pairing.winsA,
             winsB: pairing.winsB,
             ties: pairing.ties,

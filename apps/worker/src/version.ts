@@ -10,4 +10,5 @@
 // 0.2.10 (T-015): Android installer asks for and preserves the worker's display name.
 // 0.2.11 (T-015, D-025): engine result failures, lease recovery, live reconnects and slow-bot opt-in.
 // 0.3.0 (Fase 42, D-026): updates itself from the app's package (Windows portable and Android), with rollback.
-export const WORKER_VERSION = '0.3.0'
+// 0.3.1 (phase 42): each result says the engine that played it (version and build), for the API's exact cache.
+export const WORKER_VERSION = '0.3.1'

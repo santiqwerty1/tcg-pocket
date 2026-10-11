@@ -331,6 +331,8 @@ describe('worker loop', () => {
     expect(calls.status).toEqual([REV])
     expect(calls.results).toHaveLength(1)
     expect(calls.results[0]?.body).toMatchObject({ workerId: 'worker-test-1', winsA: 5, winsB: 5, games: 10 })
+    // Phase 42: the engine that played it, with its build fingerprint, for the API's exact cache.
+    expect(calls.results[0]?.body.cliVersion).toBe('0.1.0-fake+0123456789abcdef')
     expect(calls.replays).toHaveLength(2)
     const first = calls.replays[0]
     expect(JSON.parse(gunzipSync(first?.data ?? new Uint8Array()).toString())).toMatchObject({ index: 0 })

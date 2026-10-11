@@ -50,6 +50,8 @@ use uuid::Uuid;
 
 const ENGINE_REV: &str = env!("DECKGYM_REV");
 const CLI_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Phase 42: a fingerprint of the code that plays (build.rs). The exact cache of chunks reuses a result only with it.
+const ENGINE_BUILD: &str = env!("ENGINE_BUILD");
 /// What the worker and the queue can ask of this engine beyond the commands of 0.1.0: `perGame` (H-010, T-017 A2),
 /// `batch`, several pairings in one process (B2), and `fairBots`, the f<N> bots (H-018).
 const FEATURES: [&str; 3] = ["perGame", "batch", "fairBots"];
@@ -473,6 +475,7 @@ struct ReplayInfo {
 struct SimulateResult {
     engine_rev: &'static str,
     cli_version: &'static str,
+    build: &'static str,
     players: Vec<String>,
     seed: u64,
     #[serde(flatten)]
@@ -672,6 +675,7 @@ fn simulate(job: SimulateJob) -> Result<SimulateResult, CliError> {
     Ok(SimulateResult {
         engine_rev: ENGINE_REV,
         cli_version: CLI_VERSION,
+        build: ENGINE_BUILD,
         players: job.players,
         seed: job.seed,
         tally: outcome.tally,
@@ -730,6 +734,7 @@ struct BatchPairingResult {
 struct BatchResult {
     engine_rev: &'static str,
     cli_version: &'static str,
+    build: &'static str,
     players: Vec<String>,
     /// For the whole batch: the pairings played at the same time.
     duration_ms: u128,
@@ -786,6 +791,7 @@ fn batch(job: BatchJob) -> Result<BatchResult, CliError> {
     Ok(BatchResult {
         engine_rev: ENGINE_REV,
         cli_version: CLI_VERSION,
+        build: ENGINE_BUILD,
         players: job.players,
         duration_ms,
         pairings: results.into_iter().map(|result| result.unwrap_or_else(|| unreachable!())).collect(),
@@ -834,6 +840,7 @@ struct CombinationResult {
 struct OptimizeResult {
     engine_rev: &'static str,
     cli_version: &'static str,
+    build: &'static str,
     players: Vec<String>,
     seed: u64,
     combinations: Vec<CombinationResult>,
@@ -922,6 +929,7 @@ fn optimize(job: OptimizeJob) -> Result<OptimizeResult, CliError> {
     Ok(OptimizeResult {
         engine_rev: ENGINE_REV,
         cli_version: CLI_VERSION,
+        build: ENGINE_BUILD,
         players: job.players,
         seed: job.seed,
         combinations: results,
@@ -964,6 +972,7 @@ fn run(args: &[String]) -> Result<(), CliError> {
             &serde_json::json!({
                 "engineRev": ENGINE_REV,
                 "cliVersion": CLI_VERSION,
+                "build": ENGINE_BUILD,
                 "cards": CardId::iter().count(),
                 "features": FEATURES,
             }),
@@ -1069,6 +1078,14 @@ mod tests {
             replay_dir: None,
             per_game,
         }
+    }
+
+    #[test]
+    fn every_result_names_the_build_that_played_it() {
+        assert_eq!(ENGINE_BUILD.len(), 16);
+        assert!(ENGINE_BUILD.chars().all(|c| c.is_ascii_hexdigit()));
+        let result = simulate(job(2, false)).expect("simulate");
+        assert_eq!(serde_json::to_value(&result).expect("json")["build"], ENGINE_BUILD);
     }
 
     #[test]

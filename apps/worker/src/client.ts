@@ -76,6 +76,8 @@ export interface LiveGame {
 export interface ChunkResult {
   workerId: string
   engineRev: string
+  /** Phase 42: the engine that played it, «0.3.4+<build>» (the API's cache reuses a result only with the same). */
+  cliVersion?: string
   winsA: number
   winsB: number
   ties: number

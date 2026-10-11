@@ -2105,6 +2105,8 @@ export interface SimulationInput {
   replaySample?: number
   cores?: number
   skipNotSimulable?: boolean
+  /** Phase 42: false plays every chunk, even one the exact cache has. */
+  cache?: boolean
   optimize?: { remove: { cardId: string; count: number }[]; candidates: string[] }
 }
 

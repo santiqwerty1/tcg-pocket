@@ -147,6 +147,7 @@ if (command === 'version') {
         JSON.stringify({
           engineRev: REV,
           cliVersion: '0.1.0-fake',
+          build: '0123456789abcdef',
           players: job.players,
           seed: job.seed,
           winsA,

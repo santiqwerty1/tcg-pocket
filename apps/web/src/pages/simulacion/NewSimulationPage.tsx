@@ -421,6 +421,8 @@ export function NewSimulationPage() {
   const replaySample = replayChoice ?? (kind === 'matrix' ? '1' : '2')
   const [bothOrders, setBothOrders] = useState(false)
   const [skipNotSimulable, setSkipNotSimulable] = useState(false)
+  // Phase 42: copy the pairings already played exactly the same way («Repetir» starts with it off).
+  const [useCache, setUseCache] = useState(params.get('cache') !== '0')
   const [remove, setRemove] = useState<Record<string, number>>({})
 
   // Decks that came in the URL show «Mazo 7» until the deck list arrives; then their name.
@@ -520,7 +522,11 @@ export function NewSimulationPage() {
   async function submit() {
     if (!input) return
     try {
-      const job = await create.mutateAsync({ ...input, ...(skipNotSimulable ? { skipNotSimulable: true } : {}) })
+      const job = await create.mutateAsync({
+        ...input,
+        ...(skipNotSimulable ? { skipNotSimulable: true } : {}),
+        ...(useCache || kind === 'optimize' ? {} : { cache: false }),
+      })
       toast.success(`Simulación #${job.id} en cola`)
       navigate(`/simulacion/${job.id}`)
     } catch (error) {
@@ -704,6 +710,15 @@ export function NewSimulationPage() {
               Tiempo estimado con {cores} núcleos: alrededor de {formatDuration(estimate)} (varía mucho según los
               mazos).
             </p>
+            {kind !== 'optimize' ? (
+              <div className="flex items-start gap-2">
+                <Checkbox id="sim-cache" checked={useCache} onCheckedChange={(value) => setUseCache(value === true)} />
+                <label htmlFor="sim-cache" className="text-muted-foreground">
+                  Copiar los cruces que ya se jugaron exactamente igual (misma semilla, mazos, bots y motor) en lugar de
+                  jugarlos otra vez.
+                </label>
+              </div>
+            ) : null}
             {notSimulable > 0 ? (
               <div className="flex items-start gap-2 text-destructive">
                 <Checkbox

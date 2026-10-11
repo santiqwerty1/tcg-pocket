@@ -152,26 +152,24 @@ export class SimulationAnalysisService {
       if (id !== undefined && !matrices.some((m) => m.id === id)) {
         throw new BadRequestException('La matriz elegida no pertenece a estos filtros.')
       }
+    // Phase 42: a chunk copied from the exact cache is the same games as its source: the totals count them once.
+    const played = (j: (typeof selected)[number]) => (j.aggregate?.games ?? 0) - (j.aggregate?.cachedGames ?? 0)
     const summary = {
       simulations: selected.length,
       activeJobs: selected.filter(({ job }) => ['queued', 'running'].includes(job.status)).length,
-      games: selected.reduce((n, j) => n + (j.aggregate?.games ?? 0), 0),
-      // Phase 42: of those, the ones copied from the exact cache (the same games as the chunk they came from).
+      games: selected.reduce((n, j) => n + played(j), 0),
+      // Phase 42: the ones copied from the exact cache, apart (not in `games`).
       cachedGames: selected.reduce((n, j) => n + (j.aggregate?.cachedGames ?? 0), 0),
       byBot: [...new Set(selected.map((j) => j.job.players.join('/')))].map((bot) => ({
         bot,
         botEs: bot.split('/').map(botLabel).join(' / '),
         simulations: selected.filter((j) => j.job.players.join('/') === bot).length,
-        games: selected
-          .filter((j) => j.job.players.join('/') === bot)
-          .reduce((n, j) => n + (j.aggregate?.games ?? 0), 0),
+        games: selected.filter((j) => j.job.players.join('/') === bot).reduce((n, j) => n + played(j), 0),
       })),
       byExpansion: [...new Set(selected.flatMap((j) => j.expansions))].map((expansion) => ({
         expansion,
         simulations: selected.filter((j) => j.expansions.includes(expansion)).length,
-        games: selected
-          .filter((j) => j.expansions.includes(expansion))
-          .reduce((n, j) => n + (j.aggregate?.games ?? 0), 0),
+        games: selected.filter((j) => j.expansions.includes(expansion)).reduce((n, j) => n + played(j), 0),
       })),
       unknownEra: selected.filter((j) => j.era === null).length,
       failedChunks: selected.reduce((n, j) => n + (j.aggregate?.failed ?? 0), 0),
@@ -338,6 +336,8 @@ export class SimulationAnalysisService {
             FROM simulation_chunks
             WHERE job_id IN (${Prisma.join(sourceIds)}) AND status = 'done' AND snapshot_b_id IS NOT NULL
               AND (job_id = ${matrix.id} OR NOT (SELECT available FROM own_data))
+              -- Phase 42: a copy from the cache would add its source's games again.
+              AND (job_id = ${matrix.id} OR cached_from_id IS NULL)
           ), legacy AS MATERIALIZED (
             SELECT job_id, string_to_array(pg->>'winners', NULL) AS winners,
               string_to_array(pg->>'starters', NULL) AS starters,

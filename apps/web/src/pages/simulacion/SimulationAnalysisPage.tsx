@@ -150,7 +150,7 @@ export function SimulationAnalysisPage() {
               duplicar los dos lados. {view.summary.failedChunks} chunks fallaron. Los rankings usan matrices y no
               mezclan trabajos de búsqueda.
               {view.summary.cachedGames > 0
-                ? ` De esas partidas, ${formatNumber(view.summary.cachedGames)} salieron de la caché: son las mismas que un worker ya jugó con la misma semilla.`
+                ? ` Aparte, ${formatNumber(view.summary.cachedGames)} partidas salieron de la caché: son las mismas que un worker ya jugó con la misma semilla, y no se cuentan otra vez.`
                 : ''}
             </p>
             <div className="grid gap-4 sm:grid-cols-2">

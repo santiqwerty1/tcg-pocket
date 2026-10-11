@@ -112,6 +112,8 @@ export interface CreateJobInput {
   priority?: number | undefined
   /** The meta bank a calibration matrix plays (R-012, calibration.service.ts). */
   calibration?: Prisma.InputJsonValue | undefined
+  /** Phase 42: false plays every chunk, even one the exact cache has (a real repeat). */
+  cache?: boolean | undefined
   /** The confirmation of an optimize (H-011.5): stored as `params.confirmationOf`, kept out of the decks' column. */
   confirmationOf?: ({ jobId: number } & ConfirmationPlan) | undefined
   /** optimize: the deck (side A, one), the cards to take out, the candidates to try. */
@@ -346,7 +348,7 @@ export class SimulationsService {
       return created
     })
     // Phase 42: what a finished chunk already played exactly is copied, not played again.
-    if (input.kind === 'matrix' || input.kind === 'compare') await this.cache.fill(job.id)
+    if ((input.kind === 'matrix' || input.kind === 'compare') && input.cache !== false) await this.cache.fill(job.id)
     this.queue.notifyQueued()
     const current = await this.prisma.simulationJob.findUniqueOrThrow({ where: { id: job.id } })
     return this.summary(current, await this.progress([job.id]))
@@ -678,16 +680,25 @@ export class SimulationsService {
     const params = job.params as { sideA?: number[]; sideB?: number[] }
     const sideA = params.sideA ?? []
     const sideB = params.sideB ?? []
-    const [chunks, replays, snapshots, progress] = await Promise.all([
+    const [chunks, snapshots, progress] = await Promise.all([
       this.prisma.simulationChunk.findMany({ where: { jobId: job.id }, orderBy: { idx: 'asc' } }),
-      this.prisma.simulationReplay.findMany({
-        where: { chunk: { jobId: job.id } },
-        select: { id: true, chunkId: true, gameIndex: true, seed: true, winner: true, sizeBytes: true },
-        orderBy: [{ chunkId: 'asc' }, { gameIndex: 'asc' }],
-      }),
       this.snapshots.byIds([...new Set([...sideA, ...sideB])]),
       this.progress([job.id]),
     ])
+    // Phase 42: a chunk copied from the cache shows the replays of the chunk it came from (they are the same games).
+    const copyOf = new Map(chunks.flatMap((chunk) => (chunk.cachedFrom === null ? [] : [[chunk.cachedFrom, chunk]])))
+    const replays = (
+      await this.prisma.simulationReplay.findMany({
+        where: { OR: [{ chunk: { jobId: job.id } }, { chunkId: { in: [...copyOf.keys()] } }] },
+        select: { id: true, chunkId: true, gameIndex: true, seed: true, winner: true, sizeBytes: true },
+        orderBy: [{ chunkId: 'asc' }, { gameIndex: 'asc' }],
+      })
+    ).flatMap((replay) => {
+      const copy = copyOf.get(replay.chunkId)
+      if (!copy) return [replay]
+      const wanted = copy.firstGame === 0 ? job.replaySample : 0
+      return replay.gameIndex < wanted ? [{ ...replay, chunkId: copy.id }] : []
+    })
     const done = chunks
       .filter((chunk) => chunk.status === 'done' && chunk.snapshotAId !== null && chunk.snapshotBId !== null)
       .map((chunk) => ({
@@ -1050,6 +1061,11 @@ export class SimulationsService {
   /** Bulk clean-up from the list: delete every cancelled job, or archive every finished one. */
   async cleanup(action: 'delete_cancelled' | 'archive_done'): Promise<{ count: number }> {
     if (action === 'delete_cancelled') {
+      const cancelled = await this.prisma.simulationJob.findMany({
+        where: { status: 'cancelled' },
+        select: { id: true },
+      })
+      await this.promoteCopies(cancelled.map((row) => row.id))
       return { count: (await this.prisma.simulationJob.deleteMany({ where: { status: 'cancelled' } })).count }
     }
     const archived = await this.prisma.simulationJob.updateMany({
@@ -1059,11 +1075,35 @@ export class SimulationsService {
     return { count: archived.count }
   }
 
+  /**
+   * Phase 42: before jobs go, each of their chunks that other jobs copied hands its place to one copy (the oldest): it
+   * becomes the original, takes the replays and the other copies point to it. The copies keep counting as one.
+   */
+  private async promoteCopies(jobIds: readonly number[]): Promise<void> {
+    if (jobIds.length === 0) return
+    await this.prisma.$executeRaw`
+      WITH gone AS (SELECT "id" FROM "simulation_chunks" WHERE "job_id" = ANY(${[...jobIds]}::int[])),
+      heir AS (
+        SELECT DISTINCT ON (c."cached_from_id") c."cached_from_id" AS original, c."id" AS heir
+        FROM "simulation_chunks" c JOIN gone ON gone."id" = c."cached_from_id"
+        WHERE c."job_id" <> ALL(${[...jobIds]}::int[])
+        ORDER BY c."cached_from_id", c."id"),
+      replays AS (
+        UPDATE "simulation_replays" r SET "chunk_id" = heir.heir FROM heir WHERE r."chunk_id" = heir.original
+        RETURNING 1),
+      others AS (
+        UPDATE "simulation_chunks" c SET "cached_from_id" = heir.heir FROM heir
+        WHERE c."cached_from_id" = heir.original AND c."id" <> heir.heir
+        RETURNING 1)
+      UPDATE "simulation_chunks" c SET "cached_from_id" = NULL FROM heir WHERE c."id" = heir.heir`
+  }
+
   async remove(rawId: string): Promise<void> {
     const job = await this.requireJob(rawId)
     if (job.status === 'queued' || job.status === 'running') {
       throw new BadRequestException({ code: 'job_running', message: 'Cancelá la simulación antes de borrarla.' })
     }
+    await this.promoteCopies([job.id])
     await this.prisma.simulationJob.delete({ where: { id: job.id } })
   }
 
