@@ -50,6 +50,9 @@ export interface LabObjectiveView {
   matched?: number
   unmatched?: number
   unmatchedNames?: string[]
+  /** «Mi meta»: 10 matches against archetypes or more (fase 44); under that the bank still goes, with `notice`. */
+  enough?: boolean
+  notice?: string
 }
 
 export interface LabBankView {

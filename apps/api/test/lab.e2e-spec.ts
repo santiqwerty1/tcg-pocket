@@ -196,7 +196,7 @@ describe('laboratorio (e2e)', () => {
     const none = await get('/api/lab/bank?objective=mine')
     expect(none.status).toBe(422)
     expect(none.body.error.code).toBe('empty_bank')
-    // Three matches against the first, one against the second, one against something else, all in the era B4a.
+    // Three matches against the first, one against the second, one against something else, on the same day.
     const sets = await test.prisma.setRelease.findMany()
     const range = eraRange(
       'B4a',
@@ -229,6 +229,9 @@ describe('laboratorio (e2e)', () => {
       unmatched: 1,
       unmatchedNames: ['otro mazo'],
       halfLifeDays: 14,
+      // Fewer than 10 matches against archetypes: it still goes, and says it is thin (fase 44).
+      enough: false,
+      notice: expect.stringMatching(/^Todavía no alcanza/),
     })
     // All four on the same day: 3 to 1.
     expect(mine.rivals.map((rival: { archetypeId: string }) => rival.archetypeId)).toEqual([

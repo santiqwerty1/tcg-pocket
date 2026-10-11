@@ -48,7 +48,6 @@ import {
   energyKey,
   energyVariant,
   engineEdition,
-  eraRange,
   estimateSeconds,
   eventRulesSchema,
   exploreConfig,
@@ -71,11 +70,9 @@ import {
   MAX_BASE_SEED,
   type MeasuredSwap,
   type MetaScore,
-  MY_META_HALF_LIFE_DAYS,
   metaGauntlet,
   metaScore,
   mutationPool,
-  myMetaTargets,
   NOVELTY_LABEL_ES,
   neighborhoodUsage,
   novelty,
@@ -122,6 +119,7 @@ import { CatalogService } from '../catalog/catalog.service.js'
 import { parseDeckText } from '../decks/deck-formats.js'
 import type { Prisma } from '../generated/prisma/client.js'
 import { parseNumericId } from '../http/ids.js'
+import { MatchesService } from '../matches/matches.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import type { JobSummaryView, SnapshotView } from '../simulation/simulation-views.js'
 import { type CreateJobInput, labMode, SimulationsService } from '../simulation/simulations.service.js'
@@ -180,8 +178,6 @@ export interface LabScopeInput {
   objective?: LabObjective['kind'] | undefined
   /** The archetype, with `objective: 'rival'`. */
   archetypeId?: string | undefined
-  /** «Mi meta»: a match this many days old weighs half (14 by default). */
-  halfLifeDays?: number | undefined
 }
 
 export interface LabRunInput extends LabScopeInput {
@@ -355,6 +351,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     private readonly engine: EngineStatusService,
     private readonly simulations: SimulationsService,
     private readonly queue: WorkerQueueService,
+    private readonly matches: MatchesService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(LabService.name)
@@ -410,32 +407,27 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     let gauntlet: Gauntlet
     let objective: LabObjectiveView
     if (input.objective === 'mine') {
-      // T-017 D4: «mi meta», the rivals of my matches in the era, the recent ones weighing more.
-      const range = eraRange(scope.era, scope.sets)
-      const matches = await this.prisma.match.findMany({
-        where: range ? { playedAt: { gte: range.from, ...(range.to ? { lt: range.to } : {}) } } : {},
-        select: { opponentText: true, playedAt: true },
-      })
-      const mine = myMetaTargets(
-        dataset,
-        matches.map((match) => ({ opponent: match.opponentText, playedAt: match.playedAt })),
-        { now: new Date(), halfLifeDays: input.halfLifeDays },
-      )
-      if (mine.targets.length === 0) {
+      // T-017 D4: «mi meta» as fase 44 measures it (MatchesService.myMeta: the same rivals, links and half-life as
+      // «¿Cuál llevo hoy?»), its shares as the bank's weights. Thin (under 10 matches) it still goes, with the notice.
+      const mine = await this.matches.myMeta({})
+      const targets = mine.shares.map((share) => ({ archetypeId: share.archetypeId, weight: share.share }))
+      if (targets.length === 0) {
         throw new UnprocessableEntityException({
           code: 'empty_bank',
-          message: `Todavía no hay partidas tuyas contra arquetipos de la era ${scope.era}: cargá el rival con el nombre que sugiere la lista.`,
+          message: `Todavía no hay partidas tuyas contra arquetipos de torneo: cargá el rival con el nombre que sugiere la lista.`,
         })
       }
       // T-017 D3: the first ones bring a second list (banks of 10 or more).
-      gauntlet = customGauntlet(dataset, mine.targets, { size, secondLists: secondListsFor(size), check })
+      gauntlet = customGauntlet(dataset, targets, { size, secondLists: secondListsFor(size), check })
       objective = {
         kind: 'mine',
         labelEs: `mi meta (${mine.matched} ${mine.matched === 1 ? 'partida' : 'partidas'})`,
-        halfLifeDays: input.halfLifeDays ?? MY_META_HALF_LIFE_DAYS,
+        halfLifeDays: mine.halfLifeDays,
         matched: mine.matched,
-        unmatched: mine.unmatched,
-        unmatchedNames: mine.unmatchedNames,
+        unmatched: mine.unmatched.reduce((sum, rival) => sum + rival.games, 0),
+        unmatchedNames: mine.unmatched.slice(0, 5).map((rival) => rival.label),
+        enough: mine.enough,
+        ...(mine.enough ? {} : { notice: mine.text }),
       }
     } else if (input.objective === 'rival') {
       // T-017 D4: one archetype, played by its two most representative lists.

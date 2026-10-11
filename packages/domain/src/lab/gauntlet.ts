@@ -7,7 +7,6 @@
  * list, and the archetype's weight is split between its two lists by how often each was played, so a tech that only
  * beats one exact list of a big archetype is not rewarded for the whole archetype.
  */
-import { opponentKey } from '../matches/opponents.js'
 import { rankArchetypeLists } from '../tournaments/buildable.js'
 import type { TournamentDataset } from '../tournaments/dataset.js'
 import { archetypeRows, entriesOfList, type ListRow, listRows, mostCommonEnergies } from '../tournaments/stats.js'
@@ -92,7 +91,7 @@ export interface GauntletTarget {
 
 /**
  * T-017 D4: a bank of chosen archetypes with chosen weights instead of the era's most played: one archetype to tune a
- * deck against, or the rivals of the owner's own matches («mi meta»). Each is played by its representative list, as in
+ * deck against, or the rivals of the owner's own matches («mi meta», `myMeta`). Each is played by its representative list, as in
  * `metaGauntlet` (a list the engine cannot play gives way to the next; an archetype with none is skipped), and the
  * first `secondLists` bring their next list too (D3).
  */
@@ -205,66 +204,8 @@ function gauntletOf(
   return { rivals: withSeconds, skipped, coverage, lists: dataset.entries.length }
 }
 
-/** T-017 D4: what a bank measures against — the era's most played, the owner's own rivals, or one archetype. */
-export type LabObjective =
-  | { kind: 'meta' }
-  | { kind: 'mine'; halfLifeDays?: number | undefined }
-  | { kind: 'rival'; archetypeId: string }
-
-/** «Mi meta»: a match from `halfLifeDays` ago weighs half as much as one from today. */
-export const MY_META_HALF_LIFE_DAYS = 14
-
-export interface MyMetaTargets {
-  /** The era's archetypes the owner's matches were against, heaviest first. */
-  targets: (GauntletTarget & { matches: number })[]
-  /** Matches whose rival, as typed, is an archetype of the era. */
-  matched: number
-  /** The rest: no rival typed, or one that is not an archetype's name (the autocomplete offers those). */
-  unmatched: number
-  /** The most frequent rivals that matched no archetype, as typed (up to 5). */
-  unmatchedNames: string[]
-}
-
 /**
- * T-017 D4 (and fase 44, «mi meta»): the era's archetypes the owner's matches were against, each match weighing
- * ½^(days ago / `halfLifeDays`). A match counts when its rival, as typed, is an archetype's name (`opponentKey`, the
- * same key the match statistics group by).
+ * T-017 D4: what a bank measures against — the era's most played, the owner's own rivals («mi meta», the shares of
+ * `myMeta` from fase 44 as weights) or one archetype.
  */
-export function myMetaTargets(
-  dataset: TournamentDataset,
-  matches: readonly { opponent: string | null; playedAt: Date }[],
-  options: { now: Date; halfLifeDays?: number | undefined },
-): MyMetaTargets {
-  const halfLife = Math.max(1, options.halfLifeDays ?? MY_META_HALF_LIFE_DAYS)
-  const byKey = new Map<string, string>()
-  for (const row of archetypeRows(dataset)) {
-    const key = opponentKey(row.archetype?.name)
-    if (key && row.archetype && !byKey.has(key)) byKey.set(key, row.archetype.id)
-  }
-  const weights = new Map<string, { weight: number; matches: number }>()
-  const missing = new Map<string, number>()
-  let unmatched = 0
-  for (const match of matches) {
-    const key = opponentKey(match.opponent)
-    const id = key ? byKey.get(key) : undefined
-    if (!id) {
-      unmatched += 1
-      const name = match.opponent?.trim()
-      if (name) missing.set(name, (missing.get(name) ?? 0) + 1)
-      continue
-    }
-    const days = Math.max(0, (options.now.getTime() - match.playedAt.getTime()) / 86_400_000)
-    const item = weights.get(id) ?? { weight: 0, matches: 0 }
-    item.weight += 0.5 ** (days / halfLife)
-    item.matches += 1
-    weights.set(id, item)
-  }
-  const targets = [...weights]
-    .map(([archetypeId, item]) => ({ archetypeId, weight: item.weight, matches: item.matches }))
-    .sort((a, b) => b.weight - a.weight || b.matches - a.matches || a.archetypeId.localeCompare(b.archetypeId))
-  const unmatchedNames = [...missing]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, 5)
-    .map(([name]) => name)
-  return { targets, matched: matches.length - unmatched, unmatched, unmatchedNames }
-}
+export type LabObjective = { kind: 'meta' } | { kind: 'mine' } | { kind: 'rival'; archetypeId: string }

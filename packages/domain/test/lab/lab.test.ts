@@ -18,7 +18,6 @@ import {
   metaGauntlet,
   metaScore,
   mutationPool,
-  myMetaTargets,
   NOVELTY_MAX_SWAPS,
   neighborhoodUsage,
   novelty,
@@ -37,6 +36,7 @@ import {
   variantOf,
   verifyAccepts,
 } from '../../src/lab/index.js'
+import { myMeta } from '../../src/matches/index.js'
 import { buildSnapshot } from '../../src/simulation/index.js'
 import {
   archetypeRows,
@@ -190,34 +190,33 @@ describe('meta bank', () => {
     expect(mixed.rivals.map((rival) => rival.weight)).toEqual([0.75, 0.25])
   })
 
-  it('T-017 D4: «mi meta» — my rivals as archetypes of the era, the recent ones weighing more', () => {
+  it('T-017 D4: «mi meta» as a bank — the shares of myMeta (fase 44) as weights', () => {
     const [a, b] = metaGauntlet(dataset, { size: 2 }).rivals
     if (!a || !b) throw new Error('empty bank')
     const now = new Date('2026-10-11T12:00:00Z')
     const daysAgo = (days: number) => new Date(now.getTime() - days * 86_400_000)
-    const mine = myMetaTargets(
-      dataset,
+    const mine = myMeta(
       [
-        // Typed by hand, with other case and accents: still the archetype.
         { opponent: a.archetypeName.toUpperCase(), playedAt: daysAgo(0) },
         { opponent: a.archetypeName, playedAt: daysAgo(14) },
         { opponent: b.archetypeName, playedAt: daysAgo(0) },
         { opponent: 'un mazo raro', playedAt: daysAgo(1) },
-        { opponent: 'un mazo raro', playedAt: daysAgo(2) },
-        { opponent: null, playedAt: daysAgo(3) },
+      ],
+      [
+        { id: a.archetypeId, name: a.archetypeName },
+        { id: b.archetypeId, name: b.archetypeName },
       ],
       { now },
     )
-    // A match 14 days ago weighs half: a = 1 + ½, b = 1.
-    expect(mine.targets).toEqual([
-      { archetypeId: a.archetypeId, weight: 1.5, matches: 2 },
-      { archetypeId: b.archetypeId, weight: 1, matches: 1 },
-    ])
-    expect(mine).toMatchObject({ matched: 3, unmatched: 3, unmatchedNames: ['un mazo raro'] })
-    // As a bank: 60 % and 40 %.
-    const bank = customGauntlet(dataset, mine.targets)
-    expect(bank.rivals.map((rival) => rival.weight)).toEqual([0.6, 0.4])
-    expect(myMetaTargets(dataset, [], { now }).targets).toEqual([])
+    // A match 14 days ago weighs half: a = 1 + ½, b = 1, so 60 % and 40 %.
+    const bank = customGauntlet(
+      dataset,
+      mine.shares.map((share) => ({ archetypeId: share.archetypeId, weight: share.share })),
+    )
+    expect(bank.rivals.map((rival) => rival.archetypeId)).toEqual([a.archetypeId, b.archetypeId])
+    bank.rivals.forEach((rival, at) => {
+      expect(rival.weight).toBeCloseTo([0.6, 0.4][at] ?? 0, 10)
+    })
   })
 
   it('a list the engine cannot play gives way to the next one of its archetype, or the archetype is skipped', () => {
