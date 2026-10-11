@@ -196,13 +196,17 @@ export interface LabExploreView {
    */
   robustness: {
     bot: string
-    jobId: number
+    /** null while it waits to be queued (`status` «pending»). */
+    jobId: number | null
+    /** pending, then the replay job's: queued, running, done, failed or cancelled. */
     status: string
     verdict: 'better' | 'unclear' | 'worse' | null
     verdictEs: string | null
     differenceText: string | null
-    robustness: 'robust' | 'bot_sensitive' | null
+    robustness: 'robust' | 'bot_sensitive' | 'inconclusive' | null
     robustnessEs: string | null
+    /** Why it could not be queued yet (it is tried again). */
+    error: string | null
   } | null
   locked: CardLineView[]
   /** Fase 16: the event whose rules every variant keeps. */

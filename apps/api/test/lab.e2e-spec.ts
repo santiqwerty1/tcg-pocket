@@ -936,7 +936,13 @@ describe('laboratorio (e2e)', () => {
     const replay = await test.prisma.simulationJob.findUniqueOrThrow({
       where: { id: confirmed.explore.robustness.jobId },
     })
-    expect(replay).toMatchObject({ kind: 'compare', players: ['e3', 'e3'], label: `Confirmación con e3 de #${id}` })
+    expect(replay).toMatchObject({
+      kind: 'compare',
+      players: ['e3', 'e3'],
+      label: `Confirmación con e3 de #${id}`,
+      // Review of #49: behind the rest (D-024).
+      priority: -1,
+    })
     expect((replay.params as { lab: { robustnessOf: number } }).lab.robustnessOf).toBe(id)
     expect(await playAll(wins)).toBe(6)
     const done = (await get(`/api/lab/jobs/${id}`)).body
@@ -951,6 +957,86 @@ describe('laboratorio (e2e)', () => {
     const score = await test.app.get(LabService).deckScore(Number(deckIds[1]))
     expect(score?.jobId === replay.id).toBe(false)
   }, 60_000)
+
+  it('review of #49: «sensible al bot» when e3 says worse, «no alcanza» when it cannot tell; none with e3 already', async () => {
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 2,
+      maxRounds: 1,
+      patience: 3,
+      confirmGames: 20,
+      verifyGames: 20,
+      pool: 'all',
+      race: false,
+    }
+    const search = async (seed: number, players?: [string, string]) => {
+      const created = await post('/api/lab/explore').send({
+        deck: { deckId: deckIds[1] },
+        size: 3,
+        config,
+        seed,
+        ...(players ? { players } : {}),
+      })
+      expect(created.status).toBe(200)
+      const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: created.body.id } })
+      const [winner] =
+        (job.params as { lab: { explore: { rounds: { candidates: number[] }[] } } }).lab.explore.rounds[0]
+          ?.candidates ?? []
+      return { id: created.body.id as number, winner: winner as number }
+    }
+    const findsIt = (winner: number) => (a: number, _b: number, games: number) =>
+      a === winner ? Math.round(games * 0.9) : Math.floor(games / 2)
+    const view = async (id: number) => (await get(`/api/lab/jobs/${id}`)).body
+
+    // e3 says the found list is worse: «sensible al bot».
+    const worse = await search(9810)
+    expect(await playAll(findsIt(worse.winner), 9 + 6 + 6)).toBe(21)
+    const replayId = (await view(worse.id)).explore.robustness.jobId as number
+    // Its games by weight, as the confirmation's: 60 per list in all, not 20 for every rival.
+    const replayChunks = await test.prisma.simulationChunk.findMany({ where: { jobId: replayId } })
+    const ofList = replayChunks.filter((chunk) => chunk.snapshotAId === worse.winner)
+    expect(ofList.reduce((sum, chunk) => sum + chunk.games, 0)).toBe(60)
+    expect(new Set(ofList.map((chunk) => chunk.games)).size).toBeGreaterThan(1)
+    expect(
+      await playAll((a, _b, games) => (a === worse.winner ? Math.round(games * 0.1) : Math.floor(games / 2))),
+    ).toBe(6)
+    expect((await view(worse.id)).explore.robustness).toMatchObject({
+      status: 'done',
+      verdict: 'worse',
+      robustness: 'bot_sensitive',
+    })
+
+    // e3 cannot tell (both at half): «no alcanza», not «sensible al bot».
+    const even = await search(9820)
+    expect(await playAll(findsIt(even.winner), 21)).toBe(21)
+    expect(await playAll((_a, _b, games) => Math.floor(games / 2))).toBe(6)
+    expect((await view(even.id)).explore.robustness).toMatchObject({
+      status: 'done',
+      verdict: 'unclear',
+      robustness: 'inconclusive',
+      robustnessEs: expect.stringMatching(/^con e3 no alcanza para decir/),
+    })
+
+    // A search already played with e3 is not replayed with it.
+    const withE3 = await search(9830, ['e3', 'e3'])
+    expect(await playAll(findsIt(withE3.winner), 21)).toBe(21)
+    const played = await view(withE3.id)
+    expect(played.explore.confirmation).toMatchObject({ verdict: 'better' })
+    expect(played.explore.robustness).toBeNull()
+
+    // A replay marked pending (the app restarted before queueing it) is queued by the sweep; cancelled, it says so.
+    const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: withE3.id } })
+    const params = job.params as { lab: { explore: { robustness?: unknown } } }
+    params.lab.explore.robustness = { jobId: null, bot: 'e2' }
+    await test.prisma.simulationJob.update({ where: { id: withE3.id }, data: { params: params as never } })
+    expect((await view(withE3.id)).explore.robustness).toMatchObject({ status: 'pending', jobId: null })
+    expect(await test.app.get(LabService).sweepRobustness()).toBe(1)
+    const swept = (await view(withE3.id)).explore.robustness
+    expect(swept).toMatchObject({ bot: 'e2', status: 'queued' })
+    expect(await test.app.get(LabService).sweepRobustness()).toBe(0)
+    await post(`/api/simulations/${swept.jobId}/cancel`)
+    expect((await view(withE3.id)).explore.robustness).toMatchObject({ status: 'cancelled', robustness: null })
+  }, 120_000)
 
   it('review of #22: «Frenar» needs a session', async () => {
     expect((await test.http().post('/api/lab/jobs/1/stop')).status).toBe(401)

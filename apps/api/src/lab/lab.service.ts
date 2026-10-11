@@ -266,7 +266,7 @@ interface ExploreState {
   /** T-017 D2: «Frenar y confirmar»: the round in play ends with what it has, then the confirmation. */
   stopRequested?: boolean
   /** Fase 42 (R-012): the confirmation played again with `config.confirmBot`, a job of its own. */
-  robustness?: { jobId: number; bot: string }
+  robustness?: { jobId: number | null; bot: string; error?: string }
 }
 
 interface LabParams {
@@ -345,8 +345,10 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       })
       if (pending === 0) await this.advance(job.id)
     }
+    await this.sweepRobustness().catch((error: unknown) => this.logger.error({ err: error }, 'replay sweep failed'))
     this.sweepTimer = setInterval(() => {
       this.sweepPerGame().catch((error: unknown) => this.logger.error({ err: error }, 'perGame sweep failed'))
+      this.sweepRobustness().catch((error: unknown) => this.logger.error({ err: error }, 'replay sweep failed'))
     }, PER_GAME_SWEEP_MS)
     this.sweepTimer.unref()
   }
@@ -1000,46 +1002,76 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
   }
 
   /**
-   * Fase 42 (R-012): the confirmation of search `parentId` played again with `config.confirmBot` (both sides): the
-   * list found and the starting one against the same rivals' snapshots, with fresh seeds, as a test of its own
-   * («Confirmación con e3 de #N»). The search's view reads it and says «robusto» or «sensible al bot». A failure here
-   * does not touch the search: it stays done, without that line.
+   * Fase 42 (R-012): the confirmation of search `parentId` played again with `config.confirmBot` (both sides) — the
+   * list found and the starting one against the same rivals' snapshots, with fresh seeds and each rival's games by its
+   * weight, as a test of its own («Confirmación con e3 de #N») that waits behind the rest (priority −1, D-024). The
+   * search marks it pending in the transaction that decides the confirmation; this queues it, now or from the sweep
+   * (review of #49), and a failure leaves it pending with the error for the next sweep.
    */
   private async enqueueRobustness(parentId: number): Promise<void> {
     try {
       const job = await this.prisma.simulationJob.findUniqueOrThrow({ where: { id: parentId } })
       const params = job.params as unknown as JobParams
       const state = params.lab.explore
-      const bot = state?.config.confirmBot
-      if (!state || !bot || state.robustness) return
+      const replay = state?.robustness
+      if (!state || !replay || replay.jobId !== null) return
       const rivals = params.lab.rivals.filter((rival) => typeof rival.snapshot === 'number')
       const { explore: _explore, ...lab } = params.lab
       const child = await this.simulations.create({
         kind: 'compare',
-        label: `Confirmación con ${bot} de #${parentId}`,
+        label: `Confirmación con ${replay.bot} de #${parentId}`,
         sideA: [{ snapshotId: state.incumbent }, { snapshotId: state.base }],
         sideB: rivals.map((rival) => ({ snapshotId: rival.snapshot as number })),
         gamesPerPair: state.config.confirmGames,
-        players: [bot, bot],
+        // Review of #49: by weight, as the confirmation it replays.
+        gamesByRival: roundGames(
+          state.config,
+          state.config.confirmGames,
+          rivals.map((rival) => rival.weight),
+        ),
+        players: [replay.bot, replay.bot],
         seed: chunkSeed(Number(job.baseSeed), 7_777_777),
         replaySample: 0,
+        priority: -1,
         lab: { ...lab, mode: 'test', robustnessOf: parentId } as unknown as Prisma.InputJsonValue,
         ...(params.perGame ? { perGame: true } : {}),
       })
-      await this.prisma.$transaction(async (tx) => {
-        await tx.$queryRaw`SELECT id FROM simulation_jobs WHERE id = ${parentId} FOR UPDATE`
-        const fresh = await tx.simulationJob.findUniqueOrThrow({ where: { id: parentId } })
-        const freshParams = fresh.params as unknown as JobParams
-        if (!freshParams.lab.explore) return
-        freshParams.lab.explore.robustness = { jobId: child.id, bot }
-        await tx.simulationJob.update({
-          where: { id: parentId },
-          data: { params: freshParams as unknown as Prisma.InputJsonValue },
-        })
-      })
+      await this.setRobustness(parentId, { jobId: child.id, bot: replay.bot })
     } catch (error) {
       this.logger.error({ err: error, job: parentId }, 'robustness confirmation not queued')
+      const message = error instanceof Error ? error.message : String(error)
+      await this.setRobustness(parentId, null, message.slice(0, 300)).catch(() => undefined)
     }
+  }
+
+  /** Records the replay's job (or, with `error`, why it could not be queued yet) on its search. */
+  private async setRobustness(
+    parentId: number,
+    replay: { jobId: number; bot: string } | null,
+    error?: string,
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM simulation_jobs WHERE id = ${parentId} FOR UPDATE`
+      const fresh = await tx.simulationJob.findUniqueOrThrow({ where: { id: parentId } })
+      const params = fresh.params as unknown as JobParams
+      const state = params.lab.explore
+      if (!state?.robustness) return
+      state.robustness = replay ?? { ...state.robustness, ...(error ? { error } : {}) }
+      await tx.simulationJob.update({
+        where: { id: parentId },
+        data: { params: params as unknown as Prisma.InputJsonValue },
+      })
+    })
+  }
+
+  /** Fase 42: the replays a search marked pending and that are not queued yet (the app restarted, or it failed). */
+  async sweepRobustness(): Promise<number> {
+    const pending = await this.prisma.$queryRaw<{ id: number }[]>`
+      SELECT id FROM simulation_jobs
+      WHERE kind = 'explore' AND params->'lab'->'explore'->'robustness' IS NOT NULL
+        AND params->'lab'->'explore'->'robustness'->>'jobId' IS NULL`
+    for (const { id } of pending) await this.enqueueRobustness(id)
+    return pending.length
   }
 
   /** Fase 42: what the replay with another bot says of the list found against the starting one, once played. */
@@ -1049,18 +1081,20 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
   ): Promise<LabExploreView['robustness']> {
     const replay = state.robustness
     if (!replay) return null
-    const job = await this.prisma.simulationJob.findUnique({ where: { id: replay.jobId }, select: { status: true } })
-    if (!job) return null
-    const playing = {
+    const empty = {
       bot: replay.bot,
       jobId: replay.jobId,
-      status: job.status,
       verdict: null,
       verdictEs: null,
       differenceText: null,
       robustness: null,
       robustnessEs: null,
+      error: replay.error ?? null,
     }
+    if (replay.jobId === null) return { ...empty, status: 'pending' }
+    const job = await this.prisma.simulationJob.findUnique({ where: { id: replay.jobId }, select: { status: true } })
+    if (!job) return { ...empty, status: 'failed' }
+    const playing = { ...empty, status: job.status as string }
     if (job.status !== 'done') return playing
     const chunks = await this.prisma.simulationChunk.findMany({ where: { jobId: replay.jobId }, select: CHUNK_SELECT })
     const all = () => true
@@ -1143,6 +1177,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               !!bot &&
               !(job.players[0] === bot && job.players[1] === bot) &&
               !state.robustness
+            // Review of #49: marked here, in the transaction; queued right after it (or by the sweep).
+            if (robust && bot) state.robustness = { jobId: null, bot }
             return finish(null)
           }
 

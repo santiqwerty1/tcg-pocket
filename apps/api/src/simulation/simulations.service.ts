@@ -102,6 +102,13 @@ export interface CreateJobInput {
   lab?: Prisma.InputJsonValue | undefined
   /** Every game reported by index (`params.perGame`, H-010): pairings only, played by workers from 0.2.5 on. */
   perGame?: boolean | undefined
+  /**
+   * A comparison with each rival's own games (fase 42: by its weight), by side B's order; `gamesPerPair` stays the
+   * job's nominal number.
+   */
+  gamesByRival?: number[] | undefined
+  /** D-024: below 0 waits behind the rest (a search's replay with another bot, review of #49). */
+  priority?: number | undefined
   /** The meta bank a calibration matrix plays (R-012, calibration.service.ts). */
   calibration?: Prisma.InputJsonValue | undefined
   /** The confirmation of an optimize (H-011.5): stored as `params.confirmationOf`, kept out of the decks' column. */
@@ -290,7 +297,15 @@ export class SimulationsService {
         ...(input.calibration === undefined ? {} : { calibration: input.calibration }),
         ...(input.confirmationOf ? { confirmationOf: input.confirmationOf } : {}),
       }
-      chunks = planChunks(pairings, input.gamesPerPair)
+      chunks =
+        input.kind === 'compare' && input.gamesByRival
+          ? pairings
+              .flatMap((pairing) => {
+                const at = sideB.findIndex((snapshot) => snapshot.id === pairing.b)
+                return planChunks([pairing], input.gamesByRival?.[at] ?? input.gamesPerPair)
+              })
+              .map((chunk, idx) => ({ ...chunk, idx }))
+          : planChunks(pairings, input.gamesPerPair)
     }
     const totalGames = chunks.reduce((sum, chunk) => sum + chunk.games, 0)
     // H-020: in a comparison every deck plays each rival with the same seeds (variants face the same shuffles);
@@ -312,6 +327,7 @@ export class SimulationsService {
           cores: input.cores ?? null,
           replaySample,
           totalGames,
+          ...(input.priority !== undefined ? { priority: input.priority } : {}),
         },
       })
       await tx.simulationChunk.createMany({

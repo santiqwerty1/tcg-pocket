@@ -1712,13 +1712,14 @@ export const labJobSchema = z.object({
       robustness: z
         .object({
           bot: z.string(),
-          jobId: z.number(),
+          jobId: z.number().nullable(),
           status: z.string(),
           verdict: z.enum(['better', 'unclear', 'worse']).nullable(),
           verdictEs: z.string().nullable(),
           differenceText: z.string().nullable(),
-          robustness: z.enum(['robust', 'bot_sensitive']).nullable(),
+          robustness: z.enum(['robust', 'bot_sensitive', 'inconclusive']).nullable(),
           robustnessEs: z.string().nullable(),
+          error: z.string().nullable().default(null),
         })
         .nullable()
         .default(null),

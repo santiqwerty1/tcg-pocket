@@ -122,17 +122,23 @@ export function roundGames(config: ExploreConfig, games: number, weights: readon
   return config.byWeight ? gamesByWeight(games, weights) : weights.map(() => games)
 }
 
-export type Robustness = 'robust' | 'bot_sensitive'
+export type Robustness = 'robust' | 'bot_sensitive' | 'inconclusive'
 
-/** «robusto» when the replay with the other bot also backs it, «sensible al bot» when it does not (R-012). */
+/**
+ * What the replay with the other bot says (R-012): «robusto» when it also backs the list found, «sensible al bot» when
+ * it comes out worse, and «no alcanza» when it cannot tell (review of #49: with e3's games, about 37 % of real
+ * improvements land there, and that is not the bot disagreeing).
+ */
 export function robustnessOf(replayed: ConfirmVerdict): Robustness {
-  return replayed === 'better' ? 'robust' : 'bot_sensitive'
+  return replayed === 'better' ? 'robust' : replayed === 'worse' ? 'bot_sensitive' : 'inconclusive'
 }
 
 export function robustnessEs(robustness: Robustness, bot: string): string {
-  return robustness === 'robust'
-    ? `robusto: con ${bot} también sale mejor`
-    : `sensible al bot: con ${bot} no se sostiene, probala en el juego antes de cambiar el mazo`
+  if (robustness === 'robust') return `robusto: con ${bot} también sale mejor`
+  if (robustness === 'bot_sensitive') {
+    return `sensible al bot: con ${bot} sale peor, probala en el juego antes de cambiar el mazo`
+  }
+  return `con ${bot} no alcanza para decir: ni mejor ni peor con esas partidas`
 }
 
 /** Rounds are this far apart in seed space: rival j of round r plays with chunk seed `base + r × stride + j`. */

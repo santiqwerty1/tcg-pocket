@@ -100,9 +100,12 @@ describe('meta bank', () => {
     expect(exploreConfig({}).byWeight).toBe(true)
     expect(exploreConfig({}).confirmBot).toBe('e3')
     expect(exploreConfig({ confirmBot: null }).confirmBot).toBeNull()
+    // Review of #49: three outcomes; «no alcanza» is not the bot disagreeing.
     expect(robustnessOf('better')).toBe('robust')
-    expect(robustnessOf('unclear')).toBe('bot_sensitive')
-    expect(robustnessEs('bot_sensitive', 'e3')).toMatch(/^sensible al bot: con e3 no se sostiene/)
+    expect(robustnessOf('worse')).toBe('bot_sensitive')
+    expect(robustnessOf('unclear')).toBe('inconclusive')
+    expect(robustnessEs('bot_sensitive', 'e3')).toMatch(/^sensible al bot: con e3 sale peor/)
+    expect(robustnessEs('inconclusive', 'e3')).toMatch(/^con e3 no alcanza para decir/)
   })
 
   it('T-017 D3: the most played archetypes bring a second list, and share their weight with it', () => {
