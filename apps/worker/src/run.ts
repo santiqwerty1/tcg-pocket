@@ -3,6 +3,8 @@
  *   (no flag)   run until stopped (Ctrl+C); what the logon task starts
  *   --once      play at most one chunk and exit
  *   --check     show configuration, engine and server reachability, then exit
+ * A managed install (D-026) also follows the app's package: `run` resolves with `RESTART_FOR_UPDATE` once it switched
+ * to a new release, and the caller's supervisor starts the worker again.
  */
 import { appendFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -12,6 +14,8 @@ import { type ConfigDefaults, loadConfig } from './config.js'
 import { checkDeterminism } from './determinism.js'
 import { engineVersion } from './engine.js'
 import { acquireLock, releaseLock } from './lock.js'
+import { type Installation, RESTART_FOR_UPDATE, Updater, updatesAllowedFrom } from './update.js'
+import { WORKER_VERSION } from './version.js'
 import { Worker } from './worker.js'
 
 export function logger(file: string) {
@@ -26,12 +30,32 @@ export function logger(file: string) {
   }
 }
 
-export async function run(argv: readonly string[], defaults: ConfigDefaults = {}): Promise<void> {
+export interface RunOptions {
+  /** D-026: where this process's releases live; without it (the repository's dist/main.js) nothing is updated. */
+  installation?: Installation | null
+}
+
+/** Resolves with the process's exit code: 0, or `RESTART_FOR_UPDATE` after switching to a new release. */
+export async function run(
+  argv: readonly string[],
+  defaults: ConfigDefaults = {},
+  options: RunOptions = {},
+): Promise<number> {
   const args = new Set(argv)
   const config = loadConfig(process.env, defaults)
   const log = logger(join(config.dataDir, 'worker.log'))
   const client = new WorkerClient(config.server, config.token, log)
   const controller = new AbortController()
+  const installation = options.installation ?? null
+  // D-026 trusts the server over HTTPS: code is never taken over plain HTTP, except from this same machine (tests).
+  const secure = updatesAllowedFrom(config.server)
+  if (installation && config.autoUpdate && !secure) {
+    log('actualizaciones apagadas: el servidor no es HTTPS', { server: config.server })
+  }
+  const updater =
+    installation && config.autoUpdate && secure && !args.has('--check') && !args.has('--once')
+      ? new Updater(installation, client, log)
+      : null
   let locked = false
   const stop = () => {
     log('deteniendo el worker')
@@ -43,6 +67,7 @@ export async function run(argv: readonly string[], defaults: ConfigDefaults = {}
   process.on('SIGINT', stop)
   process.on('SIGTERM', stop)
   process.on('exit', onExit)
+  let staleEngine = false
   try {
     if (defaults.determinismPath) {
       await checkDeterminism(config.enginePath, defaults.determinismPath, config.dataDir, controller.signal)
@@ -57,9 +82,12 @@ export async function run(argv: readonly string[], defaults: ConfigDefaults = {}
         { once: args.has('--check'), timeoutMs: 15_000, signal: controller.signal },
       )
       if (required.engineRev !== reference.version.engineRev || required.cliVersion !== reference.version.cliVersion) {
-        throw new Error('Cambió el motor del servidor. Volvé a correr el instalador Android antes de tomar trabajo.')
-      }
-      log('determinismo verificado contra la PC')
+        // With updates on, the app's package brings its engine (below, once this is the only worker here).
+        if (!updater) {
+          throw new Error('Cambió el motor del servidor. Volvé a correr el instalador Android antes de tomar trabajo.')
+        }
+        staleEngine = true
+      } else log('determinismo verificado contra la PC')
     }
     if (args.has('--check')) {
       const version = await engineVersion(config.enginePath, controller.signal)
@@ -81,14 +109,36 @@ export async function run(argv: readonly string[], defaults: ConfigDefaults = {}
         { once: true, timeoutMs: 15_000, signal: controller.signal },
       )
       log('servidor alcanzable', { token: ping.token.name })
-      return
+      if (installation) {
+        const offered = await client.packageInfo(installation.platform, controller.signal).catch(() => null)
+        log('actualizaciones', {
+          autoUpdate: config.autoUpdate,
+          worker: WORKER_VERSION,
+          package: installation.current?.slice(0, 12) ?? 'el del ejecutable',
+          server: offered?.sha256?.slice(0, 12) ?? null,
+          serverWorker: offered?.workerVersion ?? null,
+          upToDate: offered?.sha256 ? offered.sha256 === installation.current : null,
+        })
+      }
+      return 0
     }
     const running = acquireLock(config.dataDir)
     if (running !== null) {
       log('ya hay un worker corriendo en esta carpeta; no arranco otro', { pid: running })
-      return
+      return 0
     }
     locked = true
+    if (updater) {
+      updater.cleanup()
+      // Before any work: a start on an old release switches right away. An Android whose engine the server no
+      // longer has waits here for the new package instead of stopping (no network, a cut download).
+      for (;;) {
+        if (await updater.check(controller.signal)) return switchRelease(updater, log)
+        if (!staleEngine || controller.signal.aborted) break
+        log('el servidor tiene otro motor y su paquete todavía no está listo; reintento en 5 minutos')
+        await sleep(300_000, undefined, { signal: controller.signal }).catch(() => undefined)
+      }
+    }
     const worker = new Worker(config, client, log)
     await worker.cleanWorkDir()
     const once = args.has('--once')
@@ -96,10 +146,15 @@ export async function run(argv: readonly string[], defaults: ConfigDefaults = {}
     // a token the app rejects stops it for good.
     for (;;) {
       try {
-        await worker.loop(controller.signal, { once })
-        return
+        const outcome = await worker.loop(controller.signal, {
+          once,
+          updater,
+          onReady: () => updater?.markHealthy(),
+        })
+        if (outcome === 'update' && updater) return switchRelease(updater, log)
+        return 0
       } catch (error) {
-        if (controller.signal.aborted) return
+        if (controller.signal.aborted) return 0
         if (once) throw error
         if (error instanceof ApiError && (error.status === 401 || error.status === 403)) throw error
         if (defaults.determinismPath && error instanceof ApiError && error.status === 409) throw error
@@ -109,6 +164,7 @@ export async function run(argv: readonly string[], defaults: ConfigDefaults = {}
     }
   } catch (error) {
     if (!controller.signal.aborted) throw error
+    return 0
   } finally {
     controller.abort()
     if (locked)
@@ -118,4 +174,15 @@ export async function run(argv: readonly string[], defaults: ConfigDefaults = {}
     process.removeListener('exit', onExit)
     onExit()
   }
+}
+
+/** Points the next start at the ready release; the finally of `run` then hands the leases back. */
+function switchRelease(updater: Updater, log: ReturnType<typeof logger>): number {
+  const ready = updater.activate()
+  log('reinicio con la versión nueva', {
+    package: ready.sha256.slice(0, 12),
+    worker: ready.workerVersion ?? null,
+    engine: ready.cliVersion,
+  })
+  return RESTART_FOR_UPDATE
 }

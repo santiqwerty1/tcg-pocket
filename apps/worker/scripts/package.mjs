@@ -2,9 +2,12 @@
 // The portable worker (Fase 21): build/tcg-worker-<version>-windows.zip with tcg-worker.exe (this worker bundled into a
 // Node single executable application: no Node, repository or Rust needed on the other PC), engine-cli.exe and LEEME.txt,
 // with the licenses (D-022): the repository's AGPL-3.0 (worker and engine-cli) and Node's, whose binary goes inside.
+// The executable's own code is `src/sea.ts` (D-026): it supervises the worker and loads the releases it downloads
+// (`scripts/package-windows-update.mjs`); each zip gets its own build id, so a zip installed by hand starts on itself.
 //
 //   node scripts/package.mjs [--engine <path to engine-cli.exe>]
 import { execFileSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { build } from 'esbuild'
@@ -25,12 +28,13 @@ mkdirSync(dir, { recursive: true })
 
 // 1. One CommonJS file (single executable applications run CommonJS).
 await build({
-  entryPoints: [join(root, 'src/portable.ts')],
+  entryPoints: [join(root, 'src/sea.ts')],
   bundle: true,
   platform: 'node',
   format: 'cjs',
   target: 'node24',
   outfile: join(out, 'worker.cjs'),
+  define: { __TCG_BUILD_ID__: JSON.stringify(`${version}+${randomUUID()}`) },
   logLevel: 'warning',
 })
 
@@ -84,7 +88,11 @@ En config.json, priority puede ser "below_normal" (por defecto), "normal" o "idl
 TCG_WORKER_PRIORITY manda sobre el archivo; --check muestra la opción. Un cambio rechazado por el sistema
 queda en worker.log y el trabajo sigue. Partidas contra el bot y pistas del entrenador usan prioridad normal.
 El worker mantiene los latidos en su prioridad habitual; el motor sigue excluido de EcoQoS.
-Si actualizás la app y el motor cambia, reemplazá los dos .exe por los del paquete nuevo y reiniciá la sesión.
+Actualizaciones: el worker se actualiza solo. Cada 10 minutos pregunta a la app si hay una versión nueva del worker
+o del motor; la baja con su token, verifica la suma SHA-256 y prueba el motor nuevo antes de usarlo. Cambia entre
+partidas, nunca a mitad de un chunk, y si la versión nueva no arranca vuelve a la anterior. Las versiones bajadas
+quedan en %LOCALAPPDATA%\\tcg-worker\\releases. Para no actualizar esta PC: "autoUpdate": false en config.json.
+Un paquete nuevo copiado a mano encima de esta carpeta manda sobre lo bajado (cerrá antes el worker).
 Licencias: el worker y engine-cli.exe son AGPL-3.0 (LICENSE.txt; fuentes en https://github.com/santiqwerty1/tcg-pocket);
 engine-cli.exe incluye deckgym-core (AGPL-3.0, https://github.com/bcollazo/deckgym-core); tcg-worker.exe lleva
 adentro Node.js (LICENSE-node.txt).

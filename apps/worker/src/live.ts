@@ -35,6 +35,9 @@ type EngineLine =
   | { type: 'end'; winner: 'you' | 'bot' | 'tie'; turns: number; state: Record<string, unknown>; replay: string | null }
 
 export class LiveRunner {
+  /** D-026: set before a restart for a new release; no new games are claimed, the one in progress plays on. */
+  private readonly draining = new AbortController()
+
   constructor(
     private readonly config: WorkerConfig,
     private readonly client: WorkerClient,
@@ -42,23 +45,33 @@ export class LiveRunner {
     private readonly workDir: string,
   ) {}
 
-  /** Runs until the signal aborts; an unexpected error restarts the loop a minute later. Never rejects. */
+  /** Stops claiming games; `start` resolves once the game in progress (if any) is over. */
+  drain(): void {
+    this.draining.abort()
+  }
+
+  /**
+   * Runs until the signal aborts (or, after `drain`, until no game is in progress); an unexpected error restarts the
+   * loop a minute later. Never rejects.
+   */
   async start(engineRev: string, signal: AbortSignal, engineFeatures: string[] = []): Promise<void> {
-    while (!signal.aborted) {
+    while (!signal.aborted && !this.draining.signal.aborted) {
       try {
         await this.loop(engineRev, signal, engineFeatures)
       } catch (error) {
-        if (signal.aborted) return
+        if (signal.aborted || this.draining.signal.aborted) return
         this.log('las partidas contra el bot fallaron; vuelvo a empezar en 60 s', {
           error: String(error).slice(0, 500),
         })
-        await sleep(60_000, undefined, { signal }).catch(() => undefined)
+        await sleep(60_000, undefined, { signal: AbortSignal.any([signal, this.draining.signal]) }).catch(
+          () => undefined,
+        )
       }
     }
   }
 
   async loop(engineRev: string, signal: AbortSignal, engineFeatures: string[] = []): Promise<void> {
-    while (!signal.aborted) {
+    while (!signal.aborted && !this.draining.signal.aborted) {
       let game: LiveGame | null
       try {
         game = (
@@ -69,14 +82,16 @@ export class LiveRunner {
               version: WORKER_VERSION,
               ...(engineFeatures.length ? { engineFeatures } : {}),
             },
-            signal,
+            AbortSignal.any([signal, this.draining.signal]),
           )
         ).game
       } catch (error) {
-        if (signal.aborted) return
+        if (signal.aborted || this.draining.signal.aborted) return
         if (error instanceof ApiError && error.status === 404) {
           // An app without games against a bot (older server): look again later.
-          await sleep(300_000, undefined, { signal }).catch(() => undefined)
+          await sleep(300_000, undefined, { signal: AbortSignal.any([signal, this.draining.signal]) }).catch(
+            () => undefined,
+          )
           continue
         }
         throw error

@@ -7,7 +7,13 @@
  */
 import { run } from './run.js'
 
-run(process.argv.slice(2)).catch((error) => {
-  console.error(error instanceof Error ? error.message : error)
-  process.exit(1)
-})
+// The repository's worker is not a managed install: it never updates itself (D-026).
+run(process.argv.slice(2)).then(
+  (code) => {
+    process.exitCode = code
+  },
+  (error) => {
+    console.error(error instanceof Error ? error.message : error)
+    process.exit(1)
+  },
+)

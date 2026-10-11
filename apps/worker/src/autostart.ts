@@ -48,6 +48,12 @@ export function installAutostart(command: readonly string[]): void {
       { stdio: 'pipe' },
     )
     console.log(`Tarea «${TASK}» creada: el worker arranca oculto al iniciar sesión.`)
+    // A launcher left in the Startup folder (an earlier install, or the repository's worker) would start a second
+    // worker at logon, and whichever came first would keep the lock.
+    if (existsSync(startupLauncher())) {
+      rmSync(startupLauncher())
+      console.log(`Saqué el lanzador anterior de la carpeta Inicio (${startupLauncher()}).`)
+    }
     startNow(launcher)
     return
   } catch (error) {

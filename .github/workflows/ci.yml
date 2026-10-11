@@ -210,6 +210,16 @@ jobs:
           name: tcg-worker-windows
           path: apps/worker/build/tcg-worker-*-windows.zip
           retention-days: 30
+      # D-026: an update package with this engine, checked by the executable the way every PC checks one before
+      # switching to it (it loads the release's worker.cjs, which plays the determinism games).
+      - run: node apps/worker/scripts/package-windows-update.mjs --engine "$GITHUB_WORKSPACE/engine-dist/engine-cli.exe"
+      - name: tcg-worker.exe checks an update package
+        run: |
+          release="$RUNNER_TEMP/release"
+          rm -rf "$release" && mkdir -p "$release"
+          C:/Windows/System32/tar.exe -xzf "$(cygpath -w apps/worker/build/windows-x64.tar.gz)" -C "$(cygpath -w "$release")"
+          TCG_WORKER_RELEASE="$(cygpath -w "$release/tcg-worker")" TCG_WORKER_DIR="$(cygpath -w "$RUNNER_TEMP/worker-data")" \
+            apps/worker/build/package/tcg-worker/tcg-worker.exe --check-engine
 
   # T-015: the same Docker target used by Fly, plus ARM execution against its native reference (qemu-user).
   android:
@@ -226,6 +236,20 @@ jobs:
         run: docker run --rm --entrypoint sh tcg-worker-android-build -c 'apk add --no-cache bash util-linux coreutils && cd /app && pnpm -F @tcg/worker test shutdown installer android-stop'
       - name: ARM determinism under qemu (one and two threads)
         run: docker run --rm --entrypoint sh tcg-worker-android-build -c 'apk add --no-cache qemu-aarch64 && node /app/apps/worker/scripts/check-arm.mjs /android-package/android-package/tcg-worker'
+      # D-026: the PCs' update package from the same stages Fly builds (the Windows engine cross-compiled with zig).
+      - name: Windows update package
+        run: |
+          docker build --target windows-package -t tcg-worker-windows-update .
+          container="$(docker create tcg-worker-windows-update)"
+          mkdir -p apps/worker/build/windows-update-image
+          docker cp "$container:/windows-package/." apps/worker/build/windows-update-image/
+          docker rm "$container"
+      - uses: actions/upload-artifact@v4
+        continue-on-error: true
+        with:
+          name: tcg-worker-windows-update
+          path: apps/worker/build/windows-update-image/tcg-worker-*-windows-x64-update.tar.gz*
+          retention-days: 30
       - uses: actions/upload-artifact@v4
         continue-on-error: true
         with:

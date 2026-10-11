@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { chmodSync, copyFileSync, cpSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { build } from 'esbuild'
+import { determinismReference } from './determinism-reference.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const repo = resolve(root, '../..')
@@ -31,44 +32,14 @@ if (!version) throw new Error('Falta WORKER_VERSION')
 const work = join(out, 'android-package')
 const dir = join(work, 'tcg-worker')
 mkdirSync(dir, { recursive: true })
-const nativeVersion = JSON.parse(execFileSync(referenceEngine, ['version'], { encoding: 'utf8' }))
-const deck = `Energy: Psychic
-2 Swablu A4a 64
-2 Mega Altaria ex B1 102
-1 Jirachi B1 106
-2 Chingling B1 109
-1 Indeedee ex B1 121
-1 Altaria B1 197
-1 Sabrina A1 225
-2 Rocky Helmet A2 148
-1 Cyrus A2 150
-1 Mars A2 155
-1 Poké Ball A2b 111
-2 Professor's Research A4b 373
-1 Copycat B1 225
-2 Lisia B1 226`
-const cases = []
-for (const bot of ['r', 'e2', 'f2']) {
-  const job = {
-    deckA: deck,
-    deckB: deck,
-    players: [bot, bot],
-    seed: 20261010,
-    games: 8,
-    threads: 2,
-    replaySample: 0,
-    perGame: true,
-  }
-  const input = join(work, 'job.json'),
-    output = join(work, 'result.json')
-  writeFileSync(input, JSON.stringify(job))
-  execFileSync(referenceEngine, ['simulate', input, output], { stdio: ['ignore', 'pipe', 'inherit'] })
-  const { durationMs: _duration, replays: _replays, ...expected } = JSON.parse(readFileSync(output, 'utf8'))
-  cases.push({ job, expected })
-}
-const reference = { version: { engineRev: nativeVersion.engineRev, cliVersion: nativeVersion.cliVersion }, cases }
+const reference = determinismReference(referenceEngine, work)
+const nativeVersion = reference.version
 writeFileSync(join(dir, 'determinism.json'), `${JSON.stringify(reference, null, 2)}\n`)
-writeFileSync(join(out, 'android-version.json'), `${JSON.stringify(reference.version)}\n`)
+// What the app answers on /api/worker/packages/android-arm64/version, plus the sum it computes (D-026).
+writeFileSync(
+  join(out, 'android-version.json'),
+  `${JSON.stringify({ platform: 'android-arm64', workerVersion: version, ...reference.version })}\n`,
+)
 await build({
   entryPoints: [join(root, 'src/android.ts')],
   bundle: true,
