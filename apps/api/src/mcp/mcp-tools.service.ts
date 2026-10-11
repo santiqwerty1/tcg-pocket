@@ -25,6 +25,7 @@ import {
   MCP_READ_TOOLS,
   MCP_SERVER_INSTRUCTIONS,
   MCP_WRITE_INSTRUCTIONS,
+  nextBuildCostText,
   type Rarity,
   type TournamentFormat,
 } from '@tcg/domain'
@@ -1475,10 +1476,7 @@ ${MCP_CHAT_INSTRUCTIONS}`
               ? 'nada: se puede armar hoy'
               : row.closest.missing.map((item) => `${item.nameEs}: tenés ${item.have} de ${item.need}`),
         },
-        cost:
-          row.points === null
-            ? `${row.unpriced} copias sin precio en puntos`
-            : `${row.points} puntos de sobre (${row.tradeable} copias intercambiables)`,
+        cost: nextBuildCostText(row),
       })),
       note: view.note,
     }

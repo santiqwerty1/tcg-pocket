@@ -8,6 +8,7 @@ import {
   NEXT_BUILD_MAX_MISSING,
   NEXT_BUILD_MIN_LISTS,
   nextBuildCost,
+  nextBuildCostText,
   nextBuilds,
   parseStandings,
 } from '../../src/tournaments/index.js'
@@ -76,6 +77,15 @@ describe('¿qué mazo armo después? (Fase 44)', () => {
       points: 100,
       tradeable: false,
     })
+  })
+
+  it('the cost in words says what can be traded, with a price or without one', () => {
+    expect(nextBuildCostText({ points: 400, unpriced: 0, tradeable: 2 })).toBe(
+      '400 puntos de sobre (2 copias intercambiables)',
+    )
+    expect(nextBuildCostText({ points: null, unpriced: 1, tradeable: 1 })).toBe(
+      '1 copias sin precio en puntos (1 copias intercambiables)',
+    )
   })
 
   it('archetypes I already have a deck of go last; a tighter reach leaves only what is close', () => {

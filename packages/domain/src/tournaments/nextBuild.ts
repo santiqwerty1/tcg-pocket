@@ -39,6 +39,15 @@ export function nextBuildCost(
   }
 }
 
+/**
+ * What finishing a list costs, in words: its points (or how many copies have no point price) and how many copies can
+ * be traded, which is said in both cases (Codex on #52: without a price it was lost).
+ */
+export function nextBuildCostText(row: { points: number | null; unpriced: number; tradeable: number }): string {
+  const price = row.points === null ? `${row.unpriced} copias sin precio en puntos` : `${row.points} puntos de sobre`
+  return `${price} (${row.tradeable} copias intercambiables)`
+}
+
 export interface NextBuildRow {
   archetypeId: string
   /** The archetype's tournament record and rate (every list of it). */

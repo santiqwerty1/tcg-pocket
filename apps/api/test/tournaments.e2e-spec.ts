@@ -886,7 +886,9 @@ describe('tournaments (e2e)', () => {
       expect(one.expectedAgainstMeta).toMatchObject({ value: expect.stringMatching(/ %$/) })
       const next = await call('decks_next_build', { limit: 3 })
       expect((next.archetypes as unknown[]).length).toBeGreaterThan(0)
-      expect(String((next.archetypes as { cost: string }[])[0]?.cost)).toMatch(/puntos de sobre|sin precio/)
+      expect(String((next.archetypes as { cost: string }[])[0]?.cost)).toMatch(
+        /(puntos de sobre|sin precio en puntos) \(\d+ copias intercambiables\)$/,
+      )
       const myMeta = await call('matches_my_meta', {})
       expect(typeof myMeta.enough).toBe('boolean')
       expect(String(myMeta.text).length).toBeGreaterThan(10)
