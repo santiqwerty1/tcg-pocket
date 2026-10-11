@@ -93,6 +93,14 @@ if (command === 'version') {
 } else if (command === 'simulate' || command === 'optimize') {
   const job = JSON.parse(readFileSync(jobFile, 'utf8'))
   const games = command === 'simulate' ? job.games : 4
+  // A process that exits successfully but violates the file-output contract.
+  if (games === 96) process.exit(0)
+  if (games === 94 || games === 93) {
+    writeFileSync(resultFile, games === 94 ? '{incomplete' : 'null')
+    process.exit(0)
+  }
+  // A kill by the OS must never be confused with successful exit.
+  if (games === 95) process.kill(process.pid, 'SIGKILL')
   if (games === 13) {
     process.stdout.write(JSON.stringify({ error: 'deck inválido', code: 'bad_deck', detail: { deck: 'A' } }))
     process.exit(3)

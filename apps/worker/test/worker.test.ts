@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { constants, setPriority, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -57,7 +57,11 @@ function fakeClient(chunks: Chunk[]) {
       const next = chunks.shift() ?? null
       return { chunk: next, requiredEngineRev: next ? REV : null, retryAfterSeconds: 0 }
     }),
-    heartbeat: vi.fn(async () => ({ leaseUntil: null, cancelled: false })),
+    heartbeat: vi.fn(async () => ({
+      leaseUntil: new Date(Date.now() + 180_000).toISOString(),
+      cancelled: false,
+      lost: false,
+    })),
     result: vi.fn(async (chunkId: number, body: ChunkResult) => {
       if (failResult > 0) {
         failResult--
@@ -89,6 +93,33 @@ describe('engine runner', () => {
     dir = mkdtempSync(join(tmpdir(), 'tcg-worker-'))
   })
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
+
+  it('classifies a zero exit without result as an engine failure and logs the exit', async () => {
+    const log = vi.fn()
+    await expect(runJob(FAKE_ENGINE, 'simulate', { games: 96 }, dir, { log })).rejects.toMatchObject({
+      exitCode: 0,
+      code: 'missing_result',
+      signal: null,
+    })
+    expect(log).toHaveBeenCalledWith('motor terminado', expect.objectContaining({ exitCode: 0, signal: null }))
+    expect(readdirSync(dir)).toEqual([])
+  })
+
+  it.each([94, 93])('classifies invalid output (%i) as an engine failure', async (games) => {
+    await expect(runJob(FAKE_ENGINE, 'simulate', { games }, dir)).rejects.toMatchObject({
+      exitCode: 0,
+      code: 'missing_result',
+    })
+    expect(readdirSync(dir)).toEqual([])
+  })
+
+  it('reports an OS kill as an engine failure rather than reading result.json', async () => {
+    const log = vi.fn()
+    await expect(runJob(FAKE_ENGINE, 'simulate', { games: 95 }, dir, { log })).rejects.toBeInstanceOf(EngineError)
+    const exit = log.mock.calls.find(([message]) => message === 'motor terminado')?.[1]
+    expect(exit?.exitCode !== 0 || exit?.signal !== null).toBe(true)
+    expect(readdirSync(dir)).toEqual([])
+  })
 
   it.each(['simulate', 'batch', 'optimize', 'consistency'] as const)(
     'requests below-normal priority for %s',
@@ -159,6 +190,107 @@ describe('worker loop', () => {
     }
   })
   afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
+
+  it('reports a missing result and continues to the next chunk without restarting the worker', async () => {
+    const { client, calls } = fakeClient([chunk({ games: 96 }), chunk({ chunkId: 8 })])
+    const controller = new AbortController()
+    const original = vi.mocked(client.claim).getMockImplementation()
+    vi.mocked(client.claim).mockImplementation(async (hello, signal) => {
+      const answer = await original?.(hello, signal)
+      if (!answer?.chunk) controller.abort()
+      return answer as Awaited<ReturnType<WorkerClient['claim']>>
+    })
+    Object.assign(client, {
+      liveClaim: vi.fn(async (_hello, signal: AbortSignal) => {
+        await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+        return { game: null }
+      }),
+    })
+    await new Worker(config, client, silent).loop(controller.signal)
+    expect(calls.failures.map(({ chunkId }) => chunkId)).toEqual([7])
+    expect(calls.results.map(({ chunkId }) => chunkId)).toEqual([8])
+  })
+
+  it('keeps playing across heartbeat failures and renews even after the local lease expires', async () => {
+    const { client, calls } = fakeClient([chunk({ games: 99, leaseUntil: new Date(0).toISOString() })])
+    const controller = new AbortController()
+    vi.mocked(client.heartbeat)
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce({
+        leaseUntil: new Date(Date.now() + 180_000).toISOString(),
+        cancelled: false,
+        lost: false,
+      })
+      .mockImplementationOnce(async () => {
+        controller.abort()
+        return { leaseUntil: null, cancelled: false, lost: false }
+      })
+    const log = vi.fn()
+    const worker = new Worker(config, client, log)
+    worker.heartbeatMs = 50
+    await worker.loop(controller.signal, { once: true })
+    expect(client.heartbeat).toHaveBeenCalledTimes(3)
+    expect(log).toHaveBeenCalledWith('latido fallido', expect.any(Object))
+    expect(log).toHaveBeenCalledWith('latido recuperado', expect.objectContaining({ chunk: 7 }))
+    expect(calls.failures).toEqual([])
+    expect(readdirSync(join(dataDir, 'work'))).toEqual([])
+  })
+
+  it('cleanup preserves a running simulation, a live game, and a result awaiting upload', async () => {
+    const { client } = fakeClient([])
+    const worker = new Worker(config, client, silent)
+    const controller = new AbortController()
+    let ready!: () => void
+    const started = new Promise<void>((resolve) => {
+      ready = resolve
+    })
+    const simulation = runJob(FAKE_ENGINE, 'simulate', { games: 99 }, join(dataDir, 'work'), {
+      signal: controller.signal,
+      onProgress: ready,
+    }).catch((error: unknown) => error)
+    await started
+    let release!: () => void
+    let decide!: () => void
+    const waiting = new Promise<void>((resolve) => {
+      decide = resolve
+    })
+    const live = {
+      liveDecision: vi.fn(async () => {
+        decide()
+        await new Promise<void>((resolve) => {
+          release = resolve
+        })
+        return { choice: null, status: 'abandoned' }
+      }),
+    } as unknown as WorkerClient
+    const gameRun = new LiveRunner(config, live, silent, join(dataDir, 'work')).run(
+      {
+        id: 1,
+        deckHuman: 'x',
+        deckBot: 'y',
+        bot: 'e2',
+        seed: '1',
+        choices: [],
+      },
+      controller.signal,
+    )
+    await waiting
+    try {
+      const pending = await worker.play(chunk(), REV, controller.signal)
+      expect(pending).not.toBeNull()
+      writeFileSync(join(dataDir, 'state.json'), JSON.stringify({ pending }))
+      const before = readdirSync(join(dataDir, 'work'))
+      mkdirSync(join(dataDir, 'work', 'orphan-from-crash'))
+      await worker.cleanWorkDir()
+      expect(readdirSync(join(dataDir, 'work'))).toEqual(before)
+    } finally {
+      release()
+      await gameRun
+      controller.abort()
+      await simulation
+    }
+    await worker.flushPending()
+  })
 
   it.each(['below_normal', 'normal', 'idle'] as const)('passes configured %s priority to chunks', async (priority) => {
     const { client, calls } = fakeClient([chunk({ kind: 'explore' })])
@@ -386,6 +518,20 @@ describe('worker loop', () => {
     expect(readdirSync(join(dataDir, 'work'))).toEqual([])
   })
 
+  it('B2: a network failure retries the renewal cycle and keeps the shared engine running', async () => {
+    const { client, calls } = batchClient([
+      chunk({ chunkId: 51, games: 97, replaySample: 0 }),
+      chunk({ chunkId: 52, games: 10, replaySample: 0 }),
+    ])
+    vi.mocked(client.heartbeat).mockRejectedValueOnce(new TypeError('fetch failed'))
+    const worker = new Worker(config, client, silent)
+    worker.heartbeatMs = 50
+    await worker.loop(new AbortController().signal, { once: true })
+    expect(calls.results.map(({ chunkId }) => chunkId)).toEqual([51, 52])
+    expect(calls.failures).toEqual([])
+    expect(vi.mocked(client.heartbeat).mock.calls.some(([id]) => id === 52)).toBe(true)
+  })
+
   it('B2: a batch that fails as a whole is played chunk by chunk, so only a chunk that fails alone counts it', async () => {
     const { client, calls } = batchClient([
       chunk({ chunkId: 37, games: 60, replaySample: 0 }),
@@ -412,7 +558,7 @@ describe('worker loop', () => {
 
   // D-023: real engine processes need room to start and stop on the shared CI machine.
   it(
-    'B2: a cancelled job stops the batch; a chunk that is lost is not renewed but still reported',
+    'B2: a cancelled job stops the batch; a lost chunk stops the batch and only the remaining chunk is replayed',
     async () => {
       const hung = [chunk({ chunkId: 41, games: 98, replaySample: 0 }), chunk({ chunkId: 42, games: 10 })]
       const { client, calls } = batchClient(hung)
@@ -429,7 +575,7 @@ describe('worker loop', () => {
         chunk({ chunkId: 44, games: 20 }),
       ])
       vi.mocked(second.client.heartbeat).mockImplementation(async (chunkId: number) => ({
-        leaseUntil: null,
+        leaseUntil: chunkId === 43 ? null : new Date(Date.now() + 180_000).toISOString(),
         cancelled: false,
         lost: chunkId === 43,
       }))
@@ -439,8 +585,8 @@ describe('worker loop', () => {
       const beats = (id: number) =>
         vi.mocked(second.client.heartbeat).mock.calls.filter((call) => call[0] === id).length
       expect(beats(43)).toBe(1)
-      expect(beats(44)).toBeGreaterThan(1)
-      expect(second.calls.results.map((call) => call.chunkId)).toEqual([43, 44])
+      expect(beats(44)).toBeGreaterThan(0)
+      expect(second.calls.results.map((call) => call.chunkId)).toEqual([44])
     },
     process.env.CI ? 20_000 : 5_000,
   )
@@ -716,6 +862,68 @@ describe('games against a bot (Fase 8)', () => {
 })
 
 describe('worker client', () => {
+  it.each(['claim', 'liveClaim'] as const)('retries the Android version preflight timeout for %s', async (method) => {
+    vi.useFakeTimers()
+    try {
+      const version = { engineRev: REV, cliVersion: '0.3.3' }
+      const log = vi.fn()
+      const fetchImpl = vi
+        .fn()
+        .mockRejectedValueOnce(new DOMException('timeout', 'TimeoutError'))
+        .mockResolvedValueOnce(Response.json(version))
+        .mockResolvedValueOnce(Response.json({ chunk: null, game: null, retryAfterSeconds: 0 }))
+      const client = new WorkerClient('http://test', 'tcg_wk_x', log, fetchImpl)
+      client.requiredEngine = version
+      const pending = client[method]({
+        workerId: 'worker-test',
+        engineRev: REV,
+        name: 'android',
+        cores: 4,
+        cliVersion: '0.3.3',
+        version: WORKER_VERSION,
+      })
+      void pending.catch(() => undefined)
+      await vi.runAllTimersAsync()
+      await expect(pending).resolves.toMatchObject({ game: null })
+      expect(fetchImpl).toHaveBeenCalledTimes(3)
+      if (method === 'liveClaim') expect(log).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // node:timers/promises uses real timers here: three retries wait 1 + 2 + 4 seconds.
+  it('live long-poll retries timeout, disconnect and 503 quietly, then returns the game', async () => {
+    vi.useFakeTimers()
+    try {
+      const log = vi.fn()
+      const fetchImpl = vi
+        .fn()
+        .mockRejectedValueOnce(new DOMException('timeout', 'TimeoutError'))
+        .mockRejectedValueOnce(new TypeError('fetch failed'))
+        .mockResolvedValueOnce(new Response('', { status: 503 }))
+        .mockResolvedValueOnce(Response.json({ game: { id: 2 } }))
+      const client = new WorkerClient('http://test', 'tcg_wk_x', log, fetchImpl)
+      const pending = client.liveClaim({ workerId: 'worker-test', engineRev: REV, version: WORKER_VERSION })
+      await vi.runAllTimersAsync()
+      await expect(pending).resolves.toEqual({ game: { id: 2 } })
+      expect(log).not.toHaveBeenCalled()
+      expect(fetchImpl).toHaveBeenCalledTimes(4)
+    } finally {
+      vi.useRealTimers()
+    }
+  }, 20_000)
+
+  it('a changed Android engine still stops claims with 409 instead of retrying', async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ engineRev: REV, cliVersion: 'new' }))
+    const client = new WorkerClient('http://test', 'tcg_wk_x', silent, fetchImpl)
+    client.requiredEngine = { engineRev: REV, cliVersion: 'old' }
+    await expect(
+      client.liveClaim({ workerId: 'worker-test', engineRev: REV, version: WORKER_VERSION }),
+    ).rejects.toMatchObject({ status: 409 })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
   it('retries network errors and 5xx, returns 4xx to the caller', async () => {
     const responses = [
       () => Promise.reject(new TypeError('fetch failed')),

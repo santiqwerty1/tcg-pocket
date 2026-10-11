@@ -8,4 +8,5 @@
  */
 // 0.2.9 (T-015): shared graceful Android stop and Termux:Widget shortcuts.
 // 0.2.10 (T-015): Android installer asks for and preserves the worker's display name.
-export const WORKER_VERSION = '0.2.10'
+// 0.2.11 (T-015): engine result failures, lease recovery and isolated live reconnects.
+export const WORKER_VERSION = '0.2.11'

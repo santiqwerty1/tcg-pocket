@@ -103,23 +103,28 @@ export class WorkerClient {
       timeoutMs?: number
       /** One attempt, no retries (heartbeats: the next one comes anyway, H-014). */
       once?: boolean
+      /** Expected disconnects of live long-polls should not fill the worker log. */
+      quiet?: boolean
+      maxDelayMs?: number
     } = {},
   ): Promise<T> {
-    if (this.requiredEngine && method === 'POST' && ['/api/worker/claim', '/api/worker/live/claim'].includes(path)) {
-      const required = await this.request<{ engineRev: string; cliVersion: string }>(
-        'GET',
-        '/api/worker/packages/android-arm64/version',
-        undefined,
-        { once: true, timeoutMs: 15_000, ...(options.signal ? { signal: options.signal } : {}) },
-      )
-      if (
-        required.engineRev !== this.requiredEngine.engineRev ||
-        required.cliVersion !== this.requiredEngine.cliVersion
-      ) {
-        throw new ApiError(
-          'Cambió el motor del servidor. Volvé a correr el instalador Android antes de tomar trabajo.',
-          409,
+    const checkEngine = async () => {
+      if (this.requiredEngine && method === 'POST' && ['/api/worker/claim', '/api/worker/live/claim'].includes(path)) {
+        const required = await this.request<{ engineRev: string; cliVersion: string }>(
+          'GET',
+          '/api/worker/packages/android-arm64/version',
+          undefined,
+          { once: true, timeoutMs: 15_000, ...(options.signal ? { signal: options.signal } : {}) },
         )
+        if (
+          required.engineRev !== this.requiredEngine.engineRev ||
+          required.cliVersion !== this.requiredEngine.cliVersion
+        ) {
+          throw new ApiError(
+            'Cambió el motor del servidor. Volvé a correr el instalador Android antes de tomar trabajo.',
+            409,
+          )
+        }
       }
     }
     let delay = 1000
@@ -127,6 +132,7 @@ export class WorkerClient {
     for (const [key, value] of Object.entries(options.query ?? {})) url.searchParams.set(key, value)
     for (;;) {
       try {
+        await checkEngine()
         const signals = [AbortSignal.timeout(options.timeoutMs ?? 60_000), ...(options.signal ? [options.signal] : [])]
         const response = await this.fetchImpl(url, {
           method,
@@ -161,9 +167,10 @@ export class WorkerClient {
         if (options.signal?.aborted) throw error
         if (error instanceof ApiError && error.status < 500) throw error
         if (options.once) throw error
-        this.log('servidor no disponible, reintento', { path, delayMs: delay, error: String(error) })
+        if (!options.quiet)
+          this.log('servidor no disponible, reintento', { path, delayMs: delay, error: String(error) })
         await sleep(delay, undefined, options.signal ? { signal: options.signal } : undefined)
-        delay = Math.min(delay * 2, 300_000)
+        delay = Math.min(delay * 2, options.maxDelayMs ?? 300_000)
       }
     }
   }
@@ -226,6 +233,8 @@ export class WorkerClient {
     return this.request<{ game: LiveGame | null }>('POST', '/api/worker/live/claim', body, {
       ...(signal ? { signal } : {}),
       timeoutMs: 60_000,
+      quiet: true,
+      maxDelayMs: 30_000,
     })
   }
 
@@ -251,6 +260,8 @@ export class WorkerClient {
     return this.request<{ choice: number | null; status: string }>('POST', `/api/worker/live/${id}/choice`, body, {
       ...(signal ? { signal } : {}),
       timeoutMs: 60_000,
+      quiet: true,
+      maxDelayMs: 30_000,
     })
   }
 
