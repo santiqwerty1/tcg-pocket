@@ -78,6 +78,10 @@ it.each(['/simulacion', '/simulacion/1'])('adelanta y vuelve a normal desde %s',
   const user = userEvent.setup()
   show(path)
   const button = await screen.findByRole('button', { name: 'Adelantar #1' })
+  expect(button).toHaveAttribute(
+    'title',
+    'Adelantar ordena dentro de cada clase. Las simulaciones grandes adelantadas van antes que las demás grandes; las pruebas del laboratorio y la consistencia siempre van primero.',
+  )
   // A prior SSE frame used to override the refetch after changing priority in the detail.
   act(() => sources[0]?.onmessage?.({ data: JSON.stringify(current) }))
   await user.click(button)

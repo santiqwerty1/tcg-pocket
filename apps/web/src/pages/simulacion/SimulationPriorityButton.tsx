@@ -16,6 +16,7 @@ export function SimulationPriorityButton({ job }: { job: JobSummary }) {
       size="sm"
       disabled={mutation.isPending}
       aria-label={`${label} #${job.id}`}
+      title="Adelantar ordena dentro de cada clase. Las simulaciones grandes adelantadas van antes que las demás grandes; las pruebas del laboratorio y la consistencia siempre van primero."
       onClick={() =>
         mutation.mutate(
           { id: job.id, priority: raised ? 0 : 1 },

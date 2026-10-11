@@ -206,7 +206,8 @@ export class WorkerQueueService {
           AND (COALESCE(j.params->>'perGame', 'false') <> 'true' OR ${perGame}::boolean)
           AND (NOT (j.players && ${fairBotCodes}::text[]) OR ${fairBot}::boolean)
           AND (c.status = 'queued' OR (c.status = 'leased' AND c.lease_until < now()))
-        ORDER BY j.priority DESC, p.left_count, j.created_at, j.id, c.idx
+        ORDER BY CASE WHEN j.kind IN ('explore', 'consistency') OR j.params ? 'lab' THEN 0 ELSE 1 END,
+          j.priority DESC, p.left_count, j.created_at, j.id, c.idx
         FOR UPDATE OF c SKIP LOCKED
         LIMIT 1)
       RETURNING id`

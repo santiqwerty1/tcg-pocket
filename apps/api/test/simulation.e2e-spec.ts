@@ -891,6 +891,84 @@ describe('simulation (e2e)', () => {
     }
   })
 
+  it.each(['lab', 'consistency', 'explore'] as const)(
+    'priority: an advanced matrix waits for %s at normal priority (D-024)',
+    async (kind) => {
+      const ids: number[] = []
+      try {
+        const matrix = await post('/api/simulations').send({
+          kind: 'matrix',
+          sideA: decks(1, 2),
+          gamesPerPair: 10,
+          players: ['r', 'r'],
+        })
+        expect(matrix.status).toBe(201)
+        ids.push(matrix.body.id)
+        expect((await post(`/api/simulations/${matrix.body.id}/priority`).send({ priority: 10 })).status).toBe(200)
+        const short =
+          kind === 'consistency'
+            ? await post('/api/simulations/consistency').send({ deckId: deckIds[1], games: 10 })
+            : await post('/api/simulations').send({
+                kind: 'compare',
+                sideA: decks(3, 3),
+                sideB: decks(5, 6),
+                gamesPerPair: 10,
+                players: ['r', 'r'],
+              })
+        expect(short.status).toBe(201)
+        ids.push(short.body.id)
+        // Queue fixtures isolate classification from laboratory round orchestration.
+        if (kind !== 'consistency') {
+          const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: short.body.id } })
+          await test.prisma.simulationJob.update({
+            where: { id: job.id },
+            data: kind === 'explore' ? { kind: 'explore' } : { params: { ...(job.params as object), lab: {} } },
+          })
+        }
+        const response = await bearer('post', '/api/worker/claim').send({
+          ...worker(`worker-class-${kind}`),
+          version: '0.2.0',
+        })
+        expect(response.status).toBe(200)
+        expect(response.body.chunk).toMatchObject({ jobId: short.body.id })
+        // Once the short job is cancelled, the matrix can be claimed.
+        expect((await post(`/api/simulations/${short.body.id}/cancel`)).status).toBe(200)
+        expect((await claim(`worker-class-${kind}-matrix`)).body.chunk).toMatchObject({ jobId: matrix.body.id })
+      } finally {
+        for (const id of ids) {
+          await post(`/api/simulations/${id}/cancel`)
+          await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)
+        }
+      }
+    },
+  )
+
+  it('priority: two matrices use priority before the number of remaining chunks (D-024)', async () => {
+    const ids: number[] = []
+    try {
+      for (const to of [2, 3]) {
+        const created = await post('/api/simulations').send({
+          kind: 'matrix',
+          sideA: decks(1, to),
+          gamesPerPair: 10,
+          players: ['r', 'r'],
+        })
+        expect(created.status).toBe(201)
+        ids.push(created.body.id)
+      }
+      expect((await post(`/api/simulations/${ids[0]}/priority`).send({ priority: 1 })).status).toBe(200)
+      expect((await post(`/api/simulations/${ids[1]}/priority`).send({ priority: 2 })).status).toBe(200)
+      expect((await claim('worker-matrix-priority')).body.chunk).toMatchObject({ jobId: ids[1] })
+      expect((await post(`/api/simulations/${ids[1]}/cancel`)).status).toBe(200)
+      expect((await claim('worker-matrix-priority-next')).body.chunk).toMatchObject({ jobId: ids[0] })
+    } finally {
+      for (const id of ids) {
+        await post(`/api/simulations/${id}/cancel`)
+        await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)
+      }
+    }
+  })
+
   it('priority: validates the integer, requires a session, and rejects every finished status', async () => {
     const response = await post('/api/simulations').send({
       kind: 'compare',
