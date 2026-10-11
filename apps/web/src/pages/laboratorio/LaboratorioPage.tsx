@@ -9,7 +9,14 @@ import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useDeck, useDecks } from '@/api/decks'
 import { useLabBank, useLabExplore, useLabJobs, useLabTest, usePlanLabExplore } from '@/api/lab'
-import type { ExplorePool, LabBank, LabDeckSource, LabExploreInput, LabExplorePlan } from '@/api/schemas'
+import type {
+  ExplorePool,
+  LabBank,
+  LabDeckSource,
+  LabExploreInput,
+  LabExplorePlan,
+  LabObjectiveChoice,
+} from '@/api/schemas'
 import { useEngineInfo } from '@/api/simulations'
 import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Field, Section } from '@/components/Section'
@@ -34,12 +41,30 @@ const SIZES = [5, 10, 15, 20] as const
 const pct = (value: number) => `${value.toLocaleString('es-AR', { maximumFractionDigits: 1 })} %`
 
 function BankList({ bank }: { bank: LabBank }) {
+  const { objective } = bank
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs text-muted-foreground">
-        Era {bank.era}: {bank.size} arquetipos que suman el {pct(bank.coverage)} de {formatNumber(bank.lists)} listas.
-        Cada uno juega su lista representativa (la misma que la «versión de torneo») y pesa según su cuota.
-      </p>
+      {objective.kind === 'meta' ? (
+        <p className="text-xs text-muted-foreground">
+          Era {bank.era}: {bank.size} arquetipos que suman el {pct(bank.coverage)} de {formatNumber(bank.lists)} listas.
+          Cada uno juega su lista representativa (la misma que la «versión de torneo») y pesa según su cuota.
+        </p>
+      ) : objective.kind === 'mine' ? (
+        <p className="text-xs text-muted-foreground">
+          Mi meta en la era {bank.era}: los rivales de {objective.matched ?? 0} partidas, cada uno con el peso de
+          cuántas veces lo enfrentaste (una partida de hace {objective.halfLifeDays ?? 14} días pesa la mitad).
+          {(objective.unmatched ?? 0) > 0
+            ? ` ${objective.unmatched} no se cuentan porque el rival no es un arquetipo de la era${
+                objective.unmatchedNames?.length ? ` (${objective.unmatchedNames.join(', ')})` : ''
+              }: cargalo con el nombre que sugiere la lista.`
+            : ''}
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Contra un solo arquetipo de la era {bank.era}, con sus dos listas más representativas, cada una con el peso de
+          cuántas veces se jugó.
+        </p>
+      )}
       <ol className="divide-y rounded-lg border text-sm">
         {bank.rivals.map((rival, at) => (
           <li key={rival.listKey} className="flex items-baseline gap-2 px-3 py-2">
@@ -155,12 +180,12 @@ function DeckSourcePicker({
   )
 }
 
-function TestForm({ size }: { size: number }) {
+function TestForm({ size, objective }: { size: number; objective: LabObjectiveChoice }) {
   const navigate = useNavigate()
   const test = useLabTest()
   const [source, setSource] = useState<LabDeckSource | null>(null)
   const [games, setGames] = useState('100')
-  const bank = useLabBank(size)
+  const bank = useLabBank(size, undefined, objective)
   const rivals = bank.data?.rivals.length ?? size
   const engine = useEngineInfo()
   const cores = engine.data?.workers.find((worker) => worker.online)?.cores ?? 8
@@ -169,7 +194,7 @@ function TestForm({ size }: { size: number }) {
   async function submit() {
     if (!source) return
     try {
-      const job = await test.mutateAsync({ decks: [source], size, gamesPerRival: Number(games) })
+      const job = await test.mutateAsync({ decks: [source], size, gamesPerRival: Number(games), ...objective })
       toast.success(`Prueba #${job.id} en cola`)
       navigate(`/laboratorio/${job.id}`)
     } catch (error) {
@@ -198,9 +223,9 @@ function TestForm({ size }: { size: number }) {
         {rivals} rivales × {games} = {formatNumber(total)} partidas, unos{' '}
         {formatDuration((total * 0.1) / Math.max(1, cores))} con {cores} núcleos.
       </p>
-      <Button type="button" disabled={!source || test.isPending} onClick={() => void submit()}>
+      <Button type="button" disabled={!source || test.isPending || !bank.data} onClick={() => void submit()}>
         <FlaskConicalIcon aria-hidden="true" />
-        Probar contra el meta
+        Probar contra {bank.data?.objective.labelEs ?? 'el banco'}
       </Button>
     </div>
   )
@@ -334,7 +359,7 @@ function NumberField({
   )
 }
 
-function ExploreForm({ size }: { size: number }) {
+function ExploreForm({ size, objective }: { size: number; objective: LabObjectiveChoice }) {
   const navigate = useNavigate()
   const plan = usePlanLabExplore()
   const explore = useLabExplore()
@@ -355,6 +380,7 @@ function ExploreForm({ size }: { size: number }) {
     return {
       deck: source,
       size,
+      ...objective,
       ...(deckId && locked.length > 0 ? { locked } : {}),
       config: {
         pool,
@@ -366,7 +392,7 @@ function ExploreForm({ size }: { size: number }) {
         race,
       },
     }
-  }, [source, size, deckId, locked, pool, rounds, variants, games, confirmGames, verifyGames, race])
+  }, [source, size, objective, deckId, locked, pool, rounds, variants, games, confirmGames, verifyGames, race])
 
   // H-021: the plan on screen is the search that starts (same seed) while nothing changed since «Ver el plan».
   const [plannedFor, setPlannedFor] = useState<string | null>(null)
@@ -493,10 +519,65 @@ function LabJobsList() {
   )
 }
 
+/** T-017 D4: the meta, «mi meta» or one archetype (from the era's 20 most played). */
+function ObjectivePicker({
+  value,
+  onChange,
+}: {
+  value: LabObjectiveChoice
+  onChange: (next: LabObjectiveChoice) => void
+}) {
+  const top = useLabBank(20)
+  const archetypes = [
+    ...new Map((top.data?.rivals ?? []).map((rival) => [rival.archetypeId, rival.archetypeName])).entries(),
+  ]
+  return (
+    <div className="flex flex-wrap gap-2">
+      <Select
+        value={value.objective ?? 'meta'}
+        onValueChange={(next) =>
+          onChange(
+            next === 'rival'
+              ? { objective: 'rival', archetypeId: archetypes[0]?.[0] }
+              : { objective: next as 'meta' | 'mine' },
+          )
+        }
+      >
+        <SelectTrigger aria-label="Contra qué medir" className="w-44">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="meta">El meta de torneos</SelectItem>
+          <SelectItem value="mine">Mi meta</SelectItem>
+          <SelectItem value="rival">Un solo rival</SelectItem>
+        </SelectContent>
+      </Select>
+      {value.objective === 'rival' ? (
+        <Select
+          value={value.archetypeId ?? ''}
+          onValueChange={(archetypeId) => onChange({ objective: 'rival', archetypeId })}
+        >
+          <SelectTrigger aria-label="Arquetipo rival" className="w-56">
+            <SelectValue placeholder="Elegí el arquetipo" />
+          </SelectTrigger>
+          <SelectContent>
+            {archetypes.map(([id, name]) => (
+              <SelectItem key={id} value={id}>
+                {name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : null}
+    </div>
+  )
+}
+
 export function LaboratorioPage() {
   useMarkSeen('laboratorio')
   const [size, setSize] = useState(15)
-  const bank = useLabBank(size)
+  const [objective, setObjective] = useState<LabObjectiveChoice>({ objective: 'meta' })
+  const bank = useLabBank(size, undefined, objective)
   return (
     <div className="flex flex-col gap-6">
       <Alert>
@@ -506,18 +587,23 @@ export function LaboratorioPage() {
       <Section
         title="Banco del meta"
         action={
-          <Select value={String(size)} onValueChange={(next) => setSize(Number(next))}>
-            <SelectTrigger aria-label="Arquetipos del banco" className="w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SIZES.map((value) => (
-                <SelectItem key={value} value={String(value)}>
-                  {value} arquetipos
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex flex-wrap justify-end gap-2">
+            <ObjectivePicker value={objective} onChange={setObjective} />
+            {objective.objective === 'rival' ? null : (
+              <Select value={String(size)} onValueChange={(next) => setSize(Number(next))}>
+                <SelectTrigger aria-label="Arquetipos del banco" className="w-36">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SIZES.map((value) => (
+                    <SelectItem key={value} value={String(value)}>
+                      {value} arquetipos
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
         }
       >
         {bank.isLoading ? <LoadingRows rows={4} /> : null}
@@ -527,11 +613,11 @@ export function LaboratorioPage() {
       <Section title="Armar desde un núcleo">
         <CoreBuilder size={size} />
       </Section>
-      <Section title="Probar contra el meta">
-        <TestForm size={size} />
+      <Section title="Probar contra el banco">
+        <TestForm size={size} objective={objective} />
       </Section>
       <Section title="Buscar variantes">
-        <ExploreForm size={size} />
+        <ExploreForm size={size} objective={objective} />
       </Section>
       <Section title="Pruebas y búsquedas">
         <LabJobsList />

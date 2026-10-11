@@ -4,6 +4,7 @@ import type { SelectableEnergy } from '../../src/index.js'
 import {
   cardChanges,
   confirmVerdict,
+  customGauntlet,
   DEFAULT_EXPLORE_CONFIG,
   EXPLORE_SEED_STRIDE,
   exploreConfig,
@@ -17,6 +18,7 @@ import {
   metaGauntlet,
   metaScore,
   mutationPool,
+  myMetaTargets,
   NOVELTY_MAX_SWAPS,
   neighborhoodUsage,
   novelty,
@@ -155,6 +157,67 @@ describe('meta bank', () => {
     }
     expect(secondListsFor(15)).toBe(3)
     expect(secondListsFor(5)).toBe(0)
+  })
+
+  it('T-017 D4: a bank of chosen archetypes: their weights, normalized; the meta bank is the same bank with shares', () => {
+    const meta = metaGauntlet(dataset, { size: 5 })
+    // The same five with their shares give the same bank.
+    const same = customGauntlet(
+      dataset,
+      meta.rivals.map((rival) => ({ archetypeId: rival.archetypeId, weight: rival.share })),
+    )
+    expect(same.rivals.map((rival) => [rival.archetypeId, rival.list.key])).toEqual(
+      meta.rivals.map((rival) => [rival.archetypeId, rival.list.key]),
+    )
+    for (const [at, rival] of same.rivals.entries()) {
+      expect(rival.weight).toBeCloseTo(meta.rivals[at]?.weight ?? 0, 10)
+    }
+    // One rival, with its next list: the whole weight between its two lists.
+    const [target] = meta.rivals
+    if (!target) throw new Error('empty bank')
+    const one = customGauntlet(dataset, [{ archetypeId: target.archetypeId, weight: 1 }], { secondLists: 1 })
+    expect(new Set(one.rivals.map((rival) => rival.archetypeId))).toEqual(new Set([target.archetypeId]))
+    expect(one.rivals.reduce((sum, rival) => sum + rival.weight, 0)).toBeCloseTo(1, 10)
+    expect(one.coverage).toBeCloseTo(target.share, 10)
+    // Unknown archetypes, repeated ones and weights of 0 are left out; the weights are any scale.
+    const mixed = customGauntlet(dataset, [
+      { archetypeId: 'nope', weight: 5 },
+      { archetypeId: target.archetypeId, weight: 3 },
+      { archetypeId: target.archetypeId, weight: 9 },
+      { archetypeId: meta.rivals[1]?.archetypeId ?? '', weight: 1 },
+      { archetypeId: meta.rivals[2]?.archetypeId ?? '', weight: 0 },
+    ])
+    expect(mixed.rivals.map((rival) => rival.weight)).toEqual([0.75, 0.25])
+  })
+
+  it('T-017 D4: «mi meta» — my rivals as archetypes of the era, the recent ones weighing more', () => {
+    const [a, b] = metaGauntlet(dataset, { size: 2 }).rivals
+    if (!a || !b) throw new Error('empty bank')
+    const now = new Date('2026-10-11T12:00:00Z')
+    const daysAgo = (days: number) => new Date(now.getTime() - days * 86_400_000)
+    const mine = myMetaTargets(
+      dataset,
+      [
+        // Typed by hand, with other case and accents: still the archetype.
+        { opponent: a.archetypeName.toUpperCase(), playedAt: daysAgo(0) },
+        { opponent: a.archetypeName, playedAt: daysAgo(14) },
+        { opponent: b.archetypeName, playedAt: daysAgo(0) },
+        { opponent: 'un mazo raro', playedAt: daysAgo(1) },
+        { opponent: 'un mazo raro', playedAt: daysAgo(2) },
+        { opponent: null, playedAt: daysAgo(3) },
+      ],
+      { now },
+    )
+    // A match 14 days ago weighs half: a = 1 + ½, b = 1.
+    expect(mine.targets).toEqual([
+      { archetypeId: a.archetypeId, weight: 1.5, matches: 2 },
+      { archetypeId: b.archetypeId, weight: 1, matches: 1 },
+    ])
+    expect(mine).toMatchObject({ matched: 3, unmatched: 3, unmatchedNames: ['un mazo raro'] })
+    // As a bank: 60 % and 40 %.
+    const bank = customGauntlet(dataset, mine.targets)
+    expect(bank.rivals.map((rival) => rival.weight)).toEqual([0.6, 0.4])
+    expect(myMetaTargets(dataset, [], { now }).targets).toEqual([])
   })
 
   it('a list the engine cannot play gives way to the next one of its archetype, or the archetype is skipped', () => {

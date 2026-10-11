@@ -26,7 +26,15 @@ const scopeSchema = z.object({
   era,
   format: z.enum(TOURNAMENT_FORMATS).optional(),
   size: z.coerce.number().int().min(1).max(MAX_GAUNTLET_SIZE).optional(),
+  /** T-017 D4: against the era's most played (default), «mi meta» or one archetype (`archetypeId`). */
+  objective: z.enum(['meta', 'mine', 'rival']).optional(),
+  archetypeId: z
+    .string()
+    .regex(/^[A-Za-z0-9_.:-]{1,120}$/)
+    .optional(),
+  halfLifeDays: z.coerce.number().int().min(1).max(365).optional(),
 })
+
 const deckSchema = z.union([
   z.object({ deckId: z.string().trim().min(1).max(20), energies }),
   z.object({

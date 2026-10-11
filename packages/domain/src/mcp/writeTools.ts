@@ -279,6 +279,19 @@ export const MCP_WRITE_TOOLS = {
         .optional()
         .describe('Semilla (por defecto al azar)'),
       label: z.string().trim().max(200).optional().describe('Nombre de la prueba'),
+      objective: z
+        .enum(['meta', 'mine', 'rival'])
+        .optional()
+        .describe(
+          'Contra qué medir: meta (por defecto: los arquetipos más jugados de la era), mine («mi meta»: los rivales de mis partidas de la era, lo reciente pesa más) o rival (un solo arquetipo, en archetype)',
+        ),
+      archetype: z
+        .string()
+        .trim()
+        .min(1)
+        .max(120)
+        .optional()
+        .describe('Con objective «rival»: el arquetipo, por nombre (como en tournaments_stats) o por id'),
     }),
   },
   labExplore: {
@@ -331,6 +344,19 @@ export const MCP_WRITE_TOOLS = {
         .describe('Era del banco (por defecto la vigente)'),
       format: z.enum(TOURNAMENT_FORMATS).optional().describe('STANDARD (por defecto) o NOEX'),
       bots: z.tuple([bot, bot]).optional().describe('Bot de las variantes y de los rivales (por defecto e2 y e2)'),
+      objective: z
+        .enum(['meta', 'mine', 'rival'])
+        .optional()
+        .describe(
+          'Contra qué medir: meta (por defecto: los arquetipos más jugados de la era), mine («mi meta»: los rivales de mis partidas de la era, lo reciente pesa más) o rival (un solo arquetipo, en archetype)',
+        ),
+      archetype: z
+        .string()
+        .trim()
+        .min(1)
+        .max(120)
+        .optional()
+        .describe('Con objective «rival»: el arquetipo, por nombre (como en tournaments_stats) o por id'),
       seed: z
         .number()
         .int()
