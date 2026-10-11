@@ -72,7 +72,10 @@ export class SimulationAnalysisService {
           COALESCE(SUM(games_done) FILTER (WHERE status = 'done' AND snapshot_b_id IS NOT NULL AND turns IS NOT NULL), 0)::float8 AS "turnGames",
           COUNT(*) FILTER (WHERE status = 'done')::int AS finished,
           COUNT(*) FILTER (WHERE status = 'failed')::int AS failed,
-          CONCAT(COUNT(*), ':', MAX(finished_at), ':', SUM(games_done), ':', SUM(wins_a), ':', SUM(wins_b), ':', SUM(ties), ':', SUM(turns)) AS version
+          CONCAT(COUNT(*) FILTER (WHERE status = 'done'), ':', MAX(finished_at) FILTER (WHERE status = 'done'), ':',
+            SUM(games_done) FILTER (WHERE status = 'done'), ':', SUM(wins_a) FILTER (WHERE status = 'done'), ':',
+            SUM(wins_b) FILTER (WHERE status = 'done'), ':', SUM(ties) FILTER (WHERE status = 'done'), ':',
+            SUM(turns) FILTER (WHERE status = 'done')) AS version
         FROM simulation_chunks GROUP BY job_id`,
       this.prisma.deckSnapshot.findMany({ select: { id: true, key: true, label: true, cards: true } }),
     ])

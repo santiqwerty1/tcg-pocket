@@ -184,6 +184,7 @@ describe('simulation analysis (e2e, synthetic records)', () => {
     const query = `?matrix=${e2}`
     const before = (await get(query)).body
     const sql = vi.spyOn(test.prisma, '$queryRaw')
+    await test.prisma.simulationChunk.updateMany({ where: { jobId: e2, idx: 4 }, data: { gamesDone: 4 } })
     expect((await get(query)).body).toEqual(before)
     expect(sql).toHaveBeenCalledTimes(1) // version query only; pairings and perGame histogram come from cache
     sql.mockRestore()
