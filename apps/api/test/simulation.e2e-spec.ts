@@ -749,6 +749,7 @@ describe('simulation (e2e)', () => {
       structuredContent?: Structured
     }
     await client.close()
+    expect(results.structuredContent?.job).toMatchObject({ priority: 0 })
     expect(results.structuredContent?.confirmation).toMatchObject({
       job: confirmationId,
       status: 'falló',
@@ -843,6 +844,77 @@ describe('simulation (e2e)', () => {
     for (const id of [long.body.id, quick.body.id]) {
       await post(`/api/simulations/${id}/cancel`)
       expect((await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)).status).toBe(204)
+    }
+  })
+
+  it('priority: higher goes first, ties use chunks left then age, and returning to normal restores the order', async () => {
+    const make = async (to: number) => {
+      const response = await post('/api/simulations').send({
+        kind: 'compare',
+        sideA: decks(2, 2),
+        sideB: decks(5, to),
+        gamesPerPair: 10,
+        players: ['r', 'r'],
+      })
+      expect(response.status).toBe(201)
+      expect(response.body.priority).toBe(0)
+      return response.body.id as number
+    }
+    const ids = [await make(7), await make(6), await make(6), await make(5)]
+    const [long, older, newer, normal] = ids as [number, number, number, number]
+    try {
+      for (const id of [long, older, newer]) {
+        expect((await post(`/api/simulations/${id}/priority`).send({ priority: 1 })).body).toMatchObject({
+          id,
+          priority: 1,
+          status: 'queued',
+        })
+      }
+      expect((await claim('worker-priority')).body.chunk).toMatchObject({ jobId: older, idx: 0 })
+      expect((await claim('worker-priority-2')).body.chunk).toMatchObject({ jobId: older, idx: 1 })
+      expect((await claim('worker-priority-3')).body.chunk).toMatchObject({ jobId: newer, idx: 0 })
+      expect((await post(`/api/simulations/${long}/priority`).send({ priority: 2 })).body.priority).toBe(2)
+      expect((await claim('worker-priority-4')).body.chunk).toMatchObject({ jobId: long, idx: 0 })
+      for (const id of [long, older, newer]) {
+        expect((await post(`/api/simulations/${id}/priority`).send({ priority: 0 })).status).toBe(200)
+      }
+      expect((await claim('worker-priority-5')).body.chunk).toMatchObject({ jobId: normal, idx: 0 })
+      expect((await get(`/api/simulations/${long}`)).body.priority).toBe(0)
+      expect((await get('/api/simulations')).body.items).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: long, priority: 0 })]),
+      )
+    } finally {
+      for (const id of ids) {
+        await post(`/api/simulations/${id}/cancel`)
+        await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)
+      }
+    }
+  })
+
+  it('priority: validates the integer, requires a session, and rejects every finished status', async () => {
+    const response = await post('/api/simulations').send({
+      kind: 'compare',
+      sideA: decks(2, 2),
+      sideB: decks(5, 5),
+      gamesPerPair: 10,
+      players: ['r', 'r'],
+    })
+    const id = response.body.id as number
+    try {
+      expect((await test.http().post(`/api/simulations/${id}/priority`).send({ priority: 1 })).status).toBe(401)
+      for (const priority of [-1, 1.5, '1', 2_147_483_648, null]) {
+        expect((await post(`/api/simulations/${id}/priority`).send({ priority })).status).toBe(400)
+      }
+      for (const status of ['done', 'failed', 'cancelled'] as const) {
+        await test.prisma.simulationJob.update({ where: { id }, data: { status } })
+        const denied = await post(`/api/simulations/${id}/priority`).send({ priority: 1 })
+        expect(denied.status).toBe(400)
+        expect(denied.body.error.code).toBe('job_finished')
+        expect((await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).priority).toBe(0)
+      }
+      expect((await post('/api/simulations/2147483647/priority').send({ priority: 1 })).status).toBe(404)
+    } finally {
+      await test.prisma.simulationJob.delete({ where: { id } })
     }
   })
 
@@ -1146,6 +1218,7 @@ describe('simulation (e2e)', () => {
       players: ['r', 'r'],
     })
     expect(matrix.status).toBe(201)
+    expect((await post(`/api/simulations/${matrix.body.id}/priority`).send({ priority: 10 })).status).toBe(200)
     // A search between two rounds: its last chunk finished just now and nothing of it is queued.
     const search = await test.prisma.simulationJob.create({
       data: {

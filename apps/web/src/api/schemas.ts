@@ -1485,6 +1485,7 @@ export const jobSummarySchema = z.object({
   kind: z.enum(SIMULATION_KINDS),
   status: z.enum(SIMULATION_STATUSES),
   label: z.string(),
+  priority: z.number().int().default(0),
   players: z.tuple([z.string(), z.string()]),
   playersEs: z.tuple([z.string(), z.string()]),
   gamesPerPair: z.number(),

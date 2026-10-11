@@ -25,6 +25,7 @@ export function rateView(rate: WinRate | null): Json | null {
 export function jobSummaryJson(job: JobSummaryView): Json {
   return {
     id: job.id,
+    priority: job.priority,
     label: job.label,
     kind: {
       matrix: 'matriz',

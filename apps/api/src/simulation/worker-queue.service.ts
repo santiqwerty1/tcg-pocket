@@ -162,8 +162,8 @@ export class WorkerQueueService {
   }
 
   /**
-   * One attempt: a claimable chunk of a job for this engine, locked and leased atomically. The job with the fewest
-   * chunks left goes first (a quick comparison does not wait hours behind a 780-pairing matrix); then the oldest job,
+   * One attempt: a claimable chunk of a job for this engine, locked and leased atomically. The job with the
+   * higher priority goes first, then the fewest chunks left, then the oldest job,
    * then chunk order. The chunks left are counted once per job (B2): counted for every candidate row, a claim took
    * 2,4 s locally and ~4 s in production with a matrix of 3.900 chunks in the queue, four times what a 60-game chunk
    * of the Laboratorio plays. While a search waits for its next round, matrix chunks are held back (B3); quick
@@ -206,7 +206,7 @@ export class WorkerQueueService {
           AND (COALESCE(j.params->>'perGame', 'false') <> 'true' OR ${perGame}::boolean)
           AND (NOT (j.players && ${fairBotCodes}::text[]) OR ${fairBot}::boolean)
           AND (c.status = 'queued' OR (c.status = 'leased' AND c.lease_until < now()))
-        ORDER BY p.left_count, j.created_at, j.id, c.idx
+        ORDER BY j.priority DESC, p.left_count, j.created_at, j.id, c.idx
         FOR UPDATE OF c SKIP LOCKED
         LIMIT 1)
       RETURNING id`

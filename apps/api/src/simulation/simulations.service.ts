@@ -578,6 +578,7 @@ export class SimulationsService {
       id: job.id,
       kind: job.kind,
       status: job.status,
+      priority: job.priority,
       label: job.label,
       players,
       playersEs: [botLabel(players[0]), botLabel(players[1])],
@@ -986,6 +987,23 @@ export class SimulationsService {
         }),
       ])
     }
+    return this.progressOf(rawId)
+  }
+
+  /** Only active jobs can be moved in the queue; the conditional write also checks concurrent completion. */
+  async setPriority(rawId: string, priority: number): Promise<JobSummaryView> {
+    const job = await this.requireJob(rawId)
+    const changed = await this.prisma.simulationJob.updateMany({
+      where: { id: job.id, status: { in: ['queued', 'running'] } },
+      data: { priority },
+    })
+    if (changed.count === 0) {
+      throw new BadRequestException({
+        code: 'job_finished',
+        message: 'Solo podés adelantar simulaciones en cola o corriendo.',
+      })
+    }
+    this.queue.notifyQueued()
     return this.progressOf(rawId)
   }
 

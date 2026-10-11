@@ -120,6 +120,7 @@ const resultSchema = z.object({
 const failureSchema = z.object({ workerId: z.string().min(8).max(64), error: z.string().min(1).max(20_000) })
 const listQuerySchema = z.object({ archived: z.enum(['true', 'false']).optional() })
 const cleanupSchema = z.object({ action: z.enum(['delete_cancelled', 'archive_done']) })
+const prioritySchema = z.object({ priority: z.number().int().min(0).max(2_147_483_647) })
 
 const replayQuerySchema = z.object({
   index: z.coerce.number().int().min(0),
@@ -230,6 +231,16 @@ export class WorkerController {
 @Controller('api/simulations')
 export class SimulationsController {
   constructor(private readonly simulations: SimulationsService) {}
+
+  @Post(':id/priority')
+  @HttpCode(200)
+  priority(
+    @Param('id', new ZodValidationPipe(idParam)) id: number,
+    @Body(new ZodValidationPipe(prioritySchema)) body: z.infer<typeof prioritySchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<JobSummaryView> {
+    return this.simulations.setPriority(String(id), body.priority)
+  }
 
   /** The list (archived jobs left out), or only the archived ones with `?archived=true`. */
   @Get()

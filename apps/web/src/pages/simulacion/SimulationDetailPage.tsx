@@ -17,7 +17,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
-import type { JobDetail, JobSummary, Snapshot } from '@/api/schemas'
+import type { JobDetail, Snapshot } from '@/api/schemas'
 import { jobSummarySchema } from '@/api/schemas'
 import {
   simulationKeys,
@@ -40,18 +40,18 @@ import { formatRateValue } from '@/lib/matches'
 import { encodeSource, formatDuration, gamesLabel, isActive, KIND_LABEL, progressFraction } from '@/lib/simulation'
 import { cn } from '@/lib/utils'
 import { ProgressBar, StatusBadge } from './SimulacionPage'
+import { SimulationPriorityButton } from './SimulationPriorityButton'
 
-/** Live progress from `GET /api/simulations/:id/events`; null when the browser has no EventSource or it is done. */
-function useLiveProgress(id: string, active: boolean): JobSummary | null {
+/** SSE and REST share the cache so an old event cannot mask a successful priority change. */
+function useLiveProgress(id: string, active: boolean): void {
   const queryClient = useQueryClient()
-  const [live, setLive] = useState<JobSummary | null>(null)
   useEffect(() => {
     if (!active || typeof EventSource === 'undefined') return
     const source = new EventSource(`/api/simulations/${encodeURIComponent(id)}/events`, { withCredentials: true })
     source.onmessage = (event) => {
       const parsed = jobSummarySchema.safeParse(JSON.parse(event.data as string))
       if (!parsed.success) return
-      setLive(parsed.data)
+      queryClient.setQueryData<JobDetail>(simulationKeys.detail(id), (job) => (job ? { ...job, ...parsed.data } : job))
       if (!isActive(parsed.data.status)) {
         source.close()
         void queryClient.invalidateQueries({ queryKey: simulationKeys.all })
@@ -60,7 +60,6 @@ function useLiveProgress(id: string, active: boolean): JobSummary | null {
     source.onerror = () => source.close()
     return () => source.close()
   }, [id, active, queryClient])
-  return live
 }
 
 function fold(text: string): string {
@@ -511,11 +510,11 @@ export function SimulationDetailPage() {
   const archive = useArchiveSimulation()
   const [confirmDelete, setConfirmDelete] = useState(false)
   const job = query.data
-  const live = useLiveProgress(id, job ? isActive(job.status) : false)
+  useLiveProgress(id, job ? isActive(job.status) : false)
 
   if (query.isPending) return <LoadingRows />
   if (query.isError) return <ErrorState error={query.error} onRetry={() => query.refetch()} />
-  const current = live && job && live.id === job.id ? { ...job, ...live } : job
+  const current = job
   if (!current) return null
   const active = isActive(current.status)
   const fraction = progressFraction(current)
@@ -526,6 +525,7 @@ export function SimulationDetailPage() {
         <div className="flex items-start gap-2">
           <h1 className="min-w-0 flex-1 text-lg font-semibold">{current.label}</h1>
           <StatusBadge status={current.status} />
+          {current.priority > 0 ? <Badge variant="secondary">Adelantada</Badge> : null}
         </div>
         <div className="flex items-center gap-2">
           <ProgressBar fraction={fraction} />
@@ -545,6 +545,7 @@ export function SimulationDetailPage() {
         ) : null}
         {current.error ? <p className="text-sm text-destructive">{current.error}</p> : null}
         <div className="flex flex-wrap gap-2">
+          <SimulationPriorityButton job={current} />
           {active ? (
             <Button
               variant="outline"

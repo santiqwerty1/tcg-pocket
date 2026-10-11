@@ -31,6 +31,7 @@ export interface JobSummaryView {
   status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
   label: string
   players: [string, string]
+  priority: number
   playersEs: [string, string]
   gamesPerPair: number
   baseSeed: string

@@ -26,6 +26,7 @@ import { useMarkSeen } from '@/lib/seen'
 import { formatDuration, gamesLabel, isActive, KIND_LABEL, progressFraction, STATUS_LABEL } from '@/lib/simulation'
 import { ago } from '@/lib/tournaments'
 import { cn } from '@/lib/utils'
+import { SimulationPriorityButton } from './SimulationPriorityButton'
 
 export function ProgressBar({ fraction, className }: { fraction: number; className?: string }) {
   const percent = Math.round(fraction * 1000) / 10
@@ -206,6 +207,7 @@ function JobRow({ job, onDelete }: { job: JobSummary; onDelete: (job: JobSummary
         <div className="flex items-baseline gap-2">
           <span className="min-w-0 flex-1 truncate font-medium">{job.label}</span>
           <StatusBadge status={job.status} />
+          {job.priority > 0 ? <Badge variant="secondary">Adelantada</Badge> : null}
         </div>
         <div className="text-xs text-muted-foreground">
           #{job.id} · {KIND_LABEL[job.kind]} · {job.playersEs[0]} vs {job.playersEs[1]} · {gamesLabel(job.gamesPerPair)}{' '}
@@ -221,7 +223,8 @@ function JobRow({ job, onDelete }: { job: JobSummary; onDelete: (job: JobSummary
           </div>
         ) : null}
       </Link>
-      <div className="shrink-0 pr-1">
+      <div className="flex shrink-0 flex-col items-end gap-1 pr-1">
+        <SimulationPriorityButton job={job} />
         <RowAction job={job} onDelete={onDelete} />
       </div>
     </li>
@@ -238,6 +241,17 @@ export function SimulacionPage() {
   const [toDelete, setToDelete] = useState<JobSummary | null>(null)
   const [confirmCleanup, setConfirmCleanup] = useState(false)
   const counts = jobs.data?.counts
+  // Raised active jobs show the same tie order as the claim; the rest keep the API's recent-first order.
+  const items = [...(jobs.data?.items ?? [])].sort((a, b) => {
+    const raisedA = isActive(a.status) && a.priority > 0
+    const raisedB = isActive(b.status) && b.priority > 0
+    if (raisedA !== raisedB) return raisedA ? -1 : 1
+    if (!raisedA) return 0
+    const left = (job: JobSummary) => job.progress.chunks.total - job.progress.chunks.done - job.progress.chunks.failed
+    return (
+      b.priority - a.priority || left(a) - left(b) || Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.id - b.id
+    )
+  })
 
   function archiveDone() {
     cleanup.mutate('archive_done', {
@@ -297,7 +311,7 @@ export function SimulacionPage() {
           />
         ) : (
           <ul className="divide-y rounded-lg border">
-            {jobs.data.items.map((job) => (
+            {items.map((job) => (
               <JobRow key={job.id} job={job} onDelete={setToDelete} />
             ))}
           </ul>

@@ -451,6 +451,38 @@ describe('backup and settings (e2e)', () => {
     return { ...copy, settings: (copy.settings as { key: string }[]).filter((row) => row.key !== 'backupDrill') }
   }
 
+  it('D-015: simulations stay outside backup v7 and replace preserves their priority', async () => {
+    const job = await test.prisma.simulationJob.create({
+      data: {
+        kind: 'matrix',
+        label: 'Adelantada fuera del backup',
+        params: {},
+        priority: 2,
+        engineRev: test.env.engineRev,
+        players: ['r', 'r'],
+        gamesPerPair: 10,
+        baseSeed: 1n,
+        totalGames: 10,
+      },
+    })
+    try {
+      const copy = await get('/api/backup/export').responseType('blob')
+      const doc = JSON.parse(gunzipSync(copy.body as Buffer).toString('utf8'))
+      expect(doc.schemaVersion).toBe(7)
+      expect(Object.keys(doc).some((key) => /simulat/i.test(key))).toBe(false)
+      expect(JSON.stringify(doc)).not.toContain(job.label)
+      expect((await post('/api/backup/import?mode=replace').attach('file', copy.body, 'backup.json.gz')).status).toBe(
+        200,
+      )
+      expect(await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: job.id } })).toMatchObject({
+        priority: 2,
+        status: 'queued',
+      })
+    } finally {
+      await test.prisma.simulationJob.delete({ where: { id: job.id } })
+    }
+  })
+
   it('prueba del backup (Fase 35): restores a fresh copy inside a transaction, compares it and rolls back', async () => {
     const backup = test.app.get(BackupService)
     const before = owned(await backup.exportDocument())

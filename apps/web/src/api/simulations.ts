@@ -23,6 +23,19 @@ export const simulationKeys = {
 
 const ACTIVE = new Set(['queued', 'running'])
 
+export function useSimulationPriority() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, priority }: { id: number; priority: number }) =>
+      request(`/api/simulations/${id}/priority`, {
+        method: 'POST',
+        body: { priority },
+        schema: jobSummarySchema,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: simulationKeys.all }),
+  })
+}
+
 /** The list (or the archived jobs), with the counts for the bulk buttons. Refreshes every 5 s while a job is queued
  * or running, every 30 s otherwise. */
 export function useSimulations(archived = false) {

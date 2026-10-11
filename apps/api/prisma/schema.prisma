@@ -833,6 +833,7 @@ model SimulationJob {
   id           Int                 @id @default(autoincrement())
   kind         SimulationKind
   status       SimulationJobStatus @default(queued)
+  priority     Int                 @default(0)
   label        String
   /// { sideA: snapshotIds, sideB: snapshotIds, bothOrders, lab? } or the optimize payload
   params       Json

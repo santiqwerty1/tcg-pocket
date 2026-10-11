@@ -1,0 +1,1 @@
+ALTER TABLE "simulation_jobs" ADD COLUMN "priority" INTEGER NOT NULL DEFAULT 0;
