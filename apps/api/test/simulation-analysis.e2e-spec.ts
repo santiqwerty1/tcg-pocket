@@ -274,6 +274,7 @@ describe('simulation analysis (e2e, synthetic records)', () => {
     await test.prisma.simulationChunk.deleteMany({ where: { jobId: e2, idx: 6 } })
     expect((await get(query)).body.summary.games).toBe(before.summary.games)
   })
+  // D-023: 81 lists × 2,000 games of synthetic records; on the loaded PC runners 60 s is not enough.
   it('handles an 81-list, 2,000-game-per-pair matrix with aggregate-sized payload', async () => {
     const ids = []
     for (let i = 0; i < 81; i++) {
@@ -360,7 +361,7 @@ describe('simulation analysis (e2e, synthetic records)', () => {
     process.stdout.write(
       `Análisis 81 listas: ${count * 2000} partidas, ${Buffer.byteLength(JSON.stringify(response.body))} bytes, primera lectura ${coldMs} ms, caché ${Math.round(performance.now() - cachedStart)} ms.\n`,
     )
-  })
+  }, 240_000)
   it('derives a summary when accepting perGame, ignores supplied statistics and preserves idempotence', async () => {
     const job = await test.prisma.simulationJob.create({
       data: {
