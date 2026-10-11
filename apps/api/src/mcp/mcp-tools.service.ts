@@ -347,11 +347,11 @@ ${MCP_CHAT_INSTRUCTIONS}`
       return analysisJson(await this.analysis.read(query), limit ?? 5, detail === 'full')
     })
     if (result.isError || !result.structuredContent) return result
-    // Full heatmaps may be large: carry them once, never repeat them as serialized text.
-    const data = result.structuredContent as { text: string; warning: string; findings: { text: string }[] }
+    // Text-only clients also need the compact rankings and canonical rate text. Large cells travel once.
+    const { matrix: _matrix, ...compact } = result.structuredContent
     return {
       ...result,
-      content: [{ type: 'text', text: [data.text, data.warning, ...data.findings.map((f) => f.text)].join('\n') }],
+      content: [{ type: 'text', text: JSON.stringify(compact) }],
     }
   }
 

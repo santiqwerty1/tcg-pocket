@@ -462,7 +462,11 @@ describe('simulation analysis (e2e, synthetic records)', () => {
       expect(missing.isError).toBe(true)
       const full = await client.callTool({ name: 'simulations_analysis', arguments: { matrix: e2, detail: 'full' } })
       expect((full.structuredContent as { matrix: { id: number } }).matrix.id).toBe(e2)
-      expect(JSON.stringify(full.content).length).toBeLessThan(5_000)
+      expect(JSON.stringify(full.content).length).toBeLessThan(30_000)
+      const content = full.content as { type: string; text: string }[]
+      const textual = JSON.parse(content[0]?.text ?? '{}')
+      expect(textual.matrix).toBeUndefined()
+      expect(textual.rankings[0].rows[0].rate.text).toContain('IC')
       const compactLarge = await client.callTool({ name: 'simulations_analysis', arguments: { bot: 'aa' } })
       expect(JSON.stringify(compactLarge).length).toBeLessThan(30_000)
       expect((compactLarge.structuredContent as typeof data).rankings[0]?.rows).toHaveLength(5)
