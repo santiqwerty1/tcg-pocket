@@ -309,7 +309,7 @@ export function SimulationAnalysisPage() {
           <Section title="Empezar, duración y empates">
             <p className="text-xs text-muted-foreground">
               {view.gameSample?.scope === 'laboratory'
-                ? `Laboratorio del mismo bot y motor (trabajos ${view.gameSample.jobIds.join(', ')}); muestra de búsqueda, puede compartir semillas; IC exploratorios.`
+                ? `Empezar y duración: laboratorio del mismo bot y motor (trabajos ${view.gameSample.jobIds.join(', ')}); muestra de búsqueda, puede compartir semillas; IC exploratorios.`
                 : 'Matriz elegida.'}{' '}
               Cobertura por partida: {formatNumber(games?.coverage ?? 0)} de{' '}
               {formatNumber(view.gameSample?.scope === 'laboratory' ? view.gameSample.games : (selected?.games ?? 0))}.
@@ -328,7 +328,7 @@ export function SimulationAnalysisPage() {
                     {games.firstAdvantage.orientative ? '; orientativo' : ''}).
                   </p>
                 ) : null}
-                <p>Empates: {formatRate(games.ties)}</p>
+                <p>Empates de la matriz elegida: {formatRate(games.ties)}</p>
                 {games.duration ? (
                   <>
                     <p>

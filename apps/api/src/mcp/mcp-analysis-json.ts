@@ -64,7 +64,7 @@ export function analysisJson(view: Analysis, limit = 5, full = false) {
       sample: view.gameSample,
       first: rateView(first),
       second: rateView(second),
-      ties: rateView(ties),
+      ties: ties ? { ...rateView(ties), scope: 'matrix', matrix: view.matrix?.id ?? null } : null,
       firstAdvantage: firstAdvantage
         ? {
             text: `${signed(firstAdvantage.value)} puntos (n = ${firstAdvantage.n}, IC 95 % ${firstAdvantage.ci95.map(signed).join(' a ')} puntos${firstAdvantage.orientative ? ', orientativo' : ''}).`,
