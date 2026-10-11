@@ -97,11 +97,28 @@ export class McpLabToolsService {
     )
   }
 
-  private async metaBank(args: { era?: string; format?: 'STANDARD' | 'NOEX'; size?: number }): Promise<Json> {
-    const bank = await this.lab.bank(args)
+  private async metaBank(args: {
+    era?: string
+    format?: 'STANDARD' | 'NOEX'
+    size?: number
+    objective?: 'meta' | 'mine' | 'rival'
+    archetype?: string
+  }): Promise<Json> {
+    const bank = await this.lab.bank({ ...args, archetypeId: args.archetype })
     return {
       era: bank.era,
       format: bank.format,
+      against: bank.objective.labelEs,
+      ...(bank.objective.kind === 'mine'
+        ? {
+            myMatches: {
+              matched: bank.objective.matched,
+              unmatched: bank.objective.unmatched,
+              unmatchedNames: bank.objective.unmatchedNames,
+              halfLifeDays: bank.objective.halfLifeDays,
+            },
+          }
+        : {}),
       lists: bank.lists,
       coverage: `${round(bank.coverage)} % de las listas de la era`,
       rivals: bank.rivals.map((rival) => ({
@@ -188,6 +205,7 @@ export class McpLabToolsService {
       note: view.note,
       job: jobSummaryJson(view.job),
       mode: view.mode === 'test' ? 'prueba contra el meta' : 'búsqueda automática',
+      against: view.objective.labelEs,
       era: view.era,
       format: view.format,
       bank: view.rivals.map((rival) => ({ archetype: rival.archetypeName, weight: round(rival.weight, 3) })),
@@ -268,6 +286,8 @@ export class McpLabToolsService {
   }
 
   private async test(args: {
+    objective?: 'meta' | 'mine' | 'rival'
+    archetype?: string
     decks?: string[]
     lists?: TournamentListArg[]
     texts?: { text: string; name?: string; energies?: SelectableEnergy[] }[]
@@ -289,6 +309,8 @@ export class McpLabToolsService {
     if (decks.length === 0) throw new BadRequestException('Indicá al menos un mazo: decks, lists o texts.')
     const job = await this.lab.test({
       decks,
+      objective: args.objective,
+      archetypeId: args.archetype,
       size: args.size,
       era: args.era,
       format: args.format,
@@ -315,6 +337,8 @@ export class McpLabToolsService {
   }
 
   private async explore(args: {
+    objective?: 'meta' | 'mine' | 'rival'
+    archetype?: string
     deck?: string
     list?: TournamentListArg
     text?: string
@@ -361,6 +385,8 @@ export class McpLabToolsService {
     const result = await this.lab.explore({
       deck,
       locked,
+      objective: args.objective,
+      archetypeId: args.archetype,
       size: args.size,
       era: args.era,
       format: args.format,

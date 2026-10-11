@@ -498,10 +498,23 @@ export const MCP_READ_TOOLS = {
   labMetaBank: {
     name: 'lab_meta_bank',
     title: 'Banco del meta (laboratorio)',
-    description: `El rival estándar del laboratorio de mazos: los arquetipos más jugados de la era, cada uno con su lista representativa (la misma que la «versión de torneo»: entre las repetidas 5 veces o más, la de mejor piso del intervalo) y su peso, la cuota de listas de la era normalizada sobre el banco. lab_test y lab_explore juegan contra este banco y ponderan con estos pesos. Una lista que el motor no puede simular cede su lugar a la siguiente del arquetipo, o el arquetipo se saltea (se dice por qué). ${TOURNAMENT_NOTE}`,
+    description: `El rival estándar del laboratorio de mazos: los arquetipos más jugados de la era, cada uno con su lista representativa (la misma que la «versión de torneo»: entre las repetidas 5 veces o más, la de mejor piso del intervalo) y su peso, la cuota de listas de la era normalizada sobre el banco. lab_test y lab_explore juegan contra este banco y ponderan con estos pesos. Con objective «mine» el banco son los rivales de mis partidas («mi meta»), y con «rival», un solo arquetipo con sus dos listas más representativas. Una lista que el motor no puede simular cede su lugar a la siguiente del arquetipo, o el arquetipo se saltea (se dice por qué). ${TOURNAMENT_NOTE}`,
     input: z.object({
       ...tournamentScope,
       size: z.number().int().min(1).max(20).optional().describe('Arquetipos del banco (por defecto 15)'),
+      objective: z
+        .enum(['meta', 'mine', 'rival'])
+        .optional()
+        .describe(
+          'Contra qué medir: meta (por defecto: los arquetipos más jugados de la era), mine («mi meta»: los rivales de mis partidas de la era, lo reciente pesa más) o rival (un solo arquetipo, en archetype)',
+        ),
+      archetype: z
+        .string()
+        .trim()
+        .min(1)
+        .max(120)
+        .optional()
+        .describe('Con objective «rival»: el arquetipo, por nombre (como en tournaments_stats) o por id'),
     }),
   },
   labBuildFromCore: {

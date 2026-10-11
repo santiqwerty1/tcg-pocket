@@ -5,6 +5,7 @@ import {
   jobSummarySchema,
   type LabCoreInput,
   type LabExploreInput,
+  type LabObjectiveChoice,
   type LabTestInput,
   labBankSchema,
   labCoreSchema,
@@ -17,7 +18,8 @@ import { simulationKeys } from './simulations'
 
 export const labKeys = {
   all: ['lab'] as const,
-  bank: (size: number, era: string | undefined) => ['lab', 'bank', size, era ?? ''] as const,
+  bank: (size: number, era: string | undefined, objective?: LabObjectiveChoice) =>
+    ['lab', 'bank', size, era ?? '', objective?.objective ?? 'meta', objective?.archetypeId ?? ''] as const,
   jobs: ['lab', 'jobs'] as const,
   job: (id: string) => ['lab', 'job', id] as const,
 }
@@ -25,14 +27,17 @@ export const labKeys = {
 const ACTIVE = new Set(['queued', 'running'])
 
 /** The meta bank of the era: archetypes, their lists and weights (T-008). */
-export function useLabBank(size: number, era?: string) {
+export function useLabBank(size: number, era?: string, objective?: LabObjectiveChoice) {
+  const params = new URLSearchParams({ size: String(size) })
+  if (era) params.set('era', era)
+  // T-017 D4: «mi meta» or one rival instead of the era's most played.
+  if (objective?.objective && objective.objective !== 'meta') params.set('objective', objective.objective)
+  if (objective?.objective === 'rival' && objective.archetypeId) params.set('archetypeId', objective.archetypeId)
+  const waiting = objective?.objective === 'rival' && !objective.archetypeId
   return useQuery({
-    queryKey: labKeys.bank(size, era),
-    queryFn: ({ signal }) =>
-      request(`/api/lab/bank?size=${size}${era ? `&era=${encodeURIComponent(era)}` : ''}`, {
-        schema: labBankSchema,
-        signal,
-      }),
+    queryKey: labKeys.bank(size, era, objective),
+    queryFn: ({ signal }) => request(`/api/lab/bank?${params.toString()}`, { schema: labBankSchema, signal }),
+    enabled: !waiting,
     placeholderData: keepPreviousData,
     staleTime: 5 * 60_000,
   })

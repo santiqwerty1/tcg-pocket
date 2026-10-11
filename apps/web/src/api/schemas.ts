@@ -1616,9 +1616,23 @@ export type MetaScore = z.infer<typeof metaScoreSchema>
 const labCardSchema = z.object({ cardId: z.string(), nameEs: z.string(), count: z.number() })
 export type LabCard = z.infer<typeof labCardSchema>
 
+/** T-017 D4: what a bank measures against. */
+export const labObjectiveSchema = z.object({
+  kind: z.enum(['meta', 'mine', 'rival']),
+  labelEs: z.string(),
+  archetypeId: z.string().optional(),
+  halfLifeDays: z.number().optional(),
+  matched: z.number().optional(),
+  unmatched: z.number().optional(),
+  unmatchedNames: z.array(z.string()).optional(),
+})
+export type LabObjective = z.infer<typeof labObjectiveSchema>
+const META_OBJECTIVE: LabObjective = { kind: 'meta', labelEs: 'el meta de los torneos' }
+
 export const labBankSchema = z.object({
   era: z.string(),
   format: z.enum(TOURNAMENT_FORMATS),
+  objective: labObjectiveSchema.default(META_OBJECTIVE),
   size: z.number(),
   lists: z.number(),
   coverage: z.number(),
@@ -1746,6 +1760,7 @@ export const labJobSchema = z.object({
   mode: z.enum(['test', 'explore']),
   era: z.string(),
   format: z.enum(TOURNAMENT_FORMATS),
+  objective: labObjectiveSchema.default(META_OBJECTIVE),
   size: z.number(),
   rivals: z.array(
     z.object({
@@ -1851,7 +1866,13 @@ export type LabDeckSource =
   | { text: string; name?: string; energies?: SelectableEnergy[] }
   | { cards: { cardId: string; count: number }[]; energies: SelectableEnergy[]; name?: string }
 
-export interface LabRunInput {
+/** T-017 D4: against the era's most played (default), «mi meta» or one archetype. */
+export interface LabObjectiveChoice {
+  objective?: 'meta' | 'mine' | 'rival'
+  archetypeId?: string
+}
+
+export interface LabRunInput extends LabObjectiveChoice {
   size?: number
   era?: string
   players?: [string, string]

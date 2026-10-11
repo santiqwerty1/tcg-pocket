@@ -37,9 +37,26 @@ export interface LabBankRivalView {
   cards: CardLineView[]
 }
 
+/** T-017 D4: what a bank measures against. */
+export interface LabObjectiveView {
+  kind: 'meta' | 'mine' | 'rival'
+  /** «el meta de los torneos», «mi meta (23 partidas)», «solo Mega Altaria ex». */
+  labelEs: string
+  /** The rival (kind «rival»). */
+  archetypeId?: string
+  /** «Mi meta»: a match this many days old weighs half. */
+  halfLifeDays?: number
+  /** «Mi meta»: matches against an archetype of the era, the rest, and the most frequent rivals of the rest. */
+  matched?: number
+  unmatched?: number
+  unmatchedNames?: string[]
+}
+
 export interface LabBankView {
   era: string
   format: TournamentFormat
+  /** T-017 D4: the era's most played (default), «mi meta» or one rival. */
+  objective: LabObjectiveView
   size: number
   /** Lists of the era. */
   lists: number
@@ -220,6 +237,8 @@ export interface LabJobView {
   mode: 'test' | 'explore'
   era: string
   format: TournamentFormat
+  /** T-017 D4: what it measured against (the meta for jobs from before D4). */
+  objective: LabObjectiveView
   size: number
   rivals: LabRivalView[]
   decks: LabDeckView[]

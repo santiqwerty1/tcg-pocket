@@ -632,8 +632,8 @@ export function LabJobPage() {
         </div>
         <p className="text-xs text-muted-foreground">
           #{job.id} · {data.mode === 'test' ? 'Prueba contra el meta' : 'Búsqueda de variantes'} · era {data.era} ·{' '}
-          {data.size} arquetipos · {job.playersEs[0]} vs {job.playersEs[1]} · semilla {job.baseSeed} · motor{' '}
-          {shortSha(job.engineRev)}
+          contra {data.objective.labelEs} · {data.size} arquetipos · {job.playersEs[0]} vs {job.playersEs[1]} · semilla{' '}
+          {job.baseSeed} · motor {shortSha(job.engineRev)}
         </p>
         {active ? (
           <div className="flex flex-col gap-1">

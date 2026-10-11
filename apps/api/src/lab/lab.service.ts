@@ -15,6 +15,7 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common'
 import {
+  archetypeRows,
   buildFromCore,
   buildSnapshot,
   type CardId,
@@ -30,6 +31,7 @@ import {
   chunkSeed,
   comboVariant,
   confirmVerdict,
+  customGauntlet,
   DEFAULT_CONSISTENCY_GAMES,
   DEFAULT_EXPLORE_CONFIG,
   DEFAULT_GAUNTLET_SIZE,
@@ -46,6 +48,7 @@ import {
   energyKey,
   energyVariant,
   engineEdition,
+  eraRange,
   estimateSeconds,
   eventRulesSchema,
   exploreConfig,
@@ -57,6 +60,7 @@ import {
   type Gauntlet,
   groupsOfCards,
   isBotCode,
+  type LabObjective,
   type Learned,
   type ListRow,
   learnedChanges,
@@ -67,12 +71,15 @@ import {
   MAX_BASE_SEED,
   type MeasuredSwap,
   type MetaScore,
+  MY_META_HALF_LIFE_DAYS,
   metaGauntlet,
   metaScore,
   mutationPool,
+  myMetaTargets,
   NOVELTY_LABEL_ES,
   neighborhoodUsage,
   novelty,
+  opponentKey,
   type PairedRival,
   type PerGameEntry,
   type PoolCard,
@@ -132,6 +139,7 @@ import type {
   LabJobsView,
   LabJobView,
   LabNoveltyView,
+  LabObjectiveView,
   LabRivalView,
   LabScoreView,
 } from './lab-views.js'
@@ -140,6 +148,8 @@ export const LAB_NOTE =
   'Juegan bots del motor deckgym, no personas: el porcentaje depende del bot y del motor. Es una pista para probar en el juego, no un veredicto.'
 export const MAX_TEST_DECKS = 10
 const DEFAULT_TEST_GAMES = 100
+/** T-017 D4: the default objective, and the one of jobs from before it. */
+const META_OBJECTIVE: LabObjectiveView = { kind: 'meta', labelEs: 'el meta de los torneos' }
 
 /** A deck for the Laboratorio: one of mine, an exact tournament list or a pasted list. */
 export type LabDeckInput =
@@ -166,6 +176,12 @@ export interface LabScopeInput {
   format?: TournamentFormat | undefined
   /** Archetypes in the bank (5–20, default 10). */
   size?: number | undefined
+  /** T-017 D4: against the era's most played (default), my own rivals («mi meta») or one archetype. */
+  objective?: LabObjective['kind'] | undefined
+  /** The archetype, with `objective: 'rival'`. */
+  archetypeId?: string | undefined
+  /** «Mi meta»: a match this many days old weighs half (14 by default). */
+  halfLifeDays?: number | undefined
 }
 
 export interface LabRunInput extends LabScopeInput {
@@ -284,6 +300,8 @@ interface LabParams {
   format: TournamentFormat
   /** Fase 42: this test is the confirmation of search #N played again with another bot. */
   robustnessOf?: number
+  /** T-017 D4: absent in jobs from before D4 (the meta). */
+  objective?: LabObjectiveView
   size: number
   rivals: LabRival[]
   explore?: ExploreState
@@ -301,6 +319,7 @@ interface JobParams {
 interface Bank {
   scope: Scope
   dataset: TournamentDataset
+  objective: LabObjectiveView
   gauntlet: Gauntlet
   rows: ListRow[]
   usage: Map<CardId, number>
@@ -373,28 +392,78 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
   private async bankOf(input: LabScopeInput): Promise<Bank> {
     const { scope, dataset } = await this.tournaments.scopedDataset({ era: input.era, format: input.format })
     const engine = await this.engine.status()
-    const gauntlet = metaGauntlet(dataset, {
-      size: input.size ?? DEFAULT_GAUNTLET_SIZE,
-      // T-017 D3: the 3 most played archetypes with two lists each (banks of 10 or more).
-      secondLists: secondListsFor(input.size ?? DEFAULT_GAUNTLET_SIZE),
-      check: (list, energies) => {
-        const unknown = list.cards.filter((card) => card.cardId === null)
-        if (unknown.length > 0) {
-          return `cartas que el catálogo no conoce: ${unknown.map((card) => `${card.set}-${card.number}`).join(', ')}`
-        }
-        const draft = buildSnapshot({
-          label: list.key,
-          cards: list.cards.map((card) => ({ cardId: card.cardId as string, count: card.count })),
-          energies: selectableEnergies(energies),
-          index: scope.index,
-          engine,
+    const size = input.size ?? DEFAULT_GAUNTLET_SIZE
+    const check = (list: ListRow, energies: string[]) => {
+      const unknown = list.cards.filter((card) => card.cardId === null)
+      if (unknown.length > 0) {
+        return `cartas que el catálogo no conoce: ${unknown.map((card) => `${card.set}-${card.number}`).join(', ')}`
+      }
+      const draft = buildSnapshot({
+        label: list.key,
+        cards: list.cards.map((card) => ({ cardId: card.cardId as string, count: card.count })),
+        energies: selectableEnergies(energies),
+        index: scope.index,
+        engine,
+      })
+      return draft.simulable ? null : describeProblems(draft.problems)
+    }
+    let gauntlet: Gauntlet
+    let objective: LabObjectiveView
+    if (input.objective === 'mine') {
+      // T-017 D4: «mi meta», the rivals of my matches in the era, the recent ones weighing more.
+      const range = eraRange(scope.era, scope.sets)
+      const matches = await this.prisma.match.findMany({
+        where: range ? { playedAt: { gte: range.from, ...(range.to ? { lt: range.to } : {}) } } : {},
+        select: { opponentText: true, playedAt: true },
+      })
+      const mine = myMetaTargets(
+        dataset,
+        matches.map((match) => ({ opponent: match.opponentText, playedAt: match.playedAt })),
+        { now: new Date(), halfLifeDays: input.halfLifeDays },
+      )
+      if (mine.targets.length === 0) {
+        throw new UnprocessableEntityException({
+          code: 'empty_bank',
+          message: `Todavía no hay partidas tuyas contra arquetipos de la era ${scope.era}: cargá el rival con el nombre que sugiere la lista.`,
         })
-        return draft.simulable ? null : describeProblems(draft.problems)
-      },
-    })
+      }
+      // T-017 D3: the first ones bring a second list (banks of 10 or more).
+      gauntlet = customGauntlet(dataset, mine.targets, { size, secondLists: secondListsFor(size), check })
+      objective = {
+        kind: 'mine',
+        labelEs: `mi meta (${mine.matched} ${mine.matched === 1 ? 'partida' : 'partidas'})`,
+        halfLifeDays: input.halfLifeDays ?? MY_META_HALF_LIFE_DAYS,
+        matched: mine.matched,
+        unmatched: mine.unmatched,
+        unmatchedNames: mine.unmatchedNames,
+      }
+    } else if (input.objective === 'rival') {
+      // T-017 D4: one archetype, played by its two most representative lists.
+      const archetypeId = input.archetypeId
+      if (!archetypeId) throw new BadRequestException({ code: 'validation', message: 'Elegí el arquetipo rival.' })
+      const rows = archetypeRows(dataset)
+      const key = opponentKey(archetypeId)
+      const row =
+        rows.find((item) => item.archetype?.id === archetypeId) ??
+        rows.find((item) => key !== null && opponentKey(item.archetype?.name) === key)
+      if (!row?.archetype) {
+        throw new NotFoundException(`El arquetipo ${archetypeId} no aparece en los torneos de la era ${scope.era}.`)
+      }
+      gauntlet = customGauntlet(dataset, [{ archetypeId: row.archetype.id, weight: 1 }], {
+        size: 1,
+        secondLists: 1,
+        check,
+      })
+      objective = { kind: 'rival', archetypeId: row.archetype.id, labelEs: `solo ${row.archetype.name}` }
+    } else {
+      // T-017 D3: the 3 most played archetypes with two lists each (banks of 10 or more).
+      gauntlet = metaGauntlet(dataset, { size, secondLists: secondListsFor(size), check })
+      objective = META_OBJECTIVE
+    }
     return {
       scope,
       dataset,
+      objective,
       gauntlet,
       rows: listRows(dataset, 'group'),
       usage: new Map(cardUsage(dataset.entries).map((row) => [row.groupId, row.share])),
@@ -413,6 +482,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     return {
       era: bank.scope.era,
       format: bank.scope.format,
+      objective: bank.objective,
       // Archetypes, not lists: the most played ones bring two (T-017 D3; bots' review, item 8).
       size: new Set(bank.gauntlet.rivals.map((rival) => rival.archetypeId)).size,
       lists: bank.gauntlet.lists,
@@ -445,6 +515,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       mode,
       era: bank.scope.era,
       format: bank.scope.format,
+      objective: bank.objective,
       // Archetypes, not lists: the most played ones bring two (T-017 D3).
       size: new Set(bank.gauntlet.rivals.map((rival) => rival.archetypeId)).size,
       rivals: bank.gauntlet.rivals.map((rival) => ({
@@ -528,7 +599,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       seed?: number | undefined
     },
   ): Promise<JobSummaryView> {
-    const bank = await this.bankOf(input)
+    // Against the era's meta (T-017 D4 is for the tests and searches).
+    const bank = await this.bankOf({ era: input.era, format: input.format, size: input.size })
     if (bank.gauntlet.rivals.length === 0) {
       throw new UnprocessableEntityException({ code: 'empty_bank', message: 'No hay listas del meta para medir.' })
     }
@@ -578,7 +650,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     const labels = await Promise.all(sideA.map(async (source) => (await this.snapshots.preview(source)).label))
     const job: CreateJobInput = {
       kind: 'compare',
-      label: input.label?.trim() || `Contra el meta ${bank.scope.era}: ${labels.join(' · ')}`,
+      label: input.label?.trim() || `Contra ${objectiveLabel(bank)}: ${labels.join(' · ')}`,
       sideA,
       sideB: bank.sources,
       gamesPerPair: input.gamesPerRival ?? DEFAULT_TEST_GAMES,
@@ -919,7 +991,9 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       const created = await tx.simulationJob.create({
         data: {
           kind: 'explore',
-          label: input.label?.trim() || `Explorar ${base.label}${event ? ` para «${event.name}»` : ''}`,
+          label:
+            input.label?.trim() ||
+            `Explorar ${base.label}${event ? ` para «${event.name}»` : ''}${bank.objective.kind === 'meta' ? '' : ` contra ${objectiveLabel(bank)}`}`,
           params: params as unknown as Prisma.InputJsonValue,
           engineRev: this.engine.engineRev(),
           players,
@@ -1553,6 +1627,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     return {
       scope,
       dataset,
+      objective: lab.objective ?? META_OBJECTIVE,
       gauntlet: { rivals: [], skipped: [], coverage: 0, lists: dataset.entries.length },
       rows: [],
       usage: new Map(cardUsage(dataset.entries).map((row) => [row.groupId, row.share])),
@@ -1603,8 +1678,12 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         select: { id: true, params: true, finishedAt: true },
       })
     )
-      // Fase 42: a search's replay with another bot is not a test of the deck (its search already is).
-      .filter((job) => labMode(job.params) !== null && !(job.params as unknown as JobParams).lab.robustnessOf)
+      // A deck's score is against the meta (T-017 D4: a test against one rival or «mi meta» says something else), and a
+      // search's replay with another bot is not a test of the deck (fase 42: its search already is).
+      .filter((job) => {
+        const lab = (job.params as unknown as JobParams).lab
+        return labMode(job.params) !== null && (lab.objective?.kind ?? 'meta') === 'meta' && !lab.robustnessOf
+      })
     const views = new Map<number, LabJobView>()
     for (const [deckId, key] of keys) {
       const ids = idsByKey.get(key)
@@ -1791,6 +1870,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       mode,
       era: lab.era,
       format: lab.format,
+      objective: lab.objective ?? META_OBJECTIVE,
       size: lab.size,
       rivals: rivalViews,
       decks,
@@ -1876,6 +1956,13 @@ function freezeInputs(pool: readonly PoolCard[], affinity: ReadonlyMap<CardId, n
 function searchGames(config: ExploreConfig, weights: readonly number[]): number[] {
   const games = roundGames(config, config.gamesPerRival, weights)
   return config.race ? raceHalves(games)[0] : games
+}
+
+/** «el meta B4a», «mi meta B4a (12 partidas)», «solo Mega Altaria ex (B4a)» (T-017 D4). */
+function objectiveLabel(bank: Bank): string {
+  if (bank.objective.kind === 'meta') return `el meta ${bank.scope.era}`
+  if (bank.objective.kind === 'mine') return `mi meta ${bank.scope.era} (${bank.objective.matched ?? 0} partidas)`
+  return `${bank.objective.labelEs} (${bank.scope.era})`
 }
 
 /** The frozen pool back as pool cards (a card the catalog no longer has is left out). */

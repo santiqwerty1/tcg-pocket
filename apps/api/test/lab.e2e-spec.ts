@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
-import { poolForZone, type SelectableEnergy, usableWith } from '@tcg/domain'
+import { eraRange, poolForZone, type SelectableEnergy, usableWith } from '@tcg/domain'
 import { CatalogService } from '../src/catalog/catalog.service.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
@@ -182,6 +182,92 @@ describe('laboratorio (e2e)', () => {
     // Small banks stay one list per archetype.
     const small = (await get('/api/lab/bank?size=5')).body as { rivals: { second: boolean }[] }
     expect(small.rivals.some((rival) => rival.second)).toBe(false)
+  })
+
+  it('T-017 D4: a bank against «mi meta» or one rival; a test against them keeps it and is no score against the meta', async () => {
+    const meta = (await get('/api/lab/bank?size=5')).body as {
+      objective: { kind: string }
+      rivals: { archetypeId: string; archetypeName: string; weight: number }[]
+    }
+    expect(meta.objective).toMatchObject({ kind: 'meta', labelEs: 'el meta de los torneos' })
+    const [first, second] = meta.rivals
+    if (!first || !second) throw new Error('empty bank')
+    // No matches of mine against archetypes of the era yet: it says so.
+    const none = await get('/api/lab/bank?objective=mine')
+    expect(none.status).toBe(422)
+    expect(none.body.error.code).toBe('empty_bank')
+    // Three matches against the first, one against the second, one against something else, all in the era B4a.
+    const sets = await test.prisma.setRelease.findMany()
+    const range = eraRange(
+      'B4a',
+      sets.map((set) => ({
+        code: set.code,
+        nameEn: set.nameEn,
+        releaseDate: set.releaseDate.toISOString().slice(0, 10),
+        opensEra: set.opensEra,
+      })),
+    )
+    if (!range) throw new Error('no era B4a')
+    const deck = await test.prisma.deck.findUniqueOrThrow({ where: { id: Number(deckIds[0]) } })
+    const playedAt = new Date(range.from.getTime() + 86_400_000)
+    const opponents = [first.archetypeName, first.archetypeName, first.archetypeName, second.archetypeName, 'otro mazo']
+    await test.prisma.match.createMany({
+      data: opponents.map((opponentText) => ({
+        deckId: deck.id,
+        deckRevisionId: deck.currentRevisionId as number,
+        result: 'win' as const,
+        mode: 'competitive' as const,
+        opponentText,
+        playedAt,
+      })),
+    })
+    const mine = (await get('/api/lab/bank?objective=mine&size=5')).body
+    expect(mine.objective).toMatchObject({
+      kind: 'mine',
+      labelEs: 'mi meta (4 partidas)',
+      matched: 4,
+      unmatched: 1,
+      unmatchedNames: ['otro mazo'],
+      halfLifeDays: 14,
+    })
+    // All four on the same day: 3 to 1.
+    expect(mine.rivals.map((rival: { archetypeId: string }) => rival.archetypeId)).toEqual([
+      first.archetypeId,
+      second.archetypeId,
+    ])
+    expect(mine.rivals[0].weight).toBeCloseTo(0.75, 10)
+    // One rival: its two most representative lists, the whole weight.
+    const one = (await get(`/api/lab/bank?objective=rival&archetypeId=${first.archetypeId}`)).body
+    expect(one.objective).toMatchObject({
+      kind: 'rival',
+      archetypeId: first.archetypeId,
+      labelEs: `solo ${first.archetypeName}`,
+    })
+    expect(new Set(one.rivals.map((rival: { archetypeId: string }) => rival.archetypeId))).toEqual(
+      new Set([first.archetypeId]),
+    )
+    expect(one.rivals.reduce((sum: number, rival: { weight: number }) => sum + rival.weight, 0)).toBeCloseTo(1, 10)
+    expect((await get('/api/lab/bank?objective=rival')).status).toBe(400)
+    expect((await get('/api/lab/bank?objective=rival&archetypeId=no-existe')).status).toBe(404)
+
+    // A test against that rival: its label and view say so, and it is not the deck's score against the meta.
+    const created = await post('/api/lab/test').send({
+      decks: [{ deckId: deckIds[3] }],
+      objective: 'rival',
+      archetypeId: first.archetypeId,
+      gamesPerRival: 10,
+      seed: 7100,
+    })
+    expect(created.status).toBe(200)
+    expect(created.body.label).toBe(`Contra solo ${first.archetypeName} (B4a): ${created.body.label.split(': ')[1]}`)
+    expect(await playAll((_a, _b, games) => Math.round(games * 0.6))).toBe(one.rivals.length)
+    const done = (await get(`/api/lab/jobs/${created.body.id}`)).body
+    expect(done).toMatchObject({
+      job: { status: 'done' },
+      objective: { kind: 'rival', archetypeId: first.archetypeId },
+    })
+    expect(await test.app.get(LabService).deckScore(Number(deckIds[3]))).toBeNull()
+    await test.prisma.match.deleteMany({ where: { deckId: deck.id } })
   })
 
   it('test against the meta: a «comparar» job against the bank, scored with its weights', async () => {
@@ -1337,8 +1423,15 @@ describe('laboratorio (e2e)', () => {
       return result.structuredContent ?? {}
     }
     const bank = await call('lab_meta_bank', { size: 3 })
-    expect(bank).toMatchObject({ era: 'B4a', lists: 393 })
+    expect(bank).toMatchObject({ era: 'B4a', lists: 393, against: 'el meta de los torneos' })
     expect(bank.rivals).toHaveLength(3)
+    // T-017 D4: one rival, by name as Claude gives it (lower case, no accents needed).
+    const [top] = bank.rivals as { archetype: string }[]
+    const alone = await call('lab_meta_bank', { objective: 'rival', archetype: top?.archetype.toLowerCase() })
+    expect(alone.against).toBe(`solo ${top?.archetype}`)
+    expect(new Set((alone.rivals as { archetype: string }[]).map((rival) => rival.archetype))).toEqual(
+      new Set([top?.archetype]),
+    )
 
     const text = readFileSync(DECKS_PATH, 'utf8')
     const section = text.slice(text.indexOf('\n### 2. ') + 1, text.indexOf('\n### 3. '))

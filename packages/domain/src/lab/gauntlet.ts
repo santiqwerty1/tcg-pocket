@@ -7,6 +7,7 @@
  * list, and the archetype's weight is split between its two lists by how often each was played, so a tech that only
  * beats one exact list of a big archetype is not rewarded for the whole archetype.
  */
+import { opponentKey } from '../matches/opponents.js'
 import { rankArchetypeLists } from '../tournaments/buildable.js'
 import type { TournamentDataset } from '../tournaments/dataset.js'
 import { archetypeRows, entriesOfList, type ListRow, listRows, mostCommonEnergies } from '../tournaments/stats.js'
@@ -67,11 +68,70 @@ export interface Gauntlet {
 /** Why a list cannot be in the bank (the engine cannot play it), or null when it can. */
 export type GauntletCheck = (list: ListRow, energies: string[]) => string | null
 
-export function metaGauntlet(
-  dataset: TournamentDataset,
-  options: { size?: number | undefined; check?: GauntletCheck | undefined; secondLists?: number | undefined } = {},
-): Gauntlet {
+export function metaGauntlet(dataset: TournamentDataset, options: GauntletOptions = {}): Gauntlet {
   const size = Math.min(MAX_GAUNTLET_SIZE, Math.max(1, Math.round(options.size ?? DEFAULT_GAUNTLET_SIZE)))
+  const candidates = archetypeRows(dataset).flatMap((row) =>
+    row.archetype
+      ? [{ id: row.archetype.id, name: row.archetype.name, share: row.share, lists: row.lists, weight: row.share }]
+      : [],
+  )
+  return gauntletOf(dataset, candidates, { ...options, size })
+}
+
+export interface GauntletOptions {
+  size?: number | undefined
+  check?: GauntletCheck | undefined
+  secondLists?: number | undefined
+}
+
+/** T-017 D4: an archetype of the era to measure against, with its weight (any scale: the bank normalizes it). */
+export interface GauntletTarget {
+  archetypeId: string
+  weight: number
+}
+
+/**
+ * T-017 D4: a bank of chosen archetypes with chosen weights instead of the era's most played: one archetype to tune a
+ * deck against, or the rivals of the owner's own matches («mi meta»). Each is played by its representative list, as in
+ * `metaGauntlet` (a list the engine cannot play gives way to the next; an archetype with none is skipped), and the
+ * first `secondLists` bring their next list too (D3).
+ */
+export function customGauntlet(
+  dataset: TournamentDataset,
+  targets: readonly GauntletTarget[],
+  options: GauntletOptions = {},
+): Gauntlet {
+  const rows = new Map(
+    archetypeRows(dataset).flatMap((row) => (row.archetype ? [[row.archetype.id, row] as const] : [])),
+  )
+  const seen = new Set<string>()
+  const candidates = targets.flatMap((target) => {
+    const row = rows.get(target.archetypeId)
+    if (!row?.archetype || target.weight <= 0 || seen.has(target.archetypeId)) return []
+    seen.add(target.archetypeId)
+    const { id, name } = row.archetype
+    return [{ id, name, share: row.share, lists: row.lists, weight: target.weight }]
+  })
+  const size = Math.min(MAX_GAUNTLET_SIZE, Math.max(1, Math.round(options.size ?? candidates.length)))
+  return gauntletOf(dataset, candidates, { ...options, size })
+}
+
+interface Candidate {
+  id: string
+  name: string
+  /** The archetype's share of the era's lists (0–100). */
+  share: number
+  lists: number
+  /** What it weighs in the bank before normalizing: its share for the meta, the target's weight otherwise. */
+  weight: number
+}
+
+/** The bank: candidates in order until `size` are taken, their representative lists, second lists, weights. */
+function gauntletOf(
+  dataset: TournamentDataset,
+  candidates: readonly Candidate[],
+  options: GauntletOptions & { size: number },
+): Gauntlet {
   const byArchetype = new Map<string, ListRow[]>()
   for (const row of listRows(dataset, 'group')) {
     if (row.archetypeId === null) continue
@@ -81,10 +141,10 @@ export function metaGauntlet(
   }
   const rivals: GauntletRival[] = []
   const skipped: GauntletSkip[] = []
-  for (const archetype of archetypeRows(dataset)) {
-    if (rivals.length >= size) break
-    if (!archetype.archetype) continue
-    const { id, name } = archetype.archetype
+  const raw = new Map<string, number>()
+  for (const candidate of candidates) {
+    if (rivals.length >= options.size) break
+    const { id, name } = candidate
     const ranked = rankArchetypeLists(byArchetype.get(id) ?? []).slice(0, LISTS_TRIED)
     let reason: string | null = null
     let taken = false
@@ -95,15 +155,16 @@ export function metaGauntlet(
         rivals.push({
           archetypeId: id,
           archetypeName: name,
-          share: archetype.share,
+          share: candidate.share,
           weight: 0,
-          archetypeLists: archetype.lists,
+          archetypeLists: candidate.lists,
           list,
           energies,
           rank,
           second: false,
           part: 1,
         })
+        raw.set(id, candidate.weight)
         taken = true
         break
       }
@@ -113,13 +174,13 @@ export function metaGauntlet(
       skipped.push({
         archetypeId: id,
         archetypeName: name,
-        share: archetype.share,
+        share: candidate.share,
         reason: reason ?? 'ninguna lista completa en el catálogo',
       })
     }
   }
   const coverage = rivals.reduce((sum, rival) => sum + rival.share, 0)
-  // T-017 D3: the most played archetypes bring their next playable list, right after the first one.
+  // T-017 D3: the first archetypes bring their next playable list, right after the first one.
   const seconds = Math.max(0, Math.round(options.secondLists ?? 0))
   const withSeconds: GauntletRival[] = []
   for (const [at, rival] of rivals.entries()) {
@@ -137,6 +198,73 @@ export function metaGauntlet(
       break
     }
   }
-  for (const rival of withSeconds) rival.weight = coverage === 0 ? 0 : (rival.share * rival.part) / coverage
+  const total = [...raw.values()].reduce((sum, weight) => sum + weight, 0)
+  for (const rival of withSeconds) {
+    rival.weight = total === 0 ? 0 : ((raw.get(rival.archetypeId) ?? 0) * rival.part) / total
+  }
   return { rivals: withSeconds, skipped, coverage, lists: dataset.entries.length }
+}
+
+/** T-017 D4: what a bank measures against — the era's most played, the owner's own rivals, or one archetype. */
+export type LabObjective =
+  | { kind: 'meta' }
+  | { kind: 'mine'; halfLifeDays?: number | undefined }
+  | { kind: 'rival'; archetypeId: string }
+
+/** «Mi meta»: a match from `halfLifeDays` ago weighs half as much as one from today. */
+export const MY_META_HALF_LIFE_DAYS = 14
+
+export interface MyMetaTargets {
+  /** The era's archetypes the owner's matches were against, heaviest first. */
+  targets: (GauntletTarget & { matches: number })[]
+  /** Matches whose rival, as typed, is an archetype of the era. */
+  matched: number
+  /** The rest: no rival typed, or one that is not an archetype's name (the autocomplete offers those). */
+  unmatched: number
+  /** The most frequent rivals that matched no archetype, as typed (up to 5). */
+  unmatchedNames: string[]
+}
+
+/**
+ * T-017 D4 (and fase 44, «mi meta»): the era's archetypes the owner's matches were against, each match weighing
+ * ½^(days ago / `halfLifeDays`). A match counts when its rival, as typed, is an archetype's name (`opponentKey`, the
+ * same key the match statistics group by).
+ */
+export function myMetaTargets(
+  dataset: TournamentDataset,
+  matches: readonly { opponent: string | null; playedAt: Date }[],
+  options: { now: Date; halfLifeDays?: number | undefined },
+): MyMetaTargets {
+  const halfLife = Math.max(1, options.halfLifeDays ?? MY_META_HALF_LIFE_DAYS)
+  const byKey = new Map<string, string>()
+  for (const row of archetypeRows(dataset)) {
+    const key = opponentKey(row.archetype?.name)
+    if (key && row.archetype && !byKey.has(key)) byKey.set(key, row.archetype.id)
+  }
+  const weights = new Map<string, { weight: number; matches: number }>()
+  const missing = new Map<string, number>()
+  let unmatched = 0
+  for (const match of matches) {
+    const key = opponentKey(match.opponent)
+    const id = key ? byKey.get(key) : undefined
+    if (!id) {
+      unmatched += 1
+      const name = match.opponent?.trim()
+      if (name) missing.set(name, (missing.get(name) ?? 0) + 1)
+      continue
+    }
+    const days = Math.max(0, (options.now.getTime() - match.playedAt.getTime()) / 86_400_000)
+    const item = weights.get(id) ?? { weight: 0, matches: 0 }
+    item.weight += 0.5 ** (days / halfLife)
+    item.matches += 1
+    weights.set(id, item)
+  }
+  const targets = [...weights]
+    .map(([archetypeId, item]) => ({ archetypeId, weight: item.weight, matches: item.matches }))
+    .sort((a, b) => b.weight - a.weight || b.matches - a.matches || a.archetypeId.localeCompare(b.archetypeId))
+  const unmatchedNames = [...missing]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 5)
+    .map(([name]) => name)
+  return { targets, matched: matches.length - unmatched, unmatched, unmatchedNames }
 }
