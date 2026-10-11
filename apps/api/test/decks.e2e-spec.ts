@@ -399,6 +399,20 @@ describe('decks (e2e)', () => {
     }
     expect(manectric.search.cards).toEqual({ pokeball: 2, research: 2, communication: 1 })
     expect(manectric.search.rows[4]?.probability).toBeGreaterThan(manectric.rows[4]?.each[0] ?? 1)
+    // Review of #52: a saved deck that repeats a type (the input schema accepts it) shows the type once.
+    const blazikenDeck = (await get(`/api/decks/${deckId(2)}`)).body as {
+      cards: { card: { id: string }; count: number }[]
+    }
+    const repeated = await post('/api/decks').send({
+      name: 'Blaziken con Fuego dos veces',
+      energies: ['fire', 'fire'],
+      cards: blazikenDeck.cards.map((entry) => ({ cardId: entry.card.id, count: entry.count })),
+    })
+    expect(repeated.status).toBe(201)
+    const twice = (await get(`/api/decks/${repeated.body.id}/draw-odds`)).body as { energy: EnergyOdds | null }
+    expect(twice.energy?.types).toEqual(['fire'])
+    expect((await patch(`/api/decks/${repeated.body.id}`).send({ archived: true })).status).toBe(200)
+    expect((await del(`/api/decks/${repeated.body.id}`)).status).toBe(204)
 
     const deck = (await get(`/api/decks/${deckId(2)}`)).body as {
       cards: { card: { id: string; cardType: string; evolutionType: string; nameEs: string } }[]

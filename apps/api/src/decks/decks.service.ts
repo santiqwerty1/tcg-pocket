@@ -299,11 +299,13 @@ export class DecksService {
    * attacker): the chance of paying each attack by own turn, going first and going second.
    */
   private energyOdds(
-    types: readonly SelectableEnergy[],
+    deckTypes: readonly SelectableEnergy[],
     entries: readonly DeckCardEntry[],
     firstGroups: readonly string[],
     turns: number,
   ): DrawOddsView['energy'] {
+    // A saved deck can repeat a type: the zone gives each type once, and the chips show it once.
+    const types = [...new Set(deckTypes)]
     if (types.length === 0 || types.length > 3) return null
     const index = this.catalog.requireIndex()
     const attackerOf = (groupIds: readonly string[]) =>
@@ -325,7 +327,7 @@ export class DecksService {
         groupId: attacker.functionalGroupId,
         nameEs: index.groupById(attacker.functionalGroupId)?.nameEs ?? attacker.nameEs,
       },
-      types: [...types],
+      types,
       attacks: attacker.attacks.map((attack) => {
         const odds = energyZoneOdds(types, attack.cost, turns)
         return {

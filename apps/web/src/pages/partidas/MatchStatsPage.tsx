@@ -8,7 +8,7 @@ import { Section } from '@/components/Section'
 import { TurnOrderCard } from '@/components/TurnOrderCard'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { formatRateValue, MODE_LABEL, PERIODS, type PeriodKey, periodFrom } from '@/lib/matches'
+import { formatInterval, formatRateValue, MODE_LABEL, PERIODS, type PeriodKey, periodFrom } from '@/lib/matches'
 import { ChoiceGroup } from './MatchFields'
 import { MyMetaSection } from './MyMetaSection'
 
@@ -104,7 +104,9 @@ export function MatchStatsPage() {
                   ? {
                       hint: [
                         row.deck.archived ? 'archivado' : null,
-                        row.coinAdjusted ? `con la moneda pareja ${formatRateValue(row.coinAdjusted.value)}` : null,
+                        row.coinAdjusted
+                          ? `con la moneda pareja ${formatRateValue(row.coinAdjusted.value)} (n = ${row.coinAdjusted.games}, IC ${formatInterval(row.coinAdjusted.ci95)}${row.coinAdjusted.orientative ? ', orientativo' : ''})`
+                          : null,
                       ]
                         .filter(Boolean)
                         .join(' · '),
