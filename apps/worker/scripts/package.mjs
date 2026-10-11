@@ -92,7 +92,9 @@ Actualizaciones: el worker se actualiza solo. Cada 10 minutos pregunta a la app 
 o del motor; la baja con su token, verifica la suma SHA-256 y prueba el motor nuevo antes de usarlo. Cambia entre
 partidas, nunca a mitad de un chunk, y si la versión nueva no arranca vuelve a la anterior. Las versiones bajadas
 quedan en %LOCALAPPDATA%\\tcg-worker\\releases. Para no actualizar esta PC: "autoUpdate": false en config.json.
-Un paquete nuevo copiado a mano encima de esta carpeta manda sobre lo bajado (cerrá antes el worker).
+Un paquete copiado a mano arranca con su propio código, pero en su primera revisión vuelve a bajar el de la app:
+siempre manda la app (para quedarse en una versión, "autoUpdate": false). Windows no deja pisar un .exe en uso:
+copiá un paquete nuevo en otra carpeta y abrilo desde ahí (ofrece detener el worker que está corriendo).
 Licencias: el worker y engine-cli.exe son AGPL-3.0 (LICENSE.txt; fuentes en https://github.com/santiqwerty1/tcg-pocket);
 engine-cli.exe incluye deckgym-core (AGPL-3.0, https://github.com/bcollazo/deckgym-core); tcg-worker.exe lleva
 adentro Node.js (LICENSE-node.txt).

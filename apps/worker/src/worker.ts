@@ -689,7 +689,8 @@ export class Worker {
             // Android's exact-engine gate: the app moved to another engine, and its package brings it.
             this.log('el servidor cambió de motor: busco la versión nueva')
             if (await updater.check(signal)) break
-            await sleep(60_000, undefined, { signal }).catch(() => undefined)
+            // Never faster than the wait of a failed preparation (a cut download is not retried every minute).
+            await sleep(Math.max(60_000, updater.retryInMs()), undefined, { signal }).catch(() => undefined)
             continue
           }
           throw error

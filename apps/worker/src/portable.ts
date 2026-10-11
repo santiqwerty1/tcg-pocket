@@ -13,6 +13,7 @@
  * This module is also the code of each downloaded release (`worker.cjs`): `sea.ts`, built into the executable, loads
  * the current release and calls its `main`. Keep `main` and `PortableContext` compatible with older executables.
  */
+import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { availableParallelism, hostname } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -56,18 +57,42 @@ function alive(pid: number): boolean {
   }
 }
 
-/** The worker (or supervisor) already running from this folder, if any: setup offers to stop it. */
-function runningWorkers(): number[] {
-  const pids: number[] = []
-  for (const lock of [join(dataDir(), 'worker.lock'), join(dataDir(), 'supervisor', 'worker.lock')]) {
+/** A process's command line (Windows), to be sure a lock's PID still is a worker before stopping it. */
+function commandLine(pid: number): string {
+  const result = spawnSync(
+    'powershell.exe',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`,
+    ],
+    { encoding: 'utf8', windowsHide: true, timeout: 20_000 },
+  )
+  return result.status === 0 ? result.stdout.trim() : ''
+}
+
+/** tcg-worker.exe (any copy) or the repository's `node …apps/worker/dist/main.js`. */
+export const looksLikeWorker = (line: string) =>
+  /tcg-worker\.exe|[\\/]apps[\\/]worker[\\/]dist[\\/]main\.js/i.test(line)
+
+/**
+ * The supervisor and the worker already running from this folder, supervisor first (stopping the worker first would
+ * make the supervisor start it again). A lock whose PID now belongs to another program is left alone.
+ */
+function runningWorkers(): { pid: number; line: string }[] {
+  const found: { pid: number; line: string }[] = []
+  for (const lock of [join(dataDir(), 'supervisor', 'worker.lock'), join(dataDir(), 'worker.lock')]) {
     try {
       const pid = Number(readFileSync(lock, 'utf8').trim())
-      if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && alive(pid)) pids.push(pid)
+      if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || !alive(pid)) continue
+      const line = commandLine(pid)
+      if (looksLikeWorker(line)) found.push({ pid, line })
     } catch {
       // No lock.
     }
   }
-  return pids
+  return found
 }
 
 async function setup(context: PortableContext): Promise<void> {
@@ -78,17 +103,22 @@ async function setup(context: PortableContext): Promise<void> {
     // An older worker (another folder, or the repository's) keeps the lock: the new one would not start.
     const running = runningWorkers()
     if (running.length > 0) {
+      for (const { pid, line } of running) console.log(`Worker corriendo: PID ${pid} — ${line}`)
       const answer = (
-        await rl.question(
-          `Hay un worker corriendo (PID ${running.join(', ')}). ¿Lo detengo para usar este? Lo que esté jugando vuelve a la cola. [S/n]: `,
-        )
+        await rl.question('¿Lo detengo para usar este? Lo que esté jugando vuelve a la cola. [S/n]: ')
       ).trim()
       if (/^n/i.test(answer)) {
         console.log('No toco nada. Cerralo (Administrador de tareas o cerrar sesión) y volvé a abrir este programa.')
         return
       }
-      for (const pid of running) process.kill(pid)
-      for (let i = 0; i < 50 && running.some(alive); i++) await sleep(100)
+      for (const { pid } of running) {
+        try {
+          process.kill(pid)
+        } catch {
+          // Already gone (stopping the supervisor can end its worker too).
+        }
+        for (let i = 0; i < 50 && alive(pid); i++) await sleep(100)
+      }
       console.log('Worker anterior detenido.')
     }
     const server = current.server ?? DEFAULT_SERVER

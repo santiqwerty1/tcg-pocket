@@ -8,6 +8,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs'
 import { createServer, type Server } from 'node:http'
@@ -15,18 +16,23 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+// @ts-expect-error: a build script in plain JavaScript, without types.
+import { writeTarGz } from '../scripts/deterministic-tar.mjs'
 import { chooseRelease, loadRelease } from '../src/bootstrap.js'
 import { WorkerClient } from '../src/client.js'
+import { looksLikeWorker } from '../src/portable.js'
 import { run } from '../src/run.js'
 import { supervise } from '../src/supervisor.js'
 import {
+  afterFailedStart,
   androidInstallation,
+  badMark,
   type Installation,
   isBad,
   isHealthy,
   RESTART_FOR_UPDATE,
+  RestartPacer,
   readPointer,
-  rollBackUnhealthy,
   Updater,
   updatesAllowedFrom,
   windowsInstallation,
@@ -99,6 +105,13 @@ async function packageServer() {
   return { url, state, offer, close: () => new Promise<void>((resolve) => server.close(() => resolve())) }
 }
 
+/** As if the wait after a failed preparation had passed. */
+function waitPassed(releases: string, sha: string): void {
+  const file = join(releases, `${sha}.attempts`)
+  const attempts = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
+  writeFileSync(file, JSON.stringify({ ...attempts, retryAt: new Date(0).toISOString() }))
+}
+
 /** A Windows-like installation whose check is the package's own check.mjs (no executable needed). */
 function testInstallation(dataDir: string, current: string | null, base = 'build-1'): Installation {
   const windows = windowsInstallation(dataDir, current ? join(dataDir, 'releases', current) : null, base)
@@ -152,57 +165,133 @@ describe('self-update (D-026)', () => {
     expect(server.state.requests.every((line) => line.endsWith('/version'))).toBe(true)
   })
 
-  it('a package that plays differently is never used; other failures after three tries; a wrong sum is retried', async () => {
+  it('a failed preparation waits longer each time: never a loop of downloads; a failing check is out for a day', async () => {
+    const data = join(dir, 'data')
+    const releases = join(data, 'releases')
+    const client = new WorkerClient(server.url, 'tcg_wk_test', silent)
+    const downloads = () => server.state.requests.filter((line) => !line.endsWith('/version')).length
+    // A timeout on a busy PC (or a crash): exit 1.
+    const flaky = server.offer(makePackage(dir, 'flaky', { checkCode: 1 }))
+    const updater = new Updater(testInstallation(data, null), client, silent)
+    updater.minCheckGapMs = 0
+    expect(await updater.check()).toBeNull()
+    expect(downloads()).toBe(1)
+    expect(updater.retryInMs()).toBeGreaterThan(4 * 60_000)
+    expect(updater.retryInMs()).toBeLessThanOrEqual(5 * 60_000)
+    // Within the wait nothing is downloaded, however often it is asked (the claim loop, Android's 409).
+    for (let i = 0; i < 5; i++) expect(await updater.check()).toBeNull()
+    expect(downloads()).toBe(1)
+    waitPassed(releases, flaky)
+    expect(await updater.check()).toBeNull()
+    expect(downloads()).toBe(2)
+    expect(updater.retryInMs()).toBeGreaterThan(9 * 60_000)
+    expect(isBad(releases, flaky)).toBe(false)
+    waitPassed(releases, flaky)
+    expect(await updater.check()).toBeNull()
+    // The third failed check: out, but only for a day.
+    expect(badMark(releases, flaky)?.permanent).toBeUndefined()
+    expect(updater.status().bad?.reason).toContain('(1)')
+    expect(badMark(releases, flaky, Date.now() + 25 * 60 * 60_000)).toBeNull()
+  })
+
+  it('a package that plays differently is out for good at once; a wrong sum only waits', async () => {
     const data = join(dir, 'data')
     const releases = join(data, 'releases')
     const client = new WorkerClient(server.url, 'tcg_wk_test', silent)
     const log = vi.fn()
-    // A timeout on a busy PC (or a crash): tried again, and given up on the third time.
-    const flaky = server.offer(makePackage(dir, 'flaky', { checkCode: 1 }))
+    const downloads = () => server.state.requests.filter((line) => !line.endsWith('/version')).length
     const updater = new Updater(testInstallation(data, null), client, log)
-    for (const attempt of [1, 2]) {
-      expect(await updater.check()).toBeNull()
-      expect(isBad(releases, flaky), `attempt ${attempt}`).toBe(false)
-    }
-    expect(await updater.check()).toBeNull()
-    expect(isBad(releases, flaky)).toBe(true)
-    // Different games for the same seeds (exit 3, DETERMINISM_MISMATCH): never, from the first time.
+    updater.minCheckGapMs = 0
+    // Different games for the same seeds (exit 3, DETERMINISM_MISMATCH).
     const bad = server.offer(makePackage(dir, 'bad', { checkCode: 3 }))
     expect(await updater.check()).toBeNull()
-    expect(isBad(releases, bad)).toBe(true)
+    expect(badMark(releases, bad)?.permanent).toBe(true)
+    expect(badMark(releases, bad, Date.now() + 30 * 24 * 60 * 60_000)).not.toBeNull()
     expect(existsSync(join(releases, bad))).toBe(false)
-    const downloads = () => server.state.requests.filter((line) => !line.endsWith('/version')).length
     const before = downloads()
     expect(await updater.check()).toBeNull()
     expect(downloads()).toBe(before)
-    // A deploy between the version and the download: not this package's sum. Not bad, just later.
+    // A deploy between the version and the download: not this package's sum. Not bad, it just waits.
     const good = server.offer(makePackage(dir, 'good'))
     server.state.announce = bad
     expect(await updater.check()).toBeNull()
     expect(isBad(releases, good)).toBe(false)
-    expect(readdirSync(releases).filter((entry) => entry.startsWith(good))).toEqual([])
+    expect(readdirSync(releases).filter((entry) => entry.startsWith(good))).toEqual([`${good}.attempts`])
     delete server.state.announce
+    expect(await updater.check()).toBeNull()
+    waitPassed(releases, good)
     expect((await updater.check())?.sha256).toBe(good)
+    expect(existsSync(join(releases, `${good}.attempts`))).toBe(false)
     expect(log).toHaveBeenCalledWith('no se pudo preparar la versión nueva; reintento más tarde', expect.anything())
   })
 
-  it('rolls back a release that failed before it was ever ready, and never a healthy one', () => {
+  it('asks the server at most once a minute', async () => {
+    const data = join(dir, 'data')
+    server.offer(makePackage(dir, 'a'))
+    const updater = new Updater(
+      testInstallation(data, null),
+      new WorkerClient(server.url, 'tcg_wk_test', silent),
+      silent,
+    )
+    const ready = await updater.check()
+    for (let i = 0; i < 5; i++) expect(await updater.check()).toEqual(ready)
+    expect(server.state.requests.filter((line) => line.endsWith('/version'))).toHaveLength(1)
+  })
+
+  it('a new release that fails to start is tried three times, then rolled back for a day; signals do not count', () => {
     const data = join(dir, 'data')
     const releases = join(data, 'releases')
     const [a, b] = ['a', 'b'].map((x) => x.repeat(64)) as [string, string]
     for (const sha of [a, b]) mkdirSync(join(releases, sha), { recursive: true })
     const installation = testInstallation(data, null)
     writePointer(releases, { sha: b, previous: a, base: 'build-1' })
-    expect(rollBackUnhealthy(installation, silent)).toBe(true)
+    expect(afterFailedStart(installation, { code: 1 }, silent)).toBe('restart')
+    // Android's phantom process killer: ends it as before, and the release is not blamed.
+    expect(afterFailedStart(installation, { code: null, signal: 'SIGKILL' }, silent)).toBe('stop')
+    expect(afterFailedStart(installation, { code: 1 }, silent)).toBe('restart')
+    expect(readPointer(releases)?.sha).toBe(b)
+    expect(isBad(releases, b)).toBe(false)
+    expect(afterFailedStart(installation, { code: 1 }, silent)).toBe('restart')
     expect(readPointer(releases)).toEqual({ sha: a, previous: null, base: 'build-1' })
+    expect(badMark(releases, b)?.permanent).toBeUndefined()
     expect(isBad(releases, b)).toBe(true)
     // `a` worked before: an error now is the worker's, not the release's.
     writeFileSync(join(releases, a, 'healthy'), '')
-    expect(rollBackUnhealthy(installation, silent)).toBe(false)
-    // Windows can always go back to the executable's own code.
+    expect(afterFailedStart(installation, { code: 1 }, silent)).toBe('stop')
+  })
+
+  it('an engine that plays differently goes back at once and for good; Windows can go back to its own code', () => {
+    const data = join(dir, 'data')
+    const releases = join(data, 'releases')
+    const b = 'b'.repeat(64)
+    mkdirSync(join(releases, b), { recursive: true })
     writePointer(releases, { sha: b, previous: null, base: 'build-1' })
-    expect(rollBackUnhealthy(installation, silent)).toBe(true)
+    expect(afterFailedStart(testInstallation(data, null), { code: 3 }, silent)).toBe('restart')
     expect(readPointer(releases)?.sha).toBeNull()
+    expect(badMark(releases, b)?.permanent).toBe(true)
+  })
+
+  it('Android without a release to go back to stops after its tries instead of rolling back', () => {
+    const releases = join(dir, 'android', 'releases')
+    const b = 'b'.repeat(64)
+    mkdirSync(join(releases, b), { recursive: true })
+    const installation = androidInstallation(join(releases, b))
+    if (!installation) throw new Error('missing installation')
+    writePointer(releases, { sha: b, previous: null })
+    expect(afterFailedStart(installation, { code: 1 }, silent)).toBe('restart')
+    expect(afterFailedStart(installation, { code: 1 }, silent)).toBe('restart')
+    expect(afterFailedStart(installation, { code: 1 }, silent)).toBe('stop')
+    expect(readPointer(releases)?.sha).toBe(b)
+  })
+
+  it('restarts are paced: a moment after an update, half a minute after a failure, ten minutes after five', () => {
+    const pacer = new RestartPacer()
+    const t = Date.now()
+    expect(pacer.delayMs('update', t)).toBe(2_000)
+    expect(pacer.delayMs('failure', t + 1)).toBe(30_000)
+    for (const i of [2, 3, 4]) pacer.delayMs('update', t + i)
+    expect(pacer.delayMs('update', t + 5)).toBe(10 * 60_000)
+    expect(pacer.delayMs('update', t + 11 * 60_000)).toBe(2_000)
   })
 
   it('takes code only over HTTPS or from this same machine', () => {
@@ -239,6 +328,18 @@ describe('self-update (D-026)', () => {
     expect(readdirSync(releases).sort()).toEqual([a, b, 'current.json'].sort())
   })
 
+  it('on a release that never got ready, a failing loop ends the process so its supervisor can count it', async () => {
+    const data = join(dir, 'data')
+    vi.stubEnv('TCG_WORKER_DIR', data)
+    vi.stubEnv('TCG_WORKER_TOKEN', 'tcg_wk_test')
+    vi.stubEnv('TCG_SERVER', server.url)
+    const sha = server.offer(makePackage(dir, 'running'))
+    mkdirSync(join(data, 'releases', sha), { recursive: true })
+    // Its engine does not start: before D-026's review this retried every 60 s forever.
+    const engine = join(dir, 'missing-engine.exe')
+    await expect(run([], { enginePath: engine }, { installation: testInstallation(data, sha) })).rejects.toThrow()
+  })
+
   it('a start on an old release switches before taking work and exits for its supervisor', async () => {
     const data = join(dir, 'data')
     vi.stubEnv('TCG_WORKER_DIR', data)
@@ -260,6 +361,36 @@ describe('self-update (D-026)', () => {
       .find((entry) => entry.includes(' actualizaciones '))
     expect(line).toContain('"autoUpdate":false')
     expect(line).toContain('"upToDate":true')
+  })
+})
+
+describe('packages and setup (D-026)', () => {
+  it('the same files give the same tar.gz, whatever their dates; tar reads it back', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tcg-tar-'))
+    try {
+      const source = join(dir, 'src')
+      mkdirSync(join(source, 'licenses', 'a'.repeat(80)), { recursive: true })
+      writeFileSync(join(source, 'worker.cjs'), 'exports.main = 1\n')
+      writeFileSync(join(source, 'engine-cli.exe'), 'MZ')
+      writeFileSync(join(source, 'licenses', 'a'.repeat(80), `${'b'.repeat(90)}.txt`), 'long path\n')
+      await writeTarGz(source, 'tcg-worker', join(dir, 'one.tar.gz'), ['engine-cli.exe'])
+      utimesSync(join(source, 'worker.cjs'), new Date(2001, 1, 1), new Date(2001, 1, 1))
+      await writeTarGz(source, 'tcg-worker', join(dir, 'two.tar.gz'), ['engine-cli.exe'])
+      expect(sha256(readFileSync(join(dir, 'one.tar.gz')))).toBe(sha256(readFileSync(join(dir, 'two.tar.gz'))))
+      mkdirSync(join(dir, 'out'))
+      execFileSync(tar, ['-xzf', join(dir, 'one.tar.gz'), '-C', join(dir, 'out')])
+      const long = join(dir, 'out', 'tcg-worker', 'licenses', 'a'.repeat(80), `${'b'.repeat(90)}.txt`)
+      expect(readFileSync(long, 'utf8')).toBe('long path\n')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('setup stops only processes that are workers', () => {
+    expect(looksLikeWorker('"C:\\tcg-worker\\tcg-worker.exe" --run')).toBe(true)
+    expect(looksLikeWorker('"C:\\Program Files\\nodejs\\node.exe" "C:\\repo\\apps\\worker\\dist\\main.js"')).toBe(true)
+    expect(looksLikeWorker('"C:\\Windows\\explorer.exe"')).toBe(false)
+    expect(looksLikeWorker('')).toBe(false)
   })
 })
 
@@ -304,26 +435,29 @@ describe('Windows executable (D-026)', () => {
     writeFileSync(join(releases, a, 'healthy'), '')
     writePointer(releases, { sha: a, previous: null, base: 'build-1' })
     const installation = windowsInstallation(dir, null, 'build-1')
-    const codes = [RESTART_FOR_UPDATE, 3, 0]
+    // Switches to `b`; `b` fails three times before it is ready; back on `a`, which stops normally.
+    const codes = [RESTART_FOR_UPDATE, 1, 1, 1, 0]
     const runChild = vi.fn(async () => {
       const code = codes.shift() ?? 0
-      // The first child switches to `b` before exiting for the restart.
       if (code === RESTART_FOR_UPDATE) writePointer(releases, { sha: b, previous: a, base: 'build-1' })
-      return code
+      return { code, signal: null }
     })
-    expect(await supervise({ dataDir: dir, installation, log: silent, runChild })).toBe(0)
-    expect(runChild).toHaveBeenCalledTimes(3)
+    const wait = vi.fn(async (_ms: number) => undefined)
+    expect(await supervise({ dataDir: dir, installation, log: silent, runChild, wait })).toBe(0)
+    expect(runChild).toHaveBeenCalledTimes(5)
+    expect(wait.mock.calls.map(([ms]) => ms)).toEqual([2_000, 30_000, 30_000, 30_000])
     expect(readPointer(releases)?.sha).toBe(a)
     expect(isBad(releases, b)).toBe(true)
     expect(isHealthy(releases, a)).toBe(true)
     // An error on a healthy release ends the supervisor with it.
-    expect(await supervise({ dataDir: dir, installation, log: silent, runChild: async () => 4 })).toBe(4)
+    const fails = async () => ({ code: 4, signal: null })
+    expect(await supervise({ dataDir: dir, installation, log: silent, runChild: fails, wait: async () => 0 })).toBe(4)
   })
 
   it('a second supervisor in the same folder does nothing', async () => {
     mkdirSync(join(dir, 'supervisor'), { recursive: true })
     writeFileSync(join(dir, 'supervisor', 'worker.lock'), String(process.ppid))
-    const runChild = vi.fn(async () => 0)
+    const runChild = vi.fn(async () => ({ code: 0, signal: null }))
     expect(
       await supervise({ dataDir: dir, installation: windowsInstallation(dir, null, 'b'), log: silent, runChild }),
     ).toBe(0)

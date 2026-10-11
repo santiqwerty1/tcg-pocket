@@ -64,6 +64,8 @@ export interface ConfigDefaults {
    * would keep an engine the updates no longer replace). Ignored when the owner turned updates off.
    */
   packageEngine?: boolean
+  /** How the start's determinism check runs its engine (Android: normal priority, 2 minutes per case). */
+  determinismCheck?: { priority?: EnginePriority; caseTimeoutMs?: number }
 }
 
 export function configFile(): string {

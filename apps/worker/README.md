@@ -61,23 +61,25 @@ El zip trae `tcg-worker.exe` (este worker empaquetado con Node como ejecutable �
 
 El paquete portable de Windows y el de Android siguen a la app: decisión de Santiago del 11/10/2026, confiando en el servidor (HTTPS, el token de worker de cada máquina y SHA-256). El worker del repositorio (`node dist/main.js`) no se actualiza.
 
-- **Qué baja.** `GET /api/worker/packages/<plataforma>/version` dice qué paquete trae la imagen y su `sha256`. Windows (`windows-x64`, ~3 MB) lleva `worker.cjs`, `engine-cli.exe` cruzado con zig en el Dockerfile y `determinism.json`, sin Node: el de `tcg-worker.exe` sigue. Android (`android-arm64`) es el mismo paquete del instalador.
-- **Cuándo.** Al arrancar, cada 10 minutos y cuando la cola pide otro motor (`requiredEngineRev`, o el `409` de Android).
-- **Antes de cambiar.** Baja a `releases/<sha256>.partial` (en stream, con la suma), verifica la suma, desempaqueta con `tar` (el de `System32` en Windows) y corre la prueba de determinismo de la versión nueva en otro proceso (`--check-engine`, a prioridad normal).
-  - Si juega distinto (código 3), la marca `releases/<sha256>.bad` y no la vuelve a bajar.
-  - Si falla de otra forma (un timeout con la PC cargada), reintenta, y a la tercera la marca.
+- **Qué baja.** `GET /api/worker/packages/<plataforma>/version` dice qué paquete trae la imagen y su `sha256`. Windows (`windows-x64`, ~2,7 MB) lleva `worker.cjs`, `engine-cli.exe` cruzado con zig en el Dockerfile y `determinism.json`, sin Node: el de `tcg-worker.exe` sigue. Android (`android-arm64`) es el mismo paquete del instalador. Los dos son tar.gz reproducibles (`scripts/deterministic-tar.mjs`): un deploy que no cambia el worker ni el motor da la misma suma y nadie baja nada.
+- **Cuándo.** Al arrancar, cada 10 minutos y cuando la cola pide otro motor (`requiredEngineRev`, o el `409` de Android), nunca más de una vez por minuto.
+- **Antes de cambiar.** Baja a `releases/<sha256>.partial` (en stream, con la suma), verifica la suma, desempaqueta con `tar` (el de `System32` en Windows) y corre la prueba de determinismo de la versión nueva en otro proceso (`--check-engine`, a prioridad normal, 2 minutos por caso; un timeout corta también su motor).
+  - Cualquier falla (la bajada, la suma, el tar, la prueba) espera antes del próximo intento: 5 minutos, y el doble cada vez hasta 6 h (`releases/<sha256>.attempts`).
+  - Si juega distinto (código 3), la marca `releases/<sha256>.bad` para siempre: no la vuelve a bajar hasta que la app ofrezca otra.
+  - Si la prueba falla de otra forma (un timeout con la PC cargada), a la tercera la marca por 24 h. `--check` dice qué versión no se usa y por qué.
 - **El cambio.** Deja de reclamar, termina el chunk o lote en curso y sube los resultados. Si cambia el motor, espera además que termine la partida contra el bot en curso (hasta 6 h): al reconstruirla, el bot se recalcula. Después apunta `releases/current.json` (en Android, el enlace `current`) a la versión nueva, devuelve los leases y sale con el código 75.
 - **El supervisor.** En Windows, `tcg-worker.exe --run` es un supervisor que mantiene un `tcg-worker.exe --child`: la parte que trae el `.exe` (`src/sea.ts`) carga la versión de `current.json` o, si no hay, la propia. En Android, el lanzador de `android.ts`. Si el hijo sale con 75, lo vuelve a arrancar.
-- **Vuelta atrás.** Si la versión nueva sale con error antes de llegar a «worker listo» (`releases/<sha256>/healthy`), se marca mala y vuelve a la anterior.
+- **Vuelta atrás.** Si la versión nueva sale con error antes de llegar a «worker listo» (`releases/<sha256>/healthy`), el supervisor la vuelve a arrancar (30 s después). A la tercera, la marca por 24 h y vuelve a la anterior (en Windows, si no hay, al código del `.exe`). Si el motor juega distinto (código 3), vuelve a la anterior enseguida y para siempre. Una salida por señal (el phantom process killer de Android) no cuenta. Un error del bucle en una versión todavía no lista termina el proceso para que cuente. Nunca reinicia en un bucle apretado: si arranca cinco veces en diez minutos, espera diez.
 - **Para no actualizar una máquina:** `"autoUpdate": false` en config.json o `TCG_WORKER_AUTO_UPDATE=false`. `--check` dice qué versión corre y cuál ofrece la app.
 - **Motor.** Con las actualizaciones prendidas, el motor es siempre el del paquete; `enginePath` y `TCG_ENGINE_PATH` solo valen con `autoUpdate: false`.
 
 ### Pasar cada máquina, una sola vez
 
 - **El Ryzen (paquete portable viejo).**
-  1. Copiar la carpeta `tcg-worker` del zip nuevo (artefacto `tcg-worker-windows` de la CI) a la otra PC.
-  2. Doble clic en `tcg-worker.exe`. Si hay un worker corriendo, ofrece detenerlo: lo que esté jugando vuelve a la cola.
+  1. Copiar la carpeta `tcg-worker` del zip nuevo (artefacto `tcg-worker-windows` de la CI) a la otra PC, **en una carpeta nueva** (por ejemplo `C:\tcg-worker-2`). Windows no deja pisar un `.exe` que está corriendo.
+  2. Doble clic en el `tcg-worker.exe` nuevo. Ofrece detener el worker viejo después de verificar que ese PID es un worker; lo que esté jugando vuelve a la cola.
   3. Enter en el token, los núcleos y el nombre para conservarlos.
+  4. El arranque al iniciar sesión pasa a la carpeta nueva; la vieja se puede borrar.
 - **Esta PC (hoy `node apps/worker/dist/main.js` del repositorio, motor compilado acá).** Lo mismo que el Ryzen, con la carpeta en `%LOCALAPPDATA%\tcg-worker\app` o donde se prefiera.
   - El doble clic detiene el worker del repo y conserva el token, los 18 núcleos y el nombre.
   - Saca `enginePath` de config.json y reemplaza el lanzador `tcg-pocket-worker.vbs` de la carpeta Inicio.

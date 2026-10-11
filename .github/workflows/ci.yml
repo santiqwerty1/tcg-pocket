@@ -210,10 +210,11 @@ jobs:
           name: tcg-worker-windows
           path: apps/worker/build/tcg-worker-*-windows.zip
           retention-days: 30
-      # D-026: an update package with this engine, checked by the executable the way every PC checks one before
-      # switching to it (it loads the release's worker.cjs, which plays the determinism games).
+      # D-026: an update package with this engine, loaded by the executable the way every PC loads one before
+      # switching to it. Here the engine is its own reference: this proves the loader; `windows-update` (below)
+      # plays the reference games with the engine the app really serves.
       - run: node apps/worker/scripts/package-windows-update.mjs --engine "$GITHUB_WORKSPACE/engine-dist/engine-cli.exe"
-      - name: tcg-worker.exe checks an update package
+      - name: tcg-worker.exe loads an update package
         run: |
           release="$RUNNER_TEMP/release"
           rm -rf "$release" && mkdir -p "$release"
@@ -256,6 +257,32 @@ jobs:
           name: tcg-worker-android
           path: apps/worker/build/tcg-worker-*-android-arm64.tar.gz*
           retention-days: 30
+
+  # D-026: the engine-cli.exe the app serves (cross-compiled with zig in the Dockerfile) plays the Linux reference's
+  # games on Windows, loaded by the same tcg-worker.exe every PC runs, exactly as a PC checks it before switching.
+  windows-update:
+    needs: [changes, engine, android]
+    if: needs.changes.outputs.engine == 'true'
+    runs-on: ${{ vars.CI_RUNNER_WINDOWS || 'windows-latest' }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: tcg-worker-windows
+          path: zip
+      - uses: actions/download-artifact@v4
+        with:
+          name: tcg-worker-windows-update
+          path: update
+      - name: The served engine plays the reference games
+        run: |
+          zip="$(ls zip/tcg-worker-*-windows.zip | head -1)"
+          C:/Windows/System32/tar.exe -xf "$(cygpath -w "$zip")" -C "$(cygpath -w zip)"
+          package="$(ls update/tcg-worker-*-windows-x64-update.tar.gz | head -1)"
+          release="$RUNNER_TEMP/served"
+          rm -rf "$release" && mkdir -p "$release"
+          C:/Windows/System32/tar.exe -xzf "$(cygpath -w "$package")" -C "$(cygpath -w "$release")"
+          TCG_WORKER_RELEASE="$(cygpath -w "$release/tcg-worker")" TCG_WORKER_DIR="$(cygpath -w "$RUNNER_TEMP/worker-data")" \
+            zip/tcg-worker/tcg-worker.exe --check-engine
 
   # The production image (Dockerfile), built and thrown away: only on main and only when its inputs changed.
   docker:

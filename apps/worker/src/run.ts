@@ -14,7 +14,7 @@ import { type ConfigDefaults, loadConfig } from './config.js'
 import { checkDeterminism } from './determinism.js'
 import { engineVersion } from './engine.js'
 import { acquireLock, releaseLock } from './lock.js'
-import { type Installation, RESTART_FOR_UPDATE, Updater, updatesAllowedFrom } from './update.js'
+import { badMark, type Installation, RESTART_FOR_UPDATE, Updater, updatesAllowedFrom } from './update.js'
 import { WORKER_VERSION } from './version.js'
 import { Worker } from './worker.js'
 
@@ -70,7 +70,13 @@ export async function run(
   let staleEngine = false
   try {
     if (defaults.determinismPath) {
-      await checkDeterminism(config.enginePath, defaults.determinismPath, config.dataDir, controller.signal)
+      await checkDeterminism(
+        config.enginePath,
+        defaults.determinismPath,
+        config.dataDir,
+        controller.signal,
+        defaults.determinismCheck,
+      )
       const reference = JSON.parse(readFileSync(defaults.determinismPath, 'utf8')) as {
         version: { engineRev: string; cliVersion: string }
       }
@@ -111,6 +117,7 @@ export async function run(
       log('servidor alcanzable', { token: ping.token.name })
       if (installation) {
         const offered = await client.packageInfo(installation.platform, controller.signal).catch(() => null)
+        const bad = offered?.sha256 ? badMark(installation.releases, offered.sha256) : null
         log('actualizaciones', {
           autoUpdate: config.autoUpdate,
           worker: WORKER_VERSION,
@@ -118,6 +125,8 @@ export async function run(
           server: offered?.sha256?.slice(0, 12) ?? null,
           serverWorker: offered?.workerVersion ?? null,
           upToDate: offered?.sha256 ? offered.sha256 === installation.current : null,
+          // A package of the app that is not used here, and why (it expires after a day unless it played differently).
+          ...(bad ? { notUsed: bad.reason, since: bad.at, forGood: bad.permanent === true } : {}),
         })
       }
       return 0
@@ -135,8 +144,11 @@ export async function run(
       for (;;) {
         if (await updater.check(controller.signal)) return switchRelease(updater, log)
         if (!staleEngine || controller.signal.aborted) break
-        log('el servidor tiene otro motor y su paquete todavía no está listo; reintento en 5 minutos')
-        await sleep(300_000, undefined, { signal: controller.signal }).catch(() => undefined)
+        const wait = Math.max(300_000, updater.retryInMs())
+        log('el servidor tiene otro motor y su paquete todavía no está listo; espero', {
+          minutes: Math.round(wait / 60_000),
+        })
+        await sleep(wait, undefined, { signal: controller.signal }).catch(() => undefined)
       }
     }
     const worker = new Worker(config, client, log)
@@ -158,6 +170,9 @@ export async function run(
         if (once) throw error
         if (error instanceof ApiError && (error.status === 401 || error.status === 403)) throw error
         if (defaults.determinismPath && error instanceof ApiError && error.status === 409) throw error
+        // A new release that fails before it is ready (its engine, its code): out, so the supervisor counts it and,
+        // after three, goes back to the previous one (D-026). Retrying here forever would never get there.
+        if (updater && !updater.currentIsHealthy()) throw error
         log('el worker falló; vuelvo a empezar en 60 s', { error: String(error).slice(0, 500) })
         await sleep(60_000, undefined, { signal: controller.signal }).catch(() => undefined)
       }

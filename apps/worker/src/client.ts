@@ -228,6 +228,8 @@ export class WorkerClient {
   ): Promise<{ sha256: string; size: number; announced: string | null }> {
     const response = await this.fetchImpl(new URL(`${this.server}/api/worker/packages/${platform}`), {
       headers: { Authorization: `Bearer ${this.token}` },
+      // Code comes from the configured server only, never from wherever a redirect points (D-026).
+      redirect: 'error',
       signal: AbortSignal.any([AbortSignal.timeout(10 * 60_000), ...(signal ? [signal] : [])]),
     })
     if (!response.ok || !response.body) {

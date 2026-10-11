@@ -9,7 +9,7 @@ import { dataDir, loadConfig, readFileConfig } from './config.js'
 import { checkDeterminism, DETERMINISM_MISMATCH, DeterminismError } from './determinism.js'
 import { acquireLock, releaseLock } from './lock.js'
 import { logger, run } from './run.js'
-import { androidInstallation, RESTART_FOR_UPDATE, rollBackUnhealthy } from './update.js'
+import { afterFailedStart, androidInstallation, RESTART_FOR_UPDATE, RestartPacer } from './update.js'
 
 const execute = promisify(execFile)
 // The release folder itself (`releases/<sha256>`): Node resolves the `current` symlink of the launcher's path.
@@ -21,6 +21,8 @@ const defaults = {
   capThreads: true,
   allowSlowBots: false,
 }
+// Revisión del #50: at below normal with 60 s per case, a busy phone failed a correct engine.
+const CHECK_OPTIONS = { priority: 'normal', caseTimeoutMs: 120_000 } as const
 
 async function main() {
   const args = process.argv.slice(2)
@@ -31,7 +33,7 @@ async function main() {
   }
   if (args.includes('--check-engine')) {
     try {
-      await checkDeterminism(defaults.enginePath, defaults.determinismPath, here)
+      await checkDeterminism(defaults.enginePath, defaults.determinismPath, here, undefined, CHECK_OPTIONS)
     } catch (error) {
       if (!(error instanceof DeterminismError)) throw error
       console.error(error.message)
@@ -42,7 +44,15 @@ async function main() {
     return
   }
   if (args.includes('--child') || args.includes('--check') || args.includes('--once')) {
-    const code = await run(args, defaults, { installation })
+    let code: number
+    try {
+      code = await run(args, { ...defaults, determinismCheck: CHECK_OPTIONS }, { installation })
+    } catch (error) {
+      // An engine that plays differently: the supervisor goes back to the previous release at once (D-026).
+      if (!(error instanceof DeterminismError)) throw error
+      console.error(error.message)
+      process.exit(DETERMINISM_MISMATCH)
+    }
     // The supervisor starts `current/worker.mjs` again, which now is the new release (D-026).
     if (code === RESTART_FOR_UPDATE) process.exit(code)
     return
@@ -59,6 +69,15 @@ async function main() {
   let child: ChildProcess | null = null
   let exited: Promise<void> = Promise.resolve()
   let stoppingChild = false
+  // D-026: restarts after an update or a failed start are paced; a stop cancels the one waiting.
+  const pacer = new RestartPacer()
+  let restartTimer: ReturnType<typeof setTimeout> | null = null
+  const restartLater = (reason: 'update' | 'failure') => {
+    restartTimer = setTimeout(() => {
+      restartTimer = null
+      if (!stoppingChild && !controller.signal.aborted) void start()
+    }, pacer.delayMs(reason))
+  }
   // The worker ended on its own with 0 (another one already runs here, for instance): so does the launcher.
   let done = () => {}
   const finished = new Promise<void>((resolve) => {
@@ -74,10 +93,11 @@ async function main() {
         child = null
         resolve()
         if (stoppingChild || controller.signal.aborted) return
-        // D-026: a new release was switched in (or a bad one rolled back): the same path runs it.
-        if (code === RESTART_FOR_UPDATE || ((code || signal) && installation && rollBackUnhealthy(installation, log))) {
-          void start()
-          return
+        // D-026: a new release was switched in, or a new one failed to start (tried again, or rolled back after three
+        // failures): the same path runs whatever `current` points at now. A signal ends it, as before.
+        if (code === RESTART_FOR_UPDATE) return restartLater('update')
+        if (installation && afterFailedStart(installation, { code, signal }, log) === 'restart') {
+          return restartLater('failure')
         }
         if (code || signal) controller.abort(new Error(`El worker terminó (${code ?? signal}).`))
         else done()
@@ -85,9 +105,11 @@ async function main() {
     })
   }
   const stop = async () => {
+    stoppingChild = true
+    if (restartTimer) clearTimeout(restartTimer)
+    restartTimer = null
     const current = child
     if (!current) return
-    stoppingChild = true
     current.kill('SIGTERM')
     const timeout = setTimeout(() => current.kill('SIGKILL'), 30_000)
     try {
