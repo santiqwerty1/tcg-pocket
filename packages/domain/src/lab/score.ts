@@ -82,8 +82,9 @@ export function formatDifferenceEs(difference: ScoreDifference): string {
 }
 
 /** «52,3 % contra el meta (n = 1.000, IC 48,1–56,5 %)», like a win rate (DECISIONES 0.10). */
-export function formatMetaScoreEs(score: MetaScore | null): string {
+/** «52,3 % contra el meta (n = 1.500, IC 49,8–54,8 %)»; `against` names another bank (T-017 D4: «mi meta», one rival). */
+export function formatMetaScoreEs(score: MetaScore | null, against = 'el meta'): string {
   if (!score) return 'sin datos'
   const games = new Intl.NumberFormat('es-AR').format(score.games)
-  return `${formatPercentEs(score.value)} contra el meta (n = ${games}, IC ${formatIntervalEs(score.ci95)})`
+  return `${formatPercentEs(score.value)} contra ${against} (n = ${games}, IC ${formatIntervalEs(score.ci95)})`
 }
