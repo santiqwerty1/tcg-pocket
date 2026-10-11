@@ -10,6 +10,7 @@ describe('parseEnv', () => {
   it('applies defaults', () => {
     const env = parseEnv(base)
     expect(env.nodeEnv).toBe('development')
+    expect(env.trackerCollectionAnonKey).toBe('')
     expect(env.port).toBe(3000)
     expect(env.catalogCommit).toBe(DEFAULT_CATALOG_COMMIT)
     expect(env.engineRev).toBe(DEFAULT_ENGINE_REV)
