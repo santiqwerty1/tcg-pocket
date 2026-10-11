@@ -7,7 +7,7 @@ import { useDeckMatchups } from '@/api/matches'
 import type { WinRate } from '@/api/schemas'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
-import { formatRateValue, formatRecord } from '@/lib/matches'
+import { formatInterval, formatRateValue, formatRecord } from '@/lib/matches'
 import { matchupTone, TONE_CLASS } from '@/lib/matchups'
 import { formatShare } from '@/lib/tournaments'
 import { cn } from '@/lib/utils'
@@ -21,6 +21,12 @@ function Rate({ rate, prefix }: { rate: WinRate | null; prefix: string }) {
       <span className="text-muted-foreground"> (n = {rate.games})</span>
     </span>
   )
+}
+
+/** « (IC 40,1–58,3 %, orientativo)», or nothing when there is neither. */
+function sampleNote(ci95: [number, number] | null, orientative: boolean): string {
+  const parts = [ci95 ? `IC ${formatInterval(ci95)}` : null, orientative ? 'orientativo' : null].filter(Boolean)
+  return parts.length > 0 ? ` (${parts.join(', ')})` : ''
 }
 
 export function DeckMatchupsSection({ deckId }: { deckId: string }) {
@@ -60,6 +66,15 @@ export function DeckMatchupsSection({ deckId }: { deckId: string }) {
         {data.expected ? `; contra el meta debería sacar ${formatRateValue(data.expected.value)}` : ''}. Vos: tus
         partidas con este mazo.
       </p>
+      {data.expectedMine && data.myMeta ? (
+        <p className="text-xs text-muted-foreground">
+          {/* Fase 44: tournament matchups (people), weighed by the rivals you meet — not your own results. */}
+          Torneos (personas), pesado por tus {data.myMeta.matched} rivales de {data.era} («mi meta»;{' '}
+          {Math.round(data.myMeta.coverage)} % de tus partidas con rival, ponderadas por fecha): debería sacar{' '}
+          <span className="font-semibold text-foreground">{formatRateValue(data.expectedMine.value)}</span>
+          {sampleNote(data.expectedMine.ci95, data.myMeta.orientative)}. El intervalo cuenta los matchups y tus pesos.
+        </p>
+      ) : null}
       <ul className="divide-y rounded-lg border">
         {data.rows.map((row) => (
           <li key={row.rival.id ?? `text-${row.rival.name}`} className="flex flex-col gap-0.5 px-3 py-2 text-sm">

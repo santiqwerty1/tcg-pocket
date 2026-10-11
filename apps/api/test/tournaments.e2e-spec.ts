@@ -628,6 +628,121 @@ describe('tournaments (e2e)', () => {
     for (const deck of [blaziken, hoopa]) await patch(`/api/decks/${deck?.id}`).send({ builtInGame: false })
   })
 
+  it('mi meta (Fase 44): my rivals as tournament archetypes, as weights for today and for the deck sheet', async () => {
+    const decks = (await get('/api/decks')).body.items as { id: string; name: string }[]
+    const blaziken = decks.find((deck) => deck.name === 'Mega-Blaziken ex')
+    const rows = (await get('/api/tournaments/archetypes')).body.rows as { archetype: { id: string; name: string } }[]
+    const [first, second] = rows
+    const ids: string[] = []
+    const log = async (opponent: string, times: number, extra: { mode?: string; playedAt?: string } = {}) => {
+      for (let i = 0; i < times; i++) {
+        const created = await post('/api/matches').send({
+          deckId: blaziken?.id,
+          result: 'win',
+          opponent,
+          mode: 'competitive',
+          ...extra,
+        })
+        expect(created.status).toBe(201)
+        ids.push(created.body.id)
+      }
+    }
+    expect((await get('/api/matches/my-meta')).body).toMatchObject({ era: 'B4a', enough: false, matched: 0 })
+    await log(first?.archetype.name ?? '', 8)
+    await log((second?.archetype.name ?? '').toUpperCase(), 4)
+    await log('el de los fantasmas', 2)
+    // Review of #52: matches before the era (B4a starts on 27/8) and friendly matches stay out by default.
+    await log(second?.archetype.name ?? '', 3, { playedAt: '2026-08-01T15:00:00.000Z' })
+    await log(second?.archetype.name ?? '', 3, { mode: 'friend' })
+    const meta = (await get('/api/matches/my-meta')).body as {
+      enough: boolean
+      matched: number
+      effectiveMatches: number
+      orientative: boolean
+      from: string
+      filters: { modes: string[] }
+      shares: { archetypeId: string; share: number; ci95: [number, number]; games: number }[]
+      unmatched: { label: string; games: number }[]
+      text: string
+    }
+    expect(meta.enough).toBe(true)
+    expect(meta.matched).toBe(12)
+    expect(meta.from.slice(0, 10)).toBe('2026-08-27')
+    expect(meta.filters.modes).toEqual(['competitive', 'casual'])
+    // All of today: the effective matches are the matches, and 12 are still few.
+    expect(meta.effectiveMatches).toBeCloseTo(12, 6)
+    expect(meta.orientative).toBe(true)
+    expect(meta.shares[0]?.ci95[0]).toBeLessThan(meta.shares[0]?.share ?? 0)
+    const friends = (await get('/api/matches/my-meta?mode=friend')).body as { matched: number; enough: boolean }
+    expect(friends).toMatchObject({ matched: 3, enough: false })
+    expect(meta.shares.map((row) => [row.archetypeId, row.games])).toEqual([
+      [first?.archetype.id, 8],
+      [second?.archetype.id, 4],
+    ])
+    expect(meta.shares[0]?.share).toBeCloseTo((8 / 12) * 100, 1)
+    expect(meta.unmatched).toEqual([{ key: 'el de los fantasmas', label: 'el de los fantasmas', games: 2 }])
+    expect(meta.text).toMatch(/^Tu meta \(12 partidas/)
+    expect((await get('/api/matches/my-meta?days=0')).status).toBe(400)
+
+    expect((await patch(`/api/decks/${blaziken?.id}`).send({ builtInGame: true })).status).toBe(200)
+    const mine = (await get('/api/decks-today?meta=mine')).body as {
+      weights: { asked: string; used: string; mine: { enough: boolean } }
+      items: { deck: { id: string }; tournament: { value: number; ci95: number[] } | null }[]
+      note: string
+    }
+    expect(mine.weights).toMatchObject({ asked: 'mine', used: 'mine', mine: { enough: true, orientative: true } })
+    expect(mine.note).toContain('pesado por tus rivales de la era')
+    const row = mine.items.find((item) => item.deck.id === blaziken?.id)
+    expect(row?.tournament?.ci95).toHaveLength(2)
+    const plain = (await get('/api/decks-today')).body as { weights: { used: string } }
+    expect(plain.weights.used).toBe('tournament')
+    expect((await get('/api/decks-today?meta=nope')).status).toBe(400)
+    await patch(`/api/decks/${blaziken?.id}`).send({ builtInGame: false })
+
+    const sheet = (await get(`/api/decks/${blaziken?.id}/matchups`)).body as {
+      expected: { value: number } | null
+      expectedMine: { value: number; ci95: number[] } | null
+      myMeta: { enough: boolean; matched: number; effectiveMatches: number } | null
+    }
+    expect(sheet.myMeta).toMatchObject({ enough: true, matched: 12 })
+    expect(sheet.expectedMine?.value).toBeGreaterThan(0)
+    expect(sheet.expectedMine?.ci95).toHaveLength(2)
+    // The sheet's mode filter reaches «mi meta» too: three friendly matches are not enough to weigh with.
+    const friendly = (await get(`/api/decks/${blaziken?.id}/matchups?mode=friend`)).body as typeof sheet
+    expect(friendly.myMeta).toMatchObject({ matched: 3, enough: false })
+    expect(friendly.expectedMine).toBeNull()
+    for (const id of ids)
+      expect((await test.http().delete(`/api/matches/${id}`).set('Cookie', cookie)).status).toBe(204)
+  })
+
+  it('¿qué mazo armo después? (Fase 44): per archetype its closest list, the cost and whether I have one', async () => {
+    const view = (await get('/api/decks-next')).body as {
+      maxMissing: number
+      rows: {
+        archetype: { archetype: { id: string; name: string }; lists: number; rate: { ci95: number[] } | null }
+        closest: { missingCopies: number; missing: { nameEs: string; need: number; have: number }[] }
+        points: number | null
+        unpriced: number
+        built: boolean
+      }[]
+      note: string
+    }
+    expect(view.maxMissing).toBe(8)
+    expect(view.rows.length).toBeGreaterThan(0)
+    for (const row of view.rows) {
+      expect(row.closest.missingCopies).toBeLessThanOrEqual(8)
+      expect(row.archetype.lists).toBeGreaterThanOrEqual(10)
+      if (row.closest.missingCopies === 0) expect(row.points).toBe(0)
+    }
+    // Not built first, then by the low end of the interval.
+    const firstBuilt = view.rows.findIndex((row) => row.built)
+    if (firstBuilt >= 0) expect(view.rows.slice(firstBuilt).every((row) => row.built)).toBe(true)
+    const ready = (await get('/api/decks-next?maxMissing=0')).body as typeof view
+    expect(ready.rows.every((row) => row.closest.missingCopies === 0)).toBe(true)
+    expect(view.note).toContain('extremo bajo')
+    expect((await get('/api/decks-next?maxMissing=99')).status).toBe(400)
+  })
+
   it('eventos (Fase 16): which decks and which tournament lists comply with an event', async () => {
     const created = await post('/api/events').send({
       name: 'Copa sin ex',
@@ -795,6 +910,15 @@ describe('tournaments (e2e)', () => {
       const one = await call('tournaments_matchups', { archetype: top?.name })
       expect((one.rivals as unknown[]).length).toBeGreaterThan(5)
       expect(one.expectedAgainstMeta).toMatchObject({ value: expect.stringMatching(/ %$/) })
+      const next = await call('decks_next_build', { limit: 3 })
+      expect((next.archetypes as unknown[]).length).toBeGreaterThan(0)
+      expect(String((next.archetypes as { cost: string }[])[0]?.cost)).toMatch(
+        /(puntos de sobre|sin precio en puntos) \(\d+ copias intercambiables\)$/,
+      )
+      const myMeta = await call('matches_my_meta', {})
+      expect(typeof myMeta.enough).toBe('boolean')
+      expect(String(myMeta.text).length).toBeGreaterThan(10)
+      expect((await call('decks_pick_today', { meta: 'mine' })).weights).toMatchObject({ used: 'meta de torneos' })
       const techs = await call('tournaments_archetype_cards', { archetype: top?.name })
       expect((techs.core as { slots: string }).slots).toMatch(/de 20 \(quedan/)
       expect(Array.isArray(techs.techs)).toBe(true)

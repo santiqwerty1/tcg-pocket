@@ -7,6 +7,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import {
   botLabel,
   cleanOpponent,
+  coinAdjustedRate,
   DEFAULT_MATCH_MODE,
   type DeckCardEntry,
   eraRange,
@@ -20,7 +21,10 @@ import {
   type MatchFacts,
   type MatchMode,
   type MatchResult,
+  MY_META_MODES,
+  type MyMeta,
   matchStats,
+  myMeta,
   oneIn,
   opponentKey,
   opponentTurns,
@@ -47,8 +51,24 @@ import type {
   MatchStatsView,
   MatchSuggestionsView,
   MatchView,
+  MyMetaSummary,
+  MyMetaView,
   RowView,
 } from './match-views.js'
+
+/** Fase 44: what «mi meta» is asked for — the era (the current one by default), one mode, the last days, the half-life. */
+export interface MyMetaQuery {
+  era?: string | undefined
+  mode?: MatchMode | undefined
+  days?: number | undefined
+  halfLifeDays?: number | undefined
+}
+
+/** Fase 44: the part of «mi meta» the deck sheet and «¿Cuál llevo hoy?» show next to the number it weighs. */
+export function myMetaSummary(meta: MyMeta): MyMetaSummary {
+  const { text, enough, coverage, matched, effectiveMatches, orientative } = meta
+  return { text, enough, coverage, matched, effectiveMatches, orientative }
+}
 
 /** Most played archetypes always shown in a deck's «Contra cada rival» (the rest only when the deck met them). */
 const DECK_MATCHUP_RIVALS = 10
@@ -323,6 +343,7 @@ export class MatchesService {
       byDeck: report.byDeck.map((item) => ({
         deck: decks.get(item.deckId) ?? { id: item.deckId, name: `Mazo ${item.deckId}`, archived: false },
         ...row(item),
+        coinAdjusted: coinAdjustedRate(selected.filter((match) => match.deckId === item.deckId)),
       })),
       byOpponent: report.byOpponent.map((item) => ({ key: item.key, label: item.label, ...row(item) })),
       byWentFirst: report.byWentFirst.map((item) => ({ key: item.key, label: item.label, ...row(item) })),
@@ -330,6 +351,7 @@ export class MatchesService {
       byRevision:
         deckId === undefined ? [] : report.byRevision.map((item) => ({ revision: item.revision, ...row(item) })),
       turnOrder: turnOrderImpact(selected),
+      coinAdjusted: coinAdjustedRate(selected),
     }
   }
 
@@ -365,7 +387,10 @@ export class MatchesService {
    */
   async deckMatchups(rawDeckId: string, mode: MatchMode | undefined): Promise<DeckMatchupsView> {
     const deck = await this.requireDeckRef(parseNumericId(rawDeckId, 'Mazo'))
-    const stats = await this.stats({ deckId: deck.id, mode })
+    // The matches once: the deck's record by rival, its turns and «mi meta» come from the same read (review of #52).
+    const { facts } = await this.loadFacts()
+    const ofDeck = filterMatches(facts, { deckId: deck.id, mode: mode ?? null, from: null, to: null })
+    const stats = matchStats(ofDeck)
     const row = await this.prisma.deck.findUnique({
       where: { id: Number(deck.id) },
       select: { currentRevisionId: true, tournamentArchetypeId: true },
@@ -395,8 +420,6 @@ export class MatchesService {
     )
     const shares = context ? this.tournaments.shares(context.dataset) : []
     const mine = new Map(stats.byOpponent.map((item) => [item.key, item]))
-    const { facts } = await this.loadFacts()
-    const ofDeck = filterMatches(facts, { deckId: deck.id, mode: mode ?? null, from: null, to: null })
     const turns = opponentTurns(ofDeck)
     // H-009: the verdict compares the same era on both sides, per game, with the tournament's uncertainty, and the
     // rivals together (Holm).
@@ -442,14 +465,66 @@ export class MatchesService {
         turn: turns.get(own.key) ?? null,
       })
     }
+    // Fase 44: the same expected figure with the rivals weighted by «mi meta» (every deck's matches of the era, in
+    // the modes asked or competitive and casual), only when the deck has an archetype to weigh.
+    const mineMeta =
+      archetype && context ? await this.myMetaOf(facts, { era: context.scope.era, mode }).catch(() => null) : null
+    const expectedMine =
+      archetype && mineMeta?.enough
+        ? await this.tournaments
+            .expectedWith(
+              archetype.id,
+              { shares: mineMeta.shares, sample: mineMeta.effectiveMatches },
+              { era: context?.scope.era },
+            )
+            .catch(() => null)
+        : null
     return {
       deck,
       archetype,
       era: context?.scope.era ?? '',
       tournamentsWithPairings: context?.matchups.tournamentsWithPairings ?? 0,
       expected: context?.matchups.expected ?? null,
+      expectedMine,
+      myMeta: mineMeta ? myMetaSummary(mineMeta) : null,
       rows,
       attribution: 'Datos de torneo: Limitless (play.limitlesstcg.com)',
+    }
+  }
+
+  /**
+   * Fase 44: «mi meta» — the rivals of my matches (every deck) as shares of the era's tournament archetypes, the
+   * recent ones weighing more. A rival is an archetype by name, or by the archetype its note was written from. Only
+   * the era's matches count (the tournament numbers it weighs are the era's), in `mode` or else competitive and
+   * casual (MY_META_MODES), and `days` narrows it further.
+   */
+  async myMeta(query: MyMetaQuery = {}): Promise<MyMetaView> {
+    const { facts } = await this.loadFacts()
+    return this.myMetaOf(facts, query)
+  }
+
+  private async myMetaOf(facts: readonly MatchFacts[], query: MyMetaQuery): Promise<MyMetaView> {
+    const now = new Date()
+    const era = await this.tournaments.eraArchetypes({ era: query.era })
+    const since = query.days ? new Date(now.getTime() - query.days * 24 * 60 * 60 * 1000) : null
+    const eraFrom = era.range?.from ?? null
+    const from = since && eraFrom ? (since > eraFrom ? since : eraFrom) : (since ?? eraFrom)
+    const modes: readonly MatchMode[] = query.mode ? [query.mode] : MY_META_MODES
+    const selected = filterMatches(facts, { deckId: null, mode: null, from, to: era.range?.to ?? null }).filter(
+      (fact) => modes.includes(fact.mode),
+    )
+    const notes = await this.prisma.rivalNote.findMany({
+      where: { archetypeId: { not: null } },
+      select: { key: true, archetypeId: true },
+    })
+    const links = new Map(
+      notes.flatMap((note) => (note.archetypeId ? [[note.key, era.canonical(note.archetypeId)] as const] : [])),
+    )
+    return {
+      era: era.era,
+      from: from?.toISOString() ?? null,
+      filters: { mode: query.mode ?? null, modes: [...modes], days: query.days ?? null },
+      ...myMeta(selected, era.archetypes, { now, links, halfLifeDays: query.halfLifeDays }),
     }
   }
 

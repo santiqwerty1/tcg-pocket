@@ -5,7 +5,10 @@ import type {
   DeckCompleteness,
   DeckDistance,
   DeckDraft,
+  EnergyType,
+  EnergyZoneOdds,
   ParseIssue,
+  SearchKind,
   SelectableEnergy,
   ValidationIssue,
 } from '@tcg/domain'
@@ -160,6 +163,24 @@ export interface DrawOddsView {
   /** turn 0 = opening hand; N = own turn N. Probabilities 0–1. */
   rows: { turn: number; cardsSeen: number; each: number[]; all: number | null }[]
   basicsInHand: { count: number; probability: number }[]
+  /** Fase 44: the first card counting the search cards (seeded Monte Carlo); null without search cards. */
+  search: {
+    cards: Record<SearchKind, number>
+    runs: number
+    seed: number
+    rows: { turn: number; probability: number; se: number }[]
+    note: string
+  } | null
+  /** Fase 44: the Energy Zone for the attacker's attacks; null without energies or attacker. */
+  energy: {
+    attacker: { groupId: string; nameEs: string }
+    types: SelectableEnergy[]
+    attacks: ({ name: string; cost: EnergyType[] } & Pick<
+      EnergyZoneOdds,
+      'payable' | 'first' | 'second' | 'likelyTurn'
+    >)[]
+    note: string
+  } | null
   note: string
 }
 

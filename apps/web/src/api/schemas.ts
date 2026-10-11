@@ -628,6 +628,22 @@ const rowFields = { record: gameRecordSchema, rate: winRateSchema.nullable() }
 export const statRowSchema = z.object(rowFields)
 export type StatRow = z.infer<typeof statRowSchema>
 
+/** Fase 44: ½ going first + ½ going second, with its interval. */
+export const coinAdjustedSchema = z.object({
+  value: z.number(),
+  ci95: z.tuple([z.number(), z.number()]),
+  first: gameRecordSchema,
+  second: gameRecordSchema,
+  firstShare: z.number(),
+  secondShare: z.number(),
+  games: z.number(),
+  unknown: z.number(),
+  orientative: z.boolean(),
+  plain: z.number(),
+  text: z.string(),
+})
+export type CoinAdjusted = z.infer<typeof coinAdjustedSchema>
+
 export const matchStatsSchema = z.object({
   filters: z.object({
     deckId: z.string().nullable(),
@@ -636,7 +652,9 @@ export const matchStatsSchema = z.object({
     to: nullableDate,
   }),
   overall: statRowSchema,
-  byDeck: z.array(z.object({ ...rowFields, deck: matchDeckRefSchema })),
+  byDeck: z.array(
+    z.object({ ...rowFields, deck: matchDeckRefSchema, coinAdjusted: coinAdjustedSchema.nullable().default(null) }),
+  ),
   byOpponent: z.array(z.object({ ...rowFields, key: z.string().nullable(), label: z.string() })),
   byWentFirst: z.array(z.object({ ...rowFields, key: z.enum(['first', 'second', 'unknown']), label: z.string() })),
   byMode: z.array(z.object({ ...rowFields, mode: matchModeSchema, label: z.string() })),
@@ -657,6 +675,7 @@ export const matchStatsSchema = z.object({
       text: z.string(),
     })
     .optional(),
+  coinAdjusted: coinAdjustedSchema.nullable().default(null),
 })
 export type MatchStats = z.infer<typeof matchStatsSchema>
 export type TurnOrder = NonNullable<MatchStats['turnOrder']>
@@ -682,6 +701,38 @@ export const comparisonColumnSchema = z.object({
 export type ComparisonColumn = z.infer<typeof comparisonColumnSchema>
 export const deckComparisonSchema = z.object({ deck: matchDeckRefSchema, columns: z.array(comparisonColumnSchema) })
 
+/** Fase 44: «mi meta», the rivals of my matches as tournament archetypes. */
+export const myMetaSummarySchema = z.object({
+  text: z.string(),
+  enough: z.boolean(),
+  /** Weighted by age, 0–100. */
+  coverage: z.number(),
+  matched: z.number(),
+  /** Kish's effective sample size of the matched matches. */
+  effectiveMatches: z.number().default(0),
+  orientative: z.boolean().default(true),
+})
+export type MyMetaSummary = z.infer<typeof myMetaSummarySchema>
+
+export const myMetaSchema = myMetaSummarySchema.extend({
+  era: z.string(),
+  from: z.string().nullable().default(null),
+  halfLifeDays: z.number(),
+  matches: z.number(),
+  withoutRival: z.number(),
+  shares: z.array(
+    z.object({
+      archetypeId: z.string(),
+      name: z.string(),
+      share: z.number(),
+      ci95: z.tuple([z.number(), z.number()]).nullable().default(null),
+      games: z.number(),
+    }),
+  ),
+  unmatched: z.array(z.object({ key: z.string(), label: z.string(), games: z.number() })),
+})
+export type MyMeta = z.infer<typeof myMetaSchema>
+
 /** Fase 9: against each rival, own matches and the tournament matchup of the deck's archetype. */
 export const deckMatchupsSchema = z.object({
   deck: matchDeckRefSchema,
@@ -697,6 +748,18 @@ export const deckMatchupsSchema = z.object({
       rivals: z.number(),
     })
     .nullable(),
+  /** Fase 44: the same with the rivals weighted by «mi meta». */
+  expectedMine: z
+    .object({
+      value: z.number(),
+      ci95: z.tuple([z.number(), z.number()]).nullable().default(null),
+      coverage: z.number(),
+      matches: z.number(),
+      rivals: z.number(),
+    })
+    .nullable()
+    .default(null),
+  myMeta: myMetaSummarySchema.nullable().default(null),
   rows: z.array(
     z.object({
       rival: z.object({ id: z.string().nullable(), name: z.string() }),
@@ -806,6 +869,8 @@ export const packRowSchema = z.object({
   packsFor90: z.number().nullable(),
   decks: pullFields.nullable(),
   collection: pullFields.nullable(),
+  /** Fase 44: cards of the missions' missing slots. */
+  missions: pullFields.nullable().default(null),
   otherModel: z.object({
     model: z.enum(PACK_MODELS),
     probability: z.number(),
@@ -932,6 +997,11 @@ export const recommendationSchema = z.object({
   missing: z.array(missingCardSchema),
   decks: z.array(deckCompletionSchema),
   collectionOutOfPacks: z.object({ versions: z.number(), tradeable: z.number() }).nullable(),
+  /** Fase 44: the missions goal; null when off. */
+  missions: z
+    .object({ slots: z.number(), missingCopies: z.number(), outOfPacks: z.number(), weight: z.number() })
+    .nullable()
+    .default(null),
   planner: z.object({ packsPerDay: z.number(), hourglasses: z.number() }).default({ packsPerDay: 2, hourglasses: 0 }),
   assumptions: z.array(z.string()),
 })
@@ -944,6 +1014,8 @@ export interface RecommendBody {
   onlyAvailable: boolean
   limitedBoost: number
   deckTarget: DeckTarget
+  /** Fase 44: the missions as a third goal. */
+  missions: boolean
 }
 
 // ---------- Auth, tokens, settings, backup ----------
@@ -1111,6 +1183,24 @@ export const listAgainstSchema = listRowSchema.extend({
 export type ListAgainstCollection = z.infer<typeof listAgainstSchema>
 
 export const archetypesResponseSchema = z.object({ scope: scopeSchema, rows: z.array(archetypeRowSchema) })
+
+/** Fase 44: «¿qué mazo armo después?» — per archetype, its closest list and what finishing it costs. */
+export const nextBuildSchema = z.object({
+  scope: scopeSchema,
+  maxMissing: z.number(),
+  rows: z.array(
+    z.object({
+      archetype: archetypeRowSchema,
+      closest: listAgainstSchema,
+      points: z.number().nullable(),
+      unpriced: z.number(),
+      tradeable: z.number(),
+      built: z.boolean(),
+    }),
+  ),
+  note: z.string(),
+})
+export type NextBuild = z.infer<typeof nextBuildSchema>
 export const listsResponseSchema = z.object({ scope: scopeSchema, rows: z.array(listRowSchema), total: z.number() })
 
 export const withWithoutSchema = z.object({
@@ -2204,6 +2294,8 @@ export type Missions = z.infer<typeof missionsSchema>
 
 // ---------- Mano inicial (Fase 10) ----------
 
+const energyZoneRowSchema = z.object({ turn: z.number(), energies: z.number(), probability: z.number() })
+
 export const drawOddsSchema = z.object({
   deck: z.object({ id: z.string(), name: z.string() }).nullable(),
   deckSize: z.number(),
@@ -2219,9 +2311,40 @@ export const drawOddsSchema = z.object({
     z.object({ turn: z.number(), cardsSeen: z.number(), each: z.array(z.number()), all: z.number().nullable() }),
   ),
   basicsInHand: z.array(z.object({ count: z.number(), probability: z.number() })),
+  /** Fase 44: the first card counting Poké Ball, Investigación de Profesores and Comunicación Pokémon. */
+  search: z
+    .object({
+      cards: z.object({ pokeball: z.number(), research: z.number(), communication: z.number() }),
+      runs: z.number(),
+      seed: z.number(),
+      rows: z.array(z.object({ turn: z.number(), probability: z.number(), se: z.number() })),
+      note: z.string(),
+    })
+    .nullable()
+    .default(null),
+  /** Fase 44: the Energy Zone for the attacker's attacks. */
+  energy: z
+    .object({
+      attacker: z.object({ groupId: z.string(), nameEs: z.string() }),
+      types: z.array(selectableEnergySchema),
+      attacks: z.array(
+        z.object({
+          name: z.string(),
+          cost: z.array(energyTypeSchema),
+          payable: z.boolean(),
+          first: z.array(energyZoneRowSchema),
+          second: z.array(energyZoneRowSchema),
+          likelyTurn: z.object({ first: z.number().nullable(), second: z.number().nullable() }),
+        }),
+      ),
+      note: z.string(),
+    })
+    .nullable()
+    .default(null),
   note: z.string(),
 })
 export type DrawOdds = z.infer<typeof drawOddsSchema>
+export type EnergyZone = NonNullable<DrawOdds['energy']>
 
 // ---------- Notas por rival (Fase 12) ----------
 
@@ -2241,16 +2364,33 @@ export const rivalNoteResponseSchema = z.object({ note: rivalNoteSchema.nullable
 
 export const PICK_SORTS = ['tournament', 'matches', 'lab'] as const
 export type PickSort = (typeof PICK_SORTS)[number]
+export const PICK_METAS = ['tournament', 'mine'] as const
+export type PickMeta = (typeof PICK_METAS)[number]
+
 export const pickSchema = z.object({
   sort: z.enum(PICK_SORTS),
   meta: z.object({ era: z.string(), kind: z.enum(['recent', 'era']), days: z.number(), lists: z.number() }).nullable(),
+  /** Fase 44: the weights of the tournament number (tournament meta or «mi meta»). */
+  weights: z
+    .object({
+      asked: z.enum(PICK_METAS),
+      used: z.enum(PICK_METAS),
+      mine: myMetaSummarySchema.nullable(),
+    })
+    .default({ asked: 'tournament', used: 'tournament', mine: null }),
   items: z.array(
     z.object({
       deck: z.object({ id: z.string(), name: z.string() }),
       archetype: z.object({ id: z.string(), name: z.string(), source: z.enum(['owner', 'guessed']) }).nullable(),
       mine: z.object({ record: gameRecordSchema, rate: winRateSchema.nullable() }).nullable(),
       tournament: z
-        .object({ value: z.number(), coverage: z.number(), matches: z.number(), rivals: z.number() })
+        .object({
+          value: z.number(),
+          ci95: z.tuple([z.number(), z.number()]).nullable().default(null),
+          coverage: z.number(),
+          matches: z.number(),
+          rivals: z.number(),
+        })
         .nullable(),
       lab: z
         .object({

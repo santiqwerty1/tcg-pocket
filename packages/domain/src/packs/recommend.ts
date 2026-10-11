@@ -17,7 +17,14 @@ import {
   type PlanPacks,
   planPacks,
 } from './completion.js'
-import { type CollectionGoal, collectionWanted, type DeckGoal, deckDeficits, type GroupDeficit } from './goals.js'
+import {
+  type CollectionGoal,
+  collectionWanted,
+  type DeckGoal,
+  deckDeficits,
+  type GroupDeficit,
+  type MissionWant,
+} from './goals.js'
 import {
   combineChances,
   editionChances,
@@ -105,6 +112,11 @@ export interface RecommendInput {
    * left the shop (S-002, refuted by Santi on 8/10/2026). None when omitted.
    */
   savedPoints?: ((expansionId: string) => number) | undefined
+  /**
+   * Fase 44: mission slots still missing copies, the third goal. When on, it weighs as much as each other goal on:
+   * β = 1 / (goals on), and the rest is split between decks and collection with α as before.
+   */
+  missions?: readonly MissionWant[] | null | undefined
 }
 
 export type ModelDifferenceReason = 'babies' | 'reprints'
@@ -128,6 +140,8 @@ export interface PackRow {
   packsFor90: number | null
   decks: { probability: number; expected: number } | null
   collection: { probability: number; expected: number } | null
+  /** Fase 44: cards of the missions' missing slots. */
+  missions: { probability: number; expected: number } | null
   otherModel: { model: PackModel; probability: number; reasons: ModelDifferenceReason[] }
   /** Limited-time pack: last day, days left (0 = last day, negative = over) and what only it gives. */
   limited: LimitedRow | null
@@ -230,6 +244,8 @@ export interface Recommendation {
   decks: DeckCompletion[]
   /** Versions the collection goal wants that no pack on sale gives, and how many of them can be traded. */
   collectionOutOfPacks: { versions: number; tradeable: number } | null
+  /** Fase 44: the missions goal — slots and copies missing, and slots no pack on sale gives. */
+  missions: { slots: number; missingCopies: number; outOfPacks: number; weight: number } | null
 }
 
 function unique(cards: readonly CardEdition[]): CardEdition[] {
@@ -314,11 +330,20 @@ export function recommendPacks(input: RecommendInput): Recommendation {
     deficit.listedCardIds.map((cardId) => index.cardById(cardId)).filter((card): card is CardEdition => !!card),
   )
   const colWanted = input.collection ? collectionWanted(index, input.owned, input.collection) : []
+  const missionList = input.missions ?? []
+  const missionCards = unique(
+    missionList.flatMap((want) =>
+      want.options.map((cardId) => index.cardById(cardId)).filter((card): card is CardEdition => !!card),
+    ),
+  )
   const decksActive = deficits.length > 0
   const collectionActive = input.collection !== null
+  const missionsActive = missionList.length > 0
   const alpha = Math.min(1, Math.max(0, input.alpha))
-  const deckFactor = decksActive ? (collectionActive ? alpha : 1) : 0
-  const collectionFactor = collectionActive ? (decksActive ? 1 - alpha : 1) : 0
+  // Fase 44: the missions weigh as one more goal; decks and collection share the rest with α.
+  const missionsFactor = missionsActive ? 1 / (Number(decksActive) + Number(collectionActive) + 1) : 0
+  const deckFactor = (1 - missionsFactor) * (decksActive ? (collectionActive ? alpha : 1) : 0)
+  const collectionFactor = (1 - missionsFactor) * (collectionActive ? (decksActive ? 1 - alpha : 1) : 0)
 
   const profiles = index.catalog.packs
     .map((pack) => packProfile(pack.id, index))
@@ -340,14 +365,15 @@ export function recommendPacks(input: RecommendInput): Recommendation {
   const evaluate = (profile: PackProfile, which: PackModel) => {
     const byDecks = decksActive ? matchWanted(profile, deckWanted, { model: which, byGroup: true }) : []
     const byCollection = collectionActive ? matchWanted(profile, colWanted, { model: which, byGroup: false }) : []
-    const all = unique([...byDecks, ...byCollection])
+    const byMissions = missionsActive ? matchWanted(profile, missionCards, { model: which, byGroup: false }) : []
+    const all = unique([...byDecks, ...byCollection, ...byMissions])
     const chances = new Map(all.map((card) => [card.id, editionChances(card, profile, which)]))
     const outcome = (cards: readonly CardEdition[]) =>
       combineChances(
         cards.map((card) => chances.get(card.id) as ReturnType<typeof editionChances>),
         profile.structure,
       )
-    return { byDecks, byCollection, all, chances, outcome }
+    return { byDecks, byCollection, byMissions, all, chances, outcome }
   }
 
   const evaluations = new Map(profiles.map((profile) => [profile.packId, evaluate(profile, model)]))
@@ -361,7 +387,15 @@ export function recommendPacks(input: RecommendInput): Recommendation {
   }
 
   const rows: PackRow[] = []
-  const rawValues = new Map<string, { deck: number; collection: number }>()
+  const rawValues = new Map<string, { deck: number; collection: number; missions: number }>()
+  // Fase 44: each slot's options by version, to find them among a pack's cards.
+  const slotVersions = missionList.map((want) => ({
+    missing: want.missing,
+    versions: new Set(
+      want.options.map((cardId) => index.cardById(cardId)?.internalId).filter((id): id is number => id !== undefined),
+    ),
+  }))
+  const slotsInPacks = new Set<number>()
   for (const profile of profiles) {
     const available = onSale(profile.packId)
     if (input.onlyAvailable && !available) continue
@@ -394,7 +428,15 @@ export function recommendPacks(input: RecommendInput): Recommendation {
       }
       collectionValue += (only ? limitedBoost : 1) * current.outcome([card]).expected
     }
-    rawValues.set(profile.packId, { deck: deckValue, collection: collectionValue })
+    // Fase 44: Σ over the missing slots of copies missing × expected copies of any of its options.
+    let missionValue = 0
+    slotVersions.forEach((slot, at) => {
+      const cards = current.byMissions.filter((card) => slot.versions.has(card.internalId))
+      if (cards.length === 0) return
+      if (available) slotsInPacks.add(at)
+      missionValue += slot.missing * current.outcome(cards).expected
+    })
+    rawValues.set(profile.packId, { deck: deckValue, collection: collectionValue, missions: missionValue })
     const total = current.outcome(current.all)
     const reasons: ModelDifferenceReason[] = []
     if (!sameIds(current.all, other.all)) reasons.push('reprints')
@@ -415,6 +457,7 @@ export function recommendPacks(input: RecommendInput): Recommendation {
       packsFor90: packsForConfidence(total.probability, 0.9),
       decks: decksActive ? current.outcome(current.byDecks) : null,
       collection: collectionActive ? current.outcome(current.byCollection) : null,
+      missions: missionsActive ? current.outcome(current.byMissions) : null,
       otherModel: { model: otherModel, probability: other.outcome(other.all).probability, reasons },
       limited: limited
         ? {
@@ -428,7 +471,7 @@ export function recommendPacks(input: RecommendInput): Recommendation {
   // Each goal is scaled to its best pack on sale before weighing with α, so α means what it says: a collection goal
   // with thousands of wanted editions does not drown a deck missing one card (DECISIONES 4.4). A pack off sale may
   // score above 1: it says how much better it would be.
-  const scaleBy = (goal: 'deck' | 'collection') => {
+  const scaleBy = (goal: 'deck' | 'collection' | 'missions') => {
     const onSaleMax = Math.max(
       0,
       ...rows.filter((row) => row.available).map((row) => rawValues.get(row.packId)?.[goal] ?? 0),
@@ -437,11 +480,13 @@ export function recommendPacks(input: RecommendInput): Recommendation {
   }
   const maxDeck = scaleBy('deck')
   const maxCollection = scaleBy('collection')
+  const maxMissions = scaleBy('missions')
   for (const row of rows) {
-    const value = rawValues.get(row.packId) ?? { deck: 0, collection: 0 }
+    const value = rawValues.get(row.packId) ?? { deck: 0, collection: 0, missions: 0 }
     row.expectedValue =
       (maxDeck > 0 ? (deckFactor * value.deck) / maxDeck : 0) +
-      (maxCollection > 0 ? (collectionFactor * value.collection) / maxCollection : 0)
+      (maxCollection > 0 ? (collectionFactor * value.collection) / maxCollection : 0) +
+      (maxMissions > 0 ? (missionsFactor * value.missions) / maxMissions : 0)
   }
   // Packs on sale first: the others are there to compare (acceptance d), not to open.
   rows.sort(
@@ -640,7 +685,15 @@ export function recommendPacks(input: RecommendInput): Recommendation {
     collectionOutOfPacks = { versions, tradeable }
   }
 
-  return { model, alpha, limitedBoost, rows, missing, decks, collectionOutOfPacks }
+  const missions: Recommendation['missions'] = missionsActive
+    ? {
+        slots: missionList.length,
+        missingCopies: missionList.reduce((sum, want) => sum + want.missing, 0),
+        outOfPacks: missionList.length - slotsInPacks.size,
+        weight: missionsFactor,
+      }
+    : null
+  return { model, alpha, limitedBoost, rows, missing, decks, collectionOutOfPacks, missions }
 }
 
 function exclusiveVersion(index: CatalogIndex, card: CardEdition, goal: ExclusiveVersion['goal']): ExclusiveVersion {

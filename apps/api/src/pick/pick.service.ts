@@ -8,7 +8,8 @@
 import { Injectable } from '@nestjs/common'
 import type { DeckCardEntry, GameRecord, WinRate } from '@tcg/domain'
 import { type DeckLabScore, LabService } from '../lab/lab.service.js'
-import { MatchesService } from '../matches/matches.service.js'
+import type { MyMetaSummary } from '../matches/match-views.js'
+import { MatchesService, myMetaSummary } from '../matches/matches.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import type { DeckTournamentView } from '../tournaments/tournament-views.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
@@ -20,15 +21,19 @@ export interface PickRowView {
   archetype: { id: string; name: string; source: 'owner' | 'guessed' } | null
   /** Own matches with the deck (every mode). */
   mine: { record: GameRecord; rate: WinRate | null } | null
-  /** The archetype's matchups weighted by today's meta. */
-  tournament: { value: number; coverage: number; matches: number; rivals: number } | null
+  /** The archetype's matchups weighted by today's meta (or by «mi meta», Fase 44). */
+  tournament: { value: number; ci95: [number, number]; coverage: number; matches: number; rivals: number } | null
   /** Latest Laboratorio score of the current list. */
   lab: { value: number; ci95: [number, number]; games: number; text: string; jobId: number; era: string } | null
 }
 
+export type PickMeta = 'tournament' | 'mine'
+
 export interface PickView {
   sort: PickSort
   meta: { era: string; kind: 'recent' | 'era'; days: number; lists: number } | null
+  /** Fase 44: which weights the tournament number used; «mine» falls back to the tournament meta until it is enough. */
+  weights: { asked: PickMeta; used: PickMeta; mine: MyMetaSummary | null }
   items: PickRowView[]
   note: string
 }
@@ -42,7 +47,7 @@ export class PickService {
     private readonly lab: LabService,
   ) {}
 
-  async today(sort: PickSort = 'tournament'): Promise<PickView> {
+  async today(sort: PickSort = 'tournament', asked: PickMeta = 'tournament'): Promise<PickView> {
     const decks = await this.prisma.deck.findMany({
       where: { builtInGame: true, archivedAt: null },
       select: { id: true, name: true, currentRevisionId: true, tournamentArchetypeId: true },
@@ -59,7 +64,14 @@ export class PickService {
     const stats = await this.matches.stats({})
     const mine = new Map(stats.byDeck.map((row) => [row.deck.id, { record: row.record, rate: row.rate }]))
     // H-007: the era, its dataset and the aliases once, and the Laboratorio scores in one go.
-    const today = await this.tournaments.todayExpectations().catch(() => null)
+    const mineMeta = asked === 'mine' ? await this.matches.myMeta({}).catch(() => null) : null
+    const used: PickMeta = mineMeta?.enough ? 'mine' : 'tournament'
+    const today = await this.tournaments
+      .todayExpectations(
+        {},
+        used === 'mine' && mineMeta ? { shares: mineMeta.shares, sharesSample: mineMeta.effectiveMatches } : {},
+      )
+      .catch(() => null)
     const scores = await this.lab.deckScores(decks.map((deck) => deck.id)).catch(() => new Map<number, DeckLabScore>())
     const items: PickRowView[] = []
     for (const deck of decks) {
@@ -116,8 +128,16 @@ export class PickService {
     return {
       sort,
       meta: today ? { era: today.scope.era, ...today.meta } : null,
+      weights: {
+        asked,
+        used,
+        mine: mineMeta ? myMetaSummary(mineMeta) : null,
+      },
       items,
-      note: 'Tres números separados: tus partidas, lo que el arquetipo del mazo debería sacar contra el meta de los últimos días según torneos (personas), y el último puntaje del Laboratorio (bots). No se combinan: ordená por el que te importe.',
+      note:
+        used === 'mine'
+          ? 'Tres números separados: tus partidas, lo que el arquetipo del mazo debería sacar según torneos (personas) pesado por tus rivales de la era («mi meta»: los matchups son de torneos, los pesos salen de tus partidas, y su intervalo cuenta las dos cosas), y el último puntaje del Laboratorio (bots). No se combinan: ordená por el que te importe.'
+          : 'Tres números separados: tus partidas, lo que el arquetipo del mazo debería sacar contra el meta de los últimos días según torneos (personas), y el último puntaje del Laboratorio (bots). No se combinan: ordená por el que te importe.',
     }
   }
 }

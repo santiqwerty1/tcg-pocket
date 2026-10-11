@@ -41,7 +41,10 @@ import {
   metaShares,
   metaTrends,
   mostCommonEnergies,
+  NEXT_BUILD_MAX_MISSING,
+  type NextBuildCost,
   newEraWarning,
+  nextBuilds,
   phaseBestOf,
   playableCopies,
   type RateDifference,
@@ -91,6 +94,7 @@ import type {
   ListsView,
   MatchupMatrixView,
   MetaTrendsView,
+  NextBuildView,
   RecordRowView,
   ScopeView,
   SetProposalView,
@@ -365,7 +369,14 @@ export class TournamentsService {
    * Fase 15: what each archetype should score against today's meta (the last two weeks, or the era when they are
    * too few lists), from the era's matchups.
    */
-  async todayExpectations(query: ScopeQuery = {}): Promise<{
+  async todayExpectations(
+    query: ScopeQuery = {},
+    /**
+     * Fase 44: other weights for the rivals («mi meta»), and the effective matches they were read from, so their own
+     * sampling error joins the interval; by default, the recent meta (known shares).
+     */
+    options: { shares?: readonly { archetypeId: string; share: number }[]; sharesSample?: number | undefined } = {},
+  ): Promise<{
     scope: Scope
     dataset: TournamentDataset
     meta: { kind: 'recent' | 'era'; days: number; lists: number }
@@ -383,7 +394,10 @@ export class TournamentsService {
       dataset,
       meta: { kind: meta.kind, days: meta.days, lists: meta.lists },
       expected: (archetypeId) =>
-        expectedVsMeta(matchups, dataset, aliases.get(archetypeId) ?? archetypeId, { shares: meta.shares }),
+        expectedVsMeta(matchups, dataset, aliases.get(archetypeId) ?? archetypeId, {
+          shares: options.shares ?? meta.shares,
+          sharesSample: options.shares ? options.sharesSample : undefined,
+        }),
       place: (cards, ownerArchetypeId) => this.placeDeck(scope, dataset, aliases, cards, ownerArchetypeId),
     }
   }
@@ -438,6 +452,45 @@ export class TournamentsService {
       })),
       attribution: LIMITLESS_ATTRIBUTION,
     }
+  }
+
+  /**
+   * Fase 44: the era's archetypes (canonical id and name), its dates and the owner's merges, to read «mi meta» over
+   * the same era as the tournament numbers it weighs.
+   */
+  async eraArchetypes(query: ScopeQuery = {}): Promise<{
+    era: string
+    range: { from: Date; to: Date | null } | null
+    archetypes: { id: string; name: string }[]
+    canonical: (id: string) => string
+  }> {
+    const scope = await this.scope(query)
+    const dataset = await this.dataset(scope)
+    const aliases = await this.settings.aliases()
+    return {
+      era: scope.era,
+      range: eraRange(scope.era, scope.sets),
+      archetypes: [...dataset.archetypes.values()].map((ref) => ({ id: ref.id, name: ref.name })),
+      canonical: (id) => aliases.get(id) ?? id,
+    }
+  }
+
+  /**
+   * Fase 44: what an archetype should score with the rivals weighted by `shares` («mi meta») instead of the era's;
+   * `sample` is the effective matches the shares come from, so their sampling error widens the interval.
+   */
+  async expectedWith(
+    archetypeId: string,
+    weights: { shares: readonly { archetypeId: string; share: number }[]; sample: number },
+    query: ScopeQuery = {},
+  ): Promise<ExpectedVsMetaView | null> {
+    const scope = await this.scope(query)
+    const dataset = await this.dataset(scope)
+    const canonical = (await this.settings.aliases()).get(archetypeId) ?? archetypeId
+    return expectedVsMeta(await this.matchupsOf(dataset), dataset, canonical, {
+      shares: weights.shares,
+      sharesSample: weights.sample,
+    })
   }
 
   /** One archetype against each rival (Fase 9), for the deck sheet and Claude. */
@@ -786,6 +839,38 @@ export class TournamentsService {
         .sort((a, b) => a.missingCopies - b.missingCopies || b.list.lists - a.list.lists)
         .slice(0, limit)
         .map((row) => this.againstView(dataset, row, scope.index)),
+    }
+  }
+
+  /**
+   * Fase 44: per archetype of the era, the exact list closest to the collection and what finishing it costs (`cost`
+   * comes from the pack rules), ranked by the archetype's rate at the low end of its interval.
+   */
+  async nextBuilds(
+    query: ScopeQuery & { maxMissing?: number | undefined; limit?: number | undefined },
+    options: { cost: (groupId: CardId) => NextBuildCost | null; built: (archetypeId: string) => boolean },
+  ): Promise<NextBuildView> {
+    const scope = await this.scope(query)
+    const dataset = await this.dataset(scope)
+    const maxMissing = query.maxMissing ?? NEXT_BUILD_MAX_MISSING
+    const rows = nextBuilds(dataset, {
+      playable: await this.playable(scope.index),
+      cost: options.cost,
+      built: options.built,
+      maxMissing,
+    })
+    return {
+      scope: this.scopeView(scope, dataset),
+      maxMissing,
+      rows: rows.slice(0, query.limit ?? 20).map((row) => ({
+        archetype: { archetype: this.archetypeRef(dataset, row.archetypeId), ...rowView(row.archetype) },
+        closest: this.againstView(dataset, row.closest, scope.index),
+        points: row.points,
+        unpriced: row.unpriced,
+        tradeable: row.tradeable,
+        built: row.built,
+      })),
+      note: 'Por arquetipo, la lista exacta de torneo más cercana a tu colección (menos copias faltantes y, a igualdad, la más jugada). Orden: el récord del arquetipo en torneos por el extremo bajo de su intervalo, así uno con pocas listas no pasa adelante por suerte. El costo es la versión más barata de cada carta en puntos de sobre; también se pueden intercambiar las que dicen «intercambiables».',
     }
   }
 

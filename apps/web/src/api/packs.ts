@@ -84,6 +84,7 @@ export function useRecommendation(body: RecommendBody | null) {
         onlyAvailable: true,
         limitedBoost: 3,
         deckTarget: 'saved',
+        missions: false,
       },
     ),
     queryFn: ({ signal }) =>

@@ -156,7 +156,7 @@ describe('clearClientCaches', () => {
     expect(localStorage.getItem('tcg.match-suggestions')).toBeNull()
   })
 
-  it('keeps what was shared even when logging out', async () => {
+  it('clears what was shared too when logging out by hand', async () => {
     const deleted: string[] = []
     vi.stubGlobal('caches', {
       keys: async () => ['workbox-precache-v2', 'shared-files'],
@@ -167,6 +167,6 @@ describe('clearClientCaches', () => {
     })
     vi.stubGlobal('navigator', { serviceWorker: { getRegistrations: async () => [] } })
     await clearClientCaches('logout')
-    expect(deleted).toEqual(['workbox-precache-v2'])
+    expect(deleted).toEqual(['workbox-precache-v2', 'shared-files'])
   })
 })

@@ -14,6 +14,8 @@ import {
   estimateSeconds,
   type FunctionalGroup,
   foldText,
+  formatIntervalEs,
+  formatPercentEs,
   formatWinRateEs,
   MATCH_MODE_LABEL_ES,
   MATCH_RESULT_LABEL_ES,
@@ -25,6 +27,7 @@ import {
   MCP_READ_TOOLS,
   MCP_SERVER_INSTRUCTIONS,
   MCP_WRITE_INSTRUCTIONS,
+  nextBuildCostText,
   type Rarity,
   type TournamentFormat,
 } from '@tcg/domain'
@@ -41,6 +44,7 @@ import { DecksService } from '../decks/decks.service.js'
 import { EventsService } from '../events/events.service.js'
 import type { RowView } from '../matches/match-views.js'
 import { MatchesService } from '../matches/matches.service.js'
+import { NextBuildService } from '../next-build/next-build.controller.js'
 import { OpsService } from '../ops/ops.service.js'
 import { PacksService } from '../packs/packs.service.js'
 import { PickService } from '../pick/pick.service.js'
@@ -175,6 +179,7 @@ export class McpToolsService {
     private readonly deckRefs: DeckRefResolver,
     private readonly rivalNotes: RivalNotesService,
     private readonly pick: PickService,
+    private readonly nextBuild: NextBuildService,
     private readonly events: EventsService,
     private readonly writeTools: McpWriteToolsService,
     private readonly labTools: McpLabToolsService,
@@ -269,6 +274,12 @@ ${MCP_CHAT_INSTRUCTIONS}`
     )
     server.registerTool(t.decksPickToday.name, config(t.decksPickToday), (args) =>
       run(t.decksPickToday.name, () => this.decksPickToday(args)),
+    )
+    server.registerTool(t.matchesMyMeta.name, config(t.matchesMyMeta), (args) =>
+      run(t.matchesMyMeta.name, () => this.matchesMyMeta(args)),
+    )
+    server.registerTool(t.decksNextBuild.name, config(t.decksNextBuild), (args) =>
+      run(t.decksNextBuild.name, () => this.decksNextBuild(args)),
     )
     server.registerTool(t.decksDrawOdds.name, config(t.decksDrawOdds), (args) =>
       run(t.decksDrawOdds.name, () => this.decksDrawOdds(args)),
@@ -992,13 +1003,20 @@ ${MCP_CHAT_INSTRUCTIONS}`
         days: args.days ?? null,
       },
       overall: rowView(stats.overall),
-      byDeck: stats.byDeck.map((row) => ({ deck: row.deck.name, deckId: row.deck.id, ...rowView(row) })),
+      byDeck: stats.byDeck.map((row) => ({
+        deck: row.deck.name,
+        deckId: row.deck.id,
+        ...rowView(row),
+        ...(row.coinAdjusted ? { coinAdjusted: row.coinAdjusted.text } : {}),
+      })),
       byOpponent: stats.byOpponent.map((row) => ({ opponent: row.label, ...rowView(row) })),
       byWentFirst: stats.byWentFirst.map((row) => ({ who: row.label, ...rowView(row) })),
       turnOrder: {
         text: stats.turnOrder.text,
         verdict: stats.turnOrder.verdict,
         coverage: `${Math.round(stats.turnOrder.coverage)} % de las partidas tienen anotado quién empezó`,
+        // Fase 44: half going first, half going second (the coin decides who starts).
+        coinAdjusted: stats.coinAdjusted?.text ?? null,
       },
       byMode: stats.byMode.map((row) => ({ mode: row.label, ...rowView(row) })),
       byRevision: stats.byRevision.map((row) => ({ revision: row.revision, ...rowView(row) })),
@@ -1016,6 +1034,7 @@ ${MCP_CHAT_INSTRUCTIONS}`
     onlyAvailable?: boolean
     limitedBoost?: number
     deckTarget?: 'saved' | 'tournament'
+    missions?: boolean
     limit?: number
   }): Promise<Json> {
     const result = await this.packs.recommend({
@@ -1025,6 +1044,7 @@ ${MCP_CHAT_INSTRUCTIONS}`
       onlyAvailable: args.onlyAvailable ?? true,
       limitedBoost: args.limitedBoost,
       deckTarget: args.deckTarget,
+      missions: args.missions,
     })
     const day = (iso: string) => iso.split('-').reverse().join('/')
     const lastDay = (limited: { until: string | null; daysLeft: number | null }) =>
@@ -1048,6 +1068,11 @@ ${MCP_CHAT_INSTRUCTIONS}`
         deckTarget: result.deckTarget === 'tournament' ? 'versión de torneo' : 'lista guardada',
         decks: result.goals.decks,
         collection: result.collection,
+        ...(result.missions
+          ? {
+              missions: `${result.missions.slots} huecos de misiones con ${result.missions.missingCopies} copias por conseguir (pesan ${pct(result.missions.weight * 100)} del puntaje)${result.missions.outOfPacks > 0 ? `; ${result.missions.outOfPacks} no salen de ningún sobre a la venta` : ''}`,
+            }
+          : {}),
         ...(result.goals.decks.length === 0
           ? { note: 'Ningún mazo tiene prioridad de sobres: se marca en cada mazo (1 a 3).' }
           : {}),
@@ -1377,20 +1402,92 @@ ${MCP_CHAT_INSTRUCTIONS}`
     return { total: notes.length, notes: notes.map(shape) }
   }
 
-  private async decksPickToday(args: { sort?: 'tournament' | 'matches' | 'lab'; limit?: number }): Promise<Json> {
-    const view = await this.pick.today(args.sort)
+  private async decksPickToday(args: {
+    sort?: 'tournament' | 'matches' | 'lab'
+    meta?: 'tournament' | 'mine'
+    limit?: number
+  }): Promise<Json> {
+    const view = await this.pick.today(args.sort, args.meta)
     const percent = (value: number) => `${percentFormat.format(value)} %`
+    // Fase 44: with «mi meta» the number is still tournament matchups (people), only weighed by the owner's rivals.
+    const mine = view.weights.used === 'mine' ? view.weights.mine : null
     return {
       sortedBy: view.sort,
       meta: view.meta,
+      weights: {
+        used: mine ? 'mi meta' : 'meta de torneos',
+        tournamentNumber: mine
+          ? `Torneos (personas), pesado por tus ${mine.matched} rivales de la era (${percentFormat.format(mine.effectiveMatches)} partidas efectivas${mine.orientative ? ', orientativo' : ''})`
+          : 'Torneos (personas), contra el meta de los últimos días',
+        ...(view.weights.mine ? { myMeta: view.weights.mine.text } : {}),
+      },
       decks: view.items.slice(0, args.limit ?? 10).map((row) => ({
         deck: `#${row.deck.id} ${row.deck.name}`,
         archetype: row.archetype?.name ?? null,
         myMatches: row.mine ? rateView(row.mine.rate) : null,
         tournamentAgainstToday: row.tournament
-          ? `${percent(row.tournament.value)} (matchups con datos: ${percent(row.tournament.coverage)} del meta)`
+          ? `${percent(row.tournament.value)} (IC ${formatIntervalEs(row.tournament.ci95)}${mine?.orientative ? ', orientativo' : ''}; matchups con datos: ${percent(row.tournament.coverage)} ${mine ? 'de tus rivales' : 'del meta'})`
           : null,
         lab: row.lab?.text ?? null,
+      })),
+      note: view.note,
+    }
+  }
+
+  private async matchesMyMeta(args: { mode?: MatchMode; days?: number; limit?: number }): Promise<Json> {
+    const view = await this.matches.myMeta({ mode: args.mode, days: args.days })
+    const percent = (value: number) => `${percentFormat.format(value)} %`
+    return {
+      source: 'Mis partidas registradas en la app (no son cuotas de torneo).',
+      era: view.era,
+      window: `desde ${view.from ? view.from.slice(0, 10).split('-').reverse().join('/') : 'el principio'}, modalidades: ${view.filters.modes.join(', ')}`,
+      text: view.text,
+      enough: view.enough,
+      orientative: view.orientative,
+      matches: view.matches,
+      matched: view.matched,
+      effectiveMatches: Number(view.effectiveMatches.toFixed(1)),
+      withoutRival: view.withoutRival,
+      coverage: `${percent(view.coverage)} de las partidas con rival (ponderadas por fecha) son de un arquetipo de torneo`,
+      archetypes: view.shares.slice(0, args.limit ?? 10).map((row) => ({
+        archetype: row.name,
+        id: row.archetypeId,
+        share: `${formatPercentEs(row.share)} (IC ${formatIntervalEs(row.ci95)}${view.orientative ? ', orientativo' : ''})`,
+        games: row.games,
+      })),
+      unmatched: view.unmatched.slice(0, 10).map((row) => `${row.label} (${row.games})`),
+    }
+  }
+
+  private async decksNextBuild(args: {
+    era?: string
+    format?: TournamentFormat
+    maxMissing?: number
+    limit?: number
+  }): Promise<Json> {
+    const view = await this.nextBuild.next({
+      era: args.era,
+      format: args.format,
+      maxMissing: args.maxMissing,
+      limit: args.limit ?? 8,
+    })
+    return {
+      scope: await this.scopeJson(view.scope),
+      maxMissingCopies: view.maxMissing,
+      archetypes: view.rows.map((row) => ({
+        archetype: row.archetype.archetype.name,
+        tournamentRate: rateView(row.archetype.rate),
+        alreadyHaveADeck: row.built,
+        closestList: {
+          key: row.closest.key,
+          playedBy: row.closest.lists,
+          rate: rateView(row.closest.rate),
+          missing:
+            row.closest.missing.length === 0
+              ? 'nada: se puede armar hoy'
+              : row.closest.missing.map((item) => `${item.nameEs}: tenés ${item.have} de ${item.need}`),
+        },
+        cost: nextBuildCostText(row),
       })),
       note: view.note,
     }
@@ -1425,6 +1522,37 @@ ${MCP_CHAT_INSTRUCTIONS}`
       basicsInOpeningHand: odds.basicsInHand
         .filter((row) => row.probability > 0)
         .map((row) => `${row.count}: ${percent(row.probability)}`),
+      // Fase 44: the first card counting the search cards, and the Energy Zone for the attacker.
+      ...(odds.search
+        ? {
+            withSearchCards: {
+              searchCards: `${odds.search.cards.pokeball} Poké Ball, ${odds.search.cards.research} Investigación de Profesores, ${odds.search.cards.communication} Comunicación Pokémon`,
+              byTurn: odds.search.rows.map(
+                (row) => `${row.turn === 0 ? 'mano inicial' : `turno propio ${row.turn}`}: ${percent(row.probability)}`,
+              ),
+              note: odds.search.note,
+            },
+          }
+        : {}),
+      ...(odds.energy
+        ? {
+            energyZone: {
+              attacker: odds.energy.attacker.nameEs,
+              types: odds.energy.types,
+              attacks: odds.energy.attacks.map((attack) => ({
+                attack: attack.name,
+                cost: attack.cost.join(' + ') || 'sin costo',
+                ...(attack.payable
+                  ? {
+                      goingFirst: attack.first.map((row) => `turno ${row.turn}: ${percent(row.probability)}`),
+                      goingSecond: attack.second.map((row) => `turno ${row.turn}: ${percent(row.probability)}`),
+                    }
+                  : { never: 'pide una energía que el mazo no tiene' }),
+              })),
+              note: odds.energy.note,
+            },
+          }
+        : {}),
       note: odds.note,
     }
   }

@@ -186,7 +186,7 @@ export const MCP_READ_TOOLS = {
     name: 'matches_stats',
     title: 'Estadísticas de mis partidas',
     description:
-      'Porcentaje de victorias de mis partidas registradas, en total, por mazo, por rival, por quién empezó, por modalidad y por revisión del mazo. Cada porcentaje trae su n, intervalo de confianza de Wilson del 95 % y la marca «orientativo» con menos de 30 partidas: citá siempre el campo `text`. Son solo mis partidas: no las mezcles con torneos ni simulaciones.',
+      'Porcentaje de victorias de mis partidas registradas, en total, por mazo, por rival, por quién empezó, por modalidad y por revisión del mazo, y el porcentaje con la moneda pareja (`coinAdjusted`: mitad empezando, mitad yendo segundo; la moneda decide quién empieza, así que es lo que se espera a la larga). Cada porcentaje trae su n, intervalo de confianza de Wilson del 95 % y la marca «orientativo» con menos de 30 partidas: citá siempre el campo `text`. Son solo mis partidas: no las mezcles con torneos ni simulaciones.',
     input: z.object({
       deck: deckRef.optional(),
       mode: z.enum(MATCH_MODES).optional().describe('Modalidad'),
@@ -216,7 +216,7 @@ export const MCP_READ_TOOLS = {
     name: 'packs_recommend',
     title: 'Recomendar sobres',
     description:
-      'Qué sobres conviene abrir. Por sobre: probabilidad de al menos una carta buscada, cartas buscadas esperadas, puntaje de 0 a 1 según los objetivos (cada objetivo medido contra su mejor sobre) y sobres para 50 % y 90 %. Objetivos: los mazos con prioridad de sobres (1 a 3, se marca en cada mazo) y la colección con filtro de rarezas, pesados con alpha. Incluye las cartas que faltan con su costo en puntos, si son intercambiables y si conviene canjearlas con los puntos ya guardados de su expansión (se cargan en Sobres → Ajustes y valen aunque sus sobres ya no se vendan), comprarlas, abrir o intercambiarlas (cuando ningún sobre a la venta las da), y los sobres esperados para completar cada mazo objetivo. Los sobres por tiempo limitado (el Deluxe Mega, hasta el 28/10/2026) dicen su último día, los días que quedan y qué cartas solo dan ellos: para los mazos cuenta la carta funcional (cualquier versión sirve), para la colección cada versión (arte u holo nuevo; dos números con el mismo internal_id son la misma versión); esas exclusivas pesan limitedBoost veces más mientras dure. Modelo «corrected» por defecto; «tracker» reproduce los números de la web del tracker. Con deckTarget «tournament», cada mazo objetivo apunta a su versión de torneo (la lista de su arquetipo más sólida de la era) en vez de a su lista guardada: sirve cuando los mazos ya están completos con reemplazos. Sin parámetros usa lo guardado en la app.',
+      'Qué sobres conviene abrir. Por sobre: probabilidad de al menos una carta buscada, cartas buscadas esperadas, puntaje de 0 a 1 según los objetivos (cada objetivo medido contra su mejor sobre) y sobres para 50 % y 90 %. Objetivos: los mazos con prioridad de sobres (1 a 3, se marca en cada mazo) y la colección con filtro de rarezas, pesados con alpha. Incluye las cartas que faltan con su costo en puntos, si son intercambiables y si conviene canjearlas con los puntos ya guardados de su expansión (se cargan en Sobres → Ajustes y valen aunque sus sobres ya no se vendan), comprarlas, abrir o intercambiarlas (cuando ningún sobre a la venta las da), y los sobres esperados para completar cada mazo objetivo. Los sobres por tiempo limitado (el Deluxe Mega, hasta el 28/10/2026) dicen su último día, los días que quedan y qué cartas solo dan ellos: para los mazos cuenta la carta funcional (cualquier versión sirve), para la colección cada versión (arte u holo nuevo; dos números con el mismo internal_id son la misma versión); esas exclusivas pesan limitedBoost veces más mientras dure. Modelo «corrected» por defecto; «tracker» reproduce los números de la web del tracker. Con deckTarget «tournament», cada mazo objetivo apunta a su versión de torneo (la lista de su arquetipo más sólida de la era) en vez de a su lista guardada: sirve cuando los mazos ya están completos con reemplazos. Con missions: true suma las misiones de colección incompletas como tercer objetivo (cada hueco pesa por las copias que le faltan; las misiones pesan como un objetivo más y los mazos y la colección se reparten el resto con alpha). Sin parámetros usa lo guardado en la app.',
     input: z.object({
       model: z
         .enum(['corrected', 'tracker'])
@@ -249,6 +249,10 @@ export const MCP_READ_TOOLS = {
         .describe(
           'A qué apuntan los mazos objetivo: «saved» (su lista guardada) o «tournament» (su versión de torneo); por defecto el guardado',
         ),
+      missions: z
+        .boolean()
+        .optional()
+        .describe('Sumar las misiones de colección como tercer objetivo (pesa como uno más); sin esto, lo guardado'),
       limit: z.number().int().min(1).max(29).optional().describe('Sobres a devolver (por defecto 8)'),
     }),
   },
@@ -303,17 +307,48 @@ export const MCP_READ_TOOLS = {
     name: 'decks_pick_today',
     title: '¿Qué mazo llevo hoy?',
     description:
-      'Los mazos armados en el juego con tres números separados: el récord de Santi con cada uno, lo que su arquetipo de torneo debería sacar contra el meta de los últimos 14 días (matchups de torneo pesados por la cuota de cada rival) y el último puntaje del Laboratorio (bots contra el banco del meta). No los combines en uno: explicá qué dice cada fuente y dónde coinciden. «sort» ordena por una de las tres.',
+      'Los mazos armados en el juego con tres números separados: el récord de Santi con cada uno, lo que su arquetipo de torneo debería sacar contra el meta de los últimos 14 días (matchups de torneo pesados por la cuota de cada rival) y el último puntaje del Laboratorio (bots contra el banco del meta). No los combines en uno: explicá qué dice cada fuente y dónde coinciden. «sort» ordena por una de las tres. Con «meta: mine» el número de torneo pesa los rivales por «mi meta» (los rivales de las partidas de Santi en la era, las recientes más) en lugar del meta de torneos: siguen siendo matchups de torneos entre personas, solo cambian los pesos, y el intervalo suma la incertidumbre de esos pesos; presentalo como «Torneos (personas), pesado por tus N rivales» (`weights.tournamentNumber`). «weights.used» dice cuál se usó (vuelve al de torneos hasta tener 10 partidas efectivas contra arquetipos).',
     input: z.object({
       sort: z.enum(['tournament', 'matches', 'lab']).optional().describe('tournament (por defecto), matches o lab'),
+      meta: z
+        .enum(['tournament', 'mine'])
+        .optional()
+        .describe('tournament (por defecto): meta de torneos; mine: los rivales de mis partidas'),
       limit: z.number().int().min(1).max(40).optional().describe('Mazos a devolver (por defecto 10)'),
+    }),
+  },
+  decksNextBuild: {
+    name: 'decks_next_build',
+    title: '¿Qué mazo armo después?',
+    description: `Para cada arquetipo de torneo de la era, la lista exacta más cercana a la colección de Santi (menos copias faltantes y, a igualdad, la más jugada), qué le falta, cuánto cuesta en puntos de sobre (la versión más barata de cada carta) y cuántas copias se pueden intercambiar, con el récord del arquetipo en torneos. Orden: el extremo bajo del intervalo del arquetipo (uno con pocas listas no pasa adelante por suerte); los arquetipos de los que ya tiene un mazo van al final («alreadyHaveADeck»). ${TOURNAMENT_NOTE}`,
+    input: z.object({
+      ...tournamentScope,
+      maxMissing: z
+        .number()
+        .int()
+        .min(0)
+        .max(20)
+        .optional()
+        .describe('Copias faltantes como máximo (por defecto 8; 0 = solo lo que se arma hoy)'),
+      limit: z.number().int().min(1).max(30).optional().describe('Arquetipos a devolver (por defecto 8)'),
+    }),
+  },
+  matchesMyMeta: {
+    name: 'matches_my_meta',
+    title: 'Mi meta',
+    description:
+      'Contra qué arquetipos de torneo juega Santi: los rivales de sus partidas registradas en la era vigente (competitiva y casual, o la modalidad pedida) como cuota de cada arquetipo de la era, con más peso a las recientes (una partida de hace 14 días pesa la mitad). Por esos pesos, las partidas cuentan menos de lo que son: «effectiveMatches» es el n efectivo, y con él salen el intervalo de cada cuota, «orientative» (menos de 30) y «enough» (hacen falta 10 para usarlo como pesos). Un rival cuenta para un arquetipo si se llama igual o si su nota se escribió desde ese arquetipo; los demás van aparte en «unmatched». «coverage» = qué parte de las partidas con rival, ponderadas por fecha, se pudo asociar. Son solo las partidas de Santi: no lo mezcles con cuotas de torneo.',
+    input: z.object({
+      mode: z.enum(MATCH_MODES).optional().describe('Modalidad'),
+      days: z.number().int().min(1).max(3650).optional().describe('Solo las partidas de los últimos N días'),
+      limit: z.number().int().min(1).max(30).optional().describe('Arquetipos a devolver (por defecto 10)'),
     }),
   },
   decksDrawOdds: {
     name: 'decks_draw_odds',
     title: 'Probabilidad de robar una carta',
     description:
-      'Probabilidad exacta de tener una carta del mazo (cualquier edición; varias cartas = cualquiera de ellas) en la mano inicial y en cada turno propio, y de tener dos cartas a la vez («alsoCards»), con las reglas del juego: mano inicial de 5 con al menos un Pokémon Básico (se reparte de nuevo si no hay) y una carta por turno propio, también en el primero. Solo robo natural: no cuenta cartas que roban o buscan (Investigación de Profesores, Poké Ball). Sin «cards», el atacante del mazo que más puntos da. También dice cuántos Básicos suele traer la mano inicial.',
+      'Probabilidad exacta de tener una carta del mazo (cualquier edición; varias cartas = cualquiera de ellas) en la mano inicial y en cada turno propio, y de tener dos cartas a la vez («alsoCards»), con las reglas del juego: mano inicial de 5 con al menos un Pokémon Básico (se reparte de nuevo si no hay) y una carta por turno propio, también en el primero. «byTurn» es robo natural; si el mazo juega Poké Ball, Investigación de Profesores o Comunicación Pokémon, «withSearchCards» da la misma carta contándolas (simulación con semilla fija). «energyZone»: la chance de pagar cada ataque del atacante con la Zona de Energía, empezando y yendo segundo (solo la Zona: el atacante en juego desde el principio recibe toda la energía, sin cartas ni habilidades que aceleren energía). Sin «cards», el atacante del mazo que más puntos da. También dice cuántos Básicos suele traer la mano inicial.',
     input: z.object({
       deck: deckRef,
       cards: z.array(query).min(1).max(5).optional().describe('Cartas (nombre o código); cualquiera de ellas cuenta'),

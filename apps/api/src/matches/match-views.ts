@@ -1,13 +1,16 @@
 /** Response shapes of the matches API (docs/API.md «Partidas»). Numeric ids travel as strings. */
 import type {
+  CoinAdjustedRate,
   GameRecord,
   MatchMode,
   MatchResult,
+  MyMeta,
   RateSource,
   TurnOrderImpact,
   WentFirstKey,
   WinRate,
 } from '@tcg/domain'
+import type { ExpectedVsMetaView } from '../tournaments/tournament-views.js'
 
 export interface MatchDeckRef {
   id: string
@@ -40,7 +43,8 @@ export interface RowView {
 export interface MatchStatsView {
   filters: { deckId: string | null; mode: MatchMode | null; from: string | null; to: string | null }
   overall: RowView
-  byDeck: (RowView & { deck: MatchDeckRef })[]
+  /** Fase 44: `coinAdjusted` = ½ going first + ½ going second, null without a match on each side. */
+  byDeck: (RowView & { deck: MatchDeckRef; coinAdjusted: CoinAdjustedRate | null })[]
   byOpponent: (RowView & { key: string | null; label: string })[]
   byWentFirst: (RowView & { key: WentFirstKey; label: string })[]
   byMode: (RowView & { mode: MatchMode; label: string })[]
@@ -48,6 +52,8 @@ export interface MatchStatsView {
   byRevision: (RowView & { revision: number | null })[]
   /** Fase 25: going first against going second, with the gap and whether it is more than chance. */
   turnOrder: TurnOrderImpact
+  /** Fase 44: the share adjusted by the coin over the selected matches. */
+  coinAdjusted: CoinAdjustedRate | null
 }
 
 export interface PickerDeckView {
@@ -139,7 +145,10 @@ export interface DeckMatchupsView {
   era: string
   tournamentsWithPairings: number
   /** What the archetype should score against the field (matchups weighted by meta share). */
-  expected: { value: number; coverage: number; matches: number; rivals: number } | null
+  expected: ExpectedVsMetaView | null
+  /** Fase 44: the same with the rivals weighted by «mi meta»; null until it has enough matches. */
+  expectedMine: ExpectedVsMetaView | null
+  myMeta: MyMetaSummary | null
   rows: DeckMatchupRowView[]
   attribution: string
 }
@@ -149,3 +158,17 @@ export interface DeckComparisonView {
   deck: MatchDeckRef
   columns: ComparisonColumnView[]
 }
+
+/** Fase 44: «mi meta» — the rivals of my matches as shares of the era's tournament archetypes. */
+export interface MyMetaView extends MyMeta {
+  era: string
+  /** First day counted: the era's start, or `days` ago when that is later. */
+  from: string | null
+  /** `modes`: the modes read (the one asked, or competitive and casual). */
+  filters: { mode: MatchMode | null; modes: MatchMode[]; days: number | null }
+}
+
+export type MyMetaSummary = Pick<
+  MyMeta,
+  'text' | 'enough' | 'coverage' | 'matched' | 'effectiveMatches' | 'orientative'
+>

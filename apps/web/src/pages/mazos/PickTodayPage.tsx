@@ -5,9 +5,9 @@
  */
 
 import { useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { usePickToday } from '@/api/decks'
-import { PICK_SORTS, type Pick, type PickSort } from '@/api/schemas'
+import { PICK_SORTS, type Pick, type PickMeta, type PickSort } from '@/api/schemas'
 import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
@@ -26,7 +26,16 @@ function Line({ label, active, children }: { label: string; active: boolean; chi
   )
 }
 
-function Row({ row, sort }: { row: Pick['items'][number]; sort: PickSort }) {
+function Row({
+  row,
+  sort,
+  mine,
+}: {
+  row: Pick['items'][number]
+  sort: PickSort
+  /** Fase 44: the tournament number is weighed by «mi meta» (how many rivals, and whether it is orientative). */
+  mine: { matched: number; orientative: boolean } | null
+}) {
   return (
     <li className="flex flex-col gap-1 px-3 py-2">
       <div className="flex items-baseline gap-2">
@@ -37,12 +46,19 @@ function Row({ row, sort }: { row: Pick['items'][number]; sort: PickSort }) {
           <span className="shrink-0 truncate text-xs text-muted-foreground">{row.archetype.name}</span>
         ) : null}
       </div>
-      <Line label="Torneo hoy" active={sort === 'tournament'}>
+      <Line label={mine ? 'Torneo, tus rivales' : 'Torneo hoy'} active={sort === 'tournament'}>
         {row.tournament ? (
           <>
-            <span className="font-semibold tabular">{formatRateValue(row.tournament.value)}</span> · n ={' '}
-            {row.tournament.matches} partidas de su arquetipo; matchups con datos en{' '}
-            {formatShare(row.tournament.coverage)} del meta
+            <span className="font-semibold tabular">{formatRateValue(row.tournament.value)}</span>
+            {row.tournament.ci95 ? (
+              <>
+                {' '}
+                (IC {formatInterval(row.tournament.ci95)}
+                {mine?.orientative ? ', orientativo' : ''})
+              </>
+            ) : null}{' '}
+            · n = {row.tournament.matches} partidas de su arquetipo; matchups con datos en{' '}
+            {formatShare(row.tournament.coverage)} {mine ? 'de tus rivales' : 'del meta'}
           </>
         ) : (
           'sin datos de torneo'
@@ -77,7 +93,11 @@ function Row({ row, sort }: { row: Pick['items'][number]; sort: PickSort }) {
 
 export function PickTodayPage() {
   const [sort, setSort] = useState<PickSort>('tournament')
-  const pick = usePickToday(sort)
+  // Fase 44: weigh the rivals by the tournament meta or by «mi meta» (in the URL, so it stays on reload).
+  const [search, setSearch] = useSearchParams()
+  const meta: PickMeta = search.get('meta') === 'mio' ? 'mine' : 'tournament'
+  const pick = usePickToday(sort, meta)
+  const usedMine = pick.data?.weights.used === 'mine'
   return (
     <div className="flex flex-col gap-4">
       <Section title="¿Qué mazo llevo hoy?">
@@ -99,7 +119,35 @@ export function PickTodayPage() {
             </Button>
           ))}
         </fieldset>
-        {pick.data?.meta ? (
+        <fieldset className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <legend className="sr-only">Rivales del número de torneo</legend>
+          <span className="text-xs text-muted-foreground">Rivales:</span>
+          {(['tournament', 'mine'] as const).map((value) => (
+            <Button
+              key={value}
+              size="xs"
+              variant={meta === value ? 'secondary' : 'ghost'}
+              aria-pressed={meta === value}
+              onClick={() => {
+                const next = new URLSearchParams(search)
+                if (value === 'mine') next.set('meta', 'mio')
+                else next.delete('meta')
+                setSearch(next, { replace: true, preventScrollReset: true })
+              }}
+            >
+              {value === 'mine' ? 'Los que me tocan' : 'Meta de torneos'}
+            </Button>
+          ))}
+        </fieldset>
+        {pick.data?.weights.mine ? (
+          <p className={cn('text-xs', usedMine ? 'text-muted-foreground' : 'text-warning')}>
+            {usedMine
+              ? `Torneos (personas), pesado por tus ${pick.data.weights.mine.matched} rivales de la era: los matchups son de torneos y los pesos, de tus partidas. `
+              : ''}
+            {pick.data.weights.mine.text}
+            {usedMine ? '' : ' Mientras tanto, el número de torneo usa el meta de torneos.'}
+          </p>
+        ) : pick.data?.meta ? (
           <p className="text-xs text-muted-foreground">
             Meta: {pick.data.meta.kind === 'recent' ? `últimos ${pick.data.meta.days} días de` : 'toda la era'}{' '}
             {pick.data.meta.era} ({pick.data.meta.lists} listas).
@@ -117,7 +165,12 @@ export function PickTodayPage() {
       {pick.data && pick.data.items.length > 0 ? (
         <ul className="divide-y rounded-lg border">
           {pick.data.items.map((row) => (
-            <Row key={row.deck.id} row={row} sort={sort} />
+            <Row
+              key={row.deck.id}
+              row={row}
+              sort={sort}
+              mine={usedMine && pick.data?.weights.mine ? pick.data.weights.mine : null}
+            />
           ))}
         </ul>
       ) : null}

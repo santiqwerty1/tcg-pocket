@@ -45,6 +45,8 @@ export interface PackRowView extends PackRef {
   packsFor90: number | null
   decks: { probability: number; expected: number } | null
   collection: { probability: number; expected: number } | null
+  /** Fase 44: cards of the missions' missing slots. */
+  missions: { probability: number; expected: number } | null
   otherModel: { model: PackModel; probability: number; reasons: ModelDifferenceReason[] }
   /** Limited-time pack: last day, days left (0 = last day, negative = over) and the cards only it gives. */
   limited: { until: string | null; daysLeft: number | null; exclusive: ExclusiveVersion[] } | null
@@ -135,6 +137,8 @@ export interface RecommendationView {
   decks: DeckCompletionView[]
   /** Versions the collection goal wants that no pack on sale gives, and how many can be traded. */
   collectionOutOfPacks: { versions: number; tradeable: number } | null
+  /** Fase 44: the missions goal (slots and copies missing, slots no pack on sale gives, its weight); null when off. */
+  missions: { slots: number; missingCopies: number; outOfPacks: number; weight: number } | null
   /** Fase 14: the pace of the day plans. */
   planner: { packsPerDay: number; hourglasses: number }
   /** What the numbers assume (shown under the table). */

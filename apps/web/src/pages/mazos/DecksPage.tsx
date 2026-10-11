@@ -1,4 +1,4 @@
-import { ClipboardPasteIcon, DicesIcon, PlusIcon, TrophyIcon } from 'lucide-react'
+import { ClipboardPasteIcon, DicesIcon, HammerIcon, PlusIcon, TrophyIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
@@ -121,6 +121,12 @@ export function DecksPage() {
           <Link to="/mazos/hoy">
             <TrophyIcon data-icon="inline-start" />
             ¿Cuál llevo hoy?
+          </Link>
+        </Button>
+        <Button variant="outline" asChild>
+          <Link to="/mazos/despues">
+            <HammerIcon data-icon="inline-start" />
+            ¿Qué armo después?
           </Link>
         </Button>
         <span className="ml-auto self-center text-sm text-muted-foreground tabular">

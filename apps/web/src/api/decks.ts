@@ -11,6 +11,8 @@ import {
   decksResponseSchema,
   drawOddsSchema,
   importDecksResponseSchema,
+  nextBuildSchema,
+  type PickMeta,
   type PickSort,
   pickSchema,
   randomDeckSchema,
@@ -242,10 +244,19 @@ export function useManualDrawOdds(input: ManualDrawInput) {
 }
 
 /** Fase 15: built decks with own matches, tournament against today's meta and the latest Laboratorio score. */
-export function usePickToday(sort: PickSort) {
+/** Fase 44: «¿qué mazo armo después?». */
+export function useNextBuild(maxMissing: number) {
   return useQuery({
-    queryKey: ['decks', 'today', sort] as const,
-    queryFn: ({ signal }) => request('/api/decks-today', { query: { sort }, schema: pickSchema, signal }),
+    queryKey: ['decks', 'next', maxMissing] as const,
+    queryFn: ({ signal }) => request('/api/decks-next', { query: { maxMissing }, schema: nextBuildSchema, signal }),
+    placeholderData: (previous) => previous,
+  })
+}
+
+export function usePickToday(sort: PickSort, meta: PickMeta = 'tournament') {
+  return useQuery({
+    queryKey: ['decks', 'today', sort, meta] as const,
+    queryFn: ({ signal }) => request('/api/decks-today', { query: { sort, meta }, schema: pickSchema, signal }),
     placeholderData: (previous) => previous,
   })
 }
