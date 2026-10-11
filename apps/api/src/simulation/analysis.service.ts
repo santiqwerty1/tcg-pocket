@@ -5,6 +5,7 @@ import {
   analysisMatrix,
   analyzeGames,
   botLabel,
+  type ChunkGameHistogram,
   type ChunkOutcome,
   compareAnalysisBots,
   type GameMoments,
@@ -32,7 +33,6 @@ interface Aggregate {
   turnGames: number
   finished: number
   failed: number
-  version: string
 }
 interface Params {
   sideA?: number[]
@@ -61,6 +61,22 @@ export class SimulationAnalysisService {
   constructor(private readonly prisma: PrismaService) {}
 
   async read(query: AnalysisQuery = {}) {
+    const cacheKey = JSON.stringify(query)
+    // Fingerprint in SQL: return one short string, without loading params/cards or scanning perGame in JS.
+    // Chunks are immutable after acceptance; heartbeat/progress updates do not change this signature.
+    const [stamp] = await this.prisma.$queryRaw<{ version: string }[]>`
+      SELECT CONCAT(
+        (SELECT md5(string_agg(md5(row_to_json(j)::text), ',' ORDER BY id)) FROM simulation_jobs j), ':',
+        (SELECT md5(string_agg(md5(ROW(id, key, label, cards)::text), ',' ORDER BY id)) FROM deck_snapshots), ':',
+        (SELECT ROW(COUNT(*), MAX(id), COUNT(*) FILTER (WHERE status = 'failed'),
+          COUNT(*) FILTER (WHERE status = 'done'), MAX(finished_at),
+          SUM(games_done) FILTER (WHERE status = 'done'), SUM(wins_a) FILTER (WHERE status = 'done'),
+          SUM(wins_b) FILTER (WHERE status = 'done'), SUM(ties) FILTER (WHERE status = 'done'),
+          SUM(turns) FILTER (WHERE status = 'done'))::text FROM simulation_chunks)
+      ) AS version`
+    const version = stamp?.version ?? ''
+    const cached = this.cache.get(cacheKey)
+    if (cached?.version === version) return cached.value
     const [allJobs, totals, snapshots] = await Promise.all([
       this.prisma.simulationJob.findMany({ orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),
       this.prisma.$queryRaw<Aggregate[]>`
@@ -71,11 +87,7 @@ export class SimulationAnalysisService {
           COALESCE(SUM(turns) FILTER (WHERE status = 'done' AND snapshot_b_id IS NOT NULL), 0)::float8 AS turns,
           COALESCE(SUM(games_done) FILTER (WHERE status = 'done' AND snapshot_b_id IS NOT NULL AND turns IS NOT NULL), 0)::float8 AS "turnGames",
           COUNT(*) FILTER (WHERE status = 'done')::int AS finished,
-          COUNT(*) FILTER (WHERE status = 'failed')::int AS failed,
-          CONCAT(COUNT(*) FILTER (WHERE status = 'done'), ':', MAX(finished_at) FILTER (WHERE status = 'done'), ':',
-            SUM(games_done) FILTER (WHERE status = 'done'), ':', SUM(wins_a) FILTER (WHERE status = 'done'), ':',
-            SUM(wins_b) FILTER (WHERE status = 'done'), ':', SUM(ties) FILTER (WHERE status = 'done'), ':',
-            SUM(turns) FILTER (WHERE status = 'done')) AS version
+          COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
         FROM simulation_chunks GROUP BY job_id`,
       this.prisma.deckSnapshot.findMany({ select: { id: true, key: true, label: true, cards: true } }),
     ])
@@ -137,16 +149,9 @@ export class SimulationAnalysisService {
       if (id !== undefined && !matrices.some((m) => m.id === id)) {
         throw new BadRequestException('La matriz elegida no pertenece a estos filtros.')
       }
-    const version = JSON.stringify({
-      jobs: selected.map((j) => ({ ...j.job, baseSeed: String(j.job.baseSeed), aggregate: j.aggregate })),
-      snapshots,
-      options,
-    })
-    const cacheKey = JSON.stringify(query)
-    const cached = this.cache.get(cacheKey)
-    if (cached?.version === version) return cached.value
     const summary = {
       simulations: selected.length,
+      activeJobs: selected.filter(({ job }) => ['queued', 'running'].includes(job.status)).length,
       games: selected.reduce((n, j) => n + (j.aggregate?.games ?? 0), 0),
       byBot: [...new Set(selected.map((j) => j.job.players.join('/')))].map((bot) => ({
         bot,
@@ -167,18 +172,38 @@ export class SimulationAnalysisService {
       failedChunks: selected.reduce((n, j) => n + (j.aggregate?.failed ?? 0), 0),
     }
     const chosen = query.matrix ?? matrices.find((m) => m.games > 0)?.id ?? matrices[0]?.id
-    const ranked = matrices
+    const ranked = [...matrices]
+      .sort((a, b) => Number(b.status === 'done') - Number(a.status === 'done'))
       .filter((m) => m.symmetric && m.games > 0)
       .filter(
         (m, i, all) => all.findIndex((x) => x.bot === m.bot && x.era === m.era && x.engineRev === m.engineRev) === i,
       )
-    const left = query.left ?? ranked.find((m) => m.bot === 'e2/e2')?.id ?? ranked[0]?.id
+    const compatibleEra = (a: (typeof matrices)[number], b: (typeof matrices)[number]) =>
+      !a.era || !b.era || a.era === b.era
+    const left =
+      query.left ??
+      ranked.find(
+        (m) =>
+          m.bot === 'e2/e2' &&
+          m.status === 'done' &&
+          ranked.some(
+            (r) => r.bot === 'f2/f2' && r.engineRev === m.engineRev && r.status === 'done' && compatibleEra(m, r),
+          ),
+      )?.id ??
+      ranked.find((m) => m.bot === 'e2/e2')?.id ??
+      ranked[0]?.id
     const lm = matrices.find((m) => m.id === left)
     const right =
       query.right ??
       (lm
-        ? (ranked.find((m) => m.bot === 'f2/f2' && m.era === lm.era)?.id ??
-          ranked.find((m) => m.bot !== lm.bot && m.era === lm.era)?.id)
+        ? ranked
+            .filter((m) => m.bot !== lm.bot && compatibleEra(m, lm))
+            .sort(
+              (a, b) =>
+                Number(b.engineRev === lm.engineRev) - Number(a.engineRev === lm.engineRev) ||
+                Number(b.status === 'done') - Number(a.status === 'done') ||
+                Number(b.bot === 'f2/f2') - Number(a.bot === 'f2/f2'),
+            )[0]?.id
         : undefined)
     const ids = [
       ...new Set([...ranked.map((m) => m.id), chosen, left, right].filter((id): id is number => id !== undefined)),
@@ -205,6 +230,7 @@ export class SimulationAnalysisService {
     options: { bots: string[]; eras: string[]; expansions: string[] }
     summary: {
       simulations: number
+      activeJobs: number
       games: number
       byBot: { bot: string; botEs: string; simulations: number; games: number }[]
       byExpansion: { expansion: string; simulations: number; games: number }[]
@@ -225,7 +251,15 @@ export class SimulationAnalysisService {
       calibration: boolean
     }[]
     selected: {
-      job: { id: number; params: Prisma.JsonValue; label: string; players: string[]; engineRev: string }
+      job: {
+        id: number
+        kind: string
+        status: string
+        params: Prisma.JsonValue
+        label: string
+        players: string[]
+        engineRev: string
+      }
       era: string | null
     }[]
     snapshots: { id: number; key: string; label: string }[]
@@ -252,6 +286,7 @@ export class SimulationAnalysisService {
         bot: entry.job.players.join('/'),
         engineRev: entry.job.engineRev,
         era: entry.era,
+        status: entry.job.status,
         decks: input.snapshots,
         sideA: params.sideA ?? [],
         sideB: params.sideB ?? params.sideA ?? [],
@@ -269,29 +304,80 @@ export class SimulationAnalysisService {
         ? compareAnalysisBots(left, right)
         : null
     const moments = emptyMoments()
+    const laboratory = matrix
+      ? input.selected.filter(
+          ({ job }) =>
+            ['compare', 'explore'].includes(job.kind) &&
+            (job.params as Params).lab &&
+            job.status === 'done' &&
+            job.players.join('/') === matrix.bot &&
+            job.engineRev === matrix.engineRev,
+        )
+      : []
+    let gameSample = { scope: 'matrix' as 'matrix' | 'laboratory', jobIds: matrix ? [matrix.id] : [], games: 0 }
     if (matrix && input.matrices.find((m) => m.id === matrix.id)?.symmetric) {
-      // Expand perGame only for the chosen matrix, inside Postgres. Return a small turn histogram and sufficient
-      // statistics. Historical chunks without perGame remain in rates, not in the first-player/duration sample.
-      const hist = await this.prisma.$queryRaw<
-        { turns: number; games: number; firstWins: number; secondWins: number; ties: number }[]
-      >`
-        SELECT (t.value #>> '{}')::int AS turns, COUNT(*)::int AS games,
-          COUNT(*) FILTER (WHERE substring(c.extra->'perGame'->>'winners', t.ordinality::int, 1) = substring(c.extra->'perGame'->>'starters', t.ordinality::int, 1))::int AS "firstWins",
-          COUNT(*) FILTER (WHERE substring(c.extra->'perGame'->>'winners', t.ordinality::int, 1) <> 'T' AND substring(c.extra->'perGame'->>'winners', t.ordinality::int, 1) <> substring(c.extra->'perGame'->>'starters', t.ordinality::int, 1))::int AS "secondWins",
-          COUNT(*) FILTER (WHERE substring(c.extra->'perGame'->>'winners', t.ordinality::int, 1) = 'T')::int AS ties
-        FROM simulation_chunks c CROSS JOIN LATERAL jsonb_array_elements(c.extra->'perGame'->'turns') WITH ORDINALITY AS t(value, ordinality)
-        WHERE c.job_id = ${matrix.id} AND c.status = 'done' AND c.snapshot_b_id IS NOT NULL
-          AND jsonb_typeof(c.extra->'perGame'->'turns') = 'array'
-        GROUP BY 1 ORDER BY 1`
-      for (const row of hist) {
+      const sourceIds = [matrix.id, ...laboratory.map(({ job }) => job.id)]
+      // New results have a tiny histogram. Historical perGame is extracted once per chunk; unnest walks
+      // decoded strings together rather than detoasting/substr-ing the JSON for every game.
+      const hist = await this.prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SET LOCAL statement_timeout = '15s'`
+          return tx.$queryRaw<(ChunkGameHistogram & { jobId: number })[]>(Prisma.sql`
+          WITH own_data AS MATERIALIZED (
+            SELECT EXISTS (
+              SELECT 1 FROM simulation_chunks WHERE job_id = ${matrix.id} AND status = 'done'
+                AND snapshot_b_id IS NOT NULL AND (extra ? 'perGame' OR extra->'analysisGames'->>'version' = '1')
+            ) AS available
+          ), source AS MATERIALIZED (
+            SELECT job_id, extra->'analysisGames' AS summary, extra->'perGame' AS pg
+            FROM simulation_chunks
+            WHERE job_id IN (${Prisma.join(sourceIds)}) AND status = 'done' AND snapshot_b_id IS NOT NULL
+              AND (job_id = ${matrix.id} OR NOT (SELECT available FROM own_data))
+          ), legacy AS MATERIALIZED (
+            SELECT job_id, string_to_array(pg->>'winners', NULL) AS winners,
+              string_to_array(pg->>'starters', NULL) AS starters,
+              string_to_array(translate(pg->>'turns', '[] ', ''), ',')::int[] AS turns
+            FROM source WHERE (summary->>'version') IS DISTINCT FROM '1'
+              AND jsonb_typeof(pg->'turns') = 'array'
+          ), bins AS (
+            SELECT job_id, (bin->>'turns')::int AS turns, (bin->>'games')::int AS games,
+              (bin->>'firstWins')::int AS first_wins, (bin->>'secondWins')::int AS second_wins,
+              (bin->>'ties')::int AS ties
+            FROM source CROSS JOIN LATERAL jsonb_array_elements(summary->'histogram') AS bin
+            WHERE summary->>'version' = '1'
+            UNION ALL
+            SELECT job_id, t.turns, COUNT(*)::int,
+              COUNT(*) FILTER (WHERE t.winner = t.starter)::int,
+              COUNT(*) FILTER (WHERE t.winner <> 'T' AND t.winner <> t.starter)::int,
+              COUNT(*) FILTER (WHERE t.winner = 'T')::int
+            FROM legacy CROSS JOIN LATERAL unnest(winners, starters, turns) AS t(winner, starter, turns)
+            GROUP BY job_id, t.turns
+          )
+          SELECT job_id AS "jobId", turns, SUM(games)::int AS games,
+            SUM(first_wins)::int AS "firstWins", SUM(second_wins)::int AS "secondWins", SUM(ties)::int AS ties
+          FROM bins GROUP BY job_id, turns ORDER BY turns`)
+        },
+        { timeout: 20_000 },
+      )
+      const own = hist.filter((row) => row.jobId === matrix.id)
+      const sample = own.length ? own : hist
+      const jobIds = [...new Set(sample.map((row) => row.jobId))]
+      gameSample = {
+        scope: own.length || !sample.length ? 'matrix' : 'laboratory',
+        jobIds,
+        games: jobIds.reduce((n, id) => n + (input.totals.find((t) => t.jobId === id)?.games ?? 0), 0),
+      }
+      const bins = new Map<number, number>()
+      for (const row of sample) {
         moments.games += row.games
         moments.firstWins += row.firstWins
         moments.secondWins += row.secondWins
         moments.ties += row.ties
         moments.turnSum += row.turns * row.games
         moments.turnSquares += row.turns ** 2 * row.games
-        moments.histogram.push({ turns: row.turns, games: row.games })
+        bins.set(row.turns, (bins.get(row.turns) ?? 0) + row.games)
       }
+      moments.histogram = [...bins].map(([turns, games]) => ({ turns, games }))
     }
     const record: GameRecord = outcomes
       .filter((c) => c.jobId === matrix?.id)
@@ -304,9 +390,9 @@ export class SimulationAnalysisService {
     const games = analyzeGames(
       record,
       moments,
-      aggregate ? { games: aggregate.turnGames, turns: aggregate.turns } : undefined,
+      gameSample.scope === 'matrix' && aggregate ? { games: aggregate.turnGames, turns: aggregate.turns } : undefined,
     )
-    const patterns = matrix ? matchupPatterns(matrix) : { dominant: [], cycles: [], cyclesTotal: 0 }
+    const patterns = matrix ? matchupPatterns(matrix) : { dominant: [], dominantTotal: 0, cycles: [], cyclesTotal: 0 }
     return {
       source: 'simulation' as const,
       options: input.options,
@@ -319,6 +405,7 @@ export class SimulationAnalysisService {
       agreement,
       comparison: { left: input.left ?? null, right: input.right ?? null },
       games,
+      gameSample,
       patterns,
       findings: analysisFindings(patterns, games, agreement),
       calibrationJobId: input.matrices.find((m) => m.id === matrix?.id)?.calibration ? (matrix?.id ?? null) : null,

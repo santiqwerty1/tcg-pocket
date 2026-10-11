@@ -7,7 +7,15 @@
 
 import { EventEmitter } from 'node:events'
 import { BadRequestException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
-import { canPlayFairBots, canPlayPerGame, checkPerGame, FAIR_BOT_CODES, wantsPerGame } from '@tcg/domain'
+import {
+  canPlayFairBots,
+  canPlayPerGame,
+  checkPerGame,
+  FAIR_BOT_CODES,
+  type PerGameResults,
+  summarizeAnalysisGames,
+  wantsPerGame,
+} from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import type { Prisma } from '../generated/prisma/client.js'
 import { gunzipJson } from '../http/gunzip.js'
@@ -435,13 +443,14 @@ export class WorkerQueueService {
   async result(id: number, input: ChunkResultInput): Promise<{ accepted: boolean }> {
     const chunk = await this.requireChunk(id)
     if (chunk.status === 'done' || chunk.status === 'cancelled') return { accepted: false }
+    const perGame = (input.extra as { perGame?: unknown } | undefined)?.perGame
     const problem =
       input.winsA + input.winsB + input.ties !== input.games
         ? 'winsA + winsB + ties tiene que sumar games.'
         : chunk.job.kind !== 'optimize' && input.games !== chunk.games
           ? `El chunk tiene ${chunk.games} partidas, no ${input.games}.`
-          : perGamePairing(chunk.job.kind, chunk.job.params)
-            ? checkPerGame((input.extra as { perGame?: unknown } | undefined)?.perGame, input)
+          : perGamePairing(chunk.job.kind, chunk.job.params) || (isPairing(chunk.job.kind) && perGame !== undefined)
+            ? checkPerGame(perGame, input)
             : null
     if (problem) {
       await this.failure(id, { workerId: input.workerId, error: `Resultado inválido: ${problem}` })
@@ -459,7 +468,17 @@ export class WorkerQueueService {
         turns: input.turns === undefined ? null : BigInt(input.turns),
         durationMs: Math.round(input.durationMs),
         engineRev: input.engineRev,
-        ...(input.extra === undefined ? {} : { extra: input.extra }),
+        // Never trust a summary supplied by a client. This field belongs to the API.
+        ...(input.extra === undefined
+          ? {}
+          : {
+              extra: isPairing(chunk.job.kind)
+                ? {
+                    ...(typeof input.extra === 'object' && !Array.isArray(input.extra) ? input.extra : {}),
+                    analysisGames: perGame !== undefined ? summarizeAnalysisGames(perGame as PerGameResults) : null,
+                  }
+                : input.extra,
+            }),
         error: null,
         leaseUntil: null,
         finishedAt: new Date(),

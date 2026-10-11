@@ -3,8 +3,32 @@
 import { seededRandom } from '../../lab/mutate.js'
 import { metaScore, scoreDifference } from '../../lab/score.js'
 import { type GameRecord, type WinRate, Z_95 } from '../../stats/rates.js'
+import { benjaminiHochberg, twoSidedP } from '../../stats/tests.js'
 import { type RankCorrelation, spearman } from '../calibration.js'
+import type { PerGameResults } from '../perGame.js'
 import { type ChunkOutcome, matrixRows, simulationRate } from '../results.js'
+
+export type ChunkGameHistogram = {
+  turns: number
+  games: number
+  firstWins: number
+  secondWins: number
+  ties: number
+}
+
+/** Compute once, after checkPerGame validates the worker result. Kept in extra, independent of the worker. */
+export function summarizeAnalysisGames(results: PerGameResults): { version: 1; histogram: ChunkGameHistogram[] } {
+  const bins = new Map<number, ChunkGameHistogram>()
+  for (const [i, turns] of results.turns.entries()) {
+    const bin = bins.get(turns) ?? { turns, games: 0, firstWins: 0, secondWins: 0, ties: 0 }
+    bin.games++
+    if (results.winners[i] === 'T') bin.ties++
+    else if (results.winners[i] === results.starters[i]) bin.firstWins++
+    else bin.secondWins++
+    bins.set(turns, bin)
+  }
+  return { version: 1, histogram: [...bins.values()].sort((a, b) => a.turns - b.turns) }
+}
 
 export interface AnalysisDeck {
   id: number
@@ -17,6 +41,7 @@ export interface AnalysisMatrixInput {
   bot: string
   engineRev: string
   era: string | null
+  status?: string
   decks: AnalysisDeck[]
   sideA: number[]
   sideB: number[]
@@ -35,6 +60,7 @@ export interface AnalysisMatrix {
   bot: string
   engineRev: string
   era: string | null
+  status: string
   rows: AnalysisRow[]
 }
 
@@ -64,6 +90,7 @@ export function analysisMatrix(input: AnalysisMatrixInput): AnalysisMatrix {
     bot: input.bot,
     engineRev: input.engineRev,
     era: input.era,
+    status: input.status ?? 'done',
     rows: rows.map((row) => ({
       key: (labels.get(row.deck) as AnalysisDeck).key,
       label: (labels.get(row.deck) as AnalysisDeck).label,
@@ -89,10 +116,19 @@ export interface BotChange {
   rankBefore: number
   rankAfter: number
   orientative: boolean
+  pValue: number
+  significant: boolean
 }
 export interface BotAgreement {
   left: number
   right: number
+  leftBot: string
+  rightBot: string
+  leftEngine: string
+  rightEngine: string
+  leftStatus: string
+  rightStatus: string
+  sameEngine: boolean
   correlation: RankCorrelation | null
   changes: BotChange[]
   orientative: boolean
@@ -102,6 +138,7 @@ export interface BotAgreement {
 export function bootstrapRankCorrelation(xs: readonly number[], ys: readonly number[]): RankCorrelation | null {
   const point = spearman(xs, ys)
   if (!point) return null
+  if (xs.length < 5) return { ...point, method: 'bootstrap', ci95: null }
   const next = seededRandom(20261011)
   const values: number[] = []
   for (let b = 0; b < 1000; b++) {
@@ -123,12 +160,12 @@ export function bootstrapRankCorrelation(xs: readonly number[], ys: readonly num
   }
 }
 
-/** Different bots, same era, common decks and per-deck common rivals, with equal weight per rival.
+/** Different bots, compatible era when known, common decks and per-deck common rivals, with equal weight per rival.
  * Differences reuse the laboratory's smoothed variance, assuming independent runs (not a paired seed test).
  * Rank ties share their position. Engine revisions remain explicit; neither run is pooled into the other.
  */
 export function compareAnalysisBots(left: AnalysisMatrix, right: AnalysisMatrix): BotAgreement | null {
-  if (left.bot === right.bot || left.era !== right.era) return null
+  if (left.bot === right.bot || (left.era !== null && right.era !== null && left.era !== right.era)) return null
   const rightRows = new Map(right.rows.map((row) => [row.key, row]))
   const changes: BotChange[] = []
   for (const row of left.rows) {
@@ -139,18 +176,29 @@ export function compareAnalysisBots(left: AnalysisMatrix, right: AnalysisMatrix)
     const before = metaScore(common.map((cell) => ({ weight: 1, record: cell.record as GameRecord })))
     const after = metaScore(common.map((cell) => ({ weight: 1, record: cells.get(cell.rival)?.record as GameRecord })))
     if (!before || !after) continue
+    const difference = scoreDifference(after, before)
     changes.push({
       key: row.key,
       label: row.label,
       before,
       after,
-      difference: scoreDifference(after, before),
+      difference,
+      pValue: difference.se > 0 ? twoSidedP(difference.value / difference.se) : difference.value === 0 ? 1 : 0,
+      significant: false,
       rivals: common.length,
       rankBefore: 0,
       rankAfter: 0,
       orientative: Math.min(before.games, after.games) < 30,
     })
   }
+  const discoveries = benjaminiHochberg(changes.map((c) => c.pValue))
+  for (const [i, change] of changes.entries())
+    change.significant =
+      !!discoveries[i] &&
+      Math.abs(change.difference.value) >= 5 &&
+      !change.orientative &&
+      left.status === 'done' &&
+      right.status === 'done'
   const rank = (value: number, all: number[]) =>
     1 + all.filter((v) => v > value).length + (all.filter((v) => v === value).length - 1) / 2
   for (const change of changes) {
@@ -170,8 +218,16 @@ export function compareAnalysisBots(left: AnalysisMatrix, right: AnalysisMatrix)
   return {
     left: left.id,
     right: right.id,
+    leftBot: left.bot,
+    rightBot: right.bot,
+    leftEngine: left.engineRev,
+    rightEngine: right.engineRev,
+    leftStatus: left.status,
+    rightStatus: right.status,
+    sameEngine: left.engineRev === right.engineRev,
     correlation,
-    orientative: changes.length < 30,
+    orientative:
+      changes.length < 30 || left.engineRev !== right.engineRev || left.status !== 'done' || right.status !== 'done',
     changes: changes.sort((a, b) => b.difference.value - a.difference.value || a.key.localeCompare(b.key)),
   }
 }
@@ -248,29 +304,45 @@ export interface DominantMatchup {
   labelA: string
   labelB: string
   rate: WinRate<'simulation'>
+  ties: number
 }
 export interface MatchupPatterns {
   dominant: DominantMatchup[]
+  dominantTotal: number
   cycles: [DominantMatchup, DominantMatchup, DominantMatchup][]
   cyclesTotal: number
 }
 
-/** Exploratory, pointwise Wilson intervals: dominance only when lower win bound exceeds one half.
- * Cycles require all three bounds; each rotation counted once. No claim of simultaneous significance.
+/** One two-sided test per unordered pairing, BH over ALL played pairings (FDR 5%).
+ * Effects need >=55% of decided games, Wilson lower bound >50% and >=30 decided games.
+ * Intervals remain pointwise; the selected extremes and cycles are exploratory.
  */
 export function matchupPatterns(matrix: AnalysisMatrix): MatchupPatterns {
-  const edges = new Map<string, DominantMatchup>()
+  const candidates = new Map<string, DominantMatchup>()
   for (const row of matrix.rows)
     for (const cell of row.cells) {
-      if (cell.rate && cell.rate.ci95[0] > 50)
-        edges.set(`${row.key}:${cell.rival}`, {
-          a: row.key,
-          b: cell.rival,
-          labelA: row.label,
-          labelB: cell.label,
-          rate: cell.rate,
-        })
+      if (!cell.record) continue
+      const { wins, losses, ties } = cell.record
+      const rate = simulationRate({ wins: Math.max(wins, losses), losses: Math.min(wins, losses), ties: 0 })
+      if (!rate) continue
+      const forward = wins >= losses
+      candidates.set(JSON.stringify([row.key, cell.rival].sort()), {
+        a: forward ? row.key : cell.rival,
+        b: forward ? cell.rival : row.key,
+        labelA: forward ? row.label : cell.label,
+        labelB: forward ? cell.label : row.label,
+        rate,
+        ties,
+      })
     }
+  const all = [...candidates.values()]
+  const discoveries = benjaminiHochberg(
+    all.map(({ rate }) => twoSidedP((rate.value / 100 - 0.5) * 2 * Math.sqrt(rate.games))),
+  )
+  const edges = new Map<string, DominantMatchup>()
+  for (const [i, edge] of all.entries())
+    if (discoveries[i] && edge.rate.games >= 30 && edge.rate.value >= 55 && edge.rate.ci95[0] > 50)
+      edges.set(`${edge.a}:${edge.b}`, edge)
   const adjacent = new Map<string, DominantMatchup[]>()
   for (const edge of edges.values()) {
     const list = adjacent.get(edge.a) ?? []
@@ -285,9 +357,19 @@ export function matchupPatterns(matrix: AnalysisMatrix): MatchupPatterns {
       const ca = edges.get(`${bc.b}:${ab.a}`)
       if (!ca) continue
       cyclesTotal++
-      if (cycles.length < 50) cycles.push([ab, bc, ca])
+      cycles.push([ab, bc, ca])
+      if (cycles.length > 50) {
+        cycles.sort((a, b) => Math.min(...b.map((e) => e.rate.ci95[0])) - Math.min(...a.map((e) => e.rate.ci95[0])))
+        cycles.pop()
+      }
     }
-  return { dominant: [...edges.values()].sort((a, b) => b.rate.ci95[0] - a.rate.ci95[0]), cycles, cyclesTotal }
+  cycles.sort((a, b) => Math.min(...b.map((e) => e.rate.ci95[0])) - Math.min(...a.map((e) => e.rate.ci95[0])))
+  return {
+    dominant: [...edges.values()].sort((a, b) => b.rate.ci95[0] - a.rate.ci95[0]).slice(0, 50),
+    dominantTotal: edges.size,
+    cycles,
+    cyclesTotal,
+  }
 }
 
 export interface AnalysisFinding {
@@ -303,21 +385,22 @@ export function analysisFindings(
   games: GameAnalysis,
   agreement: BotAgreement | null,
 ): AnalysisFinding[] {
-  const out: AnalysisFinding[] = patterns.dominant
-    .slice(0, 3)
-    .map((edge) => ({ kind: 'dominant', text: `${edge.labelA} supera a ${edge.labelB}: ${rateText(edge.rate)}.` }))
+  const out: AnalysisFinding[] = patterns.dominant.slice(0, 3).map((edge) => ({
+    kind: 'dominant',
+    text: `${edge.labelA} supera a ${edge.labelB}: ${rateText(edge.rate)} de partidas decididas; ${edge.ties} empates aparte.`,
+  }))
   for (const cycle of patterns.cycles.slice(0, 3))
     out.push({
       kind: 'cycle',
-      text: `Ciclo: ${cycle.map((edge) => `${edge.labelA} > ${edge.labelB}: ${rateText(edge.rate)}`).join('; ')}.`,
+      text: `Ciclo: ${cycle.map((edge) => `${edge.labelA} > ${edge.labelB}: ${rateText(edge.rate)} decididas, ${edge.ties} empates aparte`).join('; ')}.`,
     })
   for (const change of (agreement?.changes ?? [])
-    .filter((c) => c.difference.ci95[0] > 0 || c.difference.ci95[1] < 0)
+    .filter((c) => c.significant)
     .sort((a, b) => Math.abs(b.difference.value) - Math.abs(a.difference.value))
     .slice(0, 3)) {
     out.push({
       kind: 'bot_change',
-      text: `${change.label}: ${f(change.difference.value)} puntos entre matrices #${agreement?.left} y #${agreement?.right} (n = ${change.before.games}/${change.after.games}, IC 95 % ${f(change.difference.ci95[0])}–${f(change.difference.ci95[1])} puntos${change.orientative ? ', orientativo' : ''}).`,
+      text: `${change.label}: ${change.difference.value > 0 ? '+' : ''}${f(change.difference.value)} puntos (${agreement?.rightBot} menos ${agreement?.leftBot}; matrices #${agreement?.left}/${agreement?.right}, motores ${agreement?.leftEngine}/${agreement?.rightEngine}${agreement?.sameEngine ? ', mismo motor' : ', motores distintos'}) (n = ${change.before.games}/${change.after.games}, IC 95 % ${f(change.difference.ci95[0])}–${f(change.difference.ci95[1])} puntos${change.orientative ? ', orientativo' : ''}).`,
     })
   }
   if (games.first && games.firstAdvantage && (games.firstAdvantage.ci95[0] > 0 || games.firstAdvantage.ci95[1] < 0))
