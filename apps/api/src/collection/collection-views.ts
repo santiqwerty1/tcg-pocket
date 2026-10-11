@@ -96,6 +96,8 @@ export interface ImportPreview {
     removedCopies: number
     currentCopies: number
     requiresReview: boolean
+    reviewReasons?: string[]
+    catalogCommit?: string | null
   }
   id: string
   /** Null when the CSV was pasted as JSON `{ csv }`. */

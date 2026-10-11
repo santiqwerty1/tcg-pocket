@@ -65,10 +65,17 @@ export class SettingsService {
       })
     }
     const json = JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
-    const row = await this.prisma.appSetting.upsert({
-      where: { key },
-      create: { key, value: json },
-      update: { value: json },
+    const row = await this.prisma.$transaction(async (tx) => {
+      if (key === 'trackerAutoSync' || key === 'trackerFriendId')
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(994202)`
+      const saved = await tx.appSetting.upsert({
+        where: { key },
+        create: { key, value: json },
+        update: { value: json },
+      })
+      if ((key === 'trackerAutoSync' && value === false) || key === 'trackerFriendId')
+        await tx.appSetting.deleteMany({ where: { key: 'trackerSyncWarning' } })
+      return saved
     })
     return { key: row.key, value: row.value }
   }
