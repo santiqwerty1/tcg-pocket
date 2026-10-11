@@ -4,6 +4,7 @@ import { request } from './client'
 import {
   jobSummarySchema,
   type LabCoreInput,
+  type LabDeckSource,
   type LabExploreInput,
   type LabObjectiveChoice,
   type LabTestInput,
@@ -87,6 +88,20 @@ export function usePlanLabExplore() {
   return useMutation({
     mutationFn: (input: LabExploreInput) =>
       request('/api/lab/explore', { method: 'POST', body: { ...input, dryRun: true }, schema: labExplorePlanSchema }),
+  })
+}
+
+/** T-017 E4: a list added to a search in play; its next search round plays it. */
+export function useAddLabCandidate() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, deck }: { id: number; deck: LabDeckSource }) =>
+      request(`/api/lab/jobs/${encodeURIComponent(String(id))}/candidates`, {
+        method: 'POST',
+        body: { deck },
+        schema: labJobSchema,
+      }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: labKeys.all }),
   })
 }
 

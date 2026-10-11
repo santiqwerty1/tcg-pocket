@@ -124,7 +124,11 @@ export class McpLabToolsService {
           }
         : {}),
       lists: bank.lists,
-      coverage: `${round(bank.coverage)} % de las listas de la era`,
+      // Review of #47: the bank's archetypes against the era's lists; «mi meta» says its own coverage apart.
+      coverage:
+        bank.objective.kind === 'meta'
+          ? `${round(bank.coverage)} % de las listas de la era`
+          : `los arquetipos de este banco son el ${round(bank.coverage)} % de las listas de la era`,
       rivals: bank.rivals.map((rival) => ({
         archetype: rival.archetypeName,
         share: round(rival.share, 2),
@@ -196,7 +200,7 @@ export class McpLabToolsService {
         note: LAB_NOTE,
         jobs: jobs.items.map((job) => ({
           ...jobSummaryJson(job),
-          mode: job.mode === 'test' ? 'prueba' : 'búsqueda automática',
+          mode: job.mode === 'test' ? `prueba contra ${job.against}` : 'búsqueda automática',
           era: job.era,
         })),
       }
@@ -349,6 +353,7 @@ export class McpLabToolsService {
     energies?: SelectableEnergy[]
     pool?: 'collection' | 'all'
     locked?: string[]
+    include?: string[]
     rounds?: number
     variants?: number
     games?: number
@@ -377,6 +382,8 @@ export class McpLabToolsService {
     }
     const index = this.catalog.requireIndex()
     const locked = (args.locked ?? []).map((card) => resolveCardRef(index, card, own))
+    // T-017 E3: «probar estas cartas».
+    const include = (args.include ?? []).map((card) => resolveCardRef(index, card, own))
     const settings = {
       pool: args.pool,
       maxRounds: args.rounds,
@@ -389,6 +396,7 @@ export class McpLabToolsService {
     const result = await this.lab.explore({
       deck,
       locked,
+      ...(include.length > 0 ? { include } : {}),
       objective: args.objective,
       archetypeId: args.archetype,
       size: args.size,

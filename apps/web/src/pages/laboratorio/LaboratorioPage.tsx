@@ -2,9 +2,9 @@
  * Laboratorio de mazos (T-008): the meta bank of the era, a deck (mine or pasted) against it, the automatic search of
  * variants, and the tests and searches so far. Bots play, not people: every number is a hint to try in the game.
  */
-import { FlaskConicalIcon, SearchIcon } from 'lucide-react'
+import { FlaskConicalIcon, SearchIcon, XIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useLocation, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useDeck, useDecks } from '@/api/decks'
@@ -18,6 +18,7 @@ import type {
   LabObjectiveChoice,
 } from '@/api/schemas'
 import { useEngineInfo } from '@/api/simulations'
+import { CardSearch } from '@/components/CardSearch'
 import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Field, Section } from '@/components/Section'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -250,27 +251,92 @@ function LockPicker({
   const deck = useDeck(deckId)
   if (!deck.data) return null
   return (
+    <CardLocks
+      cards={deck.data.cards.map((entry) => ({ cardId: entry.card.id, nameEs: entry.card.nameEs, count: entry.count }))}
+      locked={locked}
+      onChange={onChange}
+    />
+  )
+}
+
+/** «Cartas que no se tocan», for any list (T-017 E3: a pasted or tournament one, from the plan). */
+function CardLocks({
+  cards,
+  locked,
+  onChange,
+}: {
+  cards: { cardId: string; nameEs: string; count: number }[]
+  locked: string[]
+  onChange: (locked: string[]) => void
+}) {
+  return (
     <fieldset className="flex flex-col gap-1.5">
       <legend className="text-sm font-medium">Cartas que no se tocan</legend>
       <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-        {deck.data.cards.map((entry) => {
-          const id = `lock-${entry.card.id}`
+        {cards.map((entry) => {
+          const id = `lock-${entry.cardId}`
           return (
-            <li key={entry.card.id} className="flex items-center gap-2 text-sm">
+            <li key={entry.cardId} className="flex items-center gap-2 text-sm">
               <Checkbox
                 id={id}
-                checked={locked.includes(entry.card.id)}
+                checked={locked.includes(entry.cardId)}
                 onCheckedChange={(checked) =>
-                  onChange(checked ? [...locked, entry.card.id] : locked.filter((cardId) => cardId !== entry.card.id))
+                  onChange(checked ? [...locked, entry.cardId] : locked.filter((cardId) => cardId !== entry.cardId))
                 }
               />
               <label htmlFor={id} className="min-w-0 truncate">
-                {entry.count} {entry.card.nameEs}
+                {entry.count} {entry.nameEs}
               </label>
             </li>
           )
         })}
       </ul>
+    </fieldset>
+  )
+}
+
+/** T-017 E3: «Probar estas cartas», the opposite of locking: each round one variant brings one of them in. */
+function IncludePicker({
+  cards,
+  onChange,
+}: {
+  cards: { cardId: string; groupId: string; nameEs: string }[]
+  onChange: (cards: { cardId: string; groupId: string; nameEs: string }[]) => void
+}) {
+  return (
+    <fieldset className="flex flex-col gap-1.5">
+      <legend className="text-sm font-medium">Probar estas cartas</legend>
+      <p className="text-xs text-muted-foreground">
+        Entran aunque no las tengas, tan seguido como la carta más jugada, y cada ronda una variante trae una.
+      </p>
+      {cards.length < 10 ? (
+        <CardSearch
+          placeholder="Agregar una carta para probar…"
+          limit={8}
+          onPick={(hit) => {
+            if (cards.some((card) => card.groupId === hit.group.id)) return
+            onChange([...cards, { cardId: hit.card.id, groupId: hit.group.id, nameEs: hit.card.nameEs }])
+          }}
+        />
+      ) : null}
+      {cards.length > 0 ? (
+        <ul className="flex flex-wrap gap-2">
+          {cards.map((card) => (
+            <li key={card.groupId}>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                aria-label={`Quitar ${card.nameEs}`}
+                onClick={() => onChange(cards.filter((other) => other.groupId !== card.groupId))}
+              >
+                {card.nameEs}
+                <XIcon data-icon="inline-end" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </fieldset>
   )
 }
@@ -369,7 +435,11 @@ function ExploreForm({ size, objective }: { size: number; objective: LabObjectiv
   const navigate = useNavigate()
   const plan = usePlanLabExplore()
   const explore = useLabExplore()
-  const [source, setSource] = useState<LabDeckSource | null>(null)
+  // T-017 E4: «Buscar variantes desde esta» on a test or search brings its list here.
+  const from = (useLocation().state as { exploreFrom?: LabDeckSource & { name?: string } } | null)?.exploreFrom
+  const [source, setSource] = useState<LabDeckSource | null>(from ?? null)
+  const [fromLab, setFromLab] = useState(!!from)
+  const [include, setInclude] = useState<{ cardId: string; groupId: string; nameEs: string }[]>([])
   const [pool, setPool] = useState<ExplorePool>('collection')
   const [locked, setLocked] = useState<string[]>([])
   const [rounds, setRounds] = useState('12')
@@ -387,7 +457,8 @@ function ExploreForm({ size, objective }: { size: number; objective: LabObjectiv
       deck: source,
       size,
       ...objective,
-      ...(deckId && locked.length > 0 ? { locked } : {}),
+      ...(locked.length > 0 ? { locked } : {}),
+      ...(include.length > 0 ? { include: include.map((card) => card.cardId) } : {}),
       config: {
         pool,
         maxRounds: Number(rounds),
@@ -398,7 +469,7 @@ function ExploreForm({ size, objective }: { size: number; objective: LabObjectiv
         race,
       },
     }
-  }, [source, size, objective, deckId, locked, pool, rounds, variants, games, confirmGames, verifyGames, race])
+  }, [source, size, objective, locked, include, pool, rounds, variants, games, confirmGames, verifyGames, race])
 
   // H-021: the plan on screen is the search that starts (same seed) while nothing changed since «Ver el plan».
   const [plannedFor, setPlannedFor] = useState<string | null>(null)
@@ -423,15 +494,36 @@ function ExploreForm({ size, objective }: { size: number; objective: LabObjectiv
         final, una ronda de confirmación juega la lista de partida y la encontrada con partidas nuevas: dice si la
         mejora se sostiene.
       </p>
-      <DeckSourcePicker
-        value={source}
-        onChange={(next) => {
-          setSource(next)
-          setLocked([])
-          plan.reset()
-        }}
-        idPrefix="explore"
-      />
+      {fromLab && source ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-sm">
+          <span className="min-w-0 flex-1 truncate">
+            Desde el laboratorio: {'name' in source && source.name ? source.name : 'una lista'}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setFromLab(false)
+              setSource(null)
+              setLocked([])
+              plan.reset()
+            }}
+          >
+            Elegir otra
+          </Button>
+        </div>
+      ) : (
+        <DeckSourcePicker
+          value={source}
+          onChange={(next) => {
+            setSource(next)
+            setLocked([])
+            plan.reset()
+          }}
+          idPrefix="explore"
+        />
+      )}
       <Field label="Cartas que pueden entrar">
         <Select value={pool} onValueChange={(next) => setPool(next as ExplorePool)}>
           <SelectTrigger aria-label="Cartas que pueden entrar" className="w-full">
@@ -446,7 +538,14 @@ function ExploreForm({ size, objective }: { size: number; objective: LabObjectiv
           </SelectContent>
         </Select>
       </Field>
-      {deckId ? <LockPicker deckId={deckId} locked={locked} onChange={setLocked} /> : null}
+      {deckId ? (
+        <LockPicker deckId={deckId} locked={locked} onChange={setLocked} />
+      ) : plan.data && plan.data.baseCards.length > 0 ? (
+        <CardLocks cards={plan.data.baseCards} locked={locked} onChange={setLocked} />
+      ) : source ? (
+        <p className="text-xs text-muted-foreground">Con «Ver el plan» podés elegir cartas que no se tocan.</p>
+      ) : null}
+      <IncludePicker cards={include} onChange={setInclude} />
       <div className="grid grid-cols-2 gap-3">
         <NumberField label="Rondas como máximo" value={rounds} onChange={setRounds} min={1} max={20} />
         <NumberField label="Variantes por ronda" value={variants} onChange={setVariants} min={1} max={12} />
@@ -514,7 +613,7 @@ function LabJobsList() {
               <StatusBadge status={job.status} />
             </div>
             <div className="text-xs text-muted-foreground">
-              #{job.id} · {job.mode === 'test' ? 'Prueba contra el meta' : 'Búsqueda de variantes'}
+              #{job.id} · {job.mode === 'test' ? `Prueba contra ${job.against}` : 'Búsqueda de variantes'}
               {job.era ? ` · era ${job.era}` : ''} · {formatDateTime(job.createdAt)}
             </div>
             {isActive(job.status) ? <ProgressBar fraction={progressFraction(job)} /> : null}

@@ -235,6 +235,11 @@ export interface LabExploreView {
     error: string | null
   } | null
   locked: CardLineView[]
+  /** T-017 E3: the cards to try («probar estas cartas»). */
+  include: CardLineView[]
+  /** T-017 E4: lists added by hand: already played (`added`) and waiting for the next round (`pending`). */
+  added: number[]
+  pending: number[]
   /** Fase 16: the event whose rules every variant keeps. */
   event: { id: string; name: string; rules: string[] } | null
 }
@@ -278,5 +283,5 @@ export interface LabCoreView {
 }
 
 export interface LabJobsView {
-  items: (JobSummaryView & { mode: 'test' | 'explore'; era: string | null })[]
+  items: (JobSummaryView & { mode: 'test' | 'explore'; era: string | null; against: string })[]
 }

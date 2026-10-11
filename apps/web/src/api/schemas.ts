@@ -1837,6 +1837,10 @@ export const labJobSchema = z.object({
         )
         .default([]),
       combos: z.array(z.number()).default([]),
+      /** T-017 E3/E4: the cards to try, and the lists added by hand (played, and waiting for the next round). */
+      include: z.array(labCardSchema).default([]),
+      added: z.array(z.number()).default([]),
+      pending: z.array(z.number()).default([]),
       reverts: z.array(z.number()).default([]),
       /** Fase 42: the confirmation played again with another bot, «robusto» or «sensible al bot». */
       robustness: z
@@ -1875,7 +1879,13 @@ export const labJobSchema = z.object({
 export type LabJob = z.infer<typeof labJobSchema>
 
 export const labJobsSchema = z.object({
-  items: z.array(jobSummarySchema.extend({ mode: z.enum(['test', 'explore']), era: z.string().nullable() })),
+  items: z.array(
+    jobSummarySchema.extend({
+      mode: z.enum(['test', 'explore']),
+      era: z.string().nullable(),
+      against: z.string().default('el meta'),
+    }),
+  ),
 })
 export type LabJobItem = z.infer<typeof labJobsSchema>['items'][number]
 
@@ -1908,6 +1918,8 @@ export interface LabTestInput extends LabRunInput {
 export interface LabExploreInput extends LabRunInput {
   deck: LabDeckSource
   locked?: string[]
+  /** T-017 E3: cards to try («probar estas cartas»). */
+  include?: string[]
   config?: Partial<Omit<ExploreConfig, 'acceptZ' | 'verifyZ'>>
   /** Fase 16: keep this event's rules in every variant. */
   eventId?: string
@@ -1915,6 +1927,8 @@ export interface LabExploreInput extends LabRunInput {
 
 export const labExplorePlanSchema = z.object({
   base: snapshotSchema.omit({ id: true }),
+  /** T-017 E3: the starting list's cards, to lock some whatever the source. */
+  baseCards: z.array(labCardSchema).default([]),
   bank: labBankSchema,
   pool: z.number(),
   firstRound: z.array(z.object({ add: z.array(labCardSchema), remove: z.array(labCardSchema) })),
