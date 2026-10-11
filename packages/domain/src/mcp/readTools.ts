@@ -9,6 +9,7 @@
 import { z } from 'zod'
 import { RARITIES, SELECTABLE_ENERGIES } from '../catalog/types.js'
 import { MATCH_MODES, MATCH_RESULTS } from '../matches/types.js'
+import { BOT_CODE_PATTERN } from '../simulation/jobs.js'
 import { TOURNAMENT_FORMATS } from '../tournaments/eras.js'
 
 const query = z
@@ -43,6 +44,23 @@ const TOURNAMENT_NOTE =
   'Datos de torneo de Limitless (play.limitlesstcg.com), por era: cada fila trae listas, partidas e intervalo; con menos de 30 listas es orientativo; comparar contra la media de la era (no contra 50 %, porque cuenta empates y abandonos).'
 
 export const MCP_READ_TOOLS = {
+  simulationsAnalysis: {
+    name: 'simulations_analysis',
+    title: 'Análisis de simulaciones',
+    description:
+      'Resumen de todas las simulaciones, rankings por bot, acuerdo entre bots sobre listas y rivales comunes, diferencias con intervalos, matchups, ciclos, empates y duración. Fuente simulación separada de torneos y partidas propias. Incluye n, IC y orientativo; expansión = sets presentes en las listas (grupos se solapan), era = metadato guardado; no se infiere.',
+    input: z.object({
+      bot: z.string().regex(BOT_CODE_PATTERN).optional(),
+      era: tournamentScope.era,
+      expansion: z
+        .string()
+        .regex(/^[A-Za-z0-9-]{1,8}$/)
+        .optional(),
+      matrix: z.number().int().positive().optional(),
+      left: z.number().int().positive().optional(),
+      right: z.number().int().positive().optional(),
+    }),
+  },
   collectionSummary: {
     name: 'collection_summary',
     title: 'Resumen de la colección',

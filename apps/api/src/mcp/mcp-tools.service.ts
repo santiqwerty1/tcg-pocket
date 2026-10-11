@@ -46,6 +46,7 @@ import { PacksService } from '../packs/packs.service.js'
 import { PickService } from '../pick/pick.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { RivalNotesService } from '../rivals/rival-notes.service.js'
+import { SimulationAnalysisService } from '../simulation/analysis.service.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
 import type {
   ArchetypeRowView,
@@ -168,6 +169,7 @@ export class McpToolsService {
     private readonly packs: PacksService,
     private readonly tournaments: TournamentsService,
     private readonly simulations: SimulationsService,
+    private readonly analysis: SimulationAnalysisService,
     private readonly prisma: PrismaService,
     private readonly deckRefs: DeckRefResolver,
     private readonly rivalNotes: RivalNotesService,
@@ -302,6 +304,9 @@ ${MCP_CHAT_INSTRUCTIONS}`
     )
     server.registerTool(t.simulationsResults.name, config(t.simulationsResults), (args) =>
       run(t.simulationsResults.name, () => this.simulationsResults(args)),
+    )
+    server.registerTool(t.simulationsAnalysis.name, config(t.simulationsAnalysis), (args) =>
+      run(t.simulationsAnalysis.name, async () => ({ ...(await this.analysis.read(args)) }) as unknown as Json),
     )
     server.registerTool(t.workersStatus.name, config(t.workersStatus), () =>
       run(t.workersStatus.name, () => this.workersStatus()),
