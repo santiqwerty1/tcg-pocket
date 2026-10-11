@@ -225,6 +225,7 @@ enum CollectionImportStatus {
 }
 
 model CollectionImport {
+  source      String                 @default("csv")
   id          Int                    @id @default(autoincrement())
   fileName    String                 @map("file_name")
   sha256      String
@@ -258,6 +259,7 @@ model CollectionImportRow {
 enum CollectionStockSource {
   import
   manual
+  tracker
 
   @@map("collection_stock_source")
 }

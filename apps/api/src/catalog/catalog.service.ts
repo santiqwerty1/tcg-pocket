@@ -75,6 +75,10 @@ export class CatalogService implements OnModuleInit {
     return this.index !== null
   }
 
+  get loadedSyncId(): number | null {
+    return this.loadedSync?.id ?? null
+  }
+
   get trackerCommit(): string | null {
     return this.index?.catalog.trackerCommit ?? null
   }

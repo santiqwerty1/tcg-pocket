@@ -10,9 +10,15 @@ import { API_ROOT, loadDotEnv } from './dotenv.js'
 export const DEFAULT_CATALOG_COMMIT = '3ab58f1cec6a03e3e85455cf7aade3bb8561f92e'
 export const DEFAULT_ENGINE_REV = '33ff2a5942dd4ce09d1ebc3041ffe48f604409e6'
 
+/** Public anon credential shipped by the tracker's frontend @3ab58f1; not a service-role secret. */
+export const DEFAULT_TRACKER_ANON_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZjd2xvdWptc2p1YWNxcHd0aGVlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE4MTM2NjAsImV4cCI6MjA1NzM4OTY2MH0.a4Hyi9PsyLQ-MxtS_20cSs4KWgDNh39w-uJo0cQa_qQ'
+
 const gitSha = z.string().regex(/^[0-9a-f]{40}$/, 'must be a full 40-character lowercase git sha')
 
 const envSchema = z.object({
+  TRACKER_COLLECTION_URL: z.url().default('https://vcwloujmsjuacqpwthee.supabase.co'),
+  TRACKER_COLLECTION_ANON_KEY: z.string().min(1).default(DEFAULT_TRACKER_ANON_KEY),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   DATABASE_URL: z.string().regex(/^postgres(ql)?:\/\//, 'must be a postgresql:// connection string'),
@@ -76,6 +82,8 @@ const envSchema = z.object({
 })
 
 export interface Env {
+  trackerCollectionUrl: string
+  trackerCollectionAnonKey: string
   nodeEnv: 'development' | 'test' | 'production'
   isProduction: boolean
   isTest: boolean
@@ -137,6 +145,8 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
   const raw = result.data
   const isProduction = raw.NODE_ENV === 'production'
   return {
+    trackerCollectionUrl: raw.TRACKER_COLLECTION_URL.replace(/\/+$/, ''),
+    trackerCollectionAnonKey: raw.TRACKER_COLLECTION_ANON_KEY,
     nodeEnv: raw.NODE_ENV,
     isProduction,
     isTest: raw.NODE_ENV === 'test',
