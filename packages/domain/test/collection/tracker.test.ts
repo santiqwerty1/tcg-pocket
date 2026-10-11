@@ -6,7 +6,7 @@ import {
   trackerImportRows,
   trackerUnits,
 } from '../../src/collection/index.js'
-import fixture from '../fixtures/tracker/public-collection.json'
+import fixture from '../fixtures/tracker/public-collection.json' with { type: 'json' }
 import { realCsvParsed } from '../helpers/collectionCsv.js'
 import { catalogIndex } from '../helpers/loadFixtures.js'
 
