@@ -580,8 +580,9 @@ function ExploreSummary({ job }: { job: LabJob }) {
       {explore.learned.length > 0 ? (
         <div className="flex flex-col gap-1 text-sm">
           <p className="text-xs text-muted-foreground">
-            Lo que midió por carta (puntos contra el meta, de lo más claro a lo menos; guía qué se prueba, no qué se
-            acepta):
+            Lo que midió por carta (puntos contra{' '}
+            {job.objective.kind === 'meta' ? 'el meta' : job.objective.labelEs.replace(/^solo /, '')}, de lo más claro a
+            lo menos; guía qué se prueba, no qué se acepta):
           </p>
           <ul className="flex flex-wrap gap-x-3 gap-y-1">
             {explore.learned.map((change) => (
@@ -631,8 +632,8 @@ export function LabJobPage() {
           <StatusBadge status={job.status} />
         </div>
         <p className="text-xs text-muted-foreground">
-          #{job.id} · {data.mode === 'test' ? 'Prueba contra el meta' : 'Búsqueda de variantes'} · era {data.era} ·{' '}
-          contra {data.objective.labelEs} · {data.size} arquetipos · {job.playersEs[0]} vs {job.playersEs[1]} · semilla{' '}
+          #{job.id} · {data.mode === 'test' ? 'Prueba' : 'Búsqueda de variantes'} · era {data.era} · contra{' '}
+          {data.objective.labelEs} · {data.size} arquetipos · {job.playersEs[0]} vs {job.playersEs[1]} · semilla{' '}
           {job.baseSeed} · motor {shortSha(job.engineRev)}
         </p>
         {active ? (

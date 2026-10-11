@@ -70,23 +70,28 @@ const testSchema = runSchema.extend({
   decks: z.array(deckSchema).min(1).max(MAX_TEST_DECKS),
   gamesPerRival: z.number().int().min(10).max(5000).optional(),
 })
-const consistencySchema = scopeSchema.extend({
-  deckId: z.string().trim().min(1).max(20),
-  keyCards: z.array(z.string().min(1).max(20)).max(10).optional(),
-  games: z.number().int().min(10).max(10_000).optional(),
-  /** Both sides play with it; «et» (passive) is the goldfish measure, not this one. */
-  bot: z
-    .string()
-    .regex(BOT_CODE_PATTERN, 'Bot desconocido.')
-    .refine((code) => code !== 'et', 'Bot desconocido.')
-    .optional(),
-  seed: z
-    .number()
-    .int()
-    .min(0)
-    .max(2 ** 52)
-    .optional(),
-})
+// Review of #47: consistency is against the meta; it takes no objective.
+const consistencySchema = scopeSchema
+  .omit({ objective: true, archetypeId: true })
+  .extend({
+    deckId: z.string().trim().min(1).max(20),
+    keyCards: z.array(z.string().min(1).max(20)).max(10).optional(),
+    games: z.number().int().min(10).max(10_000).optional(),
+    /** Both sides play with it; «et» (passive) is the goldfish measure, not this one. */
+    bot: z
+      .string()
+      .regex(BOT_CODE_PATTERN, 'Bot desconocido.')
+      .refine((code) => code !== 'et', 'Bot desconocido.')
+      .optional(),
+    seed: z
+      .number()
+      .int()
+      .min(0)
+      .max(2 ** 52)
+      .optional(),
+  })
+  // An objective is refused, not ignored.
+  .strict()
 const coreSchema = z.object({
   cards: z.array(z.string().trim().min(1).max(20)).min(1).max(4),
   energies,

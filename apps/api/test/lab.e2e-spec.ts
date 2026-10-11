@@ -269,7 +269,32 @@ describe('laboratorio (e2e)', () => {
       job: { status: 'done' },
       objective: { kind: 'rival', archetypeId: first.archetypeId },
     })
+    // Review of #47: its score says against what, not «contra el meta».
+    expect(done.decks[0].search.text).toContain(`contra ${first.archetypeName} (n = `)
     expect(await test.app.get(LabService).deckScore(Number(deckIds[3]))).toBeNull()
+    // A search against one rival keeps it too.
+    const search = await post('/api/lab/explore').send({
+      deck: { deckId: deckIds[3] },
+      objective: 'rival',
+      archetypeId: first.archetypeId,
+      config: { gamesPerRival: 10, variantsPerRound: 1, maxRounds: 1, confirmGames: 0, verifyGames: 0, pool: 'all' },
+      seed: 7200,
+    })
+    expect(search.status).toBe(200)
+    expect(search.body.label).toContain(` contra solo ${first.archetypeName} (B4a)`)
+    const searchJob = (await get(`/api/lab/jobs/${search.body.id}`)).body
+    expect(searchJob.objective).toMatchObject({ kind: 'rival', archetypeId: first.archetypeId })
+    expect(new Set(searchJob.rivals.map((rival: { archetypeId: string }) => rival.archetypeId))).toEqual(
+      new Set([first.archetypeId]),
+    )
+    await post(`/api/simulations/${search.body.id}/cancel`)
+    // Consistency takes no objective: it measures against the meta.
+    const consistency = await post('/api/lab/consistency').send({
+      deckId: deckIds[3],
+      objective: 'rival',
+      archetypeId: first.archetypeId,
+    })
+    expect(consistency.status).toBe(400)
     await test.prisma.match.deleteMany({ where: { deckId: deck.id } })
   })
 

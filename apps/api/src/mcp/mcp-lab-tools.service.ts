@@ -17,7 +17,7 @@ import {
 import { CatalogService } from '../catalog/catalog.service.js'
 import { DecksService } from '../decks/decks.service.js'
 import { EventsService } from '../events/events.service.js'
-import { LAB_NOTE, type LabDeckInput, LabService } from '../lab/lab.service.js'
+import { againstEs, LAB_NOTE, type LabDeckInput, LabService } from '../lab/lab.service.js'
 import type { CardLineView, LabDeckView } from '../lab/lab-views.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
 import { LIMITLESS_ATTRIBUTION } from '../tournaments/tournaments.service.js'
@@ -193,7 +193,7 @@ export class McpLabToolsService {
         note: LAB_NOTE,
         jobs: jobs.items.map((job) => ({
           ...jobSummaryJson(job),
-          mode: job.mode === 'test' ? 'prueba contra el meta' : 'búsqueda automática',
+          mode: job.mode === 'test' ? 'prueba' : 'búsqueda automática',
           era: job.era,
         })),
       }
@@ -205,7 +205,7 @@ export class McpLabToolsService {
     return {
       note: view.note,
       job: jobSummaryJson(view.job),
-      mode: view.mode === 'test' ? 'prueba contra el meta' : 'búsqueda automática',
+      mode: view.mode === 'test' ? `prueba contra ${againstEs(view.objective)}` : 'búsqueda automática',
       against: view.objective.labelEs,
       era: view.era,
       format: view.format,

@@ -1768,10 +1768,10 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         const snapshot = byId.get(sid)
         if (!snapshot) return null
         const cards = cardsOfSnapshot(snapshot.cards as unknown as SnapshotCard[])
-        const search = scoreView(scoreOf(chunks, scored, sid, searchFilter))
+        const search = scoreView(scoreOf(chunks, scored, sid, searchFilter), lab.objective)
         const confirmed =
           confirm && (sid === state?.base || sid === state?.incumbent)
-            ? scoreView(scoreOf(chunks, scored, sid, confirmFilter))
+            ? scoreView(scoreOf(chunks, scored, sid, confirmFilter), lab.objective)
             : null
         const headline = confirmed?.score ? confirmFilter : searchFilter
         const found = novelty(rows, groupsOfCards(cards, index))
@@ -2268,8 +2268,16 @@ function complete(
   )
 }
 
-function scoreView(score: MetaScore | null): LabScoreView {
-  return { score, text: formatMetaScoreEs(score) }
+/** A score and its text, «contra» what the job measured against (review of #47: not always the meta). */
+function scoreView(score: MetaScore | null, objective: LabObjectiveView = META_OBJECTIVE): LabScoreView {
+  return { score, text: formatMetaScoreEs(score, againstEs(objective)) }
+}
+
+/** «el meta», «mi meta», «Mega Altaria ex» (T-017 D4). */
+export function againstEs(objective: LabObjectiveView): string {
+  if (objective.kind === 'meta') return 'el meta'
+  if (objective.kind === 'mine') return 'mi meta'
+  return objective.labelEs.replace(/^solo /, '')
 }
 
 /** «a», «a y b», «a, b y c». */
