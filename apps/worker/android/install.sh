@@ -18,8 +18,10 @@ chmod 700 "$root" "$data"
 work=$(mktemp -d "$root/install.XXXXXX")
 trap 'unset token; rm -rf -- "$work"' EXIT
 token=''
+name=Android
 if [[ -f $data/config.json ]]; then
   token=$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.argv[1])); process.stdout.write(c.token || "")' "$data/config.json")
+  name=$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.argv[1])); process.stdout.write(typeof c.name === "string" && c.name.trim() && c.name !== "Android localhost" ? c.name : "Android")' "$data/config.json")
 fi
 printf 'Token de worker (se oculta; Enter conserva el guardado): ' >/dev/tty
 IFS= read -r -s answer </dev/tty
@@ -42,6 +44,9 @@ printf 'Núcleos (prioridad baja deja CPU a otras tareas; por el calor, Enter = 
 IFS= read -r answer </dev/tty
 cores=${answer:-$cores}
 [[ $cores =~ ^[1-9][0-9]*$ ]] || { echo 'Núcleos: usá un entero positivo.'; exit 1; }
+printf 'Nombre en la app (Enter = %s): ' "$name" >/dev/tty
+IFS= read -r answer </dev/tty
+name=${answer:-$name}
 printf '¿Solo mientras carga? [s/N]: ' >/dev/tty
 IFS= read -r charging </dev/tty
 if [[ $charging == [sS] ]]; then
@@ -68,13 +73,13 @@ if (fs.existsSync(before) && fs.existsSync(state)) {
 NODE
 ln -sfn "$release" "$root/current"
 printf '%s' "$token" | node -e '
-const fs=require("fs"), os=require("os"), path=require("path")
-const [dir,server,cores,charging,engine]=process.argv.slice(1)
+const fs=require("fs"), path=require("path")
+const [dir,server,cores,charging,engine,name]=process.argv.slice(1)
 let token=""; process.stdin.setEncoding("utf8").on("data",d=>token+=d).on("end",()=>{
-  const config={server,token,cores:Number(cores),priority:"below_normal",name:"Android "+os.hostname(),enginePath:engine,onlyCharging:/^s$/i.test(charging)}
+  const config={server,token,cores:Number(cores),priority:"below_normal",name,enginePath:engine,onlyCharging:/^s$/i.test(charging)}
   const file=path.join(dir,"config.json")
   fs.writeFileSync(file,JSON.stringify(config,null,2)+"\n",{mode:0o600}); fs.chmodSync(file,0o600)
-})' "$data" "$server" "$cores" "$charging" "$root/current/engine-cli"
+})' "$data" "$server" "$cores" "$charging" "$root/current/engine-cli" "$name"
 unset token
 mkdir -p "$PREFIX/bin"
 {

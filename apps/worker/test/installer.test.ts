@@ -62,7 +62,7 @@ fs.writeFileSync(args[args.indexOf('--dump-header')+1],'HTTP/1.1 200 OK\\r\\nX-C
       await chmod(join(bin, name), 0o755)
     }
     const installer = join(import.meta.dirname, '../android/install.sh')
-    async function install(updating: boolean, widgets = 's') {
+    async function install(updating: boolean, widgets = 's', name = '', defaultName = 'Android') {
       const child = spawn('script', ['-e', '-q', '-c', `bash ${quote(installer)} https://tcg.example`, '/dev/null'], {
         env: {
           ...process.env,
@@ -77,11 +77,12 @@ fs.writeFileSync(args[args.indexOf('--dump-header')+1],'HTTP/1.1 200 OK\\r\\nX-C
       const prompts = [
         'Token de worker',
         'Núcleos',
+        `Nombre en la app (Enter = ${defaultName})`,
         '¿Solo mientras carga?',
         '¿Arrancar al encender',
         '¿Accesos directos',
       ]
-      const answers = [updating ? '' : token, '', 'n', widgets, widgets]
+      const answers = [updating ? '' : token, '', name, 'n', widgets, widgets]
       let step = 0,
         output = ''
       child.stdout.on('data', (data: Buffer) => {
@@ -107,13 +108,19 @@ fs.writeFileSync(args[args.indexOf('--dump-header')+1],'HTTP/1.1 200 OK\\r\\nX-C
     }
     try {
       await install(false)
-      await install(true)
+      const configPath = join(root, 'data/config.json')
+      const readConfig = async () => JSON.parse(await readFile(configPath, 'utf8'))
+      expect((await readConfig()).name).toBe('Android')
+      await writeFile(configPath, JSON.stringify({ ...(await readConfig()), name: 'Android localhost' }))
+      await install(true, 's', 'Celu de Santi')
+      expect((await readConfig()).name).toBe('Celu de Santi')
+      await install(true, 's', '', 'Celu de Santi')
+      expect((await readConfig()).name).toBe('Celu de Santi')
       const curl = JSON.parse(await readFile(trace, 'utf8')) as { args: string[]; stdin: string; envToken?: string }
       expect(curl.stdin).toContain(`Authorization: Bearer ${token}`)
       expect(curl.args.join(' ')).not.toContain(token)
       expect(curl.args.at(-1)).toBe('https://tcg.example/api/worker/packages/android-arm64')
       expect(curl.envToken).toBeUndefined()
-      const configPath = join(root, 'data/config.json')
       const config = JSON.parse(await readFile(configPath, 'utf8')) as {
         token: string
         cores: number
@@ -167,11 +174,11 @@ fs.writeFileSync(args[args.indexOf('--dump-header')+1],'HTTP/1.1 200 OK\\r\\nX-C
       }
       // Reinstallation replaces edited scripts, then opting out removes only our shortcuts.
       await writeFile(start, 'obsolete')
-      await install(true)
+      await install(true, 's', '', 'Celu de Santi')
       expect(await readFile(start, 'utf8')).not.toContain('obsolete')
       const other = join(shortcuts, 'Mi otro acceso')
       await writeFile(other, 'keep')
-      await install(true, 'n')
+      await install(true, 'n', '', 'Celu de Santi')
       for (const file of [start, stop, status, join(boot, 'tcg-worker')])
         await expect(stat(file)).rejects.toMatchObject({ code: 'ENOENT' })
       expect(await readFile(other, 'utf8')).toBe('keep')

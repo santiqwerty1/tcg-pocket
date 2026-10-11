@@ -1,4 +1,4 @@
-TCG Pocket: worker 0.2.9 en Android arm64 (T-015)
+TCG Pocket: worker 0.2.10 en Android arm64 (T-015)
 
 1. Instalá Termux desde F-Droid o los releases oficiales de GitHub, no desde Play Store.
    Termux:API, Termux:Boot y Termux:Widget deben venir del MISMO origen: las firmas de los APK son distintas.
@@ -11,6 +11,8 @@ TCG Pocket: worker 0.2.9 en Android arm64 (T-015)
    Paquete oficial consultado el 10/10/2026: Node 24.18.0. Se requiere Node >=24.
    https://github.com/termux/termux-packages/blob/master/packages/nodejs-lts/build.sh
 3. Elegí cuántos núcleos usar (por defecto la mitad, por el calor) y si trabaja solo enchufado.
+   «Nombre en la app» permite identificar tu celu. Enter conserva el nombre guardado;
+   la primera vez propone «Android», también si el nombre viejo era «Android localhost».
    El motor de fondo usa prioridad baja para dejar CPU a otras tareas. La prioridad no reduce el calor.
    Para esa opción instalá Termux:API y pkg install termux-api. Se revisa cada 15 segundos;
    una lectura de batería fallida pausa el trabajo. Desenchufar manda SIGTERM, libera los
