@@ -6,11 +6,15 @@ Worker de simulación para la PC de Santi (BRIEF §4, PLAN §3.7, Fase 6). Pide 
 
 1. **Reclamar**: `POST /api/worker/claim` con long-poll de 25 s; la app entrega un chunk del trabajo al que le quedan menos (a igualdad, el más viejo; `FOR UPDATE SKIP LOCKED`) con un lease de 3 minutos. Si la cola espera otro motor, contesta `requiredEngineRev` y el worker lo avisa en el log.
 2. **Jugar**: escribe el trabajo en `work/<carpeta>/job.json` y corre `engine-cli simulate|optimize job.json result.json` con los núcleos configurados; lee el progreso de stderr.
-3. **Latido** cada 30 s con las partidas jugadas: renueva el lease y se entera si se canceló el trabajo (entonces corta el motor).
+3. **Latido** cada 30 s con las partidas jugadas, un pedido a la vez y hasta 20 s por intento. Un corte de red deja el motor corriendo; al volver, un lease vencido se renueva si nadie tomó el chunk. Si el servidor informa cancelación o pérdida, corta el motor. En un lote, corta el proceso compartido, revalida los chunks restantes y los juega por separado; una falla de red interrumpe ese ciclo de latidos hasta el próximo intervalo.
 4. **Resultado**: lo guarda primero en `state.json` y después lo sube (idempotente), con las repeticiones en gzip. Si no hay red, reintenta (1 s, 2 s, 4 s… hasta 5 min); si se apaga la PC antes de subir, lo manda al volver.
 5. **Si se corta** a mitad de un chunk (PC apagada, proceso muerto), el lease vence y la app lo vuelve a encolar: se juega de nuevo con la misma semilla y da el mismo resultado.
 
 Un error inesperado reinicia el bucle al minuto; un token rechazado (401/403) lo detiene. Corre un solo worker por carpeta (`worker.lock` con el PID): un segundo arranque avisa en el log y termina. `engine-cli` se excluye del «modo eficiencia» de Windows al arrancar: oculto, Windows lo dejaba en los núcleos de eficiencia (H-001 en la bóveda).
+
+Worker 0.2.11 registra código y señal de cada motor. Una salida 0 sin `result.json` válido se informa como falla del chunk y el worker continúa. La limpieza de arranque conserva directorios en uso y resultados pendientes. Los long-polls de partidas en vivo reintentan timeouts, cortes y 5xx silenciosamente (1 s, 2 s, 4 s… hasta 30 s), incluida la consulta de versión de Android, sin reiniciar la simulación. Un cambio real del motor sigue rechazando nuevos reclamos.
+
+El motor no guarda checkpoints: si otro worker toma un lease vencido, las partidas parciales se pierden. La causa histórica del ENOENT del S25 aún no está confirmada: el código de 0.2.9 limpia `work/` antes de arrancar los bucles, trata una salida por señal como error y Rust propaga los errores al escribir. Los logs nuevos también indican si el directorio y el resultado existen y conservan las últimas salidas del motor para distinguir un incumplimiento del contrato de una eliminación externa.
 
 ## Configuración
 

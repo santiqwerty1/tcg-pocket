@@ -1,4 +1,4 @@
-TCG Pocket: worker 0.2.10 en Android arm64 (T-015)
+TCG Pocket: worker 0.2.11 en Android arm64 (T-015)
 
 1. Instalá Termux desde F-Droid o los releases oficiales de GitHub, no desde Play Store.
    Termux:API, Termux:Boot y Termux:Widget deben venir del MISMO origen: las firmas de los APK son distintas.
@@ -23,6 +23,11 @@ TCG Pocket: worker 0.2.10 en Android arm64 (T-015)
    tcg-worker --check prueba determinismo, configuración y servidor sin reclamar trabajo.
    Si ARM no reproduce la referencia de la PC, se detiene y explica la diferencia.
    La prueba es corta: no demuestra que todas las partidas posibles sean idénticas.
+   Los cortes de red no reinician una simulación en curso: el worker sigue intentando
+   renovar el lease cada 30 s. Si otro worker tomó el chunk, corta el motor y sigue.
+   Las partidas contra el bot reintentan los cortes sin llenar el log de timeouts.
+   worker.log muestra el código y la señal de salida de cada motor; si termina sin
+   resultado, informa la falla del chunk y continúa con el siguiente.
 5. Arranque opcional: instalá Termux:Boot y abrilo una vez antes de reiniciar el celu.
    El instalador escribe ~/.termux/boot/tcg-worker solo si lo elegís.
 6. Para actualizar, repetí el mismo comando. Detiene el worker, instala motor y JS juntos,
