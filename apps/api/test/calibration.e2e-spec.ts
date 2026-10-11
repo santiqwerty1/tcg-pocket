@@ -203,22 +203,50 @@ describe('calibration (e2e)', () => {
       ).status,
     ).toBe(200)
     const merged = (await get(`/api/calibration/${id}`)).body as typeof view & { mirrors: number }
-    expect(merged.mirrors).toBe(1)
-    expect(merged.report.rows).toHaveLength(
-      view.report.rows.length - (played.has(`${first?.archetypeId}|${second?.archetypeId}`) ? 1 : 0),
-    )
-    expect(merged.report.rows.some((row) => row.a === first?.archetypeId || row.b === first?.archetypeId)).toBe(false)
+    expect(merged.mirrors).toBe(played.has(`${first?.archetypeId}|${second?.archetypeId}`) ? 1 : 0)
+    // The two lists of the merged archetype are one point: tournaments have one matchup for both.
+    const canon = (archetypeId: string) =>
+      archetypeId === first?.archetypeId ? (second?.archetypeId as string) : archetypeId
+    const rateOf = (x: string, y: string) => {
+      const direct = played.get(`${x}|${y}`)
+      if (direct !== undefined) return direct / 10
+      const reverse = played.get(`${y}|${x}`)
+      return reverse === undefined ? undefined : 1 - reverse / 10
+    }
+    const bankIds = calibration.bank.map((entry) => entry.archetypeId)
+    const canonical = [...new Set(bankIds.map(canon))]
+    let complete = 0
+    for (let i = 0; i < canonical.length; i++) {
+      for (let j = i + 1; j < canonical.length; j++) {
+        const lists = (u: string) => bankIds.filter((archetypeId) => canon(archetypeId) === u)
+        const all = lists(canonical[i] as string).flatMap((x) => lists(canonical[j] as string).map((y) => rateOf(x, y)))
+        if (all.every((rate) => rate !== undefined)) complete++
+      }
+    }
+    expect(merged.report.rows).toHaveLength(complete)
+    expect(merged.report.archetypes).toHaveLength(canonical.length)
+    expect(merged.report.archetypes.some((row) => row.id === first?.archetypeId)).toBe(false)
     const after = await tournaments.matchupsOf(
       (await tournaments.scopedDataset({ era: view.tournaments.era, format: 'STANDARD' })).dataset,
     )
+    const firstWeight = weights.get(first?.archetypeId as string) as number
+    const secondWeight = weights.get(second?.archetypeId as string) as number
+    let mixed = 0
     for (const row of merged.report.rows) {
-      const ids = [row.a, row.b].map((rowId) => rowId.replace(/#\d+$/, ''))
-      const expected = matchupPerGame(after, ids[0] as string, ids[1] as string)
+      const expected = matchupPerGame(after, row.a, row.b)
       if (expected === null) expect(row.tournament).toBeNull()
       else expect(row.tournament?.value).toBeCloseTo((expected.wins / (expected.wins + expected.losses)) * 100, 10)
+      // A row with the merged archetype: the rate of its two lists, each by its part of the archetype.
+      const side = row.a === second?.archetypeId ? row.b : row.b === second?.archetypeId ? row.a : null
+      if (side === null) continue
+      const mixture =
+        ((rateOf(first?.archetypeId as string, side) as number) * firstWeight +
+          (rateOf(second?.archetypeId as string, side) as number) * secondWeight) /
+        (firstWeight + secondWeight)
+      expect(row.simulated.value).toBeCloseTo((row.a === second?.archetypeId ? mixture : 1 - mixture) * 100, 8)
+      mixed++
     }
-    // The second list of an archetype is a point of its own, never added to the first.
-    expect(merged.report.archetypes.filter((row) => row.id === `${second?.archetypeId}#2`)).toHaveLength(1)
+    expect(mixed).toBeGreaterThan(0)
     // The list's summary is made again with the new aliases.
     const relisted = (await get('/api/calibration')).body as { summary: Structured | null }[]
     expect(relisted[0]?.summary).toMatchObject({ compared: merged.report.compared })

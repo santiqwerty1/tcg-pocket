@@ -10,8 +10,10 @@ import {
   type CalibrationReport,
   type ChunkOutcome,
   calibrationReport,
+  type GameRecord,
   isBotCode,
   matchupPerGame,
+  mixListRecords,
   pairingRecords,
   type TournamentFormat,
 } from '@tcg/domain'
@@ -187,6 +189,16 @@ export class CalibrationService {
       by: ['jobId', 'snapshotAId', 'snapshotBId'],
       where: { jobId: { in: jobs.map((job) => job.id) }, status: 'failed' },
     })
+    // A chunk can still finish after its job did (a late result): the summary is made again then.
+    const lastChunks = new Map(
+      (
+        await this.prisma.simulationChunk.groupBy({
+          by: ['jobId'],
+          where: { jobId: { in: jobs.map((job) => job.id) } },
+          _max: { finishedAt: true },
+        })
+      ).map((row) => [row.jobId, row._max.finishedAt?.getTime() ?? 0]),
+    )
     const out: CalibrationSummaryView[] = []
     for (const job of jobs) {
       const summary = byId.get(job.id)
@@ -197,7 +209,7 @@ export class CalibrationService {
         out.push({ ...view, summary: null, failed, cancelled: 0 })
         continue
       }
-      const key = `${job.id}:${summary.status}:${job.finishedAt?.getTime() ?? 0}:${this.tournamentData.current()}`
+      const key = `${job.id}:${summary.status}:${job.finishedAt?.getTime() ?? 0}:${lastChunks.get(job.id) ?? 0}:${this.tournamentData.current()}`
       let kept = this.summaries.get(key)
       if (!kept) {
         const full = await this.report(job.id)
@@ -223,21 +235,16 @@ export class CalibrationService {
     const summary = await this.simulations.progressOf(String(id))
     const sideA = ((job.params as { sideA?: number[] }).sideA ?? []) as number[]
     const [snapshots, aliases] = await Promise.all([this.snapshots.byIds(sideA), this.tournaments.aliases()])
-    // Each list of the bank under the archetype it is now (an alias merged since must still find its matchups), and
-    // with an id of its own: a second list of one archetype is another point, never added to the first.
-    const lists = new Map<string, { id: string; archetypeId: string; label: string; weight: number }>()
-    const nth = new Map<string, number>()
+    // Each list of the bank under the archetype it is now: an alias merged since must still find its matchups.
+    const lists = new Map<string, { archetypeId: string; label: string; weight: number }>()
     for (const entry of calibration.bank) {
       const archetypeId = aliases.get(entry.archetypeId) ?? entry.archetypeId
-      const n = (nth.get(archetypeId) ?? 0) + 1
-      nth.set(archetypeId, n)
-      lists.set(entry.listKey, {
-        id: n === 1 ? archetypeId : `${archetypeId}#${n}`,
-        archetypeId,
-        label: n === 1 ? entry.archetypeName : `${entry.archetypeName} (${n}.ª lista)`,
-        // The list's part of the meta (a second list splits its archetype's share with the first).
-        weight: entry.weight,
-      })
+      lists.set(entry.listKey, { archetypeId, label: entry.archetypeName, weight: entry.weight })
+    }
+    // A list's part of its archetype: the bank's second lists (T-017 D3) split their archetype's share.
+    const archetypeWeight = new Map<string, number>()
+    for (const list of lists.values()) {
+      archetypeWeight.set(list.archetypeId, (archetypeWeight.get(list.archetypeId) ?? 0) + list.weight)
     }
     const listOf = new Map(
       snapshots.flatMap((snapshot) => {
@@ -281,38 +288,75 @@ export class CalibrationService {
       format: calibration.format,
     })
     const matchups = await this.tournaments.matchupsOf(dataset)
-    const pairings: CalibrationPairing[] = []
     const counts = { pending: 0, failed: 0, cancelled: 0, mirrors: 0 }
+    // R-012 (review of #44): tournaments have one matchup per pair of archetypes, so the pairings of their lists make
+    // one point (mixListRecords); counting each list apart would count that matchup twice. An archetype pairing goes
+    // in once every one of its list pairings is played.
+    const groups = new Map<
+      string,
+      {
+        a: string
+        b: string
+        labelA: string
+        labelB: string
+        parts: { record: GameRecord; weight: number }[]
+        complete: boolean
+      }
+    >()
     for (let i = 0; i < sideA.length; i++) {
       for (let j = i + 1; j < sideA.length; j++) {
         const [x, y] = [sideA[i] as number, sideA[j] as number]
         const [a, b] = [listOf.get(x), listOf.get(y)]
         if (!a || !b) continue
-        if (a.archetypeId === b.archetypeId) {
-          counts.mirrors++
-          continue
-        }
         const state = stateOf(`${x}:${y}`)
-        const record = records.get(`${x}:${y}`)?.record
-        if (state !== 'played' || !record) {
-          counts[state === 'played' ? 'pending' : state]++
+        // Two lists of one archetype: no tournament matchup to compare with. A failed one still counts as failed, as
+        // it does while the job plays (the list's count of failed chunks).
+        if (a.archetypeId === b.archetypeId) {
+          counts[state === 'failed' ? 'failed' : 'mirrors']++
           continue
         }
-        pairings.push({
-          a: a.id,
-          b: b.id,
+        const record = records.get(`${x}:${y}`)?.record
+        const key = [a.archetypeId, b.archetypeId].sort().join('|')
+        const group = groups.get(key) ?? {
+          a: a.archetypeId,
+          b: b.archetypeId,
           labelA: a.label,
           labelB: b.label,
-          simulated: record,
-          tournament: matchupPerGame(matchups, a.archetypeId, b.archetypeId),
+          parts: [],
+          complete: true,
+        }
+        groups.set(key, group)
+        if (state !== 'played' || !record) {
+          counts[state === 'played' ? 'pending' : state]++
+          group.complete = false
+          continue
+        }
+        // From the group's side: a pairing played the other way round is turned.
+        const turned = group.a !== a.archetypeId
+        const part = (list: { archetypeId: string; weight: number }) =>
+          list.weight / Math.max(Number.EPSILON, archetypeWeight.get(list.archetypeId) ?? 0)
+        group.parts.push({
+          record: turned ? { wins: record.losses, losses: record.wins, ties: record.ties } : record,
+          weight: part(a) * part(b),
         })
       }
     }
+    const pairings: CalibrationPairing[] = []
+    for (const group of groups.values()) {
+      const simulated = group.complete ? mixListRecords(group.parts) : null
+      if (!simulated) continue
+      pairings.push({
+        a: group.a,
+        b: group.b,
+        labelA: group.labelA,
+        labelB: group.labelB,
+        simulated,
+        tournament: matchupPerGame(matchups, group.a, group.b),
+      })
+    }
     return {
       job: this.jobView(job, summary),
-      report: calibrationReport(pairings, {
-        shares: new Map([...lists.values()].map((list) => [list.id, list.weight])),
-      }),
+      report: calibrationReport(pairings, { shares: archetypeWeight }),
       tournaments: {
         era: scope.era,
         format: scope.format,
