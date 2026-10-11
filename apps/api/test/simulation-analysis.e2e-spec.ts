@@ -1,5 +1,7 @@
 import type { AddressInfo } from 'node:net'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { summarizeAnalysisGames } from '@tcg/domain'
+import { WorkerQueueService } from '../src/simulation/worker-queue.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 describe('simulation analysis (e2e, synthetic records)', () => {
@@ -180,6 +182,57 @@ describe('simulation analysis (e2e, synthetic records)', () => {
     })
     expect((await get('?expansion=B4b')).body.summary.games).toBe(0)
   })
+  it('prefers finished matrices on the same engine and labels explicit cross-engine or partial comparisons', async () => {
+    const original = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: f2 } })
+    const clone = async (engineRev: string, status: 'running' | 'done') => {
+      const { id: _id, ...data } = original
+      const job = await test.prisma.simulationJob.create({
+        data: { ...data, engineRev, status, createdAt: new Date() },
+      })
+      await test.prisma.simulationChunk.create({
+        data: {
+          jobId: job.id,
+          idx: 0,
+          snapshotAId: snapshots[0],
+          snapshotBId: snapshots[1],
+          games: 100,
+          gamesDone: 100,
+          winsA: 20,
+          winsB: 80,
+          ties: 0,
+          seed: 1n,
+          status: 'done',
+        },
+      })
+      return job.id
+    }
+    const cross = await clone('other-engine', 'done')
+    const partial = await clone(test.env.engineRev, 'running')
+    expect((await get()).body.comparison).toEqual({ left: e2, right: f2 })
+    expect((await get(`?left=${e2}&right=${cross}`)).body.agreement).toMatchObject({
+      sameEngine: false,
+      leftStatus: 'done',
+      rightStatus: 'done',
+      leftBot: 'e2/e2',
+      rightBot: 'f2/f2',
+    })
+    expect((await get(`?left=${e2}&right=${partial}`)).body.agreement).toMatchObject({
+      sameEngine: true,
+      rightStatus: 'running',
+      orientative: true,
+    })
+    const saved = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: e2 } })
+    await test.prisma.simulationJob.update({
+      where: { id: e2 },
+      data: { params: { sideA: snapshots, sideB: snapshots } },
+    })
+    expect((await get(`?left=${e2}&right=${f2}`)).body.agreement).not.toBeNull()
+    await test.prisma.simulationJob.update({
+      where: { id: e2 },
+      data: { params: saved.params as { sideA: number[]; sideB: number[]; era: string } },
+    })
+    await test.prisma.simulationJob.deleteMany({ where: { id: { in: [cross, partial] } } })
+  })
   it('reuses cached analysis, invalidates on new results, metadata changes and deletion', async () => {
     const query = `?matrix=${e2}`
     const before = (await get(query)).body
@@ -262,12 +315,24 @@ describe('simulation analysis (e2e, synthetic records)', () => {
             gamesDone: 1000,
             seed: 10n,
             status: 'done' as const,
-            winsA: 500,
-            winsB: 500,
+            winsA: i === 0 && j === 2 ? 300 : 700,
+            winsB: i === 0 && j === 2 ? 700 : 300,
             ties: 0,
             turns: 8000n,
+            extra: (() => {
+              const perGame = {
+                winners: 'A'.repeat(i === 0 && j === 2 ? 300 : 700) + 'B'.repeat(i === 0 && j === 2 ? 700 : 300),
+                starters: 'AB'.repeat(500),
+                turns: Array(1000).fill(8),
+                endings: 'P'.repeat(1000),
+                stagesA: '0'.repeat(1000),
+                stagesB: '0'.repeat(1000),
+              }
+              return k === 0 ? { perGame, analysisGames: summarizeAnalysisGames(perGame) } : { perGame }
+            })(),
           })
-    await test.prisma.simulationChunk.createMany({ data: chunks })
+    for (let start = 0; start < chunks.length; start += 100)
+      await test.prisma.simulationChunk.createMany({ data: chunks.slice(start, start + 100) })
     const started = performance.now()
     const response = await get(`?bot=aa&matrix=${job.id}`)
     const coldMs = Math.round(performance.now() - started)
@@ -276,16 +341,92 @@ describe('simulation analysis (e2e, synthetic records)', () => {
     expect(response.body.matrix.rows).toHaveLength(81)
     expect(response.body.matrix.rows[0].rate.games).toBe(80 * 2000)
     expect(response.body.matrix.rows[0].cells[0].rate.games).toBe(2000)
-    expect(JSON.stringify(response.body).length).toBeLessThan(3_000_000)
-    expect(response.body.games.coverage).toBe(0)
-    expect(response.body.games.duration).toMatchObject({ mean: 8, n: count * 2000, ci95: null })
+    expect(Buffer.byteLength(JSON.stringify(response.body))).toBeLessThan(3_000_000)
+    expect(response.body.games.coverage).toBe(count * 2000)
+    expect(response.body.patterns.dominant).toHaveLength(50)
+    expect(response.body.patterns.dominantTotal).toBeGreaterThan(50)
+    expect(response.body.patterns.cyclesTotal).toBeGreaterThan(0)
+    // End-to-end budget includes the large heatmap's serialization; SQL itself has a 15 s statement_timeout.
+    expect(coldMs).toBeLessThan(30_000)
+    expect(response.body.games.duration).toMatchObject({ mean: 8, n: count * 2000, ci95: [8, 8] })
     const cachedStart = performance.now()
     expect((await get(`?bot=aa&matrix=${job.id}`)).status).toBe(200)
-    console.info(
-      `Análisis 81 listas: ${count * 2000} partidas, ${JSON.stringify(response.body).length} bytes, primera lectura ${coldMs} ms, caché ${Math.round(performance.now() - cachedStart)} ms.`,
+    process.stdout.write(
+      `Análisis 81 listas: ${count * 2000} partidas, ${Buffer.byteLength(JSON.stringify(response.body))} bytes, primera lectura ${coldMs} ms, caché ${Math.round(performance.now() - cachedStart)} ms.\n`,
     )
   })
-  it('registers simulations_analysis read-only and returns the same filtered REST response through MCP', async () => {
+  it('derives a summary when accepting perGame, ignores supplied statistics and preserves idempotence', async () => {
+    const job = await test.prisma.simulationJob.create({
+      data: {
+        kind: 'compare',
+        status: 'running',
+        label: 'Laboratorio e2',
+        params: { perGame: true, lab: {} },
+        engineRev: test.env.engineRev,
+        players: ['e2', 'e2'],
+        gamesPerPair: 4,
+        baseSeed: 1n,
+        totalGames: 4,
+      },
+    })
+    const chunk = await test.prisma.simulationChunk.create({
+      data: {
+        jobId: job.id,
+        idx: 0,
+        snapshotAId: snapshots[0],
+        snapshotBId: snapshots[1],
+        games: 4,
+        seed: 1n,
+        status: 'leased',
+        workerId: null,
+      },
+    })
+    const perGame = {
+      winners: 'ABTA',
+      starters: 'AABA',
+      turns: [6, 6, 10, 10],
+      endings: 'PPTP',
+      stagesA: '0000',
+      stagesB: '0000',
+    }
+    const input = {
+      workerId: 'synthetic',
+      engineRev: test.env.engineRev,
+      winsA: 2,
+      winsB: 1,
+      ties: 1,
+      games: 4,
+      turns: 32,
+      durationMs: 1,
+      extra: { perGame, analysisGames: { version: 1, histogram: [] } },
+    }
+    const queue = test.app.get(WorkerQueueService)
+    expect(await queue.result(chunk.id, input)).toEqual({ accepted: true })
+    expect(await queue.result(chunk.id, input)).toEqual({ accepted: false })
+    expect((await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: chunk.id } })).extra).toMatchObject({
+      perGame,
+      analysisGames: {
+        version: 1,
+        histogram: [
+          { turns: 6, games: 2, firstWins: 1, secondWins: 1, ties: 0 },
+          { turns: 10, games: 2, firstWins: 1, secondWins: 0, ties: 1 },
+        ],
+      },
+    })
+    // Matrix without perGame: use the laboratory, explicitly scoped to the same bot and engine.
+    await test.prisma.simulationChunk.updateMany({ where: { jobId: e2, status: 'done' }, data: { extra: {} } })
+    const view = (await get(`?matrix=${e2}`)).body
+    expect(view.gameSample).toMatchObject({ scope: 'laboratory', jobIds: [job.id], games: 4 })
+    expect(view.games).toMatchObject({ coverage: 4, first: { value: 50 }, duration: { n: 4, mean: 8 } })
+    await test.prisma.simulationJob.update({ where: { id: job.id }, data: { engineRev: 'different-engine' } })
+    expect((await get(`?matrix=${e2}`)).body.games.coverage).toBe(0)
+    await test.prisma.simulationJob.update({
+      where: { id: job.id },
+      data: { engineRev: test.env.engineRev, players: ['e2', 'f2'] },
+    })
+    expect((await get(`?matrix=${e2}`)).body.games.coverage).toBe(0)
+  })
+  it('registers simulations_analysis read-only and returns bounded Spanish evidence through MCP', async () => {
     const token = (
       await test
         .http()
@@ -306,7 +447,25 @@ describe('simulation analysis (e2e, synthetic records)', () => {
       expect(tool?.annotations?.readOnlyHint).toBe(true)
       const actual = await client.callTool({ name: 'simulations_analysis', arguments: { bot: 'e2', matrix: e2 } })
       expect(actual.isError).not.toBe(true)
-      expect(actual.structuredContent).toEqual((await get(`?bot=e2&matrix=${e2}`)).body)
+      const data = actual.structuredContent as {
+        text: string
+        warning: string
+        rankings: { rows: { rate: { text: string } }[] }[]
+        matrix?: unknown
+      }
+      expect(data.text).toContain('partidas terminadas')
+      expect(data.warning).toContain('Exploratorios'.toLowerCase())
+      expect(data.rankings[0]?.rows[0]?.rate.text).toContain('IC')
+      expect(data.matrix).toBeUndefined()
+      expect(JSON.stringify(actual).length).toBeLessThan(30_000)
+      const missing = await client.callTool({ name: 'simulations_analysis', arguments: { detail: 'full' } })
+      expect(missing.isError).toBe(true)
+      const full = await client.callTool({ name: 'simulations_analysis', arguments: { matrix: e2, detail: 'full' } })
+      expect((full.structuredContent as { matrix: { id: number } }).matrix.id).toBe(e2)
+      expect(JSON.stringify(full.content).length).toBeLessThan(5_000)
+      const compactLarge = await client.callTool({ name: 'simulations_analysis', arguments: { bot: 'aa' } })
+      expect(JSON.stringify(compactLarge).length).toBeLessThan(30_000)
+      expect((compactLarge.structuredContent as typeof data).rankings[0]?.rows).toHaveLength(5)
     } finally {
       await client.close()
     }

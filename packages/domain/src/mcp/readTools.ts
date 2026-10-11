@@ -48,7 +48,7 @@ export const MCP_READ_TOOLS = {
     name: 'simulations_analysis',
     title: 'Análisis de simulaciones',
     description:
-      'Resumen de todas las simulaciones, rankings por bot, acuerdo entre bots sobre listas y rivales comunes, diferencias con intervalos, matchups, ciclos, empates y duración. Fuente simulación separada de torneos y partidas propias. Incluye n, IC y orientativo; expansión = sets presentes en las listas (grupos se solapan), era = metadato guardado; no se infiere.',
+      'Resumen de simulaciones y primeros N de cada ranking; acuerdo y principales cambios entre bots. Citá el campo text de cada resultado (n, IC y orientativo). Hallazgos exploratorios con Benjamini–Hochberg: no prueban causalidad ni rendimiento en torneos. Fuente separada de torneos y partidas propias; expansión = sets presentes (subtotales solapados), era = metadato guardado. Celdas solo con detail full y matrix explícita.',
     input: z.object({
       bot: z.string().regex(BOT_CODE_PATTERN).optional(),
       era: tournamentScope.era,
@@ -59,6 +59,8 @@ export const MCP_READ_TOOLS = {
       matrix: z.number().int().positive().optional(),
       left: z.number().int().positive().optional(),
       right: z.number().int().positive().optional(),
+      limit: z.number().int().min(1).max(10).optional().describe('Primeros N de cada ranking y cambios; por defecto 5'),
+      detail: z.enum(['compact', 'full']).optional(),
     }),
   },
   collectionSummary: {

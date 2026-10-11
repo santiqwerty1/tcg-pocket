@@ -59,6 +59,7 @@ import { TournamentsService } from '../tournaments/tournaments.service.js'
 import { TradesService } from '../trades/trades.controller.js'
 import { WeeklyService } from '../weekly/weekly.controller.js'
 import { type DeckRef, DeckRefResolver } from './deck-ref.js'
+import { analysisJson } from './mcp-analysis-json.js'
 import { type AuditNote, McpAuditService } from './mcp-audit.service.js'
 import { jobSummaryJson, rateView } from './mcp-json.js'
 import { McpLabToolsService } from './mcp-lab-tools.service.js'
@@ -306,7 +307,7 @@ ${MCP_CHAT_INSTRUCTIONS}`
       run(t.simulationsResults.name, () => this.simulationsResults(args)),
     )
     server.registerTool(t.simulationsAnalysis.name, config(t.simulationsAnalysis), (args) =>
-      run(t.simulationsAnalysis.name, async () => ({ ...(await this.analysis.read(args)) }) as unknown as Json),
+      this.simulationsAnalysis(args, caller),
     )
     server.registerTool(t.workersStatus.name, config(t.workersStatus), () =>
       run(t.workersStatus.name, () => this.workersStatus()),
@@ -324,6 +325,34 @@ ${MCP_CHAT_INSTRUCTIONS}`
     }
     this.registerPrompts(server)
     return server
+  }
+
+  private async simulationsAnalysis(
+    args: {
+      bot?: string
+      era?: string
+      expansion?: string
+      matrix?: number
+      left?: number
+      right?: number
+      limit?: number
+      detail?: 'compact' | 'full'
+    },
+    caller: McpCallerInfo,
+  ): Promise<CallToolResult> {
+    const result = await this.run('simulations_analysis', caller, async () => {
+      if (args.detail === 'full' && args.matrix === undefined)
+        throw new BadRequestException('detail full requiere una matriz explícita (matrix).')
+      const { limit, detail, ...query } = args
+      return analysisJson(await this.analysis.read(query), limit ?? 5, detail === 'full')
+    })
+    if (result.isError || !result.structuredContent) return result
+    // Full heatmaps may be large: carry them once, never repeat them as serialized text.
+    const data = result.structuredContent as { text: string; warning: string; findings: { text: string }[] }
+    return {
+      ...result,
+      content: [{ type: 'text', text: [data.text, data.warning, ...data.findings.map((f) => f.text)].join('\n') }],
+    }
   }
 
   /**
