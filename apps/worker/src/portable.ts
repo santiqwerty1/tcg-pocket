@@ -14,7 +14,7 @@
  * the current release and calls its `main`. Keep `main` and `PortableContext` compatible with older executables.
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { availableParallelism, hostname } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
@@ -76,23 +76,35 @@ function commandLine(pid: number): string {
 export const looksLikeWorker = (line: string) =>
   /tcg-worker\.exe|[\\/]apps[\\/]worker[\\/]dist[\\/]main\.js/i.test(line)
 
+interface LockOwner {
+  lock: string
+  pid: number
+  line: string
+}
+
 /**
- * The supervisor and the worker already running from this folder, supervisor first (stopping the worker first would
- * make the supervisor start it again). A lock whose PID now belongs to another program is left alone.
+ * Who holds this folder's locks: the supervisor and the worker, supervisor first (stopping the worker first would
+ * make the supervisor start it again), and the locks whose PID now belongs to another program (or cannot be checked).
  */
-function runningWorkers(): { pid: number; line: string }[] {
-  const found: { pid: number; line: string }[] = []
+function lockOwners(): { workers: LockOwner[]; others: LockOwner[] } {
+  const workers: LockOwner[] = []
+  const others: LockOwner[] = []
   for (const lock of [join(dataDir(), 'supervisor', 'worker.lock'), join(dataDir(), 'worker.lock')]) {
     try {
       const pid = Number(readFileSync(lock, 'utf8').trim())
       if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || !alive(pid)) continue
       const line = commandLine(pid)
-      if (looksLikeWorker(line)) found.push({ pid, line })
+      ;(looksLikeWorker(line) ? workers : others).push({ lock, pid, line })
     } catch {
       // No lock.
     }
   }
-  return found
+  return { workers, others }
+}
+
+/** The process and everything it started: its engine-cli would otherwise keep playing a chunk nobody uploads. */
+function stopTree(pid: number): void {
+  spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
 }
 
 async function setup(context: PortableContext): Promise<void> {
@@ -101,9 +113,9 @@ async function setup(context: PortableContext): Promise<void> {
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   try {
     // An older worker (another folder, or the repository's) keeps the lock: the new one would not start.
-    const running = runningWorkers()
-    if (running.length > 0) {
-      for (const { pid, line } of running) console.log(`Worker corriendo: PID ${pid} — ${line}`)
+    const { workers, others } = lockOwners()
+    if (workers.length > 0) {
+      for (const { pid, line } of workers) console.log(`Worker corriendo: PID ${pid} — ${line}`)
       const answer = (
         await rl.question('¿Lo detengo para usar este? Lo que esté jugando vuelve a la cola. [S/n]: ')
       ).trim()
@@ -111,15 +123,22 @@ async function setup(context: PortableContext): Promise<void> {
         console.log('No toco nada. Cerralo (Administrador de tareas o cerrar sesión) y volvé a abrir este programa.')
         return
       }
-      for (const { pid } of running) {
-        try {
-          process.kill(pid)
-        } catch {
-          // Already gone (stopping the supervisor can end its worker too).
-        }
+      for (const { pid } of workers) {
+        stopTree(pid)
         for (let i = 0; i < 50 && alive(pid); i++) await sleep(100)
       }
-      console.log('Worker anterior detenido.')
+      console.log('Worker anterior detenido (con sus motores). Lo que jugaba vuelve a la cola en hasta 3 minutos.')
+    }
+    for (const { lock, pid, line } of others) {
+      if (line) {
+        // The PID was reused by another program after the worker died: the lock is stale and would stop the new one.
+        rmSync(lock, { force: true })
+        console.log(`El lock ${lock} era del PID ${pid}, que ahora es otro programa (${line}): lo liberé.`)
+      } else {
+        console.log(
+          `No pude ver qué programa es el PID ${pid}, dueño de ${lock}. Si es un worker, cerralo desde el Administrador de tareas; si no, borrá ese archivo. Mientras siga ahí, el worker nuevo no arranca.`,
+        )
+      }
     }
     const server = current.server ?? DEFAULT_SERVER
     console.log(`Servidor: ${server}`)
