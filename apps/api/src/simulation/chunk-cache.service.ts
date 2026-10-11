@@ -53,7 +53,8 @@ export class ChunkCacheService {
               FROM "simulation_jobs" WHERE "id" = ${jobId}
             ), cli AS (
               SELECT DISTINCT r."cli_version" AS version FROM "simulation_chunks" r, job
-              WHERE r."status" = 'done' AND r."cached_from_id" IS NULL AND r."cli_version" IS NOT NULL
+              -- Only results that name their build («<version>+<build>», engine-cli 0.3.4 on): a version alone is not exact.
+              WHERE r."status" = 'done' AND r."cached_from_id" IS NULL AND r."cli_version" LIKE '%+%'
                 AND r."engine_rev" = job."engine_rev" AND r."finished_at" > ${since}
             ), target AS (
               SELECT t."id", t."seed", t."games", t."first_game", a."key" AS key_a, b."key" AS key_b,
@@ -70,7 +71,8 @@ export class ChunkCacheService {
               JOIN "simulation_chunks" s ON s."seed" = target."seed" AND s."games" = target."games"
                 AND s."first_game" = target."first_game" AND s."status" = 'done' AND s."job_id" <> job."id"
                 AND s."cached_from_id" IS NULL
-                AND s."engine_rev" = job."engine_rev" AND s."cli_version" = (SELECT version FROM cli)
+                AND s."engine_rev" = job."engine_rev" AND s."cli_version" LIKE '%+%'
+                AND s."cli_version" = (SELECT version FROM cli)
               JOIN "simulation_jobs" sj ON sj."id" = s."job_id" AND sj."players" = job."players"
                 AND sj."kind" IN ('matrix', 'compare')
               JOIN "deck_snapshots" a ON a."id" = s."snapshot_a_id" AND a."key" = target.key_a
