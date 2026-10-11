@@ -39,7 +39,14 @@ export function determinismReference(referenceEngine, work) {
     const output = join(work, 'result.json')
     writeFileSync(input, JSON.stringify(job))
     execFileSync(referenceEngine, ['simulate', input, output], { stdio: ['ignore', 'pipe', 'inherit'] })
-    const { durationMs: _duration, replays: _replays, ...expected } = JSON.parse(readFileSync(output, 'utf8'))
+    // Without the build fingerprint: it names the compiler and the target, and the served engine may be another build
+    // of the same code (phase 42). The games are what must agree.
+    const {
+      durationMs: _duration,
+      replays: _replays,
+      build: _build,
+      ...expected
+    } = JSON.parse(readFileSync(output, 'utf8'))
     cases.push({ job, expected })
   }
   return { version: { engineRev: nativeVersion.engineRev, cliVersion: nativeVersion.cliVersion }, cases }

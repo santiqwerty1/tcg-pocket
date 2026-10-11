@@ -21,7 +21,13 @@ try {
         output = join(work, 'result.json')
       writeFileSync(input, JSON.stringify({ ...test.job, threads }))
       run(['simulate', input, output])
-      const { durationMs: _duration, replays: _replays, ...actual } = JSON.parse(readFileSync(output, 'utf8'))
+      // The build fingerprint names the target (phase 42): ARM and the native reference differ there, not in the games.
+      const {
+        durationMs: _duration,
+        replays: _replays,
+        build: _build,
+        ...actual
+      } = JSON.parse(readFileSync(output, 'utf8'))
       if (!isDeepStrictEqual(actual, test.expected))
         throw new Error(`ARM differs: ${test.job.players.join('/')} threads=${threads}`)
       console.log(`ARM agrees: ${test.job.players.join('/')} threads=${threads} (${actual.games} games)`)

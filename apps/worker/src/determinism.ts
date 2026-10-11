@@ -20,9 +20,12 @@ export interface DeterminismReference {
   cases: { job: Record<string, unknown>; expected: Record<string, unknown> }[]
 }
 
-/** Timing and replay paths depend on the machine; every game and its seed must agree. */
+/**
+ * Timing and replay paths depend on the machine, and so does `build` (the fingerprint has the compiler and the target,
+ * engine-cli 0.3.4 on); every game and its seed must agree.
+ */
 export function deterministicResult(result: Record<string, unknown>): Record<string, unknown> {
-  const { durationMs: _duration, replays: _replays, ...stable } = result
+  const { durationMs: _duration, replays: _replays, build: _build, ...stable } = result
   return stable
 }
 
