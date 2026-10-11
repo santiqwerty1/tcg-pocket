@@ -422,3 +422,34 @@ function archetypeContrast(
     return { id, label, simulated: side(list, 'sim'), tournament: side(list, 'tour'), rivals: list.length }
   })
 }
+
+/**
+ * One archetype pairing from the pairings of its lists (R-012): the bank may bring two lists of an archetype, and
+ * tournaments have one matchup for the two. The rate is the mixture of the lists' rates weighted by each list's part
+ * (`weight`); the record is scaled to the games that give the mixture's error (delta method, with each rate shrunk as
+ * in the differences), so Wilson and the comparison read it as one pairing. Ties are added up: they are shown, not
+ * compared. With one list, its record as it is.
+ */
+export function mixListRecords(parts: readonly { record: GameRecord; weight: number }[]): GameRecord | null {
+  const played = parts.filter((part) => part.record.wins + part.record.losses > 0)
+  const ties = parts.reduce((sum, part) => sum + part.record.ties, 0)
+  if (played.length === 0) return null
+  if (played.length === 1) return { ...(played[0] as { record: GameRecord }).record, ties }
+  const total = played.reduce((sum, part) => sum + part.weight, 0)
+  const share = (part: { weight: number }) => (total > 0 ? part.weight / total : 1 / played.length)
+  let rate = 0
+  let shrunk = 0
+  let variance = 0
+  for (const part of played) {
+    const n = part.record.wins + part.record.losses
+    const q = (part.record.wins + 1) / (n + 2)
+    rate += share(part) * (part.record.wins / n)
+    shrunk += share(part) * q
+    variance += share(part) ** 2 * ((q * (1 - q)) / n)
+  }
+  const games =
+    variance > 0
+      ? (shrunk * (1 - shrunk)) / variance
+      : played.reduce((sum, p) => sum + p.record.wins + p.record.losses, 0)
+  return { wins: rate * games, losses: (1 - rate) * games, ties }
+}

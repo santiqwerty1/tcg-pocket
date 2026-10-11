@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { averageRanks, type CalibrationPairing, calibrationReport, spearman } from '../../src/simulation/index.js'
+import {
+  averageRanks,
+  type CalibrationPairing,
+  calibrationReport,
+  mixListRecords,
+  spearman,
+} from '../../src/simulation/index.js'
 
 describe('rank correlation', () => {
   it('ranks ties with the mean of the ranks they span', () => {
@@ -218,5 +224,33 @@ describe('calibration report', () => {
     // Below 5 archetypes there is no interval.
     const four = calibrationReport(bank({ a: 70, b: 50, c: 40, d: 20 }, 100)).archetypeCorrelation
     expect(four).toMatchObject({ n: 4, ci95: null, method: 'bootstrap' })
+  })
+})
+
+describe('mixListRecords', () => {
+  it('one list: its record as it is', () => {
+    expect(mixListRecords([{ record: { wins: 30, losses: 20, ties: 2 }, weight: 0.4 }])).toEqual({
+      wins: 30,
+      losses: 20,
+      ties: 2,
+    })
+    expect(mixListRecords([])).toBeNull()
+  })
+
+  it('two lists: the rate weighted by their parts, and about twice the games when they agree', () => {
+    const same = mixListRecords([
+      { record: { wins: 60, losses: 40, ties: 0 }, weight: 0.5 },
+      { record: { wins: 60, losses: 40, ties: 1 }, weight: 0.5 },
+    ]) as { wins: number; losses: number; ties: number }
+    expect(same.wins / (same.wins + same.losses)).toBeCloseTo(0.6, 10)
+    expect(same.wins + same.losses).toBeCloseTo(200, 0)
+    expect(same.ties).toBe(1)
+    const split = mixListRecords([
+      { record: { wins: 80, losses: 20, ties: 0 }, weight: 0.75 },
+      { record: { wins: 40, losses: 60, ties: 0 }, weight: 0.25 },
+    ]) as { wins: number; losses: number }
+    expect(split.wins / (split.wins + split.losses)).toBeCloseTo(0.75 * 0.8 + 0.25 * 0.4, 10)
+    // A lopsided mixture is worth fewer games than the two lists together.
+    expect(split.wins + split.losses).toBeLessThan(200)
   })
 })
