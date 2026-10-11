@@ -1061,12 +1061,14 @@ export class SimulationsService {
   /** Bulk clean-up from the list: delete every cancelled job, or archive every finished one. */
   async cleanup(action: 'delete_cancelled' | 'archive_done'): Promise<{ count: number }> {
     if (action === 'delete_cancelled') {
-      const cancelled = await this.prisma.simulationJob.findMany({
-        where: { status: 'cancelled' },
-        select: { id: true },
+      // The copies are handed over in the same transaction as the delete.
+      return this.prisma.$transaction(async (tx) => {
+        const ids = (await tx.simulationJob.findMany({ where: { status: 'cancelled' }, select: { id: true } })).map(
+          (row) => row.id,
+        )
+        await this.promoteCopies(tx, ids)
+        return { count: (await tx.simulationJob.deleteMany({ where: { id: { in: ids } } })).count }
       })
-      await this.promoteCopies(cancelled.map((row) => row.id))
-      return { count: (await this.prisma.simulationJob.deleteMany({ where: { status: 'cancelled' } })).count }
     }
     const archived = await this.prisma.simulationJob.updateMany({
       where: { status: 'done', archivedAt: null },
@@ -1079,9 +1081,9 @@ export class SimulationsService {
    * Phase 42: before jobs go, each of their chunks that other jobs copied hands its place to one copy (the oldest): it
    * becomes the original, takes the replays and the other copies point to it. The copies keep counting as one.
    */
-  private async promoteCopies(jobIds: readonly number[]): Promise<void> {
+  private async promoteCopies(tx: Prisma.TransactionClient, jobIds: readonly number[]): Promise<void> {
     if (jobIds.length === 0) return
-    await this.prisma.$executeRaw`
+    await tx.$executeRaw`
       WITH gone AS (SELECT "id" FROM "simulation_chunks" WHERE "job_id" = ANY(${[...jobIds]}::int[])),
       heir AS (
         SELECT DISTINCT ON (c."cached_from_id") c."cached_from_id" AS original, c."id" AS heir
@@ -1103,8 +1105,10 @@ export class SimulationsService {
     if (job.status === 'queued' || job.status === 'running') {
       throw new BadRequestException({ code: 'job_running', message: 'Cancelá la simulación antes de borrarla.' })
     }
-    await this.promoteCopies([job.id])
-    await this.prisma.simulationJob.delete({ where: { id: job.id } })
+    await this.prisma.$transaction(async (tx) => {
+      await this.promoteCopies(tx, [job.id])
+      await tx.simulationJob.delete({ where: { id: job.id } })
+    })
   }
 
   /** A replay with the Spanish name of every card it mentions (engine ids → catalog). */

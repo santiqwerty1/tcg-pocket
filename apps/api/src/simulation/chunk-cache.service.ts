@@ -21,6 +21,8 @@ import { WorkerQueueService } from './worker-queue.service.js'
  * nothing is copied.
  */
 export const CACHE_RECENT_RESULTS_MS = 24 * 60 * 60 * 1000
+/** «0.3.4+<16 hex>»: an engine that named its build. Anything else in `cli_version` is kept, but never copied. */
+const EXACT_ENGINE = String.raw`^[0-9]+\.[0-9]+\.[0-9]+\+[0-9a-f]{16}$`
 /** The copy is one statement; past this it is given up (the cache is optional: the chunks are just played). */
 const FILL_TIMEOUT_MS = 15_000
 
@@ -54,7 +56,7 @@ export class ChunkCacheService {
             ), cli AS (
               SELECT DISTINCT r."cli_version" AS version FROM "simulation_chunks" r, job
               -- Only results that name their build («<version>+<build>», engine-cli 0.3.4 on): a version alone is not exact.
-              WHERE r."status" = 'done' AND r."cached_from_id" IS NULL AND r."cli_version" LIKE '%+%'
+              WHERE r."status" = 'done' AND r."cached_from_id" IS NULL AND r."cli_version" ~ ${EXACT_ENGINE}
                 AND r."engine_rev" = job."engine_rev" AND r."finished_at" > ${since}
             ), target AS (
               SELECT t."id", t."seed", t."games", t."first_game", a."key" AS key_a, b."key" AS key_b,
@@ -71,7 +73,7 @@ export class ChunkCacheService {
               JOIN "simulation_chunks" s ON s."seed" = target."seed" AND s."games" = target."games"
                 AND s."first_game" = target."first_game" AND s."status" = 'done' AND s."job_id" <> job."id"
                 AND s."cached_from_id" IS NULL
-                AND s."engine_rev" = job."engine_rev" AND s."cli_version" LIKE '%+%'
+                AND s."engine_rev" = job."engine_rev" AND s."cli_version" ~ ${EXACT_ENGINE}
                 AND s."cli_version" = (SELECT version FROM cli)
               JOIN "simulation_jobs" sj ON sj."id" = s."job_id" AND sj."players" = job."players"
                 AND sj."kind" IN ('matrix', 'compare')

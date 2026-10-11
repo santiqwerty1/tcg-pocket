@@ -1470,9 +1470,11 @@ describe('simulation (e2e)', () => {
       }
       return played
     }
-    // An engine without a build fingerprint (before engine-cli 0.3.4, or a worker before 0.2.12): never a source.
+    // An engine that does not name its build in the exact form (an old engine, a dev build): its results are taken,
+    // never turned down (the chunk would be played forever), but they are never a source.
     const unstamped = (await job({ seed: 4241 })).body as { id: number }
-    await play(unstamped.id, '0.3.3', (n) => 3 + n)
+    await play(unstamped.id, '0.3.4-dev', (n) => 3 + n)
+    expect((await get(`/api/simulations/${unstamped.id}`)).body.status).toBe('done')
     expect((await job({ seed: 4241 })).body.status).toBe('queued')
     for (const id of (await test.prisma.simulationJob.findMany({ where: { id: { gt: unstamped.id } } })).map(
       (row) => row.id,

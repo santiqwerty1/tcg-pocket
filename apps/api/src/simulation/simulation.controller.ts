@@ -120,11 +120,11 @@ const resultSchema = z.object({
   games: z.number().int().min(0),
   turns: z.number().int().min(0).optional(),
   durationMs: z.number().min(0),
-  /** Phase 42: the engine that played it, «0.3.4+<build>». */
-  cliVersion: z
-    .string()
-    .regex(/^\d+\.\d+\.\d+(\+[0-9a-f]{16})?$/)
-    .optional(),
+  /**
+   * Phase 42: the engine that played it, «0.3.4+<build>». Any short text is taken (a result is never turned down for
+   * it, or the chunk would be played forever); only the exact form makes it a source of the cache.
+   */
+  cliVersion: z.string().max(100).optional(),
   extra: z.record(z.string(), z.unknown()).optional(),
 })
 const failureSchema = z.object({ workerId: z.string().min(8).max(64), error: z.string().min(1).max(20_000) })

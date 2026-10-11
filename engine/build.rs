@@ -19,8 +19,15 @@ fn main() {
     println!("cargo:rustc-env=ENGINE_BUILD={}", fingerprint());
 }
 
-/// FNV-1a (64 bits) over the sources, the manifest and the lock file: paths sorted and line ends as LF, so a Windows
-/// checkout and a Linux one of the same commit give the same value. Not a security hash: it only tells builds apart.
+/// Without carriage returns: a Windows checkout and a Linux one of the same commit read the same bytes.
+fn lf(bytes: Vec<u8>) -> Vec<u8> {
+    bytes.into_iter().filter(|byte| *byte != b'\r').collect()
+}
+
+/// FNV-1a (64 bits) over the compiler (`rustc -vV`) and the target, then the sources, the manifest and the lock file
+/// (paths sorted, line ends as LF). The same commit gives the same value with the same compiler and target. Another
+/// compiler or target is another build: Rust has changed the order of equal elements when sorting between versions,
+/// and two such engines could play other games. Not a security hash: it only tells builds apart.
 fn fingerprint() -> String {
     let mut files: Vec<PathBuf> = vec![PathBuf::from("Cargo.toml"), PathBuf::from("Cargo.lock")];
     collect(Path::new("src"), &mut files);
@@ -32,13 +39,21 @@ fn fingerprint() -> String {
             hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
         }
     };
+    let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
+    let compiler = std::process::Command::new(rustc)
+        .arg("-vV")
+        .output()
+        .map(|output| output.stdout)
+        .unwrap_or_default();
+    feed(&lf(compiler));
+    feed(&[0]);
+    feed(std::env::var("TARGET").unwrap_or_default().as_bytes());
+    feed(&[0]);
     for file in files {
         let name = file.to_string_lossy().replace('\\', "/");
         feed(name.as_bytes());
         feed(&[0]);
-        let text = std::fs::read(&file).unwrap_or_default();
-        let lf: Vec<u8> = text.into_iter().filter(|byte| *byte != b'\r').collect();
-        feed(&lf);
+        feed(&lf(std::fs::read(&file).unwrap_or_default()));
         feed(&[0]);
     }
     format!("{hash:016x}")
