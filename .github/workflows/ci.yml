@@ -14,6 +14,8 @@ on:
 # them, on GitHub's runners as before. The same steps work on both: Postgres from docker compose (or the one already
 # running on the PC), bash everywhere, a database and a port per runner, and on the PC the Rust and WinLibs already
 # installed. Dependabot's PRs never run on the PC (they would run new dependencies' install scripts there).
+# CI_RUNNER_LIGHT (label tcg-light) takes the jobs without Postgres or Docker (changes, test; engine through
+# CI_RUNNER_WINDOWS), so a second PC can help even when its Postgres or Docker is not ready (D-023).
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -30,7 +32,7 @@ jobs:
   # What changed against the base (the PR's base, or main before the push): decides the expensive jobs.
   changes:
     if: ${{ !(vars.CI_RUNNER && github.actor == 'dependabot[bot]') }}
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER_LIGHT || vars.CI_RUNNER || 'ubuntu-latest' }}
     outputs:
       engine: ${{ steps.diff.outputs.engine }}
       docker: ${{ steps.diff.outputs.docker }}
@@ -66,7 +68,7 @@ jobs:
 
   test:
     if: ${{ !(vars.CI_RUNNER && github.actor == 'dependabot[bot]') }}
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.CI_RUNNER_LIGHT || vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
