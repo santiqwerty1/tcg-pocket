@@ -17,4 +17,6 @@
 // 0.3.4: a result.json lost after a good engine run goes back without spending an attempt (`cause: 'worker'`) and pauses
 // claims after two in a row (the app shows the pause); work folders carry their process's PID, and a start never cleans
 // another live one's; on Linux and Android the log says the engine's OOM score and memory while it plays.
-export const WORKER_VERSION = '0.3.4'
+// 0.3.5: says its platform in the claims (the app's pause alert asks for Termux's battery only on Android), and a
+// clock set back never stretches a pause past 6 h.
+export const WORKER_VERSION = '0.3.5'

@@ -33,6 +33,8 @@ export interface Hello {
   batch?: { maxChunks: number; maxGames: number }
   /** Phase 42: how its engine plays (`gamesRev` of `engine-cli version`). */
   gamesRev?: number
+  /** `process.platform` (android, win32, linux), from 0.3.5: the app's pause alert says what to check. */
+  platform?: string
 }
 
 export interface Chunk {

@@ -112,6 +112,8 @@ const helloSchema = z.object({
   engineFeatures: z.array(z.string().max(40)).max(32).optional(),
   /** Phase 42: how its engine plays (engine-cli 0.3.6 on). */
   gamesRev: z.number().int().min(0).max(10_000).optional(),
+  /** `process.platform`, from worker 0.3.5. */
+  platform: z.string().trim().min(1).max(20).optional(),
   batch: z
     .object({ maxChunks: z.number().int().min(1).max(256), maxGames: z.number().int().min(1).max(50_000) })
     .optional(),

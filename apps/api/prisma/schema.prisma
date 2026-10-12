@@ -803,6 +803,10 @@ model WorkerNode {
   /// Not claiming until then (worker 0.3.4: results lost in a row), and why; cleared by its next claim.
   pausedUntil    DateTime? @map("paused_until") @db.Timestamptz(3)
   pauseReason    String?   @map("pause_reason")
+  /// The pause episode began then (until it delivers a result again): one alert and one push per episode.
+  pausedSince    DateTime? @map("paused_since") @db.Timestamptz(3)
+  /// `process.platform` it runs on (android, win32, linux), from worker 0.3.5.
+  platform       String?
   lastSeenAt     DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(3)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 

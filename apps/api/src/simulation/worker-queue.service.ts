@@ -57,6 +57,8 @@ export interface WorkerHello {
   batch?: { maxChunks: number; maxGames: number } | undefined
   /** Phase 42: how its engine plays (engine-cli 0.3.6 on); derived from `cliVersion` before (gamesRevOf). */
   gamesRev?: number | undefined
+  /** `process.platform` (android, win32, linux), from worker 0.3.5: the pause alert says what to check. */
+  platform?: string | undefined
 }
 
 /** Said to a worker that got nothing while there is work it cannot play: it writes it in its log. */
@@ -186,6 +188,7 @@ export class WorkerQueueService {
         version: hello.version ?? null,
         engineFeatures: hello.engineFeatures ?? [],
         gamesRev,
+        platform: hello.platform ?? null,
       },
       update: {
         name: hello.name,
@@ -195,7 +198,9 @@ export class WorkerQueueService {
         version: hello.version ?? null,
         engineFeatures: hello.engineFeatures ?? [],
         ...(gamesRev === null ? {} : { gamesRev }),
-        // A worker that claims is not paused (worker 0.3.4 pauses after lost results, 51.23).
+        ...(hello.platform ? { platform: hello.platform } : {}),
+        // A worker that claims is not paused (worker 0.3.4 pauses after lost results, 51.23); its pause episode goes on
+        // until it delivers a result (`pausedSince`, 51.26).
         pausedUntil: null,
         pauseReason: null,
         lastSeenAt: new Date(),
@@ -592,6 +597,11 @@ export class WorkerQueueService {
       this.notifyQueued()
       return { accepted: false }
     }
+    // A result delivered ends its pause episode, if it had one (51.26).
+    await this.prisma.workerNode.updateMany({
+      where: { id: input.workerId, pausedSince: { not: null } },
+      data: { pausedSince: null },
+    })
     await this.settle(chunk.jobId)
     return { accepted: true }
   }
@@ -633,10 +643,12 @@ export class WorkerQueueService {
     if (input.cause === 'worker') {
       const until = input.pausedUntil ? Math.min(input.pausedUntil.getTime(), Date.now() + MAX_PAUSE_MS) : 0
       if (until > Date.now()) {
-        await this.prisma.workerNode.updateMany({
-          where: { id: input.workerId },
-          data: { pausedUntil: new Date(until), pauseReason: 'lost_results' },
-        })
+        // The episode began with its first pause and lasts until it delivers a result (51.26).
+        await this.prisma.$executeRaw`
+          UPDATE "worker_nodes"
+          SET "paused_until" = ${new Date(until)}, "pause_reason" = 'lost_results',
+            "paused_since" = COALESCE("paused_since", now())
+          WHERE "id" = ${input.workerId}`
       }
       returned = {
         returns: chunk.returns + 1,
