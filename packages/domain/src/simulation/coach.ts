@@ -99,7 +99,14 @@ export function reviewChoice(input: {
 }): CoachReview {
   const { scores } = input.coach
   const best = input.coach.best
-  const chosenScore = scores[input.chosen] ?? Number.NEGATIVE_INFINITY
+  // deckgym sometimes offers the same action twice (a fossil's discard, at 33ff2a5): each copy is scored on its own,
+  // so the copy chosen can trail the copy that won by noise. Choosing the same action as the best is the best.
+  const sameAction =
+    input.chosen === best ||
+    (input.actions !== undefined &&
+      input.actions[input.chosen] !== undefined &&
+      JSON.stringify(input.actions[input.chosen]) === JSON.stringify(input.actions[best]))
+  const chosenScore = sameAction ? (scores[best] ?? 0) : (scores[input.chosen] ?? Number.NEGATIVE_INFINITY)
   const bestScore = scores[best] ?? chosenScore
   const gap = Math.max(0, bestScore - chosenScore)
   return {
@@ -112,7 +119,7 @@ export function reviewChoice(input: {
     bestText: input.texts[best] ?? '',
     gap: Math.round(gap * 10) / 10,
     rank: 1 + scores.filter((score) => score > chosenScore).length,
-    verdict: coachVerdict(gap, input.chosen === best),
+    verdict: coachVerdict(gap, sameAction),
     hinted: input.hinted ?? false,
     ...(input.actions ? { chosenAction: input.actions[input.chosen], bestAction: input.actions[best] } : {}),
     ...(input.ctx !== undefined ? { ctx: input.ctx } : {}),

@@ -54,8 +54,15 @@ export function engineIdOf(card: unknown): string | null {
 const seat = (value: unknown, fallback: Seat): Seat => (value === 0 || value === 1 ? value : fallback)
 const none: ActionSource = { kind: 'none' }
 
+/**
+ * What an option starts from and points at. Audited on 12/10/2026 against every `SimpleAction` deckgym 33ff2a5 offers
+ * (the table is in PR description of the board audit): a Pokémon named by a field other than `in_play_idx` or on the
+ * opponent's side without a `player` field, and a single card of the decider's own hand, are mapped explicitly; a
+ * choice that needs several cards or two free Pokémon stays under «Opciones».
+ */
 export function classifyAction(i: number, action: unknown, text: string, actor: Seat): BoardAction {
   const base = { i, action, text }
+  const other: Seat = actor === 0 ? 1 : 0
   const slot = (index: unknown, player: Seat = actor): SlotRef | null =>
     typeof index === 'number' && Number.isInteger(index) ? { player, index } : null
   if (action === 'EndTurn') return { ...base, kind: 'endTurn', source: none, target: null }
@@ -66,6 +73,10 @@ export function classifyAction(i: number, action: unknown, text: string, actor: 
     const id = engineIdOf(card)
     return id ? { kind: 'hand', engineId: id } : none
   }
+  /** A choice of exactly one card of the decider's hand (a set of several stays under «Opciones»). */
+  const oneOfHand = (cards: unknown): ActionSource =>
+    Array.isArray(cards) ? (cards.length === 1 ? hand(cards[0]) : none) : hand(cards)
+  const pick = (target: SlotRef | null): BoardAction => ({ ...base, kind: 'other', source: none, target })
   switch (kind) {
     case 'Attack':
       return { ...base, kind: 'attack', source: { kind: 'slot', player: actor, index: 0 }, target: null }
@@ -117,10 +128,48 @@ export function classifyAction(i: number, action: unknown, text: string, actor: 
         target: only ? slot(only[2], seat(only[1], actor)) : null,
       }
     }
+    // The opponent's Pokémon, although the field has no `player` (Sandy Shocks, Team Rocket's Hypno; Psychic).
+    case 'SwitchOpponentBenchedThenDamage':
+      return pick(slot(v.in_play_idx, other))
+    case 'MoveRandomOpponentEnergyToActive':
+      return pick(slot(v.from_in_play_idx, other))
+    // One Pokémon, under another name (Armaldo; Regice, Swanna; Team Rocket's Raticate ex; Acerola).
+    case 'ScheduleDelayedSpotDamage':
+    case 'ScheduleDelayedSpotKnockOut':
+      return pick(slot(v.target_in_play_idx, seat(v.target_player, actor)))
+    case 'MoveActiveEnergyToBench':
+    case 'MoveOpponentActiveEnergyToSelf':
+      return pick(slot(v.to_in_play_idx))
+    case 'MoveDamageToOpponentActive':
+      return pick(slot(v.from_in_play_idx))
+    // Two Pokémon, one of them fixed: the Active (Dawn, Elemental Switch, Vaporeon, Lunala ex; to the bench) or the
+    // Dusknoir that takes the damage. The other one is the pick; with both free (Energy Blender) it stays a list.
+    case 'MoveEnergy':
+      return pick(
+        v.to_in_play_idx === 0 ? slot(v.from_in_play_idx) : v.from_in_play_idx === 0 ? slot(v.to_in_play_idx) : null,
+      )
+    case 'MoveAllDamage':
+      return pick(slot(v.from))
+    // A fossil in play: touching it offers to discard it, like an ability.
+    case 'DiscardFossil': {
+      const at = slot(v.in_play_idx)
+      return { ...base, kind: 'other', source: at ? { kind: 'slot', ...at } : none, target: null }
+    }
+    // One card of the decider's own hand (Pokémon Communication, Kid's Room, May, Area Zero, a single discard).
+    case 'CommunicatePokemon':
+      return { ...base, kind: 'other', source: hand(v.hand_pokemon), target: null }
+    case 'SwitchHandCardForRandomTool':
+      return { ...base, kind: 'other', source: hand(v.hand_card), target: null }
+    case 'ShufflePokemonIntoDeck':
+      return { ...base, kind: 'other', source: oneOfHand(v.hand_pokemon), target: null }
+    case 'ShuffleOwnCardsIntoDeck':
+    case 'DiscardOwnCards':
+      return { ...base, kind: 'other', source: oneOfHand(v.cards), target: null }
     default: {
       // Anything else that names one Pokémon in play (a heal, a tool to discard…) can be chosen by touching it.
+      // Cards of the opponent's hand or of a discard pile (Silver, Absol, Delcatty, Pokémon Flute) are no source.
       const target = 'in_play_idx' in v ? slot(v.in_play_idx, seat(v.player, actor)) : null
-      return { ...base, kind: 'other', source: none, target }
+      return pick(target)
     }
   }
 }
@@ -155,14 +204,42 @@ export function targetsOf(actions: readonly BoardAction[], source: ActionSource)
   return out
 }
 
-/** The option to play when a target is touched with a source chosen. */
-export function optionAt(actions: readonly BoardAction[], source: ActionSource, target: SlotRef): BoardAction | null {
-  return optionsFrom(actions, source).find((action) => sameSlot(action.target, target)) ?? null
+/** Every option for a target touched with a source chosen: two tools on one Pokémon, one per energy type… */
+export function optionsAt(actions: readonly BoardAction[], source: ActionSource, target: SlotRef): BoardAction[] {
+  return optionsFrom(actions, source).filter((action) => sameSlot(action.target, target))
 }
 
-/** A decision where every option is «pick a Pokémon» (a new active, a target for damage): no source needed. */
+/** The option to play when a target is touched with a source chosen (the first, when several share it). */
+export function optionAt(actions: readonly BoardAction[], source: ActionSource, target: SlotRef): BoardAction | null {
+  return optionsAt(actions, source, target)[0] ?? null
+}
+
+/**
+ * A decision answered by touching a Pokémon (a new active, a target for damage, a heal): nothing to pick up first,
+ * and at least one option points at a Pokémon. Options without one (a «No», Field Blower's stadium) stay under
+ * «Opciones»; before the audit a single «No» made the whole decision list-only.
+ */
 export function isPickDecision(actions: readonly BoardAction[]): boolean {
-  return actions.length > 0 && actions.every((action) => action.source.kind === 'none' && action.target !== null)
+  return (
+    actions.length > 0 &&
+    actions.every((action) => action.source.kind === 'none') &&
+    actions.some((action) => action.target !== null)
+  )
+}
+
+/** A pick that also has options without a Pokémon (a «No», Field Blower's stadium): the prompt says they are in «Opciones». */
+export function pickLeavesOptions(actions: readonly BoardAction[]): boolean {
+  return isPickDecision(actions) && actions.some((action) => action.target === null)
+}
+
+/**
+ * What your Active offers besides attacking, its ability and retreating (a fossil's discard): its sheet lists these
+ * too, or touching it would open a sheet without the option.
+ */
+export function activeExtras(actions: readonly BoardAction[]): BoardAction[] {
+  return optionsFrom(actions, { kind: 'slot', player: 0, index: 0 }).filter(
+    (action) => action.kind !== 'attack' && action.kind !== 'ability' && action.kind !== 'retreat',
+  )
 }
 
 // ---------------------------------------------------------------------------------------------------------------

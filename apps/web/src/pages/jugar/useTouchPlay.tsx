@@ -11,7 +11,7 @@ import {
   type BoardAction,
   classifyAction,
   isPickDecision,
-  optionAt,
+  optionsAt,
   optionsFrom,
   type SlotRef,
   sameSource,
@@ -27,6 +27,8 @@ export interface TouchSheet {
   engineId: string
   at?: SlotRef
   actions: 'active' | 'hand' | null
+  /** With `hand`: exactly these options (several for the Pokémon touched: two tools, one per energy type…). */
+  options?: number[]
 }
 
 export function useTouchPlay({
@@ -51,10 +53,24 @@ export function useTouchPlay({
     setSheet(null)
   }, [resetKey])
 
-  const actions: BoardAction[] = useMemo(
-    () => (options ? options.map((option) => classifyAction(option.i, option.action, option.text, 0)) : []),
-    [options],
-  )
+  // deckgym can offer the very same action twice (a fossil's discard, at 33ff2a5): the board shows it once, under the
+  // first index, and `canonical` sends the other copies there (the coach may have picked either).
+  const { actions, canonical } = useMemo(() => {
+    const first = new Map<string, number>()
+    const alias = new Map<number, number>()
+    const list: BoardAction[] = []
+    for (const option of options ?? []) {
+      const key = JSON.stringify(option.action)
+      const seen = first.get(key)
+      if (seen !== undefined) {
+        alias.set(option.i, seen)
+        continue
+      }
+      first.set(key, option.i)
+      list.push(classifyAction(option.i, option.action, option.text, 0))
+    }
+    return { actions: list, canonical: (i: number) => alias.get(i) ?? i }
+  }, [options])
   const live = options !== null
   const pick = isPickDecision(actions)
   const targets = useMemo(() => {
@@ -87,20 +103,34 @@ export function useTouchPlay({
     setSheet({ engineId, actions: 'hand' })
   }
 
+  /**
+   * The options for the Pokémon touched: one is played; several (two tools on it, one per energy type) open the
+   * sheet with just those, instead of silently playing the first (audit of 12/10/2026).
+   */
+  function playAt(source: ActionSource, at: SlotRef, card: string | null): boolean {
+    const found = optionsAt(actions, source, at)
+    const [only] = found
+    if (found.length === 1 && only) {
+      choose(only.i)
+      return true
+    }
+    if (found.length > 1) {
+      setSheet({ engineId: card ?? '', at, actions: 'hand', options: found.map((action) => action.i) })
+      return true
+    }
+    return false
+  }
+
   function onSlot(at: SlotRef) {
     const card = state?.players[at.player]?.in_play[at.index]?.card ?? null
     if (live) {
       if (selected) {
-        const option = optionAt(actions, selected, at)
-        if (option) return choose(option.i)
+        if (playAt(selected, at, card)) return
         if (selected.kind === 'slot' && selected.player === at.player && selected.index === at.index) {
           return setSelected(null)
         }
       }
-      if (pick) {
-        const option = optionAt(actions, NONE, at)
-        if (option) return choose(option.i)
-      }
+      if (pick && playAt(NONE, at, card)) return
       if (
         at.player === 0 &&
         at.index === 0 &&
@@ -126,6 +156,7 @@ export function useTouchPlay({
 
   return {
     actions,
+    canonical,
     selected,
     setSelected,
     sheet,
@@ -163,9 +194,11 @@ export function TouchPlaySheet({
     sheet?.at !== undefined && state ? (state.players[sheet.at.player]?.in_play[sheet.at.index] ?? null) : null
   const sheetOptions =
     sheet?.actions === 'hand'
-      ? sheet.at
-        ? optionsFrom(actions, { kind: 'slot', player: sheet.at.player, index: sheet.at.index })
-        : optionsFrom(actions, { kind: 'hand', engineId: sheet.engineId })
+      ? sheet.options
+        ? actions.filter((action) => sheet.options?.includes(action.i))
+        : sheet.at
+          ? optionsFrom(actions, { kind: 'slot', player: sheet.at.player, index: sheet.at.index })
+          : optionsFrom(actions, { kind: 'hand', engineId: sheet.engineId })
       : []
   return (
     <CardSheet

@@ -51,6 +51,22 @@ describe('coach verdicts (Fase 20)', () => {
     })
   })
 
+  it('the same action offered twice (a fossil discard, deckgym 33ff2a5): the copy chosen is as good as the best', () => {
+    const fossil = { DiscardFossil: { in_play_idx: 1 } }
+    const actions = ['EndTurn', fossil, fossil]
+    // Each copy is scored on its own: here the second one won by noise.
+    const coach = { scores: [-30, 12.4, 12.9], best: 2 }
+    expect(reviewChoice({ ply: 3, turn: 2, coach, chosen: 1, texts: ['EndTurn', 'f', 'f'], actions })).toMatchObject({
+      gap: 0,
+      rank: 1,
+      verdict: 'best',
+    })
+    expect(reviewChoice({ ply: 3, turn: 2, coach, chosen: 0, texts: ['EndTurn', 'f', 'f'], actions })).toMatchObject({
+      gap: 42.9,
+      verdict: 'close',
+    })
+  })
+
   it('the summary: agreement, hints and the three costliest choices', () => {
     const coach = { scores: [0, -50, -500, -2000, -9000, -30000], best: 0 }
     const reviews = [0, 1, 2, 3, 4, 5, 0].map((chosen, i) =>

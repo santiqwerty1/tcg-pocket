@@ -19,7 +19,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { ErrorState, LoadingRows, Spinner } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
-import { type BoardAction, boardChanges, type Seat } from '@/lib/board'
+import { type BoardAction, boardChanges, pickLeavesOptions, type Seat } from '@/lib/board'
 import { type Replay, ReplayReader, type ReplayState } from '@/lib/replay'
 import { cn } from '@/lib/utils'
 import { CoachLast, CoachSummarySection } from './Coach'
@@ -252,6 +252,7 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
         <span className="flex-1">
           {line.text}
           {decision && pick ? ': elegí un Pokémon marcado' : ''}
+          {decision && pickLeavesOptions(actions) ? ' (lo demás, en «Opciones»)' : ''}
           {decision && setup ? ': prepará tu mesa (el bot pone la suya a la vez)' : ''}
         </span>
       </div>
@@ -409,7 +410,7 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
           {decision.hint !== null ? (
             <p className="mt-1 text-xs text-primary">
               Entrenador: {(() => {
-                const option = actions.find((action) => action.i === decision.hint)
+                const option = actions.find((action) => action.i === play.canonical(decision.hint ?? -1))
                 return option ? describe(option) : '—'
               })()}
             </p>
@@ -422,11 +423,17 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
         onOpenChange={setOptionsOpen}
         actions={actions}
         describe={describe}
-        hint={decision?.hint ?? null}
+        hint={decision && decision.hint !== null ? play.canonical(decision.hint) : null}
         disabled={busy}
         onChoose={play.choose}
       />
-      <TouchPlaySheet play={play} state={state} describe={describe} hint={decision?.hint ?? null} busy={busy} />
+      <TouchPlaySheet
+        play={play}
+        state={state}
+        describe={describe}
+        hint={decision && decision.hint !== null ? play.canonical(decision.hint) : null}
+        busy={busy}
+      />
       <CardGridSheet
         title={discard === null ? '' : discard === 0 ? 'Tu descarte' : 'Descarte del bot'}
         cards={
