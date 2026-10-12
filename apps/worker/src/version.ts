@@ -11,4 +11,6 @@
 // 0.2.11 (T-015, D-025): engine result failures, lease recovery, live reconnects and slow-bot opt-in.
 // 0.3.0 (Fase 42, D-026): updates itself from the app's package (Windows portable and Android), with rollback.
 // 0.3.1 (phase 42): each result says the engine that played it (version and build), for the API's exact cache.
-export const WORKER_VERSION = '0.3.1'
+// 0.3.2 (D-026): `--setup --keep` without questions; setup asks and checks before stopping anything, restarts the old
+// worker if the new one does not start, and writes and starts from outside a packaged app.
+export const WORKER_VERSION = '0.3.2'

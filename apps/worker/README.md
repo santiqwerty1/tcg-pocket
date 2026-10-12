@@ -73,6 +73,26 @@ El paquete portable de Windows y el de Android siguen a la app: decisión de San
 - **Para no actualizar una máquina:** `"autoUpdate": false` en config.json o `TCG_WORKER_AUTO_UPDATE=false`. `--check` dice qué versión corre y cuál ofrece la app.
 - **Motor.** Con las actualizaciones prendidas, el motor es siempre el del paquete; `enginePath` y `TCG_ENGINE_PATH` solo valen con `autoUpdate: false`.
 
+### Setup sin preguntas y desde una sesión de Claude (0.3.2)
+
+- `tcg-worker.exe --setup --keep`: el setup sin preguntas, para un script o una sesión. Conserva el token, los núcleos y el nombre de config.json (sin token, no hace nada).
+- **Nunca deja la PC sin worker** (`src/setup.ts`). Antes de detener el worker anterior:
+  1. pregunta todo;
+  2. prueba la configuración candidata sin guardarla;
+  3. guarda la configuración e instala los lanzadores, con copia de lo anterior.
+  Después, solo detiene el anterior (con su árbol), arranca el nuevo y espera verlo con el lock. Si algo falla en ese tramo, vuelve a dejar la configuración y los lanzadores, y arranca otra vez solo el supervisor anterior. En ese tramo Ctrl+C espera; antes cancela, y nunca cuenta como «sí».
+- **Respuestas desde un archivo:** se leen línea por línea, y al terminarse el archivo cada pregunta toma Enter.
+- **Desde una app empaquetada** (la app de Claude es MSIX; medido el 11/10/2026):
+  - una carpeta o un archivo nuevo directo en `%LOCALAPPDATA%` o `%APPDATA%` queda en la copia privada de la app;
+  - una copia privada tapa a la real solo para la app;
+  - lo que la app arranca muere con ella (H-016).
+  El setup lo detecta y se vuelve a correr afuera por WMI con `--setup --keep`, y muestra lo que hizo ese. Las respuestas preguntadas adentro van en un archivo de TEMP que se borra al leerlo.
+- **Carpeta de datos propia.** Si el setup corre con `TCG_WORKER_DIR`, el lanzador la lleva. Los lanzadores van en UTF-16 con BOM, así una ruta con tildes no los rompe.
+- **Para pruebas:**
+  - `TCG_WORKER_AUTOSTART_NAME` cambia el nombre de la tarea y del lanzador de Inicio;
+  - el setup y `--uninstall` corren el código del `.exe` si la versión bajada es más vieja;
+  - igual conviene darle a la prueba su propio `APPDATA` y limpiar a mano.
+
 ### Pasar cada máquina, una sola vez
 
 - **El Ryzen (paquete portable viejo).**

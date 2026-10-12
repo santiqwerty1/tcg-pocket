@@ -81,6 +81,7 @@ No hace falta instalar Node, Rust ni el repositorio: alcanza con esta carpeta.
 
 Otros usos (desde una consola en esta carpeta):
   tcg-worker.exe --check      revisa la configuración, el motor y la conexión
+  tcg-worker.exe --setup --keep  el mismo setup sin preguntas: conserva token, núcleos y nombre de config.json
   tcg-worker.exe --uninstall  saca el arranque automático (para cambiar algo, volvé a hacer doble clic)
 
 La configuración y el registro quedan en %LOCALAPPDATA%\\tcg-worker (config.json y worker.log).

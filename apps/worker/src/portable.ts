@@ -4,6 +4,7 @@
  * parallel; each one claims its own.
  *
  *   tcg-worker.exe                setup: token, cores and name; a check against the engine and the app; logon start
+ *   tcg-worker.exe --setup --keep the same without questions, keeping config.json (from a script or a Claude session)
  *   tcg-worker.exe --run          what the logon start runs: the supervisor, which keeps a `--child` going (D-026)
  *   tcg-worker.exe --check        configuration, engine, server reachability and updates
  *   tcg-worker.exe --once         at most one chunk, then exit
@@ -13,16 +14,19 @@
  * This module is also the code of each downloaded release (`worker.cjs`): `sea.ts`, built into the executable, loads
  * the current release and calls its `main`. Keep `main` and `PortableContext` compatible with older executables.
  */
-import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
-import { availableParallelism, hostname } from 'node:os'
-import { dirname, join } from 'node:path'
+import { spawn, spawnSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { availableParallelism, hostname, tmpdir } from 'node:os'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { installAutostart, uninstallAutostart } from './autostart.js'
-import { type ConfigDefaults, configFile, dataDir, readFileConfig, writeFileConfig } from './config.js'
+import { installAutostart, startNow, uninstallAutostart } from './autostart.js'
+import { type ConfigDefaults, configFile, dataDir, type FileConfig, readFileConfig } from './config.js'
 import { checkDeterminism, DETERMINISM_MISMATCH, DeterminismError } from './determinism.js'
+import { insidePackage, runOutside } from './outside.js'
 import { run } from './run.js'
+import { type RunningWorker, runSetup, type SetupDeps, SetupInterrupted, type StaleLock } from './setup.js'
 import { type Installation, windowsInstallation } from './update.js'
 import { WORKER_VERSION } from './version.js'
 
@@ -65,7 +69,7 @@ function commandLine(pid: number): string {
       '-NoProfile',
       '-NonInteractive',
       '-Command',
-      `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`,
+      `(Get-CimInstance Win32_Process -Filter "ProcessId=${Math.trunc(pid)}").CommandLine`,
     ],
     { encoding: 'utf8', windowsHide: true, timeout: 20_000 },
   )
@@ -76,124 +80,251 @@ function commandLine(pid: number): string {
 export const looksLikeWorker = (line: string) =>
   /tcg-worker\.exe|[\\/]apps[\\/]worker[\\/]dist[\\/]main\.js/i.test(line)
 
-interface LockOwner {
-  lock: string
-  pid: number
-  line: string
-}
-
 /**
  * Who holds this folder's locks: the supervisor and the worker, supervisor first (stopping the worker first would
- * make the supervisor start it again), and the locks whose PID now belongs to another program (or cannot be checked).
+ * make the supervisor start it again; restarting the supervisor brings its worker back), and the locks whose PID now
+ * belongs to another program (or cannot be checked).
  */
-function lockOwners(): { workers: LockOwner[]; others: LockOwner[] } {
-  const workers: LockOwner[] = []
-  const others: LockOwner[] = []
+function lockOwners(): { workers: RunningWorker[]; stale: StaleLock[] } {
+  const workers: RunningWorker[] = []
+  const stale: StaleLock[] = []
   for (const lock of [join(dataDir(), 'supervisor', 'worker.lock'), join(dataDir(), 'worker.lock')]) {
     try {
       const pid = Number(readFileSync(lock, 'utf8').trim())
       if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid || !alive(pid)) continue
       const line = commandLine(pid)
-      ;(looksLikeWorker(line) ? workers : others).push({ lock, pid, line })
+      if (looksLikeWorker(line)) workers.push({ pid, line })
+      else stale.push({ lock, pid, line })
     } catch {
       // No lock.
     }
   }
-  return { workers, others }
+  return { workers, stale }
 }
 
-/** The process and everything it started: its engine-cli would otherwise keep playing a chunk nobody uploads. */
-function stopTree(pid: number): void {
-  spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+/**
+ * Answers read line by line: with stdin redirected from a file, `rl.question` dropped the lines already buffered and
+ * the setup ended at EOF halfway (11/10/2026). The iterator keeps them in order; at the end of the file every question
+ * gets Enter. Ctrl+C is not Enter: it throws `SetupInterrupted`. With a terminal the question is readline's prompt, so
+ * Backspace never erases it.
+ */
+export function prompter(
+  input: NodeJS.ReadableStream & { isTTY?: boolean } = process.stdin,
+  output: NodeJS.WritableStream = process.stdout,
+) {
+  const terminal = input.isTTY === true
+  const rl = createInterface({ input, output, terminal })
+  let interrupted = false
+  rl.on('SIGINT', () => {
+    interrupted = true
+    rl.close()
+  })
+  const lines = rl[Symbol.asyncIterator]()
+  return {
+    async ask(question: string): Promise<string> {
+      if (interrupted) throw new SetupInterrupted()
+      if (terminal) {
+        rl.setPrompt(question)
+        rl.prompt()
+      } else output.write(question)
+      const next = await lines.next()
+      if (interrupted) throw new SetupInterrupted()
+      if (next.done) {
+        output.write('\n')
+        return ''
+      }
+      return String(next.value).trim()
+    },
+    /** Ctrl+C from the process (stdin redirected): the waiting question throws. */
+    interrupt() {
+      interrupted = true
+      rl.close()
+    },
+    get interrupted() {
+      return interrupted
+    },
+    close: () => rl.close(),
+  }
 }
 
-async function setup(context: PortableContext): Promise<void> {
-  console.log(`TCG Pocket: worker de simulación ${WORKER_VERSION}\n`)
-  const current = readFileConfig()
-  const rl = createInterface({ input: process.stdin, output: process.stdout })
+/** Whether a worker that `accept` takes holds this folder's lock, waiting up to `timeoutMs`. */
+async function workerHoldsLock(accept: (worker: RunningWorker) => boolean, timeoutMs = 20_000): Promise<boolean> {
+  const until = Date.now() + timeoutMs
+  while (Date.now() < until) {
+    if (lockOwners().workers.some(accept)) return true
+    await sleep(1000)
+  }
+  return false
+}
+
+/** `--check` with a candidate configuration and nothing saved: the environment overrides config.json while it runs. */
+async function checkCandidate(context: PortableContext, config: FileConfig): Promise<boolean> {
+  const overrides: Record<string, string> = {
+    TCG_WORKER_TOKEN: config.token ?? '',
+    TCG_SERVER: config.server ?? DEFAULT_SERVER,
+    TCG_WORKER_CORES: String(config.cores ?? ''),
+    TCG_WORKER_NAME: config.name ?? '',
+    TCG_WORKER_PRIORITY: config.priority ?? 'below_normal',
+  }
+  const saved = Object.fromEntries(Object.keys(overrides).map((key) => [key, process.env[key]]))
+  Object.assign(process.env, overrides)
   try {
-    // An older worker (another folder, or the repository's) keeps the lock: the new one would not start.
-    const { workers, others } = lockOwners()
-    if (workers.length > 0) {
-      for (const { pid, line } of workers) console.log(`Worker corriendo: PID ${pid} — ${line}`)
-      const answer = (
-        await rl.question('¿Lo detengo para usar este? Lo que esté jugando vuelve a la cola. [S/n]: ')
-      ).trim()
-      if (/^n/i.test(answer)) {
-        console.log('No toco nada. Cerralo (Administrador de tareas o cerrar sesión) y volvé a abrir este programa.')
-        return
-      }
-      for (const { pid } of workers) {
-        stopTree(pid)
-        for (let i = 0; i < 50 && alive(pid); i++) await sleep(100)
-      }
-      console.log('Worker anterior detenido (con sus motores). Lo que jugaba vuelve a la cola en hasta 3 minutos.')
+    return (await run(['--check'], defaultsOf(context), { installation: installationOf(context) })) === 0
+  } catch (error) {
+    console.log(error instanceof Error ? error.message : String(error))
+    return false
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
     }
-    for (const { lock, pid, line } of others) {
-      if (line) {
-        // The PID was reused by another program after the worker died: the lock is stale and would stop the new one.
-        rmSync(lock, { force: true })
-        console.log(`El lock ${lock} era del PID ${pid}, que ahora es otro programa (${line}): lo liberé.`)
-      } else {
-        console.log(
-          `No pude ver qué programa es el PID ${pid}, dueño de ${lock}. Si es un worker, cerralo desde el Administrador de tareas; si no, borrá ese archivo. Mientras siga ahí, el worker nuevo no arranca.`,
-        )
+  }
+}
+
+/** The PC's side of the setup (`setup.ts`), for this executable. */
+function setupDeps(context: PortableContext, prompt: ReturnType<typeof prompter> | null): SetupDeps {
+  let interrupted = false
+  let holding = false
+  // Ctrl+C: before the switch it cancels (a waiting question throws); during the switch it waits.
+  process.on('SIGINT', () => {
+    if (holding) {
+      console.log('\nEsperá: estoy cambiando de worker; en unos segundos termina.')
+      return
+    }
+    interrupted = true
+    prompt?.interrupt()
+  })
+  const file = configFile()
+  return {
+    log: (message) => console.log(message),
+    ask: prompt ? (question) => prompt.ask(question) : null,
+    interrupted: () => interrupted || (prompt?.interrupted ?? false),
+    holdInterrupts: (hold) => {
+      holding = hold
+    },
+    readConfig: readFileConfig,
+    configText: () => (existsSync(file) ? readFileSync(file, 'utf8') : null),
+    writeConfigText: (text) => {
+      if (text === null) rmSync(file, { force: true })
+      else {
+        mkdirSync(dataDir(), { recursive: true })
+        writeFileSync(file, text, { mode: 0o600 })
+      }
+    },
+    configPath: file,
+    check: (config) => checkCandidate(context, config),
+    owners: lockOwners,
+    releaseLock: (lock) => rmSync(lock, { force: true }),
+    stop: async (pid) => {
+      spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+      for (let i = 0; i < 50 && alive(pid); i++) await sleep(100)
+    },
+    install: () => installAutostart([process.execPath, '--run'], { start: false }),
+    start: startNow,
+    // The old command line as it was (its own environment comes from this process: we are outside any package here).
+    restart: (line) => spawn(line, { shell: true, detached: true, stdio: 'ignore', windowsHide: true }).unref(),
+    waitForWorker: (accept) => workerHoldsLock(accept),
+    maxThreads: availableParallelism(),
+    hostname: hostname(),
+    defaultServer: DEFAULT_SERVER,
+  }
+}
+
+/**
+ * Inside a packaged app (a Claude session), setup reads and writes the app's private copy of AppData, and what it
+ * starts dies with the app. So it runs itself again outside, through WMI, with `--setup --keep` (the answers asked
+ * here go in a file in TEMP, which is real for both), and shows what that one did.
+ */
+async function setupFromOutside(answers: FileConfig | null): Promise<number> {
+  const id = randomUUID()
+  const from = answers ? join(tmpdir(), `tcg-worker-setup-${id}.json`) : null
+  const output = join(tmpdir(), `tcg-worker-setup-${id}.log`)
+  const result = join(tmpdir(), `tcg-worker-setup-${id}.code`)
+  try {
+    if (from) writeFileSync(from, JSON.stringify(answers), { mode: 0o600 })
+    // A process created through WMI does not inherit this one's environment: the worker's own variables go with it.
+    // cmd and a plain redirection: the bytes the worker writes (UTF-8) reach the file as they are (PowerShell would
+    // decode them with the console's code page and write them back as UTF-16).
+    const environment = Object.entries(process.env)
+      .filter(([key, value]) => /^TCG_WORKER_(DIR|AUTOSTART_NAME)$/.test(key) && value)
+      .map(([key, value]) => `set "${key}=${value}" & `)
+      .join('')
+    const args = ['--setup', '--keep', ...(from ? ['--from', from] : []), '--result', result]
+    const command = `"${process.execPath}" ${args.map((arg) => `"${arg}"`).join(' ')}`
+    console.log('Esto corre dentro de una app empaquetada: hago el setup desde afuera de ella…')
+    const finished = await runOutside(`cmd.exe /d /s /c "${environment}${command} > "${output}" 2>&1"`, 6 * 60_000)
+    if (existsSync(output)) console.log(readFileSync(output, 'utf8').trim())
+    if (!finished) console.log('El setup de afuera no terminó a tiempo: mirá worker.log antes de repetirlo.')
+    // Anything but a readable 0 is a failure.
+    const code = existsSync(result) ? Number.parseInt(readFileSync(result, 'utf8').trim(), 10) : Number.NaN
+    return code === 0 ? 0 : 1
+  } finally {
+    // A file cmd still holds (the outside setup did not end in time) must not hide the message above.
+    for (const path of [from, output, result]) {
+      try {
+        if (path) rmSync(path, { force: true })
+      } catch {
+        // Left in TEMP.
       }
     }
-    const server = current.server ?? DEFAULT_SERVER
-    console.log(`Servidor: ${server}`)
-    const hasToken = current.token?.startsWith('tcg_wk_') === true
-    let token = current.token ?? ''
-    for (;;) {
-      const answer = (
-        await rl.question(
-          hasToken
-            ? 'Token del worker (Enter = dejar el que está): '
-            : 'Token del worker (en la app: Más → Tokens de API → nuevo, tipo worker): ',
-        )
-      ).trim()
-      if (!answer && hasToken) break
-      if (answer.startsWith('tcg_wk_')) {
-        token = answer
-        break
+  }
+}
+
+/** Only the answers file the packaged setup itself wrote: `--from` reads and deletes it, nothing else. */
+function answersFile(path: string | undefined): string | null {
+  if (!path) return null
+  const full = resolve(path)
+  const inTemp = relative(resolve(tmpdir()), full)
+  if (inTemp.startsWith('..') || isAbsolute(inTemp) || !/^tcg-worker-setup-[0-9a-f-]{36}\.json$/.test(inTemp)) {
+    throw new Error(`--from solo acepta el archivo de respuestas del setup en TEMP, no ${path}.`)
+  }
+  return full
+}
+
+/** Double click, `--setup [--keep]`: see `setup.ts`. */
+async function setup(context: PortableContext, args: readonly string[]): Promise<number> {
+  console.log(`TCG Pocket: worker de simulación ${WORKER_VERSION}\n`)
+  const keep = args.includes('--keep')
+  const fromIndex = args.indexOf('--from')
+  const resultIndex = args.indexOf('--result')
+  const fromFile = answersFile(fromIndex >= 0 ? args[fromIndex + 1] : undefined)
+  let from: FileConfig | null = null
+  if (fromFile) {
+    from = JSON.parse(readFileSync(fromFile, 'utf8')) as FileConfig
+    rmSync(fromFile, { force: true })
+  }
+  const prompt = keep ? null : prompter()
+  let code = 1
+  try {
+    // The run relaunched outside (--result) never relaunches itself again.
+    if (resultIndex < 0 && (await insidePackage())) {
+      // The questions here (this process has the console), everything else outside.
+      let answers: FileConfig | null = null
+      if (prompt) {
+        const current = readFileConfig()
+        const token = await prompt.ask('Token del worker (Enter = dejar el que está): ')
+        const cores = await prompt.ask(`Hilos a usar (Enter = ${current.cores ?? availableParallelism()}): `)
+        const name = await prompt.ask(`Nombre de esta PC en la app (Enter = ${current.name ?? hostname()}): `)
+        answers = {
+          ...(token ? { token } : {}),
+          ...(Number(cores) > 0 ? { cores: Number(cores) } : {}),
+          ...(name ? { name } : {}),
+        }
       }
-      console.log('Ese no es un token de worker: empieza con tcg_wk_.')
+      code = await setupFromOutside(answers)
+    } else {
+      code = await runSetup(setupDeps(context, prompt), { keep: keep || from !== null, from })
     }
-    const max = availableParallelism()
-    const suggested = current.cores ?? max
-    const coresAnswer = (
-      await rl.question(
-        `Hilos a usar (esta PC tiene ${max}; la prioridad baja deja CPU a la CI; Enter = ${suggested}): `,
-      )
-    ).trim()
-    const parsed = Number(coresAnswer)
-    const cores = coresAnswer && Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, max) : suggested
-    const name = current.name ?? hostname()
-    const nameAnswer = (await rl.question(`Nombre de esta PC en la app (Enter = ${name}): `)).trim()
-    // D-026: the engine is the package's (the updates replace it); an old `enginePath` would only confuse.
-    const { enginePath: _engine, ...kept } = current
-    writeFileConfig({
-      ...kept,
-      server,
-      token,
-      cores,
-      priority: current.priority ?? 'below_normal',
-      name: nameAnswer || name,
-    })
-    console.log(`\nConfiguración guardada en ${configFile()}.`)
-    console.log('Probando el motor y la conexión con la app…')
-    await run(['--check'], defaultsOf(context), { installation: installationOf(context) })
-    installAutostart([process.execPath, '--run'])
-    console.log(
-      '\nListo: el worker queda corriendo y arranca solo cada vez que inicies sesión. En la app lo ves en Más → Simulación.',
-    )
-    console.log('Se actualiza solo cuando la app tiene una versión nueva (entre partidas, nunca a mitad de un chunk).')
   } catch (error) {
     console.log(`\nNo se pudo terminar: ${error instanceof Error ? error.message : String(error)}`)
+    code = 1
   } finally {
-    await rl.question('\nEnter para cerrar.')
-    rl.close()
+    const resultFile = resultIndex >= 0 ? args[resultIndex + 1] : undefined
+    if (resultFile) writeFileSync(resultFile, String(code))
+    if (prompt && !prompt.interrupted) await prompt.ask('\nEnter para cerrar.').catch(() => '')
+    prompt?.close()
   }
+  return code
 }
 
 /** Resolves with the process's exit code (`RESTART_FOR_UPDATE` from `--child` after switching releases). */
@@ -229,6 +360,5 @@ export async function main(args: readonly string[], context: PortableContext): P
       { installation: installationOf(context) },
     )
   }
-  await setup(context)
-  return 0
+  return setup(context, args)
 }
