@@ -193,7 +193,8 @@ fn scripted_game(job: &Value, coach: bool) -> Value {
         }
         let pick = choices.get(next % choices.len().max(1)).copied().unwrap_or(0);
         next += 1;
-        pick % options
+        // The answer is the option's label (`i`), as the app sends it back: a change in how play.rs labels them shows.
+        decide["actions"][pick % options]["i"].as_u64().expect("label") as usize
     });
     let moves = Arc::new(Mutex::new(Vec::new()));
     let (outcome, state) =

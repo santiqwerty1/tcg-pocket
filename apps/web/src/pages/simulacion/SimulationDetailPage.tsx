@@ -511,7 +511,10 @@ function FailedChunks({ job }: { job: JobDetail }) {
   const note = retryNote(failed.map((chunk) => chunk.error))
   return (
     <Section title="Cruces que fallaron">
-      {job.status === 'failed' && job.lab !== 'explore' ? (
+      {job.status === 'failed' && job.retryBlocked ? (
+        <p className="text-xs text-muted-foreground">{job.retryBlocked}</p>
+      ) : null}
+      {job.status === 'failed' && job.lab !== 'explore' && !job.retryBlocked ? (
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" disabled={retry.isPending} onClick={() => setConfirm(true)}>
             <RepeatIcon data-icon="inline-start" />

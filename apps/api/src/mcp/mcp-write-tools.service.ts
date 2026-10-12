@@ -736,7 +736,7 @@ export class McpWriteToolsService {
           : 'En cola, pero ningún worker está en línea: empieza cuando Santi prenda la PC.',
     }
   }
-  /** Fase 43: stop a job Claude (or Santi) queued; optionally archive it. */
+  /** «Reintentar lo que falló»: only the failed chunks of a failed job, with the same seeds. */
   private async simulationsRetryFailed(args: { job: number }): Promise<Json> {
     const before = await this.simulations.progressOf(String(args.job))
     const failed = before.progress.chunks.failed
@@ -748,6 +748,7 @@ export class McpWriteToolsService {
     }
   }
 
+  /** Fase 43: stop a job Claude (or Santi) queued; optionally archive it. */
   private async simulationsCancel(args: { job: number; archive?: boolean }): Promise<Json> {
     const before = await this.simulations.progressOf(String(args.job))
     const wasActive = before.status === 'queued' || before.status === 'running'

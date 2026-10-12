@@ -108,3 +108,17 @@ it('no lo ofrece mientras se juega', async () => {
   expect(await screen.findByText('Cruces que fallaron')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /Reintentar lo que falló/ })).not.toBeInTheDocument()
 })
+
+it('dice por qué no se puede reintentar (otra revisión del motor) y no ofrece el botón', async () => {
+  vi.stubGlobal(
+    'EventSource',
+    class {
+      close = vi.fn()
+    },
+  )
+  const blocked = 'Se jugó con la revisión 1 de las partidas y los workers de ahora juegan con otra: repetila entera.'
+  fakeApi({ 'GET /api/simulations/1': { ...failedJob('failed'), retryBlocked: blocked } })
+  show()
+  expect(await screen.findByText(blocked)).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /Reintentar lo que falló/ })).not.toBeInTheDocument()
+})

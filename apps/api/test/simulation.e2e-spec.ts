@@ -1597,6 +1597,27 @@ describe('simulation (e2e)', () => {
       data: { engineRev: test.env.engineRev, kind: 'explore' },
     })
     expect((await post(`/api/simulations/${created.id}/retry-failed`)).body.error.code).toBe('explore')
+    // Nor for a job fixed to a games revision the workers left: the engine change would play it again whole. The
+    // detail says why, and the screen hides the button.
+    await test.prisma.simulationJob.update({ where: { id: created.id }, data: { kind: 'compare', gamesRev: 1 } })
+    await test.prisma.workerNode.upsert({
+      where: { id: 'worker-retry-rev2' },
+      create: { id: 'worker-retry-rev2', name: 'pc', engineRev: test.env.engineRev, gamesRev: 2 },
+      update: { lastSeenAt: new Date(), gamesRev: 2 },
+    })
+    expect((await post(`/api/simulations/${created.id}/retry-failed`)).body.error.code).toBe('other_games_rev')
+    expect((await get(`/api/simulations/${created.id}`)).body.retryBlocked).toMatch(/revisión 1 .*repetila entera/)
+    await test.prisma.workerNode.delete({ where: { id: 'worker-retry-rev2' } })
+    // «Falló» with nothing failed left (a good result came late) and archived: it comes back to the list and is just
+    // «terminada» again.
+    await test.prisma.simulationJob.update({
+      where: { id: created.id },
+      data: { gamesRev: null, archivedAt: new Date() },
+    })
+    expect((await get(`/api/simulations/${created.id}`)).body.retryBlocked).toBeNull()
+    const healed = await post(`/api/simulations/${created.id}/retry-failed`)
+    expect(healed.status).toBe(200)
+    expect(healed.body).toMatchObject({ status: 'done', archived: false })
     await test.prisma.simulationJob.delete({ where: { id: created.id } })
   })
 

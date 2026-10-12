@@ -2047,6 +2047,8 @@ export const consistencySchema = z.object({
 export type Consistency = z.infer<typeof consistencySchema>
 
 export const jobDetailSchema = jobSummarySchema.extend({
+  /** A failed job that «Reintentar lo que falló» cannot take, and why; null otherwise. */
+  retryBlocked: z.string().nullable().default(null),
   snapshots: z.array(snapshotSchema),
   sideA: z.array(z.number()),
   sideB: z.array(z.number()),

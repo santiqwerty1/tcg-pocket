@@ -733,6 +733,8 @@ export class SimulationsService {
       rows,
       optimize: job.kind === 'optimize' ? this.optimizeRows(chunks[0]?.extra ?? null, sideB) : null,
       optimizeConfirmation: job.kind === 'optimize' ? await this.optimizeConfirmation(job.params) : null,
+      // «Reintentar lo que falló»: why not, for a failed job (null when it can, or when it did not fail).
+      retryBlocked: job.status === 'failed' ? ((await this.retryBlocked(job))?.message ?? null) : null,
       consistency:
         job.kind === 'consistency'
           ? this.consistencyView(
@@ -1040,44 +1042,70 @@ export class SimulationsService {
    */
   async retryFailed(rawId: string): Promise<JobSummaryView> {
     const job = await this.requireJob(rawId)
-    if (job.kind === 'explore') {
-      throw new BadRequestException({
-        code: 'explore',
-        message: 'Una búsqueda del laboratorio no se reintenta: lanzá otra desde el Laboratorio.',
-      })
-    }
-    if (job.status !== 'failed') {
-      throw new BadRequestException({
-        code: 'job_not_failed',
-        message: 'Solo se reintenta una simulación que terminó con cruces fallados.',
-      })
-    }
-    if (job.engineRev !== this.engine.engineRev()) {
-      throw new BadRequestException({
-        code: 'other_engine',
-        message: `Se jugó con otro motor (deckgym ${job.engineRev.slice(0, 7)}): repetila entera.`,
-      })
-    }
+    const blocked = await this.retryBlocked(job)
+    if (blocked) throw new BadRequestException(blocked)
     const retried = await this.prisma.$transaction(async (tx) => {
-      // The job first, still failed (two clicks at once retry once).
+      // The job first, still failed (two clicks at once retry once). An archived one comes back to the list: it plays.
       const reopened = await tx.simulationJob.updateMany({
         where: { id: job.id, status: 'failed' },
-        data: { status: 'running', finishedAt: null, error: null },
+        data: { status: 'running', finishedAt: null, error: null, archivedAt: null },
       })
-      if (reopened.count === 0) return 0
+      if (reopened.count === 0) return null
       const chunks = await tx.simulationChunk.updateMany({
         where: { jobId: job.id, status: 'failed' },
         data: { status: 'queued', attempt: 0, error: null, leaseUntil: null, workerId: null, gamesDone: 0 },
       })
-      if (chunks.count === 0)
-        throw new BadRequestException({ code: 'nothing_failed', message: 'No hay cruces fallados.' })
       return chunks.count
     })
-    if (retried === 0) {
+    if (retried === null) {
       throw new BadRequestException({ code: 'job_not_failed', message: 'Ya se está reintentando.' })
     }
-    this.queue.notifyQueued()
+    // Nothing failed any more (a good result came late, after the job ended): it is just done again.
+    if (retried === 0) await this.queue.settle(job.id)
+    else this.queue.notifyQueued()
     return this.progressOf(rawId)
+  }
+
+  /**
+   * Why a job cannot take «Reintentar lo que falló», or null when it can. Besides its status and kind: one of another
+   * deckgym, or fixed to a games revision older than the newest of the workers seen in the last half hour, would be
+   * played again whole by the engine change (EngineChangeService) instead of retrying its failed chunks.
+   */
+  private async retryBlocked(job: {
+    id: number
+    kind: string
+    status: string
+    engineRev: string
+    gamesRev: number | null
+  }): Promise<{ code: string; message: string } | null> {
+    if (job.kind === 'explore') {
+      return {
+        code: 'explore',
+        message: 'Una búsqueda del laboratorio no se reintenta: lanzá otra desde el Laboratorio.',
+      }
+    }
+    if (job.status !== 'failed') {
+      return { code: 'job_not_failed', message: 'Solo se reintenta una simulación que terminó con cruces fallados.' }
+    }
+    if (job.engineRev !== this.engine.engineRev()) {
+      return {
+        code: 'other_engine',
+        message: `Se jugó con otro motor (deckgym ${job.engineRev.slice(0, 7)}): repetila entera.`,
+      }
+    }
+    if (job.gamesRev !== null) {
+      const newest = await this.prisma.workerNode.aggregate({
+        where: { engineRev: job.engineRev, lastSeenAt: { gte: new Date(Date.now() - 30 * 60 * 1000) } },
+        _max: { gamesRev: true },
+      })
+      if ((newest._max.gamesRev ?? job.gamesRev) > job.gamesRev) {
+        return {
+          code: 'other_games_rev',
+          message: `Se jugó con la revisión ${job.gamesRev} de las partidas y los workers de ahora juegan con otra: repetila entera.`,
+        }
+      }
+    }
+    return null
   }
 
   /** Only active jobs can be moved in the queue; the conditional write also checks concurrent completion. */
