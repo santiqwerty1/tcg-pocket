@@ -67,6 +67,8 @@ export interface CalibrationView {
    * kept): tournaments have no matchup for an archetype against itself, so they are not compared.
    */
   mirrors: number
+  /** Pairs of archetypes left out of the report: some pairing of their lists is pending, failed or cancelled. */
+  incompletePairs: number
 }
 
 export interface CalibrationSummaryView extends CalibrationJobView {
@@ -350,6 +352,7 @@ export class CalibrationService {
       }
     }
     const pairings: CalibrationPairing[] = []
+    const incompletePairs = [...groups.values()].filter((group) => !group.complete).length
     for (const group of groups.values()) {
       const simulated = group.complete ? mixListRecords(group.parts) : null
       if (!simulated) continue
@@ -374,6 +377,7 @@ export class CalibrationService {
         tournamentsWithPairings: matchups.tournamentsWithPairings,
       },
       ...counts,
+      incompletePairs,
     }
   }
 }

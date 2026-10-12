@@ -1404,6 +1404,19 @@ describe('simulation (e2e)', () => {
     expect(fresh).toMatchObject({ jobId: created.body.id, players: ['et', 'r'] })
     await post(`/api/simulations/${created.body.id}/cancel`)
     await test.http().delete(`/api/simulations/${created.body.id}`).set('Cookie', cookie)
+    // The same for an f bot (H-018): an engine without «fairBots» gets nothing, and the hint says why.
+    const fair = await post('/api/simulations').send({
+      kind: 'compare',
+      sideA: decks(3, 3),
+      sideB: decks(5, 5),
+      gamesPerPair: 4,
+      players: ['f2', 'r'],
+      seed: 80,
+    })
+    const unfair = (await claim('worker-f-old', ['perGame', 'batch', 'etBot'])).body
+    expect(unfair).toMatchObject({ chunk: null, hint: expect.stringContaining('bots f') })
+    await post(`/api/simulations/${fair.body.id}/cancel`)
+    await test.http().delete(`/api/simulations/${fair.body.id}`).set('Cookie', cookie)
   })
 
   it('list: archive finished jobs (one by one or all), bring them back, delete the cancelled ones', async () => {

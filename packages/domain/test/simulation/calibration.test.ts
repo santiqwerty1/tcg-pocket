@@ -243,6 +243,33 @@ describe('calibrationReport with the games played (review of #44)', () => {
     expect(played?.simulated?.value).toBe(scaled?.simulated?.value)
     expect(played?.simulated?.ci95).toEqual(scaled?.simulated?.ci95)
     expect(scaled?.simulated?.games).toBeGreaterThan(400)
+    // The per-archetype table says the same games for that pair (review of #67).
+    const compared = calibrationReport([{ ...pairing, simulatedGames: 400, tournament: { wins: 30, losses: 20 } }])
+    expect(compared.archetypes.map((row) => [row.id, row.simulated?.games, row.tournament?.games])).toEqual([
+      ['x', 400, 50],
+      ['y', 400, 50],
+    ])
+  })
+
+  it('a lopsided mixture stays «orientativo» by its effective games, however many were played', () => {
+    // 10 games of a list that weighs 95 % and 100 of one that weighs 5 %: 110 played, worth far fewer.
+    const lopsided = mixListRecords([
+      { record: { wins: 5, losses: 5, ties: 0 }, weight: 0.95 },
+      { record: { wins: 50, losses: 50, ties: 0 }, weight: 0.05 },
+    ]) as GameRecord
+    expect(lopsided.wins + lopsided.losses).toBeLessThan(30)
+    const pairing = {
+      a: 'x',
+      b: 'y',
+      labelA: 'X',
+      labelB: 'Y',
+      simulated: lopsided,
+      simulatedGames: 110,
+      tournament: { wins: 30, losses: 20 },
+    }
+    const report = calibrationReport([pairing])
+    expect(report.rows[0]?.simulated).toMatchObject({ games: 110, orientative: true })
+    expect(report.archetypes[0]?.simulated).toMatchObject({ games: 110, orientative: true })
   })
 })
 

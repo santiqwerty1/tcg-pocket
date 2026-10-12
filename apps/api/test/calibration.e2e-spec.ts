@@ -141,7 +141,7 @@ describe('calibration (e2e)', () => {
     }
     // A failed pairing ends the job «failed», and the report still says what it has.
     expect(view.job).toMatchObject({ status: 'failed', era: expect.any(String) })
-    expect(view).toMatchObject({ pending: 0, failed: 1 })
+    expect(view).toMatchObject({ pending: 0, failed: 1, incompletePairs: 1 })
     expect(view.report.rows).toHaveLength(9)
     // Each row is A's side, simulated and in tournaments: the same direction as the chunk and as matchupPerGame(a, b).
     const tournaments = test.app.get(TournamentsService)
@@ -204,6 +204,21 @@ describe('calibration (e2e)', () => {
         })
       ).status,
     ).toBe(200)
+    // The bank keeps the names its lists had when it was made: here none is the one the app shows now (review of
+    // #67), so a label taken from the bank list that started a pair would show.
+    const kept = job.params as { calibration: { bank: { archetypeName: string }[] } }
+    await test.prisma.simulationJob.update({
+      where: { id },
+      data: {
+        params: {
+          ...(job.params as object),
+          calibration: {
+            ...kept.calibration,
+            bank: kept.calibration.bank.map((entry) => ({ ...entry, archetypeName: `${entry.archetypeName} (viejo)` })),
+          },
+        },
+      },
+    })
     const merged = (await get(`/api/calibration/${id}`)).body as typeof view & { mirrors: number }
     expect(merged.mirrors).toBe(played.has(`${first?.archetypeId}|${second?.archetypeId}`) ? 1 : 0)
     // The two lists of the merged archetype are one point: tournaments have one matchup for both.
@@ -237,6 +252,10 @@ describe('calibration (e2e)', () => {
     const secondWeight = weights.get(second?.archetypeId as string) as number
     let mixed = 0
     for (const row of merged.report.rows) {
+      expect([row.labelA, row.labelB]).toEqual([
+        mergedDataset.archetypes.get(row.a)?.name,
+        mergedDataset.archetypes.get(row.b)?.name,
+      ])
       const expected = matchupPerGame(after, row.a, row.b)
       if (expected === null) expect(row.tournament).toBeNull()
       else expect(row.tournament?.value).toBeCloseTo((expected.wins / (expected.wins + expected.losses)) * 100, 10)

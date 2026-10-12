@@ -91,7 +91,13 @@ describe('alerts (e2e)', () => {
     })
     expect(await titles()).toEqual(['Hay trabajo esperando y nunca se conectó un worker'])
     await test.prisma.workerNode.create({
-      data: { id: 'worker-h016', name: 'PC', lastSeenAt: new Date('2026-10-09T05:35:59Z') },
+      // With the app's deckgym: a worker of another one could not take the game either (worker_idle says so).
+      data: {
+        id: 'worker-h016',
+        name: 'PC',
+        engineRev: test.env.engineRev ?? 'x',
+        lastSeenAt: new Date('2026-10-09T05:35:59Z'),
+      },
     })
     expect(await titles()).toEqual(['Hay trabajo esperando y ningún worker desde el 9/10 02:35'])
     await test.prisma.workerNode.update({ where: { id: 'worker-h016' }, data: { lastSeenAt: new Date() } })
@@ -99,16 +105,18 @@ describe('alerts (e2e)', () => {
     await test.prisma.liveGame.delete({ where: { id: game.id } })
   })
 
-  it('H-051: a worker is there, but none plays «et» or the f bots: the alert says what the engine lacks', async () => {
+  it('H-051: work no worker can take: «et», the f bots, both in one worker, and the same deckgym (review of #67)', async () => {
+    const rev = test.env.engineRev ?? 'x'
     const idle = async () =>
       ((await get('/api/alerts')).body.items as { code: string; title: string; detail: string }[]).filter(
         (item) => item.code === 'worker_idle',
       )
-    const worker = await test.prisma.workerNode.upsert({
-      where: { id: 'worker-h051' },
-      create: { id: 'worker-h051', name: 'PC', lastSeenAt: new Date(), engineFeatures: ['perGame', 'batch'] },
-      update: { lastSeenAt: new Date(), engineFeatures: ['perGame', 'batch'] },
-    })
+    const node = (id: string, engineFeatures: string[], engineRev = rev) =>
+      test.prisma.workerNode.upsert({
+        where: { id },
+        create: { id, name: 'PC', engineRev, lastSeenAt: new Date(), engineFeatures },
+        update: { engineRev, lastSeenAt: new Date(), engineFeatures },
+      })
     const game = (bot: string) =>
       test.prisma.liveGame.create({
         data: {
@@ -117,32 +125,75 @@ describe('alerts (e2e)', () => {
           botSnapshotId: 2,
           bot,
           seed: 1n,
-          engineRev: test.env.engineRev ?? 'x',
+          engineRev: rev,
           choices: [],
           createdAt: new Date('2026-10-11T15:00:00Z'),
         },
       })
+    const job = (players: string[]) =>
+      test.prisma.simulationJob.create({
+        data: {
+          kind: 'compare',
+          status: 'queued',
+          label: 'alerta',
+          params: {},
+          engineRev: rev,
+          players,
+          gamesPerPair: 10,
+          baseSeed: 1n,
+          totalGames: 20,
+          createdAt: new Date('2026-10-11T16:00:00Z'),
+          chunks: {
+            create: [
+              { idx: 0, games: 10, firstGame: 0, seed: 1n },
+              { idx: 1, games: 10, firstGame: 10, seed: 2n },
+            ],
+          },
+        },
+      })
+    await node('worker-h051', ['perGame', 'batch'])
+    // A game against «et»: the title and the detail call it so.
     const et = await game('et')
     expect(await idle()).toEqual([
       expect.objectContaining({
-        title: 'Hay simulaciones que ningún worker puede jugar (desde el 11/10 12:00)',
-        detail: expect.stringMatching(/^1 tarea usa el bot «et» \(solo termina el turno\) .*engine-cli 0\.3\.5/),
+        title: 'Hay partidas contra el bot que ningún worker puede jugar (desde el 11/10 12:00)',
+        detail: expect.stringMatching(
+          /^1 partida contra el bot pide el bot «et» \(solo termina el turno\).*engine-cli 0\.3\.5/,
+        ),
       }),
     ])
-    await test.prisma.workerNode.update({
-      where: { id: worker.id },
-      data: { engineFeatures: ['perGame', 'batch', 'etBot'] },
-    })
+    await node('worker-h051', ['perGame', 'batch', 'etBot'])
     expect(await idle()).toEqual([])
-    const fair = await game('f2')
-    expect((await idle())[0]?.detail).toMatch(/^1 tarea usa bots f .*fairBots/)
-    await test.prisma.workerNode.update({
-      where: { id: worker.id },
-      data: { engineFeatures: ['perGame', 'batch', 'etBot', 'fairBots'] },
-    })
+    await test.prisma.liveGame.delete({ where: { id: et.id } })
+    // A simulation with «et» and an f bot: one worker with only etBot and another with only fairBots cannot take it.
+    const both = await job(['et', 'f2'])
+    await node('worker-h051-fair', ['perGame', 'batch', 'fairBots'])
+    expect(await idle()).toEqual([
+      expect.objectContaining({
+        title: 'Hay simulaciones que ningún worker puede jugar (desde el 11/10 13:00)',
+        detail: expect.stringMatching(/^2 chunks piden el bot «et» \(solo termina el turno\) y los bots f, /),
+      }),
+    ])
+    // A worker with both, but of another deckgym: still nobody.
+    await node('worker-h051-old', ['perGame', 'batch', 'etBot', 'fairBots'], 'b'.repeat(40))
+    expect(await idle()).toHaveLength(1)
+    await node('worker-h051', ['perGame', 'batch', 'etBot', 'fairBots'])
     expect(await idle()).toEqual([])
-    await test.prisma.liveGame.deleteMany({ where: { id: { in: [et.id, fair.id] } } })
-    await test.prisma.workerNode.delete({ where: { id: worker.id } })
+    await test.prisma.simulationJob.delete({ where: { id: both.id } })
+    // A simulation with an f bot and a game against «et» nobody plays: both in one alert.
+    await node('worker-h051', ['perGame', 'batch'])
+    await test.prisma.workerNode.deleteMany({ where: { id: { in: ['worker-h051-fair', 'worker-h051-old'] } } })
+    const fair = await job(['f2', 'r'])
+    const another = await game('et')
+    expect(await idle()).toEqual([
+      expect.objectContaining({
+        title: 'Hay simulaciones y partidas contra el bot que ningún worker puede jugar (desde el 11/10 12:00)',
+        detail: expect.stringMatching(/^2 chunks y 1 partida contra el bot piden /),
+      }),
+    ])
+    await test.prisma.simulationJob.delete({ where: { id: fair.id } })
+    await test.prisma.liveGame.delete({ where: { id: another.id } })
+    await test.prisma.workerNode.delete({ where: { id: 'worker-h051' } })
   })
 
   const operationAlerts = async (code: string) =>

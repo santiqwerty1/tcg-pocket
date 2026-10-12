@@ -60,7 +60,7 @@ const absolute = (value: number) => points.format(value).replace('+', '')
 
 function SummaryLine({ summary }: { summary: NonNullable<CalibrationSummary['summary']> }) {
   if (summary.compared === 0) {
-    return <p className="text-xs text-muted-foreground">Ningún cruce con partidas de torneo suficientes.</p>
+    return <p className="text-xs text-muted-foreground">Ningún par de arquetipos con partidas de torneo suficientes.</p>
   }
   return (
     <p className="text-xs text-muted-foreground">
@@ -228,7 +228,11 @@ export function CalibrationReport({ view }: { view: CalibrationView }) {
         <ul className="flex flex-col gap-1 text-sm">
           <li>
             Pares de arquetipos con partidas de torneo suficientes (≥ {report.minTournamentGames}): {report.compared} de{' '}
-            {report.rows.length}.<ListNotes view={view} />
+            {report.rows.length}
+            {view.incompletePairs > 0
+              ? ` (${view.incompletePairs} ${view.incompletePairs === 1 ? 'par más quedó' : 'pares más quedaron'} afuera: les falta algún cruce de listas)`
+              : ''}
+            .<ListNotes view={view} />
           </li>
           <li>
             Compatibles (la diferencia, con el error de los dos lados, puede ser 0): {report.compatible} de{' '}
@@ -239,7 +243,7 @@ export function CalibrationReport({ view }: { view: CalibrationView }) {
             {report.meanAbsDifference === null ? '—' : `${absolute(report.meanAbsDifference)} puntos`}.
           </li>
           <li>
-            Orden de los cruces (cada uno en los dos sentidos; IC por bootstrap de arquetipos):{' '}
+            Orden de los pares de arquetipos (cada uno en los dos sentidos; IC por bootstrap de arquetipos):{' '}
             {formatRho(report.rankCorrelation, 'puntos')}.
           </li>
           <li>
@@ -293,11 +297,11 @@ export function CalibrationReport({ view }: { view: CalibrationView }) {
           pesados por su cuota en el meta.
         </p>
       </Section>
-      <Section title="Cruce por cruce">
+      <Section title="Par por par">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Cruce</TableHead>
+              <TableHead>Par de arquetipos</TableHead>
               <TableHead>Simulado</TableHead>
               <TableHead>Torneo</TableHead>
               <TableHead>Diferencia</TableHead>
