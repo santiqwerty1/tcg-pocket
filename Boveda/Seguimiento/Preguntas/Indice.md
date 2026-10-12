@@ -3,7 +3,7 @@ tipo: indice
 titulo: 'Preguntas'
 area: proyecto
 estado: vigente
-actualizado: '2026-10-09'
+actualizado: '2026-10-11'
 origen:
   - posta generar
 revisar: false
@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-12 fichas: cerrada 5 · respondida 7. ⚑ = para revisar.
+13 fichas: cerrada 5 · respondida 8. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Sector | Actualizado |
 | --- | --- | --- | --- | --- | --- |
@@ -29,3 +29,4 @@ revisar: false
 | [P-010](P-010.md) | ¿Creamos un bucket de Tigris en Fly para la copia fuera de Supabase? | respondida | — | copia de seguridad | 2026-10-09 |
 | [P-011](P-011.md) | ¿Con qué chequeamos desde afuera que la app está viva? | respondida | — | operación | 2026-10-09 |
 | [P-012](P-012.md) | ¿Cuando vence la sesión, la app tiene que seguir desregistrando el service worker? | respondida | — | sesión y notificaciones | 2026-10-09 |
+| [P-013](P-013.md) | ¿Creamos el tag v1.0.0 y el release en el repo público? | respondida | — | repositorio | 2026-10-11 |

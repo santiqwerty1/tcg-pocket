@@ -3,7 +3,7 @@ tipo: inicio
 titulo: 'TCG Pocket'
 area: proyecto
 estado: vigente
-actualizado: '2026-10-10'
+actualizado: '2026-10-11'
 origen:
   - posta init
 revisar: false
@@ -22,23 +22,23 @@ Mapa de documentos y código: [Dónde vive cada cosa](Sistema/Mapa.md) · operac
 
 ## Hoy
 
-- [Para revisar](Trabajo.base#Para%20revisar) · [Avance](Seguimiento/Avance.md) · última bitácora: [2026-10-10](Bitacora/2026-10-10.md)
+- [Para revisar](Trabajo.base#Para%20revisar) · [Avance](Seguimiento/Avance.md) · última bitácora: [2026-10-11](Bitacora/2026-10-11.md)
 
 ![[Trabajo.base#Para revisar]]
 
 <!-- posta:recuentos -->
-_Recuentos al 2026-10-10 (generados; no editar a mano)._
+_Recuentos al 2026-10-11 (generados; no editar a mano)._
 
 | Tipo | Total | Por estado |
 | --- | --- | --- |
-| decision | 23 | vigente 23 |
+| decision | 28 | propuesta 2 · vigente 26 |
 | hallazgo | 22 | abierto 4 · resuelto 18 |
-| pregunta | 12 | cerrada 5 · respondida 7 |
+| pregunta | 13 | cerrada 5 · respondida 8 |
 | riesgo | 12 | abierto 9 · resuelto 3 |
 | supuesto | 3 | refutado 1 · verificado 2 |
-| tarea | 17 | en_curso 3 · hecho 12 · pendiente 2 |
+| tarea | 20 | en_curso 4 · hecho 15 · pendiente 1 |
 
-**Para revisar:** nada. **Abiertas:** 18.
+**Para revisar:** D-027, D-028. **Abiertas:** 20.
 <!-- /posta:recuentos -->
 
 ## Fichas

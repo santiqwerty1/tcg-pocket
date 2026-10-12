@@ -1,14 +1,14 @@
 # Fase 38: dependency updates, once a month and grouped, so they cost a couple of CI runs a month (private repo
 # minutes). The engine (Cargo) is left out on purpose: deckgym is pinned to a commit (D-013) and moves by hand.
-# D-023: paused (open-pull-requests-limit 0) while the CI runs on the owner's PC; back to 2 and 1 after the move to
-# the public repository.
+# D-023: paused (open-pull-requests-limit 0) from 9 to 11/10/2026 while the CI ran on the owner's PC; back to 2 and 1
+# since the move to the public repository, where Actions minutes are free.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: monthly
-    open-pull-requests-limit: 0
+    open-pull-requests-limit: 2
     groups:
       production:
         dependency-type: production
@@ -20,7 +20,7 @@ updates:
     directory: /
     schedule:
       interval: monthly
-    open-pull-requests-limit: 0
+    open-pull-requests-limit: 1
     groups:
       actions:
         patterns: ['*']

@@ -90,24 +90,34 @@ La guía para levantar todo desde cero (base nueva, app nueva, restaurar la copi
 
 Para mirar la memoria sin entrar a la app: `system_status`, o `GET /api/ops/status` con sesión.
 
-## CI en la PC (D-023)
+## Repositorio (D-022)
 
-Mientras el repo sea privado y sin minutos de Actions, la CI corre en dos runners propios de la PC: `tcg-pc-1` y `tcg-pc-2`, con la etiqueta `tcg-pc`.
-- **Dónde están:** en `%USERPROFILE%\actions-runner`.
-- **Arranque:** al iniciar sesión, por `tcg-pocket-ci-runners.vbs` en Inicio.
-- **Instalar:** `powershell -ExecutionPolicy Bypass -File scripts\ci-runner\install.ps1`.
-- **Otra PC** (por ejemplo la del Ryzen): clonar el repo y correr el mismo script con otro prefijo, `install.ps1 -Prefix tcg-ryzen`. Con el mismo nombre, `config.cmd --replace` se llevaría los runners de la primera PC. El script revisa antes Git, gh con sesión, Docker Desktop, Rust (GNU) y WinLibs, y dice con qué `winget` instalar lo que falte. La etiqueta sigue siendo `tcg-pc`, así que la CI usa los runners de las dos PC. Si esa PC también corre el worker, el worker 0.2.8 usa prioridad baja para los motores de fondo: la CI mantiene prioridad normal y recibe CPU primero (D-023). El asistente sugiere todos los hilos disponibles; se puede conservar otro presupuesto.
-- **Cómo elige runner la CI:** con las variables del repo `CI_RUNNER` y `CI_RUNNER_WINDOWS` (`tcg-pc`). Sin ellas, vuelve a los de GitHub.
-- **Base y puerto por runner:** `tcg_ci_test_<runner>` y `tcg_ci_screens_<runner>`, en el Postgres de `docker compose`, y un puerto propio para las pantallas. No pisan los de las sesiones.
-- **El motor:** se compila con el Rust y el WinLibs de la PC, en `%USERPROFILE%\actions-runner\tcg-pc-<n>\_work\tcg-pocket\cargo-target`.
-- **Ver si andan:** `gh api repos/santiqwerty1/tcg-pocket/actions/runners` (`online`).
-  - Si están caídos: `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = "wscript.exe `"$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\tcg-pocket-ci-runners.vbs`"" }`.
-  - Nunca `Start-Process` desde una sesión de Claude (H-016).
-- **Seguridad:** solo corren código de este repo privado. Los PR de Dependabot no corren en la PC, y Dependabot queda en pausa hasta la mudanza.
-- **Sacarlos (antes de pasar el repo a público):**
-  1. `powershell -ExecutionPolicy Bypass -File scripts\ci-runner\uninstall.ps1`.
-  2. `gh variable delete CI_RUNNER` y `gh variable delete CI_RUNNER_WINDOWS`.
-  3. `open-pull-requests-limit` de Dependabot a 2 y 1.
+- **`santiqwerty1/tcg-pocket` es público desde el 11/10/2026**, bajo AGPL-3.0. El privado anterior es `santiqwerty1/tcg-pocket-historial`: archivado, solo lectura, con los PR originales y sus descripciones. No se le sube nada.
+- **Nada de datos personales** en commits, PR, issues ni la bóveda: ni mails (salvo el noreply), ni tokens o secretos, ni la ref de Supabase, ni nombres reales de jugadores de Limitless (van con seudónimos, `scripts/pseudonymize-limitless.mjs`), ni el usuario de Windows en las rutas: se escribe `C:/Users/<usuario>/…`.
+- **Los sha citados antes del 11/10** en la bóveda, DECISIONES y las notas son del repo viejo y valen como referencia histórica. En los textos nuevos van los sha del repo público.
+- **Ajustes del repo:** permisos por defecto de los workflows en solo lectura; alertas de Dependabot y arreglos de seguridad automáticos prendidos. Al 11/10 hay una alerta baja, de esbuild en `apps/worker` (su servidor de desarrollo en Windows), que no usamos.
+- **Cómo se hizo la mudanza:** D-022 y DECISIONES 41.15–41.16. `docs/MUDANZA.md` es el plan anterior, de un solo commit.
+
+## CI (D-023)
+
+**Desde el 11/10/2026 el repo es público y la CI corre en los runners de GitHub** (`ubuntu-latest` y `windows-latest`), que en un repo público son gratis y sin tope de minutos. El repo no tiene las variables `CI_RUNNER`, `CI_RUNNER_LIGHT` ni `CI_RUNNER_WINDOWS`, y sin ellas cada job usa los de GitHub.
+
+**Los runners propios no se usan en el repo público:** un PR de cualquiera correría su código en la PC. `scripts/ci-runner/install.ps1` se niega a registrarlos en un repo público.
+
+### Los runners propios, del 9 al 11/10/2026
+
+Mientras el repo fue privado y sin minutos de Actions, la CI corrió en runners propios:
+- **Quiénes:** `tcg-pc-1` y `tcg-pc-2` en esta PC y, desde el 10/10, `tcg-ryzen-1` y `tcg-ryzen-2` en la del Ryzen (`install.ps1 -Prefix tcg-ryzen`), todos con la etiqueta `tcg-pc`.
+  - Desde el 11/10, los jobs sin Postgres ni Docker (`changes`, `test` y `engine`) también podían ir a la etiqueta `tcg-light` (variable `CI_RUNNER_LIGHT`), para que el Ryzen ayudara sin tener Postgres ni Docker listos.
+- **Cómo:** sin servicio de Windows, en `%USERPROFILE%\actions-runner`, arrancados al iniciar sesión por `tcg-pocket-ci-runners.vbs` en Inicio. Base y puerto propios por runner (`scripts/ci-runner-id.sh`) y el motor compilado con el Rust y el WinLibs de cada PC.
+- **Bajas del 11/10:** los cuatro se dieron de baja por la API en el repo viejo, que quedó renombrado a `santiqwerty1/tcg-pocket-historial`. En esta PC se borraron la carpeta y el lanzador de Inicio; en la del Ryzen falta (Santi, el martes 13/10).
+- **Si el repo se renombró:** `uninstall.ps1` falla al dar de baja con `config.cmd remove` (NotFound), porque el `.runner` apunta a la URL vieja y esa URL ahora es el repo público. En ese caso:
+  1. Darlos de baja por la API, en el repo donde quedaron registrados: `gh api repos/<repo>/actions/runners` da el id, y después `gh api -X DELETE repos/<repo>/actions/runners/<id>`.
+  2. Correr igual `powershell -ExecutionPolicy Bypass -File scripts\ci-runner\uninstall.ps1 [-Prefix tcg-ryzen]`, que frena los procesos y borra la carpeta y el lanzador aunque la baja falle.
+- **Solo para un repo privado:** `install.ps1 [-Count 2] [-Prefix tcg-pc] [-Repo <dueño/repo>]` sigue andando contra un repo privado. Revisa antes Git, gh con sesión, Docker Desktop, Rust (GNU) y WinLibs. La CI elegiría esos runners con las variables `CI_RUNNER`, `CI_RUNNER_LIGHT` y `CI_RUNNER_WINDOWS`.
+- **Nunca `Start-Process`** desde una sesión de Claude para arrancarlos (H-016): `Invoke-CimMethod` sobre el `.vbs` de Inicio.
+
+**Dependabot:** en el repo público están prendidas las alertas y los arreglos de seguridad automáticos. Las actualizaciones de versión vuelven a una vez por mes, agrupadas, con 2 PR de npm y 1 de Actions como máximo (`.github/dependabot.yml`, DECISIONES 41.12).
 
 ## Deploy
 
