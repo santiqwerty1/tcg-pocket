@@ -3,7 +3,7 @@ tipo: indice
 titulo: 'Decisiones'
 area: proyecto
 estado: vigente
-actualizado: '2026-10-10'
+actualizado: '2026-10-11'
 origen:
   - posta generar
 revisar: false
@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-23 fichas: vigente 23. ⚑ = para revisar.
+28 fichas: propuesta 2 · vigente 26. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Actualizado |
 | --- | --- | --- | --- | --- |
@@ -36,7 +36,12 @@ revisar: false
 | [D-017](D-017.md) | Qué puede escribir Claude | vigente | — | 2026-10-08 |
 | [D-018](D-018.md) | Cómo mide y busca el laboratorio de mazos | vigente | — | 2026-10-08 |
 | [D-019](D-019.md) | Cómo se juega contra el bot y cómo se mide la consistencia | vigente | — | 2026-10-08 |
-| [D-020](D-020.md) | Consolidar antes de sumar funciones | vigente | — | 2026-10-09 |
-| [D-021](D-021.md) | Reparto del trabajo entre las tres sesiones de Claude | vigente | — | 2026-10-10 |
-| [D-022](D-022.md) | Repositorio público bajo AGPL-3.0, con seudónimos en los datos de Limitless | vigente | — | 2026-10-10 |
-| [D-023](D-023.md) | CI en runners propios de la PC mientras el repo sea privado | vigente | — | 2026-10-10 |
+| [D-020](D-020.md) | Consolidar antes de sumar funciones | vigente | — | 2026-10-11 |
+| [D-021](D-021.md) | Reparto del trabajo entre las tres sesiones de Claude | vigente | — | 2026-10-11 |
+| [D-022](D-022.md) | Repositorio público bajo AGPL-3.0, con seudónimos en los datos de Limitless | vigente | — | 2026-10-11 |
+| [D-023](D-023.md) | CI en runners propios de la PC solo mientras el repo fue privado; en el público, los de GitHub | vigente | — | 2026-10-11 |
+| [D-024](D-024.md) | Proteger trabajos de laboratorio y consistencia frente a matrices adelantadas | vigente | — | 2026-10-11 |
+| [D-025](D-025.md) | Android excluye bots lentos salvo opt-in antes de reclamar un chunk | vigente | — | 2026-10-11 |
+| [D-026](D-026.md) | Los workers se actualizan solos desde el servidor, confiando en él (opción A) | vigente | — | 2026-10-11 |
+| [D-027](D-027.md) | Análisis exploratorio de simulaciones sin agrupar fuentes ni corridas | propuesta ⚑ | — | 2026-10-11 |
+| [D-028](D-028.md) | Colección del tracker por el mismo camino de importación del CSV | propuesta ⚑ | — | 2026-10-11 |

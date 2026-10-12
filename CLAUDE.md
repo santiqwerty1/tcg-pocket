@@ -61,7 +61,10 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
   - «Dónde se consigue» (`pages/cartas/WhereToGet.tsx`, con `pack` en el resumen de carta de la API), «Vos y este arquetipo», historial con `opponentMatch=exact`, «Más» agrupado y aviso de CSV viejo (`lib/csvAge.ts`);
   - tokens `*-foreground` y P-012: un 401 conserva el service worker;
   - tests de pantallas con `src/test/fakeApi.ts`.
-- **Repo público (D-022, 9/10/2026):** LICENSE AGPL-3.0 y seudónimos en los datos de Limitless (`scripts/pseudonymize-limitless.mjs`). Santi eligió publicar en un repo nuevo con historial limpio; la mudanza queda para un momento tranquilo.
+- **Repo público (D-022, mudanza del 11/10/2026):** LICENSE AGPL-3.0 y seudónimos en los datos de Limitless (`scripts/pseudonymize-limitless.mjs`).
+  - Santi cambió el plan de un solo commit (#26, `docs/MUDANZA.md`) por la historia completa reescrita con `git filter-repo`: mismos commits, mensajes y fechas, autor noreply y sin mail, ref de Supabase, jugadores reales ni usuario de Windows. Los PR se recrearon con el mismo número, integrados y con rellenos en los huecos (modo «exact», DECISIONES 41.15–41.18). `docs/context/` se publica.
+  - Resultado: `santiqwerty1/tcg-pocket` público, main `abd5034` (= `9f934fc` del viejo), 47 PR integrados y 0 abiertos. El privado pasó a `santiqwerty1/tcg-pocket-historial`, archivado.
+  - Los sha citados antes del 11/10 son del repo viejo. Tag `v1.0.0` y release con las fases 0–44: los crea el Coordinador (P-013).
 - **Fase 38 implementada el 9/10/2026** (DECISIONES 41.1–41.12):
   - avisos de operación (`backup_stale`, `limitless_sync`, `catalog_sync`, `github_check`, `database_size`);
   - `GET /api/ops/status` y la tool `system_status`;
@@ -80,22 +83,62 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
   - En producción falta crear el bucket y correr la primera limpieza con el OK de Santi.
 - **Worker 0.2.7 (#9):** con un motor que anuncia `batch` (engine-cli 0.3.0), juega varios cruces de un trabajo por proceso. Si un cruce falla, falla solo ese chunk.
 - **Organización desde el 9/10/2026 (tarde)**, pedido de Santi (D-021):
-  - La sesión «TCG · Coordinador e integrador» reparte, revisa cada PR, mergea, despliega, recompila el motor y reinicia el worker. Es la única que edita la carpeta principal y los archivos compartidos de la bóveda (Avance, Inicio, la bitácora, CLAUDE.md, CHANGELOG, los Indice).
+  - La sesión «TCG · Coordinador e integrador» reparte, revisa cada PR, mergea y despliega; desde D-026 los workers se actualizan solos. Es la única que edita la carpeta principal y los archivos compartidos de la bóveda (Avance, Inicio, la bitácora, CLAUDE.md, CHANGELOG, los Indice).
   - Las demás trabajan en su worktree o en la nube y entregan por PR, con «Para la bóveda» en la descripción.
   - Las preguntas para Santi pasan por el coordinador.
   - Las sesiones se hablan por el chat `C:/Users/<usuario>/Personal/tcg-pocket-chat/` (`chat.mjs write|read|wait`), fuera del repo, porque `posta check` revisa todo lo que hay en `Boveda/`.
+  - Desde la mudanza (11/10), las sesiones de la nube viejas se archivan; se abren nuevas sobre el repo público cuando haya trabajo para la nube.
 - **Integrados el 9/10/2026:** PR #3 y #4 (H-019, `perGame` y el reclamo rápido de chunks, worker 0.2.5), #2 (Fase 43) y #6 (CI: el motor de Windows solo si cambia, Docker solo en main, `cancel-in-progress`).
 - **Integrados el 9-10/10/2026:** pila de Laboratorio #5, #15, #20, #22, #25, #27 y #28; calibración #29; Fase 40 #31; seguimiento de la 43 #34; Fase 44 parte 1 #17; CI y screens #36/#33; optimizar #32; ensayo de mudanza #26 y revisión de bots #35.
-- **Laboratorio (T-017, DECISIONES 45.4–45.17):** bots `f1`–`f9` en `engine/src/fair_bot.rs` (H-018), aprender entre rondas y combinar cambios, explicaciones por carta, frenar y confirmar, deshacer cambios, variantes de Energía y dos listas para los 3 arquetipos más jugados. Revisión #35 integrada; e2 sigue por defecto y D4 queda pendiente.
-- **Calibración (#29, R-012, DECISIONES 45.35):** Simulación → Calibración compara el banco contra torneos, con bot a elección, diferencias e intervalos y correlación de rangos. Seguimiento de Infra preparado localmente, sin PR; falta comparar e2/f2 antes de cambiar el bot por defecto (P-009).
+- **Laboratorio (T-017, DECISIONES 45.4–45.17):** bots `f1`–`f9` en `engine/src/fair_bot.rs` (H-018), aprender entre rondas y combinar cambios, explicaciones por carta, frenar y confirmar, deshacer cambios, variantes de Energía y dos listas para los 3 arquetipos más jugados. Revisión #35 integrada; e2 sigue por defecto (D4 entró el 11/10 en #47).
+- **Calibración (#29, R-012, DECISIONES 45.35):** Simulación → Calibración compara el banco contra torneos, con bot a elección, diferencias e intervalos y correlación de rangos. Seguimiento integrado el 11/10 (#44, 45.41–45.43); falta comparar e2/f2 antes de cambiar el bot por defecto (P-009).
 - **Fase 40 implementada el 9/10/2026** (#31, DECISIONES 43.1–43.8): catálogo al último del tracker con vista previa del diff y remapeo, confirmación ante borrados o retroceso y sets propuestos; «Sincronizar» repite el commit cargado (H-004 resuelto).
 - **Seguimiento de Fase 43 (#34, R-010):** deshacer notas y restaurar partidas bajo lock; un borrado «Sin terminar» se deshace solo si la transacción confirmó `deletedAt`. Chat-puente #12 integrado.
-- **Fase 44, parte 1, implementada el 9/10/2026** (#17, DECISIONES 47.1–47.6): núcleo y techs por arquetipo con diferencia e intervalo bootstrap por lista, 2 copias contra 1 y conversión al top 8 ajustada por torneo; tool `tournaments_archetype_cards` y sección «Núcleo, techs y top 8». Resto pendiente.
+- **Fase 44, parte 1, implementada el 9/10/2026** (#17, DECISIONES 47.1–47.6): núcleo y techs por arquetipo con diferencia e intervalo bootstrap por lista, 2 copias contra 1 y conversión al top 8 ajustada por torneo; tool `tournaments_archetype_cards` y sección «Núcleo, techs y top 8».
+- **Fase 44, parte 2, implementada el 11/10/2026** (#55, reemplaza a #52; DECISIONES 47.7–47.17):
+  - porcentaje con la moneda pareja (`coinAdjustedRate`);
+  - «mi meta» de la era con n efectivo de Kish (`myMeta`, `GET /api/matches/my-meta`, `MatchesService.myMeta({ era })`); sus pesos, con su error, entran en `expectedVsMeta` (`sharesSample`: `?meta=mine` en `/api/decks-today`, `expectedMine` en la ficha);
+  - Zona de Energía (`energyZoneOdds`) y robo con cartas que buscan (`searchOdds`) en «Mano inicial»;
+  - misiones como tercer objetivo de Sobres (`packMissions`);
+  - «¿Qué armo después?» (`nextBuilds`, `GET /api/decks-next`);
+  - tipos de energía de un mazo sin repetir (`energySet`), y «Cerrar sesión» borra lo compartido.
+  - Tools `matches_my_meta` y `decks_next_build` (42 de lectura). La fase 44 queda completa.
 - **CI y screens (#36/#33, D-023 y T-014):** 4 workers por suite en CI y esperas ajustadas solo en CI; el arnés conserva logs y abandona intentos. Los reclamos desconectados liberan partidas y todos los chunks del lote; compatibilidad con workers 0.2.6/0.2.7 verificada.
 - **Optimizar (#32, H-011 resuelto, DECISIONES 45.36–45.40):** semillas comunes (engine-cli 0.3.2) y confirmación de las 3 mejores con semillas nuevas, visible también en MCP. Candidatas repetidas pendientes (H-050).
-- **Repo público (#26, D-022):** ensayo hecho con `scripts/public-repo.mjs`, `scripts/reserve-numbers.mjs` y `docs/MUDANZA.md`; repo nuevo con historial limpio, 1.0.0 y numeración reservada. Mudanza por el Coordinador con OK de Santi y cero PR abiertos; quedan Dependabot #21, #23 y #24.
 - **Revisión del bot f (#35, H-018):** Energía y evoluciones en paralelo, reloj acotado, ataques compatibles con la zona y daño a la Banca separado; `a574691` sube engine-cli a 0.3.3 para invalidar la caché anterior.
 - **Desplegado el 10/10/2026:** `52c87e3` en producción, con todo lo anterior y el arreglo del doble arranque del servidor en el e2e de simulación (#32/#33). Worker 0.2.7 en la PC con engine-cli 0.3.3 y features `perGame`, `batch`, `fairBots`. Siguen pendientes Tigris/primera limpieza con OK de Santi (39), UptimeRobot (38) y el seguimiento de #29; modo mínimo hasta el domingo.
+- **Worker en Android (T-015, 10–11/10/2026, adelantado por Santi):**
+  - #38 (0.2.8, DECISIONES 48.1–48.9): Termux, motor musl, paquete `GET /api/worker/packages/android-arm64` por Bearer y prueba de determinismo al arrancar;
+  - #40 (0.2.9): Termux:Widget y `--stop`;
+  - #41 (0.2.10): el nombre del celu;
+  - #43 (0.2.11, D-025): resiliencia y `allowSlowBots`, falso por defecto en Android. El «S25» lo tiene activado por decisión de Santi.
+  - #39 (0.2.8, D-023, 49.1–49.4): los motores de fondo en prioridad `below_normal`, así la CI va primero.
+- **Adelantar simulaciones (#42, T-018, D-024, DECISIONES 50.1–50.4):** `simulation_jobs.priority` y `POST /api/simulations/:id/priority`. Explorar, laboratorio (`params.lab`) y consistencia van siempre antes («Las cortas siempre primero»).
+- **Análisis de simulaciones (#45, T-019, D-027 propuesta, DECISIONES 52.1–52.7):** Más → Simulación → Análisis (`/simulacion/analisis`), `GET /api/simulations/analysis` y tool `simulations_analysis`, con `uplot` 1.6.32.
+- **Fase 42, 11/10:**
+  - seguimiento de la calibración (#44);
+  - partidas por peso y confirmación con e3, «robusto / sensible al bot» (#49, 45.19);
+  - carreras, apagadas por defecto (#53, 40.25);
+  - objetivo del laboratorio: meta, «mi meta» o un rival (#47, T-017 D4, 45.18);
+  - caché exacta de chunks (#46, 45.44): migración `20261011020000_chunk_cache`, engine-cli 0.3.4 con huella de compilación, worker 0.3.1, `cache: false` para «Repetir».
+  - Faltan reencolar al cambiar el motor (#48, rama `sim/engine-change`) y «repetir los últimos».
+- **Los workers se actualizan solos (#50, D-026, DECISIONES 51.1–51.16):** worker 0.3.0, portable de Windows y Android.
+  - `GET /api/worker/packages/:platform[/version]` sirve el paquete; el worker verifica el SHA-256 y la prueba de determinismo, cambia entre chunks y vuelve atrás si falla.
+  - El motor de Windows se compila cruzado con zig en el Dockerfile; `"autoUpdate": false` lo apaga.
+  - La PC pasó al paquete portable el 11/10; faltan el Ryzen y el celu.
+- **Colección desde el tracker (#56, T-020, D-028 propuesta, DECISIONES 54.1–54.11):** el tracker entra por el mismo importador que el CSV (`collection_imports` con `source`).
+  - Backup `schemaVersion` 8, ajustes `trackerFriendId` y `trackerAutoSync`, aviso `tracker_sync` y última sincronización por las dos fuentes.
+  - En producción falta el secreto `TRACKER_COLLECTION_ANON_KEY`. La automática sigue apagada hasta que Santi pruebe a mano desde Colección.
+- **CI (D-023):** del 9 al 11/10 corrió en runners propios (`tcg-pc-1/2` y `tcg-ryzen-1/2`, etiquetas `tcg-pc` y `tcg-light`), que se dieron de baja con la mudanza. **En el repo público corre en los runners de GitHub, y los propios no se usan ahí.**
+- **Integrados el 10–11/10/2026:** #38–#47, #49, #50, #53, #55 y #56. Cerrados sin integrar: #48 (para después), #52 (lo reemplazó #55), #54 y #51 (Dependabot).
+- **Producción al 11/10/2026:** el contenido de `abd5034` (= `9f934fc` del viejo), sin redeploy después de la mudanza.
+- **Pendientes** (detalle en Avance):
+  - H-051, el bot «et», para engine-cli 0.3.5 (avisado upstream: bcollazo/deckgym-core#396);
+  - #48 y el worker del navegador (#57, rama trasladada);
+  - `--setup --keep` del worker;
+  - E3/E4 del laboratorio;
+  - el Ryzen, el martes 13/10;
+  - Tigris y la primera limpieza (39), y UptimeRobot (38).
 - **Visto bueno de Santi para todo el 8/10/2026**: fases 0–8 del plan, laboratorio y ajustes aprobados; no queda nada esperando su revisión. Siguiente paso: lo que pida Santi (abiertos: remapeo I12 al cambiar el catálogo, R-001; CI antes de cada deploy, R-007).
 
 ## Cómo trabajar acá
@@ -106,6 +149,11 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 - Tests para toda la lógica de dominio: conteo de copias, validación de mazos, probabilidades de sobres, estadísticas, importadores y exportadores.
 - Antes de reimplementar algo, mirar si existe en `refs/tracker` o `refs/deckgym-core` y leer su código.
 - Código, identificadores y commits en inglés; interfaz y textos en español, con los nombres de cartas en español. Un solo usuario: no diseñar como SaaS.
+- **El repo es público (D-022):** nada de datos personales en commits, PR, issues, código ni bóveda.
+  - Ni mails (salvo el noreply), ni tokens o secretos, ni la ref de Supabase, ni IDs de máquinas o IPs privadas.
+  - Los jugadores reales de Limitless van con sus seudónimos.
+  - En las rutas va `C:/Users/<usuario>/…`, nunca el usuario de Windows.
+  - En los textos nuevos van los sha del repo público.
 - Mantener `docs/LICENCIAS.md` cuando se tome algo de los repositorios de referencia; no copiar código de UI del tracker (GPL); no modificar deckgym-core; no copiar imágenes de cartas.
 - Bóveda Obsidian en `Boveda/` (kit de Posta, dialecto tablero): leer `Boveda/Inicio.md`, `Boveda/Seguimiento/Avance.md` y la última foto de `Boveda/Sesiones/` al empezar (el hook `SessionStart` inyecta el estado). Cuando cambia una decisión, pregunta, supuesto, riesgo, hallazgo o tarea, actualizar su ficha (`Seguimiento/<Tipo>s/X-NNN.md`, desde `Plantillas/`); lo que necesita el visto bueno de Santi va como `propuesta`/`pendiente`, nunca como hecho. Una bitácora por día en `Bitacora/`. `Boveda/Sesiones/` no se edita: lo escribe Posta. Antes de commitear cambios en `Boveda/`: `posta generar .` y `posta check .` sin errores (el hook `Stop` lo valida al terminar cada turno). `docs/DECISIONES.md` sigue siendo el registro de una línea por decisión.
 - Posta activo desde el 8/10/2026 (D-009): los hooks los pone el plugin de Posta para Claude Code (`"hooks": "plugin"` en `.posta/config.json`; `posta` del PATH = `C:/Users/<usuario>/TRABAJO/project-workflow-lab`) y `.claude/settings.json` lleva sólo los permisos; secretos y `git push` con confirmación. Reglas del kit (`AGENTS.md`) que valen acá: citar los códigos de fichas en los commits (`feat: … (D-016)`), proponer lo que decide Santi. Excepciones acordadas: commits en inglés, y Claude sube a GitHub y despliega solo cuando Santi lo pide en cada caso. Para las fases 36 a 44 (T-014), Santi autorizó el 9/10/2026 subir y desplegar cada una al terminarla, con la CI en verde, y seguir de corrido. Sin la CI de Posta (R-007).
@@ -121,10 +169,15 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 
 ## Entorno y comandos
 
+- Repo: `santiqwerty1/tcg-pocket` (público desde el 11/10/2026). `santiqwerty1/tcg-pocket-historial` es el privado viejo, archivado y de solo lectura: tiene las descripciones originales de los PR hasta #56.
+  - CI en los runners de GitHub. `scripts/ci-runner/` (runners propios, `-Repo`) es solo para un repo privado y se niega a registrar en uno público (D-023, `docs/OPERACION.md`).
 - Windows 11, PowerShell. Disponibles: node 24, pnpm (instalar si falta), git, gh (autenticado), curl, Rust estable `x86_64-pc-windows-gnu` (rustup, perfil mínimo) y WinLibs (MinGW-w64, por winget) desde el 8/10/2026. Santi dio permiso amplio para instalar herramientas.
 - Motor: `W=$(ls -d "$LOCALAPPDATA"/Microsoft/WinGet/Packages/BrechtSanders.WinLibs*/mingw64/bin | head -1); export PATH="$USERPROFILE/.cargo/bin:$W:$PATH"` y después `cargo build --release` / `cargo test --release` en `engine/` (sin WinLibs falla con «dlltool not found»). El binario queda en `engine/target/release/engine-cli.exe`; CI lo compila en Windows (job `engine`, artefacto `engine-cli-windows`).
 - Otra PC como worker (9/10/2026, DECISIONES 24.4): `pnpm -F @tcg/worker package` arma `apps/worker/build/tcg-worker-<versión>-windows.zip` (`tcg-worker.exe` con Node adentro + `engine-cli.exe` + LEEME; también artefacto `tcg-worker-windows` de la CI). Doble clic en la otra PC: token, núcleos, nombre y arranque automático.
-- Reiniciar el worker de la PC desde una sesión de Claude: con PowerShell, `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = "wscript.exe `"$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\tcg-pocket-worker.vbs`"" }` (lo lanza Windows). Nunca con `Start-Process`: queda colgado de la app de Claude y muere cuando la app se actualiza (H-016, 9/10/2026).
+- Worker de la PC desde el 11/10/2026: paquete portable (`tcg-worker.exe --run`) que se actualiza solo desde la app (D-026). Después de un deploy ya no hace falta recompilar el motor ni reiniciarlo.
+  - Para reiniciarlo desde una sesión de Claude, con PowerShell: `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = "wscript.exe `"<lanzador>`"" }`. El lanzador es `%LOCALAPPDATA%\tcg-worker\launch.vbs` o, si no está, el `tcg-pocket-worker.vbs` de la carpeta Inicio (`$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup`).
+  - Nunca con `Start-Process`: queda colgado de la app de Claude y muere cuando la app se actualiza (H-016, 9/10/2026).
+  - La app de Claude es empaquetada: lo que escribe en `AppData\Roaming` queda virtualizado. Para escribir en la carpeta Inicio, usar un proceso lanzado por WMI.
 - Worker: token de tipo worker en Más → Tokens de API; `%LOCALAPPDATA%\tcg-worker\config.json` = `{"token": "tcg_wk_…", "server": "https://tcg-pocket.fly.dev", "cores": 8}` (o variables `TCG_WORKER_TOKEN`, `TCG_SERVER`, `TCG_WORKER_CORES`, `TCG_ENGINE_PATH`, `TCG_WORKER_DIR`); `pnpm -F @tcg/worker build`, `node apps/worker/dist/main.js [--check|--once]`, `pnpm -F @tcg/worker install-task` (tarea al iniciar sesión) / `uninstall-task`. Los tests del worker usan `apps/worker/test/fake-engine.mjs`.
 - La API de Limitless limita a 50 requests por 5 minutos por IP: no la llamar en bucle desde scripts ad hoc.
 - Postgres local: `docker compose up -d` (Postgres 17 en `127.0.0.1:5433`, usuario/clave/db `tcg`; base de tests `tcg_test`). `.env` se copia de `.env.example` y **no se versiona**; usar `127.0.0.1` y no `localhost` en `DATABASE_URL` (el motor de Prisma resuelve `localhost` por IPv6 y Docker en Windows no responde ahí) y un `SESSION_SECRET` de ≥ 32 caracteres.
@@ -137,9 +190,9 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 
 ## Producción
 
-- `flyctl` está en `%USERPROFILE%.flyin`. `flyctl ssh console` falla desde esta PC (túnel WireGuard reseteado); usar `flyctl machine exec <id> --app tcg-pocket "<comando>"` (API de máquinas) para tareas puntuales: `node /app/apps/api/dist/cli/catalog-sync.js`, `node /app/apps/api/dist/cli/owner-init.js`.
+- `flyctl` está en `%USERPROFILE%\.fly\bin`. `flyctl ssh console` falla desde esta PC (túnel WireGuard reseteado); usar `flyctl machine exec <id> --app tcg-pocket "<comando>"` (API de máquinas) para tareas puntuales: `node /app/apps/api/dist/cli/catalog-sync.js`, `node /app/apps/api/dist/cli/owner-init.js`.
 - Tras un `catalog-sync` por CLI hay que reiniciar la máquina (`flyctl machine restart <id>`) o usar `POST /api/catalog/sync`, porque el catálogo vive en memoria del proceso.
-- Deploy: `pnpm deploy:fly` (Fase 21: exige árbol limpio, el commit en `origin/main`, la CI verde y `posta check`; después corre `flyctl deploy --app tcg-pocket --remote-only --ha=false`). `pnpm deploy:check` solo revisa. Secretos: `flyctl secrets set` (`DATABASE_URL` en `.env.fly`, nunca en el repo).
+- Deploy: `pnpm deploy:fly` (Fase 21: exige árbol limpio, el commit en `origin/main` del repo público, la CI verde en los runners de GitHub y `posta check`; después corre `flyctl deploy --app tcg-pocket --remote-only --ha=false`). `pnpm deploy:check` solo revisa. Secretos: `flyctl secrets set` (`DATABASE_URL` en `.env.fly`, nunca en el repo).
 - Fly crea 2 máquinas por defecto; siempre `--ha=false` (un usuario).
 - Notificaciones (Fase 18): las claves VAPID se generan una vez y van como secretos, sin pasar por el chat ni la terminal visible: `node -e` con `require('web-push').generateVAPIDKeys()` escribiendo directo a `flyctl secrets set VAPID_PUBLIC_KEY=… VAPID_PRIVATE_KEY=… --app tcg-pocket` (cambiarlas invalida las suscripciones: cada dispositivo vuelve a activar).
 
