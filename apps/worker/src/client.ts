@@ -31,6 +31,8 @@ export interface Hello {
   engineFeatures?: string[]
   /** B2: several pairings of one job in one engine process, up to these limits (only with an engine that has `batch`). */
   batch?: { maxChunks: number; maxGames: number }
+  /** Phase 42: how its engine plays (`gamesRev` of `engine-cli version`). */
+  gamesRev?: number
 }
 
 export interface Chunk {
@@ -78,6 +80,8 @@ export interface ChunkResult {
   engineRev: string
   /** Phase 42: the engine that played it, «0.3.4+<build>» (the API's cache reuses a result only with the same). */
   cliVersion?: string
+  /** Phase 42: how that engine plays; the API fixes it for the whole job with its first result. */
+  gamesRev?: number
   winsA: number
   winsB: number
   ties: number
@@ -287,7 +291,14 @@ export class WorkerClient {
   }
 
   liveClaim(
-    body: { workerId: string; engineRev: string; version: string; engineFeatures?: string[] },
+    body: {
+      workerId: string
+      engineRev: string
+      version: string
+      engineFeatures?: string[]
+      cliVersion?: string
+      gamesRev?: number
+    },
     signal?: AbortSignal,
   ) {
     return this.request<{ game: LiveGame | null }>('POST', '/api/worker/live/claim', body, {

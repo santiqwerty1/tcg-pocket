@@ -35,6 +35,7 @@ import { TokensModule } from '../tokens/tokens.module.js'
 import { TournamentsModule } from '../tournaments/tournaments.controller.js'
 import { SimulationAnalysisService } from './analysis.service.js'
 import { ChunkCacheService } from './chunk-cache.service.js'
+import { EngineChangeService } from './engine-change.service.js'
 import { EngineUpstreamService } from './engine-upstream.service.js'
 import type { EngineView, JobDetailView, JobSummaryView, ReplayView } from './simulation-views.js'
 import { SimulationsService } from './simulations.service.js'
@@ -109,6 +110,8 @@ const helloSchema = z.object({
   version: z.string().max(40).optional(),
   allowSlowBots: z.boolean().default(true),
   engineFeatures: z.array(z.string().max(40)).max(32).optional(),
+  /** Phase 42: how its engine plays (engine-cli 0.3.6 on). */
+  gamesRev: z.number().int().min(0).max(10_000).optional(),
   batch: z
     .object({ maxChunks: z.number().int().min(1).max(256), maxGames: z.number().int().min(1).max(50_000) })
     .optional(),
@@ -132,6 +135,8 @@ const resultSchema = z.object({
    * it, or the chunk would be played forever); only the exact form makes it a source of the cache.
    */
   cliVersion: z.string().max(100).optional(),
+  /** Phase 42: how the engine that played it plays; the first result fixes it for the whole job. */
+  gamesRev: z.number().int().min(0).max(10_000).optional(),
   extra: z.record(z.string(), z.unknown()).optional(),
 })
 const failureSchema = z.object({ workerId: z.string().min(8).max(64), error: z.string().min(1).max(20_000) })
@@ -412,6 +417,7 @@ export class SimulationsController {
     SnapshotsService,
     WorkerQueueService,
     ChunkCacheService,
+    EngineChangeService,
     SimulationsService,
     SimulationAnalysisService,
   ],

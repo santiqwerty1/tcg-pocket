@@ -798,6 +798,8 @@ model WorkerNode {
   version    String?
   /// What its engine can do (`engine-cli version` features), reported from worker 0.2.6 on; empty before.
   engineFeatures String[] @default([]) @map("engine_features")
+  /// Phase 42: how its engine plays (`gamesRev`; 1 for engine-cli 0.3.3 on before it said it, 0 before that).
+  gamesRev   Int?     @map("games_rev")
   lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(3)
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
@@ -847,6 +849,8 @@ model SimulationJob {
   cores        Int?
   replaySample Int                 @default(2) @map("replay_sample")
   totalGames   Int                 @map("total_games")
+  /// Phase 42: how its games are played (the engine's `gamesRev`), fixed by its first result; null until then.
+  gamesRev     Int?                @map("games_rev")
   createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
   startedAt    DateTime?           @map("started_at") @db.Timestamptz(3)
   finishedAt   DateTime?           @map("finished_at") @db.Timestamptz(3)
@@ -930,6 +934,8 @@ enum LiveGameStatus {
   done
   abandoned
   failed
+  /// Phase 42: a new deckgym or games revision came while it was being played: it cannot go on the same way.
+  engine_changed
 }
 
 /// A game of the owner against a bot: the worker on the PC runs `engine-cli play` and relays each decision. The game
@@ -946,6 +952,8 @@ model LiveGame {
   bot             String
   seed            BigInt
   engineRev       String         @map("engine_rev")
+  /// Phase 42: how the engine that played it plays (`gamesRev`, set by the first worker that took it).
+  gamesRev        Int?           @map("games_rev")
   workerId        String?        @map("worker_id")
   leaseUntil      DateTime?      @map("lease_until") @db.Timestamptz(3)
   /// The owner's choice at each decision, in order.

@@ -54,10 +54,15 @@ export class LiveRunner {
    * Runs until the signal aborts (or, after `drain`, until no game is in progress); an unexpected error restarts the
    * loop a minute later. Never rejects.
    */
-  async start(engineRev: string, signal: AbortSignal, engineFeatures: string[] = []): Promise<void> {
+  async start(
+    engineRev: string,
+    signal: AbortSignal,
+    engineFeatures: string[] = [],
+    engine: { cliVersion?: string; gamesRev?: number } = {},
+  ): Promise<void> {
     while (!signal.aborted && !this.draining.signal.aborted) {
       try {
-        await this.loop(engineRev, signal, engineFeatures)
+        await this.loop(engineRev, signal, engineFeatures, engine)
       } catch (error) {
         if (signal.aborted || this.draining.signal.aborted) return
         this.log('las partidas contra el bot fallaron; vuelvo a empezar en 60 s', {
@@ -70,7 +75,12 @@ export class LiveRunner {
     }
   }
 
-  async loop(engineRev: string, signal: AbortSignal, engineFeatures: string[] = []): Promise<void> {
+  async loop(
+    engineRev: string,
+    signal: AbortSignal,
+    engineFeatures: string[] = [],
+    engine: { cliVersion?: string; gamesRev?: number } = {},
+  ): Promise<void> {
     while (!signal.aborted && !this.draining.signal.aborted) {
       let game: LiveGame | null
       try {
@@ -81,6 +91,8 @@ export class LiveRunner {
               engineRev,
               version: WORKER_VERSION,
               ...(engineFeatures.length ? { engineFeatures } : {}),
+              // Phase 42: a game is played whole by engines that play the same way.
+              ...engine,
             },
             AbortSignal.any([signal, this.draining.signal]),
           )

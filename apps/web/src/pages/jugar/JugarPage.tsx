@@ -38,6 +38,7 @@ const STATUS: Record<LiveGameItem['status'], string> = {
   done: 'terminada',
   abandoned: 'abandonada',
   failed: 'falló',
+  engine_changed: 'terminada porque cambió el motor',
 }
 
 function resultLabel(game: LiveGameItem): string {

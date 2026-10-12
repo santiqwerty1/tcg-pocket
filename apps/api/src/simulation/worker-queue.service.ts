@@ -15,6 +15,7 @@ import {
   ET_BOT_CODE,
   FAIR_BOT_CODES,
   type PerGameResults,
+  saidGamesRev,
   summarizeAnalysisGames,
   wantsPerGame,
 } from '@tcg/domain'
@@ -46,6 +47,8 @@ export interface WorkerHello {
   engineFeatures?: string[] | undefined
   /** B2: the worker plays several pairings of one job in one engine process, up to these limits. */
   batch?: { maxChunks: number; maxGames: number } | undefined
+  /** Phase 42: how its engine plays (engine-cli 0.3.6 on); derived from `cliVersion` before (gamesRevOf). */
+  gamesRev?: number | undefined
 }
 
 /** Said to a worker that got nothing while there is work it cannot play: it writes it in its log. */
@@ -114,6 +117,8 @@ export interface ChunkResultInput {
   durationMs: number
   /** Phase 42: the engine that played it, «0.3.4+<build>» (worker 0.2.12 on); the exact cache reuses only those. */
   cliVersion?: string | undefined
+  /** Phase 42: how the engine that played it plays; the first result fixes it for the whole job. */
+  gamesRev?: number | undefined
   extra?: Prisma.InputJsonValue | undefined
 }
 
@@ -161,6 +166,7 @@ export class WorkerQueueService {
   }
 
   private async seen(hello: WorkerHello): Promise<void> {
+    const gamesRev = saidGamesRev(hello)
     await this.prisma.workerNode.upsert({
       where: { id: hello.workerId },
       create: {
@@ -171,6 +177,7 @@ export class WorkerQueueService {
         cores: hello.cores,
         version: hello.version ?? null,
         engineFeatures: hello.engineFeatures ?? [],
+        gamesRev,
       },
       update: {
         name: hello.name,
@@ -179,6 +186,7 @@ export class WorkerQueueService {
         cores: hello.cores,
         version: hello.version ?? null,
         engineFeatures: hello.engineFeatures ?? [],
+        ...(gamesRev === null ? {} : { gamesRev }),
         lastSeenAt: new Date(),
       },
     })
@@ -204,6 +212,9 @@ export class WorkerQueueService {
     // H-051: «et» needs an engine that lists «etBot»; an older one fails the chunk three times. Not a consistency job:
     // it keeps «et» as the goldfish rival, which the engine builds itself (consistency.rs), without the parser.
     const etBot = canPlayEtBot(hello)
+    // Phase 42: a job is played whole by engines that play the same way (fixed by its first result). An engine that
+    // does not say how it plays takes only jobs not fixed yet.
+    const gamesRev = saidGamesRev(hello)
     const allowSlowBots = hello.allowSlowBots ?? true
     const rows = await this.prisma.$queryRaw<{ id: number }[]>`
       UPDATE simulation_chunks SET status = 'leased', lease_until = now() + interval '3 minutes',
@@ -233,6 +244,7 @@ export class WorkerQueueService {
           AND (COALESCE(j.params->>'perGame', 'false') <> 'true' OR ${perGame}::boolean)
           AND (NOT (j.players && ${fairBotCodes}::text[]) OR ${fairBot}::boolean)
           AND (j.kind = 'consistency' OR NOT (${ET_BOT_CODE} = ANY(j.players)) OR ${etBot}::boolean)
+          AND (j.games_rev IS NULL OR j.games_rev = ${gamesRev}::int)
           AND (${allowSlowBots}::boolean OR NOT (j.players && ${SLOW_BOT_CODES}::text[]))
           AND (c.status = 'queued' OR (c.status = 'leased' AND c.lease_until < now()))
         ORDER BY CASE WHEN j.kind IN ('explore', 'consistency') OR j.params ? 'lab' THEN 0 ELSE 1 END,
@@ -467,6 +479,37 @@ export class WorkerQueueService {
   async result(id: number, input: ChunkResultInput): Promise<{ accepted: boolean }> {
     const chunk = await this.requireChunk(id)
     if (chunk.status === 'done' || chunk.status === 'cancelled') return { accepted: false }
+    // Phase 42: a job moved to a new deckgym takes no result of the old one (a late worker that had the chunk).
+    if (input.engineRev !== chunk.job.engineRev) {
+      this.logger.warn({ chunk: id, engineRev: input.engineRev }, 'result of another engine turned down')
+      // Its lease, if it still had one, goes back to the queue: nobody else could take the chunk until it expired.
+      await this.prisma.simulationChunk.updateMany({
+        where: { id, status: 'leased', workerId: input.workerId },
+        data: { status: 'queued', leaseUntil: null, workerId: null, gamesDone: 0 },
+      })
+      this.notifyQueued()
+      return { accepted: false }
+    }
+    // Phase 42: how the engine that played it plays. From the result itself (the worker may have been updated since
+    // its last hello); a result that does not say it (a consistency of a worker before 0.3.3), by what its worker said
+    // at its last claim, its games revision or else its engine's version.
+    const node =
+      saidGamesRev(input) === null
+        ? await this.prisma.workerNode.findUnique({
+            where: { id: input.workerId },
+            select: { gamesRev: true, cliVersion: true },
+          })
+        : null
+    const gamesRev = saidGamesRev(input) ?? saidGamesRev(node ?? {})
+    if (chunk.job.gamesRev !== null && gamesRev !== null && chunk.job.gamesRev !== gamesRev) {
+      this.logger.warn({ chunk: id, gamesRev }, 'result of another games revision turned down')
+      await this.prisma.simulationChunk.updateMany({
+        where: { id, status: 'leased', workerId: input.workerId },
+        data: { status: 'queued', leaseUntil: null, workerId: null, gamesDone: 0 },
+      })
+      this.notifyQueued()
+      return { accepted: false }
+    }
     const perGame = (input.extra as { perGame?: unknown } | undefined)?.perGame
     const problem =
       input.winsA + input.winsB + input.ties !== input.games
@@ -480,37 +523,59 @@ export class WorkerQueueService {
       await this.failure(id, { workerId: input.workerId, error: `Resultado inválido: ${problem}` })
       throw new UnprocessableEntityException({ code: 'invalid_result', message: problem })
     }
-    await this.prisma.simulationChunk.update({
-      where: { id },
-      data: {
-        status: 'done',
-        winsA: input.winsA,
-        winsB: input.winsB,
-        ties: input.ties,
-        games: input.games,
-        gamesDone: input.games,
-        turns: input.turns === undefined ? null : BigInt(input.turns),
-        durationMs: Math.round(input.durationMs),
-        engineRev: input.engineRev,
-        // Phase 42: the engine that played it, as engine-cli said (not the worker's last hello: it may be recompiled
-        // without restarting). Without it the chunk is never a source of the exact cache.
-        cliVersion: input.cliVersion ?? null,
-        // Never trust a summary supplied by a client. This field belongs to the API.
-        ...(input.extra === undefined
-          ? {}
-          : {
-              extra: isPairing(chunk.job.kind)
-                ? {
-                    ...(typeof input.extra === 'object' && !Array.isArray(input.extra) ? input.extra : {}),
-                    analysisGames: perGame !== undefined ? summarizeAnalysisGames(perGame as PerGameResults) : null,
-                  }
-                : input.extra,
-            }),
-        error: null,
-        leaseUntil: null,
-        finishedAt: new Date(),
-      },
+    // One transaction: the job's row first (an engine change takes it too), with its deckgym and games revision checked
+    // and, with the first result, the revision fixed in the same statement, so two results of two revisions cannot both
+    // go in; then the chunk, only if nobody finished it first (review of #68).
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const fixed = await tx.$executeRaw`
+        UPDATE "simulation_jobs" SET "games_rev" = COALESCE("games_rev", ${gamesRev}::int)
+        WHERE "id" = ${chunk.jobId} AND "engine_rev" = ${input.engineRev}
+          AND (${gamesRev}::int IS NULL OR "games_rev" IS NULL OR "games_rev" = ${gamesRev}::int)`
+      if (fixed === 0) return 'engine' as const
+      const done = await tx.simulationChunk.updateMany({
+        // A failed chunk still takes a good result that arrives late, as before.
+        where: { id, status: { in: ['queued', 'leased', 'failed'] } },
+        data: {
+          status: 'done',
+          winsA: input.winsA,
+          winsB: input.winsB,
+          ties: input.ties,
+          games: input.games,
+          gamesDone: input.games,
+          turns: input.turns === undefined ? null : BigInt(input.turns),
+          durationMs: Math.round(input.durationMs),
+          engineRev: input.engineRev,
+          // Phase 42: the engine that played it, as engine-cli said (not the worker's last hello: it may be recompiled
+          // without restarting). Without it the chunk is never a source of the exact cache.
+          cliVersion: input.cliVersion ?? null,
+          // Never trust a summary supplied by a client. This field belongs to the API.
+          ...(input.extra === undefined
+            ? {}
+            : {
+                extra: isPairing(chunk.job.kind)
+                  ? {
+                      ...(typeof input.extra === 'object' && !Array.isArray(input.extra) ? input.extra : {}),
+                      analysisGames: perGame !== undefined ? summarizeAnalysisGames(perGame as PerGameResults) : null,
+                    }
+                  : input.extra,
+              }),
+          error: null,
+          leaseUntil: null,
+          finishedAt: new Date(),
+        },
+      })
+      return done.count > 0 ? ('done' as const) : ('taken' as const)
     })
+    if (outcome === 'taken') return { accepted: false }
+    if (outcome === 'engine') {
+      this.logger.warn({ chunk: id, engineRev: input.engineRev, gamesRev }, 'result of another engine turned down')
+      await this.prisma.simulationChunk.updateMany({
+        where: { id, status: 'leased', workerId: input.workerId },
+        data: { status: 'queued', leaseUntil: null, workerId: null, gamesDone: 0 },
+      })
+      this.notifyQueued()
+      return { accepted: false }
+    }
     await this.settle(chunk.jobId)
     return { accepted: true }
   }

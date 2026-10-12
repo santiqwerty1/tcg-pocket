@@ -47,6 +47,7 @@ import { gunzipJson } from '../http/gunzip.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { ChunkCacheService } from './chunk-cache.service.js'
+import { engineChangeView } from './engine-change.service.js'
 import { EngineUpstreamService } from './engine-upstream.service.js'
 import type {
   ConsistencyView,
@@ -616,6 +617,7 @@ export class SimulationsService {
       error: job.error,
       lab: labMode(job.params),
       archived: job.archivedAt !== null,
+      engineChange: engineChangeView(job.params),
       progress: progress.get(job.id) ?? {
         totalGames: job.totalGames,
         gamesDone: 0,
@@ -777,10 +779,10 @@ export class SimulationsService {
     if (!confirmation) return null
     const rivals = own?.sideB?.length ?? 0
     if ('pending' in confirmation) {
-      return { jobId: null, status: 'pending', error: confirmation.error ?? null, rivals, rows: [] }
+      return { jobId: null, status: 'pending', error: confirmation.error ?? null, engineChange: null, rivals, rows: [] }
     }
     if ('skipped' in confirmation) {
-      return { jobId: null, status: 'skipped', error: confirmation.skipped, rivals, rows: [] }
+      return { jobId: null, status: 'skipped', error: confirmation.skipped, engineChange: null, rivals, rows: [] }
     }
     const job = await this.prisma.simulationJob.findUnique({ where: { id: confirmation.jobId } })
     if (!job) return null
@@ -794,6 +796,7 @@ export class SimulationsService {
       jobId: job.id,
       status: job.status,
       error: null,
+      engineChange: engineChangeView(job.params),
       rivals: sideB.length,
       rows: confirmation.combinations.map((cards, at) => {
         const snapshot = confirmation.snapshots[at] ?? null
@@ -1237,9 +1240,11 @@ export class SimulationsService {
     })
     const ids = snapshots.map((row) => row.id)
     if (ids.length === 0) return null
-    // H-011.5: the confirmation of an optimize replays its rivals, which would count them twice.
+    // H-011.5: the confirmation of an optimize replays its rivals, which would count them twice. Phase 42: and what an
+    // engine change kept apart (`replacedBy`) is played again by the job that replaced it.
     const confirmations = await this.prisma.$queryRaw<{ id: number }[]>`
-      SELECT "id" FROM "simulation_jobs" WHERE "kind" = 'compare' AND "params"->'confirmationOf' IS NOT NULL`
+      SELECT "id" FROM "simulation_jobs"
+      WHERE ("kind" = 'compare' AND "params"->'confirmationOf' IS NOT NULL) OR "params" ? 'replacedBy'`
     const chunks = await this.prisma.simulationChunk.findMany({
       where: {
         status: 'done',
@@ -1255,23 +1260,24 @@ export class SimulationsService {
         winsB: true,
         ties: true,
         jobId: true,
-        job: { select: { players: true, engineRev: true } },
+        job: { select: { players: true, engineRev: true, gamesRev: true } },
       },
     })
     if (chunks.length === 0) return null
-    // One engine and one bot pair, never mixed: the current engine first (after a deckgym update the old results stay
-    // apart), then the bot pair with the most chunks.
+    // One engine and one bot pair, never mixed: the current deckgym first (after an update the old results stay
+    // apart), then its newest games revision (phase 42), then the bot pair with the most chunks.
     const currentRev = this.engine.engineRev()
     const byPlayers = new Map<string, typeof chunks>()
     for (const chunk of chunks) {
-      const key = `${chunk.job.engineRev}|${chunk.job.players.join(',')}`
+      const key = `${chunk.job.engineRev}|${chunk.job.gamesRev ?? -1}|${chunk.job.players.join(',')}`
       byPlayers.set(key, [...(byPlayers.get(key) ?? []), chunk])
     }
     const isCurrent = (key: string) => (key.startsWith(`${currentRev}|`) ? 1 : 0)
+    const revisionOf = (key: string) => Number(key.split('|')[1])
     const [groupKey, chosen] = [...byPlayers].sort(
-      (x, y) => isCurrent(y[0]) - isCurrent(x[0]) || y[1].length - x[1].length,
+      (x, y) => isCurrent(y[0]) - isCurrent(x[0]) || revisionOf(y[0]) - revisionOf(x[0]) || y[1].length - x[1].length,
     )[0] as [string, typeof chunks]
-    const pairKey = groupKey.split('|')[1] ?? ''
+    const pairKey = groupKey.split('|')[2] ?? ''
     const own = new Set(ids)
     const outcomes = chosen.map((chunk) => ({
       a: own.has(chunk.snapshotAId ?? -1) ? 0 : 1,

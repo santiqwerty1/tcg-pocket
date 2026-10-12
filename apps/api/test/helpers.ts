@@ -1,5 +1,6 @@
 import type { NestExpressApplication } from '@nestjs/platform-express'
 import request from 'supertest'
+import { AlertsService } from '../src/alerts/alerts.service.js'
 import { createApp } from '../src/app.js'
 import { OwnerService } from '../src/auth/owner.service.js'
 import { hashPassword } from '../src/auth/password.js'
@@ -24,6 +25,8 @@ export async function createTestApp(): Promise<TestApp> {
   await truncateAllTables(env.databaseUrl)
   const app = await createApp(env)
   await app.init()
+  // The tests start the app and look at the alerts right away: no grace after a «deploy».
+  app.get(AlertsService).deployGraceMs = 0
   return {
     app,
     env,

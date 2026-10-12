@@ -65,6 +65,31 @@ export function canBatch(worker: WorkerAbilities): boolean {
   return hasEngineFeature(worker, 'batch')
 }
 
+/** Phase 42: engine-cli 0.3.3 on plays like games revision 1, even the engines that do not say it yet (0.3.3–0.3.5). */
+export const FIRST_GAMES_REV_CLI_VERSION = '0.3.3'
+
+/**
+ * How a worker's engine plays (`gamesRev` of `engine-cli version`, phase 42): a job is played whole with one, so the
+ * queue gives its chunks only to engines with the same. Before engines said it, 1 from engine-cli 0.3.3 on (nothing
+ * that already existed plays otherwise since the f bots' clock) and 0 before.
+ */
+export function gamesRevOf(worker: {
+  gamesRev?: number | null | undefined
+  cliVersion?: string | null | undefined
+}): number {
+  if (typeof worker.gamesRev === 'number' && Number.isInteger(worker.gamesRev) && worker.gamesRev >= 0)
+    return worker.gamesRev
+  return versionAtLeast(worker.cliVersion, FIRST_GAMES_REV_CLI_VERSION) ? 1 : 0
+}
+
+/**
+ * Phase 42: how an engine plays, from what it said: its games revision, else its version (`gamesRevOf`). Null when it
+ * said neither: nothing is fixed or checked with a guess (`gamesRevOf({})` is 0, an old revision; review of #68).
+ */
+export function saidGamesRev(said: { gamesRev?: number | null; cliVersion?: string | null }): number | null {
+  return typeof said.gamesRev === 'number' || said.cliVersion ? gamesRevOf(said) : null
+}
+
 /** Jobs played with the f bots (H-018): only engines that list them. */
 export function canPlayFairBots(worker: WorkerAbilities): boolean {
   return hasEngineFeature(worker, 'fairBots')

@@ -129,6 +129,8 @@ export class Worker {
   liveDrainMs = LIVE_DRAIN_MS
   /** Whether the engine plays several pairings in one process (`features` of `engine-cli version`). */
   private batchable = false
+  /** Phase 42: how the engine plays (`gamesRev`), from `engine-cli version`; missing in older engines. */
+  private gamesRev: number | undefined
 
   constructor(
     private readonly config: WorkerConfig,
@@ -157,6 +159,7 @@ export class Worker {
   async prepare(signal?: AbortSignal): Promise<{ engineRev: string; cliVersion: string; engineFeatures: string[] }> {
     const version = await engineVersion(this.config.enginePath, signal)
     this.batchable = version.features?.includes('batch') ?? false
+    this.gamesRev = typeof version.gamesRev === 'number' ? version.gamesRev : undefined
     const state = await this.readState()
     if (state.statusUploaded !== version.engineRev) {
       const cards = await engineStatus(this.config.enginePath, signal)
@@ -165,6 +168,11 @@ export class Worker {
       await this.writeState({ ...state, statusUploaded: version.engineRev })
     }
     return { engineRev: version.engineRev, cliVersion: version.cliVersion, engineFeatures: version.features ?? [] }
+  }
+
+  /** Phase 42: `gamesRev` for a claim or a result, when the engine says it. */
+  private revision(): { gamesRev?: number } {
+    return this.gamesRev === undefined ? {} : { gamesRev: this.gamesRev }
   }
 
   /** Sends the results left over by a previous run (no network, PC turned off right after a chunk). */
@@ -310,6 +318,7 @@ export class Worker {
             workerId: this.config.workerId,
             engineRev: result.engineRev,
             ...playedBy(result),
+            ...this.revision(),
             ...totals,
             durationMs: result.durationMs,
             extra: { combinations: result.combinations },
@@ -351,6 +360,7 @@ export class Worker {
           result: {
             workerId: this.config.workerId,
             engineRev: result.engineRev,
+            ...this.revision(),
             winsA: result.games - never,
             winsB: never,
             ties: 0,
@@ -393,6 +403,7 @@ export class Worker {
           workerId: this.config.workerId,
           engineRev: result.engineRev,
           ...playedBy(result),
+          ...this.revision(),
           winsA: result.winsA,
           winsB: result.winsB,
           ties: result.ties,
@@ -588,6 +599,7 @@ export class Worker {
             workerId: this.config.workerId,
             engineRev: result.engineRev,
             ...playedBy(result),
+            ...this.revision(),
             winsA: pairing.winsA,
             winsB: pairing.winsB,
             ties: pairing.ties,
@@ -671,7 +683,7 @@ export class Worker {
       // Games against a bot run next to the chunks (they wait on the owner most of the time).
       if (!options.once) {
         liveRunner = new LiveRunner(this.config, this.client, this.log, this.workDir)
-        live = liveRunner.start(engineRev, signal, engineFeatures)
+        live = liveRunner.start(engineRev, signal, engineFeatures, { cliVersion, ...this.revision() })
       }
       // The app's hint about waiting work this worker cannot play, written once each time it changes.
       let lastHint: string | null = null
@@ -688,6 +700,7 @@ export class Worker {
               version: WORKER_VERSION,
               allowSlowBots: this.config.allowSlowBots,
               ...(engineFeatures.length ? { engineFeatures } : {}),
+              ...this.revision(),
               ...(this.batchable
                 ? { batch: { maxChunks: BATCH_MAX_CHUNKS, maxGames: this.config.cores * BATCH_GAMES_PER_CORE } }
                 : {}),

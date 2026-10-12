@@ -6,6 +6,10 @@ import { gzipSync } from 'node:zlib'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
+import { jobSummaryJson } from '../src/mcp/mcp-json.js'
+import { LiveGamesService } from '../src/play/live-games.service.js'
+import { ChunkCacheService } from '../src/simulation/chunk-cache.service.js'
+import { EngineChangeService, GAMES_REV_GONE_MS } from '../src/simulation/engine-change.service.js'
 import { SimulationsService } from '../src/simulation/simulations.service.js'
 import { EngineStatusService } from '../src/simulation/snapshots.service.js'
 import { type ClaimedChunk, WorkerQueueService } from '../src/simulation/worker-queue.service.js'
@@ -636,7 +640,7 @@ describe('simulation (e2e)', () => {
       }
     }
     expect(detail.status).toBe('done')
-    expect(detail.optimizeConfirmation).toMatchObject({ status: 'queued', rivals: 2 })
+    expect(detail.optimizeConfirmation).toMatchObject({ status: 'queued', rivals: 2, engineChange: null })
     // Deck 2 already plays 2 Poké Ball: with a third the engine would not play it, so it is left out (marked).
     expect(
       detail.optimizeConfirmation.rows.map((row) => [
@@ -681,6 +685,13 @@ describe('simulation (e2e)', () => {
       expect(cards).toBe(20)
     }
     expect(variants.find((variant) => variant.id === confirmation.sideA[0])?.label).toMatch(/· 1\.º: \+ /)
+    // Phase 42: a confirmation that moves to another engine says so on the optimize (the search played on the old one).
+    await test.prisma.simulationJob.update({ where: { id: confirmationId }, data: { engineRev: 'c'.repeat(40) } })
+    expect((await test.app.get(EngineChangeService).moveJobs()).moved).toEqual([confirmationId])
+    expect((await get(`/api/simulations/${id}`)).body.optimizeConfirmation.engineChange).toMatchObject({
+      from: 'c'.repeat(40),
+      replayed: false,
+    })
 
     // The confirmation replays the rivals: it stays out of their «simulación» column.
     const simulations = test.app.get(SimulationsService)
@@ -1465,7 +1476,7 @@ describe('simulation (e2e)', () => {
   })
 
   it('phase 42: a chunk that would play exactly what a finished one played takes its result, with its replays', async () => {
-    const hello = worker('worker-cache')
+    const hello = { ...worker('worker-cache'), cliVersion: '0.3.4' }
     const engine = '0.3.4+0123456789abcdef'
     const job = (overrides: Structured = {}) =>
       post('/api/simulations').send({
@@ -1550,6 +1561,28 @@ describe('simulation (e2e)', () => {
     const analysis = (await get('/api/simulations/analysis')).body.summary as { games: number; cachedGames: number }
     expect(analysis).toMatchObject({ games: gamesBefore, cachedGames: 40 })
 
+    // Never from what an engine change kept apart, nor from a games revision older than the newest of the workers
+    // (review of #68: a job played again whole would take its old results back).
+    const playedJob = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: first.id } })
+    for (const change of [
+      // The copies are never sources (cachedFrom): only the job a worker played can be.
+      { params: { ...(playedJob.params as object), replacedBy: again.id } },
+      { gamesRev: (playedJob.gamesRev ?? 1) - 1 },
+    ]) {
+      await test.prisma.simulationJob.updateMany({
+        where: { id: first.id },
+        data: change,
+      })
+      const blocked = (await job()).body as { id: number; status: string }
+      expect(blocked.status).toBe('queued')
+      await post(`/api/simulations/${blocked.id}/cancel`)
+      expect((await test.http().delete(`/api/simulations/${blocked.id}`).set('Cookie', cookie)).status).toBe(204)
+      await test.prisma.simulationJob.updateMany({
+        where: { id: first.id },
+        data: { params: playedJob.params as object, gamesRev: playedJob.gamesRev },
+      })
+    }
+
     // Anything else and it goes to the worker: another seed, other bots, more replays, per-game results, or asking
     // for a real repeat.
     const others = [
@@ -1615,6 +1648,644 @@ describe('simulation (e2e)', () => {
     )) {
       expect((await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)).status).toBe(204)
     }
+  })
+
+  it('phase 42: after a deckgym update the old jobs move to the new engine, the played ones whole; a search waits', async () => {
+    await test.prisma.workerNode.upsert({
+      where: { id: 'worker-engine' },
+      create: { id: 'worker-engine', name: 'pc', engineRev: test.env.engineRev, cliVersion: '0.1.0', cores: 2 },
+      update: {},
+    })
+    const old = 'a'.repeat(40)
+    const simulations = test.app.get(SimulationsService)
+    const rivalDeck = Number(deckIds[4])
+    const columnBefore = await simulations.deckColumn(rivalDeck)
+    // A comparison with one pairing played (and its replay) and the other in a worker's hands.
+    const played = (
+      await post('/api/simulations').send({
+        kind: 'compare',
+        sideA: decks(2, 2),
+        sideB: decks(5, 6),
+        gamesPerPair: 10,
+        players: ['r', 'r'],
+        replaySample: 1,
+      })
+    ).body as { id: number }
+    const first = (await claim('worker-engine')).body.chunk as Structured
+    await bearer('put', `/api/worker/chunks/${first.chunkId}/replays/00000000-0000-0000-0000-0000000000aa`)
+      .query({ index: 0, seed: '7', winner: 'a' })
+      .set('Content-Type', 'application/gzip')
+      .send(gzipSync(JSON.stringify({ version: 1, steps: [], outcome: { Win: 0 } })))
+    await bearer('put', `/api/worker/chunks/${first.chunkId}/result`).send({
+      workerId: 'worker-engine',
+      engineRev: test.env.engineRev,
+      winsA: 6,
+      winsB: 4,
+      ties: 0,
+      games: 10,
+      durationMs: 100,
+    })
+    const second = (await claim('worker-engine')).body.chunk as Structured
+    expect(second.jobId).toBe(played.id)
+    // Its worker already uploaded a replay, before its result: the engine change drops it with the lease.
+    await bearer('put', `/api/worker/chunks/${second.chunkId}/replays/00000000-0000-0000-0000-0000000000ab`)
+      .query({ index: 0, seed: '8', winner: 'b' })
+      .set('Content-Type', 'application/gzip')
+      .send(gzipSync(JSON.stringify({ version: 1, steps: [], outcome: { Win: 1 } })))
+    // A matrix with nothing played, a Laboratorio search and a game against the bot waiting for the owner.
+    const fresh = (
+      await post('/api/simulations').send({ kind: 'matrix', sideA: decks(2, 4), gamesPerPair: 10, players: ['r', 'r'] })
+    ).body as { id: number }
+    const search = await test.prisma.simulationJob.create({
+      data: {
+        kind: 'explore',
+        status: 'running',
+        label: 'Explorar el 2',
+        params: {},
+        engineRev: old,
+        players: ['e2', 'e2'],
+        gamesPerPair: 60,
+        baseSeed: 1n,
+        totalGames: 0,
+      },
+    })
+    const [snapshotA, snapshotB] = (await get(`/api/simulations/${played.id}`)).body.sideB as number[]
+    const game = await test.prisma.liveGame.create({
+      data: {
+        humanSnapshotId: snapshotA as number,
+        botSnapshotId: snapshotB as number,
+        bot: 'e2',
+        seed: 5n,
+        engineRev: old,
+        status: 'waiting',
+        choices: [1, 0],
+        decision: { ply: 2, turn: 1, state: {}, actions: [] },
+      },
+    })
+    // The comparison and the matrix were queued with the engine that is now the old one.
+    await test.prisma.simulationJob.updateMany({
+      where: { id: { in: [played.id, fresh.id] } },
+      data: { engineRev: old },
+    })
+
+    const engine = test.app.get(EngineChangeService)
+    const moved = await engine.moveJobs()
+    expect(moved).toEqual({ moved: [fresh.id], replayed: [played.id] })
+    // What the old engine played is not counted next to what the new one plays: the decks' column leaves it out.
+    expect(await simulations.deckColumn(rivalDeck)).toEqual(columnBefore)
+    type Detail = {
+      status: string
+      label: string
+      engineRev: string
+      engineChange: { oldResults: number } & Structured
+      chunks: { status: string; gamesDone: number; seed: string }[]
+      replays: unknown[]
+      rows: { total: Structured }[]
+    }
+    const again = (await get(`/api/simulations/${played.id}`)).body as Detail
+    expect(again).toMatchObject({
+      status: 'queued',
+      engineRev: test.env.engineRev,
+      engineChange: { from: old, replayed: true, gamesFrom: null, oldResults: expect.any(Number) },
+      replays: [],
+    })
+    expect(again.chunks.map((chunk) => [chunk.status, chunk.gamesDone])).toEqual([
+      ['queued', 0],
+      ['queued', 0],
+    ])
+    // What the old engine played is kept apart, in a cancelled job named after it, with its replay and its seeds.
+    const kept = (await get(`/api/simulations/${again.engineChange.oldResults}`)).body as Detail
+    expect(kept).toMatchObject({ status: 'cancelled', engineRev: old, engineChange: null })
+    expect(kept.label).toMatch(/ \(motor aaaaaaa\)$/)
+    expect(kept.chunks.map((chunk) => [chunk.status, chunk.gamesDone])).toEqual([['done', 10]])
+    expect(kept.replays).toHaveLength(1)
+    expect(again.chunks.map((chunk) => chunk.seed)).toContain(kept.chunks[0]?.seed)
+    expect((await get(`/api/simulations/${fresh.id}`)).body).toMatchObject({
+      engineRev: test.env.engineRev,
+      engineChange: { from: old, replayed: false, oldResults: null },
+    })
+    // The worker of the old engine is told its chunk is gone, and its late result is turned down.
+    const beat = await bearer('put', `/api/worker/chunks/${second.chunkId}/heartbeat`).send({
+      workerId: 'worker-engine',
+      gamesDone: 5,
+    })
+    expect(beat.body).toMatchObject({ lost: true })
+    const late = await bearer('put', `/api/worker/chunks/${second.chunkId}/result`).send({
+      workerId: 'worker-engine',
+      engineRev: old,
+      winsA: 5,
+      winsB: 5,
+      ties: 0,
+      games: 10,
+      durationMs: 100,
+    })
+    expect(late.body).toEqual({ accepted: false })
+    // The search keeps its engine and the alert says it waits.
+    expect((await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: search.id } })).engineRev).toBe(old)
+    const alerts = (await get('/api/alerts')).body.items as { code: string; title: string; link: string }[]
+    expect(alerts.find((alert) => alert.code === 'search_old_engine')).toMatchObject({
+      title: `La búsqueda «Explorar el 2» (#${search.id}) espera el motor viejo`,
+      link: `/laboratorio/${search.id}`,
+    })
+    // Claude reads it too.
+    const listed = await test.app.get(SimulationsService).progressOf(String(played.id))
+    expect(jobSummaryJson(listed)).toMatchObject({
+      engineChange: `Rejugada entera con este motor (antes deckgym aaaaaaa): lo jugado con el viejo quedó aparte, en la simulación cancelada #${again.engineChange.oldResults}. Sus números son solo del motor de ahora.`,
+    })
+
+    // The game against the bot cannot go on the same way: it ends, not lost and not abandoned, with what was played.
+    const lives = test.app.get(LiveGamesService)
+    expect(await lives.endForEngineChange({ deckgym: true })).toEqual([game.id])
+    expect(await test.prisma.liveGame.findUniqueOrThrow({ where: { id: game.id } })).toMatchObject({
+      status: 'engine_changed',
+      engineRev: old,
+      decision: null,
+      choices: [1, 0],
+      winner: null,
+      finishedAt: expect.any(Date),
+      error: expect.stringMatching(/^Cambió el motor y esta partida no se puede seguir igual/),
+    })
+    expect((await get(`/api/play/${game.id}`)).body).toMatchObject({ status: 'engine_changed' })
+
+    // A job cancelled meanwhile is left as it is: the replay locks the job and checks it again.
+    await post(`/api/simulations/${fresh.id}/cancel`)
+    const replayWhole = (
+      engine as unknown as { replayWhole(id: number, to: object): Promise<unknown> }
+    ).replayWhole.bind(engine)
+    expect(await replayWhole(fresh.id, { from: test.env.engineRev, to: old })).toBeNull()
+    expect(await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: fresh.id } })).toMatchObject({
+      status: 'cancelled',
+      engineRev: test.env.engineRev,
+    })
+
+    await test.prisma.liveGame.delete({ where: { id: game.id } })
+    await test.prisma.simulationJob.delete({ where: { id: search.id } })
+    expect(
+      (await test.http().delete(`/api/simulations/${again.engineChange.oldResults}`).set('Cookie', cookie)).status,
+    ).toBe(204)
+    for (const id of [played.id, fresh.id]) {
+      await post(`/api/simulations/${id}/cancel`)
+      expect((await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)).status).toBe(204)
+    }
+  })
+
+  it('phase 42: a job is played whole with one games revision, and again whole when no worker has it any more', async () => {
+    const hello = (id: string, gamesRev: number) => ({ ...worker(id), cliVersion: '0.3.6', gamesRev })
+    const claimAs = (id: string, gamesRev: number) => bearer('post', '/api/worker/claim').send(hello(id, gamesRev))
+    const result = (chunkId: unknown, workerId: string, gamesRev: number) =>
+      bearer('put', `/api/worker/chunks/${chunkId}/result`).send({
+        workerId,
+        engineRev: test.env.engineRev,
+        cliVersion: '0.3.6',
+        gamesRev,
+        winsA: 6,
+        winsB: 4,
+        ties: 0,
+        games: 10,
+        durationMs: 100,
+      })
+    const created = (
+      await post('/api/simulations').send({
+        kind: 'compare',
+        sideA: decks(3, 3),
+        sideB: decks(7, 8),
+        gamesPerPair: 10,
+        players: ['r', 'r'],
+        cache: false,
+      })
+    ).body as { id: number }
+    const gamesRevOfJob = async (id: number) =>
+      (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).gamesRev
+
+    // Nothing played: any worker takes it. The first result fixes how the whole job is played.
+    expect(await gamesRevOfJob(created.id)).toBeNull()
+    const first = (await claimAs('worker-rev-1', 1)).body.chunk as Structured
+    expect(first.jobId).toBe(created.id)
+    expect((await result(first.chunkId, 'worker-rev-1', 1)).body).toEqual({ accepted: true })
+    expect(await gamesRevOfJob(created.id)).toBe(1)
+    // A worker that plays otherwise does not get the rest…
+    expect((await claimAs('worker-rev-2', 2)).body.chunk).toBeNull()
+    // …and a result played otherwise (a worker that updated itself meanwhile) is turned down, the chunk back in the queue.
+    const second = (await claimAs('worker-rev-1', 1)).body.chunk as Structured
+    expect(second.jobId).toBe(created.id)
+    expect((await result(second.chunkId, 'worker-rev-1', 2)).body).toEqual({ accepted: false })
+    expect(
+      await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: second.chunkId as number } }),
+    ).toMatchObject({ status: 'queued', workerId: null })
+
+    // A game against the bot fixed to revision 1 and waiting for a worker, another one a worker still holds, and a
+    // Laboratorio search fixed to revision 1.
+    const [snapshotA, snapshotB] = (await get(`/api/simulations/${created.id}`)).body.sideB as number[]
+    const live = (status: 'queued' | 'running', leased: boolean) =>
+      test.prisma.liveGame.create({
+        data: {
+          humanSnapshotId: snapshotA as number,
+          botSnapshotId: snapshotB as number,
+          bot: 'r',
+          seed: 9n,
+          engineRev: test.env.engineRev,
+          gamesRev: 1,
+          status,
+          choices: [0],
+          ...(leased ? { workerId: 'worker-rev-1', leaseUntil: new Date(Date.now() + 60_000) } : {}),
+        },
+      })
+    const waiting = await live('queued', false)
+    const held = await live('running', true)
+    const search = await test.prisma.simulationJob.create({
+      data: {
+        kind: 'explore',
+        status: 'running',
+        label: 'Explorar el 3',
+        params: {},
+        engineRev: test.env.engineRev,
+        gamesRev: 1,
+        players: ['r', 'r'],
+        gamesPerPair: 10,
+        baseSeed: 1n,
+        totalGames: 0,
+      },
+    })
+    const searchAlert = async () =>
+      ((await get('/api/alerts')).body.items as { code: string; title: string }[]).find(
+        (alert) => alert.code === 'search_old_engine' && alert.title.includes(`#${search.id}`),
+      )
+
+    // While the worker of revision 1 is around, nothing changes.
+    const engine = test.app.get(EngineChangeService)
+    expect(await engine.releaseGoneGamesRevs()).toEqual({ moved: [], replayed: [] })
+    expect(await searchAlert()).toBeUndefined()
+    // Half an hour without it, and a worker of revision 2 there: the job is played again whole, with the same seeds;
+    // what revision 1 played is kept apart.
+    const seeds = (await test.prisma.simulationChunk.findMany({ where: { jobId: created.id } })).map((c) => c.seed)
+    await test.prisma.workerNode.updateMany({
+      where: { gamesRev: 1 },
+      data: { lastSeenAt: new Date(Date.now() - GAMES_REV_GONE_MS - 60_000) },
+    })
+    // Only workers of an older revision around (engines before 0.3.3): a job never moves back (review of #68).
+    await test.prisma.workerNode.update({
+      where: { id: 'worker-rev-2' },
+      data: { lastSeenAt: new Date(Date.now() - GAMES_REV_GONE_MS - 60_000) },
+    })
+    expect(await engine.releaseGoneGamesRevs()).toEqual({ moved: [], replayed: [] })
+    await test.prisma.workerNode.update({ where: { id: 'worker-rev-2' }, data: { lastSeenAt: new Date() } })
+    expect(await engine.releaseGoneGamesRevs()).toEqual({ moved: [], replayed: [created.id] })
+    const job = (await get(`/api/simulations/${created.id}`)).body as {
+      status: string
+      engineChange: { oldResults: number } & Structured
+      chunks: { status: string; seed: string }[]
+    }
+    expect(job).toMatchObject({
+      status: 'queued',
+      engineChange: { from: test.env.engineRev, gamesFrom: 1, gamesTo: 2, replayed: true },
+    })
+    expect(job.chunks.map((chunk) => chunk.status)).toEqual(['queued', 'queued'])
+    expect(job.chunks.map((chunk) => chunk.seed).sort()).toEqual(seeds.map(String).sort())
+    // Fixed to the new revision at once: a late result of the old one is turned down (review of #68).
+    expect(await gamesRevOfJob(created.id)).toBe(2)
+    expect((await result(second.chunkId, 'worker-rev-1', 1)).body).toEqual({ accepted: false })
+    // And the cache does not copy back what the old revision played (the kept job, or any job of revision 1).
+    expect(await test.app.get(ChunkCacheService).fill(created.id)).toBe(0)
+    const kept = (await get(`/api/simulations/${job.engineChange.oldResults}`)).body as {
+      label: string
+      status: string
+    }
+    expect(kept.status).toBe('cancelled')
+    expect(kept.label).toMatch(/ \(revisión 1\)$/)
+    expect(await gamesRevOfJob(job.engineChange.oldResults)).toBe(1)
+    expect(jobSummaryJson(await test.app.get(SimulationsService).progressOf(String(created.id)))).toMatchObject({
+      engineChange: expect.stringMatching(/^Rejugada entera con la revisión 2 del motor \(antes la revisión 1\)/),
+    })
+    // Now the worker of revision 2 plays it, and fixes it again.
+    const replay = (await claimAs('worker-rev-2', 2)).body.chunk as Structured
+    expect(replay.jobId).toBe(created.id)
+    expect((await result(replay.chunkId, 'worker-rev-2', 2)).body).toEqual({ accepted: true })
+    expect(await gamesRevOfJob(created.id)).toBe(2)
+
+    // The search is not replayed (its rounds depend on what it played): an alert says it waits.
+    expect(await searchAlert()).toMatchObject({
+      title: `La búsqueda «Explorar el 3» (#${search.id}) espera la revisión 1 del motor`,
+    })
+    // The game nobody holds ends when a worker of revision 2 asks for one; the one still held goes on.
+    const lives = test.app.get(LiveGamesService)
+    const pollMs = lives.longPollMs
+    lives.longPollMs = 100
+    try {
+      const asked = await lives.claim({
+        workerId: 'worker-rev-2',
+        engineRev: test.env.engineRev,
+        version: '0.3.3',
+        cliVersion: '0.3.6',
+        gamesRev: 2,
+      })
+      expect(asked.game).toBeNull()
+    } finally {
+      lives.longPollMs = pollMs
+    }
+    expect(await test.prisma.liveGame.findUniqueOrThrow({ where: { id: waiting.id } })).toMatchObject({
+      status: 'engine_changed',
+      finishedAt: expect.any(Date),
+    })
+    expect((await test.prisma.liveGame.findUniqueOrThrow({ where: { id: held.id } })).status).toBe('running')
+
+    await test.prisma.liveGame.deleteMany({ where: { id: { in: [waiting.id, held.id] } } })
+    await test.prisma.simulationJob.delete({ where: { id: search.id } })
+    await post(`/api/simulations/${created.id}/cancel`)
+    for (const id of [created.id, job.engineChange.oldResults]) {
+      expect((await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)).status).toBe(204)
+    }
+  })
+
+  it('phase 42: a job running at the deploy, with results of engine-cli 0.3.4 and 0.3.5, goes on without being replayed', async () => {
+    // A calibration as it is at the deploy: two pairings played by 0.3.4 and 0.3.5, two waiting, no games revision
+    // yet (the migration adds the column empty).
+    const created = (
+      await post('/api/simulations').send({
+        kind: 'compare',
+        sideA: decks(3, 3),
+        sideB: decks(7, 10),
+        gamesPerPair: 10,
+        players: ['r', 'r'],
+        cache: false,
+      })
+    ).body as { id: number }
+    const chunks = await test.prisma.simulationChunk.findMany({ where: { jobId: created.id }, orderBy: { idx: 'asc' } })
+    expect(chunks).toHaveLength(4)
+    for (const [at, cliVersion] of ['0.3.4+aaaaaaaaaaaaaaaa', '0.3.5+bbbbbbbbbbbbbbbb'].entries()) {
+      await test.prisma.simulationChunk.update({
+        where: { id: chunks[at]?.id as number },
+        data: { status: 'done', gamesDone: 10, winsA: 5, winsB: 5, ties: 0, cliVersion, finishedAt: new Date() },
+      })
+    }
+    await test.prisma.simulationJob.update({
+      where: { id: created.id },
+      data: { status: 'running', startedAt: new Date() },
+    })
+    expect(await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: created.id } })).toMatchObject({
+      gamesRev: null,
+    })
+    const engine = test.app.get(EngineChangeService)
+    // The API starts again with the same deckgym: nothing moves.
+    expect(await engine.moveJobs()).toEqual({ moved: [], replayed: [] })
+    // A worker that has not updated itself yet (engine 0.3.5, which does not say its games revision) and one that
+    // has (0.3.6, games revision 1) play the rest of it: the two play the same way.
+    const result = (chunkId: unknown, workerId: string, extra: Structured) =>
+      bearer('put', `/api/worker/chunks/${chunkId}/result`).send({
+        workerId,
+        engineRev: test.env.engineRev,
+        winsA: 6,
+        winsB: 4,
+        ties: 0,
+        games: 10,
+        durationMs: 100,
+        ...extra,
+      })
+    const features = ['perGame', 'batch', 'fairBots', 'etBot']
+    const old = { ...worker('worker-deploy-old'), version: '0.3.2', cliVersion: '0.3.5', engineFeatures: features }
+    const fresh = { ...worker('worker-deploy-new'), version: '0.3.3', cliVersion: '0.3.6', engineFeatures: features }
+    const third = (await bearer('post', '/api/worker/claim').send(old)).body.chunk as Structured
+    expect(third).toMatchObject({ jobId: created.id, chunkId: chunks[2]?.id })
+    expect((await result(third.chunkId, old.workerId, { cliVersion: '0.3.5+bbbbbbbbbbbbbbbb' })).body).toEqual({
+      accepted: true,
+    })
+    expect((await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: created.id } })).gamesRev).toBe(1)
+    const fourth = (await bearer('post', '/api/worker/claim').send({ ...fresh, gamesRev: 1 })).body.chunk as Structured
+    expect(fourth).toMatchObject({ jobId: created.id, chunkId: chunks[3]?.id })
+    expect(
+      (await result(fourth.chunkId, fresh.workerId, { cliVersion: '0.3.6+cccccccccccccccc', gamesRev: 1 })).body,
+    ).toEqual({ accepted: true })
+    // The sweep finds nothing to let go of, and the job ends with its four pairings, none played again.
+    expect(await engine.releaseGoneGamesRevs()).toEqual({ moved: [], replayed: [] })
+    const job = (await get(`/api/simulations/${created.id}`)).body as {
+      status: string
+      engineChange: unknown
+      chunks: { id: number; status: string }[]
+    }
+    expect(job).toMatchObject({ status: 'done', engineChange: null })
+    expect(job.chunks.map((chunk) => [chunk.id, chunk.status])).toEqual(chunks.map((chunk) => [chunk.id, 'done']))
+    expect((await test.http().delete(`/api/simulations/${created.id}`).set('Cookie', cookie)).status).toBe(204)
+  })
+
+  it('phase 42: one revision per job under concurrent results, what an old worker played read from its hello, and the backfill', async () => {
+    const rev = test.env.engineRev
+    // Two results of two revisions at once, for a job not fixed yet: one goes in and fixes it, the other is turned down.
+    const created = (
+      await post('/api/simulations').send({
+        kind: 'compare',
+        sideA: decks(3, 3),
+        sideB: decks(7, 8),
+        gamesPerPair: 10,
+        players: ['r', 'r'],
+        cache: false,
+      })
+    ).body as { id: number }
+    const chunks = await test.prisma.simulationChunk.findMany({ where: { jobId: created.id }, orderBy: { idx: 'asc' } })
+    for (const [at, workerId] of ['worker-race-1', 'worker-race-2'].entries()) {
+      await test.prisma.workerNode.upsert({
+        where: { id: workerId },
+        create: { id: workerId, name: 'pc', engineRev: rev, cores: 2 },
+        update: {},
+      })
+      await test.prisma.simulationChunk.update({
+        where: { id: chunks[at]?.id as number },
+        data: { status: 'leased', workerId, leaseUntil: new Date(Date.now() + 60_000) },
+      })
+    }
+    const send = (at: number, gamesRev: number) =>
+      bearer('put', `/api/worker/chunks/${chunks[at]?.id}/result`).send({
+        workerId: `worker-race-${at + 1}`,
+        engineRev: rev,
+        cliVersion: '0.3.6',
+        gamesRev,
+        winsA: 5,
+        winsB: 5,
+        ties: 0,
+        games: 10,
+        durationMs: 100,
+      })
+    const answers = (await Promise.all([send(0, 1), send(1, 2)])).map((response) => response.body.accepted)
+    expect(answers.filter(Boolean)).toHaveLength(1)
+    const fixed = (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: created.id } })).gamesRev
+    expect(fixed).toBe(answers[0] ? 1 : 2)
+    await post(`/api/simulations/${created.id}/cancel`)
+    expect((await test.http().delete(`/api/simulations/${created.id}`).set('Cookie', cookie)).status).toBe(204)
+
+    // A result that does not say its engine (a consistency of worker 0.3.2), from a worker whose revision is empty right
+    // after the migration: its engine's version says it plays as revision 1, not 0.
+    await test.prisma.workerNode.upsert({
+      where: { id: 'worker-old-0.3.2' },
+      create: { id: 'worker-old-0.3.2', name: 'pc', engineRev: rev, cliVersion: '0.3.5', cores: 2, gamesRev: null },
+      update: { cliVersion: '0.3.5', gamesRev: null, lastSeenAt: new Date() },
+    })
+    const quiet = (
+      await post('/api/simulations').send({
+        kind: 'compare',
+        sideA: decks(3, 3),
+        sideB: decks(7, 7),
+        gamesPerPair: 10,
+        players: ['r', 'r'],
+        cache: false,
+      })
+    ).body as { id: number }
+    const [lone] = await test.prisma.simulationChunk.findMany({ where: { jobId: quiet.id } })
+    await test.prisma.simulationChunk.update({
+      where: { id: lone?.id as number },
+      data: { status: 'leased', workerId: 'worker-old-0.3.2', leaseUntil: new Date(Date.now() + 60_000) },
+    })
+    const silent = await bearer('put', `/api/worker/chunks/${lone?.id}/result`).send({
+      workerId: 'worker-old-0.3.2',
+      engineRev: rev,
+      winsA: 5,
+      winsB: 5,
+      ties: 0,
+      games: 10,
+      durationMs: 100,
+    })
+    expect(silent.body).toEqual({ accepted: true })
+    expect((await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: quiet.id } })).gamesRev).toBe(1)
+    expect((await test.http().delete(`/api/simulations/${quiet.id}`).set('Cookie', cookie)).status).toBe(204)
+
+    // A game against the bot asked for by worker 0.3.2 (no cliVersion): fixed to revision 1 from its hello, so its
+    // update to 0.3.6 (revision 1 too) does not end it; a worker nobody knows takes only games not fixed and fixes none.
+    const [snapshotA, snapshotB] = (
+      await test.prisma.deckSnapshot.findMany({ take: 2, orderBy: { id: 'asc' }, select: { id: true } })
+    ).map((row) => row.id)
+    const lives = test.app.get(LiveGamesService)
+    const pollMs = lives.longPollMs
+    lives.longPollMs = 100
+    try {
+      const paused = await test.prisma.liveGame.create({
+        data: {
+          humanSnapshotId: snapshotA as number,
+          botSnapshotId: snapshotB as number,
+          bot: 'r',
+          seed: 11n,
+          engineRev: rev,
+          status: 'queued',
+          choices: [],
+        },
+      })
+      const taken = await lives.claim({ workerId: 'worker-old-0.3.2', engineRev: rev, version: '0.3.2' })
+      expect(taken.game?.id).toBe(paused.id)
+      expect((await test.prisma.liveGame.findUniqueOrThrow({ where: { id: paused.id } })).gamesRev).toBe(1)
+      // The worker updated itself and lets the game go; the new engine asks again.
+      await test.prisma.liveGame.update({
+        where: { id: paused.id },
+        data: { status: 'queued', workerId: null, leaseUntil: null },
+      })
+      await test.prisma.workerNode.update({
+        where: { id: 'worker-old-0.3.2' },
+        data: { cliVersion: '0.3.6', gamesRev: 1 },
+      })
+      const again = await lives.claim({
+        workerId: 'worker-old-0.3.2',
+        engineRev: rev,
+        version: '0.3.3',
+        cliVersion: '0.3.6',
+        gamesRev: 1,
+      })
+      expect(again.game?.id).toBe(paused.id)
+      expect((await test.prisma.liveGame.findUniqueOrThrow({ where: { id: paused.id } })).status).toBe('running')
+      const unknownGame = await test.prisma.liveGame.create({
+        data: {
+          humanSnapshotId: snapshotA as number,
+          botSnapshotId: snapshotB as number,
+          bot: 'r',
+          seed: 12n,
+          engineRev: rev,
+          status: 'queued',
+          choices: [],
+        },
+      })
+      const stranger = await lives.claim({ workerId: 'worker-nobody-knows', engineRev: rev, version: '0.3.2' })
+      expect(stranger.game?.id).toBe(unknownGame.id)
+      expect((await test.prisma.liveGame.findUniqueOrThrow({ where: { id: unknownGame.id } })).gamesRev).toBeNull()
+      await test.prisma.liveGame.deleteMany({ where: { id: { in: [paused.id, unknownGame.id] } } })
+    } finally {
+      lives.longPollMs = pollMs
+    }
+
+    // The migration's backfill (in a transaction that is undone): workers by their engine's version, and the jobs whose
+    // finished chunks were all played by 0.3.3 or later, fixed to revision 1; anything else left empty.
+    const migration = readFileSync(
+      join(REPO_ROOT, 'apps/api/prisma/migrations/20261012000000_engine_games_rev/migration.sql'),
+      'utf8',
+    )
+    const backfill = migration
+      .slice(migration.indexOf('-- What already played'))
+      .split(';')
+      .map((statement) => statement.trim())
+      .filter((statement) => statement.includes('UPDATE'))
+    expect(backfill).toHaveLength(2)
+    const job = (cliVersions: (string | null)[]) =>
+      test.prisma.simulationJob.create({
+        data: {
+          kind: 'compare',
+          status: 'running',
+          label: 'relleno',
+          params: {},
+          engineRev: rev,
+          players: ['r', 'r'],
+          gamesPerPair: 10,
+          baseSeed: 1n,
+          totalGames: 10 * (cliVersions.length + 1),
+          chunks: {
+            create: [
+              ...cliVersions.map((cliVersion, idx) => ({
+                idx,
+                games: 10,
+                firstGame: idx * 10,
+                seed: BigInt(idx + 1),
+                status: 'done' as const,
+                cliVersion,
+              })),
+              { idx: cliVersions.length, games: 10, firstGame: cliVersions.length * 10, seed: 99n },
+            ],
+          },
+        },
+      })
+    const recent = await job(['0.3.4+aaaaaaaaaaaaaaaa', '0.3.5+bbbbbbbbbbbbbbbb'])
+    const older = await job(['0.3.5+bbbbbbbbbbbbbbbb', '0.3.2'])
+    const silentJob = await job([null])
+    const untouched = await job([])
+    for (const [id, cliVersion] of [
+      ['mig-new', '0.3.5'],
+      ['mig-old', '0.3.2'],
+      ['mig-none', null],
+    ] as const) {
+      await test.prisma.workerNode.create({ data: { id, name: 'pc', engineRev: rev, cliVersion, gamesRev: null } })
+    }
+    const undone = new Error('undone')
+    const seen = await test.prisma
+      .$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`UPDATE "worker_nodes" SET "games_rev" = NULL WHERE "id" LIKE 'mig-%'`)
+        for (const statement of backfill) await tx.$executeRawUnsafe(statement)
+        const jobs = await tx.simulationJob.findMany({
+          where: { id: { in: [recent.id, older.id, silentJob.id, untouched.id] } },
+          select: { id: true, gamesRev: true },
+        })
+        const nodes = await tx.workerNode.findMany({
+          where: { id: { startsWith: 'mig-' } },
+          select: { id: true, gamesRev: true },
+        })
+        throw Object.assign(undone, { jobs, nodes })
+      })
+      .catch((error: unknown) => {
+        if (error !== undone) throw error
+        return error as Error & {
+          jobs: { id: number; gamesRev: number | null }[]
+          nodes: { id: string; gamesRev: number | null }[]
+        }
+      })
+    const revOf = (id: number) => seen.jobs.find((row) => row.id === id)?.gamesRev
+    expect([revOf(recent.id), revOf(older.id), revOf(silentJob.id), revOf(untouched.id)]).toEqual([1, null, null, null])
+    expect(Object.fromEntries(seen.nodes.map((row) => [row.id, row.gamesRev]))).toEqual({
+      'mig-new': 1,
+      'mig-old': 0,
+      'mig-none': null,
+    })
+    await test.prisma.simulationJob.deleteMany({ where: { label: 'relleno' } })
+    await test.prisma.workerNode.deleteMany({ where: { id: { startsWith: 'mig-' } } })
   })
 
   it('H-003: a long poll that times out leaves no listener behind', async () => {

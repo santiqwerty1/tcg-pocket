@@ -23,7 +23,7 @@ import { type BoardAction, boardChanges, type Seat } from '@/lib/board'
 import { type Replay, ReplayReader, type ReplayState } from '@/lib/replay'
 import { cn } from '@/lib/utils'
 import { CoachLast, CoachSummarySection } from './Coach'
-import { BotTurn, EndScreen, OptionsSheet } from './GameParts'
+import { BotTurn, EndScreen, EngineChangedScreen, OptionsSheet } from './GameParts'
 import { TouchPlaySheet, useTouchPlay } from './useTouchPlay'
 
 const WHO = ['Vos', 'Bot'] as const
@@ -95,6 +95,8 @@ function statusLine(game: LiveGame): { text: string; tone: 'muted' | 'turn' | 'e
       return { text: 'Partida abandonada.', tone: 'end' }
     case 'failed':
       return { text: `La partida falló: ${game.error ?? 'error del motor'}`, tone: 'error' }
+    case 'engine_changed':
+      return { text: 'Terminada porque cambió el motor.', tone: 'end' }
   }
 }
 
@@ -269,6 +271,22 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
             )
           }
           onUndo={() => undo.mutate(undefined, { onError: (error) => toast.error(errorMessage(error)) })}
+        />
+      ) : null}
+
+      {game.status === 'engine_changed' ? (
+        <EngineChangedScreen
+          game={game}
+          pending={rematch.isPending}
+          onRematch={(sameSeed) =>
+            rematch.mutate(
+              { sameSeed },
+              {
+                onSuccess: (created) => navigate(`/jugar/${created.id}`),
+                onError: (error) => toast.error(errorMessage(error)),
+              },
+            )
+          }
         />
       ) : null}
 

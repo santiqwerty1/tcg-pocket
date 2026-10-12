@@ -69,6 +69,36 @@ function fold(text: string): string {
     .toLowerCase()
 }
 
+/** Phase 42: the job moved to another engine (a new deckgym or a new games revision); never a mix of two. */
+function EngineChangeNote({ change }: { change: NonNullable<JobDetail['engineChange']> }) {
+  const games = change.gamesFrom !== null
+  const now = games ? `la revisión ${change.gamesTo} del motor` : 'este motor'
+  const before = games ? `antes la revisión ${change.gamesFrom}` : `antes ${shortSha(change.from)}`
+  if (!change.replayed) {
+    return (
+      <span className="block text-xs text-muted-foreground">
+        Pasó a {now} sin haber jugado nada ({before}).
+      </span>
+    )
+  }
+  return (
+    <span className="block text-xs text-muted-foreground">
+      Rejugada entera con {now} ({before}):{' '}
+      {change.oldResults === null ? (
+        'lo jugado con el viejo se descartó.'
+      ) : (
+        <>
+          lo jugado con el viejo quedó aparte, en{' '}
+          <Link to={`/simulacion/${change.oldResults}`} className="text-primary hover:underline">
+            la simulación #{change.oldResults}
+          </Link>
+          .
+        </>
+      )}
+    </span>
+  )
+}
+
 function snapshotLink(snapshot: Snapshot | undefined): string | null {
   if (!snapshot) return null
   if (snapshot.deckId) return `/mazos/${snapshot.deckId}`
@@ -311,6 +341,12 @@ function OptimizeConfirmation({ job }: { job: JobDetail }) {
           </Link>
         ) : null}
       </div>
+      {confirmation.engineChange ? (
+        <p className="text-sm text-muted-foreground">
+          La confirmación pasó al motor de ahora y la búsqueda se jugó con el anterior: el orden de la búsqueda sigue
+          valiendo como pista, pero sus porcentajes no se comparan con los de la confirmación.
+        </p>
+      ) : null}
       {confirmation.status === 'pending' ? (
         <p className="text-sm text-muted-foreground">
           {confirmation.error
@@ -641,7 +677,15 @@ export function SimulationDetailPage() {
             value: gamesLabel(current.gamesPerPair),
           },
           { label: 'Semilla', value: <code className="font-mono text-xs">{current.baseSeed}</code> },
-          { label: 'Motor', value: <code className="font-mono text-xs">{shortSha(current.engineRev)}</code> },
+          {
+            label: 'Motor',
+            value: (
+              <>
+                <code className="font-mono text-xs">{shortSha(current.engineRev)}</code>
+                {current.engineChange ? <EngineChangeNote change={current.engineChange} /> : null}
+              </>
+            ),
+          },
           { label: 'Creada', value: formatDateTime(current.createdAt) },
           ...(current.finishedAt ? [{ label: 'Terminó', value: formatDateTime(current.finishedAt) }] : []),
           ...(cached > 0

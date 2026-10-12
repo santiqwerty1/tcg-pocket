@@ -238,6 +238,42 @@ export function BotTurn({
   )
 }
 
+/**
+ * Phase 42: the engine changed while the game was being played, and a worker cannot rebuild it the same way. Not a
+ * defeat and not abandoned: what was played stays in the log, and a rematch starts on the engine there is now.
+ */
+export function EngineChangedScreen({
+  game,
+  pending,
+  onRematch,
+}: {
+  game: LiveGame
+  pending: boolean
+  onRematch: (sameSeed: boolean) => void
+}) {
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border-2 border-primary/50 p-3">
+      <div>
+        <p className="text-lg font-bold">Cambió el motor</p>
+        <p className="text-sm text-muted-foreground">
+          {game.error ?? 'Esta partida no se puede seguir igual con el motor de ahora: lo jugado queda en el registro.'}{' '}
+          No cuenta como derrota ni como abandono.
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" disabled={pending} onClick={() => onRematch(false)}>
+          <SwordsIcon aria-hidden="true" />
+          Revancha
+        </Button>
+        <Button type="button" variant="outline" disabled={pending} onClick={() => onRematch(true)}>
+          <RotateCcwIcon aria-hidden="true" />
+          Jugarla de nuevo
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 /** The end of the game: the result, the coach's summary and what to do next. */
 export function EndScreen({
   game,

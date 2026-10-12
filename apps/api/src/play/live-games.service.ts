@@ -7,7 +7,14 @@
 
 import { randomInt } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  type OnApplicationBootstrap,
+  Optional,
+} from '@nestjs/common'
 import {
   botLabel,
   type CoachReview,
@@ -25,6 +32,7 @@ import {
   randomBaseSeed,
   reviewChoice,
   type SnapshotCard,
+  saidGamesRev,
 } from '@tcg/domain'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { Prisma } from '../generated/prisma/client.js'
@@ -130,7 +138,7 @@ export interface ClaimedLiveGame {
 }
 
 @Injectable()
-export class LiveGamesService {
+export class LiveGamesService implements OnApplicationBootstrap {
   private readonly events = new EventEmitter()
   /** How long a worker's long-poll waits (tests shorten it). */
   longPollMs = LONG_POLL_MS
@@ -143,6 +151,45 @@ export class LiveGamesService {
     @Optional() private readonly presence?: PresenceService,
   ) {
     this.events.setMaxListeners(100)
+  }
+
+  async onApplicationBootstrap(): Promise<void> {
+    await this.endForEngineChange({ deckgym: true }).catch(() => undefined)
+  }
+
+  /**
+   * Phase 42: a game in progress cannot go on with an engine that plays otherwise (a worker rebuilds it from the seed
+   * with the owner's choices, and they would mean another game). It ends as `engine_changed`: not a defeat, not an
+   * abandonment, and not a result for the backup; what was played stays in its log, and a rematch starts a new one.
+   * `deckgym`: the games of another deckgym (at start-up). `stranded`: when a worker of this deckgym asks for a game,
+   * the ones fixed to an older games revision that no worker has had for a while and that nobody holds (the PC updated
+   * its engine-cli, or the only worker that had it is gone).
+   */
+  async endForEngineChange(
+    which: { deckgym: true } | { stranded: { engineRev: string; gamesRev: number } },
+  ): Promise<number[]> {
+    const message =
+      'Cambió el motor y esta partida no se puede seguir igual: lo jugado queda en el registro. Empezá otra o pedí la revancha.'
+    const rows =
+      'deckgym' in which
+        ? await this.prisma.$queryRaw<{ id: number }[]>`
+            UPDATE live_games SET status = 'engine_changed'::"LiveGameStatus", finished_at = now(), error = ${message},
+              lease_until = NULL, worker_id = NULL, decision = NULL
+            WHERE status IN ('queued', 'running', 'waiting') AND engine_rev <> ${this.engine.engineRev()}
+            RETURNING id`
+        : await this.prisma.$queryRaw<{ id: number }[]>`
+            UPDATE live_games SET status = 'engine_changed'::"LiveGameStatus", finished_at = now(), error = ${message},
+              lease_until = NULL, worker_id = NULL, decision = NULL
+            WHERE status IN ('queued', 'running', 'waiting') AND engine_rev = ${which.stranded.engineRev}
+              AND games_rev IS NOT NULL AND games_rev < ${which.stranded.gamesRev}
+              AND (lease_until IS NULL OR lease_until < now())
+              AND NOT EXISTS (
+                SELECT 1 FROM worker_nodes w
+                WHERE w.engine_rev = live_games.engine_rev AND w.games_rev = live_games.games_rev
+                  AND w.last_seen_at > now() - interval '2 minutes')
+            RETURNING id`
+    for (const row of rows) this.changed(row.id)
+    return rows.map((row) => row.id)
   }
 
   /** Fase 33: the game changed (the owner's page gets it through `watch`, on every device). */
@@ -462,7 +509,14 @@ export class LiveGamesService {
 
   async abandon(rawId: string): Promise<LiveGameView> {
     const game = await this.requireGame(rawId)
-    if (game.status === 'done' || game.status === 'abandoned' || game.status === 'failed') return this.view(game)
+    if (
+      game.status === 'done' ||
+      game.status === 'abandoned' ||
+      game.status === 'failed' ||
+      game.status === 'engine_changed'
+    ) {
+      return this.view(game)
+    }
     const updated = await this.prisma.liveGame.update({
       where: { id: game.id },
       data: { status: 'abandoned', finishedAt: new Date(), decision: Prisma.DbNull, leaseUntil: null },
@@ -488,6 +542,7 @@ export class LiveGamesService {
     version: string,
     fairBots: boolean,
     etBot: boolean,
+    gamesRev: number | null,
   ): Promise<ClaimedLiveGame | null> {
     // H-002: compared as numbers here, not as text in SQL.
     const coach = versionAtLeast(version, COACH_WORKER_VERSION)
@@ -495,13 +550,16 @@ export class LiveGamesService {
     const fairBotCodes = [...FAIR_BOT_CODES]
     const rows = await this.prisma.$queryRaw<{ id: number }[]>`
       UPDATE live_games SET status = CASE WHEN status = 'queued' THEN 'running'::"LiveGameStatus" ELSE status END,
-        worker_id = ${workerId}, lease_until = now() + interval '3 minutes'
+        worker_id = ${workerId}, lease_until = now() + interval '3 minutes',
+        games_rev = COALESCE(games_rev, ${gamesRev}::int)
       WHERE id = (
         SELECT id FROM live_games
         WHERE engine_rev = ${engineRev}
           AND (coach = false OR ${coach}::boolean)
           AND (bot <> ALL(${fairBotCodes}::text[]) OR ${fairBots}::boolean)
           AND (bot <> ${ET_BOT_CODE} OR ${etBot}::boolean)
+          -- Phase 42: a game is played whole by engines that play the same way (fixed by the first one that took it).
+          AND (games_rev IS NULL OR games_rev = ${gamesRev}::int)
           AND (status = 'queued' OR (status IN ('running', 'waiting') AND (lease_until IS NULL OR lease_until < now())))
         ORDER BY id
         FOR UPDATE SKIP LOCKED
@@ -534,6 +592,8 @@ export class LiveGamesService {
       engineRev: string
       version?: string | undefined
       engineFeatures?: string[] | undefined
+      cliVersion?: string | undefined
+      gamesRev?: number | undefined
     },
     signal?: AbortSignal,
   ): Promise<{ game: ClaimedLiveGame | null }> {
@@ -541,8 +601,22 @@ export class LiveGamesService {
     const version = input.version ?? '0'
     const fairBots = canPlayFairBots(input)
     const etBot = canPlayEtBot(input)
+    // Phase 42: how its engine plays. Worker 0.3.2 asks without saying it (review of #68: `gamesRevOf({})` is 0, and
+    // its games would end as soon as it updated itself): then what it said at its last hello to the simulation queue.
+    let gamesRev = saidGamesRev(input)
+    if (gamesRev === null) {
+      const node = await this.prisma.workerNode.findUnique({
+        where: { id: input.workerId },
+        select: { gamesRev: true, cliVersion: true },
+      })
+      gamesRev = saidGamesRev(node ?? {})
+    } else {
+      // What it says now (it may have updated its engine-cli since its last hello to the simulation queue).
+      await this.prisma.workerNode.updateMany({ where: { id: input.workerId }, data: { gamesRev } })
+    }
+    if (gamesRev !== null) await this.endForEngineChange({ stranded: { engineRev: input.engineRev, gamesRev } })
     const take = async () => {
-      const game = await this.tryClaim(input.workerId, input.engineRev, version, fairBots, etBot)
+      const game = await this.tryClaim(input.workerId, input.engineRev, version, fairBots, etBot, gamesRev)
       // The socket may close during UPDATE RETURNING or the reads that build the answer.
       if (signal?.aborted) {
         if (game) await this.releaseLease(game.id, input.workerId)
@@ -605,7 +679,12 @@ export class LiveGamesService {
     const taken = await this.takenBack(id, input.workerId)
     if (taken) return taken
     const game = await this.requireLease(id, input.workerId)
-    if (game.status === 'abandoned' || game.status === 'done' || game.status === 'failed') {
+    if (
+      game.status === 'abandoned' ||
+      game.status === 'done' ||
+      game.status === 'failed' ||
+      game.status === 'engine_changed'
+    ) {
       return { choice: null, status: game.status }
     }
     const made = game.choices[input.ply - 1]

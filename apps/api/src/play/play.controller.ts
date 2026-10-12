@@ -91,6 +91,9 @@ const claimSchema = z.object({
   version: z.string().max(20).optional(),
   /** What its engine can play (#16, worker 0.2.6 on): a game against an f bot (H-018) needs «fairBots». */
   engineFeatures: z.array(z.string().max(40)).max(20).optional(),
+  /** Phase 42: how its engine plays: a game is played whole with one (`gamesRev`, or derived from `cliVersion`). */
+  cliVersion: z.string().max(100).optional(),
+  gamesRev: z.number().int().min(0).max(10_000).optional(),
 })
 const decisionSchema = z.object({
   workerId,
@@ -224,7 +227,10 @@ export class PlayController {
             unwatch ??= this.games.watch(game.id, () => void push())
             subscriber.next({ data: game })
             const over =
-              game.status === 'failed' || game.status === 'abandoned' || (game.status === 'done' && game.replay)
+              game.status === 'failed' ||
+              game.status === 'abandoned' ||
+              game.status === 'engine_changed' ||
+              (game.status === 'done' && game.replay)
             if (over) {
               subscriber.complete()
               return

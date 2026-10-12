@@ -16,6 +16,8 @@ export interface EngineVersion {
   cards: number
   /** What it can do beyond the commands of 0.1.0 (`perGame`, `batch`…); missing in engines from before 0.2.1. */
   features?: string[]
+  /** Phase 42: how it plays; a job is played whole with one (missing before engine-cli 0.3.6). */
+  gamesRev?: number
 }
 
 export interface EngineCardStatus {

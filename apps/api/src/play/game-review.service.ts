@@ -25,6 +25,7 @@ const STATUS_ES: Record<LiveGameView['status'], string> = {
   done: 'terminada',
   failed: 'falló',
   abandoned: 'abandonada',
+  engine_changed: 'terminada porque cambió el motor',
 }
 
 export interface GameListItemView {
