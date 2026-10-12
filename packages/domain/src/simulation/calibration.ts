@@ -11,7 +11,14 @@
  * as `matchupPerGame` gives them; a player's rounds with one list are not, so the tournament intervals are, if
  * anything, a little narrow.
  */
-import { type GameRecord, ORIENTATIVE_BELOW, type WinRate, wilsonFromRate, Z_95 } from '../stats/rates.js'
+import {
+  type GameRecord,
+  ORIENTATIVE_BELOW,
+  type RateSource,
+  type WinRate,
+  wilsonFromRate,
+  Z_95,
+} from '../stats/rates.js'
 
 /** Per game, as `matchupPerGame` gives it (wins and losses may be fractional: a BO3 read as games). */
 export interface PerGameTally {
@@ -27,6 +34,12 @@ export interface CalibrationPairing {
   labelA: string
   labelB: string
   simulated: GameRecord
+  /**
+   * The games its lists played, without ties: the n shown. Absent: the games of `simulated`. A pairing of two lists
+   * of an archetype comes as one record scaled to the games that give the mixture's error (mixListRecords), which can
+   * be more or fewer than were played: that one is only for the interval.
+   */
+  simulatedGames?: number
   /** Null when the two archetypes never met in the era. */
   tournament: PerGameTally | null
 }
@@ -172,6 +185,16 @@ function perGameRate<S extends 'simulation' | 'tournament'>(source: S, tally: Pe
 }
 
 /**
+ * The games shown are the games played; the interval stays the one of the scaled record, and so does «orientativo»
+ * when that one is worth fewer games (a lopsided mixture: 10 games of a list weighing 95 % and 100 of the other).
+ */
+function playedGames<S extends RateSource>(rate: WinRate<S> | null, games: number | undefined): WinRate<S> | null {
+  if (!rate || games === undefined) return rate
+  const played = Math.round(games)
+  return { ...rate, games: played, samples: played, orientative: rate.orientative || played < ORIENTATIVE_BELOW }
+}
+
+/**
  * Standard error of a rate per game, in points. With p shrunk to (W + 1)/(n + 2) so that 0 % or 100 % over a few
  * games does not claim no error at all.
  */
@@ -207,7 +230,7 @@ export function calibrationReport(
   const minTournamentGames = options.minTournamentGames ?? CALIBRATION_MIN_TOURNAMENT_GAMES
   const rows: CalibrationRow[] = pairings.map((pairing) => {
     const sim = simTally(pairing.simulated)
-    const simulated = perGameRate('simulation', sim)
+    const simulated = playedGames(perGameRate('simulation', sim), pairing.simulatedGames)
     const tournament = pairing.tournament ? perGameRate('tournament', pairing.tournament) : null
     const both = simulated !== null && tournament !== null && pairing.tournament !== null
     const difference = both ? simulated.value - tournament.value : null
@@ -366,19 +389,24 @@ function archetypeCorrelation(
   return { rho: point.rho, n: point.n, ci95, method: 'bootstrap' }
 }
 
+/**
+ * `games` is shown; `effective` (the scaled games of a mixed pairing, when they differ) only decides «orientativo»
+ * along with them.
+ */
 function weightedRate(
-  terms: readonly { rate: number; se: number; weight: number; games: number }[],
+  terms: readonly { rate: number; se: number; weight: number; games: number; effective?: number }[],
 ): WeightedRate | null {
   const total = terms.reduce((sum, term) => sum + term.weight, 0)
   if (terms.length === 0 || !(total > 0)) return null
   const value = terms.reduce((sum, term) => sum + term.rate * term.weight, 0) / total
   const sd = Math.sqrt(terms.reduce((sum, term) => sum + (term.weight / total) ** 2 * term.se ** 2, 0))
   const gamesBehind = Math.round(terms.reduce((sum, term) => sum + term.games, 0))
+  const effectiveBehind = Math.round(terms.reduce((sum, term) => sum + (term.effective ?? term.games), 0))
   return {
     value,
     ci95: [Math.max(0, value - Z_95 * sd), Math.min(100, value + Z_95 * sd)],
     games: gamesBehind,
-    orientative: gamesBehind < ORIENTATIVE_BELOW,
+    orientative: gamesBehind < ORIENTATIVE_BELOW || effectiveBehind < ORIENTATIVE_BELOW,
   }
 }
 
@@ -396,25 +424,29 @@ function archetypeContrast(
     labels.set(pairing.a, pairing.labelA)
     labels.set(pairing.b, pairing.labelB)
   }
-  const terms = new Map<string, { sim: PerGameTally; tour: PerGameTally; rival: string }[]>()
-  const add = (id: string, rival: string, sim: PerGameTally, tour: PerGameTally) => {
+  // `played`: the games the lists played (a mixed pairing's record is scaled to its effective n, review of #67).
+  type Term = { sim: PerGameTally; tour: PerGameTally; rival: string; played: number }
+  const terms = new Map<string, Term[]>()
+  const add = (id: string, term: Term) => {
     const list = terms.get(id) ?? []
-    list.push({ sim, tour, rival })
+    list.push(term)
     terms.set(id, list)
   }
   for (const pairing of compared) {
     const sim = simTally(pairing.simulated)
-    add(pairing.a, pairing.b, sim, pairing.tournament)
-    add(pairing.b, pairing.a, flip(sim), flip(pairing.tournament))
+    const played = pairing.simulatedGames ?? games(sim)
+    add(pairing.a, { sim, tour: pairing.tournament, rival: pairing.b, played })
+    add(pairing.b, { sim: flip(sim), tour: flip(pairing.tournament), rival: pairing.a, played })
   }
   const weight = (id: string) => shares.get(id) ?? 1
-  const side = (list: { sim: PerGameTally; tour: PerGameTally; rival: string }[], pick: 'sim' | 'tour') =>
+  const side = (list: Term[], pick: 'sim' | 'tour') =>
     weightedRate(
       list.map((term) => ({
         rate: (term[pick].wins / games(term[pick])) * 100,
         se: standardError(term[pick]),
         weight: weight(term.rival),
-        games: games(term[pick]),
+        games: pick === 'sim' ? term.played : games(term[pick]),
+        effective: games(term[pick]),
       })),
     )
   return [...labels].map(([id, label]) => {

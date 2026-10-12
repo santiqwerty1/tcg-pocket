@@ -6,6 +6,7 @@ import {
   mixListRecords,
   spearman,
 } from '../../src/simulation/index.js'
+import type { GameRecord } from '../../src/stats/rates.js'
 
 describe('rank correlation', () => {
   it('ranks ties with the mean of the ranks they span', () => {
@@ -224,6 +225,51 @@ describe('calibration report', () => {
     // Below 5 archetypes there is no interval.
     const four = calibrationReport(bank({ a: 70, b: 50, c: 40, d: 20 }, 100)).archetypeCorrelation
     expect(four).toMatchObject({ n: 4, ci95: null, method: 'bootstrap' })
+  })
+})
+
+describe('calibrationReport with the games played (review of #44)', () => {
+  it('shows the games the lists played, and keeps the interval of the scaled record', () => {
+    // Two lists, 200 games each, at 10 % and 90 %: the mixture's record is worth about 1.073 games.
+    const mixed = mixListRecords([
+      { record: { wins: 20, losses: 180, ties: 0 }, weight: 0.5 },
+      { record: { wins: 180, losses: 20, ties: 0 }, weight: 0.5 },
+    ]) as GameRecord
+    expect(mixed.wins + mixed.losses).toBeGreaterThan(400)
+    const pairing = { a: 'x', b: 'y', labelA: 'X', labelB: 'Y', simulated: mixed, tournament: null }
+    const [scaled] = calibrationReport([pairing]).rows
+    const [played] = calibrationReport([{ ...pairing, simulatedGames: 400 }]).rows
+    expect(played?.simulated).toMatchObject({ games: 400, samples: 400, orientative: false })
+    expect(played?.simulated?.value).toBe(scaled?.simulated?.value)
+    expect(played?.simulated?.ci95).toEqual(scaled?.simulated?.ci95)
+    expect(scaled?.simulated?.games).toBeGreaterThan(400)
+    // The per-archetype table says the same games for that pair (review of #67).
+    const compared = calibrationReport([{ ...pairing, simulatedGames: 400, tournament: { wins: 30, losses: 20 } }])
+    expect(compared.archetypes.map((row) => [row.id, row.simulated?.games, row.tournament?.games])).toEqual([
+      ['x', 400, 50],
+      ['y', 400, 50],
+    ])
+  })
+
+  it('a lopsided mixture stays «orientativo» by its effective games, however many were played', () => {
+    // 10 games of a list that weighs 95 % and 100 of one that weighs 5 %: 110 played, worth far fewer.
+    const lopsided = mixListRecords([
+      { record: { wins: 5, losses: 5, ties: 0 }, weight: 0.95 },
+      { record: { wins: 50, losses: 50, ties: 0 }, weight: 0.05 },
+    ]) as GameRecord
+    expect(lopsided.wins + lopsided.losses).toBeLessThan(30)
+    const pairing = {
+      a: 'x',
+      b: 'y',
+      labelA: 'X',
+      labelB: 'Y',
+      simulated: lopsided,
+      simulatedGames: 110,
+      tournament: { wins: 30, losses: 20 },
+    }
+    const report = calibrationReport([pairing])
+    expect(report.rows[0]?.simulated).toMatchObject({ games: 110, orientative: true })
+    expect(report.archetypes[0]?.simulated).toMatchObject({ games: 110, orientative: true })
   })
 })
 

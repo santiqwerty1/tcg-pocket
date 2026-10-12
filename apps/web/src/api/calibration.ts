@@ -89,6 +89,8 @@ export const calibrationViewSchema = z.object({
     tournamentsWithPairings: z.number(),
   }),
   pending: z.number(),
+  /** Pairs of archetypes left out of the report (some pairing of their lists is missing). */
+  incompletePairs: z.number().default(0),
   failed: z.number(),
   /** Left unplayed by a cancelled job. */
   cancelled: z.number().default(0),
