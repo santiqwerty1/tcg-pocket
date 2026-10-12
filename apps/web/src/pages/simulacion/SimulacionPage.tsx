@@ -115,6 +115,11 @@ export function EngineLine({ engine }: { engine: EngineInfo }) {
                   ? ` · motor ${shortSha(worker.engineRev)} (distinto)`
                   : ''}
               </span>
+              {worker.paused ? (
+                <span className="text-xs text-warning">
+                  en pausa hasta {formatDateTime(worker.paused.until)} por resultados perdidos (los juega otro worker)
+                </span>
+              ) : null}
               {worker.current ? (
                 <Link to={`/simulacion/${worker.current.jobId}`} className="text-xs text-primary hover:underline">
                   jugando #{worker.current.jobId}: {worker.current.gamesDone}/{worker.current.games}

@@ -3,11 +3,12 @@
  * Exit codes: 0 ok, 2 bad input, 3 engine failure. A run can be stopped (job cancelled, shutdown) with its signal.
  */
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Log } from './client.js'
 import { type EnginePriority, setEnginePriority } from './priority.js'
+import { PROBE_EVERY_MS, type ProcessSample, probeSample, probeStart } from './proc-probe.js'
 import { createWorkDir, removeWorkDir } from './work-dir.js'
 
 export interface EngineVersion {
@@ -44,22 +45,51 @@ export interface RunOptions {
   log?: Log | undefined
   signal?: AbortSignal | undefined
   onProgress?: ((done: number, total: number | null) => void) | undefined
+  /**
+   * On Linux and Android: log the engine's OOM score when it starts and its memory (and the machine's) every
+   * `probeEveryMs` while it plays. A job turns it on; quick commands (version, status) do not.
+   */
+  probe?: boolean | undefined
+  probeEveryMs?: number | undefined
 }
 
-function run(
-  enginePath: string,
-  args: string[],
-  options: RunOptions = {},
-): Promise<{ stdout: string; stderrTail: string }> {
+/** How a run went, besides its output: for the log when the result is missing. */
+interface RunOutput {
+  stdout: string
+  stderrTail: string
+  /** The last `progress` line and the `total` the engine announced (it prints both again when it ends well). */
+  lastProgress: number | null
+  total: number | null
+  seconds: number
+  lastSample: (ProcessSample & { memAvailableMb: number | null }) | null
+}
+
+function run(enginePath: string, args: string[], options: RunOptions = {}): Promise<RunOutput> {
   if (options.signal?.aborted) return Promise.reject(options.signal.reason)
   return new Promise((resolve, reject) => {
     // A .js/.mjs engine is a script run with this Node (the fake engine of the tests).
     const [command, prefix] = /\.m?js$/.test(enginePath) ? [process.execPath, [enginePath]] : [enginePath, []]
     const child = spawn(command, [...prefix, ...args], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     setEnginePriority(child.pid, options.priority ?? 'normal', options.log ?? console.error)
+    const startedAt = Date.now()
     let stdout = ''
     let stderrTail = ''
     let total: number | null = null
+    let lastProgress: number | null = null
+    let lastSample: RunOutput['lastSample'] = null
+    let probing: ReturnType<typeof setInterval> | null = null
+    if (options.probe && child.pid !== undefined) {
+      const pid = child.pid
+      const start = probeStart(pid)
+      if (start) options.log?.('motor arrancado', { command: args[0], pid, ...start })
+      probing = setInterval(() => {
+        const sample = probeSample(pid)
+        if (!sample) return
+        lastSample = sample
+        options.log?.('motor: memoria', { pid, gamesDone: lastProgress, total, ...sample })
+      }, options.probeEveryMs ?? PROBE_EVERY_MS)
+      probing.unref()
+    }
     child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
       stdout += chunk
     })
@@ -69,24 +99,36 @@ function run(
         const totalMatch = /^total (\d+)$/.exec(line.trim())
         if (totalMatch) total = Number(totalMatch[1])
         const progress = /^progress (\d+)$/.exec(line.trim())
-        if (progress) options.onProgress?.(Number(progress[1]), total)
+        if (progress) {
+          lastProgress = Number(progress[1])
+          options.onProgress?.(lastProgress, total)
+        }
       }
     })
     const abort = () => child.kill()
     options.signal?.addEventListener('abort', abort, { once: true })
     child.on('error', (error) => {
+      if (probing) clearInterval(probing)
       options.signal?.removeEventListener('abort', abort)
       reject(new EngineError(`no se pudo ejecutar ${enginePath}: ${error.message}`, null, 'spawn'))
     })
     child.on('close', (code, signal) => {
-      options.log?.('motor terminado', { command: args[0], pid: child.pid, exitCode: code, signal })
+      if (probing) clearInterval(probing)
+      const seconds = Math.round((Date.now() - startedAt) / 1000)
+      options.log?.('motor terminado', {
+        command: args[0],
+        pid: child.pid,
+        exitCode: code,
+        signal,
+        ...(total !== null ? { lastProgress, total, seconds } : {}),
+      })
       options.signal?.removeEventListener('abort', abort)
       if (options.signal?.aborted) {
         reject(options.signal.reason instanceof Error ? options.signal.reason : new Error('cancelado'))
         return
       }
       if (code === 0 && signal === null) {
-        resolve({ stdout, stderrTail })
+        resolve({ stdout, stderrTail, lastProgress, total, seconds, lastSample })
         return
       }
       let message = stderrTail.trim() || `engine-cli terminó con código ${code}, señal ${signal}`
@@ -111,6 +153,15 @@ export async function engineStatus(enginePath: string, signal?: AbortSignal): Pr
   return JSON.parse((await run(enginePath, ['status'], { signal })).stdout) as EngineCardStatus[]
 }
 
+/** What is in a folder, for the log; null if it is gone (also if it goes while reading it). */
+function entriesOf(dir: string): string[] | null {
+  try {
+    return readdirSync(dir).slice(0, 20)
+  } catch {
+    return null
+  }
+}
+
 /** Writes the job to a temp folder, runs the command, returns the parsed result and the folder (for replays). */
 export async function runJob<T>(
   enginePath: string,
@@ -131,6 +182,7 @@ export async function runJob<T>(
       }),
     )
     const output = await run(enginePath, [command, jobFile, resultFile], {
+      probe: true,
       ...options,
       priority: options.priority ?? 'below_normal',
     })
@@ -146,15 +198,26 @@ export async function runJob<T>(
         dir,
         directoryExists: existsSync(dir),
         resultExists: existsSync(resultFile),
+        // What is left (job.json without result.json: only the file went; nothing: the folder was made again).
+        entries: entriesOf(dir),
+        pid: process.pid,
         exitCode: 0,
         signal: null,
+        // Short of its total: the process ended before playing every game (the S25: 699–954 of 1000, exit 0).
+        lastProgress: output.lastProgress,
+        total: output.total,
+        finished: output.total !== null && output.lastProgress === output.total,
+        seconds: output.seconds,
+        lastSample: output.lastSample,
         stdout: output.stdout.slice(-1000),
         stderr: output.stderrTail,
       })
       throw new EngineError(
         `engine-cli ${command} terminó con código 0 sin resultado válido: ${String(error)}`,
         0,
-        'missing_result',
+        // engine-cli exits 0 only after writing it: a missing file means its process was ended from outside before
+        // the end (the S25, 12/10/2026) or the file was removed, this worker's problem; a bad one is the engine's.
+        existsSync(resultFile) ? 'invalid_result' : 'missing_result',
       )
     }
   } catch (error) {

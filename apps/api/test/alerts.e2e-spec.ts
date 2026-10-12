@@ -105,6 +105,61 @@ describe('alerts (e2e)', () => {
     await test.prisma.liveGame.delete({ where: { id: game.id } })
   })
 
+  it('a worker paused after lost results (0.3.4): the alert says until when and not to restart it (review of #72)', async () => {
+    const rev = test.env.engineRev ?? 'x'
+    const alerts = async () =>
+      ((await get('/api/alerts')).body.items as { code: string; title: string; detail: string }[]).filter((item) =>
+        ['worker_idle', 'worker_paused'].includes(item.code),
+      )
+    const job = await test.prisma.simulationJob.create({
+      data: {
+        kind: 'compare',
+        status: 'queued',
+        label: 'pausa',
+        params: {},
+        engineRev: rev,
+        players: ['r', 'r'],
+        gamesPerPair: 10,
+        baseSeed: 1n,
+        totalGames: 10,
+        chunks: { create: [{ idx: 0, games: 10, firstGame: 0, seed: 1n }] },
+      },
+    })
+    // Only the paused one is around: the workers other tests left are not seen for this one.
+    const others = await test.prisma.workerNode.findMany({ select: { id: true, lastSeenAt: true } })
+    await test.prisma.workerNode.updateMany({ data: { lastSeenAt: new Date('2026-10-01T00:00:00Z') } })
+    try {
+      await test.prisma.workerNode.create({
+        data: {
+          id: 'worker-paused',
+          name: 'S25',
+          engineRev: rev,
+          gamesRev: 1,
+          lastSeenAt: new Date(),
+          pausedUntil: new Date('2099-10-12T21:30:00Z'),
+          pauseReason: 'lost_results',
+        },
+      })
+      const [paused, ...rest] = await alerts()
+      expect(rest).toEqual([])
+      expect(paused).toMatchObject({
+        code: 'worker_paused',
+        title: expect.stringMatching(/^S25 en pausa hasta el .* por resultados perdidos$/),
+        detail: expect.stringContaining('No hace falta reiniciarlo'),
+      })
+      expect(paused?.detail).not.toContain('reiniciá')
+      // Paused no longer: no alert (it can take the chunk).
+      await test.prisma.workerNode.update({ where: { id: 'worker-paused' }, data: { pausedUntil: null } })
+      expect(await alerts()).toEqual([])
+    } finally {
+      await test.prisma.simulationJob.delete({ where: { id: job.id } })
+      await test.prisma.workerNode.deleteMany({ where: { id: 'worker-paused' } })
+      for (const other of others) {
+        await test.prisma.workerNode.update({ where: { id: other.id }, data: { lastSeenAt: other.lastSeenAt } })
+      }
+    }
+  })
+
   it('H-051: work no worker can take: «et», the f bots, both in one worker, the same deckgym and games revision', async () => {
     const rev = test.env.engineRev ?? 'x'
     const idle = async () =>

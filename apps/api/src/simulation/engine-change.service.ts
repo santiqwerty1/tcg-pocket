@@ -242,7 +242,17 @@ export class EngineChangeService implements OnApplicationBootstrap, OnModuleDest
       await tx.simulationReplay.deleteMany({ where: { chunk: { jobId, status: { in: ['queued', 'leased'] } } } })
       await tx.simulationChunk.updateMany({
         where: { jobId, status: { not: 'cancelled' } },
-        data: { status: 'queued', leaseUntil: null, workerId: null, attempt: 0, gamesDone: 0, error: null },
+        data: {
+          status: 'queued',
+          leaseUntil: null,
+          workerId: null,
+          attempt: 0,
+          // Returns of a lost result (worker 0.3.4) start over too: they were of the other engine.
+          returns: 0,
+          returnedBy: [],
+          gamesDone: 0,
+          error: null,
+        },
       })
       const history = [...((current.params as { engineChanges?: EngineChange[] }).engineChanges ?? []), change]
       await tx.$executeRaw`

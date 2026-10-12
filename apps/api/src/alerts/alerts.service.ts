@@ -45,6 +45,7 @@ export interface AlertView {
     | 'backup_drill'
     | 'era_missing_set'
     | 'worker_idle'
+    | 'worker_paused'
     | 'mcp_new_client'
     | 'backup_stale'
     | 'limitless_sync'
@@ -305,6 +306,15 @@ export class AlertsService {
     const idle = await this.workerIdle()
     if (idle?.reason === 'blocked') {
       if (Date.now() - this.startedAt >= this.deployGraceMs) alerts.push(blockedAlert(idle))
+    } else if (idle?.reason === 'paused') {
+      // Paused after lost results (worker 0.3.4): restarting it would only play the chunk again (review of #72).
+      alerts.push({
+        code: 'worker_paused',
+        level: 'info',
+        title: `${idle.names} en pausa hasta el ${idle.until} por resultados perdidos`,
+        detail: `${idle.waiting} ${idle.waiting === 1 ? 'tarea espera' : 'tareas esperan'}. El sistema del equipo cortó el motor a mitad de un cruce; el worker vuelve solo. No hace falta reiniciarlo: revisá la batería de Termux («Sin restricciones»).`,
+        link: '/simulacion',
+      })
     } else if (idle) {
       alerts.push({
         code: 'worker_idle',
@@ -417,7 +427,12 @@ export class AlertsService {
 
   private async workerIdle(
     now = new Date(),
-  ): Promise<{ waiting: number; since: string | null; reason: 'none' } | BlockedWork | null> {
+  ): Promise<
+    | { waiting: number; since: string | null; reason: 'none' }
+    | { waiting: number; reason: 'paused'; names: string; until: string }
+    | BlockedWork
+    | null
+  > {
     const waitingChunk = { OR: [{ status: 'queued' as const }, { status: 'leased' as const, leaseUntil: { lt: now } }] }
     const [chunks, games, last, recent] = await Promise.all([
       this.prisma.simulationChunk.count({ where: { job: { status: { in: ['queued', 'running'] } }, ...waitingChunk } }),
@@ -425,13 +440,32 @@ export class AlertsService {
       this.prisma.workerNode.findFirst({ orderBy: { lastSeenAt: 'desc' }, select: { lastSeenAt: true } }),
       this.prisma.workerNode.findMany({
         where: { lastSeenAt: { gte: new Date(now.getTime() - WORKER_IDLE_MS) } },
-        select: { engineRev: true, version: true, cliVersion: true, engineFeatures: true, gamesRev: true },
+        select: {
+          name: true,
+          engineRev: true,
+          version: true,
+          cliVersion: true,
+          engineFeatures: true,
+          gamesRev: true,
+          pausedUntil: true,
+        },
       }),
     ])
     const waiting = chunks + games
     if (waiting === 0) return null
     if (recent.length === 0) {
       return { waiting, since: last ? ownerDateTime(last.lastSeenAt) : null, reason: 'none' }
+    }
+    // Every worker alive is paused after lost results (worker 0.3.4): the work waits for the pause, not for a restart.
+    const paused = recent.filter((worker) => worker.pausedUntil !== null && worker.pausedUntil > now)
+    if (chunks > 0 && paused.length === recent.length) {
+      const until = new Date(Math.min(...paused.map((worker) => (worker.pausedUntil as Date).getTime())))
+      return {
+        waiting,
+        reason: 'paused',
+        names: paused.map((worker) => worker.name).join(', '),
+        until: ownerDateTime(until),
+      }
     }
     // Some worker is alive, but work that none of them can play waits all the same, as the claims filter it: a job
     // with perGame (H-010), «et» (H-051) or an f bot (H-018) needs all of them in one worker with its deckgym.

@@ -14,4 +14,7 @@
 // 0.3.2 (D-026): `--setup --keep` without questions; setup asks and checks before stopping anything, restarts the old
 // worker if the new one does not start, and writes and starts from outside a packaged app.
 // 0.3.3 (phase 42): says how its engine plays (`gamesRev` of engine-cli 0.3.6) in its claims, results and games.
-export const WORKER_VERSION = '0.3.3'
+// 0.3.4: a result.json lost after a good engine run goes back without spending an attempt (`cause: 'worker'`) and pauses
+// claims after two in a row (the app shows the pause); work folders carry their process's PID, and a start never cleans
+// another live one's; on Linux and Android the log says the engine's OOM score and memory while it plays.
+export const WORKER_VERSION = '0.3.4'

@@ -443,6 +443,25 @@ describe('simulation (e2e)', () => {
       ).body,
     ).toEqual({ accepted: true })
 
+    // A result.json the worker lost (the engine ended well, the S25 of 12/10/2026) sends the chunk back without
+    // spending an attempt: a worker's problem never fails the job (worker 0.3.4 on).
+    const returned = (await claim()).body.chunk as Structured
+    expect(
+      (
+        await bearer('put', `/api/worker/chunks/${returned.chunkId}/failure`).send({
+          workerId: 'worker-0001',
+          error: 'engine-cli simulate terminó con código 0 sin resultado válido',
+          cause: 'worker',
+        })
+      ).body,
+    ).toEqual({ status: 'queued' })
+    expect(await test.prisma.simulationChunk.findUnique({ where: { id: Number(returned.chunkId) } })).toMatchObject({
+      status: 'queued',
+      attempt: 0,
+      workerId: null,
+      error: expect.stringContaining('Devuelto por el worker'),
+    })
+
     // Three engine failures fail the chunk; the job keeps its other results.
     let failed: Structured = {}
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -519,6 +538,89 @@ describe('simulation (e2e)', () => {
     expect((await claim()).body.chunk).toBeNull()
     expect((await test.http().delete(`/api/simulations/${created.body.id}`).set('Cookie', cookie)).status).toBe(204)
     expect((await get(`/api/simulations/${created.body.id}`)).status).toBe(404)
+  })
+
+  it('returns without an attempt (a lost result.json) end: 5 from one worker or 3 from two count as one; the pause shows', async () => {
+    const lost = 'engine-cli simulate terminó con código 0 sin resultado válido'
+    const job = async () => {
+      const created = await post('/api/simulations').send({
+        kind: 'compare',
+        sideA: decks(2, 2),
+        sideB: decks(5, 5),
+        gamesPerPair: 20,
+        players: ['r', 'r'],
+      })
+      expect(created.body.progress).toMatchObject({ chunks: { total: 1 } })
+      return created.body.id as number
+    }
+    const giveBack = async (workerId: string, extra: Record<string, unknown> = {}) => {
+      const chunk = (await claim(workerId)).body.chunk as Structured
+      const answer = await bearer('put', `/api/worker/chunks/${chunk.chunkId}/failure`).send({
+        workerId,
+        error: lost,
+        cause: 'worker',
+        ...extra,
+      })
+      return { chunkId: Number(chunk.chunkId), status: answer.body.status as string }
+    }
+    const row = (id: number) => test.prisma.simulationChunk.findUnique({ where: { id } })
+    const engineWorker = async (id: string) =>
+      ((await get('/api/simulations/engine')).body.workers as { id: string; paused: Structured | null }[]).find(
+        (worker) => worker.id === id,
+      )
+
+    // One worker: four returns cost nothing; the fifth counts as an attempt, so a chunk no one can play still ends.
+    const first = await job()
+    const until = new Date(Date.now() + 30 * 60_000).toISOString()
+    let returned = await giveBack('worker-0001', { pausedUntil: until })
+    // The pause it sent shows in Simulación until it claims again.
+    expect((await engineWorker('worker-0001'))?.paused).toEqual({ until, reason: 'lost_results' })
+    for (let i = 0; i < 3; i++) returned = await giveBack('worker-0001')
+    expect((await engineWorker('worker-0001'))?.paused).toBeNull()
+    expect(await row(returned.chunkId)).toMatchObject({ status: 'queued', attempt: 0, returns: 4 })
+    returned = await giveBack('worker-0001')
+    expect(returned.status).toBe('queued')
+    expect(await row(returned.chunkId)).toMatchObject({
+      attempt: 1,
+      returns: 5,
+      returnedBy: ['worker-0001'],
+      error: expect.stringContaining('Devuelto 5 veces sin resultado (1 worker): cuenta como intento'),
+    })
+    await post(`/api/simulations/${first}/cancel`)
+
+    // Two workers: the third return counts.
+    const second = await job()
+    await giveBack('worker-0001')
+    await giveBack('worker-0002')
+    returned = await giveBack('worker-0001')
+    expect(await row(returned.chunkId)).toMatchObject({
+      attempt: 1,
+      returns: 3,
+      returnedBy: ['worker-0001', 'worker-0002'],
+      error: expect.stringContaining('(2 workers)'),
+    })
+    await post(`/api/simulations/${second}/cancel`)
+
+    // A chunk this worker sent back goes last for it: it takes the other one, and another worker takes it (review of
+    // #72: alone, the S25 got the same chunk back seven times). A pause is capped at 6 h, whatever its clock says.
+    const two = await post('/api/simulations').send({
+      kind: 'compare',
+      sideA: decks(2, 2),
+      sideB: decks(5, 6),
+      gamesPerPair: 20,
+      players: ['r', 'r'],
+    })
+    expect(two.body.progress).toMatchObject({ chunks: { total: 2 } })
+    const far = new Date(Date.now() + 48 * 60 * 60_000).toISOString()
+    const back = await giveBack('worker-0001', { pausedUntil: far })
+    const node = await test.prisma.workerNode.findUniqueOrThrow({ where: { id: 'worker-0001' } })
+    expect((node.pausedUntil?.getTime() ?? 0) - Date.now()).toBeLessThanOrEqual(6 * 60 * 60_000)
+    expect(((await claim('worker-0001')).body.chunk as Structured).chunkId).not.toBe(back.chunkId)
+    expect(((await claim('worker-0002')).body.chunk as Structured).chunkId).toBe(back.chunkId)
+    await post(`/api/simulations/${two.body.id}/cancel`)
+    for (const id of [first, second, two.body.id as number]) {
+      expect((await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)).status).toBe(204)
+    }
   })
 
   it('optimize: one chunk with the engine job (deck minus the cards taken out, candidates, rivals)', async () => {
@@ -1929,7 +2031,21 @@ describe('simulation (e2e)', () => {
     })
     expect(await engine.releaseGoneGamesRevs()).toEqual({ moved: [], replayed: [] })
     await test.prisma.workerNode.update({ where: { id: 'worker-rev-2' }, data: { lastSeenAt: new Date() } })
+    // Returns of a lost result (worker 0.3.4) were of the other engine: they start over with the replay (review of #72).
+    await test.prisma.simulationChunk.updateMany({
+      where: { jobId: created.id },
+      data: { returns: 2, returnedBy: ['worker-rev-1'] },
+    })
     expect(await engine.releaseGoneGamesRevs()).toEqual({ moved: [], replayed: [created.id] })
+    expect(
+      (await test.prisma.simulationChunk.findMany({ where: { jobId: created.id } })).map((chunk) => [
+        chunk.returns,
+        chunk.returnedBy,
+      ]),
+    ).toEqual([
+      [0, []],
+      [0, []],
+    ])
     const job = (await get(`/api/simulations/${created.id}`)).body as {
       status: string
       engineChange: { oldResults: number } & Structured

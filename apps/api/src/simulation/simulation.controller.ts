@@ -139,7 +139,14 @@ const resultSchema = z.object({
   gamesRev: z.number().int().min(0).max(10_000).optional(),
   extra: z.record(z.string(), z.unknown()).optional(),
 })
-const failureSchema = z.object({ workerId: z.string().min(8).max(64), error: z.string().min(1).max(20_000) })
+const failureSchema = z.object({
+  workerId: z.string().min(8).max(64),
+  error: z.string().min(1).max(20_000),
+  // `worker`: the engine ended well but the worker lost the result; the chunk is requeued without an attempt.
+  cause: z.enum(['engine', 'worker']).optional(),
+  // With `worker`: it stops claiming until then (two lost results in a row); Simulación shows it.
+  pausedUntil: z.iso.datetime({ offset: true }).optional(),
+})
 const listQuerySchema = z.object({ archived: z.enum(['true', 'false']).optional() })
 const cleanupSchema = z.object({ action: z.enum(['delete_cancelled', 'archive_done']) })
 const prioritySchema = z.object({ priority: z.number().int().min(0).max(2_147_483_647) })
@@ -238,7 +245,8 @@ export class WorkerController {
     @Param('id', new ZodValidationPipe(idParam)) id: number,
     @Body(new ZodValidationPipe(failureSchema)) body: z.infer<typeof failureSchema>,
   ) {
-    return this.queue.failure(id, body)
+    const { pausedUntil, ...rest } = body
+    return this.queue.failure(id, { ...rest, ...(pausedUntil ? { pausedUntil: new Date(pausedUntil) } : {}) })
   }
 
   /** Body: the replay JSON gzipped (`Content-Type: application/gzip`), at most 8 MB. */

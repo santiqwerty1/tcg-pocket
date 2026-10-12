@@ -790,18 +790,21 @@ model EngineCard {
 }
 
 model WorkerNode {
-  id         String   @id
-  name       String
-  engineRev  String?  @map("engine_rev")
-  cliVersion String?  @map("cli_version")
-  cores      Int      @default(1)
-  version    String?
+  id             String    @id
+  name           String
+  engineRev      String?   @map("engine_rev")
+  cliVersion     String?   @map("cli_version")
+  cores          Int       @default(1)
+  version        String?
   /// What its engine can do (`engine-cli version` features), reported from worker 0.2.6 on; empty before.
-  engineFeatures String[] @default([]) @map("engine_features")
+  engineFeatures String[]  @default([]) @map("engine_features")
   /// Phase 42: how its engine plays (`gamesRev`; 1 for engine-cli 0.3.3 on before it said it, 0 before that).
-  gamesRev   Int?     @map("games_rev")
-  lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(3)
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  gamesRev       Int?      @map("games_rev")
+  /// Not claiming until then (worker 0.3.4: results lost in a row), and why; cleared by its next claim.
+  pausedUntil    DateTime? @map("paused_until") @db.Timestamptz(3)
+  pauseReason    String?   @map("pause_reason")
+  lastSeenAt     DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@map("worker_nodes")
 }
@@ -875,6 +878,9 @@ model SimulationChunk {
   seed        BigInt
   status      SimulationChunkStatus @default(queued)
   attempt     Int                   @default(0)
+  /// Times a worker sent it back without spending an attempt (a lost result.json, worker 0.3.4), and which workers.
+  returns     Int                   @default(0)
+  returnedBy  String[]              @default([]) @map("returned_by")
   leaseUntil  DateTime?             @map("lease_until") @db.Timestamptz(3)
   workerId    String?               @map("worker_id")
   gamesDone   Int                   @default(0) @map("games_done")

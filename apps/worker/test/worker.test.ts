@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { constants, setPriority, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -8,8 +9,10 @@ import { ApiError, type Chunk, type ChunkResult, type LiveGame, WorkerClient } f
 import type { WorkerConfig } from '../src/config.js'
 import { EngineError, engineStatus, engineVersion, runJob } from '../src/engine.js'
 import { LiveRunner, OLD_ENGINE_COACH } from '../src/live.js'
+import { parseMemAvailableMb, parseStatus, procAvailable } from '../src/proc-probe.js'
 import type { ReadyRelease, Updater } from '../src/update.js'
 import { WORKER_VERSION } from '../src/version.js'
+import { workDirOwner } from '../src/work-dir.js'
 import { Worker } from '../src/worker.js'
 
 const FAKE_ENGINE = join(dirname(fileURLToPath(import.meta.url)), 'fake-engine.mjs')
@@ -49,7 +52,7 @@ function fakeClient(chunks: Chunk[]) {
   const calls = {
     results: [] as { chunkId: number; body: ChunkResult }[],
     replays: [] as { chunkId: number; gameId: string; data: Uint8Array; meta: Record<string, unknown> }[],
-    failures: [] as { chunkId: number; error: string }[],
+    failures: [] as { chunkId: number; error: string; cause?: string; pausedUntil?: string }[],
     status: [] as string[],
   }
   let failResult = 0
@@ -72,8 +75,13 @@ function fakeClient(chunks: Chunk[]) {
       calls.results.push({ chunkId, body })
       return { accepted }
     }),
-    failure: vi.fn(async (chunkId: number, body: { error: string }) => {
-      calls.failures.push({ chunkId, error: body.error })
+    failure: vi.fn(async (chunkId: number, body: { error: string; cause?: string; pausedUntil?: string }) => {
+      calls.failures.push({
+        chunkId,
+        error: body.error,
+        ...(body.cause ? { cause: body.cause } : {}),
+        ...(body.pausedUntil ? { pausedUntil: body.pausedUntil } : {}),
+      })
       return { status: 'queued' }
     }),
     replay: vi.fn(async (chunkId: number, gameId: string, data: Uint8Array, meta: Record<string, unknown>) => {
@@ -106,10 +114,48 @@ describe('engine runner', () => {
     expect(readdirSync(dir)).toEqual([])
   })
 
-  it.each([94, 93])('classifies invalid output (%i) as an engine failure', async (games) => {
-    await expect(runJob(FAKE_ENGINE, 'simulate', { games }, dir)).rejects.toMatchObject({
+  it('an engine that ends with 0 short of its games (the S25, 12/10/2026) logs how far it got, and on Linux its memory', async () => {
+    const log = vi.fn()
+    await expect(runJob(FAKE_ENGINE, 'simulate', { games: 92 }, dir, { log, probeEveryMs: 50 })).rejects.toMatchObject({
       exitCode: 0,
       code: 'missing_result',
+    })
+    expect(log).toHaveBeenCalledWith(
+      'motor terminado',
+      expect.objectContaining({ exitCode: 0, signal: null, lastProgress: 60, total: 92 }),
+    )
+    expect(log).toHaveBeenCalledWith(
+      'motor sin resultado válido',
+      expect.objectContaining({ lastProgress: 60, total: 92, finished: false, resultExists: false }),
+    )
+    const messages = log.mock.calls.map(([message]) => message)
+    if (procAvailable()) {
+      // Linux and Android: how likely the system was to kill it, and its memory while it played.
+      expect(log).toHaveBeenCalledWith('motor arrancado', expect.objectContaining({ oomScore: expect.any(Number) }))
+      expect(log).toHaveBeenCalledWith(
+        'motor: memoria',
+        expect.objectContaining({ rssMb: expect.any(Number), memAvailableMb: expect.any(Number) }),
+      )
+    } else {
+      expect(messages).not.toContain('motor arrancado')
+      expect(messages).not.toContain('motor: memoria')
+    }
+  })
+
+  it('reads /proc: MemAvailable and the status of a process', () => {
+    expect(parseMemAvailableMb('MemTotal:       11534336 kB\nMemAvailable:    2097152 kB\n')).toBe(2048)
+    expect(parseMemAvailableMb('MemTotal: 1 kB\n')).toBeNull()
+    expect(
+      parseStatus('Name:\tengine-cli\nState:\tR (running)\nVmHWM:\t  524288 kB\nVmRSS:\t  262144 kB\nThreads:\t9\n'),
+    ).toEqual({ state: 'R (running)', rssMb: 256, hwmMb: 512, threads: 9 })
+    expect(parseStatus('Name:\tx\n')).toEqual({ state: null, rssMb: null, hwmMb: null, threads: null })
+  })
+
+  it.each([94, 93])('classifies invalid output (%i) as an engine failure', async (games) => {
+    // The file is there but bad: the engine's problem (a missing one is the worker's, «missing_result»).
+    await expect(runJob(FAKE_ENGINE, 'simulate', { games }, dir)).rejects.toMatchObject({
+      exitCode: 0,
+      code: 'invalid_result',
     })
     expect(readdirSync(dir)).toEqual([])
   })
@@ -210,8 +256,146 @@ describe('worker loop', () => {
       }),
     })
     await new Worker(config, client, silent).loop(controller.signal)
-    expect(calls.failures.map(({ chunkId }) => chunkId)).toEqual([7])
+    // The engine cannot exit 0 without writing it: the chunk goes back as this worker's problem, not an attempt.
+    expect(calls.failures).toEqual([{ chunkId: 7, error: expect.stringContaining('sin resultado'), cause: 'worker' }])
     expect(calls.results.map(({ chunkId }) => chunkId)).toEqual([8])
+  })
+
+  it('two lost results in a row pause the claims, so another worker plays the chunk (the S25, 12/10/2026)', async () => {
+    const { client, calls } = fakeClient([
+      chunk({ games: 96 }),
+      chunk({ chunkId: 8, games: 96 }),
+      chunk({ chunkId: 9 }),
+    ])
+    const controller = new AbortController()
+    const original = vi.mocked(client.claim).getMockImplementation()
+    const claimedAt: number[] = []
+    vi.mocked(client.claim).mockImplementation(async (hello, signal) => {
+      claimedAt.push(Date.now())
+      const answer = await original?.(hello, signal)
+      if (!answer?.chunk) controller.abort()
+      return answer as Awaited<ReturnType<WorkerClient['claim']>>
+    })
+    Object.assign(client, {
+      liveClaim: vi.fn(async (_hello, signal: AbortSignal) => {
+        await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+        return { game: null }
+      }),
+    })
+    const log = vi.fn()
+    const worker = new Worker(config, client, log)
+    worker.lostResultsPauseMs = 400
+    await worker.loop(controller.signal)
+    expect(calls.failures.map(({ chunkId, cause }) => [chunkId, cause])).toEqual([
+      [7, 'worker'],
+      [8, 'worker'],
+    ])
+    // The second return says until when it pauses, so the app shows it; the first one does not pause.
+    expect(calls.failures[0]?.pausedUntil).toBeUndefined()
+    const until = Date.parse(calls.failures[1]?.pausedUntil ?? '')
+    expect(until - (claimedAt[1] ?? 0)).toBeGreaterThanOrEqual(350)
+    expect(until - (claimedAt[1] ?? 0)).toBeLessThan(5_000)
+    expect(calls.results.map(({ chunkId }) => chunkId)).toEqual([9])
+    expect(log).toHaveBeenCalledWith(
+      'el motor perdió resultados varias veces seguidas: no tomo trabajo por un rato',
+      expect.objectContaining({ inARow: 2 }),
+    )
+    // The third claim waited for the pause; the first lost result alone did not pause.
+    expect((claimedAt[2] ?? 0) - (claimedAt[1] ?? 0)).toBeGreaterThanOrEqual(350)
+    // A restart keeps it: the pause is in state.json (review of #72).
+    expect(JSON.parse(readFileSync(join(dataDir, 'state.json'), 'utf8')).pausedUntil).toBe(
+      calls.failures[1]?.pausedUntil,
+    )
+  })
+
+  /** Plays `chunks` until the queue is empty: what was reported, when each claim went and what was logged. */
+  async function lossRun(chunks: Chunk[]) {
+    const { client, calls } = fakeClient(chunks)
+    const controller = new AbortController()
+    const original = vi.mocked(client.claim).getMockImplementation()
+    const claimedAt: number[] = []
+    vi.mocked(client.claim).mockImplementation(async (hello, signal) => {
+      claimedAt.push(Date.now())
+      const answer = await original?.(hello, signal)
+      if (!answer?.chunk) controller.abort()
+      return answer as Awaited<ReturnType<WorkerClient['claim']>>
+    })
+    Object.assign(client, {
+      liveClaim: vi.fn(async (_hello, signal: AbortSignal) => {
+        await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+        return { game: null }
+      }),
+    })
+    const log = vi.fn()
+    const worker = new Worker(config, client, log)
+    worker.lostResultsPauseMs = 400
+    await worker.loop(controller.signal)
+    const paused = log.mock.calls.some(([message]) => String(message).startsWith('el motor perdió resultados'))
+    return { calls, claimedAt, paused }
+  }
+
+  it('the same chunk lost twice does not pause (it may be that chunk; the app gives it to this worker last)', async () => {
+    const run = await lossRun([chunk({ games: 96 }), chunk({ games: 96 }), chunk({ chunkId: 9 })])
+    expect(run.calls.failures.map(({ chunkId }) => chunkId)).toEqual([7, 7])
+    expect(run.paused).toBe(false)
+    expect(run.calls.failures.every((failure) => failure.pausedUntil === undefined)).toBe(true)
+  })
+
+  it('a chunk played resets the losses; an engine error in between does not (review of #72)', async () => {
+    // Lost, played, lost: no pause.
+    const reset = await lossRun([chunk({ games: 96 }), chunk({ chunkId: 8 }), chunk({ chunkId: 9, games: 96 })])
+    expect(reset.calls.results.map(({ chunkId }) => chunkId)).toEqual([8])
+    expect(reset.paused).toBe(false)
+    // Lost, an engine error (a deck it refuses), lost: it pauses, as the error says nothing of a long run's end.
+    rmSync(join(dataDir, 'state.json'), { force: true })
+    const error = await lossRun([
+      chunk({ games: 96 }),
+      chunk({ chunkId: 8, games: 13 }),
+      chunk({ chunkId: 9, games: 96 }),
+      chunk({ chunkId: 10 }),
+    ])
+    expect(error.calls.failures.map(({ chunkId, cause }) => [chunkId, cause ?? 'engine'])).toEqual([
+      [7, 'worker'],
+      [8, 'engine'],
+      [9, 'worker'],
+    ])
+    expect(error.paused).toBe(true)
+  })
+
+  it('a pause saved before a restart still holds', async () => {
+    const until = new Date(Date.now() + 400).toISOString()
+    writeFileSync(join(dataDir, 'state.json'), JSON.stringify({ pausedUntil: until }))
+    const started = Date.now()
+    const run = await lossRun([chunk({ chunkId: 9 })])
+    expect(run.calls.results.map(({ chunkId }) => chunkId)).toEqual([9])
+    expect((run.claimedAt[0] ?? 0) - started).toBeGreaterThanOrEqual(350)
+  })
+
+  it('a starting worker never cleans the work folder of another live process (the S25, 12/10/2026)', async () => {
+    const { client } = fakeClient([])
+    const worker = new Worker(config, client, silent)
+    const work = join(dataDir, 'work')
+    const dead = spawnSync(process.execPath, ['-e', '']).pid
+    const day = 24 * 60 * 60
+    const age = (name: string, seconds: number) => {
+      const when = Date.now() / 1000 - seconds
+      utimesSync(join(work, name), when, when)
+    }
+    for (const name of [
+      `simulate-${process.ppid}-aaaaaa`,
+      `simulate-${process.ppid}-oldold`,
+      `simulate-${dead}-bbbbbb`,
+      `batch-${process.pid}-cccccc`,
+      'simulate-dddddd',
+      'orphan-from-crash',
+    ]) {
+      mkdirSync(join(work, name))
+    }
+    age(`simulate-${process.ppid}-oldold`, day + 60)
+    age('orphan-from-crash', day + 60)
+    await worker.cleanWorkDir()
+    // Kept: a live process's own (its engine may still write result.json there) and one from before 0.3.4, not a day old.
+    expect(readdirSync(work).sort()).toEqual([`simulate-${process.ppid}-aaaaaa`, 'simulate-dddddd'].sort())
   })
 
   it('keeps playing across heartbeat failures and renews even after the local lease expires', async () => {
@@ -283,7 +467,12 @@ describe('worker loop', () => {
       expect(pending).not.toBeNull()
       writeFileSync(join(dataDir, 'state.json'), JSON.stringify({ pending }))
       const before = readdirSync(join(dataDir, 'work'))
+      // Each folder says whose it is (worker 0.3.4 on).
+      expect(before.map(workDirOwner)).toEqual(before.map(() => process.pid))
       mkdirSync(join(dataDir, 'work', 'orphan-from-crash'))
+      // A crash's leftover from before 0.3.4 (no owner) goes once it is a day old.
+      const old = Date.now() / 1000 - 25 * 60 * 60
+      utimesSync(join(dataDir, 'work', 'orphan-from-crash'), old, old)
       await worker.cleanWorkDir()
       expect(readdirSync(join(dataDir, 'work'))).toEqual(before)
     } finally {

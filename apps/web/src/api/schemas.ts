@@ -2083,6 +2083,8 @@ export const workerInfoSchema = z.object({
   version: z.string().nullable(),
   lastSeenAt: isoDate,
   online: z.boolean(),
+  /** Not claiming until then (worker 0.3.4: results lost in a row); null when it is not paused. */
+  paused: z.object({ until: isoDate, reason: z.string() }).nullable().default(null),
   current: z.object({ jobId: z.number(), chunkId: z.number(), gamesDone: z.number(), games: z.number() }).nullable(),
 })
 export type WorkerInfo = z.infer<typeof workerInfoSchema>

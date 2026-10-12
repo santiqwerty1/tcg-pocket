@@ -6,7 +6,7 @@
  * for several pairings of one job at a time and plays them in one engine process.
  */
 import { existsSync, mkdirSync } from 'node:fs'
-import { readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { gzipSync } from 'node:zlib'
@@ -14,9 +14,10 @@ import { ApiError, type Chunk, type ChunkResult, type Log, type WorkerClient } f
 import type { WorkerConfig } from './config.js'
 import { EngineError, engineStatus, engineVersion, runJob } from './engine.js'
 import { LiveRunner } from './live.js'
+import { processAlive } from './lock.js'
 import type { Updater } from './update.js'
 import { WORKER_VERSION } from './version.js'
-import { removeWorkDir, workDirInUse } from './work-dir.js'
+import { removeWorkDir, workDirInUse, workDirOwner } from './work-dir.js'
 
 /** 0.2.0: games against a bot and consistency chunks (Fase 8); the app gives consistency chunks only from 0.2.0 on.
  * 0.2.1: consistency against the meta (D-019), given only from 0.2.1 on. */
@@ -33,6 +34,18 @@ const STALL_MS = 10 * 60_000
  * recomputed when a game is rebuilt, so another engine could answer the owner's choices differently.
  */
 const LIVE_DRAIN_MS = 6 * 60 * 60_000
+/**
+ * A work folder of another live worker process, or one made before 0.3.4 (no owner in its name), is left alone this
+ * long: its engine may still be writing there (the S25's lost result.json, 12/10/2026).
+ */
+const WORK_DIR_GRACE_MS = 24 * 60 * 60_000
+/**
+ * The engine ended well but its result.json was gone: a problem of this worker, not of the chunk. After this many in
+ * a row it stops claiming for a while (doubling up to the most), so another worker plays the chunk.
+ */
+const LOST_RESULTS_BEFORE_PAUSE = 2
+const LOST_RESULTS_PAUSE_MS = 30 * 60_000
+const LOST_RESULTS_PAUSE_MAX_MS = 6 * 60 * 60_000
 
 export interface LoopOptions {
   once?: boolean
@@ -114,6 +127,8 @@ interface State {
   pending?: PendingUpload | null
   /** Results still to send, in order (a batch leaves one per chunk). */
   pendings?: PendingUpload[]
+  /** No claims until then (lost results, worker 0.3.4): a restart keeps the pause instead of playing the chunk again. */
+  pausedUntil?: string
 }
 
 function pendingOf(state: State): PendingUpload[] {
@@ -127,6 +142,14 @@ export class Worker {
   heartbeatMs = HEARTBEAT_MS
   stallMs = STALL_MS
   liveDrainMs = LIVE_DRAIN_MS
+  lostResultsPauseMs = LOST_RESULTS_PAUSE_MS
+  /**
+   * Engine runs in a row that ended with 0 and no result, and their chunks (reset by a chunk played; an engine error
+   * in between does not reset them: it says nothing of whether this machine lets a long run end), and the pause.
+   */
+  private lostResults = 0
+  private readonly lostChunks = new Set<number>()
+  private pausedUntil = 0
   /** Whether the engine plays several pairings in one process (`features` of `engine-cli version`). */
   private batchable = false
   /** Phase 42: how the engine plays (`gamesRev`), from `engine-cli version`; missing in older engines. */
@@ -433,6 +456,10 @@ export class Worker {
         return null
       }
       if (controller.signal.aborted) return null
+      if (error instanceof EngineError && error.code === 'missing_result') {
+        await this.returnLost(chunk, error, signal)
+        return null
+      }
       if (error instanceof EngineError) {
         this.log('el motor falló', { chunk: chunk.chunkId, code: error.code, error: error.message.slice(0, 500) })
         await this.client
@@ -449,6 +476,49 @@ export class Worker {
       signal.removeEventListener('abort', stop)
       void engineRev
     }
+  }
+
+  /**
+   * The engine ended with 0 and no result.json: engine-cli exits 0 only after writing it, so something outside ended
+   * its process (the S25's system, 12/10/2026). The chunk goes back without spending an attempt (`cause: 'worker'`).
+   * Losses of two different chunks in a row pause the claims (the same chunk twice may be that chunk: the app gives it
+   * to this worker last, and its returns are capped).
+   */
+  private async returnLost(chunk: Chunk, error: EngineError, signal: AbortSignal): Promise<void> {
+    this.lostResults++
+    this.lostChunks.add(chunk.chunkId)
+    this.log('el motor terminó bien pero su resultado no está: devuelvo el chunk sin gastar un intento', {
+      chunk: chunk.chunkId,
+      job: chunk.jobId,
+      inARow: this.lostResults,
+      pid: process.pid,
+      error: error.message.slice(0, 500),
+    })
+    // The pause goes with the return, so the app shows it (Simulación, workers_status) while nothing is claimed.
+    if (this.lostChunks.size >= LOST_RESULTS_BEFORE_PAUSE) {
+      const pause = Math.min(
+        this.lostResultsPauseMs * 2 ** (this.lostChunks.size - LOST_RESULTS_BEFORE_PAUSE),
+        LOST_RESULTS_PAUSE_MAX_MS,
+      )
+      this.pausedUntil = Date.now() + pause
+      this.log('el motor perdió resultados varias veces seguidas: no tomo trabajo por un rato', {
+        inARow: this.lostResults,
+        chunks: this.lostChunks.size,
+        minutes: Math.round(pause / 60_000),
+      })
+      await this.writeState({ ...(await this.readState()), pausedUntil: new Date(this.pausedUntil).toISOString() })
+    }
+    const pausedUntil = this.pausedUntil > Date.now() ? { pausedUntil: new Date(this.pausedUntil).toISOString() } : {}
+    await this.client
+      .failure(
+        chunk.chunkId,
+        { workerId: this.config.workerId, error: error.message, cause: 'worker', ...pausedUntil },
+        signal,
+      )
+      .catch((reported: unknown) => {
+        if (!(reported instanceof ApiError) || reported.status === 401 || reported.status === 403) throw reported
+        this.log('el servidor rechazó la devolución', { chunk: chunk.chunkId, error: reported.message })
+      })
   }
 
   /**
@@ -673,6 +743,8 @@ export class Worker {
       const { engineRev, cliVersion, engineFeatures } = await this.prepare(signal)
       await this.flushPending(signal)
       this.log('worker listo', {
+        // Two at once on one folder show up as two PIDs (the S25, 12/10/2026).
+        pid: process.pid,
         server: this.config.server,
         engineRev: engineRev.slice(0, 7),
         cores: this.config.cores,
@@ -687,7 +759,19 @@ export class Worker {
       }
       // The app's hint about waiting work this worker cannot play, written once each time it changes.
       let lastHint: string | null = null
+      // A pause from before a restart still holds (capped, in case the clock moved).
+      const saved = Date.parse((await this.readState()).pausedUntil ?? '')
+      if (saved > Date.now()) {
+        this.pausedUntil = Math.max(this.pausedUntil, Math.min(saved, Date.now() + LOST_RESULTS_PAUSE_MAX_MS))
+        this.log('sigo en pausa por resultados perdidos', { until: new Date(this.pausedUntil).toISOString() })
+      }
       while (!signal.aborted && !updater?.ready) {
+        if (Date.now() < this.pausedUntil) {
+          await sleep(this.pausedUntil - Date.now(), undefined, {
+            signal: AbortSignal.any([signal, wake.signal]),
+          }).catch(() => undefined)
+          continue
+        }
         let claim: Awaited<ReturnType<WorkerClient['claim']>>
         try {
           claim = await this.client.claim(
@@ -763,7 +847,11 @@ export class Worker {
           const pending = await this.play(chunk, engineRev, signal)
           pendings = pending ? [pending] : []
         }
-        if (pendings.length > 0) await this.uploadAll(pendings, signal)
+        if (pendings.length > 0) {
+          this.lostResults = 0
+          this.lostChunks.clear()
+          await this.uploadAll(pendings, signal)
+        }
         if (options.once) return
       }
       const ready = updater?.ready
@@ -798,12 +886,33 @@ export class Worker {
     }
   }
 
-  /** Removes work folders left by a crash (results are in state.json, folders without one are useless). */
+  /**
+   * Removes work folders left by a crash (results are in state.json, folders without one are useless). Never one of
+   * another live worker process, nor one with no owner in its name (before 0.3.4), until it is a day old: its engine
+   * may still be writing there, and its result.json would vanish (the S25, 12/10/2026).
+   */
   async cleanWorkDir(): Promise<void> {
     const keep = new Set(pendingOf(await this.readState()).flatMap((pending) => (pending.dir ? [pending.dir] : [])))
     for (const entry of await readdir(this.workDir)) {
       const path = join(this.workDir, entry)
-      if (!keep.has(path) && !workDirInUse(path)) await rm(path, { recursive: true, force: true })
+      if (keep.has(path) || workDirInUse(path)) continue
+      const owner = workDirOwner(entry)
+      const someoneElse = owner === null || (owner !== process.pid && processAlive(owner))
+      if (someoneElse) {
+        const modified = (await stat(path).catch(() => null))?.mtimeMs
+        if (modified === undefined) continue
+        if (Date.now() - modified < WORK_DIR_GRACE_MS) {
+          if (owner !== null) {
+            this.log('otro proceso worker usa esta carpeta de trabajo; no la borro', {
+              dir: entry,
+              pid: owner,
+              me: process.pid,
+            })
+          }
+          continue
+        }
+      }
+      await rm(path, { recursive: true, force: true })
     }
   }
 }

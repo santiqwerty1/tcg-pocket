@@ -97,6 +97,13 @@ if (command === 'version') {
   const games = command === 'simulate' ? job.games : 4
   // A process that exits successfully but violates the file-output contract.
   if (games === 96) process.exit(0)
+  // The S25 of 12/10/2026: part of the games played, then exit 0 with no result (the last progress short of the total).
+  if (games === 92) {
+    process.stderr.write('total 92\n')
+    for (let i = 1; i <= 60; i++) process.stderr.write(`progress ${i}\n`)
+    // Nothing after this runs: the process ends from the timer.
+    await new Promise(() => setTimeout(() => process.exit(0), 300))
+  }
   if (games === 94 || games === 93) {
     writeFileSync(resultFile, games === 94 ? '{incomplete' : 'null')
     process.exit(0)
