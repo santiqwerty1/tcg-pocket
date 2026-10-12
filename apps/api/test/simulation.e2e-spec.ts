@@ -1384,6 +1384,26 @@ describe('simulation (e2e)', () => {
     await test.http().delete(`/api/simulations/${created.body.id}`).set('Cookie', cookie)
   })
 
+  it('H-051: a job with «et» goes only to workers whose engine lists «etBot»', async () => {
+    const created = await post('/api/simulations').send({
+      kind: 'compare',
+      sideA: decks(3, 3),
+      sideB: decks(5, 5),
+      gamesPerPair: 4,
+      players: ['et', 'r'],
+      seed: 79,
+    })
+    expect(created.status).toBe(201)
+    const claim = (id: string, engineFeatures: string[]) =>
+      bearer('post', '/api/worker/claim').send({ ...worker(id), version: '0.3.1', cliVersion: '0.3.5', engineFeatures })
+    // An engine before 0.3.5 answers «Invalid player code: et» and would fail the chunk three times.
+    expect((await claim('worker-et-old', ['perGame', 'batch', 'fairBots'])).body.chunk).toBeNull()
+    const fresh = (await claim('worker-et-new', ['perGame', 'batch', 'fairBots', 'etBot'])).body.chunk as Structured
+    expect(fresh).toMatchObject({ jobId: created.body.id, players: ['et', 'r'] })
+    await post(`/api/simulations/${created.body.id}/cancel`)
+    await test.http().delete(`/api/simulations/${created.body.id}`).set('Cookie', cookie)
+  })
+
   it('list: archive finished jobs (one by one or all), bring them back, delete the cancelled ones', async () => {
     const make = async () =>
       (

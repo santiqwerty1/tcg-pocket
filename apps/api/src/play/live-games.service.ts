@@ -13,9 +13,11 @@ import {
   type CoachReview,
   type CoachScores,
   type CoachSummary,
+  canPlayEtBot,
   canPlayFairBots,
   coachContext,
   coachSummary,
+  ET_BOT_CODE,
   FAIR_BOT_CODES,
   isBotCode,
   MAX_BASE_SEED,
@@ -485,6 +487,7 @@ export class LiveGamesService {
     engineRev: string,
     version: string,
     fairBots: boolean,
+    etBot: boolean,
   ): Promise<ClaimedLiveGame | null> {
     // H-002: compared as numbers here, not as text in SQL.
     const coach = versionAtLeast(version, COACH_WORKER_VERSION)
@@ -498,6 +501,7 @@ export class LiveGamesService {
         WHERE engine_rev = ${engineRev}
           AND (coach = false OR ${coach}::boolean)
           AND (bot <> ALL(${fairBotCodes}::text[]) OR ${fairBots}::boolean)
+          AND (bot <> ${ET_BOT_CODE} OR ${etBot}::boolean)
           AND (status = 'queued' OR (status IN ('running', 'waiting') AND (lease_until IS NULL OR lease_until < now())))
         ORDER BY id
         FOR UPDATE SKIP LOCKED
@@ -536,8 +540,9 @@ export class LiveGamesService {
     if (signal?.aborted) return { game: null }
     const version = input.version ?? '0'
     const fairBots = canPlayFairBots(input)
+    const etBot = canPlayEtBot(input)
     const take = async () => {
-      const game = await this.tryClaim(input.workerId, input.engineRev, version, fairBots)
+      const game = await this.tryClaim(input.workerId, input.engineRev, version, fairBots, etBot)
       // The socket may close during UPDATE RETURNING or the reads that build the answer.
       if (signal?.aborted) {
         if (game) await this.releaseLease(game.id, input.workerId)

@@ -861,4 +861,24 @@ describe('playing against a bot (e2e)', () => {
     expect((await claim()).body).toEqual({ game: null })
     expect((await claim(['perGame', 'fairBots'])).body.game).toMatchObject({ id, bot: 'f2' })
   })
+
+  it('H-051: a game against «et» goes only to a worker whose engine lists «etBot»', async () => {
+    const created = await post('/api/play').send({
+      human: { deckId: deckIds[1] },
+      rival: { deckId: deckIds[12] },
+      seed: 93,
+      bot: 'et',
+    })
+    expect(created.body).toMatchObject({ bot: 'et' })
+    const id = created.body.id as number
+    const claim = (engineFeatures: string[]) =>
+      worker('post', '/api/worker/live/claim').send({
+        workerId: 'worker-et-01',
+        engineRev: engineRev(),
+        version: '0.3.1',
+        engineFeatures,
+      })
+    expect((await claim(['perGame', 'fairBots'])).body).toEqual({ game: null })
+    expect((await claim(['perGame', 'fairBots', 'etBot'])).body.game).toMatchObject({ id, bot: 'et' })
+  })
 })

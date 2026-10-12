@@ -33,6 +33,11 @@ pub enum BotCode {
 /// «f2» → our expectiminimax at depth 2; anything else, deckgym's codes.
 pub fn parse_bot_code(code: &str) -> Result<BotCode, String> {
     let lower = code.to_ascii_lowercase();
+    // H-051: deckgym @33ff2a5 reads every code that starts with «e» as expectiminimax and never reaches «et» (the bot
+    // that only ends its turn; bcollazo/deckgym-core#396). It is built here, as deckgym would.
+    if lower == "et" {
+        return Ok(BotCode::Deckgym(PlayerCode::ET));
+    }
     if let Some(depth) = lower.strip_prefix('f') {
         return match depth.parse::<usize>() {
             Ok(max_depth) if (1..=9).contains(&max_depth) => Ok(BotCode::Fair { max_depth }),
@@ -274,6 +279,9 @@ mod tests {
         assert!(matches!(parse_bot_code("f2"), Ok(BotCode::Fair { max_depth: 2 })));
         assert!(matches!(parse_bot_code("F3"), Ok(BotCode::Fair { max_depth: 3 })));
         assert!(matches!(parse_bot_code("e2"), Ok(BotCode::Deckgym(PlayerCode::E { max_depth: 2 }))));
+        assert!(matches!(parse_bot_code("et"), Ok(BotCode::Deckgym(PlayerCode::ET))));
+        assert!(matches!(parse_bot_code("ET"), Ok(BotCode::Deckgym(PlayerCode::ET))));
+        assert!(matches!(parse_bot_code("er"), Ok(BotCode::Deckgym(PlayerCode::ER))));
         assert!(parse_bot_code("f0").is_err());
         assert!(parse_bot_code("fx").is_err());
     }
