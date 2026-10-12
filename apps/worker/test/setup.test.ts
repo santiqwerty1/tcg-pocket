@@ -4,7 +4,7 @@ import { launcherScript } from '../src/autostart.js'
 import { installs, olderVersion } from '../src/bootstrap.js'
 import type { FileConfig } from '../src/config.js'
 import { prompter } from '../src/portable.js'
-import { runSetup, type SetupDeps, SetupInterrupted } from '../src/setup.js'
+import { executableOf, type RunningWorker, runSetup, type SetupDeps, SetupInterrupted } from '../src/setup.js'
 
 describe('worker setup (D-026, after the 11/10 migration)', () => {
   afterEach(() => vi.unstubAllEnvs())
@@ -68,12 +68,18 @@ function fakePc(options: {
   oldComesBack?: boolean
   answers?: string[]
   interruptDuringCheck?: boolean
+  /** Putting the launchers and the configuration back throws (an antivirus holding a .vbs). */
+  putBackThrows?: boolean
+  /** The new worker takes the lock after the wait gave up on it. */
+  lateWorker?: boolean
 }) {
   const events: string[] = []
   let configText: string | null = options.config ? JSON.stringify(options.config) : null
   let interrupted = false
   const answers = [...(options.answers ?? [])]
   let waits = 0
+  let stopped = false
+  const accepted: boolean[] = []
   const deps: SetupDeps = {
     log: () => undefined,
     ask: options.answers ? async () => answers.shift() ?? '' : null,
@@ -83,6 +89,7 @@ function fakePc(options: {
     configText: () => configText,
     writeConfigText: (text) => {
       events.push(text === null ? 'config:delete' : `config:${JSON.parse(text).token ?? '?'}`)
+      if (options.putBackThrows && events.includes('start:launch.vbs')) throw new Error('EBUSY')
       configText = text
     },
     configPath: 'config.json',
@@ -92,32 +99,52 @@ function fakePc(options: {
       return options.check ?? true
     },
     owners: () => ({
-      workers: [
-        { pid: 10, line: '"C:\\old\\tcg-worker.exe" --run' },
-        { pid: 11, line: 'C:\\old\\tcg-worker.exe --child' },
-      ],
+      workers:
+        stopped && options.lateWorker
+          ? [{ pid: 99, line: '"C:\\new\\tcg-worker.exe" --run' }]
+          : stopped
+            ? []
+            : [
+                { pid: 10, line: '"C:\\old\\tcg-worker.exe" --run' },
+                { pid: 11, line: 'C:\\old\\tcg-worker.exe --child' },
+              ],
       stale: [],
     }),
     releaseLock: (lock) => events.push(`release-lock:${lock}`),
     stop: async (pid) => {
       events.push(`stop:${pid}`)
+      if (pid === 11) stopped = true
     },
     install: () => {
       events.push('install')
       if (options.installFails) throw new Error('schtasks y la carpeta Inicio fallaron')
-      return { launcher: 'launch.vbs', restore: () => events.push('restore-launchers') }
+      return {
+        launcher: 'launch.vbs',
+        restore: () => {
+          events.push('restore-launchers')
+          if (options.putBackThrows) throw new Error('EBUSY: launch.vbs')
+        },
+      }
     },
     start: (launcher) => events.push(`start:${launcher}`),
     restart: (line) => events.push(`restart:${line}`),
-    waitForWorker: async () => {
+    waitForWorker: async (accept) => {
       waits++
+      // What the setup would accept as «the old one is back»: the old supervisor, not the late new one.
+      if (waits > 1) {
+        const candidates: RunningWorker[] = [
+          { pid: 99, line: '"C:\\new\\tcg-worker.exe" --run' },
+          { pid: 12, line: '"C:\\old\\tcg-worker.exe" --run' },
+        ]
+        accepted.push(...candidates.map(accept))
+      }
       return waits === 1 ? (options.starts ?? true) : (options.oldComesBack ?? true)
     },
     maxThreads: 20,
     hostname: 'pc',
     defaultServer: 'https://app.test',
   }
-  return { deps, events, config: () => configText }
+  return { deps, events, config: () => configText, accepted }
 }
 
 describe('setup order (revisión del #63): never a PC without a worker', () => {
@@ -198,5 +225,26 @@ describe('setup order (revisión del #63): never a PC without a worker', () => {
     expect(await runSetup(pc.deps, { keep: true, from: { token: 'tcg_wk_new', cores: 6 } })).toBe(0)
     expect(pc.events.slice(0, 2)).toEqual(['check:tcg_wk_new', 'config:tcg_wk_new'])
     expect(JSON.parse(pc.config() ?? '{}')).toMatchObject({ token: 'tcg_wk_new', cores: 6, name: 'PC' })
+  })
+
+  it('putting things back can fail (a .vbs held by an antivirus): the old worker still comes back', async () => {
+    const pc = fakePc({ config: saved, starts: false, putBackThrows: true })
+    expect(await runSetup(pc.deps, { keep: true })).toBe(1)
+    expect(pc.events.slice(-3)).toEqual(['config:tcg_wk_old', 'restart:"C:\\old\\tcg-worker.exe" --run', 'release'])
+  })
+
+  it('a new worker that took the lock late is stopped before the old one comes back, and is not taken for it', async () => {
+    const pc = fakePc({ config: saved, starts: false, lateWorker: true })
+    expect(await runSetup(pc.deps, { keep: true })).toBe(1)
+    const restart = pc.events.indexOf('restart:"C:\\old\\tcg-worker.exe" --run')
+    expect(pc.events.indexOf('stop:99')).toBeGreaterThan(-1)
+    expect(pc.events.indexOf('stop:99')).toBeLessThan(restart)
+    // The late new one (99) is not «the old one back»; the old supervisor's executable is.
+    expect(pc.accepted).toEqual([false, true])
+  })
+
+  it('tells executables apart by the first token of a command line, quoted or not', () => {
+    expect(executableOf('"C:\\Program Files\\w\\tcg-worker.exe"  "--run"')).toBe('c:\\program files\\w\\tcg-worker.exe')
+    expect(executableOf('C:\\w\\tcg-worker.exe --child')).toBe('c:\\w\\tcg-worker.exe')
   })
 })

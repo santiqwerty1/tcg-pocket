@@ -60,8 +60,8 @@ export interface SetupDeps {
   start(launcher: string): void
   /** Starts an old worker again from its command line. */
   restart(line: string): void
-  /** Waits (up to ~20 s) for a worker that is not one of `old` to hold this folder's lock. */
-  waitForWorker(old: ReadonlySet<number>): Promise<boolean>
+  /** Waits (up to ~20 s) for a worker that `accept` takes to hold this folder's lock. */
+  waitForWorker(accept: (worker: RunningWorker) => boolean): Promise<boolean>
   maxThreads: number
   hostname: string
   defaultServer: string
@@ -71,6 +71,21 @@ export interface SetupOptions {
   keep: boolean
   /** A candidate configuration prepared elsewhere (the questions asked inside a packaged app). */
   from?: FileConfig | null
+}
+
+/** The executable of a command line (its first token, quoted or not), to tell the old worker from the new one. */
+export function executableOf(line: string): string {
+  const match = /^\s*(?:"([^"]+)"|(\S+))/.exec(line)
+  return (match?.[1] ?? match?.[2] ?? '').toLowerCase()
+}
+
+/** Runs one step of putting things back; a failure is reported and the next step still runs. */
+function attempt(deps: SetupDeps, what: string, step: () => void): void {
+  try {
+    step()
+  } catch (error) {
+    deps.log(`No pude ${what} (${String(error)}).`)
+  }
 }
 
 async function ask(deps: SetupDeps, question: string): Promise<string> {
@@ -159,13 +174,16 @@ export async function runSetup(deps: SetupDeps, options: SetupOptions): Promise<
   try {
     installed = deps.install()
   } catch (error) {
-    deps.writeConfigText(previousConfig)
+    attempt(deps, `volver a dejar ${deps.configPath}`, () => deps.writeConfigText(previousConfig))
     deps.log(`No se pudo instalar el arranque (${String(error)}): dejé todo como estaba.`)
     return 1
   }
+  const putBack = () => {
+    attempt(deps, 'volver a dejar los lanzadores', () => installed.restore())
+    attempt(deps, `volver a dejar ${deps.configPath}`, () => deps.writeConfigText(previousConfig))
+  }
   if (deps.interrupted()) {
-    installed.restore()
-    deps.writeConfigText(previousConfig)
+    putBack()
     deps.log('Cancelado: dejé todo como estaba.')
     return 1
   }
@@ -188,10 +206,10 @@ export async function runSetup(deps: SetupDeps, options: SetupOptions): Promise<
     for (const { pid } of workers) await deps.stop(pid)
     if (workers.length > 0) deps.log('Worker anterior detenido (con sus motores).')
     deps.start(installed.launcher)
-    if (!(await deps.waitForWorker(old))) throw new Error('el worker nuevo no arrancó')
+    if (!(await deps.waitForWorker((worker) => !old.has(worker.pid)))) throw new Error('el worker nuevo no arrancó')
   } catch (error) {
-    installed.restore()
-    deps.writeConfigText(previousConfig)
+    // Each step on its own, and the old worker comes back whatever fails here (an antivirus holding a .vbs).
+    putBack()
     const supervisor = workers[0]
     if (!supervisor) {
       deps.log(
@@ -199,9 +217,23 @@ export async function runSetup(deps: SetupDeps, options: SetupOptions): Promise<
       )
       return 1
     }
+    // A new worker that took the lock late would keep it (and run with the old configuration): out first.
+    const late = new Set<number>()
+    try {
+      for (const worker of deps.owners().workers) {
+        if (old.has(worker.pid)) continue
+        late.add(worker.pid)
+        await deps.stop(worker.pid)
+      }
+    } catch (stopError) {
+      deps.log(`No pude detener al worker nuevo (${String(stopError)}).`)
+    }
     // Only the old supervisor (or the old single process): a loose child could take the lock from it.
-    deps.restart(supervisor.line)
-    const back = await deps.waitForWorker(new Set())
+    attempt(deps, 'volver a arrancar el worker anterior', () => deps.restart(supervisor.line))
+    const exe = executableOf(supervisor.line)
+    const back = await deps
+      .waitForWorker((worker) => !late.has(worker.pid) && executableOf(worker.line) === exe)
+      .catch(() => false)
     deps.log(
       back
         ? `No se pudo terminar (${String(error)}): volví a dejar todo como estaba, con el worker anterior corriendo.`

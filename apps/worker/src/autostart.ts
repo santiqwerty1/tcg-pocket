@@ -6,7 +6,9 @@
  * (`tcg-worker.exe --run`, Fase 21).
  */
 import { execFileSync, spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { dataDir } from './config.js'
 
@@ -46,12 +48,12 @@ const putBack = (path: string, before: Buffer | null) => {
   else rmSync(path, { force: true })
 }
 
-function taskExists(): boolean {
+/** The logon task's definition (XML, as schtasks gives it), or null when there is none: to put it back. */
+function taskDefinition(): Buffer | null {
   try {
-    execFileSync('schtasks', ['/Query', '/TN', TASK()], { stdio: 'pipe' })
-    return true
+    return execFileSync('schtasks', ['/Query', '/TN', TASK(), '/XML'], { stdio: 'pipe' })
   } catch {
-    return false
+    return null
   }
 }
 
@@ -87,28 +89,55 @@ export function installAutostart(command: readonly string[], options: { start?: 
   mkdirSync(dir, { recursive: true })
   const launcher = join(dir, 'launch.vbs')
   const script = launcherScript(command)
-  const before = { launcher: snapshot(launcher), startup: snapshot(startupLauncher()), task: taskExists() }
-  let createdTask = false
+  const before = { launcher: snapshot(launcher), startup: snapshot(startupLauncher()), task: taskDefinition() }
+  let touchedTask = false
+  /** Every step on its own: one that fails does not keep the others from being put back. */
   const restore = () => {
-    putBack(launcher, before.launcher)
-    putBack(startupLauncher(), before.startup)
-    // A task this created goes away; one that existed already runs the same launcher path, put back above.
-    if (createdTask && !before.task) {
+    const failures: string[] = []
+    const step = (what: string, action: () => void) => {
       try {
-        execFileSync('schtasks', ['/Delete', '/TN', TASK(), '/F'], { stdio: 'pipe' })
-      } catch {
-        // Gone already.
+        action()
+      } catch (error) {
+        failures.push(`${what}: ${String(error)}`)
       }
     }
+    step(launcher, () => putBack(launcher, before.launcher))
+    step(startupLauncher(), () => putBack(startupLauncher(), before.startup))
+    if (touchedTask) {
+      step(`la tarea «${TASK()}»`, () => {
+        if (!before.task) {
+          execFileSync('schtasks', ['/Delete', '/TN', TASK(), '/F'], { stdio: 'pipe' })
+          return
+        }
+        // `/F` replaced its definition (its launcher, if TCG_WORKER_DIR pointed elsewhere): the one it had goes back.
+        const saved = join(tmpdir(), `tcg-worker-task-${randomUUID()}.xml`)
+        writeFileSync(saved, before.task)
+        try {
+          execFileSync('schtasks', ['/Create', '/TN', TASK(), '/XML', saved, '/F'], { stdio: 'pipe' })
+        } finally {
+          rmSync(saved, { force: true })
+        }
+      })
+    }
+    if (failures.length > 0) throw new Error(`no pude volver a dejar: ${failures.join('; ')}`)
   }
-  writeLauncher(launcher, script)
   try {
-    execFileSync(
-      'schtasks',
-      ['/Create', '/TN', TASK(), '/SC', 'ONLOGON', '/RL', 'LIMITED', '/TR', `wscript.exe "${launcher}"`, '/F'],
-      { stdio: 'pipe' },
-    )
-    createdTask = true
+    writeLauncher(launcher, script)
+    try {
+      touchedTask = true
+      execFileSync(
+        'schtasks',
+        ['/Create', '/TN', TASK(), '/SC', 'ONLOGON', '/RL', 'LIMITED', '/TR', `wscript.exe "${launcher}"`, '/F'],
+        { stdio: 'pipe' },
+      )
+    } catch (error) {
+      touchedTask = false
+      console.log(`No se pudo crear la tarea programada (${reason(error)}); uso la carpeta Inicio.`)
+      writeLauncher(startupLauncher(), script)
+      console.log(`Lanzador creado en ${startupLauncher()}: el worker arranca al iniciar sesión, sin ventana.`)
+      if (start) startNow(startupLauncher())
+      return { launcher: startupLauncher(), restore }
+    }
     console.log(`Tarea «${TASK()}» creada: el worker arranca oculto al iniciar sesión.`)
     // A launcher left in the Startup folder (an earlier install, or the repository's worker) would start a second
     // worker at logon, and whichever came first would keep the lock.
@@ -119,12 +148,14 @@ export function installAutostart(command: readonly string[], options: { start?: 
     if (start) startNow(launcher)
     return { launcher, restore }
   } catch (error) {
-    console.log(`No se pudo crear la tarea programada (${reason(error)}); uso la carpeta Inicio.`)
+    // Halfway: what was already written goes back before the error goes up.
+    try {
+      restore()
+    } catch (restoreError) {
+      console.log(String(restoreError))
+    }
+    throw error
   }
-  writeLauncher(startupLauncher(), script)
-  console.log(`Lanzador creado en ${startupLauncher()}: el worker arranca al iniciar sesión, sin ventana.`)
-  if (start) startNow(startupLauncher())
-  return { launcher: startupLauncher(), restore }
 }
 
 export function uninstallAutostart(): void {

@@ -18,7 +18,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { availableParallelism, hostname, tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { installAutostart, startNow, uninstallAutostart } from './autostart.js'
@@ -147,11 +147,11 @@ export function prompter(
   }
 }
 
-/** Whether a worker that is not one of `old` holds this folder's lock, waiting up to `timeoutMs`. */
-async function workerHoldsLock(old: ReadonlySet<number>, timeoutMs = 20_000): Promise<boolean> {
+/** Whether a worker that `accept` takes holds this folder's lock, waiting up to `timeoutMs`. */
+async function workerHoldsLock(accept: (worker: RunningWorker) => boolean, timeoutMs = 20_000): Promise<boolean> {
   const until = Date.now() + timeoutMs
   while (Date.now() < until) {
-    if (lockOwners().workers.some((worker) => !old.has(worker.pid))) return true
+    if (lockOwners().workers.some(accept)) return true
     await sleep(1000)
   }
   return false
@@ -223,7 +223,7 @@ function setupDeps(context: PortableContext, prompt: ReturnType<typeof prompter>
     start: startNow,
     // The old command line as it was (its own environment comes from this process: we are outside any package here).
     restart: (line) => spawn(line, { shell: true, detached: true, stdio: 'ignore', windowsHide: true }).unref(),
-    waitForWorker: (old) => workerHoldsLock(old),
+    waitForWorker: (accept) => workerHoldsLock(accept),
     maxThreads: availableParallelism(),
     hostname: hostname(),
     defaultServer: DEFAULT_SERVER,
@@ -255,10 +255,30 @@ async function setupFromOutside(answers: FileConfig | null): Promise<number> {
     const finished = await runOutside(`cmd.exe /d /s /c "${environment}${command} > "${output}" 2>&1"`, 6 * 60_000)
     if (existsSync(output)) console.log(readFileSync(output, 'utf8').trim())
     if (!finished) console.log('El setup de afuera no terminó a tiempo: mirá worker.log antes de repetirlo.')
-    return existsSync(result) ? Number(readFileSync(result, 'utf8').trim()) || 0 : 1
+    // Anything but a readable 0 is a failure.
+    const code = existsSync(result) ? Number.parseInt(readFileSync(result, 'utf8').trim(), 10) : Number.NaN
+    return code === 0 ? 0 : 1
   } finally {
-    for (const path of [from, output, result]) if (path) rmSync(path, { force: true })
+    // A file cmd still holds (the outside setup did not end in time) must not hide the message above.
+    for (const path of [from, output, result]) {
+      try {
+        if (path) rmSync(path, { force: true })
+      } catch {
+        // Left in TEMP.
+      }
+    }
   }
+}
+
+/** Only the answers file the packaged setup itself wrote: `--from` reads and deletes it, nothing else. */
+function answersFile(path: string | undefined): string | null {
+  if (!path) return null
+  const full = resolve(path)
+  const inTemp = relative(resolve(tmpdir()), full)
+  if (inTemp.startsWith('..') || isAbsolute(inTemp) || !/^tcg-worker-setup-[0-9a-f-]{36}\.json$/.test(inTemp)) {
+    throw new Error(`--from solo acepta el archivo de respuestas del setup en TEMP, no ${path}.`)
+  }
+  return full
 }
 
 /** Double click, `--setup [--keep]`: see `setup.ts`. */
@@ -267,7 +287,7 @@ async function setup(context: PortableContext, args: readonly string[]): Promise
   const keep = args.includes('--keep')
   const fromIndex = args.indexOf('--from')
   const resultIndex = args.indexOf('--result')
-  const fromFile = fromIndex >= 0 ? args[fromIndex + 1] : undefined
+  const fromFile = answersFile(fromIndex >= 0 ? args[fromIndex + 1] : undefined)
   let from: FileConfig | null = null
   if (fromFile) {
     from = JSON.parse(readFileSync(fromFile, 'utf8')) as FileConfig
@@ -276,7 +296,8 @@ async function setup(context: PortableContext, args: readonly string[]): Promise
   const prompt = keep ? null : prompter()
   let code = 1
   try {
-    if (await insidePackage()) {
+    // The run relaunched outside (--result) never relaunches itself again.
+    if (resultIndex < 0 && (await insidePackage())) {
       // The questions here (this process has the console), everything else outside.
       let answers: FileConfig | null = null
       if (prompt) {
