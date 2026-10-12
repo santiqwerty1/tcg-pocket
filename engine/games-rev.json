@@ -1459,19 +1459,20 @@
     {
       "command": "coach",
       "expected": {
+        "best": 1,
         "scores": [
           22.0,
-          652.0,
+          645.3,
           143.0,
-          636.333,
+          638.0,
           142.0
         ]
       },
       "job": {
         "bot": "e2",
+        "coach": true,
         "deckBot": "Energy: Grass\n1 Bulbasaur A1 1\n2 Ivysaur B1a 2\n2 Mega Venusaur ex B1a 4\n2 Professor's Research P-A 7\n2 Copycat B1 225\n2 Quick-Grow Extract B1a 67\n2 Lucky Ice Pop B2 145\n2 Heavy Helmet B1 219\n1 Lillie A3 155\n1 Pokémon Center Lady A2b 70\n1 Cyrus A2 150\n1 Field Blower B3 147\n1 Repel A3a 64\n",
         "deckHuman": "Energy: Psychic\n2 Swablu A4a 64\n2 Mega Altaria ex B1 102\n1 Jirachi B1 106\n2 Chingling B1 109\n1 Indeedee ex B1 121\n1 Altaria B1 197\n1 Sabrina A1 225\n2 Rocky Helmet A2 148\n1 Cyrus A2 150\n1 Mars A2 155\n1 Poké Ball A2b 111\n2 Professor's Research A4b 373\n1 Copycat B1 225\n2 Lisia B1 226",
-        "samples": 3,
         "seed": 4210
       }
     }

@@ -515,7 +515,9 @@ export class WorkerQueueService {
           })
         : null
     const gamesRev = saidGamesRev(input) ?? saidGamesRev(node ?? {})
-    if (chunk.job.gamesRev !== null && gamesRev !== null && chunk.job.gamesRev !== gamesRev) {
+    // A job already fixed takes only results that say they play the same way (review of #68: one that says nothing,
+    // from a worker nobody knows, is not taken on trust).
+    if (chunk.job.gamesRev !== null && chunk.job.gamesRev !== gamesRev) {
       this.logger.warn({ chunk: id, gamesRev }, 'result of another games revision turned down')
       await this.prisma.simulationChunk.updateMany({
         where: { id, status: 'leased', workerId: input.workerId },
@@ -544,7 +546,7 @@ export class WorkerQueueService {
       const fixed = await tx.$executeRaw`
         UPDATE "simulation_jobs" SET "games_rev" = COALESCE("games_rev", ${gamesRev}::int)
         WHERE "id" = ${chunk.jobId} AND "engine_rev" = ${input.engineRev}
-          AND (${gamesRev}::int IS NULL OR "games_rev" IS NULL OR "games_rev" = ${gamesRev}::int)`
+          AND ("games_rev" IS NULL OR "games_rev" = ${gamesRev}::int)`
       if (fixed === 0) return 'engine' as const
       const done = await tx.simulationChunk.updateMany({
         // A failed chunk still takes a good result that arrives late, as before.

@@ -79,13 +79,19 @@ fn context(state: &State) -> Value {
     json!({ "in_play": in_play, "stadium": view.stadium })
 }
 
-/// The owner's seat: asks over stdout, reads the answer from stdin, waits without limit.
+/// How the owner's seat gets an answer: the `decide` message (its options numbered as `i`) and how many there are, to
+/// the index chosen. The CLI asks over stdout and reads stdin (`ask_over_stdio`); the golden games (games_rev_tests)
+/// answer from a fixed list, through the same seat and numbering.
+pub(crate) type Ask = Box<dyn FnMut(&Value, usize) -> usize + Send>;
+
+/// The owner's seat: builds each decision as the app sees it and asks for the answer, without limit.
 struct RemoteHuman {
     deck: Deck,
     ply: u32,
     coach: Option<CoachSetup>,
     /// The coach's values for the last decision: the replay records them next to it.
     last_scores: Option<Vec<f64>>,
+    ask: Ask,
 }
 
 impl std::fmt::Debug for RemoteHuman {
@@ -145,28 +151,75 @@ impl Player for RemoteHuman {
             decide["coach"] = json!({ "scores": rounded, "best": best_option(&scores) });
             self.last_scores = Some(scores);
         }
-        emit(&decide);
-        let stdin = std::io::stdin();
-        loop {
-            let mut line = String::new();
-            match stdin.lock().read_line(&mut line) {
-                // The worker went away: nobody will answer.
-                Ok(0) | Err(_) => std::process::exit(4),
-                Ok(_) => {}
-            }
-            match parse_choice(&line) {
-                Some(i) if i < possible_actions.len() => return possible_actions[i].clone(),
-                _ => {
-                    emit(&json!({
-                        "type": "invalid",
-                        "ply": self.ply,
-                        "message": format!("elegí un número de 0 a {}", possible_actions.len() - 1),
-                    }));
-                    emit(&decide);
-                }
+        let i = (self.ask)(&decide, possible_actions.len());
+        possible_actions[i].clone()
+    }
+}
+
+/// The CLI's answers: `decide` on stdout, the choice from stdin; an answer out of range asks again.
+fn ask_over_stdio(decide: &Value, options: usize) -> usize {
+    emit(decide);
+    let stdin = std::io::stdin();
+    loop {
+        let mut line = String::new();
+        match stdin.lock().read_line(&mut line) {
+            // The worker went away: nobody will answer.
+            Ok(0) | Err(_) => std::process::exit(4),
+            Ok(_) => {}
+        }
+        match parse_choice(&line) {
+            Some(i) if i < options => return i,
+            _ => {
+                emit(&json!({
+                    "type": "invalid",
+                    "ply": decide["ply"],
+                    "message": format!("elegí un número de 0 a {}", options - 1),
+                }));
+                emit(decide);
             }
         }
     }
+}
+
+/// A game's id from its seed: the replay file of the same game is always the same.
+fn live_game_id(seed: u64) -> Uuid {
+    Uuid::from_u64_pair(seed, 0x504c_4159) // «PLAY»
+}
+
+/// One game of the owner against the bot, as `engine-cli play` plays it: the bot in seat 1, the game id and the
+/// coach's seed from the game's seed, `handlers` told of everything (the end too). The final state comes back.
+pub(crate) fn run_live_game(
+    deck_human: &Deck,
+    deck_bot: &Deck,
+    code: BotCode,
+    bot_label: &str,
+    seed: u64,
+    coach: bool,
+    ask: Ask,
+    handlers: Vec<Box<dyn SimulationEventHandler>>,
+) -> (Option<GameOutcome>, State) {
+    let game_id = live_game_id(seed);
+    let mut handler = CompositeSimulationEventHandler::new(handlers);
+    let bot = create_players(deck_human.clone(), deck_bot.clone(), vec![code.clone(), code])
+        .pop()
+        .expect("two players");
+    let coach = coach.then(|| CoachSetup {
+        decks: [deck_human.clone(), deck_bot.clone()],
+        seed: seed ^ 0xC0AC_4000_0000_0000,
+    });
+    let human = RemoteHuman { deck: deck_human.clone(), ply: 0, coach, last_scores: None, ask };
+    let players: Vec<Box<dyn Player>> = vec![Box::new(human), bot];
+    let player_names = ["Santi".to_string(), format!("bot {bot_label}")];
+    let decks = [players[0].get_deck(), players[1].get_deck()];
+    let metadata = GameStartMetadata { seed, player_names, decks: [&decks[0], &decks[1]] };
+    handler.on_game_start_with_metadata(game_id, &metadata);
+    let (outcome, state) = {
+        let mut game = Game::new_with_event_handlers(game_id, players, seed, &mut handler);
+        let outcome = game.play();
+        (outcome, game.get_state_clone())
+    };
+    handler.on_game_end(game_id, state.clone(), outcome);
+    (outcome, state)
 }
 
 /// Reports every action of the game as it happens.
@@ -216,7 +269,7 @@ pub fn play(job: PlayJob) -> Result<(), CliError> {
     if let Some(dir) = &replay_dir {
         std::fs::create_dir_all(dir).map_err(|e| CliError::engine(format!("no se pudo crear {}: {e}", dir.display())))?;
     }
-    let game_id = Uuid::from_u64_pair(job.seed, 0x504c_4159); // «PLAY»
+    let game_id = live_game_id(job.seed);
     emit(&json!({
         "type": "start",
         "engineRev": ENGINE_REV,
@@ -231,29 +284,18 @@ pub fn play(job: PlayJob) -> Result<(), CliError> {
         if let Some(dir) = &replay_dir {
             handlers.push(Box::new(ReplayRecorder::new(dir.clone(), Arc::new(AtomicUsize::new(0)), None)));
         }
-        let mut handler = CompositeSimulationEventHandler::new(handlers);
-        let bot = create_players(deck_human.clone(), deck_bot.clone(), vec![code.clone(), code.clone()])
-            .pop()
-            .expect("two players");
-        let coach = job.coach.then(|| CoachSetup {
-            decks: [deck_human.clone(), deck_bot.clone()],
-            seed: job.seed ^ 0xC0AC_4000_0000_0000,
-        });
-        let human = RemoteHuman { deck: deck_human.clone(), ply: 0, coach, last_scores: None };
-        let players: Vec<Box<dyn Player>> = vec![Box::new(human), bot];
-        let player_names = ["Santi".to_string(), format!("bot {}", job.bot)];
-        let decks = [players[0].get_deck(), players[1].get_deck()];
-        let metadata = GameStartMetadata { seed: job.seed, player_names, decks: [&decks[0], &decks[1]] };
-        handler.on_game_start_with_metadata(game_id, &metadata);
-        let (outcome, state) = {
-            let mut game = Game::new_with_event_handlers(game_id, players, job.seed, &mut handler);
-            let outcome = game.play();
-            (outcome, game.get_state_clone())
-        };
+        let (outcome, state) = run_live_game(
+            &deck_human,
+            &deck_bot,
+            code.clone(),
+            &job.bot,
+            job.seed,
+            job.coach,
+            Box::new(ask_over_stdio),
+            handlers,
+        );
         let view = ViewState::for_player(&state, HUMAN);
-        let turns = state.turn_count;
-        handler.on_game_end(game_id, state, outcome);
-        (outcome, turns, view)
+        (outcome, state.turn_count, view)
     }))
     .map_err(|panic| {
         let message = panic

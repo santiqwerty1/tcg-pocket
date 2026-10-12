@@ -397,6 +397,13 @@ export class SimulationsController {
     return this.simulations.cancel(id)
   }
 
+  /** «Reintentar lo que falló»: only the failed chunks of a failed job, with the same seeds. */
+  @Post(':id/retry-failed')
+  @HttpCode(200)
+  retryFailed(@Param('id') id: string, @CurrentSession() _session: RequestSession): Promise<JobSummaryView> {
+    return this.simulations.retryFailed(id)
+  }
+
   @Post(':id/archive')
   @HttpCode(200)
   archive(@Param('id') id: string, @CurrentSession() _session: RequestSession): Promise<JobSummaryView> {

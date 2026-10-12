@@ -141,6 +141,8 @@ export interface JobDetailView extends JobSummaryView {
   optimize: OptimizeRowView[] | null
   /** optimize jobs: the best combinations played again with fresh seeds (H-011.5), once the optimize finished. */
   optimizeConfirmation: OptimizeConfirmationView | null
+  /** A failed job that «Reintentar lo que falló» cannot take, and why (another engine, a search); null otherwise. */
+  retryBlocked: string | null
   /** consistency jobs: the curves (null until it finished). */
   consistency: ConsistencyView | null
   replays: ReplaySummaryView[]

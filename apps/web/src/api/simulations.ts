@@ -132,6 +132,16 @@ export function useCancelSimulation() {
   })
 }
 
+/** «Reintentar lo que falló»: only the failed chunks of a failed job, with the same seeds. */
+export function useRetryFailedSimulation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      request(`/api/simulations/${id}/retry-failed`, { method: 'POST', schema: jobSummarySchema }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: simulationKeys.all }),
+  })
+}
+
 export function useDeleteSimulation() {
   const queryClient = useQueryClient()
   return useMutation({

@@ -10,14 +10,12 @@
 //! the result of a case that was already there.
 
 use super::*;
-use crate::coach::coach_scores;
 use crate::fair_bot::{create_players, fair_value_function, parse_bot_code};
+use crate::play::{run_live_game, Ask};
 use deckgym::actions::Action;
-use deckgym::players::Player;
 use deckgym::simulation_event_handler::{CompositeSimulationEventHandler, SimulationEventHandler};
 use deckgym::state::GameOutcome;
-use deckgym::{Deck, Game, State};
-use rand::rngs::StdRng;
+use deckgym::{Game, State};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -78,8 +76,7 @@ fn cases() -> Vec<Value> {
             "job": { "deckHuman": ALTARIA, "deckBot": VENUSAUR, "bot": bot, "seed": seed, "choices": [0, 2, 1, 3, 1, 0, 2] },
         }));
     }
-    // The coach's values for the owner's first decision with a choice (few samples: it plays each option to the end of
-    // the turn).
+    // The coach's values for the owner's first decision with a choice, as `engine-cli play` shows them.
     // How the f bots value a table, at every moment of a fixed game (the random bots on both sides): a change in how
     // they weigh things shows here even when these games happen to keep their moves (review of #68: a clock cap that
     // only matters past 20 turns).
@@ -91,7 +88,7 @@ fn cases() -> Vec<Value> {
     }
     cases.push(json!({
         "command": "coach",
-        "job": { "deckHuman": ALTARIA, "deckBot": VENUSAUR, "bot": "e2", "seed": 4210, "samples": 3 },
+        "job": { "deckHuman": ALTARIA, "deckBot": VENUSAUR, "bot": "e2", "seed": 4210, "coach": true },
     }));
     cases
 }
@@ -131,45 +128,6 @@ fn scratch_dir() -> std::path::PathBuf {
     ));
     std::fs::create_dir_all(&dir).expect("scratch dir");
     dir
-}
-
-/// For a coach case: its seed and samples, both decks, and where the first decision's values go.
-type CoachProbe = (u64, u64, [Deck; 2], Arc<Mutex<Option<Vec<f64>>>>);
-
-/// The owner's seat of a game against the bot, choosing by a fixed list (`choices[k]` modulo the options, for the
-/// k-th decision with more than one), as a worker replays the owner's choices.
-struct ScriptedOwner {
-    deck: Deck,
-    choices: Vec<usize>,
-    next: usize,
-    coach: Option<CoachProbe>,
-}
-
-impl std::fmt::Debug for ScriptedOwner {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Santi")
-    }
-}
-
-impl Player for ScriptedOwner {
-    fn get_deck(&self) -> Deck {
-        self.deck.clone()
-    }
-
-    fn decision_fn(&mut self, _rng: &mut StdRng, state: &State, possible_actions: &[Action]) -> Action {
-        if possible_actions.len() == 1 {
-            return possible_actions[0].clone();
-        }
-        if let Some((seed, samples, decks, scores)) = &self.coach {
-            let mut first = scores.lock().expect("scores");
-            if first.is_none() {
-                *first = Some(coach_scores(state, possible_actions, decks, game_seed(*seed, 1), *samples));
-            }
-        }
-        let pick = self.choices.get(self.next % self.choices.len().max(1)).copied().unwrap_or(0);
-        self.next += 1;
-        possible_actions[pick % possible_actions.len()].clone()
-    }
 }
 
 /// Every action of the game, in order (who and what).
@@ -212,45 +170,37 @@ fn value_trace(job: &Value) -> Value {
     json!({ "moments": values.len(), "values": fnv(&values.join("\n")) })
 }
 
-/// A game against the bot as `engine-cli play` builds it (play.rs), with the owner's seat scripted.
+/// A game against the bot through play.rs (`run_live_game`, the seat and numbering `engine-cli play` uses), with the
+/// owner's answers from a fixed list: `choices[k]` modulo the options of the k-th decision with more than one.
 fn scripted_game(job: &Value, coach: bool) -> Value {
     let deck_human = require_simulable("tuyo", job["deckHuman"].as_str().expect("deckHuman")).expect("deck");
     let deck_bot = require_simulable("del bot", job["deckBot"].as_str().expect("deckBot")).expect("deck");
-    let code = parse_bot_code(job["bot"].as_str().expect("bot")).expect("bot code");
+    let bot = job["bot"].as_str().expect("bot");
+    let code = parse_bot_code(bot).expect("bot code");
     let seed = job["seed"].as_u64().expect("seed");
     let choices: Vec<usize> = job["choices"]
         .as_array()
         .map(|list| list.iter().map(|c| c.as_u64().expect("choice") as usize).collect())
         .unwrap_or_default();
-    let scores = Arc::new(Mutex::new(None));
-    let owner = ScriptedOwner {
-        deck: deck_human.clone(),
-        choices,
-        next: 0,
-        coach: coach.then(|| {
-            (
-                seed ^ 0xC0AC_4000_0000_0000,
-                job["samples"].as_u64().expect("samples"),
-                [deck_human.clone(), deck_bot.clone()],
-                scores.clone(),
-            )
-        }),
-    };
-    let bot = create_players(deck_human.clone(), deck_bot.clone(), vec![code.clone(), code])
-        .pop()
-        .expect("two players");
-    let players: Vec<Box<dyn Player>> = vec![Box::new(owner), bot];
+    // The coach's values as the owner's first decision showed them.
+    let first_coach = Arc::new(Mutex::new(None::<Value>));
+    let probe = first_coach.clone();
+    let mut next = 0usize;
+    let ask: Ask = Box::new(move |decide: &Value, options: usize| {
+        let mut first = probe.lock().expect("coach");
+        if first.is_none() && !decide["coach"].is_null() {
+            *first = Some(decide["coach"].clone());
+        }
+        let pick = choices.get(next % choices.len().max(1)).copied().unwrap_or(0);
+        next += 1;
+        // The answer is the option's label (`i`), as the app sends it back: a change in how play.rs labels them shows.
+        decide["actions"][pick % options]["i"].as_u64().expect("label") as usize
+    });
     let moves = Arc::new(Mutex::new(Vec::new()));
-    let mut handler = CompositeSimulationEventHandler::new(vec![Box::new(Moves(moves.clone()))]);
-    let game_id = Uuid::from_u64_pair(seed, 0x504c_4159); // «PLAY», as play.rs
-    let (outcome, turns) = {
-        let mut game = Game::new_with_event_handlers(game_id, players, seed, &mut handler);
-        let outcome = game.play();
-        (outcome, game.get_state_clone().turn_count)
-    };
+    let (outcome, state) =
+        run_live_game(&deck_human, &deck_bot, code, bot, seed, coach, ask, vec![Box::new(Moves(moves.clone()))]);
     if coach {
-        let values = scores.lock().expect("scores").clone().expect("a decision with a choice");
-        return json!({ "scores": values.iter().map(|v| (v * 1000.0).round() / 1000.0).collect::<Vec<_>>() });
+        return first_coach.lock().expect("coach").clone().expect("a decision with a choice");
     }
     let winner = match outcome {
         Some(GameOutcome::Win(0)) => "you",
@@ -258,7 +208,7 @@ fn scripted_game(job: &Value, coach: bool) -> Value {
         Some(GameOutcome::Tie) | None => "tie",
     };
     let moves = moves.lock().expect("moves").join("\n");
-    json!({ "winner": winner, "turns": turns, "moves": fnv(&moves) })
+    json!({ "winner": winner, "turns": state.turn_count, "moves": fnv(&moves) })
 }
 
 /// What a case gives, without what depends on the machine or on the build (time, fingerprint, version, deckgym rev).

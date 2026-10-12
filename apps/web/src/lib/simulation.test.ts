@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { decodeSource, encodeSource, formatDuration, multisetCount, progressFraction } from './simulation'
+import { decodeSource, encodeSource, formatDuration, multisetCount, progressFraction, retryNote } from './simulation'
 
 describe('simulation helpers', () => {
   it('round-trips sources through the URL of the form', () => {
@@ -40,5 +40,15 @@ describe('simulation helpers', () => {
         },
       }),
     ).toBe(0.25)
+  })
+})
+
+describe('retryNote («Reintentar lo que falló»)', () => {
+  it('says when an error tied to a game will come back, and names a deckgym bug already reported', () => {
+    expect(retryNote([null, 'timeout'])).toBeNull()
+    expect(retryNote(['la partida con semilla 12 falló: index out of bounds'])).toMatch(/va a fallar igual/)
+    expect(retryNote(['la partida con semilla 14450885746355706057 falló: Active Pokemon should be there'])).toMatch(
+      /bcollazo\/deckgym-core#398/,
+    )
   })
 })
