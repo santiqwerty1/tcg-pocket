@@ -1,19 +1,20 @@
-# Runners propios de GitHub Actions en la PC (D-023): mientras el repo es privado y sin minutos de Actions, la CI corre
-# acá. Instala N runners (por defecto 2) con la etiqueta «tcg-pc» en %USERPROFILE%\actions-runner\tcg-pc-<n>, sin
+# Runners propios de GitHub Actions en la PC (D-023): solo para un repo privado sin minutos de Actions, como fue este
+# del 9 al 11/10/2026. Desde el 11/10 el repo es público y la CI corre en los runners de GitHub; en un repo público un
+# runner propio correría en la PC el código de un PR de cualquiera, así que el script se niega a registrarlos ahí.
+# Instala N runners (por defecto 2) con la etiqueta «tcg-pc» en %USERPROFILE%\actions-runner\tcg-pc-<n>, sin
 # servicio de Windows (no pide administrador), y un .vbs en Inicio que los arranca ocultos al iniciar sesión, como el
 # worker. El token de registro sale de `gh` (dueño del repo) y nunca se muestra.
 #
-#   powershell -ExecutionPolicy Bypass -File scripts\ci-runner\install.ps1 [-Count 2] [-Prefix tcg-pc]
-#   powershell -ExecutionPolicy Bypass -File scripts\ci-runner\uninstall.ps1 [-Prefix tcg-pc]   (para sacarlos)
+#   powershell -ExecutionPolicy Bypass -File scripts\ci-runner\install.ps1 [-Count 2] [-Prefix tcg-pc] [-Repo <dueño/repo>]
+#   powershell -ExecutionPolicy Bypass -File scripts\ci-runner\uninstall.ps1 [-Prefix tcg-pc] [-Repo <dueño/repo>]   (para sacarlos)
 #
 # En otra PC, otro prefijo (por ejemplo -Prefix tcg-ryzen): config.cmd --replace reemplaza por nombre, y con el mismo
 # nombre se llevaría los runners de la primera PC. La etiqueta sigue siendo «tcg-pc», así la CI usa todos.
-param([int]$Count = 2, [string]$Prefix = 'tcg-pc')
+param([int]$Count = 2, [string]$Prefix = 'tcg-pc', [string]$Repo = 'santiqwerty1/tcg-pocket')
 $ErrorActionPreference = 'Stop'
 
 $Version = '2.338.0'
 $Sha256 = 'f48e0750a21812bca5f82de5f7f5aeae71abee647fab5a582f1742d07eba455f'
-$Repo = 'santiqwerty1/tcg-pocket'
 $Base = Join-Path $env:USERPROFILE 'actions-runner'
 $Zip = Join-Path $Base "actions-runner-win-x64-$Version.zip"
 $Startup = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup\tcg-pocket-ci-runners.vbs'
@@ -49,6 +50,9 @@ if (-not (Get-ChildItem $winget -Directory -Filter 'BrechtSanders.WinLibs*' -Err
 }
 if ($missing) { throw ("Falta en esta PC:`n - " + ($missing -join "`n - ")) }
 Write-Host 'Git, gh, Docker, Rust y WinLibs: presentes'
+# Never on a public repository (D-023): anyone's pull request would run on this PC.
+$private = gh api "repos/$Repo" --jq .private
+if ($private -ne 'true') { throw "$Repo es público o no se pudo leer: los runners propios van solo en un repo privado (D-023)." }
 
 $token = gh api -X POST "repos/$Repo/actions/runners/registration-token" --jq .token
 if (-not $token) { throw 'gh no devolvió el token de registro' }

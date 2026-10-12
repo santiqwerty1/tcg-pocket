@@ -1,5 +1,7 @@
 # Mudanza al repo público
 
+> **11/10/2026: este plan no se usó.** Santi cambió el método (D-022, DECISIONES 41.15): la historia completa reescrita con `git filter-repo` y los PR recreados con el mismo número, en vez de un solo commit. La mudanza se hizo ese día; el resultado está en D-022 y en `docs/OPERACION.md` («Repositorio»). El tag `v1.0.0` y el release, con las fases 0 a 44, los crea el Coordinador sobre main, sin tocar la versión del worker (P-013, respuesta de Santi del 11/10). Lo de abajo queda como registro del ensayo del 9/10.
+
 Santi eligió (D-022) publicar el código en un **repo nuevo con historial limpio**. El repo arranca con la **versión 1.0.0**:
 - un solo commit con el árbol de main y la versión 1.0.0 en los `package.json`;
 - el tag `v1.0.0` y un release con las fases 0 a 44;
