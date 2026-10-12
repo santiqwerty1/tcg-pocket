@@ -6,8 +6,11 @@
  */
 import { PER_GAME_CLI_VERSION, PER_GAME_WORKER_VERSION } from './perGame.js'
 
-/** «perGame»: every game by index (H-010) · «batch»: several pairings per process (B2) · «fairBots»: the f bots (H-018). */
-export const ENGINE_FEATURES = ['perGame', 'batch', 'fairBots'] as const
+/**
+ * «perGame»: every game by index (H-010) · «batch»: several pairings per process (B2) · «fairBots»: the f bots (H-018)
+ * · «etBot»: the bot that ends its turn, which deckgym's parser never reaches (H-051, engine-cli 0.3.5).
+ */
+export const ENGINE_FEATURES = ['perGame', 'batch', 'fairBots', 'etBot'] as const
 export type EngineFeature = (typeof ENGINE_FEATURES)[number]
 
 /** Workers from this version on report `engineFeatures`. */
@@ -65,4 +68,9 @@ export function canBatch(worker: WorkerAbilities): boolean {
 /** Jobs played with the f bots (H-018): only engines that list them. */
 export function canPlayFairBots(worker: WorkerAbilities): boolean {
   return hasEngineFeature(worker, 'fairBots')
+}
+
+/** Jobs and games with «et» (H-051): an older engine answers «Invalid player code» and the job fails. */
+export function canPlayEtBot(worker: WorkerAbilities): boolean {
+  return hasEngineFeature(worker, 'etBot')
 }

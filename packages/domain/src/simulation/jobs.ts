@@ -44,6 +44,9 @@ export const BOT_CODE_PATTERN = /^(r|w|aa|et|v|er|m|e[1-9]|f[1-9])$/
 /** The f bots (H-018), for the queue's filter: only engines with the «fairBots» feature play them (capabilities.ts). */
 export const FAIR_BOT_CODES = ['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9'] as const
 
+/** H-051: the bot that ends its turn; only engines with the «etBot» feature play it (capabilities.ts). */
+export const ET_BOT_CODE = 'et'
+
 export function usesFairBot(players: readonly string[]): boolean {
   return players.some((code) => (FAIR_BOT_CODES as readonly string[]).includes(code))
 }

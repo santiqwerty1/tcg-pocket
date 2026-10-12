@@ -8,9 +8,11 @@
 import { EventEmitter } from 'node:events'
 import { BadRequestException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
 import {
+  canPlayEtBot,
   canPlayFairBots,
   canPlayPerGame,
   checkPerGame,
+  ET_BOT_CODE,
   FAIR_BOT_CODES,
   type PerGameResults,
   summarizeAnalysisGames,
@@ -192,6 +194,9 @@ export class WorkerQueueService {
     // H-018: a job played with the f bots needs an engine that says it has them («fairBots», capabilities.ts).
     const fairBot = canPlayFairBots(hello)
     const fairBotCodes = [...FAIR_BOT_CODES]
+    // H-051: «et» needs an engine that lists «etBot»; an older one fails the chunk three times. Not a consistency job:
+    // it keeps «et» as the goldfish rival, which the engine builds itself (consistency.rs), without the parser.
+    const etBot = canPlayEtBot(hello)
     const allowSlowBots = hello.allowSlowBots ?? true
     const rows = await this.prisma.$queryRaw<{ id: number }[]>`
       UPDATE simulation_chunks SET status = 'leased', lease_until = now() + interval '3 minutes',
@@ -220,6 +225,7 @@ export class WorkerQueueService {
                OR ${metaConsistency}::boolean)
           AND (COALESCE(j.params->>'perGame', 'false') <> 'true' OR ${perGame}::boolean)
           AND (NOT (j.players && ${fairBotCodes}::text[]) OR ${fairBot}::boolean)
+          AND (j.kind = 'consistency' OR NOT (${ET_BOT_CODE} = ANY(j.players)) OR ${etBot}::boolean)
           AND (${allowSlowBots}::boolean OR NOT (j.players && ${SLOW_BOT_CODES}::text[]))
           AND (c.status = 'queued' OR (c.status = 'leased' AND c.lease_until < now()))
         ORDER BY CASE WHEN j.kind IN ('explore', 'consistency') OR j.params ? 'lab' THEN 0 ELSE 1 END,

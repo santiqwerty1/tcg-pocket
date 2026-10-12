@@ -16,7 +16,13 @@ import {
   Sse,
   UseGuards,
 } from '@nestjs/common'
-import { BOT_CODE_PATTERN, QUEUEABLE_SIMULATION_KINDS, SELECTABLE_ENERGIES, TOURNAMENT_FORMATS } from '@tcg/domain'
+import {
+  BOT_CODE_PATTERN,
+  ET_BOT_CODE,
+  QUEUEABLE_SIMULATION_KINDS,
+  SELECTABLE_ENERGIES,
+  TOURNAMENT_FORMATS,
+} from '@tcg/domain'
 import type { Request, Response } from 'express'
 import { from, interval, type Observable, startWith, switchMap, takeWhile } from 'rxjs'
 import { z } from 'zod'
@@ -85,7 +91,8 @@ const consistencySchema = z.object({
   deckId: z.string().trim().min(1).max(20),
   keyCards: z.array(z.string().min(1).max(20)).max(10).optional(),
   games: z.number().int().min(10).max(10_000).optional(),
-  bot: botCode.optional(),
+  /** The bot that plays the deck; «et» (it only ends its turn) is the goldfish rival, not this one (H-051). */
+  bot: botCode.refine((code) => code !== ET_BOT_CODE, 'Bot desconocido.').optional(),
   seed: z
     .number()
     .int()

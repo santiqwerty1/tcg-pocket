@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   canBatch,
+  canPlayEtBot,
   canPlayFairBots,
   canPlayPerGame,
   ENGINE_FEATURES,
@@ -32,11 +33,15 @@ describe('what a worker can play', () => {
   })
 
   it('batch and the f bots count only when the engine lists them', () => {
-    expect(ENGINE_FEATURES).toEqual(['perGame', 'batch', 'fairBots'])
+    expect(ENGINE_FEATURES).toEqual(['perGame', 'batch', 'fairBots', 'etBot'])
     expect(canBatch({ version: '0.2.7', engineFeatures: ['perGame', 'batch'] })).toBe(true)
     expect(canBatch({ version: '0.2.7', cliVersion: '0.9.0' })).toBe(false)
     expect(canPlayFairBots({ engineFeatures: ['fairBots'] })).toBe(true)
     expect(canPlayFairBots({ cliVersion: '0.2.1' })).toBe(false)
+    // H-051: «et» only with an engine that says it can (engine-cli 0.3.5 on).
+    expect(canPlayEtBot({ engineFeatures: ['perGame', 'batch', 'fairBots', 'etBot'] })).toBe(true)
+    expect(canPlayEtBot({ engineFeatures: ['perGame', 'batch', 'fairBots'] })).toBe(false)
+    expect(canPlayEtBot({ cliVersion: '0.3.5' })).toBe(false)
     expect(hasEngineFeature({ engineFeatures: null }, 'perGame')).toBe(false)
   })
 })

@@ -54,7 +54,8 @@ const CLI_VERSION: &str = env!("CARGO_PKG_VERSION");
 const ENGINE_BUILD: &str = env!("ENGINE_BUILD");
 /// What the worker and the queue can ask of this engine beyond the commands of 0.1.0: `perGame` (H-010, T-017 A2),
 /// `batch`, several pairings in one process (B2), and `fairBots`, the f<N> bots (H-018).
-const FEATURES: [&str; 3] = ["perGame", "batch", "fairBots"];
+/// «etBot» (H-051): the bot that ends its turn, which deckgym's own parser never reaches.
+const FEATURES: [&str; 4] = ["perGame", "batch", "fairBots", "etBot"];
 /// deckgym ties a game when turn 31 begins (`State::advance_turn`): reported so the app does not hard-code it.
 const TURN_LIMIT: u32 = 30;
 
