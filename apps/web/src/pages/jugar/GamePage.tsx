@@ -250,6 +250,7 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
         <span className="flex-1">
           {line.text}
           {decision && pick ? ': elegí un Pokémon marcado' : ''}
+          {decision && pick && actions.some((action) => action.target === null) ? ' (lo demás, en «Opciones»)' : ''}
           {decision && setup ? ': prepará tu mesa (el bot pone la suya a la vez)' : ''}
         </span>
       </div>
