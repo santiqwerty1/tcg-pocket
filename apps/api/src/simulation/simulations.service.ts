@@ -1053,7 +1053,17 @@ export class SimulationsService {
       if (reopened.count === 0) return null
       const chunks = await tx.simulationChunk.updateMany({
         where: { jobId: job.id, status: 'failed' },
-        data: { status: 'queued', attempt: 0, error: null, leaseUntil: null, workerId: null, gamesDone: 0 },
+        // From scratch, like a chunk never played: no attempts and no returns (#72) either.
+        data: {
+          status: 'queued',
+          attempt: 0,
+          returns: 0,
+          returnedBy: [],
+          error: null,
+          leaseUntil: null,
+          workerId: null,
+          gamesDone: 0,
+        },
       })
       return chunks.count
     })

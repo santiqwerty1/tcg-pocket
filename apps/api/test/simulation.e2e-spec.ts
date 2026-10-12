@@ -1554,7 +1554,13 @@ describe('simulation (e2e)', () => {
     })
     await test.prisma.simulationChunk.update({
       where: { id: bad.id },
-      data: { status: 'failed', attempt: 3, error: 'la partida con semilla 1 falló: Active Pokemon should be there' },
+      data: {
+        status: 'failed',
+        attempt: 3,
+        returns: 2,
+        returnedBy: ['worker-android'],
+        error: 'la partida con semilla 1 falló: Active Pokemon should be there',
+      },
     })
     await test.app.get(WorkerQueueService).settle(created.id)
     expect((await get(`/api/simulations/${created.id}`)).body).toMatchObject({ status: 'failed' })
@@ -1565,6 +1571,8 @@ describe('simulation (e2e)', () => {
     expect(await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: bad.id } })).toMatchObject({
       status: 'queued',
       attempt: 0,
+      returns: 0,
+      returnedBy: [],
       error: null,
       seed: bad.seed,
     })
