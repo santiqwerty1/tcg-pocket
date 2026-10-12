@@ -270,10 +270,13 @@ export class WorkerClient {
     })
   }
 
-  /** `cause: 'worker'`: the engine ended well and this worker lost the result; the chunk keeps its attempts. */
+  /**
+   * `cause: 'worker'`: the engine ended well and this worker lost the result; the chunk keeps its attempts (up to a
+   * few returns). `pausedUntil`: this worker stops claiming until then, and the app shows it.
+   */
   failure(
     chunkId: number,
-    body: { workerId: string; error: string; cause?: 'engine' | 'worker' },
+    body: { workerId: string; error: string; cause?: 'engine' | 'worker'; pausedUntil?: string },
     signal?: AbortSignal,
   ) {
     return this.request<{ status: string }>('PUT', `/api/worker/chunks/${chunkId}/failure`, body, {

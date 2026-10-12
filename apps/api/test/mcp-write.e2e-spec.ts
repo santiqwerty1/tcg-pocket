@@ -385,6 +385,27 @@ describe('MCP write tools (e2e)', () => {
       queueEndsAround: expect.stringContaining('sin worker'),
     })
     expect((status.structuredContent.queue as { id: number }[]).map((job) => job.id)).toContain(jobId)
+    // A worker paused after lost results (worker 0.3.4) says so, and until when.
+    const prisma = test.app.get(PrismaService)
+    await prisma.workerNode.create({
+      data: {
+        id: 'worker-paused-1',
+        name: 'S25',
+        engineRev: 'a'.repeat(40),
+        pausedUntil: new Date(Date.now() + 30 * 60_000),
+        pauseReason: 'lost_results',
+        lastSeenAt: new Date(Date.now() - 60 * 60_000),
+      },
+    })
+    try {
+      const paused = await call(client, 'workers_status')
+      expect((paused.structuredContent.workers as { name: string; paused?: string }[])[0]).toMatchObject({
+        name: 'S25',
+        paused: expect.stringMatching(/^en pausa hasta .* perdió resultados/),
+      })
+    } finally {
+      await prisma.workerNode.delete({ where: { id: 'worker-paused-1' } })
+    }
 
     const cancelled = await call(client, 'simulations_cancel', { job: jobId, archive: true })
     expect(cancelled.isError, cancelled.content[0]?.text).toBeFalsy()

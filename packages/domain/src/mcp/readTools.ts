@@ -560,7 +560,7 @@ export const MCP_READ_TOOLS = {
     name: 'workers_status',
     title: 'Workers y cola de simulaciones',
     description:
-      'Si los workers que juegan las simulaciones están en línea (nombre, núcleos, versión, última señal y qué están jugando) y la cola: cada simulación en cola o corriendo con su progreso y la hora estimada de fin. Sirve para decirle a Santi cuándo va a tener un resultado o si tiene que prender la PC.',
+      'Si los workers que juegan las simulaciones están en línea (nombre, núcleos, versión, última señal, qué están jugando y si están en pausa) y la cola: cada simulación en cola o corriendo con su progreso y la hora estimada de fin. Sirve para decirle a Santi cuándo va a tener un resultado o si tiene que prender la PC.',
     input: z.object({}),
   },
   alertsList: {

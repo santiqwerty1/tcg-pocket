@@ -485,12 +485,7 @@ export class Worker {
       pid: process.pid,
       error: error.message.slice(0, 500),
     })
-    await this.client
-      .failure(chunk.chunkId, { workerId: this.config.workerId, error: error.message, cause: 'worker' }, signal)
-      .catch((reported: unknown) => {
-        if (!(reported instanceof ApiError) || reported.status === 401 || reported.status === 403) throw reported
-        this.log('el servidor rechazó la devolución', { chunk: chunk.chunkId, error: reported.message })
-      })
+    // The pause goes with the return, so the app shows it (Simulación, workers_status) while nothing is claimed.
     if (this.lostResults >= LOST_RESULTS_BEFORE_PAUSE) {
       const pause = Math.min(
         this.lostResultsPauseMs * 2 ** (this.lostResults - LOST_RESULTS_BEFORE_PAUSE),
@@ -502,6 +497,17 @@ export class Worker {
         minutes: Math.round(pause / 60_000),
       })
     }
+    const pausedUntil = this.pausedUntil > Date.now() ? { pausedUntil: new Date(this.pausedUntil).toISOString() } : {}
+    await this.client
+      .failure(
+        chunk.chunkId,
+        { workerId: this.config.workerId, error: error.message, cause: 'worker', ...pausedUntil },
+        signal,
+      )
+      .catch((reported: unknown) => {
+        if (!(reported instanceof ApiError) || reported.status === 401 || reported.status === 403) throw reported
+        this.log('el servidor rechazó la devolución', { chunk: chunk.chunkId, error: reported.message })
+      })
   }
 
   /**

@@ -54,6 +54,40 @@ function show(path: string) {
   )
 }
 
+it('un worker en pausa por resultados perdidos lo dice, con hasta cuándo (worker 0.3.4)', async () => {
+  vi.stubGlobal('EventSource', class {})
+  const worker = (id: string, name: string, paused: { until: string; reason: string } | null) => ({
+    id,
+    name,
+    engineRev: 'a'.repeat(40),
+    cliVersion: '0.3.6',
+    cores: 4,
+    version: '0.3.4',
+    lastSeenAt: new Date().toISOString(),
+    online: true,
+    paused,
+    current: null,
+  })
+  fakeApi({
+    'GET /api/simulations': () => ({ items: [] }),
+    'GET /api/simulations/engine': () => ({
+      engineRev: 'a'.repeat(40),
+      cards: 10,
+      incomplete: 0,
+      source: 'worker',
+      workers: [
+        worker('w1', 'S25', { until: '2026-10-12T18:30:00Z', reason: 'lost_results' }),
+        worker('w2', 'PC', null),
+      ],
+      bots: [],
+    }),
+  })
+  show('/simulacion')
+  const line = await screen.findByText(/en pausa hasta .* por resultados perdidos/)
+  expect(line.closest('li')?.textContent).toContain('S25')
+  expect(screen.getAllByText(/en pausa hasta/)).toHaveLength(1)
+})
+
 it.each(['/simulacion', '/simulacion/1'])('adelanta y vuelve a normal desde %s', async (path) => {
   const current = job()
   const sources: { onmessage?: (event: { data: string }) => void }[] = []

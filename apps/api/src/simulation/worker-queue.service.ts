@@ -29,6 +29,12 @@ import { versionAtLeast } from './worker-version.js'
 
 export const LEASE_MS = 3 * 60 * 1000
 const MAX_FAILURES = 3
+/**
+ * A chunk sent back without an attempt (`cause: 'worker'`, a lost result.json) counts as one anyway from this many
+ * returns, or from this many when two or more workers returned it: one that breaks every worker still ends (51.22).
+ */
+const RETURNS_COUNTED = 5
+const RETURNS_COUNTED_FROM_SEVERAL = 3
 const LONG_POLL_MS = 25_000
 export const MAX_REPLAY_BYTES = 8 * 1024 * 1024
 /** D-025: filter whole jobs before taking any lease, preserving chunks and their seeds. */
@@ -187,6 +193,9 @@ export class WorkerQueueService {
         version: hello.version ?? null,
         engineFeatures: hello.engineFeatures ?? [],
         ...(gamesRev === null ? {} : { gamesRev }),
+        // A worker that claims is not paused (worker 0.3.4 pauses after lost results, 51.23).
+        pausedUntil: null,
+        pauseReason: null,
         lastSeenAt: new Date(),
       },
     })
@@ -583,11 +592,18 @@ export class WorkerQueueService {
   /**
    * An engine error: the chunk is retried up to 3 times, then it fails (the job keeps its other results). With
    * `cause: 'worker'` the engine ended well and the worker lost its result (no result.json, worker 0.3.4 on): the chunk
-   * goes back to the queue without spending an attempt, so a worker's problem never fails the job.
+   * goes back to the queue without spending an attempt, so a worker's problem never fails the job; past a few returns
+   * (`RETURNS_COUNTED`) it counts like an engine error, so a chunk that breaks every worker still ends. `pausedUntil`:
+   * the worker stops claiming until then, shown in Simulación and `workers_status`.
    */
   async failure(
     id: number,
-    input: { workerId: string; error: string; cause?: 'engine' | 'worker' | undefined },
+    input: {
+      workerId: string
+      error: string
+      cause?: 'engine' | 'worker' | undefined
+      pausedUntil?: Date | undefined
+    },
   ): Promise<{ status: string }> {
     const chunk = await this.requireChunk(id)
     if (chunk.status === 'done' || chunk.status === 'cancelled') return { status: chunk.status }
@@ -595,29 +611,49 @@ export class WorkerQueueService {
     if (chunk.status !== 'leased' || (chunk.workerId !== null && chunk.workerId !== input.workerId)) {
       return { status: chunk.status }
     }
+    let returned: { returns: number; returnedBy: string[] } | null = null
+    let error = input.error
     if (input.cause === 'worker') {
-      await this.prisma.simulationChunk.update({
-        where: { id },
-        data: {
-          status: 'queued',
-          error: `Devuelto por el worker: ${input.error}`.slice(0, 2000),
-          leaseUntil: null,
-          workerId: null,
-          gamesDone: 0,
-        },
-      })
-      this.logger.warn(
-        { chunk: id, worker: input.workerId, attempt: chunk.attempt, error: input.error.slice(0, 300) },
-        'simulation chunk returned by its worker',
-      )
-      this.notifyQueued()
-      return { status: 'queued' }
+      if (input.pausedUntil) {
+        await this.prisma.workerNode.updateMany({
+          where: { id: input.workerId },
+          data: { pausedUntil: input.pausedUntil, pauseReason: 'lost_results' },
+        })
+      }
+      returned = {
+        returns: chunk.returns + 1,
+        returnedBy: [...new Set([...chunk.returnedBy, input.workerId])],
+      }
+      const counted =
+        returned.returns >= RETURNS_COUNTED ||
+        (returned.returns >= RETURNS_COUNTED_FROM_SEVERAL && returned.returnedBy.length >= 2)
+      if (!counted) {
+        await this.prisma.simulationChunk.update({
+          where: { id },
+          data: {
+            status: 'queued',
+            ...returned,
+            error: `Devuelto por el worker: ${input.error}`.slice(0, 2000),
+            leaseUntil: null,
+            workerId: null,
+            gamesDone: 0,
+          },
+        })
+        this.logger.warn(
+          { chunk: id, worker: input.workerId, returns: returned.returns, error: input.error.slice(0, 300) },
+          'simulation chunk returned by its worker',
+        )
+        this.notifyQueued()
+        return { status: 'queued' }
+      }
+      const workers = returned.returnedBy.length
+      error = `Devuelto ${returned.returns} veces sin resultado (${workers} ${workers === 1 ? 'worker' : 'workers'}): cuenta como intento. ${input.error}`
     }
     const attempt = chunk.attempt + 1
     const status = attempt >= MAX_FAILURES ? 'failed' : 'queued'
     await this.prisma.simulationChunk.update({
       where: { id },
-      data: { status, attempt, error: input.error.slice(0, 2000), leaseUntil: null, workerId: null },
+      data: { status, attempt, ...(returned ?? {}), error: error.slice(0, 2000), leaseUntil: null, workerId: null },
     })
     this.logger.warn({ chunk: id, attempt, error: input.error.slice(0, 300) }, 'simulation chunk failed')
     if (status === 'failed') await this.settle(chunk.jobId)

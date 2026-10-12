@@ -540,6 +540,71 @@ describe('simulation (e2e)', () => {
     expect((await get(`/api/simulations/${created.body.id}`)).status).toBe(404)
   })
 
+  it('returns without an attempt (a lost result.json) end: 5 from one worker or 3 from two count as one; the pause shows', async () => {
+    const lost = 'engine-cli simulate terminó con código 0 sin resultado válido'
+    const job = async () => {
+      const created = await post('/api/simulations').send({
+        kind: 'compare',
+        sideA: decks(2, 2),
+        sideB: decks(5, 5),
+        gamesPerPair: 20,
+        players: ['r', 'r'],
+      })
+      expect(created.body.progress).toMatchObject({ chunks: { total: 1 } })
+      return created.body.id as number
+    }
+    const giveBack = async (workerId: string, extra: Record<string, unknown> = {}) => {
+      const chunk = (await claim(workerId)).body.chunk as Structured
+      const answer = await bearer('put', `/api/worker/chunks/${chunk.chunkId}/failure`).send({
+        workerId,
+        error: lost,
+        cause: 'worker',
+        ...extra,
+      })
+      return { chunkId: Number(chunk.chunkId), status: answer.body.status as string }
+    }
+    const row = (id: number) => test.prisma.simulationChunk.findUnique({ where: { id } })
+    const engineWorker = async (id: string) =>
+      ((await get('/api/simulations/engine')).body.workers as { id: string; paused: Structured | null }[]).find(
+        (worker) => worker.id === id,
+      )
+
+    // One worker: four returns cost nothing; the fifth counts as an attempt, so a chunk no one can play still ends.
+    const first = await job()
+    const until = new Date(Date.now() + 30 * 60_000).toISOString()
+    let returned = await giveBack('worker-0001', { pausedUntil: until })
+    // The pause it sent shows in Simulación until it claims again.
+    expect((await engineWorker('worker-0001'))?.paused).toEqual({ until, reason: 'lost_results' })
+    for (let i = 0; i < 3; i++) returned = await giveBack('worker-0001')
+    expect((await engineWorker('worker-0001'))?.paused).toBeNull()
+    expect(await row(returned.chunkId)).toMatchObject({ status: 'queued', attempt: 0, returns: 4 })
+    returned = await giveBack('worker-0001')
+    expect(returned.status).toBe('queued')
+    expect(await row(returned.chunkId)).toMatchObject({
+      attempt: 1,
+      returns: 5,
+      returnedBy: ['worker-0001'],
+      error: expect.stringContaining('Devuelto 5 veces sin resultado (1 worker): cuenta como intento'),
+    })
+    await post(`/api/simulations/${first}/cancel`)
+
+    // Two workers: the third return counts.
+    const second = await job()
+    await giveBack('worker-0001')
+    await giveBack('worker-0002')
+    returned = await giveBack('worker-0001')
+    expect(await row(returned.chunkId)).toMatchObject({
+      attempt: 1,
+      returns: 3,
+      returnedBy: ['worker-0001', 'worker-0002'],
+      error: expect.stringContaining('(2 workers)'),
+    })
+    await post(`/api/simulations/${second}/cancel`)
+    for (const id of [first, second]) {
+      expect((await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)).status).toBe(204)
+    }
+  })
+
   it('optimize: one chunk with the engine job (deck minus the cards taken out, candidates, rivals)', async () => {
     const deck = (await get(`/api/decks/${deckIds[1]}`)).body as { cards: { card: { id: string }; count: number }[] }
     const out = deck.cards.filter((entry) => entry.count === 1).slice(0, 1)

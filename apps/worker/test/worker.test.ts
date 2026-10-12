@@ -51,7 +51,7 @@ function fakeClient(chunks: Chunk[]) {
   const calls = {
     results: [] as { chunkId: number; body: ChunkResult }[],
     replays: [] as { chunkId: number; gameId: string; data: Uint8Array; meta: Record<string, unknown> }[],
-    failures: [] as { chunkId: number; error: string; cause?: string }[],
+    failures: [] as { chunkId: number; error: string; cause?: string; pausedUntil?: string }[],
     status: [] as string[],
   }
   let failResult = 0
@@ -74,8 +74,13 @@ function fakeClient(chunks: Chunk[]) {
       calls.results.push({ chunkId, body })
       return { accepted }
     }),
-    failure: vi.fn(async (chunkId: number, body: { error: string; cause?: string }) => {
-      calls.failures.push({ chunkId, error: body.error, ...(body.cause ? { cause: body.cause } : {}) })
+    failure: vi.fn(async (chunkId: number, body: { error: string; cause?: string; pausedUntil?: string }) => {
+      calls.failures.push({
+        chunkId,
+        error: body.error,
+        ...(body.cause ? { cause: body.cause } : {}),
+        ...(body.pausedUntil ? { pausedUntil: body.pausedUntil } : {}),
+      })
       return { status: 'queued' }
     }),
     replay: vi.fn(async (chunkId: number, gameId: string, data: Uint8Array, meta: Record<string, unknown>) => {
@@ -247,6 +252,11 @@ describe('worker loop', () => {
       [7, 'worker'],
       [8, 'worker'],
     ])
+    // The second return says until when it pauses, so the app shows it; the first one does not pause.
+    expect(calls.failures[0]?.pausedUntil).toBeUndefined()
+    const until = Date.parse(calls.failures[1]?.pausedUntil ?? '')
+    expect(until - (claimedAt[1] ?? 0)).toBeGreaterThanOrEqual(350)
+    expect(until - (claimedAt[1] ?? 0)).toBeLessThan(5_000)
     expect(calls.results.map(({ chunkId }) => chunkId)).toEqual([9])
     expect(log).toHaveBeenCalledWith(
       'el motor perdió resultados varias veces seguidas: no tomo trabajo por un rato',

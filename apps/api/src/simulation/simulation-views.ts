@@ -180,6 +180,8 @@ export interface WorkerView {
   version: string | null
   lastSeenAt: Date
   online: boolean
+  /** Not claiming until then, and why (worker 0.3.4: `lost_results`); null when it is not paused. */
+  paused: { until: Date; reason: string } | null
   /** The chunk it holds right now, if any. */
   current: { jobId: number; chunkId: number; gamesDone: number; games: number } | null
 }

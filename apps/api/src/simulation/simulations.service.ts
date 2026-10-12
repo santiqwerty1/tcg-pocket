@@ -1206,6 +1206,10 @@ export class SimulationsService {
           version: worker.version,
           lastSeenAt: worker.lastSeenAt,
           online: now - worker.lastSeenAt.getTime() < WORKER_ONLINE_MS,
+          paused:
+            worker.pausedUntil && worker.pausedUntil.getTime() > now
+              ? { until: worker.pausedUntil, reason: worker.pauseReason ?? 'lost_results' }
+              : null,
           current: current
             ? { jobId: current.jobId, chunkId: current.id, gamesDone: current.gamesDone, games: current.games }
             : null,

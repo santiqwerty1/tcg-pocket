@@ -2020,6 +2020,11 @@ ${MCP_CHAT_INSTRUCTIONS}`
         version: worker.version,
         engineRev: worker.engineRev?.slice(0, 7) ?? null,
         lastSeen: ownerDateTime(worker.lastSeenAt),
+        ...(worker.paused
+          ? {
+              paused: `en pausa hasta ${ownerDateTime(worker.paused.until)} (hora de Buenos Aires): perdió resultados de la simulación varias veces seguidas; los chunks los juega otro worker`,
+            }
+          : {}),
         playing: worker.current
           ? `simulación #${worker.current.jobId}: ${worker.current.gamesDone} de ${worker.current.games} partidas del cruce`
           : null,
