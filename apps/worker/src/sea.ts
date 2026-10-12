@@ -6,13 +6,14 @@
  *                 build's own copy of the worker; TCG_WORKER_RELEASE names a release to check before switching to it
  */
 import { join } from 'node:path'
-import { chooseRelease, type Entry, loadRelease } from './bootstrap.js'
+import { chooseRelease, type Entry, installs, loadRelease, olderVersion, releaseVersion } from './bootstrap.js'
 import { dataDir } from './config.js'
 import { DETERMINISM_MISMATCH, DeterminismError } from './determinism.js'
 import { main as builtIn } from './portable.js'
 import { logger } from './run.js'
 import { supervise } from './supervisor.js'
 import { markBad, windowsInstallation } from './update.js'
+import { WORKER_VERSION } from './version.js'
 
 /** Set by scripts/package.mjs: one per built executable (the pointer's `base`). */
 declare const __TCG_BUILD_ID__: string | undefined
@@ -25,7 +26,10 @@ async function start(): Promise<number> {
   if (args.includes('--run')) {
     return supervise({ dataDir: folder, installation: windowsInstallation(folder, null, BUILD_ID), log })
   }
-  const release = chooseRelease(folder, BUILD_ID)
+  const chosen = chooseRelease(folder, BUILD_ID)
+  // Setup and --uninstall touch the PC's logon start: never with code older than this executable's (a test exe that
+  // updated itself to an old package once removed the PC's real launcher).
+  const release = chosen && installs(args) && olderVersion(releaseVersion(chosen), WORKER_VERSION) ? null : chosen
   if (release) {
     let entry: Entry | null = null
     try {

@@ -88,7 +88,7 @@ El paquete portable de Windows y el de Android siguen a la app: decisión de San
   - lo que la app arranca muere con ella (H-016).
   El setup lo detecta (`src/outside.ts`). En ese caso escribe desde afuera, por WMI, lo que el worker real no vería (config.json, `launch.vbs`, el lanzador de Inicio) y arranca el worker por WMI.
 - **Carpeta de datos propia.** Si el setup corre con `TCG_WORKER_DIR`, el lanzador lo lleva, porque el worker que arranca al iniciar sesión no tiene el entorno del setup.
-- **Para pruebas**, `TCG_WORKER_AUTOSTART_NAME` cambia el nombre de la tarea y del lanzador de Inicio. Ojo: `--uninstall` corre el código de la versión bajada, y una versión anterior a 0.3.2 no conoce esa variable. Para limpiar una prueba, borrá a mano los archivos con el nombre de prueba.
+- **Para pruebas**, `TCG_WORKER_AUTOSTART_NAME` cambia el nombre de la tarea y del lanzador de Inicio. Desde 0.3.2, el setup y `--uninstall` nunca corren con código más viejo que el del `.exe`: si la versión bajada es anterior, usan el código propio. Así, un `.exe` de prueba que se actualizó a un paquete viejo no puede tocar el lanzador real (pasó el 11/10). Igual conviene darle a la prueba su propio `APPDATA`.
 
 ### Pasar cada máquina, una sola vez
 

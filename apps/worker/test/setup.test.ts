@@ -1,6 +1,7 @@
 import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { launcherScript } from '../src/autostart.js'
+import { installs, olderVersion } from '../src/bootstrap.js'
 import { prompter } from '../src/portable.js'
 
 describe('worker setup (D-026, after the 11/10 migration)', () => {
@@ -31,5 +32,18 @@ describe('worker setup (D-026, after the 11/10 migration)', () => {
     const custom = launcherScript(['C:\\w\\tcg-worker.exe', '--run'])
     expect(custom).toContain('shell.Environment("Process")("TCG_WORKER_DIR") = "C:\\data ""x"""\r\n')
     expect(custom.indexOf('Environment')).toBeLessThan(custom.indexOf('shell.Run'))
+  })
+
+  it('setup and --uninstall never run with code older than the executable', () => {
+    expect(installs([])).toBe(true)
+    expect(installs(['--setup', '--keep'])).toBe(true)
+    expect(installs(['--uninstall'])).toBe(true)
+    expect(installs(['--child'])).toBe(false)
+    expect(installs(['--check'])).toBe(false)
+    expect(olderVersion('0.3.0', '0.3.2')).toBe(true)
+    expect(olderVersion('0.3.2', '0.3.2')).toBe(false)
+    expect(olderVersion('0.3.10', '0.3.2')).toBe(false)
+    expect(olderVersion('0.4.0', '0.3.9')).toBe(false)
+    expect(olderVersion(undefined, '0.3.2')).toBe(true)
   })
 })
