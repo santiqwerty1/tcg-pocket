@@ -153,6 +153,15 @@ export async function engineStatus(enginePath: string, signal?: AbortSignal): Pr
   return JSON.parse((await run(enginePath, ['status'], { signal })).stdout) as EngineCardStatus[]
 }
 
+/** What is in a folder, for the log; null if it is gone (also if it goes while reading it). */
+function entriesOf(dir: string): string[] | null {
+  try {
+    return readdirSync(dir).slice(0, 20)
+  } catch {
+    return null
+  }
+}
+
 /** Writes the job to a temp folder, runs the command, returns the parsed result and the folder (for replays). */
 export async function runJob<T>(
   enginePath: string,
@@ -190,7 +199,7 @@ export async function runJob<T>(
         directoryExists: existsSync(dir),
         resultExists: existsSync(resultFile),
         // What is left (job.json without result.json: only the file went; nothing: the folder was made again).
-        entries: existsSync(dir) ? readdirSync(dir).slice(0, 20) : null,
+        entries: entriesOf(dir),
         pid: process.pid,
         exitCode: 0,
         signal: null,

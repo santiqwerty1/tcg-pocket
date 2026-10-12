@@ -302,6 +302,73 @@ describe('worker loop', () => {
     )
     // The third claim waited for the pause; the first lost result alone did not pause.
     expect((claimedAt[2] ?? 0) - (claimedAt[1] ?? 0)).toBeGreaterThanOrEqual(350)
+    // A restart keeps it: the pause is in state.json (review of #72).
+    expect(JSON.parse(readFileSync(join(dataDir, 'state.json'), 'utf8')).pausedUntil).toBe(
+      calls.failures[1]?.pausedUntil,
+    )
+  })
+
+  /** Plays `chunks` until the queue is empty: what was reported, when each claim went and what was logged. */
+  async function lossRun(chunks: Chunk[]) {
+    const { client, calls } = fakeClient(chunks)
+    const controller = new AbortController()
+    const original = vi.mocked(client.claim).getMockImplementation()
+    const claimedAt: number[] = []
+    vi.mocked(client.claim).mockImplementation(async (hello, signal) => {
+      claimedAt.push(Date.now())
+      const answer = await original?.(hello, signal)
+      if (!answer?.chunk) controller.abort()
+      return answer as Awaited<ReturnType<WorkerClient['claim']>>
+    })
+    Object.assign(client, {
+      liveClaim: vi.fn(async (_hello, signal: AbortSignal) => {
+        await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+        return { game: null }
+      }),
+    })
+    const log = vi.fn()
+    const worker = new Worker(config, client, log)
+    worker.lostResultsPauseMs = 400
+    await worker.loop(controller.signal)
+    const paused = log.mock.calls.some(([message]) => String(message).startsWith('el motor perdió resultados'))
+    return { calls, claimedAt, paused }
+  }
+
+  it('the same chunk lost twice does not pause (it may be that chunk; the app gives it to this worker last)', async () => {
+    const run = await lossRun([chunk({ games: 96 }), chunk({ games: 96 }), chunk({ chunkId: 9 })])
+    expect(run.calls.failures.map(({ chunkId }) => chunkId)).toEqual([7, 7])
+    expect(run.paused).toBe(false)
+    expect(run.calls.failures.every((failure) => failure.pausedUntil === undefined)).toBe(true)
+  })
+
+  it('a chunk played resets the losses; an engine error in between does not (review of #72)', async () => {
+    // Lost, played, lost: no pause.
+    const reset = await lossRun([chunk({ games: 96 }), chunk({ chunkId: 8 }), chunk({ chunkId: 9, games: 96 })])
+    expect(reset.calls.results.map(({ chunkId }) => chunkId)).toEqual([8])
+    expect(reset.paused).toBe(false)
+    // Lost, an engine error (a deck it refuses), lost: it pauses, as the error says nothing of a long run's end.
+    rmSync(join(dataDir, 'state.json'), { force: true })
+    const error = await lossRun([
+      chunk({ games: 96 }),
+      chunk({ chunkId: 8, games: 13 }),
+      chunk({ chunkId: 9, games: 96 }),
+      chunk({ chunkId: 10 }),
+    ])
+    expect(error.calls.failures.map(({ chunkId, cause }) => [chunkId, cause ?? 'engine'])).toEqual([
+      [7, 'worker'],
+      [8, 'engine'],
+      [9, 'worker'],
+    ])
+    expect(error.paused).toBe(true)
+  })
+
+  it('a pause saved before a restart still holds', async () => {
+    const until = new Date(Date.now() + 400).toISOString()
+    writeFileSync(join(dataDir, 'state.json'), JSON.stringify({ pausedUntil: until }))
+    const started = Date.now()
+    const run = await lossRun([chunk({ chunkId: 9 })])
+    expect(run.calls.results.map(({ chunkId }) => chunkId)).toEqual([9])
+    expect((run.claimedAt[0] ?? 0) - started).toBeGreaterThanOrEqual(350)
   })
 
   it('a starting worker never cleans the work folder of another live process (the S25, 12/10/2026)', async () => {

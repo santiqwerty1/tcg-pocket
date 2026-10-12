@@ -127,6 +127,8 @@ interface State {
   pending?: PendingUpload | null
   /** Results still to send, in order (a batch leaves one per chunk). */
   pendings?: PendingUpload[]
+  /** No claims until then (lost results, worker 0.3.4): a restart keeps the pause instead of playing the chunk again. */
+  pausedUntil?: string
 }
 
 function pendingOf(state: State): PendingUpload[] {
@@ -141,8 +143,12 @@ export class Worker {
   stallMs = STALL_MS
   liveDrainMs = LIVE_DRAIN_MS
   lostResultsPauseMs = LOST_RESULTS_PAUSE_MS
-  /** Engine runs in a row that ended well without a result (reset by a chunk played), and the pause they set. */
+  /**
+   * Engine runs in a row that ended with 0 and no result, and their chunks (reset by a chunk played; an engine error
+   * in between does not reset them: it says nothing of whether this machine lets a long run end), and the pause.
+   */
   private lostResults = 0
+  private readonly lostChunks = new Set<number>()
   private pausedUntil = 0
   /** Whether the engine plays several pairings in one process (`features` of `engine-cli version`). */
   private batchable = false
@@ -473,11 +479,14 @@ export class Worker {
   }
 
   /**
-   * The engine ended with 0 and its result.json is gone: this worker lost it (the engine cannot exit 0 without writing
-   * it). The chunk goes back without spending an attempt (`cause: 'worker'`), and a second one in a row pauses claims.
+   * The engine ended with 0 and no result.json: engine-cli exits 0 only after writing it, so something outside ended
+   * its process (the S25's system, 12/10/2026). The chunk goes back without spending an attempt (`cause: 'worker'`).
+   * Losses of two different chunks in a row pause the claims (the same chunk twice may be that chunk: the app gives it
+   * to this worker last, and its returns are capped).
    */
   private async returnLost(chunk: Chunk, error: EngineError, signal: AbortSignal): Promise<void> {
     this.lostResults++
+    this.lostChunks.add(chunk.chunkId)
     this.log('el motor terminó bien pero su resultado no está: devuelvo el chunk sin gastar un intento', {
       chunk: chunk.chunkId,
       job: chunk.jobId,
@@ -486,16 +495,18 @@ export class Worker {
       error: error.message.slice(0, 500),
     })
     // The pause goes with the return, so the app shows it (Simulación, workers_status) while nothing is claimed.
-    if (this.lostResults >= LOST_RESULTS_BEFORE_PAUSE) {
+    if (this.lostChunks.size >= LOST_RESULTS_BEFORE_PAUSE) {
       const pause = Math.min(
-        this.lostResultsPauseMs * 2 ** (this.lostResults - LOST_RESULTS_BEFORE_PAUSE),
+        this.lostResultsPauseMs * 2 ** (this.lostChunks.size - LOST_RESULTS_BEFORE_PAUSE),
         LOST_RESULTS_PAUSE_MAX_MS,
       )
       this.pausedUntil = Date.now() + pause
       this.log('el motor perdió resultados varias veces seguidas: no tomo trabajo por un rato', {
         inARow: this.lostResults,
+        chunks: this.lostChunks.size,
         minutes: Math.round(pause / 60_000),
       })
+      await this.writeState({ ...(await this.readState()), pausedUntil: new Date(this.pausedUntil).toISOString() })
     }
     const pausedUntil = this.pausedUntil > Date.now() ? { pausedUntil: new Date(this.pausedUntil).toISOString() } : {}
     await this.client
@@ -748,6 +759,12 @@ export class Worker {
       }
       // The app's hint about waiting work this worker cannot play, written once each time it changes.
       let lastHint: string | null = null
+      // A pause from before a restart still holds (capped, in case the clock moved).
+      const saved = Date.parse((await this.readState()).pausedUntil ?? '')
+      if (saved > Date.now()) {
+        this.pausedUntil = Math.max(this.pausedUntil, Math.min(saved, Date.now() + LOST_RESULTS_PAUSE_MAX_MS))
+        this.log('sigo en pausa por resultados perdidos', { until: new Date(this.pausedUntil).toISOString() })
+      }
       while (!signal.aborted && !updater?.ready) {
         if (Date.now() < this.pausedUntil) {
           await sleep(this.pausedUntil - Date.now(), undefined, {
@@ -832,6 +849,7 @@ export class Worker {
         }
         if (pendings.length > 0) {
           this.lostResults = 0
+          this.lostChunks.clear()
           await this.uploadAll(pendings, signal)
         }
         if (options.once) return

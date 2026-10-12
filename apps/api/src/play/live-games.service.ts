@@ -610,10 +610,13 @@ export class LiveGamesService implements OnApplicationBootstrap {
         select: { gamesRev: true, cliVersion: true },
       })
       gamesRev = saidGamesRev(node ?? {})
-    } else {
-      // What it says now (it may have updated its engine-cli since its last hello to the simulation queue).
-      await this.prisma.workerNode.updateMany({ where: { id: input.workerId }, data: { gamesRev } })
     }
+    // Its claims of games keep it «en línea», also while it does not claim chunks (paused after lost results, review
+    // of #72); and what it says now of how it plays (it may have updated its engine-cli since its last hello).
+    await this.prisma.workerNode.updateMany({
+      where: { id: input.workerId },
+      data: { lastSeenAt: new Date(), ...(saidGamesRev(input) === null ? {} : { gamesRev }) },
+    })
     if (gamesRev !== null) await this.endForEngineChange({ stranded: { engineRev: input.engineRev, gamesRev } })
     const take = async () => {
       const game = await this.tryClaim(input.workerId, input.engineRev, version, fairBots, etBot, gamesRev)

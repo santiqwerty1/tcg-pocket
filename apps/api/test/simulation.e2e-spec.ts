@@ -600,7 +600,25 @@ describe('simulation (e2e)', () => {
       error: expect.stringContaining('(2 workers)'),
     })
     await post(`/api/simulations/${second}/cancel`)
-    for (const id of [first, second]) {
+
+    // A chunk this worker sent back goes last for it: it takes the other one, and another worker takes it (review of
+    // #72: alone, the S25 got the same chunk back seven times). A pause is capped at 6 h, whatever its clock says.
+    const two = await post('/api/simulations').send({
+      kind: 'compare',
+      sideA: decks(2, 2),
+      sideB: decks(5, 6),
+      gamesPerPair: 20,
+      players: ['r', 'r'],
+    })
+    expect(two.body.progress).toMatchObject({ chunks: { total: 2 } })
+    const far = new Date(Date.now() + 48 * 60 * 60_000).toISOString()
+    const back = await giveBack('worker-0001', { pausedUntil: far })
+    const node = await test.prisma.workerNode.findUniqueOrThrow({ where: { id: 'worker-0001' } })
+    expect((node.pausedUntil?.getTime() ?? 0) - Date.now()).toBeLessThanOrEqual(6 * 60 * 60_000)
+    expect(((await claim('worker-0001')).body.chunk as Structured).chunkId).not.toBe(back.chunkId)
+    expect(((await claim('worker-0002')).body.chunk as Structured).chunkId).toBe(back.chunkId)
+    await post(`/api/simulations/${two.body.id}/cancel`)
+    for (const id of [first, second, two.body.id as number]) {
       expect((await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)).status).toBe(204)
     }
   })
@@ -2013,7 +2031,21 @@ describe('simulation (e2e)', () => {
     })
     expect(await engine.releaseGoneGamesRevs()).toEqual({ moved: [], replayed: [] })
     await test.prisma.workerNode.update({ where: { id: 'worker-rev-2' }, data: { lastSeenAt: new Date() } })
+    // Returns of a lost result (worker 0.3.4) were of the other engine: they start over with the replay (review of #72).
+    await test.prisma.simulationChunk.updateMany({
+      where: { jobId: created.id },
+      data: { returns: 2, returnedBy: ['worker-rev-1'] },
+    })
     expect(await engine.releaseGoneGamesRevs()).toEqual({ moved: [], replayed: [created.id] })
+    expect(
+      (await test.prisma.simulationChunk.findMany({ where: { jobId: created.id } })).map((chunk) => [
+        chunk.returns,
+        chunk.returnedBy,
+      ]),
+    ).toEqual([
+      [0, []],
+      [0, []],
+    ])
     const job = (await get(`/api/simulations/${created.id}`)).body as {
       status: string
       engineChange: { oldResults: number } & Structured

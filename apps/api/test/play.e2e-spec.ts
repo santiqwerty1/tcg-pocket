@@ -268,6 +268,20 @@ describe('playing against a bot (e2e)', () => {
     }
   })
 
+  it('a claim of games keeps the worker «en línea», also while it claims no chunks (paused, review of #72)', async () => {
+    const old = new Date('2026-10-12T10:00:00Z')
+    await test.prisma.workerNode.create({
+      data: { id: 'worker-live-seen', name: 'S25', engineRev: engineRev(), lastSeenAt: old },
+    })
+    try {
+      await worker('post', '/api/worker/live/claim').send({ workerId: 'worker-live-seen', engineRev: 'a'.repeat(40) })
+      const node = await test.prisma.workerNode.findUniqueOrThrow({ where: { id: 'worker-live-seen' } })
+      expect(Date.now() - node.lastSeenAt.getTime()).toBeLessThan(60_000)
+    } finally {
+      await test.prisma.workerNode.deleteMany({ where: { id: 'worker-live-seen' } })
+    }
+  })
+
   it('a whole game: the worker claims it, relays each decision, the owner answers, the end and the replay', async () => {
     const created = await post('/api/play').send({
       human: { deckId: deckIds[1] },
