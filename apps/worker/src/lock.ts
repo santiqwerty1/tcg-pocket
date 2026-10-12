@@ -6,7 +6,7 @@
 import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-function alive(pid: number): boolean {
+export function processAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)
     return true
@@ -24,7 +24,7 @@ export function acquireLock(dir: string, pid = process.pid): number | null {
     return null
   } catch {
     const holder = Number(readFileSync(file, 'utf8').trim())
-    if (Number.isInteger(holder) && holder > 0 && holder !== pid && alive(holder)) return holder
+    if (Number.isInteger(holder) && holder > 0 && holder !== pid && processAlive(holder)) return holder
     writeFileSync(file, String(pid))
     return null
   }

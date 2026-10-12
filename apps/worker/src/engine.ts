@@ -3,7 +3,7 @@
  * Exit codes: 0 ok, 2 bad input, 3 engine failure. A run can be stopped (job cancelled, shutdown) with its signal.
  */
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Log } from './client.js'
@@ -146,6 +146,9 @@ export async function runJob<T>(
         dir,
         directoryExists: existsSync(dir),
         resultExists: existsSync(resultFile),
+        // What is left (job.json without result.json: only the file went; nothing: the folder was made again).
+        entries: existsSync(dir) ? readdirSync(dir).slice(0, 20) : null,
+        pid: process.pid,
         exitCode: 0,
         signal: null,
         stdout: output.stdout.slice(-1000),
@@ -154,7 +157,8 @@ export async function runJob<T>(
       throw new EngineError(
         `engine-cli ${command} terminó con código 0 sin resultado válido: ${String(error)}`,
         0,
-        'missing_result',
+        // The engine cannot exit 0 without writing it: a missing file is this worker's problem, a bad one the engine's.
+        existsSync(resultFile) ? 'invalid_result' : 'missing_result',
       )
     }
   } catch (error) {

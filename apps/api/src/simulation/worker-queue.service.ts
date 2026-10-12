@@ -580,13 +580,38 @@ export class WorkerQueueService {
     return { accepted: true }
   }
 
-  /** An engine error: the chunk is retried up to 3 times, then it fails (the job keeps its other results). */
-  async failure(id: number, input: { workerId: string; error: string }): Promise<{ status: string }> {
+  /**
+   * An engine error: the chunk is retried up to 3 times, then it fails (the job keeps its other results). With
+   * `cause: 'worker'` the engine ended well and the worker lost its result (no result.json, worker 0.3.4 on): the chunk
+   * goes back to the queue without spending an attempt, so a worker's problem never fails the job.
+   */
+  async failure(
+    id: number,
+    input: { workerId: string; error: string; cause?: 'engine' | 'worker' | undefined },
+  ): Promise<{ status: string }> {
     const chunk = await this.requireChunk(id)
     if (chunk.status === 'done' || chunk.status === 'cancelled') return { status: chunk.status }
     // H-014: only the worker that holds the chunk can fail it (a late report must not requeue another's work).
     if (chunk.status !== 'leased' || (chunk.workerId !== null && chunk.workerId !== input.workerId)) {
       return { status: chunk.status }
+    }
+    if (input.cause === 'worker') {
+      await this.prisma.simulationChunk.update({
+        where: { id },
+        data: {
+          status: 'queued',
+          error: `Devuelto por el worker: ${input.error}`.slice(0, 2000),
+          leaseUntil: null,
+          workerId: null,
+          gamesDone: 0,
+        },
+      })
+      this.logger.warn(
+        { chunk: id, worker: input.workerId, attempt: chunk.attempt, error: input.error.slice(0, 300) },
+        'simulation chunk returned by its worker',
+      )
+      this.notifyQueued()
+      return { status: 'queued' }
     }
     const attempt = chunk.attempt + 1
     const status = attempt >= MAX_FAILURES ? 'failed' : 'queued'

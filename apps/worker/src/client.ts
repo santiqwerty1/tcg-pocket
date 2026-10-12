@@ -270,7 +270,12 @@ export class WorkerClient {
     })
   }
 
-  failure(chunkId: number, body: { workerId: string; error: string }, signal?: AbortSignal) {
+  /** `cause: 'worker'`: the engine ended well and this worker lost the result; the chunk keeps its attempts. */
+  failure(
+    chunkId: number,
+    body: { workerId: string; error: string; cause?: 'engine' | 'worker' },
+    signal?: AbortSignal,
+  ) {
     return this.request<{ status: string }>('PUT', `/api/worker/chunks/${chunkId}/failure`, body, {
       ...(signal ? { signal } : {}),
     })

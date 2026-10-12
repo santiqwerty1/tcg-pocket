@@ -443,6 +443,25 @@ describe('simulation (e2e)', () => {
       ).body,
     ).toEqual({ accepted: true })
 
+    // A result.json the worker lost (the engine ended well, the S25 of 12/10/2026) sends the chunk back without
+    // spending an attempt: a worker's problem never fails the job (worker 0.3.4 on).
+    const returned = (await claim()).body.chunk as Structured
+    expect(
+      (
+        await bearer('put', `/api/worker/chunks/${returned.chunkId}/failure`).send({
+          workerId: 'worker-0001',
+          error: 'engine-cli simulate terminó con código 0 sin resultado válido',
+          cause: 'worker',
+        })
+      ).body,
+    ).toEqual({ status: 'queued' })
+    expect(await test.prisma.simulationChunk.findUnique({ where: { id: Number(returned.chunkId) } })).toMatchObject({
+      status: 'queued',
+      attempt: 0,
+      workerId: null,
+      error: expect.stringContaining('Devuelto por el worker'),
+    })
+
     // Three engine failures fail the chunk; the job keeps its other results.
     let failed: Structured = {}
     for (let attempt = 0; attempt < 3; attempt++) {

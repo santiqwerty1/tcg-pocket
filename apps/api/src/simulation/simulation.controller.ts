@@ -139,7 +139,12 @@ const resultSchema = z.object({
   gamesRev: z.number().int().min(0).max(10_000).optional(),
   extra: z.record(z.string(), z.unknown()).optional(),
 })
-const failureSchema = z.object({ workerId: z.string().min(8).max(64), error: z.string().min(1).max(20_000) })
+const failureSchema = z.object({
+  workerId: z.string().min(8).max(64),
+  error: z.string().min(1).max(20_000),
+  // `worker`: the engine ended well but the worker lost the result; the chunk is requeued without an attempt.
+  cause: z.enum(['engine', 'worker']).optional(),
+})
 const listQuerySchema = z.object({ archived: z.enum(['true', 'false']).optional() })
 const cleanupSchema = z.object({ action: z.enum(['delete_cancelled', 'archive_done']) })
 const prioritySchema = z.object({ priority: z.number().int().min(0).max(2_147_483_647) })
