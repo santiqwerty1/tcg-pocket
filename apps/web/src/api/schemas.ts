@@ -1841,6 +1841,7 @@ export const labJobSchema = z.object({
       include: z.array(labCardSchema).default([]),
       added: z.array(z.number()).default([]),
       pending: z.array(z.number()).default([]),
+      lost: z.array(z.number()).default([]),
       reverts: z.array(z.number()).default([]),
       /** Fase 42: the confirmation played again with another bot, «robusto» or «sensible al bot». */
       robustness: z
@@ -1884,6 +1885,7 @@ export const labJobsSchema = z.object({
       mode: z.enum(['test', 'explore']),
       era: z.string().nullable(),
       against: z.string().default('el meta'),
+      phase: z.enum(['search', 'confirm', 'done']).nullable().default(null),
     }),
   ),
 })

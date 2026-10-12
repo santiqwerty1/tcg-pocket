@@ -18,7 +18,7 @@ import { CatalogService } from '../catalog/catalog.service.js'
 import { DecksService } from '../decks/decks.service.js'
 import { EventsService } from '../events/events.service.js'
 import { againstEs, LAB_NOTE, type LabDeckInput, LabService } from '../lab/lab.service.js'
-import type { CardLineView, LabDeckView } from '../lab/lab-views.js'
+import type { CardLineView, LabDeckView, LabExploreView } from '../lab/lab-views.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
 import { LIMITLESS_ATTRIBUTION } from '../tournaments/tournaments.service.js'
 import { resolveCardRef } from './card-ref.js'
@@ -230,10 +230,10 @@ export class McpLabToolsService {
                 ? `${explore.confirmation.differenceText}: ${explore.confirmation.verdictEs}`
                 : null,
               // Fase 42: the confirmation played again with a stronger bot («robusto» / «sensible al bot»).
-              robustness: explore.robustness
-                ? (explore.robustness.robustnessEs ??
-                  `jugándose con ${explore.robustness.bot} (#${explore.robustness.jobId})`)
-                : null,
+              robustness: explore.robustness ? robustnessText(explore.robustness) : null,
+              // T-017 E3/E4: the cards it tries and the lists added by hand.
+              include: explore.include.map((card) => card.nameEs),
+              addedByHand: { played: explore.added, waiting: explore.pending, neverPlayed: explore.lost },
               rounds: explore.rounds.map((round) => ({
                 kind: { search: 'búsqueda', verify: 'verificación', confirm: 'confirmación' }[round.kind],
                 best: labelOf.get(round.incumbent) ?? round.incumbent,
@@ -454,4 +454,13 @@ export class McpLabToolsService {
       note: this.queuedNote(online),
     }
   }
+}
+
+/** The replay with another bot in words, by its state (review of #64: «#null» while it waits to be queued). */
+function robustnessText(replay: NonNullable<LabExploreView['robustness']>): string {
+  if (replay.robustnessEs) return `${replay.differenceText}: ${replay.robustnessEs}`
+  if (replay.status === 'pending') return `por encolarse con ${replay.bot}${replay.error ? ` (${replay.error})` : ''}`
+  if (replay.status === 'failed') return `la repetición con ${replay.bot} falló`
+  if (replay.status === 'cancelled') return `la repetición con ${replay.bot} se canceló`
+  return `jugándose con ${replay.bot} (#${replay.jobId})`
 }

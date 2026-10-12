@@ -440,6 +440,8 @@ function ExploreForm({ size, objective }: { size: number; objective: LabObjectiv
   const [source, setSource] = useState<LabDeckSource | null>(from ?? null)
   const [fromLab, setFromLab] = useState(!!from)
   const [include, setInclude] = useState<{ cardId: string; groupId: string; nameEs: string }[]>([])
+  // The starting list's cards from the last plan: locks stay offered after the plan is reset (review of #64).
+  const [planCards, setPlanCards] = useState<{ cardId: string; nameEs: string; count: number }[]>([])
   const [pool, setPool] = useState<ExplorePool>('collection')
   const [locked, setLocked] = useState<string[]>([])
   const [rounds, setRounds] = useState('12')
@@ -519,6 +521,7 @@ function ExploreForm({ size, objective }: { size: number; objective: LabObjectiv
           onChange={(next) => {
             setSource(next)
             setLocked([])
+            setPlanCards([])
             plan.reset()
           }}
           idPrefix="explore"
@@ -540,12 +543,26 @@ function ExploreForm({ size, objective }: { size: number; objective: LabObjectiv
       </Field>
       {deckId ? (
         <LockPicker deckId={deckId} locked={locked} onChange={setLocked} />
-      ) : plan.data && plan.data.baseCards.length > 0 ? (
-        <CardLocks cards={plan.data.baseCards} locked={locked} onChange={setLocked} />
+      ) : planCards.length > 0 ? (
+        <CardLocks
+          cards={planCards}
+          locked={locked}
+          onChange={(next) => {
+            setLocked(next)
+            // The plan on screen was for other locks: plan again (its seed would not be the search's).
+            plan.reset()
+          }}
+        />
       ) : source ? (
         <p className="text-xs text-muted-foreground">Con «Ver el plan» podés elegir cartas que no se tocan.</p>
       ) : null}
-      <IncludePicker cards={include} onChange={setInclude} />
+      <IncludePicker
+        cards={include}
+        onChange={(next) => {
+          setInclude(next)
+          plan.reset()
+        }}
+      />
       <div className="grid grid-cols-2 gap-3">
         <NumberField label="Rondas como máximo" value={rounds} onChange={setRounds} min={1} max={20} />
         <NumberField label="Variantes por ronda" value={variants} onChange={setVariants} min={1} max={12} />
@@ -580,7 +597,10 @@ function ExploreForm({ size, objective }: { size: number; objective: LabObjectiv
           onClick={() => {
             if (!input) return
             setPlannedFor(JSON.stringify(input))
-            plan.mutate(input, { onError: (error) => toast.error(errorMessage(error)) })
+            plan.mutate(input, {
+              onSuccess: (data) => setPlanCards(data.baseCards),
+              onError: (error) => toast.error(errorMessage(error)),
+            })
           }}
         >
           <SearchIcon aria-hidden="true" />
@@ -680,8 +700,10 @@ function ObjectivePicker({
 
 export function LaboratorioPage() {
   useMarkSeen('laboratorio')
-  const [size, setSize] = useState(15)
-  const [objective, setObjective] = useState<LabObjectiveChoice>({ objective: 'meta' })
+  // T-017 E4 (review of #64): «Buscar variantes desde esta» keeps the bank of the job it comes from.
+  const carried = useLocation().state as { size?: number; objective?: LabObjectiveChoice } | null
+  const [size, setSize] = useState(carried?.size ?? 15)
+  const [objective, setObjective] = useState<LabObjectiveChoice>(carried?.objective ?? { objective: 'meta' })
   const bank = useLabBank(size, undefined, objective)
   return (
     <div className="flex flex-col gap-6">

@@ -240,6 +240,8 @@ export interface LabExploreView {
   /** T-017 E4: lists added by hand: already played (`added`) and waiting for the next round (`pending`). */
   added: number[]
   pending: number[]
+  /** Added by hand but the search ended before their round (they never played). */
+  lost: number[]
   /** Fase 16: the event whose rules every variant keeps. */
   event: { id: string; name: string; rules: string[] } | null
 }
@@ -283,5 +285,11 @@ export interface LabCoreView {
 }
 
 export interface LabJobsView {
-  items: (JobSummaryView & { mode: 'test' | 'explore'; era: string | null; against: string })[]
+  items: (JobSummaryView & {
+    mode: 'test' | 'explore'
+    era: string | null
+    against: string
+    /** A search's phase (null for a test). */
+    phase: 'search' | 'confirm' | 'done' | null
+  })[]
 }

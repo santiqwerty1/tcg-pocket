@@ -2,11 +2,12 @@ import { readFileSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
-import { eraRange, poolForZone, type SelectableEnergy, usableWith } from '@tcg/domain'
+import { engineEdition, eraRange, poolForZone, type SelectableEnergy, usableWith } from '@tcg/domain'
 import { CatalogService } from '../src/catalog/catalog.service.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
 import { LabService } from '../src/lab/lab.service.js'
+import { EngineStatusService } from '../src/simulation/snapshots.service.js'
 import { WorkerQueueService } from '../src/simulation/worker-queue.service.js'
 import { type FetchLike, LimitlessTransport } from '../src/tournaments/limitless.client.js'
 import { TournamentSyncService } from '../src/tournaments/tournament-sync.service.js'
@@ -1439,11 +1440,61 @@ describe('laboratorio (e2e)', () => {
       ),
     ).toBe(true)
     await post(`/api/simulations/${created.body.id}/cancel`)
-    // A card the engine cannot play cannot be tried.
-    expect(
-      (await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, include: ['ZZ-999'] }))
-        .status,
-    ).toBe(400)
+    // Review of #64: each refusal says why — an unknown card, one the zone cannot pay.
+    const refuse = async (cardId: string) =>
+      (await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, include: [cardId] })).body
+        .error?.message as string
+    expect(await refuse('ZZ-999')).toMatch(/desconocida/)
+    // (The test engine plays every card, so «el motor no la juega» has no case here; the code path is the same.)
+    const status = await test.app.get(EngineStatusService).status()
+    // Deck 2 is Fire: a Fighting Pokémon without an ability that the engine plays cannot attack.
+    const fighting = index.catalog.groups.find((group) => {
+      const card = index.cardById(group.displayCardId)
+      return (
+        card?.cardType === 'pokemon' &&
+        card.ability === null &&
+        card.attacks.length > 0 &&
+        card.attacks.every((attack) => attack.cost.includes('fighting')) &&
+        engineEdition(card, index, status) !== null
+      )
+    })
+    if (!fighting) throw new Error('no Fighting Pokémon')
+    expect(await refuse(fighting.displayCardId)).toMatch(/las energías de la lista no pagan/)
+
+    // Review of #64: an evolution whose pre-evolution the list lacks brings it along in the guaranteed variant.
+    const deckGroups = new Set(
+      ((await get(`/api/decks/${deckIds[1]}`)).body.cards as { card: { id: string } }[]).map(
+        (entry) => index.cardById(entry.card.id)?.functionalGroupId,
+      ),
+    )
+    const stage1 = index.catalog.groups.find((group) => {
+      const card = index.cardById(group.displayCardId)
+      if (card?.cardType !== 'pokemon' || !card.evolvesFrom || card.energy !== 'fire') return false
+      const pre = index.catalog.groups.find((other) => index.cardById(other.displayCardId)?.nameEn === card.evolvesFrom)
+      const preCard = pre ? index.cardById(pre.displayCardId) : undefined
+      return (
+        !deckGroups.has(group.id) &&
+        !!pre &&
+        !deckGroups.has(pre.id) &&
+        preCard?.evolvesFrom === null &&
+        engineEdition(card, index, status) !== null &&
+        !!preCard &&
+        engineEdition(preCard, index, status) !== null
+      )
+    })
+    if (!stage1) throw new Error('no Fire Stage 1')
+    const evolved = await post('/api/lab/explore').send({
+      deck: { deckId: deckIds[1] },
+      size: 3,
+      config: { ...config, pool: 'all' },
+      include: [stage1.displayCardId],
+      dryRun: true,
+    })
+    expect(evolved.status).toBe(200)
+    const [brought] = evolved.body.firstRound as { add: { cardId: string }[] }[]
+    const broughtGroups = (brought?.add ?? []).map((card) => index.cardById(card.cardId)?.functionalGroupId)
+    expect(broughtGroups).toContain(stage1.id)
+    expect(broughtGroups.length).toBe(2)
 
     // A pasted list: the plan gives its cards, and a locked one never goes out.
     const text = readFileSync(DECKS_PATH, 'utf8')
@@ -1503,17 +1554,96 @@ describe('laboratorio (e2e)', () => {
     expect(added.status).toBe(200)
     const [handed] = added.body.explore.pending as number[]
     if (handed === undefined) throw new Error('not pending')
-    // Twice is refused.
+    // Twice is refused — also the same list as one of my decks (review of #64: by the list, not the snapshot).
     expect((await post(`/api/lab/jobs/${id}/candidates`).send({ deck })).status).toBe(400)
+    expect((await post(`/api/lab/jobs/${id}/candidates`).send({ deck: { deckId: deckIds[2] } })).status).toBe(400)
+    // The starting list itself, as cards, is already in.
+    const start = (await get(`/api/decks/${deckIds[1]}`)).body as typeof other
+    const itself = {
+      cards: start.cards.map((entry) => ({ cardId: entry.card.id, count: entry.count })),
+      energies: start.energies,
+    }
+    expect((await post(`/api/lab/jobs/${id}/candidates`).send({ deck: itself })).status).toBe(400)
+    // Two at once with the same new list: one gets in.
+    const twice = await Promise.all([
+      post(`/api/lab/jobs/${id}/candidates`).send({ deck: { deckId: deckIds[4] } }),
+      post(`/api/lab/jobs/${id}/candidates`).send({ deck: { deckId: deckIds[4] } }),
+    ])
+    expect(twice.map((response) => response.status).sort()).toEqual([200, 400])
     // Round 0 (3 lists × 3 rivals); round 1 plays it first, on top of its own variants.
     expect(await playAll((_a, _b, games) => Math.floor(games / 2), 9)).toBe(9)
     const after = (await get(`/api/lab/jobs/${id}`)).body
     expect(after.explore.rounds[1].candidates[0]).toBe(handed)
-    expect(after.explore).toMatchObject({ added: [handed], pending: [] })
+    expect(after.explore.added).toContain(handed)
+    expect(after.explore.pending).toEqual([])
+    // Review of #64: a list added by hand is no swap: nothing of it goes into what the combos are built from.
+    const state = (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).params as {
+      lab: { explore: { swaps?: { variant: number }[] } }
+    }
+    expect((state.lab.explore.swaps ?? []).map((swap) => swap.variant)).not.toContain(handed)
     // The last round is in play: nothing more can join.
     expect((await post(`/api/lab/jobs/${id}/candidates`).send({ deck: { deckId: deckIds[3] } })).status).toBe(400)
     await post(`/api/simulations/${id}/cancel`)
     expect((await post(`/api/lab/jobs/${id}/candidates`).send({ deck: { deckId: deckIds[3] } })).status).toBe(400)
+  }, 60_000)
+
+  it('review of #64: a list waiting keeps a search going past its patience; one that cannot play is lost, and said', async () => {
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 1,
+      maxRounds: 4,
+      patience: 1,
+      confirmGames: 0,
+      verifyGames: 0,
+      pool: 'all',
+      byWeight: false,
+      confirmBot: null,
+    }
+    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9975 })
+    const id = created.body.id as number
+    const handed = (await post(`/api/lab/jobs/${id}/candidates`).send({ deck: { deckId: deckIds[5] } })).body.explore
+      .pending[0] as number
+    // Round 0: nothing better, and patience is 1, but a list waits: one more round, with it.
+    expect(await playAll((_a, _b, games) => Math.floor(games / 2), 6)).toBe(6)
+    const going = (await get(`/api/lab/jobs/${id}`)).body
+    expect(going.explore.phase).toBe('search')
+    expect(going.explore.rounds[1].candidates).toContain(handed)
+    // Another list waits when the search is stopped: it never plays, leaves the job, and the search says so.
+    const late = (await post(`/api/lab/jobs/${id}/candidates`).send({ deck: { deckId: deckIds[6] } })).body.explore
+      .pending[0] as number
+    expect((await post(`/api/lab/jobs/${id}/stop`)).status).toBe(200)
+    expect(await playAll((_a, _b, games) => Math.floor(games / 2))).toBeGreaterThanOrEqual(0)
+    const ended = (await get(`/api/lab/jobs/${id}`)).body
+    expect(ended.explore).toMatchObject({ phase: 'done', pending: [], lost: [late] })
+    const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })
+    expect((job.params as { sideA: number[] }).sideA).not.toContain(late)
+  }, 60_000)
+
+  it('review of #64: a list added to a search under an event keeps its rules and the locked cards', async () => {
+    const fire = await post('/api/events').send({ name: 'Fuego para sumar', rules: { types: ['fire'] } })
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 1,
+      maxRounds: 3,
+      confirmGames: 0,
+      verifyGames: 0,
+      pool: 'all',
+    }
+    const created = await post('/api/lab/explore').send({
+      deck: { deckId: deckIds[1] },
+      size: 3,
+      config,
+      seed: 9985,
+      ...(fire.status < 300 ? { eventId: fire.body.id } : {}),
+      locked: ['B1-36'],
+    })
+    expect(created.status).toBe(200)
+    const id = created.body.id as number
+    // A list without the locked card is refused, with which one.
+    const missing = await post(`/api/lab/jobs/${id}/candidates`).send({ deck: { deckId: deckIds[0] } })
+    expect(missing.status).toBe(400)
+    expect(missing.body.error.message).toMatch(/le faltan cartas que la búsqueda no toca|no cumple las reglas/)
+    await post(`/api/simulations/${id}/cancel`)
   }, 60_000)
 
   it('after the move: two sweeps queue one replay; a replay that cannot be queued is given up after 5 tries', async () => {

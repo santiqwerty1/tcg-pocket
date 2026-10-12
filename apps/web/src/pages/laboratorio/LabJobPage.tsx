@@ -343,6 +343,7 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
     (item) =>
       item.mode === 'explore' &&
       (item.status === 'queued' || item.status === 'running') &&
+      item.phase === 'search' &&
       item.id !== job.job.id &&
       item.era === job.era,
   )
@@ -486,7 +487,17 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
               variant="outline"
               size="sm"
               onClick={() =>
-                navigate('/laboratorio', { state: { exploreFrom: { cards, energies, name: deck.label } } })
+                navigate('/laboratorio', {
+                  state: {
+                    exploreFrom: { cards, energies, name: deck.label },
+                    // Review of #64: the same bank (size and objective) as the job it comes from.
+                    size: job.size,
+                    objective:
+                      job.objective.kind === 'rival'
+                        ? { objective: 'rival', archetypeId: job.objective.archetypeId }
+                        : { objective: job.objective.kind },
+                  },
+                })
               }
             >
               <SparklesIcon aria-hidden="true" />
@@ -652,10 +663,14 @@ function ExploreSummary({ job }: { job: LabJob }) {
       {explore.include.length > 0 ? (
         <p className="text-sm">Probando: {explore.include.map((card) => card.nameEs).join(', ')}.</p>
       ) : null}
-      {explore.added.length + explore.pending.length > 0 ? (
+      {explore.added.length + explore.pending.length + explore.lost.length > 0 ? (
         <p className="text-sm text-muted-foreground">
           Sumadas a mano: {explore.added.length}
-          {explore.pending.length > 0 ? ` (y ${explore.pending.length} para la próxima ronda)` : ''}.
+          {explore.pending.length > 0 ? ` (y ${explore.pending.length} para la próxima ronda)` : ''}
+          {explore.lost.length > 0
+            ? `; ${explore.lost.length} no llegaron a jugarse porque la búsqueda terminó antes`
+            : ''}
+          .
         </p>
       ) : null}
     </Section>

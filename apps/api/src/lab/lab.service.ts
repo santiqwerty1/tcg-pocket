@@ -109,6 +109,7 @@ import {
   swapScore,
   type TournamentDataset,
   type TournamentFormat,
+  usableWith,
   type Variant,
   validateDeck,
   variantOf,
@@ -146,6 +147,8 @@ export const LAB_NOTE =
   'Juegan bots del motor deckgym, no personas: el porcentaje depende del bot y del motor. Es una pista para probar en el juego, no un veredicto.'
 export const MAX_TEST_DECKS = 10
 const DEFAULT_TEST_GAMES = 100
+/** Where the variant that brings in a card to try takes its seeds (T-017 E3). */
+const INCLUDE_SEED_SALT = 7_919
 /** Tries to queue a search's replay with another bot before giving it up (after the move's review). */
 const REPLAY_ATTEMPTS = 5
 /** T-017 D4: the default objective, and the one of jobs from before it. */
@@ -301,6 +304,8 @@ interface ExploreState {
   /** T-017 E4: lists added by hand to the search: the next search round plays them, then they are `added`. */
   pending?: number[]
   added?: number[]
+  /** Added by hand but the search ended first (review of #64): they never played. */
+  lost?: number[]
 }
 
 interface LabParams {
@@ -806,17 +811,23 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     seen: Set<string>,
     index: CatalogIndex,
     rules?: EventRules,
+    affinity?: ReadonlyMap<CardId, number>,
   ): Variant | null {
     const inList = groupsOfCards(cards, index)
     const wanted = include.filter((groupId) => !inList.has(groupId))
-    const random = seededRandom(seed + 7)
+    // Its own seeds (review of #64: `seed + 7` was the common variants' seed seven rounds later).
+    const random = seededRandom(chunkSeed(seed, INCLUDE_SEED_SALT))
     for (let k = 0; k < wanted.length; k++) {
       const groupId = wanted[(pick + k) % wanted.length] as CardId
       const card = pool.find((item) => item.groupId === groupId)
       if (!card) continue
-      const variant = variantOf(cards, energies, [card], index, random, {
+      // Review of #64: its pre-evolution comes along when the list lacks it (never drawn on its own: weight 0).
+      const pre = index.cardById(card.cardId)?.evolvesFrom
+      const helpers = pre ? pool.filter((item) => item.nameEn === pre).map((item) => ({ ...item, weight: 0 })) : []
+      const variant = variantOf(cards, energies, [card, ...helpers], index, random, {
         locked,
         seen,
+        affinity: (id) => affinity?.get(id) ?? 0,
         accept: rules ? (next) => checkEventDeck(next, rules, index).ok : undefined,
       })
       if (!variant) continue
@@ -863,13 +874,62 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           message: 'Esa búsqueda ya está en su última ronda: probala con una prueba suelta.',
         })
       }
+      // Review of #64: «already in» by the list (functional cards and energies), not by snapshot id, here under the
+      // job's lock: the same list sent as a deck and as cards, or twice at once, plays once.
+      const index = this.catalog.requireIndex()
+      const row = await tx.deckSnapshot.findUniqueOrThrow({
+        where: { id: snapshot.id },
+        select: { cards: true, energies: true },
+      })
+      const cards = slotsOfSnapshot(row.cards as unknown as SnapshotCard[])
+      const energies = row.energies as SelectableEnergy[]
+      const keyOf = (list: readonly DeckCardEntry[], zone: readonly string[]) =>
+        energyKey(listKeyByGroup(groupsOfCards(list, index)), zone as SelectableEnergy[])
+      const known = await tx.deckSnapshot.findMany({
+        where: {
+          id: {
+            in: [
+              state.base,
+              state.incumbent,
+              ...(state.pending ?? []),
+              ...state.rounds.flatMap((round) => round.candidates),
+            ],
+          },
+        },
+        select: { id: true, cards: true, energies: true },
+      })
+      const key = keyOf(cards, energies)
+      const incumbent = known.find((item) => item.id === state.incumbent)
+      const sameZone = !!incumbent && sameEnergies(incumbent.energies as string[], energies)
+      const seenKey = sameZone ? listKeyByGroup(groupsOfCards(cards, index)) : key
       if (
-        snapshot.id === state.incumbent ||
-        state.pending?.includes(snapshot.id) ||
-        state.rounds.some((round) => round.candidates.includes(snapshot.id))
+        known.some(
+          (item) => keyOf(slotsOfSnapshot(item.cards as unknown as SnapshotCard[]), item.energies as string[]) === key,
+        ) ||
+        state.seen.includes(seenKey)
       ) {
         throw new BadRequestException({ code: 'validation', message: 'Esa lista ya está en la búsqueda.' })
       }
+      // Review of #64: what a variant of the search has to keep — a valid list, the event's rules, the locked cards.
+      const problems = validateDeck({ cards: [...cards], energies }, index).errors
+      if (problems.length > 0) {
+        throw new BadRequestException({ code: 'validation', message: `La lista no valida: ${problems[0]?.message}` })
+      }
+      if (state.event && !checkEventDeck(cards, state.event.rules, index).ok) {
+        throw new BadRequestException({
+          code: 'validation',
+          message: `La lista no cumple las reglas de «${state.event.name}».`,
+        })
+      }
+      const groups = groupsOfCards(cards, index)
+      const missing = state.locked.filter((groupId) => !groups.has(groupId))
+      if (missing.length > 0) {
+        throw new BadRequestException({
+          code: 'validation',
+          message: `A la lista le faltan cartas que la búsqueda no toca: ${missing.map((groupId) => index.groupById(groupId)?.nameEs ?? groupId).join(', ')}.`,
+        })
+      }
+      state.seen = [...state.seen, seenKey]
       state.pending = [...(state.pending ?? []), snapshot.id]
       params.sideA = [...new Set([...params.sideA, snapshot.id])]
       await tx.simulationJob.update({ where: { id }, data: { params: params as unknown as Prisma.InputJsonValue } })
@@ -983,16 +1043,25 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     // Review of #27: the pool is frozen for every Energy Zone and filtered with the one in play, round by round.
     let fullPool = await this.pool(bank, SELECTABLE_ENERGIES, config.pool, affinity, event?.rules)
     if (include.size > 0) {
-      // T-017 E3: what was asked for enters even without copies in the collection, as often as the most played card.
-      const anyCard = await this.pool(bank, SELECTABLE_ENERGIES, 'all', affinity, event?.rules)
+      // T-017 E3: what was asked for enters even without copies in the collection (and even if no list plays it), as
+      // often as the most played card. Review of #64: each refusal says why.
+      const engine = await this.engine.status()
       const top = Math.max(1, ...fullPool.map((card) => card.weight))
-      const asked = anyCard.filter((card) => include.has(card.groupId)).map((card) => ({ ...card, weight: top }))
-      const missing = [...include].filter((groupId) => !asked.some((card) => card.groupId === groupId))
-      if (missing.length > 0) {
-        throw new BadRequestException({
-          code: 'validation',
-          message: `No se puede probar ${missing.map((groupId) => index.groupById(groupId)?.nameEs ?? groupId).join(', ')}: el motor no la juega o el evento no la permite.`,
-        })
+      const asked: PoolCard[] = []
+      for (const groupId of include) {
+        const group = index.groupById(groupId)
+        const display = group ? index.cardById(group.displayCardId) : undefined
+        const card = display ? engineEdition(display, index, engine) : null
+        const refuse = (why: string) =>
+          new BadRequestException({
+            code: 'validation',
+            message: `No se puede probar ${group?.nameEs ?? groupId}: ${why}.`,
+          })
+        if (!card) throw refuse('el motor no la juega')
+        if (event && cardBreaksEvent(card, event.rules) !== null)
+          throw refuse(`el evento «${event.name}» no la permite`)
+        if (!usableWith(card, draft.energies)) throw refuse('las energías de la lista no pagan ninguno de sus ataques')
+        asked.push({ cardId: card.id, groupId, nameEn: card.nameEn, maxCopies: 2, weight: top })
       }
       fullPool = [...fullPool.filter((card) => !include.has(card.groupId)), ...asked]
     }
@@ -1011,6 +1080,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       seen,
       index,
       event?.rules,
+      affinity,
     )
     const drawn = this.variants(
       baseCards,
@@ -1254,7 +1324,6 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     }
   }
 
-  /** Records the replay's job (or, with `error`, why it could not be queued yet) on its search. */
   /**
    * Records the replay's job on its search — false when another one got there first (then that one stays) — or, with
    * `error`, a failed try: after `REPLAY_ATTEMPTS` the replay is given up instead of tried every few minutes forever.
@@ -1274,6 +1343,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         if (state.robustness.jobId !== null) return false
         state.robustness = replay
       } else {
+        // A replay already queued (by the other path) is not a failed try.
+        if (state.robustness.jobId !== null) return false
         const attempts = (state.robustness.attempts ?? 0) + 1
         state.robustness = {
           ...state.robustness,
@@ -1574,7 +1645,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                 ? 'user'
                 : searchRounds >= state.config.maxRounds
                   ? 'rounds'
-                  : state.stall >= state.config.patience
+                  : state.stall >= state.config.patience && !(state.pending?.length ?? 0)
                     ? 'patience'
                     : null
           const index = this.catalog.requireIndex()
@@ -1664,6 +1735,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               seen,
               index,
               rules,
+              affinity,
             )
             const fixed = [
               ...(combo ? [combo] : []),
@@ -1718,6 +1790,13 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               }
               decks = [state.incumbent, ...handed, ...saved.map((variant) => variant.id)]
             }
+          }
+          // Review of #64: lists added by hand that will never play (the search ends) leave the job, and it says so.
+          if (stop && state.pending?.length) {
+            const lost = state.pending
+            state.lost = [...(state.lost ?? []), ...lost]
+            params.sideA = params.sideA.filter((sid) => !lost.includes(sid))
+            state.pending = []
           }
           if (stop) {
             state.stopReason = stop
@@ -1890,6 +1969,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             ...summary,
             mode: labMode(job.params) as 'test' | 'explore',
             era: (job.params as unknown as JobParams).lab?.era ?? null,
+            // Review of #64: only a search still searching takes a list added by hand.
+            phase: (job.params as unknown as JobParams).lab?.explore?.phase ?? null,
             // Review of #47: what it was measured against («el meta», «mi meta», a rival).
             against: againstEs((job.params as unknown as JobParams).lab?.objective ?? META_OBJECTIVE),
           }
@@ -2074,6 +2155,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             })),
             added: state.added ?? [],
             pending: state.pending ?? [],
+            lost: state.lost ?? [],
             confirmation: confirmationView(state, () =>
               confirm?.decided
                 ? confirmVerdict(
@@ -2159,6 +2241,11 @@ function cardsOfSnapshot(cards: readonly SnapshotCard[] | null | undefined): Dec
   const entries = new Map<string, number>()
   for (const card of cards ?? []) entries.set(card.cardId, (entries.get(card.cardId) ?? 0) + card.count)
   return [...entries].map(([cardId, count]) => ({ cardId, count }))
+}
+
+/** The same Energy Zone (order apart). */
+function sameEnergies(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((energy) => b.includes(energy))
 }
 
 /** A list's lines of the same edition together (a search keeps a card's copies on separate lines, H-020). */
@@ -2335,6 +2422,8 @@ function learnRound(
   const learned = state.learned ?? {}
   const swaps = state.swaps ?? []
   for (const id of round.candidates) {
+    // Review of #64: a list added by hand is no change of a card or two (it may differ in a dozen): nothing to learn.
+    if (state.added?.includes(id)) continue
     const difference = differenceOf(id)
     if (difference === null) continue
     const swap = swapOf(parent, cardsOf(id), index, difference)
