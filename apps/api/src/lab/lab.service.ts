@@ -109,6 +109,7 @@ import {
   swapScore,
   type TournamentDataset,
   type TournamentFormat,
+  usableWith,
   type Variant,
   validateDeck,
   variantOf,
@@ -146,6 +147,10 @@ export const LAB_NOTE =
   'Juegan bots del motor deckgym, no personas: el porcentaje depende del bot y del motor. Es una pista para probar en el juego, no un veredicto.'
 export const MAX_TEST_DECKS = 10
 const DEFAULT_TEST_GAMES = 100
+/** Where the variant that brings in a card to try takes its seeds (T-017 E3). */
+const INCLUDE_SEED_SALT = 7_919
+/** Tries to queue a search's replay with another bot before giving it up (after the move's review). */
+const REPLAY_ATTEMPTS = 5
 /** T-017 D4: the default objective, and the one of jobs from before it. */
 const META_OBJECTIVE: LabObjectiveView = { kind: 'meta', labelEs: 'el meta de los torneos' }
 
@@ -198,6 +203,11 @@ export interface LabExploreInput extends LabRunInput {
   deck: LabDeckInput
   /** Card ids (any edition) that never go out. */
   locked?: string[] | undefined
+  /**
+   * T-017 E3: card ids (any edition) to try — «probar estas cartas», the opposite of `locked`: they enter the pool even
+   * when the collection has none, drawn as often as the most played card, and each round one variant brings one in.
+   */
+  include?: string[] | undefined
   config?: Partial<ExploreConfig> | undefined
   /** Fase 16: an event whose rules every variant must keep (the starting deck too). */
   eventId?: string | undefined
@@ -287,7 +297,15 @@ interface ExploreState {
   /** T-017 D2: «Frenar y confirmar»: the round in play ends with what it has, then the confirmation. */
   stopRequested?: boolean
   /** Fase 42 (R-012): the confirmation played again with `config.confirmBot`, a job of its own. */
-  robustness?: { jobId: number | null; bot: string; error?: string }
+  /** `attempts`: failed tries to queue it; after `REPLAY_ATTEMPTS` it is given up (`failed`). */
+  robustness?: { jobId: number | null; bot: string; error?: string; attempts?: number; failed?: boolean }
+  /** T-017 E3: functional cards to try (one of them comes in, in a variant of every round). */
+  include?: string[]
+  /** T-017 E4: lists added by hand to the search: the next search round plays them, then they are `added`. */
+  pending?: number[]
+  added?: number[]
+  /** Added by hand but the search ended first (review of #64): they never played. */
+  lost?: number[]
 }
 
 interface LabParams {
@@ -778,6 +796,147 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     return groups
   }
 
+  /**
+   * T-017 E3: a variant that brings in one of the cards to try — the `pick`-th not yet in the list, cycling — in the
+   * place of a random copy (with its pre-evolution when missing), or null when none can come in.
+   */
+  private includeVariant(
+    cards: readonly DeckCardEntry[],
+    energies: readonly SelectableEnergy[],
+    pool: readonly PoolCard[],
+    include: readonly string[],
+    pick: number,
+    seed: number,
+    locked: ReadonlySet<CardId>,
+    seen: Set<string>,
+    index: CatalogIndex,
+    rules?: EventRules,
+    affinity?: ReadonlyMap<CardId, number>,
+  ): Variant | null {
+    const inList = groupsOfCards(cards, index)
+    const wanted = include.filter((groupId) => !inList.has(groupId))
+    // Its own seeds (review of #64: `seed + 7` was the common variants' seed seven rounds later).
+    const random = seededRandom(chunkSeed(seed, INCLUDE_SEED_SALT))
+    for (let k = 0; k < wanted.length; k++) {
+      const groupId = wanted[(pick + k) % wanted.length] as CardId
+      const card = pool.find((item) => item.groupId === groupId)
+      if (!card) continue
+      // Review of #64: its pre-evolution comes along when the list lacks it (never drawn on its own: weight 0).
+      const pre = index.cardById(card.cardId)?.evolvesFrom
+      const helpers = pre ? pool.filter((item) => item.nameEn === pre).map((item) => ({ ...item, weight: 0 })) : []
+      const variant = variantOf(cards, energies, [card, ...helpers], index, random, {
+        locked,
+        seen,
+        affinity: (id) => affinity?.get(id) ?? 0,
+        accept: rules ? (next) => checkEventDeck(next, rules, index).ok : undefined,
+      })
+      if (!variant) continue
+      seen.add(variant.key)
+      return variant
+    }
+    return null
+  }
+
+  /**
+   * T-017 E4: a list added to a search in play (the best of a test, for example): its next search round plays it
+   * against the incumbent like one more variant. While the round in play lasts it waits in `pending`.
+   */
+  async addCandidate(rawId: string, deck: LabDeckInput): Promise<LabJobView> {
+    const id = parseNumericId(rawId, 'Simulación')
+    const current = await this.prisma.simulationJob.findUnique({ where: { id } })
+    if (current?.kind !== 'explore') throw new NotFoundException(`Búsqueda ${rawId} no encontrada.`)
+    const lab = (current.params as unknown as JobParams).lab
+    const { scope } = await this.tournaments.scopedDataset({ era: lab.era, format: lab.format })
+    const snapshot = await this.snapshots.save(this.source(deck, scope))
+    if (!snapshot.simulable) {
+      throw new UnprocessableEntityException({
+        code: 'not_simulable',
+        message: `No se puede simular ${snapshot.label}: ${describeProblems(snapshot.problems)}.`,
+      })
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM simulation_jobs WHERE id = ${id} FOR UPDATE`
+      const job = await tx.simulationJob.findUniqueOrThrow({ where: { id } })
+      const params = job.params as unknown as JobParams
+      const state = params.lab.explore
+      if (
+        (job.status !== 'queued' && job.status !== 'running') ||
+        !state ||
+        state.phase !== 'search' ||
+        state.stopRequested
+      ) {
+        throw new BadRequestException({ code: 'validation', message: 'Esa búsqueda ya no está buscando.' })
+      }
+      const searchRounds = state.rounds.filter((round) => round.kind === 'search').length
+      if (searchRounds >= state.config.maxRounds) {
+        throw new BadRequestException({
+          code: 'validation',
+          message: 'Esa búsqueda ya está en su última ronda: probala con una prueba suelta.',
+        })
+      }
+      // Review of #64: «already in» by the list (functional cards and energies), not by snapshot id, here under the
+      // job's lock: the same list sent as a deck and as cards, or twice at once, plays once.
+      const index = this.catalog.requireIndex()
+      const row = await tx.deckSnapshot.findUniqueOrThrow({
+        where: { id: snapshot.id },
+        select: { cards: true, energies: true },
+      })
+      const cards = slotsOfSnapshot(row.cards as unknown as SnapshotCard[])
+      const energies = row.energies as SelectableEnergy[]
+      const keyOf = (list: readonly DeckCardEntry[], zone: readonly string[]) =>
+        energyKey(listKeyByGroup(groupsOfCards(list, index)), zone as SelectableEnergy[])
+      const known = await tx.deckSnapshot.findMany({
+        where: {
+          id: {
+            in: [
+              state.base,
+              state.incumbent,
+              ...(state.pending ?? []),
+              ...state.rounds.flatMap((round) => round.candidates),
+            ],
+          },
+        },
+        select: { id: true, cards: true, energies: true },
+      })
+      const key = keyOf(cards, energies)
+      const incumbent = known.find((item) => item.id === state.incumbent)
+      const sameZone = !!incumbent && sameEnergies(incumbent.energies as string[], energies)
+      const seenKey = sameZone ? listKeyByGroup(groupsOfCards(cards, index)) : key
+      if (
+        known.some(
+          (item) => keyOf(slotsOfSnapshot(item.cards as unknown as SnapshotCard[]), item.energies as string[]) === key,
+        ) ||
+        state.seen.includes(seenKey)
+      ) {
+        throw new BadRequestException({ code: 'validation', message: 'Esa lista ya está en la búsqueda.' })
+      }
+      // Review of #64: what a variant of the search has to keep — a valid list, the event's rules, the locked cards.
+      const problems = validateDeck({ cards: [...cards], energies }, index).errors
+      if (problems.length > 0) {
+        throw new BadRequestException({ code: 'validation', message: `La lista no valida: ${problems[0]?.message}` })
+      }
+      if (state.event && !checkEventDeck(cards, state.event.rules, index).ok) {
+        throw new BadRequestException({
+          code: 'validation',
+          message: `La lista no cumple las reglas de «${state.event.name}».`,
+        })
+      }
+      const groups = groupsOfCards(cards, index)
+      const missing = state.locked.filter((groupId) => !groups.has(groupId))
+      if (missing.length > 0) {
+        throw new BadRequestException({
+          code: 'validation',
+          message: `A la lista le faltan cartas que la búsqueda no toca: ${missing.map((groupId) => index.groupById(groupId)?.nameEs ?? groupId).join(', ')}.`,
+        })
+      }
+      state.seen = [...state.seen, seenKey]
+      state.pending = [...(state.pending ?? []), snapshot.id]
+      params.sideA = [...new Set([...params.sideA, snapshot.id])]
+      await tx.simulationJob.update({ where: { id }, data: { params: params as unknown as Prisma.InputJsonValue } })
+    })
+    return this.job(rawId)
+  }
+
   private variants(
     cards: readonly DeckCardEntry[],
     energies: readonly SelectableEnergy[],
@@ -838,6 +997,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     | JobSummaryView
     | {
         base: Omit<SnapshotView, 'id'>
+        /** T-017 E3: the starting list's cards (to lock some, whatever the source). */
+        baseCards: CardLineView[]
         bank: LabBankView
         pool: number
         firstRound: { add: CardLineView[]; remove: CardLineView[] }[]
@@ -876,24 +1037,64 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       }
     }
     const locked = this.lockedGroups(index, input.locked ?? [])
+    // T-017 E3: «probar estas cartas».
+    const include = this.lockedGroups(index, input.include ?? [])
     const affinity = neighborhoodUsage(bank.dataset, baseCards, index)
     // Review of #27: the pool is frozen for every Energy Zone and filtered with the one in play, round by round.
-    const fullPool = await this.pool(bank, SELECTABLE_ENERGIES, config.pool, affinity, event?.rules)
+    let fullPool = await this.pool(bank, SELECTABLE_ENERGIES, config.pool, affinity, event?.rules)
+    if (include.size > 0) {
+      // T-017 E3: what was asked for enters even without copies in the collection (and even if no list plays it), as
+      // often as the most played card. Review of #64: each refusal says why.
+      const engine = await this.engine.status()
+      const top = Math.max(1, ...fullPool.map((card) => card.weight))
+      const asked: PoolCard[] = []
+      for (const groupId of include) {
+        const group = index.groupById(groupId)
+        const display = group ? index.cardById(group.displayCardId) : undefined
+        const card = display ? engineEdition(display, index, engine) : null
+        const refuse = (why: string) =>
+          new BadRequestException({
+            code: 'validation',
+            message: `No se puede probar ${group?.nameEs ?? groupId}: ${why}.`,
+          })
+        if (!card) throw refuse('el motor no la juega')
+        if (event && cardBreaksEvent(card, event.rules) !== null)
+          throw refuse(`el evento «${event.name}» no la permite`)
+        if (!usableWith(card, draft.energies)) throw refuse('las energías de la lista no pagan ninguno de sus ataques')
+        asked.push({ cardId: card.id, groupId, nameEn: card.nameEn, maxCopies: 2, weight: top })
+      }
+      fullPool = [...fullPool.filter((card) => !include.has(card.groupId)), ...asked]
+    }
     const pool = poolForZone(fullPool, draft.energies, index)
     const baseSeed = this.baseSeed(input)
     const seen = new Set([listKeyByGroup(groupsOfCards(baseCards, index))])
-    const first = this.variants(
+    // T-017 E3: one variant of the first round brings in a card to try.
+    const firstInclude = this.includeVariant(
+      baseCards,
+      draft.energies,
+      pool,
+      [...include],
+      0,
+      baseSeed,
+      locked,
+      seen,
+      index,
+      event?.rules,
+      affinity,
+    )
+    const drawn = this.variants(
       baseCards,
       draft.energies,
       pool,
       index,
       baseSeed,
-      config.variantsPerRound,
+      config.variantsPerRound - (firstInclude ? 1 : 0),
       locked,
       seen,
       affinity,
       event?.rules,
     )
+    const first = [...(firstInclude ? [firstInclude] : []), ...drawn]
     const rivals = bank.gauntlet.rivals.length
     const games = exploreGames(config, rivals)
     const robustnessGames = config.confirmBot && config.confirmGames > 0 ? 2 * rivals * config.confirmGames : 0
@@ -901,6 +1102,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       const cores = input.cores ?? (await this.workerCores())
       return {
         base: (await this.snapshots.preview(baseSource)) as Omit<SnapshotView, 'id'>,
+        baseCards: lines(index, mergeLines(baseCards)),
         bank: await this.bank(input),
         pool: pool.length,
         firstRound: first.map((variant) => ({
@@ -970,6 +1172,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       variants: Object.fromEntries(variants.map((variant) => [String(variant.id), { round: 0, parent: base.id }])),
       seen: [...seen],
       ...(event ? { event } : {}),
+      ...(include.size > 0 ? { include: [...include] } : {}),
       frozen: freezeInputs(fullPool, affinity),
     }
     const params: JobParams = {
@@ -1111,7 +1314,9 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         lab: { ...lab, mode: 'test', robustnessOf: parentId } as unknown as Prisma.InputJsonValue,
         ...(params.perGame ? { perGame: true } : {}),
       })
-      await this.setRobustness(parentId, { jobId: child.id, bot: replay.bot })
+      const kept = await this.setRobustness(parentId, { jobId: child.id, bot: replay.bot })
+      // After the move's review: the sweep and `advance` may both have queued one; the second is cancelled.
+      if (!kept) await this.simulations.cancel(String(child.id)).catch(() => undefined)
     } catch (error) {
       this.logger.error({ err: error, job: parentId }, 'robustness confirmation not queued')
       const message = error instanceof Error ? error.message : String(error)
@@ -1119,23 +1324,40 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     }
   }
 
-  /** Records the replay's job (or, with `error`, why it could not be queued yet) on its search. */
+  /**
+   * Records the replay's job on its search — false when another one got there first (then that one stays) — or, with
+   * `error`, a failed try: after `REPLAY_ATTEMPTS` the replay is given up instead of tried every few minutes forever.
+   */
   private async setRobustness(
     parentId: number,
     replay: { jobId: number; bot: string } | null,
     error?: string,
-  ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+  ): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM simulation_jobs WHERE id = ${parentId} FOR UPDATE`
       const fresh = await tx.simulationJob.findUniqueOrThrow({ where: { id: parentId } })
       const params = fresh.params as unknown as JobParams
       const state = params.lab.explore
-      if (!state?.robustness) return
-      state.robustness = replay ?? { ...state.robustness, ...(error ? { error } : {}) }
+      if (!state?.robustness) return false
+      if (replay) {
+        if (state.robustness.jobId !== null) return false
+        state.robustness = replay
+      } else {
+        // A replay already queued (by the other path) is not a failed try.
+        if (state.robustness.jobId !== null) return false
+        const attempts = (state.robustness.attempts ?? 0) + 1
+        state.robustness = {
+          ...state.robustness,
+          attempts,
+          ...(error ? { error } : {}),
+          ...(attempts >= REPLAY_ATTEMPTS ? { failed: true } : {}),
+        }
+      }
       await tx.simulationJob.update({
         where: { id: parentId },
         data: { params: params as unknown as Prisma.InputJsonValue },
       })
+      return true
     })
   }
 
@@ -1144,7 +1366,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     const pending = await this.prisma.$queryRaw<{ id: number }[]>`
       SELECT id FROM simulation_jobs
       WHERE kind = 'explore' AND params->'lab'->'explore'->'robustness' IS NOT NULL
-        AND params->'lab'->'explore'->'robustness'->>'jobId' IS NULL`
+        AND params->'lab'->'explore'->'robustness'->>'jobId' IS NULL
+        AND params->'lab'->'explore'->'robustness'->>'failed' IS NULL`
     for (const { id } of pending) await this.enqueueRobustness(id)
     return pending.length
   }
@@ -1166,7 +1389,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       robustnessEs: null,
       error: replay.error ?? null,
     }
-    if (replay.jobId === null) return { ...empty, status: 'pending' }
+    if (replay.jobId === null) return { ...empty, status: replay.failed ? 'failed' : 'pending' }
     const job = await this.prisma.simulationJob.findUnique({ where: { id: replay.jobId }, select: { status: true } })
     if (!job) return { ...empty, status: 'failed' }
     const playing = { ...empty, status: job.status as string }
@@ -1422,7 +1645,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                 ? 'user'
                 : searchRounds >= state.config.maxRounds
                   ? 'rounds'
-                  : state.stall >= state.config.patience
+                  : state.stall >= state.config.patience && !(state.pending?.length ?? 0)
                     ? 'patience'
                     : null
           const index = this.catalog.requireIndex()
@@ -1500,12 +1723,27 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             const energyChange = energyVariant(incumbentCards, energies, searchRounds, index, seen)
             if (energyChange) seen.add(energyChange.key)
             // Review of the stack: the combo, the undo and the Energy variant never go past `variantsPerRound`.
+            // T-017 E3: one variant brings in a card to try (a different one each round).
+            const asked = this.includeVariant(
+              incumbentCards,
+              energies,
+              pool,
+              state.include ?? [],
+              searchRounds,
+              baseSeed + searchRounds,
+              new Set(state.locked),
+              seen,
+              index,
+              rules,
+              affinity,
+            )
             const fixed = [
               ...(combo ? [combo] : []),
               ...(revert ? [revert] : []),
+              ...(asked ? [asked] : []),
               ...(energyChange ? [energyChange] : []),
             ].slice(0, state.config.variantsPerRound)
-            for (const left of [combo, revert, energyChange]) {
+            for (const left of [combo, revert, asked, energyChange]) {
               if (left && !fixed.includes(left)) seen.delete(left.key)
             }
             const keptCombo = combo && fixed.includes(combo) ? combo : null
@@ -1539,13 +1777,26 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               const undone = state.accepted?.[keptRevert.undoes]
               if (undone) state.revertOf = { ...state.revertOf, [String(revertSaved.id)]: undone.variant }
             }
-            if (saved.length === 0) stop = 'no_variants'
+            // T-017 E4: the lists added by hand play this round too (on top of `variantsPerRound`).
+            const handed = (state.pending ?? []).filter(
+              (sid) => sid !== state.incumbent && !saved.some((variant) => variant.id === sid),
+            )
+            state.pending = []
+            state.added = [...(state.added ?? []), ...handed]
+            if (saved.length === 0 && handed.length === 0) stop = 'no_variants'
             else {
-              for (const variant of saved) {
-                state.variants[String(variant.id)] = { round: searchRounds, parent: state.incumbent }
+              for (const sid of [...handed, ...saved.map((variant) => variant.id)]) {
+                state.variants[String(sid)] = { round: searchRounds, parent: state.incumbent }
               }
-              decks = [state.incumbent, ...saved.map((variant) => variant.id)]
+              decks = [state.incumbent, ...handed, ...saved.map((variant) => variant.id)]
             }
+          }
+          // Review of #64: lists added by hand that will never play (the search ends) leave the job, and it says so.
+          if (stop && state.pending?.length) {
+            const lost = state.pending
+            state.lost = [...(state.lost ?? []), ...lost]
+            params.sideA = params.sideA.filter((sid) => !lost.includes(sid))
+            state.pending = []
           }
           if (stop) {
             state.stopReason = stop
@@ -1718,6 +1969,10 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             ...summary,
             mode: labMode(job.params) as 'test' | 'explore',
             era: (job.params as unknown as JobParams).lab?.era ?? null,
+            // Review of #64: only a search still searching takes a list added by hand.
+            phase: (job.params as unknown as JobParams).lab?.explore?.phase ?? null,
+            // Review of #47: what it was measured against («el meta», «mi meta», a rival).
+            against: againstEs((job.params as unknown as JobParams).lab?.objective ?? META_OBJECTIVE),
           }
         })
         .filter((item): item is NonNullable<typeof item> => item !== null),
@@ -1893,6 +2148,14 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             })),
             combos: state.combos ?? [],
             reverts: state.reverts ?? [],
+            include: (state.include ?? []).map((groupId) => ({
+              cardId: groupId,
+              nameEs: index.groupById(groupId)?.nameEs ?? groupId,
+              count: 0,
+            })),
+            added: state.added ?? [],
+            pending: state.pending ?? [],
+            lost: state.lost ?? [],
             confirmation: confirmationView(state, () =>
               confirm?.decided
                 ? confirmVerdict(
@@ -1978,6 +2241,18 @@ function cardsOfSnapshot(cards: readonly SnapshotCard[] | null | undefined): Dec
   const entries = new Map<string, number>()
   for (const card of cards ?? []) entries.set(card.cardId, (entries.get(card.cardId) ?? 0) + card.count)
   return [...entries].map(([cardId, count]) => ({ cardId, count }))
+}
+
+/** The same Energy Zone (order apart). */
+function sameEnergies(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((energy) => b.includes(energy))
+}
+
+/** A list's lines of the same edition together (a search keeps a card's copies on separate lines, H-020). */
+function mergeLines(cards: readonly DeckCardEntry[]): DeckCardEntry[] {
+  const counts = new Map<string, number>()
+  for (const card of cards) counts.set(card.cardId, (counts.get(card.cardId) ?? 0) + card.count)
+  return [...counts].map(([cardId, count]) => ({ cardId, count }))
 }
 
 function lines(index: CatalogIndex, cards: readonly { cardId: string; count: number }[]): CardLineView[] {
@@ -2147,6 +2422,8 @@ function learnRound(
   const learned = state.learned ?? {}
   const swaps = state.swaps ?? []
   for (const id of round.candidates) {
+    // Review of #64: a list added by hand is no change of a card or two (it may differ in a dozen): nothing to learn.
+    if (state.added?.includes(id)) continue
     const difference = differenceOf(id)
     if (difference === null) continue
     const swap = swapOf(parent, cardsOf(id), index, difference)

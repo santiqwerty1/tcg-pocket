@@ -111,6 +111,8 @@ const exploreSchema = runSchema.extend({
     .regex(/^\d{1,10}$/)
     .optional(),
   locked: z.array(z.string().min(1).max(20)).max(20).optional(),
+  /** T-017 E3: «probar estas cartas». */
+  include: z.array(z.string().min(1).max(20)).max(10).optional(),
   config: z
     .object({
       gamesPerRival: limit(EXPLORE_LIMITS.gamesPerRival),
@@ -153,6 +155,17 @@ export class LabController {
   @Get('jobs/:id')
   job(@Param('id') id: string, @CurrentSession() _session: RequestSession): Promise<LabJobView> {
     return this.lab.job(id)
+  }
+
+  /** T-017 E4: a list added to a search in play; its next search round plays it. */
+  @Post('jobs/:id/candidates')
+  @HttpCode(200)
+  addCandidate(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(z.object({ deck: deckSchema }))) body: { deck: z.infer<typeof deckSchema> },
+    @CurrentSession() _session: RequestSession,
+  ): Promise<LabJobView> {
+    return this.lab.addCandidate(id, body.deck)
   }
 
   /** T-017 D2: «Frenar y confirmar» a search: the round in play ends with what it has, then the confirmation. */

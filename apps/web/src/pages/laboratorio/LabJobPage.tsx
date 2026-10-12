@@ -18,7 +18,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useCreateDeck, useDeck, useUpdateDeck } from '@/api/decks'
-import { useLabJob, useLabTest, useStopLabSearch } from '@/api/lab'
+import { useAddLabCandidate, useLabJob, useLabJobs, useLabTest, useStopLabSearch } from '@/api/lab'
 import type { LabDeck, LabJob, MetaScore, SelectableEnergy } from '@/api/schemas'
 import { useCancelSimulation } from '@/api/simulations'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
@@ -337,6 +337,16 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
   const [open, setOpen] = useState(defaultOpen)
   const createDeck = useCreateDeck()
   const test = useLabTest()
+  const add = useAddLabCandidate()
+  // Searches in play (other than this one) of the same era, where this list can join the next round.
+  const searches = (useLabJobs().data ?? []).filter(
+    (item) =>
+      item.mode === 'explore' &&
+      (item.status === 'queued' || item.status === 'running') &&
+      item.phase === 'search' &&
+      item.id !== job.job.id &&
+      item.era === job.era,
+  )
   const rivals = new Map(job.rivals.map((rival) => [rival.snapshot, rival]))
   const energies = deck.energies as SelectableEnergy[]
   const cards = deck.cards.map((card) => ({ cardId: card.cardId, count: card.count }))
@@ -471,6 +481,48 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
               <FlaskConicalIcon aria-hidden="true" />
               Probar con 200 partidas
             </Button>
+            {/* T-017 E4: a new search from this list, or this list in a search in play. */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                navigate('/laboratorio', {
+                  state: {
+                    exploreFrom: { cards, energies, name: deck.label },
+                    // Review of #64: the same bank (size and objective) as the job it comes from.
+                    size: job.size,
+                    objective:
+                      job.objective.kind === 'rival'
+                        ? { objective: 'rival', archetypeId: job.objective.archetypeId }
+                        : { objective: job.objective.kind },
+                  },
+                })
+              }
+            >
+              <SparklesIcon aria-hidden="true" />
+              Buscar variantes desde esta
+            </Button>
+            {searches.map((search) => (
+              <Button
+                key={search.id}
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={add.isPending}
+                onClick={() =>
+                  add.mutate(
+                    { id: search.id, deck: { cards, energies, name: deck.label } },
+                    {
+                      onSuccess: () => toast.success(`Se juega en la próxima ronda de la búsqueda #${search.id}`),
+                      onError: (error) => toast.error(errorMessage(error)),
+                    },
+                  )
+                }
+              >
+                Sumar a la búsqueda #{search.id}
+              </Button>
+            ))}
           </div>
         </div>
       ) : null}
@@ -608,6 +660,19 @@ function ExploreSummary({ job }: { job: LabJob }) {
         </p>
       ) : null}
       {explore.robustness ? <RobustnessLine robustness={explore.robustness} /> : null}
+      {explore.include.length > 0 ? (
+        <p className="text-sm">Probando: {explore.include.map((card) => card.nameEs).join(', ')}.</p>
+      ) : null}
+      {explore.added.length + explore.pending.length + explore.lost.length > 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Sumadas a mano: {explore.added.length}
+          {explore.pending.length > 0 ? ` (y ${explore.pending.length} para la próxima ronda)` : ''}
+          {explore.lost.length > 0
+            ? `; ${explore.lost.length} no llegaron a jugarse porque la búsqueda terminó antes`
+            : ''}
+          .
+        </p>
+      ) : null}
     </Section>
   )
 }

@@ -18,7 +18,7 @@ import { CatalogService } from '../catalog/catalog.service.js'
 import { DecksService } from '../decks/decks.service.js'
 import { EventsService } from '../events/events.service.js'
 import { againstEs, LAB_NOTE, type LabDeckInput, LabService } from '../lab/lab.service.js'
-import type { CardLineView, LabDeckView } from '../lab/lab-views.js'
+import type { CardLineView, LabDeckView, LabExploreView } from '../lab/lab-views.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
 import { LIMITLESS_ATTRIBUTION } from '../tournaments/tournaments.service.js'
 import { resolveCardRef } from './card-ref.js'
@@ -124,7 +124,11 @@ export class McpLabToolsService {
           }
         : {}),
       lists: bank.lists,
-      coverage: `${round(bank.coverage)} % de las listas de la era`,
+      // Review of #47: the bank's archetypes against the era's lists; «mi meta» says its own coverage apart.
+      coverage:
+        bank.objective.kind === 'meta'
+          ? `${round(bank.coverage)} % de las listas de la era`
+          : `los arquetipos de este banco son el ${round(bank.coverage)} % de las listas de la era`,
       rivals: bank.rivals.map((rival) => ({
         archetype: rival.archetypeName,
         share: round(rival.share, 2),
@@ -196,7 +200,7 @@ export class McpLabToolsService {
         note: LAB_NOTE,
         jobs: jobs.items.map((job) => ({
           ...jobSummaryJson(job),
-          mode: job.mode === 'test' ? 'prueba' : 'búsqueda automática',
+          mode: job.mode === 'test' ? `prueba contra ${job.against}` : 'búsqueda automática',
           era: job.era,
         })),
       }
@@ -226,10 +230,10 @@ export class McpLabToolsService {
                 ? `${explore.confirmation.differenceText}: ${explore.confirmation.verdictEs}`
                 : null,
               // Fase 42: the confirmation played again with a stronger bot («robusto» / «sensible al bot»).
-              robustness: explore.robustness
-                ? (explore.robustness.robustnessEs ??
-                  `jugándose con ${explore.robustness.bot} (#${explore.robustness.jobId})`)
-                : null,
+              robustness: explore.robustness ? robustnessText(explore.robustness) : null,
+              // T-017 E3/E4: the cards it tries and the lists added by hand.
+              include: explore.include.map((card) => card.nameEs),
+              addedByHand: { played: explore.added, waiting: explore.pending, neverPlayed: explore.lost },
               rounds: explore.rounds.map((round) => ({
                 kind: { search: 'búsqueda', verify: 'verificación', confirm: 'confirmación' }[round.kind],
                 best: labelOf.get(round.incumbent) ?? round.incumbent,
@@ -349,6 +353,7 @@ export class McpLabToolsService {
     energies?: SelectableEnergy[]
     pool?: 'collection' | 'all'
     locked?: string[]
+    include?: string[]
     rounds?: number
     variants?: number
     games?: number
@@ -377,6 +382,8 @@ export class McpLabToolsService {
     }
     const index = this.catalog.requireIndex()
     const locked = (args.locked ?? []).map((card) => resolveCardRef(index, card, own))
+    // T-017 E3: «probar estas cartas».
+    const include = (args.include ?? []).map((card) => resolveCardRef(index, card, own))
     const settings = {
       pool: args.pool,
       maxRounds: args.rounds,
@@ -389,6 +396,7 @@ export class McpLabToolsService {
     const result = await this.lab.explore({
       deck,
       locked,
+      ...(include.length > 0 ? { include } : {}),
       objective: args.objective,
       archetypeId: args.archetype,
       size: args.size,
@@ -446,4 +454,13 @@ export class McpLabToolsService {
       note: this.queuedNote(online),
     }
   }
+}
+
+/** The replay with another bot in words, by its state (review of #64: «#null» while it waits to be queued). */
+function robustnessText(replay: NonNullable<LabExploreView['robustness']>): string {
+  if (replay.robustnessEs) return `${replay.differenceText}: ${replay.robustnessEs}`
+  if (replay.status === 'pending') return `por encolarse con ${replay.bot}${replay.error ? ` (${replay.error})` : ''}`
+  if (replay.status === 'failed') return `la repetición con ${replay.bot} falló`
+  if (replay.status === 'cancelled') return `la repetición con ${replay.bot} se canceló`
+  return `jugándose con ${replay.bot} (#${replay.jobId})`
 }
