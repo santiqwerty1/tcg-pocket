@@ -26,8 +26,14 @@ if [[ -f $data/config.json ]]; then
   # D-026: a phone where updates were turned off keeps them off after a reinstall.
   autoUpdate=$(node -e 'const c=JSON.parse(require("fs").readFileSync(process.argv[1])); process.stdout.write(c.autoUpdate === false ? "false" : "")' "$data/config.json")
 fi
+# Echo goes off before the prompt shows. With `read -s` alone it went off a moment after, and a token pasted in
+# between was echoed (the installer test caught it; a pty that answers at once did it 299 times out of 300).
+ttyState=$(stty -g </dev/tty)
+trap 'stty "$ttyState" </dev/tty 2>/dev/null || true; unset token; rm -rf -- "$work"' EXIT
+stty -echo </dev/tty
 printf 'Token de worker (se oculta; Enter conserva el guardado): ' >/dev/tty
 IFS= read -r -s answer </dev/tty
+stty "$ttyState" </dev/tty
 printf '\n' >/dev/tty
 token=${answer:-$token}
 unset answer
