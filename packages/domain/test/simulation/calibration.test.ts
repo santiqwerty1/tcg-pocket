@@ -6,6 +6,7 @@ import {
   mixListRecords,
   spearman,
 } from '../../src/simulation/index.js'
+import type { GameRecord } from '../../src/stats/rates.js'
 
 describe('rank correlation', () => {
   it('ranks ties with the mean of the ranks they span', () => {
@@ -224,6 +225,24 @@ describe('calibration report', () => {
     // Below 5 archetypes there is no interval.
     const four = calibrationReport(bank({ a: 70, b: 50, c: 40, d: 20 }, 100)).archetypeCorrelation
     expect(four).toMatchObject({ n: 4, ci95: null, method: 'bootstrap' })
+  })
+})
+
+describe('calibrationReport with the games played (review of #44)', () => {
+  it('shows the games the lists played, and keeps the interval of the scaled record', () => {
+    // Two lists, 200 games each, at 10 % and 90 %: the mixture's record is worth about 1.073 games.
+    const mixed = mixListRecords([
+      { record: { wins: 20, losses: 180, ties: 0 }, weight: 0.5 },
+      { record: { wins: 180, losses: 20, ties: 0 }, weight: 0.5 },
+    ]) as GameRecord
+    expect(mixed.wins + mixed.losses).toBeGreaterThan(400)
+    const pairing = { a: 'x', b: 'y', labelA: 'X', labelB: 'Y', simulated: mixed, tournament: null }
+    const [scaled] = calibrationReport([pairing]).rows
+    const [played] = calibrationReport([{ ...pairing, simulatedGames: 400 }]).rows
+    expect(played?.simulated).toMatchObject({ games: 400, samples: 400, orientative: false })
+    expect(played?.simulated?.value).toBe(scaled?.simulated?.value)
+    expect(played?.simulated?.ci95).toEqual(scaled?.simulated?.ci95)
+    expect(scaled?.simulated?.games).toBeGreaterThan(400)
   })
 })
 

@@ -11,7 +11,14 @@
  * as `matchupPerGame` gives them; a player's rounds with one list are not, so the tournament intervals are, if
  * anything, a little narrow.
  */
-import { type GameRecord, ORIENTATIVE_BELOW, type WinRate, wilsonFromRate, Z_95 } from '../stats/rates.js'
+import {
+  type GameRecord,
+  ORIENTATIVE_BELOW,
+  type RateSource,
+  type WinRate,
+  wilsonFromRate,
+  Z_95,
+} from '../stats/rates.js'
 
 /** Per game, as `matchupPerGame` gives it (wins and losses may be fractional: a BO3 read as games). */
 export interface PerGameTally {
@@ -27,6 +34,12 @@ export interface CalibrationPairing {
   labelA: string
   labelB: string
   simulated: GameRecord
+  /**
+   * The games its lists played, without ties: the n shown. Absent: the games of `simulated`. A pairing of two lists
+   * of an archetype comes as one record scaled to the games that give the mixture's error (mixListRecords), which can
+   * be more or fewer than were played: that one is only for the interval.
+   */
+  simulatedGames?: number
   /** Null when the two archetypes never met in the era. */
   tournament: PerGameTally | null
 }
@@ -171,6 +184,13 @@ function perGameRate<S extends 'simulation' | 'tournament'>(source: S, tally: Pe
   }
 }
 
+/** The games shown and «orientativo» from the games played; the interval stays the one of the scaled record. */
+function playedGames<S extends RateSource>(rate: WinRate<S> | null, games: number | undefined): WinRate<S> | null {
+  if (!rate || games === undefined) return rate
+  const played = Math.round(games)
+  return { ...rate, games: played, samples: played, orientative: played < ORIENTATIVE_BELOW }
+}
+
 /**
  * Standard error of a rate per game, in points. With p shrunk to (W + 1)/(n + 2) so that 0 % or 100 % over a few
  * games does not claim no error at all.
@@ -207,7 +227,7 @@ export function calibrationReport(
   const minTournamentGames = options.minTournamentGames ?? CALIBRATION_MIN_TOURNAMENT_GAMES
   const rows: CalibrationRow[] = pairings.map((pairing) => {
     const sim = simTally(pairing.simulated)
-    const simulated = perGameRate('simulation', sim)
+    const simulated = playedGames(perGameRate('simulation', sim), pairing.simulatedGames)
     const tournament = pairing.tournament ? perGameRate('tournament', pairing.tournament) : null
     const both = simulated !== null && tournament !== null && pairing.tournament !== null
     const difference = both ? simulated.value - tournament.value : null

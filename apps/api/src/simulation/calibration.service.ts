@@ -288,6 +288,14 @@ export class CalibrationService {
       format: calibration.format,
     })
     const matchups = await this.tournaments.matchupsOf(dataset)
+    // The archetype's name as it is now: a bank list of an archetype merged since keeps the old one (review of #44).
+    const ownName = new Map(
+      calibration.bank
+        .filter((entry) => !aliases.has(entry.archetypeId))
+        .map((entry) => [entry.archetypeId, entry.archetypeName] as const),
+    )
+    const nameOf = (list: { archetypeId: string; label: string }) =>
+      dataset.archetypes.get(list.archetypeId)?.name ?? ownName.get(list.archetypeId) ?? list.label
     const counts = { pending: 0, failed: 0, cancelled: 0, mirrors: 0 }
     // R-012 (review of #44): tournaments have one matchup per pair of archetypes, so the pairings of their lists make
     // one point (mixListRecords); counting each list apart would count that matchup twice. An archetype pairing goes
@@ -320,8 +328,8 @@ export class CalibrationService {
         const group = groups.get(key) ?? {
           a: a.archetypeId,
           b: b.archetypeId,
-          labelA: a.label,
-          labelB: b.label,
+          labelA: nameOf(a),
+          labelB: nameOf(b),
           parts: [],
           complete: true,
         }
@@ -351,6 +359,8 @@ export class CalibrationService {
         labelA: group.labelA,
         labelB: group.labelB,
         simulated,
+        // The n shown is the games played; the mixture's scaled record is only for the interval.
+        simulatedGames: group.parts.reduce((sum, part) => sum + part.record.wins + part.record.losses, 0),
         tournament: matchupPerGame(matchups, group.a, group.b),
       })
     }

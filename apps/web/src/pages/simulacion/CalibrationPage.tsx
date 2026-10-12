@@ -176,14 +176,14 @@ export function CalibrationPage() {
                 {item.summary ? <SummaryLine summary={item.summary} /> : null}
                 {item.failed > 0 ? (
                   <p className="text-xs text-warning">
-                    {item.failed} {item.failed === 1 ? 'cruce falló' : 'cruces fallaron'} en el motor: el resumen es sin
-                    ellos.
+                    {item.failed} {item.failed === 1 ? 'cruce de listas falló' : 'cruces de listas fallaron'} en el
+                    motor: el resumen es sin ellos.
                   </p>
                 ) : null}
                 {item.cancelled > 0 ? (
                   <p className="text-xs text-muted-foreground">
-                    Se canceló con {item.cancelled} {item.cancelled === 1 ? 'cruce' : 'cruces'} sin jugar: el resumen es
-                    sin ellos.
+                    Se canceló con {item.cancelled} {item.cancelled === 1 ? 'cruce de listas' : 'cruces de listas'} sin
+                    jugar: el resumen es sin ellos.
                   </p>
                 ) : null}
               </li>
@@ -204,6 +204,20 @@ function Compatible({ value }: { value: boolean | null }) {
   )
 }
 
+/**
+ * What is missing, counted in pairings of lists (the bank may bring two lists of an archetype): a pair of archetypes
+ * goes in the comparison once all the pairings of its lists are played (review of #44).
+ */
+function ListNotes({ view }: { view: CalibrationView }) {
+  const notes = [
+    view.pending > 0 ? `faltan ${view.pending} por jugar` : null,
+    view.failed === 1 ? 'falló 1 en el motor' : view.failed > 1 ? `fallaron ${view.failed} en el motor` : null,
+    view.cancelled > 0 ? `${view.cancelled} sin jugar (se canceló)` : null,
+    view.mirrors > 0 ? `${view.mirrors} entre listas de un mismo arquetipo, que los torneos no pueden comparar` : null,
+  ].filter((note) => note !== null)
+  return notes.length > 0 ? <> Cruces de listas: {notes.join(' · ')}.</> : null
+}
+
 export function CalibrationReport({ view }: { view: CalibrationView }) {
   const { report } = view
   const rows = [...report.rows].sort((x, y) => Math.abs(y.difference ?? -1) - Math.abs(x.difference ?? -1))
@@ -213,19 +227,8 @@ export function CalibrationReport({ view }: { view: CalibrationView }) {
       <Section title="Resumen">
         <ul className="flex flex-col gap-1 text-sm">
           <li>
-            Cruces con partidas de torneo suficientes (≥ {report.minTournamentGames}): {report.compared} de{' '}
-            {report.rows.length}
-            {view.pending > 0 ? ` · faltan ${view.pending} por jugar` : ''}
-            {view.failed === 1
-              ? ' · falló 1 en el motor'
-              : view.failed > 1
-                ? ` · fallaron ${view.failed} en el motor`
-                : ''}
-            {view.cancelled > 0 ? ` · ${view.cancelled} sin jugar (se canceló)` : ''}
-            {view.mirrors > 0
-              ? ` · ${view.mirrors} de un arquetipo contra sí mismo, que los torneos no pueden comparar`
-              : ''}
-            .
+            Pares de arquetipos con partidas de torneo suficientes (≥ {report.minTournamentGames}): {report.compared} de{' '}
+            {report.rows.length}.<ListNotes view={view} />
           </li>
           <li>
             Compatibles (la diferencia, con el error de los dos lados, puede ser 0): {report.compatible} de{' '}

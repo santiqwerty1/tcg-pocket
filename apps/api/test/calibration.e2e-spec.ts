@@ -127,6 +127,8 @@ describe('calibration (e2e)', () => {
         rows: {
           a: string
           b: string
+          labelA: string
+          labelB: string
           simulated: { value: number; games: number }
           tournament: { value: number; games: number } | null
           compatible: boolean | null
@@ -226,9 +228,11 @@ describe('calibration (e2e)', () => {
     expect(merged.report.rows).toHaveLength(complete)
     expect(merged.report.archetypes).toHaveLength(canonical.length)
     expect(merged.report.archetypes.some((row) => row.id === first?.archetypeId)).toBe(false)
-    const after = await tournaments.matchupsOf(
-      (await tournaments.scopedDataset({ era: view.tournaments.era, format: 'STANDARD' })).dataset,
-    )
+    const mergedDataset = (await tournaments.scopedDataset({ era: view.tournaments.era, format: 'STANDARD' })).dataset
+    const after = await tournaments.matchupsOf(mergedDataset)
+    // The name the app shows for the merged archetype (its most used one), wherever the group was started from.
+    const mergedName = mergedDataset.archetypes.get(second?.archetypeId as string)?.name
+    expect(mergedName).toEqual(expect.any(String))
     const firstWeight = weights.get(first?.archetypeId as string) as number
     const secondWeight = weights.get(second?.archetypeId as string) as number
     let mixed = 0
@@ -244,6 +248,10 @@ describe('calibration (e2e)', () => {
           (rateOf(second?.archetypeId as string, side) as number) * secondWeight) /
         (firstWeight + secondWeight)
       expect(row.simulated.value).toBeCloseTo((row.a === second?.archetypeId ? mixture : 1 - mixture) * 100, 8)
+      // The games its two lists played (10 each), not the mixture's scaled record; and the archetype's name as it is
+      // now, as the app shows it everywhere.
+      expect(row.simulated.games).toBe(20)
+      expect(row.a === second?.archetypeId ? row.labelA : row.labelB).toBe(mergedName)
       mixed++
     }
     expect(mixed).toBeGreaterThan(0)
