@@ -20,6 +20,7 @@ import {
   defaultKeyCards,
   defaultReplaySample,
   describeProblems,
+  ET_BOT_CODE,
   estimateSeconds,
   type GameRecord,
   isBotCode,
@@ -868,7 +869,11 @@ export class SimulationsService {
     meta?: { era: string; format: string; rivals: ConsistencyRival[] } | undefined
   }): Promise<JobSummaryView> {
     const bot = input.bot ?? 'e2'
-    if (!isBotCode(bot)) throw new BadRequestException({ code: 'validation', message: `Bot «${bot}» desconocido.` })
+    // «et» only ends its turn: it is the goldfish rival, never the bot that plays the deck (H-051). The queue lets
+    // consistency jobs through to engines without «et» for that rival, so one with «et» as the bot would fail there.
+    if (!isBotCode(bot) || bot === ET_BOT_CODE) {
+      throw new BadRequestException({ code: 'validation', message: `Bot «${bot}» desconocido.` })
+    }
     const rivals = input.meta?.rivals.filter((rival) => rival.games > 0) ?? []
     if (input.meta && rivals.length === 0) {
       throw new UnprocessableEntityException({ code: 'empty_bank', message: 'El banco del meta no tiene rivales.' })

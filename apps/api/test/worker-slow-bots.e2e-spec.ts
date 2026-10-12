@@ -13,7 +13,7 @@ describe('worker slow bot preference (D-025)', () => {
     cores: 2,
     version: '0.2.11',
     cliVersion: '0.3.3',
-    engineFeatures: ['perGame', 'batch', 'fairBots'],
+    engineFeatures: ['perGame', 'batch', 'fairBots', 'etBot'],
     batch: { maxChunks: 10, maxGames: 5000 },
   }
   beforeAll(async () => {
@@ -160,13 +160,14 @@ describe('worker slow bot preference (D-025)', () => {
     expect((await claim({ ...hello, allowSlowBots: true })).body.chunk.jobId).toBe(slow.id)
   })
 
-  it('opt-in keeps the engine revision, fairBots, perGame and consistency version gates', async () => {
+  it('opt-in keeps the engine revision, fairBots, etBot, perGame and consistency version gates', async () => {
     const mismatch = await job(['e2', 'e2'], { engineRev: 'b'.repeat(40) })
     const fair = await job(['f3', 'e2'])
+    const et = await job(['et', 'r'])
     const perGame = await job(['m', 'e2'], { params: { perGame: true } })
     const consistency = await job(['e3', 'et'], { kind: 'consistency' })
     const meta = await job(['e3', 'e3'], { kind: 'consistency', params: { consistency: { mode: 'meta' } } })
-    const ids = [mismatch.id, fair.id, perGame.id, consistency.id, meta.id]
+    const ids = [mismatch.id, fair.id, et.id, perGame.id, consistency.id, meta.id]
     const before = await Promise.all(ids.map(chunks))
     const old = { ...hello, cliVersion: '0.1.0', engineFeatures: [], allowSlowBots: true }
     for (const version of ['0.1.0', '0.2.0']) {
@@ -176,6 +177,15 @@ describe('worker slow bot preference (D-025)', () => {
       expect((await claim({ ...old, version })).body.chunk).toBeNull()
     }
     expect(await Promise.all(ids.map(chunks))).toEqual(before)
+  })
+
+  it('a worker without etBot does not take a job with «et», even with allowSlowBots (H-051)', async () => {
+    const et = await job(['et', 'r'])
+    const before = await chunks(et.id)
+    const noEt = { ...hello, workerId: 'worker-no-et', engineFeatures: ['perGame', 'batch', 'fairBots'] }
+    expect((await claim({ ...noEt, allowSlowBots: true })).body.chunk).toBeNull()
+    expect(await chunks(et.id)).toEqual(before)
+    expect((await claim({ ...hello, allowSlowBots: true })).body.chunk.jobId).toBe(et.id)
   })
 
   it.each(['false', 0, null])('rejects non-boolean hello preference %s', async (allowSlowBots) => {

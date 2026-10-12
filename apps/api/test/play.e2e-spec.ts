@@ -7,6 +7,7 @@ import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
 import type { Prisma } from '../src/generated/prisma/client.js'
 import { type ClaimedLiveGame, LiveGamesService } from '../src/play/live-games.service.js'
+import { SimulationsService } from '../src/simulation/simulations.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /** Fase 8: a game against a bot, relayed by a fake worker through the worker API (no engine). */
@@ -838,6 +839,12 @@ describe('playing against a bot (e2e)', () => {
     expect((await post('/api/simulations/consistency').send({ deckId: deckIds[1], keyCards: ['A1-1'] })).status).toBe(
       400,
     )
+    // H-051: «et» only ends its turn; it is the goldfish rival, never the bot that plays the deck.
+    const et = await post('/api/simulations/consistency').send({ deckId: deckIds[1], games: 100, bot: 'et' })
+    expect(et.status).toBe(400)
+    await expect(
+      test.app.get(SimulationsService).createConsistency({ deckId: deckIds[1] as string, games: 100, bot: 'et' }),
+    ).rejects.toThrow('Bot «et» desconocido.')
   })
 
   // Last on purpose: the game stays leased.
