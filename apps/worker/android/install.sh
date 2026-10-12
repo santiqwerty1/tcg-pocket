@@ -145,3 +145,5 @@ else
 fi
 echo "Listo. Arrancá con tcg-worker; Ctrl+C lo detiene. Config y logs: $data."
 echo 'Se actualiza solo con cada versión nueva de la app. Leé el LEEME.txt para batería y Android 12+.'
+# A phone that cuts the engine mid-chunk (the S25, 12/10/2026) loses hours of games: say it where it is seen.
+echo 'Importante: Android → Apps → Termux → Batería → «Sin restricciones», o el sistema puede cortar el motor a mitad de un cruce.'

@@ -88,6 +88,11 @@ dejá ventilación y frenalo si calienta demasiado. El wake-lock evita dormir la
 energía; «solo mientras carga» mantiene el supervisor despierto para detectar el enchufe.
 Android puede matar Termux por memoria o políticas del fabricante: el trabajo vuelve a la
 cola al vencer el lease (3 minutos si no se pudo liberar al salir). SIGKILL no permite cleanup.
+En Samsung, sacá Termux también de «Aplicaciones en reposo» y «en reposo profundo»
+(Batería → Límites de uso en segundo plano). Si el sistema corta el motor a mitad de un cruce,
+el worker devuelve el cruce sin gastar un intento; con dos seguidas deja de tomar trabajo un rato,
+y la app lo muestra en Simulación («en pausa hasta …»). El log (worker.log) anota la memoria
+del motor y del celu cada 5 minutos para saber qué lo cortó.
 
 Phantom process killer (documentación consultada el 10/10/2026):
 Android 14+: Opciones de desarrollador → «Disable child process restrictions» /

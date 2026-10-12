@@ -9,6 +9,7 @@ import { ApiError, type Chunk, type ChunkResult, type LiveGame, WorkerClient } f
 import type { WorkerConfig } from '../src/config.js'
 import { EngineError, engineStatus, engineVersion, runJob } from '../src/engine.js'
 import { LiveRunner, OLD_ENGINE_COACH } from '../src/live.js'
+import { parseMemAvailableMb, parseStatus, procAvailable } from '../src/proc-probe.js'
 import type { ReadyRelease, Updater } from '../src/update.js'
 import { WORKER_VERSION } from '../src/version.js'
 import { workDirOwner } from '../src/work-dir.js'
@@ -111,6 +112,43 @@ describe('engine runner', () => {
     })
     expect(log).toHaveBeenCalledWith('motor terminado', expect.objectContaining({ exitCode: 0, signal: null }))
     expect(readdirSync(dir)).toEqual([])
+  })
+
+  it('an engine that ends with 0 short of its games (the S25, 12/10/2026) logs how far it got, and on Linux its memory', async () => {
+    const log = vi.fn()
+    await expect(runJob(FAKE_ENGINE, 'simulate', { games: 92 }, dir, { log, probeEveryMs: 50 })).rejects.toMatchObject({
+      exitCode: 0,
+      code: 'missing_result',
+    })
+    expect(log).toHaveBeenCalledWith(
+      'motor terminado',
+      expect.objectContaining({ exitCode: 0, signal: null, lastProgress: 60, total: 92 }),
+    )
+    expect(log).toHaveBeenCalledWith(
+      'motor sin resultado válido',
+      expect.objectContaining({ lastProgress: 60, total: 92, finished: false, resultExists: false }),
+    )
+    const messages = log.mock.calls.map(([message]) => message)
+    if (procAvailable()) {
+      // Linux and Android: how likely the system was to kill it, and its memory while it played.
+      expect(log).toHaveBeenCalledWith('motor arrancado', expect.objectContaining({ oomScore: expect.any(Number) }))
+      expect(log).toHaveBeenCalledWith(
+        'motor: memoria',
+        expect.objectContaining({ rssMb: expect.any(Number), memAvailableMb: expect.any(Number) }),
+      )
+    } else {
+      expect(messages).not.toContain('motor arrancado')
+      expect(messages).not.toContain('motor: memoria')
+    }
+  })
+
+  it('reads /proc: MemAvailable and the status of a process', () => {
+    expect(parseMemAvailableMb('MemTotal:       11534336 kB\nMemAvailable:    2097152 kB\n')).toBe(2048)
+    expect(parseMemAvailableMb('MemTotal: 1 kB\n')).toBeNull()
+    expect(
+      parseStatus('Name:\tengine-cli\nState:\tR (running)\nVmHWM:\t  524288 kB\nVmRSS:\t  262144 kB\nThreads:\t9\n'),
+    ).toEqual({ state: 'R (running)', rssMb: 256, hwmMb: 512, threads: 9 })
+    expect(parseStatus('Name:\tx\n')).toEqual({ state: null, rssMb: null, hwmMb: null, threads: null })
   })
 
   it.each([94, 93])('classifies invalid output (%i) as an engine failure', async (games) => {
