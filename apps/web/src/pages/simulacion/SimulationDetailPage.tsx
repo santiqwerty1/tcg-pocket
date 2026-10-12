@@ -24,6 +24,7 @@ import {
   useArchiveSimulation,
   useCancelSimulation,
   useDeleteSimulation,
+  useRetryFailedSimulation,
   useSimulation,
 } from '@/api/simulations'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
@@ -37,7 +38,15 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatDateTime, formatNumber, plural, shortSha } from '@/lib/format'
 import { formatRate, formatRateValue } from '@/lib/matches'
-import { encodeSource, formatDuration, gamesLabel, isActive, KIND_LABEL, progressFraction } from '@/lib/simulation'
+import {
+  encodeSource,
+  formatDuration,
+  gamesLabel,
+  isActive,
+  KIND_LABEL,
+  progressFraction,
+  retryNote,
+} from '@/lib/simulation'
 import { cn } from '@/lib/utils'
 import { ProgressBar, StatusBadge } from './SimulacionPage'
 import { SimulationPriorityButton } from './SimulationPriorityButton'
@@ -493,11 +502,40 @@ function Replays({ job }: { job: JobDetail }) {
 }
 
 function FailedChunks({ job }: { job: JobDetail }) {
+  const retry = useRetryFailedSimulation()
+  const [confirm, setConfirm] = useState(false)
   const failed = job.chunks.filter((chunk) => chunk.status === 'failed')
   if (failed.length === 0) return null
   const byId = new Map(job.snapshots.map((snapshot) => [snapshot.id, snapshot]))
+  // An engine error tied to one game (its seed) comes back the same: the same seeds play the same games.
+  const note = retryNote(failed.map((chunk) => chunk.error))
   return (
     <Section title="Cruces que fallaron">
+      {job.status === 'failed' && job.lab !== 'explore' ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" disabled={retry.isPending} onClick={() => setConfirm(true)}>
+            <RepeatIcon data-icon="inline-start" />
+            Reintentar lo que falló ({failed.length})
+          </Button>
+          <span className="text-xs text-muted-foreground">Solo esos cruces, con las mismas semillas.</span>
+          {note ? <p className="w-full text-xs text-warning">{note}</p> : null}
+        </div>
+      ) : null}
+      <ConfirmDialog
+        open={confirm}
+        onOpenChange={setConfirm}
+        title={`¿Reintentar ${failed.length === 1 ? 'el cruce que falló' : `los ${failed.length} cruces que fallaron`}?`}
+        description={`Vuelven a la cola con las mismas semillas; lo ya jugado queda. Si esta vez juegan bien, la simulación termina como «terminada».${note ? ` Ojo: ${note}` : ''}`}
+        confirmLabel="Reintentar"
+        onConfirm={async () => {
+          try {
+            await retry.mutateAsync(job.id)
+            toast.success('En cola otra vez')
+          } catch (error) {
+            toast.error(errorMessage(error))
+          }
+        }}
+      />
       <ul className="divide-y rounded-lg border border-destructive/40">
         {failed.map((chunk) => (
           <li key={chunk.id} className="flex flex-col gap-0.5 px-3 py-2 text-sm">

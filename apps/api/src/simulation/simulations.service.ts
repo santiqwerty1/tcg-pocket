@@ -1031,6 +1031,55 @@ export class SimulationsService {
     return this.progressOf(rawId)
   }
 
+  /**
+   * «Reintentar lo que falló»: the failed chunks of a job that ended «failed» go back to the queue as they were (the
+   * same seeds, attempt 0), and the job is active again; when they play well it ends «done» (an optimize then queues
+   * its confirmation). Its games revision, when fixed, stays: the queue gives the chunks only to workers that play that
+   * way. Not a Laboratorio search (its rounds decide what it plays) nor a job of another deckgym (it is played again
+   * whole: «Repetir»).
+   */
+  async retryFailed(rawId: string): Promise<JobSummaryView> {
+    const job = await this.requireJob(rawId)
+    if (job.kind === 'explore') {
+      throw new BadRequestException({
+        code: 'explore',
+        message: 'Una búsqueda del laboratorio no se reintenta: lanzá otra desde el Laboratorio.',
+      })
+    }
+    if (job.status !== 'failed') {
+      throw new BadRequestException({
+        code: 'job_not_failed',
+        message: 'Solo se reintenta una simulación que terminó con cruces fallados.',
+      })
+    }
+    if (job.engineRev !== this.engine.engineRev()) {
+      throw new BadRequestException({
+        code: 'other_engine',
+        message: `Se jugó con otro motor (deckgym ${job.engineRev.slice(0, 7)}): repetila entera.`,
+      })
+    }
+    const retried = await this.prisma.$transaction(async (tx) => {
+      // The job first, still failed (two clicks at once retry once).
+      const reopened = await tx.simulationJob.updateMany({
+        where: { id: job.id, status: 'failed' },
+        data: { status: 'running', finishedAt: null, error: null },
+      })
+      if (reopened.count === 0) return 0
+      const chunks = await tx.simulationChunk.updateMany({
+        where: { jobId: job.id, status: 'failed' },
+        data: { status: 'queued', attempt: 0, error: null, leaseUntil: null, workerId: null, gamesDone: 0 },
+      })
+      if (chunks.count === 0)
+        throw new BadRequestException({ code: 'nothing_failed', message: 'No hay cruces fallados.' })
+      return chunks.count
+    })
+    if (retried === 0) {
+      throw new BadRequestException({ code: 'job_not_failed', message: 'Ya se está reintentando.' })
+    }
+    this.queue.notifyQueued()
+    return this.progressOf(rawId)
+  }
+
   /** Only active jobs can be moved in the queue; the conditional write also checks concurrent completion. */
   async setPriority(rawId: string, priority: number): Promise<JobSummaryView> {
     const job = await this.requireJob(rawId)

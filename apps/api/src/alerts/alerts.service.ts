@@ -352,7 +352,7 @@ export class AlertsService {
           WHERE w."engine_rev" = j."engine_rev" AND w."games_rev" = j."games_rev" AND w."last_seen_at" > ${since})
         AND EXISTS (
           SELECT 1 FROM "worker_nodes" w
-          WHERE w."engine_rev" = j."engine_rev" AND w."games_rev" <> j."games_rev" AND w."last_seen_at" > ${since})
+          WHERE w."engine_rev" = j."engine_rev" AND w."games_rev" > j."games_rev" AND w."last_seen_at" > ${since})
       ORDER BY j."id"`
     for (const search of fixed) {
       alerts.push({

@@ -1532,6 +1532,74 @@ describe('simulation (e2e)', () => {
     await test.http().delete(`/api/simulations/${fair.body.id}`).set('Cookie', cookie)
   })
 
+  it('«Reintentar lo que falló»: only the failed chunks, with the same seeds; the job ends «done» if they play well', async () => {
+    const created = (
+      await post('/api/simulations').send({
+        kind: 'compare',
+        sideA: decks(3, 3),
+        sideB: decks(7, 8),
+        gamesPerPair: 10,
+        players: ['r', 'r'],
+        cache: false,
+      })
+    ).body as { id: number }
+    const chunks = await test.prisma.simulationChunk.findMany({ where: { jobId: created.id }, orderBy: { idx: 'asc' } })
+    const [good, bad] = chunks as [(typeof chunks)[number], (typeof chunks)[number]]
+    // Not failed yet: nothing to retry.
+    expect((await post(`/api/simulations/${created.id}/retry-failed`)).body.error.code).toBe('job_not_failed')
+    // One pairing played, the other failed three times: the job ends «failed».
+    await test.prisma.simulationChunk.update({
+      where: { id: good.id },
+      data: { status: 'done', gamesDone: 10, winsA: 6, winsB: 4, ties: 0, finishedAt: new Date() },
+    })
+    await test.prisma.simulationChunk.update({
+      where: { id: bad.id },
+      data: { status: 'failed', attempt: 3, error: 'la partida con semilla 1 falló: Active Pokemon should be there' },
+    })
+    await test.app.get(WorkerQueueService).settle(created.id)
+    expect((await get(`/api/simulations/${created.id}`)).body).toMatchObject({ status: 'failed' })
+
+    const retried = await post(`/api/simulations/${created.id}/retry-failed`)
+    expect(retried.status).toBe(200)
+    expect(retried.body).toMatchObject({ status: 'running', error: null })
+    expect(await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: bad.id } })).toMatchObject({
+      status: 'queued',
+      attempt: 0,
+      error: null,
+      seed: bad.seed,
+    })
+    expect((await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: good.id } })).status).toBe('done')
+    // A second click while it plays: nothing more.
+    expect((await post(`/api/simulations/${created.id}/retry-failed`)).body.error.code).toBe('job_not_failed')
+    // This time it plays well: the job ends «done».
+    const chunk = (await claim()).body.chunk as Structured
+    expect(chunk).toMatchObject({ jobId: created.id, chunkId: bad.id, seed: bad.seed.toString() })
+    const sent = await bearer('put', `/api/worker/chunks/${bad.id}/result`).send({
+      workerId: 'worker-0001',
+      engineRev: test.env.engineRev,
+      winsA: 5,
+      winsB: 5,
+      ties: 0,
+      games: 10,
+      durationMs: 100,
+    })
+    expect(sent.body).toEqual({ accepted: true })
+    expect((await get(`/api/simulations/${created.id}`)).body).toMatchObject({ status: 'done', error: null })
+
+    // Not for a job of another deckgym (it is played again whole) nor for a Laboratorio search.
+    await test.prisma.simulationJob.update({
+      where: { id: created.id },
+      data: { status: 'failed', engineRev: 'b'.repeat(40) },
+    })
+    expect((await post(`/api/simulations/${created.id}/retry-failed`)).body.error.code).toBe('other_engine')
+    await test.prisma.simulationJob.update({
+      where: { id: created.id },
+      data: { engineRev: test.env.engineRev, kind: 'explore' },
+    })
+    expect((await post(`/api/simulations/${created.id}/retry-failed`)).body.error.code).toBe('explore')
+    await test.prisma.simulationJob.delete({ where: { id: created.id } })
+  })
+
   it('list: archive finished jobs (one by one or all), bring them back, delete the cancelled ones', async () => {
     const make = async () =>
       (
@@ -2030,6 +2098,8 @@ describe('simulation (e2e)', () => {
       data: { lastSeenAt: new Date(Date.now() - GAMES_REV_GONE_MS - 60_000) },
     })
     expect(await engine.releaseGoneGamesRevs()).toEqual({ moved: [], replayed: [] })
+    // Nor does the alert say the search waits for nothing: it would go on alone.
+    expect(await searchAlert()).toBeUndefined()
     await test.prisma.workerNode.update({ where: { id: 'worker-rev-2' }, data: { lastSeenAt: new Date() } })
     // Returns of a lost result (worker 0.3.4) were of the other engine: they start over with the replay (review of #72).
     await test.prisma.simulationChunk.updateMany({
@@ -2223,6 +2293,17 @@ describe('simulation (e2e)', () => {
     expect(answers.filter(Boolean)).toHaveLength(1)
     const fixed = (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: created.id } })).gamesRev
     expect(fixed).toBe(answers[0] ? 1 : 2)
+    // A result that does not say how its engine plays, from a worker nobody knows: a fixed job does not take it.
+    const unknown = await bearer('put', `/api/worker/chunks/${chunks[answers[0] ? 1 : 0]?.id}/result`).send({
+      workerId: 'worker-nobody-at-all',
+      engineRev: rev,
+      winsA: 5,
+      winsB: 5,
+      ties: 0,
+      games: 10,
+      durationMs: 100,
+    })
+    expect(unknown.body).toEqual({ accepted: false })
     await post(`/api/simulations/${created.id}/cancel`)
     expect((await test.http().delete(`/api/simulations/${created.id}`).set('Cookie', cookie)).status).toBe(204)
 

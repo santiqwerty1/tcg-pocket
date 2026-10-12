@@ -32,6 +32,7 @@ const WRITE_TOOLS = [
   'rivals_note_set',
   'simulations_cancel',
   'simulations_enqueue',
+  'simulations_retry_failed',
 ]
 const DESTRUCTIVE = new Set(['matches_delete', 'simulations_cancel'])
 
@@ -412,6 +413,22 @@ describe('MCP write tools (e2e)', () => {
     expect(cancelled.structuredContent).toMatchObject({ cancelled: true, archived: true, job: { status: 'cancelada' } })
     const again = await call(client, 'simulations_cancel', { job: jobId })
     expect(again.structuredContent).toMatchObject({ cancelled: false })
+    // A failed job: only its failed pairings go back to the queue.
+    await test.prisma.simulationJob.update({ where: { id: jobId }, data: { status: 'failed' } })
+    await test.prisma.simulationChunk.updateMany({
+      where: { jobId },
+      data: { status: 'failed', attempt: 3, error: 'x' },
+    })
+    const retried = await call(client, 'simulations_retry_failed', { job: jobId })
+    expect(retried.isError, retried.content[0]?.text).toBeFalsy()
+    expect(retried.structuredContent).toMatchObject({
+      retried: expect.any(Number),
+      job: { status: expect.any(String) },
+    })
+    expect((await test.prisma.simulationChunk.findMany({ where: { jobId } })).every((c) => c.status === 'queued')).toBe(
+      true,
+    )
+    await call(client, 'simulations_cancel', { job: jobId })
   })
 
   it('Fase 43: collection_set edits one edition by code, asks when a name is ambiguous, and can be undone', async () => {

@@ -146,6 +146,9 @@ export class McpWriteToolsService {
     server.registerTool(t.simulationsCancel.name, config(t.simulationsCancel, DELETE), (args) =>
       run(t.simulationsCancel.name, args, () => this.simulationsCancel(args)),
     )
+    server.registerTool(t.simulationsRetryFailed.name, config(t.simulationsRetryFailed, WRITE), (args) =>
+      run(t.simulationsRetryFailed.name, args, () => this.simulationsRetryFailed(args)),
+    )
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -734,6 +737,17 @@ export class McpWriteToolsService {
     }
   }
   /** Fase 43: stop a job Claude (or Santi) queued; optionally archive it. */
+  private async simulationsRetryFailed(args: { job: number }): Promise<Json> {
+    const before = await this.simulations.progressOf(String(args.job))
+    const failed = before.progress.chunks.failed
+    const job = await this.simulations.retryFailed(String(args.job))
+    return {
+      retried: failed,
+      job: jobSummaryJson(job),
+      message: `En cola otra vez ${failed === 1 ? 'el cruce que falló' : `los ${failed} cruces que fallaron`}, con las mismas semillas; el resto queda como estaba.`,
+    }
+  }
+
   private async simulationsCancel(args: { job: number; archive?: boolean }): Promise<Json> {
     const before = await this.simulations.progressOf(String(args.job))
     const wasActive = before.status === 'queued' || before.status === 'running'
