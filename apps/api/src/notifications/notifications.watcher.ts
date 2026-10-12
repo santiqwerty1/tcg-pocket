@@ -38,6 +38,8 @@ export class NotificationsWatcher implements OnApplicationBootstrap, OnModuleDes
   }
 
   onApplicationBootstrap(): void {
+    // A CLI shares the database with the API that is running: this is the server's start-up work, not its own.
+    if (this.env.cli) return
     if (!this.env.notificationsWatch || !this.notifications.enabled) return
     this.timer = setInterval(
       () => void this.tick().catch((error) => this.logger.warn({ err: error }, 'notify tick')),

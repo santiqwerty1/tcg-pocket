@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, type OnModuleInit } from '@nestjs/common'
+import { ConflictException, Inject, Injectable, type OnModuleInit } from '@nestjs/common'
 import {
   type BuildCounts,
   buildCatalogWithReport,
@@ -9,6 +9,7 @@ import {
   planCatalogRemap,
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
+import { ENV, type Env } from '../config/env.js'
 import type { CatalogSyncSource, CatalogSyncStatus } from '../generated/prisma/enums.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { CatalogService } from './catalog.service.js'
@@ -131,6 +132,7 @@ export class CatalogSyncService implements OnModuleInit {
     private readonly repository: CatalogRepository,
     private readonly catalog: CatalogService,
     private readonly logger: PinoLogger,
+    @Inject(ENV) private readonly env: Env,
   ) {
     this.logger.setContext(CatalogSyncService.name)
   }
@@ -140,6 +142,8 @@ export class CatalogSyncService implements OnModuleInit {
    * process (crash, deploy): it is closed as `failed` so `GET /api/catalog/status` and the UI do not stay blocked.
    */
   async onModuleInit(): Promise<void> {
+    // A CLI shares the database with the API that is running: this is the server's start-up work, not its own.
+    if (this.env.cli) return
     const stale = await this.prisma.catalogSync.updateMany({
       where: { status: 'running' },
       data: { status: 'failed', error: 'Interrumpida: el servidor se reinició mientras corría.' },

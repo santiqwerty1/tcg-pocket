@@ -10,6 +10,7 @@ import { EventEmitter } from 'node:events'
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
   type OnApplicationBootstrap,
@@ -35,6 +36,7 @@ import {
   saidGamesRev,
 } from '@tcg/domain'
 import { CatalogService } from '../catalog/catalog.service.js'
+import { ENV, type Env } from '../config/env.js'
 import { Prisma } from '../generated/prisma/client.js'
 import { gunzipJson } from '../http/gunzip.js'
 import { parseNumericId } from '../http/ids.js'
@@ -148,12 +150,15 @@ export class LiveGamesService implements OnApplicationBootstrap {
     private readonly catalog: CatalogService,
     private readonly snapshots: SnapshotsService,
     private readonly engine: EngineStatusService,
+    @Inject(ENV) private readonly env: Env,
     @Optional() private readonly presence?: PresenceService,
   ) {
     this.events.setMaxListeners(100)
   }
 
   async onApplicationBootstrap(): Promise<void> {
+    // A CLI shares the database with the API that is running: this is the server's start-up work, not its own.
+    if (this.env.cli) return
     await this.endForEngineChange({ deckgym: true }).catch(() => undefined)
   }
 

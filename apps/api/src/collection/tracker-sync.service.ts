@@ -39,6 +39,8 @@ export class TrackerSync implements OnApplicationBootstrap, OnModuleDestroy {
   ) {}
 
   onApplicationBootstrap() {
+    // A CLI shares the database with the API that is running: this is the server's start-up work, not its own.
+    if (this.env.cli) return
     if (this.env.isTest) return
     this.timer = setInterval(
       () => void this.tick().catch((err) => this.logger.warn({ err }, 'tracker sync tick failed')),
