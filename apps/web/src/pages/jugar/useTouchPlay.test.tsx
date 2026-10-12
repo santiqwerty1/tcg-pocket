@@ -60,6 +60,15 @@ describe('playing a follow-up choice by touch (board audit of 12/10/2026)', () =
     expect(result.current.sheet).toMatchObject({ actions: 'hand', options: [0, 1], at: { player: 1, index: 0 } })
   })
 
+  it('the same action offered twice (a fossil discard, deckgym 33ff2a5) is shown once, and its copy maps to it', () => {
+    const fossil = { DiscardFossil: { in_play_idx: 1 } }
+    const { result } = touch(['EndTurn', fossil, fossil])
+    expect(result.current.actions.map((action) => action.i)).toEqual([0, 1])
+    // The coach may have scored the second copy best: the hint goes to the one on the board.
+    expect(result.current.canonical(2)).toBe(1)
+    expect(result.current.canonical(0)).toBe(0)
+  })
+
   it('Pokémon Communication: touching the card of your hand offers it', () => {
     const { result, onChoose } = touch([
       { CommunicatePokemon: { hand_pokemon: { Pokemon: { id: 'A1 094', name: 'Pikachu' } } } },

@@ -392,7 +392,7 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
           {decision.hint !== null ? (
             <p className="mt-1 text-xs text-primary">
               Entrenador: {(() => {
-                const option = actions.find((action) => action.i === decision.hint)
+                const option = actions.find((action) => action.i === play.canonical(decision.hint ?? -1))
                 return option ? describe(option) : '—'
               })()}
             </p>
@@ -405,11 +405,17 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
         onOpenChange={setOptionsOpen}
         actions={actions}
         describe={describe}
-        hint={decision?.hint ?? null}
+        hint={decision && decision.hint !== null ? play.canonical(decision.hint) : null}
         disabled={busy}
         onChoose={play.choose}
       />
-      <TouchPlaySheet play={play} state={state} describe={describe} hint={decision?.hint ?? null} busy={busy} />
+      <TouchPlaySheet
+        play={play}
+        state={state}
+        describe={describe}
+        hint={decision && decision.hint !== null ? play.canonical(decision.hint) : null}
+        busy={busy}
+      />
       <CardGridSheet
         title={discard === null ? '' : discard === 0 ? 'Tu descarte' : 'Descarte del bot'}
         cards={

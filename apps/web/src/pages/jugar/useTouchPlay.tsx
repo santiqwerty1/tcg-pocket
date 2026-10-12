@@ -53,10 +53,24 @@ export function useTouchPlay({
     setSheet(null)
   }, [resetKey])
 
-  const actions: BoardAction[] = useMemo(
-    () => (options ? options.map((option) => classifyAction(option.i, option.action, option.text, 0)) : []),
-    [options],
-  )
+  // deckgym can offer the very same action twice (a fossil's discard, at 33ff2a5): the board shows it once, under the
+  // first index, and `canonical` sends the other copies there (the coach may have picked either).
+  const { actions, canonical } = useMemo(() => {
+    const first = new Map<string, number>()
+    const alias = new Map<number, number>()
+    const list: BoardAction[] = []
+    for (const option of options ?? []) {
+      const key = JSON.stringify(option.action)
+      const seen = first.get(key)
+      if (seen !== undefined) {
+        alias.set(option.i, seen)
+        continue
+      }
+      first.set(key, option.i)
+      list.push(classifyAction(option.i, option.action, option.text, 0))
+    }
+    return { actions: list, canonical: (i: number) => alias.get(i) ?? i }
+  }, [options])
   const live = options !== null
   const pick = isPickDecision(actions)
   const targets = useMemo(() => {
@@ -142,6 +156,7 @@ export function useTouchPlay({
 
   return {
     actions,
+    canonical,
     selected,
     setSelected,
     sheet,
