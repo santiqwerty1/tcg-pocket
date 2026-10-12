@@ -76,7 +76,7 @@ jobs:
           version: 12.9.1
           # D-023: a folder of the job (two runners on the PC shared ~/setup-pnpm: EBUSY).
           dest: ${{ runner.temp }}/setup-pnpm
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           # D-023: on the PC the pnpm store is already local; saving it to GitHub's cache hung the runners.
@@ -101,7 +101,7 @@ jobs:
           version: 12.9.1
           # D-023: a folder of the job (two runners on the PC shared ~/setup-pnpm: EBUSY).
           dest: ${{ runner.temp }}/setup-pnpm
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           # D-023: on the PC the pnpm store is already local; saving it to GitHub's cache hung the runners.
@@ -127,7 +127,7 @@ jobs:
           version: 12.9.1
           # D-023: a folder of the job (two runners on the PC shared ~/setup-pnpm: EBUSY).
           dest: ${{ runner.temp }}/setup-pnpm
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           # D-023: on the PC the pnpm store is already local; saving it to GitHub's cache hung the runners.
@@ -197,7 +197,7 @@ jobs:
           version: 12.9.1
           # D-023: a folder of the job (two runners on the PC shared ~/setup-pnpm: EBUSY).
           dest: ${{ runner.temp }}/setup-pnpm
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           # D-023: on the PC the pnpm store is already local; saving it to GitHub's cache hung the runners.
@@ -229,7 +229,7 @@ jobs:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
       - run: node apps/worker/scripts/build-android.mjs
@@ -273,7 +273,7 @@ jobs:
           version: 12.9.1
           # D-023: a folder of the job (two runners on the PC shared ~/setup-pnpm: EBUSY).
           dest: ${{ runner.temp }}/setup-pnpm
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           # D-023: on the PC the pnpm store is already local; saving it to GitHub's cache hung the runners.
