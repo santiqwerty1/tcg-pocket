@@ -1606,6 +1606,21 @@ export const jobSummarySchema = z.object({
   lab: z.enum(['test', 'explore']).nullable().default(null),
   /** Hidden from the list; its results still count. */
   archived: z.boolean().default(false),
+  /**
+   * Phase 42: it moved to another engine, a new deckgym or a new games revision (`gamesFrom`/`gamesTo`). `replayed`:
+   * it had played chunks and was played again whole; what the old engine played is in the cancelled job `oldResults`.
+   */
+  engineChange: z
+    .object({
+      from: z.string(),
+      at: z.string(),
+      replayed: z.boolean(),
+      gamesFrom: z.number().nullable().default(null),
+      gamesTo: z.number().nullable().default(null),
+      oldResults: z.number().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
 })
 export type JobSummary = z.infer<typeof jobSummarySchema>
 export const jobsResponseSchema = z.object({
@@ -1971,6 +1986,8 @@ export const optimizeConfirmationSchema = z.object({
   jobId: z.number().nullable(),
   status: z.enum([...SIMULATION_STATUSES, 'pending', 'skipped']),
   error: z.string().nullable().default(null),
+  /** Phase 42: it moved to another engine than the one the search played with. */
+  engineChange: jobSummarySchema.shape.engineChange,
   rivals: z.number().default(0),
   rows: z.array(
     z.object({
@@ -2171,7 +2188,16 @@ export const deckVersionsResponseSchema = z.object({ scope: scopeSchema, decks: 
 
 // ---------- Jugar contra un bot (Fase 8) ----------
 
-export const LIVE_GAME_STATUSES = ['queued', 'running', 'waiting', 'done', 'abandoned', 'failed'] as const
+/** `engine_changed` (phase 42): it could not go on with the engine there is now; not a defeat and not abandoned. */
+export const LIVE_GAME_STATUSES = [
+  'queued',
+  'running',
+  'waiting',
+  'done',
+  'abandoned',
+  'failed',
+  'engine_changed',
+] as const
 export type LiveGameStatus = (typeof LIVE_GAME_STATUSES)[number]
 
 export const liveDecisionSchema = z.object({

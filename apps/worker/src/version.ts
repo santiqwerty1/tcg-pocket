@@ -13,4 +13,5 @@
 // 0.3.1 (phase 42): each result says the engine that played it (version and build), for the API's exact cache.
 // 0.3.2 (D-026): `--setup --keep` without questions; setup asks and checks before stopping anything, restarts the old
 // worker if the new one does not start, and writes and starts from outside a packaged app.
-export const WORKER_VERSION = '0.3.2'
+// 0.3.3 (phase 42): says how its engine plays (`gamesRev` of engine-cli 0.3.6) in its claims, results and games.
+export const WORKER_VERSION = '0.3.3'

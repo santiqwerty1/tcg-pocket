@@ -749,7 +749,7 @@ export class BackupService {
     // Games against the bot (version 5): the finished ones are replaced by the file's results (no moves, no
     // snapshots); games still being played keep going. Older files keep the current ones.
     if (document.playedGames) {
-      await tx.liveGame.deleteMany({ where: { status: { in: ['done', 'abandoned', 'failed'] } } })
+      await tx.liveGame.deleteMany({ where: { status: { in: ['done', 'abandoned', 'failed', 'engine_changed'] } } })
       if (document.playedGames.length > 0) {
         await tx.liveGame.createMany({
           skipDuplicates: true,

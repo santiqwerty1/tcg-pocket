@@ -9,6 +9,10 @@
  * key cards), and a Laboratorio search seeds every round apart. A copied chunk says where its result came from
  * (`cachedFrom`: one a worker played, when there is one) and is left out of what adds results across jobs (the decks'
  * «simulación» column), so that no game counts twice.
+ *
+ * And the same games revision (review of #68): the source's job has to be fixed to the newest revision the workers of
+ * the window have (after an update the old one is never copied back), and to the job's own if it is fixed already. What an engine
+ * change kept apart (`replacedBy`) is never a source: it is what the engine there is now no longer plays.
  */
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
@@ -48,11 +52,14 @@ export class ChunkCacheService {
       filled = await this.prisma.$transaction(
         async (tx) => {
           await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = ${FILL_TIMEOUT_MS}`)
-          const rows = await tx.$queryRaw<{ id: number }[]>`
+          const rows = await tx.$queryRaw<{ id: number; gamesRev: number | null }[]>`
             WITH job AS (
-              SELECT "id", "kind", "players", "engine_rev", "replay_sample",
+              SELECT "id", "kind", "players", "engine_rev", "replay_sample", "games_rev",
                 COALESCE("params"->>'perGame' = 'true', false) AS per_game
               FROM "simulation_jobs" WHERE "id" = ${jobId}
+            ), revs AS (
+              SELECT max(w."games_rev") AS rev FROM "worker_nodes" w, job
+              WHERE w."engine_rev" = job."engine_rev" AND w."games_rev" IS NOT NULL AND w."last_seen_at" > ${since}
             ), cli AS (
               SELECT DISTINCT r."cli_version" AS version FROM "simulation_chunks" r, job
               -- Only results that name their build («<version>+<build>», engine-cli 0.3.4 on): a version alone is not exact.
@@ -67,7 +74,7 @@ export class ChunkCacheService {
               JOIN "deck_snapshots" b ON b."id" = t."snapshot_b_id"
               WHERE t."status" = 'queued' AND job."kind" IN ('matrix', 'compare') AND (SELECT count(*) FROM cli) = 1
             ), source AS (
-              SELECT DISTINCT ON (target."id") target."id" AS target_id, s.*
+              SELECT DISTINCT ON (target."id") target."id" AS target_id, sj."games_rev" AS source_games_rev, s.*
               FROM target
               CROSS JOIN job
               JOIN "simulation_chunks" s ON s."seed" = target."seed" AND s."games" = target."games"
@@ -76,7 +83,9 @@ export class ChunkCacheService {
                 AND s."engine_rev" = job."engine_rev" AND s."cli_version" ~ ${EXACT_ENGINE}
                 AND s."cli_version" = (SELECT version FROM cli)
               JOIN "simulation_jobs" sj ON sj."id" = s."job_id" AND sj."players" = job."players"
-                AND sj."kind" IN ('matrix', 'compare')
+                AND sj."kind" IN ('matrix', 'compare') AND NOT (sj."params" ? 'replacedBy')
+                AND sj."games_rev" = (SELECT rev FROM revs)
+                AND (job."games_rev" IS NULL OR sj."games_rev" = job."games_rev")
               JOIN "deck_snapshots" a ON a."id" = s."snapshot_a_id" AND a."key" = target.key_a
               JOIN "deck_snapshots" b ON b."id" = s."snapshot_b_id" AND b."key" = target.key_b
               WHERE (NOT job.per_game OR s."extra"->'perGame' IS NOT NULL)
@@ -91,7 +100,12 @@ export class ChunkCacheService {
               "cached_from_id" = source."id", "error" = NULL, "started_at" = now(), "finished_at" = now()
             FROM source
             WHERE t."id" = source.target_id AND t."status" = 'queued'
-            RETURNING t."id"`
+            RETURNING t."id", source.source_games_rev AS "gamesRev"`
+          // Phase 42: the copies fix how the rest of the job is played, as a first result would.
+          const gamesRev = rows.find((row) => row.gamesRev !== null)?.gamesRev ?? null
+          if (gamesRev !== null) {
+            await tx.simulationJob.updateMany({ where: { id: jobId, gamesRev: null }, data: { gamesRev } })
+          }
           return rows.length
         },
         { timeout: FILL_TIMEOUT_MS + 5_000 },

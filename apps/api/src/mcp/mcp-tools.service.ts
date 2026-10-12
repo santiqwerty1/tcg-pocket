@@ -1910,6 +1910,13 @@ ${MCP_CHAT_INSTRUCTIONS}`
                 job: confirmation.jobId,
                 status: CONFIRMATION_STATUS_ES[confirmation.status],
                 ...(confirmation.error ? { error: confirmation.error } : {}),
+                // Phase 42: the search played with the engine before.
+                ...(confirmation.engineChange
+                  ? {
+                      engine:
+                        'La confirmación pasó al motor de ahora y la búsqueda se jugó con el anterior: el orden de la búsqueda sigue valiendo como pista, pero sus porcentajes no se comparan con los de la confirmación.',
+                    }
+                  : {}),
                 note: 'El número para decidir es el de la confirmación: las mejores de la búsqueda se jugaron otra vez contra los mismos rivales con semillas nuevas y más partidas. La búsqueda elige; su porcentaje sale inflado por quedarse con la de más suerte.',
                 combinations: confirmation.rows.map((row) => {
                   // The confirmation takes the first ones of the same ranking: position n is row n − 1 of the search.

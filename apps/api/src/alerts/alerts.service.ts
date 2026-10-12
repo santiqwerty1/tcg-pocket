@@ -15,6 +15,7 @@ import {
   ET_BOT_CODE,
   FAIR_BOT_CODES,
   parseExpansionIds,
+  saidGamesRev,
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
@@ -29,6 +30,7 @@ import {
   OpsService,
 } from '../ops/ops.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import { GAMES_REV_GONE_MS } from '../simulation/engine-change.service.js'
 import { EngineUpstreamService, type UpstreamFailure } from '../simulation/engine-upstream.service.js'
 import { EngineStatusService } from '../simulation/snapshots.service.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
@@ -51,6 +53,7 @@ export interface AlertView {
     | 'database_size'
     | 'backup_offsite'
     | 'tracker_sync'
+    | 'search_old_engine'
   level: 'info' | 'warning'
   title: string
   detail: string
@@ -137,7 +140,15 @@ interface BlockedWork {
   needs: WorkNeed[]
   /** Deckgym revisions no recent worker has. */
   engines: string[]
+  /** Games revisions some job or game is fixed to and no recent worker with its deckgym has (phase 42). */
+  gamesRevs: number[]
 }
+
+/**
+ * After a deploy the workers update themselves to the new deckgym and engine-cli within minutes (D-026): until then
+ * the work they cannot take yet is not news (review of #67).
+ */
+export const DEPLOY_GRACE_MS = 15 * 60 * 1000
 
 const NEED_ES: Record<WorkNeed, { what: string; fix: string }> = {
   perGame: { what: 'resultados partida por partida', fix: 'el worker 0.2.5 o más nuevo con el motor recompilado' },
@@ -164,6 +175,10 @@ function blockedAlert(idle: BlockedWork): AlertView {
   const one = idle.chunks + idle.games === 1
   const needs = [
     ...idle.engines.map((rev) => ({ what: `el motor deckgym ${rev.slice(0, 7)}`, fix: 'un worker con ese motor' })),
+    ...idle.gamesRevs.map((rev) => ({
+      what: `la revisión ${rev} de las partidas del motor`,
+      fix: 'un worker con esa revisión (si hay workers con una más nueva, la simulación se vuelve a jugar entera sola a los 30 minutos)',
+    })),
     ...idle.needs.map((need) => NEED_ES[need]),
   ]
   return {
@@ -178,6 +193,10 @@ function blockedAlert(idle: BlockedWork): AlertView {
 
 @Injectable()
 export class AlertsService {
+  /** When this process started: a deploy, with a new deckgym or worker package (tests set the grace to 0). */
+  private readonly startedAt = Date.now()
+  deployGraceMs = DEPLOY_GRACE_MS
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly catalog: CatalogService,
@@ -285,7 +304,7 @@ export class AlertsService {
     }
     const idle = await this.workerIdle()
     if (idle?.reason === 'blocked') {
-      alerts.push(blockedAlert(idle))
+      if (Date.now() - this.startedAt >= this.deployGraceMs) alerts.push(blockedAlert(idle))
     } else if (idle) {
       alerts.push({
         code: 'worker_idle',
@@ -295,6 +314,43 @@ export class AlertsService {
           : 'Hay trabajo esperando y nunca se conectó un worker',
         detail: `${idle.waiting} ${idle.waiting === 1 ? 'tarea espera' : 'tareas esperan'} (simulaciones o partidas contra el bot). Prendé la PC o reiniciá el worker.`,
         link: '/simulacion',
+      })
+    }
+    // Phase 42: a Laboratorio search keeps the deckgym it started with (EngineChangeService leaves it): say so.
+    const searches = await this.prisma.simulationJob.findMany({
+      where: { kind: 'explore', status: { in: ['queued', 'running'] }, engineRev: { not: this.engine.engineRev() } },
+      select: { id: true, label: true, engineRev: true },
+    })
+    for (const search of searches) {
+      alerts.push({
+        code: 'search_old_engine',
+        level: 'warning',
+        title: `La búsqueda «${search.label}» (#${search.id}) espera el motor viejo`,
+        detail: `Empezó con deckgym ${search.engineRev.slice(0, 7)} y ningún worker con el motor nuevo la juega. Cancelala en el Laboratorio, o dejala si se vuelve a ese motor.`,
+        link: `/laboratorio/${search.id}`,
+      })
+    }
+    // And one fixed to a games revision that no worker has had for half an hour, while others have another one.
+    const since = new Date(Date.now() - GAMES_REV_GONE_MS)
+    const fixed = await this.prisma.$queryRaw<{ id: number; label: string; gamesRev: number }[]>`
+      SELECT j."id", j."label", j."games_rev" AS "gamesRev"
+      FROM "simulation_jobs" j
+      WHERE j."kind" = 'explore' AND j."status" IN ('queued', 'running') AND j."games_rev" IS NOT NULL
+        AND j."engine_rev" = ${this.engine.engineRev()}
+        AND NOT EXISTS (
+          SELECT 1 FROM "worker_nodes" w
+          WHERE w."engine_rev" = j."engine_rev" AND w."games_rev" = j."games_rev" AND w."last_seen_at" > ${since})
+        AND EXISTS (
+          SELECT 1 FROM "worker_nodes" w
+          WHERE w."engine_rev" = j."engine_rev" AND w."games_rev" <> j."games_rev" AND w."last_seen_at" > ${since})
+      ORDER BY j."id"`
+    for (const search of fixed) {
+      alerts.push({
+        code: 'search_old_engine',
+        level: 'warning',
+        title: `La búsqueda «${search.label}» (#${search.id}) espera la revisión ${search.gamesRev} del motor`,
+        detail: `Se empezó a jugar con la revisión ${search.gamesRev} de engine-cli y los workers de ahora juegan con otra. Cancelala en el Laboratorio, o dejala si vuelve un worker con esa revisión.`,
+        link: `/laboratorio/${search.id}`,
       })
     }
     alerts.push(...(await this.newTokenClients()))
@@ -369,7 +425,7 @@ export class AlertsService {
       this.prisma.workerNode.findFirst({ orderBy: { lastSeenAt: 'desc' }, select: { lastSeenAt: true } }),
       this.prisma.workerNode.findMany({
         where: { lastSeenAt: { gte: new Date(now.getTime() - WORKER_IDLE_MS) } },
-        select: { engineRev: true, version: true, cliVersion: true, engineFeatures: true },
+        select: { engineRev: true, version: true, cliVersion: true, engineFeatures: true, gamesRev: true },
       }),
     ])
     const waiting = chunks + games
@@ -387,13 +443,14 @@ export class AlertsService {
           players: true,
           params: true,
           engineRev: true,
+          gamesRev: true,
           createdAt: true,
           _count: { select: { chunks: { where: waitingChunk } } },
         },
       }),
       this.prisma.liveGame.findMany({
         where: { status: 'queued' },
-        select: { bot: true, engineRev: true, createdAt: true },
+        select: { bot: true, engineRev: true, gamesRev: true, createdAt: true },
       }),
     ])
     const fair = new Set<string>(FAIR_BOT_CODES)
@@ -405,11 +462,19 @@ export class AlertsService {
       first: null as Date | null,
       needs: new Set<WorkNeed>(),
       engines: new Set<string>(),
+      gamesRevs: new Set<number>(),
     }
-    const check = (engineRev: string, needs: WorkNeed[], createdAt: Date) => {
-      if (recent.some((worker) => worker.engineRev === engineRev && needs.every((need) => has(worker, need))))
-        return false
-      if (!recent.some((worker) => worker.engineRev === engineRev)) blocked.engines.add(engineRev)
+    // Phase 42: a job or a game fixed to a games revision needs a worker that plays that way, as the claims filter.
+    const playsAs = (worker: (typeof recent)[number], gamesRev: number | null) =>
+      gamesRev === null || saidGamesRev(worker) === gamesRev
+    const check = (engineRev: string, gamesRev: number | null, needs: WorkNeed[], createdAt: Date) => {
+      const able = (worker: (typeof recent)[number]) =>
+        worker.engineRev === engineRev && playsAs(worker, gamesRev) && needs.every((need) => has(worker, need))
+      if (recent.some(able)) return false
+      const sameEngine = recent.filter((worker) => worker.engineRev === engineRev)
+      if (sameEngine.length === 0) blocked.engines.add(engineRev)
+      else if (gamesRev !== null && !sameEngine.some((worker) => playsAs(worker, gamesRev)))
+        blocked.gamesRevs.add(gamesRev)
       for (const need of needs) blocked.needs.add(need)
       if (!blocked.first || createdAt < blocked.first) blocked.first = createdAt
       return true
@@ -420,13 +485,13 @@ export class AlertsService {
       if (perGame && ['matrix', 'compare', 'explore'].includes(job.kind)) needs.push('perGame')
       if (job.kind !== 'consistency' && job.players.includes(ET_BOT_CODE)) needs.push('etBot')
       if (job.players.some((code) => fair.has(code))) needs.push('fairBots')
-      if (check(job.engineRev, needs, job.createdAt)) blocked.chunks += job._count.chunks
+      if (check(job.engineRev, job.gamesRev, needs, job.createdAt)) blocked.chunks += job._count.chunks
     }
     for (const game of liveGames) {
       const needs: WorkNeed[] = []
       if (game.bot === ET_BOT_CODE) needs.push('etBot')
       if (fair.has(game.bot)) needs.push('fairBots')
-      if (check(game.engineRev, needs, game.createdAt)) blocked.games += 1
+      if (check(game.engineRev, game.gamesRev, needs, game.createdAt)) blocked.games += 1
     }
     if (blocked.chunks + blocked.games === 0 || !blocked.first) return null
     return {
@@ -436,6 +501,7 @@ export class AlertsService {
       since: ownerDateTime(blocked.first),
       needs: [...blocked.needs],
       engines: [...blocked.engines],
+      gamesRevs: [...blocked.gamesRevs],
     }
   }
 

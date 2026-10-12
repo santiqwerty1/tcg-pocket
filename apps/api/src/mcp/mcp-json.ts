@@ -41,6 +41,12 @@ export function jobSummaryJson(job: JobSummaryView): Json {
     gamesPerPairing: job.gamesPerPair,
     seed: job.baseSeed,
     engineRev: job.engineRev.slice(0, 7),
+    // Phase 42: never a number that mixes two engines.
+    ...(job.engineChange
+      ? {
+          engineChange: engineChangeText(job.engineChange),
+        }
+      : {}),
     progress: {
       games: job.progress.gamesDone,
       totalGames: job.progress.totalGames,
@@ -51,4 +57,17 @@ export function jobSummaryJson(job: JobSummaryView): Json {
     createdAt: job.createdAt.toISOString(),
     finishedAt: job.finishedAt?.toISOString() ?? null,
   }
+}
+
+/** Phase 42: what a job's move to another engine means, for Claude. */
+function engineChangeText(change: NonNullable<JobSummaryView['engineChange']>): string {
+  const games = change.gamesFrom !== null
+  const now = games ? `la revisión ${change.gamesTo} del motor` : 'este motor'
+  const before = games ? `antes la revisión ${change.gamesFrom}` : `antes deckgym ${change.from.slice(0, 7)}`
+  if (!change.replayed) return `Pasó a ${now} sin haber jugado nada (${before}).`
+  const kept =
+    change.oldResults === null
+      ? 'lo jugado con el viejo se descartó'
+      : `lo jugado con el viejo quedó aparte, en la simulación cancelada #${change.oldResults}`
+  return `Rejugada entera con ${now} (${before}): ${kept}. Sus números son solo del motor de ahora.`
 }

@@ -31,7 +31,12 @@ const ACTIVE = new Set(['queued', 'running', 'waiting'])
 
 /** Over for good: nothing else will change (a finished game still waits for its replay). */
 function isOver(game: Pick<LiveGame, 'status' | 'replay'>): boolean {
-  return game.status === 'failed' || game.status === 'abandoned' || (game.status === 'done' && game.replay)
+  return (
+    game.status === 'failed' ||
+    game.status === 'abandoned' ||
+    game.status === 'engine_changed' ||
+    (game.status === 'done' && game.replay)
+  )
 }
 
 /**

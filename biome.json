@@ -16,7 +16,8 @@
       "!**/public",
       "!Boveda",
       "!.posta",
-      "!.claude"
+      "!.claude",
+      "!engine/games-rev.json"
     ]
   },
   "formatter": {

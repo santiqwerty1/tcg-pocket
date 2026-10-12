@@ -333,6 +333,8 @@ describe('worker loop', () => {
     expect(calls.results[0]?.body).toMatchObject({ workerId: 'worker-test-1', winsA: 5, winsB: 5, games: 10 })
     // Phase 42: the engine that played it, with its build fingerprint, for the API's exact cache.
     expect(calls.results[0]?.body.cliVersion).toBe('0.1.0-fake+0123456789abcdef')
+    // An engine that does not say how it plays: the API derives it from cliVersion.
+    expect(calls.results[0]?.body).not.toHaveProperty('gamesRev')
     expect(calls.replays).toHaveLength(2)
     const first = calls.replays[0]
     expect(JSON.parse(gunzipSync(first?.data ?? new Uint8Array()).toString())).toMatchObject({ index: 0 })
@@ -440,6 +442,18 @@ describe('worker loop', () => {
     const { client } = fakeClient([])
     await new Worker({ ...config, allowSlowBots }, client, silent).loop(new AbortController().signal, { once: true })
     expect(vi.mocked(client.claim).mock.calls[0]?.[0]).toMatchObject({ allowSlowBots })
+  })
+
+  it('phase 42: says how its engine plays (gamesRev) in the claim and in each result', async () => {
+    process.env.FAKE_ENGINE_GAMES_REV = '3'
+    try {
+      const { client, calls } = fakeClient([chunk({ chunkId: 43, replaySample: 0 })])
+      await new Worker(config, client, silent).loop(new AbortController().signal, { once: true })
+      expect(vi.mocked(client.claim).mock.calls[0]?.[0]).toMatchObject({ gamesRev: 3 })
+      expect(calls.results[0]?.body).toMatchObject({ gamesRev: 3 })
+    } finally {
+      delete process.env.FAKE_ENGINE_GAMES_REV
+    }
   })
 
   it('an engine without features is not said to have any', async () => {

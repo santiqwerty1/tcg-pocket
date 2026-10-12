@@ -9,7 +9,9 @@ const [command, jobFile, resultFile] = process.argv.slice(2)
 if (command === 'version') {
   // FAKE_ENGINE_OLD: an engine from before H-010 and B2 (no features).
   const features = process.env.FAKE_ENGINE_OLD ? {} : { features: ['perGame', 'batch'] }
-  process.stdout.write(JSON.stringify({ engineRev: REV, cliVersion: '0.1.0-fake', cards: 2, ...features }))
+  // FAKE_ENGINE_GAMES_REV: an engine that says how it plays (phase 42, engine-cli 0.3.6 on).
+  const gamesRev = process.env.FAKE_ENGINE_GAMES_REV ? { gamesRev: Number(process.env.FAKE_ENGINE_GAMES_REV) } : {}
+  process.stdout.write(JSON.stringify({ engineRev: REV, cliVersion: '0.1.0-fake', cards: 2, ...features, ...gamesRev }))
 } else if (command === 'batch') {
   // B2: every pairing as simulate would play it. A pairing of 13 games fails alone (like a deck the engine refuses),
   // of 11 makes the whole batch fail, of 98 hangs it, of 97 takes 300 ms (so heartbeats run).

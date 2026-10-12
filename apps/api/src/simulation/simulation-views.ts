@@ -1,5 +1,6 @@
 /** Response shapes of the simulation API (docs/API.md «Simulación»). Rates are `WinRate` (percent, Wilson 95 %). */
 import type { GameRecord, SimulationKind, SnapshotProblem, WinRate } from '@tcg/domain'
+import type { EngineChangeView } from './engine-change.service.js'
 import type { EngineUpstreamView } from './engine-upstream.service.js'
 
 export interface SnapshotView {
@@ -46,6 +47,11 @@ export interface JobSummaryView {
   lab: 'test' | 'explore' | null
   /** Hidden from the list; its results still count. */
   archived: boolean
+  /**
+   * Phase 42: it moved to another engine, a new deckgym or a new games revision (`gamesFrom`/`gamesTo`). `replayed`:
+   * it had played chunks and was played again whole; what the old engine played is in the cancelled job `oldResults`.
+   */
+  engineChange: EngineChangeView | null
 }
 
 export interface CellView {
@@ -79,6 +85,11 @@ export interface OptimizeConfirmationView {
   status: JobSummaryView['status'] | 'pending' | 'skipped'
   /** Why the last attempt to queue it failed (it is retried), or why it was skipped. */
   error: string | null
+  /**
+   * Phase 42: the confirmation moved to another engine than the one the search played with (a new deckgym or games
+   * revision): its numbers are not to be set beside the search's.
+   */
+  engineChange: EngineChangeView | null
   /** Rivals each combination plays. */
   rivals: number
   /** In the optimize's order (rank 1 first): what the confirmation measured with its own seeds. */

@@ -5,7 +5,9 @@ import {
   canPlayFairBots,
   canPlayPerGame,
   ENGINE_FEATURES,
+  gamesRevOf,
   hasEngineFeature,
+  saidGamesRev,
   versionAtLeast,
 } from '../../src/simulation/index.js'
 
@@ -43,5 +45,27 @@ describe('what a worker can play', () => {
     expect(canPlayEtBot({ engineFeatures: ['perGame', 'batch', 'fairBots'] })).toBe(false)
     expect(canPlayEtBot({ cliVersion: '0.3.5' })).toBe(false)
     expect(hasEngineFeature({ engineFeatures: null }, 'perGame')).toBe(false)
+  })
+})
+
+describe('saidGamesRev (review of #68)', () => {
+  it('what the engine said, its version otherwise, and nothing when it said neither', () => {
+    expect(saidGamesRev({ gamesRev: 2 })).toBe(2)
+    expect(saidGamesRev({ cliVersion: '0.3.5' })).toBe(1)
+    expect(saidGamesRev({ cliVersion: '0.3.2' })).toBe(0)
+    expect(saidGamesRev({})).toBeNull()
+    expect(saidGamesRev({ gamesRev: null, cliVersion: null })).toBeNull()
+  })
+})
+
+describe('gamesRevOf (phase 42)', () => {
+  it('is what the engine says, or 1 from engine-cli 0.3.3 on and 0 before', () => {
+    expect(gamesRevOf({ gamesRev: 2, cliVersion: '0.3.6' })).toBe(2)
+    expect(gamesRevOf({ cliVersion: '0.3.4' })).toBe(1)
+    expect(gamesRevOf({ cliVersion: '0.3.4+e75c2df7116106aa' })).toBe(1)
+    expect(gamesRevOf({ cliVersion: '0.3.3' })).toBe(1)
+    expect(gamesRevOf({ cliVersion: '0.3.2' })).toBe(0)
+    expect(gamesRevOf({})).toBe(0)
+    expect(gamesRevOf({ gamesRev: -1, cliVersion: '0.3.4' })).toBe(1)
   })
 })
