@@ -43,7 +43,7 @@ describe('what each engine action starts from and points at', () => {
       ['attach', { kind: 'energy' }, { player: 0, index: 0 }],
       ['attach', { kind: 'energy' }, { player: 0, index: 1 }],
       ['evolve', { kind: 'hand', engineId: 'B1 036' }, { player: 0, index: 0 }],
-      ['tool', { kind: 'hand', engineId: 'A2 148' }, { player: 0, index: 1 }],
+      ['tool', { kind: 'none' }, { player: 0, index: 1 }],
       ['attack', { kind: 'slot', player: 0, index: 0 }, null],
       ['retreat', { kind: 'slot', player: 0, index: 0 }, { player: 0, index: 1 }],
       ['ability', { kind: 'slot', player: 0, index: 2 }, null],
@@ -83,6 +83,24 @@ describe('what each engine action starts from and points at', () => {
     )
     expect(damage.target).toEqual({ player: 1, index: 2 })
     expect(isPickDecision(actions)).toBe(false)
+  })
+
+  it('a tool already played: its Pokémon light up and touching one attaches it (the card left the hand)', () => {
+    const tool = [0, 1, 2].map((index) =>
+      classifyAction(
+        index,
+        { AttachTool: { in_play_idx: index, tool_card: helmet } },
+        `AttachTool(${index}, Rocky Helmet)`,
+        0,
+      ),
+    )
+    expect(isPickDecision(tool)).toBe(true)
+    expect(targetsOf(tool, { kind: 'none' })).toEqual([
+      { player: 0, index: 0 },
+      { player: 0, index: 1 },
+      { player: 0, index: 2 },
+    ])
+    expect(optionAt(tool, { kind: 'none' }, { player: 0, index: 2 })?.i).toBe(2)
   })
 })
 
