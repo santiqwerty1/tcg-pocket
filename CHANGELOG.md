@@ -33,7 +33,6 @@ _Borrador generado al 2026-10-11 (97 commits). Escribí el «porqué» fuera de 
 - win share with the coin even — half going first, half going second (phase 44, T-014) `3d189fb`
 - optimize plays every combination with the same seeds and confirms its best 3 with fresh ones (H-011, C8) `c2fb3ae`
 - expansion day in two taps — sync repeats the loaded commit, update to the tracker's newest with a preview (diff, remap, engine), confirmation before taking cards away, proposed era-table rows (phase 40, H-004, H-006) `b2c0ebf`
-- calibration against tournaments — the meta bank played by a chosen bot next to the matchups (R-012) `21c2092`
 
 ### Corregido
 
@@ -78,7 +77,6 @@ _Borrador generado al 2026-10-11 (97 commits). Escribí el «porqué» fuera de 
 - read the tracker's CardsDB literals with a data-only parser, never new Function — the expansion-day preview fetches unreviewed commits (phase 40) `4cd678d`
 - review of the move plan — the private remote points to the renamed private repository, moved branches take the noreply author, numbers reserved on the empty repository with marker checks, --verify fails on problems, --force never on the repository (D-022) `736f335`
 - review of phase 40 — the CLI repeats the loaded commit with the guard and --confirm, the configured engine by default, unknown comparison asks, apply on a new commit with the same cards, one preview per commit, download timeout `a391431`
-- review of #29 — compatible with both errors, Spearman both ways with a bootstrap, archetypes over the same rivals with n and interval, failed pairings apart `d8eff3b`
 - isolate game workers and await shutdown (T-014) `3b6e880`
 - cancel claims when workers disconnect (T-014) `d8f65c1`
 
@@ -88,6 +86,7 @@ _Borrador generado al 2026-10-11 (97 commits). Escribí el «porqué» fuera de 
 
 ### Documentado
 
+- the move to the public repository and what PRs #38-#56 left for the vault (D-022, D-023, P-013, T-015, T-017, T-018, T-019, T-020) (D-020, D-021, D-025, D-028, R-003, R-012, T-014, #42, #45, #56, D-027) `a3cb1ad`
 - registra correcciones y operación de la clave (T-020, D-028) `3dec2c5`
 - registra propuesta, backup y validación (T-020, D-028) `12c31af`
 - registra aprobación y aplicación del filtro (D-025, T-015) `1748e92`
@@ -115,6 +114,7 @@ _Borrador generado al 2026-10-11 (97 commits). Escribí el «porqué» fuera de 
 
 ### Mantenimiento
 
+- runner scripts take -Repo and refuse a public repository; operation notes for the public repo (D-022, D-023) `9dff2ad`
 - changes, test and engine can run on any PC runner (label tcg-light); Postgres and Docker jobs stay on tcg-pc (D-023) `88259f3`
 - runner install takes a name prefix for a second PC and checks what the jobs need first (D-023) `ba2e522`
 - engine-cli 0.3.3 — f's clock changes what the bots play, so cached chunks of 0.3.2 must not be reused (T-017) `36fd94c`

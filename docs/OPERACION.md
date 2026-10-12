@@ -117,7 +117,7 @@ Mientras el repo fue privado y sin minutos de Actions, la CI corrió en runners 
 - **Solo para un repo privado:** `install.ps1 [-Count 2] [-Prefix tcg-pc] [-Repo <dueño/repo>]` sigue andando contra un repo privado. Revisa antes Git, gh con sesión, Docker Desktop, Rust (GNU) y WinLibs. La CI elegiría esos runners con las variables `CI_RUNNER`, `CI_RUNNER_LIGHT` y `CI_RUNNER_WINDOWS`.
 - **Nunca `Start-Process`** desde una sesión de Claude para arrancarlos (H-016): `Invoke-CimMethod` sobre el `.vbs` de Inicio.
 
-**Dependabot:** en el repo público están prendidas las alertas y los arreglos de seguridad automáticos. Las actualizaciones de versión siguen en pausa (`open-pull-requests-limit: 0` en `.github/dependabot.yml`) hasta que el Coordinador las vuelva a 2 y 1.
+**Dependabot:** en el repo público están prendidas las alertas y los arreglos de seguridad automáticos. Las actualizaciones de versión vuelven a una vez por mes, agrupadas, con 2 PR de npm y 1 de Actions como máximo (`.github/dependabot.yml`, DECISIONES 41.12).
 
 ## Deploy
 

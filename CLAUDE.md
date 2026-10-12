@@ -128,7 +128,7 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
   - La PC pasó al paquete portable el 11/10; faltan el Ryzen y el celu.
 - **Colección desde el tracker (#56, T-020, D-028 propuesta, DECISIONES 54.1–54.11):** el tracker entra por el mismo importador que el CSV (`collection_imports` con `source`).
   - Backup `schemaVersion` 8, ajustes `trackerFriendId` y `trackerAutoSync`, aviso `tracker_sync` y última sincronización por las dos fuentes.
-  - En producción falta el secreto `TRACKER_COLLECTION_ANON_KEY`. La automática sigue apagada hasta que Santi pruebe a mano desde Colección.
+  - En producción ya está el secreto `TRACKER_COLLECTION_ANON_KEY`. La automática sigue apagada hasta que Santi pruebe a mano desde Colección.
 - **CI (D-023):** del 9 al 11/10 corrió en runners propios (`tcg-pc-1/2` y `tcg-ryzen-1/2`, etiquetas `tcg-pc` y `tcg-light`), que se dieron de baja con la mudanza. **En el repo público corre en los runners de GitHub, y los propios no se usan ahí.**
 - **Integrados el 10–11/10/2026:** #38–#47, #49, #50, #53, #55 y #56. Cerrados sin integrar: #48 (para después), #52 (lo reemplazó #55), #54 y #51 (Dependabot).
 - **Producción al 11/10/2026:** el contenido de `abd5034` (= `9f934fc` del viejo), sin redeploy después de la mudanza.
