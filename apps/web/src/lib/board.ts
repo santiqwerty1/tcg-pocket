@@ -227,6 +227,21 @@ export function isPickDecision(actions: readonly BoardAction[]): boolean {
   )
 }
 
+/** A pick that also has options without a Pokémon (a «No», Field Blower's stadium): the prompt says they are in «Opciones». */
+export function pickLeavesOptions(actions: readonly BoardAction[]): boolean {
+  return isPickDecision(actions) && actions.some((action) => action.target === null)
+}
+
+/**
+ * What your Active offers besides attacking, its ability and retreating (a fossil's discard): its sheet lists these
+ * too, or touching it would open a sheet without the option.
+ */
+export function activeExtras(actions: readonly BoardAction[]): BoardAction[] {
+  return optionsFrom(actions, { kind: 'slot', player: 0, index: 0 }).filter(
+    (action) => action.kind !== 'attack' && action.kind !== 'ability' && action.kind !== 'retreat',
+  )
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // What changed
 // ---------------------------------------------------------------------------------------------------------------

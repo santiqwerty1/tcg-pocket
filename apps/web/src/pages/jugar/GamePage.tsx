@@ -19,7 +19,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { ErrorState, LoadingRows, Spinner } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
-import { type BoardAction, boardChanges, type Seat } from '@/lib/board'
+import { type BoardAction, boardChanges, pickLeavesOptions, type Seat } from '@/lib/board'
 import { type Replay, ReplayReader, type ReplayState } from '@/lib/replay'
 import { cn } from '@/lib/utils'
 import { CoachLast, CoachSummarySection } from './Coach'
@@ -250,7 +250,7 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
         <span className="flex-1">
           {line.text}
           {decision && pick ? ': elegí un Pokémon marcado' : ''}
-          {decision && pick && actions.some((action) => action.target === null) ? ' (lo demás, en «Opciones»)' : ''}
+          {decision && pickLeavesOptions(actions) ? ' (lo demás, en «Opciones»)' : ''}
           {decision && setup ? ': prepará tu mesa (el bot pone la suya a la vez)' : ''}
         </span>
       </div>

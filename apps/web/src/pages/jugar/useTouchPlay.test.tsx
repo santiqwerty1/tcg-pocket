@@ -67,6 +67,16 @@ describe('playing a follow-up choice by touch (board audit of 12/10/2026)', () =
     // The coach may have scored the second copy best: the hint goes to the one on the board.
     expect(result.current.canonical(2)).toBe(1)
     expect(result.current.canonical(0)).toBe(0)
+    // On the bench, one tap opens its sheet with «Descartar» (before the dedupe, two copies kept it closed).
+    act(() => result.current.onSlot({ player: 0, index: 1 }))
+    expect(result.current.sheet).toMatchObject({ actions: 'hand', at: { player: 0, index: 1 } })
+  })
+
+  it('a fossil as the Active opens the Active’s sheet, which lists the discard', () => {
+    const fossil = { DiscardFossil: { in_play_idx: 0 } }
+    const { result } = touch(['EndTurn', fossil, fossil])
+    act(() => result.current.onSlot({ player: 0, index: 0 }))
+    expect(result.current.sheet).toMatchObject({ actions: 'active', at: { player: 0, index: 0 } })
   })
 
   it('Pokémon Communication: touching the card of your hand offers it', () => {

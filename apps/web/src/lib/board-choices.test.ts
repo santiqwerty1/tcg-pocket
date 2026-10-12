@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyAction, isPickDecision, optionsAt, targetsOf } from './board'
+import { activeExtras, classifyAction, isPickDecision, optionsAt, pickLeavesOptions, targetsOf } from './board'
 
 // The audit of 12/10/2026: deckgym 33ff2a5's follow-up choices (move_generation_stack), in the JSON engine-cli play
 // sends. Each case was list-only or wrong before; the comment says which card offers it.
@@ -89,8 +89,18 @@ describe('board audit (12/10/2026): what each follow-up choice points at', () =>
     }
   })
 
-  it('a fossil in play is its own source (touch it to discard it)', () => {
+  it('a fossil in play is its own source (touch it to discard it), and the Active’s sheet lists it', () => {
     expect(classify({ DiscardFossil: { in_play_idx: 2 } }).source).toEqual({ kind: 'slot', player: 0, index: 2 })
+    const turn = [
+      classify({ DiscardFossil: { in_play_idx: 0 } }, 0),
+      classify({ DiscardFossil: { in_play_idx: 2 } }, 1),
+      classify({ Attack: 0 }, 2),
+      classify({ Retreat: 1 }, 3),
+      classify({ UseAbility: { in_play_idx: 0 } }, 4),
+      classify('EndTurn', 5),
+    ]
+    // Before the review the Active's sheet showed attack, ability and retreat only: a fossil there had no button.
+    expect(activeExtras(turn).map((action) => action.i)).toEqual([0])
   })
 })
 
@@ -103,6 +113,10 @@ describe('board audit (12/10/2026): answering by touch', () => {
     ]
     // Before: a single option without a Pokémon made the whole decision list-only.
     expect(isPickDecision(decision)).toBe(true)
+    // The prompt says «lo demás, en «Opciones»» only when something is left there.
+    expect(pickLeavesOptions(decision)).toBe(true)
+    expect(pickLeavesOptions(decision.slice(0, 2))).toBe(false)
+    expect(pickLeavesOptions([classify({ UseAbility: { in_play_idx: 1 } }), classify('Noop', 1)])).toBe(false)
     expect(targetsOf(decision, NONE)).toEqual([
       { player: 0, index: 0 },
       { player: 0, index: 2 },

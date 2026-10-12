@@ -22,7 +22,7 @@ import { useBoardCard } from '@/components/board/BoardContext'
 import { AttackLine, useAttacks } from '@/components/board/CardSheet'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import type { ActionKind, BoardAction } from '@/lib/board'
+import { type ActionKind, activeExtras, type BoardAction } from '@/lib/board'
 import type { ReplayReader, ReplayState } from '@/lib/replay'
 import { CoachSummarySection } from './Coach'
 
@@ -192,6 +192,18 @@ export function ActiveActions({
         <Button key={action.i} type="button" variant="secondary" disabled={disabled} onClick={() => onChoose(action.i)}>
           <SparklesIcon aria-hidden="true" />
           Usar la habilidad{me?.edition?.ability ? `: ${me.edition.ability.name}` : ''}
+        </Button>
+      ))}
+      {activeExtras(actions).map((action) => (
+        <Button
+          key={action.i}
+          type="button"
+          variant={hint === action.i ? 'default' : 'outline'}
+          className="h-auto justify-start py-2 text-left whitespace-normal"
+          disabled={disabled}
+          onClick={() => onChoose(action.i)}
+        >
+          {describe(action)}
         </Button>
       ))}
       {retreats.length > 0 ? (
