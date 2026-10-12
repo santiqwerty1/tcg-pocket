@@ -14,13 +14,16 @@ import {
   checkPerGame,
   ET_BOT_CODE,
   FAIR_BOT_CODES,
+  holderLeftMs,
   type PerGameResults,
+  paceMsPerGame,
+  pickCopy,
   saidGamesRev,
   summarizeAnalysisGames,
   wantsPerGame,
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
-import type { Prisma } from '../generated/prisma/client.js'
+import { Prisma } from '../generated/prisma/client.js'
 import { gunzipJson } from '../http/gunzip.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import type { ConsistencyParams } from './simulations.service.js'
@@ -136,10 +139,18 @@ export interface ChunkResultInput {
 export class WorkerQueueService {
   /** Graceful shutdown/unplug: ownership is checked in each update; this never counts as an engine failure. */
   async release(workerId: string) {
+    // Phase 42: a chunk with a copy alive goes on with the copy as its holder (review of #73).
+    await this.prisma.$executeRaw`
+      UPDATE simulation_chunks SET worker_id = shadow_worker_id, lease_until = shadow_lease_until,
+        leased_at = shadow_leased_at, games_done = 0,
+        shadow_worker_id = NULL, shadow_lease_until = NULL, shadow_leased_at = NULL
+      WHERE worker_id = ${workerId} AND status = 'leased'
+        AND shadow_worker_id IS NOT NULL AND shadow_lease_until > now()`
     const chunks = await this.prisma.simulationChunk.updateMany({
       where: { workerId, status: 'leased' },
       data: { status: 'queued', workerId: null, leaseUntil: null, gamesDone: 0 },
     })
+    await this.dropCopies(workerId)
     this.notifyQueued()
     return { chunks: chunks.count }
   }
@@ -216,7 +227,8 @@ export class WorkerQueueService {
    * of the Laboratorio plays. While a search waits for its next round, matrix chunks are held back (B3); quick
    * comparisons are not, and after two minutes without a new round the matrix goes on.
    */
-  private async tryClaim(hello: WorkerHello): Promise<ClaimedChunk[]> {
+  /** The jobs (`j`) this worker can play: its engine, its version, what its engine can do and its preferences. */
+  private jobsFor(hello: WorkerHello): Prisma.Sql {
     // H-002: versions compared as numbers here, not as text in SQL («0.2.10» < «0.2.2» as text).
     const consistency = versionAtLeast(hello.version, CONSISTENCY_WORKER_VERSION)
     const metaConsistency = versionAtLeast(hello.version, META_CONSISTENCY_WORKER_VERSION)
@@ -232,9 +244,21 @@ export class WorkerQueueService {
     // does not say how it plays takes only jobs not fixed yet.
     const gamesRev = saidGamesRev(hello)
     const allowSlowBots = hello.allowSlowBots ?? true
+    return Prisma.sql`j.status IN ('queued', 'running') AND j.engine_rev = ${hello.engineRev}
+          AND (j.kind <> 'consistency' OR ${consistency}::boolean)
+          AND (j.kind <> 'consistency' OR COALESCE(j.params->'consistency'->>'mode', 'goldfish') <> 'meta'
+               OR ${metaConsistency}::boolean)
+          AND (COALESCE(j.params->>'perGame', 'false') <> 'true' OR ${perGame}::boolean)
+          AND (NOT (j.players && ${fairBotCodes}::text[]) OR ${fairBot}::boolean)
+          AND (j.kind = 'consistency' OR NOT (${ET_BOT_CODE} = ANY(j.players)) OR ${etBot}::boolean)
+          AND (j.games_rev IS NULL OR j.games_rev = ${gamesRev}::int)
+          AND (${allowSlowBots}::boolean OR NOT (j.players && ${SLOW_BOT_CODES}::text[]))`
+  }
+
+  private async tryClaim(hello: WorkerHello): Promise<ClaimedChunk[]> {
     const rows = await this.prisma.$queryRaw<{ id: number }[]>`
       UPDATE simulation_chunks SET status = 'leased', lease_until = now() + interval '3 minutes',
-        worker_id = ${hello.workerId}, games_done = 0, started_at = COALESCE(started_at, now())
+        worker_id = ${hello.workerId}, games_done = 0, started_at = COALESCE(started_at, now()), leased_at = now()
       WHERE id = (
         WITH pending AS MATERIALIZED (
           SELECT job_id, count(*) AS left_count FROM simulation_chunks
@@ -252,17 +276,10 @@ export class WorkerQueueService {
           JOIN simulation_jobs j ON j.id = c.job_id
           JOIN pending p ON p.job_id = j.id
           CROSS JOIN between_rounds b
-        WHERE j.status IN ('queued', 'running') AND j.engine_rev = ${hello.engineRev}
+        WHERE ${this.jobsFor(hello)}
           AND (j.kind <> 'matrix' OR NOT b.waiting)
-          AND (j.kind <> 'consistency' OR ${consistency}::boolean)
-          AND (j.kind <> 'consistency' OR COALESCE(j.params->'consistency'->>'mode', 'goldfish') <> 'meta'
-               OR ${metaConsistency}::boolean)
-          AND (COALESCE(j.params->>'perGame', 'false') <> 'true' OR ${perGame}::boolean)
-          AND (NOT (j.players && ${fairBotCodes}::text[]) OR ${fairBot}::boolean)
-          AND (j.kind = 'consistency' OR NOT (${ET_BOT_CODE} = ANY(j.players)) OR ${etBot}::boolean)
-          AND (j.games_rev IS NULL OR j.games_rev = ${gamesRev}::int)
-          AND (${allowSlowBots}::boolean OR NOT (j.players && ${SLOW_BOT_CODES}::text[]))
-          AND (c.status = 'queued' OR (c.status = 'leased' AND c.lease_until < now()))
+          AND (c.status = 'queued' OR (c.status = 'leased' AND c.lease_until < now()
+               AND NOT (c.shadow_worker_id IS NOT NULL AND c.shadow_lease_until > now())))
         -- A chunk this worker sent back (a lost result) goes last for it: another one plays it first (review of #72).
         ORDER BY CASE WHEN ${hello.workerId} = ANY(c.returned_by) THEN 1 ELSE 0 END,
           CASE WHEN j.kind IN ('explore', 'consistency') OR j.params ? 'lab' THEN 0 ELSE 1 END,
@@ -282,6 +299,14 @@ export class WorkerQueueService {
     }
     const more = hello.batch && isPairing(job.kind) ? await this.claimMore(hello, first) : []
     const chunks = more.length === 0 ? [first] : await this.chunksInOrder([first.id, ...more])
+    return this.claimed(chunks, job)
+  }
+
+  /** What a worker gets for its chunks (all of one job): decks, seeds, bots and the job's own parameters. */
+  private async claimed(
+    chunks: Awaited<ReturnType<WorkerQueueService['chunksInOrder']>>,
+    job: Awaited<ReturnType<WorkerQueueService['requireChunk']>>['job'],
+  ): Promise<ClaimedChunk[]> {
     const texts = await this.prisma.deckSnapshot.findMany({
       where: {
         id: {
@@ -352,7 +377,7 @@ export class WorkerQueueService {
         SELECT id FROM (SELECT id, sum(games) OVER (ORDER BY idx) AS games_so_far FROM candidates) t
         WHERE games_so_far <= ${batch.maxGames - first.games})
       UPDATE simulation_chunks SET status = 'leased', lease_until = now() + interval '3 minutes',
-        worker_id = ${hello.workerId}, games_done = 0, started_at = COALESCE(started_at, now())
+        worker_id = ${hello.workerId}, games_done = 0, started_at = COALESCE(started_at, now()), leased_at = now()
       WHERE id IN (SELECT id FROM picked)
       RETURNING id`
     return rows.map((row) => row.id)
@@ -427,8 +452,176 @@ export class WorkerQueueService {
     const chunks = await take()
     if (chunks.length > 0) return answer(chunks)
     if (signal?.aborted) return answer([])
+    // Phase 42, «repetir los últimos»: nothing waits, but another worker may be slower at the end of a job.
+    const copies = await this.tryCopy(hello)
+    if (copies.length > 0) {
+      if (!signal?.aborted) return answer(copies)
+      await this.dropCopies(
+        hello.workerId,
+        copies.map((chunk) => chunk.chunkId),
+      )
+      return answer([])
+    }
     const hint = await this.hintFor(hello)
     return { ...answer([]), ...(hint ? { hint } : {}) }
+  }
+
+  /**
+   * Phase 42, «repetir los últimos» (decided by the Coordinator on 12/10): with nothing in the queue for it, a worker
+   * plays again what another one holds near the end of a job, and the first result counts (the same seed gives the
+   * same games: WorkerQueueService.result takes the first and turns the other down; the heartbeat tells the slower one
+   * to stop). Only a job it can play (the same filter as the claim), with nothing left in the queue, held by a worker
+   * that is alive, with no copy playing already, and only when this worker would finish first by its pace
+   * (`pickCopy`: the PC copies the phone, never the other way round). What a holder plays in one engine run (a batch
+   * of one job) is copied whole, or not at all: losing one chunk of it would stop the holder's whole batch.
+   */
+  private async tryCopy(hello: WorkerHello): Promise<ClaimedChunk[]> {
+    const rows = await this.prisma.$queryRaw<
+      {
+        id: number
+        jobId: number
+        holder: string
+        games: number
+        gamesDone: number
+        leasedAt: Date
+        players: string[]
+      }[]
+    >`
+      WITH between_rounds AS MATERIALIZED (
+        -- B3, as the claim: a search between two rounds holds the matrices back.
+        SELECT EXISTS (
+          SELECT 1 FROM simulation_jobs e
+          WHERE e.kind = 'explore' AND e.status = 'running' AND e.engine_rev = ${hello.engineRev}
+            AND NOT EXISTS (SELECT 1 FROM simulation_chunks q WHERE q.job_id = e.id AND q.status IN ('queued', 'leased'))
+            AND EXISTS (SELECT 1 FROM simulation_chunks d
+                        WHERE d.job_id = e.id AND d.finished_at > now() - interval '2 minutes')) AS waiting)
+      SELECT c.id, c.job_id AS "jobId", c.worker_id AS holder, c.games, c.games_done AS "gamesDone",
+        c.leased_at AS "leasedAt", j.players
+      FROM simulation_chunks c JOIN simulation_jobs j ON j.id = c.job_id CROSS JOIN between_rounds b
+      WHERE ${this.jobsFor(hello)}
+        AND (j.kind <> 'matrix' OR NOT b.waiting)
+        AND c.status = 'leased' AND c.lease_until > now() AND c.worker_id <> ${hello.workerId}
+        AND c.leased_at IS NOT NULL
+        -- Never one this worker gave back (#72): it lost its result there once.
+        AND NOT (${hello.workerId} = ANY(c.returned_by))
+        AND (c.shadow_worker_id IS NULL OR c.shadow_lease_until < now())
+        AND NOT EXISTS (
+          SELECT 1 FROM simulation_chunks q
+          WHERE q.job_id = c.job_id AND (q.status = 'queued' OR (q.status = 'leased' AND q.lease_until < now())))
+      ORDER BY c.job_id, c.idx`
+    if (rows.length === 0) return []
+    const now = Date.now()
+    const holders = new Map(
+      (
+        await this.prisma.workerNode.findMany({
+          where: { id: { in: [...new Set(rows.map((row) => row.holder))] } },
+          select: { id: true, cores: true },
+        })
+      ).map((node) => [node.id, node.cores]),
+    )
+    const units = new Map<
+      string,
+      {
+        jobId: number
+        holder: string
+        players: string[]
+        ids: number[]
+        games: number
+        gamesDone: number
+        elapsedMs: number
+      }
+    >()
+    for (const row of rows) {
+      const key = `${row.jobId}|${row.holder}`
+      const unit = units.get(key) ?? {
+        jobId: row.jobId,
+        holder: row.holder,
+        players: row.players,
+        ids: [],
+        games: 0,
+        gamesDone: 0,
+        elapsedMs: 0,
+      }
+      unit.ids.push(row.id)
+      unit.games += row.games
+      unit.gamesDone += row.gamesDone
+      unit.elapsedMs = Math.max(unit.elapsedMs, now - row.leasedAt.getTime())
+      units.set(key, unit)
+    }
+    // A batch is copied whole, so this worker has to be able to play it as one.
+    const playable = [...units.values()].filter(
+      (unit) =>
+        unit.ids.length === 1 ||
+        (hello.batch !== undefined && unit.ids.length <= hello.batch.maxChunks && unit.games <= hello.batch.maxGames),
+    )
+    if (playable.length === 0) return []
+    // Paces, this worker's and each holder's: their finished chunks of the same job, or else of the same bots in the
+    // last week.
+    const since = new Date(now - 7 * 24 * 60 * 60 * 1000)
+    const finished = await this.prisma.simulationChunk.findMany({
+      where: {
+        workerId: { in: [hello.workerId, ...new Set(playable.map((unit) => unit.holder))] },
+        status: 'done',
+        cachedFrom: null,
+        finishedAt: { gte: since },
+        job: {
+          OR: [
+            { id: { in: playable.map((unit) => unit.jobId) } },
+            ...playable.map((unit): Prisma.SimulationJobWhereInput => ({ players: { equals: unit.players } })),
+          ],
+        },
+      },
+      select: { workerId: true, jobId: true, games: true, durationMs: true, job: { select: { players: true } } },
+      orderBy: { finishedAt: 'desc' },
+      take: 400,
+    })
+    const paceOf = (workerId: string, unit: (typeof playable)[number]) => {
+      const own = finished.filter((chunk) => chunk.workerId === workerId)
+      const sameJob = own.filter((chunk) => chunk.jobId === unit.jobId)
+      if (sameJob.length > 0) return paceMsPerGame(sameJob)
+      return paceMsPerGame(own.filter((chunk) => chunk.job.players.join(',') === unit.players.join(',')))
+    }
+    // Each unit by this worker's pace for it; the one with the most left among those it would finish first.
+    const choices = playable.map((unit) => ({
+      ...unit,
+      holderCores: holders.get(unit.holder) ?? 1,
+      holderMsPerGame: paceOf(unit.holder, unit),
+      pace: paceOf(hello.workerId, unit),
+    }))
+    const chosen = choices
+      .map((unit) => pickCopy([unit], unit.pace))
+      .filter((unit): unit is (typeof choices)[number] => unit !== null)
+      .sort((a, b) => (holderLeftMs(b) ?? 0) - (holderLeftMs(a) ?? 0))[0]
+    if (!chosen) return []
+    const leased = await this.prisma.$queryRaw<{ id: number }[]>`
+      UPDATE simulation_chunks SET shadow_worker_id = ${hello.workerId}, shadow_lease_until = now() + interval '3 minutes',
+        shadow_leased_at = now()
+      WHERE id = ANY(${chosen.ids}::int[]) AND status = 'leased' AND lease_until > now()
+        AND (shadow_worker_id IS NULL OR shadow_lease_until < now())
+      RETURNING id`
+    if (leased.length !== chosen.ids.length) {
+      // Another worker copied part of it meanwhile, or its holder finished: not this time.
+      await this.dropCopies(
+        hello.workerId,
+        leased.map((row) => row.id),
+      )
+      return []
+    }
+    const chunks = await this.chunksInOrder(chosen.ids)
+    const job = await this.prisma.simulationJob.findUniqueOrThrow({ where: { id: chosen.jobId } })
+    this.logger.info(
+      { worker: hello.workerId, chunks: chosen.ids, job: chosen.jobId },
+      'copy of chunks at the end of a job',
+    )
+    return this.claimed(chunks, job)
+  }
+
+  /** Lets go of this worker's copies (a claim that was given up, a shutdown). */
+  private async dropCopies(workerId: string, ids?: number[]): Promise<void> {
+    await this.prisma.simulationChunk.updateMany({
+      where: { copyWorker: workerId, ...(ids ? { id: { in: ids } } : {}) },
+      data: { copyWorker: null, copyUntil: null, copySince: null },
+    })
   }
 
   /** Why a worker that got nothing cannot take what is waiting for its engine, if that is the case. */
@@ -478,6 +671,37 @@ export class WorkerQueueService {
     }
     if (chunk.status === 'done') return { leaseUntil: null, cancelled: false, lost: false }
     const leaseUntil = new Date(Date.now() + LEASE_MS)
+    // Phase 42: a copy renews its own lease while the chunk is leased; its progress is not the holder's. When the
+    // holder's lease ran out (it went away), the copy goes on as the holder (review of #73).
+    if (chunk.copyWorker === input.workerId && chunk.workerId !== input.workerId) {
+      const now = new Date()
+      if (chunk.status === 'leased' && chunk.leaseUntil !== null && chunk.leaseUntil < now) {
+        const promoted = await this.prisma.simulationChunk.updateMany({
+          where: { id, copyWorker: input.workerId, status: 'leased', leaseUntil: { lt: now } },
+          data: {
+            workerId: input.workerId,
+            leaseUntil,
+            leasedAt: chunk.copySince,
+            gamesDone: Math.min(input.gamesDone, chunk.games),
+            copyWorker: null,
+            copyUntil: null,
+            copySince: null,
+          },
+        })
+        if (promoted.count > 0) {
+          await this.prisma.workerNode.updateMany({ where: { id: input.workerId }, data: { lastSeenAt: now } })
+          return { leaseUntil: leaseUntil.toISOString(), cancelled: false, lost: false }
+        }
+      }
+      const renewed = await this.prisma.simulationChunk.updateMany({
+        where: { id, copyWorker: input.workerId, status: 'leased' },
+        data: { copyUntil: leaseUntil },
+      })
+      await this.prisma.workerNode.updateMany({ where: { id: input.workerId }, data: { lastSeenAt: new Date() } })
+      return renewed.count === 0
+        ? { leaseUntil: null, cancelled: false, lost: true }
+        : { leaseUntil: leaseUntil.toISOString(), cancelled: false, lost: false }
+    }
     const renewed = await this.prisma.simulationChunk.updateMany({
       where: { id, status: 'leased', workerId: input.workerId },
       data: {
@@ -582,6 +806,15 @@ export class WorkerQueueService {
               }),
           error: null,
           leaseUntil: null,
+          // Phase 42: whoever came first, the holder or its copy; the other one is told to stop at its heartbeat. A
+          // copy that wins brings its own start (worker-timing reads it).
+          workerId: input.workerId,
+          ...(chunk.copyWorker === input.workerId && chunk.workerId !== input.workerId
+            ? { leasedAt: chunk.copySince }
+            : {}),
+          copyWorker: null,
+          copyUntil: null,
+          copySince: null,
           finishedAt: new Date(),
         },
       })
@@ -624,6 +857,14 @@ export class WorkerQueueService {
   ): Promise<{ status: string }> {
     const chunk = await this.requireChunk(id)
     if (chunk.status === 'done' || chunk.status === 'cancelled') return { status: chunk.status }
+    // Phase 42: a copy that fails counts no attempt (the holder is still playing it): it just lets go. A lost result
+    // still pauses its worker (#72).
+    if (chunk.copyWorker === input.workerId && chunk.workerId !== input.workerId) {
+      if (input.cause === 'worker') await this.pause(input.workerId, input.pausedUntil)
+      await this.dropCopies(input.workerId, [id])
+      this.logger.warn({ chunk: id, error: input.error.slice(0, 300) }, 'copy of a chunk failed')
+      return { status: chunk.status }
+    }
     // H-014: only the worker that holds the chunk can fail it (a late report must not requeue another's work).
     if (chunk.status !== 'leased' || (chunk.workerId !== null && chunk.workerId !== input.workerId)) {
       return { status: chunk.status }
@@ -640,16 +881,23 @@ export class WorkerQueueService {
     const lostRace = async () => ({ status: (await this.requireChunk(id)).status })
     let returned: { returns: number; returnedBy: string[] } | null = null
     let error = input.error
+    // Phase 42: with a copy alive, the chunk does not go back to the queue (nor fail): the copy plays the same games
+    // and goes on as the holder (review of #73). An engine error still counts its attempt.
+    const copy =
+      chunk.copyWorker !== null && chunk.copyUntil !== null && chunk.copyUntil.getTime() > Date.now()
+        ? {
+            status: 'leased' as const,
+            workerId: chunk.copyWorker,
+            leaseUntil: chunk.copyUntil,
+            leasedAt: chunk.copySince,
+            gamesDone: 0,
+            copyWorker: null,
+            copyUntil: null,
+            copySince: null,
+          }
+        : null
     if (input.cause === 'worker') {
-      const until = input.pausedUntil ? Math.min(input.pausedUntil.getTime(), Date.now() + MAX_PAUSE_MS) : 0
-      if (until > Date.now()) {
-        // The episode began with its first pause and lasts until it delivers a result (51.26).
-        await this.prisma.$executeRaw`
-          UPDATE "worker_nodes"
-          SET "paused_until" = ${new Date(until)}, "pause_reason" = 'lost_results',
-            "paused_since" = COALESCE("paused_since", now())
-          WHERE "id" = ${input.workerId}`
-      }
+      await this.pause(input.workerId, input.pausedUntil)
       returned = {
         returns: chunk.returns + 1,
         returnedBy: [...new Set([...chunk.returnedBy, input.workerId])],
@@ -661,15 +909,13 @@ export class WorkerQueueService {
         const moved = await this.prisma.simulationChunk.updateMany({
           where: unchanged,
           data: {
-            status: 'queued',
+            ...(copy ?? { status: 'queued', leaseUntil: null, workerId: null, gamesDone: 0 }),
             ...returned,
             error: `Devuelto por el worker: ${input.error}`.slice(0, 2000),
-            leaseUntil: null,
-            workerId: null,
-            gamesDone: 0,
           },
         })
         if (moved.count === 0) return lostRace()
+        if (copy) return { status: 'leased' }
         this.logger.warn(
           { chunk: id, worker: input.workerId, returns: returned.returns, error: input.error.slice(0, 300) },
           'simulation chunk returned by its worker',
@@ -684,13 +930,34 @@ export class WorkerQueueService {
     const status = attempt >= MAX_FAILURES ? 'failed' : 'queued'
     const moved = await this.prisma.simulationChunk.updateMany({
       where: unchanged,
-      data: { status, attempt, ...(returned ?? {}), error: error.slice(0, 2000), leaseUntil: null, workerId: null },
+      data: {
+        ...(copy ?? { status, leaseUntil: null, workerId: null }),
+        attempt,
+        ...(returned ?? {}),
+        error: error.slice(0, 2000),
+      },
     })
     if (moved.count === 0) return lostRace()
+    if (copy) {
+      this.logger.warn({ chunk: id, attempt, copy: copy.workerId }, 'chunk failed; its copy goes on as the holder')
+      return { status: 'leased' }
+    }
     this.logger.warn({ chunk: id, attempt, error: input.error.slice(0, 300) }, 'simulation chunk failed')
     if (status === 'failed') await this.settle(chunk.jobId)
     else this.notifyQueued()
     return { status }
+  }
+
+  /** #72: a worker that lost its result stops claiming until then (at most `MAX_PAUSE_MS`). */
+  private async pause(workerId: string, pausedUntil: Date | undefined): Promise<void> {
+    const until = pausedUntil ? Math.min(pausedUntil.getTime(), Date.now() + MAX_PAUSE_MS) : 0
+    if (until <= Date.now()) return
+    // The episode began with its first pause and lasts until it delivers a result (51.26).
+    await this.prisma.$executeRaw`
+      UPDATE "worker_nodes"
+      SET "paused_until" = ${new Date(until)}, "pause_reason" = 'lost_results',
+        "paused_since" = COALESCE("paused_since", now())
+      WHERE "id" = ${workerId}`
   }
 
   /** A job ends when every chunk is done, failed or cancelled (an explore job, when the Laboratorio says so). */
@@ -745,6 +1012,12 @@ export class WorkerQueueService {
       })
     }
     const data = new Uint8Array(input.body)
+    // Phase 42: a copy plays the same games and uploads them with ids of its own: one replay per game is kept.
+    const same = await this.prisma.simulationReplay.findFirst({
+      where: { chunkId, gameIndex: input.gameIndex, gameId: { not: gameId } },
+      select: { id: true },
+    })
+    if (same) return { id: same.id }
     const row = await this.prisma.simulationReplay.upsert({
       where: { chunkId_gameId: { chunkId, gameId } },
       create: {

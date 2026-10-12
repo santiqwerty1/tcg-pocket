@@ -887,6 +887,14 @@ model SimulationChunk {
   returnedBy  String[]              @default([]) @map("returned_by")
   leaseUntil  DateTime?             @map("lease_until") @db.Timestamptz(3)
   workerId    String?               @map("worker_id")
+  /// When the worker that holds it now took it (phase 42: its pace; `startedAt` is the first lease).
+  leasedAt    DateTime?             @map("leased_at") @db.Timestamptz(3)
+  /// Phase 42, «repetir los últimos»: a faster worker playing the same chunk near the end of its job, and until when;
+  /// the first result counts.
+  copyWorker  String?               @map("shadow_worker_id")
+  copyUntil   DateTime?             @map("shadow_lease_until") @db.Timestamptz(3)
+  /// When the copy started (it becomes `leasedAt` if the copy wins or goes on as the holder).
+  copySince   DateTime?             @map("shadow_leased_at") @db.Timestamptz(3)
   gamesDone   Int                   @default(0) @map("games_done")
   winsA       Int?                  @map("wins_a")
   winsB       Int?                  @map("wins_b")
