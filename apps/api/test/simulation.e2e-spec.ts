@@ -575,8 +575,13 @@ describe('simulation (e2e)', () => {
     let returned = await giveBack('worker-0001', { pausedUntil: until })
     // The pause it sent shows in Simulación until it claims again.
     expect((await engineWorker('worker-0001'))?.paused).toEqual({ until, reason: 'lost_results' })
+    // The pause episode began with it (the alert's title, one push per episode) and outlives its claims (51.26).
+    const node = () => test.prisma.workerNode.findUniqueOrThrow({ where: { id: 'worker-0001' } })
+    const since = (await node()).pausedSince
+    expect(since).not.toBeNull()
     for (let i = 0; i < 3; i++) returned = await giveBack('worker-0001')
     expect((await engineWorker('worker-0001'))?.paused).toBeNull()
+    expect((await node()).pausedSince).toEqual(since)
     expect(await row(returned.chunkId)).toMatchObject({ status: 'queued', attempt: 0, returns: 4 })
     returned = await giveBack('worker-0001')
     expect(returned.status).toBe('queued')
@@ -613,10 +618,27 @@ describe('simulation (e2e)', () => {
     expect(two.body.progress).toMatchObject({ chunks: { total: 2 } })
     const far = new Date(Date.now() + 48 * 60 * 60_000).toISOString()
     const back = await giveBack('worker-0001', { pausedUntil: far })
-    const node = await test.prisma.workerNode.findUniqueOrThrow({ where: { id: 'worker-0001' } })
-    expect((node.pausedUntil?.getTime() ?? 0) - Date.now()).toBeLessThanOrEqual(6 * 60 * 60_000)
-    expect(((await claim('worker-0001')).body.chunk as Structured).chunkId).not.toBe(back.chunkId)
-    expect(((await claim('worker-0002')).body.chunk as Structured).chunkId).toBe(back.chunkId)
+    expect(((await node()).pausedUntil?.getTime() ?? 0) - Date.now()).toBeLessThanOrEqual(6 * 60 * 60_000)
+    const mine = (await claim('worker-0001')).body.chunk as Structured
+    expect(mine.chunkId).not.toBe(back.chunkId)
+    // Its platform, from worker 0.3.5 (the pause alert asks for Termux's battery only on Android).
+    const other = await bearer('post', '/api/worker/claim').send({ ...worker('worker-0002'), platform: 'android' })
+    expect((other.body.chunk as Structured).chunkId).toBe(back.chunkId)
+    expect((await test.prisma.workerNode.findUniqueOrThrow({ where: { id: 'worker-0002' } })).platform).toBe('android')
+    // A result delivered ends worker-0001's pause episode.
+    expect((await node()).pausedSince).toEqual(since)
+    const delivered = await bearer('put', `/api/worker/chunks/${mine.chunkId}/result`).send({
+      workerId: 'worker-0001',
+      engineRev: test.env.engineRev,
+      winsA: 10,
+      winsB: 10,
+      ties: 0,
+      games: Number(mine.games),
+      turns: 200,
+      durationMs: 1000,
+    })
+    expect(delivered.body).toEqual({ accepted: true })
+    expect((await node()).pausedSince).toBeNull()
     await post(`/api/simulations/${two.body.id}/cancel`)
     for (const id of [first, second, two.body.id as number]) {
       expect((await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)).status).toBe(204)

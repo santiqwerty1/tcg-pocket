@@ -308,11 +308,13 @@ export class AlertsService {
       if (Date.now() - this.startedAt >= this.deployGraceMs) alerts.push(blockedAlert(idle))
     } else if (idle?.reason === 'paused') {
       // Paused after lost results (worker 0.3.4): restarting it would only play the chunk again (review of #72).
+      // The title stays the same for the whole episode (its start, not the end of this pause): one push per episode,
+      // as a push goes once per title (review of #72).
       alerts.push({
         code: 'worker_paused',
         level: 'info',
-        title: `${idle.names} en pausa hasta el ${idle.until} por resultados perdidos`,
-        detail: `${idle.waiting} ${idle.waiting === 1 ? 'tarea espera' : 'tareas esperan'}. El sistema del equipo cortó el motor a mitad de un cruce; el worker vuelve solo. No hace falta reiniciarlo: revisá la batería de Termux («Sin restricciones»).`,
+        title: `${idle.names} en pausa por resultados perdidos${idle.since ? ` (desde el ${idle.since})` : ''}`,
+        detail: `Vuelve solo el ${idle.until}; ${idle.waiting} ${idle.waiting === 1 ? 'tarea espera' : 'tareas esperan'}. El sistema del equipo cortó el motor a mitad de un cruce. No hace falta reiniciarlo${idle.android ? ': revisá que Termux esté «Sin restricciones» en batería' : ''}.`,
         link: '/simulacion',
       })
     } else if (idle) {
@@ -429,7 +431,7 @@ export class AlertsService {
     now = new Date(),
   ): Promise<
     | { waiting: number; since: string | null; reason: 'none' }
-    | { waiting: number; reason: 'paused'; names: string; until: string }
+    | { waiting: number; reason: 'paused'; names: string; until: string; since: string | null; android: boolean }
     | BlockedWork
     | null
   > {
@@ -448,6 +450,8 @@ export class AlertsService {
           engineFeatures: true,
           gamesRev: true,
           pausedUntil: true,
+          pausedSince: true,
+          platform: true,
         },
       }),
     ])
@@ -460,11 +464,14 @@ export class AlertsService {
     const paused = recent.filter((worker) => worker.pausedUntil !== null && worker.pausedUntil > now)
     if (chunks > 0 && paused.length === recent.length) {
       const until = new Date(Math.min(...paused.map((worker) => (worker.pausedUntil as Date).getTime())))
+      const starts = paused.flatMap((worker) => (worker.pausedSince ? [worker.pausedSince.getTime()] : []))
       return {
         waiting,
         reason: 'paused',
         names: paused.map((worker) => worker.name).join(', '),
         until: ownerDateTime(until),
+        since: starts.length > 0 ? ownerDateTime(new Date(Math.min(...starts))) : null,
+        android: paused.some((worker) => worker.platform === 'android'),
       }
     }
     // Some worker is alive, but work that none of them can play waits all the same, as the claims filter it: a job

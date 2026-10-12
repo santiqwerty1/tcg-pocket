@@ -362,6 +362,34 @@ describe('worker loop', () => {
     expect(error.paused).toBe(true)
   })
 
+  it('a clock set back never stretches a pause past the longest one; the claim says the platform (0.3.5)', async () => {
+    const { client, calls } = fakeClient([chunk({ chunkId: 9 })])
+    const controller = new AbortController()
+    const original = vi.mocked(client.claim).getMockImplementation()
+    const hellos: Record<string, unknown>[] = []
+    vi.mocked(client.claim).mockImplementation(async (hello, signal) => {
+      hellos.push(hello as unknown as Record<string, unknown>)
+      const answer = await original?.(hello, signal)
+      if (!answer?.chunk) controller.abort()
+      return answer as Awaited<ReturnType<WorkerClient['claim']>>
+    })
+    Object.assign(client, {
+      liveClaim: vi.fn(async (_hello, signal: AbortSignal) => {
+        await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }))
+        return { game: null }
+      }),
+    })
+    const worker = new Worker(config, client, silent)
+    worker.lostResultsPauseMaxMs = 300
+    // As if the clock went back an hour after the pause was taken.
+    Object.assign(worker, { pausedUntil: Date.now() + 60 * 60_000 })
+    const started = Date.now()
+    await worker.loop(controller.signal)
+    expect(calls.results.map(({ chunkId }) => chunkId)).toEqual([9])
+    expect(Date.now() - started).toBeLessThan(5_000)
+    expect(hellos[0]).toMatchObject({ platform: process.platform })
+  })
+
   it('a pause saved before a restart still holds', async () => {
     const until = new Date(Date.now() + 400).toISOString()
     writeFileSync(join(dataDir, 'state.json'), JSON.stringify({ pausedUntil: until }))

@@ -138,16 +138,27 @@ describe('alerts (e2e)', () => {
           lastSeenAt: new Date(),
           pausedUntil: new Date('2099-10-12T21:30:00Z'),
           pauseReason: 'lost_results',
+          pausedSince: new Date('2026-10-12T17:00:00Z'),
+          platform: 'android',
         },
       })
       const [paused, ...rest] = await alerts()
       expect(rest).toEqual([])
       expect(paused).toMatchObject({
         code: 'worker_paused',
-        title: expect.stringMatching(/^S25 en pausa hasta el .* por resultados perdidos$/),
-        detail: expect.stringContaining('No hace falta reiniciarlo'),
+        // The episode's start, not the end of this pause: a push goes once per title (review of #72).
+        title: 'S25 en pausa por resultados perdidos (desde el 12/10 14:00)',
+        detail: expect.stringMatching(/^Vuelve solo el .*No hace falta reiniciarlo: revisá que Termux esté/),
       })
       expect(paused?.detail).not.toContain('reiniciá')
+      // The next pause of the same episode keeps the title (no new push); off Android, no word of Termux.
+      await test.prisma.workerNode.update({
+        where: { id: 'worker-paused' },
+        data: { pausedUntil: new Date('2099-10-13T03:30:00Z'), platform: 'win32' },
+      })
+      const [next] = await alerts()
+      expect(next?.title).toBe(paused?.title)
+      expect(next?.detail).not.toContain('Termux')
       // Paused no longer: no alert (it can take the chunk).
       await test.prisma.workerNode.update({ where: { id: 'worker-paused' }, data: { pausedUntil: null } })
       expect(await alerts()).toEqual([])

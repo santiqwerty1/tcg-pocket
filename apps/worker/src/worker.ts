@@ -143,6 +143,7 @@ export class Worker {
   stallMs = STALL_MS
   liveDrainMs = LIVE_DRAIN_MS
   lostResultsPauseMs = LOST_RESULTS_PAUSE_MS
+  lostResultsPauseMaxMs = LOST_RESULTS_PAUSE_MAX_MS
   /**
    * Engine runs in a row that ended with 0 and no result, and their chunks (reset by a chunk played; an engine error
    * in between does not reset them: it says nothing of whether this machine lets a long run end), and the pause.
@@ -498,7 +499,7 @@ export class Worker {
     if (this.lostChunks.size >= LOST_RESULTS_BEFORE_PAUSE) {
       const pause = Math.min(
         this.lostResultsPauseMs * 2 ** (this.lostChunks.size - LOST_RESULTS_BEFORE_PAUSE),
-        LOST_RESULTS_PAUSE_MAX_MS,
+        this.lostResultsPauseMaxMs,
       )
       this.pausedUntil = Date.now() + pause
       this.log('el motor perdió resultados varias veces seguidas: no tomo trabajo por un rato', {
@@ -762,11 +763,13 @@ export class Worker {
       // A pause from before a restart still holds (capped, in case the clock moved).
       const saved = Date.parse((await this.readState()).pausedUntil ?? '')
       if (saved > Date.now()) {
-        this.pausedUntil = Math.max(this.pausedUntil, Math.min(saved, Date.now() + LOST_RESULTS_PAUSE_MAX_MS))
+        this.pausedUntil = Math.max(this.pausedUntil, Math.min(saved, Date.now() + this.lostResultsPauseMaxMs))
         this.log('sigo en pausa por resultados perdidos', { until: new Date(this.pausedUntil).toISOString() })
       }
       while (!signal.aborted && !updater?.ready) {
         if (Date.now() < this.pausedUntil) {
+          // A clock set back would stretch it: never longer than the longest pause from now (review of #72).
+          this.pausedUntil = Math.min(this.pausedUntil, Date.now() + this.lostResultsPauseMaxMs)
           await sleep(this.pausedUntil - Date.now(), undefined, {
             signal: AbortSignal.any([signal, wake.signal]),
           }).catch(() => undefined)
@@ -783,6 +786,7 @@ export class Worker {
               cores: this.config.cores,
               version: WORKER_VERSION,
               allowSlowBots: this.config.allowSlowBots,
+              platform: process.platform,
               ...(engineFeatures.length ? { engineFeatures } : {}),
               ...this.revision(),
               ...(this.batchable
