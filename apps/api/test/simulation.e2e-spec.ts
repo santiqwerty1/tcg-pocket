@@ -1396,8 +1396,10 @@ describe('simulation (e2e)', () => {
     expect(created.status).toBe(201)
     const claim = (id: string, engineFeatures: string[]) =>
       bearer('post', '/api/worker/claim').send({ ...worker(id), version: '0.3.1', cliVersion: '0.3.5', engineFeatures })
-    // An engine before 0.3.5 answers «Invalid player code: et» and would fail the chunk three times.
-    expect((await claim('worker-et-old', ['perGame', 'batch', 'fairBots'])).body.chunk).toBeNull()
+    // An engine before 0.3.5 answers «Invalid player code: et» and would fail the chunk three times: nothing, and
+    // the hint says why.
+    const old = (await claim('worker-et-old', ['perGame', 'batch', 'fairBots'])).body
+    expect(old).toMatchObject({ chunk: null, hint: expect.stringContaining('«et»') })
     const fresh = (await claim('worker-et-new', ['perGame', 'batch', 'fairBots', 'etBot'])).body.chunk as Structured
     expect(fresh).toMatchObject({ jobId: created.body.id, players: ['et', 'r'] })
     await post(`/api/simulations/${created.body.id}/cancel`)

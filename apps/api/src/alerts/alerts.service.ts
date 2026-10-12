@@ -8,7 +8,14 @@
  * the GitHub checks — and a database close to Supabase's limit.
  */
 import { Inject, Injectable } from '@nestjs/common'
-import { canPlayPerGame, parseExpansionIds } from '@tcg/domain'
+import {
+  canPlayEtBot,
+  canPlayFairBots,
+  canPlayPerGame,
+  ET_BOT_CODE,
+  FAIR_BOT_CODES,
+  parseExpansionIds,
+} from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { ENV, type Env } from '../config/env.js'
@@ -235,6 +242,19 @@ export class AlertsService {
         detail: `${idle.waiting} ${idle.waiting === 1 ? 'chunk pide' : 'chunks piden'} resultados partida por partida y ningún worker de los últimos 30 minutos los juega: actualizá el worker (0.2.5 o más nuevo) y recompilá el motor.`,
         link: '/simulacion',
       })
+    } else if (idle?.reason === 'etBot' || idle?.reason === 'fairBots') {
+      const what = idle.reason === 'etBot' ? 'el bot «et» (solo termina el turno)' : 'bots f'
+      const fix =
+        idle.reason === 'etBot'
+          ? 'el motor tiene que ser engine-cli 0.3.5 o más nuevo (llega solo al actualizarse el worker; si no, recompilalo)'
+          : 'recompilá el motor (engine-cli con fairBots)'
+      alerts.push({
+        code: 'worker_idle',
+        level: 'warning',
+        title: `Hay simulaciones que ningún worker puede jugar (desde el ${idle.since})`,
+        detail: `${idle.waiting} ${idle.waiting === 1 ? 'tarea usa' : 'tareas usan'} ${what} y ningún worker de los últimos 30 minutos ${idle.reason === 'etBot' ? 'lo juega' : 'los juega'}: ${fix}.`,
+        link: '/simulacion',
+      })
     } else if (idle) {
       alerts.push({
         code: 'worker_idle',
@@ -310,7 +330,7 @@ export class AlertsService {
 
   private async workerIdle(
     now = new Date(),
-  ): Promise<{ waiting: number; since: string | null; reason: 'none' | 'perGame' } | null> {
+  ): Promise<{ waiting: number; since: string | null; reason: 'none' | 'perGame' | 'etBot' | 'fairBots' } | null> {
     const waitingChunk = { OR: [{ status: 'queued' as const }, { status: 'leased' as const, leaseUntil: { lt: now } }] }
     const [chunks, games, last, recent] = await Promise.all([
       this.prisma.simulationChunk.count({ where: { job: { status: { in: ['queued', 'running'] } }, ...waitingChunk } }),
@@ -326,24 +346,59 @@ export class AlertsService {
     if (recent.length === 0) {
       return { waiting, since: last ? ownerDateTime(last.lastSeenAt) : null, reason: 'none' }
     }
-    // Some worker is alive, but work that none of them can play waits all the same (a job with perGame, H-010).
-    if (recent.some((worker) => canPlayPerGame(worker))) return null
-    const perGameJob = {
-      status: { in: ['queued' as const, 'running' as const] },
-      kind: { in: ['matrix' as const, 'compare' as const, 'explore' as const] },
-      params: { path: ['perGame'], equals: true },
+    // Some worker is alive, but work that none of them can play waits all the same: a job with perGame (H-010), or
+    // with «et» (H-051) or an f bot (H-018), as the claims filter them.
+    const active = ['queued' as const, 'running' as const]
+    const needs = [
+      {
+        reason: 'perGame' as const,
+        able: recent.some((worker) => canPlayPerGame(worker)),
+        job: {
+          status: { in: active },
+          kind: { in: ['matrix' as const, 'compare' as const, 'explore' as const] },
+          params: { path: ['perGame'], equals: true },
+        },
+        game: null,
+      },
+      {
+        reason: 'etBot' as const,
+        able: recent.some((worker) => canPlayEtBot(worker)),
+        job: { status: { in: active }, kind: { not: 'consistency' as const }, players: { has: ET_BOT_CODE } },
+        game: { status: 'queued' as const, bot: ET_BOT_CODE },
+      },
+      {
+        reason: 'fairBots' as const,
+        able: recent.some((worker) => canPlayFairBots(worker)),
+        job: { status: { in: active }, players: { hasSome: [...FAIR_BOT_CODES] } },
+        game: { status: 'queued' as const, bot: { in: [...FAIR_BOT_CODES] } },
+      },
+    ]
+    for (const need of needs) {
+      if (need.able) continue
+      const [chunks, oldest, games, oldestGame] = await Promise.all([
+        this.prisma.simulationChunk.count({ where: { job: need.job, ...waitingChunk } }),
+        this.prisma.simulationJob.findFirst({
+          where: { ...need.job, chunks: { some: waitingChunk } },
+          orderBy: { createdAt: 'asc' },
+          select: { createdAt: true },
+        }),
+        need.game ? this.prisma.liveGame.count({ where: need.game }) : 0,
+        need.game
+          ? this.prisma.liveGame.findFirst({
+              where: need.game,
+              orderBy: { createdAt: 'asc' },
+              select: { createdAt: true },
+            })
+          : null,
+      ])
+      const first = [oldest?.createdAt, oldestGame?.createdAt]
+        .filter((at): at is Date => at !== undefined)
+        .sort((a, b) => a.getTime() - b.getTime())[0]
+      if (chunks + games > 0 && first) {
+        return { waiting: chunks + games, since: ownerDateTime(first), reason: need.reason }
+      }
     }
-    const [perGame, oldest] = await Promise.all([
-      this.prisma.simulationChunk.count({ where: { job: perGameJob, ...waitingChunk } }),
-      this.prisma.simulationJob.findFirst({
-        where: { ...perGameJob, chunks: { some: waitingChunk } },
-        orderBy: { createdAt: 'asc' },
-        select: { createdAt: true },
-      }),
-    ])
-    return perGame > 0 && oldest
-      ? { waiting: perGame, since: ownerDateTime(oldest.createdAt), reason: 'perGame' }
-      : null
+    return null
   }
 
   /**

@@ -52,6 +52,13 @@ export interface WorkerHello {
 export const PER_GAME_HINT =
   'Hay simulaciones que piden resultados partida por partida y este worker no puede jugarlas: hace falta el worker 0.2.5 o más nuevo y recompilar el motor (engine-cli con perGame).'
 
+/** H-051: work with «et» waits for an engine that plays it. */
+export const ET_BOT_HINT =
+  'Hay simulaciones con el bot «et» (solo termina el turno) y el motor de este worker no lo juega: hace falta engine-cli 0.3.5 o más nuevo (etBot).'
+/** H-018: work with an f bot waits for an engine that plays them. */
+export const FAIR_BOTS_HINT =
+  'Hay simulaciones con bots f y el motor de este worker no los juega: hace falta recompilar el motor (engine-cli con fairBots).'
+
 export interface ClaimedChunk {
   chunkId: number
   jobId: number
@@ -395,19 +402,28 @@ export class WorkerQueueService {
 
   /** Why a worker that got nothing cannot take what is waiting for its engine, if that is the case. */
   private async hintFor(hello: WorkerHello): Promise<string | null> {
-    if (canPlayPerGame(hello)) return null
-    const waiting = await this.prisma.simulationChunk.count({
-      where: {
-        job: {
-          status: { in: ['queued', 'running'] },
-          engineRev: hello.engineRev,
-          kind: { in: ['matrix', 'compare', 'explore'] },
-          params: { path: ['perGame'], equals: true },
+    const waiting = (job: Prisma.SimulationJobWhereInput) =>
+      this.prisma.simulationChunk.count({
+        where: {
+          job: { status: { in: ['queued', 'running'] }, engineRev: hello.engineRev, ...job },
+          OR: [{ status: 'queued' }, { status: 'leased', leaseUntil: { lt: new Date() } }],
         },
-        OR: [{ status: 'queued' }, { status: 'leased', leaseUntil: { lt: new Date() } }],
-      },
-    })
-    return waiting > 0 ? PER_GAME_HINT : null
+      })
+    if (
+      !canPlayPerGame(hello) &&
+      (await waiting({ kind: { in: ['matrix', 'compare', 'explore'] }, params: { path: ['perGame'], equals: true } })) >
+        0
+    ) {
+      return PER_GAME_HINT
+    }
+    // As the claim filters them: consistency jobs keep «et» as the goldfish rival, which their engine builds itself.
+    if (!canPlayEtBot(hello) && (await waiting({ kind: { not: 'consistency' }, players: { has: ET_BOT_CODE } })) > 0) {
+      return ET_BOT_HINT
+    }
+    if (!canPlayFairBots(hello) && (await waiting({ players: { hasSome: [...FAIR_BOT_CODES] } })) > 0) {
+      return FAIR_BOTS_HINT
+    }
+    return null
   }
 
   private async requireChunk(id: number) {

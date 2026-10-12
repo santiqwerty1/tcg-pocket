@@ -99,6 +99,52 @@ describe('alerts (e2e)', () => {
     await test.prisma.liveGame.delete({ where: { id: game.id } })
   })
 
+  it('H-051: a worker is there, but none plays «et» or the f bots: the alert says what the engine lacks', async () => {
+    const idle = async () =>
+      ((await get('/api/alerts')).body.items as { code: string; title: string; detail: string }[]).filter(
+        (item) => item.code === 'worker_idle',
+      )
+    const worker = await test.prisma.workerNode.upsert({
+      where: { id: 'worker-h051' },
+      create: { id: 'worker-h051', name: 'PC', lastSeenAt: new Date(), engineFeatures: ['perGame', 'batch'] },
+      update: { lastSeenAt: new Date(), engineFeatures: ['perGame', 'batch'] },
+    })
+    const game = (bot: string) =>
+      test.prisma.liveGame.create({
+        data: {
+          status: 'queued',
+          humanSnapshotId: 1,
+          botSnapshotId: 2,
+          bot,
+          seed: 1n,
+          engineRev: test.env.engineRev ?? 'x',
+          choices: [],
+          createdAt: new Date('2026-10-11T15:00:00Z'),
+        },
+      })
+    const et = await game('et')
+    expect(await idle()).toEqual([
+      expect.objectContaining({
+        title: 'Hay simulaciones que ningún worker puede jugar (desde el 11/10 12:00)',
+        detail: expect.stringMatching(/^1 tarea usa el bot «et» \(solo termina el turno\) .*engine-cli 0\.3\.5/),
+      }),
+    ])
+    await test.prisma.workerNode.update({
+      where: { id: worker.id },
+      data: { engineFeatures: ['perGame', 'batch', 'etBot'] },
+    })
+    expect(await idle()).toEqual([])
+    const fair = await game('f2')
+    expect((await idle())[0]?.detail).toMatch(/^1 tarea usa bots f .*fairBots/)
+    await test.prisma.workerNode.update({
+      where: { id: worker.id },
+      data: { engineFeatures: ['perGame', 'batch', 'etBot', 'fairBots'] },
+    })
+    expect(await idle()).toEqual([])
+    await test.prisma.liveGame.deleteMany({ where: { id: { in: [et.id, fair.id] } } })
+    await test.prisma.workerNode.delete({ where: { id: worker.id } })
+  })
+
   const operationAlerts = async (code: string) =>
     ((await get('/api/alerts')).body.items as { code: string; title: string; level: string }[]).filter(
       (item) => item.code === code,
