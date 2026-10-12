@@ -10,14 +10,25 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { dataDir } from './config.js'
 
-const TASK = 'TCG Pocket worker'
+// TCG_WORKER_AUTOSTART_NAME: another task and Startup file (a second install, or a test that must not touch the
+// PC's own launcher).
+const name = () => process.env.TCG_WORKER_AUTOSTART_NAME
+const TASK = () => name() ?? 'TCG Pocket worker'
 const startup = () => join(process.env.APPDATA ?? '', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
-const startupLauncher = () => join(startup(), 'tcg-pocket-worker.vbs')
+const startupLauncher = () => join(startup(), `${name() ?? 'tcg-pocket-worker'}.vbs`)
 
-/** Runs `command` with a hidden window; the worker logs to worker.log in its folder. */
-function launcherScript(command: readonly string[]): string {
+/**
+ * Runs `command` with a hidden window; the worker logs to worker.log in its folder. A data folder chosen with
+ * TCG_WORKER_DIR goes into the launcher too: the worker started at logon (or from outside a package) does not have
+ * the environment of the setup that installed it.
+ */
+export function launcherScript(command: readonly string[]): string {
   const quoted = command.map((part) => `""${part}""`).join(' ')
-  return `CreateObject("WScript.Shell").Run "${quoted}", 0, False\r\n`
+  const folder = process.env.TCG_WORKER_DIR
+  const lines = ['Set shell = CreateObject("WScript.Shell")']
+  if (folder) lines.push(`shell.Environment("Process")("TCG_WORKER_DIR") = "${folder.replace(/"/g, '""')}"`)
+  lines.push(`shell.Run "${quoted}", 0, False`)
+  return `${lines.join('\r\n')}\r\n`
 }
 
 /** schtasks writes its reason («Acceso denegado.») to stderr; the error message alone only repeats the command. */
@@ -27,47 +38,65 @@ function reason(error: unknown): string {
 }
 
 /** Starts the worker now through the launcher; if one is already running, the new one exits (worker.lock). */
-function startNow(launcher: string): void {
+export function startNow(launcher: string): void {
   spawn('wscript.exe', [launcher], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
   console.log(`Worker arrancado (si ya había uno corriendo, sigue ese). Log: ${join(dataDir(), 'worker.log')}`)
 }
 
-/** Installs the logon start of `command` (the executable first, then its arguments) and starts it now. */
-export function installAutostart(command: readonly string[]): void {
+/** What `installAutostart` wrote: the launcher it starts, and every file (setup checks them from outside a package). */
+export interface Autostart {
+  launcher: string
+  files: { path: string; content: string }[]
+}
+
+/**
+ * Installs the logon start of `command` (the executable first, then its arguments) and, unless `start` is false
+ * (setup starts it itself, maybe from outside a package), starts it now.
+ */
+export function installAutostart(command: readonly string[], options: { start?: boolean } = {}): Autostart {
+  const start = options.start ?? true
   if (process.platform !== 'win32') {
     throw new Error('La tarea programada es para Windows; en otro sistema usá systemd o cron.')
   }
   const dir = dataDir()
   mkdirSync(dir, { recursive: true })
   const launcher = join(dir, 'launch.vbs')
-  writeFileSync(launcher, launcherScript(command))
+  const script = launcherScript(command)
+  writeFileSync(launcher, script)
   try {
     execFileSync(
       'schtasks',
-      ['/Create', '/TN', TASK, '/SC', 'ONLOGON', '/RL', 'LIMITED', '/TR', `wscript.exe "${launcher}"`, '/F'],
+      ['/Create', '/TN', TASK(), '/SC', 'ONLOGON', '/RL', 'LIMITED', '/TR', `wscript.exe "${launcher}"`, '/F'],
       { stdio: 'pipe' },
     )
-    console.log(`Tarea «${TASK}» creada: el worker arranca oculto al iniciar sesión.`)
+    console.log(`Tarea «${TASK()}» creada: el worker arranca oculto al iniciar sesión.`)
     // A launcher left in the Startup folder (an earlier install, or the repository's worker) would start a second
     // worker at logon, and whichever came first would keep the lock.
     if (existsSync(startupLauncher())) {
       rmSync(startupLauncher())
       console.log(`Saqué el lanzador anterior de la carpeta Inicio (${startupLauncher()}).`)
     }
-    startNow(launcher)
-    return
+    if (start) startNow(launcher)
+    return { launcher, files: [{ path: launcher, content: script }] }
   } catch (error) {
     console.log(`No se pudo crear la tarea programada (${reason(error)}); uso la carpeta Inicio.`)
   }
-  writeFileSync(startupLauncher(), launcherScript(command))
+  writeFileSync(startupLauncher(), script)
   console.log(`Lanzador creado en ${startupLauncher()}: el worker arranca al iniciar sesión, sin ventana.`)
-  startNow(startupLauncher())
+  if (start) startNow(startupLauncher())
+  return {
+    launcher: startupLauncher(),
+    files: [
+      { path: launcher, content: script },
+      { path: startupLauncher(), content: script },
+    ],
+  }
 }
 
 export function uninstallAutostart(): void {
   try {
-    execFileSync('schtasks', ['/Delete', '/TN', TASK, '/F'], { stdio: 'pipe' })
-    console.log(`Tarea «${TASK}» borrada.`)
+    execFileSync('schtasks', ['/Delete', '/TN', TASK(), '/F'], { stdio: 'pipe' })
+    console.log(`Tarea «${TASK()}» borrada.`)
   } catch {
     // There was no task.
   }

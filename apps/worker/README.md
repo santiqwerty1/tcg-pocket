@@ -73,6 +73,23 @@ El paquete portable de Windows y el de Android siguen a la app: decisión de San
 - **Para no actualizar una máquina:** `"autoUpdate": false` en config.json o `TCG_WORKER_AUTO_UPDATE=false`. `--check` dice qué versión corre y cuál ofrece la app.
 - **Motor.** Con las actualizaciones prendidas, el motor es siempre el del paquete; `enginePath` y `TCG_ENGINE_PATH` solo valen con `autoUpdate: false`.
 
+### Setup sin preguntas y desde una sesión de Claude (0.3.2)
+
+- `tcg-worker.exe --setup --keep`: el setup sin preguntas, para un script o una sesión. Conserva el token, los núcleos y el nombre de config.json (sin token, no hace nada).
+- **El orden del setup**, con o sin preguntas:
+  1. pregunta todo y prueba el motor y la app;
+  2. recién después detiene el worker anterior, con su árbol de procesos;
+  3. instala el arranque y arranca el nuevo.
+  Si el nuevo no aparece en 20 s, vuelve a arrancar el anterior: nunca deja la PC sin worker.
+- **Respuestas desde un archivo.** Las lee línea por línea, así un stdin redirigido no pierde las que ya estaban en el buffer. Al terminarse el archivo, cada pregunta toma Enter.
+- **Desde una app empaquetada** (la app de Claude es MSIX; medido el 11/10/2026):
+  - una carpeta o un archivo nuevo directo en `%LOCALAPPDATA%` o `%APPDATA%` queda en la copia privada de la app, y nadie de afuera lo ve;
+  - escribir dentro de carpetas que ya existen (Inicio, TEMP, un `tcg-worker` ya creado) es real;
+  - lo que la app arranca muere con ella (H-016).
+  El setup lo detecta (`src/outside.ts`). En ese caso escribe desde afuera, por WMI, lo que el worker real no vería (config.json, `launch.vbs`, el lanzador de Inicio) y arranca el worker por WMI.
+- **Carpeta de datos propia.** Si el setup corre con `TCG_WORKER_DIR`, el lanzador lo lleva, porque el worker que arranca al iniciar sesión no tiene el entorno del setup.
+- **Para pruebas**, `TCG_WORKER_AUTOSTART_NAME` cambia el nombre de la tarea y del lanzador de Inicio. Ojo: `--uninstall` corre el código de la versión bajada, y una versión anterior a 0.3.2 no conoce esa variable. Para limpiar una prueba, borrá a mano los archivos con el nombre de prueba.
+
 ### Pasar cada máquina, una sola vez
 
 - **El Ryzen (paquete portable viejo).**

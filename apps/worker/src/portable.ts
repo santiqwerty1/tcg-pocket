@@ -4,6 +4,7 @@
  * parallel; each one claims its own.
  *
  *   tcg-worker.exe                setup: token, cores and name; a check against the engine and the app; logon start
+ *   tcg-worker.exe --setup --keep the same without questions, keeping config.json (from a script or a Claude session)
  *   tcg-worker.exe --run          what the logon start runs: the supervisor, which keeps a `--child` going (D-026)
  *   tcg-worker.exe --check        configuration, engine, server reachability and updates
  *   tcg-worker.exe --once         at most one chunk, then exit
@@ -19,9 +20,10 @@ import { availableParallelism, hostname } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { installAutostart, uninstallAutostart } from './autostart.js'
+import { installAutostart, startNow, uninstallAutostart } from './autostart.js'
 import { type ConfigDefaults, configFile, dataDir, readFileConfig, writeFileConfig } from './config.js'
 import { checkDeterminism, DETERMINISM_MISMATCH, DeterminismError } from './determinism.js'
+import { insidePackage, processesRunning, startOutside, visibleOutside, writeOutside } from './outside.js'
 import { run } from './run.js'
 import { type Installation, windowsInstallation } from './update.js'
 import { WORKER_VERSION } from './version.js'
@@ -107,26 +109,120 @@ function stopTree(pid: number): void {
   spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
 }
 
-async function setup(context: PortableContext): Promise<void> {
+/**
+ * Answers read line by line: with stdin redirected from a file, `rl.question` dropped the lines already buffered and
+ * the setup ended at EOF halfway (11/10/2026). The iterator keeps them in order; at EOF every question gets Enter.
+ */
+export function prompter(
+  input: NodeJS.ReadableStream & { isTTY?: boolean } = process.stdin,
+  output: NodeJS.WritableStream = process.stdout,
+) {
+  const rl = createInterface({ input, output, terminal: input.isTTY === true })
+  const lines = rl[Symbol.asyncIterator]()
+  return {
+    async ask(question: string): Promise<string> {
+      output.write(question)
+      const next = await lines.next()
+      if (next.done) output.write('\n')
+      return next.done ? '' : String(next.value).trim()
+    },
+    close: () => rl.close(),
+  }
+}
+
+/** Waits for this `tcg-worker.exe --run` (by its path) to be running; whether it showed up. */
+async function workerStarted(timeoutMs = 20_000): Promise<boolean> {
+  const until = Date.now() + timeoutMs
+  while (Date.now() < until) {
+    if (processesRunning(process.execPath, '--run').length > 0) return true
+    await sleep(1000)
+  }
+  return false
+}
+
+/**
+ * Setup (double click, or `--setup`): token, threads and name, a check of the engine and the app, the logon start
+ * and the worker started. `--setup --keep` asks nothing and keeps what config.json has (a token is required). Order
+ * (revisión del 11/10): everything is asked and checked before an older worker is stopped, and if the new one does
+ * not start, the old one is started again: setup never leaves the PC without a worker. From a packaged app (a Claude
+ * session), what the real worker needs is written and started from outside it (`outside.ts`).
+ */
+async function setup(context: PortableContext, options: { keep: boolean }): Promise<number> {
   console.log(`TCG Pocket: worker de simulación ${WORKER_VERSION}\n`)
   const current = readFileConfig()
-  const rl = createInterface({ input: process.stdin, output: process.stdout })
+  const prompt = options.keep ? null : prompter()
+  const ask = async (question: string) => (prompt ? prompt.ask(question) : '')
   try {
+    const server = current.server ?? DEFAULT_SERVER
+    console.log(`Servidor: ${server}`)
+    const hasToken = current.token?.startsWith('tcg_wk_') === true
+    if (options.keep && !hasToken) {
+      throw new Error(
+        `--keep conserva la configuración, pero ${configFile()} no tiene un token de worker: corré el setup con preguntas.`,
+      )
+    }
+    let token = current.token ?? ''
+    while (!options.keep) {
+      const answer = await ask(
+        hasToken
+          ? 'Token del worker (Enter = dejar el que está): '
+          : 'Token del worker (en la app: Más → Tokens de API → nuevo, tipo worker): ',
+      )
+      if (!answer && hasToken) break
+      if (answer.startsWith('tcg_wk_')) {
+        token = answer
+        break
+      }
+      if (!answer)
+        throw new Error('Sin token no hay worker: creá uno de tipo worker en la app y volvé a abrir este programa.')
+      console.log('Ese no es un token de worker: empieza con tcg_wk_.')
+    }
+    const max = availableParallelism()
+    const suggested = current.cores ?? max
+    const coresAnswer = await ask(
+      `Hilos a usar (esta PC tiene ${max}; la prioridad baja deja CPU a la CI; Enter = ${suggested}): `,
+    )
+    const parsed = Number(coresAnswer)
+    const cores = coresAnswer && Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, max) : suggested
+    const name = current.name ?? hostname()
+    const nameAnswer = await ask(`Nombre de esta PC en la app (Enter = ${name}): `)
+
     // An older worker (another folder, or the repository's) keeps the lock: the new one would not start.
     const { workers, others } = lockOwners()
+    let stopOld = workers.length > 0
     if (workers.length > 0) {
       for (const { pid, line } of workers) console.log(`Worker corriendo: PID ${pid} — ${line}`)
-      const answer = (
-        await rl.question('¿Lo detengo para usar este? Lo que esté jugando vuelve a la cola. [S/n]: ')
-      ).trim()
-      if (/^n/i.test(answer)) {
+      if (!options.keep) {
+        const answer = await ask('¿Lo detengo para usar este? Lo que esté jugando vuelve a la cola. [S/n]: ')
+        stopOld = !/^n/i.test(answer)
+      }
+      if (!stopOld) {
         console.log('No toco nada. Cerralo (Administrador de tareas o cerrar sesión) y volvé a abrir este programa.')
-        return
+        return 1
       }
-      for (const { pid } of workers) {
-        stopTree(pid)
-        for (let i = 0; i < 50 && alive(pid); i++) await sleep(100)
-      }
+    }
+
+    // D-026: the engine is the package's (the updates replace it); an old `enginePath` would only confuse.
+    const { enginePath: _engine, ...kept } = current
+    const config = {
+      ...kept,
+      server,
+      token,
+      cores,
+      priority: current.priority ?? 'below_normal',
+      name: nameAnswer || name,
+    }
+    writeFileConfig(config)
+    console.log(`\nConfiguración guardada en ${configFile()}.`)
+    console.log('Probando el motor y la conexión con la app…')
+    // Before anything is stopped: a bad token or an unreachable app leaves the old worker running.
+    await run(['--check'], defaultsOf(context), { installation: installationOf(context) })
+
+    for (const { pid } of workers) {
+      stopTree(pid)
+      for (let i = 0; i < 50 && alive(pid); i++) await sleep(100)
+    }
+    if (workers.length > 0) {
       console.log('Worker anterior detenido (con sus motores). Lo que jugaba vuelve a la cola en hasta 3 minutos.')
     }
     for (const { lock, pid, line } of others) {
@@ -140,59 +236,48 @@ async function setup(context: PortableContext): Promise<void> {
         )
       }
     }
-    const server = current.server ?? DEFAULT_SERVER
-    console.log(`Servidor: ${server}`)
-    const hasToken = current.token?.startsWith('tcg_wk_') === true
-    let token = current.token ?? ''
-    for (;;) {
-      const answer = (
-        await rl.question(
-          hasToken
-            ? 'Token del worker (Enter = dejar el que está): '
-            : 'Token del worker (en la app: Más → Tokens de API → nuevo, tipo worker): ',
-        )
-      ).trim()
-      if (!answer && hasToken) break
-      if (answer.startsWith('tcg_wk_')) {
-        token = answer
-        break
+
+    const autostart = installAutostart([process.execPath, '--run'], { start: false })
+    const packaged = await insidePackage()
+    if (packaged) {
+      // A Claude session (or another packaged app): its writes to new AppData folders stay in its private copy, and
+      // what it starts dies with it. The real worker must find its files and run outside.
+      console.log('Esto corre dentro de una app empaquetada: escribo y arranco el worker desde afuera de ella.')
+      const files = [{ path: configFile(), content: `${JSON.stringify(config, null, 2)}\n` }, ...autostart.files]
+      const seen = await visibleOutside(files.map((file) => file.path))
+      for (const [i, file] of files.entries()) {
+        if (seen[i]) continue
+        if (!(await writeOutside(file.path, file.content)))
+          throw new Error(`No pude escribir ${file.path} desde afuera.`)
+        console.log(`Escrito desde afuera: ${file.path}`)
       }
-      console.log('Ese no es un token de worker: empieza con tcg_wk_.')
-    }
-    const max = availableParallelism()
-    const suggested = current.cores ?? max
-    const coresAnswer = (
-      await rl.question(
-        `Hilos a usar (esta PC tiene ${max}; la prioridad baja deja CPU a la CI; Enter = ${suggested}): `,
+      if (startOutside(`wscript.exe "${autostart.launcher}"`) === null) {
+        throw new Error('No pude arrancar el worker desde afuera (WMI).')
+      }
+    } else startNow(autostart.launcher)
+
+    if (process.platform === 'win32' && !(await workerStarted())) {
+      // Never a PC without a worker: the one that ran before comes back.
+      for (const { line } of workers) startOutside(line)
+      throw new Error(
+        workers.length > 0
+          ? 'El worker nuevo no arrancó: volví a arrancar el anterior. Mirá worker.log.'
+          : 'El worker nuevo no arrancó. Mirá worker.log.',
       )
-    ).trim()
-    const parsed = Number(coresAnswer)
-    const cores = coresAnswer && Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, max) : suggested
-    const name = current.name ?? hostname()
-    const nameAnswer = (await rl.question(`Nombre de esta PC en la app (Enter = ${name}): `)).trim()
-    // D-026: the engine is the package's (the updates replace it); an old `enginePath` would only confuse.
-    const { enginePath: _engine, ...kept } = current
-    writeFileConfig({
-      ...kept,
-      server,
-      token,
-      cores,
-      priority: current.priority ?? 'below_normal',
-      name: nameAnswer || name,
-    })
-    console.log(`\nConfiguración guardada en ${configFile()}.`)
-    console.log('Probando el motor y la conexión con la app…')
-    await run(['--check'], defaultsOf(context), { installation: installationOf(context) })
-    installAutostart([process.execPath, '--run'])
+    }
     console.log(
       '\nListo: el worker queda corriendo y arranca solo cada vez que inicies sesión. En la app lo ves en Más → Simulación.',
     )
     console.log('Se actualiza solo cuando la app tiene una versión nueva (entre partidas, nunca a mitad de un chunk).')
+    return 0
   } catch (error) {
     console.log(`\nNo se pudo terminar: ${error instanceof Error ? error.message : String(error)}`)
+    return 1
   } finally {
-    await rl.question('\nEnter para cerrar.')
-    rl.close()
+    if (prompt) {
+      await prompt.ask('\nEnter para cerrar.')
+      prompt.close()
+    }
   }
 }
 
@@ -229,6 +314,5 @@ export async function main(args: readonly string[], context: PortableContext): P
       { installation: installationOf(context) },
     )
   }
-  await setup(context)
-  return 0
+  return setup(context, { keep: args.includes('--keep') })
 }
