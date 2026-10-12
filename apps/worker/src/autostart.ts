@@ -6,7 +6,7 @@
  * (`tcg-worker.exe --run`, Fase 21).
  */
 import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { dataDir } from './config.js'
 
@@ -31,6 +31,30 @@ export function launcherScript(command: readonly string[]): string {
   return `${lines.join('\r\n')}\r\n`
 }
 
+/**
+ * A launcher in UTF-16 with a BOM: Windows Script Host reads that as Unicode (anything else as the ANSI code page, which
+ * breaks a path with an accent, such as a user folder named Sebastián).
+ */
+function writeLauncher(path: string, script: string): void {
+  writeFileSync(path, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(script, 'utf16le')]))
+}
+
+/** The file as it was (null: there was none), to put it back. */
+const snapshot = (path: string): Buffer | null => (existsSync(path) ? readFileSync(path) : null)
+const putBack = (path: string, before: Buffer | null) => {
+  if (before) writeFileSync(path, before)
+  else rmSync(path, { force: true })
+}
+
+function taskExists(): boolean {
+  try {
+    execFileSync('schtasks', ['/Query', '/TN', TASK()], { stdio: 'pipe' })
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** schtasks writes its reason («Acceso denegado.») to stderr; the error message alone only repeats the command. */
 function reason(error: unknown): string {
   const stderr = (error as { stderr?: Buffer }).stderr?.toString('latin1').trim()
@@ -43,10 +67,11 @@ export function startNow(launcher: string): void {
   console.log(`Worker arrancado (si ya había uno corriendo, sigue ese). Log: ${join(dataDir(), 'worker.log')}`)
 }
 
-/** What `installAutostart` wrote: the launcher it starts, and every file (setup checks them from outside a package). */
+/** What `installAutostart` did: the launcher that starts the worker, and how to put everything back. */
 export interface Autostart {
   launcher: string
-  files: { path: string; content: string }[]
+  /** The launchers (and a logon task this created) as they were before: setup's way back if the switch fails. */
+  restore(): void
 }
 
 /**
@@ -62,13 +87,28 @@ export function installAutostart(command: readonly string[], options: { start?: 
   mkdirSync(dir, { recursive: true })
   const launcher = join(dir, 'launch.vbs')
   const script = launcherScript(command)
-  writeFileSync(launcher, script)
+  const before = { launcher: snapshot(launcher), startup: snapshot(startupLauncher()), task: taskExists() }
+  let createdTask = false
+  const restore = () => {
+    putBack(launcher, before.launcher)
+    putBack(startupLauncher(), before.startup)
+    // A task this created goes away; one that existed already runs the same launcher path, put back above.
+    if (createdTask && !before.task) {
+      try {
+        execFileSync('schtasks', ['/Delete', '/TN', TASK(), '/F'], { stdio: 'pipe' })
+      } catch {
+        // Gone already.
+      }
+    }
+  }
+  writeLauncher(launcher, script)
   try {
     execFileSync(
       'schtasks',
       ['/Create', '/TN', TASK(), '/SC', 'ONLOGON', '/RL', 'LIMITED', '/TR', `wscript.exe "${launcher}"`, '/F'],
       { stdio: 'pipe' },
     )
+    createdTask = true
     console.log(`Tarea «${TASK()}» creada: el worker arranca oculto al iniciar sesión.`)
     // A launcher left in the Startup folder (an earlier install, or the repository's worker) would start a second
     // worker at logon, and whichever came first would keep the lock.
@@ -77,20 +117,14 @@ export function installAutostart(command: readonly string[], options: { start?: 
       console.log(`Saqué el lanzador anterior de la carpeta Inicio (${startupLauncher()}).`)
     }
     if (start) startNow(launcher)
-    return { launcher, files: [{ path: launcher, content: script }] }
+    return { launcher, restore }
   } catch (error) {
     console.log(`No se pudo crear la tarea programada (${reason(error)}); uso la carpeta Inicio.`)
   }
-  writeFileSync(startupLauncher(), script)
+  writeLauncher(startupLauncher(), script)
   console.log(`Lanzador creado en ${startupLauncher()}: el worker arranca al iniciar sesión, sin ventana.`)
   if (start) startNow(startupLauncher())
-  return {
-    launcher: startupLauncher(),
-    files: [
-      { path: launcher, content: script },
-      { path: startupLauncher(), content: script },
-    ],
-  }
+  return { launcher: startupLauncher(), restore }
 }
 
 export function uninstallAutostart(): void {

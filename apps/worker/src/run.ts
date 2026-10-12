@@ -129,7 +129,7 @@ export async function run(
           ...(bad ? { notUsed: bad.reason, since: bad.at, forGood: bad.permanent === true } : {}),
         })
       }
-      return 0
+      return controller.signal.aborted ? 130 : 0
     }
     const running = acquireLock(config.dataDir)
     if (running !== null) {
@@ -179,7 +179,8 @@ export async function run(
     }
   } catch (error) {
     if (!controller.signal.aborted) throw error
-    return 0
+    // An interrupted --check proved nothing: setup must not read it as a pass (revisión del #63).
+    return args.has('--check') ? 130 : 0
   } finally {
     controller.abort()
     if (locked)

@@ -76,19 +76,22 @@ El paquete portable de Windows y el de Android siguen a la app: decisión de San
 ### Setup sin preguntas y desde una sesión de Claude (0.3.2)
 
 - `tcg-worker.exe --setup --keep`: el setup sin preguntas, para un script o una sesión. Conserva el token, los núcleos y el nombre de config.json (sin token, no hace nada).
-- **El orden del setup**, con o sin preguntas:
-  1. pregunta todo y prueba el motor y la app;
-  2. recién después detiene el worker anterior, con su árbol de procesos;
-  3. instala el arranque y arranca el nuevo.
-  Si el nuevo no aparece en 20 s, vuelve a arrancar el anterior: nunca deja la PC sin worker.
-- **Respuestas desde un archivo.** Las lee línea por línea, así un stdin redirigido no pierde las que ya estaban en el buffer. Al terminarse el archivo, cada pregunta toma Enter.
+- **Nunca deja la PC sin worker** (`src/setup.ts`). Antes de detener el worker anterior:
+  1. pregunta todo;
+  2. prueba la configuración candidata sin guardarla;
+  3. guarda la configuración e instala los lanzadores, con copia de lo anterior.
+  Después, solo detiene el anterior (con su árbol), arranca el nuevo y espera verlo con el lock. Si algo falla en ese tramo, vuelve a dejar la configuración y los lanzadores, y arranca otra vez solo el supervisor anterior. En ese tramo Ctrl+C espera; antes cancela, y nunca cuenta como «sí».
+- **Respuestas desde un archivo:** se leen línea por línea, y al terminarse el archivo cada pregunta toma Enter.
 - **Desde una app empaquetada** (la app de Claude es MSIX; medido el 11/10/2026):
-  - una carpeta o un archivo nuevo directo en `%LOCALAPPDATA%` o `%APPDATA%` queda en la copia privada de la app, y nadie de afuera lo ve;
-  - escribir dentro de carpetas que ya existen (Inicio, TEMP, un `tcg-worker` ya creado) es real;
+  - una carpeta o un archivo nuevo directo en `%LOCALAPPDATA%` o `%APPDATA%` queda en la copia privada de la app;
+  - una copia privada tapa a la real solo para la app;
   - lo que la app arranca muere con ella (H-016).
-  El setup lo detecta (`src/outside.ts`). En ese caso escribe desde afuera, por WMI, lo que el worker real no vería (config.json, `launch.vbs`, el lanzador de Inicio) y arranca el worker por WMI.
-- **Carpeta de datos propia.** Si el setup corre con `TCG_WORKER_DIR`, el lanzador lo lleva, porque el worker que arranca al iniciar sesión no tiene el entorno del setup.
-- **Para pruebas**, `TCG_WORKER_AUTOSTART_NAME` cambia el nombre de la tarea y del lanzador de Inicio. Desde 0.3.2, el setup y `--uninstall` nunca corren con código más viejo que el del `.exe`: si la versión bajada es anterior, usan el código propio. Así, un `.exe` de prueba que se actualizó a un paquete viejo no puede tocar el lanzador real (pasó el 11/10). Igual conviene darle a la prueba su propio `APPDATA`.
+  El setup lo detecta y se vuelve a correr afuera por WMI con `--setup --keep`, y muestra lo que hizo ese. Las respuestas preguntadas adentro van en un archivo de TEMP que se borra al leerlo.
+- **Carpeta de datos propia.** Si el setup corre con `TCG_WORKER_DIR`, el lanzador la lleva. Los lanzadores van en UTF-16 con BOM, así una ruta con tildes no los rompe.
+- **Para pruebas:**
+  - `TCG_WORKER_AUTOSTART_NAME` cambia el nombre de la tarea y del lanzador de Inicio;
+  - el setup y `--uninstall` corren el código del `.exe` si la versión bajada es más vieja;
+  - igual conviene darle a la prueba su propio `APPDATA` y limpiar a mano.
 
 ### Pasar cada máquina, una sola vez
 
