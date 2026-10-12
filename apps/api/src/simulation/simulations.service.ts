@@ -1059,6 +1059,10 @@ export class SimulationsService {
           attempt: 0,
           returns: 0,
           returnedBy: [],
+          // Phase 42: no copy either (a failed chunk has none, but nothing old is kept).
+          copyWorker: null,
+          copyUntil: null,
+          copySince: null,
           error: null,
           leaseUntil: null,
           workerId: null,

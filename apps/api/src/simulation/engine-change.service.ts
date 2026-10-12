@@ -250,6 +250,10 @@ export class EngineChangeService implements OnApplicationBootstrap, OnModuleDest
           // Returns of a lost result (worker 0.3.4) start over too: they were of the other engine.
           returns: 0,
           returnedBy: [],
+          // A copy of the old engine goes too (review of #73).
+          copyWorker: null,
+          copyUntil: null,
+          copySince: null,
           gamesDone: 0,
           error: null,
         },

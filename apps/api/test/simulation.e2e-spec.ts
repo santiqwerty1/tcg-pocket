@@ -1949,9 +1949,20 @@ describe('simulation (e2e)', () => {
       data: { engineRev: old },
     })
 
+    // A copy of the chunk in a worker's hands, of the old engine too (review of #73).
+    await test.prisma.simulationChunk.update({
+      where: { id: second.chunkId as number },
+      data: { copyWorker: 'worker-copy-old', copyUntil: new Date(Date.now() + 60_000), copySince: new Date() },
+    })
     const engine = test.app.get(EngineChangeService)
     const moved = await engine.moveJobs()
     expect(moved).toEqual({ moved: [fresh.id], replayed: [played.id] })
+    expect(
+      await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: second.chunkId as number } }),
+    ).toMatchObject({
+      copyWorker: null,
+      copyUntil: null,
+    })
     // What the old engine played is not counted next to what the new one plays: the decks' column leaves it out.
     expect(await simulations.deckColumn(rivalDeck)).toEqual(columnBefore)
     type Detail = {
@@ -2534,6 +2545,284 @@ describe('simulation (e2e)', () => {
     })
     await test.prisma.simulationJob.deleteMany({ where: { label: 'relleno' } })
     await test.prisma.workerNode.deleteMany({ where: { id: { startsWith: 'mig-' } } })
+  })
+
+  it('phase 42, «repetir los últimos»: a faster worker copies the slow one at the end of a job; the first result counts', async () => {
+    const make = async (games: number, perGame = false) =>
+      (
+        await post('/api/simulations').send({
+          kind: 'compare',
+          sideA: decks(3, 3),
+          sideB: decks(7, 8),
+          gamesPerPair: games,
+          players: ['r', 'r'],
+          cache: false,
+          ...(perGame ? { perGame: true } : {}),
+        })
+      ).body as { id: number }
+    const as = (id: string, extra: Structured = {}) =>
+      bearer('post', '/api/worker/claim').send({ ...worker(id), ...extra })
+    const result = (chunkId: unknown, workerId: string, durationMs = 50_000, extra: Structured = {}) =>
+      bearer('put', `/api/worker/chunks/${chunkId}/result`).send({
+        workerId,
+        engineRev: test.env.engineRev,
+        winsA: 600,
+        winsB: 400,
+        ties: 0,
+        games: 1000,
+        durationMs,
+        ...extra,
+      })
+    const beat = (chunkId: unknown, workerId: string) =>
+      bearer('put', `/api/worker/chunks/${chunkId}/heartbeat`).send({ workerId, gamesDone: 10 })
+    const chunkRow = (chunkId: unknown) =>
+      test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: chunkId as number } })
+    // The phone has played 100 of its 1.000 games in 10 minutes (6 s a game), past two rounds of its 2 cores.
+    const slowDown = (chunkId: unknown) =>
+      test.prisma.simulationChunk.update({
+        where: { id: chunkId as number },
+        data: { gamesDone: 100, leasedAt: new Date(Date.now() - 10 * 60 * 1000) },
+      })
+    // A job whose first pairing the PC played (50 ms a game) and whose second one the phone holds, slowly.
+    const pcAndPhone = async () => {
+      const job = await make(1000)
+      const pc = (await as('worker-copy-pc')).body.chunk as Structured
+      const phone = (await as('worker-copy-phone')).body.chunk as Structured
+      expect([pc.jobId, phone.jobId]).toEqual([job.id, job.id])
+      expect((await result(pc.chunkId, 'worker-copy-pc')).body).toEqual({ accepted: true })
+      return { job, phone }
+    }
+    const jobs: number[] = []
+
+    const { job, phone } = await pcAndPhone()
+    jobs.push(job.id)
+    // Just taken, the phone has said nothing yet and has no pace of its own: no copy on a guess.
+    expect((await as('worker-copy-pc')).body.chunk).toBeNull()
+    await slowDown(phone.chunkId)
+    // A worker of another games revision never copies (the job is fixed to the revision of its first result).
+    expect((await as('worker-copy-rev2', { cliVersion: '0.3.6', gamesRev: 2 })).body.chunk).toBeNull()
+    // The PC, nothing left in the queue, copies what the phone plays: the same chunk, the same seed.
+    const copy = (await as('worker-copy-pc')).body.chunk as Structured
+    expect(copy).toMatchObject({ chunkId: phone.chunkId, seed: phone.seed, jobId: job.id })
+    const copiedAt = (await chunkRow(copy.chunkId)).copySince as Date
+    // One copy at a time.
+    expect((await as('worker-copy-other')).body.chunk).toBeNull()
+    // The copy's heartbeat renews its own lease, and the phone's its own.
+    expect((await beat(copy.chunkId, 'worker-copy-pc')).body).toMatchObject({ lost: false, cancelled: false })
+    expect((await beat(phone.chunkId, 'worker-copy-phone')).body).toMatchObject({ lost: false })
+    // The same games: a replay uploaded by both is kept once.
+    const replay = (gameId: string) =>
+      bearer('put', `/api/worker/chunks/${copy.chunkId}/replays/${gameId}`)
+        .query({ index: 0, seed: '1', winner: 'a' })
+        .set('Content-Type', 'application/gzip')
+        .send(gzipSync(JSON.stringify({ version: 1, steps: [], outcome: { Win: 0 } })))
+    await replay('00000000-0000-0000-0000-0000000000c1')
+    await replay('00000000-0000-0000-0000-0000000000c2')
+    expect(await test.prisma.simulationReplay.count({ where: { chunkId: copy.chunkId as number } })).toBe(1)
+    // The copy comes first: it counts, with its own start (worker-timing), and the phone is told its chunk is no
+    // longer to be played.
+    expect((await result(copy.chunkId, 'worker-copy-pc')).body).toEqual({ accepted: true })
+    expect(await chunkRow(phone.chunkId)).toMatchObject({
+      status: 'done',
+      workerId: 'worker-copy-pc',
+      leasedAt: copiedAt,
+      copyWorker: null,
+    })
+    expect((await beat(phone.chunkId, 'worker-copy-phone')).body).toMatchObject({ leaseUntil: null })
+    expect((await result(phone.chunkId, 'worker-copy-phone', 600_000)).body).toEqual({ accepted: false })
+    expect((await get(`/api/simulations/${job.id}`)).body).toMatchObject({ status: 'done' })
+
+    // The other way round: the holder comes first, and the copy is told to stop and turned down.
+    const second = await pcAndPhone()
+    jobs.push(second.job.id)
+    await slowDown(second.phone.chunkId)
+    const late = (await as('worker-copy-pc')).body.chunk as Structured
+    expect(late.chunkId).toBe(second.phone.chunkId)
+    expect((await result(second.phone.chunkId, 'worker-copy-phone', 600_000)).body).toEqual({ accepted: true })
+    expect((await beat(late.chunkId, 'worker-copy-pc')).body).toMatchObject({ leaseUntil: null })
+    expect((await result(late.chunkId, 'worker-copy-pc')).body).toEqual({ accepted: false })
+
+    // The slow one never copies the fast one: the phone plays a game in 0.6 s by the chunk it just finished; a quick
+    // worker holds a chunk with 100 games done in a minute (9 minutes left, and the phone would take 10).
+    const third = await make(1000)
+    jobs.push(third.id)
+    const phoneOwn = (await as('worker-copy-phone')).body.chunk as Structured
+    const pcHolds = (await as('worker-copy-quick')).body.chunk as Structured
+    expect((await result(phoneOwn.chunkId, 'worker-copy-phone', 600_000)).body).toEqual({ accepted: true })
+    await test.prisma.simulationChunk.update({
+      where: { id: pcHolds.chunkId as number },
+      data: { gamesDone: 100, leasedAt: new Date(Date.now() - 60_000) },
+    })
+    expect((await as('worker-copy-phone')).body.chunk).toBeNull()
+    // The claim never hands out a chunk whose copy is alive, even with the holder's lease run out: the copy goes on
+    // as the holder at its heartbeat.
+    await test.prisma.simulationChunk.update({
+      where: { id: pcHolds.chunkId as number },
+      data: {
+        copyWorker: 'worker-copy-fast',
+        copyUntil: new Date(Date.now() + 60_000),
+        copySince: new Date(),
+        leaseUntil: new Date(0),
+      },
+    })
+    expect((await as('worker-copy-third')).body.chunk).toBeNull()
+    expect((await beat(pcHolds.chunkId, 'worker-copy-fast')).body).toMatchObject({ lost: false })
+    expect(await chunkRow(pcHolds.chunkId)).toMatchObject({
+      workerId: 'worker-copy-fast',
+      copyWorker: null,
+      status: 'leased',
+    })
+    // It never said hello: its result says its engine (a fixed job takes no result of an unknown one).
+    expect((await result(pcHolds.chunkId, 'worker-copy-fast', 50_000, { cliVersion: '0.1.0' })).body).toEqual({
+      accepted: true,
+    })
+
+    // With a copy alive, the holder that lets go hands it over: a shutdown, a third failure, a lost result.
+    const handOver = async (go: (chunkId: unknown) => Promise<unknown>) => {
+      const { job: next, phone: held } = await pcAndPhone()
+      jobs.push(next.id)
+      await slowDown(held.chunkId)
+      const taken = (await as('worker-copy-pc')).body.chunk as Structured
+      expect(taken.chunkId).toBe(held.chunkId)
+      await go(held.chunkId)
+      return held.chunkId
+    }
+    const released = await handOver(() => test.app.get(WorkerQueueService).release('worker-copy-phone'))
+    expect(await chunkRow(released)).toMatchObject({ status: 'leased', workerId: 'worker-copy-pc', copyWorker: null })
+    const failedThird = await handOver(async (chunkId) => {
+      await test.prisma.simulationChunk.update({ where: { id: chunkId as number }, data: { attempt: 2 } })
+      return bearer('put', `/api/worker/chunks/${chunkId}/failure`).send({
+        workerId: 'worker-copy-phone',
+        error: 'motor',
+      })
+    })
+    expect(await chunkRow(failedThird)).toMatchObject({ status: 'leased', workerId: 'worker-copy-pc', attempt: 3 })
+    const returned = await handOver((chunkId) =>
+      bearer('put', `/api/worker/chunks/${chunkId}/failure`).send({
+        workerId: 'worker-copy-phone',
+        error: 'sin result.json',
+        cause: 'worker',
+      }),
+    )
+    expect(await chunkRow(returned)).toMatchObject({ status: 'leased', workerId: 'worker-copy-pc', returns: 1 })
+    // A worker that gave a chunk back (#72) never copies it.
+    expect((await as('worker-copy-phone')).body.chunk).toBeNull()
+
+    // A copy that fails counts no attempt and lets go; a lost result still pauses its worker (#72).
+    const lostCopy = await pcAndPhone()
+    jobs.push(lostCopy.job.id)
+    await slowDown(lostCopy.phone.chunkId)
+    const fastCopy = (await as('worker-copy-fast')).body.chunk as Structured
+    expect(fastCopy).toMatchObject({ chunkId: lostCopy.phone.chunkId })
+    const until = new Date(Date.now() + 10 * 60 * 1000)
+    expect(
+      (
+        await bearer('put', `/api/worker/chunks/${fastCopy.chunkId}/failure`).send({
+          workerId: 'worker-copy-fast',
+          error: 'sin result.json',
+          cause: 'worker',
+          pausedUntil: until.toISOString(),
+        })
+      ).body,
+    ).toMatchObject({ status: 'leased' })
+    expect(await chunkRow(fastCopy.chunkId)).toMatchObject({
+      status: 'leased',
+      workerId: 'worker-copy-phone',
+      attempt: 0,
+      returns: 0,
+      copyWorker: null,
+    })
+    expect((await test.prisma.workerNode.findUniqueOrThrow({ where: { id: 'worker-copy-fast' } })).pausedUntil).toEqual(
+      expect.any(Date),
+    )
+    await test.prisma.workerNode.update({
+      where: { id: 'worker-copy-fast' },
+      data: { pausedUntil: null, pausedSince: null },
+    })
+    expect((await result(lostCopy.phone.chunkId, 'worker-copy-phone', 600_000)).body).toEqual({ accepted: true })
+
+    // What a holder plays as one batch is copied whole, by a worker that plays batches, or not at all.
+    const batched = await make(1000)
+    jobs.push(batched.id)
+    await test.prisma.simulationChunk.updateMany({
+      where: { jobId: batched.id },
+      data: {
+        status: 'leased',
+        workerId: 'worker-copy-phone',
+        leaseUntil: new Date(Date.now() + 3 * 60 * 1000),
+        gamesDone: 100,
+        leasedAt: new Date(Date.now() - 10 * 60 * 1000),
+      },
+    })
+    await test.prisma.simulationJob.update({ where: { id: batched.id }, data: { status: 'running' } })
+    expect((await as('worker-copy-pc')).body.chunk).toBeNull()
+    const whole = (await as('worker-copy-pc', { batch: { maxChunks: 4, maxGames: 5000 } })).body as {
+      chunks: Structured[]
+    }
+    expect(whole.chunks.map((chunk) => chunk.jobId)).toEqual([batched.id, batched.id])
+
+    // A job with per-game results: the copy is checked like any result, with its per-game record.
+    const detailed = await make(4, true)
+    jobs.push(detailed.id)
+    const [own, held] = await test.prisma.simulationChunk.findMany({
+      where: { jobId: detailed.id },
+      orderBy: { idx: 'asc' },
+    })
+    await test.prisma.simulationChunk.update({
+      where: { id: own?.id as number },
+      data: {
+        status: 'done',
+        workerId: 'worker-copy-detail',
+        games: 4,
+        gamesDone: 4,
+        winsA: 2,
+        winsB: 2,
+        ties: 0,
+        durationMs: 200,
+        finishedAt: new Date(),
+      },
+    })
+    // A slow worker with 3 of 4 games done in 10 minutes.
+    await test.prisma.simulationChunk.update({
+      where: { id: held?.id as number },
+      data: {
+        status: 'leased',
+        workerId: 'worker-copy-slowest',
+        leaseUntil: new Date(Date.now() + 3 * 60 * 1000),
+        gamesDone: 3,
+        leasedAt: new Date(Date.now() - 10 * 60 * 1000),
+      },
+    })
+    await test.prisma.simulationJob.update({ where: { id: detailed.id }, data: { status: 'running' } })
+    const detailCopy = (await as('worker-copy-detail', { version: '0.2.6', engineFeatures: ['perGame'] })).body
+      .chunk as Structured
+    expect(detailCopy).toMatchObject({ chunkId: held?.id, perGame: true })
+    const perGame = {
+      winners: 'ABTA',
+      starters: 'AABB',
+      endings: 'PNLP',
+      turns: [12, 9, 31, 8],
+      stagesA: '1201',
+      stagesB: '0110',
+    }
+    const detailedResult = await bearer('put', `/api/worker/chunks/${held?.id}/result`).send({
+      workerId: 'worker-copy-detail',
+      engineRev: test.env.engineRev,
+      winsA: 2,
+      winsB: 1,
+      ties: 1,
+      games: 4,
+      turns: 60,
+      durationMs: 200,
+      extra: { perGame },
+    })
+    expect(detailedResult.body).toEqual({ accepted: true })
+    expect(((await chunkRow(held?.id)).extra as Structured).perGame).toEqual(perGame)
+
+    for (const id of jobs) {
+      await post(`/api/simulations/${id}/cancel`)
+      expect((await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)).status).toBe(204)
+    }
   })
 
   it('H-003: a long poll that times out leaves no listener behind', async () => {
