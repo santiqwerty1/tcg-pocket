@@ -88,7 +88,9 @@ export function classifyAction(i: number, action: unknown, text: string, actor: 
       return { ...base, kind: 'attach', source: v.is_turn_energy ? { kind: 'energy' } : none, target }
     }
     case 'AttachTool':
-      return { ...base, kind: 'tool', source: hand(v.tool_card), target: slot(v.in_play_idx) }
+      // deckgym plays a tool in two steps: «Play» takes it out of the hand, and then it asks where it goes. By then
+      // the card is not in the hand to touch, so the choice is a pick: touching the Pokémon attaches it.
+      return { ...base, kind: 'tool', source: none, target: slot(v.in_play_idx) }
     case 'Retreat':
       return {
         ...base,
