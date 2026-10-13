@@ -390,12 +390,13 @@ ${MCP_CHAT_INSTRUCTIONS}`
     server.registerTool(
       c.chatRead.name,
       { title: c.chatRead.title, description: c.chatRead.description, inputSchema: c.chatRead.input, annotations },
-      (args, ctx) =>
+      ({ sala, ...args }, ctx) =>
         run(c.chatRead.name, async () => {
-          // A cut request (the client went away) leaves the messages unread.
-          const view = await this.chat.read({ ...args, signal: ctx.mcpReq.signal })
+          // A cut request (the client went away) leaves the messages unread. Without «sala», the reader's main room.
+          const view = await this.chat.read({ ...args, room: sala, signal: ctx.mcpReq.signal })
           return {
             as: view.as,
+            sala: view.room,
             messages: view.messages.map((message) => ({
               id: message.id,
               at: ownerDateTime(message.at),
@@ -407,6 +408,12 @@ ${MCP_CHAT_INSTRUCTIONS}`
               via: message.via,
             })),
             unreadLeft: view.unreadLeft,
+            ...(Object.keys(view.otherRooms).length > 0
+              ? {
+                  otrasSalas: view.otherRooms,
+                  notaSalas: 'Hay mensajes sin leer para esta sesión en otras salas: se leen con «sala».',
+                }
+              : {}),
             participants: view.participants,
             ...(view.messages.length === 0 ? { note: 'No hay mensajes nuevos.' } : {}),
           }
@@ -415,15 +422,24 @@ ${MCP_CHAT_INSTRUCTIONS}`
     server.registerTool(
       c.chatWrite.name,
       { title: c.chatWrite.title, description: c.chatWrite.description, inputSchema: c.chatWrite.input, annotations },
-      (args) =>
+      ({ sala, ...args }) =>
         run(c.chatWrite.name, async () => {
+          // Without «sala», the sender's main room (an open session does not know the parameter).
           const { message } = await this.chat.write({
             ...args,
+            room: sala,
             via: caller.tokenName,
             tokenId: caller.tokenId || null,
             caller: 'connector',
           })
-          return { sent: true, id: message.id, at: ownerDateTime(message.at), from: message.from, to: message.to }
+          return {
+            sent: true,
+            id: message.id,
+            at: ownerDateTime(message.at),
+            sala: message.room,
+            from: message.from,
+            to: message.to,
+          }
         }),
     )
   }

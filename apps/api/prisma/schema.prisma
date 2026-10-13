@@ -557,9 +557,12 @@ model SessionChatMessage {
   via      String            @default("")
   /// The bridge's own id for a message copied from the PC chat (sending it again does not duplicate it).
   relayRef String?           @unique @map("relay_ref")
+  /// Its room (`CHAT_ROOMS`): «tcg», or «posta» (13/10/2026).
+  room     String            @default("tcg")
   seen     SessionChatSeen[]
 
   @@index([at])
+  @@index([room, id])
   @@index([toKeys], type: Gin)
   @@map("session_chat_messages")
 }
@@ -594,6 +597,8 @@ model SessionChatParticipant {
   channel   SessionChatChannel
   /// A participant added later starts after this message: what came before counts as read.
   sinceId   Int                @default(0) @map("since_id")
+  /// Its rooms, the main one first (an MCP call without «sala» goes there); Santi is in all of them.
+  rooms     String[]           @default(["tcg"])
   createdAt DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@map("session_chat_participants")

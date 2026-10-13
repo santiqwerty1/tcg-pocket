@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import {
   CHAT_DEFAULT_PARTICIPANTS,
+  CHAT_DEFAULT_ROOM,
   CHAT_EVERYONE,
   CHAT_OWNER,
+  CHAT_ROOMS,
   chatKey,
   chatParticipantName,
   MCP_CHAT_TOOLS,
@@ -13,6 +15,18 @@ import {
 } from '../../src/mcp/index.js'
 
 describe('chat between sessions (D-021)', () => {
+  it('rooms (13/10/2026): «tcg» first and by default; «sala» is optional and only one of the list', () => {
+    expect(CHAT_ROOMS).toEqual(['tcg', 'posta'])
+    expect(CHAT_DEFAULT_ROOM).toBe('tcg')
+    const write = { from: 'Nube-2', to: 'Santi', topic: 'x', text: 'x' }
+    expect(MCP_CHAT_TOOLS.chatWrite.input.parse(write)).not.toHaveProperty('sala')
+    expect(MCP_CHAT_TOOLS.chatWrite.input.parse({ ...write, sala: 'posta' }).sala).toBe('posta')
+    expect(MCP_CHAT_TOOLS.chatWrite.input.safeParse({ ...write, sala: 'Posta' }).success).toBe(false)
+    expect(MCP_CHAT_TOOLS.chatRead.input.safeParse({ as: 'Nube-2', sala: 'otra' }).success).toBe(false)
+    // The tools say there are rooms, and where a call without one goes.
+    expect(MCP_CHAT_TOOLS.chatRead.description).toContain('sala principal de esta sesión')
+  })
+
   it('compares names exactly, only without case: no look-alike letter or variant passes', () => {
     expect(chatKey(' Santi ')).toBe('santi')
     expect(chatKey('SANTI')).toBe(chatKey('santi'))

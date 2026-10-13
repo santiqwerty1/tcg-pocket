@@ -5,8 +5,8 @@ import { REPO_ROOT } from '../config/dotenv.js'
 import { ChatService } from './chat.service.js'
 
 const LIST = [
-  { key: 'santi', name: 'Santi', channel: 'owner', createdAt: new Date() },
-  { key: 'nube-2', name: 'Nube-2', channel: 'connector', createdAt: new Date() },
+  { key: 'santi', name: 'Santi', channel: 'owner', rooms: ['tcg'], createdAt: new Date() },
+  { key: 'nube-2', name: 'Nube-2', channel: 'connector', rooms: ['tcg'], createdAt: new Date() },
 ]
 
 describe('chat between sessions (D-021)', () => {
@@ -59,6 +59,19 @@ describe('chat between sessions (D-021)', () => {
     // Stored with the list's spelling of each name.
     expect(created).toEqual([expect.objectContaining({ fromName: 'Nube-2', toNames: ['Santi'], toKeys: ['santi'] })])
     expect(warnings).toHaveLength(1)
+  })
+
+  it('the rooms migration puts Posta’s coordinator and its Codex in «posta» first, and in «tcg» too', () => {
+    const sql = readFileSync(
+      join(REPO_ROOT, 'apps/api/prisma/migrations/20261013150000_chat_rooms/migration.sql'),
+      'utf8',
+    )
+    expect(sql).toContain(`('posta-coordinador', 'Posta-Coordinador', 'connector')`)
+    expect(sql).toContain(`('codex-posta', 'Codex-Posta', 'relay')`)
+    // Their main room is «posta»: an open cloud session that writes without «sala» goes there.
+    expect(sql.match(/ARRAY\['posta', 'tcg'\]/g)).toHaveLength(2)
+    // A name already in the list keeps its channel.
+    expect(sql).toMatch(/ON CONFLICT \("key"\) DO UPDATE SET "rooms" =/)
   })
 
   it('the migration seeds exactly the default list of the domain', () => {
