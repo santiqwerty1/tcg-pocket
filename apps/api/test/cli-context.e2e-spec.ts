@@ -1,5 +1,10 @@
+import { SchedulerRegistry } from '@nestjs/schedule'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import webpush from 'web-push'
 import { createCliApplication } from '../src/cli/context.js'
+import { TrackerSync } from '../src/collection/tracker-sync.service.js'
+import { NotificationsWatcher } from '../src/notifications/notifications.watcher.js'
+import { TournamentSettings } from '../src/tournaments/tournament-settings.js'
 import { createTestApp, seedOwner, type TestApp } from './helpers.js'
 
 /**
@@ -79,8 +84,28 @@ describe('CLI context (e2e)', () => {
       game: await test.prisma.liveGame.findUniqueOrThrow({ where: { id: game.id } }),
     }
 
-    const cli = await createCliApplication(test.env)
+    // The sets the server seeds at start-up: gone, to see that the CLI does not seed them again.
+    const sets = await test.prisma.setRelease.count()
+    expect(sets).toBeGreaterThan(0)
+    await test.prisma.setRelease.deleteMany()
+
+    // As in production: not a test run, the notifications watcher on and push keys set (the tracker and the
+    // notifications would start their timers).
+    const keys = webpush.generateVAPIDKeys()
+    const cli = await createCliApplication({
+      ...test.env,
+      isTest: false,
+      notificationsWatch: true,
+      vapid: { publicKey: keys.publicKey, privateKey: keys.privateKey, subject: 'mailto:owner@example.invalid' },
+    })
+    // No crons (no ScheduleModule) and no watcher started.
+    expect(() => cli.get(SchedulerRegistry)).toThrow()
+    expect((cli.get(NotificationsWatcher) as unknown as { timer: unknown }).timer).toBeNull()
+    expect((cli.get(TrackerSync) as unknown as { timer: unknown }).timer).toBeNull()
     await cli.close()
+    expect(await test.prisma.setRelease.count()).toBe(0)
+    await test.app.get(TournamentSettings).seedSets()
+    expect(await test.prisma.setRelease.count()).toBe(sets)
 
     expect(await test.prisma.catalogSync.findUniqueOrThrow({ where: { id: sync.id } })).toEqual(before.sync)
     expect(await test.prisma.limitlessSyncRun.findUniqueOrThrow({ where: { id: run.id } })).toEqual(before.run)
