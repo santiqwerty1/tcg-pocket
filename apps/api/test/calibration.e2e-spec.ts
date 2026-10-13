@@ -23,6 +23,28 @@ const COPIES = [BIG, '6a95b87b629039f77d8a6955', '6a95b87b629039f77d8a6956', '6a
 const read = (file: string): unknown => JSON.parse(readFileSync(join(LIMITLESS, file), 'utf8'))
 type Structured = Record<string, unknown>
 
+/**
+ * Whether `target` is reachable from `from` through properties, arrays, Maps and Sets. Not through WeakMaps, WeakSets
+ * or WeakRefs, which hold weakly; nor through other services, which keep their own caches.
+ */
+function reaches(from: object, target: object): boolean {
+  const seen = new Set<unknown>()
+  const walk = (value: unknown, depth: number): boolean => {
+    if (value === target) return true
+    if (value === null || typeof value !== 'object' || seen.has(value) || depth > 12) return false
+    seen.add(value)
+    if (value instanceof WeakMap || value instanceof WeakSet || value instanceof WeakRef) return false
+    if (value instanceof Map) return [...value.entries()].some(([k, v]) => walk(k, depth + 1) || walk(v, depth + 1))
+    if (value instanceof Set) return [...value].some((item) => walk(item, depth + 1))
+    return Object.values(value).some((item) => walk(item, depth + 1))
+  }
+  // Only the service's own fields that are not other injected services.
+  return Object.entries(from).some(
+    ([name, value]) =>
+      !['prisma', 'lab', 'tournaments', 'simulations', 'snapshots', 'tournamentData'].includes(name) && walk(value, 0),
+  )
+}
+
 describe('calibration (e2e)', () => {
   let test: TestApp
   let cookie: string
@@ -510,7 +532,12 @@ describe('calibration (e2e)', () => {
       expect(ended).toMatchObject({ pending: 0, cancelled: 2 })
       await service.report(id)
       expect(build).toHaveBeenCalledTimes(3)
-      // An alias changes the tournament data (a new dataset): made again.
+      // An alias changes the tournament data (a new dataset): made again, and the old dataset is not kept alive by the
+      // reports (review of #85: they hang from it weakly).
+      const before = (await test.app.get(TournamentsService).scopedDataset({ era: ended.job.era, format: 'STANDARD' }))
+        .dataset
+      const reports = (service as unknown as { reports: unknown }).reports
+      expect(reports).toBeInstanceOf(WeakMap)
       const merged = ended.report.archetypes[0]?.id as string
       const into = ended.report.archetypes[1]?.id as string
       await test
@@ -520,6 +547,10 @@ describe('calibration (e2e)', () => {
         .send({ canonicalId: into })
       await service.report(id)
       expect(build).toHaveBeenCalledTimes(4)
+      const after = (await test.app.get(TournamentsService).scopedDataset({ era: ended.job.era, format: 'STANDARD' }))
+        .dataset
+      expect(after).not.toBe(before)
+      expect(reaches(service, before)).toBe(false)
       await test
         .http()
         .put(`/api/tournaments/archetypes/${merged}/alias`)

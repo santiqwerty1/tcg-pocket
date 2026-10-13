@@ -81,7 +81,7 @@ export interface CalibrationSummaryView extends CalibrationJobView {
 
 /** Calibrations the list shows, newest first. */
 const LISTED = 50
-/** Reports kept in memory, the last ones asked for. */
+/** Reports kept in memory for a dataset, the last ones asked for. */
 const REPORTS_KEPT = 20
 /**
  * While a calibration plays, its report is made again at most this often: the screen asks every 10 s and a chunk
@@ -91,6 +91,13 @@ export const CALIBRATION_REPORT_FRESH_MS = 30_000
 
 /** What a report is made of besides the job's progress (made fresh at every request). */
 type ReportBody = Omit<CalibrationView, 'job'>
+type Dataset = Awaited<ReturnType<TournamentsService['scopedDataset']>>['dataset']
+interface KeptReport {
+  fingerprint: string
+  active: boolean
+  at: number
+  body: ReportBody
+}
 
 /**
  * Games per pairing by default. The Laboratorio's bank of 15 archetypes is 18 lists (the 3 most played bring a second
@@ -127,12 +134,11 @@ export class CalibrationService {
    * - the era's tournament dataset is the same object, which changes with the tournaments, the settings, the aliases
    *   and the catalog (`TournamentDataVersion`);
    * - its chunks have the same counts by status and the same last finish.
-   * While it plays, one is used up to `CALIBRATION_REPORT_FRESH_MS` old too.
+   * While it plays, one is used up to `CALIBRATION_REPORT_FRESH_MS` old too. They hang from their dataset, weakly (as
+   * `TournamentsService`'s cards cache): one the tournaments dropped (R-008) is not kept alive by its reports (review of
+   * #85).
    */
-  private readonly reports = new Map<
-    number,
-    { dataset: object; fingerprint: string; active: boolean; at: number; body: ReportBody }
-  >()
+  private readonly reports = new WeakMap<Dataset, Map<number, KeptReport>>()
 
   /** Queues the bank against itself with `bot` on both sides. */
   async start(input: {
@@ -275,19 +281,25 @@ export class CalibrationService {
       format: calibration.format,
     })
     const fingerprint = await this.fingerprint(id, summary.status)
-    const kept = this.reports.get(id)
-    const fresh =
-      kept !== undefined &&
-      kept.dataset === dataset &&
-      (kept.fingerprint === fingerprint ||
-        (active && kept.active && Date.now() - kept.at < CALIBRATION_REPORT_FRESH_MS))
-    const body = fresh ? kept.body : await this.build(job, calibration, active, scope, dataset)
-    if (!fresh) {
-      this.reports.delete(id)
-      this.reports.set(id, { dataset, fingerprint, active, at: Date.now(), body })
-      if (this.reports.size > REPORTS_KEPT) this.reports.delete(this.reports.keys().next().value as number)
+    let kept = this.reports.get(dataset)
+    if (!kept) {
+      kept = new Map()
+      this.reports.set(dataset, kept)
     }
-    return { job: this.jobView(job, summary), ...body }
+    const entry = kept.get(id)
+    const fresh =
+      entry !== undefined &&
+      (entry.fingerprint === fingerprint ||
+        (active && entry.active && Date.now() - entry.at < CALIBRATION_REPORT_FRESH_MS))
+    const next: KeptReport =
+      fresh && entry
+        ? entry
+        : { fingerprint, active, at: Date.now(), body: await this.build(job, calibration, active, scope, dataset) }
+    // The last ones asked for: a report served goes back to the end of the line.
+    kept.delete(id)
+    kept.set(id, next)
+    if (kept.size > REPORTS_KEPT) kept.delete(kept.keys().next().value as number)
+    return { job: this.jobView(job, summary), ...next.body }
   }
 
   /** The chunks' counts by status and their last finish: a report made with other ones is stale. */
@@ -309,7 +321,7 @@ export class CalibrationService {
     calibration: CalibrationParams,
     active: boolean,
     scope: { era: string; format: TournamentFormat },
-    dataset: Awaited<ReturnType<TournamentsService['scopedDataset']>>['dataset'],
+    dataset: Dataset,
   ): Promise<ReportBody> {
     const id = job.id
     const sideA = ((job.params as { sideA?: number[] }).sideA ?? []) as number[]
