@@ -383,6 +383,17 @@ describe('MCP write tools (e2e)', () => {
     })
     expect(tooMany.isError).toBe(true)
     expect(tooMany.content[0]?.text).toMatch(/^210 combinaciones posibles superan el límite de 200/)
+    // A candidate the deck already has twice: nothing fits, said before queuing.
+    const full = await call(client, 'simulations_enqueue', {
+      kind: 'optimize',
+      decksA: ['7'],
+      decksB: ['2'],
+      remove: [{ card: 'Bombirdier', count: 1 }],
+      candidates: ['Poké Ball'],
+      dryRun: true,
+    })
+    expect(full.isError).toBe(true)
+    expect(full.content[0]?.text).toMatch(/^Ninguna candidata entra/)
     const longOne = await call(client, 'simulations_enqueue', {
       kind: 'matrix',
       decksA: ['1', '2', '3', '4', '5', '6', '7', '8'],

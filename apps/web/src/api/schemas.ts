@@ -2160,6 +2160,8 @@ export const simulationPreviewSchema = z
     confirmationGames: z.number().default(0),
     /** An optimize's combinations as the engine plays them (H-050: two copies of a candidate too). */
     combinations: z.number().optional(),
+    /** Why creating this optimize would be refused (H-050), in Spanish. */
+    optimizeProblem: z.string().nullable().optional(),
     estimatedSeconds: z.number(),
   })
   .passthrough()

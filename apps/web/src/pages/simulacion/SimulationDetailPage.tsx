@@ -39,6 +39,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatDateTime, formatNumber, PERCENT, plural, shortSha } from '@/lib/format'
 import { formatInterval, formatRate, formatRateValue } from '@/lib/matches'
 import {
+  combinationNames,
   encodeSource,
   formatDuration,
   gamesLabel,
@@ -372,7 +373,7 @@ function OptimizeConfirmation({ job }: { job: JobDetail }) {
               <li key={row.rank} className="flex items-start gap-2 text-sm">
                 <span className="w-6 shrink-0 pt-0.5 text-xs text-muted-foreground tabular">{row.rank}</span>
                 <span className="min-w-0 flex-1">
-                  + {row.cards.map((card) => card.nameEs).join(', ')}
+                  + {combinationNames(row.cards.map((card) => card.nameEs))}
                   {before?.rate ? (
                     <span className="block text-xs text-muted-foreground">
                       en la búsqueda: {formatRateValue(before.rate.value)} ·{' '}
@@ -421,7 +422,7 @@ function OptimizeResults({ job }: { job: JobDetail }) {
             <div className="flex items-start gap-2">
               <span className="w-6 shrink-0 pt-0.5 text-xs text-muted-foreground tabular">{position + 1}</span>
               <span className="min-w-0 flex-1 text-sm font-medium">
-                + {row.cards.map((card) => card.nameEs).join(', ')}
+                + {combinationNames(row.cards.map((card) => card.nameEs))}
               </span>
               <RateCell record={row.record} rate={row.rate} />
             </div>

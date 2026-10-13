@@ -38,8 +38,6 @@ type Json = Record<string, unknown>
 
 /** Fase 43: above this estimate, simulations_enqueue asks for confirmLong (R-010: a long job Claude cannot stop). */
 const LONG_JOB_MINUTES = 30
-/** The optimize job's own limit (SimulationsService refuses more combinations). */
-const MAX_OPTIMIZE_COMBINATIONS = 200
 
 interface ToolDefinition<S extends StandardSchemaWithJSON> {
   name: string
@@ -677,18 +675,9 @@ export class McpWriteToolsService {
         notSimulable,
       }
     }
-    // The same limit creating the job applies, counted as the engine plays (H-050: two copies of a candidate too), so
-    // a dry run never shows a plan that would be refused.
-    if (optimize && preview.combinations > MAX_OPTIMIZE_COMBINATIONS) {
-      throw new BadRequestException(
-        `${preview.combinations} combinaciones posibles superan el límite de ${MAX_OPTIMIZE_COMBINATIONS}: elegí menos candidatas o sacá menos cartas.`,
-      )
-    }
-    if (optimize && preview.combinations === 0) {
-      throw new BadRequestException(
-        'Ninguna candidata entra: el mazo ya lleva 2 copias de cada una. Elegí otras o sacá esas.',
-      )
-    }
+    // The same refusals creating the job applies (H-050: the limit counted as the engine plays, a candidate that does
+    // not fit), so a dry run never shows a plan that would be refused.
+    if (optimize && preview.optimizeProblem) throw new BadRequestException(preview.optimizeProblem)
     // An optimize plays every combination against every rival, and then its confirmation (H-011.5): the preview
     // counts both.
     const totalGames = preview.totalGames

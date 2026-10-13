@@ -746,37 +746,94 @@ describe('simulation (e2e)', () => {
 
   it('H-050: two places and one candidate play it twice; a name the deck keeps twice does not go', async () => {
     // Deck 2 keeps 2 Poké Ball (P-A-5) and plays Heatmor (B1-44) and Castform Forma Sol (B3-24) once each.
-    const job = (candidates: string[]) => ({
+    const job = (
+      candidates: string[],
+      remove = [
+        { cardId: 'B1-44', count: 1 },
+        { cardId: 'B3-24', count: 1 },
+      ],
+    ) => ({
       kind: 'optimize',
       sideA: [{ deckId: deckIds[1] }],
       sideB: decks(5, 6),
       gamesPerPair: 20,
       players: ['e2', 'e2'],
-      optimize: {
-        remove: [
-          { cardId: 'B1-44', count: 1 },
-          { cardId: 'B3-24', count: 1 },
-        ],
-        candidates,
-      },
+      optimize: { remove, candidates },
     })
-    // Erika twice is a combination; Poké Ball is full.
-    const preview = await post('/api/simulations/preview').send(job(['A1-219', 'P-A-5']))
-    expect(preview.status).toBe(200)
-    expect(preview.body).toMatchObject({ combinations: 1, totalGames: 1 * 2 * 20 + 1 * 2 * 200 })
-    // Erika and Sabrina: Erika twice, Sabrina twice, one of each.
-    const both = await post('/api/simulations/preview').send(job(['A1-219', 'A1-225']))
-    expect(both.body).toMatchObject({ combinations: 3 })
-    const created = await post('/api/simulations').send(job(['A1-219', 'P-A-5']))
-    expect(created.status).toBe(201)
-    const chunk = (await claim()).body.chunk as { optimize: Structured }
-    expect(chunk.optimize).toMatchObject({ missing: 2, candidates: ['A1 219', 'A1 219'] })
-    await post(`/api/simulations/${created.body.id}/cancel`)
-    expect((await test.http().delete(`/api/simulations/${created.body.id}`).set('Cookie', cookie)).status).toBe(204)
-    // Only Poké Ball: nothing fits, said before queuing.
-    const full = await post('/api/simulations').send(job(['P-A-5']))
-    expect(full.status).toBe(400)
-    expect(full.body.error.message).toMatch(/Ninguna candidata entra/)
+    const created: number[] = []
+    try {
+      // Erika twice is a combination; Poké Ball is full.
+      const preview = await post('/api/simulations/preview').send(job(['A1-219', 'P-A-5']))
+      expect(preview.status).toBe(200)
+      expect(preview.body).toMatchObject({
+        combinations: 1,
+        optimizeProblem: null,
+        totalGames: 1 * 2 * 20 + 1 * 2 * 200,
+      })
+      // Erika and Sabrina: Erika twice, Sabrina twice, one of each.
+      expect((await post('/api/simulations/preview').send(job(['A1-219', 'A1-225']))).body).toMatchObject({
+        combinations: 3,
+      })
+      // Two editions of one card play the same: one goes (Charmander A1-33 and its full art A1-230).
+      expect((await post('/api/simulations/preview').send(job(['A1-33', 'A1-230']))).body).toMatchObject({
+        combinations: 1,
+      })
+      const one = await post('/api/simulations').send(job(['A1-219', 'P-A-5']))
+      expect(one.status).toBe(201)
+      created.push(one.body.id)
+      const chunk = (await claim()).body.chunk as { optimize: Structured }
+      expect(chunk.optimize).toMatchObject({ missing: 2, candidates: ['A1 219', 'A1 219'] })
+      await post(`/api/simulations/${one.body.id}/cancel`)
+      // Taking out both Poké Ball frees them: Poké Ball twice, Erika twice, one of each. Asked once for 2 or twice
+      // for 1, the preview and the job count the same.
+      for (const remove of [
+        [{ cardId: 'P-A-5', count: 2 }],
+        [
+          { cardId: 'P-A-5', count: 1 },
+          { cardId: 'P-A-5', count: 1 },
+        ],
+      ]) {
+        const freed = await post('/api/simulations/preview').send(job(['P-A-5', 'A1-219'], remove))
+        expect(freed.body).toMatchObject({ combinations: 3 })
+        const queued = await post('/api/simulations').send(job(['P-A-5', 'A1-219'], remove))
+        expect(queued.status).toBe(201)
+        created.push(queued.body.id)
+        const freedChunk = (await claim()).body.chunk as { optimize: Structured }
+        expect(freedChunk.optimize).toMatchObject({
+          missing: 2,
+          candidates: ['P-A 005', 'P-A 005', 'A1 219', 'A1 219'],
+        })
+        await post(`/api/simulations/${queued.body.id}/cancel`)
+      }
+      // Only Poké Ball: nothing fits, said by the preview and refused before queuing.
+      const fullPreview = await post('/api/simulations/preview').send(job(['P-A-5']))
+      expect(fullPreview.body).toMatchObject({ combinations: 0 })
+      expect(fullPreview.body.optimizeProblem).toMatch(/^Ninguna candidata entra/)
+      const full = await post('/api/simulations').send(job(['P-A-5']))
+      expect(full.status).toBe(400)
+      expect(full.body.error.message).toMatch(/^Ninguna candidata entra/)
+      // Erika alone cannot fill three places.
+      const three = [
+        { cardId: 'B1-44', count: 1 },
+        { cardId: 'B3-24', count: 1 },
+        { cardId: 'P-A-5', count: 1 },
+      ]
+      expect((await post('/api/simulations/preview').send(job(['A1-219'], three))).body.optimizeProblem).toMatch(
+        /^Con estas candidatas no se llenan los 3 lugares/,
+      )
+      // A card the catalog does not have: the preview says so, the job refuses it.
+      expect((await post('/api/simulations/preview').send(job(['A1-999']))).body.optimizeProblem).toBe(
+        'Carta A1-999 desconocida.',
+      )
+      const unknown = await post('/api/simulations').send(job(['A1-999']))
+      expect(unknown.status).toBe(400)
+      expect(unknown.body.error.message).toBe('Carta A1-999 desconocida.')
+    } finally {
+      for (const id of created) {
+        await post(`/api/simulations/${id}/cancel`)
+        await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)
+      }
+    }
   })
 
   it('H-011.5: a finished optimize queues its 3 best combinations again, with fresh seeds and more games', async () => {

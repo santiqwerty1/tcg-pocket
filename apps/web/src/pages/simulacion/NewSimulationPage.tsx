@@ -690,14 +690,7 @@ export function NewSimulationPage() {
                 <p>
                   {plural(combinations, 'combinación', 'combinaciones')} × {plural(rivals, 'rival', 'rivales')} ×{' '}
                   {gamesLabel(gamesNumber)} = <strong>{gamesLabel(searchGames)}</strong>
-                  {combinations > 200 ? (
-                    <span className="block text-destructive">El límite es 200 combinaciones.</span>
-                  ) : null}
-                  {combinations === 0 ? (
-                    <span className="block text-destructive">
-                      Ninguna candidata entra: el mazo ya lleva 2 copias de cada una.
-                    </span>
-                  ) : null}
+                  {data.optimizeProblem ? <span className="block text-destructive">{data.optimizeProblem}</span> : null}
                 </p>
                 {confirmationGames > 0 ? (
                   <p>
@@ -751,7 +744,7 @@ export function NewSimulationPage() {
           !data ||
           create.isPending ||
           (notSimulable > 0 && !skipNotSimulable) ||
-          (kind === 'optimize' && (combinations > 200 || combinations === 0))
+          (kind === 'optimize' && (Boolean(data.optimizeProblem) || combinations > 200))
         }
       >
         {create.isPending ? <Spinner /> : null}
