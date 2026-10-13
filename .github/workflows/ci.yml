@@ -88,6 +88,8 @@ jobs:
       - run: pnpm test
       # The repository's own scripts (scripts/*.test.mjs, node:test): `pnpm test` runs only the workspace packages.
       - run: node --test scripts/*.test.mjs
+      # docs/REVISION.md: a broken pending decision fails in its own PR, not when the Coordinador integrates it.
+      - run: node scripts/decisiones.mjs --check
 
   # Supertest suite against a real Postgres 17 (migrations applied by test/global-setup.ts), on a database of its own
   # per runner (two runners on the PC never share one, and the sessions' tcg_test stays theirs).
