@@ -25,6 +25,8 @@ Thumbs.db
 # local data
 *.log
 tmp/
+# what scripts/decisiones.mjs writes before renaming it, if the process dies in between
+docs/DECISIONES.md.tmp-*
 
 # Bóveda de Obsidian: estado local de la app
 Boveda/.obsidian/workspace*.json

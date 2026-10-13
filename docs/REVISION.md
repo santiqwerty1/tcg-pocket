@@ -55,10 +55,15 @@ cambiado por `-`), con este formato:
 
 ```markdown
 ---
-seccion: Fase 42, el laboratorio
+seccion: Fase 42, laboratorio (9/10/2026)
 ---
 | **Lo que se decidió**, en una oración, y el detalle. | El motivo. |
 ```
+
+`seccion:` es el título exacto de una sección de `docs/DECISIONES.md`, sin el `## `. Para una sección nueva, se agrega
+`nueva: true` al frontmatter. Cada fila tiene dos celdas, decisión y motivo, y un `|` dentro del texto va como `\|`.
+La CI corre `node scripts/decisiones.mjs --check` (lo mismo que `pnpm decisiones --check`) en cada PR, así que un
+pendiente mal armado falla ahí.
 
 Las filas van sin número. Al integrar, el Coordinador las numera y las pasa a `docs/DECISIONES.md`, en su sección o en una
 nueva, con el script `scripts/decisiones.mjs`, y borra el archivo pendiente. Para citar una decisión antes de que tenga
