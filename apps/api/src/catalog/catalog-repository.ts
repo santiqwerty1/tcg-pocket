@@ -317,7 +317,7 @@ export class CatalogRepository {
       await client.query(
         `UPDATE "catalog_syncs"
            SET "status" = $2::"catalog_sync_status", "applied_at" = now(), "counts" = $3, "crafting_cost" = $4, "report" = $5,
-               "missions" = $6
+               "missions" = $6, "error" = NULL
          WHERE "id" = $1`,
         [
           outcome.syncId,

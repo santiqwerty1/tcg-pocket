@@ -45,6 +45,8 @@ model CatalogSync {
   status       CatalogSyncStatus
   fetchedAt    DateTime            @map("fetched_at") @db.Timestamptz(3)
   appliedAt    DateTime?           @map("applied_at") @db.Timestamptz(3)
+  /// Renewed every 30 s while the sync runs; the API closes a running one without it for 5 min as interrupted.
+  heartbeatAt  DateTime?           @map("heartbeat_at") @db.Timestamptz(3)
   /// sha256 per fetched file, keyed by source path.
   fileHashes   Json                @map("file_hashes")
   counts       Json

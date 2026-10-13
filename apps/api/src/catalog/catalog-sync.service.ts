@@ -1,4 +1,5 @@
 import { ConflictException, Inject, Injectable, type OnModuleInit } from '@nestjs/common'
+import { Cron, CronExpression } from '@nestjs/schedule'
 import {
   type BuildCounts,
   buildCatalogWithReport,
@@ -123,9 +124,15 @@ function changeRows(diff: CatalogDiff): SyncChangeRow[] {
  * `sync()` awaits the whole pipeline (CLI, tests); `start()` returns the sync id and runs it in the background
  * (`POST /api/catalog/sync` → 202; progress in `GET /api/catalog/status`).
  */
+/** How often a running sync renews its sign of life, and how long without one closes it (the low of #75). */
+const HEARTBEAT_MS = 30_000
+const STALE_MS = 5 * 60_000
+
 @Injectable()
 export class CatalogSyncService implements OnModuleInit {
   private running = false
+  /** Tests shorten it. */
+  heartbeatMs = HEARTBEAT_MS
 
   constructor(
     private readonly prisma: PrismaService,
@@ -149,6 +156,30 @@ export class CatalogSyncService implements OnModuleInit {
       data: { status: 'failed', error: 'Interrumpida: el servidor se reinició mientras corría.' },
     })
     if (stale.count > 0) this.logger.warn({ count: stale.count }, 'stale running catalog syncs marked as failed')
+  }
+
+  /**
+   * A `running` row whose process stopped giving signs of life (a CLI cut in `flyctl machine exec`, a process killed)
+   * is closed as `failed`, without waiting for a restart of the API: the UI stops showing it as running and the
+   * `catalog_sync` alert says it. Every minute, only in the server (a CLI registers no crons). A row from before the
+   * heartbeat counts from when it started.
+   */
+  @Cron(CronExpression.EVERY_MINUTE)
+  async closeStale(now = new Date()): Promise<number> {
+    const cutoff = new Date(now.getTime() - STALE_MS)
+    const closed = await this.prisma.catalogSync.updateMany({
+      where: {
+        status: 'running',
+        OR: [{ heartbeatAt: { lt: cutoff } }, { heartbeatAt: null, fetchedAt: { lt: cutoff } }],
+      },
+      data: {
+        status: 'failed',
+        error: `Interrumpida: el proceso que la corría dejó de dar señales por más de ${STALE_MS / 60_000} minutos (por ejemplo, un catalog-sync cortado).`,
+      },
+    })
+    if (closed.count > 0)
+      this.logger.warn({ count: closed.count }, 'catalog syncs without signs of life closed as failed')
+    return closed.count
   }
 
   get isRunning(): boolean {
@@ -296,6 +327,7 @@ export class CatalogSyncService implements OnModuleInit {
           source: request.source,
           status: 'running',
           fetchedAt: new Date(),
+          heartbeatAt: new Date(),
           fileHashes: {},
           counts: {},
         },
@@ -309,6 +341,14 @@ export class CatalogSyncService implements OnModuleInit {
 
   private async run(syncId: number, request: SyncRequest): Promise<SyncSummary> {
     const started = Date.now()
+    // Its sign of life while it runs, in this process (the API's or a CLI's). Only while it is still `running`: a row
+    // already closed as interrupted is not brought back.
+    const beat = setInterval(() => {
+      void this.prisma.catalogSync
+        .updateMany({ where: { id: syncId, status: 'running' }, data: { heartbeatAt: new Date() } })
+        .catch(() => undefined)
+    }, this.heartbeatMs)
+    beat.unref()
     try {
       const { sources, catalog, report, diff, remap, warnings } = await this.prepare(request)
       const fileHashes = Object.fromEntries(
@@ -366,6 +406,7 @@ export class CatalogSyncService implements OnModuleInit {
         .catch(() => undefined)
       throw error
     } finally {
+      clearInterval(beat)
       this.running = false
     }
   }
