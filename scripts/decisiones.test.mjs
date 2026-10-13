@@ -143,6 +143,37 @@ describe('decisiones pendientes (docs/REVISION.md)', () => {
     )
     assert.match(two.text, /\| 57\.1 \| Uno\. \| m\. \|\n\| 57\.2 \| Dos\. \| m\. \|\n$/)
     assert.equal(two.text.match(/## Nueva/g)?.length, 1)
+    // The one that creates the section goes first, also when its name sorts after the other's.
+    const late = apply(
+      pending('a.md', 'Nueva', ['| Dos. | m. |']),
+      pending('b.md', 'Nueva', ['| Uno. | m. |'], 'nueva: true\n'),
+    )
+    assert.deepEqual(late.errors, [])
+    assert.match(
+      late.text,
+      /## Nueva\n\n\| # \| Decisión \| Motivo \|\n\|---\|---\|---\|\n\| 57\.1 \| Uno\. \| m\. \|\n\| 57\.2 \| Dos\. \| m\. \|\n$/,
+    )
+  })
+
+  it('a decisions table still without rows gets them under its header, not a second table', () => {
+    const empty = DECISIONES.replace('Un párrafo.\n', 'Un párrafo.\n\n| # | Decisión | Motivo |\n|---|---|---|\n')
+    const { text, errors } = applyPending(empty, [pending('x.md', 'Sin tabla todavía', ['| Una. | m. |'])])
+    assert.deepEqual(errors, [])
+    assert.match(
+      text,
+      /Un párrafo\.\n\n\| # \| Decisión \| Motivo \|\n\|---\|---\|---\|\n\| 57\.1 \| Una\. \| m\. \|\n\n## Cacería/,
+    )
+    assert.equal(
+      text.match(/\| # \| Decisión \| Motivo \|/g)?.length,
+      DECISIONES.match(/\| # \| Decisión \| Motivo \|/g)?.length + 1,
+    )
+    // Its header without the separator: the separator is added.
+    const bare = DECISIONES.replace('Un párrafo.\n', 'Un párrafo.\n\n| # | Decisión | Motivo |\n')
+    const fixed = applyPending(bare, [pending('x.md', 'Sin tabla todavía', ['| Una. | m. |'])])
+    assert.match(
+      fixed.text,
+      /\| # \| Decisión \| Motivo \|\n\|---\|---\|---\|\n\| 57\.1 \| Una\. \| m\. \|\n\n## Cacería/,
+    )
   })
 
   it('never applies a row twice: one already in DECISIONES is refused, with its whole pending', () => {
@@ -156,6 +187,13 @@ describe('decisiones pendientes (docs/REVISION.md)', () => {
     // Twice in the same pending.
     const same = apply(pending('a.md', 'Fase 42, laboratorio (9/10/2026)', ['| Nueva. | M. |', '| Nueva. | M. |']))
     assert.match(same.errors[0] ?? '', /^a\.md: 1 fila\(s\) ya están/)
+    // The same row written compact or with other spaces around its «|».
+    for (const row of ['|Otra.|M.|', '|  Otra.   |M.  |', '| Otra. | M. |   ']) {
+      const again = apply(pending('again.md', 'Fase 42, laboratorio (9/10/2026)', [row]))
+      assert.match(again.errors[0] ?? '', /ya están en DECISIONES/, row)
+    }
+    const compact = apply(pending('a.md', 'Fase 42, laboratorio (9/10/2026)', ['|Nueva.|M.|', '| Nueva. |  M. |']))
+    assert.match(compact.errors[0] ?? '', /^a\.md: 1 fila\(s\) ya están/)
   })
 
   it('a code block or a repeated title do not fool it', () => {
@@ -182,6 +220,15 @@ describe('reading a pending', () => {
     const ok = parsePending('x.md', '﻿---\r\nseccion: "S"\r\n---\r\n| Qué | Por qué |\r\n|---|---|\r\n| a | b |\r\n')
     assert.deepEqual(ok, { name: 'x.md', section: 'S', create: false, rows: ['| a | b |'] })
     assert.equal(parsePending('x.md', '---\nseccion: S\nnueva: true\n---\n| a | b |\n').create, true)
+    for (const quoted of ['"true"', "'true'", '"sí"']) {
+      assert.equal(parsePending('x.md', `---\nseccion: S\nnueva: ${quoted}\n---\n| a | b |\n`).create, true, quoted)
+    }
+    // A separator after a decision does not make it a header: only the first row of the table can be one.
+    assert.deepEqual(parsePending('x.md', '---\nseccion: S\n---\n| a | b |\n| c | d |\n|---|---|\n| e | f |\n').rows, [
+      '| a | b |',
+      '| c | d |',
+      '| e | f |',
+    ])
     assert.deepEqual(parsePending('x.md', '---\nseccion: S\n---\n| `a \\| b` | c |\n').rows, ['| `a \\| b` | c |'])
     // The usual header without its separator is not a decision.
     assert.deepEqual(parsePending('x.md', '---\nseccion: S\n---\n| Decisión | Motivo |\n| a | b |\n').rows, [

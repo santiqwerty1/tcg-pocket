@@ -7,7 +7,8 @@
 //   (varias secciones comparten bloque);
 // - una sección nueva va al final, con el bloque siguiente al mayor del archivo, desde .1; solo si el pendiente lo
 //   pide con `nueva: true` (un título mal copiado no crea una sección: falla y dice cuál se parece);
-// - varios pendientes de la misma sección se numeran seguidos, en el orden de sus nombres.
+// - varios pendientes de la misma sección se numeran seguidos, en el orden de sus nombres (primero los que tienen
+//   `nueva: true`, así el que crea una sección va antes que los demás de esa sección).
 // Si un pendiente está mal (sin `seccion:`, con algo que no es una fila de dos celdas, una fila con número o una que
 // ya está en DECISIONES), no aplica ninguno. Con --check solo dice qué haría (la CI lo corre en cada PR).
 //
@@ -42,10 +43,12 @@ export function parsePending(name, text) {
   const normalized = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n')
   const front = /^---\n([\s\S]*?)\n---\n?/.exec(normalized)
   if (!front) return { name, error: 'falta el frontmatter (--- seccion: … ---)' }
-  const field = (key) => new RegExp(`^${key}:[ \\t]*(.*?)[ \\t]*$`, 'm').exec(front[1] ?? '')?.[1] ?? ''
+  // A value without its quotes: `nueva: "true"` is `nueva: true`.
+  const field = (key) =>
+    (new RegExp(`^${key}:[ \\t]*(.*?)[ \\t]*$`, 'm').exec(front[1] ?? '')?.[1] ?? '')
+      .replace(/^(["'])(.*)\1$/, '$2')
+      .trim()
   const section = field('seccion')
-    .replace(/^(["'])(.*)\1$/, '$2')
-    .trim()
   if (!section) return { name, error: 'falta `seccion:` en el frontmatter, o está vacío' }
   if (/^[>|][+-]?$/.test(section)) return { name, error: '`seccion:` va en una sola línea' }
   const create = /^(true|sí|si)$/i.test(field('nueva'))
@@ -56,8 +59,10 @@ export function parsePending(name, text) {
     if (line === '') continue
     if (!line.startsWith('|')) return { name, error: `algo que no es una fila de la tabla: ${line.slice(0, 60)}` }
     if (IS_SEPARATOR.test(line)) continue
-    // A header: the row right before a separator.
-    if (IS_SEPARATOR.test(lines[at + 1]?.trim() ?? '')) continue
+    // A header: the first row of a table, right before its separator (a decision followed by a stray separator is
+    // still a decision).
+    const previous = lines[at - 1]?.trim() ?? ''
+    if (!previous.startsWith('|') && IS_SEPARATOR.test(lines[at + 1]?.trim() ?? '')) continue
     // The usual header, even without its separator.
     if (/^\|\s*decisi[oó]n\s*\|\s*motivo\s*\|$/i.test(line)) continue
     if (!line.endsWith('|')) return { name, error: `una fila no termina en «|»: ${line.slice(0, 60)}` }
@@ -86,11 +91,22 @@ function survey(lines) {
     if (line.startsWith('## ')) {
       const previous = sections.at(-1)
       if (previous) previous.end = at
-      sections.push({ title: line.slice(3), start: at, end: lines.length, lastRow: null, block: null, header: null })
+      sections.push({
+        title: line.slice(3),
+        start: at,
+        end: lines.length,
+        lastRow: null,
+        block: null,
+        header: null,
+        headerAt: null,
+      })
       continue
     }
     const section = sections.at(-1)
-    if (section && /^\|\s*#\s*\|/.test(line)) section.header = line.trim()
+    if (section && section.header === null && /^\|\s*#\s*\|/.test(line)) {
+      section.header = line.trim()
+      section.headerAt = at
+    }
     const number = NUMBERED.exec(line)
     if (number) {
       const block = Number(number[1])
@@ -105,8 +121,15 @@ function survey(lines) {
   return { sections, highest, topBlock }
 }
 
-/** The text of a row without its number, to find a row DECISIONES already has. */
-const body = (row) => row.replace(NUMBERED, '|').replace(/\s+/g, ' ').trim()
+/**
+ * The text of a row without its number, cell by cell, to find a row DECISIONES already has: «|Una.|m.|» and
+ * «| 56.10 | Una. | m. |» are the same row.
+ */
+const body = (row) =>
+  cells(row.trim())
+    .slice(NUMBERED.test(row) ? 1 : 0)
+    .map((cell) => cell.replace(/\s+/g, ' ').trim())
+    .join(' | ')
 
 /**
  * The text of DECISIONES with the pending rows numbered and in their sections, and what was done with each pending
@@ -118,7 +141,10 @@ export function applyPending(text, pendings) {
   const applied = []
   const errors = []
   const present = new Set(lines.filter((line) => NUMBERED.test(line)).map(body))
-  for (const pending of pendings) {
+  // The ones that create a section first (a stable sort: by name within each group), so that another pending for
+  // that section finds it whatever its name.
+  const ordered = [...pendings].sort((a, b) => Number(b.create) - Number(a.create))
+  for (const pending of ordered) {
     const { sections, highest, topBlock } = survey(lines)
     const matches = sections.filter((item) => exact(item.title) === exact(pending.section))
     if (matches.length > 1) {
@@ -162,6 +188,12 @@ export function applyPending(text, pendings) {
     const numbered = pending.rows.map((row, at) => `| ${block}.${first + at} | ${row.slice(1).trimStart()}`)
     if (section && section.lastRow !== null) {
       lines = [...lines.slice(0, section.lastRow + 1), ...numbered, ...lines.slice(section.lastRow + 1)]
+    } else if (section?.headerAt != null) {
+      // A decisions table still without rows: under its header (and its separator, or one if it lacks it).
+      const after = section.headerAt + 1
+      const separated = IS_SEPARATOR.test(lines[after]?.trim() ?? '')
+      const cut = separated ? after + 1 : after
+      lines = [...lines.slice(0, cut), ...(separated ? [] : [SEPARATOR]), ...numbered, ...lines.slice(cut)]
     } else if (section) {
       // A section without a numbered table: one at its end.
       let end = section.end
