@@ -135,20 +135,32 @@ export interface ChunkResultInput {
   extra?: Prisma.InputJsonValue | undefined
 }
 
+/**
+ * Phase 42: a copy goes on as the holder only if it plays the job's way, the job not fixed to a games revision yet or
+ * fixed to its worker's. Another chunk may fix the job after the copy started: that copy would be turned down too,
+ * and while it held the chunk no worker of the right revision could take it (review of #76).
+ */
+const COPY_PLAYS_JOB = Prisma.sql`(j.games_rev IS NULL
+  OR j.games_rev = (SELECT w.games_rev FROM worker_nodes w WHERE w.id = c.shadow_worker_id))`
+/** A chunk back in the queue goes without its copy: one left there would keep playing what nobody waits for. */
+const NO_COPY = { copyWorker: null, copyUntil: null, copySince: null }
+
 @Injectable()
 export class WorkerQueueService {
   /** Graceful shutdown/unplug: ownership is checked in each update; this never counts as an engine failure. */
   async release(workerId: string) {
-    // Phase 42: a chunk with a copy alive goes on with the copy as its holder (review of #73).
+    // Phase 42: a chunk with a copy alive goes on with the copy as its holder (review of #73), if the copy plays the
+    // job's way (review of #76).
     await this.prisma.$executeRaw`
-      UPDATE simulation_chunks SET worker_id = shadow_worker_id, lease_until = shadow_lease_until,
-        leased_at = shadow_leased_at, games_done = 0,
+      UPDATE simulation_chunks c SET worker_id = c.shadow_worker_id, lease_until = c.shadow_lease_until,
+        leased_at = c.shadow_leased_at, games_done = 0,
         shadow_worker_id = NULL, shadow_lease_until = NULL, shadow_leased_at = NULL
-      WHERE worker_id = ${workerId} AND status = 'leased'
-        AND shadow_worker_id IS NOT NULL AND shadow_lease_until > now()`
+      FROM simulation_jobs j
+      WHERE j.id = c.job_id AND c.worker_id = ${workerId} AND c.status = 'leased'
+        AND c.shadow_worker_id IS NOT NULL AND c.shadow_lease_until > now() AND ${COPY_PLAYS_JOB}`
     const chunks = await this.prisma.simulationChunk.updateMany({
       where: { workerId, status: 'leased' },
-      data: { status: 'queued', workerId: null, leaseUntil: null, gamesDone: 0 },
+      data: { status: 'queued', workerId: null, leaseUntil: null, gamesDone: 0, ...NO_COPY },
     })
     await this.dropCopies(workerId)
     this.notifyQueued()
@@ -622,21 +634,22 @@ export class WorkerQueueService {
 
   /**
    * A result turned down (another engine or games revision): the worker's lease goes to the chunk's copy, if one is
-   * alive (it passed the job's filter, so it plays the job's way), or else back to the queue; a copy turned down just
-   * lets go (review of #73).
+   * alive and plays the job's way, or else back to the queue without it; a copy turned down just lets go (reviews of
+   * #73 and #76).
    */
   private async letGo(id: number, workerId: string): Promise<void> {
     await this.dropCopies(workerId, [id])
     const handed = await this.prisma.$executeRaw`
-      UPDATE simulation_chunks SET worker_id = shadow_worker_id, lease_until = shadow_lease_until,
-        leased_at = shadow_leased_at, games_done = 0,
+      UPDATE simulation_chunks c SET worker_id = c.shadow_worker_id, lease_until = c.shadow_lease_until,
+        leased_at = c.shadow_leased_at, games_done = 0,
         shadow_worker_id = NULL, shadow_lease_until = NULL, shadow_leased_at = NULL
-      WHERE id = ${id} AND status = 'leased' AND worker_id = ${workerId}
-        AND shadow_worker_id IS NOT NULL AND shadow_lease_until > now()`
+      FROM simulation_jobs j
+      WHERE j.id = c.job_id AND c.id = ${id} AND c.status = 'leased' AND c.worker_id = ${workerId}
+        AND c.shadow_worker_id IS NOT NULL AND c.shadow_lease_until > now() AND ${COPY_PLAYS_JOB}`
     if (handed > 0) return
     await this.prisma.simulationChunk.updateMany({
       where: { id, status: 'leased', workerId },
-      data: { status: 'queued', leaseUntil: null, workerId: null, gamesDone: 0 },
+      data: { status: 'queued', leaseUntil: null, workerId: null, gamesDone: 0, ...NO_COPY },
     })
     this.notifyQueued()
   }
@@ -647,6 +660,13 @@ export class WorkerQueueService {
       where: { copyWorker: workerId, ...(ids ? { id: { in: ids } } : {}) },
       data: { copyWorker: null, copyUntil: null, copySince: null },
     })
+  }
+
+  /** Whether a copy's worker plays the job's way, as `COPY_PLAYS_JOB` (review of #76). */
+  private async copyPlaysJob(jobGamesRev: number | null, copyWorker: string): Promise<boolean> {
+    if (jobGamesRev === null) return true
+    const node = await this.prisma.workerNode.findUnique({ where: { id: copyWorker }, select: { gamesRev: true } })
+    return node?.gamesRev === jobGamesRev
   }
 
   /** Why a worker that got nothing cannot take what is waiting for its engine, if that is the case. */
@@ -700,6 +720,13 @@ export class WorkerQueueService {
     // holder's lease ran out (it went away), the copy goes on as the holder (review of #73).
     if (chunk.copyWorker === input.workerId && chunk.workerId !== input.workerId) {
       const now = new Date()
+      // A job fixed meanwhile to another games revision would turn its result down: it stops, and the chunk is free for
+      // a worker that plays it (review of #76).
+      if (!(await this.copyPlaysJob(chunk.job.gamesRev, input.workerId))) {
+        await this.dropCopies(input.workerId, [id])
+        await this.prisma.workerNode.updateMany({ where: { id: input.workerId }, data: { lastSeenAt: now } })
+        return { leaseUntil: null, cancelled: false, lost: true }
+      }
       if (chunk.status === 'leased' && chunk.leaseUntil !== null && chunk.leaseUntil < now) {
         const promoted = await this.prisma.simulationChunk.updateMany({
           where: { id, copyWorker: input.workerId, status: 'leased', leaseUntil: { lt: now } },
@@ -869,36 +896,57 @@ export class WorkerQueueService {
       pausedUntil?: Date | undefined
     },
   ): Promise<{ status: string }> {
-    const chunk = await this.requireChunk(id)
-    if (chunk.status === 'done' || chunk.status === 'cancelled') return { status: chunk.status }
-    // Phase 42: a copy that fails counts no attempt (the holder is still playing it): it just lets go. A lost result
-    // still pauses its worker (#72).
-    if (chunk.copyWorker === input.workerId && chunk.workerId !== input.workerId) {
-      if (input.cause === 'worker') await this.pause(input.workerId, input.pausedUntil)
-      await this.dropCopies(input.workerId, [id])
-      this.logger.warn({ chunk: id, error: input.error.slice(0, 300) }, 'copy of a chunk failed')
-      return { status: chunk.status }
+    let chunk = await this.requireChunk(id)
+    for (let tries = 0; ; tries++) {
+      if (chunk.status === 'done' || chunk.status === 'cancelled') return { status: chunk.status }
+      // Phase 42: a copy that fails counts no attempt (the holder is still playing it): it just lets go. A lost result
+      // still pauses its worker (#72).
+      if (chunk.copyWorker === input.workerId && chunk.workerId !== input.workerId) {
+        if (input.cause === 'worker') await this.pause(input.workerId, input.pausedUntil)
+        await this.dropCopies(input.workerId, [id])
+        this.logger.warn({ chunk: id, error: input.error.slice(0, 300) }, 'copy of a chunk failed')
+        return { status: chunk.status }
+      }
+      // H-014: only the worker that holds the chunk can fail it (a late report must not requeue another's work).
+      if (chunk.status !== 'leased' || (chunk.workerId !== null && chunk.workerId !== input.workerId)) {
+        return { status: chunk.status }
+      }
+      const outcome = await this.failHeld(chunk, input)
+      if (outcome) return outcome
+      // The row changed between the read and the update. Once more with the row as it is now: a copy that started or
+      // let go meanwhile must not leave the chunk leased to a worker that stopped until its lease runs out (review of
+      // #76). A second miss is another worker's doing, and its report stands.
+      chunk = await this.requireChunk(id)
+      if (tries > 0) return { status: chunk.status }
     }
-    // H-014: only the worker that holds the chunk can fail it (a late report must not requeue another's work).
-    if (chunk.status !== 'leased' || (chunk.workerId !== null && chunk.workerId !== input.workerId)) {
-      return { status: chunk.status }
-    }
-    // The row as it was read: another worker may claim it (an expired lease) or report it meanwhile, and then this
-    // report changes nothing (review of #72).
+  }
+
+  /** `failure` of the chunk its worker holds, as it was read; null when the row changed meanwhile. */
+  private async failHeld(
+    chunk: Awaited<ReturnType<WorkerQueueService['requireChunk']>>,
+    input: Parameters<WorkerQueueService['failure']>[1],
+  ): Promise<{ status: string } | null> {
+    const id = chunk.id
+    // The row as it was read, its copy too: another worker may claim it (an expired lease) or report it meanwhile, or a
+    // copy start or let go, and then this update changes nothing (reviews of #72 and #76).
     const unchanged = {
       id,
       status: 'leased' as const,
       workerId: chunk.workerId,
       attempt: chunk.attempt,
       returns: chunk.returns,
+      copyWorker: chunk.copyWorker,
     }
-    const lostRace = async () => ({ status: (await this.requireChunk(id)).status })
     let returned: { returns: number; returnedBy: string[] } | null = null
     let error = input.error
-    // Phase 42: with a copy alive, the chunk does not go back to the queue (nor fail): the copy plays the same games
-    // and goes on as the holder (review of #73). An engine error still counts its attempt.
+    // Phase 42: with a copy alive that plays the job's way, the chunk does not go back to the queue (nor fail): the
+    // copy plays the same games and goes on as the holder (reviews of #73 and #76). An engine error still counts its
+    // attempt. Without one, the chunk goes without its copy.
     const copy =
-      chunk.copyWorker !== null && chunk.copyUntil !== null && chunk.copyUntil.getTime() > Date.now()
+      chunk.copyWorker !== null &&
+      chunk.copyUntil !== null &&
+      chunk.copyUntil.getTime() > Date.now() &&
+      (await this.copyPlaysJob(chunk.job.gamesRev, chunk.copyWorker))
         ? {
             status: 'leased' as const,
             workerId: chunk.copyWorker,
@@ -910,8 +958,6 @@ export class WorkerQueueService {
             copySince: null,
           }
         : null
-    // The hand-over only to the copy that was read: one that let go meanwhile does not get the chunk (review of #73).
-    const guard = copy ? { ...unchanged, copyWorker: chunk.copyWorker } : unchanged
     if (input.cause === 'worker') {
       await this.pause(input.workerId, input.pausedUntil)
       returned = {
@@ -923,14 +969,14 @@ export class WorkerQueueService {
         (returned.returns >= RETURNS_COUNTED_FROM_SEVERAL && returned.returnedBy.length >= 2)
       if (!counted) {
         const moved = await this.prisma.simulationChunk.updateMany({
-          where: guard,
+          where: unchanged,
           data: {
-            ...(copy ?? { status: 'queued', leaseUntil: null, workerId: null, gamesDone: 0 }),
+            ...(copy ?? { status: 'queued', leaseUntil: null, workerId: null, gamesDone: 0, ...NO_COPY }),
             ...returned,
             error: `Devuelto por el worker: ${input.error}`.slice(0, 2000),
           },
         })
-        if (moved.count === 0) return lostRace()
+        if (moved.count === 0) return null
         if (copy) return { status: 'leased' }
         this.logger.warn(
           { chunk: id, worker: input.workerId, returns: returned.returns, error: input.error.slice(0, 300) },
@@ -945,15 +991,15 @@ export class WorkerQueueService {
     const attempt = chunk.attempt + 1
     const status = attempt >= MAX_FAILURES ? 'failed' : 'queued'
     const moved = await this.prisma.simulationChunk.updateMany({
-      where: guard,
+      where: unchanged,
       data: {
-        ...(copy ?? { status, leaseUntil: null, workerId: null }),
+        ...(copy ?? { status, leaseUntil: null, workerId: null, ...NO_COPY }),
         attempt,
         ...(returned ?? {}),
         error: error.slice(0, 2000),
       },
     })
-    if (moved.count === 0) return lostRace()
+    if (moved.count === 0) return null
     if (copy) {
       this.logger.warn({ chunk: id, attempt, copy: copy.workerId }, 'chunk failed; its copy goes on as the holder')
       return { status: 'leased' }
