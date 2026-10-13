@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-12 desde la etiqueta `v1.0.0` (35 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-12 desde la etiqueta `v1.0.0` (37 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -44,6 +44,8 @@ _Borrador generado al 2026-10-12 desde la etiqueta `v1.0.0` (35 commits). Escrib
 
 ### Documentado
 
+- PRs #59-#77 integrated — H-051 to H-054, P-007/P-010/P-013 closed, phase 39 in production, log of 12/10 (H-051, H-052, H-053, H-054, P-013, P-010, R-006, R-012, T-014, T-015, T-017) (#65, #398, #69, #70, R-003, P-009, D-026, #58, #62, #75) `c55a72a`
+- tag v1.0.0 on #62's commit, phase 39 in production, what pins a job's engine; production CLIs in OPERACION (P-013, P-010, R-006) (#68, #75) `6cce6b5`
 - decision 55.6 (the Active's sheet), upstream issue in 55.4 `7cb1285`
 - decisions 55.4-55.5 (identical options, Miraculous Memory) `fae6e30`
 
