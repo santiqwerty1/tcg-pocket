@@ -38,7 +38,10 @@ export function ChatParticipantsSection() {
 
   async function add() {
     try {
-      await save.mutateAsync({ name: name.trim(), channel, rooms: [room] })
+      // A name already in the list joins the room: its other rooms (and its main one) stay (review of #88).
+      const current = participants.data?.find((item) => item.name.toLowerCase() === name.trim().toLowerCase())
+      const rooms = current ? (current.rooms.includes(room) ? current.rooms : [...current.rooms, room]) : [room]
+      await save.mutateAsync({ name: name.trim(), channel, rooms })
       setName('')
     } catch (error) {
       toast.error(errorMessage(error))

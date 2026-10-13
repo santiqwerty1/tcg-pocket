@@ -111,5 +111,11 @@ describe('participantes del chat entre sesiones (D-021)', () => {
     await user.click(screen.getByRole('button', { name: 'Sumar' }))
     expect(await screen.findByText('Codex-P')).toBeInTheDocument()
     expect(calls).toContain('PUT Codex-P connector posta')
+    // «Sumar» a name already there adds the room, it does not take its others away.
+    await user.type(screen.getByRole('textbox', { name: 'Nombre de la sesión' }), 'codex-p')
+    await user.click(screen.getByRole('combobox', { name: 'Sala de la sesión nueva' }))
+    await user.click(await screen.findByRole('option', { name: 'Sala: tcg-pocket' }))
+    await user.click(screen.getByRole('button', { name: 'Sumar' }))
+    await vi.waitFor(() => expect(calls).toContain('PUT codex-p connector posta,tcg'))
   })
 })

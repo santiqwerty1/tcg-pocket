@@ -417,6 +417,41 @@ describe('chat between sessions (e2e)', () => {
       await call(posta, 'chat_write', { from: 'Posta-Coord', to: 'todos', topic: 'Aviso', text: 'x' }),
     ).toMatchObject({ sala: 'posta', to: ['todos'] })
 
+    // A session of «tcg» reading without parameters does not get «posta»'s «todos» (review of #88), and its wait is not
+    // woken up by «posta».
+    for (let left = 1; left > 0; )
+      left = (await call(nube, 'chat_read', { as: 'Nube-2', limit: 100 })).unreadLeft as number
+    const waiting = (async () => {
+      const started = Date.now()
+      const view = await call(nube, 'chat_read', { as: 'Nube-2', waitSeconds: 2 })
+      return { view, ms: Date.now() - started }
+    })()
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    await call(posta, 'chat_write', { from: 'Posta-Coord', to: 'todos', topic: 'Otro aviso', text: 'x' })
+    const waited = await waiting
+    expect(waited.view.messages).toEqual([])
+    expect(waited.view).not.toHaveProperty('otrasSalas')
+    expect(waited.ms).toBeGreaterThanOrEqual(1_800)
+    // Someone in two rooms hears of what waits in the other one (an open session cannot say «sala»).
+    await call(nube, 'chat_write', { from: 'Nube-2', to: 'Posta-Coord', topic: 'Por tcg', text: 'x' })
+    const both = await call(posta, 'chat_read', { as: 'Posta-Coord' })
+    expect(both).toMatchObject({ sala: 'posta', otrasSalas: { tcg: 1 }, notaSalas: expect.stringContaining('«sala»') })
+    expect((await call(posta, 'chat_read', { as: 'Posta-Coord', sala: 'tcg' })).messages).toEqual([
+      expect.objectContaining({ topic: 'Por tcg' }),
+    ])
+    // Errors name who is in the room asked, never the other rooms' participants.
+    const unknown = await refused(nube, 'chat_write', {
+      from: 'Nube-2',
+      to: 'Nadie',
+      topic: 'x',
+      text: 'x',
+      sala: 'tcg',
+    })
+    expect(unknown).not.toContain('Codex-P')
+    const outside = await refused(nube, 'chat_read', { as: 'Nube-2', sala: 'posta' })
+    expect(outside).not.toContain('Codex-P')
+    expect(outside).toContain('pasá «sala»')
+
     // The bridge's list is per room; it adds a session already in the list (same channel) to a room.
     const inPosta = async () =>
       ((await (await relay('/participants?sala=posta')).json()) as { items: { name: string; rooms: string[] }[] }).items

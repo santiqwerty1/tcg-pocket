@@ -408,6 +408,12 @@ ${MCP_CHAT_INSTRUCTIONS}`
               via: message.via,
             })),
             unreadLeft: view.unreadLeft,
+            ...(Object.keys(view.otherRooms).length > 0
+              ? {
+                  otrasSalas: view.otherRooms,
+                  notaSalas: 'Hay mensajes sin leer para esta sesión en otras salas: se leen con «sala».',
+                }
+              : {}),
             participants: view.participants,
             ...(view.messages.length === 0 ? { note: 'No hay mensajes nuevos.' } : {}),
           }

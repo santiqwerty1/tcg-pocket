@@ -57,6 +57,11 @@ export interface ChatReadView {
   messages: (ChatMessageView & { forYou: boolean })[]
   /** What is still new for the reader in the same scope after this read. */
   unreadLeft: number
+  /**
+   * What is new for the reader in its other rooms (only those with something): a session in two rooms reads one at
+   * a time, and an open one cannot say `sala` (review of #88).
+   */
+  otherRooms: Partial<Record<ChatRoom, number>>
   /** The names in the room's list of participants. */
   participants: string[]
 }
@@ -200,7 +205,7 @@ export class ChatService {
       }
     }
     const list = await this.list()
-    const sender = this.member(list, input.from)
+    const sender = this.member(list, input.from, input.room)
     if (!WRITES_AS[input.caller].includes(sender.channel)) {
       throw new ForbiddenException({
         code: 'wrong_channel',
@@ -208,7 +213,7 @@ export class ChatService {
       })
     }
     const room = input.room ?? mainRoom(sender)
-    this.mustBeIn(list, sender, room)
+    this.mustBeIn(sender, room)
     const named = parseRecipients(input.to)
     if (named.length === 0) throw new BadRequestException('Indicá a quién va el mensaje (o «todos»).')
     // «todos» is everyone in the room; a named recipient has to be in it.
@@ -261,7 +266,7 @@ export class ChatService {
     room?: ChatRoom | undefined
   }): Promise<ChatReadView> {
     const list = await this.list()
-    const reader = this.member(list, input.as)
+    const reader = this.member(list, input.as, input.room)
     if (reader.channel !== 'connector') {
       throw new ForbiddenException({
         code: 'wrong_channel',
@@ -269,7 +274,7 @@ export class ChatService {
       })
     }
     const room = input.room ?? mainRoom(reader)
-    this.mustBeIn(list, reader, room)
+    this.mustBeIn(reader, room)
     const key = reader.key
     const limit = input.limit ?? DEFAULT_LIMIT
     const mine = input.scope === 'mine'
@@ -277,15 +282,16 @@ export class ChatService {
       AND: [{ room }, mine ? { OR: [forKey(key), { fromKey: key }] } : {}],
     }
     // A participant added later starts after the message that was the last one then.
-    const unseen: Prisma.SessionChatMessageWhereInput = {
+    const unseenIn = (where: ChatRoom): Prisma.SessionChatMessageWhereInput => ({
       AND: [
-        { room },
+        { room: where },
         { id: { gt: reader.sinceId } },
         { NOT: { fromKey: key } },
         mine ? forKey(key) : {},
         { seen: { none: { participant: key } } },
       ],
-    }
+    })
+    const unseen = unseenIn(room)
     let messages: SessionChatMessage[]
     if (input.all) {
       messages = withinBudget(
@@ -320,11 +326,17 @@ export class ChatService {
         skipDuplicates: true,
       })
     }
+    const otherRooms: Partial<Record<ChatRoom, number>> = {}
+    for (const other of roomsOf(reader).filter((item) => item !== room)) {
+      const count = await this.prisma.sessionChatMessage.count({ where: unseenIn(other) })
+      if (count > 0) otherRooms[other] = count
+    }
     return {
       as: reader.name,
       room,
       messages: messages.map((row) => ({ ...toView(row), forYou: addressedTo(row, key) })),
       unreadLeft,
+      otherRooms,
       participants: list.filter((participant) => inRoom(participant, room)).map((participant) => participant.name),
     }
   }
@@ -465,38 +477,46 @@ export class ChatService {
     ]
   }
 
-  /** The list's entry for a name: exactly that name, only the case does not matter. */
-  private member(list: readonly SessionChatParticipant[], name: string): SessionChatParticipant {
+  /**
+   * The list's entry for a name: exactly that name, only the case does not matter. Not there: the error names who is
+   * in `room` (the default one without it), never the other rooms' participants.
+   */
+  private member(
+    list: readonly SessionChatParticipant[],
+    name: string,
+    room: ChatRoom = CHAT_DEFAULT_ROOM,
+  ): SessionChatParticipant {
     const key = chatKey(name)
     const found = list.find((participant) => participant.key === key)
     if (!found) {
       throw new BadRequestException({
         code: 'unknown_participant',
-        message: `«${name.trim()}» no está en la lista de participantes del chat (${list.map((participant) => participant.name).join(', ')}). Una sesión nueva la suma Santi en Más → Tokens de API.`,
-        details: { participants: list.map((participant) => participant.name) },
+        message: `«${name.trim()}» no está en la lista de participantes del chat (en la sala «${room}»: ${this.namesIn(list, room)}). Una sesión nueva la suma Santi en Más → Tokens de API.`,
+        details: { participants: list.filter((participant) => inRoom(participant, room)).map((row) => row.name) },
       })
     }
     return found
   }
 
   /** Whoever writes or reads has to be in the room. */
-  private mustBeIn(list: readonly SessionChatParticipant[], participant: SessionChatParticipant, room: ChatRoom): void {
+  private mustBeIn(participant: SessionChatParticipant, room: ChatRoom): void {
     if (inRoom(participant, room)) return
+    // Not who is in that room: it is not this participant's.
     throw new ForbiddenException({
       code: 'not_in_room',
-      message: `«${participant.name}» no está en la sala «${room}» (está en ${roomsOf(participant)
+      message: `«${participant.name}» no está en la sala «${room}». Sus salas: ${roomsOf(participant)
         .map((name) => `«${name}»`)
-        .join(', ')}). En esa sala están: ${this.namesIn(list, room)}.`,
+        .join(', ')}; para otra, pasá «sala».`,
     })
   }
 
   /** A recipient: in the list, and in the room. */
   private inRoomMember(list: readonly SessionChatParticipant[], name: string, room: ChatRoom): string {
-    const found = this.member(list, name)
+    const found = this.member(list, name, room)
     if (!inRoom(found, room)) {
       throw new BadRequestException({
         code: 'not_in_room',
-        message: `«${found.name}» no está en la sala «${room}»: no le llega. En esa sala están: ${this.namesIn(list, room)}.`,
+        message: `«${found.name}» no está en la sala «${room}»: no le llega. En esa sala están: ${this.namesIn(list, room)}. Si es de otra sala tuya, pasá «sala».`,
         details: { participants: list.filter((row) => inRoom(row, room)).map((row) => row.name) },
       })
     }
