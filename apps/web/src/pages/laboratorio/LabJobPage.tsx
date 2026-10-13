@@ -388,12 +388,12 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant={deck.role === 'best' ? 'default' : 'secondary'}>{ROLE_LABEL[deck.role]}</Badge>
         <NoveltyBadge deck={deck} />
-        {deck.botSensitive ? (
+        {deck.bringsBlindSpot ? (
           <Badge
             variant="outline"
             title="Trae una carta que el bot juega mal o que el motor aproxima: probala en el juego antes de confiar en el número."
           >
-            sensible al bot
+            carta con punto ciego
           </Badge>
         ) : null}
         <span className="min-w-0 flex-1 truncate text-sm font-medium">{deck.label}</span>

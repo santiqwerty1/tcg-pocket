@@ -145,8 +145,8 @@ export interface LabDeckView {
   energyChange: { from: string[]; to: string[] } | null
   /** T-017 A3: the list's cards the bots play badly or the engine approximates, with why. */
   blindSpots: { cardId: string; nameEs: string; reasons: string[] }[]
-  /** T-017 A3: what it brought in has one of those: its score leans on the bot. */
-  botSensitive: boolean
+  /** T-017 A3: what it brought in has one of those: its score leans on the bot («carta con punto ciego»). */
+  bringsBlindSpot: boolean
   /**
    * T-017 E1/E2: why each card that came in was proposed (share of the era's lists and of the archetype's lists that
    * play it, when the search kept them) and how many copies the collection lacks for it.

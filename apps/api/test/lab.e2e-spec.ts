@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
-import { blindSpotsOf, engineEdition, eraRange, poolForZone, type SelectableEnergy, usableWith } from '@tcg/domain'
+import { engineEdition, eraRange, poolForZone, type SelectableEnergy, usableWith } from '@tcg/domain'
 import { CatalogService } from '../src/catalog/catalog.service.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
@@ -1860,22 +1860,12 @@ describe('laboratorio (e2e)', () => {
     await post(`/api/simulations/${id}/cancel`)
   }, 60_000)
 
-  it('T-017 A3: a list says which of its cards the bots play badly; a variant that brings one in is «sensible al bot»', async () => {
+  it('T-017 A3: a list says which of its cards the bots play badly; a variant that brings one in says so', async () => {
     const index = test.app.get(CatalogService).requireIndex()
-    const inDeck = new Set(
-      ((await get(`/api/decks/${deckIds[1]}`)).body.cards as { card: { id: string } }[]).map(
-        (entry) => index.cardById(entry.card.id)?.functionalGroupId,
-      ),
-    )
-    // A trainer that searches the deck (the engine shows searches the deck in order), not in deck 2.
-    const search = index.catalog.cards.find(
-      (card) =>
-        card.cardType === 'trainer' &&
-        card.isDisplayEdition &&
-        !inDeck.has(card.functionalGroupId) &&
-        blindSpotsOf(card).includes('deck_search'),
-    )
-    if (!search) throw new Error('no deck search trainer')
+    // Pokémon Communication swaps a card for a random Pokémon of the deck; deck 2 does not play it. Chosen by id
+    // (review of #82: not with the function under test).
+    const search = index.cardById('A2-146')
+    if (!search) throw new Error('no Pokémon Communication')
     const created = await post('/api/lab/explore').send({
       deck: { deckId: deckIds[1] },
       size: 3,
@@ -1888,14 +1878,14 @@ describe('laboratorio (e2e)', () => {
     const brought = lab.decks.find((deck: { changes: { add: { cardId: string }[] } | null }) =>
       deck.changes?.add.some((card) => index.cardById(card.cardId)?.functionalGroupId === search.functionalGroupId),
     )
-    expect(brought).toMatchObject({ botSensitive: true })
+    expect(brought).toMatchObject({ bringsBlindSpot: true })
     expect(
       brought.blindSpots.some((card: { reasons: string[] }) =>
         card.reasons.some((reason) => reason.includes('el orden del mazo')),
       ),
     ).toBe(true)
     const base = lab.decks.find((deck: { role: string }) => deck.role === 'base')
-    expect(base.botSensitive).toBe(false)
+    expect(base.bringsBlindSpot).toBe(false)
     await post(`/api/simulations/${created.body.id}/cancel`)
   }, 60_000)
 
