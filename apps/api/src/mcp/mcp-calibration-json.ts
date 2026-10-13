@@ -138,13 +138,24 @@ function rowJson(row: CalibrationRow): Json {
   }
 }
 
-/** One report: compact keeps the `limit` compared pairs that differ most; full, every pair. */
-export function calibrationReportJson(view: CalibrationView, options: { limit: number; full: boolean }): Json {
+/** Pairs of a full report's page by default: with 25 archetypes all 300 of them are ~160 KB, past what a tool returns. */
+export const CALIBRATION_FULL_PAGE = 50
+
+/**
+ * One report: compact keeps the `limit` compared pairs that differ most; full, every pair, a page at a time (`offset`,
+ * `limit`) in the report's order.
+ */
+export function calibrationReportJson(
+  view: CalibrationView,
+  options: { limit: number; offset: number; full: boolean },
+): Json {
   const { report } = view
   const compared = report.rows.filter((row) => row.compatible !== null)
+  const total = report.rows.length
   const rows = options.full
-    ? report.rows
+    ? report.rows.slice(options.offset, options.offset + options.limit)
     : [...compared].sort((x, y) => Math.abs(y.difference ?? 0) - Math.abs(x.difference ?? 0)).slice(0, options.limit)
+  const next = options.full && options.offset + rows.length < total ? options.offset + rows.length : null
   return {
     job: jobJson(view.job),
     tournaments: {
@@ -178,9 +189,14 @@ export function calibrationReportJson(view: CalibrationView, options: { limit: n
       tournament: weightedJson(archetype.tournament),
     })),
     pairs: rows.map(rowJson),
-    pairsShown: options.full
-      ? `todos (${report.rows.length})`
-      : `los ${rows.length} de ${compared.length} comparados con más diferencia; detail full para todos`,
+    pairsShown: !options.full
+      ? `los ${rows.length} de ${compared.length} comparados con más diferencia; detail full para todos`
+      : rows.length === total
+        ? `todos (${total})`
+        : rows.length === 0
+          ? `ninguno: el informe tiene ${total} pares`
+          : `los pares ${options.offset + 1} a ${options.offset + rows.length} de ${total}${next === null ? '' : `; offset ${next} para seguir`}`,
+    ...(options.full ? { page: { offset: options.offset, limit: options.limit, total, next } } : {}),
     note: NOTE,
   }
 }

@@ -67,20 +67,28 @@ export const MCP_READ_TOOLS = {
     name: 'simulations_calibration',
     title: 'Calibración contra torneos',
     description:
-      'Calibraciones (R-012): el banco del meta jugado contra sí mismo por un bot, cada par de arquetipos al lado de lo que hicieron en torneos de la era. Sin id, la lista con el resumen de cada una (bot, motor, cobertura); con id, el informe: pares compatibles, diferencia media, orden de los pares y de los arquetipos (Spearman con IC), cada arquetipo contra el resto del banco y los pares con más diferencia (todos con detail full). Citá el campo text. Simulación y torneos son fuentes separadas: nunca las combines en un número; todo por partida y sin empates (los del motor se cuentan aparte).',
+      'Calibraciones (R-012): el banco del meta jugado contra sí mismo por un bot, cada par de arquetipos al lado de lo que hicieron en torneos de la era. Sin id, la lista con el resumen de cada una (bot, motor, cobertura); con id, el informe: pares compatibles, diferencia media, orden de los pares y de los arquetipos (Spearman con IC), cada arquetipo contra el resto del banco y los pares con más diferencia (con detail full, todos, de a 50 por página con offset: pairsShown dice el siguiente). Citá el campo text. Simulación y torneos son fuentes separadas: nunca las combines en un número; todo por partida y sin empates (los del motor se cuentan aparte).',
     input: z.object({
       id: z.number().int().positive().optional().describe('Id de la calibración; sin id, la lista de calibraciones'),
       detail: z
         .enum(['compact', 'full'])
         .optional()
-        .describe('compact (por defecto: los pares con más diferencia) o full (todos los pares)'),
+        .describe('compact (por defecto: los pares con más diferencia) o full (todos los pares, por páginas)'),
       limit: z
         .number()
         .int()
         .min(1)
-        .max(30)
+        .max(100)
         .optional()
-        .describe('Pares en compact, los de mayor diferencia; por defecto 10'),
+        .describe(
+          'Pares: en compact, los de mayor diferencia (por defecto 10); en full, los de la página (por defecto 50)',
+        ),
+      offset: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe('full: desde qué par, en el orden del informe (por defecto 0)'),
     }),
   },
   collectionSummary: {

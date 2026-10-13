@@ -5,6 +5,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { matchupPerGame } from '@tcg/domain'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
+import { CALIBRATION_REPORT_FRESH_MS, CalibrationService } from '../src/simulation/calibration.service.js'
 import { WorkerQueueService } from '../src/simulation/worker-queue.service.js'
 import { type FetchLike, LimitlessTransport } from '../src/tournaments/limitless.client.js'
 import { TournamentSyncService } from '../src/tournaments/tournament-sync.service.js'
@@ -402,10 +403,34 @@ describe('calibration (e2e)', () => {
         expect(pair.simulated.text).toMatch(/n = .*IC/)
         expect(pair.tournament.text).toMatch(/n = .*IC/)
       }
-      // Full: every pair; the text content carries the same object.
+      // Full: every pair, by pages of 50 (all of them here); the text content carries the same object.
       const full = await call({ id, detail: 'full' })
       expect((full.structuredContent as { pairs: unknown[] }).pairs).toHaveLength(view.report.rows.length)
+      expect(full.structuredContent).toMatchObject({
+        pairsShown: `todos (${view.report.rows.length})`,
+        page: { offset: 0, limit: 50, total: view.report.rows.length, next: null },
+      })
       expect(JSON.parse(full.content[0]?.text ?? '{}')).toEqual(full.structuredContent)
+      // A page in the middle, in the report's order, and the last one (a bank of 25 is ~160 KB in full).
+      const total = view.report.rows.length
+      const page = (await call({ id, detail: 'full', offset: 2, limit: 3 })).structuredContent as {
+        pairs: { pair: string }[]
+        pairsShown: string
+        page: { next: number | null }
+      }
+      expect(page.pairs.map((pair) => pair.pair)).toEqual(
+        view.report.rows.slice(2, 5).map((row) => `${row.labelA} vs ${row.labelB}`),
+      )
+      expect(page.pairsShown).toBe(`los pares 3 a 5 de ${total}; offset 5 para seguir`)
+      expect(page.page.next).toBe(5)
+      const last = (await call({ id, detail: 'full', offset: total - 1, limit: 3 })).structuredContent as {
+        pairs: unknown[]
+        pairsShown: string
+        page: { next: number | null }
+      }
+      expect(last.pairs).toHaveLength(1)
+      expect(last.pairsShown).toBe(`los pares ${total} a ${total} de ${total}`)
+      expect(last.page.next).toBeNull()
       // An unknown calibration says so.
       const missing = await call({ id: 999_999 })
       expect(missing.isError).toBe(true)
@@ -436,5 +461,74 @@ describe('calibration (e2e)', () => {
     const listed = (await get('/api/calibration')).body as { id: number; lists: number }[]
     expect(listed.find((item) => item.id === id)).toMatchObject({ lists: bank.length })
     expect((await post(`/api/simulations/${id}/cancel`)).body.status).toBe('cancelled')
+  })
+
+  it('the report is kept while nothing it is made of changes; the progress is always fresh', async () => {
+    const service = test.app.get(CalibrationService)
+    const build = vi.spyOn(service as unknown as { build: () => Promise<unknown> }, 'build')
+    try {
+      // 3 lists: 3 pairings of 10 games, one chunk each.
+      const id = (await post('/api/calibration').send({ bot: 'e2', gamesPerPair: 10, size: 3 })).body.id as number
+      const first = await service.report(id)
+      await service.report(id)
+      expect(build).toHaveBeenCalledTimes(1)
+      // A worker takes a chunk and says how far it got: the report waits, the progress does not.
+      const chunk = (await bearer('post', '/api/worker/claim').send({ ...hello, engineRev: test.env.engineRev })).body
+        .chunk as Structured
+      expect(chunk).toMatchObject({ jobId: id })
+      await bearer('put', `/api/worker/chunks/${chunk.chunkId}/heartbeat`).send({
+        workerId: hello.workerId,
+        gamesDone: 4,
+      })
+      const playing = await service.report(id)
+      expect(build).toHaveBeenCalledTimes(1)
+      expect(playing.job.progress.gamesDone).toBe(4)
+      expect(playing.report).toBe(first.report)
+      // While it plays, a finished chunk is seen at most `CALIBRATION_REPORT_FRESH_MS` later.
+      await bearer('put', `/api/worker/chunks/${chunk.chunkId}/result`).send({
+        workerId: hello.workerId,
+        engineRev: test.env.engineRev,
+        winsA: 6,
+        winsB: 4,
+        ties: 0,
+        games: 10,
+        durationMs: 100,
+      })
+      expect((await service.report(id)).pending).toBe(3)
+      expect(build).toHaveBeenCalledTimes(1)
+      const now = Date.now()
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(now + CALIBRATION_REPORT_FRESH_MS + 1)
+      try {
+        expect((await service.report(id)).pending).toBe(2)
+      } finally {
+        clock.mockRestore()
+      }
+      expect(build).toHaveBeenCalledTimes(2)
+      // Once it ends, its report is made again with what it played, and then kept.
+      expect((await post(`/api/simulations/${id}/cancel`)).body.status).toBe('cancelled')
+      const ended = await service.report(id)
+      expect(ended).toMatchObject({ pending: 0, cancelled: 2 })
+      await service.report(id)
+      expect(build).toHaveBeenCalledTimes(3)
+      // An alias changes the tournament data (a new dataset): made again.
+      const merged = ended.report.archetypes[0]?.id as string
+      const into = ended.report.archetypes[1]?.id as string
+      await test
+        .http()
+        .put(`/api/tournaments/archetypes/${merged}/alias`)
+        .set('Cookie', cookie)
+        .send({ canonicalId: into })
+      await service.report(id)
+      expect(build).toHaveBeenCalledTimes(4)
+      await test
+        .http()
+        .put(`/api/tournaments/archetypes/${merged}/alias`)
+        .set('Cookie', cookie)
+        .send({ canonicalId: null })
+      await service.report(id)
+      expect(build).toHaveBeenCalledTimes(5)
+    } finally {
+      build.mockRestore()
+    }
   })
 })
