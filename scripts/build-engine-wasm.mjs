@@ -129,7 +129,9 @@ try {
   sources(join(out, names.sources))
   writeFileSync(
     join(out, 'manifest.json'),
-    `${JSON.stringify({ engineRev, gamesRev, version, ...names, wasmBytes: wasm.length }, null, 2)}\n`,
+    // `build`: what was compiled (the same hash as the file names). A browser game keeps it: a page with another build
+    // would rebuild another game from the same choices (review of #86).
+    `${JSON.stringify({ engineRev, gamesRev, version, build: hash, ...names, wasmBytes: wasm.length }, null, 2)}\n`,
   )
   console.log(`Motor del navegador: ${out} (${names.wasm}, ${(wasm.length / 1024 / 1024).toFixed(1)} MB)`)
 } finally {

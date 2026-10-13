@@ -4,9 +4,9 @@
  * the way the PWA's Web Worker does, plays whole games against several bots, rebuilds one from its seed and choices,
  * scores a decision with the coach and checks the replay. Usage: `node engine/wasm/smoke.mjs <folder with engine.js>`.
  */
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const dir = resolve(process.argv[2] ?? 'apps/web/public/engine')
 const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'))
@@ -97,6 +97,68 @@ check(JSON.stringify(again.replay) === JSON.stringify(first.replay), 'and the sa
 const coached = play({ ...base, bot: 'e2', seed: '3', coach: true })
 check(Array.isArray(coached.coach?.scores) && coached.coach.scores.length > 1, 'the coach scores every option')
 console.log(`entrenador: ${coached.coach.scores.length} opciones, la mejor ${coached.coach.best}`)
+
+// The browser's own golden games (review of #86): engine-cli's live cases (engine/games-rev.json) played by this .wasm.
+// They are not a PC's games (R-003), but they must not change unnoticed: when they do, this fails until
+// games-wasm.json is made again (`--regenerate`), and the games in course end as `engine_changed` (a browser game keeps
+// its engine's build).
+const goldenFile = fileURLToPath(new URL('./games-wasm.json', import.meta.url))
+const golden = JSON.parse(readFileSync(fileURLToPath(new URL('../games-rev.json', import.meta.url)), 'utf8'))
+/** engine-cli's games_rev_tests hash (FNV-1a, 64 bits) over UTF-8. */
+function fnv(text) {
+  let hash = 0xcbf29ce484222325n
+  for (const byte of new TextEncoder().encode(text)) {
+    hash ^= BigInt(byte)
+    hash = (hash * 0x100000001b3n) & 0xffffffffffffffffn
+  }
+  return hash.toString(16).padStart(16, '0')
+}
+function goldenGame(job, coach) {
+  const game = new engine.LiveGame(JSON.stringify({ ...job, seed: String(job.seed), coach }))
+  const choices = job.choices ?? []
+  const moves = []
+  let next = 0
+  let step = JSON.parse(game.advance())
+  if (coach) {
+    const view = JSON.parse(game.coach())
+    game.free()
+    return { scores: view.scores, best: view.best }
+  }
+  for (;;) {
+    for (const line of step.log) moves.push(`${line.actor}:${line.text}`)
+    if (step.type === 'end') break
+    // As engine-cli's golden: the k-th choice (cycling) modulo the options, answered with the option's label.
+    const pick = choices[next % choices.length] % step.actions.length
+    next++
+    const shown = step.actions[pick]
+    step = JSON.parse(game.advance(shown.i))
+    check(step.log[0]?.actor === 0 && step.log[0].text === shown.text, 'the move played is the one shown')
+  }
+  game.free()
+  return { winner: step.winner, turns: step.turns, moves: fnv(moves.join('\n')) }
+}
+const browserGolden = golden.cases
+  .filter((item) => item.command === 'play' || item.command === 'coach')
+  .map((item) => ({
+    command: item.command,
+    bot: item.job.bot,
+    seed: item.job.seed,
+    ...goldenGame(item.job, item.command === 'coach'),
+  }))
+const goldenNow = { engineRev: info.engineRev, gamesRev: info.gamesRev, cases: browserGolden }
+if (process.argv.includes('--regenerate')) {
+  writeFileSync(goldenFile, `${JSON.stringify(goldenNow, null, 2)}\n`)
+  console.log(`games-wasm.json: ${browserGolden.length} casos escritos`)
+} else {
+  // The content, not the text: the formatter (biome) lays the file out its way.
+  const kept = existsSync(goldenFile) ? JSON.stringify(JSON.parse(readFileSync(goldenFile, 'utf8'))) : ''
+  check(
+    kept === JSON.stringify(goldenNow),
+    'las partidas del navegador cambiaron (games-wasm.json): si es a propósito, hacé el archivo de nuevo con ' +
+      '`node engine/wasm/smoke.mjs <carpeta> --regenerate`; las partidas en curso del navegador terminan como «cambió el motor»',
+  )
+  console.log(`dorado del navegador: ${browserGolden.length} casos iguales`)
+}
 
 let refused = false
 try {

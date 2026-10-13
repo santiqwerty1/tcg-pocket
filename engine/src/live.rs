@@ -87,11 +87,12 @@ pub(crate) fn winner_of(outcome: Option<GameOutcome>) -> &'static str {
 }
 
 /// The owner's seat: plays the answer `LiveGame::answer` was given, and hands the coach's values of that decision to
-/// the replay (`last_scores`).
+/// the replay (`last_scores`). `shown`: the options the owner chose from, in their order.
 struct Owner {
     deck: Deck,
     answer: Rc<Cell<Option<usize>>>,
     scores: Rc<RefCell<Option<Vec<f64>>>>,
+    shown: Rc<RefCell<Vec<Action>>>,
 }
 
 impl std::fmt::Debug for Owner {
@@ -111,6 +112,12 @@ impl Player for Owner {
 
     fn decision_fn(&mut self, _rng: &mut StdRng, _state: &State, possible_actions: &[Action]) -> Action {
         let i = self.answer.take().expect("the owner's answer is set before the owner's move is played");
+        // The option number is the one the owner was shown: deckgym must ask the same options, in the same order (review
+        // of #86).
+        assert!(
+            self.shown.borrow().as_slice() == possible_actions,
+            "the owner chose from other options than the ones deckgym asks"
+        );
         possible_actions[i].clone()
     }
 }
@@ -139,6 +146,7 @@ pub(crate) struct LiveGame<'a> {
     game: Game<'a>,
     answer: Rc<Cell<Option<usize>>>,
     scores: Rc<RefCell<Option<Vec<f64>>>>,
+    shown: Rc<RefCell<Vec<Action>>>,
     /// Modo entrenador: both decks and the coach's seed.
     coach: Option<([Deck; 2], u64)>,
     ply: u32,
@@ -159,14 +167,15 @@ impl<'a> LiveGame<'a> {
         let bot = create_players(deck_human.clone(), deck_bot.clone(), vec![code.clone(), code])
             .pop()
             .expect("two players");
-        let owner = Owner { deck: deck_human.clone(), answer: answer.clone(), scores: scores.clone() };
+        let shown = Rc::new(RefCell::new(Vec::new()));
+        let owner = Owner { deck: deck_human.clone(), answer: answer.clone(), scores: scores.clone(), shown: shown.clone() };
         let players: Vec<Box<dyn Player>> = vec![Box::new(owner), bot];
         let game = match handler {
             Some(handler) => Game::new_with_event_handlers(live_game_id(seed), players, seed, handler),
             None => Game::new(players, seed),
         };
         let coach = coach.then(|| ([deck_human.clone(), deck_bot.clone()], coach_seed(seed)));
-        LiveGame { game, answer, scores, coach, ply: 0, pending: None }
+        LiveGame { game, answer, scores, shown, coach, ply: 0, pending: None }
     }
 
     /// The owner's decisions so far (the last one may be pending).
@@ -257,6 +266,7 @@ impl<'a> LiveGame<'a> {
         }
         // The replay records the coach's values next to the decision (deckgym asks the seat after its move).
         *self.scores.borrow_mut() = pending.scores.clone();
+        self.shown.replace(pending.actions.clone());
         self.answer.set(Some(i));
         let action = self.game.play_tick();
         Ok((pending, action))

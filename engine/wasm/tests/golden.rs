@@ -54,7 +54,13 @@ fn the_golden_live_games_come_out_the_same() {
             let pick = choices[next % choices.len()] % actions.len();
             next += 1;
             let label = actions[pick]["i"].as_u64().expect("label") as usize;
+            let shown = actions[pick]["text"].as_str().expect("text").to_string();
             step = stepper.advance(Some(label)).expect("step");
+            // The move played is the one the owner was shown with that label (review of #86: the numbering of the
+            // options and the moves must not drift apart).
+            let played = &step["log"].as_array().expect("log")[0];
+            assert_eq!(played["actor"], 0, "the owner's move comes first");
+            assert_eq!(played["text"].as_str(), Some(shown.as_str()), "the move played is the one shown");
         }
         let expected = &case["expected"];
         assert_eq!(step["winner"], expected["winner"], "winner of {}", case["job"]["bot"]);

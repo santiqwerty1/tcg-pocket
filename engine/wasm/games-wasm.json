@@ -1,0 +1,37 @@
+{
+  "engineRev": "33ff2a5942dd4ce09d1ebc3041ffe48f604409e6",
+  "gamesRev": 1,
+  "cases": [
+    {
+      "command": "play",
+      "bot": "e2",
+      "seed": 4207,
+      "winner": "bot",
+      "turns": 6,
+      "moves": "f2a36d49c6f3317f"
+    },
+    {
+      "command": "play",
+      "bot": "f2",
+      "seed": 4208,
+      "winner": "bot",
+      "turns": 11,
+      "moves": "4c0aa30fb5df79e0"
+    },
+    {
+      "command": "play",
+      "bot": "r",
+      "seed": 4209,
+      "winner": "bot",
+      "turns": 7,
+      "moves": "e20bdbd0f3ffc7af"
+    },
+    {
+      "command": "coach",
+      "bot": "e2",
+      "seed": 4210,
+      "scores": [22, 645.3, 143, 638, 142],
+      "best": 1
+    }
+  ]
+}
