@@ -151,7 +151,7 @@ const browserJobSchema = z.object({
 const browserDecisionSchema = decisionSchema.omit({ workerId: true }).extend({ choices, build: engineBuild })
 const browserWaitSchema = z.object({ choices, ply: z.number().int().min(1) })
 const browserEndSchema = endSchema.omit({ workerId: true }).extend({ choices, build: engineBuild })
-const browserFailureSchema = z.object({ choices, error: z.string().min(1).max(20_000), build: engineBuild.optional() })
+const browserFailureSchema = z.object({ choices, error: z.string().min(1).max(20_000), build: engineBuild })
 /** The replay's choices in the query (`1.0.3`; none when the owner never chose), its body gzipped like a worker's. */
 const browserReplaySchema = z.object({
   build: engineBuild,

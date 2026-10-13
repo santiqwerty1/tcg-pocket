@@ -111,12 +111,13 @@ impl Player for Owner {
     }
 
     fn decision_fn(&mut self, _rng: &mut StdRng, _state: &State, possible_actions: &[Action]) -> Action {
-        let i = self.answer.take().expect("the owner's answer is set before the owner's move is played");
+        // Both messages reach the owner (the game fails with them), so they are in Spanish.
+        let i = self.answer.take().expect("el motor jugó la jugada del dueño sin su respuesta");
         // The option number is the one the owner was shown: deckgym must ask the same options, in the same order (review
         // of #86).
         assert!(
             self.shown.borrow().as_slice() == possible_actions,
-            "the owner chose from other options than the ones deckgym asks"
+            "el motor le pidió al dueño otras opciones que las que le mostró"
         );
         possible_actions[i].clone()
     }
@@ -274,5 +275,53 @@ impl<'a> LiveGame<'a> {
 
     pub fn state(&self) -> State {
         self.game.get_state_clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use deckgym::players::create_players as deckgym_players;
+    use rand::SeedableRng;
+
+    /// The first decision with more than one option of a game between two random bots.
+    fn a_decision() -> (State, Vec<Action>, Deck) {
+        let deck = Deck::from_string(crate::coach::tests::ALTARIA).expect("deck");
+        let players = deckgym_players(deck.clone(), deck.clone(), vec![PlayerCode::R, PlayerCode::R]);
+        let mut game = Game::new(players, 7);
+        loop {
+            let state = game.get_state_clone();
+            let (_, actions) = state.generate_possible_actions();
+            if actions.len() > 1 {
+                return (state, actions, deck);
+            }
+            game.play_tick();
+        }
+    }
+
+    fn owner(deck: Deck, shown: Vec<Action>, answer: usize) -> Owner {
+        Owner {
+            deck,
+            answer: Rc::new(Cell::new(Some(answer))),
+            scores: Rc::new(RefCell::new(None)),
+            shown: Rc::new(RefCell::new(shown)),
+        }
+    }
+
+    #[test]
+    fn the_owner_plays_the_option_it_was_shown() {
+        let (state, actions, deck) = a_decision();
+        let mut seat = owner(deck, actions.clone(), 1);
+        assert_eq!(seat.decision_fn(&mut StdRng::seed_from_u64(1), &state, &actions), actions[1]);
+    }
+
+    /// Review of #86: options in another order than the ones shown would play another move than the one chosen.
+    #[test]
+    #[should_panic(expected = "el motor le pidió al dueño otras opciones que las que le mostró")]
+    fn options_other_than_the_ones_shown_stop_the_game() {
+        let (state, actions, deck) = a_decision();
+        let mut shown = actions.clone();
+        shown.reverse();
+        owner(deck, shown, 0).decision_fn(&mut StdRng::seed_from_u64(1), &state, &actions);
     }
 }

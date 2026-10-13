@@ -1,5 +1,30 @@
+import type { Request, Response } from 'express'
 import { describe, expect, it } from 'vitest'
-import { contentSecurityPolicy, ENGINE_WORKER_SCRIPT } from './security-headers.middleware.js'
+import type { Env } from '../config/env.js'
+import {
+  contentSecurityPolicy,
+  ENGINE_WORKER_SCRIPT,
+  SecurityHeadersMiddleware,
+} from './security-headers.middleware.js'
+
+/** The policy the middleware sets on a response to `url`. */
+function policyFor(url: string): string {
+  const headers = new Map<string, string>()
+  const res = { setHeader: (name: string, value: string) => headers.set(name, value) } as unknown as Response
+  new SecurityHeadersMiddleware({ cookieSecure: false } as Env).use({ originalUrl: url } as Request, res, () => {})
+  return headers.get('Content-Security-Policy') ?? ''
+}
+
+describe('security headers middleware', () => {
+  it('gives only the response of the engine worker the right to compile WebAssembly (review of #86)', () => {
+    expect(policyFor('/assets/engine.worker-ByOFcqr-.js')).toContain("'wasm-unsafe-eval'")
+    expect(policyFor('/assets/engine.worker-ByOFcqr-.js?v=1')).toContain("'wasm-unsafe-eval'")
+    for (const url of ['/', '/jugar/3', '/assets/index-ByOFcqr-.js', '/engine/engine-0123456789ab.js', '/viewer/']) {
+      expect(policyFor(url), url).not.toContain("'wasm-unsafe-eval'")
+    }
+    expect(policyFor('/viewer/index.html')).toContain("'unsafe-eval'")
+  })
+})
 
 describe('content security policy', () => {
   it('never allows eval, except on the pages of the deckgym replay viewer (D-014)', () => {

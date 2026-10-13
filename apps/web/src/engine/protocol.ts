@@ -3,7 +3,7 @@
  * the messages between the page and that worker, and what the engine answers (the same fields as `engine-cli play`).
  */
 
-/** What the engine needs to start a game (the server's `GET /api/play/:id/browser`). */
+/** What the engine needs to start a game (the server's `POST /api/play/:id/browser`). */
 export interface EngineJob {
   deckHuman: string
   deckBot: string

@@ -2388,7 +2388,7 @@ export interface PlayInput {
   build?: string
 }
 
-/** T-015: what the engine of the page needs (`GET /api/play/:id/browser`). */
+/** T-015: what the engine of the page needs (`POST /api/play/:id/browser`). */
 export const browserJobSchema = z.object({
   id: z.number(),
   deckHuman: z.string(),

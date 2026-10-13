@@ -532,12 +532,12 @@ T-015: con `runner: 'browser'` la juega la página abierta de la partida con el 
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
 | `GET /api/play` | `{ items: [{ id, status, runner, coach, botEs, human, rival, winner, turns, createdAt, finishedAt }] }` (30 más recientes; las que llevan una semana sin movimiento pasan a `abandoned`) |
-| `POST /api/play` | `{ human: Source, rival: Source, bot? (e2), seed?, coach? (false), runner? ('worker'), engineRev?, gamesRev? }` → `201 LiveGame`; `400 not_simulable` si un mazo no se puede jugar. `coach`: modo entrenador (Fase 20). `runner: 'browser'` (T-015) pide `engineRev` = el motor del servidor y `gamesRev` = cómo juega el motor de la página, que la partida guarda (`409 engine_mismatch`) |
+| `POST /api/play` | `{ human: Source, rival: Source, bot? (e2), seed?, coach? (false), runner? ('worker'), engineRev?, gamesRev?, build? }` → `201 LiveGame`; `400 not_simulable` si un mazo no se puede jugar. `coach`: modo entrenador (Fase 20). `runner: 'browser'` (T-015) pide el motor que sirve la app (su manifiesto): `engineRev`, `gamesRev` (cómo juega) y `build` (qué se compiló, 12 cifras). La partida guarda los tres; con otro motor, `409 engine_mismatch` |
 | `GET /api/play/:id` | `LiveGame` |
-| `POST /api/play/:id/choice` | `{ ply, i }` → `LiveGame`; `409 not_your_turn` / `stale_decision`, `400` opción inexistente |
+| `POST /api/play/:id/choice` | `{ ply, i }` → `LiveGame`; `409 not_your_turn` / `stale_decision` (también si la partida cambió entre leerla y guardar la elección), `400` opción inexistente |
 | `GET /api/play/recent-lists?days=7&top=8&era=&format=` | Fase 23: `{ era, format, days, from, to, items: [{ listKey, archetypeId, archetypeName, tournamentId, tournamentName, date, players, playerName, placing, record, pilots, energies, playable, problem }], attribution }` (hasta 80) |
-| `POST /api/play/:id/undo` | Fase 22: vuelve a tu decisión anterior (en tu turno o con la partida terminada) → `LiveGame` en `queued` con una elección menos (en `running` si es del navegador: la reconstruye la página); `409 busy` mientras mueve el bot, `nothing_to_undo`, `finished` |
-| `POST /api/play/:id/rematch` | Fase 22: `{ sameSeed?, engineRev? }` → `201 LiveGame` nueva con los mismos mazos, bot, entrenador y `runner` (la de una partida del navegador pide `engineRev`) |
+| `POST /api/play/:id/undo` | Fase 22: vuelve a tu decisión anterior (en tu turno o con la partida terminada) → `LiveGame` en `queued` con una elección menos (en `running` si es del navegador: la reconstruye la página); `409 busy` mientras mueve el bot, `nothing_to_undo`, `finished`, `stale_decision` (la partida cambió mientras tanto) y `engine_mismatch` (una partida del navegador terminada con un motor que la app ya no sirve: se perdería su resultado) |
+| `POST /api/play/:id/rematch` | Fase 22: `{ sameSeed?, engineRev?, gamesRev?, build? }` → `201 LiveGame` nueva con los mismos mazos, bot, entrenador y `runner` (la de una partida del navegador pide el motor que sirve la app, como el alta) |
 | `POST /api/play/:id/hint` | Fase 20: `{ ply }` → `LiveGame` con `decision.hint` = la opción del entrenador; `409 stale_decision` / `no_coach` |
 | `POST /api/play/:id/abandon` | `LiveGame` (el worker corta el motor en su próximo long-poll) |
 | `GET /api/play/:id/replay/raw` | La repetición de la partida terminada (para `/viewer/index.html?url=…`) |
@@ -550,16 +550,16 @@ Situaciones para resolver (Fase 24), de tus partidas con entrenador terminadas:
 | `GET /api/puzzles/:id` | `{ id, gameId, ply, turn, state, actions: [{ i, text, action }], human, rival, names, cards, cardIds, attempts, solved }` (sin puntajes) |
 | `POST /api/puzzles/:id/answer` | `{ i }` → `{ answer, verdict, gap, rank, best, solved, scores, original: { chosen, verdict, gap }, attempts, next }` |
 
-La página de una partida del navegador (T-015, con sesión; `engine/runner.ts`), como un worker pero sin lease: todas las páginas abiertas de la partida corren el mismo motor con la misma semilla y elecciones, así que mandan lo mismo y la segunda no cambia nada. Cada llamada lleva las elecciones que jugó (`choices`): si el dueño ya eligió, vuelve esa elección; si la partida ya no tiene esas elecciones (un deshacer), `status: 'restart'` (reconstruirla desde `GET …/browser`).
+La página de una partida del navegador (T-015, con sesión; `engine/runner.ts`), como un worker pero sin lease: todas las páginas abiertas de la partida corren el mismo motor con la misma semilla y elecciones, así que mandan lo mismo y la segunda no cambia nada. Cada llamada lleva las elecciones que jugó (`choices`): si el dueño ya eligió, vuelve esa elección; si la partida ya no tiene esas elecciones (un deshacer), `status: 'restart'` (reconstruirla desde `POST …/browser`). Todas las llamadas después del trabajo llevan el `build` del motor de la página: con otro que el de la partida, `409 engine_mismatch`.
 
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
-| `GET /api/play/:id/browser?engineRev=&gamesRev=` | `{ id, deckHuman, deckBot, bot, seed, choices, coach, status, engineRev, replayMissing }`; `409 not_browser` (es de un worker) / `engine_mismatch` (otro motor: recargar la app, o la partida es de un motor que ya no está). Con otro `gamesRev` que el de la partida (la app se actualizó a mitad de la partida), la partida termina `engine_changed` y vuelve con ese estado y `replayMissing: false` |
-| `PUT /api/play/:id/browser/decision` | `{ choices (ply − 1), ply, turn, state, actions, log, coach?: { scores, best } }` → `{ choice | null, status }` (`waiting`; la elección ya hecha; `restart`; o el estado si terminó) |
+| `POST /api/play/:id/browser` | `{ engineRev, gamesRev, build }` (el motor que cargó la página) → `{ id, deckHuman, deckBot, bot, seed, choices, coach, status, engineRev, replayMissing }`; `409 not_browser` (es de un worker). Con otro motor que el de la partida: si la página tiene el que sirve la app (la app se actualizó a mitad de la partida), la partida termina `engine_changed` y vuelve con ese estado y `replayMissing: false`; si no, `409 engine_mismatch` (recargar la app) y la partida sigue. Una partida terminada se entrega siempre, sin repetición por hacer con otro motor. Es POST porque puede terminar la partida |
+| `PUT /api/play/:id/browser/decision` | `{ choices (ply − 1), ply, turn, state, actions, log, coach?: { scores, best }, build }` → `{ choice | null, status }` (`waiting`; la elección ya hecha; `restart`; o el estado si terminó) |
 | `POST /api/play/:id/browser/choice` | `{ choices, ply }` → long-poll de hasta 25 s → `{ choice | null, status }` |
-| `PUT /api/play/:id/browser/end` | `{ choices (todas), winner, turns, state, log }` → `{ ok, status }`; `409 stale_decision` si no son las elecciones de la partida |
-| `PUT /api/play/:id/browser/failure` | `{ choices, error }` → `{ ok }` (el motor falló: la partida queda `failed`) |
-| `PUT /api/play/:id/browser/replay?choices=1.0.3` | La repetición en gzip (hasta 8 MB) → `{ ok }`; queda la primera; `409 stale_decision` si la partida cambió |
+| `PUT /api/play/:id/browser/end` | `{ choices (todas), winner, turns, state, log, build }` → `{ ok, status }`; `409 stale_decision` si no son las elecciones de la partida o si espera la jugada del dueño (solo se termina en `running`) |
+| `PUT /api/play/:id/browser/failure` | `{ choices, error, build }` → `{ ok }` (el motor falló: la partida queda `failed`; la falla de otro motor no cambia nada) |
+| `PUT /api/play/:id/browser/replay?choices=1.0.3&build=` | La repetición en gzip (hasta 8 MB) → `{ ok }`; queda la primera; `409 stale_decision` si la partida cambió |
 
 ```ts
 LiveGame = { id, status: 'queued'|'running'|'waiting'|'done'|'abandoned'|'failed', runner: 'worker'|'browser', bot, botEs, seed, engineRev,

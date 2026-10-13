@@ -310,6 +310,30 @@ describe('the browser runner (T-015)', () => {
       kind: 'error',
       message: expect.stringContaining('volvió a empezar varias veces'),
     })
-    expect(api.job).toHaveBeenCalledTimes(MAX_PASSES)
+    // The first pass plays the owner's choices and the second rebuilds them; then MAX_PASSES with nothing new.
+    expect(api.job).toHaveBeenCalledTimes(MAX_PASSES + 2)
+  })
+
+  it('never gives up on a game the owner keeps undoing (review of #86)', async () => {
+    const { game, api } = fakeServer()
+    let undos = 0
+    // The owner plays 1 at the first decision and, at the second, goes back to the first: eight times, then plays on.
+    api.choice.mockImplementation(async (_id, body) => {
+      game.status = 'running'
+      if (body.ply === 1) {
+        game.choices = [1]
+        return { choice: 1, status: 'running' }
+      }
+      if (body.ply === 2 && undos < 8) {
+        undos++
+        game.choices = []
+        return { choice: null, status: 'restart' }
+      }
+      game.choices.push(0)
+      return { choice: 0, status: 'running' }
+    })
+    expect(await run(api, new FakeEngine()).result).toEqual({ kind: 'over', status: 'done' })
+    expect(undos).toBe(8)
+    expect(api.job).toHaveBeenCalledTimes(9)
   })
 })

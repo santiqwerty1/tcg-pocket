@@ -173,6 +173,7 @@ export interface PageEngine {
   build?: string | undefined
 }
 
+const STALE_GAME = 'La partida cambió mientras tanto: recargala.'
 const ENGINE_RELOAD = 'Este dispositivo tiene otro motor que el de esta partida: recargá la app para seguirla.'
 
 /** A page's answer from the server: the owner's choice, or why there is none («restart»: the choices changed). */
@@ -397,6 +398,17 @@ export class LiveGamesService implements OnApplicationBootstrap {
     })
   }
 
+  /** A browser game's engine is the one the app serves now (without a served one, nothing says otherwise). */
+  private isGameEngineServed(game: GameRow): boolean {
+    const served = this.served()
+    return (
+      served === null ||
+      (game.engineRev === served.engineRev &&
+        (game.gamesRev === null || game.gamesRev === served.gamesRev) &&
+        (game.engineBuild === null || game.engineBuild === served.build))
+    )
+  }
+
   /** The page's calls after the job carry the build of its engine: another one is told to reload (review of #86). */
   private requireGameBuild(game: GameRow, build: string | undefined): void {
     if (game.engineBuild !== null && build !== game.engineBuild) {
@@ -543,18 +555,20 @@ export class LiveGamesService implements OnApplicationBootstrap {
           ctx: coachContext(decision.state),
         })
       : null
-    const updated = await this.prisma.liveGame.update({
-      where: { id: game.id },
+    // Only the decision that was read: another page may have ended or rebuilt the game meanwhile (review of #86).
+    const { count } = await this.prisma.liveGame.updateMany({
+      where: { id: game.id, status: 'waiting', choices: { equals: game.choices } },
       data: {
-        choices: { push: input.i },
+        choices: { set: [...game.choices, input.i] },
         status: 'running',
         decision: Prisma.DbNull,
         ...(review ? { coachLog: [...reviews, review] as unknown as Prisma.InputJsonValue } : {}),
       },
     })
+    if (count === 0) throw new ConflictException({ code: 'stale_decision', message: STALE_GAME })
     this.events.emit(`choice:${game.id}`)
     this.changed(game.id)
-    return this.view(updated)
+    return this.view(await this.requireGame(game.id))
   }
 
   /** Modo entrenador: the coach's option for the pending decision (the review remembers it was asked for). */
@@ -567,12 +581,13 @@ export class LiveGamesService implements OnApplicationBootstrap {
     if (!parseCoachScores(decision.coach)) {
       throw new ConflictException({ code: 'no_coach', message: 'Esta partida no tiene el modo entrenador.' })
     }
-    const updated = await this.prisma.liveGame.update({
-      where: { id: game.id },
+    const { count } = await this.prisma.liveGame.updateMany({
+      where: { id: game.id, status: 'waiting', choices: { equals: game.choices } },
       data: { decision: { ...decision, hinted: true } as unknown as Prisma.InputJsonValue },
     })
+    if (count === 0) throw new ConflictException({ code: 'stale_decision', message: STALE_GAME })
     this.changed(game.id)
-    return this.view(updated)
+    return this.view(await this.requireGame(game.id))
   }
 
   /**
@@ -597,10 +612,18 @@ export class LiveGamesService implements OnApplicationBootstrap {
     if (game.choices.length === 0) {
       throw new ConflictException({ code: 'nothing_to_undo', message: 'Todavía no elegiste nada.' })
     }
+    // A finished browser game of an engine the app no longer serves: reopened, the next page would end it as
+    // engine_changed, without its result or its replay (review of #86).
+    if (browser && game.status === 'done' && !this.isGameEngineServed(game)) {
+      throw new ConflictException({
+        code: 'engine_mismatch',
+        message: 'Esta partida se jugó con un motor anterior: no se puede deshacer. Pedí la revancha.',
+      })
+    }
     const keep = game.choices.length - 1
     const reviews = (game.coachLog as unknown as CoachReview[]).filter((review) => review.ply <= keep)
-    const updated = await this.prisma.liveGame.update({
-      where: { id: game.id },
+    const { count } = await this.prisma.liveGame.updateMany({
+      where: { id: game.id, status: game.status, choices: { equals: game.choices } },
       data: {
         // T-015: a browser game is rebuilt by its open page, never by a worker.
         status: browser ? 'running' : 'queued',
@@ -617,11 +640,12 @@ export class LiveGamesService implements OnApplicationBootstrap {
         finishedAt: null,
       },
     })
+    if (count === 0) throw new ConflictException({ code: 'stale_decision', message: STALE_GAME })
     // The worker (or the page) waiting on this game hears «restart»; any worker may take it again.
     this.events.emit(`choice:${game.id}`)
     if (!browser) this.events.emit('queued')
     this.changed(game.id)
-    return this.view(updated)
+    return this.view(await this.requireGame(game.id))
   }
 
   /** Fase 22: the same decks and bot again; with `sameSeed`, the very same shuffle (another line from the start). */
@@ -661,13 +685,16 @@ export class LiveGamesService implements OnApplicationBootstrap {
     ) {
       return this.view(game)
     }
-    const updated = await this.prisma.liveGame.update({
-      where: { id: game.id },
+    // Only a game still being played: one that ended meanwhile keeps how it ended.
+    const { count } = await this.prisma.liveGame.updateMany({
+      where: { id: game.id, status: { in: ['queued', ...PLAYING] } },
       data: { status: 'abandoned', finishedAt: new Date(), decision: Prisma.DbNull, leaseUntil: null },
     })
-    this.events.emit(`choice:${game.id}`)
-    this.changed(game.id)
-    return this.view(updated)
+    if (count > 0) {
+      this.events.emit(`choice:${game.id}`)
+      this.changed(game.id)
+    }
+    return this.view(await this.requireGame(game.id))
   }
 
   async replayRaw(rawId: string): Promise<unknown> {
@@ -843,7 +870,7 @@ export class LiveGamesService implements OnApplicationBootstrap {
   /** The engine of the page failed (a card it cannot play, a choice it rejects): the game fails as with a worker. */
   async browserFailure(
     rawId: string,
-    input: { choices: number[]; error: string; build?: string | undefined },
+    input: { choices: number[]; error: string; build: string },
   ): Promise<{ ok: true }> {
     const game = await this.requireBrowserGame(rawId)
     // The failure of another engine than the game's is not the game's.

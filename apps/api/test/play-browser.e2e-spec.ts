@@ -371,4 +371,53 @@ describe('playing against a bot in the browser (e2e)', () => {
       serve({ gamesRev: 1, build: BUILD })
     }
   })
+
+  it('a finished game of an engine no longer served cannot be undone: its result stays (review of #86)', async () => {
+    const id = await browserGame()
+    await put(`/api/play/${id}/browser/decision`).send(decision([]))
+    await post(`/api/play/${id}/choice`).send({ ply: 1, i: 1 })
+    expect((await put(`/api/play/${id}/browser/end`).send(end([1]))).body.status).toBe('done')
+    serve({ gamesRev: 2, build: NEWER_BUILD })
+    try {
+      const undo = await post(`/api/play/${id}/undo`).send({})
+      expect(undo.status).toBe(409)
+      expect(undo.body.error).toMatchObject({ code: 'engine_mismatch' })
+      expect(undo.body.error.message).toContain('revancha')
+      expect((await get(`/api/play/${id}`)).body).toMatchObject({ status: 'done', winner: 'you', turns: 9 })
+    } finally {
+      serve({ gamesRev: 1, build: BUILD })
+    }
+    // With the engine it was played with, it can.
+    expect((await post(`/api/play/${id}/undo`).send({})).body).toMatchObject({ status: 'running', winner: null })
+    await post(`/api/play/${id}/abandon`).send({})
+  })
+
+  it('a choice, a hint, an undo or an abandon read before another page ended the game change nothing (review of #86)', async () => {
+    const service = test.app.get(LiveGamesService) as unknown as {
+      requireGame: (id: string | number) => Promise<unknown>
+    }
+    const original = service.requireGame.bind(service)
+    for (const action of ['choice', 'hint', 'undo', 'abandon'] as const) {
+      const id = await browserGame({ coach: true })
+      const coach = { scores: [1, 4.5], best: 1 }
+      await put(`/api/play/${id}/browser/decision`).send({ ...decision([]), coach })
+      await post(`/api/play/${id}/choice`).send({ ply: 1, i: 0 })
+      await put(`/api/play/${id}/browser/decision`).send({ ...decision([0]), coach })
+      // The game is read waiting; before the write, a page with the engine served now ends it (engine_changed).
+      const spy = vi.spyOn(service, 'requireGame').mockImplementationOnce(async (raw) => {
+        const read = await original(raw)
+        await test.prisma.liveGame.update({ where: { id }, data: { status: 'engine_changed' } })
+        return read
+      })
+      const body = action === 'choice' ? { ply: 2, i: 1 } : action === 'hint' ? { ply: 2 } : {}
+      const response = await post(`/api/play/${id}/${action}`).send(body)
+      spy.mockRestore()
+      if (action === 'abandon') expect(response.body.status).toBe('engine_changed')
+      else expect(response.body.error?.code, action).toBe('stale_decision')
+      expect(await test.prisma.liveGame.findUniqueOrThrow({ where: { id } }), action).toMatchObject({
+        status: 'engine_changed',
+        choices: [0],
+      })
+    }
+  })
 })

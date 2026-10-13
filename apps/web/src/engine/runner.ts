@@ -9,7 +9,7 @@ import { ApiError } from '@/api/client'
 import type { EngineError, GameEngine } from './browserEngine'
 import type { EngineInfo, EngineJob, EngineLogEntry, EngineStep } from './protocol'
 
-/** The server's `GET /api/play/:id/browser`. */
+/** The server's `POST /api/play/:id/browser`. */
 export interface BrowserJob extends EngineJob {
   id: number
   choices: number[]
@@ -98,8 +98,9 @@ export interface RunnerOptions {
 const PLAYING = new Set(['queued', 'running', 'waiting'])
 const MAX_RETRY_MS = 15_000
 /**
- * A game that keeps going back to its start (an end the server does not take, choices that keep changing) is left after
- * this many passes, with a message, instead of looping (review of #86).
+ * A game that keeps going back to its start without anything new (an end the server does not take) is left after this
+ * many passes in a row, with a message, instead of looping (review of #86). A choice of the owner or an undo is something
+ * new, and never counts.
  */
 export const MAX_PASSES = 5
 
@@ -157,6 +158,9 @@ export async function runBrowserGame(options: RunnerOptions): Promise<RunnerResu
       }
     }
   }
+
+  /** The owner chose something in this pass (it is not stuck). */
+  let chose = false
 
   async function play(engine: GameEngine, job: BrowserJob, build: string): Promise<RunnerResult | typeof RESTART> {
     const applied: number[] = []
@@ -239,6 +243,7 @@ export async function runBrowserGame(options: RunnerOptions): Promise<RunnerResu
           }
         }
         choice = answer.choice
+        chose = true
         report({ kind: 'thinking' })
       }
       applied.push(choice)
@@ -264,16 +269,23 @@ export async function runBrowserGame(options: RunnerOptions): Promise<RunnerResu
       throw new Error(`No se pudo cargar el motor en este dispositivo: ${(error as Error).message}`)
     }
     const loaded: PageEngine = { engineRev: info.engineRev, gamesRev: info.gamesRev, build: info.build }
+    // Passes in a row that went back to the start with nothing new: no choice of the owner, the same choices as before.
+    let stuck = 0
+    let before: string | null = null
     for (let pass = 0; ; pass++) {
-      if (pass >= MAX_PASSES) {
-        throw new Error('La partida volvió a empezar varias veces sin poder seguir: recargá la app.')
-      }
       if (pass > 0) await sleep(200, signal)
       report({ kind: 'loading' })
       const job = await call(() => api.job(id, loaded, signal), { kind: 'loading' })
       if (!PLAYING.has(job.status) && !(job.status === 'done' && job.replayMissing)) {
         return { kind: 'over', status: job.status }
       }
+      const choices = job.choices.join('.')
+      stuck = pass > 0 && !chose && choices === before ? stuck + 1 : 0
+      if (stuck >= MAX_PASSES) {
+        throw new Error('La partida volvió a empezar varias veces sin poder seguir: recargá la app.')
+      }
+      before = choices
+      chose = false
       const result = await play(engine, job, loaded.build)
       if (result !== RESTART) return result
     }
