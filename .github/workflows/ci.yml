@@ -123,7 +123,14 @@ jobs:
             printf '%s\n%s\n' "$TITLE" "$BODY" > "$RUNNER_TEMP/pr-text.txt"
             node scripts/ci/privacy-check.mjs --base HEAD^1 --head HEAD^2 --texto "$RUNNER_TEMP/pr-text.txt"
           elif [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ]; then
-            node scripts/ci/privacy-check.mjs --base "$BEFORE" --head "$SHA"
+            if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              node scripts/ci/privacy-check.mjs --base "$BEFORE" --head "$SHA"
+            else
+              # A force-push: the previous main is no longer in the clone. What the last commit brought (all of a
+              # merged PR), and said.
+              echo "::warning title=privacidad::el main anterior no está en el clon (¿push forzado?): reviso lo que trajo el último commit"
+              node scripts/ci/privacy-check.mjs --base "$SHA^1" --head "$SHA"
+            fi
           fi
 
   # Supertest suite against a real Postgres 17 (migrations applied by test/global-setup.ts), on a database of its own

@@ -54,14 +54,18 @@ const PATH_PLACEHOLDER = new RegExp(
 /** A password that is not one: `<clave>`, `${PGPASSWORD}`, `$PGPASSWORD`, `%PGPASSWORD%`, `{clave}`, `…`, `***`. */
 const PASSWORD_PLACEHOLDER =
   /^(?:<[^>]+>|\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*|%[A-Za-z_]+%|\{[^}]+\}|…+|\.\.\.|\*+)$/
-/** Words of a value written for tests or examples («ci-session-secret-…», «replace-with-…»). */
-const PLACEHOLDER_WORDS =
-  /replace|change|example|ejemplo|test|e2e|\bci\b|ci-|dev|local|secret|pantallas|dummy|fake|placeholder|xxxx|0123456789/i
+/**
+ * Whole words of a value written for tests or examples («ci-session-secret-…», «replace-with-…»), between «-», «_» or
+ * «.»: never part of a word, so a random value that happens to hold «dev» or «test» is still checked.
+ */
+const PLACEHOLDER_WORD =
+  /^(?:replace|change|changeme|example|ejemplo|test|testing|ci|dev|local|secret|session|pantallas|dummy|fake|placeholder|x{4,})$/i
+const isPlaceholderValue = (value) => value.split(/[-_.]/).some((word) => PLACEHOLDER_WORD.test(word))
 
 /** The user name of a `…Users…<nombre>` path. */
 const userOf = (text) => /Users(?:\\{1,4}|\/{1,2})(.+)$/i.exec(text)?.[1] ?? ''
 
-/** Shannon entropy in bits per character: random keys are near 5–6, words and repeated text well under 3,5. */
+/** Shannon entropy in bits per character: random keys are near 4 (hex) to 6, words and repeated text under 3. */
 function entropy(text) {
   const counts = new Map()
   for (const char of text) counts.set(char, (counts.get(char) ?? 0) + 1)
@@ -132,10 +136,11 @@ export const RULES = [
   {
     regla: 'secreto',
     pattern:
-      /\b(?:SESSION_SECRET|VAPID_PRIVATE_KEY|AWS_SECRET_ACCESS_KEY|GITHUB_TOKEN|TCG_WORKER_TOKEN)["']?\s*[=:]\s*["']?[A-Za-z0-9+/_=.-]{20,}/g,
+      /\b(?:SESSION_SECRET|session_?[Ss]ecret|VAPID_PRIVATE_KEY|AWS_SECRET_ACCESS_KEY|GITHUB_TOKEN|TCG_WORKER_TOKEN)["']?\s*[=:]\s*["']?[A-Za-z0-9+/_=.-]{20,}/g,
     allowed: (text) => {
       const value = /[=:]\s*["']?([A-Za-z0-9+/_=.-]+)$/.exec(text)?.[1] ?? ''
-      return PLACEHOLDER_WORDS.test(value) || entropy(value) < 3.5
+      // 3,0: a random hex key is near 4 bits per character, so it is still caught.
+      return isPlaceholderValue(value) || entropy(value) < 3
     },
   },
   { regla: 'jwt', pattern: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g },
@@ -309,17 +314,12 @@ function main() {
     console.error(`✗ commit ${commit.sha.slice(0, 7)}: ${sides.join(' y ')} con un mail que no es noreply`)
     failed = true
   }
-  // The commit messages too: they are as public as the code.
-  const messages = []
-  for (const block of git('log', '--format=%x00%H%n%B', range).split('\0').filter(Boolean)) {
-    const [sha = '', ...body] = block.split('\n')
-    for (const [at, text] of body.entries()) messages.push({ file: `commit ${sha.slice(0, 7)}`, line: at + 1, text })
-  }
   // Commit by commit, not the net diff: a secret one commit adds and the next removes stays in the history the merge
-  // publishes. Merges inside the PR, by what their resolution adds (`--remerge-diff`). `--text`: what git takes for
-  // binary (a NUL, `-diff` in .gitattributes) is checked too; a textconv set up on a PC would show its conversion.
-  const patchOptions = [
-    '--patch',
+  // publishes. One git call per commit, never one output split by a separator: a NUL inside a file (a binary
+  // committed by mistake) would cut it and hide what follows. Merges inside the PR, by what their resolution adds
+  // (`--remerge-diff`). `--text`: what git takes for binary (a NUL, `-diff` in .gitattributes) is checked too; a
+  // textconv set up on a PC would show its conversion.
+  const diffOptions = [
     '--text',
     '--unified=0',
     '--no-color',
@@ -328,26 +328,27 @@ function main() {
     '--no-relative',
     '--src-prefix=a/',
     '--dst-prefix=b/',
-    '--format=%x00%H',
   ]
+  const merges = new Set(git('rev-list', '--merges', range).split('\n').filter(Boolean))
   const added = []
-  for (const patch of [
-    git('log', '--no-merges', ...patchOptions, range),
-    git('log', '--merges', '--remerge-diff', ...patchOptions, range),
-  ]) {
-    for (const block of patch.split('\0').filter(Boolean)) {
-      const [sha = '', ...diff] = block.split('\n')
-      for (const item of addedLines(diff.join('\n'))) added.push({ ...item, commit: sha.slice(0, 7) })
-    }
-  }
-  // The names of the files the PR adds or renames (a file named after a mail), never printed.
   const names = []
-  for (const block of git('log', '--name-only', '--diff-filter=AR', '--format=%x00%H', range)
-    .split('\0')
-    .filter(Boolean)) {
-    const [sha = '', ...files] = block.split('\n')
-    for (const name of files.filter(Boolean)) {
-      names.push({ file: 'el nombre de un archivo', line: 0, text: name, commit: sha.slice(0, 7) })
+  const messages = []
+  for (const sha of git('rev-list', '--reverse', range).split('\n').filter(Boolean)) {
+    const commit = sha.slice(0, 7)
+    const diff = merges.has(sha)
+      ? git('show', '--remerge-diff', '--patch', '--format=', ...diffOptions, sha)
+      : git('diff-tree', '--patch', '--root', '--no-commit-id', ...diffOptions, sha)
+    for (const item of addedLines(diff)) added.push({ ...item, commit })
+    // The names of the files it adds or renames (a file named after a mail), never printed.
+    if (!merges.has(sha)) {
+      const files = git('diff-tree', '-r', '--root', '--no-commit-id', '--name-only', '--diff-filter=AR', sha)
+      for (const name of files.split('\n').filter(Boolean)) {
+        names.push({ file: 'el nombre de un archivo', line: 0, text: name, commit })
+      }
+    }
+    // Its message too: it is as public as the code.
+    for (const [at, text] of git('show', '-s', '--format=%B', sha).split('\n').entries()) {
+      messages.push({ file: `commit ${commit}`, line: at + 1, text })
     }
   }
   // The PR's title and body, when the CI passes them.

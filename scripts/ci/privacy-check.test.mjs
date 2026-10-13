@@ -137,7 +137,16 @@ describe('what the diff and the messages may not add', () => {
     }
     // A secret of the environment with a random value; the test and example values pass.
     const random = 'Zq8xV2pL9mK4tR7wN1bY6cH3jF5gD0sAe+/='
-    for (const line of [`SESSION_${'SECRET'}=${random}`, `VAPID_PRIVATE_${'KEY'}: '${random}'`]) {
+    for (const line of [
+      `SESSION_${'SECRET'}=${random}`,
+      `VAPID_PRIVATE_${'KEY'}: '${random}'`,
+      `session${'Secret'}: '${random}'`,
+      // A random hex key (near 4 bits per character), and one with few symbols (3,3).
+      `GITHUB_${'TOKEN'}=${sha256('semilla')}`,
+      `GITHUB_${'TOKEN'}=${'a1b2c3d4e5'.repeat(2)}`,
+      // «dev» inside a random word is not a word of an example.
+      `SESSION_${'SECRET'}=Zq8xVdevpL9mK4tR7wN1bY6cH3jF5gD0sA`,
+    ]) {
       assert.deepEqual(rules(line), ['secreto'], line.slice(0, 12))
     }
     for (const line of [
@@ -301,6 +310,28 @@ describe('the command, on a repository of its own', () => {
       git('rm', '-q', 'c.txt')
       git('-c', 'user.name=t', '-c', `user.email=${mail('1+t', 'users.noreply.github.com')}`, 'commit', '-q', '-m', 'x')
       failsWith(() => run('--base', base), new RegExp(`c\\.txt:1 \\(commit ${leak.slice(0, 7)}\\): token`))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('a NUL inside a file (a binary committed by mistake) hides nothing that follows it', () => {
+    const { root, run, commit } = repo()
+    try {
+      const base = commit('a.txt', 'base\n')
+      commit('engine.dat', `\0${users('C:\\', '\\', 'jperez')}\\.cargo\0\0secret ${token('mcp')}\n`)
+      const after = commit('b.txt', `y después ${token('wk')}\n`)
+      assert.throws(
+        () => run('--base', base, '--head', after),
+        (error) => {
+          const out = String(error.stderr)
+          return (
+            /engine\.dat:1 \(commit [0-9a-f]{7}\): ruta/.test(out) &&
+            /engine\.dat:1 \(commit [0-9a-f]{7}\): token/.test(out) &&
+            /b\.txt:1 \(commit [0-9a-f]{7}\): token/.test(out)
+          )
+        },
+      )
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
