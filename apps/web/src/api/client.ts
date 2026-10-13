@@ -21,7 +21,7 @@ export type Query = Record<string, QueryValue>
 
 export interface RequestOptions<T> {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
-  /** Plain objects are sent as JSON; FormData is sent as multipart. */
+  /** Plain objects are sent as JSON; FormData is sent as multipart; a Blob as it is (with its Content-Type header). */
   body?: unknown
   query?: Query
   /** Validates the JSON response; a mismatch throws ApiError('invalid_response'). */
@@ -102,7 +102,7 @@ function defaultMessage(status: number): string {
 export async function request<T = void>(path: string, options: RequestOptions<T> = {}): Promise<T> {
   const { method = 'GET', body, query, schema, signal, headers = {} } = options
   const init: RequestInit = { method, credentials: 'same-origin', headers, signal: signal ?? null }
-  if (body instanceof FormData) {
+  if (body instanceof FormData || body instanceof Blob) {
     init.body = body
   } else if (body !== undefined) {
     init.body = JSON.stringify(body)

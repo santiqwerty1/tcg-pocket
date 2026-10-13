@@ -3,6 +3,10 @@
  * `engine-cli play` and relays each decision; the owner answers from the phone. The game is fully determined by its
  * seed and the owner's choices, so it survives a worker restart: a new worker replays the choices and goes on. A game
  * runs only while the PC is on (like every simulation).
+ *
+ * T-015: a game can also run in the owner's browser («browser»): the game's open page plays the engine compiled to
+ * WebAssembly and sends each decision here, like a worker but with the session instead of a lease. The same seed is not
+ * the same game there and on a PC (R-003), so such a game never goes to a worker, nor a worker's game to a browser.
  */
 
 import { randomInt } from 'node:crypto'
@@ -55,6 +59,9 @@ export const MAX_LIVE_REPLAY_BYTES = 8 * 1024 * 1024
 export const COACH_WORKER_VERSION = '0.2.2'
 
 type GameRow = Prisma.LiveGameGetPayload<object>
+export type LiveGameRunner = GameRow['runner']
+/** States in which the engine still has to move or the owner to choose. */
+const PLAYING: GameRow['status'][] = ['running', 'waiting']
 
 export interface LiveDecision {
   ply: number
@@ -81,6 +88,8 @@ export interface LiveDecisionView {
 export interface LiveGameView {
   id: number
   status: GameRow['status']
+  /** T-015: «worker» (a PC or the phone) or «browser» (the game's open page). */
+  runner: LiveGameRunner
   bot: string
   botEs: string
   seed: string
@@ -117,6 +126,7 @@ export interface LiveGameView {
 export interface LiveGameSummaryView {
   id: number
   status: GameRow['status']
+  runner: LiveGameRunner
   coach: boolean
   botEs: string
   human: string
@@ -137,6 +147,29 @@ export interface ClaimedLiveGame {
   choices: number[]
   /** Modo entrenador: the engine scores every option (workers 0.2.2+). */
   coach: boolean
+}
+
+/** T-015: what the engine of the page needs to run a «browser» game, and how the game stands. */
+export interface BrowserLiveGame extends ClaimedLiveGame {
+  status: GameRow['status']
+  engineRev: string
+  /** A finished game whose replay did not arrive: the page plays it again to the end to send it. */
+  replayMissing: boolean
+}
+
+/** A page's answer from the server: the owner's choice, or why there is none («restart»: the choices changed). */
+export interface BrowserStep {
+  choice: number | null
+  status: GameRow['status'] | 'restart'
+}
+
+/** `made` starts with `prefix`. */
+function startsWith(made: number[], prefix: number[]): boolean {
+  return prefix.length <= made.length && prefix.every((choice, i) => made[i] === choice)
+}
+
+function sameChoices(a: number[], b: number[]): boolean {
+  return a.length === b.length && startsWith(a, b)
 }
 
 @Injectable()
@@ -240,9 +273,14 @@ export class LiveGamesService implements OnApplicationBootstrap {
     bot?: string
     seed?: number
     coach?: boolean
+    /** T-015: «browser» to play it with this device's engine, which must be the server's (`engineRev`). */
+    runner?: LiveGameRunner
+    engineRev?: string
   }): Promise<LiveGameView> {
     const bot = input.bot ?? 'e2'
     if (!isBotCode(bot)) throw new BadRequestException({ code: 'validation', message: `Bot «${bot}» desconocido.` })
+    const runner = input.runner ?? 'worker'
+    if (runner === 'browser') this.requireBrowserEngine(input.engineRev)
     const human = await this.snapshots.save(input.human)
     const rival = await this.snapshots.save(input.rival)
     for (const [who, snapshot] of [
@@ -269,12 +307,27 @@ export class LiveGamesService implements OnApplicationBootstrap {
         bot,
         seed: BigInt(seed),
         engineRev: this.engine.engineRev(),
+        runner,
+        // A browser game never waits for a worker: its page starts it as soon as it opens.
+        status: runner === 'browser' ? 'running' : 'queued',
         choices: [],
         coach: input.coach ?? false,
       },
     })
-    this.events.emit('queued')
+    if (runner === 'worker') this.events.emit('queued')
     return this.view(game)
+  }
+
+  /** T-015: the engine of the page is the server's (the same deckgym revision as the workers'). */
+  private requireBrowserEngine(engineRev: string | undefined): void {
+    const current = this.engine.engineRev()
+    if (engineRev === current) return
+    throw new ConflictException({
+      code: 'engine_mismatch',
+      message: engineRev
+        ? `El motor de este dispositivo (${engineRev.slice(0, 7)}) no es el del servidor (${current.slice(0, 7)}): recargá la app.`
+        : 'Falta la versión del motor de este dispositivo.',
+    })
   }
 
   /** Recent games; games nobody touched in a week are given up first. */
@@ -293,6 +346,7 @@ export class LiveGamesService implements OnApplicationBootstrap {
     return games.map((game) => ({
       id: game.id,
       status: game.status,
+      runner: game.runner,
       coach: game.coach,
       botEs: botLabel(game.bot),
       human: game.humanLabel || labels.get(game.humanSnapshotId) || `#${game.humanSnapshotId}`,
@@ -349,6 +403,7 @@ export class LiveGamesService implements OnApplicationBootstrap {
     return {
       id: game.id,
       status: game.status,
+      runner: game.runner,
       bot: game.bot,
       botEs: botLabel(game.bot),
       seed: game.seed.toString(),
@@ -453,12 +508,15 @@ export class LiveGamesService implements OnApplicationBootstrap {
    */
   async undo(rawId: string): Promise<LiveGameView> {
     const game = await this.requireGame(rawId)
+    const browser = game.runner === 'browser'
     if (game.status !== 'waiting' && game.status !== 'done') {
       throw new ConflictException({
         code: game.status === 'queued' || game.status === 'running' ? 'busy' : 'finished',
         message:
           game.status === 'queued' || game.status === 'running'
-            ? 'La PC está moviendo: esperá tu turno para deshacer.'
+            ? browser
+              ? 'El bot está pensando: esperá tu turno para deshacer.'
+              : 'La PC está moviendo: esperá tu turno para deshacer.'
             : 'Esta partida ya no se puede deshacer.',
       })
     }
@@ -470,7 +528,8 @@ export class LiveGamesService implements OnApplicationBootstrap {
     const updated = await this.prisma.liveGame.update({
       where: { id: game.id },
       data: {
-        status: 'queued',
+        // T-015: a browser game is rebuilt by its open page, never by a worker.
+        status: browser ? 'running' : 'queued',
         choices: { set: game.choices.slice(0, keep) },
         coachLog: reviews as unknown as Prisma.InputJsonValue,
         undos: { increment: 1 },
@@ -484,16 +543,21 @@ export class LiveGamesService implements OnApplicationBootstrap {
         finishedAt: null,
       },
     })
-    // The worker waiting on this game hears «restart»; any worker may take it again.
+    // The worker (or the page) waiting on this game hears «restart»; any worker may take it again.
     this.events.emit(`choice:${game.id}`)
-    this.events.emit('queued')
+    if (!browser) this.events.emit('queued')
     this.changed(game.id)
     return this.view(updated)
   }
 
   /** Fase 22: the same decks and bot again; with `sameSeed`, the very same shuffle (another line from the start). */
-  async rematch(rawId: string, input: { sameSeed?: boolean | undefined }): Promise<LiveGameView> {
+  async rematch(
+    rawId: string,
+    input: { sameSeed?: boolean | undefined; engineRev?: string | undefined },
+  ): Promise<LiveGameView> {
     const game = await this.requireGame(rawId)
+    // T-015: a browser game's rematch is played in the browser too, with the engine the page has now.
+    if (game.runner === 'browser') this.requireBrowserEngine(input.engineRev)
     const seed = input.sameSeed ? game.seed : BigInt(randomBaseSeed(() => randomInt(0, 2 ** 32 - 1) >>> 0))
     const created = await this.prisma.liveGame.create({
       data: {
@@ -504,11 +568,13 @@ export class LiveGamesService implements OnApplicationBootstrap {
         bot: game.bot,
         seed,
         engineRev: this.engine.engineRev(),
+        runner: game.runner,
+        status: game.runner === 'browser' ? 'running' : 'queued',
         choices: [],
         coach: game.coach,
       },
     })
-    this.events.emit('queued')
+    if (game.runner === 'worker') this.events.emit('queued')
     return this.view(created)
   }
 
@@ -538,6 +604,178 @@ export class LiveGamesService implements OnApplicationBootstrap {
   }
 
   // ---------------------------------------------------------------------------------------------------------------
+  // The owner's browser (T-015)
+  //
+  // Every open page of a «browser» game runs the same engine with the same seed and the same choices, so they all reach
+  // the same decision: no lease is needed, the first page to send it sets it and the others change nothing. Each call
+  // brings the choices the page played (`choices`): a page behind the owner gets the choice already made, and a page
+  // whose choices are not the game's any more (an undo from another page) is told to rebuild («restart»).
+  // ---------------------------------------------------------------------------------------------------------------
+
+  private async requireBrowserGame(rawId: string | number): Promise<GameRow> {
+    const game = await this.requireGame(rawId)
+    if (game.runner !== 'browser') {
+      throw new ConflictException({ code: 'not_browser', message: 'Esta partida la juega un worker, no el navegador.' })
+    }
+    return game
+  }
+
+  /** The decks, the seed and the owner's choices so far, for the engine of a page with the same engine revision. */
+  async browserJob(rawId: string, engineRev: string): Promise<BrowserLiveGame> {
+    const game = await this.requireBrowserGame(rawId)
+    if (engineRev !== game.engineRev) {
+      throw new ConflictException({
+        code: 'engine_mismatch',
+        message:
+          game.engineRev === this.engine.engineRev()
+            ? `Este dispositivo tiene otro motor (${engineRev.slice(0, 7)}): recargá la app para seguir la partida.`
+            : `La partida empezó con un motor que la app ya no tiene (${game.engineRev.slice(0, 7)}): no se puede seguir.`,
+      })
+    }
+    const snapshots = await this.prisma.deckSnapshot.findMany({
+      where: { id: { in: [game.humanSnapshotId, game.botSnapshotId] } },
+      select: { id: true, deckgymText: true },
+    })
+    const text = (snapshotId: number) => snapshots.find((row) => row.id === snapshotId)?.deckgymText ?? ''
+    this.presence?.saw(`live:${game.id}`)
+    return {
+      id: game.id,
+      deckHuman: text(game.humanSnapshotId),
+      deckBot: text(game.botSnapshotId),
+      bot: game.bot,
+      seed: game.seed.toString(),
+      choices: game.choices,
+      coach: game.coach,
+      status: game.status,
+      engineRev: game.engineRev,
+      replayMissing: game.status === 'done' && game.replayGz === null,
+    }
+  }
+
+  /** The page's engine asks the owner at `ply`, after `choices` (`ply - 1` of them). */
+  async browserDecision(
+    rawId: string,
+    input: { choices: number[] } & LiveDecision & { log: Prisma.InputJsonValue },
+  ): Promise<BrowserStep> {
+    if (input.choices.length !== input.ply - 1) {
+      throw new BadRequestException({ code: 'validation', message: 'La decisión no corresponde a esas elecciones.' })
+    }
+    const game = await this.requireBrowserGame(rawId)
+    if (!PLAYING.includes(game.status)) return { choice: null, status: game.status }
+    if (!startsWith(game.choices, input.choices)) return { choice: null, status: 'restart' }
+    const made = game.choices[input.ply - 1]
+    if (made !== undefined) return { choice: made, status: game.status }
+    const pending = game.decision as unknown as LiveDecision | null
+    if (game.status === 'waiting' && pending?.ply === input.ply) return { choice: null, status: 'waiting' }
+    const decision: LiveDecision = {
+      ply: input.ply,
+      turn: input.turn,
+      state: input.state,
+      actions: input.actions,
+      coach: parseCoachScores(input.coach),
+    }
+    // Only while the game is still being played with these choices (not abandoned meanwhile, nor undone).
+    const { count } = await this.prisma.liveGame.updateMany({
+      where: { id: game.id, status: { in: PLAYING }, choices: { equals: game.choices } },
+      data: { status: 'waiting', decision: decision as unknown as Prisma.InputJsonValue, log: input.log },
+    })
+    if (count === 0) return this.browserStepOf(game.id, input.choices, input.ply)
+    this.changed(game.id)
+    return { choice: null, status: 'waiting' }
+  }
+
+  private async browserStepOf(id: number, choices: number[], ply: number): Promise<BrowserStep> {
+    const game = await this.requireBrowserGame(id)
+    if (!startsWith(game.choices, choices)) return { choice: null, status: 'restart' }
+    return { choice: game.choices[ply - 1] ?? null, status: game.status }
+  }
+
+  /** The owner's choice at `ply`, waiting up to 25 s (the page asks again until it comes). */
+  async browserChoice(
+    rawId: string,
+    input: { choices: number[]; ply: number },
+    signal?: AbortSignal,
+  ): Promise<BrowserStep> {
+    const id = (await this.requireBrowserGame(rawId)).id
+    const first = await this.browserStepOf(id, input.choices, input.ply)
+    if (first.choice !== null || !PLAYING.includes(first.status as GameRow['status'])) return first
+    await this.wait(`choice:${id}`, signal)
+    if (signal?.aborted) return first
+    return this.browserStepOf(id, input.choices, input.ply)
+  }
+
+  /** The game ended on the page after `choices` (all the owner's). */
+  async browserEnd(
+    rawId: string,
+    input: {
+      choices: number[]
+      winner: 'you' | 'bot' | 'tie'
+      turns: number
+      state: Prisma.InputJsonValue
+      log: Prisma.InputJsonValue
+    },
+  ): Promise<{ ok: true; status: GameRow['status'] }> {
+    const game = await this.requireBrowserGame(rawId)
+    if (!sameChoices(game.choices, input.choices)) {
+      throw new ConflictException({ code: 'stale_decision', message: 'La partida cambió: recargala.' })
+    }
+    if (!PLAYING.includes(game.status)) return { ok: true, status: game.status }
+    const { count } = await this.prisma.liveGame.updateMany({
+      where: { id: game.id, status: { in: PLAYING }, choices: { equals: game.choices } },
+      data: {
+        status: 'done',
+        winner: input.winner,
+        turns: input.turns,
+        finalState: input.state,
+        log: input.log,
+        decision: Prisma.DbNull,
+        finishedAt: new Date(),
+      },
+    })
+    if (count > 0) this.changed(game.id)
+    return { ok: true, status: count > 0 ? 'done' : (await this.requireGame(game.id)).status }
+  }
+
+  /** The engine of the page failed (a card it cannot play, a choice it rejects): the game fails as with a worker. */
+  async browserFailure(rawId: string, input: { choices: number[]; error: string }): Promise<{ ok: true }> {
+    const game = await this.requireBrowserGame(rawId)
+    if (!PLAYING.includes(game.status) || !sameChoices(game.choices, input.choices)) return { ok: true }
+    const { count } = await this.prisma.liveGame.updateMany({
+      where: { id: game.id, status: { in: PLAYING }, choices: { equals: game.choices } },
+      data: { status: 'failed', error: input.error.slice(0, 2000), finishedAt: new Date() },
+    })
+    if (count > 0) this.changed(game.id)
+    return { ok: true }
+  }
+
+  /** The replay of the game the page finished after `choices`; the first one to arrive stays. */
+  async browserReplay(rawId: string, choices: number[], body: Buffer): Promise<{ ok: true }> {
+    const game = await this.requireBrowserGame(rawId)
+    if (game.status !== 'done' || !sameChoices(game.choices, choices)) {
+      throw new ConflictException({ code: 'stale_decision', message: 'Esa repetición ya no es de esta partida.' })
+    }
+    if (game.replayGz !== null) return { ok: true }
+    this.checkReplay(body)
+    const { count } = await this.prisma.liveGame.updateMany({
+      where: { id: game.id, status: 'done', replayGz: null, choices: { equals: game.choices } },
+      data: { replayGz: new Uint8Array(body) },
+    })
+    if (count > 0) this.changed(game.id)
+    return { ok: true }
+  }
+
+  private checkReplay(body: Buffer): void {
+    if (body.length > MAX_LIVE_REPLAY_BYTES) {
+      throw new BadRequestException({ code: 'too_large', message: 'La repetición supera 8 MB comprimida.' })
+    }
+    try {
+      gunzipJson(body)
+    } catch {
+      throw new BadRequestException({ code: 'invalid_replay', message: 'La repetición no es un JSON comprimido.' })
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
   // Worker
   // ---------------------------------------------------------------------------------------------------------------
 
@@ -560,6 +798,7 @@ export class LiveGamesService implements OnApplicationBootstrap {
       WHERE id = (
         SELECT id FROM live_games
         WHERE engine_rev = ${engineRev}
+          AND runner = 'worker'
           AND (coach = false OR ${coach}::boolean)
           AND (bot <> ALL(${fairBotCodes}::text[]) OR ${fairBots}::boolean)
           AND (bot <> ${ET_BOT_CODE} OR ${etBot}::boolean)
@@ -787,14 +1026,7 @@ export class LiveGamesService implements OnApplicationBootstrap {
 
   async saveReplay(id: number, workerId: string, body: Buffer): Promise<{ ok: true }> {
     await this.requireLease(id, workerId)
-    if (body.length > MAX_LIVE_REPLAY_BYTES) {
-      throw new BadRequestException({ code: 'too_large', message: 'La repetición supera 8 MB comprimida.' })
-    }
-    try {
-      gunzipJson(body)
-    } catch {
-      throw new BadRequestException({ code: 'invalid_replay', message: 'La repetición no es un JSON comprimido.' })
-    }
+    this.checkReplay(body)
     await this.prisma.liveGame.update({ where: { id }, data: { replayGz: new Uint8Array(body) } })
     this.changed(id)
     return { ok: true }

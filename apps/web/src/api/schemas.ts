@@ -2302,9 +2302,14 @@ export const liveLogEntrySchema = z
   .passthrough()
 export type LiveLogEntry = z.infer<typeof liveLogEntrySchema>
 
+/** T-015: «worker» (a PC, the phone) or «browser» (the game's open page, with the engine in WebAssembly). */
+export const LIVE_GAME_RUNNERS = ['worker', 'browser'] as const
+export type LiveGameRunner = (typeof LIVE_GAME_RUNNERS)[number]
+
 export const liveGameSchema = z.object({
   id: z.number(),
   status: z.enum(LIVE_GAME_STATUSES),
+  runner: z.enum(LIVE_GAME_RUNNERS).default('worker'),
   bot: z.string(),
   botEs: z.string(),
   seed: z.string(),
@@ -2350,6 +2355,7 @@ export const liveGamesSchema = z.object({
     z.object({
       id: z.number(),
       status: z.enum(LIVE_GAME_STATUSES),
+      runner: z.enum(LIVE_GAME_RUNNERS).default('worker'),
       coach: z.boolean().default(false),
       botEs: z.string(),
       human: z.string(),
@@ -2374,7 +2380,28 @@ export interface PlayInput {
   seed?: number
   /** Modo entrenador (Fase 20). */
   coach?: boolean
+  /** T-015: «browser» plays it with this device's engine (its revision in `engineRev`). */
+  runner?: LiveGameRunner
+  engineRev?: string
 }
+
+/** T-015: what the engine of the page needs (`GET /api/play/:id/browser`). */
+export const browserJobSchema = z.object({
+  id: z.number(),
+  deckHuman: z.string(),
+  deckBot: z.string(),
+  bot: z.string(),
+  seed: z.string(),
+  choices: z.array(z.number()),
+  coach: z.boolean(),
+  status: z.enum(LIVE_GAME_STATUSES),
+  engineRev: z.string(),
+  replayMissing: z.boolean(),
+})
+export const browserStepSchema = z.object({
+  choice: z.number().nullable(),
+  status: z.union([z.enum(LIVE_GAME_STATUSES), z.literal('restart')]),
+})
 
 // ---------- Avisos (Fase 8) ----------
 

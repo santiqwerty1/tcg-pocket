@@ -44,6 +44,8 @@ engine/target/
 
 # deckgym replay viewer, built by scripts/build-viewer.mjs (D-014)
 apps/web/public/viewer/
+# engine of the browser (WebAssembly), built by scripts/build-engine-wasm.mjs (T-015)
+apps/web/public/engine/
 engine/target-*/
 
 # Tests de pantallas (Fase 34)

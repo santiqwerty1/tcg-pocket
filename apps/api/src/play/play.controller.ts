@@ -65,6 +65,12 @@ const createSchema = z.object({
     .optional(),
   /** Modo entrenador (Fase 20). */
   coach: z.boolean().optional(),
+  /** T-015: «browser» plays it with the engine of this device (WebAssembly), which must be the server's. */
+  runner: z.enum(['worker', 'browser']).optional(),
+  engineRev: z
+    .string()
+    .regex(/^[0-9a-f]{40}$/)
+    .optional(),
 })
 const hintSchema = z.object({ ply: z.number().int().min(1) })
 const recentSchema = z.object({
@@ -76,7 +82,14 @@ const recentSchema = z.object({
     .optional(),
   format: z.enum(TOURNAMENT_FORMATS).optional(),
 })
-const rematchSchema = z.object({ sameSeed: z.boolean().optional() })
+const rematchSchema = z.object({
+  sameSeed: z.boolean().optional(),
+  /** T-015: the engine of the page, for the rematch of a browser game. */
+  engineRev: z
+    .string()
+    .regex(/^[0-9a-f]{40}$/)
+    .optional(),
+})
 const reviewSchema = z.object({
   from: z.coerce.number().int().min(0).max(200).optional(),
   to: z.coerce.number().int().min(0).max(200).optional(),
@@ -117,6 +130,23 @@ const endSchema = z.object({
   log: z.array(z.record(z.string(), z.unknown())).max(20_000),
 })
 const failureSchema = z.object({ workerId, error: z.string().min(1).max(20_000) })
+
+// T-015: the game's open page runs the engine (WebAssembly) and sends what a worker would, with the choices it played.
+const choices = z.array(z.number().int().min(0).max(500)).max(5000)
+const browserJobSchema = z.object({ engineRev: z.string().regex(/^[0-9a-f]{40}$/) })
+const browserDecisionSchema = decisionSchema.omit({ workerId: true }).extend({ choices })
+const browserWaitSchema = z.object({ choices, ply: z.number().int().min(1) })
+const browserEndSchema = endSchema.omit({ workerId: true }).extend({ choices })
+const browserFailureSchema = z.object({ choices, error: z.string().min(1).max(20_000) })
+/** The replay's choices in the query (`1.0.3`; none when the owner never chose), its body gzipped like a worker's. */
+const browserReplaySchema = z.object({
+  choices: z
+    .string()
+    .max(20_000)
+    .regex(/^(\d{1,3}(\.\d{1,3})*)?$/)
+    .optional()
+    .transform((text) => (text ? text.split('.').map(Number) : [])),
+})
 
 /** The owner's side: start a game, read it, answer each decision. */
 @Controller('api/play')
@@ -254,6 +284,81 @@ export class PlayController {
         unwatch?.()
       }
     })
+  }
+
+  /** T-015: what the engine of the page needs to run a browser game (only with the game's engine revision). */
+  @Get(':id/browser')
+  browserJob(
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(browserJobSchema)) query: z.infer<typeof browserJobSchema>,
+    @CurrentSession() _session: RequestSession,
+  ) {
+    return this.games.browserJob(id, query.engineRev)
+  }
+
+  /** T-015: the page's engine asks the owner (like a worker's decision, without a lease). */
+  @Put(':id/browser/decision')
+  browserDecision(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(browserDecisionSchema)) body: z.infer<typeof browserDecisionSchema>,
+    @CurrentSession() _session: RequestSession,
+  ) {
+    return this.games.browserDecision(id, {
+      ...body,
+      state: body.state as Prisma.JsonValue,
+      actions: body.actions as { i: number; text: string; action: Prisma.JsonValue }[],
+      log: body.log as Prisma.InputJsonValue,
+    })
+  }
+
+  /** T-015: long-poll up to 25 s for the owner's choice at `ply`. */
+  @Post(':id/browser/choice')
+  @HttpCode(200)
+  async browserChoice(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(browserWaitSchema)) body: z.infer<typeof browserWaitSchema>,
+    @Res({ passthrough: true }) response: Response,
+    @CurrentSession() _session: RequestSession,
+  ) {
+    const { signal, dispose } = abortOnClose(response)
+    try {
+      return await this.games.browserChoice(id, body, signal)
+    } finally {
+      dispose()
+    }
+  }
+
+  @Put(':id/browser/end')
+  browserEnd(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(browserEndSchema)) body: z.infer<typeof browserEndSchema>,
+    @CurrentSession() _session: RequestSession,
+  ) {
+    return this.games.browserEnd(id, {
+      ...body,
+      state: body.state as Prisma.InputJsonValue,
+      log: body.log as Prisma.InputJsonValue,
+    })
+  }
+
+  @Put(':id/browser/failure')
+  browserFailure(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(browserFailureSchema)) body: z.infer<typeof browserFailureSchema>,
+    @CurrentSession() _session: RequestSession,
+  ) {
+    return this.games.browserFailure(id, body)
+  }
+
+  /** Body: the replay JSON gzipped (`Content-Type: application/gzip`), at most 8 MB. */
+  @Put(':id/browser/replay')
+  async browserReplay(
+    @Param('id') id: string,
+    @Query(new ZodValidationPipe(browserReplaySchema)) query: z.infer<typeof browserReplaySchema>,
+    @Req() request: Request,
+    @CurrentSession() _session: RequestSession,
+  ) {
+    return this.games.browserReplay(id, query.choices, await readBody(request, MAX_LIVE_REPLAY_BYTES))
   }
 
   /** Fase 29: the game told turn by turn in Spanish, with the coach's opinion (what the MCP gives Claude). */
