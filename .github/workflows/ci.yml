@@ -91,6 +91,26 @@ jobs:
       # docs/REVISION.md: a broken pending decision fails in its own PR, not when the Coordinador integrates it.
       - run: node scripts/decisiones.mjs --check
 
+  # D-022 (public repository): nothing personal in a PR. Its commits with noreply authors and committers, and its diff
+  # without mails, Windows users in paths, the app's tokens, Supabase refs, JWT or private keys
+  # (scripts/ci/privacy-check.mjs; exceptions with a motive in scripts/ci/privacy-allow.json or `privacy-allow:`).
+  privacy:
+    if: ${{ github.event_name == 'pull_request' && !(vars.CI_RUNNER && github.actor == 'dependabot[bot]') }}
+    runs-on: ${{ vars.CI_RUNNER_LIGHT || vars.CI_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The PR's commits and the base they start from.
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: node --test scripts/ci/privacy-check.test.mjs
+      # The merge commit GitHub checks out: its first parent is the base as it is now (not the one of the event, which
+      # may be older), its second the PR's head.
+      - name: Privacy of the PR
+        run: node scripts/ci/privacy-check.mjs --base HEAD^1 --head HEAD^2
+
   # Supertest suite against a real Postgres 17 (migrations applied by test/global-setup.ts), on a database of its own
   # per runner (two runners on the PC never share one, and the sessions' tcg_test stays theirs).
   e2e:

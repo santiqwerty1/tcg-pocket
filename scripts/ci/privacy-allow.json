@@ -1,0 +1,10 @@
+[
+  {
+    "sha256": "b76190db666bfbcc22ea572f58958eec901b286808b5a4dc474bf076e16188f6",
+    "motivo": "La URL pública de la colección del tracker (T-020, TRACKER_COLLECTION_URL): es del tracker, no nuestra, y la usa cualquiera que lea colecciones públicas."
+  },
+  {
+    "sha256": "b0373516d594ddd199b25c3655332b354837e065c5cc232f5043189897900ca7",
+    "motivo": "El mail público del autor de un paquete en un mensaje «deprecated» de pnpm-lock.yaml: lo escribe pnpm, no nosotros, y vuelve en los PR de Dependabot."
+  }
+]
