@@ -2655,7 +2655,13 @@ describe('simulation (e2e)', () => {
     })
     expect((await as('worker-copy-phone')).body.chunk).toBeNull()
     // The claim never hands out a chunk whose copy is alive, even with the holder's lease run out: the copy goes on
-    // as the holder at its heartbeat.
+    // as the holder at its heartbeat. Its worker plays the job's games revision (a copy comes from a claim, whose
+    // hello says it; review of #76).
+    await test.prisma.workerNode.upsert({
+      where: { id: 'worker-copy-fast' },
+      create: { id: 'worker-copy-fast', name: 'pc rápida', engineRev: test.env.engineRev, cores: 2, gamesRev: 0 },
+      update: {},
+    })
     await test.prisma.simulationChunk.update({
       where: { id: pcHolds.chunkId as number },
       data: {
@@ -2672,7 +2678,7 @@ describe('simulation (e2e)', () => {
       copyWorker: null,
       status: 'leased',
     })
-    // It never said hello: its result says its engine (a fixed job takes no result of an unknown one).
+    // Its result says its engine (a fixed job takes no result of an unknown one).
     expect((await result(pcHolds.chunkId, 'worker-copy-fast', 50_000, { cliVersion: '0.1.0' })).body).toEqual({
       accepted: true,
     })
@@ -2772,6 +2778,108 @@ describe('simulation (e2e)', () => {
     expect((await as('worker-copy-pc')).body.chunk).toMatchObject({ chunkId: free.chunkId })
     expect((await result(free.chunkId, 'worker-copy-pc')).body).toEqual({ accepted: true })
     expect((await result(other.chunkId, 'worker-copy-idle')).body).toEqual({ accepted: true })
+
+    // The job fixed meanwhile to another games revision by its other chunk: the copy of the old one gets nothing, and
+    // the chunk goes back to the queue for a worker that plays it (review of #76).
+    const fixedMeanwhile = async () => {
+      const next = await make(1000)
+      jobs.push(next.id)
+      const held = (await as('worker-copy-phone')).body.chunk as Structured
+      const rest = (await as('worker-copy-idle')).body.chunk as Structured
+      expect([held.jobId, rest.jobId]).toEqual([next.id, next.id])
+      await slowDown(held.chunkId)
+      expect((await as('worker-copy-pc')).body.chunk).toMatchObject({ chunkId: held.chunkId })
+      const updated = { cliVersion: '0.3.6', gamesRev: 1 }
+      expect((await result(rest.chunkId, 'worker-copy-idle', 50_000, updated)).body).toEqual({ accepted: true })
+      expect((await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: next.id } })).gamesRev).toBe(1)
+      return held.chunkId
+    }
+    // Who plays it in the end: a worker of revision 1.
+    const playedByRev1 = async (chunkId: unknown) => {
+      const updated = { cliVersion: '0.3.6', gamesRev: 1 }
+      expect((await as('worker-copy-rev1', updated)).body.chunk).toMatchObject({ chunkId })
+      expect((await result(chunkId, 'worker-copy-rev1', 50_000, updated)).body).toEqual({ accepted: true })
+    }
+    const queuedAlone = { status: 'queued', workerId: null, copyWorker: null, copyUntil: null, copySince: null }
+    const turned = await fixedMeanwhile()
+    expect((await result(turned, 'worker-copy-phone', 600_000)).body).toEqual({ accepted: false })
+    expect(await chunkRow(turned)).toMatchObject(queuedAlone)
+    expect((await beat(turned, 'worker-copy-pc')).body).toMatchObject({ lost: true })
+    await playedByRev1(turned)
+    const failedOld = await fixedMeanwhile()
+    expect(
+      (
+        await bearer('put', `/api/worker/chunks/${failedOld}/failure`).send({
+          workerId: 'worker-copy-phone',
+          error: 'x',
+        })
+      ).body,
+    ).toEqual({ status: 'queued' })
+    expect(await chunkRow(failedOld)).toMatchObject({ ...queuedAlone, attempt: 1 })
+    await playedByRev1(failedOld)
+    const releasedOld = await fixedMeanwhile()
+    await test.app.get(WorkerQueueService).release('worker-copy-phone')
+    expect(await chunkRow(releasedOld)).toMatchObject(queuedAlone)
+    await playedByRev1(releasedOld)
+    // At its heartbeat the copy is told to stop, also with the holder's lease run out: nobody of the right revision
+    // could take the chunk while it went on.
+    const beaten = await fixedMeanwhile()
+    await test.prisma.simulationChunk.update({ where: { id: beaten as number }, data: { leaseUntil: new Date(0) } })
+    expect((await beat(beaten, 'worker-copy-pc')).body).toEqual({ leaseUntil: null, cancelled: false, lost: true })
+    expect(await chunkRow(beaten)).toMatchObject({ status: 'leased', workerId: 'worker-copy-phone', copyWorker: null })
+    await playedByRev1(beaten)
+
+    // The holder's failure while its copy lets go, or starts, between the read and the update: once more with the row
+    // as it is now, so the chunk is never left leased to a worker that stopped (review of #76).
+    const queue = test.app.get(WorkerQueueService) as unknown as {
+      requireChunk: (id: number) => Promise<unknown>
+    }
+    const meanwhile = async (
+      change: { copyWorker: string | null; copyUntil: Date | null; copySince: Date | null },
+      go: () => Promise<{ body: unknown }>,
+    ) => {
+      const read = queue.requireChunk
+      let first = true
+      queue.requireChunk = async (id: number) => {
+        const row = await read.call(queue, id)
+        if (first) {
+          first = false
+          await test.prisma.simulationChunk.update({ where: { id }, data: change })
+        }
+        return row
+      }
+      try {
+        return (await go()).body
+      } finally {
+        delete (queue as { requireChunk?: unknown }).requireChunk
+      }
+    }
+    const fail = (chunkId: unknown) =>
+      bearer('put', `/api/worker/chunks/${chunkId}/failure`).send({ workerId: 'worker-copy-phone', error: 'motor' })
+    const letGoMeanwhile = await pcAndPhone()
+    jobs.push(letGoMeanwhile.job.id)
+    await slowDown(letGoMeanwhile.phone.chunkId)
+    expect((await as('worker-copy-pc')).body.chunk).toMatchObject({ chunkId: letGoMeanwhile.phone.chunkId })
+    const gone = { copyWorker: null, copyUntil: null, copySince: null }
+    expect(await meanwhile(gone, () => fail(letGoMeanwhile.phone.chunkId))).toEqual({ status: 'queued' })
+    expect(await chunkRow(letGoMeanwhile.phone.chunkId)).toMatchObject({ ...queuedAlone, attempt: 1 })
+    expect((await as('worker-copy-pc')).body.chunk).toMatchObject({ chunkId: letGoMeanwhile.phone.chunkId })
+    expect((await result(letGoMeanwhile.phone.chunkId, 'worker-copy-pc')).body).toEqual({ accepted: true })
+    const startedMeanwhile = await pcAndPhone()
+    jobs.push(startedMeanwhile.job.id)
+    const started = {
+      copyWorker: 'worker-copy-pc',
+      copyUntil: new Date(Date.now() + 60_000),
+      copySince: new Date(),
+    }
+    expect(await meanwhile(started, () => fail(startedMeanwhile.phone.chunkId))).toEqual({ status: 'leased' })
+    expect(await chunkRow(startedMeanwhile.phone.chunkId)).toMatchObject({
+      status: 'leased',
+      workerId: 'worker-copy-pc',
+      copyWorker: null,
+      attempt: 1,
+    })
+    expect((await result(startedMeanwhile.phone.chunkId, 'worker-copy-pc')).body).toEqual({ accepted: true })
 
     // What a holder plays as one batch is copied whole, by a worker that plays batches, or not at all.
     const batched = await make(1000)
