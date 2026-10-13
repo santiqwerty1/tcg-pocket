@@ -92,8 +92,9 @@ jobs:
       - run: node scripts/decisiones.mjs --check
 
   # D-022 (public repository): nothing personal in a PR. Its commits with noreply authors and committers, and its diff
-  # without mails, Windows users in paths, the app's tokens, Supabase refs, JWT or private keys
-  # (scripts/ci/privacy-check.mjs; exceptions with a motive in scripts/ci/privacy-allow.json or `privacy-allow:`).
+  # and commit messages without mails, Windows users in paths, the app's tokens, Supabase refs, Postgres passwords,
+  # other services' tokens, JWT or private keys (scripts/ci/privacy-check.mjs; exceptions name their rule and say why:
+  # `privacy-allow(<regla>): <motivo>` on the line, or scripts/ci/privacy-allow.json).
   privacy:
     if: ${{ github.event_name == 'pull_request' && !(vars.CI_RUNNER && github.actor == 'dependabot[bot]') }}
     runs-on: ${{ vars.CI_RUNNER_LIGHT || vars.CI_RUNNER || 'ubuntu-latest' }}

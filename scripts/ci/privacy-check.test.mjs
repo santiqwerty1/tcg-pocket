@@ -2,12 +2,12 @@
 // The suspicious values are built from pieces, so this file's own diff carries none of them.
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { addedLines, badCommits, check, findInLines, sha256 } from './privacy-check.mjs'
+import { addedLines, badCommits, check, findInLines, masked, sha256 } from './privacy-check.mjs'
 
 const SCRIPT = fileURLToPath(new URL('./privacy-check.mjs', import.meta.url))
 const AT = '@'
@@ -54,8 +54,24 @@ describe('what the diff and the messages may not add', () => {
     ]) {
       assert.deepEqual(rules(`cd ${path}/repo`), ['ruta'], path)
     }
-    for (const name of ['<usuario>', '<…>', '%USERNAME%', '$' + '{USER}', '{usuario}', '…', 'Public', 'runneradmin']) {
+    for (const name of [
+      '<usuario>',
+      '<…>',
+      '%USERNAME%',
+      '$' + '{USER}',
+      '$USER',
+      '$env:USERNAME',
+      '{usuario}',
+      '…',
+      'Public',
+      'All Users',
+      'runneradmin',
+    ]) {
       assert.deepEqual(rules(`cd ${users('C:/', '/', name)}/Personal`), [], name)
+    }
+    // A real name between the signs of a placeholder is still a real name.
+    for (const name of ['<jperez>', '<ana>', '%jperez%', '{jperez}', '$jperez', '$' + '{jperez}']) {
+      assert.deepEqual(rules(`cd ${users('C:/', '/', name)}/Personal`), ['ruta'], name)
     }
   })
 
@@ -70,10 +86,18 @@ describe('what the diff and the messages may not add', () => {
     assert.deepEqual(rules(`postgres://${ref}.${supa}.co:5432`), ['supabase'])
     assert.deepEqual(rules(`user postgres.${ref} on aws-0-sa-east-1.pooler.${supa}.com`), ['supabase'])
     assert.deepEqual(rules(`${supa}.com/dashboard/project/${ref}`), ['supabase'])
+    assert.deepEqual(rules(`app.${supa}.com/project/${ref}`), ['supabase'])
     assert.deepEqual(rules(`la ref de Supabase, <ref>.${supa}.co`), [])
+    // The ref is lowercase: a property of the same length is not one.
+    assert.deepEqual(rules('postgres.transactionIsolation = 1'), [])
     assert.deepEqual(rules(`postgresql://app:s3cr3t${AT}10.0.0.7:5432/tcg`), ['postgres'])
     for (const host of ['127.0.0.1', 'localhost', 'host.docker.internal', 'postgres']) {
       assert.deepEqual(rules(`postgresql://tcg:tcg${AT}${host}:5433/tcg`), [], host)
+    }
+    // A password that is a placeholder, as in the docs.
+    for (const password of ['<clave>', '$' + '{PGPASSWORD}', '$PGPASSWORD', '%PGPASSWORD%', '…', '***']) {
+      const url = `postgresql://postgres.<ref>:${password}${AT}aws-0-<región>.pooler.${supa}.com:5432/postgres`
+      assert.deepEqual(rules(url), [], password)
     }
   })
 
@@ -84,6 +108,8 @@ describe('what the diff and the messages may not add', () => {
       `Fly${'V1'} ${'fm2_'}${'a'.repeat(40)}`,
       `${'tsec'}_${'a'.repeat(30)}`,
       `${'sb_secret'}_${'a'.repeat(30)}`,
+      `x${'gh'}p_${'a'.repeat(36)}`,
+      `${'AKIA'}${'A1B2'.repeat(4)}`,
     ]) {
       assert.deepEqual(rules(secret), ['secreto'], secret.slice(0, 6))
     }
@@ -111,18 +137,28 @@ describe('what the diff and the messages may not add', () => {
       findInLines([line(real, 'docs/y.md')], [{ archivo: 'docs/x.md', regla: 'mail', motivo: 'ejemplo' }]).length,
       1,
     )
-    // Without a motive, the exception does not count and is a finding itself.
+    // Two markers on one line: each motive ends where the next marker starts.
+    assert.deepEqual(
+      rules(`${real} ${token('mcp')} // privacy-allow(mail): ejemplo privacy-allow(token): el de la doc`),
+      [],
+    )
+    // Without a motive (or with one that is not text), the exception does not count and is a finding itself.
     assert.deepEqual(rules(real, [{ sha256: sha256(real) }]), ['excepción', 'mail'])
+    assert.deepEqual(rules(real, [{ sha256: sha256(real), motivo: 3 }]), ['excepción', 'mail'])
     assert.deepEqual(rules(real, [{ archivo: 'apps/x.ts', regla: 'mail' }]), ['excepción', 'mail'])
     // The exceptions used are listed (for the CI's log).
     const { excepted } = check([line(`${real} // privacy-allow(mail): ejemplo`)])
     assert.deepEqual(excepted, [{ regla: 'mail', file: 'apps/x.ts', line: 1, motivo: 'ejemplo' }])
   })
 
-  it('a finding never prints the text it found, only its hash', () => {
+  it('a finding never prints the text it found, only its hash; a motive for the log has it covered', () => {
     const [finding] = findInLines([line(mail('alguien', 'gmail.com'))])
     assert.ok(finding && !finding.why.includes('gmail'))
     assert.match(finding?.why ?? '', /^mail \(sha256 [0-9a-f]{16}…\)$/)
+    assert.equal(
+      masked(`el de ${mail('alguien', 'gmail.com')} y ${token('wk')}, ejemplo de la doc`),
+      'el de [mail] y [token], ejemplo de la doc',
+    )
   })
 })
 
@@ -228,15 +264,62 @@ describe('the command, on a repository of its own', () => {
     }
   })
 
+  it('only what the PR adds since it branched: what the base removed after that is not the PR’s', () => {
+    const { root, run, commit, git } = repo()
+    try {
+      commit('a.txt', 'base\n')
+      // An old leak the base had when the PR branched, and removed afterwards.
+      commit('old.txt', `secret ${token('mcp')}\n`)
+      git('checkout', '-q', '-b', 'pr')
+      const head = commit('b.txt', 'nada raro\n')
+      git('checkout', '-q', '-')
+      git('rm', '-q', 'old.txt')
+      git('-c', 'user.name=t', '-c', `user.email=${mail('1+t', 'users.noreply.github.com')}`, 'commit', '-q', '-m', 'x')
+      const base = git('rev-parse', 'HEAD').trim()
+      // Between the two tips (`base..head`), old.txt would look added by the PR.
+      assert.match(run('--base', base, '--head', head), /Privacidad: sin mails/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('a git that fails or a broken allowlist stop it with code 2, saying only what failed', () => {
+    const { root, run, commit } = repo()
+    try {
+      commit('a.txt', 'base\n')
+      assert.throws(
+        () => run('--base', 'no-such-ref'),
+        (error) => error.status === 2 && /^✗ git log falló \(\d+\)\n$/.test(String(error.stderr)) && !error.stdout,
+      )
+      // A copy of the check whose allowlist is not a list.
+      const copy = join(root, 'copy', 'scripts', 'ci')
+      mkdirSync(copy, { recursive: true })
+      writeFileSync(join(copy, 'privacy-check.mjs'), readFileSync(SCRIPT))
+      writeFileSync(join(copy, 'privacy-allow.json'), '{"motivo": "no es una lista"}\n')
+      assert.throws(
+        () =>
+          execFileSync(process.execPath, [join(copy, 'privacy-check.mjs'), '--base', 'HEAD'], {
+            cwd: root,
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+          }),
+        (error) => error.status === 2 && /tiene que ser una lista/.test(String(error.stderr)),
+      )
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('says when a PR changes this check, and lists the exceptions it used', () => {
     const { root, run, commit, git } = repo()
     try {
       const base = commit('a.txt', 'base\n')
       git('checkout', '-q', '-b', 'pr')
-      writeFileSync(join(root, 'x.txt'), `${mail('alguien', 'gmail.com')} privacy-allow(mail): el ejemplo del README\n`)
-      const head = commit('x.txt', `${mail('alguien', 'gmail.com')} privacy-allow(mail): el ejemplo del README\n`)
+      const real = mail('alguien', 'gmail.com')
+      // A motive that quotes what it excepts: the log covers it.
+      const head = commit('x.txt', `${real} privacy-allow(mail): el ejemplo del README, ${real}\n`)
       const out = run('--base', base, '--head', head)
-      assert.match(out, /::notice title=privacidad::x\.txt:1: mail exceptuado, «el ejemplo del README»/)
+      assert.match(out, /::notice title=privacidad::x\.txt:1: mail exceptuado, «el ejemplo del README, \[mail\]»/)
       assert.ok(!out.includes('gmail'))
       assert.doesNotMatch(out, /::warning/)
       mkdirSync(join(root, 'scripts', 'ci'), { recursive: true })

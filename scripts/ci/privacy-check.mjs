@@ -36,9 +36,20 @@ const SERVICE_MAIL = /^(git@github\.com|git@gitlab\.com|support@github\.com|nore
 /** Hosts a Postgres URL may hold a password for: the local ones and the CI's. */
 const LOCAL_HOST =
   /^(localhost|127\.0\.0\.1|\[::1\]|::1|postgres|db|host\.docker\.internal|[^.]+\.(internal|local|test))$/i
-/** Placeholders for a user name in a path: `<usuario>`, `%USERNAME%`, `${USER}`, `{usuario}`, `…`, and Windows' own. */
-const PATH_PLACEHOLDER =
-  /^(<[^>]*>|%[^%]+%|\$\{?[A-Za-z_]+\}?|\{[^}]*\}|…+|\.\.\.|Public|Default|All Users|runneradmin)$/i
+/** The words a placeholder for a user name may hold (a real name between brackets, «<jperez>», is not one). */
+const USER_WORD =
+  '(?:usuario|tu-?usuario|nombre(?:-de-usuario)?|user(?:name)?|your-?(?:user(?:name)?|name)|name|me|yo|…+|\\.\\.\\.)'
+/**
+ * Placeholders for a user name in a path: `<usuario>`, `{usuario}`, `%USERNAME%`, `$USER`, `${USER}`, `$env:USERNAME`,
+ * `…`, and Windows' own folders («All Users» stops at its space).
+ */
+const PATH_PLACEHOLDER = new RegExp(
+  `^(?:<${USER_WORD}>|\\{${USER_WORD}\\}|%${USER_WORD}%|\\$${USER_WORD}|\\$\\{${USER_WORD}\\}|\\$env:${USER_WORD}|\\$\\{env:${USER_WORD}\\}|…+|\\.\\.\\.|Public|Default|All|runneradmin)$`,
+  'i',
+)
+/** A password that is not one: `<clave>`, `${PGPASSWORD}`, `$PGPASSWORD`, `%PGPASSWORD%`, `{clave}`, `…`, `***`. */
+const PASSWORD_PLACEHOLDER =
+  /^(?:<[^>]+>|\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*|%[A-Za-z_]+%|\{[^}]+\}|…+|\.\.\.|\*+)$/
 
 /** What the diff and the commit messages may not add. Each finding names its rule, so an exception can name it too. */
 export const RULES = [
@@ -69,18 +80,23 @@ export const RULES = [
   { regla: 'token', pattern: /tcg_(?:mcp|wk|rl)_[A-Za-z0-9_-]{20,}/g },
   {
     regla: 'supabase',
-    pattern:
-      /\b[a-z0-9-]+\.supabase\.(?:co|in)\b|\bpostgres\.[a-z0-9]{20}\b|supabase\.com\/dashboard\/project\/[a-z0-9]+/gi,
+    pattern: /\b[a-z0-9-]+\.supabase\.(?:co|in)\b|(?:app\.)?supabase\.com\/(?:dashboard\/)?project\/[a-z0-9]+/gi,
   },
+  // The pooler's user, `postgres.<ref>`: the ref is lowercase, so «postgres.transactionIsolation» is not one.
+  { regla: 'supabase', pattern: /\bpostgres\.[a-z0-9]{20}\b/g },
   {
     regla: 'postgres',
     pattern: /postgres(?:ql)?:\/\/[^\s:@/'"`]+:[^\s@/'"`]+@([^\s:/'"`?]+)/gi,
-    allowed: (text) => LOCAL_HOST.test(/@([^\s:/'"`?]+)$/.exec(text)?.[1] ?? ''),
+    allowed: (text) => {
+      const [, password = '', host = ''] = /:\/\/[^:]+:([^@]+)@(.+)$/.exec(text) ?? []
+      return LOCAL_HOST.test(host) || PASSWORD_PLACEHOLDER.test(password)
+    },
   },
   {
     regla: 'secreto',
     pattern:
-      /\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|FlyV1 [A-Za-z0-9_+/=,-]{20,}|fm[12]_[A-Za-z0-9_+/=-]{20,}|tsec_[A-Za-z0-9_+/=-]{20,}|sb_secret_[A-Za-z0-9_-]{20,})/g,
+      // No leading \b either («xghp_…»): the prefixes and their lengths are specific enough. AKIA: an AWS-style key id.
+      /(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|FlyV1 [A-Za-z0-9_+/=,-]{20,}|fm[12]_[A-Za-z0-9_+/=-]{20,}|tsec_[A-Za-z0-9_+/=-]{20,}|sb_secret_[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16})/g,
   },
   { regla: 'jwt', pattern: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g },
   {
@@ -90,6 +106,10 @@ export const RULES = [
 ]
 
 export const sha256 = (text) => createHash('sha256').update(text).digest('hex')
+
+/** A text for the log with whatever a rule would find in it covered: a motive may quote what it excepts. */
+export const masked = (text) =>
+  RULES.reduce((out, rule) => out.replace(rule.pattern, `[${rule.regla}]`), text).slice(0, 200)
 
 /** A file name of a `diff --git` header line: «b/x», «"b/decisión.md"» (quoted when it has odd characters), tabs off. */
 function headerPath(raw) {
@@ -144,8 +164,9 @@ export function addedLines(diff) {
 export function check(lines, allow = []) {
   const findings = []
   const excepted = []
+  const hasMotive = (entry) => typeof entry?.motivo === 'string' && entry.motivo.trim() !== ''
   for (const entry of allow) {
-    if (!entry || typeof entry.motivo !== 'string' || entry.motivo.trim() === '') {
+    if (!hasMotive(entry)) {
       findings.push({
         regla: 'excepción',
         file: 'scripts/ci/privacy-allow.json',
@@ -154,10 +175,11 @@ export function check(lines, allow = []) {
       })
     }
   }
-  const valid = allow.filter((entry) => entry?.motivo?.trim())
+  const valid = allow.filter(hasMotive)
   for (const { file, line, text } of lines) {
+    // Each marker's motive ends where the next marker starts: two on one line except two rules.
     const inline = new Map(
-      [...text.matchAll(/privacy-allow\(([a-záéíóúñ]+)\):\s*(\S.*)$/gi)].map((match) => [
+      [...text.matchAll(/privacy-allow\(([a-záéíóúñ]+)\):\s*(\S.*?)(?=\s*privacy-allow\(|\s*$)/gi)].map((match) => [
         (match[1] ?? '').toLowerCase(),
         (match[2] ?? '').trim(),
       ]),
@@ -228,6 +250,7 @@ function main() {
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
   const allowFile = join(root, 'scripts', 'ci', 'privacy-allow.json')
   const allow = existsSync(allowFile) ? JSON.parse(readFileSync(allowFile, 'utf8')) : []
+  if (!Array.isArray(allow)) throw new Error('scripts/ci/privacy-allow.json tiene que ser una lista de excepciones')
   const range = `${values.base}..${values.head}`
 
   let failed = false
@@ -252,6 +275,8 @@ function main() {
     '--unified=0',
     '--no-color',
     '--no-ext-diff',
+    // A textconv set up on a PC would show its conversion instead of the content.
+    '--no-textconv',
     '--no-relative',
     '--src-prefix=a/',
     '--dst-prefix=b/',
@@ -263,7 +288,9 @@ function main() {
     failed = true
   }
   for (const item of excepted) {
-    console.log(`::notice title=privacidad::${item.file}:${item.line}: ${item.regla} exceptuado, «${item.motivo}»`)
+    console.log(
+      `::notice title=privacidad::${item.file}:${item.line}: ${item.regla} exceptuado, «${masked(item.motivo)}»`,
+    )
   }
   const changed = git('diff', '--name-only', '--no-relative', `${values.base}...${values.head}`).split('\n')
   for (const file of GUARD_FILES.filter((guard) => changed.includes(guard))) {
