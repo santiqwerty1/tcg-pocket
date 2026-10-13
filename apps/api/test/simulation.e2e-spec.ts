@@ -2741,6 +2741,38 @@ describe('simulation (e2e)', () => {
     })
     expect((await result(lostCopy.phone.chunkId, 'worker-copy-phone', 600_000)).body).toEqual({ accepted: true })
 
+    // The holder's result turned down (another engine): the chunk goes to the copy alive, not back to the queue.
+    const turnedDown = await pcAndPhone()
+    jobs.push(turnedDown.job.id)
+    await slowDown(turnedDown.phone.chunkId)
+    const rescue = (await as('worker-copy-pc')).body.chunk as Structured
+    expect(rescue.chunkId).toBe(turnedDown.phone.chunkId)
+    expect(
+      (await result(turnedDown.phone.chunkId, 'worker-copy-phone', 600_000, { engineRev: 'b'.repeat(40) })).body,
+    ).toEqual({ accepted: false })
+    expect(await chunkRow(rescue.chunkId)).toMatchObject({
+      status: 'leased',
+      workerId: 'worker-copy-pc',
+      copyWorker: null,
+    })
+    expect((await beat(rescue.chunkId, 'worker-copy-pc')).body).toMatchObject({ lost: false })
+    expect((await result(rescue.chunkId, 'worker-copy-pc')).body).toEqual({ accepted: true })
+
+    // A job with no games revision fixed yet: only a worker that plays as the holder copies it.
+    const unfixed = await make(1000)
+    jobs.push(unfixed.id)
+    const free = (await as('worker-copy-phone')).body.chunk as Structured
+    const other = (await as('worker-copy-idle')).body.chunk as Structured
+    expect([free.jobId, other.jobId]).toEqual([unfixed.id, unfixed.id])
+    expect((await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: unfixed.id } })).gamesRev).toBeNull()
+    await slowDown(free.chunkId)
+    await test.prisma.workerNode.update({ where: { id: 'worker-copy-phone' }, data: { gamesRev: 1 } })
+    expect((await as('worker-copy-pc')).body.chunk).toBeNull()
+    await test.prisma.workerNode.update({ where: { id: 'worker-copy-phone' }, data: { gamesRev: 0 } })
+    expect((await as('worker-copy-pc')).body.chunk).toMatchObject({ chunkId: free.chunkId })
+    expect((await result(free.chunkId, 'worker-copy-pc')).body).toEqual({ accepted: true })
+    expect((await result(other.chunkId, 'worker-copy-idle')).body).toEqual({ accepted: true })
+
     // What a holder plays as one batch is copied whole, by a worker that plays batches, or not at all.
     const batched = await make(1000)
     jobs.push(batched.id)
@@ -2783,6 +2815,11 @@ describe('simulation (e2e)', () => {
       },
     })
     // A slow worker with 3 of 4 games done in 10 minutes.
+    await test.prisma.workerNode.upsert({
+      where: { id: 'worker-copy-slowest' },
+      create: { id: 'worker-copy-slowest', name: 'celu', engineRev: test.env.engineRev, cores: 1, gamesRev: 0 },
+      update: {},
+    })
     await test.prisma.simulationChunk.update({
       where: { id: held?.id as number },
       data: {

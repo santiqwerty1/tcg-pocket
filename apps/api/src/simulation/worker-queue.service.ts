@@ -498,7 +498,11 @@ export class WorkerQueueService {
       SELECT c.id, c.job_id AS "jobId", c.worker_id AS holder, c.games, c.games_done AS "gamesDone",
         c.leased_at AS "leasedAt", j.players
       FROM simulation_chunks c JOIN simulation_jobs j ON j.id = c.job_id CROSS JOIN between_rounds b
+        LEFT JOIN worker_nodes h ON h.id = c.worker_id
       WHERE ${this.jobsFor(hello)}
+        -- A job not fixed to a games revision yet: only a worker that plays as the holder (the first result fixes it,
+        -- and a copy of another revision would lose its work; review of #73).
+        AND (j.games_rev IS NOT NULL OR h.games_rev IS NOT DISTINCT FROM ${saidGamesRev(hello)}::int)
         AND (j.kind <> 'matrix' OR NOT b.waiting)
         AND c.status = 'leased' AND c.lease_until > now() AND c.worker_id <> ${hello.workerId}
         AND c.leased_at IS NOT NULL
@@ -616,6 +620,27 @@ export class WorkerQueueService {
     return this.claimed(chunks, job)
   }
 
+  /**
+   * A result turned down (another engine or games revision): the worker's lease goes to the chunk's copy, if one is
+   * alive (it passed the job's filter, so it plays the job's way), or else back to the queue; a copy turned down just
+   * lets go (review of #73).
+   */
+  private async letGo(id: number, workerId: string): Promise<void> {
+    await this.dropCopies(workerId, [id])
+    const handed = await this.prisma.$executeRaw`
+      UPDATE simulation_chunks SET worker_id = shadow_worker_id, lease_until = shadow_lease_until,
+        leased_at = shadow_leased_at, games_done = 0,
+        shadow_worker_id = NULL, shadow_lease_until = NULL, shadow_leased_at = NULL
+      WHERE id = ${id} AND status = 'leased' AND worker_id = ${workerId}
+        AND shadow_worker_id IS NOT NULL AND shadow_lease_until > now()`
+    if (handed > 0) return
+    await this.prisma.simulationChunk.updateMany({
+      where: { id, status: 'leased', workerId },
+      data: { status: 'queued', leaseUntil: null, workerId: null, gamesDone: 0 },
+    })
+    this.notifyQueued()
+  }
+
   /** Lets go of this worker's copies (a claim that was given up, a shutdown). */
   private async dropCopies(workerId: string, ids?: number[]): Promise<void> {
     await this.prisma.simulationChunk.updateMany({
@@ -725,12 +750,9 @@ export class WorkerQueueService {
     // Phase 42: a job moved to a new deckgym takes no result of the old one (a late worker that had the chunk).
     if (input.engineRev !== chunk.job.engineRev) {
       this.logger.warn({ chunk: id, engineRev: input.engineRev }, 'result of another engine turned down')
-      // Its lease, if it still had one, goes back to the queue: nobody else could take the chunk until it expired.
-      await this.prisma.simulationChunk.updateMany({
-        where: { id, status: 'leased', workerId: input.workerId },
-        data: { status: 'queued', leaseUntil: null, workerId: null, gamesDone: 0 },
-      })
-      this.notifyQueued()
+      // Its lease, if it still had one, goes to its copy or back to the queue: nobody else could take the chunk until
+      // it expired.
+      await this.letGo(id, input.workerId)
       return { accepted: false }
     }
     // Phase 42: how the engine that played it plays. From the result itself (the worker may have been updated since
@@ -748,11 +770,7 @@ export class WorkerQueueService {
     // from a worker nobody knows, is not taken on trust).
     if (chunk.job.gamesRev !== null && chunk.job.gamesRev !== gamesRev) {
       this.logger.warn({ chunk: id, gamesRev }, 'result of another games revision turned down')
-      await this.prisma.simulationChunk.updateMany({
-        where: { id, status: 'leased', workerId: input.workerId },
-        data: { status: 'queued', leaseUntil: null, workerId: null, gamesDone: 0 },
-      })
-      this.notifyQueued()
+      await this.letGo(id, input.workerId)
       return { accepted: false }
     }
     const perGame = (input.extra as { perGame?: unknown } | undefined)?.perGame
@@ -823,11 +841,7 @@ export class WorkerQueueService {
     if (outcome === 'taken') return { accepted: false }
     if (outcome === 'engine') {
       this.logger.warn({ chunk: id, engineRev: input.engineRev, gamesRev }, 'result of another engine turned down')
-      await this.prisma.simulationChunk.updateMany({
-        where: { id, status: 'leased', workerId: input.workerId },
-        data: { status: 'queued', leaseUntil: null, workerId: null, gamesDone: 0 },
-      })
-      this.notifyQueued()
+      await this.letGo(id, input.workerId)
       return { accepted: false }
     }
     // A result delivered ends its pause episode, if it had one (51.26).
@@ -896,6 +910,8 @@ export class WorkerQueueService {
             copySince: null,
           }
         : null
+    // The hand-over only to the copy that was read: one that let go meanwhile does not get the chunk (review of #73).
+    const guard = copy ? { ...unchanged, copyWorker: chunk.copyWorker } : unchanged
     if (input.cause === 'worker') {
       await this.pause(input.workerId, input.pausedUntil)
       returned = {
@@ -907,7 +923,7 @@ export class WorkerQueueService {
         (returned.returns >= RETURNS_COUNTED_FROM_SEVERAL && returned.returnedBy.length >= 2)
       if (!counted) {
         const moved = await this.prisma.simulationChunk.updateMany({
-          where: unchanged,
+          where: guard,
           data: {
             ...(copy ?? { status: 'queued', leaseUntil: null, workerId: null, gamesDone: 0 }),
             ...returned,
@@ -929,7 +945,7 @@ export class WorkerQueueService {
     const attempt = chunk.attempt + 1
     const status = attempt >= MAX_FAILURES ? 'failed' : 'queued'
     const moved = await this.prisma.simulationChunk.updateMany({
-      where: unchanged,
+      where: guard,
       data: {
         ...(copy ?? { status, leaseUntil: null, workerId: null }),
         attempt,
