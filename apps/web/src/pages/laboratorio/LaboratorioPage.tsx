@@ -350,14 +350,20 @@ function PlanView({ plan }: { plan: LabExplorePlan }) {
         </p>
       ) : null}
       <p>
-        {formatNumber(plan.pool)} cartas candidatas · {formatNumber(plan.games.perRound)} partidas por ronda (~
+        {formatNumber(plan.pool)} cartas candidatas
+        {plan.games.probe > 0
+          ? ` · ronda de prueba: ${formatNumber(plan.games.probe)} partidas (~${formatDuration(plan.estimatedSeconds.probe)})`
+          : ''}{' '}
+        · {formatNumber(plan.games.perRound)} partidas por ronda (~
         {formatDuration(plan.estimatedSeconds.perRound)}) · como mucho {formatNumber(plan.games.max)} (~
         {formatDuration(plan.estimatedSeconds.max)}).
       </p>
       {plan.firstRound.length > 0 ? (
         <div className="flex flex-col gap-1">
           <p className="text-xs text-muted-foreground">
-            Variantes de la primera ronda (si empezás sin cambiar nada, se juegan estas):
+            {plan.games.probe > 0
+              ? 'La ronda de prueba (una copia menos de cada carta, con un relleno en su lugar):'
+              : 'Variantes de la primera ronda (si empezás sin cambiar nada, se juegan estas):'}
           </p>
           <ul className="flex flex-col gap-1 text-xs">
             {plan.firstRound.map((variant) => (
@@ -451,6 +457,8 @@ function ExploreForm({ size, objective }: { size: number; objective: LabObjectiv
   const [verifyGames, setVerifyGames] = useState('120')
   // Fase 42, carreras: off by default until measured (review of #53).
   const [race, setRace] = useState(false)
+  // T-017 C3: start with a «carta más floja» round.
+  const [probe, setProbe] = useState(false)
   const deckId = source && 'deckId' in source ? source.deckId : null
 
   const input: LabExploreInput | null = useMemo(() => {
@@ -469,9 +477,10 @@ function ExploreForm({ size, objective }: { size: number; objective: LabObjectiv
         confirmGames: Number(confirmGames),
         verifyGames: Number(verifyGames),
         race,
+        probe,
       },
     }
-  }, [source, size, objective, locked, include, pool, rounds, variants, games, confirmGames, verifyGames, race])
+  }, [source, size, objective, locked, include, pool, rounds, variants, games, confirmGames, verifyGames, race, probe])
 
   // H-021: the plan on screen is the search that starts (same seed) while nothing changed since «Ver el plan».
   const [plannedFor, setPlannedFor] = useState<string | null>(null)
@@ -581,6 +590,13 @@ function ExploreForm({ size, objective }: { size: number; objective: LabObjectiv
           min={0}
           max={1000}
         />
+      </div>
+      <div className="flex items-start gap-2 text-sm">
+        <Checkbox id="explore-probe" checked={probe} onCheckedChange={(checked) => setProbe(checked === true)} />
+        <label htmlFor="explore-probe">
+          Empezar con una ronda de prueba: saca una copia de cada carta para ver cuánto aporta, y después cambia más
+          seguido las que menos aportan.
+        </label>
       </div>
       <div className="flex items-start gap-2 text-sm">
         <Checkbox id="explore-race" checked={race} onCheckedChange={(checked) => setRace(checked === true)} />

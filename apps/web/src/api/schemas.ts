@@ -1786,6 +1786,7 @@ const exploreConfigSchema = z.object({
   byWeight: z.boolean().optional(),
   confirmBot: z.string().nullable().optional(),
   race: z.boolean().optional(),
+  probe: z.boolean().optional(),
 })
 export type ExploreConfig = z.infer<typeof exploreConfigSchema>
 
@@ -1835,6 +1836,8 @@ export const labJobSchema = z.object({
           stopped: z.boolean().default(false),
           /** Fase 42, carreras: the variants that left after the round's first half. */
           dropped: z.array(z.number()).default([]),
+          /** T-017 C3: the «carta más floja» round. */
+          probe: z.boolean().default(false),
         }),
       ),
       /** T-017 E2: archetype cards the search could not try because the collection has none. */
@@ -1852,6 +1855,11 @@ export const labJobSchema = z.object({
         )
         .default([]),
       combos: z.array(z.number()).default([]),
+      /** T-017 C3: what each card is worth (the probe round) and the weakest third. */
+      probe: z
+        .array(z.object({ cardId: z.string(), nameEs: z.string(), value: z.number().nullable(), text: z.string() }))
+        .default([]),
+      weakest: z.array(labCardSchema).default([]),
       /** T-017 E3/E4: the cards to try, and the lists added by hand (played, and waiting for the next round). */
       include: z.array(labCardSchema).default([]),
       added: z.array(z.number()).default([]),
@@ -1952,8 +1960,9 @@ export const labExplorePlanSchema = z.object({
   config: exploreConfigSchema,
   /** H-021: the plan's seed; starting with it plays these same first-round variants. */
   seed: z.number().optional(),
-  games: z.object({ perRound: z.number(), max: z.number() }),
-  estimatedSeconds: z.object({ perRound: z.number(), max: z.number() }),
+  /** T-017 C3: `probe`, the games of the probe round (in `max`); then `firstRound` is that round's lists. */
+  games: z.object({ perRound: z.number(), max: z.number(), probe: z.number().default(0) }),
+  estimatedSeconds: z.object({ perRound: z.number(), max: z.number(), probe: z.number().default(0) }),
 })
 export type LabExplorePlan = z.infer<typeof labExplorePlanSchema>
 

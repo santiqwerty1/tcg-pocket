@@ -231,11 +231,24 @@ export class McpLabToolsService {
                 : null,
               // Fase 42: the confirmation played again with a stronger bot («robusto» / «sensible al bot»).
               robustness: explore.robustness ? robustnessText(explore.robustness) : null,
+              // T-017 C3 (review of #78): what each card is worth, from the probe round, and what goes out more often.
+              ...(explore.probe.length > 0
+                ? {
+                    probe: {
+                      note: 'El mazo con una copia menos de cada carta (un relleno en su lugar) contra el mazo: primero lo que menos se extraña (por el extremo bajo del intervalo).',
+                      cards: explore.probe.map((card) => `${card.nameEs}, una copia menos: ${card.text}`),
+                      outMoreOften: explore.weakest.map((card) => card.nameEs),
+                    },
+                  }
+                : {}),
               // T-017 E3/E4: the cards it tries and the lists added by hand.
               include: explore.include.map((card) => card.nameEs),
               addedByHand: { played: explore.added, waiting: explore.pending, neverPlayed: explore.lost },
               rounds: explore.rounds.map((round) => ({
-                kind: { search: 'búsqueda', verify: 'verificación', confirm: 'confirmación' }[round.kind],
+                // T-017 C3: the probe round measures; it accepts nothing and is no search round.
+                kind: round.probe
+                  ? 'prueba (mide cuánto aporta cada carta; no acepta nada)'
+                  : { search: 'búsqueda', verify: 'verificación', confirm: 'confirmación' }[round.kind],
                 best: labelOf.get(round.incumbent) ?? round.incumbent,
                 tried: round.candidates.length,
                 // Fase 42, carreras: variants out after the round's first half.
@@ -354,6 +367,7 @@ export class McpLabToolsService {
     pool?: 'collection' | 'all'
     locked?: string[]
     include?: string[]
+    probe?: boolean
     rounds?: number
     variants?: number
     games?: number
@@ -386,6 +400,7 @@ export class McpLabToolsService {
     const include = (args.include ?? []).map((card) => resolveCardRef(index, card, own))
     const settings = {
       pool: args.pool,
+      ...(args.probe ? { probe: true } : {}),
       maxRounds: args.rounds,
       variantsPerRound: args.variants,
       gamesPerRival: args.games,
@@ -423,6 +438,7 @@ export class McpLabToolsService {
           out: variant.remove.map(cardLine),
         })),
         gamesPerRound: result.games.perRound,
+        ...(result.games.probe > 0 ? { probeRoundGames: result.games.probe } : {}),
         maxGames: result.games.max,
         estimatedMinutes: {
           perRound: Math.max(
@@ -434,8 +450,11 @@ export class McpLabToolsService {
       }
     }
     const resolved = exploreConfig(settings)
-    const rivals = (await this.lab.job(String(result.id))).rivals.length
-    const games = exploreGames(resolved, rivals)
+    const job = await this.lab.job(String(result.id))
+    const rivals = job.rivals.length
+    // T-017 C3: the probe round's lists, when it starts with one (review of #78: the plan left it out).
+    const probes = job.explore?.rounds.find((round) => round.probe)?.candidates.length ?? 0
+    const games = exploreGames(resolved, rivals, probes)
     return {
       queued: true,
       jobId: result.id,
@@ -445,6 +464,7 @@ export class McpLabToolsService {
       config: resolved,
       rivals,
       gamesPerRound: games.perRound,
+      ...(games.probe > 0 ? { probeRoundGames: games.probe } : {}),
       maxGames: games.max,
       estimatedMinutes: {
         perRound: Math.max(1, Math.round(estimateSeconds(games.perRound, result.players, cores) / 60)),

@@ -13,14 +13,17 @@ import {
   learnSwap,
   type MeasuredSwap,
   mutationPool,
+  outBoost,
   poolCaps,
   poolForZone,
+  probeVariants,
   replaceSlot,
   revertVariant,
   seededRandom,
   slotGroups,
   swapOf,
   variantOf,
+  weakestThird,
 } from '../../src/lab/index.js'
 import { deckDraft } from '../helpers/loadDecks.js'
 import { catalogIndex } from '../helpers/loadFixtures.js'
@@ -224,5 +227,70 @@ describe('what a search learns between rounds (T-017 C4)', () => {
       revertVariant(variant.cards, [accepted], 0, index, editionOf, { valid, seen: new Set([back.key]) }),
     ).toBeNull()
     expect(revertVariant(variant.cards, [], 0, index, editionOf, { valid })).toBeNull()
+  })
+})
+
+describe('the «carta más floja» round (T-017 C3)', () => {
+  it('one variant per card: its first copy out, the filler in its place; the weakest third by difference', () => {
+    const variants = probeVariants(deck.cards, 'P-A-3', index, { valid })
+    const groups = groupsOfCards(deck.cards, index)
+    expect(variants.length).toBeGreaterThan(0)
+    expect(variants.length).toBeLessThanOrEqual(groups.size)
+    for (const variant of variants) {
+      // Every copy where it was but one: the probed card's first copy is now the filler.
+      const before = slotGroups(deck.cards, index)
+      const after = slotGroups(variant.cards, index)
+      const at = before.indexOf(variant.probed)
+      expect(after[at]).toBe(group('P-A-3'))
+      expect(after.filter((g, i) => g !== before[i])).toHaveLength(1)
+      expect(variant.remove.map((change) => group(change.cardId))).toEqual([variant.probed])
+    }
+    // A locked card is not probed.
+    const [first] = variants
+    if (!first) throw new Error('no probe')
+    const locked = probeVariants(deck.cards, 'P-A-3', index, { valid, locked: new Set([first.probed]) })
+    expect(locked.map((variant) => variant.probed)).not.toContain(first.probed)
+    const d = (value: number, se: number) => ({
+      value,
+      se,
+      ci95: [value - 1.96 * se, value + 1.96 * se] as [number, number],
+    })
+    expect(
+      weakestThird([
+        { groupId: 'a', difference: d(-6, 1) },
+        { groupId: 'b', difference: d(2, 1) },
+        { groupId: 'c', difference: d(0.5, 1) },
+        { groupId: 'd', difference: null },
+        { groupId: 'e', difference: d(-1, 1) },
+        { groupId: 'f', difference: d(3, 1) },
+      ]),
+    ).toEqual(['f', 'b'])
+    // Review of #78: by the low end of the interval — a lucky +8 on a wide interval is not the weakest.
+    expect(
+      weakestThird([
+        { groupId: 'lucky', difference: d(8, 6) },
+        { groupId: 'sure', difference: d(2, 0.5) },
+        { groupId: 'x', difference: d(0, 1) },
+      ]),
+    ).toEqual(['sure'])
+    expect(weakestThird([])).toEqual([])
+  })
+
+  it('second review of #78: the weakest third is a floor of ×3 only while the probe is all that measured it', () => {
+    const weakest = new Set(['w'])
+    // Only the probe: a little harmful (−2 points) and still in the weakest third: ×3.
+    const learned: Learned = { '-w': { sum: -2, n: 1 }, '-x': { sum: -2, n: 1 } }
+    expect(outBoost(learned, weakest, 'w')).toBe(3)
+    expect(outBoost(learned, weakest, 'x')).toBeCloseTo(learnedFactor(learned, '-x'), 9)
+    // The probe said a lot (+40): what was learned (×4) is above the floor, not multiplied by it.
+    expect(outBoost({ '-w': { sum: 40, n: 1 } }, weakest, 'w')).toBe(4)
+    // Four variants of the next round took it out and lost (n 5, −13 points on average): what they learned decides.
+    const after: Learned = { '-w': { sum: -13.3 * 5, n: 5 } }
+    expect(outBoost(after, weakest, 'w')).toBe(0.25)
+    expect(outBoost(after, weakest, 'w')).toBe(learnedFactor(after, '-w'))
+    // Nothing learned yet: ×3 for the weakest, ×1 for the rest.
+    expect(outBoost(undefined, weakest, 'w')).toBe(3)
+    expect(outBoost(undefined, weakest, 'y')).toBe(1)
+    expect(outBoost(undefined, undefined, 'w')).toBe(1)
   })
 })

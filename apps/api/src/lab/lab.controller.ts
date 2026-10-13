@@ -130,6 +130,8 @@ const exploreSchema = runSchema.extend({
       confirmBot: botCode.nullable().optional(),
       /** Fase 42, carreras: a search round in two halves, the clearly worse variants out after the first (default true). */
       race: z.boolean().optional(),
+      /** T-017 C3: start with a «carta más floja» round. */
+      probe: z.boolean().optional(),
     })
     .optional(),
 })

@@ -498,6 +498,7 @@ describe('laboratorio (e2e)', () => {
     expect(dry.body.games).toEqual({
       perRound: 4 * 5 * 10,
       max: (4 * 5 * 10 + 2 * 5 * 20) * 2 + 2 * 5 * 20,
+      probe: 0,
       robustness: 0,
     })
     // H-021: the plan says its seed, and that seed plays this same first round.
@@ -1476,6 +1477,8 @@ describe('laboratorio (e2e)', () => {
         !deckGroups.has(group.id) &&
         !!pre &&
         !deckGroups.has(pre.id) &&
+        // Review of #64: a pre-evolution the collection does not have comes along too.
+        !ownedGroups.has(pre.id) &&
         preCard?.evolvesFrom === null &&
         engineEdition(card, index, status) !== null &&
         !!preCard &&
@@ -1486,7 +1489,7 @@ describe('laboratorio (e2e)', () => {
     const evolved = await post('/api/lab/explore').send({
       deck: { deckId: deckIds[1] },
       size: 3,
-      config: { ...config, pool: 'all' },
+      config,
       include: [stage1.displayCardId],
       dryRun: true,
     })
@@ -1640,9 +1643,38 @@ describe('laboratorio (e2e)', () => {
     expect(created.status).toBe(200)
     const id = created.body.id as number
     // A list without the locked card is refused, with which one.
-    const missing = await post(`/api/lab/jobs/${id}/candidates`).send({ deck: { deckId: deckIds[0] } })
+    const index = test.app.get(CatalogService).requireIndex()
+    const start = (await get(`/api/decks/${deckIds[1]}`)).body as {
+      energies: string[]
+      cards: { card: { id: string }; count: number }[]
+    }
+    const lockedGroup = index.cardById('B1-36')?.functionalGroupId
+    const isLocked = (cardId: string) => index.cardById(cardId)?.functionalGroupId === lockedGroup
+    // The locked card out (its copies become X Speed): refused for that, by name.
+    const withoutLocked = start.cards.map((entry) => ({
+      cardId: isLocked(entry.card.id) ? 'P-A-2' : entry.card.id,
+      count: entry.count,
+    }))
+    const missing = await post(`/api/lab/jobs/${id}/candidates`).send({
+      deck: { cards: withoutLocked, energies: start.energies },
+    })
     expect(missing.status).toBe(400)
-    expect(missing.body.error.message).toMatch(/le faltan cartas que la búsqueda no toca|no cumple las reglas/)
+    expect(missing.body.error.message).toMatch(/le faltan cartas que la búsqueda no toca/)
+    // The locked card kept, but a Grass Pokémon in a Fire-only event: refused for the event's rules.
+    const victim = start.cards.find(
+      (entry) => !isLocked(entry.card.id) && index.cardById(entry.card.id)?.cardType === 'trainer',
+    )
+    if (!victim) throw new Error('no trainer to swap')
+    const grassy = start.cards.map((entry) => ({
+      cardId: entry.card.id === victim.card.id ? 'A1-1' : entry.card.id,
+      count: entry.card.id === victim.card.id ? 1 : entry.count,
+    }))
+    if (victim.count > 1) grassy.push({ cardId: victim.card.id, count: victim.count - 1 })
+    const breaks = await post(`/api/lab/jobs/${id}/candidates`).send({
+      deck: { cards: grassy, energies: start.energies },
+    })
+    expect(breaks.status).toBe(400)
+    expect(breaks.body.error.message).toMatch(/no cumple las reglas de «Fuego para sumar»/)
     await post(`/api/simulations/${id}/cancel`)
   }, 60_000)
 
@@ -1687,6 +1719,145 @@ describe('laboratorio (e2e)', () => {
       attempts: 5,
       failed: true,
     })
+  }, 60_000)
+
+  it('T-017 C3: a probe round measures what each card is worth; the weakest third goes out more often', async () => {
+    const config = {
+      gamesPerRival: 20,
+      variantsPerRound: 2,
+      maxRounds: 1,
+      patience: 3,
+      confirmGames: 0,
+      verifyGames: 0,
+      pool: 'all',
+      byWeight: false,
+      confirmBot: null,
+      probe: true,
+    }
+    // Review of #78: the plan counts the probe round — its lists and the deck, 10 games against each rival.
+    const plan = await post('/api/lab/explore').send({
+      deck: { deckId: deckIds[1] },
+      size: 3,
+      config,
+      seed: 9990,
+      dryRun: true,
+    })
+    expect(plan.status).toBe(200)
+    const planned = (plan.body.firstRound as unknown[]).length
+    expect(plan.body.games.probe).toBe((planned + 1) * 3 * 10)
+    expect(plan.body.games.max).toBe(plan.body.games.perRound + plan.body.games.probe)
+    expect(plan.body.estimatedSeconds.probe).toBeGreaterThan(0)
+    // Review of #78: a probe round under an event that allows no filler is refused, and says why.
+    const event = await post('/api/events').send({
+      name: 'Sin rellenos',
+      rules: { banned: ['P-A-1', 'P-A-2', 'P-A-3', 'P-A-4'] },
+    })
+    expect(event.status).toBeLessThan(300)
+    const refused = await post('/api/lab/explore').send({
+      deck: { deckId: deckIds[1] },
+      size: 3,
+      config,
+      eventId: event.body.id,
+      dryRun: true,
+    })
+    expect(refused.status).toBe(400)
+    expect(refused.body.error).toMatchObject({ code: 'no_probe' })
+    expect(refused.body.error.message).toMatch(/ningún relleno .*el evento no lo permite/)
+    // Without the probe, the same event is fine.
+    expect(
+      (
+        await post('/api/lab/explore').send({
+          deck: { deckId: deckIds[1] },
+          size: 3,
+          config: { ...config, probe: false },
+          eventId: event.body.id,
+          dryRun: true,
+        })
+      ).status,
+    ).toBe(200)
+
+    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9990 })
+    expect(created.status).toBe(200)
+    const id = created.body.id as number
+    type Round = { candidates: number[]; probe?: boolean; decided: boolean; accepted: number | null }
+    const read = async () =>
+      (
+        (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).params as {
+          lab: {
+            explore: { rounds: Round[]; weakest?: string[]; learned?: Record<string, { sum: number; n: number }> }
+          }
+        }
+      ).lab.explore
+    const first = (await read()).rounds[0]
+    expect(first?.probe).toBe(true)
+    const probes = first?.candidates ?? []
+    expect(probes.length).toBeGreaterThan(4)
+    expect(probes).toHaveLength(planned)
+    // Review of #78: the probes have labels of their own («−1 Torchic»), not the first search round's «v0.<n>».
+    const labels = (
+      await test.prisma.deckSnapshot.findMany({ where: { id: { in: probes } }, select: { label: true } })
+    ).map((row) => row.label)
+    for (const label of labels) expect(label).toMatch(/ · −1 \S/)
+    expect(new Set(labels).size).toBe(labels.length)
+    // Half the games of a search round (10 of 20) for every probe and the deck.
+    const chunks = await test.prisma.simulationChunk.findMany({ where: { jobId: id } })
+    expect(chunks.every((chunk) => chunk.games === 10)).toBe(true)
+    expect(chunks).toHaveLength((probes.length + 1) * 3)
+    // The deck without one copy of the first probed card wins 70 %: that card is the most expendable.
+    const [expendable] = probes
+    expect(
+      await playAll(
+        (a, _b, games) => (a === expendable ? Math.round(games * 0.7) : Math.floor(games / 2)),
+        chunks.length,
+      ),
+    ).toBe(chunks.length)
+    const after = await read()
+    expect(after.rounds[0]).toMatchObject({ decided: true, accepted: null })
+    // The search round that follows is the first one (the probe is no search round): with maxRounds 1, it is queued.
+    expect(after.rounds[1]).toMatchObject({ decided: false })
+    expect(after.rounds[1]?.probe).toBeUndefined()
+    const searchLabels = (
+      await test.prisma.deckSnapshot.findMany({
+        where: { id: { in: after.rounds[1]?.candidates ?? [] } },
+        select: { label: true },
+      })
+    ).map((row) => row.label)
+    expect(searchLabels.length).toBeGreaterThan(0)
+    for (const label of searchLabels) expect(label).toMatch(/ · v0\.\d+$/)
+    const lab = (await get(`/api/lab/jobs/${id}`)).body
+    expect(lab.explore.rounds[0]).toMatchObject({ probe: true })
+    expect(lab.explore.roundsDone).toBe(0)
+    const [top] = lab.explore.probe as { cardId: string; value: number }[]
+    expect(top?.value).toBeCloseTo(20, 6)
+    expect(after.weakest).toContain(top?.cardId)
+    expect(lab.explore.weakest.map((card: { cardId: string }) => card.cardId)).toContain(top?.cardId)
+    // What it measured feeds what the search learns: taking that card out helped — all of it to «−card», whole (review
+    // of #78: it was split with the filler, and «+Lupa» piled up a measure per card).
+    expect(after.learned?.[`-${top?.cardId}`]?.sum).toBeCloseTo(20, 6)
+    expect(after.learned?.[`-${top?.cardId}`]?.n).toBe(1)
+    expect(Object.keys(after.learned ?? {}).filter((key) => key.startsWith('+'))).toEqual([])
+    // Review of #78: Claude sees it too — the probe round as such, what each card is worth and what goes out more often.
+    const client = new Client({ name: 'e2e', version: '1.0.0' })
+    await client.connect(
+      new StreamableHTTPClientTransport(mcpUrl, { requestInit: { headers: { Authorization: `Bearer ${mcpToken}` } } }),
+    )
+    clients.push(client)
+    const results = (await client.callTool({ name: 'lab_results', arguments: { job: id } })) as {
+      structuredContent?: Structured
+    }
+    const search = results.structuredContent?.search as {
+      probe: { cards: string[]; outMoreOften: string[] }
+      rounds: { kind: string }[]
+    }
+    expect(search.rounds[0]?.kind).toMatch(/^prueba/)
+    expect(search.rounds[1]?.kind).toBe('búsqueda')
+    const topName = (lab.explore.probe as { nameEs: string }[])[0]?.nameEs as string
+    expect(search.probe.cards[0]).toBe(
+      `${topName}, una copia menos: ${(lab.explore.probe as { text: string }[])[0]?.text}`,
+    )
+    expect(search.probe.cards[0]).toMatch(/una copia menos: \+20,0 puntos/)
+    expect(search.probe.outMoreOften).toContain(topName)
+    await post(`/api/simulations/${id}/cancel`)
   }, 60_000)
 
   it('review of #22: «Frenar» needs a session', async () => {
