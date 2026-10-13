@@ -4,7 +4,7 @@ titulo: >-
   Avance
 area: proyecto
 estado: vigente
-actualizado: '2026-10-12'
+actualizado: '2026-10-13'
 origen:
   - posta init
   - docs/PLAN.md §7
@@ -78,37 +78,43 @@ revisar: false
 
 ## Próximos pasos
 
-**Producción al 12/10/2026:** desplegada sucesivamente durante el día hasta `b0c3627` (#77). Versión 1.0.0, engine-cli 0.3.6 y worker 0.3.5; los workers se actualizan solos desde la app ([D-026](Decisiones/D-026.md)). La Fase 39 ya corre en producción. Las fases 0–8 y 22–35 conservan los vistos buenos ya registrados; integrar y desplegar no agrega aprobaciones nuevas.
+**Producción al 13/10/2026:** desplegada hasta `22824b0` (#95), con #86 (el navegador) desde `f900c2c`. Versión 1.0.0, engine-cli 0.3.6 y worker 0.3.5; los workers se actualizan solos desde la app ([D-026](Decisiones/D-026.md)), salvo el Ryzen, que sigue con 0.2.7. Las fases 0–8 y 22–35 conservan los vistos buenos ya registrados; integrar y desplegar no agrega aprobaciones nuevas.
 
 **Repo:** `santiqwerty1/tcg-pocket` es público desde el 11/10 ([D-022](Decisiones/D-022.md)). El privado viejo es `santiqwerty1/tcg-pocket-historial`, archivado: no se le sube nada. Nada de datos personales en commits, PR, issues ni la bóveda. La CI corre en los runners de GitHub ([D-023](Decisiones/D-023.md)).
 
-Las sesiones avisan al Coordinador antes de abrir cada PR. Lo que sigue, en orden:
+**Flujo desde el 13/10** (`docs/REVISION.md`): autorrevisión antes de cada PR, decisiones pendientes sin número (las numera `pnpm decisiones` al integrar), revisión según el riesgo, sesiones que rotan, y a Santiago se le escribe solo para decidir o hacer algo.
 
-1. **Después del deploy de #77:**
-   - correr `worker-timing --days 7` (`node /app/apps/api/dist/cli/worker-timing.js --days 7`) y pasarle los números al Coordinador. Con ellos se decide «dos lugares por worker», lo último de la fase 42 ([T-014](Tareas/T-014.md));
-   - el informe `Calibracion-2026-10-12.md`, en otro PR, con la tool `simulations_calibration`: la comparación de e2 y f2 contra torneos, escrita antes de cambiar el bot por defecto ([R-012](Riesgos/R-012.md), [P-009](Preguntas/P-009.md)).
-2. **Calibraciones:** #35 (f4) completa su cruce fallado con «Reintentar lo que falló». #27 tiene un cruce que falla siempre hasta que deckgym arregle bcollazo/deckgym-core#398 ([H-052](Hallazgos/H-052.md)).
-3. **El Ryzen, el martes 13/10, con Santi ahí:**
-   - Docker al iniciar, Postgres nativo en el puerto 5433 y `git config core.longpaths true`;
-   - el worker nuevo, que se actualiza solo: el paquete nuevo en otra carpeta y doble clic, o `tcg-worker.exe --setup --keep` si ya tiene config.json ([D-026](Decisiones/D-026.md));
-   - borrar la carpeta y el lanzador de Inicio de sus runners viejos, que ya se dieron de baja ([D-023](Decisiones/D-023.md), `docs/OPERACION.md`).
-4. **El celu («S25»):** Santi pone Termux en «Sin restricciones» en la batería, porque Android o la batería de Samsung le cortaron el motor a mitad de cruces largos ([H-054](Hallazgos/H-054.md)). Ya se actualiza solo y tiene los bots lentos activados ([D-025](Decisiones/D-025.md)).
-5. **Fase 39:** registrar la primera subida buena al bucket (`backup.offsite` en `/api/ops/status`, o el aviso `backup_offsite` si falla). Con ella, proponer dar por resuelto [R-006](Riesgos/R-006.md).
-6. **deckgym upstream:** seguir bcollazo/deckgym-core#396, #397 y #398. Al actualizar deckgym con los arreglos: sacarlos de `REPORTED_ENGINE_BUGS`, revisar la deduplicación de la mesa y rejugar el cruce de #27 ([H-051](Hallazgos/H-051.md), [H-052](Hallazgos/H-052.md)).
-7. **Worker del navegador:** retomar #57 con una sesión de la nube nueva (rama `ccr-7bc862a5-gmkv17`, [T-015](Tareas/T-015.md)). Las sesiones de la nube viejas se archivaron ([D-021](Decisiones/D-021.md)).
-8. **Laboratorio:** C3, A3 y C8 ([T-017](Tareas/T-017.md)).
-9. **Colección desde el tracker:** Santi prueba la sincronización a mano desde Colección y, si el diff se ve bien, el Coordinador prende la automática ([T-020](Tareas/T-020.md), [D-028](Decisiones/D-028.md)).
-10. **Aprobar o no** [D-027](Decisiones/D-027.md) (método del análisis) y [D-028](Decisiones/D-028.md) (tracker). Están integradas, pero siguen como propuestas.
-11. **Privacidad del mail en GitHub** (recomendación para Santi): activar «Keep my email addresses private» y «Block command line pushes that expose my email». Antes de cada push, `git log --format='%h %ae %ce' origin/main..HEAD` muestra solo el noreply ([R-013](Riesgos/R-013.md)).
-12. **Fase 38:** configurar UptimeRobot. La cuenta la crea Santi y los pasos están en `docs/OPERACION.md` ([P-011](Preguntas/P-011.md), [R-011](Riesgos/R-011.md)).
-13. **Menores:**
-    - [H-050](Hallazgos/H-050.md): «optimizar» no prueba dos copias de una misma candidata;
-    - el pendiente bajo de #75: una sincronización del catálogo que muere a la fuerza queda «running» hasta el próximo reinicio de la API.
-    - [T-016](Tareas/T-016.md) sigue para cuando Santi lo pida.
+Lo que sigue, en orden:
 
-Hechos desde la actualización del 11/10: el tag `v1.0.0` ([P-013](Preguntas/P-013.md), cerrada), H-051 y #48 (que pasó a #68), los menores de #44, «repetir los últimos», `--setup --keep` (worker 0.3.2), E3/E4 del laboratorio, el runner de la CI de Posta en WSL (`posta-wsl-1`), Dependabot a 2 y 1 (#59–#61 integrados), y el bucket de Tigris con la primera limpieza.
+1. **Santiago decide:**
+   - las nueve decisiones del hub de chat (D1–D9), en su página ([D-030](Decisiones/D-030.md)). Hasta entonces no se escribe código del hub;
+   - los 43 términos de las traducciones de los premios de las misiones, en su página. Los aplica Laboratorio;
+   - si salió un set nuevo, cargarlo en Torneos → Ajustes (aviso «Era nueva probable»).
+2. **Santiago hace, en la PC y la Ryzen** (paquete `tcg-ryzen-13oct-v2.zip` en su Drive):
+   - en la Ryzen: el worker nuevo (artefacto `tcg-worker-windows` de la CI y doble clic; sigue con 0.2.7), el despachador de Codex-Revisor (`"sala": "posta"`), el runner Windows de la CI de Posta y borrar el lanzador y la carpeta de sus runners viejos de tcg;
+   - en esta PC: el runner Windows de la CI de Posta;
+   - decir si la Ryzen tiene WSL, para un segundo runner Linux de Posta.
+3. **Proponer a Santiago** marcar `privacy` (#92) como check requerido y proteger main: hoy main no tiene protección y un PR en rojo se puede integrar igual.
+4. **Infra:** el diagnóstico de por qué el motor sale con código 0 en el S25, y retomar desde la partida N dentro de un chunk (feature `resume`, [H-054](Hallazgos/H-054.md)). Después, `worker-timing --days 7` para «dos lugares por worker» ([T-014](Tareas/T-014.md)).
+5. **Laboratorio:** [H-050](Hallazgos/H-050.md) y después las traducciones.
+6. **Principal:** los dos tests que faltan de #95, el aviso cuando el catálogo en memoria quedó viejo después de un `catalog-sync` por CLI, y el hub cuando Santiago apruebe el plan.
+7. **Calibraciones:** la grande (e2 y e3, 25 a 30 arquetipos, 1.000 por cruce) la lanza Santiago. Al terminar, sumar e4 (#31), MCTS (#27) y la grande al informe ([D-029](Decisiones/D-029.md), [R-012](Riesgos/R-012.md)). #27 tiene un cruce que falla siempre hasta bcollazo/deckgym-core#398 ([H-052](Hallazgos/H-052.md)).
+8. **deckgym upstream:** seguir bcollazo/deckgym-core#396, #397 y #398. Hay 2 commits nuevos (reimpresiones de Entrenadores) que no arreglan esos bugs; no actualizar el motor mientras corren las calibraciones.
+9. **Privacidad del mail en GitHub** (recomendación para Santiago): activar «Keep my email addresses private» y «Block command line pushes that expose my email» ([R-013](Riesgos/R-013.md)).
+10. **Menores:** [T-016](Tareas/T-016.md) sigue para cuando Santiago lo pida.
 
-Todo entra por PR, con la CI verde y la revisión del Coordinador. Las sesiones se hablan por el chat externo al repo. La actualización compartida del 12/10 la hizo una sesión delegada en su worktree; el Coordinador la revisa e integra.
+Hechos desde la actualización del 12/10:
+- #78 a #95 integrados: entre ellos, el control de privacidad en la CI (#92), el resto del formato de números (#94) y el catálogo que ya no queda «running» (#95, el bajo de #75);
+- la primera subida buena a Tigris ([R-006](Riesgos/R-006.md));
+- UptimeRobot ([R-011](Riesgos/R-011.md));
+- el tracker automático ([T-020](Tareas/T-020.md));
+- D-027 y D-028 aprobadas;
+- las salas del chat y los avisos automáticos de los despachadores;
+- el informe de calibración (#81) y [D-029](Decisiones/D-029.md);
+- C3, A3 y C8 del laboratorio;
+- el worker del navegador (#86).
+
+Todo entra por PR, con la CI verde y la revisión del Coordinador. Las sesiones se hablan por el chat externo al repo, en las salas «tcg» y «posta».
 
 ## Pendiente de decidir (para después)
 
@@ -126,4 +132,9 @@ El 12/10/2026:
 - **Respuestas de Santiago**, por el Coordinador: sí a los issues upstream de deckgym (bcollazo/deckgym-core#397 y #398), a Tigris (aceptó los términos), a la primera limpieza y a dejarla automática ([P-010](Preguntas/P-010.md), cerrada).
 - **Decididas por el Coordinador**, dentro de la fase 42 ya aprobada: el diseño de `gamesRev` (DECISIONES 45.46 y 45.54), la regla de las copias (45.50), «Reintentar lo que falló» (45.49), la tool `simulations_calibration` (45.52) y mover el tag `v1.0.0` al commit de #62 (41.19; [P-013](Preguntas/P-013.md), cerrada).
 - **Decidida por Santiago:** los commits ya publicados con el mail personal como autor quedan como están; se corrige solo hacia adelante, con el noreply en la configuración local ([R-013](Riesgos/R-013.md)).
-- **Siguen esperando aprobación:** [D-027](Decisiones/D-027.md) y [D-028](Decisiones/D-028.md).
+- **Esperaban aprobación:** [D-027](Decisiones/D-027.md) y [D-028](Decisiones/D-028.md), aprobadas el 13/10.
+
+El 13/10/2026:
+- **Aprobadas por Santiago:** [D-027](Decisiones/D-027.md) y [D-028](Decisiones/D-028.md).
+- **Decididas por Santiago:** [D-029](Decisiones/D-029.md) (e2 sigue de bot por defecto), [D-030](Decisiones/D-030.md) (hub de chat propio; D1–D9 pendientes), dejar el S25 con los bots lentos hasta el arreglo de H-054, y UptimeRobot.
+- **Esperan a Santiago:** D1–D9 del hub y los 43 términos de las traducciones.
