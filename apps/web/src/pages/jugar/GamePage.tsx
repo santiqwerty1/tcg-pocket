@@ -20,7 +20,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { ErrorState, LoadingRows, Spinner } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
-import { useBrowserEngine } from '@/engine/browserEngine'
+import { browserCanRunEngine, useBrowserEngine } from '@/engine/browserEngine'
 import type { RunnerStatus } from '@/engine/runner'
 import { type BoardAction, boardChanges, pickLeavesOptions, type Seat } from '@/lib/board'
 import { type Replay, ReplayReader, type ReplayState } from '@/lib/replay'
@@ -83,17 +83,22 @@ function masked(state: ReplayState, setup: boolean): ReplayState {
 
 type Line = { text: string; tone: 'muted' | 'turn' | 'end' | 'error'; busy?: boolean }
 
+/** T-015: a game started in the browser ends there (R-003): if this device cannot run it, the PC plays a new one. */
+const ENGINE_FAILED_HINT = 'Si sigue sin andar, empezá otra partida «En la PC».'
+
 /** T-015: a game this page plays with the engine of the browser, while the bot or the coach thinks. */
 function browserLine(runner: RunnerStatus | null, available: boolean | undefined): Line {
   if (available === false) {
     return {
-      text: 'La partida se juega en el navegador, pero esta instalación no tiene el motor (pnpm engine:wasm).',
+      text: browserCanRunEngine()
+        ? 'Esta partida se juega en el navegador, pero esta instalación no tiene el motor: empezá otra «En la PC».'
+        : 'Este navegador no puede correr el motor (le falta WebAssembly): empezá otra partida «En la PC».',
       tone: 'error',
     }
   }
   switch (runner?.kind) {
     case 'error':
-      return { text: runner.message, tone: 'error' }
+      return { text: `${runner.message} ${ENGINE_FAILED_HINT}`, tone: 'error' }
     case 'offline':
       return { text: `Sin conexión con el servidor: reintentando… (${runner.message})`, tone: 'muted', busy: true }
     case 'coach':
@@ -109,7 +114,9 @@ function browserLine(runner: RunnerStatus | null, available: boolean | undefined
 function statusLine(game: LiveGame, runner: RunnerStatus | null, engineAvailable: boolean | undefined): Line {
   const browser = game.runner === 'browser'
   if (browser && (game.status === 'queued' || game.status === 'running')) return browserLine(runner, engineAvailable)
-  if (browser && game.status === 'waiting' && runner?.kind === 'error') return { text: runner.message, tone: 'error' }
+  if (browser && game.status === 'waiting' && runner?.kind === 'error') {
+    return { text: `${runner.message} ${ENGINE_FAILED_HINT}`, tone: 'error' }
+  }
   switch (game.status) {
     case 'queued':
       return game.workerOnline

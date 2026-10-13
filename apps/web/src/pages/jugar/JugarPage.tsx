@@ -22,7 +22,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useBrowserEngine } from '@/engine/browserEngine'
+import { browserCanRunEngine, useBrowserEngine } from '@/engine/browserEngine'
 import { formatDateTime } from '@/lib/format'
 import { RecentListPicker } from './RecentListPicker'
 
@@ -187,6 +187,11 @@ export function JugarPage() {
             apaga, sigue donde quedó cuando se prenda.
           </p>
         )}
+        {!browserCanRunEngine() ? (
+          <p className="text-xs text-muted-foreground">
+            Este navegador no puede jugar el bot sin la PC (le falta WebAssembly): las partidas se juegan en la PC.
+          </p>
+        ) : null}
         {runner === 'worker' && !online ? (
           <p className="text-xs text-warning">
             Ningún worker en línea: podés empezarla igual, arranca cuando prendas la PC

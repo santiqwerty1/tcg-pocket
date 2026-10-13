@@ -9,6 +9,11 @@ describe('static cache policy', () => {
     expect(cacheControlFor('/manifest.webmanifest')).toBe('no-store')
     expect(cacheControlFor('/workbox-abc.js')).toBe('no-store')
     expect(cacheControlFor('/favicon.svg')).toBe('no-cache')
+    // T-015: the browser's engine is named by its hash; its manifest says which one is current.
+    expect(cacheControlFor('/engine/engine-dc6120791221_bg.wasm')).toBe('public, max-age=31536000, immutable')
+    expect(cacheControlFor('/engine/engine-dc6120791221.js')).toBe('public, max-age=31536000, immutable')
+    expect(cacheControlFor('/engine/manifest.json')).toBe('no-cache')
+    expect(cacheControlFor('/engine/engine-src-0.1.0.tar.gz')).toBe('no-cache')
   })
 })
 
