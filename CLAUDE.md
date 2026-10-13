@@ -154,7 +154,7 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 - **Los CLI de producción son seguros desde #75 (45.51):** modo CLI (`env.cli`), sin `ScheduleModule` ni los hooks de arranque que cambian estado; se pueden correr con la API viva.
 - **deckgym upstream (H-051, H-052):** bcollazo/deckgym-core#396 («et»), #397 (`DiscardFossil` duplicado) y #398 (pánico sin Activo, que hace fallar siempre un cruce de la calibración #27). Los dos últimos, con el OK de Santi del 12/10. Purugly y Miraculous Memory no son bugs.
 - **Producción al 12/10/2026:** desplegada hasta `b0c3627` (#77); engine-cli 0.3.6 y worker 0.3.5, que llegan solos a los workers.
-- **Integrados el 13/10/2026:** #78–#91 y #93.
+- **Integrados el 13/10/2026:** #78–#95.
   - Laboratorio: C3 (#78), A3 (#82) y C8 (#84); T-017 queda con H-050 y el visto bueno de Santi.
   - Calibración: hasta 30 arquetipos (#83), caché del informe (#85) e informe e2/f2 (#81). D-029: e2 sigue por defecto.
   - Jugar contra el bot en el navegador, con el motor en WebAssembly (#86, T-015): una sola partida en vivo para worker y navegador, CSP acotada al worker del motor (`/assets/engine.worker-*.js`), `/engine/` con sesión y migración `20261013200000_live_game_runner`.
@@ -167,12 +167,12 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
   - el despachador de Codex-Posta lee «posta» y, como el de Codex-Revisor, avisa solo (`Re: [tomado|terminó|falló]`, tope de 90 min);
   - la ventana `chat-app.ps1 -Sala <sala>` muestra la sala en el título, con accesos «Chat TCG» y «Chat Posta» en el escritorio.
   - D-030: el chat sale de tcg-pocket a un hub propio (incremento 5 de Posta adelantado); D1–D9 del plan esperan a Santi.
-- **Producción al 13/10/2026:** hasta `c893bf4` (#93). UptimeRobot vigila `/healthz` (R-011), la copia en Tigris anda desde el 13/10 (R-006) y la sincronización automática del tracker está prendida (D-028, aprobada).
+- **Producción al 13/10/2026:** hasta `22824b0` (#95). UptimeRobot vigila `/healthz` (R-011), la copia en Tigris anda desde el 13/10 (R-006) y la sincronización automática del tracker está prendida (D-028, aprobada).
 - **Pendientes** (detalle en Avance):
   - Santi: D1–D9 del hub de chat (D-030), las traducciones de los premios de las misiones, y esta noche el Ryzen (worker nuevo, Codex-Revisor, runner Windows de Posta, limpiar sus runners viejos) y el runner Windows de Posta en esta PC;
-  - integrar #92 (control de privacidad en la CI) y #94 (formato de números, parte 2);
+  - proponer a Santi proteger main con `privacy` (#92) como check requerido;
   - el arreglo del S25: diagnóstico del código 0 y retomar desde la partida N (H-054), y después «dos lugares por worker»;
-  - H-050 y las traducciones (Laboratorio); el catálogo que queda «running» (Principal);
+  - H-050 y las traducciones (Laboratorio); los tests de #95 y el aviso del catálogo viejo en memoria (Principal);
   - la calibración grande para D-029 y el seguimiento de deckgym upstream.
 - **Visto bueno de Santi para todo el 8/10/2026**: fases 0–8 del plan, laboratorio y ajustes aprobados; no queda nada esperando su revisión. Siguiente paso: lo que pida Santi (abiertos: remapeo I12 al cambiar el catálogo, R-001; CI antes de cada deploy, R-007).
 
@@ -228,7 +228,7 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 ## Producción
 
 - `flyctl` está en `%USERPROFILE%\.fly\bin`. `flyctl ssh console` falla desde esta PC (túnel WireGuard reseteado); usar `flyctl machine exec <id> --app tcg-pocket "<comando>"` (API de máquinas) para tareas puntuales: `node /app/apps/api/dist/cli/catalog-sync.js`, `node /app/apps/api/dist/cli/owner-init.js`, `retention.js` y `worker-timing.js --days 7`. Los CLI son seguros con la API viva desde #75: modo CLI, sin crons ni hooks de arranque (DECISIONES 45.51, `docs/OPERACION.md`).
-- Tras un `catalog-sync` por CLI hay que reiniciar la máquina (`flyctl machine restart <id>`) o usar `POST /api/catalog/sync`, porque el catálogo vive en memoria del proceso. Si un `catalog-sync` muere a la fuerza, la sincronización queda «running» hasta el próximo reinicio de la API.
+- Tras un `catalog-sync` por CLI hay que reiniciar la máquina (`flyctl machine restart <id>`) o usar `POST /api/catalog/sync`, porque el catálogo vive en memoria del proceso. Si un `catalog-sync` muere a la fuerza, desde #95 la API la cierra sola a los 5 minutos sin latido (aviso `catalog_sync`), y una sola sincronización corre a la vez entre la API y un CLI.
 - Deploy: `pnpm deploy:fly` (Fase 21: exige árbol limpio, el commit en `origin/main` del repo público, la CI verde en los runners de GitHub y `posta check`; después corre `flyctl deploy --app tcg-pocket --remote-only --ha=false`). `pnpm deploy:check` solo revisa. Secretos: `flyctl secrets set` (`DATABASE_URL` en `.env.fly`, nunca en el repo).
 - Fly crea 2 máquinas por defecto; siempre `--ha=false` (un usuario).
 - Notificaciones (Fase 18): las claves VAPID se generan una vez y van como secretos, sin pasar por el chat ni la terminal visible: `node -e` con `require('web-push').generateVAPIDKeys()` escribiendo directo a `flyctl secrets set VAPID_PUBLIC_KEY=… VAPID_PRIVATE_KEY=… --app tcg-pocket` (cambiarlas invalida las suscripciones: cada dispositivo vuelve a activar).

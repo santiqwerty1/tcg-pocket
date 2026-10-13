@@ -5,10 +5,11 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-13 desde la etiqueta `v1.0.0` (82 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-13 desde la etiqueta `v1.0.0` (91 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- a privacy job on every PR — noreply commits, and no mails, Windows users, tokens, Supabase refs, Postgres passwords, other services' tokens, JWT or private keys in the diff or the commit messages, with exceptions that name their rule and say why (D-022) `6e9fd2d`
 - pnpm decisiones numbers the pending decisions into DECISIONES.md, with --check and node:test tests in the CI (D-021) `4608506`
 - rooms in the session chat — «tcg» by default, «posta» new (D-021) `3ff3609`
 - the browser's engine is kept after its first load, and a device that cannot run it is told to play on the PC (T-015) (R-003) `db14130`
@@ -30,7 +31,13 @@ _Borrador generado al 2026-10-13 desde la etiqueta `v1.0.0` (82 commits). Escrib
 
 ### Corregido
 
+- self-review of the catalog heartbeat — one sync across processes, a named cron, the migration after #86's (T-014) `1e77e1d`
+- a catalog sync without signs of life for 5 minutes closes as interrupted, without a restart (T-014) (#75) `751e011`
+- verification of #92 — one git call per commit, so a NUL inside a file hides nothing after it; the words of an example value only whole; entropy threshold 3 so random hex keys are caught; sessionSecret; a force-push to main says so and checks what its last commit brought (D-022) `6d7ec7c`
+- review of #92 — every commit of the PR checked on its own (and what a merge inside it resolves), the names of the files it adds and the PR's title and body too, the job also on each push to main, and more forms: a path without its drive or escaped twice, a mail with %40, ASIA and Anthropic keys, the session cookie, an environment secret with a real value, a Supabase ref given alone (D-022) `af8cee9`
 - self-review of room_since — one statement for Santi's path, a reorder keeps it, a hand edit does not break reads (D-021) `b77bfac`
+- the rest of the «N %» keep their no-break space, «IC 95 %» stays whole, counts of 1.000 or more carry their separator everywhere, an interval never breaks after its dash, and one count formatter (phone review follow-up of #90, DECISIONES 56.9) `c23b9ec`
+- second self-review of the privacy check — the log covers what a motive quotes, placeholder passwords pass, the pooler user only in lowercase, the old dashboard, a name between a placeholder's signs is a name, two markers on one line, an allowlist that is not a list stops it, GitHub tokens glued to a word and AWS key ids; tests for the three-dot diff and for git failing (D-022) `d186a44`
 - joining a room later reads it from then on (review of #88) (D-021) `f876927`
 - the live_games runner migration after chat_rooms, which production already has (T-015) (#88) `65e7b7f`
 - the self-review of #86 — undoing never stops a game, no undo that would lose a result, writes conditioned on what was read (T-015) `8cec6b2`
@@ -81,6 +88,7 @@ _Borrador generado al 2026-10-13 desde la etiqueta `v1.0.0` (82 commits). Escrib
 
 ### Documentado
 
+- day of 13/10 — D-027 and D-028 approved, D-030 chat hub, logbook, Avance (D-021) `41d41e1`
 - decision 46.23 — the bridge's refs carry the PC (review of #88) (D-021) `f0293c7`
 - self-review checklist, decisions without conflicts, review by risk and rotating sessions (D-021) `2c9c273`
 - the browser's engine on main (DECISIONES 53.9–53.13, T-015, R-003, P-008, API), and «dos lugares por worker» closed with worker-timing (45.58, H-019) `6679634`
@@ -98,6 +106,7 @@ _Borrador generado al 2026-10-13 desde la etiqueta `v1.0.0` (82 commits). Escrib
 
 ### Pruebas
 
+- the e2e expectations of the domain's texts with their no-break spaces — a drill's explanation and the analysis' «IC 95 %» (review of #94) `48cd6d1`
 - the browser's own golden games, the move played is the one shown, and the build in the manifest (review of #86, T-015) `1cbc737`
 - the CLI context test covers every guard — no SchedulerRegistry, no watcher timers, no set seeding (review of #75) `71d2af9`
 

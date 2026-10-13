@@ -78,7 +78,7 @@ revisar: false
 
 ## Próximos pasos
 
-**Producción al 13/10/2026:** desplegada hasta `c893bf4` (#93), con #86 (el navegador) desde `f900c2c`. Versión 1.0.0, engine-cli 0.3.6 y worker 0.3.5; los workers se actualizan solos desde la app ([D-026](Decisiones/D-026.md)), salvo el Ryzen, que sigue con 0.2.7. Las fases 0–8 y 22–35 conservan los vistos buenos ya registrados; integrar y desplegar no agrega aprobaciones nuevas.
+**Producción al 13/10/2026:** desplegada hasta `22824b0` (#95), con #86 (el navegador) desde `f900c2c`. Versión 1.0.0, engine-cli 0.3.6 y worker 0.3.5; los workers se actualizan solos desde la app ([D-026](Decisiones/D-026.md)), salvo el Ryzen, que sigue con 0.2.7. Las fases 0–8 y 22–35 conservan los vistos buenos ya registrados; integrar y desplegar no agrega aprobaciones nuevas.
 
 **Repo:** `santiqwerty1/tcg-pocket` es público desde el 11/10 ([D-022](Decisiones/D-022.md)). El privado viejo es `santiqwerty1/tcg-pocket-historial`, archivado: no se le sube nada. Nada de datos personales en commits, PR, issues ni la bóveda. La CI corre en los runners de GitHub ([D-023](Decisiones/D-023.md)).
 
@@ -94,17 +94,17 @@ Lo que sigue, en orden:
    - en la Ryzen: el worker nuevo (artefacto `tcg-worker-windows` de la CI y doble clic; sigue con 0.2.7), el despachador de Codex-Revisor (`"sala": "posta"`), el runner Windows de la CI de Posta y borrar el lanzador y la carpeta de sus runners viejos de tcg;
    - en esta PC: el runner Windows de la CI de Posta;
    - decir si la Ryzen tiene WSL, para un segundo runner Linux de Posta.
-3. **Integrar #92 y #94** con la CI verde. Después, proponer a Santiago marcar `privacy` como check requerido en main.
+3. **Proponer a Santiago** marcar `privacy` (#92) como check requerido y proteger main: hoy main no tiene protección y un PR en rojo se puede integrar igual.
 4. **Infra:** el diagnóstico de por qué el motor sale con código 0 en el S25, y retomar desde la partida N dentro de un chunk (feature `resume`, [H-054](Hallazgos/H-054.md)). Después, `worker-timing --days 7` para «dos lugares por worker» ([T-014](Tareas/T-014.md)).
 5. **Laboratorio:** [H-050](Hallazgos/H-050.md) y después las traducciones.
-6. **Principal:** el catálogo que queda «running» después de una sincronización cortada (el bajo de #75), y el hub cuando Santiago apruebe el plan.
+6. **Principal:** los dos tests que faltan de #95, el aviso cuando el catálogo en memoria quedó viejo después de un `catalog-sync` por CLI, y el hub cuando Santiago apruebe el plan.
 7. **Calibraciones:** la grande (e2 y e3, 25 a 30 arquetipos, 1.000 por cruce) la lanza Santiago. Al terminar, sumar e4 (#31), MCTS (#27) y la grande al informe ([D-029](Decisiones/D-029.md), [R-012](Riesgos/R-012.md)). #27 tiene un cruce que falla siempre hasta bcollazo/deckgym-core#398 ([H-052](Hallazgos/H-052.md)).
 8. **deckgym upstream:** seguir bcollazo/deckgym-core#396, #397 y #398. Hay 2 commits nuevos (reimpresiones de Entrenadores) que no arreglan esos bugs; no actualizar el motor mientras corren las calibraciones.
 9. **Privacidad del mail en GitHub** (recomendación para Santiago): activar «Keep my email addresses private» y «Block command line pushes that expose my email» ([R-013](Riesgos/R-013.md)).
 10. **Menores:** [T-016](Tareas/T-016.md) sigue para cuando Santiago lo pida.
 
 Hechos desde la actualización del 12/10:
-- #78 a #91 y #93 integrados;
+- #78 a #95 integrados: entre ellos, el control de privacidad en la CI (#92), el resto del formato de números (#94) y el catálogo que ya no queda «running» (#95, el bajo de #75);
 - la primera subida buena a Tigris ([R-006](Riesgos/R-006.md));
 - UptimeRobot ([R-011](Riesgos/R-011.md));
 - el tracker automático ([T-020](Tareas/T-020.md));
