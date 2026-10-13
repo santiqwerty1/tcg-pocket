@@ -478,6 +478,50 @@ describe('chat between sessions (e2e)', () => {
     ).toMatchObject({ sala: 'tcg' })
   })
 
+  it('joining a room later reads it from then on, also coming back to it (review of #88)', async () => {
+    const session = () => test.http().put('/api/chat/participants').set('Cookie', cookie)
+    expect((await session().send({ name: 'Escritor', channel: 'connector', rooms: ['posta'] })).status).toBe(200)
+    expect((await session().send({ name: 'Tarde', channel: 'connector', rooms: ['tcg'] })).status).toBe(200)
+    const writer = await connect()
+    const late = await connect()
+    const say = (topic: string) => call(writer, 'chat_write', { from: 'Escritor', to: 'todos', topic, text: 'x' })
+    const postaTopics = async (as: string) =>
+      ((await call(late, 'chat_read', { as, sala: 'posta', limit: 100 })).messages as Message[]).map((m) => m.topic)
+    // «posta» has history before Tarde joins it: it is not new for Tarde.
+    await say('Antes 1')
+    await say('Antes 2')
+    await session().send({ name: 'Tarde', channel: 'connector', rooms: ['tcg', 'posta'] })
+    expect(await postaTopics('Tarde')).toEqual([])
+    expect(await call(late, 'chat_read', { as: 'Tarde' })).not.toHaveProperty('otrasSalas')
+    // What comes after, it reads.
+    await say('Después')
+    expect(await postaTopics('Tarde')).toEqual(['Después'])
+    // It leaves and comes back: what was written meanwhile is not dropped on it at once either.
+    await session().send({ name: 'Tarde', channel: 'connector', rooms: ['tcg'] })
+    await say('Mientras no estaba')
+    await session().send({ name: 'Tarde', channel: 'connector', rooms: ['tcg', 'posta'] })
+    expect(await postaTopics('Tarde')).toEqual([])
+    await say('De vuelta')
+    expect(await postaTopics('Tarde')).toEqual(['De vuelta'])
+    // The history is still there for whoever asks for it.
+    const history = await call(late, 'chat_read', { as: 'Tarde', sala: 'posta', all: true, limit: 100 })
+    expect((history.messages as Message[]).map((m) => m.topic)).toEqual(
+      expect.arrayContaining(['Antes 1', 'Antes 2', 'Mientras no estaba']),
+    )
+    // Joined by the bridge (`?sala=`): the same.
+    await say('Antes del puente')
+    const join = await relay('/participants?sala=posta', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Nube-Lab', channel: 'connector' }),
+    })
+    expect(join.status).toBe(201)
+    expect(await postaTopics('Nube-Lab')).toEqual([])
+    // An open session that does not say «sala» reads its main room, as before.
+    await call(writer, 'chat_write', { from: 'Escritor', to: 'Nube-Lab', topic: 'Por posta', text: 'x' })
+    const plain = await call(late, 'chat_read', { as: 'Nube-Lab' })
+    expect(plain).toMatchObject({ sala: 'tcg', otrasSalas: { posta: 1 } })
+  })
+
   it('Santi edits the list; the bridge only adds new PC or cloud sessions', async () => {
     const nube = await connect()
     const addByBridge = (body: Record<string, unknown>) =>

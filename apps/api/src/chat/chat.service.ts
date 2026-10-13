@@ -115,6 +115,15 @@ function inRoom(row: Pick<SessionChatParticipant, 'channel' | 'rooms'>, room: Ch
   return roomsOf(row).includes(room)
 }
 
+/**
+ * Where a participant starts reading a room: after the last message when it joined that room later (`room_since`),
+ * or when it was added to the list (`since_id`). What came before counts as read.
+ */
+function sinceIn(row: Pick<SessionChatParticipant, 'sinceId' | 'roomSince'>, room: ChatRoom): number {
+  const joined = (row.roomSince as Record<string, unknown> | null)?.[room]
+  return typeof joined === 'number' ? Math.max(row.sinceId, joined) : row.sinceId
+}
+
 /** Where a call without a room goes: the participant's main room. */
 function mainRoom(row: Pick<SessionChatParticipant, 'channel' | 'rooms'>): ChatRoom {
   return roomsOf(row)[0] ?? CHAT_DEFAULT_ROOM
@@ -281,11 +290,12 @@ export class ChatService {
     const inScope: Prisma.SessionChatMessageWhereInput = {
       AND: [{ room }, mine ? { OR: [forKey(key), { fromKey: key }] } : {}],
     }
-    // A participant added later starts after the message that was the last one then.
+    // A participant added later, or one that joined the room later, starts after the message that was the last one
+    // then (review of #88: joining a room did not bring its whole history as new).
     const unseenIn = (where: ChatRoom): Prisma.SessionChatMessageWhereInput => ({
       AND: [
         { room: where },
-        { id: { gt: reader.sinceId } },
+        { id: { gt: sinceIn(reader, where) } },
         { NOT: { fromKey: key } },
         mine ? forKey(key) : {},
         { seen: { none: { participant: key } } },
@@ -410,9 +420,12 @@ export class ChatService {
       if (inserted.count > 0 || inRoom(row, room)) {
         return { participant: participantView(row), created: inserted.count > 0 }
       }
-      // Already in the list with that channel, not in this room: it joins it, last (its main room stays).
+      // Already in the list with that channel, not in this room: it joins it, last (its main room stays), and reads it
+      // from now on.
       const joined = await this.prisma.$executeRaw`
-        UPDATE "session_chat_participants" SET "rooms" = array_append("rooms", ${room})
+        UPDATE "session_chat_participants"
+        SET "rooms" = array_append("rooms", ${room}),
+          "room_since" = "room_since" || jsonb_build_object(${room}::text, ${sinceId}::int)
         WHERE "key" = ${key} AND "channel" = ${input.channel}::"session_chat_channel" AND NOT (${room} = ANY("rooms"))`
       const now = await this.prisma.sessionChatParticipant.findUniqueOrThrow({ where: { key } })
       return { participant: participantView(now), created: joined > 0 }
@@ -424,6 +437,14 @@ export class ChatService {
       create: { key, name, channel: input.channel, sinceId, rooms: rooms ?? [CHAT_DEFAULT_ROOM] },
       update: { name, channel: input.channel, ...(rooms ? { rooms } : {}) },
     })
+    // The rooms it joins now (also one it left and comes back to) it reads from now on, not from its beginning.
+    const joined = current && rooms ? rooms.filter((item) => !roomsOf(current).includes(item)) : []
+    for (const item of joined) {
+      await this.prisma.$executeRaw`
+        UPDATE "session_chat_participants"
+        SET "room_since" = "room_since" || jsonb_build_object(${item}::text, ${sinceId}::int)
+        WHERE "key" = ${key}`
+    }
     return { participant: participantView(row), created: !current }
   }
 
@@ -471,6 +492,7 @@ export class ChatService {
             channel: 'owner',
             sinceId: 0,
             rooms: [...CHAT_ROOMS],
+            roomSince: {},
             createdAt: new Date(0),
           },
       ...others,
