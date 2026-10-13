@@ -149,7 +149,7 @@ export function useUndo(id: string) {
 export function useRematch(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: { sameSeed?: boolean; engineRev?: string; gamesRev?: number }) =>
+    mutationFn: (body: { sameSeed?: boolean; engineRev?: string; gamesRev?: number; build?: string }) =>
       request(`/api/play/${encodeURIComponent(id)}/rematch`, { method: 'POST', body, schema: liveGameSchema }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: playKeys.list }),
   })
@@ -181,22 +181,19 @@ const okSchema = z.object({ status: z.string() }).passthrough()
 
 /** T-015: the page's side of a browser game (engine/runner.ts), like a worker's side of a PC game. */
 export const browserPlayApi: RunnerApi = {
+  // A POST: it can end the game (another engine), and a GET never changes anything (review of #86).
   job: (id, engine, signal) =>
-    request(`/api/play/${id}/browser`, {
-      query: { engineRev: engine.engineRev, gamesRev: String(engine.gamesRev) },
-      schema: browserJobSchema,
-      signal,
-    }),
+    request(`/api/play/${id}/browser`, { method: 'POST', body: engine, schema: browserJobSchema, signal }),
   decision: (id, body, signal) =>
     request(`/api/play/${id}/browser/decision`, { method: 'PUT', body, schema: browserStepSchema, signal }),
   choice: (id, body, signal) =>
     request(`/api/play/${id}/browser/choice`, { method: 'POST', body, schema: browserStepSchema, signal }),
   end: (id, body, signal) => request(`/api/play/${id}/browser/end`, { method: 'PUT', body, schema: okSchema, signal }),
   failure: (id, body, signal) => request(`/api/play/${id}/browser/failure`, { method: 'PUT', body, signal }),
-  replay: (id, choices, gzipped, signal) =>
+  replay: (id, choices, build, gzipped, signal) =>
     request(`/api/play/${id}/browser/replay`, {
       method: 'PUT',
-      query: { choices: choices.join('.') },
+      query: { choices: choices.join('.'), build },
       body: gzipped,
       headers: { 'Content-Type': 'application/gzip' },
       signal,

@@ -24,6 +24,8 @@ test.beforeAll(() => {
       engineRev: FAKE_ENGINE_REV,
       gamesRev: 1,
       version: 'fake',
+      // What was compiled: the game keeps it, and every call of the page carries it (review of #86).
+      build: 'fa4e00000001',
       js: 'fake-wasm-engine.js',
       wasm: 'fake_bg.wasm',
     }),

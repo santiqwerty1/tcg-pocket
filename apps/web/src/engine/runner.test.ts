@@ -2,9 +2,17 @@ import { describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/api/client'
 import { EngineError, type GameEngine } from './browserEngine'
 import type { EngineJob, EngineStep } from './protocol'
-import { type BrowserJob, type BrowserStep, type RunnerApi, type RunnerStatus, runBrowserGame } from './runner'
+import {
+  type BrowserJob,
+  type BrowserStep,
+  MAX_PASSES,
+  type RunnerApi,
+  type RunnerStatus,
+  runBrowserGame,
+} from './runner'
 
 const REV = 'a'.repeat(40)
+const BUILD = 'abc123def456'
 
 /** A stand-in engine: `decisions` decisions of two options each, then the end; the coach scores by ply. */
 class FakeEngine implements GameEngine {
@@ -20,7 +28,7 @@ class FakeEngine implements GameEngine {
     this.rev = rev
   }
   async info() {
-    return { engineRev: this.rev, gamesRev: 1, version: '0.1.0' }
+    return { engineRev: this.rev, gamesRev: 1, version: '0.1.0', build: BUILD }
   }
   async start(job: EngineJob) {
     this.started = job
@@ -80,8 +88,11 @@ function fakeServer(initial: Partial<BrowserJob> = {}) {
   const owner: number[] = []
   const prefix = (choices: number[]) => choices.every((choice, i) => game.choices[i] === choice)
   const api = {
-    job: vi.fn<RunnerApi['job']>(
-      async (id): Promise<BrowserJob> => ({
+    job: vi.fn<RunnerApi['job']>(async (id, engine): Promise<BrowserJob> => {
+      // The server's check (review of #86): a page with another engine is told to reload.
+      if (engine.engineRev !== REV)
+        throw new ApiError(409, 'engine_mismatch', 'Este dispositivo tiene otro motor: recargá la app.')
+      return {
         id,
         deckHuman: 'Energy: Grass',
         deckBot: 'Energy: Fire',
@@ -92,8 +103,8 @@ function fakeServer(initial: Partial<BrowserJob> = {}) {
         status: game.status,
         engineRev: REV,
         replayMissing: game.status === 'done' && game.replay === null,
-      }),
-    ),
+      }
+    }),
     decision: vi.fn<RunnerApi['decision']>(async (_id, body): Promise<BrowserStep> => {
       if (game.status !== 'running' && game.status !== 'waiting') return { choice: null, status: game.status }
       if (!prefix(body.choices)) return { choice: null, status: 'restart' }
@@ -122,7 +133,7 @@ function fakeServer(initial: Partial<BrowserJob> = {}) {
       game.status = 'failed'
       return { ok: true }
     }),
-    replay: vi.fn<RunnerApi['replay']>(async (_id, _choices, gzipped) => {
+    replay: vi.fn<RunnerApi['replay']>(async (_id, _choices, _build, gzipped) => {
       game.replay = gzipped
       return { ok: true }
     }),
@@ -134,8 +145,6 @@ function run(api: RunnerApi, engine: GameEngine, extra: Partial<Parameters<typeo
   const statuses: RunnerStatus['kind'][] = []
   const result = runBrowserGame({
     id: 5,
-    engineRev: REV,
-    gamesRev: 1,
     api,
     createEngine: () => engine,
     signal: new AbortController().signal,
@@ -164,7 +173,7 @@ describe('the browser runner (T-015)', () => {
     expect(api.decision.mock.calls[2]?.[1].log).toHaveLength(3)
     expect(api.end.mock.calls[0]?.[1]).toMatchObject({ choices: [1, 0, 1], winner: 'you', turns: 7 })
     expect(api.end.mock.calls[0]?.[1].log).toHaveLength(4)
-    expect(api.replay).toHaveBeenCalledWith(5, [1, 0, 1], expect.any(Blob), expect.any(AbortSignal))
+    expect(api.replay).toHaveBeenCalledWith(5, [1, 0, 1], BUILD, expect.any(Blob), expect.any(AbortSignal))
     expect(game.status).toBe('done')
     expect(statuses).toEqual(expect.arrayContaining(['loading', 'thinking', 'waiting']))
     expect(engine.disposed).toBe(true)
@@ -243,7 +252,7 @@ describe('the browser runner (T-015)', () => {
     expect(await run(api, new FakeEngine()).result).toEqual({ kind: 'over', status: 'failed' })
     expect(api.failure).toHaveBeenCalledWith(
       5,
-      { choices: [1, 5], error: 'El motor rechazó la jugada 2: elegí un número de 0 a 1' },
+      { choices: [1, 5], error: 'El motor rechazó la jugada 2: elegí un número de 0 a 1', build: BUILD },
       expect.any(AbortSignal),
     )
   })
@@ -263,13 +272,13 @@ describe('the browser runner (T-015)', () => {
   })
 
   it('does nothing for a game already over, and stops when the page closes', async () => {
+    // The engine is loaded first (the server is told the one loaded), but no game starts and nothing is sent.
     const over = fakeServer({ status: 'abandoned' })
-    const create = vi.fn(() => new FakeEngine())
-    expect(await run(over.api, new FakeEngine(), { createEngine: create }).result).toEqual({
-      kind: 'over',
-      status: 'abandoned',
-    })
-    expect(create).not.toHaveBeenCalled()
+    const loaded = new FakeEngine()
+    expect(await run(over.api, loaded).result).toEqual({ kind: 'over', status: 'abandoned' })
+    expect(loaded.started).toBeNull()
+    expect(over.api.decision).not.toHaveBeenCalled()
+    expect(over.api.end).not.toHaveBeenCalled()
 
     const { api } = fakeServer()
     const controller = new AbortController()
@@ -280,5 +289,27 @@ describe('the browser runner (T-015)', () => {
     const engine = new FakeEngine()
     expect(await run(api, engine, { signal: controller.signal }).result).toEqual({ kind: 'stopped' })
     expect(engine.disposed).toBe(true)
+  })
+
+  it('tells the server the engine it loaded, and every decision, end and replay carries its build (review of #86)', async () => {
+    const { owner, api } = fakeServer()
+    owner.push(1, 0, 1)
+    expect(await run(api, new FakeEngine()).result).toEqual({ kind: 'over', status: 'done' })
+    expect(api.job.mock.calls[0]?.[1]).toEqual({ engineRev: REV, gamesRev: 1, build: BUILD })
+    expect(api.decision.mock.calls.every(([, body]) => body.build === BUILD)).toBe(true)
+    expect(api.end.mock.calls[0]?.[1].build).toBe(BUILD)
+    expect(api.replay.mock.calls[0]?.[2]).toBe(BUILD)
+  })
+
+  it('gives up after a few passes when the game keeps going back to its start (review of #86)', async () => {
+    const { owner, api } = fakeServer()
+    owner.push(1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1)
+    // The end is never taken: the game is still «running» after it.
+    api.end.mockImplementation(async () => ({ status: 'running' }))
+    expect(await run(api, new FakeEngine()).result).toMatchObject({
+      kind: 'error',
+      message: expect.stringContaining('volvió a empezar varias veces'),
+    })
+    expect(api.job).toHaveBeenCalledTimes(MAX_PASSES)
   })
 })

@@ -53,6 +53,8 @@ const sourceSchema = z.union([
     energies,
   }),
 ])
+/** T-015: the build of a browser engine (its manifest's `build`, 12 hex digits). */
+const engineBuild = z.string().regex(/^[0-9a-f]{12}$/)
 const createSchema = z.object({
   human: sourceSchema,
   rival: sourceSchema,
@@ -73,6 +75,8 @@ const createSchema = z.object({
     .optional(),
   /** T-015: how the page's engine plays (its `gamesRev`), with `engineRev`. */
   gamesRev: z.number().int().min(0).max(10_000).optional(),
+  /** T-015: what was compiled (the manifest's `build`), with `engineRev`. */
+  build: engineBuild.optional(),
 })
 const hintSchema = z.object({ ply: z.number().int().min(1) })
 const recentSchema = z.object({
@@ -93,6 +97,7 @@ const rematchSchema = z.object({
     .optional(),
   /** T-015: how the page's engine plays (its `gamesRev`), with `engineRev`. */
   gamesRev: z.number().int().min(0).max(10_000).optional(),
+  build: engineBuild.optional(),
 })
 const reviewSchema = z.object({
   from: z.coerce.number().int().min(0).max(200).optional(),
@@ -137,16 +142,19 @@ const failureSchema = z.object({ workerId, error: z.string().min(1).max(20_000) 
 
 // T-015: the game's open page runs the engine (WebAssembly) and sends what a worker would, with the choices it played.
 const choices = z.array(z.number().int().min(0).max(500)).max(5000)
+/** The engine the page loaded (review of #86): its deckgym, how its games play and what was compiled. */
 const browserJobSchema = z.object({
   engineRev: z.string().regex(/^[0-9a-f]{40}$/),
-  gamesRev: z.coerce.number().int().min(0).max(10_000),
+  gamesRev: z.number().int().min(0).max(10_000),
+  build: engineBuild,
 })
-const browserDecisionSchema = decisionSchema.omit({ workerId: true }).extend({ choices })
+const browserDecisionSchema = decisionSchema.omit({ workerId: true }).extend({ choices, build: engineBuild })
 const browserWaitSchema = z.object({ choices, ply: z.number().int().min(1) })
-const browserEndSchema = endSchema.omit({ workerId: true }).extend({ choices })
-const browserFailureSchema = z.object({ choices, error: z.string().min(1).max(20_000) })
+const browserEndSchema = endSchema.omit({ workerId: true }).extend({ choices, build: engineBuild })
+const browserFailureSchema = z.object({ choices, error: z.string().min(1).max(20_000), build: engineBuild.optional() })
 /** The replay's choices in the query (`1.0.3`; none when the owner never chose), its body gzipped like a worker's. */
 const browserReplaySchema = z.object({
+  build: engineBuild,
   choices: z
     .string()
     .max(20_000)
@@ -293,14 +301,18 @@ export class PlayController {
     })
   }
 
-  /** T-015: what the engine of the page needs to run a browser game (only with the game's engine revision). */
-  @Get(':id/browser')
+  /**
+   * T-015: what the engine of the page needs to run a browser game, given the engine it loaded. A POST: a page with the
+   * engine the app serves now ends a game of an older one (review of #86).
+   */
+  @Post(':id/browser')
+  @HttpCode(200)
   browserJob(
     @Param('id') id: string,
-    @Query(new ZodValidationPipe(browserJobSchema)) query: z.infer<typeof browserJobSchema>,
+    @Body(new ZodValidationPipe(browserJobSchema)) body: z.infer<typeof browserJobSchema>,
     @CurrentSession() _session: RequestSession,
   ) {
-    return this.games.browserJob(id, query)
+    return this.games.browserJob(id, body)
   }
 
   /** T-015: the page's engine asks the owner (like a worker's decision, without a lease). */
@@ -365,7 +377,7 @@ export class PlayController {
     @Req() request: Request,
     @CurrentSession() _session: RequestSession,
   ) {
-    return this.games.browserReplay(id, query.choices, await readBody(request, MAX_LIVE_REPLAY_BYTES))
+    return this.games.browserReplay(id, query.choices, query.build, await readBody(request, MAX_LIVE_REPLAY_BYTES))
   }
 
   /** Fase 29: the game told turn by turn in Spanish, with the coach's opinion (what the MCP gives Claude). */

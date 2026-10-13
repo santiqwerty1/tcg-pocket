@@ -51,6 +51,8 @@ export interface EngineInfo {
   /** How its games play (engine-cli's GAMES_REV): a game started with another one cannot go on here. */
   gamesRev: number
   version: string
+  /** What was compiled (the manifest's hash): a browser game keeps it (review of #86). */
+  build: string
 }
 
 export type EngineRequest =
@@ -71,6 +73,7 @@ export interface EngineManifest {
   engineRev: string
   gamesRev: number
   version: string
+  build: string
   js: string
   wasm: string
   sources?: string

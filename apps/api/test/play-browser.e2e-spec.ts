@@ -21,6 +21,8 @@ describe('playing against a bot in the browser (e2e)', () => {
   beforeAll(async () => {
     test = await createTestApp()
     test.app.get(LiveGamesService).longPollMs = 100
+    // The engine the app serves (its manifest in the PWA's build); a test changes it as an update of the app would.
+    serve({ gamesRev: 1, build: BUILD })
     await seedOwner(test.app, { totp: false })
     cookie = await login(test, { secret: null })
     const summary = await test.app
@@ -58,6 +60,20 @@ describe('playing against a bot in the browser (e2e)', () => {
   }
   const engineRev = () => test.env.engineRev
   const otherRev = 'f'.repeat(40)
+  const BUILD = 'a1b2c3d4e5f6'
+  const NEWER_BUILD = '0123456789ab'
+  /** The engine the app serves now (null: an installation without one). */
+  function serve(engine: { gamesRev: number; build: string } | null) {
+    test.app.get(LiveGamesService).servedEngine = engine && { engineRev: engineRev(), ...engine }
+  }
+  /** The engine a page loaded: the one the game started with, unless said otherwise. */
+  const page = (extra: Record<string, unknown> = {}) => ({
+    engineRev: engineRev(),
+    gamesRev: 1,
+    build: BUILD,
+    ...extra,
+  })
+  const job = (id: number, extra: Record<string, unknown> = {}) => post(`/api/play/${id}/browser`).send(page(extra))
   const deckId = (index: number) => {
     const id = deckIds[index]
     if (id === undefined) throw new Error(`Missing fixture deck ${index}`)
@@ -73,6 +89,7 @@ describe('playing against a bot in the browser (e2e)', () => {
       { i: 1, text: 'Attack(Blaze Kick)', action: { Attack: { title: 'Blaze Kick' } } },
     ],
     log,
+    build: BUILD,
   })
   const end = (choices: number[]) => ({
     choices,
@@ -80,6 +97,7 @@ describe('playing against a bot in the browser (e2e)', () => {
     turns: 9,
     state: { turn: 9, current_player: 0, points: [3, 1], players: [], stadium: null },
     log: [{ turn: 9, actor: 0, text: 'Attack', action: 'Attack' }],
+    build: BUILD,
   })
   const replay = gzipSync(Buffer.from(JSON.stringify({ version: 1, steps: [], players: [] })))
 
@@ -89,8 +107,7 @@ describe('playing against a bot in the browser (e2e)', () => {
       rival: { deckId: deckId(12) },
       seed: 77,
       runner: 'browser',
-      engineRev: engineRev(),
-      gamesRev: 1,
+      ...page(),
       ...extra,
     })
     expect(created.status).toBe(201)
@@ -102,9 +119,15 @@ describe('playing against a bot in the browser (e2e)', () => {
     const missing = await post('/api/play').send(base)
     expect(missing.status).toBe(409)
     expect(missing.body.error.code).toBe('engine_mismatch')
-    const other = await post('/api/play').send({ ...base, engineRev: otherRev, gamesRev: 1 })
+    const other = await post('/api/play').send({ ...base, ...page({ engineRev: otherRev }) })
     expect(other.status).toBe(409)
     expect(other.body.error.message).toContain('recargá la app')
+    // The same deckgym, another build or games revision than the app serves (a page kept in the phone's cache).
+    for (const stale of [{ build: NEWER_BUILD }, { gamesRev: 0 }, { build: undefined }]) {
+      const behind = await post('/api/play').send({ ...base, ...page(stale) })
+      expect(behind.status).toBe(409)
+      expect(behind.body.error.code).toBe('engine_mismatch')
+    }
 
     const id = await browserGame({ coach: true })
     const view = (await get(`/api/play/${id}`)).body
@@ -121,12 +144,20 @@ describe('playing against a bot in the browser (e2e)', () => {
     expect(claim.body.game).toBeNull()
 
     // The page's engine gets the decks and the seed, only with the game's engine.
-    expect((await get(`/api/play/${id}/browser?engineRev=${otherRev}&gamesRev=1`)).status).toBe(409)
-    const job = await get(`/api/play/${id}/browser?engineRev=${engineRev()}&gamesRev=1`)
-    expect(job.status).toBe(200)
-    expect(job.body).toMatchObject({ id, bot: 'e2', seed: '77', choices: [], coach: true, status: 'running' })
-    expect(job.body.deckHuman).toContain('Energy:')
-    expect(job.body.deckBot).toContain('Energy:')
+    const wrong = await job(id, { engineRev: otherRev })
+    expect(wrong.status).toBe(409)
+    expect(wrong.body.error.code).toBe('engine_mismatch')
+    // A GET is not the job any more: it can end the game (review of #86).
+    expect((await get(`/api/play/${id}/browser`)).status).toBe(404)
+    const given = await job(id)
+    expect(given.status).toBe(200)
+    expect(given.body).toMatchObject({ id, bot: 'e2', seed: '77', choices: [], coach: true, status: 'running' })
+    expect(given.body.deckHuman).toContain('Energy:')
+    expect(given.body.deckBot).toContain('Energy:')
+    expect(await test.prisma.liveGame.findUniqueOrThrow({ where: { id } })).toMatchObject({
+      gamesRev: 1,
+      engineBuild: BUILD,
+    })
     await post(`/api/play/${id}/abandon`).send({})
   })
 
@@ -137,6 +168,19 @@ describe('playing against a bot in the browser (e2e)', () => {
       coach: { scores: [1, 4.5], best: 1 },
     })
     expect(first.body).toEqual({ choice: null, status: 'waiting' })
+    // Another build cannot ask, end or fail it: it would be another game from the same choices.
+    const otherBuild = await put(`/api/play/${id}/browser/decision`).send({ ...decision([]), build: NEWER_BUILD })
+    expect(otherBuild.status).toBe(409)
+    expect(otherBuild.body.error.code).toBe('engine_mismatch')
+    // While it waits for the owner the game cannot have ended (review of #86).
+    const early = await put(`/api/play/${id}/browser/end`).send(end([]))
+    expect(early.status).toBe(409)
+    expect(early.body.error.code).toBe('stale_decision')
+    expect(
+      (await put(`/api/play/${id}/browser/failure`).send({ choices: [], error: 'otro motor', build: NEWER_BUILD }))
+        .body,
+    ).toEqual({ ok: true })
+    expect((await get(`/api/play/${id}`)).body.status).toBe('waiting')
     // A second page with the game open reaches the same decision: nothing changes.
     expect((await put(`/api/play/${id}/browser/decision`).send(decision([]))).body).toEqual({
       choice: null,
@@ -177,22 +221,32 @@ describe('playing against a bot in the browser (e2e)', () => {
 
     // The end only with the game's choices; the first replay to arrive stays.
     expect((await put(`/api/play/${id}/browser/end`).send(end([0, 1]))).status).toBe(409)
+    expect((await put(`/api/play/${id}/browser/end`).send({ ...end([0, 0]), build: NEWER_BUILD })).status).toBe(409)
     expect((await put(`/api/play/${id}/browser/end`).send(end([0, 0]))).body).toEqual({ ok: true, status: 'done' })
     expect((await put(`/api/play/${id}/browser/end`).send(end([0, 0]))).body).toEqual({ ok: true, status: 'done' })
-    const wrongReplay = await put(`/api/play/${id}/browser/replay?choices=0.1`)
+    const wrongReplay = await put(`/api/play/${id}/browser/replay?choices=0.1&build=${BUILD}`)
       .set('Content-Type', 'application/gzip')
       .send(replay)
     expect(wrongReplay.status).toBe(409)
-    const job = (await get(`/api/play/${id}/browser?engineRev=${engineRev()}&gamesRev=1`)).body
-    expect(job).toMatchObject({ status: 'done', choices: [0, 0], replayMissing: true })
-    const sent = await put(`/api/play/${id}/browser/replay?choices=0.0`)
+    const otherReplay = await put(`/api/play/${id}/browser/replay?choices=0.0&build=${NEWER_BUILD}`)
+      .set('Content-Type', 'application/gzip')
+      .send(replay)
+    expect(otherReplay.status).toBe(409)
+    expect((await job(id)).body).toMatchObject({ status: 'done', choices: [0, 0], replayMissing: true })
+    // A finished game is given to any page, without its replay to make again with another engine (review of #86).
+    for (const other of [{ build: NEWER_BUILD }, { gamesRev: 0 }, { engineRev: otherRev }]) {
+      const finished = await job(id, other)
+      expect(finished.status).toBe(200)
+      expect(finished.body).toMatchObject({ status: 'done', replayMissing: false })
+    }
+    const sent = await put(`/api/play/${id}/browser/replay?choices=0.0&build=${BUILD}`)
       .set('Content-Type', 'application/gzip')
       .send(replay)
     expect(sent.status).toBe(200)
     const done = (await get(`/api/play/${id}`)).body
     expect(done).toMatchObject({ status: 'done', winner: 'you', turns: 9, replay: true, runner: 'browser' })
     expect((await get(`/api/play/${id}/replay/raw`)).body).toMatchObject({ version: 1 })
-    expect((await get(`/api/play/${id}/browser?engineRev=${engineRev()}&gamesRev=1`)).body.replayMissing).toBe(false)
+    expect((await job(id)).body.replayMissing).toBe(false)
 
     // Undo from the end: playing again, without the old replay.
     const reopened = await post(`/api/play/${id}/undo`).send({})
@@ -203,7 +257,7 @@ describe('playing against a bot in the browser (e2e)', () => {
   it('a rematch is played in the browser too, and a failure or an abandon stops the page', async () => {
     const id = await browserGame()
     expect((await post(`/api/play/${id}/rematch`).send({})).status).toBe(409)
-    const rematch = await post(`/api/play/${id}/rematch`).send({ sameSeed: true, engineRev: engineRev(), gamesRev: 1 })
+    const rematch = await post(`/api/play/${id}/rematch`).send({ sameSeed: true, ...page() })
     expect(rematch.status).toBe(201)
     expect(rematch.body).toMatchObject({ runner: 'browser', status: 'running', seed: '77' })
 
@@ -211,7 +265,8 @@ describe('playing against a bot in the browser (e2e)', () => {
     // The owner is thinking: undo is for after the bot moves, not while it is the owner's turn with nothing chosen.
     expect((await post(`/api/play/${id}/undo`).send({})).body.error.code).toBe('nothing_to_undo')
     expect(
-      (await put(`/api/play/${id}/browser/failure`).send({ choices: [], error: 'carta sin implementar' })).body,
+      (await put(`/api/play/${id}/browser/failure`).send({ choices: [], error: 'carta sin implementar', build: BUILD }))
+        .body,
     ).toEqual({
       ok: true,
     })
@@ -233,9 +288,9 @@ describe('playing against a bot in the browser (e2e)', () => {
     const created = await post('/api/play').send({ human: { deckId: deckId(1) }, rival: { deckId: deckId(12) } })
     expect(created.body).toMatchObject({ runner: 'worker', status: 'queued' })
     const id = created.body.id as number
-    const job = await get(`/api/play/${id}/browser?engineRev=${engineRev()}&gamesRev=1`)
-    expect(job.status).toBe(409)
-    expect(job.body.error.code).toBe('not_browser')
+    const notBrowser = await job(id)
+    expect(notBrowser.status).toBe(409)
+    expect(notBrowser.body.error.code).toBe('not_browser')
     expect((await put(`/api/play/${id}/browser/decision`).send(decision([]))).status).toBe(409)
     const claim = await test
       .http()
@@ -246,16 +301,13 @@ describe('playing against a bot in the browser (e2e)', () => {
     await post(`/api/play/${id}/abandon`).send({})
   })
 
-  it('how the page plays (gamesRev): another one ends the game as engine_changed, and no worker strands it', async () => {
+  it('an update of the app ends a game of the older engine, and a page that is behind is told to reload', async () => {
     const base = { human: { deckId: deckId(1) }, rival: { deckId: deckId(12) }, runner: 'browser' }
-    // The page says how its engine plays, with its revision.
-    const unsaid = await post('/api/play').send({ ...base, engineRev: engineRev() })
-    expect(unsaid.status).toBe(409)
-    expect(unsaid.body.error.code).toBe('engine_mismatch')
     const id = await browserGame()
     expect(await test.prisma.liveGame.findUniqueOrThrow({ where: { id } })).toMatchObject({
       runner: 'browser',
       gamesRev: 1,
+      engineBuild: BUILD,
     })
     // A worker of a newer games revision asks for a game: the games it strands are the workers' only.
     const claim = await test
@@ -265,16 +317,58 @@ describe('playing against a bot in the browser (e2e)', () => {
       .send({ workerId: 'worker-pc-browser', engineRev: engineRev(), gamesRev: 2 })
     expect(claim.body.game).toBeNull()
     expect((await get(`/api/play/${id}`)).body.status).toBe('running')
-    // The app was updated in the middle of the game: the page's engine plays otherwise, and the same choices would be
-    // another game. It ends as engine_changed, as a worker's does, and its replay is not made again.
-    const job = await get(`/api/play/${id}/browser?engineRev=${engineRev()}&gamesRev=2`)
-    expect(job.status).toBe(200)
-    expect(job.body).toMatchObject({ status: 'engine_changed', replayMissing: false })
-    expect((await get(`/api/play/${id}`)).body.status).toBe('engine_changed')
-    // Its rematch is played with the engine the page has now.
-    const rematch = await post(`/api/play/${id}/rematch`).send({ engineRev: engineRev(), gamesRev: 2 })
-    expect(rematch.body).toMatchObject({ runner: 'browser', status: 'running' })
-    expect((await test.prisma.liveGame.findUniqueOrThrow({ where: { id: rematch.body.id } })).gamesRev).toBe(2)
-    await post(`/api/play/${rematch.body.id}/abandon`).send({})
+
+    serve({ gamesRev: 2, build: NEWER_BUILD })
+    try {
+      // The app was updated in the middle of the game. A page with the old engine still plays it (it is the game's)…
+      expect((await job(id)).body.status).toBe('running')
+      // …and one older than the game's, or a build that is not the one served now, is told to reload: it never ends a
+      // newer game (review of #86).
+      for (const behind of [{ gamesRev: 0 }, { build: '999999999999' }, { gamesRev: 2, build: BUILD }]) {
+        const stale = await job(id, behind)
+        expect(stale.status).toBe(409)
+        expect(stale.body.error.code).toBe('engine_mismatch')
+        expect(stale.body.error.message).toContain('recargá la app')
+      }
+      expect((await get(`/api/play/${id}`)).body.status).toBe('running')
+      // Nor can a page that is behind start a game or a rematch.
+      expect((await post('/api/play').send({ ...base, ...page() })).status).toBe(409)
+      expect((await post(`/api/play/${id}/rematch`).send(page())).status).toBe(409)
+
+      // A page with the engine served now: the same choices would be another game. It ends as engine_changed, as a
+      // worker's does, and its replay is not made again.
+      const newer = await job(id, { gamesRev: 2, build: NEWER_BUILD })
+      expect(newer.status).toBe(200)
+      expect(newer.body).toMatchObject({ status: 'engine_changed', replayMissing: false })
+      expect((await get(`/api/play/${id}`)).body.status).toBe('engine_changed')
+      // Its rematch is played with the engine the page has now.
+      const rematch = await post(`/api/play/${id}/rematch`).send(page({ gamesRev: 2, build: NEWER_BUILD }))
+      expect(rematch.body).toMatchObject({ runner: 'browser', status: 'running' })
+      expect(await test.prisma.liveGame.findUniqueOrThrow({ where: { id: rematch.body.id } })).toMatchObject({
+        gamesRev: 2,
+        engineBuild: NEWER_BUILD,
+      })
+      await post(`/api/play/${rematch.body.id}/abandon`).send({})
+    } finally {
+      serve({ gamesRev: 1, build: BUILD })
+    }
+  })
+
+  it('without an engine served, only a newer games revision ends a game', async () => {
+    serve(null)
+    try {
+      const id = await browserGame()
+      const older = await job(id, { gamesRev: 0, build: NEWER_BUILD })
+      expect(older.status).toBe(409)
+      expect(older.body.error.code).toBe('engine_mismatch')
+      const sameRev = await job(id, { build: NEWER_BUILD })
+      expect(sameRev.status).toBe(409)
+      expect((await get(`/api/play/${id}`)).body.status).toBe('running')
+      const newer = await job(id, { gamesRev: 2, build: NEWER_BUILD })
+      expect(newer.status).toBe(200)
+      expect(newer.body).toMatchObject({ status: 'engine_changed', replayMissing: false })
+    } finally {
+      serve({ gamesRev: 1, build: BUILD })
+    }
   })
 })

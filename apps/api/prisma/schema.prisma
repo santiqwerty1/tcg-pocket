@@ -987,6 +987,8 @@ model LiveGame {
   gamesRev        Int?           @map("games_rev")
   /// T-015: «browser» games are run by the owner's open page (WebAssembly) and never claimed by a worker.
   runner          LiveGameRunner @default(worker)
+  /// T-015: a browser game's engine build (the manifest's `build`): a page with another one cannot go on with it.
+  engineBuild     String?        @map("engine_build")
   workerId        String?        @map("worker_id")
   leaseUntil      DateTime?      @map("lease_until") @db.Timestamptz(3)
   /// The owner's choice at each decision, in order.

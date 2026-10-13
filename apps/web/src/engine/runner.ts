@@ -33,6 +33,8 @@ export interface BrowserDecision {
   actions: { i: number; text: string; action: unknown }[]
   log: EngineLogEntry[]
   coach?: { scores: number[]; best: number }
+  /** The build of the engine that reached it: the game's own (review of #86). */
+  build: string
 }
 
 export interface BrowserEnd {
@@ -41,12 +43,14 @@ export interface BrowserEnd {
   turns: number
   state: Record<string, unknown>
   log: EngineLogEntry[]
+  build: string
 }
 
-/** The engine of the page: its deckgym revision and how its games play. */
+/** The engine this page loaded: its deckgym revision, how its games play and what was compiled. */
 export interface PageEngine {
   engineRev: string
   gamesRev: number
+  build: string
 }
 
 export interface RunnerApi {
@@ -54,8 +58,8 @@ export interface RunnerApi {
   decision(id: number, body: BrowserDecision, signal: AbortSignal): Promise<BrowserStep>
   choice(id: number, body: { choices: number[]; ply: number }, signal: AbortSignal): Promise<BrowserStep>
   end(id: number, body: BrowserEnd, signal: AbortSignal): Promise<{ status: string }>
-  failure(id: number, body: { choices: number[]; error: string }, signal: AbortSignal): Promise<unknown>
-  replay(id: number, choices: number[], gzipped: Blob, signal: AbortSignal): Promise<unknown>
+  failure(id: number, body: { choices: number[]; error: string; build: string }, signal: AbortSignal): Promise<unknown>
+  replay(id: number, choices: number[], build: string, gzipped: Blob, signal: AbortSignal): Promise<unknown>
 }
 
 export type RunnerStatus =
@@ -81,9 +85,6 @@ export type RunnerResult =
 
 export interface RunnerOptions {
   id: number
-  /** The engine of this page (its manifest): the game must have been started with it. */
-  engineRev: string
-  gamesRev: number
   api: RunnerApi
   createEngine: () => GameEngine
   signal: AbortSignal
@@ -96,6 +97,11 @@ export interface RunnerOptions {
 
 const PLAYING = new Set(['queued', 'running', 'waiting'])
 const MAX_RETRY_MS = 15_000
+/**
+ * A game that keeps going back to its start (an end the server does not take, choices that keep changing) is left after
+ * this many passes, with a message, instead of looping (review of #86).
+ */
+export const MAX_PASSES = 5
 
 function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -152,10 +158,10 @@ export async function runBrowserGame(options: RunnerOptions): Promise<RunnerResu
     }
   }
 
-  async function play(engine: GameEngine, job: BrowserJob): Promise<RunnerResult | typeof RESTART> {
+  async function play(engine: GameEngine, job: BrowserJob, build: string): Promise<RunnerResult | typeof RESTART> {
     const applied: number[] = []
     const fail = async (error: EngineError, what: string): Promise<RunnerResult> => {
-      await call(() => api.failure(id, { choices: applied, error: `${what}: ${error.message}` }, signal), {
+      await call(() => api.failure(id, { choices: applied, error: `${what}: ${error.message}`, build }, signal), {
         kind: 'thinking',
       })
       return { kind: 'over', status: 'failed' }
@@ -181,6 +187,7 @@ export async function runBrowserGame(options: RunnerOptions): Promise<RunnerResu
               turns: step.turns,
               state: step.state,
               log,
+              build,
             }
             const ended = await call(() => api.end(id, body, signal), { kind: 'thinking' })
             if (ended.status !== 'done') {
@@ -188,7 +195,7 @@ export async function runBrowserGame(options: RunnerOptions): Promise<RunnerResu
             }
           }
           const replay = await engine.replay()
-          await call(() => api.replay(id, applied, replay, signal), { kind: 'thinking' })
+          await call(() => api.replay(id, applied, build, replay, signal), { kind: 'thinking' })
         } catch (error) {
           if (isStale(error)) return RESTART
           throw error
@@ -215,6 +222,7 @@ export async function runBrowserGame(options: RunnerOptions): Promise<RunnerResu
           actions: step.actions,
           log: [...log],
           ...(coach ? { coach } : {}),
+          build,
         }
         let answer = await call(() => api.decision(id, decision, signal), { kind: 'waiting' })
         while (answer.choice === null) {
@@ -245,28 +253,28 @@ export async function runBrowserGame(options: RunnerOptions): Promise<RunnerResu
 
   let engine: GameEngine | null = null
   try {
+    // The engine first: the server is told the one this page loaded, not the manifest it read (review of #86). Loading
+    // is not playing: an engine that does not load leaves the game as it is.
+    report({ kind: 'loading' })
+    engine = options.createEngine()
+    let info: EngineInfo
+    try {
+      info = await engine.info()
+    } catch (error) {
+      throw new Error(`No se pudo cargar el motor en este dispositivo: ${(error as Error).message}`)
+    }
+    const loaded: PageEngine = { engineRev: info.engineRev, gamesRev: info.gamesRev, build: info.build }
     for (let pass = 0; ; pass++) {
+      if (pass >= MAX_PASSES) {
+        throw new Error('La partida volvió a empezar varias veces sin poder seguir: recargá la app.')
+      }
       if (pass > 0) await sleep(200, signal)
       report({ kind: 'loading' })
-      const engineOfPage = { engineRev: options.engineRev, gamesRev: options.gamesRev }
-      const job = await call(() => api.job(id, engineOfPage, signal), { kind: 'loading' })
+      const job = await call(() => api.job(id, loaded, signal), { kind: 'loading' })
       if (!PLAYING.has(job.status) && !(job.status === 'done' && job.replayMissing)) {
         return { kind: 'over', status: job.status }
       }
-      if (!engine) {
-        // Loading is not playing: an engine that does not load leaves the game as it is.
-        engine = options.createEngine()
-        let info: EngineInfo
-        try {
-          info = await engine.info()
-        } catch (error) {
-          throw new Error(`No se pudo cargar el motor en este dispositivo: ${(error as Error).message}`)
-        }
-        if (info.engineRev !== job.engineRev || info.gamesRev !== options.gamesRev) {
-          throw new Error('Este dispositivo tiene otro motor que el de la partida: recargá la app.')
-        }
-      }
-      const result = await play(engine, job)
+      const result = await play(engine, job, loaded.build)
       if (result !== RESTART) return result
     }
   } catch (error) {

@@ -117,9 +117,13 @@ const manifestSchema = z.object({
   engineRev: z.string().regex(/^[0-9a-f]{40}$/),
   gamesRev: z.number().int().min(0),
   version: z.string(),
+  build: z.string().regex(/^[0-9a-f]{12}$/),
   js: z.string().regex(/^[\w.-]+\.js$/),
   wasm: z.string().regex(/^[\w.-]+\.wasm$/),
-  sources: z.string().optional(),
+  sources: z
+    .string()
+    .regex(/^[\w.-]+\.tar\.gz$/)
+    .optional(),
   wasmBytes: z.number().optional(),
 })
 

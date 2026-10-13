@@ -4,3 +4,7 @@
 CREATE TYPE "LiveGameRunner" AS ENUM ('worker', 'browser');
 
 ALTER TABLE "live_games" ADD COLUMN "runner" "LiveGameRunner" NOT NULL DEFAULT 'worker';
+
+-- A browser game keeps the build of the engine that started it (the manifest's `build`): another build of the same
+-- source can play another game from the same choices, so a page with another one is told to reload.
+ALTER TABLE "live_games" ADD COLUMN "engine_build" TEXT;

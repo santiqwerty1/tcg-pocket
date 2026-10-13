@@ -29,7 +29,7 @@ interface WorkerScope {
 }
 
 const scope = globalThis as unknown as WorkerScope
-let loading: Promise<WasmModule> | null = null
+let loading: Promise<{ module: WasmModule; manifest: EngineManifest }> | null = null
 let game: WasmGame | null = null
 let panic: string | null = null
 let dead = false
@@ -39,7 +39,7 @@ scope.__tcgEnginePanic = (message) => {
   panic = message
 }
 
-function load(): Promise<WasmModule> {
+function load(): Promise<{ module: WasmModule; manifest: EngineManifest }> {
   loading ??= (async () => {
     const base = new URL(ENGINE_BASE, scope.location.origin).toString()
     const response = await fetch(`${base}manifest.json`, { cache: 'no-cache' })
@@ -47,7 +47,7 @@ function load(): Promise<WasmModule> {
     const manifest = (await response.json()) as EngineManifest
     const module = (await import(/* @vite-ignore */ `${base}${manifest.js}`)) as WasmModule
     await module.default({ module_or_path: `${base}${manifest.wasm}` })
-    return module
+    return { module, manifest }
   })()
   loading.catch(() => {
     loading = null
@@ -66,10 +66,11 @@ async function gzip(text: string): Promise<ArrayBuffer> {
 }
 
 async function handle(message: EngineRequest): Promise<{ value: unknown; transfer?: Transferable[] }> {
-  const module = await load()
+  const { module, manifest } = await load()
   switch (message.type) {
     case 'info':
-      return { value: JSON.parse(module.engineInfo()) }
+      // The build of what this worker loaded (the page's own manifest may be older or newer).
+      return { value: { ...JSON.parse(module.engineInfo()), build: manifest.build } }
     case 'start':
       game?.free()
       game = null

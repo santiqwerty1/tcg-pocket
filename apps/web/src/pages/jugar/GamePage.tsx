@@ -317,7 +317,10 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
           pending={rematch.isPending || undo.isPending}
           onRematch={(sameSeed) =>
             rematch.mutate(
-              { sameSeed, ...(engine ? { engineRev: engine.engineRev, gamesRev: engine.gamesRev } : {}) },
+              {
+                sameSeed,
+                ...(engine ? { engineRev: engine.engineRev, gamesRev: engine.gamesRev, build: engine.build } : {}),
+              },
               {
                 onSuccess: (created) => navigate(`/jugar/${created.id}`),
                 onError: (error) => toast.error(errorMessage(error)),

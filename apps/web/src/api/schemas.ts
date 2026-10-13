@@ -2384,6 +2384,8 @@ export interface PlayInput {
   runner?: LiveGameRunner
   engineRev?: string
   gamesRev?: number
+  /** What was compiled (the manifest's `build`): the game keeps it. */
+  build?: string
 }
 
 /** T-015: what the engine of the page needs (`GET /api/play/:id/browser`). */

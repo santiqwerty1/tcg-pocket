@@ -154,7 +154,12 @@ export function JugarPage() {
         bot,
         coach,
         ...(runner === 'browser' && browserEngine.data
-          ? { runner, engineRev: browserEngine.data.engineRev, gamesRev: browserEngine.data.gamesRev }
+          ? {
+              runner,
+              engineRev: browserEngine.data.engineRev,
+              gamesRev: browserEngine.data.gamesRev,
+              build: browserEngine.data.build,
+            }
           : {}),
       })
       navigate(`/jugar/${game.id}`)
