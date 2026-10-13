@@ -11,8 +11,8 @@ import { ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { formatRateValue } from '@/lib/matches'
-import { formatDayEs, formatShare, scopeFromSearch, scopeSearch } from '@/lib/tournaments'
+import { formatInterval, formatRateValue, formatSample } from '@/lib/matches'
+import { formatDayEs, formatShare, scopeFromSearch, scopeSearch, staleTournaments } from '@/lib/tournaments'
 import { cn } from '@/lib/utils'
 
 const DAYS = [7, 14] as const
@@ -89,7 +89,10 @@ function split(data: MetaTrends, search: string) {
     delta: row.delta,
     clear: row.clear,
     isNew: row.isNew,
-    extra: row.rate ? `gana ${formatRateValue(row.rate.value)} esta semana` : undefined,
+    // Phone review: every percentage with its n and interval (and «orientativo» under 30).
+    extra: row.rate
+      ? `gana ${formatRateValue(row.rate.value)} en esos días (${formatSample(row.rate)}, IC ${formatInterval(row.rate.ci95)}${row.rate.orientative ? ', orientativo' : ''})`
+      : undefined,
   }))
   const cards: Row[] = data.cards.map((row) => ({
     key: row.groupId,
@@ -121,6 +124,8 @@ export function TrendsPage() {
   const rows = split(data, search)
   const range = (w: MetaTrends['now']) =>
     `${formatDayEs(w.from)} – ${formatDayEs(new Date(new Date(w.to).getTime() - 1).toISOString())}`
+  // The window ends a day after the newest tournament loaded (domain `metaTrends`).
+  const stale = staleTournaments(new Date(new Date(data.now.to).getTime() - 86_400_000).toISOString())
 
   return (
     <div className="flex flex-col gap-5">
@@ -142,12 +147,13 @@ export function TrendsPage() {
         }
       >
         <p className="text-xs text-muted-foreground">
-          {range(data.now)}: {tournamentsLabel(data.now.tournaments)}, {data.now.lists} listas. Antes (
-          {range(data.before)}): {tournamentsLabel(data.before.tournaments)}, {data.before.lists} listas. Cambio en
-          puntos de cuota de listas; «claro» si el cambio pasa una prueba de dos proporciones que cuenta cada torneo
-          como un bloque (un torneo grande no arrastra todo) y, entre todos los arquetipos y cartas, se espera que como
-          mucho 1 de cada 20 «claros» sea ruido.
+          {range(data.now)}, hasta el último torneo cargado: {tournamentsLabel(data.now.tournaments)}, {data.now.lists}{' '}
+          listas. Antes ({range(data.before)}): {tournamentsLabel(data.before.tournaments)}, {data.before.lists} listas.
+          Cambio en puntos de cuota de listas; «claro» si el cambio pasa una prueba de dos proporciones que cuenta cada
+          torneo como un bloque (un torneo grande no arrastra todo) y, entre todos los arquetipos y cartas, se espera
+          que como mucho 1 de cada 20 «claros» sea ruido.
         </p>
+        {stale ? <p className="text-xs text-warning">{stale}</p> : null}
         {data.before.lists === 0 ? (
           <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
             No hay torneos de la era en la ventana anterior: todavía no se puede comparar.
@@ -155,10 +161,10 @@ export function TrendsPage() {
         ) : null}
       </Section>
       {data.before.lists === 0 ? (
-        <Section title="Lo más jugado esta semana">
+        <Section title="Lo más jugado en esos días">
           <Rows
             rows={rows.archetypesUp.map((row) => ({ ...row, clear: false, isNew: false }))}
-            empty="Sin listas esta semana."
+            empty="Sin listas en esos días."
             shareOnly
           />
         </Section>

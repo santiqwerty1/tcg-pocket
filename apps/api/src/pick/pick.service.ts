@@ -31,7 +31,15 @@ export type PickMeta = 'tournament' | 'mine'
 
 export interface PickView {
   sort: PickSort
-  meta: { era: string; kind: 'recent' | 'era'; days: number; lists: number } | null
+  meta: {
+    era: string
+    kind: 'recent' | 'era'
+    days: number
+    lists: number
+    /** Phone review: the window's dates, up to the newest tournament loaded. */
+    from: string | null
+    to: string | null
+  } | null
   /** Fase 44: which weights the tournament number used; «mine» falls back to the tournament meta until it is enough. */
   weights: { asked: PickMeta; used: PickMeta; mine: MyMetaSummary | null }
   items: PickRowView[]

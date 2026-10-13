@@ -38,6 +38,13 @@ describe('¿importa empezar? (Fase 25)', () => {
     )
   })
 
+  it('phone review: one decimal, as the rates next to it (16 of 33 is 48,5 %, not 48 %)', () => {
+    const impact = turnOrderImpact([...games(true, 16, 14, 3), ...games(false, 12, 17, 1)])
+    expect(impact.text).toBe(
+      'Empezando ganás el 48,5 % (n = 33) y yendo segundo el 40 % (n = 30): 8,5 puntos más empezando, pero puede ser azar.',
+    )
+  })
+
   it('a small gap is maybe chance; ties count as games not won; better going second', () => {
     const impact = turnOrderImpact([...games(true, 5, 4, 1), ...games(false, 6, 4)])
     expect(impact).toMatchObject({ verdict: 'maybe', firstShare: 50, secondShare: 60 })

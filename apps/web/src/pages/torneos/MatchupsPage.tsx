@@ -150,9 +150,11 @@ export function MatchupsPage() {
                   <p className="text-xs text-muted-foreground">
                     {formatShare(row.share)} del meta
                     {row.expected
-                      ? ` · con datos: ${formatShare(row.expected.coverage)} del meta, ${row.expected.rivals} rivales (n = ${formatCount(row.expected.matches)})`
+                      ? ` · con datos: ${formatShare(row.expected.coverage)} del meta, ${row.expected.rivals} rivales (n = ${formatCount(row.expected.matches)}${row.expected.ci95 ? `, IC ${formatInterval(row.expected.ci95)}` : ''})`
                       : ''}
-                    {row.field.rate ? ` · contra todos: ${formatRateValue(row.field.rate.value)}` : ''}
+                    {row.field.rate
+                      ? ` · contra todos: ${formatRateValue(row.field.rate.value)} (IC ${formatInterval(row.field.rate.ci95)})`
+                      : ''}
                   </p>
                 </li>
               ))}

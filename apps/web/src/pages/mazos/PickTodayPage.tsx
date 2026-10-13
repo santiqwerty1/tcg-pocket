@@ -11,8 +11,8 @@ import { PICK_SORTS, type Pick, type PickMeta, type PickSort } from '@/api/schem
 import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
-import { formatInterval, formatRateValue } from '@/lib/matches'
-import { formatShare } from '@/lib/tournaments'
+import { formatInterval, formatRateValue, ORIENTATIVE_BELOW } from '@/lib/matches'
+import { formatDayEs, formatShare, staleTournaments } from '@/lib/tournaments'
 import { cn } from '@/lib/utils'
 
 const SORT_LABEL: Record<PickSort, string> = { tournament: 'Torneo', matches: 'Mis partidas', lab: 'Laboratorio' }
@@ -54,7 +54,7 @@ function Row({
               <>
                 {' '}
                 (IC {formatInterval(row.tournament.ci95)}
-                {mine?.orientative ? ', orientativo' : ''})
+                {mine?.orientative || row.tournament.matches < ORIENTATIVE_BELOW ? ', orientativo' : ''})
               </>
             ) : null}{' '}
             · n = {row.tournament.matches} partidas de su arquetipo; matchups con datos en{' '}
@@ -69,6 +69,7 @@ function Row({
           <>
             <span className="font-semibold tabular">{formatRateValue(row.mine.rate.value)}</span> · n ={' '}
             {row.mine.rate.games}, IC {formatInterval(row.mine.rate.ci95)}
+            {row.mine.rate.orientative ? ', orientativo' : ''}
           </>
         ) : (
           'sin partidas'
@@ -88,6 +89,21 @@ function Row({
         )}
       </Line>
     </li>
+  )
+}
+
+/** Phone review: the window's real dates (it ends at the newest tournament loaded) and a warning when that is old. */
+function MetaWindow({ meta }: { meta: NonNullable<Pick['meta']> }) {
+  const stale = staleTournaments(meta.to)
+  return (
+    <>
+      <p className="text-xs text-muted-foreground">
+        Meta: {meta.kind === 'recent' ? '' : 'toda la era, '}
+        {meta.from && meta.to ? `del ${formatDayEs(meta.from)} al ${formatDayEs(meta.to)} ` : ''}de {meta.era}, hasta el
+        último torneo cargado ({meta.lists} listas).
+      </p>
+      {stale ? <p className="text-xs text-warning">{stale}</p> : null}
+    </>
   )
 }
 
@@ -148,10 +164,7 @@ export function PickTodayPage() {
             {usedMine ? '' : ' Mientras tanto, el número de torneo usa el meta de torneos.'}
           </p>
         ) : pick.data?.meta ? (
-          <p className="text-xs text-muted-foreground">
-            Meta: {pick.data.meta.kind === 'recent' ? `últimos ${pick.data.meta.days} días de` : 'toda la era'}{' '}
-            {pick.data.meta.era} ({pick.data.meta.lists} listas).
-          </p>
+          <MetaWindow meta={pick.data.meta} />
         ) : null}
       </Section>
       {pick.isPending ? <LoadingRows rows={5} /> : null}

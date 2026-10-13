@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { formatWinRateEs, type WinRate } from '@tcg/domain'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
+import { WeeklyService } from '../src/weekly/weekly.controller.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /** docs/PLAN.md §7 Fase 2 (M6) against real decks from mazos_40_listas.md. */
@@ -93,6 +94,29 @@ describe('matches (e2e)', () => {
     expect((await log({ deckId: deck(0).id, result: 'loss', mode: 'competitive' })).mode).toBe('competitive')
     const sticky = await log({ deckId: deck(0).id, result: 'tie', opponent: '---', note: '  lag  ' })
     expect(sticky).toMatchObject({ mode: 'competitive', opponent: null, wentFirst: null, note: 'lag' })
+  })
+
+  it('phone review: the week headline counts a tie as a game without a win (1-1-1 is 33,3 %, not 50 %)', async () => {
+    for (const [result, day] of [
+      ['win', '14'],
+      ['loss', '15'],
+      ['tie', '16'],
+    ] as const) {
+      expect(
+        (await post('/api/matches').send({ deckId: deck(0).id, result, playedAt: `2026-09-${day}T15:00:00Z` })).status,
+      ).toBe(201)
+    }
+    const week = await test.app.get(WeeklyService).summary({ now: new Date('2026-09-21T14:00:00Z') })
+    expect(week.week.label).toBe('14/9 al 20/9')
+    expect(week.matches.overall.record).toEqual({ wins: 1, losses: 1, ties: 1 })
+    expect(week.headline).toMatch(/^1-1-1 en partidas \(33,3 %\)/)
+    const ids = (
+      await test.prisma.match.findMany({
+        where: { playedAt: { gte: new Date('2026-09-14T00:00:00Z'), lt: new Date('2026-09-17T00:00:00Z') } },
+        select: { id: true },
+      })
+    ).map((row) => row.id)
+    await test.prisma.match.deleteMany({ where: { id: { in: ids } } })
   })
 
   it('validates the input', async () => {
@@ -338,7 +362,8 @@ describe('matches (e2e)', () => {
     })
     // The deck already had matches without who went first from the tests above.
     expect(stats.turnOrder.unknown).toBeGreaterThanOrEqual(1)
-    expect(stats.turnOrder.text).toMatch(/^Empezando ganás el 86 % \(n = 7\) y yendo segundo el 17 % \(n = 6\)/)
+    // Phone review: one decimal, as the rates next to it.
+    expect(stats.turnOrder.text).toMatch(/^Empezando ganás el 85,7 % \(n = 7\) y yendo segundo el 16,7 % \(n = 6\)/)
     // Fase 44: half going first, half going second.
     expect(stats.coinAdjusted.value).toBeCloseTo(((6 / 7 + 1 / 6) / 2) * 100, 6)
     expect(stats.coinAdjusted.text).toMatch(/^Ajustado por la moneda: 51,2 % \(n = 13, IC .*, orientativo\)/)

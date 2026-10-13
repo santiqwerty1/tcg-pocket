@@ -2487,7 +2487,17 @@ export type PickMeta = (typeof PICK_METAS)[number]
 
 export const pickSchema = z.object({
   sort: z.enum(PICK_SORTS),
-  meta: z.object({ era: z.string(), kind: z.enum(['recent', 'era']), days: z.number(), lists: z.number() }).nullable(),
+  meta: z
+    .object({
+      era: z.string(),
+      kind: z.enum(['recent', 'era']),
+      days: z.number(),
+      lists: z.number(),
+      /** Phone review: the window's dates, up to the newest tournament loaded. */
+      from: z.string().nullable().default(null),
+      to: z.string().nullable().default(null),
+    })
+    .nullable(),
   /** Fase 44: the weights of the tournament number (tournament meta or «mi meta»). */
   weights: z
     .object({

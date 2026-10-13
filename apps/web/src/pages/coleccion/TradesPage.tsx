@@ -12,6 +12,7 @@ import { request } from '@/api/client'
 import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
+import { formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 const giveSchema = z.object({
@@ -93,9 +94,10 @@ export function TradesPage() {
     <div className="flex flex-col gap-5">
       <p className="text-sm text-muted-foreground">
         Un cambio es carta por carta de la misma rareza.{' '}
+        {/* Phone review: these are the cards your decks lack, not the collection (which may lack hundreds). */}
         {data.totals.wants === 1
-          ? 'Te falta 1 carta que se puede intercambiar'
-          : `Te faltan ${data.totals.wants} cartas que se pueden intercambiar`}
+          ? 'A tus mazos les falta 1 carta que se puede intercambiar'
+          : `A tus mazos les faltan ${formatNumber(data.totals.wants)} cartas que se pueden intercambiar`}
         ; te sobran {data.totals.spare} copias (guardando una de cada edición y 2 de cada carta).
       </p>
       <fieldset className="flex flex-wrap gap-1.5" aria-label="Rarezas">

@@ -33,6 +33,12 @@ export function plural(count: number, singular: string, pluralForm: string): str
   return `${formatNumber(count)} ${count === 1 ? singular : pluralForm}`
 }
 
+/** «falta 1» / «faltan 3»; with a noun, «falta 1 copia» / «faltan 3 copias» (phone review: «faltan 1»). */
+export function missing(count: number, noun?: readonly [singular: string, plural: string]): string {
+  const verb = count === 1 ? 'falta' : 'faltan'
+  return noun ? `${verb} ${plural(count, noun[0], noun[1])}` : `${verb} ${formatNumber(count)}`
+}
+
 export function shortSha(sha: string | null | undefined): string {
   return sha ? sha.slice(0, 7) : '—'
 }

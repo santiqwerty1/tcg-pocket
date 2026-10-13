@@ -9,6 +9,7 @@ import { Cron } from '@nestjs/schedule'
 import {
   type CoachReview,
   coachSummary,
+  formatPercentEs,
   formatWinRateEs,
   type GameRecord,
   shiftWeek,
@@ -184,7 +185,9 @@ export class WeeklyService {
     if (overall.games > 0) {
       const { wins, losses, ties } = overall.record
       parts.push(
-        `${wins}-${losses}${ties > 0 ? `-${ties}` : ''} en partidas (${Math.round(share(overall.record) * 100)} %)`,
+        // Phone review: it counted a tie as half a win (18-18-2 was «50 %» over the record row's 47,4 %): the rate is
+        // the app's own, ties are games without a win.
+        `${wins}-${losses}${ties > 0 ? `-${ties}` : ''} en partidas (${formatPercentEs((wins / overall.games) * 100)})`,
       )
     }
     if (view.bot.games > 0) parts.push(`${view.bot.games} contra el bot`)

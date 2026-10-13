@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
+import { missing } from '@/lib/format'
 
 export function RandomDeckSheet({
   open,
@@ -90,8 +91,8 @@ export function RandomDeckSheet({
                 {picked.games === 0 ? 'Sin partidas registradas' : `${picked.games} partidas registradas`}
                 {picked.deck.builtInGame ? ' · armado en el juego' : ''}
                 {picked.deck.valid ? '' : ' · con errores de validación'}
-                {picked.deck.complete ? '' : ` · faltan ${picked.deck.missingCount} copias`} · elegido entre{' '}
-                {picked.candidates}
+                {picked.deck.complete ? '' : ` · ${missing(picked.deck.missingCount, ['copia', 'copias'])}`} · elegido
+                entre {picked.candidates}
               </p>
               <div className="grid grid-cols-2 gap-2">
                 <Button variant="outline" asChild>

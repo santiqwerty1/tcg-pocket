@@ -70,11 +70,13 @@ function PackRowItem({ row, rank, today, boost }: { row: PackRow; rank: number; 
         <span className="shrink-0 font-semibold tabular">{formatChance(row.probability)}</span>
       </div>
       {row.limited ? <div className="pl-8 text-xs text-warning">{limitedLabel(row.limited, today)}</div> : null}
-      <div className="pl-8 text-xs text-muted-foreground tabular">
-        <span className="whitespace-nowrap">{formatAmount(row.expected)} buscadas</span>
-        <span className="whitespace-nowrap"> · puntaje {formatAmount(row.expectedValue)}</span>
-        <span className="whitespace-nowrap"> · 50 %: {formatPacks(row.packsFor50)}</span>
-        <span className="whitespace-nowrap"> · 90 %: {formatPacks(row.packsFor90)}</span>
+      {/* Phone review: the separators were inside the unbreakable pieces, so the line could not wrap and ran past
+          the card; now each piece ends with its «·» and a plain space between them lets it wrap. */}
+      <div className="pl-8 text-xs text-muted-foreground tabular" data-testid="pack-line">
+        <span className="whitespace-nowrap">{formatAmount(row.expected)} buscadas ·</span>{' '}
+        <span className="whitespace-nowrap">puntaje {formatAmount(row.expectedValue)} ·</span>{' '}
+        <span className="whitespace-nowrap">50 %: {formatPacks(row.packsFor50)} ·</span>{' '}
+        <span className="whitespace-nowrap">90 %: {formatPacks(row.packsFor90)}</span>
       </div>
       {differs ? (
         <div className="pl-8 text-xs text-warning">

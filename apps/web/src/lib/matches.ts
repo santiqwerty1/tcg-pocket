@@ -15,6 +15,9 @@ export const MODE_LABEL: Record<MatchMode, string> = {
 }
 export const WENT_FIRST_LABEL = { first: 'Empecé yo', second: 'Empezó el rival', unknown: 'Sin dato' } as const
 
+/** Under this many games a rate is «orientativo» (the API's `ORIENTATIVE_BELOW`). */
+export const ORIENTATIVE_BELOW = 30
+
 const valueFormat = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 1 })
 const intervalFormat = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 const countFormat = new Intl.NumberFormat('es-AR')

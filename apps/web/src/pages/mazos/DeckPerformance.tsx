@@ -41,7 +41,7 @@ function ColumnCard({ column }: { column: ComparisonColumn }) {
       ) : (
         <div className="text-sm font-medium text-muted-foreground">sin datos</div>
       )}
-      <p className="mt-auto text-[11px] leading-tight text-muted-foreground">{column.note}</p>
+      <p className="mt-auto break-words text-[11px] leading-tight text-muted-foreground">{column.note}</p>
     </div>
   )
 }

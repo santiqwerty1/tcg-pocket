@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { Fragment, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import type { GameRecord, WinRate } from '@/api/schemas'
 import { Badge } from '@/components/ui/badge'
@@ -19,13 +19,18 @@ export function OrientativeBadge() {
  */
 export function RateDetails({ record, rate }: { record: GameRecord | null; rate: WinRate }) {
   const pieces = [...(record ? [formatRecord(record)] : []), formatSample(rate), `IC ${formatInterval(rate.ci95)}`]
+  // Phone review: the separator went inside the next piece (« · 124 V»), so a line could start with «·»; now each
+  // piece but the last ends with its «·» and a plain space between pieces is where a line wraps.
   return (
     <span className="tabular">
       {pieces.map((piece, index) => (
-        <span key={piece} className="whitespace-nowrap">
-          {index > 0 ? ' · ' : ''}
-          {piece}
-        </span>
+        <Fragment key={piece}>
+          {index > 0 ? ' ' : ''}
+          <span className="whitespace-nowrap">
+            {piece}
+            {index < pieces.length - 1 ? ' ·' : ''}
+          </span>
+        </Fragment>
       ))}
     </span>
   )
@@ -96,7 +101,13 @@ export function RateRows({ rows, empty = 'Sin partidas.' }: { rows: RateRow[]; e
           {row.rate || row.hint ? (
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <span className="min-w-0">
-                {row.hint ? <span className="mr-1">{row.hint} ·</span> : null}
+                {row.hint ? (
+                  <span>
+                    {row.hint}
+                    {'\u00a0·'}
+                  </span>
+                ) : null}
+                {row.hint && row.rate ? ' ' : null}
                 {row.rate ? <RateDetails record={row.record} rate={row.rate} /> : null}
               </span>
               {row.rate?.orientative ? <OrientativeBadge /> : null}

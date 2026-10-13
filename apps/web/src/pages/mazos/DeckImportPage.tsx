@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { missing } from '@/lib/format'
 import { forgetSharedText, sharedText } from '@/lib/shared'
 import { cn } from '@/lib/utils'
 import { draftTitle, draftToDeckInput, isDraftReady, needsEnergyChoice, totalCount } from './deckLogic'
@@ -288,7 +289,7 @@ export function DeckImportPage() {
                             </Badge>
                           ) : (
                             <Badge variant="outline" className="text-warning">
-                              faltan {draft.completeness.missingCount}
+                              {missing(draft.completeness.missingCount)}
                             </Badge>
                           )
                         ) : null}

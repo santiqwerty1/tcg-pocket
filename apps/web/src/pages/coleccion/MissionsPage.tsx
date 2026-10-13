@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { missing } from '@/lib/format'
 import { rarityLabel } from '@/lib/packs'
 import { cn } from '@/lib/utils'
 
@@ -67,7 +68,7 @@ export function MissionsPage() {
               {item.complete ? (
                 <CheckCircle2Icon className="size-4 shrink-0 text-success" aria-label="Completa" />
               ) : (
-                <Badge variant="outline">faltan {item.missingCopies}</Badge>
+                <Badge variant="outline">{missing(item.missingCopies)}</Badge>
               )}
             </div>
             <p className="text-xs text-muted-foreground">

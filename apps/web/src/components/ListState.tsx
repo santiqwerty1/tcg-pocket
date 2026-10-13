@@ -3,12 +3,18 @@ import type { ReactNode } from 'react'
 import { errorMessage } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useOnline } from '@/lib/offlineMatches'
 import { cn } from '@/lib/utils'
 
 export function LoadingRows({ rows = 6, className }: { rows?: number; className?: string }) {
   const ids = Array.from({ length: rows }, (_, i) => `row-${i}`)
+  // Phone review: without signal a query that never loaded waits (paused) and the skeleton stayed with no reason.
+  const online = useOnline()
   return (
     <output className={cn('flex flex-col gap-2', className)} aria-busy="true" aria-label="Cargando">
+      {online ? null : (
+        <p className="text-sm text-muted-foreground">Sin señal: esto se carga cuando vuelva la conexión.</p>
+      )}
       {ids.map((id) => (
         <Skeleton key={id} className="h-12 w-full" />
       ))}

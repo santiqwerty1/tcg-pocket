@@ -6,7 +6,7 @@
  * H-011 (Fase 37): the test is Fisher's exact one (two-sided), not a z test: with 5 to 20 matches a side the normal
  * approximation calls «claro» what is not (4/6 against 0/5: z = 2,29, Fisher p ≈ 0,06).
  */
-import { EMPTY_RECORD, type GameRecord, recordGames } from '../stats/rates.js'
+import { EMPTY_RECORD, formatPercentEs, type GameRecord, recordGames } from '../stats/rates.js'
 import { fisherExact } from '../stats/tests.js'
 import { opponentKey } from './opponents.js'
 import type { MatchFacts } from './types.js'
@@ -64,7 +64,9 @@ const share = (record: GameRecord) => {
   const games = recordGames(record)
   return games === 0 ? null : (record.wins / games) * 100
 }
-const pct = (value: number) => `${Math.round(value)} %`
+// Phone review: one decimal, as every rate next to it (it said «48 %» beside «Empecé yo 48,5 %»).
+const pct = (value: number) => formatPercentEs(value)
+const pointsFormat = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 })
 
 export function turnOrderImpact(matches: readonly Fact[]): TurnOrderImpact {
   const { first, second, unknown } = split(matches)
@@ -98,7 +100,7 @@ export function turnOrderImpact(matches: readonly Fact[]): TurnOrderImpact {
   const p = fisherExact(first.wins, n1 - first.wins, second.wins, n2 - second.wins)
   const clear = p < TURN_ORDER_CLEAR_P
   const better = gap >= 0 ? 'empezando' : 'yendo segundo'
-  const points = Math.round(Math.abs(gap))
+  const points = Math.round(Math.abs(gap) * 10) / 10
   return {
     first,
     second,
@@ -115,8 +117,8 @@ export function turnOrderImpact(matches: readonly Fact[]): TurnOrderImpact {
       (points === 0
         ? 'lo mismo.'
         : clear
-          ? `${points} puntos más ${better}, más de lo que explica el azar.`
-          : `${points} puntos más ${better}, pero puede ser azar.`),
+          ? `${pointsFormat.format(points)} puntos más ${better}, más de lo que explica el azar.`
+          : `${pointsFormat.format(points)} puntos más ${better}, pero puede ser azar.`),
   }
 }
 

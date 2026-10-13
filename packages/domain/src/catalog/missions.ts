@@ -76,6 +76,39 @@ export function parseMissions(
   return { missions, warnings }
 }
 
+/**
+ * Phone review (13/10/2026): the rewards' items in Spanish. The tracker has no Spanish for them, so these are the
+ * app's names, not confirmed against the game in Spanish: Santi reviews them (DECISIONES 56.6). The mission names
+ * stay in English (each one is unique; there is no source for them).
+ */
+export const REWARD_ITEMS_ES: readonly [english: RegExp, spanish: string][] = [
+  [/\bWonder Hourglass\b/gi, 'Reloj de arena maravilla'],
+  [/\bPack Hourglass\b/gi, 'Reloj de arena de sobre'],
+  [/\bShop Ticket\b/gi, 'Ticket de tienda'],
+  [/\bShinedust\b/gi, 'Polvo brillante'],
+  [/\(profile icon\)/gi, '(ícono de perfil)'],
+  [/\(emblem\)/gi, '(emblema)'],
+  [/\(cover\)/gi, '(portada)'],
+  [/\(backdrop\)/gi, '(fondo)'],
+  [/\(playmat\)/gi, '(tapete)'],
+  [/\(card sleeve\)/gi, '(funda)'],
+  [/\(pok[eé]mon coin\)/gi, '(moneda)'],
+]
+
+/** A mission's reward in Spanish, one item after the other («Reloj de arena maravilla ×12, Ticket de tienda»). */
+export function rewardEs(reward: string): string {
+  return reward
+    .split(/<br\s*\/?>/i)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => {
+      let text = item.replace(/(^|,\s*)And\s+/gi, '$1y ')
+      for (const [english, spanish] of REWARD_ITEMS_ES) text = text.replace(english, spanish)
+      return text
+    })
+    .join(', ')
+}
+
 export interface SlotProgress {
   options: CardId[]
   amount: number

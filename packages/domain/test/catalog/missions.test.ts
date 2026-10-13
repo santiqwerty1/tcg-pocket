@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { missionProgress, parseMissions } from '../../src/catalog/index.js'
+import { missionProgress, parseMissions, rewardEs } from '../../src/catalog/index.js'
 import { normalizeImportRows, parseTrackerCsv } from '../../src/collection/index.js'
 import { COLLECTION_CSV_PATH, catalogIndex } from '../helpers/loadFixtures.js'
 
@@ -70,5 +70,35 @@ describe('missions (themed collections, Fase 8)', () => {
       owned,
     )[0]
     expect(twin?.slots[0]?.have).toBe(owned(index.cardById('A1-1')?.stockCardId ?? ''))
+  })
+})
+
+describe('rewards in Spanish (phone review)', () => {
+  it('one item after the other, with the app’s names and the amounts kept', () => {
+    expect(rewardEs('Wonder Hourglass ×36<br />Pack Hourglass ×12<br />Shop Ticket')).toBe(
+      'Reloj de arena maravilla ×36, Reloj de arena de sobre ×12, Ticket de tienda',
+    )
+    expect(rewardEs('Shinedust ×1000')).toBe('Polvo brillante ×1000')
+    expect(rewardEs('Electrode (profile icon)')).toBe('Electrode (ícono de perfil)')
+    expect(rewardEs('And Articuno (emblem)')).toBe('y Articuno (emblema)')
+    expect(rewardEs('Wonder Hourglass ×48<br />Pack Hourglass ×12<br />Moltres, Zapdos, And Articuno (emblem)')).toBe(
+      'Reloj de arena maravilla ×48, Reloj de arena de sobre ×12, Moltres, Zapdos, y Articuno (emblema)',
+    )
+    expect(
+      rewardEs('Mythical Island: Mew (playmat) ×1<br />Mew (pokémon coin) ×1<br />Mythical Island: Mew (cover)'),
+    ).toBe('Mythical Island: Mew (tapete) ×1, Mew (moneda) ×1, Mythical Island: Mew (portada)')
+  })
+
+  it('no English item word is left in any reward of the tracker', () => {
+    const rewards = files
+      .flatMap((file) => JSON.parse(readFileSync(join(dir, file), 'utf8')) as { reward?: string }[])
+      .map((mission) => mission.reward)
+      .filter((reward): reward is string => !!reward)
+    expect(rewards.length).toBeGreaterThan(400)
+    for (const reward of rewards) {
+      expect(rewardEs(reward)).not.toMatch(
+        /Hourglass|Shop Ticket|Shinedust|profile icon|\(emblem\)|\(cover\)|backdrop|playmat|sleeve|coin|\bAnd\b|<br/i,
+      )
+    }
   })
 })

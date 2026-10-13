@@ -25,6 +25,7 @@ import {
   parseTrackerCsv,
   planAdjustmentConversion,
   playableCopies,
+  rewardEs,
   type StockQuantities,
   stockValueOf,
   type TrackerCollectionRow,
@@ -263,7 +264,8 @@ export class CollectionService {
         expansionId: item.mission.expansionId,
         expansionNameEs: index.expansionById(item.mission.expansionId)?.nameEs ?? item.mission.expansionId,
         name: item.mission.name,
-        reward: item.mission.reward,
+        // Phone review: in Spanish (the app's names, to be confirmed by Santi).
+        reward: item.mission.reward === null ? null : rewardEs(item.mission.reward),
         secret: item.mission.secret,
         complete: item.complete,
         missingCopies: item.missingCopies,

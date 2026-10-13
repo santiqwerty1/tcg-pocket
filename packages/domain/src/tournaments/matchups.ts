@@ -367,12 +367,36 @@ export function recentMeta(
   dataset: TournamentDataset,
   days = RECENT_META_DAYS,
   minLists = RECENT_META_MIN_LISTS,
-): { kind: 'recent' | 'era'; days: number; lists: number; shares: { archetypeId: string; share: number }[] } {
+): {
+  kind: 'recent' | 'era'
+  days: number
+  lists: number
+  shares: { archetypeId: string; share: number }[]
+  /** Phone review: the window's first and last tournament dates (the last one loaded), null without lists. */
+  from: Date | null
+  to: Date | null
+} {
   const newest = dataset.entries.reduce((max, entry) => Math.max(max, entry.date.getTime()), 0)
   const from = newest - (days - 1) * 24 * 60 * 60 * 1000
   const recent = dataset.entries.filter((entry) => entry.date.getTime() >= from)
+  const to = newest > 0 ? new Date(newest) : null
   if (recent.length < minLists) {
-    return { kind: 'era', days, lists: dataset.entries.length, shares: metaShares(dataset) }
+    const oldest = dataset.entries.reduce((min, entry) => Math.min(min, entry.date.getTime()), Number.POSITIVE_INFINITY)
+    return {
+      kind: 'era',
+      days,
+      lists: dataset.entries.length,
+      shares: metaShares(dataset),
+      from: Number.isFinite(oldest) ? new Date(oldest) : null,
+      to,
+    }
   }
-  return { kind: 'recent', days, lists: recent.length, shares: metaShares({ ...dataset, entries: recent }) }
+  return {
+    kind: 'recent',
+    days,
+    lists: recent.length,
+    shares: metaShares({ ...dataset, entries: recent }),
+    from: new Date(from),
+    to,
+  }
 }
