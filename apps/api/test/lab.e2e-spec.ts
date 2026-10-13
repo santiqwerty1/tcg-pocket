@@ -1860,6 +1860,35 @@ describe('laboratorio (e2e)', () => {
     await post(`/api/simulations/${id}/cancel`)
   }, 60_000)
 
+  it('T-017 A3: a list says which of its cards the bots play badly; a variant that brings one in says so', async () => {
+    const index = test.app.get(CatalogService).requireIndex()
+    // Pokémon Communication swaps a card for a random Pokémon of the deck; deck 2 does not play it. Chosen by id
+    // (review of #82: not with the function under test).
+    const search = index.cardById('A2-146')
+    if (!search) throw new Error('no Pokémon Communication')
+    const created = await post('/api/lab/explore').send({
+      deck: { deckId: deckIds[1] },
+      size: 3,
+      config: { gamesPerRival: 10, variantsPerRound: 2, maxRounds: 1, confirmGames: 0, verifyGames: 0, pool: 'all' },
+      include: [search.id],
+      seed: 9995,
+    })
+    expect(created.status).toBe(200)
+    const lab = (await get(`/api/lab/jobs/${created.body.id}`)).body
+    const brought = lab.decks.find((deck: { changes: { add: { cardId: string }[] } | null }) =>
+      deck.changes?.add.some((card) => index.cardById(card.cardId)?.functionalGroupId === search.functionalGroupId),
+    )
+    expect(brought).toMatchObject({ bringsBlindSpot: true })
+    expect(
+      brought.blindSpots.some((card: { reasons: string[] }) =>
+        card.reasons.some((reason) => reason.includes('el orden del mazo')),
+      ),
+    ).toBe(true)
+    const base = lab.decks.find((deck: { role: string }) => deck.role === 'base')
+    expect(base.bringsBlindSpot).toBe(false)
+    await post(`/api/simulations/${created.body.id}/cancel`)
+  }, 60_000)
+
   it('review of #22: «Frenar» needs a session', async () => {
     expect((await test.http().post('/api/lab/jobs/1/stop')).status).toBe(401)
   })

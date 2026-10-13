@@ -18,6 +18,8 @@ import {
 } from '@nestjs/common'
 import {
   archetypeRows,
+  BLIND_SPOT_ES,
+  blindSpotsOf,
   buildFromCore,
   buildSnapshot,
   byExpendable,
@@ -68,6 +70,7 @@ import {
   learnedChanges,
   learnedFactor,
   learnSwap,
+  listBlindSpots,
   listKeyByGroup,
   listRows,
   MAX_BASE_SEED,
@@ -2209,6 +2212,17 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               }
             : null,
           why: changes ? whyCards(changes.add, cards, state?.frozen, index, playable) : [],
+          // T-017 A3: the list's cards the bots play badly or the engine approximates; a variant that brings one in says
+          // so («carta con punto ciego»; review of #82: «sensible al bot» is the replay with e3's verdict).
+          blindSpots: listBlindSpots(cards, index).map((card) => ({
+            cardId: card.cardId,
+            nameEs: card.nameEs,
+            reasons: card.spots.map((spot) => BLIND_SPOT_ES[spot]),
+          })),
+          bringsBlindSpot: (changes?.add ?? []).some((change) => {
+            const card = index.cardById(change.cardId)
+            return !!card && blindSpotsOf(card).length > 0
+          }),
           energyChange: (() => {
             const from = state ? (byId.get(state.base)?.energies ?? []) : []
             const to = snapshot.energies

@@ -1741,6 +1741,9 @@ export const labDeckSchema = z.object({
     .object({ from: z.array(z.string()), to: z.array(z.string()) })
     .nullable()
     .default(null),
+  /** T-017 A3: cards the bots play badly or the engine approximates, and whether what came in is one. */
+  blindSpots: z.array(z.object({ cardId: z.string(), nameEs: z.string(), reasons: z.array(z.string()) })).default([]),
+  bringsBlindSpot: z.boolean().default(false),
   /** T-017 E1/E2: why each card that came in was proposed, and the copies the collection lacks. */
   why: z
     .array(
