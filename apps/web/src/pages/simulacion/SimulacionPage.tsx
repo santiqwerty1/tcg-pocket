@@ -21,7 +21,7 @@ import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { formatDate, formatDateTime, shortSha } from '@/lib/format'
+import { formatDate, formatDateTime, PERCENT, shortSha } from '@/lib/format'
 import { useMarkSeen } from '@/lib/seen'
 import { formatDuration, gamesLabel, isActive, KIND_LABEL, progressFraction, STATUS_LABEL } from '@/lib/simulation'
 import { ago } from '@/lib/tournaments'
@@ -222,7 +222,8 @@ function JobRow({ job, onDelete }: { job: JobSummary; onDelete: (job: JobSummary
           <div className="flex items-center gap-2">
             <ProgressBar fraction={progressFraction(job)} />
             <span className="shrink-0 text-xs text-muted-foreground tabular">
-              {Math.floor(progressFraction(job) * 100)} %
+              {Math.floor(progressFraction(job) * 100)}
+              {PERCENT}
               {job.progress.etaSeconds !== null && active ? ` · faltan ${formatDuration(job.progress.etaSeconds)}` : ''}
             </span>
           </div>

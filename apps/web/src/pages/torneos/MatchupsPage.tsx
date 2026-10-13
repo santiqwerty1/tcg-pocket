@@ -81,7 +81,7 @@ function Table({ data, search }: { data: MatchupMatrix; search: string }) {
                     className={cn('px-1.5 py-1 text-right tabular', mirror && 'bg-muted/50')}
                     title={
                       item?.rate
-                        ? `${row.archetype.name} contra ${col.archetype.name}: n = ${item.rate.games}, IC ${formatInterval(item.rate.ci95)}`
+                        ? `${row.archetype.name} contra ${col.archetype.name}: n = ${item.rate.games}, IC\u00a0${formatInterval(item.rate.ci95)}`
                         : undefined
                     }
                   >
@@ -150,10 +150,10 @@ export function MatchupsPage() {
                   <p className="text-xs text-muted-foreground">
                     {formatShare(row.share)} del meta
                     {row.expected
-                      ? ` · con datos: ${formatShare(row.expected.coverage)} del meta, ${row.expected.rivals} rivales (n = ${formatCount(row.expected.matches)}${row.expected.ci95 ? `, IC ${formatInterval(row.expected.ci95)}` : ''}${row.expected.matches < ORIENTATIVE_BELOW ? ', orientativo' : ''})`
+                      ? ` · con datos: ${formatShare(row.expected.coverage)} del meta, ${row.expected.rivals} rivales (n = ${formatCount(row.expected.matches)}${row.expected.ci95 ? `, IC\u00a0${formatInterval(row.expected.ci95)}` : ''}${row.expected.matches < ORIENTATIVE_BELOW ? ', orientativo' : ''})`
                       : ''}
                     {row.field.rate
-                      ? ` · contra todos: ${formatRateValue(row.field.rate.value)} (${formatSample(row.field.rate)}, IC ${formatInterval(row.field.rate.ci95)}${row.field.rate.orientative ? ', orientativo' : ''})`
+                      ? ` · contra todos: ${formatRateValue(row.field.rate.value)} (${formatSample(row.field.rate)}, IC\u00a0${formatInterval(row.field.rate.ci95)}${row.field.rate.orientative ? ', orientativo' : ''})`
                       : ''}
                   </p>
                 </li>

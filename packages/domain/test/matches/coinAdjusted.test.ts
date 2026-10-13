@@ -11,7 +11,7 @@ const games = (wentFirst: boolean | null, wins: number, losses: number, ties = 0
 
 describe('win share adjusted by the coin (Fase 44)', () => {
   it('weighs each side by half, whatever the number of matches on each', () => {
-    // 15 of 20 going first (75 %), 3 of 10 going second (30 %): plain 60 %, adjusted 52,5 %.
+    // 15 of 20 going first (75\u00a0%), 3 of 10 going second (30\u00a0%): plain 60\u00a0%, adjusted 52,5\u00a0%.
     const rate = coinAdjustedRate([...games(true, 15, 5), ...games(false, 3, 7), ...games(null, 4, 0)])
     expect(rate?.value).toBeCloseTo(52.5, 10)
     expect(rate?.plain).toBeCloseTo(60, 10)
@@ -20,7 +20,7 @@ describe('win share adjusted by the coin (Fase 44)', () => {
     expect(rate?.ci95[0]).toBeLessThan(52.5)
     expect(rate?.ci95[1]).toBeGreaterThan(52.5)
     expect(rate?.text).toBe(
-      'Ajustado por la moneda: 52,5 % (n = 30, IC 36,8–69,3 %, orientativo): mitad empezando (75 % en 20) y mitad yendo segundo (30 % en 10). Sin ajustar: 60 %.',
+      'Ajustado por la moneda: 52,5\u00a0% (n = 30, IC\u00a036,8–69,3\u00a0%, orientativo): mitad empezando (75\u00a0% en 20) y mitad yendo segundo (30\u00a0% en 10). Sin ajustar: 60\u00a0%.',
     )
   })
 
@@ -46,7 +46,7 @@ describe('win share adjusted by the coin (Fase 44)', () => {
     expect(none?.ci95[0]).toBe(0)
   })
 
-  it('covers the true adjusted share about 95 % of the time with few matches a side', () => {
+  it('covers the true adjusted share about 95\u00a0% of the time with few matches a side', () => {
     const random = seededRandom(44)
     const truth = { first: 0.6, second: 0.4 }
     let covered = 0

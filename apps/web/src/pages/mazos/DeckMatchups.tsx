@@ -25,7 +25,7 @@ function Rate({ rate, prefix }: { rate: WinRate | null; prefix: string }) {
 
 /** « (IC 40,1–58,3 %, orientativo)», or nothing when there is neither. */
 function sampleNote(ci95: [number, number] | null, orientative: boolean): string {
-  const parts = [ci95 ? `IC ${formatInterval(ci95)}` : null, orientative ? 'orientativo' : null].filter(Boolean)
+  const parts = [ci95 ? `IC\u00a0${formatInterval(ci95)}` : null, orientative ? 'orientativo' : null].filter(Boolean)
   return parts.length > 0 ? ` (${parts.join(', ')})` : ''
 }
 

@@ -272,7 +272,7 @@ describe('tournaments (e2e)', () => {
     for (const core of cards.core) expect(core.share).toBeGreaterThanOrEqual(90)
     for (const tech of cards.techs) expect(tech.with.lists + tech.without.lists).toBe(cards.lists)
     const compared = cards.techs.find((tech) => tech.difference)
-    expect(compared?.difference?.text).toMatch(/puntos \(IC /)
+    expect(compared?.difference?.text).toMatch(/puntos \(IC\u00a0/)
     // Every list counts toward the top 8 or is left out with its tournament (published too little).
     expect((cards.conversion?.lists ?? 0) + (cards.conversion?.excluded.lists ?? 0)).toBe(top?.lists)
     expect(cards.conversion?.text).toMatch(/llegaron al top 8/)

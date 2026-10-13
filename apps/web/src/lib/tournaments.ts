@@ -2,6 +2,7 @@
 
 import type { TournamentFormat } from '@/api/schemas'
 import type { TournamentScopeParams } from '@/api/tournaments'
+import { PERCENT } from '@/lib/format'
 
 const shareFormat = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 })
 const countFormat = new Intl.NumberFormat('es-AR')
@@ -27,7 +28,7 @@ export function staleTournaments(newest: string | null, now: number = Date.now()
 }
 
 export function formatShare(value: number): string {
-  return `${shareFormat.format(value)} %`
+  return `${shareFormat.format(value)}${PERCENT}`
 }
 
 export function formatCount(value: number): string {

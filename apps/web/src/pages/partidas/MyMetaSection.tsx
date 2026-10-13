@@ -38,7 +38,7 @@ function Body({ mode, days }: { mode?: MatchMode | undefined; days?: number | un
               </div>
               <span className="text-xs text-muted-foreground tabular">
                 {row.games} {row.games === 1 ? 'partida' : 'partidas'}
-                {row.ci95 ? ` · IC ${formatInterval(row.ci95)}` : ''}
+                {row.ci95 ? ` · IC\u00a0${formatInterval(row.ci95)}` : ''}
               </span>
             </li>
           ))}

@@ -46,7 +46,7 @@ const points = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1, signDi
 function formatRho(correlation: RankCorrelation | null, unit: string): string {
   if (!correlation) return 'sin datos suficientes'
   const interval = correlation.ci95
-    ? `IC ${decimal.format(correlation.ci95[0])}–${decimal.format(correlation.ci95[1])}; `
+    ? `IC\u00a0${decimal.format(correlation.ci95[0])}–${decimal.format(correlation.ci95[1])}; `
     : ''
   return `ρ = ${decimal.format(correlation.rho)} (${interval}${correlation.n} ${unit})`
 }
@@ -54,7 +54,7 @@ function formatRho(correlation: RankCorrelation | null, unit: string): string {
 /** «55,6 % (n = 120, IC 47,2–64,0 %, orientativo)» for a weighted mean of rates. */
 function formatWeighted(rate: WeightedRate | null): string {
   if (!rate) return 'sin datos'
-  const parts = [`n = ${rate.games}`, `IC ${formatInterval(rate.ci95)}`]
+  const parts = [`n = ${rate.games}`, `IC\u00a0${formatInterval(rate.ci95)}`]
   if (rate.orientative) parts.push('orientativo')
   return `${formatRateValue(rate.value)} (${parts.join(', ')})`
 }
@@ -62,7 +62,7 @@ function formatWeighted(rate: WeightedRate | null): string {
 /** «+5,0 pts (IC −8,9 a +18,9)». */
 function formatDifference(value: number | null, ci95: [number, number] | null): string {
   if (value === null) return '—'
-  const interval = ci95 ? ` (IC ${points.format(ci95[0])} a ${points.format(ci95[1])})` : ''
+  const interval = ci95 ? ` (IC\u00a0${points.format(ci95[0])} a ${points.format(ci95[1])})` : ''
   return `${points.format(value)} pts${interval}`
 }
 

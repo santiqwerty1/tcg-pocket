@@ -20,7 +20,7 @@
  * dataset, and Limitless's `phases` do not say its size reliably. Only tournaments of 32 players or more count.
  * Lists without a placing (drops) did not reach it.
  */
-import { wilsonInterval, Z_95 } from '../stats/rates.js'
+import { PERCENT_ES, wilsonInterval, Z_95 } from '../stats/rates.js'
 import type { TournamentDataset } from './dataset.js'
 
 export const TOP_CUT_PLACES = 8
@@ -66,7 +66,7 @@ interface Stratum {
   mineTop: number
 }
 
-const percent = (value: number) => `${Math.round(value).toLocaleString('es-AR')} %`
+const percent = (value: number) => `${Math.round(value).toLocaleString('es-AR')}${PERCENT_ES}`
 const decimal = (value: number) => value.toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString('es-AR')} ${n === 1 ? one : many}`
 
@@ -181,7 +181,7 @@ export function topConversion(
     ratio = mh.ratio
     ratioCi95 = [mh.ratio / spread, mh.ratio * spread]
   }
-  const ci = `IC ${Math.round(low * 100).toLocaleString('es-AR')}–${percent(high * 100)}`
+  const ci = `IC\u00a0${Math.round(low * 100).toLocaleString('es-AR')}–${percent(high * 100)}`
   const verdict =
     ratioCi95 === null
       ? ''
@@ -210,7 +210,7 @@ export function topConversion(
       `en sus torneos, al ritmo del resto del campo, se esperaban ${decimal(expected)}` +
       (ratio === null || ratioCi95 === null
         ? '.'
-        : `; razón ajustada por torneo: ${decimal(ratio)}× (IC ${decimal(ratioCi95[0])}–${decimal(ratioCi95[1])}).`) +
+        : `; razón ajustada por torneo: ${decimal(ratio)}× (IC\u00a0${decimal(ratioCi95[0])}–${decimal(ratioCi95[1])}).`) +
       verdict +
       leftOut,
   }

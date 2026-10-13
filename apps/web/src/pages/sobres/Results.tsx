@@ -255,7 +255,7 @@ function CompletionRow({ deck }: { deck: DeckCompletion }) {
           {pack.covered === deck.missingCopies ? 'todas' : `${pack.covered} de ${deck.missingCopies}`} en ~
           {formatExpectedPacks(pack.expectedPacks)} sobres
           {pack.method === 'simulation' && pack.ci95
-            ? ` (simulación, IC ${formatAmount(pack.ci95[0])}–${formatAmount(pack.ci95[1])})`
+            ? ` (simulación, IC\u00a0${formatAmount(pack.ci95[0])}–${formatAmount(pack.ci95[1])})`
             : ''}
           {pack.limited ? ' · tiempo limitado' : ''}
         </div>

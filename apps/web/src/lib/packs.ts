@@ -1,5 +1,6 @@
 /** Formatting of the packs page. Probabilities arrive in percent (0–100). */
 import type { PackModel } from '@/api/schemas'
+import { PERCENT } from '@/lib/format'
 
 const significant = new Intl.NumberFormat('es-AR', { maximumSignificantDigits: 3 })
 const twoDecimals = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 })
@@ -7,8 +8,8 @@ const integer = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 })
 
 /** «1,43 %», «96,5 %», «0,099 %»: three significant digits. */
 export function formatChance(percent: number): string {
-  if (percent === 0) return '0 %'
-  return `${significant.format(percent)} %`
+  if (percent === 0) return `0${PERCENT}`
+  return `${significant.format(percent)}${PERCENT}`
 }
 
 export function formatAmount(value: number): string {

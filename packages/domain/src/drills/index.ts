@@ -12,6 +12,7 @@
 import type { EnergyType } from '../catalog/types.js'
 import { type DrawGroup, drawOdds } from '../decks/drawOdds.js'
 import { seededRandom } from '../lab/mutate.js'
+import { PERCENT_ES } from '../stats/rates.js'
 
 export const DRILL_KINDS = ['draw', 'ko'] as const
 export type DrillKind = (typeof DRILL_KINDS)[number]
@@ -91,7 +92,7 @@ function percentChoices(exact: number, random: () => number): { choices: string[
     if (Math.abs((values[i] ?? 0) - value) < Math.abs((values[answer] ?? 0) - value)) answer = i
   }
   values[answer] = value
-  return { choices: values.map((v) => `${v} %`), answer }
+  return { choices: values.map((v) => `${v}${PERCENT_ES}`), answer }
 }
 
 const TURN_ES = (turn: number) => (turn === 0 ? 'en la mano inicial' : `al empezar tu turno ${turn} (después de robar)`)

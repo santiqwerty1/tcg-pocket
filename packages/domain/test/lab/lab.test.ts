@@ -228,7 +228,7 @@ describe('meta bank', () => {
       ],
       { now },
     )
-    // A match 14 days ago weighs half: a = 1 + ½, b = 1, so 60 % and 40 %.
+    // A match 14 days ago weighs half: a = 1 + ½, b = 1, so 60\u00a0% and 40\u00a0%.
     const bank = customGauntlet(
       dataset,
       mine.shares.map((share) => ({ archetypeId: share.archetypeId, weight: share.share })),
@@ -287,7 +287,7 @@ describe('meta score', () => {
     expect(score.coverage).toBe(1)
     expect(score.ci95[0]).toBeLessThan(50)
     expect(score.ci95[1]).toBeGreaterThan(50)
-    expect(formatMetaScoreEs(score)).toMatch(/^50 % contra el meta \(n = 200, IC \d+,\d–\d+,\d %\)$/)
+    expect(formatMetaScoreEs(score)).toMatch(/^50\u00a0% contra el meta \(n = 200, IC\u00a0\d+,\d–\d+,\d\u00a0%\)$/)
   })
 
   it('renormalizes over the rivals with games and says how much of the bank that is', () => {
@@ -606,9 +606,9 @@ describe('search rules', () => {
   it('H-010: the verification and the confirmation ask for a clear win on fresh games', () => {
     const score = (wins: number, games: number) =>
       metaScore([{ weight: 1, record: { wins, losses: games - wins, ties: 0 } }])
-    // 60 % against 50 % over 400 games each: ~2,8 standard errors apart.
+    // 60\u00a0% against 50\u00a0% over 400 games each: ~2,8 standard errors apart.
     expect(verifyAccepts(score(240, 400), score(200, 400), 1.645)).toBe(true)
-    // 53 % against 50 %: not enough.
+    // 53\u00a0% against 50\u00a0%: not enough.
     expect(verifyAccepts(score(212, 400), score(200, 400), 1.645)).toBe(false)
     expect(verifyAccepts(null, score(200, 400), 1.645)).toBe(false)
 
@@ -621,7 +621,7 @@ describe('search rules', () => {
     expect(confirmVerdict(null, score(200, 400), 1.645)).toBeNull()
 
     const difference = scoreDifference(score(240, 400) as MetaScore, score(200, 400) as MetaScore)
-    expect(formatDifferenceEs(difference)).toMatch(/^\+10,0 puntos \(IC \+\d+,\d a \+\d+,\d\)$/u)
-    expect(formatDifferenceEs({ value: -2.5, se: 1, ci95: [-4.5, -0.5] })).toBe('−2,5 puntos (IC −4,5 a −0,5)')
+    expect(formatDifferenceEs(difference)).toMatch(/^\+10,0 puntos \(IC\u00a0\+\d+,\d a \+\d+,\d\)$/u)
+    expect(formatDifferenceEs({ value: -2.5, se: 1, ci95: [-4.5, -0.5] })).toBe('−2,5 puntos (IC\u00a0−4,5 a −0,5)')
   })
 })

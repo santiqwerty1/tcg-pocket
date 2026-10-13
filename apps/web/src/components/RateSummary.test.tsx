@@ -20,7 +20,7 @@ describe('rate details on a phone (phone review: a line started with «·»)', (
     const pieces = [...container.querySelectorAll('span.whitespace-nowrap')].map((piece) => piece.textContent)
     expect(pieces.length).toBe(3)
     for (const piece of pieces.slice(0, -1)) expect(piece).toMatch(/ ·$/)
-    expect(pieces.at(-1)).toMatch(/^IC /)
+    expect(pieces.at(-1)).toMatch(/^IC\u00a0/)
     for (const piece of pieces) expect(piece).not.toMatch(/^ ?·/)
     // The text between two pieces is a plain (breakable) space.
     const outer = container.firstElementChild as HTMLElement

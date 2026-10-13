@@ -105,7 +105,7 @@ export function MatchStatsPage() {
                       hint: [
                         row.deck.archived ? 'archivado' : null,
                         row.coinAdjusted
-                          ? `con la moneda pareja ${formatRateValue(row.coinAdjusted.value)} (n = ${row.coinAdjusted.games}, IC ${formatInterval(row.coinAdjusted.ci95)}${row.coinAdjusted.orientative ? ', orientativo' : ''})`
+                          ? `con la moneda pareja ${formatRateValue(row.coinAdjusted.value)} (n = ${row.coinAdjusted.games}, IC\u00a0${formatInterval(row.coinAdjusted.ci95)}${row.coinAdjusted.orientative ? ', orientativo' : ''})`
                           : null,
                       ]
                         .filter(Boolean)

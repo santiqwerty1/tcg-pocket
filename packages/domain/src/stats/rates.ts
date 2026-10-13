@@ -171,13 +171,19 @@ const intervalFormat = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 1
 const countFormat = new Intl.NumberFormat('es-AR')
 
 /** «70 %», «66,7 %»: at most one decimal. */
+/**
+ * The space before «%» does not break (phone review, 13/10/2026: «48⏎%» on a narrow line). The same one as
+ * `Intl.NumberFormat('es-AR', { style: 'percent' })`.
+ */
+export const PERCENT_ES = '\u00a0%'
+
 export function formatPercentEs(value: number): string {
-  return `${percentFormat.format(value)} %`
+  return `${percentFormat.format(value)}${PERCENT_ES}`
 }
 
 /** «39,7–89,2 %»: always one decimal (DECISIONES 0.10). */
 export function formatIntervalEs([lo, hi]: readonly [number, number]): string {
-  return `${intervalFormat.format(lo)}–${intervalFormat.format(hi)} %`
+  return `${intervalFormat.format(lo)}–${intervalFormat.format(hi)}${PERCENT_ES}`
 }
 
 /**
@@ -188,7 +194,7 @@ export function formatWinRateEs(rate: WinRate | null): string {
   if (!rate) return 'sin datos'
   const parts = [`n = ${countFormat.format(rate.games)}`]
   if (rate.sampleKind === 'lists') parts[0] = `${parts[0]} en ${countFormat.format(rate.samples)} listas`
-  parts.push(`IC ${formatIntervalEs(rate.ci95)}`)
+  parts.push(`IC\u00a0${formatIntervalEs(rate.ci95)}`)
   if (rate.orientative) parts.push('orientativo')
   return `${formatPercentEs(rate.value)} (${parts.join(', ')})`
 }

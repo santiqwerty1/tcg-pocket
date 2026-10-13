@@ -28,7 +28,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { formatDateTime, formatNumber } from '@/lib/format'
+import { formatDateTime, formatNumber, PERCENT } from '@/lib/format'
 import { useMarkSeen } from '@/lib/seen'
 import { formatDuration, isActive, progressFraction } from '@/lib/simulation'
 import { ProgressBar, StatusBadge } from '../simulacion/SimulacionPage'
@@ -39,7 +39,7 @@ export const LAB_NOTE =
 
 const SIZES = [5, 10, 15, 20] as const
 
-const pct = (value: number) => `${value.toLocaleString('es-AR', { maximumFractionDigits: 1 })} %`
+const pct = (value: number) => `${value.toLocaleString('es-AR', { maximumFractionDigits: 1 })}${PERCENT}`
 
 function BankList({ bank }: { bank: LabBank }) {
   const { objective } = bank

@@ -18,7 +18,7 @@ export function OrientativeBadge() {
  * piece is unbreakable so a narrow screen wraps between pieces, never inside the interval.
  */
 export function RateDetails({ record, rate }: { record: GameRecord | null; rate: WinRate }) {
-  const pieces = [...(record ? [formatRecord(record)] : []), formatSample(rate), `IC ${formatInterval(rate.ci95)}`]
+  const pieces = [...(record ? [formatRecord(record)] : []), formatSample(rate), `IC\u00a0${formatInterval(rate.ci95)}`]
   // Phone review: the separator went inside the next piece (« · 124 V»), so a line could start with «·»; now each
   // piece but the last ends with its «·» and a plain space between pieces is where a line wraps.
   return (

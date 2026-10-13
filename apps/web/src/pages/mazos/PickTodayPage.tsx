@@ -53,7 +53,7 @@ function Row({
             {row.tournament.ci95 ? (
               <>
                 {' '}
-                (IC {formatInterval(row.tournament.ci95)}
+                (IC&nbsp;{formatInterval(row.tournament.ci95)}
                 {mine?.orientative || row.tournament.matches < ORIENTATIVE_BELOW ? ', orientativo' : ''})
               </>
             ) : null}{' '}
@@ -68,7 +68,7 @@ function Row({
         {row.mine?.rate ? (
           <>
             <span className="font-semibold tabular">{formatRateValue(row.mine.rate.value)}</span> · n ={' '}
-            {row.mine.rate.games}, IC {formatInterval(row.mine.rate.ci95)}
+            {row.mine.rate.games}, IC&nbsp;{formatInterval(row.mine.rate.ci95)}
             {row.mine.rate.orientative ? ', orientativo' : ''}
           </>
         ) : (
@@ -78,7 +78,8 @@ function Row({
       <Line label="Laboratorio" active={sort === 'lab'}>
         {row.lab ? (
           <>
-            <span className="font-semibold tabular">{formatRateValue(row.lab.value)}</span> · n = {row.lab.games}, IC{' '}
+            <span className="font-semibold tabular">{formatRateValue(row.lab.value)}</span> · n = {row.lab.games}, IC
+            {'\u00a0'}
             {formatInterval(row.lab.ci95)} ·{' '}
             <Link to={`/laboratorio/${row.lab.jobId}`} className="text-primary hover:underline">
               #{row.lab.jobId}

@@ -370,7 +370,12 @@ describe('MCP endpoint (e2e)', () => {
     const stats = await call(client, 'matches_stats', { deck: '2' })
     expect(stats.structuredContent.overall).toMatchObject({
       record: { wins: 7, losses: 3, ties: 0 },
-      rate: { text: '70 % (n = 10, IC 39,7–89,2 %, orientativo)', value: 70, games: 10, source: 'matches' },
+      rate: {
+        text: '70\u00a0% (n = 10, IC\u00a039,7–89,2\u00a0%, orientativo)',
+        value: 70,
+        games: 10,
+        source: 'matches',
+      },
     })
     expect(stats.structuredContent.source).toContain('no incluye torneos')
     const recent = await call(client, 'matches_list', { limit: 3 })

@@ -51,7 +51,7 @@ describe('replay reader', () => {
   })
 
   it('shows the bot scores as percentages when they are probabilities, as numbers otherwise', () => {
-    expect(scoreLabels([0.05, 0.9, 0.05], 3)).toEqual(['5 %', '90 %', '5 %'])
+    expect(scoreLabels([0.05, 0.9, 0.05], 3)).toEqual(['5\u00a0%', '90\u00a0%', '5\u00a0%'])
     expect(scoreLabels([1.5, -2], 2)).toEqual(['1,5', '-2'])
     expect(scoreLabels([0.5], 2)).toBeNull()
     expect(scoreLabels(null, 2)).toBeNull()

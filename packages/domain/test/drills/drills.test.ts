@@ -65,7 +65,7 @@ describe('ejercicios de cálculo (Fase 30)', () => {
     )
     expect(single).toBeDefined()
     const exact = drawOdds({ deckSize: 20, basics: 3, groups: [{ basic: 0, other: 2 }], turns: 2 }).rows[2]?.each[0]
-    expect(single?.choices[single.answer]).toBe(`${Math.round((exact ?? 0) * 100)} %`)
+    expect(single?.choices[single.answer]).toBe(`${Math.round((exact ?? 0) * 100)}\u00a0%`)
     expect(single?.explanation).toMatch(/^Es \d+ %\. Cuenta rápida: 1 − P\(ninguna en 7 de 20\)/)
   })
 

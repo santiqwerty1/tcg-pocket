@@ -32,7 +32,7 @@ describe('«mi meta» (Fase 44)', () => {
     expect(blaziken?.ci95[1]).toBeGreaterThan(blaziken?.share ?? 100)
     expect(blaziken?.ci95[1]).toBeLessThanOrEqual(100)
     expect(meta.text).toBe(
-      'Tu meta (12 partidas contra arquetipos de torneo, 10,8 efectivas, porque las recientes pesan más; orientativo): Mega Blaziken ex 66,7 % (IC 37,8–86,8 %), Hoopa ex 33,3 % (IC 13,2–62,2 %).',
+      'Tu meta (12 partidas contra arquetipos de torneo, 10,8 efectivas, porque las recientes pesan más; orientativo): Mega Blaziken ex 66,7\u00a0% (IC\u00a037,8–86,8\u00a0%), Hoopa ex 33,3\u00a0% (IC\u00a013,2–62,2\u00a0%).',
     )
   })
 

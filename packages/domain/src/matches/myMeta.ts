@@ -128,7 +128,7 @@ export function myMeta(
   const orientative = effective < ORIENTATIVE_BELOW - 1e-9
   const top = shares
     .slice(0, 3)
-    .map((row) => `${row.name} ${formatPercentEs(row.share)} (IC ${formatIntervalEs(row.ci95)})`)
+    .map((row) => `${row.name} ${formatPercentEs(row.share)} (IC\u00a0${formatIntervalEs(row.ci95)})`)
     .join(', ')
   const effectiveText = `${countFormat.format(effective)} efectivas, porque las recientes pesan más`
   return {

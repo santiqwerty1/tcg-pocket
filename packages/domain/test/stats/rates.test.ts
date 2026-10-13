@@ -66,14 +66,14 @@ describe('wilsonInterval', () => {
 })
 
 describe('matchWinRate', () => {
-  it('PLAN §7 Fase 2: 7 wins in 10 → «70 % (n = 10, IC 39,7–89,2 %, orientativo)»', () => {
+  it('PLAN §7 Fase 2: 7 wins in 10 → «70\u00a0% (n = 10, IC\u00a039,7–89,2\u00a0%, orientativo)»', () => {
     const rate = matchWinRate({ wins: 7, losses: 3, ties: 0 })
     expect(rate).not.toBeNull()
     expect(rate).toMatchObject({ source: 'matches', value: 70, games: 10, samples: 10, sampleKind: 'matches' })
     expect(rate?.orientative).toBe(true)
     expect(rate?.ci95[0]).toBeCloseTo(39.68, 2)
     expect(rate?.ci95[1]).toBeCloseTo(89.22, 2)
-    expect(formatWinRateEs(rate)).toBe('70 % (n = 10, IC 39,7–89,2 %, orientativo)')
+    expect(formatWinRateEs(rate)).toBe('70\u00a0% (n = 10, IC\u00a039,7–89,2\u00a0%, orientativo)')
   })
 
   it('counts ties as games that are not wins (WR = W / (W + L + T))', () => {
@@ -83,7 +83,7 @@ describe('matchWinRate', () => {
     expect(matchWinRate({ wins: 0, losses: 0, ties: 4 })?.value).toBe(0)
   })
 
-  it('is null without games: the UI says «sin datos», never «0 %»', () => {
+  it('is null without games: the UI says «sin datos», never «0\u00a0%»', () => {
     expect(matchWinRate({ wins: 0, losses: 0, ties: 0 })).toBeNull()
     expect(formatWinRateEs(null)).toBe('sin datos')
   })
@@ -93,7 +93,7 @@ describe('matchWinRate', () => {
     expect(matchWinRate({ wins: 15, losses: 14, ties: 0 })?.orientative).toBe(true)
     const thirty = matchWinRate({ wins: 15, losses: 15, ties: 0 })
     expect(thirty?.orientative).toBe(false)
-    expect(formatWinRateEs(thirty)).toBe('50 % (n = 30, IC 33,2–66,8 %)')
+    expect(formatWinRateEs(thirty)).toBe('50\u00a0% (n = 30, IC\u00a033,2–66,8\u00a0%)')
   })
 
   it('rejects negative or fractional records', () => {
@@ -107,18 +107,20 @@ describe('winRate for other sources', () => {
     // Plan §7 Fase 5 example: 268 games of an exact list; with 40 lists it is not orientative.
     const rate = winRate('tournament', { wins: 137, losses: 126, ties: 5 }, 40, 'lists')
     expect(rate).toMatchObject({ source: 'tournament', games: 268, samples: 40, orientative: false })
-    expect(formatWinRateEs(rate)).toBe('51,1 % (n = 268 en 40 listas, IC 45,2–57,0 %)')
+    expect(formatWinRateEs(rate)).toBe('51,1\u00a0% (n = 268 en 40 listas, IC\u00a045,2–57,0\u00a0%)')
     expect(winRate('tournament', { wins: 137, losses: 126, ties: 5 }, 12, 'lists')?.orientative).toBe(true)
   })
 })
 
 describe('formatting', () => {
   it('uses Spanish decimals, one at most for the value and exactly one for the interval', () => {
-    expect(formatPercentEs(70)).toBe('70 %')
-    expect(formatPercentEs(200 / 3)).toBe('66,7 %')
-    expect(formatPercentEs(69.96)).toBe('70 %')
-    expect(formatIntervalEs([0, 27.75])).toBe('0,0–27,8 %')
-    expect(formatWinRateEs(matchWinRate({ wins: 617, losses: 600, ties: 17 }))).toBe('50 % (n = 1.234, IC 47,2–52,8 %)')
+    expect(formatPercentEs(70)).toBe('70\u00a0%')
+    expect(formatPercentEs(200 / 3)).toBe('66,7\u00a0%')
+    expect(formatPercentEs(69.96)).toBe('70\u00a0%')
+    expect(formatIntervalEs([0, 27.75])).toBe('0,0–27,8\u00a0%')
+    expect(formatWinRateEs(matchWinRate({ wins: 617, losses: 600, ties: 17 }))).toBe(
+      '50\u00a0% (n = 1.234, IC\u00a047,2–52,8\u00a0%)',
+    )
   })
 
   it('adds records field by field', () => {

@@ -11,6 +11,7 @@ import { ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { PERCENT } from '@/lib/format'
 import { formatInterval, formatRateValue, formatSample } from '@/lib/matches'
 import { formatDayEs, formatShare, scopeFromSearch, scopeSearch, staleTournaments } from '@/lib/tournaments'
 import { cn } from '@/lib/utils'
@@ -22,7 +23,7 @@ function tournamentsLabel(count: number): string {
 }
 
 function points(value: number): string {
-  const text = formatShare(Math.abs(value)).replace(' %', '')
+  const text = formatShare(Math.abs(value)).replace(PERCENT, '')
   return `${value >= 0 ? '+' : '−'}${text} pts`
 }
 
@@ -91,7 +92,7 @@ function split(data: MetaTrends, search: string) {
     isNew: row.isNew,
     // Phone review: every percentage with its n and interval (and «orientativo» under 30).
     extra: row.rate
-      ? `gana ${formatRateValue(row.rate.value)} en esos días (${formatSample(row.rate)}, IC ${formatInterval(row.rate.ci95)}${row.rate.orientative ? ', orientativo' : ''})`
+      ? `gana ${formatRateValue(row.rate.value)} en esos días (${formatSample(row.rate)}, IC\u00a0${formatInterval(row.rate.ci95)}${row.rate.orientative ? ', orientativo' : ''})`
       : undefined,
   }))
   const cards: Row[] = data.cards.map((row) => ({

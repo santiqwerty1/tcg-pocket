@@ -100,7 +100,7 @@ export function SimulationAnalysisPage() {
       <div>
         <h1 className="text-2xl font-bold">Análisis de simulaciones</h1>
         <p className="text-sm text-muted-foreground">
-          Resultados de bots. Cada porcentaje con n e IC 95 %; orientativo con menos de 30 partidas. El resultado
+          Resultados de bots. Cada porcentaje con n e IC 95&nbsp;%; orientativo con menos de 30 partidas. El resultado
           depende del bot y del motor.
         </p>
       </div>
@@ -247,7 +247,7 @@ export function SimulationAnalysisPage() {
             ) : null}
             {correlation ? (
               <p>
-                Spearman ρ = {decimal(correlation.rho)} · n = {correlation.n} listas · IC 95 %{' '}
+                Spearman ρ = {decimal(correlation.rho)} · n = {correlation.n} listas · IC 95&nbsp;%{' '}
                 {correlation.ci95 ? correlation.ci95.map(decimal).join(' a ') : 'no estimable'}
                 {view.agreement?.orientative ? ' · orientativo' : ''}
               </p>
@@ -265,13 +265,13 @@ export function SimulationAnalysisPage() {
                     {c.label}: {points(c.difference.value)} puntos
                   </strong>
                   <p>
-                    IC 95 % {c.difference.ci95.map(points).join(' a ')} puntos · n = {formatNumber(c.before.games)}/
-                    {formatNumber(c.after.games)} · {c.rivals} rivales comunes{c.orientative ? ' · orientativo' : ''}
+                    IC 95&nbsp;% {c.difference.ci95.map(points).join(' a ')} puntos · n = {formatNumber(c.before.games)}
+                    /{formatNumber(c.after.games)} · {c.rivals} rivales comunes{c.orientative ? ' · orientativo' : ''}
                   </p>
                   <p className="text-muted-foreground">
                     Posición {decimal(c.rankBefore)} → {decimal(c.rankAfter)} · referencia{' '}
-                    {formatRateValue(c.before.value)} (IC {formatInterval(c.before.ci95)}, n ={' '}
-                    {formatNumber(c.before.games)}) · comparación {formatRateValue(c.after.value)} (IC{' '}
+                    {formatRateValue(c.before.value)} (IC&nbsp;{formatInterval(c.before.ci95)}, n ={' '}
+                    {formatNumber(c.before.games)}) · comparación {formatRateValue(c.after.value)} (IC{'\u00a0'}
                     {formatInterval(c.after.ci95)}, n = {formatNumber(c.after.games)})
                   </p>
                 </li>
@@ -326,7 +326,7 @@ export function SimulationAnalysisPage() {
                 <p>Gana quien empieza segundo: {formatRate(games.second)}</p>
                 {games.firstAdvantage ? (
                   <p>
-                    Ventaja de primero: {points(games.firstAdvantage.value)} puntos (IC 95 %{' '}
+                    Ventaja de primero: {points(games.firstAdvantage.value)} puntos (IC 95&nbsp;%{' '}
                     {games.firstAdvantage.ci95.map(points).join(' a ')}; n = {formatNumber(games.firstAdvantage.n)}
                     {games.firstAdvantage.orientative ? '; orientativo' : ''}).
                   </p>
@@ -335,7 +335,7 @@ export function SimulationAnalysisPage() {
                 {games.duration ? (
                   <>
                     <p>
-                      Duración media: {decimal(games.duration.mean)} turnos (IC 95 %{' '}
+                      Duración media: {decimal(games.duration.mean)} turnos (IC 95&nbsp;%{' '}
                       {games.duration.ci95 ? games.duration.ci95.map(decimal).join(' a ') : 'no estimable'}; n ={' '}
                       {formatNumber(games.duration.n)}
                       {games.duration.orientative ? '; orientativo' : ''}).
