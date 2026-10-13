@@ -67,7 +67,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # CI only (job «wasm»): the native tests of the browser's engine (the code the .wasm runs) and the smoke test of the
 # build in Node (whole games, a rebuild from the choices, the coach).
 FROM wasm-engine AS wasm-check
-RUN apt-get update && apt-get install -y --no-install-recommends nodejs && rm -rf /var/lib/apt/lists/*
+# The app's Node (24, as in the build stage): Debian's is 18, which reads the module wasm-bindgen writes (an ES module
+# in a .js file) as CommonJS.
+COPY --from=node:24-bookworm-slim /usr/local/bin/node /usr/local/bin/node
 COPY LICENSE /repo/LICENSE
 COPY scripts/build-engine-wasm.mjs /repo/scripts/build-engine-wasm.mjs
 # The golden games of engine-cli: the browser's engine, natively, must play the same live games (tests/golden.rs).
