@@ -154,12 +154,26 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 - **Los CLI de producción son seguros desde #75 (45.51):** modo CLI (`env.cli`), sin `ScheduleModule` ni los hooks de arranque que cambian estado; se pueden correr con la API viva.
 - **deckgym upstream (H-051, H-052):** bcollazo/deckgym-core#396 («et»), #397 (`DiscardFossil` duplicado) y #398 (pánico sin Activo, que hace fallar siempre un cruce de la calibración #27). Los dos últimos, con el OK de Santi del 12/10. Purugly y Miraculous Memory no son bugs.
 - **Producción al 12/10/2026:** desplegada hasta `b0c3627` (#77); engine-cli 0.3.6 y worker 0.3.5, que llegan solos a los workers.
+- **Integrados el 13/10/2026:** #78–#91 y #93.
+  - Laboratorio: C3 (#78), A3 (#82) y C8 (#84); T-017 queda con H-050 y el visto bueno de Santi.
+  - Calibración: hasta 30 arquetipos (#83), caché del informe (#85) e informe e2/f2 (#81). D-029: e2 sigue por defecto.
+  - Jugar contra el bot en el navegador, con el motor en WebAssembly (#86, T-015): una sola partida en vivo para worker y navegador, CSP acotada al worker del motor (`/assets/engine.worker-*.js`), `/engine/` con sesión y migración `20261013200000_live_game_runner`.
+  - Revisión en el celu y formato de números con NBSP antes de «%» (#87, #90).
+  - Chat con salas (#88): «tcg» por defecto y «posta» nueva, `sala` en `chat_read`/`chat_write`, `otrasSalas`, refs con la PC; `room_since` (#93) para sumarse más tarde.
+  - Flujo nuevo (#89, `docs/REVISION.md`) y `pnpm decisiones` (#91): las decisiones de un PR van en `docs/decisiones/pendientes/<rama>.md` y las numera el Coordinador al integrar.
+- **Chat desde el 13/10/2026:**
+  - salas «tcg» (carpeta del chat) y «posta» (`salas/posta/`);
+  - el Coordinador y Principal están en las dos y esperan cada sala con su propio `wait`;
+  - el despachador de Codex-Posta lee «posta» y, como el de Codex-Revisor, avisa solo (`Re: [tomado|terminó|falló]`, tope de 90 min);
+  - la ventana `chat-app.ps1 -Sala <sala>` muestra la sala en el título, con accesos «Chat TCG» y «Chat Posta» en el escritorio.
+  - D-030: el chat sale de tcg-pocket a un hub propio (incremento 5 de Posta adelantado); D1–D9 del plan esperan a Santi.
+- **Producción al 13/10/2026:** hasta `c893bf4` (#93). UptimeRobot vigila `/healthz` (R-011), la copia en Tigris anda desde el 13/10 (R-006) y la sincronización automática del tracker está prendida (D-028, aprobada).
 - **Pendientes** (detalle en Avance):
-  - `worker-timing --days 7` y «dos lugares por worker»; el informe de calibración e2/f2 (`Calibracion-2026-10-12.md`, P-009);
-  - el cruce fallado de la calibración #35, con «Reintentar lo que falló»;
-  - el Ryzen, el martes 13/10, y Termux «Sin restricciones» en el celu (Santi);
-  - el worker del navegador (#57, rama trasladada) y C3, A3 y C8 del laboratorio;
-  - la primera subida buena a Tigris (R-006) y UptimeRobot (38).
+  - Santi: D1–D9 del hub de chat (D-030), las traducciones de los premios de las misiones, y esta noche el Ryzen (worker nuevo, Codex-Revisor, runner Windows de Posta, limpiar sus runners viejos) y el runner Windows de Posta en esta PC;
+  - integrar #92 (control de privacidad en la CI) y #94 (formato de números, parte 2);
+  - el arreglo del S25: diagnóstico del código 0 y retomar desde la partida N (H-054), y después «dos lugares por worker»;
+  - H-050 y las traducciones (Laboratorio); el catálogo que queda «running» (Principal);
+  - la calibración grande para D-029 y el seguimiento de deckgym upstream.
 - **Visto bueno de Santi para todo el 8/10/2026**: fases 0–8 del plan, laboratorio y ajustes aprobados; no queda nada esperando su revisión. Siguiente paso: lo que pida Santi (abiertos: remapeo I12 al cambiar el catálogo, R-001; CI antes de cada deploy, R-007).
 
 ## Cómo trabajar acá
