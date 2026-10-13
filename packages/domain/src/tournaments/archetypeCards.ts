@@ -326,5 +326,5 @@ export function formatRateDifferenceEs(difference: RateDifference | null): strin
   if (!difference) return 'sin datos suficientes de los dos lados'
   const [low, high] = difference.ci95
   const verdict = difference.clear ? 'clara' : 'puede ser azar'
-  return `${points(difference.value)} puntos (IC ${points(low)} a ${points(high)}${difference.orientative ? ', orientativo' : ''}; ${verdict})`
+  return `${points(difference.value)} puntos (IC\u00a0${points(low)} a ${points(high)}${difference.orientative ? ', orientativo' : ''}; ${verdict})`
 }

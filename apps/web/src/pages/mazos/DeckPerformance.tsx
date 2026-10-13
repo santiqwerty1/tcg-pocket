@@ -33,7 +33,7 @@ function ColumnCard({ column }: { column: ComparisonColumn }) {
           <div className="text-xl font-semibold tabular">{formatRateValue(rate.value)}</div>
           {rate.orientative ? <OrientativeBadge /> : null}
           <div className="text-xs text-muted-foreground tabular">{formatSample(rate)}</div>
-          <div className="text-xs text-muted-foreground tabular">IC {formatInterval(rate.ci95)}</div>
+          <div className="text-xs text-muted-foreground tabular">IC&nbsp;{formatInterval(rate.ci95)}</div>
           {column.record ? (
             <div className="text-xs text-muted-foreground tabular">{formatRecord(column.record)}</div>
           ) : null}

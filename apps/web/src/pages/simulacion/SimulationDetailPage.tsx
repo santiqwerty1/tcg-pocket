@@ -36,7 +36,7 @@ import { KeyValue, Section } from '@/components/Section'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { formatDateTime, formatNumber, plural, shortSha } from '@/lib/format'
+import { formatDateTime, formatNumber, PERCENT, plural, shortSha } from '@/lib/format'
 import { formatRate, formatRateValue } from '@/lib/matches'
 import {
   encodeSource,
@@ -633,7 +633,7 @@ export function SimulationDetailPage() {
         </div>
         <div className="flex items-center gap-2">
           <ProgressBar fraction={fraction} />
-          <span className="shrink-0 text-xs text-muted-foreground tabular">{Math.floor(fraction * 100)} %</span>
+          <span className="shrink-0 text-xs text-muted-foreground tabular">{`${Math.floor(fraction * 100)}${PERCENT}`}</span>
         </div>
         <p className="text-xs text-muted-foreground">
           {formatNumber(current.progress.gamesDone)} de {gamesLabel(current.progress.totalGames)} ·{' '}

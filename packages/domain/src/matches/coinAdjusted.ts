@@ -90,7 +90,7 @@ export function coinAdjustedRate(matches: readonly Fact[]): CoinAdjustedRate | n
     orientative,
     plain,
     text:
-      `Ajustado por la moneda: ${formatPercentEs(value)} (n = ${games}, IC ${formatIntervalEs([low, high])}` +
+      `Ajustado por la moneda: ${formatPercentEs(value)} (n = ${games}, IC\u00a0${formatIntervalEs([low, high])}` +
       `${orientative ? ', orientativo' : ''}): mitad empezando (${formatPercentEs(p1 * 100)} en ${n1}) y mitad ` +
       `yendo segundo (${formatPercentEs(p2 * 100)} en ${n2}). Sin ajustar: ${formatPercentEs(plain)}.`,
   }

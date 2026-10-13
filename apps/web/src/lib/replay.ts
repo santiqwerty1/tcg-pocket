@@ -3,6 +3,8 @@
  * told in Spanish with the card names of the catalog. Actions the engine adds later fall back to its own text, with
  * the card names replaced.
  */
+
+import { PERCENT } from '@/lib/format'
 import { formatNumber } from './format'
 
 const ENERGY_ES: Record<string, string> = {
@@ -269,7 +271,7 @@ export function scoreLabels(scores: readonly number[] | null | undefined, option
   const total = scores.reduce((sum, value) => sum + value, 0)
   const probabilities = scores.every((value) => value >= 0) && Math.abs(total - 1) < 1e-6
   return scores.map((value) =>
-    probabilities ? `${Math.round(value * 100)} %` : (Math.round(value * 100) / 100).toLocaleString('es-AR'),
+    probabilities ? `${Math.round(value * 100)}${PERCENT}` : (Math.round(value * 100) / 100).toLocaleString('es-AR'),
   )
 }
 

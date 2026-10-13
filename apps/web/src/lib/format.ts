@@ -19,8 +19,11 @@ export function formatNumber(value: number): string {
   return number.format(value)
 }
 
+/** The space before «%» does not break (phone review: «48⏎%»); the same as @tcg/domain `PERCENT_ES`. */
+export const PERCENT = '\u00a0%'
+
 export function formatPercent(value: number): string {
-  return `${oneDecimal.format(value)} %`
+  return `${oneDecimal.format(value)}${PERCENT}`
 }
 
 export function formatBytes(bytes: number): string {

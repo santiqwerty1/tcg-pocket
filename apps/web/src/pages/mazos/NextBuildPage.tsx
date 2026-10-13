@@ -54,7 +54,7 @@ function Row({ row }: { row: NextBuild['rows'][number] }) {
       </div>
       <p className="text-xs text-muted-foreground">
         {formatCount(archetype.lists)} listas en torneos
-        {archetype.rate ? `, IC ${formatInterval(archetype.rate.ci95)}` : ''} · la lista más cercana la jugaron{' '}
+        {archetype.rate ? `, IC\u00a0${formatInterval(archetype.rate.ci95)}` : ''} · la lista más cercana la jugaron{' '}
         {formatCount(closest.lists)}
       </p>
       <p className="text-sm">

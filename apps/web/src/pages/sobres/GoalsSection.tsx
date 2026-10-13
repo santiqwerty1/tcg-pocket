@@ -20,6 +20,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
+import { PERCENT } from '@/lib/format'
 import { formatBoost, PACK_RARITIES, rarityLabel } from '@/lib/packs'
 import { ChoiceGroup } from '@/pages/partidas/MatchFields'
 
@@ -292,7 +293,7 @@ export function GoalsSection({
         <div className="flex flex-col gap-1 rounded-lg border p-3">
           <label htmlFor="pack-alpha" className="flex items-center justify-between text-sm font-medium">
             <span>Peso de los mazos</span>
-            <span className="tabular text-muted-foreground">{Math.round(alpha * 100)} %</span>
+            <span className="tabular text-muted-foreground">{`${Math.round(alpha * 100)}${PERCENT}`}</span>
           </label>
           <input
             id="pack-alpha"

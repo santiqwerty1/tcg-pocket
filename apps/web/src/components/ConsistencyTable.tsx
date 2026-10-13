@@ -5,7 +5,7 @@ import { formatInterval, formatRateValue } from '@/lib/matches'
 function Cell({ point }: { point: CurvePoint | undefined }) {
   if (!point || point.games === 0) return <td className="px-2 py-1 text-right text-muted-foreground">—</td>
   return (
-    <td className="px-2 py-1 text-right tabular" title={`n = ${point.games} · IC ${formatInterval(point.ci95)}`}>
+    <td className="px-2 py-1 text-right tabular" title={`n = ${point.games} · IC\u00a0${formatInterval(point.ci95)}`}>
       <span className="font-medium">{formatRateValue(point.value)}</span>
       <span className="block text-[11px] text-muted-foreground">{formatInterval(point.ci95)}</span>
     </td>

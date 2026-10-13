@@ -78,7 +78,9 @@ describe('matchStats', () => {
     ])
     expect(report.byOpponent[0]?.key).toBe('mega blaziken ex')
     expect(report.byOpponent[3]?.key).toBeNull()
-    expect(formatWinRateEs(report.byOpponent[0]?.rate ?? null)).toBe('70 % (n = 10, IC 39,7–89,2 %, orientativo)')
+    expect(formatWinRateEs(report.byOpponent[0]?.rate ?? null)).toBe(
+      '70\u00a0% (n = 10, IC\u00a039,7–89,2\u00a0%, orientativo)',
+    )
   })
 
   it('by who went first: always three rows; empty ones have no rate', () => {

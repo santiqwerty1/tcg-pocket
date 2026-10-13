@@ -139,7 +139,7 @@ describe('núcleo, techs and copies of an archetype (Fase 44)', () => {
     const tech = result.techs.find((row) => row.groupId === 'tech')
     expect(tech?.difference?.value).toBeCloseTo(50)
     expect(tech?.difference?.clear).toBe(true)
-    expect(formatRateDifferenceEs(tech?.difference ?? null)).toMatch(/^\+50,0 puntos \(IC .*, orientativo; clara\)$/)
+    expect(formatRateDifferenceEs(tech?.difference ?? null)).toMatch(/^\+50,0 puntos \(IC .*, orientativo; clara\)$/)
     expect(tech?.difference?.orientative).toBe(true)
     expect(result.core.map((row) => row.groupId)).toEqual(['core'])
     // PMPT Mega-Lucario: 33 lists, every difference «puede ser azar».
@@ -316,13 +316,15 @@ describe('conversion to the top 8 (Fase 44)', () => {
     expect(conversion?.expected).toBeCloseTo(lucario.length * (rest.filter(inTop).length / rest.length), 10)
     expect(conversion?.ratio).toBeCloseTo((conversion?.topLists ?? 0) / (conversion?.expected ?? 1), 10)
     expect(conversion?.tournaments).toBe(1)
-    expect(conversion?.text).toMatch(/^3 de 33 listas llegaron al top 8 \(9 %, IC 3–24 %\); en sus torneos/)
+    expect(conversion?.text).toMatch(
+      /^3 de 33 listas llegaron al top 8 \(9\u00a0%, IC\u00a03–24\u00a0%\); en sus torneos/,
+    )
   })
 
   it('expects per tournament: lists in small events are not «better» for reaching their easier top 8', () => {
     // Review of #17: ten tournaments of 40 lists and one of 400. The archetype plays 6 lists in each small one: 1st
-    // place in all ten, 2nd in five of them, and 9th to 12th (out of the top) — 15 of 60 in the top (25 %). The rest
-    // of each small field reaches the top at 6/34 or 7/34 (~19 %); one base over all 800 lists would say 11 %
+    // place in all ten, 2nd in five of them, and 9th to 12th (out of the top) — 15 of 60 in the top (25\u00a0%). The rest
+    // of each small field reaches the top at 6/34 or 7/34 (~19\u00a0%); one base over all 800 lists would say 11\u00a0%
     // and call it «more than expected».
     const tournaments = [
       ...Array.from({ length: 10 }, (_, t) => ({ id: `s${t}`, players: 40 })),
@@ -360,7 +362,7 @@ describe('conversion to the top 8 (Fase 44)', () => {
     expect(conversion?.text).toContain('No se distingue de lo esperado')
   })
 
-  it('counts the top among the published lists: publishing the top and 40 % of the rest favors no one', () => {
+  it('counts the top among the published lists: publishing the top and 40\u00a0% of the rest favors no one', () => {
     // Second review of #17: 108 players, the top 8 published (2 of the archetype) and 40 of the other 100 (10 of the
     // archetype). It is a quarter of the top and a quarter of the rest: no real difference. Against every player, the
     // rest's top rate would be 6 / 96 and its 12 lists would «expect» 0,75 (2,7×); among the published, 6 / 36.
@@ -385,13 +387,13 @@ describe('conversion to the top 8 (Fase 44)', () => {
     })
     expect(cut?.text).toBe(
       'Ninguna lista cuenta para la llegada al top 8. Quedan afuera 1 torneo con 12 listas del arquetipo: publicaron ' +
-        'menos del 90 % de las listas, no todo el top 8 o solo listas del arquetipo.',
+        'menos del 90\u00a0% de las listas, no todo el top 8 o solo listas del arquetipo.',
     )
   })
 
   it('with no real difference, the interval leaves out 1 about one time in twenty, published in full or not', () => {
-    // Second review of #17: the previous interval did it 0,3–0,9 % of the time. Each replicate: 12 tournaments of 32
-    // to 231 players, placings at random, the archetype 15 % of each; half the replicates publish the top and 40 %
+    // Second review of #17: the previous interval did it 0,3–0,9\u00a0% of the time. Each replicate: 12 tournaments of 32
+    // to 231 players, placings at random, the archetype 15\u00a0% of each; half the replicates publish the top and 40\u00a0%
     // of the rest. Every tournament counts (minCoverage 0) to see the selective ones too.
     const random = seededRandom(17)
     let outside = 0

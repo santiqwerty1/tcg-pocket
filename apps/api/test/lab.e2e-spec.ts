@@ -357,7 +357,7 @@ describe('laboratorio (e2e)', () => {
     expect(deck.role).toBe('deck')
     expect(deck.search.score.value).toBeCloseTo(expected, 8)
     expect(deck.search.score.games).toBe(500)
-    expect(deck.search.text).toMatch(/contra el meta \(n = 500, IC /)
+    expect(deck.search.text).toMatch(/contra el meta \(n = 500, IC\u00a0/)
     expect(deck.perRival).toHaveLength(5)
     expect(['played', 'known', 'new']).toContain((done.decks[0] as { novelty: { kind: string } }).novelty.kind)
     expect((await get('/api/lab/jobs')).body.items.map((item: { id: number }) => item.id)).toContain(jobId)
@@ -625,7 +625,7 @@ describe('laboratorio (e2e)', () => {
     expect(lab.explore.rounds[0].screened).toBe(winner)
     // H-010: the confirmation backs it (90 % against 50 % on fresh games).
     expect(lab.explore.confirmation).toMatchObject({ verdict: 'better' })
-    expect(lab.explore.confirmation.differenceText).toMatch(/^\+40,0 puntos \(IC \+/u)
+    expect(lab.explore.confirmation.differenceText).toMatch(/^\+40,0 puntos \(IC\u00a0\+/u)
     const best = lab.decks[0] as {
       role: string
       snapshot: number
@@ -2232,7 +2232,7 @@ describe('laboratorio (e2e)', () => {
     const results = await call('lab_results', { job: queued.jobId })
     expect(results).toMatchObject({ mode: 'prueba contra el meta', era: 'B4a' })
     const [deck] = results.decks as { score: string; novelty: string; perRival: unknown[] }[]
-    expect(deck?.score).toMatch(/^50 % contra el meta \(n = 150, IC /)
+    expect(deck?.score).toMatch(/^50\u00a0% contra el meta \(n = 150, IC\u00a0/)
     expect(deck?.perRival).toHaveLength(3)
     expect(deck?.novelty).toMatch(/^(jugada en torneo|conocida|nueva)/)
     expect(String(results.note)).toMatch(/^Juegan bots/)

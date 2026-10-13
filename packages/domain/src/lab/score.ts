@@ -78,7 +78,7 @@ const pointsFormat = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 1, 
 /** «+5,2 puntos (IC +1,0 a +9,4)»: always one decimal, like the intervals. */
 export function formatDifferenceEs(difference: ScoreDifference): string {
   const points = (n: number) => `${n >= 0 ? '+' : '−'}${pointsFormat.format(Math.abs(n))}`
-  return `${points(difference.value)} puntos (IC ${points(difference.ci95[0])} a ${points(difference.ci95[1])})`
+  return `${points(difference.value)} puntos (IC\u00a0${points(difference.ci95[0])} a ${points(difference.ci95[1])})`
 }
 
 /** «52,3 % contra el meta (n = 1.000, IC 48,1–56,5 %)», like a win rate (DECISIONES 0.10). */
@@ -86,5 +86,5 @@ export function formatDifferenceEs(difference: ScoreDifference): string {
 export function formatMetaScoreEs(score: MetaScore | null, against = 'el meta'): string {
   if (!score) return 'sin datos'
   const games = new Intl.NumberFormat('es-AR').format(score.games)
-  return `${formatPercentEs(score.value)} contra ${against} (n = ${games}, IC ${formatIntervalEs(score.ci95)})`
+  return `${formatPercentEs(score.value)} contra ${against} (n = ${games}, IC\u00a0${formatIntervalEs(score.ci95)})`
 }

@@ -98,7 +98,7 @@ export function TradesPage() {
         {data.totals.wants === 1
           ? 'A tus mazos les falta 1 carta que se puede intercambiar'
           : `A tus mazos les faltan ${formatNumber(data.totals.wants)} cartas que se pueden intercambiar`}
-        ; te sobran {data.totals.spare} copias (guardando una de cada edición y 2 de cada carta).
+        ; te sobran {formatNumber(data.totals.spare)} copias (guardando una de cada edición y 2 de cada carta).
       </p>
       <fieldset className="flex flex-wrap gap-1.5" aria-label="Rarezas">
         {data.byRarity.map((row) => (

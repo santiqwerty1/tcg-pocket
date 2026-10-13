@@ -109,7 +109,7 @@ describe('matches (e2e)', () => {
     const week = await test.app.get(WeeklyService).summary({ now: new Date('2026-09-21T14:00:00Z') })
     expect(week.week.label).toBe('14/9 al 20/9')
     expect(week.matches.overall.record).toEqual({ wins: 1, losses: 1, ties: 1 })
-    expect(week.headline).toMatch(/^1-1-1 en partidas \(33,3 %\)/)
+    expect(week.headline).toMatch(/^1-1-1 en partidas \(33,3\u00a0%\)/)
     const ids = (
       await test.prisma.match.findMany({
         where: { playedAt: { gte: new Date('2026-09-14T00:00:00Z'), lt: new Date('2026-09-17T00:00:00Z') } },
@@ -194,7 +194,7 @@ describe('matches (e2e)', () => {
     })
     expect(overall.rate?.ci95[0]).toBeCloseTo(39.68, 2)
     expect(overall.rate?.ci95[1]).toBeCloseTo(89.22, 2)
-    expect(formatWinRateEs(overall.rate)).toBe('70 % (n = 10, IC 39,7–89,2 %, orientativo)')
+    expect(formatWinRateEs(overall.rate)).toBe('70\u00a0% (n = 10, IC\u00a039,7–89,2\u00a0%, orientativo)')
     // The three spellings are one opponent, labelled with the most used one.
     expect(stats.body.byOpponent).toHaveLength(1)
     expect(stats.body.byOpponent[0]).toMatchObject({
@@ -363,10 +363,12 @@ describe('matches (e2e)', () => {
     // The deck already had matches without who went first from the tests above.
     expect(stats.turnOrder.unknown).toBeGreaterThanOrEqual(1)
     // Phone review: one decimal, as the rates next to it.
-    expect(stats.turnOrder.text).toMatch(/^Empezando ganás el 85,7 % \(n = 7\) y yendo segundo el 16,7 % \(n = 6\)/)
+    expect(stats.turnOrder.text).toMatch(
+      /^Empezando ganás el 85,7\u00a0% \(n = 7\) y yendo segundo el 16,7\u00a0% \(n = 6\)/,
+    )
     // Fase 44: half going first, half going second.
     expect(stats.coinAdjusted.value).toBeCloseTo(((6 / 7 + 1 / 6) / 2) * 100, 6)
-    expect(stats.coinAdjusted.text).toMatch(/^Ajustado por la moneda: 51,2 % \(n = 13, IC .*, orientativo\)/)
+    expect(stats.coinAdjusted.text).toMatch(/^Ajustado por la moneda: 51,2\u00a0% \(n = 13, IC\u00a0.*, orientativo\)/)
     const all = (await get('/api/matches/stats')).body
     const row = all.byDeck.find((item: { deck: { id: string } }) => item.deck.id === target)
     expect(row.coinAdjusted.value).toBeCloseTo(stats.coinAdjusted.value, 6)

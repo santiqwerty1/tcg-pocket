@@ -34,14 +34,14 @@ describe('¿importa empezar? (Fase 25)', () => {
     expect(impact.p).toBeGreaterThan(0)
     expect(impact.p).toBeLessThan(0.05)
     expect(impact.text).toBe(
-      'Empezando ganás el 72 % (n = 25) y yendo segundo el 32 % (n = 25): 40 puntos más empezando, más de lo que explica el azar.',
+      'Empezando ganás el 72\u00a0% (n = 25) y yendo segundo el 32\u00a0% (n = 25): 40 puntos más empezando, más de lo que explica el azar.',
     )
   })
 
-  it('phone review: one decimal, as the rates next to it (16 of 33 is 48,5 %, not 48 %)', () => {
+  it('phone review: one decimal, as the rates next to it (16 of 33 is 48,5\u00a0%, not 48\u00a0%)', () => {
     const impact = turnOrderImpact([...games(true, 16, 14, 3), ...games(false, 12, 17, 1)])
     expect(impact.text).toBe(
-      'Empezando ganás el 48,5 % (n = 33) y yendo segundo el 40 % (n = 30): 8,5 puntos más empezando, pero puede ser azar.',
+      'Empezando ganás el 48,5\u00a0% (n = 33) y yendo segundo el 40\u00a0% (n = 30): 8,5 puntos más empezando, pero puede ser azar.',
     )
   })
 

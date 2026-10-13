@@ -29,7 +29,7 @@ import { KeyValue, Section } from '@/components/Section'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { formatNumber, shortSha } from '@/lib/format'
+import { formatNumber, PERCENT, shortSha } from '@/lib/format'
 import { formatInterval, formatRate, formatRateValue } from '@/lib/matches'
 import { formatDuration, isActive, progressFraction } from '@/lib/simulation'
 import { cn } from '@/lib/utils'
@@ -50,7 +50,7 @@ function ScoreLine({ score, label }: { score: MetaScore | null; label?: string }
       {label ? <span className="text-xs text-muted-foreground">{label}</span> : null}
       <span className="text-lg font-semibold tabular">{formatRateValue(score.value)}</span>
       <span className="text-xs text-muted-foreground tabular">
-        n = {formatNumber(score.games)} · IC {formatInterval(score.ci95)}
+        n = {formatNumber(score.games)} · IC&nbsp;{formatInterval(score.ci95)}
         {score.coverage < 0.999 ? ` · ${Math.round(score.coverage * 100)} % del banco` : ''}
       </span>
     </span>
@@ -282,7 +282,7 @@ function RobustnessLine({ robustness }: { robustness: RobustnessView }) {
 
 /** «x de y» as a whole percentage, or «—» without games. */
 function share(part: number, total: number): string {
-  return total > 0 ? `${Math.round((100 * part) / total)} %` : '—'
+  return total > 0 ? `${Math.round((100 * part) / total)}${PERCENT}` : '—'
 }
 
 /**
@@ -306,7 +306,7 @@ function GamesLine({ games }: { games: NonNullable<LabDeck['games']> }) {
 
 /** «%» with one decimal at most. */
 function percent(value: number): string {
-  return `${value.toLocaleString('es-AR', { maximumFractionDigits: 1 })} %`
+  return `${value.toLocaleString('es-AR', { maximumFractionDigits: 1 })}${PERCENT}`
 }
 
 /** T-017 E1/E2: why each card that came in was proposed, and «te falta» when the collection lacks copies. */

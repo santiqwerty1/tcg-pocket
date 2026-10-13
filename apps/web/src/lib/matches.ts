@@ -3,6 +3,7 @@
  * renders them, with the same conventions as the domain's `formatWinRateEs` (DECISIONES 0.10).
  */
 import type { GameRecord, MatchMode, MatchResult, WinRate } from '@/api/schemas'
+import { PERCENT } from '@/lib/format'
 
 export const RESULT_LABEL: Record<MatchResult, string> = { win: 'Victoria', loss: 'Derrota', tie: 'Empate' }
 export const RESULT_SHORT: Record<MatchResult, string> = { win: 'V', loss: 'D', tie: 'E' }
@@ -24,12 +25,12 @@ const countFormat = new Intl.NumberFormat('es-AR')
 
 /** «70 %», «66,7 %». */
 export function formatRateValue(value: number): string {
-  return `${valueFormat.format(value)} %`
+  return `${valueFormat.format(value)}${PERCENT}`
 }
 
 /** «39,7–89,2 %». */
 export function formatInterval([lo, hi]: readonly [number, number]): string {
-  return `${intervalFormat.format(lo)}–${intervalFormat.format(hi)} %`
+  return `${intervalFormat.format(lo)}–${intervalFormat.format(hi)}${PERCENT}`
 }
 
 /** «n = 10» (tournament: «n = 268 en 40 listas»). */
@@ -41,15 +42,16 @@ export function formatSample(rate: WinRate): string {
 /** Same text as @tcg/domain `formatWinRateEs`: «70 % (n = 10, IC 39,7–89,2 %, orientativo)». */
 export function formatRate(rate: WinRate | null): string {
   if (!rate) return 'sin datos'
-  const parts = [formatSample(rate), `IC ${formatInterval(rate.ci95)}`]
+  const parts = [formatSample(rate), `IC\u00a0${formatInterval(rate.ci95)}`]
   if (rate.orientative) parts.push('orientativo')
   return `${formatRateValue(rate.value)} (${parts.join(', ')})`
 }
 
 /** «7 V · 3 D», with «· 1 E» only when there are ties. */
 export function formatRecord(record: GameRecord): string {
-  const parts = [`${record.wins} V`, `${record.losses} D`]
-  if (record.ties > 0) parts.push(`${record.ties} E`)
+  // Phone review: the counts through the same formatter as every number («1.051 V» next to «n = 2.190»).
+  const parts = [`${countFormat.format(record.wins)} V`, `${countFormat.format(record.losses)} D`]
+  if (record.ties > 0) parts.push(`${countFormat.format(record.ties)} E`)
   return parts.join(' · ')
 }
 
