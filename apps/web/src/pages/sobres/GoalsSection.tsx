@@ -280,7 +280,7 @@ export function GoalsSection({
         {missions ? (
           <p className="text-xs text-muted-foreground">
             {missionsGoal
-              ? `${missionsGoal.slots} huecos de misiones con ${missionsGoal.missingCopies} copias por conseguir; pesan ${Math.round(missionsGoal.weight * 100)} % del puntaje (lo mismo que cada objetivo prendido)${missionsGoal.outOfPacks > 0 ? `. ${missionsGoal.outOfPacks} no salen de ningún sobre a la venta` : ''}.`
+              ? `${missionsGoal.slots} huecos de misiones con ${missionsGoal.missingCopies} copias por conseguir; pesan ${Math.round(missionsGoal.weight * 100)}${PERCENT} del puntaje (lo mismo que cada objetivo prendido)${missionsGoal.outOfPacks > 0 ? `. ${missionsGoal.outOfPacks} no salen de ningún sobre a la venta` : ''}.`
               : 'Las misiones de colección incompletas: cada hueco pesa por las copias que le faltan.'}{' '}
             <Link to="/coleccion/misiones" className="text-primary hover:underline">
               Ver las misiones
@@ -345,8 +345,8 @@ export function GoalsSection({
         </Label>
         <p className="text-xs text-muted-foreground">
           Reproduce los números de la web del tracker. Difiere del modelo corregido en dos cosas: no cuenta las
-          reimpresiones de otra expansión (por ejemplo, Hoopa ex en el Deluxe Mega da 0 %) y en algunos sets B cuenta de
-          más las cartas bebé.
+          reimpresiones de otra expansión (por ejemplo, Hoopa ex en el Deluxe Mega da 0&nbsp;%) y en algunos sets B
+          cuenta de más las cartas bebé.
         </p>
         <Label className="flex min-h-11 items-center justify-between gap-2 font-medium">
           Solo sobres disponibles

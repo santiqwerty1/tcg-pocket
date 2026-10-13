@@ -8,6 +8,7 @@ import { Section } from '@/components/Section'
 import { TurnOrderCard } from '@/components/TurnOrderCard'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { formatNumber } from '@/lib/format'
 import { formatInterval, formatRateValue, MODE_LABEL, PERIODS, type PeriodKey, periodFrom } from '@/lib/matches'
 import { ChoiceGroup } from './MatchFields'
 import { MyMetaSection } from './MyMetaSection'
@@ -105,7 +106,7 @@ export function MatchStatsPage() {
                       hint: [
                         row.deck.archived ? 'archivado' : null,
                         row.coinAdjusted
-                          ? `con la moneda pareja ${formatRateValue(row.coinAdjusted.value)} (n = ${row.coinAdjusted.games}, IC\u00a0${formatInterval(row.coinAdjusted.ci95)}${row.coinAdjusted.orientative ? ', orientativo' : ''})`
+                          ? `con la moneda pareja ${formatRateValue(row.coinAdjusted.value)} (n = ${formatNumber(row.coinAdjusted.games)}, IC\u00a0${formatInterval(row.coinAdjusted.ci95)}${row.coinAdjusted.orientative ? ', orientativo' : ''})`
                           : null,
                       ]
                         .filter(Boolean)
@@ -171,9 +172,9 @@ export function MatchStatsPage() {
       ) : null}
 
       <p className="text-xs text-muted-foreground">
-        Victorias sobre partidas jugadas: los empates cuentan como partidas sin victoria. Intervalo de confianza del 95
-        % de Wilson. Con menos de 30 partidas el número se marca «orientativo». Solo tus partidas: los datos de torneo y
-        las simulaciones se muestran aparte y nunca se suman a estos.
+        Victorias sobre partidas jugadas: los empates cuentan como partidas sin victoria. Intervalo de confianza del
+        95&nbsp;% de Wilson. Con menos de 30 partidas el número se marca «orientativo». Solo tus partidas: los datos de
+        torneo y las simulaciones se muestran aparte y nunca se suman a estos.
       </p>
     </div>
   )

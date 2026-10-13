@@ -37,7 +37,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatDateTime, formatNumber, PERCENT, plural, shortSha } from '@/lib/format'
-import { formatRate, formatRateValue } from '@/lib/matches'
+import { formatInterval, formatRate, formatRateValue } from '@/lib/matches'
 import {
   encodeSource,
   formatDuration,
@@ -279,7 +279,7 @@ export function MatrixGrid({ job }: { job: { snapshots: Pick<Snapshot, 'id' | 'l
                         key={rival}
                         className="text-center font-medium text-white"
                         style={{ backgroundColor: heat(cell.rate.value) }}
-                        title={`${name(row.snapshot)} vs ${name(rival)}: ${formatRateValue(cell.rate.value)} · ${wins} V · ${losses} D · ${ties} E · n = ${cell.rate.games} · IC 95 % ${cell.rate.ci95.map((v) => v.toFixed(1)).join('–')} %${cell.rate.orientative ? ' · orientativo' : ''}`}
+                        title={`${name(row.snapshot)} vs ${name(rival)}: ${formatRateValue(cell.rate.value)} · ${formatNumber(wins)} V · ${formatNumber(losses)} D · ${formatNumber(ties)} E · n = ${formatNumber(cell.rate.games)} · IC\u00a095${PERCENT} ${formatInterval(cell.rate.ci95)}${cell.rate.orientative ? ' · orientativo' : ''}`}
                       >
                         <button
                           type="button"
@@ -756,7 +756,7 @@ export function SimulationDetailPage() {
       >
         <p className="text-xs text-muted-foreground">
           Victorias, derrotas y empates por separado; el porcentaje es victorias sobre partidas (un empate no suma) con
-          su intervalo de Wilson al 95 %. Depende del bot ({current.playersEs.join(' vs ')}).
+          su intervalo de Wilson al 95&nbsp;%. Depende del bot ({current.playersEs.join(' vs ')}).
         </p>
         {current.kind === 'optimize' ? (
           <OptimizeResults job={current} />

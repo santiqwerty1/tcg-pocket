@@ -87,7 +87,7 @@ export function ScopeSummary({ scope }: { scope: TournamentScope }) {
           <RateDetails record={scope.mean.record} rate={scope.mean.rate} />
           <div>
             Cuenta empates y abandonos: un mazo por encima de la media rinde más que el promedio, aunque esté debajo de
-            50 %.
+            50&nbsp;%.
           </div>
         </div>
       ) : null}

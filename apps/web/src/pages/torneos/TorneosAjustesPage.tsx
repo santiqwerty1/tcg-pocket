@@ -307,7 +307,7 @@ export function TorneosAjustesPage() {
                       <span className="shrink-0 text-xs text-muted-foreground">{formatDayEs(row.date)}</span>
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      {row.players} jugadores · {row.lists} listas
+                      {formatCount(row.players)} jugadores · {formatCount(row.lists)} listas
                       {row.organizerName ? ` · ${row.organizerName}` : ''}
                       {row.conflict ? ` · cartas de ${row.conflict} (¿pre-release?)` : ''}
                     </div>

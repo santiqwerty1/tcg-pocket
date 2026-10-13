@@ -7,7 +7,7 @@ import { useRecentLists } from '@/api/play'
 import { EnergyChips } from '@/components/EnergyChip'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { formatDate } from '@/lib/format'
+import { formatDate, formatNumber } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 const ALL = '__all__'
@@ -79,7 +79,7 @@ export function RecentListPicker({
                 </span>
                 <span className="text-xs text-muted-foreground">
                   {item.playerName} ({item.record.wins}-{item.record.losses}-{item.record.ties}) · {item.tournamentName}
-                  {item.players ? ` · ${item.players} jugadores` : ''} · {formatDate(item.date)}
+                  {item.players ? ` · ${formatNumber(item.players)} jugadores` : ''} · {formatDate(item.date)}
                   {item.pilots > 1 ? ` · la jugaron ${item.pilots}` : ''}
                 </span>
                 {item.problem ? <span className="text-xs text-warning">No se puede jugar: {item.problem}</span> : null}

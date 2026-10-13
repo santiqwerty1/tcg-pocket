@@ -82,11 +82,38 @@ function open(trends: unknown) {
 it('phone review: «gana» with its n and interval, the window up to the newest tournament, and old data said', async () => {
   open(TRENDS)
   expect(
-    await screen.findByText(/gana 55,1 % en esos días \(n = 225 en 33 listas, IC 47,0–63,0 %\)/),
+    await screen.findByText(/gana 55,1 % en esos días \(n = 225 en 33 listas, IC 47,0–\u206063,0 %\)/),
   ).toBeInTheDocument()
   expect(screen.getByText(/30\/8\/2026 – 6\/9\/2026, hasta el último torneo cargado/)).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'Lo más jugado en esos días' })).toBeInTheDocument()
   expect(screen.getByText(/^El último torneo cargado es del 5\/9\/2026, hace \d+ días/)).toBeInTheDocument()
+})
+
+it('with a window before: points up and down, counts with their separator and «%» with its number', async () => {
+  const archetype = TRENDS.archetypes[0] as (typeof TRENDS.archetypes)[number]
+  open({
+    ...TRENDS,
+    now: { ...TRENDS.now, lists: 2190 },
+    before: { ...TRENDS.before, tournaments: 3, lists: 1250 },
+    archetypes: [
+      { ...archetype, now: { lists: 1234, share: 11.6 }, before: { lists: 100, share: 8 }, delta: 3.6, clear: true },
+      {
+        ...archetype,
+        archetype: { ...archetype.archetype, id: 'otro', name: 'Otro' },
+        now: { lists: 10, share: 0.5 },
+        before: { lists: 50, share: 3 },
+        delta: -2.5,
+      },
+    ],
+  })
+  expect(await screen.findByText('+3,6 pts')).toBeInTheDocument()
+  expect(screen.getByText('−2,5 pts')).toBeInTheDocument()
+  expect(screen.getByText(/2\.190 listas\. Antes .*: 3 torneos, 1\.250 listas\./)).toBeInTheDocument()
+  // The raw text: Testing Library's queries read a no-break space as a plain one, so they cannot see «8 %» break.
+  const detail = screen.getByText(/^11,6 % \(1\.234\) · antes 8 % \(100\) · cambio claro/)
+  expect(detail.textContent).toContain('11,6\u00a0% (1.234) · antes 8\u00a0% (100) · cambio claro')
+  expect(detail.textContent).toContain('IC\u00a047,0–\u206063,0\u00a0%')
+  expect(detail.textContent).not.toMatch(/\d %/)
 })
 
 it('review of #87: a closed era is old on purpose: no warning', async () => {
@@ -104,6 +131,6 @@ it('under 30 lists the rate says «orientativo»; a fresh window says nothing of
     now: { ...TRENDS.now, from: new Date(now - 6 * day).toISOString(), to: new Date(now + day).toISOString() },
     archetypes: [{ ...archetype, rate: { ...archetype.rate, samples: 12, orientative: true } }],
   })
-  expect(await screen.findByText(/n = 225 en 12 listas, IC 47,0–63,0 %, orientativo\)/)).toBeInTheDocument()
+  expect(await screen.findByText(/n = 225 en 12 listas, IC 47,0–\u206063,0 %, orientativo\)/)).toBeInTheDocument()
   expect(screen.queryByText(/El último torneo cargado/)).not.toBeInTheDocument()
 })

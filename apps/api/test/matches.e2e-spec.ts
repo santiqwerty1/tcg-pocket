@@ -400,7 +400,7 @@ describe('matches (e2e)', () => {
     for (let choice = 0; choice < draw.choices.length; choice++) {
       const graded = await post('/api/drills/answer').send({ kind: 'draw', deckId: deck(0).id, seed: 12345, choice })
       expect(graded.status).toBe(200)
-      expect(graded.body.explanation).toMatch(/^Es \d+ %/)
+      expect(graded.body.explanation).toMatch(/^Es \d+\u00a0%/)
       results.push(graded.body.correct)
     }
     expect(results.filter(Boolean)).toHaveLength(1)

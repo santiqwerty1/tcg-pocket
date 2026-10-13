@@ -2,7 +2,7 @@
 
 import { seededRandom } from '../../lab/mutate.js'
 import { metaScore, scoreDifference } from '../../lab/score.js'
-import { type GameRecord, type WinRate, Z_95 } from '../../stats/rates.js'
+import { type GameRecord, PERCENT_ES, type WinRate, Z_95 } from '../../stats/rates.js'
 import { benjaminiHochberg, twoSidedP } from '../../stats/tests.js'
 import { type RankCorrelation, spearman } from '../calibration.js'
 import type { PerGameResults } from '../perGame.js'
@@ -378,7 +378,7 @@ export interface AnalysisFinding {
 }
 const f = (value: number) => value.toLocaleString('es-AR', { maximumFractionDigits: 1 })
 const rateText = (rate: WinRate<'simulation'>) =>
-  `${f(rate.value)} % (n = ${rate.games}, IC 95 % ${f(rate.ci95[0])}–${f(rate.ci95[1])} %${rate.orientative ? ', orientativo' : ''})`
+  `${f(rate.value)}${PERCENT_ES} (n = ${f(rate.games)}, IC\u00a095${PERCENT_ES} ${f(rate.ci95[0])}–${f(rate.ci95[1])}${PERCENT_ES}${rate.orientative ? ', orientativo' : ''})`
 /** Wording always generated from the current input; null evidence cannot create a finding. */
 export function analysisFindings(
   patterns: MatchupPatterns,
@@ -387,12 +387,12 @@ export function analysisFindings(
 ): AnalysisFinding[] {
   const out: AnalysisFinding[] = patterns.dominant.slice(0, 3).map((edge) => ({
     kind: 'dominant',
-    text: `${edge.labelA} supera a ${edge.labelB}: ${rateText(edge.rate)} de partidas decididas; ${edge.ties} empates aparte.`,
+    text: `${edge.labelA} supera a ${edge.labelB}: ${rateText(edge.rate)} de partidas decididas; ${f(edge.ties)} empates aparte.`,
   }))
   for (const cycle of patterns.cycles.slice(0, 3))
     out.push({
       kind: 'cycle',
-      text: `Ciclo: ${cycle.map((edge) => `${edge.labelA} > ${edge.labelB}: ${rateText(edge.rate)} decididas, ${edge.ties} empates aparte`).join('; ')}.`,
+      text: `Ciclo: ${cycle.map((edge) => `${edge.labelA} > ${edge.labelB}: ${rateText(edge.rate)} decididas, ${f(edge.ties)} empates aparte`).join('; ')}.`,
     })
   for (const change of (agreement?.changes ?? [])
     .filter((c) => c.significant)
@@ -400,13 +400,13 @@ export function analysisFindings(
     .slice(0, 3)) {
     out.push({
       kind: 'bot_change',
-      text: `${change.label}: ${change.difference.value > 0 ? '+' : ''}${f(change.difference.value)} puntos (${agreement?.rightBot} menos ${agreement?.leftBot}; matrices #${agreement?.left}/${agreement?.right}, motores ${agreement?.leftEngine}/${agreement?.rightEngine}${agreement?.sameEngine ? ', mismo motor' : ', motores distintos'}) (n = ${change.before.games}/${change.after.games}, IC 95 % ${f(change.difference.ci95[0])}–${f(change.difference.ci95[1])} puntos${change.orientative ? ', orientativo' : ''}).`,
+      text: `${change.label}: ${change.difference.value > 0 ? '+' : ''}${f(change.difference.value)} puntos (${agreement?.rightBot} menos ${agreement?.leftBot}; matrices #${agreement?.left}/${agreement?.right}, motores ${agreement?.leftEngine}/${agreement?.rightEngine}${agreement?.sameEngine ? ', mismo motor' : ', motores distintos'}) (n = ${f(change.before.games)}/${f(change.after.games)}, IC\u00a095${PERCENT_ES} ${f(change.difference.ci95[0])}–${f(change.difference.ci95[1])} puntos${change.orientative ? ', orientativo' : ''}).`,
     })
   }
   if (games.first && games.firstAdvantage && (games.firstAdvantage.ci95[0] > 0 || games.firstAdvantage.ci95[1] < 0))
     out.push({
       kind: 'first',
-      text: `Gana quien empieza: ${rateText(games.first)}. Diferencia frente a segundo: ${f(games.firstAdvantage.value)} puntos (IC 95 % ${f(games.firstAdvantage.ci95[0])}–${f(games.firstAdvantage.ci95[1])}).`,
+      text: `Gana quien empieza: ${rateText(games.first)}. Diferencia frente a segundo: ${f(games.firstAdvantage.value)} puntos (IC\u00a095${PERCENT_ES} ${f(games.firstAdvantage.ci95[0])}–${f(games.firstAdvantage.ci95[1])}).`,
     })
   if (games.ties) out.push({ kind: 'ties', text: `Empates: ${rateText(games.ties)}.` })
   return out

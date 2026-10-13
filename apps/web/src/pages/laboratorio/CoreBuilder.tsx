@@ -15,6 +15,7 @@ import { EnergyChips, EnergyPicker } from '@/components/EnergyChip'
 import { Field } from '@/components/Section'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { PERCENT } from '@/lib/format'
 
 const MAX_CORE = 4
 type CorePool = 'collection' | 'all'
@@ -78,7 +79,7 @@ function CoreDraft({ draft, size, name }: { draft: LabCore; size: number; name: 
             </span>
             <span className="text-xs text-muted-foreground">
               {card.reason === 'usage' && card.share !== null
-                ? `${Math.round(card.share)} % de las listas`
+                ? `${Math.round(card.share)}${PERCENT} de las listas`
                 : REASON_ES[card.reason === 'usage' ? 'core' : card.reason]}
             </span>
           </li>

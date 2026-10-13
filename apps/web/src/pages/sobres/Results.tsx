@@ -5,6 +5,7 @@ import type { DeckCompletion, ExclusiveVersion, MissingCard, PackRow, Recommenda
 import { Section } from '@/components/Section'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { RANGE_DASH } from '@/lib/format'
 import {
   formatAmount,
   formatBoost,
@@ -75,8 +76,8 @@ function PackRowItem({ row, rank, today, boost }: { row: PackRow; rank: number; 
       <div className="pl-8 text-xs text-muted-foreground tabular" data-testid="pack-line">
         <span className="whitespace-nowrap">{formatAmount(row.expected)} buscadas ·</span>{' '}
         <span className="whitespace-nowrap">puntaje {formatAmount(row.expectedValue)} ·</span>{' '}
-        <span className="whitespace-nowrap">50 %: {formatPacks(row.packsFor50)} ·</span>{' '}
-        <span className="whitespace-nowrap">90 %: {formatPacks(row.packsFor90)}</span>
+        <span className="whitespace-nowrap">50&nbsp;%: {formatPacks(row.packsFor50)} ·</span>{' '}
+        <span className="whitespace-nowrap">90&nbsp;%: {formatPacks(row.packsFor90)}</span>
       </div>
       {differs ? (
         <div className="pl-8 text-xs text-warning">
@@ -255,7 +256,7 @@ function CompletionRow({ deck }: { deck: DeckCompletion }) {
           {pack.covered === deck.missingCopies ? 'todas' : `${pack.covered} de ${deck.missingCopies}`} en ~
           {formatExpectedPacks(pack.expectedPacks)} sobres
           {pack.method === 'simulation' && pack.ci95
-            ? ` (simulación, IC\u00a0${formatAmount(pack.ci95[0])}–${formatAmount(pack.ci95[1])})`
+            ? ` (simulación, IC\u00a0${formatAmount(pack.ci95[0])}${RANGE_DASH}${formatAmount(pack.ci95[1])})`
             : ''}
           {pack.limited ? ' · tiempo limitado' : ''}
         </div>

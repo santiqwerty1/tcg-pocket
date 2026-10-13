@@ -101,9 +101,9 @@ it('phone review: «Contra el meta» says the interval of what each archetype sh
       <RouterProvider router={router} />
     </Providers>,
   )
-  expect(await screen.findByText(/58 rivales \(n = 202, IC 50,9–61,1 %\)/)).toBeInTheDocument()
+  expect(await screen.findByText(/58 rivales \(n = 202, IC 50,9–\u206061,1 %\)/)).toBeInTheDocument()
   // Review of #87: «contra todos» with its n too.
-  expect(screen.getAllByText(/contra todos: 56,4 % \(n = 202, IC 49,5–63,1 %\)/).length).toBeGreaterThan(0)
+  expect(screen.getAllByText(/contra todos: 56,4 % \(n = 202, IC 49,5–\u206063,1 %\)/).length).toBeGreaterThan(0)
 })
 
 it('review of #87: under 30 matches the expected rate and «contra todos» say «orientativo»', async () => {
@@ -127,6 +127,6 @@ it('review of #87: under 30 matches the expected rate and «contra todos» say �
       <RouterProvider router={router} />
     </Providers>,
   )
-  expect(await screen.findByText(/\(n = 20, IC 50,9–61,1 %, orientativo\)/)).toBeInTheDocument()
-  expect(screen.getByText(/contra todos: 56,4 % \(n = 20, IC 49,5–63,1 %, orientativo\)/)).toBeInTheDocument()
+  expect(await screen.findByText(/\(n = 20, IC 50,9–\u206061,1 %, orientativo\)/)).toBeInTheDocument()
+  expect(screen.getByText(/contra todos: 56,4 % \(n = 20, IC 49,5–\u206063,1 %, orientativo\)/)).toBeInTheDocument()
 })

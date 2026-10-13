@@ -131,7 +131,8 @@ it('renders summary, bot rankings, uncertainty, duration and generated findings 
   expect(screen.getByText(/Duración media:/)).toHaveTextContent('IC 95 %')
   expect(screen.getByText(/Duración media:/)).toHaveTextContent('n = 30')
   const findings = screen.getByRole('heading', { name: 'Hallazgos' }).closest('section') as HTMLElement
-  expect(within(findings).getByText(view.findings[0]?.text as string)).toBeVisible()
+  // Testing Library compares a string as given against the text with its spaces collapsed (the no-break ones too).
+  expect(within(findings).getByText((view.findings[0]?.text ?? '').replace(/\s+/g, ' '))).toBeVisible()
   expect(screen.getByText(/fuente con su n e intervalo/)).toHaveTextContent(
     'partidas propias de Santi permanecen separadas',
   )

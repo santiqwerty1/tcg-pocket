@@ -58,6 +58,6 @@ describe('Estadísticas (Fase 44)', () => {
         <RouterProvider router={router} />
       </Providers>,
     )
-    expect(await screen.findByText(/con la moneda pareja 52,5 % \(n = 30, IC 36,7–69,3 %\)/)).toBeInTheDocument()
+    expect(await screen.findByText(/con la moneda pareja 52,5 % \(n = 30, IC 36,7–\u206069,3 %\)/)).toBeInTheDocument()
   })
 })

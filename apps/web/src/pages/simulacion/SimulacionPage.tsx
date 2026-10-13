@@ -21,7 +21,7 @@ import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { formatDate, formatDateTime, PERCENT, shortSha } from '@/lib/format'
+import { formatDate, formatDateTime, formatNumber, PERCENT, shortSha } from '@/lib/format'
 import { useMarkSeen } from '@/lib/seen'
 import { formatDuration, gamesLabel, isActive, KIND_LABEL, progressFraction, STATUS_LABEL } from '@/lib/simulation'
 import { ago } from '@/lib/tournaments'
@@ -122,7 +122,8 @@ export function EngineLine({ engine }: { engine: EngineInfo }) {
               ) : null}
               {worker.current ? (
                 <Link to={`/simulacion/${worker.current.jobId}`} className="text-xs text-primary hover:underline">
-                  jugando #{worker.current.jobId}: {worker.current.gamesDone}/{worker.current.games}
+                  jugando #{worker.current.jobId}: {formatNumber(worker.current.gamesDone)}/
+                  {formatNumber(worker.current.games)}
                 </Link>
               ) : null}
             </li>

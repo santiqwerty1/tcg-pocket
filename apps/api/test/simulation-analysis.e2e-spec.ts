@@ -167,7 +167,7 @@ describe('simulation analysis (e2e, synthetic records)', () => {
     expect(view.agreement.changes).toHaveLength(3)
     expect(view.matrices.find((m: { id: number }) => m.id === e2).archived).toBe(true)
     expect(view.calibrationJobId).toBeNull()
-    expect(view.findings.some((f: { text: string }) => f.text.includes('IC 95 %'))).toBe(true)
+    expect(view.findings.some((f: { text: string }) => f.text.includes('IC\u00a095\u00a0%'))).toBe(true)
   })
   it('filters expansion, declared era and either bot, leaving legacy era unknown', async () => {
     expect((await get('?bot=e2&era=B4a&expansion=B4')).body.summary).toMatchObject({ simulations: 1, games: 30 })

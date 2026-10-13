@@ -9,6 +9,7 @@ import { useWeekSummary } from '@/api/weekly'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
+import { PERCENT } from '@/lib/format'
 import { formatRecord } from '@/lib/matches'
 
 function Line({ label, children }: { label: string; children: ReactNode }) {
@@ -99,7 +100,8 @@ export function WeekPage() {
               : `${bot.games} ${bot.games === 1 ? 'partida' : 'partidas'}: ${bot.wins} ganadas, ${bot.losses} perdidas${bot.ties > 0 ? `, ${bot.ties} empates` : ''}`}
             {bot.coachAgreement !== null ? (
               <span className="block text-xs text-muted-foreground">
-                Con el entrenador: {bot.coachAgreement} % de jugadas como las suyas
+                Con el entrenador: {bot.coachAgreement}
+                {PERCENT} de jugadas como las suyas
               </span>
             ) : null}
           </Line>

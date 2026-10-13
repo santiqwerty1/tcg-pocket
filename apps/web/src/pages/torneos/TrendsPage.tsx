@@ -13,7 +13,14 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { PERCENT } from '@/lib/format'
 import { formatInterval, formatRateValue, formatSample } from '@/lib/matches'
-import { formatDayEs, formatShare, scopeFromSearch, scopeSearch, staleTournaments } from '@/lib/tournaments'
+import {
+  formatCount,
+  formatDayEs,
+  formatShare,
+  scopeFromSearch,
+  scopeSearch,
+  staleTournaments,
+} from '@/lib/tournaments'
 import { cn } from '@/lib/utils'
 
 const DAYS = [7, 14] as const
@@ -70,8 +77,8 @@ function Rows({ rows, empty, shareOnly = false }: { rows: Row[]; empty: string; 
           </div>
           <p className="text-xs text-muted-foreground">
             {shareOnly
-              ? `${row.now.lists} listas`
-              : `${formatShare(row.now.share)} (${row.now.lists}) · antes ${formatShare(row.before.share)} (${row.before.lists})${row.clear ? ' · cambio claro' : ' · puede ser ruido'}`}
+              ? `${formatCount(row.now.lists)} listas`
+              : `${formatShare(row.now.share)} (${formatCount(row.now.lists)}) · antes ${formatShare(row.before.share)} (${formatCount(row.before.lists)})${row.clear ? ' · cambio claro' : ' · puede ser ruido'}`}
             {row.extra ? ` · ${row.extra}` : ''}
           </p>
         </li>
@@ -151,11 +158,12 @@ export function TrendsPage() {
         }
       >
         <p className="text-xs text-muted-foreground">
-          {range(data.now)}, hasta el último torneo cargado: {tournamentsLabel(data.now.tournaments)}, {data.now.lists}{' '}
-          listas. Antes ({range(data.before)}): {tournamentsLabel(data.before.tournaments)}, {data.before.lists} listas.
-          Cambio en puntos de cuota de listas; «claro» si el cambio pasa una prueba de dos proporciones que cuenta cada
-          torneo como un bloque (un torneo grande no arrastra todo) y, entre todos los arquetipos y cartas, se espera
-          que como mucho 1 de cada 20 «claros» sea ruido.
+          {range(data.now)}, hasta el último torneo cargado: {tournamentsLabel(data.now.tournaments)},{' '}
+          {formatCount(data.now.lists)} listas. Antes ({range(data.before)}):{' '}
+          {tournamentsLabel(data.before.tournaments)}, {formatCount(data.before.lists)} listas. Cambio en puntos de
+          cuota de listas; «claro» si el cambio pasa una prueba de dos proporciones que cuenta cada torneo como un
+          bloque (un torneo grande no arrastra todo) y, entre todos los arquetipos y cartas, se espera que como mucho 1
+          de cada 20 «claros» sea ruido.
         </p>
         {stale ? <p className="text-xs text-warning">{stale}</p> : null}
         {data.before.lists === 0 ? (

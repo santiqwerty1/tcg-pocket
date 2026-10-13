@@ -51,7 +51,7 @@ function ScoreLine({ score, label }: { score: MetaScore | null; label?: string }
       <span className="text-lg font-semibold tabular">{formatRateValue(score.value)}</span>
       <span className="text-xs text-muted-foreground tabular">
         n = {formatNumber(score.games)} · IC&nbsp;{formatInterval(score.ci95)}
-        {score.coverage < 0.999 ? ` · ${Math.round(score.coverage * 100)} % del banco` : ''}
+        {score.coverage < 0.999 ? ` · ${Math.round(score.coverage * 100)}${PERCENT} del banco` : ''}
       </span>
     </span>
   )
@@ -299,7 +299,10 @@ function GamesLine({ games }: { games: NonNullable<LabDeck['games']> }) {
         : ''}
       {games.ties.turnLimit > 0 ? ` · ${games.ties.turnLimit} empates por el límite de turnos` : ''}
       {games.hasStage2 ? ` · llegó a Fase 2 en el ${share(games.stages[2], games.games)} de las partidas` : ''}
-      {games.games < games.total ? ` (detalle de ${games.games} de ${games.total} partidas)` : ''}.
+      {games.games < games.total
+        ? ` (detalle de ${formatNumber(games.games)} de ${formatNumber(games.total)} partidas)`
+        : ''}
+      .
     </p>
   )
 }

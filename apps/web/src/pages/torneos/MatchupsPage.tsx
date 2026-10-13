@@ -29,8 +29,9 @@ function Coverage({ data }: { data: MatchupMatrix }) {
   }
   return (
     <p className="text-xs text-muted-foreground">
-      {formatCount(coverage.matches)} partidas de {coverage.tournamentsWithPairings} de {coverage.tournaments} torneos
-      de {data.scope.era.code}. Cada partida es un BO1 o un BO3 entero; sin byes, ausencias ni dobles derrotas
+      {formatCount(coverage.matches)} partidas de {formatCount(coverage.tournamentsWithPairings)} de{' '}
+      {formatCount(coverage.tournaments)} torneos de {data.scope.era.code}. Cada partida es un BO1 o un BO3 entero; sin
+      byes, ausencias ni dobles derrotas
       {coverage.skipped.noArchetype > 0
         ? `, ni ${formatCount(coverage.skipped.noArchetype)} partidas con un jugador sin lista`
         : ''}
@@ -81,7 +82,7 @@ function Table({ data, search }: { data: MatchupMatrix; search: string }) {
                     className={cn('px-1.5 py-1 text-right tabular', mirror && 'bg-muted/50')}
                     title={
                       item?.rate
-                        ? `${row.archetype.name} contra ${col.archetype.name}: n = ${item.rate.games}, IC\u00a0${formatInterval(item.rate.ci95)}`
+                        ? `${row.archetype.name} contra ${col.archetype.name}: n = ${formatCount(item.rate.games)}, IC\u00a0${formatInterval(item.rate.ci95)}`
                         : undefined
                     }
                   >
@@ -92,7 +93,9 @@ function Table({ data, search }: { data: MatchupMatrix; search: string }) {
                         <span className={cn('font-medium', TONE_CLASS[matchupTone(item.rate)])}>
                           {formatRateValue(item.rate.value)}
                         </span>
-                        <span className="block text-[10px] text-muted-foreground">n {item.rate.games}</span>
+                        <span className="block text-[10px] text-muted-foreground">
+                          n {formatCount(item.rate.games)}
+                        </span>
                       </>
                     ) : (
                       <span className="text-muted-foreground">—</span>
@@ -150,7 +153,7 @@ export function MatchupsPage() {
                   <p className="text-xs text-muted-foreground">
                     {formatShare(row.share)} del meta
                     {row.expected
-                      ? ` · con datos: ${formatShare(row.expected.coverage)} del meta, ${row.expected.rivals} rivales (n = ${formatCount(row.expected.matches)}${row.expected.ci95 ? `, IC\u00a0${formatInterval(row.expected.ci95)}` : ''}${row.expected.matches < ORIENTATIVE_BELOW ? ', orientativo' : ''})`
+                      ? ` · con datos: ${formatShare(row.expected.coverage)} del meta, ${row.expected.rivals} rivales (n\u00a0=\u00a0${formatCount(row.expected.matches)}${row.expected.ci95 ? `, IC\u00a0${formatInterval(row.expected.ci95)}` : ''}${row.expected.matches < ORIENTATIVE_BELOW ? ', orientativo' : ''})`
                       : ''}
                     {row.field.rate
                       ? ` · contra todos: ${formatRateValue(row.field.rate.value)} (${formatSample(row.field.rate)}, IC\u00a0${formatInterval(row.field.rate.ci95)}${row.field.rate.orientative ? ', orientativo' : ''})`
@@ -179,8 +182,8 @@ export function MatchupsPage() {
             }
           >
             <p className="text-xs text-muted-foreground">
-              Porcentaje de la fila contra la columna. En verde, favorable con el intervalo entero arriba de 50 %; en
-              rojo, desfavorable; sin color, no se puede decir. Tocá un nombre para ver el arquetipo.
+              Porcentaje de la fila contra la columna. En verde, favorable con el intervalo entero arriba de 50&nbsp;%;
+              en rojo, desfavorable; sin color, no se puede decir. Tocá un nombre para ver el arquetipo.
             </p>
             <Table data={data} search={search} />
           </Section>

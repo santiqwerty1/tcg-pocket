@@ -170,12 +170,18 @@ const percentFormat = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 0,
 const intervalFormat = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 const countFormat = new Intl.NumberFormat('es-AR')
 
-/** «70 %», «66,7 %»: at most one decimal. */
 /**
- * The space before «%» does not break (phone review, 13/10/2026: «48⏎%» on a narrow line). The same one as
- * `Intl.NumberFormat('es-AR', { style: 'percent' })`.
+ * The space before «%» does not break (phone review, 13/10/2026: «48⏎%» on a narrow line). It is the one of
+ * `Intl.NumberFormat('es', { style: 'percent' })` and of 'es-ES'; 'es-AR' writes «48%», with no space, but the app keeps
+ * the space it always had (DECISIONES 56.9).
  */
 export const PERCENT_ES = '\u00a0%'
+
+/** «70 %», «66,7 %»: at most one decimal. */
+/** «2.190»: a count with its thousands separator, as the rates' n. */
+export function formatCountEs(value: number): string {
+  return countFormat.format(value)
+}
 
 export function formatPercentEs(value: number): string {
   return `${percentFormat.format(value)}${PERCENT_ES}`

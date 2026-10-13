@@ -184,7 +184,7 @@ describe('simulation analysis', () => {
     const patterns = matchupPatterns(analysisMatrix(input()))
     const findings = analysisFindings(patterns, games, null)
     expect(findings.some((f) => f.kind === 'cycle')).toBe(true)
-    expect(findings.every((f) => f.text.includes('n =') && f.text.includes('IC 95 %'))).toBe(true)
+    expect(findings.every((f) => f.text.includes('n =') && f.text.includes('IC\u00a095\u00a0%'))).toBe(true)
     expect(analysisFindings({ dominant: [], dominantTotal: 0, cycles: [], cyclesTotal: 0 }, games, null)).toEqual([])
   })
   it('uses legacy aggregate turns for a duration mean without inventing an interval or first-player evidence', () => {

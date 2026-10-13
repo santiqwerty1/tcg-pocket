@@ -7,6 +7,7 @@ import { useDeckMatchups } from '@/api/matches'
 import type { WinRate } from '@/api/schemas'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
+import { formatNumber, PERCENT } from '@/lib/format'
 import { formatInterval, formatRateValue, formatRecord } from '@/lib/matches'
 import { matchupTone, TONE_CLASS } from '@/lib/matchups'
 import { formatShare } from '@/lib/tournaments'
@@ -18,7 +19,7 @@ function Rate({ rate, prefix }: { rate: WinRate | null; prefix: string }) {
     <span className="whitespace-nowrap">
       {prefix}:{' '}
       <span className={cn('font-medium tabular', TONE_CLASS[matchupTone(rate)])}>{formatRateValue(rate.value)}</span>
-      <span className="text-muted-foreground"> (n = {rate.games})</span>
+      <span className="text-muted-foreground"> (n = {formatNumber(rate.games)})</span>
     </span>
   )
 }
@@ -70,7 +71,8 @@ export function DeckMatchupsSection({ deckId }: { deckId: string }) {
         <p className="text-xs text-muted-foreground">
           {/* Fase 44: tournament matchups (people), weighed by the rivals you meet — not your own results. */}
           Torneos (personas), pesado por tus {data.myMeta.matched} rivales de {data.era} («mi meta»;{' '}
-          {Math.round(data.myMeta.coverage)} % de tus partidas con rival, ponderadas por fecha): debería sacar{' '}
+          {Math.round(data.myMeta.coverage)}
+          {PERCENT} de tus partidas con rival, ponderadas por fecha): debería sacar{' '}
           <span className="font-semibold text-foreground">{formatRateValue(data.expectedMine.value)}</span>
           {sampleNote(data.expectedMine.ci95, data.myMeta.orientative)}. El intervalo cuenta los matchups y tus pesos.
         </p>

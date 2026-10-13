@@ -100,8 +100,8 @@ export function SimulationAnalysisPage() {
       <div>
         <h1 className="text-2xl font-bold">Análisis de simulaciones</h1>
         <p className="text-sm text-muted-foreground">
-          Resultados de bots. Cada porcentaje con n e IC 95&nbsp;%; orientativo con menos de 30 partidas. El resultado
-          depende del bot y del motor.
+          Resultados de bots. Cada porcentaje con n e IC&nbsp;95&nbsp;%; orientativo con menos de 30 partidas. El
+          resultado depende del bot y del motor.
         </p>
       </div>
       <Link to="/simulacion" className="text-primary underline">
@@ -247,7 +247,7 @@ export function SimulationAnalysisPage() {
             ) : null}
             {correlation ? (
               <p>
-                Spearman ρ = {decimal(correlation.rho)} · n = {correlation.n} listas · IC 95&nbsp;%{' '}
+                Spearman ρ = {decimal(correlation.rho)} · n = {correlation.n} listas · IC&nbsp;95&nbsp;%{' '}
                 {correlation.ci95 ? correlation.ci95.map(decimal).join(' a ') : 'no estimable'}
                 {view.agreement?.orientative ? ' · orientativo' : ''}
               </p>
@@ -265,8 +265,9 @@ export function SimulationAnalysisPage() {
                     {c.label}: {points(c.difference.value)} puntos
                   </strong>
                   <p>
-                    IC 95&nbsp;% {c.difference.ci95.map(points).join(' a ')} puntos · n = {formatNumber(c.before.games)}
-                    /{formatNumber(c.after.games)} · {c.rivals} rivales comunes{c.orientative ? ' · orientativo' : ''}
+                    IC&nbsp;95&nbsp;% {c.difference.ci95.map(points).join(' a ')} puntos · n ={' '}
+                    {formatNumber(c.before.games)}/{formatNumber(c.after.games)} · {c.rivals} rivales comunes
+                    {c.orientative ? ' · orientativo' : ''}
                   </p>
                   <p className="text-muted-foreground">
                     Posición {decimal(c.rankBefore)} → {decimal(c.rankAfter)} · referencia{' '}
@@ -326,7 +327,7 @@ export function SimulationAnalysisPage() {
                 <p>Gana quien empieza segundo: {formatRate(games.second)}</p>
                 {games.firstAdvantage ? (
                   <p>
-                    Ventaja de primero: {points(games.firstAdvantage.value)} puntos (IC 95&nbsp;%{' '}
+                    Ventaja de primero: {points(games.firstAdvantage.value)} puntos (IC&nbsp;95&nbsp;%{' '}
                     {games.firstAdvantage.ci95.map(points).join(' a ')}; n = {formatNumber(games.firstAdvantage.n)}
                     {games.firstAdvantage.orientative ? '; orientativo' : ''}).
                   </p>
@@ -335,7 +336,7 @@ export function SimulationAnalysisPage() {
                 {games.duration ? (
                   <>
                     <p>
-                      Duración media: {decimal(games.duration.mean)} turnos (IC 95&nbsp;%{' '}
+                      Duración media: {decimal(games.duration.mean)} turnos (IC&nbsp;95&nbsp;%{' '}
                       {games.duration.ci95 ? games.duration.ci95.map(decimal).join(' a ') : 'no estimable'}; n ={' '}
                       {formatNumber(games.duration.n)}
                       {games.duration.orientative ? '; orientativo' : ''}).
@@ -395,9 +396,9 @@ export function SimulationAnalysisPage() {
           </Section>
           <Section title="Hallazgos">
             <p className="text-xs text-muted-foreground">
-              Generados desde los resultados actuales. Exploratorios: selección con Benjamini–Hochberg (FDR 5 %) sobre
-              cruces y cambios; los IC son puntuales. Cruces con al menos 55 % de las partidas decididas, cambios de al
-              menos 5 puntos. No prueban causalidad del bot ni aseguran rendimiento en torneos.
+              Generados desde los resultados actuales. Exploratorios: selección con Benjamini–Hochberg (FDR 5&nbsp;%)
+              sobre cruces y cambios; los IC son puntuales. Cruces con al menos 55&nbsp;% de las partidas decididas,
+              cambios de al menos 5 puntos. No prueban causalidad del bot ni aseguran rendimiento en torneos.
             </p>
             <ul className="list-inside list-disc text-sm">
               {view.findings.map((finding) => (

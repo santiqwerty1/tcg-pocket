@@ -75,8 +75,8 @@ export function ImportPreviewView({ preview, onResolveAdjustment, resolvingId }:
           </p>
           {preview.tracker.removedCopies > preview.tracker.currentCopies * 0.1 ? (
             <p className="text-warning-foreground">
-              Bajan más del 10 % de las copias ({preview.tracker.removedCopies} de {preview.tracker.currentCopies}).
-              Revisá los cambios antes de aplicar.
+              Bajan más del 10&nbsp;% de las copias ({formatNumber(preview.tracker.removedCopies)} de{' '}
+              {formatNumber(preview.tracker.currentCopies)}). Revisá los cambios antes de aplicar.
             </p>
           ) : null}
           {preview.tracker.reviewReasons?.map((reason) => (

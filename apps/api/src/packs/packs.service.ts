@@ -71,8 +71,8 @@ const settingSchemas = {
 const ASSUMPTIONS = [
   'Tasas por posición constantes (tablas oficiales), sin «pity» ni rachas.',
   'Las posiciones de un sobre son independientes y una carta puede repetirse en el mismo sobre.',
-  'Sobre raro (0,05 %) con cartas uniformes entre las elegibles; los Deluxe sin sobre raro.',
-  'En sets con bebés, 8,33 % de sobres de 6 cartas con la sexta para bebés.',
+  'Sobre raro (0,05\u00a0%) con cartas uniformes entre las elegibles; los Deluxe sin sobre raro.',
+  'En sets con bebés, 8,33\u00a0% de sobres de 6 cartas con la sexta para bebés.',
   'Los puntos de sobre son de la expansión: 5 por sobre abierto, y los guardados se pueden canjear aunque sus sobres ya no se vendan. Costos ✵/✵✵ confirmados en el juego.',
   'Cada sobre se evalúa solo; la mejor política es volver a mirar después de cada importación.',
   'Sobres por tiempo limitado: lo que solo ellos dan (otra carta funcional para los mazos, otra versión para la colección) pesa más hasta su último día; después dejan de estar a la venta.',

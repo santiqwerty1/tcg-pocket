@@ -7,6 +7,7 @@ import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { formatNumber } from '@/lib/format'
 import { MODE_LABEL, PERIODS, type PeriodKey, periodFrom, RESULT_LABEL } from '@/lib/matches'
 import { useDebouncedValue } from '@/lib/useDebounce'
 import { ChoiceGroup } from './MatchFields'
@@ -136,7 +137,7 @@ export function MatchHistoryPage() {
       {matches.data && matches.data.items.length > 0 ? (
         <>
           <p className="text-sm text-muted-foreground tabular">
-            {total === 1 ? '1 partida' : `${total} partidas`}
+            {total === 1 ? '1 partida' : `${formatNumber(total)} partidas`}
             {pages > 1 ? ` · página ${page + 1} de ${pages}` : ''}
           </p>
           <MatchList matches={matches.data.items} showDeck={deckId === ALL} />

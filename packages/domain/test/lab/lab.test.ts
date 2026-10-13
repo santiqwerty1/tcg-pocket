@@ -228,7 +228,7 @@ describe('meta bank', () => {
       ],
       { now },
     )
-    // A match 14 days ago weighs half: a = 1 + ½, b = 1, so 60\u00a0% and 40\u00a0%.
+    // A match 14 days ago weighs half: a = 1 + ½, b = 1, so 60 % and 40 %.
     const bank = customGauntlet(
       dataset,
       mine.shares.map((share) => ({ archetypeId: share.archetypeId, weight: share.share })),
@@ -606,9 +606,9 @@ describe('search rules', () => {
   it('H-010: the verification and the confirmation ask for a clear win on fresh games', () => {
     const score = (wins: number, games: number) =>
       metaScore([{ weight: 1, record: { wins, losses: games - wins, ties: 0 } }])
-    // 60\u00a0% against 50\u00a0% over 400 games each: ~2,8 standard errors apart.
+    // 60 % against 50 % over 400 games each: ~2,8 standard errors apart.
     expect(verifyAccepts(score(240, 400), score(200, 400), 1.645)).toBe(true)
-    // 53\u00a0% against 50\u00a0%: not enough.
+    // 53 % against 50 %: not enough.
     expect(verifyAccepts(score(212, 400), score(200, 400), 1.645)).toBe(false)
     expect(verifyAccepts(null, score(200, 400), 1.645)).toBe(false)
 

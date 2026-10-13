@@ -9,6 +9,7 @@ import { useMyMeta } from '@/api/matches'
 import type { MatchMode } from '@/api/schemas'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { Fold } from '@/components/Section'
+import { formatNumber, PERCENT } from '@/lib/format'
 import { formatInterval, MODE_LABEL } from '@/lib/matches'
 import { formatShare } from '@/lib/tournaments'
 
@@ -45,11 +46,11 @@ function Body({ mode, days }: { mode?: MatchMode | undefined; days?: number | un
         </ul>
       ) : null}
       <p className="text-xs text-muted-foreground">
-        Partidas de {data.era} en {modes}. {Math.round(data.coverage)} % de tus partidas con rival, ponderadas por
-        fecha, son contra un arquetipo de torneo
-        {data.withoutRival > 0 ? `; ${data.withoutRival} no tienen rival anotado` : ''}. Una partida de hace{' '}
-        {data.halfLifeDays} días pesa la mitad que una de hoy, así que tus {data.matched} partidas valen como{' '}
-        {effectiveFormat.format(data.effectiveMatches)}.
+        Partidas de {data.era} en {modes}. {Math.round(data.coverage)}
+        {PERCENT} de tus partidas con rival, ponderadas por fecha, son contra un arquetipo de torneo
+        {data.withoutRival > 0 ? `; ${formatNumber(data.withoutRival)} no tienen rival anotado` : ''}. Una partida de
+        hace {data.halfLifeDays} días pesa la mitad que una de hoy, así que tus {formatNumber(data.matched)} partidas
+        valen como {effectiveFormat.format(data.effectiveMatches)}.
       </p>
       {data.unmatched.length > 0 ? (
         <p className="text-xs text-muted-foreground">

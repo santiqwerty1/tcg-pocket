@@ -49,7 +49,7 @@ describe('«Tu meta» (Fase 44)', () => {
     fakeApi({ 'GET /api/matches/my-meta': meta })
     renderSection(<MyMetaSection />)
     expect(await screen.findByText(/^Tu meta \(12 partidas/)).toBeInTheDocument()
-    expect(screen.getByText(/6 partidas · IC 37,8–86,8 %/)).toBeInTheDocument()
+    expect(screen.getByText(/6 partidas · IC 37,8–\u206086,8 %/)).toBeInTheDocument()
     expect(screen.getByText(/competitiva y distendida/)).toBeInTheDocument()
     expect(screen.getByText(/ponderadas por fecha/)).toBeInTheDocument()
     expect(screen.getByText(/valen como 10,8/)).toBeInTheDocument()
