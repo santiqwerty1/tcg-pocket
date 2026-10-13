@@ -1,0 +1,4 @@
+---
+seccion: Organización de las sesiones (D-021)
+---
+| **`pnpm decisiones` numera los pendientes** (`scripts/decisiones.mjs`): en una sección que ya existe, las filas van después de su última fila numerada, con el bloque de esa fila y el número siguiente al mayor de ese bloque en todo el archivo; una sección nueva va al final con el bloque siguiente al mayor, desde .1; varios pendientes de una sección se numeran seguidos en el orden de sus nombres; si uno está mal (sin `seccion:`, sin filas o con una fila ya numerada) no aplica ninguno; `--check` solo muestra qué haría. Los tests de `scripts/*.test.mjs` corren en la CI. | Los bloques 40 y 45 los comparten dos secciones: el número sale del mayor del bloque en todo el archivo, no de la sección. Que un pendiente roto no deje la mitad aplicada. |

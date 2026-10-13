@@ -16,7 +16,8 @@
     "fixtures:extract": "node scripts/extract-fixtures.mjs",
     "viewer:build": "node scripts/build-viewer.mjs",
     "deploy:fly": "node scripts/deploy.mjs",
-    "deploy:check": "node scripts/deploy.mjs --check"
+    "deploy:check": "node scripts/deploy.mjs --check",
+    "decisiones": "node scripts/decisiones.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
