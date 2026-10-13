@@ -12,6 +12,7 @@
  */
 import { splitGames } from '../simulation/consistency.js'
 import { chunkSeed } from '../simulation/seeds.js'
+import { FILL_VERIFY, fillMaxVariants } from './fill.js'
 import { type MetaScore, type ScoreDifference, scoreBeats, scoreDifference } from './score.js'
 
 export const EXPLORE_POOLS = ['collection', 'all'] as const
@@ -60,6 +61,12 @@ export interface ExploreConfig {
    * feeds what it learns, and the weakest third goes out more often after it. Off by default.
    */
   probe?: boolean
+  /**
+   * T-017 C8: after the probe round, one search round fills the two weakest places with every combination of the
+   * meta's favourite cards (`fillRound`), and its three best go to the verification together. It turns `probe` on.
+   * Off by default.
+   */
+  fill?: boolean
 }
 
 /** The «profunda» search Santi chose on 8/10/2026 (D-018): less noise, more changes tried, about an hour at most. */
@@ -77,6 +84,7 @@ export const DEFAULT_EXPLORE_CONFIG: ExploreConfig = {
   confirmBot: 'e3',
   race: false,
   probe: false,
+  fill: false,
 }
 
 export const EXPLORE_LIMITS = {
@@ -110,7 +118,9 @@ export function exploreConfig(input: Partial<ExploreConfig> = {}): ExploreConfig
     verifyZ: pick('verifyZ', false),
     byWeight: input.byWeight ?? true,
     race: input.race ?? false,
-    probe: input.probe ?? false,
+    // T-017 C8: filling the weakest places needs the probe round that finds them.
+    probe: (input.probe ?? false) || (input.fill ?? false),
+    fill: input.fill ?? false,
     confirmBot: input.confirmBot === undefined ? (DEFAULT_EXPLORE_CONFIG.confirmBot ?? null) : input.confirmBot,
   }
 }
@@ -225,17 +235,27 @@ export function probeGamesPerRival(config: ExploreConfig): number {
 
 /**
  * Games of a search: per round, and at most (every round verified, plus the confirmation). T-017 C3: with `probes`
- * lists in a probe round, its games too (review of #78: the plan left it out).
+ * lists in a probe round, its games too (review of #78: the plan left it out). T-017 C8: with `fill`, one of the rounds
+ * is the fill round (at most `fillMaxVariants` lists and the incumbent) and its verification plays `FILL_VERIFY` lists.
  */
 export function exploreGames(
   config: ExploreConfig,
   rivals: number,
   probes = 0,
-): { perRound: number; max: number; probe: number } {
+): { perRound: number; max: number; probe: number; fill: number } {
   const perRound = (config.variantsPerRound + 1) * rivals * config.gamesPerRival
   const verify = 2 * rivals * config.verifyGames
   const probe = probes > 0 ? (probes + 1) * rivals * probeGamesPerRival(config) : 0
-  return { perRound, max: (perRound + verify) * config.maxRounds + 2 * rivals * config.confirmGames + probe, probe }
+  const filling = !!config.fill && probes > 0
+  const fill = filling ? (fillMaxVariants() + 1) * rivals * config.gamesPerRival : 0
+  const fillVerify = filling ? (FILL_VERIFY + 1) * rivals * config.verifyGames : 0
+  const rounds = filling ? config.maxRounds - 1 : config.maxRounds
+  return {
+    perRound,
+    max: (perRound + verify) * rounds + fill + fillVerify + 2 * rivals * config.confirmGames + probe,
+    probe,
+    fill,
+  }
 }
 
 /** The verification round (H-010): the variant stays when, on fresh seeds, it beats the incumbent by `verifyZ`. */

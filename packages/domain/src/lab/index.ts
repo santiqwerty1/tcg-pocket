@@ -3,6 +3,7 @@
 export * from './core.js'
 export * from './energy.js'
 export * from './explore.js'
+export * from './fill.js'
 export * from './gauntlet.js'
 export * from './learn.js'
 export * from './mutate.js'

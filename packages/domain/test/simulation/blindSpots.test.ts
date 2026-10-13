@@ -34,6 +34,7 @@ const TABLE: [cardId: string, why: string, spots: BlindSpot[]][] = [
   // A search of the deck.
   ['P-A-5', 'Poké Ball: a random Basic Pokémon from your deck', ['deck_search']],
   ['A2-146', 'Pokémon Communication: a random Pokémon in your deck', ['deck_search']],
+  ['B2a-31', 'Veluza: if you have no cards in your deck (a condition, not a search)', []],
   // «Discard a random Energy» (the engine always discards the last one), but not from the discard pile.
   ['A1-178', 'Mawile: a coin to discard a random Energy', ['random_energy']],
   ['A3a-43', 'Guzzlord ex: for each heads, discard a random Energy', ['random_energy']],

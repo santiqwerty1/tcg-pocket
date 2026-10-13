@@ -64,8 +64,14 @@ export function blindSpotsOf(card: CardEdition): BlindSpot[] {
     return (Number.isFinite(printed) && printed > 0) || DAMAGE_WORD.test(attack.effect ?? '')
   })
   if (evolved && card.attacks.length > 0 && !deals) spots.push('stage_without_damage')
-  // Review of #82: «a random Pokémon in your deck» (Pokémon Communication) too.
-  if (/\b(?:from|in) your deck\b/i.test(texts)) spots.push('deck_search')
+  // Review of #82: «a random Pokémon in your deck» (Pokémon Communication) too; «in your deck» only with «random» or
+  // «search» in the same sentence (Veluza's «if you have no cards in your deck» is a condition, not a search).
+  const deckSearch = sentences(texts).some(
+    (sentence) =>
+      /\bfrom your deck\b/i.test(sentence) ||
+      (/\bin your deck\b/i.test(sentence) && /\b(?:random|search)/i.test(sentence)),
+  )
+  if (deckSearch) spots.push('deck_search')
   // Review of #82: «discard», «random» and «Energy» in one sentence, and not from the discard pile (Lusamine).
   const randomEnergy = sentences(texts).some(
     (sentence) =>

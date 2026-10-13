@@ -245,10 +245,14 @@ export class McpLabToolsService {
               include: explore.include.map((card) => card.nameEs),
               addedByHand: { played: explore.added, waiting: explore.pending, neverPlayed: explore.lost },
               rounds: explore.rounds.map((round) => ({
-                // T-017 C3: the probe round measures; it accepts nothing and is no search round.
+                // T-017 C3: the probe round measures; it accepts nothing and is no search round. T-017 C8: a fill round.
                 kind: round.probe
                   ? 'prueba (mide cuánto aporta cada carta; no acepta nada)'
-                  : { search: 'búsqueda', verify: 'verificación', confirm: 'confirmación' }[round.kind],
+                  : round.fill.length > 0
+                    ? `búsqueda a fondo (todas las formas de llenar los lugares de ${round.fill.map((card) => card.nameEs).join(' y ')})`
+                    : round.kind === 'verify' && round.candidates.length > 1
+                      ? `verificación de las ${round.candidates.length} mejores (con la vara corregida por ser varias)`
+                      : { search: 'búsqueda', verify: 'verificación', confirm: 'confirmación' }[round.kind],
                 best: labelOf.get(round.incumbent) ?? round.incumbent,
                 tried: round.candidates.length,
                 // Fase 42, carreras: variants out after the round's first half.
@@ -374,6 +378,7 @@ export class McpLabToolsService {
     locked?: string[]
     include?: string[]
     probe?: boolean
+    fill?: boolean
     rounds?: number
     variants?: number
     games?: number
@@ -407,6 +412,7 @@ export class McpLabToolsService {
     const settings = {
       pool: args.pool,
       ...(args.probe ? { probe: true } : {}),
+      ...(args.fill ? { fill: true } : {}),
       maxRounds: args.rounds,
       variantsPerRound: args.variants,
       gamesPerRival: args.games,
@@ -445,6 +451,7 @@ export class McpLabToolsService {
         })),
         gamesPerRound: result.games.perRound,
         ...(result.games.probe > 0 ? { probeRoundGames: result.games.probe } : {}),
+        ...(result.games.fill > 0 ? { fillRoundGamesAtMost: result.games.fill } : {}),
         maxGames: result.games.max,
         estimatedMinutes: {
           perRound: Math.max(
@@ -471,6 +478,7 @@ export class McpLabToolsService {
       rivals,
       gamesPerRound: games.perRound,
       ...(games.probe > 0 ? { probeRoundGames: games.probe } : {}),
+      ...(games.fill > 0 ? { fillRoundGamesAtMost: games.fill } : {}),
       maxGames: games.max,
       estimatedMinutes: {
         perRound: Math.max(1, Math.round(estimateSeconds(games.perRound, result.players, cores) / 60)),

@@ -555,7 +555,9 @@ function roundTitle(rounds: ExploreView['rounds'], at: number): string {
   if (round?.kind === 'verify') return 'Verificación'
   if (round?.kind === 'confirm') return 'Confirmación'
   if (round?.probe) return 'Ronda de prueba'
-  return `Ronda ${rounds.slice(0, at + 1).filter((item) => item.kind === 'search' && !item.probe).length}`
+  const number = rounds.slice(0, at + 1).filter((item) => item.kind === 'search' && !item.probe).length
+  // T-017 C8: the fill round.
+  return round && round.fill.length > 0 ? `Ronda ${number} (a fondo)` : `Ronda ${number}`
 }
 
 function roundText(round: ExploreView['rounds'][number], explore: ExploreView, label: Map<number, string>): string {
@@ -568,6 +570,14 @@ function roundText(round: ExploreView['rounds'][number], explore: ExploreView, l
     return round.decided
       ? `${round.candidates.length} cartas medidas: lo que menos aporta sale más seguido después`
       : `${round.candidates.length} cartas: sale una copia de cada una, con un relleno en su lugar`
+  }
+  if (round.kind === 'verify' && round.candidates.length > 1) {
+    // T-017 C8: the fill round's best three, verified together (the bar goes up for being several).
+    const names = round.candidates.map(name).join(', ')
+    if (!round.decided) return `las ${round.candidates.length} mejores (${names}) contra la mejor, con partidas nuevas`
+    return round.accepted !== null
+      ? `${name(round.accepted)} se sostuvo con partidas nuevas: pasa a ser la mejor`
+      : `ninguna de las ${round.candidates.length} se sostuvo con partidas nuevas`
   }
   if (round.kind === 'verify') {
     const [variant = null] = round.candidates
@@ -588,6 +598,10 @@ function roundText(round: ExploreView['rounds'][number], explore: ExploreView, l
         : `${round.dropped.length} quedaron afuera a mitad de ronda`,
     )
   }
+  // T-017 C8: every way to fill the weakest places.
+  if (round.fill.length > 0) {
+    notes.unshift(`todas las formas de llenar los lugares de ${round.fill.map((card) => card.nameEs).join(' y ')}`)
+  }
   const combo = notes.length > 0 ? ` (${notes.join('; ')})` : ''
   if (round.stopped) {
     // T-017 D2: an incomplete candidate cannot win; a complete one that wins is verified, then confirmed.
@@ -599,7 +613,11 @@ function roundText(round: ExploreView['rounds'][number], explore: ExploreView, l
   }
   if (!round.decided) return `${round.candidates.length} variantes jugando${combo}`
   if (round.accepted !== null) return `ganó ${name(round.accepted)}`
-  if (round.screened !== null) return `${name(round.screened)} le ganó a la mejor: se verifica`
+  if (round.screened !== null) {
+    return round.fill.length > 0
+      ? `${name(round.screened)} y las que le siguen le ganaron a la mejor en los lugares de ${round.fill.map((card) => card.nameEs).join(' y ')}: se verifican`
+      : `${name(round.screened)} le ganó a la mejor: se verifica`
+  }
   return `${round.candidates.length} variantes${combo}, ninguna mejoró a la mejor`
 }
 
