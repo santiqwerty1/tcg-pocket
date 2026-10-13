@@ -281,6 +281,11 @@ export class McpLabToolsService {
             : `${deck.novelty.label}: a ${deck.novelty.swaps} cambios de una lista de ${deck.novelty.closestArchetype ?? 'sin arquetipo'} (${deck.novelty.nearbyLists} listas de la era a 6 cambios o menos)`,
         energies: deck.energies,
         cards: deck.cards.map(cardLine),
+        // T-017 A3: cards the bots play badly or the engine approximates; «sensible al bot» when one came in.
+        ...(deck.botSensitive ? { botSensitive: true } : {}),
+        ...(deck.blindSpots.length > 0
+          ? { blindSpots: deck.blindSpots.map((card) => `${card.nameEs}: ${card.reasons.join('; ')}`) }
+          : {}),
       })),
     }
   }

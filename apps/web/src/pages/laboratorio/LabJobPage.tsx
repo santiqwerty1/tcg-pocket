@@ -388,6 +388,14 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant={deck.role === 'best' ? 'default' : 'secondary'}>{ROLE_LABEL[deck.role]}</Badge>
         <NoveltyBadge deck={deck} />
+        {deck.botSensitive ? (
+          <Badge
+            variant="outline"
+            title="Trae una carta que el bot juega mal o que el motor aproxima: probala en el juego antes de confiar en el número."
+          >
+            sensible al bot
+          </Badge>
+        ) : null}
         <span className="min-w-0 flex-1 truncate text-sm font-medium">{deck.label}</span>
       </div>
       {deck.confirm ? (
@@ -458,6 +466,15 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
           <div className="flex flex-col gap-1">
             <EnergyChips energies={energies} />
             <p className="text-sm">{deck.cards.map((card) => `${card.count} ${card.nameEs}`).join(', ')}</p>
+            {deck.blindSpots.length > 0 ? (
+              <ul className="text-xs text-muted-foreground">
+                {deck.blindSpots.map((card) => (
+                  <li key={card.cardId}>
+                    {card.nameEs}: {card.reasons.join('; ')}.
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
             {deck.deckId ? (
