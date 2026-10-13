@@ -3,7 +3,7 @@ tipo: indice
 titulo: 'Hallazgos'
 area: proyecto
 estado: vigente
-actualizado: '2026-10-10'
+actualizado: '2026-10-12'
 origen:
   - posta generar
 revisar: false
@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-22 fichas: abierto 4 · resuelto 18. ⚑ = para revisar.
+26 fichas: abierto 5 · resuelto 21. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Severidad | PR | Actualizado |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -39,3 +39,7 @@ revisar: false
 | [H-020](H-020.md) | Las semillas comunes del laboratorio casi no sirven porque las variantes reordenan la lista | resuelto | — | media | — | 2026-10-09 |
 | [H-021](H-021.md) | Una búsqueda del laboratorio no se puede reproducir | resuelto | — | baja | — | 2026-10-09 |
 | [H-050](H-050.md) | «Optimizar» no prueba dos copias de una misma candidata | abierto | — | — | #32 | 2026-10-10 |
+| [H-051](H-051.md) | El bot «et» (termina el turno) no se podía jugar | resuelto | — | media | #65 | 2026-10-12 |
+| [H-052](H-052.md) | deckgym entra en pánico en partidas puntuales y ofrece DiscardFossil dos veces | abierto | — | baja | #71 | 2026-10-12 |
+| [H-053](H-053.md) | La mesa no dejaba unir una herramienta tocando el Pokémon | resuelto | — | media | #69 | 2026-10-12 |
+| [H-054](H-054.md) | El celu corta el motor a mitad de un cruce largo y el chunk se gasta sin resultado | resuelto | — | media | #72 | 2026-10-12 |
