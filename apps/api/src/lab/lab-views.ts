@@ -190,7 +190,15 @@ export interface LabExploreView {
     stopped: boolean
     /** Fase 42, carreras: the variants that left after the round's first half. */
     dropped: number[]
+    /** T-017 C3: the «carta más floja» round (it measures; it accepts nothing). */
+    probe: boolean
   }[]
+  /**
+   * T-017 C3: what each card is worth, from the probe round — the deck with one copy of it out (a filler in its place)
+   * against the deck, most expendable first — and the weakest third, which goes out more often after it.
+   */
+  probe: { cardId: string; nameEs: string; value: number | null; text: string }[]
+  weakest: CardLineView[]
   /**
    * T-017 E2: cards most lists of the archetype play (30 % or more) that the search could not try because the
    * collection has none, most played first.

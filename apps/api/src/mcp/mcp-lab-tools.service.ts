@@ -354,6 +354,7 @@ export class McpLabToolsService {
     pool?: 'collection' | 'all'
     locked?: string[]
     include?: string[]
+    probe?: boolean
     rounds?: number
     variants?: number
     games?: number
@@ -386,6 +387,7 @@ export class McpLabToolsService {
     const include = (args.include ?? []).map((card) => resolveCardRef(index, card, own))
     const settings = {
       pool: args.pool,
+      ...(args.probe ? { probe: true } : {}),
       maxRounds: args.rounds,
       variantsPerRound: args.variants,
       gamesPerRival: args.games,

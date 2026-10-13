@@ -335,6 +335,10 @@ export const MCP_WRITE_TOOLS = {
         .describe(
           'Cartas para probar (nombre o código): entran aunque Santi no las tenga y cada ronda una variante trae una',
         ),
+      probe: z
+        .boolean()
+        .optional()
+        .describe('Empezar con una ronda de prueba que mide cuánto aporta cada carta (sale una copia de cada una)'),
       rounds: z.number().int().min(1).max(20).optional().describe('Rondas como máximo (por defecto 12)'),
       variants: z.number().int().min(1).max(12).optional().describe('Variantes nuevas por ronda (por defecto 8)'),
       games: z

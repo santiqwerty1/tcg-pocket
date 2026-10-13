@@ -1689,6 +1689,64 @@ describe('laboratorio (e2e)', () => {
     })
   }, 60_000)
 
+  it('T-017 C3: a probe round measures what each card is worth; the weakest third goes out more often', async () => {
+    const config = {
+      gamesPerRival: 20,
+      variantsPerRound: 2,
+      maxRounds: 1,
+      patience: 3,
+      confirmGames: 0,
+      verifyGames: 0,
+      pool: 'all',
+      byWeight: false,
+      confirmBot: null,
+      probe: true,
+    }
+    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9990 })
+    expect(created.status).toBe(200)
+    const id = created.body.id as number
+    type Round = { candidates: number[]; probe?: boolean; decided: boolean; accepted: number | null }
+    const read = async () =>
+      (
+        (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).params as {
+          lab: {
+            explore: { rounds: Round[]; weakest?: string[]; learned?: Record<string, { sum: number; n: number }> }
+          }
+        }
+      ).lab.explore
+    const first = (await read()).rounds[0]
+    expect(first?.probe).toBe(true)
+    const probes = first?.candidates ?? []
+    expect(probes.length).toBeGreaterThan(4)
+    // Half the games of a search round (10 of 20) for every probe and the deck.
+    const chunks = await test.prisma.simulationChunk.findMany({ where: { jobId: id } })
+    expect(chunks.every((chunk) => chunk.games === 10)).toBe(true)
+    expect(chunks).toHaveLength((probes.length + 1) * 3)
+    // The deck without one copy of the first probed card wins 70 %: that card is the most expendable.
+    const [expendable] = probes
+    expect(
+      await playAll(
+        (a, _b, games) => (a === expendable ? Math.round(games * 0.7) : Math.floor(games / 2)),
+        chunks.length,
+      ),
+    ).toBe(chunks.length)
+    const after = await read()
+    expect(after.rounds[0]).toMatchObject({ decided: true, accepted: null })
+    // The search round that follows is the first one (the probe is no search round): with maxRounds 1, it is queued.
+    expect(after.rounds[1]).toMatchObject({ decided: false })
+    expect(after.rounds[1]?.probe).toBeUndefined()
+    const lab = (await get(`/api/lab/jobs/${id}`)).body
+    expect(lab.explore.rounds[0]).toMatchObject({ probe: true })
+    expect(lab.explore.roundsDone).toBe(0)
+    const [top] = lab.explore.probe as { cardId: string; value: number }[]
+    expect(top?.value).toBeCloseTo(20, 6)
+    expect(after.weakest).toContain(top?.cardId)
+    expect(lab.explore.weakest.map((card: { cardId: string }) => card.cardId)).toContain(top?.cardId)
+    // What it measured feeds what the search learns: taking that card out helped.
+    expect(after.learned?.[`-${top?.cardId}`]?.sum).toBeGreaterThan(0)
+    await post(`/api/simulations/${id}/cancel`)
+  }, 60_000)
+
   it('review of #22: «Frenar» needs a session', async () => {
     expect((await test.http().post('/api/lab/jobs/1/stop')).status).toBe(401)
   })

@@ -537,13 +537,20 @@ function roundTitle(rounds: ExploreView['rounds'], at: number): string {
   const round = rounds[at]
   if (round?.kind === 'verify') return 'Verificación'
   if (round?.kind === 'confirm') return 'Confirmación'
-  return `Ronda ${rounds.slice(0, at + 1).filter((item) => item.kind === 'search').length}`
+  if (round?.probe) return 'Ronda de prueba'
+  return `Ronda ${rounds.slice(0, at + 1).filter((item) => item.kind === 'search' && !item.probe).length}`
 }
 
 function roundText(round: ExploreView['rounds'][number], explore: ExploreView, label: Map<number, string>): string {
   const name = (id: number | null) => (id === null ? '' : (label.get(id) ?? String(id)))
   if (round.kind === 'confirm') {
     return `lista de partida y la mejor encontrada, ${explore.config.confirmGames} partidas por rival`
+  }
+  if (round.probe) {
+    // T-017 C3: one copy of each card out, a filler in its place.
+    return round.decided
+      ? `${round.candidates.length} cartas medidas: lo que menos aporta sale más seguido después`
+      : `${round.candidates.length} cartas: sale una copia de cada una, con un relleno en su lugar`
   }
   if (round.kind === 'verify') {
     const [variant = null] = round.candidates
@@ -660,6 +667,24 @@ function ExploreSummary({ job }: { job: LabJob }) {
         </p>
       ) : null}
       {explore.robustness ? <RobustnessLine robustness={explore.robustness} /> : null}
+      {explore.probe.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          <p className="text-sm font-medium">Qué aporta cada carta (ronda de prueba)</p>
+          <p className="text-xs text-muted-foreground">
+            El mazo con una copia menos de cada carta, contra el mazo: arriba, lo que menos se extraña.
+            {explore.weakest.length > 0
+              ? ` Sale más seguido: ${explore.weakest.map((card) => card.nameEs).join(', ')}.`
+              : ''}
+          </p>
+          <ul className="text-xs">
+            {explore.probe.map((card) => (
+              <li key={card.cardId}>
+                Sin una {card.nameEs}: {card.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {explore.include.length > 0 ? (
         <p className="text-sm">Probando: {explore.include.map((card) => card.nameEs).join(', ')}.</p>
       ) : null}

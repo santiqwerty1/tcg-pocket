@@ -55,6 +55,11 @@ export interface ExploreConfig {
    * measured with the real workers (review of #53: the round waits for its first half's slowest chunk).
    */
   race?: boolean
+  /**
+   * T-017 C3: the search starts with a «carta más floja» round (one copy of each card out, a filler in its place) that
+   * feeds what it learns, and the weakest third goes out more often after it. Off by default.
+   */
+  probe?: boolean
 }
 
 /** The «profunda» search Santi chose on 8/10/2026 (D-018): less noise, more changes tried, about an hour at most. */
@@ -104,6 +109,7 @@ export function exploreConfig(input: Partial<ExploreConfig> = {}): ExploreConfig
     verifyZ: pick('verifyZ', false),
     byWeight: input.byWeight ?? true,
     race: input.race ?? false,
+    probe: input.probe ?? false,
     confirmBot: input.confirmBot === undefined ? (DEFAULT_EXPLORE_CONFIG.confirmBot ?? null) : input.confirmBot,
   }
 }
