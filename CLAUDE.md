@@ -88,6 +88,11 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
   - Las preguntas para Santi pasan por el coordinador.
   - Las sesiones se hablan por el chat `C:/Users/<usuario>/Personal/tcg-pocket-chat/` (`chat.mjs write|read|wait`), fuera del repo, porque `posta check` revisa todo lo que hay en `Boveda/`.
   - Desde la mudanza (11/10), las sesiones de la nube viejas se archivan; se abren nuevas sobre el repo público cuando haya trabajo para la nube.
+  - **Flujo desde el 13/10/2026** (pedido de Santi):
+    - Antes de abrir un PR, cada sesión pasa su autorrevisión con la lista de `docs/REVISION.md` y la resume en la descripción.
+    - La revisión depende del riesgo: lo de riesgo bajo (documentación o textos) lo integra el Coordinador con la CI verde; el código común lleva una revisión; migraciones, cola o workers, concurrencia, seguridad, borrados y CI llevan revisión y verificación.
+    - Las sesiones rotan por tanda: cuando una termina su tanda o su contexto se hace largo, deja un traspaso en la bitácora del día y la próxima tanda arranca en una sesión nueva.
+    - A Santi se le escribe solo cuando tiene que decidir o hacer algo; las sesiones de Posta se coordinan directo con el Coordinador.
 - **Integrados el 9/10/2026:** PR #3 y #4 (H-019, `perGame` y el reclamo rápido de chunks, worker 0.2.5), #2 (Fase 43) y #6 (CI: el motor de Windows solo si cambia, Docker solo en main, `cancel-in-progress`).
 - **Integrados el 9-10/10/2026:** pila de Laboratorio #5, #15, #20, #22, #25, #27 y #28; calibración #29; Fase 40 #31; seguimiento de la 43 #34; Fase 44 parte 1 #17; CI y screens #36/#33; optimizar #32; ensayo de mudanza #26 y revisión de bots #35.
 - **Laboratorio (T-017, DECISIONES 45.4–45.17):** bots `f1`–`f9` en `engine/src/fair_bot.rs` (H-018), aprender entre rondas y combinar cambios, explicaciones por carta, frenar y confirmar, deshacer cambios, variantes de Energía y dos listas para los 3 arquetipos más jugados. Revisión #35 integrada; e2 sigue por defecto (D4 entró el 11/10 en #47).
@@ -160,7 +165,7 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 ## Cómo trabajar acá
 
 - Trabajo por fases; al terminar cada una: qué quedó, cómo lo prueba Santi, qué decidí. Esperar el visto bueno antes de seguir.
-- Preguntar antes de las decisiones caras de revertir (stack, modelo de datos, hosting, autenticación). El resto se decide y se anota en `docs/DECISIONES.md` con una línea de motivo.
+- Preguntar antes de las decisiones caras de revertir (stack, modelo de datos, hosting, autenticación). El resto se decide y se anota con una línea de motivo: en un PR, en `docs/decisiones/pendientes/<rama>.md` (sin número; el Coordinador lo numera y lo pasa a `docs/DECISIONES.md` al integrar, `docs/REVISION.md`).
 - Verificar con los datos reales de `docs/context/` (CSV de la colección, `mazos_40_listas.md`), no solo con ejemplos inventados.
 - Tests para toda la lógica de dominio: conteo de copias, validación de mazos, probabilidades de sobres, estadísticas, importadores y exportadores.
 - Antes de reimplementar algo, mirar si existe en `refs/tracker` o `refs/deckgym-core` y leer su código.
