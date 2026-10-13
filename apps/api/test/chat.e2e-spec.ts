@@ -503,6 +503,26 @@ describe('chat between sessions (e2e)', () => {
     expect(await postaTopics('Tarde')).toEqual([])
     await say('De vuelta')
     expect(await postaTopics('Tarde')).toEqual(['De vuelta'])
+    // Changing only the main room keeps where it was in each room (self-review: nothing tested it).
+    await say('Antes del orden')
+    await session().send({ name: 'Tarde', channel: 'connector', rooms: ['posta', 'tcg'] })
+    expect(await postaTopics('Tarde')).toEqual(['Antes del orden'])
+    // A hand-edited room_since neither breaks a read nor stays broken (self-review): a number out of range or not an
+    // object reads from since_id, and the next join leaves an object again.
+    const prisma = test.app.get(PrismaService)
+    await prisma.sessionChatParticipant.update({ where: { key: 'tarde' }, data: { roomSince: { posta: 1e12 } } })
+    await call(late, 'chat_read', { as: 'Tarde', sala: 'tcg' })
+    await prisma.sessionChatParticipant.update({ where: { key: 'tarde' }, data: { roomSince: [1, 2] } })
+    await call(late, 'chat_read', { as: 'Tarde', sala: 'posta', limit: 100 })
+    await session().send({ name: 'Tarde', channel: 'connector', rooms: ['tcg'] })
+    await say('Sin Tarde')
+    await session().send({ name: 'Tarde', channel: 'connector', rooms: ['tcg', 'posta'] })
+    expect(
+      (await prisma.sessionChatParticipant.findUniqueOrThrow({ where: { key: 'tarde' } })).roomSince,
+    ).toMatchObject({
+      posta: expect.any(Number),
+    })
+    expect(await postaTopics('Tarde')).toEqual([])
     // The history is still there for whoever asks for it.
     const history = await call(late, 'chat_read', { as: 'Tarde', sala: 'posta', all: true, limit: 100 })
     expect((history.messages as Message[]).map((m) => m.topic)).toEqual(
