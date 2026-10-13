@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { validateDeck } from '../../src/decks/index.js'
 import type { SelectableEnergy } from '../../src/index.js'
 import {
+  CALIBRATION_MAX_GAUNTLET_SIZE,
   cardChanges,
   confirmVerdict,
   customGauntlet,
@@ -14,6 +15,7 @@ import {
   formatMetaScoreEs,
   gamesByWeight,
   groupsOfCards,
+  MAX_GAUNTLET_SIZE,
   type MetaScore,
   metaGauntlet,
   metaScore,
@@ -68,6 +70,24 @@ const dataset = buildDataset({
 const rows = listRows(dataset, 'group')
 
 describe('meta bank', () => {
+  it('a calibration may play a larger bank than a test (D-029); a test stays at 20 archetypes', () => {
+    const available = archetypeRows(dataset).filter((row) => row.archetype !== null).length
+    expect(available).toBeGreaterThan(MAX_GAUNTLET_SIZE)
+    const test = metaGauntlet(dataset, { size: 25 })
+    expect(test.rivals).toHaveLength(MAX_GAUNTLET_SIZE)
+    const larger = metaGauntlet(dataset, { size: 25, maxSize: CALIBRATION_MAX_GAUNTLET_SIZE })
+    expect(larger.rivals).toHaveLength(Math.min(25, available))
+    // The same archetypes first, in the same order: the larger bank only adds the next ones.
+    expect(larger.rivals.slice(0, MAX_GAUNTLET_SIZE).map((rival) => rival.archetypeId)).toEqual(
+      test.rivals.map((rival) => rival.archetypeId),
+    )
+    expect(larger.rivals.reduce((sum, rival) => sum + rival.weight, 0)).toBeCloseTo(1, 10)
+    // Never past the calibration's own top.
+    expect(
+      metaGauntlet(dataset, { size: 99, maxSize: CALIBRATION_MAX_GAUNTLET_SIZE }).rivals.length,
+    ).toBeLessThanOrEqual(CALIBRATION_MAX_GAUNTLET_SIZE)
+  })
+
   it('the most played archetypes with their representative list, weighted by share', () => {
     const gauntlet = metaGauntlet(dataset, { size: 10 })
     expect(gauntlet.rivals).toHaveLength(10)

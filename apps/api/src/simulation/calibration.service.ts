@@ -6,6 +6,7 @@
 import { BadRequestException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common'
 import {
   botLabel,
+  CALIBRATION_MAX_GAUNTLET_SIZE,
   type CalibrationPairing,
   type CalibrationReport,
   type ChunkOutcome,
@@ -117,7 +118,13 @@ export class CalibrationService {
     if (!isBotCode(input.bot)) {
       throw new BadRequestException({ code: 'validation', message: `Bot «${input.bot}» desconocido.` })
     }
-    const bank = await this.lab.bank({ era: input.era, format: input.format, size: input.size })
+    // Its own top (D-029): more pairs of archetypes narrow the comparison more than more games per pairing.
+    const bank = await this.lab.bank({
+      era: input.era,
+      format: input.format,
+      size: input.size,
+      maxSize: CALIBRATION_MAX_GAUNTLET_SIZE,
+    })
     if (bank.rivals.length < 3) {
       throw new UnprocessableEntityException({
         code: 'bank_too_small',

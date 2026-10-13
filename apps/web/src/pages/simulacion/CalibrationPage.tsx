@@ -30,6 +30,16 @@ import { progressFraction } from '@/lib/simulation'
 import { ProgressBar, StatusBadge } from './SimulacionPage'
 
 const decimal = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const count = new Intl.NumberFormat('es-AR')
+/** Archetypes of the bank (`CALIBRATION_GAUNTLET_SIZES` of @tcg/domain): 15 is the Laboratorio's (D-029). */
+const BANK_SIZES = [15, 20, 25, 30] as const
+
+/** The lists, pairings and games a bank of `size` archetypes plays: the 3 most played bring a second list from 10 on. */
+function bankCost(size: number, gamesPerPair: number) {
+  const lists = size + (size >= 10 ? 3 : 0)
+  const pairings = (lists * (lists - 1)) / 2
+  return { lists, pairings, games: pairings * gamesPerPair }
+}
 const points = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1, signDisplay: 'exceptZero' })
 
 /** «ρ = 0,45 (IC 0,12–0,69; 40 cruces)». */
@@ -77,6 +87,8 @@ export function CalibrationPage() {
   const start = useStartCalibration()
   const [bot, setBot] = useState('e2')
   const [games, setGames] = useState('200')
+  const [size, setSize] = useState('15')
+  const cost = bankCost(Number(size), Number(games) || 0)
   const bots = engine.data?.bots ?? [{ code: 'e2', label: 'expectiminimax, profundidad 2' }]
 
   function launch() {
@@ -86,7 +98,7 @@ export function CalibrationPage() {
       return
     }
     start.mutate(
-      { bot, gamesPerPair },
+      { bot, gamesPerPair, size: Number(size) },
       {
         onSuccess: (job) => toast.success(`Calibración encolada (simulación #${job.id})`),
         onError: (error) => toast.error(errorMessage(error)),
@@ -112,7 +124,7 @@ export function CalibrationPage() {
           por cruce, al lado de lo que hicieron esos arquetipos en los torneos de la era. Sirve para ver cuánto se
           parece cada bot a la gente antes de confiar en sus números.
         </p>
-        <div className="grid grid-cols-2 gap-3 sm:max-w-md">
+        <div className="grid grid-cols-2 gap-3 sm:max-w-xl sm:grid-cols-3">
           <Field label="Bot (los dos lados)">
             <Select value={bot} onValueChange={setBot}>
               <SelectTrigger className="w-full" aria-label="Bot">
@@ -122,6 +134,20 @@ export function CalibrationPage() {
                 {bots.map((item) => (
                   <SelectItem key={item.code} value={item.code}>
                     {item.code} · {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field label="Arquetipos del banco">
+            <Select value={size} onValueChange={setSize}>
+              <SelectTrigger className="w-full" aria-label="Arquetipos del banco">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {BANK_SIZES.map((item) => (
+                  <SelectItem key={item} value={String(item)}>
+                    {item === 15 ? '15 (el del Laboratorio)' : item}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -143,7 +169,9 @@ export function CalibrationPage() {
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Con 15 listas son 105 cruces: con 200 partidas por cruce, 21.000 partidas (unos minutos del worker con e2).
+          Con {size} arquetipos son unas {cost.lists} listas (los 3 más jugados traen dos) y{' '}
+          {count.format(cost.pairings)} cruces: {count.format(cost.games)} partidas. Más arquetipos comparan más pares
+          con los torneos, que es lo que achica los intervalos; e3 tarda unas 4 veces lo de e2.
         </p>
       </Section>
       <Section title="Calibraciones">

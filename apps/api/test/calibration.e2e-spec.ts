@@ -414,4 +414,27 @@ describe('calibration (e2e)', () => {
       await client.close().catch(() => undefined)
     }
   })
+
+  it('D-029: a calibration plays up to 30 archetypes; the Laboratorio keeps its bank of 20 at most', async () => {
+    expect((await post('/api/calibration').send({ bot: 'e2', size: 31 })).status).toBe(400)
+    // The Laboratorio's own top does not move: its bank, its tests and its consistency against the meta.
+    expect((await get('/api/lab/bank?size=25')).status).toBe(400)
+    expect((await get('/api/lab/bank?size=20')).body.size).toBeLessThanOrEqual(20)
+    const started = await post('/api/calibration').send({ bot: 'e2', gamesPerPair: 10, size: 25 })
+    expect(started.status).toBe(201)
+    const id = started.body.id as number
+    const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })
+    const bank = (job.params as { calibration: { bank: { archetypeId: string }[] } }).calibration.bank
+    const archetypes = new Set(bank.map((entry) => entry.archetypeId)).size
+    expect(archetypes).toBeGreaterThan(20)
+    expect(archetypes).toBeLessThanOrEqual(25)
+    // Every pair of its lists, once; the report and the list read a bank of any size.
+    expect(started.body.progress.chunks.total).toBe((bank.length * (bank.length - 1)) / 2)
+    const view = (await get(`/api/calibration/${id}`)).body
+    expect(view.job).toMatchObject({ id, lists: bank.length, status: 'queued' })
+    expect(view.pending + view.mirrors).toBe((bank.length * (bank.length - 1)) / 2)
+    const listed = (await get('/api/calibration')).body as { id: number; lists: number }[]
+    expect(listed.find((item) => item.id === id)).toMatchObject({ lists: bank.length })
+    expect((await post(`/api/simulations/${id}/cancel`)).body.status).toBe('cancelled')
+  })
 })
