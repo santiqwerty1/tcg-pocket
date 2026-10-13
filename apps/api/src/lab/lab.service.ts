@@ -189,8 +189,10 @@ export interface DeckLabScore {
 export interface LabScopeInput {
   era?: string | undefined
   format?: TournamentFormat | undefined
-  /** Archetypes in the bank (5–20, default 10). */
+  /** Archetypes in the bank (5–20, default 15). */
   size?: number | undefined
+  /** The largest bank allowed: a test's (20) unless a calibration asks for its own (R-012, D-029). */
+  maxSize?: number | undefined
   /** T-017 D4: against the era's most played (default), my own rivals («mi meta») or one archetype. */
   objective?: LabObjective['kind'] | undefined
   /** The archetype, with `objective: 'rival'`. */
@@ -453,7 +455,12 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       }
       const targets = mine.shares.map((share) => ({ archetypeId: share.archetypeId, weight: share.share }))
       // T-017 D3: the first ones bring a second list (banks of 10 or more).
-      gauntlet = customGauntlet(dataset, targets, { size, secondLists: secondListsFor(size), check })
+      gauntlet = customGauntlet(dataset, targets, {
+        size,
+        secondLists: secondListsFor(size),
+        check,
+        maxSize: input.maxSize,
+      })
       objective = {
         kind: 'mine',
         labelEs: `mi meta (${mine.matched} ${mine.matched === 1 ? 'partida' : 'partidas'})`,
@@ -486,7 +493,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       objective = { kind: 'rival', archetypeId: row.archetype.id, labelEs: `solo ${row.archetype.name}` }
     } else {
       // T-017 D3: the 3 most played archetypes with two lists each (banks of 10 or more).
-      gauntlet = metaGauntlet(dataset, { size, secondLists: secondListsFor(size), check })
+      gauntlet = metaGauntlet(dataset, { size, secondLists: secondListsFor(size), check, maxSize: input.maxSize })
       objective = META_OBJECTIVE
     }
     return {

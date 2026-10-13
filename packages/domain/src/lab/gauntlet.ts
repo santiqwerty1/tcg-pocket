@@ -15,6 +15,12 @@ export const GAUNTLET_SIZES = [5, 10, 15, 20] as const
 /** Santi chose 15 on 8/10/2026 (D-018): about 60 % of the era's lists. */
 export const DEFAULT_GAUNTLET_SIZE = 15
 export const MAX_GAUNTLET_SIZE = 20
+/**
+ * A calibration's bank (R-012, D-029) can be larger than a test's: its intervals narrow with the archetype pairs it
+ * compares, not with the games of each. In B4a, past 25 archetypes the new pairs barely have tournament games.
+ */
+export const CALIBRATION_MAX_GAUNTLET_SIZE = 30
+export const CALIBRATION_GAUNTLET_SIZES = [15, 20, 25, 30] as const
 /** Lists of an archetype tried before skipping it. */
 const LISTS_TRIED = 3
 /** T-017 D3: what the Laboratorio asks for (the 3 most played archetypes are ~37 % of the bank in B4a). */
@@ -68,7 +74,7 @@ export interface Gauntlet {
 export type GauntletCheck = (list: ListRow, energies: string[]) => string | null
 
 export function metaGauntlet(dataset: TournamentDataset, options: GauntletOptions = {}): Gauntlet {
-  const size = Math.min(MAX_GAUNTLET_SIZE, Math.max(1, Math.round(options.size ?? DEFAULT_GAUNTLET_SIZE)))
+  const size = Math.min(maxSizeOf(options), Math.max(1, Math.round(options.size ?? DEFAULT_GAUNTLET_SIZE)))
   const candidates = archetypeRows(dataset).flatMap((row) =>
     row.archetype
       ? [{ id: row.archetype.id, name: row.archetype.name, share: row.share, lists: row.lists, weight: row.share }]
@@ -81,7 +87,11 @@ export interface GauntletOptions {
   size?: number | undefined
   check?: GauntletCheck | undefined
   secondLists?: number | undefined
+  /** The largest bank allowed: a test's (`MAX_GAUNTLET_SIZE`) unless said otherwise, as a calibration does. */
+  maxSize?: number | undefined
 }
+
+const maxSizeOf = (options: GauntletOptions) => Math.max(1, Math.round(options.maxSize ?? MAX_GAUNTLET_SIZE))
 
 /** T-017 D4: an archetype of the era to measure against, with its weight (any scale: the bank normalizes it). */
 export interface GauntletTarget {
@@ -111,7 +121,7 @@ export function customGauntlet(
     const { id, name } = row.archetype
     return [{ id, name, share: row.share, lists: row.lists, weight: target.weight }]
   })
-  const size = Math.min(MAX_GAUNTLET_SIZE, Math.max(1, Math.round(options.size ?? candidates.length)))
+  const size = Math.min(maxSizeOf(options), Math.max(1, Math.round(options.size ?? candidates.length)))
   return gauntletOf(dataset, candidates, { ...options, size })
 }
 

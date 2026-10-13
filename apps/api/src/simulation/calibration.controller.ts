@@ -1,6 +1,6 @@
 /** Calibration of the simulations against tournaments (R-012): `/api/calibration`. */
 import { Body, Controller, Get, Module, Param, Post } from '@nestjs/common'
-import { BOT_CODE_PATTERN, TOURNAMENT_FORMATS } from '@tcg/domain'
+import { BOT_CODE_PATTERN, CALIBRATION_MAX_GAUNTLET_SIZE, TOURNAMENT_FORMATS } from '@tcg/domain'
 import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
 import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
@@ -12,7 +12,7 @@ import { SimulationModule } from './simulation.controller.js'
 const startSchema = z.object({
   bot: z.string().regex(BOT_CODE_PATTERN, 'Bot desconocido.'),
   gamesPerPair: z.number().int().min(10).max(2000).optional(),
-  size: z.number().int().min(3).max(20).optional(),
+  size: z.number().int().min(3).max(CALIBRATION_MAX_GAUNTLET_SIZE).optional(),
   era: z
     .string()
     .regex(/^[A-Za-z0-9-]{1,8}$/)

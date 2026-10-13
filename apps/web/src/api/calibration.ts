@@ -141,7 +141,7 @@ export function useCalibration(id: string) {
 export function useStartCalibration() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (input: { bot: string; gamesPerPair?: number }) =>
+    mutationFn: (input: { bot: string; gamesPerPair?: number; size?: number }) =>
       request('/api/calibration', { method: 'POST', body: input, schema: jobSummarySchema }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: calibrationKeys.all })
