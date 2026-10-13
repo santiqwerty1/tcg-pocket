@@ -76,6 +76,7 @@ export const DEFAULT_EXPLORE_CONFIG: ExploreConfig = {
   byWeight: true,
   confirmBot: 'e3',
   race: false,
+  probe: false,
 }
 
 export const EXPLORE_LIMITS = {
@@ -217,11 +218,24 @@ export function roundWinner(
   return scoreBeats(best.score, incumbent, z) ? best.id : null
 }
 
-/** Games of a search: per round, and at most (every round verified, plus the confirmation). */
-export function exploreGames(config: ExploreConfig, rivals: number): { perRound: number; max: number } {
+/** T-017 C3: games per rival of the probe round, half a search round's (10 at least). */
+export function probeGamesPerRival(config: ExploreConfig): number {
+  return Math.max(10, Math.round(config.gamesPerRival / 2))
+}
+
+/**
+ * Games of a search: per round, and at most (every round verified, plus the confirmation). T-017 C3: with `probes`
+ * lists in a probe round, its games too (review of #78: the plan left it out).
+ */
+export function exploreGames(
+  config: ExploreConfig,
+  rivals: number,
+  probes = 0,
+): { perRound: number; max: number; probe: number } {
   const perRound = (config.variantsPerRound + 1) * rivals * config.gamesPerRival
   const verify = 2 * rivals * config.verifyGames
-  return { perRound, max: (perRound + verify) * config.maxRounds + 2 * rivals * config.confirmGames }
+  const probe = probes > 0 ? (probes + 1) * rivals * probeGamesPerRival(config) : 0
+  return { perRound, max: (perRound + verify) * config.maxRounds + 2 * rivals * config.confirmGames + probe, probe }
 }
 
 /** The verification round (H-010): the variant stays when, on fresh seeds, it beats the incumbent by `verifyZ`. */

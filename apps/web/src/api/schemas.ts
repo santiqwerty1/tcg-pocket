@@ -1960,8 +1960,9 @@ export const labExplorePlanSchema = z.object({
   config: exploreConfigSchema,
   /** H-021: the plan's seed; starting with it plays these same first-round variants. */
   seed: z.number().optional(),
-  games: z.object({ perRound: z.number(), max: z.number() }),
-  estimatedSeconds: z.object({ perRound: z.number(), max: z.number() }),
+  /** T-017 C3: `probe`, the games of the probe round (in `max`); then `firstRound` is that round's lists. */
+  games: z.object({ perRound: z.number(), max: z.number(), probe: z.number().default(0) }),
+  estimatedSeconds: z.object({ perRound: z.number(), max: z.number(), probe: z.number().default(0) }),
 })
 export type LabExplorePlan = z.infer<typeof labExplorePlanSchema>
 

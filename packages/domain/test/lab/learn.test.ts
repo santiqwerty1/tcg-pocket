@@ -249,16 +249,29 @@ describe('the «carta más floja» round (T-017 C3)', () => {
     if (!first) throw new Error('no probe')
     const locked = probeVariants(deck.cards, 'P-A-3', index, { valid, locked: new Set([first.probed]) })
     expect(locked.map((variant) => variant.probed)).not.toContain(first.probed)
+    const d = (value: number, se: number) => ({
+      value,
+      se,
+      ci95: [value - 1.96 * se, value + 1.96 * se] as [number, number],
+    })
     expect(
       weakestThird([
-        { groupId: 'a', difference: -6 },
-        { groupId: 'b', difference: 2 },
-        { groupId: 'c', difference: 0.5 },
+        { groupId: 'a', difference: d(-6, 1) },
+        { groupId: 'b', difference: d(2, 1) },
+        { groupId: 'c', difference: d(0.5, 1) },
         { groupId: 'd', difference: null },
-        { groupId: 'e', difference: -1 },
-        { groupId: 'f', difference: 3 },
+        { groupId: 'e', difference: d(-1, 1) },
+        { groupId: 'f', difference: d(3, 1) },
       ]),
     ).toEqual(['f', 'b'])
+    // Review of #78: by the low end of the interval — a lucky +8 on a wide interval is not the weakest.
+    expect(
+      weakestThird([
+        { groupId: 'lucky', difference: d(8, 6) },
+        { groupId: 'sure', difference: d(2, 0.5) },
+        { groupId: 'x', difference: d(0, 1) },
+      ]),
+    ).toEqual(['sure'])
     expect(weakestThird([])).toEqual([])
   })
 })

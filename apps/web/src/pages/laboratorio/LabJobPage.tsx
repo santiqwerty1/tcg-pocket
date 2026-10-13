@@ -679,7 +679,7 @@ function ExploreSummary({ job }: { job: LabJob }) {
           <ul className="text-xs">
             {explore.probe.map((card) => (
               <li key={card.cardId}>
-                Sin una {card.nameEs}: {card.text}
+                {card.nameEs}, una copia menos: {card.text}
               </li>
             ))}
           </ul>

@@ -560,8 +560,14 @@ describe('search rules', () => {
     expect(exploreGames(DEFAULT_EXPLORE_CONFIG, 10)).toEqual({
       perRound: 9 * 10 * 60,
       max: (9 * 10 * 60 + 2 * 10 * 120) * 12 + 2 * 10 * 200,
+      probe: 0,
     })
     expect(exploreGames({ ...DEFAULT_EXPLORE_CONFIG, verifyGames: 0 }, 10).max).toBe(9 * 10 * 60 * 12 + 2 * 10 * 200)
+    // T-017 C3 (review of #78): a probe round of 14 lists and the deck, at half the games, counts too.
+    const probing = exploreGames(DEFAULT_EXPLORE_CONFIG, 10, 14)
+    expect(probing.probe).toBe(15 * 10 * 30)
+    expect(probing.max).toBe(exploreGames(DEFAULT_EXPLORE_CONFIG, 10).max + 15 * 10 * 30)
+    expect(exploreGames({ ...DEFAULT_EXPLORE_CONFIG, gamesPerRival: 10 }, 10, 3).probe).toBe(4 * 10 * 10)
   })
 
   it('H-010: the verification and the confirmation ask for a clear win on fresh games', () => {

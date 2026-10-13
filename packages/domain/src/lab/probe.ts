@@ -11,6 +11,7 @@ import type { DeckCardEntry } from '../decks/types.js'
 import { listKeyByGroup } from '../tournaments/dataset.js'
 import { cardChanges, replaceSlot, slotGroups, type Variant } from './mutate.js'
 import { groupsOfCards } from './novelty.js'
+import type { ScoreDifference } from './score.js'
 
 /**
  * Fillers in order of preference: cards that barely change a game for the bots (Hand Scope and Pokédex only show
@@ -18,7 +19,10 @@ import { groupsOfCards } from './novelty.js'
  */
 export const PROBE_FILLERS: readonly CardId[] = ['P-A-3', 'P-A-4', 'P-A-1', 'P-A-2']
 
-/** How much the weakest group gets drawn to go out, against the rest, in the rounds after the probe. */
+/**
+ * How often, at least, the weakest third gets drawn to go out against the rest in the rounds after the probe. A floor,
+ * not a factor on top of what was learned (review of #78: both together went up to ×12).
+ */
 export const WEAKEST_BOOST = 3
 
 /**
@@ -47,14 +51,29 @@ export function probeVariants(
   return out
 }
 
+export interface ProbeResult {
+  groupId: CardId
+  /** The variant without one copy of the card against the deck, or null when it has no measure. */
+  difference: ScoreDifference | null
+}
+
 /**
- * The weakest third (at least one): the cards whose copy out hurt least — the highest difference of the variant
- * without it against the deck — most expendable first. Cards with no measure are left out.
+ * Most expendable first: by the low end of the interval of the difference — a copy out that, even on the low end, costs
+ * little — and then by the difference itself (review of #78: by the point value, a lucky round decided it). Cards with
+ * no measure go last.
  */
-export function weakestThird(results: readonly { groupId: CardId; difference: number | null }[]): CardId[] {
-  const measured = results
-    .filter((result): result is { groupId: CardId; difference: number } => result.difference !== null)
-    .sort((a, b) => b.difference - a.difference || a.groupId.localeCompare(b.groupId))
+export function byExpendable(a: ProbeResult, b: ProbeResult): number {
+  if (!a.difference || !b.difference) return (a.difference ? -1 : 0) + (b.difference ? 1 : 0)
+  return (
+    b.difference.ci95[0] - a.difference.ci95[0] ||
+    b.difference.value - a.difference.value ||
+    a.groupId.localeCompare(b.groupId)
+  )
+}
+
+/** The weakest third (at least one) in `byExpendable` order. Cards with no measure are left out. */
+export function weakestThird(results: readonly ProbeResult[]): CardId[] {
+  const measured = results.filter((result) => result.difference !== null).sort(byExpendable)
   if (measured.length === 0) return []
   return measured.slice(0, Math.max(1, Math.round(measured.length / 3))).map((result) => result.groupId)
 }
