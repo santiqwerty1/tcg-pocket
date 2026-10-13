@@ -84,15 +84,26 @@ export function fillRound(
     index,
   )
   const outSet = new Set(out)
-  const candidates = [...pool]
-    .filter(
-      (card) =>
-        !outSet.has(card.groupId) &&
-        (counts.get(card.groupId) ?? 0) < Math.min(2, card.maxCopies, options.maxCopies(card.groupId)),
-    )
-    .sort((a, b) => b.weight - a.weight || a.groupId.localeCompare(b.groupId))
-    .slice(0, options.candidates ?? FILL_CANDIDATES)
-    .map((card) => card.cardId)
+  // Review of #84: a candidate must make a valid list on its own in one of the places (the other one as it was), or it
+  // would take a place among the favourites and give no list (an evolution whose pre-evolution the deck lacks). A
+  // pair that only works together (a Basic and its evolution, both new) is left out.
+  const fitsAlone = (cardId: CardId) =>
+    places.some((_at, k) => {
+      const cards = fill(
+        deck,
+        places,
+        originals,
+        originals.map((original, j) => (j === k ? cardId : original)),
+      )
+      return !!cards && options.valid(cards)
+    })
+  const candidates: CardId[] = []
+  for (const card of [...pool].sort((a, b) => b.weight - a.weight || a.groupId.localeCompare(b.groupId))) {
+    if (candidates.length >= (options.candidates ?? FILL_CANDIDATES)) break
+    if (outSet.has(card.groupId)) continue
+    if ((counts.get(card.groupId) ?? 0) >= Math.min(2, card.maxCopies, options.maxCopies(card.groupId))) continue
+    if (fitsAlone(card.cardId)) candidates.push(card.cardId)
+  }
   const choices = [...originals, ...candidates]
   const had = groupsOfCards(deck, index)
   const baseKey = listKeyByGroup(had)

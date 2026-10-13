@@ -108,8 +108,24 @@ describe('filling the weakest places (T-017 C8)', () => {
     expect(
       fillRound(deck.cards, [first], pool, index, { maxCopies: () => 2, valid, locked: new Set([first]) }),
     ).toBeNull()
+    // Review of #84: an evolution whose pre-evolution the deck lacks never takes a candidate's place, however played.
+    const orphan = pool.find((card) => {
+      const edition = index.cardById(card.cardId)
+      return (
+        edition?.cardType === 'pokemon' &&
+        edition.evolutionType === 'stage1' &&
+        !deck.cards.some((entry) => index.cardById(entry.cardId)?.nameEn === edition.evolvesFrom)
+      )
+    })
+    if (!orphan) throw new Error('no Stage 1 without its Basic')
+    const heavy = [{ ...orphan, weight: 1e9 }, ...pool.filter((card) => card.groupId !== orphan.groupId)]
+    const skipped = fillRound(deck.cards, weakest, heavy, index, { maxCopies: () => 2, valid })
+    expect(skipped?.candidates).not.toContain(orphan.cardId)
+    expect(skipped?.candidates).toHaveLength(FILL_CANDIDATES)
     // A small pool: fewer candidates, fewer lists.
-    const small: PoolCard[] = pool.filter((card) => !counts.has(card.groupId)).slice(0, 2)
+    const small: PoolCard[] = pool
+      .filter((card) => !counts.has(card.groupId) && index.cardById(card.cardId)?.cardType === 'trainer')
+      .slice(0, 2)
     const few = fillRound(deck.cards, weakest, small, index, { maxCopies: () => 2, valid })
     expect(few?.candidates).toHaveLength(2)
   })

@@ -2657,8 +2657,11 @@ function learnRound(
     // A verification replays a swap already measured: it adds to the estimates, not to the swaps. Combos and undos
     // neither (review of the stack): a combo built on them would stack three or more changes, against C7.
     const special = state.combos?.includes(id) || state.reverts?.includes(id)
-    // T-017 C3: a probe swaps a card for the filler: what it learns goes to the estimates, never into a combo.
-    if (round.kind === 'search' && !special && !round.probe) swaps.push({ ...swap, variant: id })
+    // T-017 C3: a probe swaps a card for the filler: what it learns goes to the estimates, never into a combo. T-017
+    // C8 (review of #84): of a fill round, only the lists that change one place (a combo of two two-card changes would
+    // stack four, against C7).
+    const twoPlaces = !!round.fill && swap.add.length > 1
+    if (round.kind === 'search' && !special && !round.probe && !twoPlaces) swaps.push({ ...swap, variant: id })
   }
   state.learned = learned
   state.swaps = swaps.slice(-40)

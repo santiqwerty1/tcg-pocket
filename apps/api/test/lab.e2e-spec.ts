@@ -1942,7 +1942,15 @@ describe('laboratorio (e2e)', () => {
     const read = async () =>
       (
         (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).params as {
-          lab: { explore: { rounds: Round[]; weakest?: string[]; incumbent: number; base: number } }
+          lab: {
+            explore: {
+              rounds: Round[]
+              weakest?: string[]
+              incumbent: number
+              base: number
+              swaps?: { variant: number; add: string[] }[]
+            }
+          }
         }
       ).lab.explore
     const probes = (await read()).rounds[0]?.candidates ?? []
@@ -1991,6 +1999,10 @@ describe('laboratorio (e2e)', () => {
     const afterFill = await read()
     expect(afterFill.rounds[1]).toMatchObject({ decided: true, accepted: null, screened: f0 })
     expect(afterFill.rounds[2]).toMatchObject({ kind: 'verify', candidates: [f0, f1, f2], decided: false })
+    // Review of #84: of the fill round, only the lists that change one place go to the combos (C7).
+    const fromFill = (afterFill.swaps ?? []).filter((swap) => fillRound.candidates.includes(swap.variant))
+    expect(fromFill.length).toBeGreaterThan(0)
+    for (const swap of fromFill) expect(swap.add).toHaveLength(1)
 
     // On fresh seeds the second one wins every game; the first, as the deck: the second stays.
     const verifyRate = new Map([
