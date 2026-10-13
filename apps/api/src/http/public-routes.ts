@@ -64,7 +64,8 @@ export type UnauthenticatedAction = { kind: 'redirect'; location: '/login' } | {
 
 /**
  * Browser GETs outside /api (navigations, the shell, chunks: PLAN §7 "GET / y GET /assets/*.js redirigen a /login")
- * go to the login page; API calls, non-GET requests and JSON-preferring clients get a 401 JSON body.
+ * go to the login page; API calls, the browser's engine (/engine/), non-GET requests and JSON-preferring clients get a
+ * 401 JSON body.
  */
 export function unauthenticatedAction(
   method: string,
@@ -74,6 +75,9 @@ export function unauthenticatedAction(
   const verb = method.toUpperCase()
   if (verb !== 'GET' && verb !== 'HEAD') return { kind: 'json', status: 401 }
   if (startsWithSegment(pathname, '/api')) return { kind: 'json', status: 401 }
+  // T-015: the browser's engine is fetched by its Web Worker and kept by the service worker: the login page in its place
+  // would be kept as the engine (review of #86).
+  if (startsWithSegment(pathname, '/engine')) return { kind: 'json', status: 401 }
   if (accept?.includes('application/json') && !wantsHtml(accept)) return { kind: 'json', status: 401 }
   return { kind: 'redirect', location: '/login' }
 }

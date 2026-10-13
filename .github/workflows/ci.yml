@@ -37,6 +37,7 @@ jobs:
       engine: ${{ steps.diff.outputs.engine }}
       wasm: ${{ steps.diff.outputs.wasm }}
       docker: ${{ steps.diff.outputs.docker }}
+      workers: ${{ steps.diff.outputs.workers }}
     steps:
       - name: Shell (on the PC it must be Git's bash, not WSL's)
         run: |
@@ -53,11 +54,15 @@ jobs:
             echo "engine=true" >> "$GITHUB_OUTPUT"
             echo "wasm=true" >> "$GITHUB_OUTPUT"
             echo "docker=true" >> "$GITHUB_OUTPUT"
+            echo "workers=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           FILES="$(git diff --name-only "$BASE" "$GITHUB_SHA")"
           echo "$FILES"
-          if echo "$FILES" | grep -qE '^(engine/|apps/worker/|\.github/workflows/)'; then
+          # The browser's engine (engine/wasm) is its own job: alone it changes neither engine-cli nor the workers'
+          # packages (review of #86).
+          NOT_WASM="$(echo "$FILES" | grep -vE '^(engine/wasm/|scripts/build-engine-wasm\.mjs$)' || true)"
+          if echo "$NOT_WASM" | grep -qE '^(engine/|apps/worker/|\.github/workflows/)'; then
             echo "engine=true" >> "$GITHUB_OUTPUT"
           else
             echo "engine=false" >> "$GITHUB_OUTPUT"
@@ -71,6 +76,11 @@ jobs:
             echo "docker=true" >> "$GITHUB_OUTPUT"
           else
             echo "docker=false" >> "$GITHUB_OUTPUT"
+          fi
+          if echo "$NOT_WASM" | grep -qE '^(Dockerfile|\.dockerignore|docker/|fly\.toml|package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|(apps|packages)/[^/]+/package\.json|apps/api/prisma/|engine/|\.github/workflows/)'; then
+            echo "workers=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "workers=false" >> "$GITHUB_OUTPUT"
           fi
 
   test:
@@ -236,7 +246,7 @@ jobs:
   # T-015: the same Docker target used by Fly, plus ARM execution against its native reference (qemu-user).
   android:
     needs: changes
-    if: needs.changes.outputs.engine == 'true' || needs.changes.outputs.docker == 'true'
+    if: needs.changes.outputs.engine == 'true' || needs.changes.outputs.workers == 'true'
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
@@ -275,7 +285,7 @@ jobs:
     needs: [changes, android]
     # Also a change of the Dockerfile alone (zig, Rust, cargo-zigbuild): the served engine is checked without the
     # engine job, with a tcg-worker.exe built here around it.
-    if: needs.changes.outputs.engine == 'true' || needs.changes.outputs.docker == 'true'
+    if: needs.changes.outputs.engine == 'true' || needs.changes.outputs.workers == 'true'
     runs-on: ${{ vars.CI_RUNNER_WINDOWS || 'windows-latest' }}
     steps:
       - uses: actions/checkout@v4

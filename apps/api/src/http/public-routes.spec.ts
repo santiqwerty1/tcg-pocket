@@ -74,6 +74,11 @@ describe('unauthenticatedAction', () => {
     expect(unauthenticatedAction('GET', '/sw.js', 'application/json')).toEqual({ kind: 'json', status: 401 })
     expect(unauthenticatedAction('POST', '/decks', 'text/html')).toEqual({ kind: 'json', status: 401 })
     expect(unauthenticatedAction('DELETE', '/x', undefined)).toEqual({ kind: 'json', status: 401 })
+    // T-015: the browser's engine is kept by the service worker: never the login page in its place (review of #86).
+    for (const file of ['/engine/manifest.json', '/engine/engine-0123456789ab_bg.wasm', '/engine/x/y']) {
+      expect(unauthenticatedAction('GET', file, '*/*')).toEqual({ kind: 'json', status: 401 })
+    }
+    expect(unauthenticatedAction('GET', '/engines', 'text/html')).toEqual({ kind: 'redirect', location: '/login' })
   })
 
   it('detects html accept headers', () => {
