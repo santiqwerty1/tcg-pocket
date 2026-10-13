@@ -6,7 +6,7 @@
  * H-011 (Fase 37): the test is Fisher's exact one (two-sided), not a z test: with 5 to 20 matches a side the normal
  * approximation calls «claro» what is not (4/6 against 0/5: z = 2,29, Fisher p ≈ 0,06).
  */
-import { EMPTY_RECORD, formatPercentEs, type GameRecord, recordGames } from '../stats/rates.js'
+import { EMPTY_RECORD, formatCountEs, formatPercentEs, type GameRecord, recordGames } from '../stats/rates.js'
 import { fisherExact } from '../stats/tests.js'
 import { opponentKey } from './opponents.js'
 import type { MatchFacts } from './types.js'
@@ -113,7 +113,7 @@ export function turnOrderImpact(matches: readonly Fact[]): TurnOrderImpact {
     p,
     verdict: clear ? 'clear' : 'maybe',
     text:
-      `Empezando ganás el ${pct(firstShare)} (n = ${n1}) y yendo segundo el ${pct(secondShare)} (n = ${n2}): ` +
+      `Empezando ganás el ${pct(firstShare)} (n = ${formatCountEs(n1)}) y yendo segundo el ${pct(secondShare)} (n = ${formatCountEs(n2)}): ` +
       (points === 0
         ? 'lo mismo.'
         : clear

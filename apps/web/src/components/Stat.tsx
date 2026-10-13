@@ -39,7 +39,7 @@ export function Stat({ label, value, hint, n, nLabel = 'muestras', ci95, orienta
         <div className="text-xs text-muted-foreground tabular">
           {n !== undefined ? `n = ${formatNumber(n)} ${nLabel}` : null}
           {n !== undefined && ci95 ? ' · ' : null}
-          {ci95 ? `IC 95 % ${formatPercent(ci95[0])} – ${formatPercent(ci95[1])}` : null}
+          {ci95 ? `IC\u00a095\u00a0% ${formatPercent(ci95[0])} – ${formatPercent(ci95[1])}` : null}
         </div>
       ) : null}
       {hint ? <div className="text-xs text-muted-foreground">{hint}</div> : null}

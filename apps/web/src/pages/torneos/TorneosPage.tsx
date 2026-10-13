@@ -208,7 +208,7 @@ function UnlockTab({ scope }: { scope: TournamentScopeParams }) {
                 {card.nameEs}
               </Link>
               <Badge variant="secondary">
-                {card.lists} {card.lists === 1 ? 'lista' : 'listas'}
+                {formatCount(card.lists)} {card.lists === 1 ? 'lista' : 'listas'}
               </Badge>
             </div>
             <div className="text-xs text-muted-foreground">
@@ -315,8 +315,8 @@ export function TorneosPage() {
         <a href="https://play.limitlesstcg.com" className="underline" target="_blank" rel="noreferrer">
           play.limitlesstcg.com
         </a>
-        ). Wilson al 95 % sobre partidas; con menos de 30 listas el dato orienta, no prueba. Las partidas de un mismo
-        jugador no son independientes, así que el intervalo es optimista.
+        ). Wilson al 95&nbsp;% sobre partidas; con menos de 30 listas el dato orienta, no prueba. Las partidas de un
+        mismo jugador no son independientes, así que el intervalo es optimista.
       </p>
     </div>
   )

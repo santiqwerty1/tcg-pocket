@@ -24,6 +24,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { browserCanRunEngine, useBrowserEngine } from '@/engine/browserEngine'
 import { formatDateTime } from '@/lib/format'
+import { formatShare } from '@/lib/tournaments'
 import { RecentListPicker } from './RecentListPicker'
 
 const BOTS = [
@@ -248,7 +249,7 @@ export function JugarPage() {
                 {rivalKind === 'meta'
                   ? (bank.data?.rivals ?? []).map((item) => (
                       <SelectItem key={item.listKey} value={item.listKey}>
-                        {item.archetypeName} ({Math.round(item.share * 10) / 10} %)
+                        {item.archetypeName} ({formatShare(item.share)})
                       </SelectItem>
                     ))
                   : (decks.data ?? []).map((deck) => (

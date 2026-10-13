@@ -139,7 +139,9 @@ describe('núcleo, techs and copies of an archetype (Fase 44)', () => {
     const tech = result.techs.find((row) => row.groupId === 'tech')
     expect(tech?.difference?.value).toBeCloseTo(50)
     expect(tech?.difference?.clear).toBe(true)
-    expect(formatRateDifferenceEs(tech?.difference ?? null)).toMatch(/^\+50,0 puntos \(IC .*, orientativo; clara\)$/)
+    expect(formatRateDifferenceEs(tech?.difference ?? null)).toMatch(
+      /^\+50,0 puntos \(IC\u00a0.*, orientativo; clara\)$/,
+    )
     expect(tech?.difference?.orientative).toBe(true)
     expect(result.core.map((row) => row.groupId)).toEqual(['core'])
     // PMPT Mega-Lucario: 33 lists, every difference «puede ser azar».
@@ -323,8 +325,8 @@ describe('conversion to the top 8 (Fase 44)', () => {
 
   it('expects per tournament: lists in small events are not «better» for reaching their easier top 8', () => {
     // Review of #17: ten tournaments of 40 lists and one of 400. The archetype plays 6 lists in each small one: 1st
-    // place in all ten, 2nd in five of them, and 9th to 12th (out of the top) — 15 of 60 in the top (25\u00a0%). The rest
-    // of each small field reaches the top at 6/34 or 7/34 (~19\u00a0%); one base over all 800 lists would say 11\u00a0%
+    // place in all ten, 2nd in five of them, and 9th to 12th (out of the top) — 15 of 60 in the top (25 %). The rest
+    // of each small field reaches the top at 6/34 or 7/34 (~19 %); one base over all 800 lists would say 11 %
     // and call it «more than expected».
     const tournaments = [
       ...Array.from({ length: 10 }, (_, t) => ({ id: `s${t}`, players: 40 })),

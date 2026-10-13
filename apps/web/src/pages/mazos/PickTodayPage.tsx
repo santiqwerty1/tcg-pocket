@@ -11,6 +11,7 @@ import { PICK_SORTS, type Pick, type PickMeta, type PickSort } from '@/api/schem
 import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
+import { formatNumber } from '@/lib/format'
 import { formatInterval, formatRateValue, ORIENTATIVE_BELOW } from '@/lib/matches'
 import { formatDayEs, formatShare, staleTournaments } from '@/lib/tournaments'
 import { cn } from '@/lib/utils'
@@ -57,7 +58,7 @@ function Row({
                 {mine?.orientative || row.tournament.matches < ORIENTATIVE_BELOW ? ', orientativo' : ''})
               </>
             ) : null}{' '}
-            · n = {row.tournament.matches} partidas de su arquetipo; matchups con datos en{' '}
+            · n = {formatNumber(row.tournament.matches)} partidas de su arquetipo; matchups con datos en{' '}
             {formatShare(row.tournament.coverage)} {mine ? 'de tus rivales' : 'del meta'}
           </>
         ) : (
@@ -68,7 +69,7 @@ function Row({
         {row.mine?.rate ? (
           <>
             <span className="font-semibold tabular">{formatRateValue(row.mine.rate.value)}</span> · n ={' '}
-            {row.mine.rate.games}, IC&nbsp;{formatInterval(row.mine.rate.ci95)}
+            {formatNumber(row.mine.rate.games)}, IC&nbsp;{formatInterval(row.mine.rate.ci95)}
             {row.mine.rate.orientative ? ', orientativo' : ''}
           </>
         ) : (
@@ -78,7 +79,8 @@ function Row({
       <Line label="Laboratorio" active={sort === 'lab'}>
         {row.lab ? (
           <>
-            <span className="font-semibold tabular">{formatRateValue(row.lab.value)}</span> · n = {row.lab.games}, IC
+            <span className="font-semibold tabular">{formatRateValue(row.lab.value)}</span> · n ={' '}
+            {formatNumber(row.lab.games)}, IC
             {'\u00a0'}
             {formatInterval(row.lab.ci95)} ·{' '}
             <Link to={`/laboratorio/${row.lab.jobId}`} className="text-primary hover:underline">
@@ -101,7 +103,7 @@ function MetaWindow({ meta }: { meta: NonNullable<Pick['meta']> }) {
       <p className="text-xs text-muted-foreground">
         Meta: {meta.kind === 'recent' ? '' : 'toda la era, '}
         {meta.from && meta.to ? `del ${formatDayEs(meta.from)} al ${formatDayEs(meta.to)} ` : ''}de {meta.era}, hasta el
-        último torneo cargado ({meta.lists} listas).
+        último torneo cargado ({formatNumber(meta.lists)} listas).
       </p>
       {stale ? <p className="text-xs text-warning">{stale}</p> : null}
     </>

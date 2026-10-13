@@ -4,8 +4,7 @@
  * the card names replaced.
  */
 
-import { PERCENT } from '@/lib/format'
-import { formatNumber } from './format'
+import { formatNumber, PERCENT } from '@/lib/format'
 
 const ENERGY_ES: Record<string, string> = {
   Grass: 'Planta',

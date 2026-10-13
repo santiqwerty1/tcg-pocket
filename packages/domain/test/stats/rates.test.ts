@@ -66,7 +66,7 @@ describe('wilsonInterval', () => {
 })
 
 describe('matchWinRate', () => {
-  it('PLAN §7 Fase 2: 7 wins in 10 → «70\u00a0% (n = 10, IC\u00a039,7–89,2\u00a0%, orientativo)»', () => {
+  it('PLAN §7 Fase 2: 7 wins in 10 → «70 % (n = 10, IC 39,7–89,2 %, orientativo)»', () => {
     const rate = matchWinRate({ wins: 7, losses: 3, ties: 0 })
     expect(rate).not.toBeNull()
     expect(rate).toMatchObject({ source: 'matches', value: 70, games: 10, samples: 10, sampleKind: 'matches' })
@@ -83,7 +83,7 @@ describe('matchWinRate', () => {
     expect(matchWinRate({ wins: 0, losses: 0, ties: 4 })?.value).toBe(0)
   })
 
-  it('is null without games: the UI says «sin datos», never «0\u00a0%»', () => {
+  it('is null without games: the UI says «sin datos», never «0 %»', () => {
     expect(matchWinRate({ wins: 0, losses: 0, ties: 0 })).toBeNull()
     expect(formatWinRateEs(null)).toBe('sin datos')
   })

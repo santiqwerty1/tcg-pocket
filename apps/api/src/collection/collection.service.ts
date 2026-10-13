@@ -829,7 +829,7 @@ export class CollectionService {
     const stats = trackerDiffStats(diff, totalCopies(stock))
     const reviewReasons: string[] = []
     if (stats.requiresReview)
-      reviewReasons.push(`Bajan ${stats.removedCopies} de ${stats.currentCopies} copias (más del 10 %).`)
+      reviewReasons.push(`Bajan ${stats.removedCopies} de ${stats.currentCopies} copias (más del 10\u00a0%).`)
     const settings = await client.query<{ key: string; value: unknown }>(
       "SELECT key, value FROM app_settings WHERE key IN ('trackerLastAppliedAt', 'trackerLastAppliedCommit')",
     )

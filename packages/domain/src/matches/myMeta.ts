@@ -11,7 +11,7 @@
  * the shares rest on fewer matches than were played: every count that decides something (`enough`, the shares'
  * intervals, «orientativo») uses Kish's effective sample size, (Σw)² / Σw², not the raw count.
  */
-import { formatIntervalEs, formatPercentEs, ORIENTATIVE_BELOW, wilsonFromRate } from '../stats/rates.js'
+import { formatCountEs, formatIntervalEs, formatPercentEs, ORIENTATIVE_BELOW, wilsonFromRate } from '../stats/rates.js'
 import { cleanOpponent, OPPONENT_HALF_LIFE_DAYS, opponentKey, opponentLabels } from './opponents.js'
 import type { MatchFacts, MatchMode } from './types.js'
 
@@ -145,7 +145,7 @@ export function myMeta(
       .map(([key, games]) => ({ key, label: labels.get(key) ?? key, games }))
       .sort((a, b) => b.games - a.games || a.label.localeCompare(b.label, 'es')),
     text: enough
-      ? `Tu meta (${matched} partidas contra arquetipos de torneo, ${effectiveText}${orientative ? '; orientativo' : ''}): ${top}.`
-      : `Todavía no alcanza: hacen falta ${MY_META_MIN_MATCHES} partidas efectivas contra rivales que sean arquetipos de torneo (tenés ${matched}, ${effectiveText}).`,
+      ? `Tu meta (${formatCountEs(matched)} partidas contra arquetipos de torneo, ${effectiveText}${orientative ? '; orientativo' : ''}): ${top}.`
+      : `Todavía no alcanza: hacen falta ${MY_META_MIN_MATCHES} partidas efectivas contra rivales que sean arquetipos de torneo (tenés ${formatCountEs(matched)}, ${effectiveText}).`,
   }
 }

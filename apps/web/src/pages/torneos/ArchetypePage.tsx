@@ -222,7 +222,7 @@ export function ArchetypePage() {
             <SelectContent>
               {others.map((row) => (
                 <SelectItem key={row.archetype.id} value={row.archetype.id as string}>
-                  {row.archetype.name} ({row.lists})
+                  {row.archetype.name} ({formatCount(row.lists)})
                 </SelectItem>
               ))}
             </SelectContent>

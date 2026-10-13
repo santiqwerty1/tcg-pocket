@@ -3,6 +3,7 @@
  * chance (two-proportion test), and how many matches have who went first noted.
  */
 import type { CoinAdjusted, TurnOrder } from '@/api/schemas'
+import { formatNumber, PERCENT } from '@/lib/format'
 import { formatRateValue, formatRecord } from '@/lib/matches'
 import { cn } from '@/lib/utils'
 import { OrientativeBadge } from './RateSummary'
@@ -54,9 +55,10 @@ export function TurnOrderCard({
         </div>
       ) : null}
       <p className="text-xs text-muted-foreground">
-        {Math.round(turnOrder.coverage)} % de estas partidas tienen anotado quién empezó
-        {turnOrder.unknown > 0 ? ` (${turnOrder.unknown} sin el dato)` : ''}. Lo podés pedir siempre en Más → Ajustes de
-        la app.
+        {Math.round(turnOrder.coverage)}
+        {PERCENT} de estas partidas tienen anotado quién empezó
+        {turnOrder.unknown > 0 ? ` (${formatNumber(turnOrder.unknown)} sin el dato)` : ''}. Lo podés pedir siempre en
+        Más → Ajustes de la app.
       </p>
     </div>
   )

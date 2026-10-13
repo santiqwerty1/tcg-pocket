@@ -38,6 +38,15 @@ describe('TurnOrderCard (Fase 25, Fase 44)', () => {
     expect(screen.getByText(/Sin ajustar: 60 %/)).toBeInTheDocument()
   })
 
+  it('phone review: «%» stays with its number and the counts carry their separator', () => {
+    const { container } = render(<TurnOrderCard turnOrder={{ ...turnOrder, unknown: 1234 }} coinAdjusted={coin} />)
+    // The raw text: Testing Library's queries read a no-break space as a plain one, so they cannot see «88 %» break.
+    const text = container.textContent ?? ''
+    expect(text).toContain('75\u00a0%')
+    expect(text).toContain('52,5\u00a0%')
+    expect(text).toContain('88\u00a0% de estas partidas tienen anotado quién empezó (1.234 sin el dato)')
+  })
+
   it('without a match on each side, only the split', () => {
     render(<TurnOrderCard turnOrder={turnOrder} />)
     expect(screen.queryByText('Con la moneda pareja:')).toBeNull()

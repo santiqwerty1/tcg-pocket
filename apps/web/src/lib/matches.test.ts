@@ -24,13 +24,13 @@ const seventyPercent: WinRate = {
 
 describe('formatRate', () => {
   it('renders the acceptance example exactly like the domain', () => {
-    expect(formatRate(seventyPercent)).toBe('70\u00a0% (n = 10, IC\u00a039,7–89,2\u00a0%, orientativo)')
+    expect(formatRate(seventyPercent)).toBe('70\u00a0% (n = 10, IC\u00a039,7–\u206089,2\u00a0%, orientativo)')
     expect(formatRate(null)).toBe('sin datos')
   })
 
   it('drops «orientativo» from 30 samples and names lists for tournament rates', () => {
     expect(formatRate({ ...seventyPercent, games: 30, samples: 30, orientative: false })).toBe(
-      '70\u00a0% (n = 30, IC\u00a039,7–89,2\u00a0%)',
+      '70\u00a0% (n = 30, IC\u00a039,7–\u206089,2\u00a0%)',
     )
     expect(
       formatRate({
@@ -43,12 +43,12 @@ describe('formatRate', () => {
         ci95: [45.16, 57.04],
         orientative: false,
       }),
-    ).toBe('51,1\u00a0% (n = 268 en 40 listas, IC\u00a045,2–57,0\u00a0%)')
+    ).toBe('51,1\u00a0% (n = 268 en 40 listas, IC\u00a045,2–\u206057,0\u00a0%)')
   })
 
   it('formats value, interval and record', () => {
     expect(formatRateValue(200 / 3)).toBe('66,7\u00a0%')
-    expect(formatInterval([0, 27.75])).toBe('0,0–27,8\u00a0%')
+    expect(formatInterval([0, 27.75])).toBe('0,0–\u206027,8\u00a0%')
     expect(formatRecord({ wins: 7, losses: 3, ties: 0 })).toBe('7 V · 3 D')
     expect(formatRecord({ wins: 2, losses: 1, ties: 1 })).toBe('2 V · 1 D · 1 E')
   })

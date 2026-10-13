@@ -73,8 +73,8 @@ describe('¿Qué mazo llevo hoy? and «orientativo» (phone review)', () => {
         <RouterProvider router={router} />
       </Providers>,
     )
-    expect(await screen.findByText(/IC 21,8–56,5 %, orientativo/)).toBeInTheDocument()
-    expect(screen.getByText(/IC 25,4–74,6 %, orientativo/)).toBeInTheDocument()
+    expect(await screen.findByText(/IC 21,8–\u206056,5 %, orientativo/)).toBeInTheDocument()
+    expect(screen.getByText(/IC 25,4–\u206074,6 %, orientativo/)).toBeInTheDocument()
   })
 
   it('the window says its dates, up to the newest tournament loaded, and that it is old', async () => {
@@ -113,7 +113,7 @@ describe('¿Qué mazo llevo hoy? and «orientativo» (phone review)', () => {
         <RouterProvider router={router} />
       </Providers>,
     )
-    expect(await screen.findByText(/IC 47,1–57,7 %/)).toBeInTheDocument()
+    expect(await screen.findByText(/IC 47,1–\u206057,7 %/)).toBeInTheDocument()
     expect(screen.queryByText(/orientativo/)).not.toBeInTheDocument()
   })
 })
@@ -132,12 +132,12 @@ describe('¿Qué mazo llevo hoy? with «mi meta» (Fase 44)', () => {
       </Providers>,
     )
     expect(await screen.findByText('Torneo hoy')).toBeInTheDocument()
-    expect(screen.getByText(/IC 47,1–57,7 %/)).toBeInTheDocument()
+    expect(screen.getByText(/IC 47,1–\u206057,7 %/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Los que me tocan' }))
     expect(await screen.findByText('Torneo, tus rivales')).toBeInTheDocument()
     // Review of #52: still tournament matchups (people), weighed by my rivals, with its interval and «orientativo».
     expect(screen.getByText(/^Torneos \(personas\), pesado por tus 12 rivales de la era/)).toBeInTheDocument()
-    expect(screen.getByText(/IC 47,1–57,7 %, orientativo/)).toBeInTheDocument()
+    expect(screen.getByText(/IC 47,1–\u206057,7 %, orientativo/)).toBeInTheDocument()
     await waitFor(() => expect(calls.at(-1)?.query.get('meta')).toBe('mine'))
     expect(router.state.location.search).toBe('?meta=mio')
   })

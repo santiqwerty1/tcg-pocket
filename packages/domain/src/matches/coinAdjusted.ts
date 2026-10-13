@@ -9,6 +9,7 @@
  */
 import {
   EMPTY_RECORD,
+  formatCountEs,
   formatIntervalEs,
   formatPercentEs,
   type GameRecord,
@@ -90,8 +91,8 @@ export function coinAdjustedRate(matches: readonly Fact[]): CoinAdjustedRate | n
     orientative,
     plain,
     text:
-      `Ajustado por la moneda: ${formatPercentEs(value)} (n = ${games}, IC\u00a0${formatIntervalEs([low, high])}` +
-      `${orientative ? ', orientativo' : ''}): mitad empezando (${formatPercentEs(p1 * 100)} en ${n1}) y mitad ` +
-      `yendo segundo (${formatPercentEs(p2 * 100)} en ${n2}). Sin ajustar: ${formatPercentEs(plain)}.`,
+      `Ajustado por la moneda: ${formatPercentEs(value)} (n = ${formatCountEs(games)}, IC\u00a0${formatIntervalEs([low, high])}` +
+      `${orientative ? ', orientativo' : ''}): mitad empezando (${formatPercentEs(p1 * 100)} en ${formatCountEs(n1)}) y mitad ` +
+      `yendo segundo (${formatPercentEs(p2 * 100)} en ${formatCountEs(n2)}). Sin ajustar: ${formatPercentEs(plain)}.`,
   }
 }

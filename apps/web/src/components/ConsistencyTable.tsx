@@ -1,11 +1,15 @@
 /** P(key attacker ready by own turn N), going first, second and both, with n and interval (Fase 8). */
 import type { Consistency, CurvePoint } from '@/api/schemas'
+import { formatNumber } from '@/lib/format'
 import { formatInterval, formatRateValue } from '@/lib/matches'
 
 function Cell({ point }: { point: CurvePoint | undefined }) {
   if (!point || point.games === 0) return <td className="px-2 py-1 text-right text-muted-foreground">—</td>
   return (
-    <td className="px-2 py-1 text-right tabular" title={`n = ${point.games} · IC\u00a0${formatInterval(point.ci95)}`}>
+    <td
+      className="px-2 py-1 text-right tabular"
+      title={`n = ${formatNumber(point.games)} · IC\u00a0${formatInterval(point.ci95)}`}
+    >
       <span className="font-medium">{formatRateValue(point.value)}</span>
       <span className="block text-[11px] text-muted-foreground">{formatInterval(point.ci95)}</span>
     </td>
@@ -21,9 +25,9 @@ export function ConsistencyTable({ data, turns = 5 }: { data: Consistency; turns
           <thead>
             <tr className="text-xs text-muted-foreground">
               <th className="px-2 py-1 text-left font-normal">Listo en el turno propio</th>
-              <th className="px-2 py-1 text-right font-normal">Todas (n = {data.games.all})</th>
-              <th className="px-2 py-1 text-right font-normal">Empezando ({data.games.first})</th>
-              <th className="px-2 py-1 text-right font-normal">Segundo ({data.games.second})</th>
+              <th className="px-2 py-1 text-right font-normal">Todas (n = {formatNumber(data.games.all)})</th>
+              <th className="px-2 py-1 text-right font-normal">Empezando ({formatNumber(data.games.first)})</th>
+              <th className="px-2 py-1 text-right font-normal">Segundo ({formatNumber(data.games.second)})</th>
             </tr>
           </thead>
           <tbody>
@@ -47,7 +51,7 @@ export function ConsistencyTable({ data, turns = 5 }: { data: Consistency; turns
       </p>
       {data.mode === 'meta' && data.rivals.length > 0 ? (
         <p className="text-xs text-muted-foreground">
-          Rivales: {data.rivals.map((rival) => `${rival.label} (${rival.games})`).join(' · ')}
+          Rivales: {data.rivals.map((rival) => `${rival.label} (${formatNumber(rival.games)})`).join(' · ')}
         </p>
       ) : null}
     </div>

@@ -6,6 +6,7 @@
 import type { CoachReview, CoachSummary, CoachVerdict, LiveGame } from '@/api/schemas'
 import { Section } from '@/components/Section'
 import { Badge } from '@/components/ui/badge'
+import { PERCENT } from '@/lib/format'
 import type { ReplayReader, ReplayState } from '@/lib/replay'
 import { cn } from '@/lib/utils'
 
@@ -110,8 +111,8 @@ export function CoachSummarySection({
     <Section title={final ? 'Entrenador: resumen de la partida' : 'Entrenador: hasta ahora'}>
       <p className="text-sm">
         Jugaste como el entrenador (o casi) en {summary.counts.best + summary.counts.close} de {summary.decisions}{' '}
-        {summary.decisions === 1 ? 'decisión' : 'decisiones'} ({Math.round(summary.agreement)} %)
-        {summary.hints > 0 ? `; pediste ${summary.hints} ${summary.hints === 1 ? 'pista' : 'pistas'}` : ''}.
+        {summary.decisions === 1 ? 'decisión' : 'decisiones'} ({Math.round(summary.agreement)}
+        {PERCENT}){summary.hints > 0 ? `; pediste ${summary.hints} ${summary.hints === 1 ? 'pista' : 'pistas'}` : ''}.
       </p>
       <div className="flex flex-wrap gap-1.5">
         {verdicts

@@ -17,6 +17,7 @@ import { Section } from '@/components/Section'
 import { TurnOrderCard } from '@/components/TurnOrderCard'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { formatNumber } from '@/lib/format'
 import { formatInterval, formatRateValue, formatRecord, formatSample } from '@/lib/matches'
 import { cn } from '@/lib/utils'
 
@@ -33,7 +34,8 @@ function ColumnCard({ column }: { column: ComparisonColumn }) {
           <div className="text-xl font-semibold tabular">{formatRateValue(rate.value)}</div>
           {rate.orientative ? <OrientativeBadge /> : null}
           <div className="text-xs text-muted-foreground tabular">{formatSample(rate)}</div>
-          <div className="text-xs text-muted-foreground tabular">IC&nbsp;{formatInterval(rate.ci95)}</div>
+          {/* A narrow column (82 px at 360): «IC» may go above its interval, which never breaks. */}
+          <div className="text-xs text-muted-foreground tabular">IC {formatInterval(rate.ci95)}</div>
           {column.record ? (
             <div className="text-xs text-muted-foreground tabular">{formatRecord(column.record)}</div>
           ) : null}
@@ -102,7 +104,7 @@ function TournamentDetail({
               .filter((row) => row.archetype.id !== null)
               .map((row) => (
                 <SelectItem key={row.archetype.id} value={row.archetype.id as string}>
-                  {row.archetype.name} ({row.lists})
+                  {row.archetype.name} ({formatNumber(row.lists)})
                 </SelectItem>
               ))}
           </SelectContent>
@@ -197,7 +199,7 @@ export function DeckPerformance({
             to={`/partidas/historial?mazo=${encodeURIComponent(deckId)}`}
             className="text-sm text-primary underline-offset-4 hover:underline"
           >
-            Ver {games === 1 ? 'la partida' : `las ${games} partidas`}
+            Ver {games === 1 ? 'la partida' : `las ${formatNumber(games)} partidas`}
           </Link>
         </div>
       ) : null}

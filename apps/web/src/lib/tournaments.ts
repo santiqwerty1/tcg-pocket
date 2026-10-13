@@ -2,10 +2,9 @@
 
 import type { TournamentFormat } from '@/api/schemas'
 import type { TournamentScopeParams } from '@/api/tournaments'
-import { PERCENT } from '@/lib/format'
+import { formatNumber, PERCENT } from '@/lib/format'
 
 const shareFormat = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 })
-const countFormat = new Intl.NumberFormat('es-AR')
 
 /** «27/8/2026» from YYYY-MM-DD or an ISO instant (dates of tournaments are shown in UTC, as eras are). */
 export function formatDayEs(iso: string): string {
@@ -31,9 +30,8 @@ export function formatShare(value: number): string {
   return `${shareFormat.format(value)}${PERCENT}`
 }
 
-export function formatCount(value: number): string {
-  return countFormat.format(value)
-}
+/** The same as `formatNumber`: «12.223». */
+export const formatCount = formatNumber
 
 export const FORMAT_LABEL: Record<TournamentFormat, string> = { STANDARD: 'Estándar', NOEX: 'NOEX' }
 

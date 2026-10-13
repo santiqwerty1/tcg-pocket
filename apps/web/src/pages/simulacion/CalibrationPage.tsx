@@ -24,7 +24,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { formatDateTime, missing, shortSha } from '@/lib/format'
+import { formatDateTime, formatNumber, missing, RANGE_DASH, shortSha } from '@/lib/format'
 import { formatInterval, formatRate, formatRateValue } from '@/lib/matches'
 import { progressFraction } from '@/lib/simulation'
 import { ProgressBar, StatusBadge } from './SimulacionPage'
@@ -46,7 +46,7 @@ const points = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1, signDi
 function formatRho(correlation: RankCorrelation | null, unit: string): string {
   if (!correlation) return 'sin datos suficientes'
   const interval = correlation.ci95
-    ? `IC\u00a0${decimal.format(correlation.ci95[0])}–${decimal.format(correlation.ci95[1])}; `
+    ? `IC\u00a0${decimal.format(correlation.ci95[0])}${RANGE_DASH}${decimal.format(correlation.ci95[1])}; `
     : ''
   return `ρ = ${decimal.format(correlation.rho)} (${interval}${correlation.n} ${unit})`
 }
@@ -54,7 +54,7 @@ function formatRho(correlation: RankCorrelation | null, unit: string): string {
 /** «55,6 % (n = 120, IC 47,2–64,0 %, orientativo)» for a weighted mean of rates. */
 function formatWeighted(rate: WeightedRate | null): string {
   if (!rate) return 'sin datos'
-  const parts = [`n = ${rate.games}`, `IC\u00a0${formatInterval(rate.ci95)}`]
+  const parts = [`n = ${formatNumber(rate.games)}`, `IC\u00a0${formatInterval(rate.ci95)}`]
   if (rate.orientative) parts.push('orientativo')
   return `${formatRateValue(rate.value)} (${parts.join(', ')})`
 }
@@ -280,7 +280,7 @@ export function CalibrationReport({ view }: { view: CalibrationView }) {
           </li>
         </ul>
         <p className="text-xs text-muted-foreground">
-          Torneos: {view.tournaments.era}, {view.tournaments.matches} partidas de{' '}
+          Torneos: {view.tournaments.era}, {formatNumber(view.tournaments.matches)} partidas de{' '}
           {view.tournaments.tournamentsWithPairings} torneos con rondas. Las dos fuentes no se mezclan: cada una con su
           n e intervalo. Todo por partida y sin empates (los del motor salen del límite de 30 turnos; se cuentan
           aparte). Las partidas de torneo se toman como independientes, así que su intervalo puede ser un poco angosto.

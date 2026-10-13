@@ -72,7 +72,7 @@ function Body({ id, scope }: { id: string; scope: TournamentScopeParams }) {
       <div className="flex flex-col gap-1.5">
         <h3 className="text-sm font-semibold">Núcleo</h3>
         <p className="text-xs text-muted-foreground">
-          Lo que juega el 90 % de las listas o más: ocupa ~{slotsFormat.format(data.coreSlots)} de los 20 lugares y
+          Lo que juega el 90&nbsp;% de las listas o más: ocupa ~{slotsFormat.format(data.coreSlots)} de los 20 lugares y
           quedan ~{slotsFormat.format(data.freeSlots)} libres.
         </p>
         <ul className="flex flex-wrap gap-1.5">
@@ -88,7 +88,9 @@ function Body({ id, scope }: { id: string; scope: TournamentScopeParams }) {
       <div className="flex flex-col gap-1.5">
         <h3 className="text-sm font-semibold">Techs</h3>
         {data.techs.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Ninguna carta la juega entre el 10 y el 90 % de las listas.</p>
+          <p className="text-sm text-muted-foreground">
+            Ninguna carta la juega entre el 10 y el 90&nbsp;% de las listas.
+          </p>
         ) : (
           <ul className="divide-y rounded-lg border">
             {data.techs.map((row) => (

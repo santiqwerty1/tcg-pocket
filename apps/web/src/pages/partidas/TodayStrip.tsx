@@ -29,6 +29,7 @@ import { useSimulations } from '@/api/simulations'
 import { useMetaTrends } from '@/api/tournaments'
 import { useWeekSummary } from '@/api/weekly'
 import { csvAgeNotice } from '@/lib/csvAge'
+import { PERCENT } from '@/lib/format'
 import { formatRecord } from '@/lib/matches'
 import { lastSeen } from '@/lib/seen'
 import { cn } from '@/lib/utils'
@@ -153,7 +154,7 @@ export function TodayStrip() {
       key: 'pick',
       icon: TrophyIcon,
       text: `Para llevar hoy: ${best.deck.name}`,
-      detail: `${Math.round(best.tournament.value)} % esperado contra el meta de la semana`,
+      detail: `${Math.round(best.tournament.value)}${PERCENT} esperado contra el meta de la semana`,
       to: '/mazos/hoy',
     })
   }

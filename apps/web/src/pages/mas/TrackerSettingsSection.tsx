@@ -64,7 +64,7 @@ export function TrackerSettingsSection() {
             />
           </Label>
           <p className="text-sm text-muted-foreground">
-            Si hay bajas de más del 10 %, cambios manuales recientes o dudas sobre el catálogo, deja una revisión
+            Si hay bajas de más del 10&nbsp;%, cambios manuales recientes o dudas sobre el catálogo, deja una revisión
             pendiente.
           </p>
           <p className="text-sm">

@@ -8,6 +8,13 @@ const games = (wentFirst: boolean | null, wins: number, losses: number, ties = 0
   ...Array.from({ length: ties }, () => ({ result: 'tie' as MatchResult, wentFirst, opponent })),
 ]
 
+describe('turn order text (phone review)', () => {
+  it('the counts carry their thousands separator', () => {
+    const impact = turnOrderImpact([...games(true, 600, 500), ...games(false, 500, 590)])
+    expect(impact.text).toMatch(/\(n = 1\.100\) y yendo segundo el .* \(n = 1\.090\)/)
+  })
+})
+
 describe('¿importa empezar? (Fase 25)', () => {
   it('too few matches on a side: says how many are missing', () => {
     const impact = turnOrderImpact([...games(true, 3, 1), ...games(false, 10, 10), ...games(null, 2, 2)])
@@ -38,7 +45,7 @@ describe('¿importa empezar? (Fase 25)', () => {
     )
   })
 
-  it('phone review: one decimal, as the rates next to it (16 of 33 is 48,5\u00a0%, not 48\u00a0%)', () => {
+  it('phone review: one decimal, as the rates next to it (16 of 33 is 48,5 %, not 48 %)', () => {
     const impact = turnOrderImpact([...games(true, 16, 14, 3), ...games(false, 12, 17, 1)])
     expect(impact.text).toBe(
       'Empezando ganás el 48,5\u00a0% (n = 33) y yendo segundo el 40\u00a0% (n = 30): 8,5 puntos más empezando, pero puede ser azar.',

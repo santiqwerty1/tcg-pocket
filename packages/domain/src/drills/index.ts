@@ -53,7 +53,7 @@ const pick = <T>(random: () => number, items: readonly T[]): T => {
   return item
 }
 
-const percent = (value: number) => `${Math.round(value * 100)} %`
+const percent = (value: number) => `${Math.round(value * 100)}${PERCENT_ES}`
 
 // ---------------------------------------------------------------------------------------------------------------
 // Robos

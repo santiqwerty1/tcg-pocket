@@ -22,6 +22,9 @@ export function formatNumber(value: number): string {
 /** The space before «%» does not break (phone review: «48⏎%»); the same as @tcg/domain `PERCENT_ES`. */
 export const PERCENT = '\u00a0%'
 
+/** The dash of a range with a word joiner after it, so that a line never breaks there: «39,7–89,2 %». */
+export const RANGE_DASH = '–\u2060'
+
 export function formatPercent(value: number): string {
   return `${oneDecimal.format(value)}${PERCENT}`
 }
