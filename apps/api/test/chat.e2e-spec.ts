@@ -333,6 +333,116 @@ describe('chat between sessions (e2e)', () => {
     expect(history.map((m) => m.topic)).toContain('Antes')
   })
 
+  it('rooms (13/10/2026): each message in one; a call without «sala» goes to the caller’s main room', async () => {
+    const session = () => test.http().put('/api/chat/participants').set('Cookie', cookie)
+    // Posta's coordinator, a cloud session in «posta» first (an open session does not know the parameter), and its
+    // Codex at the PC, only in «posta».
+    expect(
+      (await session().send({ name: 'Posta-Coord', channel: 'connector', rooms: ['posta', 'tcg'] })).body,
+    ).toMatchObject({ name: 'Posta-Coord', rooms: ['posta', 'tcg'] })
+    expect((await session().send({ name: 'Codex-P', channel: 'relay', rooms: ['posta'] })).status).toBe(200)
+    expect((await session().send({ name: 'Otro', channel: 'relay', rooms: ['posta', 'posta'] })).status).toBe(400)
+    expect((await session().send({ name: 'Otro', channel: 'relay', rooms: ['nada'] })).status).toBe(400)
+
+    const posta = await connect()
+    // Without «sala»: its main room.
+    const sent = await call(posta, 'chat_write', {
+      from: 'Posta-Coord',
+      to: 'Codex-P',
+      topic: 'Pedido',
+      text: 'Hacé X.',
+    })
+    expect(sent).toMatchObject({ sent: true, sala: 'posta', to: ['Codex-P'] })
+    // The bridge of before (no «sala») sees only «tcg»: nothing of «posta» lands in the tcg files.
+    const tcgFeed = (await (await relay('?after=0&limit=500')).json()) as { messages: Message[] }
+    expect(tcgFeed.messages.map((message) => message.topic)).not.toContain('Pedido')
+    const postaFeed = (await (await relay('?sala=posta&after=0')).json()) as { messages: (Message & Structured)[] }
+    expect(postaFeed.messages).toEqual([
+      expect.objectContaining({ from: 'Posta-Coord', to: ['Codex-P'], topic: 'Pedido', room: 'posta', relayed: false }),
+    ])
+    // The bridge answers as Codex in «posta» (the ref carries the room: the folders' day#index repeat).
+    const answer = await relay('?sala=posta', {
+      method: 'POST',
+      body: JSON.stringify({
+        ref: 'posta:2026-10-13#1',
+        from: 'Codex-P',
+        to: 'Posta-Coord',
+        topic: 'Re: Pedido',
+        text: 'Listo.',
+      }),
+    })
+    expect(answer.status).toBe(201)
+    expect(await answer.json()).toMatchObject({ room: 'posta', duplicate: false })
+    // The same ref in another room is another message: refused, never a silent copy.
+    const otherRoom = await relay('', {
+      method: 'POST',
+      body: JSON.stringify({
+        ref: 'posta:2026-10-13#1',
+        from: 'Codex-P',
+        to: 'Posta-Coord',
+        topic: 'Re: Pedido',
+        text: 'Listo.',
+      }),
+    })
+    expect(otherRoom.status).toBe(409)
+    // Its reads: without «sala», «posta»; with «tcg», nothing of «posta».
+    const read = await call(posta, 'chat_read', { as: 'Posta-Coord' })
+    expect(read).toMatchObject({ as: 'Posta-Coord', sala: 'posta' })
+    expect((read.messages as Message[]).map((message) => message.text)).toEqual(['Listo.'])
+    expect(read.participants).toEqual(expect.arrayContaining(['Santi', 'Posta-Coord', 'Codex-P']))
+    expect(read.participants).not.toContain('Coordinador')
+    const inTcg = await call(posta, 'chat_read', { as: 'Posta-Coord', sala: 'tcg', all: true, limit: 100 })
+    expect((inTcg.messages as Message[]).map((message) => message.topic)).not.toContain('Re: Pedido')
+    // It can still write to tcg-pocket's sessions, saying the room.
+    expect(
+      await call(posta, 'chat_write', {
+        from: 'Posta-Coord',
+        to: 'Coordinador',
+        topic: 'Hola',
+        text: 'x',
+        sala: 'tcg',
+      }),
+    ).toMatchObject({ sala: 'tcg' })
+    // In its main room, whoever is not there is not reached; a session not in a room does not read nor write there.
+    expect(
+      await refused(posta, 'chat_write', { from: 'Posta-Coord', to: 'Coordinador', topic: 'x', text: 'x' }),
+    ).toContain('no está en la sala «posta»')
+    const nube = await connect()
+    expect(await refused(nube, 'chat_read', { as: 'Nube-2', sala: 'posta' })).toContain('no está en la sala «posta»')
+    expect(
+      await refused(nube, 'chat_write', { from: 'Nube-2', to: 'Santi', topic: 'x', text: 'x', sala: 'posta' }),
+    ).toContain('no está en la sala «posta»')
+    // «todos» in «posta» reaches whoever is in it (Santi is in every room).
+    expect(
+      await call(posta, 'chat_write', { from: 'Posta-Coord', to: 'todos', topic: 'Aviso', text: 'x' }),
+    ).toMatchObject({ sala: 'posta', to: ['todos'] })
+
+    // The bridge's list is per room; it adds a session already in the list (same channel) to a room.
+    const inPosta = async () =>
+      ((await (await relay('/participants?sala=posta')).json()) as { items: { name: string; rooms: string[] }[] }).items
+    expect((await inPosta()).map((item) => item.name)).not.toContain('Coordinador')
+    const join = await relay('/participants?sala=posta', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Coordinador', channel: 'relay' }),
+    })
+    expect(join.status).toBe(201)
+    expect(await join.json()).toMatchObject({ name: 'Coordinador', rooms: ['tcg', 'posta'] })
+    expect(
+      (
+        await relay('/participants?sala=posta', {
+          method: 'POST',
+          body: JSON.stringify({ name: 'Coordinador', channel: 'relay' }),
+        })
+      ).status,
+    ).toBe(200)
+    expect((await inPosta()).find((item) => item.name === 'Santi')).toMatchObject({ rooms: ['tcg', 'posta'] })
+    // Santi moves Posta's coordinator: «tcg» first, and its calls without «sala» go there.
+    await session().send({ name: 'Posta-Coord', channel: 'connector', rooms: ['tcg', 'posta'] })
+    expect(
+      await call(posta, 'chat_write', { from: 'Posta-Coord', to: 'Coordinador', topic: 'Ahora', text: 'x' }),
+    ).toMatchObject({ sala: 'tcg' })
+  })
+
   it('Santi edits the list; the bridge only adds new PC or cloud sessions', async () => {
     const nube = await connect()
     const addByBridge = (body: Record<string, unknown>) =>

@@ -1061,10 +1061,19 @@ export const CHAT_CHANNEL_LABEL: Record<ChatChannel, string> = {
   connector: 'Sesión en la nube (conector)',
 }
 
-/** D-021: who takes part in the session chat, each with the channel it writes from. */
+/** Mirrors CHAT_ROOMS / CHAT_ROOM_LABEL of @tcg/domain (rooms of the chat, 13/10/2026). */
+export const CHAT_ROOMS = ['tcg', 'posta'] as const
+export type ChatRoom = (typeof CHAT_ROOMS)[number]
+export const CHAT_ROOM_LABEL: Record<ChatRoom, string> = {
+  tcg: 'tcg-pocket',
+  posta: 'Posta',
+}
+
+/** D-021: who takes part in the session chat, each with the channel it writes from and its rooms (main one first). */
 export const chatParticipantSchema = z.object({
   name: z.string(),
   channel: z.enum(CHAT_CHANNELS),
+  rooms: z.array(z.enum(CHAT_ROOMS)).default(['tcg']),
   createdAt: isoDate,
 })
 export type ChatParticipant = z.infer<typeof chatParticipantSchema>

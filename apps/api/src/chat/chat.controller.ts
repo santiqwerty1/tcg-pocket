@@ -4,6 +4,7 @@
  *   `chat.mjs` reads here what the cloud sessions wrote (`after` its own position, nothing marked read), copies here
  *   what was written at the PC, and can add a new session to the list. Only with a `chat:relay` token.
  * - `/api/chat/participants`: Santi's list of participants (Más → Tokens de API), with his session.
+ * Rooms (13/10/2026): every bridge route takes `?sala=` («tcg» without it, so the bridge of before sees only «tcg»).
  */
 import {
   Body,
@@ -20,7 +21,15 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common'
-import { CHAT_CHANNELS, chatParticipantName, MCP_CHAT_TOOLS } from '@tcg/domain'
+import {
+  CHAT_CHANNELS,
+  CHAT_DEFAULT_ROOM,
+  CHAT_ROOMS,
+  type ChatRoom,
+  chatParticipantName,
+  chatRoom,
+  MCP_CHAT_TOOLS,
+} from '@tcg/domain'
 import type { Request, Response } from 'express'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
@@ -32,17 +41,32 @@ import { TokensModule } from '../tokens/tokens.module.js'
 import { clientFromUserAgent, TokensService } from '../tokens/tokens.service.js'
 import { type ChatFeedView, type ChatMessageView, type ChatParticipantView, ChatService } from './chat.service.js'
 
-const feedQuerySchema = z.object({
+/** The bridge's room: «tcg» when it does not say it. */
+const roomQuerySchema = z.object({ sala: chatRoom.optional() })
+const roomOf = (query: { sala?: ChatRoom | undefined }): ChatRoom => query.sala ?? CHAT_DEFAULT_ROOM
+
+const feedQuerySchema = roomQuerySchema.extend({
   after: z.coerce.number().int().min(0).optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
 })
 
-const relayWriteSchema = MCP_CHAT_TOOLS.chatWrite.input.extend({
+/** The room goes in `?sala=`, like the other routes of the bridge. */
+const relayWriteSchema = MCP_CHAT_TOOLS.chatWrite.input.omit({ sala: true }).extend({
   /** The bridge's id for the message (its id in the PC chat): sending it again returns the one already copied. */
   ref: z.string().trim().min(1).max(100),
 })
 
 const participantSchema = z.object({ name: chatParticipantName, channel: z.enum(CHAT_CHANNELS) })
+
+/** Santi's: also its rooms, the main one first. */
+const ownerParticipantSchema = participantSchema.extend({
+  rooms: z
+    .array(chatRoom)
+    .min(1)
+    .max(CHAT_ROOMS.length)
+    .refine((rooms) => new Set(rooms).size === rooms.length, 'Cada sala una vez')
+    .optional(),
+})
 
 @Controller('api/mcp/chat')
 @UseGuards(BearerTokenGuard)
@@ -63,13 +87,14 @@ export class ChatRelayController {
     @CurrentApiToken() token: RequestApiToken,
   ): Promise<ChatFeedView> {
     await this.noteClient(req, token)
-    return this.chat.feed(query)
+    return this.chat.feed({ after: query.after, limit: query.limit, room: roomOf(query) })
   }
 
   @Post()
   @HttpCode(201)
   async write(
     @Body(new ZodValidationPipe(relayWriteSchema)) body: z.infer<typeof relayWriteSchema>,
+    @Query(new ZodValidationPipe(roomQuerySchema)) query: z.infer<typeof roomQuerySchema>,
     @Req() req: Request,
     @CurrentApiToken() token: RequestApiToken,
   ): Promise<ChatMessageView & { duplicate: boolean }> {
@@ -79,29 +104,36 @@ export class ChatRelayController {
       via: token.name,
       tokenId: Number(token.id),
       caller: 'relay',
+      room: roomOf(query),
     })
     return { ...message, duplicate }
   }
 
+  /** Who is in the room. */
   @Get('participants')
   async participants(
+    @Query(new ZodValidationPipe(roomQuerySchema)) query: z.infer<typeof roomQuerySchema>,
     @Req() req: Request,
     @CurrentApiToken() token: RequestApiToken,
   ): Promise<{ items: ChatParticipantView[] }> {
     await this.noteClient(req, token)
-    return { items: await this.chat.participants() }
+    return { items: await this.chat.participants(roomOf(query)) }
   }
 
-  /** A new PC or cloud session: `201`, or `200` if it was already there with that channel. */
+  /**
+   * A new PC or cloud session in the room: `201` (also when one already there with that channel joins the room), or
+   * `200` if it was already in it.
+   */
   @Post('participants')
   async addParticipant(
     @Body(new ZodValidationPipe(participantSchema)) body: z.infer<typeof participantSchema>,
+    @Query(new ZodValidationPipe(roomQuerySchema)) query: z.infer<typeof roomQuerySchema>,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
     @CurrentApiToken() token: RequestApiToken,
   ): Promise<ChatParticipantView> {
     await this.noteClient(req, token)
-    const { participant, created } = await this.chat.saveParticipant(body, 'relay')
+    const { participant, created } = await this.chat.saveParticipant(body, 'relay', roomOf(query))
     res.status(created ? 201 : 200)
     return participant
   }
@@ -125,10 +157,10 @@ export class ChatParticipantsController {
     return { items: await this.chat.participants() }
   }
 
-  /** Adds a participant, or changes its channel or how its name is written. */
+  /** Adds a participant, or changes its channel, its rooms or how its name is written. */
   @Put()
   async save(
-    @Body(new ZodValidationPipe(participantSchema)) body: z.infer<typeof participantSchema>,
+    @Body(new ZodValidationPipe(ownerParticipantSchema)) body: z.infer<typeof ownerParticipantSchema>,
     @CurrentSession() _session: RequestSession,
   ): Promise<ChatParticipantView> {
     return (await this.chat.saveParticipant(body, 'owner')).participant

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from './client'
 import {
   type ChatChannel,
+  type ChatRoom,
   chatParticipantSchema,
   chatParticipantsResponseSchema,
   createdTokenSchema,
@@ -56,7 +57,7 @@ export function useChatParticipants() {
 export function useSaveChatParticipant() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: { name: string; channel: ChatChannel }) =>
+    mutationFn: (body: { name: string; channel: ChatChannel; rooms?: ChatRoom[] }) =>
       request('/api/chat/participants', { method: 'PUT', body, schema: chatParticipantSchema }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: tokenKeys.chatParticipants }),
   })
