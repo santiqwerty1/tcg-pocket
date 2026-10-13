@@ -1,11 +1,12 @@
 /**
- * A game against the bot (PLAN §3.7, Fase 8; the board of Fase 22). The game runs on the PC; this page shows the
+ * A game against the bot (PLAN §3.7, Fase 8; the board of Fase 22). The game runs on the PC, or in this browser
+ * (T-015: then this page plays the bot's side with the engine in WebAssembly); this page shows the
  * table as your seat sees it and plays by touch: a card of your hand lights the spots where it can go, the Energy
  * Zone lights where the energy can be attached, your active opens its attacks and the retreat; a long press shows
  * any card. Every option stays one tap away under «Opciones». The coach, undo, the bot's last moves and the
  * end-of-game screen with the rematch complete it.
  */
-import { FlagIcon, LayersIcon, LightbulbIcon, ListIcon, Undo2Icon, XIcon } from 'lucide-react'
+import { FlagIcon, LayersIcon, LightbulbIcon, ListIcon, RotateCcwIcon, Undo2Icon, XIcon } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
@@ -19,11 +20,14 @@ import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { ErrorState, LoadingRows, Spinner } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
+import { browserCanRunEngine, useBrowserEngine } from '@/engine/browserEngine'
+import type { RunnerStatus } from '@/engine/runner'
 import { type BoardAction, boardChanges, pickLeavesOptions, type Seat } from '@/lib/board'
 import { type Replay, ReplayReader, type ReplayState } from '@/lib/replay'
 import { cn } from '@/lib/utils'
 import { CoachLast, CoachSummarySection } from './Coach'
 import { BotTurn, EndScreen, EngineChangedScreen, OptionsSheet } from './GameParts'
+import { useBrowserRunner } from './useBrowserRunner'
 import { TouchPlaySheet, useTouchPlay } from './useTouchPlay'
 
 const WHO = ['Vos', 'Bot'] as const
@@ -77,7 +81,42 @@ function masked(state: ReplayState, setup: boolean): ReplayState {
   }
 }
 
-function statusLine(game: LiveGame): { text: string; tone: 'muted' | 'turn' | 'end' | 'error' } {
+type Line = { text: string; tone: 'muted' | 'turn' | 'end' | 'error'; busy?: boolean }
+
+/** T-015: a game started in the browser ends there (R-003): if this device cannot run it, the PC plays a new one. */
+const ENGINE_FAILED_HINT = 'Si sigue sin andar, empezá otra partida «En la PC».'
+
+/** T-015: a game this page plays with the engine of the browser, while the bot or the coach thinks. */
+function browserLine(runner: RunnerStatus | null, available: boolean | undefined): Line {
+  if (available === false) {
+    return {
+      text: browserCanRunEngine()
+        ? 'Esta partida se juega en el navegador, pero esta instalación no tiene el motor: empezá otra «En la PC».'
+        : 'Este navegador no puede correr el motor (le falta WebAssembly): empezá otra partida «En la PC».',
+      tone: 'error',
+    }
+  }
+  switch (runner?.kind) {
+    case 'error':
+      return { text: `${runner.message} ${ENGINE_FAILED_HINT}`, tone: 'error' }
+    case 'offline':
+      return { text: `Sin conexión con el servidor: reintentando… (${runner.message})`, tone: 'muted', busy: true }
+    case 'coach':
+      return { text: 'El entrenador analiza tus opciones…', tone: 'muted', busy: true }
+    case undefined:
+    case 'loading':
+      return { text: 'Cargando el motor en este dispositivo…', tone: 'muted', busy: true }
+    default:
+      return { text: 'Juega el bot (en este dispositivo)…', tone: 'muted', busy: true }
+  }
+}
+
+function statusLine(game: LiveGame, runner: RunnerStatus | null, engineAvailable: boolean | undefined): Line {
+  const browser = game.runner === 'browser'
+  if (browser && (game.status === 'queued' || game.status === 'running')) return browserLine(runner, engineAvailable)
+  if (browser && game.status === 'waiting' && runner?.kind === 'error') {
+    return { text: `${runner.message} ${ENGINE_FAILED_HINT}`, tone: 'error' }
+  }
   switch (game.status) {
     case 'queued':
       return game.workerOnline
@@ -85,7 +124,7 @@ function statusLine(game: LiveGame): { text: string; tone: 'muted' | 'turn' | 'e
         : { text: 'La PC está apagada: la partida sigue cuando la prendas.', tone: 'muted' }
     case 'running':
       return game.workerOnline
-        ? { text: 'Juega el bot…', tone: 'muted' }
+        ? { text: 'Juega el bot…', tone: 'muted', busy: true }
         : { text: 'Esperando a la PC (la partida sigue donde quedó cuando se prenda).', tone: 'muted' }
     case 'waiting':
       return { text: 'Tu turno', tone: 'turn' }
@@ -157,6 +196,9 @@ export function GamePage() {
 
 function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader; refetch: () => void }) {
   const navigate = useNavigate()
+  const browserEngine = useBrowserEngine()
+  const engine = game.runner === 'browser' ? browserEngine.data : undefined
+  const runner = useBrowserRunner(game, engine)
   const choose = useChoose(String(game.id))
   const abandon = useAbandon(String(game.id))
   const hint = useHint(String(game.id))
@@ -217,7 +259,11 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
     }
   }
 
-  const line = statusLine(game)
+  const line = statusLine(
+    game,
+    runner.status,
+    game.runner === 'browser' && !browserEngine.isLoading ? Boolean(engine) : undefined,
+  )
   const active = game.status === 'queued' || game.status === 'running' || game.status === 'waiting'
   return (
     <div className="flex flex-col gap-3 pb-28">
@@ -230,6 +276,7 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
           </p>
           <p className="text-xs text-muted-foreground">
             #{game.id} · bot {game.botEs}
+            {game.runner === 'browser' ? ' · en el navegador' : ''}
             {game.coach ? ' · entrenador' : ''}
             {game.undos > 0 ? ` · ${game.undos} ${game.undos === 1 ? 'deshecha' : 'deshechas'}` : ''}
           </p>
@@ -248,13 +295,19 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
         )}
         role="status"
       >
-        {game.status === 'running' && game.workerOnline ? <Spinner className="size-4" /> : null}
+        {line.busy ? <Spinner className="size-4" /> : null}
         <span className="flex-1">
           {line.text}
           {decision && pick ? ': elegí un Pokémon marcado' : ''}
           {decision && pickLeavesOptions(actions) ? ' (lo demás, en «Opciones»)' : ''}
           {decision && setup ? ': prepará tu mesa (el bot pone la suya a la vez)' : ''}
         </span>
+        {runner.status?.kind === 'error' ? (
+          <Button type="button" variant="ghost" size="sm" onClick={runner.retry}>
+            <RotateCcwIcon aria-hidden="true" />
+            Reintentar
+          </Button>
+        ) : null}
       </div>
 
       {game.status === 'done' ? (
@@ -264,7 +317,10 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
           pending={rematch.isPending || undo.isPending}
           onRematch={(sameSeed) =>
             rematch.mutate(
-              { sameSeed },
+              {
+                sameSeed,
+                ...(engine ? { engineRev: engine.engineRev, gamesRev: engine.gamesRev, build: engine.build } : {}),
+              },
               {
                 onSuccess: (created) => navigate(`/jugar/${created.id}`),
                 onError: (error) => toast.error(errorMessage(error)),
@@ -474,7 +530,7 @@ function Game({ game, reader, refetch }: { game: LiveGame; reader: ReplayReader;
         open={confirmAbandon}
         onOpenChange={setConfirmAbandon}
         title="¿Abandonar la partida?"
-        description="La PC deja de jugarla; queda en la lista como abandonada."
+        description="El bot deja de jugarla; queda en la lista como abandonada."
         confirmLabel="Abandonar"
         destructive
         pending={abandon.isPending}

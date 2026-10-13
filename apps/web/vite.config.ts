@@ -73,11 +73,13 @@ export default defineConfig(({ mode }) => ({
             importScripts: ['/push-sw.js'],
             // Only the built shell is precached: nothing under /api is ever listed because the glob runs over dist/.
             globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
-            // deckgym's replay viewer (D-014) is opened now and then: not worth 1,6 MB of precache.
-            globIgnores: ['viewer/**'],
+            // deckgym's replay viewer (D-014) is opened now and then: not worth 1,6 MB of precache. The engine of the
+            // browser (T-015, 5 MB) is fetched by its Web Worker when a game needs it, and kept (runtimeCaching).
+            globIgnores: ['viewer/**', 'engine/**'],
             navigateFallback: '/index.html',
             // The login page is served by the API and must never be answered with the SPA shell.
-            navigateFallbackDenylist: [/^\/api/, /^\/login/, /^\/healthz/, /^\/viewer\//],
+            // T-015: /engine/ too, so the engine's source (Más → Acerca de) opens as a file, not as the app.
+            navigateFallbackDenylist: [/^\/api/, /^\/login/, /^\/healthz/, /^\/viewer\//, /^\/engine\//],
             cleanupOutdatedCaches: true,
             clientsClaim: true,
             skipWaiting: true,
@@ -85,6 +87,28 @@ export default defineConfig(({ mode }) => ({
             // tracker's raw GitHub files, fetched with CORS, kept after the first view so the board loads fast and
             // works with a bad signal.
             runtimeCaching: [
+              // T-015: the browser's engine, kept after its first load so a game opens with a bad signal or none. Its
+              // files are named by their hash (never change); its manifest is asked first and the kept one is used
+              // when the network does not answer. Two versions fit: the one in use and the next one.
+              {
+                urlPattern: ({ url }) => /^\/engine\/engine-[0-9a-f]{12}(?:\.js|_bg\.wasm)$/.test(url.pathname),
+                handler: 'CacheFirst',
+                options: {
+                  cacheName: 'engine',
+                  expiration: { maxEntries: 4, maxAgeSeconds: 180 * 24 * 60 * 60 },
+                  cacheableResponse: { statuses: [200] },
+                },
+              },
+              {
+                urlPattern: ({ url }) => url.pathname === '/engine/manifest.json',
+                handler: 'NetworkFirst',
+                options: {
+                  cacheName: 'engine-manifest',
+                  networkTimeoutSeconds: 4,
+                  expiration: { maxEntries: 1 },
+                  cacheableResponse: { statuses: [200] },
+                },
+              },
               {
                 urlPattern:
                   /^https:\/\/raw\.githubusercontent\.com\/marcelpanse\/tcg-pocket-collection-tracker\/.*\.webp$/,
@@ -117,6 +141,8 @@ export default defineConfig(({ mode }) => ({
     sourcemap: false,
     target: 'es2022',
   },
+  // T-015: the engine's Web Worker is an ES module (it imports the WebAssembly glue from /engine/ at run time).
+  worker: { format: 'es' },
   test: {
     // D-023: two CI runners share the PC with Postgres and the simulation worker.
     ...(process.env.CI ? { maxWorkers: 4 } : {}),

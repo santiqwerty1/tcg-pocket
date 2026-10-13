@@ -947,6 +947,14 @@ model SimulationReplay {
 // Playing against a bot (Fase 8)
 // ---------------------------------------------------------------------------------------------------------------
 
+/// T-015: who plays the engine's side of a game against the bot.
+enum LiveGameRunner {
+  /// A worker (engine-cli on a PC, the phone…) claims it.
+  worker
+  /// The owner's open game page, with the WebAssembly engine; it never goes to a worker (R-003).
+  browser
+}
+
 enum LiveGameStatus {
   /// Waiting for a worker.
   queued
@@ -977,6 +985,10 @@ model LiveGame {
   engineRev       String         @map("engine_rev")
   /// Phase 42: how the engine that played it plays (`gamesRev`, set by the first worker that took it).
   gamesRev        Int?           @map("games_rev")
+  /// T-015: «browser» games are run by the owner's open page (WebAssembly) and never claimed by a worker.
+  runner          LiveGameRunner @default(worker)
+  /// T-015: a browser game's engine build (the manifest's `build`): a page with another one cannot go on with it.
+  engineBuild     String?        @map("engine_build")
   workerId        String?        @map("worker_id")
   leaseUntil      DateTime?      @map("lease_until") @db.Timestamptz(3)
   /// The owner's choice at each decision, in order.

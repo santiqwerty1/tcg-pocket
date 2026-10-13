@@ -2,6 +2,8 @@ import { useQuery } from '@tanstack/react-query'
 import { request } from '@/api/client'
 import { healthSchema } from '@/api/schemas'
 import { KeyValue, Section } from '@/components/Section'
+import { useBrowserEngine } from '@/engine/browserEngine'
+import { ENGINE_BASE } from '@/engine/protocol'
 import { shortSha } from '@/lib/format'
 
 export function AboutPage() {
@@ -10,6 +12,8 @@ export function AboutPage() {
     queryFn: ({ signal }) => request('/healthz', { schema: healthSchema, signal }),
     staleTime: 60_000,
   })
+  // T-015: the source of the browser's engine this installation serves (AGPL-3.0), next to it (review of #86).
+  const sources = useBrowserEngine().data?.sources
 
   return (
     <div className="flex flex-col gap-6">
@@ -45,8 +49,20 @@ export function AboutPage() {
             <a className="underline" href="https://github.com/bcollazo/deckgym-core" target="_blank" rel="noreferrer">
               bcollazo/deckgym-core
             </a>{' '}
-            (AGPL-3.0, commit <code className="font-mono">33ff2a5</code>) sin modificarlo; el ejecutable derivado no se
-            distribuye.
+            (AGPL-3.0, commit <code className="font-mono">33ff2a5</code>) sin modificarlo. Va compilado en los paquetes
+            del worker y, para jugar en el navegador, en WebAssembly; sus fuentes, con la misma licencia, son las del{' '}
+            <a className="underline" href="https://github.com/santiqwerty1/tcg-pocket" target="_blank" rel="noreferrer">
+              repositorio
+            </a>
+            {sources ? (
+              <>
+                , y las del motor del navegador de esta instalación se bajan en{' '}
+                <a className="underline" href={`${ENGINE_BASE}${sources}`} download>
+                  {sources}
+                </a>
+              </>
+            ) : null}
+            .
           </p>
           <p>
             La interfaz usa componentes generados con shadcn/ui (MIT), Radix UI, TanStack Query, React Router y Tailwind

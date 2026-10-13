@@ -20,7 +20,11 @@
 mod coach;
 mod consistency;
 mod fair_bot;
+// The browser's engine (engine/wasm) also uses what engine-cli does not (the coach's restore, the played steps).
+#[allow(dead_code)]
+mod live;
 mod play;
+mod seeds;
 
 use std::io::Write;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -44,6 +48,9 @@ use deckgym::state::GameOutcome;
 use deckgym::{Deck, Game, State};
 use fair_bot::{create_players, parse_bot_code, BotCode};
 use rayon::prelude::*;
+use seeds::{game_seed, GAMES_REV};
+#[cfg(test)]
+use seeds::splitmix64;
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use uuid::Uuid;
@@ -52,16 +59,6 @@ const ENGINE_REV: &str = env!("DECKGYM_REV");
 const CLI_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Phase 42: a fingerprint of the code that plays (build.rs). The exact cache of chunks reuses a result only with it.
 const ENGINE_BUILD: &str = env!("ENGINE_BUILD");
-/// How games play (phase 42): a job is played whole with one value, and the queue gives its chunks only to engines
-/// with the same deckgym and the same `GAMES_REV` (a job of an old one is played again whole).
-///
-/// Raise it when the code changes how something that already existed plays: the rules engine-cli adds over deckgym,
-/// a bot that was already there (its search, its value function, its clock), how seeds become games, how a deck is
-/// built from its text, what a consistency or an optimize run counts. Do not raise it for what plays nothing new:
-/// a new bot or command, a new field in a result, speed, batching, logging. The golden games (games_rev_tests.rs,
-/// games-rev.json) fail when results change without raising it; after raising it, make the file again.
-/// 1: engine-cli 0.3.3 on (the f bots' clock, a574691); engines before it play otherwise.
-const GAMES_REV: u32 = 1;
 /// What the worker and the queue can ask of this engine beyond the commands of 0.1.0: `perGame` (H-010, T-017 A2),
 /// `batch`, several pairings in one process (B2), and `fairBots`, the f<N> bots (H-018).
 /// «etBot» (H-051): the bot that ends its turn, which deckgym's own parser never reaches.
@@ -112,22 +109,6 @@ fn write_json<T: Serialize>(path: Option<&str>, value: &T) -> Result<(), CliErro
             Ok(())
         }
     }
-}
-
-// ---------------------------------------------------------------------------------------------------------------
-// Seeds
-// ---------------------------------------------------------------------------------------------------------------
-
-fn splitmix64(x: u64) -> u64 {
-    let mut z = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    z ^ (z >> 31)
-}
-
-/// Seed of game `index` of a job with seed `seed`.
-fn game_seed(seed: u64, index: u64) -> u64 {
-    splitmix64(seed ^ splitmix64(index))
 }
 
 // ---------------------------------------------------------------------------------------------------------------

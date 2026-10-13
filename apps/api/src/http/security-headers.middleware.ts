@@ -1,18 +1,25 @@
 import { Inject, Injectable, type NestMiddleware } from '@nestjs/common'
 import type { NextFunction, Request, Response } from 'express'
 import { ENV, type Env } from '../config/env.js'
+import { requestPathname } from './public-routes.js'
 
 /**
  * Baseline CSP for the Vite SPA: own scripts/styles only (Tailwind emits inline styles, hence 'unsafe-inline' for
  * style-src), card images from the tracker's raw GitHub URLs (invariant I11: links, never copies; the service worker
  * fetches them too, to keep the ones already seen — Fase 22 — hence connect-src), no framing.
  * The login page overrides script-src with a per-response nonce for its inline script. deckgym's replay viewer
- * (`/viewer/`, D-014) compiles PixiJS shaders with `new Function`: its pages alone get 'unsafe-eval'.
+ * (`/viewer/`, D-014) compiles PixiJS shaders with `new Function`: its pages alone get 'unsafe-eval'. The engine of the
+ * browser (T-015) is WebAssembly, compiled in a Web Worker whose policy is the one of its script's response: that
+ * script alone gets 'wasm-unsafe-eval', which lets it compile WebAssembly and nothing else (review of #86).
  */
-export function contentSecurityPolicy(scriptNonce?: string, options: { allowEval?: boolean } = {}): string {
+export function contentSecurityPolicy(
+  scriptNonce?: string,
+  options: { allowEval?: boolean; allowWasm?: boolean } = {},
+): string {
   const scriptSrc = [
     "'self'",
     ...(scriptNonce ? [`'nonce-${scriptNonce}'`] : []),
+    ...(options.allowWasm ? ["'wasm-unsafe-eval'"] : []),
     ...(options.allowEval ? ["'unsafe-eval'"] : []),
   ].join(' ')
   return [
@@ -31,6 +38,9 @@ export function contentSecurityPolicy(scriptNonce?: string, options: { allowEval
   ].join('; ')
 }
 
+/** The engine's Web Worker (T-015), as Vite names it in the build: the only script that compiles WebAssembly. */
+export const ENGINE_WORKER_SCRIPT = /^\/assets\/engine\.worker-[A-Za-z0-9_-]+\.js$/
+
 @Injectable()
 export class SecurityHeadersMiddleware implements NestMiddleware {
   private readonly hsts: boolean
@@ -41,7 +51,11 @@ export class SecurityHeadersMiddleware implements NestMiddleware {
 
   use(req: Request, res: Response, next: NextFunction): void {
     const viewer = req.originalUrl.startsWith('/viewer/')
-    res.setHeader('Content-Security-Policy', contentSecurityPolicy(undefined, { allowEval: viewer }))
+    const engineWorker = ENGINE_WORKER_SCRIPT.test(requestPathname(req))
+    res.setHeader(
+      'Content-Security-Policy',
+      contentSecurityPolicy(undefined, { allowEval: viewer, allowWasm: engineWorker }),
+    )
     res.setHeader('X-Content-Type-Options', 'nosniff')
     res.setHeader('Referrer-Policy', 'same-origin')
     res.setHeader('X-Frame-Options', 'DENY')

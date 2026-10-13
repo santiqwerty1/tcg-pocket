@@ -1,0 +1,423 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { gzipSync } from 'node:zlib'
+import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
+import { REPO_ROOT } from '../src/config/dotenv.js'
+import { LiveGamesService } from '../src/play/live-games.service.js'
+import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
+
+/**
+ * T-015: a game against the bot run by the owner's open page (the engine in WebAssembly). The page's side is played
+ * here through the API, as the PWA does it, without an engine: the server only relays and checks the choices.
+ */
+const DECKS_PATH = join(REPO_ROOT, 'docs/context/mazos_40_listas.md')
+
+describe('playing against a bot in the browser (e2e)', () => {
+  let test: TestApp
+  let cookie: string
+  let workerToken: string
+  let deckIds: string[]
+
+  beforeAll(async () => {
+    test = await createTestApp()
+    test.app.get(LiveGamesService).longPollMs = 100
+    // The engine the app serves (its manifest in the PWA's build); a test changes it as an update of the app would.
+    serve({ gamesRev: 1, build: BUILD })
+    await seedOwner(test.app, { totp: false })
+    cookie = await login(test, { secret: null })
+    const summary = await test.app
+      .get(CatalogSyncService)
+      .sync({ trackerCommit: test.env.catalogCommit, engineRev: test.env.engineRev, source: 'fixtures' })
+    expect(summary.status).toBe('applied')
+    const drafts = (await post('/api/decks/import').send({ text: readFileSync(DECKS_PATH, 'utf8') })).body.drafts as {
+      title: string
+      draft: { energies: string[]; cards: unknown[] }
+    }[]
+    const decks = drafts.map((d) => ({
+      name: d.title,
+      energies: d.draft.energies.length > 0 ? d.draft.energies : ['psychic'],
+      cards: d.draft.cards,
+    }))
+    expect((await post('/api/decks/import/commit').send({ decks })).status).toBe(201)
+    deckIds = ((await get('/api/decks')).body.items as { id: string }[])
+      .map((deck) => deck.id)
+      .sort((a, b) => Number(a) - Number(b))
+    workerToken = (await post('/api/tokens').send({ name: 'pc', kind: 'worker', scopes: ['worker:claim'] })).body.token
+  }, 120_000)
+
+  afterAll(async () => {
+    await test.close()
+  })
+
+  function get(path: string) {
+    return test.http().get(path).set('Cookie', cookie)
+  }
+  function post(path: string) {
+    return test.http().post(path).set('Cookie', cookie)
+  }
+  function put(path: string) {
+    return test.http().put(path).set('Cookie', cookie)
+  }
+  const engineRev = () => test.env.engineRev
+  const otherRev = 'f'.repeat(40)
+  const BUILD = 'a1b2c3d4e5f6'
+  const NEWER_BUILD = '0123456789ab'
+  /** The engine the app serves now (null: an installation without one). */
+  function serve(engine: { gamesRev: number; build: string } | null) {
+    test.app.get(LiveGamesService).servedEngine = engine && { engineRev: engineRev(), ...engine }
+  }
+  /** The engine a page loaded: the one the game started with, unless said otherwise. */
+  const page = (extra: Record<string, unknown> = {}) => ({
+    engineRev: engineRev(),
+    gamesRev: 1,
+    build: BUILD,
+    ...extra,
+  })
+  const job = (id: number, extra: Record<string, unknown> = {}) => post(`/api/play/${id}/browser`).send(page(extra))
+  const deckId = (index: number) => {
+    const id = deckIds[index]
+    if (id === undefined) throw new Error(`Missing fixture deck ${index}`)
+    return id
+  }
+  const decision = (choices: number[], log: unknown[] = []) => ({
+    choices,
+    ply: choices.length + 1,
+    turn: choices.length + 1,
+    state: { turn: choices.length + 1, current_player: 0, points: [0, 0], players: [], stadium: null },
+    actions: [
+      { i: 0, text: 'EndTurn', action: 'EndTurn' },
+      { i: 1, text: 'Attack(Blaze Kick)', action: { Attack: { title: 'Blaze Kick' } } },
+    ],
+    log,
+    build: BUILD,
+  })
+  const end = (choices: number[]) => ({
+    choices,
+    winner: 'you' as const,
+    turns: 9,
+    state: { turn: 9, current_player: 0, points: [3, 1], players: [], stadium: null },
+    log: [{ turn: 9, actor: 0, text: 'Attack', action: 'Attack' }],
+    build: BUILD,
+  })
+  const replay = gzipSync(Buffer.from(JSON.stringify({ version: 1, steps: [], players: [] })))
+
+  async function browserGame(extra: Record<string, unknown> = {}): Promise<number> {
+    const created = await post('/api/play').send({
+      human: { deckId: deckId(1) },
+      rival: { deckId: deckId(12) },
+      seed: 77,
+      runner: 'browser',
+      ...page(),
+      ...extra,
+    })
+    expect(created.status).toBe(201)
+    return created.body.id as number
+  }
+
+  it('starts only with the server engine and never waits for a worker', async () => {
+    const base = { human: { deckId: deckId(1) }, rival: { deckId: deckId(12) }, runner: 'browser' }
+    const missing = await post('/api/play').send(base)
+    expect(missing.status).toBe(409)
+    expect(missing.body.error.code).toBe('engine_mismatch')
+    const other = await post('/api/play').send({ ...base, ...page({ engineRev: otherRev }) })
+    expect(other.status).toBe(409)
+    expect(other.body.error.message).toContain('recargá la app')
+    // The same deckgym, another build or games revision than the app serves (a page kept in the phone's cache).
+    for (const stale of [{ build: NEWER_BUILD }, { gamesRev: 0 }, { build: undefined }]) {
+      const behind = await post('/api/play').send({ ...base, ...page(stale) })
+      expect(behind.status).toBe(409)
+      expect(behind.body.error.code).toBe('engine_mismatch')
+    }
+
+    const id = await browserGame({ coach: true })
+    const view = (await get(`/api/play/${id}`)).body
+    expect(view).toMatchObject({ runner: 'browser', status: 'running', coach: true, engineRev: engineRev() })
+    expect((await get('/api/play')).body.items.find((item: { id: number }) => item.id === id).runner).toBe('browser')
+
+    // A worker with the same engine does not take it (R-003: the same seed is another game on a PC).
+    const claim = await test
+      .http()
+      .post('/api/worker/live/claim')
+      .set('Authorization', `Bearer ${workerToken}`)
+      .send({ workerId: 'worker-pc-browser', engineRev: engineRev() })
+    expect(claim.status).toBe(200)
+    expect(claim.body.game).toBeNull()
+
+    // The page's engine gets the decks and the seed, only with the game's engine.
+    const wrong = await job(id, { engineRev: otherRev })
+    expect(wrong.status).toBe(409)
+    expect(wrong.body.error.code).toBe('engine_mismatch')
+    // A GET is not the job any more: it can end the game (review of #86).
+    expect((await get(`/api/play/${id}/browser`)).status).toBe(404)
+    const given = await job(id)
+    expect(given.status).toBe(200)
+    expect(given.body).toMatchObject({ id, bot: 'e2', seed: '77', choices: [], coach: true, status: 'running' })
+    expect(given.body.deckHuman).toContain('Energy:')
+    expect(given.body.deckBot).toContain('Energy:')
+    expect(await test.prisma.liveGame.findUniqueOrThrow({ where: { id } })).toMatchObject({
+      gamesRev: 1,
+      engineBuild: BUILD,
+    })
+    await post(`/api/play/${id}/abandon`).send({})
+  })
+
+  it('relays decisions from every open page, rebuilds after an undo and keeps the first replay', async () => {
+    const id = await browserGame({ coach: true })
+    const first = await put(`/api/play/${id}/browser/decision`).send({
+      ...decision([]),
+      coach: { scores: [1, 4.5], best: 1 },
+    })
+    expect(first.body).toEqual({ choice: null, status: 'waiting' })
+    // Another build cannot ask, end or fail it: it would be another game from the same choices.
+    const otherBuild = await put(`/api/play/${id}/browser/decision`).send({ ...decision([]), build: NEWER_BUILD })
+    expect(otherBuild.status).toBe(409)
+    expect(otherBuild.body.error.code).toBe('engine_mismatch')
+    // While it waits for the owner the game cannot have ended (review of #86).
+    const early = await put(`/api/play/${id}/browser/end`).send(end([]))
+    expect(early.status).toBe(409)
+    expect(early.body.error.code).toBe('stale_decision')
+    expect(
+      (await put(`/api/play/${id}/browser/failure`).send({ choices: [], error: 'otro motor', build: NEWER_BUILD }))
+        .body,
+    ).toEqual({ ok: true })
+    expect((await get(`/api/play/${id}`)).body.status).toBe('waiting')
+    // A second page with the game open reaches the same decision: nothing changes.
+    expect((await put(`/api/play/${id}/browser/decision`).send(decision([]))).body).toEqual({
+      choice: null,
+      status: 'waiting',
+    })
+    const waiting = (await get(`/api/play/${id}`)).body
+    expect(waiting.status).toBe('waiting')
+    expect(waiting.decision).toMatchObject({ ply: 1, hintAvailable: true, hint: null })
+    expect((await post(`/api/play/${id}/hint`).send({ ply: 1 })).body.decision.hint).toBe(1)
+
+    // The page waits for the owner (long-poll) while the owner answers from the board.
+    const poll = post(`/api/play/${id}/browser/choice`)
+      .send({ choices: [], ply: 1 })
+      .then((response) => response)
+    const chosen = await post(`/api/play/${id}/choice`).send({ ply: 1, i: 0 })
+    expect(chosen.body.status).toBe('running')
+    expect(chosen.body.coachReviews).toHaveLength(1)
+    expect((await poll).body).toEqual({ choice: 0, status: 'running' })
+
+    await put(`/api/play/${id}/browser/decision`).send(decision([0]))
+    // A page behind the owner gets the choice already made instead of asking again.
+    expect((await put(`/api/play/${id}/browser/decision`).send(decision([]))).body).toEqual({
+      choice: 0,
+      status: 'waiting',
+    })
+    await post(`/api/play/${id}/choice`).send({ ply: 2, i: 1 })
+    await put(`/api/play/${id}/browser/decision`).send(decision([0, 1]))
+
+    // Undo: back to the second decision. The game is the page's to rebuild, never a worker's.
+    const undone = await post(`/api/play/${id}/undo`).send({})
+    expect(undone.body).toMatchObject({ status: 'running', choices: 1, undos: 1 })
+    expect(undone.body.coachReviews).toHaveLength(1)
+    const stale = await post(`/api/play/${id}/browser/choice`).send({ choices: [0, 1], ply: 3 })
+    expect(stale.body).toEqual({ choice: null, status: 'restart' })
+    expect((await put(`/api/play/${id}/browser/decision`).send(decision([0, 1]))).body.status).toBe('restart')
+    await put(`/api/play/${id}/browser/decision`).send(decision([0]))
+    await post(`/api/play/${id}/choice`).send({ ply: 2, i: 0 })
+
+    // The end only with the game's choices; the first replay to arrive stays.
+    expect((await put(`/api/play/${id}/browser/end`).send(end([0, 1]))).status).toBe(409)
+    expect((await put(`/api/play/${id}/browser/end`).send({ ...end([0, 0]), build: NEWER_BUILD })).status).toBe(409)
+    expect((await put(`/api/play/${id}/browser/end`).send(end([0, 0]))).body).toEqual({ ok: true, status: 'done' })
+    expect((await put(`/api/play/${id}/browser/end`).send(end([0, 0]))).body).toEqual({ ok: true, status: 'done' })
+    const wrongReplay = await put(`/api/play/${id}/browser/replay?choices=0.1&build=${BUILD}`)
+      .set('Content-Type', 'application/gzip')
+      .send(replay)
+    expect(wrongReplay.status).toBe(409)
+    const otherReplay = await put(`/api/play/${id}/browser/replay?choices=0.0&build=${NEWER_BUILD}`)
+      .set('Content-Type', 'application/gzip')
+      .send(replay)
+    expect(otherReplay.status).toBe(409)
+    expect((await job(id)).body).toMatchObject({ status: 'done', choices: [0, 0], replayMissing: true })
+    // A finished game is given to any page, without its replay to make again with another engine (review of #86).
+    for (const other of [{ build: NEWER_BUILD }, { gamesRev: 0 }, { engineRev: otherRev }]) {
+      const finished = await job(id, other)
+      expect(finished.status).toBe(200)
+      expect(finished.body).toMatchObject({ status: 'done', replayMissing: false })
+    }
+    const sent = await put(`/api/play/${id}/browser/replay?choices=0.0&build=${BUILD}`)
+      .set('Content-Type', 'application/gzip')
+      .send(replay)
+    expect(sent.status).toBe(200)
+    const done = (await get(`/api/play/${id}`)).body
+    expect(done).toMatchObject({ status: 'done', winner: 'you', turns: 9, replay: true, runner: 'browser' })
+    expect((await get(`/api/play/${id}/replay/raw`)).body).toMatchObject({ version: 1 })
+    expect((await job(id)).body.replayMissing).toBe(false)
+
+    // Undo from the end: playing again, without the old replay.
+    const reopened = await post(`/api/play/${id}/undo`).send({})
+    expect(reopened.body).toMatchObject({ status: 'running', replay: false, winner: null })
+    await post(`/api/play/${id}/abandon`).send({})
+  })
+
+  it('a rematch is played in the browser too, and a failure or an abandon stops the page', async () => {
+    const id = await browserGame()
+    expect((await post(`/api/play/${id}/rematch`).send({})).status).toBe(409)
+    const rematch = await post(`/api/play/${id}/rematch`).send({ sameSeed: true, ...page() })
+    expect(rematch.status).toBe(201)
+    expect(rematch.body).toMatchObject({ runner: 'browser', status: 'running', seed: '77' })
+
+    await put(`/api/play/${id}/browser/decision`).send(decision([]))
+    // The owner is thinking: undo is for after the bot moves, not while it is the owner's turn with nothing chosen.
+    expect((await post(`/api/play/${id}/undo`).send({})).body.error.code).toBe('nothing_to_undo')
+    expect(
+      (await put(`/api/play/${id}/browser/failure`).send({ choices: [], error: 'carta sin implementar', build: BUILD }))
+        .body,
+    ).toEqual({
+      ok: true,
+    })
+    expect((await get(`/api/play/${id}`)).body).toMatchObject({ status: 'failed', error: 'carta sin implementar' })
+    expect((await put(`/api/play/${id}/browser/decision`).send(decision([]))).body).toEqual({
+      choice: null,
+      status: 'failed',
+    })
+
+    const next = rematch.body.id as number
+    await post(`/api/play/${next}/abandon`).send({})
+    expect((await post(`/api/play/${next}/browser/choice`).send({ choices: [], ply: 1 })).body).toEqual({
+      choice: null,
+      status: 'abandoned',
+    })
+  })
+
+  it('a worker game is not the browser’s, and a worker game still goes to a worker', async () => {
+    const created = await post('/api/play').send({ human: { deckId: deckId(1) }, rival: { deckId: deckId(12) } })
+    expect(created.body).toMatchObject({ runner: 'worker', status: 'queued' })
+    const id = created.body.id as number
+    const notBrowser = await job(id)
+    expect(notBrowser.status).toBe(409)
+    expect(notBrowser.body.error.code).toBe('not_browser')
+    expect((await put(`/api/play/${id}/browser/decision`).send(decision([]))).status).toBe(409)
+    const claim = await test
+      .http()
+      .post('/api/worker/live/claim')
+      .set('Authorization', `Bearer ${workerToken}`)
+      .send({ workerId: 'worker-pc-browser', engineRev: engineRev() })
+    expect(claim.body.game.id).toBe(id)
+    await post(`/api/play/${id}/abandon`).send({})
+  })
+
+  it('an update of the app ends a game of the older engine, and a page that is behind is told to reload', async () => {
+    const base = { human: { deckId: deckId(1) }, rival: { deckId: deckId(12) }, runner: 'browser' }
+    const id = await browserGame()
+    expect(await test.prisma.liveGame.findUniqueOrThrow({ where: { id } })).toMatchObject({
+      runner: 'browser',
+      gamesRev: 1,
+      engineBuild: BUILD,
+    })
+    // A worker of a newer games revision asks for a game: the games it strands are the workers' only.
+    const claim = await test
+      .http()
+      .post('/api/worker/live/claim')
+      .set('Authorization', `Bearer ${workerToken}`)
+      .send({ workerId: 'worker-pc-browser', engineRev: engineRev(), gamesRev: 2 })
+    expect(claim.body.game).toBeNull()
+    expect((await get(`/api/play/${id}`)).body.status).toBe('running')
+
+    serve({ gamesRev: 2, build: NEWER_BUILD })
+    try {
+      // The app was updated in the middle of the game. A page with the old engine still plays it (it is the game's)…
+      expect((await job(id)).body.status).toBe('running')
+      // …and one older than the game's, or a build that is not the one served now, is told to reload: it never ends a
+      // newer game (review of #86).
+      for (const behind of [{ gamesRev: 0 }, { build: '999999999999' }, { gamesRev: 2, build: BUILD }]) {
+        const stale = await job(id, behind)
+        expect(stale.status).toBe(409)
+        expect(stale.body.error.code).toBe('engine_mismatch')
+        expect(stale.body.error.message).toContain('recargá la app')
+      }
+      expect((await get(`/api/play/${id}`)).body.status).toBe('running')
+      // Nor can a page that is behind start a game or a rematch.
+      expect((await post('/api/play').send({ ...base, ...page() })).status).toBe(409)
+      expect((await post(`/api/play/${id}/rematch`).send(page())).status).toBe(409)
+
+      // A page with the engine served now: the same choices would be another game. It ends as engine_changed, as a
+      // worker's does, and its replay is not made again.
+      const newer = await job(id, { gamesRev: 2, build: NEWER_BUILD })
+      expect(newer.status).toBe(200)
+      expect(newer.body).toMatchObject({ status: 'engine_changed', replayMissing: false })
+      expect((await get(`/api/play/${id}`)).body.status).toBe('engine_changed')
+      // Its rematch is played with the engine the page has now.
+      const rematch = await post(`/api/play/${id}/rematch`).send(page({ gamesRev: 2, build: NEWER_BUILD }))
+      expect(rematch.body).toMatchObject({ runner: 'browser', status: 'running' })
+      expect(await test.prisma.liveGame.findUniqueOrThrow({ where: { id: rematch.body.id } })).toMatchObject({
+        gamesRev: 2,
+        engineBuild: NEWER_BUILD,
+      })
+      await post(`/api/play/${rematch.body.id}/abandon`).send({})
+    } finally {
+      serve({ gamesRev: 1, build: BUILD })
+    }
+  })
+
+  it('without an engine served, only a newer games revision ends a game', async () => {
+    serve(null)
+    try {
+      const id = await browserGame()
+      const older = await job(id, { gamesRev: 0, build: NEWER_BUILD })
+      expect(older.status).toBe(409)
+      expect(older.body.error.code).toBe('engine_mismatch')
+      const sameRev = await job(id, { build: NEWER_BUILD })
+      expect(sameRev.status).toBe(409)
+      expect((await get(`/api/play/${id}`)).body.status).toBe('running')
+      const newer = await job(id, { gamesRev: 2, build: NEWER_BUILD })
+      expect(newer.status).toBe(200)
+      expect(newer.body).toMatchObject({ status: 'engine_changed', replayMissing: false })
+    } finally {
+      serve({ gamesRev: 1, build: BUILD })
+    }
+  })
+
+  it('a finished game of an engine no longer served cannot be undone: its result stays (review of #86)', async () => {
+    const id = await browserGame()
+    await put(`/api/play/${id}/browser/decision`).send(decision([]))
+    await post(`/api/play/${id}/choice`).send({ ply: 1, i: 1 })
+    expect((await put(`/api/play/${id}/browser/end`).send(end([1]))).body.status).toBe('done')
+    serve({ gamesRev: 2, build: NEWER_BUILD })
+    try {
+      const undo = await post(`/api/play/${id}/undo`).send({})
+      expect(undo.status).toBe(409)
+      expect(undo.body.error).toMatchObject({ code: 'engine_mismatch' })
+      expect(undo.body.error.message).toContain('revancha')
+      expect((await get(`/api/play/${id}`)).body).toMatchObject({ status: 'done', winner: 'you', turns: 9 })
+    } finally {
+      serve({ gamesRev: 1, build: BUILD })
+    }
+    // With the engine it was played with, it can.
+    expect((await post(`/api/play/${id}/undo`).send({})).body).toMatchObject({ status: 'running', winner: null })
+    await post(`/api/play/${id}/abandon`).send({})
+  })
+
+  it('a choice, a hint, an undo or an abandon read before another page ended the game change nothing (review of #86)', async () => {
+    const service = test.app.get(LiveGamesService) as unknown as {
+      requireGame: (id: string | number) => Promise<unknown>
+    }
+    const original = service.requireGame.bind(service)
+    for (const action of ['choice', 'hint', 'undo', 'abandon'] as const) {
+      const id = await browserGame({ coach: true })
+      const coach = { scores: [1, 4.5], best: 1 }
+      await put(`/api/play/${id}/browser/decision`).send({ ...decision([]), coach })
+      await post(`/api/play/${id}/choice`).send({ ply: 1, i: 0 })
+      await put(`/api/play/${id}/browser/decision`).send({ ...decision([0]), coach })
+      // The game is read waiting; before the write, a page with the engine served now ends it (engine_changed).
+      const spy = vi.spyOn(service, 'requireGame').mockImplementationOnce(async (raw) => {
+        const read = await original(raw)
+        await test.prisma.liveGame.update({ where: { id }, data: { status: 'engine_changed' } })
+        return read
+      })
+      const body = action === 'choice' ? { ply: 2, i: 1 } : action === 'hint' ? { ply: 2 } : {}
+      const response = await post(`/api/play/${id}/${action}`).send(body)
+      spy.mockRestore()
+      if (action === 'abandon') expect(response.body.status).toBe('engine_changed')
+      else expect(response.body.error?.code, action).toBe('stale_decision')
+      expect(await test.prisma.liveGame.findUniqueOrThrow({ where: { id } }), action).toMatchObject({
+        status: 'engine_changed',
+        choices: [0],
+      })
+    }
+  })
+})

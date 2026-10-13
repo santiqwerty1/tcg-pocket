@@ -1,7 +1,17 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type RefObject, useEffect, useRef } from 'react'
+import { z } from 'zod'
+import type { RunnerApi } from '@/engine/runner'
 import { request } from './client'
-import { type LiveGame, liveGameSchema, liveGamesSchema, type PlayInput, recentListsSchema } from './schemas'
+import {
+  browserJobSchema,
+  browserStepSchema,
+  type LiveGame,
+  liveGameSchema,
+  liveGamesSchema,
+  type PlayInput,
+  recentListsSchema,
+} from './schemas'
 
 export const playKeys = {
   all: ['play'] as const,
@@ -135,11 +145,11 @@ export function useUndo(id: string) {
   })
 }
 
-/** Fase 22: the same decks and bot again; `sameSeed` for the very same shuffle. */
+/** Fase 22: the same decks and bot again; `sameSeed` for the very same shuffle (T-015: the page's engine for the browser). */
 export function useRematch(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: { sameSeed?: boolean }) =>
+    mutationFn: (body: { sameSeed?: boolean; engineRev?: string; gamesRev?: number; build?: string }) =>
       request(`/api/play/${encodeURIComponent(id)}/rematch`, { method: 'POST', body, schema: liveGameSchema }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: playKeys.list }),
   })
@@ -165,4 +175,27 @@ export function useAbandon(id: string) {
       void queryClient.invalidateQueries({ queryKey: playKeys.list })
     },
   })
+}
+
+const okSchema = z.object({ status: z.string() }).passthrough()
+
+/** T-015: the page's side of a browser game (engine/runner.ts), like a worker's side of a PC game. */
+export const browserPlayApi: RunnerApi = {
+  // A POST: it can end the game (another engine), and a GET never changes anything (review of #86).
+  job: (id, engine, signal) =>
+    request(`/api/play/${id}/browser`, { method: 'POST', body: engine, schema: browserJobSchema, signal }),
+  decision: (id, body, signal) =>
+    request(`/api/play/${id}/browser/decision`, { method: 'PUT', body, schema: browserStepSchema, signal }),
+  choice: (id, body, signal) =>
+    request(`/api/play/${id}/browser/choice`, { method: 'POST', body, schema: browserStepSchema, signal }),
+  end: (id, body, signal) => request(`/api/play/${id}/browser/end`, { method: 'PUT', body, schema: okSchema, signal }),
+  failure: (id, body, signal) => request(`/api/play/${id}/browser/failure`, { method: 'PUT', body, signal }),
+  replay: (id, choices, build, gzipped, signal) =>
+    request(`/api/play/${id}/browser/replay`, {
+      method: 'PUT',
+      query: { choices: choices.join('.'), build },
+      body: gzipped,
+      headers: { 'Content-Type': 'application/gzip' },
+      signal,
+    }),
 }

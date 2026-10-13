@@ -1,6 +1,7 @@
 /**
  * Jugar contra un bot (Fase 8): pick your deck, the bot's deck (one of yours or an archetype of the meta) and how
- * strong the bot is; the game runs on the PC and you play it from here. Below, the games so far.
+ * strong the bot is; the game runs on the PC and you play it from here, or (T-015) in this very browser with the
+ * engine in WebAssembly, without the PC. Below, the games so far.
  */
 import { SwordsIcon } from 'lucide-react'
 import { useState } from 'react'
@@ -11,7 +12,7 @@ import { useDecks } from '@/api/decks'
 import { useLabBank } from '@/api/lab'
 import { useCreateGame, usePlayGames } from '@/api/play'
 import { usePuzzles } from '@/api/puzzles'
-import type { LiveGameItem, PlaySource } from '@/api/schemas'
+import type { LiveGameItem, LiveGameRunner, PlaySource } from '@/api/schemas'
 import { useEngineInfo } from '@/api/simulations'
 import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Field, Section } from '@/components/Section'
@@ -21,6 +22,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { browserCanRunEngine, useBrowserEngine } from '@/engine/browserEngine'
 import { formatDateTime } from '@/lib/format'
 import { RecentListPicker } from './RecentListPicker'
 
@@ -66,6 +68,7 @@ function GamesList() {
             </div>
             <span className="text-xs text-muted-foreground">
               #{game.id} · bot {game.botEs}
+              {game.runner === 'browser' ? ' · en el navegador' : ''}
               {game.coach ? ' · entrenador' : ''} · {formatDateTime(game.createdAt)}
               {game.turns ? ` · ${game.turns} turnos` : ''}
             </span>
@@ -124,6 +127,11 @@ export function JugarPage() {
   const [bot, setBot] = useState('e2')
   const [coach, setCoach] = useState(false)
   const online = (engine.data?.workers ?? []).some((worker) => worker.online)
+  // T-015: where the bot plays. Until the owner picks, this device when no worker is on and it has the engine.
+  const browserEngine = useBrowserEngine()
+  const canBrowser = Boolean(browserEngine.data)
+  const [picked, setPicked] = useState<LiveGameRunner | null>(null)
+  const runner: LiveGameRunner = canBrowser ? (picked ?? (online ? 'worker' : 'browser')) : 'worker'
 
   const rivalSource: PlaySource | null = rival
     ? rivalKind === 'deck'
@@ -140,7 +148,20 @@ export function JugarPage() {
   async function start() {
     if (!mine || !rivalSource) return
     try {
-      const game = await create.mutateAsync({ human: { deckId: mine }, rival: rivalSource, bot, coach })
+      const game = await create.mutateAsync({
+        human: { deckId: mine },
+        rival: rivalSource,
+        bot,
+        coach,
+        ...(runner === 'browser' && browserEngine.data
+          ? {
+              runner,
+              engineRev: browserEngine.data.engineRev,
+              gamesRev: browserEngine.data.gamesRev,
+              build: browserEngine.data.build,
+            }
+          : {}),
+      })
       navigate(`/jugar/${game.id}`)
     } catch (error) {
       toast.error(errorMessage(error))
@@ -150,13 +171,36 @@ export function JugarPage() {
   return (
     <div className="flex flex-col gap-6">
       <Section title="Nueva partida">
-        <p className="text-sm text-muted-foreground">
-          La partida corre en la PC con el motor deckgym; desde acá ves la mesa y elegís cada jugada. Si la PC se apaga,
-          sigue donde quedó cuando se prenda.
-        </p>
-        {!online ? (
+        {canBrowser ? (
+          <Field label="Dónde juega el bot">
+            <Tabs value={runner} onValueChange={(value) => setPicked(value as LiveGameRunner)}>
+              <TabsList className="w-full">
+                <TabsTrigger value="worker">En la PC</TabsTrigger>
+                <TabsTrigger value="browser">En este dispositivo</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </Field>
+        ) : null}
+        {runner === 'browser' ? (
+          <p className="text-sm text-muted-foreground">
+            El bot juega acá mismo con el motor deckgym (sin la PC) mientras la pantalla de la partida esté abierta; si
+            la cerrás, sigue donde quedó cuando la abras. La partida se termina en el navegador: no pasa a la PC.
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            La partida corre en la PC con el motor deckgym; desde acá ves la mesa y elegís cada jugada. Si la PC se
+            apaga, sigue donde quedó cuando se prenda.
+          </p>
+        )}
+        {!browserCanRunEngine() ? (
+          <p className="text-xs text-muted-foreground">
+            Este navegador no puede jugar el bot sin la PC (le falta WebAssembly): las partidas se juegan en la PC.
+          </p>
+        ) : null}
+        {runner === 'worker' && !online ? (
           <p className="text-xs text-warning">
-            Ningún worker en línea: podés empezarla igual, arranca cuando prendas la PC.
+            Ningún worker en línea: podés empezarla igual, arranca cuando prendas la PC
+            {canBrowser ? ', o jugarla en este dispositivo' : ''}.
           </p>
         ) : null}
         <Field label="Tu mazo">

@@ -15,6 +15,8 @@ const NO_STORE_FILES = new Set(['index.html', 'sw.js', 'manifest.webmanifest', '
 export function cacheControlFor(relativePath: string): string {
   const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '')
   if (normalized.startsWith('assets/')) return IMMUTABLE
+  // T-015: the browser's engine, named by the hash of what it holds (scripts/build-engine-wasm.mjs); its manifest is not.
+  if (/^engine\/engine-[0-9a-f]{12}(?:\.js|_bg\.wasm)$/.test(normalized)) return IMMUTABLE
   if (NO_STORE_FILES.has(normalized) || /^workbox-.*\.js$/.test(normalized)) return NO_STORE
   return 'no-cache'
 }

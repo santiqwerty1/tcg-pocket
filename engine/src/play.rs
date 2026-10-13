@@ -23,22 +23,17 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use deckgym::actions::Action;
-use deckgym::players::{Player, PlayerCode};
 use deckgym::replay::{ReplayRecorder, ViewState};
 use deckgym::simulation_event_handler::{CompositeSimulationEventHandler, GameStartMetadata, SimulationEventHandler};
 use deckgym::state::GameOutcome;
-use deckgym::{Deck, Game, State};
-use rand::rngs::StdRng;
+use deckgym::{Deck, State};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::fair_bot::{create_players, parse_bot_code, BotCode};
-use crate::coach::{best_option, coach_scores, COACH_SAMPLES};
-use crate::{game_seed, require_simulable, CliError, ENGINE_REV};
-
-/// The owner's seat.
-const HUMAN: usize = 0;
+use crate::fair_bot::BotCode;
+use crate::live::{action_line, live_game_id, winner_of, LiveGame, Step, HUMAN};
+use crate::{require_simulable, CliError, ENGINE_REV};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -56,49 +51,16 @@ pub struct PlayJob {
     coach: bool,
 }
 
-/// What the coach needs: both decks and its own seed (never the game's).
-struct CoachSetup {
-    decks: [Deck; 2],
-    seed: u64,
-}
-
 fn emit(value: &Value) {
     let mut out = std::io::stdout().lock();
     let _ = writeln!(out, "{value}");
     let _ = out.flush();
 }
 
-/// Card ids in play for both players and the stadium: what a client needs to name the targets of an action.
-fn context(state: &State) -> Value {
-    let view = ViewState::for_player(state, HUMAN);
-    let in_play: Vec<Vec<Option<String>>> = view
-        .players
-        .iter()
-        .map(|player| player.in_play.iter().map(|slot| slot.as_ref().map(|s| s.card.clone())).collect())
-        .collect();
-    json!({ "in_play": in_play, "stadium": view.stadium })
-}
-
 /// How the owner's seat gets an answer: the `decide` message (its options numbered as `i`) and how many there are, to
 /// the index chosen. The CLI asks over stdout and reads stdin (`ask_over_stdio`); the golden games (games_rev_tests)
 /// answer from a fixed list, through the same seat and numbering.
 pub(crate) type Ask = Box<dyn FnMut(&Value, usize) -> usize + Send>;
-
-/// The owner's seat: builds each decision as the app sees it and asks for the answer, without limit.
-struct RemoteHuman {
-    deck: Deck,
-    ply: u32,
-    coach: Option<CoachSetup>,
-    /// The coach's values for the last decision: the replay records them next to it.
-    last_scores: Option<Vec<f64>>,
-    ask: Ask,
-}
-
-impl std::fmt::Debug for RemoteHuman {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Santi")
-    }
-}
 
 /// `{"i": 3}`, `3` or `"3"`.
 fn parse_choice(line: &str) -> Option<usize> {
@@ -108,51 +70,6 @@ fn parse_choice(line: &str) -> Option<usize> {
         Value::String(s) => s.trim().parse().ok(),
         Value::Object(map) => map.get("i").and_then(Value::as_u64).map(|n| n as usize),
         _ => None,
-    }
-}
-
-impl Player for RemoteHuman {
-    fn get_deck(&self) -> Deck {
-        self.deck.clone()
-    }
-
-    fn last_scores(&self) -> Option<Vec<f64>> {
-        self.last_scores.clone()
-    }
-
-    fn decision_fn(&mut self, _rng: &mut StdRng, state: &State, possible_actions: &[Action]) -> Action {
-        if possible_actions.len() == 1 {
-            return possible_actions[0].clone();
-        }
-        self.ply += 1;
-        let actor = possible_actions[0].actor;
-        let actions: Vec<Value> = possible_actions
-            .iter()
-            .enumerate()
-            .map(|(i, a)| json!({ "i": i, "text": a.action.to_string(), "action": a.action }))
-            .collect();
-        let mut decide = json!({
-            "type": "decide",
-            "ply": self.ply,
-            "turn": state.turn_count,
-            "state": ViewState::for_player(state, actor),
-            "actions": actions,
-        });
-        self.last_scores = None;
-        if let Some(coach) = &self.coach {
-            let scores = coach_scores(
-                state,
-                possible_actions,
-                &coach.decks,
-                game_seed(coach.seed, u64::from(self.ply)),
-                COACH_SAMPLES,
-            );
-            let rounded: Vec<f64> = scores.iter().map(|score| (score * 10.0).round() / 10.0).collect();
-            decide["coach"] = json!({ "scores": rounded, "best": best_option(&scores) });
-            self.last_scores = Some(scores);
-        }
-        let i = (self.ask)(&decide, possible_actions.len());
-        possible_actions[i].clone()
     }
 }
 
@@ -181,13 +98,9 @@ fn ask_over_stdio(decide: &Value, options: usize) -> usize {
     }
 }
 
-/// A game's id from its seed: the replay file of the same game is always the same.
-fn live_game_id(seed: u64) -> Uuid {
-    Uuid::from_u64_pair(seed, 0x504c_4159) // «PLAY»
-}
-
-/// One game of the owner against the bot, as `engine-cli play` plays it: the bot in seat 1, the game id and the
-/// coach's seed from the game's seed, `handlers` told of everything (the end too). The final state comes back.
+/// One game of the owner against the bot, as `engine-cli play` plays it (live.rs, the browser's rules too), with
+/// `handlers` told of everything (the end too) and `ask` answering each decision. The final state comes back.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_live_game(
     deck_human: &Deck,
     deck_bot: &Deck,
@@ -195,29 +108,33 @@ pub(crate) fn run_live_game(
     bot_label: &str,
     seed: u64,
     coach: bool,
-    ask: Ask,
+    mut ask: Ask,
     handlers: Vec<Box<dyn SimulationEventHandler>>,
 ) -> (Option<GameOutcome>, State) {
     let game_id = live_game_id(seed);
     let mut handler = CompositeSimulationEventHandler::new(handlers);
-    let bot = create_players(deck_human.clone(), deck_bot.clone(), vec![code.clone(), code])
-        .pop()
-        .expect("two players");
-    let coach = coach.then(|| CoachSetup {
-        decks: [deck_human.clone(), deck_bot.clone()],
-        seed: seed ^ 0xC0AC_4000_0000_0000,
-    });
-    let human = RemoteHuman { deck: deck_human.clone(), ply: 0, coach, last_scores: None, ask };
-    let players: Vec<Box<dyn Player>> = vec![Box::new(human), bot];
     let player_names = ["Santi".to_string(), format!("bot {bot_label}")];
-    let decks = [players[0].get_deck(), players[1].get_deck()];
-    let metadata = GameStartMetadata { seed, player_names, decks: [&decks[0], &decks[1]] };
+    let metadata = GameStartMetadata { seed, player_names, decks: [deck_human, deck_bot] };
     handler.on_game_start_with_metadata(game_id, &metadata);
-    let (outcome, state) = {
-        let mut game = Game::new_with_event_handlers(game_id, players, seed, &mut handler);
-        let outcome = game.play();
-        (outcome, game.get_state_clone())
+    let state = {
+        let mut game = LiveGame::new(deck_human, deck_bot, code, seed, coach, Some(&mut handler));
+        loop {
+            match game.step() {
+                Step::Ended => break,
+                Step::Played { .. } => {}
+                Step::Decide => {
+                    // With the coach (Fase 20), the value of each option first.
+                    game.coach();
+                    let decide = game.decide_message().expect("a pending decision");
+                    let options = game.pending().map_or(0, |pending| pending.actions.len());
+                    let i = ask(&decide, options);
+                    game.answer(i).expect("an answer in range");
+                }
+            }
+        }
+        game.state()
     };
+    let outcome = state.winner;
     handler.on_game_end(game_id, state.clone(), outcome);
     (outcome, state)
 }
@@ -241,24 +158,14 @@ impl SimulationEventHandler for ActionLog {
         if actor == HUMAN && playable_actions.len() > 1 {
             self.owner_plies += 1;
         }
-        emit(&json!({
-            "type": "action",
-            "ply": self.owner_plies,
-            "turn": state_before_action.turn_count,
-            "actor": actor,
-            "forced": playable_actions.len() == 1,
-            "text": action.action.to_string(),
-            "action": action.action,
-            "ctx": context(state_before_action),
-        }));
+        let mut line = action_line(self.owner_plies, state_before_action, actor, playable_actions, action);
+        line["type"] = json!("action");
+        emit(&line);
     }
 }
 
 fn bot_code(code: &str) -> Result<BotCode, CliError> {
-    match parse_bot_code(code).map_err(CliError::input)? {
-        BotCode::Deckgym(PlayerCode::H | PlayerCode::X) => Err(CliError::input(format!("«{code}» no sirve como rival"))),
-        other => Ok(other),
-    }
+    crate::live::bot_code(code).map_err(CliError::input)
 }
 
 pub fn play(job: PlayJob) -> Result<(), CliError> {
@@ -306,11 +213,7 @@ pub fn play(job: PlayJob) -> Result<(), CliError> {
         CliError::engine(format!("la partida falló: {message}"))
     })?;
     let (result, turns, view) = outcome;
-    let winner = match result {
-        Some(GameOutcome::Win(p)) if p == HUMAN => "you",
-        Some(GameOutcome::Win(_)) => "bot",
-        Some(GameOutcome::Tie) | None => "tie",
-    };
+    let winner = winner_of(result);
     emit(&json!({
         "type": "end",
         "winner": winner,

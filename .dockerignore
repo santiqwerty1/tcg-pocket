@@ -19,4 +19,6 @@ Dockerfile
 fly.toml
 engine/target
 apps/web/public/viewer
+apps/web/public/engine
+engine/wasm/target
 engine/target-*
