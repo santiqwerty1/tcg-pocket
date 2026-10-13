@@ -532,7 +532,7 @@ T-015: con `runner: 'browser'` la juega la página abierta de la partida con el 
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
 | `GET /api/play` | `{ items: [{ id, status, runner, coach, botEs, human, rival, winner, turns, createdAt, finishedAt }] }` (30 más recientes; las que llevan una semana sin movimiento pasan a `abandoned`) |
-| `POST /api/play` | `{ human: Source, rival: Source, bot? (e2), seed?, coach? (false), runner? ('worker'), engineRev? }` → `201 LiveGame`; `400 not_simulable` si un mazo no se puede jugar. `coach`: modo entrenador (Fase 20). `runner: 'browser'` (T-015) pide `engineRev` = el motor del servidor (`409 engine_mismatch`) |
+| `POST /api/play` | `{ human: Source, rival: Source, bot? (e2), seed?, coach? (false), runner? ('worker'), engineRev?, gamesRev? }` → `201 LiveGame`; `400 not_simulable` si un mazo no se puede jugar. `coach`: modo entrenador (Fase 20). `runner: 'browser'` (T-015) pide `engineRev` = el motor del servidor y `gamesRev` = cómo juega el motor de la página, que la partida guarda (`409 engine_mismatch`) |
 | `GET /api/play/:id` | `LiveGame` |
 | `POST /api/play/:id/choice` | `{ ply, i }` → `LiveGame`; `409 not_your_turn` / `stale_decision`, `400` opción inexistente |
 | `GET /api/play/recent-lists?days=7&top=8&era=&format=` | Fase 23: `{ era, format, days, from, to, items: [{ listKey, archetypeId, archetypeName, tournamentId, tournamentName, date, players, playerName, placing, record, pilots, energies, playable, problem }], attribution }` (hasta 80) |
@@ -554,7 +554,7 @@ La página de una partida del navegador (T-015, con sesión; `engine/runner.ts`)
 
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
-| `GET /api/play/:id/browser?engineRev=` | `{ id, deckHuman, deckBot, bot, seed, choices, coach, status, engineRev, replayMissing }`; `409 not_browser` (es de un worker) / `engine_mismatch` (otro motor: recargar la app, o la partida es de un motor que ya no está) |
+| `GET /api/play/:id/browser?engineRev=&gamesRev=` | `{ id, deckHuman, deckBot, bot, seed, choices, coach, status, engineRev, replayMissing }`; `409 not_browser` (es de un worker) / `engine_mismatch` (otro motor: recargar la app, o la partida es de un motor que ya no está). Con otro `gamesRev` que el de la partida (la app se actualizó a mitad de la partida), la partida termina `engine_changed` y vuelve con ese estado y `replayMissing: false` |
 | `PUT /api/play/:id/browser/decision` | `{ choices (ply − 1), ply, turn, state, actions, log, coach?: { scores, best } }` → `{ choice | null, status }` (`waiting`; la elección ya hecha; `restart`; o el estado si terminó) |
 | `POST /api/play/:id/browser/choice` | `{ choices, ply }` → long-poll de hasta 25 s → `{ choice | null, status }` |
 | `PUT /api/play/:id/browser/end` | `{ choices (todas), winner, turns, state, log }` → `{ ok, status }`; `409 stale_decision` si no son las elecciones de la partida |
