@@ -3,9 +3,10 @@
  * `minPlayers`), the era table (`set_releases`, seeded with PLAN A.5 and edited by the owner) and the archetype
  * merges. `TournamentDataVersion` changes whenever any of it (or the data) changes, so cached datasets expire.
  */
-import { Injectable, type OnModuleInit } from '@nestjs/common'
+import { Inject, Injectable, type OnModuleInit } from '@nestjs/common'
 import { DEFAULT_MIN_PLAYERS, DEFAULT_SET_RELEASES, type SetRelease } from '@tcg/domain'
 import { z } from 'zod'
+import { ENV, type Env } from '../config/env.js'
 import { dateOnly } from '../config/time-zone.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 
@@ -29,10 +30,13 @@ export class TournamentSettings implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly version: TournamentDataVersion,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   /** Known releases are inserted once; the owner's edits are never overwritten (as with the pack switches). */
   async onModuleInit(): Promise<void> {
+    // A CLI shares the database with the API that is running: this is the server's start-up work, not its own.
+    if (this.env.cli) return
     await this.seedSets()
   }
 

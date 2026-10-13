@@ -8,6 +8,7 @@
 import { randomInt } from 'node:crypto'
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
   type OnApplicationBootstrap,
@@ -117,6 +118,7 @@ import {
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
+import { ENV, type Env } from '../config/env.js'
 import { parseDeckText } from '../decks/deck-formats.js'
 import type { Prisma } from '../generated/prisma/client.js'
 import { parseNumericId } from '../http/ids.js'
@@ -371,6 +373,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     private readonly queue: WorkerQueueService,
     private readonly matches: MatchesService,
     private readonly logger: PinoLogger,
+    @Inject(ENV) private readonly env: Env,
   ) {
     this.logger.setContext(LabService.name)
     this.queue.onExploreRound((jobId) => this.advance(jobId))
@@ -378,6 +381,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
 
   /** A search whose round ended while the app was restarting is picked up again. */
   async onApplicationBootstrap(): Promise<void> {
+    // A CLI shares the database with the API that is running: this is the server's start-up work, not its own.
+    if (this.env.cli) return
     const jobs = await this.prisma.simulationJob.findMany({
       where: { kind: 'explore', status: { in: ['queued', 'running'] } },
       select: { id: true },

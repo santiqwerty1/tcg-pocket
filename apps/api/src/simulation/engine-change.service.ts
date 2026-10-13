@@ -15,8 +15,9 @@
  * alert says it waits for the old engine, and the Laboratorio decides (AlertsService). Games against the bot end in
  * LiveGamesService.
  */
-import { Injectable, type OnApplicationBootstrap, type OnModuleDestroy } from '@nestjs/common'
+import { Inject, Injectable, type OnApplicationBootstrap, type OnModuleDestroy } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
+import { ENV, type Env } from '../config/env.js'
 import type { Prisma } from '../generated/prisma/client.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { ChunkCacheService } from './chunk-cache.service.js'
@@ -81,11 +82,14 @@ export class EngineChangeService implements OnApplicationBootstrap, OnModuleDest
     private readonly queue: WorkerQueueService,
     private readonly cache: ChunkCacheService,
     private readonly logger: PinoLogger,
+    @Inject(ENV) private readonly env: Env,
   ) {
     this.logger.setContext(EngineChangeService.name)
   }
 
   async onApplicationBootstrap(): Promise<void> {
+    // A CLI shares the database with the API that is running: this is the server's start-up work, not its own.
+    if (this.env.cli) return
     await this.moveJobs().catch((error: unknown) => {
       this.logger.error({ error: String(error).slice(0, 300) }, 'jobs not moved to the new engine')
     })

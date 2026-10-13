@@ -80,6 +80,8 @@ export class TournamentSyncService implements OnApplicationBootstrap, OnModuleDe
   }
 
   async onApplicationBootstrap(): Promise<void> {
+    // A CLI shares the database with the API that is running: this is the server's start-up work, not its own.
+    if (this.env.cli) return
     // A run cut by a restart stays «running» in the table: mark it, the tournaments keep their own status.
     await this.prisma.limitlessSyncRun.updateMany({
       where: { status: 'running' },

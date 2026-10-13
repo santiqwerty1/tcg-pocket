@@ -50,7 +50,8 @@ export class AppModule implements NestModule {
       imports: [
         configModule(env),
         loggerModule(env),
-        ScheduleModule.forRoot(),
+        // The crons are the server's: a CLI context (`env.cli`) registers none.
+        ...(env.cli ? [] : [ScheduleModule.forRoot()]),
         PrismaModule,
         PresenceModule,
         AuthModule,

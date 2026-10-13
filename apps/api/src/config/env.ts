@@ -83,6 +83,11 @@ export interface Env {
   nodeEnv: 'development' | 'test' | 'production'
   isProduction: boolean
   isTest: boolean
+  /**
+   * A command line run (`createCliContext`), next to the API that may be running: no crons, watchers nor start-up work
+   * that changes state (closing «running» syncs, moving jobs, ending games, the Laboratorio's sweeps).
+   */
+  cli: boolean
   port: number
   databaseUrl: string
   sessionSecret: string
@@ -146,6 +151,7 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
     nodeEnv: raw.NODE_ENV,
     isProduction,
     isTest: raw.NODE_ENV === 'test',
+    cli: false,
     port: raw.PORT,
     databaseUrl: raw.DATABASE_URL,
     sessionSecret: raw.SESSION_SECRET,
