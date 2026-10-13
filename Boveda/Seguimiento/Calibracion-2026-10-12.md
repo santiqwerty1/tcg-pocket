@@ -9,13 +9,13 @@ origen:
   - pedido del Coordinador del 12/10/2026 (P-009 punto 2, R-012)
   - calibraciones de B4a en producción, #21 a #35, leídas con la tool simulations_calibration (#77) el 13/10/2026
   - velocidad leída de los chunks de esas calibraciones, con un SELECT de solo lectura en producción
-revisar: true
+revisar: false
 ---
 
 # Calibración de los bots contra torneos: qué bot conviene por defecto (12/10/2026)
 
-> [!info] Es una propuesta
-> Santiago respondió en [P-009](Preguntas/P-009.md) que el bot corregido pasa a ser el de por defecto (laboratorio, consistencia y entrenador) si la comparación con e2 y con los torneos lo confirma. Este informe es esa comparación, y la condición **no se cumple**. Lo que propone queda `propuesta` hasta que él lo apruebe. Las matrices y búsquedas viejas siguen con su bot.
+> [!info] Decidido por Santiago el 13/10/2026 ([D-029](Decisiones/D-029.md))
+> Santiago respondió en [P-009](Preguntas/P-009.md) que el bot corregido pasa a ser el de por defecto (laboratorio, consistencia y entrenador) si la comparación con e2 y con los torneos lo confirma. Este informe es esa comparación, y la condición **no se cumple**. Santiago decidió el 13/10 que e2 sigue por defecto, por ahora, y que se repita la comparación con un banco más grande cuando terminen e4 y MCTS. Las matrices y búsquedas viejas siguen con su bot.
 
 ## Resumen
 
@@ -29,7 +29,7 @@ revisar: true
   - La diferencia media baja 2,4 puntos (IC −6,8 a 1,4).
   - e3 cuesta 4,6 veces lo de e2. f3 y f4 quedan parecidos a e3 (ρ = 0,42 y 0,45).
 - **Todos los bots exageran las diferencias** ([R-012](Riesgos/R-012.md)). Lo que se mueve el torneo es más o menos un cuarto de lo que dice e2. Por eso «50 % en todos los pares» queda a 10,4 puntos del torneo en promedio, más cerca que cualquier bot. En los 44 pares que el torneo inclina con claridad (su IC no contiene el 50 %), e2 acierta el lado en 30 y e3 en 35. Pero ninguno acierta por cuánto.
-- **Propuesta:** e2 sigue de bot por defecto; f2 y e3, como opciones y como confirmación. Repetir la calibración con la era siguiente y cuando terminen e4 y MCTS (ver [Decisión propuesta](#Decisión%20propuesta)).
+- **Decisión de Santiago (13/10, [D-029](Decisiones/D-029.md)):** e2 sigue de bot por defecto; f2 y e3, como opciones y como confirmación. Se repite la comparación con un banco más grande cuando terminen e4 y MCTS (ver [Decisión](#Decisión)).
 
 ## Qué se comparó
 
@@ -44,10 +44,10 @@ El mismo banco del meta de B4a (18 listas de 15 arquetipos, 153 cruces, 2.000 pa
 | 21 | r (al azar) | terminada |
 | 22 | w (al azar ponderado) | terminada |
 | 23 | aa (adjunta y ataca) | terminada |
-| 24 | et (termina el turno) | falló entera: el motor de entonces no conocía el bot (H-051) |
+| 24 | et (termina el turno) | falló entera: el motor de entonces no conocía el bot ([H-051](Hallazgos/H-051.md)) |
 | 25 | v (función de valor) | terminada |
 | 26 | er (evoluciona primero) | terminada |
-| 27 | m (MCTS) | corriendo |
+| 27 | m (MCTS) | corriendo; un cruce falla siempre por un pánico de deckgym ([H-052](Hallazgos/H-052.md)) |
 | 28 | e1 | terminada |
 | 29 | e2 (el de por defecto) | terminada |
 | 30 | e3 | terminada |
@@ -55,7 +55,7 @@ El mismo banco del meta de B4a (18 listas de 15 arquetipos, 153 cruces, 2.000 pa
 | 32 | f1 | terminada |
 | 33 | f2 | terminada |
 | 34 | f3 | terminada |
-| 35 | f4 | falló un cruce: 104 pares; se completa con «Reintentar lo que falló» |
+| 35 | f4 | falló un cruce ([H-054](Hallazgos/H-054.md)): 104 pares; se completa con «Reintentar lo que falló» |
 
 Simulación y torneos son fuentes separadas: cada número va con su n y su intervalo, y nunca se combinan en uno. Los números de bots son pistas, no lo que pasa en el juego.
 
@@ -169,9 +169,9 @@ Si se ajusta (torneo − 50) contra (simulado − 50), la pendiente k dice cuán
 - **El orden de los arquetipos contra el banco no lo reproduce ningún bot:** ρ = −0,17 con e2 (IC −0,69 a 0,73) y −0,06 con e3 (IC −0,64 a 0,79). Con 15 arquetipos y los de torneo entre 46 % y 52 %, ese orden está dominado por el azar: este dato no sirve para elegir bot.
 - **Por qué pueden diferir, además del bot:** el banco juega 1 o 2 listas por arquetipo y el torneo, todas las del arquetipo. También pesan la gente y cómo se adapta el meta. Las partidas de torneo se toman como independientes, así que su IC puede ser un poco angosto.
 
-## Decisión propuesta
+## Decisión
 
-Para Santiago, sobre el punto 2 de [P-009](Preguntas/P-009.md). Es una propuesta: no está aplicada.
+Lo que el informe proponía sobre el punto 2 de [P-009](Preguntas/P-009.md). Santiago lo decidió el 13/10/2026 ([D-029](Decisiones/D-029.md)). En el punto 3 pidió un banco más grande: de 25 a 30 listas, e2 y e3, y 1.000 partidas por cruce.
 
 1. **e2 sigue de bot por defecto** del laboratorio, la consistencia y el entrenador. f2 no pasa a ser el de por defecto. En el banco de B4a no se acerca más a los torneos (Δρ −0,02, IC −0,07 a 0,05; diferencia media +0,7 puntos, IC −0,7 a 1,8) y cuesta entre 1,3 y 2 veces el tiempo de e2. f2 sigue disponible para mazos con el punto ciego de [H-018](Hallazgos/H-018.md).
 2. **La profundidad por defecto no sube.** e3 apunta a mejor (Δρ +0,11, IC −0,07 a 0,37; −2,4 puntos, IC −6,8 a 1,4), pero no alcanza para afirmarlo y cuesta 4,6 veces lo de e2. Sigue como la confirmación del laboratorio («robusto / sensible al bot», #49).
