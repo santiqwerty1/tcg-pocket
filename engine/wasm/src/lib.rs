@@ -2,9 +2,10 @@
 //! against a bot in the browser, in a Web Worker, while the game's screen is open. It never plays simulation chunks:
 //! the same seed does not give the same game as engine-cli on a PC (R-003), so the queue's results would not repeat.
 //!
-//! The bots (`f<N>`, H-018), the coach (Fase 20) and the seeds are engine-cli's own files, compiled here unchanged;
-//! deckgym-core is not modified. `stepper` is plain Rust (tested natively in tests/); this file only exposes it to
-//! JavaScript through wasm-bindgen, with JSON in and out.
+//! The game (`live`: the seat, the numbering, the coach and the messages of `engine-cli play`), the bots (`f<N>`,
+//! H-018), the coach (Fase 20) and the seeds are engine-cli's own files, compiled here unchanged; deckgym-core is not
+//! modified. `stepper` is plain Rust (tested natively in tests/, against engine-cli's golden games too); this file
+//! only exposes it to JavaScript through wasm-bindgen, with JSON in and out.
 
 #[allow(dead_code)]
 #[path = "../../src/coach.rs"]
@@ -12,6 +13,9 @@ mod coach;
 #[allow(dead_code)]
 #[path = "../../src/fair_bot.rs"]
 mod fair_bot;
+#[allow(dead_code)]
+#[path = "../../src/live.rs"]
+mod live;
 #[allow(dead_code)]
 #[path = "../../src/seeds.rs"]
 mod seeds;
@@ -29,10 +33,14 @@ pub const WASM_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// coach.rs asks for it at the crate root, as in engine-cli.
 use seeds::game_seed;
 
-/// `{"engineRev","version"}`: what the page checks before taking a game.
+/// How its games play: engine-cli's `GAMES_REV` (the same bots, coach and rules; not a PC's games, R-003). A game
+/// started with one revision ends as `engine_changed` on a page with another.
+pub const GAMES_REV: u32 = seeds::GAMES_REV;
+
+/// `{"engineRev","gamesRev","version"}`: what the page checks before taking a game.
 #[wasm_bindgen(js_name = engineInfo)]
 pub fn engine_info() -> String {
-    serde_json::json!({ "engineRev": ENGINE_REV, "version": WASM_VERSION }).to_string()
+    serde_json::json!({ "engineRev": ENGINE_REV, "gamesRev": GAMES_REV, "version": WASM_VERSION }).to_string()
 }
 
 #[cfg(target_arch = "wasm32")]

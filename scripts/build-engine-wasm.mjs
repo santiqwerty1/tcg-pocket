@@ -35,6 +35,10 @@ const manifestText = readFileSync(join(CRATE, 'Cargo.toml'), 'utf8')
 const engineRev = /deckgym\s*=\s*\{[^}]*rev\s*=\s*"([0-9a-f]{40})"/.exec(manifestText)?.[1]
 const version = /^version\s*=\s*"([^"]+)"/m.exec(manifestText)?.[1]
 if (!engineRev || !version) throw new Error('No encontré el rev de deckgym o la versión en engine/wasm/Cargo.toml')
+// How its games play: engine-cli's GAMES_REV, which the browser's engine compiles too (engine/src/seeds.rs).
+const gamesRevText = /pub const GAMES_REV: u32 = (\d+);/.exec(readFileSync(join(ROOT, 'engine', 'src', 'seeds.rs'), 'utf8'))
+if (!gamesRevText) throw new Error('No encontré GAMES_REV en engine/src/seeds.rs')
+const gamesRev = Number(gamesRevText[1])
 const lock = readFileSync(join(CRATE, 'Cargo.lock'), 'utf8')
 const bindgenVersion = /name = "wasm-bindgen"\nversion = "([^"]+)"/.exec(lock)?.[1]
 if (!bindgenVersion) throw new Error('engine/wasm/Cargo.lock no tiene wasm-bindgen')
@@ -123,7 +127,7 @@ try {
   sources(join(out, names.sources))
   writeFileSync(
     join(out, 'manifest.json'),
-    `${JSON.stringify({ engineRev, version, ...names, wasmBytes: wasm.length }, null, 2)}\n`,
+    `${JSON.stringify({ engineRev, gamesRev, version, ...names, wasmBytes: wasm.length }, null, 2)}\n`,
   )
   console.log(`Motor del navegador: ${out} (${names.wasm}, ${(wasm.length / 1024 / 1024).toFixed(1)} MB)`)
 } finally {

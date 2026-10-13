@@ -292,7 +292,7 @@ fn regenerate_games_rev() {
                 if let Some(expected) = before.get(&key(case)) {
                     if !expected_matches(&case["expected"], expected) {
                         panic!(
-                            "{} plays otherwise with the same GAMES_REV: raise GAMES_REV in main.rs first",
+                            "{} plays otherwise with the same GAMES_REV: raise GAMES_REV in seeds.rs first",
                             label(case),
                         );
                     }
