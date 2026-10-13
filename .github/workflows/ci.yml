@@ -91,26 +91,40 @@ jobs:
       # docs/REVISION.md: a broken pending decision fails in its own PR, not when the Coordinador integrates it.
       - run: node scripts/decisiones.mjs --check
 
-  # D-022 (public repository): nothing personal in a PR. Its commits with noreply authors and committers, and its diff
-  # and commit messages without mails, Windows users in paths, the app's tokens, Supabase refs, Postgres passwords,
-  # other services' tokens, JWT or private keys (scripts/ci/privacy-check.mjs; exceptions name their rule and say why:
-  # `privacy-allow(<regla>): <motivo>` on the line, or scripts/ci/privacy-allow.json).
+  # D-022 (public repository): nothing personal in a PR or in a push to main. Its commits with noreply authors and
+  # committers, and what each commit adds, the names of the files it adds, its messages and the PR's title and body
+  # without mails, Windows users in paths, the app's tokens, Supabase refs, Postgres passwords, other services' tokens,
+  # secrets with their values, JWT or private keys (scripts/ci/privacy-check.mjs; exceptions name their rule and say
+  # why: `privacy-allow(<regla>): <motivo>` on the line, or scripts/ci/privacy-allow.json).
   privacy:
-    if: ${{ github.event_name == 'pull_request' && !(vars.CI_RUNNER && github.actor == 'dependabot[bot]') }}
+    if: ${{ (github.event_name == 'pull_request' || github.ref == 'refs/heads/main') && !(vars.CI_RUNNER && github.actor == 'dependabot[bot]') }}
     runs-on: ${{ vars.CI_RUNNER_LIGHT || vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
         with:
-          # The PR's commits and the base they start from.
+          # The commits to check and the base they start from.
           fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 24
       - run: node --test scripts/ci/privacy-check.test.mjs
-      # The merge commit GitHub checks out: its first parent is the base as it is now (not the one of the event, which
-      # may be older), its second the PR's head.
-      - name: Privacy of the PR
-        run: node scripts/ci/privacy-check.mjs --base HEAD^1 --head HEAD^2
+      # A PR: the merge commit GitHub checks out, whose first parent is the base as it is now (not the one of the event,
+      # which may be older) and whose second is the PR's head; its title and body go through the env, never through the
+      # script's text. A push to main: what it added since the previous main (nothing to compare on a new branch).
+      - name: Privacy of the PR or of the push
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            printf '%s\n%s\n' "$TITLE" "$BODY" > "$RUNNER_TEMP/pr-text.txt"
+            node scripts/ci/privacy-check.mjs --base HEAD^1 --head HEAD^2 --texto "$RUNNER_TEMP/pr-text.txt"
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ]; then
+            node scripts/ci/privacy-check.mjs --base "$BEFORE" --head "$SHA"
+          fi
 
   # Supertest suite against a real Postgres 17 (migrations applied by test/global-setup.ts), on a database of its own
   # per runner (two runners on the PC never share one, and the sessions' tcg_test stays theirs).

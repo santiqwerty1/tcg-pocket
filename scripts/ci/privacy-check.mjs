@@ -1,22 +1,26 @@
 #!/usr/bin/env node
-// El repo es público (D-022). En cada PR, la CI (job `privacy`) falla si:
+// El repo es público (D-022). En cada PR y en cada push a main, la CI (job `privacy`) falla si:
 // - algún commit del PR tiene autor o committer con un mail que no es noreply (`*@users.noreply.github.com`,
 //   `noreply@github.com`, o `noreply@anthropic.com` de las sesiones en la nube);
-// - el diff o los mensajes de los commits agregan mails que no son noreply ni de dominios reservados para ejemplos
-//   (example.com, .test, .invalid, .internal…), rutas `C:/Users/<…>` (o con `\`, `/c/Users/<…>`, `/mnt/c/…`) con un
-//   nombre que no es un marcador, tokens de la app (`tcg_mcp_`, `tcg_wk_`, `tcg_rl_` con su parte secreta), refs de
-//   Supabase (`<ref>.supabase.co`, el usuario `postgres.<ref>` del pooler, el panel del proyecto), una URL de Postgres
-//   con contraseña a un host que no es local, tokens de GitHub, Fly o Tigris, JWT o claves privadas (PEM, PGP, PuTTY).
+// - lo que agrega cualquiera de sus commits (uno por uno: lo que un commit agrega y otro borra queda igual en la
+//   historia), los nombres de los archivos que agrega, los mensajes de los commits o el título y el cuerpo del PR traen
+//   mails que no son noreply ni de dominios reservados para ejemplos (example.com, .test, .invalid, .internal…), rutas
+//   `C:/Users/<usuario>` (o con `\`, `/c/Users/<usuario>`, `/mnt/c/…`, `\Users\<usuario>`) con un nombre que no es un
+//   marcador, tokens de la app (`tcg_mcp_`, `tcg_wk_`, `tcg_rl_` con su parte secreta), refs de Supabase
+//   (`<ref>.supabase.co`, el usuario `postgres.<ref>` del pooler, `--project-ref`, el panel del proyecto), una URL de
+//   Postgres con contraseña a un host que no es local, tokens de GitHub, Fly, Tigris, AWS o Anthropic, la cookie de
+//   sesión, un secreto del entorno con su valor, JWT o claves privadas (PEM, PGP, PuTTY).
 // No guarda ningún dato real para buscarlo: son formas, no valores. Nunca imprime lo que encontró: el archivo o el
 // commit, la línea, la regla y un prefijo del sha256.
 //
 // Excepciones para falsos positivos, siempre con la regla y un motivo:
 // - en la misma línea, `privacy-allow(<regla>): <motivo>` (solo esa regla, en esa línea);
 // - en scripts/ci/privacy-allow.json, `{ "sha256": "<sha256 del texto encontrado>", "motivo": "…" }` (el texto mismo no
-//   va: si fuera un dato real, quedaría publicado) o `{ "archivo": "<ruta>", "regla": "<regla>", "motivo": "…" }`.
+//   va: si fuera un dato real, quedaría publicado) o `{ "archivo": "<ruta>", "regla": "<regla>", "motivo": "…" }`. Por
+//   sha256, solo para valores que ya son públicos: el hash de un mail o de un valor corto se adivina probando.
 // Cada excepción usada queda en el log de la CI (`::notice`), y un PR que toca este control lo avisa (`::warning`).
 //
-//   node scripts/ci/privacy-check.mjs --base <sha> [--head <sha>]   (por defecto head = HEAD)
+//   node scripts/ci/privacy-check.mjs --base <sha> [--head <sha>] [--texto <archivo con el título y el cuerpo del PR>]
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
@@ -50,14 +54,30 @@ const PATH_PLACEHOLDER = new RegExp(
 /** A password that is not one: `<clave>`, `${PGPASSWORD}`, `$PGPASSWORD`, `%PGPASSWORD%`, `{clave}`, `…`, `***`. */
 const PASSWORD_PLACEHOLDER =
   /^(?:<[^>]+>|\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*|%[A-Za-z_]+%|\{[^}]+\}|…+|\.\.\.|\*+)$/
+/** Words of a value written for tests or examples («ci-session-secret-…», «replace-with-…»). */
+const PLACEHOLDER_WORDS =
+  /replace|change|example|ejemplo|test|e2e|\bci\b|ci-|dev|local|secret|pantallas|dummy|fake|placeholder|xxxx|0123456789/i
+
+/** The user name of a `…Users…<nombre>` path. */
+const userOf = (text) => /Users(?:\\{1,4}|\/{1,2})(.+)$/i.exec(text)?.[1] ?? ''
+
+/** Shannon entropy in bits per character: random keys are near 5–6, words and repeated text well under 3,5. */
+function entropy(text) {
+  const counts = new Map()
+  for (const char of text) counts.set(char, (counts.get(char) ?? 0) + 1)
+  let bits = 0
+  for (const count of counts.values()) bits -= (count / text.length) * Math.log2(count / text.length)
+  return bits
+}
 
 /** What the diff and the commit messages may not add. Each finding names its rule, so an exception can name it too. */
 export const RULES = [
   {
     regla: 'mail',
-    pattern: /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g,
+    // Also URL-encoded («nombre%40example.com»).
+    pattern: /[A-Za-z0-9._%+-]+?(?:@|%40)[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g,
     allowed: (text) => {
-      const [local = '', domain = ''] = text.toLowerCase().split('@')
+      const [local = '', domain = ''] = text.toLowerCase().replace('%40', '@').split('@')
       return (
         domain === 'users.noreply.github.com' ||
         local === 'noreply' ||
@@ -68,13 +88,18 @@ export const RULES = [
       )
     },
   },
+  // With a drive (or Git Bash's `/c/`, WSL's `/mnt/c/`), in any case; from one to four backslashes (JSON escaped twice).
   {
     regla: 'ruta',
-    pattern: /(?:[A-Za-z]:(?:\\\\|\\|\/\/|\/)|\/(?:mnt\/)?[a-z]\/)Users(?:\\\\|\\|\/\/|\/)([^\\/\s'"`|]+)/gi,
-    allowed: (text) => {
-      const name = /Users(?:\\\\|\\|\/\/|\/)(.+)$/i.exec(text)?.[1] ?? ''
-      return PATH_PLACEHOLDER.test(name)
-    },
+    pattern: /(?:[A-Za-z]:|\/(?:mnt\/)?[a-z])(?:\\{1,4}|\/{1,2})Users(?:\\{1,4}|\/{1,2})([^\\/\s'"`|«»,;]+)/gi,
+    allowed: (text) => PATH_PLACEHOLDER.test(userOf(text)),
+  },
+  // Without a drive («\Users\<nombre>», macOS's «/Users/<nombre>»): only «Users» as Windows and macOS write it, so a
+  // route like «'/users/' + id» is not one.
+  {
+    regla: 'ruta',
+    pattern: /(?<![\w.$%~:/\\-])(?:\\{1,4}|\/{1,2})Users(?:\\{1,4}|\/{1,2})([^\\/\s'"`|«»,;]+)/g,
+    allowed: (text) => PATH_PLACEHOLDER.test(userOf(text)),
   },
   // Without a leading \b: «Bearer%20tcg_mcp_…» and «\ntcg_mcp_…» count too; the prefix is specific enough.
   { regla: 'token', pattern: /tcg_(?:mcp|wk|rl)_[A-Za-z0-9_-]{20,}/g },
@@ -82,8 +107,12 @@ export const RULES = [
     regla: 'supabase',
     pattern: /\b[a-z0-9-]+\.supabase\.(?:co|in)\b|(?:app\.)?supabase\.com\/(?:dashboard\/)?project\/[a-z0-9]+/gi,
   },
-  // The pooler's user, `postgres.<ref>`: the ref is lowercase, so «postgres.transactionIsolation» is not one.
-  { regla: 'supabase', pattern: /\bpostgres\.[a-z0-9]{20}\b/g },
+  // The pooler's user, `postgres.<ref>`, and a ref given alone (`--project-ref <ref>`): the ref is 20 lowercase
+  // characters, so «postgres.transactionIsolation» is not one.
+  {
+    regla: 'supabase',
+    pattern: /\bpostgres\.[a-z0-9]{20}\b|(?:--project-ref|project[_-]?[Rr]ef)["'\s=:]+[a-z0-9]{20}\b/g,
+  },
   {
     regla: 'postgres',
     pattern: /postgres(?:ql)?:\/\/[^\s:@/'"`]+:[^\s@/'"`]+@([^\s:/'"`?]+)/gi,
@@ -95,8 +124,19 @@ export const RULES = [
   {
     regla: 'secreto',
     pattern:
-      // No leading \b either («xghp_…»): the prefixes and their lengths are specific enough. AKIA: an AWS-style key id.
-      /(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|FlyV1 [A-Za-z0-9_+/=,-]{20,}|fm[12]_[A-Za-z0-9_+/=-]{20,}|tsec_[A-Za-z0-9_+/=-]{20,}|sb_secret_[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16})/g,
+      // No leading \b either («xghp_…»): the prefixes and their lengths are specific enough. AKIA/ASIA: AWS-style key
+      // ids; sk-ant-: an Anthropic key; __Host-session: the app's session cookie with its value.
+      /(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|FlyV1 [A-Za-z0-9_+/=,-]{20,}|fm[12]_[A-Za-z0-9_+/=-]{20,}|tsec_[A-Za-z0-9_+/=-]{20,}|sb_secret_[A-Za-z0-9_-]{20,}|A[KS]IA[0-9A-Z]{16}|sk-ant-[A-Za-z0-9_-]{20,}|__Host-session=[A-Za-z0-9%._~+/=-]{20,})/g,
+  },
+  // A secret of the app's environment written with its value; test and example values say so, or are not random.
+  {
+    regla: 'secreto',
+    pattern:
+      /\b(?:SESSION_SECRET|VAPID_PRIVATE_KEY|AWS_SECRET_ACCESS_KEY|GITHUB_TOKEN|TCG_WORKER_TOKEN)["']?\s*[=:]\s*["']?[A-Za-z0-9+/_=.-]{20,}/g,
+    allowed: (text) => {
+      const value = /[=:]\s*["']?([A-Za-z0-9+/_=.-]+)$/.exec(text)?.[1] ?? ''
+      return PLACEHOLDER_WORDS.test(value) || entropy(value) < 3.5
+    },
   },
   { regla: 'jwt', pattern: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g },
   {
@@ -176,7 +216,7 @@ export function check(lines, allow = []) {
     }
   }
   const valid = allow.filter(hasMotive)
-  for (const { file, line, text } of lines) {
+  for (const { file, line, text, commit } of lines) {
     // Each marker's motive ends where the next marker starts: two on one line except two rules.
     const inline = new Map(
       [...text.matchAll(/privacy-allow\(([a-záéíóúñ]+)\):\s*(\S.*?)(?=\s*privacy-allow\(|\s*$)/gi)].map((match) => [
@@ -194,10 +234,16 @@ export function check(lines, allow = []) {
           valid.find((entry) => entry.sha256 === hash)?.motivo ??
           valid.find((entry) => entry.archivo === file && entry.regla === rule.regla)?.motivo
         if (motive) {
-          excepted.push({ regla: rule.regla, file, line, motivo: motive })
+          excepted.push({ regla: rule.regla, file, line, ...(commit ? { commit } : {}), motivo: motive })
           continue
         }
-        findings.push({ regla: rule.regla, file, line, why: `${rule.regla} (sha256 ${hash.slice(0, 16)}…)` })
+        findings.push({
+          regla: rule.regla,
+          file,
+          line,
+          ...(commit ? { commit } : {}),
+          why: `${rule.regla} (sha256 ${hash.slice(0, 16)}…)`,
+        })
       }
     }
   }
@@ -227,12 +273,13 @@ function main() {
     options: {
       base: { type: 'string' },
       head: { type: 'string', default: 'HEAD' },
+      texto: { type: 'string' },
       help: { type: 'boolean', default: false },
     },
     strict: true,
   })
   if (values.help || !values.base) {
-    console.log('node scripts/ci/privacy-check.mjs --base <sha> [--head <sha>]')
+    console.log('node scripts/ci/privacy-check.mjs --base <sha> [--head <sha>] [--texto <título y cuerpo del PR>]')
     return values.help ? 0 : 2
   }
   // A failed git never prints its output (it could hold the very data this protects): only what failed.
@@ -268,29 +315,55 @@ function main() {
     const [sha = '', ...body] = block.split('\n')
     for (const [at, text] of body.entries()) messages.push({ file: `commit ${sha.slice(0, 7)}`, line: at + 1, text })
   }
-  // `--text`: what git takes for binary (a NUL, `-diff` in .gitattributes) is checked too.
-  const diff = git(
-    'diff',
+  // Commit by commit, not the net diff: a secret one commit adds and the next removes stays in the history the merge
+  // publishes. Merges inside the PR, by what their resolution adds (`--remerge-diff`). `--text`: what git takes for
+  // binary (a NUL, `-diff` in .gitattributes) is checked too; a textconv set up on a PC would show its conversion.
+  const patchOptions = [
+    '--patch',
     '--text',
     '--unified=0',
     '--no-color',
     '--no-ext-diff',
-    // A textconv set up on a PC would show its conversion instead of the content.
     '--no-textconv',
     '--no-relative',
     '--src-prefix=a/',
     '--dst-prefix=b/',
-    `${values.base}...${values.head}`,
-  )
-  const { findings, excepted } = check([...addedLines(diff), ...messages], allow)
+    '--format=%x00%H',
+  ]
+  const added = []
+  for (const patch of [
+    git('log', '--no-merges', ...patchOptions, range),
+    git('log', '--merges', '--remerge-diff', ...patchOptions, range),
+  ]) {
+    for (const block of patch.split('\0').filter(Boolean)) {
+      const [sha = '', ...diff] = block.split('\n')
+      for (const item of addedLines(diff.join('\n'))) added.push({ ...item, commit: sha.slice(0, 7) })
+    }
+  }
+  // The names of the files the PR adds or renames (a file named after a mail), never printed.
+  const names = []
+  for (const block of git('log', '--name-only', '--diff-filter=AR', '--format=%x00%H', range)
+    .split('\0')
+    .filter(Boolean)) {
+    const [sha = '', ...files] = block.split('\n')
+    for (const name of files.filter(Boolean)) {
+      names.push({ file: 'el nombre de un archivo', line: 0, text: name, commit: sha.slice(0, 7) })
+    }
+  }
+  // The PR's title and body, when the CI passes them.
+  const texts = values.texto
+    ? readFileSync(values.texto, 'utf8')
+        .split('\n')
+        .map((text, at) => ({ file: 'la descripción del PR', line: at + 1, text }))
+    : []
+  const { findings, excepted } = check([...added, ...names, ...messages, ...texts], allow)
+  const where = (item) => `${masked(item.file)}:${item.line}${item.commit ? ` (commit ${item.commit})` : ''}`
   for (const finding of findings) {
-    console.error(`✗ ${finding.file}:${finding.line}: ${finding.why}`)
+    console.error(`✗ ${where(finding)}: ${finding.why}`)
     failed = true
   }
   for (const item of excepted) {
-    console.log(
-      `::notice title=privacidad::${item.file}:${item.line}: ${item.regla} exceptuado, «${masked(item.motivo)}»`,
-    )
+    console.log(`::notice title=privacidad::${where(item)}: ${item.regla} exceptuado, «${masked(item.motivo)}»`)
   }
   const changed = git('diff', '--name-only', '--no-relative', `${values.base}...${values.head}`).split('\n')
   for (const file of GUARD_FILES.filter((guard) => changed.includes(guard))) {

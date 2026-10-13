@@ -26,6 +26,8 @@ const rules = (text, allow) => findInLines([line(text)], allow).map((finding) =>
 describe('what the diff and the messages may not add', () => {
   it('mails, but not noreply, the example, test and local domains, file names or service addresses', () => {
     assert.deepEqual(rules(`contact ${mail('alguien', 'gmail.com')}`), ['mail'])
+    assert.deepEqual(rules(`mailto:alguien${'%40'}gmail.com`), ['mail'])
+    assert.deepEqual(rules(`?to=7223+someone%40users.noreply.github.com`), [])
     assert.deepEqual(rules(`by ${mail('7223+someone', 'users.noreply.github.com')}`), [])
     assert.deepEqual(rules(`Co-Authored-By: Claude <${mail('noreply', 'anthropic.com')}>`), [])
     assert.deepEqual(rules(mail('no-reply', 'accounts.google.com')), [])
@@ -69,10 +71,23 @@ describe('what the diff and the messages may not add', () => {
     ]) {
       assert.deepEqual(rules(`cd ${users('C:/', '/', name)}/Personal`), [], name)
     }
-    // A real name between the signs of a placeholder is still a real name.
-    for (const name of ['<jperez>', '<ana>', '%jperez%', '{jperez}', '$jperez', '$' + '{jperez}']) {
+    // A real name between the signs of a placeholder is still a real name; a name that starts like one, too.
+    for (const name of ['<jperez>', '<ana>', '%jperez%', '{jperez}', '$jperez', '$' + '{jperez}', 'Allison']) {
       assert.deepEqual(rules(`cd ${users('C:/', '/', name)}/Personal`), ['ruta'], name)
     }
+    // Without a drive, and JSON escaped twice.
+    for (const path of [
+      users('\\', '\\', 'jperez'),
+      `"${users('\\\\', '\\\\', 'jperez')}"`,
+      users('C:\\\\\\\\', '\\\\\\\\', 'jperez'),
+      users('/', '/', 'jperez'),
+    ]) {
+      assert.deepEqual(rules(`en ${path}/x`), ['ruta'], path)
+    }
+    // A placeholder between Spanish quotes or before a comma is still one.
+    assert.deepEqual(rules(`ver «${users('C:/', '/', '<usuario>')}», o «${users('\\', '\\', '<nombre>')}»;`), [])
+    // An app route is not a path.
+    assert.deepEqual(rules("fetch('/users/' + id) y api.github.com/Users/x"), [])
   })
 
   it('the app’s tokens, also glued to other text; the short placeholders of the docs pass', () => {
@@ -90,6 +105,10 @@ describe('what the diff and the messages may not add', () => {
     assert.deepEqual(rules(`la ref de Supabase, <ref>.${supa}.co`), [])
     // The ref is lowercase: a property of the same length is not one.
     assert.deepEqual(rules('postgres.transactionIsolation = 1'), [])
+    // A ref given alone.
+    assert.deepEqual(rules(`${supa} link --project-ref ${ref}`), ['supabase'])
+    assert.deepEqual(rules(`project_ref = "${ref}"`), ['supabase'])
+    assert.deepEqual(rules(`${supa} link --project-ref <ref>`), [])
     assert.deepEqual(rules(`postgresql://app:s3cr3t${AT}10.0.0.7:5432/tcg`), ['postgres'])
     for (const host of ['127.0.0.1', 'localhost', 'host.docker.internal', 'postgres']) {
       assert.deepEqual(rules(`postgresql://tcg:tcg${AT}${host}:5433/tcg`), [], host)
@@ -110,8 +129,24 @@ describe('what the diff and the messages may not add', () => {
       `${'sb_secret'}_${'a'.repeat(30)}`,
       `x${'gh'}p_${'a'.repeat(36)}`,
       `${'AKIA'}${'A1B2'.repeat(4)}`,
+      `${'ASIA'}${'A1B2'.repeat(4)}`,
+      `${'sk-ant'}-api03-${'a'.repeat(40)}`,
+      `cookie: __Host-${'session'}=${'s%3A'}${'aB3'.repeat(10)}`,
     ]) {
       assert.deepEqual(rules(secret), ['secreto'], secret.slice(0, 6))
+    }
+    // A secret of the environment with a random value; the test and example values pass.
+    const random = 'Zq8xV2pL9mK4tR7wN1bY6cH3jF5gD0sAe+/='
+    for (const line of [`SESSION_${'SECRET'}=${random}`, `VAPID_PRIVATE_${'KEY'}: '${random}'`]) {
+      assert.deepEqual(rules(line), ['secreto'], line.slice(0, 12))
+    }
+    for (const line of [
+      `SESSION_${'SECRET'}=replace-with-at-least-32-random-characters-xxxxxxxxxxxx`,
+      `SESSION_${'SECRET'}: ci-session-secret-ci-session-secret-0123456789`,
+      `SESSION_${'SECRET'}=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`,
+      `VAPID_PRIVATE_${'KEY'} = keys.privateKey`,
+    ]) {
+      assert.deepEqual(rules(line), [], line.slice(15, 40))
     }
     assert.deepEqual(rules(`Bearer ${jwt}`), ['jwt'])
     for (const kind of ['', 'RSA ', 'EC ', 'OPENSSH ', 'PGP ']) {
@@ -173,6 +208,9 @@ describe('reading a diff and the commits', () => {
       '-gone',
       '+new one',
       '+++ still content of a.ts',
+      '@@ -40 +50,2 @@',
+      '+second hunk',
+      '+of a.ts',
       'diff --git "a/decisi\\303\\263n.md" "b/decisión.md"',
       '--- /dev/null',
       '+++ "b/decisión.md"',
@@ -192,6 +230,8 @@ describe('reading a diff and the commits', () => {
     assert.deepEqual(addedLines(diff), [
       { file: 'a.ts', line: 11, text: 'new one' },
       { file: 'a.ts', line: 12, text: '++ still content of a.ts' },
+      { file: 'a.ts', line: 50, text: 'second hunk' },
+      { file: 'a.ts', line: 51, text: 'of a.ts' },
       { file: 'decisión.md', line: 1, text: 'acento' },
       { file: 'con espacio.md', line: 1, text: 'espacio' },
     ])
@@ -243,11 +283,65 @@ describe('the command, on a repository of its own', () => {
       commit('b.txt', 'nada raro\n')
       assert.match(run('--base', base), /Privacidad: sin mails/)
       const leak = commit('c.txt', `secret ${token('mcp')}\n`)
-      failsWith(() => run('--base', base, '--head', leak), /c\.txt:1: token/)
+      failsWith(() => run('--base', base, '--head', leak), /c\.txt:1 \(commit [0-9a-f]{7}\): token/)
       const personal = commit('d.txt', 'ok\n', mail('alguien', 'gmail.com'))
       failsWith(() => run('--base', leak, '--head', personal), /autor y committer con un mail que no es noreply/)
       const said = commit('e.txt', 'ok\n', undefined, `log pegado: ${users('C:/', '/', 'jperez')}/x`)
       failsWith(() => run('--base', personal, '--head', said), /commit [0-9a-f]{7}:1: ruta/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('commit by commit: a token one commit adds and the next removes still fails, naming the commit', () => {
+    const { root, run, commit, git } = repo()
+    try {
+      const base = commit('a.txt', 'base\n')
+      const leak = commit('c.txt', `secret ${token('mcp')}\n`)
+      git('rm', '-q', 'c.txt')
+      git('-c', 'user.name=t', '-c', `user.email=${mail('1+t', 'users.noreply.github.com')}`, 'commit', '-q', '-m', 'x')
+      failsWith(() => run('--base', base), new RegExp(`c\\.txt:1 \\(commit ${leak.slice(0, 7)}\\): token`))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('a merge inside the PR: what its resolution adds is checked', () => {
+    const { root, run, commit, git } = repo()
+    try {
+      const base = commit('a.txt', 'base\n')
+      git('checkout', '-q', '-b', 'side')
+      commit('a.txt', 'side\n')
+      git('checkout', '-q', '-')
+      commit('a.txt', 'main\n')
+      try {
+        git('merge', '-q', 'side')
+      } catch {
+        // The conflict, resolved with a token.
+      }
+      writeFileSync(join(root, 'a.txt'), `resuelto ${token('wk')}\n`)
+      git('add', 'a.txt')
+      git('-c', 'user.name=t', '-c', `user.email=${mail('1+t', 'users.noreply.github.com')}`, 'commit', '-q', '-m', 'm')
+      failsWith(() => run('--base', base), /a\.txt:1 \(commit [0-9a-f]{7}\): token/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('the names of the files it adds, and the PR’s title and body, without printing them', () => {
+    const { root, run, commit } = repo()
+    try {
+      const base = commit('a.txt', 'base\n')
+      // With a token inside too: that finding does not print the name either.
+      const named = commit(`${mail('alguien', 'gmail.com')}.txt`, `secret ${token('wk')}\n`)
+      failsWith(() => run('--base', base, '--head', named), /el nombre de un archivo:0 \(commit [0-9a-f]{7}\): mail/)
+      const text = join(root, '..', `pr-${process.pid}.txt`)
+      writeFileSync(text, `Un título\nEl cuerpo, con ${mail('alguien', 'gmail.com')}\n`)
+      try {
+        failsWith(() => run('--base', named, '--texto', text), /la descripción del PR:2: mail/)
+      } finally {
+        rmSync(text, { force: true })
+      }
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -258,7 +352,7 @@ describe('the command, on a repository of its own', () => {
     try {
       const base = commit('.gitattributes', '*.md -diff\n')
       const accent = commit('decisión.md', `secret ${token('wk')}\n`)
-      failsWith(() => run('--base', base, '--head', accent), /decisión\.md:1: token/)
+      failsWith(() => run('--base', base, '--head', accent), /decisión\.md:1 \(commit [0-9a-f]{7}\): token/)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -319,7 +413,10 @@ describe('the command, on a repository of its own', () => {
       // A motive that quotes what it excepts: the log covers it.
       const head = commit('x.txt', `${real} privacy-allow(mail): el ejemplo del README, ${real}\n`)
       const out = run('--base', base, '--head', head)
-      assert.match(out, /::notice title=privacidad::x\.txt:1: mail exceptuado, «el ejemplo del README, \[mail\]»/)
+      assert.match(
+        out,
+        /::notice title=privacidad::x\.txt:1 \(commit [0-9a-f]{7}\): mail exceptuado, «el ejemplo del README, \[mail\]»/,
+      )
       assert.ok(!out.includes('gmail'))
       assert.doesNotMatch(out, /::warning/)
       mkdirSync(join(root, 'scripts', 'ci'), { recursive: true })
