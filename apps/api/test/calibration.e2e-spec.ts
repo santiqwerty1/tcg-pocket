@@ -1,5 +1,7 @@
 import { readFileSync } from 'node:fs'
+import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { matchupPerGame } from '@tcg/domain'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
@@ -307,5 +309,109 @@ describe('calibration (e2e)', () => {
     expect(cancelled).toMatchObject({ pending: 0, failed: 0, cancelled: 3, report: { rows: [] } })
     const list = (await get('/api/calibration')).body as { id: number; cancelled: number; summary: Structured | null }[]
     expect(list.find((item) => item.id === id)).toMatchObject({ cancelled: 3, summary: { compared: 0 } })
+  })
+
+  it('simulations_calibration: the list and each report by MCP, from the same views as the REST endpoints', async () => {
+    const token = (await post('/api/tokens').send({ name: 'claude', kind: 'mcp', scopes: ['mcp:read'] })).body.token
+    await test.app.listen(0, '127.0.0.1')
+    const { port } = test.app.getHttpServer().address() as AddressInfo
+    const client = new Client({ name: 'calibration-test', version: '1.0.0' })
+    try {
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/api/mcp`), {
+          requestInit: { headers: { Authorization: `Bearer ${token}` } },
+        }),
+      )
+      const tool = (await client.listTools()).tools.find((t) => t.name === 'simulations_calibration')
+      expect(tool?.annotations?.readOnlyHint).toBe(true)
+      const call = async (args: Record<string, unknown>) => {
+        const result = await client.callTool({ name: 'simulations_calibration', arguments: args })
+        return result as { structuredContent?: Structured; content: { text?: string }[]; isError?: boolean }
+      }
+
+      // The list: the same calibrations and summaries as the screen.
+      const rest = (await get('/api/calibration')).body as {
+        id: number
+        status: string
+        summary: { compared: number; compatible: number; meanAbsDifference: number | null } | null
+      }[]
+      const listed = (await call({})).structuredContent as {
+        calibrations: { id: number; bot: string; summary: { compared: number; text: string } | null }[]
+        note: string
+      }
+      expect(listed.calibrations.map((item) => item.id)).toEqual(rest.map((item) => item.id))
+      for (const [i, item] of listed.calibrations.entries()) {
+        expect(item.bot).toBe('e2')
+        expect(item.summary?.compared ?? null).toBe(rest[i]?.summary?.compared ?? null)
+      }
+      expect(listed.note).toMatch(/fuentes separadas/)
+
+      // A report with compared pairs: the same numbers, each rate with its text.
+      const done = rest.find((item) => (item.summary?.compared ?? 0) > 0)
+      expect(done).toBeDefined()
+      const id = done?.id as number
+      const view = (await get(`/api/calibration/${id}`)).body as {
+        report: {
+          rows: { labelA: string; labelB: string; difference: number | null; compatible: boolean | null }[]
+          compared: number
+          compatible: number
+          meanAbsDifference: number | null
+          rankCorrelation: { rho: number } | null
+          archetypes: unknown[]
+        }
+        failed: number
+      }
+      const compact = (await call({ id, limit: 2 })).structuredContent as {
+        job: { id: number; botEs: string }
+        coverage: { compared: number; failed: number; text: string }
+        summary: {
+          compared: number
+          compatible: number
+          meanAbsDifference: number | null
+          rankCorrelation: { rho: number; text: string } | null
+          text: string
+        }
+        archetypes: { simulated: { text: string } | null; tournament: { text: string } | null }[]
+        pairs: {
+          pair: string
+          simulated: { text: string }
+          tournament: { text: string }
+          difference: { value: number }
+        }[]
+        pairsShown: string
+      }
+      expect(compact.job).toMatchObject({ id, botEs: 'expectiminimax, profundidad 2' })
+      expect(compact.coverage).toMatchObject({ compared: view.report.compared, failed: view.failed })
+      expect(compact.summary).toMatchObject({ compared: view.report.compared, compatible: view.report.compatible })
+      expect(compact.summary.meanAbsDifference).toBeCloseTo(view.report.meanAbsDifference as number, 2)
+      if (view.report.rankCorrelation) {
+        expect(compact.summary.rankCorrelation?.rho).toBeCloseTo(view.report.rankCorrelation.rho, 2)
+        expect(compact.summary.rankCorrelation?.text).toMatch(/^ρ = /)
+      }
+      expect(compact.summary.text).toMatch(/^Compatibles con el torneo: \d+ de \d+ pares/)
+      expect(compact.archetypes).toHaveLength(view.report.archetypes.length)
+      for (const archetype of compact.archetypes) {
+        for (const side of [archetype.simulated, archetype.tournament]) if (side) expect(side.text).toMatch(/n = .*IC/)
+      }
+      // Compact: the compared pairs that differ most, at most `limit`.
+      const compared = view.report.rows.filter((row) => row.compatible !== null)
+      const largest = [...compared].sort((x, y) => Math.abs(y.difference ?? 0) - Math.abs(x.difference ?? 0))
+      expect(compact.pairs).toHaveLength(Math.min(2, compared.length))
+      expect(compact.pairs[0]?.pair).toBe(`${largest[0]?.labelA} vs ${largest[0]?.labelB}`)
+      for (const pair of compact.pairs) {
+        expect(pair.simulated.text).toMatch(/n = .*IC/)
+        expect(pair.tournament.text).toMatch(/n = .*IC/)
+      }
+      // Full: every pair; the text content carries the same object.
+      const full = await call({ id, detail: 'full' })
+      expect((full.structuredContent as { pairs: unknown[] }).pairs).toHaveLength(view.report.rows.length)
+      expect(JSON.parse(full.content[0]?.text ?? '{}')).toEqual(full.structuredContent)
+      // An unknown calibration says so.
+      const missing = await call({ id: 999_999 })
+      expect(missing.isError).toBe(true)
+      expect(missing.content[0]?.text).toMatch(/calibración 999999/)
+    } finally {
+      await client.close().catch(() => undefined)
+    }
   })
 })

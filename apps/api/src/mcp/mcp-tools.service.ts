@@ -51,6 +51,7 @@ import { PickService } from '../pick/pick.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { RivalNotesService } from '../rivals/rival-notes.service.js'
 import { SimulationAnalysisService } from '../simulation/analysis.service.js'
+import { CalibrationService } from '../simulation/calibration.service.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
 import type {
   ArchetypeRowView,
@@ -65,6 +66,7 @@ import { WeeklyService } from '../weekly/weekly.controller.js'
 import { type DeckRef, DeckRefResolver } from './deck-ref.js'
 import { analysisJson } from './mcp-analysis-json.js'
 import { type AuditNote, McpAuditService } from './mcp-audit.service.js'
+import { calibrationListJson, calibrationReportJson } from './mcp-calibration-json.js'
 import { jobSummaryJson, rateView } from './mcp-json.js'
 import { McpLabToolsService } from './mcp-lab-tools.service.js'
 import { McpPlayToolsService } from './mcp-play-tools.service.js'
@@ -175,6 +177,7 @@ export class McpToolsService {
     private readonly tournaments: TournamentsService,
     private readonly simulations: SimulationsService,
     private readonly analysis: SimulationAnalysisService,
+    private readonly calibration: CalibrationService,
     private readonly prisma: PrismaService,
     private readonly deckRefs: DeckRefResolver,
     private readonly rivalNotes: RivalNotesService,
@@ -319,6 +322,16 @@ ${MCP_CHAT_INSTRUCTIONS}`
     )
     server.registerTool(t.simulationsAnalysis.name, config(t.simulationsAnalysis), (args) =>
       this.simulationsAnalysis(args, caller),
+    )
+    server.registerTool(t.simulationsCalibration.name, config(t.simulationsCalibration), (args) =>
+      run(t.simulationsCalibration.name, async () =>
+        args.id === undefined
+          ? calibrationListJson(await this.calibration.list())
+          : calibrationReportJson(await this.calibration.report(args.id), {
+              limit: args.limit ?? 10,
+              full: args.detail === 'full',
+            }),
+      ),
     )
     server.registerTool(t.workersStatus.name, config(t.workersStatus), () =>
       run(t.workersStatus.name, () => this.workersStatus()),
