@@ -48,7 +48,10 @@ export function formatDuration(seconds: number): string {
   return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`
 }
 
-/** Ways to fill `slots` places with `kinds` candidates, repetition allowed (what engine-cli `optimize` plays). */
+/**
+ * Ways to fill `slots` places with `kinds` candidates, repetition allowed: what the screen shows until the server
+ * answers with the exact count (H-050, never past 2 copies of a name).
+ */
 export function multisetCount(kinds: number, slots: number): number {
   if (kinds <= 0 || slots <= 0) return 0
   let result = 1

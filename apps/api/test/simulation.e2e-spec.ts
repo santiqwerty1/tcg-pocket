@@ -662,7 +662,8 @@ describe('simulation (e2e)', () => {
     expect(created.status).toBe(201)
     const chunk = (await claim()).body.chunk as { optimize: Structured; deckA: string; kind: string }
     expect(chunk.kind).toBe('optimize')
-    expect(chunk.optimize).toMatchObject({ missing: 1, candidates: ['A1 219', 'P-A 005', 'A2 150'], gamesPerEnemy: 20 })
+    // H-050: Poké Ball, which the deck keeps twice, does not go (the engine dropped those combinations anyway).
+    expect(chunk.optimize).toMatchObject({ missing: 1, candidates: ['A1 219', 'A2 150'], gamesPerEnemy: 20 })
     expect((chunk.optimize.enemies as string[]).length).toBe(2)
     expect(
       String(chunk.optimize.deck)
@@ -701,7 +702,8 @@ describe('simulation (e2e)', () => {
       turns: 400,
       perEnemy: [tally(wins), tally(wins)],
     })
-    // The engine's combinations in its own order; the confirmation takes the best 3 by raw rate.
+    // The engine's combinations in its own order; the confirmation takes the best 3 by raw rate. A third Poké Ball is
+    // what an engine got before H-050 (the server no longer sends it): its row is kept and marked.
     const result = {
       workerId: 'worker-0001',
       engineRev: test.env.engineRev,
@@ -730,11 +732,51 @@ describe('simulation (e2e)', () => {
       sideB: decks(5, 6),
       gamesPerPair: 20,
       players: ['e2', 'e2'],
-      optimize: { remove: [{ cardId: out[0]?.card.id, count: 1 }], candidates: ['A1-219', 'P-A-5', 'A2-150'] },
+      optimize: { remove: [{ cardId: out[0]?.card.id, count: 1 }], candidates: ['A1-219', 'A1-225', 'A2-150'] },
     })
     expect(preview.status).toBe(200)
     // 3 combinations × 2 rivals × 20, then the best 3 × 2 rivals × 200.
-    expect(preview.body).toMatchObject({ pairings: 2, totalGames: 120 + 1200, confirmationGames: 1200 })
+    expect(preview.body).toMatchObject({
+      pairings: 2,
+      totalGames: 120 + 1200,
+      confirmationGames: 1200,
+      combinations: 3,
+    })
+  })
+
+  it('H-050: two places and one candidate play it twice; a name the deck keeps twice does not go', async () => {
+    // Deck 2 keeps 2 Poké Ball (P-A-5) and plays Heatmor (B1-44) and Castform Forma Sol (B3-24) once each.
+    const job = (candidates: string[]) => ({
+      kind: 'optimize',
+      sideA: [{ deckId: deckIds[1] }],
+      sideB: decks(5, 6),
+      gamesPerPair: 20,
+      players: ['e2', 'e2'],
+      optimize: {
+        remove: [
+          { cardId: 'B1-44', count: 1 },
+          { cardId: 'B3-24', count: 1 },
+        ],
+        candidates,
+      },
+    })
+    // Erika twice is a combination; Poké Ball is full.
+    const preview = await post('/api/simulations/preview').send(job(['A1-219', 'P-A-5']))
+    expect(preview.status).toBe(200)
+    expect(preview.body).toMatchObject({ combinations: 1, totalGames: 1 * 2 * 20 + 1 * 2 * 200 })
+    // Erika and Sabrina: Erika twice, Sabrina twice, one of each.
+    const both = await post('/api/simulations/preview').send(job(['A1-219', 'A1-225']))
+    expect(both.body).toMatchObject({ combinations: 3 })
+    const created = await post('/api/simulations').send(job(['A1-219', 'P-A-5']))
+    expect(created.status).toBe(201)
+    const chunk = (await claim()).body.chunk as { optimize: Structured }
+    expect(chunk.optimize).toMatchObject({ missing: 2, candidates: ['A1 219', 'A1 219'] })
+    await post(`/api/simulations/${created.body.id}/cancel`)
+    expect((await test.http().delete(`/api/simulations/${created.body.id}`).set('Cookie', cookie)).status).toBe(204)
+    // Only Poké Ball: nothing fits, said before queuing.
+    const full = await post('/api/simulations').send(job(['P-A-5']))
+    expect(full.status).toBe(400)
+    expect(full.body.error.message).toMatch(/Ninguna candidata entra/)
   })
 
   it('H-011.5: a finished optimize queues its 3 best combinations again, with fresh seeds and more games', async () => {

@@ -339,7 +339,7 @@ describe('MCP write tools (e2e)', () => {
     })
     expect(notInDeck.isError).toBe(true)
     expect(notInDeck.content[0]?.text).toMatch(/no se pueden sacar 1/)
-    const tooMany = await call(client, 'simulations_enqueue', {
+    const fits = await call(client, 'simulations_enqueue', {
       kind: 'optimize',
       decksA: ['7'],
       decksB: ['2'],
@@ -348,10 +348,12 @@ describe('MCP write tools (e2e)', () => {
         { card: 'Helado Suerte', count: 1 },
         { card: 'Capa Gigante', count: 1 },
       ],
+      // H-050: counted as the engine plays, with two copies of a candidate and no name past 2. Deck 7 keeps 2
+      // Copiona, Poké Ball, Aguja Granuja and Investigación de Profesores (they do not go) and 1 Helio, Sabrina and Chica
+      // del Centro Pokémon (one more fits): far under 200, although the old count said 220.
       candidates: [
         'Helio',
         'A1-225',
-        'Sabrina',
         'Copiona',
         'Poké Ball',
         'Aguja Granuja',
@@ -362,8 +364,25 @@ describe('MCP write tools (e2e)', () => {
       ],
       dryRun: true,
     })
+    expect(fits.isError, fits.content[0]?.text).toBeFalsy()
+    // Helio, Sabrina, Chica (one each) and Erika, Misty (two each), three places: 2 + 9 + 6 + 1 = 18 combinations
+    // (none, one, two or the three singles, the rest from Erika and Misty).
+    expect(fits.structuredContent).toMatchObject({ queued: false, plan: { combinations: 18 } })
+    // Ten cards the deck does not play, two copies each: 220 multisets minus the 10 with three copies of one.
+    const tooMany = await call(client, 'simulations_enqueue', {
+      kind: 'optimize',
+      decksA: ['7'],
+      decksB: ['2'],
+      remove: [
+        { card: 'Bombirdier', count: 1 },
+        { card: 'Helado Suerte', count: 1 },
+        { card: 'Capa Gigante', count: 1 },
+      ],
+      candidates: ['A1-216', 'A1-217', 'A1-218', 'A1-219', 'A1-220', 'A1-221', 'A1-222', 'A1-223', 'A1-224', 'A1-226'],
+      dryRun: true,
+    })
     expect(tooMany.isError).toBe(true)
-    expect(tooMany.content[0]?.text).toMatch(/combinaciones posibles superan el límite de 200/)
+    expect(tooMany.content[0]?.text).toMatch(/^210 combinaciones posibles superan el límite de 200/)
     const longOne = await call(client, 'simulations_enqueue', {
       kind: 'matrix',
       decksA: ['1', '2', '3', '4', '5', '6', '7', '8'],

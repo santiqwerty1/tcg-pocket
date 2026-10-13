@@ -2158,6 +2158,8 @@ export const simulationPreviewSchema = z
     /** Every game, an optimize's confirmation (`confirmationGames`, H-011.5) included. */
     totalGames: z.number(),
     confirmationGames: z.number().default(0),
+    /** An optimize's combinations as the engine plays them (H-050: two copies of a candidate too). */
+    combinations: z.number().optional(),
     estimatedSeconds: z.number(),
   })
   .passthrough()

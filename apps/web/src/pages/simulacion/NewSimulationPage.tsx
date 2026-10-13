@@ -349,8 +349,9 @@ function OptimizeEditor({
       </Section>
       <Section title="Candidatas">
         <p className="text-xs text-muted-foreground">
-          Se prueban todas las combinaciones (con repetición) de las candidatas en los huecos; si una edición no está en
-          el motor se juega otra de la misma carta.
+          Se prueban todas las combinaciones de las candidatas en los huecos, también dos copias de una misma carta
+          (nunca más de 2 por nombre, contando las que quedan en el mazo); si una edición no está en el motor se juega
+          otra de la misma carta.
         </p>
         {candidates.length > 0 ? (
           <ul className="flex flex-wrap gap-1.5">
@@ -513,7 +514,8 @@ export function NewSimulationPage() {
   const data = debounced && input && JSON.stringify(input) === debounced ? preview.data : undefined
   const notSimulable = data ? [...data.sideA, ...data.sideB].filter((snapshot) => !snapshot.simulable).length : 0
   const rivals = data ? data.sideB.filter((snapshot) => snapshot.simulable).length : 0
-  const combinations = kind === 'optimize' ? multisetCount(candidates.length, removed) : 0
+  // H-050: the server counts them as the engine plays (two copies of a candidate too, never past 2 of a name).
+  const combinations = kind === 'optimize' ? (data?.combinations ?? multisetCount(candidates.length, removed)) : 0
   // The server counts an optimize's confirmation too (H-011.5): the search alone is the rest.
   const confirmationGames = data?.confirmationGames ?? 0
   const searchGames = combinations * rivals * gamesNumber
@@ -691,6 +693,11 @@ export function NewSimulationPage() {
                   {combinations > 200 ? (
                     <span className="block text-destructive">El límite es 200 combinaciones.</span>
                   ) : null}
+                  {combinations === 0 ? (
+                    <span className="block text-destructive">
+                      Ninguna candidata entra: el mazo ya lleva 2 copias de cada una.
+                    </span>
+                  ) : null}
                 </p>
                 {confirmationGames > 0 ? (
                   <p>
@@ -744,7 +751,7 @@ export function NewSimulationPage() {
           !data ||
           create.isPending ||
           (notSimulable > 0 && !skipNotSimulable) ||
-          (kind === 'optimize' && combinations > 200)
+          (kind === 'optimize' && (combinations > 200 || combinations === 0))
         }
       >
         {create.isPending ? <Spinner /> : null}

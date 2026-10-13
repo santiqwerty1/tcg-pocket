@@ -648,15 +648,6 @@ export class McpWriteToolsService {
           throw new BadRequestException(`${card?.nameEs ?? cardId} (${cardId}) no está implementada en el motor.`)
         }
       }
-      const combinations = multisetCount(
-        optimize.candidates.length,
-        [...asked.values()].reduce((a, b) => a + b, 0),
-      )
-      if (combinations > MAX_OPTIMIZE_COMBINATIONS) {
-        throw new BadRequestException(
-          `${combinations} combinaciones posibles superan el límite de ${MAX_OPTIMIZE_COMBINATIONS}: elegí menos candidatas o sacá menos cartas.`,
-        )
-      }
     }
     const engine = await this.simulations.engineView()
     const online = engine.workers.filter((worker) => worker.online)
@@ -686,6 +677,18 @@ export class McpWriteToolsService {
         notSimulable,
       }
     }
+    // The same limit creating the job applies, counted as the engine plays (H-050: two copies of a candidate too), so
+    // a dry run never shows a plan that would be refused.
+    if (optimize && preview.combinations > MAX_OPTIMIZE_COMBINATIONS) {
+      throw new BadRequestException(
+        `${preview.combinations} combinaciones posibles superan el límite de ${MAX_OPTIMIZE_COMBINATIONS}: elegí menos candidatas o sacá menos cartas.`,
+      )
+    }
+    if (optimize && preview.combinations === 0) {
+      throw new BadRequestException(
+        'Ninguna candidata entra: el mazo ya lleva 2 copias de cada una. Elegí otras o sacá esas.',
+      )
+    }
     // An optimize plays every combination against every rival, and then its confirmation (H-011.5): the preview
     // counts both.
     const totalGames = preview.totalGames
@@ -696,6 +699,8 @@ export class McpWriteToolsService {
       totalGames,
       ...(optimize
         ? {
+            // H-050: two copies of a candidate count as a combination too.
+            combinations: preview.combinations,
             confirmationGames: preview.confirmationGames,
             confirmation: `Incluye la confirmación: al terminar, las 3 mejores combinaciones (hasta 5 si hay empate en el tercer puesto) se juegan otra vez contra los mismos rivales con semillas nuevas y al menos ${OPTIMIZE_CONFIRM_GAMES} partidas por rival (${preview.confirmationGames} partidas).`,
           }
@@ -776,11 +781,4 @@ export function codeCandidates(query: string): string[] {
     `${set.toUpperCase()}${suffix.toLowerCase()}-${number}`,
     `${set.toUpperCase()}${suffix.toUpperCase()}-${number}`,
   ]
-}
-
-/** Multisets of size k from n candidates: C(n + k − 1, k) (the optimize job's combinations). */
-function multisetCount(n: number, k: number): number {
-  let result = 1
-  for (let i = 1; i <= k; i++) result = (result * (n + i - 1)) / i
-  return Math.round(result)
 }

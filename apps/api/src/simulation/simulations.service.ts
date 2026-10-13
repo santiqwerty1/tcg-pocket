@@ -24,13 +24,17 @@ import {
   estimateSeconds,
   type GameRecord,
   isBotCode,
+  keptCopiesByName,
   MAX_BASE_SEED,
   MAX_GAMES_PER_CHUNK,
   matrixPairings,
   matrixRows,
   mergeHistograms,
+  type OptimizeCandidate,
+  optimizeCombinations,
   optimizeConfirmationGames,
   optimizeConfirmGamesPerRival,
+  optimizeEngineCandidates,
   optimizeFinalists,
   optimizeRanking,
   planChunks,
@@ -184,6 +188,8 @@ export class SimulationsService {
     /** Every game the job plays; for an optimize, its confirmation's too (`confirmationGames`). */
     totalGames: number
     confirmationGames: number
+    /** An optimize's combinations, counted as the engine plays them (H-050); 0 for the other kinds. */
+    combinations: number
     estimatedSeconds: number
     engineRev: string
   }> {
@@ -211,13 +217,22 @@ export class SimulationsService {
           ? matrixPairings(aIds, bIds, input.bothOrders).length
           : bIds.length
     // optimize: every combination against every rival, then its confirmation (H-011.5) when it ends.
-    const combinations =
-      input.kind === 'optimize' && input.optimize
-        ? multisetCount(
-            new Set(input.optimize.candidates).size,
-            input.optimize.remove.reduce((sum, item) => sum + item.count, 0),
-          )
-        : 0
+    let combinations = 0
+    if (input.kind === 'optimize' && input.optimize && sideA[0]) {
+      const index = this.catalog.requireIndex()
+      const removed = new Map<string, number>()
+      let missing = 0
+      for (const item of input.optimize.remove) {
+        const name = index.cardById(item.cardId)?.nameEn
+        if (!name) continue
+        removed.set(name, (removed.get(name) ?? 0) + item.count)
+        missing += item.count
+      }
+      const kept = keptCopiesByName(sideA[0].deckgymText, removed)
+      // A candidate the engine cannot play is refused when the job is created; here it just does not count.
+      const candidates = await this.optimizeCandidates(input.optimize.candidates, false)
+      combinations = optimizeCombinations(candidates, kept, missing)
+    }
     const confirmationGames =
       input.kind === 'optimize' ? optimizeConfirmationGames(combinations, bIds.length, input.gamesPerPair) : 0
     const totalGames =
@@ -228,6 +243,7 @@ export class SimulationsService {
       pairings,
       totalGames,
       confirmationGames,
+      combinations,
       estimatedSeconds: Math.round(estimateSeconds(totalGames, input.players, input.cores ?? 2)),
       engineRev: this.engine.engineRev(),
     }
@@ -473,12 +489,15 @@ export class SimulationsService {
     return { confirmation: { jobId: confirmation.id, ...plan }, job: confirmation }
   }
 
-  /** The engine-cli optimize job: deck minus the removed cards, candidates as implemented engine ids, rivals. */
+  /**
+   * The engine-cli optimize job: deck minus the removed cards, candidates as implemented engine ids (each as many times
+   * as copies of it still fit, H-050), rivals.
+   */
   private async optimizeJob(input: CreateJobInput, deck: SnapshotView, rivals: SnapshotView[]) {
     const index = this.catalog.requireIndex()
-    const status = await this.engine.status()
     const remove = new Map(input.optimize?.remove.map((item) => [item.cardId, item.count]))
     const kept: string[] = []
+    const keptByName = new Map<string, number>()
     let missing = 0
     const row = await this.prisma.deckSnapshot.findUniqueOrThrow({ where: { id: deck.id } })
     const cards = row.cards as unknown as { cardId: string; playedAs: string; engineId: string; count: number }[]
@@ -487,30 +506,27 @@ export class SimulationsService {
       missing += take
       const left = card.count - take
       const played = index.cardById(card.playedAs)
-      if (left > 0 && played) kept.push(`${left} ${played.nameEn} ${played.expansionId} ${played.number}`)
+      if (left > 0 && played) {
+        kept.push(`${left} ${played.nameEn} ${played.expansionId} ${played.number}`)
+        keptByName.set(played.nameEn, (keptByName.get(played.nameEn) ?? 0) + left)
+      }
     }
     if (missing === 0)
       throw new BadRequestException({ code: 'validation', message: 'Sacá al menos una carta para optimizar.' })
-    const candidates = (input.optimize?.candidates ?? []).map((cardId) => {
-      const card = index.cardById(cardId)
-      if (!card) throw new BadRequestException({ code: 'validation', message: `Carta ${cardId} desconocida.` })
-      const played = status(card.engineId) === true ? card : null
-      const alternative =
-        played ?? index.cardsOfGroup(card.functionalGroupId).find((other) => status(other.engineId) === true) ?? null
-      if (!alternative) {
-        throw new UnprocessableEntityException({
-          code: 'not_simulable',
-          message: `${card.nameEs} (${card.id}) no está implementada en el motor.`,
-        })
-      }
-      return alternative.engineId
-    })
+    const candidates = await this.optimizeCandidates(input.optimize?.candidates ?? [], true)
     if (candidates.length === 0)
       throw new BadRequestException({ code: 'validation', message: 'Elegí cartas candidatas.' })
     const energyLine = row.deckgymText.split('\n').find((line) => line.startsWith('Energy:')) ?? ''
     const enemies = rivals.filter((rival) => rival.simulable).map((rival) => rival.deckgymText)
     if (enemies.length === 0) throw new BadRequestException({ code: 'validation', message: 'Elegí al menos un rival.' })
-    const combos = multisetCount(candidates.length, missing)
+    // H-050: each candidate as many times as copies of its name still fit (X + X too), counted the same way.
+    const combos = optimizeCombinations(candidates, keptByName, missing)
+    if (combos === 0) {
+      throw new BadRequestException({
+        code: 'validation',
+        message: 'Ninguna candidata entra: el mazo ya lleva 2 copias de cada una. Elegí otras o sacá esas.',
+      })
+    }
     if (combos > 200) {
       throw new BadRequestException({
         code: 'validation',
@@ -520,7 +536,7 @@ export class SimulationsService {
     return {
       engineJob: {
         deck: `${energyLine}\n${kept.join('\n')}\n`,
-        candidates: [...new Set(candidates)],
+        candidates: optimizeEngineCandidates(candidates, keptByName, missing),
         missing,
         enemies,
         gamesPerEnemy: input.gamesPerPair,
@@ -528,6 +544,36 @@ export class SimulationsService {
       },
       estimatedGames: combos * enemies.length * input.gamesPerPair,
     }
+  }
+
+  /**
+   * «Optimizar»'s candidates as the engine plays them: an edition it implements (another of the same card if needed)
+   * and the English name the deck rules count copies by. `strict` refuses an unknown or unplayable card; the preview
+   * leaves it out.
+   */
+  private async optimizeCandidates(cardIds: readonly string[], strict: boolean): Promise<OptimizeCandidate[]> {
+    const index = this.catalog.requireIndex()
+    const status = await this.engine.status()
+    const out: OptimizeCandidate[] = []
+    for (const cardId of cardIds) {
+      const card = index.cardById(cardId)
+      if (!card) {
+        if (strict) throw new BadRequestException({ code: 'validation', message: `Carta ${cardId} desconocida.` })
+        continue
+      }
+      const played = status(card.engineId) === true ? card : null
+      const alternative =
+        played ?? index.cardsOfGroup(card.functionalGroupId).find((other) => status(other.engineId) === true) ?? null
+      if (!alternative) {
+        if (!strict) continue
+        throw new UnprocessableEntityException({
+          code: 'not_simulable',
+          message: `${card.nameEs} (${card.id}) no está implementada en el motor.`,
+        })
+      }
+      out.push({ id: alternative.engineId, name: alternative.nameEn })
+    }
+    return out
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -1442,11 +1488,4 @@ function defaultLabel(kind: SimulationKind, sideA: readonly SnapshotView[], side
   if (kind === 'explore') return `Explorar ${sideA[0]?.label ?? ''}`
   if (kind === 'compare') return `${sideA.map((s) => s.label).join(' vs ')} contra ${sideB.length} rivales`
   return `Matriz ${sideA.length} × ${sideB.length}`
-}
-
-/** Multisets of size k from n candidates: C(n + k − 1, k) (deckgym's combinations repeat cards). */
-function multisetCount(n: number, k: number): number {
-  let result = 1
-  for (let i = 1; i <= k; i++) result = (result * (n + i - 1)) / i
-  return Math.round(result)
 }
