@@ -38,7 +38,7 @@ revisar: false
 | [D-019](D-019.md) | Cómo se juega contra el bot y cómo se mide la consistencia | vigente | — | 2026-10-08 |
 | [D-020](D-020.md) | Consolidar antes de sumar funciones | vigente | — | 2026-10-11 |
 | [D-021](D-021.md) | Reparto del trabajo entre las tres sesiones de Claude | vigente | — | 2026-10-11 |
-| [D-022](D-022.md) | Repositorio público bajo AGPL-3.0, con seudónimos en los datos de Limitless | vigente | — | 2026-10-11 |
+| [D-022](D-022.md) | Repositorio público bajo AGPL-3.0, con seudónimos en los datos de Limitless | vigente | — | 2026-10-12 |
 | [D-023](D-023.md) | CI en runners propios de la PC solo mientras el repo fue privado; en el público, los de GitHub | vigente | — | 2026-10-11 |
 | [D-024](D-024.md) | Proteger trabajos de laboratorio y consistencia frente a matrices adelantadas | vigente | — | 2026-10-11 |
 | [D-025](D-025.md) | Android excluye bots lentos salvo opt-in antes de reclamar un chunk | vigente | — | 2026-10-11 |

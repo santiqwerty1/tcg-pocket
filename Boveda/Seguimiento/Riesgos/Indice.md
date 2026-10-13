@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-12 fichas: abierto 9 · resuelto 3. ⚑ = para revisar.
+13 fichas: abierto 10 · resuelto 3. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Actualizado |
 | --- | --- | --- | --- | --- |
@@ -29,3 +29,4 @@ revisar: false
 | [R-010](R-010.md) | El conector de Claude con escritura lee texto de terceros | abierto | — | 2026-10-10 |
 | [R-011](R-011.md) | Fallas que nadie ve | abierto | — | 2026-10-10 |
 | [R-012](R-012.md) | Los resultados de simulación dependen del bot más de lo que muestran sus intervalos | abierto | — | 2026-10-12 |
+| [R-013](R-013.md) | Commits con el mail personal como autor en el repo público | abierto | — | 2026-10-12 |

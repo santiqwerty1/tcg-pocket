@@ -99,8 +99,9 @@ Las sesiones avisan al Coordinador antes de abrir cada PR. Lo que sigue, en orde
 8. **Laboratorio:** C3, A3 y C8 ([T-017](Tareas/T-017.md)).
 9. **Colección desde el tracker:** Santi prueba la sincronización a mano desde Colección y, si el diff se ve bien, el Coordinador prende la automática ([T-020](Tareas/T-020.md), [D-028](Decisiones/D-028.md)).
 10. **Aprobar o no** [D-027](Decisiones/D-027.md) (método del análisis) y [D-028](Decisiones/D-028.md) (tracker). Están integradas, pero siguen como propuestas.
-11. **Fase 38:** configurar UptimeRobot. La cuenta la crea Santi y los pasos están en `docs/OPERACION.md` ([P-011](Preguntas/P-011.md), [R-011](Riesgos/R-011.md)).
-12. **Menores:**
+11. **Privacidad del mail en GitHub** (recomendación para Santi): activar «Keep my email addresses private» y «Block command line pushes that expose my email». Antes de cada push, `git log --format='%h %ae %ce' origin/main..HEAD` muestra solo el noreply ([R-013](Riesgos/R-013.md)).
+12. **Fase 38:** configurar UptimeRobot. La cuenta la crea Santi y los pasos están en `docs/OPERACION.md` ([P-011](Preguntas/P-011.md), [R-011](Riesgos/R-011.md)).
+13. **Menores:**
     - [H-050](Hallazgos/H-050.md): «optimizar» no prueba dos copias de una misma candidata;
     - el pendiente bajo de #75: una sincronización del catálogo que muere a la fuerza queda «running» hasta el próximo reinicio de la API.
     - [T-016](Tareas/T-016.md) sigue para cuando Santi lo pida.
@@ -124,4 +125,5 @@ El 11/10/2026:
 El 12/10/2026:
 - **Respuestas de Santiago**, por el Coordinador: sí a los issues upstream de deckgym (bcollazo/deckgym-core#397 y #398), a Tigris (aceptó los términos), a la primera limpieza y a dejarla automática ([P-010](Preguntas/P-010.md), cerrada).
 - **Decididas por el Coordinador**, dentro de la fase 42 ya aprobada: el diseño de `gamesRev` (DECISIONES 45.46 y 45.53), la regla de las copias (45.50), «Reintentar lo que falló» (45.49), la tool `simulations_calibration` (45.52) y mover el tag `v1.0.0` al commit de #62 (41.19; [P-013](Preguntas/P-013.md), cerrada).
+- **Decidida por Santiago:** los commits ya publicados con el mail personal como autor quedan como están; se corrige solo hacia adelante, con el noreply en la configuración local ([R-013](Riesgos/R-013.md)).
 - **Siguen esperando aprobación:** [D-027](Decisiones/D-027.md) y [D-028](Decisiones/D-028.md).
