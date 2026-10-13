@@ -8,14 +8,14 @@ Cómo se sabe si la app anda, qué corre sola y qué hacer cuando algo falla (Fa
 |---|---|---|
 | Copia diaria (`backup_blobs`) | 04:00 de Buenos Aires (`BACKUP_CRON`, en producción) | Aviso `backup_stale`: «Falló la copia diaria del …» o «No hay copia diaria desde …» (más de 26 h) |
 | Copia fuera de Supabase (bucket de Tigris, Fase 39) | Después de la copia diaria; a mano con `POST /api/backup/offsite` | Aviso `backup_offsite`: la subida falló o no hubo una buena en 26 h |
-| Limpieza (repeticiones viejas, crudos de standings, Fase 39) | 04:20, solo con `RETENTION_CRON=true`; vista previa con `node /app/apps/api/dist/cli/retention.js` o `POST /api/ops/retention` (`--apply`/`?apply=1` borra) | En el log; el resultado en `/api/ops/status` (`retention`) |
+| Limpieza (repeticiones viejas, crudos de standings, Fase 39) | 04:20, solo con `RETENTION_CRON=true` (prendida en producción desde el 12/10/2026); vista previa con `node /app/apps/api/dist/cli/retention.js` o `POST /api/ops/retention` (`--apply`/`?apply=1` borra) | En el log; el resultado en `/api/ops/status` (`retention`) |
 | Comprobación de la copia en la nube (Fase 39) | El 1 de cada mes, con la prueba de restauración | Aviso `backup_offsite`: «Falló la comprobación de la copia en la nube» |
 | Prueba de restauración | El 1 de cada mes a las 04:30 | Aviso `backup_drill` |
 | Sincronización de Limitless | Al arrancar y cada 6 h (`LIMITLESS_SYNC`, en producción) | Aviso `limitless_sync`: la última corrida falló, o ninguna buena en 13 h |
 | Actualización del catálogo | A mano (Más → Catálogo) | Aviso `catalog_sync` si la última falló (sigue el catálogo anterior) |
 | Colección del tracker | Cada 6 h si se habilita en Más → Ajustes; apagada por defecto | Aviso `tracker_sync`; deja revisión ante bajas grandes, cambios manuales recientes o dudas sobre el catálogo |
 | Chequeos de GitHub (set nuevo del tracker, commits nuevos de deckgym) | Cada 12 h (cada hora después de una falla) | Aviso `github_check` (info) |
-| Workers | Cuando hay trabajo | Aviso `worker_idle`: hay trabajo y ningún worker en 30 min |
+| Workers | Cuando hay trabajo | Aviso `worker_idle`: hay trabajo y ningún worker en 30 min, o ninguno con la feature o la revisión que pide; `worker_paused`: todos los workers vivos están en pausa por resultados perdidos (vuelven solos, sin reiniciar) |
 | Tamaño de la base | — | Aviso `database_size` desde 350 MB (el plan gratis de Supabase llega a 500) |
 
 Los avisos se ven en Más → Avisos y llegan al celu como notificación (`NotificationsWatcher`, cada 15 s), una vez por título. El aviso del tracker conserva el título y lleva la fecha en el detalle: las consultas repetidas no repiten el push.
@@ -71,6 +71,14 @@ Con esto, una caída se avisa dentro de los 5 minutos, y la vuelta también.
 ## Copia fuera de Supabase y reconstrucción
 
 La guía para levantar todo desde cero (base nueva, app nueva, restaurar la copia del bucket) está en `docs/RECONSTRUIR.md`.
+
+## CLI de producción
+
+Se corren con `flyctl machine exec <id> --app tcg-pocket "node /app/apps/api/dist/cli/<cli>.js …"`: `retention.js` (vista previa; `--apply` borra), `catalog-sync.js`, `owner-init.js` y `worker-timing.js --days 7` (solo lectura: por worker, el tiempo del motor contra el reloj y el hueco entre reclamos).
+
+Desde #75 (DECISIONES 45.51) se pueden correr con la API viva: levantan la app en modo CLI, sin crons ni los hooks de arranque que cambian estado. Dos cosas siguen igual:
+- tras un `catalog-sync` por CLI hay que reiniciar la máquina o usar `POST /api/catalog/sync`, porque el catálogo vive en la memoria del servidor;
+- si una sincronización del catálogo muere a la fuerza (falta de memoria o el tope de `flyctl machine exec`), queda «running» hasta el próximo reinicio de la API, y «Sincronizar» queda deshabilitado.
 
 ## Secretos opcionales
 
