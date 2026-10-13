@@ -12,6 +12,20 @@ export function formatDayEs(iso: string): string {
   return `${Number(day)}/${Number(month)}/${year}`
 }
 
+/** Phone review: past this many days, a window counted up to the newest tournament loaded says it is old. */
+export const STALE_TOURNAMENT_DAYS = 7
+
+/**
+ * «El último torneo cargado es del 5/9/2026, hace 38 días»: the windows («esta semana», «los últimos 14 días») end at
+ * the newest tournament loaded, so data keeps showing when Limitless is late; past a week the screen says so.
+ */
+export function staleTournaments(newest: string | null, now: number = Date.now()): string | null {
+  if (!newest) return null
+  const days = Math.floor((now - new Date(newest).getTime()) / 86_400_000)
+  if (days <= STALE_TOURNAMENT_DAYS) return null
+  return `El último torneo cargado es del ${formatDayEs(newest)}, hace ${days} días: los números son de esos días.`
+}
+
 export function formatShare(value: number): string {
   return `${shareFormat.format(value)} %`
 }

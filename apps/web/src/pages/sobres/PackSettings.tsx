@@ -27,7 +27,9 @@ function RarityRuleRow({ rule }: { rule: RarityRuleInfo }) {
     }
   }
   return (
-    <li className="grid grid-cols-[4rem_5.5rem_1fr_1fr] items-center gap-2 px-3 py-1.5 text-sm">
+    // Phone review: four columns (4rem, 5.5rem and two switches with their labels) took 429 px on a 375 px phone;
+    // the two switches now share one cell that wraps.
+    <li className="grid grid-cols-[3.5rem_5rem_minmax(0,1fr)] items-center gap-2 px-3 py-1.5 text-sm">
       <span className="font-medium">{rarityLabel(rule.rarity)}</span>
       <Input
         aria-label={`Puntos de ${rarityLabel(rule.rarity)}`}
@@ -42,14 +44,16 @@ function RarityRuleRow({ rule }: { rule: RarityRuleInfo }) {
           if (next !== rule.points) void save({ points: next })
         }}
       />
-      <Label className="flex items-center gap-1.5 text-xs font-normal">
-        <Switch checked={rule.verified} onCheckedChange={(verified) => save({ verified })} />
-        confirmado
-      </Label>
-      <Label className="flex items-center gap-1.5 text-xs font-normal">
-        <Switch checked={rule.tradeable} onCheckedChange={(tradeable) => save({ tradeable })} />
-        intercambio
-      </Label>
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+        <Label className="flex items-center gap-1.5 text-xs font-normal">
+          <Switch checked={rule.verified} onCheckedChange={(verified) => save({ verified })} />
+          confirmado
+        </Label>
+        <Label className="flex items-center gap-1.5 text-xs font-normal">
+          <Switch checked={rule.tradeable} onCheckedChange={(tradeable) => save({ tradeable })} />
+          intercambio
+        </Label>
+      </div>
     </li>
   )
 }

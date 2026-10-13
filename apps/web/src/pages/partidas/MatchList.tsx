@@ -39,11 +39,15 @@ export function MatchList({ matches, showDeck = true }: { matches: Match[]; show
             >
               <ResultBadge result={match.result} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate">
-                  {showDeck ? <span className="font-medium">{match.deck.name}</span> : null}
-                  {showDeck && match.opponent ? <span className="text-muted-foreground"> vs </span> : null}
+                {/* Phone review: one truncated line cut the rival to «vs M…» after a long deck name; now the deck
+                    shrinks first and the rival keeps up to 60 % of the line. */}
+                <span className="flex min-w-0 items-baseline gap-1">
+                  {showDeck ? <span className="min-w-0 truncate font-medium">{match.deck.name}</span> : null}
+                  {showDeck && match.opponent ? <span className="shrink-0 text-muted-foreground">vs</span> : null}
                   {match.opponent ? (
-                    <span>{match.opponent}</span>
+                    <span className={cn('truncate', showDeck ? 'max-w-[60%] shrink-0' : 'min-w-0')}>
+                      {match.opponent}
+                    </span>
                   ) : showDeck ? null : (
                     <span className="text-muted-foreground">sin rival anotado</span>
                   )}

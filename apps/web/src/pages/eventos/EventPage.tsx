@@ -14,6 +14,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
+import { missing } from '@/lib/format'
 import { formatRateValue } from '@/lib/matches'
 import { RulesForm } from './RulesForm'
 
@@ -147,7 +148,7 @@ export function EventPage() {
                   {list.archetype ?? 'Sin arquetipo'}
                 </Link>
                 <span className="shrink-0 text-xs tabular">
-                  {list.missingCopies === 0 ? 'la podés armar' : `faltan ${list.missingCopies}`}
+                  {list.missingCopies === 0 ? 'la podés armar' : missing(list.missingCopies)}
                 </span>
               </div>
               <span className="text-xs text-muted-foreground">

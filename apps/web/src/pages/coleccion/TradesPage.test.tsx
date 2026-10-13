@@ -5,6 +5,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Providers } from '@/app/Providers'
 import { routes } from '@/app/routes'
+import { fakeApi } from '@/test/fakeApi'
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -84,5 +85,37 @@ describe('lista de intercambio (Fase 31)', () => {
     await waitFor(() => expect(asked).toContain('◊◊◊◊,◊'), { timeout: 5000 })
     expect(await screen.findByRole('link', { name: /Bulbasaur/ }, { timeout: 5000 })).toBeInTheDocument()
     expect(await screen.findByText(/rarezas ◊◊◊◊,◊/, {}, { timeout: 5000 })).toBeInTheDocument()
+  })
+})
+
+const trades = (wants: number) => ({
+  byRarity: [],
+  untradeable: [],
+  rarities: [],
+  text: '',
+  totals: { wants, gives: 0, spare: 12 },
+})
+
+async function open(wants: number) {
+  fakeApi({ 'GET /api/trades': trades(wants) })
+  const router = createMemoryRouter(routes, { initialEntries: ['/coleccion/intercambio'] })
+  render(
+    <Providers queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <RouterProvider router={router} />
+    </Providers>,
+  )
+}
+
+describe('what the decks lack (phone review)', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('says it is what your decks lack (not the collection)', async () => {
+    await open(0)
+    expect(await screen.findByText(/A tus mazos les faltan 0 cartas que se pueden intercambiar/)).toBeInTheDocument()
+  })
+
+  it('one card: singular', async () => {
+    await open(1)
+    expect(await screen.findByText(/A tus mazos les falta 1 carta que se puede intercambiar/)).toBeInTheDocument()
   })
 })

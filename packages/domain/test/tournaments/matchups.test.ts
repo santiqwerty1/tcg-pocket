@@ -265,4 +265,15 @@ describe('matchups between archetypes', () => {
     expect(recentMeta(dataset).kind).toBe('recent')
     expect(recentMeta(dataset, 14, 1000)).toMatchObject({ kind: 'era', lists: 393 })
   })
+
+  it('phone review: the window says its dates, up to the newest tournament loaded', () => {
+    const newest = new Date(Math.max(...dataset.entries.map((entry) => entry.date.getTime())))
+    const recent = recentMeta(dataset)
+    expect(recent.to).toEqual(newest)
+    expect(recent.from).toEqual(new Date(newest.getTime() - 13 * 24 * 60 * 60 * 1000))
+    const era = recentMeta(dataset, 14, 1000)
+    expect(era.to).toEqual(newest)
+    expect(era.from?.getTime()).toBe(Math.min(...dataset.entries.map((entry) => entry.date.getTime())))
+    expect(recentMeta({ ...dataset, entries: [] })).toMatchObject({ from: null, to: null })
+  })
 })

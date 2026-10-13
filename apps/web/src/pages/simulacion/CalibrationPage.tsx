@@ -24,7 +24,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { formatDateTime, shortSha } from '@/lib/format'
+import { formatDateTime, missing, shortSha } from '@/lib/format'
 import { formatInterval, formatRate, formatRateValue } from '@/lib/matches'
 import { progressFraction } from '@/lib/simulation'
 import { ProgressBar, StatusBadge } from './SimulacionPage'
@@ -238,7 +238,7 @@ function Compatible({ value }: { value: boolean | null }) {
  */
 function ListNotes({ view }: { view: CalibrationView }) {
   const notes = [
-    view.pending > 0 ? `faltan ${view.pending} por jugar` : null,
+    view.pending > 0 ? `${missing(view.pending)} por jugar` : null,
     view.failed === 1 ? 'falló 1 en el motor' : view.failed > 1 ? `fallaron ${view.failed} en el motor` : null,
     view.cancelled > 0 ? `${view.cancelled} sin jugar (se canceló)` : null,
     view.mirrors > 0 ? `${view.mirrors} entre listas de un mismo arquetipo, que los torneos no pueden comparar` : null,

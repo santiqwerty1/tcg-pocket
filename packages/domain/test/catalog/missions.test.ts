@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { missionProgress, parseMissions } from '../../src/catalog/index.js'
+import { missionProgress, parseMissions, rewardEs } from '../../src/catalog/index.js'
 import { normalizeImportRows, parseTrackerCsv } from '../../src/collection/index.js'
 import { COLLECTION_CSV_PATH, catalogIndex } from '../helpers/loadFixtures.js'
 
@@ -70,5 +70,53 @@ describe('missions (themed collections, Fase 8)', () => {
       owned,
     )[0]
     expect(twin?.slots[0]?.have).toBe(owned(index.cardById('A1-1')?.stockCardId ?? ''))
+  })
+})
+
+describe('rewards in Spanish (phone review)', () => {
+  const cardsEs = new Map<string, string>()
+  for (const card of index.catalog.cards) if (!cardsEs.has(card.nameEn)) cardsEs.set(card.nameEn, card.nameEs)
+  const expansionsEs = new Map(index.catalog.expansions.map((expansion) => [expansion.nameEn, expansion.nameEs]))
+  const names = {
+    card: (nameEn: string) => cardsEs.get(nameEn) ?? null,
+    expansion: (nameEn: string) => expansionsEs.get(nameEn) ?? null,
+  }
+
+  it('items separated by «·», with the app’s names and the amounts kept', () => {
+    expect(rewardEs('Wonder Hourglass ×36<br />Pack Hourglass ×12<br />Shop Ticket')).toBe(
+      'Reloj de arena maravilla ×36 · Reloj de arena de sobre ×12 · Ticket de tienda',
+    )
+    expect(rewardEs('Shinedust ×1000')).toBe('Polvo brillante ×1000')
+  })
+
+  it('review of #87: no comma before «y», and the cards and expansions the catalog knows in Spanish', () => {
+    expect(
+      rewardEs('Wonder Hourglass ×48<br />Pack Hourglass ×12<br />Moltres, Zapdos, And Articuno (emblem)', names),
+    ).toBe('Reloj de arena maravilla ×48 · Reloj de arena de sobre ×12 · Moltres, Zapdos y Articuno (emblema)')
+    expect(rewardEs('Alolan Dugtrio (emblem)', names)).toBe(`${cardsEs.get('Alolan Dugtrio')} (emblema)`)
+    expect(cardsEs.get('Alolan Dugtrio')).not.toBe('Alolan Dugtrio')
+    const island = expansionsEs.get('Mythical Island')
+    expect(island).toBeTruthy()
+    expect(
+      rewardEs('Mythical Island: Mew (playmat) ×1<br />Mew (pokémon coin) ×1<br />Mythical Island: Mew (cover)', names),
+    ).toBe(`${island}: Mew (tapete) ×1 · Mew (moneda) ×1 · ${island}: Mew (portada)`)
+    // A version keeps its «Ver. N»; a name the catalog does not know stays as it is.
+    expect(rewardEs('Pikachu Ver. 2 (emblem)', names)).toBe('Pikachu Ver. 2 (emblema)')
+    expect(rewardEs('Nobody Known (profile icon)', names)).toBe('Nobody Known (ícono de perfil)')
+  })
+
+  it('no English item word is left in any reward of the tracker', () => {
+    const rewards = files
+      .flatMap((file) => JSON.parse(readFileSync(join(dir, file), 'utf8')) as { reward?: string }[])
+      .map((mission) => mission.reward)
+      .filter((reward): reward is string => !!reward)
+    expect(rewards.length).toBeGreaterThan(400)
+    for (const reward of rewards) {
+      const text = rewardEs(reward, names)
+      expect(text).not.toMatch(
+        /Hourglass|Shop Ticket|Shinedust|profile icon|\(emblem\)|\(cover\)|backdrop|playmat|sleeve|coin|<br/i,
+      )
+      expect(text).not.toMatch(/, y |\bAnd\b/)
+    }
   })
 })

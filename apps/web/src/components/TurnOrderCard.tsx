@@ -33,7 +33,7 @@ export function TurnOrderCard({
           >
             <p className="text-xs text-muted-foreground">{side.label}</p>
             <p className="text-lg font-semibold tabular-nums">
-              {side.share === null ? '—' : `${Math.round(side.share)} %`}
+              {side.share === null ? '—' : formatRateValue(side.share)}
             </p>
             <p className="text-xs text-muted-foreground">{formatRecord(side.record)}</p>
           </div>

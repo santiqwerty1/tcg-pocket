@@ -384,7 +384,8 @@ export class TournamentsService {
   ): Promise<{
     scope: Scope
     dataset: TournamentDataset
-    meta: { kind: 'recent' | 'era'; days: number; lists: number }
+    /** Phone review: `from`/`to`, the window's dates (ISO days), up to the newest tournament loaded. */
+    meta: { kind: 'recent' | 'era'; days: number; lists: number; from: string | null; to: string | null }
     expected: (archetypeId: string) => ExpectedVsMetaView | null
     /** H-007: a deck's place in the era, with the scope, dataset and aliases already resolved. */
     place: (cards: readonly DeckCardEntry[], ownerArchetypeId: string | null) => DeckTournamentView
@@ -397,7 +398,13 @@ export class TournamentsService {
     return {
       scope,
       dataset,
-      meta: { kind: meta.kind, days: meta.days, lists: meta.lists },
+      meta: {
+        kind: meta.kind,
+        days: meta.days,
+        lists: meta.lists,
+        from: meta.from?.toISOString() ?? null,
+        to: meta.to?.toISOString() ?? null,
+      },
       expected: (archetypeId) =>
         expectedVsMeta(matchups, dataset, aliases.get(archetypeId) ?? archetypeId, {
           shares: options.shares ?? meta.shares,
