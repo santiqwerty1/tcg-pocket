@@ -2,7 +2,16 @@ import { readFileSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
-import { engineEdition, eraRange, poolForZone, type SelectableEnergy, usableWith } from '@tcg/domain'
+import {
+  bonferroniZ,
+  engineEdition,
+  eraRange,
+  metaScore,
+  poolForZone,
+  type SelectableEnergy,
+  scoreDifference,
+  usableWith,
+} from '@tcg/domain'
 import { CatalogService } from '../src/catalog/catalog.service.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
@@ -499,6 +508,7 @@ describe('laboratorio (e2e)', () => {
       perRound: 4 * 5 * 10,
       max: (4 * 5 * 10 + 2 * 5 * 20) * 2 + 2 * 5 * 20,
       probe: 0,
+      fill: 0,
       robustness: 0,
     })
     // H-021: the plan says its seed, and that seed plays this same first round.
@@ -1888,6 +1898,205 @@ describe('laboratorio (e2e)', () => {
     expect(base.bringsBlindSpot).toBe(false)
     await post(`/api/simulations/${created.body.id}/cancel`)
   }, 60_000)
+
+  it('T-017 C8: after the probe, every way to fill the two weakest places; the best three are verified together', async () => {
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 2,
+      maxRounds: 2,
+      patience: 3,
+      confirmGames: 0,
+      verifyGames: 10,
+      pool: 'all',
+      byWeight: false,
+      confirmBot: null,
+      fill: true,
+    }
+    // The plan: the probe round, then the fill round at most (27 lists and the deck) in the place of one round, and its
+    // verification with three lists.
+    const plan = await post('/api/lab/explore').send({
+      deck: { deckId: deckIds[1] },
+      size: 3,
+      config,
+      seed: 9995,
+      dryRun: true,
+    })
+    expect(plan.status).toBe(200)
+    expect(plan.body.config).toMatchObject({ fill: true, probe: true })
+    const probing = (plan.body.firstRound as unknown[]).length
+    expect(plan.body.games).toMatchObject({ probe: (probing + 1) * 3 * 10, fill: 28 * 3 * 10 })
+    expect(plan.body.games.max).toBe((probing + 1) * 3 * 10 + 28 * 3 * 10 + 4 * 3 * 10 + (3 * 3 * 10 + 2 * 3 * 10))
+
+    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9995 })
+    expect(created.status).toBe(200)
+    const id = created.body.id as number
+    type Round = {
+      kind: string
+      candidates: number[]
+      probe?: boolean
+      fill?: string[]
+      decided: boolean
+      accepted: number | null
+      screened?: number | null
+    }
+    const read = async () =>
+      (
+        (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).params as {
+          lab: { explore: { rounds: Round[]; weakest?: string[]; incumbent: number; base: number } }
+        }
+      ).lab.explore
+    const probes = (await read()).rounds[0]?.candidates ?? []
+    // The probe: without one copy of the first card the deck wins 80 %, of the second 70 %; the rest, as the deck.
+    const [p0, p1] = probes as [number, number]
+    const probeRate = new Map([
+      [p0, 0.8],
+      [p1, 0.7],
+    ])
+    let chunks = (await test.prisma.simulationChunk.findMany({ where: { jobId: id } })).length
+    expect(await playAll((a, _b, games) => Math.round(games * (probeRate.get(a) ?? 0.5)), chunks)).toBe(chunks)
+    const afterProbe = await read()
+    const fillRound = afterProbe.rounds[1] as Round
+    // Those two are the weakest, in that order, and the fill round frees their places.
+    expect(afterProbe.weakest?.slice(0, 2)).toEqual(fillRound.fill)
+    expect(fillRound).toMatchObject({ kind: 'search', decided: false })
+    expect(fillRound.fill).toHaveLength(2)
+    expect(fillRound.candidates.length).toBeGreaterThan(10)
+    expect(fillRound.candidates.length).toBeLessThanOrEqual(27)
+    // Every list of the round changes only those places.
+    const index = test.app.get(CatalogService).requireIndex()
+    const snapshots = await test.prisma.deckSnapshot.findMany({
+      where: { id: { in: [afterProbe.base, ...fillRound.candidates] } },
+      select: { id: true, cards: true },
+    })
+    const groupsAt = (sid: number) =>
+      ((snapshots.find((row) => row.id === sid)?.cards ?? []) as { cardId: string; count: number }[]).flatMap((entry) =>
+        Array.from({ length: entry.count }, () => index.cardById(entry.cardId)?.functionalGroupId ?? entry.cardId),
+      )
+    const before = groupsAt(afterProbe.base)
+    const places = (fillRound.fill ?? []).map((groupId) => before.indexOf(groupId))
+    for (const sid of fillRound.candidates) {
+      const after = groupsAt(sid)
+      for (const [at, groupId] of after.entries()) if (groupId !== before[at]) expect(places).toContain(at)
+    }
+
+    // The fill round: three lists win 90 %, 80 % and 70 %; the rest, as the deck. The three go to the verification.
+    const [f0, f1, f2] = fillRound.candidates as [number, number, number]
+    const fillRate = new Map([
+      [f0, 0.9],
+      [f1, 0.8],
+      [f2, 0.7],
+    ])
+    chunks = (fillRound.candidates.length + 1) * 3
+    expect(await playAll((a, _b, games) => Math.round(games * (fillRate.get(a) ?? 0.5)), chunks)).toBe(chunks)
+    const afterFill = await read()
+    expect(afterFill.rounds[1]).toMatchObject({ decided: true, accepted: null, screened: f0 })
+    expect(afterFill.rounds[2]).toMatchObject({ kind: 'verify', candidates: [f0, f1, f2], decided: false })
+
+    // On fresh seeds the second one wins every game; the first, as the deck: the second stays.
+    const verifyRate = new Map([
+      [f0, 0.5],
+      [f1, 1],
+      [f2, 0.6],
+    ])
+    expect(await playAll((a, _b, games) => Math.round(games * (verifyRate.get(a) ?? 0.5)), 4 * 3)).toBe(12)
+    const afterVerify = await read()
+    expect(afterVerify.rounds[2]).toMatchObject({ decided: true, accepted: f1 })
+    expect(afterVerify.incumbent).toBe(f1)
+    // The next search round is a usual one.
+    expect(afterVerify.rounds[3]).toMatchObject({ kind: 'search', decided: false })
+    expect(afterVerify.rounds[3]?.fill).toBeUndefined()
+
+    // What the screen and Claude show.
+    const lab = (await get(`/api/lab/jobs/${id}`)).body
+    expect(lab.explore.rounds[1].fill.map((card: { cardId: string }) => card.cardId)).toEqual(fillRound.fill)
+    expect(lab.explore.rounds[2].candidates).toEqual([f0, f1, f2])
+    const client = new Client({ name: 'e2e', version: '1.0.0' })
+    await client.connect(
+      new StreamableHTTPClientTransport(mcpUrl, { requestInit: { headers: { Authorization: `Bearer ${mcpToken}` } } }),
+    )
+    clients.push(client)
+    const results = (await client.callTool({ name: 'lab_results', arguments: { job: id } })) as {
+      structuredContent?: Structured
+    }
+    const kinds = ((results.structuredContent?.search ?? { rounds: [] }) as { rounds: { kind: string }[] }).rounds.map(
+      (round) => round.kind,
+    )
+    expect(kinds[1]).toMatch(/^búsqueda a fondo \(todas las formas de llenar los lugares de .+ y .+\)$/)
+    expect(kinds[2]).toMatch(/^verificación de las 3 mejores/)
+    await post(`/api/simulations/${id}/cancel`)
+  }, 90_000)
+
+  it('T-017 C8: with one verified, the bar is the usual one; with three, it goes up (Bonferroni)', async () => {
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 2,
+      maxRounds: 1,
+      patience: 3,
+      confirmGames: 0,
+      verifyGames: 10,
+      pool: 'all',
+      byWeight: false,
+      confirmBot: null,
+      fill: true,
+    }
+    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9996 })
+    const id = created.body.id as number
+    const read = async () =>
+      (
+        (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).params as {
+          lab: {
+            explore: {
+              rounds: { kind: string; candidates: number[]; accepted: number | null; decided: boolean }[]
+              incumbent: number
+              base: number
+            }
+          }
+        }
+      ).lab.explore
+    let chunks = (await test.prisma.simulationChunk.findMany({ where: { jobId: id } })).length
+    expect(await playAll((_a, _b, games) => Math.floor(games / 2), chunks)).toBe(chunks)
+    const fill = (await read()).rounds[1]
+    const [f0, f1, f2] = (fill?.candidates ?? []) as [number, number, number]
+    const fillRate = new Map([
+      [f0, 0.9],
+      [f1, 0.9],
+      [f2, 0.9],
+    ])
+    chunks = ((fill?.candidates.length ?? 0) + 1) * 3
+    expect(await playAll((a, _b, games) => Math.round(games * (fillRate.get(a) ?? 0.5)), chunks)).toBe(chunks)
+    // On fresh seeds the first wins, by rival, what puts it past 1,645 errors of the deck (what one verified needs)
+    // but not past 2,128 (three at once); the other two and the deck win half. Found with the bank's own weights.
+    const rivals = (
+      (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).params as {
+        lab: { rivals: { snapshot: number; weight: number }[] }
+      }
+    ).lab.rivals
+    const scoreWith = (wins: number[]) =>
+      metaScore(
+        rivals.map((rival, at) => ({
+          weight: rival.weight,
+          record: { wins: wins[at] ?? 5, losses: 10 - (wins[at] ?? 5), ties: 0 },
+        })),
+      )
+    const half = scoreWith(rivals.map(() => 5))
+    let between: number[] | null = null
+    for (let code = 0; code < 6 ** rivals.length && !between; code++) {
+      const wins = rivals.map((_rival, at) => 5 + (Math.floor(code / 6 ** at) % 6))
+      const score = scoreWith(wins)
+      if (!score || !half) continue
+      const z = scoreDifference(score, half).value / scoreDifference(score, half).se
+      if (z > 1.645 + 0.05 && z < bonferroniZ(1.645, 3) - 0.05) between = wins
+    }
+    if (!between) throw new Error('no record between the two bars for this bank')
+    const winsOf = new Map(rivals.map((rival, at) => [rival.snapshot, between?.[at] ?? 5]))
+    expect(await playAll((a, b, games) => (a === f0 ? (winsOf.get(b) ?? games / 2) : Math.floor(games / 2)), 12)).toBe(
+      12,
+    )
+    const after = await read()
+    expect(after.rounds[2]).toMatchObject({ kind: 'verify', decided: true, accepted: null })
+    expect(after.incumbent).toBe(after.base)
+    await post(`/api/simulations/${id}/cancel`)
+  }, 90_000)
 
   it('review of #22: «Frenar» needs a session', async () => {
     expect((await test.http().post('/api/lab/jobs/1/stop')).status).toBe(401)

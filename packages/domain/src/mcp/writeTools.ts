@@ -339,6 +339,12 @@ export const MCP_WRITE_TOOLS = {
         .boolean()
         .optional()
         .describe('Empezar con una ronda de prueba que mide cuánto aporta cada carta (sale una copia de cada una)'),
+      fill: z
+        .boolean()
+        .optional()
+        .describe(
+          'Después de la ronda de prueba, llenar a fondo los dos lugares más flojos: todas las combinaciones de las 5 cartas que más juega el meta, y las 3 mejores a verificar (prende la ronda de prueba)',
+        ),
       rounds: z.number().int().min(1).max(20).optional().describe('Rondas como máximo (por defecto 12)'),
       variants: z.number().int().min(1).max(12).optional().describe('Variantes nuevas por ronda (por defecto 8)'),
       games: z

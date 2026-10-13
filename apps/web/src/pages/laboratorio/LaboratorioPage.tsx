@@ -353,6 +353,9 @@ function PlanView({ plan }: { plan: LabExplorePlan }) {
         {formatNumber(plan.pool)} cartas candidatas
         {plan.games.probe > 0
           ? ` · ronda de prueba: ${formatNumber(plan.games.probe)} partidas (~${formatDuration(plan.estimatedSeconds.probe)})`
+          : ''}
+        {plan.games.fill > 0
+          ? ` · ronda a fondo: hasta ${formatNumber(plan.games.fill)} partidas (~${formatDuration(plan.estimatedSeconds.fill)})`
           : ''}{' '}
         · {formatNumber(plan.games.perRound)} partidas por ronda (~
         {formatDuration(plan.estimatedSeconds.perRound)}) · como mucho {formatNumber(plan.games.max)} (~
@@ -459,6 +462,8 @@ function ExploreForm({ size, objective }: { size: number; objective: LabObjectiv
   const [race, setRace] = useState(false)
   // T-017 C3: start with a «carta más floja» round.
   const [probe, setProbe] = useState(false)
+  // T-017 C8: then fill the two weakest places with every combination of the favourites.
+  const [fill, setFill] = useState(false)
   const deckId = source && 'deckId' in source ? source.deckId : null
 
   const input: LabExploreInput | null = useMemo(() => {
@@ -477,10 +482,26 @@ function ExploreForm({ size, objective }: { size: number; objective: LabObjectiv
         confirmGames: Number(confirmGames),
         verifyGames: Number(verifyGames),
         race,
-        probe,
+        probe: probe || fill,
+        fill,
       },
     }
-  }, [source, size, objective, locked, include, pool, rounds, variants, games, confirmGames, verifyGames, race, probe])
+  }, [
+    source,
+    size,
+    objective,
+    locked,
+    include,
+    pool,
+    rounds,
+    variants,
+    games,
+    confirmGames,
+    verifyGames,
+    race,
+    probe,
+    fill,
+  ])
 
   // H-021: the plan on screen is the search that starts (same seed) while nothing changed since «Ver el plan».
   const [plannedFor, setPlannedFor] = useState<string | null>(null)
@@ -592,10 +613,22 @@ function ExploreForm({ size, objective }: { size: number; objective: LabObjectiv
         />
       </div>
       <div className="flex items-start gap-2 text-sm">
-        <Checkbox id="explore-probe" checked={probe} onCheckedChange={(checked) => setProbe(checked === true)} />
+        <Checkbox
+          id="explore-probe"
+          checked={probe || fill}
+          disabled={fill}
+          onCheckedChange={(checked) => setProbe(checked === true)}
+        />
         <label htmlFor="explore-probe">
           Empezar con una ronda de prueba: saca una copia de cada carta para ver cuánto aporta, y después cambia más
           seguido las que menos aportan.
+        </label>
+      </div>
+      <div className="flex items-start gap-2 text-sm">
+        <Checkbox id="explore-fill" checked={fill} onCheckedChange={(checked) => setFill(checked === true)} />
+        <label htmlFor="explore-fill">
+          Después, llenar a fondo los dos lugares más flojos: prueba todas las combinaciones de las 5 cartas que más
+          juega el meta en ese tipo de mazo, y verifica las 3 mejores. Prende la ronda de prueba.
         </label>
       </div>
       <div className="flex items-start gap-2 text-sm">

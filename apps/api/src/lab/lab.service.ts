@@ -58,6 +58,8 @@ import {
   exploreConfig,
   exploreGames,
   exploreSeed,
+  FILL_VERIFY,
+  fillRound,
   formatDifferenceEs,
   formatMetaScoreEs,
   type GameRecord,
@@ -89,6 +91,7 @@ import {
   type PoolCard,
   PROBE_FILLERS,
   pairedDifference,
+  pairedTop,
   pairedWinner,
   perGameEntries,
   perGameSummary,
@@ -105,6 +108,7 @@ import {
   robustnessEs,
   robustnessOf,
   roundGames,
+  roundTop,
   roundWinner,
   type ScoreDifference,
   SELECTABLE_ENERGIES,
@@ -123,7 +127,7 @@ import {
   type Variant,
   validateDeck,
   variantOf,
-  verifyAccepts,
+  verifyPick,
   weakestThird,
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
@@ -274,6 +278,8 @@ interface ExploreRound {
   dropped?: number[]
   /** T-017 C3: the «carta más floja» round: it measures, it accepts nothing and it is no search round. */
   probe?: boolean
+  /** T-017 C8: a fill round — the functional cards whose places it fills with every combination of the favourites. */
+  fill?: string[]
   /** T-017 D2: «Frenar y confirmar» cut this round short (its chunks no worker had taken went away). */
   stopped?: boolean
 }
@@ -1078,10 +1084,11 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         seed: number
         /**
          * Fase 42: `robustness`, the replay of the confirmation with `confirmBot` when it backs what was found. T-017 C3:
-         * `probe`, the probe round (counted in `max`), and then `firstRound` is that round's lists.
+         * `probe`, the probe round (counted in `max`), and then `firstRound` is that round's lists. T-017 C8: `fill`, the
+         * fill round at most (it takes one round's place in `max`).
          */
-        games: { perRound: number; max: number; probe: number; robustness: number }
-        estimatedSeconds: { perRound: number; max: number; probe: number; robustness: number }
+        games: { perRound: number; max: number; probe: number; fill: number; robustness: number }
+        estimatedSeconds: { perRound: number; max: number; probe: number; fill: number; robustness: number }
       }
   > {
     const config = exploreConfig(input.config)
@@ -1231,6 +1238,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           perRound: Math.round(estimateSeconds(games.perRound, players, cores)),
           max: Math.round(estimateSeconds(games.max, players, cores)),
           probe: Math.round(estimateSeconds(games.probe, players, cores)),
+          fill: Math.round(estimateSeconds(games.fill, players, cores)),
           robustness:
             robustnessGames > 0 && config.confirmBot
               ? Math.round(estimateSeconds(robustnessGames, [config.confirmBot, config.confirmBot], cores))
@@ -1665,25 +1673,16 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           const left = new Set(round.dropped ?? [])
 
           let accepted: number | null = null
-          let verifyNext: number | null = null
+          // H-010: what goes to the verification; T-017 C8: a fill round sends its best three together.
+          let verifyNext: number[] = []
           if (round.kind === 'verify') {
-            // H-010: fresh seeds for both; the variant stays only if it wins there too.
-            const [candidate] = round.candidates
-            const paired =
-              candidate === undefined ? null : pairedOf(chunks, rivals, candidate, round.incumbent, thisRound)
-            // An incomplete verification (failed chunks; «Frenar» lets it finish) never accepts.
-            const ok =
-              candidate !== undefined &&
-              complete(chunks, rivals, candidate, thisRound) &&
-              complete(chunks, rivals, round.incumbent, thisRound) &&
-              (paired
-                ? differenceVerdict(paired, state.config.verifyZ) === 'better'
-                : verifyAccepts(
-                    scoreOf(chunks, rivals, candidate, thisRound),
-                    scoreOf(chunks, rivals, round.incumbent, thisRound),
-                    state.config.verifyZ,
-                  ))
-            accepted = ok ? (candidate as number) : null
+            // H-010: fresh seeds for all; a variant stays only if it wins there too (T-017 C8: with several, the best
+            // past the bar corrected for how many). An incomplete one (failed chunks; «Frenar» lets it finish) never
+            // stays.
+            accepted = verifyPick(
+              round.candidates.map((id) => ({ id, ...measured(chunks, rivals, id, round.incumbent, thisRound) })),
+              state.config.verifyZ,
+            )
           } else if (round.probe) {
             // T-017 C3: it measures what each card is worth; nothing is accepted.
             round.screened = null
@@ -1704,11 +1703,20 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               difference: pairedOf(chunks, rivals, candidate.id, state.incumbent, thisRound),
             }))
             // Those without per-game results (a chunk played by a worker without them) sit this screen out.
-            const screened = paired.some((candidate) => candidate.difference)
-              ? pairedWinner(paired, state.config.acceptZ)
-              : roundWinner(incumbentScore, candidates, state.config.acceptZ)
+            const byPairs = paired.some((candidate) => candidate.difference)
+            // T-017 C8: a fill round's best three past the screen go to the verification together.
+            const tops = round.fill
+              ? byPairs
+                ? pairedTop(paired, state.config.acceptZ, FILL_VERIFY)
+                : roundTop(incumbentScore, candidates, state.config.acceptZ, FILL_VERIFY)
+              : null
+            const screened = tops
+              ? (tops[0] ?? null)
+              : byPairs
+                ? pairedWinner(paired, state.config.acceptZ)
+                : roundWinner(incumbentScore, candidates, state.config.acceptZ)
             round.screened = screened
-            if (screened !== null && (state.config.verifyGames ?? 0) > 0) verifyNext = screened
+            if (screened !== null && (state.config.verifyGames ?? 0) > 0) verifyNext = tops ?? [screened]
             else accepted = screened
           }
           // T-017 C4: what this round says about each card change, for the rounds to come.
@@ -1740,10 +1748,11 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               })),
             )
           }
-          // Review of #15: a swap the verification rejected leaves the combo list (its round flattered it).
-          const [verified] = round.kind === 'verify' ? round.candidates : []
-          if (verified !== undefined && accepted === null) {
-            state.swaps = (state.swaps ?? []).filter((swap) => swap.variant !== verified)
+          // Review of #15: a swap the verification rejected leaves the combo list (its round flattered it). T-017 C8:
+          // each one it rejected.
+          if (round.kind === 'verify') {
+            const rejected = round.candidates.filter((id) => id !== accepted)
+            state.swaps = (state.swaps ?? []).filter((swap) => !rejected.includes(swap.variant))
           }
           if (accepted !== null) {
             const undone = state.revertOf?.[String(accepted)]
@@ -1766,7 +1775,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           }
           round.accepted = accepted
           round.decided = true
-          if (verifyNext === null && !round.probe) {
+          if (verifyNext.length === 0 && !round.probe) {
             if (accepted !== null) {
               state.incumbent = accepted
               state.stall = 0
@@ -1777,7 +1786,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           // T-017 D2: stopped by hand, what was accepted goes to the confirmation. A complete variant that won the stopped
           // round is still verified first (bots' review, item 5; H-010): nothing is accepted without fresh games.
           let stop: ExploreStop | null =
-            verifyNext !== null
+            verifyNext.length > 0
               ? null
               : state.stopRequested
                 ? 'user'
@@ -1794,9 +1803,11 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           let decks: number[] = []
           let games = state.config.gamesPerRival
           let kind: ExploreRound['kind'] = 'search'
-          if (verifyNext !== null) {
+          // T-017 C8: right after the probe round, the fill round (when asked for and something can be freed).
+          let fillOut: string[] | null = null
+          if (verifyNext.length > 0) {
             kind = 'verify'
-            decks = [state.incumbent, verifyNext]
+            decks = [state.incumbent, ...verifyNext]
             games = state.config.verifyGames
           } else if (!stop) {
             const incumbent = await tx.deckSnapshot.findUniqueOrThrow({ where: { id: state.incumbent } })
@@ -1823,58 +1834,84 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             const rules = state.event?.rules
             const caps = poolCaps(capsPool, state.config.pool)
             const learned = state.learned ?? {}
-            const combo = comboVariant(incumbentCards, state.swaps ?? [], index, {
-              seen,
-              locked: new Set(state.locked),
-              // Review of #15: within the copies the pool allows (the collection's), ordered by what was learned.
-              maxCopies: caps,
-              score: (swap) => swapScore(learned, swap, index),
-              valid: (cards) =>
-                validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
-                (!rules || checkEventDeck(cards, rules, index).ok),
-            })
+            // T-017 C8: after the probe round, every way to fill the two weakest places with the meta's favourites
+            // (and nothing else: no combo, undo, Energy or card to try this round).
+            const filled =
+              round.probe && state.config.fill
+                ? fillRound(incumbentCards, state.weakest ?? [], pool, index, {
+                    locked: new Set(state.locked),
+                    seen,
+                    maxCopies: caps,
+                    valid: (cards) =>
+                      validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
+                      (!rules || checkEventDeck(cards, rules, index).ok),
+                  })
+                : null
+            const filling = !!filled && filled.variants.length > 0
+            if (filled && filling) {
+              fillOut = filled.out
+              for (const variant of filled.variants) seen.add(variant.key)
+            }
+            const combo = filling
+              ? null
+              : comboVariant(incumbentCards, state.swaps ?? [], index, {
+                  seen,
+                  locked: new Set(state.locked),
+                  // Review of #15: within the copies the pool allows (the collection's), ordered by what was learned.
+                  maxCopies: caps,
+                  score: (swap) => swapScore(learned, swap, index),
+                  valid: (cards) =>
+                    validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
+                    (!rules || checkEventDeck(cards, rules, index).ok),
+                })
             if (combo) seen.add(combo.key)
             // T-017 C5: one variant undoes a swap accepted earlier (a different one each round).
             const baseSnapshot = await tx.deckSnapshot.findUniqueOrThrow({ where: { id: state.base } })
             const baseCards = slotsOfSnapshot(baseSnapshot.cards as unknown as SnapshotCard[])
             // The last one accepted was just verified: undo only the ones before it.
-            const revert = revertVariant(
-              incumbentCards,
-              (state.accepted ?? []).slice(0, -1),
-              searchRounds,
-              index,
-              (groupId) => {
-                const inBase = baseCards.find((entry) => index.cardById(entry.cardId)?.functionalGroupId === groupId)
-                return inBase?.cardId ?? index.groupById(groupId)?.displayCardId ?? groupId
-              },
-              {
-                seen,
-                locked: new Set(state.locked),
-                valid: (cards) =>
-                  validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
-                  (!rules || checkEventDeck(cards, rules, index).ok),
-              },
-            )
+            const revert = filling
+              ? null
+              : revertVariant(
+                  incumbentCards,
+                  (state.accepted ?? []).slice(0, -1),
+                  searchRounds,
+                  index,
+                  (groupId) => {
+                    const inBase = baseCards.find(
+                      (entry) => index.cardById(entry.cardId)?.functionalGroupId === groupId,
+                    )
+                    return inBase?.cardId ?? index.groupById(groupId)?.displayCardId ?? groupId
+                  },
+                  {
+                    seen,
+                    locked: new Set(state.locked),
+                    valid: (cards) =>
+                      validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
+                      (!rules || checkEventDeck(cards, rules, index).ok),
+                  },
+                )
             if (revert) seen.add(revert.key)
             // T-017 C6: one variant tries another Energy Zone with the same cards (a different option each round).
             seen.add(energyKey(listKeyByGroup(groupsOfCards(incumbentCards, index)), energies))
-            const energyChange = energyVariant(incumbentCards, energies, searchRounds, index, seen)
+            const energyChange = filling ? null : energyVariant(incumbentCards, energies, searchRounds, index, seen)
             if (energyChange) seen.add(energyChange.key)
             // Review of the stack: the combo, the undo and the Energy variant never go past `variantsPerRound`.
             // T-017 E3: one variant brings in a card to try (a different one each round).
-            const asked = this.includeVariant(
-              incumbentCards,
-              energies,
-              pool,
-              state.include ?? [],
-              searchRounds,
-              baseSeed + searchRounds,
-              new Set(state.locked),
-              seen,
-              index,
-              rules,
-              affinity,
-            )
+            const asked = filling
+              ? null
+              : this.includeVariant(
+                  incumbentCards,
+                  energies,
+                  pool,
+                  state.include ?? [],
+                  searchRounds,
+                  baseSeed + searchRounds,
+                  new Set(state.locked),
+                  seen,
+                  index,
+                  rules,
+                  affinity,
+                )
             const fixed = [
               ...(combo ? [combo] : []),
               ...(revert ? [revert] : []),
@@ -1886,23 +1923,26 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             }
             const keptCombo = combo && fixed.includes(combo) ? combo : null
             const keptRevert = revert && fixed.includes(revert) ? revert : null
-            const fresh = [
-              ...fixed,
-              ...this.variants(
-                incumbentCards,
-                energies,
-                pool,
-                index,
-                baseSeed + searchRounds,
-                Math.max(0, state.config.variantsPerRound - fixed.length),
-                new Set(state.locked),
-                seen,
-                affinity,
-                rules,
-                state.learned,
-                new Set(state.weakest ?? []),
-              ),
-            ]
+            const fresh =
+              filled && filling
+                ? filled.variants
+                : [
+                    ...fixed,
+                    ...this.variants(
+                      incumbentCards,
+                      energies,
+                      pool,
+                      index,
+                      baseSeed + searchRounds,
+                      Math.max(0, state.config.variantsPerRound - fixed.length),
+                      new Set(state.locked),
+                      seen,
+                      affinity,
+                      rules,
+                      state.learned,
+                      new Set(state.weakest ?? []),
+                    ),
+                  ]
             const base = await tx.deckSnapshot.findUniqueOrThrow({ where: { id: state.base }, select: { label: true } })
             const saved = await this.saveVariants(fresh, energies, base.label, searchRounds)
             state.seen = [...seen]
@@ -1967,6 +2007,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             accepted: null,
             decided: false,
             ...(racing ? { stage: 1 as const } : {}),
+            ...(fillOut && kind === 'search' ? { fill: fillOut } : {}),
           })
           params.sideA = [...new Set([...params.sideA, ...decks])]
           // Review of #7: per-game results only while a worker that plays them is around, round by round.
@@ -2309,6 +2350,11 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               stopped: round.stopped ?? false,
               dropped: round.dropped ?? [],
               probe: round.probe ?? false,
+              fill: (round.fill ?? []).map((groupId) => ({
+                cardId: groupId,
+                nameEs: index.groupById(groupId)?.nameEs ?? groupId,
+                count: 1,
+              })),
             })),
             leftOut: leftOutCards(state.frozen, state.config.pool, index, playable),
             learned: learnedChanges(state.learned ?? {}).map((change) => ({

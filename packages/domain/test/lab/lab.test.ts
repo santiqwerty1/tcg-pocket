@@ -581,6 +581,7 @@ describe('search rules', () => {
       perRound: 9 * 10 * 60,
       max: (9 * 10 * 60 + 2 * 10 * 120) * 12 + 2 * 10 * 200,
       probe: 0,
+      fill: 0,
     })
     expect(exploreGames({ ...DEFAULT_EXPLORE_CONFIG, verifyGames: 0 }, 10).max).toBe(9 * 10 * 60 * 12 + 2 * 10 * 200)
     // T-017 C3 (review of #78): a probe round of 14 lists and the deck, at half the games, counts too.
@@ -588,6 +589,18 @@ describe('search rules', () => {
     expect(probing.probe).toBe(15 * 10 * 30)
     expect(probing.max).toBe(exploreGames(DEFAULT_EXPLORE_CONFIG, 10).max + 15 * 10 * 30)
     expect(exploreGames({ ...DEFAULT_EXPLORE_CONFIG, gamesPerRival: 10 }, 10, 3).probe).toBe(4 * 10 * 10)
+    // T-017 C8: the fill round (27 lists and the incumbent) takes one round's place; its verification plays 3 and the
+    // incumbent.
+    const filling = exploreGames({ ...DEFAULT_EXPLORE_CONFIG, fill: true }, 10, 14)
+    expect(filling.fill).toBe(28 * 10 * 60)
+    expect(filling.max).toBe(
+      (9 * 10 * 60 + 2 * 10 * 120) * 11 + 28 * 10 * 60 + 4 * 10 * 120 + 2 * 10 * 200 + 15 * 10 * 30,
+    )
+    // Without a probe round there is nothing to fill.
+    expect(exploreGames({ ...DEFAULT_EXPLORE_CONFIG, fill: true }, 10).fill).toBe(0)
+    // Filling turns the probe on.
+    expect(exploreConfig({ fill: true })).toMatchObject({ fill: true, probe: true })
+    expect(exploreConfig({ probe: true })).toMatchObject({ fill: false, probe: true })
   })
 
   it('H-010: the verification and the confirmation ask for a clear win on fresh games', () => {

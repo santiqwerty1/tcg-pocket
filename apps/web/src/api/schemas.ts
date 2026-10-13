@@ -1790,6 +1790,7 @@ const exploreConfigSchema = z.object({
   confirmBot: z.string().nullable().optional(),
   race: z.boolean().optional(),
   probe: z.boolean().optional(),
+  fill: z.boolean().optional(),
 })
 export type ExploreConfig = z.infer<typeof exploreConfigSchema>
 
@@ -1841,6 +1842,8 @@ export const labJobSchema = z.object({
           dropped: z.array(z.number()).default([]),
           /** T-017 C3: the «carta más floja» round. */
           probe: z.boolean().default(false),
+          /** T-017 C8: a fill round — the cards whose places it fills. */
+          fill: z.array(labCardSchema).default([]),
         }),
       ),
       /** T-017 E2: archetype cards the search could not try because the collection has none. */
@@ -1963,9 +1966,22 @@ export const labExplorePlanSchema = z.object({
   config: exploreConfigSchema,
   /** H-021: the plan's seed; starting with it plays these same first-round variants. */
   seed: z.number().optional(),
-  /** T-017 C3: `probe`, the games of the probe round (in `max`); then `firstRound` is that round's lists. */
-  games: z.object({ perRound: z.number(), max: z.number(), probe: z.number().default(0) }),
-  estimatedSeconds: z.object({ perRound: z.number(), max: z.number(), probe: z.number().default(0) }),
+  /**
+   * T-017 C3: `probe`, the games of the probe round (in `max`); then `firstRound` is that round's lists. T-017 C8:
+   * `fill`, the fill round at most.
+   */
+  games: z.object({
+    perRound: z.number(),
+    max: z.number(),
+    probe: z.number().default(0),
+    fill: z.number().default(0),
+  }),
+  estimatedSeconds: z.object({
+    perRound: z.number(),
+    max: z.number(),
+    probe: z.number().default(0),
+    fill: z.number().default(0),
+  }),
 })
 export type LabExplorePlan = z.infer<typeof labExplorePlanSchema>
 

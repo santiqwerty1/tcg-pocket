@@ -132,6 +132,8 @@ const exploreSchema = runSchema.extend({
       race: z.boolean().optional(),
       /** T-017 C3: start with a «carta más floja» round. */
       probe: z.boolean().optional(),
+      /** T-017 C8: fill the two weakest places after the probe round (it turns the probe on). */
+      fill: z.boolean().optional(),
     })
     .optional(),
 })
