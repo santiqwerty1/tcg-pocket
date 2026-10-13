@@ -10,7 +10,7 @@ import { useMatchupMatrix } from '@/api/tournaments'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
-import { formatInterval, formatRateValue } from '@/lib/matches'
+import { formatInterval, formatRateValue, formatSample, ORIENTATIVE_BELOW } from '@/lib/matches'
 import { matchupTone, shortName, TONE_CLASS } from '@/lib/matchups'
 import { formatCount, formatShare, scopeFromSearch, scopeSearch } from '@/lib/tournaments'
 import { cn } from '@/lib/utils'
@@ -150,10 +150,10 @@ export function MatchupsPage() {
                   <p className="text-xs text-muted-foreground">
                     {formatShare(row.share)} del meta
                     {row.expected
-                      ? ` · con datos: ${formatShare(row.expected.coverage)} del meta, ${row.expected.rivals} rivales (n = ${formatCount(row.expected.matches)}${row.expected.ci95 ? `, IC ${formatInterval(row.expected.ci95)}` : ''})`
+                      ? ` · con datos: ${formatShare(row.expected.coverage)} del meta, ${row.expected.rivals} rivales (n = ${formatCount(row.expected.matches)}${row.expected.ci95 ? `, IC ${formatInterval(row.expected.ci95)}` : ''}${row.expected.matches < ORIENTATIVE_BELOW ? ', orientativo' : ''})`
                       : ''}
                     {row.field.rate
-                      ? ` · contra todos: ${formatRateValue(row.field.rate.value)} (IC ${formatInterval(row.field.rate.ci95)})`
+                      ? ` · contra todos: ${formatRateValue(row.field.rate.value)} (${formatSample(row.field.rate)}, IC ${formatInterval(row.field.rate.ci95)}${row.field.rate.orientative ? ', orientativo' : ''})`
                       : ''}
                   </p>
                 </li>

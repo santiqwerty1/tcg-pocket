@@ -125,7 +125,10 @@ export function TrendsPage() {
   const range = (w: MetaTrends['now']) =>
     `${formatDayEs(w.from)} – ${formatDayEs(new Date(new Date(w.to).getTime() - 1).toISOString())}`
   // The window ends a day after the newest tournament loaded (domain `metaTrends`).
-  const stale = staleTournaments(new Date(new Date(data.now.to).getTime() - 86_400_000).toISOString())
+  // Review of #87: a closed era is old on purpose; only the current one warns.
+  const stale = data.scope.era.current
+    ? staleTournaments(new Date(new Date(data.now.to).getTime() - 86_400_000).toISOString())
+    : null
 
   return (
     <div className="flex flex-col gap-5">

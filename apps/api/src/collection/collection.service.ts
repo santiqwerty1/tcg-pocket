@@ -253,6 +253,14 @@ export class CollectionService {
       (stockCardId) => stock[stockCardId]?.amountOwned ?? 0,
     ).filter((item) => !query.incomplete || !item.complete)
     const order = new Map(index.catalog.expansions.map((expansion, at) => [expansion.id, at]))
+    // Review of #87: the cards and expansions a reward names, in Spanish when the catalog knows them.
+    const cardsEs = new Map<string, string>()
+    for (const card of index.catalog.cards) if (!cardsEs.has(card.nameEn)) cardsEs.set(card.nameEn, card.nameEs)
+    const expansionsEs = new Map(index.catalog.expansions.map((expansion) => [expansion.nameEn, expansion.nameEs]))
+    const rewardNames = {
+      card: (nameEn: string) => cardsEs.get(nameEn) ?? null,
+      expansion: (nameEn: string) => expansionsEs.get(nameEn) ?? null,
+    }
     const items = progress
       .sort(
         (a, b) =>
@@ -265,7 +273,7 @@ export class CollectionService {
         expansionNameEs: index.expansionById(item.mission.expansionId)?.nameEs ?? item.mission.expansionId,
         name: item.mission.name,
         // Phone review: in Spanish (the app's names, to be confirmed by Santi).
-        reward: item.mission.reward === null ? null : rewardEs(item.mission.reward),
+        reward: item.mission.reward === null ? null : rewardEs(item.mission.reward, rewardNames),
         secret: item.mission.secret,
         complete: item.complete,
         missingCopies: item.missingCopies,

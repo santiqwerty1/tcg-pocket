@@ -89,6 +89,12 @@ it('phone review: «gana» with its n and interval, the window up to the newest 
   expect(screen.getByText(/^El último torneo cargado es del 5\/9\/2026, hace \d+ días/)).toBeInTheDocument()
 })
 
+it('review of #87: a closed era is old on purpose: no warning', async () => {
+  open({ ...TRENDS, scope: { ...TRENDS.scope, era: { ...TRENDS.scope.era, to: '2026-09-30', current: false } } })
+  expect(await screen.findByText(/hasta el último torneo cargado/)).toBeInTheDocument()
+  expect(screen.queryByText(/El último torneo cargado es del/)).not.toBeInTheDocument()
+})
+
 it('under 30 lists the rate says «orientativo»; a fresh window says nothing of old data', async () => {
   const day = 86_400_000
   const now = Date.now()

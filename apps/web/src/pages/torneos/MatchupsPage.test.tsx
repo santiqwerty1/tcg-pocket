@@ -102,5 +102,31 @@ it('phone review: «Contra el meta» says the interval of what each archetype sh
     </Providers>,
   )
   expect(await screen.findByText(/58 rivales \(n = 202, IC 50,9–61,1 %\)/)).toBeInTheDocument()
-  expect(screen.getByText(/contra todos: 56,4 % \(IC 49,5–63,1 %\)/)).toBeInTheDocument()
+  // Review of #87: «contra todos» with its n too.
+  expect(screen.getAllByText(/contra todos: 56,4 % \(n = 202, IC 49,5–63,1 %\)/).length).toBeGreaterThan(0)
+})
+
+it('review of #87: under 30 matches the expected rate and «contra todos» say «orientativo»', async () => {
+  const [first] = MATRIX.archetypes
+  if (!first) throw new Error('no archetype')
+  fakeApi({
+    'GET /api/tournaments/matchups': {
+      ...MATRIX,
+      archetypes: [
+        {
+          ...first,
+          field: { ...first.field, rate: { ...first.field.rate, games: 20, samples: 20, orientative: true } },
+          expected: { ...first.expected, matches: 20 },
+        },
+      ],
+    },
+  })
+  const router = createMemoryRouter(routes, { initialEntries: ['/torneos/matchups'] })
+  render(
+    <Providers queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <RouterProvider router={router} />
+    </Providers>,
+  )
+  expect(await screen.findByText(/\(n = 20, IC 50,9–61,1 %, orientativo\)/)).toBeInTheDocument()
+  expect(screen.getByText(/contra todos: 56,4 % \(n = 20, IC 49,5–63,1 %, orientativo\)/)).toBeInTheDocument()
 })

@@ -77,36 +77,80 @@ export function parseMissions(
 }
 
 /**
- * Phone review (13/10/2026): the rewards' items in Spanish. The tracker has no Spanish for them, so these are the
- * app's names, not confirmed against the game in Spanish: Santi reviews them (DECISIONES 56.6). The mission names
- * stay in English (each one is unique; there is no source for them).
+ * Phone review (13/10/2026): the rewards in Spanish. The tracker has no Spanish for them, so the items' names are the
+ * app's, not confirmed against the game in Spanish: Santi reviews them (DECISIONES 56.6). Card and expansion names
+ * come from the catalog when it knows them. The mission names stay in English (each one is unique; there is no source).
  */
-export const REWARD_ITEMS_ES: readonly [english: RegExp, spanish: string][] = [
-  [/\bWonder Hourglass\b/gi, 'Reloj de arena maravilla'],
-  [/\bPack Hourglass\b/gi, 'Reloj de arena de sobre'],
-  [/\bShop Ticket\b/gi, 'Ticket de tienda'],
-  [/\bShinedust\b/gi, 'Polvo brillante'],
-  [/\(profile icon\)/gi, '(ícono de perfil)'],
-  [/\(emblem\)/gi, '(emblema)'],
-  [/\(cover\)/gi, '(portada)'],
-  [/\(backdrop\)/gi, '(fondo)'],
-  [/\(playmat\)/gi, '(tapete)'],
-  [/\(card sleeve\)/gi, '(funda)'],
-  [/\(pok[eé]mon coin\)/gi, '(moneda)'],
-]
+export const REWARD_ITEMS_ES: Readonly<Record<string, string>> = {
+  'wonder hourglass': 'Reloj de arena maravilla',
+  'pack hourglass': 'Reloj de arena de sobre',
+  'shop ticket': 'Ticket de tienda',
+  shinedust: 'Polvo brillante',
+}
 
-/** A mission's reward in Spanish, one item after the other («Reloj de arena maravilla ×12, Ticket de tienda»). */
-export function rewardEs(reward: string): string {
+/** What a cosmetic reward is, after its name in parentheses. */
+export const REWARD_KINDS_ES: Readonly<Record<string, string>> = {
+  'profile icon': 'ícono de perfil',
+  emblem: 'emblema',
+  cover: 'portada',
+  backdrop: 'fondo',
+  playmat: 'tapete',
+  'card sleeve': 'funda',
+  'pokémon coin': 'moneda',
+  'pokemon coin': 'moneda',
+}
+
+/** Spanish names the catalog knows, by English name (cards and expansions); null when it does not. */
+export interface RewardNames {
+  card?: ((nameEn: string) => string | null) | undefined
+  expansion?: ((nameEn: string) => string | null) | undefined
+}
+
+/** «Team Rocket Grunt Ver. 3» → the card's Spanish name, keeping the «Ver. 3». */
+function nameEs(name: string, names: RewardNames | undefined): string {
+  const version = /^(.*?)(\s+Ver\.\s*\d+)$/i.exec(name)
+  const base = version?.[1] ?? name
+  const spanish = names?.card?.(base) ?? null
+  return spanish ? `${spanish}${version?.[2] ?? ''}` : name
+}
+
+/** «Mythical Island: Mew» or «Moltres, Zapdos, And Articuno», in Spanish: «… y Articuno», no comma before «y». */
+function subjectEs(subject: string, names: RewardNames | undefined): string {
+  const colon = subject.indexOf(': ')
+  if (colon > 0) {
+    const expansion = names?.expansion?.(subject.slice(0, colon)) ?? null
+    if (expansion) return `${expansion}: ${subjectEs(subject.slice(colon + 2), names)}`
+  }
+  const parts = subject
+    .split(/\s*,\s*|\s+and\s+/i)
+    .map((part) => part.replace(/^and\s+/i, '').trim())
+    .filter(Boolean)
+    .map((part) => nameEs(part, names))
+  if (parts.length < 2) return parts[0] ?? subject
+  return `${parts.slice(0, -1).join(', ')} y ${parts.at(-1)}`
+}
+
+/**
+ * A mission's reward in Spanish: «Reloj de arena maravilla ×36 · Reloj de arena de sobre ×12 · Ticket de tienda». The
+ * items are separated by «·», since one can hold commas («Moltres, Zapdos y Articuno (emblema)»).
+ */
+export function rewardEs(reward: string, names?: RewardNames): string {
   return reward
     .split(/<br\s*\/?>/i)
     .map((item) => item.trim())
     .filter(Boolean)
     .map((item) => {
-      let text = item.replace(/(^|,\s*)And\s+/gi, '$1y ')
-      for (const [english, spanish] of REWARD_ITEMS_ES) text = text.replace(english, spanish)
-      return text
+      const amount = /\s*×\s*[\d.,]+\s*$/.exec(item)
+      let rest = amount ? item.slice(0, amount.index) : item
+      const kind = /\s*\(([^)]+)\)\s*$/.exec(rest)
+      if (kind) rest = rest.slice(0, kind.index)
+      rest = rest.trim()
+      const word = REWARD_ITEMS_ES[rest.toLowerCase()]
+      const subject = word ?? subjectEs(rest, names)
+      const kindText = kind ? ` (${REWARD_KINDS_ES[(kind[1] ?? '').toLowerCase()] ?? kind[1]})` : ''
+      return `${subject}${kindText}${amount ? ` ${amount[0].trim()}` : ''}`
     })
-    .join(', ')
+    .join(' · ')
 }
 
 export interface SlotProgress {

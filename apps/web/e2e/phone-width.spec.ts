@@ -46,6 +46,28 @@ test('a match row keeps the rival readable after a long deck name', async ({ pag
   expect(await pageWidth(page)).toBeLessThanOrEqual(PHONE)
 })
 
+test('review of #87: a long word in a column of the deck’s «Rendimiento» wraps inside the column', async ({ page }) => {
+  // The screens database has no tournaments: the tournament column gets the note it has with them.
+  await page.route('**/api/decks/1/comparison*', async (route) => {
+    const response = await route.fetch()
+    const body = (await response.json()) as { columns: { source: string; note: string }[] }
+    body.columns = body.columns.map((column) =>
+      column.source === 'tournament'
+        ? {
+            ...column,
+            note: 'Era B4a (Ambición del Equipo Rocket), 1 torneo, media 48 %. Datos de torneo: Limitless (play.limitlesstcg.com).',
+          }
+        : column,
+    )
+    await route.fulfill({ response, json: body })
+  })
+  await page.goto('/mazos/1')
+  const note = page.locator('[data-source="tournament"] p').last()
+  await expect(note).toContainText('play.limitlesstcg.com')
+  expect(await note.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1)
+  expect(await pageWidth(page)).toBeLessThanOrEqual(PHONE)
+})
+
 for (const path of ['/partidas', '/partidas/estadisticas', '/partidas/semana', '/mazos', '/mazos/1', '/coleccion']) {
   test(`${path} fits the phone with every section open`, async ({ page }) => {
     await page.goto(path)
