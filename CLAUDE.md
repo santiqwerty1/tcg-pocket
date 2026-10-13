@@ -137,7 +137,7 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 - **Fase 42, 12/10:**
   - el bot «et» se puede jugar (#65, H-051, 45.45): engine-cli 0.3.5 con la feature `etBot`;
   - menores de la calibración y el `hint`/`worker_idle` que dicen qué feature le falta al motor (#67, 45.47–45.48);
-  - un trabajo se juega entero con un solo motor (#68, reemplaza a #48; 45.46 y 45.53): clave `engineRev` + `gamesRev` (`GAMES_REV` en `engine/src/main.rs`, test dorado `engine/games-rev.json`), migración `20261012000000_engine_games_rev`, partidas contra el bot `engine_changed`, engine-cli 0.3.6 y worker 0.3.3;
+  - un trabajo se juega entero con un solo motor (#68, reemplaza a #48; 45.46 y 45.54): clave `engineRev` + `gamesRev` (`GAMES_REV` en `engine/src/main.rs`, test dorado `engine/games-rev.json`), migración `20261012000000_engine_games_rev`, partidas contra el bot `engine_changed`, engine-cli 0.3.6 y worker 0.3.3;
   - «Reintentar lo que falló» (#71, 45.49): `POST /api/simulations/:id/retry-failed` y la tool de escritura `simulations_retry_failed` (13 de escritura);
   - «repetir los últimos» (#73 y #76, 45.50): la PC copia lo que juega el celu al final de un trabajo (`pickCopy`, migración `20261012150000_repeat_last`), y el CLI `worker-timing`. Queda «dos lugares por worker»;
   - la tool de lectura `simulations_calibration` (#77, 45.52): **43 de lectura**.
