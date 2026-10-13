@@ -70,6 +70,8 @@ FROM wasm-engine AS wasm-check
 RUN apt-get update && apt-get install -y --no-install-recommends nodejs && rm -rf /var/lib/apt/lists/*
 COPY LICENSE /repo/LICENSE
 COPY scripts/build-engine-wasm.mjs /repo/scripts/build-engine-wasm.mjs
+# The golden games of engine-cli: the browser's engine, natively, must play the same live games (tests/golden.rs).
+COPY engine/games-rev.json /repo/engine/games-rev.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/repo/engine/wasm/target \
