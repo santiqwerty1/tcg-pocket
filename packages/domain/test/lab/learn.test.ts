@@ -13,6 +13,7 @@ import {
   learnSwap,
   type MeasuredSwap,
   mutationPool,
+  outBoost,
   poolCaps,
   poolForZone,
   probeVariants,
@@ -273,5 +274,23 @@ describe('the «carta más floja» round (T-017 C3)', () => {
       ]),
     ).toEqual(['sure'])
     expect(weakestThird([])).toEqual([])
+  })
+
+  it('second review of #78: the weakest third is a floor of ×3 only while the probe is all that measured it', () => {
+    const weakest = new Set(['w'])
+    // Only the probe: a little harmful (−2 points) and still in the weakest third: ×3.
+    const learned: Learned = { '-w': { sum: -2, n: 1 }, '-x': { sum: -2, n: 1 } }
+    expect(outBoost(learned, weakest, 'w')).toBe(3)
+    expect(outBoost(learned, weakest, 'x')).toBeCloseTo(learnedFactor(learned, '-x'), 9)
+    // The probe said a lot (+40): what was learned (×4) is above the floor, not multiplied by it.
+    expect(outBoost({ '-w': { sum: 40, n: 1 } }, weakest, 'w')).toBe(4)
+    // Four variants of the next round took it out and lost (n 5, −13 points on average): what they learned decides.
+    const after: Learned = { '-w': { sum: -13.3 * 5, n: 5 } }
+    expect(outBoost(after, weakest, 'w')).toBe(0.25)
+    expect(outBoost(after, weakest, 'w')).toBe(learnedFactor(after, '-w'))
+    // Nothing learned yet: ×3 for the weakest, ×1 for the rest.
+    expect(outBoost(undefined, weakest, 'w')).toBe(3)
+    expect(outBoost(undefined, weakest, 'y')).toBe(1)
+    expect(outBoost(undefined, undefined, 'w')).toBe(1)
   })
 })

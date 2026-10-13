@@ -80,6 +80,7 @@ import {
   neighborhoodUsage,
   novelty,
   opponentKey,
+  outBoost,
   type PairedRival,
   type PerGameEntry,
   type PoolCard,
@@ -120,7 +121,6 @@ import {
   validateDeck,
   variantOf,
   verifyAccepts,
-  WEAKEST_BOOST,
   weakestThird,
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
@@ -1017,12 +1017,9 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         ...(learned || weakest
           ? {
               boostIn: (groupId: CardId) => (learned ? learnedFactor(learned, changeKey('+', groupId)) : 1),
-              // T-017 C3: the weakest third of the probe round goes out more often: ×3 at least, not ×3 on top of what
-              // was learned (review of #78: the probe already went into it).
-              boostOut: (groupId: CardId) => {
-                const factor = learned ? learnedFactor(learned, changeKey('-', groupId)) : 1
-                return weakest?.has(groupId) ? Math.max(WEAKEST_BOOST, factor) : factor
-              },
+              // T-017 C3: the weakest third of the probe round goes out more often (×3 at least) until later rounds
+              // measure it (review of #78).
+              boostOut: (groupId: CardId) => outBoost(learned, weakest, groupId),
             }
           : {}),
       })

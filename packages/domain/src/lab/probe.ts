@@ -9,6 +9,7 @@ import type { CatalogIndex } from '../catalog/catalogIndex.js'
 import type { CardId } from '../catalog/types.js'
 import type { DeckCardEntry } from '../decks/types.js'
 import { listKeyByGroup } from '../tournaments/dataset.js'
+import { changeKey, type Learned, learnedFactor } from './learn.js'
 import { cardChanges, replaceSlot, slotGroups, type Variant } from './mutate.js'
 import { groupsOfCards } from './novelty.js'
 import type { ScoreDifference } from './score.js'
@@ -24,6 +25,22 @@ export const PROBE_FILLERS: readonly CardId[] = ['P-A-3', 'P-A-4', 'P-A-1', 'P-A
  * not a factor on top of what was learned (review of #78: both together went up to ×12).
  */
 export const WEAKEST_BOOST = 3
+
+/**
+ * How much more often a card is drawn to go out: what was learned about taking it out (C4), with the weakest third's
+ * floor while the probe is all that measured it (n ≤ 1). Second review of #78: once later rounds measure it, what they
+ * learned decides — four variants that took a «weak» card out and lost (n 5, −13 points) left it at ×¼, not ×3.
+ */
+export function outBoost(
+  learned: Learned | undefined,
+  weakest: ReadonlySet<CardId> | undefined,
+  groupId: CardId,
+): number {
+  const key = changeKey('-', groupId)
+  const factor = learned ? learnedFactor(learned, key) : 1
+  const onlyProbe = (learned?.[key]?.n ?? 0) <= 1
+  return weakest?.has(groupId) && onlyProbe ? Math.max(WEAKEST_BOOST, factor) : factor
+}
 
 /**
  * One variant per functional card of `deck` (but the locked ones and the filler's): its first copy out, `filler` in its
