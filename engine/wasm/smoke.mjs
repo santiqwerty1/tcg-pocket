@@ -19,7 +19,8 @@ engine.initSync({ module: readFileSync(join(dir, manifest.wasm)) })
 
 const info = JSON.parse(engine.engineInfo())
 if (info.engineRev !== manifest.engineRev) throw new Error(`manifest ${manifest.engineRev} ≠ engine ${info.engineRev}`)
-if (info.gamesRev !== manifest.gamesRev) throw new Error(`manifest gamesRev ${manifest.gamesRev} ≠ engine ${info.gamesRev}`)
+if (info.gamesRev !== manifest.gamesRev)
+  throw new Error(`manifest gamesRev ${manifest.gamesRev} ≠ engine ${info.gamesRev}`)
 
 const ALTARIA = `Energy: Psychic
 2 Swablu A4a 64

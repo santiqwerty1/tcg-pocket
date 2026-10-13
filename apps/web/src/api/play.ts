@@ -145,11 +145,11 @@ export function useUndo(id: string) {
   })
 }
 
-/** Fase 22: the same decks and bot again; `sameSeed` for the very same shuffle (T-015: `engineRev` for the browser). */
+/** Fase 22: the same decks and bot again; `sameSeed` for the very same shuffle (T-015: the page's engine for the browser). */
 export function useRematch(id: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: { sameSeed?: boolean; engineRev?: string }) =>
+    mutationFn: (body: { sameSeed?: boolean; engineRev?: string; gamesRev?: number }) =>
       request(`/api/play/${encodeURIComponent(id)}/rematch`, { method: 'POST', body, schema: liveGameSchema }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: playKeys.list }),
   })
@@ -181,8 +181,12 @@ const okSchema = z.object({ status: z.string() }).passthrough()
 
 /** T-015: the page's side of a browser game (engine/runner.ts), like a worker's side of a PC game. */
 export const browserPlayApi: RunnerApi = {
-  job: (id, engineRev, signal) =>
-    request(`/api/play/${id}/browser`, { query: { engineRev }, schema: browserJobSchema, signal }),
+  job: (id, engine, signal) =>
+    request(`/api/play/${id}/browser`, {
+      query: { engineRev: engine.engineRev, gamesRev: String(engine.gamesRev) },
+      schema: browserJobSchema,
+      signal,
+    }),
   decision: (id, body, signal) =>
     request(`/api/play/${id}/browser/decision`, { method: 'PUT', body, schema: browserStepSchema, signal }),
   choice: (id, body, signal) =>

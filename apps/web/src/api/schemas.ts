@@ -2380,9 +2380,10 @@ export interface PlayInput {
   seed?: number
   /** Modo entrenador (Fase 20). */
   coach?: boolean
-  /** T-015: «browser» plays it with this device's engine (its revision in `engineRev`). */
+  /** T-015: «browser» plays it with this device's engine (its revision in `engineRev`, how it plays in `gamesRev`). */
   runner?: LiveGameRunner
   engineRev?: string
+  gamesRev?: number
 }
 
 /** T-015: what the engine of the page needs (`GET /api/play/:id/browser`). */

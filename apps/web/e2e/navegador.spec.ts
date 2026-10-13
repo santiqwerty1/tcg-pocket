@@ -20,7 +20,13 @@ test.beforeAll(() => {
   writeFileSync(join(ENGINE_DIR, 'fake_bg.wasm'), '')
   writeFileSync(
     join(ENGINE_DIR, 'manifest.json'),
-    JSON.stringify({ engineRev: FAKE_ENGINE_REV, version: 'fake', js: 'fake-wasm-engine.js', wasm: 'fake_bg.wasm' }),
+    JSON.stringify({
+      engineRev: FAKE_ENGINE_REV,
+      gamesRev: 1,
+      version: 'fake',
+      js: 'fake-wasm-engine.js',
+      wasm: 'fake_bg.wasm',
+    }),
   )
 })
 

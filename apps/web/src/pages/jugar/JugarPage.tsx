@@ -153,7 +153,9 @@ export function JugarPage() {
         rival: rivalSource,
         bot,
         coach,
-        ...(runner === 'browser' && browserEngine.data ? { runner, engineRev: browserEngine.data.engineRev } : {}),
+        ...(runner === 'browser' && browserEngine.data
+          ? { runner, engineRev: browserEngine.data.engineRev, gamesRev: browserEngine.data.gamesRev }
+          : {}),
       })
       navigate(`/jugar/${game.id}`)
     } catch (error) {

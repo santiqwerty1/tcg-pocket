@@ -90,6 +90,7 @@ describe('playing against a bot in the browser (e2e)', () => {
       seed: 77,
       runner: 'browser',
       engineRev: engineRev(),
+      gamesRev: 1,
       ...extra,
     })
     expect(created.status).toBe(201)
@@ -101,7 +102,7 @@ describe('playing against a bot in the browser (e2e)', () => {
     const missing = await post('/api/play').send(base)
     expect(missing.status).toBe(409)
     expect(missing.body.error.code).toBe('engine_mismatch')
-    const other = await post('/api/play').send({ ...base, engineRev: otherRev })
+    const other = await post('/api/play').send({ ...base, engineRev: otherRev, gamesRev: 1 })
     expect(other.status).toBe(409)
     expect(other.body.error.message).toContain('recargá la app')
 
@@ -120,8 +121,8 @@ describe('playing against a bot in the browser (e2e)', () => {
     expect(claim.body.game).toBeNull()
 
     // The page's engine gets the decks and the seed, only with the game's engine.
-    expect((await get(`/api/play/${id}/browser?engineRev=${otherRev}`)).status).toBe(409)
-    const job = await get(`/api/play/${id}/browser?engineRev=${engineRev()}`)
+    expect((await get(`/api/play/${id}/browser?engineRev=${otherRev}&gamesRev=1`)).status).toBe(409)
+    const job = await get(`/api/play/${id}/browser?engineRev=${engineRev()}&gamesRev=1`)
     expect(job.status).toBe(200)
     expect(job.body).toMatchObject({ id, bot: 'e2', seed: '77', choices: [], coach: true, status: 'running' })
     expect(job.body.deckHuman).toContain('Energy:')
@@ -182,7 +183,7 @@ describe('playing against a bot in the browser (e2e)', () => {
       .set('Content-Type', 'application/gzip')
       .send(replay)
     expect(wrongReplay.status).toBe(409)
-    const job = (await get(`/api/play/${id}/browser?engineRev=${engineRev()}`)).body
+    const job = (await get(`/api/play/${id}/browser?engineRev=${engineRev()}&gamesRev=1`)).body
     expect(job).toMatchObject({ status: 'done', choices: [0, 0], replayMissing: true })
     const sent = await put(`/api/play/${id}/browser/replay?choices=0.0`)
       .set('Content-Type', 'application/gzip')
@@ -191,7 +192,7 @@ describe('playing against a bot in the browser (e2e)', () => {
     const done = (await get(`/api/play/${id}`)).body
     expect(done).toMatchObject({ status: 'done', winner: 'you', turns: 9, replay: true, runner: 'browser' })
     expect((await get(`/api/play/${id}/replay/raw`)).body).toMatchObject({ version: 1 })
-    expect((await get(`/api/play/${id}/browser?engineRev=${engineRev()}`)).body.replayMissing).toBe(false)
+    expect((await get(`/api/play/${id}/browser?engineRev=${engineRev()}&gamesRev=1`)).body.replayMissing).toBe(false)
 
     // Undo from the end: playing again, without the old replay.
     const reopened = await post(`/api/play/${id}/undo`).send({})
@@ -202,7 +203,7 @@ describe('playing against a bot in the browser (e2e)', () => {
   it('a rematch is played in the browser too, and a failure or an abandon stops the page', async () => {
     const id = await browserGame()
     expect((await post(`/api/play/${id}/rematch`).send({})).status).toBe(409)
-    const rematch = await post(`/api/play/${id}/rematch`).send({ sameSeed: true, engineRev: engineRev() })
+    const rematch = await post(`/api/play/${id}/rematch`).send({ sameSeed: true, engineRev: engineRev(), gamesRev: 1 })
     expect(rematch.status).toBe(201)
     expect(rematch.body).toMatchObject({ runner: 'browser', status: 'running', seed: '77' })
 
@@ -232,7 +233,7 @@ describe('playing against a bot in the browser (e2e)', () => {
     const created = await post('/api/play').send({ human: { deckId: deckId(1) }, rival: { deckId: deckId(12) } })
     expect(created.body).toMatchObject({ runner: 'worker', status: 'queued' })
     const id = created.body.id as number
-    const job = await get(`/api/play/${id}/browser?engineRev=${engineRev()}`)
+    const job = await get(`/api/play/${id}/browser?engineRev=${engineRev()}&gamesRev=1`)
     expect(job.status).toBe(409)
     expect(job.body.error.code).toBe('not_browser')
     expect((await put(`/api/play/${id}/browser/decision`).send(decision([]))).status).toBe(409)
@@ -243,5 +244,37 @@ describe('playing against a bot in the browser (e2e)', () => {
       .send({ workerId: 'worker-pc-browser', engineRev: engineRev() })
     expect(claim.body.game.id).toBe(id)
     await post(`/api/play/${id}/abandon`).send({})
+  })
+
+  it('how the page plays (gamesRev): another one ends the game as engine_changed, and no worker strands it', async () => {
+    const base = { human: { deckId: deckId(1) }, rival: { deckId: deckId(12) }, runner: 'browser' }
+    // The page says how its engine plays, with its revision.
+    const unsaid = await post('/api/play').send({ ...base, engineRev: engineRev() })
+    expect(unsaid.status).toBe(409)
+    expect(unsaid.body.error.code).toBe('engine_mismatch')
+    const id = await browserGame()
+    expect(await test.prisma.liveGame.findUniqueOrThrow({ where: { id } })).toMatchObject({
+      runner: 'browser',
+      gamesRev: 1,
+    })
+    // A worker of a newer games revision asks for a game: the games it strands are the workers' only.
+    const claim = await test
+      .http()
+      .post('/api/worker/live/claim')
+      .set('Authorization', `Bearer ${workerToken}`)
+      .send({ workerId: 'worker-pc-browser', engineRev: engineRev(), gamesRev: 2 })
+    expect(claim.body.game).toBeNull()
+    expect((await get(`/api/play/${id}`)).body.status).toBe('running')
+    // The app was updated in the middle of the game: the page's engine plays otherwise, and the same choices would be
+    // another game. It ends as engine_changed, as a worker's does, and its replay is not made again.
+    const job = await get(`/api/play/${id}/browser?engineRev=${engineRev()}&gamesRev=2`)
+    expect(job.status).toBe(200)
+    expect(job.body).toMatchObject({ status: 'engine_changed', replayMissing: false })
+    expect((await get(`/api/play/${id}`)).body.status).toBe('engine_changed')
+    // Its rematch is played with the engine the page has now.
+    const rematch = await post(`/api/play/${id}/rematch`).send({ engineRev: engineRev(), gamesRev: 2 })
+    expect(rematch.body).toMatchObject({ runner: 'browser', status: 'running' })
+    expect((await test.prisma.liveGame.findUniqueOrThrow({ where: { id: rematch.body.id } })).gamesRev).toBe(2)
+    await post(`/api/play/${rematch.body.id}/abandon`).send({})
   })
 })

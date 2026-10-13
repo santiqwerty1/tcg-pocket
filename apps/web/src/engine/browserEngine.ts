@@ -115,6 +115,7 @@ export class WorkerEngine implements GameEngine {
 
 const manifestSchema = z.object({
   engineRev: z.string().regex(/^[0-9a-f]{40}$/),
+  gamesRev: z.number().int().min(0),
   version: z.string(),
   js: z.string().regex(/^[\w.-]+\.js$/),
   wasm: z.string().regex(/^[\w.-]+\.wasm$/),

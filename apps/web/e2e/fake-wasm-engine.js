@@ -12,7 +12,7 @@ const OPTIONS = [
 export default async function init() {}
 
 export function engineInfo() {
-  return JSON.stringify({ engineRev: REV, version: 'fake' })
+  return JSON.stringify({ engineRev: REV, gamesRev: 1, version: 'fake' })
 }
 
 export class LiveGame {

@@ -71,6 +71,8 @@ const createSchema = z.object({
     .string()
     .regex(/^[0-9a-f]{40}$/)
     .optional(),
+  /** T-015: how the page's engine plays (its `gamesRev`), with `engineRev`. */
+  gamesRev: z.number().int().min(0).max(10_000).optional(),
 })
 const hintSchema = z.object({ ply: z.number().int().min(1) })
 const recentSchema = z.object({
@@ -89,6 +91,8 @@ const rematchSchema = z.object({
     .string()
     .regex(/^[0-9a-f]{40}$/)
     .optional(),
+  /** T-015: how the page's engine plays (its `gamesRev`), with `engineRev`. */
+  gamesRev: z.number().int().min(0).max(10_000).optional(),
 })
 const reviewSchema = z.object({
   from: z.coerce.number().int().min(0).max(200).optional(),
@@ -133,7 +137,10 @@ const failureSchema = z.object({ workerId, error: z.string().min(1).max(20_000) 
 
 // T-015: the game's open page runs the engine (WebAssembly) and sends what a worker would, with the choices it played.
 const choices = z.array(z.number().int().min(0).max(500)).max(5000)
-const browserJobSchema = z.object({ engineRev: z.string().regex(/^[0-9a-f]{40}$/) })
+const browserJobSchema = z.object({
+  engineRev: z.string().regex(/^[0-9a-f]{40}$/),
+  gamesRev: z.coerce.number().int().min(0).max(10_000),
+})
 const browserDecisionSchema = decisionSchema.omit({ workerId: true }).extend({ choices })
 const browserWaitSchema = z.object({ choices, ply: z.number().int().min(1) })
 const browserEndSchema = endSchema.omit({ workerId: true }).extend({ choices })
@@ -293,7 +300,7 @@ export class PlayController {
     @Query(new ZodValidationPipe(browserJobSchema)) query: z.infer<typeof browserJobSchema>,
     @CurrentSession() _session: RequestSession,
   ) {
-    return this.games.browserJob(id, query.engineRev)
+    return this.games.browserJob(id, query)
   }
 
   /** T-015: the page's engine asks the owner (like a worker's decision, without a lease). */

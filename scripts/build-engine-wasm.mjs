@@ -36,7 +36,9 @@ const engineRev = /deckgym\s*=\s*\{[^}]*rev\s*=\s*"([0-9a-f]{40})"/.exec(manifes
 const version = /^version\s*=\s*"([^"]+)"/m.exec(manifestText)?.[1]
 if (!engineRev || !version) throw new Error('No encontré el rev de deckgym o la versión en engine/wasm/Cargo.toml')
 // How its games play: engine-cli's GAMES_REV, which the browser's engine compiles too (engine/src/seeds.rs).
-const gamesRevText = /pub const GAMES_REV: u32 = (\d+);/.exec(readFileSync(join(ROOT, 'engine', 'src', 'seeds.rs'), 'utf8'))
+const gamesRevText = /pub const GAMES_REV: u32 = (\d+);/.exec(
+  readFileSync(join(ROOT, 'engine', 'src', 'seeds.rs'), 'utf8'),
+)
 if (!gamesRevText) throw new Error('No encontré GAMES_REV en engine/src/seeds.rs')
 const gamesRev = Number(gamesRevText[1])
 const lock = readFileSync(join(CRATE, 'Cargo.lock'), 'utf8')

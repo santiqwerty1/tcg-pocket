@@ -31,15 +31,17 @@ export function useBrowserRunner(
   const [attempt, setAttempt] = useState(0)
   const active = needsBrowserEngine(game)
   const engineRev = engine?.engineRev ?? null
+  const gamesRev = engine?.gamesRev ?? null
   const id = game.id
 
   useEffect(() => {
-    if (!active || !engineRev) return
+    if (!active || !engineRev || gamesRev === null) return
     void attempt
     const controller = new AbortController()
     void runBrowserGame({
       id,
       engineRev,
+      gamesRev,
       api: browserPlayApi,
       createEngine: () => new WorkerEngine(),
       signal: controller.signal,
@@ -51,7 +53,7 @@ export function useBrowserRunner(
       void queryClient.invalidateQueries({ queryKey: playKeys.game(String(id)) })
     })
     return () => controller.abort()
-  }, [id, active, engineRev, attempt, queryClient])
+  }, [id, active, engineRev, gamesRev, attempt, queryClient])
 
   const retry = useCallback(() => {
     setStatus(null)

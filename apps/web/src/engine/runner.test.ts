@@ -20,7 +20,7 @@ class FakeEngine implements GameEngine {
     this.rev = rev
   }
   async info() {
-    return { engineRev: this.rev, version: '0.1.0' }
+    return { engineRev: this.rev, gamesRev: 1, version: '0.1.0' }
   }
   async start(job: EngineJob) {
     this.started = job
@@ -135,6 +135,7 @@ function run(api: RunnerApi, engine: GameEngine, extra: Partial<Parameters<typeo
   const result = runBrowserGame({
     id: 5,
     engineRev: REV,
+    gamesRev: 1,
     api,
     createEngine: () => engine,
     signal: new AbortController().signal,

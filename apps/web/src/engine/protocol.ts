@@ -48,6 +48,8 @@ export interface EngineCoach {
 
 export interface EngineInfo {
   engineRev: string
+  /** How its games play (engine-cli's GAMES_REV): a game started with another one cannot go on here. */
+  gamesRev: number
   version: string
 }
 
@@ -67,6 +69,7 @@ export type EngineResponse =
 /** The published engine: `apps/web/public/engine/manifest.json` (scripts/build-engine-wasm.mjs). */
 export interface EngineManifest {
   engineRev: string
+  gamesRev: number
   version: string
   js: string
   wasm: string

@@ -43,8 +43,14 @@ export interface BrowserEnd {
   log: EngineLogEntry[]
 }
 
+/** The engine of the page: its deckgym revision and how its games play. */
+export interface PageEngine {
+  engineRev: string
+  gamesRev: number
+}
+
 export interface RunnerApi {
-  job(id: number, engineRev: string, signal: AbortSignal): Promise<BrowserJob>
+  job(id: number, engine: PageEngine, signal: AbortSignal): Promise<BrowserJob>
   decision(id: number, body: BrowserDecision, signal: AbortSignal): Promise<BrowserStep>
   choice(id: number, body: { choices: number[]; ply: number }, signal: AbortSignal): Promise<BrowserStep>
   end(id: number, body: BrowserEnd, signal: AbortSignal): Promise<{ status: string }>
@@ -77,6 +83,7 @@ export interface RunnerOptions {
   id: number
   /** The engine of this page (its manifest): the game must have been started with it. */
   engineRev: string
+  gamesRev: number
   api: RunnerApi
   createEngine: () => GameEngine
   signal: AbortSignal
@@ -241,7 +248,8 @@ export async function runBrowserGame(options: RunnerOptions): Promise<RunnerResu
     for (let pass = 0; ; pass++) {
       if (pass > 0) await sleep(200, signal)
       report({ kind: 'loading' })
-      const job = await call(() => api.job(id, options.engineRev, signal), { kind: 'loading' })
+      const engineOfPage = { engineRev: options.engineRev, gamesRev: options.gamesRev }
+      const job = await call(() => api.job(id, engineOfPage, signal), { kind: 'loading' })
       if (!PLAYING.has(job.status) && !(job.status === 'done' && job.replayMissing)) {
         return { kind: 'over', status: job.status }
       }
@@ -254,7 +262,7 @@ export async function runBrowserGame(options: RunnerOptions): Promise<RunnerResu
         } catch (error) {
           throw new Error(`No se pudo cargar el motor en este dispositivo: ${(error as Error).message}`)
         }
-        if (info.engineRev !== job.engineRev) {
+        if (info.engineRev !== job.engineRev || info.gamesRev !== options.gamesRev) {
           throw new Error('Este dispositivo tiene otro motor que el de la partida: recargá la app.')
         }
       }
