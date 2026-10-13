@@ -73,7 +73,14 @@ describe('decisiones pendientes (docs/REVISION.md)', () => {
       /\| 45\.19 \| Otra\. \| M\. \|\n\| 45\.58 \| \*\*Nueva\*\* del lab\. \| Motivo nuevo\. \|\n\n## Fase 42, infraestructura/,
     )
     assert.deepEqual(applied, [
-      { name: 'lab-x.md', section: 'Fase 42, laboratorio (9/10/2026)', created: false, from: '45.58', to: '45.58' },
+      {
+        name: 'lab-x.md',
+        section: 'Fase 42, laboratorio (9/10/2026)',
+        created: false,
+        similar: [],
+        from: '45.58',
+        to: '45.58',
+      },
     ])
     // Nothing else moved.
     assert.equal(text.replace('| 45.58 | **Nueva** del lab. | Motivo nuevo. |\n', ''), DECISIONES)
@@ -88,6 +95,12 @@ describe('decisiones pendientes (docs/REVISION.md)', () => {
       `${DECISIONES}\n## Organización de las sesiones (D-021)\n\n| # | Decisión | Motivo |\n|---|---|---|\n| 57.1 | Una. | A. |\n| 57.2 | Dos. | B. |\n`,
     )
     assert.equal(applied[0]?.created, true)
+    // A new section that looks like an existing one is created (it was asked for), and said.
+    const near = apply(pending('x.md', 'Fase 42, laboratorio', ['| Una. | m. |'], 'nueva: true\n'))
+    assert.deepEqual(near.applied?.[0]?.similar, ['Fase 42, laboratorio (9/10/2026)'])
+    // `nueva: true` on a section that exists only adds rows: the order of the pendings does not matter.
+    const existing = apply(pending('x.md', 'Fase 42, laboratorio (9/10/2026)', ['| Una. | m. |'], 'nueva: true\n'))
+    assert.equal(existing.applied?.[0]?.created, false)
   })
 
   it('a title that is not exact creates nothing: it fails and says which section looks like it', () => {
@@ -140,6 +153,9 @@ describe('decisiones pendientes (docs/REVISION.md)', () => {
       pending('b.md', 'Fase 42, laboratorio (9/10/2026)', ['| Nueva. | M. |']),
     )
     assert.match(twice.errors[0] ?? '', /^b\.md: .*ya están en DECISIONES/)
+    // Twice in the same pending.
+    const same = apply(pending('a.md', 'Fase 42, laboratorio (9/10/2026)', ['| Nueva. | M. |', '| Nueva. | M. |']))
+    assert.match(same.errors[0] ?? '', /^a\.md: 1 fila\(s\) ya están/)
   })
 
   it('a code block or a repeated title do not fool it', () => {
@@ -167,6 +183,10 @@ describe('reading a pending', () => {
     assert.deepEqual(ok, { name: 'x.md', section: 'S', create: false, rows: ['| a | b |'] })
     assert.equal(parsePending('x.md', '---\nseccion: S\nnueva: true\n---\n| a | b |\n').create, true)
     assert.deepEqual(parsePending('x.md', '---\nseccion: S\n---\n| `a \\| b` | c |\n').rows, ['| `a \\| b` | c |'])
+    // The usual header without its separator is not a decision.
+    assert.deepEqual(parsePending('x.md', '---\nseccion: S\n---\n| Decisión | Motivo |\n| a | b |\n').rows, [
+      '| a | b |',
+    ])
   })
 
   it('refuses what is not two cells with text, a numbered row, prose, or an empty or folded section', () => {
@@ -175,6 +195,7 @@ describe('reading a pending', () => {
     assert.match(error('---\nautor: x\n---\n| a | b |\n'), /seccion/)
     assert.match(error('---\nseccion:\nrama: x\n---\n| a | b |\n'), /seccion.*vacío/)
     assert.match(error('---\nseccion: >\n  Larga\n---\n| a | b |\n'), /una sola línea/)
+    assert.match(error('---\nseccion: |-\n  Larga\n---\n| a | b |\n'), /una sola línea/)
     assert.match(error('---\nseccion: S\n---\nNada.\n'), /no es una fila/)
     assert.match(error('---\nseccion: S\n---\n\n'), /no tiene filas/)
     assert.match(error('---\nseccion: S\n---\n| 45.3 | a | b |\n'), /ya tiene número/)

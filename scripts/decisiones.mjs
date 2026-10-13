@@ -39,7 +39,7 @@ const exact = (title) => title.normalize('NFC').replace(/\s+/g, ' ').trim()
 
 /** A pending file: its section, whether it may create it, and its rows; or why it cannot be applied. */
 export function parsePending(name, text) {
-  const normalized = text.replace(/^﻿/, '').replace(/\r\n/g, '\n')
+  const normalized = text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n')
   const front = /^---\n([\s\S]*?)\n---\n?/.exec(normalized)
   if (!front) return { name, error: 'falta el frontmatter (--- seccion: … ---)' }
   const field = (key) => new RegExp(`^${key}:[ \\t]*(.*?)[ \\t]*$`, 'm').exec(front[1] ?? '')?.[1] ?? ''
@@ -47,7 +47,7 @@ export function parsePending(name, text) {
     .replace(/^(["'])(.*)\1$/, '$2')
     .trim()
   if (!section) return { name, error: 'falta `seccion:` en el frontmatter, o está vacío' }
-  if (/^[>|]$/.test(section)) return { name, error: '`seccion:` va en una sola línea' }
+  if (/^[>|][+-]?$/.test(section)) return { name, error: '`seccion:` va en una sola línea' }
   const create = /^(true|sí|si)$/i.test(field('nueva'))
   const rows = []
   const lines = normalized.slice(front[0].length).split('\n')
@@ -58,6 +58,8 @@ export function parsePending(name, text) {
     if (IS_SEPARATOR.test(line)) continue
     // A header: the row right before a separator.
     if (IS_SEPARATOR.test(lines[at + 1]?.trim() ?? '')) continue
+    // The usual header, even without its separator.
+    if (/^\|\s*decisi[oó]n\s*\|\s*motivo\s*\|$/i.test(line)) continue
     if (!line.endsWith('|')) return { name, error: `una fila no termina en «|»: ${line.slice(0, 60)}` }
     if (NUMBERED.test(line)) return { name, error: `una fila ya tiene número: ${line.slice(0, 60)}` }
     const count = cells(line).length
@@ -141,7 +143,14 @@ export function applyPending(text, pendings) {
       errors.push(`${pending.name}: la tabla de «${section.title}» no es de decisiones (${section.header})`)
       continue
     }
-    const repeated = pending.rows.filter((row) => present.has(body(row)))
+    // Also a row twice in the same pending.
+    const seen = new Set(present)
+    const repeated = pending.rows.filter((row) => {
+      const text = body(row)
+      if (seen.has(text)) return true
+      seen.add(text)
+      return false
+    })
     if (repeated.length > 0) {
       errors.push(
         `${pending.name}: ${repeated.length} fila(s) ya están en DECISIONES (¿quedó de una corrida anterior?)`,
@@ -163,10 +172,19 @@ export function applyPending(text, pendings) {
       lines = [...lines, '', `## ${pending.section}`, '', HEADER, SEPARATOR, ...numbered, '']
     }
     for (const row of pending.rows) present.add(body(row))
+    // A new section whose title looks like an existing one: said, not refused (`nueva: true` asked for it).
+    const similar = section
+      ? []
+      : sections.filter((item) => {
+          const a = loose(item.title)
+          const b = loose(pending.section)
+          return a === b || a.startsWith(b) || b.startsWith(a)
+        })
     applied.push({
       name: pending.name,
       section: pending.section,
       created: !section,
+      similar: similar.map((item) => item.title),
       from: `${block}.${first}`,
       to: `${block}.${first + pending.rows.length - 1}`,
     })
@@ -215,6 +233,7 @@ function main() {
   for (const item of result.applied) {
     const range = item.from === item.to ? item.from : `${item.from}–${item.to}`
     console.log(`${item.name} → «${item.section}»${item.created ? ' (sección nueva)' : ''}: ${range}`)
+    for (const title of item.similar) console.log(`  ojo: ya hay una sección parecida, «${title}»`)
   }
   if (values.check) {
     console.log('(--check: no cambié nada)')
@@ -224,7 +243,13 @@ function main() {
   // behind is refused on the next run (its rows are already there), never applied twice.
   const temporary = `${file}.tmp-${process.pid}`
   writeFileSync(temporary, result.text)
-  renameSync(temporary, file)
+  try {
+    renameSync(temporary, file)
+  } catch (error) {
+    // DECISIONES open elsewhere: it stays as it was, and so do the pendings; no temporary file left to commit.
+    rmSync(temporary, { force: true })
+    throw error
+  }
   for (const name of names) rmSync(join(folder, name))
   console.log(`DECISIONES.md actualizado; borré ${names.length} pendiente(s).`)
   return 0
