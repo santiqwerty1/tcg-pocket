@@ -599,6 +599,8 @@ model SessionChatParticipant {
   sinceId   Int                @default(0) @map("since_id")
   /// Its rooms, the main one first (an MCP call without «sala» goes there); Santi is in all of them.
   rooms     String[]           @default(["tcg"])
+  /// Where it starts in each room it joined later: room → the last message id then (reads count from there).
+  roomSince Json               @default("{}") @map("room_since")
   createdAt DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@map("session_chat_participants")

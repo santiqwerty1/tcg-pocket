@@ -91,6 +91,8 @@ const DAY_MS = 24 * 60 * 60 * 1000
 /** `pg_advisory_xact_lock` key that serializes the inserts (any constant no other lock uses). */
 const WRITE_LOCK = 20_261_009
 const OWNER_KEY = chatKey(CHAT_OWNER)
+/** The largest message id (`SERIAL`). */
+const MAX_ID = 2_147_483_647
 
 /** The participant channels each caller can write as. */
 const WRITES_AS: Record<ChatCaller, readonly ChatChannel[]> = {
@@ -114,6 +116,23 @@ function roomsOf(row: Pick<SessionChatParticipant, 'channel' | 'rooms'>): ChatRo
 function inRoom(row: Pick<SessionChatParticipant, 'channel' | 'rooms'>, room: ChatRoom): boolean {
   return roomsOf(row).includes(room)
 }
+
+/**
+ * Where a participant starts reading a room: after the last message when it joined that room later (`room_since`),
+ * or when it was added to the list (`since_id`). What came before counts as read.
+ */
+function sinceIn(row: Pick<SessionChatParticipant, 'sinceId' | 'roomSince'>, room: ChatRoom): number {
+  const map = row.roomSince
+  const joined =
+    map && typeof map === 'object' && !Array.isArray(map) ? (map as Record<string, unknown>)[room] : undefined
+  // Only an id that fits the column: anything else (a hand edit) reads from `since_id` instead of failing the read.
+  return Number.isInteger(joined) && (joined as number) >= 0 && (joined as number) <= MAX_ID
+    ? Math.max(row.sinceId, joined as number)
+    : row.sinceId
+}
+
+/** `room_since` as an object, whatever was there (a hand edit could leave an array or null): what `||` adds to. */
+const ROOM_SINCE = Prisma.sql`(CASE WHEN jsonb_typeof("room_since") = 'object' THEN "room_since" ELSE '{}'::jsonb END)`
 
 /** Where a call without a room goes: the participant's main room. */
 function mainRoom(row: Pick<SessionChatParticipant, 'channel' | 'rooms'>): ChatRoom {
@@ -281,11 +300,12 @@ export class ChatService {
     const inScope: Prisma.SessionChatMessageWhereInput = {
       AND: [{ room }, mine ? { OR: [forKey(key), { fromKey: key }] } : {}],
     }
-    // A participant added later starts after the message that was the last one then.
+    // A participant added later, or one that joined the room later, starts after the message that was the last one
+    // then (review of #88: joining a room did not bring its whole history as new).
     const unseenIn = (where: ChatRoom): Prisma.SessionChatMessageWhereInput => ({
       AND: [
         { room: where },
-        { id: { gt: reader.sinceId } },
+        { id: { gt: sinceIn(reader, where) } },
         { NOT: { fromKey: key } },
         mine ? forKey(key) : {},
         { seen: { none: { participant: key } } },
@@ -410,14 +430,33 @@ export class ChatService {
       if (inserted.count > 0 || inRoom(row, room)) {
         return { participant: participantView(row), created: inserted.count > 0 }
       }
-      // Already in the list with that channel, not in this room: it joins it, last (its main room stays).
+      // Already in the list with that channel, not in this room: it joins it, last (its main room stays), and reads it
+      // from now on.
       const joined = await this.prisma.$executeRaw`
-        UPDATE "session_chat_participants" SET "rooms" = array_append("rooms", ${room})
+        UPDATE "session_chat_participants"
+        SET "rooms" = array_append("rooms", ${room}),
+          "room_since" = ${ROOM_SINCE} || jsonb_build_object(${room}::text, ${sinceId}::int)
         WHERE "key" = ${key} AND "channel" = ${input.channel}::"session_chat_channel" AND NOT (${room} = ANY("rooms"))`
       const now = await this.prisma.sessionChatParticipant.findUniqueOrThrow({ where: { key } })
       return { participant: participantView(now), created: joined > 0 }
     }
-    const rooms = input.rooms ? [...new Set(input.rooms)] : undefined
+    const rooms = input.rooms ? [...new Set(input.rooms)] : null
+    // One statement for one already in the list: the rooms it joins now (also one it left and comes back to) it reads
+    // from now on, and a new order keeps where it was in each (SET sees the row as it was; review of #88).
+    const changed = await this.prisma.$executeRaw`
+      UPDATE "session_chat_participants" p
+      SET "name" = ${name}, "channel" = ${input.channel}::"session_chat_channel",
+        "rooms" = COALESCE(${rooms}::text[], p."rooms"),
+        "room_since" = ${ROOM_SINCE} || COALESCE(
+          (SELECT jsonb_object_agg(r, ${sinceId}::int) FROM unnest(COALESCE(${rooms}::text[], p."rooms")) AS r
+           WHERE NOT (r = ANY(p."rooms"))),
+          '{}'::jsonb)
+      WHERE p."key" = ${key}`
+    if (changed > 0) {
+      const row = await this.prisma.sessionChatParticipant.findUniqueOrThrow({ where: { key } })
+      return { participant: participantView(row), created: false }
+    }
+    // A new one: it starts after the last message in every room (`since_id`). Added at the same moment: an update.
     const current = await this.prisma.sessionChatParticipant.findUnique({ where: { key } })
     const row = await this.prisma.sessionChatParticipant.upsert({
       where: { key },
@@ -471,6 +510,7 @@ export class ChatService {
             channel: 'owner',
             sinceId: 0,
             rooms: [...CHAT_ROOMS],
+            roomSince: {},
             createdAt: new Date(0),
           },
       ...others,
