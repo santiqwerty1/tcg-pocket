@@ -78,7 +78,7 @@ Se corren con `flyctl machine exec <id> --app tcg-pocket "node /app/apps/api/dis
 
 Desde #75 (DECISIONES 45.51) se pueden correr con la API viva: levantan la app en modo CLI, sin crons ni los hooks de arranque que cambian estado. Tené en cuenta dos cosas:
 - tras un `catalog-sync` por CLI hay que reiniciar la máquina o usar `POST /api/catalog/sync`, porque el catálogo vive en la memoria del servidor;
-- si una sincronización del catálogo muere a la fuerza (falta de memoria o el tope de `flyctl machine exec`), la API la cierra como «Interrumpida» unos 5 minutos después de su última señal de vida, sin reiniciarse. Sale el aviso `catalog_sync` y «Sincronizar» se habilita de nuevo.
+- si una sincronización del catálogo muere a la fuerza (falta de memoria o el tope de `flyctl machine exec`), la API la cierra como «Interrumpida» unos 5 minutos después de su última señal de vida, sin reiniciarse. Sale el aviso `catalog_sync` y «Sincronizar» se habilita de nuevo. Mientras una corre con señales de vida, empezar otra, desde la app o desde el CLI, da 409.
 
 ## Secretos opcionales
 

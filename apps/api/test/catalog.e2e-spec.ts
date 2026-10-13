@@ -1,10 +1,12 @@
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { SchedulerRegistry } from '@nestjs/schedule'
 import { CatalogRepository } from '../src/catalog/catalog-repository.js'
 import { DEFAULT_FIXTURES_DIR as FIXTURES_DIR } from '../src/catalog/catalog-sources.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { TrackerCommitsService } from '../src/catalog/tracker-commits.service.js'
+import type { CatalogSyncStatus } from '../src/generated/prisma/enums.js'
 import { createTestApp, login, seedOwner, type TestApp, waitForSync } from './helpers.js'
 
 /** Expected values from docs/PLAN.md §7 (M1 acceptance) for the pinned commit 3ab58f1. */
@@ -275,29 +277,39 @@ describe('catalog (e2e)', () => {
     expect(await test.prisma.card.count()).toBe(EXPECTED.cards)
   })
 
+  const syncRow = (heartbeatAt: Date | null, fetchedAt = new Date(), status: CatalogSyncStatus = 'running') =>
+    test.prisma.catalogSync.create({
+      data: {
+        commitSha: test.env.catalogCommit,
+        engineRev: test.env.engineRev,
+        source: 'fixtures',
+        status,
+        fetchedAt,
+        heartbeatAt,
+        fileHashes: {},
+        counts: {},
+      },
+    })
+  const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000)
+
   it('closes a sync without signs of life for 5 minutes, without waiting for a restart (the low of #75)', async () => {
-    const row = (heartbeatAt: Date | null, fetchedAt = new Date()) =>
-      test.prisma.catalogSync.create({
-        data: {
-          commitSha: test.env.catalogCommit,
-          engineRev: test.env.engineRev,
-          source: 'fixtures',
-          status: 'running',
-          fetchedAt,
-          heartbeatAt,
-          fileHashes: {},
-          counts: {},
-        },
-      })
-    const minutes = (n: number) => new Date(Date.now() - n * 60_000)
+    // Finished ones with an old sign of life are not touched.
+    const finished = [
+      await syncRow(minutesAgo(30), minutesAgo(31), 'applied'),
+      await syncRow(minutesAgo(30), minutesAgo(31), 'needs_review'),
+      await syncRow(null, minutesAgo(31), 'failed'),
+    ]
     // A CLI cut in `flyctl machine exec`: its last sign of life, 6 minutes ago. One of before the heartbeat, 10.
-    const cut = await row(minutes(6), minutes(7))
-    const old = await row(null, minutes(10))
+    const cut = await syncRow(minutesAgo(6), minutesAgo(7))
+    const old = await syncRow(null, minutesAgo(10))
     // Still alive: its sign of life is a minute old; and one of before the heartbeat that started a minute ago.
-    const alive = await row(minutes(1), minutes(2))
-    const young = await row(null, minutes(1))
+    const alive = await syncRow(minutesAgo(1), minutesAgo(2))
+    const young = await syncRow(null, minutesAgo(1))
+    const ids = [...finished, cut, old, alive, young].map((row) => row.id)
     try {
-      expect(await sync.closeStale()).toBe(2)
+      // What the server's cron runs (registered by name). The states, not the count: the real cron may get there first.
+      expect(test.app.get(SchedulerRegistry).getCronJob('catalog-sync-stale')).toBeDefined()
+      await sync.everyMinute()
       const byId = async (id: number) => test.prisma.catalogSync.findUniqueOrThrow({ where: { id } })
       for (const closed of [cut, old]) {
         expect(await byId(closed.id)).toMatchObject({
@@ -306,13 +318,42 @@ describe('catalog (e2e)', () => {
         })
       }
       for (const running of [alive, young]) expect((await byId(running.id)).status).toBe('running')
+      for (const row of finished) expect(await byId(row.id)).toEqual(row)
       // The catalog stays as it was, and the alert of a failed sync says it once the last one is a closed one.
       expect(await test.prisma.card.count()).toBe(EXPECTED.cards)
       await test.prisma.catalogSync.deleteMany({ where: { id: { in: [alive.id, young.id] } } })
       const alerts = (await get('/api/alerts')).body.items as { code: string; detail: string }[]
-      expect(alerts.find((alert) => alert.code === 'catalog_sync')?.detail).toContain('Interrumpida')
+      const detail = alerts.find((alert) => alert.code === 'catalog_sync')?.detail
+      expect(detail).toContain('Interrumpida')
+      expect(detail).not.toContain('..')
     } finally {
-      await test.prisma.catalogSync.deleteMany({ where: { id: { in: [cut.id, old.id, alive.id, young.id] } } })
+      await test.prisma.catalogSync.deleteMany({ where: { id: { in: ids } } })
+    }
+  })
+
+  it('a sync with signs of life in another process is a 409, and a silent one does not block (the low of #75)', async () => {
+    const request = {
+      trackerCommit: test.env.catalogCommit,
+      engineRev: test.env.engineRev,
+      source: 'fixtures' as const,
+    }
+    // A CLI running next to the API (and one of before the heartbeat that started a minute ago).
+    const other = await syncRow(minutesAgo(1), minutesAgo(2))
+    try {
+      for (const data of [{}, { heartbeatAt: null, fetchedAt: minutesAgo(1) }]) {
+        await test.prisma.catalogSync.update({ where: { id: other.id }, data })
+        await expect(sync.sync(request)).rejects.toThrow(`otro proceso (#${other.id}`)
+        expect(sync.isRunning).toBe(false)
+        expect(await test.prisma.catalogSync.count({ where: { id: { gt: other.id } } })).toBe(0)
+      }
+      // Silent for 6 minutes: dead even if the cron has not closed it yet.
+      await test.prisma.catalogSync.update({
+        where: { id: other.id },
+        data: { heartbeatAt: minutesAgo(6), fetchedAt: minutesAgo(7) },
+      })
+      expect((await sync.sync(request)).status).toBe('applied')
+    } finally {
+      await test.prisma.catalogSync.delete({ where: { id: other.id } })
     }
   })
 
@@ -325,7 +366,7 @@ describe('catalog (e2e)', () => {
         source: 'fixtures',
       })
       const done = await test.prisma.catalogSync.findUniqueOrThrow({ where: { id: summary.syncId } })
-      // Renewed after it started (the first sign of life is the start itself).
+      // Renewed after it started (the first sign of life is the start itself, at the same instant).
       expect(done.heartbeatAt?.getTime() ?? 0).toBeGreaterThan(done.fetchedAt.getTime())
       expect(done.status).toBe('applied')
     } finally {

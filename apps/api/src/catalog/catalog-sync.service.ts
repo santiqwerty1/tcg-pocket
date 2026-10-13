@@ -118,16 +118,29 @@ function changeRows(diff: CatalogDiff): SyncChangeRow[] {
   return rows.slice(0, MAX_CHANGE_ROWS)
 }
 
+/** How often a running sync renews its sign of life, and how long without one closes it (the low of #75). */
+const HEARTBEAT_MS = 30_000
+const STALE_MS = 5 * 60_000
+/** `pg_advisory_xact_lock` key that serializes claiming a sync across processes (any constant no other lock uses). */
+const BEGIN_LOCK = 994_203
+
+/**
+ * A row with no sign of life since `cutoff`, and one with a sign of life after it (written apart, not with `NOT`: SQL's
+ * NULL would leave out a row without heartbeat). One from before the heartbeat counts from when it started.
+ */
+const silentSince = (cutoff: Date) => ({
+  OR: [{ heartbeatAt: { lt: cutoff } }, { heartbeatAt: null, fetchedAt: { lt: cutoff } }],
+})
+const aliveSince = (cutoff: Date) => ({
+  OR: [{ heartbeatAt: { gte: cutoff } }, { heartbeatAt: null, fetchedAt: { gte: cutoff } }],
+})
+
 /**
  * `catalog:sync`: fetch (or read fixtures) → build → diff against the loaded catalog → replace in one transaction →
  * record `catalog_syncs` → reload the in-memory index. Only one sync runs at a time (409 otherwise).
  * `sync()` awaits the whole pipeline (CLI, tests); `start()` returns the sync id and runs it in the background
  * (`POST /api/catalog/sync` → 202; progress in `GET /api/catalog/status`).
  */
-/** How often a running sync renews its sign of life, and how long without one closes it (the low of #75). */
-const HEARTBEAT_MS = 30_000
-const STALE_MS = 5 * 60_000
-
 @Injectable()
 export class CatalogSyncService implements OnModuleInit {
   private running = false
@@ -158,20 +171,20 @@ export class CatalogSyncService implements OnModuleInit {
     if (stale.count > 0) this.logger.warn({ count: stale.count }, 'stale running catalog syncs marked as failed')
   }
 
+  /** Every minute, only in the server (a CLI registers no crons). */
+  @Cron(CronExpression.EVERY_MINUTE, { name: 'catalog-sync-stale' })
+  async everyMinute(): Promise<void> {
+    await this.closeStale()
+  }
+
   /**
    * A `running` row whose process stopped giving signs of life (a CLI cut in `flyctl machine exec`, a process killed)
    * is closed as `failed`, without waiting for a restart of the API: the UI stops showing it as running and the
-   * `catalog_sync` alert says it. Every minute, only in the server (a CLI registers no crons). A row from before the
-   * heartbeat counts from when it started.
+   * `catalog_sync` alert says it.
    */
-  @Cron(CronExpression.EVERY_MINUTE)
   async closeStale(now = new Date()): Promise<number> {
-    const cutoff = new Date(now.getTime() - STALE_MS)
     const closed = await this.prisma.catalogSync.updateMany({
-      where: {
-        status: 'running',
-        OR: [{ heartbeatAt: { lt: cutoff } }, { heartbeatAt: null, fetchedAt: { lt: cutoff } }],
-      },
+      where: { status: 'running', ...silentSince(new Date(now.getTime() - STALE_MS)) },
       data: {
         status: 'failed',
         error: `Interrumpida: el proceso que la corría dejó de dar señales por más de ${STALE_MS / 60_000} minutos (por ejemplo, un catalog-sync cortado).`,
@@ -315,24 +328,41 @@ export class CatalogSyncService implements OnModuleInit {
     return { syncId }
   }
 
-  /** Claims the single slot and records the `running` row. */
+  /**
+   * Claims the single slot and records the `running` row. The slot is this process's and also the database's: a sync
+   * with signs of life in another process (a CLI next to the API, or the API next to a CLI) is a 409 too, looked up and
+   * claimed under one lock.
+   */
   private async begin(request: SyncRequest): Promise<number> {
     if (this.running) throw new ConflictException('Ya hay una sincronización en curso.')
     this.running = true
     try {
-      const row = await this.prisma.catalogSync.create({
-        data: {
-          commitSha: request.trackerCommit,
-          engineRev: request.engineRev,
-          source: request.source,
-          status: 'running',
-          fetchedAt: new Date(),
-          heartbeatAt: new Date(),
-          fileHashes: {},
-          counts: {},
-        },
+      return await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${BEGIN_LOCK}::bigint)`
+        const now = new Date()
+        const cutoff = new Date(now.getTime() - STALE_MS)
+        const alive = await tx.catalogSync.findFirst({
+          where: { status: 'running', ...aliveSince(cutoff) },
+          select: { id: true },
+        })
+        if (alive)
+          throw new ConflictException(
+            `Ya hay una sincronización en curso en otro proceso (#${alive.id}, por ejemplo un catalog-sync).`,
+          )
+        const row = await tx.catalogSync.create({
+          data: {
+            commitSha: request.trackerCommit,
+            engineRev: request.engineRev,
+            source: request.source,
+            status: 'running',
+            fetchedAt: now,
+            heartbeatAt: now,
+            fileHashes: {},
+            counts: {},
+          },
+        })
+        return row.id
       })
-      return row.id
     } catch (error) {
       this.running = false
       throw error
@@ -342,11 +372,21 @@ export class CatalogSyncService implements OnModuleInit {
   private async run(syncId: number, request: SyncRequest): Promise<SyncSummary> {
     const started = Date.now()
     // Its sign of life while it runs, in this process (the API's or a CLI's). Only while it is still `running`: a row
-    // already closed as interrupted is not brought back.
+    // already closed as interrupted is not brought back. The first failure in a row is logged, so a sync closed for
+    // lack of them says why.
+    let failing = false
     const beat = setInterval(() => {
-      void this.prisma.catalogSync
+      this.prisma.catalogSync
         .updateMany({ where: { id: syncId, status: 'running' }, data: { heartbeatAt: new Date() } })
-        .catch(() => undefined)
+        .then(
+          () => {
+            failing = false
+          },
+          (error: unknown) => {
+            if (!failing) this.logger.warn({ syncId, err: error }, 'catalog sync heartbeat failed')
+            failing = true
+          },
+        )
     }, this.heartbeatMs)
     beat.unref()
     try {
