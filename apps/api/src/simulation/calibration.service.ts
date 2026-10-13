@@ -81,8 +81,28 @@ export interface CalibrationSummaryView extends CalibrationJobView {
 
 /** Calibrations the list shows, newest first. */
 const LISTED = 50
+/** Reports kept in memory for a dataset, the last ones asked for. */
+const REPORTS_KEPT = 20
+/**
+ * While a calibration plays, its report is made again at most this often: the screen asks every 10 s and a chunk
+ * finishes every few seconds, and with 25 archetypes a report is ~2 s of CPU in the Fly machine.
+ */
+export const CALIBRATION_REPORT_FRESH_MS = 30_000
 
-/** Games per pairing by default: 105 pairings × 200 is 21.000 games, ~4 minutes of the PC's worker with e2. */
+/** What a report is made of besides the job's progress (made fresh at every request). */
+type ReportBody = Omit<CalibrationView, 'job'>
+type Dataset = Awaited<ReturnType<TournamentsService['scopedDataset']>>['dataset']
+interface KeptReport {
+  fingerprint: string
+  active: boolean
+  at: number
+  body: ReportBody
+}
+
+/**
+ * Games per pairing by default. The Laboratorio's bank of 15 archetypes is 18 lists (the 3 most played bring a second
+ * one): 153 pairings × 200 is 30.600 games, ~7 minutes of the PC's worker with e2.
+ */
 export const CALIBRATION_GAMES_PER_PAIR = 200
 
 export function calibrationOf(params: Prisma.JsonValue): CalibrationParams | null {
@@ -106,6 +126,19 @@ export class CalibrationService {
    * tournaments, the settings or the aliases do (the key carries `TournamentDataVersion`).
    */
   private readonly summaries = new Map<string, Pick<CalibrationSummaryView, 'summary' | 'failed' | 'cancelled'>>()
+
+  /**
+   * Reports by calibration (review before the 25-archetype bank): `calibrationReport` takes 0,35 s with 15 archetypes
+   * and ~0,7 s with 25 in this PC, 2 to 3 times that in Fly, and the screen asks every 10 s. One is kept while nothing
+   * it is made of changed:
+   * - the era's tournament dataset is the same object, which changes with the tournaments, the settings, the aliases
+   *   and the catalog (`TournamentDataVersion`);
+   * - its chunks have the same counts by status and the same last finish.
+   * While it plays, one is used up to `CALIBRATION_REPORT_FRESH_MS` old too. They hang from their dataset, weakly (as
+   * `TournamentsService`'s cards cache): one the tournaments dropped (R-008) is not kept alive by its reports (review of
+   * #85).
+   */
+  private readonly reports = new WeakMap<Dataset, Map<number, KeptReport>>()
 
   /** Queues the bank against itself with `bot` on both sides. */
   async start(input: {
@@ -242,6 +275,55 @@ export class CalibrationService {
     const calibration = job ? calibrationOf(job.params) : null
     if (!job || !calibration) throw new NotFoundException(`No hay una calibración ${id}.`)
     const summary = await this.simulations.progressOf(String(id))
+    const active = summary.status === 'queued' || summary.status === 'running'
+    const { scope, dataset } = await this.tournaments.scopedDataset({
+      era: calibration.era,
+      format: calibration.format,
+    })
+    const fingerprint = await this.fingerprint(id, summary.status)
+    let kept = this.reports.get(dataset)
+    if (!kept) {
+      kept = new Map()
+      this.reports.set(dataset, kept)
+    }
+    const entry = kept.get(id)
+    const fresh =
+      entry !== undefined &&
+      (entry.fingerprint === fingerprint ||
+        (active && entry.active && Date.now() - entry.at < CALIBRATION_REPORT_FRESH_MS))
+    const next: KeptReport =
+      fresh && entry
+        ? entry
+        : { fingerprint, active, at: Date.now(), body: await this.build(job, calibration, active, scope, dataset) }
+    // The last ones asked for: a report served goes back to the end of the line.
+    kept.delete(id)
+    kept.set(id, next)
+    if (kept.size > REPORTS_KEPT) kept.delete(kept.keys().next().value as number)
+    return { job: this.jobView(job, summary), ...next.body }
+  }
+
+  /** The chunks' counts by status and their last finish: a report made with other ones is stale. */
+  private async fingerprint(id: number, status: string): Promise<string> {
+    const rows = await this.prisma.simulationChunk.groupBy({
+      by: ['status'],
+      where: { jobId: id },
+      _count: { _all: true },
+      _max: { finishedAt: true },
+    })
+    return [
+      status,
+      ...rows.map((row) => `${row.status}:${row._count._all}:${row._max.finishedAt?.getTime() ?? 0}`).sort(),
+    ].join('|')
+  }
+
+  private async build(
+    job: Prisma.SimulationJobGetPayload<object>,
+    calibration: CalibrationParams,
+    active: boolean,
+    scope: { era: string; format: TournamentFormat },
+    dataset: Dataset,
+  ): Promise<ReportBody> {
+    const id = job.id
     const sideA = ((job.params as { sideA?: number[] }).sideA ?? []) as number[]
     const [snapshots, aliases] = await Promise.all([this.snapshots.byIds(sideA), this.tournaments.aliases()])
     // Each list of the bank under the archetype it is now: an alias merged since must still find its matchups.
@@ -271,7 +353,6 @@ export class CalibrationService {
       statusesOf.set(key, [...(statusesOf.get(key) ?? []), chunk.status])
     }
     // A pairing split in several chunks is played once all of them are; a cancelled part leaves it unplayed.
-    const active = summary.status === 'queued' || summary.status === 'running'
     const stateOf = (key: string): 'played' | 'pending' | 'failed' | 'cancelled' => {
       const statuses = statusesOf.get(key) ?? []
       if (statuses.includes('failed')) return 'failed'
@@ -292,10 +373,6 @@ export class CalibrationService {
           }),
         ),
     )
-    const { scope, dataset } = await this.tournaments.scopedDataset({
-      era: calibration.era,
-      format: calibration.format,
-    })
     const matchups = await this.tournaments.matchupsOf(dataset)
     // The archetype's name as it is now: a bank list of an archetype merged since keeps the old one (review of #44).
     const ownName = new Map(
@@ -375,7 +452,6 @@ export class CalibrationService {
       })
     }
     return {
-      job: this.jobView(job, summary),
       report: calibrationReport(pairings, { shares: archetypeWeight }),
       tournaments: {
         era: scope.era,

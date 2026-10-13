@@ -66,7 +66,7 @@ import { WeeklyService } from '../weekly/weekly.controller.js'
 import { type DeckRef, DeckRefResolver } from './deck-ref.js'
 import { analysisJson } from './mcp-analysis-json.js'
 import { type AuditNote, McpAuditService } from './mcp-audit.service.js'
-import { calibrationListJson, calibrationReportJson } from './mcp-calibration-json.js'
+import { CALIBRATION_FULL_PAGE, calibrationListJson, calibrationReportJson } from './mcp-calibration-json.js'
 import { jobSummaryJson, rateView } from './mcp-json.js'
 import { McpLabToolsService } from './mcp-lab-tools.service.js'
 import { McpPlayToolsService } from './mcp-play-tools.service.js'
@@ -328,7 +328,8 @@ ${MCP_CHAT_INSTRUCTIONS}`
         args.id === undefined
           ? calibrationListJson(await this.calibration.list())
           : calibrationReportJson(await this.calibration.report(args.id), {
-              limit: args.limit ?? 10,
+              limit: args.limit ?? (args.detail === 'full' ? CALIBRATION_FULL_PAGE : 10),
+              offset: args.offset ?? 0,
               full: args.detail === 'full',
             }),
       ),
