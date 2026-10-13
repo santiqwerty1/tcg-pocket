@@ -1476,6 +1476,8 @@ describe('laboratorio (e2e)', () => {
         !deckGroups.has(group.id) &&
         !!pre &&
         !deckGroups.has(pre.id) &&
+        // Review of #64: a pre-evolution the collection does not have comes along too.
+        !ownedGroups.has(pre.id) &&
         preCard?.evolvesFrom === null &&
         engineEdition(card, index, status) !== null &&
         !!preCard &&
@@ -1486,7 +1488,7 @@ describe('laboratorio (e2e)', () => {
     const evolved = await post('/api/lab/explore').send({
       deck: { deckId: deckIds[1] },
       size: 3,
-      config: { ...config, pool: 'all' },
+      config,
       include: [stage1.displayCardId],
       dryRun: true,
     })
@@ -1640,9 +1642,38 @@ describe('laboratorio (e2e)', () => {
     expect(created.status).toBe(200)
     const id = created.body.id as number
     // A list without the locked card is refused, with which one.
-    const missing = await post(`/api/lab/jobs/${id}/candidates`).send({ deck: { deckId: deckIds[0] } })
+    const index = test.app.get(CatalogService).requireIndex()
+    const start = (await get(`/api/decks/${deckIds[1]}`)).body as {
+      energies: string[]
+      cards: { card: { id: string }; count: number }[]
+    }
+    const lockedGroup = index.cardById('B1-36')?.functionalGroupId
+    const isLocked = (cardId: string) => index.cardById(cardId)?.functionalGroupId === lockedGroup
+    // The locked card out (its copies become X Speed): refused for that, by name.
+    const withoutLocked = start.cards.map((entry) => ({
+      cardId: isLocked(entry.card.id) ? 'P-A-2' : entry.card.id,
+      count: entry.count,
+    }))
+    const missing = await post(`/api/lab/jobs/${id}/candidates`).send({
+      deck: { cards: withoutLocked, energies: start.energies },
+    })
     expect(missing.status).toBe(400)
-    expect(missing.body.error.message).toMatch(/le faltan cartas que la búsqueda no toca|no cumple las reglas/)
+    expect(missing.body.error.message).toMatch(/le faltan cartas que la búsqueda no toca/)
+    // The locked card kept, but a Grass Pokémon in a Fire-only event: refused for the event's rules.
+    const victim = start.cards.find(
+      (entry) => !isLocked(entry.card.id) && index.cardById(entry.card.id)?.cardType === 'trainer',
+    )
+    if (!victim) throw new Error('no trainer to swap')
+    const grassy = start.cards.map((entry) => ({
+      cardId: entry.card.id === victim.card.id ? 'A1-1' : entry.card.id,
+      count: entry.card.id === victim.card.id ? 1 : entry.count,
+    }))
+    if (victim.count > 1) grassy.push({ cardId: victim.card.id, count: victim.count - 1 })
+    const breaks = await post(`/api/lab/jobs/${id}/candidates`).send({
+      deck: { cards: grassy, energies: start.energies },
+    })
+    expect(breaks.status).toBe(400)
+    expect(breaks.body.error.message).toMatch(/no cumple las reglas de «Fuego para sumar»/)
     await post(`/api/simulations/${id}/cancel`)
   }, 60_000)
 

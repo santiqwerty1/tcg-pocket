@@ -8,6 +8,7 @@
 import { randomInt } from 'node:crypto'
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   NotFoundException,
@@ -124,7 +125,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { ENV, type Env } from '../config/env.js'
 import { parseDeckText } from '../decks/deck-formats.js'
-import type { Prisma } from '../generated/prisma/client.js'
+import { Prisma } from '../generated/prisma/client.js'
 import { parseNumericId } from '../http/ids.js'
 import { MatchesService } from '../matches/matches.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
@@ -809,6 +810,24 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     return groups
   }
 
+  /**
+   * A short transaction on a search's row, which `advance` may hold for seconds while it builds a round (review of
+   * #64: Prisma's default 5 s gave a 500): 30 s, and a «probá de nuevo» when even that runs out.
+   */
+  private async jobTransaction<T>(work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    try {
+      return await this.prisma.$transaction(work, { timeout: 30_000, maxWait: 30_000 })
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2028') {
+        throw new ConflictException({
+          code: 'busy',
+          message: 'La búsqueda está armando su próxima ronda: probá de nuevo en unos segundos.',
+        })
+      }
+      throw error
+    }
+  }
+
   /** T-017 C3: the first filler the engine plays and `cards` can take one more copy of, or null. */
   private async probeFiller(index: CatalogIndex, cards: readonly DeckCardEntry[]): Promise<CardId | null> {
     const engine = await this.engine.status()
@@ -879,7 +898,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         message: `No se puede simular ${snapshot.label}: ${describeProblems(snapshot.problems)}.`,
       })
     }
-    await this.prisma.$transaction(async (tx) => {
+    await this.jobTransaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM simulation_jobs WHERE id = ${id} FOR UPDATE`
       const job = await tx.simulationJob.findUniqueOrThrow({ where: { id } })
       const params = job.params as unknown as JobParams
@@ -1092,7 +1111,22 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         if (!usableWith(card, draft.energies)) throw refuse('las energías de la lista no pagan ninguno de sus ataques')
         asked.push({ cardId: card.id, groupId, nameEn: card.nameEn, maxCopies: 2, weight: top })
       }
-      fullPool = [...fullPool.filter((card) => !include.has(card.groupId)), ...asked]
+      // Review of #64: an evolution to try brings its pre-evolution along, which may not be in the collection either:
+      // it enters the pool too, never drawn on its own (weight 0).
+      const inPool = new Set([...fullPool, ...asked].map((card) => card.groupId))
+      for (const card of [...asked]) {
+        const pre = index.cardById(card.cardId)?.evolvesFrom
+        if (!pre) continue
+        const group = index.catalog.groups.find(
+          (item) => index.cardById(item.displayCardId)?.nameEn === pre && !inPool.has(item.id),
+        )
+        const display = group ? index.cardById(group.displayCardId) : undefined
+        const edition = display ? engineEdition(display, index, engine) : null
+        if (!group || !edition) continue
+        inPool.add(group.id)
+        asked.push({ cardId: edition.id, groupId: group.id, nameEn: edition.nameEn, maxCopies: 2, weight: 0 })
+      }
+      fullPool = [...fullPool.filter((card) => !asked.some((item) => item.groupId === card.groupId)), ...asked]
     }
     const pool = poolForZone(fullPool, draft.energies, index)
     const baseSeed = this.baseSeed(input)
@@ -1292,7 +1326,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
    */
   async stop(rawId: string): Promise<LabJobView> {
     const id = parseNumericId(rawId, 'Simulación')
-    await this.prisma.$transaction(async (tx) => {
+    await this.jobTransaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM simulation_jobs WHERE id = ${id} FOR UPDATE`
       const job = await tx.simulationJob.findUnique({ where: { id } })
       if (job?.kind !== 'explore') throw new NotFoundException(`Búsqueda ${rawId} no encontrada.`)
