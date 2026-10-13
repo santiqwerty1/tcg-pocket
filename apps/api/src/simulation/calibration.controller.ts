@@ -49,5 +49,7 @@ export class CalibrationController {
   imports: [SimulationModule, LabModule, TournamentsModule],
   controllers: [CalibrationController],
   providers: [CalibrationService],
+  // The MCP tool simulations_calibration reads the same reports.
+  exports: [CalibrationService],
 })
 export class CalibrationModule {}
