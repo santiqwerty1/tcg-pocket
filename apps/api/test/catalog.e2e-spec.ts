@@ -1,9 +1,12 @@
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { SchedulerRegistry } from '@nestjs/schedule'
+import { CatalogRepository } from '../src/catalog/catalog-repository.js'
 import { DEFAULT_FIXTURES_DIR as FIXTURES_DIR } from '../src/catalog/catalog-sources.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { TrackerCommitsService } from '../src/catalog/tracker-commits.service.js'
+import type { CatalogSyncStatus } from '../src/generated/prisma/enums.js'
 import { createTestApp, login, seedOwner, type TestApp, waitForSync } from './helpers.js'
 
 /** Expected values from docs/PLAN.md §7 (M1 acceptance) for the pinned commit 3ab58f1. */
@@ -272,6 +275,128 @@ describe('catalog (e2e)', () => {
     expect(status.body.loaded).toBe(true)
     expect(status.body.trackerCommit).toBe(test.env.catalogCommit)
     expect(await test.prisma.card.count()).toBe(EXPECTED.cards)
+  })
+
+  const syncRow = (heartbeatAt: Date | null, fetchedAt = new Date(), status: CatalogSyncStatus = 'running') =>
+    test.prisma.catalogSync.create({
+      data: {
+        commitSha: test.env.catalogCommit,
+        engineRev: test.env.engineRev,
+        source: 'fixtures',
+        status,
+        fetchedAt,
+        heartbeatAt,
+        fileHashes: {},
+        counts: {},
+      },
+    })
+  const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000)
+
+  it('closes a sync without signs of life for 5 minutes, without waiting for a restart (the low of #75)', async () => {
+    // Finished ones with an old sign of life are not touched.
+    const finished = [
+      await syncRow(minutesAgo(30), minutesAgo(31), 'applied'),
+      await syncRow(minutesAgo(30), minutesAgo(31), 'needs_review'),
+      await syncRow(null, minutesAgo(31), 'failed'),
+    ]
+    // A CLI cut in `flyctl machine exec`: its last sign of life, 6 minutes ago. One of before the heartbeat, 10.
+    const cut = await syncRow(minutesAgo(6), minutesAgo(7))
+    const old = await syncRow(null, minutesAgo(10))
+    // Still alive: its sign of life is a minute old; and one of before the heartbeat that started a minute ago.
+    const alive = await syncRow(minutesAgo(1), minutesAgo(2))
+    const young = await syncRow(null, minutesAgo(1))
+    const ids = [...finished, cut, old, alive, young].map((row) => row.id)
+    try {
+      // What the server's cron runs (registered by name). The states, not the count: the real cron may get there first.
+      expect(test.app.get(SchedulerRegistry).getCronJob('catalog-sync-stale')).toBeDefined()
+      await sync.everyMinute()
+      const byId = async (id: number) => test.prisma.catalogSync.findUniqueOrThrow({ where: { id } })
+      for (const closed of [cut, old]) {
+        expect(await byId(closed.id)).toMatchObject({
+          status: 'failed',
+          error: expect.stringContaining('Interrumpida'),
+        })
+      }
+      for (const running of [alive, young]) expect((await byId(running.id)).status).toBe('running')
+      for (const row of finished) expect(await byId(row.id)).toEqual(row)
+      // The catalog stays as it was, and the alert of a failed sync says it once the last one is a closed one.
+      expect(await test.prisma.card.count()).toBe(EXPECTED.cards)
+      await test.prisma.catalogSync.deleteMany({ where: { id: { in: [alive.id, young.id] } } })
+      const alerts = (await get('/api/alerts')).body.items as { code: string; detail: string }[]
+      const detail = alerts.find((alert) => alert.code === 'catalog_sync')?.detail
+      expect(detail).toContain('Interrumpida')
+      expect(detail).not.toContain('..')
+    } finally {
+      await test.prisma.catalogSync.deleteMany({ where: { id: { in: ids } } })
+    }
+  })
+
+  it('a sync with signs of life in another process is a 409, and a silent one does not block (the low of #75)', async () => {
+    const request = {
+      trackerCommit: test.env.catalogCommit,
+      engineRev: test.env.engineRev,
+      source: 'fixtures' as const,
+    }
+    // A CLI running next to the API (and one of before the heartbeat that started a minute ago).
+    const other = await syncRow(minutesAgo(1), minutesAgo(2))
+    try {
+      for (const data of [{}, { heartbeatAt: null, fetchedAt: minutesAgo(1) }]) {
+        await test.prisma.catalogSync.update({ where: { id: other.id }, data })
+        await expect(sync.sync(request)).rejects.toThrow(`otro proceso (#${other.id}`)
+        expect(sync.isRunning).toBe(false)
+        expect(await test.prisma.catalogSync.count({ where: { id: { gt: other.id } } })).toBe(0)
+      }
+      // Silent for 6 minutes: dead even if the cron has not closed it yet.
+      await test.prisma.catalogSync.update({
+        where: { id: other.id },
+        data: { heartbeatAt: minutesAgo(6), fetchedAt: minutesAgo(7) },
+      })
+      expect((await sync.sync(request)).status).toBe('applied')
+    } finally {
+      await test.prisma.catalogSync.delete({ where: { id: other.id } })
+    }
+  })
+
+  it('a running sync renews its sign of life, so the API never closes it while it runs (the low of #75)', async () => {
+    sync.heartbeatMs = 20
+    try {
+      const summary = await sync.sync({
+        trackerCommit: test.env.catalogCommit,
+        engineRev: test.env.engineRev,
+        source: 'fixtures',
+      })
+      const done = await test.prisma.catalogSync.findUniqueOrThrow({ where: { id: summary.syncId } })
+      // Renewed after it started (the first sign of life is the start itself, at the same instant).
+      expect(done.heartbeatAt?.getTime() ?? 0).toBeGreaterThan(done.fetchedAt.getTime())
+      expect(done.status).toBe('applied')
+    } finally {
+      sync.heartbeatMs = 30_000
+    }
+  })
+
+  it('a sync closed as interrupted that was still alive ends applied, without the error (the low of #75)', async () => {
+    // A process that went 5 minutes without a sign of life but was not dead: the API closes it, and then it commits.
+    const repository = test.app.get(CatalogRepository)
+    const replace = repository.replaceCatalog.bind(repository)
+    const spy = vi.spyOn(repository, 'replaceCatalog').mockImplementation(async (...args) => {
+      expect(await sync.closeStale(new Date(Date.now() + 10 * 60_000))).toBe(1)
+      return replace(...args)
+    })
+    try {
+      const summary = await sync.sync({
+        trackerCommit: test.env.catalogCommit,
+        engineRev: test.env.engineRev,
+        source: 'fixtures',
+      })
+      expect(spy).toHaveBeenCalledOnce()
+      expect(summary.status).toBe('applied')
+      expect(await test.prisma.catalogSync.findUniqueOrThrow({ where: { id: summary.syncId } })).toMatchObject({
+        status: 'applied',
+        error: null,
+      })
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('a commit that merges stock units and drops an edition takes the owner data with it (I12, Fase 21)', async () => {

@@ -76,9 +76,9 @@ La guía para levantar todo desde cero (base nueva, app nueva, restaurar la copi
 
 Se corren con `flyctl machine exec <id> --app tcg-pocket "node /app/apps/api/dist/cli/<cli>.js …"`: `retention.js` (vista previa; `--apply` borra), `catalog-sync.js`, `owner-init.js` y `worker-timing.js --days 7` (solo lectura: por worker, el tiempo del motor contra el reloj y el hueco entre reclamos).
 
-Desde #75 (DECISIONES 45.51) se pueden correr con la API viva: levantan la app en modo CLI, sin crons ni los hooks de arranque que cambian estado. Dos cosas siguen igual:
+Desde #75 (DECISIONES 45.51) se pueden correr con la API viva: levantan la app en modo CLI, sin crons ni los hooks de arranque que cambian estado. Tené en cuenta dos cosas:
 - tras un `catalog-sync` por CLI hay que reiniciar la máquina o usar `POST /api/catalog/sync`, porque el catálogo vive en la memoria del servidor;
-- si una sincronización del catálogo muere a la fuerza (falta de memoria o el tope de `flyctl machine exec`), queda «running» hasta el próximo reinicio de la API, y «Sincronizar» queda deshabilitado.
+- si una sincronización del catálogo muere a la fuerza (falta de memoria o el tope de `flyctl machine exec`), la API la cierra como «Interrumpida» unos 5 minutos después de su última señal de vida, sin reiniciarse. Sale el aviso `catalog_sync` y «Sincronizar» se habilita de nuevo. Mientras una corre con señales de vida, empezar otra, desde la app o desde el CLI, da 409.
 
 ## Secretos opcionales
 

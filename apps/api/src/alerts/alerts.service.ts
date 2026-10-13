@@ -638,7 +638,8 @@ export class AlertsService {
         code: 'catalog_sync',
         level: 'warning',
         title: `Falló la actualización del catálogo del ${ownerDateTime(new Date(catalog.lastSync.fetchedAt))}`,
-        detail: `${(catalog.lastSync.error ?? 'error desconocido').slice(0, 200)}. Sigue el catálogo anterior; probala de nuevo en Más → Catálogo.`,
+        // Without the error's own closing period («cortado).. Sigue»).
+        detail: `${(catalog.lastSync.error ?? 'error desconocido').slice(0, 200).replace(/\.+$/, '')}. Sigue el catálogo anterior; probala de nuevo en Más → Catálogo.`,
         link: '/mas/catalogo',
       })
     }
