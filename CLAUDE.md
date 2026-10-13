@@ -148,7 +148,7 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
   - un push por episodio de pausa y la plataforma en el reclamo (#74, migración `20261012200000_worker_platform`, 51.26).
 - **Los CLI de producción son seguros desde #75 (45.51):** modo CLI (`env.cli`), sin `ScheduleModule` ni los hooks de arranque que cambian estado; se pueden correr con la API viva.
 - **deckgym upstream (H-051, H-052):** bcollazo/deckgym-core#396 («et»), #397 (`DiscardFossil` duplicado) y #398 (pánico sin Activo, que hace fallar siempre un cruce de la calibración #27). Los dos últimos, con el OK de Santi del 12/10. Purugly y Miraculous Memory no son bugs.
-- **Producción al 12/10/2026:** desplegada hasta `981a3a3` (#76), con #77 en curso; engine-cli 0.3.6 y worker 0.3.5, que llegan solos a los workers.
+- **Producción al 12/10/2026:** desplegada hasta `b0c3627` (#77); engine-cli 0.3.6 y worker 0.3.5, que llegan solos a los workers.
 - **Pendientes** (detalle en Avance):
   - `worker-timing --days 7` y «dos lugares por worker»; el informe de calibración e2/f2 (`Calibracion-2026-10-12.md`, P-009);
   - el cruce fallado de la calibración #35, con «Reintentar lo que falló»;

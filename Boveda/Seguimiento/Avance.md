@@ -78,7 +78,7 @@ revisar: false
 
 ## Próximos pasos
 
-**Producción al 12/10/2026:** desplegada sucesivamente durante el día hasta `981a3a3` (#76), con el deploy de #77 en curso. Versión 1.0.0, engine-cli 0.3.6 y worker 0.3.5; los workers se actualizan solos desde la app ([D-026](Decisiones/D-026.md)). La Fase 39 ya corre en producción. Las fases 0–8 y 22–35 conservan los vistos buenos ya registrados; integrar y desplegar no agrega aprobaciones nuevas.
+**Producción al 12/10/2026:** desplegada sucesivamente durante el día hasta `b0c3627` (#77). Versión 1.0.0, engine-cli 0.3.6 y worker 0.3.5; los workers se actualizan solos desde la app ([D-026](Decisiones/D-026.md)). La Fase 39 ya corre en producción. Las fases 0–8 y 22–35 conservan los vistos buenos ya registrados; integrar y desplegar no agrega aprobaciones nuevas.
 
 **Repo:** `santiqwerty1/tcg-pocket` es público desde el 11/10 ([D-022](Decisiones/D-022.md)). El privado viejo es `santiqwerty1/tcg-pocket-historial`, archivado: no se le sube nada. Nada de datos personales en commits, PR, issues ni la bóveda. La CI corre en los runners de GitHub ([D-023](Decisiones/D-023.md)).
 

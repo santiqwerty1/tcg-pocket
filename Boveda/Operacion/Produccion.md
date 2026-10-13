@@ -15,7 +15,7 @@ revisar: false
 # Producción
 
 - **App:** `https://tcg-pocket.fly.dev` (Fly.io, app `tcg-pocket`, región `gru`, una máquina shared-cpu-1x 512 MB). Postgres en Supabase (São Paulo, pooler de sesión, `sslmode=verify-full` con la CA de `apps/api/certs/`).
-- **Qué corre al 12/10/2026:** desplegada varias veces durante el día, hasta `981a3a3` (#76); el deploy de #77 estaba en curso. Versión 1.0.0 (tag `v1.0.0` en `2fd579e`, [P-013](../Seguimiento/Preguntas/P-013.md)), engine-cli 0.3.6 y worker 0.3.5.
+- **Qué corre al 12/10/2026:** desplegada varias veces durante el día, hasta `b0c3627` (#77). Versión 1.0.0 (tag `v1.0.0` en `2fd579e`, [P-013](../Seguimiento/Preguntas/P-013.md)), engine-cli 0.3.6 y worker 0.3.5.
 - **Deploy:** `pnpm deploy:fly`. Exige el commit en `origin/main` con la CI verde y `posta check`, y corre `flyctl deploy --app tcg-pocket --remote-only --ha=false`; siempre `--ha=false`, porque Fly crea dos máquinas por defecto. Las migraciones van en `release_command`, y el contenedor las vuelve a correr al arrancar.
 - **Secretos:** `DATABASE_URL` y `SESSION_SECRET` con `flyctl secrets set`; `DATABASE_URL` local en `.env.fly`, que nunca se versiona ni se muestra. `TRACKER_COLLECTION_ANON_KEY` cargado el 11/10 ([T-020](../Seguimiento/Tareas/T-020.md)). Los del bucket de Tigris, cargados el 12/10 ([P-010](../Seguimiento/Preguntas/P-010.md)).
 - **Tareas puntuales:** `flyctl machine exec <id> --app tcg-pocket "<comando>"`; la consola SSH no anda desde esta PC ([R-005](../Seguimiento/Riesgos/R-005.md)). Desde #75 los CLI se pueden correr con la API viva: no corren crons ni hooks de arranque (DECISIONES 45.51). Tras un `catalog-sync` por CLI hay que reiniciar la máquina o usar `POST /api/catalog/sync`, porque el catálogo vive en memoria.
