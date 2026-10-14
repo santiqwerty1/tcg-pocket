@@ -48,10 +48,6 @@ export function formatDuration(seconds: number): string {
   return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`
 }
 
-/**
- * Ways to fill `slots` places with `kinds` candidates, repetition allowed: only for a server that does not send its
- * exact count (`combinations` of the preview, H-050: never past 2 copies of a name).
- */
 /** «2 Erika, Sabrina»: the cards of a combination, with two copies of one said once (H-050). */
 export function combinationNames(names: readonly string[]): string {
   const counts = new Map<string, number>()
@@ -59,6 +55,10 @@ export function combinationNames(names: readonly string[]): string {
   return [...counts].map(([name, count]) => (count > 1 ? `${count} ${name}` : name)).join(', ')
 }
 
+/**
+ * Ways to fill `slots` places with `kinds` candidates, repetition allowed: only for a server that does not send its
+ * exact count (`combinations` of the preview, H-050: never past 2 copies of a name).
+ */
 export function multisetCount(kinds: number, slots: number): number {
   if (kinds <= 0 || slots <= 0) return 0
   let result = 1

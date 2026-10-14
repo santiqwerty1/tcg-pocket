@@ -191,6 +191,8 @@ export class SimulationsService {
     combinations: number
     /** Why creating this optimize would be refused (H-050), in Spanish; null when it would be queued. */
     optimizeProblem: string | null
+    /** Candidates that play the same as another one and do not go on their own (H-050), in Spanish. */
+    optimizeMerged: string[]
     estimatedSeconds: number
     engineRev: string
   }> {
@@ -220,6 +222,7 @@ export class SimulationsService {
     // optimize: every combination against every rival, then its confirmation (H-011.5) when it ends.
     let combinations = 0
     let optimizeProblem: string | null = null
+    let optimizeMerged: string[] = []
     const optimizeSource = input.sideA[0]
     if (input.kind === 'optimize' && input.optimize && optimizeSource) {
       // The cards of the deck as the job will read them, so the screen and the job count the same.
@@ -229,10 +232,11 @@ export class SimulationsService {
               .cards as unknown as SnapshotCardRow[])
           : (await this.snapshots.draft(optimizeSource)).draft.cards
       const base = optimizeBase(cards, input.optimize.remove, this.catalog.requireIndex())
-      const { candidates, problems } = await this.optimizeCandidates(input.optimize.candidates)
+      const { candidates, problems, merged } = await this.optimizeCandidates(input.optimize.candidates)
       const plan = optimizePlan(candidates, base.keptByName, base.missing)
       combinations = plan.combinations
       optimizeProblem = problems[0]?.message ?? plan.problem
+      optimizeMerged = merged
     }
     const confirmationGames =
       input.kind === 'optimize' ? optimizeConfirmationGames(combinations, bIds.length, input.gamesPerPair) : 0
@@ -246,6 +250,7 @@ export class SimulationsService {
       confirmationGames,
       combinations,
       optimizeProblem,
+      optimizeMerged,
       estimatedSeconds: Math.round(estimateSeconds(totalGames, input.players, input.cores ?? 2)),
       engineRev: this.engine.engineRev(),
     }
@@ -537,19 +542,26 @@ export class SimulationsService {
   private async optimizeCandidates(cardIds: readonly string[]): Promise<{
     candidates: OptimizeCandidate[]
     problems: { kind: 'unknown' | 'not_simulable'; message: string }[]
+    /** Editions left out because another of the same functional card is already a candidate, in Spanish. */
+    merged: string[]
   }> {
     const index = this.catalog.requireIndex()
     const status = await this.engine.status()
     const candidates: OptimizeCandidate[] = []
     const problems: { kind: 'unknown' | 'not_simulable'; message: string }[] = []
-    const groups = new Set<string>()
+    const merged: string[] = []
+    const groups = new Map<string, string>()
     for (const cardId of cardIds) {
       const card = index.cardById(cardId)
       if (!card) {
         problems.push({ kind: 'unknown', message: `Carta ${cardId} desconocida.` })
         continue
       }
-      if (groups.has(card.functionalGroupId)) continue
+      const first = groups.get(card.functionalGroupId)
+      if (first !== undefined) {
+        if (first !== card.id) merged.push(`${card.nameEs} (${card.id}) juega igual que ${first}: va una sola.`)
+        continue
+      }
       const played = status(card.engineId) === true ? card : null
       const alternative =
         played ?? index.cardsOfGroup(card.functionalGroupId).find((other) => status(other.engineId) === true) ?? null
@@ -560,10 +572,10 @@ export class SimulationsService {
         })
         continue
       }
-      groups.add(card.functionalGroupId)
+      groups.set(card.functionalGroupId, card.id)
       candidates.push({ id: alternative.engineId, name: alternative.nameEn })
     }
-    return { candidates, problems }
+    return { candidates, problems, merged }
   }
 
   // ---------------------------------------------------------------------------------------------------------------

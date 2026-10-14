@@ -691,6 +691,11 @@ export function NewSimulationPage() {
                   {plural(combinations, 'combinación', 'combinaciones')} × {plural(rivals, 'rival', 'rivales')} ×{' '}
                   {gamesLabel(gamesNumber)} = <strong>{gamesLabel(searchGames)}</strong>
                   {data.optimizeProblem ? <span className="block text-destructive">{data.optimizeProblem}</span> : null}
+                  {(data.optimizeMerged ?? []).map((note) => (
+                    <span key={note} className="block text-xs text-muted-foreground">
+                      {note}
+                    </span>
+                  ))}
                 </p>
                 {confirmationGames > 0 ? (
                   <p>

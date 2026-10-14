@@ -578,7 +578,11 @@ function Skipped({ job }: { job: JobDetail }) {
   )
 }
 
-/** «Repetir»: the same decks, bots and games in the form; the same seed only when asked (it gives the same result). */
+/**
+ * «Repetir»: the same decks, bots and games in the form; the same seed only when asked (it gives the same result,
+ * except an «optimizar» from before H-050: it now also tries two copies of a candidate, so it plays more combinations;
+ * the ones both played still match game by game, the seeds being per rival and game).
+ */
 function rerunLink(job: JobDetail): string {
   // Phase 42: a repeat plays again, unless the form says to copy what was already played the same way.
   const params = new URLSearchParams({ tipo: job.kind, cache: '0' })
