@@ -270,9 +270,11 @@ export function useRefreshLab() {
   return useMutation({
     mutationFn: (dryRun: boolean) =>
       request('/api/decks-today/refresh', { method: 'POST', body: { dryRun }, schema: labRefreshSchema }),
-    onSuccess: (_result, dryRun) => {
-      if (dryRun) return
+    onSuccess: (result, dryRun) => {
+      // An empty plan: the screen's count was old (self-review).
+      if (dryRun && result.queued.length > 0) return
       void queryClient.invalidateQueries({ queryKey: ['decks', 'today'] })
+      if (dryRun) return
       void queryClient.invalidateQueries({ queryKey: ['lab'] })
       void queryClient.invalidateQueries({ queryKey: ['simulations'] })
     },

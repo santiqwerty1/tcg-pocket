@@ -2176,6 +2176,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         if (sid === undefined) continue
         const bot = botLabel(job.players)
         if (byDefault(job) ? current !== null : !ofEra(job) || others.has(bot)) continue
+        // Self-review: another era's score once one is found is not computed again (after a new era, every deck).
+        if (byDefault(job) && !ofEra(job) && other !== null) continue
         const score = await scoreIn(job, sid)
         if (!score.score) continue
         const found = { jobId: job.id, era: job.params.lab.era, bot, finishedAt: job.finishedAt, score }
@@ -2271,22 +2273,24 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
    */
   async refreshDecks(deckIds: readonly number[], dryRun = false): Promise<LabRefreshView> {
     if (dryRun) return this.planRefresh(deckIds, true)
+    // Self-review: a session lock on a connection of its own, taken without waiting. A transaction's lock was let go
+    // at its timeout while the queueing went on (tests twice), and every request waiting for it held a connection.
+    const lock = await this.prisma.pool.connect()
+    let acquired = false
     try {
-      return await this.prisma.$transaction(
-        async (tx) => {
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${REFRESH_LOCK}::bigint)`
-          return this.planRefresh(deckIds, false)
-        },
-        { timeout: 120_000, maxWait: 15_000 },
-      )
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2028') {
+      acquired =
+        (await lock.query<{ locked: boolean }>('SELECT pg_try_advisory_lock($1) AS locked', [REFRESH_LOCK])).rows[0]
+          ?.locked ?? false
+      if (!acquired) {
         throw new ConflictException({
           code: 'busy',
-          message: 'Ya se están encolando las pruebas: probá de nuevo en un rato.',
+          message: 'Ya se están encolando las pruebas: probá de nuevo en unos segundos.',
         })
       }
-      throw error
+      return await this.planRefresh(deckIds, false)
+    } finally {
+      if (acquired) await lock.query('SELECT pg_advisory_unlock($1)', [REFRESH_LOCK]).catch(() => undefined)
+      lock.release()
     }
   }
 

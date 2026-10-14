@@ -100,7 +100,7 @@ function Row({
         ) : row.labRunning ? null : (
           `sin probar contra el meta con ${LAB_BOT}`
         )}
-        {row.labRunning ? <LabRunning run={row.labRunning} /> : null}
+        {row.labRunning ? <LabRunning run={row.labRunning} first={row.lab === null} /> : null}
         {row.labOthers.map((other) => (
           <span key={other.bot} className="text-muted-foreground">
             {' · con '}
@@ -117,11 +117,11 @@ function Row({
 }
 
 /** «Actualizar todos»: the test of the list playing now, or waiting its turn. */
-function LabRunning({ run }: { run: NonNullable<Pick['items'][number]['labRunning']> }) {
+function LabRunning({ run, first }: { run: NonNullable<Pick['items'][number]['labRunning']>; first: boolean }) {
   const share = run.totalGames > 0 ? Math.floor((100 * run.gamesDone) / run.totalGames) : 0
   return (
     <span className="text-muted-foreground">
-      {' · '}
+      {first ? null : ' · '}
       <Link to={`/laboratorio/${run.jobId}`} className="text-primary hover:underline">
         {run.status === 'queued' && run.gamesDone === 0 ? 'en cola' : `probando… ${share}${'\u00a0'}%`}
       </Link>
