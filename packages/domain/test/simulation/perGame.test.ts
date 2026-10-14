@@ -74,6 +74,7 @@ describe('per-game results of a chunk', () => {
     expect(checkPerGame({ ...mixed, turns: [31, 9, 31, 20] }, tally)).toBeNull()
     expect(checkPerGame({ ...mixed, turns: [12, 31, 31, 20] }, tally)).toBeNull()
     expect(checkPerGame({ ...mixed, turns: [32, 9, 31, 20] }, tally)).toMatch(/partida 0.*límite de 30 turnos/)
+    expect(checkPerGame({ ...mixed, turns: [12, 32, 31, 20] }, tally)).toMatch(/partida 1.*límite de 30 turnos/)
     expect(checkPerGame({ ...mixed, turnLimit: 25, turns: [26, 9, 26, 20] }, tally)).toBeNull()
     expect(checkPerGame({ ...mixed, turnLimit: 25, turns: [27, 9, 26, 20] }, tally)).toMatch(/partida 0.*límite de 25/)
     expect(checkPerGame({ ...mixed, turns: [12, 9, 31, -1] }, tally)).toMatch(/turns/)

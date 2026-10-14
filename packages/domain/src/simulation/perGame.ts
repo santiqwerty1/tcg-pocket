@@ -15,13 +15,19 @@ export interface PerGameResults {
   starters: string
   /** «P» the winner reached 3 points, «N» the loser had no Pokémon in play, «L» tie at the 30-turn limit, «T» other tie. */
   endings: string
-  /** Turns played (deckgym's global count: both players' turns, 31 at the limit). */
+  /**
+   * Turns played (deckgym's global count: both players' turns). 31 at the limit, and also in a game a knockout from the
+   * end of turn 30 decides.
+   */
   turns: number[]
   /** Highest stage deck A had in play: «0» only Basic Pokémon, «1», «2». */
   stagesA: string
   /** The same for deck B. */
   stagesB: string
-  /** More turns than this is a tie at the limit («L»); engines from before 0.2.1 leave it out (deckgym's 30). */
+  /**
+   * The turn limit: a tie at the limit («L») played more turns than this, and a won game at most one more. Engines from
+   * before 0.2.1 leave it out (deckgym's 30).
+   */
   turnLimit?: number
 }
 
