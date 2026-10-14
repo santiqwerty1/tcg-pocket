@@ -15,13 +15,19 @@ export interface PerGameResults {
   starters: string
   /** «P» the winner reached 3 points, «N» the loser had no Pokémon in play, «L» tie at the 30-turn limit, «T» other tie. */
   endings: string
-  /** Turns played (deckgym's global count: both players' turns, 31 at the limit). */
+  /**
+   * Turns played (deckgym's global count: both players' turns). 31 at the limit, and also in a game a knockout from the
+   * end of turn 30 decides.
+   */
   turns: number[]
   /** Highest stage deck A had in play: «0» only Basic Pokémon, «1», «2». */
   stagesA: string
   /** The same for deck B. */
   stagesB: string
-  /** More turns than this is a tie at the limit («L»); engines from before 0.2.1 leave it out (deckgym's 30). */
+  /**
+   * The turn limit: a tie at the limit («L») played more turns than this, and a won game at most one more. Engines from
+   * before 0.2.1 leave it out (deckgym's 30).
+   */
   turnLimit?: number
 }
 
@@ -98,8 +104,12 @@ export function checkPerGame(
     const tie = winners[i] === 'T'
     const tieEnding = endings[i] === 'L' || endings[i] === 'T'
     if (tie !== tieEnding) return `perGame: la partida ${i} no termina como dice su resultado.`
-    // deckgym ties a game when the turn after the limit begins, and only then: «L» if and only if more were played.
-    if ((endings[i] === 'L') !== (turns[i] as number) > limit) {
+    // deckgym ties a game when the turn after the limit begins (it counts that turn): «L» needs more than the limit. A
+    // knockout from the end of the last turn (Deceptive Needle, Poison, Burn) is settled after that, so a game it decides
+    // is won with one turn more than the limit too (job 42, 14/10/2026); a tie of another kind, never.
+    const played = turns[i] as number
+    const most = endings[i] === 'P' || endings[i] === 'N' ? limit + 1 : limit
+    if (endings[i] === 'L' ? played <= limit : played > most) {
       return `perGame: la partida ${i} no coincide con el límite de ${limit} turnos.`
     }
   }

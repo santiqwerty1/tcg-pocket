@@ -1300,9 +1300,10 @@ describe('simulation (e2e)', () => {
     for (const turnLimit of [0, 30.5, 1e9, '30']) {
       expect((await put({ ...result, extra: { perGame: { ...perGame, turnLimit } } })).status).toBe(422)
     }
-    // With a limit of 20, a game won in 21 turns does not add up (a game past the limit is a tie).
+    // With a limit of 20, a game won in 22 turns is refused: past the limit only a tie («L») or a game decided by a
+    // knockout from the end of the last turn (21 turns) is (the turns still add up to the chunk's 60).
     expect(
-      (await put({ ...result, extra: { perGame: { ...perGame, turnLimit: 20, turns: [21, 9, 31, 8] } } })).status,
+      (await put({ ...result, extra: { perGame: { ...perGame, turnLimit: 20, turns: [22, 9, 21, 8] } } })).status,
     ).toBe(422)
     // The worker that claims it again sends it right.
     const again = (await hello('worker-0205', '0.2.5', '0.2.0')).body.chunk as Structured
