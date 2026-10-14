@@ -1548,6 +1548,7 @@ mod tests {
             ("games", Box::new(|| SimulateJob { games: 20, ..base() })),
             ("replays", Box::new(|| SimulateJob { replay_sample: 1, ..base() })),
             ("perGame", Box::new(|| SimulateJob { per_game: false, ..base() })),
+            ("deck A", Box::new(|| SimulateJob { deck_a: OTHER_DECK.to_string(), ..base() })),
             ("deck B", Box::new(|| SimulateJob { deck_b: OTHER_DECK.to_string(), ..base() })),
             ("players", Box::new(|| SimulateJob { players: vec!["r".to_string(), "e2".to_string()], ..base() })),
         ];

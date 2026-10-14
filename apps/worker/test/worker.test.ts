@@ -7,7 +7,15 @@ import { gunzipSync } from 'node:zlib'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, type Chunk, type ChunkResult, type LiveGame, WorkerClient } from '../src/client.js'
 import type { WorkerConfig } from '../src/config.js'
-import { cutDiagnosis, EngineError, engineStatus, engineVersion, FROZEN_GAP_MS, runJob } from '../src/engine.js'
+import {
+  cutDiagnosis,
+  EngineError,
+  endedFromOutside,
+  engineStatus,
+  engineVersion,
+  FROZEN_GAP_MS,
+  runJob,
+} from '../src/engine.js'
 import { LiveRunner, OLD_ENGINE_COACH } from '../src/live.js'
 import { parseMemAvailableMb, parseStatus, procAvailable } from '../src/proc-probe.js'
 import type { ReadyRelease, Updater } from '../src/update.js'
@@ -197,6 +205,19 @@ describe('engine runner', () => {
     expect(ended.clockGapMs).toBeGreaterThanOrEqual(120)
     // The machine did not sleep: both clocks went the same way.
     expect(ended.sleepGapMs).toBeLessThan(100)
+  })
+
+  it('an engine ended from outside: a lost result, or a SIGKILL or SIGTERM this worker did not send (review of #104)', () => {
+    expect(endedFromOutside(new EngineError('x', 0, 'missing_result'))).toBe(true)
+    expect(endedFromOutside(new EngineError('x', null, null, 'SIGKILL'))).toBe(true)
+    expect(endedFromOutside(new EngineError('x', null, null, 'SIGTERM'))).toBe(true)
+    // A crash of its own would repeat at the same game; an exit code, Windows' kill from outside too, is the engine's.
+    expect(endedFromOutside(new EngineError('x', null, null, 'SIGSEGV'))).toBe(false)
+    expect(endedFromOutside(new EngineError('x', null, null, 'SIGABRT'))).toBe(false)
+    expect(endedFromOutside(new EngineError('x', 1, null))).toBe(false)
+    expect(endedFromOutside(new EngineError('x', 3, 'bad_deck'))).toBe(false)
+    expect(endedFromOutside(new EngineError('x', 0, 'invalid_result'))).toBe(false)
+    expect(endedFromOutside(new Error('cancelado'))).toBe(false)
   })
 
   it('the diagnosis of a cut says a frozen worker, an asleep machine and its memory', () => {
@@ -468,6 +489,8 @@ describe('worker loop', () => {
       expect(cut.calls.failures.map(({ chunkId, cause }) => [chunkId, cause])).toEqual([[7, 'worker']])
       expect(cut.calls.results.map(({ chunkId }) => chunkId)).toEqual([9])
       expect(cut.resumes).toBe(5)
+      // The error the app keeps says it (review of #104).
+      expect(cut.calls.failures[0]?.error).toMatch(/sin resultado válido.*\(retomado 5 veces\)$/)
       // Its folder gone between two runs: nothing to resume on; it goes back as a lost result and the loop goes on.
       rmSync(join(dataDir, 'state.json'), { force: true })
       const gone = await lossRun([chunk({ games: 87 }), chunk({ chunkId: 9 })])
@@ -475,6 +498,50 @@ describe('worker loop', () => {
       expect(gone.calls.results.map(({ chunkId }) => chunkId)).toEqual([9])
       expect(gone.resumes).toBe(0)
       // Nothing left behind: every chunk's folder went with it.
+      expect(readdirSync(join(dataDir, 'work'))).toEqual([])
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  }, 30_000)
+
+  it('a resumed run that cannot start is still its cut; a SIGKILL from outside resumes (review of #104)', async () => {
+    vi.stubEnv('FAKE_ENGINE_RESUME', '1')
+    try {
+      // Cut, and then its job cannot be written: the chunk goes back as the lost result it was, and the loop goes on.
+      const unwritable = await lossRun([chunk({ games: 86 }), chunk({ chunkId: 9 })])
+      expect(unwritable.calls.failures.map(({ chunkId, cause }) => [chunkId, cause])).toEqual([[7, 'worker']])
+      expect(unwritable.calls.failures[0]?.error).toMatch(/sin resultado válido.*\(retomado 1 vez\)$/)
+      expect(unwritable.calls.results.map(({ chunkId }) => chunkId)).toEqual([9])
+      expect(unwritable.resumes).toBe(1)
+      // Killed from outside with SIGKILL at its first run: on Linux and Android it resumes from its checkpoint. On
+      // Windows a process ended from outside exits with a code like any other: a failure of the engine, as before.
+      rmSync(join(dataDir, 'state.json'), { force: true })
+      const killed = await lossRun([chunk({ games: 85 }), chunk({ chunkId: 9 })])
+      if (process.platform === 'win32') {
+        expect(killed.calls.failures.map(({ chunkId, cause }) => [chunkId, cause ?? 'engine'])).toEqual([[7, 'engine']])
+        expect(killed.calls.results.map(({ chunkId }) => chunkId)).toEqual([9])
+        expect(killed.resumes).toBe(0)
+      } else {
+        expect(killed.calls.results.map(({ chunkId, body }) => [chunkId, body.games])).toEqual([
+          [7, 85],
+          [9, 10],
+        ])
+        expect(killed.calls.failures).toEqual([])
+        expect(killed.resumes).toBe(1)
+      }
+      // Killed every time: after MAX_RESUMES it fails as a signal did before, saying the signal and the resumes.
+      rmSync(join(dataDir, 'state.json'), { force: true })
+      const always = await lossRun([chunk({ games: 84 }), chunk({ chunkId: 9 })])
+      expect(always.calls.failures.map(({ chunkId, cause }) => [chunkId, cause ?? 'engine'])).toEqual([[7, 'engine']])
+      expect(always.calls.results.map(({ chunkId }) => chunkId)).toEqual([9])
+      if (process.platform === 'win32') {
+        expect(always.resumes).toBe(0)
+      } else {
+        expect(always.resumes).toBe(5)
+        expect(always.calls.failures[0]?.error).toMatch(
+          /^engine-cli terminó por la señal SIGKILL: .*\(retomado 5 veces\)$/s,
+        )
+      }
       expect(readdirSync(join(dataDir, 'work'))).toEqual([])
     } finally {
       vi.unstubAllEnvs()

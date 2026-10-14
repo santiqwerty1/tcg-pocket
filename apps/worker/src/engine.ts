@@ -56,11 +56,24 @@ export interface RunOptions {
   /** The engine's version (`cliVersion`), for the diagnosis of a lost result. */
   cliVersion?: string | undefined
   /**
-   * `resume` (H-054): the folder of a run before (`runJob` makes one otherwise), and whether a lost result keeps it:
-   * its checkpoint lets the next run play only the games it does not have.
+   * `resume` (H-054): the folder of a run before (`runJob` makes one otherwise), and whether an engine ended from
+   * outside (`endedFromOutside`) keeps it: its checkpoint lets the next run play only the games it does not have.
    */
   dir?: string | undefined
   keepOnLoss?: boolean | undefined
+}
+
+/**
+ * Whether the engine's process was ended from outside before its end (H-054): exit 0 and no result.json (the S25),
+ * or a SIGKILL or SIGTERM this worker did not send, as Android's low memory or phantom process killer do (review of
+ * #104). A cancel, a lost lease or a shutdown is the run's signal, not this. A crash of the engine's own (SIGSEGV,
+ * SIGABRT) would repeat at the same game, and on Windows a process ended from outside exits with a code like any
+ * other: neither is.
+ */
+export function endedFromOutside(error: unknown): error is EngineError {
+  if (!(error instanceof EngineError)) return false
+  if (error.code === 'missing_result') return true
+  return error.exitCode === null && (error.signal === 'SIGKILL' || error.signal === 'SIGTERM')
 }
 
 /** How a run went, besides its output: for the log when the result is missing. */
@@ -241,7 +254,11 @@ function run(enginePath: string, args: string[], options: RunOptions = {}): Prom
         })
         return
       }
-      let message = stderrTail.trim() || `engine-cli terminó con código ${code}, señal ${signal}`
+      // A signal goes first: the tail of a long run is its progress lines, which say nothing of how it ended.
+      let message =
+        signal !== null
+          ? `engine-cli terminó por la señal ${signal}${stderrTail.trim() ? `: ${stderrTail.trim().slice(-500)}` : ''}`
+          : stderrTail.trim() || `engine-cli terminó con código ${code}, señal ${signal}`
       let errorCode: string | null = null
       try {
         const parsed = JSON.parse(stdout.trim()) as { error?: string; code?: string; detail?: unknown }
@@ -338,9 +355,8 @@ export async function runJob<T>(
       )
     }
   } catch (error) {
-    // A lost result with a checkpoint: the folder stays for the run that resumes it.
-    const resumable = options.keepOnLoss && error instanceof EngineError && error.code === 'missing_result'
-    if (!resumable) await removeWorkDir(dir)
+    // An engine ended from outside, with a checkpoint: the folder stays for the run that resumes it.
+    if (!(options.keepOnLoss && endedFromOutside(error))) await removeWorkDir(dir)
     throw error
   }
 }

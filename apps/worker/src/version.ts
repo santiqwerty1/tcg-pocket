@@ -23,4 +23,6 @@
 // game and whether the worker was frozen, in the log and in the chunk's error the app keeps.
 // 0.3.7 (B of H-054): with an engine that has `resume` (engine-cli 0.3.8), a chunk cut before its end goes on from its
 // checkpoint in its folder, at most 5 times, instead of going back with every game it had played.
-export const WORKER_VERSION = '0.3.7'
+// 0.3.8 (review of #104): also resumes an engine ended by a SIGKILL or SIGTERM it did not send (Android), with
+// engine-cli 0.3.9, whose checkpoint stops at the first write that fails.
+export const WORKER_VERSION = '0.3.8'
