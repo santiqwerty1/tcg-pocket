@@ -106,7 +106,8 @@ export class CatalogController {
    * answer (treated as needing confirmation), else `same`/`newer`.
    */
   private async position(commit: string): Promise<'same' | 'newer' | 'older' | 'unknown'> {
-    const current = this.catalog.trackerCommit
+    // The last one applied, not the memory's: after a CLI's sync they differ for up to a minute.
+    const current = await this.catalog.appliedCommit()
     if (!current || current === commit) return 'same'
     try {
       const status = (await this.commits.compare(current, commit)).status
@@ -127,7 +128,8 @@ export class CatalogController {
 
   /**
    * Starts a sync in the background; follow it through `GET /api/catalog/status`. 409 while one is running.
-   * H-004 (Fase 40): without `commit`, the loaded commit again (never back to the configured pin). Going back to an
+   * H-004 (Fase 40): without `commit`, the last applied commit again (the database's, also while the memory is behind
+   * after a CLI's sync; never back to the configured pin). Going back to an
    * older commit, or a sync that would take the owner's cards away, needs `confirm: true` (409 `confirm_required`,
    * or the sync row fails saying so, before writing anything).
    */
@@ -137,7 +139,7 @@ export class CatalogController {
     @Body(new ZodValidationPipe(syncSchema)) body: z.infer<typeof syncSchema>,
     @CurrentSession() _session: RequestSession,
   ): Promise<{ syncId: number }> {
-    const commit = body.commit ?? this.catalog.trackerCommit ?? this.env.catalogCommit
+    const commit = body.commit ?? (await this.catalog.appliedCommit()) ?? this.env.catalogCommit
     if (body.baseline !== undefined && body.baseline !== (await this.sync.baseline())) {
       throw new ConflictException({
         code: 'stale_preview',

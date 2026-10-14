@@ -2,6 +2,7 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SchedulerRegistry } from '@nestjs/schedule'
+import { CatalogService } from '../src/catalog/catalog.service.js'
 import { CatalogRepository } from '../src/catalog/catalog-repository.js'
 import { DEFAULT_FIXTURES_DIR as FIXTURES_DIR } from '../src/catalog/catalog-sources.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
@@ -25,6 +26,8 @@ describe('catalog (e2e)', () => {
     await seedOwner(test.app, { totp: false })
     cookie = await login(test, { secret: null })
     sync = test.app.get(CatalogSyncService)
+    // The tests write catalog_syncs rows by hand: the server's minute must not load them in between (they call catchUp).
+    test.app.get(SchedulerRegistry).getCronJob('catalog-memory').stop()
   })
 
   afterAll(async () => {
@@ -409,6 +412,140 @@ describe('catalog (e2e)', () => {
     } finally {
       sync.heartbeatMs = 30_000
       spy.mockRestore()
+    }
+  })
+
+  it('a sync applied by another process is loaded within a minute; until then the alert says it (the low 4 of #95)', async () => {
+    if ((await test.prisma.card.count()) === 0)
+      await sync.sync({ trackerCommit: test.env.catalogCommit, engineRev: test.env.engineRev, source: 'fixtures' })
+    const catalog = test.app.get(CatalogService)
+    const before = catalog.loadedSyncId
+    expect(before).not.toBeNull()
+    expect(test.app.get(SchedulerRegistry).getCronJob('catalog-memory')).toBeDefined()
+    const memoryAlert = async () =>
+      ((await get('/api/alerts')).body.items as { code: string; detail: string }[]).find(
+        (alert) => alert.code === 'catalog_memory',
+      )
+    expect(await memoryAlert()).toBeUndefined()
+    // A `catalog-sync.js` next to the API: the database has a newer applied sync than the one in memory, of another
+    // commit (the tables are the same: only the row says it).
+    const other = await test.prisma.catalogSync.update({
+      where: { id: (await syncRow(new Date(), new Date(), 'applied')).id },
+      data: { commitSha: 'f'.repeat(40) },
+    })
+    expect(catalog.trackerCommit).not.toBe(other.commitSha)
+    try {
+      expect(await memoryAlert()).toMatchObject({
+        detail: expect.stringContaining(`#${other.id}`),
+      })
+      expect((await get('/api/ops/status')).body.catalog).toMatchObject({
+        loadedSyncId: before,
+        latestAppliedSyncId: other.id,
+      })
+      // «Sincronizar» repeats the database's last commit, not the memory's (that would undo the CLI's sync).
+      expect(await catalog.appliedCommit()).toBe(other.commitSha)
+      const start = vi.spyOn(sync, 'start').mockResolvedValue({ syncId: 0 })
+      try {
+        expect(
+          (await test.http().post('/api/catalog/sync').set('Cookie', cookie).send({ fromFixtures: true })).status,
+        ).toBe(202)
+        expect(start).toHaveBeenCalledWith(expect.objectContaining({ trackerCommit: other.commitSha }))
+        // Asking for the memory's commit by name is going back from the database's: it needs confirming, even though
+        // it is the one in memory (compared with the memory's, it would be «same» and pass).
+        const commits = test.app.get(TrackerCommitsService)
+        const compared: string[] = []
+        commits.fetchImpl = async (input) => {
+          compared.push(String(input))
+          return Response.json({ status: 'behind', ahead_by: 0, behind_by: 2 })
+        }
+        try {
+          const back = await test
+            .http()
+            .post('/api/catalog/sync')
+            .set('Cookie', cookie)
+            .send({ commit: test.env.catalogCommit })
+          expect(back.status).toBe(409)
+          expect(back.body.error.code).toBe('confirm_required')
+          expect(compared[0]).toContain(`/compare/${other.commitSha}...${test.env.catalogCommit}`)
+        } finally {
+          commits.fetchImpl = fetch
+        }
+        expect(start).toHaveBeenCalledTimes(1)
+      } finally {
+        start.mockRestore()
+      }
+      // Not while this process syncs: it reloads at its end, and the alert does not blame a CLI meanwhile.
+      const state = sync as unknown as { running: boolean }
+      state.running = true
+      try {
+        expect(await sync.catchUp()).toBe(false)
+        expect(await memoryAlert()).toBeUndefined()
+      } finally {
+        state.running = false
+      }
+      // A load that fails keeps the old catalog and says why.
+      const repository = test.app.get(CatalogRepository)
+      const failing = vi.spyOn(repository, 'loadCatalog').mockRejectedValueOnce(new Error('la base no contestó.'))
+      try {
+        expect(await sync.catchUp()).toBe(false)
+      } finally {
+        failing.mockRestore()
+      }
+      expect(catalog.loadedSyncId).toBe(before)
+      expect((await memoryAlert())?.detail).toContain('El último intento falló: la base no contestó.')
+      // The next minute loads it, once even if two ticks overlap: the alert goes, and once loaded nothing more happens.
+      const reload = vi.spyOn(catalog, 'reload')
+      try {
+        expect((await Promise.all([sync.catchUp(), sync.catchUp()])).sort()).toEqual([false, true])
+        expect(reload).toHaveBeenCalledTimes(1)
+      } finally {
+        reload.mockRestore()
+      }
+      expect(catalog.loadedSyncId).toBe(other.id)
+      expect(await memoryAlert()).toBeUndefined()
+      expect(await sync.catchUp()).toBe(false)
+      expect(await test.prisma.card.count()).toBe(EXPECTED.cards)
+    } finally {
+      await test.prisma.catalogSync.delete({ where: { id: other.id } })
+      await catalog.reload()
+    }
+    expect(catalog.loadedSyncId).toBe(before)
+  })
+
+  it('a sync whose load into memory fails after its commit stays applied, and the next minute loads it', async () => {
+    const catalog = test.app.get(CatalogService)
+    const before = catalog.loadedSyncId
+    const failing = vi.spyOn(catalog, 'reload').mockRejectedValueOnce(new Error('sin memoria'))
+    try {
+      const summary = await sync.sync({
+        trackerCommit: test.env.catalogCommit,
+        engineRev: test.env.engineRev,
+        source: 'fixtures',
+      })
+      expect(summary.status).toBe('applied')
+      expect(await test.prisma.catalogSync.findUniqueOrThrow({ where: { id: summary.syncId } })).toMatchObject({
+        status: 'applied',
+        error: null,
+      })
+      expect(catalog.loadedSyncId).toBe(before)
+      failing.mockRestore()
+      expect(await sync.catchUp()).toBe(true)
+      expect(catalog.loadedSyncId).toBe(summary.syncId)
+    } finally {
+      failing.mockRestore()
+    }
+  })
+
+  it('an applied sync without cards does not empty the catalog in memory', async () => {
+    const catalog = test.app.get(CatalogService)
+    const before = catalog.loadedSyncId
+    const empty = vi.spyOn(test.app.get(CatalogRepository), 'loadCatalog').mockResolvedValueOnce(null)
+    try {
+      await expect(catalog.reload()).rejects.toThrow('no tiene cartas')
+      expect(catalog.loaded).toBe(true)
+      expect(catalog.loadedSyncId).toBe(before)
+    } finally {
+      empty.mockRestore()
     }
   })
 

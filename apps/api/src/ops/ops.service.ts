@@ -61,6 +61,9 @@ export interface OpsStatusView {
     trackerCommit: string | null
     engineRev: string | null
     lastSync: { status: string; fetchedAt: string; error: string | null } | null
+    /** The sync in memory and the last one applied: different after a `catalog-sync.js` CLI, until the API loads it. */
+    loadedSyncId: number | null
+    latestAppliedSyncId: number | null
   }
   github: { token: boolean; engineCheck: UpstreamFailure | null; trackerCheck: UpstreamFailure | null }
   workers: {
@@ -148,14 +151,19 @@ export class OpsService {
   }
 
   async catalogSync(): Promise<OpsStatusView['catalog']> {
-    const last = await this.prisma.catalogSync.findFirst({
-      orderBy: { id: 'desc' },
-      select: { status: true, fetchedAt: true, error: true },
-    })
+    const [last, memory] = await Promise.all([
+      this.prisma.catalogSync.findFirst({
+        orderBy: { id: 'desc' },
+        select: { status: true, fetchedAt: true, error: true },
+      }),
+      this.catalog.memoryState(),
+    ])
     return {
       trackerCommit: this.catalog.trackerCommit,
       engineRev: this.catalog.engineRev,
       lastSync: last ? { status: last.status, fetchedAt: last.fetchedAt.toISOString(), error: last.error } : null,
+      loadedSyncId: memory.loaded?.id ?? null,
+      latestAppliedSyncId: memory.latest?.id ?? null,
     }
   }
 

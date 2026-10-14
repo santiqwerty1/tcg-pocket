@@ -12,7 +12,7 @@ Cómo se sabe si la app anda, qué corre sola y qué hacer cuando algo falla (Fa
 | Comprobación de la copia en la nube (Fase 39) | El 1 de cada mes, con la prueba de restauración | Aviso `backup_offsite`: «Falló la comprobación de la copia en la nube» |
 | Prueba de restauración | El 1 de cada mes a las 04:30 | Aviso `backup_drill` |
 | Sincronización de Limitless | Al arrancar y cada 6 h (`LIMITLESS_SYNC`, en producción) | Aviso `limitless_sync`: la última corrida falló, o ninguna buena en 13 h |
-| Actualización del catálogo | A mano (Más → Catálogo) | Aviso `catalog_sync` si la última falló (sigue el catálogo anterior) |
+| Actualización del catálogo | A mano (Más → Catálogo) | Aviso `catalog_sync` si la última falló (sigue el catálogo anterior); `catalog_memory` si la memoria no tiene la última aplicada (se carga sola en un minuto) |
 | Colección del tracker | Cada 6 h si se habilita en Más → Ajustes; apagada por defecto | Aviso `tracker_sync`; deja revisión ante bajas grandes, cambios manuales recientes o dudas sobre el catálogo |
 | Chequeos de GitHub (set nuevo del tracker, commits nuevos de deckgym) | Cada 12 h (cada hora después de una falla) | Aviso `github_check` (info) |
 | Workers | Cuando hay trabajo | Aviso `worker_idle`: hay trabajo y ningún worker en 30 min, o ninguno con la feature o la revisión que pide; `worker_paused`: todos los workers vivos están en pausa por resultados perdidos (vuelven solos, sin reiniciar) |
@@ -77,7 +77,7 @@ La guía para levantar todo desde cero (base nueva, app nueva, restaurar la copi
 Se corren con `flyctl machine exec <id> --app tcg-pocket "node /app/apps/api/dist/cli/<cli>.js …"`: `retention.js` (vista previa; `--apply` borra), `catalog-sync.js`, `owner-init.js` y `worker-timing.js --days 7` (solo lectura: por worker, el tiempo del motor contra el reloj y el hueco entre reclamos).
 
 Desde #75 (DECISIONES 45.51) se pueden correr con la API viva: levantan la app en modo CLI, sin crons ni los hooks de arranque que cambian estado. Tené en cuenta dos cosas:
-- tras un `catalog-sync` por CLI hay que reiniciar la máquina o usar `POST /api/catalog/sync`, porque el catálogo vive en la memoria del servidor;
+- el catálogo vive en la memoria del servidor: después de un `catalog-sync` por CLI, la API carga la sincronización nueva sola en menos de un minuto, sin reiniciar. Mientras tanto sale el aviso `catalog_memory`; si sigue, porque falló la carga, reiniciá la máquina. «Sincronizar» sin commit repite el último aplicado en la base, no el de la memoria, así que no deshace lo del CLI;
 - si una sincronización del catálogo muere a la fuerza (falta de memoria o el tope de `flyctl machine exec`), la API la cierra como «Interrumpida» unos 5 minutos después de su última señal de vida, sin reiniciarse. Sale el aviso `catalog_sync` y «Sincronizar» se habilita de nuevo. Mientras una corre con señales de vida, empezar otra, desde la app o desde el CLI, da 409.
 
 ## Secretos opcionales

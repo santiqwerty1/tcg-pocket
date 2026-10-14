@@ -19,6 +19,7 @@ import {
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
+import { CatalogSyncService } from '../catalog/catalog-sync.service.js'
 import { ENV, type Env } from '../config/env.js'
 import { OWNER_TIME_ZONE, todayInOwnerZone } from '../config/time-zone.js'
 import {
@@ -50,6 +51,7 @@ export interface AlertView {
     | 'backup_stale'
     | 'limitless_sync'
     | 'catalog_sync'
+    | 'catalog_memory'
     | 'github_check'
     | 'database_size'
     | 'backup_offsite'
@@ -201,6 +203,7 @@ export class AlertsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly catalog: CatalogService,
+    private readonly catalogSync: CatalogSyncService,
     private readonly tracker: TrackerUpstreamService,
     private readonly tournaments: TournamentsService,
     private readonly engine: EngineStatusService,
@@ -640,6 +643,27 @@ export class AlertsService {
         title: `Falló la actualización del catálogo del ${ownerDateTime(new Date(catalog.lastSync.fetchedAt))}`,
         // Without the error's own closing period («cortado).. Sigue»).
         detail: `${(catalog.lastSync.error ?? 'error desconocido').slice(0, 200).replace(/\.+$/, '')}. Sigue el catálogo anterior; probala de nuevo en Más → Catálogo.`,
+        link: '/mas/catalogo',
+      })
+    }
+    // A sync applied by another process (a `catalog-sync.js` CLI) that the API has not loaded yet: it does within a
+    // minute (`catchUp`); the alert stays if loading it fails. Not while this API syncs: between its commit and its own
+    // load the database is ahead for a moment, and that is not a CLI's.
+    const memory = this.catalogSync.isRunning ? null : await this.catalog.memoryState()
+    if (memory?.latest && memory.latest.id !== memory.loaded?.id) {
+      const short = (sha: string) => sha.slice(0, 7)
+      const loaded = memory.loaded
+        ? `la sincronización #${memory.loaded.id} (commit ${short(memory.loaded.commitSha)})`
+        : 'ningún catálogo'
+      const failure = memory.failure
+        ? ` El último intento falló: ${memory.failure.message.slice(0, 160).replace(/\.+$/, '')}.`
+        : ''
+      alerts.push({
+        code: 'catalog_memory',
+        level: 'warning',
+        title: 'El catálogo cargado no es el último aplicado',
+        // Restarting, not «Sincronizar»: the restart loads what the database has, without syncing again.
+        detail: `La app usa ${loaded} y la base ya tiene la #${memory.latest.id} (commit ${short(memory.latest.commitSha)}), de un catalog-sync por la línea de comandos o de una sincronización cuya carga en memoria falló. La API la carga sola en menos de un minuto.${failure} Si el aviso sigue, reiniciá la máquina.`,
         link: '/mas/catalogo',
       })
     }
