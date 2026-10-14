@@ -35,9 +35,13 @@ export interface PickRowView {
     text: string
     jobId: number
     era: string
+    /** The bots (the Laboratorio's default, D-029). */
+    bot: string
     stale: boolean
     finishedAt: string | null
   } | null
+  /** The latest score of this era with each other bot (e3, f2…), apart. */
+  labOthers: { bot: string; value: number; ci95: [number, number]; games: number; jobId: number }[]
   /** «Actualizar todos»: the test of the list against this era's meta, queued or playing now. */
   labRunning: { jobId: number; status: 'queued' | 'running'; gamesDone: number; totalGames: number } | null
 }
@@ -136,10 +140,24 @@ export class PickService {
               text: score.score.text,
               jobId: score.jobId,
               era: score.era,
+              bot: score.bot,
               stale: status?.stale ?? false,
               finishedAt: score.finishedAt?.toISOString() ?? null,
             }
           : null,
+        labOthers: (status?.others ?? []).flatMap((found) =>
+          found.score.score
+            ? [
+                {
+                  bot: found.bot,
+                  value: found.score.score.value,
+                  ci95: found.score.score.ci95,
+                  games: found.score.score.games,
+                  jobId: found.jobId,
+                },
+              ]
+            : [],
+        ),
         labRunning: status?.running ?? null,
       })
     }

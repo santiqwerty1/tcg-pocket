@@ -21,6 +21,8 @@ import { formatDayEs, formatShare, staleTournaments } from '@/lib/tournaments'
 import { cn } from '@/lib/utils'
 
 const SORT_LABEL: Record<PickSort, string> = { tournament: 'Torneo', matches: 'Mis partidas', lab: 'Laboratorio' }
+/** The Laboratorio's bots by default (D-029): the score on each row is theirs; the others go apart. */
+const LAB_BOT = 'e2'
 
 function Line({ label, active, children }: { label: string; active: boolean; children: React.ReactNode }) {
   return (
@@ -90,14 +92,25 @@ function Row({
             <Link to={`/laboratorio/${row.lab.jobId}`} className="text-primary hover:underline">
               #{row.lab.jobId}
             </Link>
+            {` · ${row.lab.bot}`}
             {row.lab.stale
               ? ` · viejo: de la era ${row.lab.era}${row.lab.finishedAt ? `, del ${formatDateTime(row.lab.finishedAt)}` : ''}`
               : ''}
           </span>
         ) : row.labRunning ? null : (
-          'sin probar contra el meta'
+          `sin probar contra el meta con ${LAB_BOT}`
         )}
         {row.labRunning ? <LabRunning run={row.labRunning} /> : null}
+        {row.labOthers.map((other) => (
+          <span key={other.bot} className="text-muted-foreground">
+            {' · con '}
+            {other.bot}: {formatRateValue(other.value)} (
+            <Link to={`/laboratorio/${other.jobId}`} className="text-primary hover:underline">
+              #{other.jobId}
+            </Link>
+            )
+          </span>
+        ))}
       </Line>
     </li>
   )

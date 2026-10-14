@@ -164,6 +164,8 @@ import type {
 export const LAB_NOTE =
   'Juegan bots del motor deckgym, no personas: el porcentaje depende del bot y del motor. Es una pista para probar en el juego, no un veredicto.'
 export const MAX_TEST_DECKS = 10
+/** The Laboratorio's bots by default (D-029): the score of a deck in «¿Cuál llevo hoy?» is theirs. */
+export const LAB_DEFAULT_PLAYERS: [string, string] = ['e2', 'e2']
 /** `pg_advisory_xact_lock` key that serializes «Actualizar todos» (any constant no other lock uses). */
 const REFRESH_LOCK = 43_031
 const DEFAULT_TEST_GAMES = 100
@@ -190,6 +192,8 @@ export type LabDeckInput =
 export interface DeckLabScore {
   jobId: number
   era: string
+  /** The bots that played it: «e2», or «e2 contra e3» when the two sides differ. */
+  bot: string
   finishedAt: Date | null
   score: LabScoreView
 }
@@ -202,7 +206,9 @@ export interface DeckLabStatus {
   /** Its latest score: of the era asked for, or of another one (`stale`) when that era has none. */
   score: DeckLabScore | null
   stale: boolean
-  /** A test of the list against the meta of that era, queued or playing now. */
+  /** The latest score of the era with each other bot (e3, f2…), apart: never in place of the default bot's. */
+  others: DeckLabScore[]
+  /** A test of the list with the default bot against the meta of that era, queued or playing now. */
   running: { jobId: number; status: 'queued' | 'running'; gamesDone: number; totalGames: number } | null
 }
 
@@ -212,6 +218,7 @@ interface LabJobRow {
   status: string
   engineRev: string
   finishedAt: Date | null
+  players: string[]
   params: JobParams
 }
 
@@ -634,7 +641,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
   }
 
   private players(input: LabRunInput): [string, string] {
-    const players = input.players ?? ['e2', 'e2']
+    const players = input.players ?? LAB_DEFAULT_PLAYERS
     for (const code of players) {
       if (!isBotCode(code)) throw new BadRequestException({ code: 'validation', message: `Bot «${code}» desconocido.` })
     }
@@ -2146,36 +2153,44 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     )
     // One score per job and list, whatever the number of decks that share the list.
     const scores = new Map<string, Promise<LabScoreView>>()
+    const scoreIn = (job: LabJobRow, sid: number) => {
+      const cacheKey = `${job.id}:${sid}`
+      let pending = scores.get(cacheKey)
+      if (!pending) {
+        pending = this.snapshotScore(job, sid)
+        scores.set(cacheKey, pending)
+      }
+      return pending
+    }
+    // Review of the coordinator (14/10): the score is the default bot's (D-029); another bot's goes apart.
+    const byDefault = (job: LabJobRow) => botLabel(job.players) === botLabel(LAB_DEFAULT_PLAYERS)
+    const ofEra = (job: LabJobRow) => era === undefined || job.params.lab.era === era
     for (const [deckId, draft] of drafts) {
       const ids = idsByKey.get(draft.key) ?? new Set<number>()
       const inJob = (job: LabJobRow) => job.params.sideA.find((sid) => ids.has(sid))
       let current: DeckLabScore | null = null
       let other: DeckLabScore | null = null
+      const others = new Map<string, DeckLabScore>()
       for (const job of done) {
         const sid = inJob(job)
         if (sid === undefined) continue
-        const cacheKey = `${job.id}:${sid}`
-        let pending = scores.get(cacheKey)
-        if (!pending) {
-          pending = this.snapshotScore(job, sid)
-          scores.set(cacheKey, pending)
-        }
-        const score = await pending
+        const bot = botLabel(job.players)
+        if (byDefault(job) ? current !== null : !ofEra(job) || others.has(bot)) continue
+        const score = await scoreIn(job, sid)
         if (!score.score) continue
-        const found = { jobId: job.id, era: job.params.lab.era, finishedAt: job.finishedAt, score }
-        if (era === undefined || found.era === era) {
-          current = found
-          break
-        }
-        other ??= found
+        const found = { jobId: job.id, era: job.params.lab.era, bot, finishedAt: job.finishedAt, score }
+        if (!byDefault(job)) others.set(bot, found)
+        else if (ofEra(job)) current = found
+        else other ??= found
       }
-      const run = active.find((job) => inJob(job) !== undefined && (era === undefined || job.params.lab.era === era))
+      const run = active.find((job) => byDefault(job) && ofEra(job) && inJob(job) !== undefined)
       const summary = run ? progress.get(run.id) : undefined
       result.set(deckId, {
         key: draft.key,
         simulable: draft.simulable,
         score: current ?? other,
         stale: current === null && other !== null,
+        others: [...others.values()],
         running:
           run && summary
             ? {
@@ -2197,9 +2212,16 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
    */
   private async labJobsWith(snapshotIds: readonly number[]): Promise<LabJobRow[]> {
     const rows = await this.prisma.$queryRaw<
-      { id: number; status: string; engineRev: string; finishedAt: Date | null; params: Prisma.JsonValue }[]
+      {
+        id: number
+        status: string
+        engineRev: string
+        finishedAt: Date | null
+        players: string[]
+        params: Prisma.JsonValue
+      }[]
     >`
-      SELECT id, status::text AS status, engine_rev AS "engineRev", finished_at AS "finishedAt", params
+      SELECT id, status::text AS status, engine_rev AS "engineRev", finished_at AS "finishedAt", players, params
       FROM simulation_jobs
       WHERE status IN ('done', 'queued', 'running')
         AND params->'lab'->>'mode' IN ('test', 'explore')
@@ -2946,6 +2968,12 @@ function gamesOf(
   const rate = (split: { wins: number; games: number }) =>
     simulationRate({ wins: split.wins, losses: split.games - split.wins, ties: 0 })
   return { ...summary, total, hasStage2, firstRate: rate(summary.first), secondRate: rate(summary.second) }
+}
+
+/** «e2» when both sides play the same bot, «e2 contra e3» otherwise. */
+function botLabel(players: readonly string[]): string {
+  const [a, b] = players
+  return a === b || b === undefined ? (a ?? '') : `${a} contra ${b}`
 }
 
 /** The bank's rivals with their snapshot: explore jobs store it; tests find it by the list key among side B. */

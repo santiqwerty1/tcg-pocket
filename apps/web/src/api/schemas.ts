@@ -2579,11 +2579,25 @@ export const pickSchema = z.object({
           text: z.string(),
           jobId: z.number(),
           era: z.string(),
+          /** The bots (the Laboratorio's default, D-029). */
+          bot: z.string().default('e2'),
           /** Of another era: this one has no score yet («Actualizar todos»). */
           stale: z.boolean().default(false),
           finishedAt: z.string().nullable().default(null),
         })
         .nullable(),
+      /** The latest score of this era with each other bot (e3, f2…), apart. */
+      labOthers: z
+        .array(
+          z.object({
+            bot: z.string(),
+            value: z.number(),
+            ci95: z.tuple([z.number(), z.number()]),
+            games: z.number(),
+            jobId: z.number(),
+          }),
+        )
+        .default([]),
       /** «Actualizar todos»: the test of the list against this era's meta, queued or playing now. */
       labRunning: z
         .object({

@@ -169,6 +169,7 @@ describe('¿Qué mazo llevo hoy? and «Actualizar todos» (14/10)', () => {
           ...deck,
           deck: { id: '3', name: 'Hoopa ex' },
           lab: null,
+          labOthers: [{ bot: 'e3', value: 45.1, ci95: [41.0, 49.2], games: 1500, jobId: 48 }],
           labRunning: { jobId: 40, status: 'running', gamesDone: 350, totalGames: 1000 },
         },
       ],
@@ -201,6 +202,9 @@ describe('¿Qué mazo llevo hoy? and «Actualizar todos» (14/10)', () => {
     )
     expect(await screen.findByText(/viejo: de la era B4, del /)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'probando… 35\u00a0%' })).toHaveAttribute('href', '/laboratorio/40')
+    // Another bot's score goes apart, with its job.
+    expect(screen.getByText(/con e3: 45,1/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '#48' })).toHaveAttribute('href', '/laboratorio/48')
     expect(screen.getByText('Un mazo sin puntaje del Laboratorio de esta era.')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Actualizar todos' }))
     expect(await screen.findByText(/^Un mazo contra el meta de B4a: 1\.500 partidas, ~10 min/)).toBeInTheDocument()

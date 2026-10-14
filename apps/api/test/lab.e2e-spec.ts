@@ -395,7 +395,8 @@ describe('laboratorio (e2e)', () => {
     expect((await patch(copyId, true)).status).toBe(200)
     type Row = {
       deck: { id: string }
-      lab: { jobId: number; era: string; stale: boolean } | null
+      lab: { jobId: number; era: string; bot: string; stale: boolean } | null
+      labOthers: { bot: string; jobId: number }[]
       labRunning: { jobId: number; status: string; gamesDone: number; totalGames: number } | null
     }
     const rows = async () => {
@@ -442,9 +443,19 @@ describe('laboratorio (e2e)', () => {
     const played = await rows()
     for (const row of played.mine) {
       expect(row.labRunning).toBeNull()
-      expect(row.lab).toMatchObject({ jobId, era: 'B4a', stale: false })
+      expect(row.lab).toMatchObject({ jobId, era: 'B4a', bot: 'e2', stale: false })
     }
     expect((await post('/api/decks-today/refresh').send({ dryRun: true })).body).toMatchObject({ queued: [] })
+
+    // Review of the coordinator (14/10): a test with e3 neither shows as the deck's test nor replaces the e2 score.
+    const e3 = await post('/api/lab/test').send({ decks: [{ deckId: built[0] }], players: ['e3', 'e3'], seed: 7300 })
+    expect(e3.status).toBe(200)
+    const playing = await rows()
+    expect(playing.mine.find((row) => row.deck.id === built[0])?.labRunning).toBeNull()
+    await playAll((_a, _b, games) => Math.round(games * 0.3))
+    const withE3 = (await rows()).mine.find((row) => row.deck.id === built[0])
+    expect(withE3?.lab).toMatchObject({ jobId, bot: 'e2' })
+    expect(withE3?.labOthers).toEqual([expect.objectContaining({ bot: 'e3', jobId: e3.body.id })])
 
     // A score of another era is old: shown as such, due again, and not what «Laboratorio» sorts by.
     await test.prisma.$executeRaw`
