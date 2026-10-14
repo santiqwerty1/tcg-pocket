@@ -1,6 +1,6 @@
 [package]
 name = "engine-cli"
-version = "0.3.6"
+version = "0.3.7"
 edition = "2021"
 # Links deckgym-core (AGPL-3.0): this executable is a derivative work under the same license (DECISIONES A.5).
 license = "AGPL-3.0-only"
@@ -16,6 +16,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 strum = "0.27"
 uuid = { version = "1", features = ["v4"] }
+
+# How the process ends, said on stderr (src/exit.rs, H-054): signal handlers and atexit.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 # Opt out of Windows power throttling (EcoQoS): a hidden worker would otherwise run on the efficiency cores only.
 [target.'cfg(windows)'.dependencies]

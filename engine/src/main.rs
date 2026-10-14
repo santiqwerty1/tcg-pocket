@@ -19,6 +19,7 @@
 
 mod coach;
 mod consistency;
+mod exit;
 mod fair_bot;
 // The browser's engine (engine/wasm) also uses what engine-cli does not (the coach's restore, the played steps).
 #[allow(dead_code)]
@@ -26,7 +27,6 @@ mod live;
 mod play;
 mod seeds;
 
-use std::io::Write;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
@@ -366,8 +366,7 @@ impl Progress {
             loop {
                 let now = d.load(Ordering::Relaxed);
                 if now != last {
-                    eprintln!("progress {now}");
-                    let _ = std::io::stderr().flush();
+                    exit::line(&format!("progress {now}"));
                     last = now;
                 }
                 match stopped.recv_timeout(Duration::from_millis(500)) {
@@ -390,7 +389,7 @@ impl Drop for Progress {
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
-        eprintln!("progress {}", self.done.load(Ordering::Relaxed));
+        exit::line(&format!("progress {}", self.done.load(Ordering::Relaxed)));
     }
 }
 
@@ -588,7 +587,7 @@ fn play_pairings(
     let pool = thread_pool(threads)?;
     let tasks: Vec<(usize, u32)> =
         pairings.iter().enumerate().flat_map(|(p, pairing)| (0..pairing.games).map(move |index| (p, index))).collect();
-    eprintln!("total {}", tasks.len());
+    exit::line(&format!("total {}", tasks.len()));
     let progress = Progress::start();
     let started = Instant::now();
     let runs: Vec<Result<GameRun, String>> = pool.install(|| {
@@ -885,7 +884,7 @@ fn optimize(job: OptimizeJob) -> Result<OptimizeResult, CliError> {
     let progress = Progress::start();
     let started = Instant::now();
     let games_per_combo = (enemies.len() as u64) * u64::from(job.games_per_enemy);
-    eprintln!("total {}", games_per_combo * decks.len() as u64);
+    exit::line(&format!("total {}", games_per_combo * decks.len() as u64));
     let runs: Vec<Result<(usize, usize, GameRun), String>> = pool.install(|| {
         let tasks: Vec<(usize, usize, u32)> = (0..decks.len())
             .flat_map(|c| (0..enemies.len()).flat_map(move |e| (0..job.games_per_enemy).map(move |g| (c, e, g))))
@@ -1035,14 +1034,26 @@ fn disable_power_throttling() {
 fn disable_power_throttling() {}
 
 fn main() {
+    // How it ends goes on stderr as its last line (H-054): before anything else can end it.
+    exit::install();
     disable_power_throttling();
     // Panics inside games are caught and reported as JSON; keep the default hook from printing them twice.
     std::panic::set_hook(Box::new(|_| {}));
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if let Err(error) = run(&args) {
-        let text = serde_json::to_string(&error).unwrap_or_else(|_| format!("{{\"error\":\"{}\"}}", error.error));
-        println!("{text}");
-        std::process::exit(error.exit_code());
+    match catch_unwind(AssertUnwindSafe(|| run(&args))) {
+        Ok(Ok(())) => exit::finish("ok"),
+        Ok(Err(error)) => {
+            let text = serde_json::to_string(&error).unwrap_or_else(|_| format!("{{\"error\":\"{}\"}}", error.error));
+            // Without a panic: a stdout that cannot be written does not hide how it ended (review of #100).
+            let _ = std::io::Write::write_all(&mut std::io::stdout().lock(), format!("{text}\n").as_bytes());
+            exit::finish(&format!("error {}", error.exit_code()));
+            std::process::exit(error.exit_code());
+        }
+        // Outside a game (where they are caught and reported): the exit code a panic has always had.
+        Err(_) => {
+            exit::finish("pánico");
+            std::process::exit(101);
+        }
     }
 }
 

@@ -217,7 +217,13 @@ export class LiveRunner {
       const code = await exited
       // Killed after an abandon or a shutdown exits non-zero too: only a run that ended on its own is a failure.
       if (!finished && !abandoned && !signal.aborted) {
-        throw new Error(stderr.trim() || `engine-cli play terminó con código ${code} sin terminar la partida`)
+        // engine-cli 0.3.7 ends stderr saying how it ended (`fin …`, H-054): that is no reason for the owner.
+        const said = stderr
+          .split('\n')
+          .filter((line) => !line.trim().startsWith('fin '))
+          .join('\n')
+          .trim()
+        throw new Error(said || `engine-cli play terminó con código ${code} sin terminar la partida`)
       }
     } finally {
       signal.removeEventListener('abort', kill)

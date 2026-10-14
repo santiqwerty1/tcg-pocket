@@ -7,7 +7,7 @@ import { gunzipSync } from 'node:zlib'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, type Chunk, type ChunkResult, type LiveGame, WorkerClient } from '../src/client.js'
 import type { WorkerConfig } from '../src/config.js'
-import { EngineError, engineStatus, engineVersion, runJob } from '../src/engine.js'
+import { cutDiagnosis, EngineError, engineStatus, engineVersion, FROZEN_GAP_MS, runJob } from '../src/engine.js'
 import { LiveRunner, OLD_ENGINE_COACH } from '../src/live.js'
 import { parseMemAvailableMb, parseStatus, procAvailable } from '../src/proc-probe.js'
 import type { ReadyRelease, Updater } from '../src/update.js'
@@ -140,6 +140,91 @@ describe('engine runner', () => {
       expect(messages).not.toContain('motor arrancado')
       expect(messages).not.toContain('motor: memoria')
     }
+  })
+
+  it('a lost result says how the engine said it ended, in the log and in the message the app keeps (H-054)', async () => {
+    const log = vi.fn()
+    // Cut without a word (the S25): no `fin` line, and the engine's version says whether it could have said one.
+    const cut = runJob(FAKE_ENGINE, 'simulate', { games: 92 }, dir, { log, cliVersion: '0.3.7' })
+    await expect(cut).rejects.toMatchObject({ code: 'missing_result' })
+    const message = await cut.catch((error: Error) => error.message)
+    expect(message).toMatch(/\(fin: ninguna \(engine-cli 0\.3\.7\); avance 60\/92; última partida hace \d+ s/)
+    // Without the folder's path (it has the user's folder): the app shows the message, MCP gives it (review of #100).
+    expect(message).toMatch(/: result\.json: ENOENT$/)
+    expect(message).not.toContain(dir)
+    expect(log).toHaveBeenCalledWith(
+      'motor sin resultado válido',
+      expect.objectContaining({
+        endLine: null,
+        msSinceProgress: expect.any(Number),
+        clockGapMs: expect.any(Number),
+        sleepGapMs: expect.any(Number),
+        cliVersion: '0.3.7',
+      }),
+    )
+    // engine-cli 0.3.7 said it ended well, and the file is not there: then it is not a cut.
+    const said = runJob(FAKE_ENGINE, 'simulate', { games: 91 }, dir, { log })
+    await expect(said).rejects.toMatchObject({ code: 'missing_result' })
+    expect(await said.catch((error: Error) => error.message)).toContain('(fin: ok; avance 91/91')
+    expect(log).toHaveBeenCalledWith('motor terminado', expect.objectContaining({ endLine: 'ok' }))
+  })
+
+  it('a line that comes in two pieces is read whole (review of the diagnosis)', async () => {
+    const split = runJob(FAKE_ENGINE, 'simulate', { games: 90 }, dir, {})
+    await expect(split).rejects.toMatchObject({ code: 'missing_result' })
+    expect(await split.catch((error: Error) => error.message)).toContain('(fin: ok; avance 90/90')
+  })
+
+  it('the clock sees the worker stopped while the engine played (H-054)', async () => {
+    const log = vi.fn()
+    let blocked = false
+    // The worker stops 200 ms at its first progress, with a tick of 20 ms: as if the system froze it.
+    const onProgress = () => {
+      if (blocked) return
+      blocked = true
+      const until = performance.now() + 200
+      while (performance.now() < until) {
+        // busy: nothing else runs, the clock's ticks either
+      }
+    }
+    await expect(
+      runJob(FAKE_ENGINE, 'simulate', { games: 92 }, dir, { log, onProgress, clockEveryMs: 20 }),
+    ).rejects.toMatchObject({ code: 'missing_result' })
+    const ended = log.mock.calls.find(([message]) => message === 'motor terminado')?.[1] as {
+      clockGapMs: number
+      sleepGapMs: number
+    }
+    expect(ended.clockGapMs).toBeGreaterThanOrEqual(120)
+    // The machine did not sleep: both clocks went the same way.
+    expect(ended.sleepGapMs).toBeLessThan(100)
+  })
+
+  it('the diagnosis of a cut says a frozen worker, an asleep machine and its memory', () => {
+    const output = {
+      stdout: '',
+      stderrTail: '',
+      lastProgress: 699,
+      total: 1000,
+      seconds: 7000,
+      lastSample: { memAvailableMb: 812 } as never,
+      endLine: null,
+      msSinceProgress: 1_250_000,
+      clockGapMs: 1_200_000,
+      sleepGapMs: 45_000,
+    }
+    expect(cutDiagnosis(output, '0.3.7')).toBe(
+      'fin: ninguna (engine-cli 0.3.7); avance 699/1000; última partida hace 1250 s; el worker estuvo congelado hasta 1200 s seguidos; el equipo estuvo suspendido, o cambió la hora, hasta 45 s; memoria libre 812 MB',
+    )
+    // Gaps under the threshold say nothing.
+    expect(
+      cutDiagnosis({
+        ...output,
+        clockGapMs: FROZEN_GAP_MS - 1,
+        sleepGapMs: FROZEN_GAP_MS - 1,
+        lastSample: null,
+        endLine: 'señal 15',
+      }),
+    ).toBe('fin: señal 15; avance 699/1000; última partida hace 1250 s')
   })
 
   it('reads /proc: MemAvailable and the status of a process', () => {
@@ -968,6 +1053,14 @@ describe('games against a bot (Fase 8)', () => {
     bot: 'e2',
     seed: '42',
     choices,
+  })
+
+  it('a live game that fails tells why, not the engine’s «fin» line (review of the diagnosis)', async () => {
+    const { client } = liveClient([1, 1])
+    // The error is what the loop sends as the game's failure (and the owner reads).
+    await expect(
+      new LiveRunner(config, client, silent, dataDir).run({ ...game(), seed: '404' }, new AbortController().signal),
+    ).rejects.toThrow(/^engine-cli play terminó con código 2 sin terminar la partida$/)
   })
 
   it.each([false, true])('requests normal priority for interactive play, coach=%s', async (coach) => {

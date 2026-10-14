@@ -81,7 +81,10 @@ fn ask_over_stdio(decide: &Value, options: usize) -> usize {
         let mut line = String::new();
         match stdin.lock().read_line(&mut line) {
             // The worker went away: nobody will answer.
-            Ok(0) | Err(_) => std::process::exit(4),
+            Ok(0) | Err(_) => {
+                crate::exit::finish("error 4");
+                std::process::exit(4)
+            }
             Ok(_) => {}
         }
         match parse_choice(&line) {
