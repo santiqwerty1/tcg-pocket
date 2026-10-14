@@ -69,6 +69,13 @@ describe('per-game results of a chunk', () => {
       expect(checkPerGame({ ...mixed, turnLimit }, tally)).toMatch(/turnLimit/)
     }
     expect(checkPerGame({ ...mixed, turns: [12, 9, 31, 31] }, tally)).toMatch(/partida 3.*límite/)
+    // A knockout from the end of turn 30 (Deceptive Needle) settles the game after deckgym counted turn 31: won by
+    // points or by an empty board in 31 turns (job 42, chunk 32166, game 6). Never more, and never a tie by points.
+    expect(checkPerGame({ ...mixed, turns: [31, 9, 31, 20] }, tally)).toBeNull()
+    expect(checkPerGame({ ...mixed, turns: [12, 31, 31, 20] }, tally)).toBeNull()
+    expect(checkPerGame({ ...mixed, turns: [32, 9, 31, 20] }, tally)).toMatch(/partida 0.*límite de 30 turnos/)
+    expect(checkPerGame({ ...mixed, turnLimit: 25, turns: [26, 9, 26, 20] }, tally)).toBeNull()
+    expect(checkPerGame({ ...mixed, turnLimit: 25, turns: [27, 9, 26, 20] }, tally)).toMatch(/partida 0.*límite de 25/)
     expect(checkPerGame({ ...mixed, turns: [12, 9, 31, -1] }, tally)).toMatch(/turns/)
     expect(checkPerGame({ ...mixed, turns: '12,9,31,20' }, tally)).toMatch(/turns/)
     expect(checkPerGame({ ...mixed, endings: 'PNLX' }, tally)).toMatch(/endings/)
