@@ -451,7 +451,7 @@ describe('worker loop', () => {
   })
 
   it('with an engine that resumes, a chunk cut before its end goes on from its checkpoint (B of H-054)', async () => {
-    process.env.FAKE_ENGINE_RESUME = '1'
+    vi.stubEnv('FAKE_ENGINE_RESUME', '1')
     try {
       // Cut once: the next run finds the checkpoint and plays to the end. Nothing goes back, nothing pauses.
       const resumed = await lossRun([chunk({ games: 89 }), chunk({ chunkId: 9 })])
@@ -468,10 +468,18 @@ describe('worker loop', () => {
       expect(cut.calls.failures.map(({ chunkId, cause }) => [chunkId, cause])).toEqual([[7, 'worker']])
       expect(cut.calls.results.map(({ chunkId }) => chunkId)).toEqual([9])
       expect(cut.resumes).toBe(5)
+      // Its folder gone between two runs: nothing to resume on; it goes back as a lost result and the loop goes on.
+      rmSync(join(dataDir, 'state.json'), { force: true })
+      const gone = await lossRun([chunk({ games: 87 }), chunk({ chunkId: 9 })])
+      expect(gone.calls.failures.map(({ chunkId, cause }) => [chunkId, cause])).toEqual([[7, 'worker']])
+      expect(gone.calls.results.map(({ chunkId }) => chunkId)).toEqual([9])
+      expect(gone.resumes).toBe(0)
+      // Nothing left behind: every chunk's folder went with it.
+      expect(readdirSync(join(dataDir, 'work'))).toEqual([])
     } finally {
-      delete process.env.FAKE_ENGINE_RESUME
+      vi.unstubAllEnvs()
     }
-  })
+  }, 30_000)
 
   it('an engine without resume returns a cut chunk at once, as before', async () => {
     const run = await lossRun([chunk({ games: 92 }), chunk({ chunkId: 9 })])

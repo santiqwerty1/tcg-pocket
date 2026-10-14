@@ -518,6 +518,8 @@ export class Worker {
     if (!this.resumable) return runJob<SimulateResult>(this.config.enginePath, 'simulate', job, this.workDir, options)
     const dir = createWorkDir(this.workDir, 'simulate-')
     const checkpoint = join(dir, 'progress.txt')
+    // The cut that started the resumes: what goes back if they cannot go on.
+    let cut: EngineError | null = null
     for (let resumes = 0; ; resumes++) {
       try {
         return await runJob<SimulateResult>(this.config.enginePath, 'simulate', { ...job, checkpoint }, this.workDir, {
@@ -527,7 +529,15 @@ export class Worker {
         })
       } catch (error) {
         const lost = error instanceof EngineError && error.code === 'missing_result'
-        if (lost && resumes < MAX_RESUMES && !options.signal.aborted) {
+        if (lost) cut = error
+        // A resumed run that fails for something else than the engine (its folder gone, a file it cannot write) is
+        // still the cut it resumed: the chunk goes back as a lost result, without spending an attempt (review).
+        if (!lost && cut && !(error instanceof EngineError) && !options.signal.aborted) {
+          await removeWorkDir(dir)
+          throw cut
+        }
+        // Its folder must still be there: a resume plays on what its checkpoint kept.
+        if (lost && resumes < MAX_RESUMES && !options.signal.aborted && existsSync(dir)) {
           this.log('el motor se cortó antes de terminar: retomo el chunk desde su avance', {
             chunk: chunk.chunkId,
             resume: resumes + 1,

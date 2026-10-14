@@ -1,7 +1,7 @@
 // A stand-in for engine-cli with the same command line, files, stderr progress and exit codes (engine/src/main.rs).
 // Behaviour by job: games 13 → engine failure (exit 3); games 99 → plays forever (for cancel tests).
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 
 const REV = 'fb792ebfbaca995af9750c28101ce92a51282825'
 const [command, jobFile, resultFile] = process.argv.slice(2)
@@ -98,8 +98,8 @@ if (command === 'version') {
   const job = JSON.parse(readFileSync(jobFile, 'utf8'))
   const games = command === 'simulate' ? job.games : 4
   // B of H-054 (`resume`): 89 games are cut at their first run (exit 0, no result, 40 games in the checkpoint) and
-  // played to the end by a run that finds them there; 88 are cut every time.
-  if ((games === 89 || games === 88) && job.checkpoint) {
+  // played to the end by a run that finds them there; 88 are cut every time; 87 are cut and their folder goes.
+  if ((games === 89 || games === 88 || games === 87) && job.checkpoint) {
     let kept = 0
     try {
       kept = readFileSync(job.checkpoint, 'utf8').split('\n').filter(Boolean).length - 1
@@ -111,6 +111,7 @@ if (command === 'version') {
       writeFileSync(job.checkpoint, `# fake\n${lines.join('\n')}\n`)
       process.stderr.write(`total ${games}\n`)
       for (let i = 1; i <= 40; i++) process.stderr.write(`progress ${i}\n`)
+      if (games === 87) rmSync(dirname(jobFile), { recursive: true, force: true })
       process.exit(0)
     }
   }

@@ -297,9 +297,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: engine
-      - run: cargo test --locked --release --manifest-path engine/Cargo.toml --test exit_line
+      - run: cargo test --locked --release --manifest-path engine/Cargo.toml --test exit_line --test resume
       # Quoted: «exit::» at the end of a plain line would be read as a YAML key.
       - run: "cargo test --locked --release --manifest-path engine/Cargo.toml --bin engine-cli exit::"
+      # B of H-054: resuming a pairing, where it matters (Android's engine is Linux).
+      - run: cargo test --locked --release --manifest-path engine/Cargo.toml --bin engine-cli resume
 
   # T-015: the same Docker target used by Fly, plus ARM execution against its native reference (qemu-user).
   android:

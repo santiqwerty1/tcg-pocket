@@ -671,10 +671,18 @@ fn play_pairings(
             continue;
         };
         let header = pairing.checkpoint_header(per_game);
-        let (checkpoint, lines) = resume::Checkpoint::open(path, &header, pairing.games, |line| game_of_line(line).is_some())
-            .map_err(CliError::engine)?;
-        played.push(lines.iter().filter_map(|(index, line)| Some((*index, game_of_line(line)?))).collect());
-        checkpoints.push(Some(checkpoint));
+        match resume::Checkpoint::open(path, &header, pairing.games, |line| game_of_line(line).is_some()) {
+            Ok((checkpoint, lines)) => {
+                played.push(lines.iter().filter_map(|(index, line)| Some((*index, game_of_line(line)?))).collect());
+                checkpoints.push(Some(checkpoint));
+            }
+            // A checkpoint that cannot be opened is no reason to fail the games: they are played without it.
+            Err(message) => {
+                exit::line(&format!("avance {message}"));
+                played.push(HashMap::new());
+                checkpoints.push(None);
+            }
+        }
     }
     let pool = thread_pool(threads)?;
     let total: usize = pairings.iter().map(|pairing| pairing.games as usize).sum();
@@ -853,6 +861,12 @@ struct BatchResult {
 fn batch(job: BatchJob) -> Result<BatchResult, CliError> {
     if job.pairings.is_empty() {
         return Err(CliError::input("pairings: hace falta al menos un cruce"));
+    }
+    // Two pairings writing one checkpoint would mix their games (review of `resume`).
+    let mut checkpoints: Vec<&str> = job.pairings.iter().filter_map(|pairing| pairing.checkpoint.as_deref()).collect();
+    checkpoints.sort_unstable();
+    if checkpoints.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(CliError::input("pairings: dos cruces no pueden compartir el archivo de avance"));
     }
     let codes = parse_players(&job.players)?;
     let root = job.replay_dir.as_ref().map(PathBuf::from);
@@ -1511,12 +1525,77 @@ mod tests {
                 simulate(SimulateJob { checkpoint: Some(checkpoint.display().to_string()), ..base() }).expect("simulate");
             assert_eq!(without_duration(&resumed), once_text, "cut after {keep} games");
             assert_eq!(files_of(&replays), once_replays, "replays after a cut after {keep} games");
+            // Only the missing games were played: each index once, every one of them (review of `resume`).
+            let mut indexes = checkpoint_indexes(&checkpoint);
+            indexes.sort_unstable();
+            assert_eq!(indexes, (0..games).collect::<Vec<_>>(), "the checkpoint after a cut after {keep} games");
         }
-        // A checkpoint of another job (another seed) starts again: its games are not this job's.
-        simulate(SimulateJob { checkpoint: Some(checkpoint.display().to_string()), seed: 7, ..base() }).expect("simulate");
-        let other = simulate(SimulateJob { checkpoint: Some(checkpoint.display().to_string()), ..base() }).expect("simulate");
-        assert_eq!(without_duration(&other), once_text);
+        // The time of the runs before counts in `durationMs`: nothing left to play, and an hour played already.
+        let text = std::fs::read_to_string(&checkpoint).expect("checkpoint");
+        let hour: String = text
+            .lines()
+            .enumerate()
+            .map(|(i, line)| if i == 0 { format!("{line}\n") } else { format!("{} 3600000\n", &line[..line.rfind(' ').unwrap()]) })
+            .collect();
+        std::fs::write(&checkpoint, hour).expect("checkpoint");
+        let resumed = simulate(SimulateJob { checkpoint: Some(checkpoint.display().to_string()), ..base() }).expect("simulate");
+        assert!(resumed.duration_ms >= 3_600_000, "{}", resumed.duration_ms);
+        assert_eq!(without_duration(&resumed), once_text);
+        // A checkpoint of another job is never used: each field of its first line, one at a time. The job with the
+        // checkpoint of the base job gives what it gives without one.
+        let variants: Vec<(&str, Box<dyn Fn() -> SimulateJob + '_>)> = vec![
+            ("seed", Box::new(|| SimulateJob { seed: 7, ..base() })),
+            ("games", Box::new(|| SimulateJob { games: 20, ..base() })),
+            ("replays", Box::new(|| SimulateJob { replay_sample: 1, ..base() })),
+            ("perGame", Box::new(|| SimulateJob { per_game: false, ..base() })),
+            ("deck B", Box::new(|| SimulateJob { deck_b: OTHER_DECK.to_string(), ..base() })),
+            ("players", Box::new(|| SimulateJob { players: vec!["r".to_string(), "e2".to_string()], ..base() })),
+        ];
+        for (field, variant) in variants {
+            simulate(SimulateJob { checkpoint: Some(checkpoint.display().to_string()), ..base() }).expect("simulate");
+            let with = simulate(SimulateJob { checkpoint: Some(checkpoint.display().to_string()), ..variant() })
+                .expect("simulate");
+            let fresh = simulate(variant()).expect("simulate");
+            assert_eq!(without_duration(&with), without_duration(&fresh), "another {field}");
+        }
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Another deck for the tests of `resume` (the Venusaur of the browser's smoke).
+    const OTHER_DECK: &str = "Energy: Grass\n1 Bulbasaur A1 1\n2 Ivysaur B1a 2\n2 Mega Venusaur ex B1a 4\n2 Professor's Research P-A 7\n2 Copycat B1 225\n2 Quick-Grow Extract B1a 67\n2 Lucky Ice Pop B2 145\n2 Heavy Helmet B1 219\n1 Lillie A3 155\n1 Pokémon Center Lady A2b 70\n1 Cyrus A2 150\n1 Field Blower B3 147\n1 Repel A3a 64";
+
+    /// The indexes a checkpoint has, one per line after its first.
+    fn checkpoint_indexes(path: &std::path::Path) -> Vec<u32> {
+        std::fs::read_to_string(path)
+            .expect("checkpoint")
+            .lines()
+            .skip(1)
+            .map(|line| line.split(' ').next().expect("index").parse().expect("index"))
+            .collect()
+    }
+
+    /// Two pairings of a batch never share a checkpoint.
+    #[test]
+    fn a_batch_refuses_two_pairings_with_one_checkpoint() {
+        let altaria = crate::coach::tests::ALTARIA.to_string();
+        let pairing = |seed: u64| BatchPairing {
+            deck_a: altaria.clone(),
+            deck_b: altaria.clone(),
+            games: 2,
+            seed,
+            replay_sample: 0,
+            checkpoint: Some("progress.txt".to_string()),
+        };
+        let error = batch(BatchJob {
+            pairings: vec![pairing(1), pairing(2)],
+            players: vec!["r".to_string(), "r".to_string()],
+            threads: 1,
+            replay_dir: None,
+            per_game: false,
+        })
+        .err()
+        .expect("refused");
+        assert!(error.error.contains("compartir"), "{}", error.error);
     }
 
     #[test]

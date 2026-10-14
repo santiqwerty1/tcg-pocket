@@ -34,17 +34,19 @@ fn write_job(dir: &Path, checkpoint: Option<&Path>) -> std::path::PathBuf {
     file
 }
 
-fn run_to_the_end(job: &Path, result: &Path) -> String {
+/// The result and the stderr of a run to its end.
+fn run_to_the_end(job: &Path, result: &Path) -> (String, String) {
     let out = engine().arg("simulate").arg(job).arg(result).output().expect("engine-cli");
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    std::fs::read_to_string(result).expect("result")
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(out.status.success(), "{stderr}");
+    (std::fs::read_to_string(result).expect("result"), stderr)
 }
 
 #[test]
 fn killed_halfway_and_run_again_it_writes_the_result_of_one_run() {
     let root = std::env::temp_dir().join(format!("engine-cli-resume-kill-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
-    let once = run_to_the_end(&write_job(&root.join("once"), None), &root.join("once").join("result.json"));
+    let (once, _) = run_to_the_end(&write_job(&root.join("once"), None), &root.join("once").join("result.json"));
 
     let dir = root.join("cut");
     let checkpoint = dir.join("progress.txt");
@@ -73,10 +75,19 @@ fn killed_halfway_and_run_again_it_writes_the_result_of_one_run() {
     child.kill().expect("kill");
     let _ = child.wait();
     assert!(!result.exists(), "it was killed before its end");
-    let kept = std::fs::read_to_string(&checkpoint).expect("checkpoint").lines().count() - 1;
+    // Whole lines only: the kill may have cut the last one, which the next run drops.
+    let kept = std::fs::read_to_string(&checkpoint).expect("checkpoint").matches('\n').count() - 1;
     assert!(kept > 0 && kept < GAMES as usize, "the checkpoint has some of the games ({kept})");
 
-    let resumed = run_to_the_end(&job, &result);
+    let (resumed, stderr) = run_to_the_end(&job, &result);
     assert_eq!(without_duration(&resumed), without_duration(&once));
+    // It played only what was missing: its progress starts at what the checkpoint kept, out of every game.
+    let lines: Vec<&str> = stderr.lines().collect();
+    assert!(lines.contains(&format!("total {GAMES}").as_str()), "{stderr}");
+    let first: u32 = lines
+        .iter()
+        .find_map(|line| line.strip_prefix("progress ")?.parse().ok())
+        .expect("progress");
+    assert_eq!(first as usize, kept, "{stderr}");
     let _ = std::fs::remove_dir_all(&root);
 }
