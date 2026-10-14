@@ -142,3 +142,84 @@ describe('¿Qué mazo llevo hoy? with «mi meta» (Fase 44)', () => {
     expect(router.state.location.search).toBe('?meta=mio')
   })
 })
+
+describe('¿Qué mazo llevo hoy? and «Actualizar todos» (14/10)', () => {
+  const rows = (labDue: number) => {
+    const base = answer('tournament')
+    const deck = base.items[0] as (typeof base.items)[number]
+    return {
+      ...base,
+      labDue,
+      items: [
+        {
+          ...deck,
+          lab: {
+            value: 48.2,
+            ci95: [44.1, 52.3],
+            games: 1500,
+            text: '48,2 % contra el meta',
+            jobId: 12,
+            era: 'B4',
+            stale: true,
+            finishedAt: '2026-09-20T15:00:00.000Z',
+          },
+          labRunning: null,
+        },
+        {
+          ...deck,
+          deck: { id: '3', name: 'Hoopa ex' },
+          lab: null,
+          labRunning: { jobId: 40, status: 'running', gamesDone: 350, totalGames: 1000 },
+        },
+      ],
+    }
+  }
+
+  it('an old score says its era, a test playing says how far; the button asks first and then queues', async () => {
+    const refresh = (dryRun: boolean) => ({
+      era: 'B4a',
+      queued: ['2'],
+      jobs: dryRun ? [] : [41],
+      fresh: 0,
+      running: 1,
+      sameList: 0,
+      notSimulable: [],
+      games: 1500,
+      estimatedSeconds: dryRun ? 600 : 0,
+    })
+    const { calls } = fakeApi({
+      'GET /api/decks-today': rows(1),
+      'POST /api/decks-today/refresh': (call: { body?: BodyInit | null }) =>
+        refresh(JSON.parse(String(call.body)).dryRun === true),
+    })
+    const user = userEvent.setup()
+    const router = createMemoryRouter(routes, { initialEntries: ['/mazos/hoy'] })
+    render(
+      <Providers queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <RouterProvider router={router} />
+      </Providers>,
+    )
+    expect(await screen.findByText(/viejo: de la era B4, del /)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'probando… 35\u00a0%' })).toHaveAttribute('href', '/laboratorio/40')
+    expect(screen.getByText('Un mazo sin puntaje del Laboratorio de esta era.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Actualizar todos' }))
+    expect(await screen.findByText(/^Un mazo contra el meta de B4a: 1\.500 partidas, ~10 min/)).toBeInTheDocument()
+    expect(screen.getByText('1 ya en prueba.')).toBeInTheDocument()
+    expect(calls.filter((call) => call.method === 'POST')).toHaveLength(1)
+    await user.click(screen.getByRole('button', { name: 'Probar' }))
+    await waitFor(() => expect(calls.filter((call) => call.method === 'POST')).toHaveLength(2))
+    expect(JSON.parse(String(calls.filter((call) => call.method === 'POST')[1]?.body))).toEqual({ dryRun: false })
+  })
+
+  it('no button when every deck has a score of this era or is under test', async () => {
+    fakeApi({ 'GET /api/decks-today': rows(0) })
+    const router = createMemoryRouter(routes, { initialEntries: ['/mazos/hoy'] })
+    render(
+      <Providers queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <RouterProvider router={router} />
+      </Providers>,
+    )
+    expect(await screen.findByText(/viejo: de la era B4/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Actualizar todos' })).not.toBeInTheDocument()
+  })
+})

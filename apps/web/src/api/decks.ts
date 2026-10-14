@@ -11,6 +11,7 @@ import {
   decksResponseSchema,
   drawOddsSchema,
   importDecksResponseSchema,
+  labRefreshSchema,
   nextBuildSchema,
   type PickMeta,
   type PickSort,
@@ -258,5 +259,22 @@ export function usePickToday(sort: PickSort, meta: PickMeta = 'tournament') {
     queryKey: ['decks', 'today', sort, meta] as const,
     queryFn: ({ signal }) => request('/api/decks-today', { query: { sort, meta }, schema: pickSchema, signal }),
     placeholderData: (previous) => previous,
+    // «Actualizar todos»: while a deck's test plays, its row follows it.
+    refetchInterval: (query) => (query.state.data?.items.some((row) => row.labRunning) ? 20_000 : false),
+  })
+}
+
+/** «Actualizar todos» (14/10): with `dryRun`, how many decks and how long; without it, it queues the tests. */
+export function useRefreshLab() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (dryRun: boolean) =>
+      request('/api/decks-today/refresh', { method: 'POST', body: { dryRun }, schema: labRefreshSchema }),
+    onSuccess: (_result, dryRun) => {
+      if (dryRun) return
+      void queryClient.invalidateQueries({ queryKey: ['decks', 'today'] })
+      void queryClient.invalidateQueries({ queryKey: ['lab'] })
+      void queryClient.invalidateQueries({ queryKey: ['simulations'] })
+    },
   })
 }

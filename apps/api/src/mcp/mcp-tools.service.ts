@@ -1458,8 +1458,19 @@ ${MCP_CHAT_INSTRUCTIONS}`
         tournamentAgainstToday: row.tournament
           ? `${percent(row.tournament.value)} (IC ${formatIntervalEs(row.tournament.ci95)}${mine?.orientative ? ', orientativo' : ''}; matchups con datos: ${percent(row.tournament.coverage)} ${mine ? 'de tus rivales' : 'del meta'})`
           : null,
-        lab: row.lab?.text ?? null,
+        // «Actualizar todos» (14/10): a score of another era says so, and so does a test playing now.
+        lab: row.lab ? (row.lab.stale ? `${row.lab.text} (de la era ${row.lab.era}, viejo)` : row.lab.text) : null,
+        ...(row.labRunning
+          ? {
+              labTesting: `prueba #${row.labRunning.jobId} ${row.labRunning.status === 'queued' ? 'en cola' : `jugando: ${row.labRunning.gamesDone} de ${row.labRunning.totalGames} partidas`}`,
+            }
+          : {}),
       })),
+      ...(view.labDue > 0
+        ? {
+            labDue: `${view.labDue} ${view.labDue === 1 ? 'mazo' : 'mazos'} sin puntaje del Laboratorio de esta era: «Actualizar todos» en ¿Cuál llevo hoy?`,
+          }
+        : {}),
       note: view.note,
     }
   }

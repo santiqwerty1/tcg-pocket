@@ -7,7 +7,8 @@
  */
 import { Injectable } from '@nestjs/common'
 import type { DeckCardEntry, GameRecord, WinRate } from '@tcg/domain'
-import { type DeckLabScore, LabService } from '../lab/lab.service.js'
+import { type DeckLabStatus, LabService } from '../lab/lab.service.js'
+import type { LabRefreshView } from '../lab/lab-views.js'
 import type { MyMetaSummary } from '../matches/match-views.js'
 import { MatchesService, myMetaSummary } from '../matches/matches.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
@@ -23,8 +24,22 @@ export interface PickRowView {
   mine: { record: GameRecord; rate: WinRate | null } | null
   /** The archetype's matchups weighted by today's meta (or by «mi meta», Fase 44). */
   tournament: { value: number; ci95: [number, number]; coverage: number; matches: number; rivals: number } | null
-  /** Latest Laboratorio score of the current list. */
-  lab: { value: number; ci95: [number, number]; games: number; text: string; jobId: number; era: string } | null
+  /**
+   * Latest Laboratorio score of the current list: of the current era, or of another one (`stale`, shown as old) when
+   * this era has none.
+   */
+  lab: {
+    value: number
+    ci95: [number, number]
+    games: number
+    text: string
+    jobId: number
+    era: string
+    stale: boolean
+    finishedAt: string | null
+  } | null
+  /** «Actualizar todos»: the test of the list against this era's meta, queued or playing now. */
+  labRunning: { jobId: number; status: 'queued' | 'running'; gamesDone: number; totalGames: number } | null
 }
 
 export type PickMeta = 'tournament' | 'mine'
@@ -43,6 +58,8 @@ export interface PickView {
   /** Fase 44: which weights the tournament number used; «mine» falls back to the tournament meta until it is enough. */
   weights: { asked: PickMeta; used: PickMeta; mine: MyMetaSummary | null }
   items: PickRowView[]
+  /** «Actualizar todos»: the decks whose list has no Laboratorio score of this era and is not under test now. */
+  labDue: number
   note: string
 }
 
@@ -56,11 +73,8 @@ export class PickService {
   ) {}
 
   async today(sort: PickSort = 'tournament', asked: PickMeta = 'tournament'): Promise<PickView> {
-    const decks = await this.prisma.deck.findMany({
-      where: { builtInGame: true, archivedAt: null },
-      select: { id: true, name: true, currentRevisionId: true, tournamentArchetypeId: true },
-      orderBy: { id: 'asc' },
-    })
+    const decks = await this.decks()
+
     const revisions = new Map(
       (
         await this.prisma.deckRevision.findMany({
@@ -80,7 +94,13 @@ export class PickService {
         used === 'mine' && mineMeta ? { shares: mineMeta.shares, sharesSample: mineMeta.effectiveMatches } : {},
       )
       .catch(() => null)
-    const scores = await this.lab.deckScores(decks.map((deck) => deck.id)).catch(() => new Map<number, DeckLabScore>())
+    const era = today?.scope.era ?? (await this.tournaments.currentEra().catch(() => undefined))
+    const scores = await this.lab
+      .deckLabStatus(
+        decks.map((deck) => deck.id),
+        era,
+      )
+      .catch(() => new Map<number, DeckLabStatus>())
     const items: PickRowView[] = []
     for (const deck of decks) {
       const cards = deck.currentRevisionId === null ? null : revisions.get(deck.currentRevisionId)
@@ -101,7 +121,8 @@ export class PickService {
           }
         : null
       const expected = archetype && today ? today.expected(archetype.id) : null
-      const score = scores.get(deck.id) ?? null
+      const status = scores.get(deck.id) ?? null
+      const score = status?.score ?? null
       items.push({
         deck: { id: String(deck.id), name: deck.name },
         archetype,
@@ -115,15 +136,20 @@ export class PickService {
               text: score.score.text,
               jobId: score.jobId,
               era: score.era,
+              stale: status?.stale ?? false,
+              finishedAt: score.finishedAt?.toISOString() ?? null,
             }
           : null,
+        labRunning: status?.running ?? null,
       })
     }
     const key = (row: PickRowView): number | null =>
       sort === 'matches'
         ? (row.mine?.rate?.value ?? null)
         : sort === 'lab'
-          ? (row.lab?.value ?? null)
+          ? row.lab && !row.lab.stale
+            ? row.lab.value
+            : null
           : (row.tournament?.value ?? null)
     items.sort((a, b) => {
       const x = key(a)
@@ -142,10 +168,31 @@ export class PickService {
         mine: mineMeta ? myMetaSummary(mineMeta) : null,
       },
       items,
+      labDue: [...scores.values()].filter(
+        (status) => status.simulable && !status.running && (!status.score || status.stale),
+      ).length,
       note:
         used === 'mine'
           ? 'Tres números separados: tus partidas, lo que el arquetipo del mazo debería sacar según torneos (personas) pesado por tus rivales de la era («mi meta»: los matchups son de torneos, los pesos salen de tus partidas, y su intervalo cuenta las dos cosas), y el último puntaje del Laboratorio (bots). No se combinan: ordená por el que te importe.'
           : 'Tres números separados: tus partidas, lo que el arquetipo del mazo debería sacar contra el meta de los últimos días según torneos (personas), y el último puntaje del Laboratorio (bots). No se combinan: ordená por el que te importe.',
     }
+  }
+
+  /** «Actualizar todos»: a test against this era's meta of every deck built in the game whose list needs one. */
+  async refreshLab(dryRun = false): Promise<LabRefreshView> {
+    const decks = await this.decks()
+    return this.lab.refreshDecks(
+      decks.map((deck) => deck.id),
+      dryRun,
+    )
+  }
+
+  /** The decks built in the game and not archived. */
+  private decks() {
+    return this.prisma.deck.findMany({
+      where: { builtInGame: true, archivedAt: null },
+      select: { id: true, name: true, currentRevisionId: true, tournamentArchetypeId: true },
+      orderBy: { id: 'asc' },
+    })
   }
 }

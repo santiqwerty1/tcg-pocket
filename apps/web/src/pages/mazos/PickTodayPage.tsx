@@ -6,13 +6,17 @@
 
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { usePickToday } from '@/api/decks'
-import { PICK_SORTS, type Pick, type PickMeta, type PickSort } from '@/api/schemas'
+import { toast } from 'sonner'
+import { errorMessage } from '@/api/client'
+import { usePickToday, useRefreshLab } from '@/api/decks'
+import { type LabRefresh, PICK_SORTS, type Pick, type PickMeta, type PickSort } from '@/api/schemas'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
-import { formatNumber } from '@/lib/format'
+import { formatDateTime, formatNumber } from '@/lib/format'
 import { formatInterval, formatRateValue, ORIENTATIVE_BELOW } from '@/lib/matches'
+import { formatDuration } from '@/lib/simulation'
 import { formatDayEs, formatShare, staleTournaments } from '@/lib/tournaments'
 import { cn } from '@/lib/utils'
 
@@ -78,20 +82,109 @@ function Row({
       </Line>
       <Line label="Laboratorio" active={sort === 'lab'}>
         {row.lab ? (
-          <>
-            <span className="font-semibold tabular">{formatRateValue(row.lab.value)}</span> · n ={' '}
-            {formatNumber(row.lab.games)}, IC
+          <span className={cn(row.lab.stale && 'text-muted-foreground')}>
+            <span className={cn('tabular', !row.lab.stale && 'font-semibold')}>{formatRateValue(row.lab.value)}</span> ·
+            n = {formatNumber(row.lab.games)}, IC
             {'\u00a0'}
             {formatInterval(row.lab.ci95)} ·{' '}
             <Link to={`/laboratorio/${row.lab.jobId}`} className="text-primary hover:underline">
               #{row.lab.jobId}
             </Link>
-          </>
-        ) : (
+            {row.lab.stale
+              ? ` · viejo: de la era ${row.lab.era}${row.lab.finishedAt ? `, del ${formatDateTime(row.lab.finishedAt)}` : ''}`
+              : ''}
+          </span>
+        ) : row.labRunning ? null : (
           'sin probar contra el meta'
         )}
+        {row.labRunning ? <LabRunning run={row.labRunning} /> : null}
       </Line>
     </li>
+  )
+}
+
+/** «Actualizar todos»: the test of the list playing now, or waiting its turn. */
+function LabRunning({ run }: { run: NonNullable<Pick['items'][number]['labRunning']> }) {
+  const share = run.totalGames > 0 ? Math.floor((100 * run.gamesDone) / run.totalGames) : 0
+  return (
+    <span className="text-muted-foreground">
+      {' · '}
+      <Link to={`/laboratorio/${run.jobId}`} className="text-primary hover:underline">
+        {run.status === 'queued' && run.gamesDone === 0 ? 'en cola' : `probando… ${share}${'\u00a0'}%`}
+      </Link>
+    </span>
+  )
+}
+
+/**
+ * «Actualizar todos» (14/10): tests against this era's meta of the decks without a Laboratorio score of this era. It
+ * asks first, with how many decks, games and how long.
+ */
+function RefreshLab({ due }: { due: number }) {
+  const refresh = useRefreshLab()
+  const [plan, setPlan] = useState<LabRefresh | null>(null)
+  async function ask() {
+    try {
+      setPlan(await refresh.mutateAsync(true))
+    } catch (error) {
+      toast.error(errorMessage(error))
+    }
+  }
+  async function start() {
+    try {
+      const done = await refresh.mutateAsync(false)
+      setPlan(null)
+      toast.success(
+        done.queued.length === 0
+          ? 'No había nada para actualizar.'
+          : `${done.queued.length === 1 ? 'Un mazo en prueba' : `${done.queued.length} mazos en prueba`} contra el meta de ${done.era}.`,
+      )
+    } catch (error) {
+      toast.error(errorMessage(error))
+    }
+  }
+  const decks = plan?.queued.length ?? 0
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="outline" onClick={ask} disabled={refresh.isPending}>
+          Actualizar todos
+        </Button>
+        <span className="text-xs text-muted-foreground">
+          {due === 1
+            ? 'Un mazo sin puntaje del Laboratorio de esta era.'
+            : `${due} mazos sin puntaje del Laboratorio de esta era.`}
+        </span>
+      </div>
+      <ConfirmDialog
+        open={plan !== null}
+        onOpenChange={(open) => {
+          if (!open) setPlan(null)
+        }}
+        title="Actualizar el Laboratorio"
+        description={
+          plan && decks > 0
+            ? `${decks === 1 ? 'Un mazo' : `${decks} mazos`} contra el meta de ${plan.era}: ${formatNumber(plan.games)} partidas, ~${formatDuration(plan.estimatedSeconds)} con los workers de hoy. Las pruebas del Laboratorio van antes que las demás simulaciones.`
+            : 'No hay nada para actualizar: cada mazo ya tiene un puntaje de esta era o se está probando.'
+        }
+        confirmLabel={decks > 0 ? 'Probar' : 'Cerrar'}
+        pending={refresh.isPending}
+        onConfirm={decks > 0 ? start : () => setPlan(null)}
+      >
+        {plan && (plan.sameList > 0 || plan.notSimulable.length > 0 || plan.running > 0) ? (
+          <p className="text-xs text-muted-foreground">
+            {[
+              plan.running > 0 ? `${plan.running} ya en prueba` : null,
+              plan.sameList > 0 ? `${plan.sameList} con la misma lista que otro` : null,
+              plan.notSimulable.length > 0 ? `${plan.notSimulable.length} que el motor no puede jugar` : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+            .
+          </p>
+        ) : null}
+      </ConfirmDialog>
+    </>
   )
 }
 
@@ -169,6 +262,7 @@ export function PickTodayPage() {
         ) : pick.data?.meta ? (
           <MetaWindow meta={pick.data.meta} />
         ) : null}
+        {pick.data && pick.data.labDue > 0 ? <RefreshLab due={pick.data.labDue} /> : null}
       </Section>
       {pick.isPending ? <LoadingRows rows={5} /> : null}
       {pick.isError ? <ErrorState error={pick.error} onRetry={() => pick.refetch()} /> : null}
