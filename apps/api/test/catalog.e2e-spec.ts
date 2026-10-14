@@ -450,6 +450,27 @@ describe('catalog (e2e)', () => {
           (await test.http().post('/api/catalog/sync').set('Cookie', cookie).send({ fromFixtures: true })).status,
         ).toBe(202)
         expect(start).toHaveBeenCalledWith(expect.objectContaining({ trackerCommit: other.commitSha }))
+        // Asking for the memory's commit by name is going back from the database's: it needs confirming, even though
+        // it is the one in memory (compared with the memory's, it would be «same» and pass).
+        const commits = test.app.get(TrackerCommitsService)
+        const compared: string[] = []
+        commits.fetchImpl = async (input) => {
+          compared.push(String(input))
+          return Response.json({ status: 'behind', ahead_by: 0, behind_by: 2 })
+        }
+        try {
+          const back = await test
+            .http()
+            .post('/api/catalog/sync')
+            .set('Cookie', cookie)
+            .send({ commit: test.env.catalogCommit })
+          expect(back.status).toBe(409)
+          expect(back.body.error.code).toBe('confirm_required')
+          expect(compared[0]).toContain(`/compare/${other.commitSha}...${test.env.catalogCommit}`)
+        } finally {
+          commits.fetchImpl = fetch
+        }
+        expect(start).toHaveBeenCalledTimes(1)
       } finally {
         start.mockRestore()
       }

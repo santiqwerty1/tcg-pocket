@@ -47,6 +47,7 @@ export class CatalogService implements OnModuleInit {
   /** The last time loading a sync applied elsewhere failed (null after a good one). */
   private reloadFailure: { at: Date; message: string } | null = null
   private catchingUp = false
+  private loading: Promise<void> = Promise.resolve()
 
   constructor(
     private readonly repository: CatalogRepository,
@@ -61,7 +62,17 @@ export class CatalogService implements OnModuleInit {
     await this.reload()
   }
 
-  async reload(): Promise<void> {
+  /**
+   * Loads the last applied catalog. One at a time: a call while another load runs (the minute's `catchUp` and the end
+   * of a sync of this process) waits for it and then loads again, so the last one to finish read the newest.
+   */
+  reload(): Promise<void> {
+    const next = this.loading.catch(() => undefined).then(() => this.load())
+    this.loading = next
+    return next
+  }
+
+  private async load(): Promise<void> {
     const started = Date.now()
     const loaded = await this.repository.loadCatalog()
     // A database without a catalog after one was loaded (an applied row with no cards) keeps the one in memory.

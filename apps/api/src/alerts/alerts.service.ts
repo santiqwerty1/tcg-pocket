@@ -663,7 +663,7 @@ export class AlertsService {
         level: 'warning',
         title: 'El catálogo cargado no es el último aplicado',
         // Restarting, not «Sincronizar»: the restart loads what the database has, without syncing again.
-        detail: `La app usa ${loaded} y la base ya tiene la #${memory.latest.id} (commit ${short(memory.latest.commitSha)}), seguramente de un catalog-sync por la línea de comandos. La API la carga sola en menos de un minuto.${failure} Si el aviso sigue, reiniciá la máquina.`,
+        detail: `La app usa ${loaded} y la base ya tiene la #${memory.latest.id} (commit ${short(memory.latest.commitSha)}), de un catalog-sync por la línea de comandos o de una sincronización cuya carga en memoria falló. La API la carga sola en menos de un minuto.${failure} Si el aviso sigue, reiniciá la máquina.`,
         link: '/mas/catalogo',
       })
     }
