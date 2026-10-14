@@ -109,6 +109,13 @@ if (command === 'version') {
     process.stderr.write('total 91\nprogress 91\nfin ok\n')
     process.exit(0)
   }
+  // The same, with its last line in two pieces a while apart (a pipe can split any line).
+  if (games === 90) {
+    process.stderr.write('total 90\nprogress 90\nfin o')
+    await new Promise((done) => setTimeout(done, 150))
+    process.stderr.write('k\n')
+    process.exit(0)
+  }
   if (games === 94 || games === 93) {
     writeFileSync(resultFile, games === 94 ? '{incomplete' : 'null')
     process.exit(0)
@@ -215,6 +222,11 @@ if (command === 'version') {
 } else if (command === 'play') {
   // Two decisions of two options each; the winner depends on the owner's choices (both 1 → «you»).
   const job = JSON.parse(readFileSync(jobFile, 'utf8'))
+  // An engine that fails before playing and only says how it ended (engine-cli 0.3.7).
+  if (Number(job.seed) === 404) {
+    process.stderr.write('fin error 2\n')
+    process.exit(2)
+  }
   const say = (value) => process.stdout.write(`${JSON.stringify(value)}\n`)
   const state = { turn: 1, current_player: 0, points: [0, 0], players: [], stadium: null }
   const options = [

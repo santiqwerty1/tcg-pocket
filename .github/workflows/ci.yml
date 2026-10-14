@@ -285,6 +285,21 @@ jobs:
           TCG_WORKER_RELEASE="$(cygpath -w "$release/tcg-worker")" TCG_WORKER_DIR="$(cygpath -w "$RUNNER_TEMP/worker-data")" \
             apps/worker/build/package/tcg-worker/tcg-worker.exe --check-engine
 
+  # H-054: what engine-cli does only on Unix (Android's engine is Linux), which the Windows job never runs: how it says
+  # it ended on a signal and on an exit before the end (engine/src/exit.rs, engine/tests/exit_line.rs).
+  engine-linux:
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+      - run: cargo test --locked --release --manifest-path engine/Cargo.toml --test exit_line
+      - run: cargo test --locked --release --manifest-path engine/Cargo.toml --bin engine-cli exit::
+
   # T-015: the same Docker target used by Fly, plus ARM execution against its native reference (qemu-user).
   android:
     needs: changes

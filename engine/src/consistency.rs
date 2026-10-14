@@ -254,7 +254,7 @@ pub fn consistency(job: ConsistencyJob) -> Result<ConsistencyResult, CliError> {
     let games = if meta { total } else { job.games };
     let key = Arc::new(job.key_cards.iter().cloned().collect::<BTreeSet<_>>());
     let pool = thread_pool(job.threads)?;
-    eprintln!("total {games}");
+    crate::exit::line(&format!("total {games}"));
     let progress = Progress::start();
     let started = Instant::now();
     let watches: Vec<Result<Watch, String>> = pool.install(|| {

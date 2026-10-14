@@ -51,6 +51,10 @@ export interface RunOptions {
    */
   probe?: boolean | undefined
   probeEveryMs?: number | undefined
+  /** The tick of the clock that sees this worker frozen (H-054); tests make it short. */
+  clockEveryMs?: number | undefined
+  /** The engine's version (`cliVersion`), for the diagnosis of a lost result. */
+  cliVersion?: string | undefined
 }
 
 /** How a run went, besides its output: for the log when the result is missing. */
@@ -64,26 +68,37 @@ interface RunOutput {
   lastSample: (ProcessSample & { memAvailableMb: number | null }) | null
   /**
    * How engine-cli said it ended (its last stderr line `fin …`, engine-cli 0.3.7 on: `ok`, `error N`, `pánico`,
-   * `señal N`, `exit sin terminar`); null when it said nothing (an older engine, or a process cut without a chance).
+   * `señal N`, `exit sin terminar`); null when it said nothing.
    */
   endLine: string | null
   /** From the last game that moved its progress to its end. */
   msSinceProgress: number | null
-  /** The longest this worker's own clock stopped while it ran (the whole app frozen by the system), beyond its tick. */
+  /**
+   * The longest this worker stopped while the machine ran (its monotonic clock late beyond the tick): the system froze
+   * the app (and, likely, its engine).
+   */
   clockGapMs: number
+  /** The longest the wall clock jumped beyond the monotonic one: the machine asleep, or its time set. */
+  sleepGapMs: number
 }
 
-/** How often the clock that sees the worker frozen ticks, and the gap that counts as frozen (H-054). */
+/** How often the clock that sees the worker frozen ticks, and the gap that counts (H-054). */
 const CLOCK_EVERY_MS = 10_000
 export const FROZEN_GAP_MS = 30_000
 
-/** What a run that lost its result says about its end, for the chunk's error in the app (H-054). */
-export function cutDiagnosis(output: RunOutput): string {
-  const parts = [`fin: ${output.endLine ?? 'sin aviso del motor'}`]
+/**
+ * What a run that lost its result says about its end, for the chunk's error in the app (H-054). With exit code 0, no
+ * `fin` line means an engine older than 0.3.7, or a process ended through `_exit` (a SIGKILL is seen as a signal).
+ */
+export function cutDiagnosis(output: RunOutput, cliVersion?: string): string {
+  const said = output.endLine ?? `ninguna${cliVersion ? ` (engine-cli ${cliVersion})` : ''}`
+  const parts = [`fin: ${said}`]
   if (output.total !== null) parts.push(`avance ${output.lastProgress ?? 0}/${output.total}`)
   if (output.msSinceProgress !== null) parts.push(`última partida hace ${Math.round(output.msSinceProgress / 1000)} s`)
   if (output.clockGapMs >= FROZEN_GAP_MS)
-    parts.push(`el worker estuvo frenado hasta ${Math.round(output.clockGapMs / 1000)} s seguidos`)
+    parts.push(`el worker estuvo congelado hasta ${Math.round(output.clockGapMs / 1000)} s seguidos`)
+  if (output.sleepGapMs >= FROZEN_GAP_MS)
+    parts.push(`el equipo estuvo suspendido, o cambió la hora, hasta ${Math.round(output.sleepGapMs / 1000)} s`)
   if (output.lastSample?.memAvailableMb != null) parts.push(`memoria libre ${output.lastSample.memAvailableMb} MB`)
   return parts.join('; ')
 }
@@ -104,16 +119,23 @@ function run(enginePath: string, args: string[], options: RunOptions = {}): Prom
     let endLine: string | null = null
     let lastProgressAt: number | null = null
     let clockGapMs = 0
+    let sleepGapMs = 0
     let clock: ReturnType<typeof setInterval> | null = null
     let probing: ReturnType<typeof setInterval> | null = null
     if (options.probe) {
-      // A tick late by more than its period: the system froze this worker (and, likely, its engine) meanwhile.
-      let tick = Date.now()
+      // A tick late by more than its period on the monotonic clock: the system froze this worker meanwhile. The wall
+      // clock going further than the monotonic one: the machine slept (the monotonic one stops then) or its time moved.
+      const every = options.clockEveryMs ?? CLOCK_EVERY_MS
+      let monotonic = performance.now()
+      let wall = Date.now()
       clock = setInterval(() => {
-        const now = Date.now()
-        clockGapMs = Math.max(clockGapMs, now - tick - CLOCK_EVERY_MS)
-        tick = now
-      }, CLOCK_EVERY_MS)
+        const nowMonotonic = performance.now()
+        const nowWall = Date.now()
+        clockGapMs = Math.max(clockGapMs, Math.round(nowMonotonic - monotonic - every))
+        sleepGapMs = Math.max(sleepGapMs, Math.round(nowWall - wall - (nowMonotonic - monotonic)))
+        monotonic = nowMonotonic
+        wall = nowWall
+      }, every)
       clock.unref()
     }
     if (options.probe && child.pid !== undefined) {
@@ -131,21 +153,27 @@ function run(enginePath: string, args: string[], options: RunOptions = {}): Prom
     child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
       stdout += chunk
     })
+    const readLine = (line: string) => {
+      const totalMatch = /^total (\d+)$/.exec(line.trim())
+      if (totalMatch) total = Number(totalMatch[1])
+      const progress = /^progress (\d+)$/.exec(line.trim())
+      if (progress) {
+        const now = Number(progress[1])
+        if (now !== lastProgress) lastProgressAt = Date.now()
+        lastProgress = now
+        options.onProgress?.(lastProgress, total)
+      }
+      const end = /^fin (.+)$/.exec(line.trim())
+      if (end?.[1]) endLine = end[1]
+    }
+    // Whole lines only: a line can arrive in two pieces, and its first piece alone would be read wrong (review of the
+    // diagnosis: «fin ok» lost under load).
+    let partial = ''
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
       stderrTail = (stderrTail + chunk).slice(-4000)
-      for (const line of chunk.split(/\r?\n/)) {
-        const totalMatch = /^total (\d+)$/.exec(line.trim())
-        if (totalMatch) total = Number(totalMatch[1])
-        const progress = /^progress (\d+)$/.exec(line.trim())
-        if (progress) {
-          const now = Number(progress[1])
-          if (now !== lastProgress) lastProgressAt = Date.now()
-          lastProgress = now
-          options.onProgress?.(lastProgress, total)
-        }
-        const end = /^fin (.+)$/.exec(line.trim())
-        if (end?.[1]) endLine = end[1]
-      }
+      const lines = (partial + chunk).split(/\r?\n/)
+      partial = lines.pop() ?? ''
+      for (const line of lines) readLine(line)
     })
     const abort = () => child.kill()
     options.signal?.addEventListener('abort', abort, { once: true })
@@ -158,6 +186,9 @@ function run(enginePath: string, args: string[], options: RunOptions = {}): Prom
     child.on('close', (code, signal) => {
       if (probing) clearInterval(probing)
       if (clock) clearInterval(clock)
+      // A last line without its line break.
+      if (partial) readLine(partial)
+      partial = ''
       const seconds = Math.round((Date.now() - startedAt) / 1000)
       const msSinceProgress = lastProgressAt === null ? null : Date.now() - lastProgressAt
       options.log?.('motor terminado', {
@@ -167,7 +198,7 @@ function run(enginePath: string, args: string[], options: RunOptions = {}): Prom
         signal,
         endLine,
         ...(total !== null ? { lastProgress, total, seconds, msSinceProgress } : {}),
-        ...(clock ? { clockGapMs } : {}),
+        ...(clock ? { clockGapMs, sleepGapMs } : {}),
       })
       options.signal?.removeEventListener('abort', abort)
       if (options.signal?.aborted) {
@@ -175,7 +206,18 @@ function run(enginePath: string, args: string[], options: RunOptions = {}): Prom
         return
       }
       if (code === 0 && signal === null) {
-        resolve({ stdout, stderrTail, lastProgress, total, seconds, lastSample, endLine, msSinceProgress, clockGapMs })
+        resolve({
+          stdout,
+          stderrTail,
+          lastProgress,
+          total,
+          seconds,
+          lastSample,
+          endLine,
+          msSinceProgress,
+          clockGapMs,
+          sleepGapMs,
+        })
         return
       }
       let message = stderrTail.trim() || `engine-cli terminó con código ${code}, señal ${signal}`
@@ -260,12 +302,14 @@ export async function runJob<T>(
         endLine: output.endLine,
         msSinceProgress: output.msSinceProgress,
         clockGapMs: output.clockGapMs,
+        sleepGapMs: output.sleepGapMs,
+        cliVersion: options.cliVersion,
         stdout: output.stdout.slice(-1000),
         stderr: output.stderrTail,
       })
       // The diagnosis goes in the message too: the app keeps it as the chunk's error («Devuelto por el worker: …»).
       throw new EngineError(
-        `engine-cli ${command} terminó con código 0 sin resultado válido (${cutDiagnosis(output)}): ${String(error)}`,
+        `engine-cli ${command} terminó con código 0 sin resultado válido (${cutDiagnosis(output, options.cliVersion)}): ${String(error)}`,
         0,
         // engine-cli exits 0 only after writing it: a missing file means its process was ended from outside before
         // the end (the S25, 12/10/2026) or the file was removed, this worker's problem; a bad one is the engine's.

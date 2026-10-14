@@ -155,6 +155,8 @@ export class Worker {
   private batchable = false
   /** Phase 42: how the engine plays (`gamesRev`), from `engine-cli version`; missing in older engines. */
   private gamesRev: number | undefined
+  /** The engine's version (`engine-cli version`), for the diagnosis of a lost result (H-054). */
+  private cliVersion: string | undefined
 
   constructor(
     private readonly config: WorkerConfig,
@@ -184,6 +186,7 @@ export class Worker {
     const version = await engineVersion(this.config.enginePath, signal)
     this.batchable = version.features?.includes('batch') ?? false
     this.gamesRev = typeof version.gamesRev === 'number' ? version.gamesRev : undefined
+    this.cliVersion = version.cliVersion
     const state = await this.readState()
     if (state.statusUploaded !== version.engineRev) {
       const cards = await engineStatus(this.config.enginePath, signal)
@@ -324,7 +327,13 @@ export class Worker {
           'optimize',
           { ...chunk.optimize, seed: Number(chunk.seed), threads },
           this.workDir,
-          { signal: controller.signal, onProgress: track, priority: this.config.priority, log: this.log },
+          {
+            signal: controller.signal,
+            onProgress: track,
+            priority: this.config.priority,
+            log: this.log,
+            cliVersion: this.cliVersion,
+          },
         )
         const totals = result.combinations.reduce(
           (sum, item) => ({
@@ -366,7 +375,13 @@ export class Worker {
             ...(chunk.consistency?.rivals?.length ? { rivals: chunk.consistency.rivals } : {}),
           },
           this.workDir,
-          { signal: controller.signal, onProgress: track, priority: this.config.priority, log: this.log },
+          {
+            signal: controller.signal,
+            onProgress: track,
+            priority: this.config.priority,
+            log: this.log,
+            cliVersion: this.cliVersion,
+          },
         )
         // An engine from before D-019 ignores the rivals and would measure the goldfish curve instead.
         if (chunk.consistency?.rivals?.length && result.mode !== 'meta') {
@@ -410,7 +425,13 @@ export class Worker {
           ...(chunk.perGame ? { perGame: true } : {}),
         },
         this.workDir,
-        { signal: controller.signal, onProgress: track, priority: this.config.priority, log: this.log },
+        {
+          signal: controller.signal,
+          onProgress: track,
+          priority: this.config.priority,
+          log: this.log,
+          cliVersion: this.cliVersion,
+        },
       )
       // An engine from before H-010 ignores the flag: the paired comparison of the Laboratorio needs every game.
       if (chunk.perGame && !result.perGame) {
@@ -633,6 +654,7 @@ export class Worker {
           signal: controller.signal,
           priority: this.config.priority,
           log: this.log,
+          cliVersion: this.cliVersion,
           onProgress: (done) => {
             gamesDone = done
             lastProgressAt = Date.now()
