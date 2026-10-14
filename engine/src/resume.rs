@@ -101,8 +101,9 @@ impl Checkpoint {
         let line = format!("{index} {game} {}\n", self.base_ms + elapsed_ms);
         if let Ok(mut file) = self.file.lock() {
             if let Some(writer) = file.as_mut() {
-                if writer.write_all(line.as_bytes()).is_err() {
+                if let Err(error) = writer.write_all(line.as_bytes()) {
                     *file = None;
+                    crate::exit::line(&format!("avance: no se pudo escribir, sigo sin él: {error}"));
                 }
             }
         }
@@ -203,14 +204,14 @@ mod tests {
     #[test]
     fn after_a_write_that_fails_nothing_more_goes_to_the_checkpoint() {
         let written = std::sync::Arc::new(Mutex::new(Vec::new()));
-        let filling = Filling { written: written.clone(), room: 18, refused: false };
+        let filling = Filling { written: written.clone(), room: 15, refused: false };
         let checkpoint = Checkpoint { file: Mutex::new(Some(Box::new(filling))), base_ms: 0 };
         checkpoint.record(1, "A0P 14 21", 5);
-        // The disk fills up in the middle of the line: it is left cut, without its line break.
+        // The disk fills up right after the index of the next line: it is left cut, without its line break.
         checkpoint.record(2, "B1N 9 10", 6);
-        // The disk has room again. A line here would follow the cut one and read as game 2, «B13 T0L 31 22».
+        // The disk has room again. A line here would follow the cut one: «23 T0L 31 22 7», game 3's result as game 23.
         checkpoint.record(3, "T0L 31 22", 7);
         let text = String::from_utf8(written.lock().unwrap().clone()).unwrap();
-        assert_eq!(text, "1 A0P 14 21 5\n2 B1");
+        assert_eq!(text, "1 A0P 14 21 5\n2");
     }
 }

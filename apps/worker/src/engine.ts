@@ -254,7 +254,11 @@ function run(enginePath: string, args: string[], options: RunOptions = {}): Prom
         })
         return
       }
-      let message = stderrTail.trim() || `engine-cli terminó con código ${code}, señal ${signal}`
+      // A signal goes first: the tail of a long run is its progress lines, which say nothing of how it ended.
+      let message =
+        signal !== null
+          ? `engine-cli terminó por la señal ${signal}${stderrTail.trim() ? `: ${stderrTail.trim().slice(-500)}` : ''}`
+          : stderrTail.trim() || `engine-cli terminó con código ${code}, señal ${signal}`
       let errorCode: string | null = null
       try {
         const parsed = JSON.parse(stdout.trim()) as { error?: string; code?: string; detail?: unknown }

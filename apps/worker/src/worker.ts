@@ -46,6 +46,13 @@ const WORK_DIR_GRACE_MS = 24 * 60 * 60_000
 const LOST_RESULTS_BEFORE_PAUSE = 2
 /** B of H-054: how many times a chunk cut before its end is resumed from its checkpoint before it goes back. */
 const MAX_RESUMES = 5
+
+/** The error of a chunk resumed `times` times, saying so (the chunk's error in the app; review of #104). */
+function resumedError(error: EngineError, times: number): EngineError {
+  if (times === 0) return error
+  const said = `${error.message} (retomado ${times} ${times === 1 ? 'vez' : 'veces'})`
+  return new EngineError(said, error.exitCode, error.code, error.signal)
+}
 const LOST_RESULTS_PAUSE_MS = 30 * 60_000
 const LOST_RESULTS_PAUSE_MAX_MS = 6 * 60 * 60_000
 
@@ -536,7 +543,7 @@ export class Worker {
         // attempt; review).
         if (!lost && cut && !(error instanceof EngineError) && !options.signal.aborted) {
           await removeWorkDir(dir)
-          throw cut
+          throw resumedError(cut, resumes)
         }
         // Its folder must still be there: a resume plays on what its checkpoint kept.
         if (lost && resumes < MAX_RESUMES && !options.signal.aborted && existsSync(dir)) {
@@ -547,8 +554,9 @@ export class Worker {
           })
           continue
         }
-        if (lost) await removeWorkDir(dir)
-        throw error
+        if (!lost) throw error
+        await removeWorkDir(dir)
+        throw resumedError(error, resumes)
       }
     }
   }

@@ -489,6 +489,8 @@ describe('worker loop', () => {
       expect(cut.calls.failures.map(({ chunkId, cause }) => [chunkId, cause])).toEqual([[7, 'worker']])
       expect(cut.calls.results.map(({ chunkId }) => chunkId)).toEqual([9])
       expect(cut.resumes).toBe(5)
+      // The error the app keeps says it (review of #104).
+      expect(cut.calls.failures[0]?.error).toMatch(/sin resultado válido.*\(retomado 5 veces\)$/)
       // Its folder gone between two runs: nothing to resume on; it goes back as a lost result and the loop goes on.
       rmSync(join(dataDir, 'state.json'), { force: true })
       const gone = await lossRun([chunk({ games: 87 }), chunk({ chunkId: 9 })])
@@ -508,7 +510,7 @@ describe('worker loop', () => {
       // Cut, and then its job cannot be written: the chunk goes back as the lost result it was, and the loop goes on.
       const unwritable = await lossRun([chunk({ games: 86 }), chunk({ chunkId: 9 })])
       expect(unwritable.calls.failures.map(({ chunkId, cause }) => [chunkId, cause])).toEqual([[7, 'worker']])
-      expect(unwritable.calls.failures[0]?.error).toContain('sin resultado válido')
+      expect(unwritable.calls.failures[0]?.error).toMatch(/sin resultado válido.*\(retomado 1 vez\)$/)
       expect(unwritable.calls.results.map(({ chunkId }) => chunkId)).toEqual([9])
       expect(unwritable.resumes).toBe(1)
       // Killed from outside with SIGKILL at its first run: on Linux and Android it resumes from its checkpoint. On
@@ -526,6 +528,19 @@ describe('worker loop', () => {
         ])
         expect(killed.calls.failures).toEqual([])
         expect(killed.resumes).toBe(1)
+      }
+      // Killed every time: after MAX_RESUMES it fails as a signal did before, saying the signal and the resumes.
+      rmSync(join(dataDir, 'state.json'), { force: true })
+      const always = await lossRun([chunk({ games: 84 }), chunk({ chunkId: 9 })])
+      expect(always.calls.failures.map(({ chunkId, cause }) => [chunkId, cause ?? 'engine'])).toEqual([[7, 'engine']])
+      expect(always.calls.results.map(({ chunkId }) => chunkId)).toEqual([9])
+      if (process.platform === 'win32') {
+        expect(always.resumes).toBe(0)
+      } else {
+        expect(always.resumes).toBe(5)
+        expect(always.calls.failures[0]?.error).toMatch(
+          /^engine-cli terminó por la señal SIGKILL: .*\(retomado 5 veces\)$/s,
+        )
       }
       expect(readdirSync(join(dataDir, 'work'))).toEqual([])
     } finally {
