@@ -868,8 +868,9 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
   }
 
   /**
-   * T-017 E3: a variant that brings in one of the cards to try — the `pick`-th not yet in the list, cycling — in the
-   * place of a random copy (with its pre-evolution when missing), or null when none can come in.
+   * T-017 E3: a variant that brings in one of the cards to try — the `pick`-th the list has fewer than two copies of,
+   * cycling (a second copy is a card to try too: «otro Onix») — in the place of a random copy (with its pre-evolution
+   * when missing), or null when none can come in.
    */
   private includeVariant(
     cards: readonly DeckCardEntry[],
@@ -885,7 +886,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     affinity?: ReadonlyMap<CardId, number>,
   ): Variant | null {
     const inList = groupsOfCards(cards, index)
-    const wanted = include.filter((groupId) => !inList.has(groupId))
+    const wanted = include.filter((groupId) => (inList.get(groupId as CardId) ?? 0) < 2)
     // Its own seeds (review of #64: `seed + 7` was the common variants' seed seven rounds later).
     const random = seededRandom(chunkSeed(seed, INCLUDE_SEED_SALT))
     for (let k = 0; k < wanted.length; k++) {
@@ -2438,9 +2439,11 @@ function includeView(
   return [...include].map((groupId) => {
     const group = index.groupById(groupId)
     const card = group ? index.cardById(group.displayCardId) : undefined
+    // Two functional cards with one name (Onix A1-150, three Fighting, and Onix B1a-38, three Colorless): the code.
+    const shared = card ? index.groupsByNameEn(card.nameEn).length > 1 : false
     return {
       cardId: groupId,
-      nameEs: group?.nameEs ?? groupId,
+      nameEs: `${group?.nameEs ?? groupId}${shared ? ` (${group?.displayCardId ?? groupId})` : ''}`,
       count: 0,
       note: card ? zoneNoteEs(card, energies, index) : null,
     }

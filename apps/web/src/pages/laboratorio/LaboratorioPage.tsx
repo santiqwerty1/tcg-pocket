@@ -310,7 +310,7 @@ function IncludePicker({
       <legend className="text-sm font-medium">Probar estas cartas</legend>
       <p className="text-xs text-muted-foreground">
         Entran aunque no las tengas o las energías de la lista no paguen sus ataques, tan seguido como la carta más
-        jugada, y cada ronda una variante trae una.
+        jugada, y cada ronda una variante trae una (o una copia más, si la lista ya tiene una).
       </p>
       {cards.length < 10 ? (
         <CardSearch
@@ -318,7 +318,11 @@ function IncludePicker({
           limit={8}
           onPick={(hit) => {
             if (cards.some((card) => card.groupId === hit.group.id)) return
-            onChange([...cards, { cardId: hit.card.id, groupId: hit.group.id, nameEs: hit.card.nameEs }])
+            // With the code: two cards may share a name and not their attacks (Onix A1-150 and Onix B1a-38).
+            onChange([
+              ...cards,
+              { cardId: hit.card.id, groupId: hit.group.id, nameEs: `${hit.card.nameEs} (${hit.card.id})` },
+            ])
           }}
         />
       ) : null}

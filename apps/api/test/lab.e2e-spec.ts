@@ -1560,6 +1560,28 @@ describe('laboratorio (e2e)', () => {
     expect(broughtGroups).toContain(stage1.id)
     expect(broughtGroups.length).toBe(2)
 
+    // A card the list has one copy of is a card to try too («otro Onix»): the guaranteed variant brings a second one.
+    const deckCards = (await get(`/api/decks/${deckIds[1]}`)).body.cards as { card: { id: string }; count: number }[]
+    const single = deckCards.find((entry) => {
+      const card = index.cardById(entry.card.id)
+      if (!card || entry.count !== 1) return false
+      const sameName = deckCards.filter((other) => index.cardById(other.card.id)?.nameEn === card.nameEn)
+      return sameName.length === 1 && engineEdition(card, index, status) !== null
+    })
+    if (!single) throw new Error('no card with one copy')
+    const singleGroup = index.cardById(single.card.id)?.functionalGroupId as string
+    const secondCopy = await post('/api/lab/explore').send({
+      deck: { deckId: deckIds[1] },
+      size: 3,
+      config,
+      include: [single.card.id],
+      dryRun: true,
+    })
+    expect(secondCopy.status).toBe(200)
+    const [another] = secondCopy.body.firstRound as { add: { cardId: string; count: number }[] }[]
+    expect(another?.add).toContainEqual(expect.objectContaining({ count: 1 }))
+    expect(another?.add.some((card) => index.cardById(card.cardId)?.functionalGroupId === singleGroup)).toBe(true)
+
     // A pasted list: the plan gives its cards, and a locked one never goes out.
     const text = readFileSync(DECKS_PATH, 'utf8')
     const section = text.slice(text.indexOf('\n### 2. ') + 1, text.indexOf('\n### 3. '))
