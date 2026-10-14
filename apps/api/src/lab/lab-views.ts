@@ -18,6 +18,11 @@ export interface CardLineView {
   count: number
 }
 
+/** T-017 E3: a card to try, with why it cannot attack with the list's energies (null when it can). */
+export interface LabIncludeView extends CardLineView {
+  note: string | null
+}
+
 export interface LabBankRivalView {
   archetypeId: string
   archetypeName: string
@@ -149,9 +154,17 @@ export interface LabDeckView {
   bringsBlindSpot: boolean
   /**
    * T-017 E1/E2: why each card that came in was proposed (share of the era's lists and of the archetype's lists that
-   * play it, when the search kept them) and how many copies the collection lacks for it.
+   * play it, when the search kept them; `asked` when it came as a card to try, whose share the search does not know)
+   * and how many copies the collection lacks for it.
    */
-  why: { cardId: string; nameEs: string; eraShare: number | null; archetypeShare: number | null; missing: number }[]
+  why: {
+    cardId: string
+    nameEs: string
+    eraShare: number | null
+    archetypeShare: number | null
+    asked: boolean
+    missing: number
+  }[]
   novelty: LabNoveltyView
   cards: CardLineView[]
   energies: string[]
@@ -249,8 +262,8 @@ export interface LabExploreView {
     error: string | null
   } | null
   locked: CardLineView[]
-  /** T-017 E3: the cards to try («probar estas cartas»). */
-  include: CardLineView[]
+  /** T-017 E3: the cards to try («probar estas cartas»), with why one cannot attack with the list's energies. */
+  include: LabIncludeView[]
   /** T-017 E4: lists added by hand: already played (`added`) and waiting for the next round (`pending`). */
   added: number[]
   pending: number[]

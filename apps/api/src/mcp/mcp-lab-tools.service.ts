@@ -242,7 +242,8 @@ export class McpLabToolsService {
                   }
                 : {}),
               // T-017 E3/E4: the cards it tries and the lists added by hand.
-              include: explore.include.map((card) => card.nameEs),
+              // «Probar estas cartas» tries a card the list's energies cannot attack with, and says so.
+              include: explore.include.map((card) => (card.note ? `${card.nameEs}: ${card.note}` : card.nameEs)),
               addedByHand: { played: explore.added, waiting: explore.pending, neverPlayed: explore.lost },
               rounds: explore.rounds.map((round) => ({
                 // T-017 C3: the probe round measures; it accepts nothing and is no search round. T-017 C8: a fill round.
@@ -444,6 +445,9 @@ export class McpLabToolsService {
         problems: result.base.problems.map((problem) => problem.message),
         bank: result.bank.rivals.map((rival) => rival.archetypeName),
         poolCards: result.pool,
+        ...(result.include.length > 0
+          ? { include: result.include.map((card) => (card.note ? `${card.nameEs}: ${card.note}` : card.nameEs)) }
+          : {}),
         config: result.config,
         firstRound: result.firstRound.map((variant) => ({
           in: variant.add.map(cardLine),

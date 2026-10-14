@@ -34,7 +34,7 @@ import { formatInterval, formatRate, formatRateValue } from '@/lib/matches'
 import { formatDuration, isActive, progressFraction } from '@/lib/simulation'
 import { cn } from '@/lib/utils'
 import { ProgressBar, StatusBadge } from '../simulacion/SimulacionPage'
-import { ChangeLine } from './LaboratorioPage'
+import { ChangeLine, IncludeNotes } from './LaboratorioPage'
 
 const ROLE_LABEL: Record<LabDeck['role'], string> = {
   best: 'Mejor encontrada',
@@ -319,9 +319,11 @@ function WhyLine({ why }: { why: LabDeck['why'] }) {
       {why.map((card) => (
         <li key={card.cardId}>
           Entra {card.nameEs}
-          {card.eraShare !== null && card.archetypeShare !== null
-            ? `: la juega el ${percent(card.eraShare)} de las listas de la era y el ${percent(card.archetypeShare)} de las de su arquetipo`
-            : ''}
+          {card.asked
+            ? ', que pediste probar'
+            : card.eraShare !== null && card.archetypeShare !== null
+              ? `: la juega el ${percent(card.eraShare)} de las listas de la era y el ${percent(card.archetypeShare)} de las de su arquetipo`
+              : ''}
           {card.missing > 0 ? (
             <span className="text-warning">
               {' '}
@@ -724,7 +726,10 @@ function ExploreSummary({ job }: { job: LabJob }) {
         </div>
       ) : null}
       {explore.include.length > 0 ? (
-        <p className="text-sm">Probando: {explore.include.map((card) => card.nameEs).join(', ')}.</p>
+        <div className="flex flex-col gap-0.5">
+          <p className="text-sm">Probando: {explore.include.map((card) => card.nameEs).join(', ')}.</p>
+          <IncludeNotes cards={explore.include} className="text-muted-foreground" />
+        </div>
       ) : null}
       {explore.added.length + explore.pending.length + explore.lost.length > 0 ? (
         <p className="text-sm text-muted-foreground">

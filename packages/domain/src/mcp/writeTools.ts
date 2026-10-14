@@ -333,7 +333,7 @@ export const MCP_WRITE_TOOLS = {
         .max(10)
         .optional()
         .describe(
-          'Cartas para probar (nombre o código): entran aunque Santi no las tenga y cada ronda una variante trae una',
+          'Cartas para probar (nombre o código): entran aunque Santi no las tenga o las energías no paguen sus ataques (el resultado lo avisa), y cada ronda una variante trae una',
         ),
       probe: z
         .boolean()

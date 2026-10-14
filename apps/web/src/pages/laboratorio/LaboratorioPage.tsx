@@ -15,6 +15,7 @@ import type {
   LabDeckSource,
   LabExploreInput,
   LabExplorePlan,
+  LabInclude,
   LabObjectiveChoice,
 } from '@/api/schemas'
 import { useEngineInfo } from '@/api/simulations'
@@ -31,6 +32,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { formatDateTime, formatNumber, PERCENT } from '@/lib/format'
 import { useMarkSeen } from '@/lib/seen'
 import { formatDuration, isActive, progressFraction } from '@/lib/simulation'
+import { cn } from '@/lib/utils'
 import { ProgressBar, StatusBadge } from '../simulacion/SimulacionPage'
 import { CoreBuilder } from './CoreBuilder'
 
@@ -307,7 +309,8 @@ function IncludePicker({
     <fieldset className="flex flex-col gap-1.5">
       <legend className="text-sm font-medium">Probar estas cartas</legend>
       <p className="text-xs text-muted-foreground">
-        Entran aunque no las tengas, tan seguido como la carta más jugada, y cada ronda una variante trae una.
+        Entran aunque no las tengas o las energías de la lista no paguen sus ataques, tan seguido como la carta más
+        jugada, y cada ronda una variante trae una (o una copia más, si la lista ya tiene una).
       </p>
       {cards.length < 10 ? (
         <CardSearch
@@ -315,7 +318,11 @@ function IncludePicker({
           limit={8}
           onPick={(hit) => {
             if (cards.some((card) => card.groupId === hit.group.id)) return
-            onChange([...cards, { cardId: hit.card.id, groupId: hit.group.id, nameEs: hit.card.nameEs }])
+            // With the code the plan shows: two cards may share a name and not their attacks (Onix A1-150 and B1a-38).
+            onChange([
+              ...cards,
+              { cardId: hit.card.id, groupId: hit.group.id, nameEs: `${hit.card.nameEs} (${hit.group.displayCardId})` },
+            ])
           }}
         />
       ) : null}
@@ -361,6 +368,7 @@ function PlanView({ plan }: { plan: LabExplorePlan }) {
         {formatDuration(plan.estimatedSeconds.perRound)}) · como mucho {formatNumber(plan.games.max)} (~
         {formatDuration(plan.estimatedSeconds.max)}).
       </p>
+      <IncludeNotes cards={plan.include} className="text-warning" />
       {plan.firstRound.length > 0 ? (
         <div className="flex flex-col gap-1">
           <p className="text-xs text-muted-foreground">
@@ -379,6 +387,29 @@ function PlanView({ plan }: { plan: LabExplorePlan }) {
       ) : (
         <p className="text-warning">No encontré variantes válidas con esas cartas.</p>
       )}
+    </div>
+  )
+}
+
+/**
+ * T-017 E3: the cards to try that cannot attack with the list's energies, and that they are tried anyway (a wall, a
+ * Pokémon to retreat into, a base).
+ */
+export function IncludeNotes({ cards, className }: { cards: LabInclude[]; className?: string }) {
+  const noted = cards.filter((card) => card.note !== null)
+  if (noted.length === 0) return null
+  return (
+    <div className={cn('flex flex-col gap-0.5 text-xs', className)}>
+      {noted.map((card) => (
+        <p key={card.cardId}>
+          {card.nameEs} {card.note}.
+        </p>
+      ))}
+      <p>
+        {noted.length === 1
+          ? 'Se prueba igual: puede servir de muro, de retirada o de base.'
+          : 'Se prueban igual: pueden servir de muro, de retirada o de base.'}
+      </p>
     </div>
   )
 }

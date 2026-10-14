@@ -123,12 +123,12 @@ import {
   swapScore,
   type TournamentDataset,
   type TournamentFormat,
-  usableWith,
   type Variant,
   validateDeck,
   variantOf,
   verifyPick,
   weakestThird,
+  zoneNoteEs,
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
@@ -151,6 +151,7 @@ import type {
   LabDeckView,
   LabExploreView,
   LabGamesView,
+  LabIncludeView,
   LabJobsView,
   LabJobView,
   LabNoveltyView,
@@ -867,8 +868,9 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
   }
 
   /**
-   * T-017 E3: a variant that brings in one of the cards to try — the `pick`-th not yet in the list, cycling — in the
-   * place of a random copy (with its pre-evolution when missing), or null when none can come in.
+   * T-017 E3: a variant that brings in one of the cards to try — the `pick`-th the list has fewer than two copies of,
+   * cycling (a second copy is a card to try too: «otro Onix») — in the place of a random copy (with its pre-evolution
+   * when missing), or null when none can come in.
    */
   private includeVariant(
     cards: readonly DeckCardEntry[],
@@ -884,7 +886,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     affinity?: ReadonlyMap<CardId, number>,
   ): Variant | null {
     const inList = groupsOfCards(cards, index)
-    const wanted = include.filter((groupId) => !inList.has(groupId))
+    const wanted = include.filter((groupId) => (inList.get(groupId as CardId) ?? 0) < 2)
     // Its own seeds (review of #64: `seed + 7` was the common variants' seed seven rounds later).
     const random = seededRandom(chunkSeed(seed, INCLUDE_SEED_SALT))
     for (let k = 0; k < wanted.length; k++) {
@@ -893,7 +895,13 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       if (!card) continue
       // Review of #64: its pre-evolution comes along when the list lacks it (never drawn on its own: weight 0).
       const pre = index.cardById(card.cardId)?.evolvesFrom
-      const helpers = pre ? pool.filter((item) => item.nameEn === pre).map((item) => ({ ...item, weight: 0 })) : []
+      // The ones drawn on their own first: the pre-evolution a swap takes is the first that fits.
+      const helpers = pre
+        ? pool
+            .filter((item) => item.nameEn === pre)
+            .sort((a, b) => b.weight - a.weight)
+            .map((item) => ({ ...item, weight: 0 }))
+        : []
       const variant = variantOf(cards, energies, [card, ...helpers], index, random, {
         locked,
         seen,
@@ -1076,6 +1084,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         base: Omit<SnapshotView, 'id'>
         /** T-017 E3: the starting list's cards (to lock some, whatever the source). */
         baseCards: CardLineView[]
+        /** T-017 E3: the cards to try, with why one cannot attack with the list's energies. */
+        include: LabIncludeView[]
         bank: LabBankView
         pool: number
         firstRound: { add: CardLineView[]; remove: CardLineView[] }[]
@@ -1125,7 +1135,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     let fullPool = await this.pool(bank, SELECTABLE_ENERGIES, config.pool, affinity, event?.rules)
     if (include.size > 0) {
       // T-017 E3: what was asked for enters even without copies in the collection (and even if no list plays it), as
-      // often as the most played card. Review of #64: each refusal says why.
+      // often as the most played card, and even when the list's energies pay none of its attacks (a wall, a Pokémon to
+      // retreat into, a base): only what the engine does not play or the event does not allow is refused, and why.
       const engine = await this.engine.status()
       const top = Math.max(1, ...fullPool.map((card) => card.weight))
       const asked: PoolCard[] = []
@@ -1141,7 +1152,6 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         if (!card) throw refuse('el motor no la juega')
         if (event && cardBreaksEvent(card, event.rules) !== null)
           throw refuse(`el evento «${event.name}» no la permite`)
-        if (!usableWith(card, draft.energies)) throw refuse('las energías de la lista no pagan ninguno de sus ataques')
         asked.push({ cardId: card.id, groupId, nameEn: card.nameEn, maxCopies: 2, weight: top })
       }
       // Review of #64: an evolution to try brings its pre-evolution along, which may not be in the collection either:
@@ -1161,7 +1171,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       }
       fullPool = [...fullPool.filter((card) => !asked.some((item) => item.groupId === card.groupId)), ...asked]
     }
-    const pool = poolForZone(fullPool, draft.energies, index)
+    // The cards asked for (and their pre-evolutions) stay whatever the zone.
+    const pool = poolForZone(fullPool, draft.energies, index, include)
     const baseSeed = this.baseSeed(input)
     const seen = new Set([listKeyByGroup(groupsOfCards(baseCards, index))])
     // T-017 C3: with a probe round, the first round measures what each card is worth (one copy out, a filler in).
@@ -1225,8 +1236,10 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       return {
         base: (await this.snapshots.preview(baseSource)) as Omit<SnapshotView, 'id'>,
         baseCards: lines(index, mergeLines(baseCards)),
+        include: includeView(include, draft.energies, index),
         bank: await this.bank(input),
-        pool: pool.length,
+        // The cards drawn on their own (a pre-evolution that only comes along, weight 0, is no candidate).
+        pool: pool.filter((card) => card.weight > 0).length,
         firstRound: first.map((variant) => ({
           add: lines(index, variant.add),
           remove: lines(index, variant.remove),
@@ -1821,7 +1834,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               affinity = new Map(state.frozen.affinity)
               // Review of #27: frozen for every zone; filtered with the one in play (an Energy variant may change it).
               capsPool = thawPool(state.frozen, index)
-              pool = poolForZone(capsPool, energies, index)
+              pool = poolForZone(capsPool, energies, index, new Set(state.include ?? []))
             } else {
               // A search queued before H-021: today's tournaments and collection, as it always did.
               const bank = await this.usageBank(params.lab)
@@ -2197,6 +2210,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     const searchFilter = (chunk: ChunkRow) => !confirm || chunk.idx < confirm.fromIdx
     const confirmFilter = (chunk: ChunkRow) => !!confirm && chunk.idx >= confirm.fromIdx && chunk.idx < confirm.toIdx
     const baseCards = state ? cardsOfSnapshot(byId.get(state.base)?.cards as unknown as SnapshotCard[]) : null
+    const asked = new Set<CardId>(state?.include ?? [])
 
     const decks: LabDeckView[] = params.sideA
       .map((sid): LabDeckView | null => {
@@ -2259,7 +2273,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                   : null,
               }
             : null,
-          why: changes ? whyCards(changes.add, cards, state?.frozen, index, playable) : [],
+          why: changes ? whyCards(changes.add, cards, state?.frozen, index, playable, asked) : [],
           // T-017 A3: the list's cards the bots play badly or the engine approximates; a variant that brings one in says
           // so («carta con punto ciego»; review of #82: «sensible al bot» is the replay with e3's verdict).
           blindSpots: listBlindSpots(cards, index).map((card) => ({
@@ -2372,11 +2386,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               nameEs: index.groupById(groupId)?.nameEs ?? groupId,
               count: 0,
             })),
-            include: (state.include ?? []).map((groupId) => ({
-              cardId: groupId,
-              nameEs: index.groupById(groupId)?.nameEs ?? groupId,
-              count: 0,
-            })),
+            include: includeView(asked, (byId.get(state.base)?.energies ?? []) as unknown as SelectableEnergy[], index),
             added: state.added ?? [],
             pending: state.pending ?? [],
             lost: state.lost ?? [],
@@ -2421,6 +2431,29 @@ function selectableEnergies(words: readonly string[]): SelectableEnergy[] {
   return words
     .map((word) => energyFromNameEn(word))
     .filter((energy): energy is SelectableEnergy => energy !== undefined)
+}
+
+/**
+ * T-017 E3: the cards to try, each with why it cannot attack with the list's energies (null when it can): it is tried
+ * anyway, and the result says so instead of refusing it.
+ */
+function includeView(
+  include: Iterable<CardId>,
+  energies: readonly SelectableEnergy[],
+  index: CatalogIndex,
+): LabIncludeView[] {
+  return [...include].map((groupId) => {
+    const group = index.groupById(groupId)
+    const card = group ? index.cardById(group.displayCardId) : undefined
+    // Two functional cards with one name (Onix A1-150, three Fighting, and Onix B1a-38, three Colorless): the code.
+    const shared = card ? index.groupsByNameEn(card.nameEn).length > 1 : false
+    return {
+      cardId: groupId,
+      nameEs: `${group?.nameEs ?? groupId}${shared ? ` (${group?.displayCardId ?? groupId})` : ''}`,
+      count: 0,
+      note: card ? zoneNoteEs(card, energies, index) : null,
+    }
+  })
 }
 
 /** H-021: the pool and the archetype usage of a search as it starts, kept in its state for every later round. */

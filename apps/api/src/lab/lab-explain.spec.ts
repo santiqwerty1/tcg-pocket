@@ -29,11 +29,32 @@ describe('why cards came in and what was left out (T-017 E1/E2, review of #20)',
 
   it('the era share comes back out of the draw weight, and «te falta» counts the copies the collection lacks', () => {
     const why = whyCards([{ cardId: 'T-1', count: 2 }], [{ cardId: 'T-1', count: 2 }], frozen, index, owned)
-    expect(why).toEqual([{ cardId: 'T-1', nameEs: 'Helio', eraShare: 40, archetypeShare: 90, missing: 1 }])
+    expect(why).toEqual([
+      { cardId: 'T-1', nameEs: 'Helio', eraShare: 40, archetypeShare: 90, asked: false, missing: 1 },
+    ])
     // Without frozen inputs (an older search) the shares are unknown.
     expect(
       whyCards([{ cardId: 'T-1', count: 1 }], [{ cardId: 'T-1', count: 1 }], undefined, index, owned)[0],
     ).toMatchObject({ eraShare: null, archetypeShare: null, missing: 0 })
+  })
+
+  it('deuda 1 of 14/10: a card to try has no era share (its weight is the top one), nor the pre-evolution it brought', () => {
+    const asked = {
+      pool: [
+        ['T-1', 2, 100],
+        ['P-1', 2, 0],
+      ] as [string, number, number][],
+      affinity: frozen.affinity,
+    }
+    const cards = [
+      { cardId: 'T-1', count: 1 },
+      { cardId: 'P-1', count: 1 },
+    ]
+    const why = whyCards(cards, cards, asked, index, owned, new Set(['T-1']))
+    expect(why).toEqual([
+      { cardId: 'T-1', nameEs: 'Helio', eraShare: null, archetypeShare: 90, asked: true, missing: 0 },
+      { cardId: 'P-1', nameEs: 'Bulbasaur', eraShare: null, archetypeShare: 5, asked: false, missing: 0 },
+    ])
   })
 
   it('left out: what 30 % or more of the archetype plays and the collection lacks; nothing with «todas las cartas»', () => {

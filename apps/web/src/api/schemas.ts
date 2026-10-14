@@ -1654,6 +1654,9 @@ export type MetaScore = z.infer<typeof metaScoreSchema>
 
 const labCardSchema = z.object({ cardId: z.string(), nameEs: z.string(), count: z.number() })
 export type LabCard = z.infer<typeof labCardSchema>
+/** T-017 E3: a card to try, with why it cannot attack with the list's energies (null when it can). */
+const labIncludeSchema = labCardSchema.extend({ note: z.string().nullable().default(null) })
+export type LabInclude = z.infer<typeof labIncludeSchema>
 
 /** T-017 D4: what a bank measures against. */
 export const labObjectiveSchema = z.object({
@@ -1761,6 +1764,8 @@ export const labDeckSchema = z.object({
         nameEs: z.string(),
         eraShare: z.number().nullable(),
         archetypeShare: z.number().nullable(),
+        /** It came as a card to try: its share of the era is unknown. */
+        asked: z.boolean().default(false),
         missing: z.number(),
       }),
     )
@@ -1876,7 +1881,7 @@ export const labJobSchema = z.object({
         .default([]),
       weakest: z.array(labCardSchema).default([]),
       /** T-017 E3/E4: the cards to try, and the lists added by hand (played, and waiting for the next round). */
-      include: z.array(labCardSchema).default([]),
+      include: z.array(labIncludeSchema).default([]),
       added: z.array(z.number()).default([]),
       pending: z.array(z.number()).default([]),
       lost: z.array(z.number()).default([]),
@@ -1969,6 +1974,7 @@ export const labExplorePlanSchema = z.object({
   base: snapshotSchema.omit({ id: true }),
   /** T-017 E3: the starting list's cards, to lock some whatever the source. */
   baseCards: z.array(labCardSchema).default([]),
+  include: z.array(labIncludeSchema).default([]),
   bank: labBankSchema,
   pool: z.number(),
   firstRound: z.array(z.object({ add: z.array(labCardSchema), remove: z.array(labCardSchema) })),
