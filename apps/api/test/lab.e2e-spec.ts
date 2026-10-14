@@ -1451,7 +1451,7 @@ describe('laboratorio (e2e)', () => {
       ),
     ).toBe(true)
     await post(`/api/simulations/${created.body.id}/cancel`)
-    // Review of #64: each refusal says why — an unknown card, one the zone cannot pay.
+    // Review of #64: each refusal says why — an unknown card (one the zone cannot pay is no longer refused).
     const refuse = async (cardId: string) =>
       (await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, include: [cardId] })).body
         .error?.message as string
@@ -1470,7 +1470,58 @@ describe('laboratorio (e2e)', () => {
       )
     })
     if (!fighting) throw new Error('no Fighting Pokémon')
-    expect(await refuse(fighting.displayCardId)).toMatch(/las energías de la lista no pagan/)
+    // Santi's ask of 14/10 (Onix in the Mega-Steelix ex deck): it is tried anyway — a wall, a Pokémon to retreat into,
+    // a base — and the plan says why it cannot attack instead of refusing it.
+    const offType = await post('/api/lab/explore').send({
+      deck: { deckId: deckIds[1] },
+      size: 3,
+      config,
+      include: [fighting.displayCardId],
+      dryRun: true,
+    })
+    expect(offType.status).toBe(200)
+    expect(offType.body.include).toEqual([
+      expect.objectContaining({
+        cardId: fighting.id,
+        note: expect.stringMatching(/^no puede atacar con las energías de la lista/),
+      }),
+    ])
+    const bringsFighting = (add: { cardId: string }[] | undefined) =>
+      (add ?? []).some((card) => index.cardById(card.cardId)?.functionalGroupId === fighting.id)
+    // The zone's filter keeps it: the guaranteed variant of the first round brings it in…
+    const [tried] = offType.body.firstRound as { add: { cardId: string }[] }[]
+    expect(bringsFighting(tried?.add)).toBe(true)
+    // …and so does the one of the next round (the filter there starts from the frozen pool).
+    const twoRounds = await post('/api/lab/explore').send({
+      deck: { deckId: deckIds[1] },
+      size: 3,
+      config: { ...config, maxRounds: 2 },
+      include: [fighting.displayCardId],
+      seed: 9955,
+    })
+    expect(twoRounds.status).toBe(200)
+    const offTypeJob = twoRounds.body.id as number
+    const firstView = (await get(`/api/lab/jobs/${offTypeJob}`)).body
+    expect(firstView.explore.include[0].note).toMatch(/^no puede atacar con las energías de la lista/)
+    const firstChunks = await test.prisma.simulationChunk.count({ where: { jobId: offTypeJob } })
+    const half = (_a: number, _b: number, games: number) => Math.floor(games / 2)
+    expect(await playAll(half, firstChunks)).toBe(firstChunks)
+    const secondView = (await get(`/api/lab/jobs/${offTypeJob}`)).body
+    const second = (secondView.explore.rounds as { index: number; kind: string; candidates: number[] }[]).find(
+      (round) => round.index === 1,
+    )
+    if (!second) throw new Error('no second round')
+    expect(second.kind).toBe('search')
+    const secondDecks = (
+      secondView.decks as { snapshot: number; changes: { add: { cardId: string }[] } | null; why: unknown[] }[]
+    ).filter((deck) => second.candidates.includes(deck.snapshot))
+    const again = secondDecks.find((deck) => bringsFighting(deck.changes?.add))
+    expect(again).toBeDefined()
+    // Deuda 1 of 14/10: no made-up «% de la era» for a card to try (its weight is the most played card's).
+    expect(again?.why).toContainEqual(
+      expect.objectContaining({ cardId: expect.any(String), asked: true, eraShare: null }),
+    )
+    await post(`/api/simulations/${offTypeJob}/cancel`)
 
     // Review of #64: an evolution whose pre-evolution the list lacks brings it along in the guaranteed variant.
     const deckGroups = new Set(

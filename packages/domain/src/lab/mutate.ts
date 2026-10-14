@@ -1,8 +1,8 @@
 /**
  * Variants of a deck for the automatic search (T-008): one or two card swaps at a time (a copy goes out, a copy of
  * another card goes in) with the energies fixed. What goes in comes from a pool (the collection or every card the
- * engine plays): trainers, and Pokémon that can attack with the deck's energies (or have an ability) and are of one of
- * its types or played somewhere in the era. Cards the era plays, and above all the ones lists like this deck play,
+ * engine plays): trainers, and Pokémon that can attack with the deck's energies (or have an ability), themselves or
+ * through an evolution, and are of one of its types (the line's) or played somewhere in the era. Cards the era plays, and above all the ones lists like this deck play,
  * come up more often, but any card in the pool can come; what goes out is drawn the other way round, so the core of
  * the archetype is rarely touched. An evolution goes in with its pre-evolution when the deck lacks it. Every variant
  * validates as a deck (20 cards, 2 copies per name, a basic, evolution lines). Draws come from a seeded generator:
@@ -58,30 +58,132 @@ export function poolWeight(cardType: 'pokemon' | 'trainer', usage: number, affin
   return (cardType === 'trainer' ? 2 : 1) * (1 + 10 * (usage / 100)) * (1 + 10 * (affinity / 100))
 }
 
-/** A Pokémon is worth trying when one of its attacks can be paid with the deck's energies, or it has an ability. */
-export function usableWith(card: CardEdition, energies: readonly SelectableEnergy[]): boolean {
-  if (card.cardType !== 'pokemon') return true
-  if (card.ability !== null) return true
-  const have = new Set<string>(energies)
-  return card.attacks.some((attack) => attack.cost.every((type) => type === 'colorless' || have.has(type)))
+/**
+ * A Pokémon is worth trying when one of its attacks can be paid with the deck's energies, or it has an ability. With
+ * the index, its evolutions count too: a Pokémon that evolves into one that can attack (or has an ability) is the base
+ * of that line — Onix (Land Crush, three Fighting) in a Metal deck evolves into Mega-Steelix ex.
+ */
+export function usableWith(
+  card: CardEdition,
+  energies: readonly SelectableEnergy[],
+  index?: CatalogIndex | undefined,
+): boolean {
+  const usable = (step: CardEdition) =>
+    step.cardType !== 'pokemon' ||
+    step.ability !== null ||
+    step.attacks.some((attack) =>
+      attack.cost.every((type) => type === 'colorless' || (energies as readonly string[]).includes(type)),
+    )
+  return index ? evolutionLine(card, index).some(usable) : usable(card)
+}
+
+/** Per catalog, the display editions of the cards that evolve from each English name. */
+const evolutionsByName = new WeakMap<CatalogIndex, Map<string, CardEdition[]>>()
+
+function evolutionsOf(nameEn: string, index: CatalogIndex): readonly CardEdition[] {
+  let byName = evolutionsByName.get(index)
+  if (!byName) {
+    byName = new Map()
+    for (const group of index.catalog.groups) {
+      const card = index.cardById(group.displayCardId)
+      if (!card?.evolvesFrom) continue
+      const list = byName.get(card.evolvesFrom)
+      if (list) list.push(card)
+      else byName.set(card.evolvesFrom, [card])
+    }
+    evolutionsByName.set(index, byName)
+  }
+  return byName.get(nameEn) ?? []
 }
 
 /**
- * The pool cards worth trying with an Energy Zone: Pokémon it can pay an attack of (or with an ability), and off-type
- * Pokémon without an ability only when the era or the archetype plays them (weight above 1). Review of #27: a search
- * freezes its pool for every zone and filters it with the zone in play, which an Energy variant may have changed.
+ * The card and every card up its evolution line, by English name (Onix, then each Steelix and Mega-Steelix ex), each
+ * functional card once.
+ */
+export function evolutionLine(card: CardEdition, index: CatalogIndex): CardEdition[] {
+  const line = [card]
+  const groups = new Set([card.functionalGroupId])
+  for (let at = 0; at < line.length; at++) {
+    const step = line[at] as CardEdition
+    for (const next of evolutionsOf(step.nameEn, index)) {
+      if (groups.has(next.functionalGroupId)) continue
+      groups.add(next.functionalGroupId)
+      line.push(next)
+    }
+  }
+  return line
+}
+
+/**
+ * An off-type Pokémon without an ability, its evolutions included: noise in a pool unless the era or the archetype
+ * plays it. Onix is not off-type in a Metal deck (Mega-Steelix ex is Metal), nor Eevee in a Fire one (Flareon).
+ */
+function offTypeWithoutAbility(card: CardEdition, energies: readonly SelectableEnergy[], index: CatalogIndex): boolean {
+  if (card.cardType !== 'pokemon') return false
+  return evolutionLine(card, index).every(
+    (step) => !(energies as readonly string[]).includes(step.energy) && step.ability === null,
+  )
+}
+
+/**
+ * Why a card asked for by hand cannot attack with the list's energies (null when it can, or has an ability): its
+ * evolutions that can, when it has them («pero evoluciona en Mega-Steelix ex»). The card is tried anyway: it may
+ * serve as a wall, to retreat into, or as a base.
+ */
+export function zoneNoteEs(
+  card: CardEdition,
+  energies: readonly SelectableEnergy[],
+  index: CatalogIndex,
+): string | null {
+  if (usableWith(card, energies)) return null
+  const names = [
+    ...new Set(
+      evolutionLine(card, index)
+        .slice(1)
+        .filter((step) => usableWith(step, energies))
+        .map((step) => step.nameEs),
+    ),
+  ]
+  const base = 'no puede atacar con las energías de la lista'
+  if (names.length === 0) return base
+  const last = names.pop() as string
+  return `${base}, pero evoluciona en ${names.length > 0 ? `${names.join(', ')} y ${last}` : last}`
+}
+
+/**
+ * The pool cards worth trying with an Energy Zone: Pokémon it can pay an attack of (or with an ability), their own or
+ * through an evolution, and off-type Pokémon without an ability only when the era or the archetype plays them (weight
+ * above 1). Review of #27: a search freezes its pool for every zone and filters it with the zone in play, which an
+ * Energy variant may have changed. The cards asked for by hand (`asked`, by functional card) and the pool cards down
+ * their evolution lines always stay: «probar estas cartas» tries them whatever the zone.
  */
 export function poolForZone(
   pool: readonly PoolCard[],
   energies: readonly SelectableEnergy[],
   index: CatalogIndex,
+  asked: ReadonlySet<CardId> = new Set(),
 ): PoolCard[] {
+  const kept = preEvolutionNames(pool, asked, index)
   return pool.filter((item) => {
+    if (asked.has(item.groupId) || kept.has(item.nameEn)) return true
     const card = index.cardById(item.cardId)
-    if (!card || !usableWith(card, energies)) return false
-    const ownType = (energies as readonly string[]).includes(card.energy)
-    return !(card.cardType === 'pokemon' && !ownType && card.ability === null && item.weight <= 1)
+    if (!card || !usableWith(card, energies, index)) return false
+    return !(offTypeWithoutAbility(card, energies, index) && item.weight <= 1)
   })
+}
+
+/** The English names down the evolution lines of the pool cards in `asked` (a Stage 2's Stage 1 and its Basic). */
+function preEvolutionNames(pool: readonly PoolCard[], asked: ReadonlySet<CardId>, index: CatalogIndex): Set<string> {
+  const names = new Set<string>()
+  if (asked.size === 0) return names
+  const queue = pool.filter((item) => asked.has(item.groupId)).map((item) => index.cardById(item.cardId)?.evolvesFrom)
+  while (queue.length > 0) {
+    const name = queue.pop()
+    if (!name || names.has(name)) continue
+    names.add(name)
+    for (const group of index.groupsByNameEn(name)) queue.push(index.cardById(group.displayCardId)?.evolvesFrom)
+  }
+  return names
 }
 
 /**
@@ -100,13 +202,12 @@ export function mutationPool(options: PoolOptions): PoolCard[] {
     const maxCopies = Math.min(2, options.maxCopies(group.id))
     if (maxCopies < 1) continue
     const card = options.edition(group.id)
-    if (!card || !usableWith(card, options.energies)) continue
+    if (!card || !usableWith(card, options.energies, options.index)) continue
     if (options.allow && !options.allow(card)) continue
     const usage = options.usage?.(group.id) ?? 0
     const affinity = options.affinity?.(group.id) ?? 0
-    // An off-type Pokémon without an ability that no list of the era plays is noise: it stays out.
-    const ownType = (options.energies as readonly string[]).includes(card.energy)
-    if (card.cardType === 'pokemon' && !ownType && card.ability === null && usage <= 0 && affinity <= 0) continue
+    // An off-type Pokémon without an ability (its evolutions included) that no list of the era plays is noise.
+    if (offTypeWithoutAbility(card, options.energies, options.index) && usage <= 0 && affinity <= 0) continue
     pool.push({
       cardId: card.id,
       groupId: group.id,

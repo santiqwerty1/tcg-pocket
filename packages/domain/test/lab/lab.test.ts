@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { validateDeck } from '../../src/decks/index.js'
-import type { SelectableEnergy } from '../../src/index.js'
+import type { CardEdition, SelectableEnergy } from '../../src/index.js'
 import {
   CALIBRATION_MAX_GAUNTLET_SIZE,
   cardChanges,
@@ -8,6 +8,7 @@ import {
   customGauntlet,
   DEFAULT_EXPLORE_CONFIG,
   EXPLORE_SEED_STRIDE,
+  evolutionLine,
   exploreConfig,
   exploreGames,
   exploreSeed,
@@ -366,16 +367,23 @@ describe('variants (automatic search)', () => {
     maxCopies: () => 2,
   })
 
-  it('the pool has trainers and only Pokémon that can attack with the deck energies or have an ability', () => {
+  it('the pool has trainers and only Pokémon that can attack with the deck energies or have an ability, themselves or through an evolution', () => {
     expect(pool.some((card) => index.cardById(card.cardId)?.cardType === 'trainer')).toBe(true)
-    for (const card of pool) expect(usableWith(index.cardById(card.cardId) as never, energies)).toBe(true)
+    for (const card of pool) expect(usableWith(index.cardById(card.cardId) as never, energies, index)).toBe(true)
+    // A Water Pokémon whose line has no ability nor Fire card is there because its line has an all-Colorless attack.
     const water = pool.find((card) => {
       const edition = index.cardById(card.cardId)
-      return edition?.cardType === 'pokemon' && edition.ability === null && edition.energy === 'water'
+      return (
+        edition?.cardType === 'pokemon' &&
+        edition.energy === 'water' &&
+        evolutionLine(edition, index).every((step) => step.ability === null && step.energy !== 'fire')
+      )
     })
     if (water) {
-      const edition = index.cardById(water.cardId)
-      expect(edition?.attacks.some((attack) => attack.cost.every((type) => type === 'colorless'))).toBe(true)
+      const line = evolutionLine(index.cardById(water.cardId) as never, index)
+      expect(
+        line.some((step) => step.attacks.some((attack) => attack.cost.every((type) => type === 'colorless'))),
+      ).toBe(true)
     }
   })
 
@@ -497,15 +505,17 @@ describe('variants (automatic search)', () => {
       usage: (groupId) => usage.get(groupId) ?? 0,
       affinity: (groupId) => affinity.get(groupId) ?? 0,
     })
-    // Without usage data, only Pokémon of the deck's type (or with an ability) come in.
+    // Without usage data, only Pokémon of the deck's type (or with an ability), their own or their line's, come in.
+    const fits = (card: CardEdition) =>
+      evolutionLine(card, index).some((step) => step.energy === 'fire' || step.ability !== null)
     for (const item of pool) {
       const card = index.cardById(item.cardId)
-      if (card?.cardType === 'pokemon') expect(card.energy === 'fire' || card.ability !== null).toBe(true)
+      if (card?.cardType === 'pokemon') expect(fits(card)).toBe(true)
     }
     expect(weighted.length).toBeGreaterThan(pool.length)
     for (const item of weighted) {
       const card = index.cardById(item.cardId)
-      if (card?.cardType !== 'pokemon' || card.energy === 'fire' || card.ability) continue
+      if (card?.cardType !== 'pokemon' || fits(card)) continue
       expect((usage.get(item.groupId) ?? 0) + (affinity.get(item.groupId) ?? 0)).toBeGreaterThan(0)
     }
     // A staple trainer of the era weighs more than a trainer nobody plays.

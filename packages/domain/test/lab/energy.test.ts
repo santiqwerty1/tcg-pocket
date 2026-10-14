@@ -4,6 +4,7 @@ import {
   energyKey,
   energyOptions,
   energyVariant,
+  evolutionLine,
   groupsOfCards,
   mutationPool,
   poolForZone,
@@ -30,7 +31,7 @@ describe('energy variants (T-017 C6)', () => {
       const direct = mutationPool({ index, energies: zone, edition, maxCopies: () => 2, usage: () => 1 })
       const filtered = poolForZone(all, zone, index)
       expect(filtered.map((card) => card.cardId).sort()).toEqual(direct.map((card) => card.cardId).sort())
-      for (const card of filtered) expect(usableWith(index.cardById(card.cardId) as never, zone)).toBe(true)
+      for (const card of filtered) expect(usableWith(index.cardById(card.cardId) as never, zone, index)).toBe(true)
     }
     // Off-type Pokémon without an ability that nobody plays (weight 1) stay out, as in the pool of that zone.
     const unused = mutationPool({
@@ -39,14 +40,16 @@ describe('energy variants (T-017 C6)', () => {
       edition,
       maxCopies: () => 2,
     })
+    // (Their own type or their line's: Onix in a Metal deck evolves into Mega-Steelix ex.)
     const fire = poolForZone(unused, ['fire'], index)
     expect(
-      fire.every(
-        (card) =>
-          index.cardById(card.cardId)?.cardType !== 'pokemon' ||
-          index.cardById(card.cardId)?.energy === 'fire' ||
-          index.cardById(card.cardId)?.ability !== null,
-      ),
+      fire.every((card) => {
+        const edition = index.cardById(card.cardId)
+        return (
+          edition?.cardType !== 'pokemon' ||
+          evolutionLine(edition, index).some((step) => step.energy === 'fire' || step.ability !== null)
+        )
+      }),
     ).toBe(true)
   })
 

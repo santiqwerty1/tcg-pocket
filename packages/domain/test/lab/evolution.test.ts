@@ -1,0 +1,87 @@
+import { describe, expect, it } from 'vitest'
+import type { CardEdition, SelectableEnergy } from '../../src/index.js'
+import { evolutionLine, mutationPool, poolForZone, usableWith, zoneNoteEs } from '../../src/lab/index.js'
+import { catalogIndex } from '../helpers/loadFixtures.js'
+
+const index = catalogIndex()
+const card = (id: string) => {
+  const found = index.cardById(id)
+  if (!found) throw new Error(`no ${id}`)
+  return found
+}
+const edition = (groupId: string) => index.cardById(index.groupById(groupId)?.displayCardId ?? groupId) ?? null
+// Onix A1-150 (Land Crush: three Fighting) and Onix B1a-38 (Dig: three Colorless) are different functional cards;
+// both evolve into Steelix (A4-122, B1a-51) and Mega-Steelix ex (B1a-52), all Metal.
+const landCrushOnix = card('A1-150')
+const digOnix = card('B1a-38')
+const megaSteelix = card('B1a-52')
+const metal: SelectableEnergy[] = ['metal']
+const fire: SelectableEnergy[] = ['fire']
+
+describe('evolution lines in the pool («probar estas cartas» with Onix)', () => {
+  it('the line of a Basic reaches every card that evolves from it, each functional card once', () => {
+    const line = evolutionLine(landCrushOnix, index).map((step) => step.functionalGroupId)
+    expect(line[0]).toBe('A1-150')
+    expect(line).toEqual(expect.arrayContaining(['A4-122', 'B1a-51', 'B1a-52']))
+    expect(new Set(line).size).toBe(line.length)
+    // A Stage 2's line from its Basic: Froakie → Frogadier → Greninja.
+    expect(evolutionLine(card('B1-71'), index).map((step) => step.nameEn)).toContain('Greninja')
+    expect(evolutionLine(megaSteelix, index)).toEqual([megaSteelix])
+  })
+
+  it('a Pokémon that evolves into one the zone pays is usable with the index, and not without it', () => {
+    expect(usableWith(landCrushOnix, metal)).toBe(false)
+    expect(usableWith(landCrushOnix, metal, index)).toBe(true)
+    // Neither Onix nor its evolutions can attack with Fire alone.
+    expect(usableWith(landCrushOnix, fire, index)).toBe(false)
+    expect(usableWith(digOnix, fire)).toBe(true)
+  })
+
+  it('the pool of a Metal deck has the Fighting Onix nobody plays (Mega-Steelix ex is Metal); a Fire one does not', () => {
+    const inPool = (energies: SelectableEnergy[]) =>
+      mutationPool({ index, energies, edition, maxCopies: () => 2 }).some((item) => item.groupId === 'A1-150')
+    expect(inPool(metal)).toBe(true)
+    expect(inPool(fire)).toBe(false)
+    // The zone's filter on a pool frozen for every zone gives the same answer.
+    const all = mutationPool({ index, energies: ['fire', 'metal', 'fighting'], edition, maxCopies: () => 2 })
+    expect(poolForZone(all, metal, index).some((item) => item.groupId === 'A1-150')).toBe(true)
+    expect(poolForZone(all, fire, index).some((item) => item.groupId === 'A1-150')).toBe(false)
+  })
+
+  it('a card asked for, and the cards down its line, stay in the pool whatever the zone', () => {
+    const all = mutationPool({ index, energies: ['fire', 'metal', 'fighting'], edition, maxCopies: () => 2 })
+    const groups = (energies: SelectableEnergy[], asked?: Set<string>) =>
+      new Set(poolForZone(all, energies, index, asked).map((item) => item.groupId))
+    const plain = groups(fire)
+    expect(plain.has('B1a-52')).toBe(false)
+    expect(plain.has('A1-150')).toBe(false)
+    const asked = groups(fire, new Set(['B1a-52']))
+    expect(asked.has('B1a-52')).toBe(true)
+    // Its Basic comes along (every Onix: they share the name), but not its siblings (Steelix).
+    expect(asked.has('A1-150')).toBe(true)
+    expect(asked.has('A4-122')).toBe(false)
+    // Nothing else changes.
+    expect([...asked].filter((group) => !plain.has(group)).sort()).toEqual(
+      ['B1a-52', ...index.groupsByNameEn('Onix').map((group) => group.id)].filter((id) => !plain.has(id)).sort(),
+    )
+    // A Stage 2 asked for keeps its Stage 1 and its Basic (Greninja in a Fire deck).
+    const water = mutationPool({ index, energies: ['water'], edition, maxCopies: () => 2 })
+    const greninja = new Set(poolForZone(water, fire, index, new Set(['A1-89'])).map((item) => item.nameEn))
+    expect(['Greninja', 'Frogadier', 'Froakie'].every((name) => greninja.has(name))).toBe(true)
+  })
+
+  it('the note says why a card asked for cannot attack, and what it evolves into that can', () => {
+    expect(zoneNoteEs(landCrushOnix, metal, index)).toBe(
+      'no puede atacar con las energías de la lista, pero evoluciona en Steelix y Mega-Steelix ex',
+    )
+    expect(zoneNoteEs(megaSteelix, fire, index)).toBe('no puede atacar con las energías de la lista')
+    expect(zoneNoteEs(digOnix, metal, index)).toBeNull()
+    // Trainers and Pokémon with an ability never get one.
+    const trainer = index.catalog.groups
+      .map((group) => index.cardById(group.displayCardId))
+      .find((found): found is CardEdition => found?.cardType === 'trainer')
+    if (!trainer) throw new Error('no trainer')
+    expect(zoneNoteEs(trainer, fire, index)).toBeNull()
+    expect(zoneNoteEs(card('A1-89'), fire, index)).toBeNull()
+  })
+})

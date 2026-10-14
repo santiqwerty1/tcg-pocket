@@ -15,7 +15,9 @@ export interface FrozenInputs {
 /**
  * For each card that came in, the share of the era's lists and of the archetype's lists that play it (the draw
  * weight is ×2 for trainers, ×(1 + era / 10) and ×(1 + archetype / 10), with the shares in %), and the copies the
- * collection lacks. Without frozen inputs (a search from before H-021) the shares are unknown.
+ * collection lacks. Without frozen inputs (a search from before H-021) the shares are unknown, and so is the era's
+ * share of a card to try (`asked`: its weight is the most played card's) or of the pre-evolution it brought along
+ * (weight 0): the weight says nothing of the era there.
  */
 export function whyCards(
   added: readonly VariantChange[],
@@ -23,6 +25,7 @@ export function whyCards(
   frozen: FrozenInputs | undefined,
   index: CatalogIndex,
   playable: (groupId: CardId) => number,
+  asked: ReadonlySet<CardId> = new Set(),
 ): LabDeckView['why'] {
   const affinity = new Map(frozen?.affinity ?? [])
   const weights = new Map((frozen?.pool ?? []).map(([cardId, , weight]) => [cardId, weight]))
@@ -33,7 +36,7 @@ export function whyCards(
     const poolCard = frozen?.pool.find(([cardId]) => index.cardById(cardId)?.functionalGroupId === groupId)
     const weight = poolCard ? weights.get(poolCard[0]) : undefined
     const eraShare =
-      weight !== undefined && archetypeShare !== null
+      weight !== undefined && weight > 0 && archetypeShare !== null && !asked.has(groupId)
         ? Math.max(0, ((weight / ((card?.cardType === 'trainer' ? 2 : 1) * (1 + archetypeShare / 10)) - 1) / 10) * 100)
         : null
     const copies = cards.reduce(
@@ -45,6 +48,7 @@ export function whyCards(
       nameEs: card?.nameEs ?? change.cardId,
       eraShare: eraShare === null ? null : Math.round(eraShare * 10) / 10,
       archetypeShare,
+      asked: asked.has(groupId),
       missing: Math.max(0, copies - playable(groupId)),
     }
   })
