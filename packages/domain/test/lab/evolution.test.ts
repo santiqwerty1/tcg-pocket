@@ -141,15 +141,17 @@ describe('evolution lines in the pool («probar estas cartas» with Onix)', () =
     const deck = deckDraft(20)
     const counts = groupsOfCards(deck.cards, index)
     const weakest = [...counts.entries()].filter(([, count]) => count === 1).map(([groupId]) => groupId)
-    const pool = poolForZone(mutationPool({ index, energies: metal, edition, maxCopies: () => 2 }), metal, index)
-    const round = fillRound(deck.cards, weakest, pool, index, {
-      maxCopies: () => 2,
-      valid: () => true,
-      candidates: 400,
-    })
+    const full = poolForZone(mutationPool({ index, energies: metal, edition, maxCopies: () => 2 }), metal, index)
+    // Two cards drawn on their own and many that only come along: the favourites never reach the second kind.
+    const pool = [
+      ...full.filter((item) => item.weight > 0 && index.cardById(item.cardId)?.cardType === 'trainer').slice(0, 2),
+      ...full.filter((item) => item.weight === 0),
+    ]
+    const round = fillRound(deck.cards, weakest, pool, index, { maxCopies: () => 2, valid: () => true })
     if (!round) throw new Error('no fill round')
     const zero = new Set(pool.filter((item) => item.weight === 0).map((item) => item.cardId))
-    expect(zero.size).toBeGreaterThan(0)
+    expect(zero.size).toBeGreaterThan(3)
+    expect(round.candidates).toHaveLength(2)
     for (const cardId of round.candidates) expect(zero.has(cardId)).toBe(false)
   })
 
