@@ -293,6 +293,10 @@ describe('catalog (e2e)', () => {
   const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000)
 
   it('closes a sync without signs of life for 5 minutes, without waiting for a restart (the low of #75)', async () => {
+    // The alerts need a loaded catalog: run alone, this test syncs it first. Then it stays as it was.
+    if ((await test.prisma.card.count()) === 0)
+      await sync.sync({ trackerCommit: test.env.catalogCommit, engineRev: test.env.engineRev, source: 'fixtures' })
+    const cards = await test.prisma.card.count()
     // Finished ones with an old sign of life are not touched.
     const finished = [
       await syncRow(minutesAgo(30), minutesAgo(31), 'applied'),
@@ -320,7 +324,7 @@ describe('catalog (e2e)', () => {
       for (const running of [alive, young]) expect((await byId(running.id)).status).toBe('running')
       for (const row of finished) expect(await byId(row.id)).toEqual(row)
       // The catalog stays as it was, and the alert of a failed sync says it once the last one is a closed one.
-      expect(await test.prisma.card.count()).toBe(EXPECTED.cards)
+      expect(await test.prisma.card.count()).toBe(cards)
       await test.prisma.catalogSync.deleteMany({ where: { id: { in: [alive.id, young.id] } } })
       const alerts = (await get('/api/alerts')).body.items as { code: string; detail: string }[]
       const detail = alerts.find((alert) => alert.code === 'catalog_sync')?.detail
@@ -379,9 +383,17 @@ describe('catalog (e2e)', () => {
     const repository = test.app.get(CatalogRepository)
     const replace = repository.replaceCatalog.bind(repository)
     const spy = vi.spyOn(repository, 'replaceCatalog').mockImplementation(async (...args) => {
+      const [, outcome] = args
       expect(await sync.closeStale(new Date(Date.now() + 10 * 60_000))).toBe(1)
+      // Once closed, its own heartbeat no longer renews it (several beats go by).
+      const beatAt = async () =>
+        (await test.prisma.catalogSync.findUniqueOrThrow({ where: { id: outcome.syncId } })).heartbeatAt
+      const closedAt = await beatAt()
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      expect(await beatAt()).toEqual(closedAt)
       return replace(...args)
     })
+    sync.heartbeatMs = 20
     try {
       const summary = await sync.sync({
         trackerCommit: test.env.catalogCommit,
@@ -395,6 +407,7 @@ describe('catalog (e2e)', () => {
         error: null,
       })
     } finally {
+      sync.heartbeatMs = 30_000
       spy.mockRestore()
     }
   })
