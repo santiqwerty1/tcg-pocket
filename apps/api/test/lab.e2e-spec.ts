@@ -1563,6 +1563,30 @@ describe('laboratorio (e2e)', () => {
     expect(broughtGroups).toContain(stage1.id)
     expect(broughtGroups.length).toBe(2)
 
+    // Review of #107: deck 20 plays two Onix (B1a-38); Onix A1-150 asked for takes the place of one of them (it used
+    // to never come in), and both carry their code.
+    const steelix = await post('/api/lab/explore').send({
+      deck: { deckId: deckIds[19] },
+      size: 3,
+      config,
+      include: ['A1-150'],
+      dryRun: true,
+    })
+    expect(steelix.status).toBe(200)
+    expect(steelix.body.include).toEqual([
+      expect.objectContaining({
+        cardId: 'A1-150',
+        nameEs: 'Onix (A1-150)',
+        note: expect.stringMatching(/, pero evoluciona en .*Mega-Steelix ex$/),
+      }),
+    ])
+    const [swap] = steelix.body.firstRound as {
+      add: { nameEs: string; count: number }[]
+      remove: { nameEs: string }[]
+    }[]
+    expect(swap?.add).toEqual([expect.objectContaining({ nameEs: 'Onix (A1-150)', count: 1 })])
+    expect(swap?.remove).toEqual([expect.objectContaining({ nameEs: 'Onix (B1a-38)' })])
+
     // A card the list has one copy of is a card to try too («otro Onix»): the guaranteed variant brings a second one.
     const deckCards = (await get(`/api/decks/${deckIds[1]}`)).body.cards as { card: { id: string }; count: number }[]
     const single = deckCards.find((entry) => {
