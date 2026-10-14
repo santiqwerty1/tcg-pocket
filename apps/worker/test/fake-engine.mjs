@@ -1,6 +1,6 @@
 // A stand-in for engine-cli with the same command line, files, stderr progress and exit codes (engine/src/main.rs).
 // Behaviour by job: games 13 → engine failure (exit 3); games 99 → plays forever (for cancel tests).
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 const REV = 'fb792ebfbaca995af9750c28101ce92a51282825'
@@ -9,7 +9,12 @@ const [command, jobFile, resultFile] = process.argv.slice(2)
 if (command === 'version') {
   // FAKE_ENGINE_OLD: an engine from before H-010 and B2 (no features).
   // FAKE_ENGINE_RESUME: an engine that resumes a pairing from its checkpoint (engine-cli 0.3.8, H-054).
-  const known = ['perGame', 'batch', ...(process.env.FAKE_ENGINE_RESUME ? ['resume'] : [])]
+  const known = [
+    'perGame',
+    'batch',
+    ...(process.env.FAKE_ENGINE_RESUME ? ['resume'] : []),
+    ...(process.env.FAKE_ENGINE_REGULATE ? ['regulate'] : []),
+  ]
   const features = process.env.FAKE_ENGINE_OLD ? {} : { features: known }
   // FAKE_ENGINE_GAMES_REV: an engine that says how it plays (phase 42, engine-cli 0.3.6 on).
   const gamesRev = process.env.FAKE_ENGINE_GAMES_REV ? { gamesRev: Number(process.env.FAKE_ENGINE_GAMES_REV) } : {}
@@ -87,6 +92,49 @@ if (command === 'version') {
       JSON.stringify({ engineRev: REV, cliVersion: '0.1.0-fake', players: job.players, durationMs: 900, pairings }),
     )
   }
+} else if (command === 'regulate') {
+  // The CPU regulator: 20 logical processors, 2 less for each managed engine (a stand-in for the others' load).
+  const heard = (line) => process.env.FAKE_REGULATE_LOG && appendFileSync(process.env.FAKE_REGULATE_LOG, `${line}\n`)
+  heard(`start ${process.argv.slice(3).join(' ')}`)
+  if (process.env.FAKE_REGULATE_PID) writeFileSync(process.env.FAKE_REGULATE_PID, String(process.pid))
+  // FAKE_REGULATE_FAIL: a machine it cannot run on (an input error, exit 2, as engine-cli says it).
+  if (process.env.FAKE_REGULATE_FAIL) {
+    const error = { error: 'la máquina tiene más de un grupo de procesadores (más de 64 lógicos)', code: 'bad_input' }
+    process.stdout.write(`${JSON.stringify(error)}\n`)
+    process.stderr.write('fin error 2\n')
+    process.exit(2)
+  }
+  process.stdout.write('regulador 20 logicos 12 nucleos (4 eficientes) maximo 20 piso 2\n')
+  const managed = new Set()
+  let buffer = ''
+  process.stdin.setEncoding('utf8').on('data', (data) => {
+    buffer += data
+    let at = buffer.indexOf('\n')
+    while (at >= 0) {
+      const line = buffer.slice(0, at).trim()
+      buffer = buffer.slice(at + 1)
+      at = buffer.indexOf('\n')
+      heard(line)
+      const [verb, pid, kind] = line.split(' ')
+      if (process.env.FAKE_REGULATE_CRASH && verb === 'add') process.exit(1)
+      // PID 1 is never one of our engines.
+      if (verb === 'add' && pid === '1') process.stdout.write('aviso 1 no es un motor: no lo toco\n')
+      if (verb === 'add' && kind === 'managed') managed.add(pid)
+      if (verb === 'remove') managed.delete(pid)
+      const allowed = 20 - 2 * managed.size
+      process.stdout.write(`permitido ${allowed} de 20 ajena ${(20 - allowed).toFixed(1)} mascara fffff\n`)
+    }
+  })
+  process.stdin.on('end', () => {
+    heard('end')
+    // FAKE_REGULATE_HANG: it does not end when its stdin does.
+    if (process.env.FAKE_REGULATE_HANG) {
+      setInterval(() => {}, 1000)
+      return
+    }
+    process.stdout.write('regulador terminado\n')
+    process.exit(0)
+  })
 } else if (command === 'status') {
   process.stdout.write(
     JSON.stringify([

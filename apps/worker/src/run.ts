@@ -35,6 +35,15 @@ export interface RunOptions {
   installation?: Installation | null
 }
 
+/** What the running worker's CPU regulator allowed last (regulator.json), or null. */
+function lastRegulatorState(dir: string): unknown {
+  try {
+    return JSON.parse(readFileSync(join(dir, 'regulator.json'), 'utf8'))
+  } catch {
+    return null
+  }
+}
+
 /** Resolves with the process's exit code: 0, or `RESTART_FOR_UPDATE` after switching to a new release. */
 export async function run(
   argv: readonly string[],
@@ -107,6 +116,14 @@ export async function run(
         engineRev: version.engineRev,
         cards: version.cards,
         dataDir: config.dataDir,
+      })
+      // The CPU regulator: whether it runs here, and what it allowed last (regulator.json, from the running worker).
+      const regulates =
+        config.cpuRegulator && process.platform === 'win32' && (version.features ?? []).includes('regulate')
+      log('regulador de CPU', {
+        on: regulates,
+        ...(config.cpuRegulator ? {} : { off: 'cpuRegulator: false' }),
+        ...(regulates ? { max: config.cores, floor: 2, last: lastRegulatorState(config.dataDir) } : {}),
       })
       const ping = await client.request<{ ok: boolean; token: { name: string } }>(
         'GET',

@@ -25,6 +25,9 @@ mod fair_bot;
 #[allow(dead_code)]
 mod live;
 mod play;
+// Its policy and accounts are platform-free (and tested everywhere); only Windows runs them.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod regulate;
 mod resume;
 mod seeds;
 
@@ -64,6 +67,10 @@ const ENGINE_BUILD: &str = env!("ENGINE_BUILD");
 /// What the worker and the queue can ask of this engine beyond the commands of 0.1.0: `perGame` (H-010, T-017 A2),
 /// `batch`, several pairings in one process (B2), and `fairBots`, the f<N> bots (H-018).
 /// «etBot» (H-051): the bot that ends its turn, which deckgym's own parser never reaches.
+/// `regulate` (the CPU regulator) only where it works: Windows.
+#[cfg(windows)]
+const FEATURES: [&str; 6] = ["perGame", "batch", "fairBots", "etBot", "resume", "regulate"];
+#[cfg(not(windows))]
 const FEATURES: [&str; 5] = ["perGame", "batch", "fairBots", "etBot", "resume"];
 /// deckgym ties a game when turn 31 begins (`State::advance_turn`): reported so the app does not hard-code it.
 const TURN_LIMIT: u32 = 30;
@@ -1133,8 +1140,9 @@ fn run(args: &[String]) -> Result<(), CliError> {
             let result = optimize(job)?;
             write_json(args.get(2).map(String::as_str), &result)
         }
+        Some("regulate") => regulate::regulate(&args[1..]).map_err(CliError::input),
         _ => Err(CliError::input(
-            "uso: engine-cli version | status [out.json] | validate job.json [out.json] | simulate job.json [out.json] | batch job.json [out.json] | optimize job.json [out.json] | play job.json | consistency job.json [out.json]",
+            "uso: engine-cli version | status [out.json] | validate job.json [out.json] | simulate job.json [out.json] | batch job.json [out.json] | optimize job.json [out.json] | play job.json | consistency job.json [out.json] | regulate [--max N] [--floor N] [--every-ms N] [--trace]",
         )),
     }
 }

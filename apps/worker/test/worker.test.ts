@@ -1,5 +1,14 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import { constants, setPriority, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -18,6 +27,7 @@ import {
 } from '../src/engine.js'
 import { LiveRunner, OLD_ENGINE_COACH } from '../src/live.js'
 import { parseMemAvailableMb, parseStatus, procAvailable } from '../src/proc-probe.js'
+import { watchEngines } from '../src/regulator.js'
 import type { ReadyRelease, Updater } from '../src/update.js'
 import { WORKER_VERSION } from '../src/version.js'
 import { workDirOwner } from '../src/work-dir.js'
@@ -342,6 +352,7 @@ describe('worker loop', () => {
       dataDir,
       workerId: 'worker-test-1',
       autoUpdate: false,
+      cpuRegulator: false,
     }
   })
   afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
@@ -415,7 +426,7 @@ describe('worker loop', () => {
   })
 
   /** Plays `chunks` until the queue is empty: what was reported, when each claim went and what was logged. */
-  async function lossRun(chunks: Chunk[]) {
+  async function lossRun(chunks: Chunk[], overrides: Partial<WorkerConfig> = {}) {
     const { client, calls } = fakeClient(chunks)
     const controller = new AbortController()
     const original = vi.mocked(client.claim).getMockImplementation()
@@ -433,7 +444,7 @@ describe('worker loop', () => {
       }),
     })
     const log = vi.fn()
-    const worker = new Worker(config, client, log)
+    const worker = new Worker({ ...config, ...overrides }, client, log)
     worker.lostResultsPauseMs = 400
     await worker.loop(controller.signal)
     const paused = log.mock.calls.some(([message]) => String(message).startsWith('el motor perdió resultados'))
@@ -442,6 +453,32 @@ describe('worker loop', () => {
     ).length
     return { calls, claimedAt, paused, resumes }
   }
+
+  it('on Windows, with an engine that has regulate, the loop runs the regulator for its engines and stops it', async () => {
+    const heard = join(dataDir, 'heard.txt')
+    const lines = () => (existsSync(heard) ? readFileSync(heard, 'utf8').trim().split('\n') : [])
+    vi.stubEnv('FAKE_ENGINE_REGULATE', '1')
+    vi.stubEnv('FAKE_REGULATE_LOG', heard)
+    try {
+      await lossRun([chunk({ chunkId: 9 })], { cpuRegulator: true })
+      if (process.platform !== 'win32') {
+        expect(lines()).toEqual([])
+        return
+      }
+      // Sized from the whole machine: `cores` is not its max (autorrevisión).
+      expect(lines()[0]).toBe('start --floor 2')
+      const added = lines().filter((line) => /^add \d+ managed$/.test(line))
+      expect(added).toHaveLength(1)
+      expect(lines()).toContain(added[0]?.replace(/^add (\d+) managed$/, 'remove $1'))
+      expect(lines().at(-1)).toBe('end')
+      // Turned off, it is not started.
+      rmSync(heard, { force: true })
+      await lossRun([chunk({ chunkId: 9 })], { cpuRegulator: false })
+      expect(existsSync(heard)).toBe(false)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
 
   it('the same chunk lost twice does not pause (it may be that chunk; the app gives it to this worker last)', async () => {
     const run = await lossRun([chunk({ games: 96 }), chunk({ games: 96 }), chunk({ chunkId: 9 })])
@@ -543,6 +580,42 @@ describe('worker loop', () => {
         )
       }
       expect(readdirSync(join(dataDir, 'work'))).toEqual([])
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  }, 30_000)
+
+  it('with an engine that resumes, a hung engine, a cancel or a lost chunk is never resumed (review of #105)', async () => {
+    vi.stubEnv('FAKE_ENGINE_RESUME', '1')
+    const resumes = (log: ReturnType<typeof vi.fn>) =>
+      log.mock.calls.filter(([message]) => String(message).startsWith('el motor se cortó antes de terminar')).length
+    try {
+      // Hung: the watchdog cuts it (on Windows its own kill comes back as SIGTERM, which is not from outside).
+      const hung = fakeClient([chunk({ chunkId: 12, games: 98 })])
+      const hungLog = vi.fn()
+      const watched = new Worker(config, hung.client, hungLog)
+      watched.heartbeatMs = 50
+      watched.stallMs = 300
+      await watched.loop(new AbortController().signal, { once: true })
+      expect(hung.calls.failures).toEqual([
+        { chunkId: 12, error: 'El motor no avanzó en 0 min y se cortó (¿colgado?).' },
+      ])
+      expect(resumes(hungLog)).toBe(0)
+      // Cancelled in the app, or no longer its own: let go, never resumed.
+      for (const answer of [
+        { cancelled: true, lost: false },
+        { cancelled: false, lost: true },
+      ]) {
+        const { client, calls } = fakeClient([chunk({ chunkId: 13, games: 99 })])
+        vi.mocked(client.heartbeat).mockResolvedValue({ leaseUntil: null, ...answer })
+        const log = vi.fn()
+        const worker = new Worker(config, client, log)
+        worker.heartbeatMs = 50
+        await worker.loop(new AbortController().signal, { once: true })
+        expect(calls.failures).toEqual([])
+        expect(calls.results).toEqual([])
+        expect(resumes(log)).toBe(0)
+      }
     } finally {
       vi.unstubAllEnvs()
     }
@@ -1149,6 +1222,7 @@ describe('games against a bot (Fase 8)', () => {
       dataDir,
       workerId: 'worker-test-1',
       autoUpdate: false,
+      cpuRegulator: false,
     }
   })
   afterEach(() => rmSync(dataDir, { recursive: true, force: true }))
@@ -1227,6 +1301,18 @@ describe('games against a bot (Fase 8)', () => {
     expect(calls.replay).toMatchObject({ choices: [1, 1] })
     expect(calls.failures).toEqual([])
     expect(readdirSync(dataDir)).toEqual([])
+  })
+
+  it('a live game tells the regulator its engine as its own, never to narrow', async () => {
+    const seen: string[] = []
+    watchEngines({ started: (pid, kind) => seen.push(`start ${kind} ${pid > 0}`), ended: () => seen.push('end') })
+    try {
+      const { client } = liveClient([0])
+      await new LiveRunner(config, client, silent, dataDir).run(game([1]), new AbortController().signal)
+    } finally {
+      watchEngines(null)
+    }
+    expect(seen).toEqual(['start own true', 'end'])
   })
 
   it('rebuilds a game from the choices the app already has, asking only for the new ones', async () => {
@@ -1441,6 +1527,7 @@ describe('self-update in the loop (D-026)', () => {
       dataDir,
       workerId: 'worker-test-1',
       autoUpdate: true,
+      cpuRegulator: false,
     }
   })
   afterEach(() => rmSync(dataDir, { recursive: true, force: true }))

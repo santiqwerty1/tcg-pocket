@@ -36,6 +36,16 @@ describe('worker configuration', () => {
     },
   )
 
+  it('turns the CPU regulator on by default on Windows only; the file and the environment change it', () => {
+    expect(loadConfig({ TCG_WORKER_TOKEN: 'tcg_wk_test' }).cpuRegulator).toBe(process.platform === 'win32')
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ token: 'tcg_wk_test', cpuRegulator: false }))
+    expect(loadConfig({}).cpuRegulator).toBe(false)
+    expect(loadConfig({ TCG_WORKER_CPU_REGULATOR: 'true' }).cpuRegulator).toBe(true)
+    expect(() => loadConfig({ TCG_WORKER_CPU_REGULATOR: 'yes' })).toThrow(/TCG_WORKER_CPU_REGULATOR/)
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ token: 'tcg_wk_test', cpuRegulator: 'on' }))
+    expect(() => loadConfig({})).toThrow(/cpuRegulator/)
+  })
+
   it('rejects invalid file and environment priorities with an actionable error', () => {
     writeFileSync(join(dir, 'config.json'), JSON.stringify({ token: 'tcg_wk_test', priority: 'high' }))
     expect(() => loadConfig({})).toThrow('Prioridad inválida')

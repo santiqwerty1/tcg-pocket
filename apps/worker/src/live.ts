@@ -13,6 +13,7 @@ import { gzipSync } from 'node:zlib'
 import { ApiError, type LiveGame, type Log, type WorkerClient } from './client.js'
 import type { WorkerConfig } from './config.js'
 import { setEnginePriority } from './priority.js'
+import { engineEnded, engineStarted } from './regulator.js'
 import { WORKER_VERSION } from './version.js'
 import { createWorkDir, removeWorkDir } from './work-dir.js'
 
@@ -143,6 +144,10 @@ export class LiveRunner {
     const child = spawn(command, [...prefix, 'play', jobFile], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     // Includes coach hints: the owner is waiting, regardless of chunk configuration.
     setEnginePriority(child.pid, 'normal', this.log)
+    // Never narrowed by the CPU regulator, but its CPU is ours, not another program's.
+    engineStarted(child.pid, 'own')
+    // On 'exit', when its PID is let go (see `run` in engine.ts).
+    child.once('exit', () => engineEnded(child.pid))
     let stderr = ''
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
       stderr = (stderr + chunk).slice(-4000)
