@@ -12,7 +12,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { gzipSync } from 'node:zlib'
 import { ApiError, type Chunk, type ChunkResult, type Log, type WorkerClient } from './client.js'
 import type { WorkerConfig } from './config.js'
-import { EngineError, engineStatus, engineVersion, type RunOptions, runJob } from './engine.js'
+import { EngineError, endedFromOutside, engineStatus, engineVersion, type RunOptions, runJob } from './engine.js'
 import { LiveRunner } from './live.js'
 import { processAlive } from './lock.js'
 import type { Updater } from './update.js'
@@ -505,10 +505,11 @@ export class Worker {
 
   /**
    * B of H-054: with an engine that has `resume`, a chunk's games go to a checkpoint in its folder as they finish, and
-   * an engine cut before its end (exit 0 and no result.json, the S25) runs again there: it plays only the games the
-   * checkpoint does not have, with the same seeds, and its result is the one of a run in one go. At most
-   * `MAX_RESUMES` times; then the chunk goes back as before (`returnLost`). A cancel, a lost lease or a shutdown
-   * (the signal) never resumes.
+   * an engine ended from outside before its end (`endedFromOutside`: exit 0 and no result.json, the S25, or a SIGKILL
+   * or SIGTERM it did not get from this worker) runs again there: it plays only the games the checkpoint does not
+   * have, with the same seeds, and its result is the one of a run in one go. At most `MAX_RESUMES` times; then the
+   * chunk goes as the last run ended (`returnLost` for a lost result, a failure for a signal, as before). A cancel, a
+   * lost lease or a shutdown (the signal) never resumes.
    */
   private async simulateResuming(
     chunk: Chunk,
@@ -528,10 +529,11 @@ export class Worker {
           keepOnLoss: true,
         })
       } catch (error) {
-        const lost = error instanceof EngineError && error.code === 'missing_result'
+        const lost = endedFromOutside(error)
         if (lost) cut = error
         // A resumed run that fails for something else than the engine (its folder gone, a file it cannot write) is
-        // still the cut it resumed: the chunk goes back as a lost result, without spending an attempt (review).
+        // still the cut it resumed: the chunk goes as that cut would (a lost result goes back without spending an
+        // attempt; review).
         if (!lost && cut && !(error instanceof EngineError) && !options.signal.aborted) {
           await removeWorkDir(dir)
           throw cut

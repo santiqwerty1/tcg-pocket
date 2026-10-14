@@ -9,7 +9,7 @@
 //! of the process (the last one, without its line break) is dropped and its game played again.
 
 use std::collections::HashMap;
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 use std::sync::Mutex;
@@ -25,7 +25,8 @@ pub fn fnv(text: &str) -> String {
 }
 
 pub struct Checkpoint {
-    file: Mutex<File>,
+    /// None after a write that failed: nothing more goes to the file (review of #104).
+    file: Mutex<Option<Box<dyn Write + Send>>>,
     /// Time played by the runs before (the most a line of the file says).
     base_ms: u128,
 }
@@ -84,7 +85,7 @@ impl Checkpoint {
         };
         use std::io::Seek;
         file.seek(std::io::SeekFrom::End(0)).map_err(|error| format!("no se pudo abrir el avance: {error}"))?;
-        Ok((Checkpoint { file: Mutex::new(file), base_ms }, played))
+        Ok((Checkpoint { file: Mutex::new(Some(Box::new(file))), base_ms }, played))
     }
 
     /// The time the runs before played.
@@ -93,11 +94,17 @@ impl Checkpoint {
     }
 
     /// One finished game, in one write. A checkpoint that cannot be written does not stop the games: at worst they are
-    /// played again.
+    /// played again. After the first write that fails nothing more is written: the next line would follow a cut one
+    /// and could read as another, wrong game (a disk full, then free again; review of #104). The cut one is dropped
+    /// when the checkpoint is opened again.
     pub fn record(&self, index: u32, game: &str, elapsed_ms: u128) {
         let line = format!("{index} {game} {}\n", self.base_ms + elapsed_ms);
         if let Ok(mut file) = self.file.lock() {
-            let _ = file.write_all(line.as_bytes());
+            if let Some(writer) = file.as_mut() {
+                if writer.write_all(line.as_bytes()).is_err() {
+                    *file = None;
+                }
+            }
         }
     }
 }
@@ -167,5 +174,43 @@ mod tests {
         assert_eq!(played.len(), 1);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "# job 2\n1 A0P 14 21 10\n");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A disk with `room` bytes, that has room again after the write it refused.
+    struct Filling {
+        written: std::sync::Arc<Mutex<Vec<u8>>>,
+        room: usize,
+        refused: bool,
+    }
+
+    impl Write for Filling {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            let mut written = self.written.lock().unwrap();
+            let take = if self.refused { bytes.len() } else { bytes.len().min(self.room.saturating_sub(written.len())) };
+            if take == 0 {
+                self.refused = true;
+                return Err(std::io::Error::other("disco lleno"));
+            }
+            written.extend_from_slice(&bytes[..take]);
+            Ok(take)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn after_a_write_that_fails_nothing_more_goes_to_the_checkpoint() {
+        let written = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let filling = Filling { written: written.clone(), room: 18, refused: false };
+        let checkpoint = Checkpoint { file: Mutex::new(Some(Box::new(filling))), base_ms: 0 };
+        checkpoint.record(1, "A0P 14 21", 5);
+        // The disk fills up in the middle of the line: it is left cut, without its line break.
+        checkpoint.record(2, "B1N 9 10", 6);
+        // The disk has room again. A line here would follow the cut one and read as game 2, «B13 T0L 31 22».
+        checkpoint.record(3, "T0L 31 22", 7);
+        let text = String::from_utf8(written.lock().unwrap().clone()).unwrap();
+        assert_eq!(text, "1 A0P 14 21 5\n2 B1");
     }
 }

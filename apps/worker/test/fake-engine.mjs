@@ -98,8 +98,10 @@ if (command === 'version') {
   const job = JSON.parse(readFileSync(jobFile, 'utf8'))
   const games = command === 'simulate' ? job.games : 4
   // B of H-054 (`resume`): 89 games are cut at their first run (exit 0, no result, 40 games in the checkpoint) and
-  // played to the end by a run that finds them there; 88 are cut every time; 87 are cut and their folder goes.
-  if ((games === 89 || games === 88 || games === 87) && job.checkpoint) {
+  // played to the end by a run that finds them there; 88 are cut every time; 87 are cut and their folder goes; 86 are
+  // cut and their job.json becomes a folder (the next run cannot write it); 85 are killed with SIGKILL at their first
+  // run, as Android's low memory killer would (review of #104).
+  if ([89, 88, 87, 86, 85].includes(games) && job.checkpoint) {
     let kept = 0
     try {
       kept = readFileSync(job.checkpoint, 'utf8').split('\n').filter(Boolean).length - 1
@@ -112,6 +114,11 @@ if (command === 'version') {
       process.stderr.write(`total ${games}\n`)
       for (let i = 1; i <= 40; i++) process.stderr.write(`progress ${i}\n`)
       if (games === 87) rmSync(dirname(jobFile), { recursive: true, force: true })
+      if (games === 86) {
+        rmSync(jobFile, { force: true })
+        mkdirSync(jobFile)
+      }
+      if (games === 85) process.kill(process.pid, 'SIGKILL')
       process.exit(0)
     }
   }
