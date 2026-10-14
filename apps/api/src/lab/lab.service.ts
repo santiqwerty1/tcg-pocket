@@ -23,6 +23,7 @@ import {
   buildFromCore,
   buildSnapshot,
   byExpendable,
+  type CardEdition,
   type CardId,
   type CatalogIndex,
   CONFIRM_VERDICT_ES,
@@ -44,6 +45,7 @@ import {
   describeEventRulesEs,
   describeProblems,
   differenceVerdict,
+  type EngineStatus,
   type EventRules,
   EXPLORE_POOL_LABEL_ES,
   EXPLORE_STOP_ES,
@@ -69,6 +71,7 @@ import {
   type LabObjective,
   type Learned,
   type ListRow,
+  labCardNameEs,
   learnedChanges,
   learnedFactor,
   learnSwap,
@@ -104,6 +107,7 @@ import {
   raceHalves,
   randomBaseSeed,
   readPerGame,
+  replaceSlot,
   revertVariant,
   robustnessEs,
   robustnessOf,
@@ -118,6 +122,7 @@ import {
   secondListsFor,
   seededRandom,
   simulationRate,
+  slotGroups,
   splitGames,
   swapOf,
   swapScore,
@@ -893,6 +898,18 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       const groupId = wanted[(pick + k) % wanted.length] as CardId
       const card = pool.find((item) => item.groupId === groupId)
       if (!card) continue
+      // Review of #107: two cards of its name already (Onix B1a-38 twice, and Onix A1-150 asked for): it takes the
+      // place of one of them, the one that differs from it, instead of never coming in.
+      const named = cards.reduce(
+        (sum, entry) => sum + (index.cardById(entry.cardId)?.nameEn === card.nameEn ? entry.count : 0),
+        0,
+      )
+      if (named >= 2) {
+        const swapped = this.sameNameVariant(cards, energies, card, locked, seen, index, rules)
+        if (!swapped) continue
+        seen.add(swapped.key)
+        return swapped
+      }
       // Review of #64: its pre-evolution comes along when the list lacks it (never drawn on its own: weight 0).
       const pre = index.cardById(card.cardId)?.evolvesFrom
       // The ones drawn on their own first: the pre-evolution a swap takes is the first that fits.
@@ -911,6 +928,33 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       if (!variant) continue
       seen.add(variant.key)
       return variant
+    }
+    return null
+  }
+
+  /** A card to try in the place of a copy of another card of its name (none when every such copy is locked). */
+  private sameNameVariant(
+    cards: readonly DeckCardEntry[],
+    energies: readonly SelectableEnergy[],
+    card: PoolCard,
+    locked: ReadonlySet<CardId>,
+    seen: ReadonlySet<string>,
+    index: CatalogIndex,
+    rules?: EventRules,
+  ): Variant | null {
+    const slots = slotGroups(cards, index)
+    for (const [at, groupId] of slots.entries()) {
+      const there = index.groupById(groupId)
+      const name = there ? index.cardById(there.displayCardId)?.nameEn : undefined
+      if (name !== card.nameEn || groupId === card.groupId || locked.has(groupId)) continue
+      const next = cards.map((entry) => ({ ...entry }))
+      if (!replaceSlot(next, at, card.cardId)) continue
+      const sorted = next.filter((entry) => entry.count > 0)
+      const key = listKeyByGroup(groupsOfCards(sorted, index))
+      if (seen.has(key)) continue
+      if (validateDeck({ cards: sorted, energies: [...energies] }, index).errors.length > 0) continue
+      if (rules && !checkEventDeck(sorted, rules, index).ok) continue
+      return { cards: sorted, key, ...cardChanges(cards, sorted, index) }
     }
     return null
   }
@@ -1147,7 +1191,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         const refuse = (why: string) =>
           new BadRequestException({
             code: 'validation',
-            message: `No se puede probar ${group?.nameEs ?? groupId}: ${why}.`,
+            message: `No se puede probar ${group ? labCardNameEs(groupId, index) : groupId}: ${why}.`,
           })
         if (!card) throw refuse('el motor no la juega')
         if (event && cardBreaksEvent(card, event.rules) !== null)
@@ -1236,7 +1280,12 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       return {
         base: (await this.snapshots.preview(baseSource)) as Omit<SnapshotView, 'id'>,
         baseCards: lines(index, mergeLines(baseCards)),
-        include: includeView(include, draft.energies, index),
+        include: includeView(
+          include,
+          draft.energies,
+          index,
+          evolutionAllowed(index, await this.engine.status(), event?.rules),
+        ),
         bank: await this.bank(input),
         // The cards drawn on their own (a pre-evolution that only comes along, weight 0, is no candidate).
         pool: pool.filter((card) => card.weight > 0).length,
@@ -2386,7 +2435,15 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               nameEs: index.groupById(groupId)?.nameEs ?? groupId,
               count: 0,
             })),
-            include: includeView(asked, (byId.get(state.base)?.energies ?? []) as unknown as SelectableEnergy[], index),
+            // Review of #107: the zone of the best list so far (an Energy variant may have changed it).
+            include: includeView(
+              asked,
+              (byId.get(state.incumbent)?.energies ??
+                byId.get(state.base)?.energies ??
+                []) as unknown as SelectableEnergy[],
+              index,
+              evolutionAllowed(index, await this.engine.status(), state.event?.rules),
+            ),
             added: state.added ?? [],
             pending: state.pending ?? [],
             lost: state.lost ?? [],
@@ -2441,19 +2498,28 @@ function includeView(
   include: Iterable<CardId>,
   energies: readonly SelectableEnergy[],
   index: CatalogIndex,
+  allowed?: (card: CardEdition) => boolean,
 ): LabIncludeView[] {
   return [...include].map((groupId) => {
     const group = index.groupById(groupId)
     const card = group ? index.cardById(group.displayCardId) : undefined
-    // Two functional cards with one name (Onix A1-150, three Fighting, and Onix B1a-38, three Colorless): the code.
-    const shared = card ? index.groupsByNameEn(card.nameEn).length > 1 : false
     return {
       cardId: groupId,
-      nameEs: `${group?.nameEs ?? groupId}${shared ? ` (${group?.displayCardId ?? groupId})` : ''}`,
+      // Two functional cards with one name (Onix A1-150, three Fighting, and Onix B1a-38, three Colorless): the code.
+      nameEs: labCardNameEs(groupId, index),
       count: 0,
-      note: card ? zoneNoteEs(card, energies, index) : null,
+      note: card ? zoneNoteEs(card, energies, index, allowed) : null,
     }
   })
+}
+
+/** Review of #107: the evolutions a note may name — those the engine plays and the event allows. */
+function evolutionAllowed(
+  index: CatalogIndex,
+  engine: EngineStatus,
+  rules?: EventRules,
+): (card: CardEdition) => boolean {
+  return (card) => engineEdition(card, index, engine) !== null && (!rules || cardBreaksEvent(card, rules) === null)
 }
 
 /** H-021: the pool and the archetype usage of a search as it starts, kept in its state for every later round. */
@@ -2515,7 +2581,8 @@ function mergeLines(cards: readonly DeckCardEntry[]): DeckCardEntry[] {
 function lines(index: CatalogIndex, cards: readonly { cardId: string; count: number }[]): CardLineView[] {
   return cards.map((card) => ({
     cardId: card.cardId,
-    nameEs: index.cardById(card.cardId)?.nameEs ?? card.cardId,
+    // Review of #107: with the code when two cards share the name («+1 Onix (A1-150) −1 Onix (B1a-38)»).
+    nameEs: labCardNameEs(card.cardId, index),
     count: card.count,
   }))
 }
