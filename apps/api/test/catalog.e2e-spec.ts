@@ -2,6 +2,7 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SchedulerRegistry } from '@nestjs/schedule'
+import { CatalogService } from '../src/catalog/catalog.service.js'
 import { CatalogRepository } from '../src/catalog/catalog-repository.js'
 import { DEFAULT_FIXTURES_DIR as FIXTURES_DIR } from '../src/catalog/catalog-sources.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
@@ -410,6 +411,59 @@ describe('catalog (e2e)', () => {
       sync.heartbeatMs = 30_000
       spy.mockRestore()
     }
+  })
+
+  it('a sync applied by another process is loaded within a minute; until then the alert says it (the low 4 of #95)', async () => {
+    if ((await test.prisma.card.count()) === 0)
+      await sync.sync({ trackerCommit: test.env.catalogCommit, engineRev: test.env.engineRev, source: 'fixtures' })
+    const catalog = test.app.get(CatalogService)
+    const before = catalog.loadedSyncId
+    expect(before).not.toBeNull()
+    expect(test.app.get(SchedulerRegistry).getCronJob('catalog-memory')).toBeDefined()
+    const memoryAlert = async () =>
+      ((await get('/api/alerts')).body.items as { code: string; detail: string }[]).find(
+        (alert) => alert.code === 'catalog_memory',
+      )
+    expect(await memoryAlert()).toBeUndefined()
+    // A `catalog-sync.js` next to the API: the database has a newer applied sync than the one in memory.
+    const other = await syncRow(new Date(), new Date(), 'applied')
+    try {
+      expect(await memoryAlert()).toMatchObject({
+        detail: expect.stringContaining(`#${other.id}`),
+      })
+      expect((await get('/api/ops/status')).body.catalog).toMatchObject({
+        loadedSyncId: before,
+        latestAppliedSyncId: other.id,
+      })
+      // Not while this process syncs: it reloads at its end.
+      const state = sync as unknown as { running: boolean }
+      state.running = true
+      try {
+        expect(await sync.catchUp()).toBe(false)
+      } finally {
+        state.running = false
+      }
+      // A load that fails keeps the old catalog and says why.
+      const repository = test.app.get(CatalogRepository)
+      const failing = vi.spyOn(repository, 'loadCatalog').mockRejectedValueOnce(new Error('la base no contestó.'))
+      try {
+        expect(await sync.catchUp()).toBe(false)
+      } finally {
+        failing.mockRestore()
+      }
+      expect(catalog.loadedSyncId).toBe(before)
+      expect((await memoryAlert())?.detail).toContain('El último intento falló: la base no contestó.')
+      // The next minute loads it: the alert goes, and once loaded nothing more happens.
+      expect(await sync.catchUp()).toBe(true)
+      expect(catalog.loadedSyncId).toBe(other.id)
+      expect(await memoryAlert()).toBeUndefined()
+      expect(await sync.catchUp()).toBe(false)
+      expect(await test.prisma.card.count()).toBe(EXPECTED.cards)
+    } finally {
+      await test.prisma.catalogSync.delete({ where: { id: other.id } })
+      await catalog.reload()
+    }
+    expect(catalog.loadedSyncId).toBe(before)
   })
 
   it('a commit that merges stock units and drops an edition takes the owner data with it (I12, Fase 21)', async () => {

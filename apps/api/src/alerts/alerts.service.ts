@@ -50,6 +50,7 @@ export interface AlertView {
     | 'backup_stale'
     | 'limitless_sync'
     | 'catalog_sync'
+    | 'catalog_memory'
     | 'github_check'
     | 'database_size'
     | 'backup_offsite'
@@ -640,6 +641,22 @@ export class AlertsService {
         title: `Falló la actualización del catálogo del ${ownerDateTime(new Date(catalog.lastSync.fetchedAt))}`,
         // Without the error's own closing period («cortado).. Sigue»).
         detail: `${(catalog.lastSync.error ?? 'error desconocido').slice(0, 200).replace(/\.+$/, '')}. Sigue el catálogo anterior; probala de nuevo en Más → Catálogo.`,
+        link: '/mas/catalogo',
+      })
+    }
+    // A sync applied by another process (a `catalog-sync.js` CLI) that the API has not loaded yet: it does within a
+    // minute (`catchUp`); the alert stays if loading it fails.
+    const memory = await this.catalog.memoryState()
+    if (memory.latest && memory.latest.id !== memory.loaded?.id) {
+      const short = (sha: string) => sha.slice(0, 7)
+      const failure = memory.failure
+        ? ` El último intento falló: ${memory.failure.message.slice(0, 160).replace(/\.+$/, '')}.`
+        : ''
+      alerts.push({
+        code: 'catalog_memory',
+        level: 'warning',
+        title: 'El catálogo cargado no es el último aplicado',
+        detail: `La app usa ${memory.loaded ? `la sincronización #${memory.loaded.id} (commit ${short(memory.loaded.commitSha)})` : 'ningún catálogo'} y la base ya tiene la #${memory.latest.id} (commit ${short(memory.latest.commitSha)}), seguramente de un catalog-sync por la línea de comandos. La API la carga sola en menos de un minuto.${failure} Si el aviso sigue, tocá «Sincronizar» en Más → Catálogo o reiniciá la máquina.`,
         link: '/mas/catalogo',
       })
     }

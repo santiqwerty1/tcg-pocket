@@ -178,6 +178,17 @@ export class CatalogSyncService implements OnModuleInit {
   }
 
   /**
+   * A sync applied by another process (a `catalog-sync.js` CLI) is loaded here within a minute, without restarting the
+   * machine. Not while this process syncs: it reloads at its end, and in between the database is already ahead. Every
+   * minute, only in the server.
+   */
+  @Cron(CronExpression.EVERY_MINUTE, { name: 'catalog-memory' })
+  async catchUp(): Promise<boolean> {
+    if (this.running) return false
+    return this.catalog.reloadIfBehind()
+  }
+
+  /**
    * A `running` row whose process stopped giving signs of life (a CLI cut in `flyctl machine exec`, a process killed)
    * is closed as `failed`, without waiting for a restart of the API: the UI stops showing it as running and the
    * `catalog_sync` alert says it.

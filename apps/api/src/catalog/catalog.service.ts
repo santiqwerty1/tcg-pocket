@@ -44,6 +44,8 @@ export interface CatalogStatus {
 export class CatalogService implements OnModuleInit {
   private index: CatalogIndex | null = null
   private loadedSync: CatalogSync | null = null
+  /** The last time loading a sync applied elsewhere failed (null after a good one). */
+  private reloadFailure: { at: Date; message: string } | null = null
 
   constructor(
     private readonly repository: CatalogRepository,
@@ -69,6 +71,40 @@ export class CatalogService implements OnModuleInit {
         'catalog loaded',
       )
     } else this.logger.warn('no catalog in the database yet: run `pnpm -F @tcg/api catalog:sync`')
+  }
+
+  /**
+   * Another process applied a newer sync (a `catalog-sync.js` CLI next to the API): the catalog in memory is behind
+   * the database's, so the screens show the old one and the collection's imports refuse with `catalog_changed`. Loads
+   * the new one, like a sync of this process does at its end. `true` when it reloaded; a failure is kept for the alert.
+   */
+  async reloadIfBehind(): Promise<boolean> {
+    const latest = await this.repository.latestAppliedSync()
+    if (!latest || latest.id === this.loadedSync?.id) return false
+    try {
+      await this.reload()
+      this.reloadFailure = null
+      this.logger.info({ syncId: latest.id, commit: latest.commitSha }, 'catalog applied by another process loaded')
+      return true
+    } catch (error) {
+      this.reloadFailure = { at: new Date(), message: error instanceof Error ? error.message : String(error) }
+      this.logger.error({ err: error, syncId: latest.id }, 'loading the catalog applied by another process failed')
+      return false
+    }
+  }
+
+  /** The sync in memory against the last one applied in the database (the `catalog_memory` alert). */
+  async memoryState(): Promise<{
+    loaded: { id: number; commitSha: string } | null
+    latest: { id: number; commitSha: string; appliedAt: Date | null } | null
+    failure: { at: Date; message: string } | null
+  }> {
+    const latest = await this.repository.latestAppliedSync()
+    return {
+      loaded: this.loadedSync ? { id: this.loadedSync.id, commitSha: this.loadedSync.commitSha } : null,
+      latest: latest ? { id: latest.id, commitSha: latest.commitSha, appliedAt: latest.appliedAt } : null,
+      failure: this.reloadFailure,
+    }
   }
 
   get loaded(): boolean {
