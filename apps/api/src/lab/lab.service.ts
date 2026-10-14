@@ -1149,10 +1149,9 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         asked.push({ cardId: card.id, groupId, nameEn: card.nameEn, maxCopies: 2, weight: top })
       }
       // Review of #64: an evolution to try brings its pre-evolution along, which may not be in the collection either:
-      // it enters the pool too, never drawn on its own (weight 0). A Stage 2 brings its Stage 1 and then its Basic.
+      // it enters the pool too, never drawn on its own (weight 0).
       const inPool = new Set([...fullPool, ...asked].map((card) => card.groupId))
-      for (let at = 0; at < asked.length; at++) {
-        const card = asked[at] as PoolCard
+      for (const card of [...asked]) {
         const pre = index.cardById(card.cardId)?.evolvesFrom
         if (!pre) continue
         const group = index.catalog.groups.find(
@@ -1233,7 +1232,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         baseCards: lines(index, mergeLines(baseCards)),
         include: includeView(include, draft.energies, index),
         bank: await this.bank(input),
-        pool: pool.length,
+        // The cards drawn on their own (a pre-evolution that only comes along, weight 0, is no candidate).
+        pool: pool.filter((card) => card.weight > 0).length,
         firstRound: first.map((variant) => ({
           add: lines(index, variant.add),
           remove: lines(index, variant.remove),

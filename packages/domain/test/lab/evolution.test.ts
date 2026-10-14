@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import type { CardEdition, SelectableEnergy } from '../../src/index.js'
-import { evolutionLine, mutationPool, poolForZone, usableWith, zoneNoteEs } from '../../src/lab/index.js'
+import {
+  evolutionLine,
+  fillRound,
+  groupsOfCards,
+  mutationPool,
+  type PoolCard,
+  poolForZone,
+  seededRandom,
+  usableWith,
+  variantOf,
+  zoneNoteEs,
+} from '../../src/lab/index.js'
+import { deckDraft } from '../helpers/loadDecks.js'
 import { catalogIndex } from '../helpers/loadFixtures.js'
 
 const index = catalogIndex()
@@ -83,5 +95,71 @@ describe('evolution lines in the pool («probar estas cartas» with Onix)', () =
     if (!trainer) throw new Error('no trainer')
     expect(zoneNoteEs(trainer, fire, index)).toBeNull()
     expect(zoneNoteEs(card('A1-89'), fire, index)).toBeNull()
+  })
+
+  it('self-review: a card that fits only through its line is a pre-evolution (weight 0), never drawn on its own', () => {
+    const weightOf = (pool: readonly PoolCard[], groupId: string) =>
+      pool.find((item) => item.groupId === groupId)?.weight
+    const metalPool = mutationPool({ index, energies: metal, edition, maxCopies: () => 2 })
+    expect(weightOf(metalPool, 'A1-150')).toBe(0)
+    // Mega-Steelix ex is drawn as before.
+    expect(weightOf(metalPool, 'B1a-52')).toBeGreaterThan(0)
+    const all = mutationPool({ index, energies: ['fire', 'metal', 'fighting'], edition, maxCopies: () => 2 })
+    expect(weightOf(poolForZone(all, metal, index), 'A1-150')).toBe(0)
+    // Asked for by hand it keeps its weight (the most played card's at the start of a search).
+    expect(weightOf(poolForZone(all, metal, index, new Set(['A1-150'])), 'A1-150')).toBeGreaterThan(0)
+    // The pre-evolution of a card asked for is kept as a pre-evolution only.
+    expect(weightOf(poolForZone(all, fire, index, new Set(['B1a-52'])), 'A1-150')).toBe(0)
+
+    // In hundreds of variants of a Metal and a Fire deck, a card with weight 0 only ever comes in with what it
+    // evolves into (the property the self-review broke: «+Magneton +Magnemite» in a Grass deck).
+    for (const [number, zone] of [
+      [20, metal],
+      [2, fire],
+    ] as const) {
+      const deck = deckDraft(number)
+      const pool = poolForZone(all, zone, index)
+      const zero = new Set(pool.filter((item) => item.weight === 0).map((item) => item.groupId))
+      expect(zero.size).toBeGreaterThan(0)
+      const random = seededRandom(number)
+      let variants = 0
+      for (let k = 0; k < 400; k++) {
+        const variant = variantOf(deck.cards, zone, pool, index, random)
+        if (!variant) continue
+        variants += 1
+        const added = variant.add.map((change) => index.cardById(change.cardId))
+        for (const card of added) {
+          if (!card || !zero.has(card.functionalGroupId)) continue
+          expect(added.some((other) => other?.evolvesFrom === card.nameEn)).toBe(true)
+        }
+      }
+      expect(variants).toBeGreaterThan(300)
+    }
+  })
+
+  it('self-review: the fill round never fills a place with a pre-evolution alone', () => {
+    const deck = deckDraft(20)
+    const counts = groupsOfCards(deck.cards, index)
+    const weakest = [...counts.entries()].filter(([, count]) => count === 1).map(([groupId]) => groupId)
+    const pool = poolForZone(mutationPool({ index, energies: metal, edition, maxCopies: () => 2 }), metal, index)
+    const round = fillRound(deck.cards, weakest, pool, index, {
+      maxCopies: () => 2,
+      valid: () => true,
+      candidates: 400,
+    })
+    if (!round) throw new Error('no fill round')
+    const zero = new Set(pool.filter((item) => item.weight === 0).map((item) => item.cardId))
+    expect(zero.size).toBeGreaterThan(0)
+    for (const cardId of round.candidates) expect(zero.has(cardId)).toBe(false)
+  })
+
+  it('self-review: «pero evoluciona en» names what attacks, else what has an ability, and says so', () => {
+    // Charmander (Fire attacks) in a Grass deck: no card of its line attacks with Grass; Charmeleon has an ability.
+    const charmander = index.groupsByNameEn('Charmander').map((group) => card(group.displayCardId))
+    const note = charmander.map((step) => zoneNoteEs(step, ['grass'], index)).find((text) => text !== null)
+    expect(note).toMatch(
+      /^no puede atacar con las energías de la lista, pero evoluciona en .+, que tienen? (una habilidad|habilidades)$/,
+    )
+    expect(note).toContain('Charmeleon')
   })
 })

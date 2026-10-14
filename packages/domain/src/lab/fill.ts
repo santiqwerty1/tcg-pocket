@@ -100,7 +100,8 @@ export function fillRound(
   const candidates: CardId[] = []
   for (const card of [...pool].sort((a, b) => b.weight - a.weight || a.groupId.localeCompare(b.groupId))) {
     if (candidates.length >= (options.candidates ?? FILL_CANDIDATES)) break
-    if (outSet.has(card.groupId)) continue
+    // A pre-evolution that only comes along (weight 0) never fills a place on its own.
+    if (card.weight <= 0 || outSet.has(card.groupId)) continue
     if ((counts.get(card.groupId) ?? 0) >= Math.min(2, card.maxCopies, options.maxCopies(card.groupId))) continue
     if (fitsAlone(card.cardId)) candidates.push(card.cardId)
   }

@@ -318,10 +318,10 @@ function IncludePicker({
           limit={8}
           onPick={(hit) => {
             if (cards.some((card) => card.groupId === hit.group.id)) return
-            // With the code: two cards may share a name and not their attacks (Onix A1-150 and Onix B1a-38).
+            // With the code the plan shows: two cards may share a name and not their attacks (Onix A1-150 and B1a-38).
             onChange([
               ...cards,
-              { cardId: hit.card.id, groupId: hit.group.id, nameEs: `${hit.card.nameEs} (${hit.card.id})` },
+              { cardId: hit.card.id, groupId: hit.group.id, nameEs: `${hit.card.nameEs} (${hit.group.displayCardId})` },
             ])
           }}
         />
@@ -405,7 +405,11 @@ export function IncludeNotes({ cards, className }: { cards: LabInclude[]; classN
           {card.nameEs} {card.note}.
         </p>
       ))}
-      <p>{noted.length === 1 ? 'Se prueba igual' : 'Se prueban igual'}: puede servir de muro, de retirada o de base.</p>
+      <p>
+        {noted.length === 1
+          ? 'Se prueba igual: puede servir de muro, de retirada o de base.'
+          : 'Se prueban igual: pueden servir de muro, de retirada o de base.'}
+      </p>
     </div>
   )
 }
