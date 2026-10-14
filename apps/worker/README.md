@@ -27,16 +27,22 @@ El motor no guarda checkpoints: si otro worker toma un lease vencido, las partid
 | `cores` | `TCG_WORKER_CORES` | Todos los hilos disponibles (Android: la mitad) | Hilos por chunk. |
 | `priority` | `TCG_WORKER_PRIORITY` | `below_normal` | Prioridad de los motores de fondo: `below_normal`, `normal` o `idle`. |
 | `name` | `TCG_WORKER_NAME` | nombre de la PC | Cómo aparece en Más → Simulación. |
-| `cpuRegulator` | `TCG_WORKER_CPU_REGULATOR` | `true` en Windows | El regulador de CPU (worker 0.3.9, engine-cli 0.3.10): los motores usan la máquina entera mientras nada más la necesita y devuelven núcleos enteros cuando otro programa los pide. `cores` sigue siendo los hilos de cada motor. `false` lo apaga. |
+| `cpuRegulator` | `TCG_WORKER_CPU_REGULATOR` | `true` en Windows | El regulador de CPU (worker 0.3.9 y engine-cli 0.3.10; el seguimiento, 0.3.10 y 0.3.11): los motores usan la máquina entera mientras nada más la necesita y devuelven núcleos enteros cuando otro programa los pide. `cores` sigue siendo los hilos de cada motor. `false` lo apaga. |
 | `enginePath` | `TCG_ENGINE_PATH` | `engine/target/release/engine-cli.exe` del repo | Otro binario (por ejemplo el artefacto `engine-cli-windows` de CI). |
 | — | `TCG_WORKER_DIR` | `%LOCALAPPDATA%\tcg-worker` | Carpeta de `config.json`, `worker-id`, `state.json`, `work/` y `worker.log`. |
 
 Worker 0.3.9, el regulador de CPU (Windows, con un motor que anuncia `regulate`): el worker arranca `engine-cli regulate`, que cada segundo mide la carga de los demás programas y les deja lo que necesitan. Mide la CPU física del hipervisor cuando hay Hyper-V (WSL 2), así se ve también la de WSL, y si no la de Windows.
-- **Cómo reparte:** los motores achican en el acto y crecen de a un núcleo cada ~5 s, siempre por núcleos enteros (los dos hilos de un P-core juntos). Primero ocupan los E-cores y después los P-cores desde el último, así los demás programas quedan en P-cores sin compartir.
-- **Límites:** nunca bajan de 2 hilos ni pasan de `cores`. Las partidas contra el bot nunca se achican.
+- **Cómo reparte:** siempre por núcleos enteros (los dos hilos de un P-core juntos). Primero ocupan los E-cores y después los P-cores desde el último, así los demás programas quedan en P-cores sin compartir.
+- **Cuándo cambia:** los motores achican en el acto cuando los demás piden más de un núcleo. Si piden uno solo, achican recién cuando dos muestras seguidas lo piden, así una carga que va y viene alrededor de un procesador no los mueve. Crecen de a un núcleo cada ~5 s.
+- **Límites:** nunca bajan de 2 lógicos ni pasan de la máquina entera; `cores` es cuántos hilos usa cada motor, no un tope de la máscara. Las partidas contra el bot nunca se achican.
+- **Lo que no mira:** la prioridad de los demás programas. Uno de baja prioridad que se come lo libre cuenta como carga ajena y lleva a los motores al piso; para eso, `"cpuRegulator": false`.
 - **Dónde se ve:** cada cambio va a `worker.log` («CPU para los motores», como mucho una línea por minuto) y a `regulator.json`, que muestra `--check`.
 - **Solo nuestros motores:** el regulador toca solo procesos que corren su mismo `engine-cli.exe`, y lo que no puede hacer va a `worker.log` como una línea `aviso …`.
-- **Si se cae o se cierra:** si el regulador se cae, el worker lo vuelve a arrancar (hasta 5 veces por hora). Si no puede correr en la máquina (más de 64 lógicos), lo deja y el log dice por qué. Cuando el worker se detiene, los motores recuperan la máquina entera.
+- **Si se cae, se cuelga o se cierra:**
+  - si el regulador se cae, el worker lo vuelve a arrancar (hasta 5 veces por hora); después del quinto, una última corrida corta devuelve la máquina entera a los motores en marcha;
+  - con engine-cli 0.3.11, el worker le pregunta cada minuto si sigue leyendo (`ping`); si no contesta en 15 s, lo corta y lo vuelve a arrancar;
+  - si no puede correr en la máquina (más de 64 lógicos), lo deja y el log dice por qué;
+  - cuando el worker se detiene, los motores recuperan la máquina entera.
 - **Resultados:** ningún resultado cambia; cada partida depende solo de su índice.
 
 Worker 0.2.8: el motor de simulación, lotes, consistencia y explorar se lanza con prioridad baja para dejar CPU a la CI. `normal` desactiva esa preferencia; `idle` cede más. Las partidas contra el bot y sus pistas del entrenador siguen en normal, incluso con `priority: "idle"`. El proceso del worker conserva su prioridad para sostener los latidos. `--check` muestra la opción; si el sistema rechaza el cambio de prioridad se registra y el trabajo sigue con la heredada. La exclusión de EcoQoS del motor no cambia (H-001).

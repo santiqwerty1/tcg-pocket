@@ -82,11 +82,68 @@ describe('the CPU regulator, on the worker side (pedido de Santi del 14/10/2026)
     const regulator = new CpuRegulator({ enginePath: FAKE_ENGINE, max: 8, dataDir: dir, log, restartAfterMs: 20 })
     regulator.started(201, 'managed')
     regulator.start()
-    // Each start hears the engine again and ends on it; after the cap it is not started again.
-    await until(() => log.mock.calls.some(([message]) => String(message).includes('no lo arranco más')))
-    expect(lines().filter((line) => line.startsWith('start')).length).toBe(MAX_STARTS_PER_HOUR)
-    expect(lines().filter((line) => line === 'add 201 managed').length).toBe(MAX_STARTS_PER_HOUR)
+    // Each start hears the engine again and ends on it; after the cap it is not started again, but one last short run
+    // tells it the engines running and closes, which gives them the whole machine back (review of #106).
+    await until(() => log.mock.calls.some(([message]) => String(message).includes('devuelvo la máquina entera')))
+    await until(() => lines().filter((line) => line === 'add 201 managed').length === MAX_STARTS_PER_HOUR + 1)
+    const starts = lines().filter((line) => line.startsWith('start'))
+    expect(starts).toEqual([...Array(MAX_STARTS_PER_HOUR).fill('start --max 8 --floor 2'), 'start --floor 1'])
+    expect(log).toHaveBeenCalledWith(
+      'el regulador de CPU terminó muchas veces: no lo arranco más hasta reiniciar el worker',
+      {
+        starts: MAX_STARTS_PER_HOUR,
+      },
+    )
     await regulator.stop()
+  })
+
+  it('asks a regulator that answers ping, and cuts and starts again one that does not (review of #106)', async () => {
+    const log = vi.fn()
+    const alive = new CpuRegulator({
+      enginePath: FAKE_ENGINE,
+      dataDir: dir,
+      log,
+      ping: true,
+      pingEveryMs: 30,
+      pingTimeoutMs: 120,
+    })
+    alive.start()
+    await until(() => lines().filter((line) => line === 'ping').length >= 4)
+    expect(lines().filter((line) => line.startsWith('start'))).toHaveLength(1)
+    expect(log.mock.calls.some(([message]) => String(message).includes('no contesta'))).toBe(false)
+    await alive.stop()
+    // Hung: it reads the lines and answers nothing.
+    rmSync(heard, { force: true })
+    vi.stubEnv('FAKE_REGULATE_DEAF', '1')
+    const hung = new CpuRegulator({
+      enginePath: FAKE_ENGINE,
+      dataDir: dir,
+      log,
+      ping: true,
+      pingEveryMs: 30,
+      pingTimeoutMs: 120,
+      restartAfterMs: 20,
+    })
+    hung.start()
+    await until(() => lines().filter((line) => line.startsWith('start')).length >= 2)
+    expect(log).toHaveBeenCalledWith(
+      'el regulador de CPU no contesta: lo corto',
+      expect.objectContaining({ seconds: 0 }),
+    )
+    await hung.stop()
+    // An engine without regulatePing is never asked (an old regulator would not answer).
+    rmSync(heard, { force: true })
+    const old = new CpuRegulator({
+      enginePath: FAKE_ENGINE,
+      dataDir: dir,
+      log: vi.fn(),
+      pingEveryMs: 30,
+      pingTimeoutMs: 120,
+    })
+    old.start()
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(lines()).not.toContain('ping')
+    await old.stop()
   })
 
   it('is sized from the whole machine unless told a max, and logs what it could not do (autorrevisión)', async () => {
@@ -136,6 +193,17 @@ describe('the CPU regulator, on the worker side (pedido de Santi del 14/10/2026)
       }
     }
     await until(() => !alive())
+  })
+
+  it('an engine ends for the regulator when its process ends, not when its pipes close (review of #106, M6)', async () => {
+    vi.stubEnv('FAKE_ENGINE_HOLD_PIPES', '1500')
+    let endedAt = 0
+    watchEngines({ started: () => undefined, ended: () => (endedAt = Date.now()) })
+    await runJob(FAKE_ENGINE, 'simulate', { games: 3 }, dir, {})
+    const resolvedAt = Date.now()
+    expect(endedAt).toBeGreaterThan(0)
+    // Its pipes closed 1,5 s after it ended; its PID was let go at once, and that is when the regulator hears it.
+    expect(resolvedAt - endedAt, `ended at ${endedAt}, resolved at ${resolvedAt}`).toBeGreaterThanOrEqual(600)
   })
 
   it('a job tells the regulator its engine, and when it ends', async () => {

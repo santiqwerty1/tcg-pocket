@@ -833,6 +833,7 @@ export class Worker {
         regulator = new CpuRegulator({
           enginePath: this.config.enginePath,
           dataDir: this.config.dataDir,
+          ping: engineFeatures.includes('regulatePing'),
           log: this.log,
         })
         watchEngines(regulator)
