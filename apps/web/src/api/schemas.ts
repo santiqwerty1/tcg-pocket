@@ -2162,6 +2162,8 @@ export const simulationPreviewSchema = z
     combinations: z.number().optional(),
     /** Why creating this optimize would be refused (H-050), in Spanish. */
     optimizeProblem: z.string().nullable().optional(),
+    /** Candidates that play the same as another one and do not go on their own (H-050). */
+    optimizeMerged: z.array(z.string()).optional(),
     estimatedSeconds: z.number(),
   })
   .passthrough()

@@ -774,10 +774,14 @@ describe('simulation (e2e)', () => {
       expect((await post('/api/simulations/preview').send(job(['A1-219', 'A1-225']))).body).toMatchObject({
         combinations: 3,
       })
-      // Two editions of one card play the same: one goes (Charmander A1-33 and its full art A1-230).
-      expect((await post('/api/simulations/preview').send(job(['A1-33', 'A1-230']))).body).toMatchObject({
-        combinations: 1,
-      })
+      // Two editions of one card play the same: one goes (Charmander A1-33 and its full art A1-230), and the preview
+      // says so.
+      const editions = await post('/api/simulations/preview').send(job(['A1-33', 'A1-230']))
+      expect(editions.body).toMatchObject({ combinations: 1, optimizeProblem: null })
+      expect(editions.body.optimizeMerged).toEqual([
+        expect.stringMatching(/\(A1-230\) juega igual que A1-33: va una sola\.$/),
+      ])
+      expect(preview.body.optimizeMerged).toEqual([])
       const one = await post('/api/simulations').send(job(['A1-219', 'P-A-5']))
       expect(one.status).toBe(201)
       created.push(one.body.id)

@@ -690,6 +690,7 @@ export class McpWriteToolsService {
         ? {
             // H-050: two copies of a candidate count as a combination too.
             combinations: preview.combinations,
+            ...(preview.optimizeMerged.length > 0 ? { merged: preview.optimizeMerged } : {}),
             confirmationGames: preview.confirmationGames,
             confirmation: `Incluye la confirmación: al terminar, las 3 mejores combinaciones (hasta 5 si hay empate en el tercer puesto) se juegan otra vez contra los mismos rivales con semillas nuevas y al menos ${OPTIMIZE_CONFIRM_GAMES} partidas por rival (${preview.confirmationGames} partidas).`,
           }
