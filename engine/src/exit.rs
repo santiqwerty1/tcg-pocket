@@ -15,7 +15,6 @@
 //! Every line goes in one `write` (the worker reads stderr in pieces: a line written in parts could be cut, review of
 //! the diagnosis), and the handler's starts with a line break, in case it lands in the middle of another line.
 
-use std::io::Write;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 const RUNNING: u8 = 0;
@@ -27,6 +26,18 @@ static STATE: AtomicU8 = AtomicU8::new(RUNNING);
 
 /// One whole line on stderr, in one write (with its line break). A closed stderr is not an error here.
 pub fn line(text: &str) {
+    // In the unit tests, through the macro the test harness captures (a direct write would fill their output).
+    #[cfg(test)]
+    {
+        eprintln!("{text}");
+    }
+    #[cfg(not(test))]
+    write_line(text);
+}
+
+#[cfg(not(test))]
+fn write_line(text: &str) {
+    use std::io::Write;
     let mut bytes = Vec::with_capacity(text.len() + 1);
     bytes.extend_from_slice(text.as_bytes());
     bytes.push(b'\n');

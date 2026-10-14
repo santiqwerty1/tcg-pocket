@@ -34,6 +34,16 @@ fn an_error_says_its_exit_code() {
     assert_eq!(last_line(&out.stderr), "fin error 2");
 }
 
+/// An error whose JSON cannot be written (a full stdout) still says how it ended, with its own code (review of #100).
+#[cfg(unix)]
+#[test]
+fn an_error_that_cannot_be_written_still_says_how_it_ended() {
+    let full = std::fs::OpenOptions::new().write(true).open("/dev/full").expect("/dev/full");
+    let out = engine().arg("no-existe").stdout(full).output().expect("engine-cli");
+    assert_eq!(out.status.code(), Some(2));
+    assert_eq!(last_line(&out.stderr), "fin error 2");
+}
+
 /// A panic outside a game: `status` writes ~300 KB to a stdout nobody reads, and `println!` panics on the broken pipe.
 #[test]
 fn a_panic_outside_a_game_says_so_and_exits_101() {

@@ -1,14 +1,16 @@
 // A stand-in for engine-cli with the same command line, files, stderr progress and exit codes (engine/src/main.rs).
 // Behaviour by job: games 13 → engine failure (exit 3); games 99 → plays forever (for cancel tests).
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 
 const REV = 'fb792ebfbaca995af9750c28101ce92a51282825'
 const [command, jobFile, resultFile] = process.argv.slice(2)
 
 if (command === 'version') {
   // FAKE_ENGINE_OLD: an engine from before H-010 and B2 (no features).
-  const features = process.env.FAKE_ENGINE_OLD ? {} : { features: ['perGame', 'batch'] }
+  // FAKE_ENGINE_RESUME: an engine that resumes a pairing from its checkpoint (engine-cli 0.3.8, H-054).
+  const known = ['perGame', 'batch', ...(process.env.FAKE_ENGINE_RESUME ? ['resume'] : [])]
+  const features = process.env.FAKE_ENGINE_OLD ? {} : { features: known }
   // FAKE_ENGINE_GAMES_REV: an engine that says how it plays (phase 42, engine-cli 0.3.6 on).
   const gamesRev = process.env.FAKE_ENGINE_GAMES_REV ? { gamesRev: Number(process.env.FAKE_ENGINE_GAMES_REV) } : {}
   process.stdout.write(JSON.stringify({ engineRev: REV, cliVersion: '0.1.0-fake', cards: 2, ...features, ...gamesRev }))
@@ -95,6 +97,24 @@ if (command === 'version') {
 } else if (command === 'simulate' || command === 'optimize') {
   const job = JSON.parse(readFileSync(jobFile, 'utf8'))
   const games = command === 'simulate' ? job.games : 4
+  // B of H-054 (`resume`): 89 games are cut at their first run (exit 0, no result, 40 games in the checkpoint) and
+  // played to the end by a run that finds them there; 88 are cut every time; 87 are cut and their folder goes.
+  if ((games === 89 || games === 88 || games === 87) && job.checkpoint) {
+    let kept = 0
+    try {
+      kept = readFileSync(job.checkpoint, 'utf8').split('\n').filter(Boolean).length - 1
+    } catch {
+      // no checkpoint yet
+    }
+    if (games === 88 || kept <= 0) {
+      const lines = Array.from({ length: 40 }, (_, i) => `${i} A0P 10 11 ${i}`)
+      writeFileSync(job.checkpoint, `# fake\n${lines.join('\n')}\n`)
+      process.stderr.write(`total ${games}\n`)
+      for (let i = 1; i <= 40; i++) process.stderr.write(`progress ${i}\n`)
+      if (games === 87) rmSync(dirname(jobFile), { recursive: true, force: true })
+      process.exit(0)
+    }
+  }
   // A process that exits successfully but violates the file-output contract.
   if (games === 96) process.exit(0)
   // The S25 of 12/10/2026: part of the games played, then exit 0 with no result (the last progress short of the total).

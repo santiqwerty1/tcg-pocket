@@ -25,8 +25,10 @@ mod fair_bot;
 #[allow(dead_code)]
 mod live;
 mod play;
+mod resume;
 mod seeds;
 
+use std::collections::HashMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
@@ -62,7 +64,7 @@ const ENGINE_BUILD: &str = env!("ENGINE_BUILD");
 /// What the worker and the queue can ask of this engine beyond the commands of 0.1.0: `perGame` (H-010, T-017 A2),
 /// `batch`, several pairings in one process (B2), and `fairBots`, the f<N> bots (H-018).
 /// «etBot» (H-051): the bot that ends its turn, which deckgym's own parser never reaches.
-const FEATURES: [&str; 4] = ["perGame", "batch", "fairBots", "etBot"];
+const FEATURES: [&str; 5] = ["perGame", "batch", "fairBots", "etBot", "resume"];
 /// deckgym ties a game when turn 31 begins (`State::advance_turn`): reported so the app does not hard-code it.
 const TURN_LIMIT: u32 = 30;
 
@@ -264,6 +266,55 @@ struct GameRun {
     stages: [u8; 2],
 }
 
+/// A game as a checkpoint keeps it (`resume`): the winner, who started and how it ended (`A0P`), its turns and both
+/// highest stages (`21`): what the result says of each game.
+fn game_line(run: &GameRun) -> String {
+    format!(
+        "{}{}{} {} {}{}",
+        winner_letter(run.winner),
+        run.starter,
+        run.ending.letter(),
+        run.turns,
+        run.stages[0].min(9),
+        run.stages[1].min(9)
+    )
+}
+
+/// The game a checkpoint line says (`game_line`); None for anything else.
+fn game_of_line(text: &str) -> Option<GameRun> {
+    let mut parts = text.split(' ');
+    let (head, turns, stages) = (parts.next()?, parts.next()?, parts.next()?);
+    if parts.next().is_some() {
+        return None;
+    }
+    let head: Vec<char> = head.chars().collect();
+    let stages: Vec<u8> = stages.chars().map(|c| c.to_digit(10).map(|d| d as u8)).collect::<Option<_>>()?;
+    let [winner, starter, ending] = head.as_slice() else { return None };
+    let [stage_a, stage_b] = stages.as_slice() else { return None };
+    Some(GameRun {
+        winner: match winner {
+            'A' => Winner::A,
+            'B' => Winner::B,
+            'T' => Winner::Tie,
+            _ => return None,
+        },
+        starter: match starter {
+            '0' => 0,
+            '1' => 1,
+            _ => return None,
+        },
+        ending: match ending {
+            'P' => Ending::Points,
+            'N' => Ending::NoPokemon,
+            'L' => Ending::TurnLimit,
+            'T' => Ending::Tie,
+            _ => return None,
+        },
+        turns: turns.parse().ok()?,
+        stages: [*stage_a, *stage_b],
+    })
+}
+
 /// The highest stage each side has had in play, looked at before every action and at the end of the game.
 struct StageWatch {
     max: Arc<[AtomicU8; 2]>,
@@ -358,7 +409,12 @@ struct Progress {
 
 impl Progress {
     fn start() -> Self {
-        let done = Arc::new(AtomicUsize::new(0));
+        Self::start_at(0)
+    }
+
+    /// From `done` games already played (a resumed pairing, `resume`).
+    fn start_at(done: usize) -> Self {
+        let done = Arc::new(AtomicUsize::new(done));
         let (stop, stopped) = mpsc::channel::<()>();
         let d = done.clone();
         let thread = std::thread::spawn(move || {
@@ -444,6 +500,9 @@ struct SimulateJob {
     /// Also report each game by index (`perGame`, `starters`): the Laboratorio pairs games played with the same seed.
     #[serde(default)]
     per_game: bool,
+    /// `resume` (H-054): the file of its finished games; a run of the same job plays only the ones it does not have.
+    #[serde(default)]
+    checkpoint: Option<String>,
 }
 
 fn one() -> usize {
@@ -562,6 +621,24 @@ struct Pairing {
     seed: u64,
     replay_sample: u32,
     replay_dir: Option<PathBuf>,
+    /// `resume`: the file of its finished games, and what names the job in it (its decks and players).
+    checkpoint: Option<PathBuf>,
+    job_key: String,
+}
+
+impl Pairing {
+    /// The first line of its checkpoint: a file of another job (or engine) is started again.
+    fn checkpoint_header(&self, per_game: bool) -> String {
+        format!(
+            "# engine-cli {CLI_VERSION} {ENGINE_BUILD} seed {} games {} replays {} perGame {} job {}",
+            self.seed, self.games, self.replay_sample, u8::from(per_game), self.job_key
+        )
+    }
+}
+
+/// What names a pairing's job in its checkpoint: its decks and players.
+fn job_key(deck_a: &str, deck_b: &str, players: &[String]) -> String {
+    resume::fnv(&format!("{deck_a}\n--\n{deck_b}\n--\n{}", players.join(",")))
 }
 
 struct PairingOutcome {
@@ -584,11 +661,41 @@ fn play_pairings(
     for dir in pairings.iter().filter_map(|pairing| pairing.replay_dir.as_ref()) {
         std::fs::create_dir_all(dir).map_err(|e| CliError::engine(format!("no se pudo crear {}: {e}", dir.display())))?;
     }
+    // `resume`: the games each pairing's checkpoint already has (they are not played again), and where the rest go.
+    let mut checkpoints: Vec<Option<resume::Checkpoint>> = Vec::with_capacity(pairings.len());
+    let mut played: Vec<HashMap<u32, GameRun>> = Vec::with_capacity(pairings.len());
+    for pairing in pairings {
+        let Some(path) = &pairing.checkpoint else {
+            checkpoints.push(None);
+            played.push(HashMap::new());
+            continue;
+        };
+        let header = pairing.checkpoint_header(per_game);
+        match resume::Checkpoint::open(path, &header, pairing.games, |line| game_of_line(line).is_some()) {
+            Ok((checkpoint, lines)) => {
+                played.push(lines.iter().filter_map(|(index, line)| Some((*index, game_of_line(line)?))).collect());
+                checkpoints.push(Some(checkpoint));
+            }
+            // A checkpoint that cannot be opened is no reason to fail the games: they are played without it.
+            Err(message) => {
+                exit::line(&format!("avance {message}"));
+                played.push(HashMap::new());
+                checkpoints.push(None);
+            }
+        }
+    }
     let pool = thread_pool(threads)?;
-    let tasks: Vec<(usize, u32)> =
-        pairings.iter().enumerate().flat_map(|(p, pairing)| (0..pairing.games).map(move |index| (p, index))).collect();
-    exit::line(&format!("total {}", tasks.len()));
-    let progress = Progress::start();
+    let total: usize = pairings.iter().map(|pairing| pairing.games as usize).sum();
+    let tasks: Vec<(usize, u32)> = pairings
+        .iter()
+        .enumerate()
+        .flat_map(|(p, pairing)| {
+            let done = &played[p];
+            (0..pairing.games).filter(move |index| !done.contains_key(index)).map(move |index| (p, index))
+        })
+        .collect();
+    exit::line(&format!("total {total}"));
+    let progress = Progress::start_at(total - tasks.len());
     let started = Instant::now();
     let runs: Vec<Result<GameRun, String>> = pool.install(|| {
         tasks
@@ -599,13 +706,23 @@ fn play_pairings(
                 let dir = if index < pairing.replay_sample { pairing.replay_dir.as_ref() } else { None };
                 let game_id = game_id_for(pairing.seed, u64::from(index));
                 let run = play_game(&pairing.deck_a, &pairing.deck_b, codes, seed, game_id, dir, per_game);
+                // After its replay: a game in the checkpoint has everything it left.
+                if let (Ok(game), Some(checkpoint)) = (&run, &checkpoints[p]) {
+                    checkpoint.record(index, &game_line(game), started.elapsed().as_millis());
+                }
                 progress.tick();
                 run
             })
             .collect()
     });
-    let duration_ms = started.elapsed().as_millis();
+    // The time of the runs before counts: the result says how long its games took to play.
+    let before_ms = checkpoints.iter().flatten().map(resume::Checkpoint::base_ms).max().unwrap_or(0);
+    let duration_ms = before_ms + started.elapsed().as_millis();
     drop(progress);
+    let mut fresh: Vec<HashMap<u32, Result<GameRun, String>>> = pairings.iter().map(|_| HashMap::new()).collect();
+    for (&(p, index), run) in tasks.iter().zip(runs) {
+        fresh[p].insert(index, run);
+    }
     let mut outcomes: Vec<PairingOutcome> = pairings
         .iter()
         .map(|pairing| PairingOutcome {
@@ -615,33 +732,37 @@ fn play_pairings(
             error: None,
         })
         .collect();
-    // `collect` keeps the order of the tasks, so each pairing's letters line up with its games 0, 1, 2…
-    for (&(p, index), run) in tasks.iter().zip(runs) {
-        let (pairing, outcome) = (&pairings[p], &mut outcomes[p]);
-        if outcome.error.is_some() {
-            continue;
-        }
-        let run = match run {
-            Ok(run) => run,
-            Err(message) => {
-                outcome.error = Some(message);
-                continue;
+    // Each pairing's games 0, 1, 2… in order, whether played now or before: the letters line up with the indexes.
+    for (p, pairing) in pairings.iter().enumerate() {
+        let outcome = &mut outcomes[p];
+        for index in 0..pairing.games {
+            let run = match played[p].remove(&index) {
+                Some(run) => Ok(run),
+                None => fresh[p].remove(&index).unwrap_or_else(|| Err(format!("falta la partida {index}"))),
+            };
+            let run = match run {
+                Ok(run) => run,
+                Err(message) => {
+                    // The first game of the pairing that failed (by index): the pairing has no result.
+                    outcome.error = Some(message);
+                    break;
+                }
+            };
+            outcome.tally.add(&run);
+            if let Some(per_game) = outcome.per_game.as_mut() {
+                per_game.push(&run);
             }
-        };
-        outcome.tally.add(&run);
-        if let Some(per_game) = outcome.per_game.as_mut() {
-            per_game.push(&run);
-        }
-        if index < pairing.replay_sample {
-            if let Some(dir) = &pairing.replay_dir {
-                let game_id = game_id_for(pairing.seed, u64::from(index));
-                outcome.replays.push(ReplayInfo {
-                    game_id: game_id.to_string(),
-                    index,
-                    seed: game_seed(pairing.seed, u64::from(index)).to_string(),
-                    file: dir.join(format!("{game_id}.json")).display().to_string(),
-                    winner: winner_label(run.winner),
-                });
+            if index < pairing.replay_sample {
+                if let Some(dir) = &pairing.replay_dir {
+                    let game_id = game_id_for(pairing.seed, u64::from(index));
+                    outcome.replays.push(ReplayInfo {
+                        game_id: game_id.to_string(),
+                        index,
+                        seed: game_seed(pairing.seed, u64::from(index)).to_string(),
+                        file: dir.join(format!("{game_id}.json")).display().to_string(),
+                        winner: winner_label(run.winner),
+                    });
+                }
             }
         }
     }
@@ -656,6 +777,8 @@ fn simulate(job: SimulateJob) -> Result<SimulateResult, CliError> {
         seed: job.seed,
         replay_sample: job.replay_sample,
         replay_dir: job.replay_dir.as_ref().map(PathBuf::from),
+        checkpoint: job.checkpoint.as_ref().map(PathBuf::from),
+        job_key: job_key(&job.deck_a, &job.deck_b, &job.players),
     };
     let codes = parse_players(&job.players)?;
     let (mut outcomes, duration_ms) = play_pairings(std::slice::from_ref(&pairing), &codes, job.threads, job.per_game)?;
@@ -689,6 +812,9 @@ struct BatchPairing {
     seed: u64,
     #[serde(default)]
     replay_sample: u32,
+    /// `resume`: this pairing's own checkpoint, as `simulate`'s.
+    #[serde(default)]
+    checkpoint: Option<String>,
 }
 
 /// Several pairings of one job (same bots) in one process: what `simulate` would give for each, played together.
@@ -736,6 +862,12 @@ fn batch(job: BatchJob) -> Result<BatchResult, CliError> {
     if job.pairings.is_empty() {
         return Err(CliError::input("pairings: hace falta al menos un cruce"));
     }
+    // Two pairings writing one checkpoint would mix their games (review of `resume`).
+    let mut checkpoints: Vec<&str> = job.pairings.iter().filter_map(|pairing| pairing.checkpoint.as_deref()).collect();
+    checkpoints.sort_unstable();
+    if checkpoints.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(CliError::input("pairings: dos cruces no pueden compartir el archivo de avance"));
+    }
     let codes = parse_players(&job.players)?;
     let root = job.replay_dir.as_ref().map(PathBuf::from);
     // A deck that cannot be played fails its own pairing only, like a game that fails.
@@ -751,6 +883,8 @@ fn batch(job: BatchJob) -> Result<BatchResult, CliError> {
                 seed: item.seed,
                 replay_sample: item.replay_sample,
                 replay_dir: root.as_ref().filter(|_| item.replay_sample > 0).map(|dir| dir.join(i.to_string())),
+                checkpoint: item.checkpoint.as_ref().map(PathBuf::from),
+                job_key: job_key(&item.deck_a, &item.deck_b, &job.players),
             })
         })
         .collect();
@@ -1084,6 +1218,7 @@ mod tests {
             replay_sample: 0,
             replay_dir: None,
             per_game,
+            checkpoint: None,
         }
     }
 
@@ -1159,6 +1294,7 @@ mod tests {
                     games,
                     seed,
                     replay_sample: 0,
+                    checkpoint: None,
                 })
                 .collect(),
             players: vec!["r".to_string(), "r".to_string()],
@@ -1189,6 +1325,7 @@ mod tests {
             games: 6,
             seed,
             replay_sample: 0,
+            checkpoint: None,
         };
         let result = batch(BatchJob {
             pairings: vec![pairing(&altaria, 1), pairing(&short, 2), pairing(&altaria, 3)],
@@ -1217,6 +1354,7 @@ mod tests {
             games: 3,
             seed,
             replay_sample: 2,
+            checkpoint: None,
         };
         let together = batch(BatchJob {
             pairings: vec![pairing(7), pairing(7)],
@@ -1304,4 +1442,209 @@ mod tests {
             assert_eq!(game.get_state_clone().current_player, starter, "seed {seed}");
         }
     }
+
+    /// The result's JSON with its `durationMs` at 0: what must be the same byte for byte (the time never is).
+    fn without_duration<T: Serialize>(result: &T) -> String {
+        let mut value = serde_json::to_value(result).expect("json");
+        if let Some(object) = value.as_object_mut() {
+            object.insert("durationMs".to_string(), serde_json::json!(0));
+        }
+        serde_json::to_string(&value).expect("json")
+    }
+
+    /// Every file of a folder with its bytes, by name.
+    fn files_of(dir: &std::path::Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+        std::fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .map(|entry| (entry.file_name().to_string_lossy().into_owned(), std::fs::read(entry.path()).expect("file")))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Keeps the first `keep` games of a checkpoint (in the order they finished) and a line cut in half, as the end of
+    /// the process leaves it; the replays of the games it drops go too, as if they had never been written.
+    fn cut(checkpoint: &std::path::Path, keep: usize, replays: Option<&std::path::Path>) {
+        let text = std::fs::read_to_string(checkpoint).expect("checkpoint");
+        let mut lines = text.lines();
+        let header = lines.next().expect("header");
+        let games: Vec<&str> = lines.collect();
+        let mut out = format!("{header}\n");
+        for line in &games[..keep] {
+            out.push_str(line);
+            out.push('\n');
+        }
+        if let Some(next) = games.get(keep) {
+            out.push_str(&next[..next.len() / 2]);
+            if let Some(dir) = replays {
+                let index: u64 = next.split(' ').next().expect("index").parse().expect("index");
+                let seed = 20261009;
+                let _ = std::fs::remove_file(dir.join(format!("{}.json", game_id_for(seed, index))));
+            }
+        }
+        for line in games.iter().skip(keep + 1) {
+            if let Some(dir) = replays {
+                let index: u64 = line.split(' ').next().expect("index").parse().expect("index");
+                let _ = std::fs::remove_file(dir.join(format!("{}.json", game_id_for(20261009, index))));
+            }
+        }
+        std::fs::write(checkpoint, out).expect("cut");
+    }
+
+    /// `resume` (H-054): cut at any game and played again, a pairing gives byte for byte the result of a run in one go
+    /// (but for `durationMs`), and the same replays; a checkpoint of another job is not used.
+    #[test]
+    fn a_pairing_cut_anywhere_and_resumed_is_the_same_as_one_run() {
+        let root = std::env::temp_dir().join(format!("engine-cli-resume-pairing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let replays = root.join("replays");
+        let checkpoint = root.join("progress.txt");
+        let games = 24;
+        let base = || SimulateJob {
+            replay_sample: 4,
+            replay_dir: Some(replays.display().to_string()),
+            threads: 3,
+            ..job(games, true)
+        };
+        let once = simulate(base()).expect("simulate");
+        let once_text = without_duration(&once);
+        let once_replays = files_of(&replays);
+        assert_eq!(once_replays.len(), 4);
+        // With a checkpoint and nothing cut: the same.
+        let full = simulate(SimulateJob { checkpoint: Some(checkpoint.display().to_string()), ..base() }).expect("simulate");
+        assert_eq!(without_duration(&full), once_text);
+        let lines = std::fs::read_to_string(&checkpoint).expect("checkpoint").lines().count();
+        assert_eq!(lines, games as usize + 1, "a header and one line per game");
+        // Cut at the start, near it, in the middle, at the last game and after all of them.
+        for keep in [0, 1, 7, 13, 23, 24] {
+            simulate(SimulateJob { checkpoint: Some(checkpoint.display().to_string()), ..base() }).expect("simulate");
+            cut(&checkpoint, keep, Some(&replays));
+            let resumed =
+                simulate(SimulateJob { checkpoint: Some(checkpoint.display().to_string()), ..base() }).expect("simulate");
+            assert_eq!(without_duration(&resumed), once_text, "cut after {keep} games");
+            assert_eq!(files_of(&replays), once_replays, "replays after a cut after {keep} games");
+            // Only the missing games were played: each index once, every one of them (review of `resume`).
+            let mut indexes = checkpoint_indexes(&checkpoint);
+            indexes.sort_unstable();
+            assert_eq!(indexes, (0..games).collect::<Vec<_>>(), "the checkpoint after a cut after {keep} games");
+        }
+        // The time of the runs before counts in `durationMs`: nothing left to play, and an hour played already.
+        let text = std::fs::read_to_string(&checkpoint).expect("checkpoint");
+        let hour: String = text
+            .lines()
+            .enumerate()
+            .map(|(i, line)| if i == 0 { format!("{line}\n") } else { format!("{} 3600000\n", &line[..line.rfind(' ').unwrap()]) })
+            .collect();
+        std::fs::write(&checkpoint, hour).expect("checkpoint");
+        let resumed = simulate(SimulateJob { checkpoint: Some(checkpoint.display().to_string()), ..base() }).expect("simulate");
+        assert!(resumed.duration_ms >= 3_600_000, "{}", resumed.duration_ms);
+        assert_eq!(without_duration(&resumed), once_text);
+        // A checkpoint of another job is never used: each field of its first line, one at a time. The job with the
+        // checkpoint of the base job gives what it gives without one.
+        let variants: Vec<(&str, Box<dyn Fn() -> SimulateJob + '_>)> = vec![
+            ("seed", Box::new(|| SimulateJob { seed: 7, ..base() })),
+            ("games", Box::new(|| SimulateJob { games: 20, ..base() })),
+            ("replays", Box::new(|| SimulateJob { replay_sample: 1, ..base() })),
+            ("perGame", Box::new(|| SimulateJob { per_game: false, ..base() })),
+            ("deck B", Box::new(|| SimulateJob { deck_b: OTHER_DECK.to_string(), ..base() })),
+            ("players", Box::new(|| SimulateJob { players: vec!["r".to_string(), "e2".to_string()], ..base() })),
+        ];
+        for (field, variant) in variants {
+            simulate(SimulateJob { checkpoint: Some(checkpoint.display().to_string()), ..base() }).expect("simulate");
+            let with = simulate(SimulateJob { checkpoint: Some(checkpoint.display().to_string()), ..variant() })
+                .expect("simulate");
+            let fresh = simulate(variant()).expect("simulate");
+            assert_eq!(without_duration(&with), without_duration(&fresh), "another {field}");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Another deck for the tests of `resume` (the Venusaur of the browser's smoke).
+    const OTHER_DECK: &str = "Energy: Grass\n1 Bulbasaur A1 1\n2 Ivysaur B1a 2\n2 Mega Venusaur ex B1a 4\n2 Professor's Research P-A 7\n2 Copycat B1 225\n2 Quick-Grow Extract B1a 67\n2 Lucky Ice Pop B2 145\n2 Heavy Helmet B1 219\n1 Lillie A3 155\n1 Pokémon Center Lady A2b 70\n1 Cyrus A2 150\n1 Field Blower B3 147\n1 Repel A3a 64";
+
+    /// The indexes a checkpoint has, one per line after its first.
+    fn checkpoint_indexes(path: &std::path::Path) -> Vec<u32> {
+        std::fs::read_to_string(path)
+            .expect("checkpoint")
+            .lines()
+            .skip(1)
+            .map(|line| line.split(' ').next().expect("index").parse().expect("index"))
+            .collect()
+    }
+
+    /// Two pairings of a batch never share a checkpoint.
+    #[test]
+    fn a_batch_refuses_two_pairings_with_one_checkpoint() {
+        let altaria = crate::coach::tests::ALTARIA.to_string();
+        let pairing = |seed: u64| BatchPairing {
+            deck_a: altaria.clone(),
+            deck_b: altaria.clone(),
+            games: 2,
+            seed,
+            replay_sample: 0,
+            checkpoint: Some("progress.txt".to_string()),
+        };
+        let error = batch(BatchJob {
+            pairings: vec![pairing(1), pairing(2)],
+            players: vec!["r".to_string(), "r".to_string()],
+            threads: 1,
+            replay_dir: None,
+            per_game: false,
+        })
+        .err()
+        .expect("refused");
+        assert!(error.error.contains("compartir"), "{}", error.error);
+    }
+
+    #[test]
+    fn a_batch_resumes_each_pairing_from_its_own_checkpoint() {
+        let root = std::env::temp_dir().join(format!("engine-cli-resume-batch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("dir");
+        let altaria = crate::coach::tests::ALTARIA.to_string();
+        let job = |checkpoints: bool| BatchJob {
+            pairings: [(9u32, 20261009u64), (7, 20261010)]
+                .iter()
+                .enumerate()
+                .map(|(i, &(games, seed))| BatchPairing {
+                    deck_a: altaria.clone(),
+                    deck_b: altaria.clone(),
+                    games,
+                    seed,
+                    replay_sample: 0,
+                    checkpoint: checkpoints.then(|| root.join(format!("progress-{i}.txt")).display().to_string()),
+                })
+                .collect(),
+            players: vec!["r".to_string(), "r".to_string()],
+            threads: 3,
+            replay_dir: None,
+            per_game: true,
+        };
+        let once = without_duration(&batch(job(false)).expect("batch"));
+        batch(job(true)).expect("batch");
+        cut(&root.join("progress-0.txt"), 4, None);
+        cut(&root.join("progress-1.txt"), 0, None);
+        assert_eq!(without_duration(&batch(job(true)).expect("batch")), once);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_game_line_says_what_the_result_says_of_the_game() {
+        for run in [
+            GameRun { winner: Winner::A, turns: 14, starter: 0, ending: Ending::Points, stages: [2, 1] },
+            GameRun { winner: Winner::Tie, turns: 31, starter: 1, ending: Ending::TurnLimit, stages: [0, 0] },
+            GameRun { winner: Winner::B, turns: 9, starter: 1, ending: Ending::NoPokemon, stages: [1, 2] },
+        ] {
+            let line = game_line(&run);
+            let back = game_of_line(&line).expect("line");
+            assert_eq!(game_line(&back), line);
+        }
+        assert_eq!(game_line(&GameRun { winner: Winner::A, turns: 14, starter: 0, ending: Ending::Points, stages: [2, 1] }), "A0P 14 21");
+        for bad in ["", "A0P 14", "X0P 14 21", "A2P 14 21", "A0P x 21", "A0P 14 2", "A0P 14 21 9", "A0PP 14 21"] {
+            assert!(game_of_line(bad).is_none(), "{bad:?}");
+        }
+    }
+
 }

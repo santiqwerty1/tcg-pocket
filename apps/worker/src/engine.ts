@@ -55,6 +55,12 @@ export interface RunOptions {
   clockEveryMs?: number | undefined
   /** The engine's version (`cliVersion`), for the diagnosis of a lost result. */
   cliVersion?: string | undefined
+  /**
+   * `resume` (H-054): the folder of a run before (`runJob` makes one otherwise), and whether a lost result keeps it:
+   * its checkpoint lets the next run play only the games it does not have.
+   */
+  dir?: string | undefined
+  keepOnLoss?: boolean | undefined
 }
 
 /** How a run went, besides its output: for the log when the result is missing. */
@@ -274,7 +280,7 @@ export async function runJob<T>(
   workDir: string,
   options: RunOptions = {},
 ): Promise<{ result: T; dir: string }> {
-  const dir = createWorkDir(workDir, `${command}-`)
+  const dir = options.dir ?? createWorkDir(workDir, `${command}-`)
   const jobFile = join(dir, 'job.json')
   const resultFile = join(dir, 'result.json')
   try {
@@ -332,7 +338,9 @@ export async function runJob<T>(
       )
     }
   } catch (error) {
-    await removeWorkDir(dir)
+    // A lost result with a checkpoint: the folder stays for the run that resumes it.
+    const resumable = options.keepOnLoss && error instanceof EngineError && error.code === 'missing_result'
+    if (!resumable) await removeWorkDir(dir)
     throw error
   }
 }
