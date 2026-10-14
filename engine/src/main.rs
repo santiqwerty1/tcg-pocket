@@ -19,6 +19,7 @@
 
 mod coach;
 mod consistency;
+mod exit;
 mod fair_bot;
 // The browser's engine (engine/wasm) also uses what engine-cli does not (the coach's restore, the played steps).
 #[allow(dead_code)]
@@ -1035,14 +1036,25 @@ fn disable_power_throttling() {
 fn disable_power_throttling() {}
 
 fn main() {
+    // How it ends goes on stderr as its last line (H-054): before anything else can end it.
+    exit::install();
     disable_power_throttling();
     // Panics inside games are caught and reported as JSON; keep the default hook from printing them twice.
     std::panic::set_hook(Box::new(|_| {}));
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if let Err(error) = run(&args) {
-        let text = serde_json::to_string(&error).unwrap_or_else(|_| format!("{{\"error\":\"{}\"}}", error.error));
-        println!("{text}");
-        std::process::exit(error.exit_code());
+    match catch_unwind(AssertUnwindSafe(|| run(&args))) {
+        Ok(Ok(())) => exit::finish("ok"),
+        Ok(Err(error)) => {
+            let text = serde_json::to_string(&error).unwrap_or_else(|_| format!("{{\"error\":\"{}\"}}", error.error));
+            println!("{text}");
+            exit::finish(&format!("error {}", error.exit_code()));
+            std::process::exit(error.exit_code());
+        }
+        // Outside a game (where they are caught and reported): the exit code a panic has always had.
+        Err(_) => {
+            exit::finish("pánico");
+            std::process::exit(101);
+        }
     }
 }
 

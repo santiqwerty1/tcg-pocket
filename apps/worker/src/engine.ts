@@ -62,6 +62,30 @@ interface RunOutput {
   total: number | null
   seconds: number
   lastSample: (ProcessSample & { memAvailableMb: number | null }) | null
+  /**
+   * How engine-cli said it ended (its last stderr line `fin …`, engine-cli 0.3.7 on: `ok`, `error N`, `pánico`,
+   * `señal N`, `exit sin terminar`); null when it said nothing (an older engine, or a process cut without a chance).
+   */
+  endLine: string | null
+  /** From the last game that moved its progress to its end. */
+  msSinceProgress: number | null
+  /** The longest this worker's own clock stopped while it ran (the whole app frozen by the system), beyond its tick. */
+  clockGapMs: number
+}
+
+/** How often the clock that sees the worker frozen ticks, and the gap that counts as frozen (H-054). */
+const CLOCK_EVERY_MS = 10_000
+export const FROZEN_GAP_MS = 30_000
+
+/** What a run that lost its result says about its end, for the chunk's error in the app (H-054). */
+export function cutDiagnosis(output: RunOutput): string {
+  const parts = [`fin: ${output.endLine ?? 'sin aviso del motor'}`]
+  if (output.total !== null) parts.push(`avance ${output.lastProgress ?? 0}/${output.total}`)
+  if (output.msSinceProgress !== null) parts.push(`última partida hace ${Math.round(output.msSinceProgress / 1000)} s`)
+  if (output.clockGapMs >= FROZEN_GAP_MS)
+    parts.push(`el worker estuvo frenado hasta ${Math.round(output.clockGapMs / 1000)} s seguidos`)
+  if (output.lastSample?.memAvailableMb != null) parts.push(`memoria libre ${output.lastSample.memAvailableMb} MB`)
+  return parts.join('; ')
 }
 
 function run(enginePath: string, args: string[], options: RunOptions = {}): Promise<RunOutput> {
@@ -77,7 +101,21 @@ function run(enginePath: string, args: string[], options: RunOptions = {}): Prom
     let total: number | null = null
     let lastProgress: number | null = null
     let lastSample: RunOutput['lastSample'] = null
+    let endLine: string | null = null
+    let lastProgressAt: number | null = null
+    let clockGapMs = 0
+    let clock: ReturnType<typeof setInterval> | null = null
     let probing: ReturnType<typeof setInterval> | null = null
+    if (options.probe) {
+      // A tick late by more than its period: the system froze this worker (and, likely, its engine) meanwhile.
+      let tick = Date.now()
+      clock = setInterval(() => {
+        const now = Date.now()
+        clockGapMs = Math.max(clockGapMs, now - tick - CLOCK_EVERY_MS)
+        tick = now
+      }, CLOCK_EVERY_MS)
+      clock.unref()
+    }
     if (options.probe && child.pid !== undefined) {
       const pid = child.pid
       const start = probeStart(pid)
@@ -100,27 +138,36 @@ function run(enginePath: string, args: string[], options: RunOptions = {}): Prom
         if (totalMatch) total = Number(totalMatch[1])
         const progress = /^progress (\d+)$/.exec(line.trim())
         if (progress) {
-          lastProgress = Number(progress[1])
+          const now = Number(progress[1])
+          if (now !== lastProgress) lastProgressAt = Date.now()
+          lastProgress = now
           options.onProgress?.(lastProgress, total)
         }
+        const end = /^fin (.+)$/.exec(line.trim())
+        if (end?.[1]) endLine = end[1]
       }
     })
     const abort = () => child.kill()
     options.signal?.addEventListener('abort', abort, { once: true })
     child.on('error', (error) => {
       if (probing) clearInterval(probing)
+      if (clock) clearInterval(clock)
       options.signal?.removeEventListener('abort', abort)
       reject(new EngineError(`no se pudo ejecutar ${enginePath}: ${error.message}`, null, 'spawn'))
     })
     child.on('close', (code, signal) => {
       if (probing) clearInterval(probing)
+      if (clock) clearInterval(clock)
       const seconds = Math.round((Date.now() - startedAt) / 1000)
+      const msSinceProgress = lastProgressAt === null ? null : Date.now() - lastProgressAt
       options.log?.('motor terminado', {
         command: args[0],
         pid: child.pid,
         exitCode: code,
         signal,
-        ...(total !== null ? { lastProgress, total, seconds } : {}),
+        endLine,
+        ...(total !== null ? { lastProgress, total, seconds, msSinceProgress } : {}),
+        ...(clock ? { clockGapMs } : {}),
       })
       options.signal?.removeEventListener('abort', abort)
       if (options.signal?.aborted) {
@@ -128,7 +175,7 @@ function run(enginePath: string, args: string[], options: RunOptions = {}): Prom
         return
       }
       if (code === 0 && signal === null) {
-        resolve({ stdout, stderrTail, lastProgress, total, seconds, lastSample })
+        resolve({ stdout, stderrTail, lastProgress, total, seconds, lastSample, endLine, msSinceProgress, clockGapMs })
         return
       }
       let message = stderrTail.trim() || `engine-cli terminó con código ${code}, señal ${signal}`
@@ -209,11 +256,16 @@ export async function runJob<T>(
         finished: output.total !== null && output.lastProgress === output.total,
         seconds: output.seconds,
         lastSample: output.lastSample,
+        // H-054: how it said it ended, the time since its last game and whether this worker was frozen meanwhile.
+        endLine: output.endLine,
+        msSinceProgress: output.msSinceProgress,
+        clockGapMs: output.clockGapMs,
         stdout: output.stdout.slice(-1000),
         stderr: output.stderrTail,
       })
+      // The diagnosis goes in the message too: the app keeps it as the chunk's error («Devuelto por el worker: …»).
       throw new EngineError(
-        `engine-cli ${command} terminó con código 0 sin resultado válido: ${String(error)}`,
+        `engine-cli ${command} terminó con código 0 sin resultado válido (${cutDiagnosis(output)}): ${String(error)}`,
         0,
         // engine-cli exits 0 only after writing it: a missing file means its process was ended from outside before
         // the end (the S25, 12/10/2026) or the file was removed, this worker's problem; a bad one is the engine's.

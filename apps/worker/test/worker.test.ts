@@ -7,7 +7,7 @@ import { gunzipSync } from 'node:zlib'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, type Chunk, type ChunkResult, type LiveGame, WorkerClient } from '../src/client.js'
 import type { WorkerConfig } from '../src/config.js'
-import { EngineError, engineStatus, engineVersion, runJob } from '../src/engine.js'
+import { cutDiagnosis, EngineError, engineStatus, engineVersion, FROZEN_GAP_MS, runJob } from '../src/engine.js'
 import { LiveRunner, OLD_ENGINE_COACH } from '../src/live.js'
 import { parseMemAvailableMb, parseStatus, procAvailable } from '../src/proc-probe.js'
 import type { ReadyRelease, Updater } from '../src/update.js'
@@ -140,6 +140,45 @@ describe('engine runner', () => {
       expect(messages).not.toContain('motor arrancado')
       expect(messages).not.toContain('motor: memoria')
     }
+  })
+
+  it('a lost result says how the engine said it ended, in the log and in the message the app keeps (H-054)', async () => {
+    const log = vi.fn()
+    // Cut without a word (the S25): no `fin` line.
+    const cut = runJob(FAKE_ENGINE, 'simulate', { games: 92 }, dir, { log })
+    await expect(cut).rejects.toMatchObject({ code: 'missing_result' })
+    const message = await cut.catch((error: Error) => error.message)
+    expect(message).toMatch(/\(fin: sin aviso del motor; avance 60\/92; última partida hace \d+ s/)
+    expect(log).toHaveBeenCalledWith(
+      'motor sin resultado válido',
+      expect.objectContaining({ endLine: null, msSinceProgress: expect.any(Number), clockGapMs: expect.any(Number) }),
+    )
+    // engine-cli 0.3.7 said it ended well, and the file is not there: then it is not a cut.
+    const said = runJob(FAKE_ENGINE, 'simulate', { games: 91 }, dir, { log })
+    await expect(said).rejects.toMatchObject({ code: 'missing_result' })
+    expect(await said.catch((error: Error) => error.message)).toContain('(fin: ok; avance 91/91')
+    expect(log).toHaveBeenCalledWith('motor terminado', expect.objectContaining({ endLine: 'ok' }))
+  })
+
+  it('the diagnosis of a cut says a frozen worker and its memory', () => {
+    const output = {
+      stdout: '',
+      stderrTail: '',
+      lastProgress: 699,
+      total: 1000,
+      seconds: 7000,
+      lastSample: { memAvailableMb: 812 } as never,
+      endLine: null,
+      msSinceProgress: 1_250_000,
+      clockGapMs: 1_200_000,
+    }
+    expect(cutDiagnosis(output)).toBe(
+      'fin: sin aviso del motor; avance 699/1000; última partida hace 1250 s; el worker estuvo frenado hasta 1200 s seguidos; memoria libre 812 MB',
+    )
+    // A late tick under the threshold is not «frozen».
+    expect(cutDiagnosis({ ...output, clockGapMs: FROZEN_GAP_MS - 1, lastSample: null, endLine: 'señal 15' })).toBe(
+      'fin: señal 15; avance 699/1000; última partida hace 1250 s',
+    )
   })
 
   it('reads /proc: MemAvailable and the status of a process', () => {

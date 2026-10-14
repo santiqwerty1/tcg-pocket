@@ -104,6 +104,11 @@ if (command === 'version') {
     // Nothing after this runs: the process ends from the timer.
     await new Promise(() => setTimeout(() => process.exit(0), 300))
   }
+  // engine-cli 0.3.7 says how it ended: here a normal end whose result.json is not there.
+  if (games === 91) {
+    process.stderr.write('total 91\nprogress 91\nfin ok\n')
+    process.exit(0)
+  }
   if (games === 94 || games === 93) {
     writeFileSync(resultFile, games === 94 ? '{incomplete' : 'null')
     process.exit(0)

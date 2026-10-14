@@ -19,4 +19,6 @@
 // another live one's; on Linux and Android the log says the engine's OOM score and memory while it plays.
 // 0.3.5: says its platform in the claims (the app's pause alert asks for Termux's battery only on Android), and a
 // clock set back never stretches a pause past 6 h.
-export const WORKER_VERSION = '0.3.5'
+// 0.3.6 (H-054): a lost result says how engine-cli said it ended (`fin …`, engine-cli 0.3.7), the time since its last
+// game and whether the worker was frozen, in the log and in the chunk's error the app keeps.
+export const WORKER_VERSION = '0.3.6'
