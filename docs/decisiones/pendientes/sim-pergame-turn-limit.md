@@ -1,0 +1,4 @@
+---
+seccion: Fase 42, infraestructura de simulación (9/10/2026)
+---
+| **Una partida que se decide por un KO del final del turno 30 se gana con 31 turnos** (`checkPerGame`). «P» y «N» pueden tener el límite más uno; «L» sigue necesitando más que el límite, y «T» nunca pasa de él. **Pregunta abierta:** si en el juego real ese KO (Deceptive Needle, veneno, quemadura) da la victoria o cuenta como empate por el límite. Santi lo preguntó el 14/10 y no encontré ninguna fuente que lo diga. Si es empate, el que no es fiel es deckgym, y va upstream con su OK. | deckgym resuelve los KO de los efectos de fin de turno después de avanzar el contador, que ya está en 31. La validación exigía «L si y solo si más de 30 turnos» y rechazaba el chunk entero: el #42 falló en sus tres intentos un cruce de #13 Hoopa ex / Mega-Absol ex contra Dedenne ex / Indeedee ex (partida 6: «P» en 31 turnos), y podía pasarle a cualquier trabajo con `perGame`. |
