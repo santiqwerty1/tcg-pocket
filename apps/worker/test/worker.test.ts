@@ -416,7 +416,10 @@ describe('worker loop', () => {
     worker.lostResultsPauseMs = 400
     await worker.loop(controller.signal)
     const paused = log.mock.calls.some(([message]) => String(message).startsWith('el motor perdió resultados'))
-    return { calls, claimedAt, paused }
+    const resumes = log.mock.calls.filter(([message]) =>
+      String(message).startsWith('el motor se cortó antes de terminar'),
+    ).length
+    return { calls, claimedAt, paused, resumes }
   }
 
   it('the same chunk lost twice does not pause (it may be that chunk; the app gives it to this worker last)', async () => {
@@ -445,6 +448,35 @@ describe('worker loop', () => {
       [9, 'worker'],
     ])
     expect(error.paused).toBe(true)
+  })
+
+  it('with an engine that resumes, a chunk cut before its end goes on from its checkpoint (B of H-054)', async () => {
+    process.env.FAKE_ENGINE_RESUME = '1'
+    try {
+      // Cut once: the next run finds the checkpoint and plays to the end. Nothing goes back, nothing pauses.
+      const resumed = await lossRun([chunk({ games: 89 }), chunk({ chunkId: 9 })])
+      expect(resumed.calls.results.map(({ chunkId, body }) => [chunkId, body.games])).toEqual([
+        [7, 89],
+        [9, 10],
+      ])
+      expect(resumed.calls.failures).toEqual([])
+      expect(resumed.paused).toBe(false)
+      expect(resumed.resumes).toBe(1)
+      // Cut every time: after MAX_RESUMES resumes it goes back, as before.
+      rmSync(join(dataDir, 'state.json'), { force: true })
+      const cut = await lossRun([chunk({ games: 88 }), chunk({ chunkId: 9 })])
+      expect(cut.calls.failures.map(({ chunkId, cause }) => [chunkId, cause])).toEqual([[7, 'worker']])
+      expect(cut.calls.results.map(({ chunkId }) => chunkId)).toEqual([9])
+      expect(cut.resumes).toBe(5)
+    } finally {
+      delete process.env.FAKE_ENGINE_RESUME
+    }
+  })
+
+  it('an engine without resume returns a cut chunk at once, as before', async () => {
+    const run = await lossRun([chunk({ games: 92 }), chunk({ chunkId: 9 })])
+    expect(run.calls.failures.map(({ chunkId, cause }) => [chunkId, cause])).toEqual([[7, 'worker']])
+    expect(run.resumes).toBe(0)
   })
 
   it('a clock set back never stretches a pause past the longest one; the claim says the platform (0.3.5)', async () => {

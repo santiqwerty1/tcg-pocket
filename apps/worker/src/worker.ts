@@ -12,12 +12,12 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { gzipSync } from 'node:zlib'
 import { ApiError, type Chunk, type ChunkResult, type Log, type WorkerClient } from './client.js'
 import type { WorkerConfig } from './config.js'
-import { EngineError, engineStatus, engineVersion, runJob } from './engine.js'
+import { EngineError, engineStatus, engineVersion, type RunOptions, runJob } from './engine.js'
 import { LiveRunner } from './live.js'
 import { processAlive } from './lock.js'
 import type { Updater } from './update.js'
 import { WORKER_VERSION } from './version.js'
-import { removeWorkDir, workDirInUse, workDirOwner } from './work-dir.js'
+import { createWorkDir, removeWorkDir, workDirInUse, workDirOwner } from './work-dir.js'
 
 /** 0.2.0: games against a bot and consistency chunks (Fase 8); the app gives consistency chunks only from 0.2.0 on.
  * 0.2.1: consistency against the meta (D-019), given only from 0.2.1 on. */
@@ -44,6 +44,8 @@ const WORK_DIR_GRACE_MS = 24 * 60 * 60_000
  * a row it stops claiming for a while (doubling up to the most), so another worker plays the chunk.
  */
 const LOST_RESULTS_BEFORE_PAUSE = 2
+/** B of H-054: how many times a chunk cut before its end is resumed from its checkpoint before it goes back. */
+const MAX_RESUMES = 5
 const LOST_RESULTS_PAUSE_MS = 30 * 60_000
 const LOST_RESULTS_PAUSE_MAX_MS = 6 * 60 * 60_000
 
@@ -153,6 +155,8 @@ export class Worker {
   private pausedUntil = 0
   /** Whether the engine plays several pairings in one process (`features` of `engine-cli version`). */
   private batchable = false
+  /** B of H-054: whether the engine resumes a pairing from its checkpoint (`features`: `resume`). */
+  private resumable = false
   /** Phase 42: how the engine plays (`gamesRev`), from `engine-cli version`; missing in older engines. */
   private gamesRev: number | undefined
   /** The engine's version (`engine-cli version`), for the diagnosis of a lost result (H-054). */
@@ -185,6 +189,7 @@ export class Worker {
   async prepare(signal?: AbortSignal): Promise<{ engineRev: string; cliVersion: string; engineFeatures: string[] }> {
     const version = await engineVersion(this.config.enginePath, signal)
     this.batchable = version.features?.includes('batch') ?? false
+    this.resumable = version.features?.includes('resume') ?? false
     this.gamesRev = typeof version.gamesRev === 'number' ? version.gamesRev : undefined
     this.cliVersion = version.cliVersion
     const state = await this.readState()
@@ -411,9 +416,8 @@ export class Worker {
           dir,
         }
       }
-      const { result, dir } = await runJob<SimulateResult>(
-        this.config.enginePath,
-        'simulate',
+      const { result, dir } = await this.simulateResuming(
+        chunk,
         {
           deckA: chunk.deckA,
           deckB: chunk.deckB,
@@ -424,7 +428,6 @@ export class Worker {
           replaySample: chunk.replaySample,
           ...(chunk.perGame ? { perGame: true } : {}),
         },
-        this.workDir,
         {
           signal: controller.signal,
           onProgress: track,
@@ -497,6 +500,44 @@ export class Worker {
       clearInterval(beat)
       signal.removeEventListener('abort', stop)
       void engineRev
+    }
+  }
+
+  /**
+   * B of H-054: with an engine that has `resume`, a chunk's games go to a checkpoint in its folder as they finish, and
+   * an engine cut before its end (exit 0 and no result.json, the S25) runs again there: it plays only the games the
+   * checkpoint does not have, with the same seeds, and its result is the one of a run in one go. At most
+   * `MAX_RESUMES` times; then the chunk goes back as before (`returnLost`). A cancel, a lost lease or a shutdown
+   * (the signal) never resumes.
+   */
+  private async simulateResuming(
+    chunk: Chunk,
+    job: Record<string, unknown>,
+    options: RunOptions & { signal: AbortSignal },
+  ): Promise<{ result: SimulateResult; dir: string }> {
+    if (!this.resumable) return runJob<SimulateResult>(this.config.enginePath, 'simulate', job, this.workDir, options)
+    const dir = createWorkDir(this.workDir, 'simulate-')
+    const checkpoint = join(dir, 'progress.txt')
+    for (let resumes = 0; ; resumes++) {
+      try {
+        return await runJob<SimulateResult>(this.config.enginePath, 'simulate', { ...job, checkpoint }, this.workDir, {
+          ...options,
+          dir,
+          keepOnLoss: true,
+        })
+      } catch (error) {
+        const lost = error instanceof EngineError && error.code === 'missing_result'
+        if (lost && resumes < MAX_RESUMES && !options.signal.aborted) {
+          this.log('el motor se cortó antes de terminar: retomo el chunk desde su avance', {
+            chunk: chunk.chunkId,
+            resume: resumes + 1,
+            error: error.message.slice(0, 300),
+          })
+          continue
+        }
+        if (lost) await removeWorkDir(dir)
+        throw error
+      }
     }
   }
 

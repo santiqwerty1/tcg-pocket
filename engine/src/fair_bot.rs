@@ -364,6 +364,7 @@ mod tests {
                 replay_sample: 0,
                 replay_dir: None,
                 per_game: true,
+                checkpoint: None,
             })
             .expect("simulate")
         };

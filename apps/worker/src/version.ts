@@ -21,4 +21,6 @@
 // clock set back never stretches a pause past 6 h.
 // 0.3.6 (H-054): a lost result says how engine-cli said it ended (`fin …`, engine-cli 0.3.7), the time since its last
 // game and whether the worker was frozen, in the log and in the chunk's error the app keeps.
-export const WORKER_VERSION = '0.3.6'
+// 0.3.7 (B of H-054): with an engine that has `resume` (engine-cli 0.3.8), a chunk cut before its end goes on from its
+// checkpoint in its folder, at most 5 times, instead of going back with every game it had played.
+export const WORKER_VERSION = '0.3.7'
