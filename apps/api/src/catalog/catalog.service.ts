@@ -46,6 +46,7 @@ export class CatalogService implements OnModuleInit {
   private loadedSync: CatalogSync | null = null
   /** The last time loading a sync applied elsewhere failed (null after a good one). */
   private reloadFailure: { at: Date; message: string } | null = null
+  private catchingUp = false
 
   constructor(
     private readonly repository: CatalogRepository,
@@ -63,6 +64,8 @@ export class CatalogService implements OnModuleInit {
   async reload(): Promise<void> {
     const started = Date.now()
     const loaded = await this.repository.loadCatalog()
+    // A database without a catalog after one was loaded (an applied row with no cards) keeps the one in memory.
+    if (!loaded && this.index) throw new Error('la base no tiene cartas para la sincronización aplicada')
     this.index = loaded ? new CatalogIndex(loaded.catalog) : null
     this.loadedSync = loaded?.sync ?? null
     if (loaded) {
@@ -79,18 +82,33 @@ export class CatalogService implements OnModuleInit {
    * the new one, like a sync of this process does at its end. `true` when it reloaded; a failure is kept for the alert.
    */
   async reloadIfBehind(): Promise<boolean> {
-    const latest = await this.repository.latestAppliedSync()
-    if (!latest || latest.id === this.loadedSync?.id) return false
+    // One at a time: a load slower than the minute does not start a second copy of the catalog next to it.
+    if (this.catchingUp) return false
+    this.catchingUp = true
     try {
-      await this.reload()
-      this.reloadFailure = null
-      this.logger.info({ syncId: latest.id, commit: latest.commitSha }, 'catalog applied by another process loaded')
-      return true
-    } catch (error) {
-      this.reloadFailure = { at: new Date(), message: error instanceof Error ? error.message : String(error) }
-      this.logger.error({ err: error, syncId: latest.id }, 'loading the catalog applied by another process failed')
-      return false
+      const latest = await this.repository.latestAppliedSync()
+      if (!latest || latest.id === this.loadedSync?.id) return false
+      try {
+        await this.reload()
+        this.reloadFailure = null
+        this.logger.info({ syncId: latest.id, commit: latest.commitSha }, 'catalog applied by another process loaded')
+        return true
+      } catch (error) {
+        this.reloadFailure = { at: new Date(), message: error instanceof Error ? error.message : String(error) }
+        this.logger.error({ err: error, syncId: latest.id }, 'loading the catalog applied by another process failed')
+        return false
+      }
+    } finally {
+      this.catchingUp = false
     }
+  }
+
+  /**
+   * The commit of the last sync applied in the database: what «Sincronizar» repeats and what a commit is compared with,
+   * also while the memory is behind (repeating the memory's would undo a CLI's sync).
+   */
+  async appliedCommit(): Promise<string | null> {
+    return (await this.repository.latestAppliedSync())?.commitSha ?? this.trackerCommit
   }
 
   /** The sync in memory against the last one applied in the database (the `catalog_memory` alert). */

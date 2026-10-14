@@ -19,6 +19,7 @@ import {
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
+import { CatalogSyncService } from '../catalog/catalog-sync.service.js'
 import { ENV, type Env } from '../config/env.js'
 import { OWNER_TIME_ZONE, todayInOwnerZone } from '../config/time-zone.js'
 import {
@@ -202,6 +203,7 @@ export class AlertsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly catalog: CatalogService,
+    private readonly catalogSync: CatalogSyncService,
     private readonly tracker: TrackerUpstreamService,
     private readonly tournaments: TournamentsService,
     private readonly engine: EngineStatusService,
@@ -645,10 +647,14 @@ export class AlertsService {
       })
     }
     // A sync applied by another process (a `catalog-sync.js` CLI) that the API has not loaded yet: it does within a
-    // minute (`catchUp`); the alert stays if loading it fails.
-    const memory = await this.catalog.memoryState()
-    if (memory.latest && memory.latest.id !== memory.loaded?.id) {
+    // minute (`catchUp`); the alert stays if loading it fails. Not while this API syncs: between its commit and its own
+    // load the database is ahead for a moment, and that is not a CLI's.
+    const memory = this.catalogSync.isRunning ? null : await this.catalog.memoryState()
+    if (memory?.latest && memory.latest.id !== memory.loaded?.id) {
       const short = (sha: string) => sha.slice(0, 7)
+      const loaded = memory.loaded
+        ? `la sincronización #${memory.loaded.id} (commit ${short(memory.loaded.commitSha)})`
+        : 'ningún catálogo'
       const failure = memory.failure
         ? ` El último intento falló: ${memory.failure.message.slice(0, 160).replace(/\.+$/, '')}.`
         : ''
@@ -656,7 +662,8 @@ export class AlertsService {
         code: 'catalog_memory',
         level: 'warning',
         title: 'El catálogo cargado no es el último aplicado',
-        detail: `La app usa ${memory.loaded ? `la sincronización #${memory.loaded.id} (commit ${short(memory.loaded.commitSha)})` : 'ningún catálogo'} y la base ya tiene la #${memory.latest.id} (commit ${short(memory.latest.commitSha)}), seguramente de un catalog-sync por la línea de comandos. La API la carga sola en menos de un minuto.${failure} Si el aviso sigue, tocá «Sincronizar» en Más → Catálogo o reiniciá la máquina.`,
+        // Restarting, not «Sincronizar»: the restart loads what the database has, without syncing again.
+        detail: `La app usa ${loaded} y la base ya tiene la #${memory.latest.id} (commit ${short(memory.latest.commitSha)}), seguramente de un catalog-sync por la línea de comandos. La API la carga sola en menos de un minuto.${failure} Si el aviso sigue, reiniciá la máquina.`,
         link: '/mas/catalogo',
       })
     }
