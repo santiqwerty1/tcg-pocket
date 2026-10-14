@@ -1,6 +1,6 @@
 [package]
 name = "engine-cli"
-version = "0.3.9"
+version = "0.3.10"
 edition = "2021"
 # Links deckgym-core (AGPL-3.0): this executable is a derivative work under the same license (DECISIONES A.5).
 license = "AGPL-3.0-only"
@@ -23,7 +23,8 @@ libc = "0.2"
 
 # Opt out of Windows power throttling (EcoQoS): a hidden worker would otherwise run on the efficiency cores only.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_System_Threading"] }
+# and the CPU regulator (src/regulate.rs): the machine's cores, its busy time and the engines' affinity.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Performance", "Win32_System_SystemInformation", "Win32_System_Threading"] }
 
 [profile.release]
 opt-level = 3

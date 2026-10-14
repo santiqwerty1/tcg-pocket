@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import type { Log } from './client.js'
 import { type EnginePriority, setEnginePriority } from './priority.js'
 import { PROBE_EVERY_MS, type ProcessSample, probeSample, probeStart } from './proc-probe.js'
+import { engineEnded, engineStarted } from './regulator.js'
 import { createWorkDir, removeWorkDir } from './work-dir.js'
 
 export interface EngineVersion {
@@ -61,6 +62,8 @@ export interface RunOptions {
    */
   dir?: string | undefined
   keepOnLoss?: boolean | undefined
+  /** A job's engine: the CPU regulator narrows it when other programs need the machine. */
+  regulated?: boolean | undefined
 }
 
 /**
@@ -73,7 +76,7 @@ export interface RunOptions {
 export function endedFromOutside(error: unknown): error is EngineError {
   if (!(error instanceof EngineError)) return false
   if (error.code === 'missing_result') return true
-  return error.exitCode === null && (error.signal === 'SIGKILL' || error.signal === 'SIGTERM')
+  return error.signal === 'SIGKILL' || error.signal === 'SIGTERM'
 }
 
 /** How a run went, besides its output: for the log when the result is missing. */
@@ -138,6 +141,11 @@ function run(enginePath: string, args: string[], options: RunOptions = {}): Prom
     // A .js/.mjs engine is a script run with this Node (the fake engine of the tests).
     const [command, prefix] = /\.m?js$/.test(enginePath) ? [process.execPath, [enginePath]] : [enginePath, []]
     const child = spawn(command, [...prefix, ...args], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    if (options.regulated) {
+      engineStarted(child.pid, 'managed')
+      // On 'exit', when its PID is let go: on 'close' (when its pipes end) a new engine may have it already.
+      child.once('exit', () => engineEnded(child.pid))
+    }
     setEnginePriority(child.pid, options.priority ?? 'normal', options.log ?? console.error)
     const startedAt = Date.now()
     let stdout = ''
@@ -310,6 +318,7 @@ export async function runJob<T>(
     )
     const output = await run(enginePath, [command, jobFile, resultFile], {
       probe: true,
+      regulated: true,
       ...options,
       priority: options.priority ?? 'below_normal',
     })

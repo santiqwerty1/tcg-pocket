@@ -27,6 +27,11 @@ export interface WorkerConfig {
   capThreads?: boolean
   /** D-026: a managed install (portable or Android package) follows the app's package; false keeps this one. */
   autoUpdate: boolean
+  /**
+   * The CPU regulator (Windows, engine feature `regulate`): the engines use every logical processor up to `cores`
+   * while nothing else needs them, and give whole cores back when another program does. On by default on Windows.
+   */
+  cpuRegulator: boolean
 }
 
 export function dataDir(): string {
@@ -51,6 +56,7 @@ export interface FileConfig {
   enginePath?: string
   onlyCharging?: boolean
   autoUpdate?: boolean
+  cpuRegulator?: boolean
 }
 
 /** What a caller knows better than the repository layout (the portable package: the engine next to the exe). */
@@ -127,6 +133,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, defaults: Confi
   if (typeof autoUpdate !== 'boolean') {
     throw new Error('autoUpdate inválido: usá un booleano true o false en config.json.')
   }
+  const regulatorEnv = env.TCG_WORKER_CPU_REGULATOR
+  if (regulatorEnv !== undefined && regulatorEnv !== 'true' && regulatorEnv !== 'false') {
+    throw new Error('TCG_WORKER_CPU_REGULATOR inválido: usá true o false.')
+  }
+  const cpuRegulator =
+    regulatorEnv !== undefined ? regulatorEnv === 'true' : (fromFile.cpuRegulator ?? process.platform === 'win32')
+  if (typeof cpuRegulator !== 'boolean') {
+    throw new Error('cpuRegulator inválido: usá un booleano true o false en config.json.')
+  }
   const configuredEngine = env.TCG_ENGINE_PATH ?? fromFile.enginePath
   const enginePath =
     defaults.packageEngine && autoUpdate && defaults.enginePath
@@ -144,5 +159,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, defaults: Confi
     workerId: readFileSync(idFile, 'utf8').trim(),
     ...(defaults.capThreads ? { capThreads: true } : {}),
     autoUpdate,
+    cpuRegulator,
   }
 }

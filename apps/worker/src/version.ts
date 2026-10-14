@@ -25,4 +25,7 @@
 // checkpoint in its folder, at most 5 times, instead of going back with every game it had played.
 // 0.3.8 (review of #104): also resumes an engine ended by a SIGKILL or SIGTERM it did not send (Android), with
 // engine-cli 0.3.9, whose checkpoint stops at the first write that fails.
-export const WORKER_VERSION = '0.3.8'
+// 0.3.9 (pedido de Santi del 14/10/2026): on Windows, with an engine that has `regulate` (engine-cli 0.3.10), the CPU
+// regulator gives the engines every logical processor while nothing else needs them, and whole cores back at once when
+// another program does (`cpuRegulator`, on by default on Windows).
+export const WORKER_VERSION = '0.3.9'

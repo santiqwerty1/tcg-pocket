@@ -15,6 +15,7 @@ import type { WorkerConfig } from './config.js'
 import { EngineError, endedFromOutside, engineStatus, engineVersion, type RunOptions, runJob } from './engine.js'
 import { LiveRunner } from './live.js'
 import { processAlive } from './lock.js'
+import { CpuRegulator, watchEngines } from './regulator.js'
 import type { Updater } from './update.js'
 import { WORKER_VERSION } from './version.js'
 import { createWorkDir, removeWorkDir, workDirInUse, workDirOwner } from './work-dir.js'
@@ -823,8 +824,20 @@ export class Worker {
     let live: Promise<void> | null = null
     let liveRunner: LiveRunner | null = null
     let watching: Promise<void> | null = null
+    let regulator: CpuRegulator | null = null
     try {
       const { engineRev, cliVersion, engineFeatures } = await this.prepare(signal)
+      // The CPU regulator (Windows, pedido de Santi del 14/10/2026): with an engine that has it and unless turned off.
+      if (this.config.cpuRegulator && process.platform === 'win32' && engineFeatures.includes('regulate')) {
+        // Sized from the whole machine: `cores` is each engine's threads (autorrevisión).
+        regulator = new CpuRegulator({
+          enginePath: this.config.enginePath,
+          dataDir: this.config.dataDir,
+          log: this.log,
+        })
+        watchEngines(regulator)
+        regulator.start()
+      }
       await this.flushPending(signal)
       this.log('worker listo', {
         // Two at once on one folder show up as two PIDs (the S25, 12/10/2026).
@@ -957,6 +970,10 @@ export class Worker {
       controller.abort()
       await live
       await watching
+      if (regulator) {
+        watchEngines(null)
+        await regulator.stop()
+      }
       outerSignal.removeEventListener('abort', stop)
     }
   }
