@@ -164,4 +164,28 @@ describe('evolution lines in the pool («probar estas cartas» with Onix)', () =
     )
     expect(note).toContain('Charmeleon')
   })
+
+  it('self-review: a swap brings the pre-evolution drawn on its own first, not one that only comes along', () => {
+    // Mega-Steelix ex into a deck without Onix: Onix B1a-38 (three Colorless, drawn) rather than A1-150 (weight 0),
+    // whatever their order in the pool.
+    const deck = deckDraft(2)
+    const pool: PoolCard[] = [
+      { cardId: 'B1a-52', groupId: 'B1a-52', nameEn: 'Mega Steelix ex', maxCopies: 2, weight: 10 },
+      { cardId: 'A1-150', groupId: 'A1-150', nameEn: 'Onix', maxCopies: 2, weight: 0 },
+      { cardId: 'B1a-38', groupId: 'B1a-38', nameEn: 'Onix', maxCopies: 2, weight: 1 },
+    ]
+    const random = seededRandom(5)
+    let checked = 0
+    for (let k = 0; k < 50; k++) {
+      const variant = variantOf(deck.cards, metal, pool, index, random)
+      const onix = variant?.add.find((change) => index.cardById(change.cardId)?.nameEn === 'Onix')
+      if (!variant?.add.some((change) => change.cardId === 'B1a-52') || !onix) continue
+      expect(onix.cardId).toBe('B1a-38')
+      checked += 1
+    }
+    expect(checked).toBeGreaterThan(5)
+    // With only the one that comes along, it is that one.
+    const only = variantOf(deck.cards, metal, pool.slice(0, 2), index, seededRandom(5))
+    expect(only?.add.map((change) => change.cardId).sort()).toEqual(['A1-150', 'B1a-52'])
+  })
 })

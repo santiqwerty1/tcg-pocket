@@ -895,7 +895,13 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       if (!card) continue
       // Review of #64: its pre-evolution comes along when the list lacks it (never drawn on its own: weight 0).
       const pre = index.cardById(card.cardId)?.evolvesFrom
-      const helpers = pre ? pool.filter((item) => item.nameEn === pre).map((item) => ({ ...item, weight: 0 })) : []
+      // The ones drawn on their own first: the pre-evolution a swap takes is the first that fits.
+      const helpers = pre
+        ? pool
+            .filter((item) => item.nameEn === pre)
+            .sort((a, b) => b.weight - a.weight)
+            .map((item) => ({ ...item, weight: 0 }))
+        : []
       const variant = variantOf(cards, energies, [card, ...helpers], index, random, {
         locked,
         seen,

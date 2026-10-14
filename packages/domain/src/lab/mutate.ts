@@ -439,7 +439,9 @@ function swapOnce(
   const incoming = [pick]
   const card = index.cardById(pick.cardId)
   if (card?.evolvesFrom && nameCount(card.evolvesFrom) === 0) {
-    const pre = pool.find((item) => item.nameEn === card.evolvesFrom && fits(item))
+    // One drawn on its own first (as before the pre-evolutions with weight 0: Onix B1a-38, not A1-150, in Metal).
+    const pres = pool.filter((item) => item.nameEn === card.evolvesFrom && fits(item))
+    const pre = pres.find((item) => item.weight > 0) ?? pres[0]
     if (!pre) return false
     incoming.unshift(pre)
   }

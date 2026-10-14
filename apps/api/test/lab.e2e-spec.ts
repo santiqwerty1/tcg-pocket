@@ -589,9 +589,12 @@ describe('laboratorio (e2e)', () => {
       const card = test.app.get(CatalogService).requireIndex().cardById(cardId)
       return { cardId, groupId: card?.functionalGroupId ?? cardId, nameEn: card?.nameEn ?? '', maxCopies, weight }
     })
-    expect(poolForZone(thawed, dry.body.base.energies, test.app.get(CatalogService).requireIndex())).toHaveLength(
-      dry.body.pool,
-    )
+    // (The plan counts the cards drawn on their own: a pre-evolution that only comes along has weight 0.)
+    expect(
+      poolForZone(thawed, dry.body.base.energies, test.app.get(CatalogService).requireIndex()).filter(
+        (card) => card.weight > 0,
+      ),
+    ).toHaveLength(dry.body.pool)
     const [, winner] = state.rounds[0]?.candidates ?? []
     if (winner === undefined) throw new Error('no second variant')
 
@@ -2201,13 +2204,21 @@ describe('laboratorio (e2e)', () => {
       confirmBot: null,
       race: false,
     }
-    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9600 })
+    const created = await post('/api/lab/explore').send({ deck: { deckId: deckIds[1] }, size: 3, config, seed: 9601 })
+    // (9601, not 9600: with the pre-evolutions of weight 0, 9600's first swap is Sinistea and Polteageist at once.)
     const id = created.body.id as number
-    type State = { rounds: { candidates: number[] }[]; accepted?: { variant: number }[]; reverts?: number[] }
+    type State = {
+      rounds: { candidates: number[] }[]
+      accepted?: { variant: number }[]
+      reverts?: number[]
+      combos?: number[]
+    }
     const read = async () =>
       ((await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })).params as { lab: { explore: State } }).lab
         .explore
     // Each round's first variant wins (90 % in round 0, all in round 1); it is accepted on the screen (no verification).
+    // (Round 1's is its first card swap: since the pre-evolutions with weight 0, Polteageist comes with Sinistea, and
+    // round 1 may open with a combo or another Energy Zone for it.)
     const rate = new Map<number, number>()
     const playRound = async (chunks: number) => {
       for (let n = 0; n < chunks; n++) {
@@ -2232,7 +2243,18 @@ describe('laboratorio (e2e)', () => {
     expect(first.accepted?.map((swap) => swap.variant)).toEqual([first.rounds[0]?.candidates[0]])
     // Round 1 opens with its own variants (nothing to undo yet: the only accepted change was just verified).
     expect(first.reverts ?? []).toEqual([])
-    const second = first.rounds[1]?.candidates.find((sid) => sid !== undefined) as number
+    const zones = new Map(
+      (
+        await test.prisma.deckSnapshot.findMany({
+          where: { id: { in: [...(first.rounds[1]?.candidates ?? []), first.rounds[0]?.candidates[0] as number] } },
+          select: { id: true, energies: true },
+        })
+      ).map((row) => [row.id, JSON.stringify(row.energies)]),
+    )
+    const second = first.rounds[1]?.candidates.find(
+      (sid) =>
+        !(first.combos ?? []).includes(sid) && zones.get(sid) === zones.get(first.rounds[0]?.candidates[0] as number),
+    ) as number
     rate.set(first.rounds[0]?.candidates[0] as number, 0.9)
     rate.set(second, 1)
     await playRound(4 * 3)
