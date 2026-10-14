@@ -87,6 +87,16 @@ const CLOCK_EVERY_MS = 10_000
 export const FROZEN_GAP_MS = 30_000
 
 /**
+ * Why result.json could not be read, without its path: the chunk's error is seen in the app and over MCP, and the path
+ * has the user's folder (review of #100).
+ */
+function resultProblem(error: unknown): string {
+  const code = (error as { code?: unknown } | null)?.code
+  if (typeof code === 'string') return `result.json: ${code}`
+  return `result.json: ${error instanceof Error ? error.message : String(error)}`
+}
+
+/**
  * What a run that lost its result says about its end, for the chunk's error in the app (H-054). With exit code 0, no
  * `fin` line means an engine older than 0.3.7, or a process ended through `_exit` (a SIGKILL is seen as a signal).
  */
@@ -122,20 +132,22 @@ function run(enginePath: string, args: string[], options: RunOptions = {}): Prom
     let sleepGapMs = 0
     let clock: ReturnType<typeof setInterval> | null = null
     let probing: ReturnType<typeof setInterval> | null = null
+    let readClock: (() => void) | null = null
     if (options.probe) {
       // A tick late by more than its period on the monotonic clock: the system froze this worker meanwhile. The wall
       // clock going further than the monotonic one: the machine slept (the monotonic one stops then) or its time moved.
       const every = options.clockEveryMs ?? CLOCK_EVERY_MS
       let monotonic = performance.now()
       let wall = Date.now()
-      clock = setInterval(() => {
+      readClock = () => {
         const nowMonotonic = performance.now()
         const nowWall = Date.now()
         clockGapMs = Math.max(clockGapMs, Math.round(nowMonotonic - monotonic - every))
         sleepGapMs = Math.max(sleepGapMs, Math.round(nowWall - wall - (nowMonotonic - monotonic)))
         monotonic = nowMonotonic
         wall = nowWall
-      }, every)
+      }
+      clock = setInterval(readClock, every)
       clock.unref()
     }
     if (options.probe && child.pid !== undefined) {
@@ -172,7 +184,8 @@ function run(enginePath: string, args: string[], options: RunOptions = {}): Prom
     child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
       stderrTail = (stderrTail + chunk).slice(-4000)
       const lines = (partial + chunk).split(/\r?\n/)
-      partial = lines.pop() ?? ''
+      // Capped, as the tail: a stderr without line breaks does not grow it without end (review of #100).
+      partial = (lines.pop() ?? '').slice(-4000)
       for (const line of lines) readLine(line)
     })
     const abort = () => child.kill()
@@ -186,6 +199,8 @@ function run(enginePath: string, args: string[], options: RunOptions = {}): Prom
     child.on('close', (code, signal) => {
       if (probing) clearInterval(probing)
       if (clock) clearInterval(clock)
+      // A last reading: a freeze that ends with the engine would not reach the next tick (review of #100).
+      readClock?.()
       // A last line without its line break.
       if (partial) readLine(partial)
       partial = ''
@@ -309,7 +324,7 @@ export async function runJob<T>(
       })
       // The diagnosis goes in the message too: the app keeps it as the chunk's error («Devuelto por el worker: …»).
       throw new EngineError(
-        `engine-cli ${command} terminó con código 0 sin resultado válido (${cutDiagnosis(output, options.cliVersion)}): ${String(error)}`,
+        `engine-cli ${command} terminó con código 0 sin resultado válido (${cutDiagnosis(output, options.cliVersion)}): ${resultProblem(error)}`,
         0,
         // engine-cli exits 0 only after writing it: a missing file means its process was ended from outside before
         // the end (the S25, 12/10/2026) or the file was removed, this worker's problem; a bad one is the engine's.

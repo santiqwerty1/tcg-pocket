@@ -149,6 +149,9 @@ describe('engine runner', () => {
     await expect(cut).rejects.toMatchObject({ code: 'missing_result' })
     const message = await cut.catch((error: Error) => error.message)
     expect(message).toMatch(/\(fin: ninguna \(engine-cli 0\.3\.7\); avance 60\/92; última partida hace \d+ s/)
+    // Without the folder's path (it has the user's folder): the app shows the message, MCP gives it (review of #100).
+    expect(message).toMatch(/: result\.json: ENOENT$/)
+    expect(message).not.toContain(dir)
     expect(log).toHaveBeenCalledWith(
       'motor sin resultado válido',
       expect.objectContaining({

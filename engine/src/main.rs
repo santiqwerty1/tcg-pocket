@@ -1044,7 +1044,8 @@ fn main() {
         Ok(Ok(())) => exit::finish("ok"),
         Ok(Err(error)) => {
             let text = serde_json::to_string(&error).unwrap_or_else(|_| format!("{{\"error\":\"{}\"}}", error.error));
-            println!("{text}");
+            // Without a panic: a stdout that cannot be written does not hide how it ended (review of #100).
+            let _ = std::io::Write::write_all(&mut std::io::stdout().lock(), format!("{text}\n").as_bytes());
             exit::finish(&format!("error {}", error.exit_code()));
             std::process::exit(error.exit_code());
         }
