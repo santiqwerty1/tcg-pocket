@@ -91,6 +91,8 @@ describe('laboratorio (e2e)', () => {
       if (/^\/tournaments\?/.test(path)) return json(200, /page=1$/.test(path) ? listing : [])
       if (path === `/tournaments/${BIG}/details`) return json(200, read('big_details.json'))
       if (path === `/tournaments/${BIG}/standings`) return json(200, read('big_standings.json'))
+      // H-055: its rounds too, so the archetypes have matchups and an expected rate against the meta.
+      if (path === `/tournaments/${BIG}/pairings`) return json(200, read('big_pairings.json'))
       return json(404, { message: 'unknown path' })
     }
     test.app.get(LimitlessTransport).fetch = fake
@@ -2314,6 +2316,78 @@ describe('laboratorio (e2e)', () => {
     expect(base.bringsBlindSpot).toBe(false)
     await post(`/api/simulations/${created.body.id}/cancel`)
   }, 60_000)
+
+  it('H-055: «posible punto ciego del bot» in the Laboratorio, «¿Cuál llevo hoy?», the deck and Claude', async () => {
+    const client = new Client({ name: 'e2e', version: '1.0.0' })
+    await client.connect(
+      new StreamableHTTPClientTransport(mcpUrl, { requestInit: { headers: { Authorization: `Bearer ${mcpToken}` } } }),
+    )
+    clients.push(client)
+    const call = async (name: string, args: Record<string, unknown> = {}) =>
+      ((await client.callTool({ name, arguments: args })) as { structuredContent?: Structured }).structuredContent ?? {}
+    const patch = (id: string, body: Record<string, unknown>) =>
+      test.http().patch(`/api/decks/${id}`).set('Cookie', cookie).send(body)
+    // Deck 40 (Mega-Venusaur ex: Ivysaur does no damage) and deck 2, which has no such card; both lose every game.
+    const venusaur = deckIds[39] as string
+    const plain = deckIds[1] as string
+    const jobs: Record<string, number> = {}
+    for (const [deckId, seed] of [
+      [venusaur, 9300],
+      [plain, 9301],
+    ] as const) {
+      const created = await post('/api/lab/test').send({ decks: [{ deckId }], size: 3, gamesPerRival: 20, seed })
+      expect(created.status).toBe(200)
+      jobs[deckId] = created.body.id as number
+      expect((await patch(deckId, { builtInGame: true })).status).toBe(200)
+    }
+    expect(await playAll(() => 0)).toBeGreaterThanOrEqual(6)
+    // Deck 2 plays the most played archetype of the bank, so it has a tournament number to be far from.
+    const top = ((await get(`/api/lab/jobs/${jobs[plain]}`)).body.rivals as { archetypeId: string }[])[0]?.archetypeId
+    expect((await patch(plain, { tournamentArchetypeId: top })).status).toBe(200)
+    const ivysaur =
+      /^Posible punto ciego del bot: e2 casi nunca evoluciona a Ivysaur, que no hace daño, así que el mazo casi no llega a /
+    try {
+      // The Laboratorio, on the list.
+      const venusaurLab = (await get(`/api/lab/jobs/${jobs[venusaur]}`)).body
+      expect(venusaurLab.decks[0].botBlindSpot.text).toMatch(ivysaur)
+      const far =
+        /^Posible punto ciego del bot: 0\u00a0% simulado contra [\d,]+\u00a0% del arquetipo en torneos\. Probalo con f2 o e3\.$/
+      // Against the meta, deck 2's score against what its archetype makes in tournaments.
+      expect((await get(`/api/lab/jobs/${jobs[plain]}`)).body.decks[0].botBlindSpot?.text).toMatch(far)
+      // «¿Cuál llevo hoy?», under the Laboratorio's number.
+      type Row = {
+        deck: { id: string }
+        tournament: { value: number; ci95: [number, number] } | null
+        lab: { value: number; ci95: [number, number]; bot: string } | null
+        blindSpot: { text: string } | null
+      }
+      const today = (await get('/api/decks-today')).body as { items: Row[] }
+      const rowOf = (id: string) => today.items.find((item) => item.deck.id === id) as Row
+      expect(rowOf(venusaur).lab).toMatchObject({ value: 0, bot: 'e2' })
+      expect(rowOf(venusaur).blindSpot?.text).toMatch(ivysaur)
+      // Deck 2 has no card of the list rules: only the number far from its archetype's in tournaments can say it.
+      const plainRow = rowOf(plain)
+      expect(plainRow.lab).toMatchObject({ value: 0, bot: 'e2' })
+      expect(plainRow.tournament).not.toBeNull()
+      expect(plainRow.tournament?.ci95[0]).toBeGreaterThan(15)
+      expect(plainRow.blindSpot?.text).toMatch(far)
+      // The deck sheet's simulation column: the list rules only (it pools the rivals each simulation chose).
+      const columnOf = async (id: string) =>
+        ((await get(`/api/decks/${id}/comparison`)).body.columns as { source: string; blindSpot?: unknown }[]).find(
+          (column) => column.source === 'simulation',
+        )
+      expect(((await columnOf(venusaur))?.blindSpot as { text: string } | undefined)?.text).toMatch(ivysaur)
+      expect((await columnOf(plain))?.blindSpot).toBeNull()
+      // Claude.
+      const results = await call('lab_results', { job: jobs[venusaur] })
+      expect((results.decks as { botBlindSpot?: string }[])[0]?.botBlindSpot).toMatch(ivysaur)
+      const picked = (await call('decks_pick_today', { limit: 40 })).decks as { deck: string; botBlindSpot?: string }[]
+      expect(picked.find((row) => row.deck.startsWith(`#${venusaur} `))?.botBlindSpot).toMatch(ivysaur)
+      expect(picked.find((row) => row.deck.startsWith(`#${plain} `))?.botBlindSpot).toMatch(/simulado contra/)
+    } finally {
+      for (const id of [venusaur, plain]) await patch(id, { builtInGame: false, tournamentArchetypeId: null })
+    }
+  }, 120_000)
 
   it('T-017 C8: after the probe, every way to fill the two weakest places; the best three are verified together', async () => {
     const config = {

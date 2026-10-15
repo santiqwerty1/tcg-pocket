@@ -20,6 +20,8 @@ import {
   archetypeRows,
   BLIND_SPOT_ES,
   blindSpotsOf,
+  botWarnings,
+  botWarningText,
   buildFromCore,
   buildSnapshot,
   byExpendable,
@@ -2482,6 +2484,61 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     }
   }
 
+  /**
+   * H-055: «posible punto ciego del bot» of each list: the list rules for the bot of the lists' side and, when the
+   * objective is the meta, the headline score (the confirmation's when there is one) against what the list's
+   * archetype should make against the era's meta in tournaments: the deck's own archetype, else the closest one.
+   */
+  private async botBlindSpots(
+    decks: readonly LabDeckView[],
+    snapshots: ReadonlyMap<number, { cards: unknown }>,
+    closest: ReadonlyMap<number, string | null>,
+    bot: string | null,
+    lab: LabParams,
+    index: CatalogIndex,
+  ): Promise<Map<number, { text: string } | null>> {
+    const againstMeta = (lab.objective?.kind ?? 'meta') === 'meta'
+    const owners = new Map<string, string | null>()
+    const deckIds = [...new Set(decks.flatMap((deck) => (deck.deckId === null ? [] : [Number(deck.deckId)])))]
+    if (againstMeta && deckIds.length > 0) {
+      for (const row of await this.prisma.deck.findMany({
+        where: { id: { in: deckIds } },
+        select: { id: true, tournamentArchetypeId: true },
+      })) {
+        owners.set(String(row.id), row.tournamentArchetypeId)
+      }
+    }
+    const archetypeOf = (deck: LabDeckView): string | null => {
+      const own = deck.deckId === null ? undefined : owners.get(deck.deckId)
+      return own ?? closest.get(deck.snapshot) ?? null
+    }
+    const expected = new Map<string, { value: number; ci95: [number, number] } | null>()
+    if (againstMeta) {
+      for (const id of new Set(decks.map(archetypeOf).filter((id): id is string => id !== null))) {
+        const found = await this.tournaments
+          .archetypeMatchupsOf(id, { era: lab.era, format: lab.format })
+          .then((view) => view.matchups.expected)
+          .catch(() => null)
+        expected.set(id, found)
+      }
+    }
+    const out = new Map<number, { text: string } | null>()
+    for (const deck of decks) {
+      const cards = cardsOfSnapshot(snapshots.get(deck.snapshot)?.cards as unknown as SnapshotCard[])
+      const archetype = archetypeOf(deck)
+      const warnings = botWarnings({
+        cards,
+        index,
+        bot,
+        simulated: againstMeta ? (deck.confirm?.score ?? deck.search.score) : null,
+        tournament: archetype === null ? null : (expected.get(archetype) ?? null),
+      })
+      const text = botWarningText(warnings, bot)
+      out.set(deck.snapshot, text ? { text } : null)
+    }
+    return out
+  }
+
   async job(rawId: string): Promise<LabJobView> {
     const id = parseNumericId(rawId, 'Simulación')
     const job = await this.prisma.simulationJob.findUnique({ where: { id } })
@@ -2522,6 +2579,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       index,
     )
 
+    // H-055: the archetype each list belongs to (its deck's, or the era's closest when it is played or known).
+    const closest = new Map<number, string | null>()
     const decks: LabDeckView[] = params.sideA
       .map((sid): LabDeckView | null => {
         const snapshot = byId.get(sid)
@@ -2534,6 +2593,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             : null
         const headline = confirmed?.score ? confirmFilter : searchFilter
         const found = novelty(rows, groupsOfCards(cards, index))
+        closest.set(sid, found.kind === 'new' ? null : (found.closest?.archetypeId ?? null))
         const noveltyView: LabNoveltyView = {
           kind: found.kind,
           label: NOVELTY_LABEL_ES[found.kind],
@@ -2597,6 +2657,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             const card = index.cardById(change.cardId)
             return !!card && blindSpotsOf(card).length > 0
           }),
+          botBlindSpot: null,
           energyChange: (() => {
             const from = state ? (byId.get(state.base)?.energies ?? []) : []
             const to = snapshot.energies
@@ -2610,6 +2671,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         }
       })
       .filter((deck): deck is LabDeckView => deck !== null)
+    const blind = await this.botBlindSpots(decks, byId, closest, job.players[0] ?? null, lab, index)
+    for (const deck of decks) deck.botBlindSpot = blind.get(deck.snapshot) ?? null
 
     const roleOrder = { best: 0, base: 1, deck: 2, variant: 3 } as const
     decks.sort(

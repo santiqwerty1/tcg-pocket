@@ -271,3 +271,42 @@ describe('¿Qué mazo llevo hoy? and «Actualizar todos» (14/10)', () => {
     expect(screen.queryByRole('button', { name: 'Actualizar todos' })).not.toBeInTheDocument()
   })
 })
+
+describe('¿Qué mazo llevo hoy? and «posible punto ciego del bot» (H-055)', () => {
+  it('says it under the Laboratorio line of its deck, and only there', async () => {
+    const base = answer('tournament')
+    const deck = base.items[0] as (typeof base.items)[number]
+    const lab = {
+      value: 1.4,
+      ci95: [0.5, 4],
+      games: 1500,
+      text: '1,4 % contra el meta',
+      jobId: 41,
+      era: 'B4a',
+      bot: 'e2',
+      stale: false,
+      finishedAt: '2026-10-14T15:00:00.000Z',
+    }
+    const text =
+      'Posible punto ciego del bot: e2 casi nunca evoluciona a Ivysaur, que no hace daño, así que el mazo casi no llega a Mega-Venusaur ex. Probalo con f2.'
+    fakeApi({
+      'GET /api/decks-today': {
+        ...base,
+        items: [
+          { ...deck, deck: { id: '40', name: 'Mega-Venusaur ex' }, lab, blindSpot: { text } },
+          { ...deck, deck: { id: '2', name: 'Mega-Blaziken ex' }, lab: { ...lab, value: 51.1, jobId: 42 } },
+        ],
+      },
+    })
+    const router = createMemoryRouter(routes, { initialEntries: ['/mazos/hoy'] })
+    render(
+      <Providers queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <RouterProvider router={router} />
+      </Providers>,
+    )
+    const warning = await screen.findByText(text)
+    expect(warning.closest('li')).toHaveTextContent('Mega-Venusaur ex')
+    expect(warning.closest('li')).not.toHaveTextContent('Mega-Blaziken ex')
+    expect(screen.getAllByText(/^Posible punto ciego del bot/)).toHaveLength(1)
+  })
+})
