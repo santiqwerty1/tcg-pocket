@@ -193,7 +193,10 @@ export function useDeleteMatch() {
   })
 }
 
-/** 14/10: the era's archetypes for the rival's cards seen (none asked without cards). */
+/**
+ * 14/10: the era's archetypes for the rival's cards seen (none asked without cards). No placeholder (Codex on #114):
+ * the suggestions of the cards before could be picked while the new ones loaded, or stay if that request failed.
+ */
 export function useRivalSuggestions(cards: readonly { cardId: string; count: number }[]) {
   const param = cards.map((card) => `${card.cardId}x${card.count}`).join(',')
   return useQuery({
@@ -201,7 +204,6 @@ export function useRivalSuggestions(cards: readonly { cardId: string; count: num
     queryFn: ({ signal }) =>
       request('/api/matches/rival-suggestions', { query: { cards: param }, schema: rivalSuggestionsSchema, signal }),
     enabled: cards.length > 0,
-    placeholderData: (previous) => previous,
   })
 }
 

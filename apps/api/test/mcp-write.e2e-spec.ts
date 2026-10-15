@@ -165,6 +165,15 @@ describe('MCP write tools (e2e)', () => {
       match: { result: 'Derrota', wentFirst: 'empezó el rival', opponentCards: ['2 Greninja', 'Suicune ex'] },
     })
     expect((await call(client, 'matches_update', { id: match.id, opponentCards: ['Nadaquever'] })).isError).toBe(true)
+    // A code with lowercase letters, in any case or spacing (Codex on #114: «b1a-38» and «B1a 38» were refused).
+    for (const code of ['b1a-38', 'B1a 38', 'B1A-38']) {
+      const coded = await call(client, 'matches_update', { id: match.id, opponentCards: [code] })
+      expect(coded.isError, `${code}: ${coded.content[0]?.text}`).toBeFalsy()
+      expect((coded.structuredContent.match as Structured).opponentCards).toEqual(['Onix'])
+    }
+    expect(
+      (await call(client, 'matches_update', { id: match.id, opponentCards: ['2 Greninja', 'Suicune ex'] })).isError,
+    ).toBeFalsy()
     const deleted = await call(client, 'matches_delete', { id: match.id })
     expect(deleted.structuredContent).toMatchObject({ deleted: true, match: { id: match.id } })
     expect((await get(`/api/matches/${match.id}`)).status).toBe(404)

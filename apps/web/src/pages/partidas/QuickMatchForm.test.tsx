@@ -51,10 +51,13 @@ const json = (body: unknown, status = 200) =>
 describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
   let posted: Record<string, unknown>[]
   let suggested: string[]
+  /** The suggestions of these cards wait for the gate and then fail. */
+  let failing: { cards: string; gate: Promise<void> } | null
 
   beforeEach(() => {
     posted = []
     suggested = []
+    failing = null
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: string, init?: RequestInit) => {
@@ -119,6 +122,10 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
         }
         if (url.pathname === '/api/matches/rival-suggestions') {
           suggested.push(url.searchParams.get('cards') ?? '')
+          if (failing && failing.cards === url.searchParams.get('cards')) {
+            await failing.gate
+            return json({ error: { code: 'unavailable', message: 'sin datos' } }, 503)
+          }
           return json({
             era: 'B4a',
             lists: 393,
@@ -181,6 +188,26 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
     expect(posted[0]).toMatchObject({ opponent: 'Greninja Altaria', opponentCards: [{ cardId: 'A1-89', count: 2 }] })
     // The next match starts without them.
     await waitFor(() => expect(within(form).queryByRole('button', { name: /Greninja: dos copias/ })).toBeNull())
+  })
+
+  it('Codex on #114: the suggestions of the cards before are not offered while the new ones load, nor if they fail', async () => {
+    let release = () => {}
+    failing = { cards: 'A1-89x2', gate: new Promise<void>((resolve) => (release = resolve)) }
+    const user = userEvent.setup()
+    renderAt('/partidas')
+    const form = await screen.findByRole('form', { name: 'Nueva partida' })
+    await user.click(within(form).getByRole('button', { name: 'Cartas que vi' }))
+    await user.type(within(form).getByRole('searchbox', { name: 'Buscar carta' }), 'Gren')
+    await user.click(await within(form).findByRole('button', { name: /Greninja/ }))
+    expect(await within(form).findByRole('button', { name: /Greninja Altaria/ })).toBeInTheDocument()
+    // Two copies now: while their suggestions load, the ones for one copy are gone…
+    await user.click(within(form).getByRole('button', { name: /Greninja: una copia/ }))
+    await waitFor(() => expect(suggested.at(-1)).toBe('A1-89x2'))
+    expect(within(form).queryByRole('button', { name: /Greninja Altaria/ })).toBeNull()
+    // …and they do not come back when that request fails.
+    release()
+    await waitFor(() => expect(within(form).queryByText(/Ninguna lista de la era/)).toBeNull())
+    expect(within(form).queryByRole('button', { name: /Greninja Altaria/ })).toBeNull()
   })
 
   it('logs a match in four taps from the home screen, with the last deck and mode preselected', async () => {

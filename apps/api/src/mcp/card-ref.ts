@@ -1,11 +1,23 @@
 /** A card named the way it comes up in a chat: its code («B4-103», «b4 103») or its name in Spanish or English. */
 import { BadRequestException, NotFoundException } from '@nestjs/common'
-import { type CatalogIndex, foldText } from '@tcg/domain'
+import { type CardEdition, type CatalogIndex, foldText } from '@tcg/domain'
+
+/**
+ * The card a code names, whatever its case or spacing («B1a-38», «b1a-38», «B1a 38»): the catalog's ids mix cases, so
+ * an upper-cased code misses B1a and the like (Codex on #114); the search matches ids folded.
+ */
+function cardByCode(index: CatalogIndex, query: string): CardEdition | undefined {
+  const code = query.trim().replace(/\s+/g, '-')
+  return (
+    index.cardById(code.toUpperCase()) ??
+    index.cardById(query.trim()) ??
+    index.search(code, { lang: 'any', limit: 5 }).find((hit) => hit.matchedOn === 'id')?.card
+  )
+}
 
 /** The card id; among same-named editions, one of `preferred` (the deck's own) wins. */
 export function resolveCardRef(index: CatalogIndex, query: string, preferred: readonly string[] = []): string {
-  const code = query.trim().replace(/\s+/g, '-').toUpperCase()
-  const byId = index.cardById(code) ?? index.cardById(query.trim())
+  const byId = cardByCode(index, query)
   if (byId) return byId.id
   const key = foldText(query)
   const hits = index.search(query, { lang: 'any', limit: 10 })
@@ -31,8 +43,7 @@ export function resolveCardRef(index: CatalogIndex, query: string, preferred: re
  * functional cards share is no ambiguity here (the first exact match is taken).
  */
 export function resolveSeenCard(index: CatalogIndex, query: string): string {
-  const code = query.trim().replace(/\s+/g, '-').toUpperCase()
-  const byId = index.cardById(code) ?? index.cardById(query.trim())
+  const byId = cardByCode(index, query)
   if (byId) return byId.id
   const key = foldText(query)
   const hits = index.search(query, { lang: 'any', limit: 10 })

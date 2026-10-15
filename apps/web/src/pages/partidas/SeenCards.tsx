@@ -37,7 +37,8 @@ export function SeenCardsField({
       </Button>
     )
   }
-  const found = suggestions.data?.suggestions.slice(0, 3) ?? []
+  // Only the suggestions of these very cards (Codex on #114).
+  const found = suggestions.isSuccess && !suggestions.isPlaceholderData ? suggestions.data.suggestions.slice(0, 3) : []
   return (
     <fieldset className="flex min-w-0 flex-col gap-1.5">
       <legend className="mb-1.5 text-sm font-medium text-muted-foreground">Cartas que vi del rival</legend>
