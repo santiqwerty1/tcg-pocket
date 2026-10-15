@@ -21,6 +21,7 @@ mod coach;
 mod consistency;
 mod exit;
 mod fair_bot;
+mod g_bot;
 // The browser's engine (engine/wasm) also uses what engine-cli does not (the coach's restore, the played steps).
 #[allow(dead_code)]
 mod live;
@@ -68,11 +69,11 @@ const ENGINE_BUILD: &str = env!("ENGINE_BUILD");
 /// `batch`, several pairings in one process (B2), and `fairBots`, the f<N> bots (H-018).
 /// «etBot» (H-051): the bot that ends its turn, which deckgym's own parser never reaches.
 /// `regulate` (the CPU regulator) only where it works: Windows; `regulatePing`, a regulator that answers the worker's
-/// `ping` (0.3.11, review of #106: a hung one is noticed).
+/// `ping` (0.3.11, review of #106: a hung one is noticed). `gBots`: the g<N> bots (docs/BOTS.md).
 #[cfg(windows)]
-const FEATURES: [&str; 7] = ["perGame", "batch", "fairBots", "etBot", "resume", "regulate", "regulatePing"];
+const FEATURES: [&str; 8] = ["perGame", "batch", "fairBots", "etBot", "resume", "regulate", "regulatePing", "gBots"];
 #[cfg(not(windows))]
-const FEATURES: [&str; 5] = ["perGame", "batch", "fairBots", "etBot", "resume"];
+const FEATURES: [&str; 6] = ["perGame", "batch", "fairBots", "etBot", "resume", "gBots"];
 /// deckgym ties a game when turn 31 begins (`State::advance_turn`): reported so the app does not hard-code it.
 const TURN_LIMIT: u32 = 30;
 
