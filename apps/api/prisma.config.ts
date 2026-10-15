@@ -23,26 +23,28 @@ if (process.env.NODE_ENV !== 'production') {
  * in chat-hub's H6.7). Its own words are `sslaccept=strict` and the CA's file in `sslcert`. Without a CA file, strict
  * with the system's roots: Supabase's private CA fails, loudly, instead of being accepted.
  *
- * The CA is the URL's `sslrootcert` (libpq's word, which `pg` also reads) or else `NODE_EXTRA_CA_CERTS`, made
- * absolute from the working directory as Node does (Prisma would resolve a relative path from `prisma/`). Prisma
- * reads only the first certificate of that file: one CA per file (certs/README.md).
+ * The CA is the URL's `sslrootcert` (libpq's word, which `pg` also reads: the last one, and an empty one as absent)
+ * or else `NODE_EXTRA_CA_CERTS`, made absolute from the working directory as Node does (Prisma would resolve a
+ * relative path from `prisma/`). Prisma reads only the first certificate of that file: one CA per file
+ * (certs/README.md).
  *
- * In production only `verify-full` (as `parseEnv` for the app): with `require`, `verify-ca` or `prefer` the
- * migrations applied themselves to an impostor. `DATABASE_TLS=off` is only for trying the image (the CI's docker job).
+ * In production only `verify-full`, named once (as `parseEnv` for the app): with `require`, `verify-ca` or `prefer`
+ * the migrations applied themselves to an impostor. `DATABASE_TLS=off` is only for trying the image (the docker job).
  */
 export function migrationUrl(url: string, caFile: string | undefined, production = false, tlsOff = false): string {
   let parsed: URL | null = null
   try {
     parsed = new URL(url)
   } catch {}
-  const mode = parsed?.searchParams.get('sslmode') ?? null
+  const modes = parsed?.searchParams.getAll('sslmode') ?? []
+  const mode = modes.length === 1 ? modes[0] : null
   if (production && !tlsOff && mode !== 'verify-full') {
     throw new Error(
       'DATABASE_URL: in production it must carry sslmode=verify-full (DATABASE_TLS=off is only for trying the image)',
     )
   }
   if (!parsed || mode !== 'verify-full') return url
-  const ca = parsed.searchParams.get('sslrootcert') ?? caFile
+  const ca = parsed.searchParams.getAll('sslrootcert').at(-1) || caFile
   parsed.searchParams.delete('sslrootcert')
   parsed.searchParams.set('sslmode', 'require')
   parsed.searchParams.set('sslaccept', 'strict')

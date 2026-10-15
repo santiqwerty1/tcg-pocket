@@ -40,6 +40,11 @@ describe('parseEnv', () => {
       )
       expect(parseEnv({ ...base, DATABASE_URL: `${base.DATABASE_URL}${mode}` }).isProduction).toBe(false)
     }
+    for (const repeated of ['?sslmode=verify-full&sslmode=disable', '?sslmode=disable&sslmode=verify-full']) {
+      expect(() => parseEnv({ ...production, DATABASE_URL: `${base.DATABASE_URL}${repeated}` })).toThrow(
+        /sslmode=verify-full/,
+      )
+    }
     expect(parseEnv(production).databaseUrl).toContain('sslmode=verify-full')
     expect(parseEnv({ ...production, DATABASE_URL: base.DATABASE_URL, DATABASE_TLS: 'off' }).isProduction).toBe(true)
     expect(() => parseEnv({ ...base, DATABASE_TLS: 'on' })).toThrow(EnvError)

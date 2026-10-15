@@ -138,10 +138,14 @@ function packageVersion(): string {
   }
 }
 
-/** The `sslmode` of a connection string (null when it has none or does not parse). */
+/**
+ * The `sslmode` of a connection string: null when it has none, does not parse, or names it more than once (`pg` keeps
+ * the last one and other readers the first, so `?sslmode=verify-full&sslmode=disable` would pass a check on the first).
+ */
 export function sslModeOf(url: string): string | null {
   try {
-    return new URL(url).searchParams.get('sslmode')
+    const modes = new URL(url).searchParams.getAll('sslmode')
+    return modes.length === 1 ? (modes[0] ?? null) : null
   } catch {
     return null
   }

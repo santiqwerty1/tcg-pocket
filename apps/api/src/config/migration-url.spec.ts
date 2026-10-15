@@ -38,6 +38,21 @@ describe('the URL of the migrations', () => {
     expect(relative.searchParams.get('sslcert')).toBe(resolve('apps/api/certs/ca.crt'))
   })
 
+  it('reads sslrootcert as pg does: the last one, and an empty one falls back to NODE_EXTRA_CA_CERTS', () => {
+    const empty = new URL(migrationUrl(`${pooler}?sslmode=verify-full&sslrootcert=`, ca))
+    expect(empty.searchParams.get('sslcert')).toBe(ca)
+    expect(empty.searchParams.has('sslrootcert')).toBe(false)
+    const own = resolve('/certs/own.crt')
+    const repeated = new URL(
+      migrationUrl(
+        `${pooler}?sslmode=verify-full&sslrootcert=/certs/old.crt&sslrootcert=${encodeURIComponent(own)}`,
+        ca,
+      ),
+    )
+    expect(repeated.searchParams.get('sslcert')).toBe(own)
+    expect(repeated.searchParams.has('sslrootcert')).toBe(false)
+  })
+
   it('in production only verify-full: anything else throws, unless DATABASE_TLS=off (trying the image)', () => {
     for (const mode of ['', '?sslmode=require', '?sslmode=verify-ca', '?sslmode=prefer', '?sslmode=disable']) {
       expect(() => migrationUrl(`${pooler}${mode}`, ca, true)).toThrow(/sslmode=verify-full/)
@@ -45,6 +60,10 @@ describe('the URL of the migrations', () => {
     expect(migrationUrl(`${pooler}?sslmode=verify-full`, ca, true)).toContain('sslaccept=strict')
     expect(migrationUrl(pooler, ca, true, true)).toBe(pooler)
     expect(() => migrationUrl('not a url', ca, true)).toThrow(/sslmode=verify-full/)
+    // pg keeps the last sslmode, other readers the first: a repeated one is refused whatever its order.
+    for (const repeated of ['?sslmode=verify-full&sslmode=disable', '?sslmode=disable&sslmode=verify-full']) {
+      expect(() => migrationUrl(`${pooler}${repeated}`, ca, true)).toThrow(/sslmode=verify-full/)
+    }
   })
 
   it('is what the default config gives Prisma (DATABASE_URL, NODE_EXTRA_CA_CERTS, NODE_ENV, DATABASE_TLS)', async () => {
