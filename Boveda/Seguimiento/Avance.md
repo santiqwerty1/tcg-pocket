@@ -90,7 +90,7 @@ revisar: false
 
 Lo que sigue, en orden:
 
-1. **Infra, el fork de deckgym ([D-031](Decisiones/D-031.md)):** las ramas a–e, `feat/bot-api` y la integración `tcg-pocket`; `GAMES_REV` 2, dorado y prueba diferencial. Riesgo alto, con revisión y verificación. Después, el seguimiento del regulador (abierto el 15/10), el aviso de punto ciego ([H-055](Hallazgos/H-055.md)) y los PR upstream.
+1. **Infra, el fork de deckgym ([D-031](Decisiones/D-031.md)):** las ramas a–e, `feat/bot-api` y la integración `tcg-pocket` (`018b419`); `GAMES_REV` sigue en 1 (el dorado da idéntico y `engineRev` separa el fork), con la prueba diferencial hecha. Riesgo alto, con revisión y verificación. Después, el seguimiento del regulador (abierto el 15/10), el aviso de punto ciego ([H-055](Hallazgos/H-055.md)) y los PR upstream.
 2. **Con el motor nuevo, relanzar:** la matriz 81×81 (f4), las calibraciones e2, e3 (25 arquetipos, 1.000 por cruce) y MCTS, y las pruebas de los 41 mazos y del top 11 con e3. Hasta entonces, los puntajes del laboratorio son del motor viejo.
 3. **Laboratorio:** #109 («Actualizar todos», en revisión), el seguimiento de #107, y después [T-022](Tareas/T-022.md) (cartas vistas y ranked), la deuda 1–5 y las traducciones.
 4. **Bots** (sesión en la nube, [T-021](Tareas/T-021.md)): el diseño y el bot «g»; después «sin trampa», el afinado contra una liga de bots y la evaluación aprendida.
