@@ -166,14 +166,20 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
   - el Coordinador y Principal están en las dos y esperan cada sala con su propio `wait`;
   - el despachador de Codex-Posta lee «posta» y, como el de Codex-Revisor, avisa solo (`Re: [tomado|terminó|falló]`, tope de 90 min);
   - la ventana `chat-app.ps1 -Sala <sala>` muestra la sala en el título, con accesos «Chat TCG» y «Chat Posta» en el escritorio.
-  - D-030: el chat sale de tcg-pocket a un hub propio (incremento 5 de Posta adelantado); D1–D9 del plan esperan a Santi.
-- **Producción al 13/10/2026:** hasta `22824b0` (#95). UptimeRobot vigila `/healthz` (R-011), la copia en Tigris anda desde el 13/10 (R-006) y la sincronización automática del tracker está prendida (D-028, aprobada).
+  - D-030: el chat sale de tcg-pocket a un hub propio (incremento 5 de Posta adelantado), con D1–D9 aprobadas el 14/10. Repo privado `santiqwerty1/chat-hub` con la CI en un runner propio de la PC de Santi; integrados H1–H3 (chat-hub #1–#6).
+- **Integrados el 14/10/2026:** #97–#108.
+  - «Optimizar» con dos copias (#97/#99, H-050 resuelto); «dos lugares» cerrado y la fase 42 completa (#102).
+  - Motor: diagnóstico de salidas (#100), retomar desde la partida N (#104/#105, feature `resume`, engine-cli 0.3.8–0.3.9) y el regulador de CPU (#106, `engine-cli regulate`, `cpuRegulator` prendido por defecto en Windows, worker 0.3.9).
+  - El catálogo en memoria se recarga solo tras un CLI (#103); «Probar estas cartas» con cualquier carta (#107); un KO de fin de turno en el turno 30 (#108, H-057).
+- **D-031 (14/10/2026, Santi):** la app pasa a usar un fork `santiqwerty1/deckgym-core` con arreglos (Casco Pesado #383, Extracto y Plubio #399, pánico sin Activo #398; H-056) apenas esté listo (Infra). Se cancelaron todas las simulaciones del motor viejo y se relanzan con el nuevo. Los arreglos también van upstream.
+- **Bots (T-021, 14/10/2026):** sesión «TCG · Bots» en la nube (se comunica por el chat de la app como «Bots»). La meta es la fuerza de juego, no imitar a las personas: bot nuevo «g» con daño real, «sin trampa» (hoy los bots e ven la mano del rival y el orden del mazo, H-055), afinado contra una liga de bots y una evaluación aprendida.
+- **Producción al 14/10/2026:** hasta `d7a6c1c` (#108); engine-cli 0.3.10 y worker 0.3.9, que llegan solos a los workers. Deploys desde una copia limpia de main (Posta deja relevos sin commitear en `Boveda/Sesiones/`). Sin simulaciones en marcha.
 - **Pendientes** (detalle en Avance):
-  - Santi: D1–D9 del hub de chat (D-030), las traducciones de los premios de las misiones, y esta noche el Ryzen (worker nuevo, Codex-Revisor, runner Windows de Posta, limpiar sus runners viejos) y el runner Windows de Posta en esta PC;
-  - proponer a Santi proteger main con `privacy` (#92) como check requerido;
-  - el arreglo del S25: diagnóstico del código 0 y retomar desde la partida N (H-054), y después «dos lugares por worker»;
-  - H-050 y las traducciones (Laboratorio); los tests de #95 y el aviso del catálogo viejo en memoria (Principal);
-  - la calibración grande para D-029 y el seguimiento de deckgym upstream.
+  - Infra: el fork (D-031), el seguimiento del regulador, el aviso de punto ciego y los PR upstream;
+  - Laboratorio: #109 («Actualizar todos»), T-022 (rival por cartas vistas y ranked por temporada), la deuda y las traducciones;
+  - Principal: H6 del hub y el paso 2 de Santi;
+  - Santi: las traducciones de los premios de las misiones, el Ryzen (worker nuevo, Codex-Revisor, runner Windows de Posta, limpiar runners viejos) y el runner Windows de Posta en esta PC;
+  - relanzar con el motor nuevo la matriz, las calibraciones e2/e3/MCTS y las pruebas de los 41 mazos.
 - **Visto bueno de Santi para todo el 8/10/2026**: fases 0–8 del plan, laboratorio y ajustes aprobados; no queda nada esperando su revisión. Siguiente paso: lo que pida Santi (abiertos: remapeo I12 al cambiar el catálogo, R-001; CI antes de cada deploy, R-007).
 
 ## Cómo trabajar acá
@@ -190,7 +196,7 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
   - En las rutas va `C:/Users/<usuario>/…`, nunca el usuario de Windows.
   - En los textos nuevos van los sha del repo público.
   - Antes de cada push, `git log --format='%h %ae %ce' origin/main..HEAD` muestra solo el noreply (R-013).
-- Mantener `docs/LICENCIAS.md` cuando se tome algo de los repositorios de referencia; no copiar código de UI del tracker (GPL); no modificar deckgym-core; no copiar imágenes de cartas.
+- Mantener `docs/LICENCIAS.md` cuando se tome algo de los repositorios de referencia; no copiar código de UI del tracker (GPL); deckgym-core no se modifica salvo en el fork `santiqwerty1/deckgym-core` (D-031), cuyos arreglos también van upstream; no copiar imágenes de cartas.
 - Bóveda Obsidian en `Boveda/` (kit de Posta, dialecto tablero): leer `Boveda/Inicio.md`, `Boveda/Seguimiento/Avance.md` y la última foto de `Boveda/Sesiones/` al empezar (el hook `SessionStart` inyecta el estado). Cuando cambia una decisión, pregunta, supuesto, riesgo, hallazgo o tarea, actualizar su ficha (`Seguimiento/<Tipo>s/X-NNN.md`, desde `Plantillas/`); lo que necesita el visto bueno de Santi va como `propuesta`/`pendiente`, nunca como hecho. Una bitácora por día en `Bitacora/`. `Boveda/Sesiones/` no se edita: lo escribe Posta. Antes de commitear cambios en `Boveda/`: `posta generar .` y `posta check .` sin errores (el hook `Stop` lo valida al terminar cada turno). `docs/DECISIONES.md` sigue siendo el registro de una línea por decisión.
 - Posta activo desde el 8/10/2026 (D-009): los hooks los pone el plugin de Posta para Claude Code (`"hooks": "plugin"` en `.posta/config.json`; `posta` del PATH = `C:/Users/<usuario>/TRABAJO/project-workflow-lab`) y `.claude/settings.json` lleva sólo los permisos; secretos y `git push` con confirmación. Reglas del kit (`AGENTS.md`) que valen acá: citar los códigos de fichas en los commits (`feat: … (D-016)`), proponer lo que decide Santi. Excepciones acordadas: commits en inglés, y Claude sube a GitHub y despliega solo cuando Santi lo pide en cada caso. Para las fases 36 a 44 (T-014), Santi autorizó el 9/10/2026 subir y desplegar cada una al terminarla, con la CI en verde, y seguir de corrido. Sin la CI de Posta (R-007).
 

@@ -4,7 +4,7 @@ titulo: >-
   Avance
 area: proyecto
 estado: vigente
-actualizado: '2026-10-13'
+actualizado: '2026-10-15'
 origen:
   - posta init
   - docs/PLAN.md §7
@@ -64,57 +64,54 @@ revisar: false
 | 39 | Copia fuera de Supabase y retención ([P-007](Preguntas/P-007.md): en la nube) | hecho 09/10 · desplegado en `52c87e3` · en producción el 12/10, con el OK de Santi: bucket `tcg-pocket-backups` en Tigris, primera limpieza (5.730 repeticiones, 39,1 MB) y `RETENTION_CRON=true` (DECISIONES 42.7, [P-010](Preguntas/P-010.md) cerrada) · falta registrar la primera subida buena ([R-006](Riesgos/R-006.md)) | 38 | [T-014](Tareas/T-014.md) |
 | 40 | Día de expansión en dos toques | hecho 09/10 (#31, DECISIONES 43.1–43.8) · desplegado en `52c87e3` · [H-004](Hallazgos/H-004.md) resuelto | 39 | [T-014](Tareas/T-014.md) |
 | 41 | Interfaz | hecho 09/10 (Nube-Mejoras, DECISIONES 44.1–44.11) · desplegado (`773ad00`) · [P-012](Preguntas/P-012.md): un 401 conserva el service worker | 40 | [T-014](Tareas/T-014.md) |
-| 42 | Simulaciones más baratas y calibradas | en curso · informe de calibración #29 y optimize con semillas comunes y confirmación #32 hechos ([H-011](Hallazgos/H-011.md) resuelto), junto a capacidades, perGame y lotes · 11/10: seguimiento de la calibración #44, partidas por peso y confirmación con e3 #49, carreras #53, worker que se actualiza solo #50 ([D-026](Decisiones/D-026.md)) y caché exacta de chunks (opción A) #46, en producción · 12/10: el bot «et» (#65, [H-051](Hallazgos/H-051.md) resuelto), menores de la calibración (#67), un solo motor por trabajo con `gamesRev` (#68, reemplaza a #48), «Reintentar lo que falló» (#71), «repetir los últimos» y `worker-timing` (#73 y #76), los CLI sin el arranque del servidor (#75) y la tool `simulations_calibration` (#77); en producción hasta #76, con #77 en curso · falta «dos lugares por worker», a decidir con los números de `worker-timing` · [R-012](Riesgos/R-012.md), [H-050](Hallazgos/H-050.md) y [H-052](Hallazgos/H-052.md) abiertos | 41 | [T-014](Tareas/T-014.md) |
+| 42 | Simulaciones más baratas y calibradas | hecho 14/10 · fase completa: «dos lugares por worker» cerrado con `worker-timing` (#102, DECISIONES 45.63) y «optimizar» con dos copias (#97/#99, [H-050](Hallazgos/H-050.md) resuelto) · la calibración grande e2/e3 se relanza con el motor del fork ([D-031](Decisiones/D-031.md)) · [R-012](Riesgos/R-012.md) y [H-052](Hallazgos/H-052.md) abiertos | 41 | [T-014](Tareas/T-014.md) |
 | 43 | Claude | hecho 09/10 · chat-puente #12 y seguimiento #34 integrados · desplegado en `52c87e3` · locks en deshacer/restaurar y marca transaccional para borrados «Sin terminar» | 42 | [T-014](Tareas/T-014.md), [R-010](Riesgos/R-010.md) |
 | 44 | Análisis nuevos | hecho · parte 1 (44a–c) en #17, desplegada en `52c87e3` · parte 2 hecha 11/10 (Nube-Mejoras, DECISIONES 47.7–47.17) en #55, que reemplaza a #52: moneda pareja, «mi meta», Zona de Energía, robo con cartas que buscan, misiones en Sobres y «¿Qué armo después?» · en producción | 43 | [T-014](Tareas/T-014.md) |
-| W | Más workers: nube, Android y navegador (reemplaza la 45, [P-008](Preguntas/P-008.md)) | en curso · Android adelantado por Santi: #38, #40, #41 y #43 (worker 0.2.8–0.2.11, [D-025](Decisiones/D-025.md)), con la prioridad baja de #39 · se actualizan solos desde 0.3.0 (#50, [D-026](Decisiones/D-026.md)): la PC y el celu ya pasaron, falta el Ryzen (13/10) · 12/10: worker 0.3.2 (`--setup --keep`, #63), 0.3.3 (`gamesRev`, #68), 0.3.4 (el resultado perdido no gasta el chunk, con pausa visible, #72, [H-054](Hallazgos/H-054.md)) y 0.3.5 (un push por pausa, #74) · falta que Santi ponga Termux «Sin restricciones» en la batería y el visto bueno en el teléfono · navegador: #57 cerrado por la mudanza, rama en el repo público · nube sin empezar | 44 | [T-015](Tareas/T-015.md) |
+| W | Más workers: nube, Android y navegador (reemplaza la 45, [P-008](Preguntas/P-008.md)) | en curso · Android adelantado por Santi: #38, #40, #41 y #43 (worker 0.2.8–0.2.11, [D-025](Decisiones/D-025.md)), con la prioridad baja de #39 · se actualizan solos desde 0.3.0 (#50, [D-026](Decisiones/D-026.md)): la PC y el celu ya pasaron, falta el Ryzen (13/10) · 12/10: worker 0.3.2 (`--setup --keep`, #63), 0.3.3 (`gamesRev`, #68), 0.3.4 (el resultado perdido no gasta el chunk, con pausa visible, #72, [H-054](Hallazgos/H-054.md)) y 0.3.5 (un push por pausa, #74) · falta que Santi ponga Termux «Sin restricciones» en la batería y el visto bueno en el teléfono · 14/10: diagnóstico de salidas del motor (#100), retomar desde la partida N (#104/#105, [H-054](Hallazgos/H-054.md)) y el regulador de CPU (#106, worker 0.3.9) · navegador: #57 cerrado por la mudanza, rama en el repo público · nube sin empezar | 44 | [T-015](Tareas/T-015.md) |
 | A | Adelantar simulaciones desde la app; laboratorio, explorar y consistencia siempre antes | hecho 11/10 (#42, DECISIONES 50.1–50.4) · en producción | — | [T-018](Tareas/T-018.md), [D-024](Decisiones/D-024.md) |
 | N | Análisis de todas las simulaciones (Más → Simulación → Análisis, tool `simulations_analysis`) | hecho 11/10 (#45, DECISIONES 52.1–52.7) · en producción · método propuesto, sin aprobar | — | [T-019](Tareas/T-019.md), [D-027](Decisiones/D-027.md) |
 | C | Colección directo desde el tracker, sin CSV | hecho 11/10 (#56, DECISIONES 54.1–54.11) · en producción · secreto `TRACKER_COLLECTION_ANON_KEY` cargado en Fly antes del deploy de `e08e502` · la automática, apagada hasta que Santi pruebe a mano · método propuesto, sin aprobar | — | [T-020](Tareas/T-020.md), [D-028](Decisiones/D-028.md) |
 | M | Mudanza a repo público: historia completa reescrita y PR recreados | hecho 11/10 · `santiqwerty1/tcg-pocket` público (main `abd5034`) y el privado, archivado como `tcg-pocket-historial` · CI en los runners de GitHub · tag `v1.0.0` y release «TCG Pocket 1.0.0» en `2fd579e`, el commit de #62, que pasa los `package.json` a 1.0.0 ([P-013](Preguntas/P-013.md) cerrada, DECISIONES 41.19) | — | [D-022](Decisiones/D-022.md), [D-023](Decisiones/D-023.md) |
 | L | Búsqueda del laboratorio: probar siempre los cambios obvios (+1 copia, paso hacia la lista de torneo) | pendiente, para cuando Santiago la pida | — | [T-016](Tareas/T-016.md) |
-| O | Optimización de mazos: análisis del 09/10 (bot que no evoluciona, velocidad, semillas, búsqueda) | T-017 en curso · #5, #15, #20, #22, #25, #27 y #28 integrados: bot f, aprendizaje/combo, explicaciones, frenar, deshacer, Energía y segundas listas del banco · revisión #35 integrada · 11/10: D4 (#47), partidas por peso y confirmación con e3 (#49) y carreras (#53) · 12/10: E3/E4 y lo que quedaba de #47 y #49 (#64, DECISIONES 40.26–40.27) · faltan C3, A3 y C8; e2 sigue por defecto hasta comparar contra torneos con `simulations_calibration` (#77) | — | [Optimización](Optimizacion-2026-10-09.md), [T-017](Tareas/T-017.md) |
+| O | Optimización de mazos: análisis del 09/10 (bot que no evoluciona, velocidad, semillas, búsqueda) | T-017 en curso · #5, #15, #20, #22, #25, #27 y #28 integrados: bot f, aprendizaje/combo, explicaciones, frenar, deshacer, Energía y segundas listas del banco · revisión #35 integrada · 11/10: D4 (#47), partidas por peso y confirmación con e3 (#49) y carreras (#53) · 12/10: E3/E4 y lo que quedaba de #47 y #49 (#64, DECISIONES 40.26–40.27) · 13/10: C3, A3 y C8 · 14/10: «Probar estas cartas» con cualquier carta (#107) y «Actualizar todos» (#109, en revisión) · e2 sigue por defecto ([D-029](Decisiones/D-029.md)); puntos ciegos en [H-055](Hallazgos/H-055.md) | — | [Optimización](Optimizacion-2026-10-09.md), [T-017](Tareas/T-017.md) |
+| F | Fork de deckgym con arreglos (Casco Pesado, Extracto y Plubio, pánico sin Activo) | en curso (Infra) · decidido por Santiago el 14/10 · simulaciones del motor viejo canceladas | — | [D-031](Decisiones/D-031.md), [H-056](Hallazgos/H-056.md) |
+| B | Bots más fuertes: daño real, sin trampa, afinado y evaluación aprendida | en curso (sesión «Bots» en la nube, 14/10) | F | [T-021](Tareas/T-021.md), [H-055](Hallazgos/H-055.md) |
+| P | Partidas: rival por cartas vistas y ranked por temporada y rango | pendiente (Laboratorio, después de #109) | — | [T-022](Tareas/T-022.md) |
+| H | Hub de chat propio (`santiqwerty1/chat-hub`) | en curso (Principal) · D1–D9 aprobadas · H1–H3 integrados (chat-hub #1–#6) · sigue H6 y el paso 2 de Santiago | — | [D-030](Decisiones/D-030.md) |
 | K | Bóveda con el kit de Posta | hecho 07/10 · aprobado 08/10 | — | [D-009](Decisiones/D-009.md) |
 
 ## Próximos pasos
 
-**Producción al 13/10/2026:** desplegada hasta `22824b0` (#95), con #86 (el navegador) desde `f900c2c`. Versión 1.0.0, engine-cli 0.3.6 y worker 0.3.5; los workers se actualizan solos desde la app ([D-026](Decisiones/D-026.md)), salvo el Ryzen, que sigue con 0.2.7. Las fases 0–8 y 22–35 conservan los vistos buenos ya registrados; integrar y desplegar no agrega aprobaciones nuevas.
+**Producción al 14/10/2026:** desplegada hasta `d7a6c1c` (#108). Versión 1.0.0, engine-cli 0.3.10 y worker 0.3.9, con el regulador de CPU (#106); los workers se actualizan solos ([D-026](Decisiones/D-026.md)), salvo el Ryzen, que sigue con 0.2.7. El motor sigue en deckgym `33ff2a5` hasta el fork ([D-031](Decisiones/D-031.md)). **No hay simulaciones en marcha:** se cancelaron todas las del motor viejo.
 
-**Repo:** `santiqwerty1/tcg-pocket` es público desde el 11/10 ([D-022](Decisiones/D-022.md)). El privado viejo es `santiqwerty1/tcg-pocket-historial`, archivado: no se le sube nada. Nada de datos personales en commits, PR, issues ni la bóveda. La CI corre en los runners de GitHub ([D-023](Decisiones/D-023.md)).
+**Repo:** `santiqwerty1/tcg-pocket` es público desde el 11/10 ([D-022](Decisiones/D-022.md)). main está protegida (privacy, test, e2e y screens requeridos). El hub de chat vive en `santiqwerty1/chat-hub` (privado, [D-030](Decisiones/D-030.md)), con la CI en un runner propio de la PC de Santiago.
 
-**Flujo desde el 13/10** (`docs/REVISION.md`): autorrevisión antes de cada PR, decisiones pendientes sin número (las numera `pnpm decisiones` al integrar), revisión según el riesgo, sesiones que rotan, y a Santiago se le escribe solo para decidir o hacer algo.
+**Flujo desde el 13/10** (`docs/REVISION.md`): autorrevisión antes de cada PR, decisiones pendientes sin número (las numera `pnpm decisiones` al integrar, en el orden en que entraron), revisión según el riesgo, sesiones que rotan, y a Santiago se le escribe solo para decidir o hacer algo. **Deploys desde una copia limpia de main:** Posta deja relevos sin commitear en `Boveda/Sesiones/`.
 
 Lo que sigue, en orden:
 
-1. **Santiago decide:**
-   - las nueve decisiones del hub de chat (D1–D9), en su página ([D-030](Decisiones/D-030.md)). Hasta entonces no se escribe código del hub;
-   - los 43 términos de las traducciones de los premios de las misiones, en su página. Los aplica Laboratorio;
-   - si salió un set nuevo, cargarlo en Torneos → Ajustes (aviso «Era nueva probable»).
-2. **Santiago hace, en la PC y la Ryzen** (paquete `tcg-ryzen-13oct-v2.zip` en su Drive):
-   - en la Ryzen: el worker nuevo (artefacto `tcg-worker-windows` de la CI y doble clic; sigue con 0.2.7), el despachador de Codex-Revisor (`"sala": "posta"`), el runner Windows de la CI de Posta y borrar el lanzador y la carpeta de sus runners viejos de tcg;
-   - en esta PC: el runner Windows de la CI de Posta;
-   - decir si la Ryzen tiene WSL, para un segundo runner Linux de Posta.
-3. **Proponer a Santiago** marcar `privacy` (#92) como check requerido y proteger main: hoy main no tiene protección y un PR en rojo se puede integrar igual.
-4. **Infra:** el diagnóstico de por qué el motor sale con código 0 en el S25, y retomar desde la partida N dentro de un chunk (feature `resume`, [H-054](Hallazgos/H-054.md)). Después, `worker-timing --days 7` para «dos lugares por worker» ([T-014](Tareas/T-014.md)).
-5. **Laboratorio:** [H-050](Hallazgos/H-050.md) y después las traducciones.
-6. **Principal:** los dos tests que faltan de #95, el aviso cuando el catálogo en memoria quedó viejo después de un `catalog-sync` por CLI, y el hub cuando Santiago apruebe el plan.
-7. **Calibraciones:** la grande (e2 y e3, 25 a 30 arquetipos, 1.000 por cruce) la lanza Santiago. Al terminar, sumar e4 (#31), MCTS (#27) y la grande al informe ([D-029](Decisiones/D-029.md), [R-012](Riesgos/R-012.md)). #27 tiene un cruce que falla siempre hasta bcollazo/deckgym-core#398 ([H-052](Hallazgos/H-052.md)).
-8. **deckgym upstream:** seguir bcollazo/deckgym-core#396, #397 y #398. Hay 2 commits nuevos (reimpresiones de Entrenadores) que no arreglan esos bugs; no actualizar el motor mientras corren las calibraciones.
-9. **Privacidad del mail en GitHub** (recomendación para Santiago): activar «Keep my email addresses private» y «Block command line pushes that expose my email» ([R-013](Riesgos/R-013.md)).
-10. **Menores:** [T-016](Tareas/T-016.md) sigue para cuando Santiago lo pida.
+1. **Infra, el fork de deckgym ([D-031](Decisiones/D-031.md)):** las ramas a–e, `feat/bot-api` y la integración `tcg-pocket` (`018b419`); `GAMES_REV` sigue en 1 (el dorado da idéntico y `engineRev` separa el fork), con la prueba diferencial hecha. Riesgo alto, con revisión y verificación. Después, el seguimiento del regulador (abierto el 15/10), el aviso de punto ciego ([H-055](Hallazgos/H-055.md)) y los PR upstream.
+2. **Con el motor nuevo, relanzar:** la matriz 81×81 (f4), las calibraciones e2, e3 (25 arquetipos, 1.000 por cruce) y MCTS, y las pruebas de los 41 mazos y del top 11 con e3. Hasta entonces, los puntajes del laboratorio son del motor viejo.
+3. **Laboratorio:** #109 («Actualizar todos», en revisión), el seguimiento de #107, y después [T-022](Tareas/T-022.md) (cartas vistas y ranked), la deuda 1–5 y las traducciones.
+4. **Bots** (sesión en la nube, [T-021](Tareas/T-021.md)): el diseño y el bot «g»; después «sin trampa», el afinado contra una liga de bots y la evaluación aprendida.
+5. **Principal, el hub ([D-030](Decisiones/D-030.md)):** H6 (Dockerfile, Fly, migraciones al arrancar, la sala de prueba) → paso 2 de Santiago (Supabase, Fly y secretos, con los comandos que prepara el Coordinador) → H5 y T1 → el cambio de «posta» → H4.
+6. **Santiago:**
+   - los 43 términos de las traducciones de los premios de las misiones, en su página;
+   - en la Ryzen (paquete `tcg-ryzen-13oct-v2.zip`): el worker nuevo, el despachador de Codex-Revisor, el runner Windows de la CI de Posta, y borrar sus runners viejos de tcg; además, decir si tiene WSL;
+   - en esta PC: el runner Windows de la CI de Posta.
+7. **deckgym upstream:** #399 abierto el 14/10 y comentarios en #383 y #399. PR del Extracto y Plubio cuando Infra termine el fork; PR de #396–#398 desde el 21/10 si el autor no los arregló.
+8. **Privacidad del mail en GitHub** (recomendación para Santiago): activar «Keep my email addresses private» y «Block command line pushes that expose my email» ([R-013](Riesgos/R-013.md)).
+9. **Menores:** [T-016](Tareas/T-016.md) sigue para cuando Santiago lo pida.
 
-Hechos desde la actualización del 12/10:
-- #78 a #95 integrados: entre ellos, el control de privacidad en la CI (#92), el resto del formato de números (#94) y el catálogo que ya no queda «running» (#95, el bajo de #75);
-- la primera subida buena a Tigris ([R-006](Riesgos/R-006.md));
-- UptimeRobot ([R-011](Riesgos/R-011.md));
-- el tracker automático ([T-020](Tareas/T-020.md));
-- D-027 y D-028 aprobadas;
-- las salas del chat y los avisos automáticos de los despachadores;
-- el informe de calibración (#81) y [D-029](Decisiones/D-029.md);
-- C3, A3 y C8 del laboratorio;
-- el worker del navegador (#86).
+Hechos desde la actualización del 13/10:
+- #97–#108 integrados: «optimizar» con dos copias ([H-050](Hallazgos/H-050.md)), «dos lugares» cerrado y la fase 42 completa ([T-014](Tareas/T-014.md)), el diagnóstico y el «retomar» del motor ([H-054](Hallazgos/H-054.md)), el catálogo en memoria, el regulador de CPU, «Probar estas cartas» y el límite de turnos ([H-057](Hallazgos/H-057.md));
+- chat-hub #1–#6: H1, la CI, H2 (la entrada), el tope de entradas y H3 (el MCP);
+- las decisiones D1–D9 del hub, aprobadas, y la protección de main;
+- la prueba de los 41 mazos contra el meta, con la confirmación e3 del top 11;
+- la auditoría de deckgym, [H-055](Hallazgos/H-055.md), [H-056](Hallazgos/H-056.md) y [D-031](Decisiones/D-031.md);
+- la sesión «Bots».
 
-Todo entra por PR, con la CI verde y la revisión del Coordinador. Las sesiones se hablan por el chat externo al repo, en las salas «tcg» y «posta».
+Todo entra por PR, con la CI verde y la revisión del Coordinador. Las sesiones se hablan por el chat externo al repo, en las salas «tcg» y «posta»; Bots, por el chat de la app.
 
 ## Pendiente de decidir (para después)
 
@@ -136,5 +133,5 @@ El 12/10/2026:
 
 El 13/10/2026:
 - **Aprobadas por Santiago:** [D-027](Decisiones/D-027.md) y [D-028](Decisiones/D-028.md).
-- **Decididas por Santiago:** [D-029](Decisiones/D-029.md) (e2 sigue de bot por defecto), [D-030](Decisiones/D-030.md) (hub de chat propio; D1–D9 pendientes), dejar el S25 con los bots lentos hasta el arreglo de H-054, y UptimeRobot.
-- **Esperan a Santiago:** D1–D9 del hub y los 43 términos de las traducciones.
+- **Decididas por Santiago:** [D-029](Decisiones/D-029.md) (e2 sigue de bot por defecto), [D-030](Decisiones/D-030.md) (hub de chat propio; D1–D9 aprobadas el 14/10), dejar el S25 con los bots lentos hasta el arreglo de H-054, y UptimeRobot.
+- **Esperaban a Santiago:** D1–D9 del hub, aprobadas el 14/10. Siguen esperando los 43 términos de las traducciones.
