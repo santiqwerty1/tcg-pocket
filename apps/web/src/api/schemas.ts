@@ -2579,13 +2579,59 @@ export const pickSchema = z.object({
           text: z.string(),
           jobId: z.number(),
           era: z.string(),
+          /** The bots (the Laboratorio's default, D-029). */
+          bot: z.string().default('e2'),
+          /** Of another era: this one has no score yet («Actualizar todos»). */
+          stale: z.boolean().default(false),
+          finishedAt: z.string().nullable().default(null),
         })
         .nullable(),
+      /** The latest score of this era with each other bot (e3, f2…), apart. */
+      labOthers: z
+        .array(
+          z.object({
+            bot: z.string(),
+            value: z.number(),
+            ci95: z.tuple([z.number(), z.number()]),
+            games: z.number(),
+            jobId: z.number(),
+          }),
+        )
+        .default([]),
+      /** Review of #109: the list's last test failed before playing it whole. */
+      labFailed: z.object({ jobId: z.number() }).nullable().default(null),
+      /** «Actualizar todos»: the test of the list against this era's meta, queued or playing now. */
+      labRunning: z
+        .object({
+          jobId: z.number(),
+          status: z.enum(['queued', 'running']),
+          gamesDone: z.number(),
+          totalGames: z.number(),
+        })
+        .nullable()
+        .default(null),
     }),
   ),
+  /** The decks without a Laboratorio score of this era and not under test now. */
+  labDue: z.number().default(0),
   note: z.string(),
 })
 export type Pick = z.infer<typeof pickSchema>
+
+/** «Actualizar todos» (14/10): what it queued (or would, with `dryRun`) and what it left out. */
+export const labRefreshSchema = z.object({
+  era: z.string(),
+  queued: z.array(z.string()),
+  jobs: z.array(z.number()),
+  fresh: z.number(),
+  running: z.number(),
+  sameList: z.number(),
+  failed: z.array(z.object({ deckId: z.string(), jobId: z.number() })).default([]),
+  notSimulable: z.array(z.string()),
+  games: z.number(),
+  estimatedSeconds: z.number(),
+})
+export type LabRefresh = z.infer<typeof labRefreshSchema>
 
 // ---------- Eventos con restricciones (Fase 16) ----------
 

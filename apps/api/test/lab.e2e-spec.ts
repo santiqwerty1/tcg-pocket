@@ -375,6 +375,169 @@ describe('laboratorio (e2e)', () => {
     expect((await get(`/api/simulations/${jobId}`)).body.lab).toBe('test')
   })
 
+  it('«Actualizar todos» (14/10): one test of the lists without a score of this era, once, followed on each row', async () => {
+    const built = [deckIds[7], deckIds[8], deckIds[9]] as string[]
+    const patch = (id: string, builtInGame: boolean) =>
+      test.http().patch(`/api/decks/${id}`).set('Cookie', cookie).send({ builtInGame })
+    for (const id of built) expect((await patch(id, true)).status).toBe(200)
+    // A copy of the first one's list: the same list goes once.
+    const source = (await get(`/api/decks/${built[0]}`)).body as {
+      energies: string[]
+      cards: { card: { id: string }; count: number }[]
+    }
+    const copy = await post('/api/decks').send({
+      name: 'Copia para actualizar',
+      energies: source.energies,
+      cards: source.cards.map((entry) => ({ cardId: entry.card.id, count: entry.count })),
+    })
+    expect(copy.status).toBe(201)
+    const copyId = String(copy.body.id)
+    expect((await patch(copyId, true)).status).toBe(200)
+    type Row = {
+      deck: { id: string }
+      lab: { jobId: number; era: string; bot: string; stale: boolean } | null
+      labOthers: { bot: string; jobId: number }[]
+      labRunning: { jobId: number; status: string; gamesDone: number; totalGames: number } | null
+    }
+    const rows = async () => {
+      const view = (await get('/api/decks-today')).body as { items: Row[]; labDue: number }
+      return { ...view, mine: view.items.filter((row) => [...built, copyId].includes(row.deck.id)) }
+    }
+    const before = await rows()
+    expect(before.mine.every((row) => row.lab === null && row.labRunning === null)).toBe(true)
+    expect(before.labDue).toBeGreaterThanOrEqual(4)
+
+    // The plan: how many, how many games and how long; nothing is queued.
+    const jobsBefore = await test.prisma.simulationJob.count()
+    const plan = await post('/api/decks-today/refresh').send({ dryRun: true })
+    expect(plan.status).toBe(200)
+    expect(plan.body).toMatchObject({ era: 'B4a', jobs: [], sameList: 1 })
+    expect(plan.body.queued).toEqual(expect.arrayContaining(built))
+    expect(plan.body.queued).not.toContain(copyId)
+    expect(plan.body.games).toBeGreaterThan(0)
+    expect(plan.body.estimatedSeconds).toBeGreaterThan(0)
+    expect(await test.prisma.simulationJob.count()).toBe(jobsBefore)
+
+    // A double click queues once: the second one finds the lock taken («busy») or, when it comes after, the test.
+    const [a, b] = await Promise.all([
+      post('/api/decks-today/refresh').send({}),
+      post('/api/decks-today/refresh').send({}),
+    ])
+    expect([a.status, b.status].sort()).toEqual(expect.arrayContaining([200]))
+    for (const response of [a, b]) expect([200, 409]).toContain(response.status)
+    const created = [a, b].flatMap((response) => (response.status === 200 ? (response.body.jobs as number[]) : []))
+    expect(created).toHaveLength(1)
+    const late = [a, b].find((response) => response.status === 409 || response.body.jobs?.length === 0)
+    if (late?.status === 409) expect(late.body.error.code).toBe('busy')
+    else expect(late?.body).toMatchObject({ queued: [], running: 3 })
+    const [jobId] = created as [number]
+    const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: jobId } })
+    expect(job.label).toBe('Actualizar todos')
+    expect((job.params as { lab: { mode: string; era: string } }).lab).toMatchObject({ mode: 'test', era: 'B4a' })
+    // Santi's ask (review of #109): ahead of every job in the queue.
+    const others = await test.prisma.simulationJob.aggregate({
+      where: { id: { not: jobId }, status: { in: ['queued', 'running'] } },
+      _max: { priority: true },
+    })
+    expect(job.priority).toBeGreaterThan(Math.max(0, others._max.priority ?? 0))
+    // Review of #109: a second click after the first (the lock let go) queues nothing.
+    const again = await post('/api/decks-today/refresh').send({})
+    expect(again.status).toBe(200)
+    expect(again.body).toMatchObject({ queued: [], jobs: [], running: 4, sameList: 0 })
+    // Each row follows its test, the copy too (same list); nothing is due any more.
+    const queued = await rows()
+    for (const row of queued.mine) expect(row.labRunning).toMatchObject({ jobId, status: 'queued', gamesDone: 0 })
+    expect(queued.labDue).toBe(before.labDue - 4)
+    // A test of another era's meta is not this era's test (self-review: «running» of any era).
+    await test.prisma.$executeRaw`
+      UPDATE simulation_jobs SET params = jsonb_set(params, '{lab,era}', '"B4"') WHERE id = ${jobId}`
+    expect((await rows()).mine.every((row) => row.labRunning === null)).toBe(true)
+    await test.prisma.$executeRaw`
+      UPDATE simulation_jobs SET params = jsonb_set(params, '{lab,era}', '"B4a"') WHERE id = ${jobId}`
+
+    // Played: the rows get the score of this era.
+    await playAll((_a, _b, games) => Math.round(games * 0.55))
+    const played = await rows()
+    for (const row of played.mine) {
+      expect(row.labRunning).toBeNull()
+      expect(row.lab).toMatchObject({ jobId, era: 'B4a', bot: 'e2', stale: false })
+    }
+    expect((await post('/api/decks-today/refresh').send({ dryRun: true })).body).toMatchObject({ queued: [] })
+    // H-007: a score of another engine is another game (self-review: no test said so).
+    await test.prisma.simulationJob.update({ where: { id: jobId }, data: { engineRev: 'another-engine' } })
+    expect((await rows()).mine.every((row) => row.lab === null)).toBe(true)
+    await test.prisma.simulationJob.update({ where: { id: jobId }, data: { engineRev: test.env.engineRev } })
+
+    // Review of the coordinator (14/10): a test with e3 neither shows as the deck's test nor replaces the e2 score.
+    const e3 = await post('/api/lab/test').send({ decks: [{ deckId: built[0] }], players: ['e3', 'e3'], seed: 7300 })
+    expect(e3.status).toBe(200)
+    const playing = await rows()
+    expect(playing.mine.find((row) => row.deck.id === built[0])?.labRunning).toBeNull()
+    await playAll((_a, _b, games) => Math.round(games * 0.3))
+    const withE3 = (await rows()).mine.find((row) => row.deck.id === built[0])
+    expect(withE3?.lab).toMatchObject({ jobId, bot: 'e2' })
+    expect(withE3?.labOthers).toEqual([expect.objectContaining({ bot: 'e3', jobId: e3.body.id })])
+
+    // A score of another era is old: shown as such, due again, and not what «Laboratorio» sorts by. The second deck
+    // gets a test of its own of this era first (a lower score than the old ones: the sort must not mix them).
+    const own = await post('/api/lab/test').send({ decks: [{ deckId: built[1] }], seed: 7400 })
+    expect(own.status).toBe(200)
+    await playAll((_a, _b, games) => Math.round(games * 0.2))
+    await test.prisma.$executeRaw`
+      UPDATE simulation_jobs SET params = jsonb_set(params, '{lab,era}', '"B4"') WHERE id = ${jobId}`
+    const old = await rows()
+    for (const row of old.mine) {
+      if (row.deck.id === built[1]) expect(row.lab).toMatchObject({ jobId: own.body.id, era: 'B4a', stale: false })
+      else expect(row.lab).toMatchObject({ jobId, era: 'B4', stale: true })
+    }
+    expect(old.labDue).toBe(before.labDue - 1)
+    const sorted = ((await get('/api/decks-today?sort=lab')).body.items as Row[]).filter((row) =>
+      [...built, copyId].includes(row.deck.id),
+    )
+    expect(sorted[0]?.deck.id).toBe(built[1])
+    expect(sorted.slice(1).every((row) => row.lab?.stale)).toBe(true)
+    expect((await post('/api/decks-today/refresh').send({ dryRun: true })).body.queued).toEqual(
+      expect.arrayContaining([built[0], built[2]]),
+    )
+
+    // Review of #109: a test that failed scores the lists it played whole; a list it did not finish is said («Reintentar
+    // lo que falló») and not queued again on every click.
+    const retest = await post('/api/decks-today/refresh').send({})
+    expect(retest.body.jobs).toHaveLength(1)
+    const [failedJob] = retest.body.jobs as [number]
+    const chunks = await test.prisma.simulationChunk.findMany({ where: { jobId: failedJob }, orderBy: { idx: 'asc' } })
+    const badSnapshot = chunks[0]?.snapshotAId as number
+    await playAll((a, _b, games) => (a === badSnapshot ? games : Math.round(games * 0.4)))
+    await test.prisma.simulationChunk.updateMany({
+      where: { jobId: failedJob, snapshotAId: badSnapshot },
+      data: { status: 'failed' },
+    })
+    await test.prisma.simulationChunk.updateMany({
+      where: { jobId: failedJob, snapshotAId: badSnapshot, idx: { gt: chunks[0]?.idx ?? 0 } },
+      data: { status: 'done' },
+    })
+    await test.prisma.simulationJob.update({ where: { id: failedJob }, data: { status: 'failed' } })
+    const afterFail = await rows()
+    const badDeck = (await test.prisma.deckSnapshot.findUniqueOrThrow({ where: { id: badSnapshot } })).deckId
+    for (const row of afterFail.mine.filter((item) => item.deck.id !== built[1])) {
+      if (String(badDeck) === row.deck.id || (row.deck.id === copyId && String(badDeck) === built[0])) {
+        expect((row as Row & { labFailed: { jobId: number } | null }).labFailed).toEqual({ jobId: failedJob })
+      } else {
+        expect(row.lab).toMatchObject({ jobId: failedJob, era: 'B4a', stale: false })
+      }
+    }
+    const planAfterFail = (await post('/api/decks-today/refresh').send({ dryRun: true })).body as {
+      queued: string[]
+      failed: { deckId: string; jobId: number }[]
+    }
+    expect(planAfterFail.queued).toEqual([])
+    expect(planAfterFail.failed).toContainEqual({ deckId: String(badDeck), jobId: failedJob })
+
+    // Needs a session.
+    expect((await test.http().post('/api/decks-today/refresh').send({})).status).toBe(401)
+    for (const id of [...built, copyId]) await patch(id, false)
+  })
+
   it('consistency against the meta (D-019): the games split by weight among the bank, for workers 0.2.1+', async () => {
     const created = await post('/api/lab/consistency').send({ deckId: deckIds[1], size: 5, games: 100, seed: 11 })
     expect(created.status).toBe(201)
@@ -662,6 +825,11 @@ describe('laboratorio (e2e)', () => {
     const baseRow = lab.decks.find((deck: { role: string }) => deck.role === 'base')
     expect(baseRow.confirm.score.games).toBe(100)
     expect(baseRow.confirm.score.value).toBeCloseTo(50, 8)
+    // «¿Cuál llevo hoy?» reads the deck's score from this search's chunks: the confirmation's, not the search's.
+    const fromSearch = await test.app.get(LabService).deckScore(Number(deckIds[1]))
+    expect(fromSearch?.jobId).toBe(jobId)
+    expect(fromSearch?.score.score).toMatchObject({ games: 100 })
+    expect(fromSearch?.score.score?.value).toBeCloseTo(50, 8)
     expect(lab.decks.filter((deck: { role: string }) => deck.role === 'variant')).toHaveLength(5)
     const total = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: jobId } })
     expect(total.totalGames).toBe(200 + 200 + 200 + 200)

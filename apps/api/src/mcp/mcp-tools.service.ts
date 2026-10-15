@@ -1458,8 +1458,29 @@ ${MCP_CHAT_INSTRUCTIONS}`
         tournamentAgainstToday: row.tournament
           ? `${percent(row.tournament.value)} (IC ${formatIntervalEs(row.tournament.ci95)}${mine?.orientative ? ', orientativo' : ''}; matchups con datos: ${percent(row.tournament.coverage)} ${mine ? 'de tus rivales' : 'del meta'})`
           : null,
-        lab: row.lab?.text ?? null,
+        // «Actualizar todos» (14/10): a score of another era says so, and so does a test playing now.
+        lab: row.lab
+          ? `${row.lab.text}, con ${row.lab.bot}${row.lab.stale ? ` (de la era ${row.lab.era}, viejo)` : ''}`
+          : null,
+        // Another bot's score goes apart, never in place of the default one (D-029).
+        ...(row.labOthers.length > 0
+          ? {
+              labOtherBots: row.labOthers.map(
+                (other) => `con ${other.bot}: ${percent(other.value)} (n = ${other.games}, prueba #${other.jobId})`,
+              ),
+            }
+          : {}),
+        ...(row.labRunning
+          ? {
+              labTesting: `prueba #${row.labRunning.jobId} ${row.labRunning.status === 'queued' ? 'en cola' : `jugando: ${row.labRunning.gamesDone} de ${row.labRunning.totalGames} partidas`}`,
+            }
+          : {}),
       })),
+      ...(view.labDue > 0
+        ? {
+            labDue: `${view.labDue} ${view.labDue === 1 ? 'mazo' : 'mazos'} sin puntaje del Laboratorio de esta era: «Actualizar todos» en ¿Cuál llevo hoy?`,
+          }
+        : {}),
       note: view.note,
     }
   }

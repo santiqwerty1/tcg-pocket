@@ -169,6 +169,11 @@ export class TournamentsService {
   // Scope and dataset
   // ---------------------------------------------------------------------------------------------------------------
 
+  /** The current era's code (the one every screen uses by default). */
+  async currentEra(): Promise<string> {
+    return (await this.scope({})).era
+  }
+
   private async scope(query: ScopeQuery): Promise<Scope> {
     const [sets, minPlayers] = await Promise.all([this.settings.sets(), this.settings.minPlayers()])
     const today = todayInOwnerZone()

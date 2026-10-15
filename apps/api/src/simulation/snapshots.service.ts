@@ -189,40 +189,16 @@ export class SnapshotsService {
     const engine = await this.engine.status()
     if ('deckId' in source) {
       const id = parseNumericId(source.deckId, 'Mazo')
-      const deck = await this.prisma.deck.findUnique({
-        where: { id },
-        select: { id: true, name: true, energies: true, currentRevisionId: true },
-      })
+      const deck = await this.prisma.deck.findUnique({ where: { id }, select: DECK_SELECT })
       if (!deck) throw new NotFoundException(`Mazo ${source.deckId} no encontrado.`)
       const revision =
         deck.currentRevisionId === null
           ? null
           : await this.prisma.deckRevision.findUnique({
               where: { id: deck.currentRevisionId },
-              select: { id: true, number: true, cards: true, energies: true },
+              select: REVISION_SELECT,
             })
-      const cards = (revision?.cards ?? []) as unknown as DeckCardEntry[]
-      const declared = (revision?.energies ?? deck.energies) as SelectableEnergy[]
-      const energies = source.energies && source.energies.length > 0 ? source.energies : declared
-      // «13. Hoopa ex» already carries its number (the 40 lists were imported in order); others get «#id».
-      const number = idToString(deck.id)
-      const numbered = deck.name.trim().startsWith(`${number}.`) || deck.name.trim().startsWith(`${number} `)
-      const draft = buildSnapshot({
-        label: `${numbered ? '' : `#${number} `}${deck.name}${revision ? ` (rev. ${revision.number})` : ''}`,
-        cards,
-        energies,
-        index,
-        engine,
-      })
-      return {
-        draft,
-        meta: {
-          sourceType: 'deck_revision',
-          sourceId: revision ? String(revision.id) : null,
-          deckId: deck.id,
-          energySource: source.energies && source.energies.length > 0 ? 'chosen' : 'declared',
-        },
-      }
+      return deckDraft(deck, revision, source.energies, index, engine)
     }
     if ('cards' in source) {
       return {
@@ -290,6 +266,29 @@ export class SnapshotsService {
     return view(row)
   }
 
+  /**
+   * The snapshot drafts of many decks' current lists with the declared energies, in two queries (the pick of the day
+   * keys 40 decks at once; one `preview` each took two queries per deck, in series). A deck that does not exist is
+   * left out.
+   */
+  async deckDrafts(deckIds: readonly number[]): Promise<Map<number, DeckSnapshotDraft>> {
+    const index = this.catalog.requireIndex()
+    const engine = await this.engine.status()
+    const decks = await this.prisma.deck.findMany({ where: { id: { in: [...deckIds] } }, select: DECK_SELECT })
+    const revisionIds = decks.map((deck) => deck.currentRevisionId).filter((id): id is number => id !== null)
+    const revisions = new Map(
+      (await this.prisma.deckRevision.findMany({ where: { id: { in: revisionIds } }, select: REVISION_SELECT })).map(
+        (revision) => [revision.id, revision],
+      ),
+    )
+    const drafts = new Map<number, DeckSnapshotDraft>()
+    for (const deck of decks) {
+      const revision = deck.currentRevisionId === null ? null : (revisions.get(deck.currentRevisionId) ?? null)
+      drafts.set(deck.id, deckDraft(deck, revision, undefined, index, engine).draft)
+    }
+    return drafts
+  }
+
   async preview(source: SnapshotSource): Promise<Omit<SnapshotView, 'id'>> {
     const { draft, meta } = await this.draft(source)
     return {
@@ -319,4 +318,39 @@ export interface SnapshotMeta {
   sourceId: string | null
   deckId: number | null
   energySource: 'declared' | 'chosen'
+}
+
+const DECK_SELECT = { id: true, name: true, energies: true, currentRevisionId: true } as const
+const REVISION_SELECT = { id: true, number: true, cards: true, energies: true } as const
+
+/** A deck's current list as a snapshot draft: its revision's cards, the chosen energies or else the declared ones. */
+function deckDraft(
+  deck: { id: number; name: string; energies: unknown },
+  revision: { id: number; number: number; cards: unknown; energies: unknown } | null,
+  chosen: readonly SelectableEnergy[] | undefined,
+  index: ReturnType<CatalogService['requireIndex']>,
+  engine: EngineStatus,
+): { draft: DeckSnapshotDraft; meta: SnapshotMeta } {
+  const cards = (revision?.cards ?? []) as unknown as DeckCardEntry[]
+  const declared = (revision?.energies ?? deck.energies) as SelectableEnergy[]
+  const energies = chosen && chosen.length > 0 ? [...chosen] : declared
+  // «13. Hoopa ex» already carries its number (the 40 lists were imported in order); others get «#id».
+  const number = idToString(deck.id)
+  const numbered = deck.name.trim().startsWith(`${number}.`) || deck.name.trim().startsWith(`${number} `)
+  const draft = buildSnapshot({
+    label: `${numbered ? '' : `#${number} `}${deck.name}${revision ? ` (rev. ${revision.number})` : ''}`,
+    cards,
+    energies,
+    index,
+    engine,
+  })
+  return {
+    draft,
+    meta: {
+      sourceType: 'deck_revision',
+      sourceId: revision ? String(revision.id) : null,
+      deckId: deck.id,
+      energySource: chosen && chosen.length > 0 ? 'chosen' : 'declared',
+    },
+  }
 }

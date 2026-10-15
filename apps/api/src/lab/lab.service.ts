@@ -156,6 +156,7 @@ import type {
   LabJobView,
   LabNoveltyView,
   LabObjectiveView,
+  LabRefreshView,
   LabRivalView,
   LabScoreView,
 } from './lab-views.js'
@@ -163,6 +164,10 @@ import type {
 export const LAB_NOTE =
   'Juegan bots del motor deckgym, no personas: el porcentaje depende del bot y del motor. Es una pista para probar en el juego, no un veredicto.'
 export const MAX_TEST_DECKS = 10
+/** The Laboratorio's bots by default (D-029): the score of a deck in «¿Cuál llevo hoy?» is theirs. */
+export const LAB_DEFAULT_PLAYERS: [string, string] = ['e2', 'e2']
+/** Advisory lock key (a session lock) that serializes «Actualizar todos» (any constant no other lock uses). */
+const REFRESH_LOCK = 43_031
 const DEFAULT_TEST_GAMES = 100
 /** Where the variant that brings in a card to try takes its seeds (T-017 E3). */
 const INCLUDE_SEED_SALT = 7_919
@@ -187,8 +192,36 @@ export type LabDeckInput =
 export interface DeckLabScore {
   jobId: number
   era: string
+  /** The bots that played it: «e2», or «e2 contra e3» when the two sides differ. */
+  bot: string
   finishedAt: Date | null
   score: LabScoreView
+}
+
+/** A deck's list in the Laboratorio against the meta («Actualizar todos», 14/10). */
+export interface DeckLabStatus {
+  /** The list's snapshot key and whether the engine can play it. */
+  key: string
+  simulable: boolean
+  /** Its latest score: of the era asked for, or of another one (`stale`) when that era has none. */
+  score: DeckLabScore | null
+  stale: boolean
+  /** The latest score of the era with each other bot (e3, f2…), apart: never in place of the default bot's. */
+  others: DeckLabScore[]
+  /** The newest test of the list with the default bot and this era failed before playing it whole (no score). */
+  failed: { jobId: number } | null
+  /** A test of the list with the default bot against the meta of that era, queued or playing now. */
+  running: { jobId: number; status: 'queued' | 'running'; gamesDone: number; totalGames: number } | null
+}
+
+/** A Laboratorio job as `deckLabStatus` reads it. */
+interface LabJobRow {
+  id: number
+  status: string
+  engineRev: string
+  finishedAt: Date | null
+  players: string[]
+  params: JobParams
 }
 
 export interface LabScopeInput {
@@ -216,6 +249,8 @@ export interface LabRunInput extends LabScopeInput {
 export interface LabTestInput extends LabRunInput {
   decks: LabDeckInput[]
   gamesPerRival?: number | undefined
+  /** «Actualizar todos»: ahead of the Laboratorio's other tests (`simulation_jobs.priority`). */
+  priority?: number | undefined
 }
 
 export interface LabExploreInput extends LabRunInput {
@@ -610,7 +645,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
   }
 
   private players(input: LabRunInput): [string, string] {
-    const players = input.players ?? ['e2', 'e2']
+    const players = input.players ?? LAB_DEFAULT_PLAYERS
     for (const code of players) {
       if (!isBotCode(code)) throw new BadRequestException({ code: 'validation', message: `Bot «${code}» desconocido.` })
     }
@@ -703,6 +738,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       cores: input.cores,
       lab: this.labParams(bank, 'test') as unknown as Prisma.InputJsonValue,
       ...((await this.perGameReady()) ? { perGame: true } : {}),
+      ...(input.priority !== undefined ? { priority: input.priority } : {}),
     }
     if (input.dryRun) return { preview: await this.simulations.preview(job), bank: await this.bank(input) }
     return this.simulations.create(job)
@@ -2086,18 +2122,25 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
   /**
    * The latest Laboratorio score of each deck's current list (H-007, Fase 36): found by the list itself (the snapshot
    * key, so a restored revision or a copy of the list finds its tests too), only among jobs of the current engine
-   * (a score of another engine is another game), with one query for the jobs and each job's view built once.
+   * (a score of another engine is another game).
    */
   async deckScores(deckIds: readonly number[]): Promise<Map<number, DeckLabScore>> {
-    const result = new Map<number, DeckLabScore>()
-    const keys = new Map<number, string>()
-    for (const deckId of deckIds) {
-      const current = await this.snapshots.preview({ deckId: String(deckId) }).catch(() => null)
-      if (current) keys.set(deckId, current.key)
-    }
-    if (keys.size === 0) return result
+    const status = await this.deckLabStatus(deckIds)
+    return new Map([...status].flatMap(([deckId, row]) => (row.score ? [[deckId, row.score] as const] : [])))
+  }
+
+  /**
+   * Each deck's list in the Laboratorio against the meta: its latest score (of `era` when given; one of another era
+   * comes back `stale` when that era has none) and the test playing it now («Actualizar todos», 14/10).
+   * Deuda 6 of 14/10: the lists' keys in two queries, only the jobs that played one of them (filtered in the query,
+   * newest first), and each score from that list's own chunks instead of the job's whole view.
+   */
+  async deckLabStatus(deckIds: readonly number[], era?: string): Promise<Map<number, DeckLabStatus>> {
+    const result = new Map<number, DeckLabStatus>()
+    const drafts = await this.snapshots.deckDrafts(deckIds)
+    if (drafts.size === 0) return result
     const snapshots = await this.prisma.deckSnapshot.findMany({
-      where: { key: { in: [...new Set(keys.values())] } },
+      where: { key: { in: [...new Set([...drafts.values()].map((draft) => draft.key))] } },
       select: { id: true, key: true },
     })
     const idsByKey = new Map<string, Set<number>>()
@@ -2106,41 +2149,233 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       ids.add(row.id)
       idsByKey.set(row.key, ids)
     }
-    if (idsByKey.size === 0) return result
-    const jobs = (
-      await this.prisma.simulationJob.findMany({
-        where: { status: 'done', engineRev: this.engine.engineRev() },
-        orderBy: { id: 'desc' },
-        select: { id: true, params: true, finishedAt: true },
-      })
+    const jobs = snapshots.length === 0 ? [] : await this.labJobsWith(snapshots.map((row) => row.id))
+    const engineRev = this.engine.engineRev()
+    // Review of #109: a failed job scores the lists it played whole (a pairing that always fails, deckgym#398, must not
+    // leave the other nine without a score); a list whose own test failed is said, not queued again on every click.
+    const done = jobs.filter((job) => (job.status === 'done' || job.status === 'failed') && job.engineRev === engineRev)
+    const active = jobs.filter((job) => job.status === 'queued' || job.status === 'running')
+    const progress = new Map(
+      (await this.simulations.summariesOf(active.map((job) => job.id))).map((summary) => [summary.id, summary]),
     )
-      // A deck's score is against the meta (T-017 D4: a test against one rival or «mi meta» says something else), and a
-      // search's replay with another bot is not a test of the deck (fase 42: its search already is).
-      .filter((job) => {
-        const lab = (job.params as unknown as JobParams).lab
-        return labMode(job.params) !== null && (lab.objective?.kind ?? 'meta') === 'meta' && !lab.robustnessOf
-      })
-    const views = new Map<number, LabJobView>()
-    for (const [deckId, key] of keys) {
-      const ids = idsByKey.get(key)
-      if (!ids) continue
-      for (const job of jobs) {
-        const params = job.params as unknown as JobParams
-        if (!params.sideA.some((sid) => ids.has(sid))) continue
-        let view = views.get(job.id)
-        if (!view) {
-          view = await this.job(String(job.id))
-          views.set(job.id, view)
-        }
-        const row = view.decks.find((item) => ids.has(item.snapshot))
-        const score = row ? (row.confirm?.score ? row.confirm : row.search) : null
-        if (score?.score) {
-          result.set(deckId, { jobId: job.id, era: params.lab.era, finishedAt: job.finishedAt, score })
-          break
-        }
+    // One score per job and list, whatever the number of decks that share the list.
+    const scores = new Map<string, Promise<{ score: LabScoreView; complete: boolean }>>()
+    const scoreIn = (job: LabJobRow, sid: number) => {
+      const cacheKey = `${job.id}:${sid}`
+      let pending = scores.get(cacheKey)
+      if (!pending) {
+        pending = this.snapshotScore(job, sid)
+        scores.set(cacheKey, pending)
       }
+      return pending
+    }
+    // Review of the coordinator (14/10): the score is the default bot's (D-029); another bot's goes apart.
+    const byDefault = (job: LabJobRow) => botLabel(job.players) === botLabel(LAB_DEFAULT_PLAYERS)
+    const ofEra = (job: LabJobRow) => era === undefined || job.params.lab.era === era
+    for (const [deckId, draft] of drafts) {
+      const ids = idsByKey.get(draft.key) ?? new Set<number>()
+      const inJob = (job: LabJobRow) => job.params.sideA.find((sid) => ids.has(sid))
+      let current: DeckLabScore | null = null
+      let other: DeckLabScore | null = null
+      let failed: { jobId: number } | null = null
+      const others = new Map<string, DeckLabScore>()
+      for (const job of done) {
+        const sid = inJob(job)
+        if (sid === undefined) continue
+        const bot = botLabel(job.players)
+        if (byDefault(job) ? current !== null : !ofEra(job) || others.has(bot)) continue
+        // Self-review: another era's score once one is found is not computed again (after a new era, every deck).
+        if (byDefault(job) && !ofEra(job) && other !== null) continue
+        const { score, complete } = await scoreIn(job, sid)
+        if (job.status === 'failed' && !complete) {
+          // The newest test of this list with the default bot and this era failed before playing it whole.
+          if (byDefault(job) && ofEra(job) && current === null) failed ??= { jobId: job.id }
+          continue
+        }
+        if (!score.score) continue
+        const found = { jobId: job.id, era: job.params.lab.era, bot, finishedAt: job.finishedAt, score }
+        if (!byDefault(job)) others.set(bot, found)
+        else if (ofEra(job)) current = found
+        else other ??= found
+      }
+      const run = active.find((job) => byDefault(job) && ofEra(job) && inJob(job) !== undefined)
+      const summary = run ? progress.get(run.id) : undefined
+      result.set(deckId, {
+        key: draft.key,
+        simulable: draft.simulable,
+        score: current ?? other,
+        stale: current === null && other !== null,
+        failed: current === null ? failed : null,
+        others: [...others.values()],
+        running:
+          run && summary
+            ? {
+                jobId: run.id,
+                status: summary.status === 'queued' ? 'queued' : 'running',
+                gamesDone: summary.progress.gamesDone,
+                totalGames: summary.progress.totalGames,
+              }
+            : null,
+      })
     }
     return result
+  }
+
+  /**
+   * The Laboratorio jobs against the meta that played one of these snapshots on side A, done or still in play, newest
+   * first: a search's replay with another bot is not a test of the deck (fase 42: its search already is), and a test
+   * against one rival or «mi meta» says something else (T-017 D4).
+   */
+  private async labJobsWith(snapshotIds: readonly number[]): Promise<LabJobRow[]> {
+    const rows = await this.prisma.$queryRaw<
+      {
+        id: number
+        status: string
+        engineRev: string
+        finishedAt: Date | null
+        players: string[]
+        params: Prisma.JsonValue
+      }[]
+    >`
+      SELECT id, status::text AS status, engine_rev AS "engineRev", finished_at AS "finishedAt", players, params
+      FROM simulation_jobs
+      WHERE status IN ('done', 'failed', 'queued', 'running')
+        AND params->'lab'->>'mode' IN ('test', 'explore')
+        AND COALESCE(params->'lab'->'objective'->>'kind', 'meta') = 'meta'
+        AND params->'lab'->>'robustnessOf' IS NULL
+        AND EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(params->'sideA') AS side(sid)
+          WHERE side.sid::int = ANY(${[...snapshotIds]}::int[]))
+      ORDER BY id DESC`
+    return rows.map((row) => ({ ...row, params: row.params as unknown as JobParams }))
+  }
+
+  /**
+   * A list's score in a job, from its own chunks: the confirmation's when it has one, else the search's; `complete` when
+   * every pairing of it finished (what a failed job's score needs to count).
+   */
+  private async snapshotScore(job: LabJobRow, sid: number): Promise<{ score: LabScoreView; complete: boolean }> {
+    const { params } = job
+    const lab = params.lab
+    const needSideB = lab.rivals.some((rival) => rival.snapshot === undefined || rival.snapshot === null)
+    const [chunks, sideB] = await Promise.all([
+      this.prisma.simulationChunk.findMany({ where: { jobId: job.id, snapshotAId: sid }, select: CHUNK_SELECT }),
+      needSideB
+        ? this.prisma.deckSnapshot.findMany({
+            where: { id: { in: params.sideB } },
+            select: { id: true, sourceType: true, sourceId: true },
+          })
+        : Promise.resolve([]),
+    ])
+    const scored = scoredRivals(lab.rivals, params.sideB, new Map(sideB.map((row) => [row.id, row])))
+    const state = lab.explore ?? null
+    const confirm = state?.rounds.find((round) => round.kind === 'confirm') ?? null
+    const searchFilter = (chunk: ChunkRow) => !confirm || chunk.idx < confirm.fromIdx
+    const search = scoreView(scoreOf(chunks, scored, sid, searchFilter), lab.objective)
+    const searched = complete(chunks, scored, sid, searchFilter)
+    if (!confirm || (sid !== state?.base && sid !== state?.incumbent)) return { score: search, complete: searched }
+    const confirmFilter = (chunk: ChunkRow) => chunk.idx >= confirm.fromIdx && chunk.idx < confirm.toIdx
+    const confirmed = scoreView(scoreOf(chunks, scored, sid, confirmFilter), lab.objective)
+    return confirmed.score
+      ? { score: confirmed, complete: complete(chunks, scored, sid, confirmFilter) }
+      : { score: search, complete: searched }
+  }
+
+  /**
+   * «Actualizar todos» (14/10): a test against the current era's meta, with the default bank, bots and games, of every
+   * deck whose list has no score of this era and engine, in groups of `MAX_TEST_DECKS`. A list already under test
+   * against this era's meta, or that two decks share, goes once; one the engine cannot play is left out and said. The
+   * queueing runs under a lock, so a double click or two screens queue it once.
+   */
+  async refreshDecks(deckIds: readonly number[], dryRun = false): Promise<LabRefreshView> {
+    if (dryRun) return this.planRefresh(deckIds, true)
+    // Self-review: a session lock on a connection of its own, taken without waiting. A transaction's lock was let go
+    // at its timeout while the queueing went on (tests twice), and every request waiting for it held a connection.
+    const lock = await this.prisma.pool.connect()
+    let acquired = false
+    try {
+      acquired =
+        (await lock.query<{ locked: boolean }>('SELECT pg_try_advisory_lock($1) AS locked', [REFRESH_LOCK])).rows[0]
+          ?.locked ?? false
+      if (!acquired) {
+        throw new ConflictException({
+          code: 'busy',
+          message: 'Ya se están encolando las pruebas: probá de nuevo en unos segundos.',
+        })
+      }
+      return await this.planRefresh(deckIds, false)
+    } finally {
+      // Review of #109: an unlock that fails destroys the connection, so the lock does not stay in the pool with it.
+      let unlockError: Error | undefined
+      if (acquired) {
+        await lock.query('SELECT pg_advisory_unlock($1)', [REFRESH_LOCK]).catch((error: Error) => {
+          unlockError = error
+        })
+      }
+      lock.release(unlockError)
+    }
+  }
+
+  private async planRefresh(deckIds: readonly number[], dryRun: boolean): Promise<LabRefreshView> {
+    const era = await this.tournaments.currentEra()
+    const status = await this.deckLabStatus(deckIds, era)
+    const due: { deckId: number; key: string }[] = []
+    const keys = new Set<string>()
+    const view: LabRefreshView = {
+      era,
+      queued: [],
+      jobs: [],
+      fresh: 0,
+      running: 0,
+      sameList: 0,
+      failed: [],
+      notSimulable: [],
+      games: 0,
+      estimatedSeconds: 0,
+    }
+    for (const deckId of deckIds) {
+      const row = status.get(deckId)
+      if (!row) continue
+      if (!row.simulable) view.notSimulable.push(String(deckId))
+      else if (row.running) view.running += 1
+      else if (row.failed) view.failed.push({ deckId: String(deckId), jobId: row.failed.jobId })
+      else if (row.score && !row.stale) view.fresh += 1
+      else if (!keys.has(row.key)) {
+        keys.add(row.key)
+        due.push({ deckId, key: row.key })
+      } else view.sameList += 1
+    }
+    const cores = dryRun ? await this.workerCores() : undefined
+    // Santi's ask (review of #109): ahead of the Laboratorio's other tests, like «Adelantar» on a long search.
+    const top = await this.prisma.simulationJob.aggregate({
+      where: { status: { in: ['queued', 'running'] } },
+      _max: { priority: true },
+    })
+    const priority = Math.max(0, top._max.priority ?? 0) + 1
+    for (let at = 0; at < due.length; at += MAX_TEST_DECKS) {
+      const group = due.slice(at, at + MAX_TEST_DECKS)
+      const total = Math.ceil(due.length / MAX_TEST_DECKS)
+      const input: LabTestInput = {
+        decks: group.map((deck) => ({ deckId: String(deck.deckId) })),
+        era,
+        label: total > 1 ? `Actualizar todos (${at / MAX_TEST_DECKS + 1} de ${total})` : 'Actualizar todos',
+      }
+      if (dryRun) {
+        const plan = await this.test({ ...input, cores, dryRun: true })
+        if ('preview' in plan) {
+          view.games += plan.preview.totalGames
+          view.estimatedSeconds += plan.preview.estimatedSeconds
+        }
+      } else {
+        const job = await this.test({ ...input, priority })
+        if ('id' in job) {
+          view.jobs.push(job.id)
+          view.games += job.progress.totalGames
+        }
+      }
+      view.queued.push(...group.map((deck) => String(deck.deckId)))
+    }
+    return view
   }
 
   async jobs(limit = 50): Promise<LabJobsView> {
@@ -2190,17 +2425,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     // T-017 E2: the collection's playable copies, for «te falta» and what the search could not try.
     const playable = await this.tournaments.playable(index)
     const byId = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot]))
-    // Rivals: explore jobs store their snapshot; tests find it by the list key among side B.
-    const rivals = lab.rivals.map((rival) => ({
-      ...rival,
-      snapshot:
-        rival.snapshot ??
-        params.sideB.find((sid) => {
-          const snapshot = byId.get(sid)
-          return snapshot?.sourceType === 'tournament_list' && snapshot.sourceId === rival.listKey
-        }) ??
-        null,
-    }))
+    const rivals = resolveRivals(lab.rivals, params.sideB, byId)
     const scored = rivals.filter((rival): rival is typeof rival & { snapshot: number } => rival.snapshot !== null)
     const rows = scoped ? listRows(scoped.dataset, 'group') : []
     const archetypeName = (archetypeId: string | null) =>
@@ -2777,6 +3002,41 @@ function gamesOf(
   const rate = (split: { wins: number; games: number }) =>
     simulationRate({ wins: split.wins, losses: split.games - split.wins, ties: 0 })
   return { ...summary, total, hasStage2, firstRate: rate(summary.first), secondRate: rate(summary.second) }
+}
+
+/** «e2» when both sides play the same bot, «e2 contra e3» otherwise. */
+function botLabel(players: readonly string[]): string {
+  const [a, b] = players
+  return a === b || b === undefined ? (a ?? '') : `${a} contra ${b}`
+}
+
+/** The bank's rivals with their snapshot: explore jobs store it; tests find it by the list key among side B. */
+function resolveRivals<R extends { snapshot?: number | null | undefined; listKey: string }>(
+  rivals: readonly R[],
+  sideB: readonly number[],
+  byId: ReadonlyMap<number, { sourceType: string; sourceId: string | null }>,
+): (R & { snapshot: number | null })[] {
+  return rivals.map((rival) => ({
+    ...rival,
+    snapshot:
+      rival.snapshot ??
+      sideB.find((sid) => {
+        const snapshot = byId.get(sid)
+        return snapshot?.sourceType === 'tournament_list' && snapshot.sourceId === rival.listKey
+      }) ??
+      null,
+  }))
+}
+
+/** The rivals a list's score is measured against (those with a snapshot). */
+function scoredRivals<R extends { snapshot?: number | null | undefined; listKey: string }>(
+  rivals: readonly R[],
+  sideB: readonly number[],
+  byId: ReadonlyMap<number, { sourceType: string; sourceId: string | null }>,
+): (R & { snapshot: number })[] {
+  return resolveRivals(rivals, sideB, byId).filter(
+    (rival): rival is R & { snapshot: number } => rival.snapshot !== null,
+  )
 }
 
 function scoreOf(

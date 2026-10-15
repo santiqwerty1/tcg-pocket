@@ -320,3 +320,22 @@ export interface LabJobsView {
     phase: 'search' | 'confirm' | 'done' | null
   })[]
 }
+
+/** «Actualizar todos» (14/10): what it queued (or would queue, with `dryRun`) and what it left out, and why. */
+export interface LabRefreshView {
+  era: string
+  /** Decks tested now, by id. */
+  queued: string[]
+  jobs: number[]
+  /** Left out: a score of this era and engine already, a test of the list already in play, the same list as another
+   * deck queued now, or a list the engine cannot play (by id). */
+  fresh: number
+  running: number
+  sameList: number
+  /** Review of #109: lists whose last test failed (by deck id, with the job): «Reintentar lo que falló», not again. */
+  failed: { deckId: string; jobId: number }[]
+  notSimulable: string[]
+  games: number
+  /** Only with `dryRun` (0 otherwise). */
+  estimatedSeconds: number
+}
