@@ -4,16 +4,16 @@
  * (Fase 5) the era table, the archetype merges and each deck's tournament archetype; version 5 (Fase 8) the results of
  * the games against the bot (D-019: the result only, not the moves); version 6 (Fase 12) the notes by rival; version 7
  * (Fase 16) the events; version 8 (T-020) collection imports and stock with tracker origin; version 9 (14/10) the
- * rival's cards seen in each match. Tournament data is not in the
+ * rival's cards seen in each match; version 10 (14/10) the ranked seasons and the rank changes. Tournament data is not in the
  * backup: it is Limitless's and the sync downloads it again (DECISIONES 5.7).
  * Dates are ISO strings; numeric ids keep their database values so a `replace` restores them verbatim.
  * Excluded on purpose: password hash, TOTP secret, token hashes (tokens travel as metadata only), raw CSV files.
  */
 import { z } from 'zod'
 
-export const BACKUP_SCHEMA_VERSION = 9
+export const BACKUP_SCHEMA_VERSION = 10
 /** Versions this app reads. Exports always write BACKUP_SCHEMA_VERSION. */
-export const READABLE_BACKUP_VERSIONS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+export const READABLE_BACKUP_VERSIONS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
 const isoDate = z.string().refine((value) => !Number.isNaN(Date.parse(value)), 'fecha ISO 8601 inválida')
 const nullableDate = isoDate.nullable()
@@ -142,6 +142,7 @@ export const backupDocumentSchema = z.object({
     z.literal(7),
     z.literal(8),
     z.literal(9),
+    z.literal(10),
   ]),
   exportedAt: isoDate,
   appVersion: z.string(),
@@ -215,6 +216,30 @@ export const backupDocumentSchema = z.object({
       }),
     )
     .optional(),
+  /** Ranked seasons and the rank noted when it changes (version 10). Absent = keep the current ones. */
+  ranked: z
+    .object({
+      seasons: z.array(
+        z.object({
+          code: z.string().min(1),
+          name: z.string().min(1),
+          startsOn: z.iso.date(),
+          endsOn: z.iso.date(),
+          createdAt: isoDate,
+          updatedAt: isoDate,
+        }),
+      ),
+      changes: z.array(
+        z.object({
+          id: z.number().int(),
+          at: isoDate,
+          rank: z.string().min(1),
+          points: z.number().int().nullable(),
+          createdAt: isoDate,
+        }),
+      ),
+    })
+    .optional(),
   /** Notes by rival (version 6). Absent = keep the current ones. */
   rivalNotes: z
     .array(
@@ -250,6 +275,8 @@ export interface BackupCounts {
   playedGames: number
   rivalNotes: number
   events: number
+  rankedSeasons: number
+  rankChanges: number
 }
 
 export function backupCounts(document: BackupDocument): BackupCounts {
@@ -271,5 +298,7 @@ export function backupCounts(document: BackupDocument): BackupCounts {
     playedGames: document.playedGames?.length ?? 0,
     rivalNotes: document.rivalNotes?.length ?? 0,
     events: document.events?.length ?? 0,
+    rankedSeasons: document.ranked?.seasons.length ?? 0,
+    rankChanges: document.ranked?.changes.length ?? 0,
   }
 }

@@ -13,6 +13,8 @@ import {
   MATCH_RESULT_LABEL_ES,
   MCP_WRITE_TOOLS,
   OPTIMIZE_CONFIRM_GAMES,
+  type Rank,
+  rankLabelEs,
   type SeenCard,
   type SelectableEnergy,
   type WinRate,
@@ -24,6 +26,7 @@ import { DecksService } from '../decks/decks.service.js'
 import type { MatchView, RowView } from '../matches/match-views.js'
 import { MatchesService } from '../matches/matches.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import { RankedService } from '../ranked/ranked.service.js'
 import { RivalNotesService } from '../rivals/rival-notes.service.js'
 import type { CreateJobInput } from '../simulation/simulations.service.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
@@ -118,6 +121,7 @@ export class McpWriteToolsService {
     private readonly prisma: PrismaService,
     private readonly audit: McpAuditService,
     private readonly engineStatus: EngineStatusService,
+    private readonly ranked: RankedService,
   ) {}
 
   register(server: McpServer, run: WriteRun): void {
@@ -368,6 +372,8 @@ export class McpWriteToolsService {
     note?: string
     playedAt?: string
     opponentCards?: string[]
+    rank?: Rank
+    rankPoints?: number
   }): Promise<Json> {
     const deck = await this.deckRefs.resolve(args.deck)
     const match = await this.matches.create(
@@ -384,7 +390,31 @@ export class McpWriteToolsService {
       'mcp',
     )
     const stats = await this.matches.stats({ deckId: deck.id })
-    return { logged: true, match: matchView(match), deckRecord: recordView(stats.overall) }
+    // 14/10: the season and the rank the match was played at; with `rank`, the rank after it (noted a second later).
+    const before = match.mode === 'competitive' ? await this.ranked.at(match.playedAt) : null
+    const after = args.rank
+      ? await this.ranked.addRank({
+          rank: args.rank,
+          points: args.rankPoints ?? null,
+          at: new Date(match.playedAt.getTime() + 1000).toISOString(),
+        })
+      : null
+    return {
+      logged: true,
+      match: matchView(match),
+      deckRecord: recordView(stats.overall),
+      ...(before?.season
+        ? {
+            ranked: {
+              season: before.season.name,
+              playedAt: before.rank ? rankLabelEs(before.rank.rank, before.rank.points) : 'sin rango anotado',
+              ...(after ? { now: after.label } : {}),
+            },
+          }
+        : after
+          ? { ranked: { now: after.label } }
+          : {}),
+    }
   }
 
   private async matchesUpdate(args: {

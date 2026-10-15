@@ -105,6 +105,7 @@ const SERIAL_TABLES = [
   'matches',
   'live_games',
   'events',
+  'rank_changes',
 ] as const
 
 /** Thrown inside the drill's transaction so nothing it restored stays. */
@@ -191,6 +192,8 @@ export class BackupService {
       games,
       notes,
       events,
+      seasons,
+      rankChanges,
     ] = await Promise.all([
       db.appSetting.findMany({ orderBy: { key: 'asc' } }),
       db.rarityRule.findMany({ orderBy: { rarity: 'asc' } }),
@@ -216,6 +219,8 @@ export class BackupService {
       db.liveGame.findMany({ where: { status: 'done', winner: { not: null } }, orderBy: { id: 'asc' } }),
       db.rivalNote.findMany({ orderBy: { key: 'asc' } }),
       db.event.findMany({ orderBy: { id: 'asc' } }),
+      db.rankedSeason.findMany({ orderBy: { startsOn: 'asc' } }),
+      db.rankChange.findMany({ orderBy: { id: 'asc' } }),
     ])
     return {
       schemaVersion: BACKUP_SCHEMA_VERSION,
@@ -358,6 +363,23 @@ export class BackupService {
         createdAt: iso(game.createdAt),
         finishedAt: isoOrNull(game.finishedAt),
       })),
+      ranked: {
+        seasons: seasons.map((season) => ({
+          code: season.code,
+          name: season.name,
+          startsOn: season.startsOn.toISOString().slice(0, 10),
+          endsOn: season.endsOn.toISOString().slice(0, 10),
+          createdAt: iso(season.createdAt),
+          updatedAt: iso(season.updatedAt),
+        })),
+        changes: rankChanges.map((change) => ({
+          id: change.id,
+          at: iso(change.at),
+          rank: change.rank,
+          points: change.points,
+          createdAt: iso(change.createdAt),
+        })),
+      },
       rivalNotes: notes.map((note) => ({
         key: note.key,
         label: note.label,
@@ -790,6 +812,21 @@ export class BackupService {
           })),
         })
       }
+    }
+    // Ranked seasons and rank changes (version 10): replaced by the file's; older files keep the current ones.
+    if (document.ranked) {
+      await tx.rankChange.deleteMany()
+      await tx.rankedSeason.deleteMany()
+      if (document.ranked.seasons.length > 0) {
+        await tx.rankedSeason.createMany({
+          data: document.ranked.seasons.map((season) => ({
+            ...season,
+            startsOn: new Date(`${season.startsOn}T00:00:00Z`),
+            endsOn: new Date(`${season.endsOn}T00:00:00Z`),
+          })),
+        })
+      }
+      if (document.ranked.changes.length > 0) await tx.rankChange.createMany({ data: document.ranked.changes })
     }
     // Notes by rival (version 6): replaced by the file's; older files keep the current ones.
     if (document.rivalNotes) {

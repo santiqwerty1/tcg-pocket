@@ -5,6 +5,7 @@
  */
 import { z } from 'zod'
 import { SELECTABLE_ENERGIES } from '../catalog/types.js'
+import { RANKS } from '../matches/ranked.js'
 import { MATCH_MODES, MATCH_RESULTS } from '../matches/types.js'
 import { BOT_CODE_PATTERN } from '../simulation/jobs.js'
 import { TOURNAMENT_FORMATS } from '../tournaments/eras.js'
@@ -127,6 +128,13 @@ export const MCP_WRITE_TOOLS = {
       note: z.string().max(1000).optional(),
       playedAt: z.iso.datetime({ offset: true }).optional().describe('Cuándo se jugó (ISO 8601); por defecto ahora'),
       opponentCards: seenCardsInput,
+      rank: z
+        .enum(RANKS)
+        .optional()
+        .describe(
+          'Solo si Santi dice que cambió de rango con esta partida: el rango después de ella (ultra-2 = Ultra Ball 2, great-1 = Super Ball 1, master = Master Ball)',
+        ),
+      rankPoints: z.number().int().min(0).max(100_000).optional().describe('Puntos de la Master Ball, si los dijo'),
     }),
   },
   rivalsNoteSet: {

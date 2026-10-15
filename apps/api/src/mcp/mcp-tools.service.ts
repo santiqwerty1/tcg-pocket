@@ -50,6 +50,7 @@ import { OpsService } from '../ops/ops.service.js'
 import { PacksService } from '../packs/packs.service.js'
 import { PickService } from '../pick/pick.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import { RankedService } from '../ranked/ranked.service.js'
 import { RivalNotesService } from '../rivals/rival-notes.service.js'
 import { SimulationAnalysisService } from '../simulation/analysis.service.js'
 import { CalibrationService } from '../simulation/calibration.service.js'
@@ -184,6 +185,7 @@ export class McpToolsService {
     private readonly deckRefs: DeckRefResolver,
     private readonly rivalNotes: RivalNotesService,
     private readonly pick: PickService,
+    private readonly ranked: RankedService,
     private readonly nextBuild: NextBuildService,
     private readonly events: EventsService,
     private readonly writeTools: McpWriteToolsService,
@@ -282,6 +284,9 @@ ${MCP_CHAT_INSTRUCTIONS}`
     )
     server.registerTool(t.matchesRivalSuggest.name, config(t.matchesRivalSuggest), (args) =>
       run(t.matchesRivalSuggest.name, () => this.matchesRivalSuggest(args)),
+    )
+    server.registerTool(t.rankedSeason.name, config(t.rankedSeason), (args) =>
+      run(t.rankedSeason.name, () => this.rankedSeason(args)),
     )
     server.registerTool(t.matchesMyMeta.name, config(t.matchesMyMeta), (args) =>
       run(t.matchesMyMeta.name, () => this.matchesMyMeta(args)),
@@ -1527,6 +1532,45 @@ ${MCP_CHAT_INSTRUCTIONS}`
       ownRivals: view.own.map(
         (rival) => `${rival.label} (${rival.games} ${rival.games === 1 ? 'partida' : 'partidas'})`,
       ),
+    }
+  }
+
+  /** 14/10: the ranked season (the current one by default) and the rank noted. */
+  private async rankedSeason(args: { season?: string }): Promise<Json> {
+    const view = await this.ranked.view(args.season)
+    const summary = view.summary
+    return {
+      source: 'Partidas competitivas de Santi registradas en la app, por el día en que se jugaron (hora de Argentina).',
+      current: view.current
+        ? {
+            season: view.current.name,
+            until: view.current.endsOn,
+            rank: view.current.rank?.label ?? 'sin rango anotado',
+          }
+        : null,
+      seasons: view.seasons.map((season) => ({
+        code: season.code,
+        name: season.name,
+        days: `${season.startsOn} a ${season.endsOn}`,
+        record: season.text,
+        rank: season.rankLabel,
+      })),
+      ...(summary
+        ? {
+            season: summary.season.name,
+            record: summary.text,
+            rank: summary.rank?.label ?? null,
+            curve: summary.steps.map((step) => ({
+              at: step.at,
+              rank: step.label,
+              move:
+                step.move === 'up' ? 'subió' : step.move === 'down' ? 'bajó' : step.move === 'same' ? 'igual' : null,
+              since: step.decks.map((deck) => `${deck.deckName}: ${deck.text}`),
+            })),
+            byRank: summary.byRank.map((row) => `${row.label}: ${row.text}`),
+            byDeck: summary.byDeck.map((row) => `${row.deckName}: ${row.text}`),
+          }
+        : { note: 'Sin temporada: cargá sus fechas en Partidas → Temporada.' }),
     }
   }
 
