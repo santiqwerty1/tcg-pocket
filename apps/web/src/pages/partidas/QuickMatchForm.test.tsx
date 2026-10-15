@@ -53,11 +53,13 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
   let suggested: string[]
   /** The suggestions of these cards wait for the gate and then fail. */
   let failing: { cards: string; gate: Promise<void> } | null
+  let ranks: Record<string, unknown>[]
 
   beforeEach(() => {
     posted = []
     suggested = []
     failing = null
+    ranks = []
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: string, init?: RequestInit) => {
@@ -144,6 +146,32 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
             ],
           })
         }
+        if (url.pathname === '/api/ranked') {
+          return json({
+            timeZone: 'America/Argentina/Buenos_Aires',
+            today: '2026-10-15',
+            ranks: [
+              { code: 'ultra-1', label: 'Ultra Ball 1' },
+              { code: 'ultra-2', label: 'Ultra Ball 2' },
+              { code: 'ultra-3', label: 'Ultra Ball 3' },
+            ],
+            seasons: [],
+            current: {
+              code: 'B4bSP',
+              name: 'Temporada B4b SP',
+              endsOn: '2026-10-28',
+              rank: { id: '1', at: '2026-10-14T21:10:00.000Z', rank: 'ultra-2', points: null, label: 'Ultra Ball 2' },
+            },
+            summary: null,
+          })
+        }
+        if (url.pathname === '/api/ranked/ranks' && method === 'POST') {
+          ranks.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+          return json(
+            { id: '2', at: '2026-10-15T20:00:00.000Z', rank: 'ultra-3', points: null, label: 'Ultra Ball 3' },
+            201,
+          )
+        }
         if (url.pathname === '/api/matches' && method === 'GET') return json({ items: [], total: 0 })
         if (url.pathname === '/api/matches' && method === 'POST') {
           const body = JSON.parse(String(init?.body)) as Record<string, unknown>
@@ -208,6 +236,20 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
     release()
     await waitFor(() => expect(within(form).queryByText(/Ninguna lista de la era/)).toBeNull())
     expect(within(form).queryByRole('button', { name: /Greninja Altaria/ })).toBeNull()
+  })
+
+  it('14/10: after a competitive win, «¿Cambiaste de rango?» notes the next rank in one tap', async () => {
+    const user = userEvent.setup()
+    renderAt('/partidas')
+    const form = await screen.findByRole('form', { name: 'Nueva partida' })
+    await user.click(within(form).getByRole('button', { name: 'Victoria' }))
+    await user.click(within(form).getByRole('button', { name: /Guardar partida/ }))
+    await waitFor(() => expect(posted).toHaveLength(1))
+    const ask = await within(form).findByRole('group', { name: '¿Cambiaste de rango?' })
+    expect(within(ask).getByText('¿Cambiaste de rango? Estás en Ultra Ball 2.')).toBeInTheDocument()
+    await user.click(within(ask).getByRole('button', { name: 'Subí a Ultra Ball 3' }))
+    await waitFor(() => expect(ranks).toEqual([{ rank: 'ultra-3' }]))
+    await waitFor(() => expect(within(form).queryByRole('group', { name: '¿Cambiaste de rango?' })).toBeNull())
   })
 
   it('logs a match in four taps from the home screen, with the last deck and mode preselected', async () => {

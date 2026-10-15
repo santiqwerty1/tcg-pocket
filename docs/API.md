@@ -251,6 +251,18 @@ El rival se guarda limpio (espacios colapsados); si no tiene letras ni números 
 
 Fase 25: `GET /api/matches/stats` suma `turnOrder: { first, second, unknown, coverage, firstShare, secondShare, gap, z, p (Fase 37: prueba exacta de Fisher, la que decide), verdict: 'few'|'clear'|'maybe', text }` y cada fila de `GET /api/decks/:id/matchups` suma `turn: { first, second } | null`.
 
+## Ranked (14/10/2026)
+
+Temporadas de ranked del juego (por días, en la hora de Santi) y el rango anotado cuando cambia. Solo cuentan las partidas competitivas.
+
+| Método y ruta | Cuerpo / respuesta |
+|---|---|
+| `GET /api/ranked?season=` | `{ timeZone, today, ranks: [{ code, label }], seasons: [{ code, name, startsOn, endsOn, current, record, games, rate, text, rankLabel }], current: { code, name, endsOn, rank } \| null, summary: { season, record, games, rate, text, rank, steps: [{ id, at, rank, points, label, move: 'up'\|'down'\|'same'\|null, decks: [{ deckId, deckName, record, games, rate, text }] }], byRank: [{ rank, label, … }], byDeck: [{ deckId, deckName, … }] } \| null }`: la temporada pedida, la de hoy o la última que terminó. `404` con un código desconocido |
+| `PUT /api/ranked/seasons/:code` | `{ name, startsOn, endsOn }` → la temporada creada o corregida. `400` si termina antes de empezar o se superpone con otra |
+| `DELETE /api/ranked/seasons/:code` | `204` |
+| `POST /api/ranked/ranks` | `{ rank, points?, at? }` → `201 { id, at, rank, points, label }`: el rango ahora (o cuando cambió). `rank` es `beginner-1`…`ultra-4` o `master`; `points` solo con `master`; `400` con una fecha más de 10 min en el futuro |
+| `DELETE /api/ranked/ranks/:id` | `204` |
+
 Cartas vistas del rival (pedido de Santi del 14/10): `MatchInput` y el `PATCH` aceptan `opponentCards: [{ cardId, count }]` (cualquier edición de cada nombre, `count` 1 o 2, hasta 20; una por nombre, las copias se suman hasta 2; `400` con una carta desconocida) y `Match` trae `opponentCards: [{ cardId, count, nameEs }]` (`[]` en las partidas de antes).
 
 | Método y ruta | Cuerpo / respuesta |
