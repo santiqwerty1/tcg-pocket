@@ -23,7 +23,7 @@ Se validan al arrancar (`src/config/env.ts`, zod); si falta algo el proceso term
 | `PORT` | no | `3000` | Puerto HTTP. |
 | `WEB_DIST` | no | `../web/dist` (relativo a `apps/api`) | Carpeta de la PWA compilada. Si no existe, `/` muestra un aviso. |
 | `CATALOG_COMMIT` | no | `3ab58f1cec6a03e3e85455cf7aade3bb8561f92e` | Pin del tracker para `catalog:sync`. |
-| `ENGINE_REV` | no | `fb792ebfbaca995af9750c28101ce92a51282825` | Pin de deckgym-core. |
+| `ENGINE_REV` | no | `018b4193365187063eab90b1eb0989087c93ad7f` | Pin de deckgym-core: nuestra copia, `santiqwerty1/deckgym-core` (D-031). Es `DEFAULT_ENGINE_REV`; un test lo ata a `engine/Cargo.toml`. |
 | `COOKIE_SECURE` | no | `true` en producción, `false` si no | Cookie `__Host-session` + `Secure` + HSTS; en desarrollo `tcg_session` sin `Secure`. |
 | `TRUST_PROXY` | no | `1` | Saltos de proxy confiables (`X-Forwarded-For`): 1 en Fly. |
 | `BACKUP_CRON` | no | `true` en producción, `false` si no | Copia diaria de seguridad a las 04:00 **hora de Buenos Aires** (`America/Argentina/Buenos_Aires`; el contenedor corre en UTC) en `backup_blobs`, conservando las últimas 14. |

@@ -291,6 +291,8 @@ export class McpLabToolsService {
         // T-017 A3: cards the bots play badly or the engine approximates, and whether one came in («carta con punto
         // ciego»; not the replay with e3's «sensible al bot»).
         ...(deck.bringsBlindSpot ? { bringsBlindSpot: true } : {}),
+        // H-055: what the bots, more than the list, may explain; say it next to the score.
+        ...(deck.botBlindSpot ? { botBlindSpot: deck.botBlindSpot.text } : {}),
         ...(deck.blindSpots.length > 0
           ? { blindSpots: deck.blindSpots.map((card) => `${card.nameEs}: ${card.reasons.join('; ')}`) }
           : {}),
