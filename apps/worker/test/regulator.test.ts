@@ -96,12 +96,42 @@ describe('the CPU regulator, on the worker side (pedido de Santi del 14/10/2026)
     expect(lines().slice(-3)).toEqual(['start --floor 1', 'add 201 managed', 'end'])
     expect(log).toHaveBeenCalledWith(
       'el regulador de CPU terminó muchas veces: no lo arranco más hasta reiniciar el worker',
-      {
-        starts: MAX_STARTS_PER_HOUR,
-      },
+      { starts: MAX_STARTS_PER_HOUR },
     )
     await regulator.stop()
-  })
+  }, 20_000)
+
+  it('the last short run is followed: one that crashes or hangs is not logged as done (review of #110)', async () => {
+    // It crashes too, on the engine's line: the log says the engines were not given the machine back.
+    vi.stubEnv('FAKE_REGULATE_CRASH', '1')
+    const log = vi.fn()
+    const crashing = new CpuRegulator({ enginePath: FAKE_ENGINE, max: 8, dataDir: dir, log, restartAfterMs: 20 })
+    crashing.started(201, 'managed')
+    crashing.start()
+    await until(() => log.mock.calls.some(([message]) => String(message).startsWith('no pude devolver')), 8_000)
+    expect(log.mock.calls.some(([message]) => String(message).startsWith('devuelvo la máquina entera'))).toBe(false)
+    await crashing.stop()
+    // It hangs: after five crashes the last short run does not end; it is killed after its time and not logged as done.
+    rmSync(heard, { force: true })
+    const hanging = new CpuRegulator({
+      enginePath: FAKE_ENGINE,
+      max: 8,
+      dataDir: dir,
+      log,
+      restartAfterMs: 300,
+      restoreTimeoutMs: 300,
+    })
+    hanging.started(202, 'managed')
+    log.mockClear()
+    hanging.start()
+    await until(() => lines().filter((line) => line === 'add 202 managed').length === MAX_STARTS_PER_HOUR, 8_000)
+    vi.stubEnv('FAKE_REGULATE_CRASH', '')
+    vi.stubEnv('FAKE_REGULATE_HANG', '1')
+    await until(() => log.mock.calls.some(([message]) => String(message).includes('no terminó: la corto')), 8_000)
+    await until(() => log.mock.calls.some(([message]) => String(message).startsWith('no pude devolver')))
+    expect(log.mock.calls.some(([message]) => String(message).startsWith('devuelvo la máquina entera'))).toBe(false)
+    await hanging.stop()
+  }, 20_000)
 
   it('asks a regulator that answers ping, and cuts and starts again one that does not (review of #106)', async () => {
     const log = vi.fn()
@@ -175,7 +205,7 @@ describe('the CPU regulator, on the worker side (pedido de Santi del 14/10/2026)
     await new Promise((resolve) => setTimeout(resolve, 300))
     expect(lines()).not.toContain('ping')
     await old.stop()
-  })
+  }, 20_000)
 
   it('is sized from the whole machine unless told a max, and logs what it could not do (autorrevisión)', async () => {
     const log = vi.fn()

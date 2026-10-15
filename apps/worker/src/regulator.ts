@@ -81,6 +81,8 @@ export interface RegulatorOptions {
   everyMs?: number
   /** How long `stop()` waits for it to end before killing it. */
   stopTimeoutMs?: number
+  /** How long the last short run after the fifth start may take before it is killed. */
+  restoreTimeoutMs?: number
   /** Its engine answers `ping` (`regulatePing`): check it every `pingEveryMs`, cut it after `pingTimeoutMs` without an answer. */
   ping?: boolean
   pingEveryMs?: number
@@ -99,6 +101,8 @@ export class CpuRegulator implements EngineListener {
   private pingTimer: ReturnType<typeof setInterval> | null = null
   /** When the unanswered `ping` went (null: none waits). */
   private pingSentAt: number | null = null
+  /** The last short run after the fifth start, while it runs. */
+  private restoreChild: ChildProcess | null = null
   /** What it allows now (null before its first change). */
   state: RegulatorState | null = null
 
@@ -227,10 +231,29 @@ export class CpuRegulator implements EngineListener {
       stdio: ['pipe', 'ignore', 'ignore'],
       windowsHide: true,
     })
+    // Followed, and bounded: the starts before ended on their own, so this one may hang or crash too (review of #110).
+    // Only a clean end gave the engines the machine back.
+    this.restoreChild = child
+    const limit = setTimeout(() => {
+      this.options.log('la última corrida del regulador de CPU no terminó: la corto', { engines: managed.length })
+      child.kill()
+    }, this.options.restoreTimeoutMs ?? 15_000)
+    limit.unref()
     child.on('error', () => undefined)
+    child.on('close', (code) => {
+      clearTimeout(limit)
+      if (this.restoreChild === child) this.restoreChild = null
+      if (code === 0) {
+        this.options.log('devuelvo la máquina entera a los motores en marcha', { engines: managed.length })
+      } else {
+        this.options.log('no pude devolver la máquina entera a los motores en marcha: siguen así hasta terminar', {
+          engines: managed.length,
+          code,
+        })
+      }
+    })
     child.stdin?.on('error', () => undefined)
     child.stdin?.end(managed.map((pid) => `add ${pid} managed\n`).join(''))
-    this.options.log('devuelvo la máquina entera a los motores en marcha', { engines: managed.length })
   }
 
   private send(line: string): void {
@@ -296,6 +319,8 @@ export class CpuRegulator implements EngineListener {
   async stop(): Promise<void> {
     this.stopping = true
     this.stopPings()
+    // A last short run still going does not hold the worker's stop (review of #110).
+    this.restoreChild?.kill()
     if (this.restart) clearTimeout(this.restart)
     if (this.logTimer) clearTimeout(this.logTimer)
     const child = this.child
