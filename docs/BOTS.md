@@ -338,8 +338,8 @@ propio PR más adelante.
 ## Plan
 
 1. **Este diseño** (#111, integrado).
-2. **g 1.0** (puntos 1 a 5 y 7), con sus tests, contra el fork `018b419`. Es un PR de riesgo alto, porque toca el
-   motor, y va después del PR de Infra que pasa `engine/Cargo.toml` al fork. Resultados arriba.
+2. **g 1.0** (puntos 1 a 5 y 7, engine-cli 0.3.13), con sus tests, contra el fork `018b419`. Es un PR de riesgo
+   alto, porque toca el motor, y va apilado sobre #115, el de Infra que pasa el motor al fork. Resultados arriba.
 3. **La app acepta g:** los códigos, el filtro de la cola, los avisos, las partidas contra el bot y las tools (riesgo
    medio).
 4. **La carrera** (punto 6) y la herramienta de la liga, con las primeras mediciones.
