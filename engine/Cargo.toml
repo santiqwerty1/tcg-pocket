@@ -1,6 +1,6 @@
 [package]
 name = "engine-cli"
-version = "0.3.11"
+version = "0.3.12"
 edition = "2021"
 # Links deckgym-core (AGPL-3.0): this executable is a derivative work under the same license (DECISIONES A.5).
 license = "AGPL-3.0-only"
@@ -8,8 +8,11 @@ publish = false
 description = "JSON front end of deckgym-core for the TCG Pocket worker: validate, simulate and optimize decks."
 
 [dependencies]
-# The engine, pinned and unmodified. Bump the rev here (and nothing else) to update it.
-deckgym = { git = "https://github.com/bcollazo/deckgym-core", rev = "33ff2a5942dd4ce09d1ebc3041ffe48f604409e6" }
+# The engine, pinned: our fork of bcollazo/deckgym-core (D-031, 15/10/2026), upstream 4e25889 plus rule fixes, each in
+# a branch of its own for upstream (Heavy Helmet only against attacks #383, the target of Quick-Grow Extract and
+# Wallace #399, no Active #398, DiscardFossil once #397, "et" #396) and the bots' exports (feat/bot-api). Branch
+# `tcg-pocket` of the fork. Bump the rev here (and in engine/wasm) to update it.
+deckgym = { git = "https://github.com/santiqwerty1/deckgym-core", rev = "018b4193365187063eab90b1eb0989087c93ad7f" }
 rand = "0.8"
 rayon = "1.10"
 serde = { version = "1", features = ["derive"] }

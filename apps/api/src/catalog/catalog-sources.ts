@@ -10,7 +10,8 @@ import { type BuildCatalogInput, engineCardsFromDatabaseJson, parseExpansionIds 
 import { REPO_ROOT } from '../config/dotenv.js'
 
 export const TRACKER_RAW_BASE = 'https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker'
-export const ENGINE_RAW_BASE = 'https://raw.githubusercontent.com/bcollazo/deckgym-core'
+// Our fork (D-031): it has the upstream commits too, so older revs still resolve.
+export const ENGINE_RAW_BASE = 'https://raw.githubusercontent.com/santiqwerty1/deckgym-core'
 
 export const TRACKER_PATHS = {
   cardsJson: 'frontend/assets/cards.json',

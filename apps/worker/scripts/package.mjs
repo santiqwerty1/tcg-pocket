@@ -97,7 +97,7 @@ Un paquete copiado a mano arranca con su propio código, pero en su primera revi
 siempre manda la app (para quedarse en una versión, "autoUpdate": false). Windows no deja pisar un .exe en uso:
 copiá un paquete nuevo en otra carpeta y abrilo desde ahí (ofrece detener el worker que está corriendo).
 Licencias: el worker y engine-cli.exe son AGPL-3.0 (LICENSE.txt; fuentes en https://github.com/santiqwerty1/tcg-pocket);
-engine-cli.exe incluye deckgym-core (AGPL-3.0, https://github.com/bcollazo/deckgym-core); tcg-worker.exe lleva
+engine-cli.exe incluye deckgym-core (AGPL-3.0, https://github.com/santiqwerty1/deckgym-core, copia de bcollazo/deckgym-core); tcg-worker.exe lleva
 adentro Node.js (LICENSE-node.txt).
 `.replace(/\n/g, '\r\n'),
 )

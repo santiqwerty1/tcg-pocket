@@ -104,7 +104,7 @@ function sources(target) {
 Compilar: rustup target add wasm32-unknown-unknown; cargo install wasm-bindgen-cli --version ${bindgenVersion} --locked;
 node scripts/build-engine-wasm.mjs --out <carpeta>.
 Las dependencias se bajan con cargo a las versiones y sumas de engine/wasm/Cargo.lock: deckgym-core sin modificar en
-https://github.com/bcollazo/deckgym-core/tree/${engineRev} y el resto en crates.io (MIT o Apache-2.0).
+https://github.com/santiqwerty1/deckgym-core/tree/${engineRev} (nuestra copia de bcollazo/deckgym-core) y el resto en crates.io (MIT o Apache-2.0).
 engine/src tiene los bots, el entrenador y las semillas de engine-cli, que engine/wasm compila tal cual.
 `,
     )

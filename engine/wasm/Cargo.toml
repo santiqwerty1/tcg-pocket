@@ -11,7 +11,7 @@ description = "deckgym-core for the browser: one game of the owner against a bot
 # Its own lock, started from engine/Cargo.lock (same deckgym and the same versions of what both use). The rev must be
 # engine-cli's: build.rs refuses to build otherwise.
 [dependencies]
-deckgym = { git = "https://github.com/bcollazo/deckgym-core", rev = "33ff2a5942dd4ce09d1ebc3041ffe48f604409e6" }
+deckgym = { git = "https://github.com/santiqwerty1/deckgym-core", rev = "018b4193365187063eab90b1eb0989087c93ad7f" }
 rand = "0.8"
 rayon = "1.10"
 serde = { version = "1", features = ["derive"] }
