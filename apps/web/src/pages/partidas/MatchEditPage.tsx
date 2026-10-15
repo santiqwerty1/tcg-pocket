@@ -15,6 +15,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { formatDateTime } from '@/lib/format'
 import { fromLocalInput, toLocalInput } from '@/lib/matches'
 import { ModePicker, OpponentField, ResultPicker, WentFirstPicker } from './MatchFields'
+import { SeenCardsField, seenCardsBody } from './SeenCards'
 
 function MatchEditForm({ match, suggestions }: { match: Match; suggestions: MatchSuggestions }) {
   const navigate = useNavigate()
@@ -24,6 +25,8 @@ function MatchEditForm({ match, suggestions }: { match: Match; suggestions: Matc
   const [deckId, setDeckId] = useState(match.deck.id)
   const [result, setResult] = useState<MatchResult>(match.result)
   const [opponent, setOpponent] = useState(match.opponent ?? '')
+  /** 14/10: the rival's cards seen. */
+  const [cards, setCards] = useState(match.opponentCards)
   const [wentFirst, setWentFirst] = useState<boolean | null>(match.wentFirst)
   const [mode, setMode] = useState<MatchMode>(match.mode)
   const [playedAt, setPlayedAt] = useState(initialPlayedAt)
@@ -43,6 +46,7 @@ function MatchEditForm({ match, suggestions }: { match: Match; suggestions: Matc
       wentFirst,
       mode,
       note: note.trim(),
+      opponentCards: seenCardsBody(cards),
     }
     if (deckId !== match.deck.id) patch.deckId = deckId
     // Only a date the user touched is sent: the input drops seconds, and the date decides the deck revision.
@@ -101,6 +105,7 @@ function MatchEditForm({ match, suggestions }: { match: Match; suggestions: Matc
       </p>
       <ResultPicker value={result} onChange={setResult} />
       <OpponentField value={opponent} onChange={setOpponent} suggestions={suggestions.opponents} />
+      <SeenCardsField value={cards} onChange={setCards} opponent={opponent} onPickRival={setOpponent} />
       <WentFirstPicker value={wentFirst} onChange={setWentFirst} />
       <ModePicker value={mode} onChange={setMode} />
       <Field label="Fecha y hora" htmlFor="match-played-at">

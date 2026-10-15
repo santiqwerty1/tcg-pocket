@@ -1,4 +1,5 @@
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { z } from 'zod'
 import { request } from './client'
 import {
   deckComparisonSchema,
@@ -14,6 +15,8 @@ import {
   matchStatsSchema,
   matchSuggestionsSchema,
   myMetaSchema,
+  rivalSuggestionsSchema,
+  unclassifiedSchema,
 } from './schemas'
 
 /** Fase 28: the last suggestions, so the quick-entry form opens without signal. */
@@ -187,5 +190,39 @@ export function useDeleteMatch() {
       queryClient.removeQueries({ queryKey: matchKeys.detail(id) })
       return invalidateMatches(queryClient)
     },
+  })
+}
+
+/** 14/10: the era's archetypes for the rival's cards seen (none asked without cards). */
+export function useRivalSuggestions(cards: readonly { cardId: string; count: number }[]) {
+  const param = cards.map((card) => `${card.cardId}x${card.count}`).join(',')
+  return useQuery({
+    queryKey: ['matches', 'rival-suggestions', param] as const,
+    queryFn: ({ signal }) =>
+      request('/api/matches/rival-suggestions', { query: { cards: param }, schema: rivalSuggestionsSchema, signal }),
+    enabled: cards.length > 0,
+    placeholderData: (previous) => previous,
+  })
+}
+
+/** 14/10: the matches without a rival and with cards seen, grouped; the rivals typed that are no archetype. */
+export function useUnclassified() {
+  return useQuery({
+    queryKey: ['matches', 'unclassified'] as const,
+    queryFn: ({ signal }) => request('/api/matches/unclassified', { schema: unclassifiedSchema, signal }),
+  })
+}
+
+/** 14/10: one rival for some matches, or for every match of a rival typed before (`from`). */
+export function useClassify() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { matchIds?: string[]; from?: string; opponent: string }) =>
+      request('/api/matches/classify', {
+        method: 'POST',
+        body,
+        schema: z.object({ updated: z.number(), opponent: z.string() }),
+      }),
+    onSuccess: () => invalidateMatches(queryClient),
   })
 }
