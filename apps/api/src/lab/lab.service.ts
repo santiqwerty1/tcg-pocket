@@ -1977,6 +1977,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                   // Review of #15: within the copies the pool allows (the collection's), ordered by what was learned.
                   maxCopies: caps,
                   score: (swap) => swapScore(learned, swap, index),
+                  // Review of #113: two «−Polteageist» that pass one by one left Sinistea alone together.
+                  pool,
                   valid: (cards) =>
                     validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
                     (!rules || checkEventDeck(cards, rules, index).ok),
@@ -2002,6 +2004,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                   {
                     seen,
                     locked: new Set(state.locked),
+                    pool,
                     valid: (cards) =>
                       validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
                       (!rules || checkEventDeck(cards, rules, index).ok),

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CardEdition, SelectableEnergy } from '../../src/index.js'
 import {
+  comboVariant,
   evolutionLine,
   fillRound,
   groupsOfCards,
@@ -8,6 +9,7 @@ import {
   mutationPool,
   type PoolCard,
   poolForZone,
+  revertVariant,
   seededRandom,
   sharedNames,
   strandsPreEvolution,
@@ -238,6 +240,26 @@ describe('evolution lines in the pool («probar estas cartas» with Onix)', () =
         const names = new Set(variant.cards.map((entry) => index.cardById(entry.cardId)?.nameEn))
         expect(names.has('Sinistea') && !names.has('Polteageist')).toBe(false)
       }
+    })
+
+    it('review of #113: neither a combo of two swaps nor undoing one leaves it alone', () => {
+      // Two Polteageist: «−Polteageist» passes alone (one stays); the combo takes both out.
+      const two = withLine.map((entry) => (entry.cardId === 'B2-75' ? { ...entry, count: 2 } : entry))
+      const swaps = [
+        { add: [t1.cardId], remove: [group('B2-75')], difference: 5 },
+        { add: [t2.cardId], remove: [group('B2-75')], difference: 4 },
+      ]
+      expect(comboVariant(two, swaps, index, { pool: [], valid: () => true })).not.toBeNull()
+      expect(comboVariant(two, swaps, index, { pool, valid: () => true })).toBeNull()
+      // Polteageist came in with a swap, Sinistea with another: undoing the first one leaves Sinistea alone.
+      const accepted = [
+        { add: ['B2-75'], remove: [group(t1.cardId)], difference: 3 },
+        { add: ['B2-74'], remove: [group(t2.cardId)], difference: 2 },
+      ]
+      const editionOf = (groupId: string) => index.groupById(groupId)?.displayCardId ?? groupId
+      expect(revertVariant(withLine, accepted, 0, index, editionOf, { pool: [], valid: () => true })?.undoes).toBe(0)
+      // With the pool it skips to the next one: undoing «+Sinistea» leaves no one alone.
+      expect(revertVariant(withLine, accepted, 0, index, editionOf, { pool, valid: () => true })?.undoes).toBe(1)
     })
 
     it('self-review of the follow-up: with what is shown, only names two of its cards share carry the code', () => {
