@@ -110,9 +110,7 @@ const matchSchema = z.object({
   result: z.enum(['win', 'loss', 'tie']),
   opponentText: z.string().nullable(),
   /** Version 9: the rival's cards seen (`[]` before). */
-  opponentCards: z
-    .array(z.object({ cardId: z.string(), count: z.number().int().min(1).max(2) }))
-    .default([]),
+  opponentCards: z.array(z.object({ cardId: z.string(), count: z.number().int().min(1).max(2) })).default([]),
   wentFirst: z.boolean().nullable(),
   mode: z.enum(['competitive', 'casual', 'beginner', 'event', 'friend']),
   note: z.string(),
