@@ -562,7 +562,11 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
   }
 
   async bank(input: LabScopeInput): Promise<LabBankView> {
-    const bank = await this.bankOf(input)
+    return this.bankView(await this.bankOf(input))
+  }
+
+  /** Deuda 3 (14/10): a bank already built, as the API shows it (a test or a search plan built it twice). */
+  private bankView(bank: Bank): LabBankView {
     const index = bank.scope.index
     return {
       era: bank.scope.era,
@@ -747,7 +751,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       ...((await this.perGameReady()) ? { perGame: true } : {}),
       ...(input.priority !== undefined ? { priority: input.priority } : {}),
     }
-    if (input.dryRun) return { preview: await this.simulations.preview(job), bank: await this.bank(input) }
+    if (input.dryRun) return { preview: await this.simulations.preview(job), bank: this.bankView(bank) }
     return this.simulations.create(job)
   }
 
@@ -1337,7 +1341,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           evolutionAllowed(index, await this.engine.status(), event?.rules),
           shared,
         ),
-        bank: await this.bank(input),
+        bank: this.bankView(bank),
         // The cards drawn on their own (a pre-evolution that only comes along, weight 0, is no candidate).
         pool: pool.filter((card) => card.weight > 0).length,
         firstRound: first.map((variant) => ({
@@ -2340,8 +2344,11 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     if (!confirm || (sid !== state?.base && sid !== state?.incumbent)) return { score: search, complete: searched }
     const confirmFilter = (chunk: ChunkRow) => chunk.idx >= confirm.fromIdx && chunk.idx < confirm.toIdx
     const confirmed = scoreView(scoreOf(chunks, scored, sid, confirmFilter), lab.objective)
-    return confirmed.score
-      ? { score: confirmed, complete: complete(chunks, scored, sid, confirmFilter) }
+    // Review of #109: a confirmation that failed halfway leaves the search's score, when the search was whole (the
+    // list must not be marked as failed for it).
+    const confirmedWhole = complete(chunks, scored, sid, confirmFilter)
+    return confirmed.score && (confirmedWhole || !searched)
+      ? { score: confirmed, complete: confirmedWhole }
       : { score: search, complete: searched }
   }
 
@@ -2443,12 +2450,13 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
   }
 
   async jobs(limit = 50): Promise<LabJobsView> {
-    const jobs = await this.prisma.simulationJob.findMany({
-      orderBy: { id: 'desc' },
-      take: 500,
-      select: { id: true, params: true },
-    })
-    const lab = jobs.filter((job) => labMode(job.params) !== null).slice(0, limit)
+    // Deuda 2 (14/10): the Laboratorio's jobs filtered in the query; the 500 newest of every kind dropped older ones.
+    const jobs = await this.prisma.$queryRaw<{ id: number; params: Prisma.JsonValue }[]>`
+      SELECT id, params FROM simulation_jobs
+      WHERE params->'lab'->>'mode' IN ('test', 'explore')
+      ORDER BY id DESC
+      LIMIT ${limit}`
+    const lab = jobs.filter((job) => labMode(job.params) !== null)
     const summaries = new Map(
       (await this.simulations.summariesOf(lab.map((job) => job.id))).map((summary) => [summary.id, summary]),
     )

@@ -830,6 +830,22 @@ describe('laboratorio (e2e)', () => {
     expect(fromSearch?.jobId).toBe(jobId)
     expect(fromSearch?.score.score).toMatchObject({ games: 100 })
     expect(fromSearch?.score.score?.value).toBeCloseTo(50, 8)
+    // Review of #109: a confirmation that failed halfway leaves the search's score (the search was whole), and the
+    // list is not marked as failed.
+    const baseChunks = await test.prisma.simulationChunk.findMany({
+      where: { jobId, snapshotAId: baseRow.snapshot },
+      orderBy: { idx: 'desc' },
+    })
+    await test.prisma.simulationChunk.update({ where: { id: baseChunks[0]?.id as number }, data: { status: 'failed' } })
+    await test.prisma.simulationJob.update({ where: { id: jobId }, data: { status: 'failed' } })
+    const afterFail = (await test.app.get(LabService).deckLabStatus([Number(deckIds[1])], 'B4a')).get(
+      Number(deckIds[1]),
+    )
+    expect(afterFail?.failed).toBeNull()
+    expect(afterFail?.score?.jobId).toBe(jobId)
+    expect(afterFail?.score?.score.score?.games).not.toBe(100)
+    await test.prisma.simulationChunk.update({ where: { id: baseChunks[0]?.id as number }, data: { status: 'done' } })
+    await test.prisma.simulationJob.update({ where: { id: jobId }, data: { status: 'done' } })
     expect(lab.decks.filter((deck: { role: string }) => deck.role === 'variant')).toHaveLength(5)
     const total = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: jobId } })
     expect(total.totalGames).toBe(200 + 200 + 200 + 200)
