@@ -65,6 +65,8 @@ export function parseAllowed(line: string, at: Date): RegulatorState | null {
 }
 
 export const MAX_STARTS_PER_HOUR = 5
+/** How long a regulator may take to say its first line before the pings count it as hung. */
+const STARTUP_MS = 30_000
 
 export interface RegulatorOptions {
   enginePath: string
@@ -101,6 +103,8 @@ export class CpuRegulator implements EngineListener {
   private pingTimer: ReturnType<typeof setInterval> | null = null
   /** When the unanswered `ping` went (null: none waits). */
   private pingSentAt: number | null = null
+  /** The running regulator said its first line («regulador …»): pings start then. */
+  private ready = false
   /** The last short run after the fifth start, while it runs. */
   private restoreChild: ChildProcess | null = null
   /** What it allows now (null before its first change). */
@@ -135,6 +139,7 @@ export class CpuRegulator implements EngineListener {
     ]
     const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     this.child = child
+    this.ready = false
     child.stdin?.on('error', () => undefined)
     // What it said of an error: its JSON on stdout and the end of its stderr (`fin error 2`).
     let said = ''
@@ -188,11 +193,21 @@ export class CpuRegulator implements EngineListener {
     const every = this.options.pingEveryMs ?? 60_000
     const timeout = this.options.pingTimeoutMs ?? 15_000
     // A ping every `every`, looked at often enough to notice a missing pong after `timeout` (autorrevisión: one tick of
-    // the shorter of the two sent a ping every 15 s).
-    let lastPingAt = Date.now()
+    // the shorter of the two sent a ping every 15 s). Only once the regulator said its first line: a start slower than
+    // the timeout (a busy machine) is not a hung regulator; one that says nothing in `STARTUP_MS` is cut.
+    const startedAt = Date.now()
+    let lastPingAt = startedAt
     this.pingTimer = setInterval(
       () => {
         if (this.child !== child) return
+        if (!this.ready) {
+          if (Date.now() - startedAt < Math.max(timeout, STARTUP_MS)) return
+          this.options.log('el regulador de CPU no arrancó: lo corto', {
+            seconds: Math.round((Date.now() - startedAt) / 1000),
+          })
+          child.kill()
+          return
+        }
         if (this.pingSentAt !== null) {
           if (Date.now() - this.pingSentAt < timeout) return
           this.options.log('el regulador de CPU no contesta: lo corto', {
@@ -266,6 +281,7 @@ export class CpuRegulator implements EngineListener {
       this.pingSentAt = null
       return
     }
+    if (line.startsWith('regulador ') && line !== 'regulador terminado') this.ready = true
     if ((line.startsWith('regulador ') && line !== 'regulador terminado') || line.startsWith('aviso ')) {
       this.options.log('regulador de CPU', { said: line })
       return

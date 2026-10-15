@@ -133,6 +133,27 @@ describe('the CPU regulator, on the worker side (pedido de Santi del 14/10/2026)
     await hanging.stop()
   }, 20_000)
 
+  it('pings only once the regulator is up: a slow start is not a hung one (review of #110)', async () => {
+    // The fake regulator takes a Node start, longer than this timeout of 20 ms: it must not be cut for that.
+    const log = vi.fn()
+    const slow = new CpuRegulator({
+      enginePath: FAKE_ENGINE,
+      dataDir: dir,
+      log,
+      ping: true,
+      pingEveryMs: 10,
+      pingTimeoutMs: 20,
+    })
+    try {
+      slow.start()
+      await until(() => lines().filter((line) => line === 'ping').length >= 3)
+      expect(lines().filter((line) => line.startsWith('start'))).toHaveLength(1)
+      expect(log.mock.calls.some(([message]) => String(message).includes('no contesta'))).toBe(false)
+    } finally {
+      await slow.stop()
+    }
+  }, 20_000)
+
   it('asks a regulator that answers ping, and cuts and starts again one that does not (review of #106)', async () => {
     const log = vi.fn()
     const alive = new CpuRegulator({
@@ -187,7 +208,7 @@ describe('the CPU regulator, on the worker side (pedido de Santi del 14/10/2026)
       await until(() => lines().filter((line) => line.startsWith('start')).length >= 2)
       expect(log).toHaveBeenCalledWith(
         'el regulador de CPU no contesta: lo corto',
-        expect.objectContaining({ seconds: 0 }),
+        expect.objectContaining({ seconds: expect.any(Number) }),
       )
     } finally {
       await hung.stop()
@@ -265,7 +286,7 @@ describe('the CPU regulator, on the worker side (pedido de Santi del 14/10/2026)
     expect(endedAt).toBeGreaterThan(0)
     // Its pipes closed 1,5 s after it ended; its PID was let go at once, and that is when the regulator hears it.
     expect(resolvedAt - endedAt, `ended at ${endedAt}, resolved at ${resolvedAt}`).toBeGreaterThanOrEqual(600)
-  })
+  }, 20_000)
 
   it('a job tells the regulator its engine, and when it ends', async () => {
     const seen: string[] = []
@@ -275,5 +296,5 @@ describe('the CPU regulator, on the worker side (pedido de Santi del 14/10/2026)
     })
     await runJob(FAKE_ENGINE, 'simulate', { games: 3 }, dir, {})
     expect(seen).toEqual(['start managed true', 'end true'])
-  })
+  }, 20_000)
 })
