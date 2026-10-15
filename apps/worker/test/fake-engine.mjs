@@ -1,5 +1,6 @@
 // A stand-in for engine-cli with the same command line, files, stderr progress and exit codes (engine/src/main.rs).
 // Behaviour by job: games 13 → engine failure (exit 3); games 99 → plays forever (for cancel tests).
+import { spawn } from 'node:child_process'
 import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
@@ -14,6 +15,7 @@ if (command === 'version') {
     'batch',
     ...(process.env.FAKE_ENGINE_RESUME ? ['resume'] : []),
     ...(process.env.FAKE_ENGINE_REGULATE ? ['regulate'] : []),
+    ...(process.env.FAKE_ENGINE_REGULATE_PING ? ['regulatePing'] : []),
   ]
   const features = process.env.FAKE_ENGINE_OLD ? {} : { features: known }
   // FAKE_ENGINE_GAMES_REV: an engine that says how it plays (phase 42, engine-cli 0.3.6 on).
@@ -117,6 +119,11 @@ if (command === 'version') {
       heard(line)
       const [verb, pid, kind] = line.split(' ')
       if (process.env.FAKE_REGULATE_CRASH && verb === 'add') process.exit(1)
+      // FAKE_REGULATE_DEAF: hung, it reads the lines but answers nothing.
+      if (verb === 'ping') {
+        if (!process.env.FAKE_REGULATE_DEAF) process.stdout.write('pong\n')
+        continue
+      }
       // PID 1 is never one of our engines.
       if (verb === 'add' && pid === '1') process.stdout.write('aviso 1 no es un motor: no lo toco\n')
       if (verb === 'add' && kind === 'managed') managed.add(pid)
@@ -144,6 +151,15 @@ if (command === 'version') {
   )
 } else if (command === 'simulate' || command === 'optimize') {
   const job = JSON.parse(readFileSync(jobFile, 'utf8'))
+  // FAKE_ENGINE_HOLD_PIPES=<ms>: a process it leaves behind keeps its stdout and stderr open that long after it ends
+  // (its 'close' comes that much after its 'exit').
+  if (process.env.FAKE_ENGINE_HOLD_PIPES) {
+    const ms = Number(process.env.FAKE_ENGINE_HOLD_PIPES)
+    spawn(process.execPath, ['-e', `setTimeout(() => {}, ${ms})`], {
+      stdio: ['ignore', 'inherit', 'inherit'],
+      detached: true,
+    }).unref()
+  }
   const games = command === 'simulate' ? job.games : 4
   // B of H-054 (`resume`): 89 games are cut at their first run (exit 0, no result, 40 games in the checkpoint) and
   // played to the end by a run that finds them there; 88 are cut every time; 87 are cut and their folder goes; 86 are
@@ -297,6 +313,13 @@ if (command === 'version') {
 } else if (command === 'play') {
   // Two decisions of two options each; the winner depends on the owner's choices (both 1 → «you»).
   const job = JSON.parse(readFileSync(jobFile, 'utf8'))
+  if (process.env.FAKE_ENGINE_HOLD_PIPES) {
+    const ms = Number(process.env.FAKE_ENGINE_HOLD_PIPES)
+    spawn(process.execPath, ['-e', `setTimeout(() => {}, ${ms})`], {
+      stdio: ['ignore', 'inherit', 'inherit'],
+      detached: true,
+    }).unref()
+  }
   // An engine that fails before playing and only says how it ended (engine-cli 0.3.7).
   if (Number(job.seed) === 404) {
     process.stderr.write('fin error 2\n')

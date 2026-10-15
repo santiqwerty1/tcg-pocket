@@ -67,9 +67,10 @@ const ENGINE_BUILD: &str = env!("ENGINE_BUILD");
 /// What the worker and the queue can ask of this engine beyond the commands of 0.1.0: `perGame` (H-010, T-017 A2),
 /// `batch`, several pairings in one process (B2), and `fairBots`, the f<N> bots (H-018).
 /// «etBot» (H-051): the bot that ends its turn, which deckgym's own parser never reaches.
-/// `regulate` (the CPU regulator) only where it works: Windows.
+/// `regulate` (the CPU regulator) only where it works: Windows; `regulatePing`, a regulator that answers the worker's
+/// `ping` (0.3.11, review of #106: a hung one is noticed).
 #[cfg(windows)]
-const FEATURES: [&str; 6] = ["perGame", "batch", "fairBots", "etBot", "resume", "regulate"];
+const FEATURES: [&str; 7] = ["perGame", "batch", "fairBots", "etBot", "resume", "regulate", "regulatePing"];
 #[cfg(not(windows))]
 const FEATURES: [&str; 5] = ["perGame", "batch", "fairBots", "etBot", "resume"];
 /// deckgym ties a game when turn 31 begins (`State::advance_turn`): reported so the app does not hard-code it.
