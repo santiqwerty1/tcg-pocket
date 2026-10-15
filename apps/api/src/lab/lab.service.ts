@@ -166,7 +166,7 @@ export const LAB_NOTE =
 export const MAX_TEST_DECKS = 10
 /** The Laboratorio's bots by default (D-029): the score of a deck in «¿Cuál llevo hoy?» is theirs. */
 export const LAB_DEFAULT_PLAYERS: [string, string] = ['e2', 'e2']
-/** `pg_advisory_xact_lock` key that serializes «Actualizar todos» (any constant no other lock uses). */
+/** Advisory lock key (a session lock) that serializes «Actualizar todos» (any constant no other lock uses). */
 const REFRESH_LOCK = 43_031
 const DEFAULT_TEST_GAMES = 100
 /** Where the variant that brings in a card to try takes its seeds (T-017 E3). */
@@ -208,6 +208,8 @@ export interface DeckLabStatus {
   stale: boolean
   /** The latest score of the era with each other bot (e3, f2…), apart: never in place of the default bot's. */
   others: DeckLabScore[]
+  /** The newest test of the list with the default bot and this era failed before playing it whole (no score). */
+  failed: { jobId: number } | null
   /** A test of the list with the default bot against the meta of that era, queued or playing now. */
   running: { jobId: number; status: 'queued' | 'running'; gamesDone: number; totalGames: number } | null
 }
@@ -247,6 +249,8 @@ export interface LabRunInput extends LabScopeInput {
 export interface LabTestInput extends LabRunInput {
   decks: LabDeckInput[]
   gamesPerRival?: number | undefined
+  /** «Actualizar todos»: ahead of the Laboratorio's other tests (`simulation_jobs.priority`). */
+  priority?: number | undefined
 }
 
 export interface LabExploreInput extends LabRunInput {
@@ -734,6 +738,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       cores: input.cores,
       lab: this.labParams(bank, 'test') as unknown as Prisma.InputJsonValue,
       ...((await this.perGameReady()) ? { perGame: true } : {}),
+      ...(input.priority !== undefined ? { priority: input.priority } : {}),
     }
     if (input.dryRun) return { preview: await this.simulations.preview(job), bank: await this.bank(input) }
     return this.simulations.create(job)
@@ -2146,13 +2151,15 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     }
     const jobs = snapshots.length === 0 ? [] : await this.labJobsWith(snapshots.map((row) => row.id))
     const engineRev = this.engine.engineRev()
-    const done = jobs.filter((job) => job.status === 'done' && job.engineRev === engineRev)
-    const active = jobs.filter((job) => job.status !== 'done')
+    // Review of #109: a failed job scores the lists it played whole (a pairing that always fails, deckgym#398, must not
+    // leave the other nine without a score); a list whose own test failed is said, not queued again on every click.
+    const done = jobs.filter((job) => (job.status === 'done' || job.status === 'failed') && job.engineRev === engineRev)
+    const active = jobs.filter((job) => job.status === 'queued' || job.status === 'running')
     const progress = new Map(
       (await this.simulations.summariesOf(active.map((job) => job.id))).map((summary) => [summary.id, summary]),
     )
     // One score per job and list, whatever the number of decks that share the list.
-    const scores = new Map<string, Promise<LabScoreView>>()
+    const scores = new Map<string, Promise<{ score: LabScoreView; complete: boolean }>>()
     const scoreIn = (job: LabJobRow, sid: number) => {
       const cacheKey = `${job.id}:${sid}`
       let pending = scores.get(cacheKey)
@@ -2170,6 +2177,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       const inJob = (job: LabJobRow) => job.params.sideA.find((sid) => ids.has(sid))
       let current: DeckLabScore | null = null
       let other: DeckLabScore | null = null
+      let failed: { jobId: number } | null = null
       const others = new Map<string, DeckLabScore>()
       for (const job of done) {
         const sid = inJob(job)
@@ -2178,7 +2186,12 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         if (byDefault(job) ? current !== null : !ofEra(job) || others.has(bot)) continue
         // Self-review: another era's score once one is found is not computed again (after a new era, every deck).
         if (byDefault(job) && !ofEra(job) && other !== null) continue
-        const score = await scoreIn(job, sid)
+        const { score, complete } = await scoreIn(job, sid)
+        if (job.status === 'failed' && !complete) {
+          // The newest test of this list with the default bot and this era failed before playing it whole.
+          if (byDefault(job) && ofEra(job) && current === null) failed ??= { jobId: job.id }
+          continue
+        }
         if (!score.score) continue
         const found = { jobId: job.id, era: job.params.lab.era, bot, finishedAt: job.finishedAt, score }
         if (!byDefault(job)) others.set(bot, found)
@@ -2192,6 +2205,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         simulable: draft.simulable,
         score: current ?? other,
         stale: current === null && other !== null,
+        failed: current === null ? failed : null,
         others: [...others.values()],
         running:
           run && summary
@@ -2225,7 +2239,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     >`
       SELECT id, status::text AS status, engine_rev AS "engineRev", finished_at AS "finishedAt", players, params
       FROM simulation_jobs
-      WHERE status IN ('done', 'queued', 'running')
+      WHERE status IN ('done', 'failed', 'queued', 'running')
         AND params->'lab'->>'mode' IN ('test', 'explore')
         AND COALESCE(params->'lab'->'objective'->>'kind', 'meta') = 'meta'
         AND params->'lab'->>'robustnessOf' IS NULL
@@ -2236,8 +2250,11 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     return rows.map((row) => ({ ...row, params: row.params as unknown as JobParams }))
   }
 
-  /** A list's score in a job, from its own chunks: the confirmation's when it has one, else the search's. */
-  private async snapshotScore(job: LabJobRow, sid: number): Promise<LabScoreView> {
+  /**
+   * A list's score in a job, from its own chunks: the confirmation's when it has one, else the search's; `complete` when
+   * every pairing of it finished (what a failed job's score needs to count).
+   */
+  private async snapshotScore(job: LabJobRow, sid: number): Promise<{ score: LabScoreView; complete: boolean }> {
     const { params } = job
     const lab = params.lab
     const needSideB = lab.rivals.some((rival) => rival.snapshot === undefined || rival.snapshot === null)
@@ -2253,16 +2270,15 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     const scored = scoredRivals(lab.rivals, params.sideB, new Map(sideB.map((row) => [row.id, row])))
     const state = lab.explore ?? null
     const confirm = state?.rounds.find((round) => round.kind === 'confirm') ?? null
-    const search = scoreView(
-      scoreOf(chunks, scored, sid, (chunk) => !confirm || chunk.idx < confirm.fromIdx),
-      lab.objective,
-    )
-    if (!confirm || (sid !== state?.base && sid !== state?.incumbent)) return search
-    const confirmed = scoreView(
-      scoreOf(chunks, scored, sid, (chunk) => chunk.idx >= confirm.fromIdx && chunk.idx < confirm.toIdx),
-      lab.objective,
-    )
-    return confirmed.score ? confirmed : search
+    const searchFilter = (chunk: ChunkRow) => !confirm || chunk.idx < confirm.fromIdx
+    const search = scoreView(scoreOf(chunks, scored, sid, searchFilter), lab.objective)
+    const searched = complete(chunks, scored, sid, searchFilter)
+    if (!confirm || (sid !== state?.base && sid !== state?.incumbent)) return { score: search, complete: searched }
+    const confirmFilter = (chunk: ChunkRow) => chunk.idx >= confirm.fromIdx && chunk.idx < confirm.toIdx
+    const confirmed = scoreView(scoreOf(chunks, scored, sid, confirmFilter), lab.objective)
+    return confirmed.score
+      ? { score: confirmed, complete: complete(chunks, scored, sid, confirmFilter) }
+      : { score: search, complete: searched }
   }
 
   /**
@@ -2289,8 +2305,14 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       }
       return await this.planRefresh(deckIds, false)
     } finally {
-      if (acquired) await lock.query('SELECT pg_advisory_unlock($1)', [REFRESH_LOCK]).catch(() => undefined)
-      lock.release()
+      // Review of #109: an unlock that fails destroys the connection, so the lock does not stay in the pool with it.
+      let unlockError: Error | undefined
+      if (acquired) {
+        await lock.query('SELECT pg_advisory_unlock($1)', [REFRESH_LOCK]).catch((error: Error) => {
+          unlockError = error
+        })
+      }
+      lock.release(unlockError)
     }
   }
 
@@ -2306,6 +2328,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       fresh: 0,
       running: 0,
       sameList: 0,
+      failed: [],
       notSimulable: [],
       games: 0,
       estimatedSeconds: 0,
@@ -2315,6 +2338,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       if (!row) continue
       if (!row.simulable) view.notSimulable.push(String(deckId))
       else if (row.running) view.running += 1
+      else if (row.failed) view.failed.push({ deckId: String(deckId), jobId: row.failed.jobId })
       else if (row.score && !row.stale) view.fresh += 1
       else if (!keys.has(row.key)) {
         keys.add(row.key)
@@ -2322,6 +2346,12 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       } else view.sameList += 1
     }
     const cores = dryRun ? await this.workerCores() : undefined
+    // Santi's ask (review of #109): ahead of the Laboratorio's other tests, like «Adelantar» on a long search.
+    const top = await this.prisma.simulationJob.aggregate({
+      where: { status: { in: ['queued', 'running'] } },
+      _max: { priority: true },
+    })
+    const priority = Math.max(0, top._max.priority ?? 0) + 1
     for (let at = 0; at < due.length; at += MAX_TEST_DECKS) {
       const group = due.slice(at, at + MAX_TEST_DECKS)
       const total = Math.ceil(due.length / MAX_TEST_DECKS)
@@ -2337,7 +2367,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           view.estimatedSeconds += plan.preview.estimatedSeconds
         }
       } else {
-        const job = await this.test(input)
+        const job = await this.test({ ...input, priority })
         if ('id' in job) {
           view.jobs.push(job.id)
           view.games += job.progress.totalGames

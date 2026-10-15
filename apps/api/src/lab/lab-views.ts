@@ -332,6 +332,8 @@ export interface LabRefreshView {
   fresh: number
   running: number
   sameList: number
+  /** Review of #109: lists whose last test failed (by deck id, with the job): «Reintentar lo que falló», not again. */
+  failed: { deckId: string; jobId: number }[]
   notSimulable: string[]
   games: number
   /** Only with `dryRun` (0 otherwise). */

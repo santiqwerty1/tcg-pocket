@@ -2598,6 +2598,8 @@ export const pickSchema = z.object({
           }),
         )
         .default([]),
+      /** Review of #109: the list's last test failed before playing it whole. */
+      labFailed: z.object({ jobId: z.number() }).nullable().default(null),
       /** «Actualizar todos»: the test of the list against this era's meta, queued or playing now. */
       labRunning: z
         .object({
@@ -2624,6 +2626,7 @@ export const labRefreshSchema = z.object({
   fresh: z.number(),
   running: z.number(),
   sameList: z.number(),
+  failed: z.array(z.object({ deckId: z.string(), jobId: z.number() })).default([]),
   notSimulable: z.array(z.string()),
   games: z.number(),
   estimatedSeconds: z.number(),

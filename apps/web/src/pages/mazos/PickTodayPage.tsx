@@ -10,6 +10,7 @@ import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { usePickToday, useRefreshLab } from '@/api/decks'
 import { type LabRefresh, PICK_SORTS, type Pick, type PickMeta, type PickSort } from '@/api/schemas'
+import { useRetryFailedSimulation } from '@/api/simulations'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
@@ -97,9 +98,10 @@ function Row({
               ? ` · viejo: de la era ${row.lab.era}${row.lab.finishedAt ? `, del ${formatDateTime(row.lab.finishedAt)}` : ''}`
               : ''}
           </span>
-        ) : row.labRunning ? null : (
+        ) : row.labRunning || row.labFailed ? null : (
           `sin probar contra el meta con ${LAB_BOT}`
         )}
+        {row.labFailed ? <LabFailed jobId={row.labFailed.jobId} first={row.lab === null} /> : null}
         {row.labRunning ? <LabRunning run={row.labRunning} first={row.lab === null} /> : null}
         {row.labOthers.map((other) => (
           <span key={other.bot} className="text-muted-foreground">
@@ -113,6 +115,30 @@ function Row({
         ))}
       </Line>
     </li>
+  )
+}
+
+/** Review of #109: the list's last test failed before playing it whole; «Actualizar todos» leaves it out. */
+function LabFailed({ jobId, first }: { jobId: number; first: boolean }) {
+  const retry = useRetryFailedSimulation()
+  async function again() {
+    try {
+      await retry.mutateAsync(jobId)
+      toast.success(`Prueba #${jobId}: se vuelve a jugar lo que falló.`)
+    } catch (error) {
+      toast.error(errorMessage(error))
+    }
+  }
+  return (
+    <span className="text-warning">
+      {first ? null : ' · '}
+      <Link to={`/laboratorio/${jobId}`} className="hover:underline">
+        la última prueba falló (#{jobId})
+      </Link>{' '}
+      <Button type="button" variant="link" size="xs" className="h-auto p-0" disabled={retry.isPending} onClick={again}>
+        Reintentar lo que falló
+      </Button>
+    </span>
   )
 }
 
@@ -184,12 +210,15 @@ function RefreshLab({ due }: { due: number }) {
         pending={refresh.isPending}
         onConfirm={decks > 0 ? start : () => setPlan(null)}
       >
-        {plan && (plan.sameList > 0 || plan.notSimulable.length > 0 || plan.running > 0) ? (
+        {plan && (plan.sameList > 0 || plan.notSimulable.length > 0 || plan.running > 0 || plan.failed.length > 0) ? (
           <p className="text-xs text-muted-foreground">
             {[
               plan.running > 0 ? `${plan.running} ya en prueba` : null,
               plan.sameList > 0 ? `${plan.sameList} con la misma lista que otro` : null,
               plan.notSimulable.length > 0 ? `${plan.notSimulable.length} que el motor no puede jugar` : null,
+              plan.failed.length > 0
+                ? `${plan.failed.length} cuya última prueba falló (reintentala desde su fila)`
+                : null,
             ]
               .filter(Boolean)
               .join(' · ')}

@@ -42,6 +42,8 @@ export interface PickRowView {
   } | null
   /** The latest score of this era with each other bot (e3, f2…), apart. */
   labOthers: { bot: string; value: number; ci95: [number, number]; games: number; jobId: number }[]
+  /** Review of #109: the list's last test failed before playing it whole: «Reintentar lo que falló» on that job. */
+  labFailed: { jobId: number } | null
   /** «Actualizar todos»: the test of the list against this era's meta, queued or playing now. */
   labRunning: { jobId: number; status: 'queued' | 'running'; gamesDone: number; totalGames: number } | null
 }
@@ -158,6 +160,7 @@ export class PickService {
               ]
             : [],
         ),
+        labFailed: status?.failed ?? null,
         labRunning: status?.running ?? null,
       })
     }
@@ -187,7 +190,7 @@ export class PickService {
       },
       items,
       labDue: [...scores.values()].filter(
-        (status) => status.simulable && !status.running && (!status.score || status.stale),
+        (status) => status.simulable && !status.running && !status.failed && (!status.score || status.stale),
       ).length,
       note:
         used === 'mine'

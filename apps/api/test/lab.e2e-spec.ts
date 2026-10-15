@@ -434,6 +434,16 @@ describe('laboratorio (e2e)', () => {
     const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: jobId } })
     expect(job.label).toBe('Actualizar todos')
     expect((job.params as { lab: { mode: string; era: string } }).lab).toMatchObject({ mode: 'test', era: 'B4a' })
+    // Santi's ask (review of #109): ahead of every job in the queue.
+    const others = await test.prisma.simulationJob.aggregate({
+      where: { id: { not: jobId }, status: { in: ['queued', 'running'] } },
+      _max: { priority: true },
+    })
+    expect(job.priority).toBeGreaterThan(Math.max(0, others._max.priority ?? 0))
+    // Review of #109: a second click after the first (the lock let go) queues nothing.
+    const again = await post('/api/decks-today/refresh').send({})
+    expect(again.status).toBe(200)
+    expect(again.body).toMatchObject({ queued: [], jobs: [], running: 4, sameList: 0 })
     // Each row follows its test, the copy too (same list); nothing is due any more.
     const queued = await rows()
     for (const row of queued.mine) expect(row.labRunning).toMatchObject({ jobId, status: 'queued', gamesDone: 0 })
@@ -489,6 +499,39 @@ describe('laboratorio (e2e)', () => {
     expect((await post('/api/decks-today/refresh').send({ dryRun: true })).body.queued).toEqual(
       expect.arrayContaining([built[0], built[2]]),
     )
+
+    // Review of #109: a test that failed scores the lists it played whole; a list it did not finish is said («Reintentar
+    // lo que falló») and not queued again on every click.
+    const retest = await post('/api/decks-today/refresh').send({})
+    expect(retest.body.jobs).toHaveLength(1)
+    const [failedJob] = retest.body.jobs as [number]
+    const chunks = await test.prisma.simulationChunk.findMany({ where: { jobId: failedJob }, orderBy: { idx: 'asc' } })
+    const badSnapshot = chunks[0]?.snapshotAId as number
+    await playAll((a, _b, games) => (a === badSnapshot ? games : Math.round(games * 0.4)))
+    await test.prisma.simulationChunk.updateMany({
+      where: { jobId: failedJob, snapshotAId: badSnapshot },
+      data: { status: 'failed' },
+    })
+    await test.prisma.simulationChunk.updateMany({
+      where: { jobId: failedJob, snapshotAId: badSnapshot, idx: { gt: chunks[0]?.idx ?? 0 } },
+      data: { status: 'done' },
+    })
+    await test.prisma.simulationJob.update({ where: { id: failedJob }, data: { status: 'failed' } })
+    const afterFail = await rows()
+    const badDeck = (await test.prisma.deckSnapshot.findUniqueOrThrow({ where: { id: badSnapshot } })).deckId
+    for (const row of afterFail.mine.filter((item) => item.deck.id !== built[1])) {
+      if (String(badDeck) === row.deck.id || (row.deck.id === copyId && String(badDeck) === built[0])) {
+        expect((row as Row & { labFailed: { jobId: number } | null }).labFailed).toEqual({ jobId: failedJob })
+      } else {
+        expect(row.lab).toMatchObject({ jobId: failedJob, era: 'B4a', stale: false })
+      }
+    }
+    const planAfterFail = (await post('/api/decks-today/refresh').send({ dryRun: true })).body as {
+      queued: string[]
+      failed: { deckId: string; jobId: number }[]
+    }
+    expect(planAfterFail.queued).toEqual([])
+    expect(planAfterFail.failed).toContainEqual({ deckId: String(badDeck), jobId: failedJob })
 
     // Needs a session.
     expect((await test.http().post('/api/decks-today/refresh').send({})).status).toBe(401)
