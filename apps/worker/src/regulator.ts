@@ -183,6 +183,9 @@ export class CpuRegulator implements EngineListener {
     this.stopPings()
     const every = this.options.pingEveryMs ?? 60_000
     const timeout = this.options.pingTimeoutMs ?? 15_000
+    // A ping every `every`, looked at often enough to notice a missing pong after `timeout` (autorrevisión: one tick of
+    // the shorter of the two sent a ping every 15 s).
+    let lastPingAt = Date.now()
     this.pingTimer = setInterval(
       () => {
         if (this.child !== child) return
@@ -195,10 +198,12 @@ export class CpuRegulator implements EngineListener {
           child.kill()
           return
         }
-        this.pingSentAt = Date.now()
+        if (Date.now() - lastPingAt < every) return
+        lastPingAt = Date.now()
+        this.pingSentAt = lastPingAt
         this.send('ping')
       },
-      Math.min(every, timeout),
+      Math.max(10, Math.min(every, timeout) / 2),
     )
     this.pingTimer.unref()
   }

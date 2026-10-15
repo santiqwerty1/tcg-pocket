@@ -83,17 +83,29 @@ pub struct Policy {
     /// Samples in a row with room for more (it grows only after `grow_after` of them).
     room: u32,
     grow_after: u32,
+    /// After a dip of a single level, the next step up waits `NOISE_HOLD` times longer: a load that wavers around one
+    /// processor would otherwise take it down and up again every few seconds (autorrevisión).
+    held: bool,
     /// What the sample before asked for.
     last_target: Option<u32>,
 }
+
+/// How many times longer the step up after a single-level dip waits.
+const NOISE_HOLD: u32 = 3;
 
 impl Policy {
     pub fn new(total: u32, levels: &[u32], floor: u32, max: u32, grow_after: u32) -> Self {
         let max = max.clamp(1, total);
         let floor = floor.clamp(1, max);
-        let mut levels: Vec<u32> = levels.iter().copied().filter(|&level| level >= 1 && level <= max).collect();
-        levels.sort_unstable();
-        levels.dedup();
+        let mut all: Vec<u32> = levels.iter().copied().filter(|&level| level >= 1).collect();
+        all.sort_unstable();
+        all.dedup();
+        // A max below the lowest level is the lowest level: what a mask of one core can be (autorrevisión: `--max 1`
+        // on a machine of hyper-threaded cores allowed 1 with a mask of 2).
+        let mut levels: Vec<u32> = all.iter().copied().filter(|&level| level <= max).collect();
+        if levels.is_empty() {
+            levels.extend(all.first().copied());
+        }
         // The floor rounded up to a level, and never more than the highest one.
         let lowest = levels.iter().copied().find(|&level| level >= floor).or(levels.last().copied()).unwrap_or(max);
         levels.retain(|&level| level >= lowest);
@@ -101,7 +113,7 @@ impl Policy {
             levels.push(max);
         }
         let allowed = *levels.last().unwrap_or(&max);
-        Policy { total, levels, allowed, room: 0, grow_after, last_target: None }
+        Policy { total, levels, allowed, room: 0, grow_after, held: false, last_target: None }
     }
 
     /// The highest level at or under `count` (the lowest level when none is).
@@ -111,9 +123,10 @@ impl Policy {
 
     /// The others' load (busy logical processors, beyond our engines) of the last sample: what the engines get now.
     /// Less than one busy processor is the system's own noise and leaves nothing aside; from one, the others get their
-    /// load rounded up. Down at once, but a dip of a single level only when the sample before asked for less too: a load
-    /// that wavers around one processor no longer moves the engines every few seconds (review of #106, 39 changes in
-    /// 120 s between 18 and 20). Up one level after `grow_after` samples in a row with room for it.
+    /// load rounded up. Down at once, but a dip of a single level only when the sample before asked for less too, and
+    /// the step up after it waits `NOISE_HOLD` times longer: a load that wavers around one processor no longer moves the
+    /// engines every few seconds (review of #106, 39 changes in 120 s between 18 and 20). Up one level after
+    /// `grow_after` samples in a row with room for it.
     pub fn next(&mut self, foreign: f64) -> u32 {
         let reserve = if foreign < 1.0 { 0.0 } else { foreign.ceil() };
         let target = self.level_at((f64::from(self.total) - reserve).max(0.0) as u32);
@@ -123,14 +136,17 @@ impl Policy {
             let one_level = self.levels.iter().copied().rev().find(|&level| level < self.allowed) == Some(target);
             if !one_level || asked_before {
                 self.allowed = target;
+                self.held = one_level;
             }
             self.room = 0;
         } else if target > self.allowed {
             self.room += 1;
-            if self.room >= self.grow_after {
+            let wait = if self.held { self.grow_after * NOISE_HOLD } else { self.grow_after };
+            if self.room >= wait {
                 let up = self.levels.iter().copied().find(|&level| level > self.allowed).unwrap_or(self.allowed);
                 self.allowed = up.min(target);
                 self.room = 0;
+                self.held = false;
             }
         } else {
             self.room = 0;
@@ -621,14 +637,15 @@ mod tests {
         for _ in 0..10 {
             assert_eq!(policy.next(8.2), 10);
         }
-        // They are done: up one level (a P-core) every 5 samples.
+        // They are done: up one level (a P-core) every 5 samples; the first step, after that dip of a single level,
+        // every 15.
         let mut seen = Vec::new();
-        for _ in 0..30 {
+        for _ in 0..40 {
             seen.push(policy.next(0.2));
         }
-        assert_eq!(&seen[..4], &[10, 10, 10, 10]);
-        assert_eq!(seen[4], 12);
-        assert_eq!(seen[9], 14);
+        assert!(seen[..14].iter().all(|&allowed| allowed == 10), "{seen:?}");
+        assert_eq!(seen[14], 12);
+        assert_eq!(seen[19], 14);
         assert_eq!(*seen.last().unwrap(), 20);
         // A spike for one sample of more than a level takes it down at once; a sample with room after it does not
         // bring it back.
@@ -655,6 +672,31 @@ mod tests {
         for sample in 0..120 {
             assert_eq!(policy.next(if sample % 2 == 0 { 0.95 } else { 1.05 }), 18);
         }
+        // Autorrevisión: two samples high and five low moved it 57 times in 200 s. After a dip of one level the step up
+        // waits three times longer, so the pattern leaves it at 18.
+        let mut policy = Policy::new(20, &i7_levels(), 2, 20, 5);
+        let mut changes = 0;
+        let mut last = policy.allowed;
+        for sample in 0..200 {
+            let allowed = policy.next(if sample % 7 < 2 { 1.05 } else { 0.95 });
+            changes += u32::from(allowed != last);
+            last = allowed;
+        }
+        assert_eq!(changes, 1, "down once to 18, and it stays");
+        // Once the load is gone for good it comes back, after the longer wait (15 samples with room, two of which the
+        // pattern already counted).
+        let back: Vec<u32> = (0..15).map(|_| policy.next(0.0)).collect();
+        assert!(back[..12].iter().all(|&allowed| allowed == 18), "{back:?}");
+        assert_eq!(*back.last().unwrap(), 20);
+    }
+
+    #[test]
+    fn a_dip_of_many_levels_comes_back_at_the_usual_pace() {
+        // A real load (WSL) gives way at once, and when it ends the engines come back a core every 5 samples.
+        let mut policy = Policy::new(20, &i7_levels(), 2, 20, 5);
+        assert_eq!(policy.next(8.0), 12);
+        let back: Vec<u32> = (0..5).map(|_| policy.next(0.0)).collect();
+        assert_eq!(back, vec![12, 12, 12, 12, 14]);
     }
 
     #[test]
@@ -690,6 +732,10 @@ mod tests {
         assert_eq!(Policy::new(8, &eight, 12, 30, 1).allowed, 8);
         assert_eq!(Policy::new(8, &eight, 12, 6, 1).levels, vec![6]);
         assert_eq!(Policy::new(20, &i7_levels(), 5, 20, 1).levels[0], 6);
+        // A max under the lowest level is the lowest level: on a machine of hyper-threaded cores, one core (2).
+        let hyper: Vec<u32> = (1..=8).map(|core| core * 2).collect();
+        let policy = Policy::new(16, &hyper, 1, 1, 1);
+        assert_eq!((policy.allowed, policy.levels.clone()), (2, vec![2]));
     }
 
     #[test]

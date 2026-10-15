@@ -33,7 +33,7 @@ El motor no guarda checkpoints: si otro worker toma un lease vencido, las partid
 
 Worker 0.3.9, el regulador de CPU (Windows, con un motor que anuncia `regulate`): el worker arranca `engine-cli regulate`, que cada segundo mide la carga de los demás programas y les deja lo que necesitan. Mide la CPU física del hipervisor cuando hay Hyper-V (WSL 2), así se ve también la de WSL, y si no la de Windows.
 - **Cómo reparte:** siempre por núcleos enteros (los dos hilos de un P-core juntos). Primero ocupan los E-cores y después los P-cores desde el último, así los demás programas quedan en P-cores sin compartir.
-- **Cuándo cambia:** los motores achican en el acto cuando los demás piden más de un núcleo. Si piden uno solo, achican recién cuando dos muestras seguidas lo piden, así una carga que va y viene alrededor de un procesador no los mueve. Crecen de a un núcleo cada ~5 s.
+- **Cuándo cambia:** los motores achican en el acto cuando los demás piden más de un núcleo. Si piden uno solo, achican recién cuando dos muestras seguidas lo piden, y la vuelta después de ese bajón espera el triple, así una carga que va y viene alrededor de un procesador casi no los mueve. Crecen de a un núcleo cada ~5 s.
 - **Límites:** nunca bajan de 2 lógicos ni pasan de la máquina entera; `cores` es cuántos hilos usa cada motor, no un tope de la máscara. Las partidas contra el bot nunca se achican.
 - **Lo que no mira:** la prioridad de los demás programas. Uno de baja prioridad que se come lo libre cuenta como carga ajena y lleva a los motores al piso; para eso, `"cpuRegulator": false`.
 - **Dónde se ve:** cada cambio va a `worker.log` («CPU para los motores», como mucho una línea por minuto) y a `regulator.json`, que muestra `--check`.

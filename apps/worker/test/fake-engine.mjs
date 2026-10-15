@@ -15,6 +15,7 @@ if (command === 'version') {
     'batch',
     ...(process.env.FAKE_ENGINE_RESUME ? ['resume'] : []),
     ...(process.env.FAKE_ENGINE_REGULATE ? ['regulate'] : []),
+    ...(process.env.FAKE_ENGINE_REGULATE_PING ? ['regulatePing'] : []),
   ]
   const features = process.env.FAKE_ENGINE_OLD ? {} : { features: known }
   // FAKE_ENGINE_GAMES_REV: an engine that says how it plays (phase 42, engine-cli 0.3.6 on).
@@ -312,6 +313,13 @@ if (command === 'version') {
 } else if (command === 'play') {
   // Two decisions of two options each; the winner depends on the owner's choices (both 1 → «you»).
   const job = JSON.parse(readFileSync(jobFile, 'utf8'))
+  if (process.env.FAKE_ENGINE_HOLD_PIPES) {
+    const ms = Number(process.env.FAKE_ENGINE_HOLD_PIPES)
+    spawn(process.execPath, ['-e', `setTimeout(() => {}, ${ms})`], {
+      stdio: ['ignore', 'inherit', 'inherit'],
+      detached: true,
+    }).unref()
+  }
   // An engine that fails before playing and only says how it ended (engine-cli 0.3.7).
   if (Number(job.seed) === 404) {
     process.stderr.write('fin error 2\n')

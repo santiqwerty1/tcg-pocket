@@ -79,15 +79,21 @@ describe('the CPU regulator, on the worker side (pedido de Santi del 14/10/2026)
   it('starts again if it ends on its own, telling it the engines running, at most a few times an hour', async () => {
     vi.stubEnv('FAKE_REGULATE_CRASH', '1')
     const log = vi.fn()
-    const regulator = new CpuRegulator({ enginePath: FAKE_ENGINE, max: 8, dataDir: dir, log, restartAfterMs: 20 })
+    const regulator = new CpuRegulator({ enginePath: FAKE_ENGINE, max: 8, dataDir: dir, log, restartAfterMs: 300 })
     regulator.started(201, 'managed')
     regulator.start()
     // Each start hears the engine again and ends on it; after the cap it is not started again, but one last short run
-    // tells it the engines running and closes, which gives them the whole machine back (review of #106).
+    // tells it the engines running and closes, which gives them the whole machine back (review of #106). That last
+    // run does not crash, so all of it can be heard.
+    await until(() => lines().filter((line) => line === 'add 201 managed').length === MAX_STARTS_PER_HOUR, 8_000)
+    vi.stubEnv('FAKE_REGULATE_CRASH', '')
     await until(() => log.mock.calls.some(([message]) => String(message).includes('devuelvo la máquina entera')))
     await until(() => lines().filter((line) => line === 'add 201 managed').length === MAX_STARTS_PER_HOUR + 1)
     const starts = lines().filter((line) => line.startsWith('start'))
     expect(starts).toEqual([...Array(MAX_STARTS_PER_HOUR).fill('start --max 8 --floor 2'), 'start --floor 1'])
+    // It closes its stdin, which is what gives the engines the machine back (autorrevisión).
+    await until(() => lines().at(-1) === 'end')
+    expect(lines().slice(-3)).toEqual(['start --floor 1', 'add 201 managed', 'end'])
     expect(log).toHaveBeenCalledWith(
       'el regulador de CPU terminó muchas veces: no lo arranco más hasta reiniciar el worker',
       {
@@ -107,11 +113,33 @@ describe('the CPU regulator, on the worker side (pedido de Santi del 14/10/2026)
       pingEveryMs: 30,
       pingTimeoutMs: 120,
     })
-    alive.start()
-    await until(() => lines().filter((line) => line === 'ping').length >= 4)
-    expect(lines().filter((line) => line.startsWith('start'))).toHaveLength(1)
-    expect(log.mock.calls.some(([message]) => String(message).includes('no contesta'))).toBe(false)
-    await alive.stop()
+    try {
+      alive.start()
+      await until(() => lines().filter((line) => line === 'ping').length >= 4)
+      expect(lines().filter((line) => line.startsWith('start'))).toHaveLength(1)
+      expect(log.mock.calls.some(([message]) => String(message).includes('no contesta'))).toBe(false)
+    } finally {
+      await alive.stop()
+    }
+    // A ping every pingEveryMs, also with a shorter timeout (autorrevisión: it went every timeout).
+    rmSync(heard, { force: true })
+    const spaced = new CpuRegulator({
+      enginePath: FAKE_ENGINE,
+      dataDir: dir,
+      log,
+      ping: true,
+      pingEveryMs: 400,
+      pingTimeoutMs: 100,
+    })
+    try {
+      spaced.start()
+      await new Promise((resolve) => setTimeout(resolve, 1_300))
+      const pings = lines().filter((line) => line === 'ping').length
+      expect(pings).toBeGreaterThanOrEqual(2)
+      expect(pings).toBeLessThanOrEqual(4)
+    } finally {
+      await spaced.stop()
+    }
     // Hung: it reads the lines and answers nothing.
     rmSync(heard, { force: true })
     vi.stubEnv('FAKE_REGULATE_DEAF', '1')
@@ -124,13 +152,16 @@ describe('the CPU regulator, on the worker side (pedido de Santi del 14/10/2026)
       pingTimeoutMs: 120,
       restartAfterMs: 20,
     })
-    hung.start()
-    await until(() => lines().filter((line) => line.startsWith('start')).length >= 2)
-    expect(log).toHaveBeenCalledWith(
-      'el regulador de CPU no contesta: lo corto',
-      expect.objectContaining({ seconds: 0 }),
-    )
-    await hung.stop()
+    try {
+      hung.start()
+      await until(() => lines().filter((line) => line.startsWith('start')).length >= 2)
+      expect(log).toHaveBeenCalledWith(
+        'el regulador de CPU no contesta: lo corto',
+        expect.objectContaining({ seconds: 0 }),
+      )
+    } finally {
+      await hung.stop()
+    }
     // An engine without regulatePing is never asked (an old regulator would not answer).
     rmSync(heard, { force: true })
     const old = new CpuRegulator({
