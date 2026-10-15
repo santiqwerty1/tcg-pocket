@@ -4,7 +4,7 @@
  * Only competitive matches, by the day they were played.
  */
 import { ArrowDownIcon, ArrowUpIcon } from 'lucide-react'
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, type KeyboardEvent, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
@@ -15,25 +15,64 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { formatDateTime } from '@/lib/format'
 
-/** «Anotar rango»: the rank now (Master Ball with its points). */
-export function RankPicker({ ranks, current }: { ranks: Ranked['ranks']; current: string | null }) {
+/** Master Ball points as typed: «1.250» or «1250»; null when empty, undefined when it is not a whole number. */
+export function parsePoints(text: string): number | null | undefined {
+  const digits = text.replace(/[.\s]/g, '')
+  if (digits === '') return null
+  return /^\d{1,6}$/.test(digits) ? Number(digits) : undefined
+}
+
+/**
+ * «Anotar rango»: the rank now (Master Ball with its points), or when it changed (`withDate`). Self-review: not a
+ * `<form>` — it also goes inside the quick entry's, and a form inside a form saved another match.
+ */
+export function RankPicker({
+  ranks,
+  current,
+  withDate = false,
+  onDone,
+}: {
+  ranks: Ranked['ranks']
+  current: string | null
+  withDate?: boolean
+  onDone?: () => void
+}) {
   const add = useAddRank()
   const [rank, setRank] = useState(current ?? 'ultra-1')
   const [points, setPoints] = useState('')
-  async function save(event: FormEvent) {
-    event.preventDefault()
+  const [when, setWhen] = useState('')
+  async function save() {
+    const parsed = rank === 'master' ? parsePoints(points) : null
+    if (parsed === undefined) {
+      toast.error('Los puntos son un número entero (por ejemplo, 1.250).')
+      return
+    }
+    const at = when ? new Date(when) : null
+    if (at && Number.isNaN(at.getTime())) {
+      toast.error('Fecha inválida.')
+      return
+    }
     try {
       const noted = await add.mutateAsync({
         rank,
-        ...(rank === 'master' && points.trim() ? { points: Number(points) } : {}),
+        ...(parsed !== null ? { points: parsed } : {}),
+        ...(at ? { at: at.toISOString() } : {}),
       })
       toast.success(`Anotado: ${noted.label}.`)
+      setWhen('')
+      onDone?.()
     } catch (error) {
       toast.error(errorMessage(error))
     }
   }
+  // Enter in a box notes the rank and nothing else (the quick entry around it is a form).
+  function onEnter(event: KeyboardEvent) {
+    if (event.key !== 'Enter') return
+    event.preventDefault()
+    void save()
+  }
   return (
-    <form className="flex flex-wrap items-end gap-2" onSubmit={save} aria-label="Anotar rango">
+    <fieldset className="flex min-w-0 flex-wrap items-end gap-2" aria-label="Anotar rango">
       <label className="flex min-w-0 flex-col gap-1 text-sm">
         <span className="text-muted-foreground">Rango ahora</span>
         <select
@@ -58,21 +97,37 @@ export function RankPicker({ ranks, current }: { ranks: Ranked['ranks']; current
             inputMode="numeric"
             value={points}
             onChange={(event) => setPoints(event.target.value)}
+            onKeyDown={onEnter}
           />
         </div>
       ) : null}
-      <Button type="submit" variant="secondary" disabled={add.isPending}>
+      {withDate ? (
+        <div className="flex flex-col gap-1 text-sm">
+          <label htmlFor="rank-when" className="text-muted-foreground">
+            Cuándo (si no fue ahora)
+          </label>
+          <Input
+            id="rank-when"
+            type="datetime-local"
+            value={when}
+            onChange={(event) => setWhen(event.target.value)}
+            onKeyDown={onEnter}
+          />
+        </div>
+      ) : null}
+      <Button type="button" variant="secondary" disabled={add.isPending} onClick={() => void save()}>
         Anotar
       </Button>
-    </form>
+    </fieldset>
   )
 }
 
 /** The curve as steps: one dot per rank noted, higher ranks higher. */
 function Curve({ summary, ranks }: { summary: NonNullable<Ranked['summary']>; ranks: Ranked['ranks'] }) {
   if (summary.steps.length < 2) return null
-  const start = new Date(`${summary.season.startsOn}T03:00:00Z`).getTime()
-  const end = new Date(`${summary.season.endsOn}T03:00:00Z`).getTime() + 24 * 60 * 60 * 1000
+  // The season's days in the browser's zone (the owner's phone), not a fixed UTC−3.
+  const start = new Date(`${summary.season.startsOn}T00:00:00`).getTime()
+  const end = new Date(`${summary.season.endsOn}T00:00:00`).getTime() + 24 * 60 * 60 * 1000
   const levels = summary.steps.map((step) => ranks.findIndex((rank) => rank.code === step.rank))
   const low = Math.min(...levels)
   const high = Math.max(...levels)
@@ -143,12 +198,117 @@ function SeasonDates({ season }: { season: NonNullable<Ranked['summary']>['seaso
   )
 }
 
+/**
+ * «Nueva temporada» (self-review: between seasons nothing could be loaded from the app): its code, name and days.
+ */
+function NewSeason({ seasons }: { seasons: Ranked['seasons'] }) {
+  const set = useSetSeason()
+  const [open, setOpen] = useState(false)
+  const [code, setCode] = useState('')
+  const [name, setName] = useState('')
+  const [startsOn, setStartsOn] = useState('')
+  const [endsOn, setEndsOn] = useState('')
+  if (!open) {
+    return (
+      <Button type="button" variant="link" size="sm" className="self-start px-0" onClick={() => setOpen(true)}>
+        Nueva temporada
+      </Button>
+    )
+  }
+  async function save(event: FormEvent) {
+    event.preventDefault()
+    const trimmed = code.trim()
+    if (!/^[A-Za-z0-9-]{1,20}$/.test(trimmed)) {
+      toast.error('El código lleva letras, números o guiones (por ejemplo, B5).')
+      return
+    }
+    if (seasons.some((season) => season.code.toLowerCase() === trimmed.toLowerCase())) {
+      toast.error(`Ya hay una temporada ${trimmed}: corregí sus fechas desde la temporada.`)
+      return
+    }
+    try {
+      await set.mutateAsync({ code: trimmed, name: name.trim() || `Temporada ${trimmed}`, startsOn, endsOn })
+      setOpen(false)
+      toast.success('Temporada cargada.')
+    } catch (error) {
+      toast.error(errorMessage(error))
+    }
+  }
+  return (
+    <form className="flex flex-wrap items-end gap-2" onSubmit={save} aria-label="Nueva temporada">
+      <div className="flex w-24 flex-col gap-1 text-sm">
+        <label htmlFor="season-code" className="text-muted-foreground">
+          Código
+        </label>
+        <Input id="season-code" value={code} required onChange={(event) => setCode(event.target.value)} />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
+        <label htmlFor="season-name" className="text-muted-foreground">
+          Nombre
+        </label>
+        <Input
+          id="season-name"
+          value={name}
+          placeholder={code.trim() ? `Temporada ${code.trim()}` : 'Temporada B5'}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </div>
+      <div className="flex flex-col gap-1 text-sm">
+        <label htmlFor="new-season-starts" className="text-muted-foreground">
+          Desde
+        </label>
+        <Input
+          id="new-season-starts"
+          type="date"
+          required
+          value={startsOn}
+          onChange={(event) => setStartsOn(event.target.value)}
+        />
+      </div>
+      <div className="flex flex-col gap-1 text-sm">
+        <label htmlFor="new-season-ends" className="text-muted-foreground">
+          Hasta
+        </label>
+        <Input
+          id="new-season-ends"
+          type="date"
+          required
+          value={endsOn}
+          onChange={(event) => setEndsOn(event.target.value)}
+        />
+      </div>
+      <Button type="submit" variant="secondary" disabled={set.isPending}>
+        Cargar
+      </Button>
+    </form>
+  )
+}
+
 export function SeasonPage() {
   const [search] = useSearchParams()
   const asked = search.get('temporada') ?? undefined
   const ranked = useRanked(asked)
   const remove = useDeleteRank()
+  const add = useAddRank()
   const data = ranked.data
+  // Self-review: «Borrar» can be undone (the same rank, at the same time).
+  async function removeStep(step: NonNullable<Ranked['summary']>['steps'][number]) {
+    try {
+      await remove.mutateAsync(step.id)
+      toast.success(`Borrado: ${step.label}.`, {
+        action: {
+          label: 'Deshacer',
+          onClick: () => {
+            add
+              .mutateAsync({ rank: step.rank, points: step.points, at: step.at })
+              .catch((error) => toast.error(errorMessage(error)))
+          },
+        },
+      })
+    } catch (error) {
+      toast.error(errorMessage(error))
+    }
+  }
   const summary = data?.summary ?? null
   return (
     <div className="flex flex-col gap-6">
@@ -162,7 +322,9 @@ export function SeasonPage() {
               {summary.season.endsOn.split('-').reverse().join('/')}. Partidas competitivas: {summary.text}.
             </p>
           ) : (
-            <p className="text-sm text-muted-foreground">No hay temporada de ranked cargada para hoy.</p>
+            <p className="text-sm text-muted-foreground">
+              No hay temporada de ranked cargada para hoy. Cuando empiece una, cargala con «Nueva temporada», abajo.
+            </p>
           )}
           {summary ? <SeasonDates key={summary.season.code} season={summary.season} /> : null}
           {data.current && (!summary || summary.season.code === data.current.code) ? (
@@ -170,7 +332,7 @@ export function SeasonPage() {
               <p className="text-sm">
                 Rango ahora: <span className="font-medium">{data.current.rank?.label ?? 'sin anotar'}</span>
               </p>
-              <RankPicker ranks={data.ranks} current={data.current.rank?.rank ?? null} />
+              <RankPicker ranks={data.ranks} current={data.current.rank?.rank ?? null} withDate />
             </div>
           ) : null}
         </Section>
@@ -194,15 +356,21 @@ export function SeasonPage() {
                     size="xs"
                     className="ml-auto"
                     aria-label={`Borrar ${step.label} del ${formatDateTime(step.at)}`}
-                    onClick={() => remove.mutate(step.id)}
+                    onClick={() => void removeStep(step)}
                   >
                     Borrar
                   </Button>
                 </span>
                 {step.decks.length > 0 ? (
                   <span className="text-xs text-muted-foreground">
-                    {step.move === 'up' ? 'Subió con' : step.move === 'down' ? 'Bajó con' : 'Desde el anterior'}:{' '}
-                    {step.decks.map((deck) => `${deck.deckName} ${deck.text}`).join(' · ')}
+                    {step.move === 'up'
+                      ? 'Subió con'
+                      : step.move === 'down'
+                        ? 'Bajó con'
+                        : step.move === null
+                          ? 'Desde el comienzo de la temporada'
+                          : 'Desde el anterior'}
+                    : {step.decks.map((deck) => `${deck.deckName} ${deck.text}`).join(' · ')}
                   </span>
                 ) : null}
               </li>
@@ -233,7 +401,7 @@ export function SeasonPage() {
           </ul>
         </Section>
       ) : null}
-      {data && data.seasons.length > 0 ? (
+      {data ? (
         <Section title="Temporadas">
           <ul className="flex flex-col gap-1.5 text-sm">
             {data.seasons.map((season) => (
@@ -253,6 +421,7 @@ export function SeasonPage() {
               </li>
             ))}
           </ul>
+          <NewSeason seasons={data.seasons} />
         </Section>
       ) : null}
     </div>

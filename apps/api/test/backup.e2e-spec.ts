@@ -302,6 +302,18 @@ describe('backup and settings (e2e)', () => {
     await test.prisma.collectionImport.deleteMany()
     await test.prisma.appSetting.deleteMany()
     await test.prisma.pack.updateMany({ data: { available: true, limited: false, limitedUntil: null } })
+    // Version 10 (self-review of ranked): what is noted now goes and the file's comes back, and the ranks' sequence
+    // starts over, so a new rank would collide with the restored ids unless the restore moves it.
+    await test.prisma.$executeRawUnsafe('TRUNCATE rank_changes RESTART IDENTITY')
+    await test.prisma.rankedSeason.deleteMany()
+    await test.prisma.rankedSeason.create({
+      data: {
+        code: 'B5',
+        name: 'Otra',
+        startsOn: new Date('2026-11-01T00:00:00Z'),
+        endsOn: new Date('2026-11-15T00:00:00Z'),
+      },
+    })
     expect((await get('/api/decks')).body.items).toEqual([])
     expect((await get('/api/collection/summary')).body.copies).toBe(0)
 
@@ -330,6 +342,11 @@ describe('backup and settings (e2e)', () => {
     const restored = JSON.parse(gunzipSync(again.body as Buffer).toString('utf8')) as Doc
     expect(restored.exportedAt).not.toBe(document.exportedAt)
     expect(withoutExportedAt(restored)).toEqual(withoutExportedAt(document))
+    const fileRanks = (document as unknown as { ranked: { changes: { id: number }[] } }).ranked.changes
+    const rank = await post('/api/ranked/ranks').send({ rank: 'ultra-3' })
+    expect(rank.status).toBe(201)
+    expect(Number(rank.body.id)).toBeGreaterThan(Math.max(...fileRanks.map((change) => change.id)))
+    expect((await test.http().delete(`/api/ranked/ranks/${rank.body.id}`).set('Cookie', cookie)).status).toBe(204)
 
     const decks = await get('/api/decks')
     expect(decks.body.items.map((d: { id: string }) => d.id)).toEqual(deckIds)

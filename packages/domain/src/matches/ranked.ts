@@ -1,7 +1,8 @@
 /**
  * Ranked by season and rank (pedido de Santi del 14/10): the game's ranked seasons (B4b SP, 14–28/10/2026: not an era,
  * B4b is the Deluxe Pack Mega) and the owner's rank as noted when it changes. A competitive match belongs to the season
- * whose days (in the owner's time zone) contain it, and was played at the last rank noted in that season before it.
+ * whose days (in the owner's time zone) contain it, and was played at the last rank noted in that season strictly
+ * before it: a rank noted at the very instant of a match is the one it led to.
  * From there: the rank curve of a season, the record by season and by rank, and the decks played between two changes
  * (with what it went up or down).
  */
@@ -52,14 +53,18 @@ export function isRank(value: string): value is Rank {
   return (RANKS as readonly string[]).includes(value)
 }
 
-/** −1, 0 or 1: lower, the same or higher (Master Ball with more points is higher). */
+/**
+ * −1, 0 or 1: lower, the same or higher (Master Ball with more points is higher; self-review: without points on either
+ * side it is the same, not «bajó»).
+ */
 export function compareRanks(
   a: { rank: Rank; points?: number | null },
   b: { rank: Rank; points?: number | null },
 ): number {
   const order = RANKS.indexOf(a.rank) - RANKS.indexOf(b.rank)
   if (order !== 0) return Math.sign(order)
-  return Math.sign((a.points ?? 0) - (b.points ?? 0))
+  if (a.points === null || a.points === undefined || b.points === null || b.points === undefined) return 0
+  return Math.sign(a.points - b.points)
 }
 
 export interface RankedSeason {
@@ -84,9 +89,27 @@ export const KNOWN_SEASONS: readonly RankedSeason[] = [
   { code: 'B4bSP', name: 'Temporada B4b SP', startsOn: '2026-10-14', endsOn: '2026-10-28' },
 ]
 
-/** YYYY-MM-DD of an instant in a time zone. */
+const DAY_FORMATS = new Map<string, Intl.DateTimeFormat>()
+
+/** YYYY-MM-DD of an instant in a time zone (self-review: one formatter per zone; building it was most of the time). */
 export function dayIn(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date)
+  let format = DAY_FORMATS.get(timeZone)
+  if (!format) {
+    format = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' })
+    DAY_FORMATS.set(timeZone, format)
+  }
+  return format.format(date)
+}
+
+/** Two changes noted at the same instant: the one noted last (ids are numbers; «10» after «9»). */
+function idOrder(a: string, b: string): number {
+  const [x, y] = [Number(a), Number(b)]
+  return Number.isFinite(x) && Number.isFinite(y) ? x - y : a.localeCompare(b)
+}
+
+/** `a` was noted after `b`. */
+function later(a: RankChange, b: RankChange): boolean {
+  return a.at.getTime() > b.at.getTime() || (a.at.getTime() === b.at.getTime() && idOrder(a.id, b.id) > 0)
 }
 
 /** The season whose days contain the instant (in the owner's time zone), or null between seasons. */
@@ -95,7 +118,10 @@ export function seasonOf(date: Date, seasons: readonly RankedSeason[], timeZone:
   return seasons.find((season) => season.startsOn <= day && day <= season.endsOn) ?? null
 }
 
-/** The last rank noted in the season up to the instant (a new season starts without one). */
+/**
+ * The last rank noted in the season strictly before the instant (a new season starts without one). A rank noted at
+ * the instant of a match is the one the match led to (self-review: the record by rank and the curve agree on it).
+ */
 export function rankAt(
   date: Date,
   changes: readonly RankChange[],
@@ -104,9 +130,9 @@ export function rankAt(
 ): RankChange | null {
   let found: RankChange | null = null
   for (const change of changes) {
-    if (change.at.getTime() > date.getTime()) continue
+    if (change.at.getTime() >= date.getTime()) continue
     if (seasonOf(change.at, [season], timeZone) === null) continue
-    if (!found || change.at.getTime() >= found.at.getTime()) found = change
+    if (!found || later(change, found)) found = change
   }
   return found
 }
@@ -131,7 +157,10 @@ export interface SeasonStep {
   label: string
   /** Compared with the rank before it (null for the first of the season). */
   move: 'up' | 'down' | 'same' | null
-  /** The competitive matches since the rank before it, by deck: what it went up (or down) with. */
+  /**
+   * The competitive matches after the rank before it and up to this one (a match at the instant of a change led to
+   * it), by deck: what it went up (or down) with.
+   */
   decks: { deckId: string; deckName: string; record: GameRecord }[]
 }
 
@@ -172,7 +201,7 @@ export function seasonSummary(
     .sort((a, b) => a.playedAt.getTime() - b.playedAt.getTime())
   const noted = changes
     .filter((change) => seasonOf(change.at, [season], timeZone) !== null)
-    .sort((a, b) => a.at.getTime() - b.at.getTime() || a.id.localeCompare(b.id))
+    .sort((a, b) => a.at.getTime() - b.at.getTime() || idOrder(a.id, b.id))
   const record = empty()
   const byRank = new Map<string, { rank: Rank | null; record: GameRecord }>()
   const byDeck = new Map<string, { deckName: string; record: GameRecord }>()

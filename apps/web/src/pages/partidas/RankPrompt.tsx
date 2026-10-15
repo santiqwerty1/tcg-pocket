@@ -53,7 +53,7 @@ export function RankPrompt({ result, onDone }: { result: MatchResult; onDone: ()
           </Button>
         </div>
       ) : (
-        <RankPicker ranks={ranked.data.ranks} current={null} />
+        <RankPicker ranks={ranked.data.ranks} current={null} onDone={onDone} />
       )}
     </fieldset>
   )

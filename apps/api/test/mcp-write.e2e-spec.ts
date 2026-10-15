@@ -269,6 +269,27 @@ describe('MCP write tools (e2e)', () => {
     // A casual match says nothing of ranked.
     const casual = await call(client, 'matches_log', { deck: 'mazo 7', result: 'loss', mode: 'casual' })
     expect(casual.structuredContent.ranked).toBeUndefined()
+    // The match that led to Ultra Ball 3 was played before it: both competitive ones count «sin rango».
+    const view = (await test.http().get('/api/ranked').set('Cookie', cookie)).body
+    expect(view.summary.byRank).toEqual([expect.objectContaining({ label: 'Sin rango anotado', games: 2 })])
+    // Self-review: a rank that cannot be noted is refused before saving the match (Claude would log it twice).
+    const before = await test.prisma.match.count()
+    const refusals = [
+      { rank: 'ultra-3', rankPoints: 100 },
+      { rankPoints: 100 },
+      { rank: 'ultra-3', mode: 'casual' },
+      { rank: 'ultra-3', playedAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString() },
+    ]
+    for (const extra of refusals) {
+      const refused = await call(client, 'matches_log', {
+        deck: 'mazo 7',
+        result: 'win',
+        mode: 'competitive',
+        ...extra,
+      })
+      expect(refused.isError, JSON.stringify(extra)).toBe(true)
+    }
+    expect(await test.prisma.match.count()).toBe(before)
   })
 
   it('acceptance 2: a deck from Spanish text is saved with its validation; an invalid one is not', async () => {

@@ -93,8 +93,9 @@ export class RankedService {
     }))
     const today = todayInOwnerZone(now)
     const current = seasonOf(now, seasons, OWNER_TIME_ZONE)
+    // Self-review: «?season=b4bsp» finds B4bSP.
     const shown = code
-      ? seasons.find((season) => season.code === code)
+      ? seasons.find((season) => season.code.toLowerCase() === code.toLowerCase())
       : (current ?? [...seasons].reverse().find((season) => season.endsOn < today) ?? null)
     if (code && !shown) throw new NotFoundException(`Temporada ${code} no encontrada.`)
     const summaries = new Map(
@@ -168,18 +169,23 @@ export class RankedService {
     if (count === 0) throw new NotFoundException(`Temporada ${code} no encontrada.`)
   }
 
+  /** The rank as given, or why it cannot be noted (`matches_log` checks it before saving the match). */
+  checkRank(input: { rank: string; points?: number | null }): Rank {
+    if (!isRank(input.rank)) {
+      throw new BadRequestException({ code: 'validation', message: `Rango «${input.rank}» desconocido.` })
+    }
+    if (input.points !== undefined && input.points !== null && input.rank !== 'master') {
+      throw new BadRequestException({ code: 'validation', message: 'Solo la Master Ball lleva puntos.' })
+    }
+    return input.rank
+  }
+
   /** Notes the rank (now, or when given): Master Ball may carry its points. */
   async addRank(
     input: { rank: string; points?: number | null; at?: string },
     now = new Date(),
   ): Promise<RankChangeView> {
-    if (!isRank(input.rank)) {
-      throw new BadRequestException({ code: 'validation', message: `Rango «${input.rank}» desconocido.` })
-    }
-    const rank: Rank = input.rank
-    if (input.points !== undefined && input.points !== null && rank !== 'master') {
-      throw new BadRequestException({ code: 'validation', message: 'Solo la Master Ball lleva puntos.' })
-    }
+    const rank = this.checkRank(input)
     const at = input.at ? new Date(input.at) : now
     if (Number.isNaN(at.getTime())) throw new BadRequestException({ code: 'validation', message: 'Fecha inválida.' })
     if (at.getTime() > now.getTime() + FUTURE_SLACK_MS) {

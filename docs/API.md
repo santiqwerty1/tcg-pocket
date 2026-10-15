@@ -253,12 +253,12 @@ Fase 25: `GET /api/matches/stats` suma `turnOrder: { first, second, unknown, cov
 
 ## Ranked (14/10/2026)
 
-Temporadas de ranked del juego (por días, en la hora de Santi) y el rango anotado cuando cambia. Solo cuentan las partidas competitivas.
+Temporadas de ranked del juego (por días, en la hora de Santi) y el rango anotado cuando cambia. Solo cuentan las partidas competitivas. Una partida se jugó con el último rango anotado estrictamente antes de ella: un rango anotado en su mismo instante es el rango al que llevó.
 
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
-| `GET /api/ranked?season=` | `{ timeZone, today, ranks: [{ code, label }], seasons: [{ code, name, startsOn, endsOn, current, record, games, rate, text, rankLabel }], current: { code, name, endsOn, rank } \| null, summary: { season, record, games, rate, text, rank, steps: [{ id, at, rank, points, label, move: 'up'\|'down'\|'same'\|null, decks: [{ deckId, deckName, record, games, rate, text }] }], byRank: [{ rank, label, … }], byDeck: [{ deckId, deckName, … }] } \| null }`: la temporada pedida, la de hoy o la última que terminó. `404` con un código desconocido |
-| `PUT /api/ranked/seasons/:code` | `{ name, startsOn, endsOn }` → la temporada creada o corregida. `400` si termina antes de empezar o se superpone con otra |
+| `GET /api/ranked?season=` | `{ timeZone, today, ranks: [{ code, label }], seasons: [{ code, name, startsOn, endsOn, current, record, games, rate, text, rankLabel }], current: { code, name, endsOn, rank } \| null, summary: { season, record, games, rate, text, rank, steps: [{ id, at, rank, points, label, move: 'up'\|'down'\|'same'\|null, decks: [{ deckId, deckName, record, games, rate, text }] }], byRank: [{ rank, label, … }], byDeck: [{ deckId, deckName, … }] } \| null }`: la temporada pedida (el código sin distinguir mayúsculas), la de hoy o la última que terminó. `404` con un código desconocido |
+| `PUT /api/ranked/seasons/:code` | `{ name, startsOn, endsOn }` → la temporada creada o corregida. `400` si termina antes de empezar o comparte algún día con otra (también el de corte) |
 | `DELETE /api/ranked/seasons/:code` | `204` |
 | `POST /api/ranked/ranks` | `{ rank, points?, at? }` → `201 { id, at, rank, points, label }`: el rango ahora (o cuando cambió). `rank` es `beginner-1`…`ultra-4` o `master`; `points` solo con `master`; `400` con una fecha más de 10 min en el futuro |
 | `DELETE /api/ranked/ranks/:id` | `204` |
@@ -669,7 +669,7 @@ Tools de escritura (Fase 7), solo para un token con `mcp:write` (con `mcp:read` 
 |---|---|
 | `decks_create` | `{ text? \| cards?, energies?, name?, tags?, notes?, saveInvalid? }` → `{ saved, deck }` con validación y faltantes; si no valida no guarda (`saved: false` con `errors`) salvo `saveInvalid`. El texto acepta los formatos de `decks_validate`; un encabezado «### Nombre» da el nombre. Revisión con `source: mcp` |
 | `decks_update` | `{ deck, text? \| cards?, energies?, name?, tags?, notes?, revisionNote?, packPriority?, tournamentArchetype? (nombre o id; null = sugerido), builtInGame?, archived?, saveInvalid? }` → `{ saved, deck }`; cartas nuevas: revisión nueva con `source: mcp`, validada antes de guardar. No borra mazos |
-| `matches_log` | `{ deck, result: win\|loss\|tie, opponent?, wentFirst?, mode?, note?, playedAt? }` → `{ logged, match, deckRecord }` (`source: mcp`) |
+| `matches_log` | `{ deck, result: win\|loss\|tie, opponent?, wentFirst?, mode?, note?, playedAt?, opponentCards?, rank?, rankPoints? }` → `{ logged, match, deckRecord, ranked? }` (`source: mcp`). `ranked`: la temporada y el rango con que se jugó una competitiva, y con `rank` el rango al que llevó (anotado en el instante de la partida). Un `rank` que no se puede anotar (casual, fuera de temporada, puntos sin Master Ball) es un error y no guarda la partida |
 | `matches_update` | `{ id, …campos de matches_log }` → `{ updated, before, match }` |
 | `matches_delete` | `{ id }` → `{ deleted, match }` (marcada `destructiveHint`); la fila queda en el registro de Claude (Fase 43) |
 | `matches_restore` | Fase 43: `{ id }` → `{ restored, match, deckRecord }`: devuelve una partida que Claude borró, con el mismo id, mazo, revisión y fecha |

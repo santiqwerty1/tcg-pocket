@@ -376,6 +376,22 @@ export class McpWriteToolsService {
     rankPoints?: number
   }): Promise<Json> {
     const deck = await this.deckRefs.resolve(args.deck)
+    // Self-review of ranked: the rank is checked before the match is saved (an error after it made Claude log it twice).
+    if (args.rankPoints !== undefined && !args.rank) {
+      throw new BadRequestException('`rankPoints` va con `rank` (master).')
+    }
+    if (args.rank) {
+      this.ranked.checkRank({ rank: args.rank, points: args.rankPoints ?? null })
+      if ((args.mode ?? (await this.matches.lastMode())) !== 'competitive') {
+        throw new BadRequestException('El rango va solo con una partida competitiva: no guardé nada.')
+      }
+      const when = args.playedAt ? new Date(args.playedAt) : new Date()
+      if (!Number.isNaN(when.getTime()) && !(await this.ranked.at(when)).season) {
+        throw new BadRequestException(
+          'La partida no cae en ninguna temporada de ranked: no guardé nada. Cargá la temporada en Partidas → Temporada, o guardá la partida sin `rank`.',
+        )
+      }
+    }
     const match = await this.matches.create(
       {
         deckId: deck.id,
@@ -390,13 +406,14 @@ export class McpWriteToolsService {
       'mcp',
     )
     const stats = await this.matches.stats({ deckId: deck.id })
-    // 14/10: the season and the rank the match was played at; with `rank`, the rank after it (noted a second later).
+    // 14/10: the season and the rank the match was played at; with `rank`, the rank it led to (noted at its instant:
+    // a rank noted at a match's instant is the one after it).
     const before = match.mode === 'competitive' ? await this.ranked.at(match.playedAt) : null
     const after = args.rank
       ? await this.ranked.addRank({
           rank: args.rank,
           points: args.rankPoints ?? null,
-          at: new Date(match.playedAt.getTime() + 1000).toISOString(),
+          at: match.playedAt.toISOString(),
         })
       : null
     return {

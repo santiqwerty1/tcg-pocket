@@ -1041,7 +1041,8 @@ export class MatchesService {
     return deckRef(deck)
   }
 
-  private async lastMode(): Promise<MatchMode> {
+  /** The mode a match gets when none is given: the last logged one's (also for `matches_log` with a rank). */
+  async lastMode(): Promise<MatchMode> {
     const last = await this.prisma.match.findFirst({
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: { mode: true },

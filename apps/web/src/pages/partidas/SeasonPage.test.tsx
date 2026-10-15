@@ -2,13 +2,20 @@ import { QueryClient } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { Providers } from '@/app/Providers'
 import { routes } from '@/app/routes'
 import { fakeApi } from '@/test/fakeApi'
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+// The toast («Deshacer») captures the pointer, which jsdom lacks.
+beforeAll(() => {
+  Element.prototype.setPointerCapture ??= () => undefined
+  Element.prototype.releasePointerCapture ??= () => undefined
+  Element.prototype.hasPointerCapture ??= () => false
 })
 
 const record = (wins: number, losses: number) => ({
@@ -79,9 +86,9 @@ describe('temporada de ranked (14/10)', () => {
     expect(screen.getByText('Subió con: Mega-Steelix ex 2-0')).toBeInTheDocument()
     expect(screen.getByText('Ultra Ball 2:')).toBeInTheDocument()
     // Noting Master Ball with its points.
-    const form = screen.getByRole('form', { name: 'Anotar rango' })
+    const form = screen.getByRole('group', { name: 'Anotar rango' })
     await user.selectOptions(within(form).getByRole('combobox'), 'master')
-    await user.type(within(form).getByRole('textbox'), '1200')
+    await user.type(within(form).getByLabelText('Puntos'), '1200')
     await user.click(within(form).getByRole('button', { name: 'Anotar' }))
     await waitFor(() => expect(calls.filter((call) => call.method === 'POST')).toHaveLength(1))
     expect(JSON.parse(String(calls.find((call) => call.method === 'POST')?.body))).toEqual({
@@ -90,10 +97,58 @@ describe('temporada de ranked (14/10)', () => {
     })
   })
 
-  it('without a season for today, it says so', async () => {
-    fakeApi({ 'GET /api/ranked': { ...VIEW, seasons: [], current: null, summary: null } })
+  it('self-review: a rank noted some time ago, and «Borrar» with «Deshacer»', async () => {
+    const { calls } = fakeApi({
+      'GET /api/ranked': VIEW,
+      'POST /api/ranked/ranks': change('3', '2026-10-15T12:00:00.000Z', 'ultra-1', 'Ultra Ball 1'),
+      'DELETE /api/ranked/ranks/2': null,
+    })
+    const user = userEvent.setup()
     renderAt('/partidas/temporada')
-    expect(await screen.findByText('No hay temporada de ranked cargada para hoy.')).toBeInTheDocument()
-    expect(screen.queryByRole('form', { name: 'Anotar rango' })).not.toBeInTheDocument()
+    const form = await screen.findByRole('group', { name: 'Anotar rango' })
+    await user.selectOptions(within(form).getByRole('combobox'), 'ultra-1')
+    await user.type(within(form).getByLabelText('Cuándo (si no fue ahora)'), '2026-10-15T09:00')
+    await user.click(within(form).getByRole('button', { name: 'Anotar' }))
+    const posts = () => calls.filter((call) => call.method === 'POST')
+    await waitFor(() => expect(posts()).toHaveLength(1))
+    expect(JSON.parse(String(posts()[0]?.body))).toEqual({
+      rank: 'ultra-1',
+      at: new Date('2026-10-15T09:00').toISOString(),
+    })
+    // «Borrar» Ultra Ball 3, then «Deshacer»: the same rank at the same time.
+    await user.click(screen.getByRole('button', { name: /^Borrar Ultra Ball 3/ }))
+    await waitFor(() => expect(calls.filter((call) => call.method === 'DELETE')).toHaveLength(1))
+    await user.click(await screen.findByRole('button', { name: 'Deshacer' }))
+    await waitFor(() => expect(posts()).toHaveLength(2))
+    expect(JSON.parse(String(posts()[1]?.body))).toEqual({
+      rank: 'ultra-3',
+      points: null,
+      at: '2026-10-15T20:00:00.000Z',
+    })
+  })
+
+  it('without a season for today, it says so; the next one is loaded from here', async () => {
+    const { calls } = fakeApi({
+      'GET /api/ranked': { ...VIEW, seasons: [], current: null, summary: null },
+      'PUT /api/ranked/seasons/B5': { code: 'B5', name: 'Temporada B5', startsOn: '2026-11-01', endsOn: '2026-11-15' },
+    })
+    const user = userEvent.setup()
+    renderAt('/partidas/temporada')
+    expect(await screen.findByText(/^No hay temporada de ranked cargada para hoy\./)).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Anotar rango' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Nueva temporada' }))
+    const form = screen.getByRole('form', { name: 'Nueva temporada' })
+    await user.type(within(form).getByLabelText('Código'), 'B5')
+    await user.type(within(form).getByLabelText('Desde'), '2026-11-01')
+    await user.type(within(form).getByLabelText('Hasta'), '2026-11-15')
+    await user.click(within(form).getByRole('button', { name: 'Cargar' }))
+    await waitFor(() => expect(calls.filter((call) => call.method === 'PUT')).toHaveLength(1))
+    const put = calls.find((call) => call.method === 'PUT')
+    expect(put?.path).toBe('/api/ranked/seasons/B5')
+    expect(JSON.parse(String(put?.body))).toEqual({
+      name: 'Temporada B5',
+      startsOn: '2026-11-01',
+      endsOn: '2026-11-15',
+    })
   })
 })

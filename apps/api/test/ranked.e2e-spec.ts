@@ -53,6 +53,17 @@ describe('ranked by season and rank (e2e)', () => {
       (await put('/api/ranked/seasons/OLD').send({ name: 'Temporada vieja', startsOn: day(-40), endsOn: day(-26) }))
         .status,
     ).toBe(200)
+    // A day belongs to one season: one that starts the day another ends overlaps it too (decided: by days).
+    const sharedDay = await put('/api/ranked/seasons/EDGE').send({
+      name: 'Al borde',
+      startsOn: day(12),
+      endsOn: day(20),
+    })
+    expect(sharedDay.status).toBe(400)
+    expect(
+      (await put('/api/ranked/seasons/EDGE').send({ name: 'Al borde', startsOn: day(13), endsOn: day(20) })).status,
+    ).toBe(200)
+    expect((await del('/api/ranked/seasons/EDGE')).status).toBe(204)
     const overlap = await put('/api/ranked/seasons/BAD').send({ name: 'Encima', startsOn: day(-5), endsOn: day(-1) })
     expect(overlap.status).toBe(400)
     expect(overlap.body.error.message).toMatch(/Se superpone con Temporada de hoy/)
@@ -107,6 +118,8 @@ describe('ranked by season and rank (e2e)', () => {
     // Another season by its code.
     expect((await get('/api/ranked?season=OLD')).body.summary).toMatchObject({ season: { code: 'OLD' }, games: 0 })
     expect((await get('/api/ranked?season=NOPE')).status).toBe(404)
+    // Self-review: the code is found whatever its case.
+    expect((await get('/api/ranked?season=old')).body.summary).toMatchObject({ season: { code: 'OLD' } })
     // Deleting a rank noted by mistake.
     const wrong = await post('/api/ranked/ranks').send({ rank: 'master', points: 1200 })
     expect(wrong.body.label).toBe('Master Ball, 1.200 puntos')

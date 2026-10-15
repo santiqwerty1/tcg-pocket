@@ -112,4 +112,49 @@ describe('ranked by season and rank (pedido de Santi del 14/10)', () => {
     ])
     expect(summary.byDeck[0]).toMatchObject({ deckId: '20', games: 3 })
   })
+
+  it('self-review: a rank noted at the instant of a match is the one it led to, in the record and in the curve', () => {
+    const changes = [change('1', '2026-10-15T12:00:00Z', 'ultra-2'), change('2', '2026-10-15T15:00:00Z', 'ultra-3')]
+    // The match at 15:00 was played at Ultra Ball 2 and took it to Ultra Ball 3; the one at 12:00, before any rank.
+    expect(rankAt(at('2026-10-15T15:00:00Z'), changes, season, ZONE)?.rank).toBe('ultra-2')
+    expect(rankAt(at('2026-10-15T12:00:00Z'), changes, season, ZONE)).toBeNull()
+    expect(rankAt(at('2026-10-15T15:00:01Z'), changes, season, ZONE)?.rank).toBe('ultra-3')
+    const summary = seasonSummary(
+      season,
+      [match('a', '2026-10-15T12:00:00Z', 'win'), match('b', '2026-10-15T15:00:00Z', 'win', '1')],
+      changes,
+      ZONE,
+    )
+    expect(summary.byRank.map((row) => [row.label, row.games])).toEqual([
+      ['Sin rango anotado', 1],
+      ['Ultra Ball 2', 1],
+    ])
+    // Each match is in the step it led to, and only there (the window is after the change before, up to this one).
+    expect(summary.steps[0]?.decks).toEqual([
+      { deckId: '20', deckName: 'Mega-Steelix ex', record: { wins: 1, losses: 0, ties: 0 } },
+    ])
+    expect(summary.steps[1]?.decks).toEqual([
+      { deckId: '1', deckName: 'Butterfree', record: { wins: 1, losses: 0, ties: 0 } },
+    ])
+  })
+
+  it('self-review: two ranks noted at the same instant — the one noted last (ids as numbers)', () => {
+    const changes = [change('9', '2026-10-15T12:00:00Z', 'ultra-2'), change('10', '2026-10-15T12:00:00Z', 'ultra-3')]
+    expect(rankAt(at('2026-10-15T13:00:00Z'), changes, season, ZONE)?.id).toBe('10')
+    expect(rankAt(at('2026-10-15T13:00:00Z'), [...changes].reverse(), season, ZONE)?.id).toBe('10')
+    expect(seasonSummary(season, [], changes, ZONE).rank?.id).toBe('10')
+    expect(seasonSummary(season, [], [...changes].reverse(), ZONE).rank?.id).toBe('10')
+  })
+
+  it('self-review: Master Ball without points after Master Ball with points is the same, not «bajó»', () => {
+    expect(compareRanks({ rank: 'master', points: null }, { rank: 'master', points: 1200 })).toBe(0)
+    expect(compareRanks({ rank: 'master', points: 1200 }, { rank: 'master' })).toBe(0)
+    const summary = seasonSummary(
+      season,
+      [],
+      [change('1', '2026-10-15T12:00:00Z', 'master', 1200), change('2', '2026-10-16T12:00:00Z', 'master')],
+      ZONE,
+    )
+    expect(summary.steps.map((step) => step.move)).toEqual([null, 'same'])
+  })
 })
