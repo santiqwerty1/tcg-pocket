@@ -111,7 +111,7 @@ COPY --from=worker-engines /engine-out /engine-out
 RUN node apps/worker/scripts/package-windows-update.mjs --engine /engine-out/engine-cli.exe \
     --reference-engine /engine-out/reference-engine --runtime-licenses /engine-out --out /windows-package
 
-# --- deckgym replay viewer (D-014): built unmodified at the engine's pinned commit ------------------------------
+# --- deckgym replay viewer (D-014): built unmodified at the engine's pinned commit (of our fork, D-031) ------------------------------
 FROM node:24-alpine AS viewer
 RUN apk add --no-cache git
 WORKDIR /viewer
@@ -119,7 +119,7 @@ COPY engine/Cargo.toml Cargo.toml
 RUN REV="$(sed -n 's/^deckgym = .*rev = "\([0-9a-f]\{40\}\)".*/\1/p' Cargo.toml)" \
  && test -n "$REV" \
  && git init -q src && cd src \
- && git fetch -q --depth 1 https://github.com/bcollazo/deckgym-core "$REV" && git checkout -q FETCH_HEAD \
+ && git fetch -q --depth 1 https://github.com/santiqwerty1/deckgym-core "$REV" && git checkout -q FETCH_HEAD \
  && cd viewer && npm ci --no-audit --no-fund --loglevel=error \
  && npx vite build --base=/viewer/ --outDir /viewer/dist --emptyOutDir
 

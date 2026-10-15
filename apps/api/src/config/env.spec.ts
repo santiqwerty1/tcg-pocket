@@ -1,10 +1,27 @@
-import { isAbsolute } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { isAbsolute, resolve } from 'node:path'
+import { API_ROOT } from './dotenv.js'
 import { DEFAULT_CATALOG_COMMIT, DEFAULT_ENGINE_REV, EnvError, parseEnv } from './env.js'
 
 const base = {
   DATABASE_URL: 'postgresql://tcg:tcg@127.0.0.1:5433/tcg',
   SESSION_SECRET: 'x'.repeat(32),
 }
+
+describe('the engine pin (D-031, review of #115)', () => {
+  const repo = (path: string) => readFileSync(resolve(API_ROOT, '..', '..', path), 'utf8')
+
+  it('DEFAULT_ENGINE_REV is the deckgym rev of both Cargo.toml, of the golden games and of the texts that name it', () => {
+    for (const manifest of ['engine/Cargo.toml', 'engine/wasm/Cargo.toml']) {
+      expect(/^deckgym = \{[^}]*rev = "([0-9a-f]{40})"/m.exec(repo(manifest))?.[1]).toBe(DEFAULT_ENGINE_REV)
+    }
+    for (const golden of ['engine/games-rev.json', 'engine/wasm/games-wasm.json']) {
+      expect(JSON.parse(repo(golden)).engineRev).toBe(DEFAULT_ENGINE_REV)
+    }
+    expect(repo('apps/web/src/pages/mas/AboutPage.tsx')).toContain(`>${DEFAULT_ENGINE_REV.slice(0, 7)}</code>`)
+    expect(repo('docs/LICENCIAS.md')).toContain(DEFAULT_ENGINE_REV)
+  })
+})
 
 describe('parseEnv', () => {
   it('applies defaults', () => {

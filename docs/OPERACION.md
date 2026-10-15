@@ -106,6 +106,25 @@ Para mirar la memoria sin entrar a la app: `system_status`, o `GET /api/ops/stat
 - **Ajustes del repo:** permisos por defecto de los workflows en solo lectura; alertas de Dependabot y arreglos de seguridad automáticos prendidos. Al 11/10 hay una alerta baja, de esbuild en `apps/worker` (su servidor de desarrollo en Windows), que no usamos.
 - **Cómo se hizo la mudanza:** D-022 y DECISIONES 41.15–41.16. `docs/MUDANZA.md` es el plan anterior, de un solo commit.
 
+## El motor: nuestra copia de deckgym (D-031)
+
+Desde el 15/10/2026 el motor es [santiqwerty1/deckgym-core](https://github.com/santiqwerty1/deckgym-core), una copia de `bcollazo/deckgym-core` con arreglos de reglas. Cada arreglo vive en su rama (`fix/…`, `feat/bot-api`), lista para un PR upstream. La rama `tcg-pocket` las junta, y su sha es el `rev` de `engine/Cargo.toml` y de `engine/wasm/Cargo.toml`.
+
+**Cada sha que usó la app lleva una etiqueta `pin-<sha corto>` en la copia** (la primera, `pin-018b419`). Rearmar `tcg-pocket` reescribe la rama, y sin la etiqueta GitHub puede borrar el commit viejo. Lo siguen buscando por sha `cargo` (el lock, para volver a compilar o volver atrás), el visor del Dockerfile, el catálogo (`ENGINE_RAW_BASE`), el enlace al visor de las repeticiones viejas y las fuentes que promete `docs/LICENCIAS.md`.
+
+Para actualizarla, por ejemplo cuando upstream integra uno de nuestros arreglos:
+1. **En la copia:** traer upstream `main`, rebasar cada rama `fix/…` encima (sacar las que upstream ya integró) y rearmar `tcg-pocket` uniéndolas. Correr `cargo test --release` de deckgym y subir las ramas. Etiquetar la punta nueva antes de usarla: `git tag pin-<sha corto> <sha>` y `git push fork pin-<sha corto>`.
+2. **En tcg-pocket:**
+   - poner el sha nuevo en los dos `Cargo.toml` y correr `cargo update -p deckgym` en `engine/` y en `engine/wasm/`;
+   - poner el sha en `DEFAULT_ENGINE_REV` (`apps/api/src/config/env.ts`): es el `engineRev` de la API, con el que se arman los trabajos y el sync del catálogo, y si queda el viejo los workers nuevos no pueden reclamar nada. También en el texto de «Acerca de» (`apps/web/src/pages/mas/AboutPage.tsx`) y en `docs/LICENCIAS.md`. Un test de `apps/api/src/config/env.spec.ts` falla si alguno no coincide con los `Cargo.toml`;
+   - poner el sha en la cabecera de `engine/games-rev.json` y `engine/wasm/games-wasm.json`, y correr los dos dorados;
+   - si un caso dorado cambia, regenerarlo (`cargo test --release regenerate_games_rev -- --ignored`) y explicar por qué en el PR.
+   - `GAMES_REV` no sube por un cambio de deckgym: el trabajo ya lo separa `engineRev`.
+3. **El diferencial:** `node scripts/engine-diff.mjs <engine-cli viejo> <engine-cli nuevo> <mazos.jsonl> <carpeta> 10 4 [semilla]`, con los mazos de una prueba contra el meta y la lista de cartas afectadas del script ajustada al cambio, también por lo que traiga upstream. No puede quedar ningún cruce «UNEXPLAINED» ni fallado. Una segunda pasada con otra semilla base juega otras partidas; con la misma semilla y más partidas, repite las primeras.
+4. **Al desplegar:** según 45.46, un trabajo que ya jugó algo se vuelve a jugar entero con el motor nuevo. Conviene esperar a que terminen los trabajos largos. Después, un sync del catálogo (`POST /api/catalog/sync` o «Sincronizar» en Más → Catálogo): hasta entonces `/healthz` y «Acerca de» muestran el `engineRev` del catálogo anterior.
+
+El aviso «deckgym tiene commits nuevos» sigue comparando contra upstream `main`: GitHub resuelve el sha de la copia dentro de la red de forks, así que `ahead_by` cuenta los commits de upstream que todavía no trajimos.
+
 ## CI (D-023)
 
 **Desde el 11/10/2026 el repo es público y la CI corre en los runners de GitHub** (`ubuntu-latest` y `windows-latest`), que en un repo público son gratis y sin tope de minutos. El repo no tiene las variables `CI_RUNNER`, `CI_RUNNER_LIGHT` ni `CI_RUNNER_WINDOWS`, y sin ellas cada job usa los de GitHub.

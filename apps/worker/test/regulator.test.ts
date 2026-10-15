@@ -133,6 +133,33 @@ describe('the CPU regulator, on the worker side (pedido de Santi del 14/10/2026)
     await hanging.stop()
   }, 20_000)
 
+  it('a regulator that never says its first line is cut after startupTimeoutMs, and started again (review of #110)', async () => {
+    vi.stubEnv('FAKE_REGULATE_SILENT', '1')
+    const log = vi.fn()
+    const silent = new CpuRegulator({
+      enginePath: FAKE_ENGINE,
+      dataDir: dir,
+      log,
+      ping: true,
+      pingEveryMs: 50,
+      pingTimeoutMs: 100,
+      startupTimeoutMs: 1_500,
+      restartAfterMs: 20,
+    })
+    try {
+      silent.start()
+      await until(() => lines().filter((line) => line.startsWith('start')).length >= 2, 15_000)
+      expect(log).toHaveBeenCalledWith(
+        'el regulador de CPU no arrancó: lo corto',
+        expect.objectContaining({ seconds: expect.any(Number) }),
+      )
+      // Never asked before it said anything.
+      expect(lines()).not.toContain('ping')
+    } finally {
+      await silent.stop()
+    }
+  }, 30_000)
+
   it('pings only once the regulator is up: a slow start is not a hung one (review of #110)', async () => {
     // The fake regulator takes a Node start, longer than this timeout of 20 ms: it must not be cut for that.
     const log = vi.fn()
@@ -184,10 +211,12 @@ describe('the CPU regulator, on the worker side (pedido de Santi del 14/10/2026)
     })
     try {
       spaced.start()
+      // Counted from the first ping, so the start of Node (0,6–1 s on Windows) is not in the window (review of #110).
+      const pings = () => lines().filter((line) => line === 'ping').length
+      await until(() => pings() >= 1, 10_000)
       await new Promise((resolve) => setTimeout(resolve, 1_300))
-      const pings = lines().filter((line) => line === 'ping').length
-      expect(pings).toBeGreaterThanOrEqual(2)
-      expect(pings).toBeLessThanOrEqual(4)
+      expect(pings() - 1).toBeGreaterThanOrEqual(2)
+      expect(pings() - 1).toBeLessThanOrEqual(4)
     } finally {
       await spaced.stop()
     }

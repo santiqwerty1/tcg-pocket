@@ -12,7 +12,8 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = join(ROOT, 'apps', 'web', 'public', 'viewer')
-const REPO = 'https://github.com/bcollazo/deckgym-core'
+// Our fork (D-031): the engine's pinned rev is one of its commits.
+const REPO = 'https://github.com/santiqwerty1/deckgym-core'
 
 function pinnedRev() {
   const flag = process.argv.indexOf('--rev')

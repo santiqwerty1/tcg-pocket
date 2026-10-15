@@ -30,6 +30,16 @@ describe('replay reader', () => {
     expect(describeStep(5)).toBe('Juega Capa Gigante')
     expect(describeStep(6)).toBe('Une Capa Gigante a Treecko (activo)')
     expect(describeStep(11)).toBe('Une 1 energía Fuego a Torchic (activo) (energía del turno)')
+    const step = replay.steps[6]
+    if (!step) throw new Error('no step 6')
+    expect(
+      reader.describe(
+        { EvolveIntoRandomFromDeck: { in_play_idx: 0, energy: 'Grass' } },
+        step.state,
+        step.actor,
+        'EvolveIntoRandomFromDeck(0, Grass)',
+      ),
+    ).toBe('Evoluciona Treecko (activo) a un Pokémon de tipo Planta al azar del mazo')
   })
 
   it('falls back to the engine name, and translates unknown actions by text', () => {

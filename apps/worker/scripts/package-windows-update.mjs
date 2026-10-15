@@ -79,7 +79,7 @@ writeFileSync(
 La baja y la instala tcg-worker.exe solo; no hace falta tocar nada. El worker y engine-cli.exe son AGPL-3.0
 (LICENSE.txt; fuentes en https://github.com/santiqwerty1/tcg-pocket, y completas, con las dependencias de Rust, en
 sources.tar.gz del paquete Android que sirve la misma app); engine-cli.exe incluye deckgym-core (AGPL-3.0,
-https://github.com/bcollazo/deckgym-core), las bibliotecas de Rust (COPYRIGHT-library.html, licenses/) y el runtime
+https://github.com/santiqwerty1/deckgym-core, copia de bcollazo/deckgym-core), las bibliotecas de Rust (COPYRIGHT-library.html, licenses/) y el runtime
 de MinGW-w64 (LICENSE-mingw-w64.txt).
 `.replace(/\n/g, '\r\n'),
 )

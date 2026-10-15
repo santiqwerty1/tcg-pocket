@@ -46,11 +46,21 @@ export function AboutPage() {
           </p>
           <p>
             El motor de simulación enlaza{' '}
+            <a
+              className="underline"
+              href="https://github.com/santiqwerty1/deckgym-core"
+              target="_blank"
+              rel="noreferrer"
+            >
+              santiqwerty1/deckgym-core
+            </a>
+            , nuestra copia de{' '}
             <a className="underline" href="https://github.com/bcollazo/deckgym-core" target="_blank" rel="noreferrer">
               bcollazo/deckgym-core
             </a>{' '}
-            (AGPL-3.0, commit <code className="font-mono">33ff2a5</code>) sin modificarlo. Va compilado en los paquetes
-            del worker y, para jugar en el navegador, en WebAssembly; sus fuentes, con la misma licencia, son las del{' '}
+            (AGPL-3.0, commit <code className="font-mono">018b419</code>) con arreglos de reglas. Va compilado en los
+            paquetes del worker y, para jugar en el navegador, en WebAssembly; sus fuentes, con la misma licencia, son
+            las del{' '}
             <a className="underline" href="https://github.com/santiqwerty1/tcg-pocket" target="_blank" rel="noreferrer">
               repositorio
             </a>

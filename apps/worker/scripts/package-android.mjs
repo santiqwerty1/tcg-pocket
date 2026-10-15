@@ -100,7 +100,8 @@ ARM: rustup target add aarch64-unknown-linux-musl; instalar Zig 0.13.0 y cargo-z
 cargo zigbuild --offline --locked --release --target aarch64-unknown-linux-musl.
 Node >=24, pnpm 12.9.1: pnpm install --frozen-lockfile --filter @tcg/worker (requiere internet).
 pnpm -F @tcg/worker package:android --engine <binario ARM> --reference-engine <binario nativo>.
-Las dependencias Rust y sus licencias están en engine/vendor. No se modificó deckgym-core.
+Las dependencias Rust y sus licencias están en engine/vendor. deckgym-core es nuestra copia modificada
+(https://github.com/santiqwerty1/deckgym-core, con arreglos de reglas), en engine/vendor como el resto.
 Los scripts originales de empaquetado están en apps/worker/scripts.
 `,
 )

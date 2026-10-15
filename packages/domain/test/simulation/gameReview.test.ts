@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { gameReview, isReviewReplay, type ReviewReplay, type ReviewState } from '../../src/simulation/gameReview.js'
+import {
+  gameReview,
+  isReviewReplay,
+  ReplayNarrator,
+  type ReviewReplay,
+  type ReviewState,
+} from '../../src/simulation/gameReview.js'
 
 const TORCHIC = { Pokemon: { id: 'B1 033', name: 'Torchic' } }
 const CATERPIE = { Pokemon: { id: 'B3b 001', name: 'Caterpie' } }
@@ -129,5 +135,13 @@ describe('Claude analiza una partida (Fase 29)', () => {
     expect(full.turns[0]?.actions[1]?.ply).toBe(2)
     const early = gameReview(REPLAY, { names: NAMES, toTurn: 1 })
     expect(early.keyMoments).toEqual([])
+  })
+
+  it('tells the Quick-Grow Extract choice of our copy of deckgym (D-031)', () => {
+    const narrator = new ReplayNarrator(REPLAY, NAMES)
+    const action = { EvolveIntoRandomFromDeck: { in_play_idx: 0, energy: 'Fire' } }
+    expect(narrator.describe(action, state(2, 0, ['B1 033', 'B3b 001']), 0, 'EvolveIntoRandomFromDeck(0, Fire)')).toBe(
+      'Evoluciona Torchic (activo) a un Pokémon de tipo Fuego al azar del mazo',
+    )
   })
 })
