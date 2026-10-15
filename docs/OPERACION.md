@@ -116,6 +116,7 @@ Para actualizarla, por ejemplo cuando upstream integra uno de nuestros arreglos:
 1. **En la copia:** traer upstream `main`, rebasar cada rama `fix/…` encima (sacar las que upstream ya integró) y rearmar `tcg-pocket` uniéndolas. Correr `cargo test --release` de deckgym y subir las ramas. Etiquetar la punta nueva antes de usarla: `git tag pin-<sha corto> <sha>` y `git push fork pin-<sha corto>`.
 2. **En tcg-pocket:**
    - poner el sha nuevo en los dos `Cargo.toml` y correr `cargo update -p deckgym` en `engine/` y en `engine/wasm/`;
+   - poner el sha en `DEFAULT_ENGINE_REV` (`apps/api/src/config/env.ts`): es el `engineRev` de la API, con el que se arman los trabajos y el sync del catálogo, y si queda el viejo los workers nuevos no pueden reclamar nada. También en el texto de «Acerca de» (`apps/web/src/pages/mas/AboutPage.tsx`) y en `docs/LICENCIAS.md`. Un test de `apps/api/src/config/env.spec.ts` falla si alguno no coincide con los `Cargo.toml`;
    - poner el sha en la cabecera de `engine/games-rev.json` y `engine/wasm/games-wasm.json`, y correr los dos dorados;
    - si un caso dorado cambia, regenerarlo (`cargo test --release regenerate_games_rev -- --ignored`) y explicar por qué en el PR.
    - `GAMES_REV` no sube por un cambio de deckgym: el trabajo ya lo separa `engineRev`.
