@@ -4,10 +4,13 @@ import {
   evolutionLine,
   fillRound,
   groupsOfCards,
+  labCardNameEs,
   mutationPool,
   type PoolCard,
   poolForZone,
   seededRandom,
+  sharedNames,
+  strandsPreEvolution,
   usableWith,
   variantOf,
   zoneNoteEs,
@@ -16,6 +19,7 @@ import { deckDraft } from '../helpers/loadDecks.js'
 import { catalogIndex } from '../helpers/loadFixtures.js'
 
 const index = catalogIndex()
+const group = (cardId: string) => index.cardById(cardId)?.functionalGroupId ?? cardId
 const card = (id: string) => {
   const found = index.cardById(id)
   if (!found) throw new Error(`no ${id}`)
@@ -187,5 +191,79 @@ describe('evolution lines in the pool («probar estas cartas» with Onix)', () =
     // With only the one that comes along, it is that one.
     const only = variantOf(deck.cards, metal, pool.slice(0, 2), index, seededRandom(5))
     expect(only?.add.map((change) => change.cardId).sort()).toEqual(['A1-150', 'B1a-52'])
+  })
+
+  describe('review of #107', () => {
+    // Deck 2 (Fire) with Sinistea and Polteageist in place of two trainers: Sinistea only comes along in Fire.
+    const base = deckDraft(2)
+    const trainers = base.cards.filter((entry) => index.cardById(entry.cardId)?.cardType === 'trainer')
+    const [t1, t2] = trainers
+    if (!t1 || !t2) throw new Error('deck shape')
+    const withLine = [
+      ...base.cards.filter((entry) => entry !== t1 && entry !== t2),
+      ...(t1.count > 1 ? [{ cardId: t1.cardId, count: t1.count - 1 }] : []),
+      ...(t2.count > 1 ? [{ cardId: t2.cardId, count: t2.count - 1 }] : []),
+      { cardId: 'B2-74', count: 1 },
+      { cardId: 'B2-75', count: 1 },
+    ]
+    const pool = poolForZone(mutationPool({ index, energies: fire, edition, maxCopies: () => 2 }), fire, index)
+
+    it('Sinistea is a pre-evolution in Fire; a variant never takes Polteageist out and leaves Sinistea alone', () => {
+      expect(pool.find((item) => item.groupId === 'B2-74')?.weight).toBe(0)
+      const alone = withLine.filter((entry) => entry.cardId !== 'B2-75')
+      expect(strandsPreEvolution(withLine, alone, pool, index)).toBe(true)
+      // A list that already had it alone is left as it was; one without Sinistea is never stranded.
+      expect(strandsPreEvolution(alone, alone, pool, index)).toBe(false)
+      expect(strandsPreEvolution(base.cards, base.cards, pool, index)).toBe(false)
+      const random = seededRandom(107)
+      let kept = 0
+      for (let k = 0; k < 600; k++) {
+        const variant = variantOf(withLine, fire, pool, index, random)
+        if (!variant) continue
+        const names = new Set(variant.cards.map((entry) => index.cardById(entry.cardId)?.nameEn))
+        expect(names.has('Sinistea') && !names.has('Polteageist')).toBe(false)
+        kept += 1
+      }
+      expect(kept).toBeGreaterThan(400)
+    })
+
+    it('the fill round never leaves it alone either', () => {
+      const round = fillRound(withLine, ['B2-75', group(t1.cardId === 'B2-75' ? t2.cardId : t1.cardId)], pool, index, {
+        maxCopies: () => 2,
+        valid: () => true,
+      })
+      expect(round?.out).toContain('B2-75')
+      expect(round?.variants.length).toBeGreaterThan(3)
+      for (const variant of round?.variants ?? []) {
+        const names = new Set(variant.cards.map((entry) => index.cardById(entry.cardId)?.nameEn))
+        expect(names.has('Sinistea') && !names.has('Polteageist')).toBe(false)
+      }
+    })
+
+    it('self-review of the follow-up: with what is shown, only names two of its cards share carry the code', () => {
+      const shared = sharedNames(['A1-150', 'B3-211', 'B1a-52', 'B1-44'], index)
+      expect([...shared]).toEqual(['Onix'])
+      expect(labCardNameEs('A1-150', index, shared)).toBe('Onix (A1-150)')
+      expect(labCardNameEs('B3-211', index, shared)).toBe('Onix (B1a-38)')
+      // Heatmor has another card of its name in the catalog, but not here: no code.
+      expect(labCardNameEs('B1-44', index, shared)).toBe(index.cardById('B1-44')?.nameEs)
+      // Two editions of one functional card are one card.
+      expect(sharedNames(['B1a-38', 'B3-211'], index).size).toBe(0)
+    })
+
+    it('a card is named with its code only when another card shares its name', () => {
+      expect(labCardNameEs('A1-150', index)).toBe('Onix (A1-150)')
+      // A reprint carries its functional card's code (the one the plan shows).
+      expect(labCardNameEs('B3-211', index)).toBe('Onix (B1a-38)')
+      expect(labCardNameEs('B1a-52', index)).toBe('Mega-Steelix ex')
+    })
+
+    it('the note names only evolutions that can come in', () => {
+      const noMega = (step: CardEdition) => step.functionalGroupId !== 'B1a-52'
+      expect(zoneNoteEs(landCrushOnix, metal, index, noMega)).toBe(
+        'no puede atacar con las energías de la lista, pero evoluciona en Steelix',
+      )
+      expect(zoneNoteEs(landCrushOnix, metal, index, () => false)).toBe('no puede atacar con las energías de la lista')
+    })
   })
 })

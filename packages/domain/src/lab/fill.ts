@@ -12,7 +12,7 @@ import type { CardId } from '../catalog/types.js'
 import type { DeckCardEntry } from '../decks/types.js'
 import { normalCdf } from '../stats/tests.js'
 import { listKeyByGroup } from '../tournaments/dataset.js'
-import { cardChanges, type PoolCard, replaceSlot, slotGroups, type Variant } from './mutate.js'
+import { cardChanges, type PoolCard, replaceSlot, slotGroups, strandsPreEvolution, type Variant } from './mutate.js'
 import { groupsOfCards } from './novelty.js'
 import { differenceVerdict } from './paired.js'
 import { type MetaScore, type ScoreDifference, scoreBeats } from './score.js'
@@ -129,7 +129,7 @@ export function fillRound(
         const limit = Math.max(had.get(groupId) ?? 0, Math.min(2, options.maxCopies(groupId)))
         if ((counted.get(groupId) ?? 0) > limit) return
       }
-      if (!options.valid(cards)) return
+      if (!options.valid(cards) || strandsPreEvolution(deck, cards, pool, index)) return
       keys.add(key)
       const sorted = cards.filter((entry) => entry.count > 0)
       variants.push({ cards: sorted, key, ...cardChanges(deck, sorted, index) })

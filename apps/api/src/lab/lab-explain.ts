@@ -3,7 +3,7 @@
  * proposed, the copies the collection lacks, and what the archetype plays that the search could not try. Pure
  * functions over what the search froze when it started (H-021), so they can be tested without a database.
  */
-import type { CardId, CatalogIndex, DeckCardEntry, VariantChange } from '@tcg/domain'
+import { type CardId, type CatalogIndex, type DeckCardEntry, labCardNameEs, type VariantChange } from '@tcg/domain'
 import type { LabDeckView, LabExploreView } from './lab-views.js'
 
 /** H-021: the pool (card, copies, weight, in draw order) and the archetype usage (group, share) a search started with. */
@@ -26,6 +26,7 @@ export function whyCards(
   index: CatalogIndex,
   playable: (groupId: CardId) => number,
   asked: ReadonlySet<CardId> = new Set(),
+  shared: ReadonlySet<string> = new Set(),
 ): LabDeckView['why'] {
   const affinity = new Map(frozen?.affinity ?? [])
   const weights = new Map((frozen?.pool ?? []).map(([cardId, , weight]) => [cardId, weight]))
@@ -45,7 +46,7 @@ export function whyCards(
     )
     return {
       cardId: change.cardId,
-      nameEs: card?.nameEs ?? change.cardId,
+      nameEs: card ? labCardNameEs(change.cardId, index, shared) : change.cardId,
       eraShare: eraShare === null ? null : Math.round(eraShare * 10) / 10,
       archetypeShare,
       asked: asked.has(groupId),
