@@ -251,6 +251,14 @@ El rival se guarda limpio (espacios colapsados); si no tiene letras ni números 
 
 Fase 25: `GET /api/matches/stats` suma `turnOrder: { first, second, unknown, coverage, firstShare, secondShare, gap, z, p (Fase 37: prueba exacta de Fisher, la que decide), verdict: 'few'|'clear'|'maybe', text }` y cada fila de `GET /api/decks/:id/matchups` suma `turn: { first, second } | null`.
 
+Cartas vistas del rival (pedido de Santi del 14/10): `MatchInput` y el `PATCH` aceptan `opponentCards: [{ cardId, count }]` (cualquier edición de cada nombre, `count` 1 o 2, hasta 20; una por nombre, las copias se suman hasta 2; `400` con una carta desconocida) y `Match` trae `opponentCards: [{ cardId, count, nameEs }]` (`[]` en las partidas de antes).
+
+| Método y ruta | Cuerpo / respuesta |
+|---|---|
+| `GET /api/matches/rival-suggestions?cards=A1-89x2,B1-121` | `{ era, lists, suggestions: [{ archetypeId, name, share, lists, fits, best, seen, kind: 'fits'\|'similar', text }] }`: los arquetipos de la era vigente cuyas listas tienen esas cartas (`fits`: qué parte de sus listas las tiene todas) y, si ninguno, los más parecidos (`best`: cuántas tiene su lista más cercana) |
+| `GET /api/matches/unclassified` | `{ era, groups: [{ matches: Match[], cards, text, suggestions }], own: [{ key, label, games }] }`: las partidas sin rival y con cartas vistas (hasta 500), agrupadas por cartas parecidas (Jaccard ≥ 0,5), y los rivales anotados que no son arquetipos de la era |
+| `POST /api/matches/classify` | `{ matchIds?, from?, opponent }` → `{ updated, opponent }`: el rival para esas partidas, o para todas las de un rival anotado antes (`from`, por su clave). `404` si alguna partida no existe |
+
 Fase 44: `GET /api/matches/stats` suma `coinAdjusted: { value, ci95, first, second, firstShare, secondShare, games, unknown, orientative, plain, text } | null` (½ empezando + ½ yendo segundo, Agresti–Caffo; `orientative` si 4 / (1/n₁ + 1/n₂) < 30 o un lado tiene menos de 15) y lo mismo en cada fila de `byDeck`.
 
 Fase 37 (H-011): los `WinRate` de torneo de arquetipos, listas, «qué puedo armar» y el meta semanal traen `designEffect` y su `ci95` cuenta las listas, no las partidas sueltas; `Expected` (esperado contra el meta) suma `ci95` y tira hacia la media de la era; las filas de matchups suman `perGame: { wins, losses } | null` y la vista del arquetipo `fieldPerGame`.
