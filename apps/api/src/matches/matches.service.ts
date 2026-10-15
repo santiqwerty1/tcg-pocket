@@ -6,6 +6,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import {
   botLabel,
+  type CatalogIndex,
   cleanOpponent,
   coinAdjustedRate,
   DEFAULT_MATCH_MODE,
@@ -14,6 +15,7 @@ import {
   filterMatches,
   formatPercentEs,
   type GameRecord,
+  groupSeenMatches,
   holmVerdicts,
   type LuckCheck,
   losingStreak,
@@ -25,16 +27,21 @@ import {
   type MyMeta,
   matchStats,
   myMeta,
+  normalizeSeenCards,
   oneIn,
   opponentKey,
   opponentTurns,
   orderDecksForPicker,
   revisionAt,
+  type SeenCard,
+  seenCardsTextEs,
   simulationRate,
+  suggestArchetypesForCards,
   suggestOpponents,
   tallyMatches,
   turnOrderImpact,
 } from '@tcg/domain'
+import { CatalogService } from '../catalog/catalog.service.js'
 import type { Prisma } from '../generated/prisma/client.js'
 import type { MatchSource } from '../generated/prisma/enums.js'
 import { idToString, parseNumericId } from '../http/ids.js'
@@ -53,7 +60,9 @@ import type {
   MatchView,
   MyMetaSummary,
   MyMetaView,
+  RivalSuggestionsView,
   RowView,
+  UnclassifiedView,
 } from './match-views.js'
 
 /** Fase 44: what «mi meta» is asked for — the era (the current one by default), one mode, the last days, the half-life. */
@@ -130,6 +139,8 @@ export interface MatchInput {
   clientRef?: string | undefined
   /** Fase 28: how long ago it was played (measured on the phone, so its clock does not matter); `playedAt` wins. */
   playedAgoMs?: number | undefined
+  /** 14/10: the rival's cards seen («2 Greninja»), any edition of each name. */
+  opponentCards?: SeenCard[] | undefined
 }
 
 export type MatchPatch = Partial<MatchInput>
@@ -171,13 +182,29 @@ function deckRef(deck: { id: number; name: string; archivedAt: Date | null }): M
   return { id: idToString(deck.id), name: deck.name, archived: deck.archivedAt !== null }
 }
 
-function toView(record: MatchRecord): MatchView {
+/** The cards seen as stored (`[]` for a match logged before 14/10, or with nothing noted). */
+function storedCards(value: Prisma.JsonValue): SeenCard[] {
+  return Array.isArray(value)
+    ? value.flatMap((item) => {
+        const card = item as { cardId?: unknown; count?: unknown } | null
+        return typeof card?.cardId === 'string' && typeof card.count === 'number'
+          ? [{ cardId: card.cardId, count: card.count }]
+          : []
+      })
+    : []
+}
+
+function toView(record: MatchRecord, index?: CatalogIndex): MatchView {
   return {
     id: idToString(record.id),
     deck: deckRef(record.deck),
     deckRevision: record.deckRevision.number,
     result: record.result,
     opponent: record.opponentText,
+    opponentCards: storedCards(record.opponentCards).map((card) => ({
+      ...card,
+      nameEs: index?.cardById(card.cardId)?.nameEs ?? card.cardId,
+    })),
     wentFirst: record.wentFirst,
     mode: record.mode,
     note: record.note,
@@ -224,7 +251,21 @@ export class MatchesService {
     private readonly prisma: PrismaService,
     private readonly tournaments: TournamentsService,
     private readonly simulations: SimulationsService,
+    private readonly catalog: CatalogService,
   ) {}
+
+  private view(record: MatchRecord): MatchView {
+    return toView(record, this.catalog.loaded ? this.catalog.requireIndex() : undefined)
+  }
+
+  /** The cards seen as they are stored: one line per name, at most two copies; an unknown card is a 400. */
+  private seenCards(cards: readonly SeenCard[]): Prisma.InputJsonValue {
+    try {
+      return normalizeSeenCards(cards, this.catalog.requireIndex()) as unknown as Prisma.InputJsonValue
+    } catch (error) {
+      throw new BadRequestException({ code: 'validation', message: (error as Error).message })
+    }
+  }
 
   // ---------------------------------------------------------------------------------------------------------------
   // Reads
@@ -247,7 +288,7 @@ export class MatchesService {
         this.prisma.match.findMany({ where, include: matchInclude, orderBy, skip: query.offset, take: query.limit }),
         this.prisma.match.count({ where }),
       ])
-      return { items: records.map(toView), total }
+      return { items: records.map((record) => this.view(record)), total }
     }
     // The opponent groups by a normalized key the database does not know: filter in memory (a few thousand rows).
     const exact = query.opponentMatch === 'exact'
@@ -256,13 +297,13 @@ export class MatchesService {
       return exact ? recordKey === key : (recordKey?.includes(key) ?? false)
     })
     return {
-      items: records.slice(query.offset, query.offset + query.limit).map(toView),
+      items: records.slice(query.offset, query.offset + query.limit).map((record) => this.view(record)),
       total: records.length,
     }
   }
 
   async get(rawId: string): Promise<MatchView> {
-    return toView(await this.requireMatch(rawId))
+    return this.view(await this.requireMatch(rawId))
   }
 
   /** Defaults and suggestions of the quick-entry sheet. */
@@ -631,7 +672,7 @@ export class MatchesService {
   async create(input: MatchInput, source: MatchSource = 'ui'): Promise<MatchView> {
     if (input.clientRef) {
       const sent = await this.prisma.match.findUnique({ where: { clientRef: input.clientRef }, include: matchInclude })
-      if (sent) return toView(sent)
+      if (sent) return this.view(sent)
     }
     const deck = await this.requireDeckWithRevisions(input.deckId)
     const explicit =
@@ -656,10 +697,11 @@ export class MatchesService {
         playedAt,
         source,
         clientRef: input.clientRef ?? null,
+        opponentCards: this.seenCards(input.opponentCards ?? []),
       },
       include: matchInclude,
     })
-    return toView(created)
+    return this.view(created)
   }
 
   async patch(rawId: string, patch: MatchPatch): Promise<MatchView> {
@@ -680,9 +722,91 @@ export class MatchesService {
     if (patch.wentFirst !== undefined) data.wentFirst = patch.wentFirst
     if (patch.mode !== undefined) data.mode = patch.mode
     if (patch.note !== undefined) data.note = patch.note.trim()
-    if (Object.keys(data).length === 0) return toView(current)
+    if (patch.opponentCards !== undefined) data.opponentCards = this.seenCards(patch.opponentCards)
+    if (Object.keys(data).length === 0) return this.view(current)
     const updated = await this.prisma.match.update({ where: { id: current.id }, data, include: matchInclude })
-    return toView(updated)
+    return this.view(updated)
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------
+  // Rivals by the cards seen (14/10)
+  // ---------------------------------------------------------------------------------------------------------------
+
+  /** The current era's archetypes that play the cards seen: those with every card first, then «parecido a X». */
+  async rivalSuggestions(cards: readonly SeenCard[]): Promise<RivalSuggestionsView> {
+    const { scope, dataset } = await this.tournaments.scopedDataset({})
+    const seen = cards.length > 0 ? (this.seenCards(cards) as unknown as SeenCard[]) : []
+    return {
+      era: scope.era,
+      lists: dataset.entries.length,
+      suggestions: suggestArchetypesForCards(seen, dataset.entries, dataset.archetypes, scope.index),
+    }
+  }
+
+  /**
+   * The matches to classify: those without a rival and with cards seen, grouped by similar cards (newest first), each
+   * group with the archetypes its cards suggest. Also the rivals typed that are no archetype of the era (`own`, from
+   * «mi meta»): they can be moved to one, or renamed.
+   */
+  async unclassified(): Promise<UnclassifiedView> {
+    const { scope, dataset } = await this.tournaments.scopedDataset({})
+    const index = scope.index
+    const rows = await this.prisma.match.findMany({
+      where: { opponentText: null, NOT: { opponentCards: { equals: [] } } },
+      orderBy: { playedAt: 'desc' },
+      take: 500,
+      include: matchInclude,
+    })
+    const byId = new Map(rows.map((row) => [idToString(row.id), row]))
+    const groups = groupSeenMatches(
+      rows.map((row) => ({ id: idToString(row.id), playedAt: row.playedAt, cards: storedCards(row.opponentCards) })),
+      index,
+    )
+    const own = (await this.myMeta({}).catch(() => null))?.unmatched ?? []
+    return {
+      era: scope.era,
+      groups: groups.map((group) => ({
+        matches: group.matchIds.flatMap((id) => {
+          const row = byId.get(id)
+          return row ? [this.view(row)] : []
+        }),
+        cards: group.cards.map((card) => ({ ...card, nameEs: index.cardById(card.cardId)?.nameEs ?? card.cardId })),
+        text: seenCardsTextEs(group.cards, index),
+        suggestions: suggestArchetypesForCards(group.cards, dataset.entries, dataset.archetypes, index),
+      })),
+      own: own.map((rival) => ({ key: rival.key, label: rival.label, games: rival.games })),
+    }
+  }
+
+  /**
+   * Gives the matches one rival: an archetype's name or one of the owner's own («Greninja Suicune»). By ids, or every
+   * match of a rival typed before (`from`, by its key: reclassifying). Returns how many changed.
+   */
+  async classify(input: { matchIds?: string[] | undefined; from?: string | undefined; opponent: string }) {
+    const opponent = storedOpponent(input.opponent)
+    if (opponent === null) throw new BadRequestException({ code: 'validation', message: 'Falta el rival.' })
+    const ids = [...new Set((input.matchIds ?? []).map((id) => parseNumericId(id, 'Partida')))]
+    const fromKey = input.from === undefined ? null : opponentKey(input.from)
+    if (ids.length === 0 && fromKey === null) {
+      throw new BadRequestException({ code: 'validation', message: 'Mandá las partidas o el rival a reclasificar.' })
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const targets = new Set(ids)
+      if (fromKey !== null) {
+        const typed = await tx.match.findMany({
+          where: { opponentText: { not: null } },
+          select: { id: true, opponentText: true },
+        })
+        for (const row of typed) if (opponentKey(row.opponentText) === fromKey) targets.add(row.id)
+      }
+      const found = await tx.match.count({ where: { id: { in: [...ids] } } })
+      if (found !== ids.length) throw new NotFoundException('Alguna de esas partidas ya no existe.')
+      const { count } = await tx.match.updateMany({
+        where: { id: { in: [...targets] } },
+        data: { opponentText: opponent },
+      })
+      return { updated: count, opponent }
+    })
   }
 
   async delete(rawId: string): Promise<void> {
