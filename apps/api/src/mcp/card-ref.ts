@@ -25,3 +25,26 @@ export function resolveCardRef(index: CatalogIndex, query: string, preferred: re
   }
   return (pool[0] as (typeof pool)[number]).card.id
 }
+
+/**
+ * A rival's card seen, by code or by name (14/10): any card of the name counts as the same one, so a name that several
+ * functional cards share is no ambiguity here (the first exact match is taken).
+ */
+export function resolveSeenCard(index: CatalogIndex, query: string): string {
+  const code = query.trim().replace(/\s+/g, '-').toUpperCase()
+  const byId = index.cardById(code) ?? index.cardById(query.trim())
+  if (byId) return byId.id
+  const key = foldText(query)
+  const hits = index.search(query, { lang: 'any', limit: 10 })
+  const named = hits.find(({ card }) => foldText(card.nameEs) === key || foldText(card.nameEn) === key)
+  const found = named ?? hits[0]
+  if (!found) throw new NotFoundException(`No encontré la carta «${query}».`)
+  return found.card.id
+}
+
+/** «2 Greninja», «2x Greninja», «Suicune ex», «A1-89»: one card seen and its copies (1 when not said). */
+export function seenCardFromText(index: CatalogIndex, text: string): { cardId: string; count: number } {
+  const match = /^\s*([12])\s*[x×]?\s+(.+)$/u.exec(text)
+  const query = (match?.[2] ?? text).trim()
+  return { cardId: resolveSeenCard(index, query), count: match ? Number(match[1]) : 1 }
+}

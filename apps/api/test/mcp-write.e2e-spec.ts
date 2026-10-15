@@ -152,11 +152,19 @@ describe('MCP write tools (e2e)', () => {
     const read = await call(client, 'rivals_notes', { opponent: 'Mega Blaziken' })
     expect((read.structuredContent.note as Structured).text).toContain('Y el segundo.')
 
-    const fixed = await call(client, 'matches_update', { id: match.id, result: 'loss', wentFirst: false })
+    const fixed = await call(client, 'matches_update', {
+      id: match.id,
+      result: 'loss',
+      wentFirst: false,
+      // 14/10: the rival's cards seen, as Santi says them («2 Greninja»; any card of the name counts).
+      opponentCards: ['2 Greninja', 'A1-89', 'Suicune ex'],
+    })
+    expect(fixed.isError, fixed.content[0]?.text).toBeFalsy()
     expect(fixed.structuredContent).toMatchObject({
       before: { result: 'Victoria' },
-      match: { result: 'Derrota', wentFirst: 'empezó el rival' },
+      match: { result: 'Derrota', wentFirst: 'empezó el rival', opponentCards: ['2 Greninja', 'Suicune ex'] },
     })
+    expect((await call(client, 'matches_update', { id: match.id, opponentCards: ['Nadaquever'] })).isError).toBe(true)
     const deleted = await call(client, 'matches_delete', { id: match.id })
     expect(deleted.structuredContent).toMatchObject({ deleted: true, match: { id: match.id } })
     expect((await get(`/api/matches/${match.id}`)).status).toBe(404)
@@ -166,6 +174,10 @@ describe('MCP write tools (e2e)', () => {
     expect(restored.isError, restored.content[0]?.text).toBeFalsy()
     expect(restored.structuredContent).toMatchObject({ restored: true, match: { id: match.id, result: 'Derrota' } })
     expect((await get(`/api/matches/${match.id}`)).body).toMatchObject({ id: match.id, source: 'mcp' })
+    // The cards seen come back with it.
+    expect(
+      ((await get(`/api/matches/${match.id}`)).body.opponentCards as { count: number }[]).map((card) => card.count),
+    ).toEqual([2, 1])
     expect((await call(client, 'matches_restore', { id: match.id })).isError).toBe(true)
     // Deleted again, and undone from the app this time (Más → Tokens de API).
     expect((await call(client, 'matches_delete', { id: match.id })).isError).toBeFalsy()
