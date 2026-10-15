@@ -5,10 +5,14 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-13 desde la etiqueta `v1.0.0` (91 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-15 desde la etiqueta `v1.0.0` (118 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- the CPU regulator — the engines use the whole machine and give whole cores back when another program needs them (#105) `e4d2547`
+- resume a pairing from game N — engine-cli 0.3.8 `resume`, worker 0.3.7 (B of H-054) `39f8a12`
+- the API loads a catalog sync applied by another process within a minute; until then an alert says it (T-014) (#95) `3b7387d`
+- engine-cli says how it ended, and the worker keeps it with a lost result (H-054) `78ffe8e`
 - a privacy job on every PR — noreply commits, and no mails, Windows users, tokens, Supabase refs, Postgres passwords, other services' tokens, JWT or private keys in the diff or the commit messages, with exceptions that name their rule and say why (D-022) `6e9fd2d`
 - pnpm decisiones numbers the pending decisions into DECISIONES.md, with --check and node:test tests in the CI (D-021) `4608506`
 - rooms in the session chat — «tcg» by default, «posta» new (D-021) `3ff3609`
@@ -31,7 +35,23 @@ _Borrador generado al 2026-10-13 desde la etiqueta `v1.0.0` (91 commits). Escrib
 
 ### Corregido
 
+- self-review of the perGame turn limit — N in 32 turns refused, the comments and the e2e case that tested the sum `ec4b10c`
+- a game decided by a knockout from the end of turn 30 is won in 31 turns (perGame check, job 42) (#13) `3635375`
+- a swap brings the pre-evolution drawn on its own first; seed-dependent e2e adjusted (T-017 E3) `dbebdc5`
+- self-review — a card that fits only through its line comes along as a pre-evolution (weight 0), never alone (T-017 E3) `9164942`
+- a card to try the list already has once brings a second copy; same-name cards carry their code (T-017 E3) `85b3fc8`
+- «probar estas cartas» tries any card the engine plays, and says when it cannot attack (T-017 E3) `e01c7f4`
+- self-review of the resume follow-up — a signal says itself, a resumed chunk says how often, a stopped checkpoint says so (H-054) `f695b09`
+- resume an engine killed from outside, stop the checkpoint at the first failed write (H-054) (#104) `93d2b54`
+- self-review of resume — the header tested field by field, only the missing games played, a vanished folder goes back as lost (H-054) (#100) `4672e31`
+- review of #100 — no path of result.json in a chunk's error, an error's JSON without a panic, a capped partial line (H-054) `9dccbcf`
+- quote the engine-linux step that ends in «exit::», which YAML read as a key (H-054) (#100) `1ffb236`
+- self-review of the catalog in memory — «Sincronizar» repeats the database's commit, a load failing after the commit is not the sync's failure (T-014) `87464e8`
+- self-review of the diagnosis — whole stderr lines, frozen told apart from asleep, Unix tested in CI (H-054) `62c7e31`
+- review of #97 — the preview says which candidates play the same as another, «Repetir» an old optimize explains why it plays more, the API docs list the preview's fields and the refusals, and a JSDoc back on its function (H-050) `a92650b`
+- self-review of H-050 — one edition per functional card and a cap on what the engine builds before dropping repeats, the same removal for the preview, the job and its confirmation, the real reason of a refusal in the preview, «+ 2 Erika» (H-050) `bb1e121`
 - self-review of the catalog heartbeat — one sync across processes, a named cron, the migration after #86's (T-014) `1e77e1d`
+- «optimizar» also tries two copies of a candidate — each goes to the engine as many times as copies of its name still fit, and the combinations are counted as the engine plays them, never past two of a name (H-050) `3d61544`
 - a catalog sync without signs of life for 5 minutes closes as interrupted, without a restart (T-014) (#75) `751e011`
 - verification of #92 — one git call per commit, so a NUL inside a file hides nothing after it; the words of an example value only whole; entropy threshold 3 so random hex keys are caught; sessionSecret; a force-push to main says so and checks what its last commit brought (D-022) `6d7ec7c`
 - review of #92 — every commit of the PR checked on its own (and what a merge inside it resolves), the names of the files it adds and the PR's title and body too, the job also on each push to main, and more forms: a path without its drive or escaped twice, a mail with %40, ASIA and Anthropic keys, the session cookie, an environment secret with a real value, a Supabase ref given alone (D-022) `af8cee9`
@@ -88,6 +108,10 @@ _Borrador generado al 2026-10-13 desde la etiqueta `v1.0.0` (91 commits). Escrib
 
 ### Documentado
 
+- the perGame turn limit decision, with the open question of the real game `5645e18`
+- «dos lugares por worker» closed with the 14/10 timing and the short jobs' wait — phase 42 complete, T-014 done (D-024) `61ec0a7`
+- e4 (#31) in the calibration report — paired against e2 and e3 on the same tournaments, its speed, and the recommendation unchanged (D-029) `6b44222`
+- fold the day's pending decisions (57.1-57.5, 41.20, 43.9-43.10, 46.26-46.27, 53.14-53.24, 56.11-56.13); #92, #94 and #95 in the vault (D-021) `f041abc`
 - day of 13/10 — D-027 and D-028 approved, D-030 chat hub, logbook, Avance (D-021) `41d41e1`
 - decision 46.23 — the bridge's refs carry the PC (review of #88) (D-021) `f0293c7`
 - self-review checklist, decisions without conflicts, review by risk and rotating sessions (D-021) `2c9c273`
@@ -106,6 +130,9 @@ _Borrador generado al 2026-10-13 desde la etiqueta `v1.0.0` (91 commits). Escrib
 
 ### Pruebas
 
+- the fill round's guard against pre-evolutions alone, with a pool where it matters; decisions updated (T-017 E3) `11aaf3a`
+- review of #103 — a commit asked by name is compared with the database's, not the memory's; one catalog load at a time (T-014) `3466a91`
+- a closed catalog sync is not renewed by its own heartbeat, and the stale-close test runs alone (T-014) (#95) `a4fcbf7`
 - the e2e expectations of the domain's texts with their no-break spaces — a drill's explanation and the analysis' «IC 95 %» (review of #94) `48cd6d1`
 - the browser's own golden games, the move played is the one shown, and the build in the manifest (review of #86, T-015) `1cbc737`
 - the CLI context test covers every guard — no SchedulerRegistry, no watcher timers, no set seeding (review of #75) `71d2af9`
@@ -115,9 +142,4 @@ _Borrador generado al 2026-10-13 desde la etiqueta `v1.0.0` (91 commits). Escrib
 - bump the development group with 2 updates (#61) `7f62616`
 - bump the production group with 3 updates (#60) `a7f8afc`
 - bump actions/setup-node from 4 to 7 (#59) `db16eeb`
-
-### Decidido
-
-- 2026-10-13 — D-028 aprobada por Santiago: Aprobada por Santiago el 13/10/2026 (respuesta al Coordinador), después de probar la sincronización a mano desde Colección. La automática ya estaba prendida desde el 12/10 21:28 (trackerAutoSync).
-- 2026-10-13 — D-027 aprobada por Santiago: Aprobada por Santiago el 13/10/2026 (respuesta al Coordinador): el criterio del análisis exploratorio queda como está.
 <!-- /posta:cambios -->

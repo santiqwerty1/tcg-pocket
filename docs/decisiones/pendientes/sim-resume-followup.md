@@ -1,5 +1,0 @@
----
-seccion: Fase 42: el worker se actualiza solo (D-026, 11/10/2026)
----
-| **El worker retoma también un motor terminado por un SIGKILL o un SIGTERM que él no mandó** (0.3.8, `endedFromOutside`), como los que manda Android cuando le falta memoria o con su «phantom process killer». No se retoma un cuelgue del propio motor (SIGSEGV, SIGABRT) ni, en Windows, un proceso terminado desde afuera, que sale con un código como cualquier otro. Después de los 5 intentos, el chunk termina como la última corrida: un resultado perdido vuelve sin gastar intento y una señal es una falla, como antes. | En Android, quien más corta procesos es el sistema, con SIGKILL. Un cuelgue propio se repetiría en la misma partida, y en Windows un código 1 no dice si vino de afuera (revisión de #104). |
-| **El avance deja de escribirse ante el primer error de escritura** (engine-cli 0.3.9, `Checkpoint::record`). | Si el disco se llena y después se libera, la línea siguiente queda pegada a la cortada y se lee como otra partida, equivocada. La línea cortada ya se descarta al abrir el avance (revisión de #104). |

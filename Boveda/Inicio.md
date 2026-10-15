@@ -27,18 +27,18 @@ Mapa de documentos y código: [Dónde vive cada cosa](Sistema/Mapa.md) · operac
 ![[Trabajo.base#Para revisar]]
 
 <!-- posta:recuentos -->
-_Recuentos al 2026-10-13 (generados; no editar a mano)._
+_Recuentos al 2026-10-15 (generados; no editar a mano)._
 
 | Tipo | Total | Por estado |
 | --- | --- | --- |
-| decision | 30 | vigente 30 |
-| hallazgo | 26 | abierto 4 · resuelto 22 |
+| decision | 31 | vigente 31 |
+| hallazgo | 29 | abierto 5 · resuelto 24 |
 | pregunta | 13 | cerrada 8 · respondida 5 |
 | riesgo | 13 | abierto 10 · resuelto 3 |
 | supuesto | 3 | refutado 1 · verificado 2 |
-| tarea | 20 | en_curso 4 · hecho 15 · pendiente 1 |
+| tarea | 22 | en_curso 4 · hecho 16 · pendiente 2 |
 
-**Para revisar:** D-030. **Abiertas:** 19.
+**Para revisar:** nada. **Abiertas:** 21.
 <!-- /posta:recuentos -->
 
 ## Fichas

@@ -3,7 +3,7 @@ tipo: indice
 titulo: 'Decisiones'
 area: proyecto
 estado: vigente
-actualizado: '2026-10-13'
+actualizado: '2026-10-15'
 origen:
   - posta generar
 revisar: false
@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-30 fichas: vigente 30. ⚑ = para revisar.
+31 fichas: vigente 31. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Actualizado |
 | --- | --- | --- | --- | --- |
@@ -45,5 +45,6 @@ revisar: false
 | [D-026](D-026.md) | Los workers se actualizan solos desde el servidor, confiando en él (opción A) | vigente | — | 2026-10-12 |
 | [D-027](D-027.md) | Análisis exploratorio de simulaciones sin agrupar fuentes ni corridas | vigente | — | 2026-10-13 |
 | [D-028](D-028.md) | Colección del tracker por el mismo camino de importación del CSV | vigente | — | 2026-10-13 |
-| [D-029](D-029.md) | e2 sigue de bot por defecto; f2 y e3 quedan como opciones y para confirmar | vigente | — | 2026-10-13 |
-| [D-030](D-030.md) | El chat entre sesiones sale de tcg-pocket a un hub propio, con una sala por proyecto | vigente ⚑ | — | 2026-10-13 |
+| [D-029](D-029.md) | e2 sigue de bot por defecto; f2 y e3 quedan como opciones y para confirmar | vigente | — | 2026-10-14 |
+| [D-030](D-030.md) | El chat entre sesiones sale de tcg-pocket a un hub propio, con una sala por proyecto | vigente | — | 2026-10-14 |
+| [D-031](D-031.md) | La app usa un fork de deckgym con arreglos, sin esperar a upstream | vigente | — | 2026-10-14 |
