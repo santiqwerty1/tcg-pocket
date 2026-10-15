@@ -23,14 +23,18 @@ use deckgym::players::{
 use deckgym::state::{has_serperior_jungle_totem, PlayedCard};
 use deckgym::{Deck, State};
 
-/// A bot: one of deckgym's codes, or expectiminimax with the clock that sees evolutions (H-018).
+use crate::g_bot::{g_value_function, GParams};
+
+/// A bot: one of deckgym's codes, expectiminimax with the clock that sees evolutions (H-018), or with the evaluation
+/// whose damage comes from the engine (g, docs/BOTS.md).
 #[derive(Clone, Debug)]
 pub enum BotCode {
     Deckgym(PlayerCode),
     Fair { max_depth: usize },
+    G { max_depth: usize },
 }
 
-/// «f2» → our expectiminimax at depth 2; anything else, deckgym's codes.
+/// «f2» → our expectiminimax at depth 2, «g2» → the g bot at depth 2; anything else, deckgym's codes.
 pub fn parse_bot_code(code: &str) -> Result<BotCode, String> {
     let lower = code.to_ascii_lowercase();
     // H-051: deckgym @33ff2a5 reads every code that starts with «e» as expectiminimax and never reaches «et» (the bot
@@ -44,10 +48,16 @@ pub fn parse_bot_code(code: &str) -> Result<BotCode, String> {
             _ => Err(format!("Invalid player code: {code}. Use 'f<1-9>', e.g. 'f2'")),
         };
     }
+    if let Some(depth) = lower.strip_prefix('g') {
+        return match depth.parse::<usize>() {
+            Ok(max_depth) if (1..=9).contains(&max_depth) => Ok(BotCode::G { max_depth }),
+            _ => Err(format!("Invalid player code: {code}. Use 'g<1-9>', e.g. 'g2'")),
+        };
+    }
     parse_player_code(code).map(BotCode::Deckgym)
 }
 
-/// The two players of a game, like deckgym's `create_players`, with «f<N>» as well.
+/// The two players of a game, like deckgym's `create_players`, with «f<N>» and «g<N>» as well.
 pub fn create_players(deck_a: Deck, deck_b: Deck, codes: Vec<BotCode>) -> Vec<Box<dyn Player>> {
     codes
         .into_iter()
@@ -60,6 +70,15 @@ pub fn create_players(deck_a: Deck, deck_b: Deck, codes: Vec<BotCode>) -> Vec<Bo
                 write_debug_trees: false,
                 value_function: Box::new(fair_value_function),
             }) as Box<dyn Player>,
+            BotCode::G { max_depth } => {
+                let params = GParams::default();
+                Box::new(ExpectiMiniMaxPlayer {
+                    deck,
+                    max_depth,
+                    write_debug_trees: false,
+                    value_function: Box::new(move |state: &State, myself: usize| g_value_function(state, myself, &params)),
+                }) as Box<dyn Player>
+            }
         })
         .collect()
 }
@@ -157,7 +176,7 @@ fn push_attacks(
 }
 
 /// Whether the typed Energy an attack still lacks can come from `zone` (an empty zone is taken as unknown: anything).
-fn reachable(attached: &[EnergyType], cost: &[EnergyType], zone: &[EnergyType]) -> bool {
+pub(crate) fn reachable(attached: &[EnergyType], cost: &[EnergyType], zone: &[EnergyType]) -> bool {
     if zone.is_empty() {
         return true;
     }
@@ -205,7 +224,7 @@ pub fn attack_damage(attack: &Attack) -> u32 {
 }
 
 /// Energies an attack still lacks with what is attached (typed first, then Colorless with what is left).
-fn missing_energy(attached: &[EnergyType], cost: &[EnergyType]) -> usize {
+pub(crate) fn missing_energy(attached: &[EnergyType], cost: &[EnergyType]) -> usize {
     let mut left: Vec<EnergyType> = attached.to_vec();
     let mut missing: usize = 0;
     let mut colorless: usize = 0;
