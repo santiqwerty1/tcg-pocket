@@ -151,23 +151,65 @@ describe('rivals by the cards seen (e2e)', () => {
     expect(groups[0]?.text).toMatch(/^2 /)
     // Classified as one of the owner's own.
     const ids = groups[0]?.matches.map((match) => match.id) ?? []
+    expect((await get('/api/matches/unclassified/count')).body).toEqual({ matches: 2 })
     const named = await post('/api/matches/classify').send({ matchIds: ids, opponent: '  Greninja   Suicune ' })
-    expect(named.body).toEqual({ updated: 2, opponent: 'Greninja Suicune' })
+    expect(named.body).toMatchObject({ updated: 2, opponent: 'Greninja Suicune' })
+    // What each match had, for «Deshacer».
+    expect(named.body.previous).toEqual(expect.arrayContaining(ids.map((id) => ({ id, opponent: null }))))
     expect((await get('/api/matches/unclassified')).body.groups).toEqual([])
-    // It is no archetype of the era: it shows among the owner's own, and can be moved to an archetype later.
+    expect((await get('/api/matches/unclassified/count')).body).toEqual({ matches: 0 })
+    // A note about the rival, and a match of it in another mode: renaming carries both.
+    const note = await test
+      .http()
+      .put('/api/rival-notes')
+      .set('Cookie', cookie)
+      .send({ opponent: 'Greninja Suicune', text: 'Cuidado con el agua.' })
+    expect(note.status).toBeLessThan(300)
+    const friendly = await post('/api/matches').send({
+      deckId,
+      result: 'tie',
+      opponent: 'greninja suicune',
+      mode: 'friend',
+    })
+    expect(friendly.status).toBe(201)
+    // It is no archetype of the era: it shows among the owner's own (every mode counts), and can be moved later.
     const own = (await get('/api/matches/unclassified')).body.own as { key: string; label: string; games: number }[]
-    expect(own).toContainEqual(expect.objectContaining({ label: 'Greninja Suicune', games: 2 }))
+    expect(own).toContainEqual(expect.objectContaining({ label: 'Greninja Suicune', games: 3 }))
     const moved = await post('/api/matches/classify').send({
       from: 'greninja suicune',
       opponent: 'Suicune ex Baxcalibur',
     })
-    expect(moved.body).toEqual({ updated: 2, opponent: 'Suicune ex Baxcalibur' })
+    expect(moved.body).toMatchObject({ updated: 3, opponent: 'Suicune ex Baxcalibur' })
+    const notes = (await get('/api/rival-notes')).body.items as { key: string; text: string }[]
+    expect(notes).toContainEqual(
+      expect.objectContaining({ key: 'suicune ex baxcalibur', text: 'Cuidado con el agua.' }),
+    )
+    expect(notes.some((item) => item.key === 'greninja suicune')).toBe(false)
     const list = (await get('/api/matches?opponent=Suicune%20ex%20Baxcalibur&opponentMatch=exact')).body.items as {
       opponent: string
       opponentCards: Seen[]
     }[]
-    expect(list).toHaveLength(2)
-    expect(list.every((match) => match.opponentCards.length > 0)).toBe(true)
+    expect(list).toHaveLength(3)
+    expect(list.filter((match) => match.opponentCards.length > 0)).toHaveLength(2)
+    // «Deshacer» with `null`: back to «sin clasificar».
+    const undone = await post('/api/matches/classify').send({ matchIds: ids, opponent: null })
+    expect(undone.body).toMatchObject({ updated: 2, opponent: null })
+    expect((await get('/api/matches/unclassified/count')).body).toEqual({ matches: 2 })
+    // A card the catalog no longer has: the match can still be edited (its stored cards stay).
+    await test.prisma.match.update({
+      where: { id: Number(ids[0]) },
+      data: { opponentCards: [{ cardId: 'GONE-1', count: 1 }] },
+    })
+    const kept = await patch(`/api/matches/${ids[0]}`).send({
+      note: 'editada',
+      opponentCards: [{ cardId: 'GONE-1', count: 1 }],
+    })
+    expect(kept.status).toBe(200)
+    expect(
+      (await get('/api/matches/unclassified')).body.groups.flatMap((group: { matches: { id: string }[] }) =>
+        group.matches.map((match) => match.id),
+      ),
+    ).toContain(ids[0])
     // Refused: nothing to classify, an empty rival, a match that does not exist.
     expect((await post('/api/matches/classify').send({ opponent: 'X' })).status).toBe(400)
     expect((await post('/api/matches/classify').send({ matchIds: ids, opponent: '   ' })).status).toBe(400)

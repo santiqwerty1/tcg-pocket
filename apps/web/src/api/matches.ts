@@ -213,16 +213,43 @@ export function useUnclassified() {
   })
 }
 
-/** 14/10: one rival for some matches, or for every match of a rival typed before (`from`). */
+/** 14/10: how many matches wait for a rival (what «Hoy» shows, without the groups). */
+export function useUnclassifiedCount() {
+  return useQuery({
+    queryKey: ['matches', 'unclassified', 'count'] as const,
+    queryFn: ({ signal }) =>
+      request('/api/matches/unclassified/count', { schema: z.object({ matches: z.number() }), signal }),
+  })
+}
+
+const classifiedSchema = z.object({
+  updated: z.number(),
+  opponent: z.string().nullable(),
+  previous: z.array(z.object({ id: z.string(), opponent: z.string().nullable() })).default([]),
+})
+export type Classified = z.infer<typeof classifiedSchema>
+
+async function classify(body: { matchIds?: string[]; from?: string; opponent: string | null }) {
+  return request('/api/matches/classify', { method: 'POST', body, schema: classifiedSchema })
+}
+
+/** 14/10: one rival for some matches, or for every match of a rival typed before (`from`); `null` unclassifies. */
 export function useClassify() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: { matchIds?: string[]; from?: string; opponent: string }) =>
-      request('/api/matches/classify', {
-        method: 'POST',
-        body,
-        schema: z.object({ updated: z.number(), opponent: z.string() }),
-      }),
+    mutationFn: classify,
     onSuccess: () => invalidateMatches(queryClient),
   })
+}
+
+/** «Deshacer» a classification: each match gets back the rival it had (or none). */
+export async function undoClassify(done: Classified, queryClient: QueryClient): Promise<void> {
+  const byOpponent = new Map<string | null, string[]>()
+  for (const item of done.previous) {
+    const ids = byOpponent.get(item.opponent) ?? []
+    ids.push(item.id)
+    byOpponent.set(item.opponent, ids)
+  }
+  for (const [opponent, matchIds] of byOpponent) await classify({ matchIds, opponent })
+  await invalidateMatches(queryClient)
 }

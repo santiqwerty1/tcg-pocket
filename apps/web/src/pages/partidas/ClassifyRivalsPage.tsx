@@ -4,11 +4,14 @@
  * the owner's own («Greninja Suicune»). Below, the rivals typed that are no archetype of the era, to move them to one or
  * rename them (reclassifying). Statistics by rival, «¿mala racha?» and «mi meta» read the rival from there.
  */
+import { type QueryClient, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
-import { useClassify, useUnclassified } from '@/api/matches'
+import { type Classified, undoClassify, useClassify, useUnclassified } from '@/api/matches'
 import type { Unclassified } from '@/api/schemas'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
@@ -43,13 +46,26 @@ function AssignName({
   )
 }
 
+/** «Deshacer» on the toast: each match gets back the rival it had (self-review: a merge could not be told apart). */
+function undoAction(done: Classified, queryClient: QueryClient) {
+  return {
+    label: 'Deshacer',
+    onClick: () => {
+      undoClassify(done, queryClient).catch((error) => toast.error(errorMessage(error)))
+    },
+  }
+}
+
 function Group({ group }: { group: Unclassified['groups'][number] }) {
   const classify = useClassify()
+  const queryClient = useQueryClient()
   const matchIds = group.matches.map((match) => match.id)
   async function assign(opponent: string) {
     try {
       const done = await classify.mutateAsync({ matchIds, opponent })
-      toast.success(`${done.updated === 1 ? 'Una partida' : `${done.updated} partidas`} contra ${done.opponent}.`)
+      toast.success(`${done.updated === 1 ? 'Una partida' : `${done.updated} partidas`} contra ${done.opponent}.`, {
+        action: undoAction(done, queryClient),
+      })
     } catch (error) {
       toast.error(errorMessage(error))
     }
@@ -100,23 +116,39 @@ function Group({ group }: { group: Unclassified['groups'][number] }) {
 
 function OwnRival({ rival }: { rival: Unclassified['own'][number] }) {
   const classify = useClassify()
+  const queryClient = useQueryClient()
+  // Self-review: renaming changes every match of the rival (every mode and era); it asks first.
+  const [target, setTarget] = useState<string | null>(null)
   async function move(opponent: string) {
     try {
       const done = await classify.mutateAsync({ from: rival.label, opponent })
+      setTarget(null)
       toast.success(
         `${rival.label} → ${done.opponent} (${done.updated === 1 ? 'una partida' : `${done.updated} partidas`}).`,
+        { action: undoAction(done, queryClient) },
       )
     } catch (error) {
       toast.error(errorMessage(error))
     }
   }
+  const games = rival.games === 1 ? 'una partida' : `${rival.games} partidas`
   return (
     <li className="flex flex-col gap-1.5 rounded-lg border p-3">
       <p className="text-sm">
-        <span className="font-medium">{rival.label}</span>{' '}
-        <span className="text-muted-foreground">· {rival.games === 1 ? 'una partida' : `${rival.games} partidas`}</span>
+        <span className="font-medium">{rival.label}</span> <span className="text-muted-foreground">· {games}</span>
       </p>
-      <AssignName label={`Nuevo nombre para ${rival.label}`} onAssign={move} pending={classify.isPending} />
+      <AssignName label={`Nuevo nombre para ${rival.label}`} onAssign={setTarget} pending={classify.isPending} />
+      <ConfirmDialog
+        open={target !== null}
+        onOpenChange={(open) => {
+          if (!open) setTarget(null)
+        }}
+        title={`¿Pasar ${rival.label} a ${target ?? ''}?`}
+        description={`Cambia el rival de ${games}, de todas las modalidades y eras. Si ${target ?? ''} ya tiene partidas, se juntan con estas; podés deshacerlo desde el aviso.`}
+        confirmLabel="Cambiar"
+        pending={classify.isPending}
+        onConfirm={() => (target ? move(target) : undefined)}
+      />
     </li>
   )
 }

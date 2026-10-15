@@ -36,15 +36,23 @@ export function resolveSeenCard(index: CatalogIndex, query: string): string {
   if (byId) return byId.id
   const key = foldText(query)
   const hits = index.search(query, { lang: 'any', limit: 10 })
+  // Self-review: only the card of that very name («Agua» is not Ondulagua).
   const named = hits.find(({ card }) => foldText(card.nameEs) === key || foldText(card.nameEn) === key)
-  const found = named ?? hits[0]
-  if (!found) throw new NotFoundException(`No encontré la carta «${query}».`)
-  return found.card.id
+  if (!named) {
+    const close = hits.slice(0, 3).map(({ card }) => card.nameEs)
+    throw new NotFoundException(
+      `No encontré la carta «${query}»${close.length > 0 ? `; ¿era ${close.join(', ')}?` : ''}`,
+    )
+  }
+  return named.card.id
 }
 
 /** «2 Greninja», «2x Greninja», «Suicune ex», «A1-89»: one card seen and its copies (1 when not said). */
 export function seenCardFromText(index: CatalogIndex, text: string): { cardId: string; count: number } {
-  const match = /^\s*([12])\s*[x×]?\s+(.+)$/u.exec(text)
-  const query = (match?.[2] ?? text).trim()
-  return { cardId: resolveSeenCard(index, query), count: match ? Number(match[1]) : 1 }
+  const before = /^\s*([12])\s*[x×]?\s+(.+)$/u.exec(text)
+  // «Greninja x2», «Greninja ×2» (self-review: a common way to say it).
+  const after = before ? null : /^(.+?)\s*[x×]\s*([12])\s*$/u.exec(text)
+  const query = (before?.[2] ?? after?.[1] ?? text).trim()
+  const count = before ? Number(before[1]) : after ? Number(after[2]) : 1
+  return { cardId: resolveSeenCard(index, query), count }
 }

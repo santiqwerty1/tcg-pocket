@@ -30,6 +30,7 @@ import {
   normalizeSeenCards,
   oneIn,
   opponentKey,
+  opponentLabels,
   opponentTurns,
   orderDecksForPicker,
   revisionAt,
@@ -259,9 +260,14 @@ export class MatchesService {
   }
 
   /** The cards seen as they are stored: one line per name, at most two copies; an unknown card is a 400. */
-  private seenCards(cards: readonly SeenCard[]): Prisma.InputJsonValue {
+  private seenCards(cards: readonly SeenCard[], stored: Prisma.JsonValue = []): Prisma.InputJsonValue {
+    // Self-review: no cards, no catalog (a match is logged even while the catalog loads), and a 503 stays a 503.
+    if (cards.length === 0) return []
+    const index = this.catalog.requireIndex()
     try {
-      return normalizeSeenCards(cards, this.catalog.requireIndex()) as unknown as Prisma.InputJsonValue
+      // A card already stored that the catalog no longer has stays: an edit must not fail for it.
+      const kept = new Set(storedCards(stored).map((card) => card.cardId))
+      return normalizeSeenCards(cards, index, kept) as unknown as Prisma.InputJsonValue
     } catch (error) {
       throw new BadRequestException({ code: 'validation', message: (error as Error).message })
     }
@@ -722,7 +728,9 @@ export class MatchesService {
     if (patch.wentFirst !== undefined) data.wentFirst = patch.wentFirst
     if (patch.mode !== undefined) data.mode = patch.mode
     if (patch.note !== undefined) data.note = patch.note.trim()
-    if (patch.opponentCards !== undefined) data.opponentCards = this.seenCards(patch.opponentCards)
+    if (patch.opponentCards !== undefined) {
+      data.opponentCards = this.seenCards(patch.opponentCards, current.opponentCards)
+    }
     if (Object.keys(data).length === 0) return this.view(current)
     const updated = await this.prisma.match.update({ where: { id: current.id }, data, include: matchInclude })
     return this.view(updated)
@@ -762,7 +770,7 @@ export class MatchesService {
       rows.map((row) => ({ id: idToString(row.id), playedAt: row.playedAt, cards: storedCards(row.opponentCards) })),
       index,
     )
-    const own = (await this.myMeta({}).catch(() => null))?.unmatched ?? []
+    const own = await this.ownRivals(dataset.archetypes)
     return {
       era: scope.era,
       groups: groups.map((group) => ({
@@ -774,17 +782,56 @@ export class MatchesService {
         text: seenCardsTextEs(group.cards, index),
         suggestions: suggestArchetypesForCards(group.cards, dataset.entries, dataset.archetypes, index),
       })),
-      own: own.map((rival) => ({ key: rival.key, label: rival.label, games: rival.games })),
+      own,
     }
+  }
+
+  /** How many matches wait for a rival (without one, with cards seen): what «Hoy» shows, without the groups. */
+  async unclassifiedCount(): Promise<{ matches: number }> {
+    return {
+      matches: await this.prisma.match.count({ where: { opponentText: null, NOT: { opponentCards: { equals: [] } } } }),
+    }
+  }
+
+  /**
+   * Self-review: the rivals typed that are no archetype of the current era (by name, or by the archetype a note of
+   * theirs was written from), counted over every match — every mode and every era —, since reclassifying one changes
+   * them all.
+   */
+  private async ownRivals(archetypes: ReadonlyMap<string, { name: string }>) {
+    const [rows, notes] = await Promise.all([
+      this.prisma.match.findMany({
+        where: { opponentText: { not: null } },
+        select: { opponentText: true, playedAt: true },
+      }),
+      this.prisma.rivalNote.findMany({ where: { archetypeId: { not: null } }, select: { key: true } }),
+    ])
+    const known = new Set([
+      ...[...archetypes.values()].map((archetype) => opponentKey(archetype.name)),
+      ...notes.map((note) => note.key),
+    ])
+    const facts = rows.map((row) => ({ opponent: row.opponentText, playedAt: row.playedAt }))
+    const labels = opponentLabels(facts)
+    const games = new Map<string, number>()
+    for (const fact of facts) {
+      const key = opponentKey(fact.opponent)
+      if (key !== null && !known.has(key)) games.set(key, (games.get(key) ?? 0) + 1)
+    }
+    return [...games]
+      .map(([key, count]) => ({ key, label: labels.get(key) ?? key, games: count }))
+      .sort((a, b) => b.games - a.games || a.label.localeCompare(b.label, 'es'))
   }
 
   /**
    * Gives the matches one rival: an archetype's name or one of the owner's own («Greninja Suicune»). By ids, or every
    * match of a rival typed before (`from`, by its key: reclassifying). Returns how many changed.
    */
-  async classify(input: { matchIds?: string[] | undefined; from?: string | undefined; opponent: string }) {
-    const opponent = storedOpponent(input.opponent)
-    if (opponent === null) throw new BadRequestException({ code: 'validation', message: 'Falta el rival.' })
+  async classify(input: { matchIds?: string[] | undefined; from?: string | undefined; opponent: string | null }) {
+    // `null`: back to «sin clasificar» (what «Deshacer» sends for matches that had no rival).
+    const opponent = input.opponent === null ? null : storedOpponent(input.opponent)
+    if (input.opponent !== null && opponent === null) {
+      throw new BadRequestException({ code: 'validation', message: 'Falta el rival.' })
+    }
     const ids = [...new Set((input.matchIds ?? []).map((id) => parseNumericId(id, 'Partida')))]
     const fromKey = input.from === undefined ? null : opponentKey(input.from)
     if (ids.length === 0 && fromKey === null) {
@@ -801,11 +848,29 @@ export class MatchesService {
       }
       const found = await tx.match.count({ where: { id: { in: [...ids] } } })
       if (found !== ids.length) throw new NotFoundException('Alguna de esas partidas ya no existe.')
+      // Self-review: what each match had, so «Deshacer» puts it back (a rival merged into an archetype could not be
+      // told apart afterwards).
+      const before = await tx.match.findMany({
+        where: { id: { in: [...targets] } },
+        select: { id: true, opponentText: true },
+      })
       const { count } = await tx.match.updateMany({
         where: { id: { in: [...targets] } },
         data: { opponentText: opponent },
       })
-      return { updated: count, opponent }
+      // The note about the rival follows its new name when that one has none.
+      const toKey = opponentKey(opponent)
+      if (fromKey !== null && toKey !== null && toKey !== fromKey) {
+        const taken = await tx.rivalNote.findUnique({ where: { key: toKey }, select: { key: true } })
+        if (!taken) {
+          await tx.rivalNote.updateMany({ where: { key: fromKey }, data: { key: toKey, label: opponent as string } })
+        }
+      }
+      return {
+        updated: count,
+        opponent,
+        previous: before.map((row) => ({ id: idToString(row.id), opponent: row.opponentText })),
+      }
     })
   }
 

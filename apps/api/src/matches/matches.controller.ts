@@ -43,7 +43,8 @@ const classifySchema = z
     matchIds: z.array(z.string().trim().min(1).max(20)).max(500).optional(),
     /** Reclassify every match of a rival typed before (by its key: case and accents do not matter). */
     from: z.string().trim().min(1).max(OPPONENT_MAX_LENGTH).optional(),
-    opponent: z.string().trim().min(1).max(OPPONENT_MAX_LENGTH),
+    /** `null`: back to «sin clasificar» («Deshacer»). */
+    opponent: z.string().trim().min(1).max(OPPONENT_MAX_LENGTH).nullable(),
   })
   .refine((body) => (body.matchIds?.length ?? 0) > 0 || body.from !== undefined, {
     message: 'Mandá las partidas o el rival a reclasificar.',
@@ -177,13 +178,19 @@ export class MatchesController {
     return this.matches.unclassified()
   }
 
+  /** 14/10: how many matches wait for a rival (what «Hoy» shows). */
+  @Get('unclassified/count')
+  unclassifiedCount(@CurrentSession() _session: RequestSession): Promise<{ matches: number }> {
+    return this.matches.unclassifiedCount()
+  }
+
   /** 14/10: one rival for some matches (by id) or for every match of a rival typed before (`from`). */
   @Post('classify')
   @HttpCode(200)
   classify(
     @Body(new ZodValidationPipe(classifySchema)) body: z.infer<typeof classifySchema>,
     @CurrentSession() _session: RequestSession,
-  ): Promise<{ updated: number; opponent: string }> {
+  ): Promise<{ updated: number; opponent: string | null; previous: { id: string; opponent: string | null }[] }> {
     return this.matches.classify(body)
   }
 

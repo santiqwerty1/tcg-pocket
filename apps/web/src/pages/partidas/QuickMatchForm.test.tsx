@@ -179,6 +179,8 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
     await user.click(within(form).getByRole('button', { name: /Guardar partida/ }))
     await waitFor(() => expect(posted).toHaveLength(1))
     expect(posted[0]).toMatchObject({ opponent: 'Greninja Altaria', opponentCards: [{ cardId: 'A1-89', count: 2 }] })
+    // The next match starts without them.
+    await waitFor(() => expect(within(form).queryByRole('button', { name: /Greninja: dos copias/ })).toBeNull())
   })
 
   it('logs a match in four taps from the home screen, with the last deck and mode preselected', async () => {

@@ -1,6 +1,6 @@
 import { CalendarDaysIcon, ChartColumnIcon, HistoryIcon } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router'
-import { useMatches, useMatchSuggestions, useUnclassified } from '@/api/matches'
+import { useMatches, useMatchSuggestions, useUnclassifiedCount } from '@/api/matches'
 import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
@@ -11,8 +11,8 @@ import { TodayStrip } from './TodayStrip'
 
 /** 14/10: «Clasificar rivales», with how many matches wait for a rival (by the cards seen). */
 function ClassifyLink() {
-  const unclassified = useUnclassified()
-  const pending = unclassified.data?.groups.reduce((sum, group) => sum + group.matches.length, 0) ?? 0
+  // Self-review: only the count (the groups and their suggestions are the classify page's).
+  const pending = useUnclassifiedCount().data?.matches ?? 0
   return (
     <Link to="/partidas/clasificar" className="-mt-4 self-start text-sm text-primary hover:underline">
       Clasificar rivales

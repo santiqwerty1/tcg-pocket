@@ -2,13 +2,20 @@ import { QueryClient } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { Providers } from '@/app/Providers'
 import { routes } from '@/app/routes'
 import { fakeApi } from '@/test/fakeApi'
 
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+// The toast («Deshacer») captures the pointer, which jsdom lacks.
+beforeAll(() => {
+  Element.prototype.setPointerCapture ??= () => undefined
+  Element.prototype.releasePointerCapture ??= () => undefined
+  Element.prototype.hasPointerCapture ??= () => false
 })
 
 const match = (id: string, playedAt: string) => ({
@@ -70,7 +77,14 @@ describe('clasificar rivales (14/10)', () => {
       'GET /api/matches/unclassified': UNCLASSIFIED,
       'POST /api/matches/classify': (call: { body?: BodyInit | null }) => {
         const body = JSON.parse(String(call.body)) as { opponent: string; matchIds?: string[] }
-        return { updated: body.matchIds?.length ?? 3, opponent: body.opponent }
+        return {
+          updated: body.matchIds?.length ?? 3,
+          opponent: body.opponent,
+          previous: (body.matchIds ?? ['7', '8', '9']).map((id) => ({
+            id,
+            opponent: body.matchIds ? null : 'Greninja Suicune',
+          })),
+        }
       },
     })
     const user = userEvent.setup()
@@ -82,13 +96,32 @@ describe('clasificar rivales (14/10)', () => {
     const posts = () => calls.filter((call) => call.method === 'POST')
     await waitFor(() => expect(posts()).toHaveLength(1))
     expect(JSON.parse(String(posts()[0]?.body))).toEqual({ matchIds: ['6', '5'], opponent: 'Suicune ex Baxcalibur' })
+    // «Deshacer»: back to no rival.
+    await user.click(await screen.findByRole('button', { name: 'Deshacer' }))
+    await waitFor(() => expect(posts()).toHaveLength(2))
+    expect(JSON.parse(String(posts()[1]?.body))).toEqual({ matchIds: ['6', '5'], opponent: null })
 
     // Reclassifying: a rival typed before, by its label, in every match.
-    const own = screen.getByText('Greninja Suicune').closest('li') as HTMLElement
-    await user.type(within(own).getByRole('textbox'), 'Greninja Altaria')
-    await user.click(within(own).getByRole('button', { name: 'Asignar' }))
-    await waitFor(() => expect(posts()).toHaveLength(2))
-    expect(JSON.parse(String(posts()[1]?.body))).toEqual({ from: 'Greninja Suicune', opponent: 'Greninja Altaria' })
+    // The refetches after classifying and undoing land before the next form is used (a stale input would leave the
+    // keys to the focused suggestion button).
+    const reads = () => calls.filter((call) => call.method === 'GET' && call.path === '/api/matches/unclassified')
+    await waitFor(() => expect(reads().length).toBeGreaterThanOrEqual(3))
+    const own = () => screen.getByText('Greninja Suicune').closest('li') as HTMLElement
+    await waitFor(() => expect(within(own()).getByRole('textbox')).toBeEnabled())
+    // The suggestion clicked first keeps the focus; the keys go to the name box.
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    within(own()).getByRole('textbox').focus()
+    await user.keyboard('Greninja Altaria')
+    expect(within(own()).getByRole('textbox')).toHaveValue('Greninja Altaria')
+    await user.click(within(own()).getByRole('button', { name: 'Asignar' }))
+    // It asks first: every match of the rival changes.
+    expect(
+      await screen.findByText(/Cambia el rival de 3 partidas, de todas las modalidades y eras/),
+    ).toBeInTheDocument()
+    expect(posts()).toHaveLength(2)
+    await user.click(screen.getByRole('button', { name: 'Cambiar' }))
+    await waitFor(() => expect(posts()).toHaveLength(3))
+    expect(JSON.parse(String(posts()[2]?.body))).toEqual({ from: 'Greninja Suicune', opponent: 'Greninja Altaria' })
   })
 
   it('nothing to classify says how to get there', async () => {

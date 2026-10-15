@@ -46,7 +46,10 @@ function MatchEditForm({ match, suggestions }: { match: Match; suggestions: Matc
       wentFirst,
       mode,
       note: note.trim(),
-      opponentCards: seenCardsBody(cards),
+      // Self-review: only when they changed (a card the catalog lost would refuse an edit of the note).
+      ...(JSON.stringify(seenCardsBody(cards)) !== JSON.stringify(seenCardsBody(match.opponentCards))
+        ? { opponentCards: seenCardsBody(cards) }
+        : {}),
     }
     if (deckId !== match.deck.id) patch.deckId = deckId
     // Only a date the user touched is sent: the input drops seconds, and the date decides the deck revision.
