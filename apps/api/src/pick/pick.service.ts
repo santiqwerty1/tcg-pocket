@@ -152,7 +152,9 @@ export class PickService {
       const status = scores.get(deck.id) ?? null
       const score = status?.score ?? null
       const labScore = score?.score.score ?? null
-      // H-055: the list rules for the bot that played it; far from the tournament number only within the era.
+      // H-055: the list rules for the bot that played it; far from the tournament number only within the era, and not
+      // with «mi meta» weights (review of the PR: the Laboratorio's score is against the era's bank, not my rivals).
+      const comparable = !status?.stale && used === 'tournament'
       const warning =
         labScore && score && cards && index
           ? botWarningText(
@@ -160,7 +162,7 @@ export class PickService {
                 cards,
                 index,
                 bot: score.bot,
-                simulated: status?.stale ? null : labScore,
+                simulated: comparable ? labScore : null,
                 tournament: expected,
               }),
               score.bot,

@@ -46,6 +46,16 @@ describe('posible punto ciego del bot (H-055)', () => {
     expect(botWarningText(warnings, 'e2')).toBe(
       'Posible punto ciego del bot: e2 casi nunca pone herramientas en la Banca, y «Dede-Circuit» de Dedenne ex crece con ellas. Probalo con e3 o f2.',
     )
+    // Review of the PR: without a Tool in the list, an attack per Tool asks nothing of the bot.
+    const noTools = deck.cards.filter((entry) => index.cardById(entry.cardId)?.evolutionType !== 'tool')
+    expect(noTools.length).toBeLessThan(deck.cards.length)
+    expect(listBotWarnings(noTools, index, 'e2')).toEqual([])
+  })
+
+  it('«if this Pokémon has a Pokémon Tool attached» is no attack per Tool in play (Pachirisu ex, Melmetal ex)', () => {
+    const entry = (cardId: string) => ({ cardId, count: 2 })
+    expect(listBotWarnings([entry('A2-61'), entry('B1-174'), entry('A2-147')], index, 'e2')).toEqual([])
+    expect(kinds(listBotWarnings([entry('B3b-24'), entry('A2-147')], index, 'e2'))).toEqual(['bench_tools'])
   })
 
   it('an evolution without damage warns only when the list has what evolves from it, and a Slowking does not count', () => {
@@ -59,10 +69,14 @@ describe('posible punto ciego del bot (H-055)', () => {
     expect(listBotWarnings([entry('A1-1'), entry('B1a-2')], index, 'e2')).toEqual([])
     // Ivysaur that attacks for 60 is no blind spot.
     expect(listBotWarnings([entry('A1-1'), entry('A1-2'), entry('B1a-4')], index, 'e2')).toEqual([])
-    // Two editions of the same card warn once.
+    // Two editions of the same card (B1a-2 and its reprint B4b-2) warn once.
+    expect(index.cardById('B4b-2')?.functionalGroupId).toBe(ivysaur.functionalGroupId)
     expect(
-      kinds(listBotWarnings([entry('A1-1'), entry('B1a-2'), entry('B1a-2'), entry('B1a-4')], index, 'e2')),
+      kinds(listBotWarnings([entry('A1-1'), entry('B1a-2'), entry('B4b-2'), entry('B1a-4')], index, 'e2')),
     ).toEqual(['evolution_without_damage'])
+    // Review of the PR: Rare Candy skips the Stage 1, and an Ivysaur that does damage gets the line there.
+    expect(listBotWarnings([entry('A1-1'), entry('B1a-2'), entry('B1a-4'), entry('A3-144')], index, 'e2')).toEqual([])
+    expect(listBotWarnings([entry('A1-1'), entry('B1a-2'), entry('A1-2'), entry('B1a-4')], index, 'e2')).toEqual([])
   })
 
   it('the general rule: far by at least 15 points and with intervals apart, both ways', () => {
@@ -81,6 +95,11 @@ describe('posible punto ciego del bot (H-055)', () => {
     expect(farFromTournament({ value: 30, ci95: [12, 54] }, { value: 50, ci95: [46, 54] })).toBeNull()
     // Intervals apart but only 10 points: a real difference of list, not a blind spot.
     expect(farFromTournament({ value: 40, ci95: [38, 42] }, { value: 50, ci95: [48, 52] })).toBeNull()
+    // The edges: exactly 15 points counts; intervals that touch do not count as apart.
+    expect(farFromTournament({ value: 35, ci95: [33, 37] }, { value: 50, ci95: [48, 52] })?.kind).toBe(
+      'far_from_tournament',
+    )
+    expect(farFromTournament({ value: 30, ci95: [25, 48] }, { value: 50, ci95: [48, 52] })).toBeNull()
   })
 
   it('botWarnings puts the list rules and the general one together; the general one alone asks for f2 or e3', () => {

@@ -494,11 +494,12 @@ export class TournamentsService {
 
   /**
    * Fase 44: what an archetype should score with the rivals weighted by `shares` («mi meta») instead of the era's;
-   * `sample` is the effective matches the shares come from, so their sampling error widens the interval.
+   * `sample` is the effective matches the shares come from, so their sampling error widens the interval. Without it
+   * the shares count as known (H-055: the Laboratorio's bank, which its own score uses as they are).
    */
   async expectedWith(
     archetypeId: string,
-    weights: { shares: readonly { archetypeId: string; share: number }[]; sample: number },
+    weights: { shares: readonly { archetypeId: string; share: number }[]; sample?: number | undefined },
     query: ScopeQuery = {},
   ): Promise<ExpectedVsMetaView | null> {
     const scope = await this.scope(query)
