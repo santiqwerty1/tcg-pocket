@@ -17,8 +17,11 @@ Las otras van al final, como plan.
 
 - **e\<N>** es el expectiminimax de deckgym (`src/players/expectiminimax_player.rs`):
   - la profundidad cuenta decisiones, no turnos (e2 mira 2);
+  - la búsqueda termina cuando cambia el turno: solo minimiza en las elecciones del rival dentro del turno propio, como
+    qué Pokémon sube después de un KO;
   - la evaluación es lineal (`value_functions.rs`);
-  - cuando minimiza, juega con la mano real del rival, y los robos salen del orden real del mazo.
+  - los robos (`DrawCard`, Investigación de Profesores) salen del orden real del mazo, así que el bot sabe qué va a
+    robar. Poké Ball, en cambio, es un nodo de azar sobre lo que queda en el mazo.
 - **f\<N>** ([H-018](../Boveda/Seguimiento/Hallazgos/H-018.md), `engine/src/fair_bot.rs`) es la misma búsqueda con un
   reloj propio, que:
   - ve las evoluciones que quedan en el mazo y la mano propios;
@@ -40,35 +43,41 @@ Medido el 14/10 en esta sesión: Linux, 1 hilo, 40 partidas por cruce, e2 contra
 1. **Mazo 40, Mega-Venusaur ex.** El reloj de e2 solo cuenta los ataques con daño fijo, y Synthesis de Ivysaur no
    tiene. Con ese reloj, evolucionar a Ivysaur parece perder unos 2.500, así que el bot nunca evoluciona. f lo arregla.
 2. **Mazo 16, Dedenne ex.**
-   - En la base de deckgym, Dede-Circuit tiene `fixed_damage` 40. El reloj cree que pega 40 siempre, tenga 0 o 4
-     herramientas en juego; el motor hace 0, 40, 80 o 120 según cuántas haya.
-   - De las herramientas, la evaluación solo premia la del Activo, y con un peso de 10. Poner una en la Banca no le
-     cambia nada.
+   - En la base de deckgym, Dede-Circuit tiene `fixed_damage` 40. El reloj cree que pega 40 siempre. El motor, en
+     cambio, hace 40 por cada Pokémon propio con herramienta: de 0 a 160.
+   - De las herramientas, la evaluación premia la del Activo, con un peso de 10, y los PS que suma Capa Gigante. Poner
+     en la Banca una herramienta que no suma PS no le cambia nada.
 3. **Mazo 23, Mismagius / Latias.**
    - **Cursed Prose** deja 90 de daño que cae al final del turno rival. e2 no lo cuenta ni en el reloj. f sí, porque
      lee «90 damage» del texto. Pero después de usarlo, el tablero no muestra nada hasta el final del turno rival.
      Para los dos bots, Cursed Prose «no hizo nada», y un ataque de 20 que se ve en el acto parece mejor.
-   - **Luster Purge** descarta 3 Energías. Por eso la evaluación pierde unos 830: 330 de «PS × Energía» de Latios y 500
-     de «Activo listo». El daño, en cambio, suma menos que eso si no da KO, y un KO vale 10.000 por punto. Por eso el
-     bot solo ataca cuando noquea.
+   - **Luster Purge** descarta 3 Energías, y la evaluación pierde por eso:
+     - 330 de «PS × Energía» de Latios;
+     - 500 de «Activo listo»;
+     - hasta 300 más del reloj, porque vuelven a faltarle 3 Energías.
+
+     El daño suma menos que eso si no da KO, y un KO vale 10.000 por punto. Según esa cuenta, solo le conviene atacar
+     cuando noquea, que es lo que vio Infra.
    - **Los dos relojes son independientes.** Que el rival noquee a Latios, el mejor atacante, no alarga el reloj
      propio. Por eso subirlo al Activo sin Energía no le cuesta nada al bot.
-4. **El bot ve el orden de su mazo** al buscar con Poké Ball. Es de la búsqueda, no de la evaluación: entra en la
-   línea 2.
+4. **El bot sabe qué va a robar.** Es de la búsqueda, no de la evaluación: entra en la línea 2.
 
 ## El bot g
 
 g usa la misma búsqueda que e y f (`ExpectiMiniMaxPlayer`) y los códigos `g1` a `g9`, con la profundidad en
-decisiones. Lo único que cambia es la evaluación, que vive en nuestro crate (`engine/src/g_bot.rs`); deckgym no se
-toca. La evaluación usa solo lo que un jugador ve: el tablero, el descarte, el tamaño de las manos y de los mazos, y la
-lista de su propio mazo. Del rival, solo lo que está en juego.
+decisiones. Lo único que cambia es la evaluación, que vive en nuestro crate (`engine/src/g_bot.rs`). De deckgym solo
+pide tres funciones públicas al fork. La evaluación usa solo lo que un jugador ve:
+- el tablero, el descarte, el tamaño de las manos y de los mazos;
+- la lista de su propio mazo;
+- del rival, solo lo que está en juego.
 
 ### 1. El daño, del motor
 
 El motor ya calcula el daño esperado de un ataque contra cada Pokémon, sin jugarlo: es
-`AttackOutcomes::expected_damage_to`. Ese cálculo incluye la debilidad, las herramientas, las habilidades, los
-conteos del tablero y las monedas. Hoy no se puede llamar desde afuera de deckgym. Con un cambio aditivo en el fork
-(ver [Lo que pide al fork](#lo-que-pide-al-fork)), la evaluación lo usa en vez de leer el texto.
+`AttackOutcomes::expected_damage_to`. Incluye la debilidad, las herramientas, las habilidades (como Safeguard), los
+conteos del tablero y las monedas del ataque. Hoy es código sin usar dentro de deckgym, y no se puede llamar desde
+afuera. Con un cambio aditivo en el fork (ver [Lo que pide al fork](#lo-que-pide-al-fork)), la evaluación lo usa en
+vez del texto.
 
 Lo medí sobre una copia local de deckgym con ese cambio, con tableros armados a mano:
 
@@ -80,13 +89,32 @@ Lo medí sobre una copia local de deckgym con ese cambio, con tableros armados a
 | Luster Purge | contra Dedenne ex | 120 |
 | Cursed Prose | contra Dedenne ex | 0: es un efecto, ver el punto 4 |
 
-Cada llamada cuesta **1,6 µs**. Pronosticar y aplicar cada resultado sobre una copia cuesta 19 µs. Por la API pública
-de hoy (`Game::from_state`, `apply_action` y `get_state_clone`, con dos copias del estado) cuesta unos 45 µs, unas 20
-veces una evaluación de e2: no sirve para evaluar cada posición.
+**Costo:**
+- cada llamada cuesta **1,6 µs**;
+- pronosticar y aplicar cada resultado sobre una copia cuesta 19 µs;
+- la API pública de hoy (`Game::from_state`, `apply_action` y `get_state_clone`) cuesta unos 45 µs. Son dos copias
+  del estado, y además da una sola rama sorteada, no el esperado. Es unas 20 veces una evaluación de e2: no sirve para
+  evaluar cada posición.
 
-Para un atacante de la Banca, o para una evolución que todavía está en el mazo, la evaluación hace una sola copia del
-tablero. En esa copia pone ese Pokémon en el lugar del Activo, con la evolución sobre la misma Energía y las mismas
-herramientas.
+**Lo que hay que cuidar** (de la autorrevisión):
+- **El turno.** El cálculo lee `state.current_player`, no solo quién ataca. Con el turno del otro lado da mal: Latias
+  con Latios da 20 en vez de 40, y Dede-Circuit con 2 herramientas da 0 en vez de 80. La evaluación hace una sola copia
+  del tablero y le pone el turno del lado que ataca. El export lo exige con un `debug_assert`. Los efectos del turno
+  actual (un aumento de daño de un Partidario, por ejemplo) quedan contados en los turnos que vienen. Es una
+  aproximación, y sus tests la muestran.
+- **Los que eligen después.** Los ataques que eligen el objetivo después (`DirectDamage*`) o pegan a la Banca dan 0 en
+  ese cálculo. Son 154 ataques de la base (39 textos) en los que f sí lee daño. Para esos, el daño sale de los datos
+  de su mecánica, que llevan la cantidad, igual que f la lee del texto. Así g nunca queda más ciego que f.
+- **Lo que no ve:**
+  - Guts y las monedas que salvan de un KO;
+  - los efectos antes del daño;
+  - la prevención del primer ataque.
+
+  Además, aplica los modificadores por golpe, y la partida los aplica a la suma por objetivo. Un test los compara
+  contra el ataque aplicado de verdad (ver [Cómo se mide](#cómo-se-mide)).
+- **Atacantes que no son el Activo.** Para un atacante de la Banca, o para una evolución que todavía está en el mazo,
+  la misma copia pone ese Pokémon en el lugar del Activo. Una evolución va sobre la misma Energía y las mismas
+  herramientas.
 
 ### 2. Evoluciones y aceleración
 
@@ -95,29 +123,36 @@ herramientas.
 - **Lo nuevo:** cuenta los ataques que se cargan Energía solos (mecánica `SelfChargeActive` del mapa público
   `EFFECT_MECHANIC_MAP`, sin leer el texto). Synthesis de Ivysaur pone 2 Energías [G] por turno, así que la línea
   Ivysaur → Mega-Venusaur ex se carga en unos 2 turnos y no en 4.
+- La Energía que falta se cuenta con el costo y la Energía efectivos del motor: `State::effective_attack_cost` y
+  `effective_attached_energy`, que son públicos, con Jungle Totem y los demás.
 
 ### 3. Herramientas en la Banca
 
 No llevan un término propio:
-
-- su efecto sale del daño real: Dede-Circuit pasa de 0 a 40, 80 y 120;
+- su efecto sale del daño real: Dede-Circuit pasa de 0 a 40, 80, 120 y 160;
 - también de los PS: Capa Gigante alarga el reloj del rival.
 
 El peso de la herramienta del Activo (10) queda como parámetro.
 
 ### 4. Daño diferido y estados
 
-- **En el tablero:**
-  - el daño que ya está programado (`DelayedDamage` y daño diferido sobre un lugar), el veneno (10, o lo que diga el
-    ataque) y la quemadura (20) se restan de los PS del objetivo antes de contar golpes;
-  - todo eso es público y se lee de `PlayedCard::public_details`;
-  - así, después de Cursed Prose, el tablero ya vale 90 de daño.
+- **En el tablero.** Antes de contar golpes, a los PS del objetivo se les resta lo que ya va a caer:
+  - `DelayedDamage`, en los efectos del Pokémon (`PlayedCard::public_details`);
+  - el daño diferido sobre un lugar, en `State::public_turn_effects`;
+  - el veneno: 10 por cada control, o lo que diga el ataque, y hay un control al final de cada turno, así que son 20
+    por vuelta;
+  - la quemadura (`is_burned`): 20 por control, con una moneda para curarse.
+
+  Así, después de Cursed Prose, el tablero ya vale 90 de daño. Cambiar de Activo borra `DelayedDamage`, así que el
+  rival lo puede esquivar retirándose. Por eso ese daño lleva su propio peso, 1 por defecto, para afinar en la línea 3.
 - **En lo que viene:**
   - un ataque que deja daño para después (`DamageAndCardEffect` con `DelayedDamage`, y `DelayedSpotDamage`) cuenta
     ese daño como suyo;
-  - uno que envenena suma 10 por turno.
-- **Sueño y parálisis:** un Activo paralizado no ataca el turno que viene, y le suma 1 turno a su reloj. Un Activo
-  dormido le suma 0,5, porque despierta con una moneda.
+  - uno que envenena suma 20 por turno del atacante.
+- **Sueño y parálisis:**
+  - un Activo paralizado no ataca el turno que viene: le suma 1 turno a su reloj;
+  - uno dormido tira una moneda en cada control, y pierde en promedio 2/3 de turno;
+  - cambiar de Activo o evolucionar cura los dos.
 
 ### 5. Repetir un ataque y llegar al Activo
 
@@ -125,13 +160,12 @@ El peso de la herramienta del Activo (10) queda como parámetro.
   primero cuesta un turno por Energía descartada (al menos uno), con 1 Energía por turno, o más con aceleración.
   Luster Purge, por ejemplo, pega cada 3 turnos.
 - **Llegar al Activo:** un atacante de la Banca necesita que el Activo se vaya, así que a su preparación se le suma el
-  costo de retirada del Activo. Ese costo es 0 para Latios con Latias en juego (Fantastical Floating). El costo real
-  lo calcula el motor, y es el tercer cambio que se le pide al fork.
+  costo de retirada del Activo. Ese costo baja con Globito y es 0 si el Activo es Latios con Latias en juego
+  (Fantastical Floating). El costo efectivo lo calcula el motor, y es el tercer cambio que se le pide al fork.
 
 ### 6. La carrera (g 1.1, con un interruptor)
 
 En vez de dos relojes independientes, la evaluación juega una carrera turno por turno, como mucho 15:
-
 - cada lado pega con el mejor atacante que tiene listo;
 - un KO da sus puntos y saca a ese Pokémon de la carrera, con su amenaza;
 - el que lo pierde sube el Pokémon que más lo ayuda en la carrera.
@@ -143,7 +177,8 @@ interruptor y se mide contra g sin carrera.
 
 ### 7. Pesos
 
-- Los pesos (puntos, reloj o carrera, mano, mazo y los demás términos de deckgym) van en una estructura `GParams`.
+- Los pesos (puntos, reloj o carrera, mano, mazo, daño diferido y los demás términos de deckgym) van en una estructura
+  `GParams`.
 - Por defecto son los de f: los de deckgym, con su reloj en 0.
 - «PS × Energía» y «Activo listo» cuentan dos veces lo que el reloj ya mide, y son los que hunden a Luster Purge. Bajan
   o salen si la liga lo confirma, no a ojo.
@@ -151,12 +186,16 @@ interruptor y se mide contra g sin carrera.
 
 ## Lo que pide al fork
 
-Todo para Infra (D-031). Son cambios aditivos, que no cambian ningún resultado: e, f, m y los demás bots juegan igual,
-y `GAMES_REV` no se toca.
+**Contexto:** el fork `santiqwerty1/deckgym-core` es D-031: lo decidió Santi el 14/10, según el arranque del
+Coordinador, y su ficha todavía no está en main. Desde ese día deckgym ya no se usa «sin modificar», como decía
+CLAUDE.md. Lo arma Infra.
+
+Estos tres cambios son aditivos y no cambian ninguna partida: e, f, m y los demás bots juegan igual, y `GAMES_REV` no
+se toca.
 
 1. **`pub fn expected_attack_damage(state, acting_player, attack, target_player, target_idx) -> f64`** en `actions`.
-   - Son unas 15 líneas: `forecast_attack_inner`, `apply_attack_common_modifiers` y `expected_damage_to`, el mismo
-     camino que usa la partida.
+   - Son unas 15 líneas: `forecast_attack_inner`, `apply_attack_common_modifiers` y `expected_damage_to`.
+   - Exige que `state.current_player` sea `acting_player`.
    - Es la versión que medí arriba.
 2. **`pub use apply_action::forecast_action`**, que hoy es `pub(crate)`. Lo necesita la línea 2: una búsqueda propia
    con nodos de azar y sin ver lo oculto.
@@ -164,6 +203,14 @@ y `GAMES_REV` no se toca.
    Globito, Fantastical Floating y los demás.
 
 Sin el primero, g no se puede usar: el único camino público es el de los 45 µs.
+
+Lo demás que g necesita ya es público:
+- `effective_attack_cost` y `effective_attached_energy`;
+- `public_turn_effects` y `public_details`;
+- `observation::knockout_points`;
+- `is_asleep`, `is_paralyzed`, `is_burned` e `is_poisoned`;
+- `EFFECT_MECHANIC_MAP` y `Mechanic`;
+- el campo `attacks` de `PokemonCard`.
 
 ## Costo
 
@@ -174,27 +221,34 @@ Sin el primero, g no se puede usar: el único camino público es el de los 45 µ
 
   Son entre 30 y 80 µs, contra 13–21 µs de e2. La búsqueda cuesta lo mismo, así que **g2 debería costar 2 a 3 veces lo
   de e2 por partida**.
-- **Presupuesto:** g2 no puede pasar de 3 veces e2. Como referencia, f2 cuesta 2 veces y e3, 4,6.
-  - Si se pasa, el daño se guarda por tablero. La clave es exacta: lo que hay en juego, el estadio y los efectos del
-    turno. Con 10–19 tableros distintos por decisión, se ahorra la mitad.
+- **Presupuesto:** g2 no puede pasar de 3 veces e2 en la PC.
+  - Como referencia, e3 cuesta 4,6 veces. f2 cuesta 2 veces en la PC, 1,3 en el segundo worker y 1,1 en el celu.
+  - Si g2 se pasa, el daño se guarda por tablero. La clave es exacta: lo que hay en juego, el estadio, los efectos del
+    turno y de quién es el turno. Con 10–19 tableros distintos por decisión, se ahorra la mitad.
   - La caché va en un `BTreeMap` o un `Vec`, nunca recorriendo un `HashMap`.
 - **Determinismo:**
+  - en la evaluación, solo sumas, restas, productos, divisiones, `sqrt`, `floor` y `ceil`, que dan lo mismo en todas
+    las plataformas. Nada de `exp`, `ln` ni `powf`, que dependen de la biblioteca matemática de cada sistema;
   - los decimales se suman siempre en el mismo orden;
   - no hay cortes por tiempo;
-  - da el mismo resultado con 1 hilo o con muchos, y en Windows y Android (la prueba de cada worker al arrancar).
+  - los mundos de la línea 2 salen del generador de la partida;
+  - tiene que dar el mismo resultado con 1 hilo o con muchos, y en Windows y Android: es la prueba de cada worker al
+    arrancar.
 
 ## Cómo se mide
 
 1. **Tests (`cargo test`):**
-   - cada parte sobre tableros reales: Dede-Circuit 0, 40, 80 y 120; Latias 20 y 40; Safeguard 0; Cursed Prose con
-     90 pendientes; Luster Purge cada 3 turnos; Synthesis;
-   - cada uno falla sin su cambio.
+   - cada parte sobre tableros reales: Dede-Circuit de 0 a 160; Latias 20 y 40; Safeguard 0; Cursed Prose con 90
+     pendientes; el veneno; Luster Purge cada 3 turnos; Synthesis; y el turno del otro lado;
+   - **contra la partida:** en tableros sacados de partidas reales, el daño esperado de cada ataque sin azar tiene que
+     coincidir con el que deja aplicarlo de verdad (`Game`). Las diferencias quedan listadas y explicadas;
+   - cada test falla sin su cambio.
 2. **Los puntos ciegos,** con semilla fija:
    - el mazo 40 llega a Mega-Venusaur ex (`stagesA` de `perGame`);
    - el mazo 16 pone herramientas en la Banca antes de atacar;
    - el mazo 23 no sube a Latios sin Energía.
 
-   Además, el porcentaje contra los mismos rivales que los trabajos #52 y #53 de Infra, con e2, f2 y e3.
+   Además, el porcentaje contra los mismos rivales de los trabajos de simulación #52 y #53 de Infra, con e2, f2 y e3.
 3. **La fuerza, que es la meta:** una liga entre g2, e2, f2 y e3, y más adelante g2 contra sus versiones anteriores.
    - Los mazos son el banco del meta (las 18 listas de B4a), más el 16, el 23 y el 40.
    - Se juega cada par en los dos lados, con las mismas semillas, así que se compara partida por partida.
@@ -204,7 +258,8 @@ Sin el primero, g no se puede usar: el único camino público es el de los 45 µ
 4. **La baranda de torneos:**
    - cuando haya calibraciones con el motor del fork, el ρ y la diferencia media de g2 no pueden empeorar los de e2
      más allá del intervalo;
-   - los tres mazos tienen que acercarse a su porcentaje de torneo (el 16 está en 18,8 % con e2 y en 50,6 % en los torneos).
+   - los tres mazos tienen que acercarse a su arquetipo en los torneos. El 16 da 18,8 % con e2 y su arquetipo,
+     50,6 % en los torneos, aunque esas listas llevan 2 Indeedee ex y 2 Oricorio.
 5. **La velocidad:** partidas por segundo y por hilo contra e2, en los mismos cruces, en la PC y en el celu.
 
 Las ligas chicas corren en esta sesión, con 4 núcleos. Las grandes necesitan un trabajo de liga en la app, con su
@@ -212,12 +267,17 @@ propio PR más adelante.
 
 ## Cómo entra en la app
 
-- El código `g<1-9>` va en `parse_bot_code`, en nuestro crate.
-- La feature `gBots` va en `FEATURES` (`engine/src/main.rs`, una línea) y en `ENGINE_FEATURES`
-  (`packages/domain/src/simulation/capabilities.ts`). Así la cola le manda un trabajo con g solo a un motor que lo
-  tiene.
-- La lista de bots en la pantalla viene después.
-- `engine/Cargo.toml` y `GAMES_REV` son de Infra. g no cambia los resultados de los bots viejos.
+- **El código** `g<1-9>` va en `parse_bot_code`, en nuestro crate.
+- **La feature `gBots`:**
+  - en los dos `FEATURES` de `engine/src/main.rs`, con y sin `regulate`;
+  - en `ENGINE_FEATURES` de `packages/domain/src/simulation/capabilities.ts`, con su `canPlayGBots` como el de f, así
+    la cola le manda un trabajo con g solo a un motor que lo tiene.
+- **El motor del navegador** (`engine/wasm`) incluye `fair_bot.rs` con `#[path]` y fija su propio deckgym. Tiene que
+  pasar al fork junto con el resto, o no compila. Si g entra ahí, va igual que f.
+- **La lista de bots** en la pantalla viene después.
+- **`engine/Cargo.toml` y `GAMES_REV` son de Infra.** g no cambia los resultados de los bots viejos. El cambio de
+  motor al fork, en cambio, cambia `engineRev`: claves nuevas en la cola, trabajos que se juegan enteros otra vez, la
+  caché de chunks vacía y `games-rev.json` nuevo. Eso es del cambio al fork, no de g.
 
 ## Plan
 
@@ -228,11 +288,11 @@ propio PR más adelante.
 4. **Línea 2, sin trampa:**
    - una búsqueda propia: el expectiminimax de deckgym copiado en nuestro crate (unas 150 líneas, AGPL), con
      `forecast_action`;
-   - con determinización: en cada decisión, K mundos posibles;
-   - en cada mundo se mezcla el mazo propio, y la mano del rival se reparte de nuevo con sus cartas que no se ven
-     (mano y mazo juntos);
-   - el rival minimiza con las acciones de su mano en ese mundo, y cada acción se promedia sobre los mundos;
-   - arregla también lo de Poké Ball;
+   - con determinización: en cada decisión, K mundos posibles en los que se mezcla el mazo propio, así los robos dejan
+     de saberse;
+   - si la búsqueda llega a cruzar al turno del rival, en cada mundo también se reparte de nuevo su mano, con las
+     cartas suyas que no se ven (mano y mazo juntos);
+   - cada acción se promedia sobre los mundos;
    - cuesta K veces más (K de 4 a 8).
 5. **Línea 3, los pesos:**
    - CMA-ES sobre `GParams`, con un subcomando de engine-cli que corre afuera de la app;
@@ -240,10 +300,14 @@ propio PR más adelante.
    - los torneos quedan como control.
 6. **Línea 4, la red:** primero el diseño:
    - autojuego al estilo AlphaZero, con lo que el tablero muestra como entrada;
-   - inferencia con enteros, o en Rust con el orden de las operaciones fijo, para que Windows y Android den lo mismo.
+   - inferencia con enteros, o en Rust con solo las operaciones de arriba y su orden fijo, para que Windows y Android
+     den lo mismo.
 
 ## Preguntas abiertas
 
-- **Para Infra:** ¿entran los tres cambios en el fork, y cuándo?
-- **Para Santi, con la línea 2:** ¿la determinización supone conocida la lista del rival? Sería el arquetipo y sus 20
-  cartas, sin el orden ni la mano. En el juego se infiere del meta, pero no se ve.
+- **Para Infra:**
+  - ¿entran los tres cambios en el fork, y cuándo?
+  - En deckgym, `sample_down` mezcla con el hash de un `usize`. En el motor del navegador (wasm32), el bot puede
+    resumir las ramas distinto que en la PC. Es de antes de g, y conviene confirmarlo.
+- **Para Santi, con la línea 2:** si la búsqueda cruza al turno del rival, ¿la determinización supone conocida su
+  lista? Sería el arquetipo y sus 20 cartas, sin el orden ni la mano. En el juego se infiere del meta, pero no se ve.
