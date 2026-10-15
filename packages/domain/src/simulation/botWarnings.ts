@@ -66,15 +66,22 @@ export function listBotWarnings(
     seen.add(card.functionalGroupId)
     editions.push(card)
   }
+  // Review of the PR: Rare Candy skips the Stage 1, so the line does not hang on it; and without a Tool in the list,
+  // an attack per Tool asks nothing of the bot.
+  const rareCandy = editions.some((card) => card.nameEn === 'Rare Candy')
+  const tools = editions.some((card) => card.evolutionType === 'tool')
   const warnings: BotWarning[] = []
   for (const card of editions) {
-    if (blindSpotsOf(card).includes('stage_without_damage')) {
+    const stalls = (edition: CardEdition) => blindSpotsOf(edition).includes('stage_without_damage')
+    if (!rareCandy && stalls(card)) {
       const next = editions.find((other) => other.cardType === 'pokemon' && other.evolvesFrom === card.nameEn)
-      if (next)
+      // Another edition of the same stage that does damage (Ivysaur A1-2 next to B1a-2) gets the line there.
+      const another = editions.some((other) => other.nameEn === card.nameEn && other.evolvesFrom && !stalls(other))
+      if (next && !another)
         warnings.push({ kind: 'evolution_without_damage', cardId: card.id, nameEs: card.nameEs, nextEs: next.nameEs })
     }
     // e3 already sees the Tool on the Bench and then the attack (Rayquaza: 4 % with e2, 49 % with e3).
-    const attack = depth <= 2 ? card.attacks.find((a) => PER_TOOL.test(a.effect ?? '')) : undefined
+    const attack = depth <= 2 && tools ? card.attacks.find((a) => PER_TOOL.test(a.effect ?? '')) : undefined
     if (attack) warnings.push({ kind: 'bench_tools', cardId: card.id, nameEs: card.nameEs, attack: attack.name })
   }
   return warnings

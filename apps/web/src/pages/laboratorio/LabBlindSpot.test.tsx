@@ -11,7 +11,7 @@ afterEach(() => vi.unstubAllGlobals())
 const TEXT =
   'Posible punto ciego del bot: e2 casi nunca evoluciona a Ivysaur, que no hace daño, así que el mazo casi no llega a Mega-Venusaur ex. Probalo con f2.'
 
-const deck = (snapshot: number, label: string, botBlindSpot: { text: string } | null) => ({
+const deck = (snapshot: number, label: string, botBlindSpot?: { text: string }) => ({
   snapshot,
   label,
   deckId: String(snapshot),
@@ -24,7 +24,8 @@ const deck = (snapshot: number, label: string, botBlindSpot: { text: string } | 
   confirm: null,
   perRival: [],
   changes: null,
-  botBlindSpot,
+  // An API from before H-055 leaves it out: the page still reads the list.
+  ...(botBlindSpot ? { botBlindSpot } : {}),
   novelty: {
     kind: 'played',
     label: 'jugada en torneo',
@@ -69,7 +70,7 @@ const job = {
   format: 'STANDARD',
   size: 3,
   rivals: [],
-  decks: [deck(40, 'Mega-Venusaur ex', { text: TEXT }), deck(2, 'Mega-Blaziken ex', null)],
+  decks: [deck(40, 'Mega-Venusaur ex', { text: TEXT }), deck(2, 'Mega-Blaziken ex')],
   explore: null,
   note: 'Juegan bots.',
 }
@@ -87,4 +88,5 @@ it('H-055: a list says its «posible punto ciego del bot» under its score, and 
   const warning = await screen.findByText(TEXT)
   expect(warning.closest('li')).toHaveTextContent('Mega-Venusaur ex')
   expect(screen.getAllByText(/^Posible punto ciego del bot/)).toHaveLength(1)
+  expect(screen.getByText('Mega-Blaziken ex')).toBeInTheDocument()
 })

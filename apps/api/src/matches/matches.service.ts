@@ -811,7 +811,9 @@ export class MatchesService {
       available: true,
       record: column.record,
       rate: simulationRate(column.record),
-      blindSpot: await this.simulationBlindSpot(deckId, column.players[0]),
+      // Review of the PR: the column pools the deck's games on both sides, so only a bot both sides share names it.
+      blindSpot:
+        column.players[0] === column.players[1] ? await this.simulationBlindSpot(deckId, column.players[0]) : null,
       note: `Bots ${botLabel(column.players[0])} vs ${botLabel(column.players[1])}, ${column.jobs === 1 ? '1 simulación' : `${column.jobs} simulaciones`}, motor ${column.engineRev.slice(0, 7)}. El porcentaje depende del bot.`,
     }
   }
