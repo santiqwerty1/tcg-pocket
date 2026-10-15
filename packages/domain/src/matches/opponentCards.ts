@@ -42,10 +42,15 @@ function nameKey(cardId: CardId, index: CatalogIndex): string | null {
  * The cards as stored: known cards only, one line per name (the copies added up, at most 2), in the order given. An
  * unknown id throws: the caller turns it into a 400.
  */
-export function normalizeSeenCards(cards: readonly SeenCard[], index: CatalogIndex): SeenCard[] {
+export function normalizeSeenCards(
+  cards: readonly SeenCard[],
+  index: CatalogIndex,
+  /** Ids already stored in the match: one the catalog no longer has stays (an edit must not fail for it). */
+  kept: ReadonlySet<CardId> = new Set(),
+): SeenCard[] {
   const byName = new Map<string, SeenCard>()
   for (const card of cards) {
-    const key = nameKey(card.cardId, index)
+    const key = nameKey(card.cardId, index) ?? (kept.has(card.cardId) ? `#${card.cardId}` : null)
     if (key === null) throw new Error(`Carta desconocida: ${card.cardId}.`)
     const count = Math.max(1, Math.min(2, Math.round(card.count)))
     const found = byName.get(key)
@@ -73,6 +78,8 @@ export interface ArchetypeFit {
   lists: number
   /** Its lists that have every card seen, with at least those copies (0–100 of its lists). */
   fits: number
+  /** How many of its lists those are. */
+  fitting: number
   /** Cards seen that its closest list has. */
   best: number
   seen: number
@@ -81,6 +88,25 @@ export interface ArchetypeFit {
 }
 
 const percentEs = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 })
+
+/** Per dataset (its entries array): each list's copies by folded English name, computed once (self-review). */
+const listNames = new WeakMap<readonly DatasetEntry[], Map<string, number>[]>()
+
+function namesOfLists(entries: readonly DatasetEntry[], index: CatalogIndex): Map<string, number>[] {
+  let names = listNames.get(entries)
+  if (!names) {
+    names = entries.map((entry) => {
+      const copies = new Map<string, number>()
+      for (const card of entry.cards) {
+        const key = card.groupId ? (nameKey(card.groupId, index) ?? fold(card.name)) : fold(card.name)
+        copies.set(key, (copies.get(key) ?? 0) + card.count)
+      }
+      return copies
+    })
+    listNames.set(entries, names)
+  }
+  return names
+}
 
 /**
  * The era's archetypes for the cards seen: first those with lists that have every card seen (by how many of their
@@ -100,52 +126,61 @@ export function suggestArchetypesForCards(
     if (key !== null) wanted.set(key, Math.max(wanted.get(key) ?? 0, card.count))
   }
   if (wanted.size === 0) return []
-  const listed = entries.filter((entry) => entry.archetypeId !== null)
-  const byArchetype = new Map<string, { lists: number; fits: number; best: number }>()
-  for (const entry of listed) {
-    const copies = new Map<string, number>()
-    for (const card of entry.cards) {
-      const key = card.groupId ? (nameKey(card.groupId, index) ?? fold(card.name)) : fold(card.name)
-      copies.set(key, (copies.get(key) ?? 0) + card.count)
-    }
+  const names = namesOfLists(entries, index)
+  // Self-review: Limitless may give one name two ids (Mega Lucario ex Lucario: 33 lists and 1); they go together.
+  const byArchetype = new Map<
+    string,
+    { archetypeId: string; name: string; lists: number; fits: number; best: number }
+  >()
+  let total = 0
+  for (const [at, entry] of entries.entries()) {
+    if (entry.archetypeId === null) continue
+    total += 1
+    const copies = names[at] as Map<string, number>
     let have = 0
     for (const [key, count] of wanted) if ((copies.get(key) ?? 0) >= count) have += 1
-    const row = byArchetype.get(entry.archetypeId as string) ?? { lists: 0, fits: 0, best: 0 }
+    const name = archetypes.get(entry.archetypeId)?.name ?? entry.archetypeId
+    const row = byArchetype.get(fold(name)) ?? { archetypeId: entry.archetypeId, name, lists: 0, fits: 0, best: 0 }
     row.lists += 1
     if (have === wanted.size) row.fits += 1
     row.best = Math.max(row.best, have)
-    byArchetype.set(entry.archetypeId as string, row)
+    byArchetype.set(fold(name), row)
   }
-  const total = Math.max(1, listed.length)
-  return [...byArchetype]
-    .filter(([, row]) => row.best > 0)
-    .map(([archetypeId, row]): ArchetypeFit => {
-      const name = archetypes.get(archetypeId)?.name ?? archetypeId
-      const fits = (100 * row.fits) / row.lists
-      const kind = row.fits > 0 ? 'fits' : 'similar'
-      return {
-        archetypeId,
-        name,
-        share: (100 * row.lists) / total,
-        lists: row.lists,
-        fits,
-        best: row.best,
-        seen: wanted.size,
-        kind,
-        text:
-          kind === 'fits'
-            ? `${row.fits === row.lists ? `${row.lists === 1 ? 'su lista tiene' : 'todas sus listas tienen'}` : `el ${percentEs.format(fits)}${'\u00a0'}% de sus listas tiene`} esas cartas (${row.lists} ${row.lists === 1 ? 'lista' : 'listas'})`
-            : `parecido: su lista más cercana tiene ${row.best} de ${wanted.size}`,
-      }
-    })
-    .sort(
-      (a, b) =>
-        Number(b.kind === 'fits') - Number(a.kind === 'fits') ||
-        (a.kind === 'fits' ? b.fits - a.fits : b.best - a.best) ||
-        b.share - a.share ||
-        a.name.localeCompare(b.name, 'es'),
-    )
-    .slice(0, limit)
+  total = Math.max(1, total)
+  return (
+    [...byArchetype.values()]
+      .filter((row) => row.best > 0)
+      .map((row): ArchetypeFit => {
+        const { archetypeId, name } = row
+        const fits = (100 * row.fits) / row.lists
+        const kind = row.fits > 0 ? 'fits' : 'similar'
+        return {
+          archetypeId,
+          name,
+          share: (100 * row.lists) / total,
+          lists: row.lists,
+          fits,
+          fitting: row.fits,
+          best: row.best,
+          seen: wanted.size,
+          kind,
+          text:
+            kind === 'fits'
+              ? `${row.fits === row.lists ? `${row.lists === 1 ? 'su lista tiene' : 'todas sus listas tienen'}` : `el ${percentEs.format(fits)}${'\u00a0'}% de sus listas tiene`} esas cartas (${row.lists} ${row.lists === 1 ? 'lista' : 'listas'})`
+              : `parecido: su lista más cercana tiene ${row.best} de ${wanted.size}`,
+        }
+      })
+      // Self-review: by how many of its lists have the cards (an archetype of one list at 100 % went before one of 30 at
+      // 77 %), then by its share of the era.
+      .sort(
+        (a, b) =>
+          Number(b.kind === 'fits') - Number(a.kind === 'fits') ||
+          (a.kind === 'fits' ? b.fitting - a.fitting : b.best - a.best) ||
+          b.share - a.share ||
+          a.name.localeCompare(b.name, 'es'),
+      )
+      .slice(0, limit)
+  )
 }
 
 export interface SeenMatch {
@@ -173,10 +208,8 @@ export function groupSeenMatches(matches: readonly SeenMatch[], index: CatalogIn
   sorted.sort((a, b) => b.playedAt.getTime() - a.playedAt.getTime() || b.id.localeCompare(a.id))
   for (const match of sorted) {
     const names = new Map<string, SeenCard>()
-    for (const card of match.cards) {
-      const key = nameKey(card.cardId, index)
-      if (key !== null) names.set(key, card)
-    }
+    // Self-review: a card the catalog no longer has still counts, by its id (the match must not vanish from the list).
+    for (const card of match.cards) names.set(nameKey(card.cardId, index) ?? `#${card.cardId}`, card)
     if (names.size === 0) continue
     const home = groups.find(({ names: theirs }) => {
       let shared = 0

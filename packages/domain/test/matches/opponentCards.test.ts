@@ -63,7 +63,9 @@ describe('rival cards seen (pedido de Santi del 14/10)', () => {
     expect(found[0]?.kind).toBe('fits')
     // The «fits» first, by how many of their lists have the cards.
     const fits = found.filter((fit) => fit.kind === 'fits')
-    for (let at = 1; at < fits.length; at++) expect(fits[at - 1]?.fits).toBeGreaterThanOrEqual(fits[at]?.fits ?? 0)
+    for (let at = 1; at < fits.length; at++) {
+      expect(fits[at - 1]?.fitting).toBeGreaterThanOrEqual(fits[at]?.fitting ?? 0)
+    }
     expect(mine?.text).toMatch(
       /(todas sus listas tienen|su lista tiene|% de sus listas tiene) esas cartas \(\d+ listas?\)$/,
     )
@@ -123,5 +125,65 @@ describe('rival cards seen (pedido de Santi del 14/10)', () => {
       ]),
     )
     expect(groups[0]?.lastPlayedAt).toEqual(at(14))
+  })
+
+  describe('self-review', () => {
+    // Synthetic lists: what a test needs of a DatasetEntry (the archetype and the cards).
+    const list = (archetypeId: string, cards: [string, number][]) =>
+      ({
+        archetypeId,
+        cards: cards.map(([name, count]) => ({ name, count, groupId: null, cardId: null, set: 'X', number: '1' })),
+      }) as never
+    const archetypes = new Map([
+      ['one', { id: 'one', name: 'Uno' }],
+      ['many', { id: 'many', name: 'Muchos' }],
+      ['lucario-a', { id: 'lucario-a', name: 'Mega Lucario ex Lucario' }],
+      ['lucario-b', { id: 'lucario-b', name: 'Mega Lucario ex Lucario' }],
+    ]) as never
+    const greninja = { cardId: byName('Greninja'), count: 1 }
+
+    it('an archetype with 3 lists that fit goes before one with a single list at 100 %; one name, one row', () => {
+      const entries = [
+        list('one', [['Greninja', 1]]),
+        list('many', [['Greninja', 1]]),
+        list('many', [['Greninja', 2]]),
+        list('many', [['Greninja', 1]]),
+        list('many', [['Pikachu', 1]]),
+        list('lucario-a', [['Greninja', 1]]),
+        list('lucario-b', [['Greninja', 1]]),
+      ]
+      const found = suggestArchetypesForCards([greninja], entries, archetypes, index)
+      expect(found.map((fit) => [fit.name, fit.fitting, fit.lists])).toEqual([
+        ['Muchos', 3, 4],
+        ['Mega Lucario ex Lucario', 2, 2],
+        ['Uno', 1, 1],
+      ])
+    })
+
+    it('two copies seen need two copies in the list', () => {
+      const entries = [list('one', [['Greninja', 1]]), list('many', [['Greninja', 2]])]
+      const found = suggestArchetypesForCards([{ ...greninja, count: 2 }], entries, archetypes, index)
+      expect(found.map((fit) => [fit.name, fit.kind])).toEqual([['Muchos', 'fits']])
+    })
+
+    it('two cards of one name are one line; a card the catalog lost is kept when it was stored, and grouped by id', () => {
+      expect(
+        normalizeSeenCards(
+          [
+            { cardId: 'A1-150', count: 1 },
+            { cardId: 'B1a-38', count: 1 },
+          ],
+          index,
+        ),
+      ).toEqual([{ cardId: 'A1-150', count: 2 }])
+      expect(normalizeSeenCards([{ cardId: 'GONE-1', count: 1 }], index, new Set(['GONE-1']))).toEqual([
+        { cardId: 'GONE-1', count: 1 },
+      ])
+      const groups = groupSeenMatches(
+        [{ id: '9', playedAt: new Date('2026-10-14T12:00:00Z'), cards: [{ cardId: 'GONE-1', count: 1 }] }],
+        index,
+      )
+      expect(groups.map((group) => group.matchIds)).toEqual([['9']])
+    })
   })
 })
