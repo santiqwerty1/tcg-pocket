@@ -76,8 +76,9 @@ describe('clasificar rivales (14/10)', () => {
     const { calls } = fakeApi({
       'GET /api/matches/unclassified': UNCLASSIFIED,
       'POST /api/matches/classify': (call: { body?: BodyInit | null }) => {
-        const body = JSON.parse(String(call.body)) as { opponent: string; matchIds?: string[] }
+        const body = JSON.parse(String(call.body)) as { opponent: string; matchIds?: string[]; from?: string }
         return {
+          noteMoved: body.from ? { from: body.from, to: body.opponent } : null,
           updated: body.matchIds?.length ?? 3,
           opponent: body.opponent,
           previous: (body.matchIds ?? ['7', '8', '9']).map((id) => ({
@@ -122,6 +123,15 @@ describe('clasificar rivales (14/10)', () => {
     await user.click(screen.getByRole('button', { name: 'Cambiar' }))
     await waitFor(() => expect(posts()).toHaveLength(3))
     expect(JSON.parse(String(posts()[2]?.body))).toEqual({ from: 'Greninja Suicune', opponent: 'Greninja Altaria' })
+    // «Deshacer» the rename: each match gets its rival back, and the note goes with them (Codex on #114).
+    const undo = await screen.findAllByRole('button', { name: 'Deshacer' })
+    await user.click(undo[undo.length - 1] as HTMLElement)
+    await waitFor(() => expect(posts()).toHaveLength(4))
+    expect(JSON.parse(String(posts()[3]?.body))).toEqual({
+      matchIds: ['7', '8', '9'],
+      opponent: 'Greninja Suicune',
+      note: { from: 'Greninja Altaria', to: 'Greninja Suicune' },
+    })
   })
 
   it('nothing to classify says how to get there', async () => {

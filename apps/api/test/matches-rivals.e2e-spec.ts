@@ -185,6 +185,25 @@ describe('rivals by the cards seen (e2e)', () => {
       expect.objectContaining({ key: 'suicune ex baxcalibur', text: 'Cuidado con el agua.' }),
     )
     expect(notes.some((item) => item.key === 'greninja suicune')).toBe(false)
+    expect(moved.body.noteMoved).toEqual({ from: 'Greninja Suicune', to: 'Suicune ex Baxcalibur' })
+    // «Deshacer» the rename (Codex on #114): the matches and the note go back together.
+    const back = await post('/api/matches/classify').send({
+      matchIds: (moved.body.previous as { id: string }[]).map((row) => row.id),
+      opponent: 'Greninja Suicune',
+      note: { from: 'Suicune ex Baxcalibur', to: 'Greninja Suicune' },
+    })
+    expect(back.body).toMatchObject({
+      updated: 3,
+      noteMoved: { from: 'Suicune ex Baxcalibur', to: 'Greninja Suicune' },
+    })
+    const restored = (await get('/api/rival-notes')).body.items as { key: string; text: string }[]
+    expect(restored).toContainEqual(expect.objectContaining({ key: 'greninja suicune', text: 'Cuidado con el agua.' }))
+    expect(restored.some((item) => item.key === 'suicune ex baxcalibur')).toBe(false)
+    // And again, to go on with the rest of the test.
+    expect(
+      (await post('/api/matches/classify').send({ from: 'Greninja Suicune', opponent: 'Suicune ex Baxcalibur' })).body
+        .noteMoved,
+    ).toEqual({ from: 'Greninja Suicune', to: 'Suicune ex Baxcalibur' })
     const list = (await get('/api/matches?opponent=Suicune%20ex%20Baxcalibur&opponentMatch=exact')).body.items as {
       opponent: string
       opponentCards: Seen[]

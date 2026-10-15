@@ -826,7 +826,13 @@ export class MatchesService {
    * Gives the matches one rival: an archetype's name or one of the owner's own («Greninja Suicune»). By ids, or every
    * match of a rival typed before (`from`, by its key: reclassifying). Returns how many changed.
    */
-  async classify(input: { matchIds?: string[] | undefined; from?: string | undefined; opponent: string | null }) {
+  async classify(input: {
+    matchIds?: string[] | undefined
+    from?: string | undefined
+    opponent: string | null
+    /** «Deshacer» a rename: the note goes back from `from` to `to` (labels), in the same transaction. */
+    note?: { from: string; to: string } | undefined
+  }) {
     // `null`: back to «sin clasificar» (what «Deshacer» sends for matches that had no rival).
     const opponent = input.opponent === null ? null : storedOpponent(input.opponent)
     if (input.opponent !== null && opponent === null) {
@@ -858,18 +864,29 @@ export class MatchesService {
         where: { id: { in: [...targets] } },
         data: { opponentText: opponent },
       })
-      // The note about the rival follows its new name when that one has none.
-      const toKey = opponentKey(opponent)
-      if (fromKey !== null && toKey !== null && toKey !== fromKey) {
-        const taken = await tx.rivalNote.findUnique({ where: { key: toKey }, select: { key: true } })
-        if (!taken) {
-          await tx.rivalNote.updateMany({ where: { key: fromKey }, data: { key: toKey, label: opponent as string } })
-        }
+      // The note about the rival follows its new name when that one has none; «Deshacer» sends it back (Codex on #114:
+      // undoing a rename restored the matches but left the note on the new name).
+      const moveNote = async (from: string, to: string) => {
+        const [fromNote, toNote] = [opponentKey(from), opponentKey(to)]
+        if (fromNote === null || toNote === null || fromNote === toNote) return null
+        const note = await tx.rivalNote.findUnique({ where: { key: fromNote }, select: { label: true } })
+        const taken = await tx.rivalNote.findUnique({ where: { key: toNote }, select: { key: true } })
+        if (!note || taken) return null
+        await tx.rivalNote.update({ where: { key: fromNote }, data: { key: toNote, label: to } })
+        return { from: note.label, to }
       }
+      const noteMoved =
+        input.note !== undefined
+          ? await moveNote(input.note.from, input.note.to)
+          : input.from !== undefined && opponent !== null
+            ? await moveNote(input.from, opponent)
+            : null
       return {
         updated: count,
         opponent,
         previous: before.map((row) => ({ id: idToString(row.id), opponent: row.opponentText })),
+        /** The note moved with it (labels), for «Deshacer». */
+        noteMoved,
       }
     })
   }

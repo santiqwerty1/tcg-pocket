@@ -45,6 +45,13 @@ const classifySchema = z
     from: z.string().trim().min(1).max(OPPONENT_MAX_LENGTH).optional(),
     /** `null`: back to «sin clasificar» («Deshacer»). */
     opponent: z.string().trim().min(1).max(OPPONENT_MAX_LENGTH).nullable(),
+    /** «Deshacer» a rename: the rival's note goes back (labels). */
+    note: z
+      .object({
+        from: z.string().trim().min(1).max(OPPONENT_MAX_LENGTH),
+        to: z.string().trim().min(1).max(OPPONENT_MAX_LENGTH),
+      })
+      .optional(),
   })
   .refine((body) => (body.matchIds?.length ?? 0) > 0 || body.from !== undefined, {
     message: 'Mandá las partidas o el rival a reclasificar.',
@@ -190,7 +197,12 @@ export class MatchesController {
   classify(
     @Body(new ZodValidationPipe(classifySchema)) body: z.infer<typeof classifySchema>,
     @CurrentSession() _session: RequestSession,
-  ): Promise<{ updated: number; opponent: string | null; previous: { id: string; opponent: string | null }[] }> {
+  ): Promise<{
+    updated: number
+    opponent: string | null
+    previous: { id: string; opponent: string | null }[]
+    noteMoved: { from: string; to: string } | null
+  }> {
     return this.matches.classify(body)
   }
 

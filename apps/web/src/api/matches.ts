@@ -226,10 +226,16 @@ const classifiedSchema = z.object({
   updated: z.number(),
   opponent: z.string().nullable(),
   previous: z.array(z.object({ id: z.string(), opponent: z.string().nullable() })).default([]),
+  noteMoved: z.object({ from: z.string(), to: z.string() }).nullable().default(null),
 })
 export type Classified = z.infer<typeof classifiedSchema>
 
-async function classify(body: { matchIds?: string[]; from?: string; opponent: string | null }) {
+async function classify(body: {
+  matchIds?: string[]
+  from?: string
+  opponent: string | null
+  note?: { from: string; to: string }
+}) {
   return request('/api/matches/classify', { method: 'POST', body, schema: classifiedSchema })
 }
 
@@ -250,6 +256,11 @@ export async function undoClassify(done: Classified, queryClient: QueryClient): 
     ids.push(item.id)
     byOpponent.set(item.opponent, ids)
   }
-  for (const [opponent, matchIds] of byOpponent) await classify({ matchIds, opponent })
+  // The rival's note goes back with the first group (Codex on #114).
+  let note = done.noteMoved ? { from: done.noteMoved.to, to: done.noteMoved.from } : undefined
+  for (const [opponent, matchIds] of byOpponent) {
+    await classify({ matchIds, opponent, ...(note ? { note } : {}) })
+    note = undefined
+  }
   await invalidateMatches(queryClient)
 }
