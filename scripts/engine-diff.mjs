@@ -3,14 +3,18 @@
 // byte for byte the same result; the ones that differ are listed with the touched cards of each side, and the ones
 // without any are «UNEXPLAINED» (docs/OPERACION.md, «El motor: nuestra copia de deckgym»).
 // Usage: node scripts/engine-diff.mjs <old engine-cli> <new engine-cli> <decks.jsonl> <out dir> [games] [concurrency]
+//   [seed base]
+// Pairing i plays with seed `base × (i + 1)` (1.000.003 by default). Game g of a job uses splitmix64(seed ^ splitmix64(g)),
+// so more games with the same base replay the first ones: another base plays other games.
 // decks.jsonl: one JSON per line, {"side": "a" | "b", "label": "…", "text": "<deck in deckgym's format>"}.
 import { spawn } from 'node:child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const [oldEngine, newEngine, decksFile, outDir, gamesArg, concurrencyArg] = process.argv.slice(2)
+const [oldEngine, newEngine, decksFile, outDir, gamesArg, concurrencyArg, seedArg] = process.argv.slice(2)
 const games = Number(gamesArg ?? 10)
 const concurrency = Number(concurrencyArg ?? 4)
+const seedBase = Number(seedArg ?? 1_000_003)
 mkdirSync(outDir, { recursive: true })
 const decks = readFileSync(decksFile, 'utf8')
   .trim()
@@ -29,7 +33,7 @@ const AFFECTED = [
   /Carracosta/,
   /Quick-Grow Extract/,
   /Wallace/,
-  /Fossil/,
+  /Fossil|Old Amber/,
   /Baxcalibur/,
   /Celesteela/,
   /Vaporeon/,
@@ -39,6 +43,8 @@ const affected = (text) => AFFECTED.filter((pattern) => pattern.test(text)).map(
 function run(engine, job, name) {
   const jobFile = join(outDir, `${name}.job.json`)
   const resultFile = join(outDir, `${name}.result.json`)
+  // A result from an earlier run in the same folder must not pass for this one.
+  rmSync(resultFile, { force: true })
   writeFileSync(jobFile, JSON.stringify(job))
   return new Promise((resolve) => {
     const child = spawn(engine, ['simulate', jobFile, resultFile], { stdio: ['ignore', 'ignore', 'pipe'] })
@@ -47,6 +53,10 @@ function run(engine, job, name) {
       stderr = (stderr + chunk).slice(-2000)
     })
     child.on('close', (code) => {
+      if (code !== 0) {
+        resolve({ code, result: null, stderr: `exit ${code}: ${stderr.trim().split('\n').slice(-3).join(' | ')}` })
+        return
+      }
       try {
         const result = JSON.parse(readFileSync(resultFile, 'utf8'))
         resolve({ code, result })
@@ -68,7 +78,7 @@ const tasks = []
 let index = 0
 for (const a of sideA) {
   for (const b of sideB) {
-    const seed = 1_000_003 * (index + 1)
+    const seed = seedBase * (index + 1)
     const job = { deckA: a.text, deckB: b.text, players: ['e2', 'e2'], games, seed, threads: 2, perGame: true }
     tasks.push({ index, a, b, job })
     index++

@@ -65,7 +65,7 @@ export function parseAllowed(line: string, at: Date): RegulatorState | null {
 }
 
 export const MAX_STARTS_PER_HOUR = 5
-/** How long a regulator may take to say its first line before the pings count it as hung. */
+/** How long a regulator may take to say its first line before the pings count it as hung (`startupTimeoutMs`). */
 const STARTUP_MS = 30_000
 
 export interface RegulatorOptions {
@@ -85,6 +85,8 @@ export interface RegulatorOptions {
   stopTimeoutMs?: number
   /** How long the last short run after the fifth start may take before it is killed. */
   restoreTimeoutMs?: number
+  /** How long a regulator may take to say its first line before it is cut, with pings on (tests make it short). */
+  startupTimeoutMs?: number
   /** Its engine answers `ping` (`regulatePing`): check it every `pingEveryMs`, cut it after `pingTimeoutMs` without an answer. */
   ping?: boolean
   pingEveryMs?: number
@@ -194,14 +196,14 @@ export class CpuRegulator implements EngineListener {
     const timeout = this.options.pingTimeoutMs ?? 15_000
     // A ping every `every`, looked at often enough to notice a missing pong after `timeout` (autorrevisión: one tick of
     // the shorter of the two sent a ping every 15 s). Only once the regulator said its first line: a start slower than
-    // the timeout (a busy machine) is not a hung regulator; one that says nothing in `STARTUP_MS` is cut.
+    // the timeout (a busy machine) is not a hung regulator; one that says nothing in `startupTimeoutMs` is cut.
     const startedAt = Date.now()
     let lastPingAt = startedAt
     this.pingTimer = setInterval(
       () => {
         if (this.child !== child) return
         if (!this.ready) {
-          if (Date.now() - startedAt < Math.max(timeout, STARTUP_MS)) return
+          if (Date.now() - startedAt < Math.max(timeout, this.options.startupTimeoutMs ?? STARTUP_MS)) return
           this.options.log('el regulador de CPU no arrancó: lo corto', {
             seconds: Math.round((Date.now() - startedAt) / 1000),
           })

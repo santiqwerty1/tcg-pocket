@@ -106,7 +106,10 @@ if (command === 'version') {
     process.stderr.write('fin error 2\n')
     process.exit(2)
   }
-  process.stdout.write('regulador 20 logicos 12 nucleos (4 eficientes) maximo 20 piso 2\n')
+  // FAKE_REGULATE_SILENT: it never says its first line (hung while starting).
+  if (!process.env.FAKE_REGULATE_SILENT) {
+    process.stdout.write('regulador 20 logicos 12 nucleos (4 eficientes) maximo 20 piso 2\n')
+  }
   const managed = new Set()
   let buffer = ''
   process.stdin.setEncoding('utf8').on('data', (data) => {
