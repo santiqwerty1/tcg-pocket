@@ -71,6 +71,13 @@ pide tres funciones públicas al fork. La evaluación usa solo lo que un jugador
 - la lista de su propio mazo;
 - del rival, solo lo que está en juego.
 
+Para eso evalúa sobre una copia en la que la mano y el mazo del rival son cartas desconocidas: cuántas hay es público,
+qué son no (`hide`, de la revisión de #111). Así no se cuela lo oculto por un ataque que lo cuenta (Cyberjack de
+Porygon-Z cuenta los Entrenadores del mazo rival; Puppy Pile de Lillipup, los Lillipup de la mano de su dueño) ni por
+el término «Activo listo» de deckgym, que busca evoluciones en la mano y el mazo de cada lado. Las desconocidas
+cuentan como Objetos sin nombre; con la línea 2 pasan a ser la lista típica del arquetipo. Un test compara dos
+tableros iguales en lo público y distintos en lo oculto: dan lo mismo.
+
 ### 1. El daño, del motor
 
 El motor ya calcula el daño esperado de un ataque contra cada Pokémon, sin jugarlo: es
@@ -164,13 +171,15 @@ El peso de la herramienta del Activo (10) queda como parámetro.
 - **Repetir:** un ataque que descarta su Energía no se puede repetir el turno siguiente. Cada golpe después del
   primero cuesta un turno por Energía descartada (al menos uno), con 1 Energía por turno, o más con aceleración.
   Luster Purge, por ejemplo, pega cada 3 turnos.
-- **Llegar al Activo:** un atacante de la Banca necesita que el Activo se vaya, así que a su preparación se le suma el
-  costo de retirada del Activo. Ese costo baja con Globito y es 0 si el Activo es Latios con Latias en juego
+- **Llegar al Activo:** un atacante de la Banca necesita que el Activo se vaya. A su preparación se le suma la
+  Energía que al Activo todavía le falta para pagar su retirada: el costo menos lo que ya tiene puesto, a una por
+  turno. Si ya la tiene, no suma nada. El costo baja con Globito y es 0 si el Activo es Latios con Latias en juego
   (Fantastical Floating). El costo efectivo lo calcula el motor, y es el tercer cambio que se le pide al fork.
 
 ### 6. La carrera (g 1.1, con un interruptor)
 
-En vez de dos relojes independientes, la evaluación juega una carrera turno por turno, como mucho 15:
+En vez de dos relojes independientes, la evaluación juega una carrera turno por turno, como mucho 15 y nunca más allá
+del límite de la partida (deckgym la empata cuando empieza el turno 31: una carrera sin terminar ahí es un empate):
 - cada lado pega con el mejor atacante que tiene listo;
 - un KO da sus puntos y saca a ese Pokémon de la carrera, con su amenaza;
 - el que lo pierde sube el Pokémon que más lo ayuda en la carrera.
@@ -228,9 +237,10 @@ Lo demás que g necesita ya es público:
   de e2 por partida**.
 - **Presupuesto:** g2 no puede pasar de 3 veces e2 en la PC.
   - Como referencia, e3 cuesta 4,6 veces. f2 cuesta 2 veces en la PC, 1,3 en el segundo worker y 1,1 en el celu.
-  - Si g2 se pasa, el daño se guarda por tablero. La clave es exacta: lo que hay en juego, el estadio, los efectos del
-    turno y de quién es el turno. Con 10–19 tableros distintos por decisión, se ahorra la mitad.
-  - La caché va en un `BTreeMap` o un `Vec`, nunca recorriendo un `HashMap`.
+  - g 1.0 cuesta 2,1 veces e2, así que no lleva caché. Si un día hace falta, la clave tiene que llevar todo lo que lee
+    el cálculo del daño, no solo lo que hay en juego: también el descarte (Past Friends suma por cada Partidario
+    descartado), el tamaño de la mano y del mazo, el estadio, los efectos del turno y de quién es el turno.
+  - La caché iría en un `BTreeMap` o un `Vec`, nunca recorriendo un `HashMap`.
 - **Determinismo:**
   - en la evaluación, solo sumas, restas, productos, divisiones, `sqrt`, `floor` y `ceil`, que dan lo mismo en todas
     las plataformas. Nada de `exp`, `ln` ni `powf`, que dependen de la biblioteca matemática de cada sistema;
@@ -284,7 +294,22 @@ propio PR más adelante.
 | g2 contra e2 | 58,2 % | 54,7–62,3 % |
 | g2 contra f2 | 50,9 % | 49,5–52,4 % |
 
-- **Contra e2 cumple el criterio. Contra f2 no:** en este banco juegan parejo.
+Después de tapar lo oculto (`hide`), con `scripts/bots-league.mjs` (40 partidas por lado, 2.200 apareadas por
+cruce):
+
+| Liga | Cruce | g2 gana | IC 95 % |
+|---|---|---|---|
+| semilla 20261015 | g2 contra e2 | 59,0 % | 55,9–62,4 % |
+| semilla 20261015 | g2 contra f2 | 52,0 % | 50,6–53,4 % |
+| semilla 20261016 (nueva) | g2 contra f2 | 52,7 % | 51,1–54,3 % |
+| semilla 20261016, g sin `hide` | g2 contra f2 | 52,8 % | 51,2–54,3 % |
+
+Elo de la liga de tres (semilla 20261015): e2 0, f2 +48, g2 +63.
+
+- **Contra e2 cumple el criterio.**
+- **Contra f2 está en el borde:** en dos de las tres ligas el intervalo queda entero arriba del 50 %, y en la otra
+  no. g2 le gana a f2 por 1 a 3 puntos. Tapar lo oculto no le cambia la fuerza (52,7 contra 52,8 en las mismas
+  partidas).
 - **La ablación** se hizo con g 1.0 antes de los arreglos de la autorrevisión. Cada parte se apagó por separado y se
   jugó g2 contra f2:
 
@@ -308,7 +333,7 @@ propio PR más adelante.
   | f2 | 128 ms |
   | g2 | 255 ms |
 
-  g2 cuesta 2,1 veces e2: dentro del tope de 3.
+  g2 cuesta 2,1 veces e2: dentro del tope de 3. Con `hide`, en otra corrida: e2 94 ms, f2 114 y g2 212, 2,3 veces.
 - **Lo siguiente:**
   - la carrera (punto 6);
   - los pesos (línea 3): «PS × Energía» y «Activo listo» cuentan dos veces lo que mide el reloj;
@@ -325,9 +350,13 @@ propio PR más adelante.
 
   La app todavía no acepta los códigos: eso, el filtro de la cola, los avisos, las partidas contra el bot y las
   tools van en otro PR, como se hizo con f.
-- **Lo que falta para la feature `gBots`:** sumarla a `ENGINE_FEATURES` de
-  `packages/domain/src/simulation/capabilities.ts`, con su `canPlayGBots` como el de f, así la cola le manda un
-  trabajo con g solo a un motor que lo tiene. En el motor ya está, en los dos `FEATURES` de `engine/src/main.rs`.
+- **Lo que falta para que la app acepte g** (revisión de #111): en el motor la feature ya está, en los dos
+  `FEATURES` de `engine/src/main.rs`. Con f se hizo así, y con g va igual:
+  - `BOT_CODE_PATTERN` y la lista de códigos de `packages/domain/src/simulation/jobs.ts` (hoy rechazan `g`);
+  - `gBots` en `ENGINE_FEATURES` y su `canPlayGBots` en `capabilities.ts`;
+  - el filtro del reclamo de chunks (`worker-queue.service.ts`) y el de las partidas en vivo
+    (`live-games.service.ts`), que hoy miran los códigos de f, más el aviso al worker que no puede jugarlos;
+  - los avisos (`alerts.service.ts`), las tools de MCP y sus tests.
 - **El motor del navegador** (`engine/wasm`) incluye `fair_bot.rs` con `#[path]` y fija su propio deckgym. Tiene que
   pasar al fork junto con el resto, o no compila. Si g entra ahí, va igual que f.
 - **La lista de bots** en la pantalla viene después.
@@ -358,6 +387,9 @@ propio PR más adelante.
 6. **Línea 3, los pesos:**
    - CMA-ES sobre `GParams`, con un subcomando de engine-cli que corre afuera de la app;
    - la nota es el porcentaje contra la liga, con semillas comunes y mazos fijos;
+   - **sin sobreajuste** (revisión de #111): el afinado elige con unas semillas y unos mazos, y la nota que vale (el
+     criterio, el intervalo y el Elo) sale de otra liga, con semillas nuevas y, si se puede, otras listas, con los
+     `GParams` ya fijos. Elegir sobre las mismas partidas que dan el intervalo lo deja angosto de más;
    - los torneos quedan como control.
 7. **Línea 4, la red:** primero el diseño:
    - autojuego al estilo AlphaZero, con lo que el tablero muestra como entrada;

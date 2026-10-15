@@ -9,15 +9,15 @@
 //! - an attack that discards its Energy (Latios' Luster Purge) can only hit every so many turns;
 //! - a Benched attacker waits for the Active to retreat, and an Asleep or Paralyzed Active loses its turn.
 //!
-//! Only what a player sees: the board, the Energy Zones, the own deck list and hand; the rival's evolutions in deck
-//! or hand stay hidden. The search is deckgym's, unchanged (it still sees the draws: line 2). deckgym is not changed
+//! Only what a player sees: the board, the Energy Zones, the own deck list and hand; the rival's hand and deck are
+//! unknown cards on the copy it evaluates (`hide`), so neither its evolutions nor an attack that counts them leak. The search is deckgym's, unchanged (it still sees the draws: line 2). deckgym is not changed
 //! here, and no game of another bot changes.
 
 use deckgym::actions::{expected_attack_damage, Mechanic, EFFECT_MECHANIC_MAP};
 use deckgym::card_logic::get_highest_evolutions;
 use deckgym::effects::{CardEffect, TurnEffect};
 use deckgym::get_retreat_cost;
-use deckgym::models::{Attack, Card, EnergyType};
+use deckgym::models::{Attack, Card, EnergyType, TrainerCard, TrainerType};
 use deckgym::players::{parametric_value_function, ValueFunctionParams};
 use deckgym::state::observation::knockout_points;
 use deckgym::state::PlayedCard;
@@ -57,10 +57,29 @@ const ASLEEP_TURNS: f64 = 2.0 / 3.0;
 /// g's evaluation of `state` for `myself`.
 pub fn g_value_function(state: &State, myself: usize, params: &GParams) -> f64 {
     let opponent = (myself + 1) % 2;
-    // One copy per evaluation: the attackers and defenders take the Active spot on it in turn.
+    // One copy per evaluation, with what `myself` cannot see hidden: the attackers and defenders take the Active spot
+    // on it in turn, and deckgym's own terms are read from it too (its «Active ready» looks for evolutions in the deck
+    // and hand of each side).
     let mut probe = state.clone();
+    hide(&mut probe, opponent);
     let clock = turns_to_win(&mut probe, opponent, false, params) - turns_to_win(&mut probe, myself, true, params);
-    parametric_value_function(state, myself, &params.base) + clock * params.clock
+    parametric_value_function(&probe, myself, &params.base) + clock * params.clock
+}
+
+/// The rival's hand and deck as unknown cards, so far as `state` is a copy for the evaluation: how many there are is
+/// public, what they are is not. An attack that counts them (Porygon-Z's Cyberjack, the Trainers in its rival's deck;
+/// Lillipup's Puppy Pile, the Pokémon in its own hand) sees Items with no name. The Energy Zone stays: it is public.
+pub fn hide(state: &mut State, rival: usize) {
+    let unknown = Card::Trainer(TrainerCard {
+        id: "UNKNOWN".to_string(),
+        trainer_card_type: TrainerType::Item,
+        name: "Unknown".to_string(),
+        effect: String::new(),
+        rarity: String::new(),
+        booster_pack: String::new(),
+    });
+    state.hands[rival].fill(unknown.clone());
+    state.decks[rival].cards.fill(unknown);
 }
 
 /// One Pokémon of the side being knocked out, as the clock sees it.
@@ -763,6 +782,48 @@ mod tests {
         let mut probe = target(0);
         probe.in_play_pokemon[0].swap(0, 1);
         assert_eq!(damage_against(&mut probe, 0, &first_attack(&decidueye), 0, false), 0.0);
+    }
+
+    #[test]
+    fn what_the_rival_hides_does_not_change_the_evaluation() {
+        // Porygon-Z's Cyberjack does 20 more for each Trainer in its rival's deck; Lillipup's Puppy Pile, 20 for each
+        // Lillipup in play or in its owner's hand. Two boards alike in everything public: the rival's (player 1's)
+        // deck and hand differ in what they are, not in how many.
+        let porygon = card("B1a 058").with_energy(vec![EnergyType::Colorless; 3]);
+        let mut state = board(DEDENNE, DEDENNE, vec![porygon], vec![card("B3 137"), card("B3 137")]);
+        let lillipup = || match PlayedCard::from_id(CardId::from_card_id("B3 137").expect("id")).card {
+            card @ Card::Pokemon(_) => card,
+            _ => panic!("Lillipup"),
+        };
+        state.hands[1] = vec![tool("A2 147"), tool("A2 147")];
+        let mut other = state.clone();
+        other.hands[1] = vec![lillipup(), lillipup()];
+        for card in other.decks[1].cards.iter_mut().filter(|c| matches!(c, Card::Trainer(_))) {
+            *card = lillipup();
+        }
+        assert_eq!(other.decks[1].cards.len(), state.decks[1].cards.len());
+        // On the boards as they are, Cyberjack reads the rival's deck: the leak this guards against.
+        let cyberjack = first_attack(state.in_play_pokemon[0][0].as_ref().expect("Porygon-Z"));
+        let seen = |board: &State| damage_against(&mut board.clone(), 0, &cyberjack, 0, false);
+        assert_ne!(seen(&state), seen(&other));
+        assert_eq!(seen(&hide_then(&state, 1)), seen(&hide_then(&other, 1)));
+        let params = GParams::default();
+        assert_eq!(g_value_function(&state, 0, &params), g_value_function(&other, 0, &params));
+        assert_ne!(
+            turns_to_win(&mut state.clone(), 0, true, &params),
+            turns_to_win(&mut other.clone(), 0, true, &params),
+            "the boards must differ where it matters"
+        );
+        // What g's own side holds still counts: its own hand is not hidden from it.
+        let mut mine = state.clone();
+        mine.hands[0] = vec![lillipup()];
+        assert_eq!(hide_then(&mine, 1).hands[0], mine.hands[0]);
+    }
+
+    fn hide_then(state: &State, rival: usize) -> State {
+        let mut copy = state.clone();
+        hide(&mut copy, rival);
+        copy
     }
 
     #[test]
