@@ -13,6 +13,7 @@ import {
   MATCH_RESULT_LABEL_ES,
   MCP_WRITE_TOOLS,
   OPTIMIZE_CONFIRM_GAMES,
+  type SeenCard,
   type SelectableEnergy,
   type WinRate,
 } from '@tcg/domain'
@@ -28,7 +29,7 @@ import type { CreateJobInput } from '../simulation/simulations.service.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
 import { EngineStatusService, type SnapshotSource } from '../simulation/snapshots.service.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
-import { resolveCardRef } from './card-ref.js'
+import { resolveCardRef, seenCardFromText } from './card-ref.js'
 import { DeckRefResolver } from './deck-ref.js'
 import { type AuditNote, type AuditUndo, McpAuditService } from './mcp-audit.service.js'
 import { jobSummaryJson } from './mcp-json.js'
@@ -69,6 +70,13 @@ function matchView(match: MatchView): Json {
     deckRevision: match.deckRevision,
     result: MATCH_RESULT_LABEL_ES[match.result],
     opponent: match.opponent,
+    ...(match.opponentCards.length > 0
+      ? {
+          opponentCards: match.opponentCards.map((card) =>
+            card.count > 1 ? `${card.count} ${card.nameEs}` : card.nameEs,
+          ),
+        }
+      : {}),
     wentFirst: match.wentFirst === null ? null : match.wentFirst ? 'empecé yo' : 'empezó el rival',
     mode: MATCH_MODE_LABEL_ES[match.mode],
     note: match.note || null,
@@ -359,6 +367,7 @@ export class McpWriteToolsService {
     mode?: 'competitive' | 'casual' | 'beginner' | 'event' | 'friend'
     note?: string
     playedAt?: string
+    opponentCards?: string[]
   }): Promise<Json> {
     const deck = await this.deckRefs.resolve(args.deck)
     const match = await this.matches.create(
@@ -366,6 +375,7 @@ export class McpWriteToolsService {
         deckId: deck.id,
         result: args.result,
         opponent: args.opponent ?? null,
+        ...(args.opponentCards ? { opponentCards: this.seenCards(args.opponentCards) } : {}),
         wentFirst: args.wentFirst ?? null,
         ...(args.mode ? { mode: args.mode } : {}),
         ...(args.note !== undefined ? { note: args.note } : {}),
@@ -386,6 +396,7 @@ export class McpWriteToolsService {
     mode?: 'competitive' | 'casual' | 'beginner' | 'event' | 'friend'
     note?: string
     playedAt?: string
+    opponentCards?: string[]
   }): Promise<Json> {
     const deckId = args.deck === undefined ? undefined : (await this.deckRefs.resolve(args.deck)).id
     const before = await this.matches.get(args.id)
@@ -397,8 +408,15 @@ export class McpWriteToolsService {
       ...(args.mode !== undefined ? { mode: args.mode } : {}),
       ...(args.note !== undefined ? { note: args.note } : {}),
       ...(args.playedAt !== undefined ? { playedAt: args.playedAt } : {}),
+      ...(args.opponentCards !== undefined ? { opponentCards: this.seenCards(args.opponentCards) } : {}),
     })
     return { updated: true, before: matchView(before), match: matchView(after) }
+  }
+
+  /** «2 Greninja», «Suicune ex», «A1-89»: the cards seen as the API takes them (any card of the name counts). */
+  private seenCards(texts: readonly string[]): SeenCard[] {
+    const index = this.catalog.requireIndex()
+    return texts.map((text) => seenCardFromText(index, text))
   }
 
   /** Fase 43: the row is kept in the audit log, so matches_restore (or «Deshacer» in the app) brings it back. */
@@ -415,6 +433,7 @@ export class McpWriteToolsService {
         deckRevisionId: row.deckRevisionId,
         result: row.result,
         opponentText: row.opponentText,
+        opponentCards: row.opponentCards as { cardId: string; count: number }[],
         wentFirst: row.wentFirst,
         mode: row.mode,
         note: row.note,

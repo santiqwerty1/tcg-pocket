@@ -580,12 +580,17 @@ export type MatchMode = z.infer<typeof matchModeSchema>
 export const matchDeckRefSchema = z.object({ id: z.string(), name: z.string(), archived: z.boolean() })
 export type MatchDeckRef = z.infer<typeof matchDeckRefSchema>
 
+/** 14/10: a rival's card seen, any edition of its name. */
+export const seenCardSchema = z.object({ cardId: z.string(), count: z.number(), nameEs: z.string() })
+export type SeenCard = z.infer<typeof seenCardSchema>
+
 export const matchSchema = z.object({
   id: z.string(),
   deck: matchDeckRefSchema,
   deckRevision: z.number(),
   result: matchResultSchema,
   opponent: z.string().nullable(),
+  opponentCards: z.array(seenCardSchema).default([]),
   wentFirst: z.boolean().nullable(),
   mode: matchModeSchema,
   note: z.string(),
@@ -609,7 +614,41 @@ export interface MatchInput {
   clientRef?: string
   /** Fase 28: how long ago it was played, measured on the phone (for a match saved without signal). */
   playedAgoMs?: number
+  /** 14/10: the rival's cards seen. */
+  opponentCards?: { cardId: string; count: number }[]
 }
+
+/** 14/10: an archetype of the era for the rival's cards seen. */
+export const archetypeFitSchema = z.object({
+  archetypeId: z.string(),
+  name: z.string(),
+  share: z.number(),
+  lists: z.number(),
+  fits: z.number(),
+  best: z.number(),
+  seen: z.number(),
+  kind: z.enum(['fits', 'similar']),
+  text: z.string(),
+})
+export type ArchetypeFit = z.infer<typeof archetypeFitSchema>
+export const rivalSuggestionsSchema = z.object({
+  era: z.string(),
+  lists: z.number(),
+  suggestions: z.array(archetypeFitSchema),
+})
+export const unclassifiedSchema = z.object({
+  era: z.string(),
+  groups: z.array(
+    z.object({
+      matches: z.array(matchSchema),
+      cards: z.array(seenCardSchema),
+      text: z.string(),
+      suggestions: z.array(archetypeFitSchema),
+    }),
+  ),
+  own: z.array(z.object({ key: z.string(), label: z.string(), games: z.number() })),
+})
+export type Unclassified = z.infer<typeof unclassifiedSchema>
 
 export const pickerDeckSchema = z.object({
   id: z.string(),

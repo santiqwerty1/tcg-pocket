@@ -361,6 +361,22 @@ export const MCP_READ_TOOLS = {
       limit: z.number().int().min(1).max(30).optional().describe('Arquetipos a devolver (por defecto 8)'),
     }),
   },
+  matchesRivalSuggest: {
+    name: 'matches_rival_suggest',
+    title: 'Clasificar al rival por las cartas vistas',
+    description:
+      'Con las cartas que Santi vio del rival («2 Greninja», «Suicune ex»), los arquetipos de la era vigente que las juegan: primero los que tienen listas con todas (y qué parte de sus listas), después los parecidos («su lista más cercana tiene 2 de 3»). Sin «cards», las partidas sin rival y con cartas vistas, agrupadas por cartas parecidas y con sus sugerencias, y los rivales que Santi anotó que no son arquetipos de la era. Para ponerle el rival a una partida, matches_update con «opponent» (sugerí, no clasifiques sin que Santi diga cuál). Son listas de torneo (personas): no se mezclan con sus partidas.',
+    input: z.object({
+      cards: z
+        .array(query)
+        .min(1)
+        .max(20)
+        .optional()
+        .describe(
+          'Cartas vistas, «2 Greninja» o «Suicune ex» (nombre o código); sin ellas, las partidas por clasificar',
+        ),
+    }),
+  },
   matchesMyMeta: {
     name: 'matches_my_meta',
     title: 'Mi meta',
