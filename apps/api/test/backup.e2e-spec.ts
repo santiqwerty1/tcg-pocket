@@ -130,6 +130,17 @@ describe('backup and settings (e2e)', () => {
         })
       ).status,
     ).toBe(201)
+    // Version 10 (14/10): a ranked season and a rank noted travel too.
+    expect(
+      (
+        await test
+          .http()
+          .put('/api/ranked/seasons/B4bSP')
+          .set('Cookie', cookie)
+          .send({ name: 'Temporada B4b SP', startsOn: '2026-10-14', endsOn: '2026-10-28' })
+      ).status,
+    ).toBe(200)
+    expect((await post('/api/ranked/ranks').send({ rank: 'ultra-2', at: '2026-10-14T21:10:00.000Z' })).status).toBe(201)
     // Pack switch (Fase 4): B4b turned off travels in the backup; A4b starts off by default.
     expect((await patch('/api/packs/B4b/deluxepackmega').send({ available: false })).status).toBe(200)
     // «Tiempo limitado» with its last day travels too.
@@ -180,10 +191,14 @@ describe('backup and settings (e2e)', () => {
     expect(response.headers['content-disposition']).toMatch(/^attachment; filename="tcgpocket-backup-\d{8}\.json\.gz"$/)
     exported = response.body as Buffer
     document = JSON.parse(gunzipSync(exported).toString('utf8')) as Doc
+    expect((document as unknown as { ranked: { seasons: unknown[]; changes: unknown[] } }).ranked).toMatchObject({
+      seasons: [{ code: 'B4bSP', startsOn: '2026-10-14', endsOn: '2026-10-28' }],
+      changes: [{ rank: 'ultra-2', at: '2026-10-14T21:10:00.000Z', points: null }],
+    })
     const seen = document.matches.map((match) => (match as { opponentCards?: unknown }).opponentCards)
     expect(seen).toEqual(expect.arrayContaining([[], [{ cardId: 'A1-89', count: 2 }]]))
     expect(document).toMatchObject({
-      schemaVersion: 9,
+      schemaVersion: 10,
       catalogCommit: test.env.catalogCommit,
       engineRev: test.env.engineRev,
       settings: [
@@ -247,7 +262,7 @@ describe('backup and settings (e2e)', () => {
   it('dry-run reports counts and notices without touching the data', async () => {
     const response = await post('/api/backup/import?mode=dry-run').attach('file', exported, 'backup.json.gz')
     expect(response.status).toBe(200)
-    expect(response.body).toMatchObject({ schemaVersion: 9, catalogCommit: test.env.catalogCommit })
+    expect(response.body).toMatchObject({ schemaVersion: 10, catalogCommit: test.env.catalogCommit })
     expect(response.body.diff.incoming.matches).toBe(2)
     expect(response.body.diff.incoming.playedGames).toBe(1)
     expect(response.body.diff.incoming).toEqual(response.body.diff.current)
@@ -442,7 +457,7 @@ describe('backup and settings (e2e)', () => {
     expect(download.status).toBe(200)
     expect(download.headers['content-type']).toBe('application/gzip')
     const parsed = JSON.parse(gunzipSync(download.body as Buffer).toString('utf8')) as Doc
-    expect(parsed.schemaVersion).toBe(9)
+    expect(parsed.schemaVersion).toBe(10)
     expect(parsed.matches).toHaveLength(2)
     expect(parsed.decks).toHaveLength(4)
     expect((await get('/api/backup/blobs/999999')).status).toBe(404)
@@ -472,7 +487,7 @@ describe('backup and settings (e2e)', () => {
     try {
       const copy = await get('/api/backup/export').responseType('blob')
       const doc = JSON.parse(gunzipSync(copy.body as Buffer).toString('utf8'))
-      expect(doc.schemaVersion).toBe(9)
+      expect(doc.schemaVersion).toBe(10)
       expect(Object.keys(doc).some((key) => /simulat/i.test(key))).toBe(false)
       expect(JSON.stringify(doc)).not.toContain(job.label)
       expect((await post('/api/backup/import?mode=replace').attach('file', copy.body, 'backup.json.gz')).status).toBe(
