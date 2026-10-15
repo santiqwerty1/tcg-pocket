@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
+import { todayInOwnerZone } from '../src/config/time-zone.js'
 import { PrismaService } from '../src/prisma/prisma.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
@@ -233,6 +234,41 @@ describe('MCP write tools (e2e)', () => {
     expect((await test.http().post(`/api/mcp-audit/${audit[0]?.id}/undo`).set('Cookie', cookie)).status).toBe(409)
     const unknown = await call(client, 'matches_log', { deck: 'mazo 999', result: 'win' })
     expect(unknown.isError).toBe(true)
+  })
+
+  it('14/10: matches_log says the ranked season and rank, and notes a new rank; ranked_season reads it', async () => {
+    const today = todayInOwnerZone()
+    const until = todayInOwnerZone(new Date(Date.now() + 10 * 24 * 60 * 60 * 1000))
+    const season = await test
+      .http()
+      .put('/api/ranked/seasons/MCP')
+      .set('Cookie', cookie)
+      .send({ name: 'Temporada de prueba', startsOn: today, endsOn: until })
+    expect(season.status).toBe(200)
+    const client = await connect()
+    const first = await call(client, 'matches_log', { deck: 'mazo 7', result: 'win', mode: 'competitive' })
+    expect(first.isError, first.content[0]?.text).toBeFalsy()
+    expect(first.structuredContent.ranked).toEqual({ season: 'Temporada de prueba', playedAt: 'sin rango anotado' })
+    const second = await call(client, 'matches_log', {
+      deck: 'mazo 7',
+      result: 'win',
+      mode: 'competitive',
+      rank: 'ultra-3',
+    })
+    expect(second.structuredContent.ranked).toEqual({
+      season: 'Temporada de prueba',
+      playedAt: 'sin rango anotado',
+      now: 'Ultra Ball 3',
+    })
+    const read = (await call(client, 'ranked_season')).structuredContent as {
+      current: { rank: string }
+      curve: { rank: string }[]
+    }
+    expect(read.current.rank).toBe('Ultra Ball 3')
+    expect(read.curve.map((step) => step.rank)).toEqual(['Ultra Ball 3'])
+    // A casual match says nothing of ranked.
+    const casual = await call(client, 'matches_log', { deck: 'mazo 7', result: 'loss', mode: 'casual' })
+    expect(casual.structuredContent.ranked).toBeUndefined()
   })
 
   it('acceptance 2: a deck from Spanish text is saved with its validation; an invalid one is not', async () => {

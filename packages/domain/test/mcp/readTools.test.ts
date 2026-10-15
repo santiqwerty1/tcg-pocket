@@ -45,6 +45,7 @@ describe('MCP read tools', () => {
         'packs_recommend',
         'play_game_review',
         'play_games',
+        'ranked_season',
         'rivals_notes',
         'simulations_results',
         'simulations_analysis',
