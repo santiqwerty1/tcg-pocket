@@ -16,7 +16,7 @@ const kinds = (warnings: BotWarning[]) => warnings.map((warning) => warning.kind
 describe('posible punto ciego del bot (H-055)', () => {
   it('deck 40: Ivysaur does no damage and Mega-Venusaur ex evolves from it, so e2 and e3 stall the line', () => {
     const deck = deckDraft(40)
-    for (const bot of ['e2', 'e3', 'e2/e2']) {
+    for (const bot of ['e2', 'e3', 'e2/e2', 'e2 contra e3']) {
       expect(listBotWarnings(deck.cards, index, bot)).toEqual([
         {
           kind: 'evolution_without_damage',
@@ -66,28 +66,28 @@ describe('posible punto ciego del bot (H-055)', () => {
   })
 
   it('the general rule: far by at least 15 points and with intervals apart, both ways', () => {
-    expect(FAR_POINTS).toBe(0.15)
+    expect(FAR_POINTS).toBe(15)
     // Deck 16 with e2 (18,8 % of 400) against its archetype (50,6 %).
-    expect(farFromTournament({ value: 0.188, ci95: [0.15, 0.23] }, { value: 0.506, ci95: [0.47, 0.54] })).toEqual({
+    expect(farFromTournament({ value: 18.8, ci95: [15, 23] }, { value: 50.6, ci95: [47, 54] })).toEqual({
       kind: 'far_from_tournament',
-      simulated: 0.188,
-      tournament: 0.506,
+      simulated: 18.8,
+      tournament: 50.6,
     })
     // Over the tournament number too.
-    expect(farFromTournament({ value: 0.75, ci95: [0.7, 0.8] }, { value: 0.5, ci95: [0.46, 0.54] })?.kind).toBe(
+    expect(farFromTournament({ value: 75, ci95: [70, 80] }, { value: 50, ci95: [46, 54] })?.kind).toBe(
       'far_from_tournament',
     )
     // 20 points apart, but a short test whose interval reaches the tournament one: not yet.
-    expect(farFromTournament({ value: 0.3, ci95: [0.12, 0.54] }, { value: 0.5, ci95: [0.46, 0.54] })).toBeNull()
+    expect(farFromTournament({ value: 30, ci95: [12, 54] }, { value: 50, ci95: [46, 54] })).toBeNull()
     // Intervals apart but only 10 points: a real difference of list, not a blind spot.
-    expect(farFromTournament({ value: 0.4, ci95: [0.38, 0.42] }, { value: 0.5, ci95: [0.48, 0.52] })).toBeNull()
+    expect(farFromTournament({ value: 40, ci95: [38, 42] }, { value: 50, ci95: [48, 52] })).toBeNull()
   })
 
   it('botWarnings puts the list rules and the general one together; the general one alone asks for f2 or e3', () => {
     const deck = deckDraft(40)
     const far = {
-      simulated: { value: 0.014, ci95: [0.005, 0.04] as const },
-      tournament: { value: 0.45, ci95: [0.4, 0.5] as const },
+      simulated: { value: 1.4, ci95: [0.5, 4] as const },
+      tournament: { value: 45, ci95: [40, 50] as const },
     }
     expect(kinds(botWarnings({ cards: deck.cards, index, bot: 'e2', ...far }))).toEqual([
       'evolution_without_damage',
@@ -97,7 +97,7 @@ describe('posible punto ciego del bot (H-055)', () => {
     const f2 = botWarnings({ cards: deck.cards, index, bot: 'f2', ...far })
     expect(kinds(f2)).toEqual(['far_from_tournament'])
     expect(botWarningText(f2, 'f2')).toBe(
-      'Posible punto ciego del bot: 1 % simulado contra 45 % del arquetipo en torneos. Probalo con e3.',
+      'Posible punto ciego del bot: 1,4 % simulado contra 45 % del arquetipo en torneos. Probalo con e3.',
     )
     expect(botWarningText(botWarnings({ cards: [], index, bot: 'e2', ...far }), 'e2')).toMatch(/Probalo con f2 o e3\.$/)
     expect(

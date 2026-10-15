@@ -16,6 +16,7 @@
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
 import type { CardEdition, CardId } from '../catalog/types.js'
 import type { DeckCardEntry } from '../decks/types.js'
+import { formatPercentEs } from '../stats/rates.js'
 import { blindSpotsOf } from './blindSpots.js'
 
 export type BotWarning =
@@ -23,24 +24,24 @@ export type BotWarning =
   | { kind: 'evolution_without_damage'; cardId: CardId; nameEs: string; nextEs: string }
   /** `attack` of `nameEs` (the catalog has attack names only in English) does damage for each Pokémon Tool in play. */
   | { kind: 'bench_tools'; cardId: CardId; nameEs: string; attack: string }
-  /** The simulated rate (0–1) is far from the archetype's in tournaments. */
+  /** The simulated rate (0–100) is far from the archetype's in tournaments. */
   | { kind: 'far_from_tournament'; simulated: number; tournament: number }
 
-/** A rate with its 95 % interval (0–1). */
+/** A rate with its 95 % interval, 0–100 like `WinRate`, `MetaScore` and `ExpectedVsMeta`. */
 export interface RateWithInterval {
   value: number
   ci95: readonly [number, number]
 }
 
-/** Points (0–1) the simulated rate has to be from the tournament one, besides the intervals not overlapping. */
-export const FAR_POINTS = 0.15
+/** Points the simulated rate has to be from the tournament one, besides the intervals not overlapping. */
+export const FAR_POINTS = 15
 
 /** «for each Pokémon Tool attached to all of your Pokémon» (Dedenne ex, Emolga); not the Tools discarded from the hand. */
 const PER_TOOL = /\bfor each Pok[eé]mon Tool attached\b/i
 
-/** The bot of the deck's side («e2/e2» reads the first one), or null. */
+/** The bot of the deck's side: «e2», or the first of «e2/e3» and of the Laboratorio's «e2 contra e3»; null if none. */
 function botCode(bot: string | null | undefined): string | null {
-  return (bot ?? '').split('/')[0]?.trim() || null
+  return (bot ?? '').trim().split(/[\s/]+/)[0] || null
 }
 
 /** The e bots (deckgym's expectiminimax), with their depth; null for any other. */
@@ -102,8 +103,6 @@ export function botWarnings(input: {
   return far ? [...warnings, far] : warnings
 }
 
-const percent = (value: number) => `${Math.round(value * 100)} %`
-
 /** One warning in Spanish, without the advice. */
 export function botWarningEs(warning: BotWarning, bot: string | null | undefined): string {
   const who = botCode(bot) ?? 'el bot'
@@ -113,7 +112,7 @@ export function botWarningEs(warning: BotWarning, bot: string | null | undefined
     case 'bench_tools':
       return `${who} casi nunca pone herramientas en la Banca, y «${warning.attack}» de ${warning.nameEs} crece con ellas`
     case 'far_from_tournament':
-      return `${percent(warning.simulated)} simulado contra ${percent(warning.tournament)} del arquetipo en torneos`
+      return `${formatPercentEs(warning.simulated)} simulado contra ${formatPercentEs(warning.tournament)} del arquetipo en torneos`
   }
 }
 

@@ -150,6 +150,14 @@ export function DeckPerformance({
           ))}
         </div>
       ) : null}
+      {/* H-055: the simulation column's «posible punto ciego del bot», across the three columns (they are narrow). */}
+      {comparison.data?.columns.map((column) =>
+        column.source === 'simulation' && column.blindSpot ? (
+          <p key="blind-spot" className="text-xs text-warning">
+            {column.blindSpot.text}
+          </p>
+        ) : null,
+      )}
       {comparison.data?.columns.find((column) => column.source === 'tournament') ? (
         <TournamentDetail
           deckId={deckId}
