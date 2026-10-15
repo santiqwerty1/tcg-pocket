@@ -121,9 +121,11 @@ import {
   scoreDifference,
   secondListsFor,
   seededRandom,
+  sharedNames,
   simulationRate,
   slotGroups,
   splitGames,
+  strandsPreEvolution,
   swapOf,
   swapScore,
   type TournamentDataset,
@@ -923,7 +925,10 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         locked,
         seen,
         affinity: (id) => affinity?.get(id) ?? 0,
-        accept: rules ? (next) => checkEventDeck(next, rules, index).ok : undefined,
+        // Self-review of the #107 follow-up: the strand check with the zone's whole pool (the small one only knows the
+        // asked card's pre-evolutions: «−Polteageist» left Sinistea alone).
+        accept: (next) =>
+          !strandsPreEvolution(cards, next, pool, index) && (!rules || checkEventDeck(next, rules, index).ok),
       })
       if (!variant) continue
       seen.add(variant.key)
@@ -1277,21 +1282,31 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     const robustnessGames = config.confirmBot && config.confirmGames > 0 ? 2 * rivals * config.confirmGames : 0
     if (input.dryRun) {
       const cores = input.cores ?? (await this.workerCores())
+      // The names to tell apart by code: two cards of one name in the plan (the list, the first round, the cards asked).
+      const shared = sharedNames(
+        [
+          ...baseCards.map((entry) => entry.cardId),
+          ...first.flatMap((variant) => variant.cards.map((entry) => entry.cardId)),
+          ...include,
+        ],
+        index,
+      )
       return {
         base: (await this.snapshots.preview(baseSource)) as Omit<SnapshotView, 'id'>,
-        baseCards: lines(index, mergeLines(baseCards)),
+        baseCards: lines(index, mergeLines(baseCards), shared),
         include: includeView(
           include,
           draft.energies,
           index,
           evolutionAllowed(index, await this.engine.status(), event?.rules),
+          shared,
         ),
         bank: await this.bank(input),
         // The cards drawn on their own (a pre-evolution that only comes along, weight 0, is no candidate).
         pool: pool.filter((card) => card.weight > 0).length,
         firstRound: first.map((variant) => ({
-          add: lines(index, variant.add),
-          remove: lines(index, variant.remove),
+          add: lines(index, variant.add, shared),
+          remove: lines(index, variant.remove, shared),
         })),
         config,
         seed: baseSeed,
@@ -2260,6 +2275,16 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     const confirmFilter = (chunk: ChunkRow) => !!confirm && chunk.idx >= confirm.fromIdx && chunk.idx < confirm.toIdx
     const baseCards = state ? cardsOfSnapshot(byId.get(state.base)?.cards as unknown as SnapshotCard[]) : null
     const asked = new Set<CardId>(state?.include ?? [])
+    // Review of the #107 follow-up: a name carries its code only when two of its cards are among the job's lists.
+    const shared = sharedNames(
+      [
+        ...params.sideA.flatMap((sid) =>
+          cardsOfSnapshot(byId.get(sid)?.cards as unknown as SnapshotCard[]).map((entry) => entry.cardId),
+        ),
+        ...asked,
+      ],
+      index,
+    )
 
     const decks: LabDeckView[] = params.sideA
       .map((sid): LabDeckView | null => {
@@ -2304,7 +2329,9 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             const record = recordOf(chunks, sid, rival.snapshot, headline)
             return { rival: rival.snapshot, record, rate: simulationRate(record) }
           }),
-          changes: changes ? { add: lines(index, changes.add), remove: lines(index, changes.remove) } : null,
+          changes: changes
+            ? { add: lines(index, changes.add, shared), remove: lines(index, changes.remove, shared) }
+            : null,
           vsParent: vsParent
             ? {
                 text: vsParent.playing
@@ -2322,7 +2349,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                   : null,
               }
             : null,
-          why: changes ? whyCards(changes.add, cards, state?.frozen, index, playable, asked) : [],
+          why: changes ? whyCards(changes.add, cards, state?.frozen, index, playable, asked, shared) : [],
           // T-017 A3: the list's cards the bots play badly or the engine approximates; a variant that brings one in says
           // so («carta con punto ciego»; review of #82: «sensible al bot» is the replay with e3's verdict).
           blindSpots: listBlindSpots(cards, index).map((card) => ({
@@ -2341,7 +2368,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             return state && !same ? { from, to } : null
           })(),
           novelty: noveltyView,
-          cards: lines(index, cards),
+          cards: lines(index, cards, shared),
           energies: snapshot.energies,
           simulable: snapshot.simulable,
         }
@@ -2443,6 +2470,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                 []) as unknown as SelectableEnergy[],
               index,
               evolutionAllowed(index, await this.engine.status(), state.event?.rules),
+              shared,
             ),
             added: state.added ?? [],
             pending: state.pending ?? [],
@@ -2499,6 +2527,7 @@ function includeView(
   energies: readonly SelectableEnergy[],
   index: CatalogIndex,
   allowed?: (card: CardEdition) => boolean,
+  shared?: ReadonlySet<string>,
 ): LabIncludeView[] {
   return [...include].map((groupId) => {
     const group = index.groupById(groupId)
@@ -2506,7 +2535,7 @@ function includeView(
     return {
       cardId: groupId,
       // Two functional cards with one name (Onix A1-150, three Fighting, and Onix B1a-38, three Colorless): the code.
-      nameEs: labCardNameEs(groupId, index),
+      nameEs: labCardNameEs(groupId, index, shared),
       count: 0,
       note: card ? zoneNoteEs(card, energies, index, allowed) : null,
     }
@@ -2578,11 +2607,15 @@ function mergeLines(cards: readonly DeckCardEntry[]): DeckCardEntry[] {
   return [...counts].map(([cardId, count]) => ({ cardId, count }))
 }
 
-function lines(index: CatalogIndex, cards: readonly { cardId: string; count: number }[]): CardLineView[] {
+function lines(
+  index: CatalogIndex,
+  cards: readonly { cardId: string; count: number }[],
+  shared: ReadonlySet<string> = new Set(),
+): CardLineView[] {
   return cards.map((card) => ({
     cardId: card.cardId,
-    // Review of #107: with the code when two cards share the name («+1 Onix (A1-150) −1 Onix (B1a-38)»).
-    nameEs: labCardNameEs(card.cardId, index),
+    // Review of #107: with the code when two cards of the name are in what is shown («+1 Onix (A1-150) −1 Onix (B1a-38)»).
+    nameEs: labCardNameEs(card.cardId, index, shared),
     count: card.count,
   }))
 }

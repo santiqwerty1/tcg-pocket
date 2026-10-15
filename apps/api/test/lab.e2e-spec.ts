@@ -1587,6 +1587,45 @@ describe('laboratorio (e2e)', () => {
     expect(swap?.add).toEqual([expect.objectContaining({ nameEs: 'Onix (A1-150)', count: 1 })])
     expect(swap?.remove).toEqual([expect.objectContaining({ nameEs: 'Onix (B1a-38)' })])
 
+    // Self-review of the follow-up: the guaranteed variant never leaves a pre-evolution alone either. Deck 2 with
+    // Sinistea and Polteageist (Sinistea only comes along in Fire), asking for a card it lacks, over many seeds.
+    const base2 = (await get(`/api/decks/${deckIds[1]}`)).body as {
+      energies: string[]
+      cards: { card: { id: string; cardType: string }; count: number }[]
+    }
+    const trainerLines = base2.cards.filter((entry) => entry.card.cardType === 'trainer')
+    const [drop1, drop2] = trainerLines
+    if (!drop1 || !drop2) throw new Error('deck shape')
+    const withLine = [
+      ...base2.cards
+        .filter((entry) => entry !== drop1 && entry !== drop2)
+        .map((entry) => ({ cardId: entry.card.id, count: entry.count })),
+      ...(drop1.count > 1 ? [{ cardId: drop1.card.id, count: drop1.count - 1 }] : []),
+      ...(drop2.count > 1 ? [{ cardId: drop2.card.id, count: drop2.count - 1 }] : []),
+      { cardId: 'B2-74', count: 1 },
+      { cardId: 'B2-75', count: 1 },
+    ]
+    const sinistea = await post('/api/decks').send({ name: 'Con Sinistea', energies: ['fire'], cards: withLine })
+    expect(sinistea.status).toBe(201)
+    let guaranteedSeen = 0
+    for (let seed = 0; seed < 30; seed++) {
+      const plan = await post('/api/lab/explore').send({
+        deck: { deckId: sinistea.body.id },
+        size: 3,
+        config: { ...config, variantsPerRound: 1 },
+        include: [asked.displayCardId],
+        seed: 7_000_000 + seed,
+        dryRun: true,
+      })
+      expect(plan.status).toBe(200)
+      const [guaranteed] = plan.body.firstRound as { remove: { cardId: string }[] }[]
+      if (!guaranteed) continue
+      guaranteedSeen += 1
+      const removed = new Set(guaranteed.remove.map((card) => card.cardId))
+      expect(removed.has('B2-75') && !removed.has('B2-74')).toBe(false)
+    }
+    expect(guaranteedSeen).toBeGreaterThan(20)
+
     // A card the list has one copy of is a card to try too («otro Onix»): the guaranteed variant brings a second one.
     const deckCards = (await get(`/api/decks/${deckIds[1]}`)).body.cards as { card: { id: string }; count: number }[]
     const single = deckCards.find((entry) => {

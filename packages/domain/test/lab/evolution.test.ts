@@ -9,6 +9,7 @@ import {
   type PoolCard,
   poolForZone,
   seededRandom,
+  sharedNames,
   strandsPreEvolution,
   usableWith,
   variantOf,
@@ -237,6 +238,17 @@ describe('evolution lines in the pool («probar estas cartas» with Onix)', () =
         const names = new Set(variant.cards.map((entry) => index.cardById(entry.cardId)?.nameEn))
         expect(names.has('Sinistea') && !names.has('Polteageist')).toBe(false)
       }
+    })
+
+    it('self-review of the follow-up: with what is shown, only names two of its cards share carry the code', () => {
+      const shared = sharedNames(['A1-150', 'B3-211', 'B1a-52', 'B1-44'], index)
+      expect([...shared]).toEqual(['Onix'])
+      expect(labCardNameEs('A1-150', index, shared)).toBe('Onix (A1-150)')
+      expect(labCardNameEs('B3-211', index, shared)).toBe('Onix (B1a-38)')
+      // Heatmor has another card of its name in the catalog, but not here: no code.
+      expect(labCardNameEs('B1-44', index, shared)).toBe(index.cardById('B1-44')?.nameEs)
+      // Two editions of one functional card are one card.
+      expect(sharedNames(['B1a-38', 'B3-211'], index).size).toBe(0)
     })
 
     it('a card is named with its code only when another card shares its name', () => {

@@ -47,7 +47,9 @@ function config<S extends StandardSchemaWithJSON>(
 }
 
 const round = (value: number, digits = 1) => Math.round(value * 10 ** digits) / 10 ** digits
-const cardLine = (card: CardLineView) => `${card.count} ${card.nameEs} (${card.cardId})`
+// Self-review of the #107 follow-up: a name that already carries its code (two cards of the name) does not get another.
+const cardLine = (card: CardLineView) =>
+  /\([A-Z0-9-]+\)$/.test(card.nameEs) ? `${card.count} ${card.nameEs}` : `${card.count} ${card.nameEs} (${card.cardId})`
 
 const ROLE_ES: Record<LabDeckView['role'], string> = {
   base: 'lista de partida',

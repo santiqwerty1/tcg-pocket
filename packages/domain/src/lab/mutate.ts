@@ -232,14 +232,33 @@ export function strandsPreEvolution(
 
 /**
  * A card's Spanish name in the Laboratorio, with the code of its functional card when another one shares its name
- * (review of #107): Onix A1-150 (three Fighting) and Onix B1a-38 (three Colorless) are different cards.
+ * (review of #107): Onix A1-150 (three Fighting) and Onix B1a-38 (three Colorless) are different cards. With `shared`
+ * (from `sharedNames`), only when the name is among them — two cards of the name in what is shown; without it, when
+ * any card of the catalog shares it.
  */
-export function labCardNameEs(cardId: CardId, index: CatalogIndex): string {
+export function labCardNameEs(cardId: CardId, index: CatalogIndex, shared?: ReadonlySet<string>): string {
   const card = index.cardById(cardId) ?? index.cardById(index.groupById(cardId)?.displayCardId ?? cardId)
   if (!card) return cardId
   const group = index.groupById(card.functionalGroupId)
-  const shared = index.groupsByNameEn(card.nameEn).length > 1
-  return shared && group ? `${card.nameEs} (${group.displayCardId})` : card.nameEs
+  const ambiguous = shared ? shared.has(card.nameEn) : index.groupsByNameEn(card.nameEn).length > 1
+  return ambiguous && group ? `${card.nameEs} (${group.displayCardId})` : card.nameEs
+}
+
+/**
+ * The English names two or more of these cards (editions or functional cards) share with different functional cards:
+ * the ones a screen has to tell apart by code (review of the #107 follow-up: «Heatmor (B1-44)» when no other Heatmor is
+ * there was noise).
+ */
+export function sharedNames(cardIds: Iterable<CardId>, index: CatalogIndex): Set<string> {
+  const groupsByName = new Map<string, Set<CardId>>()
+  for (const cardId of cardIds) {
+    const card = index.cardById(cardId) ?? index.cardById(index.groupById(cardId)?.displayCardId ?? cardId)
+    if (!card) continue
+    const groups = groupsByName.get(card.nameEn) ?? new Set<CardId>()
+    groups.add(card.functionalGroupId)
+    groupsByName.set(card.nameEn, groups)
+  }
+  return new Set([...groupsByName].filter(([, groups]) => groups.size > 1).map(([name]) => name))
 }
 
 /**

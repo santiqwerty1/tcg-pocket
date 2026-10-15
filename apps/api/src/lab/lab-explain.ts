@@ -26,6 +26,7 @@ export function whyCards(
   index: CatalogIndex,
   playable: (groupId: CardId) => number,
   asked: ReadonlySet<CardId> = new Set(),
+  shared: ReadonlySet<string> = new Set(),
 ): LabDeckView['why'] {
   const affinity = new Map(frozen?.affinity ?? [])
   const weights = new Map((frozen?.pool ?? []).map(([cardId, , weight]) => [cardId, weight]))
@@ -45,7 +46,7 @@ export function whyCards(
     )
     return {
       cardId: change.cardId,
-      nameEs: card ? labCardNameEs(change.cardId, index) : change.cardId,
+      nameEs: card ? labCardNameEs(change.cardId, index, shared) : change.cardId,
       eraShare: eraShare === null ? null : Math.round(eraShare * 10) / 10,
       archetypeShare,
       asked: asked.has(groupId),
