@@ -1470,6 +1470,12 @@ ${MCP_CHAT_INSTRUCTIONS}`
               ),
             }
           : {}),
+        // Review of #109: why there is no score (Claude saw `lab: null` with no explanation).
+        ...(row.labFailed
+          ? {
+              labFailed: `la última prueba con e2 (#${row.labFailed.jobId}) falló antes de jugar la lista entera: se puede reintentar lo que falló (simulations_retry_failed)`,
+            }
+          : {}),
         ...(row.labRunning
           ? {
               labTesting: `prueba #${row.labRunning.jobId} ${row.labRunning.status === 'queued' ? 'en cola' : `jugando: ${row.labRunning.gamesDone} de ${row.labRunning.totalGames} partidas`}`,

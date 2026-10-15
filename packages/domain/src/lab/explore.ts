@@ -258,11 +258,6 @@ export function exploreGames(
   }
 }
 
-/** The verification round (H-010): the variant stays when, on fresh seeds, it beats the incumbent by `verifyZ`. */
-export function verifyAccepts(variant: MetaScore | null, incumbent: MetaScore | null, z: number): boolean {
-  return !!variant && !!incumbent && scoreBeats(variant, incumbent, z)
-}
-
 export type ConfirmVerdict = 'better' | 'unclear' | 'worse'
 
 export const CONFIRM_VERDICT_ES: Record<ConfirmVerdict, string> = {

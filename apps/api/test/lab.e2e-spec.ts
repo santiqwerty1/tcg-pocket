@@ -830,6 +830,22 @@ describe('laboratorio (e2e)', () => {
     expect(fromSearch?.jobId).toBe(jobId)
     expect(fromSearch?.score.score).toMatchObject({ games: 100 })
     expect(fromSearch?.score.score?.value).toBeCloseTo(50, 8)
+    // Review of #109: a confirmation that failed halfway leaves the search's score (the search was whole), and the
+    // list is not marked as failed.
+    const baseChunks = await test.prisma.simulationChunk.findMany({
+      where: { jobId, snapshotAId: baseRow.snapshot },
+      orderBy: { idx: 'desc' },
+    })
+    await test.prisma.simulationChunk.update({ where: { id: baseChunks[0]?.id as number }, data: { status: 'failed' } })
+    await test.prisma.simulationJob.update({ where: { id: jobId }, data: { status: 'failed' } })
+    const afterFail = (await test.app.get(LabService).deckLabStatus([Number(deckIds[1])], 'B4a')).get(
+      Number(deckIds[1]),
+    )
+    expect(afterFail?.failed).toBeNull()
+    expect(afterFail?.score?.jobId).toBe(jobId)
+    expect(afterFail?.score?.score.score?.games).not.toBe(100)
+    await test.prisma.simulationChunk.update({ where: { id: baseChunks[0]?.id as number }, data: { status: 'done' } })
+    await test.prisma.simulationJob.update({ where: { id: jobId }, data: { status: 'done' } })
     expect(lab.decks.filter((deck: { role: string }) => deck.role === 'variant')).toHaveLength(5)
     const total = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: jobId } })
     expect(total.totalGames).toBe(200 + 200 + 200 + 200)
@@ -1843,6 +1859,99 @@ describe('laboratorio (e2e)', () => {
       }
     }
     await post(`/api/simulations/${pasted.body.id}/cancel`)
+  }, 60_000)
+
+  it("review of #113: a card to try names only evolutions that can come in, with the best list's zone", async () => {
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 3,
+      maxRounds: 1,
+      confirmGames: 0,
+      verifyGames: 0,
+      pool: 'collection',
+      byWeight: false,
+      confirmBot: null,
+    }
+    const index = test.app.get(CatalogService).requireIndex()
+    const megaSteelix = index.cardById('B1a-52')?.functionalGroupId
+    if (!megaSteelix) throw new Error('no Mega-Steelix ex')
+    // Deck 20 without Mega-Steelix ex (two trainers of one copy go up to two): Onix A1-150 is asked for.
+    const steelixDeck = (await get(`/api/decks/${deckIds[19]}`)).body as {
+      energies: string[]
+      cards: { card: { id: string; cardType: string }; count: number }[]
+    }
+    let raised = 0
+    const cards = steelixDeck.cards
+      .filter((entry) => index.cardById(entry.card.id)?.functionalGroupId !== megaSteelix)
+      .map((entry) => {
+        const up = entry.card.cardType === 'trainer' && entry.count === 1 && raised < 2
+        if (up) raised += 1
+        return { cardId: entry.card.id, count: up ? 2 : entry.count }
+      })
+    const created = await post('/api/decks').send({ name: 'Onix sin Mega', energies: steelixDeck.energies, cards })
+    expect(created.status).toBe(201)
+    const ask = (extra: Record<string, unknown> = {}) =>
+      post('/api/lab/explore').send({
+        deck: { deckId: created.body.id },
+        size: 3,
+        config,
+        include: ['A1-150'],
+        dryRun: true,
+        ...extra,
+      })
+    const noteOf = (body: { include: { note: string | null }[] }) => body.include[0]?.note
+    // Metal: Onix (Fighting) cannot attack, but evolves into Mega-Steelix ex.
+    const plain = await ask()
+    expect(plain.status).toBe(200)
+    expect(noteOf(plain.body)).toMatch(/, pero evoluciona en .*Mega-Steelix ex$/)
+    // An event that does not allow Mega-Steelix ex: the note does not name it.
+    const event = await test
+      .http()
+      .post('/api/events')
+      .set('Cookie', cookie)
+      .send({ name: 'Sin Mega-Steelix', rules: { banned: [megaSteelix] } })
+    expect(event.status).toBe(201)
+    const banned = await ask({ eventId: event.body.id })
+    expect(banned.status).toBe(200)
+    expect(noteOf(banned.body)).toMatch(/^no puede atacar con las energías de la lista/)
+    expect(noteOf(banned.body)).not.toMatch(/Mega-Steelix/)
+    // An engine that does not play it: neither (the test engine plays every card, so it is stubbed here).
+    const engine = test.app.get(EngineStatusService)
+    const real = await engine.status()
+    const editions = new Set(index.cardsOfGroup(megaSteelix).map((card) => card.engineId))
+    const spy = vi
+      .spyOn(engine, 'status')
+      .mockResolvedValue(((engineId: string) => (editions.has(engineId) ? false : real(engineId))) as typeof real)
+    try {
+      const unplayed = await ask()
+      expect(unplayed.status).toBe(200)
+      expect(noteOf(unplayed.body)).toMatch(/^no puede atacar con las energías de la lista/)
+      expect(noteOf(unplayed.body)).not.toMatch(/Mega-Steelix/)
+    } finally {
+      spy.mockRestore()
+    }
+    // In a search, the zone of the best list so far: with an incumbent on Fighting, Onix attacks (no note).
+    const search = await ask({ dryRun: false, seed: 9113 })
+    expect(search.status).toBe(200)
+    const id = search.body.id as number
+    expect(noteOf((await get(`/api/lab/jobs/${id}`)).body.explore)).toMatch(/Mega-Steelix ex$/)
+    const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })
+    const params = job.params as { sideA: number[]; lab: { explore: { base: number; incumbent: number } } }
+    const {
+      id: _id,
+      createdAt: _at,
+      ...base
+    } = await test.prisma.deckSnapshot.findUniqueOrThrow({
+      where: { id: params.lab.explore.base },
+    })
+    const fighting = await test.prisma.deckSnapshot.create({
+      data: { ...base, energies: ['fighting'], cards: base.cards as never, problems: base.problems as never },
+    })
+    params.sideA = [...params.sideA, fighting.id]
+    params.lab.explore.incumbent = fighting.id
+    await test.prisma.simulationJob.update({ where: { id }, data: { params: params as never } })
+    expect(noteOf((await get(`/api/lab/jobs/${id}`)).body.explore)).toBeNull()
+    await post(`/api/simulations/${id}/cancel`)
   }, 60_000)
 
   it('T-017 E4: a list added to a search in play plays its next round', async () => {

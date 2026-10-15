@@ -215,6 +215,50 @@ describe('¿Qué mazo llevo hoy? and «Actualizar todos» (14/10)', () => {
     expect(JSON.parse(String(calls.filter((call) => call.method === 'POST')[1]?.body))).toEqual({ dryRun: false })
   })
 
+  it('review of #109: a list whose last test failed says so and retries what failed', async () => {
+    const base = rows(0)
+    const { calls } = fakeApi({
+      'GET /api/decks-today': {
+        ...base,
+        items: [{ ...base.items[0], lab: null, labOthers: [], labRunning: null, labFailed: { jobId: 50 } }],
+      },
+      'POST /api/simulations/50/retry-failed': {
+        id: 50,
+        kind: 'compare',
+        status: 'queued',
+        label: 'Actualizar todos',
+        players: ['e2', 'e2'],
+        priority: 3,
+        createdAt: '2026-10-15T12:00:00.000Z',
+        startedAt: null,
+        finishedAt: null,
+        progress: {
+          totalGames: 1000,
+          gamesDone: 900,
+          chunks: { total: 10, done: 9, running: 0, failed: 0 },
+          etaSeconds: null,
+        },
+      },
+    })
+    const user = userEvent.setup()
+    const router = createMemoryRouter(routes, { initialEntries: ['/mazos/hoy'] })
+    render(
+      <Providers queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <RouterProvider router={router} />
+      </Providers>,
+    )
+    expect(await screen.findByRole('link', { name: 'la última prueba falló (#50)' })).toHaveAttribute(
+      'href',
+      '/laboratorio/50',
+    )
+    await user.click(screen.getByRole('button', { name: 'Reintentar lo que falló' }))
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === 'POST' && call.path === '/api/simulations/50/retry-failed')).toBe(
+        true,
+      ),
+    )
+  })
+
   it('no button when every deck has a score of this era or is under test', async () => {
     fakeApi({ 'GET /api/decks-today': rows(0) })
     const router = createMemoryRouter(routes, { initialEntries: ['/mazos/hoy'] })

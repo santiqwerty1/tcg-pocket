@@ -37,7 +37,6 @@ import {
   seededRandom,
   usableWith,
   variantOf,
-  verifyAccepts,
 } from '../../src/lab/index.js'
 import { myMeta } from '../../src/matches/index.js'
 import { buildSnapshot } from '../../src/simulation/index.js'
@@ -617,10 +616,9 @@ describe('search rules', () => {
     const score = (wins: number, games: number) =>
       metaScore([{ weight: 1, record: { wins, losses: games - wins, ties: 0 } }])
     // 60 % against 50 % over 400 games each: ~2,8 standard errors apart.
-    expect(verifyAccepts(score(240, 400), score(200, 400), 1.645)).toBe(true)
+    expect(scoreBeats(score(240, 400) as never, score(200, 400) as never, 1.645)).toBe(true)
     // 53 % against 50 %: not enough.
-    expect(verifyAccepts(score(212, 400), score(200, 400), 1.645)).toBe(false)
-    expect(verifyAccepts(null, score(200, 400), 1.645)).toBe(false)
+    expect(scoreBeats(score(212, 400) as never, score(200, 400) as never, 1.645)).toBe(false)
 
     const better = confirmVerdict(score(240, 400), score(200, 400), 1.645)
     expect(better?.verdict).toBe('better')

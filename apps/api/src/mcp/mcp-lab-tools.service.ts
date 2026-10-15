@@ -18,11 +18,12 @@ import { CatalogService } from '../catalog/catalog.service.js'
 import { DecksService } from '../decks/decks.service.js'
 import { EventsService } from '../events/events.service.js'
 import { againstEs, LAB_NOTE, type LabDeckInput, LabService } from '../lab/lab.service.js'
-import type { CardLineView, LabDeckView, LabExploreView } from '../lab/lab-views.js'
+import type { LabDeckView, LabExploreView } from '../lab/lab-views.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
 import { LIMITLESS_ATTRIBUTION } from '../tournaments/tournaments.service.js'
 import { resolveCardRef } from './card-ref.js'
 import { DeckRefResolver } from './deck-ref.js'
+import { cardLine } from './mcp-card-line.js'
 import { jobSummaryJson, rateView } from './mcp-json.js'
 import type { WriteRun } from './mcp-run.js'
 
@@ -47,9 +48,6 @@ function config<S extends StandardSchemaWithJSON>(
 }
 
 const round = (value: number, digits = 1) => Math.round(value * 10 ** digits) / 10 ** digits
-// Self-review of the #107 follow-up: a name that already carries its code (two cards of the name) does not get another.
-const cardLine = (card: CardLineView) =>
-  /\([A-Z0-9-]+\)$/.test(card.nameEs) ? `${card.count} ${card.nameEs}` : `${card.count} ${card.nameEs} (${card.cardId})`
 
 const ROLE_ES: Record<LabDeckView['role'], string> = {
   base: 'lista de partida',
