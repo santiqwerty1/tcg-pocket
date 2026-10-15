@@ -97,14 +97,19 @@ Lo medí sobre una copia local de deckgym con ese cambio, con tableros armados a
   evaluar cada posición.
 
 **Lo que hay que cuidar** (de la autorrevisión):
-- **El turno.** El cálculo lee `state.current_player`, no solo quién ataca. Con el turno del otro lado da mal: Latias
-  con Latios da 20 en vez de 40, y Dede-Circuit con 2 herramientas da 0 en vez de 80. La evaluación hace una sola copia
-  del tablero y le pone el turno del lado que ataca. El export lo exige con un `debug_assert`. Los efectos del turno
-  actual (un aumento de daño de un Partidario, por ejemplo) quedan contados en los turnos que vienen. Es una
-  aproximación, y sus tests la muestran.
-- **Los que eligen después.** Los ataques que eligen el objetivo después (`DirectDamage*`) o pegan a la Banca dan 0 en
-  ese cálculo. Son 154 ataques de la base (39 textos) en los que f sí lee daño. Para esos, el daño sale de los datos
-  de su mecánica, que llevan la cantidad, igual que f la lee del texto. Así g nunca queda más ciego que f.
+- **El turno.** El cálculo lee `state.current_player`, no solo quién ataca, y lo mismo hace el costo de retirada (la
+  retirada gratis de Latios con Latias). Con el turno del otro lado da mal: Latias con Latios da 20 en vez de 40, y
+  Dede-Circuit con 2 herramientas da 0 en vez de 80. La evaluación hace una sola copia del tablero y, antes de leer
+  nada, le pone el turno del lado que ataca. Al rival del que juega se lo cuenta en su turno siguiente: así los
+  efectos de este turno (los +10 de Giovanni) no le suman, y los que le dejaron para ese turno (menos daño) sí. Para el
+  lado que juega, los efectos de este turno quedan contados en los turnos que vienen. Es una aproximación, y sus tests
+  la muestran.
+- **Los que eligen después.** El motor guarda todo el daño de un ataque que también pega a un Pokémon de la Banca
+  elegido (Shadow Bullet de Hoopa ex y otros 41) hasta esa elección: con Banca, el cálculo da 0. A esos se los
+  pregunta otra vez con las Bancas fuera de la copia, y queda el golpe al Activo con la debilidad y lo demás. Los que
+  eligen cualquier Pokémon del rival y no tienen daño fijo (`DirectDamage*`) dan 0 también. Para esos, el daño es el
+  que dice el texto, como lo lee f, salvo Pierce the Pain, que solo pega a uno que ya tiene daño. Toxic de Toxicroak
+  no pega: su veneno hace 20 en cada control. Así g nunca queda más ciego que f.
 - **Lo que no ve:**
   - Guts y las monedas que salvan de un KO;
   - los efectos antes del daño;
@@ -195,8 +200,8 @@ se toca.
 
 1. **`pub fn expected_attack_damage(state, acting_player, attack, target_player, target_idx) -> f64`** en `actions`.
    - Son unas 15 líneas: `forecast_attack_inner`, `apply_attack_common_modifiers` y `expected_damage_to`.
-   - Exige que `state.current_player` sea `acting_player`.
-   - Es la versión que medí arriba.
+   - Da bien solo si `state.current_player` es `acting_player`: lo pone la evaluación.
+   - Es la versión que medí arriba. Está en el fork desde `018b419` (rama `feat/bot-api`).
 2. **`pub use apply_action::forecast_action`**, que hoy es `pub(crate)`. Lo necesita la línea 2: una búsqueda propia
    con nodos de azar y sin ver lo oculto.
 3. **El costo de retirada efectivo** (`hooks::get_retreat_cost`, hoy `pub(crate)` en un módulo privado), con
@@ -265,13 +270,64 @@ Lo demás que g necesita ya es público:
 Las ligas chicas corren en esta sesión, con 4 núcleos. Las grandes necesitan un trabajo de liga en la app, con su
 propio PR más adelante.
 
+## Resultados de g 1.0 (15/10/2026)
+
+**La liga:**
+- 11 mazos: 8 del banco de B4a (lab_meta_bank del 15/10) más el 16, el 23 y el 40;
+- los 55 pares de mazos, cada uno en los dos lados con las mismas semillas, 20 partidas por lado: 2.200 partidas
+  apareadas por cruce de bots;
+- el intervalo, por bootstrap sobre los pares de mazos;
+- motor del fork `018b419`, 4 hilos.
+
+| Cruce | g2 gana | IC 95 % |
+|---|---|---|
+| g2 contra e2 | 58,2 % | 54,7–62,3 % |
+| g2 contra f2 | 50,9 % | 49,5–52,4 % |
+
+- **Contra e2 cumple el criterio. Contra f2 no:** en este banco juegan parejo.
+- **La ablación** se hizo con g 1.0 antes de los arreglos de la autorrevisión. Cada parte se apagó por separado y se
+  jugó g2 contra f2:
+
+  | Sin | g2 gana (IC 95 %) |
+  |---|---|
+  | (nada: g entero) | 50,7 % (49,0–52,4 %) |
+  | el daño del motor | 50,3 % (49,4–51,3 %) |
+  | repetir | 50,0 % (48,4–51,7 %) |
+  | el veneno | 50,7 % (49,0–52,4 %) |
+  | el daño pendiente | 51,0 % (49,4–52,7 %) |
+  | la retirada | 51,4 % (49,8–52,9 %) |
+  | la aceleración | 50,7 % (49,0–52,4 %) |
+  | los estados | 50,7 % (49,0–52,5 %) |
+
+  Ninguna parte pesa sola en el promedio. Cada una cambia los pocos cruces de los mazos que usan esas cartas.
+- **La velocidad,** en los mismos 10 cruces con 40 partidas y 4 hilos:
+
+  | Bot | Por partida y por hilo |
+  |---|---|
+  | e2 | 121 ms |
+  | f2 | 128 ms |
+  | g2 | 255 ms |
+
+  g2 cuesta 2,1 veces e2: dentro del tope de 3.
+- **Lo siguiente:**
+  - la carrera (punto 6);
+  - los pesos (línea 3): «PS × Energía» y «Activo listo» cuentan dos veces lo que mide el reloj;
+  - el comportamiento en los puntos ciegos, con un contador por partida: herramientas en la Banca, a quién sube el
+    mazo 23;
+  - la liga con más mazos, en la app.
+
 ## Cómo entra en la app
 
-- **El código** `g<1-9>` va en `parse_bot_code`, en nuestro crate.
-- **La feature `gBots`:**
-  - en los dos `FEATURES` de `engine/src/main.rs`, con y sin `regulate`;
-  - en `ENGINE_FEATURES` de `packages/domain/src/simulation/capabilities.ts`, con su `canPlayGBots` como el de f, así
-    la cola le manda un trabajo con g solo a un motor que lo tiene.
+- **Hecho en g 1.0:**
+  - el código `g<1-9>` en `parse_bot_code`, en nuestro crate;
+  - la feature `gBots` en el motor;
+  - `g_bot.rs` en el motor del navegador.
+
+  La app todavía no acepta los códigos: eso, el filtro de la cola, los avisos, las partidas contra el bot y las
+  tools van en otro PR, como se hizo con f.
+- **Lo que falta para la feature `gBots`:** sumarla a `ENGINE_FEATURES` de
+  `packages/domain/src/simulation/capabilities.ts`, con su `canPlayGBots` como el de f, así la cola le manda un
+  trabajo con g solo a un motor que lo tiene. En el motor ya está, en los dos `FEATURES` de `engine/src/main.rs`.
 - **El motor del navegador** (`engine/wasm`) incluye `fair_bot.rs` con `#[path]` y fija su propio deckgym. Tiene que
   pasar al fork junto con el resto, o no compila. Si g entra ahí, va igual que f.
 - **La lista de bots** en la pantalla viene después.
@@ -281,24 +337,29 @@ propio PR más adelante.
 
 ## Plan
 
-1. **Este diseño** (PR de riesgo bajo).
-2. **g 1.0** (puntos 1 a 5 y 7), con sus tests, apenas el fork tenga los cambios. Es un PR de riesgo alto, porque toca
-   el motor.
-3. **La carrera** (punto 6) y la herramienta de la liga, con las primeras mediciones.
-4. **Línea 2, sin trampa:**
+1. **Este diseño** (#111, integrado).
+2. **g 1.0** (puntos 1 a 5 y 7), con sus tests, contra el fork `018b419`. Es un PR de riesgo alto, porque toca el
+   motor, y va después del PR de Infra que pasa `engine/Cargo.toml` al fork. Resultados arriba.
+3. **La app acepta g:** los códigos, el filtro de la cola, los avisos, las partidas contra el bot y las tools (riesgo
+   medio).
+4. **La carrera** (punto 6) y la herramienta de la liga, con las primeras mediciones.
+5. **Línea 2, sin trampa:**
    - una búsqueda propia: el expectiminimax de deckgym copiado en nuestro crate (unas 150 líneas, AGPL), con
      `forecast_action`;
    - con determinización: en cada decisión, K mundos posibles en los que se mezcla el mazo propio, así los robos dejan
      de saberse;
-   - si la búsqueda llega a cruzar al turno del rival, en cada mundo también se reparte de nuevo su mano, con las
-     cartas suyas que no se ven (mano y mazo juntos);
+   - si la búsqueda llega a cruzar al turno del rival, en cada mundo también se reparte de nuevo su mano;
+   - la mano del rival sale de la lista típica de su arquetipo en el meta (sus 20 cartas, sin el orden ni la mano;
+     decidido por Santi el 15/10), menos lo que ya se vio: lo que reveló (Darkness Claw de Mega-Absol ex muestra la
+     mano entera), lo que se infiere (buscó un Básico con Poké Ball y no lo jugó), lo jugado y lo descartado. Un test:
+     después de Darkness Claw, el bot juega distinto que sin la revelación;
    - cada acción se promedia sobre los mundos;
    - cuesta K veces más (K de 4 a 8).
-5. **Línea 3, los pesos:**
+6. **Línea 3, los pesos:**
    - CMA-ES sobre `GParams`, con un subcomando de engine-cli que corre afuera de la app;
    - la nota es el porcentaje contra la liga, con semillas comunes y mazos fijos;
    - los torneos quedan como control.
-6. **Línea 4, la red:** primero el diseño:
+7. **Línea 4, la red:** primero el diseño:
    - autojuego al estilo AlphaZero, con lo que el tablero muestra como entrada;
    - inferencia con enteros, o en Rust con solo las operaciones de arriba y su orden fijo, para que Windows y Android
      den lo mismo.
@@ -306,8 +367,8 @@ propio PR más adelante.
 ## Preguntas abiertas
 
 - **Para Infra:**
-  - ¿entran los tres cambios en el fork, y cuándo?
-  - En deckgym, `sample_down` mezcla con el hash de un `usize`. En el motor del navegador (wasm32), el bot puede
+  - los tres cambios entraron en el fork (`018b419`, rama `feat/bot-api`);
+  - en deckgym, `sample_down` mezcla con el hash de un `usize`. En el motor del navegador (wasm32), el bot puede
     resumir las ramas distinto que en la PC. Es de antes de g, y conviene confirmarlo.
-- **Para Santi, con la línea 2:** si la búsqueda cruza al turno del rival, ¿la determinización supone conocida su
-  lista? Sería el arquetipo y sus 20 cartas, sin el orden ni la mano. En el juego se infiere del meta, pero no se ve.
+- **Respondida por Santi (15/10), para la línea 2:** la determinización supone la lista típica del arquetipo del meta,
+  no la real, sin el orden ni la mano.
