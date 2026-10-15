@@ -38,11 +38,11 @@ revisar: false
 | [H-019](H-019.md) | engine-cli pierde medio segundo por corrida y los chunks chicos hunden la velocidad del laboratorio | resuelto | — | media | — | 2026-10-13 |
 | [H-020](H-020.md) | Las semillas comunes del laboratorio casi no sirven porque las variantes reordenan la lista | resuelto | — | media | — | 2026-10-09 |
 | [H-021](H-021.md) | Una búsqueda del laboratorio no se puede reproducir | resuelto | — | baja | — | 2026-10-09 |
-| [H-050](H-050.md) | «Optimizar» no prueba dos copias de una misma candidata | resuelto | — | — | #32 | 2026-10-14 |
+| [H-050](H-050.md) | «Optimizar» no prueba dos copias de una misma candidata | resuelto | — | — | #32 | 2026-10-15 |
 | [H-051](H-051.md) | El bot «et» (termina el turno) no se podía jugar | resuelto | — | media | #65 | 2026-10-12 |
 | [H-052](H-052.md) | deckgym entra en pánico en partidas puntuales y ofrece DiscardFossil dos veces | abierto | — | baja | #71 | 2026-10-12 |
 | [H-053](H-053.md) | La mesa no dejaba unir una herramienta tocando el Pokémon | resuelto | — | media | #69 | 2026-10-12 |
 | [H-054](H-054.md) | El celu corta el motor a mitad de un cruce largo y el chunk se gasta sin resultado | resuelto | — | media | #72 | 2026-10-13 |
 | [H-055](H-055.md) | Los bots e no ven valor en evolucionar sin daño, en herramientas de la Banca ni en daño diferido, y juegan con información perfecta | abierto | 2 | alta | — | 2026-10-14 |
 | [H-056](H-056.md) | deckgym 33ff2a5: Casco Pesado anula de más, Extracto y Plubio sortean el objetivo, y un pánico sin Activo | abierto | 1 | alta | — | 2026-10-14 |
-| [H-057](H-057.md) | Un KO de fin de turno en el turno 30 llega como victoria con 31 turnos y la cola rechazaba el chunk | resuelto | 3 | media | #108 | 2026-10-14 |
+| [H-057](H-057.md) | Un KO de fin de turno en el turno 30 llega como victoria con 31 turnos y la cola rechazaba el chunk | resuelto | 3 | media | #108 | 2026-10-15 |

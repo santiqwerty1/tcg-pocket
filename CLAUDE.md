@@ -166,7 +166,7 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
   - el Coordinador y Principal están en las dos y esperan cada sala con su propio `wait`;
   - el despachador de Codex-Posta lee «posta» y, como el de Codex-Revisor, avisa solo (`Re: [tomado|terminó|falló]`, tope de 90 min);
   - la ventana `chat-app.ps1 -Sala <sala>` muestra la sala en el título, con accesos «Chat TCG» y «Chat Posta» en el escritorio.
-  - D-030: el chat sale de tcg-pocket a un hub propio (incremento 5 de Posta adelantado), con D1–D9 aprobadas el 14/10. Repo privado `santiqwerty1/chat-hub` con la CI en el runner propio `hub-pc-1` de esta PC; integrados H1–H3 (chat-hub #1–#6).
+  - D-030: el chat sale de tcg-pocket a un hub propio (incremento 5 de Posta adelantado), con D1–D9 aprobadas el 14/10. Repo privado `santiqwerty1/chat-hub` con la CI en un runner propio de la PC de Santi; integrados H1–H3 (chat-hub #1–#6).
 - **Integrados el 14/10/2026:** #97–#108.
   - «Optimizar» con dos copias (#97/#99, H-050 resuelto); «dos lugares» cerrado y la fase 42 completa (#102).
   - Motor: diagnóstico de salidas (#100), retomar desde la partida N (#104/#105, feature `resume`, engine-cli 0.3.8–0.3.9) y el regulador de CPU (#106, `engine-cli regulate`, `cpuRegulator` prendido por defecto en Windows, worker 0.3.9).

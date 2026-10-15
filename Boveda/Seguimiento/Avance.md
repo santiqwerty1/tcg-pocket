@@ -84,7 +84,7 @@ revisar: false
 
 **Producción al 14/10/2026:** desplegada hasta `d7a6c1c` (#108). Versión 1.0.0, engine-cli 0.3.10 y worker 0.3.9, con el regulador de CPU (#106); los workers se actualizan solos ([D-026](Decisiones/D-026.md)), salvo el Ryzen, que sigue con 0.2.7. El motor sigue en deckgym `33ff2a5` hasta el fork ([D-031](Decisiones/D-031.md)). **No hay simulaciones en marcha:** se cancelaron todas las del motor viejo.
 
-**Repo:** `santiqwerty1/tcg-pocket` es público desde el 11/10 ([D-022](Decisiones/D-022.md)). main está protegida (privacy, test, e2e y screens requeridos). El hub de chat vive en `santiqwerty1/chat-hub` (privado, [D-030](Decisiones/D-030.md)), con la CI en el runner propio `hub-pc-1` de esta PC.
+**Repo:** `santiqwerty1/tcg-pocket` es público desde el 11/10 ([D-022](Decisiones/D-022.md)). main está protegida (privacy, test, e2e y screens requeridos). El hub de chat vive en `santiqwerty1/chat-hub` (privado, [D-030](Decisiones/D-030.md)), con la CI en un runner propio de la PC de Santiago.
 
 **Flujo desde el 13/10** (`docs/REVISION.md`): autorrevisión antes de cada PR, decisiones pendientes sin número (las numera `pnpm decisiones` al integrar, en el orden en que entraron), revisión según el riesgo, sesiones que rotan, y a Santiago se le escribe solo para decidir o hacer algo. **Deploys desde una copia limpia de main:** Posta deja relevos sin commitear en `Boveda/Sesiones/`.
 
@@ -134,4 +134,4 @@ El 12/10/2026:
 El 13/10/2026:
 - **Aprobadas por Santiago:** [D-027](Decisiones/D-027.md) y [D-028](Decisiones/D-028.md).
 - **Decididas por Santiago:** [D-029](Decisiones/D-029.md) (e2 sigue de bot por defecto), [D-030](Decisiones/D-030.md) (hub de chat propio; D1–D9 aprobadas el 14/10), dejar el S25 con los bots lentos hasta el arreglo de H-054, y UptimeRobot.
-- **Esperan a Santiago:** D1–D9 del hub y los 43 términos de las traducciones.
+- **Esperaban a Santiago:** D1–D9 del hub, aprobadas el 14/10. Siguen esperando los 43 términos de las traducciones.

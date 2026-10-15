@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-15 desde la etiqueta `v1.0.0` (118 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-15 desde la etiqueta `v1.0.0` (120 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -108,6 +108,8 @@ _Borrador generado al 2026-10-15 desde la etiqueta `v1.0.0` (118 commits). Escri
 
 ### Documentado
 
+- D-031 — GAMES_REV stays at 1 (golden identical), the fork rev and the differential test `4924813`
+- 14/10 — PRs #97–#108 and chat-hub #1–#6, the deckgym fork (D-031), the bots' blind spots and engine bugs (H-055–H-057), T-021 bots and T-022 matches; decisions folded in merge order `06c88fd`
 - the perGame turn limit decision, with the open question of the real game `5645e18`
 - «dos lugares por worker» closed with the 14/10 timing and the short jobs' wait — phase 42 complete, T-014 done (D-024) `61ec0a7`
 - e4 (#31) in the calibration report — paired against e2 and e3 on the same tournaments, its speed, and the recommendation unchanged (D-029) `6b44222`
@@ -142,4 +144,16 @@ _Borrador generado al 2026-10-15 desde la etiqueta `v1.0.0` (118 commits). Escri
 - bump the development group with 2 updates (#61) `7f62616`
 - bump the production group with 3 updates (#60) `a7f8afc`
 - bump actions/setup-node from 4 to 7 (#59) `db16eeb`
+
+### Hallazgos cerrados
+
+- H-057 por `d7a6c1c` en main
+- H-050 por `55850d4` en main
+
+### Decidido
+
+- 2026-10-14 — D-031 decidida por Santiago: la app usa un fork de deckgym con los arreglos (Casco Pesado, Extracto y Plubio, el pánico sin Activo) apenas estén listos, y se relanzan todas las simulaciones.
+- 2026-10-14 — D-030: D1–D9 del hub de chat aprobadas por Santiago.
+- 2026-10-13 — D-028 aprobada por Santiago: Aprobada por Santiago el 13/10/2026 (respuesta al Coordinador), después de probar la sincronización a mano desde Colección. La automática ya estaba prendida desde el 12/10 21:28 (trackerAutoSync).
+- 2026-10-13 — D-027 aprobada por Santiago: Aprobada por Santiago el 13/10/2026 (respuesta al Coordinador): el criterio del análisis exploratorio queda como está.
 <!-- /posta:cambios -->

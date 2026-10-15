@@ -3,7 +3,7 @@ tipo: indice
 titulo: 'Preguntas'
 area: proyecto
 estado: vigente
-actualizado: '2026-10-13'
+actualizado: '2026-10-15'
 origen:
   - posta generar
 revisar: false
@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-13 fichas: cerrada 8 · respondida 5. ⚑ = para revisar.
+14 fichas: cerrada 8 · pendiente 1 · respondida 5. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Sector | Actualizado |
 | --- | --- | --- | --- | --- | --- |
@@ -30,3 +30,4 @@ revisar: false
 | [P-011](P-011.md) | ¿Con qué chequeamos desde afuera que la app está viva? | respondida | — | operación | 2026-10-09 |
 | [P-012](P-012.md) | ¿Cuando vence la sesión, la app tiene que seguir desregistrando el service worker? | respondida | — | sesión y notificaciones | 2026-10-09 |
 | [P-013](P-013.md) | ¿Creamos el tag v1.0.0 y el release en el repo público? | cerrada | — | repositorio | 2026-10-12 |
+| [P-014](P-014.md) | En el juego real, ¿un KO de fin de turno en el turno 30 da la victoria o el empate por límite? | pendiente | 4 | motor | 2026-10-15 |

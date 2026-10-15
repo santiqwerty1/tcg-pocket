@@ -22,7 +22,7 @@ Mapa de documentos y código: [Dónde vive cada cosa](Sistema/Mapa.md) · operac
 
 ## Hoy
 
-- [Para revisar](Trabajo.base#Para%20revisar) · [Avance](Seguimiento/Avance.md) · última bitácora: [2026-10-12](Bitacora/2026-10-12.md)
+- [Para revisar](Trabajo.base#Para%20revisar) · [Avance](Seguimiento/Avance.md) · última bitácora: [2026-10-14](Bitacora/2026-10-14.md)
 
 ![[Trabajo.base#Para revisar]]
 
@@ -33,12 +33,12 @@ _Recuentos al 2026-10-15 (generados; no editar a mano)._
 | --- | --- | --- |
 | decision | 31 | vigente 31 |
 | hallazgo | 29 | abierto 5 · resuelto 24 |
-| pregunta | 13 | cerrada 8 · respondida 5 |
+| pregunta | 14 | cerrada 8 · pendiente 1 · respondida 5 |
 | riesgo | 13 | abierto 10 · resuelto 3 |
 | supuesto | 3 | refutado 1 · verificado 2 |
 | tarea | 22 | en_curso 4 · hecho 16 · pendiente 2 |
 
-**Para revisar:** nada. **Abiertas:** 21.
+**Para revisar:** nada. **Abiertas:** 22 (prioridad 4–5: P-014).
 <!-- /posta:recuentos -->
 
 ## Fichas
