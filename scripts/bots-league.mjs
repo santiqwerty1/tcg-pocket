@@ -154,7 +154,14 @@ export function playLeague({ engine, bots, decks, games, threads, seed }) {
       const job = { deckA: decks[a], deckB: decks[b], games, seed: pairSeed(seed, a, b), threads, perGame: true }
       const first = runEngine(engine, { ...job, players: [x, y] })
       const second = runEngine(engine, { ...job, players: [y, x] })
-      byPair.push({ a, b, scores: pairedScores(first, second) })
+      byPair.push({
+        a,
+        b,
+        scores: pairedScores(first, second),
+        // Each seat apart, for the breakdown by deck: X held a in the first run and b in the second.
+        xWithA: [...first].map((winner) => score(winner, 'A')),
+        xWithB: [...second].map((winner) => score(winner, 'B')),
+      })
     }
     matches.push({ x, y, byPair })
   }
@@ -168,18 +175,30 @@ export function summarize(bots, matches, options) {
       byPair.map((pair) => pair.scores),
       options,
     )
+    // By deck: how X and Y each did holding it, against the same rival decks and the same games (X held a in the
+    // first run while Y held it in the second, and the other way around for b). Each rate carries the deck as much as
+    // the bot: it is a breakdown to look at, not a test (the interval above is the one that holds).
     const decks = {}
-    for (const { a, b, scores } of byPair) {
-      for (const name of [a, b]) {
-        decks[name] ??= []
-        decks[name].push(...scores)
-      }
+    const add = (name, x, y) => {
+      decks[name] ??= { x: [], y: [] }
+      decks[name].x.push(...x)
+      decks[name].y.push(...y)
     }
+    for (const { a, b, xWithA, xWithB } of byPair) {
+      add(
+        a,
+        xWithA,
+        xWithB.map((s) => 1 - s),
+      )
+      add(
+        b,
+        xWithB,
+        xWithA.map((s) => 1 - s),
+      )
+    }
+    const mean = (values) => values.reduce((s, v) => s + v, 0) / values.length
     const byDeck = Object.fromEntries(
-      Object.entries(decks).map(([name, scores]) => [
-        name,
-        { mean: scores.reduce((s, v) => s + v, 0) / scores.length, n: scores.length },
-      ]),
+      Object.entries(decks).map(([name, { x, y }]) => [name, { x: mean(x), y: mean(y), n: x.length }]),
     )
     return { x, y, ...overall, byDeck }
   })
@@ -224,7 +243,7 @@ function main() {
       `${row.x} contra ${row.y}: ${percent(row.mean)} para ${row.x} (n = ${row.n} partidas apareadas en ${pairs} pares de mazos, IC 95 % ${percent(lo)}–${percent(hi)})`,
     )
     for (const [name, deck] of Object.entries(row.byDeck)) {
-      console.log(`  con ${name}: ${percent(deck.mean)} (n = ${deck.n})`)
+      console.log(`  con ${name}: ${row.x} ${percent(deck.x)}, ${row.y} ${percent(deck.y)} (n = ${deck.n} por bot)`)
     }
   }
   if (summary.elo) {

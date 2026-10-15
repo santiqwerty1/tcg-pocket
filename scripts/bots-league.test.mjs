@@ -21,9 +21,9 @@ import {
 const SCRIPT = fileURLToPath(new URL('./bots-league.mjs', import.meta.url))
 
 /**
- * A stand-in for `engine-cli simulate`: «strong» wins every game it plays, «weak» loses every game, and between two
- * other bots game i goes to A when i is even, to B when it is odd, and is a tie every fifth. It writes the job it got
- * to FAKE_LEAGUE_LOG, one line each.
+ * A stand-in for `engine-cli simulate`: «strong» wins every game it plays, «weak» loses every game, «grass» wins
+ * every game it plays with the Grass deck and loses the rest, and between two other bots game i goes to A when i is
+ * even, to B when it is odd, and is a tie every fifth. It writes the job it got to FAKE_LEAGUE_LOG, one line each.
  */
 const FAKE = `
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
@@ -36,6 +36,8 @@ let winners = ''
 for (let i = 0; i < job.games; i++) {
   if (a === 'strong' || b === 'weak') winners += 'A'
   else if (b === 'strong' || a === 'weak') winners += 'B'
+  else if (a === 'grass') winners += job.deckA.includes('Grass') ? 'A' : 'B'
+  else if (b === 'grass') winners += job.deckB.includes('Grass') ? 'B' : 'A'
   else winners += i % 5 === 4 ? 'T' : i % 2 === 0 ? 'A' : 'B'
 }
 writeFileSync(resultFile, JSON.stringify({ perGame: job.perGame ? { winners } : undefined }))
@@ -175,6 +177,23 @@ describe('the league', () => {
       // Game i goes to A or B in both runs: X wins one of the pair and loses the other, or ties both.
       assert.equal(summary.rows[0].mean, 0.5)
       assert.equal(summary.elo, null)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('breaks the result down by the deck each bot held', () => {
+    const { dir, engine } = fakeEngine()
+    try {
+      const matches = playLeague({ engine, bots: ['grass', 'x'], decks: DECKS, games: 6, threads: 1, seed: 2 })
+      const [row] = summarize(['grass', 'x'], matches).rows
+      // «grass» wins all its games with the Grass deck (uno) and loses the rest. x wins with uno too (grass then holds
+      // another deck), and with dos half: it loses against grass holding uno and wins against grass holding tres.
+      // Before, each deck got the pair's mean, ½ for grass with uno.
+      assert.deepEqual(row.byDeck.uno, { x: 1, y: 1, n: 12 })
+      assert.deepEqual(row.byDeck.dos, { x: 0, y: 0.5, n: 12 })
+      // Paired, each pair with uno is one win and one loss: a half there, a loss where neither held uno.
+      assert.ok(Math.abs(row.mean - 1 / 3) < 1e-12, String(row.mean))
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
