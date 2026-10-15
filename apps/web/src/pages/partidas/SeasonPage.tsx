@@ -49,10 +49,17 @@ export function RankPicker({ ranks, current }: { ranks: Ranked['ranks']; current
         </select>
       </label>
       {rank === 'master' ? (
-        <label className="flex w-28 flex-col gap-1 text-sm">
-          <span className="text-muted-foreground">Puntos</span>
-          <Input inputMode="numeric" value={points} onChange={(event) => setPoints(event.target.value)} />
-        </label>
+        <div className="flex w-28 flex-col gap-1 text-sm">
+          <label htmlFor="rank-points" className="text-muted-foreground">
+            Puntos
+          </label>
+          <Input
+            id="rank-points"
+            inputMode="numeric"
+            value={points}
+            onChange={(event) => setPoints(event.target.value)}
+          />
+        </div>
       ) : null}
       <Button type="submit" variant="secondary" disabled={add.isPending}>
         Anotar
@@ -117,14 +124,18 @@ function SeasonDates({ season }: { season: NonNullable<Ranked['summary']>['seaso
   }
   return (
     <form className="flex flex-wrap items-end gap-2" onSubmit={save} aria-label="Fechas de la temporada">
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Desde</span>
-        <Input type="date" value={startsOn} onChange={(event) => setStartsOn(event.target.value)} />
-      </label>
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Hasta</span>
-        <Input type="date" value={endsOn} onChange={(event) => setEndsOn(event.target.value)} />
-      </label>
+      <div className="flex flex-col gap-1 text-sm">
+        <label htmlFor="season-starts" className="text-muted-foreground">
+          Desde
+        </label>
+        <Input id="season-starts" type="date" value={startsOn} onChange={(event) => setStartsOn(event.target.value)} />
+      </div>
+      <div className="flex flex-col gap-1 text-sm">
+        <label htmlFor="season-ends" className="text-muted-foreground">
+          Hasta
+        </label>
+        <Input id="season-ends" type="date" value={endsOn} onChange={(event) => setEndsOn(event.target.value)} />
+      </div>
       <Button type="submit" variant="secondary" disabled={set.isPending}>
         Guardar
       </Button>

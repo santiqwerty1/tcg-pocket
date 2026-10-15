@@ -34,7 +34,7 @@ export function RankPrompt({ result, onDone }: { result: MatchResult; onDone: ()
     }
   }
   return (
-    <div className="flex flex-col gap-2 rounded-lg border p-3 text-sm" role="group" aria-label="¿Cambiaste de rango?">
+    <fieldset className="flex min-w-0 flex-col gap-2 rounded-lg border p-3 text-sm" aria-label="¿Cambiaste de rango?">
       <p className="font-medium">
         {rank ? `¿Cambiaste de rango? Estás en ${rank.label}.` : `¿En qué rango estás en ${current.name}?`}
       </p>
@@ -55,6 +55,6 @@ export function RankPrompt({ result, onDone }: { result: MatchResult; onDone: ()
       ) : (
         <RankPicker ranks={ranked.data.ranks} current={null} />
       )}
-    </div>
+    </fieldset>
   )
 }
