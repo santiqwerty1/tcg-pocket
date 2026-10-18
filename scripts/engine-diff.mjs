@@ -10,8 +10,8 @@
 // A change to deckgym's `State` fields changes more than its rules: `forecast_action` samples the branches of an effect
 // with more than MAX_FORECAST_BRANCHES (20) results, as the search bots see it, with a seed from the hash of `State`, so
 // a new field makes e2 see other branches and play other games (Puppy-Loving Girl has hundreds). Then the old engine to
-// compare is a control: the old deckgym with only the new fields, never set, through a `[patch]` with `path` in
-// engine/Cargo.toml (docs/OPERACION.md, «El motor: nuestra copia de deckgym»).
+// compare is a control: the old deckgym with the new fields, written where the new code writes them but without the new
+// rule, through a `[patch]` with `path` in engine/Cargo.toml (docs/OPERACION.md, «El motor: nuestra copia de deckgym»).
 import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -30,19 +30,24 @@ const sideB = decks.filter((deck) => deck.side === 'b')
 
 // The cards the change touches. For upstream adfe505 on top of 018b419 (18/10/2026): Boosted Evolution (#410),
 // Mimikyu ex (#411), Wallace (#412), Legendary Pulse (#414), a double knockout from an attack (#417), Rocky Helmet
-// against Cursed Jewel (#367), and one Stadium per turn (#408), which matters only with two Stadiums of different names.
-// For the first fork (018b419 on 33ff2a5) it was Heavy Helmet and company (#383), Quick-Grow Extract and Wallace (#399),
-// the Fossils (#397) and the abilities that read the Active (#398). Edit it for another change.
+// against Cursed Jewel (#367), the Energy of «discard all Energy» attacks to the discard pile (#406), the end of the turn
+// of Kiawe and Broken-Space Bellow (#388), and one Stadium per turn (#408, below). For the first fork (018b419 on
+// 33ff2a5) it was Heavy Helmet and company (#383), Quick-Grow Extract and Wallace (#399), the Fossils (#397) and the
+// abilities that read the Active (#398). Edit it for another change.
 const AFFECTED = [
-  /^\d+ Eevee (B1 184|B4b (183|353|408)|P-B (11|54))$/m, // the printings with Boosted Evolution
+  /^\d+ Eevee (B1 184|B4b (183|353|408)|P-B (11|54))\r?$/m, // the printings with Boosted Evolution
   /Mimikyu ex/,
   /Wallace/,
   /(Suicune|Entei|Raikou) ex/,
   /Rocky Helmet/,
   /Mega Sableye ex/,
   /Giratina ex|Hoopa ex|Mega Charizard Y ex|Combee|Solgaleo ex/, // damage to itself: a double knockout
+  // #406, the printings with Hyper Ray, Thunderbolt, Luster Purge, Gaia Impact, Sonic Impulse, Supreme Blast and
+  // Baneful Boom (database.json at adfe505)
+  /^\d+ ((Hydreigon|Latios|Mesprit|Raging Bolt|Landorus|Mega Latios ex) |(Raichu A1 95|Heliolisk (B1a 29|P-B 18)|Pikachu ex (A2b (22|82|92)|A4b 132|B1 321|P-B 103))\r?$)/m,
+  /Giratina ex|Kiawe/, // #388
 ]
-/** deckgym's Stadiums (database.json at adfe505), for «two Stadiums of different names» (#408). */
+/** deckgym's Stadiums (database.json at adfe505), for one Stadium per turn (#408). */
 const STADIUMS = [
   'Arcade',
   'Area Zero',
@@ -58,10 +63,18 @@ const STADIUMS = [
   'Starting Plains',
   'Training Area',
 ]
+/**
+ * #408 changes a game only when a list can play a second Stadium in a turn: two of different names, or a second copy
+ * after its own Field Blower discards the first.
+ */
+const twoStadiums = (text) => {
+  const lines = STADIUMS.map((name) => new RegExp(`^(\\d+) ${name} `, 'm').exec(text)).filter(Boolean)
+  const copies = lines.reduce((sum, line) => sum + Number(line[1]), 0)
+  return lines.length > 1 || (copies > 1 && /^\d+ Field Blower /m.test(text))
+}
 const affected = (text) => {
   const found = AFFECTED.filter((pattern) => pattern.test(text)).map((p) => p.source)
-  const stadiums = STADIUMS.filter((name) => new RegExp(`^\\d+ ${name} `, 'm').test(text))
-  return stadiums.length > 1 ? [...found, 'two Stadiums'] : found
+  return twoStadiums(text) ? [...found, 'two Stadiums'] : found
 }
 
 function run(engine, job, name) {
