@@ -734,8 +734,27 @@ export class MatchesService {
       data.opponentCards = this.seenCards(patch.opponentCards, current.opponentCards)
     }
     if (Object.keys(data).length === 0) return this.view(current)
-    const updated = await this.prisma.match.update({ where: { id: current.id }, data, include: matchInclude })
+    const moved = playedAt && playedAt.getTime() !== current.playedAt.getTime() ? playedAt : null
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.match.update({ where: { id: current.id }, data, include: matchInclude })
+      // Deuda de #120: the ranks noted for this match (the one it was played at, a millisecond before it, and the one it
+      // led to, at its instant) follow it to its new time, unless another match shares the old one.
+      if (moved && !(await this.sharesInstant(tx, current.playedAt, current.id))) {
+        for (const shift of [-1, 0]) {
+          const from = new Date(current.playedAt.getTime() + shift)
+          const to = new Date(moved.getTime() + shift)
+          const taken = await tx.rankChange.count({ where: { at: to } })
+          if (taken === 0) await tx.rankChange.updateMany({ where: { at: from }, data: { at: to } })
+        }
+      }
+      return row
+    })
     return this.view(updated)
+  }
+
+  /** Another match played at that very instant. */
+  private async sharesInstant(tx: Prisma.TransactionClient, at: Date, except: number): Promise<boolean> {
+    return (await tx.match.count({ where: { playedAt: at, id: { not: except } } })) > 0
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -929,7 +948,13 @@ export class MatchesService {
 
   async delete(rawId: string): Promise<void> {
     const match = await this.requireMatch(rawId)
-    await this.prisma.match.delete({ where: { id: match.id } })
+    await this.prisma.$transaction(async (tx) => {
+      await tx.match.delete({ where: { id: match.id } })
+      // Deuda de #120: the rank it led to (noted at its instant) goes with it, unless another match shares that instant.
+      if (!(await this.sharesInstant(tx, match.playedAt, match.id))) {
+        await tx.rankChange.deleteMany({ where: { at: match.playedAt } })
+      }
+    })
   }
 
   // ---------------------------------------------------------------------------------------------------------------

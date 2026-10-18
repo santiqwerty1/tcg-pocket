@@ -53,7 +53,12 @@ export function QuickMatchForm({
   /** Fase 13: after a loss, «¿mala racha?» for that deck and rival. */
   const [lastLoss, setLastLoss] = useState<{ deckId: string; opponent: string | null } | null>(null)
   /** 14/10: after a competitive match, «¿Cambiaste de rango?». */
-  const [rankAsk, setRankAsk] = useState<{ id: string; result: MatchResult } | null>(null)
+  const [rankAsk, setRankAsk] = useState<{
+    key: string
+    result: MatchResult
+    playedAt?: string
+    pendingRef?: string
+  } | null>(null)
 
   // Own opponents first (most recent and frequent), then the tournament archetypes of the era not typed yet.
   const opponentChoices = useMemo(() => {
@@ -103,6 +108,8 @@ export function QuickMatchForm({
       return
     }
     setLastLoss(null)
+    // Deuda de #120: offline too — the rank travels with the match.
+    setRankAsk(body.mode === 'competitive' ? { key: clientRef, result: body.result, pendingRef: clientRef } : null)
     resetForm()
     toast.success(label, {
       description: 'Sin señal: quedó en el celu y se envía sola cuando vuelva.',
@@ -133,7 +140,9 @@ export function QuickMatchForm({
     try {
       const match = await create.mutateAsync({ ...body, clientRef })
       setLastLoss(match.result === 'loss' ? { deckId: match.deck.id, opponent: match.opponent } : null)
-      setRankAsk(match.mode === 'competitive' ? { id: match.id, result: match.result } : null)
+      setRankAsk(
+        match.mode === 'competitive' ? { key: match.id, result: match.result, playedAt: match.playedAt } : null,
+      )
       resetForm()
       toast.success(
         `${RESULT_LABEL[match.result]} con ${match.deck.name}${match.opponent ? ` contra ${match.opponent}` : ''}`,
@@ -182,7 +191,15 @@ export function QuickMatchForm({
           Guardar partida
         </Button>
       </div>
-      {rankAsk ? <RankPrompt key={rankAsk.id} result={rankAsk.result} onDone={() => setRankAsk(null)} /> : null}
+      {rankAsk ? (
+        <RankPrompt
+          key={rankAsk.key}
+          result={rankAsk.result}
+          {...(rankAsk.playedAt ? { playedAt: rankAsk.playedAt } : {})}
+          {...(rankAsk.pendingRef ? { pendingRef: rankAsk.pendingRef } : {})}
+          onDone={() => setRankAsk(null)}
+        />
+      ) : null}
       {lastLoss ? (
         <LuckCard
           key={`${lastLoss.deckId}|${lastLoss.opponent ?? ''}`}

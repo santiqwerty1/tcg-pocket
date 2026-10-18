@@ -7,6 +7,7 @@ import {
   rankAt,
   rankLabelEs,
   seasonOf,
+  seasonOfChange,
   seasonSummary,
 } from '../../src/matches/index.js'
 
@@ -144,6 +145,15 @@ describe('ranked by season and rank (pedido de Santi del 14/10)', () => {
     expect(rankAt(at('2026-10-15T13:00:00Z'), [...changes].reverse(), season, ZONE)?.id).toBe('10')
     expect(seasonSummary(season, [], changes, ZONE).rank?.id).toBe('10')
     expect(seasonSummary(season, [], [...changes].reverse(), ZONE).rank?.id).toBe('10')
+  })
+
+  it("deuda de #120: a rank noted a millisecond before midnight of the first day is the season's", () => {
+    // 14/10 00:00 in Buenos Aires is 03:00 UTC: the rank a match at that very moment was played at goes 1 ms before.
+    const before = [change('1', '2026-10-14T02:59:59.999Z', 'master')]
+    expect(rankAt(at('2026-10-14T03:00:00.000Z'), before, season, ZONE)?.rank).toBe('master')
+    expect(seasonOfChange(at('2026-10-14T02:59:59.999Z'), KNOWN_SEASONS, ZONE)?.code).toBe('B4bSP')
+    expect(seasonOfChange(at('2026-10-14T02:59:59.998Z'), KNOWN_SEASONS, ZONE)).toBeNull()
+    expect(seasonSummary(season, [], before, ZONE).rank?.rank).toBe('master')
   })
 
   it('self-review: Master Ball without points after Master Ball with points is the same, not «bajó»', () => {

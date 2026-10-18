@@ -26,6 +26,8 @@ export type AuditUndo =
         opponentText: string | null
         /** 14/10: the rival's cards seen (absent in a copy kept before them). */
         opponentCards?: { cardId: string; count: number }[]
+        /** Deuda de #120: the rank it led to (noted at its instant), deleted with it. */
+        rankAfter?: { rank: string; points: number | null }
         wentFirst: boolean | null
         mode: 'competitive' | 'casual' | 'beginner' | 'event' | 'friend'
         note: string
@@ -328,6 +330,12 @@ export class McpAuditService {
       })
       // An explicit id does not move the sequence: keep it past every id.
       await this.matchSequencePastIds(tx)
+      // The rank it led to comes back with it, unless another rank was noted at that instant since.
+      if (match.rankAfter && (await tx.rankChange.count({ where: { at: new Date(match.playedAt) } })) === 0) {
+        await tx.rankChange.create({
+          data: { at: new Date(match.playedAt), rank: match.rankAfter.rank, points: match.rankAfter.points },
+        })
+      }
       return created.id
     })
   }

@@ -112,6 +112,15 @@ function later(a: RankChange, b: RankChange): boolean {
   return a.at.getTime() > b.at.getTime() || (a.at.getTime() === b.at.getTime() && idOrder(a.id, b.id) > 0)
 }
 
+/**
+ * The season a rank noted at `at` belongs to: the one of the instant right after it (deuda de #120). The rank a match was
+ * played at is noted a millisecond before it, and for a match at midnight of the season's first day that millisecond
+ * is the day before.
+ */
+export function seasonOfChange(at: Date, seasons: readonly RankedSeason[], timeZone: string): RankedSeason | null {
+  return seasonOf(new Date(at.getTime() + 1), seasons, timeZone)
+}
+
 /** The season whose days contain the instant (in the owner's time zone), or null between seasons. */
 export function seasonOf(date: Date, seasons: readonly RankedSeason[], timeZone: string): RankedSeason | null {
   const day = dayIn(date, timeZone)
@@ -131,7 +140,7 @@ export function rankAt(
   let found: RankChange | null = null
   for (const change of changes) {
     if (change.at.getTime() >= date.getTime()) continue
-    if (seasonOf(change.at, [season], timeZone) === null) continue
+    if (seasonOfChange(change.at, [season], timeZone) === null) continue
     if (!found || later(change, found)) found = change
   }
   return found
@@ -200,7 +209,7 @@ export function seasonSummary(
     .filter((match) => match.mode === 'competitive' && seasonOf(match.playedAt, [season], timeZone) !== null)
     .sort((a, b) => a.playedAt.getTime() - b.playedAt.getTime())
   const noted = changes
-    .filter((change) => seasonOf(change.at, [season], timeZone) !== null)
+    .filter((change) => seasonOfChange(change.at, [season], timeZone) !== null)
     .sort((a, b) => a.at.getTime() - b.at.getTime() || idOrder(a.id, b.id))
   const record = empty()
   const byRank = new Map<string, { rank: Rank | null; record: GameRecord }>()

@@ -78,6 +78,23 @@ export function queueMatch(item: PendingMatch): boolean {
   return write([...read().filter((other) => other.clientRef !== item.clientRef), item])
 }
 
+/**
+ * Deuda de #120: «¿Cambiaste de rango?» for a match still on the phone — the rank travels with it and is noted at its
+ * instant when it gets to the server. False when it already went (or is not there).
+ */
+export function setPendingRank(clientRef: string, rank: string, points: number | null): boolean {
+  const items = read()
+  const item = items.find((other) => other.clientRef === clientRef && !other.error)
+  if (!item) return false
+  return write(
+    items.map((other) =>
+      other === item
+        ? { ...other, body: { ...other.body, rank, ...(points !== null ? { rankPoints: points } : {}) } }
+        : other,
+    ),
+  )
+}
+
 export function discardPending(clientRef: string): void {
   write(read().filter((item) => item.clientRef !== clientRef))
 }

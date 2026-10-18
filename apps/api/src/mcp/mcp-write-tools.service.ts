@@ -140,7 +140,7 @@ export class McpWriteToolsService {
       run(t.decksUpdate.name, args, () => this.decksUpdate(args)),
     )
     server.registerTool(t.matchesLog.name, config(t.matchesLog, WRITE), (args) =>
-      run(t.matchesLog.name, args, () => this.matchesLog(args)),
+      run(t.matchesLog.name, args, (note) => this.matchesLog(args, note)),
     )
     server.registerTool(t.rankedRankNote.name, config(t.rankedRankNote, WRITE), (args) =>
       run(t.rankedRankNote.name, args, (note) => this.rankedRankNote(args, note)),
@@ -421,18 +421,21 @@ export class McpWriteToolsService {
       : { saved: true, deleted: true, rival: args.opponent }
   }
 
-  private async matchesLog(args: {
-    deck: string
-    result: 'win' | 'loss' | 'tie'
-    opponent?: string
-    wentFirst?: boolean
-    mode?: 'competitive' | 'casual' | 'beginner' | 'event' | 'friend'
-    note?: string
-    playedAt?: string
-    opponentCards?: string[]
-    rank?: Rank
-    rankPoints?: number
-  }): Promise<Json> {
+  private async matchesLog(
+    args: {
+      deck: string
+      result: 'win' | 'loss' | 'tie'
+      opponent?: string
+      wentFirst?: boolean
+      mode?: 'competitive' | 'casual' | 'beginner' | 'event' | 'friend'
+      note?: string
+      playedAt?: string
+      opponentCards?: string[]
+      rank?: Rank
+      rankPoints?: number
+    },
+    audit?: AuditNote,
+  ): Promise<Json> {
     const deck = await this.deckRefs.resolve(args.deck)
     // Self-review of ranked: the rank is checked before the match is saved (an error after it made Claude log it twice).
     if (args.rankPoints !== undefined && !args.rank) {
@@ -469,15 +472,20 @@ export class McpWriteToolsService {
     const before = match.mode === 'competitive' ? await this.ranked.at(match.playedAt) : null
     // Verification of #120: two matches of one instant — the same rank is already noted (no error after saving the
     // match), and another rank replaces it (the last one said stays).
-    const after = args.rank
-      ? (
-          await this.ranked.noteRank(
-            { rank: args.rank, points: args.rankPoints ?? null, at: match.playedAt.toISOString() },
-            new Date(),
-            { sameIsNoted: true },
-          )
-        ).change
-      : null
+    const noted = args.rank ? await this.ranked.noteAfterMatch(match, args.rank, args.rankPoints ?? null) : null
+    const after = noted?.change ?? null
+    // Deuda de #120: the rank it noted is undone from the log (the match stays: matches_delete for that).
+    if (noted?.written && audit) {
+      audit.undo = {
+        kind: 'rank_change',
+        id: noted.change.id,
+        at: noted.change.at,
+        rank: noted.change.rank,
+        points: noted.change.points,
+        before: noted.replaced,
+        label: `${noted.change.label} después de la partida ${match.id} (${OWNER_DATE_TIME.format(match.playedAt)})`,
+      }
+    }
     return {
       logged: true,
       match: matchView(match),
@@ -543,6 +551,9 @@ export class McpWriteToolsService {
     const match = await this.matches.get(id)
     const row = await this.prisma.match.findUnique({ where: { id: Number(match.id) } })
     if (!row) throw new NotFoundException(`Partida ${id} no encontrada.`)
+    // Deuda de #120: the rank it led to (at its instant) goes with it, unless another match shares that instant.
+    const alone = (await this.prisma.match.count({ where: { playedAt: row.playedAt, id: { not: row.id } } })) === 0
+    const rankAfter = alone ? await this.prisma.rankChange.findFirst({ where: { at: row.playedAt } }) : null
     // The copy is in the log before the row goes: undoing never depends on what happens after the delete.
     const undo: AuditUndo = {
       kind: 'match_delete',
@@ -560,6 +571,7 @@ export class McpWriteToolsService {
         source: row.source,
         clientRef: row.clientRef,
         createdAt: row.createdAt.toISOString(),
+        ...(rankAfter ? { rankAfter: { rank: rankAfter.rank, points: rankAfter.points } } : {}),
       },
       label: `${MATCH_RESULT_LABEL_ES[match.result]} con ${match.deck.name}${match.opponent ? ` contra ${match.opponent}` : ''} (${match.playedAt.toISOString().slice(0, 10)})`,
     }
@@ -570,6 +582,7 @@ export class McpWriteToolsService {
       if (deleted.count === 0) {
         throw new ConflictException(`La partida ${id} cambió (o ya no está) mientras la borraba: no borré nada.`)
       }
+      if (rankAfter) await tx.rankChange.deleteMany({ where: { id: rankAfter.id, at: row.playedAt } })
       // That it was deleted goes in the log with the delete itself: a «Sin terminar» entry is undoable only with it.
       await note.keepIn(tx, { ...undo, deletedAt: new Date().toISOString() })
     })

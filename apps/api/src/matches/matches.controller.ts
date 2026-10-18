@@ -1,8 +1,16 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common'
-import { MATCH_MODES, MATCH_NOTE_MAX_LENGTH, MATCH_RESULTS, OPPONENT_CARDS_MAX, OPPONENT_MAX_LENGTH } from '@tcg/domain'
+import {
+  MATCH_MODES,
+  MATCH_NOTE_MAX_LENGTH,
+  MATCH_RESULTS,
+  OPPONENT_CARDS_MAX,
+  OPPONENT_MAX_LENGTH,
+  RANKS,
+} from '@tcg/domain'
 import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
 import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
+import { RankedService } from '../ranked/ranked.service.js'
 import type {
   DeckComparisonView,
   DeckMatchupsView,
@@ -125,9 +133,19 @@ const luckQuerySchema = z.object({
 })
 
 /** Session-protected matches API (docs/API.md «Partidas»). Static routes go first so they never match `:id`. */
+/** A new match, and (deuda de #120) the rank it led to, for one saved offline. */
+const matchCreateSchema = matchInputSchema
+  .extend({ rank: z.enum(RANKS).optional(), rankPoints: z.number().int().min(0).max(100_000).nullable().optional() })
+  .refine((body) => body.rankPoints === undefined || body.rankPoints === null || body.rank === 'master', {
+    message: 'Solo la Master Ball lleva puntos.',
+  })
+
 @Controller('api/matches')
 export class MatchesController {
-  constructor(private readonly matches: MatchesService) {}
+  constructor(
+    private readonly matches: MatchesService,
+    private readonly ranked: RankedService,
+  ) {}
 
   /** Fase 13: is the deck's record (overall or against a rival) unusual for what tournaments expect? */
   @Get('luck')
@@ -148,11 +166,16 @@ export class MatchesController {
 
   @Post()
   @HttpCode(201)
-  create(
-    @Body(new ZodValidationPipe(matchInputSchema)) body: z.infer<typeof matchInputSchema>,
+  async create(
+    @Body(new ZodValidationPipe(matchCreateSchema)) body: z.infer<typeof matchCreateSchema>,
     @CurrentSession() _session: RequestSession,
   ): Promise<MatchView> {
-    return this.matches.create(body, 'ui')
+    const { rank, rankPoints, ...input } = body
+    const match = await this.matches.create(input, 'ui')
+    // Deuda de #120: «¿Cambiaste de rango?» on a match saved offline travels with it, and is noted at its instant
+    // (nothing for a casual match or one outside every season: the match is what matters).
+    if (rank) await this.ranked.noteAfterMatch(match, rank, rankPoints ?? null)
+    return match
   }
 
   @Get('suggestions')

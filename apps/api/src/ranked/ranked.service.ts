@@ -17,6 +17,7 @@ import {
   rankAt,
   rankLabelEs,
   seasonOf,
+  seasonOfChange,
   seasonSummary,
 } from '@tcg/domain'
 import { dateOnly, OWNER_TIME_ZONE, todayInOwnerZone } from '../config/time-zone.js'
@@ -87,7 +88,8 @@ export class RankedService {
     const next = season
       ? (changes.find(
           (change) =>
-            change.at.getTime() >= match.playedAt.getTime() && seasonOf(change.at, [season], OWNER_TIME_ZONE) !== null,
+            change.at.getTime() >= match.playedAt.getTime() &&
+            seasonOfChange(change.at, [season], OWNER_TIME_ZONE) !== null,
         ) ?? null)
       : null
     return {
@@ -112,7 +114,7 @@ export class RankedService {
     }
     const season = seasonOf(match.playedAt, await this.seasons(), OWNER_TIME_ZONE)
     const at = new Date(match.playedAt.getTime() - 1)
-    if (!season || seasonOf(at, [season], OWNER_TIME_ZONE) === null) {
+    if (!season || seasonOfChange(at, [season], OWNER_TIME_ZONE) === null) {
       throw new BadRequestException({
         code: 'validation',
         message: 'La partida no cae en ninguna temporada de ranked: cargá la temporada en Partidas → Temporada.',
@@ -232,6 +234,25 @@ export class RankedService {
   }
 
   /**
+   * The rank a match led to, noted at its instant (deuda de #120: the quick entry, offline too, and `matches_log`). Only
+   * for a competitive match in a season — otherwise null, and the match stays saved; the same rank already there
+   * counts as noted, another one replaces it (the last one said).
+   */
+  async noteAfterMatch(
+    match: { mode: string; playedAt: Date },
+    rank: string,
+    points: number | null,
+  ): Promise<{
+    change: RankChangeView
+    replaced: { rank: Rank; points: number | null } | null
+    written: boolean
+  } | null> {
+    if (match.mode !== 'competitive') return null
+    if (!seasonOf(match.playedAt, await this.seasons(), OWNER_TIME_ZONE)) return null
+    return this.noteRank({ rank, points, at: match.playedAt.toISOString() }, new Date(), { sameIsNoted: true })
+  }
+
+  /**
    * Notes the rank (now, when given, or — 18/10 — the one a registered match was played at: `beforeMatch`, noted just
    * before it, so it holds for that match and the next ones until the next change). Master Ball may carry its points.
    */
@@ -252,7 +273,12 @@ export class RankedService {
     now = new Date(),
     /** `matches_log` (verification of #120): the same rank already there is no error — the match was saved. */
     options: { sameIsNoted?: boolean } = {},
-  ): Promise<{ change: RankChangeView; replaced: { rank: Rank; points: number | null } | null }> {
+  ): Promise<{
+    change: RankChangeView
+    replaced: { rank: Rank; points: number | null } | null
+    /** False when the same rank was already there (`sameIsNoted`): nothing was written, nothing to undo. */
+    written: boolean
+  }> {
     const rank = this.checkRank(input)
     if (input.at && input.beforeMatch) {
       throw new BadRequestException({ code: 'validation', message: 'Mandá `at` o `beforeMatch`, no los dos.' })
@@ -266,15 +292,25 @@ export class RankedService {
     const view = (row: { id: number; at: Date; points: number | null }) =>
       changeView({ id: idToString(row.id), at: row.at, rank, points: row.points })
     if (!input.at && !input.beforeMatch) {
-      return { change: view(await this.prisma.rankChange.create({ data: { at, rank, points } })), replaced: null }
+      return {
+        change: view(await this.prisma.rankChange.create({ data: { at, rank, points } })),
+        replaced: null,
+        written: true,
+      }
     }
     return this.prisma.$transaction(async (tx) => {
       // Verification of #120: two notes for one moment at once would both find nothing and create two rows.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
       const existing = await tx.rankChange.findFirst({ where: { at }, orderBy: { id: 'desc' } })
-      if (!existing) return { change: view(await tx.rankChange.create({ data: { at, rank, points } })), replaced: null }
+      if (!existing) {
+        return {
+          change: view(await tx.rankChange.create({ data: { at, rank, points } })),
+          replaced: null,
+          written: true,
+        }
+      }
       if (existing.rank === rank && existing.points === points) {
-        if (options.sameIsNoted) return { change: view(existing), replaced: null }
+        if (options.sameIsNoted) return { change: view(existing), replaced: null, written: false }
         throw new ConflictException({
           code: 'already_noted',
           message: `${rankLabelEs(rank, points)} ya estaba anotado en ese momento.`,
@@ -284,6 +320,7 @@ export class RankedService {
       return {
         change: view(row),
         replaced: isRank(existing.rank) ? { rank: existing.rank, points: existing.points } : null,
+        written: true,
       }
     })
   }

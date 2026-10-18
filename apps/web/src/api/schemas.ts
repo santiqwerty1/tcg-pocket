@@ -616,6 +616,9 @@ export interface MatchInput {
   playedAgoMs?: number
   /** 14/10: the rival's cards seen. */
   opponentCards?: { cardId: string; count: number }[]
+  /** Deuda de #120: the rank it led to, for a match saved offline (noted at its instant when it gets there). */
+  rank?: string
+  rankPoints?: number | null
 }
 
 /** 14/10: an archetype of the era for the rival's cards seen. */
