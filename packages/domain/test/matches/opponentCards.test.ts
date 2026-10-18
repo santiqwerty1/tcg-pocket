@@ -164,7 +164,7 @@ describe('rival cards seen (pedido de Santi del 14/10)', () => {
       const unclassified = { ...(list('one', [['Pikachu', 1]]) as object), archetypeId: null } as never
       const entries = [list('many', [['Greninja', 1]]), unclassified, unclassified, unclassified]
       const [fit] = suggestArchetypesForCards([greninja], entries, archetypes, index)
-      expect(fit).toMatchObject({ name: 'Muchos', share: 25 })
+      expect(fit).toMatchObject({ name: 'Muchos', share: 25, lists: 1, eraLists: 4 })
     })
 
     it('two copies seen need two copies in the list', () => {

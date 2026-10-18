@@ -577,15 +577,15 @@ export class McpWriteToolsService {
     }
     await note.keep(undo)
     await this.prisma.$transaction(async (tx) => {
+      // Verification of #130: the ranks' lock first, before the match's row, in the same order as the app (moving or
+      // deleting a match at the same time cannot deadlock).
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
       // Only the version that was copied: if it changed in between, nothing is deleted.
       const deleted = await tx.match.deleteMany({ where: { id: row.id, updatedAt: row.updatedAt } })
       if (deleted.count === 0) {
         throw new ConflictException(`La partida ${id} cambió (o ya no está) mientras la borraba: no borré nada.`)
       }
-      if (rankAfter) {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
-        await tx.rankChange.deleteMany({ where: { id: rankAfter.id, at: row.playedAt } })
-      }
+      if (rankAfter) await tx.rankChange.deleteMany({ where: { id: rankAfter.id, at: row.playedAt } })
       // That it was deleted goes in the log with the delete itself: a «Sin terminar» entry is undoable only with it.
       await note.keepIn(tx, { ...undo, deletedAt: new Date().toISOString() })
     })

@@ -56,7 +56,7 @@ const classifySchema = z
     matchIds: z.array(z.string().trim().min(1).max(20)).max(500).optional(),
     /** Reclassify every match of a rival typed before (by its key: case and accents do not matter). */
     from: z.string().trim().min(1).max(OPPONENT_LOOKUP_MAX).optional(),
-    /** `null`: back to «sin clasificar» («Deshacer»). */
+    /** `null`: back to «sin clasificar». A new rival keeps the app's limit (review of #131). */
     opponent: z.string().trim().min(1).max(OPPONENT_MAX_LENGTH).nullable(),
     /** The rival `matchIds` must still have (null: none); the ones that changed are skipped (Codex on #114). */
     expect: z.string().trim().max(OPPONENT_LOOKUP_MAX).nullable().optional(),
@@ -71,6 +71,26 @@ const classifySchema = z
   .refine((body) => (body.matchIds?.length ?? 0) > 0 || body.from !== undefined, {
     message: 'Mandá las partidas o el rival a reclasificar.',
   })
+/** Deuda de #114: «Deshacer» a classification in one transaction. */
+const undoClassifySchema = z.object({
+  previous: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1).max(20),
+        opponent: z.string().trim().min(1).max(OPPONENT_LOOKUP_MAX).nullable(),
+      }),
+    )
+    .min(1)
+    .max(5000),
+  /** The rival the classification left (null: none). */
+  expect: z.string().trim().max(OPPONENT_LOOKUP_MAX).nullable(),
+  note: z
+    .object({
+      from: z.string().trim().min(1).max(OPPONENT_LOOKUP_MAX),
+      to: z.string().trim().min(1).max(OPPONENT_LOOKUP_MAX),
+    })
+    .optional(),
+})
 const matchInputSchema = z.object({
   deckId: deckIdField,
   result: z.enum(MATCH_RESULTS),
@@ -235,6 +255,16 @@ export class MatchesController {
     skipped: string[]
   }> {
     return this.matches.classify(body)
+  }
+
+  /** Deuda de #114: «Deshacer» a classification, atomically (`previous` is what `classify` returned). */
+  @Post('classify/undo')
+  @HttpCode(200)
+  undoClassify(
+    @Body(new ZodValidationPipe(undoClassifySchema)) body: z.infer<typeof undoClassifySchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<{ updated: number; noteMoved: { from: string; to: string } | null; skipped: string[] }> {
+    return this.matches.undoClassify(body)
   }
 
   @Get(':id')

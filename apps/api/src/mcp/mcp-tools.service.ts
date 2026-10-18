@@ -1511,7 +1511,8 @@ ${MCP_CHAT_INSTRUCTIONS}`
       archetype: suggestion.name,
       kind: suggestion.kind === 'fits' ? 'encaja' : 'parecido',
       text: suggestion.text,
-      shareOfEra: `${percentFormat.format(suggestion.share)} %`,
+      // Deuda de #114: with its n (the era's lists), and the non-breaking space before «%» like every percentage.
+      shareOfEra: `${percentFormat.format(suggestion.share)}\u00a0% (${suggestion.lists} de ${suggestion.eraLists} listas)`,
     })
     const source = 'Listas de torneo de la era (personas), no las partidas de Santi.'
     if (args.cards) {
