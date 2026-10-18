@@ -264,6 +264,8 @@ Temporadas de ranked del juego (por días, en la hora de Santi) y el rango anota
 | `GET /api/ranked/matches/:id` | 18/10: `{ matchId, competitive, season: { code, name } \| null, rank \| null, next \| null }`: la temporada y el rango con que se jugó una partida, y el próximo rango anotado después de ella (`null` en una que no es competitiva) |
 | `DELETE /api/ranked/ranks/:id` | `204` |
 
+Rango con la partida (deuda de #120): `POST /api/matches` acepta `rank` y `rankPoints` (como `ranked_rank_note`), y anota en el instante de la partida el rango al que llevó, igual que «¿Cambiaste de rango?». Es lo que manda una partida guardada sin señal. Una casual o una fuera de temporada se guarda sin rango. Al cambiar la fecha de una partida se mueven con ella su rango y el de 1 ms antes; al borrarla se va el rango al que llevó, salvo que otra partida tenga el mismo instante.
+
 Cartas vistas del rival (pedido de Santi del 14/10): `MatchInput` y el `PATCH` aceptan `opponentCards: [{ cardId, count }]` (cualquier edición de cada nombre, `count` 1 o 2, hasta 20; una por nombre, las copias se suman hasta 2; `400` con una carta desconocida) y `Match` trae `opponentCards: [{ cardId, count, nameEs }]` (`[]` en las partidas de antes).
 
 | Método y ruta | Cuerpo / respuesta |
