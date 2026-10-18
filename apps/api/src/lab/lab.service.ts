@@ -151,6 +151,7 @@ import type { JobSummaryView, SnapshotView } from '../simulation/simulation-view
 import { type CreateJobInput, labMode, SimulationsService } from '../simulation/simulations.service.js'
 import { EngineStatusService, type SnapshotSource, SnapshotsService } from '../simulation/snapshots.service.js'
 import { WorkerQueueService } from '../simulation/worker-queue.service.js'
+import type { ExpectedVsMetaView } from '../tournaments/tournament-views.js'
 import { LIMITLESS_ATTRIBUTION, type Scope, TournamentsService } from '../tournaments/tournaments.service.js'
 import { bankShares, comparableScore } from './lab-blind-spots.js'
 import { type FrozenInputs, leftOutCards, whyCards } from './lab-explain.js'
@@ -202,8 +203,9 @@ export type LabDeckInput =
 export interface DeckLabScore {
   jobId: number
   era: string
-  /** The bank's format (review of #119: «¿Cuál llevo hoy?» compares it only with tournaments of the same one). */
+  /** The bank's format and rivals (review of #119: «¿Cuál llevo hoy?» compares the score with tournaments of the same). */
   format: TournamentFormat
+  rivals: { archetypeId: string; weight: number }[]
   /** The bots that played it: «e2», or «e2 contra e3» when the two sides differ. */
   bot: string
   finishedAt: Date | null
@@ -2273,6 +2275,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           jobId: job.id,
           era: job.params.lab.era,
           format: job.params.lab.format,
+          rivals: job.params.lab.rivals.map((rival) => ({ archetypeId: rival.archetypeId, weight: rival.weight })),
           bot,
           finishedAt: job.finishedAt,
           score,
@@ -2496,15 +2499,16 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
 
   /**
    * H-055: «posible punto ciego del bot» of each list: the list rules for the bot of the lists' side and, when the
-   * objective is the meta and the headline score (the confirmation's when there is one) covers the whole bank, that
-   * score against what the list's archetype should make in tournaments against the same rivals with the same weights:
-   * the deck's own archetype, else the closest one. Review of the PR: a score of part of the bank (a job still playing,
-   * a pairing that failed) is reweighted over the rivals it has, so it is not compared.
+   * objective is the meta and the headline round (the confirmation once there is one) is played whole, its score
+   * against what the list's archetype should make in tournaments against the same rivals with the same weights: the
+   * deck's own archetype, else the closest one. A score of part of the bank (a job still playing, a pairing that
+   * failed) is reweighted over the rivals it has, so it is not compared.
    */
   private async botBlindSpots(
     decks: readonly LabDeckView[],
     snapshots: ReadonlyMap<number, { cards: unknown }>,
     closest: ReadonlyMap<number, string | null>,
+    whole: ReadonlyMap<number, boolean>,
     rivals: readonly { archetypeId: string; weight: number }[],
     bot: string | null,
     lab: LabParams,
@@ -2525,7 +2529,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       const own = deck.deckId === null ? undefined : owners.get(deck.deckId)
       return own ?? closest.get(deck.snapshot) ?? null
     }
-    const expected = new Map<string, { value: number; ci95: [number, number] } | null>()
+    const expected = new Map<string, ExpectedVsMetaView | null>()
     if (againstMeta) {
       for (const id of new Set(decks.map(archetypeOf).filter((id): id is string => id !== null))) {
         const found = await this.tournaments
@@ -2538,7 +2542,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     for (const deck of decks) {
       const cards = cardsOfSnapshot(snapshots.get(deck.snapshot)?.cards as unknown as SnapshotCard[])
       const archetype = archetypeOf(deck)
-      const score = comparableScore(deck)
+      const score = comparableScore(deck, whole.get(deck.snapshot) ?? false)
       const warnings = botWarnings({
         cards,
         index,
@@ -2592,8 +2596,10 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       index,
     )
 
-    // H-055: the archetype each list belongs to (its deck's, or the era's closest when it is played or known).
+    // H-055: the archetype each list belongs to (its deck's, or the era's closest when it is played or known), and
+    // whether its headline round is played whole (review of #119: every chunk, not one per rival).
     const closest = new Map<number, string | null>()
+    const whole = new Map<number, boolean>()
     const decks: LabDeckView[] = params.sideA
       .map((sid): LabDeckView | null => {
         const snapshot = byId.get(sid)
@@ -2605,6 +2611,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             ? scoreView(scoreOf(chunks, scored, sid, confirmFilter), lab.objective)
             : null
         const headline = confirmed?.score ? confirmFilter : searchFilter
+        whole.set(sid, complete(chunks, scored, sid, confirmed ? confirmFilter : searchFilter))
         const found = novelty(rows, groupsOfCards(cards, index))
         closest.set(sid, found.kind === 'new' ? null : (found.closest?.archetypeId ?? null))
         const noveltyView: LabNoveltyView = {
@@ -2684,7 +2691,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         }
       })
       .filter((deck): deck is LabDeckView => deck !== null)
-    const blind = await this.botBlindSpots(decks, byId, closest, scored, job.players[0] ?? null, lab, index)
+    const blind = await this.botBlindSpots(decks, byId, closest, whole, scored, job.players[0] ?? null, lab, index)
     for (const deck of decks) deck.botBlindSpot = blind.get(deck.snapshot) ?? null
 
     const roleOrder = { best: 0, base: 1, deck: 2, variant: 3 } as const

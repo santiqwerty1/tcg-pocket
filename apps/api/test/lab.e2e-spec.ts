@@ -2351,9 +2351,20 @@ describe('laboratorio (e2e)', () => {
       const venusaurLab = (await get(`/api/lab/jobs/${jobs[venusaur]}`)).body
       expect(venusaurLab.decks[0].botBlindSpot.text).toMatch(ivysaur)
       const far =
-        /^Posible punto ciego del bot: 0\u00a0% simulado contra [\d,]+\u00a0% del arquetipo en torneos\. Probalo con f2 o e3\.$/
+        /^Posible punto ciego del bot: 0\u00a0% simulado contra [\d,]+\u00a0% del arquetipo en torneos contra los mismos rivales\. Probalo con f2 o e3\.$/
       // Against the meta, deck 2's score against what its archetype makes in tournaments.
       expect((await get(`/api/lab/jobs/${jobs[plain]}`)).body.decks[0].botBlindSpot?.text).toMatch(far)
+      // Review of #119: with one of its chunks not done the round is not whole (a pairing of more than 1.000 games is
+      // split, and one chunk per rival is not the whole bank), so the general rule waits.
+      const chunk = await test.prisma.simulationChunk.findFirstOrThrow({
+        where: { jobId: jobs[plain] as number, status: 'done' },
+      })
+      await test.prisma.simulationChunk.update({ where: { id: chunk.id }, data: { status: 'queued' } })
+      try {
+        expect((await get(`/api/lab/jobs/${jobs[plain]}`)).body.decks[0].botBlindSpot).toBeNull()
+      } finally {
+        await test.prisma.simulationChunk.update({ where: { id: chunk.id }, data: { status: 'done' } })
+      }
       // «¿Cuál llevo hoy?», under the Laboratorio's number.
       type Row = {
         deck: { id: string }

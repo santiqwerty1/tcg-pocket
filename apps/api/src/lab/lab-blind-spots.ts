@@ -18,13 +18,14 @@ export function bankShares(
 
 /**
  * The score the general rule compares: the confirmation's once there is one, even while it has no games yet (review of
- * #119: falling back to the search's then made the warning come and go), else the search's; and only when it covers
- * the whole bank, since a score of part of it is reweighted over the rivals it has.
+ * #119: falling back to the search's then made the warning come and go), else the search's; and only when that round
+ * is played whole (`whole`: every chunk done, not one per rival, since a pairing of more than 1.000 games is split),
+ * because a score of part of the bank is reweighted over the rivals it has.
  */
-export function comparableScore(deck: {
-  search: { score: MetaScore | null }
-  confirm: { score: MetaScore | null } | null
-}): MetaScore | null {
-  const score = deck.confirm ? deck.confirm.score : deck.search.score
-  return score && score.coverage >= 0.999 ? score : null
+export function comparableScore(
+  deck: { search: { score: MetaScore | null }; confirm: { score: MetaScore | null } | null },
+  whole: boolean,
+): MetaScore | null {
+  if (!whole) return null
+  return deck.confirm ? deck.confirm.score : deck.search.score
 }

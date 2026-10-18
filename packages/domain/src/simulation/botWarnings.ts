@@ -9,14 +9,16 @@
  * - **An attack that grows with the Pokémon Tools in play** (Dede-Circuit): e1 and e2 hardly ever attach a Tool to the
  *   Bench, because their value function counts only the Active's and attaching, then attacking, is deeper than they
  *   look (deck 16: 18,8 % with e2 against 50,6 % for the archetype; against Rayquaza, 4 % with e2 and 49 % with e3).
- * - **The number far from tournaments:** the simulated rate and the archetype's tournament rate, both against the meta,
- *   with intervals that do not overlap and at least `FAR_POINTS` apart: «probalo con f2 o e3».
+ * - **The number far from tournaments:** the simulated rate and what the archetype makes in tournaments against the
+ *   same rivals with the same weights, with intervals that do not overlap and at least `FAR_POINTS` apart: «probalo con
+ *   f2 o e3». Only when the tournament number is mostly matchups (`FAR_MIN_COVERAGE`) and has `ORIENTATIVE_BELOW`
+ *   matches (review of #119: an archetype never seen against the rivals gives its overall rate, with a narrow interval).
  * The list rules read the catalog (`blindSpotsOf`, T-017 A3), not the engine.
  */
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
 import type { CardEdition, CardId } from '../catalog/types.js'
 import type { DeckCardEntry } from '../decks/types.js'
-import { formatPercentEs } from '../stats/rates.js'
+import { formatPercentEs, ORIENTATIVE_BELOW } from '../stats/rates.js'
 import { blindSpotsOf } from './blindSpots.js'
 
 export type BotWarning =
@@ -33,8 +35,19 @@ export interface RateWithInterval {
   ci95: readonly [number, number]
 }
 
+/** The tournament number (`ExpectedVsMeta`): its rate and interval, and how much of it is data. */
+export interface TournamentRate extends RateWithInterval {
+  /** Share (0–100) of the rivals' weight whose matchup has enough matches; the rest is the archetype's overall rate. */
+  coverage: number
+  /** The archetype's matches counted. */
+  matches: number
+}
+
 /** Points the simulated rate has to be from the tournament one, besides the intervals not overlapping. */
 export const FAR_POINTS = 15
+
+/** Below this coverage (0–100) the tournament number is mostly a prior, not matchups: the general rule says nothing. */
+export const FAR_MIN_COVERAGE = 50
 
 /** «for each Pokémon Tool attached to all of your Pokémon» (Dedenne ex, Emolga); not the Tools discarded from the hand. */
 const PER_TOOL = /\bfor each Pok[eé]mon Tool attached\b/i
@@ -87,8 +100,12 @@ export function listBotWarnings(
   return warnings
 }
 
-/** The general rule: the simulated rate far from the tournament one, by `FAR_POINTS` and with no overlap. */
-export function farFromTournament(simulated: RateWithInterval, tournament: RateWithInterval): BotWarning | null {
+/**
+ * The general rule: the simulated rate far from the tournament one, by `FAR_POINTS` and with no overlap, when the
+ * tournament number covers `FAR_MIN_COVERAGE` of the rivals and has `ORIENTATIVE_BELOW` matches.
+ */
+export function farFromTournament(simulated: RateWithInterval, tournament: TournamentRate): BotWarning | null {
+  if (tournament.coverage < FAR_MIN_COVERAGE || tournament.matches < ORIENTATIVE_BELOW) return null
   const apart = Math.abs(simulated.value - tournament.value) >= FAR_POINTS
   const disjoint = simulated.ci95[1] < tournament.ci95[0] || tournament.ci95[1] < simulated.ci95[0]
   return apart && disjoint
@@ -103,7 +120,7 @@ export function botWarnings(input: {
   /** The bot that played the deck («e2», «f2»…). */
   bot: string | null | undefined
   simulated?: RateWithInterval | null
-  tournament?: RateWithInterval | null
+  tournament?: TournamentRate | null
 }): BotWarning[] {
   const warnings = listBotWarnings(input.cards, input.index, input.bot)
   const far = input.simulated && input.tournament ? farFromTournament(input.simulated, input.tournament) : null
@@ -119,7 +136,7 @@ export function botWarningEs(warning: BotWarning, bot: string | null | undefined
     case 'bench_tools':
       return `${who} casi nunca pone herramientas en la Banca, y «${warning.attack}» de ${warning.nameEs} crece con ellas`
     case 'far_from_tournament':
-      return `${formatPercentEs(warning.simulated)} simulado contra ${formatPercentEs(warning.tournament)} del arquetipo en torneos`
+      return `${formatPercentEs(warning.simulated)} simulado contra ${formatPercentEs(warning.tournament)} del arquetipo en torneos contra los mismos rivales`
   }
 }
 

@@ -3,6 +3,7 @@ import {
   type BotWarning,
   botWarnings,
   botWarningText,
+  FAR_MIN_COVERAGE,
   FAR_POINTS,
   farFromTournament,
   listBotWarnings,
@@ -11,6 +12,8 @@ import { deckDraft } from '../helpers/loadDecks.js'
 import { catalogIndex } from '../helpers/loadFixtures.js'
 
 const index = catalogIndex()
+/** A tournament number with most of its matchups (80 % of the meta) and enough matches. */
+const solid = (rate: { value: number; ci95: readonly [number, number] }) => ({ ...rate, coverage: 80, matches: 400 })
 const kinds = (warnings: BotWarning[]) => warnings.map((warning) => warning.kind)
 
 describe('posible punto ciego del bot (H-055)', () => {
@@ -82,31 +85,41 @@ describe('posible punto ciego del bot (H-055)', () => {
   it('the general rule: far by at least 15 points and with intervals apart, both ways', () => {
     expect(FAR_POINTS).toBe(15)
     // Deck 16 with e2 (18,8 % of 400) against its archetype (50,6 %).
-    expect(farFromTournament({ value: 18.8, ci95: [15, 23] }, { value: 50.6, ci95: [47, 54] })).toEqual({
+    expect(farFromTournament({ value: 18.8, ci95: [15, 23] }, solid({ value: 50.6, ci95: [47, 54] }))).toEqual({
       kind: 'far_from_tournament',
       simulated: 18.8,
       tournament: 50.6,
     })
     // Over the tournament number too.
-    expect(farFromTournament({ value: 75, ci95: [70, 80] }, { value: 50, ci95: [46, 54] })?.kind).toBe(
+    expect(farFromTournament({ value: 75, ci95: [70, 80] }, solid({ value: 50, ci95: [46, 54] }))?.kind).toBe(
       'far_from_tournament',
     )
     // 20 points apart, but a short test whose interval reaches the tournament one: not yet.
-    expect(farFromTournament({ value: 30, ci95: [12, 54] }, { value: 50, ci95: [46, 54] })).toBeNull()
+    expect(farFromTournament({ value: 30, ci95: [12, 54] }, solid({ value: 50, ci95: [46, 54] }))).toBeNull()
     // Intervals apart but only 10 points: a real difference of list, not a blind spot.
-    expect(farFromTournament({ value: 40, ci95: [38, 42] }, { value: 50, ci95: [48, 52] })).toBeNull()
+    expect(farFromTournament({ value: 40, ci95: [38, 42] }, solid({ value: 50, ci95: [48, 52] }))).toBeNull()
     // The edges: exactly 15 points counts; intervals that touch do not count as apart.
-    expect(farFromTournament({ value: 35, ci95: [33, 37] }, { value: 50, ci95: [48, 52] })?.kind).toBe(
+    expect(farFromTournament({ value: 35, ci95: [33, 37] }, solid({ value: 50, ci95: [48, 52] }))?.kind).toBe(
       'far_from_tournament',
     )
-    expect(farFromTournament({ value: 30, ci95: [25, 48] }, { value: 50, ci95: [48, 52] })).toBeNull()
+    expect(farFromTournament({ value: 30, ci95: [25, 48] }, solid({ value: 50, ci95: [48, 52] }))).toBeNull()
+
+    // Review of #119: a tournament number that is mostly the archetype's overall rate (an archetype never seen against
+    // the rivals: 55,6 % [41,0; 70,1] with coverage 0) or one with few matches says nothing.
+    const far = { value: 30, ci95: [25, 35] as const }
+    expect(farFromTournament(far, { value: 55.6, ci95: [41, 70.1], coverage: 0, matches: 25 })).toBeNull()
+    expect(farFromTournament(far, { value: 60, ci95: [55, 65], coverage: 49.9, matches: 400 })).toBeNull()
+    expect(farFromTournament(far, { value: 60, ci95: [55, 65], coverage: 80, matches: 29 })).toBeNull()
+    expect(farFromTournament(far, { value: 60, ci95: [55, 65], coverage: FAR_MIN_COVERAGE, matches: 30 })?.kind).toBe(
+      'far_from_tournament',
+    )
   })
 
   it('botWarnings puts the list rules and the general one together; the general one alone asks for f2 or e3', () => {
     const deck = deckDraft(40)
     const far = {
       simulated: { value: 1.4, ci95: [0.5, 4] as const },
-      tournament: { value: 45, ci95: [40, 50] as const },
+      tournament: { value: 45, ci95: [40, 50] as const, coverage: 80, matches: 400 },
     }
     expect(kinds(botWarnings({ cards: deck.cards, index, bot: 'e2', ...far }))).toEqual([
       'evolution_without_damage',
@@ -116,7 +129,7 @@ describe('posible punto ciego del bot (H-055)', () => {
     const f2 = botWarnings({ cards: deck.cards, index, bot: 'f2', ...far })
     expect(kinds(f2)).toEqual(['far_from_tournament'])
     expect(botWarningText(f2, 'f2')).toBe(
-      'Posible punto ciego del bot: 1,4 % simulado contra 45 % del arquetipo en torneos. Probalo con e3.',
+      'Posible punto ciego del bot: 1,4 % simulado contra 45 % del arquetipo en torneos contra los mismos rivales. Probalo con e3.',
     )
     expect(botWarningText(botWarnings({ cards: [], index, bot: 'e2', ...far }), 'e2')).toMatch(/Probalo con f2 o e3\.$/)
     expect(
