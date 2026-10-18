@@ -186,6 +186,18 @@ describe('ranked by season and rank (e2e)', () => {
     expect((await del(`/api/ranked/ranks/${noted.body.id}`)).status).toBe(204)
   })
 
+  it('verification of #120: two notes for one moment at once leave one row', async () => {
+    const at = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
+    const both = await Promise.all([
+      post('/api/ranked/ranks').send({ rank: 'ultra-1', at }),
+      post('/api/ranked/ranks').send({ rank: 'ultra-1', at }),
+    ])
+    expect(both.map((response) => response.status).sort()).toEqual([201, 409])
+    const rows = await test.prisma.rankChange.findMany({ where: { at: new Date(at) } })
+    expect(rows).toHaveLength(1)
+    expect((await del(`/api/ranked/ranks/${rows[0]?.id}`)).status).toBe(204)
+  })
+
   it('refused: an unknown rank, points below Master Ball, a date ahead; and it needs a session', async () => {
     expect((await post('/api/ranked/ranks').send({ rank: 'ultra-9' })).status).toBe(400)
     expect((await post('/api/ranked/ranks').send({ rank: 'ultra-1', points: 10 })).status).toBe(400)

@@ -467,12 +467,16 @@ export class McpWriteToolsService {
     // 14/10: the season and the rank the match was played at; with `rank`, the rank it led to (noted at its instant:
     // a rank noted at a match's instant is the one after it).
     const before = match.mode === 'competitive' ? await this.ranked.at(match.playedAt) : null
+    // Verification of #120: two matches of one instant — the same rank is already noted (no error after saving the
+    // match), and another rank replaces it (the last one said stays).
     const after = args.rank
-      ? await this.ranked.addRank({
-          rank: args.rank,
-          points: args.rankPoints ?? null,
-          at: match.playedAt.toISOString(),
-        })
+      ? (
+          await this.ranked.noteRank(
+            { rank: args.rank, points: args.rankPoints ?? null, at: match.playedAt.toISOString() },
+            new Date(),
+            { sameIsNoted: true },
+          )
+        ).change
       : null
     return {
       logged: true,

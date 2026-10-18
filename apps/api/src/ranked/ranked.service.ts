@@ -24,6 +24,9 @@ import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import type { MatchRankedView, RankChangeView, RankedView, RateRowView, SeasonSummaryView } from './ranked-views.js'
 
+/** `pg_advisory_xact_lock` key that serializes noting a rank at a moment (any constant no other lock uses). */
+const RANK_NOTE_LOCK = 43_120
+
 /** A rank noted more than this ahead of the server's clock is refused (a phone with a wrong clock). */
 const FUTURE_SLACK_MS = 10 * 60 * 1000
 
@@ -247,6 +250,8 @@ export class RankedService {
   async noteRank(
     input: { rank: string; points?: number | null; at?: string; beforeMatch?: string },
     now = new Date(),
+    /** `matches_log` (verification of #120): the same rank already there is no error — the match was saved. */
+    options: { sameIsNoted?: boolean } = {},
   ): Promise<{ change: RankChangeView; replaced: { rank: Rank; points: number | null } | null }> {
     const rank = this.checkRank(input)
     if (input.at && input.beforeMatch) {
@@ -264,9 +269,12 @@ export class RankedService {
       return { change: view(await this.prisma.rankChange.create({ data: { at, rank, points } })), replaced: null }
     }
     return this.prisma.$transaction(async (tx) => {
+      // Verification of #120: two notes for one moment at once would both find nothing and create two rows.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
       const existing = await tx.rankChange.findFirst({ where: { at }, orderBy: { id: 'desc' } })
       if (!existing) return { change: view(await tx.rankChange.create({ data: { at, rank, points } })), replaced: null }
       if (existing.rank === rank && existing.points === points) {
+        if (options.sameIsNoted) return { change: view(existing), replaced: null }
         throw new ConflictException({
           code: 'already_noted',
           message: `${rankLabelEs(rank, points)} ya estaba anotado en ese momento.`,

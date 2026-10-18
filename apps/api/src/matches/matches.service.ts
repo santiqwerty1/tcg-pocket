@@ -851,8 +851,13 @@ export class MatchesService {
       throw new BadRequestException({ code: 'validation', message: 'Mandá las partidas o el rival a reclasificar.' })
     }
     return this.prisma.$transaction(async (tx) => {
-      // Codex on #114: the rows stay locked from the check to the write, so an edit cannot land in between.
-      if (ids.length > 0) await tx.$queryRaw`SELECT id FROM matches WHERE id = ANY(${ids}) FOR UPDATE`
+      // Codex on #114: the rows stay locked from the check to the write, so an edit cannot land in between — the
+      // listed ones and, renaming, every typed one, in one query and in id order (two at once cannot deadlock).
+      if (fromKey !== null) {
+        await tx.$queryRaw`SELECT id FROM matches WHERE id = ANY(${ids}) OR opponent_text IS NOT NULL ORDER BY id FOR UPDATE`
+      } else if (ids.length > 0) {
+        await tx.$queryRaw`SELECT id FROM matches WHERE id = ANY(${ids}) ORDER BY id FOR UPDATE`
+      }
       const found = await tx.match.findMany({
         where: { id: { in: [...ids] } },
         select: { id: true, opponentText: true },
@@ -866,8 +871,6 @@ export class MatchesService {
           : found.filter((row) => opponentKey(row.opponentText) !== expectKey).map((row) => row.id)
       const targets = new Set(ids.filter((id) => !skipped.includes(id)))
       if (fromKey !== null) {
-        // Verification of #120: the rival's matches found by name are locked too, until the write.
-        await tx.$queryRaw`SELECT id FROM matches WHERE opponent_text IS NOT NULL FOR UPDATE`
         const typed = await tx.match.findMany({
           where: { opponentText: { not: null } },
           select: { id: true, opponentText: true },

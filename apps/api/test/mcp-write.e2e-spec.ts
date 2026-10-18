@@ -340,6 +340,19 @@ describe('MCP write tools (e2e)', () => {
     expect((await undo(notes[1]?.id)).status).toBe(200)
     expect(await byRank()).toEqual([expect.objectContaining({ label: 'Sin rango anotado', games: 2 })])
     expect((await undo(notes[1]?.id)).status).toBe(409)
+    // Verification of #120: two matches of one instant with the same rank — the second is no error after saving it,
+    // and the rank is noted once; another rank at that instant replaces it (the last one said stays).
+    const playedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    const logAt = (rank: string) =>
+      call(client, 'matches_log', { deck: 'mazo 7', result: 'win', mode: 'competitive', playedAt, rank })
+    const atPlayedAt = () => test.prisma.rankChange.findMany({ where: { at: new Date(playedAt) } })
+    expect((await logAt('great-1')).isError).toBeFalsy()
+    const twice = await logAt('great-1')
+    expect(twice.isError, twice.content[0]?.text).toBeFalsy()
+    expect(twice.structuredContent.ranked).toMatchObject({ now: 'Super Ball 1' })
+    expect(await atPlayedAt()).toHaveLength(1)
+    expect((await logAt('great-2')).structuredContent.ranked).toMatchObject({ now: 'Super Ball 2' })
+    expect((await atPlayedAt()).map((row) => row.rank)).toEqual(['great-2'])
   })
 
   it('acceptance 2: a deck from Spanish text is saved with its validation; an invalid one is not', async () => {
