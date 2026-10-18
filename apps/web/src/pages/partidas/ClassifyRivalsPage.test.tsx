@@ -81,16 +81,19 @@ describe('clasificar rivales (14/10)', () => {
           matchIds?: string[]
           from?: string
           expect?: string | null
+          note?: { from: string; to: string }
         }
+        // The rename's undo: match 7 (typed «greninja suicune») was edited since, so its group moves no note.
+        const staleGroup = body.matchIds?.length === 1 && body.matchIds[0] === '7'
         return {
           // The undo of the group finds match 5 edited since (Codex on #114).
-          skipped: body.expect === 'Suicune ex Baxcalibur' ? ['5'] : [],
-          noteMoved: body.from ? { from: body.from, to: body.opponent } : null,
-          updated: body.matchIds?.length ?? 3,
+          skipped: body.expect === 'Suicune ex Baxcalibur' ? ['5'] : staleGroup ? ['7'] : [],
+          noteMoved: body.from ? { from: body.from, to: body.opponent } : body.note && !staleGroup ? body.note : null,
+          updated: staleGroup ? 0 : (body.matchIds?.length ?? 3),
           opponent: body.opponent,
           previous: (body.matchIds ?? ['7', '8', '9']).map((id) => ({
             id,
-            opponent: body.matchIds ? null : 'Greninja Suicune',
+            opponent: body.matchIds ? null : id === '7' ? 'greninja suicune' : 'Greninja Suicune',
           })),
         }
       },
@@ -143,12 +146,21 @@ describe('clasificar rivales (14/10)', () => {
     // «Deshacer» the rename: each match gets its rival back, and the note goes with them (Codex on #114).
     const undo = await screen.findAllByRole('button', { name: 'Deshacer' })
     await user.click(undo[undo.length - 1] as HTMLElement)
-    await waitFor(() => expect(posts()).toHaveLength(4))
+    // Two spellings, two groups: the first one's match was edited since and moves nothing, so the note goes with the
+    // next one (Codex on #114: it was dropped after the first group).
+    await waitFor(() => expect(posts()).toHaveLength(5))
+    const note = { from: 'Greninja Altaria', to: 'Greninja Suicune' }
     expect(JSON.parse(String(posts()[3]?.body))).toEqual({
-      matchIds: ['7', '8', '9'],
+      matchIds: ['7'],
+      opponent: 'greninja suicune',
+      expect: 'Greninja Altaria',
+      note,
+    })
+    expect(JSON.parse(String(posts()[4]?.body))).toEqual({
+      matchIds: ['8', '9'],
       opponent: 'Greninja Suicune',
       expect: 'Greninja Altaria',
-      note: { from: 'Greninja Altaria', to: 'Greninja Suicune' },
+      note,
     })
   })
 

@@ -872,6 +872,12 @@ export class BackupService {
         `${unknown.size} ids del backup no existen en el catálogo cargado; no se puede restaurar hasta sincronizarlo.`,
       )
     }
+    if (document.schemaVersion < 9) {
+      // Codex on #114: a replace recreates every match from the file, and older files have no cards seen.
+      notices.push(
+        `Backup de la versión ${document.schemaVersion}, anterior a las cartas vistas del rival (14/10): restaurarlo deja todas las partidas sin cartas vistas.`,
+      )
+    }
     if (document.schemaVersion < 7) {
       notices.push(
         `Backup de la versión ${document.schemaVersion}, anterior a la Fase 16: no trae eventos; se mantienen los que hay ahora.`,

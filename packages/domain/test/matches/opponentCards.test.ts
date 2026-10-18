@@ -160,6 +160,13 @@ describe('rival cards seen (pedido de Santi del 14/10)', () => {
       ])
     })
 
+    it('Codex on #114: the era share counts the lists without an archetype too', () => {
+      const unclassified = { ...(list('one', [['Pikachu', 1]]) as object), archetypeId: null } as never
+      const entries = [list('many', [['Greninja', 1]]), unclassified, unclassified, unclassified]
+      const [fit] = suggestArchetypesForCards([greninja], entries, archetypes, index)
+      expect(fit).toMatchObject({ name: 'Muchos', share: 25 })
+    })
+
     it('two copies seen need two copies in the list', () => {
       const entries = [list('one', [['Greninja', 1]]), list('many', [['Greninja', 2]])]
       const found = suggestArchetypesForCards([{ ...greninja, count: 2 }], entries, archetypes, index)

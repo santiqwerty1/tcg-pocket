@@ -507,6 +507,8 @@ export class McpWriteToolsService {
 
   /** «2 Greninja», «Suicune ex», «A1-89»: the cards seen as the API takes them (any card of the name counts). */
   private seenCards(texts: readonly string[], kept: readonly string[] = []): SeenCard[] {
+    // Codex on #114: clearing the cards needs no catalog (as in the app).
+    if (texts.length === 0) return []
     const index = this.catalog.requireIndex()
     return texts.map((text) => seenCardFromText(index, text, kept))
   }

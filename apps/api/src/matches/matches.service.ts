@@ -849,6 +849,8 @@ export class MatchesService {
       throw new BadRequestException({ code: 'validation', message: 'Mandá las partidas o el rival a reclasificar.' })
     }
     return this.prisma.$transaction(async (tx) => {
+      // Codex on #114: the rows stay locked from the check to the write, so an edit cannot land in between.
+      if (ids.length > 0) await tx.$queryRaw`SELECT id FROM matches WHERE id = ANY(${ids}) FOR UPDATE`
       const found = await tx.match.findMany({
         where: { id: { in: [...ids] } },
         select: { id: true, opponentText: true },

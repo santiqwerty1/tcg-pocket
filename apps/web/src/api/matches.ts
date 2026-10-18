@@ -271,7 +271,8 @@ export async function undoClassify(done: Classified, queryClient: QueryClient): 
   for (const [opponent, matchIds] of byOpponent) {
     const undone = await classify({ matchIds, opponent, expect: done.opponent, ...(note ? { note } : {}) })
     skipped += undone.skipped.length
-    note = undefined
+    // Codex on #114: only once a group moved it back (a group whose matches were all edited since moves nothing).
+    if (undone.noteMoved) note = undefined
   }
   await invalidateMatches(queryClient)
   return skipped

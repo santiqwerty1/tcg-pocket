@@ -408,6 +408,27 @@ describe('backup and settings (e2e)', () => {
     expect(dry.body.diff.notices.some((n: string) => n.includes('notas por rival'))).toBe(true)
   })
 
+  it('Codex on #114: a backup from before the cards seen warns that restoring it drops them', async () => {
+    const v8 = {
+      ...document,
+      schemaVersion: 8,
+      matches: document.matches.map((match) => {
+        const { opponentCards: _cards, ...rest } = match as typeof match & { opponentCards?: unknown }
+        return rest
+      }),
+    }
+    const { ranked: _ranked, ...withoutRanked } = v8 as typeof v8 & { ranked?: unknown }
+    const dry = await post('/api/backup/import?mode=dry-run').attach(
+      'file',
+      gzipSync(Buffer.from(JSON.stringify(withoutRanked))),
+      'v8.json.gz',
+    )
+    expect(dry.status).toBe(200)
+    expect(dry.body.diff.notices.some((n: string) => n.includes('sin cartas vistas'))).toBe(true)
+    const current = await post('/api/backup/import?mode=dry-run').attach('file', exported, 'backup.json.gz')
+    expect(current.body.diff.notices.some((n: string) => n.includes('sin cartas vistas'))).toBe(false)
+  })
+
   it('refuses a backup whose matches point to a deck revision that is not in the file', async () => {
     const otherDeckRevision = document.decks[1]?.revisions[0]?.id
     const broken = {
