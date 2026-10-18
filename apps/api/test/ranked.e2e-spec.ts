@@ -193,7 +193,7 @@ describe('ranked by season and rank (e2e)', () => {
       deckId: decks[0]?.id,
       result: 'win',
       mode: 'competitive',
-      clientRef: 'deuda-120-a',
+      clientRef: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
       rank: 'great-3',
     }
     const sent = await post('/api/matches').send({ ...offline, playedAgoMs: 5 * 60 * 60 * 1000 })
@@ -205,7 +205,15 @@ describe('ranked by season and rank (e2e)', () => {
     )
     expect(await at(playedAt)).toHaveLength(1)
     // Points only with Master Ball; a casual match notes no rank, and is saved.
-    expect((await post('/api/matches').send({ ...offline, clientRef: 'deuda-120-b', rankPoints: 10 })).status).toBe(400)
+    expect(
+      (
+        await post('/api/matches').send({
+          ...offline,
+          clientRef: '9b2d6e1a-3c4f-4a5b-8c7d-1e2f3a4b5c6d',
+          rankPoints: 10,
+        })
+      ).status,
+    ).toBe(400)
     const casual = await post('/api/matches').send({
       deckId: decks[0]?.id,
       result: 'win',
@@ -227,7 +235,11 @@ describe('ranked by season and rank (e2e)', () => {
     expect(await at(movedTo)).toHaveLength(0)
     // With another match at that very instant, the rank stays.
     const shared = new Date(Date.now() - 3.5 * 60 * 60 * 1000).toISOString()
-    const one = await post('/api/matches').send({ ...offline, clientRef: 'deuda-120-c', playedAt: shared })
+    const one = await post('/api/matches').send({
+      ...offline,
+      clientRef: '3e7c1f20-8a4b-4c6d-9e0f-1a2b3c4d5e6f',
+      playedAt: shared,
+    })
     const two = await post('/api/matches').send({
       deckId: decks[1]?.id,
       result: 'loss',
