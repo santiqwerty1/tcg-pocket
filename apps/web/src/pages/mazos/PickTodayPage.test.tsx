@@ -228,6 +228,13 @@ describe('¿Qué mazo llevo hoy? and «Actualizar todos» (14/10)', () => {
         status: 'queued',
         label: 'Actualizar todos',
         players: ['e2', 'e2'],
+        // Review of #118: the whole summary, so the answer validates and the screens refresh.
+        playersEs: ['e2', 'e2'],
+        gamesPerPair: 100,
+        baseSeed: '1',
+        engineRev: 'test',
+        replaySample: 2,
+        error: null,
         priority: 3,
         createdAt: '2026-10-15T12:00:00.000Z',
         startedAt: null,
@@ -251,12 +258,16 @@ describe('¿Qué mazo llevo hoy? and «Actualizar todos» (14/10)', () => {
       'href',
       '/laboratorio/50',
     )
+    const reads = () => calls.filter((call) => call.method === 'GET' && call.path === '/api/decks-today').length
+    const before = reads()
     await user.click(screen.getByRole('button', { name: 'Reintentar lo que falló' }))
     await waitFor(() =>
       expect(calls.some((call) => call.method === 'POST' && call.path === '/api/simulations/50/retry-failed')).toBe(
         true,
       ),
     )
+    // Review of #118: the screen asks again, so the row stops saying «falló» without reloading.
+    await waitFor(() => expect(reads()).toBeGreaterThan(before))
   })
 
   it('no button when every deck has a score of this era or is under test', async () => {

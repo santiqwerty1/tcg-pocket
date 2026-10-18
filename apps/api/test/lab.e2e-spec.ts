@@ -361,6 +361,24 @@ describe('laboratorio (e2e)', () => {
     expect(deck.perRival).toHaveLength(5)
     expect(['played', 'known', 'new']).toContain((done.decks[0] as { novelty: { kind: string } }).novelty.kind)
     expect((await get('/api/lab/jobs')).body.items.map((item: { id: number }) => item.id)).toContain(jobId)
+    // Deuda 2 (review of #118): 501 newer jobs that are not the Laboratorio's do not push it out of the list (the 500
+    // newest of every kind were read first), and the limit asked for holds.
+    const {
+      id: _id,
+      createdAt: _at,
+      ...row
+    } = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: jobId } })
+    const { lab: _lab, ...plain } = row.params as Record<string, unknown>
+    const others = await test.prisma.simulationJob.createManyAndReturn({
+      data: Array.from({ length: 501 }, () => ({ ...row, status: 'done' as const, params: plain as never })),
+      select: { id: true },
+    })
+    try {
+      expect((await get('/api/lab/jobs')).body.items.map((item: { id: number }) => item.id)).toContain(jobId)
+      expect((await test.app.get(LabService).jobs(1)).items).toHaveLength(1)
+    } finally {
+      await test.prisma.simulationJob.deleteMany({ where: { id: { in: others.map((other) => other.id) } } })
+    }
     // Fase 15: the deck's latest Laboratorio score shows up in «¿qué mazo llevo hoy?».
     expect(
       (await test.http().patch(`/api/decks/${deckIds[1]}`).set('Cookie', cookie).send({ builtInGame: true })).status,
@@ -532,6 +550,22 @@ describe('laboratorio (e2e)', () => {
     }
     expect(planAfterFail.queued).toEqual([])
     expect(planAfterFail.failed).toContainEqual({ deckId: String(badDeck), jobId: failedJob })
+    // Review of #118: Claude reads why, with the Laboratorio's default bot.
+    const client = new Client({ name: 'e2e', version: '1.0.0' })
+    await client.connect(
+      new StreamableHTTPClientTransport(mcpUrl, { requestInit: { headers: { Authorization: `Bearer ${mcpToken}` } } }),
+    )
+    clients.push(client)
+    const picked = (await client.callTool({ name: 'decks_pick_today', arguments: { limit: 40 } })) as {
+      structuredContent?: { decks?: { deck?: string; labFailed?: string }[] }
+    }
+    const failedRows = (picked.structuredContent?.decks ?? []).filter((row) => row.labFailed)
+    expect(failedRows.length).toBeGreaterThan(0)
+    for (const row of failedRows) {
+      expect(row.labFailed).toBe(
+        `la última prueba con e2 (#${failedJob}) falló antes de jugar la lista entera: se puede reintentar lo que falló (simulations_retry_failed)`,
+      )
+    }
 
     // Needs a session.
     expect((await test.http().post('/api/decks-today/refresh').send({})).status).toBe(401)
@@ -843,7 +877,12 @@ describe('laboratorio (e2e)', () => {
     )
     expect(afterFail?.failed).toBeNull()
     expect(afterFail?.score?.jobId).toBe(jobId)
-    expect(afterFail?.score?.score.score?.games).not.toBe(100)
+    // Review of #118: exactly the search's number (`not.toBe(100)` also passed without one).
+    expect(afterFail?.score?.score.score).toMatchObject({
+      games: baseRow.search.score.games,
+      value: baseRow.search.score.value,
+    })
+    expect(baseRow.search.score.games).not.toBe(100)
     await test.prisma.simulationChunk.update({ where: { id: baseChunks[0]?.id as number }, data: { status: 'done' } })
     await test.prisma.simulationJob.update({ where: { id: jobId }, data: { status: 'done' } })
     expect(lab.decks.filter((deck: { role: string }) => deck.role === 'variant')).toHaveLength(5)

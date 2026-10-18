@@ -2252,7 +2252,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       return pending
     }
     // Review of the coordinator (14/10): the score is the default bot's (D-029); another bot's goes apart.
-    const byDefault = (job: LabJobRow) => botLabel(job.players) === botLabel(LAB_DEFAULT_PLAYERS)
+    const byDefault = (job: LabJobRow) => labBotLabel(job.players) === labBotLabel(LAB_DEFAULT_PLAYERS)
     const ofEra = (job: LabJobRow) => era === undefined || job.params.lab.era === era
     for (const [deckId, draft] of drafts) {
       const ids = idsByKey.get(draft.key) ?? new Set<number>()
@@ -2264,7 +2264,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       for (const job of done) {
         const sid = inJob(job)
         if (sid === undefined) continue
-        const bot = botLabel(job.players)
+        const bot = labBotLabel(job.players)
         if (byDefault(job) ? current !== null : !ofEra(job) || others.has(bot)) continue
         // Self-review: another era's score once one is found is not computed again (after a new era, every deck).
         if (byDefault(job) && !ofEra(job) && other !== null) continue
@@ -3127,7 +3127,7 @@ function gamesOf(
 }
 
 /** «e2» when both sides play the same bot, «e2 contra e3» otherwise. */
-function botLabel(players: readonly string[]): string {
+export function labBotLabel(players: readonly string[]): string {
   const [a, b] = players
   return a === b || b === undefined ? (a ?? '') : `${a} contra ${b}`
 }
