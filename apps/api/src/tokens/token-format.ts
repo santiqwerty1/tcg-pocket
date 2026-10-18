@@ -11,9 +11,21 @@ export const TOKEN_PREFIX: Record<ApiTokenKind, string> = { worker: 'tcg_wk_', m
 /** The bridge of the session chat (D-021): the coordinator's `chat.mjs` on the PC. Goes alone in its token. */
 export const CHAT_RELAY_SCOPE = 'chat:relay'
 
+/**
+ * The export of the chat for its move to the hub (D-030, T1): read only, the whole chat of the rooms asked. Goes
+ * alone in its token, never by default, and is revoked after the move.
+ */
+export const CHAT_EXPORT_SCOPE = 'chat:export'
+
 export const SCOPES_BY_KIND: Record<ApiTokenKind, readonly string[]> = {
   worker: ['worker:claim'],
-  mcp: ['mcp:read', 'mcp:write', CHAT_RELAY_SCOPE],
+  mcp: ['mcp:read', 'mcp:write', CHAT_RELAY_SCOPE, CHAT_EXPORT_SCOPE],
+}
+
+/** Scopes that go alone in their token, and why. */
+export const SOLO_SCOPES: Readonly<Record<string, string>> = {
+  [CHAT_RELAY_SCOPE]: 'es el token del puente del chat de la PC',
+  [CHAT_EXPORT_SCOPE]: 'es el token de la exportación del chat para mudarlo al hub',
 }
 
 /** Characters of the token kept in clear for display, e.g. "tcg_wk_AbCdEf". */
@@ -60,11 +72,15 @@ export function invalidScopes(kind: ApiTokenKind, scopes: readonly string[]): st
 }
 
 /**
- * The bridge's token writes as the PC's sessions in the chat: mixed with the connector's scopes, a cloud session
- * holding it could do the same.
+ * A scope that goes alone, with others: the bridge's token writes as the PC's sessions in the chat, and the export's
+ * reads the whole chat; mixed with the connector's scopes, a cloud session holding it could do the same.
  */
-export function relayScopeMixed(scopes: readonly string[]): boolean {
-  return scopes.includes(CHAT_RELAY_SCOPE) && scopes.some((scope) => scope !== CHAT_RELAY_SCOPE)
+export function soloScopeMixed(scopes: readonly string[]): string | null {
+  const unique = new Set(scopes)
+  for (const scope of Object.keys(SOLO_SCOPES)) {
+    if (unique.has(scope) && unique.size > 1) return scope
+  }
+  return null
 }
 
 export function hasScopes(granted: readonly string[], required: readonly string[]): boolean {

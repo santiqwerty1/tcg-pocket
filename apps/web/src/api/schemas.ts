@@ -1083,7 +1083,7 @@ export const tokenKindSchema = z.enum(['worker', 'mcp'])
 export type TokenKind = z.infer<typeof tokenKindSchema>
 export const SCOPES_BY_KIND: Record<TokenKind, readonly string[]> = {
   worker: ['worker:claim'],
-  mcp: ['mcp:read', 'mcp:write', 'chat:relay'],
+  mcp: ['mcp:read', 'mcp:write', 'chat:relay', 'chat:export'],
 }
 /** What a new token of each kind starts with (the chat bridge's permission goes alone, only on purpose). */
 export const DEFAULT_SCOPES_BY_KIND: Record<TokenKind, readonly string[]> = {
@@ -1092,6 +1092,10 @@ export const DEFAULT_SCOPES_BY_KIND: Record<TokenKind, readonly string[]> = {
 }
 /** The bridge of the session chat (D-021): alone in its token. */
 export const CHAT_RELAY_SCOPE = 'chat:relay'
+/** The export of the chat for its move to the hub (D-030): alone in its token, never by default. */
+export const CHAT_EXPORT_SCOPE = 'chat:export'
+/** Scopes that go alone in their token. */
+export const SOLO_SCOPES: readonly string[] = [CHAT_RELAY_SCOPE, CHAT_EXPORT_SCOPE]
 
 /** Mirrors CHAT_CHANNELS / CHAT_CHANNEL_LABEL of @tcg/domain. */
 export const CHAT_CHANNELS = ['owner', 'relay', 'connector'] as const

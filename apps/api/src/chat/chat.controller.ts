@@ -24,6 +24,7 @@ import {
 import {
   CHAT_CHANNELS,
   CHAT_DEFAULT_ROOM,
+  CHAT_EXPORT_MAX_LIMIT,
   CHAT_ROOMS,
   type ChatRoom,
   chatParticipantName,
@@ -36,10 +37,11 @@ import { z } from 'zod'
 import { CurrentApiToken, CurrentSession, type RequestApiToken, type RequestSession } from '../auth/request-auth.js'
 import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
 import { BearerTokenGuard, RequireScopes } from '../tokens/bearer-token.guard.js'
-import { CHAT_RELAY_SCOPE } from '../tokens/token-format.js'
+import { CHAT_EXPORT_SCOPE, CHAT_RELAY_SCOPE } from '../tokens/token-format.js'
 import { TokensModule } from '../tokens/tokens.module.js'
 import { clientFromUserAgent, TokensService } from '../tokens/tokens.service.js'
 import { type ChatFeedView, type ChatMessageView, type ChatParticipantView, ChatService } from './chat.service.js'
+import { ChatTransferService } from './chat-transfer.service.js'
 
 /** The bridge's room: «tcg» when it does not say it. */
 const roomQuerySchema = z.object({ sala: chatRoom.optional() })
@@ -147,6 +149,62 @@ export class ChatRelayController {
   }
 }
 
+/** «tcg,posta»: rooms of `CHAT_ROOMS` only; without it, all of them. */
+const exportQuerySchema = z.object({
+  salas: z
+    .string()
+    .max(200)
+    .optional()
+    .transform((value, ctx) => {
+      const rooms = [
+        ...new Set(
+          (value ?? '')
+            .split(',')
+            .map((room) => room.trim())
+            .filter(Boolean),
+        ),
+      ]
+      const unknown = rooms.filter((room) => !(CHAT_ROOMS as readonly string[]).includes(room))
+      if (unknown.length > 0) {
+        ctx.addIssue({ code: 'custom', message: `Salas del chat: ${CHAT_ROOMS.join(', ')} (no ${unknown.join(', ')})` })
+        return z.NEVER
+      }
+      return (rooms.length === 0 ? [...CHAT_ROOMS] : rooms) as ChatRoom[]
+    }),
+  after: z.coerce.number().int().min(0).max(2_147_483_647).optional(),
+  limit: z.coerce.number().int().min(1).max(CHAT_EXPORT_MAX_LIMIT).optional(),
+})
+
+/**
+ * The export of the chat for its move to the hub (D-030, T1a): `chat-export` v1 in pages by id, only with a token
+ * whose only scope is `chat:export` (no token gets it unless chosen on purpose). Read only.
+ */
+@Controller('api/mcp/chat/export')
+@UseGuards(BearerTokenGuard)
+@RequireScopes(CHAT_EXPORT_SCOPE)
+export class ChatExportController {
+  constructor(
+    private readonly transfer: ChatTransferService,
+    private readonly tokens: TokensService,
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(ChatExportController.name)
+  }
+
+  @Get()
+  async export(
+    @Query(new ZodValidationPipe(exportQuerySchema)) query: z.infer<typeof exportQuerySchema>,
+    @Req() req: Request,
+    @CurrentApiToken() token: RequestApiToken,
+  ) {
+    const client = clientFromUserAgent(req.headers['user-agent'])
+    if (await this.tokens.noteClient(Number(token.id), client).catch(() => false)) {
+      this.logger.warn({ token: token.name, client }, 'chat export token used by a new client')
+    }
+    return this.transfer.exportPage({ rooms: query.salas, after: query.after, limit: query.limit })
+  }
+}
+
 /** Santi's list of chat participants (session-protected). */
 @Controller('api/chat/participants')
 export class ChatParticipantsController {
@@ -175,8 +233,8 @@ export class ChatParticipantsController {
 
 @Module({
   imports: [TokensModule],
-  controllers: [ChatRelayController, ChatParticipantsController],
-  providers: [ChatService],
-  exports: [ChatService],
+  controllers: [ChatRelayController, ChatParticipantsController, ChatExportController],
+  providers: [ChatService, ChatTransferService],
+  exports: [ChatService, ChatTransferService],
 })
 export class ChatModule {}

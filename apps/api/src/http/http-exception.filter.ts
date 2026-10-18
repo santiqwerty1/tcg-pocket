@@ -62,6 +62,9 @@ export class ApiExceptionFilter implements ExceptionFilter {
       this.logger.error(exception instanceof Error ? (exception.stack ?? exception.message) : String(exception))
     }
     if (response.headersSent) return
+    // A 503 is temporary: the bridges and the worker retry after `Retry-After` (the chat during an import, a catalog
+    // that is still syncing).
+    if (status === 503 && !response.getHeader('Retry-After')) response.setHeader('Retry-After', '5')
     response.status(status).json(body)
   }
 }

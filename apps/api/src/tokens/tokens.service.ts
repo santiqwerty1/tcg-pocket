@@ -4,11 +4,11 @@ import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import {
   type ApiTokenKind,
-  CHAT_RELAY_SCOPE,
   generateApiToken,
   hashApiToken,
   invalidScopes,
-  relayScopeMixed,
+  SOLO_SCOPES,
+  soloScopeMixed,
 } from './token-format.js'
 
 export interface ApiTokenView {
@@ -80,9 +80,8 @@ export class TokensService {
   }): Promise<CreatedApiToken> {
     const bad = invalidScopes(input.kind, input.scopes)
     if (bad.length > 0) throw new BadRequestException(`Scopes inválidos para ${input.kind}: ${bad.join(', ')}`)
-    if (relayScopeMixed(input.scopes)) {
-      throw new BadRequestException(`${CHAT_RELAY_SCOPE} va solo: es el token del puente del chat de la PC.`)
-    }
+    const solo = soloScopeMixed(input.scopes)
+    if (solo) throw new BadRequestException(`${solo} va solo: ${SOLO_SCOPES[solo]}.`)
     const generated = generateApiToken(input.kind)
     const row = await this.prisma.apiToken.create({
       data: {

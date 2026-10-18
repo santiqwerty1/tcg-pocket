@@ -58,4 +58,30 @@ describe('tokens de API: el permiso del puente del chat (D-021)', () => {
     expect(await screen.findByText(/tcg_mcp_secreto/)).toBeInTheDocument()
     expect(created).toEqual([{ name: 'puente', kind: 'mcp', scopes: ['chat:relay'] }])
   })
+
+  it('starts without chat:export (the chat’s move, D-030), and it goes alone too', async () => {
+    const user = userEvent.setup()
+    const router = createMemoryRouter(routes, { initialEntries: ['/mas/tokens'] })
+    render(
+      <Providers queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <RouterProvider router={router} />
+      </Providers>,
+    )
+    const exporting = await screen.findByRole('checkbox', { name: /chat:export/ })
+    const relay = screen.getByRole('checkbox', { name: /chat:relay/ })
+    const read = screen.getByRole('checkbox', { name: /mcp:read/ })
+    expect(exporting).not.toBeChecked()
+    await user.click(exporting)
+    expect(exporting).toBeChecked()
+    expect(read).not.toBeChecked()
+    // The two that go alone do not go together either.
+    await user.click(relay)
+    expect(relay).toBeChecked()
+    expect(exporting).not.toBeChecked()
+    await user.click(exporting)
+    await user.type(screen.getByPlaceholderText('Claude desde el celu'), 'mudanza')
+    await user.click(screen.getByRole('button', { name: 'Crear token' }))
+    expect(await screen.findByText(/tcg_mcp_secreto/)).toBeInTheDocument()
+    expect(created).toEqual([{ name: 'mudanza', kind: 'mcp', scopes: ['chat:export'] }])
+  })
 })
