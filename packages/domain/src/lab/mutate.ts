@@ -225,12 +225,22 @@ export function strandsPreEvolution(
     if (weight !== undefined) return weight <= 0
     return energies !== undefined && !usableWith(card, energies)
   }
+  // Review of #121 (three stages): an evolution works if it does something, or a card of `parent` that evolves from it
+  // does (Haunter, with Gengar ex in the list); not against the whole catalog, which would block dead lines again.
+  const inParent = parent.filter((entry) => entry.count > 0).flatMap((entry) => index.cardById(entry.cardId) ?? [])
+  const works = (card: CardEdition, seen: ReadonlySet<string> = new Set()): boolean =>
+    !energies ||
+    usableWith(card, energies) ||
+    inParent.some(
+      (next) =>
+        next.evolvesFrom === card.nameEn && !seen.has(next.nameEn) && works(next, new Set([...seen, card.nameEn])),
+    )
   const evolvedFrom = (cards: readonly DeckCardEntry[], working: boolean) =>
     new Set(
       cards
         .filter((entry) => entry.count > 0)
         .map((entry) => index.cardById(entry.cardId))
-        .filter((card) => !!card?.evolvesFrom && (!working || !energies || usableWith(card, energies)))
+        .filter((card) => !!card?.evolvesFrom && (!working || works(card as CardEdition)))
         .map((card) => card?.evolvesFrom as string),
     )
   const before = evolvedFrom(parent, true)

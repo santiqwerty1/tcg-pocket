@@ -354,6 +354,61 @@ describe('evolution lines in the pool («probar estas cartas» with Onix)', () =
       expect(unchecked?.variants.length).toBeGreaterThan(0)
     })
 
+    it('review of #121 (verification): a Stage 1 that does nothing still counts when the Stage 2 of the list works', () => {
+      const full = mutationPool({ index, energies: [...SELECTABLE_ENERGIES], edition, maxCopies: () => 2 })
+      const rest = base.cards.filter((entry) => entry !== t1 && entry !== t2)
+      // Gastly → Haunter → Gengar ex (an ability) with Fire: taking Haunter and Gengar ex out leaves Gastly alone.
+      const firePool = poolForZone(full, fire, index)
+      const gastly = firePool.find((card) => card.groupId === group('A1-120'))
+      expect(gastly === undefined || gastly.weight === 0).toBe(true)
+      const ghosts = [
+        ...rest,
+        { cardId: 'A1-120', count: 1 },
+        { cardId: 'A1-121', count: 1 },
+        { cardId: 'A1-123', count: 1 },
+      ]
+      const swaps = [
+        { add: [t1.cardId], remove: [group('A1-121')], difference: 5 },
+        { add: [t2.cardId], remove: [group('A1-123')], difference: 4 },
+      ]
+      expect(comboVariant(ghosts, swaps, index, { pool: firePool, energies: fire, valid: () => true })).toBeNull()
+      // Undoing the change that brought Haunter and Gengar ex together, the same.
+      const editionOf = (groupId: string) => index.groupById(groupId)?.displayCardId ?? groupId
+      const together = [{ add: ['A1-121', 'A1-123'], remove: [group(t1.cardId), group(t2.cardId)], difference: 3 }]
+      expect(
+        revertVariant(ghosts, together, 0, index, editionOf, { pool: firePool, energies: fire, valid: () => true }),
+      ).toBeNull()
+      // revertVariant takes the zone too: Sinistea without copies (no pool), Polteageist came in apart.
+      const noSinistea = poolForZone(
+        mutationPool({ index, energies: fire, edition, maxCopies: (groupId) => (groupId === 'B2-74' ? 0 : 2) }),
+        fire,
+        index,
+      )
+      const accepted = [
+        { add: ['B2-75'], remove: [group(t1.cardId)], difference: 3 },
+        { add: ['B2-74'], remove: [group(t2.cardId)], difference: 2 },
+      ]
+      expect(
+        revertVariant(withLine, accepted, 0, index, editionOf, { pool: noSinistea, energies: fire, valid: () => true })
+          ?.undoes,
+      ).toBe(1)
+      // A pre-evolution the pool does not have that attacks on its own stays free: Nosepass ([C][C]) with Metal.
+      const noNosepass = poolForZone(
+        mutationPool({ index, energies: ['metal'], edition, maxCopies: (groupId) => (groupId === 'A2-86' ? 0 : 2) }),
+        ['metal'],
+        index,
+      )
+      expect(noNosepass.some((card) => card.groupId === 'A2-86')).toBe(false)
+      const rocks = [...rest, { cardId: 'A2-86', count: 1 }, { cardId: 'A2-118', count: 2 }]
+      const out = [
+        { add: [t1.cardId], remove: [group('A2-118')], difference: 5 },
+        { add: [t2.cardId], remove: [group('A2-118')], difference: 4 },
+      ]
+      expect(
+        comboVariant(rocks, out, index, { pool: noNosepass, energies: ['metal'], valid: () => true }),
+      ).not.toBeNull()
+    })
+
     it('self-review of the follow-up: with what is shown, only names two of its cards share carry the code', () => {
       const shared = sharedNames(['A1-150', 'B3-211', 'B1a-52', 'B1-44'], index)
       expect([...shared]).toEqual(['Onix'])
