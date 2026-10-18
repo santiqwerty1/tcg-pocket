@@ -152,6 +152,7 @@ import { type CreateJobInput, labMode, SimulationsService } from '../simulation/
 import { EngineStatusService, type SnapshotSource, SnapshotsService } from '../simulation/snapshots.service.js'
 import { WorkerQueueService } from '../simulation/worker-queue.service.js'
 import { LIMITLESS_ATTRIBUTION, type Scope, TournamentsService } from '../tournaments/tournaments.service.js'
+import { bankShares, comparableScore } from './lab-blind-spots.js'
 import { type FrozenInputs, leftOutCards, whyCards } from './lab-explain.js'
 import type {
   CardLineView,
@@ -201,6 +202,8 @@ export type LabDeckInput =
 export interface DeckLabScore {
   jobId: number
   era: string
+  /** The bank's format (review of #119: «¿Cuál llevo hoy?» compares it only with tournaments of the same one). */
+  format: TournamentFormat
   /** The bots that played it: «e2», or «e2 contra e3» when the two sides differ. */
   bot: string
   finishedAt: Date | null
@@ -2266,7 +2269,14 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           continue
         }
         if (!score.score) continue
-        const found = { jobId: job.id, era: job.params.lab.era, bot, finishedAt: job.finishedAt, score }
+        const found = {
+          jobId: job.id,
+          era: job.params.lab.era,
+          format: job.params.lab.format,
+          bot,
+          finishedAt: job.finishedAt,
+          score,
+        }
         if (!byDefault(job)) others.set(bot, found)
         else if (ofEra(job)) current = found
         else other ??= found
@@ -2519,11 +2529,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     if (againstMeta) {
       for (const id of new Set(decks.map(archetypeOf).filter((id): id is string => id !== null))) {
         const found = await this.tournaments
-          .expectedWith(
-            id,
-            { shares: rivals.map((rival) => ({ archetypeId: rival.archetypeId, share: rival.weight })) },
-            { era: lab.era, format: lab.format },
-          )
+          .expectedWith(id, { shares: bankShares(rivals) }, { era: lab.era, format: lab.format })
           .catch(() => null)
         expected.set(id, found)
       }
@@ -2532,12 +2538,12 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     for (const deck of decks) {
       const cards = cardsOfSnapshot(snapshots.get(deck.snapshot)?.cards as unknown as SnapshotCard[])
       const archetype = archetypeOf(deck)
-      const score = deck.confirm?.score ?? deck.search.score
+      const score = comparableScore(deck)
       const warnings = botWarnings({
         cards,
         index,
         bot,
-        simulated: againstMeta && score && score.coverage >= 0.999 ? score : null,
+        simulated: againstMeta ? score : null,
         tournament: archetype === null ? null : (expected.get(archetype) ?? null),
       })
       const text = botWarningText(warnings, bot)

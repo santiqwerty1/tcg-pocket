@@ -2371,6 +2371,24 @@ describe('laboratorio (e2e)', () => {
       expect(plainRow.tournament).not.toBeNull()
       expect(plainRow.tournament?.ci95[0]).toBeGreaterThan(15)
       expect(plainRow.blindSpot?.text).toMatch(far)
+      // Review of #119: a score against a NOEX bank is not compared with the STANDARD tournament number.
+      const plainJob = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: jobs[plain] as number } })
+      const params = plainJob.params as { lab: Record<string, unknown> }
+      const asFormat = (format: string) =>
+        test.prisma.simulationJob.update({
+          where: { id: plainJob.id },
+          data: { params: { ...params, lab: { ...params.lab, format } } as object },
+        })
+      await asFormat('NOEX')
+      try {
+        const noex = ((await get('/api/decks-today')).body as { items: Row[] }).items.find(
+          (item) => item.deck.id === plain,
+        )
+        expect(noex?.lab).toMatchObject({ value: 0 })
+        expect(noex?.blindSpot).toBeNull()
+      } finally {
+        await asFormat(String(params.lab.format))
+      }
       // The deck sheet's simulation column: the list rules only (it pools the rivals each simulation chose).
       const columnOf = async (id: string) =>
         ((await get(`/api/decks/${id}/comparison`)).body.columns as { source: string; blindSpot?: unknown }[]).find(

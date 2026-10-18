@@ -154,7 +154,8 @@ export class PickService {
       const labScore = score?.score.score ?? null
       // H-055: the list rules for the bot that played it; far from the tournament number only within the era, and not
       // with «mi meta» weights (review of the PR: the Laboratorio's score is against the era's bank, not my rivals).
-      const comparable = !status?.stale && used === 'tournament'
+      // Review of #119: and only against tournaments of the bank's format (a test against NOEX is not STANDARD's).
+      const comparable = !status?.stale && used === 'tournament' && score?.format === today?.scope.format
       const warning =
         labScore && score && cards && index
           ? botWarningText(
