@@ -76,9 +76,12 @@ function Group({ group }: { group: Unclassified['groups'][number] }) {
       // Only the ones still without a rival (an edit since the list was read stays).
       const done = await classify.mutateAsync({ matchIds, opponent, expect: null })
       if (done.skipped.length > 0) toast.info(changedSince(done.skipped.length))
-      toast.success(`${done.updated === 1 ? 'Una partida' : `${done.updated} partidas`} contra ${done.opponent}.`, {
-        action: undoAction(done, queryClient),
-      })
+      // Deuda de #114: nothing changed (every match was edited or deleted since), nothing to undo.
+      if (done.updated > 0) {
+        toast.success(`${done.updated === 1 ? 'Una partida' : `${done.updated} partidas`} contra ${done.opponent}.`, {
+          action: undoAction(done, queryClient),
+        })
+      }
     } catch (error) {
       toast.error(errorMessage(error))
     }
@@ -136,10 +139,10 @@ function OwnRival({ rival }: { rival: Unclassified['own'][number] }) {
     try {
       const done = await classify.mutateAsync({ from: rival.label, opponent })
       setTarget(null)
-      toast.success(
-        `${rival.label} → ${done.opponent} (${done.updated === 1 ? 'una partida' : `${done.updated} partidas`}).`,
-        { action: undoAction(done, queryClient) },
-      )
+      const text = `${rival.label} → ${done.opponent} (${done.updated === 1 ? 'una partida' : `${done.updated} partidas`}).`
+      // Deuda de #114: no «Deshacer» when no match changed.
+      if (done.updated > 0) toast.success(text, { action: undoAction(done, queryClient) })
+      else toast.info(`${rival.label}: ninguna partida cambió.`)
     } catch (error) {
       toast.error(errorMessage(error))
     }

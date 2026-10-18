@@ -83,19 +83,22 @@ describe('clasificar rivales (14/10)', () => {
           expect?: string | null
           note?: { from: string; to: string }
         }
-        // The rename's undo: match 7 (typed «greninja suicune») was edited since, so its group moves no note.
-        const staleGroup = body.matchIds?.length === 1 && body.matchIds[0] === '7'
         return {
-          // The undo of the group finds match 5 edited since (Codex on #114).
-          skipped: body.expect === 'Suicune ex Baxcalibur' ? ['5'] : staleGroup ? ['7'] : [],
-          noteMoved: body.from ? { from: body.from, to: body.opponent } : body.note && !staleGroup ? body.note : null,
-          updated: staleGroup ? 0 : (body.matchIds?.length ?? 3),
+          skipped: [],
+          noteMoved: body.from ? { from: body.from, to: body.opponent } : null,
+          updated: body.matchIds?.length ?? 3,
           opponent: body.opponent,
           previous: (body.matchIds ?? ['7', '8', '9']).map((id) => ({
             id,
             opponent: body.matchIds ? null : id === '7' ? 'greninja suicune' : 'Greninja Suicune',
           })),
         }
+      },
+      // Deuda de #114: «Deshacer» in one request; the group's undo finds match 5 edited since (Codex on #114).
+      'POST /api/matches/classify/undo': (call: { body?: BodyInit | null }) => {
+        const body = JSON.parse(String(call.body)) as { previous: { id: string }[]; note?: unknown }
+        const skipped = body.previous.some((row) => row.id === '5') ? ['5'] : []
+        return { updated: body.previous.length - skipped.length, noteMoved: body.note ?? null, skipped }
       },
     })
     const user = userEvent.setup()
@@ -115,9 +118,12 @@ describe('clasificar rivales (14/10)', () => {
     await user.click(await screen.findByRole('button', { name: 'Deshacer' }))
     await waitFor(() => expect(posts()).toHaveLength(2))
     // Only the ones that still have the rival given (Codex on #114): match 5 was edited since and stays.
+    expect(posts()[1]?.path).toBe('/api/matches/classify/undo')
     expect(JSON.parse(String(posts()[1]?.body))).toEqual({
-      matchIds: ['6', '5'],
-      opponent: null,
+      previous: [
+        { id: '6', opponent: null },
+        { id: '5', opponent: null },
+      ],
       expect: 'Suicune ex Baxcalibur',
     })
     expect(await screen.findByText('Una partida cambió mientras tanto y la dejé como estaba.')).toBeInTheDocument()
@@ -146,21 +152,17 @@ describe('clasificar rivales (14/10)', () => {
     // «Deshacer» the rename: each match gets its rival back, and the note goes with them (Codex on #114).
     const undo = await screen.findAllByRole('button', { name: 'Deshacer' })
     await user.click(undo[undo.length - 1] as HTMLElement)
-    // Two spellings, two groups: the first one's match was edited since and moves nothing, so the note goes with the
-    // next one (Codex on #114: it was dropped after the first group).
-    await waitFor(() => expect(posts()).toHaveLength(5))
-    const note = { from: 'Greninja Altaria', to: 'Greninja Suicune' }
+    // Deuda de #114: two spellings, one request — each match back to its own spelling, and the note with them.
+    await waitFor(() => expect(posts()).toHaveLength(4))
+    expect(posts()[3]?.path).toBe('/api/matches/classify/undo')
     expect(JSON.parse(String(posts()[3]?.body))).toEqual({
-      matchIds: ['7'],
-      opponent: 'greninja suicune',
+      previous: [
+        { id: '7', opponent: 'greninja suicune' },
+        { id: '8', opponent: 'Greninja Suicune' },
+        { id: '9', opponent: 'Greninja Suicune' },
+      ],
       expect: 'Greninja Altaria',
-      note,
-    })
-    expect(JSON.parse(String(posts()[4]?.body))).toEqual({
-      matchIds: ['8', '9'],
-      opponent: 'Greninja Suicune',
-      expect: 'Greninja Altaria',
-      note,
+      note: { from: 'Greninja Altaria', to: 'Greninja Suicune' },
     })
   })
 
