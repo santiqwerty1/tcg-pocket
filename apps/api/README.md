@@ -120,7 +120,25 @@ Sesiones: id aleatorio de 32 bytes en la cookie, SHA-256 en `sessions`; 30 días
 
 ## Tokens de API
 
-`POST /api/tokens` con `{ name, kind: 'worker' | 'mcp', scopes }` devuelve el token en claro **una sola vez** (`tcg_wk_…` / `tcg_mcp_…` = prefijo + 32 bytes aleatorios en base64url); en la base queda solo el SHA-256, el prefijo para mostrar, `last_used_at` y `revoked_at`. Scopes: `worker:claim` (worker), `mcp:read`, `mcp:write` (MCP). `DELETE /api/tokens/:id` revoca. El guard (`src/tokens/bearer-token.guard.ts`) responde 401 sin token válido y 403 sin el scope.
+`POST /api/tokens` con `{ name, kind: 'worker' | 'mcp', scopes }` devuelve el token en claro **una sola vez** (`tcg_wk_…` / `tcg_mcp_…` = prefijo + 32 bytes aleatorios en base64url); en la base queda solo el SHA-256, el prefijo para mostrar, `last_used_at` y `revoked_at`. Scopes: `worker:claim` (worker), `mcp:read`, `mcp:write` (MCP), y dos que van solos en su token: `chat:relay` (el puente del chat de la PC) y `chat:export` (la mudanza del chat al hub, D-030). `DELETE /api/tokens/:id` revoca. El guard (`src/tokens/bearer-token.guard.ts`) responde 401 sin token válido y 403 sin el scope.
+
+### La mudanza del chat al hub (D-030, T1a)
+
+- **El export:** `GET /api/mcp/chat/export?salas&after&limit`, solo con un token cuyo único scope es `chat:export`. Da `chat-export` v1 (el contrato 1.3 de chat-hub) en páginas por id de hasta 2.000, solo de las salas de `CHAT_ROOMS`. Es lo que importa `hub import` en el hub, sala por sala.
+- **El import, para volver atrás:** `node dist/cli/chat-import.js <url> [--salas sala,…] [--despues <id>] [--aplicar]` (en local, `pnpm -F @tcg/api chat-import …`), con el token de exportación del hub en `IMPORT_TOKEN`. Sin `--aplicar` muestra la vista previa por sala, sin escribir nada. Con `--aplicar` corre en una transacción, y ante un conflicto no importa nada y lo explica. Conserva los ids, que en el hub empiezan en 1.000.001, y sube `session_chat_messages_id_seq`. Volver atrás con ids del hub va con todas las salas a la vez y con el hub sin escribir: con una sola, la vista previa lo marca como conflicto.
+- El token del hub va como secreto por un rato, nunca como argumento. `flyctl secrets import` y `flyctl secrets unset` reinician la máquina (unos segundos sin la app, y el chat contesta 503 mientras tanto), así que van con el hub sin escribir, como toda la vuelta atrás. Después del import, `IMPORT_TOKEN` se saca y el token se revoca en el hub. Sin `--salas` vienen todas las salas, que es lo que pide volver atrás con ids del hub:
+
+```bash
+read -rs -p "IMPORT_TOKEN: " T && printf 'IMPORT_TOKEN=%s\n' "$T" | flyctl secrets import --app tcg-pocket; unset T; echo
+```
+
+```bash
+flyctl machine exec <id> --app tcg-pocket "node /app/apps/api/dist/cli/chat-import.js https://<hub>/api/export"
+```
+
+```bash
+flyctl secrets unset --app tcg-pocket IMPORT_TOKEN
+```
 
 ## Tests
 
