@@ -56,7 +56,11 @@ export interface MatchStatsParams {
 
 /** Every matches query (lists, stats, suggestions, comparisons) depends on every match. */
 function invalidateMatches(queryClient: QueryClient): Promise<void> {
-  return queryClient.invalidateQueries({ queryKey: matchKeys.all })
+  // Deuda de #120: the season's record and curve change with every match saved, edited or deleted.
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: matchKeys.all }),
+    queryClient.invalidateQueries({ queryKey: ['ranked'] }),
+  ]).then(() => undefined)
 }
 
 function storedSuggestions(): MatchSuggestions | undefined {

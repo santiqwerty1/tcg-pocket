@@ -33,6 +33,7 @@ export function RankPicker({
   beforeMatch,
   label = 'Rango ahora',
   onDone,
+  submit,
 }: {
   ranks: Ranked['ranks']
   current: string | null
@@ -41,6 +42,8 @@ export function RankPicker({
   beforeMatch?: string
   label?: string
   onDone?: () => void
+  /** Deuda de #120: who notes it instead (the quick entry's prompt: at the match's time, or with a match offline). */
+  submit?: (rank: string, points: number | null) => Promise<boolean>
 }) {
   const add = useAddRank()
   const [rank, setRank] = useState(current ?? 'ultra-1')
@@ -55,6 +58,10 @@ export function RankPicker({
     const at = when ? new Date(when) : null
     if (at && Number.isNaN(at.getTime())) {
       toast.error('Fecha inválida.')
+      return
+    }
+    if (submit) {
+      if (await submit(rank, parsed)) setWhen('')
       return
     }
     try {
