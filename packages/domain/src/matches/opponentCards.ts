@@ -80,6 +80,8 @@ export interface ArchetypeFit {
   name: string
   /** Its lists among the era's (0–100). */
   share: number
+  /** The era's lists, the share's denominator (review of #131). */
+  eraLists: number
   lists: number
   /** Its lists that have every card seen, with at least those copies (0–100 of its lists). */
   fits: number
@@ -168,6 +170,7 @@ export function suggestArchetypesForCards(
           archetypeId,
           name,
           share: (100 * row.lists) / total,
+          eraLists: total,
           lists: row.lists,
           fits,
           fitting: row.fits,

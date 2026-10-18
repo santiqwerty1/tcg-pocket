@@ -259,21 +259,19 @@ export function useClassify() {
  * #114: an edit after classifying is not undone). How many were left as they were.
  */
 export async function undoClassify(done: Classified, queryClient: QueryClient): Promise<number> {
-  const byOpponent = new Map<string | null, string[]>()
-  for (const item of done.previous) {
-    const ids = byOpponent.get(item.opponent) ?? []
-    ids.push(item.id)
-    byOpponent.set(item.opponent, ids)
-  }
-  // The rival's note goes back with the first group (Codex on #114).
-  let note = done.noteMoved ? { from: done.noteMoved.to, to: done.noteMoved.from } : undefined
-  let skipped = 0
-  for (const [opponent, matchIds] of byOpponent) {
-    const undone = await classify({ matchIds, opponent, expect: done.opponent, ...(note ? { note } : {}) })
-    skipped += undone.skipped.length
-    // Codex on #114: only once a group moved it back (a group whose matches were all edited since moves nothing).
-    if (undone.noteMoved) note = undefined
-  }
+  // Deuda de #114: one request, one transaction — every match back to its own rival, and the note with them.
+  const note = done.noteMoved ? { from: done.noteMoved.to, to: done.noteMoved.from } : undefined
+  const undone = await request('/api/matches/classify/undo', {
+    method: 'POST',
+    body: { previous: done.previous, expect: done.opponent, ...(note ? { note } : {}) },
+    schema: undoneSchema,
+  })
   await invalidateMatches(queryClient)
-  return skipped
+  return undone.skipped.length
 }
+
+const undoneSchema = z.object({
+  updated: z.number(),
+  noteMoved: z.object({ from: z.string(), to: z.string() }).nullable(),
+  skipped: z.array(z.string()),
+})

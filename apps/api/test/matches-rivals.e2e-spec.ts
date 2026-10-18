@@ -308,6 +308,35 @@ describe('rivals by the cards seen (e2e)', () => {
     expect((await post('/api/matches/classify').send({ matchIds: [ids[0] as string], opponent: null })).status).toBe(
       200,
     )
+    // Deuda de #114: «Deshacer» in one transaction — each match back to its own rival, the note with them, a match
+    // edited or deleted meanwhile left out; and a match deleted meanwhile does not fail a whole group.
+    await test.prisma.match.update({ where: { id: Number(ids[0]) }, data: { opponentText: 'Corto' } })
+    const pair = await post('/api/matches/classify').send({ from: 'Corto', opponent: 'Largo' })
+    expect(pair.body).toMatchObject({ updated: 1 })
+    const atomic = await post('/api/matches/classify/undo').send({
+      previous: [...(pair.body.previous as { id: string; opponent: string }[]), { id: '999999', opponent: 'X' }],
+      expect: 'Largo',
+    })
+    expect(atomic.body).toMatchObject({ updated: 1, skipped: ['999999'] })
+    expect((await get(`/api/matches/${ids[0]}`)).body.opponent).toBe('Corto')
+    expect(
+      (await post('/api/matches/classify').send({ matchIds: [ids[0] as string, '999999'], opponent: null })).body,
+    ).toMatchObject({ updated: 1, skipped: ['999999'] })
+    // Undoing back to a rival of more than 80 characters (logged by Claude when its limit was 120) works; a new rival
+    // keeps the app's limit (review of #131).
+    expect((await post('/api/matches/classify').send({ matchIds: [ids[0] as string], opponent: long })).status).toBe(
+      400,
+    )
+    await test.prisma.match.update({ where: { id: Number(ids[0]) }, data: { opponentText: 'Tmp' } })
+    const longBack = await post('/api/matches/classify/undo').send({
+      previous: [{ id: ids[0], opponent: long }],
+      expect: 'Tmp',
+    })
+    expect(longBack.body).toMatchObject({ updated: 1 })
+    expect((await get(`/api/matches/${ids[0]}`)).body.opponent).toBe(long)
+    expect((await post('/api/matches/classify').send({ matchIds: [ids[0] as string], opponent: null })).status).toBe(
+      200,
+    )
     // Refused: nothing to classify, an empty rival, a match that does not exist.
     expect((await post('/api/matches/classify').send({ opponent: 'X' })).status).toBe(400)
     expect((await post('/api/matches/classify').send({ matchIds: ids, opponent: '   ' })).status).toBe(400)
