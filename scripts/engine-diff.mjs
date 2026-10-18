@@ -7,6 +7,11 @@
 // Pairing i plays with seed `base × (i + 1)` (1.000.003 by default). Game g of a job uses splitmix64(seed ^ splitmix64(g)),
 // so more games with the same base replay the first ones: another base plays other games.
 // decks.jsonl: one JSON per line, {"side": "a" | "b", "label": "…", "text": "<deck in deckgym's format>"}.
+// A change to deckgym's `State` fields changes more than its rules: `forecast_action` samples the branches of an effect
+// with more than MAX_FORECAST_BRANCHES (20) results, as the search bots see it, with a seed from the hash of `State`, so
+// a new field makes e2 see other branches and play other games (Puppy-Loving Girl has hundreds). Then the old engine to
+// compare is a control: the old deckgym with only the new fields, never set, through a `[patch]` with `path` in
+// engine/Cargo.toml (docs/OPERACION.md, «El motor: nuestra copia de deckgym»).
 import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
