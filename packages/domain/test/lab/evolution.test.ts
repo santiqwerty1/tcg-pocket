@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { CardEdition, SelectableEnergy } from '../../src/index.js'
+import { type CardEdition, SELECTABLE_ENERGIES, type SelectableEnergy } from '../../src/index.js'
 import {
   comboVariant,
   evolutionLine,
@@ -260,6 +260,153 @@ describe('evolution lines in the pool («probar estas cartas» with Onix)', () =
       expect(revertVariant(withLine, accepted, 0, index, editionOf, { pool: [], valid: () => true })?.undoes).toBe(0)
       // With the pool it skips to the next one: undoing «+Sinistea» leaves no one alone.
       expect(revertVariant(withLine, accepted, 0, index, editionOf, { pool, valid: () => true })?.undoes).toBe(1)
+    })
+
+    it('review of #121: with the zone in play, only an evolution that does something strands its pre-evolution', () => {
+      // Nosepass only comes along with Metal, where Probopass attacks; with Grass, Probopass does nothing.
+      const full = mutationPool({ index, energies: [...SELECTABLE_ENERGIES], edition, maxCopies: () => 2 })
+      const zoneOf = (energies: SelectableEnergy[]) => poolForZone(full, energies, index)
+      expect(zoneOf(['metal']).find((card) => card.groupId === 'A2-86')?.weight).toBe(0)
+      const line = [
+        ...base.cards.filter((entry) => entry !== t1 && entry !== t2),
+        { cardId: 'A2-86', count: 1 },
+        { cardId: 'A2-118', count: 2 },
+      ]
+      const swaps = [
+        { add: [t1.cardId], remove: [group('A2-118')], difference: 5 },
+        { add: [t2.cardId], remove: [group('A2-118')], difference: 4 },
+      ]
+      const combo = (energies: SelectableEnergy[]) =>
+        comboVariant(line, swaps, index, { pool: zoneOf(energies), energies, valid: () => true })
+      // With Metal, taking both Probopass out leaves Nosepass alone: refused.
+      expect(combo(['metal'])).toBeNull()
+      // After a change to Grass, Probopass cannot attack: taking it out frees the line (the coordinator's review).
+      expect(combo(['grass'])).not.toBeNull()
+      // The same for undoing «+Probopass» while Nosepass came in apart.
+      const accepted = [
+        { add: ['A2-118'], remove: [group(t1.cardId)], difference: 3 },
+        { add: ['A2-86'], remove: [group(t2.cardId)], difference: 2 },
+      ]
+      const single = line.map((entry) => (entry.cardId === 'A2-118' ? { ...entry, count: 1 } : entry))
+      const editionOf = (groupId: string) => index.groupById(groupId)?.displayCardId ?? groupId
+      const revert = (energies: SelectableEnergy[]) =>
+        revertVariant(single, accepted, 0, index, editionOf, { pool: zoneOf(energies), energies, valid: () => true })
+          ?.undoes
+      expect(revert(['metal'])).toBe(1)
+      expect(revert(['grass'])).toBe(0)
+      // A dead line (Bulbasaur and Ivysaur with Water: neither attacks): Ivysaur can go, even with Bulbasaur left.
+      const dead = [
+        ...base.cards.filter((entry) => entry !== t1 && entry !== t2),
+        { cardId: 'A1-1', count: 1 },
+        { cardId: 'A1-2', count: 2 },
+      ]
+      const deadSwaps = [
+        { add: [t1.cardId], remove: [group('A1-2')], difference: 5 },
+        { add: [t2.cardId], remove: [group('A1-2')], difference: 4 },
+      ]
+      expect(zoneOf(['water']).some((card) => card.groupId === group('A1-1') || card.groupId === group('A1-2'))).toBe(
+        false,
+      )
+      expect(
+        comboVariant(dead, deadSwaps, index, { pool: zoneOf(['water']), energies: ['water'], valid: () => true }),
+      ).not.toBeNull()
+    })
+
+    it('review of #121: a pre-evolution the pool does not have (none in the collection) is still protected', () => {
+      // No Sinistea in the collection: the zone's pool does not know it, but Polteageist (an ability) does something
+      // and Sinistea (Psychic) cannot attack with Fire.
+      const noSinistea = poolForZone(
+        mutationPool({ index, energies: fire, edition, maxCopies: (groupId) => (groupId === 'B2-74' ? 0 : 2) }),
+        fire,
+        index,
+      )
+      expect(noSinistea.some((card) => card.groupId === 'B2-74')).toBe(false)
+      expect(noSinistea.some((card) => card.groupId === 'B2-75')).toBe(true)
+      const two = withLine.map((entry) => (entry.cardId === 'B2-75' ? { ...entry, count: 2 } : entry))
+      const swaps = [
+        { add: [t1.cardId], remove: [group('B2-75')], difference: 5 },
+        { add: [t2.cardId], remove: [group('B2-75')], difference: 4 },
+      ]
+      expect(comboVariant(two, swaps, index, { pool: noSinistea, valid: () => true })).not.toBeNull()
+      expect(comboVariant(two, swaps, index, { pool: noSinistea, energies: fire, valid: () => true })).toBeNull()
+      // variantOf and fillRound pass their zone on (review of #121: changing that left every test green).
+      const strands = (cards: readonly { cardId: string }[]) => {
+        const names = new Set(cards.map((entry) => index.cardById(entry.cardId)?.nameEn))
+        return names.has('Sinistea') && !names.has('Polteageist')
+      }
+      const random = seededRandom(121)
+      let drawn = 0
+      for (let k = 0; k < 600; k++) {
+        const variant = variantOf(withLine, fire, noSinistea, index, random)
+        if (!variant) continue
+        expect(strands(variant.cards)).toBe(false)
+        drawn += 1
+      }
+      expect(drawn).toBeGreaterThan(300)
+      const round = fillRound(withLine, ['B2-75'], noSinistea, index, {
+        maxCopies: () => 2,
+        valid: () => true,
+        energies: fire,
+      })
+      expect(round?.out).toEqual(['B2-75'])
+      expect(round?.variants ?? []).toEqual([])
+      const unchecked = fillRound(withLine, ['B2-75'], noSinistea, index, { maxCopies: () => 2, valid: () => true })
+      expect(unchecked?.variants.length).toBeGreaterThan(0)
+    })
+
+    it('review of #121 (verification): a Stage 1 that does nothing still counts when the Stage 2 of the list works', () => {
+      const full = mutationPool({ index, energies: [...SELECTABLE_ENERGIES], edition, maxCopies: () => 2 })
+      const rest = base.cards.filter((entry) => entry !== t1 && entry !== t2)
+      // Gastly → Haunter → Gengar ex (an ability) with Fire: taking Haunter and Gengar ex out leaves Gastly alone.
+      const firePool = poolForZone(full, fire, index)
+      const gastly = firePool.find((card) => card.groupId === group('A1-120'))
+      expect(gastly === undefined || gastly.weight === 0).toBe(true)
+      const ghosts = [
+        ...rest,
+        { cardId: 'A1-120', count: 1 },
+        { cardId: 'A1-121', count: 1 },
+        { cardId: 'A1-123', count: 1 },
+      ]
+      const swaps = [
+        { add: [t1.cardId], remove: [group('A1-121')], difference: 5 },
+        { add: [t2.cardId], remove: [group('A1-123')], difference: 4 },
+      ]
+      expect(comboVariant(ghosts, swaps, index, { pool: firePool, energies: fire, valid: () => true })).toBeNull()
+      // Undoing the change that brought Haunter and Gengar ex together, the same.
+      const editionOf = (groupId: string) => index.groupById(groupId)?.displayCardId ?? groupId
+      const together = [{ add: ['A1-121', 'A1-123'], remove: [group(t1.cardId), group(t2.cardId)], difference: 3 }]
+      expect(
+        revertVariant(ghosts, together, 0, index, editionOf, { pool: firePool, energies: fire, valid: () => true }),
+      ).toBeNull()
+      // revertVariant takes the zone too: Sinistea without copies (no pool), Polteageist came in apart.
+      const noSinistea = poolForZone(
+        mutationPool({ index, energies: fire, edition, maxCopies: (groupId) => (groupId === 'B2-74' ? 0 : 2) }),
+        fire,
+        index,
+      )
+      const accepted = [
+        { add: ['B2-75'], remove: [group(t1.cardId)], difference: 3 },
+        { add: ['B2-74'], remove: [group(t2.cardId)], difference: 2 },
+      ]
+      expect(
+        revertVariant(withLine, accepted, 0, index, editionOf, { pool: noSinistea, energies: fire, valid: () => true })
+          ?.undoes,
+      ).toBe(1)
+      // A pre-evolution the pool does not have that attacks on its own stays free: Nosepass ([C][C]) with Metal.
+      const noNosepass = poolForZone(
+        mutationPool({ index, energies: ['metal'], edition, maxCopies: (groupId) => (groupId === 'A2-86' ? 0 : 2) }),
+        ['metal'],
+        index,
+      )
+      expect(noNosepass.some((card) => card.groupId === 'A2-86')).toBe(false)
+      const rocks = [...rest, { cardId: 'A2-86', count: 1 }, { cardId: 'A2-118', count: 2 }]
+      const out = [
+        { add: [t1.cardId], remove: [group('A2-118')], difference: 5 },
+        { add: [t2.cardId], remove: [group('A2-118')], difference: 4 },
+      ]
+      expect(
+        comboVariant(rocks, out, index, { pool: noNosepass, energies: ['metal'], valid: () => true }),
+      ).not.toBeNull()
     })
 
     it('self-review of the follow-up: with what is shown, only names two of its cards share carry the code', () => {

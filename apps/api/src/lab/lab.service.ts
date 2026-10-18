@@ -974,7 +974,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         // Self-review of the #107 follow-up: the strand check with the zone's whole pool (the small one only knows the
         // asked card's pre-evolutions: «−Polteageist» left Sinistea alone).
         accept: (next) =>
-          !strandsPreEvolution(cards, next, pool, index) && (!rules || checkEventDeck(next, rules, index).ok),
+          !strandsPreEvolution(cards, next, pool, index, energies) && (!rules || checkEventDeck(next, rules, index).ok),
       })
       if (!variant) continue
       seen.add(variant.key)
@@ -1964,6 +1964,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                 ? fillRound(incumbentCards, state.weakest ?? [], pool, index, {
                     locked: new Set(state.locked),
                     seen,
+                    // Review of #121: the zone in play decides which evolutions still do something.
+                    energies,
                     maxCopies: caps,
                     valid: (cards) =>
                       validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
@@ -1985,6 +1987,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                   score: (swap) => swapScore(learned, swap, index),
                   // Review of #113: two «−Polteageist» that pass one by one left Sinistea alone together.
                   pool,
+                  energies,
                   valid: (cards) =>
                     validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
                     (!rules || checkEventDeck(cards, rules, index).ok),
@@ -2011,6 +2014,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                     seen,
                     locked: new Set(state.locked),
                     pool,
+                    energies,
                     valid: (cards) =>
                       validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
                       (!rules || checkEventDeck(cards, rules, index).ok),
@@ -2250,7 +2254,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       return pending
     }
     // Review of the coordinator (14/10): the score is the default bot's (D-029); another bot's goes apart.
-    const byDefault = (job: LabJobRow) => botLabel(job.players) === botLabel(LAB_DEFAULT_PLAYERS)
+    const byDefault = (job: LabJobRow) => labBotLabel(job.players) === labBotLabel(LAB_DEFAULT_PLAYERS)
     const ofEra = (job: LabJobRow) => era === undefined || job.params.lab.era === era
     for (const [deckId, draft] of drafts) {
       const ids = idsByKey.get(draft.key) ?? new Set<number>()
@@ -2262,7 +2266,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       for (const job of done) {
         const sid = inJob(job)
         if (sid === undefined) continue
-        const bot = botLabel(job.players)
+        const bot = labBotLabel(job.players)
         if (byDefault(job) ? current !== null : !ofEra(job) || others.has(bot)) continue
         // Self-review: another era's score once one is found is not computed again (after a new era, every deck).
         if (byDefault(job) && !ofEra(job) && other !== null) continue
@@ -3223,7 +3227,7 @@ function gamesOf(
 }
 
 /** «e2» when both sides play the same bot, «e2 contra e3» otherwise. */
-function botLabel(players: readonly string[]): string {
+export function labBotLabel(players: readonly string[]): string {
   const [a, b] = players
   return a === b || b === undefined ? (a ?? '') : `${a} contra ${b}`
 }

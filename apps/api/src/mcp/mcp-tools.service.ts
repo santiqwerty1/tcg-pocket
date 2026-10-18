@@ -43,6 +43,7 @@ import { OWNER_TIME_ZONE } from '../config/time-zone.js'
 import type { DeckImportFormat } from '../decks/deck-formats.js'
 import { DecksService } from '../decks/decks.service.js'
 import { EventsService } from '../events/events.service.js'
+import { LAB_DEFAULT_PLAYERS, labBotLabel } from '../lab/lab.service.js'
 import type { RowView } from '../matches/match-views.js'
 import { MatchesService } from '../matches/matches.service.js'
 import { NextBuildService } from '../next-build/next-build.controller.js'
@@ -1477,10 +1478,11 @@ ${MCP_CHAT_INSTRUCTIONS}`
               ),
             }
           : {}),
-        // Review of #109: why there is no score (Claude saw `lab: null` with no explanation).
+        // Review of #109: why there is no score (Claude saw `lab: null` with no explanation); review of #118: the bot
+        // the Laboratorio plays by default, not «e2» written by hand.
         ...(row.labFailed
           ? {
-              labFailed: `la última prueba con e2 (#${row.labFailed.jobId}) falló antes de jugar la lista entera: se puede reintentar lo que falló (simulations_retry_failed)`,
+              labFailed: `la última prueba con ${labBotLabel(LAB_DEFAULT_PLAYERS)} (#${row.labFailed.jobId}) falló antes de jugar la lista entera: se puede reintentar lo que falló (simulations_retry_failed)`,
             }
           : {}),
         ...(row.labRunning
