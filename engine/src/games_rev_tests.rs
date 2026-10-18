@@ -42,6 +42,9 @@ fn cases() -> Vec<Value> {
         ("f2", 2),
         // engine-cli 0.3.5 (H-051): the bot that only ends its turn.
         ("et", 4),
+        // engine-cli 0.3.13 (T-021): the g bots, whose damage comes from the engine (docs/BOTS.md).
+        ("g1", 4),
+        ("g2", 2),
     ] {
         cases.push(json!({
             "command": "simulate",

@@ -173,13 +173,28 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
   - El catálogo en memoria se recarga solo tras un CLI (#103); «Probar estas cartas» con cualquier carta (#107); un KO de fin de turno en el turno 30 (#108, H-057).
 - **D-031 (14/10/2026, Santi):** la app pasa a usar un fork `santiqwerty1/deckgym-core` con arreglos (Casco Pesado #383, Extracto y Plubio #399, pánico sin Activo #398; H-056) apenas esté listo (Infra). Se cancelaron todas las simulaciones del motor viejo y se relanzan con el nuevo. Los arreglos también van upstream.
 - **Bots (T-021, 14/10/2026):** sesión «TCG · Bots» en la nube (se comunica por el chat de la app como «Bots»). La meta es la fuerza de juego, no imitar a las personas: bot nuevo «g» con daño real, «sin trampa» (hoy los bots e ven la mano del rival y el orden del mazo, H-055), afinado contra una liga de bots y una evaluación aprendida.
-- **Producción al 14/10/2026:** hasta `d7a6c1c` (#108); engine-cli 0.3.10 y worker 0.3.9, que llegan solos a los workers. Deploys desde una copia limpia de main (Posta deja relevos sin commitear en `Boveda/Sesiones/`). Sin simulaciones en marcha.
+- **Integrados el 15/10/2026:** #109–#113 y #115.
+  - «Actualizar todos» en «¿Cuál llevo hoy?» (#109), el seguimiento de #107 (#113) y el del regulador (#110, worker 0.3.10). Pedido de Santi: bajarle la CPU al motor; con la PC libre usa los 20 hilos, y si no, cede.
+  - **El motor pasa al fork** (#115, D-031, H-056 resuelto): `santiqwerty1/deckgym-core` en `018b419` (etiqueta `pin-018b419`), engine-cli 0.3.12 y worker 0.3.11. Desplegado en `dfc8b05`; se relanzaron los 41 mazos (trabajos 54–58) y la matriz 41×41 (trabajo 59).
+  - Diseño del bot «g» (#111, `docs/BOTS.md`); chat-hub #7 (H6).
+- **Turno de e2e desde el 15/10/2026** (la PC se puso muy lenta): un solo e2e o build pesado a la vez entre todas las sesiones, con «e2e: arranco» y «e2e: listo» en el chat, y vitest con `--maxWorkers=2`. WSL con tope de 6 GB en `.wslconfig` (aprobado por Santi).
+- **Pausa general del 15/10 (17:05) al 18/10 (02:46):** la cuenta llegó al 99 % del límite semanal. Mientras tanto, el worker jugó sin el regulador; se volvió a prender el 18/10.
+- **Integrados el 18/10/2026:** #114, #116–#126.
+  - Producción exige `sslmode=verify-full` y las migraciones verifican el certificado (#116, H-058; release v70).
+  - Aviso «posible punto ciego del bot» (#119, #122, #124; H-055); deuda del laboratorio (#118, #121); el empate en el límite son exactamente L+1 turnos (#125).
+  - T-022 hecha: rival por cartas vistas (#114, tool `matches_rival_suggest`, backup 9) y ranked por temporada y rango (#120, tools `ranked_season` y `ranked_rank_note`, backup 10). **45 de lectura y 14 de escritura.**
+  - El bot «g» y la liga entre bots (#117, feature `gBots`, engine-cli 0.3.13); e2 sigue por defecto (D-029).
+  - T1a de la mudanza del chat (#123, #126; D-030); en chat-hub, #8–#11 (H6.8 y H5), sin desplegar.
+- **Dedenne ex (H-055, 18/10):** el motor está bien; la búsqueda de profundidad 2 de e2 no ve el pago de una Herramienta (jugarla son dos decisiones). Contra el banco (n = 3.600 por fila): mazo 16, e2 17,0 % y g2 29,2 %; lista de torneo, e2 27,6 % y g2 41,7 % (52,4 % en torneos). «Atacar ahora» en una hoja a mitad del turno va en el próximo PR de Bots.
+- **D-031, 18/10:** Santi aprobó rearmar el fork sobre upstream `adfe505` con solo `fix/choose-evolution-target` y `feat/bot-api` (upstream ya integró #383 y el autor arregló #396–#398 en sus PR #400 y #401). Infra arma el PR del pin con engine-cli 0.3.14 y worker 0.3.12; después se relanzan los 41 mazos, la matriz y las calibraciones. Nuestro bcollazo/deckgym-core#420 (el objetivo de Quick-Grow Extract y Wallace, con los videos del juego que pidió el autor al cerrar el issue #399) espera su respuesta.
+- **El runner de la CI de Posta en WSL** es un servicio de usuario de systemd con linger desde el 18/10 (OK de Santi por Posta-Coordinador): arranca con WSL (probado con `wsl --terminate Ubuntu`).
+- **Producción al 18/10/2026:** hasta `275f704` (#126); engine-cli 0.3.13 y worker 0.3.11, que llegan solos a los workers. Deploys desde una copia limpia de main (Posta deja relevos sin commitear en `Boveda/Sesiones/`).
 - **Pendientes** (detalle en Avance):
-  - Infra: el fork (D-031), el seguimiento del regulador, el aviso de punto ciego y los PR upstream;
-  - Laboratorio: #109 («Actualizar todos»), T-022 (rival por cartas vistas y ranked por temporada), la deuda y las traducciones;
-  - Principal: H6 del hub y el paso 2 de Santi;
-  - Santi: las traducciones de los premios de las misiones, el Ryzen (worker nuevo, Codex-Revisor, runner Windows de Posta, limpiar runners viejos) y el runner Windows de Posta en esta PC;
-  - relanzar con el motor nuevo la matriz, las calibraciones e2/e3/MCTS y las pruebas de los 41 mazos.
+  - Infra: el pin del fork sobre `adfe505`; después, relanzar los 41 mazos, la matriz 41×41 y las calibraciones e2/e3/MCTS;
+  - Bots: «atacar ahora» y los 14+1 hilos de Codex de #117, después la app acepta g y la línea 2;
+  - Laboratorio: el PR de deuda (ranked y #114) y las traducciones;
+  - Principal: T1b del hub;
+  - Santi: anotar Master Ball desde la partida 6 de ranked (desde la edición o con `ranked_rank_note` en una conversación nueva), el paso 2 del hub, el Ryzen (worker nuevo, Codex-Revisor, runner Windows de Posta, limpiar runners viejos) y el runner Windows de Posta en esta PC, las traducciones de los premios de las misiones y Termux «Sin restricciones» en el S25 (sus huecos son Android que corta Termux, no la cola).
 - **Visto bueno de Santi para todo el 8/10/2026**: fases 0–8 del plan, laboratorio y ajustes aprobados; no queda nada esperando su revisión. Siguiente paso: lo que pida Santi (abiertos: remapeo I12 al cambiar el catálogo, R-001; CI antes de cada deploy, R-007).
 
 ## Cómo trabajar acá
