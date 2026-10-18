@@ -2236,7 +2236,10 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       (await this.simulations.summariesOf(active.map((job) => job.id))).map((summary) => [summary.id, summary]),
     )
     // One score per job and list, whatever the number of decks that share the list.
-    const scores = new Map<string, Promise<{ score: LabScoreView; complete: boolean }>>()
+    const scores = new Map<
+      string,
+      Promise<{ score: LabScoreView; complete: boolean; rivals: { archetypeId: string; weight: number }[] }>
+    >()
     const scoreIn = (job: LabJobRow, sid: number) => {
       const cacheKey = `${job.id}:${sid}`
       let pending = scores.get(cacheKey)
@@ -2263,7 +2266,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         if (byDefault(job) ? current !== null : !ofEra(job) || others.has(bot)) continue
         // Self-review: another era's score once one is found is not computed again (after a new era, every deck).
         if (byDefault(job) && !ofEra(job) && other !== null) continue
-        const { score, complete } = await scoreIn(job, sid)
+        const { score, complete, rivals } = await scoreIn(job, sid)
         if (job.status === 'failed' && !complete) {
           // The newest test of this list with the default bot and this era failed before playing it whole.
           if (byDefault(job) && ofEra(job) && current === null) failed ??= { jobId: job.id }
@@ -2274,7 +2277,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           jobId: job.id,
           era: job.params.lab.era,
           format: job.params.lab.format,
-          rivals: job.params.lab.rivals.map((rival) => ({ archetypeId: rival.archetypeId, weight: rival.weight })),
+          rivals,
           bot,
           finishedAt: job.finishedAt,
           score,
@@ -2339,7 +2342,14 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
    * A list's score in a job, from its own chunks: the confirmation's when it has one, else the search's; `complete` when
    * every pairing of it finished (what a failed job's score needs to count).
    */
-  private async snapshotScore(job: LabJobRow, sid: number): Promise<{ score: LabScoreView; complete: boolean }> {
+  /**
+   * The list's score in a job, whether its round was played whole, and the rivals it was scored against (those with a
+   * list played, like the job's view: review of #119, «¿Cuál llevo hoy?» weighed every rival of the bank).
+   */
+  private async snapshotScore(
+    job: LabJobRow,
+    sid: number,
+  ): Promise<{ score: LabScoreView; complete: boolean; rivals: { archetypeId: string; weight: number }[] }> {
     const { params } = job
     const lab = params.lab
     const needSideB = lab.rivals.some((rival) => rival.snapshot === undefined || rival.snapshot === null)
@@ -2353,20 +2363,22 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         : Promise.resolve([]),
     ])
     const scored = scoredRivals(lab.rivals, params.sideB, new Map(sideB.map((row) => [row.id, row])))
+    const rivals = scored.map((rival) => ({ archetypeId: rival.archetypeId, weight: rival.weight }))
     const state = lab.explore ?? null
     const confirm = state?.rounds.find((round) => round.kind === 'confirm') ?? null
     const searchFilter = (chunk: ChunkRow) => !confirm || chunk.idx < confirm.fromIdx
     const search = scoreView(scoreOf(chunks, scored, sid, searchFilter), lab.objective)
     const searched = complete(chunks, scored, sid, searchFilter)
-    if (!confirm || (sid !== state?.base && sid !== state?.incumbent)) return { score: search, complete: searched }
+    if (!confirm || (sid !== state?.base && sid !== state?.incumbent))
+      return { score: search, complete: searched, rivals }
     const confirmFilter = (chunk: ChunkRow) => chunk.idx >= confirm.fromIdx && chunk.idx < confirm.toIdx
     const confirmed = scoreView(scoreOf(chunks, scored, sid, confirmFilter), lab.objective)
     // Review of #109: a confirmation that failed halfway leaves the search's score, when the search was whole (the
     // list must not be marked as failed for it).
     const confirmedWhole = complete(chunks, scored, sid, confirmFilter)
     return confirmed.score && (confirmedWhole || !searched)
-      ? { score: confirmed, complete: confirmedWhole }
-      : { score: search, complete: searched }
+      ? { score: confirmed, complete: confirmedWhole, rivals }
+      : { score: search, complete: searched, rivals }
   }
 
   /**
