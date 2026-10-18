@@ -229,6 +229,8 @@ const classifiedSchema = z.object({
   opponent: z.string().nullable(),
   previous: z.array(z.object({ id: z.string(), opponent: z.string().nullable() })).default([]),
   noteMoved: z.object({ from: z.string(), to: z.string() }).nullable().default(null),
+  /** The matches left as they were: they changed since (Codex on #114). */
+  skipped: z.array(z.string()).default([]),
 })
 export type Classified = z.infer<typeof classifiedSchema>
 
@@ -237,6 +239,8 @@ async function classify(body: {
   from?: string
   opponent: string | null
   note?: { from: string; to: string }
+  /** The rival `matchIds` must still have (null: none); the ones that changed are skipped. */
+  expect?: string | null
 }) {
   return request('/api/matches/classify', { method: 'POST', body, schema: classifiedSchema })
 }
@@ -250,8 +254,11 @@ export function useClassify() {
   })
 }
 
-/** «Deshacer» a classification: each match gets back the rival it had (or none). */
-export async function undoClassify(done: Classified, queryClient: QueryClient): Promise<void> {
+/**
+ * «Deshacer» a classification: each match gets back the rival it had (or none), unless it changed since (Codex on
+ * #114: an edit after classifying is not undone). How many were left as they were.
+ */
+export async function undoClassify(done: Classified, queryClient: QueryClient): Promise<number> {
   const byOpponent = new Map<string | null, string[]>()
   for (const item of done.previous) {
     const ids = byOpponent.get(item.opponent) ?? []
@@ -260,9 +267,12 @@ export async function undoClassify(done: Classified, queryClient: QueryClient): 
   }
   // The rival's note goes back with the first group (Codex on #114).
   let note = done.noteMoved ? { from: done.noteMoved.to, to: done.noteMoved.from } : undefined
+  let skipped = 0
   for (const [opponent, matchIds] of byOpponent) {
-    await classify({ matchIds, opponent, ...(note ? { note } : {}) })
+    const undone = await classify({ matchIds, opponent, expect: done.opponent, ...(note ? { note } : {}) })
+    skipped += undone.skipped.length
     note = undefined
   }
   await invalidateMatches(queryClient)
+  return skipped
 }

@@ -58,12 +58,21 @@ export function resolveSeenCard(index: CatalogIndex, query: string): string {
   return named.card.id
 }
 
-/** «2 Greninja», «2x Greninja», «Suicune ex», «A1-89»: one card seen and its copies (1 when not said). */
-export function seenCardFromText(index: CatalogIndex, text: string): { cardId: string; count: number } {
+/**
+ * «2 Greninja», «2x Greninja», «Suicune ex», «A1-89»: one card seen and its copies (1 when not said). `kept`: the ids
+ * the match already has — one the catalog no longer has is taken by its code as it was (Codex on #114).
+ */
+export function seenCardFromText(
+  index: CatalogIndex,
+  text: string,
+  kept: readonly string[] = [],
+): { cardId: string; count: number } {
   const before = /^\s*([12])\s*[x×]?\s+(.+)$/u.exec(text)
   // «Greninja x2», «Greninja ×2» (self-review: a common way to say it).
   const after = before ? null : /^(.+?)\s*[x×]\s*([12])\s*$/u.exec(text)
   const query = (before?.[2] ?? after?.[1] ?? text).trim()
   const count = before ? Number(before[1]) : after ? Number(after[2]) : 1
-  return { cardId: resolveSeenCard(index, query), count }
+  const code = query.replace(/\s+/g, '-').toLowerCase()
+  const stored = kept.find((cardId) => cardId.toLowerCase() === code)
+  return { cardId: stored ?? resolveSeenCard(index, query), count }
 }

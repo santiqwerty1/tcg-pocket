@@ -37,12 +37,14 @@ export function SeenCardsField({
       </Button>
     )
   }
+  // Codex on #114: a deck has 20 cards, so the copies seen stop there.
+  const copies = value.reduce((sum, card) => sum + card.count, 0)
   // Only the suggestions of these very cards (Codex on #114).
   const found = suggestions.isSuccess && !suggestions.isPlaceholderData ? suggestions.data.suggestions.slice(0, 3) : []
   return (
     <fieldset className="flex min-w-0 flex-col gap-1.5">
       <legend className="mb-1.5 text-sm font-medium text-muted-foreground">Cartas que vi del rival</legend>
-      {value.length < 20 ? (
+      {copies < 20 ? (
         <CardSearch
           placeholder="Agregar una carta que viste…"
           limit={6}
@@ -51,7 +53,9 @@ export function SeenCardsField({
             onChange([...value, { cardId: hit.card.id, count: 1, nameEs: hit.card.nameEs }])
           }}
         />
-      ) : null}
+      ) : (
+        <p className="text-xs text-muted-foreground">Ya son 20 cartas: un mazo no tiene más.</p>
+      )}
       {value.length > 0 ? (
         <ul className="flex flex-wrap gap-1.5">
           {value.map((card) => (
@@ -63,6 +67,7 @@ export function SeenCardsField({
                 size="sm"
                 aria-label={`${card.nameEs}: ${card.count === 1 ? 'una copia' : 'dos copias'} (tocá para cambiar)`}
                 className="tabular"
+                disabled={card.count === 1 && copies >= 20}
                 onClick={() =>
                   onChange(value.map((item) => (item === card ? { ...item, count: item.count === 1 ? 2 : 1 } : item)))
                 }

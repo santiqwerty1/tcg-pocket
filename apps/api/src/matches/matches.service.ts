@@ -832,6 +832,11 @@ export class MatchesService {
     opponent: string | null
     /** «Deshacer» a rename: the note goes back from `from` to `to` (labels), in the same transaction. */
     note?: { from: string; to: string } | undefined
+    /**
+     * The rival each of `matchIds` must still have (null: none). Codex on #114: a match edited since the list was read
+     * (or since what is undone) is left as it is and comes back in `skipped`.
+     */
+    expect?: string | null | undefined
   }) {
     // `null`: back to «sin clasificar» (what «Deshacer» sends for matches that had no rival).
     const opponent = input.opponent === null ? null : storedOpponent(input.opponent)
@@ -844,7 +849,18 @@ export class MatchesService {
       throw new BadRequestException({ code: 'validation', message: 'Mandá las partidas o el rival a reclasificar.' })
     }
     return this.prisma.$transaction(async (tx) => {
-      const targets = new Set(ids)
+      const found = await tx.match.findMany({
+        where: { id: { in: [...ids] } },
+        select: { id: true, opponentText: true },
+      })
+      if (found.length !== ids.length) throw new NotFoundException('Alguna de esas partidas ya no existe.')
+      // Codex on #114: a match that changed since (edited in the app or by Claude) is left as it is.
+      const expectKey = input.expect === undefined ? undefined : opponentKey(input.expect)
+      const skipped =
+        expectKey === undefined
+          ? []
+          : found.filter((row) => opponentKey(row.opponentText) !== expectKey).map((row) => row.id)
+      const targets = new Set(ids.filter((id) => !skipped.includes(id)))
       if (fromKey !== null) {
         const typed = await tx.match.findMany({
           where: { opponentText: { not: null } },
@@ -852,8 +868,6 @@ export class MatchesService {
         })
         for (const row of typed) if (opponentKey(row.opponentText) === fromKey) targets.add(row.id)
       }
-      const found = await tx.match.count({ where: { id: { in: [...ids] } } })
-      if (found !== ids.length) throw new NotFoundException('Alguna de esas partidas ya no existe.')
       // Self-review: what each match had, so «Deshacer» puts it back (a rival merged into an archetype could not be
       // told apart afterwards).
       const before = await tx.match.findMany({
@@ -887,6 +901,8 @@ export class MatchesService {
         previous: before.map((row) => ({ id: idToString(row.id), opponent: row.opponentText })),
         /** The note moved with it (labels), for «Deshacer». */
         noteMoved,
+        /** The matches left as they were: they no longer had the rival expected. */
+        skipped: skipped.map(idToString),
       }
     })
   }

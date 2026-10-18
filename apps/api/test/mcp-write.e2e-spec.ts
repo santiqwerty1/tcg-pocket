@@ -171,6 +171,20 @@ describe('MCP write tools (e2e)', () => {
       expect(coded.isError, `${code}: ${coded.content[0]?.text}`).toBeFalsy()
       expect((coded.structuredContent.match as Structured).opponentCards).toEqual(['Onix'])
     }
+    // Codex on #114: a card the catalog no longer has, kept on the match, can stay when the list changes.
+    await test.prisma.match.update({
+      where: { id: Number(match.id) },
+      data: { opponentCards: [{ cardId: 'GONE-1', count: 1 }] },
+    })
+    const lost = await call(client, 'matches_update', { id: match.id, opponentCards: ['GONE-1', 'Suicune ex'] })
+    expect(lost.isError, lost.content[0]?.text).toBeFalsy()
+    expect(
+      ((await get(`/api/matches/${match.id}`)).body.opponentCards as { cardId: string }[]).map((card) => card.cardId),
+    ).toContain('GONE-1')
+    // Another match cannot bring it in: it is not one of its cards.
+    const elsewhere = await call(client, 'matches_log', { deck: 'mazo 7', result: 'win', opponentCards: ['GONE-1'] })
+    expect(elsewhere.isError).toBe(true)
+    expect(elsewhere.content[0]?.text).toMatch(/GONE-1/)
     expect(
       (await call(client, 'matches_update', { id: match.id, opponentCards: ['2 Greninja', 'Suicune ex'] })).isError,
     ).toBeFalsy()

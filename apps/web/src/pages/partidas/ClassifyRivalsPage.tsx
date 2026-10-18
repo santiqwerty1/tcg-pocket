@@ -46,12 +46,23 @@ function AssignName({
   )
 }
 
+/** Codex on #114: matches edited since are left as they are. */
+function changedSince(count: number) {
+  return count === 1
+    ? 'Una partida cambió mientras tanto y la dejé como estaba.'
+    : `${count} partidas cambiaron mientras tanto y las dejé como estaban.`
+}
+
 /** «Deshacer» on the toast: each match gets back the rival it had (self-review: a merge could not be told apart). */
 function undoAction(done: Classified, queryClient: QueryClient) {
   return {
     label: 'Deshacer',
     onClick: () => {
-      undoClassify(done, queryClient).catch((error) => toast.error(errorMessage(error)))
+      undoClassify(done, queryClient)
+        .then((skipped) => {
+          if (skipped > 0) toast.info(changedSince(skipped))
+        })
+        .catch((error) => toast.error(errorMessage(error)))
     },
   }
 }
@@ -62,7 +73,9 @@ function Group({ group }: { group: Unclassified['groups'][number] }) {
   const matchIds = group.matches.map((match) => match.id)
   async function assign(opponent: string) {
     try {
-      const done = await classify.mutateAsync({ matchIds, opponent })
+      // Only the ones still without a rival (an edit since the list was read stays).
+      const done = await classify.mutateAsync({ matchIds, opponent, expect: null })
+      if (done.skipped.length > 0) toast.info(changedSince(done.skipped.length))
       toast.success(`${done.updated === 1 ? 'Una partida' : `${done.updated} partidas`} contra ${done.opponent}.`, {
         action: undoAction(done, queryClient),
       })

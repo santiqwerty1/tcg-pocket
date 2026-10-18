@@ -76,8 +76,15 @@ describe('clasificar rivales (14/10)', () => {
     const { calls } = fakeApi({
       'GET /api/matches/unclassified': UNCLASSIFIED,
       'POST /api/matches/classify': (call: { body?: BodyInit | null }) => {
-        const body = JSON.parse(String(call.body)) as { opponent: string; matchIds?: string[]; from?: string }
+        const body = JSON.parse(String(call.body)) as {
+          opponent: string
+          matchIds?: string[]
+          from?: string
+          expect?: string | null
+        }
         return {
+          // The undo of the group finds match 5 edited since (Codex on #114).
+          skipped: body.expect === 'Suicune ex Baxcalibur' ? ['5'] : [],
           noteMoved: body.from ? { from: body.from, to: body.opponent } : null,
           updated: body.matchIds?.length ?? 3,
           opponent: body.opponent,
@@ -96,11 +103,21 @@ describe('clasificar rivales (14/10)', () => {
     await user.click(screen.getByRole('button', { name: /Suicune ex Baxcalibur/ }))
     const posts = () => calls.filter((call) => call.method === 'POST')
     await waitFor(() => expect(posts()).toHaveLength(1))
-    expect(JSON.parse(String(posts()[0]?.body))).toEqual({ matchIds: ['6', '5'], opponent: 'Suicune ex Baxcalibur' })
+    expect(JSON.parse(String(posts()[0]?.body))).toEqual({
+      matchIds: ['6', '5'],
+      opponent: 'Suicune ex Baxcalibur',
+      expect: null,
+    })
     // «Deshacer»: back to no rival.
     await user.click(await screen.findByRole('button', { name: 'Deshacer' }))
     await waitFor(() => expect(posts()).toHaveLength(2))
-    expect(JSON.parse(String(posts()[1]?.body))).toEqual({ matchIds: ['6', '5'], opponent: null })
+    // Only the ones that still have the rival given (Codex on #114): match 5 was edited since and stays.
+    expect(JSON.parse(String(posts()[1]?.body))).toEqual({
+      matchIds: ['6', '5'],
+      opponent: null,
+      expect: 'Suicune ex Baxcalibur',
+    })
+    expect(await screen.findByText('Una partida cambió mientras tanto y la dejé como estaba.')).toBeInTheDocument()
 
     // Reclassifying: a rival typed before, by its label, in every match.
     // The refetches after classifying and undoing land before the next form is used (a stale input would leave the
@@ -130,6 +147,7 @@ describe('clasificar rivales (14/10)', () => {
     expect(JSON.parse(String(posts()[3]?.body))).toEqual({
       matchIds: ['7', '8', '9'],
       opponent: 'Greninja Suicune',
+      expect: 'Greninja Altaria',
       note: { from: 'Greninja Altaria', to: 'Greninja Suicune' },
     })
   })

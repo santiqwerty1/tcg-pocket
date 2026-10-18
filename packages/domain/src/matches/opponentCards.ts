@@ -9,6 +9,7 @@
  */
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
 import type { CardId } from '../catalog/types.js'
+import { DECK_SIZE } from '../decks/validate.js'
 import type { DatasetEntry } from '../tournaments/dataset.js'
 import type { ArchetypeRef } from '../tournaments/limitless.js'
 
@@ -57,7 +58,16 @@ export function normalizeSeenCards(
     if (found) found.count = Math.min(2, found.count + count)
     else byName.set(key, { cardId: card.cardId, count })
   }
-  return [...byName.values()].slice(0, OPPONENT_CARDS_MAX)
+  const lines = [...byName.values()]
+  // Codex on #114: a deck has 20 cards, so the copies seen cannot add up to more (the lines alone could reach 40).
+  const copies = lines.reduce((sum, card) => sum + card.count, 0)
+  if (copies > DECK_SIZE) throw new Error(`Son ${copies} cartas vistas y un mazo tiene ${DECK_SIZE}.`)
+  return lines.slice(0, OPPONENT_CARDS_MAX)
+}
+
+/** The copies seen, added up (at most 20: a deck's size). */
+export function seenCopies(cards: readonly { count: number }[]): number {
+  return cards.reduce((sum, card) => sum + card.count, 0)
 }
 
 /** «2 Greninja, Suicune ex»: the cards seen as text. */
@@ -121,11 +131,15 @@ export function suggestArchetypesForCards(
   limit = 5,
 ): ArchetypeFit[] {
   const wanted = new Map<string, number>()
+  // Codex on #114: a card the catalog no longer has (kept in a match) is never checked, so no list «has them all».
+  let unknown = 0
   for (const card of seen) {
     const key = nameKey(card.cardId, index)
     if (key !== null) wanted.set(key, Math.max(wanted.get(key) ?? 0, card.count))
+    else unknown += 1
   }
   if (wanted.size === 0) return []
+  const seenCount = wanted.size + unknown
   const names = namesOfLists(entries, index)
   // Self-review: Limitless may give one name two ids (Mega Lucario ex Lucario: 33 lists and 1); they go together.
   const byArchetype = new Map<
@@ -142,7 +156,7 @@ export function suggestArchetypesForCards(
     const name = archetypes.get(entry.archetypeId)?.name ?? entry.archetypeId
     const row = byArchetype.get(fold(name)) ?? { archetypeId: entry.archetypeId, name, lists: 0, fits: 0, best: 0 }
     row.lists += 1
-    if (have === wanted.size) row.fits += 1
+    if (have === wanted.size && unknown === 0) row.fits += 1
     row.best = Math.max(row.best, have)
     byArchetype.set(fold(name), row)
   }
@@ -162,12 +176,12 @@ export function suggestArchetypesForCards(
           fits,
           fitting: row.fits,
           best: row.best,
-          seen: wanted.size,
+          seen: seenCount,
           kind,
           text:
             kind === 'fits'
               ? `${row.fits === row.lists ? `${row.lists === 1 ? 'su lista tiene' : 'todas sus listas tienen'}` : `el ${percentEs.format(fits)}${'\u00a0'}% de sus listas tiene`} esas cartas (${row.lists} ${row.lists === 1 ? 'lista' : 'listas'})`
-              : `parecido: su lista más cercana tiene ${row.best} de ${wanted.size}`,
+              : `parecido: su lista más cercana tiene ${row.best} de ${seenCount}`,
         }
       })
       // Self-review: by how many of its lists have the cards (an archetype of one list at 100 % went before one of 30 at

@@ -408,15 +408,23 @@ export class McpWriteToolsService {
       ...(args.mode !== undefined ? { mode: args.mode } : {}),
       ...(args.note !== undefined ? { note: args.note } : {}),
       ...(args.playedAt !== undefined ? { playedAt: args.playedAt } : {}),
-      ...(args.opponentCards !== undefined ? { opponentCards: this.seenCards(args.opponentCards) } : {}),
+      // Codex on #114: a card already stored that the catalog no longer has can stay (by its code).
+      ...(args.opponentCards !== undefined
+        ? {
+            opponentCards: this.seenCards(
+              args.opponentCards,
+              before.opponentCards.map((card) => card.cardId),
+            ),
+          }
+        : {}),
     })
     return { updated: true, before: matchView(before), match: matchView(after) }
   }
 
   /** «2 Greninja», «Suicune ex», «A1-89»: the cards seen as the API takes them (any card of the name counts). */
-  private seenCards(texts: readonly string[]): SeenCard[] {
+  private seenCards(texts: readonly string[], kept: readonly string[] = []): SeenCard[] {
     const index = this.catalog.requireIndex()
-    return texts.map((text) => seenCardFromText(index, text))
+    return texts.map((text) => seenCardFromText(index, text, kept))
   }
 
   /** Fase 43: the row is kept in the audit log, so matches_restore (or «Deshacer» in the app) brings it back. */

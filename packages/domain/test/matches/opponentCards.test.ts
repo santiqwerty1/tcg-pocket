@@ -185,5 +185,27 @@ describe('rival cards seen (pedido de Santi del 14/10)', () => {
       )
       expect(groups.map((group) => group.matchIds)).toEqual([['9']])
     })
+
+    it('Codex on #114: a card the catalog lost is never checked, so no list «has them all»', () => {
+      const entries = [list('many', [['Greninja', 2]])]
+      expect(suggestArchetypesForCards([greninja], entries, archetypes, index).map((fit) => fit.kind)).toEqual(['fits'])
+      const withLost = suggestArchetypesForCards([greninja, { cardId: 'GONE-1', count: 1 }], entries, archetypes, index)
+      expect(withLost).toEqual([
+        expect.objectContaining({
+          kind: 'similar',
+          seen: 2,
+          best: 1,
+          text: 'parecido: su lista más cercana tiene 1 de 2',
+        }),
+      ])
+    })
+  })
+
+  it('Codex on #114: the copies seen add up to 20 at most (a deck has 20 cards)', () => {
+    const groups = index.catalog.groups.filter((group) => index.cardById(group.displayCardId)?.cardType === 'pokemon')
+    const lines = (n: number, count: number) =>
+      groups.slice(0, n).map((group) => ({ cardId: group.displayCardId, count }))
+    expect(normalizeSeenCards(lines(10, 2), index).reduce((sum, card) => sum + card.count, 0)).toBe(20)
+    expect(() => normalizeSeenCards([...lines(10, 2), ...lines(11, 1).slice(10)], index)).toThrow(/21 cartas vistas/)
   })
 })

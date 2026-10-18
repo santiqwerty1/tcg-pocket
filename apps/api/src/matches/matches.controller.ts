@@ -45,6 +45,8 @@ const classifySchema = z
     from: z.string().trim().min(1).max(OPPONENT_MAX_LENGTH).optional(),
     /** `null`: back to «sin clasificar» («Deshacer»). */
     opponent: z.string().trim().min(1).max(OPPONENT_MAX_LENGTH).nullable(),
+    /** The rival `matchIds` must still have (null: none); the ones that changed are skipped (Codex on #114). */
+    expect: z.string().trim().max(OPPONENT_MAX_LENGTH).nullable().optional(),
     /** «Deshacer» a rename: the rival's note goes back (labels). */
     note: z
       .object({
@@ -202,6 +204,7 @@ export class MatchesController {
     opponent: string | null
     previous: { id: string; opponent: string | null }[]
     noteMoved: { from: string; to: string } | null
+    skipped: string[]
   }> {
     return this.matches.classify(body)
   }

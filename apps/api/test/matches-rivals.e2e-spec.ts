@@ -104,11 +104,19 @@ describe('rivals by the cards seen (e2e)', () => {
     expect(edited.status).toBe(200)
     expect(edited.body.opponentCards).toHaveLength(3)
     expect(edited.body.result).toBe('loss')
-    // Unknown card, three copies, too many cards: 400.
+    // Unknown card, three copies, too many cards, more than 20 copies (Codex on #114: 11 lines of two): 400.
+    const names = new Set<string>()
+    const eleven = test.app
+      .get(CatalogService)
+      .requireIndex()
+      .catalog.groups.filter((group) => !names.has(group.nameEn) && names.add(group.nameEn))
+      .slice(0, 11)
+      .map((group) => ({ cardId: group.displayCardId, count: 2 }))
     for (const opponentCards of [
       [{ cardId: 'ZZ-999', count: 1 }],
       [{ cardId: GRENINJA, count: 3 }],
       Array.from({ length: 21 }, () => ({ cardId: GRENINJA, count: 1 })),
+      eleven,
     ]) {
       expect((await post('/api/matches').send({ deckId, result: 'win', opponentCards })).status).toBe(400)
     }
@@ -211,8 +219,24 @@ describe('rivals by the cards seen (e2e)', () => {
     expect(list).toHaveLength(3)
     expect(list.filter((match) => match.opponentCards.length > 0)).toHaveLength(2)
     // «Deshacer» with `null`: back to «sin clasificar».
-    const undone = await post('/api/matches/classify').send({ matchIds: ids, opponent: null })
-    expect(undone.body).toMatchObject({ updated: 2, opponent: null })
+    // Codex on #114: with the rival they must still have, one edited since is left as it is.
+    expect((await patch(`/api/matches/${ids[1]}`).send({ opponent: 'Otro rival' })).status).toBe(200)
+    const undone = await post('/api/matches/classify').send({
+      matchIds: ids,
+      opponent: null,
+      expect: 'Suicune ex Baxcalibur',
+    })
+    expect(undone.body).toMatchObject({ updated: 1, opponent: null, skipped: [ids[1]] })
+    expect((await get(`/api/matches/${ids[1]}`)).body.opponent).toBe('Otro rival')
+    // Assigning only the ones still without a rival: the edited one stays too.
+    const again = await post('/api/matches/classify').send({ matchIds: ids, opponent: 'Uno', expect: null })
+    expect(again.body).toMatchObject({ updated: 1, skipped: [ids[1]] })
+    expect((await post('/api/matches/classify').send({ matchIds: [ids[0] as string], opponent: null })).status).toBe(
+      200,
+    )
+    expect((await post('/api/matches/classify').send({ matchIds: [ids[1] as string], opponent: null })).status).toBe(
+      200,
+    )
     expect((await get('/api/matches/unclassified/count')).body).toEqual({ matches: 2 })
     // A card the catalog no longer has: the match can still be edited (its stored cards stay).
     await test.prisma.match.update({
