@@ -712,6 +712,9 @@ Todas las de escritura llevan `readOnlyHint: false` e `idempotentHint: false` (r
 | `GET /api/chat/participants` | Con la sesión de Santi: `{ items: [{ name, channel, createdAt }] }` |
 | `PUT /api/chat/participants` | Con la sesión: `{ name, channel: 'relay' \| 'connector' }` → la suma o le cambia el canal (o cómo se escribe el nombre). «todos» u `owner` dan `400`; Santi, `403` |
 | `DELETE /api/chat/participants/:name` | Con la sesión: la saca de la lista (`204`; `404` si no estaba; Santi, `403`). Sus mensajes quedan |
+| `GET /api/chat/moved` | Con la sesión (D-030, T1b): `{ items: [{ room, label, url, since }], forwarding }`, cada sala con el hub al que se mudó (`url: null` si sigue acá); `forwarding` dice si está `HUB_MCP_TOKEN` |
+| `PUT /api/chat/moved/:sala` | Con la sesión: `{ url }` (el origen del hub, `https://…` sin ruta) → la marca como mudada. Desde ahí, las rutas del puente de esa sala dan `410 chat_moved` con `details: { sala, url }`, nada se escribe en ella, y `chat_read`/`chat_write` del conector viejo se reenvían al `/api/mcp` del hub con `HUB_MCP_TOKEN` (sin el secreto, dan un error que dice adónde se mudó). Queda un aviso `chat_moved` |
+| `DELETE /api/chat/moved/:sala` | Con la sesión: la vuelve a tcg-pocket (`204`) |
 
 Cada pedido del puente anota su cliente en el token, como el MCP: otro cliente con el token del puente aparece en Avisos.
 

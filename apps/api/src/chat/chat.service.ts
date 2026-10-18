@@ -38,6 +38,8 @@ import {
 import { PinoLogger } from 'nestjs-pino'
 import { Prisma, type SessionChatMessage, type SessionChatParticipant } from '../generated/prisma/client.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import { CHAT_WRITE_LOCK } from './chat-locks.js'
+import { ChatMovedService } from './chat-moved.service.js'
 
 export interface ChatMessageView {
   id: number
@@ -89,8 +91,8 @@ const DEFAULT_LIMIT = 30
 /** Development chatter is kept three months (D-021). */
 const RETENTION_DAYS = 90
 const DAY_MS = 24 * 60 * 60 * 1000
-/** `pg_advisory_xact_lock` key that serializes the inserts (any constant no other lock uses). */
-const WRITE_LOCK = 20_261_009
+/** The inserts go one at a time (also against the import and the switch of a moved room). */
+const WRITE_LOCK = CHAT_WRITE_LOCK
 /**
  * How long a write waits for the lock: an import of the move (`chat-import`, D-030) holds it for a few seconds. Under
  * the transaction's 15 s, so past it the answer is a 503 with `Retry-After` (the bridges retry it), never Prisma's
@@ -204,6 +206,7 @@ export class ChatService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly logger: PinoLogger,
+    private readonly moved: ChatMovedService,
   ) {
     this.logger.setContext(ChatService.name)
     this.events.setMaxListeners(100)
@@ -243,6 +246,8 @@ export class ChatService {
       })
     }
     const room = input.room ?? mainRoom(sender)
+    // A moved room (D-030, T1b) takes no writes here, whoever sends them: they go to the hub.
+    await this.moved.refuseIfMoved(room)
     this.mustBeIn(sender, room)
     const named = parseRecipients(input.to)
     if (named.length === 0) throw new BadRequestException('Indicá a quién va el mensaje (o «todos»).')
@@ -262,22 +267,14 @@ export class ChatService {
     }
     let row: SessionChatMessage
     try {
-      row = await this.prisma.$transaction(
-        async (tx) => {
-          await tx.$executeRaw`SELECT set_config('lock_timeout', ${`${this.writeLockWaitMs}ms`}, true)`
-          // One insert at a time: the id comes after the lock and the commit releases it, so ids commit in order.
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${WRITE_LOCK}::bigint)`
-          return tx.sessionChatMessage.create({ data })
-        },
-        { timeout: WRITE_TIMEOUT_MS },
-      )
+      // One insert at a time: the id comes after the lock and the commit releases it, so ids commit in order.
+      row = await this.locked(async (tx) => {
+        // Again under the lock: a room Santi marked as moved while this waited takes nothing (his switch takes the
+        // same lock, so it is either before this, and seen here, or after the commit).
+        await this.moved.refuseIfMovedIn(tx, room)
+        return tx.sessionChatMessage.create({ data })
+      })
     } catch (error) {
-      if (isLockTimeout(error)) {
-        throw new ServiceUnavailableException({
-          code: 'chat_busy',
-          message: 'El chat está ocupado con una importación: probá de nuevo en unos segundos.',
-        })
-      }
       // The same `ref` sent twice at once: the second one finds the first.
       if (input.ref && error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         const copied = await this.prisma.sessionChatMessage.findUniqueOrThrow({ where: { relayRef: input.ref } })
@@ -402,6 +399,38 @@ export class ChatService {
     }
   }
 
+  /**
+   * `fn` in a transaction under the chat's write lock, waiting for it at most `writeLockWaitMs` (an import holds it
+   * for a few seconds): past that, `503 chat_busy` (the bridges retry it), never Prisma's P2028 as a 500.
+   */
+  private async locked<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    try {
+      return await this.prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT set_config('lock_timeout', ${`${this.writeLockWaitMs}ms`}, true)`
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${WRITE_LOCK}::bigint)`
+          return fn(tx)
+        },
+        { timeout: WRITE_TIMEOUT_MS },
+      )
+    } catch (error) {
+      if (isLockTimeout(error)) {
+        throw new ServiceUnavailableException({
+          code: 'chat_busy',
+          message: 'El chat está ocupado con una importación: probá de nuevo en unos segundos.',
+        })
+      }
+      throw error
+    }
+  }
+
+  /** The room a call of `name` goes to: `room`, or its main one (the default room for a name not in the list). */
+  async roomFor(name: string, room?: ChatRoom): Promise<ChatRoom> {
+    if (room) return room
+    const found = (await this.list()).find((participant) => participant.key === chatKey(name))
+    return found ? mainRoom(found) : CHAT_DEFAULT_ROOM
+  }
+
   /** The list, or with `room` only who is in that room. */
   async participants(room?: ChatRoom): Promise<ChatParticipantView[]> {
     return (await this.list()).filter((row) => room === undefined || inRoom(row, room)).map(participantView)
@@ -433,34 +462,40 @@ export class ChatService {
         message: `El canal de Santi es solo para «${CHAT_OWNER}».`,
       })
     }
+    if (by === 'relay') {
+      // Under the chat's write lock, like a message: a room Santi marks as moved meanwhile takes no one (D-030, T1b).
+      return this.locked(async (tx) => {
+        await this.moved.refuseIfMovedIn(tx, room)
+        // A new participant starts after the last message: the history before it counts as read.
+        const sinceId = (await tx.sessionChatMessage.aggregate({ _max: { id: true } }))._max.id ?? 0
+        // Create-only, in one statement: a name already there (or added at the same moment) is never changed.
+        const inserted = await tx.sessionChatParticipant.createMany({
+          data: [{ key, name, channel: input.channel, sinceId, rooms: [room] }],
+          skipDuplicates: true,
+        })
+        const row = await tx.sessionChatParticipant.findUniqueOrThrow({ where: { key } })
+        if (inserted.count === 0 && row.channel !== input.channel) {
+          throw new ConflictException({
+            code: 'participant_exists',
+            message: `«${row.name}» ya está en la lista con otro canal: lo cambia Santi en la app.`,
+          })
+        }
+        if (inserted.count > 0 || inRoom(row, room)) {
+          return { participant: participantView(row), created: inserted.count > 0 }
+        }
+        // Already in the list with that channel, not in this room: it joins it, last (its main room stays), and reads
+        // it from now on.
+        const joined = await tx.$executeRaw`
+          UPDATE "session_chat_participants"
+          SET "rooms" = array_append("rooms", ${room}),
+            "room_since" = ${ROOM_SINCE} || jsonb_build_object(${room}::text, ${sinceId}::int)
+          WHERE "key" = ${key} AND "channel" = ${input.channel}::"session_chat_channel" AND NOT (${room} = ANY("rooms"))`
+        const now = await tx.sessionChatParticipant.findUniqueOrThrow({ where: { key } })
+        return { participant: participantView(now), created: joined > 0 }
+      })
+    }
     // A new participant starts after the last message: the history before it counts as read.
     const sinceId = (await this.prisma.sessionChatMessage.aggregate({ _max: { id: true } }))._max.id ?? 0
-    if (by === 'relay') {
-      // Create-only, in one statement: a name already there (or added at the same moment) is never changed.
-      const inserted = await this.prisma.sessionChatParticipant.createMany({
-        data: [{ key, name, channel: input.channel, sinceId, rooms: [room] }],
-        skipDuplicates: true,
-      })
-      const row = await this.prisma.sessionChatParticipant.findUniqueOrThrow({ where: { key } })
-      if (inserted.count === 0 && row.channel !== input.channel) {
-        throw new ConflictException({
-          code: 'participant_exists',
-          message: `«${row.name}» ya está en la lista con otro canal: lo cambia Santi en la app.`,
-        })
-      }
-      if (inserted.count > 0 || inRoom(row, room)) {
-        return { participant: participantView(row), created: inserted.count > 0 }
-      }
-      // Already in the list with that channel, not in this room: it joins it, last (its main room stays), and reads it
-      // from now on.
-      const joined = await this.prisma.$executeRaw`
-        UPDATE "session_chat_participants"
-        SET "rooms" = array_append("rooms", ${room}),
-          "room_since" = ${ROOM_SINCE} || jsonb_build_object(${room}::text, ${sinceId}::int)
-        WHERE "key" = ${key} AND "channel" = ${input.channel}::"session_chat_channel" AND NOT (${room} = ANY("rooms"))`
-      const now = await this.prisma.sessionChatParticipant.findUniqueOrThrow({ where: { key } })
-      return { participant: participantView(now), created: joined > 0 }
-    }
     const rooms = input.rooms ? [...new Set(input.rooms)] : null
     // One statement for one already in the list: the rooms it joins now (also one it left and comes back to) it reads
     // from now on, and a new order keeps where it was in each (SET sees the row as it was; review of #88).

@@ -45,7 +45,11 @@ describe('chat between sessions (D-021)', () => {
     }
     const warnings: unknown[] = []
     const logger = { setContext: () => undefined, warn: (...args: unknown[]) => warnings.push(args) }
-    const chat = new ChatService(prisma as never, logger as never)
+    const chat = new ChatService(
+      prisma as never,
+      logger as never,
+      { refuseIfMoved: async () => {}, refuseIfMovedIn: async () => {} } as never,
+    )
     const sent = await chat.write({
       from: 'nube-2',
       to: 'SANTI',

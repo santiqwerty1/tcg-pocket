@@ -32,6 +32,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { AndroidWorkerSection } from './AndroidWorkerSection'
+import { ChatMovedSection } from './ChatMovedSection'
 import { ChatParticipantsSection } from './ChatParticipantsSection'
 import { ClaudeActivitySection } from './ClaudeActivitySection'
 
@@ -200,6 +201,7 @@ export function TokensPage() {
       <ClaudeActivitySection />
 
       <ChatParticipantsSection />
+      <ChatMovedSection />
 
       <Dialog open={created !== null} onOpenChange={(open) => !open && setCreated(null)}>
         <DialogContent showCloseButton={false}>

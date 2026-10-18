@@ -27,10 +27,11 @@ import {
 import { Prisma } from '../generated/prisma/client.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { roomsOf, sinceIn } from './chat.service.js'
+import { CHAT_WRITE_LOCK } from './chat-locks.js'
 
 export const CHAT_EXPORT_SOURCE = 'tcg-pocket'
-/** The chat's insert lock (chat.service.ts): no message goes in while the import does. */
-const WRITE_LOCK = 20_261_009
+/** The chat's insert lock: no message goes in while the import does. */
+const WRITE_LOCK = CHAT_WRITE_LOCK
 /**
  * The most characters the whole export may have: it is held in memory until the plan, and the CLI runs in the API's
  * machine (512 MB, with the API). The real chat is about 1 MB a week, some 13 MB in its 90 days. A bigger one comes

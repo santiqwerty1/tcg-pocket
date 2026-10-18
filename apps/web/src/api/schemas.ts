@@ -1127,6 +1127,16 @@ export const chatParticipantSchema = z.object({
 export type ChatParticipant = z.infer<typeof chatParticipantSchema>
 export const chatParticipantsResponseSchema = z.object({ items: z.array(chatParticipantSchema) })
 
+/** D-030 (T1b): each room of the chat, and the hub it moved to (null: still in tcg-pocket). */
+export const chatMovedRoomSchema = z.object({
+  room: z.enum(CHAT_ROOMS),
+  label: z.string(),
+  url: z.string().nullable(),
+  since: isoDate.nullable(),
+})
+export type ChatMovedRoom = z.infer<typeof chatMovedRoomSchema>
+export const chatMovedResponseSchema = z.object({ items: z.array(chatMovedRoomSchema), forwarding: z.boolean() })
+
 export const apiTokenSchema = z.object({
   id: z.union([z.string(), z.number()]).transform(String),
   name: z.string(),
