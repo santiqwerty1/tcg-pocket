@@ -3,6 +3,7 @@ import { request } from './client'
 import {
   type ChatChannel,
   type ChatRoom,
+  chatMovedResponseSchema,
   chatParticipantSchema,
   chatParticipantsResponseSchema,
   createdTokenSchema,
@@ -13,6 +14,7 @@ import {
 export const tokenKeys = {
   list: ['tokens'] as const,
   chatParticipants: ['chat-participants'] as const,
+  chatMoved: ['chat-moved'] as const,
 }
 
 export function useTokens() {
@@ -68,5 +70,30 @@ export function useRemoveChatParticipant() {
   return useMutation({
     mutationFn: (name: string) => request(`/api/chat/participants/${encodeURIComponent(name)}`, { method: 'DELETE' }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: tokenKeys.chatParticipants }),
+  })
+}
+
+/** D-030 (T1b): the rooms of the chat moved to the hub, and whether the old connector is forwarded. */
+export function useChatMoved() {
+  return useQuery({
+    queryKey: tokenKeys.chatMoved,
+    queryFn: ({ signal }) => request('/api/chat/moved', { schema: chatMovedResponseSchema, signal }),
+  })
+}
+
+export function useSetChatMoved() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ room, url }: { room: ChatRoom; url: string }) =>
+      request(`/api/chat/moved/${room}`, { method: 'PUT', body: { url } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: tokenKeys.chatMoved }),
+  })
+}
+
+export function useClearChatMoved() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (room: ChatRoom) => request(`/api/chat/moved/${room}`, { method: 'DELETE' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: tokenKeys.chatMoved }),
   })
 }

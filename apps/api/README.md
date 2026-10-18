@@ -140,6 +140,20 @@ flyctl machine exec <id> --app tcg-pocket "node /app/apps/api/dist/cli/chat-impo
 flyctl secrets unset --app tcg-pocket IMPORT_TOKEN
 ```
 
+### La mudanza del chat al hub (D-030, T1b): una sala mudada
+
+- **Se prende a mano, por sala:** Más → Tokens de API → «Mudanza del chat al hub», con la URL del hub (`https://…`, sin ruta). El diálogo dice qué se corta, y el mismo botón la vuelve a tcg-pocket. Queda un aviso mientras esté mudada.
+- **Con la sala mudada:** el puente recibe `410 chat_moved` con la URL en `details` (el puente de Posta para y avisa desde su incremento 5: **el paso 5 espera a que ese incremento llegue a su `main`**), nada se escribe en esa sala de tcg-pocket, y `chat_read`/`chat_write` del conector viejo se reenvían al hub (D5). El historial queda en la base, y se lee con el export, hasta el borrado de D8.
+- **El reenvío** usa un token de conector del hub con las salas mudadas, en el secreto `HUB_MCP_TOKEN`. Sin él, una sala mudada solo dice adónde se fue. El hub ata sus tokens a salas, no a participantes, así que un token alcanza para todas las sesiones viejas, pero ellas comparten sus topes: 5 esperas a la vez (la sexta lee sin esperar), 600 pedidos por minuto, y el nombre del token como `via` de lo que escriben (por eso conviene llamarlo «tcg-pocket (reenvío)»). Como el de `IMPORT_TOKEN`, cargarlo y sacarlo reinicia la máquina:
+
+```bash
+read -rs -p "HUB_MCP_TOKEN: " T && printf 'HUB_MCP_TOKEN=%s\n' "$T" | flyctl secrets import --app tcg-pocket; unset T; echo
+```
+
+```bash
+flyctl secrets unset --app tcg-pocket HUB_MCP_TOKEN
+```
+
 ## Tests
 
 ```bash

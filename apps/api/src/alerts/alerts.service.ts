@@ -20,6 +20,7 @@ import {
 import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { CatalogSyncService } from '../catalog/catalog-sync.service.js'
+import { CHAT_MOVED_KEY, chatMovedFrom } from '../chat/chat-moved.service.js'
 import { ENV, type Env } from '../config/env.js'
 import { OWNER_TIME_ZONE, todayInOwnerZone } from '../config/time-zone.js'
 import {
@@ -57,6 +58,7 @@ export interface AlertView {
     | 'backup_offsite'
     | 'tracker_sync'
     | 'search_old_engine'
+    | 'chat_moved'
   level: 'info' | 'warning'
   title: string
   detail: string
@@ -369,6 +371,7 @@ export class AlertsService {
       })
     }
     alerts.push(...(await this.newTokenClients()))
+    alerts.push(...(await this.chatMoved()))
     alerts.push(...(await this.operation()))
     if (engine && engine.aheadBy > 0) {
       alerts.push({
@@ -380,6 +383,23 @@ export class AlertsService {
       })
     }
     return alerts
+  }
+
+  /** D-030 (T1b): each chat room Santi marked as moved to the hub, and whether the old connector is forwarded. */
+  private async chatMoved(): Promise<AlertView[]> {
+    const row = await this.prisma.appSetting.findUnique({ where: { key: CHAT_MOVED_KEY } })
+    const forwarding = this.env.hubMcpToken !== null
+    return [...chatMovedFrom(row?.value, { allowLocal: !this.env.isProduction }).values()].map((moved) => ({
+      code: 'chat_moved' as const,
+      level: forwarding ? ('info' as const) : ('warning' as const),
+      title: `La sala «${moved.room}» del chat está mudada al hub`,
+      detail: `${moved.since ? `Desde el ${ownerDateTime(new Date(moved.since))}` : 'Desde hace un rato'} (${moved.url}): el puente recibe 410 y nada se escribe en esa sala de tcg-pocket. ${
+        forwarding
+          ? 'El conector viejo se reenvía al hub.'
+          : 'Sin HUB_MCP_TOKEN, el conector viejo solo dice adónde se mudó.'
+      } Se vuelve atrás en Más → Tokens de API.`,
+      link: '/mas/tokens',
+    }))
   }
 
   /**

@@ -5,6 +5,8 @@
  *   what was written at the PC, and can add a new session to the list. Only with a `chat:relay` token.
  * - `/api/chat/participants`: Santi's list of participants (Más → Tokens de API), with his session.
  * Rooms (13/10/2026): every bridge route takes `?sala=` («tcg» without it, so the bridge of before sees only «tcg»).
+ * The move to the hub (D-030, T1b): a room Santi marked as moved answers every bridge route with `410 chat_moved`,
+ * and `/api/chat/moved` is his switch.
  */
 import {
   Body,
@@ -12,6 +14,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  Inject,
   Module,
   Param,
   Post,
@@ -25,6 +28,7 @@ import {
   CHAT_CHANNELS,
   CHAT_DEFAULT_ROOM,
   CHAT_EXPORT_MAX_LIMIT,
+  CHAT_ROOM_LABEL,
   CHAT_ROOMS,
   type ChatRoom,
   chatParticipantName,
@@ -35,13 +39,16 @@ import type { Request, Response } from 'express'
 import { PinoLogger } from 'nestjs-pino'
 import { z } from 'zod'
 import { CurrentApiToken, CurrentSession, type RequestApiToken, type RequestSession } from '../auth/request-auth.js'
+import { ENV, type Env } from '../config/env.js'
 import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
 import { BearerTokenGuard, RequireScopes } from '../tokens/bearer-token.guard.js'
 import { CHAT_EXPORT_SCOPE, CHAT_RELAY_SCOPE } from '../tokens/token-format.js'
 import { TokensModule } from '../tokens/tokens.module.js'
 import { clientFromUserAgent, TokensService } from '../tokens/tokens.service.js'
 import { type ChatFeedView, type ChatMessageView, type ChatParticipantView, ChatService } from './chat.service.js'
+import { type ChatMovedRoom, ChatMovedService, hubOrigin } from './chat-moved.service.js'
 import { ChatTransferService } from './chat-transfer.service.js'
+import { HubForwardService } from './hub-forward.service.js'
 
 /** The bridge's room: «tcg» when it does not say it. */
 const roomQuerySchema = z.object({ sala: chatRoom.optional() })
@@ -76,6 +83,7 @@ const ownerParticipantSchema = participantSchema.extend({
 export class ChatRelayController {
   constructor(
     private readonly chat: ChatService,
+    private readonly moved: ChatMovedService,
     private readonly tokens: TokensService,
     private readonly logger: PinoLogger,
   ) {
@@ -89,6 +97,7 @@ export class ChatRelayController {
     @CurrentApiToken() token: RequestApiToken,
   ): Promise<ChatFeedView> {
     await this.noteClient(req, token)
+    await this.moved.refuseIfMoved(roomOf(query))
     return this.chat.feed({ after: query.after, limit: query.limit, room: roomOf(query) })
   }
 
@@ -101,6 +110,7 @@ export class ChatRelayController {
     @CurrentApiToken() token: RequestApiToken,
   ): Promise<ChatMessageView & { duplicate: boolean }> {
     await this.noteClient(req, token)
+    await this.moved.refuseIfMoved(roomOf(query))
     const { message, duplicate } = await this.chat.write({
       ...body,
       via: token.name,
@@ -119,6 +129,7 @@ export class ChatRelayController {
     @CurrentApiToken() token: RequestApiToken,
   ): Promise<{ items: ChatParticipantView[] }> {
     await this.noteClient(req, token)
+    await this.moved.refuseIfMoved(roomOf(query))
     return { items: await this.chat.participants(roomOf(query)) }
   }
 
@@ -135,6 +146,7 @@ export class ChatRelayController {
     @CurrentApiToken() token: RequestApiToken,
   ): Promise<ChatParticipantView> {
     await this.noteClient(req, token)
+    await this.moved.refuseIfMoved(roomOf(query))
     const { participant, created } = await this.chat.saveParticipant(body, 'relay', roomOf(query))
     res.status(created ? 201 : 200)
     return participant
@@ -231,10 +243,88 @@ export class ChatParticipantsController {
   }
 }
 
+/** The hub's URL: an https origin with a public name (http to this machine only outside production). */
+const movedBodySchema = (allowLocal: boolean) =>
+  z.object({
+    url: z
+      .string()
+      .max(200)
+      .transform((value, ctx) => {
+        const origin = hubOrigin(value, { allowLocal })
+        if (origin === null) {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'La URL del hub: https:// con un nombre público, sin ruta (ni IP ni nombres internos).',
+          })
+          return z.NEVER
+        }
+        return origin
+      }),
+  })
+
+export interface ChatMovedView {
+  items: { room: ChatRoom; label: string; url: string | null; since: string | null }[]
+  /** Whether tcg-pocket has the hub's token to forward the old connector's calls (`HUB_MCP_TOKEN`). */
+  forwarding: boolean
+}
+
+/**
+ * Santi's switch of the move (D-030, T1b), with his session: a room marked as moved stops taking writes here (the
+ * bridge gets 410, the old connector goes to the hub); `DELETE` brings it back. Its history stays in the database
+ * until it is deleted (D8).
+ */
+@Controller('api/chat/moved')
+export class ChatMovedController {
+  private readonly bodySchema: ReturnType<typeof movedBodySchema>
+
+  constructor(
+    private readonly moved: ChatMovedService,
+    private readonly forward: HubForwardService,
+    @Inject(ENV) env: Env,
+    private readonly logger: PinoLogger,
+  ) {
+    this.bodySchema = movedBodySchema(!env.isProduction)
+    this.logger.setContext(ChatMovedController.name)
+  }
+
+  @Get()
+  async list(@CurrentSession() _session: RequestSession): Promise<ChatMovedView> {
+    const moved = await this.moved.all()
+    return {
+      items: CHAT_ROOMS.map((room) => {
+        const entry: ChatMovedRoom | undefined = moved.get(room)
+        return { room, label: CHAT_ROOM_LABEL[room], url: entry?.url ?? null, since: entry?.since ?? null }
+      }),
+      forwarding: this.forward.token !== null,
+    }
+  }
+
+  @Put(':sala')
+  async set(
+    @Param('sala', new ZodValidationPipe(chatRoom)) room: ChatRoom,
+    @Body() raw: unknown,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<ChatMovedRoom> {
+    const body = new ZodValidationPipe(this.bodySchema).transform(raw) as { url: string }
+    const moved = await this.moved.set(room, body.url)
+    this.logger.warn({ room, url: body.url }, 'chat room marked as moved to the hub')
+    return moved
+  }
+
+  @Delete(':sala')
+  @HttpCode(204)
+  async clear(
+    @Param('sala', new ZodValidationPipe(chatRoom)) room: ChatRoom,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<void> {
+    if (await this.moved.clear(room)) this.logger.warn({ room }, 'chat room back in tcg-pocket')
+  }
+}
+
 @Module({
   imports: [TokensModule],
-  controllers: [ChatRelayController, ChatParticipantsController, ChatExportController],
-  providers: [ChatService, ChatTransferService],
-  exports: [ChatService, ChatTransferService],
+  controllers: [ChatRelayController, ChatParticipantsController, ChatExportController, ChatMovedController],
+  providers: [ChatService, ChatTransferService, ChatMovedService, HubForwardService],
+  exports: [ChatService, ChatTransferService, ChatMovedService, HubForwardService],
 })
 export class ChatModule {}

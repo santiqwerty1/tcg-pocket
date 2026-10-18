@@ -6,6 +6,7 @@ import { gunzipSync, gzipSync } from 'node:zlib'
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
+import { CHAT_MOVED_KEY } from '../chat/chat-moved.service.js'
 import { ENV, type Env } from '../config/env.js'
 import { dateOnly } from '../config/time-zone.js'
 import type { Prisma } from '../generated/prisma/client.js'
@@ -613,7 +614,8 @@ export class BackupService {
     await tx.collectionAdjustment.deleteMany()
     await tx.collectionStock.deleteMany()
     await tx.collectionImport.deleteMany()
-    await tx.appSetting.deleteMany()
+    // Where the chat's rooms live (D-030, T1b) is not data of the file: a restore never brings a moved room back here.
+    await tx.appSetting.deleteMany({ where: { key: { not: CHAT_MOVED_KEY } } })
 
     for (const item of document.collection.imports) {
       await tx.collectionImport.create({
@@ -745,9 +747,10 @@ export class BackupService {
         await tx.archetypeAlias.createMany({ data: document.tournaments.archetypeAliases })
       }
     }
-    if (document.settings.length > 0) {
+    const settings = document.settings.filter((setting) => setting.key !== CHAT_MOVED_KEY)
+    if (settings.length > 0) {
       await tx.appSetting.createMany({
-        data: document.settings.map((setting) => ({
+        data: settings.map((setting) => ({
           key: setting.key,
           value: setting.value as Prisma.InputJsonValue,
           updatedAt: setting.updatedAt,
