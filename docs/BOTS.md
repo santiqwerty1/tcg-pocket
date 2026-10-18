@@ -74,9 +74,18 @@ pide tres funciones públicas al fork. La evaluación usa solo lo que un jugador
 Para eso evalúa sobre una copia en la que la mano y el mazo del rival son cartas desconocidas: cuántas hay es público,
 qué son no (`hide`, de la revisión de #111). Así no se cuela lo oculto por un ataque que lo cuenta (Cyberjack de
 Porygon-Z cuenta los Entrenadores del mazo rival; Puppy Pile de Lillipup, los Lillipup de la mano de su dueño) ni por
-el término «Activo listo» de deckgym, que busca evoluciones en la mano y el mazo de cada lado. Las desconocidas
-cuentan como Objetos sin nombre; con la línea 2 pasan a ser la lista típica del arquetipo. Un test compara dos
+el término «Activo listo» de deckgym, que busca evoluciones en la mano y el mazo de cada lado. Un test compara dos
 tableros iguales en lo público y distintos en lo oculto: dan lo mismo.
+
+Qué son las desconocidas: en g 1.0 eran todas Objetos sin nombre, y Cyberjack las contaba todas como Entrenadores
+(Codex en #117). Desde g 1.1 son lo que le quedaría a una lista del banco, según lo que el rival ya mostró:
+- una lista del banco de B4a lleva de 10 a 16 Entrenadores de 20 (12,4 por peso), así que se toman 12 Entrenadores y
+  8 Pokémon;
+- a eso se le resta lo que está en juego (un Fase 2 son tres cartas, y cada Herramienta un Entrenador) y lo
+  descartado;
+- lo que queda se reparte igual entre la mano y el mazo.
+Los Pokémon desconocidos son Básicos sin ataques, sin Habilidad y sin evolución. Con la línea 2 pasan a ser la lista
+típica del arquetipo.
 
 ### 1. El daño, del motor
 
@@ -146,31 +155,55 @@ No llevan un término propio:
 
 El peso de la herramienta del Activo (10) queda como parámetro.
 
+En g 1.1 (18/10), dos cambios para que las juegue de verdad:
+- **«Atacar ahora» en la hoja.** Jugar una Herramienta son dos decisiones: la carta y después el Pokémon. Con
+  profundidad 2, el ataque queda pasado la hoja, y atacar primero muestra su daño enseguida. Por eso g 1.0 atacaba
+  con Herramientas en la mano. Ahora una hoja en medio de su propio turno vale al menos lo que da atacar ahí mismo.
+  El ataque se aplica sobre la copia con lo del rival tapado, y como termina el turno, es un paso más y nada más hondo.
+- **El golpe que sobra** (`margin`, 0,1 de golpe). Un KO con daño de sobra vale un poco más que uno justo. Así, una
+  Herramienta que suma daño sin ahorrar un golpe entero paga la carta que saca de la mano. Sola apenas mueve; desempata.
+
 ### 4. Daño diferido y estados
 
 - **En el tablero.** Antes de contar golpes, a los PS del objetivo se les resta lo que ya va a caer:
   - `DelayedDamage`, en los efectos del Pokémon (`PlayedCard::public_details`);
-  - el daño diferido sobre un lugar, en `State::public_turn_effects`;
-  - el veneno: 10 por cada control, o lo que diga el ataque, y hay un control al final de cada turno, así que son 20
-    por vuelta;
+  - el daño diferido sobre un lugar, en `State::public_turn_effects`, y el KO programado sobre un lugar (Abyssal
+    Drop), que vale todos sus PS;
   - la quemadura (`is_burned`): 20 por control, con una moneda para curarse.
+
+  El veneno se cuenta golpe a golpe: 10 por cada control, o lo que diga el ataque, y hay un control al final de cada
+  turno, así que son 20 por vuelta después de cada golpe. Antes del primero cae solo el control que cierra el turno
+  del defensor, si ese turno viene primero. Un KO en los controles que siguen a un golpe cuenta en el turno de ese
+  golpe.
 
   Así, después de Cursed Prose, el tablero ya vale 90 de daño. Cambiar de Activo borra `DelayedDamage`, así que el
   rival lo puede esquivar retirándose. Por eso ese daño lleva su propio peso, 1 por defecto, para afinar en la línea 3.
 - **En lo que viene:**
   - un ataque que deja daño para después (`DamageAndCardEffect` con `DelayedDamage`, y `DelayedSpotDamage`) cuenta
     ese daño como suyo;
-  - uno que envenena suma 20 por turno del atacante.
+  - uno que envenena o quema suma su vuelta (20 o 30) por golpe, con la probabilidad de su mecánica: la mitad con
+    una moneda, 11/16 en Cross Poison (al menos 2 caras de 4). Un test lo compara con el motor en los 23 textos que
+    envenenan o queman.
 - **Sueño y parálisis:**
   - un Activo paralizado no ataca el turno que viene: le suma 1 turno a su reloj;
-  - uno dormido tira una moneda en cada control, y pierde en promedio 2/3 de turno;
+  - uno dormido tira una moneda en cada control: pierde 4/3 de turno si es su turno (este y ¼ de cada siguiente) y
+    2/3 si es el del rival;
+  - la Energía y el estado corren a la vez: un Activo paralizado carga la Energía de su retirada mientras tanto;
   - cambiar de Activo o evolucionar cura los dos.
 
 ### 5. Repetir un ataque y llegar al Activo
 
 - **Repetir:** un ataque que descarta su Energía no se puede repetir el turno siguiente. Cada golpe después del
   primero cuesta un turno por Energía descartada (al menos uno), con 1 Energía por turno, o más con aceleración.
-  Luster Purge, por ejemplo, pega cada 3 turnos.
+  Luster Purge, por ejemplo, pega cada 3 turnos. Entre golpes vuelve solo lo que el ataque usa: un Raichu con 5
+  Energías descarta las 5 en el primer Thunderbolt, pero para el siguiente le faltan 3. Uno que no puede atacar el
+  turno siguiente (Prismatic Laser, Big Beat) pega cada dos turnos.
+- **Cargar:** la Energía que falta se pone de a una, como llega turno a turno, así lo que cuenta doble (Jungle Totem)
+  necesita menos. Un ataque que pega más con más Energía prueba hasta 2 de más: Mega Burst con una tercera hace 150 y
+  noquea de un golpe a un Pokémon de 120 PS.
+- **Retroceso:** un plan no pide más golpes de los que su atacante aguanta (Beat Punk, Enormous Explosion).
+- **A todos a la vez:** un ataque que también le pega a toda la Banca (Swirling Disaster, Gigashock) la desgasta
+  junto con el Activo. Tres Pokémon de 50 PS caen juntos en 5 golpes, no en 15.
 - **Llegar al Activo:** un atacante de la Banca necesita que el Activo se vaya. A su preparación se le suma la
   Energía que al Activo todavía le falta para pagar su retirada: el costo menos lo que ya tiene puesto, a una por
   turno. Si ya la tiene, no suma nada. El costo baja con Globito y es 0 si el Activo es Latios con Latias en juego
@@ -371,12 +404,14 @@ Elo de la liga de tres (semilla 20261015): e2 0, f2 +48, g2 +63.
 ## Plan
 
 1. **Este diseño** (#111, integrado).
-2. **g 1.0** (puntos 1 a 5 y 7, engine-cli 0.3.13), con sus tests, contra el fork `018b419`. Es un PR de riesgo
-   alto, porque toca el motor, y va apilado sobre #115, el de Infra que pasa el motor al fork. Resultados arriba.
-3. **La app acepta g:** los códigos, el filtro de la cola, los avisos, las partidas contra el bot y las tools (riesgo
-   medio).
-4. **La carrera** (punto 6) y la herramienta de la liga, con las primeras mediciones.
-5. **Línea 2, sin trampa:**
+2. **g 1.0** (#117, integrado): puntos 1 a 5 y 7, engine-cli 0.3.13, con sus tests, contra el fork `018b419`.
+   Resultados arriba.
+3. **g 1.1** (18/10): «atacar ahora» en la hoja, el golpe que sobra y los 14 hallazgos de Codex en #117. Resultados
+   abajo.
+4. **La app acepta g:** los códigos, el filtro de la cola, los avisos, las partidas contra el bot y las tools (riesgo
+   medio). Ahí vuelven g1 y g2 a las partidas doradas, que g 1.1 dejó afuera.
+5. **La carrera** (punto 6) y la herramienta de la liga, con las primeras mediciones.
+6. **Línea 2, sin trampa:**
    - una búsqueda propia: el expectiminimax de deckgym copiado en nuestro crate (unas 150 líneas, AGPL), con
      `forecast_action`;
    - con determinización: en cada decisión, K mundos posibles en los que se mezcla el mazo propio, así los robos dejan
@@ -388,14 +423,14 @@ Elo de la liga de tres (semilla 20261015): e2 0, f2 +48, g2 +63.
      después de Darkness Claw, el bot juega distinto que sin la revelación;
    - cada acción se promedia sobre los mundos;
    - cuesta K veces más (K de 4 a 8).
-6. **Línea 3, los pesos:**
+7. **Línea 3, los pesos:**
    - CMA-ES sobre `GParams`, con un subcomando de engine-cli que corre afuera de la app;
    - la nota es el porcentaje contra la liga, con semillas comunes y mazos fijos;
    - **sin sobreajuste** (revisión de #111): el afinado elige con unas semillas y unos mazos, y la nota que vale (el
      criterio, el intervalo y el Elo) sale de otra liga, con semillas nuevas y, si se puede, otras listas, con los
      `GParams` ya fijos. Elegir sobre las mismas partidas que dan el intervalo lo deja angosto de más;
    - los torneos quedan como control.
-7. **Línea 4, la red:** primero el diseño:
+8. **Línea 4, la red:** primero el diseño:
    - autojuego al estilo AlphaZero, con lo que el tablero muestra como entrada;
    - inferencia con enteros, o en Rust con solo las operaciones de arriba y su orden fijo, para que Windows y Android
      den lo mismo.
