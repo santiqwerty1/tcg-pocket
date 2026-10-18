@@ -82,7 +82,7 @@ revisar: false
 
 ## Próximos pasos
 
-**Producción al 18/10/2026:** desplegada hasta `275f704` (#126). Versión 1.0.0, engine-cli 0.3.13 y worker 0.3.11, con el regulador de CPU prendido. El motor es el fork de deckgym en `018b419` ([D-031](Decisiones/D-031.md)). Los workers se actualizan solos ([D-026](Decisiones/D-026.md)), salvo el Ryzen, que sigue con 0.2.7. **Simulaciones:** el 15/10 se relanzaron con el fork los 41 mazos (trabajos 54–58) y la matriz 41×41 (trabajo 59); se vuelven a lanzar con `adfe505`.
+**Producción al 18/10/2026:** desplegada hasta `275f704` (#126). Versión 1.0.0, engine-cli 0.3.13 y worker 0.3.11, con el regulador de CPU prendido. El motor es el fork de deckgym en `018b419` ([D-031](Decisiones/D-031.md)). Los workers se actualizan solos ([D-026](Decisiones/D-026.md)), salvo el Ryzen, que sigue con 0.2.7. **Simulaciones:** el 15/10 se relanzaron con el fork los 41 mazos (trabajos 54–58) y la matriz 41×41 (trabajo 59, terminada el 16/10); se vuelven a lanzar con `adfe505`.
 
 **Repo:** `santiqwerty1/tcg-pocket` es público desde el 11/10 ([D-022](Decisiones/D-022.md)). main está protegida (privacy, test, e2e y screens requeridos). El hub de chat vive en `santiqwerty1/chat-hub` (privado, [D-030](Decisiones/D-030.md)), con la CI en un runner propio de la PC de Santiago.
 
@@ -92,7 +92,7 @@ revisar: false
 
 Lo que sigue, en orden:
 
-1. **Infra, el pin del fork sobre `adfe505` ([D-031](Decisiones/D-031.md)), aprobado por Santiago el 18/10 y en curso.** Es una integración nueva con solo `fix/choose-evolution-target` y `feat/bot-api`, y un PR de riesgo alto que mueve el pin: dorado regenerado, diferencial con la lista `AFFECTED` nueva (225 de 738 cruces idénticos), `GAMES_REV` en 1 si el dorado da idéntico, engine-cli 0.3.14 y worker 0.3.12. Después: revisión y verificación, integrar, desplegar y sincronizar el catálogo.
+1. **Infra, el pin del fork sobre `adfe505` ([D-031](Decisiones/D-031.md)), aprobado por Santiago el 18/10 y en curso.** Es una integración nueva con solo `fix/choose-evolution-target` y `feat/bot-api`, y un PR de riesgo alto que mueve el pin: dorado regenerado, diferencial con la lista `AFFECTED` nueva (225 de los 738 cruces tienen que dar idénticos), `GAMES_REV` en 1 si el dorado da idéntico, engine-cli 0.3.14 y worker 0.3.12. Después: revisión y verificación, integrar, desplegar y sincronizar el catálogo.
 2. **Con el motor nuevo, relanzar** los 41 mazos, la matriz 41×41 (unas 13 h 30 min) y las calibraciones e2, e3 y MCTS. Hasta entonces, los puntajes del laboratorio son del fork `018b419`. La calibración #27 vuelve a jugar el cruce que fallaba ([H-052](Hallazgos/H-052.md)).
 3. **Bots ([T-021](Tareas/T-021.md), [H-055](Hallazgos/H-055.md)):** el próximo PR, después del pin o rebasado encima, con «atacar ahora» en una hoja a mitad del turno (Dedenne), los 14+1 hilos de Codex, y g1 y g2 fuera de las partidas doradas. Después: volver a medir los mazos 16, 23 y 40 con el motor nuevo, el PR «la app acepta g» y la línea 2 (sin trampa).
 4. **Laboratorio:** un PR chico con la deuda de ranked y los puntos 5 a 8 de la revisión de #114. Las traducciones esperan los términos de Santiago.
@@ -104,7 +104,7 @@ Lo que sigue, en orden:
    - los 43 términos de las traducciones de los premios de las misiones, en su página;
    - Termux «Sin restricciones» en la batería del S25 ([H-054](Hallazgos/H-054.md), [T-015](Tareas/T-015.md));
    - en esta PC, el runner Windows de la CI de Posta.
-7. **deckgym upstream:** bcollazo/deckgym-core#420 (el objetivo de Quick-Grow Extract y Wallace) espera al autor, que no contestó después de los videos de Santiago. #383 entró upstream, y #396–#398 los arregló el autor en sus PR #400 y #401.
+7. **deckgym upstream:** bcollazo/deckgym-core#420 (el objetivo de Quick-Grow Extract y Wallace) espera al autor. El 15/10 cerró el issue #399 diciendo que en el juego no se elige y pidió un video; Santiago grabó los dos (Extracto y Plubio) el 16/10, y el autor no contestó después. #383 entró upstream, y #396–#398 los arregló el autor en sus PR #400 y #401.
 8. **Privacidad del mail en GitHub** (recomendación para Santiago): activar «Keep my email addresses private» y «Block command line pushes that expose my email» ([R-013](Riesgos/R-013.md)).
 9. **Menores:** [T-016](Tareas/T-016.md) sigue para cuando Santiago lo pida.
 

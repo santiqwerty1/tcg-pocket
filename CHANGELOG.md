@@ -235,6 +235,7 @@ _Borrador generado al 2026-10-18 desde la etiqueta `v1.0.0` (208 commits). Escri
 
 ### Hallazgos cerrados
 
+- H-058 por `0650518` en main
 - H-056 por `dfc8b05` en main
 - H-057 por `d7a6c1c` en main
 - H-050 por `55850d4` en main
