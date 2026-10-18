@@ -1043,6 +1043,46 @@ mod tests {
         assert_eq!(tools_when_attacking(GParams { margin: 0.0, attack_now: false, ..GParams::default() }), 2);
     }
 
+    /// The blind spot of Dedenne (18/10/2026) as a fixed case: in real games of deck 16, how often g2 attacks with
+    /// Dede-Circuit while it still holds a Tool it could attach. g 1.0 did in 83 of 110 attacks (e2 in 119 of 123).
+    #[test]
+    fn dedenne_attaches_its_tools_before_attacking() {
+        use deckgym::players::{ExpectiMiniMaxPlayer, Player};
+        let (mut attacks, mut held) = (0, 0);
+        for rival in [LUCARIO, SUICUNE] {
+            for seed in 0..6u64 {
+                let bot = |deck: &str| -> Box<dyn Player> {
+                    let params = GParams::default();
+                    Box::new(ExpectiMiniMaxPlayer {
+                        deck: Deck::from_string(deck).expect("deck"),
+                        max_depth: 2,
+                        write_debug_trees: false,
+                        value_function: Box::new(move |state: &State, myself: usize| g_value_function(state, myself, &params)),
+                    })
+                };
+                let mut game = Game::new(vec![bot(DEDENNE), bot(rival)], seed);
+                while !game.is_game_over() && game.get_state_clone().turn_count < 31 {
+                    let state = game.get_state_clone();
+                    let action = game.play_tick();
+                    let attacking = action.actor == 0 && matches!(action.action, SimpleAction::Attack(_));
+                    let Some(active) = state.in_play_pokemon[0][0].as_ref().filter(|_| attacking) else { continue };
+                    if active.get_name() != "Dedenne ex" {
+                        continue;
+                    }
+                    let free = state.enumerate_in_play_pokemon(0).filter(|(_, pokemon)| pokemon.attached_tools.is_empty()).count();
+                    let tools = state.hands[0]
+                        .iter()
+                        .filter(|card| matches!(card, Card::Trainer(trainer) if trainer.trainer_card_type == TrainerType::Tool))
+                        .count();
+                    attacks += 1;
+                    held += usize::from(tools.min(free) > 0);
+                }
+            }
+        }
+        assert!(attacks >= 15, "only {attacks} attacks");
+        assert!(held * 5 <= attacks, "{held} of {attacks} attacks with a Tool it could attach");
+    }
+
     #[test]
     fn crossing_flights_counts_latios_on_the_bench_on_either_turn() {
         let latias = card("A4a 036").with_energy(vec![Psychic]);
