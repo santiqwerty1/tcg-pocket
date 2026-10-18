@@ -33,15 +33,17 @@ export const CHAT_EXPORT_SOURCE = 'tcg-pocket'
 const WRITE_LOCK = 20_261_009
 /**
  * The most characters the whole export may have: it is held in memory until the plan, and the CLI runs in the API's
- * machine (512 MB, with the API). The real chat is about 1 MB a week, some 13 MB in its 90 days; a bigger one goes by
- * parts with `--despues` (review of #123).
+ * machine (512 MB, with the API). The real chat is about 1 MB a week, some 13 MB in its 90 days. A bigger one comes
+ * up to the cap, which is applied as it is, and says where to go on with `--despues` (review of #123, Codex).
  */
 export const MAX_EXPORT_CHARS = 30_000_000
-/** The most characters a page may have: a page of `IMPORT_PAGE_LIMIT` always fits. */
+/** The most characters a page may have: a page of `IMPORT_PAGE_LIMIT` of ordinary text fits with room to spare. */
 export const MAX_PAGE_CHARS = 25_000_000
 /**
- * The messages per page this import asks for: 100 of the longest text the format allows (100,000 characters) and their
- * reads stay well under `MAX_PAGE_CHARS`, also escaped, so a schema-valid page always fits (the default 500 might not).
+ * The messages per page this import asks for: 100 of the longest text the format allows (100,000 characters) are 10
+ * million, so ordinary text and its reads fit `MAX_PAGE_CHARS` with room to spare (the default 500 might not). Only a
+ * page full of escaped control characters (`\u0001` is six) could pass it, and then the import refuses it with a
+ * clear error (the Coordinator on #123).
  */
 const IMPORT_PAGE_LIMIT = 100
 /** Characters of an error answer that are kept for the message (the rest is never read). */
@@ -77,10 +79,16 @@ export interface ChatFetchInput {
   maxExportChars?: number
 }
 
-/** The body of a response, read in pieces: past `cap` characters it stops and refuses, whatever Content-Length said. */
-async function readCapped(response: Response, cap: number): Promise<string> {
+/**
+ * The body of a response, read in pieces: past `cap` characters it stops and gives null, whatever Content-Length
+ * said (the rest is never read).
+ */
+async function readCapped(response: Response, cap: number): Promise<string | null> {
   const declared = Number(response.headers.get('content-length') ?? 0)
-  if (declared > cap) throw new ChatImportError(`Una página de la exportación pasa los ${cap} caracteres.`)
+  if (declared > cap) {
+    await response.body?.cancel().catch(() => undefined)
+    return null
+  }
   if (!response.body) return ''
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
@@ -91,7 +99,7 @@ async function readCapped(response: Response, cap: number): Promise<string> {
     text += decoder.decode(value, { stream: true })
     if (text.length > cap) {
       await reader.cancel().catch(() => undefined)
-      throw new ChatImportError(`Una página de la exportación pasa los ${cap} caracteres.`)
+      return null
     }
   }
   return text + decoder.decode()
@@ -184,7 +192,9 @@ export class ChatTransferService {
 
   /**
    * Every page of the export at `url` (with `?salas&after`), put together. Each page has to come in id order, after
-   * the one before, and say as `next` its own last id: a source that skips ids, or goes back, is refused.
+   * the one before, and say as `next` its own last id: a source that skips ids, or goes back, is refused. A page that
+   * would take it past `MAX_EXPORT_CHARS` is left out: what came is a whole part (ids go up), and `continueAfter` says
+   * where the rest starts.
    */
   async fetchExport(input: ChatFetchInput): Promise<ChatExportData> {
     const fetchImpl = input.fetchImpl ?? fetch
@@ -213,13 +223,19 @@ export class ChatTransferService {
         const detail = await readStart(response, ERROR_DETAIL_CHARS).catch(() => '')
         throw new ChatImportError(`La exportación contestó ${response.status}: ${detail}`)
       }
-      const body = await readCapped(response, input.maxPageChars ?? MAX_PAGE_CHARS)
-      total += body.length
-      if (total > totalCap) {
-        throw new ChatImportError(
-          `La exportación pasa los ${totalCap} caracteres en total: traela por partes, con --despues <id> (o --salas).`,
-        )
+      // A page reads up to its cap and up to what is left of the total, so what is held never passes the total (the
+      // Coordinator on chat-hub#11: 29 million held and a page of 24 would pass a heap of 160 MB).
+      const pageCap = input.maxPageChars ?? MAX_PAGE_CHARS
+      const left = totalCap - total
+      const body = await readCapped(response, Math.min(pageCap, left))
+      if (body === null && left >= pageCap)
+        throw new ChatImportError(`Una página de la exportación pasa los ${pageCap} caracteres.`)
+      if (body === null) {
+        // The pages before this one are a whole part: they are what comes, and the rest from here (Codex on #123).
+        if (data !== null) return { ...data, continueAfter: after }
+        throw new ChatImportError(`Una sola página de la exportación pasa los ${totalCap} caracteres en total.`)
       }
+      total += body.length
       let json: unknown = null
       try {
         json = JSON.parse(body)
@@ -257,9 +273,10 @@ export class ChatTransferService {
       if (data === null) {
         data = { source: page.source, rooms: [], participants: [], messages: [], reads: [] }
       }
-      // Every page repeats the rooms and the participants as they were then: a later page wins.
+      // Every page repeats the rooms and the participants as they were then. A room a later page renames wins; the
+      // participants are the whole list of the latest page, so one deleted meanwhile is not brought back (Codex on #123).
       data.rooms = mergeBy(data.rooms, page.rooms, (room) => room.slug)
-      data.participants = mergeBy(data.participants, page.participants, (participant) => participant.key)
+      data.participants = page.participants
       data.messages.push(...page.messages)
       data.reads.push(...page.reads)
       if (page.next === null) return data

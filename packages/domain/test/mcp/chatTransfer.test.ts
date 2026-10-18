@@ -113,10 +113,10 @@ describe('the plan of a chat import into tcg-pocket', () => {
     ])
     expect(result.readNotes).toEqual([
       '3 lecturas de quien tcg-pocket no tiene ni recibe («nadie», «otro»): no vienen.',
-      '1 lectura con la hora en el futuro: no viene.',
+      '1 lectura con la hora más de 5 minutos en el futuro: no viene.',
     ])
     const text = describeChatImport(result, 'preview')
-    expect(text).toContain('Aviso: 1 lectura con la hora en el futuro: no viene.')
+    expect(text).toContain('Aviso: 1 lectura con la hora más de 5 minutos en el futuro: no viene.')
     // Five names at most.
     const many = plan(
       data({ reads: ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((k) => ({ participant: k, messageId: 1_000_001, at })) }),
@@ -125,6 +125,15 @@ describe('the plan of a chat import into tcg-pocket', () => {
     expect(many.readNotes).toEqual([
       '7 lecturas de quien tcg-pocket no tiene ni recibe («a», «b», «c», «d», «e», y 2 más): no vienen.',
     ])
+  })
+
+  it('an export that goes on after the cap says where, in the plan and in the preview', () => {
+    expect(plan(data(), empty()).continueAfter).toBeNull()
+    const part = plan(data({ continueAfter: 1_000_003 }), empty())
+    expect(part.continueAfter).toBe(1_000_003)
+    expect(describeChatImport(part, 'preview')).toContain(
+      'Aviso: la exportación sigue después del mensaje 1000003 (llegó al tope de caracteres): esto es hasta ahí, y el resto se trae con --despues 1000003. Hasta la última parte, ni la fuente ni tcg-pocket escriben',
+    )
   })
 
   it('the way back with only some rooms is a conflict: both sides would give the same new ids', () => {

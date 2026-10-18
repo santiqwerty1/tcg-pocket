@@ -284,12 +284,13 @@ describe('the chat’s move to the hub (e2e)', () => {
       ).rejects.toThrow('pasa los 100 caracteres')
     })
 
-    it('the rooms and participants of every page come, a later page winning', async () => {
+    it('the rooms of every page come, and the participants are the latest page’s (one deleted meanwhile does not come back)', async () => {
       const all = hubPages([message(1_000_001), message(1_000_002)], 1)
       all[1] = {
         ...all[1],
         participants: [
-          ...(all[1]?.participants ?? []),
+          // Mudanza-Solo was deleted in the hub between the two pages.
+          ...(all[1]?.participants ?? []).filter((participant) => participant.key !== 'mudanza-solo'),
           {
             key: 'nube-tarde',
             name: 'Nube-Tarde',
@@ -299,10 +300,10 @@ describe('the chat’s move to the hub (e2e)', () => {
         ],
       } as ChatExportPage
       const data = await fetchFrom(all)
-      expect(data.participants.map((p) => p.key)).toEqual(['nube-hub', 'mudanza-solo', 'nube-tarde'])
+      expect(data.participants.map((p) => p.key)).toEqual(['nube-hub', 'nube-tarde'])
     })
 
-    it('a page past its cap is refused while it streams, and so is an export past its total', async () => {
+    it('a page past its cap is refused while it streams; an export past its total comes up to it, with where to go on', async () => {
       const body = JSON.stringify(hubPages([message(1_000_001)], 10)[0])
       // Chunked, without Content-Length: the cap is checked while reading.
       const streamed = (async () =>
@@ -320,18 +321,65 @@ describe('the chat’s move to the hub (e2e)', () => {
         transfer.fetchExport({ url: 'https://x.test/e', token: 't', fetchImpl: streamed, maxPageChars: 100 }),
       ).rejects.toThrow('pasa los 100 caracteres')
       const two = hubPages([message(1_000_001), message(1_000_002)], 1)
+      // One page fits, the second goes past the total: the first is what comes, and the rest from its last id.
+      const cap = JSON.stringify(two[0]).length + 10
+      const first = await transfer.fetchExport({
+        url: 'https://x.test/e',
+        token: 't',
+        maxExportChars: cap,
+        fetchImpl: serve(two),
+      })
+      expect(first.messages.map((m) => m.id)).toEqual([1_000_001])
+      expect(first.continueAfter).toBe(1_000_001)
+      const applied = await transfer.apply(first)
+      expect(applied.newMessages.map((m) => m.id)).toEqual([1_000_001])
+      expect(applied.continueAfter).toBe(1_000_001)
+      const rest = await transfer.fetchExport({
+        url: 'https://x.test/e',
+        token: 't',
+        after: 1_000_001,
+        maxExportChars: cap,
+        fetchImpl: serve(two),
+      })
+      expect(rest.messages.map((m) => m.id)).toEqual([1_000_002])
+      expect(rest.continueAfter).toBeUndefined()
+      expect((await transfer.apply(rest)).newMessages.map((m) => m.id)).toEqual([1_000_002])
+      // A first page past the total alone cannot be split by id: refused.
       await expect(
-        transfer.fetchExport({
-          url: 'https://x.test/e',
-          token: 't',
-          // One page fits, the second goes past the total.
-          maxExportChars: JSON.stringify(two[0]).length + 10,
-          fetchImpl: serve(two),
-        }),
-      ).rejects.toThrow('traela por partes')
+        transfer.fetchExport({ url: 'https://x.test/e', token: 't', maxExportChars: 10, fetchImpl: serve(two) }),
+      ).rejects.toThrow('Una sola página de la exportación pasa los 10 caracteres en total')
     })
 
-    it('asks for pages of 100 (a valid page always fits its cap), and an endless error answer is not read whole', async () => {
+    it('a page reads only up to what is left of the total: an endless second page stops there (the Coordinator on chat-hub#11)', async () => {
+      const two = hubPages([message(1_000_001), message(1_000_002)], 1)
+      let pulled = 0
+      const firstThenEndless = (async (url: URL | string) => {
+        if (Number(new URL(url).searchParams.get('after') ?? 0) === 0) {
+          return new Response(JSON.stringify(two[0]), { status: 200 })
+        }
+        return new Response(
+          new ReadableStream({
+            pull(controller) {
+              pulled += 1
+              controller.enqueue(new TextEncoder().encode('x'.repeat(100)))
+            },
+          }),
+          { status: 200 },
+        )
+      }) as typeof fetch
+      const data = await transfer.fetchExport({
+        url: 'https://x.test/e',
+        token: 't',
+        maxExportChars: JSON.stringify(two[0]).length + 1_000,
+        fetchImpl: firstThenEndless,
+      })
+      expect(data.messages.map((m) => m.id)).toEqual([1_000_001])
+      expect(data.continueAfter).toBe(1_000_001)
+      // About 1,000 characters of the second page, not its page cap of 25 million.
+      expect(pulled).toBeLessThan(50)
+    })
+
+    it('asks for pages of 100 (ordinary text fits its cap), and an endless error answer is not read whole', async () => {
       const asked: string[] = []
       const all = hubPages([message(1_000_001), message(1_000_002)], 1)
       const recording = (async (url: URL | string) => {
@@ -424,6 +472,26 @@ describe('the chat’s move to the hub (e2e)', () => {
       }
       expect(await prisma.sessionChatMessage.count({ where: { topic: 'Ocupado' } })).toBe(0)
     }, 30_000)
+
+    it('the lock wait stays in its transaction: no connection of the pool keeps it (set_config with true)', async () => {
+      chat.writeLockWaitMs = 4_321
+      try {
+        await write({ from: 'Mudanza-PC', to: 'Mudanza-Nube', topic: 'Local', room: 'posta' })
+      } finally {
+        chat.writeLockWaitMs = WRITE_LOCK_WAIT_MS
+      }
+      // More queries at once than the pool has connections: the one the write used is among them.
+      const settings = await Promise.all(
+        Array.from(
+          { length: 30 },
+          () =>
+            prisma.$queryRaw<
+              { v: string }[]
+            >`SELECT current_setting('lock_timeout') AS v FROM (SELECT pg_sleep(0.05)) AS s`,
+        ),
+      )
+      expect(settings.map(([row]) => row?.v)).not.toContain('4321ms')
+    })
 
     it('the import waits for a write in course, and for a participant Santi is changing (it plans on what is there)', async () => {
       const data = await fetchFrom(hubPages([message(1_000_001)], 10))
