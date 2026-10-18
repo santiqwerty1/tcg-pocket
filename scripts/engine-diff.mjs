@@ -23,22 +23,41 @@ const decks = readFileSync(decksFile, 'utf8')
 const sideA = decks.filter((deck) => deck.side === 'a')
 const sideB = decks.filter((deck) => deck.side === 'b')
 
-// The cards the change touches; for the first fork (018b419): Heavy Helmet / Harden (Cascoon) / Hide (Shinx) /
-// Blocking Shell (Carracosta), #383; Quick-Grow Extract and Wallace, #399; Fossils, #397; the abilities that read the
-// Active, #398. Edit it for another change.
+// The cards the change touches. For upstream adfe505 on top of 018b419 (18/10/2026): Boosted Evolution (#410),
+// Mimikyu ex (#411), Wallace (#412), Legendary Pulse (#414), a double knockout from an attack (#417), Rocky Helmet
+// against Cursed Jewel (#367), and one Stadium per turn (#408), which matters only with two Stadiums of different names.
+// For the first fork (018b419 on 33ff2a5) it was Heavy Helmet and company (#383), Quick-Grow Extract and Wallace (#399),
+// the Fossils (#397) and the abilities that read the Active (#398). Edit it for another change.
 const AFFECTED = [
-  /Heavy Helmet/,
-  /Cascoon/,
-  /Shinx/,
-  /Carracosta/,
-  /Quick-Grow Extract/,
+  /^\d+ Eevee (B1 184|B4b (183|353|408)|P-B (11|54))$/m, // the printings with Boosted Evolution
+  /Mimikyu ex/,
   /Wallace/,
-  /Fossil|Old Amber/,
-  /Baxcalibur/,
-  /Celesteela/,
-  /Vaporeon/,
+  /(Suicune|Entei|Raikou) ex/,
+  /Rocky Helmet/,
+  /Mega Sableye ex/,
+  /Giratina ex|Hoopa ex|Mega Charizard Y ex|Combee|Solgaleo ex/, // damage to itself: a double knockout
 ]
-const affected = (text) => AFFECTED.filter((pattern) => pattern.test(text)).map((p) => p.source)
+/** deckgym's Stadiums (database.json at adfe505), for «two Stadiums of different names» (#408). */
+const STADIUMS = [
+  'Arcade',
+  'Area Zero',
+  'Arena of Antiquity',
+  'Bounded Field',
+  'Fragrant Forest',
+  'Hiking Trail',
+  "Kid's Room",
+  'Mesagoza',
+  'Peculiar Plaza',
+  'Rainbow Cave',
+  'Soothing Shore',
+  'Starting Plains',
+  'Training Area',
+]
+const affected = (text) => {
+  const found = AFFECTED.filter((pattern) => pattern.test(text)).map((p) => p.source)
+  const stadiums = STADIUMS.filter((name) => new RegExp(`^\\d+ ${name} `, 'm').test(text))
+  return stadiums.length > 1 ? [...found, 'two Stadiums'] : found
+}
 
 function run(engine, job, name) {
   const jobFile = join(outDir, `${name}.job.json`)

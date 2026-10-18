@@ -12,7 +12,7 @@ description = "JSON front end of deckgym-core for the TCG Pocket worker: validat
 # a branch of its own for upstream (Heavy Helmet only against attacks #383, the target of Quick-Grow Extract and
 # Wallace #399, no Active #398, DiscardFossil once #397, "et" #396) and the bots' exports (feat/bot-api). Branch
 # `tcg-pocket` of the fork. Bump the rev here (and in engine/wasm) to update it.
-deckgym = { git = "https://github.com/santiqwerty1/deckgym-core", rev = "018b4193365187063eab90b1eb0989087c93ad7f" }
+deckgym = { git = "https://github.com/santiqwerty1/deckgym-core", rev = "0b510d1b1b96ac356ea375e0f06a88e324a1bd9c" }
 rand = "0.8"
 rayon = "1.10"
 serde = { version = "1", features = ["derive"] }
