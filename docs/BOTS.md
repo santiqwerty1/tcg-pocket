@@ -378,6 +378,79 @@ Elo de la liga de tres (semilla 20261015): e2 0, f2 +48, g2 +63.
     mazo 23;
   - la liga con más mazos, en la app.
 
+## Resultados de g 1.1 (18/10/2026)
+
+**Dedenne y sus Herramientas.** Partidas reales del mazo 16 contra 6 mazos del banco, 72 por bot, el mismo bot de los
+dos lados. Se cuentan los ataques de Dede-Circuit hechos con una Herramienta todavía en la mano que se podía poner:
+
+| Bot | Ataques | Con una Herramienta jugable en la mano |
+|---|---|---|
+| e2 | 123 | 119 |
+| g2 1.0 | 110 | 83 |
+| g2 1.0 con el golpe que sobra | 111 | 75 |
+| g2 con «atacar ahora» | 105 | 4 |
+| e3 | 102 | 6 |
+
+Queda como caso fijo en `dedenne_attaches_its_tools_before_attacking`: como mucho un quinto de los ataques. Con
+«atacar ahora» apagado, el test falla.
+
+**Dedenne contra el banco del meta B4a** (`lab_meta_bank` del 18/10: 18 listas de 15 arquetipos, con sus pesos).
+Son 200 partidas por lista (n = 3.600 por fila), el mismo bot de los dos lados, la misma semilla por lista y la
+fórmula del `metaScore` de la app (un empate no cuenta como victoria):
+
+| Bot | Mazo 16 | Lista de torneo 1d76b8c1b53c88 |
+|---|---|---|
+| e2 | 17,0 % (IC 95 % 15,7–18,2 %) | 27,6 % (26,1–29,0 %) |
+| g2 1.0 | 29,2 % (27,7–30,7 %) | 41,7 % (40,1–43,3 %) |
+| e3 | 39,5 % (37,9–41,2 %) | 46,9 % (45,3–48,6 %) |
+| g2 1.1 | 46,1 % (44,4–47,7 %) | 54,2 % (52,5–55,8 %) |
+
+- En torneos, el arquetipo da 52,4 % (n = 584). Es otra fuente y no se combina con estas: sirve de baranda. g2 1.1
+  es el primer bot que deja a la lista de torneo cerca de donde está en los torneos.
+- El rival también juega con el bot de la fila, así que parte del cambio es la fuerza del banco, no solo la de
+  Dedenne.
+
+**La liga** (`scripts/bots-league.mjs`, los 11 mazos de siempre, 40 partidas por lado, 2.200 apareadas por fila, IC
+por bootstrap sobre los 55 pares):
+
+| g2 | Semilla | contra e2 | contra f2 |
+|---|---|---|---|
+| 1.0 | 20261015 | 59,0 % (55,9–62,4 %) | 52,0 % (50,6–53,4 %) |
+| 1.0 + «atacar ahora» y el golpe que sobra | 20261015 | 65,6 % (62,3–69,1 %) | 59,5 % (57,4–61,8 %) |
+| 1.1 | 20261015 | 66,3 % (63,0–69,9 %) | 60,3 % (58,2–62,5 %) |
+| 1.1 | 20261018 (nueva) | | 59,1 % (57,0–61,3 %) |
+
+- g2 con «atacar ahora» le gana a g2 1.0 57,9 % (IC 56,0–59,8 %).
+- **Cumple el criterio contra los dos:** le gana a e2 y a f2 con el intervalo entero arriba del 50 %, también con
+  semillas nuevas.
+- Casi toda la ganancia viene de «atacar ahora». Los 14 arreglos de Codex suman menos de un punto en el promedio:
+  cada uno cambia pocos cruces, como en la ablación de g 1.0.
+- Con su mazo, g2 contra f2: el 16 gana 56,0 % y f2 14,0 %; el 23, 36,1 % y 17,9 %; el 40, 76,5 % y 53,8 % (n = 400
+  por bot). Mezcla la fuerza del mazo con la del bot.
+
+**La velocidad,** en los mismos 10 cruces de antes con 40 partidas y 4 hilos:
+
+| Bot | Por partida y por hilo |
+|---|---|
+| e2 | 104–109 ms |
+| f2 | 119 ms |
+| g2 1.0 | 236 ms |
+| g2 1.1, primera versión | 359 ms (3,45 veces e2) |
+| g2 1.1 | 293 ms (2,7–2,8 veces e2) |
+
+La primera versión se pasaba del tope de 3. Bajó así:
+- la mecánica de cada ataque se busca una vez;
+- solo los ataques que escalan con la Energía prueban más;
+- «atacar ahora» no genera las acciones donde el Activo no tiene pagado ningún ataque;
+- `public_details`, que copia los efectos, se lee solo donde hace falta;
+- las cartas tapadas no llevan texto.
+
+En 120 partidas de g2 contra sí mismo, los ganadores son los mismos antes y después.
+
+**Las partidas doradas:** g1 y g2 salen de `games-rev.json` (de 38 casos a 34) sin subir `GAMES_REV`. Vuelven en el
+PR que deja que la app use g, ya con su comportamiento final. Lo decidió el Coordinador el 18/10: ningún trabajo de la
+cola puede pedir g todavía.
+
 ## Cómo entra en la app
 
 - **Hecho en g 1.0:**
