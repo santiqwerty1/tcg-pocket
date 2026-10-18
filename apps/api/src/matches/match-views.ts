@@ -86,6 +86,11 @@ export interface ComparisonColumnView {
   note: string
   /** Separate rows of the same source (tournament: exact list and archetype), each with its own n and interval. */
   rows?: { label: string; record: GameRecord; rate: WinRate | null; note?: string }[]
+  /**
+   * H-055, simulation column: «posible punto ciego del bot», the list's cards its bot plays badly. Only the list rules:
+   * the column pools the rivals each simulation chose, not the meta, so it is not compared with tournaments.
+   */
+  blindSpot?: { text: string } | null
 }
 
 /** Fase 13: an own record against the expected rate (tournaments), in words. */

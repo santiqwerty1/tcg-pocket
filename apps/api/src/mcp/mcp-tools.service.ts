@@ -1462,6 +1462,8 @@ ${MCP_CHAT_INSTRUCTIONS}`
         lab: row.lab
           ? `${row.lab.text}, con ${row.lab.bot}${row.lab.stale ? ` (de la era ${row.lab.era}, viejo)` : ''}`
           : null,
+        // H-055: what the bots, more than the deck, may explain of the Laboratorio's number.
+        ...(row.blindSpot ? { botBlindSpot: row.blindSpot.text } : {}),
         // Another bot's score goes apart, never in place of the default one (D-029).
         ...(row.labOthers.length > 0
           ? {
