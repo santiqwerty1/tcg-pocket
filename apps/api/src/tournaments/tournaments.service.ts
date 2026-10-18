@@ -511,6 +511,23 @@ export class TournamentsService {
     })
   }
 
+  /**
+   * H-055: `expectedWith` for many archetypes and weights of one scope, with the scope, the dataset, the aliases and the
+   * matchups read once (review of #119: one `expectedWith` per deck read the settings and the aliases every time). The
+   * weights count as known, like the Laboratorio's bank.
+   */
+  async expectationsWith(
+    query: ScopeQuery = {},
+  ): Promise<
+    (archetypeId: string, shares: readonly { archetypeId: string; share: number }[]) => ExpectedVsMetaView | null
+  > {
+    const scope = await this.scope(query)
+    const dataset = await this.dataset(scope)
+    const [aliases, matchups] = await Promise.all([this.settings.aliases(), this.matchupsOf(dataset)])
+    return (archetypeId, shares) =>
+      expectedVsMeta(matchups, dataset, aliases.get(archetypeId) ?? archetypeId, { shares })
+  }
+
   /** One archetype against each rival (Fase 9), for the deck sheet and Claude. */
   async archetypeMatchupsOf(
     archetypeId: string | null,

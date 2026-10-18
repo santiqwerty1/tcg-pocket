@@ -20,13 +20,15 @@ export function bankShares(
 /**
  * The score the general rule compares: the confirmation's once there is one, even while it has no games yet (review of
  * #119: falling back to the search's then made the warning come and go), else the search's; and only when that round
- * is played whole (`whole`: every chunk done, not one per rival, since a pairing of more than 1.000 games is split),
- * because a score of part of the bank is reweighted over the rivals it has.
+ * is played whole (`whole`: every chunk done, not one per rival, since a pairing of more than 1.000 games is split) and
+ * the score is of every rival (a list that is itself in the bank plays no pairing against itself), because a score of
+ * part of the bank is reweighted over the rivals it has.
  */
 export function comparableScore(
   deck: { search: { score: MetaScore | null }; confirm: { score: MetaScore | null } | null },
   whole: boolean,
 ): MetaScore | null {
   if (!whole) return null
-  return deck.confirm ? deck.confirm.score : deck.search.score
+  const score = deck.confirm ? deck.confirm.score : deck.search.score
+  return score && score.coverage >= 0.999 ? score : null
 }

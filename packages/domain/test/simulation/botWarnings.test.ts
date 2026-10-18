@@ -47,7 +47,7 @@ describe('posible punto ciego del bot (H-055)', () => {
     expect(kinds(listBotWarnings(deck.cards, index, 'e1'))).toEqual(['bench_tools'])
     expect(listBotWarnings(deck.cards, index, 'e3')).toEqual([])
     expect(botWarningText(warnings, 'e2')).toBe(
-      'Posible punto ciego del bot: e2 casi nunca pone herramientas en la Banca, y «Dede-Circuit» de Dedenne ex crece con ellas. Probalo con e3 o f2.',
+      'Posible punto ciego del bot: e2 casi nunca pone herramientas en la Banca, y «Dede-Circuit» de Dedenne ex crece con ellas. Probalo con e3.',
     )
     // Review of the PR: without a Tool in the list, an attack per Tool asks nothing of the bot.
     const noTools = deck.cards.filter((entry) => index.cardById(entry.cardId)?.evolutionType !== 'tool')

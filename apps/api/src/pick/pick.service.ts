@@ -23,7 +23,7 @@ import type { LabRefreshView } from '../lab/lab-views.js'
 import type { MyMetaSummary } from '../matches/match-views.js'
 import { MatchesService, myMetaSummary } from '../matches/matches.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
-import type { DeckTournamentView, ExpectedVsMetaView } from '../tournaments/tournament-views.js'
+import type { DeckTournamentView } from '../tournaments/tournament-views.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
 
 export type PickSort = 'tournament' | 'matches' | 'lab'
@@ -131,16 +131,16 @@ export class PickService {
     } catch {
       index = null
     }
-    // One per archetype and test: the decks of one «Actualizar todos» share it.
-    const banks = new Map<string, Promise<ExpectedVsMetaView | null>>()
-    const bankExpected = (archetypeId: string, score: DeckLabScore) => {
-      const key = `${archetypeId}|${score.jobId}`
-      let found = banks.get(key)
+    // One evaluator per era and format of the scores (review of #119): the scope, aliases and matchups are read once, not
+    // once per deck.
+    type Expectations = Awaited<ReturnType<TournamentsService['expectationsWith']>>
+    const scopes = new Map<string, Promise<Expectations | null>>()
+    const expectationsFor = (score: DeckLabScore) => {
+      const key = `${score.era}|${score.format}`
+      let found = scopes.get(key)
       if (!found) {
-        found = this.tournaments
-          .expectedWith(archetypeId, { shares: bankShares(score.rivals) }, { era: score.era, format: score.format })
-          .catch(() => null)
-        banks.set(key, found)
+        found = this.tournaments.expectationsWith({ era: score.era, format: score.format }).catch(() => null)
+        scopes.set(key, found)
       }
       return found
     }
@@ -170,7 +170,13 @@ export class PickService {
       // H-055: the list rules for the bot that played it; the general rule only within the era, against what the
       // archetype makes in tournaments against the test's own rivals with its weights, era and format (review of #119:
       // the row's number is against the whole recent meta, or «mi meta», while a bank can have 3 rivals).
-      const bank = labScore && score && archetype && !status?.stale ? await bankExpected(archetype.id, score) : null
+      // Review of #119: a score that is not of every rival (a list that is itself in the bank plays no pairing against
+      // itself) is reweighted over the rest, so it is not compared.
+      const expectations =
+        labScore && score && archetype && !status?.stale && labScore.coverage >= 0.999
+          ? await expectationsFor(score)
+          : null
+      const bank = expectations && archetype && score ? expectations(archetype.id, bankShares(score.rivals)) : null
       const warning =
         labScore && score && cards && index
           ? botWarningText(

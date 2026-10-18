@@ -140,7 +140,7 @@ export function botWarningEs(warning: BotWarning, bot: string | null | undefined
   }
 }
 
-/** Which bots to try instead: f2 sees evolutions, e3 the Tool on the Bench and then the attack; never the same one. */
+/** Which bots to try instead: f2 sees evolutions, only e3 the Tool on the Bench and then the attack; never the same one. */
 function advice(warnings: readonly BotWarning[], bot: string | null | undefined): string {
   const code = botCode(bot)
   const bots: string[] = []
@@ -149,10 +149,9 @@ function advice(warnings: readonly BotWarning[], bot: string | null | undefined)
   }
   for (const warning of warnings) {
     if (warning.kind === 'evolution_without_damage') add('f2')
-    if (warning.kind === 'bench_tools') {
-      add('e3')
-      add('f2')
-    }
+    // f2's clock reads fixed damage too, so a Tool on the Bench is worth nothing to it either (deck 16: 16,0 % with f2,
+    // job 52); e3 sees the Tool and then the attack (review of #119).
+    if (warning.kind === 'bench_tools') add('e3')
   }
   if (bots.length === 0) {
     add('f2')
