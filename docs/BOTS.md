@@ -447,8 +447,8 @@ por bootstrap sobre los 55 pares):
 | g2 1.1 | 335 ms (3,2 veces e2, con e2 en 106) |
 
 **g2 1.1 pasa del tope de 3 que pone este diseño.** Lo que suma la autorrevisión es terminar el turno después de
-cada ataque de «atacar ahora» (unos 46 ms por partida). Queda propuesto aceptar hasta 3,5 veces e2 mientras la app no
-use g. Lo que más pesa, después del daño del motor, es la evaluación base de deckgym: en cada hoja copia el mazo y la
+cada ataque de «atacar ahora» (unos 46 ms por partida), y se queda: es un error de reglas, no una heurística. El
+Coordinador aceptó el 18/10 hasta 3,5 veces e2 mientras la app no use g. Lo que más pesa, después del daño del motor, es la evaluación base de deckgym: en cada hoja copia el mazo y la
 mano de cada lado para su «Activo listo», y calcula su reloj aunque pese 0. Una variante en el fork que se saltee los
 términos con peso 0 la abarataría sin cambiar ninguna partida.
 
