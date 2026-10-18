@@ -143,6 +143,11 @@ Mientras el repo fue privado y sin minutos de Actions, la CI corrió en runners 
 
 - **Si falla en el `release_command`:** el deploy se corta y la versión anterior sigue andando. Prisma deja la migración marcada como fallida en `_prisma_migrations`.
 - **El contenedor no se cae por eso:** si `migrate deploy` falla al arrancar (P3009), lo deja en el log y arranca igual.
+- **Si falla con P1011** (no pudo abrir TLS o no verificó el certificado de la base): las migraciones exigen `sslmode=verify-full` con la CA de `apps/api/certs/` (`NODE_EXTRA_CA_CERTS`). Revisar, en este orden:
+  1. que el secreto `DATABASE_URL` lleve `sslmode=verify-full` y apunte al pooler (sin mostrar el secreto: `flyctl machine exec <id> --app tcg-pocket "node -e \"console.log(new URL(process.env.DATABASE_URL).searchParams.get('sslmode'))\""`);
+  2. que la CA del repo siga siendo la de Supabase (`certs/README.md`; un solo certificado por archivo);
+  3. que la cadena del pooler no haya cambiado (el handshake falla igual con cualquier cliente).
+  - **Nunca `DATABASE_TLS=off` en Fly:** es solo para probar la imagen contra un Postgres sin TLS. En producción, la app y las migraciones lo dejan en el log como aviso.
 - **Para destrabarla:**
   1. Arreglar la migración en un commit nuevo.
   2. Marcarla como deshecha: `flyctl machine exec <id> --app tcg-pocket "sh -c 'cd /app/apps/api && node node_modules/prisma/build/index.js migrate resolve --rolled-back <nombre_de_la_migración>'"`.

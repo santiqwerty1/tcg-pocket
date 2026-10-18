@@ -38,6 +38,11 @@ export function migrationUrl(url: string, caFile: string | undefined, production
   } catch {}
   const modes = parsed?.searchParams.getAll('sslmode') ?? []
   const mode = modes.length === 1 ? modes[0] : null
+  if (production && tlsOff) {
+    console.warn(
+      'DATABASE_TLS=off: the migrations do not require the database certificate (only for trying the image, never in Fly)',
+    )
+  }
   if (production && !tlsOff && mode !== 'verify-full') {
     throw new Error(
       'DATABASE_URL: in production it must carry sslmode=verify-full (DATABASE_TLS=off is only for trying the image)',

@@ -120,6 +120,8 @@ export interface Env {
   /** Fase 18: VAPID keys (null = notifications off) and whether the watcher runs. */
   vapid: { publicKey: string; privateKey: string; subject: string } | null
   notificationsWatch: boolean
+  /** DATABASE_TLS=off: only for trying the image against a Postgres without TLS; main.ts warns about it in production. */
+  databaseTlsOff: boolean
 }
 
 export class EnvError extends Error {
@@ -210,6 +212,7 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
         ? { publicKey: raw.VAPID_PUBLIC_KEY, privateKey: raw.VAPID_PRIVATE_KEY, subject: raw.VAPID_SUBJECT }
         : null,
     notificationsWatch: raw.NOTIFICATIONS_WATCH ?? raw.NODE_ENV !== 'test',
+    databaseTlsOff: raw.DATABASE_TLS === 'off',
   }
 }
 

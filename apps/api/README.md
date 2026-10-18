@@ -140,12 +140,12 @@ La sincronización del catálogo desde fixtures tarda ~2 s, así que cada archiv
 ## Deploy (Fly.io)
 
 - `Dockerfile` (raíz): multi-stage con pnpm. La etapa `deps` copia `apps/api/prisma/schema.prisma` y `prisma.config.ts` antes de `pnpm install` (el `postinstall` de la API corre `prisma generate`); `build` compila `@tcg/domain`, genera el cliente de Prisma, compila la PWA y la API y vuelve a instalar solo las dependencias de producción de `@tcg/api` y `@tcg/domain` (`pnpm install --prod --filter "@tcg/api..."` desde el store local: ~330 MB de `node_modules`, la mayor parte el CLI de Prisma, DECISIONES 1.13); la imagen final es `node:24-alpine` con `WEB_DIST=/app/apps/web/dist`. `docker/entrypoint.sh` corre `prisma migrate deploy` (schema engine `linux-musl`) y arranca `node dist/main.js`; con argumentos, los ejecuta en su lugar. `docker/migrate.sh` es el `release_command` de Fly (Fase 38).
-- Probar la imagen en local contra el Postgres de Docker Compose (Docker Desktop en Windows: `host.docker.internal`; en Linux, `--network host` y `127.0.0.1`):
+- Probar la imagen en local contra el Postgres de Docker Compose (Docker Desktop en Windows: `host.docker.internal`; en Linux, `--network host` y `127.0.0.1`). Ese Postgres no tiene TLS, así que va `DATABASE_TLS=off`, que en Fly nunca se usa:
 
   ```bash
   docker build -t tcg-pocket:local .
   docker run --rm -p 3200:3200 -e DATABASE_URL=postgresql://tcg:tcg@host.docker.internal:5433/tcg_test \
-    -e SESSION_SECRET=<48 caracteres aleatorios> -e NODE_ENV=production -e PORT=3200 tcg-pocket:local
+    -e SESSION_SECRET=<48 caracteres aleatorios> -e NODE_ENV=production -e DATABASE_TLS=off -e PORT=3200 tcg-pocket:local
   curl -i localhost:3200/healthz      # 200 { ok: true, … } (503 si la base no responde)
   curl -s localhost:3200/login | head # la página de ingreso
   ```

@@ -46,7 +46,11 @@ describe('parseEnv', () => {
       )
     }
     expect(parseEnv(production).databaseUrl).toContain('sslmode=verify-full')
-    expect(parseEnv({ ...production, DATABASE_URL: base.DATABASE_URL, DATABASE_TLS: 'off' }).isProduction).toBe(true)
+    const tlsOff = parseEnv({ ...production, DATABASE_URL: base.DATABASE_URL, DATABASE_TLS: 'off' })
+    expect(tlsOff.isProduction).toBe(true)
+    // main.ts warns about it at start.
+    expect(tlsOff.databaseTlsOff).toBe(true)
+    expect(parseEnv(production).databaseTlsOff).toBe(false)
     expect(() => parseEnv({ ...base, DATABASE_TLS: 'on' })).toThrow(EnvError)
   })
 

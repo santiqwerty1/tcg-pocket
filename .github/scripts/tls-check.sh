@@ -72,8 +72,11 @@ if migrate "$GOOD" && grep -Eq 'successfully applied|No pending migrations' "$DI
 else
   echo "FAIL the migrations did not go through with the trusted CA" && tail -5 "$DIR/migrate.log" && exit 1
 fi
+# Refused for its certificate (P1011), not for anything else: a server that is down or a wrong password also fail.
 if migrate "$BAD"; then
   echo "FAIL the migrations accepted a server of a foreign CA" && tail -5 "$DIR/migrate.log" && exit 1
+elif grep -q 'P1011' "$DIR/migrate.log"; then
+  echo "ok   a server of a foreign CA is refused: $(grep -oE 'P1011[^.]*' "$DIR/migrate.log" | head -1)"
 else
-  echo "ok   a server of a foreign CA is refused: $(grep -oE 'P10[0-9]+[^.]*' "$DIR/migrate.log" | head -1)"
+  echo "FAIL the migrations failed with a foreign CA, but not for its certificate" && tail -5 "$DIR/migrate.log" && exit 1
 fi
