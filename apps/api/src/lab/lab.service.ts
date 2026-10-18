@@ -2340,11 +2340,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
 
   /**
    * A list's score in a job, from its own chunks: the confirmation's when it has one, else the search's; `complete` when
-   * every pairing of it finished (what a failed job's score needs to count).
-   */
-  /**
-   * The list's score in a job, whether its round was played whole, and the rivals it was scored against (those with a
-   * list played, like the job's view: review of #119, «¿Cuál llevo hoy?» weighed every rival of the bank).
+   * every pairing of it finished (what a failed job's score needs to count); and the rivals it was scored against,
+   * those with a list played, like the job's view (review of #119: «¿Cuál llevo hoy?» weighed every rival of the bank).
    */
   private async snapshotScore(
     job: LabJobRow,
@@ -2517,7 +2514,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
    */
   private async botBlindSpots(
     decks: readonly LabDeckView[],
-    snapshots: ReadonlyMap<number, { cards: unknown; sourceType: string; sourceId: string | null }>,
+    snapshots: ReadonlyMap<number, { cards: unknown; key: string }>,
     closest: ReadonlyMap<number, string | null>,
     whole: ReadonlyMap<number, boolean>,
     rivals: readonly { archetypeId: string; weight: number }[],
@@ -2526,46 +2523,56 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     index: CatalogIndex,
   ): Promise<Map<number, { text: string } | null>> {
     const againstMeta = (lab.objective?.kind ?? 'meta') === 'meta'
-    // Review of #119: the archetype the deck chose is today's choice, for its current list; a snapshot of an older
-    // revision takes the era's closest one.
-    const owners = new Map<string, { archetypeId: string | null; revision: string | null }>()
+    const scores = new Map(
+      decks.map((deck) => [deck.snapshot, comparableScore(deck, whole.get(deck.snapshot) ?? false)]),
+    )
+    // Review of #122: the tournament side only when some list has a score to compare (not on every poll of a job still
+    // playing).
+    const comparing = againstMeta && [...scores.values()].some((score) => score !== null)
+    // Review of #119: the archetype the deck chose is today's choice, for its current list; a snapshot of another list
+    // takes the era's closest one. Review of #122: «current» is the same list (its snapshot key, as deckLabStatus reads
+    // it), so a revision restored with the same cards keeps it.
+    const owners = new Map<string, { archetypeId: string | null; key: string | null }>()
     const deckIds = [...new Set(decks.flatMap((deck) => (deck.deckId === null ? [] : [Number(deck.deckId)])))]
-    if (againstMeta && deckIds.length > 0) {
-      for (const row of await this.prisma.deck.findMany({
-        where: { id: { in: deckIds } },
-        select: { id: true, tournamentArchetypeId: true, currentRevisionId: true },
-      })) {
-        owners.set(String(row.id), {
-          archetypeId: row.tournamentArchetypeId,
-          revision: row.currentRevisionId === null ? null : String(row.currentRevisionId),
-        })
+    if (comparing && deckIds.length > 0) {
+      const [rows, drafts] = await Promise.all([
+        this.prisma.deck.findMany({
+          where: { id: { in: deckIds } },
+          select: { id: true, tournamentArchetypeId: true },
+        }),
+        this.snapshots.deckDrafts(deckIds),
+      ])
+      for (const row of rows) {
+        owners.set(String(row.id), { archetypeId: row.tournamentArchetypeId, key: drafts.get(row.id)?.key ?? null })
       }
     }
     const archetypeOf = (deck: LabDeckView): string | null => {
       const owner = deck.deckId === null ? undefined : owners.get(deck.deckId)
-      const snapshot = snapshots.get(deck.snapshot)
-      const current =
-        owner !== undefined &&
-        snapshot?.sourceType === 'deck_revision' &&
-        snapshot.sourceId !== null &&
-        snapshot.sourceId === owner.revision
+      const current = owner !== undefined && owner.key !== null && snapshots.get(deck.snapshot)?.key === owner.key
       return (current ? owner.archetypeId : null) ?? closest.get(deck.snapshot) ?? null
     }
-    const expectations = againstMeta
+    const expectations = comparing
       ? await this.tournaments.expectationsWith({ era: lab.era, format: lab.format }).catch(() => null)
       : null
     const shares = bankShares(rivals)
+    const tournamentOf = (archetype: string | null) => {
+      if (archetype === null || !expectations) return null
+      try {
+        return expectations(archetype, shares)
+      } catch {
+        return null
+      }
+    }
     const out = new Map<number, { text: string } | null>()
     for (const deck of decks) {
       const cards = cardsOfSnapshot(snapshots.get(deck.snapshot)?.cards as unknown as SnapshotCard[])
-      const archetype = archetypeOf(deck)
-      const score = comparableScore(deck, whole.get(deck.snapshot) ?? false)
+      const score = scores.get(deck.snapshot) ?? null
       const warnings = botWarnings({
         cards,
         index,
         bot,
-        simulated: againstMeta ? score : null,
-        tournament: archetype === null || !expectations ? null : expectations(archetype, shares),
+        simulated: comparing ? score : null,
+        tournament: comparing && score ? tournamentOf(archetypeOf(deck)) : null,
       })
       const text = botWarningText(warnings, bot)
       out.set(deck.snapshot, text ? { text } : null)

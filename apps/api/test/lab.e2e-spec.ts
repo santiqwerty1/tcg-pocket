@@ -2372,9 +2372,17 @@ describe('laboratorio (e2e)', () => {
       expect(withClosest).not.toBe(withTop)
       const snapshot = await test.prisma.deckSnapshot.findUniqueOrThrow({ where: { id: plainView.decks[0].snapshot } })
       expect(snapshot.sourceType).toBe('deck_revision')
-      await test.prisma.deckSnapshot.update({ where: { id: snapshot.id }, data: { sourceId: '999999' } })
+      // Another list (another snapshot key): the closest archetype.
+      await test.prisma.deckSnapshot.update({ where: { id: snapshot.id }, data: { key: 'otra-lista' } })
       try {
         expect(await blindOf()).toBe(withClosest)
+      } finally {
+        await test.prisma.deckSnapshot.update({ where: { id: snapshot.id }, data: { key: snapshot.key } })
+      }
+      // Review of #122: a revision restored with the same cards (another revision id, the same key) is the same list.
+      await test.prisma.deckSnapshot.update({ where: { id: snapshot.id }, data: { sourceId: '999999' } })
+      try {
+        expect(await blindOf()).toBe(withTop)
       } finally {
         await test.prisma.deckSnapshot.update({ where: { id: snapshot.id }, data: { sourceId: snapshot.sourceId } })
       }
@@ -2413,6 +2421,58 @@ describe('laboratorio (e2e)', () => {
       expect(plainRow.tournament).not.toBeNull()
       expect(plainRow.tournament?.ci95[0]).toBeGreaterThan(15)
       expect(plainRow.blindSpot?.text).toMatch(far)
+      // Review of #122: the tournament side weighs only the rivals with a list played, like the job's view. A rival of
+      // the bank without one changes nothing.
+      const before = (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: jobs[plain] as number } }))
+        .params as { lab: { rivals: Record<string, unknown>[] } & Record<string, unknown> }
+      await test.prisma.simulationJob.update({
+        where: { id: jobs[plain] as number },
+        data: {
+          params: {
+            ...before,
+            lab: {
+              ...before.lab,
+              rivals: [
+                ...before.lab.rivals,
+                {
+                  listKey: 'sin-lista',
+                  archetypeId: 'arquetipo-sin-datos',
+                  archetypeName: 'Sin datos',
+                  share: 50,
+                  weight: 0.5,
+                },
+              ],
+            },
+          } as object,
+        },
+      })
+      try {
+        const withUnplayed = ((await get('/api/decks-today')).body as { items: Row[] }).items.find(
+          (item) => item.deck.id === plain,
+        )
+        expect(withUnplayed?.blindSpot?.text).toBe(plainRow.blindSpot?.text)
+      } finally {
+        await test.prisma.simulationJob.update({
+          where: { id: jobs[plain] as number },
+          data: { params: before as object },
+        })
+      }
+      // Review of #122: a score that lacks a rival (here its pairing played another list) is not compared.
+      const pairing = await test.prisma.simulationChunk.findFirstOrThrow({ where: { jobId: jobs[plain] as number } })
+      const venusaurSnapshot = (await get(`/api/lab/jobs/${jobs[venusaur]}`)).body.decks[0].snapshot as number
+      await test.prisma.simulationChunk.update({ where: { id: pairing.id }, data: { snapshotBId: venusaurSnapshot } })
+      try {
+        const partial = ((await get('/api/decks-today')).body as { items: Row[] }).items.find(
+          (item) => item.deck.id === plain,
+        )
+        expect(partial?.lab).not.toBeNull()
+        expect(partial?.blindSpot).toBeNull()
+      } finally {
+        await test.prisma.simulationChunk.update({
+          where: { id: pairing.id },
+          data: { snapshotBId: pairing.snapshotBId },
+        })
+      }
       // Review of #119: a score against a NOEX bank is not compared with the STANDARD tournament number.
       const plainJob = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: jobs[plain] as number } })
       const params = plainJob.params as { lab: Record<string, unknown> }
