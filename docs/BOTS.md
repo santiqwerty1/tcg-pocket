@@ -286,7 +286,10 @@ propio PR más adelante.
 - 11 mazos: 8 del banco de B4a (lab_meta_bank del 15/10) más el 16, el 23 y el 40;
 - los 55 pares de mazos, cada uno en los dos lados con las mismas semillas, 20 partidas por lado: 2.200 partidas
   apareadas por cruce de bots;
-- el intervalo, por bootstrap sobre los pares de mazos;
+- el intervalo, por bootstrap sobre los pares de mazos. Toma los 55 pares como independientes aunque cada mazo está
+  en 10 de ellos, así que puede quedar algo angosto (revisión del Coordinador);
+- el desglose «con <mazo>» de `bots-league.mjs` dice cómo le fue a cada bot con ese mazo, y mezcla la fuerza del
+  mazo con la del bot: sirve para mirar, no como prueba;
 - motor del fork `018b419`, 4 hilos.
 
 | Cruce | g2 gana | IC 95 % |
@@ -334,6 +337,7 @@ Elo de la liga de tres (semilla 20261015): e2 0, f2 +48, g2 +63.
   | g2 | 255 ms |
 
   g2 cuesta 2,1 veces e2: dentro del tope de 3. Con `hide`, en otra corrida: e2 94 ms, f2 114 y g2 212, 2,3 veces.
+  La verificación del Coordinador midió 2,35 veces.
 - **Lo siguiente:**
   - la carrera (punto 6);
   - los pesos (línea 3): «PS × Energía» y «Activo listo» cuentan dos veces lo que mide el reloj;

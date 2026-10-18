@@ -371,10 +371,15 @@ fn pending_damage(state: &State, player: usize, slot: usize) -> f64 {
             pending += *amount as f64;
         }
     }
-    for effects in state.public_turn_effects().values() {
-        for effect in effects {
+    // deckgym keeps a delayed hit on a spot (Meowscarada ex's Flower Trick) in this turn and the next, lands it at the
+    // end of its target's turn and never removes the old entries: it is due once, from this turn's entry when the
+    // target is the player whose turn it is, else from the next turn's (review of #117).
+    let turn = state.turn_count;
+    for (at, targets_this_turn) in [(turn, true), (turn.saturating_add(1), false)] {
+        for effect in state.public_turn_effects().get(&at).into_iter().flatten() {
             if let TurnEffect::DelayedSpotDamage { target_player, target_in_play_idx, amount, .. } = effect {
-                if *target_player == player && *target_in_play_idx == slot {
+                let due = (*target_player == state.current_player) == targets_this_turn;
+                if *target_player == player && *target_in_play_idx == slot && due {
                     pending += *amount as f64;
                 }
             }
@@ -578,6 +583,36 @@ mod tests {
         assert_eq!(after.in_play_pokemon[0][0].as_ref().expect("Dedenne ex").get_remaining_hp(), 120);
         assert_eq!(pending_damage(&after, 0, 0), 90.0);
         assert!(turns(&after, 1, false) < before, "{} vs {before}", turns(&after, 1, false));
+    }
+
+    #[test]
+    fn a_delayed_hit_on_a_spot_counts_once_and_not_after_it_lands() {
+        use deckgym::actions::{Action, SimpleAction};
+        // Review of #117: Flower Trick schedules 70 on a spot; deckgym keeps it in this turn and the next, and never
+        // removes the old entries. It is due once (70, not 140), still due on the target's turn, and gone after.
+        let state = board(DEDENNE, MISMAGIUS, vec![card("B3b 024")], vec![card("A4a 037")]);
+        let mut game = Game::from_state(state, Vec::new(), 9);
+        let act = |game: &mut Game, actor: usize, action: SimpleAction| {
+            game.apply_action(&Action { actor, action, is_stack: false });
+        };
+        act(&mut game, 0, SimpleAction::ScheduleDelayedSpotDamage { target_player: 1, target_in_play_idx: 0, amount: 70 });
+        assert_eq!(pending_damage(&game.get_state_clone(), 1, 0), 70.0);
+        // The rival's turn: still on its way.
+        act(&mut game, 0, SimpleAction::EndTurn);
+        let theirs = game.get_state_clone();
+        assert_eq!(theirs.current_player, 1);
+        assert_eq!(pending_damage(&theirs, 1, 0), 70.0);
+        // It lands at the end of that turn, and then nothing is pending.
+        while game.get_state_clone().current_player == 1 {
+            let state = game.get_state_clone();
+            let (actor, actions) = state.generate_possible_actions();
+            let end = actions.iter().find(|a| matches!(a.action, SimpleAction::EndTurn)).unwrap_or(&actions[0]).clone();
+            assert_eq!(actor, end.actor);
+            game.apply_action(&end);
+        }
+        let after = game.get_state_clone();
+        assert_eq!(after.in_play_pokemon[1][0].as_ref().expect("Latios").get_remaining_hp(), 110 - 70);
+        assert_eq!(pending_damage(&after, 1, 0), 0.0);
     }
 
     #[test]

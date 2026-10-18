@@ -8,7 +8,8 @@
  * Every two bots X and Y play every unordered pair of decks {a, b} twice with the same seed: X with a against Y with
  * b, then Y with a against X with b. Game `i` of both runs deals the same cards and flips the same coins (engine-cli
  * seeds each game by its index), so each index is one paired game: X's score is the mean of its two results (a win
- * 1, a tie ½). The interval is a bootstrap over the deck pairs, the unit the games share. With three bots or more, a
+ * 1, a tie ½). The interval is a bootstrap over the deck pairs, the unit the games share; each deck is in several
+ * pairs, so taking the pairs as independent may leave it a little narrow. With three bots or more, a
  * Bradley–Terry fit over every paired result gives an Elo per bot, the first bot at 0.
  *
  * `--decks` is a JSON object, name → deck in engine-cli's text format; by default the bank of
