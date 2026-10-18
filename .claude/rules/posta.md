@@ -9,7 +9,7 @@ cambiarlos, editá la config y corré `posta generar`; esta copia sólo los expl
 
 - **No editar** (lo escribe Posta o la persona): `Boveda/Sesiones/**`, `.posta/eventos/**`.
 - **Ni leer ni editar** (secretos): `.env`, `.env.local`, `.env.fly`, `~/.posta/claves/**`.
-- **Pedir confirmación antes de correr**: `git push *`.
+- **Pedir confirmación antes de correr**: `git push *main*`, `git push -f*`, `git push * -f*`, `git push *--force*`, `git push * +*`, `git push *--delete*`, `git push *--mirror*`, `git push *--all*`.
 
 Lo que requiere decisión de la persona se **propone** (`posta accion proponer`), no se ejecuta. Si la persona pide explícitamente
 que el agente lo ejecute, va a nombre de ella (`--quien <persona> --registra agente:<nombre>`), y Posta deja en la ficha y en el

@@ -19,7 +19,14 @@
       "~/.posta/claves/**"
     ],
     "con_aprobacion": [
-      "git push *"
+      "git push *main*",
+      "git push -f*",
+      "git push * -f*",
+      "git push *--force*",
+      "git push * +*",
+      "git push *--delete*",
+      "git push *--mirror*",
+      "git push *--all*"
     ],
     "prohibidos": []
   }
