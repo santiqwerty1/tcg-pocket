@@ -1254,13 +1254,20 @@ mod tests {
         assert_eq!(games.turns.iter().map(|t| u64::from(*t)).sum::<u64>(), result.tally.turns);
         assert!(games.starters.chars().all(|c| c == 'A' || c == 'B'));
         assert!(count(&games.starters, 'A') > 0 && count(&games.starters, 'B') > 0, "24 coin flips: {}", games.starters);
-        // A win ends on points or an empty board, a tie on the limit or a tie; ties at the limit played 31 turns.
+        // A win ends on points or an empty board, a tie on the limit or a tie. A tie at the limit played one turn more
+        // than it; a win too when a knockout from the end of the last turn decided it (#108); never more, and a tie of
+        // another kind never past the limit.
         for (i, (winner, ending)) in games.winners.chars().zip(games.endings.chars()).enumerate() {
             match winner {
                 'T' => assert!(ending == 'L' || ending == 'T', "game {i}: {ending}"),
                 _ => assert!(ending == 'P' || ending == 'N', "game {i}: {ending}"),
             }
-            assert_eq!(ending == 'L', games.turns[i] > games.turn_limit, "game {i}: {ending} in {} turns", games.turns[i]);
+            let turns = games.turns[i];
+            match ending {
+                'L' => assert_eq!(turns, games.turn_limit + 1, "game {i}: L in {turns} turns"),
+                'T' => assert!(turns <= games.turn_limit, "game {i}: T in {turns} turns"),
+                _ => assert!(turns <= games.turn_limit + 1, "game {i}: {ending} in {turns} turns"),
+            }
         }
         // Altaria evolves Swablu (stage 1): random bots get there in some games, and never past stage 2.
         assert!(games.stages_a.chars().chain(games.stages_b.chars()).all(|c| ('0'..='2').contains(&c)));
