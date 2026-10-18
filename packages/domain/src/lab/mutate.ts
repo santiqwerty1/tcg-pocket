@@ -206,39 +206,40 @@ function preEvolutionNames(pool: readonly PoolCard[], asked: ReadonlySet<CardId>
  * Review of #107: `next` leaves alone a card that only comes along as a pre-evolution (weight 0 in `pool`) whose
  * evolution `parent` had: «+Polteageist +Sinistea» accepted, and two rounds later a swap takes Polteageist out and
  * Sinistea stays, a Basic that cannot attack. A list that already had it alone is left as it was.
+ *
+ * With the zone in play (`energies`; review of #121): only an evolution that does something with it (attacks or has an
+ * ability) strands its pre-evolution — taking out a Probopass that cannot attack after an Energy change is the way to
+ * free the line, not a fault — and a pre-evolution the zone's pool dropped (an Energy change, or an evolution outside
+ * the pool) counts as one that only comes along when it does nothing on its own.
  */
 export function strandsPreEvolution(
   parent: readonly DeckCardEntry[],
   next: readonly DeckCardEntry[],
   pool: readonly PoolCard[],
   index: CatalogIndex,
+  energies?: readonly SelectableEnergy[],
 ): boolean {
-  const helpers = new Set(pool.filter((item) => item.weight <= 0).map((item) => item.groupId))
-  if (helpers.size === 0) return false
-  const evolvedFrom = (cards: readonly DeckCardEntry[]) =>
+  const weights = new Map(pool.map((item) => [item.groupId, item.weight]))
+  const onlyComesAlong = (card: CardEdition) => {
+    const weight = weights.get(card.functionalGroupId)
+    if (weight !== undefined) return weight <= 0
+    return energies !== undefined && !usableWith(card, energies)
+  }
+  const evolvedFrom = (cards: readonly DeckCardEntry[], working: boolean) =>
     new Set(
       cards
         .filter((entry) => entry.count > 0)
-        .map((entry) => index.cardById(entry.cardId)?.evolvesFrom)
-        .filter((name): name is string => !!name),
+        .map((entry) => index.cardById(entry.cardId))
+        .filter((card) => !!card?.evolvesFrom && (!working || !energies || usableWith(card, energies)))
+        .map((card) => card?.evolvesFrom as string),
     )
-  const before = evolvedFrom(parent)
-  const after = evolvedFrom(next)
+  const before = evolvedFrom(parent, true)
+  if (before.size === 0) return false
+  const after = evolvedFrom(next, false)
   return next.some((entry) => {
     const card = entry.count > 0 ? index.cardById(entry.cardId) : undefined
-    return !!card && helpers.has(card.functionalGroupId) && before.has(card.nameEn) && !after.has(card.nameEn)
+    return !!card && before.has(card.nameEn) && !after.has(card.nameEn) && onlyComesAlong(card)
   })
-}
-
-/**
- * The pool `strandsPreEvolution` reads in a search round (Codex on #118): the zone's pool, plus the frozen pool's cards
- * that the zone in play dropped, as pre-evolutions that only come along (weight 0). An accepted Energy change may drop
- * a line that cannot attack any more; its pre-evolution is still one that only comes along, so no later change leaves
- * it alone. A card the new zone draws on its own (weight above 0) stays as it is.
- */
-export function strandPool(zone: readonly PoolCard[], frozen: readonly PoolCard[]): PoolCard[] {
-  const inZone = new Set(zone.map((card) => card.groupId))
-  return [...zone, ...frozen.filter((card) => !inZone.has(card.groupId)).map((card) => ({ ...card, weight: 0 }))]
 }
 
 /**
@@ -343,8 +344,6 @@ export interface VariantOptions {
   boostIn?: ((groupId: CardId) => number) | undefined
   /** The same for a card going out. */
   boostOut?: ((groupId: CardId) => number) | undefined
-  /** The pool whose weight-0 cards only come along (`strandPool`; by default the one drawn from). */
-  strand?: readonly PoolCard[] | undefined
 }
 
 function weightedPick<T extends { weight: number }>(items: readonly T[], random: () => number): T | null {
@@ -404,7 +403,7 @@ export function variantOf(
     const key = listKeyByGroup(groups)
     if (key === baseKey || options.seen?.has(key)) continue
     if (validateDeck({ cards, energies: [...energies] }, index).errors.length > 0) continue
-    if (strandsPreEvolution(deck, cards, options.strand ?? pool, index)) continue
+    if (strandsPreEvolution(deck, cards, pool, index, energies)) continue
     if (options.accept && !options.accept(cards)) continue
     const sorted = cards.filter((entry) => entry.count > 0)
     return { cards: sorted, key, ...cardChanges(deck, sorted, index) }

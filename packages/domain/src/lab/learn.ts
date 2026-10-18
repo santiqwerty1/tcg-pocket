@@ -7,7 +7,7 @@
  * screen, the verification and the confirmation (H-010).
  */
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
-import type { CardId } from '../catalog/types.js'
+import type { CardId, SelectableEnergy } from '../catalog/types.js'
 import type { DeckCardEntry } from '../decks/types.js'
 import { listKeyByGroup } from '../tournaments/dataset.js'
 import {
@@ -190,6 +190,8 @@ export function revertVariant(
     valid: (cards: readonly DeckCardEntry[]) => boolean
     /** The search's pool: its weight-0 cards are the pre-evolutions that only come along. */
     pool: readonly PoolCard[]
+    /** The zone in play (review of #121: an evolution that does nothing with it may leave its pre-evolution). */
+    energies?: readonly SelectableEnergy[] | undefined
   },
 ): (Variant & { undoes: number }) | null {
   if (accepted.length === 0) return null
@@ -211,7 +213,7 @@ export function revertVariant(
     }
     const key = listKeyByGroup(groupsOfCards(cards, index))
     if (key === baseKey || options.seen?.has(key) || !options.valid(cards)) continue
-    if (strandsPreEvolution(deck, cards, options.pool, index)) continue
+    if (strandsPreEvolution(deck, cards, options.pool, index, options.energies)) continue
     const sorted = cards.filter((entry) => entry.count > 0)
     return { cards: sorted, key, ...cardChanges(deck, sorted, index), undoes }
   }
@@ -250,6 +252,8 @@ export function comboVariant(
     score?: ((swap: MeasuredSwap) => number) | undefined
     /** The search's pool: its weight-0 cards are the pre-evolutions that only come along. */
     pool: readonly PoolCard[]
+    /** The zone in play (review of #121: an evolution that does nothing with it may leave its pre-evolution). */
+    energies?: readonly SelectableEnergy[] | undefined
   },
 ): Variant | null {
   const score = options.score ?? ((swap: MeasuredSwap) => swap.difference)
@@ -274,7 +278,7 @@ export function comboVariant(
       if (!applySwap(cards, first, index, options.locked) || !applySwap(cards, second, index, options.locked)) continue
       const key = listKeyByGroup(groupsOfCards(cards, index))
       if (key === baseKey || options.seen?.has(key) || !options.valid(cards) || !withinCopies(cards)) continue
-      if (strandsPreEvolution(deck, cards, options.pool, index)) continue
+      if (strandsPreEvolution(deck, cards, options.pool, index, options.energies)) continue
       const sorted = cards.filter((entry) => entry.count > 0)
       return { cards: sorted, key, ...cardChanges(deck, sorted, index) }
     }

@@ -125,7 +125,6 @@ import {
   simulationRate,
   slotGroups,
   splitGames,
-  strandPool,
   strandsPreEvolution,
   swapOf,
   swapScore,
@@ -932,8 +931,6 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     index: CatalogIndex,
     rules?: EventRules,
     affinity?: ReadonlyMap<CardId, number>,
-    /** Codex on #118: the pool whose weight-0 cards only come along (`strandPool`; by default `pool`). */
-    strand: readonly PoolCard[] = pool,
   ): Variant | null {
     const inList = groupsOfCards(cards, index)
     const wanted = include.filter((groupId) => (inList.get(groupId as CardId) ?? 0) < 2)
@@ -971,7 +968,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         // Self-review of the #107 follow-up: the strand check with the zone's whole pool (the small one only knows the
         // asked card's pre-evolutions: «−Polteageist» left Sinistea alone).
         accept: (next) =>
-          !strandsPreEvolution(cards, next, strand, index) && (!rules || checkEventDeck(next, rules, index).ok),
+          !strandsPreEvolution(cards, next, pool, index, energies) && (!rules || checkEventDeck(next, rules, index).ok),
       })
       if (!variant) continue
       seen.add(variant.key)
@@ -1120,8 +1117,6 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     rules?: EventRules,
     learned?: Learned,
     weakest?: ReadonlySet<CardId>,
-    /** Codex on #118: the pool whose weight-0 cards only come along (`strandPool`). */
-    strand?: readonly PoolCard[],
   ): Variant[] {
     const random = seededRandom(seed)
     const out: Variant[] = []
@@ -1131,7 +1126,6 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         seen,
         affinity: (groupId) => affinity.get(groupId) ?? 0,
         accept: rules ? (cards) => checkEventDeck(cards, rules, index).ok : undefined,
-        strand,
         // T-017 C4: a card change that helped in earlier rounds comes up more often, one that hurt less.
         ...(learned || weakest
           ? {
@@ -1952,8 +1946,6 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               pool = await this.pool(bank, energies, state.config.pool, affinity, state.event?.rules)
               capsPool = pool
             }
-            // Codex on #118: a pre-evolution the zone in play dropped (an Energy change) still only comes along.
-            const strand = strandPool(pool, capsPool)
             const seen = new Set(state.seen)
             // T-017 C4: one variant joins the two best swaps measured so far; the draws lean on what was learned.
             const rules = state.event?.rules
@@ -1966,7 +1958,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                 ? fillRound(incumbentCards, state.weakest ?? [], pool, index, {
                     locked: new Set(state.locked),
                     seen,
-                    strand,
+                    // Review of #121: the zone in play decides which evolutions still do something.
+                    energies,
                     maxCopies: caps,
                     valid: (cards) =>
                       validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
@@ -1987,7 +1980,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                   maxCopies: caps,
                   score: (swap) => swapScore(learned, swap, index),
                   // Review of #113: two «−Polteageist» that pass one by one left Sinistea alone together.
-                  pool: strand,
+                  pool,
+                  energies,
                   valid: (cards) =>
                     validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
                     (!rules || checkEventDeck(cards, rules, index).ok),
@@ -2013,7 +2007,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                   {
                     seen,
                     locked: new Set(state.locked),
-                    pool: strand,
+                    pool,
+                    energies,
                     valid: (cards) =>
                       validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
                       (!rules || checkEventDeck(cards, rules, index).ok),
@@ -2040,7 +2035,6 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                   index,
                   rules,
                   affinity,
-                  strand,
                 )
             const fixed = [
               ...(combo ? [combo] : []),
@@ -2071,7 +2065,6 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                       rules,
                       state.learned,
                       new Set(state.weakest ?? []),
-                      strand,
                     ),
                   ]
             const base = await tx.deckSnapshot.findUniqueOrThrow({ where: { id: state.base }, select: { label: true } })

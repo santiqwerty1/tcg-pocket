@@ -8,7 +8,7 @@
  * and keeping the best of them would otherwise bring back the winner's curse the verification is there to stop (H-010).
  */
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
-import type { CardId } from '../catalog/types.js'
+import type { CardId, SelectableEnergy } from '../catalog/types.js'
 import type { DeckCardEntry } from '../decks/types.js'
 import { normalCdf } from '../stats/tests.js'
 import { listKeyByGroup } from '../tournaments/dataset.js'
@@ -46,8 +46,8 @@ export interface FillOptions {
   /** Copies the pool allows of a card (the collection's, with «colección»). */
   maxCopies: (groupId: CardId) => number
   valid: (cards: readonly DeckCardEntry[]) => boolean
-  /** The pool whose weight-0 cards only come along (`strandPool`; by default `pool`). */
-  strand?: readonly PoolCard[] | undefined
+  /** The zone in play: an evolution that does nothing with it may leave its pre-evolution (review of #121). */
+  energies?: readonly SelectableEnergy[] | undefined
 }
 
 export interface FillRound {
@@ -131,7 +131,7 @@ export function fillRound(
         const limit = Math.max(had.get(groupId) ?? 0, Math.min(2, options.maxCopies(groupId)))
         if ((counted.get(groupId) ?? 0) > limit) return
       }
-      if (!options.valid(cards) || strandsPreEvolution(deck, cards, options.strand ?? pool, index)) return
+      if (!options.valid(cards) || strandsPreEvolution(deck, cards, pool, index, options.energies)) return
       keys.add(key)
       const sorted = cards.filter((entry) => entry.count > 0)
       variants.push({ cards: sorted, key, ...cardChanges(deck, sorted, index) })
