@@ -426,7 +426,8 @@ export function planChatImport(
   }
 
   // A read counts when its message is (or will be) in tcg-pocket, and so is its participant (Santi always is), with
-  // a time that is not ahead: a read of nobody would be a row of nobody (`session_chat_seen` has no foreign key).
+  // a time at most 5 minutes ahead (two clocks, like the messages): a read of nobody would be a row of nobody
+  // (`session_chat_seen` has no foreign key).
   const present = new Set([
     ownerKey,
     ...existing.participants.map((row) => row.key),
@@ -452,7 +453,7 @@ export function planChatImport(
   }
   if (ahead > 0) {
     readNotes.push(
-      `${count(ahead, 'lectura', 'lecturas')} con la hora en el futuro: no ${ahead === 1 ? 'viene' : 'vienen'}.`,
+      `${count(ahead, 'lectura', 'lecturas')} con la hora más de 5 minutos en el futuro: no ${ahead === 1 ? 'viene' : 'vienen'}.`,
     )
   }
 
@@ -519,7 +520,7 @@ export function describeChatImport(plan: ChatImportPlan, outcome: ChatImportOutc
     lines.push(`La secuencia sube: los ids nuevos de tcg-pocket siguen desde ${plan.nextIdAfter}`)
   if (plan.continueAfter !== null) {
     lines.push(
-      `Aviso: la exportación sigue después del mensaje ${plan.continueAfter} (llegó al tope de caracteres): esto es hasta ahí, y el resto se trae con --despues ${plan.continueAfter}.`,
+      `Aviso: la exportación sigue después del mensaje ${plan.continueAfter} (llegó al tope de caracteres): esto es hasta ahí, y el resto se trae con --despues ${plan.continueAfter}. Hasta la última parte, ni la fuente ni tcg-pocket escriben: un mensaje nuevo de tcg-pocket tomaría un id de las partes que faltan, y un participante o una sala que cambia en la fuente se trae como estaba.`,
     )
   }
   if (plan.conflicts.length > 0) {
