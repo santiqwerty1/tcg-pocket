@@ -127,6 +127,15 @@ describe('the plan of a chat import into tcg-pocket', () => {
     ])
   })
 
+  it('an export that goes on after the cap says where, in the plan and in the preview', () => {
+    expect(plan(data(), empty()).continueAfter).toBeNull()
+    const part = plan(data({ continueAfter: 1_000_003 }), empty())
+    expect(part.continueAfter).toBe(1_000_003)
+    expect(describeChatImport(part, 'preview')).toContain(
+      'Aviso: la exportación sigue después del mensaje 1000003 (llegó al tope de caracteres): esto es hasta ahí, y el resto se trae con --despues 1000003.',
+    )
+  })
+
   it('the way back with only some rooms is a conflict: both sides would give the same new ids', () => {
     const result = plan(data({ rooms: [{ slug: 'posta', label: 'Posta' }], messages: [message(1_000_001)] }), empty())
     expect(result.conflicts).toEqual([

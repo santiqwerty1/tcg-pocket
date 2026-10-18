@@ -144,6 +144,11 @@ export interface ChatExportData {
   participants: ChatExportParticipant[]
   messages: ChatExportMessage[]
   reads: ChatExportRead[]
+  /**
+   * The export goes on after this id: the pages up to it reached the cap of characters, so this part is what comes,
+   * and the rest comes with `--despues` this id.
+   */
+  continueAfter?: number
 }
 
 /** A message as tcg-pocket has it, with what an import compares: the texts as their hash. */
@@ -222,6 +227,8 @@ export interface ChatImportPlan {
   /** The sequence goes up so the next id is this one; null when it does not move (it never goes down). */
   nextIdAfter: number | null
   names: Record<string, string>
+  /** Where the export goes on (`ChatExportData.continueAfter`), or null when it came whole. */
+  continueAfter: number | null
 }
 
 const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i])
@@ -463,6 +470,7 @@ export function planChatImport(
     maxId,
     nextIdAfter: raises ? maxNewId + 1 : null,
     names: Object.fromEntries(names),
+    continueAfter: data.continueAfter ?? null,
   }
 }
 
@@ -509,6 +517,11 @@ export function describeChatImport(plan: ChatImportPlan, outcome: ChatImportOutc
   for (const note of plan.readNotes) lines.push(`Aviso: ${note}`)
   if (plan.nextIdAfter !== null)
     lines.push(`La secuencia sube: los ids nuevos de tcg-pocket siguen desde ${plan.nextIdAfter}`)
+  if (plan.continueAfter !== null) {
+    lines.push(
+      `Aviso: la exportación sigue después del mensaje ${plan.continueAfter} (llegó al tope de caracteres): esto es hasta ahí, y el resto se trae con --despues ${plan.continueAfter}.`,
+    )
+  }
   if (plan.conflicts.length > 0) {
     lines.push(`Conflictos (${plan.conflicts.length}; con alguno, --aplicar no cambia nada):`)
     for (const item of plan.conflicts.slice(0, 20)) {
