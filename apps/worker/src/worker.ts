@@ -153,6 +153,8 @@ export class Worker {
   stallMs = STALL_MS
   liveDrainMs = LIVE_DRAIN_MS
   lostResultsPauseMs = LOST_RESULTS_PAUSE_MS
+  /** How often the CPU regulator is asked whether it still reads (tests make it short). */
+  regulatorPingEveryMs: number | undefined = undefined
   lostResultsPauseMaxMs = LOST_RESULTS_PAUSE_MAX_MS
   /**
    * Engine runs in a row that ended with 0 and no result, and their chunks (reset by a chunk played; an engine error
@@ -833,6 +835,8 @@ export class Worker {
         regulator = new CpuRegulator({
           enginePath: this.config.enginePath,
           dataDir: this.config.dataDir,
+          ping: engineFeatures.includes('regulatePing'),
+          ...(this.regulatorPingEveryMs !== undefined ? { pingEveryMs: this.regulatorPingEveryMs } : {}),
           log: this.log,
         })
         watchEngines(regulator)

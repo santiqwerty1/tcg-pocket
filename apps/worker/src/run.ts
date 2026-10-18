@@ -123,7 +123,7 @@ export async function run(
       log('regulador de CPU', {
         on: regulates,
         ...(config.cpuRegulator ? {} : { off: 'cpuRegulator: false' }),
-        ...(regulates ? { max: config.cores, floor: 2, last: lastRegulatorState(config.dataDir) } : {}),
+        ...(regulates ? { max: 'la máquina entera', floor: 2, last: lastRegulatorState(config.dataDir) } : {}),
       })
       const ping = await client.request<{ ok: boolean; token: { name: string } }>(
         'GET',

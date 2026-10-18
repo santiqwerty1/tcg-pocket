@@ -2,7 +2,8 @@
 # Single image for Fly.io: builds @tcg/domain, the PWA and the API, then runs `prisma migrate deploy` + the API.
 
 FROM node:24-alpine AS base
-ENV CI=true PNPM_HOME=/pnpm PATH=/pnpm:$PATH
+# CHECKPOINT_DISABLE: Prisma does not ask its version server (`prisma generate` in the build, migrate at start).
+ENV CI=true PNPM_HOME=/pnpm PATH=/pnpm:$PATH CHECKPOINT_DISABLE=1
 RUN apk add --no-cache libc6-compat && npm install -g pnpm@12.9.1
 WORKDIR /app
 
@@ -111,7 +112,7 @@ COPY --from=worker-engines /engine-out /engine-out
 RUN node apps/worker/scripts/package-windows-update.mjs --engine /engine-out/engine-cli.exe \
     --reference-engine /engine-out/reference-engine --runtime-licenses /engine-out --out /windows-package
 
-# --- deckgym replay viewer (D-014): built unmodified at the engine's pinned commit ------------------------------
+# --- deckgym replay viewer (D-014): built unmodified at the engine's pinned commit (of our fork, D-031) ------------------------------
 FROM node:24-alpine AS viewer
 RUN apk add --no-cache git
 WORKDIR /viewer
@@ -119,7 +120,7 @@ COPY engine/Cargo.toml Cargo.toml
 RUN REV="$(sed -n 's/^deckgym = .*rev = "\([0-9a-f]\{40\}\)".*/\1/p' Cargo.toml)" \
  && test -n "$REV" \
  && git init -q src && cd src \
- && git fetch -q --depth 1 https://github.com/bcollazo/deckgym-core "$REV" && git checkout -q FETCH_HEAD \
+ && git fetch -q --depth 1 https://github.com/santiqwerty1/deckgym-core "$REV" && git checkout -q FETCH_HEAD \
  && cd viewer && npm ci --no-audit --no-fund --loglevel=error \
  && npx vite build --base=/viewer/ --outDir /viewer/dist --emptyOutDir
 
@@ -136,14 +137,18 @@ RUN node scripts/build-engine-wasm.mjs --from /wasm-out \
  && pnpm -F @tcg/web build \
  && pnpm -F @tcg/api build \
  && rm -rf node_modules apps/api/node_modules apps/web/node_modules packages/domain/node_modules \
- && pnpm install --prod --frozen-lockfile --offline --ignore-scripts --filter "@tcg/api..."
+ && pnpm install --prod --frozen-lockfile --offline --filter "@tcg/api..." \
+ && test -n "$(find node_modules/.pnpm -path '*@prisma/engines*' -name 'schema-engine-linux-musl*-openssl-3.0.x' -type f)"
 # The last step re-links, from the local store, only the production dependencies of the API and of @tcg/domain
 # (`--prod` on the existing node_modules leaves the dev packages in the virtual store; the PWA's runtime deps are not
-# needed either: the API serves its built `dist`). argon2 ships musl prebuilds, so `--ignore-scripts` is fine.
+# needed either: the API serves its built `dist`). With their install scripts: @prisma/engines downloads the migration
+# engine here, at build time. With `--ignore-scripts` it was downloaded from binaries.prisma.sh on every start and every
+# release_command, so a deploy depended on that site and ran a binary that was not in the image (the finding of
+# chat-hub's H6.1). The `test` makes sure the one this image runs (musl, OpenSSL 3) is there.
 
 # --- runtime ----------------------------------------------------------------------------------------------------
 FROM node:24-alpine AS runtime
-ENV NODE_ENV=production PORT=3000 WEB_DIST=/app/apps/web/dist
+ENV NODE_ENV=production PORT=3000 WEB_DIST=/app/apps/web/dist CHECKPOINT_DISABLE=1
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 COPY --from=build --chown=node:node /app/package.json /app/pnpm-workspace.yaml ./

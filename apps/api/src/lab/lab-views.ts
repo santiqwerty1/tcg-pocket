@@ -153,6 +153,11 @@ export interface LabDeckView {
   /** T-017 A3: what it brought in has one of those: its score leans on the bot («carta con punto ciego»). */
   bringsBlindSpot: boolean
   /**
+   * H-055: «posible punto ciego del bot»: the list's cards the bot of the lists' side plays badly and, against the
+   * meta, the score far from what the list's archetype makes in tournaments. Null when nothing applies.
+   */
+  botBlindSpot: { text: string } | null
+  /**
    * T-017 E1/E2: why each card that came in was proposed (share of the era's lists and of the archetype's lists that
    * play it, when the search kept them; `asked` when it came as a card to try, whose share the search does not know)
    * and how many copies the collection lacks for it.

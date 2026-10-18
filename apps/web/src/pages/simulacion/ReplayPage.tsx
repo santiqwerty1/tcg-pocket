@@ -39,7 +39,7 @@ function Header({ data, replayId, steps }: { data: ReplayResponse; replayId: str
           <span className="text-muted-foreground">
             (en inglés; código AGPL-3.0:{' '}
             <a
-              href={`https://github.com/bcollazo/deckgym-core/tree/${data.game.engineRev}/viewer`}
+              href={`https://github.com/santiqwerty1/deckgym-core/tree/${data.game.engineRev}/viewer`}
               target="_blank"
               rel="noreferrer"
               className="hover:underline"

@@ -4,15 +4,26 @@
  * latest Laboratorio score — never combined into one. Sorted by the source asked for (tournament by default).
  * H-007 (Fase 36): the era is resolved once per request and the Laboratorio scores come in one batch, of the current
  * engine only (it used to cost hundreds of queries every time «Hoy» opened).
+ * H-055: next to the Laboratorio's number, «posible punto ciego del bot» when the list has cards the e bots play badly
+ * or the number is far from the tournament one.
  */
 import { Injectable } from '@nestjs/common'
-import type { DeckCardEntry, GameRecord, WinRate } from '@tcg/domain'
-import { type DeckLabStatus, LabService } from '../lab/lab.service.js'
+import {
+  botWarnings,
+  botWarningText,
+  type CatalogIndex,
+  type DeckCardEntry,
+  type GameRecord,
+  type WinRate,
+} from '@tcg/domain'
+import { CatalogService } from '../catalog/catalog.service.js'
+import { type DeckLabScore, type DeckLabStatus, LabService } from '../lab/lab.service.js'
+import { bankShares } from '../lab/lab-blind-spots.js'
 import type { LabRefreshView } from '../lab/lab-views.js'
 import type { MyMetaSummary } from '../matches/match-views.js'
 import { MatchesService, myMetaSummary } from '../matches/matches.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
-import type { DeckTournamentView } from '../tournaments/tournament-views.js'
+import type { DeckTournamentView, ExpectedVsMetaView } from '../tournaments/tournament-views.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
 
 export type PickSort = 'tournament' | 'matches' | 'lab'
@@ -46,6 +57,12 @@ export interface PickRowView {
   labFailed: { jobId: number } | null
   /** «Actualizar todos»: the test of the list against this era's meta, queued or playing now. */
   labRunning: { jobId: number; status: 'queued' | 'running'; gamesDone: number; totalGames: number } | null
+  /**
+   * H-055: «posible punto ciego del bot» of the Laboratorio's number: the list's cards the e bots play badly, and the
+   * number far from what the archetype makes in tournaments against the same rivals (only a score of this era). Null
+   * without a Laboratorio score or when nothing applies.
+   */
+  blindSpot: { text: string } | null
 }
 
 export type PickMeta = 'tournament' | 'mine'
@@ -76,6 +93,7 @@ export class PickService {
     private readonly matches: MatchesService,
     private readonly tournaments: TournamentsService,
     private readonly lab: LabService,
+    private readonly catalog: CatalogService,
   ) {}
 
   async today(sort: PickSort = 'tournament', asked: PickMeta = 'tournament'): Promise<PickView> {
@@ -107,6 +125,25 @@ export class PickService {
         era,
       )
       .catch(() => new Map<number, DeckLabStatus>())
+    let index: CatalogIndex | null = null
+    try {
+      index = this.catalog.requireIndex()
+    } catch {
+      index = null
+    }
+    // One per archetype and test: the decks of one «Actualizar todos» share it.
+    const banks = new Map<string, Promise<ExpectedVsMetaView | null>>()
+    const bankExpected = (archetypeId: string, score: DeckLabScore) => {
+      const key = `${archetypeId}|${score.jobId}`
+      let found = banks.get(key)
+      if (!found) {
+        found = this.tournaments
+          .expectedWith(archetypeId, { shares: bankShares(score.rivals) }, { era: score.era, format: score.format })
+          .catch(() => null)
+        banks.set(key, found)
+      }
+      return found
+    }
     const items: PickRowView[] = []
     for (const deck of decks) {
       const cards = deck.currentRevisionId === null ? null : revisions.get(deck.currentRevisionId)
@@ -129,6 +166,24 @@ export class PickService {
       const expected = archetype && today ? today.expected(archetype.id) : null
       const status = scores.get(deck.id) ?? null
       const score = status?.score ?? null
+      const labScore = score?.score.score ?? null
+      // H-055: the list rules for the bot that played it; the general rule only within the era, against what the
+      // archetype makes in tournaments against the test's own rivals with its weights, era and format (review of #119:
+      // the row's number is against the whole recent meta, or «mi meta», while a bank can have 3 rivals).
+      const bank = labScore && score && archetype && !status?.stale ? await bankExpected(archetype.id, score) : null
+      const warning =
+        labScore && score && cards && index
+          ? botWarningText(
+              botWarnings({
+                cards,
+                index,
+                bot: score.bot,
+                simulated: bank ? labScore : null,
+                tournament: bank,
+              }),
+              score.bot,
+            )
+          : null
       items.push({
         deck: { id: String(deck.id), name: deck.name },
         archetype,
@@ -162,6 +217,7 @@ export class PickService {
         ),
         labFailed: status?.failed ?? null,
         labRunning: status?.running ?? null,
+        blindSpot: warning ? { text: warning } : null,
       })
     }
     const key = (row: PickRowView): number | null =>

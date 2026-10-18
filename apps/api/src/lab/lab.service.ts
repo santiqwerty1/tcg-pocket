@@ -20,9 +20,12 @@ import {
   archetypeRows,
   BLIND_SPOT_ES,
   blindSpotsOf,
+  botWarnings,
+  botWarningText,
   buildFromCore,
   buildSnapshot,
   byExpendable,
+  type CardEdition,
   type CardId,
   type CatalogIndex,
   CONFIRM_VERDICT_ES,
@@ -44,6 +47,7 @@ import {
   describeEventRulesEs,
   describeProblems,
   differenceVerdict,
+  type EngineStatus,
   type EventRules,
   EXPLORE_POOL_LABEL_ES,
   EXPLORE_STOP_ES,
@@ -69,6 +73,7 @@ import {
   type LabObjective,
   type Learned,
   type ListRow,
+  labCardNameEs,
   learnedChanges,
   learnedFactor,
   learnSwap,
@@ -104,6 +109,7 @@ import {
   raceHalves,
   randomBaseSeed,
   readPerGame,
+  replaceSlot,
   revertVariant,
   robustnessEs,
   robustnessOf,
@@ -117,8 +123,11 @@ import {
   scoreDifference,
   secondListsFor,
   seededRandom,
+  sharedNames,
   simulationRate,
+  slotGroups,
   splitGames,
+  strandsPreEvolution,
   swapOf,
   swapScore,
   type TournamentDataset,
@@ -142,7 +151,9 @@ import type { JobSummaryView, SnapshotView } from '../simulation/simulation-view
 import { type CreateJobInput, labMode, SimulationsService } from '../simulation/simulations.service.js'
 import { EngineStatusService, type SnapshotSource, SnapshotsService } from '../simulation/snapshots.service.js'
 import { WorkerQueueService } from '../simulation/worker-queue.service.js'
+import type { ExpectedVsMetaView } from '../tournaments/tournament-views.js'
 import { LIMITLESS_ATTRIBUTION, type Scope, TournamentsService } from '../tournaments/tournaments.service.js'
+import { bankShares, comparableScore } from './lab-blind-spots.js'
 import { type FrozenInputs, leftOutCards, whyCards } from './lab-explain.js'
 import type {
   CardLineView,
@@ -192,6 +203,9 @@ export type LabDeckInput =
 export interface DeckLabScore {
   jobId: number
   era: string
+  /** The bank's format and rivals (review of #119: «¿Cuál llevo hoy?» compares the score with tournaments of the same). */
+  format: TournamentFormat
+  rivals: { archetypeId: string; weight: number }[]
   /** The bots that played it: «e2», or «e2 contra e3» when the two sides differ. */
   bot: string
   finishedAt: Date | null
@@ -555,7 +569,11 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
   }
 
   async bank(input: LabScopeInput): Promise<LabBankView> {
-    const bank = await this.bankOf(input)
+    return this.bankView(await this.bankOf(input))
+  }
+
+  /** Deuda 3 (14/10): a bank already built, as the API shows it (a test or a search plan built it twice). */
+  private bankView(bank: Bank): LabBankView {
     const index = bank.scope.index
     return {
       era: bank.scope.era,
@@ -740,7 +758,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       ...((await this.perGameReady()) ? { perGame: true } : {}),
       ...(input.priority !== undefined ? { priority: input.priority } : {}),
     }
-    if (input.dryRun) return { preview: await this.simulations.preview(job), bank: await this.bank(input) }
+    if (input.dryRun) return { preview: await this.simulations.preview(job), bank: this.bankView(bank) }
     return this.simulations.create(job)
   }
 
@@ -929,6 +947,18 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
       const groupId = wanted[(pick + k) % wanted.length] as CardId
       const card = pool.find((item) => item.groupId === groupId)
       if (!card) continue
+      // Review of #107: two cards of its name already (Onix B1a-38 twice, and Onix A1-150 asked for): it takes the
+      // place of one of them, the one that differs from it, instead of never coming in.
+      const named = cards.reduce(
+        (sum, entry) => sum + (index.cardById(entry.cardId)?.nameEn === card.nameEn ? entry.count : 0),
+        0,
+      )
+      if (named >= 2) {
+        const swapped = this.sameNameVariant(cards, energies, card, locked, seen, index, rules)
+        if (!swapped) continue
+        seen.add(swapped.key)
+        return swapped
+      }
       // Review of #64: its pre-evolution comes along when the list lacks it (never drawn on its own: weight 0).
       const pre = index.cardById(card.cardId)?.evolvesFrom
       // The ones drawn on their own first: the pre-evolution a swap takes is the first that fits.
@@ -942,11 +972,41 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         locked,
         seen,
         affinity: (id) => affinity?.get(id) ?? 0,
-        accept: rules ? (next) => checkEventDeck(next, rules, index).ok : undefined,
+        // Self-review of the #107 follow-up: the strand check with the zone's whole pool (the small one only knows the
+        // asked card's pre-evolutions: «−Polteageist» left Sinistea alone).
+        accept: (next) =>
+          !strandsPreEvolution(cards, next, pool, index) && (!rules || checkEventDeck(next, rules, index).ok),
       })
       if (!variant) continue
       seen.add(variant.key)
       return variant
+    }
+    return null
+  }
+
+  /** A card to try in the place of a copy of another card of its name (none when every such copy is locked). */
+  private sameNameVariant(
+    cards: readonly DeckCardEntry[],
+    energies: readonly SelectableEnergy[],
+    card: PoolCard,
+    locked: ReadonlySet<CardId>,
+    seen: ReadonlySet<string>,
+    index: CatalogIndex,
+    rules?: EventRules,
+  ): Variant | null {
+    const slots = slotGroups(cards, index)
+    for (const [at, groupId] of slots.entries()) {
+      const there = index.groupById(groupId)
+      const name = there ? index.cardById(there.displayCardId)?.nameEn : undefined
+      if (name !== card.nameEn || groupId === card.groupId || locked.has(groupId)) continue
+      const next = cards.map((entry) => ({ ...entry }))
+      if (!replaceSlot(next, at, card.cardId)) continue
+      const sorted = next.filter((entry) => entry.count > 0)
+      const key = listKeyByGroup(groupsOfCards(sorted, index))
+      if (seen.has(key)) continue
+      if (validateDeck({ cards: sorted, energies: [...energies] }, index).errors.length > 0) continue
+      if (rules && !checkEventDeck(sorted, rules, index).ok) continue
+      return { cards: sorted, key, ...cardChanges(cards, sorted, index) }
     }
     return null
   }
@@ -1183,7 +1243,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         const refuse = (why: string) =>
           new BadRequestException({
             code: 'validation',
-            message: `No se puede probar ${group?.nameEs ?? groupId}: ${why}.`,
+            message: `No se puede probar ${group ? labCardNameEs(groupId, index) : groupId}: ${why}.`,
           })
         if (!card) throw refuse('el motor no la juega')
         if (event && cardBreaksEvent(card, event.rules) !== null)
@@ -1269,16 +1329,31 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     const robustnessGames = config.confirmBot && config.confirmGames > 0 ? 2 * rivals * config.confirmGames : 0
     if (input.dryRun) {
       const cores = input.cores ?? (await this.workerCores())
+      // The names to tell apart by code: two cards of one name in the plan (the list, the first round, the cards asked).
+      const shared = sharedNames(
+        [
+          ...baseCards.map((entry) => entry.cardId),
+          ...first.flatMap((variant) => variant.cards.map((entry) => entry.cardId)),
+          ...include,
+        ],
+        index,
+      )
       return {
         base: (await this.snapshots.preview(baseSource)) as Omit<SnapshotView, 'id'>,
-        baseCards: lines(index, mergeLines(baseCards)),
-        include: includeView(include, draft.energies, index),
-        bank: await this.bank(input),
+        baseCards: lines(index, mergeLines(baseCards), shared),
+        include: includeView(
+          include,
+          draft.energies,
+          index,
+          evolutionAllowed(index, await this.engine.status(), event?.rules),
+          shared,
+        ),
+        bank: this.bankView(bank),
         // The cards drawn on their own (a pre-evolution that only comes along, weight 0, is no candidate).
         pool: pool.filter((card) => card.weight > 0).length,
         firstRound: first.map((variant) => ({
-          add: lines(index, variant.add),
-          remove: lines(index, variant.remove),
+          add: lines(index, variant.add, shared),
+          remove: lines(index, variant.remove, shared),
         })),
         config,
         seed: baseSeed,
@@ -1909,6 +1984,8 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                   // Review of #15: within the copies the pool allows (the collection's), ordered by what was learned.
                   maxCopies: caps,
                   score: (swap) => swapScore(learned, swap, index),
+                  // Review of #113: two «−Polteageist» that pass one by one left Sinistea alone together.
+                  pool,
                   valid: (cards) =>
                     validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
                     (!rules || checkEventDeck(cards, rules, index).ok),
@@ -1934,6 +2011,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                   {
                     seen,
                     locked: new Set(state.locked),
+                    pool,
                     valid: (cards) =>
                       validateDeck({ cards: [...cards], energies }, index).errors.length === 0 &&
                       (!rules || checkEventDeck(cards, rules, index).ok),
@@ -2193,7 +2271,15 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
           continue
         }
         if (!score.score) continue
-        const found = { jobId: job.id, era: job.params.lab.era, bot, finishedAt: job.finishedAt, score }
+        const found = {
+          jobId: job.id,
+          era: job.params.lab.era,
+          format: job.params.lab.format,
+          rivals: job.params.lab.rivals.map((rival) => ({ archetypeId: rival.archetypeId, weight: rival.weight })),
+          bot,
+          finishedAt: job.finishedAt,
+          score,
+        }
         if (!byDefault(job)) others.set(bot, found)
         else if (ofEra(job)) current = found
         else other ??= found
@@ -2276,8 +2362,11 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     if (!confirm || (sid !== state?.base && sid !== state?.incumbent)) return { score: search, complete: searched }
     const confirmFilter = (chunk: ChunkRow) => chunk.idx >= confirm.fromIdx && chunk.idx < confirm.toIdx
     const confirmed = scoreView(scoreOf(chunks, scored, sid, confirmFilter), lab.objective)
-    return confirmed.score
-      ? { score: confirmed, complete: complete(chunks, scored, sid, confirmFilter) }
+    // Review of #109: a confirmation that failed halfway leaves the search's score, when the search was whole (the
+    // list must not be marked as failed for it).
+    const confirmedWhole = complete(chunks, scored, sid, confirmFilter)
+    return confirmed.score && (confirmedWhole || !searched)
+      ? { score: confirmed, complete: confirmedWhole }
       : { score: search, complete: searched }
   }
 
@@ -2379,12 +2468,13 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
   }
 
   async jobs(limit = 50): Promise<LabJobsView> {
-    const jobs = await this.prisma.simulationJob.findMany({
-      orderBy: { id: 'desc' },
-      take: 500,
-      select: { id: true, params: true },
-    })
-    const lab = jobs.filter((job) => labMode(job.params) !== null).slice(0, limit)
+    // Deuda 2 (14/10): the Laboratorio's jobs filtered in the query; the 500 newest of every kind dropped older ones.
+    const jobs = await this.prisma.$queryRaw<{ id: number; params: Prisma.JsonValue }[]>`
+      SELECT id, params FROM simulation_jobs
+      WHERE params->'lab'->>'mode' IN ('test', 'explore')
+      ORDER BY id DESC
+      LIMIT ${limit}`
+    const lab = jobs.filter((job) => labMode(job.params) !== null)
     const summaries = new Map(
       (await this.simulations.summariesOf(lab.map((job) => job.id))).map((summary) => [summary.id, summary]),
     )
@@ -2405,6 +2495,65 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         })
         .filter((item): item is NonNullable<typeof item> => item !== null),
     }
+  }
+
+  /**
+   * H-055: «posible punto ciego del bot» of each list: the list rules for the bot of the lists' side and, when the
+   * objective is the meta and the headline round (the confirmation once there is one) is played whole, its score
+   * against what the list's archetype should make in tournaments against the same rivals with the same weights: the
+   * deck's own archetype, else the closest one. A score of part of the bank (a job still playing, a pairing that
+   * failed) is reweighted over the rivals it has, so it is not compared.
+   */
+  private async botBlindSpots(
+    decks: readonly LabDeckView[],
+    snapshots: ReadonlyMap<number, { cards: unknown }>,
+    closest: ReadonlyMap<number, string | null>,
+    whole: ReadonlyMap<number, boolean>,
+    rivals: readonly { archetypeId: string; weight: number }[],
+    bot: string | null,
+    lab: LabParams,
+    index: CatalogIndex,
+  ): Promise<Map<number, { text: string } | null>> {
+    const againstMeta = (lab.objective?.kind ?? 'meta') === 'meta'
+    const owners = new Map<string, string | null>()
+    const deckIds = [...new Set(decks.flatMap((deck) => (deck.deckId === null ? [] : [Number(deck.deckId)])))]
+    if (againstMeta && deckIds.length > 0) {
+      for (const row of await this.prisma.deck.findMany({
+        where: { id: { in: deckIds } },
+        select: { id: true, tournamentArchetypeId: true },
+      })) {
+        owners.set(String(row.id), row.tournamentArchetypeId)
+      }
+    }
+    const archetypeOf = (deck: LabDeckView): string | null => {
+      const own = deck.deckId === null ? undefined : owners.get(deck.deckId)
+      return own ?? closest.get(deck.snapshot) ?? null
+    }
+    const expected = new Map<string, ExpectedVsMetaView | null>()
+    if (againstMeta) {
+      for (const id of new Set(decks.map(archetypeOf).filter((id): id is string => id !== null))) {
+        const found = await this.tournaments
+          .expectedWith(id, { shares: bankShares(rivals) }, { era: lab.era, format: lab.format })
+          .catch(() => null)
+        expected.set(id, found)
+      }
+    }
+    const out = new Map<number, { text: string } | null>()
+    for (const deck of decks) {
+      const cards = cardsOfSnapshot(snapshots.get(deck.snapshot)?.cards as unknown as SnapshotCard[])
+      const archetype = archetypeOf(deck)
+      const score = comparableScore(deck, whole.get(deck.snapshot) ?? false)
+      const warnings = botWarnings({
+        cards,
+        index,
+        bot,
+        simulated: againstMeta ? score : null,
+        tournament: archetype === null ? null : (expected.get(archetype) ?? null),
+      })
+      const text = botWarningText(warnings, bot)
+      out.set(deck.snapshot, text ? { text } : null)
+    }
+    return out
   }
 
   async job(rawId: string): Promise<LabJobView> {
@@ -2436,7 +2585,21 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     const confirmFilter = (chunk: ChunkRow) => !!confirm && chunk.idx >= confirm.fromIdx && chunk.idx < confirm.toIdx
     const baseCards = state ? cardsOfSnapshot(byId.get(state.base)?.cards as unknown as SnapshotCard[]) : null
     const asked = new Set<CardId>(state?.include ?? [])
+    // Review of the #107 follow-up: a name carries its code only when two of its cards are among the job's lists.
+    const shared = sharedNames(
+      [
+        ...params.sideA.flatMap((sid) =>
+          cardsOfSnapshot(byId.get(sid)?.cards as unknown as SnapshotCard[]).map((entry) => entry.cardId),
+        ),
+        ...asked,
+      ],
+      index,
+    )
 
+    // H-055: the archetype each list belongs to (its deck's, or the era's closest when it is played or known), and
+    // whether its headline round is played whole (review of #119: every chunk, not one per rival).
+    const closest = new Map<number, string | null>()
+    const whole = new Map<number, boolean>()
     const decks: LabDeckView[] = params.sideA
       .map((sid): LabDeckView | null => {
         const snapshot = byId.get(sid)
@@ -2448,7 +2611,9 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             ? scoreView(scoreOf(chunks, scored, sid, confirmFilter), lab.objective)
             : null
         const headline = confirmed?.score ? confirmFilter : searchFilter
+        whole.set(sid, complete(chunks, scored, sid, confirmed ? confirmFilter : searchFilter))
         const found = novelty(rows, groupsOfCards(cards, index))
+        closest.set(sid, found.kind === 'new' ? null : (found.closest?.archetypeId ?? null))
         const noveltyView: LabNoveltyView = {
           kind: found.kind,
           label: NOVELTY_LABEL_ES[found.kind],
@@ -2480,7 +2645,9 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             const record = recordOf(chunks, sid, rival.snapshot, headline)
             return { rival: rival.snapshot, record, rate: simulationRate(record) }
           }),
-          changes: changes ? { add: lines(index, changes.add), remove: lines(index, changes.remove) } : null,
+          changes: changes
+            ? { add: lines(index, changes.add, shared), remove: lines(index, changes.remove, shared) }
+            : null,
           vsParent: vsParent
             ? {
                 text: vsParent.playing
@@ -2498,7 +2665,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
                   : null,
               }
             : null,
-          why: changes ? whyCards(changes.add, cards, state?.frozen, index, playable, asked) : [],
+          why: changes ? whyCards(changes.add, cards, state?.frozen, index, playable, asked, shared) : [],
           // T-017 A3: the list's cards the bots play badly or the engine approximates; a variant that brings one in says
           // so («carta con punto ciego»; review of #82: «sensible al bot» is the replay with e3's verdict).
           blindSpots: listBlindSpots(cards, index).map((card) => ({
@@ -2510,6 +2677,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             const card = index.cardById(change.cardId)
             return !!card && blindSpotsOf(card).length > 0
           }),
+          botBlindSpot: null,
           energyChange: (() => {
             const from = state ? (byId.get(state.base)?.energies ?? []) : []
             const to = snapshot.energies
@@ -2517,12 +2685,14 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             return state && !same ? { from, to } : null
           })(),
           novelty: noveltyView,
-          cards: lines(index, cards),
+          cards: lines(index, cards, shared),
           energies: snapshot.energies,
           simulable: snapshot.simulable,
         }
       })
       .filter((deck): deck is LabDeckView => deck !== null)
+    const blind = await this.botBlindSpots(decks, byId, closest, whole, scored, job.players[0] ?? null, lab, index)
+    for (const deck of decks) deck.botBlindSpot = blind.get(deck.snapshot) ?? null
 
     const roleOrder = { best: 0, base: 1, deck: 2, variant: 3 } as const
     decks.sort(
@@ -2611,7 +2781,16 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
               nameEs: index.groupById(groupId)?.nameEs ?? groupId,
               count: 0,
             })),
-            include: includeView(asked, (byId.get(state.base)?.energies ?? []) as unknown as SelectableEnergy[], index),
+            // Review of #107: the zone of the best list so far (an Energy variant may have changed it).
+            include: includeView(
+              asked,
+              (byId.get(state.incumbent)?.energies ??
+                byId.get(state.base)?.energies ??
+                []) as unknown as SelectableEnergy[],
+              index,
+              evolutionAllowed(index, await this.engine.status(), state.event?.rules),
+              shared,
+            ),
             added: state.added ?? [],
             pending: state.pending ?? [],
             lost: state.lost ?? [],
@@ -2666,19 +2845,29 @@ function includeView(
   include: Iterable<CardId>,
   energies: readonly SelectableEnergy[],
   index: CatalogIndex,
+  allowed?: (card: CardEdition) => boolean,
+  shared?: ReadonlySet<string>,
 ): LabIncludeView[] {
   return [...include].map((groupId) => {
     const group = index.groupById(groupId)
     const card = group ? index.cardById(group.displayCardId) : undefined
-    // Two functional cards with one name (Onix A1-150, three Fighting, and Onix B1a-38, three Colorless): the code.
-    const shared = card ? index.groupsByNameEn(card.nameEn).length > 1 : false
     return {
       cardId: groupId,
-      nameEs: `${group?.nameEs ?? groupId}${shared ? ` (${group?.displayCardId ?? groupId})` : ''}`,
+      // Two functional cards with one name (Onix A1-150, three Fighting, and Onix B1a-38, three Colorless): the code.
+      nameEs: labCardNameEs(groupId, index, shared),
       count: 0,
-      note: card ? zoneNoteEs(card, energies, index) : null,
+      note: card ? zoneNoteEs(card, energies, index, allowed) : null,
     }
   })
+}
+
+/** Review of #107: the evolutions a note may name — those the engine plays and the event allows. */
+function evolutionAllowed(
+  index: CatalogIndex,
+  engine: EngineStatus,
+  rules?: EventRules,
+): (card: CardEdition) => boolean {
+  return (card) => engineEdition(card, index, engine) !== null && (!rules || cardBreaksEvent(card, rules) === null)
 }
 
 /** H-021: the pool and the archetype usage of a search as it starts, kept in its state for every later round. */
@@ -2737,10 +2926,15 @@ function mergeLines(cards: readonly DeckCardEntry[]): DeckCardEntry[] {
   return [...counts].map(([cardId, count]) => ({ cardId, count }))
 }
 
-function lines(index: CatalogIndex, cards: readonly { cardId: string; count: number }[]): CardLineView[] {
+function lines(
+  index: CatalogIndex,
+  cards: readonly { cardId: string; count: number }[],
+  shared: ReadonlySet<string> = new Set(),
+): CardLineView[] {
   return cards.map((card) => ({
     cardId: card.cardId,
-    nameEs: index.cardById(card.cardId)?.nameEs ?? card.cardId,
+    // Review of #107: with the code when two cards of the name are in what is shown («+1 Onix (A1-150) −1 Onix (B1a-38)»).
+    nameEs: labCardNameEs(card.cardId, index, shared),
     count: card.count,
   }))
 }

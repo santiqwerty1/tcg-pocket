@@ -1,10 +1,29 @@
-import { isAbsolute } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { isAbsolute, resolve } from 'node:path'
+import { API_ROOT } from './dotenv.js'
 import { DEFAULT_CATALOG_COMMIT, DEFAULT_ENGINE_REV, EnvError, parseEnv } from './env.js'
 
 const base = {
   DATABASE_URL: 'postgresql://tcg:tcg@127.0.0.1:5433/tcg',
   SESSION_SECRET: 'x'.repeat(32),
 }
+/** Production requires a verified connection to the database. */
+const production = { ...base, NODE_ENV: 'production', DATABASE_URL: `${base.DATABASE_URL}?sslmode=verify-full` }
+
+describe('the engine pin (D-031, review of #115)', () => {
+  const repo = (path: string) => readFileSync(resolve(API_ROOT, '..', '..', path), 'utf8')
+
+  it('DEFAULT_ENGINE_REV is the deckgym rev of both Cargo.toml, of the golden games and of the texts that name it', () => {
+    for (const manifest of ['engine/Cargo.toml', 'engine/wasm/Cargo.toml']) {
+      expect(/^deckgym = \{[^}]*rev = "([0-9a-f]{40})"/m.exec(repo(manifest))?.[1]).toBe(DEFAULT_ENGINE_REV)
+    }
+    for (const golden of ['engine/games-rev.json', 'engine/wasm/games-wasm.json']) {
+      expect(JSON.parse(repo(golden)).engineRev).toBe(DEFAULT_ENGINE_REV)
+    }
+    expect(repo('apps/web/src/pages/mas/AboutPage.tsx')).toContain(`>${DEFAULT_ENGINE_REV.slice(0, 7)}</code>`)
+    expect(repo('docs/LICENCIAS.md')).toContain(DEFAULT_ENGINE_REV)
+  })
+})
 
 describe('parseEnv', () => {
   it('applies defaults', () => {
@@ -22,13 +41,34 @@ describe('parseEnv', () => {
   })
 
   it('defaults COOKIE_SECURE to true in production and lets the variable override it', () => {
-    expect(parseEnv({ ...base, NODE_ENV: 'production' }).cookieSecure).toBe(true)
-    expect(parseEnv({ ...base, NODE_ENV: 'production', COOKIE_SECURE: 'false' }).cookieSecure).toBe(false)
+    expect(parseEnv(production).cookieSecure).toBe(true)
+    expect(parseEnv({ ...production, COOKIE_SECURE: 'false' }).cookieSecure).toBe(false)
     expect(parseEnv({ ...base, COOKIE_SECURE: 'true' }).cookieSecure).toBe(true)
     expect(parseEnv(base).backupCron).toBe(false)
-    expect(parseEnv({ ...base, NODE_ENV: 'production' }).backupCron).toBe(true)
-    expect(parseEnv({ ...base, NODE_ENV: 'production', BACKUP_CRON: 'false' }).backupCron).toBe(false)
+    expect(parseEnv(production).backupCron).toBe(true)
+    expect(parseEnv({ ...production, BACKUP_CRON: 'false' }).backupCron).toBe(false)
     expect(parseEnv({ ...base, BACKUP_CRON: 'true' }).backupCron).toBe(true)
+  })
+
+  it('in production only with sslmode=verify-full, unless DATABASE_TLS=off (trying the image)', () => {
+    for (const mode of ['', '?sslmode=require', '?sslmode=verify-ca', '?sslmode=prefer', '?sslmode=disable']) {
+      expect(() => parseEnv({ ...production, DATABASE_URL: `${base.DATABASE_URL}${mode}` })).toThrow(
+        /sslmode=verify-full/,
+      )
+      expect(parseEnv({ ...base, DATABASE_URL: `${base.DATABASE_URL}${mode}` }).isProduction).toBe(false)
+    }
+    for (const repeated of ['?sslmode=verify-full&sslmode=disable', '?sslmode=disable&sslmode=verify-full']) {
+      expect(() => parseEnv({ ...production, DATABASE_URL: `${base.DATABASE_URL}${repeated}` })).toThrow(
+        /sslmode=verify-full/,
+      )
+    }
+    expect(parseEnv(production).databaseUrl).toContain('sslmode=verify-full')
+    const tlsOff = parseEnv({ ...production, DATABASE_URL: base.DATABASE_URL, DATABASE_TLS: 'off' })
+    expect(tlsOff.isProduction).toBe(true)
+    // main.ts warns about it at start.
+    expect(tlsOff.databaseTlsOff).toBe(true)
+    expect(parseEnv(production).databaseTlsOff).toBe(false)
+    expect(() => parseEnv({ ...base, DATABASE_TLS: 'on' })).toThrow(EnvError)
   })
 
   it('treats empty strings as unset', () => {

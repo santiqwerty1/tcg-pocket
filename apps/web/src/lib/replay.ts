@@ -181,6 +181,9 @@ export class ReplayReader {
       }
       case 'Evolve':
         return `Evoluciona ${mine(Number(v.in_play_idx))} a ${this.cardName(v.evolution)}${v.from_deck ? ' (desde el mazo)' : ''}`
+      // Quick-Grow Extract and Wallace in our copy of deckgym (D-031): the Pokémon is chosen, the evolution is random.
+      case 'EvolveIntoRandomFromDeck':
+        return `Evoluciona ${mine(Number(v.in_play_idx))} a un Pokémon de tipo ${energyEs(String(v.energy))} al azar del mazo`
       case 'UseAbility':
         return `Usa la habilidad de ${mine(Number(v.in_play_idx))}`
       case 'Attack': {

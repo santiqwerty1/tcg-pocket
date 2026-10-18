@@ -10,7 +10,16 @@ import type { CatalogIndex } from '../catalog/catalogIndex.js'
 import type { CardId } from '../catalog/types.js'
 import type { DeckCardEntry } from '../decks/types.js'
 import { listKeyByGroup } from '../tournaments/dataset.js'
-import { applySwap, cardChanges, replaceSlot, slotGroups, type Variant, type VariantChange } from './mutate.js'
+import {
+  applySwap,
+  cardChanges,
+  type PoolCard,
+  replaceSlot,
+  slotGroups,
+  strandsPreEvolution,
+  type Variant,
+  type VariantChange,
+} from './mutate.js'
 import { groupsOfCards } from './novelty.js'
 
 export interface LearnedChange {
@@ -166,7 +175,8 @@ export function learnedChanges(
  * stay tied to its first change (search #11 kept +Gible, and the second Bulbasaur it then could have needed was never
  * weighed against taking Gible out). The cards that came in go out, in their places, and the ones that went out come
  * back in the edition `editionOf` gives. Null when none applies, or the result is not valid or not new. `undoes` is the
- * position in `accepted` of the swap it undoes.
+ * position in `accepted` of the swap it undoes. Review of #113: never leaves alone a pre-evolution of `pool` that only
+ * comes along (undoing «+Polteageist» while Sinistea came in on its own).
  */
 export function revertVariant(
   deck: readonly DeckCardEntry[],
@@ -178,6 +188,8 @@ export function revertVariant(
     seen?: ReadonlySet<string> | undefined
     locked?: ReadonlySet<CardId> | undefined
     valid: (cards: readonly DeckCardEntry[]) => boolean
+    /** The search's pool: its weight-0 cards are the pre-evolutions that only come along. */
+    pool: readonly PoolCard[]
   },
 ): (Variant & { undoes: number }) | null {
   if (accepted.length === 0) return null
@@ -199,6 +211,7 @@ export function revertVariant(
     }
     const key = listKeyByGroup(groupsOfCards(cards, index))
     if (key === baseKey || options.seen?.has(key) || !options.valid(cards)) continue
+    if (strandsPreEvolution(deck, cards, options.pool, index)) continue
     const sorted = cards.filter((entry) => entry.count > 0)
     return { cards: sorted, key, ...cardChanges(deck, sorted, index), undoes }
   }
@@ -222,7 +235,8 @@ export function swapScore(learned: Learned, swap: MeasuredSwap, index: CatalogIn
  * A variant of `deck` that makes the two best swaps measured so far (each worth more than nothing by `score`, by
  * default its measured difference), when both still apply (their cards are still in the deck), it is valid, what it
  * adds stays within `maxCopies` (the copies the collection has, with the pool «colección»; a card the list already
- * played above that may stay) and it is new; else null.
+ * played above that may stay) and it is new; else null. Review of #113: never leaves alone a pre-evolution of `pool`
+ * that only comes along (two swaps «−Polteageist» that pass one by one take both out together).
  */
 export function comboVariant(
   deck: readonly DeckCardEntry[],
@@ -234,6 +248,8 @@ export function comboVariant(
     valid: (cards: readonly DeckCardEntry[]) => boolean
     maxCopies?: ((groupId: CardId) => number) | undefined
     score?: ((swap: MeasuredSwap) => number) | undefined
+    /** The search's pool: its weight-0 cards are the pre-evolutions that only come along. */
+    pool: readonly PoolCard[]
   },
 ): Variant | null {
   const score = options.score ?? ((swap: MeasuredSwap) => swap.difference)
@@ -258,6 +274,7 @@ export function comboVariant(
       if (!applySwap(cards, first, index, options.locked) || !applySwap(cards, second, index, options.locked)) continue
       const key = listKeyByGroup(groupsOfCards(cards, index))
       if (key === baseKey || options.seen?.has(key) || !options.valid(cards) || !withinCopies(cards)) continue
+      if (strandsPreEvolution(deck, cards, options.pool, index)) continue
       const sorted = cards.filter((entry) => entry.count > 0)
       return { cards: sorted, key, ...cardChanges(deck, sorted, index) }
     }

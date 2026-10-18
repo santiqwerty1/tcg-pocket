@@ -7,6 +7,9 @@
  *   `regulator.json` in the data folder, which `--check` shows.
  * - If it ends on its own, it starts again (at most `MAX_STARTS_PER_HOUR`), and the engines running are told to it
  *   again; one that cannot run on this machine (exit 2, such as more than 64 logical processors) is not started again.
+ *   After the last start, one short run gives the engines running the whole machine back (review of #106).
+ * - With an engine that has `regulatePing` (engine-cli 0.3.11), it asks every minute whether the regulator still reads
+ *   its lines; one that does not answer is cut and started again (review of #106: a hung one went unnoticed).
  *   When the worker stops, its stdin closes: every engine gets the whole machine back and it ends.
  * - Its mask is sized from the whole machine, not from `cores` (the threads of each engine): with nothing else
  *   running the engines keep every processor, as without it (autorrevisión).
@@ -62,6 +65,8 @@ export function parseAllowed(line: string, at: Date): RegulatorState | null {
 }
 
 export const MAX_STARTS_PER_HOUR = 5
+/** How long a regulator may take to say its first line before the pings count it as hung (`startupTimeoutMs`). */
+const STARTUP_MS = 30_000
 
 export interface RegulatorOptions {
   enginePath: string
@@ -78,6 +83,14 @@ export interface RegulatorOptions {
   everyMs?: number
   /** How long `stop()` waits for it to end before killing it. */
   stopTimeoutMs?: number
+  /** How long the last short run after the fifth start may take before it is killed. */
+  restoreTimeoutMs?: number
+  /** How long a regulator may take to say its first line before it is cut, with pings on (tests make it short). */
+  startupTimeoutMs?: number
+  /** Its engine answers `ping` (`regulatePing`): check it every `pingEveryMs`, cut it after `pingTimeoutMs` without an answer. */
+  ping?: boolean
+  pingEveryMs?: number
+  pingTimeoutMs?: number
 }
 
 export class CpuRegulator implements EngineListener {
@@ -89,6 +102,13 @@ export class CpuRegulator implements EngineListener {
   private logTimer: ReturnType<typeof setTimeout> | null = null
   private lastLogAt = 0
   private pending: RegulatorState | null = null
+  private pingTimer: ReturnType<typeof setInterval> | null = null
+  /** When the unanswered `ping` went (null: none waits). */
+  private pingSentAt: number | null = null
+  /** The running regulator said its first line («regulador …»): pings start then. */
+  private ready = false
+  /** The last short run after the fifth start, while it runs. */
+  private restoreChild: ChildProcess | null = null
   /** What it allows now (null before its first change). */
   state: RegulatorState | null = null
 
@@ -106,11 +126,11 @@ export class CpuRegulator implements EngineListener {
       this.options.log('el regulador de CPU terminó muchas veces: no lo arranco más hasta reiniciar el worker', {
         starts: this.starts.length,
       })
+      this.giveMachineBack()
       return
     }
     this.starts.push(now)
-    const { enginePath } = this.options
-    const [command, prefix] = /\.m?js$/.test(enginePath) ? [process.execPath, [enginePath]] : [enginePath, []]
+    const [command, prefix] = this.command()
     const args = [
       ...prefix,
       'regulate',
@@ -121,6 +141,7 @@ export class CpuRegulator implements EngineListener {
     ]
     const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     this.child = child
+    this.ready = false
     child.stdin?.on('error', () => undefined)
     // What it said of an error: its JSON on stdout and the end of its stderr (`fin error 2`).
     let said = ''
@@ -139,7 +160,10 @@ export class CpuRegulator implements EngineListener {
     })
     child.on('error', (error) => this.options.log('no pude arrancar el regulador de CPU', { error: error.message }))
     child.on('close', (code) => {
-      if (this.child === child) this.child = null
+      if (this.child === child) {
+        this.child = null
+        this.stopPings()
+      }
       if (this.stopping) return
       const error = said || stderr.trim() || undefined
       // An input error is this machine's (more than one processor group, its cores unreadable): it would end again.
@@ -156,6 +180,97 @@ export class CpuRegulator implements EngineListener {
     })
     // The engines running now: a regulator started again knows them too.
     for (const [pid, kind] of this.engines) this.send(`add ${pid} ${kind}`)
+    if (this.options.ping) this.startPings(child)
+  }
+
+  /** `engine-cli regulate`, or the fake engine of the tests run with this Node. */
+  private command(): [string, string[]] {
+    const { enginePath } = this.options
+    return /\.m?js$/.test(enginePath) ? [process.execPath, [enginePath]] : [enginePath, []]
+  }
+
+  /** A `ping` every `pingEveryMs`; a regulator that leaves one without `pong` for `pingTimeoutMs` is cut (and started again). */
+  private startPings(child: ChildProcess): void {
+    this.stopPings()
+    const every = this.options.pingEveryMs ?? 60_000
+    const timeout = this.options.pingTimeoutMs ?? 15_000
+    // A ping every `every`, looked at often enough to notice a missing pong after `timeout` (autorrevisión: one tick of
+    // the shorter of the two sent a ping every 15 s). Only once the regulator said its first line: a start slower than
+    // the timeout (a busy machine) is not a hung regulator; one that says nothing in `startupTimeoutMs` is cut.
+    const startedAt = Date.now()
+    let lastPingAt = startedAt
+    this.pingTimer = setInterval(
+      () => {
+        if (this.child !== child) return
+        if (!this.ready) {
+          if (Date.now() - startedAt < Math.max(timeout, this.options.startupTimeoutMs ?? STARTUP_MS)) return
+          this.options.log('el regulador de CPU no arrancó: lo corto', {
+            seconds: Math.round((Date.now() - startedAt) / 1000),
+          })
+          child.kill()
+          return
+        }
+        if (this.pingSentAt !== null) {
+          if (Date.now() - this.pingSentAt < timeout) return
+          this.options.log('el regulador de CPU no contesta: lo corto', {
+            seconds: Math.round((Date.now() - this.pingSentAt) / 1000),
+          })
+          this.pingSentAt = null
+          child.kill()
+          return
+        }
+        if (Date.now() - lastPingAt < every) return
+        lastPingAt = Date.now()
+        this.pingSentAt = lastPingAt
+        this.send('ping')
+      },
+      Math.max(10, Math.min(every, timeout) / 2),
+    )
+    this.pingTimer.unref()
+  }
+
+  private stopPings(): void {
+    if (this.pingTimer) clearInterval(this.pingTimer)
+    this.pingTimer = null
+    this.pingSentAt = null
+  }
+
+  /**
+   * After the last start: one short run told the engines running and closed at once, which gives each the whole machine
+   * back (a regulator starts them all at its maximum and gives the machine back when its stdin ends). Without it they
+   * kept the mask they had until their chunk ended (review of #106).
+   */
+  private giveMachineBack(): void {
+    const managed = [...this.engines].filter(([, kind]) => kind === 'managed').map(([pid]) => pid)
+    if (managed.length === 0) return
+    const [command, prefix] = this.command()
+    const child = spawn(command, [...prefix, 'regulate', '--floor', '1'], {
+      stdio: ['pipe', 'ignore', 'ignore'],
+      windowsHide: true,
+    })
+    // Followed, and bounded: the starts before ended on their own, so this one may hang or crash too (review of #110).
+    // Only a clean end gave the engines the machine back.
+    this.restoreChild = child
+    const limit = setTimeout(() => {
+      this.options.log('la última corrida del regulador de CPU no terminó: la corto', { engines: managed.length })
+      child.kill()
+    }, this.options.restoreTimeoutMs ?? 15_000)
+    limit.unref()
+    child.on('error', () => undefined)
+    child.on('close', (code) => {
+      clearTimeout(limit)
+      if (this.restoreChild === child) this.restoreChild = null
+      if (code === 0) {
+        this.options.log('devuelvo la máquina entera a los motores en marcha', { engines: managed.length })
+      } else {
+        this.options.log('no pude devolver la máquina entera a los motores en marcha: siguen así hasta terminar', {
+          engines: managed.length,
+          code,
+        })
+      }
+    })
+    child.stdin?.on('error', () => undefined)
+    child.stdin?.end(managed.map((pid) => `add ${pid} managed\n`).join(''))
   }
 
   private send(line: string): void {
@@ -164,6 +279,11 @@ export class CpuRegulator implements EngineListener {
   }
 
   private read(line: string): void {
+    if (line === 'pong') {
+      this.pingSentAt = null
+      return
+    }
+    if (line.startsWith('regulador ') && line !== 'regulador terminado') this.ready = true
     if ((line.startsWith('regulador ') && line !== 'regulador terminado') || line.startsWith('aviso ')) {
       this.options.log('regulador de CPU', { said: line })
       return
@@ -216,6 +336,9 @@ export class CpuRegulator implements EngineListener {
   /** Closes its stdin (every engine gets the whole machine back) and waits for it to end. */
   async stop(): Promise<void> {
     this.stopping = true
+    this.stopPings()
+    // A last short run still going does not hold the worker's stop (review of #110).
+    this.restoreChild?.kill()
     if (this.restart) clearTimeout(this.restart)
     if (this.logTimer) clearTimeout(this.logTimer)
     const child = this.child

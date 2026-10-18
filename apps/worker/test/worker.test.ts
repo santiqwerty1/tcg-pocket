@@ -426,7 +426,7 @@ describe('worker loop', () => {
   })
 
   /** Plays `chunks` until the queue is empty: what was reported, when each claim went and what was logged. */
-  async function lossRun(chunks: Chunk[], overrides: Partial<WorkerConfig> = {}) {
+  async function lossRun(chunks: Chunk[], overrides: Partial<WorkerConfig> = {}, tweak?: (worker: Worker) => void) {
     const { client, calls } = fakeClient(chunks)
     const controller = new AbortController()
     const original = vi.mocked(client.claim).getMockImplementation()
@@ -446,6 +446,7 @@ describe('worker loop', () => {
     const log = vi.fn()
     const worker = new Worker({ ...config, ...overrides }, client, log)
     worker.lostResultsPauseMs = 400
+    tweak?.(worker)
     await worker.loop(controller.signal)
     const paused = log.mock.calls.some(([message]) => String(message).startsWith('el motor perdió resultados'))
     const resumes = log.mock.calls.filter(([message]) =>
@@ -471,6 +472,18 @@ describe('worker loop', () => {
       expect(added).toHaveLength(1)
       expect(lines()).toContain(added[0]?.replace(/^add (\d+) managed$/, 'remove $1'))
       expect(lines().at(-1)).toBe('end')
+      // Without regulatePing it is never asked: an old regulator would not answer and would be cut (autorrevisión).
+      const fast = (worker: Worker) => {
+        worker.regulatorPingEveryMs = 20
+      }
+      rmSync(heard, { force: true })
+      await lossRun([chunk({ chunkId: 9 })], { cpuRegulator: true }, fast)
+      expect(lines()).not.toContain('ping')
+      // With it, it is.
+      rmSync(heard, { force: true })
+      vi.stubEnv('FAKE_ENGINE_REGULATE_PING', '1')
+      await lossRun([chunk({ chunkId: 9 })], { cpuRegulator: true }, fast)
+      expect(lines()).toContain('ping')
       // Turned off, it is not started.
       rmSync(heard, { force: true })
       await lossRun([chunk({ chunkId: 9 })], { cpuRegulator: false })
@@ -1313,6 +1326,22 @@ describe('games against a bot (Fase 8)', () => {
       watchEngines(null)
     }
     expect(seen).toEqual(['start own true', 'end'])
+  })
+
+  it('a live game ends for the regulator when its engine ends, not when its pipes close (autorrevisión)', async () => {
+    vi.stubEnv('FAKE_ENGINE_HOLD_PIPES', '1500')
+    let endedAt = 0
+    watchEngines({ started: () => undefined, ended: () => (endedAt = Date.now()) })
+    try {
+      const { client } = liveClient([0])
+      await new LiveRunner(config, client, silent, dataDir).run(game([1]), new AbortController().signal)
+    } finally {
+      watchEngines(null)
+      vi.unstubAllEnvs()
+    }
+    const resolvedAt = Date.now()
+    expect(endedAt).toBeGreaterThan(0)
+    expect(resolvedAt - endedAt, `ended at ${endedAt}, resolved at ${resolvedAt}`).toBeGreaterThanOrEqual(600)
   })
 
   it('rebuilds a game from the choices the app already has, asking only for the new ones', async () => {

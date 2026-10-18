@@ -751,6 +751,8 @@ export const comparisonColumnSchema = z.object({
       }),
     )
     .optional(),
+  /** H-055, simulation column: «posible punto ciego del bot», by the list's cards. */
+  blindSpot: z.object({ text: z.string() }).nullable().default(null),
 })
 export type ComparisonColumn = z.infer<typeof comparisonColumnSchema>
 export const deckComparisonSchema = z.object({ deck: matchDeckRefSchema, columns: z.array(comparisonColumnSchema) })
@@ -1795,6 +1797,8 @@ export const labDeckSchema = z.object({
   /** T-017 A3: cards the bots play badly or the engine approximates, and whether what came in is one. */
   blindSpots: z.array(z.object({ cardId: z.string(), nameEs: z.string(), reasons: z.array(z.string()) })).default([]),
   bringsBlindSpot: z.boolean().default(false),
+  /** H-055: «posible punto ciego del bot»: the list's cards, and the score far from the archetype's in tournaments. */
+  botBlindSpot: z.object({ text: z.string() }).nullable().default(null),
   /** T-017 E1/E2: why each card that came in was proposed, and the copies the collection lacks. */
   why: z
     .array(
@@ -2649,6 +2653,8 @@ export const pickSchema = z.object({
         })
         .nullable()
         .default(null),
+      /** H-055: «posible punto ciego del bot» of the Laboratorio's number. */
+      blindSpot: z.object({ text: z.string() }).nullable().default(null),
     }),
   ),
   /** The decks without a Laboratorio score of this era and not under test now. */

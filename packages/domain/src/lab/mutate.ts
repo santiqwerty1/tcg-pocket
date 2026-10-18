@@ -149,9 +149,11 @@ export function zoneNoteEs(
   card: CardEdition,
   energies: readonly SelectableEnergy[],
   index: CatalogIndex,
+  /** Review of #107: only evolutions that can come in (the engine plays them, the event allows them). */
+  allowed: (card: CardEdition) => boolean = () => true,
 ): string | null {
   if (usableWith(card, energies)) return null
-  const later = evolutionLine(card, index).slice(1)
+  const later = evolutionLine(card, index).slice(1).filter(allowed)
   const names = (steps: readonly CardEdition[]) => {
     const unique = [...new Set(steps.map((step) => step.nameEs))]
     const last = unique.pop()
@@ -198,6 +200,65 @@ function preEvolutionNames(pool: readonly PoolCard[], asked: ReadonlySet<CardId>
     if (from) names.add(from)
   }
   return names
+}
+
+/**
+ * Review of #107: `next` leaves alone a card that only comes along as a pre-evolution (weight 0 in `pool`) whose
+ * evolution `parent` had: «+Polteageist +Sinistea» accepted, and two rounds later a swap takes Polteageist out and
+ * Sinistea stays, a Basic that cannot attack. A list that already had it alone is left as it was.
+ */
+export function strandsPreEvolution(
+  parent: readonly DeckCardEntry[],
+  next: readonly DeckCardEntry[],
+  pool: readonly PoolCard[],
+  index: CatalogIndex,
+): boolean {
+  const helpers = new Set(pool.filter((item) => item.weight <= 0).map((item) => item.groupId))
+  if (helpers.size === 0) return false
+  const evolvedFrom = (cards: readonly DeckCardEntry[]) =>
+    new Set(
+      cards
+        .filter((entry) => entry.count > 0)
+        .map((entry) => index.cardById(entry.cardId)?.evolvesFrom)
+        .filter((name): name is string => !!name),
+    )
+  const before = evolvedFrom(parent)
+  const after = evolvedFrom(next)
+  return next.some((entry) => {
+    const card = entry.count > 0 ? index.cardById(entry.cardId) : undefined
+    return !!card && helpers.has(card.functionalGroupId) && before.has(card.nameEn) && !after.has(card.nameEn)
+  })
+}
+
+/**
+ * A card's Spanish name in the Laboratorio, with the code of its functional card when another one shares its name
+ * (review of #107): Onix A1-150 (three Fighting) and Onix B1a-38 (three Colorless) are different cards. With `shared`
+ * (from `sharedNames`), only when the name is among them — two cards of the name in what is shown; without it, when
+ * any card of the catalog shares it.
+ */
+export function labCardNameEs(cardId: CardId, index: CatalogIndex, shared?: ReadonlySet<string>): string {
+  const card = index.cardById(cardId) ?? index.cardById(index.groupById(cardId)?.displayCardId ?? cardId)
+  if (!card) return cardId
+  const group = index.groupById(card.functionalGroupId)
+  const ambiguous = shared ? shared.has(card.nameEn) : index.groupsByNameEn(card.nameEn).length > 1
+  return ambiguous && group ? `${card.nameEs} (${group.displayCardId})` : card.nameEs
+}
+
+/**
+ * The English names two or more of these cards (editions or functional cards) share with different functional cards:
+ * the ones a screen has to tell apart by code (review of the #107 follow-up: «Heatmor (B1-44)» when no other Heatmor is
+ * there was noise).
+ */
+export function sharedNames(cardIds: Iterable<CardId>, index: CatalogIndex): Set<string> {
+  const groupsByName = new Map<string, Set<CardId>>()
+  for (const cardId of cardIds) {
+    const card = index.cardById(cardId) ?? index.cardById(index.groupById(cardId)?.displayCardId ?? cardId)
+    if (!card) continue
+    const groups = groupsByName.get(card.nameEn) ?? new Set<CardId>()
+    groups.add(card.functionalGroupId)
+    groupsByName.set(card.nameEn, groups)
+  }
+  return new Set([...groupsByName].filter(([, groups]) => groups.size > 1).map(([name]) => name))
 }
 
 /**
@@ -330,6 +391,7 @@ export function variantOf(
     const key = listKeyByGroup(groups)
     if (key === baseKey || options.seen?.has(key)) continue
     if (validateDeck({ cards, energies: [...energies] }, index).errors.length > 0) continue
+    if (strandsPreEvolution(deck, cards, pool, index)) continue
     if (options.accept && !options.accept(cards)) continue
     const sorted = cards.filter((entry) => entry.count > 0)
     return { cards: sorted, key, ...cardChanges(deck, sorted, index) }

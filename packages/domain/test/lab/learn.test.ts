@@ -99,7 +99,7 @@ describe('what a search learns between rounds (T-017 C4)', () => {
       const variant = variantOf(deck.cards, energies, pool, index, random, { swaps: 1 })
       if (variant) swaps.push(swapOf(deck.cards, variant.cards, index, 10 - swaps.length * 3))
     }
-    const combo = comboVariant(deck.cards, swaps, index, { valid })
+    const combo = comboVariant(deck.cards, swaps, index, { pool: [], valid })
     if (!combo) throw new Error('no combo')
     expect(valid(combo.cards)).toBe(true)
     const added = combo.add.map((change) => group(change.cardId))
@@ -108,18 +108,18 @@ describe('what a search learns between rounds (T-017 C4)', () => {
     // Nothing worse than its parent is ever joined.
     const [first] = swaps
     if (!first) throw new Error('no swap')
-    expect(comboVariant(deck.cards, [{ ...first, difference: -1 }], index, { valid })).toBeNull()
+    expect(comboVariant(deck.cards, [{ ...first, difference: -1 }], index, { pool: [], valid })).toBeNull()
     // Review of #15: with the collection's copies as the cap, a combo never asks for more than it has.
     const owned = (groupId: string) => (combo.add.some((change) => group(change.cardId) === groupId) ? 0 : 2)
-    expect(comboVariant(deck.cards, swaps, index, { valid, maxCopies: owned })?.key).not.toBe(combo.key)
+    expect(comboVariant(deck.cards, swaps, index, { pool: [], valid, maxCopies: owned })?.key).not.toBe(combo.key)
     // And the order is the score's: the worst two by difference first when the score says so.
-    const reversed = comboVariant(deck.cards, swaps, index, { valid, score: (swap) => 20 - swap.difference })
+    const reversed = comboVariant(deck.cards, swaps, index, { pool: [], valid, score: (swap) => 20 - swap.difference })
     expect(reversed?.key).not.toBe(combo.key)
     // Review of the stack: a starting list above the collection (none of its own cards owned) still gets the combo;
     // only what goes up is checked.
     const had = groupsOfCards(deck.cards, index)
     const above = (groupId: string) => (had.has(groupId) && !added.includes(groupId) ? 0 : 2)
-    expect(comboVariant(deck.cards, swaps, index, { valid, maxCopies: above })?.key).toBe(combo.key)
+    expect(comboVariant(deck.cards, swaps, index, { pool: [], valid, maxCopies: above })?.key).toBe(combo.key)
   })
 
   it('review of the stack: undoing a swap that added a second copy puts the old card back in its own place', () => {
@@ -133,7 +133,7 @@ describe('what a search learns between rounds (T-017 C4)', () => {
     expect(accepted.slots).toHaveLength(1)
     const editionOf = (groupId: string) =>
       deck.cards.find((entry) => group(entry.cardId) === groupId)?.cardId ?? groupId
-    const back = revertVariant(variant, [accepted], 0, index, editionOf, { valid: () => true })
+    const back = revertVariant(variant, [accepted], 0, index, editionOf, { pool: [], valid: () => true })
     if (!back) throw new Error('no revert')
     // Every copy where it was: the second copy leaves, not the first one.
     expect(slotGroups(back.cards, index)).toEqual(slotGroups(deck.cards, index))
@@ -161,13 +161,13 @@ describe('what a search learns between rounds (T-017 C4)', () => {
     expect(accepted.slots).toHaveLength(2)
     const editionOf = (groupId: string) =>
       deck.cards.find((entry) => group(entry.cardId) === groupId)?.cardId ?? groupId
-    const back = revertVariant(variant, [accepted], 0, index, editionOf, { valid: () => true })
+    const back = revertVariant(variant, [accepted], 0, index, editionOf, { pool: [], valid: () => true })
     if (!back) throw new Error('no revert')
     expect(slotGroups(back.cards, index)).toEqual(slotGroups(deck.cards, index))
     // When those places hold something else now, it is no longer an undo: none (not a reshuffled list).
     const moved = variant.map((entry) => ({ ...entry }))
     expect(replaceSlot(moved, slotOf(a.cardId), a.cardId)).toBe(true)
-    expect(revertVariant(moved, [accepted], 0, index, editionOf, { valid: () => true })).toBeNull()
+    expect(revertVariant(moved, [accepted], 0, index, editionOf, { pool: [], valid: () => true })).toBeNull()
   })
 
   it('review of #35 (Codex): a combo keeps the collection cap of a card the Energy Zone no longer draws', () => {
@@ -187,7 +187,7 @@ describe('what a search learns between rounds (T-017 C4)', () => {
       { add: ['A1-1'], remove: [group(x.cardId)], difference: 5 },
       { add: ['A1-1'], remove: [group(y.cardId)], difference: 4 },
     ]
-    const anyDeck = { valid: () => true }
+    const anyDeck = { pool: [], valid: () => true }
     // Caps from the zone's pool would let two in (Bulbasaur is not there: no cap); the frozen pool's keep one.
     const zoneCaps = new Map(poolForZone(full, ['fire'], index).map((card) => [card.groupId, card.maxCopies]))
     expect(
@@ -214,7 +214,7 @@ describe('what a search learns between rounds (T-017 C4)', () => {
     const accepted = swapOf(deck.cards, variant.cards, index, 8)
     const editionOf = (groupId: string) =>
       deck.cards.find((entry) => group(entry.cardId) === groupId)?.cardId ?? groupId
-    const back = revertVariant(variant.cards, [accepted], 0, index, editionOf, { valid })
+    const back = revertVariant(variant.cards, [accepted], 0, index, editionOf, { pool: [], valid })
     if (!back) throw new Error('no revert')
     // Bots' review, item 7: it says which accepted swap it undid, so that one leaves the history if it wins.
     expect(back.undoes).toBe(0)
@@ -224,9 +224,9 @@ describe('what a search learns between rounds (T-017 C4)', () => {
     expect(slots(back.cards)).toEqual(slots(deck.cards))
     // Already seen, or nothing accepted: no revert.
     expect(
-      revertVariant(variant.cards, [accepted], 0, index, editionOf, { valid, seen: new Set([back.key]) }),
+      revertVariant(variant.cards, [accepted], 0, index, editionOf, { pool: [], valid, seen: new Set([back.key]) }),
     ).toBeNull()
-    expect(revertVariant(variant.cards, [], 0, index, editionOf, { valid })).toBeNull()
+    expect(revertVariant(variant.cards, [], 0, index, editionOf, { pool: [], valid })).toBeNull()
   })
 })
 

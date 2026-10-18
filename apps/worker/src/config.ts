@@ -28,8 +28,9 @@ export interface WorkerConfig {
   /** D-026: a managed install (portable or Android package) follows the app's package; false keeps this one. */
   autoUpdate: boolean
   /**
-   * The CPU regulator (Windows, engine feature `regulate`): the engines use every logical processor up to `cores`
-   * while nothing else needs them, and give whole cores back when another program does. On by default on Windows.
+   * The CPU regulator (Windows, engine feature `regulate`): the engines' mask is the whole machine while nothing else
+   * needs it, and gives whole cores back when another program does (`cores` is each engine's threads, not a cap on the
+   * mask). On by default on Windows.
    */
   cpuRegulator: boolean
 }

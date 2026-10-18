@@ -54,15 +54,19 @@ fn a_regulated_engine_runs_within_what_it_allows_and_gets_the_machine_back_at_th
     let job = dir.join("job.json");
     let text = serde_json::json!({ "deckA": DECK, "deckB": DECK, "players": ["e2", "e2"], "games": 100000, "seed": 5, "threads": 2 });
     std::fs::write(&job, text.to_string()).expect("job");
-    // A busy engine, as the worker starts one.
-    let busy = engine()
-        .arg("simulate")
-        .arg(&job)
-        .arg(dir.join("result.json"))
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("engine");
+    // Two busy engines, as the worker starts them: one for a job, one for a live game (never narrowed).
+    let busy_engine = |name: &str| {
+        engine()
+            .arg("simulate")
+            .arg(&job)
+            .arg(dir.join(name))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("engine")
+    };
+    let busy = busy_engine("result.json");
+    let live = busy_engine("live.json");
     let mut regulator = engine()
         .args(["regulate", "--max", "4", "--every-ms", "200"])
         .stdin(Stdio::piped())
@@ -81,29 +85,46 @@ fn a_regulated_engine_runs_within_what_it_allows_and_gets_the_machine_back_at_th
             }
         })
     };
-    let busy_id = busy.id();
-    let mut children = Reap(vec![busy, regulator]);
+    let (busy_id, live_id) = (busy.id(), live.id());
+    let mut children = Reap(vec![busy, live, regulator]);
+    let mut tell = |line: String| {
+        writeln!(stdin, "{line}").expect("write");
+        stdin.flush().expect("flush");
+    };
     // A PID that is not an engine (this test's own process): never touched (autorrevisión).
     let me = std::process::id();
     let mine = affinity(me).0;
-    writeln!(stdin, "add {me} managed").expect("add");
-    writeln!(stdin, "add {busy_id} managed").expect("add");
-    stdin.flush().expect("flush");
+    tell(format!("add {me} managed"));
+    tell(format!("add {live_id} own"));
+    tell(format!("add {busy_id} managed"));
     let (_, system) = affinity(busy_id);
     // At most 4 logical processors (whole cores): never the whole machine on a machine with more than 4.
-    until("the engine is narrowed", || {
+    let narrowed = || {
         let (mask, _) = affinity(busy_id);
         mask.count_ones() <= 4 && mask != 0
-    });
+    };
+    until("the engine is narrowed", narrowed);
     if system.count_ones() > 4 {
         assert_ne!(affinity(busy_id).0, system);
     }
     assert_eq!(affinity(me).0, mine, "a process that is not an engine keeps its mask");
+    // A live game's engine is counted as ours but never narrowed (review of #106, M4).
+    assert_eq!(affinity(live_id).0, system, "an own engine keeps the whole machine");
+    // It answers the worker's check (review of #106: a hung regulator).
+    tell("ping".to_string());
+    until("pong", || said.lock().unwrap().iter().any(|line| line == "pong"));
+    // An engine removed while it still runs gets the whole machine back (review of #106: a PID reused by a live game).
+    tell(format!("remove {busy_id}"));
+    until("the removed engine gets the machine back", || affinity(busy_id).0 == system);
+    tell(format!("add {busy_id} managed"));
+    until("the engine is narrowed again", narrowed);
+    assert_eq!(affinity(live_id).0, system, "an own engine keeps the whole machine");
     // The worker goes away: the engine gets the whole machine back, and the regulator ends.
+    drop(tell);
     drop(stdin);
     let deadline = Instant::now() + Duration::from_secs(20);
     let status = loop {
-        if let Some(status) = children.0[1].try_wait().expect("wait") {
+        if let Some(status) = children.0[2].try_wait().expect("wait") {
             break status;
         }
         assert!(Instant::now() < deadline, "the regulator did not end");

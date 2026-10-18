@@ -6,6 +6,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import {
   botLabel,
+  botWarningText,
   type CatalogIndex,
   cleanOpponent,
   coinAdjustedRate,
@@ -18,6 +19,7 @@ import {
   groupSeenMatches,
   holmVerdicts,
   type LuckCheck,
+  listBotWarnings,
   losingStreak,
   luckCheck,
   type MatchFacts,
@@ -1039,8 +1041,29 @@ export class MatchesService {
       available: true,
       record: column.record,
       rate: simulationRate(column.record),
+      // Review of the PR: the column pools the deck's games on both sides, so only a bot both sides share names it.
+      blindSpot:
+        column.players[0] === column.players[1] ? await this.simulationBlindSpot(deckId, column.players[0]) : null,
       note: `Bots ${botLabel(column.players[0])} vs ${botLabel(column.players[1])}, ${column.jobs === 1 ? '1 simulación' : `${column.jobs} simulaciones`}, motor ${column.engineRev.slice(0, 7)}. El porcentaje depende del bot.`,
     }
+  }
+
+  /** H-055: the list rules of «posible punto ciego del bot» for the current list and the bot of its side. */
+  private async simulationBlindSpot(deckId: number, bot: string): Promise<{ text: string } | null> {
+    let index: CatalogIndex
+    try {
+      index = this.catalog.requireIndex()
+    } catch {
+      return null
+    }
+    const deck = await this.prisma.deck.findUnique({ where: { id: deckId }, select: { currentRevisionId: true } })
+    const revision =
+      deck?.currentRevisionId == null
+        ? null
+        : await this.prisma.deckRevision.findUnique({ where: { id: deck.currentRevisionId }, select: { cards: true } })
+    if (!revision) return null
+    const text = botWarningText(listBotWarnings(revision.cards as unknown as DeckCardEntry[], index, bot), bot)
+    return text ? { text } : null
   }
 
   private async requireDeckRef(id: number): Promise<MatchDeckRef> {

@@ -411,6 +411,7 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
       ) : (
         <ScoreLine score={headline} />
       )}
+      {deck.botBlindSpot ? <p className="text-xs text-warning">{deck.botBlindSpot.text}</p> : null}
       {deck.changes && (deck.changes.add.length > 0 || deck.changes.remove.length > 0) ? (
         <div className="text-xs">
           <ChangeLine add={deck.changes.add} remove={deck.changes.remove} />

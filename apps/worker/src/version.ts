@@ -28,4 +28,9 @@
 // 0.3.9 (pedido de Santi del 14/10/2026): on Windows, with an engine that has `regulate` (engine-cli 0.3.10), the CPU
 // regulator gives the engines every logical processor while nothing else needs them, and whole cores back at once when
 // another program does (`cpuRegulator`, on by default on Windows).
-export const WORKER_VERSION = '0.3.9'
+// 0.3.10 (review of #106): the regulator moves between the levels its mask can have and a dip of one level needs two
+// samples; `remove` gives a live engine the whole machine back; it is asked `ping` (engine-cli 0.3.11) and cut when it
+// does not answer; after the last start one short run gives the engines the machine back.
+// 0.3.11 (D-031): the package's engine-cli 0.3.12 plays our fork of deckgym (rule fixes: Heavy Helmet only against
+// attacks, the target of Quick-Grow Extract and Wallace, no Active, DiscardFossil once); workers update to get it.
+export const WORKER_VERSION = '0.3.11'

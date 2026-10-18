@@ -62,39 +62,91 @@ pub fn mask_for(order: &[Core], allowed: u32) -> u64 {
     mask
 }
 
-/// How many logical processors the engines get, from the others' load, one sample at a time.
+/// The logical processors a mask of whole cores can have (what `mask_for` gives for each count), ascending.
+pub fn levels(order: &[Core]) -> Vec<u32> {
+    let total: u32 = order.iter().map(|core| core.logical()).sum();
+    let mut levels: Vec<u32> = (1..=total).map(|n| mask_for(order, n).count_ones()).collect();
+    levels.sort_unstable();
+    levels.dedup();
+    levels
+}
+
+/// How many logical processors the engines get, from the others' load, one sample at a time. It moves between the
+/// levels a mask of whole cores can have, so what it allows is always what the mask gives (review of #106: with 17
+/// allowed the mask had 16 and it never grew to 18).
 pub struct Policy {
     total: u32,
-    floor: u32,
-    max: u32,
+    /// The levels from the floor to the max.
+    levels: Vec<u32>,
     /// What the engines have now.
     pub allowed: u32,
     /// Samples in a row with room for more (it grows only after `grow_after` of them).
     room: u32,
     grow_after: u32,
+    /// After a dip of a single level, the next step up waits `NOISE_HOLD` times longer: a load that wavers around one
+    /// processor would otherwise take it down and up again every few seconds (autorrevisión).
+    held: bool,
+    /// What the sample before asked for.
+    last_target: Option<u32>,
 }
 
+/// How many times longer the step up after a single-level dip waits.
+const NOISE_HOLD: u32 = 3;
+
 impl Policy {
-    pub fn new(total: u32, floor: u32, max: u32, grow_after: u32) -> Self {
+    pub fn new(total: u32, levels: &[u32], floor: u32, max: u32, grow_after: u32) -> Self {
         let max = max.clamp(1, total);
         let floor = floor.clamp(1, max);
-        Policy { total, floor, max, allowed: max, room: 0, grow_after }
+        let mut all: Vec<u32> = levels.iter().copied().filter(|&level| level >= 1).collect();
+        all.sort_unstable();
+        all.dedup();
+        // A max below the lowest level is the lowest level: what a mask of one core can be (autorrevisión: `--max 1`
+        // on a machine of hyper-threaded cores allowed 1 with a mask of 2).
+        let mut levels: Vec<u32> = all.iter().copied().filter(|&level| level <= max).collect();
+        if levels.is_empty() {
+            levels.extend(all.first().copied());
+        }
+        // The floor rounded up to a level, and never more than the highest one.
+        let lowest = levels.iter().copied().find(|&level| level >= floor).or(levels.last().copied()).unwrap_or(max);
+        levels.retain(|&level| level >= lowest);
+        if levels.is_empty() {
+            levels.push(max);
+        }
+        let allowed = *levels.last().unwrap_or(&max);
+        Policy { total, levels, allowed, room: 0, grow_after, held: false, last_target: None }
+    }
+
+    /// The highest level at or under `count` (the lowest level when none is).
+    fn level_at(&self, count: u32) -> u32 {
+        self.levels.iter().copied().rev().find(|&level| level <= count).unwrap_or(self.levels[0])
     }
 
     /// The others' load (busy logical processors, beyond our engines) of the last sample: what the engines get now.
     /// Less than one busy processor is the system's own noise and leaves nothing aside; from one, the others get their
-    /// load rounded up. Down at once; up by `step` processors after `grow_after` samples in a row with room for it.
-    pub fn next(&mut self, foreign: f64, step: u32) -> u32 {
+    /// load rounded up. Down at once, but a dip of a single level only when the sample before asked for less too, and
+    /// the step up after it waits `NOISE_HOLD` times longer: a load that wavers around one processor no longer moves the
+    /// engines every few seconds (review of #106, 39 changes in 120 s between 18 and 20). Up one level after
+    /// `grow_after` samples in a row with room for it.
+    pub fn next(&mut self, foreign: f64) -> u32 {
         let reserve = if foreign < 1.0 { 0.0 } else { foreign.ceil() };
-        let target = ((f64::from(self.total) - reserve).max(0.0) as u32).clamp(self.floor, self.max);
+        let target = self.level_at((f64::from(self.total) - reserve).max(0.0) as u32);
+        let asked_before = self.last_target.is_some_and(|last| last < self.allowed);
+        self.last_target = Some(target);
         if target < self.allowed {
-            self.allowed = target;
+            let one_level = self.levels.iter().copied().rev().find(|&level| level < self.allowed) == Some(target);
+            if !one_level || asked_before {
+                self.allowed = target;
+                self.held = one_level;
+            }
             self.room = 0;
-        } else if target >= self.allowed + step.max(1) || (target > self.allowed && target == self.max) {
+        } else if target > self.allowed {
             self.room += 1;
-            if self.room >= self.grow_after {
-                self.allowed = (self.allowed + step.max(1)).min(target);
+            let wait = if self.held { self.grow_after * NOISE_HOLD } else { self.grow_after };
+            if self.room >= wait {
+                let up = self.levels.iter().copied().find(|&level| level > self.allowed).unwrap_or(self.allowed);
+                self.allowed = up.min(target);
                 self.room = 0;
+                self.held = false;
             }
         } else {
             self.room = 0;
@@ -109,10 +161,15 @@ pub enum Command {
     /// An engine to regulate (`managed`) or only to count as ours (`own`).
     Add { pid: u32, managed: bool },
     Remove { pid: u32 },
+    /// The worker checks the regulator still reads its lines: it answers `pong` (review of #106: a hung one).
+    Ping,
 }
 
 /// A line of the worker; None for anything else (ignored).
 pub fn parse_command(line: &str) -> Option<Command> {
+    if line.trim() == "ping" {
+        return Some(Command::Ping);
+    }
     let mut parts = line.split_whitespace();
     let (verb, pid) = (parts.next()?, parts.next()?.parse().ok()?);
     let command = match (verb, parts.next()) {
@@ -201,8 +258,6 @@ impl Accounts {
     }
 }
 
-/// One processor the engines can grow by: a P-core with its two threads (2 logical processors).
-const STEP: u32 = 2;
 /// Samples in a row with room before it grows a step (with a sample a second, about 5 s).
 const GROW_AFTER: u32 = 5;
 
@@ -370,7 +425,7 @@ mod win {
         unsafe { GetProcessAffinityMask(GetCurrentProcess(), &mut process_mask, &mut system_mask) };
         let full = if system_mask == 0 { cores.iter().fold(0u64, |mask, core| mask | core.mask) } else { system_mask as u64 };
         let max = options.max.unwrap_or(total).min(total);
-        let mut policy = Policy::new(total, options.floor, max, GROW_AFTER);
+        let mut policy = Policy::new(total, &levels(&order), options.floor, max, GROW_AFTER);
         let efficient = cores.iter().filter(|core| core.class < cores.iter().map(|c| c.class).max().unwrap_or(0)).count();
         let hypervisor = Hypervisor::open();
         say(&format!(
@@ -436,9 +491,15 @@ mod win {
                     Ok(Some(Command::Remove { pid })) => {
                         if let Some(engine) = engines.remove(&pid) {
                             accounts.remove(pid, process_time(engine.handle).map(|(time, _)| time));
+                            // The whole machine back if it still runs: its PID, of an engine that ended at once, may
+                            // be a live game's now (review of #106). On a process that ended it does nothing.
+                            if engine.managed {
+                                unsafe { SetProcessAffinityMask(engine.handle, full as usize) };
+                            }
                             unsafe { CloseHandle(engine.handle) };
                         }
                     }
+                    Ok(Some(Command::Ping)) => say("pong"),
                     // The worker went away: every engine gets the whole machine back, and the regulator ends.
                     Ok(None) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                         for engine in engines.values() {
@@ -483,7 +544,7 @@ mod win {
                 None => busy.saturating_sub(ours) as f64 / all as f64 * f64::from(total),
             };
             let before = policy.allowed;
-            let allowed = policy.next(foreign, STEP);
+            let allowed = policy.next(foreign);
             let next = mask_for(&order, allowed) & full;
             if next != mask {
                 mask = next;
@@ -547,47 +608,134 @@ mod tests {
         assert_eq!(mask_for(&order, 16) & 0b1111, 0);
     }
 
+    fn i7_levels() -> Vec<u32> {
+        levels(&core_order(&i7_12700()))
+    }
+
+    #[test]
+    fn the_levels_are_what_a_mask_of_whole_cores_can_have() {
+        // The 4 E-cores one at a time, then a P-core (2 logical) at a time.
+        assert_eq!(i7_levels(), vec![1, 2, 3, 4, 6, 8, 10, 12, 14, 16, 18, 20]);
+        let order = core_order(&i7_12700());
+        for level in i7_levels() {
+            assert_eq!(mask_for(&order, level).count_ones(), level);
+        }
+    }
+
     #[test]
     fn it_gives_way_at_once_and_comes_back_slowly() {
-        let mut policy = Policy::new(20, 2, 20, 5);
+        let mut policy = Policy::new(20, &i7_levels(), 2, 20, 5);
         assert_eq!(policy.allowed, 20);
         // Nothing else running: all of it.
-        assert_eq!(policy.next(0.3, 2), 20);
-        // The others need 8: down at once, leaving them 8; a bit more, 9.
-        assert_eq!(policy.next(8.0, 2), 12);
-        assert_eq!(policy.next(8.2, 2), 11);
+        assert_eq!(policy.next(0.3), 20);
+        // The others need 8: down at once, leaving them 8.
+        assert_eq!(policy.next(8.0), 12);
+        // A bit more (9: one level down, to 10) only once the next sample asks for it too.
+        assert_eq!(policy.next(8.2), 12);
+        assert_eq!(policy.next(8.2), 10);
         // They keep needing it: it stays.
         for _ in 0..10 {
-            assert_eq!(policy.next(8.2, 2), 11);
+            assert_eq!(policy.next(8.2), 10);
         }
-        // They are done: up two at a time, every 5 samples.
+        // They are done: up one level (a P-core) every 5 samples; the first step, after that dip of a single level,
+        // every 15.
         let mut seen = Vec::new();
-        for _ in 0..30 {
-            seen.push(policy.next(0.2, 2));
+        for _ in 0..40 {
+            seen.push(policy.next(0.2));
         }
-        assert_eq!(&seen[..4], &[11, 11, 11, 11]);
-        assert_eq!(seen[4], 13);
-        assert_eq!(seen[9], 15);
+        assert!(seen[..14].iter().all(|&allowed| allowed == 10), "{seen:?}");
+        assert_eq!(seen[14], 12);
+        assert_eq!(seen[19], 14);
         assert_eq!(*seen.last().unwrap(), 20);
-        // A spike for one sample takes it down; a sample with room in between does not bring it back at once.
-        assert_eq!(policy.next(15.0, 2), 5);
-        assert_eq!(policy.next(0.0, 2), 5);
+        // A spike for one sample of more than a level takes it down at once; a sample with room after it does not
+        // bring it back.
+        assert_eq!(policy.next(15.0), 4);
+        assert_eq!(policy.next(0.0), 4);
+    }
+
+    #[test]
+    fn a_load_that_wavers_around_one_processor_does_not_move_it() {
+        // Review of #106: 0,95 with peaks of 1,05 moved it 39 times in 120 s between 18 and 20.
+        let mut policy = Policy::new(20, &i7_levels(), 2, 20, 5);
+        let mut changes = 0;
+        let mut last = policy.allowed;
+        // 121 samples: the last one is 0,95.
+        for sample in 0..121 {
+            let allowed = policy.next(if sample % 2 == 0 { 0.95 } else { 1.05 });
+            changes += u32::from(allowed != last);
+            last = allowed;
+        }
+        assert_eq!(changes, 0);
+        // A load of one processor that stays: one level down, after two samples, and there it stays.
+        assert_eq!(policy.next(1.05), 20);
+        assert_eq!(policy.next(1.05), 18);
+        for sample in 0..120 {
+            assert_eq!(policy.next(if sample % 2 == 0 { 0.95 } else { 1.05 }), 18);
+        }
+        // Autorrevisión: two samples high and five low moved it 57 times in 200 s. After a dip of one level the step up
+        // waits three times longer, so the pattern leaves it at 18.
+        let mut policy = Policy::new(20, &i7_levels(), 2, 20, 5);
+        let mut changes = 0;
+        let mut last = policy.allowed;
+        for sample in 0..200 {
+            let allowed = policy.next(if sample % 7 < 2 { 1.05 } else { 0.95 });
+            changes += u32::from(allowed != last);
+            last = allowed;
+        }
+        assert_eq!(changes, 1, "down once to 18, and it stays");
+        // Once the load is gone for good it comes back, after the longer wait (15 samples with room, two of which the
+        // pattern already counted).
+        let back: Vec<u32> = (0..15).map(|_| policy.next(0.0)).collect();
+        assert!(back[..12].iter().all(|&allowed| allowed == 18), "{back:?}");
+        assert_eq!(*back.last().unwrap(), 20);
+    }
+
+    #[test]
+    fn a_dip_of_many_levels_comes_back_at_the_usual_pace() {
+        // A real load (WSL) gives way at once, and when it ends the engines come back a core every 5 samples.
+        let mut policy = Policy::new(20, &i7_levels(), 2, 20, 5);
+        assert_eq!(policy.next(8.0), 12);
+        let back: Vec<u32> = (0..5).map(|_| policy.next(0.0)).collect();
+        assert_eq!(back, vec![12, 12, 12, 12, 14]);
+    }
+
+    #[test]
+    fn what_it_allows_is_always_what_the_mask_gives() {
+        // Review of #106: 17 allowed was a mask of 16, and it never grew to 18.
+        let levels = i7_levels();
+        let mut policy = Policy::new(20, &levels, 2, 20, 5);
+        assert_eq!(policy.next(3.0), 16);
+        let mut seen = Vec::new();
+        for _ in 0..5 {
+            seen.push(policy.next(2.0));
+        }
+        assert_eq!(seen, vec![16, 16, 16, 16, 18]);
+        for foreign in [0.0, 1.0, 2.5, 3.0, 5.5, 7.0, 13.0, 19.0, 0.5, 4.0] {
+            for _ in 0..7 {
+                assert!(levels.contains(&policy.next(foreign)), "{}", policy.allowed);
+            }
+        }
     }
 
     #[test]
     fn it_never_goes_under_the_floor_nor_over_the_max() {
-        let mut policy = Policy::new(20, 2, 16, 1);
+        let mut policy = Policy::new(20, &i7_levels(), 2, 16, 1);
         assert_eq!(policy.allowed, 16);
-        assert_eq!(policy.next(19.9, 2), 2);
-        assert_eq!(policy.next(40.0, 2), 2);
+        assert_eq!(policy.next(19.9), 2);
+        assert_eq!(policy.next(40.0), 2);
         for _ in 0..20 {
-            policy.next(0.0, 2);
+            policy.next(0.0);
         }
         assert_eq!(policy.allowed, 16);
-        // A max over the machine is the machine, a floor over the max is the max.
-        let policy = Policy::new(8, 12, 30, 1);
-        assert_eq!(policy.allowed, 8);
-        assert_eq!(Policy::new(8, 12, 6, 1).floor, 6);
+        // A max over the machine is the machine; a floor over the max is the max; a floor between levels, the next one.
+        let eight: Vec<u32> = (1..=8).collect();
+        assert_eq!(Policy::new(8, &eight, 12, 30, 1).allowed, 8);
+        assert_eq!(Policy::new(8, &eight, 12, 6, 1).levels, vec![6]);
+        assert_eq!(Policy::new(20, &i7_levels(), 5, 20, 1).levels[0], 6);
+        // A max under the lowest level is the lowest level: on a machine of hyper-threaded cores, one core (2).
+        let hyper: Vec<u32> = (1..=8).map(|core| core * 2).collect();
+        let policy = Policy::new(16, &hyper, 1, 1, 1);
+        assert_eq!((policy.allowed, policy.levels.clone()), (2, vec![2]));
     }
 
     #[test]
@@ -595,6 +743,9 @@ mod tests {
         assert_eq!(parse_command("add 4120 managed"), Some(Command::Add { pid: 4120, managed: true }));
         assert_eq!(parse_command("add 77 own"), Some(Command::Add { pid: 77, managed: false }));
         assert_eq!(parse_command("remove 4120"), Some(Command::Remove { pid: 4120 }));
+        assert_eq!(parse_command("ping"), Some(Command::Ping));
+        assert_eq!(parse_command(" ping "), Some(Command::Ping));
+        assert_eq!(parse_command("ping 1"), None);
         for bad in ["", "add", "add x managed", "add 1", "add 1 other", "remove 1 2", "add 1 managed extra", "kill 1"] {
             assert_eq!(parse_command(bad), None, "{bad:?}");
         }
