@@ -24,6 +24,8 @@ export type AuditUndo =
         deckRevisionId: number
         result: 'win' | 'loss' | 'tie'
         opponentText: string | null
+        /** 14/10: the rival's cards seen (absent in a copy kept before them). */
+        opponentCards?: { cardId: string; count: number }[]
         wentFirst: boolean | null
         mode: 'competitive' | 'casual' | 'beginner' | 'event' | 'friend'
         note: string
@@ -299,6 +301,7 @@ export class McpAuditService {
           deckRevisionId: match.deckRevisionId,
           result: match.result,
           opponentText: match.opponentText,
+          opponentCards: match.opponentCards ?? [],
           wentFirst: match.wentFirst,
           mode: match.mode,
           note: match.note,

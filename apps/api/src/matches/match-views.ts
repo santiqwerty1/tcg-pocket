@@ -1,5 +1,6 @@
 /** Response shapes of the matches API (docs/API.md «Partidas»). Numeric ids travel as strings. */
 import type {
+  ArchetypeFit,
   CoinAdjustedRate,
   GameRecord,
   MatchMode,
@@ -25,6 +26,8 @@ export interface MatchView {
   deckRevision: number
   result: MatchResult
   opponent: string | null
+  /** 14/10: the rival's cards seen, one per name. */
+  opponentCards: { cardId: string; count: number; nameEs: string }[]
   wentFirst: boolean | null
   mode: MatchMode
   note: string
@@ -177,3 +180,22 @@ export type MyMetaSummary = Pick<
   MyMeta,
   'text' | 'enough' | 'coverage' | 'matched' | 'effectiveMatches' | 'orientative'
 >
+
+/** 14/10: the current era's archetypes for the rival's cards seen. */
+export interface RivalSuggestionsView {
+  era: string
+  lists: number
+  suggestions: ArchetypeFit[]
+}
+
+/** 14/10: the matches to classify, grouped by similar cards, and the rivals typed that are no archetype. */
+export interface UnclassifiedView {
+  era: string
+  groups: {
+    matches: MatchView[]
+    cards: { cardId: string; count: number; nameEs: string }[]
+    text: string
+    suggestions: ArchetypeFit[]
+  }[]
+  own: { key: string; label: string; games: number }[]
+}

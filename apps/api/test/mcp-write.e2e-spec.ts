@@ -152,11 +152,42 @@ describe('MCP write tools (e2e)', () => {
     const read = await call(client, 'rivals_notes', { opponent: 'Mega Blaziken' })
     expect((read.structuredContent.note as Structured).text).toContain('Y el segundo.')
 
-    const fixed = await call(client, 'matches_update', { id: match.id, result: 'loss', wentFirst: false })
+    const fixed = await call(client, 'matches_update', {
+      id: match.id,
+      result: 'loss',
+      wentFirst: false,
+      // 14/10: the rival's cards seen, as Santi says them («2 Greninja»; any card of the name counts).
+      opponentCards: ['2 Greninja', 'A1-89', 'Suicune ex'],
+    })
+    expect(fixed.isError, fixed.content[0]?.text).toBeFalsy()
     expect(fixed.structuredContent).toMatchObject({
       before: { result: 'Victoria' },
-      match: { result: 'Derrota', wentFirst: 'empezó el rival' },
+      match: { result: 'Derrota', wentFirst: 'empezó el rival', opponentCards: ['2 Greninja', 'Suicune ex'] },
     })
+    expect((await call(client, 'matches_update', { id: match.id, opponentCards: ['Nadaquever'] })).isError).toBe(true)
+    // A code with lowercase letters, in any case or spacing (Codex on #114: «b1a-38» and «B1a 38» were refused).
+    for (const code of ['b1a-38', 'B1a 38', 'B1A-38']) {
+      const coded = await call(client, 'matches_update', { id: match.id, opponentCards: [code] })
+      expect(coded.isError, `${code}: ${coded.content[0]?.text}`).toBeFalsy()
+      expect((coded.structuredContent.match as Structured).opponentCards).toEqual(['Onix'])
+    }
+    // Codex on #114: a card the catalog no longer has, kept on the match, can stay when the list changes.
+    await test.prisma.match.update({
+      where: { id: Number(match.id) },
+      data: { opponentCards: [{ cardId: 'GONE-1', count: 1 }] },
+    })
+    const lost = await call(client, 'matches_update', { id: match.id, opponentCards: ['GONE-1', 'Suicune ex'] })
+    expect(lost.isError, lost.content[0]?.text).toBeFalsy()
+    expect(
+      ((await get(`/api/matches/${match.id}`)).body.opponentCards as { cardId: string }[]).map((card) => card.cardId),
+    ).toContain('GONE-1')
+    // Another match cannot bring it in: it is not one of its cards.
+    const elsewhere = await call(client, 'matches_log', { deck: 'mazo 7', result: 'win', opponentCards: ['GONE-1'] })
+    expect(elsewhere.isError).toBe(true)
+    expect(elsewhere.content[0]?.text).toMatch(/GONE-1/)
+    expect(
+      (await call(client, 'matches_update', { id: match.id, opponentCards: ['2 Greninja', 'Suicune ex'] })).isError,
+    ).toBeFalsy()
     const deleted = await call(client, 'matches_delete', { id: match.id })
     expect(deleted.structuredContent).toMatchObject({ deleted: true, match: { id: match.id } })
     expect((await get(`/api/matches/${match.id}`)).status).toBe(404)
@@ -166,6 +197,10 @@ describe('MCP write tools (e2e)', () => {
     expect(restored.isError, restored.content[0]?.text).toBeFalsy()
     expect(restored.structuredContent).toMatchObject({ restored: true, match: { id: match.id, result: 'Derrota' } })
     expect((await get(`/api/matches/${match.id}`)).body).toMatchObject({ id: match.id, source: 'mcp' })
+    // The cards seen come back with it.
+    expect(
+      ((await get(`/api/matches/${match.id}`)).body.opponentCards as { count: number }[]).map((card) => card.count),
+    ).toEqual([2, 1])
     expect((await call(client, 'matches_restore', { id: match.id })).isError).toBe(true)
     // Deleted again, and undone from the app this time (Más → Tokens de API).
     expect((await call(client, 'matches_delete', { id: match.id })).isError).toBeFalsy()

@@ -313,7 +313,7 @@ describe('tracker collection sync (local HTTP tracker only)', () => {
     const exported = await get('/api/backup/export').responseType('blob')
     const bytes = Buffer.from(exported.body)
     const document = JSON.parse(gunzipSync(bytes).toString())
-    expect(document.schemaVersion).toBe(8)
+    expect(document.schemaVersion).toBe(9)
     expect(document.collection.imports[0]).toMatchObject({
       source: 'tracker',
       diffSummary: { tracker: { friendId: FRIEND } },
