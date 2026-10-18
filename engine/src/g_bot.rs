@@ -238,13 +238,8 @@ pub fn hide(state: &mut State, rival: usize) {
     });
     let (trainers, pokemon) = shown(state, rival);
     let (trainers_left, pokemon_left) = (LIST_TRAINERS.saturating_sub(trainers), LIST_POKEMON.saturating_sub(pokemon));
-    let share = |cards: usize| -> usize {
-        if trainers_left + pokemon_left == 0 {
-            cards / 2
-        } else {
-            (cards * trainers_left + (trainers_left + pokemon_left) / 2) / (trainers_left + pokemon_left)
-        }
-    };
+    let left = trainers_left + pokemon_left;
+    let share = |cards: usize| -> usize { (cards * trainers_left + left / 2).checked_div(left).unwrap_or(cards / 2) };
     // One split over the hand and the deck together, so the two never hold more Trainers than are left (Codex on #128).
     let (in_hand, in_deck) = (state.hands[rival].len(), state.decks[rival].cards.len());
     let trainers = share(in_hand + in_deck);
@@ -385,21 +380,34 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
             _ => None,
         };
         let (had, attacker_hp) = (active.attached_energy.len(), active.get_remaining_hp() as f64);
+        // Evolving into Serperior brings Jungle Totem along, and the copy's Energy count does not know it (deckgym
+        // refreshes it when the board changes): each [G] on this Grass Pokémon is put on twice here (Codex on #128).
+        let gains_totem = saved.is_some()
+            && !doubled
+            && own_type == Some(EnergyType::Grass)
+            && has_serperior_jungle_totem(probe, attacker);
         let attached = probe.effective_attached_energy(attacker, 0);
         for attack in &attacks {
             let cost = probe.effective_attack_cost(attacker, attack);
             if !reachable(&attached, &cost, &zone) {
                 continue;
             }
+            if gains_totem {
+                let active = probe.in_play_pokemon[attacker][0].as_mut().expect("in play");
+                let grass = active.attached_energy.iter().filter(|energy| **energy == EnergyType::Grass).count();
+                active.attached_energy.extend(std::iter::repeat_n(EnergyType::Grass, grass));
+            }
             // The Energy it still lacks goes on the copy one attachment at a time, as the turns bring it: what counts
             // double (Serperior's Jungle Totem) needs fewer (Codex on #117). The damage is the one it does once ready
             // (Mega Burst does 50 for each Energy it discards, Fighting Pulse more with an extra one).
             let mut attachments = 0;
-            if doubled {
+            if doubled || gains_totem {
                 while attachments < cost.len() {
                     let effective = probe.effective_attached_energy(attacker, 0);
                     let Some(&next) = energy_to_attack(&effective, &cost, &zone, own_type).first() else { break };
-                    probe.in_play_pokemon[attacker][0].as_mut().expect("in play").attached_energy.push(next);
+                    let copies = if gains_totem && next == EnergyType::Grass { 2 } else { 1 };
+                    let active = probe.in_play_pokemon[attacker][0].as_mut().expect("in play");
+                    active.attached_energy.extend(std::iter::repeat_n(next, copies));
                     attachments += 1;
                 }
             } else {
@@ -437,7 +445,9 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
                 if overcharge > 0 {
                     // One more Energy than its cost, each step up to `MAX_OVERCHARGE`: a threshold can need two (Energized
                     // Leaves' 5 on both Actives; Codex on #128).
-                    probe.in_play_pokemon[attacker][0].as_mut().expect("in play").attached_energy.push(filler(&zone, own_type));
+                    let active = probe.in_play_pokemon[attacker][0].as_mut().expect("in play");
+                    let extra = extra_energy(mechanic, &active.attached_energy, overcharge, &zone, own_type);
+                    active.attached_energy.push(extra);
                 }
                 let damage: Vec<f64> = burning
                     .iter()
@@ -596,9 +606,17 @@ fn bench_damage(probe: &mut State, attacker: usize, attack: &Attack, mechanic: O
     let (poncho, has_energy) = (has_poncho(target), !target.attached_energy.is_empty());
     let amount = match mechanic {
         // Wild Spin's +20 from the turn before is the engine's to count, for the Bench as for the Active (Codex on #128).
+        // Its Weakness is for the Active Spot only: taken off while asking (Codex on #128).
         Some(Mechanic::DamageAllOpponentPokemonEscalating { .. }) => {
             probe.in_play_pokemon[defender].swap(0, slot);
+            let weakness = match &mut probe.in_play_pokemon[defender][0].as_mut().expect("target").card {
+                Card::Pokemon(pokemon) => pokemon.weakness.take(),
+                _ => None,
+            };
             let damage = expected_attack_damage(probe, attacker, attack, defender, 0);
+            if let Card::Pokemon(pokemon) = &mut probe.in_play_pokemon[defender][0].as_mut().expect("target").card {
+                pokemon.weakness = weakness;
+            }
             probe.in_play_pokemon[defender].swap(0, slot);
             damage.round() as u32
         }
@@ -643,6 +661,37 @@ fn has_poncho(pokemon: &PlayedCard) -> bool {
     pokemon.attached_tools.iter().any(|tool| matches!(tool, Card::Trainer(trainer) if trainer.name == "Protective Poncho"))
 }
 
+/// The color of the `nth` Energy more than its cost an attack is tried with: the one its mechanic asks for when the
+/// zone makes it (Psykick's [P] on a Medicham with [F][F], a type not yet attached for one that counts types), else the
+/// `filler` (Codex on #128).
+fn extra_energy(mechanic: Option<&Mechanic>, attached: &[EnergyType], nth: usize, zone: &[EnergyType], own: Option<EnergyType>) -> EnergyType {
+    let made = |energy: EnergyType| zone.contains(&energy).then_some(energy);
+    let asked = match mechanic {
+        Some(
+            Mechanic::ExtraDamageIfSelfHasTypeEnergy { energy_type, .. }
+            | Mechanic::ExtraDamagePerSpecificEnergy { energy_type, .. }
+            | Mechanic::ExtraDamagePerSpecificEnergyAllYours { energy_type, .. }
+            | Mechanic::CoinFlipPerSpecificEnergyType { energy_type, .. },
+        ) => made(*energy_type),
+        Some(Mechanic::ExtraDamageIfExtraEnergy { required_extra_energy, .. }) => {
+            required_extra_energy.get(nth.saturating_sub(1)).copied().and_then(made)
+        }
+        Some(Mechanic::SelfDiscardAllTypesEnergyDamagePerDiscarded { energy_types, .. }) => {
+            let own = filler(zone, own);
+            if energy_types.contains(&own) {
+                Some(own)
+            } else {
+                energy_types.iter().copied().find_map(made)
+            }
+        }
+        Some(Mechanic::ExtraDamageIfDifferentEnergyTypesAttached { .. } | Mechanic::ExtraDamagePerEnergyType { .. }) => {
+            zone.iter().copied().find(|energy| !attached.contains(energy))
+        }
+        _ => None,
+    };
+    asked.unwrap_or_else(|| filler(zone, own))
+}
+
 /// The color of the Energy the clock attaches for a Colorless cost: the Pokémon's own type if the zone makes it, else
 /// the zone's first (an empty zone is taken as unknown: the Pokémon's type).
 fn filler(zone: &[EnergyType], own: Option<EnergyType>) -> EnergyType {
@@ -669,7 +718,7 @@ fn energy_to_attack(attached: &[EnergyType], cost: &[EnergyType], zone: &[Energy
             None => extra.push(*energy),
         }
     }
-    extra.extend(std::iter::repeat(filler(zone, own)).take(colorless.saturating_sub(left.len())));
+    extra.extend(std::iter::repeat_n(filler(zone, own), colorless.saturating_sub(left.len())));
     extra
 }
 
@@ -843,7 +892,11 @@ fn self_discard(mechanic: Option<&Mechanic>, attached: &[EnergyType], held: usiz
             Mechanic::SelfDiscardAllTypeEnergy { energy_type }
             | Mechanic::SelfDiscardAllTypeEnergyAndDamageAnyOpponentPokemon { energy_type, .. },
         ) => of(std::slice::from_ref(energy_type)),
-        Some(Mechanic::SelfDiscardAllTypesEnergyDamagePerDiscarded { energy_types, .. }) => of(energy_types),
+        // The damage comes from what it discards: to hit as hard again it needs all of it back, not just its cost
+        // (Mega Rayquaza ex with five Energy does 250, and needs five more for the next 250; Codex on #128).
+        Some(Mechanic::SelfDiscardAllTypesEnergyDamagePerDiscarded { energy_types, .. }) => {
+            attached.iter().filter(|energy| energy_types.contains(energy)).count() as f64
+        }
         Some(
             Mechanic::SelfDiscardEnergy { energies }
             | Mechanic::SelfDiscardEnergyAndInflictStatus { energies, .. }
@@ -1825,6 +1878,10 @@ mod tests {
         state.turn_count = 3;
         let wild_spin = first_attack(state.in_play_pokemon[0][0].as_ref().expect("Archeops"));
         assert_eq!(bench_damage(&mut state.clone(), 0, &wild_spin, mechanic(&wild_spin), 1), 20.0);
+        // A Benched Dedenne ex, weak to [F], takes no Weakness there: still 20 (Codex on #128).
+        let mut weak = state.clone();
+        weak.in_play_pokemon[1][1] = Some(card("B3b 024"));
+        assert_eq!(bench_damage(&mut weak, 0, &wild_spin, mechanic(&wild_spin), 1), 20.0);
         let mut game = Game::from_state(state, Vec::new(), 3);
         game.apply_action(&Action { actor: 0, action: SimpleAction::Attack(wild_spin.clone()), is_stack: false });
         while game.get_state_clone().current_player != 0 || !game.get_state_clone().move_generation_stack.is_empty() {
@@ -1852,6 +1909,38 @@ mod tests {
         hide(&mut state, 1);
         let trainers = state.hands[1].iter().chain(&state.decks[1].cards).filter(|card| matches!(card, Card::Trainer(_))).count();
         assert_eq!(trainers, 1);
+    }
+
+    #[test]
+    fn mega_burst_needs_all_its_energy_back_to_hit_as_hard() {
+        // Mega Rayquaza ex with five [R]/[L] does 250 with Mega Burst and discards all five: to do 250 again it needs
+        // all five back, not its cost of two (Codex on #128). Against two Dedenne ex: a hit each, 5 turns between.
+        let rayquaza = card("B4 120").with_energy(vec![EnergyType::Fire, EnergyType::Fire, Lightning, Lightning, EnergyType::Fire]);
+        let mega_burst = first_attack(&rayquaza);
+        assert_eq!(self_discard(mechanic(&mega_burst), &rayquaza.attached_energy, 2), (5.0, 1.0));
+        let state = board(DEDENNE, DEDENNE, vec![rayquaza], vec![card("B3b 024"), card("B3b 024")]);
+        assert_eq!(turns(&state, 0, false), 2.0 + (5.0 - 1.0));
+    }
+
+    #[test]
+    fn the_extra_energy_is_the_type_the_attack_asks_for() {
+        // Medicham's Psykick ([F][C], 50 more with any [P]) with [F][F], and a zone that makes [F] and [P]: one more
+        // [P] makes it 100 against a Mega Venusaur ex (240 HP), 1 + 3 turns; one more [F] left it at 50, 5 hits (Codex on
+        // #128).
+        let fighting_psychic = LUCARIO.replacen("Energy: Fighting", "Energy: Fighting, Psychic", 1);
+        let medicham = card("B2 084").with_energy(vec![EnergyType::Fighting, EnergyType::Fighting]);
+        let state = board(&fighting_psychic, VENUSAUR, vec![medicham], vec![card("B1a 004")]);
+        assert_eq!(turns(&state, 0, false), 1.0 + 3.0);
+    }
+
+    #[test]
+    fn evolving_into_serperior_brings_jungle_totem() {
+        // A Snivy with no Energy and Servine and Serperior in the deck: Serperior's Solar Beam ([G][C][C][C], 70) is
+        // ready with two [G] under its own Jungle Totem, as soon as it evolves twice; 2 + 2 hits against Dedenne ex
+        // (Codex on #128: the four Energy without Totem made it 4 + 2, behind Servine's 2 + 3).
+        let grass = "Energy: Grass\n2 Snivy A1a 4\n2 Servine A1a 5\n2 Serperior A1a 6\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n2 Giant Cape A2 147\n2 Rocky Helmet A2 148\n2 Lucky Ice Pop B2 145\n2 Cyrus A2 150\n";
+        let state = board(grass, DEDENNE, vec![card("A1a 004")], vec![card("B3b 024")]);
+        assert_eq!(turns(&state, 0, true), 2.0 + 2.0);
     }
 
     #[test]
