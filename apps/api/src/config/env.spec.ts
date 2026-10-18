@@ -7,6 +7,8 @@ const base = {
   DATABASE_URL: 'postgresql://tcg:tcg@127.0.0.1:5433/tcg',
   SESSION_SECRET: 'x'.repeat(32),
 }
+/** Production requires a verified connection to the database. */
+const production = { ...base, NODE_ENV: 'production', DATABASE_URL: `${base.DATABASE_URL}?sslmode=verify-full` }
 
 describe('the engine pin (D-031, review of #115)', () => {
   const repo = (path: string) => readFileSync(resolve(API_ROOT, '..', '..', path), 'utf8')
@@ -39,13 +41,34 @@ describe('parseEnv', () => {
   })
 
   it('defaults COOKIE_SECURE to true in production and lets the variable override it', () => {
-    expect(parseEnv({ ...base, NODE_ENV: 'production' }).cookieSecure).toBe(true)
-    expect(parseEnv({ ...base, NODE_ENV: 'production', COOKIE_SECURE: 'false' }).cookieSecure).toBe(false)
+    expect(parseEnv(production).cookieSecure).toBe(true)
+    expect(parseEnv({ ...production, COOKIE_SECURE: 'false' }).cookieSecure).toBe(false)
     expect(parseEnv({ ...base, COOKIE_SECURE: 'true' }).cookieSecure).toBe(true)
     expect(parseEnv(base).backupCron).toBe(false)
-    expect(parseEnv({ ...base, NODE_ENV: 'production' }).backupCron).toBe(true)
-    expect(parseEnv({ ...base, NODE_ENV: 'production', BACKUP_CRON: 'false' }).backupCron).toBe(false)
+    expect(parseEnv(production).backupCron).toBe(true)
+    expect(parseEnv({ ...production, BACKUP_CRON: 'false' }).backupCron).toBe(false)
     expect(parseEnv({ ...base, BACKUP_CRON: 'true' }).backupCron).toBe(true)
+  })
+
+  it('in production only with sslmode=verify-full, unless DATABASE_TLS=off (trying the image)', () => {
+    for (const mode of ['', '?sslmode=require', '?sslmode=verify-ca', '?sslmode=prefer', '?sslmode=disable']) {
+      expect(() => parseEnv({ ...production, DATABASE_URL: `${base.DATABASE_URL}${mode}` })).toThrow(
+        /sslmode=verify-full/,
+      )
+      expect(parseEnv({ ...base, DATABASE_URL: `${base.DATABASE_URL}${mode}` }).isProduction).toBe(false)
+    }
+    for (const repeated of ['?sslmode=verify-full&sslmode=disable', '?sslmode=disable&sslmode=verify-full']) {
+      expect(() => parseEnv({ ...production, DATABASE_URL: `${base.DATABASE_URL}${repeated}` })).toThrow(
+        /sslmode=verify-full/,
+      )
+    }
+    expect(parseEnv(production).databaseUrl).toContain('sslmode=verify-full')
+    const tlsOff = parseEnv({ ...production, DATABASE_URL: base.DATABASE_URL, DATABASE_TLS: 'off' })
+    expect(tlsOff.isProduction).toBe(true)
+    // main.ts warns about it at start.
+    expect(tlsOff.databaseTlsOff).toBe(true)
+    expect(parseEnv(production).databaseTlsOff).toBe(false)
+    expect(() => parseEnv({ ...base, DATABASE_TLS: 'on' })).toThrow(EnvError)
   })
 
   it('treats empty strings as unset', () => {
