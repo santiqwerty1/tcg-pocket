@@ -176,7 +176,12 @@ export class PickService {
         labScore && score && archetype && !status?.stale && labScore.coverage >= 0.999
           ? await expectationsFor(score)
           : null
-      const bank = expectations && archetype && score ? expectations(archetype.id, bankShares(score.rivals)) : null
+      let bank: ReturnType<Expectations> = null
+      try {
+        bank = expectations && archetype && score ? expectations(archetype.id, bankShares(score.rivals)) : null
+      } catch {
+        bank = null
+      }
       const warning =
         labScore && score && cards && index
           ? botWarningText(
