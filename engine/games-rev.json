@@ -1095,6 +1095,186 @@
     {
       "command": "simulate",
       "expected": {
+        "games": 4,
+        "moves": [
+          "44139ceae800c838",
+          "694aec4a9a02247e",
+          "272770906b2331e8",
+          "debabce97050daef"
+        ],
+        "perGame": {
+          "endings": "NNNN",
+          "stagesA": "1111",
+          "stagesB": "0110",
+          "starters": "ABAB",
+          "turnLimit": 30,
+          "turns": [
+            7,
+            6,
+            5,
+            10
+          ],
+          "winners": "AAAA"
+        },
+        "players": [
+          "g1",
+          "r"
+        ],
+        "seed": 4201,
+        "ties": 0,
+        "turns": 28,
+        "winsA": 4,
+        "winsB": 0
+      },
+      "job": {
+        "deckA": "Energy: Psychic\n2 Swablu A4a 64\n2 Mega Altaria ex B1 102\n1 Jirachi B1 106\n2 Chingling B1 109\n1 Indeedee ex B1 121\n1 Altaria B1 197\n1 Sabrina A1 225\n2 Rocky Helmet A2 148\n1 Cyrus A2 150\n1 Mars A2 155\n1 Poké Ball A2b 111\n2 Professor's Research A4b 373\n1 Copycat B1 225\n2 Lisia B1 226",
+        "deckB": "Energy: Grass\n1 Bulbasaur A1 1\n2 Ivysaur B1a 2\n2 Mega Venusaur ex B1a 4\n2 Professor's Research P-A 7\n2 Copycat B1 225\n2 Quick-Grow Extract B1a 67\n2 Lucky Ice Pop B2 145\n2 Heavy Helmet B1 219\n1 Lillie A3 155\n1 Pokémon Center Lady A2b 70\n1 Cyrus A2 150\n1 Field Blower B3 147\n1 Repel A3a 64\n",
+        "games": 4,
+        "perGame": true,
+        "players": [
+          "g1",
+          "r"
+        ],
+        "seed": 4201,
+        "threads": 1
+      }
+    },
+    {
+      "command": "simulate",
+      "expected": {
+        "games": 4,
+        "moves": [
+          "03b30775647cc709",
+          "70023fb47864611c",
+          "67b904e722a3b44c",
+          "eafe85693a765223"
+        ],
+        "perGame": {
+          "endings": "PNNN",
+          "stagesA": "2001",
+          "stagesB": "1101",
+          "starters": "AABB",
+          "turnLimit": 30,
+          "turns": [
+            12,
+            8,
+            9,
+            7
+          ],
+          "winners": "BBBB"
+        },
+        "players": [
+          "r",
+          "g1"
+        ],
+        "seed": 4202,
+        "ties": 0,
+        "turns": 36,
+        "winsA": 0,
+        "winsB": 4
+      },
+      "job": {
+        "deckA": "Energy: Grass\n1 Bulbasaur A1 1\n2 Ivysaur B1a 2\n2 Mega Venusaur ex B1a 4\n2 Professor's Research P-A 7\n2 Copycat B1 225\n2 Quick-Grow Extract B1a 67\n2 Lucky Ice Pop B2 145\n2 Heavy Helmet B1 219\n1 Lillie A3 155\n1 Pokémon Center Lady A2b 70\n1 Cyrus A2 150\n1 Field Blower B3 147\n1 Repel A3a 64\n",
+        "deckB": "Energy: Psychic\n2 Swablu A4a 64\n2 Mega Altaria ex B1 102\n1 Jirachi B1 106\n2 Chingling B1 109\n1 Indeedee ex B1 121\n1 Altaria B1 197\n1 Sabrina A1 225\n2 Rocky Helmet A2 148\n1 Cyrus A2 150\n1 Mars A2 155\n1 Poké Ball A2b 111\n2 Professor's Research A4b 373\n1 Copycat B1 225\n2 Lisia B1 226",
+        "games": 4,
+        "perGame": true,
+        "players": [
+          "r",
+          "g1"
+        ],
+        "seed": 4202,
+        "threads": 1
+      }
+    },
+    {
+      "command": "simulate",
+      "expected": {
+        "games": 2,
+        "moves": [
+          "547cf47c5b098df9",
+          "e654cde4ad1f0651"
+        ],
+        "perGame": {
+          "endings": "NN",
+          "stagesA": "10",
+          "stagesB": "10",
+          "starters": "AB",
+          "turnLimit": 30,
+          "turns": [
+            7,
+            6
+          ],
+          "winners": "AA"
+        },
+        "players": [
+          "g2",
+          "r"
+        ],
+        "seed": 4201,
+        "ties": 0,
+        "turns": 13,
+        "winsA": 2,
+        "winsB": 0
+      },
+      "job": {
+        "deckA": "Energy: Psychic\n2 Swablu A4a 64\n2 Mega Altaria ex B1 102\n1 Jirachi B1 106\n2 Chingling B1 109\n1 Indeedee ex B1 121\n1 Altaria B1 197\n1 Sabrina A1 225\n2 Rocky Helmet A2 148\n1 Cyrus A2 150\n1 Mars A2 155\n1 Poké Ball A2b 111\n2 Professor's Research A4b 373\n1 Copycat B1 225\n2 Lisia B1 226",
+        "deckB": "Energy: Grass\n1 Bulbasaur A1 1\n2 Ivysaur B1a 2\n2 Mega Venusaur ex B1a 4\n2 Professor's Research P-A 7\n2 Copycat B1 225\n2 Quick-Grow Extract B1a 67\n2 Lucky Ice Pop B2 145\n2 Heavy Helmet B1 219\n1 Lillie A3 155\n1 Pokémon Center Lady A2b 70\n1 Cyrus A2 150\n1 Field Blower B3 147\n1 Repel A3a 64\n",
+        "games": 2,
+        "perGame": true,
+        "players": [
+          "g2",
+          "r"
+        ],
+        "seed": 4201,
+        "threads": 1
+      }
+    },
+    {
+      "command": "simulate",
+      "expected": {
+        "games": 2,
+        "moves": [
+          "78becd3085004c47",
+          "2d51f78d5bd31dfd"
+        ],
+        "perGame": {
+          "endings": "NN",
+          "stagesA": "01",
+          "stagesB": "11",
+          "starters": "AA",
+          "turnLimit": 30,
+          "turns": [
+            4,
+            8
+          ],
+          "winners": "BB"
+        },
+        "players": [
+          "r",
+          "g2"
+        ],
+        "seed": 4202,
+        "ties": 0,
+        "turns": 12,
+        "winsA": 0,
+        "winsB": 2
+      },
+      "job": {
+        "deckA": "Energy: Grass\n1 Bulbasaur A1 1\n2 Ivysaur B1a 2\n2 Mega Venusaur ex B1a 4\n2 Professor's Research P-A 7\n2 Copycat B1 225\n2 Quick-Grow Extract B1a 67\n2 Lucky Ice Pop B2 145\n2 Heavy Helmet B1 219\n1 Lillie A3 155\n1 Pokémon Center Lady A2b 70\n1 Cyrus A2 150\n1 Field Blower B3 147\n1 Repel A3a 64\n",
+        "deckB": "Energy: Psychic\n2 Swablu A4a 64\n2 Mega Altaria ex B1 102\n1 Jirachi B1 106\n2 Chingling B1 109\n1 Indeedee ex B1 121\n1 Altaria B1 197\n1 Sabrina A1 225\n2 Rocky Helmet A2 148\n1 Cyrus A2 150\n1 Mars A2 155\n1 Poké Ball A2b 111\n2 Professor's Research A4b 373\n1 Copycat B1 225\n2 Lisia B1 226",
+        "games": 2,
+        "perGame": true,
+        "players": [
+          "r",
+          "g2"
+        ],
+        "seed": 4202,
+        "threads": 1
+      }
+    },
+    {
+      "command": "simulate",
+      "expected": {
         "games": 2,
         "moves": [
           "36f11b27d53e021f",

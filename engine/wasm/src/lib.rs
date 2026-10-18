@@ -14,6 +14,9 @@ mod coach;
 #[path = "../../src/fair_bot.rs"]
 mod fair_bot;
 #[allow(dead_code)]
+#[path = "../../src/g_bot.rs"]
+mod g_bot;
+#[allow(dead_code)]
 #[path = "../../src/live.rs"]
 mod live;
 #[allow(dead_code)]
