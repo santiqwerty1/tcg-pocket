@@ -8,10 +8,10 @@ publish = false
 description = "JSON front end of deckgym-core for the TCG Pocket worker: validate, simulate and optimize decks."
 
 [dependencies]
-# The engine, pinned: our fork of bcollazo/deckgym-core (D-031, 15/10/2026), upstream 4e25889 plus rule fixes, each in
-# a branch of its own for upstream (Heavy Helmet only against attacks #383, the target of Quick-Grow Extract and
-# Wallace #399, no Active #398, DiscardFossil once #397, "et" #396) and the bots' exports (feat/bot-api). Branch
-# `tcg-pocket` of the fork. Bump the rev here (and in engine/wasm) to update it.
+# The engine, pinned: our fork of bcollazo/deckgym-core (D-031), on upstream adfe505 since 18/10/2026, with only what
+# upstream does not have yet, each in a branch of its own: the target of Quick-Grow Extract and Wallace (#399, upstream
+# PR #420) and the bots' exports (feat/bot-api). Branch `next/adfe505` of the fork, tag `pin-0b510d1`. Bump the rev here
+# (and in engine/wasm) to update it: docs/OPERACION.md, «El motor: nuestra copia de deckgym».
 deckgym = { git = "https://github.com/santiqwerty1/deckgym-core", rev = "0b510d1b1b96ac356ea375e0f06a88e324a1bd9c" }
 rand = "0.8"
 rayon = "1.10"
