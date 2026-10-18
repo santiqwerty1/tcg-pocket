@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
 import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
 import { RankedService } from './ranked.service.js'
-import type { RankChangeView, RankedView } from './ranked-views.js'
+import type { MatchRankedView, RankChangeView, RankedView } from './ranked-views.js'
 
 const viewQuerySchema = z.object({ season: z.string().trim().min(1).max(20).optional() })
 const seasonSchema = z.object({
@@ -19,6 +19,11 @@ const rankSchema = z.object({
   points: z.number().int().min(0).max(100_000).nullable().optional(),
   /** When it changed (ISO 8601); now when absent. */
   at: z.iso.datetime({ offset: true }).optional(),
+  /** 18/10: the rank a registered match was played at (noted just before it). */
+  beforeMatch: z
+    .string()
+    .regex(/^\d{1,10}$/)
+    .optional(),
 })
 const codeSchema = z
   .string()
@@ -35,6 +40,12 @@ export class RankedController {
     @CurrentSession() _session: RequestSession,
   ): Promise<RankedView> {
     return this.ranked.view(query.season)
+  }
+
+  /** 18/10: the season and the rank a registered match was played at. */
+  @Get('matches/:id')
+  ofMatch(@Param('id') id: string, @CurrentSession() _session: RequestSession): Promise<MatchRankedView> {
+    return this.ranked.ofMatch(id)
   }
 
   /** Creates or corrects a season (its days may not overlap another's). */

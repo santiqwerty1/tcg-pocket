@@ -30,11 +30,16 @@ export function RankPicker({
   ranks,
   current,
   withDate = false,
+  beforeMatch,
+  label = 'Rango ahora',
   onDone,
 }: {
   ranks: Ranked['ranks']
   current: string | null
   withDate?: boolean
+  /** 18/10: the rank this registered match was played at (noted just before it). */
+  beforeMatch?: string
+  label?: string
   onDone?: () => void
 }) {
   const add = useAddRank()
@@ -57,6 +62,7 @@ export function RankPicker({
         rank,
         ...(parsed !== null ? { points: parsed } : {}),
         ...(at ? { at: at.toISOString() } : {}),
+        ...(beforeMatch ? { beforeMatch } : {}),
       })
       toast.success(`Anotado: ${noted.label}.`)
       setWhen('')
@@ -74,7 +80,7 @@ export function RankPicker({
   return (
     <fieldset className="flex min-w-0 flex-wrap items-end gap-2" aria-label="Anotar rango">
       <label className="flex min-w-0 flex-col gap-1 text-sm">
-        <span className="text-muted-foreground">Rango ahora</span>
+        <span className="text-muted-foreground">{label}</span>
         <select
           className="h-11 rounded-lg border bg-background px-2 text-base"
           value={rank}

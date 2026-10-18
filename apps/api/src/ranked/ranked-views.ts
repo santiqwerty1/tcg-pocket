@@ -17,6 +17,18 @@ export interface RankChangeView {
   label: string
 }
 
+/**
+ * 18/10: the season and the rank a match was played at (its edit page; Claude): only a competitive match in a season
+ * has them. `next`: the next rank noted in the season after it (the one it led to, or a later one).
+ */
+export interface MatchRankedView {
+  matchId: string
+  competitive: boolean
+  season: { code: string; name: string } | null
+  rank: RankChangeView | null
+  next: RankChangeView | null
+}
+
 export interface SeasonSummaryView extends RateRowView {
   season: RankedSeason
   /** The last rank noted in the season. */

@@ -135,6 +135,9 @@ export class McpWriteToolsService {
     server.registerTool(t.matchesLog.name, config(t.matchesLog, WRITE), (args) =>
       run(t.matchesLog.name, args, () => this.matchesLog(args)),
     )
+    server.registerTool(t.rankedRankNote.name, config(t.rankedRankNote, WRITE), (args) =>
+      run(t.rankedRankNote.name, args, (note) => this.rankedRankNote(args, note)),
+    )
     server.registerTool(t.rivalsNoteSet.name, config(t.rivalsNoteSet, WRITE), (args) =>
       run(t.rivalsNoteSet.name, args, (note) => this.rivalsNoteSet(args, note)),
     )
@@ -324,6 +327,40 @@ export class McpWriteToolsService {
   // ---------------------------------------------------------------------------------------------------------------
   // Matches
   // ---------------------------------------------------------------------------------------------------------------
+
+  /**
+   * 18/10 (Santi: «las partidas ya registradas»): the rank now, since a moment, or the one a registered match was
+   * played at; undone from the log (it deletes the rank noted). The season's record by rank, to confirm it.
+   */
+  private async rankedRankNote(
+    args: { rank: Rank; rankPoints?: number; at?: string; fromMatch?: string },
+    audit: AuditNote,
+  ): Promise<Json> {
+    const noted = await this.ranked.addRank({
+      rank: args.rank,
+      points: args.rankPoints ?? null,
+      ...(args.at ? { at: args.at } : {}),
+      ...(args.fromMatch ? { beforeMatch: args.fromMatch } : {}),
+    })
+    audit.undo = {
+      kind: 'rank_change',
+      id: noted.id,
+      label: `${noted.label} (${noted.at.slice(0, 16).replace('T', ' ')})`,
+    }
+    const { season } = await this.ranked.at(new Date(noted.at))
+    const summary = season ? (await this.ranked.view(season.code)).summary : null
+    return {
+      noted: noted.label,
+      at: noted.at,
+      ...(season ? { season: season.name } : { note: 'Ese momento no cae en ninguna temporada de ranked.' }),
+      ...(summary
+        ? {
+            now: summary.rank?.label ?? null,
+            byRank: summary.byRank.map((row) => ({ rank: row.label, games: row.games, record: row.text })),
+          }
+        : {}),
+    }
+  }
 
   /** The text before the write stays in the log: replacing or deleting a note can be undone (Fase 43). */
   private async rivalsNoteSet(

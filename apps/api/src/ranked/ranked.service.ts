@@ -22,7 +22,7 @@ import {
 import { dateOnly, OWNER_TIME_ZONE, todayInOwnerZone } from '../config/time-zone.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
-import type { RankChangeView, RankedView, RateRowView, SeasonSummaryView } from './ranked-views.js'
+import type { MatchRankedView, RankChangeView, RankedView, RateRowView, SeasonSummaryView } from './ranked-views.js'
 
 /** A rank noted more than this ahead of the server's clock is refused (a phone with a wrong clock). */
 const FUTURE_SLACK_MS = 10 * 60 * 1000
@@ -68,6 +68,54 @@ export class RankedService {
     const [seasons, changes] = await Promise.all([this.seasons(), this.changes()])
     const season = seasonOf(date, seasons, OWNER_TIME_ZONE)
     return { season, rank: season ? rankAt(date, changes, season, OWNER_TIME_ZONE) : null }
+  }
+
+  /** 18/10: the season and the rank a registered match was played at, and the next rank noted after it. */
+  async ofMatch(rawId: string): Promise<MatchRankedView> {
+    const id = parseNumericId(rawId, 'Partida')
+    const match = await this.prisma.match.findUnique({ where: { id }, select: { playedAt: true, mode: true } })
+    if (!match) throw new NotFoundException(`Partida ${rawId} no encontrada.`)
+    const competitive = match.mode === 'competitive'
+    if (!competitive) return { matchId: idToString(id), competitive, season: null, rank: null, next: null }
+    const [seasons, changes] = await Promise.all([this.seasons(), this.changes()])
+    const season = seasonOf(match.playedAt, seasons, OWNER_TIME_ZONE)
+    const rank = season ? rankAt(match.playedAt, changes, season, OWNER_TIME_ZONE) : null
+    // The changes come oldest first (same instant: by id), so the first after the match in its season is the next.
+    const next = season
+      ? (changes.find(
+          (change) =>
+            change.at.getTime() >= match.playedAt.getTime() && seasonOf(change.at, [season], OWNER_TIME_ZONE) !== null,
+        ) ?? null)
+      : null
+    return {
+      matchId: idToString(id),
+      competitive,
+      season: season ? { code: season.code, name: season.name } : null,
+      rank: rank ? changeView(rank) : null,
+      next: next ? changeView(next) : null,
+    }
+  }
+
+  /**
+   * 18/10 (Santi: «las partidas ya registradas»): the instant to note a rank at so that a registered match was played at
+   * it — just before the match, in its season; a casual match or one outside every season is refused.
+   */
+  async beforeMatch(rawId: string): Promise<Date> {
+    const id = parseNumericId(rawId, 'Partida')
+    const match = await this.prisma.match.findUnique({ where: { id }, select: { playedAt: true, mode: true } })
+    if (!match) throw new NotFoundException(`Partida ${rawId} no encontrada.`)
+    if (match.mode !== 'competitive') {
+      throw new BadRequestException({ code: 'validation', message: 'El rango va solo con una partida competitiva.' })
+    }
+    const season = seasonOf(match.playedAt, await this.seasons(), OWNER_TIME_ZONE)
+    const at = new Date(match.playedAt.getTime() - 1)
+    if (!season || seasonOf(at, [season], OWNER_TIME_ZONE) === null) {
+      throw new BadRequestException({
+        code: 'validation',
+        message: 'La partida no cae en ninguna temporada de ranked: cargá la temporada en Partidas → Temporada.',
+      })
+    }
+    return at
   }
 
   /**
@@ -180,13 +228,19 @@ export class RankedService {
     return input.rank
   }
 
-  /** Notes the rank (now, or when given): Master Ball may carry its points. */
+  /**
+   * Notes the rank (now, when given, or — 18/10 — the one a registered match was played at: `beforeMatch`, noted just
+   * before it, so it holds for that match and the next ones until the next change). Master Ball may carry its points.
+   */
   async addRank(
-    input: { rank: string; points?: number | null; at?: string },
+    input: { rank: string; points?: number | null; at?: string; beforeMatch?: string },
     now = new Date(),
   ): Promise<RankChangeView> {
     const rank = this.checkRank(input)
-    const at = input.at ? new Date(input.at) : now
+    if (input.at && input.beforeMatch) {
+      throw new BadRequestException({ code: 'validation', message: 'Mandá `at` o `beforeMatch`, no los dos.' })
+    }
+    const at = input.beforeMatch ? await this.beforeMatch(input.beforeMatch) : input.at ? new Date(input.at) : now
     if (Number.isNaN(at.getTime())) throw new BadRequestException({ code: 'validation', message: 'Fecha inválida.' })
     if (at.getTime() > now.getTime() + FUTURE_SLACK_MS) {
       throw new BadRequestException({ code: 'validation', message: 'Esa fecha todavía no llegó.' })

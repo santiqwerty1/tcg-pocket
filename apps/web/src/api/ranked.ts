@@ -43,10 +43,23 @@ export const rankedSchema = z.object({
     })
     .nullable(),
 })
+/** 18/10: the season and the rank a registered match was played at, and the next rank noted after it. */
+const matchRankedSchema = z.object({
+  matchId: z.string(),
+  competitive: z.boolean(),
+  season: z.object({ code: z.string(), name: z.string() }).nullable(),
+  rank: rankChangeSchema.nullable(),
+  next: rankChangeSchema.nullable(),
+})
+
 export type Ranked = z.infer<typeof rankedSchema>
 export type RankChange = z.infer<typeof rankChangeSchema>
 
-const rankedKeys = { all: ['ranked'] as const, view: (season?: string) => ['ranked', season ?? ''] as const }
+const rankedKeys = {
+  all: ['ranked'] as const,
+  view: (season?: string) => ['ranked', season ?? ''] as const,
+  match: (id: string) => ['ranked', 'match', id] as const,
+}
 
 export function useRanked(season?: string) {
   return useQuery({
@@ -56,10 +69,20 @@ export function useRanked(season?: string) {
   })
 }
 
+/** 18/10: the season and the rank a registered match was played at. */
+export function useMatchRanked(matchId: string) {
+  return useQuery({
+    queryKey: rankedKeys.match(matchId),
+    queryFn: ({ signal }) =>
+      request(`/api/ranked/matches/${encodeURIComponent(matchId)}`, { schema: matchRankedSchema, signal }),
+  })
+}
+
 export function useAddRank() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: { rank: string; points?: number | null; at?: string }) =>
+    /** `beforeMatch` (18/10): the rank a registered match was played at, noted just before it. */
+    mutationFn: (body: { rank: string; points?: number | null; at?: string; beforeMatch?: string }) =>
       request('/api/ranked/ranks', { method: 'POST', body, schema: rankChangeSchema }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: rankedKeys.all }),
   })

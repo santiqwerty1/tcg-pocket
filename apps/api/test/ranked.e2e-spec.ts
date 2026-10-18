@@ -127,6 +127,55 @@ describe('ranked by season and rank (e2e)', () => {
     expect((await get('/api/ranked')).body.current.rank.label).toBe('Ultra Ball 3')
   })
 
+  it('18/10 (Santi): matches already registered get the rank they were played at, from one of them on', async () => {
+    const ago = (hours: number) => new Date(Date.now() - hours * 60 * 60 * 1000).toISOString()
+    const log = async (deck: number, result: string, hours: number, mode = 'competitive') => {
+      const created = await post('/api/matches').send({ deckId: decks[deck]?.id, result, mode, playedAt: ago(hours) })
+      expect(created.status).toBe(201)
+      return created.body.id as string
+    }
+    const first = await log(0, 'win', 8)
+    const second = await log(1, 'loss', 7)
+    await log(0, 'win', 6)
+    const casual = await log(1, 'win', 5, 'casual')
+    // Logged without a rank: played at the last one noted before them.
+    expect((await get(`/api/ranked/matches/${first}`)).body).toMatchObject({
+      matchId: first,
+      competitive: true,
+      season: { code: 'NOW' },
+      rank: { label: 'Ultra Ball 3' },
+    })
+    // «Estaba en Master Ball desde esta partida»: noted just before it, for it and the ones after it.
+    const noted = await post('/api/ranked/ranks').send({ rank: 'master', beforeMatch: first })
+    expect(noted.status).toBe(201)
+    const playedAt = (await get(`/api/matches/${first}`)).body.playedAt as string
+    expect(new Date(noted.body.at).getTime()).toBe(new Date(playedAt).getTime() - 1)
+    expect((await get(`/api/ranked/matches/${first}`)).body.rank).toMatchObject({ label: 'Master Ball' })
+    expect((await get(`/api/ranked/matches/${second}`)).body).toMatchObject({
+      rank: { label: 'Master Ball' },
+      next: null,
+    })
+    const summary = (await get('/api/ranked')).body.summary
+    expect(summary.byRank.map((row: { label: string; games: number }) => [row.label, row.games])).toEqual([
+      ['Sin rango anotado', 1],
+      ['Ultra Ball 2', 2],
+      ['Master Ball', 4],
+    ])
+    // A casual match has no season nor rank, and gets none; an unknown match, or `at` with it, is refused.
+    expect((await get(`/api/ranked/matches/${casual}`)).body).toEqual({
+      matchId: casual,
+      competitive: false,
+      season: null,
+      rank: null,
+      next: null,
+    })
+    expect((await post('/api/ranked/ranks').send({ rank: 'master', beforeMatch: casual })).status).toBe(400)
+    expect((await post('/api/ranked/ranks').send({ rank: 'master', beforeMatch: '999999' })).status).toBe(404)
+    expect((await post('/api/ranked/ranks').send({ rank: 'master', beforeMatch: first, at: ago(1) })).status).toBe(400)
+    expect((await get('/api/ranked/matches/999999')).status).toBe(404)
+    expect((await del(`/api/ranked/ranks/${noted.body.id}`)).status).toBe(204)
+  })
+
   it('refused: an unknown rank, points below Master Ball, a date ahead; and it needs a session', async () => {
     expect((await post('/api/ranked/ranks').send({ rank: 'ultra-9' })).status).toBe(400)
     expect((await post('/api/ranked/ranks').send({ rank: 'ultra-1', points: 10 })).status).toBe(400)

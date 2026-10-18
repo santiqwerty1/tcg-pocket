@@ -54,6 +54,12 @@ export type AuditUndo =
       label: string
     }
   | {
+      /** 18/10: a rank noted by Claude; undoing deletes it while it is still there. */
+      kind: 'rank_change'
+      id: string
+      label: string
+    }
+  | {
       kind: 'rival_note'
       /** The note's key (`opponentKey`; missing in the first entries, which only kept `opponent`). */
       key?: string
@@ -248,6 +254,7 @@ export class McpAuditService {
     try {
       if (undo.kind === 'match_delete') restoredMatchId = await this.restoreMatchRow(undo.match)
       else if (undo.kind === 'collection_stock') await this.restoreStock(undo)
+      else if (undo.kind === 'rank_change') await this.removeRankChange(undo)
       else await this.restoreRivalNote(undo)
     } catch (error) {
       await this.prisma.mcpAudit.update({ where: { id: row.id }, data: { undoneAt: null } })
@@ -383,6 +390,11 @@ export class McpAuditService {
    * The note as it was (label and archetype too), in one conditional write: only while it is still what the write left.
    * An entry of the first shape (no key, the text before as a string) gives back the text only.
    */
+  private async removeRankChange(undo: Extract<AuditUndo, { kind: 'rank_change' }>): Promise<void> {
+    const { count } = await this.prisma.rankChange.deleteMany({ where: { id: Number(undo.id) } })
+    if (count === 0) throw new ConflictException({ code: 'changed', message: 'Ese rango ya se borró.' })
+  }
+
   private async restoreRivalNote(undo: Extract<AuditUndo, { kind: 'rival_note' }>): Promise<void> {
     const key = undo.key ?? opponentKey(undo.opponent)
     const before = typeof undo.before === 'string' ? { text: undo.before } : undo.before

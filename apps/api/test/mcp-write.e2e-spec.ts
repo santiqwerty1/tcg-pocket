@@ -30,6 +30,7 @@ const WRITE_TOOLS = [
   'matches_log',
   'matches_restore',
   'matches_update',
+  'ranked_rank_note',
   'rivals_note_set',
   'simulations_cancel',
   'simulations_enqueue',
@@ -290,6 +291,33 @@ describe('MCP write tools (e2e)', () => {
       expect(refused.isError, JSON.stringify(extra)).toBe(true)
     }
     expect(await test.prisma.match.count()).toBe(before)
+    // 18/10 (Santi): the rank registered matches were played at, from one of them on; undone from the log.
+    const fromFirst = await call(client, 'ranked_rank_note', {
+      rank: 'master',
+      fromMatch: (first.structuredContent.match as Structured).id,
+    })
+    expect(fromFirst.isError, fromFirst.content[0]?.text).toBeFalsy()
+    expect(fromFirst.structuredContent).toMatchObject({
+      noted: 'Master Ball',
+      season: 'Temporada de prueba',
+      now: 'Ultra Ball 3',
+      byRank: [expect.objectContaining({ rank: 'Master Ball', games: 2 })],
+    })
+    const casualId = (casual.structuredContent.match as Structured).id
+    expect((await call(client, 'ranked_rank_note', { rank: 'master', fromMatch: casualId })).isError).toBe(true)
+    const log = (await test.http().get('/api/mcp-audit').set('Cookie', cookie)).body.items as {
+      id: string
+      tool: string
+      undo: { kind: string } | null
+    }[]
+    const entry = log.find((item) => item.tool === 'ranked_rank_note' && item.undo)
+    expect(entry?.undo).toMatchObject({ kind: 'rank_change' })
+    const undo = () => test.http().post(`/api/mcp-audit/${entry?.id}/undo`).set('Cookie', cookie)
+    expect((await undo()).status).toBe(200)
+    expect((await test.http().get('/api/ranked').set('Cookie', cookie)).body.summary.byRank).toEqual([
+      expect.objectContaining({ label: 'Sin rango anotado', games: 2 }),
+    ])
+    expect((await undo()).status).toBe(409)
   })
 
   it('acceptance 2: a deck from Spanish text is saved with its validation; an invalid one is not', async () => {
