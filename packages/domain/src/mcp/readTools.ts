@@ -225,7 +225,7 @@ export const MCP_READ_TOOLS = {
     name: 'matches_list',
     title: 'Últimas partidas',
     description:
-      'Mis partidas registradas, la más reciente primero, con id, mazo, resultado, rival, quién empezó, modalidad y nota. Se pagina con offset y se filtra por mazo, rival, modalidad, resultado y fechas; «total» dice cuántas hay con esos filtros.',
+      'Mis partidas registradas, la más reciente primero, con id, mazo, resultado, rival, cartas vistas del rival, quién empezó, modalidad y nota. Se pagina con offset y se filtra por mazo, rival, modalidad, resultado y fechas; «total» dice cuántas hay con esos filtros.',
     input: z.object({
       deck: deckRef.optional(),
       opponent: z.string().trim().max(80).optional().describe('Parte del nombre del rival'),
@@ -375,6 +375,21 @@ export const MCP_READ_TOOLS = {
         .describe(
           'Cartas vistas, «2 Greninja» o «Suicune ex» (nombre o código); sin ellas, las partidas por clasificar',
         ),
+    }),
+  },
+  rankedSeason: {
+    name: 'ranked_season',
+    title: 'Temporada de ranked',
+    description:
+      'La temporada de ranked del juego (B4b SP: 14 al 28/10/2026; no es una era) y el rango de Santi: el rango anotado ahora, la curva de la temporada (cada cambio, con qué mazos subió o bajó desde el anterior), el récord de las partidas competitivas de la temporada, por rango y por mazo, y el de cada temporada. Solo partidas competitivas, por el día en que se jugaron (hora de Argentina). Cada porcentaje trae su n e intervalo: citá «text».',
+    input: z.object({
+      season: z
+        .string()
+        .trim()
+        .min(1)
+        .max(20)
+        .optional()
+        .describe('Código de la temporada (B4bSP, B4a); por defecto la actual'),
     }),
   },
   matchesMyMeta: {

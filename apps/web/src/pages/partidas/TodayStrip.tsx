@@ -25,6 +25,7 @@ import { useLabJobs } from '@/api/lab'
 import { useMatchStats } from '@/api/matches'
 import { usePlayGames } from '@/api/play'
 import { usePuzzles } from '@/api/puzzles'
+import { useRanked } from '@/api/ranked'
 import { useSimulations } from '@/api/simulations'
 import { useMetaTrends } from '@/api/tournaments'
 import { useWeekSummary } from '@/api/weekly'
@@ -64,8 +65,20 @@ export function TodayStrip() {
   // Fase 32: last week, on Mondays and Tuesdays.
   const earlyWeek = [1, 2].includes(new Date().getDay())
   const week = useWeekSummary(null, { enabled: earlyWeek })
+  const ranked = useRanked()
 
   const lines: Line[] = []
+  // 14/10: the ranked season and the rank noted.
+  const season = ranked.data?.current
+  if (season) {
+    lines.push({
+      key: 'ranked',
+      icon: TrophyIcon,
+      text: `${season.name}: ${season.rank ? season.rank.label : 'anotá tu rango'}`,
+      detail: `Hasta el ${season.endsOn.split('-').reverse().join('/')}`,
+      to: '/partidas/temporada',
+    })
+  }
   const waiting = (games.data ?? []).filter((game) => game.status === 'waiting')
   const first = waiting[0]
   if (first) {

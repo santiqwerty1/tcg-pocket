@@ -21,6 +21,7 @@ import { MatchEditPage } from '@/pages/partidas/MatchEditPage'
 import { MatchHistoryPage } from '@/pages/partidas/MatchHistoryPage'
 import { MatchStatsPage } from '@/pages/partidas/MatchStatsPage'
 import { PartidasPage } from '@/pages/partidas/PartidasPage'
+import { SeasonPage } from '@/pages/partidas/SeasonPage'
 import { WeekPage } from '@/pages/partidas/WeekPage'
 import { SobresPage } from '@/pages/sobres/SobresPage'
 import { AppShell, type RouteHandle } from './AppShell'
@@ -66,6 +67,11 @@ export const routes: RouteObject[] = [
             handle: handle('Historial de partidas', '/partidas'),
           },
           { path: 'partidas/semana', element: <WeekPage />, handle: handle('Tu semana', '/partidas') },
+          {
+            path: 'partidas/temporada',
+            element: <SeasonPage />,
+            handle: handle('Temporada de ranked', '/partidas'),
+          },
           {
             path: 'partidas/clasificar',
             element: <ClassifyRivalsPage />,

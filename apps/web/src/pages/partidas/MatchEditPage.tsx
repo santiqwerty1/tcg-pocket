@@ -4,10 +4,11 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useDeleteMatch, useMatch, useMatchSuggestions, useUpdateMatch } from '@/api/matches'
+import { useMatchRanked, useRanked } from '@/api/ranked'
 import type { Match, MatchInput, MatchMode, MatchResult, MatchSuggestions } from '@/api/schemas'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { ErrorState, LoadingRows, Spinner } from '@/components/ListState'
-import { Field } from '@/components/Section'
+import { Field, Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -15,6 +16,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { formatDateTime } from '@/lib/format'
 import { fromLocalInput, toLocalInput } from '@/lib/matches'
 import { ModePicker, OpponentField, ResultPicker, WentFirstPicker } from './MatchFields'
+import { RankPicker } from './SeasonPage'
 import { SeenCardsField, seenCardsBody } from './SeenCards'
 
 function MatchEditForm({ match, suggestions }: { match: Match; suggestions: MatchSuggestions }) {
@@ -157,6 +159,45 @@ function MatchEditForm({ match, suggestions }: { match: Match; suggestions: Matc
   )
 }
 
+/**
+ * 18/10 (Santi: «las partidas ya registradas»): the season and the rank a competitive match was played at, and noting
+ * it — just before the match, so it holds for it and the next ones of the season until the next change.
+ */
+function MatchRanked({ matchId }: { matchId: string }) {
+  const ranked = useMatchRanked(matchId)
+  const ranks = useRanked().data?.ranks
+  const data = ranked.data
+  if (!data?.competitive || !ranks) return null
+  if (!data.season) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No cae en ninguna temporada de ranked.{' '}
+        <Link to="/partidas/temporada" className="underline">
+          Cargar la temporada
+        </Link>
+      </p>
+    )
+  }
+  return (
+    <Section title="Ranked">
+      <p className="text-sm">
+        {data.season.name}: la jugaste en <span className="font-medium">{data.rank?.label ?? 'sin rango anotado'}</span>
+        {data.next ? `; después anotaste ${data.next.label} (${formatDateTime(data.next.at)}).` : '.'}
+      </p>
+      <RankPicker
+        key={data.rank?.id ?? 'none'}
+        ranks={ranks}
+        current={data.rank?.rank ?? null}
+        beforeMatch={matchId}
+        label="Rango con que la jugaste"
+      />
+      <p className="text-xs text-muted-foreground">
+        Vale para esta partida y las siguientes de la temporada, hasta el próximo cambio que anotaste.
+      </p>
+    </Section>
+  )
+}
+
 export function MatchEditPage() {
   const { matchId } = useParams()
   const match = useMatch(matchId)
@@ -164,5 +205,11 @@ export function MatchEditPage() {
   if (match.isPending || suggestions.isPending) return <LoadingRows />
   if (match.isError) return <ErrorState error={match.error} onRetry={() => match.refetch()} />
   if (suggestions.isError) return <ErrorState error={suggestions.error} onRetry={() => suggestions.refetch()} />
-  return <MatchEditForm key={match.data.id} match={match.data} suggestions={suggestions.data} />
+  return (
+    <div className="flex flex-col gap-6">
+      <MatchEditForm key={match.data.id} match={match.data} suggestions={suggestions.data} />
+      {/* Outside the form: noting the rank saves nothing else. */}
+      <MatchRanked matchId={match.data.id} />
+    </div>
+  )
 }

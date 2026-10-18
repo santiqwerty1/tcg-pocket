@@ -21,6 +21,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { opponentKeyOf, RESULT_LABEL } from '@/lib/matches'
 import { discardPending, isOfflineError, newClientRef, queueMatch } from '@/lib/offlineMatches'
 import { DeckChips, ModePicker, OpponentField, ResultPicker, WentFirstPicker } from './MatchFields'
+import { RankPrompt } from './RankPrompt'
 import { SeenCardsField, seenCardsBody } from './SeenCards'
 
 function initialDeck(suggestions: MatchSuggestions, preferred: string | null | undefined): string | null {
@@ -51,6 +52,8 @@ export function QuickMatchForm({
   const [filter, setFilter] = useState('')
   /** Fase 13: after a loss, «¿mala racha?» for that deck and rival. */
   const [lastLoss, setLastLoss] = useState<{ deckId: string; opponent: string | null } | null>(null)
+  /** 14/10: after a competitive match, «¿Cambiaste de rango?». */
+  const [rankAsk, setRankAsk] = useState<{ id: string; result: MatchResult } | null>(null)
 
   // Own opponents first (most recent and frequent), then the tournament archetypes of the era not typed yet.
   const opponentChoices = useMemo(() => {
@@ -130,6 +133,7 @@ export function QuickMatchForm({
     try {
       const match = await create.mutateAsync({ ...body, clientRef })
       setLastLoss(match.result === 'loss' ? { deckId: match.deck.id, opponent: match.opponent } : null)
+      setRankAsk(match.mode === 'competitive' ? { id: match.id, result: match.result } : null)
       resetForm()
       toast.success(
         `${RESULT_LABEL[match.result]} con ${match.deck.name}${match.opponent ? ` contra ${match.opponent}` : ''}`,
@@ -178,6 +182,7 @@ export function QuickMatchForm({
           Guardar partida
         </Button>
       </div>
+      {rankAsk ? <RankPrompt key={rankAsk.id} result={rankAsk.result} onDone={() => setRankAsk(null)} /> : null}
       {lastLoss ? (
         <LuckCard
           key={`${lastLoss.deckId}|${lastLoss.opponent ?? ''}`}

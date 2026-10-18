@@ -53,11 +53,15 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
   let suggested: string[]
   /** The suggestions of these cards wait for the gate and then fail. */
   let failing: { cards: string; gate: Promise<void> } | null
+  let ranks: Record<string, unknown>[]
+  let rankNow: Record<string, unknown> | null
 
   beforeEach(() => {
     posted = []
     suggested = []
     failing = null
+    ranks = []
+    rankNow = { id: '1', at: '2026-10-14T21:10:00.000Z', rank: 'ultra-2', points: null, label: 'Ultra Ball 2' }
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: string, init?: RequestInit) => {
@@ -144,6 +148,33 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
             ],
           })
         }
+        if (url.pathname === '/api/ranked') {
+          return json({
+            timeZone: 'America/Argentina/Buenos_Aires',
+            today: '2026-10-15',
+            ranks: [
+              { code: 'ultra-1', label: 'Ultra Ball 1' },
+              { code: 'ultra-2', label: 'Ultra Ball 2' },
+              { code: 'ultra-3', label: 'Ultra Ball 3' },
+              { code: 'master', label: 'Master Ball' },
+            ],
+            seasons: [],
+            current: {
+              code: 'B4bSP',
+              name: 'Temporada B4b SP',
+              endsOn: '2026-10-28',
+              rank: rankNow,
+            },
+            summary: null,
+          })
+        }
+        if (url.pathname === '/api/ranked/ranks' && method === 'POST') {
+          ranks.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+          return json(
+            { id: '2', at: '2026-10-15T20:00:00.000Z', rank: 'ultra-3', points: null, label: 'Ultra Ball 3' },
+            201,
+          )
+        }
         if (url.pathname === '/api/matches' && method === 'GET') return json({ items: [], total: 0 })
         if (url.pathname === '/api/matches' && method === 'POST') {
           const body = JSON.parse(String(init?.body)) as Record<string, unknown>
@@ -208,6 +239,68 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
     release()
     await waitFor(() => expect(within(form).queryByText(/Ninguna lista de la era/)).toBeNull())
     expect(within(form).queryByRole('button', { name: /Greninja Altaria/ })).toBeNull()
+  })
+
+  it('14/10: after a competitive win, «¿Cambiaste de rango?» notes the next rank in one tap', async () => {
+    const user = userEvent.setup()
+    renderAt('/partidas')
+    const form = await screen.findByRole('form', { name: 'Nueva partida' })
+    await user.click(within(form).getByRole('button', { name: 'Victoria' }))
+    await user.click(within(form).getByRole('button', { name: /Guardar partida/ }))
+    await waitFor(() => expect(posted).toHaveLength(1))
+    const ask = await within(form).findByRole('group', { name: '¿Cambiaste de rango?' })
+    expect(within(ask).getByText('¿Cambiaste de rango? Estás en Ultra Ball 2.')).toBeInTheDocument()
+    await user.click(within(ask).getByRole('button', { name: 'Subí a Ultra Ball 3' }))
+    await waitFor(() => expect(ranks).toEqual([{ rank: 'ultra-3' }]))
+    await waitFor(() => expect(within(form).queryByRole('group', { name: '¿Cambiaste de rango?' })).toBeNull())
+  })
+
+  it('self-review of ranked: without a rank yet it asks which one; noting it saves no other match', async () => {
+    rankNow = null
+    const user = userEvent.setup()
+    renderAt('/partidas')
+    const form = await screen.findByRole('form', { name: 'Nueva partida' })
+    await user.click(within(form).getByRole('button', { name: 'Derrota' }))
+    await user.click(within(form).getByRole('button', { name: /Guardar partida/ }))
+    await waitFor(() => expect(posted).toHaveLength(1))
+    const ask = await within(form).findByRole('group', { name: '¿Cambiaste de rango?' })
+    expect(within(ask).getByText('¿En qué rango estás en Temporada B4b SP?')).toBeInTheDocument()
+    await user.selectOptions(within(ask).getByRole('combobox'), 'master')
+    // Points with the thousands dot, and Enter in the box: the rank is noted, not another match.
+    await user.type(within(ask).getByLabelText('Puntos'), '1.250{Enter}')
+    await waitFor(() => expect(ranks).toEqual([{ rank: 'master', points: 1250 }]))
+    await waitFor(() => expect(within(form).queryByRole('group', { name: '¿Cambiaste de rango?' })).toBeNull())
+    expect(posted).toHaveLength(1)
+  })
+
+  it('self-review of ranked: points that are not a whole number are not saved', async () => {
+    rankNow = null
+    const user = userEvent.setup()
+    renderAt('/partidas')
+    const form = await screen.findByRole('form', { name: 'Nueva partida' })
+    await user.click(within(form).getByRole('button', { name: 'Victoria' }))
+    await user.click(within(form).getByRole('button', { name: /Guardar partida/ }))
+    const ask = await within(form).findByRole('group', { name: '¿Cambiaste de rango?' })
+    await user.selectOptions(within(ask).getByRole('combobox'), 'master')
+    await user.type(within(ask).getByLabelText('Puntos'), 'abc')
+    await user.click(within(ask).getByRole('button', { name: 'Anotar' }))
+    expect(await screen.findByText('Los puntos son un número entero (por ejemplo, 1.250).')).toBeInTheDocument()
+    expect(ranks).toEqual([])
+    expect(posted).toHaveLength(1)
+  })
+
+  it('self-review of ranked: after a casual match it does not ask', async () => {
+    const user = userEvent.setup()
+    renderAt('/partidas')
+    const form = await screen.findByRole('form', { name: 'Nueva partida' })
+    await user.click(within(form).getByRole('button', { name: 'Distendida' }))
+    await user.click(within(form).getByRole('button', { name: 'Victoria' }))
+    await user.click(within(form).getByRole('button', { name: /Guardar partida/ }))
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({ mode: 'casual' })
+    // The form is ready for the next match, with no question about the rank.
+    await waitFor(() => expect(within(form).getByRole('button', { name: /Guardar partida/ })).toBeDisabled())
+    expect(within(form).queryByRole('group', { name: '¿Cambiaste de rango?' })).toBeNull()
   })
 
   it('logs a match in four taps from the home screen, with the last deck and mode preselected', async () => {

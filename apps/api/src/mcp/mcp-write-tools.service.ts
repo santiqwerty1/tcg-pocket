@@ -13,17 +13,21 @@ import {
   MATCH_RESULT_LABEL_ES,
   MCP_WRITE_TOOLS,
   OPTIMIZE_CONFIRM_GAMES,
+  type Rank,
+  rankLabelEs,
   type SeenCard,
   type SelectableEnergy,
   type WinRate,
 } from '@tcg/domain'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { CollectionService } from '../collection/collection.service.js'
+import { OWNER_TIME_ZONE } from '../config/time-zone.js'
 import type { DeckDetail } from '../decks/deck-views.js'
 import { DecksService } from '../decks/decks.service.js'
 import type { MatchView, RowView } from '../matches/match-views.js'
 import { MatchesService } from '../matches/matches.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import { RankedService } from '../ranked/ranked.service.js'
 import { RivalNotesService } from '../rivals/rival-notes.service.js'
 import type { CreateJobInput } from '../simulation/simulations.service.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
@@ -36,6 +40,12 @@ import { jobSummaryJson } from './mcp-json.js'
 import type { WriteRun } from './mcp-run.js'
 
 type Json = Record<string, unknown>
+
+const OWNER_DATE_TIME = new Intl.DateTimeFormat('es-AR', {
+  timeZone: OWNER_TIME_ZONE,
+  dateStyle: 'short',
+  timeStyle: 'short',
+})
 
 /** Fase 43: above this estimate, simulations_enqueue asks for confirmLong (R-010: a long job Claude cannot stop). */
 const LONG_JOB_MINUTES = 30
@@ -118,6 +128,7 @@ export class McpWriteToolsService {
     private readonly prisma: PrismaService,
     private readonly audit: McpAuditService,
     private readonly engineStatus: EngineStatusService,
+    private readonly ranked: RankedService,
   ) {}
 
   register(server: McpServer, run: WriteRun): void {
@@ -130,6 +141,9 @@ export class McpWriteToolsService {
     )
     server.registerTool(t.matchesLog.name, config(t.matchesLog, WRITE), (args) =>
       run(t.matchesLog.name, args, () => this.matchesLog(args)),
+    )
+    server.registerTool(t.rankedRankNote.name, config(t.rankedRankNote, WRITE), (args) =>
+      run(t.rankedRankNote.name, args, (note) => this.rankedRankNote(args, note)),
     )
     server.registerTool(t.rivalsNoteSet.name, config(t.rivalsNoteSet, WRITE), (args) =>
       run(t.rivalsNoteSet.name, args, (note) => this.rivalsNoteSet(args, note)),
@@ -321,6 +335,54 @@ export class McpWriteToolsService {
   // Matches
   // ---------------------------------------------------------------------------------------------------------------
 
+  /**
+   * 18/10 (Santi: «las partidas ya registradas»): the rank now, since a moment, or the one a registered match was
+   * played at; undone from the log (it deletes the rank noted). The season's record by rank, to confirm it.
+   */
+  private async rankedRankNote(
+    args: { rank: Rank; rankPoints?: number; at?: string; fromMatch?: string },
+    audit: AuditNote,
+  ): Promise<Json> {
+    // Review of #120: a moment outside every season would be a note nobody sees (matches_log refuses it too).
+    if (!args.fromMatch) {
+      const when = args.at ? new Date(args.at) : new Date()
+      if (!Number.isNaN(when.getTime()) && !(await this.ranked.at(when)).season) {
+        throw new BadRequestException(
+          'Ese momento no cae en ninguna temporada de ranked: no anoté nada. Cargá la temporada en Partidas → Temporada.',
+        )
+      }
+    }
+    const { change: noted, replaced } = await this.ranked.noteRank({
+      rank: args.rank,
+      points: args.rankPoints ?? null,
+      ...(args.at ? { at: args.at } : {}),
+      ...(args.fromMatch ? { beforeMatch: args.fromMatch } : {}),
+    })
+    audit.undo = {
+      kind: 'rank_change',
+      id: noted.id,
+      at: noted.at,
+      rank: noted.rank,
+      points: noted.points,
+      before: replaced,
+      // Review of #120: in the owner's time, not UTC.
+      label: `${noted.label} (${OWNER_DATE_TIME.format(new Date(noted.at))})`,
+    }
+    const { season } = await this.ranked.at(new Date(noted.at))
+    const summary = season ? (await this.ranked.view(season.code)).summary : null
+    return {
+      noted: noted.label,
+      at: noted.at,
+      ...(season ? { season: season.name } : { note: 'Ese momento no cae en ninguna temporada de ranked.' }),
+      ...(summary
+        ? {
+            now: summary.rank?.label ?? null,
+            byRank: summary.byRank.map((row) => ({ rank: row.label, games: row.games, record: row.text })),
+          }
+        : {}),
+    }
+  }
+
   /** The text before the write stays in the log: replacing or deleting a note can be undone (Fase 43). */
   private async rivalsNoteSet(
     args: { opponent: string; text: string; append?: boolean },
@@ -368,8 +430,26 @@ export class McpWriteToolsService {
     note?: string
     playedAt?: string
     opponentCards?: string[]
+    rank?: Rank
+    rankPoints?: number
   }): Promise<Json> {
     const deck = await this.deckRefs.resolve(args.deck)
+    // Self-review of ranked: the rank is checked before the match is saved (an error after it made Claude log it twice).
+    if (args.rankPoints !== undefined && !args.rank) {
+      throw new BadRequestException('`rankPoints` va con `rank` (master).')
+    }
+    if (args.rank) {
+      this.ranked.checkRank({ rank: args.rank, points: args.rankPoints ?? null })
+      if ((args.mode ?? (await this.matches.lastMode())) !== 'competitive') {
+        throw new BadRequestException('El rango va solo con una partida competitiva: no guardé nada.')
+      }
+      const when = args.playedAt ? new Date(args.playedAt) : new Date()
+      if (!Number.isNaN(when.getTime()) && !(await this.ranked.at(when)).season) {
+        throw new BadRequestException(
+          'La partida no cae en ninguna temporada de ranked: no guardé nada. Cargá la temporada en Partidas → Temporada, o guardá la partida sin `rank`.',
+        )
+      }
+    }
     const match = await this.matches.create(
       {
         deckId: deck.id,
@@ -384,7 +464,36 @@ export class McpWriteToolsService {
       'mcp',
     )
     const stats = await this.matches.stats({ deckId: deck.id })
-    return { logged: true, match: matchView(match), deckRecord: recordView(stats.overall) }
+    // 14/10: the season and the rank the match was played at; with `rank`, the rank it led to (noted at its instant:
+    // a rank noted at a match's instant is the one after it).
+    const before = match.mode === 'competitive' ? await this.ranked.at(match.playedAt) : null
+    // Verification of #120: two matches of one instant — the same rank is already noted (no error after saving the
+    // match), and another rank replaces it (the last one said stays).
+    const after = args.rank
+      ? (
+          await this.ranked.noteRank(
+            { rank: args.rank, points: args.rankPoints ?? null, at: match.playedAt.toISOString() },
+            new Date(),
+            { sameIsNoted: true },
+          )
+        ).change
+      : null
+    return {
+      logged: true,
+      match: matchView(match),
+      deckRecord: recordView(stats.overall),
+      ...(before?.season
+        ? {
+            ranked: {
+              season: before.season.name,
+              playedAt: before.rank ? rankLabelEs(before.rank.rank, before.rank.points) : 'sin rango anotado',
+              ...(after ? { now: after.label } : {}),
+            },
+          }
+        : after
+          ? { ranked: { now: after.label } }
+          : {}),
+    }
   }
 
   private async matchesUpdate(args: {
@@ -423,6 +532,8 @@ export class McpWriteToolsService {
 
   /** «2 Greninja», «Suicune ex», «A1-89»: the cards seen as the API takes them (any card of the name counts). */
   private seenCards(texts: readonly string[], kept: readonly string[] = []): SeenCard[] {
+    // Codex on #114: clearing the cards needs no catalog (as in the app).
+    if (texts.length === 0) return []
     const index = this.catalog.requireIndex()
     return texts.map((text) => seenCardFromText(index, text, kept))
   }

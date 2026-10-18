@@ -130,6 +130,17 @@ describe('backup and settings (e2e)', () => {
         })
       ).status,
     ).toBe(201)
+    // Version 10 (14/10): a ranked season and a rank noted travel too.
+    expect(
+      (
+        await test
+          .http()
+          .put('/api/ranked/seasons/B4bSP')
+          .set('Cookie', cookie)
+          .send({ name: 'Temporada B4b SP', startsOn: '2026-10-14', endsOn: '2026-10-28' })
+      ).status,
+    ).toBe(200)
+    expect((await post('/api/ranked/ranks').send({ rank: 'ultra-2', at: '2026-10-14T21:10:00.000Z' })).status).toBe(201)
     // Pack switch (Fase 4): B4b turned off travels in the backup; A4b starts off by default.
     expect((await patch('/api/packs/B4b/deluxepackmega').send({ available: false })).status).toBe(200)
     // «Tiempo limitado» with its last day travels too.
@@ -180,10 +191,14 @@ describe('backup and settings (e2e)', () => {
     expect(response.headers['content-disposition']).toMatch(/^attachment; filename="tcgpocket-backup-\d{8}\.json\.gz"$/)
     exported = response.body as Buffer
     document = JSON.parse(gunzipSync(exported).toString('utf8')) as Doc
+    expect((document as unknown as { ranked: { seasons: unknown[]; changes: unknown[] } }).ranked).toMatchObject({
+      seasons: [{ code: 'B4bSP', startsOn: '2026-10-14', endsOn: '2026-10-28' }],
+      changes: [{ rank: 'ultra-2', at: '2026-10-14T21:10:00.000Z', points: null }],
+    })
     const seen = document.matches.map((match) => (match as { opponentCards?: unknown }).opponentCards)
     expect(seen).toEqual(expect.arrayContaining([[], [{ cardId: 'A1-89', count: 2 }]]))
     expect(document).toMatchObject({
-      schemaVersion: 9,
+      schemaVersion: 10,
       catalogCommit: test.env.catalogCommit,
       engineRev: test.env.engineRev,
       settings: [
@@ -247,7 +262,7 @@ describe('backup and settings (e2e)', () => {
   it('dry-run reports counts and notices without touching the data', async () => {
     const response = await post('/api/backup/import?mode=dry-run').attach('file', exported, 'backup.json.gz')
     expect(response.status).toBe(200)
-    expect(response.body).toMatchObject({ schemaVersion: 9, catalogCommit: test.env.catalogCommit })
+    expect(response.body).toMatchObject({ schemaVersion: 10, catalogCommit: test.env.catalogCommit })
     expect(response.body.diff.incoming.matches).toBe(2)
     expect(response.body.diff.incoming.playedGames).toBe(1)
     expect(response.body.diff.incoming).toEqual(response.body.diff.current)
@@ -287,6 +302,18 @@ describe('backup and settings (e2e)', () => {
     await test.prisma.collectionImport.deleteMany()
     await test.prisma.appSetting.deleteMany()
     await test.prisma.pack.updateMany({ data: { available: true, limited: false, limitedUntil: null } })
+    // Version 10 (self-review of ranked): what is noted now goes and the file's comes back, and the ranks' sequence
+    // starts over, so a new rank would collide with the restored ids unless the restore moves it.
+    await test.prisma.$executeRawUnsafe('TRUNCATE rank_changes RESTART IDENTITY')
+    await test.prisma.rankedSeason.deleteMany()
+    await test.prisma.rankedSeason.create({
+      data: {
+        code: 'B5',
+        name: 'Otra',
+        startsOn: new Date('2026-11-01T00:00:00Z'),
+        endsOn: new Date('2026-11-15T00:00:00Z'),
+      },
+    })
     expect((await get('/api/decks')).body.items).toEqual([])
     expect((await get('/api/collection/summary')).body.copies).toBe(0)
 
@@ -315,6 +342,11 @@ describe('backup and settings (e2e)', () => {
     const restored = JSON.parse(gunzipSync(again.body as Buffer).toString('utf8')) as Doc
     expect(restored.exportedAt).not.toBe(document.exportedAt)
     expect(withoutExportedAt(restored)).toEqual(withoutExportedAt(document))
+    const fileRanks = (document as unknown as { ranked: { changes: { id: number }[] } }).ranked.changes
+    const rank = await post('/api/ranked/ranks').send({ rank: 'ultra-3' })
+    expect(rank.status).toBe(201)
+    expect(Number(rank.body.id)).toBeGreaterThan(Math.max(...fileRanks.map((change) => change.id)))
+    expect((await test.http().delete(`/api/ranked/ranks/${rank.body.id}`).set('Cookie', cookie)).status).toBe(204)
 
     const decks = await get('/api/decks')
     expect(decks.body.items.map((d: { id: string }) => d.id)).toEqual(deckIds)
@@ -374,6 +406,44 @@ describe('backup and settings (e2e)', () => {
     expect(dry.body.diff.notices.some((n: string) => n.includes('no trae partidas'))).toBe(true)
     expect(dry.body.diff.notices.some((n: string) => n.includes('partidas contra el bot'))).toBe(true)
     expect(dry.body.diff.notices.some((n: string) => n.includes('notas por rival'))).toBe(true)
+  })
+
+  it('Codex on #114: a backup from before the cards seen warns that restoring it drops them', async () => {
+    const v8 = {
+      ...document,
+      schemaVersion: 8,
+      matches: document.matches.map((match) => {
+        const { opponentCards: _cards, ...rest } = match as typeof match & { opponentCards?: unknown }
+        return rest
+      }),
+    }
+    const { ranked: _ranked, ...withoutRanked } = v8 as typeof v8 & { ranked?: unknown }
+    const dry = await post('/api/backup/import?mode=dry-run').attach(
+      'file',
+      gzipSync(Buffer.from(JSON.stringify(withoutRanked))),
+      'v8.json.gz',
+    )
+    expect(dry.status).toBe(200)
+    expect(dry.body.diff.notices.some((n: string) => n.includes('sin cartas vistas'))).toBe(true)
+    const current = await post('/api/backup/import?mode=dry-run').attach('file', exported, 'backup.json.gz')
+    expect(current.body.diff.notices.some((n: string) => n.includes('sin cartas vistas'))).toBe(false)
+  })
+
+  it('review of #120: a backup with an unknown rank, points below Master Ball or overlapping seasons is refused', async () => {
+    type Ranked = { seasons: { code: string }[]; changes: { rank: string; points: number | null }[] }
+    const ranked = (document as unknown as { ranked: Ranked }).ranked
+    expect(ranked.changes.length).toBeGreaterThan(0)
+    const bad = (patch: Partial<Ranked>) =>
+      gzipSync(Buffer.from(JSON.stringify({ ...document, ranked: { ...ranked, ...patch } })))
+    for (const patch of [
+      { changes: ranked.changes.map((change) => ({ ...change, rank: 'ultra_5' })) },
+      { changes: ranked.changes.map((change) => ({ ...change, rank: 'ultra-2', points: 100 })) },
+      { seasons: [...ranked.seasons, { ...(ranked.seasons[0] as { code: string }), code: 'OTRA' }] },
+    ]) {
+      const response = await post('/api/backup/import?mode=dry-run').attach('file', bad(patch), 'bad.json.gz')
+      expect(response.status, JSON.stringify(patch)).toBe(400)
+      expect(response.body.error.code).toBe('invalid_backup')
+    }
   })
 
   it('refuses a backup whose matches point to a deck revision that is not in the file', async () => {
@@ -442,7 +512,7 @@ describe('backup and settings (e2e)', () => {
     expect(download.status).toBe(200)
     expect(download.headers['content-type']).toBe('application/gzip')
     const parsed = JSON.parse(gunzipSync(download.body as Buffer).toString('utf8')) as Doc
-    expect(parsed.schemaVersion).toBe(9)
+    expect(parsed.schemaVersion).toBe(10)
     expect(parsed.matches).toHaveLength(2)
     expect(parsed.decks).toHaveLength(4)
     expect((await get('/api/backup/blobs/999999')).status).toBe(404)
@@ -472,7 +542,7 @@ describe('backup and settings (e2e)', () => {
     try {
       const copy = await get('/api/backup/export').responseType('blob')
       const doc = JSON.parse(gunzipSync(copy.body as Buffer).toString('utf8'))
-      expect(doc.schemaVersion).toBe(9)
+      expect(doc.schemaVersion).toBe(10)
       expect(Object.keys(doc).some((key) => /simulat/i.test(key))).toBe(false)
       expect(JSON.stringify(doc)).not.toContain(job.label)
       expect((await post('/api/backup/import?mode=replace').attach('file', copy.body, 'backup.json.gz')).status).toBe(

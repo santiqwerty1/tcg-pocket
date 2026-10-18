@@ -65,11 +65,6 @@ export function normalizeSeenCards(
   return lines.slice(0, OPPONENT_CARDS_MAX)
 }
 
-/** The copies seen, added up (at most 20: a deck's size). */
-export function seenCopies(cards: readonly { count: number }[]): number {
-  return cards.reduce((sum, card) => sum + card.count, 0)
-}
-
 /** «2 Greninja, Suicune ex»: the cards seen as text. */
 export function seenCardsTextEs(cards: readonly SeenCard[], index: CatalogIndex): string {
   return cards
@@ -148,8 +143,9 @@ export function suggestArchetypesForCards(
   >()
   let total = 0
   for (const [at, entry] of entries.entries()) {
-    if (entry.archetypeId === null) continue
+    // Codex on #114: the era's lists without an archetype count in the share too, as in the tournament meta.
     total += 1
+    if (entry.archetypeId === null) continue
     const copies = names[at] as Map<string, number>
     let have = 0
     for (const [key, count] of wanted) if ((copies.get(key) ?? 0) >= count) have += 1

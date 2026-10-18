@@ -1023,6 +1023,32 @@ model LiveGame {
   @@map("live_games")
 }
 
+/// 14/10/2026: the game's ranked seasons (B4b SP is not an era: B4b is the Deluxe Pack Mega). A competitive match is in
+/// the season whose days, in the owner's time zone, contain it. Seeded with B4a and B4b SP; the owner corrects them.
+model RankedSeason {
+  code      String   @id
+  name      String
+  startsOn  DateTime @map("starts_on") @db.Date
+  endsOn    DateTime @map("ends_on") @db.Date
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("ranked_seasons")
+}
+
+/// 14/10/2026: the owner's rank, noted when it changes (`rank` is a domain `Rank`: «ultra-2», «master»).
+model RankChange {
+  id        Int      @id @default(autoincrement())
+  at        DateTime @db.Timestamptz(3)
+  rank      String
+  /// Master Ball points, when noted.
+  points    Int?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([at])
+  @@map("rank_changes")
+}
+
 /// Fase 12: the owner's notes on how to play against a rival, by its opponent key («mega blaziken ex»).
 model RivalNote {
   /// opponentKey of the label: case, accents and punctuation do not matter.

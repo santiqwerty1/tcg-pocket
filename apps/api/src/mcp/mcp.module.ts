@@ -23,6 +23,7 @@ import { NextBuildModule } from '../next-build/next-build.controller.js'
 import { PacksModule } from '../packs/packs.controller.js'
 import { PickModule } from '../pick/pick.controller.js'
 import { PlayModule } from '../play/play.controller.js'
+import { RankedModule } from '../ranked/ranked.controller.js'
 import { RivalNotesModule } from '../rivals/rival-notes.controller.js'
 import { CalibrationModule } from '../simulation/calibration.controller.js'
 import { SimulationModule } from '../simulation/simulation.controller.js'
@@ -106,6 +107,7 @@ export class McpController implements OnModuleDestroy {
     LabModule,
     RivalNotesModule,
     PickModule,
+    RankedModule,
     NextBuildModule,
     EventsModule,
     PlayModule,

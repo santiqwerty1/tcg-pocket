@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
+import { todayInOwnerZone } from '../src/config/time-zone.js'
 import { PrismaService } from '../src/prisma/prisma.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
@@ -29,6 +30,7 @@ const WRITE_TOOLS = [
   'matches_log',
   'matches_restore',
   'matches_update',
+  'ranked_rank_note',
   'rivals_note_set',
   'simulations_cancel',
   'simulations_enqueue',
@@ -165,6 +167,16 @@ describe('MCP write tools (e2e)', () => {
       match: { result: 'Derrota', wentFirst: 'empezó el rival', opponentCards: ['2 Greninja', 'Suicune ex'] },
     })
     expect((await call(client, 'matches_update', { id: match.id, opponentCards: ['Nadaquever'] })).isError).toBe(true)
+    // Codex on #114: matches_list shows them, so Claude can add one without dropping the rest.
+    const listed = (await call(client, 'matches_list', { limit: 50 })).structuredContent.matches as {
+      id: string
+      opponentCards?: string[]
+    }[]
+    expect(listed.find((row) => row.id === match.id)?.opponentCards).toEqual(['2 Greninja', 'Suicune ex'])
+    // Codex on #114: a rival is at most the app's 80 characters, so the classification page can rename it.
+    expect(
+      (await call(client, 'matches_log', { deck: 'mazo 7', result: 'win', opponent: 'x'.repeat(81) })).isError,
+    ).toBe(true)
     // A code with lowercase letters, in any case or spacing (Codex on #114: «b1a-38» and «B1a 38» were refused).
     for (const code of ['b1a-38', 'B1a 38', 'B1A-38']) {
       const coded = await call(client, 'matches_update', { id: match.id, opponentCards: [code] })
@@ -233,6 +245,114 @@ describe('MCP write tools (e2e)', () => {
     expect((await test.http().post(`/api/mcp-audit/${audit[0]?.id}/undo`).set('Cookie', cookie)).status).toBe(409)
     const unknown = await call(client, 'matches_log', { deck: 'mazo 999', result: 'win' })
     expect(unknown.isError).toBe(true)
+  })
+
+  it('14/10: matches_log says the ranked season and rank, and notes a new rank; ranked_season reads it', async () => {
+    const today = todayInOwnerZone()
+    const until = todayInOwnerZone(new Date(Date.now() + 10 * 24 * 60 * 60 * 1000))
+    const season = await test
+      .http()
+      .put('/api/ranked/seasons/MCP')
+      .set('Cookie', cookie)
+      .send({ name: 'Temporada de prueba', startsOn: today, endsOn: until })
+    expect(season.status).toBe(200)
+    const client = await connect()
+    const first = await call(client, 'matches_log', { deck: 'mazo 7', result: 'win', mode: 'competitive' })
+    expect(first.isError, first.content[0]?.text).toBeFalsy()
+    expect(first.structuredContent.ranked).toEqual({ season: 'Temporada de prueba', playedAt: 'sin rango anotado' })
+    const second = await call(client, 'matches_log', {
+      deck: 'mazo 7',
+      result: 'win',
+      mode: 'competitive',
+      rank: 'ultra-3',
+    })
+    expect(second.structuredContent.ranked).toEqual({
+      season: 'Temporada de prueba',
+      playedAt: 'sin rango anotado',
+      now: 'Ultra Ball 3',
+    })
+    const read = (await call(client, 'ranked_season')).structuredContent as {
+      current: { rank: string }
+      curve: { rank: string }[]
+    }
+    expect(read.current.rank).toBe('Ultra Ball 3')
+    expect(read.curve.map((step) => step.rank)).toEqual(['Ultra Ball 3'])
+    // A casual match says nothing of ranked.
+    const casual = await call(client, 'matches_log', { deck: 'mazo 7', result: 'loss', mode: 'casual' })
+    expect(casual.structuredContent.ranked).toBeUndefined()
+    // The match that led to Ultra Ball 3 was played before it: both competitive ones count «sin rango».
+    const view = (await test.http().get('/api/ranked').set('Cookie', cookie)).body
+    expect(view.summary.byRank).toEqual([expect.objectContaining({ label: 'Sin rango anotado', games: 2 })])
+    // Self-review: a rank that cannot be noted is refused before saving the match (Claude would log it twice).
+    const before = await test.prisma.match.count()
+    const refusals = [
+      { rank: 'ultra-3', rankPoints: 100 },
+      { rankPoints: 100 },
+      { rank: 'ultra-3', mode: 'casual' },
+      { rank: 'ultra-3', playedAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString() },
+    ]
+    for (const extra of refusals) {
+      const refused = await call(client, 'matches_log', {
+        deck: 'mazo 7',
+        result: 'win',
+        mode: 'competitive',
+        ...extra,
+      })
+      expect(refused.isError, JSON.stringify(extra)).toBe(true)
+    }
+    expect(await test.prisma.match.count()).toBe(before)
+    // 18/10 (Santi): the rank registered matches were played at, from one of them on; undone from the log.
+    const fromFirst = await call(client, 'ranked_rank_note', {
+      rank: 'master',
+      fromMatch: (first.structuredContent.match as Structured).id,
+    })
+    expect(fromFirst.isError, fromFirst.content[0]?.text).toBeFalsy()
+    expect(fromFirst.structuredContent).toMatchObject({
+      noted: 'Master Ball',
+      season: 'Temporada de prueba',
+      now: 'Ultra Ball 3',
+      byRank: [expect.objectContaining({ rank: 'Master Ball', games: 2 })],
+    })
+    const casualId = (casual.structuredContent.match as Structured).id
+    const firstId = (first.structuredContent.match as Structured).id
+    expect((await call(client, 'ranked_rank_note', { rank: 'master', fromMatch: casualId })).isError).toBe(true)
+    // Review of #120: a retry does not note it twice; a moment outside every season notes nothing.
+    expect((await call(client, 'ranked_rank_note', { rank: 'master', fromMatch: firstId })).isError).toBe(true)
+    const outside = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString()
+    expect((await call(client, 'ranked_rank_note', { rank: 'master', at: outside })).isError).toBe(true)
+    // Correcting it replaces the note of that moment, and its «Deshacer» gives Master Ball back.
+    const corrected = await call(client, 'ranked_rank_note', { rank: 'ultra-4', fromMatch: firstId })
+    expect(corrected.structuredContent).toMatchObject({
+      noted: 'Ultra Ball 4',
+      byRank: [expect.objectContaining({ rank: 'Ultra Ball 4', games: 2 })],
+    })
+    const log = (await test.http().get('/api/mcp-audit').set('Cookie', cookie)).body.items as {
+      id: string
+      tool: string
+      undo: { kind: string } | null
+    }[]
+    const notes = log.filter((item) => item.tool === 'ranked_rank_note' && item.undo)
+    expect(notes).toHaveLength(2)
+    const undo = (id: string | undefined) => test.http().post(`/api/mcp-audit/${id}/undo`).set('Cookie', cookie)
+    const byRank = async () => (await test.http().get('/api/ranked').set('Cookie', cookie)).body.summary.byRank
+    expect((await undo(notes[0]?.id)).status).toBe(200)
+    expect(await byRank()).toEqual([expect.objectContaining({ label: 'Master Ball', games: 2 })])
+    expect((await undo(notes[1]?.id)).status).toBe(200)
+    expect(await byRank()).toEqual([expect.objectContaining({ label: 'Sin rango anotado', games: 2 })])
+    expect((await undo(notes[1]?.id)).status).toBe(409)
+    // Verification of #120: two matches of one instant with the same rank — the second is no error after saving it,
+    // and the rank is noted once; another rank at that instant replaces it (the last one said stays).
+    const playedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    const logAt = (rank: string) =>
+      call(client, 'matches_log', { deck: 'mazo 7', result: 'win', mode: 'competitive', playedAt, rank })
+    const atPlayedAt = () => test.prisma.rankChange.findMany({ where: { at: new Date(playedAt) } })
+    expect((await logAt('great-1')).isError).toBeFalsy()
+    const twice = await logAt('great-1')
+    expect(twice.isError, twice.content[0]?.text).toBeFalsy()
+    expect(twice.structuredContent.ranked).toMatchObject({ now: 'Super Ball 1' })
+    expect(await atPlayedAt()).toHaveLength(1)
+    expect((await logAt('great-2')).structuredContent.ranked).toMatchObject({ now: 'Super Ball 2' })
+    expect((await atPlayedAt()).map((row) => row.rank)).toEqual(['great-2'])
   })
 
   it('acceptance 2: a deck from Spanish text is saved with its validation; an invalid one is not', async () => {

@@ -54,6 +54,19 @@ export type AuditUndo =
       label: string
     }
   | {
+      /**
+       * 18/10: a rank noted by Claude; undoing deletes it, or gives back the rank it replaced (`before`), while it is
+       * still there as it was left. Review of #120: by id, instant and rank — after restoring a backup the ids repeat.
+       */
+      kind: 'rank_change'
+      id: string
+      at?: string
+      rank?: string
+      points?: number | null
+      before?: { rank: string; points: number | null } | null
+      label: string
+    }
+  | {
       kind: 'rival_note'
       /** The note's key (`opponentKey`; missing in the first entries, which only kept `opponent`). */
       key?: string
@@ -248,6 +261,7 @@ export class McpAuditService {
     try {
       if (undo.kind === 'match_delete') restoredMatchId = await this.restoreMatchRow(undo.match)
       else if (undo.kind === 'collection_stock') await this.restoreStock(undo)
+      else if (undo.kind === 'rank_change') await this.removeRankChange(undo)
       else await this.restoreRivalNote(undo)
     } catch (error) {
       await this.prisma.mcpAudit.update({ where: { id: row.id }, data: { undoneAt: null } })
@@ -379,10 +393,26 @@ export class McpAuditService {
     })
   }
 
+  private async removeRankChange(undo: Extract<AuditUndo, { kind: 'rank_change' }>): Promise<void> {
+    const where = {
+      id: Number(undo.id),
+      ...(undo.at ? { at: new Date(undo.at) } : {}),
+      ...(undo.rank ? { rank: undo.rank } : {}),
+      ...(undo.points !== undefined ? { points: undo.points } : {}),
+    }
+    const { count } = undo.before
+      ? await this.prisma.rankChange.updateMany({ where, data: { rank: undo.before.rank, points: undo.before.points } })
+      : await this.prisma.rankChange.deleteMany({ where })
+    if (count === 0) {
+      throw new ConflictException({ code: 'changed', message: 'Ese rango ya se borró o cambió después.' })
+    }
+  }
+
   /**
    * The note as it was (label and archetype too), in one conditional write: only while it is still what the write left.
    * An entry of the first shape (no key, the text before as a string) gives back the text only.
    */
+
   private async restoreRivalNote(undo: Extract<AuditUndo, { kind: 'rival_note' }>): Promise<void> {
     const key = undo.key ?? opponentKey(undo.opponent)
     const before = typeof undo.before === 'string' ? { text: undo.before } : undo.before
