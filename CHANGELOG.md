@@ -5,10 +5,25 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-15 desde la etiqueta `v1.0.0` (120 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-18 desde la etiqueta `v1.0.0` (208 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- T1a of the chat's move to the hub — the chat:export scope alone in its token, GET /api/mcp/chat/export in pages, and chat-import with a preview (D-030) `2e722fd`
+- the rank registered matches were played at — beforeMatch, the match's ranked view, the edit page and ranked_rank_note (T-022, 18/10) `0c84771`
+- the bots' league — paired games between engine-cli's bots, an interval over deck pairs and an Elo (T-021) `9e0da9c`
+- the g<N> bots — deckgym's expectiminimax with an evaluation whose damage comes from the engine (T-021) (D-031) `2581af0`
+- «posible punto ciego del bot» in «¿Cuál llevo hoy?», the Laboratorio, the deck sheet and Claude (H-055) `6a7e0d0`
+- the rules of «posible punto ciego del bot» (H-055) `c4f9dbc`
+- play our fork of deckgym — rule fixes, the same games elsewhere (D-031) (#383, #399, #398, #397, #396) `e7a093d`
+- Temporada de ranked — the curve, the record by rank and deck, noting the rank, «¿Cambiaste de rango?» after a competitive match, the season on Hoy (14/10) `c07c659`
+- seasons and ranks — tables, API, backup 10, MCP ranked_season and rank in matches_log (14/10) `278041e`
+- ranked seasons and ranks — season of a match, rank at a time, season summary (14/10) `c0020d7`
+- «Cartas que vi» in the match forms with suggested archetypes, and Clasificar rivales (14/10) `fa2cef7`
+- opponentCards in matches_log/update, matches_rival_suggest, restore keeps the cards (14/10) `5f1f033`
+- the rival's cards seen, the archetypes they suggest, matches to classify (API, 14/10) `2706fe3`
+- the Laboratorio row is the default bot's (e2, D-029); other bots' scores go apart (14/10) `08c2350`
+- «Actualizar todos» in ¿Cuál llevo hoy? — tests the lists without a score of this era, once (14/10) `fa48fd0`
 - the CPU regulator — the engines use the whole machine and give whole cores back when another program needs them (#105) `e4d2547`
 - resume a pairing from game N — engine-cli 0.3.8 `resume`, worker 0.3.7 (B of H-054) `39f8a12`
 - the API loads a catalog sync applied by another process within a minute; until then an alert says it (T-014) (#95) `3b7387d`
@@ -35,6 +50,49 @@ _Borrador generado al 2026-10-15 desde la etiqueta `v1.0.0` (120 commits). Escri
 
 ### Corregido
 
+- a delayed hit on a spot counts once — review of #117; g1 and g2 in the golden games (T-021) `9ddf9f3`
+- #123 follow-ups — an export past the total comes up to the cap with where to go on, the latest page's participants, and the lows of chat-hub#11's review (D-030) `4fc6192`
+- verification of #120 — notes at one moment serialized, matches_log takes the same rank as noted and keeps the last one, classify locks its rows in one ordered query (T-022) `84c538b`
+- the review of #120 — one rank per moment (409 for the same), the log's undo by id, moment and rank, the backup checks ranks and seasons; classify locks the rows found by name (T-022) `df8a090`
+- a Stage 1 counts when the list's Stage 2 works (verification of #121) `6f5b43e`
+- the lows of #108 and #124 — a tie at the limit is exactly one turn past it, a late win in the e2e, the engine test, the pick's evaluation `8e0e660`
+- the lows of #122 — the same list by its snapshot key, the tournament side only when comparing, tests of the pick (H-055) `09a88e1`
+- Codex on #114, in the PR above it — matches_list shows the cards seen, rivals Claude logs keep the app's 80 characters, lookups take the old 120 (T-022) `a5755a3`
+- for the Tools rule the warning suggests only e3 (H-055) (#119) `fc555dc`
+- the zone in play decides what strands a pre-evolution, instead of strandPool (review of #121) `428e7a6`
+- the last Codex round on #114, in the PR above it — rows locked in classify, the note kept for the next undo group, the era share, clearing cards without a catalog, a notice for old backups (T-022) `f6d9157`
+- «¿Cuál llevo hoy?» weighs the rivals the score was played against, like the Laboratorio (H-055) (#119) `8153b87`
+- Codex's second review of #119 — one evaluator per scope, the deck's archetype only for its current list, a score of every rival (H-055) `f744920`
+- the note follows a respelled rival, and a stale «Deshacer» leaves it (T-022, review of #114) `8c472b0`
+- the bank's weights in percent, so the tournament number's coverage is 0–100 (H-055) `e68db77`
+- the Coordinator's review of #119 — the general rule needs a real tournament number and a round played whole (H-055) `57f0f96`
+- review of #116 — the TLS check requires P1011, a warning with DATABASE_TLS=off in production, the local image example and what to do with a P1011 release `2ead2ef`
+- a pre-evolution an Energy change dropped still only comes along (review of #118) `0774ff1`
+- classify skips matches edited since, lost cards kept in MCP and never «fit», 20 copies at most (T-022, review of #114) `54873fe`
+- Codex's review of #119 — one weight per archetype, the bank's format, and the confirmation's score (H-055) `49e56a1`
+- review of #117 — poison keeps falling, a status-locked Active holds back the Bench, a coin-flip discard waits on average, the league's breakdown by deck by seat (T-021) `a2a9bd1`
+- g evaluates with the rival's hand and deck hidden — review of #111 (T-021) `e79d842`
+- self-review of g — the retreat on the attacker's turn, the rival's clock on its next turn, attacks that also pick a Benched Pokémon, Toxic and Pierce the Pain by their mechanic (T-021) `5454767`
+- self-review — no form inside the quick entry's, the rank checked before the match is saved, a rank at a match's instant is the one it led to, the next season from the app (T-022) `f50ddc2`
+- the lows of #113 — combos and undos never strand a pre-evolution, lowercase codes in MCP card lines, tests of the note's zone and filters (T-017) `39b34c3`
+- seen-card codes in any case, no stale rival suggestions, backup 9 documented (T-022, review of #114) `a5a439e`
+- review of the blind-spot warning — the far rule only on comparable numbers, and quieter list rules (H-055) `f4c9e74`
+- a repeated sslmode is refused in production and sslrootcert is read as pg reads it (review of #116) `010b8ef`
+- the migrations verify the database's certificate, production requires sslmode=verify-full, and the migration engine is in the image (T-014) `eafa85b`
+- review of the fork — shipped notes say deckgym is modified, the new action in Spanish, #398 fixed, the differential's gaps; regulator startup timeout (D-031) (#395, #110) `16284ed`
+- undoing a rival rename sends its note back too (T-022, review of #114) `84338fc`
+- deuda 2–5 (lab jobs filtered in SQL, the bank built once, dead code, the warning text) and the lows of #109 (labFailed in MCP, refresh after retry, a half-failed confirmation keeps the search score) `498c7a2`
+- pings start once the regulator said its first line — a slow start is not a hung regulator (review of #110) `8e00842`
+- a11y of the rank prompt and the season forms `dcd386e`
+- the last short run of the regulator is followed and bounded — only a clean end is logged as done (review of #110) `c387908`
+- self-review of the cards seen — count for Hoy, own rivals in every mode, confirm and undo, the note follows a rename, lost cards editable, exact names in MCP (14/10) `068d2a5`
+- self-review of the cards seen — archetypes by how many lists fit, one row per name, list names cached, lost cards kept (14/10) `758c996`
+- self-review of the #107 follow-up — the guaranteed variant checks strands with the zone's pool, codes only when two cards of a name are shown, no double code in MCP `67a5e35`
+- review of #109 — a failed test scores what it played whole and is not queued again, top priority, release on unlock error, sequential test (14/10) `d74eecf`
+- self-review of the regulator follow-up — a ping a minute, a longer wait after a one-level dip, tests for the gate, the restore run and live engines `6c14598`
+- review of #106 — the regulator moves between real mask levels, a one-level dip needs two samples, remove restores, ping `8163320`
+- self-review of «Actualizar todos» — a session lock taken without waiting, no old-era scores computed twice, tests for the era, engine, sort and confirmation (14/10) `b57a7fa`
+- review of #107 — no pre-evolution left alone, a card to try takes a same-name copy's place, names with codes, notes from the best list's zone (T-017 E3) `5b8d9ff`
 - self-review of the perGame turn limit — N in 32 turns refused, the comments and the e2e case that tested the sum `ec4b10c`
 - a game decided by a knockout from the end of turn 30 is won in 31 turns (perGame check, job 42) (#13) `3635375`
 - a swap brings the pre-evolution drawn on its own first; seed-dependent e2e adjusted (T-017 E3) `dbebdc5`
@@ -103,13 +161,34 @@ _Borrador generado al 2026-10-15 desde la etiqueta `v1.0.0` (120 commits). Escri
 
 ### Cambiado
 
+- format backup schema `0c21628`
 - one live game for engine-cli play and the browser — live.rs shared, GAMES_REV in seeds.rs (T-015) `e3e6a03`
 - the calibration's report is kept while nothing it is made of changes, and the full tool report goes by pages (D-029) `bb7baf4`
 
 ### Documentado
 
+- the texts of #126's verification — no writes on either side between the parts, reads up to 5 minutes ahead, and the T1a row with the latest page's participants `01bea34`
+- the decision after the review of #121 `9dc2fc6`
+- decisions of the #118 review (strandPool, the half-failed confirmation) `58ebdb8`
+- g 1.0 is engine-cli 0.3.13, stacked on #115 (T-021) `f9cb7f6`
+- g 1.0's results — the league against e2 and f2, the ablation and the speed; what is left for the app and line 2 (T-021) `ddb0280`
+- backup schemaVersion 10 in the API contract (T-022) `ba72d79`
+- the Coordinator's lows of #115 — Windows notes say deckgym is modified, what #383 limits, the README pin, a roomier regulator test (D-031) `69dc4b8`
+- the API's engine pin in the fork's update steps, and a test that ties it to Cargo.toml (D-031) (#115) `446b7c7`
+- self-review of the g design — the damage call needs the attacker's turn, choice and Bench attacks fall back to their mechanic's data, draws (not Poké Ball) are what the search sees `f26ad83`
+- decision of the half-failed confirmation (review of #109) `5ebcebb`
+- Avance — the fork keeps GAMES_REV at 1, as D-031 records (review of #112) `3e2acf0`
+- review of #112 — no runner name, D-030 approved, H-050/H-057 closed with their sha, P-014 for the turn-30 question, Inicio and T-014 links, T-021 depends on D-031, the changelog keeps the approvals (H-017) `a068471`
+- decisions and API after the self-review `9e86803`
 - D-031 — GAMES_REV stays at 1 (golden identical), the fork rev and the differential test `4924813`
 - 14/10 — PRs #97–#108 and chat-hub #1–#6, the deckgym fork (D-031), the bots' blind spots and engine bugs (H-055–H-057), T-021 bots and T-022 matches; decisions folded in merge order `06c88fd`
+- follow-up decisions — contextual codes, the Rare Candy limitation `e310b73`
+- design of the «g» bot — the engine's own expected damage, deferred damage, the race, and how strength is measured (D-031) `211145d`
+- «Actualizar todos» in API.md and decks_pick_today; the decision says the lock, the priority and failed tests (review of #109) `816cbb8`
+- the regulator follow-up decision, with the wait after a one-level dip `d0ae518`
+- API and decisions of the rival by the cards seen (14/10) `641e5c6`
+- decisions of the #107 follow-up `ae842e5`
+- the bot split in the decisions of «Actualizar todos» `e3d5e0d`
 - the perGame turn limit decision, with the open question of the real game `5645e18`
 - «dos lugares por worker» closed with the 14/10 timing and the short jobs' wait — phase 42 complete, T-014 done (D-024) `61ec0a7`
 - e4 (#31) in the calibration report — paired against e2 and e3 on the same tournaments, its speed, and the recommendation unchanged (D-029) `6b44222`
@@ -132,6 +211,14 @@ _Borrador generado al 2026-10-15 desde la etiqueta `v1.0.0` (120 commits). Escri
 
 ### Pruebas
 
+- an older revision's test takes the closest archetype, checked against both archetypes' texts (H-055) `8c21eb2`
+- the lows of the #118 review — retry refreshes Hoy, deuda 2 with other jobs ahead, labFailed with the default bot, the exact search score `3887b0f`
+- the cards seen stop at 20 copies (review of #114) `c9fb4ad`
+- Temporada de ranked and «¿Cambiaste de rango?»; docs: API and decisions of ranked (14/10) `c62680f`
+- MCP — matches_log with rank and ranked_season; 45 read tools `ad3ef0c`
+- e2e of seasons, ranks and the summary; backup 10 round trip `dacf70c`
+- backup version 9 in the tournaments and tracker e2e `bf436e9`
+- review of #107 — deck 20 with Onix A1-150 asked for, swapped for an Onix B1a-38, with codes `a44fdbc`
 - the fill round's guard against pre-evolutions alone, with a pool where it matters; decisions updated (T-017 E3) `11aaf3a`
 - review of #103 — a commit asked by name is compared with the database's, not the memory's; one catalog load at a time (T-014) `3466a91`
 - a closed catalog sync is not renewed by its own heartbeat, and the stale-close test runs alone (T-014) (#95) `a4fcbf7`
@@ -141,17 +228,22 @@ _Borrador generado al 2026-10-15 desde la etiqueta `v1.0.0` (120 commits). Escri
 
 ### Mantenimiento
 
+- engine-cli 0.3.13 — the gBots feature (T-021) (#115) `103243f`
 - bump the development group with 2 updates (#61) `7f62616`
 - bump the production group with 3 updates (#60) `a7f8afc`
 - bump actions/setup-node from 4 to 7 (#59) `db16eeb`
 
 ### Hallazgos cerrados
 
+- H-058 por `0650518` en main
+- H-056 por `dfc8b05` en main
 - H-057 por `d7a6c1c` en main
 - H-050 por `55850d4` en main
 
 ### Decidido
 
+- 2026-10-18 — D-031: Santiago aprobó rearmar el fork de deckgym sobre upstream `adfe505` con solo `fix/choose-evolution-target` y `feat/bot-api` (engine-cli 0.3.14 y worker 0.3.12); después se relanzan los 41 mazos, la matriz y las calibraciones.
+- 2026-10-15 — T-021, decidido por Santiago: la línea 2 de los bots (sin trampa) supone la lista típica del arquetipo en el meta, sin el orden ni la mano.
 - 2026-10-14 — D-031 decidida por Santiago: la app usa un fork de deckgym con los arreglos (Casco Pesado, Extracto y Plubio, el pánico sin Activo) apenas estén listos, y se relanzan todas las simulaciones.
 - 2026-10-14 — D-030: D1–D9 del hub de chat aprobadas por Santiago.
 - 2026-10-13 — D-028 aprobada por Santiago: Aprobada por Santiago el 13/10/2026 (respuesta al Coordinador), después de probar la sincronización a mano desde Colección. La automática ya estaba prendida desde el 12/10 21:28 (trackerAutoSync).

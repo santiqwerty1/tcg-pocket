@@ -11,4 +11,6 @@ cambiarlos, editá la config y corré `posta generar`; esta copia sólo los expl
 - **Ni leer ni editar** (secretos): `.env`, `.env.local`, `.env.fly`, `~/.posta/claves/**`.
 - **Pedir confirmación antes de correr**: `git push *`.
 
-Lo que requiere decisión de la persona se **propone** (`posta accion proponer`), no se ejecuta (DEC-016).
+Lo que requiere decisión de la persona se **propone** (`posta accion proponer`), no se ejecuta. Si la persona pide explícitamente
+que el agente lo ejecute, va a nombre de ella (`--quien <persona> --registra agente:<nombre>`), y Posta deja en la ficha y en el
+evento que lo registró el agente (DEC-016).
