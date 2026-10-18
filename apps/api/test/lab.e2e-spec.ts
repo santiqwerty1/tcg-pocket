@@ -2354,6 +2354,26 @@ describe('laboratorio (e2e)', () => {
         /^Posible punto ciego del bot: 0\u00a0% simulado contra [\d,]+\u00a0% del arquetipo en torneos contra los mismos rivales\. Probalo con f2 o e3\.$/
       // Against the meta, deck 2's score against what its archetype makes in tournaments.
       expect((await get(`/api/lab/jobs/${jobs[plain]}`)).body.decks[0].botBlindSpot?.text).toMatch(far)
+      // Review of #119: the archetype the deck chooses is for its current list. A test of an older revision takes the
+      // era's closest archetype (here the top one again), not one chosen after it.
+      const plainView = (await get(`/api/lab/jobs/${jobs[plain]}`)).body
+      const snapshot = await test.prisma.deckSnapshot.findUniqueOrThrow({ where: { id: plainView.decks[0].snapshot } })
+      expect(snapshot.sourceType).toBe('deck_revision')
+      await test.prisma.deckSnapshot.update({ where: { id: snapshot.id }, data: { sourceId: '999999' } })
+      expect((await patch(plain, { tournamentArchetypeId: 'arquetipo-sin-datos' })).status).toBe(200)
+      try {
+        expect((await get(`/api/lab/jobs/${jobs[plain]}`)).body.decks[0].botBlindSpot?.text).toMatch(far)
+      } finally {
+        await test.prisma.deckSnapshot.update({ where: { id: snapshot.id }, data: { sourceId: snapshot.sourceId } })
+        expect((await patch(plain, { tournamentArchetypeId: top })).status).toBe(200)
+      }
+      // With its current list, the archetype it chose counts: one without tournament data says nothing.
+      expect((await patch(plain, { tournamentArchetypeId: 'arquetipo-sin-datos' })).status).toBe(200)
+      try {
+        expect((await get(`/api/lab/jobs/${jobs[plain]}`)).body.decks[0].botBlindSpot).toBeNull()
+      } finally {
+        expect((await patch(plain, { tournamentArchetypeId: top })).status).toBe(200)
+      }
       // Review of #119: with one of its chunks not done the round is not whole (a pairing of more than 1.000 games is
       // split, and one chunk per rival is not the whole bank), so the general rule waits.
       const chunk = await test.prisma.simulationChunk.findFirstOrThrow({

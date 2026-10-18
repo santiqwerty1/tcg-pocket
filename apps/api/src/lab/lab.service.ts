@@ -151,7 +151,6 @@ import type { JobSummaryView, SnapshotView } from '../simulation/simulation-view
 import { type CreateJobInput, labMode, SimulationsService } from '../simulation/simulations.service.js'
 import { EngineStatusService, type SnapshotSource, SnapshotsService } from '../simulation/snapshots.service.js'
 import { WorkerQueueService } from '../simulation/worker-queue.service.js'
-import type { ExpectedVsMetaView } from '../tournaments/tournament-views.js'
 import { LIMITLESS_ATTRIBUTION, type Scope, TournamentsService } from '../tournaments/tournaments.service.js'
 import { bankShares, comparableScore } from './lab-blind-spots.js'
 import { type FrozenInputs, leftOutCards, whyCards } from './lab-explain.js'
@@ -2506,7 +2505,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
    */
   private async botBlindSpots(
     decks: readonly LabDeckView[],
-    snapshots: ReadonlyMap<number, { cards: unknown }>,
+    snapshots: ReadonlyMap<number, { cards: unknown; sourceType: string; sourceId: string | null }>,
     closest: ReadonlyMap<number, string | null>,
     whole: ReadonlyMap<number, boolean>,
     rivals: readonly { archetypeId: string; weight: number }[],
@@ -2515,29 +2514,35 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
     index: CatalogIndex,
   ): Promise<Map<number, { text: string } | null>> {
     const againstMeta = (lab.objective?.kind ?? 'meta') === 'meta'
-    const owners = new Map<string, string | null>()
+    // Review of #119: the archetype the deck chose is today's choice, for its current list; a snapshot of an older
+    // revision takes the era's closest one.
+    const owners = new Map<string, { archetypeId: string | null; revision: string | null }>()
     const deckIds = [...new Set(decks.flatMap((deck) => (deck.deckId === null ? [] : [Number(deck.deckId)])))]
     if (againstMeta && deckIds.length > 0) {
       for (const row of await this.prisma.deck.findMany({
         where: { id: { in: deckIds } },
-        select: { id: true, tournamentArchetypeId: true },
+        select: { id: true, tournamentArchetypeId: true, currentRevisionId: true },
       })) {
-        owners.set(String(row.id), row.tournamentArchetypeId)
+        owners.set(String(row.id), {
+          archetypeId: row.tournamentArchetypeId,
+          revision: row.currentRevisionId === null ? null : String(row.currentRevisionId),
+        })
       }
     }
     const archetypeOf = (deck: LabDeckView): string | null => {
-      const own = deck.deckId === null ? undefined : owners.get(deck.deckId)
-      return own ?? closest.get(deck.snapshot) ?? null
+      const owner = deck.deckId === null ? undefined : owners.get(deck.deckId)
+      const snapshot = snapshots.get(deck.snapshot)
+      const current =
+        owner !== undefined &&
+        snapshot?.sourceType === 'deck_revision' &&
+        snapshot.sourceId !== null &&
+        snapshot.sourceId === owner.revision
+      return (current ? owner.archetypeId : null) ?? closest.get(deck.snapshot) ?? null
     }
-    const expected = new Map<string, ExpectedVsMetaView | null>()
-    if (againstMeta) {
-      for (const id of new Set(decks.map(archetypeOf).filter((id): id is string => id !== null))) {
-        const found = await this.tournaments
-          .expectedWith(id, { shares: bankShares(rivals) }, { era: lab.era, format: lab.format })
-          .catch(() => null)
-        expected.set(id, found)
-      }
-    }
+    const expectations = againstMeta
+      ? await this.tournaments.expectationsWith({ era: lab.era, format: lab.format }).catch(() => null)
+      : null
+    const shares = bankShares(rivals)
     const out = new Map<number, { text: string } | null>()
     for (const deck of decks) {
       const cards = cardsOfSnapshot(snapshots.get(deck.snapshot)?.cards as unknown as SnapshotCard[])
@@ -2548,7 +2553,7 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
         index,
         bot,
         simulated: againstMeta ? score : null,
-        tournament: archetype === null ? null : (expected.get(archetype) ?? null),
+        tournament: archetype === null || !expectations ? null : expectations(archetype, shares),
       })
       const text = botWarningText(warnings, bot)
       out.set(deck.snapshot, text ? { text } : null)
