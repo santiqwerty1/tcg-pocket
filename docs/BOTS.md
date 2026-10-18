@@ -403,10 +403,13 @@ fórmula del `metaScore` de la app (un empate no cuenta como victoria):
 | e2 | 17,0 % (IC 95 % 15,7–18,2 %) | 27,6 % (26,1–29,0 %) |
 | g2 1.0 | 29,2 % (27,7–30,7 %) | 41,7 % (40,1–43,3 %) |
 | e3 | 39,5 % (37,9–41,2 %) | 46,9 % (45,3–48,6 %) |
-| g2 1.1 | 46,1 % (44,4–47,7 %) | 54,2 % (52,5–55,8 %) |
+| g2 1.1 antes de la autorrevisión | 46,1 % (44,4–47,7 %) | 54,2 % (52,5–55,8 %) |
+| g2 1.1 | 44,9 % (43,2–46,6 %) | 52,5 % (50,8–54,1 %) |
 
 - En torneos, el arquetipo da 52,4 % (n = 584). Es otra fuente y no se combina con estas: sirve de baranda. g2 1.1
-  es el primer bot que deja a la lista de torneo cerca de donde está en los torneos.
+  es el primer bot que deja a la lista de torneo donde está en los torneos.
+- La autorrevisión (veneno y quemadura después del golpe, la Debilidad del texto) le baja un punto y medio a Dedenne:
+  los rivales del banco que envenenan o queman también juegan mejor.
 - El rival también juega con el bot de la fila, así que parte del cambio es la fuerza del banco, no solo la de
   Dedenne.
 
@@ -417,15 +420,19 @@ por bootstrap sobre los 55 pares):
 |---|---|---|---|
 | 1.0 | 20261015 | 59,0 % (55,9–62,4 %) | 52,0 % (50,6–53,4 %) |
 | 1.0 + «atacar ahora» y el golpe que sobra | 20261015 | 65,6 % (62,3–69,1 %) | 59,5 % (57,4–61,8 %) |
-| 1.1 | 20261015 | 66,3 % (63,0–69,9 %) | 60,3 % (58,2–62,5 %) |
-| 1.1 | 20261018 (nueva) | | 59,1 % (57,0–61,3 %) |
+| 1.1 antes de la autorrevisión | 20261015 | 66,3 % (63,0–69,9 %) | 60,3 % (58,2–62,5 %) |
+| 1.1 antes de la autorrevisión | 20261018 (nueva) | | 59,1 % (57,0–61,3 %) |
+| 1.1 | 20261015 | 67,2 % (63,9–70,6 %) | 59,7 % (57,6–62,0 %) |
+| 1.1 | 20261018 (nueva) | | 61,7 % (59,6–64,0 %) |
 
 - g2 con «atacar ahora» le gana a g2 1.0 57,9 % (IC 56,0–59,8 %).
+- Terminar el turno antes de valer el ataque (autorrevisión) compra poco pero algo: g2 le gana 51,6 % (IC 50,8–52,5 %)
+  al mismo g2 sin ese paso.
 - **Cumple el criterio contra los dos:** le gana a e2 y a f2 con el intervalo entero arriba del 50 %, también con
   semillas nuevas.
 - Casi toda la ganancia viene de «atacar ahora». Los 14 arreglos de Codex suman menos de un punto en el promedio:
   cada uno cambia pocos cruces, como en la ablación de g 1.0.
-- Con su mazo, g2 contra f2: el 16 gana 56,0 % y f2 14,0 %; el 23, 36,1 % y 17,9 %; el 40, 76,5 % y 53,8 % (n = 400
+- Con su mazo, g2 contra f2: el 16 gana 56,4 % y f2 10,8 %; el 23, 35,6 % y 17,3 %; el 40, 77,0 % y 51,4 % (n = 400
   por bot). Mezcla la fuerza del mazo con la del bot.
 
 **La velocidad,** en los mismos 10 cruces de antes con 40 partidas y 4 hilos:
@@ -436,7 +443,14 @@ por bootstrap sobre los 55 pares):
 | f2 | 119 ms |
 | g2 1.0 | 236 ms |
 | g2 1.1, primera versión | 359 ms (3,45 veces e2) |
-| g2 1.1 | 293 ms (2,7–2,8 veces e2) |
+| g2 1.1 antes de la autorrevisión | 293 ms (2,7–2,8 veces e2) |
+| g2 1.1 | 335 ms (3,2 veces e2, con e2 en 106) |
+
+**g2 1.1 pasa del tope de 3 que pone este diseño.** Lo que suma la autorrevisión es terminar el turno después de
+cada ataque de «atacar ahora» (unos 46 ms por partida). Queda propuesto aceptar hasta 3,5 veces e2 mientras la app no
+use g. Lo que más pesa, después del daño del motor, es la evaluación base de deckgym: en cada hoja copia el mazo y la
+mano de cada lado para su «Activo listo», y calcula su reloj aunque pese 0. Una variante en el fork que se saltee los
+términos con peso 0 la abarataría sin cambiar ninguna partida.
 
 La primera versión se pasaba del tope de 3. Bajó así:
 - la mecánica de cada ataque se busca una vez;
@@ -445,7 +459,9 @@ La primera versión se pasaba del tope de 3. Bajó así:
 - `public_details`, que copia los efectos, se lee solo donde hace falta;
 - las cartas tapadas no llevan texto.
 
-En 120 partidas de g2 contra sí mismo, los ganadores son los mismos antes y después.
+En 120 partidas de g2 contra sí mismo, los ganadores son los mismos antes y después. En la autorrevisión se
+saltean además los planes cuyo armado ya no le gana al mejor, y el fin del turno se aplica sin copiar el tablero (160
+partidas idénticas).
 
 **Las partidas doradas:** g1 y g2 salen de `games-rev.json` (de 38 casos a 34) sin subir `GAMES_REV`. Vuelven en el
 PR que deja que la app use g, ya con su comportamiento final. Lo decidió el Coordinador el 18/10: ningún trabajo de la
