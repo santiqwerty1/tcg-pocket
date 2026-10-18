@@ -322,10 +322,18 @@ describe('rivals by the cards seen (e2e)', () => {
     expect(
       (await post('/api/matches/classify').send({ matchIds: [ids[0] as string, '999999'], opponent: null })).body,
     ).toMatchObject({ updated: 1, skipped: ['999999'] })
-    // Undoing back to a rival of more than 80 characters (logged by Claude when its limit was 120) works.
+    // Undoing back to a rival of more than 80 characters (logged by Claude when its limit was 120) works; a new rival
+    // keeps the app's limit (review of #131).
+    expect((await post('/api/matches/classify').send({ matchIds: [ids[0] as string], opponent: long })).status).toBe(
+      400,
+    )
     await test.prisma.match.update({ where: { id: Number(ids[0]) }, data: { opponentText: 'Tmp' } })
-    const longBack = await post('/api/matches/classify').send({ matchIds: [ids[0] as string], opponent: long })
-    expect(longBack.status).toBe(200)
+    const longBack = await post('/api/matches/classify/undo').send({
+      previous: [{ id: ids[0], opponent: long }],
+      expect: 'Tmp',
+    })
+    expect(longBack.body).toMatchObject({ updated: 1 })
+    expect((await get(`/api/matches/${ids[0]}`)).body.opponent).toBe(long)
     expect((await post('/api/matches/classify').send({ matchIds: [ids[0] as string], opponent: null })).status).toBe(
       200,
     )

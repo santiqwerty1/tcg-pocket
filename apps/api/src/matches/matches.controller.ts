@@ -48,8 +48,8 @@ const classifySchema = z
     matchIds: z.array(z.string().trim().min(1).max(20)).max(500).optional(),
     /** Reclassify every match of a rival typed before (by its key: case and accents do not matter). */
     from: z.string().trim().min(1).max(OPPONENT_LOOKUP_MAX).optional(),
-    /** `null`: back to «sin clasificar» («Deshacer»). Deuda de #114: up to 120, so undoing an old rival works. */
-    opponent: z.string().trim().min(1).max(OPPONENT_LOOKUP_MAX).nullable(),
+    /** `null`: back to «sin clasificar». A new rival keeps the app's limit (review of #131). */
+    opponent: z.string().trim().min(1).max(OPPONENT_MAX_LENGTH).nullable(),
     /** The rival `matchIds` must still have (null: none); the ones that changed are skipped (Codex on #114). */
     expect: z.string().trim().max(OPPONENT_LOOKUP_MAX).nullable().optional(),
     /** «Deshacer» a rename: the rival's note goes back (labels). */

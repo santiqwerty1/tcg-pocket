@@ -4,7 +4,7 @@ titulo: >-
   Producción
 area: operacion
 estado: vigente
-actualizado: '2026-10-12'
+actualizado: '2026-10-18'
 origen:
   - CLAUDE.md
   - apps/api/README.md
@@ -14,8 +14,8 @@ revisar: false
 
 # Producción
 
-- **App:** `https://tcg-pocket.fly.dev` (Fly.io, app `tcg-pocket`, región `gru`, una máquina shared-cpu-1x 512 MB). Postgres en Supabase (São Paulo, pooler de sesión, `sslmode=verify-full` con la CA de `apps/api/certs/`).
-- **Qué corre al 12/10/2026:** desplegada varias veces durante el día, hasta `b0c3627` (#77). Versión 1.0.0 (tag `v1.0.0` en `2fd579e`, [P-013](../Seguimiento/Preguntas/P-013.md)), engine-cli 0.3.6 y worker 0.3.5.
+- **App:** `https://tcg-pocket.fly.dev` (Fly.io, app `tcg-pocket`, región `gru`, una máquina shared-cpu-1x 512 MB). Postgres en Supabase (São Paulo, pooler de sesión, `sslmode=verify-full` con la CA de `apps/api/certs/`). Desde #116 (18/10), producción exige `verify-full` en la app y en las migraciones, que también verifican el certificado ([H-058](../Seguimiento/Hallazgos/H-058.md)).
+- **Qué corre al 18/10/2026:** desplegada seis veces durante el día, hasta `275f704` (#126). Versión 1.0.0 (tag `v1.0.0` en `2fd579e`, [P-013](../Seguimiento/Preguntas/P-013.md)), engine-cli 0.3.13 y worker 0.3.11. El motor es el fork de deckgym en `018b419` desde el 15/10 ([D-031](../Seguimiento/Decisiones/D-031.md)); el PR que lo pasa a upstream `adfe505` trae engine-cli 0.3.14 y worker 0.3.12, y después del deploy va un sync del catálogo.
 - **Deploy:** `pnpm deploy:fly`. Exige el commit en `origin/main` con la CI verde y `posta check`, y corre `flyctl deploy --app tcg-pocket --remote-only --ha=false`; siempre `--ha=false`, porque Fly crea dos máquinas por defecto. Las migraciones van en `release_command`, y el contenedor las vuelve a correr al arrancar.
 - **Secretos:** `DATABASE_URL` y `SESSION_SECRET` con `flyctl secrets set`; `DATABASE_URL` local en `.env.fly`, que nunca se versiona ni se muestra. `TRACKER_COLLECTION_ANON_KEY` cargado el 11/10 ([T-020](../Seguimiento/Tareas/T-020.md)). Los del bucket de Tigris, cargados el 12/10 ([P-010](../Seguimiento/Preguntas/P-010.md)).
 - **Tareas puntuales:** `flyctl machine exec <id> --app tcg-pocket "<comando>"`; la consola SSH no anda desde esta PC ([R-005](../Seguimiento/Riesgos/R-005.md)). Desde #75 los CLI se pueden correr con la API viva: no corren crons ni hooks de arranque (DECISIONES 45.51). Tras un `catalog-sync` por CLI hay que reiniciar la máquina o usar `POST /api/catalog/sync`, porque el catálogo vive en memoria.
