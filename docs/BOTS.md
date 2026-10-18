@@ -417,12 +417,14 @@ fórmula del `metaScore` de la app (un empate no cuenta como victoria):
 | g2 1.0 | 29,2 % (27,7–30,7 %) | 41,7 % (40,1–43,3 %) |
 | e3 | 39,5 % (37,9–41,2 %) | 46,9 % (45,3–48,6 %) |
 | g2 1.1 antes de la autorrevisión | 46,1 % (44,4–47,7 %) | 54,2 % (52,5–55,8 %) |
-| g2 1.1 | 44,9 % (43,2–46,6 %) | 52,5 % (50,8–54,1 %) |
+| g2 1.1 antes de Codex en #128 | 44,9 % (43,2–46,6 %) | 52,5 % (50,8–54,1 %) |
+| g2 1.1 | 42,2 % (40,5–43,8 %) | 50,4 % (48,7–52,1 %) |
 
 - En torneos, el arquetipo da 52,4 % (n = 584). Es otra fuente y no se combina con estas: sirve de baranda. g2 1.1
-  es el primer bot que deja a la lista de torneo donde está en los torneos.
-- La autorrevisión (veneno y quemadura después del golpe, la Debilidad del texto) le baja un punto y medio a Dedenne:
-  los rivales del banco que envenenan o queman también juegan mejor.
+  es el bot que deja a la lista de torneo más cerca de donde está en los torneos, con el intervalo apenas abajo.
+- La autorrevisión (veneno y quemadura después del golpe, la Debilidad del texto) le baja un punto y medio a Dedenne,
+  y los 12 arreglos de #128, otros dos o tres: los rivales del banco que envenenan, queman o pegan a la Banca también
+  juegan mejor.
 - El rival también juega con el bot de la fila, así que parte del cambio es la fuerza del banco, no solo la de
   Dedenne.
 
@@ -461,13 +463,16 @@ por bootstrap sobre los 55 pares):
 | g2 1.1, primera versión | 359 ms (3,45 veces e2) |
 | g2 1.1 antes de la autorrevisión | 293 ms (2,7–2,8 veces e2) |
 | g2 1.1 antes de Codex en #128 | 335 ms (3,2 veces e2, con e2 en 106) |
-| g2 1.1 | 331–335 ms (2,9–3,2 veces e2, con e2 en 106–115) |
+| g2 1.1 | 324–335 ms (2,9–3,2 veces e2, con e2 en 106–115) |
 
 **g2 1.1 queda en el borde del tope de 3 que pone este diseño.** Lo que suma la autorrevisión es terminar el turno después de
 cada ataque de «atacar ahora» (unos 46 ms por partida), y se queda: es un error de reglas, no una heurística. El
-Coordinador aceptó el 18/10 hasta 3,5 veces e2 mientras la app no use g. Lo que más pesa, después del daño del motor, es la evaluación base de deckgym: en cada hoja copia el mazo y la
-mano de cada lado para su «Activo listo», y calcula su reloj aunque pese 0. Una variante en el fork que se saltee los
-términos con peso 0 la abarataría sin cambiar ninguna partida.
+Coordinador aceptó el 18/10 hasta 3,5 veces e2 mientras la app no use g.
+
+La evaluación base de deckgym no es lo que pesa en g. Una variante en el fork que saltea los términos con peso 0 y no
+copia el mazo y la mano para «Activo listo» (propuesta a Infra) juega las mismas partidas: 30 trabajos de 40 partidas
+de e2, f2 y g2, idénticos. Pero baja e2 un 15 % (113 a 96 ms) y f2 un 19 % (132 a 107), y g2 solo un 2 % (318 a 312).
+Lo de g es su propio reloj y «atacar ahora». Con esa variante, g2 queda en 3,25 veces e2, porque e2 se abarata más.
 
 La primera versión se pasaba del tope de 3. Bajó así:
 - la mecánica de cada ataque se busca una vez;
