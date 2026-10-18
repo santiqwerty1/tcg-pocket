@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { API_ROOT, loadDotEnv } from './dotenv.js'
 
 export const DEFAULT_CATALOG_COMMIT = '3ab58f1cec6a03e3e85455cf7aade3bb8561f92e'
-export const DEFAULT_ENGINE_REV = '33ff2a5942dd4ce09d1ebc3041ffe48f604409e6'
+export const DEFAULT_ENGINE_REV = '018b4193365187063eab90b1eb0989087c93ad7f'
 
 const gitSha = z.string().regex(/^[0-9a-f]{40}$/, 'must be a full 40-character lowercase git sha')
 
@@ -18,6 +18,8 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   DATABASE_URL: z.string().regex(/^postgres(ql)?:\/\//, 'must be a postgresql:// connection string'),
+  /** Only for trying the image against a Postgres without TLS (the CI's docker job): see `parseEnv`. */
+  DATABASE_TLS: z.enum(['off']).optional(),
   SESSION_SECRET: z.string().min(32, 'must be at least 32 characters (random, base64)'),
   /** Built PWA directory; relative paths resolve from apps/api. */
   WEB_DIST: z.string().min(1).default('../web/dist'),
@@ -118,6 +120,8 @@ export interface Env {
   /** Fase 18: VAPID keys (null = notifications off) and whether the watcher runs. */
   vapid: { publicKey: string; privateKey: string; subject: string } | null
   notificationsWatch: boolean
+  /** DATABASE_TLS=off: only for trying the image against a Postgres without TLS; main.ts warns about it in production. */
+  databaseTlsOff: boolean
 }
 
 export class EnvError extends Error {
@@ -136,6 +140,19 @@ function packageVersion(): string {
   }
 }
 
+/**
+ * The `sslmode` of a connection string: null when it has none, does not parse, or names it more than once (`pg` keeps
+ * the last one and other readers the first, so `?sslmode=verify-full&sslmode=disable` would pass a check on the first).
+ */
+export function sslModeOf(url: string): string | null {
+  try {
+    const modes = new URL(url).searchParams.getAll('sslmode')
+    return modes.length === 1 ? (modes[0] ?? null) : null
+  } catch {
+    return null
+  }
+}
+
 /** Validates a raw environment (empty strings count as unset). Throws `EnvError` with one line per problem. */
 export function parseEnv(source: Record<string, string | undefined>): Env {
   const cleaned = Object.fromEntries(Object.entries(source).filter(([, value]) => value !== undefined && value !== ''))
@@ -145,6 +162,13 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
   }
   const raw = result.data
   const isProduction = raw.NODE_ENV === 'production'
+  // In production the database only with its certificate verified (chat-hub's H6.11): without sslmode `pg` connects
+  // in plain text, and with require, verify-ca or prefer the migrations (prisma.config.ts) accept an impostor.
+  if (isProduction && raw.DATABASE_TLS !== 'off' && sslModeOf(raw.DATABASE_URL) !== 'verify-full') {
+    throw new EnvError([
+      'DATABASE_URL: in production it must carry sslmode=verify-full (DATABASE_TLS=off is only for trying the image)',
+    ])
+  }
   return {
     trackerCollectionUrl: raw.TRACKER_COLLECTION_URL.replace(/\/+$/, ''),
     trackerCollectionAnonKey: raw.TRACKER_COLLECTION_ANON_KEY,
@@ -188,6 +212,7 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
         ? { publicKey: raw.VAPID_PUBLIC_KEY, privateKey: raw.VAPID_PRIVATE_KEY, subject: raw.VAPID_SUBJECT }
         : null,
     notificationsWatch: raw.NOTIFICATIONS_WATCH ?? raw.NODE_ENV !== 'test',
+    databaseTlsOff: raw.DATABASE_TLS === 'off',
   }
 }
 

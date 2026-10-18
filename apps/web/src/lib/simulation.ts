@@ -113,21 +113,28 @@ export function gamesLabel(games: number): string {
   return `${formatNumber(games)} ${games === 1 ? 'partida' : 'partidas'}`
 }
 
-/** deckgym bugs already reported upstream, by the message the engine gives when a game hits them. */
-const REPORTED_ENGINE_BUGS: readonly { match: string; issue: number }[] = [
+/**
+ * deckgym bugs already reported upstream, by the message the engine gives when a game hits them; `fixed` once our copy
+ * of deckgym (D-031) has the fix.
+ */
+const REPORTED_ENGINE_BUGS: readonly { match: string; issue: number; fixed: boolean }[] = [
   // Ice Maker (Baxcalibur) and three other abilities ask for the Active Pokémon when there is none.
-  { match: 'Active Pokemon should be there', issue: 398 },
+  { match: 'Active Pokemon should be there', issue: 398, fixed: true },
 ]
 
 /**
  * What retrying failed pairings can expect from their errors: an error tied to one game («la partida con semilla …»)
  * comes back the same, since the same seeds play the same games; one of deckgym's bugs already reported is fixed only
- * when the engine is updated with the fix. Null when no error is tied to a game.
+ * by an engine with the fix («Repetir» plays the whole job again with today's engine). Null when no error is tied to a
+ * game.
  */
 export function retryNote(errors: readonly (string | null)[]): string | null {
   const games = errors.filter((error): error is string => error?.includes('la partida con semilla') ?? false)
   if (games.length === 0) return null
   const reported = REPORTED_ENGINE_BUGS.find((bug) => games.some((error) => error.includes(bug.match)))
+  if (reported?.fixed) {
+    return `Es un error de deckgym, el motor de las partidas, que nuestra copia del motor ya arregla (bcollazo/deckgym-core#${reported.issue}): con el motor de esta simulación esa partida va a fallar igual; «Repetir» la juega con el motor arreglado.`
+  }
   return reported
     ? `Es un error de deckgym, el motor de las partidas, ya reportado (bcollazo/deckgym-core#${reported.issue}): con la misma semilla esa partida va a fallar igual hasta que actualicemos el motor con el arreglo.`
     : 'El error dice en qué partida falló el motor: con la misma semilla esa partida va a fallar igual. Si es un error de deckgym, el motor de las partidas, se arregla cuando lo actualicemos.'

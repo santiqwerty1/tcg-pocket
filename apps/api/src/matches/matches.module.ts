@@ -6,7 +6,7 @@ import { DeckComparisonController, MatchesController } from './matches.controlle
 import { MatchesService } from './matches.service.js'
 
 @Module({
-  imports: [CatalogModule, TournamentsModule, SimulationModule],
+  imports: [TournamentsModule, SimulationModule, CatalogModule],
   controllers: [MatchesController, DeckComparisonController],
   providers: [MatchesService],
   exports: [MatchesService],

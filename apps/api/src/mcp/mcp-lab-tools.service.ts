@@ -18,11 +18,12 @@ import { CatalogService } from '../catalog/catalog.service.js'
 import { DecksService } from '../decks/decks.service.js'
 import { EventsService } from '../events/events.service.js'
 import { againstEs, LAB_NOTE, type LabDeckInput, LabService } from '../lab/lab.service.js'
-import type { CardLineView, LabDeckView, LabExploreView } from '../lab/lab-views.js'
+import type { LabDeckView, LabExploreView } from '../lab/lab-views.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
 import { LIMITLESS_ATTRIBUTION } from '../tournaments/tournaments.service.js'
 import { resolveCardRef } from './card-ref.js'
 import { DeckRefResolver } from './deck-ref.js'
+import { cardLine } from './mcp-card-line.js'
 import { jobSummaryJson, rateView } from './mcp-json.js'
 import type { WriteRun } from './mcp-run.js'
 
@@ -47,7 +48,6 @@ function config<S extends StandardSchemaWithJSON>(
 }
 
 const round = (value: number, digits = 1) => Math.round(value * 10 ** digits) / 10 ** digits
-const cardLine = (card: CardLineView) => `${card.count} ${card.nameEs} (${card.cardId})`
 
 const ROLE_ES: Record<LabDeckView['role'], string> = {
   base: 'lista de partida',
@@ -289,6 +289,8 @@ export class McpLabToolsService {
         // T-017 A3: cards the bots play badly or the engine approximates, and whether one came in («carta con punto
         // ciego»; not the replay with e3's «sensible al bot»).
         ...(deck.bringsBlindSpot ? { bringsBlindSpot: true } : {}),
+        // H-055: what the bots, more than the list, may explain; say it next to the score.
+        ...(deck.botBlindSpot ? { botBlindSpot: deck.botBlindSpot.text } : {}),
         ...(deck.blindSpots.length > 0
           ? { blindSpots: deck.blindSpots.map((card) => `${card.nameEs}: ${card.reasons.join('; ')}`) }
           : {}),

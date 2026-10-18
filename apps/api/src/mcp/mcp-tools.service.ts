@@ -1472,12 +1472,20 @@ ${MCP_CHAT_INSTRUCTIONS}`
         lab: row.lab
           ? `${row.lab.text}, con ${row.lab.bot}${row.lab.stale ? ` (de la era ${row.lab.era}, viejo)` : ''}`
           : null,
+        // H-055: what the bots, more than the deck, may explain of the Laboratorio's number.
+        ...(row.blindSpot ? { botBlindSpot: row.blindSpot.text } : {}),
         // Another bot's score goes apart, never in place of the default one (D-029).
         ...(row.labOthers.length > 0
           ? {
               labOtherBots: row.labOthers.map(
                 (other) => `con ${other.bot}: ${percent(other.value)} (n = ${other.games}, prueba #${other.jobId})`,
               ),
+            }
+          : {}),
+        // Review of #109: why there is no score (Claude saw `lab: null` with no explanation).
+        ...(row.labFailed
+          ? {
+              labFailed: `la última prueba con e2 (#${row.labFailed.jobId}) falló antes de jugar la lista entera: se puede reintentar lo que falló (simulations_retry_failed)`,
             }
           : {}),
         ...(row.labRunning

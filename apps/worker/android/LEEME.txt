@@ -111,7 +111,8 @@ Guía de un mantenedor de Termux, con las diferencias por versión y fabricante:
 https://github.com/agnostic-apollo/Android-Docs/blob/master/en/docs/apps/processes/phantom-cached-and-empty-processes.md
 
 Licencia y fuentes:
-Worker y engine-cli: AGPL-3.0-only (LICENSE.txt). engine-cli enlaza deckgym-core sin modificar.
+Worker y engine-cli: AGPL-3.0-only (LICENSE.txt). engine-cli enlaza nuestra copia modificada de deckgym-core
+(https://github.com/santiqwerty1/deckgym-core, con arreglos de reglas).
 El paquete lleva sources.tar.gz con las fuentes exactas del motor, dependencias Rust
 vendorizadas con sus licencias, worker, locks y scripts de compilación; no requiere acceso
 al repo privado. BUILD.txt adentro explica cómo reconstruirlo.

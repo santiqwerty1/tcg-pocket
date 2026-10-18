@@ -72,7 +72,7 @@ jobs:
           else
             echo "wasm=false" >> "$GITHUB_OUTPUT"
           fi
-          if echo "$FILES" | grep -qE '^(Dockerfile|\.dockerignore|docker/|fly\.toml|package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|(apps|packages)/[^/]+/package\.json|apps/api/prisma/|engine/|scripts/build-engine-wasm\.mjs|\.github/workflows/)'; then
+          if echo "$FILES" | grep -qE '^(Dockerfile|\.dockerignore|docker/|fly\.toml|package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|(apps|packages)/[^/]+/package\.json|apps/api/prisma/|apps/api/prisma\.config\.ts|apps/api/src/config/|engine/|scripts/build-engine-wasm\.mjs|\.github/workflows/|\.github/scripts/)'; then
             echo "docker=true" >> "$GITHUB_OUTPUT"
           else
             echo "docker=false" >> "$GITHUB_OUTPUT"
@@ -389,6 +389,45 @@ jobs:
     needs: changes
     if: github.event_name == 'push' && needs.changes.outputs.docker == 'true'
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    # On a Windows runner Git Bash would rewrite /app/migrate.sh into a Windows path (chat-hub#7); nothing on Linux.
+    env:
+      MSYS_NO_PATHCONV: '1'
     steps:
       - uses: actions/checkout@v4
       - run: docker build --tag tcg-pocket:ci .
+      # The release_command as Fly runs it, on a network with no way out: the migration engine is in the image (it was
+      # downloaded on every start) and the migrations apply to an empty database.
+      - name: Release without internet
+        run: |
+          docker network create --internal tcg-ci-release
+          docker run -d --name tcg-ci-release-pg --network tcg-ci-release -e POSTGRES_USER=tcg -e POSTGRES_PASSWORD=tcg \
+            -e POSTGRES_DB=tcg postgres:17-alpine
+          for attempt in $(seq 1 60); do
+            docker exec tcg-ci-release-pg pg_isready -h 127.0.0.1 -U tcg -d tcg >/dev/null 2>&1 && break
+            sleep 1
+          done
+          PGPASS=tcg
+          RELEASE_DB="postgresql://tcg:$PGPASS@tcg-ci-release-pg:5432/tcg"
+          # Production refuses a database without sslmode=verify-full: neither the release nor the app start, and for
+          # that reason (anything else that fails, a wrong path, would also exit non-zero).
+          refused() { if "$@" >refusal.log 2>&1; then return 1; fi; grep -q 'must carry sslmode=verify-full' refusal.log; }
+          refused docker run --rm --network tcg-ci-release -e NODE_ENV=production -e DATABASE_URL="$RELEASE_DB" \
+            tcg-pocket:ci /app/migrate.sh || { echo "the release did not refuse a database without TLS:" >&2; cat refusal.log >&2; exit 1; }
+          refused docker run --rm --network tcg-ci-release -e NODE_ENV=production -e DATABASE_URL="$RELEASE_DB" \
+            -e SESSION_SECRET=ci-release-session-secret-ci-release-session-secret \
+            tcg-pocket:ci node /app/apps/api/dist/main.js || { echo "the app did not refuse a database without TLS:" >&2; cat refusal.log >&2; exit 1; }
+          # This Postgres has no TLS: DATABASE_TLS=off, only here.
+          docker run --rm --network tcg-ci-release -e NODE_ENV=production -e DATABASE_URL="$RELEASE_DB" -e DATABASE_TLS=off \
+            tcg-pocket:ci /app/migrate.sh 2>&1 | tee release.log
+          grep -Eq 'successfully applied|No pending migrations' release.log
+      # The migrations through TLS: a Postgres with a certificate of a throwaway CA migrates, one of a foreign CA (a
+      # MITM with the right name) is refused.
+      - name: Release through TLS
+        run: |
+          docker network create tcg-ci-tls
+          .github/scripts/tls-check.sh tcg-pocket:ci tcg-ci-tls tcg-ci
+      - name: Stop the release check
+        if: always()
+        run: |
+          docker rm -f tcg-ci-release-pg >/dev/null 2>&1 || true
+          docker network rm tcg-ci-release tcg-ci-tls >/dev/null 2>&1 || true

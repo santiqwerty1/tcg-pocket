@@ -47,8 +47,9 @@ describe('retryNote («Reintentar lo que falló»)', () => {
   it('says when an error tied to a game will come back, and names a deckgym bug already reported', () => {
     expect(retryNote([null, 'timeout'])).toBeNull()
     expect(retryNote(['la partida con semilla 12 falló: index out of bounds'])).toMatch(/va a fallar igual/)
-    expect(retryNote(['la partida con semilla 14450885746355706057 falló: Active Pokemon should be there'])).toMatch(
-      /bcollazo\/deckgym-core#398/,
-    )
+    const ice = retryNote(['la partida con semilla 14450885746355706057 falló: Active Pokemon should be there'])
+    expect(ice).toMatch(/bcollazo\/deckgym-core#398/)
+    // Our copy of deckgym fixes it (D-031): «Repetir» plays it with the fixed engine.
+    expect(ice).toMatch(/ya arregla.*«Repetir»/)
   })
 })

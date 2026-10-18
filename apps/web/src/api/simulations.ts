@@ -138,7 +138,12 @@ export function useRetryFailedSimulation() {
   return useMutation({
     mutationFn: (id: number) =>
       request(`/api/simulations/${id}/retry-failed`, { method: 'POST', schema: jobSummarySchema }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: simulationKeys.all }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: simulationKeys.all })
+      // Review of #109: ¿Cuál llevo hoy? stops saying «falló» without reloading.
+      void queryClient.invalidateQueries({ queryKey: ['decks', 'today'] })
+      void queryClient.invalidateQueries({ queryKey: ['lab'] })
+    },
   })
 }
 

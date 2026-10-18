@@ -91,6 +91,8 @@ describe('laboratorio (e2e)', () => {
       if (/^\/tournaments\?/.test(path)) return json(200, /page=1$/.test(path) ? listing : [])
       if (path === `/tournaments/${BIG}/details`) return json(200, read('big_details.json'))
       if (path === `/tournaments/${BIG}/standings`) return json(200, read('big_standings.json'))
+      // H-055: its rounds too, so the archetypes have matchups and an expected rate against the meta.
+      if (path === `/tournaments/${BIG}/pairings`) return json(200, read('big_pairings.json'))
       return json(404, { message: 'unknown path' })
     }
     test.app.get(LimitlessTransport).fetch = fake
@@ -830,6 +832,22 @@ describe('laboratorio (e2e)', () => {
     expect(fromSearch?.jobId).toBe(jobId)
     expect(fromSearch?.score.score).toMatchObject({ games: 100 })
     expect(fromSearch?.score.score?.value).toBeCloseTo(50, 8)
+    // Review of #109: a confirmation that failed halfway leaves the search's score (the search was whole), and the
+    // list is not marked as failed.
+    const baseChunks = await test.prisma.simulationChunk.findMany({
+      where: { jobId, snapshotAId: baseRow.snapshot },
+      orderBy: { idx: 'desc' },
+    })
+    await test.prisma.simulationChunk.update({ where: { id: baseChunks[0]?.id as number }, data: { status: 'failed' } })
+    await test.prisma.simulationJob.update({ where: { id: jobId }, data: { status: 'failed' } })
+    const afterFail = (await test.app.get(LabService).deckLabStatus([Number(deckIds[1])], 'B4a')).get(
+      Number(deckIds[1]),
+    )
+    expect(afterFail?.failed).toBeNull()
+    expect(afterFail?.score?.jobId).toBe(jobId)
+    expect(afterFail?.score?.score.score?.games).not.toBe(100)
+    await test.prisma.simulationChunk.update({ where: { id: baseChunks[0]?.id as number }, data: { status: 'done' } })
+    await test.prisma.simulationJob.update({ where: { id: jobId }, data: { status: 'done' } })
     expect(lab.decks.filter((deck: { role: string }) => deck.role === 'variant')).toHaveLength(5)
     const total = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: jobId } })
     expect(total.totalGames).toBe(200 + 200 + 200 + 200)
@@ -1731,6 +1749,69 @@ describe('laboratorio (e2e)', () => {
     expect(broughtGroups).toContain(stage1.id)
     expect(broughtGroups.length).toBe(2)
 
+    // Review of #107: deck 20 plays two Onix (B1a-38); Onix A1-150 asked for takes the place of one of them (it used
+    // to never come in), and both carry their code.
+    const steelix = await post('/api/lab/explore').send({
+      deck: { deckId: deckIds[19] },
+      size: 3,
+      config,
+      include: ['A1-150'],
+      dryRun: true,
+    })
+    expect(steelix.status).toBe(200)
+    expect(steelix.body.include).toEqual([
+      expect.objectContaining({
+        cardId: 'A1-150',
+        nameEs: 'Onix (A1-150)',
+        note: expect.stringMatching(/, pero evoluciona en .*Mega-Steelix ex$/),
+      }),
+    ])
+    const [swap] = steelix.body.firstRound as {
+      add: { nameEs: string; count: number }[]
+      remove: { nameEs: string }[]
+    }[]
+    expect(swap?.add).toEqual([expect.objectContaining({ nameEs: 'Onix (A1-150)', count: 1 })])
+    expect(swap?.remove).toEqual([expect.objectContaining({ nameEs: 'Onix (B1a-38)' })])
+
+    // Self-review of the follow-up: the guaranteed variant never leaves a pre-evolution alone either. Deck 2 with
+    // Sinistea and Polteageist (Sinistea only comes along in Fire), asking for a card it lacks, over many seeds.
+    const base2 = (await get(`/api/decks/${deckIds[1]}`)).body as {
+      energies: string[]
+      cards: { card: { id: string; cardType: string }; count: number }[]
+    }
+    const trainerLines = base2.cards.filter((entry) => entry.card.cardType === 'trainer')
+    const [drop1, drop2] = trainerLines
+    if (!drop1 || !drop2) throw new Error('deck shape')
+    const withLine = [
+      ...base2.cards
+        .filter((entry) => entry !== drop1 && entry !== drop2)
+        .map((entry) => ({ cardId: entry.card.id, count: entry.count })),
+      ...(drop1.count > 1 ? [{ cardId: drop1.card.id, count: drop1.count - 1 }] : []),
+      ...(drop2.count > 1 ? [{ cardId: drop2.card.id, count: drop2.count - 1 }] : []),
+      { cardId: 'B2-74', count: 1 },
+      { cardId: 'B2-75', count: 1 },
+    ]
+    const sinistea = await post('/api/decks').send({ name: 'Con Sinistea', energies: ['fire'], cards: withLine })
+    expect(sinistea.status).toBe(201)
+    let guaranteedSeen = 0
+    for (let seed = 0; seed < 30; seed++) {
+      const plan = await post('/api/lab/explore').send({
+        deck: { deckId: sinistea.body.id },
+        size: 3,
+        config: { ...config, variantsPerRound: 1 },
+        include: [asked.displayCardId],
+        seed: 7_000_000 + seed,
+        dryRun: true,
+      })
+      expect(plan.status).toBe(200)
+      const [guaranteed] = plan.body.firstRound as { remove: { cardId: string }[] }[]
+      if (!guaranteed) continue
+      guaranteedSeen += 1
+      const removed = new Set(guaranteed.remove.map((card) => card.cardId))
+      expect(removed.has('B2-75') && !removed.has('B2-74')).toBe(false)
+    }
+    expect(guaranteedSeen).toBeGreaterThan(20)
+
     // A card the list has one copy of is a card to try too («otro Onix»): the guaranteed variant brings a second one.
     const deckCards = (await get(`/api/decks/${deckIds[1]}`)).body.cards as { card: { id: string }; count: number }[]
     const single = deckCards.find((entry) => {
@@ -1780,6 +1861,99 @@ describe('laboratorio (e2e)', () => {
       }
     }
     await post(`/api/simulations/${pasted.body.id}/cancel`)
+  }, 60_000)
+
+  it("review of #113: a card to try names only evolutions that can come in, with the best list's zone", async () => {
+    const config = {
+      gamesPerRival: 10,
+      variantsPerRound: 3,
+      maxRounds: 1,
+      confirmGames: 0,
+      verifyGames: 0,
+      pool: 'collection',
+      byWeight: false,
+      confirmBot: null,
+    }
+    const index = test.app.get(CatalogService).requireIndex()
+    const megaSteelix = index.cardById('B1a-52')?.functionalGroupId
+    if (!megaSteelix) throw new Error('no Mega-Steelix ex')
+    // Deck 20 without Mega-Steelix ex (two trainers of one copy go up to two): Onix A1-150 is asked for.
+    const steelixDeck = (await get(`/api/decks/${deckIds[19]}`)).body as {
+      energies: string[]
+      cards: { card: { id: string; cardType: string }; count: number }[]
+    }
+    let raised = 0
+    const cards = steelixDeck.cards
+      .filter((entry) => index.cardById(entry.card.id)?.functionalGroupId !== megaSteelix)
+      .map((entry) => {
+        const up = entry.card.cardType === 'trainer' && entry.count === 1 && raised < 2
+        if (up) raised += 1
+        return { cardId: entry.card.id, count: up ? 2 : entry.count }
+      })
+    const created = await post('/api/decks').send({ name: 'Onix sin Mega', energies: steelixDeck.energies, cards })
+    expect(created.status).toBe(201)
+    const ask = (extra: Record<string, unknown> = {}) =>
+      post('/api/lab/explore').send({
+        deck: { deckId: created.body.id },
+        size: 3,
+        config,
+        include: ['A1-150'],
+        dryRun: true,
+        ...extra,
+      })
+    const noteOf = (body: { include: { note: string | null }[] }) => body.include[0]?.note
+    // Metal: Onix (Fighting) cannot attack, but evolves into Mega-Steelix ex.
+    const plain = await ask()
+    expect(plain.status).toBe(200)
+    expect(noteOf(plain.body)).toMatch(/, pero evoluciona en .*Mega-Steelix ex$/)
+    // An event that does not allow Mega-Steelix ex: the note does not name it.
+    const event = await test
+      .http()
+      .post('/api/events')
+      .set('Cookie', cookie)
+      .send({ name: 'Sin Mega-Steelix', rules: { banned: [megaSteelix] } })
+    expect(event.status).toBe(201)
+    const banned = await ask({ eventId: event.body.id })
+    expect(banned.status).toBe(200)
+    expect(noteOf(banned.body)).toMatch(/^no puede atacar con las energías de la lista/)
+    expect(noteOf(banned.body)).not.toMatch(/Mega-Steelix/)
+    // An engine that does not play it: neither (the test engine plays every card, so it is stubbed here).
+    const engine = test.app.get(EngineStatusService)
+    const real = await engine.status()
+    const editions = new Set(index.cardsOfGroup(megaSteelix).map((card) => card.engineId))
+    const spy = vi
+      .spyOn(engine, 'status')
+      .mockResolvedValue(((engineId: string) => (editions.has(engineId) ? false : real(engineId))) as typeof real)
+    try {
+      const unplayed = await ask()
+      expect(unplayed.status).toBe(200)
+      expect(noteOf(unplayed.body)).toMatch(/^no puede atacar con las energías de la lista/)
+      expect(noteOf(unplayed.body)).not.toMatch(/Mega-Steelix/)
+    } finally {
+      spy.mockRestore()
+    }
+    // In a search, the zone of the best list so far: with an incumbent on Fighting, Onix attacks (no note).
+    const search = await ask({ dryRun: false, seed: 9113 })
+    expect(search.status).toBe(200)
+    const id = search.body.id as number
+    expect(noteOf((await get(`/api/lab/jobs/${id}`)).body.explore)).toMatch(/Mega-Steelix ex$/)
+    const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })
+    const params = job.params as { sideA: number[]; lab: { explore: { base: number; incumbent: number } } }
+    const {
+      id: _id,
+      createdAt: _at,
+      ...base
+    } = await test.prisma.deckSnapshot.findUniqueOrThrow({
+      where: { id: params.lab.explore.base },
+    })
+    const fighting = await test.prisma.deckSnapshot.create({
+      data: { ...base, energies: ['fighting'], cards: base.cards as never, problems: base.problems as never },
+    })
+    params.sideA = [...params.sideA, fighting.id]
+    params.lab.explore.incumbent = fighting.id
+    await test.prisma.simulationJob.update({ where: { id }, data: { params: params as never } })
+    expect(noteOf((await get(`/api/lab/jobs/${id}`)).body.explore)).toBeNull()
+    await post(`/api/simulations/${id}/cancel`)
   }, 60_000)
 
   it('T-017 E4: a list added to a search in play plays its next round', async () => {
@@ -2142,6 +2316,107 @@ describe('laboratorio (e2e)', () => {
     expect(base.bringsBlindSpot).toBe(false)
     await post(`/api/simulations/${created.body.id}/cancel`)
   }, 60_000)
+
+  it('H-055: «posible punto ciego del bot» in the Laboratorio, «¿Cuál llevo hoy?», the deck and Claude', async () => {
+    const client = new Client({ name: 'e2e', version: '1.0.0' })
+    await client.connect(
+      new StreamableHTTPClientTransport(mcpUrl, { requestInit: { headers: { Authorization: `Bearer ${mcpToken}` } } }),
+    )
+    clients.push(client)
+    const call = async (name: string, args: Record<string, unknown> = {}) =>
+      ((await client.callTool({ name, arguments: args })) as { structuredContent?: Structured }).structuredContent ?? {}
+    const patch = (id: string, body: Record<string, unknown>) =>
+      test.http().patch(`/api/decks/${id}`).set('Cookie', cookie).send(body)
+    // Deck 40 (Mega-Venusaur ex: Ivysaur does no damage) and deck 2, which has no such card; both lose every game.
+    const venusaur = deckIds[39] as string
+    const plain = deckIds[1] as string
+    const jobs: Record<string, number> = {}
+    for (const [deckId, seed] of [
+      [venusaur, 9300],
+      [plain, 9301],
+    ] as const) {
+      const created = await post('/api/lab/test').send({ decks: [{ deckId }], size: 3, gamesPerRival: 20, seed })
+      expect(created.status).toBe(200)
+      jobs[deckId] = created.body.id as number
+      expect((await patch(deckId, { builtInGame: true })).status).toBe(200)
+    }
+    expect(await playAll(() => 0)).toBeGreaterThanOrEqual(6)
+    // Deck 2 plays the most played archetype of the bank, so it has a tournament number to be far from.
+    const top = ((await get(`/api/lab/jobs/${jobs[plain]}`)).body.rivals as { archetypeId: string }[])[0]?.archetypeId
+    expect((await patch(plain, { tournamentArchetypeId: top })).status).toBe(200)
+    const ivysaur =
+      /^Posible punto ciego del bot: e2 casi nunca evoluciona a Ivysaur, que no hace daño, así que el mazo casi no llega a /
+    try {
+      // The Laboratorio, on the list.
+      const venusaurLab = (await get(`/api/lab/jobs/${jobs[venusaur]}`)).body
+      expect(venusaurLab.decks[0].botBlindSpot.text).toMatch(ivysaur)
+      const far =
+        /^Posible punto ciego del bot: 0\u00a0% simulado contra [\d,]+\u00a0% del arquetipo en torneos contra los mismos rivales\. Probalo con f2 o e3\.$/
+      // Against the meta, deck 2's score against what its archetype makes in tournaments.
+      expect((await get(`/api/lab/jobs/${jobs[plain]}`)).body.decks[0].botBlindSpot?.text).toMatch(far)
+      // Review of #119: with one of its chunks not done the round is not whole (a pairing of more than 1.000 games is
+      // split, and one chunk per rival is not the whole bank), so the general rule waits.
+      const chunk = await test.prisma.simulationChunk.findFirstOrThrow({
+        where: { jobId: jobs[plain] as number, status: 'done' },
+      })
+      await test.prisma.simulationChunk.update({ where: { id: chunk.id }, data: { status: 'queued' } })
+      try {
+        expect((await get(`/api/lab/jobs/${jobs[plain]}`)).body.decks[0].botBlindSpot).toBeNull()
+      } finally {
+        await test.prisma.simulationChunk.update({ where: { id: chunk.id }, data: { status: 'done' } })
+      }
+      // «¿Cuál llevo hoy?», under the Laboratorio's number.
+      type Row = {
+        deck: { id: string }
+        tournament: { value: number; ci95: [number, number] } | null
+        lab: { value: number; ci95: [number, number]; bot: string } | null
+        blindSpot: { text: string } | null
+      }
+      const today = (await get('/api/decks-today')).body as { items: Row[] }
+      const rowOf = (id: string) => today.items.find((item) => item.deck.id === id) as Row
+      expect(rowOf(venusaur).lab).toMatchObject({ value: 0, bot: 'e2' })
+      expect(rowOf(venusaur).blindSpot?.text).toMatch(ivysaur)
+      // Deck 2 has no card of the list rules: only the number far from its archetype's in tournaments can say it.
+      const plainRow = rowOf(plain)
+      expect(plainRow.lab).toMatchObject({ value: 0, bot: 'e2' })
+      expect(plainRow.tournament).not.toBeNull()
+      expect(plainRow.tournament?.ci95[0]).toBeGreaterThan(15)
+      expect(plainRow.blindSpot?.text).toMatch(far)
+      // Review of #119: a score against a NOEX bank is not compared with the STANDARD tournament number.
+      const plainJob = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: jobs[plain] as number } })
+      const params = plainJob.params as { lab: Record<string, unknown> }
+      const asFormat = (format: string) =>
+        test.prisma.simulationJob.update({
+          where: { id: plainJob.id },
+          data: { params: { ...params, lab: { ...params.lab, format } } as object },
+        })
+      await asFormat('NOEX')
+      try {
+        const noex = ((await get('/api/decks-today')).body as { items: Row[] }).items.find(
+          (item) => item.deck.id === plain,
+        )
+        expect(noex?.lab).toMatchObject({ value: 0 })
+        expect(noex?.blindSpot).toBeNull()
+      } finally {
+        await asFormat(String(params.lab.format))
+      }
+      // The deck sheet's simulation column: the list rules only (it pools the rivals each simulation chose).
+      const columnOf = async (id: string) =>
+        ((await get(`/api/decks/${id}/comparison`)).body.columns as { source: string; blindSpot?: unknown }[]).find(
+          (column) => column.source === 'simulation',
+        )
+      expect(((await columnOf(venusaur))?.blindSpot as { text: string } | undefined)?.text).toMatch(ivysaur)
+      expect((await columnOf(plain))?.blindSpot).toBeNull()
+      // Claude.
+      const results = await call('lab_results', { job: jobs[venusaur] })
+      expect((results.decks as { botBlindSpot?: string }[])[0]?.botBlindSpot).toMatch(ivysaur)
+      const picked = (await call('decks_pick_today', { limit: 40 })).decks as { deck: string; botBlindSpot?: string }[]
+      expect(picked.find((row) => row.deck.startsWith(`#${venusaur} `))?.botBlindSpot).toMatch(ivysaur)
+      expect(picked.find((row) => row.deck.startsWith(`#${plain} `))?.botBlindSpot).toMatch(/simulado contra/)
+    } finally {
+      for (const id of [venusaur, plain]) await patch(id, { builtInGame: false, tournamentArchetypeId: null })
+    }
+  }, 120_000)
 
   it('T-017 C8: after the probe, every way to fill the two weakest places; the best three are verified together', async () => {
     const config = {
