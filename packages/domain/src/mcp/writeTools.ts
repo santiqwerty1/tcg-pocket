@@ -9,6 +9,14 @@ import { MATCH_MODES, MATCH_RESULTS } from '../matches/types.js'
 import { BOT_CODE_PATTERN } from '../simulation/jobs.js'
 import { TOURNAMENT_FORMATS } from '../tournaments/eras.js'
 
+/** 14/10: the rival's cards seen, «2 Greninja» or «Suicune ex» (name or code; any card of the name counts). */
+const seenCardsInput = z
+  .array(z.string().trim().min(1).max(100))
+  .max(20)
+  .optional()
+  .describe(
+    'Cartas que se vieron del rival, «2 Greninja» o «Suicune ex» (nombre o código, con la cantidad adelante si fueron dos). Sirven para clasificar al rival después (matches_rival_suggest)',
+  )
 const deckRef = z
   .string()
   .trim()
@@ -118,6 +126,7 @@ export const MCP_WRITE_TOOLS = {
         .describe('competitive, casual (distendida), beginner, event o friend; por defecto la de la última partida'),
       note: z.string().max(1000).optional(),
       playedAt: z.iso.datetime({ offset: true }).optional().describe('Cuándo se jugó (ISO 8601); por defecto ahora'),
+      opponentCards: seenCardsInput,
     }),
   },
   rivalsNoteSet: {
@@ -148,6 +157,7 @@ export const MCP_WRITE_TOOLS = {
       mode: z.enum(MATCH_MODES).optional(),
       note: z.string().max(1000).optional(),
       playedAt: z.iso.datetime({ offset: true }).optional(),
+      opponentCards: seenCardsInput,
     }),
   },
   matchesDelete: {

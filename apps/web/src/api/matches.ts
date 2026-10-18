@@ -1,4 +1,5 @@
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { z } from 'zod'
 import { request } from './client'
 import {
   deckComparisonSchema,
@@ -14,6 +15,8 @@ import {
   matchStatsSchema,
   matchSuggestionsSchema,
   myMetaSchema,
+  rivalSuggestionsSchema,
+  unclassifiedSchema,
 } from './schemas'
 
 /** Fase 28: the last suggestions, so the quick-entry form opens without signal. */
@@ -188,4 +191,88 @@ export function useDeleteMatch() {
       return invalidateMatches(queryClient)
     },
   })
+}
+
+/**
+ * 14/10: the era's archetypes for the rival's cards seen (none asked without cards). No placeholder (Codex on #114):
+ * the suggestions of the cards before could be picked while the new ones loaded, or stay if that request failed.
+ */
+export function useRivalSuggestions(cards: readonly { cardId: string; count: number }[]) {
+  const param = cards.map((card) => `${card.cardId}x${card.count}`).join(',')
+  return useQuery({
+    queryKey: ['matches', 'rival-suggestions', param] as const,
+    queryFn: ({ signal }) =>
+      request('/api/matches/rival-suggestions', { query: { cards: param }, schema: rivalSuggestionsSchema, signal }),
+    enabled: cards.length > 0,
+  })
+}
+
+/** 14/10: the matches without a rival and with cards seen, grouped; the rivals typed that are no archetype. */
+export function useUnclassified() {
+  return useQuery({
+    queryKey: ['matches', 'unclassified'] as const,
+    queryFn: ({ signal }) => request('/api/matches/unclassified', { schema: unclassifiedSchema, signal }),
+  })
+}
+
+/** 14/10: how many matches wait for a rival (what «Hoy» shows, without the groups). */
+export function useUnclassifiedCount() {
+  return useQuery({
+    queryKey: ['matches', 'unclassified', 'count'] as const,
+    queryFn: ({ signal }) =>
+      request('/api/matches/unclassified/count', { schema: z.object({ matches: z.number() }), signal }),
+  })
+}
+
+const classifiedSchema = z.object({
+  updated: z.number(),
+  opponent: z.string().nullable(),
+  previous: z.array(z.object({ id: z.string(), opponent: z.string().nullable() })).default([]),
+  noteMoved: z.object({ from: z.string(), to: z.string() }).nullable().default(null),
+  /** The matches left as they were: they changed since (Codex on #114). */
+  skipped: z.array(z.string()).default([]),
+})
+export type Classified = z.infer<typeof classifiedSchema>
+
+async function classify(body: {
+  matchIds?: string[]
+  from?: string
+  opponent: string | null
+  note?: { from: string; to: string }
+  /** The rival `matchIds` must still have (null: none); the ones that changed are skipped. */
+  expect?: string | null
+}) {
+  return request('/api/matches/classify', { method: 'POST', body, schema: classifiedSchema })
+}
+
+/** 14/10: one rival for some matches, or for every match of a rival typed before (`from`); `null` unclassifies. */
+export function useClassify() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: classify,
+    onSuccess: () => invalidateMatches(queryClient),
+  })
+}
+
+/**
+ * «Deshacer» a classification: each match gets back the rival it had (or none), unless it changed since (Codex on
+ * #114: an edit after classifying is not undone). How many were left as they were.
+ */
+export async function undoClassify(done: Classified, queryClient: QueryClient): Promise<number> {
+  const byOpponent = new Map<string | null, string[]>()
+  for (const item of done.previous) {
+    const ids = byOpponent.get(item.opponent) ?? []
+    ids.push(item.id)
+    byOpponent.set(item.opponent, ids)
+  }
+  // The rival's note goes back with the first group (Codex on #114).
+  let note = done.noteMoved ? { from: done.noteMoved.to, to: done.noteMoved.from } : undefined
+  let skipped = 0
+  for (const [opponent, matchIds] of byOpponent) {
+    const undone = await classify({ matchIds, opponent, expect: done.opponent, ...(note ? { note } : {}) })
+    skipped += undone.skipped.length
+    note = undefined
+  }
+  await invalidateMatches(queryClient)
+  return skipped
 }

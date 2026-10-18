@@ -15,7 +15,8 @@ Se validan al arrancar (`src/config/env.ts`, zod); si falta algo el proceso term
 
 | Variable | Obligatoria | Default | Uso |
 |---|---|---|---|
-| `DATABASE_URL` | sí | — | `postgresql://…`. Local: `postgresql://tcg:tcg@127.0.0.1:5433/tcg` (usar `127.0.0.1`, no `localhost`: el motor de Prisma resuelve `localhost` por IPv6 y Docker en Windows no responde ahí). Producción: ver «Deploy» (pooler de Supabase con `sslmode=verify-full`). |
+| `DATABASE_URL` | sí | — | `postgresql://…`. Local: `postgresql://tcg:tcg@127.0.0.1:5433/tcg` (usar `127.0.0.1`, no `localhost`: el motor de Prisma resuelve `localhost` por IPv6 y Docker en Windows no responde ahí). Producción: ver «Deploy» (pooler de Supabase con `sslmode=verify-full`, obligatorio: sin eso no arrancan ni la app ni las migraciones). |
+| `DATABASE_TLS` | no | — | Solo `off`, para probar la imagen contra un Postgres sin TLS (el job `docker` de la CI): apaga la exigencia de `sslmode=verify-full` en producción. Nunca en Fly. |
 | `SESSION_SECRET` | sí | — | ≥ 32 caracteres aleatorios. Deriva (HKDF) la clave AES-256-GCM que cifra el secreto TOTP en reposo. Cambiarlo invalida el TOTP guardado (hay que correr `owner:init` de nuevo). |
 | `TEST_DATABASE_URL` | para `test:e2e` | — | Base aparte en el mismo servidor (`…/tcg_test`). |
 | `OWNER_EMAIL`, `OWNER_PASSWORD` | para `owner:init` | — | Credenciales iniciales (contraseña ≥ 12 caracteres). |
@@ -23,7 +24,7 @@ Se validan al arrancar (`src/config/env.ts`, zod); si falta algo el proceso term
 | `PORT` | no | `3000` | Puerto HTTP. |
 | `WEB_DIST` | no | `../web/dist` (relativo a `apps/api`) | Carpeta de la PWA compilada. Si no existe, `/` muestra un aviso. |
 | `CATALOG_COMMIT` | no | `3ab58f1cec6a03e3e85455cf7aade3bb8561f92e` | Pin del tracker para `catalog:sync`. |
-| `ENGINE_REV` | no | `fb792ebfbaca995af9750c28101ce92a51282825` | Pin de deckgym-core. |
+| `ENGINE_REV` | no | `018b4193365187063eab90b1eb0989087c93ad7f` | Pin de deckgym-core: nuestra copia, `santiqwerty1/deckgym-core` (D-031). Es `DEFAULT_ENGINE_REV`; un test lo ata a `engine/Cargo.toml`. |
 | `COOKIE_SECURE` | no | `true` en producción, `false` si no | Cookie `__Host-session` + `Secure` + HSTS; en desarrollo `tcg_session` sin `Secure`. |
 | `TRUST_PROXY` | no | `1` | Saltos de proxy confiables (`X-Forwarded-For`): 1 en Fly. |
 | `BACKUP_CRON` | no | `true` en producción, `false` si no | Copia diaria de seguridad a las 04:00 **hora de Buenos Aires** (`America/Argentina/Buenos_Aires`; el contenedor corre en UTC) en `backup_blobs`, conservando las últimas 14. |
@@ -119,7 +120,25 @@ Sesiones: id aleatorio de 32 bytes en la cookie, SHA-256 en `sessions`; 30 días
 
 ## Tokens de API
 
-`POST /api/tokens` con `{ name, kind: 'worker' | 'mcp', scopes }` devuelve el token en claro **una sola vez** (`tcg_wk_…` / `tcg_mcp_…` = prefijo + 32 bytes aleatorios en base64url); en la base queda solo el SHA-256, el prefijo para mostrar, `last_used_at` y `revoked_at`. Scopes: `worker:claim` (worker), `mcp:read`, `mcp:write` (MCP). `DELETE /api/tokens/:id` revoca. El guard (`src/tokens/bearer-token.guard.ts`) responde 401 sin token válido y 403 sin el scope.
+`POST /api/tokens` con `{ name, kind: 'worker' | 'mcp', scopes }` devuelve el token en claro **una sola vez** (`tcg_wk_…` / `tcg_mcp_…` = prefijo + 32 bytes aleatorios en base64url); en la base queda solo el SHA-256, el prefijo para mostrar, `last_used_at` y `revoked_at`. Scopes: `worker:claim` (worker), `mcp:read`, `mcp:write` (MCP), y dos que van solos en su token: `chat:relay` (el puente del chat de la PC) y `chat:export` (la mudanza del chat al hub, D-030). `DELETE /api/tokens/:id` revoca. El guard (`src/tokens/bearer-token.guard.ts`) responde 401 sin token válido y 403 sin el scope.
+
+### La mudanza del chat al hub (D-030, T1a)
+
+- **El export:** `GET /api/mcp/chat/export?salas&after&limit`, solo con un token cuyo único scope es `chat:export`. Da `chat-export` v1 (el contrato 1.3 de chat-hub) en páginas por id de hasta 2.000, solo de las salas de `CHAT_ROOMS`. Es lo que importa `hub import` en el hub, sala por sala.
+- **El import, para volver atrás:** `node dist/cli/chat-import.js <url> [--salas sala,…] [--despues <id>] [--aplicar]` (en local, `pnpm -F @tcg/api chat-import …`), con el token de exportación del hub en `IMPORT_TOKEN`. Sin `--aplicar` muestra la vista previa por sala, sin escribir nada. Con `--aplicar` corre en una transacción, y ante un conflicto no importa nada y lo explica. Conserva los ids, que en el hub empiezan en 1.000.001, y sube `session_chat_messages_id_seq`. Volver atrás con ids del hub va con todas las salas a la vez y con el hub sin escribir: con una sola, la vista previa lo marca como conflicto.
+- El token del hub va como secreto por un rato, nunca como argumento. `flyctl secrets import` y `flyctl secrets unset` reinician la máquina (unos segundos sin la app, y el chat contesta 503 mientras tanto), así que van con el hub sin escribir, como toda la vuelta atrás. Después del import, `IMPORT_TOKEN` se saca y el token se revoca en el hub. Sin `--salas` vienen todas las salas, que es lo que pide volver atrás con ids del hub:
+
+```bash
+read -rs -p "IMPORT_TOKEN: " T && printf 'IMPORT_TOKEN=%s\n' "$T" | flyctl secrets import --app tcg-pocket; unset T; echo
+```
+
+```bash
+flyctl machine exec <id> --app tcg-pocket "node /app/apps/api/dist/cli/chat-import.js https://<hub>/api/export"
+```
+
+```bash
+flyctl secrets unset --app tcg-pocket IMPORT_TOKEN
+```
 
 ## Tests
 
@@ -139,18 +158,18 @@ La sincronización del catálogo desde fixtures tarda ~2 s, así que cada archiv
 ## Deploy (Fly.io)
 
 - `Dockerfile` (raíz): multi-stage con pnpm. La etapa `deps` copia `apps/api/prisma/schema.prisma` y `prisma.config.ts` antes de `pnpm install` (el `postinstall` de la API corre `prisma generate`); `build` compila `@tcg/domain`, genera el cliente de Prisma, compila la PWA y la API y vuelve a instalar solo las dependencias de producción de `@tcg/api` y `@tcg/domain` (`pnpm install --prod --filter "@tcg/api..."` desde el store local: ~330 MB de `node_modules`, la mayor parte el CLI de Prisma, DECISIONES 1.13); la imagen final es `node:24-alpine` con `WEB_DIST=/app/apps/web/dist`. `docker/entrypoint.sh` corre `prisma migrate deploy` (schema engine `linux-musl`) y arranca `node dist/main.js`; con argumentos, los ejecuta en su lugar. `docker/migrate.sh` es el `release_command` de Fly (Fase 38).
-- Probar la imagen en local contra el Postgres de Docker Compose (Docker Desktop en Windows: `host.docker.internal`; en Linux, `--network host` y `127.0.0.1`):
+- Probar la imagen en local contra el Postgres de Docker Compose (Docker Desktop en Windows: `host.docker.internal`; en Linux, `--network host` y `127.0.0.1`). Ese Postgres no tiene TLS, así que va `DATABASE_TLS=off`, que en Fly nunca se usa:
 
   ```bash
   docker build -t tcg-pocket:local .
   docker run --rm -p 3200:3200 -e DATABASE_URL=postgresql://tcg:tcg@host.docker.internal:5433/tcg_test \
-    -e SESSION_SECRET=<48 caracteres aleatorios> -e NODE_ENV=production -e PORT=3200 tcg-pocket:local
+    -e SESSION_SECRET=<48 caracteres aleatorios> -e NODE_ENV=production -e DATABASE_TLS=off -e PORT=3200 tcg-pocket:local
   curl -i localhost:3200/healthz      # 200 { ok: true, … } (503 si la base no responde)
   curl -s localhost:3200/login | head # la página de ingreso
   ```
 
 - `fly.toml`: app `tcg-pocket`, región `gru`, puerto interno 3000, `force_https`, `auto_stop_machines = false`, `min_machines_running = 1`, `shared-cpu-1x` 512 MB, health check `GET /healthz` cada 30 s con `grace_period = "60s"` (cubre `migrate deploy` más la carga del catálogo en un arranque frío).
-- `DATABASE_URL` en producción (Supabase, plan Free): usar el **pooler en modo sesión**, puerto **5432** (`postgresql://postgres.<ref>:<clave>@aws-0-<región>.pooler.supabase.com:5432/postgres?sslmode=verify-full`). Motivos: la conexión directa `db.<ref>.supabase.co` es solo IPv6 y el pooler da IPv4; el puerto 6543 (modo transacción) rompe `pool.connect()` + `BEGIN` y las sentencias preparadas que usa la app. SSL: `pg` 8.16 (`pg-connection-string` 2.14) trata `sslmode=verify-full` como verificación completa contra las CA del sistema (`require`/`prefer` también, pero avisan que cambiarán de semántica); el certificado del pooler es de una CA pública, así que no hace falta `sslrootcert`. Si al conectar fallara la verificación, bajar el certificado raíz de Supabase (`prod-ca-2021.crt`) y agregar `&sslrootcert=/ruta`, o como último recurso `uselibpqcompat=true&sslmode=require` (cifra sin verificar). `prisma migrate deploy` (arranque del contenedor) acepta `disable|prefer|require` y trata otros valores como `prefer`, con lo que negocia TLS igual. El pool de la app es de 8 conexiones (cabe en el pooler Free). **Pendiente de verificar una vez contra el pooler real** antes del primer `fly deploy`.
+- `DATABASE_URL` en producción (Supabase, plan Free): usar el **pooler en modo sesión**, puerto **5432** (`postgresql://postgres.<ref>:<clave>@aws-0-<región>.pooler.supabase.com:5432/postgres?sslmode=verify-full`). Motivos: la conexión directa `db.<ref>.supabase.co` es solo IPv6 y el pooler da IPv4; el puerto 6543 (modo transacción) rompe `pool.connect()` + `BEGIN` y las sentencias preparadas que usa la app. SSL: `pg` 8.16 (`pg-connection-string` 2.14) trata `sslmode=verify-full` como verificación completa de la cadena y el nombre (`require`/`prefer` también, pero avisan que cambiarán de semántica). El certificado del pooler es de una CA privada de Supabase, que Node no trae: `fly.toml` la suma con `NODE_EXTRA_CA_CERTS` (ver «Supabase y TLS»). En producción, `DATABASE_URL` tiene que llevar `sslmode=verify-full`: con otro modo o sin modo, ni la app (`src/config/env.ts`) ni las migraciones (`prisma.config.ts`) arrancan, porque sin `sslmode` `pg` conecta en texto plano y con `require`, `verify-ca` o `prefer` las migraciones aceptaban un servidor impostor. `prisma migrate deploy` (el `release_command` y el arranque del contenedor) no lee `verify-full` ni `NODE_EXTRA_CA_CERTS`: lo tomaba como `prefer` y aceptaba un certificado de cualquier CA. Por eso `prisma.config.ts` le traduce la URL a `sslmode=require&sslaccept=strict&sslcert=<la CA>`, que sí verifica la cadena y el nombre; la CA es la del `sslrootcert` de la URL o, si no hay, la de `NODE_EXTRA_CA_CERTS`. El job `docker` de la CI lo prueba con un Postgres con una CA descartable y otro con una CA ajena (`.github/scripts/tls-check.sh`). El pool de la app es de 8 conexiones (cabe en el pooler Free).
 - Secretos: `fly secrets set DATABASE_URL=… SESSION_SECRET=…`. Luego `fly deploy` (desde la Fase 21, `pnpm deploy:fly` en la raíz: despliega solo un commit de `origin/main` con la CI en verde) y, una vez, `owner:init` y `catalog:sync` contra esa base (`fly ssh console` → `cd /app/apps/api && OWNER_EMAIL=… OWNER_PASSWORD=… node dist/cli/owner-init.js`).
 
 ## Estructura

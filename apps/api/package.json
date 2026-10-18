@@ -21,6 +21,7 @@
     "owner:init": "nest build && node dist/cli/owner-init.js",
     "catalog:sync": "nest build && node dist/cli/catalog-sync.js",
     "retention": "nest build && node dist/cli/retention.js",
+    "chat-import": "nest build && node dist/cli/chat-import.js",
     "worker-timing": "nest build && node dist/cli/worker-timing.js",
     "postinstall": "prisma generate"
   },

@@ -326,6 +326,7 @@ export class BackupService {
         deckRevisionId: match.deckRevisionId,
         result: match.result,
         opponentText: match.opponentText,
+        opponentCards: match.opponentCards as { cardId: string; count: number }[],
         wentFirst: match.wentFirst,
         mode: match.mode,
         note: match.note,

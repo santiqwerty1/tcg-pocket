@@ -206,27 +206,49 @@ function preEvolutionNames(pool: readonly PoolCard[], asked: ReadonlySet<CardId>
  * Review of #107: `next` leaves alone a card that only comes along as a pre-evolution (weight 0 in `pool`) whose
  * evolution `parent` had: «+Polteageist +Sinistea» accepted, and two rounds later a swap takes Polteageist out and
  * Sinistea stays, a Basic that cannot attack. A list that already had it alone is left as it was.
+ *
+ * With the zone in play (`energies`; review of #121): only an evolution that does something with it (attacks or has an
+ * ability) strands its pre-evolution — taking out a Probopass that cannot attack after an Energy change is the way to
+ * free the line, not a fault — and a pre-evolution the zone's pool dropped (an Energy change, or an evolution outside
+ * the pool) counts as one that only comes along when it does nothing on its own.
  */
 export function strandsPreEvolution(
   parent: readonly DeckCardEntry[],
   next: readonly DeckCardEntry[],
   pool: readonly PoolCard[],
   index: CatalogIndex,
+  energies?: readonly SelectableEnergy[],
 ): boolean {
-  const helpers = new Set(pool.filter((item) => item.weight <= 0).map((item) => item.groupId))
-  if (helpers.size === 0) return false
-  const evolvedFrom = (cards: readonly DeckCardEntry[]) =>
+  const weights = new Map(pool.map((item) => [item.groupId, item.weight]))
+  const onlyComesAlong = (card: CardEdition) => {
+    const weight = weights.get(card.functionalGroupId)
+    if (weight !== undefined) return weight <= 0
+    return energies !== undefined && !usableWith(card, energies)
+  }
+  // Review of #121 (three stages): an evolution works if it does something, or a card of `parent` that evolves from it
+  // does (Haunter, with Gengar ex in the list); not against the whole catalog, which would block dead lines again.
+  const inParent = parent.filter((entry) => entry.count > 0).flatMap((entry) => index.cardById(entry.cardId) ?? [])
+  const works = (card: CardEdition, seen: ReadonlySet<string> = new Set()): boolean =>
+    !energies ||
+    usableWith(card, energies) ||
+    inParent.some(
+      (next) =>
+        next.evolvesFrom === card.nameEn && !seen.has(next.nameEn) && works(next, new Set([...seen, card.nameEn])),
+    )
+  const evolvedFrom = (cards: readonly DeckCardEntry[], working: boolean) =>
     new Set(
       cards
         .filter((entry) => entry.count > 0)
-        .map((entry) => index.cardById(entry.cardId)?.evolvesFrom)
-        .filter((name): name is string => !!name),
+        .map((entry) => index.cardById(entry.cardId))
+        .filter((card) => !!card?.evolvesFrom && (!working || works(card as CardEdition)))
+        .map((card) => card?.evolvesFrom as string),
     )
-  const before = evolvedFrom(parent)
-  const after = evolvedFrom(next)
+  const before = evolvedFrom(parent, true)
+  if (before.size === 0) return false
+  const after = evolvedFrom(next, false)
   return next.some((entry) => {
     const card = entry.count > 0 ? index.cardById(entry.cardId) : undefined
-    return !!card && helpers.has(card.functionalGroupId) && before.has(card.nameEn) && !after.has(card.nameEn)
+    return !!card && before.has(card.nameEn) && !after.has(card.nameEn) && onlyComesAlong(card)
   })
 }
 
@@ -391,7 +413,7 @@ export function variantOf(
     const key = listKeyByGroup(groups)
     if (key === baseKey || options.seen?.has(key)) continue
     if (validateDeck({ cards, energies: [...energies] }, index).errors.length > 0) continue
-    if (strandsPreEvolution(deck, cards, pool, index)) continue
+    if (strandsPreEvolution(deck, cards, pool, index, energies)) continue
     if (options.accept && !options.accept(cards)) continue
     const sorted = cards.filter((entry) => entry.count > 0)
     return { cards: sorted, key, ...cardChanges(deck, sorted, index) }

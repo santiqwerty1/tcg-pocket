@@ -50,9 +50,14 @@ const json = (body: unknown, status = 200) =>
 
 describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
   let posted: Record<string, unknown>[]
+  let suggested: string[]
+  /** The suggestions of these cards wait for the gate and then fail. */
+  let failing: { cards: string; gate: Promise<void> } | null
 
   beforeEach(() => {
     posted = []
+    suggested = []
+    failing = null
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: string, init?: RequestInit) => {
@@ -84,6 +89,61 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
             ],
           })
         }
+        if (url.pathname === '/api/cards') {
+          return json({
+            items: [
+              {
+                card: {
+                  id: 'A1-89',
+                  nameEs: 'Greninja',
+                  nameEn: 'Greninja',
+                  expansionId: 'A1',
+                  number: 89,
+                  rarity: '◊◊◊',
+                  cardType: 'pokemon',
+                  evolutionType: 'stage2',
+                  ex: false,
+                  prizePoints: 1,
+                  functionalGroupId: 'A1-89',
+                  stockCardId: 'A1-89',
+                  isDisplayEdition: true,
+                },
+                group: {
+                  id: 'A1-89',
+                  nameEs: 'Greninja',
+                  nameEn: 'Greninja',
+                  cardType: 'pokemon',
+                  displayCardId: 'A1-89',
+                  editionCount: 1,
+                },
+              },
+            ],
+          })
+        }
+        if (url.pathname === '/api/matches/rival-suggestions') {
+          suggested.push(url.searchParams.get('cards') ?? '')
+          if (failing && failing.cards === url.searchParams.get('cards')) {
+            await failing.gate
+            return json({ error: { code: 'unavailable', message: 'sin datos' } }, 503)
+          }
+          return json({
+            era: 'B4a',
+            lists: 393,
+            suggestions: [
+              {
+                archetypeId: 'greninja-altaria',
+                name: 'Greninja Altaria',
+                share: 3.1,
+                lists: 12,
+                fits: 50,
+                best: 1,
+                seen: 1,
+                kind: 'fits',
+                text: 'el 50 % de sus listas tiene esas cartas (12 listas)',
+              },
+            ],
+          })
+        }
         if (url.pathname === '/api/matches' && method === 'GET') return json({ items: [], total: 0 })
         if (url.pathname === '/api/matches' && method === 'POST') {
           const body = JSON.parse(String(init?.body)) as Record<string, unknown>
@@ -108,6 +168,47 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
     )
     return router
   }
+
+  it('14/10: the cards seen of the rival, two copies, an archetype they suggest; they travel with the match', async () => {
+    const user = userEvent.setup()
+    renderAt('/partidas')
+    const form = await screen.findByRole('form', { name: 'Nueva partida' })
+    await user.click(within(form).getByRole('button', { name: 'Cartas que vi' }))
+    await user.type(within(form).getByRole('searchbox', { name: 'Buscar carta' }), 'Gren')
+    await user.click(await within(form).findByRole('button', { name: /Greninja/ }))
+    await user.click(within(form).getByRole('button', { name: /Greninja: una copia/ }))
+    expect(within(form).getByRole('button', { name: /Greninja: dos copias/ })).toBeInTheDocument()
+    // No rival typed: the archetypes the cards suggest; one tap fills the rival.
+    await user.click(await within(form).findByRole('button', { name: /Greninja Altaria/ }))
+    expect(within(form).getByLabelText('Rival (arquetipo)')).toHaveValue('Greninja Altaria')
+    expect(suggested.at(-1)).toBe('A1-89x2')
+    await user.click(within(form).getByRole('button', { name: 'Victoria' }))
+    await user.click(within(form).getByRole('button', { name: /Guardar partida/ }))
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({ opponent: 'Greninja Altaria', opponentCards: [{ cardId: 'A1-89', count: 2 }] })
+    // The next match starts without them.
+    await waitFor(() => expect(within(form).queryByRole('button', { name: /Greninja: dos copias/ })).toBeNull())
+  })
+
+  it('Codex on #114: the suggestions of the cards before are not offered while the new ones load, nor if they fail', async () => {
+    let release = () => {}
+    failing = { cards: 'A1-89x2', gate: new Promise<void>((resolve) => (release = resolve)) }
+    const user = userEvent.setup()
+    renderAt('/partidas')
+    const form = await screen.findByRole('form', { name: 'Nueva partida' })
+    await user.click(within(form).getByRole('button', { name: 'Cartas que vi' }))
+    await user.type(within(form).getByRole('searchbox', { name: 'Buscar carta' }), 'Gren')
+    await user.click(await within(form).findByRole('button', { name: /Greninja/ }))
+    expect(await within(form).findByRole('button', { name: /Greninja Altaria/ })).toBeInTheDocument()
+    // Two copies now: while their suggestions load, the ones for one copy are gone…
+    await user.click(within(form).getByRole('button', { name: /Greninja: una copia/ }))
+    await waitFor(() => expect(suggested.at(-1)).toBe('A1-89x2'))
+    expect(within(form).queryByRole('button', { name: /Greninja Altaria/ })).toBeNull()
+    // …and they do not come back when that request fails.
+    release()
+    await waitFor(() => expect(within(form).queryByText(/Ninguna lista de la era/)).toBeNull())
+    expect(within(form).queryByRole('button', { name: /Greninja Altaria/ })).toBeNull()
+  })
 
   it('logs a match in four taps from the home screen, with the last deck and mode preselected', async () => {
     const user = userEvent.setup()

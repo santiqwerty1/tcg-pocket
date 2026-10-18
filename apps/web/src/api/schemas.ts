@@ -580,12 +580,17 @@ export type MatchMode = z.infer<typeof matchModeSchema>
 export const matchDeckRefSchema = z.object({ id: z.string(), name: z.string(), archived: z.boolean() })
 export type MatchDeckRef = z.infer<typeof matchDeckRefSchema>
 
+/** 14/10: a rival's card seen, any edition of its name. */
+export const seenCardSchema = z.object({ cardId: z.string(), count: z.number(), nameEs: z.string() })
+export type SeenCard = z.infer<typeof seenCardSchema>
+
 export const matchSchema = z.object({
   id: z.string(),
   deck: matchDeckRefSchema,
   deckRevision: z.number(),
   result: matchResultSchema,
   opponent: z.string().nullable(),
+  opponentCards: z.array(seenCardSchema).default([]),
   wentFirst: z.boolean().nullable(),
   mode: matchModeSchema,
   note: z.string(),
@@ -609,7 +614,41 @@ export interface MatchInput {
   clientRef?: string
   /** Fase 28: how long ago it was played, measured on the phone (for a match saved without signal). */
   playedAgoMs?: number
+  /** 14/10: the rival's cards seen. */
+  opponentCards?: { cardId: string; count: number }[]
 }
+
+/** 14/10: an archetype of the era for the rival's cards seen. */
+export const archetypeFitSchema = z.object({
+  archetypeId: z.string(),
+  name: z.string(),
+  share: z.number(),
+  lists: z.number(),
+  fits: z.number(),
+  best: z.number(),
+  seen: z.number(),
+  kind: z.enum(['fits', 'similar']),
+  text: z.string(),
+})
+export type ArchetypeFit = z.infer<typeof archetypeFitSchema>
+export const rivalSuggestionsSchema = z.object({
+  era: z.string(),
+  lists: z.number(),
+  suggestions: z.array(archetypeFitSchema),
+})
+export const unclassifiedSchema = z.object({
+  era: z.string(),
+  groups: z.array(
+    z.object({
+      matches: z.array(matchSchema),
+      cards: z.array(seenCardSchema),
+      text: z.string(),
+      suggestions: z.array(archetypeFitSchema),
+    }),
+  ),
+  own: z.array(z.object({ key: z.string(), label: z.string(), games: z.number() })),
+})
+export type Unclassified = z.infer<typeof unclassifiedSchema>
 
 export const pickerDeckSchema = z.object({
   id: z.string(),
@@ -712,6 +751,8 @@ export const comparisonColumnSchema = z.object({
       }),
     )
     .optional(),
+  /** H-055, simulation column: «posible punto ciego del bot», by the list's cards. */
+  blindSpot: z.object({ text: z.string() }).nullable().default(null),
 })
 export type ComparisonColumn = z.infer<typeof comparisonColumnSchema>
 export const deckComparisonSchema = z.object({ deck: matchDeckRefSchema, columns: z.array(comparisonColumnSchema) })
@@ -1042,7 +1083,7 @@ export const tokenKindSchema = z.enum(['worker', 'mcp'])
 export type TokenKind = z.infer<typeof tokenKindSchema>
 export const SCOPES_BY_KIND: Record<TokenKind, readonly string[]> = {
   worker: ['worker:claim'],
-  mcp: ['mcp:read', 'mcp:write', 'chat:relay'],
+  mcp: ['mcp:read', 'mcp:write', 'chat:relay', 'chat:export'],
 }
 /** What a new token of each kind starts with (the chat bridge's permission goes alone, only on purpose). */
 export const DEFAULT_SCOPES_BY_KIND: Record<TokenKind, readonly string[]> = {
@@ -1051,6 +1092,10 @@ export const DEFAULT_SCOPES_BY_KIND: Record<TokenKind, readonly string[]> = {
 }
 /** The bridge of the session chat (D-021): alone in its token. */
 export const CHAT_RELAY_SCOPE = 'chat:relay'
+/** The export of the chat for its move to the hub (D-030): alone in its token, never by default. */
+export const CHAT_EXPORT_SCOPE = 'chat:export'
+/** Scopes that go alone in their token. */
+export const SOLO_SCOPES: readonly string[] = [CHAT_RELAY_SCOPE, CHAT_EXPORT_SCOPE]
 
 /** Mirrors CHAT_CHANNELS / CHAT_CHANNEL_LABEL of @tcg/domain. */
 export const CHAT_CHANNELS = ['owner', 'relay', 'connector'] as const
@@ -1756,6 +1801,8 @@ export const labDeckSchema = z.object({
   /** T-017 A3: cards the bots play badly or the engine approximates, and whether what came in is one. */
   blindSpots: z.array(z.object({ cardId: z.string(), nameEs: z.string(), reasons: z.array(z.string()) })).default([]),
   bringsBlindSpot: z.boolean().default(false),
+  /** H-055: «posible punto ciego del bot»: the list's cards, and the score far from the archetype's in tournaments. */
+  botBlindSpot: z.object({ text: z.string() }).nullable().default(null),
   /** T-017 E1/E2: why each card that came in was proposed, and the copies the collection lacks. */
   why: z
     .array(
@@ -2610,6 +2657,8 @@ export const pickSchema = z.object({
         })
         .nullable()
         .default(null),
+      /** H-055: «posible punto ciego del bot» of the Laboratorio's number. */
+      blindSpot: z.object({ text: z.string() }).nullable().default(null),
     }),
   ),
   /** The decks without a Laboratorio score of this era and not under test now. */

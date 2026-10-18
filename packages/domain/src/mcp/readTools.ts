@@ -335,7 +335,7 @@ export const MCP_READ_TOOLS = {
     name: 'decks_pick_today',
     title: '¿Qué mazo llevo hoy?',
     description:
-      'Los mazos armados en el juego con tres números separados: el récord de Santi con cada uno, lo que su arquetipo de torneo debería sacar contra el meta de los últimos 14 días (matchups de torneo pesados por la cuota de cada rival) y el último puntaje del Laboratorio (bots contra el banco del meta: el de e2 de la era actual; los de otros bots van en «labOtherBots», uno de otra era dice «viejo», y «labTesting» dice si se está probando ahora). No los combines en uno: explicá qué dice cada fuente y dónde coinciden. «sort» ordena por una de las tres. Con «meta: mine» el número de torneo pesa los rivales por «mi meta» (los rivales de las partidas de Santi en la era, las recientes más) en lugar del meta de torneos: siguen siendo matchups de torneos entre personas, solo cambian los pesos, y el intervalo suma la incertidumbre de esos pesos; presentalo como «Torneos (personas), pesado por tus N rivales» (`weights.tournamentNumber`). «weights.used» dice cuál se usó (vuelve al de torneos hasta tener 10 partidas efectivas contra arquetipos).',
+      'Los mazos armados en el juego con tres números separados: el récord de Santi con cada uno, lo que su arquetipo de torneo debería sacar contra el meta de los últimos 14 días (matchups de torneo pesados por la cuota de cada rival) y el último puntaje del Laboratorio (bots contra el banco del meta: el del bot por defecto del Laboratorio, de la era actual; los de otros bots van en «labOtherBots», uno de otra era dice «viejo», y «labTesting» dice si se está probando ahora; «botBlindSpot» es un posible punto ciego del bot, H-055: cartas que los bots juegan mal o un puntaje muy lejos del de torneo, que puede explicar el número del Laboratorio más que el mazo; decilo junto a ese número). No los combines en uno: explicá qué dice cada fuente y dónde coinciden. «sort» ordena por una de las tres. Con «meta: mine» el número de torneo pesa los rivales por «mi meta» (los rivales de las partidas de Santi en la era, las recientes más) en lugar del meta de torneos: siguen siendo matchups de torneos entre personas, solo cambian los pesos, y el intervalo suma la incertidumbre de esos pesos; presentalo como «Torneos (personas), pesado por tus N rivales» (`weights.tournamentNumber`). «weights.used» dice cuál se usó (vuelve al de torneos hasta tener 10 partidas efectivas contra arquetipos).',
     input: z.object({
       sort: z.enum(['tournament', 'matches', 'lab']).optional().describe('tournament (por defecto), matches o lab'),
       meta: z
@@ -359,6 +359,22 @@ export const MCP_READ_TOOLS = {
         .optional()
         .describe('Copias faltantes como máximo (por defecto 8; 0 = solo lo que se arma hoy)'),
       limit: z.number().int().min(1).max(30).optional().describe('Arquetipos a devolver (por defecto 8)'),
+    }),
+  },
+  matchesRivalSuggest: {
+    name: 'matches_rival_suggest',
+    title: 'Clasificar al rival por las cartas vistas',
+    description:
+      'Con las cartas que Santi vio del rival («2 Greninja», «Suicune ex»), los arquetipos de la era vigente que las juegan: primero los que tienen listas con todas (y qué parte de sus listas), después los parecidos («su lista más cercana tiene 2 de 3»). Sin «cards», las partidas sin rival y con cartas vistas, agrupadas por cartas parecidas y con sus sugerencias, y los rivales que Santi anotó que no son arquetipos de la era. Para ponerle el rival a una partida, matches_update con «opponent» (sugerí, no clasifiques sin que Santi diga cuál). Son listas de torneo (personas): no se mezclan con sus partidas.',
+    input: z.object({
+      cards: z
+        .array(query)
+        .min(1)
+        .max(20)
+        .optional()
+        .describe(
+          'Cartas vistas, «2 Greninja» o «Suicune ex» (nombre o código); sin ellas, las partidas por clasificar',
+        ),
     }),
   },
   matchesMyMeta: {
@@ -578,7 +594,7 @@ export const MCP_READ_TOOLS = {
     name: 'lab_results',
     title: 'Resultados del laboratorio',
     description:
-      'Sin «job»: las pruebas contra el meta y las búsquedas automáticas recientes, con estado y progreso. Con «job»: cada mazo con su puntaje contra el meta (% de victorias ponderado por la cuota de cada arquetipo del banco, con n e intervalo), su resultado contra cada rival, los cambios de cartas respecto de la lista de partida y su novedad («jugada en torneo», «conocida»: a 6 cambios o menos de una lista de la era, o «nueva»). En una búsqueda: cada ronda, qué variante ganó y la ronda de confirmación (partidas nuevas para la lista de partida y la encontrada, sin la suerte que eligió al ganador). Juegan bots, no personas: es una pista para probar en el juego, no un veredicto, y nunca se mezcla con torneos ni con partidas propias.',
+      'Sin «job»: las pruebas contra el meta y las búsquedas automáticas recientes, con estado y progreso. Con «job»: cada mazo con su puntaje contra el meta (% de victorias ponderado por la cuota de cada arquetipo del banco, con n e intervalo), su resultado contra cada rival, los cambios de cartas respecto de la lista de partida y su novedad («jugada en torneo», «conocida»: a 6 cambios o menos de una lista de la era, o «nueva»). «botBlindSpot» es un posible punto ciego del bot (H-055): cartas que el bot de la prueba juega mal o un puntaje muy lejos de lo que el arquetipo saca en torneos; decilo junto al puntaje y sugerí probarlo con el bot que dice. En una búsqueda: cada ronda, qué variante ganó y la ronda de confirmación (partidas nuevas para la lista de partida y la encontrada, sin la suerte que eligió al ganador). Juegan bots, no personas: es una pista para probar en el juego, no un veredicto, y nunca se mezcla con torneos ni con partidas propias.',
     input: z.object({
       job: z.number().int().positive().optional().describe('Número de la simulación («#12» → 12)'),
       limit: z.number().int().min(1).max(60).optional().describe('Mazos a devolver (por defecto 10)'),

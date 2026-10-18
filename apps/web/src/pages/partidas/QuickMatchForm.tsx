@@ -8,7 +8,7 @@ import { type FormEvent, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useCreateMatch, useDeleteMatch } from '@/api/matches'
-import type { MatchInput, MatchMode, MatchResult, MatchSuggestions } from '@/api/schemas'
+import type { MatchInput, MatchMode, MatchResult, MatchSuggestions, SeenCard } from '@/api/schemas'
 import { useUiSettings } from '@/api/settings'
 import { DeckNumber } from '@/components/DeckNumber'
 import { Spinner } from '@/components/ListState'
@@ -21,6 +21,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { opponentKeyOf, RESULT_LABEL } from '@/lib/matches'
 import { discardPending, isOfflineError, newClientRef, queueMatch } from '@/lib/offlineMatches'
 import { DeckChips, ModePicker, OpponentField, ResultPicker, WentFirstPicker } from './MatchFields'
+import { SeenCardsField, seenCardsBody } from './SeenCards'
 
 function initialDeck(suggestions: MatchSuggestions, preferred: string | null | undefined): string | null {
   const candidates = [preferred, suggestions.lastDeckId, suggestions.decks[0]?.id]
@@ -40,6 +41,8 @@ export function QuickMatchForm({
   const [deckId, setDeckId] = useState<string | null>(() => initialDeck(suggestions, preferredDeckId))
   const [result, setResult] = useState<MatchResult | null>(null)
   const [opponent, setOpponent] = useState('')
+  /** 14/10: the rival's cards seen. */
+  const [cards, setCards] = useState<SeenCard[]>([])
   const [wentFirst, setWentFirst] = useState<boolean | null>(null)
   const [mode, setMode] = useState<MatchMode>(suggestions.lastMode)
   const [noteOpen, setNoteOpen] = useState(false)
@@ -84,6 +87,7 @@ export function QuickMatchForm({
   function resetForm() {
     setResult(null)
     setOpponent('')
+    setCards([])
     setWentFirst(null)
     setNote('')
     setNoteOpen(false)
@@ -114,6 +118,7 @@ export function QuickMatchForm({
       wentFirst,
       mode,
       ...(note.trim() ? { note: note.trim() } : {}),
+      ...(cards.length > 0 ? { opponentCards: seenCardsBody(cards) } : {}),
     }
     const clientRef = newClientRef()
     const deckName = suggestions.decks.find((deck) => deck.id === deckId)?.name ?? `Mazo ${deckId}`
@@ -142,6 +147,7 @@ export function QuickMatchForm({
       <ResultPicker value={result} onChange={setResult} />
       <OpponentField value={opponent} onChange={setOpponent} suggestions={opponentChoices} />
       <RivalNoteHint key={opponentKeyOf(opponent)} opponent={opponent} onEditingChange={setNoteEditing} />
+      <SeenCardsField value={cards} onChange={setCards} opponent={opponent} onPickRival={setOpponent} />
       {noteEditing ? (
         <p className="-mt-2 text-xs text-warning">Guardá o cancelá la nota del rival antes de guardar la partida.</p>
       ) : null}

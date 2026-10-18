@@ -21,6 +21,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common'
 import {
   CHAT_DEFAULT_ROOM,
@@ -90,6 +91,13 @@ const RETENTION_DAYS = 90
 const DAY_MS = 24 * 60 * 60 * 1000
 /** `pg_advisory_xact_lock` key that serializes the inserts (any constant no other lock uses). */
 const WRITE_LOCK = 20_261_009
+/**
+ * How long a write waits for the lock: an import of the move (`chat-import`, D-030) holds it for a few seconds. Under
+ * the transaction's 15 s, so past it the answer is a 503 with `Retry-After` (the bridges retry it), never Prisma's
+ * P2028 as a 500 (review of #123).
+ */
+export const WRITE_LOCK_WAIT_MS = 10_000
+const WRITE_TIMEOUT_MS = 15_000
 const OWNER_KEY = chatKey(CHAT_OWNER)
 /** The largest message id (`SERIAL`). */
 const MAX_ID = 2_147_483_647
@@ -107,7 +115,7 @@ const CHANNEL_RULE: Record<ChatChannel, string> = {
 }
 
 /** A participant's rooms, the main one first: Santi is in all of them; a row with none (or unknown ones) is in «tcg». */
-function roomsOf(row: Pick<SessionChatParticipant, 'channel' | 'rooms'>): ChatRoom[] {
+export function roomsOf(row: Pick<SessionChatParticipant, 'channel' | 'rooms'>): ChatRoom[] {
   if (row.channel === 'owner') return [...CHAT_ROOMS]
   const rooms = row.rooms.filter((room): room is ChatRoom => (CHAT_ROOMS as readonly string[]).includes(room))
   return rooms.length > 0 ? rooms : [CHAT_DEFAULT_ROOM]
@@ -121,7 +129,7 @@ function inRoom(row: Pick<SessionChatParticipant, 'channel' | 'rooms'>, room: Ch
  * Where a participant starts reading a room: after the last message when it joined that room later (`room_since`),
  * or when it was added to the list (`since_id`). What came before counts as read.
  */
-function sinceIn(row: Pick<SessionChatParticipant, 'sinceId' | 'roomSince'>, room: ChatRoom): number {
+export function sinceIn(row: Pick<SessionChatParticipant, 'sinceId' | 'roomSince'>, room: ChatRoom): number {
   const map = row.roomSince
   const joined =
     map && typeof map === 'object' && !Array.isArray(map) ? (map as Record<string, unknown>)[room] : undefined
@@ -190,6 +198,9 @@ export class ChatService {
   /** Wakes the readers that are waiting (one process: the app runs on a single machine). */
   private readonly events = new EventEmitter()
 
+  /** How long a write waits for the import's lock (`WRITE_LOCK_WAIT_MS`; the tests shorten it). */
+  writeLockWaitMs = WRITE_LOCK_WAIT_MS
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly logger: PinoLogger,
@@ -251,12 +262,22 @@ export class ChatService {
     }
     let row: SessionChatMessage
     try {
-      row = await this.prisma.$transaction(async (tx) => {
-        // One insert at a time: the id comes after the lock and the commit releases it, so ids commit in order.
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${WRITE_LOCK}::bigint)`
-        return tx.sessionChatMessage.create({ data })
-      })
+      row = await this.prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT set_config('lock_timeout', ${`${this.writeLockWaitMs}ms`}, true)`
+          // One insert at a time: the id comes after the lock and the commit releases it, so ids commit in order.
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${WRITE_LOCK}::bigint)`
+          return tx.sessionChatMessage.create({ data })
+        },
+        { timeout: WRITE_TIMEOUT_MS },
+      )
     } catch (error) {
+      if (isLockTimeout(error)) {
+        throw new ServiceUnavailableException({
+          code: 'chat_busy',
+          message: 'El chat está ocupado con una importación: probá de nuevo en unos segundos.',
+        })
+      }
       // The same `ref` sent twice at once: the second one finds the first.
       if (input.ref && error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         const copied = await this.prisma.sessionChatMessage.findUniqueOrThrow({ where: { relayRef: input.ref } })
@@ -613,4 +634,22 @@ export class ChatService {
     })
     return { arrived, cancel: () => done() }
   }
+}
+
+/** Postgres' `lock_timeout` (55P03), wherever Prisma or the driver put its code. */
+function isLockTimeout(error: unknown): boolean {
+  let current: unknown = error
+  for (let depth = 0; depth < 6 && current && typeof current === 'object'; depth++) {
+    const { code, originalCode, meta, message, cause } = current as {
+      code?: unknown
+      originalCode?: unknown
+      meta?: { code?: unknown; driverAdapterError?: unknown }
+      message?: unknown
+      cause?: unknown
+    }
+    if ([code, originalCode, meta?.code].includes('55P03')) return true
+    if (typeof message === 'string' && /lock timeout/i.test(message)) return true
+    current = cause ?? meta?.driverAdapterError
+  }
+  return false
 }

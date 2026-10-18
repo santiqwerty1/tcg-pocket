@@ -1305,12 +1305,18 @@ describe('simulation (e2e)', () => {
     expect(
       (await put({ ...result, extra: { perGame: { ...perGame, turnLimit: 20, turns: [22, 9, 21, 8] } } })).status,
     ).toBe(422)
-    // The worker that claims it again sends it right.
+    // Review of #108: a tie at the limit is one turn past it, never two (32 turns with deckgym's 30).
+    expect(
+      (await put({ ...result, turns: 61, extra: { perGame: { ...perGame, turns: [12, 9, 32, 8] } } })).status,
+    ).toBe(422)
+    // The worker that claims it again sends it right. Review of #108: with a game won in 31 turns, as a knockout from
+    // the end of turn 30 settles it (job 42, chunk 32166).
     const again = (await hello('worker-0205', '0.2.5', '0.2.0')).body.chunk as Structured
     expect(again).toMatchObject({ chunkId: chunk.chunkId })
-    expect((await put({ ...result, extra: { perGame } })).body).toEqual({ accepted: true })
+    const decidedLate = { ...perGame, turns: [31, 9, 31, 8] }
+    expect((await put({ ...result, turns: 79, extra: { perGame: decidedLate } })).body).toEqual({ accepted: true })
     const stored = await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: Number(chunk.chunkId) } })
-    expect(stored.extra).toMatchObject({ perGame, analysisGames: { version: 1 } })
+    expect(stored.extra).toMatchObject({ perGame: decidedLate, analysisGames: { version: 1 } })
     for (const id of [created.body.id, plain.body.id]) {
       await post(`/api/simulations/${id}/cancel`)
       await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)

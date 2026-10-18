@@ -16,3 +16,8 @@ try {
 const app = await createApp(env)
 await app.listen(env.port)
 app.get(Logger).log(`tcg-pocket api ${env.version} listening on port ${env.port} (${env.nodeEnv})`)
+if (env.isProduction && env.databaseTlsOff) {
+  app
+    .get(Logger)
+    .warn('DATABASE_TLS=off: the database certificate is not required (only for trying the image, never in Fly)')
+}

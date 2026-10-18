@@ -104,12 +104,13 @@ export function checkPerGame(
     const tie = winners[i] === 'T'
     const tieEnding = endings[i] === 'L' || endings[i] === 'T'
     if (tie !== tieEnding) return `perGame: la partida ${i} no termina como dice su resultado.`
-    // deckgym ties a game when the turn after the limit begins (it counts that turn): «L» needs more than the limit. A
-    // knockout from the end of the last turn (Deceptive Needle, Poison, Burn) is settled after that, so a game it decides
-    // is won with one turn more than the limit too (job 42, 14/10/2026); a tie of another kind, never.
+    // deckgym ties a game when the turn after the limit begins (it counts that turn): «L» is exactly one turn more than
+    // the limit (review of #108: never more). A knockout from the end of the last turn (Deceptive Needle, Poison, Burn)
+    // is settled after that, so a game it decides is won with one turn more than the limit too (job 42, 14/10/2026); a
+    // tie of another kind, never.
     const played = turns[i] as number
     const most = endings[i] === 'P' || endings[i] === 'N' ? limit + 1 : limit
-    if (endings[i] === 'L' ? played <= limit : played > most) {
+    if (endings[i] === 'L' ? played !== limit + 1 : played > most) {
       return `perGame: la partida ${i} no coincide con el límite de ${limit} turnos.`
     }
   }

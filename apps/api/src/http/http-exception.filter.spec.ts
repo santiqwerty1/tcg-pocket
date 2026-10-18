@@ -3,9 +3,10 @@ import {
   ConflictException,
   HttpException,
   NotFoundException,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common'
-import { toApiError } from './http-exception.filter.js'
+import { ApiExceptionFilter, toApiError } from './http-exception.filter.js'
 
 describe('toApiError', () => {
   it('maps status codes to snake_case codes and keeps the Spanish message', () => {
@@ -37,6 +38,24 @@ describe('toApiError', () => {
     const envelope = { error: { code: 'custom', message: 'x' } }
     expect(toApiError(new HttpException(envelope, 400)).body).toBe(envelope)
     expect(toApiError(new BadRequestException(['a', 'b'])).body.error.message).toBe('a; b')
+  })
+
+  it('a 503 says when to come back (Retry-After), and keeps one the route set', () => {
+    const answer = (preset?: string) => {
+      const headers = new Map<string, string>(preset ? [['Retry-After', preset]] : [])
+      const response = {
+        headersSent: false,
+        getHeader: (name: string) => headers.get(name),
+        setHeader: (name: string, value: string) => headers.set(name, value),
+        status: () => response,
+        json: () => response,
+      }
+      const host = { switchToHttp: () => ({ getResponse: () => response }) }
+      new ApiExceptionFilter().catch(new ServiceUnavailableException('ocupado'), host as never)
+      return headers.get('Retry-After')
+    }
+    expect(answer()).toBe('5')
+    expect(answer('30')).toBe('30')
   })
 
   it('hides unknown errors behind a generic 500', () => {

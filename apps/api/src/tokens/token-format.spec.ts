@@ -4,8 +4,8 @@ import {
   hasScopes,
   invalidScopes,
   parseBearer,
-  relayScopeMixed,
   SCOPES_BY_KIND,
+  soloScopeMixed,
   tokenKindOf,
 } from './token-format.js'
 
@@ -47,9 +47,12 @@ describe('api token format', () => {
     expect(hasScopes([], [])).toBe(true)
   })
 
-  it('keeps the chat bridge scope alone in its token', () => {
-    expect(relayScopeMixed(['chat:relay'])).toBe(false)
-    expect(relayScopeMixed(['mcp:read', 'mcp:write'])).toBe(false)
-    expect(relayScopeMixed(['mcp:write', 'chat:relay'])).toBe(true)
+  it('keeps the chat bridge and the chat export scopes alone in their token', () => {
+    expect(soloScopeMixed(['chat:relay'])).toBeNull()
+    expect(soloScopeMixed(['chat:export', 'chat:export'])).toBeNull()
+    expect(soloScopeMixed(['mcp:read', 'mcp:write'])).toBeNull()
+    expect(soloScopeMixed(['mcp:write', 'chat:relay'])).toBe('chat:relay')
+    expect(soloScopeMixed(['mcp:read', 'chat:export'])).toBe('chat:export')
+    expect(soloScopeMixed(['chat:relay', 'chat:export'])).not.toBeNull()
   })
 })
