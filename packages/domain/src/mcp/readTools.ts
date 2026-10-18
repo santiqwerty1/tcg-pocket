@@ -225,7 +225,7 @@ export const MCP_READ_TOOLS = {
     name: 'matches_list',
     title: 'Últimas partidas',
     description:
-      'Mis partidas registradas, la más reciente primero, con id, mazo, resultado, rival, quién empezó, modalidad y nota. Se pagina con offset y se filtra por mazo, rival, modalidad, resultado y fechas; «total» dice cuántas hay con esos filtros.',
+      'Mis partidas registradas, la más reciente primero, con id, mazo, resultado, rival, cartas vistas del rival, quién empezó, modalidad y nota. Se pagina con offset y se filtra por mazo, rival, modalidad, resultado y fechas; «total» dice cuántas hay con esos filtros.',
     input: z.object({
       deck: deckRef.optional(),
       opponent: z.string().trim().max(80).optional().describe('Parte del nombre del rival'),

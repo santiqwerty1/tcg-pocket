@@ -2009,6 +2009,14 @@ ${MCP_CHAT_INSTRUCTIONS}`
         deckRevision: match.deckRevision,
         result: MATCH_RESULT_LABEL_ES[match.result],
         opponent: match.opponent,
+        // Codex on #114: what matches_update replaces, so Claude can add one card without dropping the rest.
+        ...(match.opponentCards.length > 0
+          ? {
+              opponentCards: match.opponentCards.map((card) =>
+                card.count > 1 ? `${card.count} ${card.nameEs}` : card.nameEs,
+              ),
+            }
+          : {}),
         wentFirst: match.wentFirst === null ? null : match.wentFirst ? 'empecé yo' : 'empezó el rival',
         mode: MATCH_MODE_LABEL_ES[match.mode],
         note: match.note || null,

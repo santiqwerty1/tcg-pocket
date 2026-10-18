@@ -6,7 +6,7 @@
 import { z } from 'zod'
 import { SELECTABLE_ENERGIES } from '../catalog/types.js'
 import { RANKS } from '../matches/ranked.js'
-import { MATCH_MODES, MATCH_RESULTS } from '../matches/types.js'
+import { MATCH_MODES, MATCH_RESULTS, OPPONENT_MAX_LENGTH } from '../matches/types.js'
 import { BOT_CODE_PATTERN } from '../simulation/jobs.js'
 import { TOURNAMENT_FORMATS } from '../tournaments/eras.js'
 
@@ -16,7 +16,7 @@ const seenCardsInput = z
   .max(20)
   .optional()
   .describe(
-    'Cartas que se vieron del rival, «2 Greninja» o «Suicune ex» (nombre o código, con la cantidad adelante si fueron dos). Sirven para clasificar al rival después (matches_rival_suggest)',
+    'Cartas que se vieron del rival, «2 Greninja» o «Suicune ex» (nombre o código, con la cantidad adelante si fueron dos). Sirven para clasificar al rival después (matches_rival_suggest). En matches_update reemplazan la lista entera: las de ahora están en matches_list',
   )
 const deckRef = z
   .string()
@@ -119,7 +119,14 @@ export const MCP_WRITE_TOOLS = {
     input: z.object({
       deck: deckRef,
       result: z.enum(MATCH_RESULTS).describe('win (victoria), loss (derrota) o tie (empate)'),
-      opponent: z.string().trim().min(1).max(120).optional().describe('Rival: arquetipo o lo que se vio'),
+      // Codex on #114: the app's limit, so the classification page can rename every rival Claude logs.
+      opponent: z
+        .string()
+        .trim()
+        .min(1)
+        .max(OPPONENT_MAX_LENGTH)
+        .optional()
+        .describe('Rival: arquetipo o lo que se vio'),
       wentFirst: z.boolean().optional().describe('true si empecé yo, false si empezó el rival'),
       mode: z
         .enum(MATCH_MODES)
@@ -180,7 +187,7 @@ export const MCP_WRITE_TOOLS = {
         .describe('Id de la partida'),
       deck: deckRef.optional(),
       result: z.enum(MATCH_RESULTS).optional(),
-      opponent: z.string().trim().min(1).max(120).nullable().optional(),
+      opponent: z.string().trim().min(1).max(OPPONENT_MAX_LENGTH).nullable().optional(),
       wentFirst: z.boolean().nullable().optional(),
       mode: z.enum(MATCH_MODES).optional(),
       note: z.string().max(1000).optional(),

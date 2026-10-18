@@ -297,6 +297,17 @@ describe('rivals by the cards seen (e2e)', () => {
         group.matches.map((match) => match.id),
       ),
     ).toContain(ids[0])
+    // Codex on #114: a rival Claude logged when its limit was 120 characters can still be renamed.
+    const long = 'Un rival con un nombre larguísimo que Claude anotó cuando el tope era de ciento veinte letras'
+    expect(long.length).toBeGreaterThan(80)
+    await test.prisma.match.update({ where: { id: Number(ids[0]) }, data: { opponentText: long } })
+    expect((await post('/api/matches/classify').send({ from: long, opponent: 'Corto' })).body).toMatchObject({
+      updated: 1,
+      opponent: 'Corto',
+    })
+    expect((await post('/api/matches/classify').send({ matchIds: [ids[0] as string], opponent: null })).status).toBe(
+      200,
+    )
     // Refused: nothing to classify, an empty rival, a match that does not exist.
     expect((await post('/api/matches/classify').send({ opponent: 'X' })).status).toBe(400)
     expect((await post('/api/matches/classify').send({ matchIds: ids, opponent: '   ' })).status).toBe(400)

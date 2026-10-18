@@ -167,6 +167,16 @@ describe('MCP write tools (e2e)', () => {
       match: { result: 'Derrota', wentFirst: 'empezó el rival', opponentCards: ['2 Greninja', 'Suicune ex'] },
     })
     expect((await call(client, 'matches_update', { id: match.id, opponentCards: ['Nadaquever'] })).isError).toBe(true)
+    // Codex on #114: matches_list shows them, so Claude can add one without dropping the rest.
+    const listed = (await call(client, 'matches_list', { limit: 50 })).structuredContent.matches as {
+      id: string
+      opponentCards?: string[]
+    }[]
+    expect(listed.find((row) => row.id === match.id)?.opponentCards).toEqual(['2 Greninja', 'Suicune ex'])
+    // Codex on #114: a rival is at most the app's 80 characters, so the classification page can rename it.
+    expect(
+      (await call(client, 'matches_log', { deck: 'mazo 7', result: 'win', opponent: 'x'.repeat(81) })).isError,
+    ).toBe(true)
     // A code with lowercase letters, in any case or spacing (Codex on #114: «b1a-38» and «B1a 38» were refused).
     for (const code of ['b1a-38', 'B1a 38', 'B1A-38']) {
       const coded = await call(client, 'matches_update', { id: match.id, opponentCards: [code] })
