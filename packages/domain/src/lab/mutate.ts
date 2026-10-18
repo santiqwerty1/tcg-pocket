@@ -231,6 +231,17 @@ export function strandsPreEvolution(
 }
 
 /**
+ * The pool `strandsPreEvolution` reads in a search round (Codex on #118): the zone's pool, plus the frozen pool's cards
+ * that the zone in play dropped, as pre-evolutions that only come along (weight 0). An accepted Energy change may drop
+ * a line that cannot attack any more; its pre-evolution is still one that only comes along, so no later change leaves
+ * it alone. A card the new zone draws on its own (weight above 0) stays as it is.
+ */
+export function strandPool(zone: readonly PoolCard[], frozen: readonly PoolCard[]): PoolCard[] {
+  const inZone = new Set(zone.map((card) => card.groupId))
+  return [...zone, ...frozen.filter((card) => !inZone.has(card.groupId)).map((card) => ({ ...card, weight: 0 }))]
+}
+
+/**
  * A card's Spanish name in the Laboratorio, with the code of its functional card when another one shares its name
  * (review of #107): Onix A1-150 (three Fighting) and Onix B1a-38 (three Colorless) are different cards. With `shared`
  * (from `sharedNames`), only when the name is among them — two cards of the name in what is shown; without it, when
@@ -332,6 +343,8 @@ export interface VariantOptions {
   boostIn?: ((groupId: CardId) => number) | undefined
   /** The same for a card going out. */
   boostOut?: ((groupId: CardId) => number) | undefined
+  /** The pool whose weight-0 cards only come along (`strandPool`; by default the one drawn from). */
+  strand?: readonly PoolCard[] | undefined
 }
 
 function weightedPick<T extends { weight: number }>(items: readonly T[], random: () => number): T | null {
@@ -391,7 +404,7 @@ export function variantOf(
     const key = listKeyByGroup(groups)
     if (key === baseKey || options.seen?.has(key)) continue
     if (validateDeck({ cards, energies: [...energies] }, index).errors.length > 0) continue
-    if (strandsPreEvolution(deck, cards, pool, index)) continue
+    if (strandsPreEvolution(deck, cards, options.strand ?? pool, index)) continue
     if (options.accept && !options.accept(cards)) continue
     const sorted = cards.filter((entry) => entry.count > 0)
     return { cards: sorted, key, ...cardChanges(deck, sorted, index) }

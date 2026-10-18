@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { CardEdition, SelectableEnergy } from '../../src/index.js'
+import { type CardEdition, SELECTABLE_ENERGIES, type SelectableEnergy } from '../../src/index.js'
 import {
   comboVariant,
   evolutionLine,
@@ -12,6 +12,7 @@ import {
   revertVariant,
   seededRandom,
   sharedNames,
+  strandPool,
   strandsPreEvolution,
   usableWith,
   variantOf,
@@ -260,6 +261,47 @@ describe('evolution lines in the pool («probar estas cartas» with Onix)', () =
       expect(revertVariant(withLine, accepted, 0, index, editionOf, { pool: [], valid: () => true })?.undoes).toBe(0)
       // With the pool it skips to the next one: undoing «+Sinistea» leaves no one alone.
       expect(revertVariant(withLine, accepted, 0, index, editionOf, { pool, valid: () => true })?.undoes).toBe(1)
+    })
+
+    it('Codex on #118: after an Energy change that drops the line, its pre-evolution still only comes along', () => {
+      // Nosepass (Fighting) only comes along with Metal, where Probopass attacks; Grass drops both; with Fighting
+      // Nosepass attacks on its own.
+      const full = mutationPool({ index, energies: [...SELECTABLE_ENERGIES], edition, maxCopies: () => 2 })
+      const zoneOf = (energies: SelectableEnergy[]) => poolForZone(full, energies, index)
+      const weightIn = (pool: readonly { groupId: string; weight: number }[]) =>
+        pool.find((card) => card.groupId === 'A2-86')?.weight
+      expect(weightIn(zoneOf(['metal']))).toBe(0)
+      expect(weightIn(zoneOf(['grass']))).toBeUndefined()
+      expect(weightIn(zoneOf(['fighting']))).toBeGreaterThan(0)
+      const line = [
+        ...base.cards.filter((entry) => entry !== t1 && entry !== t2),
+        { cardId: 'A2-86', count: 1 },
+        { cardId: 'A2-118', count: 2 },
+      ]
+      const swaps = [
+        { add: [t1.cardId], remove: [group('A2-118')], difference: 5 },
+        { add: [t2.cardId], remove: [group('A2-118')], difference: 4 },
+      ]
+      const combo = (pool: Parameters<typeof comboVariant>[3]['pool']) =>
+        comboVariant(line, swaps, index, { pool, valid: () => true })
+      // With Metal the combo would leave Nosepass alone: refused.
+      expect(combo(zoneOf(['metal']))).toBeNull()
+      // An Energy change to Grass: the zone's pool alone no longer knows Nosepass, and the combo would go.
+      expect(combo(zoneOf(['grass']))).not.toBeNull()
+      expect(combo(strandPool(zoneOf(['grass']), full))).toBeNull()
+      // With Fighting Nosepass attacks on its own: no card that only comes along, the combo goes.
+      expect(combo(strandPool(zoneOf(['fighting']), full))).not.toBeNull()
+      // The same for undoing «+Probopass» while Nosepass came in apart.
+      const accepted = [
+        { add: ['A2-118'], remove: [group(t1.cardId)], difference: 3 },
+        { add: ['A2-86'], remove: [group(t2.cardId)], difference: 2 },
+      ]
+      const single = line.map((entry) => (entry.cardId === 'A2-118' ? { ...entry, count: 1 } : entry))
+      const editionOf = (groupId: string) => index.groupById(groupId)?.displayCardId ?? groupId
+      const revert = (pool: Parameters<typeof revertVariant>[5]['pool']) =>
+        revertVariant(single, accepted, 0, index, editionOf, { pool, valid: () => true })?.undoes
+      expect(revert(zoneOf(['grass']))).toBe(0)
+      expect(revert(strandPool(zoneOf(['grass']), full))).toBe(1)
     })
 
     it('self-review of the follow-up: with what is shown, only names two of its cards share carry the code', () => {

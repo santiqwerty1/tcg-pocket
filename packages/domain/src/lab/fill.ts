@@ -46,6 +46,8 @@ export interface FillOptions {
   /** Copies the pool allows of a card (the collection's, with «colección»). */
   maxCopies: (groupId: CardId) => number
   valid: (cards: readonly DeckCardEntry[]) => boolean
+  /** The pool whose weight-0 cards only come along (`strandPool`; by default `pool`). */
+  strand?: readonly PoolCard[] | undefined
 }
 
 export interface FillRound {
@@ -129,7 +131,7 @@ export function fillRound(
         const limit = Math.max(had.get(groupId) ?? 0, Math.min(2, options.maxCopies(groupId)))
         if ((counted.get(groupId) ?? 0) > limit) return
       }
-      if (!options.valid(cards) || strandsPreEvolution(deck, cards, pool, index)) return
+      if (!options.valid(cards) || strandsPreEvolution(deck, cards, options.strand ?? pool, index)) return
       keys.add(key)
       const sorted = cards.filter((entry) => entry.count > 0)
       variants.push({ cards: sorted, key, ...cardChanges(deck, sorted, index) })
