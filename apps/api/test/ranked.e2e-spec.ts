@@ -231,6 +231,16 @@ describe('ranked by season and rank (e2e)', () => {
     ).toBe(200)
     expect(await at(playedAt)).toHaveLength(0)
     expect((await at(movedTo)).map((row) => row.rank)).toEqual(['great-3'])
+    // Review of #130: not into another season (the OLD one), where its rank would no longer count.
+    const intoOld = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    const crossing = await test
+      .http()
+      .patch(`/api/matches/${sent.body.id}`)
+      .set('Cookie', cookie)
+      .send({ playedAt: intoOld })
+    expect(crossing.status).toBe(400)
+    expect((await at(movedTo)).map((row) => row.rank)).toEqual(['great-3'])
+    expect((await get(`/api/matches/${sent.body.id}`)).body.playedAt).toBe(movedTo)
     expect((await del(`/api/matches/${sent.body.id}`)).status).toBe(204)
     expect(await at(movedTo)).toHaveLength(0)
     // With another match at that very instant, the rank stays.

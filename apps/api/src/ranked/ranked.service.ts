@@ -26,7 +26,7 @@ import { PrismaService } from '../prisma/prisma.service.js'
 import type { MatchRankedView, RankChangeView, RankedView, RateRowView, SeasonSummaryView } from './ranked-views.js'
 
 /** `pg_advisory_xact_lock` key that serializes noting a rank at a moment (any constant no other lock uses). */
-const RANK_NOTE_LOCK = 43_120
+export const RANK_NOTE_LOCK = 43_120
 
 /** A rank noted more than this ahead of the server's clock is refused (a phone with a wrong clock). */
 const FUTURE_SLACK_MS = 10 * 60 * 1000

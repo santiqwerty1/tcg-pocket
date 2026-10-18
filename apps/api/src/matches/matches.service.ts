@@ -37,6 +37,7 @@ import {
   orderDecksForPicker,
   revisionAt,
   type SeenCard,
+  seasonOf,
   seenCardsTextEs,
   simulationRate,
   suggestArchetypesForCards,
@@ -45,10 +46,12 @@ import {
   turnOrderImpact,
 } from '@tcg/domain'
 import { CatalogService } from '../catalog/catalog.service.js'
+import { OWNER_TIME_ZONE } from '../config/time-zone.js'
 import type { Prisma } from '../generated/prisma/client.js'
 import type { MatchSource } from '../generated/prisma/enums.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import { RANK_NOTE_LOCK, RankedService } from '../ranked/ranked.service.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
 import type {
@@ -255,6 +258,7 @@ export class MatchesService {
     private readonly tournaments: TournamentsService,
     private readonly simulations: SimulationsService,
     private readonly catalog: CatalogService,
+    private readonly ranked: RankedService,
   ) {}
 
   private view(record: MatchRecord): MatchView {
@@ -735,11 +739,27 @@ export class MatchesService {
     }
     if (Object.keys(data).length === 0) return this.view(current)
     const moved = playedAt && playedAt.getTime() !== current.playedAt.getTime() ? playedAt : null
+    const seasons = moved ? await this.ranked.seasons() : []
     const updated = await this.prisma.$transaction(async (tx) => {
+      // Review of #130: the ranks are written under the same lock as noting one.
+      if (moved) await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
       const row = await tx.match.update({ where: { id: current.id }, data, include: matchInclude })
       // Deuda de #120: the ranks noted for this match (the one it was played at, a millisecond before it, and the one it
       // led to, at its instant) follow it to its new time, unless another match shares the old one.
       if (moved && !(await this.sharesInstant(tx, current.playedAt, current.id))) {
+        // Review of #130: not into another season (or out of every season), where they would no longer count.
+        const from = seasonOf(current.playedAt, seasons, OWNER_TIME_ZONE)?.code ?? null
+        const to = seasonOf(moved, seasons, OWNER_TIME_ZONE)?.code ?? null
+        const own = await tx.rankChange.count({
+          where: { at: { in: [current.playedAt, new Date(current.playedAt.getTime() - 1)] } },
+        })
+        if (own > 0 && from !== to) {
+          throw new BadRequestException({
+            code: 'validation',
+            message:
+              'La partida tiene un rango anotado: moverla a otra temporada lo dejaría afuera. Elegí una fecha de la misma temporada, o borrá antes el rango en Temporada.',
+          })
+        }
         for (const shift of [-1, 0]) {
           const from = new Date(current.playedAt.getTime() + shift)
           const to = new Date(moved.getTime() + shift)
@@ -949,6 +969,8 @@ export class MatchesService {
   async delete(rawId: string): Promise<void> {
     const match = await this.requireMatch(rawId)
     await this.prisma.$transaction(async (tx) => {
+      // Review of #130: the ranks are written under the same lock as noting one.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
       await tx.match.delete({ where: { id: match.id } })
       // Deuda de #120: the rank it led to (noted at its instant) goes with it, unless another match shares that instant.
       if (!(await this.sharesInstant(tx, match.playedAt, match.id))) {

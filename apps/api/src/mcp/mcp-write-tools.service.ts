@@ -27,7 +27,7 @@ import { DecksService } from '../decks/decks.service.js'
 import type { MatchView, RowView } from '../matches/match-views.js'
 import { MatchesService } from '../matches/matches.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
-import { RankedService } from '../ranked/ranked.service.js'
+import { RANK_NOTE_LOCK, RankedService } from '../ranked/ranked.service.js'
 import { RivalNotesService } from '../rivals/rival-notes.service.js'
 import type { CreateJobInput } from '../simulation/simulations.service.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
@@ -582,7 +582,10 @@ export class McpWriteToolsService {
       if (deleted.count === 0) {
         throw new ConflictException(`La partida ${id} cambió (o ya no está) mientras la borraba: no borré nada.`)
       }
-      if (rankAfter) await tx.rankChange.deleteMany({ where: { id: rankAfter.id, at: row.playedAt } })
+      if (rankAfter) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+        await tx.rankChange.deleteMany({ where: { id: rankAfter.id, at: row.playedAt } })
+      }
       // That it was deleted goes in the log with the delete itself: a «Sin terminar» entry is undoable only with it.
       await note.keepIn(tx, { ...undo, deletedAt: new Date().toISOString() })
     })

@@ -460,6 +460,28 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
     expect(ranks).toEqual([])
   })
 
+  it('review of #130: the match left the phone before the tap — the rank goes at the instant the server gave it', async () => {
+    const user = userEvent.setup()
+    const online = vi.mocked(fetch).getMockImplementation()
+    let signal = false
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (!signal && String(input).startsWith('/api/matches') && init?.method === 'POST') {
+        throw new TypeError('Failed to fetch')
+      }
+      return (online as typeof fetch)(input, init)
+    })
+    renderAt('/partidas')
+    const form = await screen.findByRole('form', { name: 'Nueva partida' })
+    await user.click(within(form).getByRole('button', { name: 'Victoria' }))
+    await user.click(within(form).getByRole('button', { name: /Guardar partida/ }))
+    const ask = await within(form).findByRole('group', { name: '¿Cambiaste de rango?' })
+    signal = true
+    await user.click(screen.getByRole('button', { name: /Enviar ahora/ }))
+    await waitFor(() => expect(posted).toHaveLength(1))
+    await user.click(within(ask).getByRole('button', { name: 'Subí a Ultra Ball 3' }))
+    await waitFor(() => expect(ranks).toEqual([{ rank: 'ultra-3', at: '2026-10-07T19:00:00.000Z' }]))
+  })
+
   it('without signal keeps the match on the phone and sends it once the signal is back (Fase 28)', async () => {
     const user = userEvent.setup()
     const online = vi.mocked(fetch).getMockImplementation()

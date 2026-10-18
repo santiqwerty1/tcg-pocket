@@ -10,7 +10,7 @@ import { errorMessage } from '@/api/client'
 import { neighbourRanks, useAddRank, useRanked } from '@/api/ranked'
 import type { MatchResult } from '@/api/schemas'
 import { Button } from '@/components/ui/button'
-import { setPendingRank } from '@/lib/offlineMatches'
+import { sentPlayedAt, setPendingRank } from '@/lib/offlineMatches'
 import { RankPicker } from './SeasonPage'
 
 export function RankPrompt({
@@ -40,12 +40,26 @@ export function RankPrompt({
       onDone()
       return true
     }
+    // Review of #130: the match left the phone meanwhile — the rank goes at the instant the server gave it.
+    let at = playedAt
+    if (pendingRef) {
+      at = (await sentPlayedAt(pendingRef)) ?? undefined
+      if (!at && setPendingRank(pendingRef, code, points)) {
+        toast.success('Se anota con la partida, cuando vuelva la señal.')
+        onDone()
+        return true
+      }
+      if (!at) {
+        toast.error('No encontré la partida: anotá el rango desde su edición o desde Temporada.')
+        return false
+      }
+    }
     setBusy(true)
     try {
       const noted = await add.mutateAsync({
         rank: code,
         ...(points !== null ? { points } : {}),
-        ...(playedAt ? { at: playedAt } : {}),
+        ...(at ? { at } : {}),
       })
       toast.success(`Anotado: ${noted.label}.`)
       onDone()
