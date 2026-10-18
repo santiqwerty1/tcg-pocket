@@ -11,7 +11,7 @@ const score = (value: number): MetaScore => ({
 })
 
 describe('what «posible punto ciego del bot» compares in the Laboratorio (H-055)', () => {
-  it('sums the weights of an archetype that comes with two lists (review of #119)', () => {
+  it('sums the weights of an archetype that comes with two lists, in percent like the meta shares (review of #119)', () => {
     expect(
       bankShares([
         { archetypeId: 'mega-altaria', weight: 0.2 },
@@ -19,8 +19,8 @@ describe('what «posible punto ciego del bot» compares in the Laboratorio (H-05
         { archetypeId: 'mega-altaria', weight: 0.1 },
       ]),
     ).toEqual([
-      { archetypeId: 'mega-altaria', share: expect.closeTo(0.3, 10) },
-      { archetypeId: 'suicune', share: 0.3 },
+      { archetypeId: 'mega-altaria', share: expect.closeTo(30, 10) },
+      { archetypeId: 'suicune', share: expect.closeTo(30, 10) },
     ])
     expect(bankShares([])).toEqual([])
   })
