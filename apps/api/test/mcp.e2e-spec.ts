@@ -141,6 +141,7 @@ describe('MCP endpoint (e2e)', () => {
       'matches_list',
       'matches_luck',
       'matches_my_meta',
+      'matches_rival_suggest',
       'matches_stats',
       'packs_recommend',
       'play_game_review',
@@ -171,9 +172,20 @@ describe('MCP endpoint (e2e)', () => {
   it('serves 2026-07-28 clients from the same endpoint', async () => {
     const client = await connect('modern')
     const { tools } = await client.listTools()
-    expect(tools).toHaveLength(43)
+    expect(tools).toHaveLength(44)
     // Fase 29: the games against the bot (none here) and the review of one.
     expect((await call(client, 'play_games')).structuredContent).toEqual({ games: [] })
+    // 14/10: the rival by the cards seen (no tournaments here: nothing suggested, nothing to classify).
+    const rival = (await call(client, 'matches_rival_suggest', { cards: ['2 Greninja'] })).structuredContent as {
+      suggestions: unknown[]
+      note?: string
+    }
+    expect(rival.suggestions).toEqual([])
+    expect(rival.note).toMatch(/^Ninguna lista/)
+    expect((await call(client, 'matches_rival_suggest')).structuredContent).toMatchObject({
+      toClassify: [],
+      ownRivals: [],
+    })
     // Fase 38: the server's own state, with the alerts in force.
     const system = (await call(client, 'system_status')).structuredContent as {
       version: string
@@ -497,7 +509,7 @@ describe('MCP endpoint (e2e)', () => {
       .set('Cookie', cookie)
       .send({ name: 'temporal', kind: 'mcp', scopes: ['mcp:read'] })
     const client = await connect('legacy', created.body.token)
-    expect((await client.listTools()).tools.length).toBe(43)
+    expect((await client.listTools()).tools.length).toBe(44)
     expect((await test.http().delete(`/api/tokens/${created.body.id}`).set('Cookie', cookie)).status).toBe(204)
     await expect(client.listTools()).rejects.toThrow()
   })

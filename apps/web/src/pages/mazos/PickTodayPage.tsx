@@ -114,6 +114,8 @@ function Row({
           </span>
         ))}
       </Line>
+      {/* H-055: under the Laboratorio's line, never in place of it. */}
+      {row.blindSpot ? <p className="pl-22 text-xs text-warning">{row.blindSpot.text}</p> : null}
     </li>
   )
 }

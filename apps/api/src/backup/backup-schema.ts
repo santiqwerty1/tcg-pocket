@@ -3,16 +3,17 @@
  * adds `matches`; a version 1 file still reads, with no matches. Version 3 (Fase 4) adds the pack switches; version 4
  * (Fase 5) the era table, the archetype merges and each deck's tournament archetype; version 5 (Fase 8) the results of
  * the games against the bot (D-019: the result only, not the moves); version 6 (Fase 12) the notes by rival; version 7
- * (Fase 16) the events; version 8 (T-020) collection imports and stock with tracker origin. Tournament data is not in the
+ * (Fase 16) the events; version 8 (T-020) collection imports and stock with tracker origin; version 9 (14/10) the
+ * rival's cards seen in each match. Tournament data is not in the
  * backup: it is Limitless's and the sync downloads it again (DECISIONES 5.7).
  * Dates are ISO strings; numeric ids keep their database values so a `replace` restores them verbatim.
  * Excluded on purpose: password hash, TOTP secret, token hashes (tokens travel as metadata only), raw CSV files.
  */
 import { z } from 'zod'
 
-export const BACKUP_SCHEMA_VERSION = 8
+export const BACKUP_SCHEMA_VERSION = 9
 /** Versions this app reads. Exports always write BACKUP_SCHEMA_VERSION. */
-export const READABLE_BACKUP_VERSIONS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8]
+export const READABLE_BACKUP_VERSIONS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9]
 
 const isoDate = z.string().refine((value) => !Number.isNaN(Date.parse(value)), 'fecha ISO 8601 inválida')
 const nullableDate = isoDate.nullable()
@@ -108,6 +109,8 @@ const matchSchema = z.object({
   deckRevisionId: z.number().int(),
   result: z.enum(['win', 'loss', 'tie']),
   opponentText: z.string().nullable(),
+  /** Version 9: the rival's cards seen (`[]` before). */
+  opponentCards: z.array(z.object({ cardId: z.string(), count: z.number().int().min(1).max(2) })).default([]),
   wentFirst: z.boolean().nullable(),
   mode: z.enum(['competitive', 'casual', 'beginner', 'event', 'friend']),
   note: z.string(),
@@ -138,6 +141,7 @@ export const backupDocumentSchema = z.object({
     z.literal(6),
     z.literal(7),
     z.literal(8),
+    z.literal(9),
   ]),
   exportedAt: isoDate,
   appVersion: z.string(),

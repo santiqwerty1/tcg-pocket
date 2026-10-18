@@ -33,7 +33,7 @@ aws s3 cp s3://<bucket>/backups/<archivo> . --endpoint-url https://fly.storage.t
 ## 2. Una base nueva
 
 1. **Proyecto nuevo en Supabase**, en la región São Paulo y el plan Free.
-2. **`DATABASE_URL` del pooler en modo sesión**, puerto 5432, con `sslmode=verify-full`. Los detalles y el certificado están en `apps/api/README.md`.
+2. **`DATABASE_URL` del pooler en modo sesión**, puerto 5432, con `sslmode=verify-full`: sin eso, en producción no arrancan ni la app ni las migraciones. Los detalles y el certificado están en `apps/api/README.md`.
 3. **Cargarla como secreto:** `flyctl secrets set DATABASE_URL=… --app tcg-pocket`. Va desde `.env.fly`, nunca por el chat.
 
 ## 3. La app

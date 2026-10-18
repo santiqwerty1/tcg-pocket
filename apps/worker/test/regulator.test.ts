@@ -85,7 +85,8 @@ describe('the CPU regulator, on the worker side (pedido de Santi del 14/10/2026)
     // Each start hears the engine again and ends on it; after the cap it is not started again, but one last short run
     // tells it the engines running and closes, which gives them the whole machine back (review of #106). That last
     // run does not crash, so all of it can be heard.
-    await until(() => lines().filter((line) => line === 'add 201 managed').length === MAX_STARTS_PER_HOUR, 8_000)
+    // Five starts of Node: up to ~1 s each on a loaded Windows (review of #115: 8 s failed 1 of 14 times).
+    await until(() => lines().filter((line) => line === 'add 201 managed').length === MAX_STARTS_PER_HOUR, 20_000)
     vi.stubEnv('FAKE_REGULATE_CRASH', '')
     await until(() => log.mock.calls.some(([message]) => String(message).includes('devuelvo la máquina entera')))
     await until(() => lines().filter((line) => line === 'add 201 managed').length === MAX_STARTS_PER_HOUR + 1)
@@ -99,7 +100,7 @@ describe('the CPU regulator, on the worker side (pedido de Santi del 14/10/2026)
       { starts: MAX_STARTS_PER_HOUR },
     )
     await regulator.stop()
-  }, 20_000)
+  }, 40_000)
 
   it('the last short run is followed: one that crashes or hangs is not logged as done (review of #110)', async () => {
     // It crashes too, on the engine's line: the log says the engines were not given the machine back.

@@ -16,6 +16,7 @@ import { DecksPage } from '@/pages/mazos/DecksPage'
 import { NextBuildPage } from '@/pages/mazos/NextBuildPage'
 import { PickTodayPage } from '@/pages/mazos/PickTodayPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
+import { ClassifyRivalsPage } from '@/pages/partidas/ClassifyRivalsPage'
 import { MatchEditPage } from '@/pages/partidas/MatchEditPage'
 import { MatchHistoryPage } from '@/pages/partidas/MatchHistoryPage'
 import { MatchStatsPage } from '@/pages/partidas/MatchStatsPage'
@@ -65,6 +66,11 @@ export const routes: RouteObject[] = [
             handle: handle('Historial de partidas', '/partidas'),
           },
           { path: 'partidas/semana', element: <WeekPage />, handle: handle('Tu semana', '/partidas') },
+          {
+            path: 'partidas/clasificar',
+            element: <ClassifyRivalsPage />,
+            handle: handle('Clasificar rivales', '/partidas'),
+          },
           { path: 'partidas/:matchId', element: <MatchEditPage />, handle: handle('Editar partida', '/partidas') },
           { path: 'sobres', element: <SobresPage />, handle: handle('Sobres') },
           {

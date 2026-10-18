@@ -2,6 +2,7 @@
 import { Body, Controller, Get, HttpCode, Module, Post, Query } from '@nestjs/common'
 import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
+import { CatalogModule } from '../catalog/catalog.module.js'
 import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
 import { LabModule } from '../lab/lab.controller.js'
 import type { LabRefreshView } from '../lab/lab-views.js'
@@ -44,7 +45,7 @@ export class PickController {
 }
 
 @Module({
-  imports: [MatchesModule, TournamentsModule, LabModule],
+  imports: [MatchesModule, TournamentsModule, LabModule, CatalogModule],
   controllers: [PickController],
   providers: [PickService],
   exports: [PickService],

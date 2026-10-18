@@ -1,5 +1,6 @@
 /** Response shapes of the matches API (docs/API.md «Partidas»). Numeric ids travel as strings. */
 import type {
+  ArchetypeFit,
   CoinAdjustedRate,
   GameRecord,
   MatchMode,
@@ -25,6 +26,8 @@ export interface MatchView {
   deckRevision: number
   result: MatchResult
   opponent: string | null
+  /** 14/10: the rival's cards seen, one per name. */
+  opponentCards: { cardId: string; count: number; nameEs: string }[]
   wentFirst: boolean | null
   mode: MatchMode
   note: string
@@ -86,6 +89,11 @@ export interface ComparisonColumnView {
   note: string
   /** Separate rows of the same source (tournament: exact list and archetype), each with its own n and interval. */
   rows?: { label: string; record: GameRecord; rate: WinRate | null; note?: string }[]
+  /**
+   * H-055, simulation column: «posible punto ciego del bot», the list's cards its bot plays badly. Only the list rules:
+   * the column pools the rivals each simulation chose, not the meta, so it is not compared with tournaments.
+   */
+  blindSpot?: { text: string } | null
 }
 
 /** Fase 13: an own record against the expected rate (tournaments), in words. */
@@ -172,3 +180,22 @@ export type MyMetaSummary = Pick<
   MyMeta,
   'text' | 'enough' | 'coverage' | 'matched' | 'effectiveMatches' | 'orientative'
 >
+
+/** 14/10: the current era's archetypes for the rival's cards seen. */
+export interface RivalSuggestionsView {
+  era: string
+  lists: number
+  suggestions: ArchetypeFit[]
+}
+
+/** 14/10: the matches to classify, grouped by similar cards, and the rivals typed that are no archetype. */
+export interface UnclassifiedView {
+  era: string
+  groups: {
+    matches: MatchView[]
+    cards: { cardId: string; count: number; nameEs: string }[]
+    text: string
+    suggestions: ArchetypeFit[]
+  }[]
+  own: { key: string; label: string; games: number }[]
+}

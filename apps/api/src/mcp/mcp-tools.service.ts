@@ -10,6 +10,7 @@ import type { CallToolResult, McpRequestContext, StandardSchemaWithJSON } from '
 import { McpServer } from '@modelcontextprotocol/server'
 import { BadRequestException, HttpException, Inject, Injectable, NotFoundException } from '@nestjs/common'
 import {
+  type ArchetypeFit,
   type CardEdition,
   estimateSeconds,
   type FunctionalGroup,
@@ -64,6 +65,7 @@ import type {
 import { TournamentsService } from '../tournaments/tournaments.service.js'
 import { TradesService } from '../trades/trades.controller.js'
 import { WeeklyService } from '../weekly/weekly.controller.js'
+import { seenCardFromText } from './card-ref.js'
 import { type DeckRef, DeckRefResolver } from './deck-ref.js'
 import { analysisJson } from './mcp-analysis-json.js'
 import { type AuditNote, McpAuditService } from './mcp-audit.service.js'
@@ -278,6 +280,9 @@ ${MCP_CHAT_INSTRUCTIONS}`
     )
     server.registerTool(t.decksPickToday.name, config(t.decksPickToday), (args) =>
       run(t.decksPickToday.name, () => this.decksPickToday(args)),
+    )
+    server.registerTool(t.matchesRivalSuggest.name, config(t.matchesRivalSuggest), (args) =>
+      run(t.matchesRivalSuggest.name, () => this.matchesRivalSuggest(args)),
     )
     server.registerTool(t.matchesMyMeta.name, config(t.matchesMyMeta), (args) =>
       run(t.matchesMyMeta.name, () => this.matchesMyMeta(args)),
@@ -1463,6 +1468,8 @@ ${MCP_CHAT_INSTRUCTIONS}`
         lab: row.lab
           ? `${row.lab.text}, con ${row.lab.bot}${row.lab.stale ? ` (de la era ${row.lab.era}, viejo)` : ''}`
           : null,
+        // H-055: what the bots, more than the deck, may explain of the Laboratorio's number.
+        ...(row.blindSpot ? { botBlindSpot: row.blindSpot.text } : {}),
         // Another bot's score goes apart, never in place of the default one (D-029).
         ...(row.labOthers.length > 0
           ? {
@@ -1490,6 +1497,46 @@ ${MCP_CHAT_INSTRUCTIONS}`
           }
         : {}),
       note: view.note,
+    }
+  }
+
+  /** 14/10: the archetypes for the rival's cards seen; without cards, the matches to classify. */
+  private async matchesRivalSuggest(args: { cards?: string[] }): Promise<Json> {
+    const fit = (suggestion: ArchetypeFit) => ({
+      archetype: suggestion.name,
+      kind: suggestion.kind === 'fits' ? 'encaja' : 'parecido',
+      text: suggestion.text,
+      shareOfEra: `${percentFormat.format(suggestion.share)} %`,
+    })
+    const source = 'Listas de torneo de la era (personas), no las partidas de Santi.'
+    if (args.cards) {
+      const index = this.catalog.requireIndex()
+      const view = await this.matches.rivalSuggestions(args.cards.map((text) => seenCardFromText(index, text)))
+      return {
+        era: view.era,
+        lists: view.lists,
+        source,
+        suggestions: view.suggestions.map(fit),
+        ...(view.suggestions.length === 0 ? { note: 'Ninguna lista de la era juega esas cartas.' } : {}),
+      }
+    }
+    const view = await this.matches.unclassified()
+    return {
+      era: view.era,
+      source,
+      toClassify: view.groups.map((group) => ({
+        cards: group.text,
+        matches: group.matches.map((match) => ({
+          id: match.id,
+          playedAt: match.playedAt.toISOString().slice(0, 10),
+          deck: match.deck.name,
+          result: match.result,
+        })),
+        suggestions: group.suggestions.slice(0, 3).map(fit),
+      })),
+      ownRivals: view.own.map(
+        (rival) => `${rival.label} (${rival.games} ${rival.games === 1 ? 'partida' : 'partidas'})`,
+      ),
     }
   }
 
