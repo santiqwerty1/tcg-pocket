@@ -882,19 +882,30 @@ export class MatchesService {
       // undoing a rename restored the matches but left the note on the new name).
       const moveNote = async (from: string, to: string) => {
         const [fromNote, toNote] = [opponentKey(from), opponentKey(to)]
-        if (fromNote === null || toNote === null || fromNote === toNote) return null
+        if (fromNote === null || toNote === null) return null
         const note = await tx.rivalNote.findUnique({ where: { key: fromNote }, select: { label: true } })
+        if (!note) return null
+        // Codex on #114: the same rival in another spelling («greninja suicune» → «Greninja Suicune»): the note's label
+        // takes it too (the Notes page shows it), and «Deshacer» gives the old one back the same way.
+        if (fromNote === toNote) {
+          if (note.label === to) return null
+          await tx.rivalNote.update({ where: { key: fromNote }, data: { label: to } })
+          return { from: note.label, to }
+        }
         const taken = await tx.rivalNote.findUnique({ where: { key: toNote }, select: { key: true } })
-        if (!note || taken) return null
+        if (taken) return null
         await tx.rivalNote.update({ where: { key: fromNote }, data: { key: toNote, label: to } })
         return { from: note.label, to }
       }
+      // Codex on #114: a «Deshacer» whose matches were all edited since restores none, so the note stays too.
       const noteMoved =
-        input.note !== undefined
-          ? await moveNote(input.note.from, input.note.to)
-          : input.from !== undefined && opponent !== null
-            ? await moveNote(input.from, opponent)
-            : null
+        count === 0
+          ? null
+          : input.note !== undefined
+            ? await moveNote(input.note.from, input.note.to)
+            : input.from !== undefined && opponent !== null
+              ? await moveNote(input.from, opponent)
+              : null
       return {
         updated: count,
         opponent,

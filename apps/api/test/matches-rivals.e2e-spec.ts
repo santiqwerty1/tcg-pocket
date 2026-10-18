@@ -212,6 +212,50 @@ describe('rivals by the cards seen (e2e)', () => {
       (await post('/api/matches/classify').send({ from: 'Greninja Suicune', opponent: 'Suicune ex Baxcalibur' })).body
         .noteMoved,
     ).toEqual({ from: 'Greninja Suicune', to: 'Suicune ex Baxcalibur' })
+    const noteLabel = async () =>
+      ((await get('/api/rival-notes')).body.items as { key: string; label: string }[]).find(
+        (item) => item.key === 'suicune ex baxcalibur',
+      )?.label
+    // Codex on #114: the same rival in another spelling renames the note's label too, and «Deshacer» gives it back.
+    const respelled = await post('/api/matches/classify').send({
+      from: 'Suicune ex Baxcalibur',
+      opponent: 'Suicune EX Baxcalibur',
+    })
+    expect(respelled.body).toMatchObject({
+      updated: 3,
+      noteMoved: { from: 'Suicune ex Baxcalibur', to: 'Suicune EX Baxcalibur' },
+    })
+    expect(await noteLabel()).toBe('Suicune EX Baxcalibur')
+    const spelledBack = await post('/api/matches/classify').send({
+      matchIds: (respelled.body.previous as { id: string }[]).map((row) => row.id),
+      opponent: 'Suicune ex Baxcalibur',
+      expect: 'Suicune EX Baxcalibur',
+      note: { from: 'Suicune EX Baxcalibur', to: 'Suicune ex Baxcalibur' },
+    })
+    expect(spelledBack.body).toMatchObject({ updated: 3, noteMoved: { to: 'Suicune ex Baxcalibur' } })
+    expect(await noteLabel()).toBe('Suicune ex Baxcalibur')
+    // Codex on #114: a stale «Deshacer» (every match edited since) restores no match, and the note stays where it is.
+    const renamed = await post('/api/matches/classify').send({ from: 'Suicune ex Baxcalibur', opponent: 'Otro nombre' })
+    const renamedIds = (renamed.body.previous as { id: string }[]).map((row) => Number(row.id))
+    await test.prisma.match.updateMany({ where: { id: { in: renamedIds } }, data: { opponentText: 'Cambiado' } })
+    const stale = await post('/api/matches/classify').send({
+      matchIds: renamedIds.map(String),
+      opponent: 'Suicune ex Baxcalibur',
+      expect: 'Otro nombre',
+      note: { from: 'Otro nombre', to: 'Suicune ex Baxcalibur' },
+    })
+    expect(stale.body).toMatchObject({ updated: 0, noteMoved: null })
+    const notesNow = (await get('/api/rival-notes')).body.items as { key: string }[]
+    expect(notesNow.some((item) => item.key === 'otro nombre')).toBe(true)
+    // Back as it was, to go on with the rest of the test.
+    await test.prisma.match.updateMany({
+      where: { id: { in: renamedIds } },
+      data: { opponentText: 'Suicune ex Baxcalibur' },
+    })
+    await test.prisma.rivalNote.update({
+      where: { key: 'otro nombre' },
+      data: { key: 'suicune ex baxcalibur', label: 'Suicune ex Baxcalibur' },
+    })
     const list = (await get('/api/matches?opponent=Suicune%20ex%20Baxcalibur&opponentMatch=exact')).body.items as {
       opponent: string
       opponentCards: Seen[]
