@@ -83,7 +83,8 @@ Qué son las desconocidas: en g 1.0 eran todas Objetos sin nombre, y Cyberjack l
   8 Pokémon;
 - a eso se le resta lo que está en juego (un Fase 2 son tres cartas, y cada Herramienta un Entrenador) y lo
   descartado;
-- lo que queda se reparte igual entre la mano y el mazo.
+- lo que queda se reparte una sola vez entre la mano y el mazo juntos, así que nunca hay más Entrenadores de los que
+  quedan (Codex en #128).
 Los Pokémon desconocidos son Básicos sin ataques, sin Habilidad y sin evolución. Con la línea 2 pasan a ser la lista
 típica del arquetipo.
 
@@ -160,6 +161,8 @@ En g 1.1 (18/10), dos cambios para que las juegue de verdad:
   profundidad 2, el ataque queda pasado la hoja, y atacar primero muestra su daño enseguida. Por eso g 1.0 atacaba
   con Herramientas en la mano. Ahora una hoja en medio de su propio turno vale al menos lo que da atacar ahí mismo.
   El ataque se aplica sobre la copia con lo del rival tapado, y como termina el turno, es un paso más y nada más hondo.
+  Si el ataque pide una elección (el Pokémon de la Banca de Shadow Bullet), hace la mejor, hasta 2, y después termina
+  el turno antes de valer (Codex en #128).
 - **El golpe que sobra** (`margin`, 0,1 de golpe). Un KO con daño de sobra vale un poco más que uno justo. Así, una
   Herramienta que suma daño sin ahorrar un golpe entero paga la carta que saca de la mano. Sola apenas mueve; desempata.
 
@@ -169,7 +172,8 @@ En g 1.1 (18/10), dos cambios para que las juegue de verdad:
   - `DelayedDamage`, en los efectos del Pokémon (`PlayedCard::public_details`);
   - el daño diferido sobre un lugar, en `State::public_turn_effects`, y el KO programado sobre un lugar (Abyssal
     Drop), que vale todos sus PS;
-  - la quemadura (`is_burned`): 20 por control, con una moneda para curarse.
+  - la quemadura (`is_burned`): 20 por control, con una moneda para curarse. Si el ataque no la vuelve a poner, se
+    apaga: 20 + 10 + 5… son 40 en total, no 30 por golpe (Codex en #128).
 
   El veneno se cuenta golpe a golpe: 10 por cada control, o lo que diga el ataque, y hay un control al final de cada
   turno, así que son 20 por vuelta después de cada golpe. Antes del primero cae solo el control que cierra el turno
@@ -183,7 +187,10 @@ En g 1.1 (18/10), dos cambios para que las juegue de verdad:
     ese daño como suyo;
   - uno que envenena o quema suma su vuelta (20 o 30) por golpe, con la probabilidad de su mecánica: la mitad con
     una moneda, 11/16 en Cross Poison (al menos 2 caras de 4). Un test lo compara con el motor en los 23 textos que
-    envenenan o queman.
+    envenenan o queman;
+  - envenenar de nuevo reemplaza el veneno anterior, con su probabilidad: Toxic sobre un veneno común da 40 por
+    vuelta, no 20. Un estado que solo pone el primer ataque (`FirstAttackBonusDamageAndStatus`) no se cuenta golpe a
+    golpe (Codex en #128).
 - **Sueño y parálisis:**
   - un Activo paralizado no ataca el turno que viene: le suma 1 turno a su reloj;
   - uno dormido tira una moneda en cada control: pierde 4/3 de turno si es su turno (este y ¼ de cada siguiente) y
@@ -196,14 +203,20 @@ En g 1.1 (18/10), dos cambios para que las juegue de verdad:
 - **Repetir:** un ataque que descarta su Energía no se puede repetir el turno siguiente. Cada golpe después del
   primero cuesta un turno por Energía descartada (al menos uno), con 1 Energía por turno, o más con aceleración.
   Luster Purge, por ejemplo, pega cada 3 turnos. Entre golpes vuelve solo lo que el ataque usa: un Raichu con 5
-  Energías descarta las 5 en el primer Thunderbolt, pero para el siguiente le faltan 3. Uno que no puede atacar el
-  turno siguiente (Prismatic Laser, Big Beat) pega cada dos turnos.
+  Energías descarta las 5 en el primer Thunderbolt, pero para el siguiente le faltan 3. Mega Burst, en cambio, pega
+  por cada Energía que descarta: para pegar lo mismo tiene que recuperarlas todas (Codex en #128). Uno que no puede
+  atacar el turno siguiente (Prismatic Laser, Big Beat) pega cada dos turnos.
 - **Cargar:** la Energía que falta se pone de a una, como llega turno a turno, así lo que cuenta doble (Jungle Totem)
-  necesita menos. Un ataque que pega más con más Energía prueba hasta 2 de más: Mega Burst con una tercera hace 150 y
-  noquea de un golpe a un Pokémon de 120 PS.
+  necesita menos, también si el que ataca evoluciona a Serperior. Un ataque que pega más con más Energía prueba hasta
+  2 de más: Mega Burst con una tercera hace 150 y noquea de un golpe a un Pokémon de 120 PS. Prueba los dos pasos
+  aunque el primero no sume (en Crush the Weak de Scrafty, la primera puede empatar la Energía del rival y recién la
+  segunda la pasa), con la Energía del tipo que cuenta
+  la mecánica, si la zona la hace: Psykick de Medicham pega 50 más con una [P] (Codex en #128).
 - **Retroceso:** un plan no pide más golpes de los que su atacante aguanta (Beat Punk, Enormous Explosion).
 - **A todos a la vez:** un ataque que también le pega a toda la Banca (Swirling Disaster, Gigashock) la desgasta
-  junto con el Activo. Tres Pokémon de 50 PS caen juntos en 5 golpes, no en 15.
+  junto con el Activo. Tres Pokémon de 50 PS caen juntos en 5 golpes, no en 15. Puede ganar por la Banca aunque el
+  Activo no reciba daño (Safeguard), y la escalada de Wild Spin le llega a la Banca como al Activo, sin la Debilidad
+  (Codex en #128).
 - **Llegar al Activo:** un atacante de la Banca necesita que el Activo se vaya. A su preparación se le suma la
   Energía que al Activo todavía le falta para pagar su retirada: el costo menos lo que ya tiene puesto, a una por
   turno. Si ya la tiene, no suma nada. El costo baja con Globito y es 0 si el Activo es Latios con Latias en juego
@@ -422,16 +435,19 @@ por bootstrap sobre los 55 pares):
 | 1.0 + «atacar ahora» y el golpe que sobra | 20261015 | 65,6 % (62,3–69,1 %) | 59,5 % (57,4–61,8 %) |
 | 1.1 antes de la autorrevisión | 20261015 | 66,3 % (63,0–69,9 %) | 60,3 % (58,2–62,5 %) |
 | 1.1 antes de la autorrevisión | 20261018 (nueva) | | 59,1 % (57,0–61,3 %) |
-| 1.1 | 20261015 | 67,2 % (63,9–70,6 %) | 59,7 % (57,6–62,0 %) |
-| 1.1 | 20261018 (nueva) | | 61,7 % (59,6–64,0 %) |
+| 1.1 antes de Codex en #128 | 20261015 | 67,2 % (63,9–70,6 %) | 59,7 % (57,6–62,0 %) |
+| 1.1 antes de Codex en #128 | 20261018 (nueva) | | 61,7 % (59,6–64,0 %) |
+| 1.1 | 20261015 | 68,8 % (65,7–72,0 %) | 63,5 % (61,4–65,7 %) |
+| 1.1 | 20261018 (nueva) | | 62,1 % (60,2–64,0 %) |
 
 - g2 con «atacar ahora» le gana a g2 1.0 57,9 % (IC 56,0–59,8 %).
 - Terminar el turno antes de valer el ataque (autorrevisión) compra poco pero algo: g2 le gana 51,6 % (IC 50,8–52,5 %)
   al mismo g2 sin ese paso.
 - **Cumple el criterio contra los dos:** le gana a e2 y a f2 con el intervalo entero arriba del 50 %, también con
   semillas nuevas.
-- Casi toda la ganancia viene de «atacar ahora». Los 14 arreglos de Codex suman menos de un punto en el promedio:
-  cada uno cambia pocos cruces, como en la ablación de g 1.0.
+- Casi toda la ganancia viene de «atacar ahora». Los 14 arreglos de Codex en #117 suman menos de un punto en el
+  promedio: cada uno cambia pocos cruces, como en la ablación de g 1.0. Los 12 de #128 suben a f2 casi 4 puntos con la
+  semilla de siempre, pero medio punto con la nueva: lo firme es que no bajan.
 - Con su mazo, g2 contra f2: el 16 gana 56,4 % y f2 10,8 %; el 23, 35,6 % y 17,3 %; el 40, 77,0 % y 51,4 % (n = 400
   por bot). Mezcla la fuerza del mazo con la del bot.
 
@@ -444,9 +460,10 @@ por bootstrap sobre los 55 pares):
 | g2 1.0 | 236 ms |
 | g2 1.1, primera versión | 359 ms (3,45 veces e2) |
 | g2 1.1 antes de la autorrevisión | 293 ms (2,7–2,8 veces e2) |
-| g2 1.1 | 335 ms (3,2 veces e2, con e2 en 106) |
+| g2 1.1 antes de Codex en #128 | 335 ms (3,2 veces e2, con e2 en 106) |
+| g2 1.1 | 331–335 ms (2,9–3,2 veces e2, con e2 en 106–115) |
 
-**g2 1.1 pasa del tope de 3 que pone este diseño.** Lo que suma la autorrevisión es terminar el turno después de
+**g2 1.1 queda en el borde del tope de 3 que pone este diseño.** Lo que suma la autorrevisión es terminar el turno después de
 cada ataque de «atacar ahora» (unos 46 ms por partida), y se queda: es un error de reglas, no una heurística. El
 Coordinador aceptó el 18/10 hasta 3,5 veces e2 mientras la app no use g. Lo que más pesa, después del daño del motor, es la evaluación base de deckgym: en cada hoja copia el mazo y la
 mano de cada lado para su «Activo listo», y calcula su reloj aunque pese 0. Una variante en el fork que se saltee los
