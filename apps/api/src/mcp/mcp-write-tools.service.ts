@@ -21,6 +21,7 @@ import {
 } from '@tcg/domain'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { CollectionService } from '../collection/collection.service.js'
+import { OWNER_TIME_ZONE } from '../config/time-zone.js'
 import type { DeckDetail } from '../decks/deck-views.js'
 import { DecksService } from '../decks/decks.service.js'
 import type { MatchView, RowView } from '../matches/match-views.js'
@@ -39,6 +40,12 @@ import { jobSummaryJson } from './mcp-json.js'
 import type { WriteRun } from './mcp-run.js'
 
 type Json = Record<string, unknown>
+
+const OWNER_DATE_TIME = new Intl.DateTimeFormat('es-AR', {
+  timeZone: OWNER_TIME_ZONE,
+  dateStyle: 'short',
+  timeStyle: 'short',
+})
 
 /** Fase 43: above this estimate, simulations_enqueue asks for confirmLong (R-010: a long job Claude cannot stop). */
 const LONG_JOB_MINUTES = 30
@@ -336,7 +343,16 @@ export class McpWriteToolsService {
     args: { rank: Rank; rankPoints?: number; at?: string; fromMatch?: string },
     audit: AuditNote,
   ): Promise<Json> {
-    const noted = await this.ranked.addRank({
+    // Review of #120: a moment outside every season would be a note nobody sees (matches_log refuses it too).
+    if (!args.fromMatch) {
+      const when = args.at ? new Date(args.at) : new Date()
+      if (!Number.isNaN(when.getTime()) && !(await this.ranked.at(when)).season) {
+        throw new BadRequestException(
+          'Ese momento no cae en ninguna temporada de ranked: no anoté nada. Cargá la temporada en Partidas → Temporada.',
+        )
+      }
+    }
+    const { change: noted, replaced } = await this.ranked.noteRank({
       rank: args.rank,
       points: args.rankPoints ?? null,
       ...(args.at ? { at: args.at } : {}),
@@ -345,7 +361,12 @@ export class McpWriteToolsService {
     audit.undo = {
       kind: 'rank_change',
       id: noted.id,
-      label: `${noted.label} (${noted.at.slice(0, 16).replace('T', ' ')})`,
+      at: noted.at,
+      rank: noted.rank,
+      points: noted.points,
+      before: replaced,
+      // Review of #120: in the owner's time, not UTC.
+      label: `${noted.label} (${OWNER_DATE_TIME.format(new Date(noted.at))})`,
     }
     const { season } = await this.ranked.at(new Date(noted.at))
     const summary = season ? (await this.ranked.view(season.code)).summary : null

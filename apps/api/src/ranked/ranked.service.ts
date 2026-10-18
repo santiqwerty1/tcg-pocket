@@ -3,7 +3,7 @@
  * and each season's summary (record, rank curve, record by rank and by deck). Only competitive matches count, by the
  * day they were played in the owner's time zone.
  */
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import {
   formatWinRateEs,
   type GameRecord,
@@ -236,6 +236,18 @@ export class RankedService {
     input: { rank: string; points?: number | null; at?: string; beforeMatch?: string },
     now = new Date(),
   ): Promise<RankChangeView> {
+    return (await this.noteRank(input, now)).change
+  }
+
+  /**
+   * `addRank`, and what it replaced. Review of #120: with a moment given (`at` or `beforeMatch`) the note of that
+   * instant is replaced — correcting it from the edit page leaves no false step — and the same rank again is a 409, so a
+   * retry (Claude's, or «Deshacer» twice) does not note it twice.
+   */
+  async noteRank(
+    input: { rank: string; points?: number | null; at?: string; beforeMatch?: string },
+    now = new Date(),
+  ): Promise<{ change: RankChangeView; replaced: { rank: Rank; points: number | null } | null }> {
     const rank = this.checkRank(input)
     if (input.at && input.beforeMatch) {
       throw new BadRequestException({ code: 'validation', message: 'Mandá `at` o `beforeMatch`, no los dos.' })
@@ -245,8 +257,27 @@ export class RankedService {
     if (at.getTime() > now.getTime() + FUTURE_SLACK_MS) {
       throw new BadRequestException({ code: 'validation', message: 'Esa fecha todavía no llegó.' })
     }
-    const row = await this.prisma.rankChange.create({ data: { at, rank, points: input.points ?? null } })
-    return changeView({ id: idToString(row.id), at: row.at, rank, points: row.points })
+    const points = input.points ?? null
+    const view = (row: { id: number; at: Date; points: number | null }) =>
+      changeView({ id: idToString(row.id), at: row.at, rank, points: row.points })
+    if (!input.at && !input.beforeMatch) {
+      return { change: view(await this.prisma.rankChange.create({ data: { at, rank, points } })), replaced: null }
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.rankChange.findFirst({ where: { at }, orderBy: { id: 'desc' } })
+      if (!existing) return { change: view(await tx.rankChange.create({ data: { at, rank, points } })), replaced: null }
+      if (existing.rank === rank && existing.points === points) {
+        throw new ConflictException({
+          code: 'already_noted',
+          message: `${rankLabelEs(rank, points)} ya estaba anotado en ese momento.`,
+        })
+      }
+      const row = await tx.rankChange.update({ where: { id: existing.id }, data: { rank, points } })
+      return {
+        change: view(row),
+        replaced: isRank(existing.rank) ? { rank: existing.rank, points: existing.points } : null,
+      }
+    })
   }
 
   async deleteRank(rawId: string): Promise<void> {

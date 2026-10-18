@@ -9,6 +9,7 @@
  * Dates are ISO strings; numeric ids keep their database values so a `replace` restores them verbatim.
  * Excluded on purpose: password hash, TOTP secret, token hashes (tokens travel as metadata only), raw CSV files.
  */
+import { RANKS } from '@tcg/domain'
 import { z } from 'zod'
 
 export const BACKUP_SCHEMA_VERSION = 10
@@ -229,15 +230,33 @@ export const backupDocumentSchema = z.object({
           updatedAt: isoDate,
         }),
       ),
+      // Review of #120: the game's ranks only, and points only with Master Ball (they were dropped without a word).
       changes: z.array(
-        z.object({
-          id: z.number().int(),
-          at: isoDate,
-          rank: z.string().min(1),
-          points: z.number().int().nullable(),
-          createdAt: isoDate,
-        }),
+        z
+          .object({
+            id: z.number().int(),
+            at: isoDate,
+            rank: z.enum(RANKS),
+            points: z.number().int().min(0).nullable(),
+            createdAt: isoDate,
+          })
+          .refine((change) => change.points === null || change.rank === 'master', {
+            message: 'Solo la Master Ball lleva puntos.',
+          }),
       ),
+    })
+    // Review of #120: two seasons never share a day, as the app checks.
+    .superRefine((ranked, ctx) => {
+      const days = [...ranked.seasons].sort((a, b) => a.startsOn.localeCompare(b.startsOn))
+      for (const [at, season] of days.entries()) {
+        if (season.endsOn < season.startsOn) {
+          ctx.addIssue({ code: 'custom', message: `La temporada ${season.code} termina antes de empezar.` })
+        }
+        const next = days[at + 1]
+        if (next && next.startsOn <= season.endsOn) {
+          ctx.addIssue({ code: 'custom', message: `Las temporadas ${season.code} y ${next.code} se superponen.` })
+        }
+      }
     })
     .optional(),
   /** Notes by rival (version 6). Absent = keep the current ones. */

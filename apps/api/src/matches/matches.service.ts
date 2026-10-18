@@ -866,6 +866,8 @@ export class MatchesService {
           : found.filter((row) => opponentKey(row.opponentText) !== expectKey).map((row) => row.id)
       const targets = new Set(ids.filter((id) => !skipped.includes(id)))
       if (fromKey !== null) {
+        // Verification of #120: the rival's matches found by name are locked too, until the write.
+        await tx.$queryRaw`SELECT id FROM matches WHERE opponent_text IS NOT NULL FOR UPDATE`
         const typed = await tx.match.findMany({
           where: { opponentText: { not: null } },
           select: { id: true, opponentText: true },

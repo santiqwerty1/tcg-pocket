@@ -155,6 +155,16 @@ describe('ranked by season and rank (e2e)', () => {
       rank: { label: 'Master Ball' },
       next: null,
     })
+    // Review of #120: the same rank again at that moment is a 409 (a retry does not note it twice), and another rank
+    // replaces the note of that moment instead of leaving a false step.
+    const again = await post('/api/ranked/ranks').send({ rank: 'master', beforeMatch: first })
+    expect(again.status).toBe(409)
+    const steps = (await get('/api/ranked')).body.summary.steps.length
+    const corrected = await post('/api/ranked/ranks').send({ rank: 'ultra-4', beforeMatch: first })
+    expect(corrected.status).toBe(201)
+    expect(corrected.body).toMatchObject({ id: noted.body.id, label: 'Ultra Ball 4' })
+    expect((await get('/api/ranked')).body.summary.steps).toHaveLength(steps)
+    expect((await post('/api/ranked/ranks').send({ rank: 'master', beforeMatch: first })).body.id).toBe(noted.body.id)
     const summary = (await get('/api/ranked')).body.summary
     expect(summary.byRank.map((row: { label: string; games: number }) => [row.label, row.games])).toEqual([
       ['Sin rango anotado', 1],

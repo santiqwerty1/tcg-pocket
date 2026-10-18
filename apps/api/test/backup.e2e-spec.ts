@@ -429,6 +429,23 @@ describe('backup and settings (e2e)', () => {
     expect(current.body.diff.notices.some((n: string) => n.includes('sin cartas vistas'))).toBe(false)
   })
 
+  it('review of #120: a backup with an unknown rank, points below Master Ball or overlapping seasons is refused', async () => {
+    type Ranked = { seasons: { code: string }[]; changes: { rank: string; points: number | null }[] }
+    const ranked = (document as unknown as { ranked: Ranked }).ranked
+    expect(ranked.changes.length).toBeGreaterThan(0)
+    const bad = (patch: Partial<Ranked>) =>
+      gzipSync(Buffer.from(JSON.stringify({ ...document, ranked: { ...ranked, ...patch } })))
+    for (const patch of [
+      { changes: ranked.changes.map((change) => ({ ...change, rank: 'ultra_5' })) },
+      { changes: ranked.changes.map((change) => ({ ...change, rank: 'ultra-2', points: 100 })) },
+      { seasons: [...ranked.seasons, { ...(ranked.seasons[0] as { code: string }), code: 'OTRA' }] },
+    ]) {
+      const response = await post('/api/backup/import?mode=dry-run').attach('file', bad(patch), 'bad.json.gz')
+      expect(response.status, JSON.stringify(patch)).toBe(400)
+      expect(response.body.error.code).toBe('invalid_backup')
+    }
+  })
+
   it('refuses a backup whose matches point to a deck revision that is not in the file', async () => {
     const otherDeckRevision = document.decks[1]?.revisions[0]?.id
     const broken = {

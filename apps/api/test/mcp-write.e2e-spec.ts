@@ -314,20 +314,32 @@ describe('MCP write tools (e2e)', () => {
       byRank: [expect.objectContaining({ rank: 'Master Ball', games: 2 })],
     })
     const casualId = (casual.structuredContent.match as Structured).id
+    const firstId = (first.structuredContent.match as Structured).id
     expect((await call(client, 'ranked_rank_note', { rank: 'master', fromMatch: casualId })).isError).toBe(true)
+    // Review of #120: a retry does not note it twice; a moment outside every season notes nothing.
+    expect((await call(client, 'ranked_rank_note', { rank: 'master', fromMatch: firstId })).isError).toBe(true)
+    const outside = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString()
+    expect((await call(client, 'ranked_rank_note', { rank: 'master', at: outside })).isError).toBe(true)
+    // Correcting it replaces the note of that moment, and its «Deshacer» gives Master Ball back.
+    const corrected = await call(client, 'ranked_rank_note', { rank: 'ultra-4', fromMatch: firstId })
+    expect(corrected.structuredContent).toMatchObject({
+      noted: 'Ultra Ball 4',
+      byRank: [expect.objectContaining({ rank: 'Ultra Ball 4', games: 2 })],
+    })
     const log = (await test.http().get('/api/mcp-audit').set('Cookie', cookie)).body.items as {
       id: string
       tool: string
       undo: { kind: string } | null
     }[]
-    const entry = log.find((item) => item.tool === 'ranked_rank_note' && item.undo)
-    expect(entry?.undo).toMatchObject({ kind: 'rank_change' })
-    const undo = () => test.http().post(`/api/mcp-audit/${entry?.id}/undo`).set('Cookie', cookie)
-    expect((await undo()).status).toBe(200)
-    expect((await test.http().get('/api/ranked').set('Cookie', cookie)).body.summary.byRank).toEqual([
-      expect.objectContaining({ label: 'Sin rango anotado', games: 2 }),
-    ])
-    expect((await undo()).status).toBe(409)
+    const notes = log.filter((item) => item.tool === 'ranked_rank_note' && item.undo)
+    expect(notes).toHaveLength(2)
+    const undo = (id: string | undefined) => test.http().post(`/api/mcp-audit/${id}/undo`).set('Cookie', cookie)
+    const byRank = async () => (await test.http().get('/api/ranked').set('Cookie', cookie)).body.summary.byRank
+    expect((await undo(notes[0]?.id)).status).toBe(200)
+    expect(await byRank()).toEqual([expect.objectContaining({ label: 'Master Ball', games: 2 })])
+    expect((await undo(notes[1]?.id)).status).toBe(200)
+    expect(await byRank()).toEqual([expect.objectContaining({ label: 'Sin rango anotado', games: 2 })])
+    expect((await undo(notes[1]?.id)).status).toBe(409)
   })
 
   it('acceptance 2: a deck from Spanish text is saved with its validation; an invalid one is not', async () => {
