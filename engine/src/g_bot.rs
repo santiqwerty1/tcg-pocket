@@ -423,7 +423,14 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
             // The mechanic once per attack: its text is hashed to find it.
             let mechanic = mechanic(attack);
             let (cooldown, recoil, delay) = (cooldown(mechanic), recoil(mechanic), landing_delay(mechanic));
-            let overcharges = if scales_with_energy(mechanic) { MAX_OVERCHARGE } else { 0 };
+            let overcharges = match mechanic {
+                // A threshold of more than two (Energy Whip: 3 more [G]) is tried all the way (Codex on #128).
+                Some(Mechanic::ExtraDamageIfExtraEnergy { required_extra_energy, .. }) => {
+                    required_extra_energy.len().max(MAX_OVERCHARGE)
+                }
+                _ if scales_with_energy(mechanic) => MAX_OVERCHARGE,
+                _ => 0,
+            };
             // A burn already on a target: an attack that burns it again keeps it burning hit by hit; any other leaves it
             // to fade.
             let inflicted = inflicts(attack, mechanic);
@@ -460,22 +467,24 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
                     .iter()
                     .map(|target| {
                         let first = damage_against(probe, attacker, attack, mechanic, target.slot, target.poison);
-                        let mut later = first;
                         // Cold Start's bonus: the engine gives it while its user has not attacked since it came into
-                        // play, so the first hit on the Active has it and no other hit does.
+                        // play. Asked again as if it had, the difference is the bonus of the plan's first hit.
+                        let mut without = first;
                         if first_attack_bonus {
                             let user = probe.in_play_pokemon[attacker][0].as_mut().expect("in play");
                             let attacked = std::mem::replace(&mut user.has_attacked_since_play, true);
-                            later = damage_against(probe, attacker, attack, mechanic, target.slot, target.poison);
+                            without = damage_against(probe, attacker, attack, mechanic, target.slot, target.poison);
                             probe.in_play_pokemon[attacker][0].as_mut().expect("in play").has_attacked_since_play =
                                 attacked;
                         }
+                        let mut later = without;
                         if target.burned && inflicted.burn > 0.0 && inflicted.burn < 1.0 {
                             later -= (1.0 - inflicted.burn) * BURN_ROUND;
                         }
                         Hit {
-                            first: if target.slot == 0 { first } else { later },
+                            first: without,
                             later,
+                            bonus: first - without,
                             clean: 1.0 - inflicted.poison,
                             // A poison on a coin the target does not have yet: once it lands it stays (Codex on #128).
                             round: if target.poison == 0.0 && inflicted.poison > 0.0 && inflicted.poison < 1.0 {
@@ -754,9 +763,10 @@ fn attackers(state: &State, attacker: usize, slots: &[usize], see_evolutions: bo
 }
 
 /// What a hit of an attack does to one target in the Active Spot. `first` is the expected damage of the first hit on
-/// it and `later` of the ones after: Cold Start's bonus is for its user's first attack only, and a burn the target
-/// already has is certain through the first hit of an attack that burns again on a coin, not through the later ones
-/// (Fire Fang; Codex on #128). For a poison on a coin that the target does not have yet, a hit after the first also
+/// it and `later` of the ones after: a burn the target already has is certain through the first hit of an attack that
+/// burns again on a coin, not through the later ones (Fire Fang; Codex on #128). `bonus` is what its user's first
+/// attack adds (Cold Start's 20): it goes to the first hit of the plan, on whichever target that is, even one promoted
+/// after the Active fell to poison before it (Codex on #128). For a poison on a coin that the target does not have yet, a hit after the first also
 /// brings the chance the earlier ones already poisoned it: after k hits it is Poisoned with `1 − clean^k`, not with the
 /// first hit's chance each time (Stun Poison: 50 % after the first, 75 % after the second; Codex on #128). `round` is
 /// that poison's round, 0 for every other attack and target.
@@ -764,17 +774,21 @@ fn attackers(state: &State, attacker: usize, slots: &[usize], see_evolutions: bo
 struct Hit {
     first: f64,
     later: f64,
+    bonus: f64,
     /// The chance a hit does not poison.
     clean: f64,
     round: f64,
 }
 
 impl Hit {
-    /// The next hit, the first on this target or not (`started`), on a target still not Poisoned with chance `clean`
-    /// (`self.clean` to the hits it has taken): that hit's damage and the poison the earlier ones have left on it,
-    /// `round × (self.clean − clean × self.clean)`. Products only, no `powi`: the same on every platform.
-    fn after(&self, started: bool, clean: f64) -> f64 {
-        (if started { self.later } else { self.first }) + self.round * (self.clean - clean * self.clean)
+    /// The next hit, the first on this target or not (`started`), the first of the plan or not (`opened`), on a target
+    /// still not Poisoned with chance `clean` (`self.clean` to the hits it has taken): that hit's damage and the poison
+    /// the earlier ones have left on it, `round × (self.clean − clean × self.clean)`. Products only, no `powi`: the same
+    /// on every platform.
+    fn after(&self, started: bool, opened: bool, clean: f64) -> f64 {
+        (if started { self.later } else { self.first })
+            + if opened { 0.0 } else { self.bonus }
+            + self.round * (self.clean - clean * self.clean)
     }
 }
 
@@ -800,23 +814,26 @@ fn hits_to_win(
     // For each one, whether it has taken a hit in the Active Spot, and the chance it is still not Poisoned after them.
     let mut started: Vec<bool> = vec![false; targets.len()];
     let mut clean: Vec<f64> = vec![1.0; targets.len()];
+    // Whether the plan has made its first hit (Cold Start's bonus).
+    let mut opened = false;
     let mut points = points;
     let (mut total, mut spare) = (0.0, 0.0);
     // The whole hits to knock out `at` from `hp`, and the hit it has to spare.
-    let whole = |hp: f64, at: usize, clean: f64, started: bool| -> Option<(f64, f64)> {
+    let whole = |hp: f64, at: usize, clean: f64, started: bool, opened: bool| -> Option<(f64, f64)> {
         let hit = damage[at];
         if hp <= 0.0 {
             return Some((0.0, 0.0));
-        } else if hit.after(started, 1.0) <= 0.0 {
+        } else if hit.after(started, opened, 1.0) <= 0.0 {
             return None;
-        } else if hit.round == 0.0 && hit.first == hit.later {
+        } else if hit.round == 0.0 && hit.first == hit.later && (opened || hit.bonus == 0.0) {
             let exact = hp / hit.first;
             return Some((exact.ceil(), exact.ceil() - exact));
         }
-        let (mut done, mut clean, mut started, mut hits) = (0.0, clean, started, 0.0);
+        let (mut done, mut clean, mut started, mut opened, mut hits) = (0.0, clean, started, opened, 0.0);
         while hits < 64.0 {
-            let next = hit.after(started, clean);
+            let next = hit.after(started, opened, clean);
             started = true;
+            opened = true;
             clean *= hit.clean;
             hits += 1.0;
             if done + next >= hp {
@@ -826,7 +843,7 @@ fn hits_to_win(
         }
         None
     };
-    let hits = |hp: f64, at: usize| whole(hp, at, 1.0, false).map(|(hits, left)| hits - margin * left);
+    let hits = |hp: f64, at: usize, opened: bool| whole(hp, at, 1.0, false, opened).map(|(hits, left)| hits - margin * left);
     // Enough for any clock under `NO_THREAT`.
     for _ in 0..64 {
         for at in 0..targets.len() {
@@ -849,7 +866,7 @@ fn hits_to_win(
         let at = match active {
             Some(at) => at,
             None => {
-                let cost = |at: usize| match hits(hp[at], at) {
+                let cost = |at: usize| match hits(hp[at], at, opened) {
                     None => f64::INFINITY,
                     Some(h) if points == 2 => h,
                     Some(h) => h / f64::from(targets[at].points.max(1)),
@@ -868,7 +885,8 @@ fn hits_to_win(
         let spread = (0..targets.len()).any(|other| other != at && standing[other] && bench[other] > 0.0);
         if !spread {
             // Only the Active takes damage: all its hits at once.
-            let (hits, left) = whole(hp[at], at, clean[at], started[at])?;
+            let (hits, left) = whole(hp[at], at, clean[at], started[at], opened)?;
+            opened |= hits > 0.0;
             total += hits;
             spare += margin * left;
             hp[at] = 0.0;
@@ -876,8 +894,9 @@ fn hits_to_win(
         }
         // An Active it cannot hurt only holds back its own knockout: the Bench still takes its share, and its points can
         // still win (an ex against Oricorio's Safeguard; Codex on #128).
-        let next = damage[at].after(started[at], clean[at]);
+        let next = damage[at].after(started[at], opened, clean[at]);
         started[at] = true;
+        opened = true;
         clean[at] *= damage[at].clean;
         hp[at] -= next.max(0.0);
         for other in (0..targets.len()).filter(|&other| other != at && standing[other]) {
@@ -2260,6 +2279,28 @@ mod tests {
     }
 
     #[test]
+    fn cold_start_bonus_goes_to_the_first_hit_whoever_takes_it() {
+        // The rival's Active, a Poisoned Bulbasaur with 10 HP, falls at its own Checkup before Iron Bundle ex hits: Cold
+        // Start's first attack lands on the Mega Venusaur ex it promotes (140 HP left), 80 + 60, 2 hits and not 3
+        // (Codex on #128).
+        let iron_bundle = card("B3a 013").with_energy(vec![EnergyType::Water, EnergyType::Water, EnergyType::Water]);
+        let bench = vec![card("A1 001").with_remaining_hp(10), card("B1a 004").with_remaining_hp(140)];
+        let mut state = board(SUICUNE, VENUSAUR, vec![iron_bundle], bench);
+        state.apply_status_condition(1, 0, StatusCondition::Poisoned);
+        state.current_player = 1;
+        assert_eq!(turns(&state, 0, false), 2.0);
+    }
+
+    #[test]
+    fn a_threshold_of_three_more_energy_is_tried() {
+        // Dhelmise's Energy Whip (20; 70 more with 3 extra [G]) against a Mega Venusaur ex (240 HP): three turns of
+        // Energy and then 90 a hit, 3 + 3, before the 12 hits of 20 (Codex on #128: two extra at most never got there).
+        let dhelmise = card("A1a 009").with_energy(vec![EnergyType::Grass]);
+        let state = board(VENUSAUR, VENUSAUR, vec![dhelmise], vec![card("B1a 004")]);
+        assert_eq!(turns(&state, 0, false), 3.0 + 3.0);
+    }
+
+    #[test]
     fn a_burn_already_there_stays_through_a_coin_that_misses() {
         // Fire Fang (B1 029): 50, Burned on heads. Against a Mega Venusaur ex (weak to [R]: 70) that is already Burned the
         // burn after the first hit is certain, 70 + 30; after the next ones the coin counts, 70 + 15 (Codex on #128).
@@ -2280,8 +2321,11 @@ mod tests {
         let tentacruel = card("A4a 016").with_energy(vec![EnergyType::Water, EnergyType::Water, EnergyType::Water]);
         let state = board(MISMAGIUS, VENUSAUR, vec![tentacruel], vec![card("B1a 004").with_remaining_hp(125)]);
         assert_eq!(turns(&state, 0, false), 2.0);
-        let hit = Hit { first: 60.0, later: 60.0, clean: 0.5, round: 20.0 };
-        assert_eq!((hit.after(false, 1.0), hit.after(true, 0.5), hit.after(true, 0.25)), (60.0, 65.0, 67.5));
+        let hit = Hit { first: 60.0, later: 60.0, bonus: 0.0, clean: 0.5, round: 20.0 };
+        assert_eq!(
+            (hit.after(false, false, 1.0), hit.after(true, true, 0.5), hit.after(true, true, 0.25)),
+            (60.0, 65.0, 67.5)
+        );
     }
 
     /// Every attack text that poisons or burns, played by the engine on a board: the chance `inflicts` gives is the
