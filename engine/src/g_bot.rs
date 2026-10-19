@@ -355,9 +355,6 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
             0.0
         }
     });
-    // No plan takes fewer turns than its setup and a hit (none if every target falls without one), less the spare of
-    // each knockout: a plan whose setup already leaves it there is not counted, and the clock gives the same.
-    let floor = if targets.iter().any(|target| target.hp > 0.0) { 1.0 } else { 0.0 } - params.margin * targets.len() as f64;
     let mut best = NO_THREAT;
     for (slot, evolution) in candidates {
         let Some(in_play) = probe.in_play_pokemon[attacker][slot].as_ref() else { continue };
@@ -439,6 +436,16 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
                     ..*target
                 })
                 .collect();
+            // No plan takes fewer turns than its setup and a hit, less the spare of each knockout: a plan whose setup
+            // already leaves it there is not counted, and the clock gives the same. No hit, unless the knockouts that
+            // need none give the points left: a target already down (a burn, damage on its way, the Checkup's poison)
+            // or Poisoned, which can fall while the attacker gets ready (the Coordinador's verification of g 1.1.1: an
+            // Asleep Active's 4/3 turns pruned an evolution that waits 1; the self-review of g 1.1.2, the burn and the
+            // damage on its way).
+            let free: Vec<&Target> = burning.iter().filter(|target| target.hp <= 0.0 || target.poison > 0.0).collect();
+            let free_points: u32 = free.iter().map(|target| u32::from(target.points)).sum();
+            let hit = u32::from(probe.points[attacker]) + free_points < 3 && free.len() < burning.len();
+            let floor = if hit { 1.0 } else { 0.0 } - params.margin * targets.len() as f64;
             for overcharge in 0..=overcharges {
                 // One Energy a turn from the zone, for the attacker and for the Active's retreat alike; the Energy, the
                 // evolutions and a status that clears go on at the same time (a Paralyzed Active takes this turn's
@@ -2372,6 +2379,60 @@ mod tests {
         let one_short = turns(&waiting, 0, false);
         assert!(one_short < NO_THREAT, "{one_short}");
         assert_eq!(turns(&walled, 0, false), one_short);
+    }
+
+    #[test]
+    fn a_poison_that_needs_no_hit_does_not_prune_a_quicker_setup() {
+        // An Asleep Snivy with Servine in hand, 2 points made, against a Poisoned Bulbasaur with 20 HP: evolving wakes
+        // it and the poison takes the last point in the round it waits, 1 turn. Asleep, it waits 4/3, and with a hit
+        // counted in the bound the evolution was pruned (the Coordinador's verification of g 1.1.1).
+        let snivy = card("A1a 004").with_energy(vec![EnergyType::Grass, EnergyType::Grass]);
+        let mut state = board(LUCARIO, VENUSAUR, vec![snivy], vec![card("A1 001").with_remaining_hp(20)]);
+        state.hands[0].push(card("A1a 005").card);
+        state.apply_status_condition(0, 0, StatusCondition::Asleep);
+        state.apply_status_condition(1, 0, StatusCondition::Poisoned);
+        state.points = [2, 0];
+        assert_eq!(turns(&state, 0, true), 1.0);
+    }
+
+    #[test]
+    fn a_burn_that_needs_no_hit_does_not_prune_a_quicker_setup() {
+        // As with the poison, Burned instead: Vine Whip does not burn again, so the burn's 40 takes the 30 HP and the
+        // last point while the evolution wakes the Snivy, 1 turn (self-review of g 1.1.2: the bound pruned it, 4/3).
+        let snivy = card("A1a 004").with_energy(vec![EnergyType::Grass, EnergyType::Grass]);
+        let mut state = board(LUCARIO, VENUSAUR, vec![snivy], vec![card("A1 001").with_remaining_hp(30)]);
+        state.hands[0].push(card("A1a 005").card);
+        state.apply_status_condition(0, 0, StatusCondition::Asleep);
+        state.apply_status_condition(1, 0, StatusCondition::Burned);
+        state.points = [2, 0];
+        assert_eq!(turns(&state, 0, true), 1.0);
+    }
+
+    #[test]
+    fn damage_on_its_way_that_needs_no_hit_does_not_prune_a_quicker_setup() {
+        // Cursed Prose's 20 on a Bulbasaur with 20 HP takes the third point, with a full Bulbasaur on the Bench: the
+        // Bench does not need a hit for that (self-review of g 1.1.2: the bound pruned the evolution, 4/3).
+        let snivy = card("A1a 004").with_energy(vec![EnergyType::Grass, EnergyType::Grass]);
+        let mut doomed = card("A1 001").with_remaining_hp(20);
+        doomed.add_effect(CardEffect::DelayedDamage { amount: 20 }, 1);
+        let mut state = board(LUCARIO, VENUSAUR, vec![snivy], vec![doomed, card("A1 001")]);
+        state.hands[0].push(card("A1a 005").card);
+        state.apply_status_condition(0, 0, StatusCondition::Asleep);
+        state.points = [2, 0];
+        assert_eq!(turns(&state, 0, true), 1.0);
+    }
+
+    #[test]
+    fn the_extra_energy_is_the_type_a_discard_asks_for() {
+        // The two mechanics that discard Energy of one type ask for that type, as the one that counts it in play does
+        // (Codex on #128; the Coordinador's verification of g 1.1.1: no test kept them).
+        let zone = [EnergyType::Fighting, Psychic];
+        let per_heads =
+            Mechanic::DiscardSelfEnergyPerHeadsExtraDamage { num_coins: 3, energy_type: Psychic, damage_per_discarded_energy: 50 };
+        let all_of_a_type = Mechanic::SelfDiscardAllTypeEnergyAndDamageAnyOpponentPokemon { energy_type: Psychic, damage: 120 };
+        for mechanic in [per_heads, all_of_a_type] {
+            assert_eq!(extra_energy(Some(&mechanic), &[], 1, &zone, Some(EnergyType::Fighting)), Psychic, "{mechanic:?}");
+        }
     }
 
     #[test]

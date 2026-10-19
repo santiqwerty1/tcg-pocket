@@ -589,8 +589,11 @@ verificación del Coordinador va al PR siguiente de g, salvo esos tres casos, qu
 2. **g 1.0** (#117, integrado): puntos 1 a 5 y 7, engine-cli 0.3.13, con sus tests, contra el fork `018b419`.
    Resultados arriba.
 3. **g 1.1** (18/10, #128): «atacar ahora» en la hoja, el golpe que sobra y los 14 hallazgos de Codex en #117.
-   Resultados arriba. **g 1.1.1** (19/10): los 4 últimos hallazgos de Codex en #128 y el Jungle Totem de la
-   verificación del Coordinador.
+   Resultados arriba. **g 1.1.1** (19/10, #139): los 4 últimos hallazgos de Codex en #128 y el Jungle Totem de la
+   verificación del Coordinador. **g 1.1.2** (19/10): los dos bajos de la verificación de #139. La cota que poda los
+   planes no cuenta un golpe cuando los KO que no lo necesitan dan los puntos que faltan: un veneno, una quemadura,
+   un daño en camino o un objetivo que ya cae en el control. Además, los tests de las otras dos mecánicas del tipo
+   de Energía.
 4. **La app acepta g:** los códigos, el filtro de la cola, los avisos, las partidas contra el bot y las tools (riesgo
    medio). Ahí vuelven g1 y g2 a las partidas doradas, que g 1.1 dejó afuera.
 5. **La carrera** (punto 6) y la herramienta de la liga, con las primeras mediciones.
