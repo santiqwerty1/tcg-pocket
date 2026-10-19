@@ -1,6 +1,6 @@
 [package]
 name = "engine-cli"
-version = "0.3.14"
+version = "0.3.15"
 edition = "2021"
 # Links deckgym-core (AGPL-3.0): this executable is a derivative work under the same license (DECISIONES A.5).
 license = "AGPL-3.0-only"
@@ -10,9 +10,10 @@ description = "JSON front end of deckgym-core for the TCG Pocket worker: validat
 [dependencies]
 # The engine, pinned: our fork of bcollazo/deckgym-core (D-031), on upstream adfe505 since 18/10/2026, with only what
 # upstream does not have yet, each in a branch of its own: the target of Quick-Grow Extract and Wallace (#399, upstream
-# PR #420) and the bots' exports (feat/bot-api). Branch `next/adfe505` of the fork, tag `pin-0b510d1`. Bump the rev here
-# (and in engine/wasm) to update it: docs/OPERACION.md, «El motor: nuestra copia de deckgym».
-deckgym = { git = "https://github.com/santiqwerty1/deckgym-core", rev = "0b510d1b1b96ac356ea375e0f06a88e324a1bd9c" }
+# PR #420), the bots' exports (feat/bot-api) and a value function that skips its terms of weight 0
+# (santiqwerty1/deckgym-core#1, the same games). Branch `next/adfe505` of the fork, tag `pin-c87bad0`. Bump the rev
+# here (and in engine/wasm) to update it: docs/OPERACION.md, «El motor: nuestra copia de deckgym».
+deckgym = { git = "https://github.com/santiqwerty1/deckgym-core", rev = "c87bad0799de162d0b0c870748319d512f5482d2" }
 rand = "0.8"
 rayon = "1.10"
 serde = { version = "1", features = ["derive"] }

@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { API_ROOT, loadDotEnv } from './dotenv.js'
 
 export const DEFAULT_CATALOG_COMMIT = '3ab58f1cec6a03e3e85455cf7aade3bb8561f92e'
-export const DEFAULT_ENGINE_REV = '0b510d1b1b96ac356ea375e0f06a88e324a1bd9c'
+export const DEFAULT_ENGINE_REV = 'c87bad0799de162d0b0c870748319d512f5482d2'
 
 const gitSha = z.string().regex(/^[0-9a-f]{40}$/, 'must be a full 40-character lowercase git sha')
 
