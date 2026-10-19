@@ -478,12 +478,15 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
                 // counts one twice (review of g 1.1).
                 let (discard, chance) = self_discard(mechanic, &ready, ready.len().min(cost.len() + overcharge));
                 let reuse = (chance * (discard / rate).ceil().max(1.0) + (1.0 - chance)).max(1.0 + cooldown);
-                let Some((hits, spare)) = hits_to_win(&burning, &damage, &bench, probe.points[attacker], params.margin)
+                let knockouts = knockouts_it_survives(mechanic, attacker_hp);
+                let Some((hits, spare)) =
+                    hits_to_win(&burning, &damage, &bench, probe.points[attacker], knockouts, params.margin)
                 else {
                     continue;
                 };
-                // An attack that also hurts its user: no more hits than it survives (the last may knock it out).
-                if recoil > 0.0 && hits > (attacker_hp / recoil).ceil() {
+                // An attack that also hurts its user: no more hits than it survives (the last may knock it out). One that
+                // shuffles its user into the deck hits once (Deck and Cover; Codex on #128).
+                if (recoil > 0.0 && hits > (attacker_hp / recoil).ceil()) || (leaves_play(mechanic) && hits > 1.0) {
                     continue;
                 }
                 best = best.min(setup + hits + (hits - 1.0).max(0.0) * (reuse - 1.0) + delay - spare);
@@ -752,9 +755,18 @@ impl Hit {
 /// whole hits, and apart `margin` times the hit each knockout has to spare: the caller takes it off the turns once, so
 /// a wait between hits does not multiply it (review of g 1.1). An attack that also hits the Bench
 /// (`bench`, what a hit does to each Benched one) wears them down at the same time, so they go one hit at a time: three
-/// Pokémon with 50 HP fall together to five hits of Swirling Disaster, not to fifteen (Codex on #117).
-fn hits_to_win(targets: &[Target], damage: &[Hit], bench: &[f64], points: u8, margin: f64) -> Option<(f64, f64)> {
+/// Pokémon with 50 HP fall together to five hits of Swirling Disaster, not to fifteen (Codex on #117). No more than
+/// `knockouts`: the attacker does not survive the last of them.
+fn hits_to_win(
+    targets: &[Target],
+    damage: &[Hit],
+    bench: &[f64],
+    points: u8,
+    knockouts: usize,
+    margin: f64,
+) -> Option<(f64, f64)> {
     let mut hp: Vec<f64> = targets.iter().map(|target| target.hp).collect();
+    let mut knocked_out = 0;
     let mut standing: Vec<bool> = vec![true; targets.len()];
     let mut active = targets.iter().position(|target| target.slot == 0);
     // For each one, the chance it is still not Poisoned after the hits it has taken in the Active Spot.
@@ -790,6 +802,7 @@ fn hits_to_win(targets: &[Target], damage: &[Hit], bench: &[f64], points: u8, ma
         for at in 0..targets.len() {
             if standing[at] && hp[at] <= 0.0 {
                 standing[at] = false;
+                knocked_out += 1;
                 points += targets[at].points;
                 if active == Some(at) {
                     active = None;
@@ -798,6 +811,10 @@ fn hits_to_win(targets: &[Target], damage: &[Hit], bench: &[f64], points: u8, ma
         }
         if points >= 3 || !standing.contains(&true) {
             return Some((total, spare));
+        }
+        // Its user did not survive the last knockout (Head Smash's recoil; Codex on #128).
+        if knocked_out >= knockouts {
+            return None;
         }
         let at = match active {
             Some(at) => at,
@@ -935,10 +952,18 @@ fn self_discard(mechanic: Option<&Mechanic>, attached: &[EnergyType], held: usiz
 }
 
 /// The chance that an attack keeps its user from attacking (or from using it again) during its next turn: Prismatic
-/// Laser, Big Beat, on tails for some (Codex on #117). Its next hit waits a turn more.
+/// Laser, Big Beat, on tails for some (Codex on #117). Its next hit waits a turn more. One that puts its user to sleep
+/// (Collapse, Flop-Down Punch) waits ⅓ of a turn more: at its next turn it is still Asleep with ¼ (two Checkups), at the
+/// one after with 1/16, and so on (Codex on #128).
 fn cooldown(mechanic: Option<&Mechanic>) -> f64 {
     let locks = |effect: &CardEffect| matches!(effect, CardEffect::CannotAttack | CardEffect::CannotUseAttack(_));
     match mechanic {
+        Some(Mechanic::InflictStatusConditions { conditions, target_opponent: false })
+            if conditions.contains(&StatusCondition::Asleep) =>
+        {
+            1.0 / 3.0
+        }
+        Some(Mechanic::SelfAsleepAndHeal { .. }) => 1.0 / 3.0,
         Some(Mechanic::DamageAndCardEffect { opponent: false, effect, coin_flip, .. }) if locks(effect) => {
             if *coin_flip {
                 0.5
@@ -967,6 +992,22 @@ fn recoil(mechanic: Option<&Mechanic>) -> f64 {
         Some(Mechanic::SelfDamageAndAllBenchDamage { self_damage, .. }) => *self_damage as f64,
         _ => 0.0,
     }
+}
+
+/// The knockouts an attack's user lives through: Head Smash does 50 to it on each, so a Rampardos with 50 HP left makes
+/// one and falls with it (Codex on #128). Any number for every other attack.
+fn knockouts_it_survives(mechanic: Option<&Mechanic>, attacker_hp: f64) -> usize {
+    match mechanic {
+        Some(Mechanic::RecoilIfKo { self_damage }) if *self_damage > 0 => {
+            (attacker_hp / f64::from(*self_damage)).ceil().max(1.0) as usize
+        }
+        _ => usize::MAX,
+    }
+}
+
+/// Whether an attack takes its user out of play: Deck and Cover shuffles Accelgor into the deck.
+fn leaves_play(mechanic: Option<&Mechanic>) -> bool {
+    matches!(mechanic, Some(Mechanic::InflictStatusConditionsAndShuffleSelfIntoDeck { .. }))
 }
 
 /// Turns between an attack and its knockout: Abyssal Drop's lands at the end of the rival's next turn.
@@ -2125,6 +2166,57 @@ mod tests {
         // Only the first attack after coming into play: Iron Bundle ex's Cold Start is not a status hit after hit.
         let cold_start = first_attack(&card("B3a 013"));
         assert_eq!(inflicts(&cold_start), inflicts(&first_attack(&card("A1 001"))));
+    }
+
+    #[test]
+    fn an_attack_that_puts_its_user_to_sleep_waits_a_third_of_a_turn_more() {
+        // Snorlax's Collapse (100, then it is Asleep): at its next turn it still sleeps with ¼ (two Checkups), at the one
+        // after with 1/16...: ⅓ of a turn more between hits. Against a Mega Venusaur ex (240 HP), 3 hits and 2 waits of
+        // ⅓ (Codex on #128). Snorlax ex's Flop-Down Punch too.
+        assert_eq!(cooldown(mechanic(&first_attack(&card("A2a 063")))), 1.0 / 3.0);
+        assert_eq!(cooldown(mechanic(&first_attack(&card("A3b 057")))), 1.0 / 3.0);
+        let snorlax = card("A2a 063").with_energy(vec![Psychic; 4]);
+        let state = board(MISMAGIUS, VENUSAUR, vec![snorlax], vec![card("B1a 004")]);
+        assert!((turns(&state, 0, false) - (3.0 + 2.0 / 3.0)).abs() < 1e-9, "{}", turns(&state, 0, false));
+    }
+
+    #[test]
+    fn an_attack_that_shuffles_its_user_away_hits_once() {
+        // Accelgor's Deck and Cover (50, Poisoned and Paralyzed, then Accelgor goes back into the deck): it wins only if
+        // one hit is enough (Codex on #128).
+        let accelgor = card("B4 014").with_energy(vec![Psychic, Psychic]);
+        let with = |dedenne: PlayedCard| {
+            let mut state = board(MISMAGIUS, DEDENNE, vec![accelgor.clone()], vec![dedenne]);
+            state.points = [1, 0];
+            state
+        };
+        assert_eq!(turns(&with(card("B3b 024").with_remaining_hp(40)), 0, false), 1.0);
+        assert_eq!(turns(&with(card("B3b 024")), 0, false), NO_THREAT);
+    }
+
+    #[test]
+    fn head_smash_ends_with_the_knockout_its_user_does_not_survive() {
+        // Rampardos' Head Smash (130; 50 to itself on a knockout) against two Bulbasaur, with a point to go for two: with
+        // 40 HP left it knocks out the first and falls with it; with all its 150, it takes both (Codex on #128).
+        let with = |hp: u32| {
+            let rampardos = card("A2 089").with_energy(vec![EnergyType::Fighting]).with_remaining_hp(hp);
+            let mut state = board(LUCARIO, VENUSAUR, vec![rampardos], vec![card("A1 001"), card("A1 001")]);
+            state.points = [1, 0];
+            state
+        };
+        assert_eq!(turns(&with(40), 0, false), NO_THREAT);
+        assert_eq!(turns(&with(150), 0, false), 2.0);
+    }
+
+    #[test]
+    fn a_bench_only_attack_does_not_hit_the_active() {
+        // Hitmonlee's Stretch Kick (30 to one of the rival's Benched Pokémon) gives 0 to its Active: f's reading of the
+        // text already leaves out damage that lands on the Bench, so the fallback adds nothing (Codex on #128).
+        let hitmonlee = card("A1 154").with_energy(vec![EnergyType::Fighting]);
+        let stretch_kick = first_attack(&hitmonlee);
+        assert_eq!(attack_damage(&stretch_kick), 0);
+        let mut state = board(LUCARIO, DEDENNE, vec![hitmonlee], vec![card("B3b 024"), card("A1 001")]);
+        assert_eq!(damage(&mut state, 0, &stretch_kick, 0, 0.0), 0.0);
     }
 
     #[test]
