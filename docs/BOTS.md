@@ -194,13 +194,17 @@ En g 1.1 (18/10), dos cambios para que las juegue de verdad:
     envenenan o queman;
   - envenenar de nuevo reemplaza el veneno anterior, con su probabilidad: Toxic sobre un veneno común da 40 por
     vuelta, no 20. Un estado que solo pone el primer ataque (`FirstAttackBonusDamageAndStatus`) no se cuenta golpe a
-    golpe (Codex en #128).
+    golpe, y su daño de más tampoco: Cold Start pega 80 la primera vez y 60 después (Codex en #128);
+  - una quemadura que el Activo ya tiene sigue durante el primer golpe de un ataque que vuelve a quemar con moneda
+    (Fire Fang de B1 029): esa vuelta es segura, y la de los golpes siguientes lleva la moneda (Codex en #128).
 - **Sueño y parálisis:**
   - un Activo paralizado no ataca el turno que viene: le suma 1 turno a su reloj;
   - uno dormido tira una moneda en cada control: pierde 4/3 de turno si es su turno (este y ¼ de cada siguiente) y
     2/3 si es el del rival;
   - la Energía y el estado corren a la vez: un Activo paralizado carga la Energía de su retirada mientras tanto;
-  - cambiar de Activo o evolucionar cura los dos.
+  - cambiar de Activo o evolucionar cura los dos;
+  - un ataque que duerme a su propio usuario (Collapse, Flop-Down Punch) espera ⅓ de turno más entre golpes: sigue
+    dormido en su turno siguiente con ¼, en el otro con 1/16, y así (Codex en #128).
 
 ### 5. Repetir un ataque y llegar al Activo
 
@@ -216,7 +220,9 @@ En g 1.1 (18/10), dos cambios para que las juegue de verdad:
   aunque el primero no sume (en Crush the Weak de Scrafty, la primera puede empatar la Energía del rival y recién la
   segunda la pasa), con la Energía del tipo que cuenta
   la mecánica, si la zona la hace: Psykick de Medicham pega 50 más con una [P] (Codex en #128).
-- **Retroceso:** un plan no pide más golpes de los que su atacante aguanta (Beat Punk, Enormous Explosion).
+- **Retroceso:** un plan no pide más golpes de los que su atacante aguanta (Beat Punk, Enormous Explosion), ni más KO
+  de los que sobrevive (Head Smash: 50 por cada KO). Un ataque que baraja a su usuario en el mazo (Deck and Cover)
+  gana solo con un golpe (Codex en #128).
 - **A todos a la vez:** un ataque que también le pega a toda la Banca (Swirling Disaster, Gigashock) la desgasta
   junto con el Activo. Tres Pokémon de 50 PS caen juntos en 5 golpes, no en 15. Puede ganar por la Banca aunque el
   Activo no reciba daño (Safeguard). Lo que recibe cada uno de la Banca es lo que da el motor para ese lugar: sin
@@ -475,7 +481,7 @@ cada ataque de «atacar ahora» (unos 46 ms por partida), y se queda: es un erro
 Coordinador aceptó el 18/10 hasta 3,5 veces e2 mientras la app no use g.
 
 La evaluación base de deckgym no es lo que pesa en g. Una variante en el fork que saltea los términos con peso 0 y no
-copia el mazo y la mano para «Activo listo» (propuesta a Infra) juega las mismas partidas: 30 trabajos de 40 partidas
+copia el mazo y la mano para «Activo listo» (santiqwerty1/deckgym-core#1) juega las mismas partidas: 30 trabajos de 40 partidas
 de e2, f2 y g2, idénticos. Pero baja e2 un 15 % (113 a 96 ms) y f2 un 19 % (132 a 107), y g2 solo un 2 % (318 a 312).
 Lo de g es su propio reloj y «atacar ahora». Con esa variante, g2 queda en 3,25 veces e2, porque e2 se abarata más.
 
@@ -493,6 +499,32 @@ partidas idénticas).
 **Las partidas doradas:** g1 y g2 salen de `games-rev.json` (de 38 casos a 34) sin subir `GAMES_REV`. Vuelven en el
 PR que deja que la app use g, ya con su comportamiento final. Lo decidió el Coordinador el 18/10: ningún trabajo de la
 cola puede pedir g todavía.
+
+**Dos pánicos de deckgym, encontrados midiendo y arreglados, cada uno con su test:**
+- una hoja justo después de un ataque con una elección en la pila: esa elección se hizo con las cartas reales, y
+  aplicarla sobre la copia con la mano del rival tapada nombraba una carta que no está. Esa hoja queda como está;
+- pedirle al motor el daño a un lugar de la Banca cuando el rival todavía no eligió su nuevo Activo: deckgym mira las
+  habilidades del Activo (Intimidating Fang) y no lo encuentra. Ahí la Banca no recibe nada.
+
+Después, todos los cruces de la liga con g1, g2 y g3 (y g2 contra e2) y las 36 corridas del banco terminaron sin
+fallas.
+
+### La deuda de g (Codex en #128)
+
+Codex revisó #128 en cinco rondas y dejó 28 hallazgos: 23 arreglados con su test, 2 que no se sostienen (el robo del
+rival después del fin del turno, que la búsqueda de deckgym tampoco aplica, y Stretch Kick sobre el Activo, que ya daba
+0) y 3 que piden modelar algo nuevo de una carta. Con la regla que aceptó el Coordinador el 19/10, esos tres quedan
+acá, respondidos en su hilo, para la carrera o la evaluación aprendida (líneas 3 y 4). Siempre se arreglan, en cambio,
+los pánicos, las fallas de un cruce y cualquier cosa que deje ver lo oculto.
+- **El daño del ataque que se carga solo** (Plasma Hurricane de Tapu Koko ex): el reloj cuenta la carga como ritmo de
+  Energía, no el daño que hace mientras carga. Pide modelar el ataque de carga con su costo y sus turnos.
+- **La carta de arriba de lo oculto** (Cliff Crumbler, Crackling Snap): cualquier orden sintético deja fija la clase
+  de la carta de arriba. Promediar pide pedir esos ataques con las dos clases.
+- **Las chances de Chemical Panic** según los estados que el objetivo ya tiene: `inflicts` es por ataque, y esto lo
+  vuelve por objetivo.
+- **Menores, sin hallazgo propio:** una quemadura de antes que sigue después de dos controles (¼) en los golpes
+  siguientes de un ataque que quema con moneda; y los ataques que solo le pegan a la Banca (Stretch Kick), que el
+  reloj no cuenta como amenaza aunque sus KO puedan ganar.
 
 ## Cómo entra en la app
 
