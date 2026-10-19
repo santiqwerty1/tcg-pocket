@@ -248,7 +248,9 @@ describe('MCP write tools (e2e)', () => {
   })
 
   it('14/10: matches_log says the ranked season and rank, and notes a new rank; ranked_season reads it', async () => {
-    const today = todayInOwnerZone()
+    // The test season starts yesterday: the matches logged 1–2 h ago (soloAt, playedAt) fall inside it
+    // also between 00:00 and 02:00 in the owner's zone (Bots, 19/10).
+    const today = todayInOwnerZone(new Date(Date.now() - 24 * 60 * 60 * 1000))
     const until = todayInOwnerZone(new Date(Date.now() + 10 * 24 * 60 * 60 * 1000))
     const season = await test
       .http()
