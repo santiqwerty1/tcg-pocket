@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-31 fichas: abierto 5 · resuelto 26. ⚑ = para revisar.
+31 fichas: abierto 4 · resuelto 27. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Severidad | PR | Actualizado |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -47,4 +47,4 @@ revisar: false
 | [H-056](H-056.md) | deckgym 33ff2a5: Casco Pesado anula de más, Extracto y Plubio sortean el objetivo, y un pánico sin Activo | resuelto | 1 | alta | #115 | 2026-10-18 |
 | [H-057](H-057.md) | Un KO de fin de turno en el turno 30 llega como victoria con 31 turnos y la cola rechazaba el chunk | resuelto | 3 | media | #108 | 2026-10-15 |
 | [H-058](H-058.md) | Las migraciones de producción aceptaban cualquier certificado de la base, y el motor de migraciones se bajaba en cada arranque | resuelto | — | media | #116 | 2026-10-18 |
-| [H-059](H-059.md) | Después de mover el motor, las fotos de los mazos se arman con el estado de cartas de un worker viejo y los puntajes quedan sueltos | abierto | — | media | — | 2026-10-19 |
+| [H-059](H-059.md) | Después de mover el motor, las fotos de los mazos se arman con el estado de cartas de un worker viejo y los puntajes quedan sueltos | resuelto | — | media | #137 | 2026-10-19 |

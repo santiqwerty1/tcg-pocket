@@ -5,12 +5,14 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-19 desde la etiqueta `v1.0.0` (231 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-19 desde la etiqueta `v1.0.0` (257 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- the engine moves to next/adfe505 at c87bad0, with the value function that skips its zero weights (D-031) `f5c68df`
 - catalog-sync says which tracker commit and engine rev it uses, and where each comes from (Fase 38) `a589c33`
 - T1b of the chat's move to the hub — a room marked as moved answers its bridge 410 chat_moved and takes no writes, and the old connector's chat tools go to the hub (D-030, D5) `9a6ba30`
+- g 1.1 — attack now at a mid-turn leaf, and Codex's 14 findings on #117 (T-021, H-018) `6a9490e`
 - pin our copy of deckgym on upstream adfe505 (0b510d1) — Cargo, the API pin, texts and the differential's list (D-031) (#420) `79d62bc`
 - T1a of the chat's move to the hub — the chat:export scope alone in its token, GET /api/mcp/chat/export in pages, and chat-import with a preview (D-030) `2e722fd`
 - the rank registered matches were played at — beforeMatch, the match's ranked view, the edit page and ranked_rank_note (T-022, 18/10) `0c84771`
@@ -53,7 +55,20 @@ _Borrador generado al 2026-10-19 desde la etiqueta `v1.0.0` (231 commits). Escri
 
 ### Corregido
 
+- the clock's bound drops the hit whenever the knockouts that need none give the points left (T-021) `0f75472`
+- the clock's bound counts no hit when a poison can take a knockout, and tests for the Energy type of the two discards (T-021) (#139) `9bb10ae`
+- a Grass Energy under the Jungle Totem an evolution brings counts twice, not four times, and an Active it cannot hurt is waited out while its poison falls (T-021) (#128) `40ac797`
+- poison through the setup, a weaker poison over Toxic, the asked Energy type, and Head Smash's own knockouts (T-021) (#128) `46fa63e`
+- Cold Start's bonus on the plan's first hit, and a threshold of three more Energy tried (T-021) (#128) `25554ff`
+- Cold Start's bonus once, a burn that stays through a missed coin, and no Bench query without an Active (T-021) (#128) `39e5429`
+- g's clock waits for a sleeping user, hits once with Deck and Cover and stops at Head Smash's last knockout (T-021) (#128) `4cc822e`
+- a coin-flip poison that lands stays for g's next hits (T-021) (#128) `e315bf6`
+- g reads the Bench damage from the engine and knows a leaf after an attack (T-021) (#128) `089a804`
+- the borrowed card status comes from the pin before, never from a worker's engine (H-059) `a2a18d9`
+- g's clock reloads Mega Burst, asks for the right Energy and sees Jungle Totem after evolving (T-021) (#128) `a75be19`
 - the differential's list adds upstream #406 and #388, and Field Blower for #408 (review of the pin, D-031) `6c0f5cf`
+- Codex on #128 — an attack's choice before its value, burn that fades, poison that replaces, spread past an immune Active (T-021) `21f388f`
+- g 1.1 self-review — score an attack after its turn ends, keep a status attack's round, Weakness in the Active Spot (T-021) `cfe6483`
 - review of #130 — the rank of a match that left the phone goes at the server's instant, not while it is sent, moving a match with a rank into another season is refused, rank_changes written under the note lock, Temporada refreshes after an offline send (T-022) `5eda42a`
 - a delayed hit on a spot counts once — review of #117; g1 and g2 in the golden games (T-021) `9ddf9f3`
 - deuda de #114 — «Deshacer» a classification in one transaction, a deleted match skipped instead of a 404, the note moved under its lock, undoing an old long rival, shareOfEra with its n and NBSP, no «Deshacer» when nothing changed (T-022) `a581c3d`
@@ -168,15 +183,25 @@ _Borrador generado al 2026-10-19 desde la etiqueta `v1.0.0` (231 commits). Escri
 
 ### Cambiado
 
+- g 1.1 under 3× e2 again — each attack's mechanic once, overcharge only for attacks that scale, no attack check where the Active cannot attack (T-021) `d87ea1f`
 - format backup schema `0c21628`
 - one live game for engine-cli play and the browser — live.rs shared, GAMES_REV in seeds.rs (T-015) `e3e6a03`
 - the calibration's report is kept while nothing it is made of changes, and the full tool report goes by pages (D-029) `bb7baf4`
 
 ### Documentado
 
+- g 1.1's final numbers on 25554ff with the engine 0b510d1, and the last Codex findings of #128 (T-021) `a36e43d`
+- the last Codex fixes on #128, the two panics found measuring, and g's debt (T-021) `d9dc7bd`
+- H-059 — the relaunched jobs 68–71 built the deck snapshots with the Ryzen's card status, so their scores do not reach the decks; matrix 71 cancelled and everything relaunched as 72–75 (D-031, T-015) `7415272`
+- 18 (afternoon) and 19/10 — the pin to 0b510d1 in production, the relaunched jobs, #128 and its rule for Codex, fewer approvals and enforce_admins, the ranked and rivals debt, T1b, «mi meta» with data; fold the decisions of #129–#135 (D-021, D-030, D-031, H-052, H-055, T-015, T-021, T-022) `3625dc9`
+- Dedenne against the bank on g 1.1's final head, and what the fork variant saves (T-021) `a6a80a5`
+- g 1.1 after Codex's 12 findings on #128, with the final league and speed (T-021) `b6f6feb`
 - the texts of the pin after its review — Cargo comment, worker 0.3.12, About, OPERACION and the decisions (D-031, H-056) `f98da67`
 - the differential against a control engine when State gains fields (D-031, H-056) (#408, #21) `a69daab`
 - the push rule's reason — main's protection does not bind the owner, so pushes that can reach main still ask (D-021) `b407d92`
+- the Coordinador accepts g2 up to 3.5× e2 while the app does not use g (T-021) `cd3d2ef`
+- g 1.1 final numbers — the league, Dedenne against the bank, the end of the turn and the cost (T-021, H-055) `312ce93`
+- g 1.1 results — Dedenne's Tools, Dedenne against the bank, the league and the speed (T-021, H-055) `1333294`
 - self-review of the 15–18/10 update — jobs named as jobs, the matrix 59 number with its n, the #399 closing and the videos, Santiago's full pending list, H-058 in the changelog (H-055, H-056, D-031, T-022) `17d335e`
 - 15–18/10 — the deckgym fork in production and its rebuild on adfe505, the blind-spot warning and Dedenne, bot g, seen cards and ranked, T1a of the hub (D-031, H-055, H-056, H-058, T-021, T-022) (#115, #116, H-052, D-030, T-015, T-017, H-017) `38ac7a8`
 - fold the pending decisions of #109–#126 in merge order (D-021) (#111, #113, #110, #115, #118, #116, #119, #114, #122, #124, #121, #123, #120, #117) `4b40533`
@@ -229,6 +254,7 @@ _Borrador generado al 2026-10-19 desde la etiqueta `v1.0.0` (231 commits). Escri
 
 - the season of the matches_log e2e starts yesterday, so the test passes between 00:00 and 02:00 (T-022) (#130, #128) `c00e29b`
 - the engine pin guard checks both locks, the API README and every sha of LICENCIAS (review of the pin, D-031) `a56d62f`
+- Dedenne attaches its Tools before attacking, as a fixed case (T-021, H-055) `d7531a7`
 - clientRef as a UUID in the e2e (deuda de #120) `fe247df`
 - the golden games on 0b510d1 — identical, only the engineRev header changes; GAMES_REV stays 1 (D-031) `fb86047`
 - an older revision's test takes the closest archetype, checked against both archetypes' texts (H-055) `8c21eb2`
@@ -258,6 +284,7 @@ _Borrador generado al 2026-10-19 desde la etiqueta `v1.0.0` (231 commits). Escri
 
 ### Hallazgos cerrados
 
+- H-059 por `703b89b` en main
 - H-058 por `0650518` en main
 - H-056 por `dfc8b05` en main
 - H-057 por `d7a6c1c` en main
@@ -265,6 +292,7 @@ _Borrador generado al 2026-10-19 desde la etiqueta `v1.0.0` (231 commits). Escri
 
 ### Decidido
 
+- 2026-10-19 — D-029: el Coordinador lanzó, a pedido de Santiago, las calibraciones e2 y e3 con el banco grande que Santiago decidió el 13/10 (33 listas, 1.000 partidas por cruce) y MCTS, con el motor `c87bad0`.
 - 2026-10-18 — D-021, decidido por Santiago: menos aprobaciones a mano (los comandos seguros y `git push` a las ramas que no son main, #132) y `enforce_admins` en main.
 - 2026-10-18 — D-031: Santiago aprobó rearmar el fork de deckgym sobre upstream `adfe505` con solo `fix/choose-evolution-target` y `feat/bot-api` (engine-cli 0.3.14 y worker 0.3.12); después se relanzan los 41 mazos, la matriz y las calibraciones.
 - 2026-10-15 — T-021, decidido por Santiago: la línea 2 de los bots (sin trampa) supone la lista típica del arquetipo en el meta, sin el orden ni la mano.
