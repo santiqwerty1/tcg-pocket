@@ -1,4 +1,0 @@
----
-seccion: Fase 38: operación y avisos (9/10/2026)
----
-| **`catalog-sync.js` dice antes de sincronizar qué va a usar y de dónde sale** (en stderr, así stdout sigue siendo el JSON del resumen): la versión de la imagen, el commit del tracker (de `--commit`, del catálogo cargado o de `CATALOG_COMMIT`) y el `engineRev` (de `--engine-rev`, de `ENGINE_REV` del entorno o del `DEFAULT_ENGINE_REV` de la imagen). `docs/OPERACION.md` suma cómo sacar el id de la máquina (`flyctl machine list`) y que `/healthz` muestra el catálogo anterior hasta que la API lo recarga, en menos de un minuto. | El 19/10, después del deploy de #133, un sync por CLI escribió bien `0b510d1` (`catalog_syncs` #8), pero `/healthz`, consultado a los 5 s, todavía decía `018b419`, y pareció que el CLI había tomado el motor del sync anterior. La línea lo deja claro sin esperar. |

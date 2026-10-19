@@ -3,7 +3,7 @@ tipo: indice
 titulo: 'Decisiones'
 area: proyecto
 estado: vigente
-actualizado: '2026-10-18'
+actualizado: '2026-10-19'
 origen:
   - posta generar
 revisar: false
@@ -37,7 +37,7 @@ revisar: false
 | [D-018](D-018.md) | Cómo mide y busca el laboratorio de mazos | vigente | — | 2026-10-08 |
 | [D-019](D-019.md) | Cómo se juega contra el bot y cómo se mide la consistencia | vigente | — | 2026-10-08 |
 | [D-020](D-020.md) | Consolidar antes de sumar funciones | vigente | — | 2026-10-11 |
-| [D-021](D-021.md) | Reparto del trabajo entre las tres sesiones de Claude | vigente | — | 2026-10-11 |
+| [D-021](D-021.md) | Reparto del trabajo entre las tres sesiones de Claude | vigente | — | 2026-10-19 |
 | [D-022](D-022.md) | Repositorio público bajo AGPL-3.0, con seudónimos en los datos de Limitless | vigente | — | 2026-10-12 |
 | [D-023](D-023.md) | CI en runners propios de la PC solo mientras el repo fue privado; en el público, los de GitHub | vigente | — | 2026-10-11 |
 | [D-024](D-024.md) | Proteger trabajos de laboratorio y consistencia frente a matrices adelantadas | vigente | — | 2026-10-11 |
@@ -46,5 +46,5 @@ revisar: false
 | [D-027](D-027.md) | Análisis exploratorio de simulaciones sin agrupar fuentes ni corridas | vigente | — | 2026-10-13 |
 | [D-028](D-028.md) | Colección del tracker por el mismo camino de importación del CSV | vigente | — | 2026-10-13 |
 | [D-029](D-029.md) | e2 sigue de bot por defecto; f2 y e3 quedan como opciones y para confirmar | vigente | — | 2026-10-14 |
-| [D-030](D-030.md) | El chat entre sesiones sale de tcg-pocket a un hub propio, con una sala por proyecto | vigente | — | 2026-10-18 |
-| [D-031](D-031.md) | La app usa un fork de deckgym con arreglos, sin esperar a upstream | vigente | — | 2026-10-18 |
+| [D-030](D-030.md) | El chat entre sesiones sale de tcg-pocket a un hub propio, con una sala por proyecto | vigente | — | 2026-10-19 |
+| [D-031](D-031.md) | La app usa un fork de deckgym con arreglos, sin esperar a upstream | vigente | — | 2026-10-19 |
