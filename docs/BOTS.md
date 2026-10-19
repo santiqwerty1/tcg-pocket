@@ -162,7 +162,10 @@ En g 1.1 (18/10), dos cambios para que las juegue de verdad:
   con Herramientas en la mano. Ahora una hoja en medio de su propio turno vale al menos lo que da atacar ahí mismo.
   El ataque se aplica sobre la copia con lo del rival tapado, y como termina el turno, es un paso más y nada más hondo.
   Si el ataque pide una elección (el Pokémon de la Banca de Shadow Bullet), hace la mejor, hasta 2, y después termina
-  el turno antes de valer (Codex en #128).
+  el turno antes de valer (Codex en #128). Una hoja de la búsqueda justo después de un ataque propio también se vale
+  después de terminar el turno: lo dice deckgym (`end_turn_pending`), no que solo quede terminarlo, así que un Activo
+  bloqueado (Prismatic Laser) no es un turno terminado. Si a esa hoja le queda una elección del ataque, queda como
+  está: la eligió la partida con las cartas reales, y sobre la copia tapada podía nombrar una que no está.
 - **El golpe que sobra** (`margin`, 0,1 de golpe). Un KO con daño de sobra vale un poco más que uno justo. Así, una
   Herramienta que suma daño sin ahorrar un golpe entero paga la carta que saca de la mano. Sola apenas mueve; desempata.
 
@@ -178,7 +181,8 @@ En g 1.1 (18/10), dos cambios para que las juegue de verdad:
   El veneno se cuenta golpe a golpe: 10 por cada control, o lo que diga el ataque, y hay un control al final de cada
   turno, así que son 20 por vuelta después de cada golpe. Antes del primero cae solo el control que cierra el turno
   del defensor, si ese turno viene primero. Un KO en los controles que siguen a un golpe cuenta en el turno de ese
-  golpe.
+  golpe. Un veneno con moneda que ya cayó se queda: Stun Poison envenena con 50 % después del primer golpe y con 75 %
+  después del segundo (Codex en #128).
 
   Así, después de Cursed Prose, el tablero ya vale 90 de daño. Cambiar de Activo borra `DelayedDamage`, así que el
   rival lo puede esquivar retirándose. Por eso ese daño lleva su propio peso, 1 por defecto, para afinar en la línea 3.
@@ -215,8 +219,9 @@ En g 1.1 (18/10), dos cambios para que las juegue de verdad:
 - **Retroceso:** un plan no pide más golpes de los que su atacante aguanta (Beat Punk, Enormous Explosion).
 - **A todos a la vez:** un ataque que también le pega a toda la Banca (Swirling Disaster, Gigashock) la desgasta
   junto con el Activo. Tres Pokémon de 50 PS caen juntos en 5 golpes, no en 15. Puede ganar por la Banca aunque el
-  Activo no reciba daño (Safeguard), y la escalada de Wild Spin le llega a la Banca como al Activo, sin la Debilidad
-  (Codex en #128).
+  Activo no reciba daño (Safeguard). Lo que recibe cada uno de la Banca es lo que da el motor para ese lugar: sin
+  Debilidad, con la escalada de Wild Spin, Damaging Spark solo a los que ya tienen daño y sin las reducciones que un
+  Luxray tendría como Activo (Codex en #128).
 - **Llegar al Activo:** un atacante de la Banca necesita que el Activo se vaya. A su preparación se le suma la
   Energía que al Activo todavía le falta para pagar su retirada: el costo menos lo que ya tiene puesto, a una por
   turno. Si ya la tiene, no suma nada. El costo baja con Globito y es 0 si el Activo es Latios con Latias en juego

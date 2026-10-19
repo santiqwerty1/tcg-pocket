@@ -426,7 +426,8 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
             let overcharges = if scales_with_energy(mechanic) { MAX_OVERCHARGE } else { 0 };
             // A burn already on a target: an attack that burns it again keeps it burning hit by hit; any other leaves it
             // to fade.
-            let reburns = inflicts(attack, mechanic).burn > 0.0;
+            let inflicted = inflicts(attack, mechanic);
+            let reburns = inflicted.burn > 0.0;
             let burning: Vec<Target> = targets
                 .iter()
                 .map(|target| Target {
@@ -454,9 +455,18 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
                     let extra = extra_energy(mechanic, &active.attached_energy, overcharge, &zone, own_type);
                     active.attached_energy.push(extra);
                 }
-                let damage: Vec<f64> = burning
+                let damage: Vec<Hit> = burning
                     .iter()
-                    .map(|target| damage_against(probe, attacker, attack, mechanic, target.slot, target.poison))
+                    .map(|target| Hit {
+                        first: damage_against(probe, attacker, attack, mechanic, target.slot, target.poison),
+                        clean: 1.0 - inflicted.poison,
+                        // A poison on a coin the target does not have yet: once it lands it stays (Codex on #128).
+                        round: if target.poison == 0.0 && inflicted.poison > 0.0 && inflicted.poison < 1.0 {
+                            inflicted.poison_round
+                        } else {
+                            0.0
+                        },
+                    })
                     .collect();
                 let bench: Vec<f64> =
                     targets.iter().map(|target| bench_damage(probe, attacker, attack, mechanic, target.slot)).collect();
@@ -715,30 +725,66 @@ fn attackers(state: &State, attacker: usize, slots: &[usize], see_evolutions: bo
     out
 }
 
+/// What a hit of an attack does to one target in the Active Spot. `first` is the first hit's expected damage. For a
+/// poison on a coin that the target does not have yet, a hit after the first also brings the chance the earlier ones
+/// already poisoned it: after k hits it is Poisoned with `1 − clean^k`, not with the first hit's chance each time
+/// (Stun Poison: 50 % after the first, 75 % after the second; Codex on #128). `round` is that poison's round, 0 for
+/// every other attack and target.
+#[derive(Clone, Copy, Debug)]
+struct Hit {
+    first: f64,
+    /// The chance a hit does not poison.
+    clean: f64,
+    round: f64,
+}
+
+impl Hit {
+    /// The next hit, on a target still not Poisoned with chance `clean` (`self.clean` to the hits it has taken): the
+    /// first hit's damage and the poison the earlier ones have left on it, `round × (self.clean − clean × self.clean)`.
+    /// Products only, no `powi`: the same on every platform.
+    fn after(&self, clean: f64) -> f64 {
+        self.first + self.round * (self.clean - clean * self.clean)
+    }
+}
+
 /// Hits to take the points left: the Active first, then the Benched Pokémon the defender would rather lose last (the
 /// most hits per point; with one point to go, the most hits). `None` when the one in the Active cannot be hurt. The
 /// whole hits, and apart `margin` times the hit each knockout has to spare: the caller takes it off the turns once, so
 /// a wait between hits does not multiply it (review of g 1.1). An attack that also hits the Bench
 /// (`bench`, what a hit does to each Benched one) wears them down at the same time, so they go one hit at a time: three
 /// Pokémon with 50 HP fall together to five hits of Swirling Disaster, not to fifteen (Codex on #117).
-fn hits_to_win(targets: &[Target], damage: &[f64], bench: &[f64], points: u8, margin: f64) -> Option<(f64, f64)> {
+fn hits_to_win(targets: &[Target], damage: &[Hit], bench: &[f64], points: u8, margin: f64) -> Option<(f64, f64)> {
     let mut hp: Vec<f64> = targets.iter().map(|target| target.hp).collect();
     let mut standing: Vec<bool> = vec![true; targets.len()];
     let mut active = targets.iter().position(|target| target.slot == 0);
+    // For each one, the chance it is still not Poisoned after the hits it has taken in the Active Spot.
+    let mut clean: Vec<f64> = vec![1.0; targets.len()];
     let mut points = points;
     let (mut total, mut spare) = (0.0, 0.0);
     // The whole hits to knock out `at` from `hp`, and the hit it has to spare.
-    let whole = |hp: f64, at: usize| -> Option<(f64, f64)> {
+    let whole = |hp: f64, at: usize, clean: f64| -> Option<(f64, f64)> {
+        let hit = damage[at];
         if hp <= 0.0 {
-            Some((0.0, 0.0))
-        } else if damage[at] <= 0.0 {
-            None
-        } else {
-            let exact = hp / damage[at];
-            Some((exact.ceil(), exact.ceil() - exact))
+            return Some((0.0, 0.0));
+        } else if hit.first <= 0.0 {
+            return None;
+        } else if hit.round == 0.0 {
+            let exact = hp / hit.first;
+            return Some((exact.ceil(), exact.ceil() - exact));
         }
+        let (mut done, mut clean, mut hits) = (0.0, clean, 0.0);
+        while hits < 64.0 {
+            let next = hit.after(clean);
+            clean *= hit.clean;
+            hits += 1.0;
+            if done + next >= hp {
+                return Some((hits, 1.0 - (hp - done) / next));
+            }
+            done += next;
+        }
+        None
     };
-    let hits = |hp: f64, at: usize| whole(hp, at).map(|(hits, left)| hits - margin * left);
+    let hits = |hp: f64, at: usize| whole(hp, at, 1.0).map(|(hits, left)| hits - margin * left);
     // Enough for any clock under `NO_THREAT`.
     for _ in 0..64 {
         for at in 0..targets.len() {
@@ -775,7 +821,7 @@ fn hits_to_win(targets: &[Target], damage: &[f64], bench: &[f64], points: u8, ma
         let spread = (0..targets.len()).any(|other| other != at && standing[other] && bench[other] > 0.0);
         if !spread {
             // Only the Active takes damage: all its hits at once.
-            let (hits, left) = whole(hp[at], at)?;
+            let (hits, left) = whole(hp[at], at, clean[at])?;
             total += hits;
             spare += margin * left;
             hp[at] = 0.0;
@@ -783,13 +829,15 @@ fn hits_to_win(targets: &[Target], damage: &[f64], bench: &[f64], points: u8, ma
         }
         // An Active it cannot hurt only holds back its own knockout: the Bench still takes its share, and its points can
         // still win (an ex against Oricorio's Safeguard; Codex on #128).
-        hp[at] -= damage[at].max(0.0);
+        let next = damage[at].after(clean[at]);
+        clean[at] *= damage[at].clean;
+        hp[at] -= next.max(0.0);
         for other in (0..targets.len()).filter(|&other| other != at && standing[other]) {
             hp[other] -= bench[other];
         }
         total += 1.0;
-        if hp[at] <= 0.0 && damage[at] > 0.0 {
-            spare += margin * (-hp[at] / damage[at]).min(1.0);
+        if hp[at] <= 0.0 && damage[at].first > 0.0 {
+            spare += margin * (-hp[at] / next).min(1.0);
         }
     }
     None
@@ -2077,6 +2125,18 @@ mod tests {
         // Only the first attack after coming into play: Iron Bundle ex's Cold Start is not a status hit after hit.
         let cold_start = first_attack(&card("B3a 013"));
         assert_eq!(inflicts(&cold_start), inflicts(&first_attack(&card("A1 001"))));
+    }
+
+    #[test]
+    fn a_poison_that_lands_stays_for_the_next_hits() {
+        // Tentacruel's Stun Poison: 50, and Poisoned on heads. The first hit is worth 50 + 10 (half a round of poison);
+        // the second 50 + 15, since the first one's poison is still there with 50 %, and the third 50 + 17,5 (Codex on
+        // #128). Against a Mega Venusaur ex with 125 HP left that is 2 hits, not the 3 of 60 each.
+        let tentacruel = card("A4a 016").with_energy(vec![EnergyType::Water, EnergyType::Water, EnergyType::Water]);
+        let state = board(MISMAGIUS, VENUSAUR, vec![tentacruel], vec![card("B1a 004").with_remaining_hp(125)]);
+        assert_eq!(turns(&state, 0, false), 2.0);
+        let hit = Hit { first: 60.0, clean: 0.5, round: 20.0 };
+        assert_eq!((hit.after(1.0), hit.after(0.5), hit.after(0.25)), (60.0, 65.0, 67.5));
     }
 
     /// Every attack text that poisons or burns, played by the engine on a board: the chance `inflicts` gives is the
