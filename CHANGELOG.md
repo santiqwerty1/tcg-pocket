@@ -5,10 +5,13 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-18 desde la etiqueta `v1.0.0` (208 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-19 desde la etiqueta `v1.0.0` (231 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- catalog-sync says which tracker commit and engine rev it uses, and where each comes from (Fase 38) `a589c33`
+- T1b of the chat's move to the hub — a room marked as moved answers its bridge 410 chat_moved and takes no writes, and the old connector's chat tools go to the hub (D-030, D5) `9a6ba30`
+- pin our copy of deckgym on upstream adfe505 (0b510d1) — Cargo, the API pin, texts and the differential's list (D-031) (#420) `79d62bc`
 - T1a of the chat's move to the hub — the chat:export scope alone in its token, GET /api/mcp/chat/export in pages, and chat-import with a preview (D-030) `2e722fd`
 - the rank registered matches were played at — beforeMatch, the match's ranked view, the edit page and ranked_rank_note (T-022, 18/10) `0c84771`
 - the bots' league — paired games between engine-cli's bots, an interval over deck pairs and an Elo (T-021) `9e0da9c`
@@ -50,7 +53,11 @@ _Borrador generado al 2026-10-18 desde la etiqueta `v1.0.0` (208 commits). Escri
 
 ### Corregido
 
+- the differential's list adds upstream #406 and #388, and Field Blower for #408 (review of the pin, D-031) `6c0f5cf`
+- review of #130 — the rank of a match that left the phone goes at the server's instant, not while it is sent, moving a match with a rank into another season is refused, rank_changes written under the note lock, Temporada refreshes after an offline send (T-022) `5eda42a`
 - a delayed hit on a spot counts once — review of #117; g1 and g2 in the golden games (T-021) `9ddf9f3`
+- deuda de #114 — «Deshacer» a classification in one transaction, a deleted match skipped instead of a 404, the note moved under its lock, undoing an old long rival, shareOfEra with its n and NBSP, no «Deshacer» when nothing changed (T-022) `a581c3d`
+- deuda de #120 — the rank follows its match (noted at its instant, offline too, moved and deleted with it, restored with it, undone from the log), midnight of the first day, Temporada refreshes (T-022) `56f5b8a`
 - #123 follow-ups — an export past the total comes up to the cap with where to go on, the latest page's participants, and the lows of chat-hub#11's review (D-030) `4fc6192`
 - verification of #120 — notes at one moment serialized, matches_log takes the same rank as noted and keeps the last one, classify locks its rows in one ordered query (T-022) `84c538b`
 - the review of #120 — one rank per moment (409 for the same), the log's undo by id, moment and rank, the backup checks ranks and seasons; classify locks the rows found by name (T-022) `df8a090`
@@ -167,7 +174,16 @@ _Borrador generado al 2026-10-18 desde la etiqueta `v1.0.0` (208 commits). Escri
 
 ### Documentado
 
+- the texts of the pin after its review — Cargo comment, worker 0.3.12, About, OPERACION and the decisions (D-031, H-056) `f98da67`
+- the differential against a control engine when State gains fields (D-031, H-056) (#408, #21) `a69daab`
+- the push rule's reason — main's protection does not bind the owner, so pushes that can reach main still ask (D-021) `b407d92`
+- self-review of the 15–18/10 update — jobs named as jobs, the matrix 59 number with its n, the #399 closing and the videos, Santiago's full pending list, H-058 in the changelog (H-055, H-056, D-031, T-022) `17d335e`
+- 15–18/10 — the deckgym fork in production and its rebuild on adfe505, the blind-spot warning and Dedenne, bot g, seen cards and ranked, T1a of the hub (D-031, H-055, H-056, H-058, T-021, T-022) (#115, #116, H-052, D-030, T-015, T-017, H-017) `38ac7a8`
+- fold the pending decisions of #109–#126 in merge order (D-021) (#111, #113, #110, #115, #118, #116, #119, #114, #122, #124, #121, #123, #120, #117) `4b40533`
+- the rank with the match in the API (deuda de #120) `22388f7`
+- the atomic undo and the skipped deleted matches (deuda de #114) `c3df5d9`
 - the texts of #126's verification — no writes on either side between the parts, reads up to 5 minutes ahead, and the T1a row with the latest page's participants `01bea34`
+- H-056 — the differential of the pin to adfe505 (D-031) `72f90ad`
 - the decision after the review of #121 `9dc2fc6`
 - decisions of the #118 review (strandPool, the half-failed confirmation) `58ebdb8`
 - g 1.0 is engine-cli 0.3.13, stacked on #115 (T-021) `f9cb7f6`
@@ -211,6 +227,10 @@ _Borrador generado al 2026-10-18 desde la etiqueta `v1.0.0` (208 commits). Escri
 
 ### Pruebas
 
+- the season of the matches_log e2e starts yesterday, so the test passes between 00:00 and 02:00 (T-022) (#130, #128) `c00e29b`
+- the engine pin guard checks both locks, the API README and every sha of LICENCIAS (review of the pin, D-031) `a56d62f`
+- clientRef as a UUID in the e2e (deuda de #120) `fe247df`
+- the golden games on 0b510d1 — identical, only the engineRev header changes; GAMES_REV stays 1 (D-031) `fb86047`
 - an older revision's test takes the closest archetype, checked against both archetypes' texts (H-055) `8c21eb2`
 - the lows of the #118 review — retry refreshes Hoy, deuda 2 with other jobs ahead, labFailed with the default bot, the exact search score `3887b0f`
 - the cards seen stop at 20 copies (review of #114) `c9fb4ad`
@@ -228,6 +248,9 @@ _Borrador generado al 2026-10-18 desde la etiqueta `v1.0.0` (208 commits). Escri
 
 ### Mantenimiento
 
+- review of #132 — implicit pushes, combined -f flags, deletes, prune and pack options still ask; tests and lint allowed only without arguments (D-021) `50f8029`
+- fewer manual approvals — git push asks only for main, force, delete, mirror or all; safe read and test commands allowed (D-021) `aaea264`
+- engine-cli 0.3.14 for the new pin, 0.3.13 stays with #117 (D-031) `da64829`
 - engine-cli 0.3.13 — the gBots feature (T-021) (#115) `103243f`
 - bump the development group with 2 updates (#61) `7f62616`
 - bump the production group with 3 updates (#60) `a7f8afc`
@@ -242,6 +265,7 @@ _Borrador generado al 2026-10-18 desde la etiqueta `v1.0.0` (208 commits). Escri
 
 ### Decidido
 
+- 2026-10-18 — D-021, decidido por Santiago: menos aprobaciones a mano (los comandos seguros y `git push` a las ramas que no son main, #132) y `enforce_admins` en main.
 - 2026-10-18 — D-031: Santiago aprobó rearmar el fork de deckgym sobre upstream `adfe505` con solo `fix/choose-evolution-target` y `feat/bot-api` (engine-cli 0.3.14 y worker 0.3.12); después se relanzan los 41 mazos, la matriz y las calibraciones.
 - 2026-10-15 — T-021, decidido por Santiago: la línea 2 de los bots (sin trampa) supone la lista típica del arquetipo en el meta, sin el orden ni la mano.
 - 2026-10-14 — D-031 decidida por Santiago: la app usa un fork de deckgym con los arreglos (Casco Pesado, Extracto y Plubio, el pánico sin Activo) apenas estén listos, y se relanzan todas las simulaciones.
