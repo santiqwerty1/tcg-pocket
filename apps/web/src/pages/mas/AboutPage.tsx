@@ -58,9 +58,9 @@ export function AboutPage() {
             <a className="underline" href="https://github.com/bcollazo/deckgym-core" target="_blank" rel="noreferrer">
               bcollazo/deckgym-core
             </a>{' '}
-            (AGPL-3.0, commit <code className="font-mono">018b419</code>) con arreglos de reglas. Va compilado en los
-            paquetes del worker y, para jugar en el navegador, en WebAssembly; sus fuentes, con la misma licencia, son
-            las del{' '}
+            (AGPL-3.0, commit <code className="font-mono">0b510d1</code>), sobre el commit adfe505 de upstream y con un
+            arreglo de reglas y funciones para los bots que upstream todavía no tiene. Va compilado en los paquetes del
+            worker y, para jugar en el navegador, en WebAssembly; sus fuentes, con la misma licencia, son las del{' '}
             <a className="underline" href="https://github.com/santiqwerty1/tcg-pocket" target="_blank" rel="noreferrer">
               repositorio
             </a>
