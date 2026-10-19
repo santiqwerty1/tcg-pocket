@@ -355,13 +355,6 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
             0.0
         }
     });
-    // No plan takes fewer turns than its setup and a hit, less the spare of each knockout: a plan whose setup already
-    // leaves it there is not counted, and the clock gives the same. None if every target falls without one, or if a
-    // poison can take a knockout while the attacker gets ready, which needs no hit (the Coordinador's verification of
-    // g 1.1.1: an Asleep Active's 4/3 turns pruned an evolution that waits 1).
-    let hit = targets.iter().any(|target| target.hp > 0.0)
-        && !targets.iter().any(|target| target.hp > 0.0 && target.poison > 0.0);
-    let floor = if hit { 1.0 } else { 0.0 } - params.margin * targets.len() as f64;
     let mut best = NO_THREAT;
     for (slot, evolution) in candidates {
         let Some(in_play) = probe.in_play_pokemon[attacker][slot].as_ref() else { continue };
@@ -443,6 +436,16 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
                     ..*target
                 })
                 .collect();
+            // No plan takes fewer turns than its setup and a hit, less the spare of each knockout: a plan whose setup
+            // already leaves it there is not counted, and the clock gives the same. No hit, unless the knockouts that
+            // need none give the points left: a target already down (a burn, damage on its way, the Checkup's poison)
+            // or Poisoned, which can fall while the attacker gets ready (the Coordinador's verification of g 1.1.1: an
+            // Asleep Active's 4/3 turns pruned an evolution that waits 1; the self-review of g 1.1.2, the burn and the
+            // damage on its way).
+            let free: Vec<&Target> = burning.iter().filter(|target| target.hp <= 0.0 || target.poison > 0.0).collect();
+            let free_points: u32 = free.iter().map(|target| u32::from(target.points)).sum();
+            let hit = u32::from(probe.points[attacker]) + free_points < 3 && free.len() < burning.len();
+            let floor = if hit { 1.0 } else { 0.0 } - params.margin * targets.len() as f64;
             for overcharge in 0..=overcharges {
                 // One Energy a turn from the zone, for the attacker and for the Active's retreat alike; the Energy, the
                 // evolutions and a status that clears go on at the same time (a Paralyzed Active takes this turn's
@@ -2388,6 +2391,33 @@ mod tests {
         state.hands[0].push(card("A1a 005").card);
         state.apply_status_condition(0, 0, StatusCondition::Asleep);
         state.apply_status_condition(1, 0, StatusCondition::Poisoned);
+        state.points = [2, 0];
+        assert_eq!(turns(&state, 0, true), 1.0);
+    }
+
+    #[test]
+    fn a_burn_that_needs_no_hit_does_not_prune_a_quicker_setup() {
+        // As with the poison, Burned instead: Vine Whip does not burn again, so the burn's 40 takes the 30 HP and the
+        // last point while the evolution wakes the Snivy, 1 turn (self-review of g 1.1.2: the bound pruned it, 4/3).
+        let snivy = card("A1a 004").with_energy(vec![EnergyType::Grass, EnergyType::Grass]);
+        let mut state = board(LUCARIO, VENUSAUR, vec![snivy], vec![card("A1 001").with_remaining_hp(30)]);
+        state.hands[0].push(card("A1a 005").card);
+        state.apply_status_condition(0, 0, StatusCondition::Asleep);
+        state.apply_status_condition(1, 0, StatusCondition::Burned);
+        state.points = [2, 0];
+        assert_eq!(turns(&state, 0, true), 1.0);
+    }
+
+    #[test]
+    fn damage_on_its_way_that_needs_no_hit_does_not_prune_a_quicker_setup() {
+        // Cursed Prose's 20 on a Bulbasaur with 20 HP takes the third point, with a full Bulbasaur on the Bench: the
+        // Bench does not need a hit for that (self-review of g 1.1.2: the bound pruned the evolution, 4/3).
+        let snivy = card("A1a 004").with_energy(vec![EnergyType::Grass, EnergyType::Grass]);
+        let mut doomed = card("A1 001").with_remaining_hp(20);
+        doomed.add_effect(CardEffect::DelayedDamage { amount: 20 }, 1);
+        let mut state = board(LUCARIO, VENUSAUR, vec![snivy], vec![doomed, card("A1 001")]);
+        state.hands[0].push(card("A1a 005").card);
+        state.apply_status_condition(0, 0, StatusCondition::Asleep);
         state.points = [2, 0];
         assert_eq!(turns(&state, 0, true), 1.0);
     }
