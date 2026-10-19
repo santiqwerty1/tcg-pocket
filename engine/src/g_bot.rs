@@ -4,24 +4,32 @@
 //! `fixed_damage` is 40 with none), Latias' Crossing Flights 20 more with Latios on the Bench, nothing against
 //! Oricorio's Safeguard. g asks the engine (`expected_attack_damage`, an export of the fork, D-031) for the expected
 //! damage of each attack against each Pokémon it can hit, and adds what the clock missed:
-//! - damage already scheduled (Cursed Prose's 90, poison, burn) comes off the target's HP before counting hits;
-//! - an attack that charges its own Energy (Ivysaur's Synthesis) makes its line ready sooner;
-//! - an attack that discards its Energy (Latios' Luster Purge) can only hit every so many turns;
+//! - damage already scheduled (Cursed Prose's 90, a knockout on a spot, burn) comes off the target's HP before counting
+//!   hits, and poison falls a round after each hit; what an attack poisons or burns counts with its chance;
+//! - an attack that charges its own Energy (Ivysaur's Synthesis) makes its line ready sooner, and one that does more
+//!   with more Energy (Mega Burst) may wait for it;
+//! - an attack that discards its Energy (Latios' Luster Purge) or cannot be used next turn can only hit every so many
+//!   turns, one that hurts its user only as many times as it survives, and one that hits the whole Bench wears it
+//!   down with the Active;
 //! - a Benched attacker waits for the Active to retreat, and an Asleep or Paralyzed Active loses its turn.
 //!
-//! Only what a player sees: the board, the Energy Zones, the own deck list and hand; the rival's hand and deck are
-//! unknown cards on the copy it evaluates (`hide`), so neither its evolutions nor an attack that counts them leak. The search is deckgym's, unchanged (it still sees the draws: line 2). deckgym is not changed
+//! A leaf in the middle of its own turn is worth at least attacking right away (g 1.1: with depth 2 a Tool left the
+//! attack past the leaf). Only what a player sees: the board, the Energy Zones, the own deck list and hand; the
+//! rival's hand and deck are unknown cards on the copy it evaluates (`hide`), so neither its evolutions nor an attack
+//! that counts them leak. The search is deckgym's, unchanged (it still sees the draws: line 2). deckgym is not changed
 //! here, and no game of another bot changes.
 
-use deckgym::actions::{expected_attack_damage, Mechanic, EFFECT_MECHANIC_MAP};
+use deckgym::actions::{expected_attack_damage, forecast_action, Action, Mechanic, SimpleAction, EFFECT_MECHANIC_MAP};
 use deckgym::card_logic::get_highest_evolutions;
 use deckgym::effects::{CardEffect, TurnEffect};
 use deckgym::get_retreat_cost;
-use deckgym::models::{Attack, Card, EnergyType, TrainerCard, TrainerType};
+use deckgym::models::{Attack, Card, EnergyType, PokemonCard, StatusCondition, TrainerCard, TrainerType};
 use deckgym::players::{parametric_value_function, ValueFunctionParams};
 use deckgym::state::observation::knockout_points;
-use deckgym::state::PlayedCard;
+use deckgym::state::{has_serperior_jungle_totem, PlayedCard};
 use deckgym::State;
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 
 use crate::fair_bot::{attack_damage, missing_energy, reachable};
 
@@ -34,6 +42,12 @@ pub struct GParams {
     pub clock: f64,
     /// How much of the damage already scheduled on a Pokémon counts (switching clears Cursed Prose's).
     pub pending: f64,
+    /// How much a hit's spare damage counts, in hits: knocking out with damage to spare ranks a little above just
+    /// knocking out, so a Tool that adds damage without saving a whole hit still pays for the card it takes from the
+    /// hand. Below 1/4, so over the four Pokémon of a side it never outweighs a whole hit.
+    pub margin: f64,
+    /// Whether a leaf in the middle of its own turn is also worth attacking right away (`g_value_function`).
+    pub attack_now: bool,
 }
 
 impl Default for GParams {
@@ -41,7 +55,7 @@ impl Default for GParams {
     fn default() -> Self {
         let mut base = ValueFunctionParams::baseline();
         base.turns_until_opponent_wins = 0.0;
-        GParams { base, clock: 100.0, pending: 1.0 }
+        GParams { base, clock: 100.0, pending: 1.0, margin: 0.1, attack_now: true }
     }
 }
 
@@ -51,47 +65,234 @@ pub const NO_THREAT: f64 = 30.0;
 const POISON_ROUND: f64 = 20.0;
 /// A burn does 20 at the next Checkup and, if the coin does not heal it, 20 at the one after.
 const BURN_ROUND: f64 = 30.0;
-/// An Asleep Pokémon flips at every Checkup: on average it loses 2/3 of its next turns.
-const ASLEEP_TURNS: f64 = 2.0 / 3.0;
+/// What a burn does at one Checkup.
+const BURN_CHECKUP: f64 = 20.0;
+/// What a burn already on a Pokémon does from now on if nothing burns it again: 20 at each Checkup until a coin heals
+/// it, ½ each time, 20 + 10 + 5 … = 40 (Codex on #128: a full round after every hit overstated it).
+const BURN_LEFT: f64 = 40.0;
+/// An Asleep Pokémon flips at every Checkup, so it is still Asleep at its owner's next turn with ½ when one Checkup
+/// comes first and with ¼ when two do. On its owner's turn it loses this one and then ¼ of each next: 1 + ¼ + … = 4/3
+/// turns (Codex on #117); on the rival's turn, ½ of that: 2/3.
+const ASLEEP_TURNS_ON_ITS_TURN: f64 = 4.0 / 3.0;
+const ASLEEP_TURNS_ON_THE_RIVALS: f64 = 2.0 / 3.0;
 
-/// g's evaluation of `state` for `myself`.
+/// g's evaluation of `state` for `myself`. A leaf of the search in the middle of its own turn is worth at least what
+/// attacking right away gives (`attack_now`): the search counts every decision, so with depth 2 a Tool (the card,
+/// then the Pokémon) or a Supporter that asks for a choice leaves the attack past the leaf, while attacking first shows
+/// its damage at once, and g played Dede-Circuit with Tools still in its hand (Dedenne, 18/10/2026). Attacking ends
+/// the turn, so it is one step more and no deeper. The attack is applied as the search applies one, with a fixed seed
+/// for what is random in it, on the copy with the rival's cards hidden: an attack that counts them (Cyberjack) sees
+/// unknown cards there too. Then the turn ends, as the search ends it after an attack of its own: the Checkup and the
+/// rival's draw come before the value, or the poison after the hit is missing and this turn's boosts count for every
+/// later hit (review of g 1.1: Poison Ring went back to attacking before Giant Cape). A leaf right after an attack of
+/// its own (g1's attacks) is valued the same way, whatever its Active can still do: deckgym marks it (`end_turn_pending`),
+/// so an Active that only cannot attack this turn (Prismatic Laser's lock) is not taken for a turn already over (Codex on
+/// #128). One whose attack still has a choice on the stack stays as it is: that choice was made on the real cards.
 pub fn g_value_function(state: &State, myself: usize, params: &GParams) -> f64 {
     let opponent = (myself + 1) % 2;
     // One copy per evaluation, with what `myself` cannot see hidden: the attackers and defenders take the Active spot
     // on it in turn, and deckgym's own terms are read from it too (its «Active ready» looks for evolutions in the deck
     // and hand of each side).
-    let mut probe = state.clone();
-    hide(&mut probe, opponent);
-    let clock = turns_to_win(&mut probe, opponent, false, params) - turns_to_win(&mut probe, myself, true, params);
-    parametric_value_function(&probe, myself, &params.base) + clock * params.clock
+    let mut seen = state.clone();
+    hide(&mut seen, opponent);
+    if !params.attack_now || seen.current_player != myself || seen.winner.is_some() {
+        return evaluate(&mut seen, myself, params);
+    }
+    let mut rng = StdRng::seed_from_u64(0);
+    if seen.public_context(myself).end_turn_pending {
+        // A choice the attack left is on the stack, made on the real cards: on this copy it could name one of the
+        // hidden ones (the rival's hand), so the leaf stays as it is.
+        if !seen.move_generation_stack.is_empty() {
+            return evaluate(&mut seen, myself, params);
+        }
+        let end = Action { actor: myself, action: SimpleAction::EndTurn, is_stack: false };
+        return after_end_turn(seen, &end, myself, params, &mut rng);
+    }
+    let stand = evaluate(&mut seen, myself, params);
+    if !can_attack(&seen, myself) {
+        return stand;
+    }
+    let (actor, actions) = seen.generate_possible_actions();
+    if actor != myself {
+        return stand;
+    }
+    let mut best = stand;
+    for action in actions.iter().filter(|action| matches!(action.action, SimpleAction::Attack(_))) {
+        let (probabilities, mutations) = forecast_action(&seen, action).into_branches();
+        let mut value = 0.0;
+        for (probability, mutation) in probabilities.iter().zip(mutations) {
+            let mut outcome = seen.clone();
+            mutation(&mut rng, &mut outcome, action);
+            value += probability * settle(outcome, myself, params, &mut rng, CHOICES_AFTER_AN_ATTACK);
+        }
+        best = best.max(value);
+    }
+    best
 }
 
+/// Choices an attack can still ask for that `settle` makes before ending the turn: Shadow Bullet's Benched target, and
+/// one more after it.
+const CHOICES_AFTER_AN_ATTACK: u8 = 2;
+
+/// The value of what an attack left: its choice made the best way when it asks for one (Shadow Bullet's Benched
+/// target: until then the engine holds back all its damage; Codex on #128), and then the end of the turn. After an
+/// attack with no choice left, ending the turn is all there is (`after_an_attack_only_the_end_of_the_turn_is_left`). A
+/// game the attack ends has no turn to end: deckgym's end of turn wants an Active on both sides. A choice of the rival
+/// (its new Active after a knockout) is its own: the value is taken there.
+fn settle(mut outcome: State, myself: usize, params: &GParams, rng: &mut StdRng, choices: u8) -> f64 {
+    if outcome.winner.is_some() || outcome.current_player != myself {
+        return evaluate(&mut outcome, myself, params);
+    }
+    if outcome.move_generation_stack.is_empty() {
+        let end = Action { actor: myself, action: SimpleAction::EndTurn, is_stack: false };
+        return after_end_turn(outcome, &end, myself, params, rng);
+    }
+    let (actor, actions) = outcome.generate_possible_actions();
+    if actor != myself || choices == 0 || actions.is_empty() {
+        return evaluate(&mut outcome, myself, params);
+    }
+    let mut best = f64::NEG_INFINITY;
+    for choice in &actions {
+        let (probabilities, mutations) = forecast_action(&outcome, choice).into_branches();
+        let mut value = 0.0;
+        for (probability, mutation) in probabilities.iter().zip(mutations) {
+            let mut chosen = outcome.clone();
+            mutation(rng, &mut chosen, choice);
+            value += probability * settle(chosen, myself, params, rng, choices - 1);
+        }
+        best = best.max(value);
+    }
+    best
+}
+
+/// The value of `seen` once `myself` ends its turn (`end`): each branch of the Checkup, with the rival's draw from its
+/// hidden deck, so what it holds stays unknown.
+fn after_end_turn(mut seen: State, end: &Action, myself: usize, params: &GParams, rng: &mut StdRng) -> f64 {
+    let (probabilities, mut mutations) = forecast_action(&seen, end).into_branches();
+    // Nearly always a single branch (no coin at the Checkup): then on `seen` itself, with no copy.
+    if mutations.len() == 1 {
+        let mutation = mutations.pop().expect("one branch");
+        mutation(rng, &mut seen, end);
+        return probabilities[0] * evaluate(&mut seen, myself, params);
+    }
+    let mut value = 0.0;
+    for (probability, mutation) in probabilities.iter().zip(mutations) {
+        let mut ended = seen.clone();
+        mutation(rng, &mut ended, end);
+        value += probability * evaluate(&mut ended, myself, params);
+    }
+    value
+}
+
+/// Whether `myself`'s Active has the Energy for one of its attacks and no status that stops it: most leaves cannot
+/// attack at all, and generating their actions is not worth it there.
+fn can_attack(state: &State, myself: usize) -> bool {
+    let Some(active) = state.in_play_pokemon[myself][0].as_ref() else { return false };
+    let Card::Pokemon(pokemon) = &active.card else { return false };
+    if active.is_asleep() || active.is_paralyzed() {
+        return false;
+    }
+    let attached = state.effective_attached_energy(myself, 0);
+    pokemon.attacks.iter().any(|attack| missing_energy(&attached, &state.effective_attack_cost(myself, attack)) == 0)
+}
+
+/// g's evaluation of `probe` as it stands, with the rival's hand and deck already hidden; `probe` is left as it was.
+fn evaluate(probe: &mut State, myself: usize, params: &GParams) -> f64 {
+    let opponent = (myself + 1) % 2;
+    let clock = turns_to_win(probe, opponent, false, params) - turns_to_win(probe, myself, true, params);
+    parametric_value_function(probe, myself, &params.base) + clock * params.clock
+}
+
+/// Trainers in a list of the meta bank (lab_meta_bank B4a, 18/10/2026: 10 to 16 of 20, 12,4 by weight): what `hide`
+/// takes the rival's 20 cards to hold.
+const LIST_TRAINERS: usize = 12;
+const LIST_POKEMON: usize = 8;
+
 /// The rival's hand and deck as unknown cards, so far as `state` is a copy for the evaluation: how many there are is
-/// public, what they are is not. An attack that counts them (Porygon-Z's Cyberjack, the Trainers in its rival's deck;
-/// Lillipup's Puppy Pile, the Pokémon in its own hand) sees Items with no name. The Energy Zone stays: it is public.
+/// public, what they are is not. An attack that counts them (Porygon-Z's Cyberjack, the Trainers in its rival's deck)
+/// sees what a list of the bank would still have, given what the rival has shown: 12 Trainers and 8 Pokémon of 20, less
+/// the ones in play and in its discard pile, spread over its hand and deck alike. Taking every unknown card for a
+/// Trainer gave Cyberjack hundreds of damage that are not there (Codex on #117). The Energy Zone stays: it is public.
 pub fn hide(state: &mut State, rival: usize) {
-    let unknown = Card::Trainer(TrainerCard {
-        id: "UNKNOWN".to_string(),
+    // With no id and no name: every copy of the board copies them, and an empty text costs nothing to copy.
+    let unknown_trainer = Card::Trainer(TrainerCard {
+        id: String::new(),
         trainer_card_type: TrainerType::Item,
-        name: "Unknown".to_string(),
+        name: String::new(),
         effect: String::new(),
         rarity: String::new(),
         booster_pack: String::new(),
     });
-    state.hands[rival].fill(unknown.clone());
-    state.decks[rival].cards.fill(unknown);
+    // A Basic with no attack, no Ability and no evolution: nothing it does can be read, and it evolves into nothing.
+    let unknown_pokemon = Card::Pokemon(PokemonCard {
+        id: String::new(),
+        name: String::new(),
+        stage: 0,
+        evolves_from: None,
+        hp: 60,
+        energy_type: EnergyType::Colorless,
+        ability: None,
+        attacks: Vec::new(),
+        weakness: None,
+        retreat_cost: Vec::new(),
+        rarity: String::new(),
+        booster_pack: String::new(),
+    });
+    let (trainers, pokemon) = shown(state, rival);
+    let (trainers_left, pokemon_left) = (LIST_TRAINERS.saturating_sub(trainers), LIST_POKEMON.saturating_sub(pokemon));
+    let left = trainers_left + pokemon_left;
+    let share = |cards: usize| -> usize { (cards * trainers_left + left / 2).checked_div(left).unwrap_or(cards / 2) };
+    // One split over the hand and the deck together, so the two never hold more Trainers than are left (Codex on #128).
+    let (in_hand, in_deck) = (state.hands[rival].len(), state.decks[rival].cards.len());
+    let trainers = share(in_hand + in_deck);
+    let deck_trainers = trainers.saturating_sub(share(in_hand).min(trainers)).min(in_deck);
+    for (cards, as_trainers) in [(&mut state.hands[rival], trainers - deck_trainers), (&mut state.decks[rival].cards, deck_trainers)] {
+        for (at, card) in cards.iter_mut().enumerate() {
+            *card = if at < as_trainers { unknown_trainer.clone() } else { unknown_pokemon.clone() };
+        }
+    }
+}
+
+/// The Trainers and the Pokémon of `rival`'s list it has shown: its discard pile and what it has in play, each card under
+/// an evolution (`cards_behind`: Frigibax under a Baxcalibur that came with Rare Candy is one, not two) and each Tool.
+/// A Fossil in play is a Trainer card (review of g 1.1), and so is the Stadium it has in play (Codex on #128).
+fn shown(state: &State, rival: usize) -> (usize, usize) {
+    let (mut trainers, mut pokemon) = (0, 0);
+    let mut count = |card: &Card| match card {
+        Card::Trainer(_) => trainers += 1,
+        Card::Pokemon(_) => pokemon += 1,
+    };
+    state.discard_piles[rival].iter().for_each(&mut count);
+    for in_play in state.in_play_pokemon[rival].iter().flatten() {
+        count(&in_play.card);
+        in_play.cards_behind.iter().for_each(&mut count);
+        in_play.attached_tools.iter().for_each(&mut count);
+    }
+    if state.active_stadium_owner == Some(rival) {
+        state.active_stadium.iter().for_each(&mut count);
+    }
+    (trainers, pokemon)
 }
 
 /// One Pokémon of the side being knocked out, as the clock sees it.
 #[derive(Clone, Copy, Debug)]
 struct Target {
     slot: usize,
-    /// Remaining HP minus the damage already scheduled on it.
+    /// Remaining HP minus the damage already scheduled on it, and minus the poison it takes before the attacker's first
+    /// hit (a Checkup, when the defender's own turn comes first).
     hp: f64,
     points: u8,
-    /// The poison it takes in a round (both Checkups), 0 if it is not Poisoned: it keeps falling until the knockout.
+    /// The poison it takes in a round (both Checkups), 0 if it is not Poisoned: it keeps falling after every hit until
+    /// the knockout.
     poison: f64,
+    /// A burn on it: with an attack that burns it again, it takes `burn_before` before the first hit (a Checkup, when
+    /// the defender's own turn comes first) and the attack's round after each; with any other, `BURN_LEFT` in all.
+    burned: bool,
+    burn_before: f64,
 }
+
+/// Energy more than an attack's cost the clock tries, for an attack that does more with it (Mega Burst, Codex on #117).
+const MAX_OVERCHARGE: usize = 2;
 
 /// Turns until `attacker` takes its 3 points: its quickest way to hit (with `see_evolutions`, also the evolutions
 /// still in its deck and hand), then knocking out the defender's Active and, in turn, the Benched Pokémon that cost it
@@ -103,11 +304,21 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
     let targets: Vec<Target> = (0..4)
         .filter_map(|slot| {
             let pokemon = probe.in_play_pokemon[defender][slot].as_ref()?;
+            let poison = if pokemon.is_poisoned() { pokemon.public_details().poison_damage as f64 } else { 0.0 };
+            let burned = pokemon.is_burned();
+            // A KO at the Checkups right after a hit counts in that hit's turn: poison and burn fall a round after each
+            // hit, and before the first only at the Checkup that ends the defender's own turn (Codex on #117: counting
+            // a round as already due and then again after the first hit took one hit off).
+            let their_turn_first = attacker != probe.current_player;
             Some(Target {
                 slot,
-                hp: pokemon.get_remaining_hp() as f64 - params.pending * pending_damage(probe, defender, slot),
+                hp: pokemon.get_remaining_hp() as f64
+                    - params.pending * pending_damage(probe, defender, slot)
+                    - if their_turn_first { poison } else { 0.0 },
                 points: knockout_points(&pokemon.card),
-                poison: if pokemon.is_poisoned() { 2.0 * pokemon.public_details().poison_damage as f64 } else { 0.0 },
+                poison: 2.0 * poison,
+                burned,
+                burn_before: if burned && their_turn_first { BURN_CHECKUP } else { 0.0 },
             })
         })
         .collect();
@@ -129,15 +340,24 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
         .as_ref()
         .map_or(0, |active| get_retreat_cost(probe, active).len().saturating_sub(active.attached_energy.len()));
     let candidates = attackers(probe, attacker, &slots, see_evolutions);
+    // With Jungle Totem a Grass Energy can count twice: then the Energy goes on one attachment at a time.
+    let doubled = has_serperior_jungle_totem(probe, attacker);
     let active_lost = probe.in_play_pokemon[attacker][0].as_ref().map_or(0.0, |active| {
         if active.is_paralyzed() {
             1.0
         } else if active.is_asleep() {
-            ASLEEP_TURNS
+            if attacker == turn {
+                ASLEEP_TURNS_ON_ITS_TURN
+            } else {
+                ASLEEP_TURNS_ON_THE_RIVALS
+            }
         } else {
             0.0
         }
     });
+    // No plan takes fewer turns than its setup and a hit (none if every target falls without one), less the spare of
+    // each knockout: a plan whose setup already leaves it there is not counted, and the clock gives the same.
+    let floor = if targets.iter().any(|target| target.hp > 0.0) { 1.0 } else { 0.0 } - params.margin * targets.len() as f64;
     let mut best = NO_THREAT;
     for (slot, evolution) in candidates {
         let Some(in_play) = probe.in_play_pokemon[attacker][slot].as_ref() else { continue };
@@ -155,39 +375,150 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
             let active = probe.in_play_pokemon[attacker][0].as_mut().expect("in play");
             std::mem::replace(&mut active.card, card)
         });
-        let attacks = match &probe.in_play_pokemon[attacker][0].as_ref().expect("in play").card {
+        let active = probe.in_play_pokemon[attacker][0].as_ref().expect("in play");
+        let attacks = match &active.card {
             Card::Pokemon(pokemon) => pokemon.attacks.clone(),
             _ => Vec::new(),
         };
-        let attached = probe.effective_attached_energy(attacker, 0);
-        let own_type = match &probe.in_play_pokemon[attacker][0].as_ref().expect("in play").card {
+        let own_type = match &active.card {
             Card::Pokemon(pokemon) => Some(pokemon.energy_type),
             _ => None,
         };
+        let (had, attacker_hp) = (active.attached_energy.len(), active.get_remaining_hp() as f64);
+        // Evolving into Serperior brings Jungle Totem along, and the copy's Energy count does not know it (deckgym
+        // refreshes it when the board changes): each [G] on this Grass Pokémon is put on twice here (Codex on #128).
+        let gains_totem = saved.is_some()
+            && !doubled
+            && own_type == Some(EnergyType::Grass)
+            && has_serperior_jungle_totem(probe, attacker);
+        let attached = probe.effective_attached_energy(attacker, 0);
         for attack in &attacks {
             let cost = probe.effective_attack_cost(attacker, attack);
             if !reachable(&attached, &cost, &zone) {
                 continue;
             }
-            // One Energy a turn from the zone, for the attacker and for the Active's retreat alike.
-            let setup = ((missing_energy(&attached, &cost) as f64 / rate).ceil() + promote as f64).max(stages as f64) + lost;
-            // The damage it does once ready: the Energy it still lacks goes on the copy first (Mega Burst does 50 for
-            // each Energy it discards, Fighting Pulse more with an extra one).
-            let extra = energy_to_attack(&attached, &cost, &zone, own_type);
-            let active = probe.in_play_pokemon[attacker][0].as_mut().expect("in play");
-            let had = active.attached_energy.len();
-            active.attached_energy.extend(extra.iter().copied());
-            let ready: Vec<EnergyType> = attached.iter().chain(extra.iter()).copied().collect();
-            // An attack that discards its Energy waits until it is back: one Energy a turn, more with a charge. With a
-            // coin, the expected wait: each outcome rounded to whole turns first.
-            let (discard, chance) = self_discard(attack, &ready, &cost);
-            let reuse = chance * (discard / rate).ceil().max(1.0) + (1.0 - chance);
-            let damage: Vec<f64> =
-                targets.iter().map(|target| damage_against(probe, attacker, attack, target.slot, target.poison)).collect();
-            probe.in_play_pokemon[attacker][0].as_mut().expect("in play").attached_energy.truncate(had);
-            if let Some(hits) = hits_to_win(&targets, &damage, probe.points[attacker]) {
-                best = best.min(setup + hits + (hits - 1.0).max(0.0) * (reuse - 1.0));
+            if gains_totem {
+                let active = probe.in_play_pokemon[attacker][0].as_mut().expect("in play");
+                let grass = active.attached_energy.iter().filter(|energy| **energy == EnergyType::Grass).count();
+                active.attached_energy.extend(std::iter::repeat_n(EnergyType::Grass, grass));
             }
+            // The Energy it still lacks goes on the copy one attachment at a time, as the turns bring it: what counts
+            // double (Serperior's Jungle Totem) needs fewer (Codex on #117). The damage is the one it does once ready
+            // (Mega Burst does 50 for each Energy it discards, Fighting Pulse more with an extra one).
+            let mut attachments = 0;
+            if doubled || gains_totem {
+                while attachments < cost.len() {
+                    let effective = probe.effective_attached_energy(attacker, 0);
+                    let Some(&next) = energy_to_attack(&effective, &cost, &zone, own_type).first() else { break };
+                    let copies = if gains_totem && next == EnergyType::Grass { 2 } else { 1 };
+                    let active = probe.in_play_pokemon[attacker][0].as_mut().expect("in play");
+                    active.attached_energy.extend(std::iter::repeat_n(next, copies));
+                    attachments += 1;
+                }
+            } else {
+                let lacking = energy_to_attack(&attached, &cost, &zone, own_type);
+                attachments = lacking.len();
+                probe.in_play_pokemon[attacker][0].as_mut().expect("in play").attached_energy.extend(lacking);
+            }
+            // The mechanic once per attack: its text is hashed to find it.
+            let mechanic = mechanic(attack);
+            let (cooldown, recoil, delay) = (cooldown(mechanic), recoil(mechanic), landing_delay(mechanic));
+            let overcharges = match mechanic {
+                // A threshold of more than two (Energy Whip: 3 more [G]) is tried all the way (Codex on #128).
+                Some(Mechanic::ExtraDamageIfExtraEnergy { required_extra_energy, .. }) => {
+                    required_extra_energy.len().max(MAX_OVERCHARGE)
+                }
+                _ if scales_with_energy(mechanic) => MAX_OVERCHARGE,
+                _ => 0,
+            };
+            // A burn already on a target: an attack that burns it again keeps it burning hit by hit; any other leaves it
+            // to fade.
+            let inflicted = inflicts(attack, mechanic);
+            let reburns = inflicted.burn > 0.0;
+            let first_attack_bonus = matches!(mechanic, Some(Mechanic::FirstAttackBonusDamageAndStatus { .. }));
+            let burning: Vec<Target> = targets
+                .iter()
+                .map(|target| Target {
+                    hp: target.hp
+                        - match (target.burned, reburns) {
+                            (false, _) => 0.0,
+                            (true, true) => target.burn_before,
+                            (true, false) => BURN_LEFT,
+                        },
+                    ..*target
+                })
+                .collect();
+            for overcharge in 0..=overcharges {
+                // One Energy a turn from the zone, for the attacker and for the Active's retreat alike; the Energy, the
+                // evolutions and a status that clears go on at the same time (a Paralyzed Active takes this turn's
+                // Energy and retreats the next; Codex on #117).
+                let setup = (((attachments + overcharge) as f64 / rate).ceil() + promote as f64).max(stages as f64).max(lost);
+                if setup + delay + floor >= best {
+                    break;
+                }
+                if overcharge > 0 {
+                    // One more Energy than its cost, each step up to `MAX_OVERCHARGE`: a threshold can need two (Energized
+                    // Leaves' 5 on both Actives; Codex on #128).
+                    let active = probe.in_play_pokemon[attacker][0].as_mut().expect("in play");
+                    let extra = extra_energy(mechanic, &active.attached_energy, overcharge, &zone, own_type);
+                    active.attached_energy.push(extra);
+                }
+                let damage: Vec<Hit> = burning
+                    .iter()
+                    .map(|target| {
+                        let first = damage_against(probe, attacker, attack, mechanic, target.slot, target.poison);
+                        // Cold Start's bonus: the engine gives it while its user has not attacked since it came into
+                        // play. Asked again as if it had, the difference is the bonus of the plan's first hit.
+                        let mut without = first;
+                        if first_attack_bonus {
+                            let user = probe.in_play_pokemon[attacker][0].as_mut().expect("in play");
+                            let attacked = std::mem::replace(&mut user.has_attacked_since_play, true);
+                            without = damage_against(probe, attacker, attack, mechanic, target.slot, target.poison);
+                            probe.in_play_pokemon[attacker][0].as_mut().expect("in play").has_attacked_since_play =
+                                attacked;
+                        }
+                        let mut later = without;
+                        if target.burned && inflicted.burn > 0.0 && inflicted.burn < 1.0 {
+                            later -= (1.0 - inflicted.burn) * BURN_ROUND;
+                        }
+                        Hit {
+                            first: without,
+                            later,
+                            bonus: first - without,
+                            clean: 1.0 - inflicted.poison,
+                            // A poison on a coin the target does not have yet: once it lands it stays (Codex on #128).
+                            round: if target.poison == 0.0 && inflicted.poison > 0.0 && inflicted.poison < 1.0 {
+                                inflicted.poison_round
+                            } else {
+                                0.0
+                            },
+                        }
+                    })
+                    .collect();
+                let bench: Vec<f64> =
+                    targets.iter().map(|target| bench_damage(probe, attacker, attack, mechanic, target.slot)).collect();
+                // An attack that discards its Energy waits until it is back: one Energy a turn, more with a charge. With
+                // a coin, the expected wait: each outcome rounded to whole turns first. One that cannot attack next turn
+                // waits that turn too, both at the same time.
+                let ready = probe.in_play_pokemon[attacker][0].as_ref().expect("in play").attached_energy.clone();
+                // What it gets back between hits is what it attacks with: fewer cards than its cost when Jungle Totem
+                // counts one twice (review of g 1.1).
+                let (discard, chance) = self_discard(mechanic, &ready, ready.len().min(cost.len() + overcharge));
+                let reuse = (chance * (discard / rate).ceil().max(1.0) + (1.0 - chance)).max(1.0 + cooldown);
+                let knockouts = knockouts_it_survives(mechanic, attacker_hp);
+                let Some((hits, spare)) =
+                    hits_to_win(&burning, &damage, &bench, probe.points[attacker], knockouts, params.margin)
+                else {
+                    continue;
+                };
+                // An attack that also hurts its user: no more hits than it survives (the last may knock it out). One that
+                // shuffles its user into the deck hits once (Deck and Cover; Codex on #128).
+                if (recoil > 0.0 && hits > (attacker_hp / recoil).ceil()) || (leaves_play(mechanic) && hits > 1.0) {
+                    continue;
+                }
+                best = best.min(setup + hits + (hits - 1.0).max(0.0) * (reuse - 1.0) + delay - spare);
+            }
+            probe.in_play_pokemon[attacker][0].as_mut().expect("in play").attached_energy.truncate(had);
         }
         if let Some(card) = saved {
             probe.in_play_pokemon[attacker][0].as_mut().expect("in play").card = card;
@@ -201,19 +532,27 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
 }
 
 /// What `attack`, used by `attacker`'s Active, does to the defender's Pokémon at `slot` per hit: the engine's expected
-/// damage with that Pokémon in the Active Spot, the damage it leaves for later, and a round of poison: the `poison` the
-/// target already takes (it keeps falling every round until the knockout), or the attack's own if it poisons one that
-/// is not yet. `probe` must have `attacker`'s turn; it is left as it was.
+/// damage with that Pokémon in the Active Spot, the damage it leaves for later, and the status after the hit: the
+/// `poison` the target already takes (it keeps falling every round until the knockout), or the poison or burn the
+/// attack inflicts, with its chance. `probe` must have `attacker`'s turn; it is left as it was.
 ///
 /// The engine counts only the damage an attack carries as data. One that also hits a Benched Pokémon of the
 /// attacker's choice applies all its damage after that choice, so it gives 0 as soon as there is a Bench: it is asked
 /// again with the Benches off the copy (its hit to the Active, with weakness and the rest). One that picks any of the
 /// rival's Pokémon, with no fixed damage, gives 0 too: there it is the amount its text says, as f reads it (the target
-/// is the attacker's choice, so it can be this one), except for one that only picks a damaged Pokémon when this one
-/// is not.
-pub fn damage_against(probe: &mut State, attacker: usize, attack: &Attack, slot: usize, poison: f64) -> f64 {
+/// is the attacker's choice, so it can be this one), through the engine so that what the target prevents or reduces
+/// still counts, except for one that only picks a damaged Pokémon when this one is not. Abyssal Drop knocks out the
+/// spot it picks, whatever its HP.
+/// `mechanic` is the attack's, looked up once by the caller.
+pub fn damage_against(
+    probe: &mut State,
+    attacker: usize,
+    attack: &Attack,
+    mechanic: Option<&Mechanic>,
+    slot: usize,
+    poison: f64,
+) -> f64 {
     let defender = (attacker + 1) % 2;
-    let mechanic = mechanic(attack);
     probe.in_play_pokemon[defender].swap(0, slot);
     let mut damage = expected_attack_damage(probe, attacker, attack, defender, 0);
     let chooses_bench = matches!(
@@ -236,13 +575,32 @@ pub fn damage_against(probe: &mut State, attacker: usize, attack: &Attack, slot:
             }
         }
     }
-    let damaged = probe.in_play_pokemon[defender][0].as_ref().is_some_and(|target| target.public_details().damage > 0);
-    probe.in_play_pokemon[defender].swap(0, slot);
+    let target = probe.in_play_pokemon[defender][0].as_ref();
+    let remaining = target.map_or(0.0, |target| target.get_remaining_hp() as f64);
     let only_damaged = matches!(mechanic, Some(Mechanic::DirectDamageIfDamaged { .. }));
+    // `public_details` copies the Pokémon's effects: only for the one attack that asks.
+    let damaged = only_damaged && target.is_some_and(|target| target.public_details().damage > 0);
     let poison_instead = matches!(mechanic, Some(Mechanic::InflictPoisonWithDamage { .. }));
-    if damage == 0.0 && attack.fixed_damage == 0 && !chooses_bench && !poison_instead && (damaged || !only_damaged) {
-        damage = attack_damage(attack) as f64;
+    if matches!(mechanic, Some(Mechanic::SelfDiscardAllEnergyAndDelayedSpotKnockOut)) {
+        // Not damage: no reduction or prevention stops it (Codex on #117).
+        damage = remaining;
+    } else if damage == 0.0 && attack.fixed_damage == 0 && !chooses_bench && !poison_instead && (damaged || !only_damaged) {
+        // Garchomp ex's Linear Attack does nothing to Oricorio's Safeguard (Codex on #117). In the Active Spot it takes
+        // its Weakness and this turn's boosts, as the engine plays it; on the Bench, never more than the text, and
+        // nothing through a Protective Poncho (review of g 1.1).
+        let text = attack_damage(attack);
+        if text > 0 {
+            let plain = plain_damage(probe, attacker, attack, text);
+            damage = if slot == 0 {
+                plain
+            } else if target.is_some_and(has_poncho) {
+                0.0
+            } else {
+                (text as f64).min(plain)
+            };
+        }
     }
+    probe.in_play_pokemon[defender].swap(0, slot);
     damage += match mechanic {
         Some(Mechanic::DamageAndCardEffect { effect: CardEffect::DelayedDamage { amount }, coin_flip, .. }) => {
             // f's reading of the text already took it (an attack with no fixed damage).
@@ -254,23 +612,113 @@ pub fn damage_against(probe: &mut State, attacker: usize, attack: &Attack, slot:
         }
         _ => 0.0,
     };
-    if poison > 0.0 {
-        if damage > 0.0 {
-            damage += poison;
+    // The poison the target already has keeps falling a round after each hit of an attack that hurts, burns (Singe;
+    // Codex on #128) or poisons it again: one that does none of these does not borrow it as its own hit. Poisoned again, the new poison takes the old
+    // one's place with its chance (Toxic on an ordinary poison; Codex on #128). A status-only attack keeps its round
+    // once its status has landed (review of g 1.1). The attack's own burn counts each hit; a burn already on the target
+    // is in its HP (`Target`).
+    let inflicted = inflicts(attack, mechanic);
+    let poison = if poison > 0.0 {
+        if inflicted.poison > 0.0 {
+            inflicted.poison * inflicted.poison_round + (1.0 - inflicted.poison) * poison
+        } else if damage > 0.0 || inflicted.burn > 0.0 {
+            poison
+        } else {
+            0.0
         }
     } else {
-        damage += match mechanic {
-            // «Do 20 damage to this Pokémon instead of the usual amount»: at each Checkup.
-            Some(Mechanic::InflictPoisonWithDamage { poison_damage }) => 2.0 * *poison_damage as f64,
-            _ if damage > 0.0 && attack.effect.as_deref().is_some_and(|effect| effect.contains("is now Poisoned")) => POISON_ROUND,
-            _ => 0.0,
-        };
-    }
-    damage
+        inflicted.poison * inflicted.poison_round
+    };
+    // A burn the Active already has stays through the hit of an attack that burns again on a coin (Fire Fang): that
+    // hit's round is certain; `turns_to_win` counts the coin for the hits after it (Codex on #128).
+    let burned = slot == 0 && probe.in_play_pokemon[defender][0].as_ref().is_some_and(|target| target.is_burned());
+    let burn = if burned && inflicted.burn > 0.0 { 1.0 } else { inflicted.burn };
+    damage + poison + burn * BURN_ROUND
 }
 
-/// The Energy `attached` still lacks to pay `cost`: each typed one, and for the Colorless ones the Pokémon's own type
-/// if the zone makes it, else the zone's first (an empty zone is taken as unknown: the Pokémon's type).
+/// The engine's damage for a plain attack of `amount` with `attack`'s cost against the defender's Active: Weakness,
+/// what the defender prevents or reduces, Tools and the rest.
+fn plain_damage(probe: &State, attacker: usize, attack: &Attack, amount: u32) -> f64 {
+    let plain = Attack { fixed_damage: amount, effect: None, ..attack.clone() };
+    expected_attack_damage(probe, attacker, &plain, (attacker + 1) % 2, 0)
+}
+
+/// What a hit of `attack` does to the defender's Pokémon at `slot` while it stays on the Bench, for an attack that also
+/// hits every Benched Pokémon (Swirling Disaster, Gigashock; Codex on #117): the engine's own damage there, asked for that
+/// slot. So the Bench gets what the engine gives it: no Weakness, Wild Spin's escalation, Damaging Spark only on those
+/// already damaged, nothing through a Protective Poncho, and none of the Active-only reductions a Benched Luxray would
+/// get in the Active Spot (Codex on #128). 0 for the Active and for every other attack.
+fn bench_damage(probe: &State, attacker: usize, attack: &Attack, mechanic: Option<&Mechanic>, slot: usize) -> f64 {
+    let spread = matches!(
+        mechanic,
+        Some(
+            Mechanic::DamageAllOpponentPokemonEscalating { .. }
+                | Mechanic::DamageAllOpponentPokemon { .. }
+                | Mechanic::SelfDiscardEnergyAndDamageAllOpponentPokemon { .. }
+                | Mechanic::AlsoBenchDamage { opponent: true, .. }
+                | Mechanic::AlsoBenchDamageIfDamaged { opponent: true, .. }
+                | Mechanic::AlsoBenchDamageIfPokemonOnBench { .. }
+                | Mechanic::SelfDiscardRandomEnergyAndBenchDamage { opponent: true, .. }
+                | Mechanic::SelfDamageAndAllBenchDamage { .. }
+                | Mechanic::PalkiaExDimensionalStorm
+        )
+    );
+    let defender = (attacker + 1) % 2;
+    // With no Active yet (its new one still to be picked after a knockout) the engine cannot be asked: it checks the
+    // Active's abilities (Intimidating Fang) and panics without one.
+    let ready = probe.in_play_pokemon[defender][0].is_some() && probe.in_play_pokemon[defender][slot].is_some();
+    if slot == 0 || !spread || !ready {
+        return 0.0;
+    }
+    expected_attack_damage(probe, attacker, attack, defender, slot)
+}
+
+/// Whether a Protective Poncho keeps the damage of attacks off this Pokémon while it is on the Bench.
+fn has_poncho(pokemon: &PlayedCard) -> bool {
+    pokemon.attached_tools.iter().any(|tool| matches!(tool, Card::Trainer(trainer) if trainer.name == "Protective Poncho"))
+}
+
+/// The color of the `nth` Energy more than its cost an attack is tried with: the one its mechanic asks for when the
+/// zone makes it (Psykick's [P] on a Medicham with [F][F], a type not yet attached for one that counts types), else the
+/// `filler` (Codex on #128).
+fn extra_energy(mechanic: Option<&Mechanic>, attached: &[EnergyType], nth: usize, zone: &[EnergyType], own: Option<EnergyType>) -> EnergyType {
+    let made = |energy: EnergyType| zone.contains(&energy).then_some(energy);
+    let asked = match mechanic {
+        Some(
+            Mechanic::ExtraDamageIfSelfHasTypeEnergy { energy_type, .. }
+            | Mechanic::ExtraDamagePerSpecificEnergy { energy_type, .. }
+            | Mechanic::ExtraDamagePerSpecificEnergyAllYours { energy_type, .. }
+            | Mechanic::CoinFlipPerSpecificEnergyType { energy_type, .. },
+        ) => made(*energy_type),
+        Some(Mechanic::ExtraDamageIfExtraEnergy { required_extra_energy, .. }) => {
+            required_extra_energy.get(nth.saturating_sub(1)).copied().and_then(made)
+        }
+        Some(Mechanic::SelfDiscardAllTypesEnergyDamagePerDiscarded { energy_types, .. }) => {
+            let own = filler(zone, own);
+            if energy_types.contains(&own) {
+                Some(own)
+            } else {
+                energy_types.iter().copied().find_map(made)
+            }
+        }
+        Some(Mechanic::ExtraDamageIfDifferentEnergyTypesAttached { .. } | Mechanic::ExtraDamagePerEnergyType { .. }) => {
+            zone.iter().copied().find(|energy| !attached.contains(energy))
+        }
+        _ => None,
+    };
+    asked.unwrap_or_else(|| filler(zone, own))
+}
+
+/// The color of the Energy the clock attaches for a Colorless cost: the Pokémon's own type if the zone makes it, else
+/// the zone's first (an empty zone is taken as unknown: the Pokémon's type).
+fn filler(zone: &[EnergyType], own: Option<EnergyType>) -> EnergyType {
+    match own {
+        Some(own) if zone.is_empty() || zone.contains(&own) => own,
+        _ => zone.first().copied().unwrap_or(EnergyType::Colorless),
+    }
+}
+
+/// The Energy `attached` still lacks to pay `cost`: each typed one, and for the Colorless ones the `filler`.
 fn energy_to_attack(attached: &[EnergyType], cost: &[EnergyType], zone: &[EnergyType], own: Option<EnergyType>) -> Vec<EnergyType> {
     let mut left: Vec<EnergyType> = attached.to_vec();
     let mut extra = Vec::new();
@@ -287,11 +735,7 @@ fn energy_to_attack(attached: &[EnergyType], cost: &[EnergyType], zone: &[Energy
             None => extra.push(*energy),
         }
     }
-    let filler = match own {
-        Some(own) if zone.is_empty() || zone.contains(&own) => own,
-        _ => zone.first().copied().unwrap_or(EnergyType::Colorless),
-    };
-    extra.extend(std::iter::repeat(filler).take(colorless.saturating_sub(left.len())));
+    extra.extend(std::iter::repeat_n(filler(zone, own), colorless.saturating_sub(left.len())));
     extra
 }
 
@@ -318,50 +762,157 @@ fn attackers(state: &State, attacker: usize, slots: &[usize], see_evolutions: bo
     out
 }
 
-/// Hits to take the points left: the Active first, then the Benched Pokémon the defender would rather lose last (the
-/// most hits per point; with one point to go, the most hits). `None` when one of them cannot be hurt.
-fn hits_to_win(targets: &[Target], damage: &[f64], points: u8) -> Option<f64> {
-    let hits = |at: usize| -> Option<f64> {
-        if targets[at].hp <= 0.0 {
-            Some(0.0)
-        } else if damage[at] <= 0.0 {
-            None
-        } else {
-            Some((targets[at].hp / damage[at]).ceil())
-        }
-    };
-    let mut points = points;
-    let mut total = 0.0;
-    let mut bench: Vec<usize> = Vec::new();
-    for at in 0..targets.len() {
-        if targets[at].slot == 0 {
-            total += hits(at)?;
-            points += targets[at].points;
-        } else {
-            bench.push(at);
-        }
+/// What a hit of an attack does to one target in the Active Spot. `first` is the expected damage of the first hit on
+/// it and `later` of the ones after: a burn the target already has is certain through the first hit of an attack that
+/// burns again on a coin, not through the later ones (Fire Fang; Codex on #128). `bonus` is what its user's first
+/// attack adds (Cold Start's 20): it goes to the first hit of the plan, on whichever target that is, even one promoted
+/// after the Active fell to poison before it (Codex on #128). For a poison on a coin that the target does not have yet, a hit after the first also
+/// brings the chance the earlier ones already poisoned it: after k hits it is Poisoned with `1 − clean^k`, not with the
+/// first hit's chance each time (Stun Poison: 50 % after the first, 75 % after the second; Codex on #128). `round` is
+/// that poison's round, 0 for every other attack and target.
+#[derive(Clone, Copy, Debug)]
+struct Hit {
+    first: f64,
+    later: f64,
+    bonus: f64,
+    /// The chance a hit does not poison.
+    clean: f64,
+    round: f64,
+}
+
+impl Hit {
+    /// The next hit, the first on this target or not (`started`), the first of the plan or not (`opened`), on a target
+    /// still not Poisoned with chance `clean` (`self.clean` to the hits it has taken): that hit's damage and the poison
+    /// the earlier ones have left on it, `round × (self.clean − clean × self.clean)`. Products only, no `powi`: the same
+    /// on every platform.
+    fn after(&self, started: bool, opened: bool, clean: f64) -> f64 {
+        (if started { self.later } else { self.first })
+            + if opened { 0.0 } else { self.bonus }
+            + self.round * (self.clean - clean * self.clean)
     }
-    while points < 3 && !bench.is_empty() {
-        let cost = |at: usize| match hits(at) {
-            None => f64::INFINITY,
-            Some(h) if points == 2 => h,
-            Some(h) => h / f64::from(targets[at].points.max(1)),
-        };
-        let mut pick = 0;
-        for k in 1..bench.len() {
-            if cost(bench[k]) >= cost(bench[pick]) {
-                pick = k;
+}
+
+/// Hits to take the points left: the Active first, then the Benched Pokémon the defender would rather lose last (the
+/// most hits per point; with one point to go, the most hits). `None` when the one in the Active cannot be hurt. The
+/// whole hits, and apart `margin` times the hit each knockout has to spare: the caller takes it off the turns once, so
+/// a wait between hits does not multiply it (review of g 1.1). An attack that also hits the Bench
+/// (`bench`, what a hit does to each Benched one) wears them down at the same time, so they go one hit at a time: three
+/// Pokémon with 50 HP fall together to five hits of Swirling Disaster, not to fifteen (Codex on #117). No more than
+/// `knockouts`: the attacker does not survive the last of them.
+fn hits_to_win(
+    targets: &[Target],
+    damage: &[Hit],
+    bench: &[f64],
+    points: u8,
+    knockouts: usize,
+    margin: f64,
+) -> Option<(f64, f64)> {
+    let mut hp: Vec<f64> = targets.iter().map(|target| target.hp).collect();
+    let mut knocked_out = 0;
+    let mut standing: Vec<bool> = vec![true; targets.len()];
+    let mut active = targets.iter().position(|target| target.slot == 0);
+    // For each one, whether it has taken a hit in the Active Spot, and the chance it is still not Poisoned after them.
+    let mut started: Vec<bool> = vec![false; targets.len()];
+    let mut clean: Vec<f64> = vec![1.0; targets.len()];
+    // Whether the plan has made its first hit (Cold Start's bonus).
+    let mut opened = false;
+    let mut points = points;
+    let (mut total, mut spare) = (0.0, 0.0);
+    // The whole hits to knock out `at` from `hp`, and the hit it has to spare.
+    let whole = |hp: f64, at: usize, clean: f64, started: bool, opened: bool| -> Option<(f64, f64)> {
+        let hit = damage[at];
+        if hp <= 0.0 {
+            return Some((0.0, 0.0));
+        } else if hit.after(started, opened, 1.0) <= 0.0 {
+            return None;
+        } else if hit.round == 0.0 && hit.first == hit.later && (opened || hit.bonus == 0.0) {
+            let exact = hp / hit.first;
+            return Some((exact.ceil(), exact.ceil() - exact));
+        }
+        let (mut done, mut clean, mut started, mut opened, mut hits) = (0.0, clean, started, opened, 0.0);
+        while hits < 64.0 {
+            let next = hit.after(started, opened, clean);
+            started = true;
+            opened = true;
+            clean *= hit.clean;
+            hits += 1.0;
+            if done + next >= hp {
+                return Some((hits, 1.0 - (hp - done) / next));
+            }
+            done += next;
+        }
+        None
+    };
+    let hits = |hp: f64, at: usize, opened: bool| whole(hp, at, 1.0, false, opened).map(|(hits, left)| hits - margin * left);
+    // Enough for any clock under `NO_THREAT`.
+    for _ in 0..64 {
+        for at in 0..targets.len() {
+            if standing[at] && hp[at] <= 0.0 {
+                standing[at] = false;
+                knocked_out += 1;
+                points += targets[at].points;
+                if active == Some(at) {
+                    active = None;
+                }
             }
         }
-        let at = bench.swap_remove(pick);
-        total += hits(at)?;
-        points += targets[at].points;
+        if points >= 3 || !standing.contains(&true) {
+            return Some((total, spare));
+        }
+        // Its user did not survive the last knockout (Head Smash's recoil; Codex on #128).
+        if knocked_out >= knockouts {
+            return None;
+        }
+        let at = match active {
+            Some(at) => at,
+            None => {
+                let cost = |at: usize| match hits(hp[at], at, opened) {
+                    None => f64::INFINITY,
+                    Some(h) if points == 2 => h,
+                    Some(h) => h / f64::from(targets[at].points.max(1)),
+                };
+                let mut pick = None;
+                for at in (0..targets.len()).filter(|&at| standing[at]) {
+                    if pick.is_none_or(|best| cost(at) >= cost(best)) {
+                        pick = Some(at);
+                    }
+                }
+                let at = pick.expect("one standing");
+                active = Some(at);
+                at
+            }
+        };
+        let spread = (0..targets.len()).any(|other| other != at && standing[other] && bench[other] > 0.0);
+        if !spread {
+            // Only the Active takes damage: all its hits at once.
+            let (hits, left) = whole(hp[at], at, clean[at], started[at], opened)?;
+            opened |= hits > 0.0;
+            total += hits;
+            spare += margin * left;
+            hp[at] = 0.0;
+            continue;
+        }
+        // An Active it cannot hurt only holds back its own knockout: the Bench still takes its share, and its points can
+        // still win (an ex against Oricorio's Safeguard; Codex on #128).
+        let next = damage[at].after(started[at], opened, clean[at]);
+        started[at] = true;
+        opened = true;
+        clean[at] *= damage[at].clean;
+        hp[at] -= next.max(0.0);
+        for other in (0..targets.len()).filter(|&other| other != at && standing[other]) {
+            hp[other] -= bench[other];
+        }
+        total += 1.0;
+        if hp[at] <= 0.0 && next > 0.0 {
+            spare += margin * (-hp[at] / next).min(1.0);
+        }
     }
-    Some(total)
+    None
 }
 
 /// The damage already on its way to `player`'s Pokémon at `slot`: Cursed Prose's (a `DelayedDamage` on it), a
-/// delayed hit on its spot, poison and burn for a round.
+/// delayed hit on its spot and a knockout scheduled on its spot (Abyssal Drop: all its HP). Poison and burn are not
+/// here: the clock counts them hit by hit (`Target`).
 fn pending_damage(state: &State, player: usize, slot: usize) -> f64 {
     let Some(pokemon) = state.in_play_pokemon[player][slot].as_ref() else { return 0.0 };
     let details = pokemon.public_details();
@@ -371,25 +922,26 @@ fn pending_damage(state: &State, player: usize, slot: usize) -> f64 {
             pending += *amount as f64;
         }
     }
-    // deckgym keeps a delayed hit on a spot (Meowscarada ex's Flower Trick) in this turn and the next, lands it at the
-    // end of its target's turn and never removes the old entries: it is due once, from this turn's entry when the
-    // target is the player whose turn it is, else from the next turn's (review of #117).
+    // deckgym keeps a delayed hit or knockout on a spot (Meowscarada ex's Flower Trick, Armaldo's Abyssal Drop) in this
+    // turn and the next, lands it at the end of its target's turn and never removes the old entries: it is due once,
+    // from this turn's entry when the target is the player whose turn it is, else from the next turn's (review of #117).
     let turn = state.turn_count;
     for (at, targets_this_turn) in [(turn, true), (turn.saturating_add(1), false)] {
         for effect in state.public_turn_effects().get(&at).into_iter().flatten() {
-            if let TurnEffect::DelayedSpotDamage { target_player, target_in_play_idx, amount, .. } = effect {
-                let due = (*target_player == state.current_player) == targets_this_turn;
-                if *target_player == player && *target_in_play_idx == slot && due {
-                    pending += *amount as f64;
+            let (target_player, target_in_play_idx, amount) = match effect {
+                TurnEffect::DelayedSpotDamage { target_player, target_in_play_idx, amount, .. } => {
+                    (*target_player, *target_in_play_idx, *amount as f64)
                 }
+                TurnEffect::DelayedSpotKnockOut { target_player, target_in_play_idx, .. } => {
+                    (*target_player, *target_in_play_idx, pokemon.get_remaining_hp() as f64)
+                }
+                _ => continue,
+            };
+            let due = (target_player == state.current_player) == targets_this_turn;
+            if target_player == player && target_in_play_idx == slot && due {
+                pending += amount;
             }
         }
-    }
-    if pokemon.is_poisoned() {
-        pending += 2.0 * details.poison_damage as f64;
-    }
-    if pokemon.is_burned() {
-        pending += BURN_ROUND;
     }
     pending
 }
@@ -408,12 +960,13 @@ fn self_charge(card: &Card) -> f64 {
         .fold(0.0, f64::max)
 }
 
-/// Energy an attack discards from the attacker, and the chance it does (a coin: ½). «All» is at least its cost: it
-/// attacks with it.
-fn self_discard(attack: &Attack, attached: &[EnergyType], cost: &[EnergyType]) -> (f64, f64) {
-    let all = attached.len().max(cost.len()) as f64;
-    let of = |types: &[EnergyType]| attached.iter().filter(|energy| types.contains(energy)).count() as f64;
-    let discard = match mechanic(attack) {
+/// Energy an attack discards from the attacker that it gets back before each next hit, and the chance it discards (a
+/// coin: ½). Between hits the attacker gets back only what it attacks with, `held`: an overcharged Raichu discards all
+/// five on its first Thunderbolt and needs its three back for the next (Codex on #117), so «all» is `held`, no more.
+fn self_discard(mechanic: Option<&Mechanic>, attached: &[EnergyType], held: usize) -> (f64, f64) {
+    let all = held as f64;
+    let of = |types: &[EnergyType]| (attached.iter().filter(|energy| types.contains(energy)).count() as f64).min(all);
+    let discard = match mechanic {
         Some(
             Mechanic::SelfDiscardAllEnergy
             | Mechanic::SelfDiscardAllEnergyAndKnockOutOpponentActive
@@ -424,7 +977,11 @@ fn self_discard(attack: &Attack, attached: &[EnergyType], cost: &[EnergyType]) -
             Mechanic::SelfDiscardAllTypeEnergy { energy_type }
             | Mechanic::SelfDiscardAllTypeEnergyAndDamageAnyOpponentPokemon { energy_type, .. },
         ) => of(std::slice::from_ref(energy_type)),
-        Some(Mechanic::SelfDiscardAllTypesEnergyDamagePerDiscarded { energy_types, .. }) => of(energy_types),
+        // The damage comes from what it discards: to hit as hard again it needs all of it back, not just its cost
+        // (Mega Rayquaza ex with five Energy does 250, and needs five more for the next 250; Codex on #128).
+        Some(Mechanic::SelfDiscardAllTypesEnergyDamagePerDiscarded { energy_types, .. }) => {
+            attached.iter().filter(|energy| energy_types.contains(energy)).count() as f64
+        }
         Some(
             Mechanic::SelfDiscardEnergy { energies }
             | Mechanic::SelfDiscardEnergyAndInflictStatus { energies, .. }
@@ -442,6 +999,192 @@ fn self_discard(attack: &Attack, attached: &[EnergyType], cost: &[EnergyType]) -
         _ => 0.0,
     };
     (discard, 1.0)
+}
+
+/// The chance that an attack keeps its user from attacking (or from using it again) during its next turn: Prismatic
+/// Laser, Big Beat, on tails for some (Codex on #117). Its next hit waits a turn more. One that puts its user to sleep
+/// (Collapse, Flop-Down Punch) waits ⅓ of a turn more: at its next turn it is still Asleep with ¼ (two Checkups), at the
+/// one after with 1/16, and so on (Codex on #128).
+fn cooldown(mechanic: Option<&Mechanic>) -> f64 {
+    let locks = |effect: &CardEffect| matches!(effect, CardEffect::CannotAttack | CardEffect::CannotUseAttack(_));
+    match mechanic {
+        Some(Mechanic::InflictStatusConditions { conditions, target_opponent: false })
+            if conditions.contains(&StatusCondition::Asleep) =>
+        {
+            1.0 / 3.0
+        }
+        Some(Mechanic::SelfAsleepAndHeal { .. }) => 1.0 / 3.0,
+        Some(Mechanic::DamageAndCardEffect { opponent: false, effect, coin_flip, .. }) if locks(effect) => {
+            if *coin_flip {
+                0.5
+            } else {
+                1.0
+            }
+        }
+        Some(Mechanic::CoinFlipTailsSelfCardEffect { effect, .. }) if locks(effect) => 0.5,
+        Some(
+            Mechanic::DirectDamageAndSelfCardEffect { effect, .. }
+            | Mechanic::SelfDiscardEnergyAndCardEffect { effect, .. }
+            | Mechanic::SelfDiscardRandomEnergyAndCardEffect { effect, .. },
+        ) if locks(effect) => 1.0,
+        _ => 0.0,
+    }
+}
+
+/// The damage an attack does to its own user per hit, on average (a coin: ½; Codex on #117: Beat Punk, Enormous
+/// Explosion). The one only on a knockout (`RecoilIfKo`) is left out.
+fn recoil(mechanic: Option<&Mechanic>) -> f64 {
+    match mechanic {
+        Some(Mechanic::SelfDamage { amount }) => *amount as f64,
+        Some(
+            Mechanic::CoinFlipSelfDamage { self_damage } | Mechanic::CoinFlipExtraDamageOrSelfDamage { self_damage, .. },
+        ) => *self_damage as f64 / 2.0,
+        Some(Mechanic::SelfDamageAndAllBenchDamage { self_damage, .. }) => *self_damage as f64,
+        _ => 0.0,
+    }
+}
+
+/// The knockouts an attack's user lives through: Head Smash does 50 to it on each, so a Rampardos with 50 HP left makes
+/// one and falls with it (Codex on #128). Any number for every other attack.
+fn knockouts_it_survives(mechanic: Option<&Mechanic>, attacker_hp: f64) -> usize {
+    match mechanic {
+        Some(Mechanic::RecoilIfKo { self_damage }) if *self_damage > 0 => {
+            (attacker_hp / f64::from(*self_damage)).ceil().max(1.0) as usize
+        }
+        _ => usize::MAX,
+    }
+}
+
+/// Whether an attack takes its user out of play: Deck and Cover shuffles Accelgor into the deck.
+fn leaves_play(mechanic: Option<&Mechanic>) -> bool {
+    matches!(mechanic, Some(Mechanic::InflictStatusConditionsAndShuffleSelfIntoDeck { .. }))
+}
+
+/// Turns between an attack and its knockout: Abyssal Drop's lands at the end of the rival's next turn.
+fn landing_delay(mechanic: Option<&Mechanic>) -> f64 {
+    match mechanic {
+        Some(Mechanic::SelfDiscardAllEnergyAndDelayedSpotKnockOut) => 1.0,
+        _ => 0.0,
+    }
+}
+
+/// Whether an attack does more with more Energy on its user: the ones the clock tries with up to `MAX_OVERCHARGE` more.
+fn scales_with_energy(mechanic: Option<&Mechanic>) -> bool {
+    matches!(
+        mechanic,
+        Some(
+            Mechanic::CoinFlipPerSpecificEnergyType { .. }
+                | Mechanic::DamagePerEnergyAll { .. }
+                | Mechanic::DiscardSelfEnergyPerHeadsExtraDamage { .. }
+                | Mechanic::ExtraDamageIfCombinedActiveEnergyAtLeast { .. }
+                | Mechanic::ExtraDamageIfDifferentEnergyTypesAttached { .. }
+                | Mechanic::ExtraDamageIfExtraEnergy { .. }
+                | Mechanic::ExtraDamageIfMoreEnergyThanOpponent { .. }
+                | Mechanic::ExtraDamageIfSelfHasTypeEnergy { .. }
+                | Mechanic::ExtraDamageIfTypeEnergyInPlay { .. }
+                | Mechanic::ExtraDamagePerEnergy { .. }
+                | Mechanic::ExtraDamagePerEnergyType { .. }
+                | Mechanic::ExtraDamagePerSpecificEnergy { .. }
+                | Mechanic::ExtraDamagePerSpecificEnergyAllYours { .. }
+                | Mechanic::RandomDamageToOpponentPokemonPerSelfEnergy { .. }
+                | Mechanic::SelfDiscardAllTypeEnergyAndDamageAnyOpponentPokemon { .. }
+                | Mechanic::SelfDiscardAllTypesEnergyDamagePerDiscarded { .. }
+        )
+    )
+}
+
+/// The poison and burn an attack leaves on the defender's Active: the chance of each, and the poison's round.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Inflicted {
+    poison: f64,
+    poison_round: f64,
+    burn: f64,
+}
+
+/// What an attack poisons or burns, with its chance from its mechanic (a coin ½; Cross Poison's «at least 2 heads of
+/// 4» 11/16; Codex on #117), and from its text for one the engine has no mechanic for.
+fn inflicts(attack: &Attack, mechanic: Option<&Mechanic>) -> Inflicted {
+    use StatusCondition::{Burned, Poisoned};
+    let on = |conditions: &[StatusCondition], chance: f64| Inflicted {
+        poison: if conditions.contains(&Poisoned) { chance } else { 0.0 },
+        poison_round: POISON_ROUND,
+        burn: if conditions.contains(&Burned) { chance } else { 0.0 },
+    };
+    let none = on(&[], 0.0);
+    match mechanic {
+        Some(Mechanic::InflictPoisonWithDamage { poison_damage }) => {
+            Inflicted { poison: 1.0, poison_round: 2.0 * *poison_damage as f64, burn: 0.0 }
+        }
+        Some(Mechanic::InflictStatusConditions { conditions, target_opponent }) => {
+            if *target_opponent {
+                on(conditions, 1.0)
+            } else {
+                none
+            }
+        }
+        Some(
+            Mechanic::InflictStatusConditionsOnBothActive { conditions }
+            | Mechanic::SelfDiscardEnergyAndInflictStatus { conditions, .. }
+            | Mechanic::SelfDiscardAllEnergyAndInflictStatus { conditions }
+            | Mechanic::InflictStatusConditionsAndShuffleSelfIntoDeck { conditions }
+            | Mechanic::InflictStatusConditionsAndCardEffect { conditions, .. },
+        ) => on(conditions, 1.0),
+        // Only the first attack after coming into play: not one hit after another (Codex on #128).
+        Some(Mechanic::FirstAttackBonusDamageAndStatus { .. }) => none,
+        Some(Mechanic::ExtraDamageForEachHeadsWithStatus { status, .. }) => on(std::slice::from_ref(status), 1.0),
+        Some(
+            Mechanic::ChanceStatusAttack { condition: status }
+            | Mechanic::CoinFlipNoDamageOrStatusAttack { status }
+            | Mechanic::CoinFlipStatusSelfOrOpponent { status },
+        ) => on(std::slice::from_ref(status), 0.5),
+        Some(Mechanic::ChanceMultipleStatusAttack { conditions }) => on(conditions, 0.5),
+        Some(Mechanic::CoinFlipStatusOutcome { heads_status, tails_status }) => {
+            let (heads, tails) = (on(std::slice::from_ref(heads_status), 0.5), on(std::slice::from_ref(tails_status), 0.5));
+            Inflicted { poison: heads.poison + tails.poison, poison_round: POISON_ROUND, burn: heads.burn + tails.burn }
+        }
+        Some(Mechanic::ExtraDamageForEachHeadsWithStatusAtLeast { num_coins, status, min_heads, .. }) => {
+            on(std::slice::from_ref(status), at_least_heads(*num_coins, *min_heads))
+        }
+        Some(Mechanic::RandomStatusFromAmong { conditions }) if !conditions.is_empty() => {
+            on(conditions, 1.0 / conditions.len() as f64)
+        }
+        // Burn does more a round than poison: the player picks it.
+        Some(Mechanic::ChooseStatusToInflict { options }) => {
+            if options.contains(&Burned) {
+                on(&[Burned], 1.0)
+            } else {
+                on(options, 1.0)
+            }
+        }
+        Some(_) => none,
+        None => {
+            let Some(effect) = attack.effect.as_deref() else { return none };
+            let chance = if effect.starts_with("Flip a coin") { 0.5 } else { 1.0 };
+            let mut conditions = Vec::new();
+            if effect.contains("is now Poisoned") {
+                conditions.push(Poisoned);
+            }
+            if effect.contains("is now Burned") {
+                conditions.push(Burned);
+            }
+            on(&conditions, chance)
+        }
+    }
+}
+
+/// The chance of at least `min` heads in `coins` flips.
+fn at_least_heads(coins: usize, min: usize) -> f64 {
+    let mut ways = 0u64;
+    let mut choose = 1u64;
+    for heads in 0..=coins {
+        if heads > 0 {
+            choose = choose * (coins - heads + 1) as u64 / heads as u64;
+        }
+        if heads >= min {
+            ways += choose;
+        }
+    }
+    ways as f64 / (1u64 << coins) as f64
 }
 
 fn mechanic(attack: &Attack) -> Option<&'static Mechanic> {
@@ -479,6 +1222,11 @@ mod tests {
         get_card_by_enum(CardId::from_card_id(id).expect(id))
     }
 
+    /// `damage_against` with the attack's own mechanic.
+    fn damage(probe: &mut State, attacker: usize, attack: &Attack, slot: usize, poison: f64) -> f64 {
+        damage_against(probe, attacker, attack, mechanic(attack), slot, poison)
+    }
+
     fn first_attack(pokemon: &PlayedCard) -> Attack {
         match &pokemon.card {
             Card::Pokemon(card) => card.attacks[0].clone(),
@@ -502,9 +1250,14 @@ mod tests {
         state
     }
 
+    /// The clock in whole hits (no `margin`), as most tests count it.
     fn turns(state: &State, attacker: usize, see_evolutions: bool) -> f64 {
+        turns_with(state, attacker, see_evolutions, &GParams { margin: 0.0, ..GParams::default() })
+    }
+
+    fn turns_with(state: &State, attacker: usize, see_evolutions: bool, params: &GParams) -> f64 {
         let mut probe = state.clone();
-        let turns = turns_to_win(&mut probe, attacker, see_evolutions, &GParams::default());
+        let turns = turns_to_win(&mut probe, attacker, see_evolutions, params);
         assert!(probe == *state, "turns_to_win must leave the copy as it was");
         turns
     }
@@ -520,7 +1273,7 @@ mod tests {
                 pokemon.attached_tools = vec![tool("A2 147")];
             }
             let mut probe = board(DEDENNE, MISMAGIUS, mine, vec![card("A4a 037")]);
-            let damage = damage_against(&mut probe, 0, &first_attack(&dedenne), 0, 0.0);
+            let damage = damage(&mut probe, 0, &first_attack(&dedenne), 0, 0.0);
             assert_eq!(damage, 40.0 * tools as f64, "{tools} Tools");
         }
     }
@@ -541,6 +1294,92 @@ mod tests {
     }
 
     #[test]
+    fn g2_plays_a_third_tool_before_dede_circuit() {
+        use deckgym::players::{ExpectiMiniMaxPlayer, Player};
+        // Dedenne ex ready in the Active with a Tool, Indeedee ex with another on the Bench, Oricorio with none and
+        // Clear Veil in the hand: Dede-Circuit does 80, and 120 with the Veil on Oricorio. A Mega Absol ex with 150 HP
+        // left takes two hits either way (Dedenne, 18/10/2026).
+        let mine = vec![
+            card("B3b 024").with_energy(vec![Lightning, Lightning]).with_tool(tool("A2 147")),
+            card("B1 121").with_tool(tool("B3b 064")),
+            card("A3 165"),
+        ];
+        let mut state = board(DEDENNE, HYDREIGON, mine, vec![card("B1 151").with_remaining_hp(150)]);
+        state.hands[0] = vec![tool("B4 149")];
+        state.turn_count = 3;
+        // The clock: the Veil saves no whole hit, and still brings Dedenne a little closer (`margin`).
+        let mut veiled = state.clone();
+        veiled.hands[0].clear();
+        veiled.in_play_pokemon[0][2].as_mut().expect("Oricorio").attached_tools = vec![tool("B4 149")];
+        assert_eq!(turns(&veiled, 0, true), turns(&state, 0, true));
+        let (with, without) = (turns_with(&veiled, 0, true, &GParams::default()), turns_with(&state, 0, true, &GParams::default()));
+        assert!(with < without && without - with < 0.25, "{with} vs {without}");
+        let tools_when_attacking = |params: GParams| -> usize {
+            let bot = |deck: &str| -> Box<dyn Player> {
+                Box::new(ExpectiMiniMaxPlayer {
+                    deck: Deck::from_string(deck).expect("deck"),
+                    max_depth: 2,
+                    write_debug_trees: false,
+                    value_function: Box::new(move |state: &State, myself: usize| g_value_function(state, myself, &params)),
+                })
+            };
+            let mut game = Game::from_state(state.clone(), vec![bot(DEDENNE), bot(HYDREIGON)], 7);
+            loop {
+                let before = game.get_state_clone();
+                let action = game.play_tick();
+                assert_eq!(action.actor, 0, "Dedenne's side ended its turn without attacking");
+                if let SimpleAction::Attack(_) = action.action {
+                    return before.enumerate_in_play_pokemon(0).map(|(_, pokemon)| pokemon.attached_tools.len()).sum();
+                }
+            }
+        };
+        assert_eq!(tools_when_attacking(GParams::default()), 3);
+        // g 1.0 attacked with two: playing a Tool takes two decisions (the card, then the Pokémon), so at depth 2 the
+        // attack fell past the leaf, while attacking first showed its damage at once.
+        assert_eq!(tools_when_attacking(GParams { margin: 0.0, attack_now: false, ..GParams::default() }), 2);
+    }
+
+    /// The blind spot of Dedenne (18/10/2026) as a fixed case: in real games of deck 16, how often g2 attacks with
+    /// Dede-Circuit while it still holds a Tool it could attach. g 1.0 did in 83 of 110 attacks (e2 in 119 of 123).
+    #[test]
+    fn dedenne_attaches_its_tools_before_attacking() {
+        use deckgym::players::{ExpectiMiniMaxPlayer, Player};
+        let (mut attacks, mut held) = (0, 0);
+        for rival in [LUCARIO, SUICUNE] {
+            for seed in 0..6u64 {
+                let bot = |deck: &str| -> Box<dyn Player> {
+                    let params = GParams::default();
+                    Box::new(ExpectiMiniMaxPlayer {
+                        deck: Deck::from_string(deck).expect("deck"),
+                        max_depth: 2,
+                        write_debug_trees: false,
+                        value_function: Box::new(move |state: &State, myself: usize| g_value_function(state, myself, &params)),
+                    })
+                };
+                let mut game = Game::new(vec![bot(DEDENNE), bot(rival)], seed);
+                while !game.is_game_over() && game.get_state_clone().turn_count < 31 {
+                    let state = game.get_state_clone();
+                    let action = game.play_tick();
+                    let attacking = action.actor == 0 && matches!(action.action, SimpleAction::Attack(_));
+                    let Some(active) = state.in_play_pokemon[0][0].as_ref().filter(|_| attacking) else { continue };
+                    if active.get_name() != "Dedenne ex" {
+                        continue;
+                    }
+                    let free = state.enumerate_in_play_pokemon(0).filter(|(_, pokemon)| pokemon.attached_tools.is_empty()).count();
+                    let tools = state.hands[0]
+                        .iter()
+                        .filter(|card| matches!(card, Card::Trainer(trainer) if trainer.trainer_card_type == TrainerType::Tool))
+                        .count();
+                    attacks += 1;
+                    held += usize::from(tools.min(free) > 0);
+                }
+            }
+        }
+        assert!(attacks >= 15, "only {attacks} attacks");
+        assert!(held * 5 <= attacks, "{held} of {attacks} attacks with a Tool it could attach");
+    }
+
+    #[test]
     fn crossing_flights_counts_latios_on_the_bench_on_either_turn() {
         let latias = card("A4a 036").with_energy(vec![Psychic]);
         let alone = board(DEDENNE, MISMAGIUS, vec![card("B3b 024")], vec![latias.clone()]);
@@ -549,7 +1388,7 @@ mod tests {
         for (state, expected) in [(alone, 20.0), (with_latios, 40.0)] {
             let mut probe = state.clone();
             probe.current_player = 1;
-            assert_eq!(damage_against(&mut probe, 1, &attack, 0, 0.0), expected);
+            assert_eq!(damage(&mut probe, 1, &attack, 0, 0.0), expected);
             // turns_to_win gives the attacker its turn: with no turn effects, the same on player 0's turn as on player 1's.
             let mut theirs = state.clone();
             theirs.current_player = 1;
@@ -617,19 +1456,34 @@ mod tests {
 
     #[test]
     fn poison_and_burn_come_off_the_hp() {
-        let mut state = board(DEDENNE, MISMAGIUS, vec![card("B3b 024")], vec![card("A4a 037")]);
+        // Latias' Crossing Flights (20, no Latios on the Bench) against Indeedee ex (130 HP): 7 hits.
+        let state = board(MISMAGIUS, DEDENNE, vec![card("A4a 036").with_energy(vec![Psychic])], vec![card("B1 121")]);
         assert_eq!(pending_damage(&state, 1, 0), 0.0);
-        state.apply_status_condition(1, 0, StatusCondition::Poisoned);
-        assert_eq!(pending_damage(&state, 1, 0), 20.0);
-        state.apply_status_condition(1, 0, StatusCondition::Burned);
-        assert_eq!(pending_damage(&state, 1, 0), 20.0 + BURN_ROUND);
+        assert_eq!(turns(&state, 0, false), 7.0);
+        // Poisoned, 20 a round after each hit: 4 hits, not 3 (Codex on #117: three rounds do only 120). The clock
+        // counts it hit by hit, not as damage on its way.
+        let mut poisoned = state.clone();
+        poisoned.apply_status_condition(1, 0, StatusCondition::Poisoned);
+        assert_eq!(pending_damage(&poisoned, 1, 0), 0.0);
+        assert_eq!(turns(&poisoned, 0, false), 4.0);
+        // On Indeedee's turn a Checkup comes before the first hit: 120 left, 3 hits.
+        poisoned.current_player = 1;
+        assert_eq!(turns(&poisoned, 0, false), 3.0);
+        // Burned, and Crossing Flights does not burn it again: the burn fades, 40 in all (Codex on #128: a round after
+        // every hit overstated it). 90 left, 5 hits, on either turn.
+        let mut burned = state.clone();
+        burned.apply_status_condition(1, 0, StatusCondition::Burned);
+        assert_eq!(pending_damage(&burned, 1, 0), 0.0);
+        assert_eq!(turns(&burned, 0, false), 5.0);
+        burned.current_player = 1;
+        assert_eq!(turns(&burned, 0, false), 5.0);
     }
 
     #[test]
     fn luster_purge_hits_every_three_turns() {
         let latios = card("A4a 037").with_energy(vec![Psychic, Psychic, Psychic]);
         let attack = first_attack(&latios);
-        assert_eq!(self_discard(&attack, &latios.attached_energy, &attack.energy_required), (3.0, 1.0));
+        assert_eq!(self_discard(mechanic(&attack), &latios.attached_energy, attack.energy_required.len()), (3.0, 1.0));
         // Two Dedenne ex (2 points each), one Luster Purge each: the second waits for 3 Energy again.
         let state = board(MISMAGIUS, DEDENNE, vec![latios], vec![card("B3b 024"), card("B3b 024")]);
         assert_eq!(turns(&state, 0, false), 2.0 + 2.0);
@@ -656,11 +1510,12 @@ mod tests {
         assert_eq!(energy_to_attack(&[Grass], &[Grass, EnergyType::Colorless], &[Grass], Some(Grass)), vec![Grass]);
         assert_eq!(energy_to_attack(&[Grass, Grass], &[Grass, EnergyType::Colorless], &[Grass], Some(Grass)), Vec::<EnergyType>::new());
         // Mega Rayquaza ex with no Energy: Mega Burst does 50 for each Energy it discards, so 100 once its [R][L] are
-        // on (the engine says 0 on the board as it is). Against a Dedenne ex (120 HP): 2 hits, then it waits for its
-        // 2 Energy again: 2 turns to get ready, 1 + 2 to hit twice.
+        // on (the engine says 0 on the board as it is). Against a Dedenne ex (120 HP) that is 2 hits, then it waits for
+        // its 2 Energy again: 2 turns to get ready, 1 + 2 to hit twice. With a third Energy first it does 150 and knocks
+        // it out at once: 3 turns and 1 hit (Codex on #117).
         let rayquaza = "Energy: Fire, Lightning\n2 Dratini A1 183\n2 Dragonair B4 117\n2 X B3a 54\n1 Mega Rayquaza ex B4 120\n2 Professor's Research P-A 7\n2 Copycat B1 225\n1 Pokémon Center Lady A2b 70\n1 X B3a 72\n1 Cyrus A2 150\n2 Poké Ball P-A 5\n1 X B3a 69\n2 X B4 155\n1 X B2b 69\n";
         let state = board(rayquaza, DEDENNE, vec![card("B4 120")], vec![card("B3b 024")]);
-        assert_eq!(turns(&state, 0, false), 2.0 + 1.0 + 2.0);
+        assert_eq!(turns(&state, 0, false), 3.0 + 1.0);
     }
 
     #[test]
@@ -671,8 +1526,16 @@ mod tests {
         asleep.apply_status_condition(0, 0, StatusCondition::Asleep);
         let mut paralyzed = awake.clone();
         paralyzed.apply_status_condition(0, 0, StatusCondition::Paralyzed);
-        assert_eq!(turns(&asleep, 0, false), turns(&awake, 0, false) + ASLEEP_TURNS);
+        assert_eq!(turns(&asleep, 0, false), turns(&awake, 0, false) + ASLEEP_TURNS_ON_ITS_TURN);
         assert_eq!(turns(&paralyzed, 0, false), turns(&awake, 0, false) + 1.0);
+        // On the rival's turn a Checkup comes first: Asleep loses 2/3 of a turn, Paralyzed still its next one.
+        let on_theirs = |state: &State| {
+            let mut theirs = state.clone();
+            theirs.current_player = 1;
+            theirs
+        };
+        assert_eq!(turns(&on_theirs(&asleep), 0, false), turns(&on_theirs(&awake), 0, false) + ASLEEP_TURNS_ON_THE_RIVALS);
+        assert_eq!(turns(&on_theirs(&paralyzed), 0, false), turns(&on_theirs(&awake), 0, false) + 1.0);
     }
 
     #[test]
@@ -787,9 +1650,9 @@ mod tests {
         let benched = board(DEDENNE, DEDENNE, vec![hoopa], vec![card("B3b 024"), card("A3a 021")]);
         // Shadow Bullet: 30 to the Active, then 20 to a Benched Pokémon of the attacker's choice. With a Bench the
         // engine holds all of it until the choice, and said 0.
-        assert_eq!(damage_against(&mut alone.clone(), 0, &attack, 0, 0.0), 30.0);
+        assert_eq!(damage(&mut alone.clone(), 0, &attack, 0, 0.0), 30.0);
         let mut probe = benched.clone();
-        assert_eq!(damage_against(&mut probe, 0, &attack, 0, 0.0), 30.0);
+        assert_eq!(damage(&mut probe, 0, &attack, 0, 0.0), 30.0);
         assert!(probe == benched);
     }
 
@@ -808,7 +1671,7 @@ mod tests {
         assert_eq!(turns(&played, 1, false), turns(&state, 1, false));
         let mut probe = played.clone();
         let dede_circuit = first_attack(played.in_play_pokemon[0][0].as_ref().expect("Dedenne ex"));
-        assert_eq!(damage_against(&mut probe, 0, &dede_circuit, 0, 0.0), 50.0);
+        assert_eq!(damage(&mut probe, 0, &dede_circuit, 0, 0.0), 50.0);
     }
 
     #[test]
@@ -818,15 +1681,19 @@ mod tests {
         let target = |damage: u32| board(DEDENNE, DEDENNE, vec![toxicroak.clone(), decidueye.clone()], vec![card("B3b 024").with_damage(damage)]);
         // Toxic does no damage: its poison is 20 at each Checkup, 40 a round (f read «20 damage» as a hit).
         assert_eq!(crate::fair_bot::attack_damage(&first_attack(&toxicroak)), 20);
-        assert_eq!(damage_against(&mut target(0), 0, &first_attack(&toxicroak), 0, 0.0), 40.0);
-        assert_eq!(damage_against(&mut target(0), 0, &first_attack(&toxicroak), 0, 40.0), 0.0);
+        assert_eq!(damage(&mut target(0), 0, &first_attack(&toxicroak), 0, 0.0), 40.0);
+        // On a target already Poisoned it poisons it again: its 40 a round go on (review of g 1.1; it gave 0, and the
+        // clock jumped to «no threat» once the poison had landed), and on an ordinary poison its 40 replace the 20
+        // (Codex on #128).
+        assert_eq!(damage(&mut target(0), 0, &first_attack(&toxicroak), 0, 40.0), 40.0);
+        assert_eq!(damage(&mut target(0), 0, &first_attack(&toxicroak), 0, 20.0), 40.0);
         // Pierce the Pain: 100 to a Pokémon with damage on it; none to one without.
         let mut probe = target(10);
         probe.in_play_pokemon[0].swap(0, 1);
-        assert_eq!(damage_against(&mut probe, 0, &first_attack(&decidueye), 0, 0.0), 100.0);
+        assert_eq!(damage(&mut probe, 0, &first_attack(&decidueye), 0, 0.0), 100.0);
         let mut probe = target(0);
         probe.in_play_pokemon[0].swap(0, 1);
-        assert_eq!(damage_against(&mut probe, 0, &first_attack(&decidueye), 0, 0.0), 0.0);
+        assert_eq!(damage(&mut probe, 0, &first_attack(&decidueye), 0, 0.0), 0.0);
     }
 
     #[test]
@@ -849,7 +1716,7 @@ mod tests {
         assert_eq!(other.decks[1].cards.len(), state.decks[1].cards.len());
         // On the boards as they are, Cyberjack reads the rival's deck: the leak this guards against.
         let cyberjack = first_attack(state.in_play_pokemon[0][0].as_ref().expect("Porygon-Z"));
-        let seen = |board: &State| damage_against(&mut board.clone(), 0, &cyberjack, 0, 0.0);
+        let seen = |board: &State| damage(&mut board.clone(), 0, &cyberjack, 0, 0.0);
         assert_ne!(seen(&state), seen(&other));
         assert_eq!(seen(&hide_then(&state, 1)), seen(&hide_then(&other, 1)));
         let params = GParams::default();
@@ -879,10 +1746,10 @@ mod tests {
         let mut state = board(MISMAGIUS, DEDENNE, vec![latias.clone()], vec![card("B3b 024")]);
         state.apply_status_condition(1, 0, StatusCondition::Poisoned);
         assert_eq!(turns(&state, 0, false), 3.0);
-        assert_eq!(damage_against(&mut state.clone(), 0, &first_attack(&latias), 0, 20.0), 40.0);
+        assert_eq!(damage(&mut state.clone(), 0, &first_attack(&latias), 0, 20.0), 40.0);
         // An attack that does nothing does not borrow the poison as its own hit.
         let ivysaur = card("B1a 002").with_energy(vec![EnergyType::Grass]);
-        assert_eq!(damage_against(&mut state.clone(), 0, &first_attack(&ivysaur), 0, 20.0), 0.0);
+        assert_eq!(damage(&mut state.clone(), 0, &first_attack(&ivysaur), 0, 20.0), 0.0);
     }
 
     #[test]
@@ -895,7 +1762,15 @@ mod tests {
         let mut asleep = awake.clone();
         asleep.apply_status_condition(0, 0, StatusCondition::Asleep);
         assert_eq!(turns(&paralyzed, 0, false), turns(&awake, 0, false) + 1.0);
-        assert_eq!(turns(&asleep, 0, false), turns(&awake, 0, false) + ASLEEP_TURNS);
+        assert_eq!(turns(&asleep, 0, false), turns(&awake, 0, false) + ASLEEP_TURNS_ON_ITS_TURN);
+        // Codex on #117: Misdreavus Paralyzed and with no Energy for its retreat takes it this turn and retreats the
+        // next, as it would awake: the lock and the Energy overlap.
+        let mine = vec![card("A2 066"), card("A4a 037").with_energy(vec![Psychic, Psychic, Psychic])];
+        let stuck = board(MISMAGIUS, DEDENNE, mine, vec![card("B3b 024")]);
+        let mut stuck_paralyzed = stuck.clone();
+        stuck_paralyzed.apply_status_condition(0, 0, StatusCondition::Paralyzed);
+        assert_eq!(turns(&stuck_paralyzed, 0, false), turns(&stuck, 0, false));
+        assert_eq!(turns(&stuck, 0, false), turns(&awake, 0, false) + 1.0);
     }
 
     #[test]
@@ -905,7 +1780,7 @@ mod tests {
         // the next hit is 1 turn away on heads and 2 on tails, 1.5 on average (halving before rounding gave 1, no
         // wait at all). Against two Dedenne ex (120 HP, 2 points each): 2 hits each, 4 hits, 3 waits of 1.5.
         let entei = card("A4 033").with_energy(vec![Fire; 4]);
-        let (discard, chance) = self_discard(&first_attack(&entei), &entei.attached_energy, &first_attack(&entei).energy_required);
+        let (discard, chance) = self_discard(mechanic(&first_attack(&entei)), &entei.attached_energy, first_attack(&entei).energy_required.len());
         assert_eq!((discard, chance), (2.0, 0.5));
         let fire = "Energy: Fire\n2 Entei A4 33\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n2 Giant Cape A2 147\n2 Rocky Helmet A2 148\n2 Lucky Ice Pop B2 145\n2 Cyrus A2 150\n2 Sabrina A1 225\n2 Red Card P-A 6\n";
         let state = board(fire, DEDENNE, vec![entei], vec![card("B3b 024"), card("B3b 024")]);
@@ -920,5 +1795,657 @@ mod tests {
         assert!(parse_bot_code("g0").is_err());
         assert!(parse_bot_code("gx").is_err());
         assert!(crate::parse_players(&["g2".to_string(), "e2".to_string()]).is_ok());
+    }
+
+    // Codex's findings on #117 (15 and 18/10/2026), one test each.
+
+    #[test]
+    fn abyssal_drop_knocks_out_the_spot_it_picks() {
+        use deckgym::actions::{Action, SimpleAction};
+        let armaldo = card("B4 082").with_energy(vec![EnergyType::Fighting; 3]);
+        let theirs = vec![card("B3b 024"), card("A3 165")];
+        let state = board(DEDENNE, DEDENNE, vec![armaldo], theirs);
+        // Dedenne ex (2 points), then Oricorio: a drop each, whatever their HP, and its 3 Energy back between them; the
+        // last knockout lands at the end of the rival's next turn. Before, no damage meant no threat at all.
+        assert_eq!(turns(&state, 0, false), 2.0 + (3.0 - 1.0) + 1.0);
+        // A drop already scheduled on a spot is lethal for it.
+        let mut game = Game::from_state(state, Vec::new(), 9);
+        let schedule = SimpleAction::ScheduleDelayedSpotKnockOut { target_player: 1, target_in_play_idx: 0 };
+        game.apply_action(&Action { actor: 0, action: schedule, is_stack: false });
+        let scheduled = game.get_state_clone();
+        assert_eq!(pending_damage(&scheduled, 1, 0), 120.0);
+        assert_eq!(pending_damage(&scheduled, 1, 1), 0.0);
+    }
+
+    #[test]
+    fn jungle_totem_makes_one_grass_energy_count_twice() {
+        // Bulbasaur's Vine Whip ([G][C], 40) against Dedenne ex (120 HP): 3 hits after 2 Energy, or after 1 with
+        // Serperior's Jungle Totem in play (Codex on #117).
+        let alone = board(VENUSAUR, DEDENNE, vec![card("A1 001")], vec![card("B3b 024")]);
+        let with_totem = board(VENUSAUR, DEDENNE, vec![card("A1 001"), card("A1a 006")], vec![card("B3b 024")]);
+        assert_eq!(turns(&alone, 0, false), 2.0 + 3.0);
+        assert_eq!(turns(&with_totem, 0, false), 1.0 + 3.0);
+    }
+
+    #[test]
+    fn linear_attack_does_nothing_through_safeguard() {
+        // Garchomp ex's Linear Attack (50 to 1 of the rival's Pokémon, no fixed damage): its text, through the engine.
+        let garchomp = card("A2a 047").with_energy(vec![EnergyType::Fighting]);
+        let mut walled = board(DEDENNE, DEDENNE, vec![garchomp.clone()], vec![card("A3 165")]);
+        assert_eq!(damage(&mut walled, 0, &first_attack(&garchomp), 0, 0.0), 0.0);
+        // In the Active Spot, Dedenne ex's Weakness to [F] makes it 70, as the engine plays it (review of g 1.1).
+        let mut open = board(DEDENNE, DEDENNE, vec![garchomp.clone()], vec![card("B3b 024"), card("B3b 024")]);
+        assert_eq!(damage(&mut open, 0, &first_attack(&garchomp), 0, 0.0), 70.0);
+        // On the Bench no Weakness, never more than the text, and nothing through a Protective Poncho.
+        assert_eq!(damage(&mut open, 0, &first_attack(&garchomp), 1, 0.0), 50.0);
+        open.in_play_pokemon[1][1].as_mut().expect("Dedenne ex").attached_tools = vec![tool("B2 147")];
+        assert_eq!(damage(&mut open, 0, &first_attack(&garchomp), 1, 0.0), 0.0);
+    }
+
+    #[test]
+    fn a_poisoner_plays_its_giant_cape_before_attacking() {
+        use deckgym::players::{ExpectiMiniMaxPlayer, Player};
+        // Review of g 1.1: Roserade's Poison Ring with two [G], Giant Cape in the hand, against a Mega Absol ex with
+        // 170 HP. «Attack now» valued the attack before the end of the turn, without the poison of its Checkup, and g2
+        // attacked without the Cape; scored after the turn ends, as the search scores its own attacks, it plays the Cape.
+        let grass = "Energy: Grass\n2 Roselia B2 4\n2 Roserade B2 5\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n2 Giant Cape A2 147\n2 Rocky Helmet A2 148\n2 Lucky Ice Pop B2 145\n2 Cyrus A2 150\n2 Sabrina A1 225\n";
+        let roserade = card("B2 005").with_energy(vec![EnergyType::Grass, EnergyType::Grass]);
+        let mut state = board(grass, HYDREIGON, vec![roserade], vec![card("B1 151").with_remaining_hp(170)]);
+        state.hands[0] = vec![tool("A2 147")];
+        state.turn_count = 3;
+        let bot = |deck: &str| -> Box<dyn Player> {
+            let params = GParams::default();
+            Box::new(ExpectiMiniMaxPlayer {
+                deck: Deck::from_string(deck).expect("deck"),
+                max_depth: 2,
+                write_debug_trees: false,
+                value_function: Box::new(move |state: &State, myself: usize| g_value_function(state, myself, &params)),
+            })
+        };
+        let mut game = Game::from_state(state, vec![bot(grass), bot(HYDREIGON)], 7);
+        let first = game.play_tick();
+        assert!(matches!(&first.action, SimpleAction::Play { trainer_card } if trainer_card.name == "Giant Cape"), "{:?}", first.action);
+    }
+
+    #[test]
+    fn hide_counts_the_cards_the_rival_has_shown() {
+        // Baxcalibur over Frigibax (Rare Candy) is two Pokémon of the list, not three; its Giant Cape a Trainer; a Fossil
+        // in play a Trainer, as is each card in the discard pile (review of g 1.1).
+        let mut baxcalibur = card("B2a 036").with_tool(tool("A2 147"));
+        baxcalibur.cards_behind = vec![tool("B2a 034")];
+        let state = board(DEDENNE, SUICUNE, vec![card("B3b 024")], vec![baxcalibur, card("A2 144")]);
+        assert_eq!(shown(&state, 1), (2, 2));
+        let mut discarded = state.clone();
+        discarded.discard_piles[1] = vec![tool("P-A 007"), tool("A4a 020")];
+        assert_eq!(shown(&discarded, 1), (3, 3));
+        // The Stadium it has in play is a Trainer of its list too; one of the other side is not (Codex on #128).
+        let mut stadium = discarded.clone();
+        stadium.active_stadium = Some(tool("B2 154"));
+        stadium.active_stadium_owner = Some(1);
+        assert_eq!(shown(&stadium, 1), (4, 3));
+        stadium.active_stadium_owner = Some(0);
+        assert_eq!(shown(&stadium, 1), (3, 3));
+    }
+
+    #[test]
+    fn a_discard_all_attack_gets_back_only_what_it_attacks_with() {
+        // Infernape ex's Flare Blitz ([R][R], discard all [R]) with five [R]: two between hits, not five.
+        let flare_blitz = first_attack(&card("A2 029"));
+        assert_eq!(self_discard(mechanic(&flare_blitz), &[EnergyType::Fire; 5], 2), (2.0, 1.0));
+        // With fewer cards than its cost (Jungle Totem counts one twice), what it has.
+        assert_eq!(self_discard(mechanic(&flare_blitz), &[EnergyType::Fire], 1), (1.0, 1.0));
+    }
+
+    #[test]
+    fn the_spare_hit_is_taken_off_once_whatever_the_wait() {
+        // Latios' Luster Purge (120, discards its 3 Energy) against a Mega Venusaur ex with 130 HP left: 2 hits with a
+        // wait of 3 between them. The spare (10 HP of the second hit) is worth 0.1 of a hit at most, not multiplied by
+        // the wait (review of g 1.1: it came to 0.275).
+        let latios = card("A4a 037").with_energy(vec![Psychic, Psychic, Psychic]);
+        let state = board(MISMAGIUS, VENUSAUR, vec![latios], vec![card("B1a 004").with_remaining_hp(130)]);
+        let (whole, with_margin) = (turns(&state, 0, false), turns_with(&state, 0, false, &GParams::default()));
+        assert!(whole - with_margin > 0.0 && whole - with_margin <= 0.1, "{whole} vs {with_margin}");
+    }
+
+    /// What «attack now» takes for granted: after an attack that leaves no choice and does not end the game, the only
+    /// action is the attacker's end of turn. Checked on the attacks of real games (3.097 outcomes on 18/10/2026).
+    #[test]
+    fn after_an_attack_only_the_end_of_the_turn_is_left() {
+        use deckgym::players::{create_players as players, PlayerCode};
+        let decks = [DEDENNE, MISMAGIUS, VENUSAUR, LUCARIO, SUICUNE, HYDREIGON, crate::coach::tests::ALTARIA];
+        let (mut checked, mut other) = (0, Vec::new());
+        for a in 0..decks.len() {
+            for b in 0..decks.len() {
+                for seed in 0..3u64 {
+                    let deck = |at: usize| Deck::from_string(decks[at]).expect("deck");
+                    let mut game = Game::new(players(deck(a), deck(b), vec![PlayerCode::R, PlayerCode::R]), seed);
+                    while !game.is_game_over() && game.get_state_clone().turn_count < 31 {
+                        let state = game.get_state_clone();
+                        let (actor, actions) = state.generate_possible_actions();
+                        for action in actions.iter().filter(|action| matches!(action.action, SimpleAction::Attack(_))) {
+                            let (_, mutations) = forecast_action(&state, action).into_branches();
+                            for mutation in mutations {
+                                let mut outcome = state.clone();
+                                mutation(&mut StdRng::seed_from_u64(1), &mut outcome, action);
+                                let ends = outcome.winner.is_none() && outcome.current_player == actor;
+                                if !ends || !outcome.move_generation_stack.is_empty() {
+                                    continue;
+                                }
+                                checked += 1;
+                                let (next_actor, next) = outcome.generate_possible_actions();
+                                let only_end = matches!(next.as_slice(), [end] if matches!(end.action, SimpleAction::EndTurn));
+                                if next_actor != actor || !only_end || !outcome.public_context(actor).end_turn_pending {
+                                    other.push(format!("{:?} → {:?}", action.action, next));
+                                }
+                            }
+                        }
+                        game.play_tick();
+                    }
+                }
+            }
+        }
+        assert!(checked > 1000, "only {checked} attacks");
+        assert!(other.is_empty(), "{}", other.join("\n"));
+    }
+
+    /// `action` for the side whose turn it is, on its first branch.
+    fn apply(state: &mut State, action: SimpleAction) {
+        let action = Action { actor: state.current_player, action, is_stack: false };
+        let (_, mut mutations) = forecast_action(state, &action).into_branches();
+        let mutation = mutations.remove(0);
+        mutation(&mut StdRng::seed_from_u64(0), state, &action);
+    }
+
+    /// `apply`, and then the draw that starts a turn.
+    fn play(state: &mut State, action: SimpleAction) {
+        apply(state, action);
+        if let [draw] = state.generate_possible_actions().1.as_slice() {
+            if matches!(draw.action, SimpleAction::DrawCard { .. }) {
+                let draw = draw.clone();
+                let (_, mut mutations) = forecast_action(state, &draw).into_branches();
+                mutations.remove(0)(&mut StdRng::seed_from_u64(0), state, &draw);
+            }
+        }
+    }
+
+    #[test]
+    fn an_active_that_cannot_attack_is_not_a_turn_already_over() {
+        // Necrozma the turn after Prismatic Laser: the Energy for it and no status, but it cannot attack, and with
+        // nothing else to do only the end of its turn is left. That is not the leaf after an attack: it is worth what it
+        // is as it stands, not what it is after ending the turn (Codex on #128).
+        let necrozma = card("A3 088").with_energy(vec![Psychic, Psychic, Psychic, Psychic]);
+        let mut state = board(MISMAGIUS, VENUSAUR, vec![necrozma.clone()], vec![card("B1a 004")]);
+        play(&mut state, SimpleAction::Attack(first_attack(&necrozma)));
+        play(&mut state, SimpleAction::EndTurn);
+        play(&mut state, SimpleAction::EndTurn);
+        assert_eq!(state.current_player, 0);
+        state.hands[0].clear();
+        state.energy_zone[0].current = None;
+        // A Poisoned rival, so that ending the turn (its Checkup) changes the value.
+        state.apply_status_condition(1, 0, StatusCondition::Poisoned);
+        let (_, actions) = state.generate_possible_actions();
+        assert!(matches!(actions.as_slice(), [end] if matches!(end.action, SimpleAction::EndTurn)), "{actions:?}");
+        assert!(can_attack(&state, 0) && !state.public_context(0).end_turn_pending);
+        let standing = GParams { attack_now: false, ..GParams::default() };
+        assert_eq!(g_value_function(&state, 0, &GParams::default()), g_value_function(&state, 0, &standing));
+    }
+
+    #[test]
+    fn a_leaf_after_an_attack_ends_the_turn_even_with_no_energy_left() {
+        // Latios' Luster Purge discards all its Energy: right after it, its Active has nothing to attack with, and the
+        // leaf is still worth what it is once the turn ends, as after any attack (Codex on #128).
+        let latios = card("A4a 037").with_energy(vec![Psychic, Psychic, Psychic]);
+        let mut state = board(MISMAGIUS, VENUSAUR, vec![latios.clone()], vec![card("B1a 004")]);
+        play(&mut state, SimpleAction::Attack(first_attack(&latios)));
+        state.apply_status_condition(1, 0, StatusCondition::Poisoned);
+        assert!(!can_attack(&state, 0) && state.public_context(0).end_turn_pending);
+        let mut ended = state.clone();
+        apply(&mut ended, SimpleAction::EndTurn);
+        assert_eq!(g_value_function(&state, 0, &GParams::default()), g_value_function(&ended, 0, &GParams::default()));
+    }
+
+    #[test]
+    fn a_choice_left_on_the_stack_is_not_made_on_the_hidden_cards() {
+        // Butterfree / Mega Sceptile ex against Hoopa ex / Mega Absol ex (B4a), g2 on both sides. A leaf of the search
+        // right after an attack still had that attack's choice on the stack, made on the real cards; settled on the copy
+        // with the rival's hand hidden, it named a card that copy does not have, and deckgym panicked (timing g2 after
+        // Codex's findings on #128).
+        let butterfree = "Energy: Grass\n2 X B3b 1\n2 X B3b 2\n2 X B3b 3\n1 X B3 5\n1 X B3 6\n1 X B3 8\n2 X P-A 7\n1 X A1 219\n1 X B1 225\n1 X A1 225\n1 X A2 150\n2 X B1a 67\n1 X A3 147\n2 X B3 153\n";
+        let hoopa = "Energy: Darkness\n2 X B4 103\n1 X A2 110\n1 X B1 151\n2 X B1 225\n2 X A2 150\n2 X P-A 7\n1 X A2b 70\n2 X B2 145\n2 X P-A 5\n1 X B3 147\n1 X A3a 64\n1 X P-A 2\n2 X B4 148\n";
+        let decks = [Deck::from_string(butterfree).expect("deck"), Deck::from_string(hoopa).expect("deck")];
+        let g2 = crate::fair_bot::BotCode::G { max_depth: 2 };
+        let players = crate::fair_bot::create_players(decks[0].clone(), decks[1].clone(), vec![g2.clone(), g2]);
+        let mut game = Game::new(players, 853_741_732_578_328_752);
+        // It has to get to its end without a panic.
+        let _outcome = game.play();
+    }
+
+    #[test]
+    fn a_choice_after_the_attack_is_made_before_its_value() {
+        // Hoopa ex's Shadow Bullet (30, and 20 to a Benched Pokémon it picks) against a Dedenne ex with 30 HP left: the
+        // engine holds back all its damage until the Benched target is picked. Valued before that choice, «attack now»
+        // missed the knockout and its 2 points (Codex on #128).
+        let hoopa = card("B4 103").with_energy(vec![EnergyType::Darkness]);
+        let mut state = board(HYDREIGON, DEDENNE, vec![hoopa], vec![card("B3b 024").with_remaining_hp(30), card("A3 165")]);
+        state.turn_count = 3;
+        let now = g_value_function(&state, 0, &GParams::default());
+        let stand = g_value_function(&state, 0, &GParams { attack_now: false, ..GParams::default() });
+        assert!(now - stand > 10_000.0, "{now} vs {stand}");
+    }
+
+    #[test]
+    fn a_spread_attack_wins_through_an_active_it_cannot_hurt() {
+        // Articuno ex's Blizzard (80, and 10 to each Benched Pokémon) against Oricorio's Safeguard, with 2 points
+        // already: the Active takes nothing, a 50-HP Caterpie on the Bench falls in 5 and gives the last point (Codex on
+        // #128: no threat at all before).
+        let articuno = card("A1 084").with_energy(vec![EnergyType::Water; 3]);
+        let mut state = board(SUICUNE, VENUSAUR, vec![articuno], vec![card("A3 165"), card("A1 005")]);
+        state.points = [2, 0];
+        assert_eq!(turns(&state, 0, false), 5.0);
+    }
+
+    #[test]
+    fn an_energy_threshold_can_take_two_more() {
+        // Scrafty's Crush the Weak (50, 50 more with more Energy than the rival's Active), from a Scraggy with its [D][D]
+        // and Scrafty in the deck, against a Mega Venusaur ex (240 HP) with 3 Energy. Evolving takes a turn anyway, so
+        // one more Energy is free, but it ties at 3 and adds nothing; two make it 100. 1 + 5 hits, or 2 + 3 with the two
+        // (Codex on #128: the clock stopped at the first that did not add).
+        let dark = "Energy: Darkness\n2 Scraggy B2 106\n2 Scrafty B2 107\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n2 Giant Cape A2 147\n2 Rocky Helmet A2 148\n2 Lucky Ice Pop B2 145\n2 Cyrus A2 150\n2 Sabrina A1 225\n";
+        let scraggy = card("B2 106").with_energy(vec![EnergyType::Darkness, EnergyType::Darkness]);
+        let venusaur = card("B1a 004").with_energy(vec![EnergyType::Grass; 3]);
+        let state = board(dark, VENUSAUR, vec![scraggy], vec![venusaur]);
+        assert_eq!(turns(&state, 0, true), 2.0 + 3.0);
+    }
+
+    #[test]
+    fn wild_spin_hits_the_bench_with_its_escalation() {
+        use deckgym::actions::Action;
+        // Archeops' Wild Spin: 20 to each of the rival's Pokémon, and 20 more on its next turn. The Benched ones take
+        // the same as the Active, as the engine plays it (Codex on #128: the Bench stayed at 20).
+        let archeops = card("B1 134").with_energy(vec![EnergyType::Fighting]);
+        let mut state = board(LUCARIO, VENUSAUR, vec![archeops], vec![card("B1a 004"), card("B1a 004")]);
+        state.turn_count = 3;
+        let wild_spin = first_attack(state.in_play_pokemon[0][0].as_ref().expect("Archeops"));
+        assert_eq!(bench_damage(&state, 0, &wild_spin, mechanic(&wild_spin), 1), 20.0);
+        // A Benched Dedenne ex, weak to [F], takes no Weakness there: still 20 (Codex on #128).
+        let mut weak = state.clone();
+        weak.in_play_pokemon[1][1] = Some(card("B3b 024"));
+        assert_eq!(bench_damage(&weak, 0, &wild_spin, mechanic(&wild_spin), 1), 20.0);
+        let mut game = Game::from_state(state, Vec::new(), 3);
+        game.apply_action(&Action { actor: 0, action: SimpleAction::Attack(wild_spin.clone()), is_stack: false });
+        while game.get_state_clone().current_player != 0 || !game.get_state_clone().move_generation_stack.is_empty() {
+            let state = game.get_state_clone();
+            let (actor, actions) = state.generate_possible_actions();
+            let end = actions.iter().find(|a| matches!(a.action, SimpleAction::EndTurn)).unwrap_or(&actions[0]).clone();
+            assert_eq!(actor, end.actor);
+            game.apply_action(&end);
+        }
+        let next = game.get_state_clone();
+        let active = expected_attack_damage(&next, 0, &wild_spin, 1, 0);
+        assert_eq!(active, 40.0);
+        assert_eq!(bench_damage(&next, 0, &wild_spin, mechanic(&wild_spin), 1), 40.0);
+    }
+
+    #[test]
+    fn hide_splits_what_is_left_over_the_hand_and_the_deck_together() {
+        // 11 Trainers and 7 Pokémon shown: 1 and 1 left. With one card in the hand and one in the deck, one of them is a
+        // Trainer, not both (Codex on #128).
+        let mut state = board(DEDENNE, DEDENNE, vec![card("B3b 024")], vec![card("B3b 024")]);
+        state.discard_piles[1] = std::iter::repeat_n(tool("P-A 007"), 11).chain(std::iter::repeat_n(tool("A1 005"), 6)).collect();
+        state.hands[1] = vec![tool("P-A 005")];
+        state.decks[1].cards.truncate(1);
+        assert_eq!(shown(&state, 1), (11, 7));
+        hide(&mut state, 1);
+        let trainers = state.hands[1].iter().chain(&state.decks[1].cards).filter(|card| matches!(card, Card::Trainer(_))).count();
+        assert_eq!(trainers, 1);
+    }
+
+    #[test]
+    fn mega_burst_needs_all_its_energy_back_to_hit_as_hard() {
+        // Mega Rayquaza ex with five [R]/[L] does 250 with Mega Burst and discards all five: to do 250 again it needs
+        // all five back, not its cost of two (Codex on #128). Against two Dedenne ex: a hit each, 5 turns between.
+        let rayquaza = card("B4 120").with_energy(vec![EnergyType::Fire, EnergyType::Fire, Lightning, Lightning, EnergyType::Fire]);
+        let mega_burst = first_attack(&rayquaza);
+        assert_eq!(self_discard(mechanic(&mega_burst), &rayquaza.attached_energy, 2), (5.0, 1.0));
+        let state = board(DEDENNE, DEDENNE, vec![rayquaza], vec![card("B3b 024"), card("B3b 024")]);
+        assert_eq!(turns(&state, 0, false), 2.0 + (5.0 - 1.0));
+    }
+
+    #[test]
+    fn the_extra_energy_is_the_type_the_attack_asks_for() {
+        // Medicham's Psykick ([F][C], 50 more with any [P]) with [F][F], and a zone that makes [F] and [P]: one more
+        // [P] makes it 100 against a Mega Venusaur ex (240 HP), 1 + 3 turns; one more [F] left it at 50, 5 hits (Codex on
+        // #128).
+        let fighting_psychic = LUCARIO.replacen("Energy: Fighting", "Energy: Fighting, Psychic", 1);
+        let medicham = card("B2 084").with_energy(vec![EnergyType::Fighting, EnergyType::Fighting]);
+        let state = board(&fighting_psychic, VENUSAUR, vec![medicham], vec![card("B1a 004")]);
+        assert_eq!(turns(&state, 0, false), 1.0 + 3.0);
+    }
+
+    #[test]
+    fn evolving_into_serperior_brings_jungle_totem() {
+        // A Snivy with no Energy and Servine and Serperior in the deck: Serperior's Solar Beam ([G][C][C][C], 70) is
+        // ready with two [G] under its own Jungle Totem, as soon as it evolves twice; 2 + 2 hits against Dedenne ex
+        // (Codex on #128: the four Energy without Totem made it 4 + 2, behind Servine's 2 + 3).
+        let grass = "Energy: Grass\n2 Snivy A1a 4\n2 Servine A1a 5\n2 Serperior A1a 6\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n2 Giant Cape A2 147\n2 Rocky Helmet A2 148\n2 Lucky Ice Pop B2 145\n2 Cyrus A2 150\n";
+        let state = board(grass, DEDENNE, vec![card("A1a 004")], vec![card("B3b 024")]);
+        assert_eq!(turns(&state, 0, true), 2.0 + 2.0);
+    }
+
+    #[test]
+    fn can_attack_needs_the_energy_and_no_status_that_stops_it() {
+        let latias = card("A4a 036");
+        assert!(!can_attack(&board(MISMAGIUS, DEDENNE, vec![latias.clone()], vec![card("B3b 024")]), 0));
+        let ready = board(MISMAGIUS, DEDENNE, vec![latias.with_energy(vec![Psychic])], vec![card("B3b 024")]);
+        assert!(can_attack(&ready, 0));
+        let mut asleep = ready.clone();
+        asleep.apply_status_condition(0, 0, StatusCondition::Asleep);
+        assert!(!can_attack(&asleep, 0));
+    }
+
+    #[test]
+    fn an_attack_that_locks_itself_hits_every_other_turn() {
+        // Necrozma's Prismatic Laser (120, cannot attack next turn) against two Dedenne ex (2 points each): a hit each,
+        // a turn apart.
+        let necrozma = card("A3 088").with_energy(vec![Psychic, Psychic, Psychic, Psychic]);
+        let state = board(MISMAGIUS, DEDENNE, vec![necrozma], vec![card("B3b 024"), card("B3b 024")]);
+        assert_eq!(turns(&state, 0, false), 2.0 + 1.0);
+        assert_eq!(cooldown(mechanic(&first_attack(&card("A3a 006")))), 0.0);
+        let big_beat = match &card("A3a 006").card {
+            Card::Pokemon(pokemon) => pokemon.attacks[1].clone(),
+            _ => unreachable!(),
+        };
+        assert_eq!(big_beat.title, "Big Beat");
+        assert_eq!(cooldown(mechanic(&big_beat)), 1.0);
+    }
+
+    #[test]
+    fn an_overcharged_attacker_gets_back_only_its_cost() {
+        // Raichu's Thunderbolt (140, discard all Energy) with 5 Energy, against two Dedenne ex: it needs its 3 back
+        // between the hits, not 5 (Codex on #117).
+        let raichu = card("A1 095").with_energy(vec![EnergyType::Lightning; 5]);
+        let state = board(DEDENNE, DEDENNE, vec![raichu], vec![card("B3b 024"), card("B3b 024")]);
+        assert_eq!(turns(&state, 0, false), 2.0 + (3.0 - 1.0));
+    }
+
+    #[test]
+    fn recoil_stops_a_plan_its_user_does_not_survive() {
+        // Blacephalon's Beat Punk (130, 70 to itself) against Mega Absol ex (170 HP, 3 points): 2 hits. With 100 HP it
+        // survives the first and lands the second; with 30 damage on it the first knocks it out (Codex on #117).
+        let fresh = card("A3a 009").with_energy(vec![EnergyType::Fire; 3]);
+        let hurt = card("A3a 009").with_energy(vec![EnergyType::Fire; 3]).with_damage(30);
+        let healthy = board(DEDENNE, HYDREIGON, vec![fresh], vec![card("B1 151")]);
+        let damaged = board(DEDENNE, HYDREIGON, vec![hurt], vec![card("B1 151")]);
+        assert_eq!(turns(&healthy, 0, false), 2.0);
+        assert_eq!(turns(&damaged, 0, false), NO_THREAT);
+    }
+
+    #[test]
+    fn swirling_disaster_wears_the_bench_down_with_the_active() {
+        // Spiritomb's Swirling Disaster (10 to each of the rival's Pokémon) against three 50-HP Pokémon of a point each:
+        // they fall together after 5 hits, not one after the other after 15 (Codex on #117).
+        let spiritomb = card("A2 104").with_energy(vec![Psychic]);
+        let theirs = vec![card("A1 005"), card("A1 008"), card("A1 027")];
+        let state = board(MISMAGIUS, VENUSAUR, vec![spiritomb], theirs);
+        assert_eq!(turns(&state, 0, false), 5.0);
+    }
+
+    #[test]
+    fn status_attacks_poison_and_burn_with_their_chance() {
+        let attack_of = |id: &str| first_attack(&card(id));
+        let inflicts = |attack: &Attack| inflicts(attack, mechanic(attack));
+        // Stun Poison: on heads. Cross Poison: at least 2 heads of 4, 11/16. Singe: always burns.
+        assert_eq!(inflicts(&attack_of("A4a 016")).poison, 0.5);
+        assert_eq!(inflicts(&attack_of("A2 106")).poison, 11.0 / 16.0);
+        let singe = inflicts(&attack_of("B2 023"));
+        assert_eq!((singe.poison, singe.burn), (0.0, 1.0));
+        assert_eq!(at_least_heads(2, 1), 0.75);
+        // Singe does no damage: before, Blacephalon ex had no threat at all. Against Dedenne ex (120 HP) a burn round
+        // each turn: 4 turns.
+        let blacephalon = card("B2 023").with_energy(vec![EnergyType::Fire]);
+        let state = board(DEDENNE, DEDENNE, vec![blacephalon.clone()], vec![card("B3b 024")]);
+        assert_eq!(damage(&mut state.clone(), 0, &first_attack(&blacephalon), 0, 0.0), BURN_ROUND);
+        assert_eq!(turns(&state, 0, false), 4.0);
+        // Once Dedenne is Burned, Singe keeps it burning: still a round each turn, not «no threat» (review of g 1.1).
+        let mut burned = state.clone();
+        burned.apply_status_condition(1, 0, StatusCondition::Burned);
+        assert_eq!(damage(&mut burned.clone(), 0, &first_attack(&blacephalon), 0, 0.0), BURN_ROUND);
+        assert_eq!(turns(&burned, 0, false), 4.0);
+        // A Poisoned Dedenne stays Poisoned while Singe burns it: both rounds after each hit (Codex on #128).
+        assert_eq!(damage(&mut state.clone(), 0, &first_attack(&blacephalon), 0, POISON_ROUND), BURN_ROUND + POISON_ROUND);
+        // Only the first attack after coming into play: Iron Bundle ex's Cold Start is not a status hit after hit.
+        let cold_start = first_attack(&card("B3a 013"));
+        assert_eq!(inflicts(&cold_start), inflicts(&first_attack(&card("A1 001"))));
+    }
+
+    #[test]
+    fn an_attack_that_puts_its_user_to_sleep_waits_a_third_of_a_turn_more() {
+        // Snorlax's Collapse (100, then it is Asleep): at its next turn it still sleeps with ¼ (two Checkups), at the one
+        // after with 1/16...: ⅓ of a turn more between hits. Against a Mega Venusaur ex (240 HP), 3 hits and 2 waits of
+        // ⅓ (Codex on #128). Snorlax ex's Flop-Down Punch too.
+        assert_eq!(cooldown(mechanic(&first_attack(&card("A2a 063")))), 1.0 / 3.0);
+        assert_eq!(cooldown(mechanic(&first_attack(&card("A3b 057")))), 1.0 / 3.0);
+        let snorlax = card("A2a 063").with_energy(vec![Psychic; 4]);
+        let state = board(MISMAGIUS, VENUSAUR, vec![snorlax], vec![card("B1a 004")]);
+        assert!((turns(&state, 0, false) - (3.0 + 2.0 / 3.0)).abs() < 1e-9, "{}", turns(&state, 0, false));
+    }
+
+    #[test]
+    fn an_attack_that_shuffles_its_user_away_hits_once() {
+        // Accelgor's Deck and Cover (50, Poisoned and Paralyzed, then Accelgor goes back into the deck): it wins only if
+        // one hit is enough (Codex on #128).
+        let accelgor = card("B4 014").with_energy(vec![Psychic, Psychic]);
+        let with = |dedenne: PlayedCard| {
+            let mut state = board(MISMAGIUS, DEDENNE, vec![accelgor.clone()], vec![dedenne]);
+            state.points = [1, 0];
+            state
+        };
+        assert_eq!(turns(&with(card("B3b 024").with_remaining_hp(40)), 0, false), 1.0);
+        assert_eq!(turns(&with(card("B3b 024")), 0, false), NO_THREAT);
+    }
+
+    #[test]
+    fn head_smash_ends_with_the_knockout_its_user_does_not_survive() {
+        // Rampardos' Head Smash (130; 50 to itself on a knockout) against two Bulbasaur, with a point to go for two: with
+        // 40 HP left it knocks out the first and falls with it; with all its 150, it takes both (Codex on #128).
+        let with = |hp: u32| {
+            let rampardos = card("A2 089").with_energy(vec![EnergyType::Fighting]).with_remaining_hp(hp);
+            let mut state = board(LUCARIO, VENUSAUR, vec![rampardos], vec![card("A1 001"), card("A1 001")]);
+            state.points = [1, 0];
+            state
+        };
+        assert_eq!(turns(&with(40), 0, false), NO_THREAT);
+        assert_eq!(turns(&with(150), 0, false), 2.0);
+    }
+
+    #[test]
+    fn a_bench_only_attack_does_not_hit_the_active() {
+        // Hitmonlee's Stretch Kick (30 to one of the rival's Benched Pokémon) gives 0 to its Active: f's reading of the
+        // text already leaves out damage that lands on the Bench, so the fallback adds nothing (Codex on #128).
+        let hitmonlee = card("A1 154").with_energy(vec![EnergyType::Fighting]);
+        let stretch_kick = first_attack(&hitmonlee);
+        assert_eq!(attack_damage(&stretch_kick), 0);
+        let mut state = board(LUCARIO, DEDENNE, vec![hitmonlee], vec![card("B3b 024"), card("A1 001")]);
+        assert_eq!(damage(&mut state, 0, &stretch_kick, 0, 0.0), 0.0);
+    }
+
+    #[test]
+    fn cold_start_has_its_bonus_once() {
+        // Iron Bundle ex's Cold Start: 60, and 20 more the first time it attacks after coming into play. Against a Mega
+        // Venusaur ex with 150 HP left that is 80 + 60 + 60, 3 hits, not the 2 of 80 each (Codex on #128).
+        let iron_bundle = card("B3a 013").with_energy(vec![EnergyType::Water, EnergyType::Water, EnergyType::Water]);
+        let state = board(SUICUNE, VENUSAUR, vec![iron_bundle], vec![card("B1a 004").with_remaining_hp(150)]);
+        assert_eq!(turns(&state, 0, false), 3.0);
+    }
+
+    #[test]
+    fn cold_start_bonus_goes_to_the_first_hit_whoever_takes_it() {
+        // The rival's Active, a Poisoned Bulbasaur with 10 HP, falls at its own Checkup before Iron Bundle ex hits: Cold
+        // Start's first attack lands on the Mega Venusaur ex it promotes (140 HP left), 80 + 60, 2 hits and not 3
+        // (Codex on #128).
+        let iron_bundle = card("B3a 013").with_energy(vec![EnergyType::Water, EnergyType::Water, EnergyType::Water]);
+        let bench = vec![card("A1 001").with_remaining_hp(10), card("B1a 004").with_remaining_hp(140)];
+        let mut state = board(SUICUNE, VENUSAUR, vec![iron_bundle], bench);
+        state.apply_status_condition(1, 0, StatusCondition::Poisoned);
+        state.current_player = 1;
+        assert_eq!(turns(&state, 0, false), 2.0);
+    }
+
+    #[test]
+    fn a_threshold_of_three_more_energy_is_tried() {
+        // Dhelmise's Energy Whip (20; 70 more with 3 extra [G]) against a Mega Venusaur ex (240 HP): three turns of
+        // Energy and then 90 a hit, 3 + 3, before the 12 hits of 20 (Codex on #128: two extra at most never got there).
+        let dhelmise = card("A1a 009").with_energy(vec![EnergyType::Grass]);
+        let state = board(VENUSAUR, VENUSAUR, vec![dhelmise], vec![card("B1a 004")]);
+        assert_eq!(turns(&state, 0, false), 3.0 + 3.0);
+    }
+
+    #[test]
+    fn a_burn_already_there_stays_through_a_coin_that_misses() {
+        // Fire Fang (B1 029): 50, Burned on heads. Against a Mega Venusaur ex (weak to [R]: 70) that is already Burned the
+        // burn after the first hit is certain, 70 + 30; after the next ones the coin counts, 70 + 15 (Codex on #128).
+        let growlithe = card("B1 029").with_energy(vec![EnergyType::Fire, EnergyType::Fire]);
+        let fire_fang = first_attack(&growlithe);
+        let mut state = board(DEDENNE, VENUSAUR, vec![growlithe], vec![card("B1a 004").with_remaining_hp(180)]);
+        state.apply_status_condition(1, 0, StatusCondition::Burned);
+        assert_eq!(damage(&mut state.clone(), 0, &fire_fang, 0, 0.0), 70.0 + BURN_ROUND);
+        // 100 + 85 = 185 takes the 180 in 2 hits; 85 each would take 3.
+        assert_eq!(turns(&state, 0, false), 2.0);
+    }
+
+    #[test]
+    fn a_poison_that_lands_stays_for_the_next_hits() {
+        // Tentacruel's Stun Poison: 50, and Poisoned on heads. The first hit is worth 50 + 10 (half a round of poison);
+        // the second 50 + 15, since the first one's poison is still there with 50 %, and the third 50 + 17,5 (Codex on
+        // #128). Against a Mega Venusaur ex with 125 HP left that is 2 hits, not the 3 of 60 each.
+        let tentacruel = card("A4a 016").with_energy(vec![EnergyType::Water, EnergyType::Water, EnergyType::Water]);
+        let state = board(MISMAGIUS, VENUSAUR, vec![tentacruel], vec![card("B1a 004").with_remaining_hp(125)]);
+        assert_eq!(turns(&state, 0, false), 2.0);
+        let hit = Hit { first: 60.0, later: 60.0, bonus: 0.0, clean: 0.5, round: 20.0 };
+        assert_eq!(
+            (hit.after(false, false, 1.0), hit.after(true, true, 0.5), hit.after(true, true, 0.25)),
+            (60.0, 65.0, 67.5)
+        );
+    }
+
+    /// Every attack text that poisons or burns, played by the engine on a board: the chance `inflicts` gives is the
+    /// share of the outcomes that leave the defender Poisoned or Burned.
+    #[test]
+    fn inflicted_status_is_what_the_engine_does() {
+        use deckgym::actions::{forecast_action, SimpleAction};
+        use rand::rngs::StdRng;
+        use rand::SeedableRng;
+        use strum::IntoEnumIterator;
+        let mut texts: Vec<String> = Vec::new();
+        let (mut checked, mut differ) = (0, Vec::new());
+        for id in deckgym::card_ids::CardId::iter() {
+            let Card::Pokemon(pokemon) = get_card_by_enum(id) else { continue };
+            for attack in &pokemon.attacks {
+                let Some(effect) = attack.effect.as_deref() else { continue };
+                if !(effect.contains("Poisoned") || effect.contains("Burned")) || texts.iter().any(|t| t == effect) {
+                    continue;
+                }
+                texts.push(effect.to_string());
+                let energy: Vec<EnergyType> = attack
+                    .energy_required
+                    .iter()
+                    .map(|e| if *e == EnergyType::Colorless { pokemon.energy_type } else { *e })
+                    .collect();
+                let attacker = PlayedCard::from_id(id).with_energy(energy);
+                // Mega Venusaur ex (240 HP) takes the hit and stays.
+                let mut state = board(DEDENNE, VENUSAUR, vec![attacker], vec![card("B1a 004")]);
+                state.turn_count = 3;
+                let (_, actions) = state.generate_possible_actions();
+                let Some(action) = actions.iter().find(|a| matches!(&a.action, SimpleAction::Attack(played) if played.title == attack.title)) else {
+                    continue;
+                };
+                // Each outcome many times over, for one that picks its status at random (Chemical Panic), and the
+                // status the attacker would pick when it asks (Select Powder: burn over poison, as `inflicts`).
+                const SEEDS: u64 = 256;
+                let (mut poison, mut burn) = (0.0, 0.0);
+                for seed in 0..SEEDS {
+                    let (probabilities, mutations) = forecast_action(&state, action).into_branches();
+                    for (probability, mutation) in probabilities.iter().zip(mutations) {
+                        let mut outcome = state.clone();
+                        mutation(&mut StdRng::seed_from_u64(seed), &mut outcome, action);
+                        let status = |state: &State| {
+                            let defender = state.in_play_pokemon[1][0].as_ref().expect("still in play");
+                            (f64::from(u8::from(defender.is_poisoned())), f64::from(u8::from(defender.is_burned())))
+                        };
+                        let (p, b) = match outcome.move_generation_stack.last() {
+                            Some((0, choices)) => choices
+                                .iter()
+                                .map(|choice| {
+                                    let mut chosen = outcome.clone();
+                                    chosen.move_generation_stack.pop();
+                                    let mut game = Game::from_state(chosen, Vec::new(), seed);
+                                    game.apply_action(&deckgym::actions::Action { actor: 0, action: choice.clone(), is_stack: true });
+                                    status(&game.get_state_clone())
+                                })
+                                .fold((0.0, 0.0), |best, (p, b)| if POISON_ROUND * p + BURN_ROUND * b > POISON_ROUND * best.0 + BURN_ROUND * best.1 { (p, b) } else { best }),
+                            _ => status(&outcome),
+                        };
+                        poison += probability * p / SEEDS as f64;
+                        burn += probability * b / SEEDS as f64;
+                    }
+                }
+                checked += 1;
+                let ours = inflicts(attack, mechanic(attack));
+                if (ours.poison - poison).abs() > 0.08 || (ours.burn - burn).abs() > 0.08 {
+                    differ.push(format!("{}: ours {:?}, engine poison {poison} burn {burn}", attack.title, ours));
+                }
+            }
+        }
+        assert!(checked >= 18, "only {checked} of {} texts checked", texts.len());
+        assert!(differ.is_empty(), "{} of {checked} differ:\n{}", differ.len(), differ.join("\n"));
+    }
+
+    #[test]
+    fn cyberjack_counts_the_trainers_a_list_still_has() {
+        // Porygon-Z's Cyberjack: 20 more for each Trainer in the rival's deck. Hidden, the 20 cards of the rival (one
+        // Pokémon in play) were all Trainers for it: 420. A list of the bank still has 12 Trainers of its other 19
+        // cards: 13 of the 20 (Codex on #117).
+        let porygon = card("B1a 058").with_energy(vec![EnergyType::Colorless; 3]);
+        let mut state = board(DEDENNE, DEDENNE, vec![porygon.clone()], vec![card("B3b 024")]);
+        state.decks[1].cards.truncate(20);
+        hide(&mut state, 1);
+        let trainers = state.decks[1].cards.iter().filter(|c| matches!(c, Card::Trainer(_))).count();
+        assert_eq!(trainers, 13);
+        assert_eq!(damage(&mut state, 0, &first_attack(&porygon), 0, 0.0), 20.0 + 13.0 * 20.0);
+    }
+
+    #[test]
+    fn the_bench_takes_what_the_engine_gives_it_there() {
+        let attack_of = |id: &str, title: &str| match &card(id).card {
+            Card::Pokemon(pokemon) => pokemon.attacks.iter().find(|attack| attack.title == title).expect(title).clone(),
+            _ => unreachable!(),
+        };
+        // Swirling Disaster's 10 to a Benched Luxray: its Intimidating Fang (-20) is only for the Active Spot (Codex on
+        // #128; moved there to ask, it took 0). A Protective Poncho keeps it off.
+        let swirling = attack_of("A2 104", "Swirling Disaster");
+        let bench = vec![card("B3b 024"), card("A3a 015"), card("A1 001").with_tool(tool("B2 147"))];
+        let state = board(MISMAGIUS, DEDENNE, vec![card("A2 104").with_energy(vec![Psychic])], bench);
+        assert_eq!(bench_damage(&state, 0, &swirling, mechanic(&swirling), 1), 10.0);
+        assert_eq!(bench_damage(&state, 0, &swirling, mechanic(&swirling), 2), 0.0);
+        // Toxtricity ex's Damaging Spark: 90, and 30 to each Benched Pokémon that already has damage (Codex on #128).
+        let spark = attack_of("B2 055", "Damaging Spark");
+        let toxtricity = card("B2 055").with_energy(vec![Lightning, Lightning, Lightning]);
+        let with_bench = |bulbasaur: PlayedCard| {
+            let mut state = board(DEDENNE, DEDENNE, vec![toxtricity.clone()], vec![card("B3b 024"), bulbasaur]);
+            state.points = [2, 0];
+            state
+        };
+        let (hurt, unhurt) = (with_bench(card("A1 001").with_damage(50)), with_bench(card("A1 001")));
+        assert_eq!(bench_damage(&hurt, 0, &spark, mechanic(&spark), 1), 30.0);
+        assert_eq!(bench_damage(&unhurt, 0, &spark, mechanic(&spark), 1), 0.0);
+        // Before the rival picks its new Active after a knockout there is none to ask about: 0, not deckgym's panic
+        // (found against the bank's Mega Manectric ex list).
+        let mut no_active = hurt.clone();
+        no_active.in_play_pokemon[1][0] = None;
+        assert_eq!(bench_damage(&no_active, 0, &spark, mechanic(&spark), 1), 0.0);
+        // With 2 points, the hurt Bulbasaur (20 HP left) falls to the first one and wins; unhurt, Dedenne ex (120 HP) takes
+        // two.
+        assert_eq!(turns(&hurt, 0, false), 1.0);
+        assert_eq!(turns(&unhurt, 0, false), 2.0);
     }
 }

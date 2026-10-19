@@ -74,9 +74,19 @@ pide tres funciones públicas al fork. La evaluación usa solo lo que un jugador
 Para eso evalúa sobre una copia en la que la mano y el mazo del rival son cartas desconocidas: cuántas hay es público,
 qué son no (`hide`, de la revisión de #111). Así no se cuela lo oculto por un ataque que lo cuenta (Cyberjack de
 Porygon-Z cuenta los Entrenadores del mazo rival; Puppy Pile de Lillipup, los Lillipup de la mano de su dueño) ni por
-el término «Activo listo» de deckgym, que busca evoluciones en la mano y el mazo de cada lado. Las desconocidas
-cuentan como Objetos sin nombre; con la línea 2 pasan a ser la lista típica del arquetipo. Un test compara dos
+el término «Activo listo» de deckgym, que busca evoluciones en la mano y el mazo de cada lado. Un test compara dos
 tableros iguales en lo público y distintos en lo oculto: dan lo mismo.
+
+Qué son las desconocidas: en g 1.0 eran todas Objetos sin nombre, y Cyberjack las contaba todas como Entrenadores
+(Codex en #117). Desde g 1.1 son lo que le quedaría a una lista del banco, según lo que el rival ya mostró:
+- una lista del banco de B4a lleva de 10 a 16 Entrenadores de 20 (12,4 por peso), así que se toman 12 Entrenadores y
+  8 Pokémon;
+- a eso se le resta lo que está en juego (un Fase 2 son tres cartas, y cada Herramienta un Entrenador) y lo
+  descartado;
+- lo que queda se reparte una sola vez entre la mano y el mazo juntos, así que nunca hay más Entrenadores de los que
+  quedan (Codex en #128).
+Los Pokémon desconocidos son Básicos sin ataques, sin Habilidad y sin evolución. Con la línea 2 pasan a ser la lista
+típica del arquetipo.
 
 ### 1. El daño, del motor
 
@@ -146,31 +156,79 @@ No llevan un término propio:
 
 El peso de la herramienta del Activo (10) queda como parámetro.
 
+En g 1.1 (18/10), dos cambios para que las juegue de verdad:
+- **«Atacar ahora» en la hoja.** Jugar una Herramienta son dos decisiones: la carta y después el Pokémon. Con
+  profundidad 2, el ataque queda pasado la hoja, y atacar primero muestra su daño enseguida. Por eso g 1.0 atacaba
+  con Herramientas en la mano. Ahora una hoja en medio de su propio turno vale al menos lo que da atacar ahí mismo.
+  El ataque se aplica sobre la copia con lo del rival tapado, y como termina el turno, es un paso más y nada más hondo.
+  Si el ataque pide una elección (el Pokémon de la Banca de Shadow Bullet), hace la mejor, hasta 2, y después termina
+  el turno antes de valer (Codex en #128). Una hoja de la búsqueda justo después de un ataque propio también se vale
+  después de terminar el turno: lo dice deckgym (`end_turn_pending`), no que solo quede terminarlo, así que un Activo
+  bloqueado (Prismatic Laser) no es un turno terminado. Si a esa hoja le queda una elección del ataque, queda como
+  está: la eligió la partida con las cartas reales, y sobre la copia tapada podía nombrar una que no está.
+- **El golpe que sobra** (`margin`, 0,1 de golpe). Un KO con daño de sobra vale un poco más que uno justo. Así, una
+  Herramienta que suma daño sin ahorrar un golpe entero paga la carta que saca de la mano. Sola apenas mueve; desempata.
+
 ### 4. Daño diferido y estados
 
 - **En el tablero.** Antes de contar golpes, a los PS del objetivo se les resta lo que ya va a caer:
   - `DelayedDamage`, en los efectos del Pokémon (`PlayedCard::public_details`);
-  - el daño diferido sobre un lugar, en `State::public_turn_effects`;
-  - el veneno: 10 por cada control, o lo que diga el ataque, y hay un control al final de cada turno, así que son 20
-    por vuelta;
-  - la quemadura (`is_burned`): 20 por control, con una moneda para curarse.
+  - el daño diferido sobre un lugar, en `State::public_turn_effects`, y el KO programado sobre un lugar (Abyssal
+    Drop), que vale todos sus PS;
+  - la quemadura (`is_burned`): 20 por control, con una moneda para curarse. Si el ataque no la vuelve a poner, se
+    apaga: 20 + 10 + 5… son 40 en total, no 30 por golpe (Codex en #128).
+
+  El veneno se cuenta golpe a golpe: 10 por cada control, o lo que diga el ataque, y hay un control al final de cada
+  turno, así que son 20 por vuelta después de cada golpe. Antes del primero cae solo el control que cierra el turno
+  del defensor, si ese turno viene primero. Un KO en los controles que siguen a un golpe cuenta en el turno de ese
+  golpe. Un veneno con moneda que ya cayó se queda: Stun Poison envenena con 50 % después del primer golpe y con 75 %
+  después del segundo (Codex en #128).
 
   Así, después de Cursed Prose, el tablero ya vale 90 de daño. Cambiar de Activo borra `DelayedDamage`, así que el
   rival lo puede esquivar retirándose. Por eso ese daño lleva su propio peso, 1 por defecto, para afinar en la línea 3.
 - **En lo que viene:**
   - un ataque que deja daño para después (`DamageAndCardEffect` con `DelayedDamage`, y `DelayedSpotDamage`) cuenta
     ese daño como suyo;
-  - uno que envenena suma 20 por turno del atacante.
+  - uno que envenena o quema suma su vuelta (20 o 30) por golpe, con la probabilidad de su mecánica: la mitad con
+    una moneda, 11/16 en Cross Poison (al menos 2 caras de 4). Un test lo compara con el motor en los 23 textos que
+    envenenan o queman;
+  - envenenar de nuevo reemplaza el veneno anterior, con su probabilidad: Toxic sobre un veneno común da 40 por
+    vuelta, no 20. Un estado que solo pone el primer ataque (`FirstAttackBonusDamageAndStatus`) no se cuenta golpe a
+    golpe, y su daño de más tampoco: Cold Start pega 80 la primera vez y 60 después, y esos 20 van al primer golpe del
+    plan aunque caiga en otro objetivo, como el que sube después de que el Activo cae envenenado (Codex en #128);
+  - una quemadura que el Activo ya tiene sigue durante el primer golpe de un ataque que vuelve a quemar con moneda
+    (Fire Fang de B1 029): esa vuelta es segura, y la de los golpes siguientes lleva la moneda (Codex en #128).
 - **Sueño y parálisis:**
   - un Activo paralizado no ataca el turno que viene: le suma 1 turno a su reloj;
-  - uno dormido tira una moneda en cada control, y pierde en promedio 2/3 de turno;
-  - cambiar de Activo o evolucionar cura los dos.
+  - uno dormido tira una moneda en cada control: pierde 4/3 de turno si es su turno (este y ¼ de cada siguiente) y
+    2/3 si es el del rival;
+  - la Energía y el estado corren a la vez: un Activo paralizado carga la Energía de su retirada mientras tanto;
+  - cambiar de Activo o evolucionar cura los dos;
+  - un ataque que duerme a su propio usuario (Collapse, Flop-Down Punch) espera ⅓ de turno más entre golpes: sigue
+    dormido en su turno siguiente con ¼, en el otro con 1/16, y así (Codex en #128).
 
 ### 5. Repetir un ataque y llegar al Activo
 
 - **Repetir:** un ataque que descarta su Energía no se puede repetir el turno siguiente. Cada golpe después del
   primero cuesta un turno por Energía descartada (al menos uno), con 1 Energía por turno, o más con aceleración.
-  Luster Purge, por ejemplo, pega cada 3 turnos.
+  Luster Purge, por ejemplo, pega cada 3 turnos. Entre golpes vuelve solo lo que el ataque usa: un Raichu con 5
+  Energías descarta las 5 en el primer Thunderbolt, pero para el siguiente le faltan 3. Mega Burst, en cambio, pega
+  por cada Energía que descarta: para pegar lo mismo tiene que recuperarlas todas (Codex en #128). Uno que no puede
+  atacar el turno siguiente (Prismatic Laser, Big Beat) pega cada dos turnos.
+- **Cargar:** la Energía que falta se pone de a una, como llega turno a turno, así lo que cuenta doble (Jungle Totem)
+  necesita menos, también si el que ataca evoluciona a Serperior. Un ataque que pega más con más Energía prueba hasta
+  2 de más, o hasta su umbral si pide más (Energy Whip de Dhelmise: 3 de más): Mega Burst con una tercera hace 150 y noquea de un golpe a un Pokémon de 120 PS. Prueba los dos pasos
+  aunque el primero no sume (en Crush the Weak de Scrafty, la primera puede empatar la Energía del rival y recién la
+  segunda la pasa), con la Energía del tipo que cuenta
+  la mecánica, si la zona la hace: Psykick de Medicham pega 50 más con una [P] (Codex en #128).
+- **Retroceso:** un plan no pide más golpes de los que su atacante aguanta (Beat Punk, Enormous Explosion), ni más KO
+  de los que sobrevive (Head Smash: 50 por cada KO). Un ataque que baraja a su usuario en el mazo (Deck and Cover)
+  gana solo con un golpe (Codex en #128).
+- **A todos a la vez:** un ataque que también le pega a toda la Banca (Swirling Disaster, Gigashock) la desgasta
+  junto con el Activo. Tres Pokémon de 50 PS caen juntos en 5 golpes, no en 15. Puede ganar por la Banca aunque el
+  Activo no reciba daño (Safeguard). Lo que recibe cada uno de la Banca es lo que da el motor para ese lugar: sin
+  Debilidad, con la escalada de Wild Spin, Damaging Spark solo a los que ya tienen daño y sin las reducciones que un
+  Luxray tendría como Activo (Codex en #128).
 - **Llegar al Activo:** un atacante de la Banca necesita que el Activo se vaya. A su preparación se le suma la
   Energía que al Activo todavía le falta para pagar su retirada: el costo menos lo que ya tiene puesto, a una por
   turno. Si ya la tiene, no suma nada. El costo baja con Globito y es 0 si el Activo es Latios con Latias en juego
@@ -345,6 +403,135 @@ Elo de la liga de tres (semilla 20261015): e2 0, f2 +48, g2 +63.
     mazo 23;
   - la liga con más mazos, en la app.
 
+## Resultados de g 1.1 (18/10/2026)
+
+**Dedenne y sus Herramientas.** Partidas reales del mazo 16 contra 6 mazos del banco, 72 por bot, el mismo bot de los
+dos lados. Se cuentan los ataques de Dede-Circuit hechos con una Herramienta todavía en la mano que se podía poner:
+
+| Bot | Ataques | Con una Herramienta jugable en la mano |
+|---|---|---|
+| e2 | 123 | 119 |
+| g2 1.0 | 110 | 83 |
+| g2 1.0 con el golpe que sobra | 111 | 75 |
+| g2 con «atacar ahora» | 105 | 4 |
+| e3 | 102 | 6 |
+
+Queda como caso fijo en `dedenne_attaches_its_tools_before_attacking`: como mucho un quinto de los ataques. Con
+«atacar ahora» apagado, el test falla.
+
+**Dedenne contra el banco del meta B4a** (`lab_meta_bank` del 18/10: 18 listas de 15 arquetipos, con sus pesos).
+Son 200 partidas por lista (n = 3.600 por fila), el mismo bot de los dos lados, la misma semilla por lista y la
+fórmula del `metaScore` de la app (un empate no cuenta como victoria):
+
+| Bot | Mazo 16 | Lista de torneo 1d76b8c1b53c88 |
+|---|---|---|
+| e2 | 17,0 % (IC 95 % 15,7–18,2 %) | 27,6 % (26,1–29,0 %) |
+| g2 1.0 | 29,2 % (27,7–30,7 %) | 41,7 % (40,1–43,3 %) |
+| e3 | 39,5 % (37,9–41,2 %) | 46,9 % (45,3–48,6 %) |
+| g2 1.1 antes de la autorrevisión | 46,1 % (44,4–47,7 %) | 54,2 % (52,5–55,8 %) |
+| g2 1.1 antes de Codex en #128 | 44,9 % (43,2–46,6 %) | 52,5 % (50,8–54,1 %) |
+| g2 1.1 antes de los últimos de Codex | 42,2 % (40,5–43,8 %) | 50,4 % (48,7–52,1 %) |
+| **g2 1.1** (25554ff, motor `0b510d1`) | **42,0 % (40,4–43,7 %)** | **50,3 % (48,6–51,9 %)** |
+
+- En torneos, el arquetipo da 52,4 % (n = 584). Es otra fuente y no se combina con estas: sirve de baranda. g2 1.1
+  es el bot que deja a la lista de torneo más cerca de donde está en los torneos, con el intervalo apenas abajo.
+- La autorrevisión (veneno y quemadura después del golpe, la Debilidad del texto) le baja un punto y medio a Dedenne,
+  y los 12 arreglos de #128, otros dos o tres: los rivales del banco que envenenan, queman o pegan a la Banca también
+  juegan mejor.
+- El rival también juega con el bot de la fila, así que parte del cambio es la fuerza del banco, no solo la de
+  Dedenne.
+
+**La liga** (`scripts/bots-league.mjs`, los 11 mazos de siempre, 40 partidas por lado, 2.200 apareadas por fila, IC
+por bootstrap sobre los 55 pares):
+
+| g2 | Semilla | contra e2 | contra f2 |
+|---|---|---|---|
+| 1.0 | 20261015 | 59,0 % (55,9–62,4 %) | 52,0 % (50,6–53,4 %) |
+| 1.0 + «atacar ahora» y el golpe que sobra | 20261015 | 65,6 % (62,3–69,1 %) | 59,5 % (57,4–61,8 %) |
+| 1.1 antes de la autorrevisión | 20261015 | 66,3 % (63,0–69,9 %) | 60,3 % (58,2–62,5 %) |
+| 1.1 antes de la autorrevisión | 20261018 (nueva) | | 59,1 % (57,0–61,3 %) |
+| 1.1 antes de Codex en #128 | 20261015 | 67,2 % (63,9–70,6 %) | 59,7 % (57,6–62,0 %) |
+| 1.1 antes de Codex en #128 | 20261018 (nueva) | | 61,7 % (59,6–64,0 %) |
+| 1.1 en a75be19 | 20261015 | 68,8 % (65,7–72,0 %) | 63,5 % (61,4–65,7 %) |
+| 1.1 en a75be19 | 20261018 (nueva) | | 62,1 % (60,2–64,0 %) |
+| **1.1** (25554ff, motor `0b510d1`) | 20261015 | **68,7 % (65,6–71,9 %)** | **63,5 % (61,5–65,7 %)** |
+| **1.1** (25554ff, motor `0b510d1`) | 20261018 (nueva) | | **62,4 % (60,5–64,4 %)** |
+
+- g2 con «atacar ahora» le gana a g2 1.0 57,9 % (IC 56,0–59,8 %).
+- Terminar el turno antes de valer el ataque (autorrevisión) compra poco pero algo: g2 le gana 51,6 % (IC 50,8–52,5 %)
+  al mismo g2 sin ese paso.
+- **Cumple el criterio contra los dos:** le gana a e2 y a f2 con el intervalo entero arriba del 50 %, también con
+  semillas nuevas.
+- Casi toda la ganancia viene de «atacar ahora». Los 14 arreglos de Codex en #117 suman menos de un punto en el
+  promedio: cada uno cambia pocos cruces, como en la ablación de g 1.0. Los 12 de #128 suben a f2 casi 4 puntos con la
+  semilla de siempre, pero medio punto con la nueva: lo firme es que no bajan.
+- Con su mazo, g2 contra f2: el 16 gana 56,4 % y f2 10,8 %; el 23, 35,6 % y 17,3 %; el 40, 77,0 % y 51,4 % (n = 400
+  por bot). Mezcla la fuerza del mazo con la del bot.
+
+**La velocidad,** en los mismos 10 cruces de antes con 40 partidas y 4 hilos:
+
+| Bot | Por partida y por hilo |
+|---|---|
+| e2 | 104–109 ms |
+| f2 | 119 ms |
+| g2 1.0 | 236 ms |
+| g2 1.1, primera versión | 359 ms (3,45 veces e2) |
+| g2 1.1 antes de la autorrevisión | 293 ms (2,7–2,8 veces e2) |
+| g2 1.1 antes de Codex en #128 | 335 ms (3,2 veces e2, con e2 en 106) |
+| g2 1.1 en a75be19 | 324–335 ms (2,9–3,2 veces e2, con e2 en 106–115) |
+| g2 1.1 (25554ff, motor `0b510d1`) | 333–345 ms (unas 3 veces e2, con e2 en 111–112) |
+
+**g2 1.1 queda en el borde del tope de 3 que pone este diseño.** Lo que suma la autorrevisión es terminar el turno después de
+cada ataque de «atacar ahora» (unos 46 ms por partida), y se queda: es un error de reglas, no una heurística. El
+Coordinador aceptó el 18/10 hasta 3,5 veces e2 mientras la app no use g.
+
+La evaluación base de deckgym no es lo que pesa en g. Una variante en el fork que saltea los términos con peso 0 y no
+copia el mazo y la mano para «Activo listo» (santiqwerty1/deckgym-core#1) juega las mismas partidas: 30 trabajos de 40 partidas
+de e2, f2 y g2, idénticos. Pero baja e2 un 15 % (113 a 96 ms) y f2 un 19 % (132 a 107), y g2 solo un 2 % (318 a 312).
+Lo de g es su propio reloj y «atacar ahora». Con esa variante, g2 queda en 3,25 veces e2, porque e2 se abarata más.
+
+La primera versión se pasaba del tope de 3. Bajó así:
+- la mecánica de cada ataque se busca una vez;
+- solo los ataques que escalan con la Energía prueban más;
+- «atacar ahora» no genera las acciones donde el Activo no tiene pagado ningún ataque;
+- `public_details`, que copia los efectos, se lee solo donde hace falta;
+- las cartas tapadas no llevan texto.
+
+En 120 partidas de g2 contra sí mismo, los ganadores son los mismos antes y después. En la autorrevisión se
+saltean además los planes cuyo armado ya no le gana al mejor, y el fin del turno se aplica sin copiar el tablero (160
+partidas idénticas).
+
+**Las partidas doradas:** g1 y g2 salen de `games-rev.json` (de 38 casos a 34) sin subir `GAMES_REV`. Vuelven en el
+PR que deja que la app use g, ya con su comportamiento final. Lo decidió el Coordinador el 18/10: ningún trabajo de la
+cola puede pedir g todavía.
+
+**Dos pánicos de deckgym, encontrados midiendo y arreglados, cada uno con su test:**
+- una hoja justo después de un ataque con una elección en la pila: esa elección se hizo con las cartas reales, y
+  aplicarla sobre la copia con la mano del rival tapada nombraba una carta que no está. Esa hoja queda como está;
+- pedirle al motor el daño a un lugar de la Banca cuando el rival todavía no eligió su nuevo Activo: deckgym mira las
+  habilidades del Activo (Intimidating Fang) y no lo encuentra. Ahí la Banca no recibe nada.
+
+Después, todos los cruces de la liga con g1, g2 y g3 (y g2 contra e2) y las 36 corridas del banco terminaron sin
+fallas.
+
+### La deuda de g (Codex en #128)
+
+Codex revisó #128 ocho veces y dejó 31 hallazgos: 25 arreglados con su test, 2 que no se sostienen (el robo del
+rival después del fin del turno, que la búsqueda de deckgym tampoco aplica, y Stretch Kick sobre el Activo, que ya daba
+0) y 4 que piden modelar algo nuevo. Con la regla que aceptó el Coordinador el 19/10, esos tres quedan
+acá, respondidos en su hilo con el enlace, para la carrera o la evaluación aprendida (líneas 3 y 4). Siempre se arreglan, en cambio,
+los pánicos, las fallas de un cruce y cualquier cosa que deje ver lo oculto.
+- **El daño del ataque que se carga solo** (Plasma Hurricane de Tapu Koko ex): el reloj cuenta la carga como ritmo de
+  Energía, no el daño que hace mientras carga. Pide modelar el ataque de carga con su costo y sus turnos.
+- **La carta de arriba de lo oculto** (Cliff Crumbler, Crackling Snap): cualquier orden sintético deja fija la clase
+  de la carta de arriba. Promediar pide pedir esos ataques con las dos clases.
+- **Las chances de Chemical Panic** según los estados que el objetivo ya tiene: `inflicts` es por ataque, y esto lo
+  vuelve por objetivo.
+- **Los ataques que le pegan a un solo Pokémon de la Banca** (Stretch Kick): el reloj no los cuenta como amenaza
+  aunque su KO pueda ganar. Pide elegir objetivos de la Banca por puntos mientras el Activo queda.
+- **Menor, sin hallazgo propio:** una quemadura de antes que sigue después de dos controles (¼) en los golpes
+  siguientes de un ataque que quema con moneda.
+
 ## Cómo entra en la app
 
 - **Hecho en g 1.0:**
@@ -371,12 +558,14 @@ Elo de la liga de tres (semilla 20261015): e2 0, f2 +48, g2 +63.
 ## Plan
 
 1. **Este diseño** (#111, integrado).
-2. **g 1.0** (puntos 1 a 5 y 7, engine-cli 0.3.13), con sus tests, contra el fork `018b419`. Es un PR de riesgo
-   alto, porque toca el motor, y va apilado sobre #115, el de Infra que pasa el motor al fork. Resultados arriba.
-3. **La app acepta g:** los códigos, el filtro de la cola, los avisos, las partidas contra el bot y las tools (riesgo
-   medio).
-4. **La carrera** (punto 6) y la herramienta de la liga, con las primeras mediciones.
-5. **Línea 2, sin trampa:**
+2. **g 1.0** (#117, integrado): puntos 1 a 5 y 7, engine-cli 0.3.13, con sus tests, contra el fork `018b419`.
+   Resultados arriba.
+3. **g 1.1** (18/10): «atacar ahora» en la hoja, el golpe que sobra y los 14 hallazgos de Codex en #117. Resultados
+   abajo.
+4. **La app acepta g:** los códigos, el filtro de la cola, los avisos, las partidas contra el bot y las tools (riesgo
+   medio). Ahí vuelven g1 y g2 a las partidas doradas, que g 1.1 dejó afuera.
+5. **La carrera** (punto 6) y la herramienta de la liga, con las primeras mediciones.
+6. **Línea 2, sin trampa:**
    - una búsqueda propia: el expectiminimax de deckgym copiado en nuestro crate (unas 150 líneas, AGPL), con
      `forecast_action`;
    - con determinización: en cada decisión, K mundos posibles en los que se mezcla el mazo propio, así los robos dejan
@@ -388,14 +577,14 @@ Elo de la liga de tres (semilla 20261015): e2 0, f2 +48, g2 +63.
      después de Darkness Claw, el bot juega distinto que sin la revelación;
    - cada acción se promedia sobre los mundos;
    - cuesta K veces más (K de 4 a 8).
-6. **Línea 3, los pesos:**
+7. **Línea 3, los pesos:**
    - CMA-ES sobre `GParams`, con un subcomando de engine-cli que corre afuera de la app;
    - la nota es el porcentaje contra la liga, con semillas comunes y mazos fijos;
    - **sin sobreajuste** (revisión de #111): el afinado elige con unas semillas y unos mazos, y la nota que vale (el
      criterio, el intervalo y el Elo) sale de otra liga, con semillas nuevas y, si se puede, otras listas, con los
      `GParams` ya fijos. Elegir sobre las mismas partidas que dan el intervalo lo deja angosto de más;
    - los torneos quedan como control.
-7. **Línea 4, la red:** primero el diseño:
+8. **Línea 4, la red:** primero el diseño:
    - autojuego al estilo AlphaZero, con lo que el tablero muestra como entrada;
    - inferencia con enteros, o en Rust con solo las operaciones de arriba y su orden fijo, para que Windows y Android
      den lo mismo.
