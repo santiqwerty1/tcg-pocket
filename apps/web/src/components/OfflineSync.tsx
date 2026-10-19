@@ -14,7 +14,11 @@ import { flushPending, useOnline, usePendingMatches } from '@/lib/offlineMatches
 export async function sendPending(queryClient: QueryClient): Promise<number> {
   const sent = await flushPending(sendMatch)
   if (sent > 0) {
-    await queryClient.invalidateQueries({ queryKey: matchKeys.all })
+    // Review of #130: a match sent with its rank changes the season too (Temporada and Hoy).
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: matchKeys.all }),
+      queryClient.invalidateQueries({ queryKey: ['ranked'] }),
+    ])
     toast.success(
       sent === 1 ? 'Se envió la partida guardada sin señal' : `Se enviaron ${sent} partidas guardadas sin señal`,
     )

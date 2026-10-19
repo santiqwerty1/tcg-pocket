@@ -186,6 +186,84 @@ describe('ranked by season and rank (e2e)', () => {
     expect((await del(`/api/ranked/ranks/${noted.body.id}`)).status).toBe(204)
   })
 
+  it('deuda de #120: the app notes the rank with the match; deleting or moving the match takes its rank along', async () => {
+    const at = (playedAt: string) => test.prisma.rankChange.findMany({ where: { at: new Date(playedAt) } })
+    // A match saved offline that arrives with its rank: noted at its instant; sent again, nothing more.
+    const offline = {
+      deckId: decks[0]?.id,
+      result: 'win',
+      mode: 'competitive',
+      clientRef: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+      rank: 'great-3',
+    }
+    const sent = await post('/api/matches').send({ ...offline, playedAgoMs: 5 * 60 * 60 * 1000 })
+    expect(sent.status).toBe(201)
+    const playedAt = sent.body.playedAt as string
+    expect((await at(playedAt)).map((row) => row.rank)).toEqual(['great-3'])
+    expect((await post('/api/matches').send({ ...offline, playedAgoMs: 5 * 60 * 60 * 1000 })).body.id).toBe(
+      sent.body.id,
+    )
+    expect(await at(playedAt)).toHaveLength(1)
+    // Points only with Master Ball; a casual match notes no rank, and is saved.
+    expect(
+      (
+        await post('/api/matches').send({
+          ...offline,
+          clientRef: '9b2d6e1a-3c4f-4a5b-8c7d-1e2f3a4b5c6d',
+          rankPoints: 10,
+        })
+      ).status,
+    ).toBe(400)
+    const casual = await post('/api/matches').send({
+      deckId: decks[0]?.id,
+      result: 'win',
+      mode: 'casual',
+      rank: 'great-3',
+      playedAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
+    })
+    expect(casual.status).toBe(201)
+    expect(await at(casual.body.playedAt)).toHaveLength(0)
+    // Moving the match moves its rank; deleting it takes the rank along.
+    const movedTo = new Date(Date.now() - 4.5 * 60 * 60 * 1000).toISOString()
+    expect(
+      (await test.http().patch(`/api/matches/${sent.body.id}`).set('Cookie', cookie).send({ playedAt: movedTo }))
+        .status,
+    ).toBe(200)
+    expect(await at(playedAt)).toHaveLength(0)
+    expect((await at(movedTo)).map((row) => row.rank)).toEqual(['great-3'])
+    // Review of #130: not into another season (the OLD one), where its rank would no longer count.
+    const intoOld = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    const crossing = await test
+      .http()
+      .patch(`/api/matches/${sent.body.id}`)
+      .set('Cookie', cookie)
+      .send({ playedAt: intoOld })
+    expect(crossing.status).toBe(400)
+    expect((await at(movedTo)).map((row) => row.rank)).toEqual(['great-3'])
+    expect((await get(`/api/matches/${sent.body.id}`)).body.playedAt).toBe(movedTo)
+    expect((await del(`/api/matches/${sent.body.id}`)).status).toBe(204)
+    expect(await at(movedTo)).toHaveLength(0)
+    // With another match at that very instant, the rank stays.
+    const shared = new Date(Date.now() - 3.5 * 60 * 60 * 1000).toISOString()
+    const one = await post('/api/matches').send({
+      ...offline,
+      clientRef: '3e7c1f20-8a4b-4c6d-9e0f-1a2b3c4d5e6f',
+      playedAt: shared,
+    })
+    const two = await post('/api/matches').send({
+      deckId: decks[1]?.id,
+      result: 'loss',
+      mode: 'competitive',
+      playedAt: shared,
+    })
+    expect(two.status).toBe(201)
+    expect((await del(`/api/matches/${one.body.id}`)).status).toBe(204)
+    expect(await at(shared)).toHaveLength(1)
+    expect((await del(`/api/matches/${two.body.id}`)).status).toBe(204)
+    expect(await at(shared)).toHaveLength(0)
+    expect((await del(`/api/matches/${casual.body.id}`)).status).toBe(204)
+  })
+
   it('verification of #120: two notes for one moment at once leave one row', async () => {
     const at = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
     const both = await Promise.all([

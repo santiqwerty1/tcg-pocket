@@ -616,6 +616,9 @@ export interface MatchInput {
   playedAgoMs?: number
   /** 14/10: the rival's cards seen. */
   opponentCards?: { cardId: string; count: number }[]
+  /** Deuda de #120: the rank it led to, for a match saved offline (noted at its instant when it gets there). */
+  rank?: string
+  rankPoints?: number | null
 }
 
 /** 14/10: an archetype of the era for the rival's cards seen. */
@@ -1123,6 +1126,16 @@ export const chatParticipantSchema = z.object({
 })
 export type ChatParticipant = z.infer<typeof chatParticipantSchema>
 export const chatParticipantsResponseSchema = z.object({ items: z.array(chatParticipantSchema) })
+
+/** D-030 (T1b): each room of the chat, and the hub it moved to (null: still in tcg-pocket). */
+export const chatMovedRoomSchema = z.object({
+  room: z.enum(CHAT_ROOMS),
+  label: z.string(),
+  url: z.string().nullable(),
+  since: isoDate.nullable(),
+})
+export type ChatMovedRoom = z.infer<typeof chatMovedRoomSchema>
+export const chatMovedResponseSchema = z.object({ items: z.array(chatMovedRoomSchema), forwarding: z.boolean() })
 
 export const apiTokenSchema = z.object({
   id: z.union([z.string(), z.number()]).transform(String),

@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { API_ROOT, loadDotEnv } from './dotenv.js'
 
 export const DEFAULT_CATALOG_COMMIT = '3ab58f1cec6a03e3e85455cf7aade3bb8561f92e'
-export const DEFAULT_ENGINE_REV = '018b4193365187063eab90b1eb0989087c93ad7f'
+export const DEFAULT_ENGINE_REV = '0b510d1b1b96ac356ea375e0f06a88e324a1bd9c'
 
 const gitSha = z.string().regex(/^[0-9a-f]{40}$/, 'must be a full 40-character lowercase git sha')
 
@@ -54,6 +54,11 @@ const envSchema = z.object({
   RETENTION_CRON: z.stringbool().optional(),
   /** Fase 38 (R-011): optional GitHub token for the API checks (5.000 calls an hour instead of 60 per shared IP). */
   GITHUB_TOKEN: z.string().min(10).optional(),
+  /**
+   * D-030 (T1b): tcg-pocket's connector token in the hub (`hub_mcp_…`), to forward the old connector's chat tools of a
+   * moved room. A secret for the weeks of the move; without it a moved room only says where it went.
+   */
+  HUB_MCP_TOKEN: z.string().min(20).optional(),
   /** Fase 8: look at the tracker's `main` for new sets (production by default). */
   TRACKER_UPSTREAM_CHECK: z.stringbool().optional(),
   TRACKER_UPSTREAM_URL: z.url().default('https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker'),
@@ -108,6 +113,8 @@ export interface Env {
   engineUpstreamUrl: string
   /** Fase 38: sent to api.github.com when set. */
   githubToken: string | null
+  /** D-030 (T1b): the connector token in the hub for the forwarding of moved rooms. */
+  hubMcpToken: string | null
   /** Fase 39: the daily cleanup runs (off unless RETENTION_CRON=true). */
   retentionCron: boolean
   /** Fase 39: the bucket of the copy outside Supabase (null = off). */
@@ -192,6 +199,7 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
     trackerApiUrl: raw.TRACKER_API_URL.replace(/\/+$/, ''),
     engineUpstreamUrl: raw.ENGINE_UPSTREAM_URL.replace(/\/+$/, ''),
     githubToken: raw.GITHUB_TOKEN ?? null,
+    hubMcpToken: raw.HUB_MCP_TOKEN ?? null,
     retentionCron: raw.RETENTION_CRON ?? false,
     offsite:
       raw.AWS_ACCESS_KEY_ID && raw.AWS_SECRET_ACCESS_KEY && raw.AWS_ENDPOINT_URL_S3 && raw.BUCKET_NAME

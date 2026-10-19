@@ -55,6 +55,7 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
   let failing: { cards: string; gate: Promise<void> } | null
   let ranks: Record<string, unknown>[]
   let rankNow: Record<string, unknown> | null
+  let rankedReads: number
 
   beforeEach(() => {
     posted = []
@@ -62,6 +63,7 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
     failing = null
     ranks = []
     rankNow = { id: '1', at: '2026-10-14T21:10:00.000Z', rank: 'ultra-2', points: null, label: 'Ultra Ball 2' }
+    rankedReads = 0
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: string, init?: RequestInit) => {
@@ -149,6 +151,7 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
           })
         }
         if (url.pathname === '/api/ranked') {
+          rankedReads += 1
           return json({
             timeZone: 'America/Argentina/Buenos_Aires',
             today: '2026-10-15',
@@ -189,9 +192,9 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
     vi.unstubAllGlobals()
   })
 
-  function renderAt(path: string) {
+  function renderAt(path: string, staleTime = 0) {
     const router = createMemoryRouter(routes, { initialEntries: [path] })
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime } } })
     render(
       <Providers queryClient={queryClient}>
         <RouterProvider router={router} />
@@ -251,7 +254,8 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
     const ask = await within(form).findByRole('group', { name: '¿Cambiaste de rango?' })
     expect(within(ask).getByText('¿Cambiaste de rango? Estás en Ultra Ball 2.')).toBeInTheDocument()
     await user.click(within(ask).getByRole('button', { name: 'Subí a Ultra Ball 3' }))
-    await waitFor(() => expect(ranks).toEqual([{ rank: 'ultra-3' }]))
+    // Deuda de #120: at the match's instant, not at the tap's.
+    await waitFor(() => expect(ranks).toEqual([{ rank: 'ultra-3', at: '2026-10-07T19:00:00.000Z' }]))
     await waitFor(() => expect(within(form).queryByRole('group', { name: '¿Cambiaste de rango?' })).toBeNull())
   })
 
@@ -268,7 +272,7 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
     await user.selectOptions(within(ask).getByRole('combobox'), 'master')
     // Points with the thousands dot, and Enter in the box: the rank is noted, not another match.
     await user.type(within(ask).getByLabelText('Puntos'), '1.250{Enter}')
-    await waitFor(() => expect(ranks).toEqual([{ rank: 'master', points: 1250 }]))
+    await waitFor(() => expect(ranks).toEqual([{ rank: 'master', points: 1250, at: '2026-10-07T19:00:00.000Z' }]))
     await waitFor(() => expect(within(form).queryByRole('group', { name: '¿Cambiaste de rango?' })).toBeNull())
     expect(posted).toHaveLength(1)
   })
@@ -416,6 +420,68 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
     })
   })
 
+  it('deuda de #120: saving a match refreshes the season (Temporada and Hoy)', async () => {
+    const user = userEvent.setup()
+    // Nothing refetches by itself here: only an invalidation asks again.
+    renderAt('/partidas', Number.POSITIVE_INFINITY)
+    const form = await screen.findByRole('form', { name: 'Nueva partida' })
+    await waitFor(() => expect(rankedReads).toBeGreaterThan(0))
+    const before = rankedReads
+    await user.click(within(form).getByRole('button', { name: 'Distendida' }))
+    await user.click(within(form).getByRole('button', { name: 'Victoria' }))
+    await user.click(within(form).getByRole('button', { name: /Guardar partida/ }))
+    await waitFor(() => expect(posted).toHaveLength(1))
+    await waitFor(() => expect(rankedReads).toBeGreaterThan(before))
+  })
+
+  it('deuda de #120: without signal it asks too, and the rank travels with the match', async () => {
+    const user = userEvent.setup()
+    const online = vi.mocked(fetch).getMockImplementation()
+    let signal = false
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (!signal && String(input).startsWith('/api/matches') && init?.method === 'POST') {
+        throw new TypeError('Failed to fetch')
+      }
+      return (online as typeof fetch)(input, init)
+    })
+    renderAt('/partidas')
+    const form = await screen.findByRole('form', { name: 'Nueva partida' })
+    await user.click(within(form).getByRole('button', { name: 'Victoria' }))
+    await user.click(within(form).getByRole('button', { name: /Guardar partida/ }))
+    expect(await screen.findByText('Sin enviar (1)')).toBeVisible()
+    const ask = await within(form).findByRole('group', { name: '¿Cambiaste de rango?' })
+    await user.click(within(ask).getByRole('button', { name: 'Subí a Ultra Ball 3' }))
+    expect(await screen.findByText('Se anota con la partida, cuando vuelva la señal.')).toBeVisible()
+    expect(ranks).toEqual([])
+    signal = true
+    await user.click(screen.getByRole('button', { name: /Enviar ahora/ }))
+    await waitFor(() => expect(posted).toHaveLength(1))
+    expect(posted[0]).toMatchObject({ result: 'win', mode: 'competitive', rank: 'ultra-3' })
+    expect(ranks).toEqual([])
+  })
+
+  it('review of #130: the match left the phone before the tap — the rank goes at the instant the server gave it', async () => {
+    const user = userEvent.setup()
+    const online = vi.mocked(fetch).getMockImplementation()
+    let signal = false
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (!signal && String(input).startsWith('/api/matches') && init?.method === 'POST') {
+        throw new TypeError('Failed to fetch')
+      }
+      return (online as typeof fetch)(input, init)
+    })
+    renderAt('/partidas')
+    const form = await screen.findByRole('form', { name: 'Nueva partida' })
+    await user.click(within(form).getByRole('button', { name: 'Victoria' }))
+    await user.click(within(form).getByRole('button', { name: /Guardar partida/ }))
+    const ask = await within(form).findByRole('group', { name: '¿Cambiaste de rango?' })
+    signal = true
+    await user.click(screen.getByRole('button', { name: /Enviar ahora/ }))
+    await waitFor(() => expect(posted).toHaveLength(1))
+    await user.click(within(ask).getByRole('button', { name: 'Subí a Ultra Ball 3' }))
+    await waitFor(() => expect(ranks).toEqual([{ rank: 'ultra-3', at: '2026-10-07T19:00:00.000Z' }]))
+  })
+
   it('without signal keeps the match on the phone and sends it once the signal is back (Fase 28)', async () => {
     const user = userEvent.setup()
     const online = vi.mocked(fetch).getMockImplementation()
@@ -433,7 +499,8 @@ describe('quick-entry sheet (PLAN §7 Fase 2)', () => {
     await user.click(within(form).getByRole('button', { name: /Guardar partida/ }))
 
     expect(await screen.findByText('Sin enviar (1)')).toBeVisible()
-    expect(screen.getByText('Sin señal: quedó en el celu y se envía sola cuando vuelva.')).toBeVisible()
+    // (The toasts of the test before may still be there.)
+    expect(screen.getAllByText('Sin señal: quedó en el celu y se envía sola cuando vuelva.')[0]).toBeVisible()
     expect(screen.getAllByText('Victoria con Zoroark ex / Mega-Absol ex contra Gardevoir ex').length).toBeGreaterThan(0)
     expect(within(form).getByRole('button', { name: 'Victoria' })).not.toHaveAttribute('aria-pressed', 'true')
     expect(posted).toHaveLength(0)

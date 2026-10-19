@@ -34,7 +34,7 @@ agente valen igual aunque nadie los imponga. El bloque lo mantiene `posta genera
 <!-- posta:limites -->
 - **No editar** (lo escribe Posta o la persona): `Boveda/Sesiones/**`, `.posta/eventos/**`.
 - **Ni leer ni editar** (secretos): `.env`, `.env.local`, `.env.fly`, `~/.posta/claves/**`.
-- **Pedir confirmación antes de correr**: `git push *`.
+- **Pedir confirmación antes de correr**: `git push`, `git push origin`, `git push *HEAD`, `git push * @`, `git push *main*`, `git push -f*`, `git push * -f*`, `git push *-uf*`, `git push *-qf*`, `git push *-vf*`, `git push *--force*`, `git push * +*`, `git push -d*`, `git push * -d*`, `git push *--delete*`, `git push *--prune*`, `git push *--mirror*`, `git push *--all*`, `git push *--receive-pack*`, `git push *--exec*`, `git fetch *--upload-pack*`.
 <!-- /posta:limites -->
 
 ## Reglas de review (Codex)

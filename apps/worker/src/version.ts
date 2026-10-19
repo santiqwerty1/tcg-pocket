@@ -33,4 +33,6 @@
 // does not answer; after the last start one short run gives the engines the machine back.
 // 0.3.11 (D-031): the package's engine-cli 0.3.12 plays our fork of deckgym (rule fixes: Heavy Helmet only against
 // attacks, the target of Quick-Grow Extract and Wallace, no Active, DiscardFossil once); workers update to get it.
-export const WORKER_VERSION = '0.3.11'
+// 0.3.12 (D-031): the package's engine-cli 0.3.14 plays our fork on upstream adfe505 (`next/adfe505`, 0b510d1), with
+// only the target of Quick-Grow Extract and Wallace and the bots' exports left of our own; workers update to get it.
+export const WORKER_VERSION = '0.3.12'

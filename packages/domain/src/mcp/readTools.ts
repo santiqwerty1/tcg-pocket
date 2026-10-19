@@ -381,7 +381,7 @@ export const MCP_READ_TOOLS = {
     name: 'ranked_season',
     title: 'Temporada de ranked',
     description:
-      'La temporada de ranked del juego (B4b SP: 14 al 28/10/2026; no es una era) y el rango de Santi: el rango anotado ahora, la curva de la temporada (cada cambio, con qué mazos subió o bajó desde el anterior), el récord de las partidas competitivas de la temporada, por rango y por mazo, y el de cada temporada. Solo partidas competitivas, por el día en que se jugaron (hora de Argentina). Cada porcentaje trae su n e intervalo: citá «text».',
+      'La temporada de ranked del juego (sus días están en la respuesta; no es una era) y el rango de Santi: el rango anotado ahora, la curva de la temporada (cada cambio, con qué mazos subió o bajó desde el anterior), el récord de las partidas competitivas de la temporada, por rango y por mazo, y el de cada temporada. Solo partidas competitivas, por el día en que se jugaron (hora de Argentina). Cada porcentaje trae su n e intervalo: citá «text».',
     input: z.object({
       season: z
         .string()

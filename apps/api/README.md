@@ -24,7 +24,7 @@ Se validan al arrancar (`src/config/env.ts`, zod); si falta algo el proceso term
 | `PORT` | no | `3000` | Puerto HTTP. |
 | `WEB_DIST` | no | `../web/dist` (relativo a `apps/api`) | Carpeta de la PWA compilada. Si no existe, `/` muestra un aviso. |
 | `CATALOG_COMMIT` | no | `3ab58f1cec6a03e3e85455cf7aade3bb8561f92e` | Pin del tracker para `catalog:sync`. |
-| `ENGINE_REV` | no | `018b4193365187063eab90b1eb0989087c93ad7f` | Pin de deckgym-core: nuestra copia, `santiqwerty1/deckgym-core` (D-031). Es `DEFAULT_ENGINE_REV`; un test lo ata a `engine/Cargo.toml`. |
+| `ENGINE_REV` | no | `0b510d1b1b96ac356ea375e0f06a88e324a1bd9c` | Pin de deckgym-core: nuestra copia, `santiqwerty1/deckgym-core` (D-031). Es `DEFAULT_ENGINE_REV`; un test lo ata a `engine/Cargo.toml`. |
 | `COOKIE_SECURE` | no | `true` en producción, `false` si no | Cookie `__Host-session` + `Secure` + HSTS; en desarrollo `tcg_session` sin `Secure`. |
 | `TRUST_PROXY` | no | `1` | Saltos de proxy confiables (`X-Forwarded-For`): 1 en Fly. |
 | `BACKUP_CRON` | no | `true` en producción, `false` si no | Copia diaria de seguridad a las 04:00 **hora de Buenos Aires** (`America/Argentina/Buenos_Aires`; el contenedor corre en UTC) en `backup_blobs`, conservando las últimas 14. |
@@ -138,6 +138,20 @@ flyctl machine exec <id> --app tcg-pocket "node /app/apps/api/dist/cli/chat-impo
 
 ```bash
 flyctl secrets unset --app tcg-pocket IMPORT_TOKEN
+```
+
+### La mudanza del chat al hub (D-030, T1b): una sala mudada
+
+- **Se prende a mano, por sala:** Más → Tokens de API → «Mudanza del chat al hub», con la URL del hub (`https://…`, sin ruta). El diálogo dice qué se corta, y el mismo botón la vuelve a tcg-pocket. Queda un aviso mientras esté mudada.
+- **Con la sala mudada:** el puente recibe `410 chat_moved` con la URL en `details` (el puente de Posta para y avisa desde su incremento 5: **el paso 5 espera a que ese incremento llegue a su `main`**), nada se escribe en esa sala de tcg-pocket, y `chat_read`/`chat_write` del conector viejo se reenvían al hub (D5). El historial queda en la base, y se lee con el export, hasta el borrado de D8.
+- **El reenvío** usa un token de conector del hub con las salas mudadas, en el secreto `HUB_MCP_TOKEN`. Sin él, una sala mudada solo dice adónde se fue. El hub ata sus tokens a salas, no a participantes, así que un token alcanza para todas las sesiones viejas, pero ellas comparten sus topes: 5 esperas a la vez (la sexta lee sin esperar), 600 pedidos por minuto, y el nombre del token como `via` de lo que escriben (por eso conviene llamarlo «tcg-pocket (reenvío)»). Como el de `IMPORT_TOKEN`, cargarlo y sacarlo reinicia la máquina:
+
+```bash
+read -rs -p "HUB_MCP_TOKEN: " T && printf 'HUB_MCP_TOKEN=%s\n' "$T" | flyctl secrets import --app tcg-pocket; unset T; echo
+```
+
+```bash
+flyctl secrets unset --app tcg-pocket HUB_MCP_TOKEN
 ```
 
 ## Tests

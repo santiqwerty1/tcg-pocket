@@ -13,15 +13,30 @@ const production = { ...base, NODE_ENV: 'production', DATABASE_URL: `${base.DATA
 describe('the engine pin (D-031, review of #115)', () => {
   const repo = (path: string) => readFileSync(resolve(API_ROOT, '..', '..', path), 'utf8')
 
-  it('DEFAULT_ENGINE_REV is the deckgym rev of both Cargo.toml, of the golden games and of the texts that name it', () => {
+  it('DEFAULT_ENGINE_REV is the deckgym rev of both Cargo.toml and locks, of the golden games and of the texts that name it', () => {
     for (const manifest of ['engine/Cargo.toml', 'engine/wasm/Cargo.toml']) {
       expect(/^deckgym = \{[^}]*rev = "([0-9a-f]{40})"/m.exec(repo(manifest))?.[1]).toBe(DEFAULT_ENGINE_REV)
+    }
+    for (const lock of ['engine/Cargo.lock', 'engine/wasm/Cargo.lock']) {
+      const source = /deckgym-core\?rev=([0-9a-f]{40})#([0-9a-f]{40})/.exec(repo(lock))
+      expect(source?.slice(1)).toEqual([DEFAULT_ENGINE_REV, DEFAULT_ENGINE_REV])
     }
     for (const golden of ['engine/games-rev.json', 'engine/wasm/games-wasm.json']) {
       expect(JSON.parse(repo(golden)).engineRev).toBe(DEFAULT_ENGINE_REV)
     }
     expect(repo('apps/web/src/pages/mas/AboutPage.tsx')).toContain(`>${DEFAULT_ENGINE_REV.slice(0, 7)}</code>`)
-    expect(repo('docs/LICENCIAS.md')).toContain(DEFAULT_ENGINE_REV)
+    expect(repo('apps/api/README.md')).toContain(`\`${DEFAULT_ENGINE_REV}\``)
+    // LICENCIAS names it in several rows: every full sha on a line about deckgym, and the short one of «el mismo commit».
+    const licencias = repo('docs/LICENCIAS.md')
+    const shas = licencias
+      .split('\n')
+      .filter((line) => line.includes('deckgym'))
+      .flatMap((line) => line.match(/\b[0-9a-f]{40}\b/g) ?? [])
+    expect(shas.length).toBeGreaterThan(1)
+    expect(new Set(shas)).toEqual(new Set([DEFAULT_ENGINE_REV]))
+    const shorts = [...licencias.matchAll(/el mismo commit que el motor \(`([0-9a-f]{7})`/g)].map((match) => match[1])
+    expect(shorts.length).toBeGreaterThan(1)
+    expect(new Set(shorts)).toEqual(new Set([DEFAULT_ENGINE_REV.slice(0, 7)]))
   })
 })
 

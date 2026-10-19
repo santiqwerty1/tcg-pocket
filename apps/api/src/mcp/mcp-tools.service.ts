@@ -12,6 +12,7 @@ import { BadRequestException, HttpException, Inject, Injectable, NotFoundExcepti
 import {
   type ArchetypeFit,
   type CardEdition,
+  type ChatRoom,
   estimateSeconds,
   type FunctionalGroup,
   foldText,
@@ -37,6 +38,8 @@ import { AlertsService } from '../alerts/alerts.service.js'
 import { CatalogService } from '../catalog/catalog.service.js'
 import type { GroupDetail } from '../catalog/catalog-views.js'
 import { ChatService } from '../chat/chat.service.js'
+import { ChatMovedService } from '../chat/chat-moved.service.js'
+import { HubForwardService } from '../chat/hub-forward.service.js'
 import { CollectionService } from '../collection/collection.service.js'
 import { ENV, type Env } from '../config/env.js'
 import { OWNER_TIME_ZONE } from '../config/time-zone.js'
@@ -198,6 +201,8 @@ export class McpToolsService {
     private readonly alerts: AlertsService,
     private readonly audit: McpAuditService,
     private readonly chat: ChatService,
+    private readonly chatMoved: ChatMovedService,
+    private readonly hub: HubForwardService,
     @Inject(ENV) private readonly env: Env,
     private readonly logger: PinoLogger,
   ) {
@@ -401,7 +406,8 @@ ${MCP_CHAT_INSTRUCTIONS}`
     server.registerTool(
       c.chatRead.name,
       { title: c.chatRead.title, description: c.chatRead.description, inputSchema: c.chatRead.input, annotations },
-      ({ sala, ...args }, ctx) =>
+      async ({ sala, ...args }, ctx) =>
+        (await this.toHub(c.chatRead.name, caller, args.as, sala, args, ctx.mcpReq.signal, args.waitSeconds)) ??
         run(c.chatRead.name, async () => {
           // A cut request (the client went away) leaves the messages unread. Without «sala», the reader's main room.
           const view = await this.chat.read({ ...args, room: sala, signal: ctx.mcpReq.signal })
@@ -433,7 +439,8 @@ ${MCP_CHAT_INSTRUCTIONS}`
     server.registerTool(
       c.chatWrite.name,
       { title: c.chatWrite.title, description: c.chatWrite.description, inputSchema: c.chatWrite.input, annotations },
-      ({ sala, ...args }) =>
+      async ({ sala, ...args }, ctx) =>
+        (await this.toHub(c.chatWrite.name, caller, args.from, sala, args, ctx.mcpReq.signal)) ??
         run(c.chatWrite.name, async () => {
           // Without «sala», the sender's main room (an open session does not know the parameter).
           const { message } = await this.chat.write({
@@ -453,6 +460,33 @@ ${MCP_CHAT_INSTRUCTIONS}`
           }
         }),
     )
+  }
+
+  /**
+   * D5 of the move (D-030, T1b): a chat call whose room Santi marked as moved goes to the hub, with its room explicit
+   * (the participant's main room there could be another); null when the room is still here.
+   */
+  private async toHub(
+    tool: 'chat_read' | 'chat_write',
+    caller: McpCallerInfo,
+    name: string,
+    sala: ChatRoom | undefined,
+    args: Record<string, unknown>,
+    signal: AbortSignal,
+    waitSeconds?: number,
+  ): Promise<CallToolResult | null> {
+    const room = await this.chat.roomFor(name, sala)
+    const moved = await this.chatMoved.of(room)
+    if (!moved) return null
+    return this.hub.call({
+      base: moved.url,
+      room,
+      tool,
+      args: { ...args, sala: room },
+      signal,
+      waitSeconds,
+      caller: `${caller.tokenName} (${caller.client})`,
+    })
   }
 
   /** Fase 43: ready-made requests for the prompt menu of the Claude apps (they only chain read tools). */
@@ -1511,7 +1545,8 @@ ${MCP_CHAT_INSTRUCTIONS}`
       archetype: suggestion.name,
       kind: suggestion.kind === 'fits' ? 'encaja' : 'parecido',
       text: suggestion.text,
-      shareOfEra: `${percentFormat.format(suggestion.share)} %`,
+      // Deuda de #114: with its n (the era's lists), and the non-breaking space before «%» like every percentage.
+      shareOfEra: `${percentFormat.format(suggestion.share)}\u00a0% (${suggestion.lists} de ${suggestion.eraLists} listas)`,
     })
     const source = 'Listas de torneo de la era (personas), no las partidas de Santi.'
     if (args.cards) {

@@ -10,7 +10,7 @@ import { PrismaService } from '../prisma/prisma.service.js'
 
 export const RIVAL_NOTE_MAX_LENGTH = 5000
 /** First key of the per-note advisory lock (the second one is the hash of the note's key). */
-const RIVAL_NOTE_LOCK = 43_012
+export const RIVAL_NOTE_LOCK = 43_012
 
 export interface RivalNoteView {
   key: string

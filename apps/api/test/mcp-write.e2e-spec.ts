@@ -248,7 +248,9 @@ describe('MCP write tools (e2e)', () => {
   })
 
   it('14/10: matches_log says the ranked season and rank, and notes a new rank; ranked_season reads it', async () => {
-    const today = todayInOwnerZone()
+    // The test season starts yesterday: the matches logged 1–2 h ago (soloAt, playedAt) fall inside it
+    // also between 00:00 and 02:00 in the owner's zone (Bots, 19/10).
+    const today = todayInOwnerZone(new Date(Date.now() - 24 * 60 * 60 * 1000))
     const until = todayInOwnerZone(new Date(Date.now() + 10 * 24 * 60 * 60 * 1000))
     const season = await test
       .http()
@@ -353,6 +355,33 @@ describe('MCP write tools (e2e)', () => {
     expect(await atPlayedAt()).toHaveLength(1)
     expect((await logAt('great-2')).structuredContent.ranked).toMatchObject({ now: 'Super Ball 2' })
     expect((await atPlayedAt()).map((row) => row.rank)).toEqual(['great-2'])
+    // Deuda de #120: the rank matches_log noted is undone from the log (the match stays), and the one it found already
+    // there leaves nothing to undo.
+    const entries = (await test.http().get('/api/mcp-audit').set('Cookie', cookie)).body.items as {
+      id: string
+      tool: string
+      undo: { kind: string } | null
+    }[]
+    const fromLog = entries.filter((item) => item.tool === 'matches_log' && item.undo?.kind === 'rank_change')
+    expect(fromLog).toHaveLength(3)
+    expect((await test.http().post(`/api/mcp-audit/${fromLog[0]?.id}/undo`).set('Cookie', cookie)).status).toBe(200)
+    expect((await atPlayedAt()).map((row) => row.rank)).toEqual(['great-1'])
+    // Deleting a match takes the rank it led to, and matches_restore brings both back.
+    const soloAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+    const solo = await call(client, 'matches_log', {
+      deck: 'mazo 7',
+      result: 'loss',
+      mode: 'competitive',
+      playedAt: soloAt,
+      rank: 'great-1',
+    })
+    const soloId = (solo.structuredContent.match as Structured).id
+    const atSolo = () => test.prisma.rankChange.findMany({ where: { at: new Date(soloAt) } })
+    expect(await atSolo()).toHaveLength(1)
+    expect((await call(client, 'matches_delete', { id: soloId })).isError).toBeFalsy()
+    expect(await atSolo()).toHaveLength(0)
+    expect((await call(client, 'matches_restore', { id: soloId })).isError).toBeFalsy()
+    expect((await atSolo()).map((row) => row.rank)).toEqual(['great-1'])
   })
 
   it('acceptance 2: a deck from Spanish text is saved with its validation; an invalid one is not', async () => {

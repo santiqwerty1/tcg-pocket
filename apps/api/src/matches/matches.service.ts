@@ -37,6 +37,7 @@ import {
   orderDecksForPicker,
   revisionAt,
   type SeenCard,
+  seasonOf,
   seenCardsTextEs,
   simulationRate,
   suggestArchetypesForCards,
@@ -45,10 +46,13 @@ import {
   turnOrderImpact,
 } from '@tcg/domain'
 import { CatalogService } from '../catalog/catalog.service.js'
+import { OWNER_TIME_ZONE } from '../config/time-zone.js'
 import type { Prisma } from '../generated/prisma/client.js'
 import type { MatchSource } from '../generated/prisma/enums.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import { RANK_NOTE_LOCK, RankedService } from '../ranked/ranked.service.js'
+import { RIVAL_NOTE_LOCK } from '../rivals/rival-notes.service.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
 import type {
@@ -255,6 +259,7 @@ export class MatchesService {
     private readonly tournaments: TournamentsService,
     private readonly simulations: SimulationsService,
     private readonly catalog: CatalogService,
+    private readonly ranked: RankedService,
   ) {}
 
   private view(record: MatchRecord): MatchView {
@@ -734,8 +739,43 @@ export class MatchesService {
       data.opponentCards = this.seenCards(patch.opponentCards, current.opponentCards)
     }
     if (Object.keys(data).length === 0) return this.view(current)
-    const updated = await this.prisma.match.update({ where: { id: current.id }, data, include: matchInclude })
+    const moved = playedAt && playedAt.getTime() !== current.playedAt.getTime() ? playedAt : null
+    const seasons = moved ? await this.ranked.seasons() : []
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // Review of #130: the ranks are written under the same lock as noting one.
+      if (moved) await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+      const row = await tx.match.update({ where: { id: current.id }, data, include: matchInclude })
+      // Deuda de #120: the ranks noted for this match (the one it was played at, a millisecond before it, and the one it
+      // led to, at its instant) follow it to its new time, unless another match shares the old one.
+      if (moved && !(await this.sharesInstant(tx, current.playedAt, current.id))) {
+        // Review of #130: not into another season (or out of every season), where they would no longer count.
+        const from = seasonOf(current.playedAt, seasons, OWNER_TIME_ZONE)?.code ?? null
+        const to = seasonOf(moved, seasons, OWNER_TIME_ZONE)?.code ?? null
+        const own = await tx.rankChange.count({
+          where: { at: { in: [current.playedAt, new Date(current.playedAt.getTime() - 1)] } },
+        })
+        if (own > 0 && from !== to) {
+          throw new BadRequestException({
+            code: 'validation',
+            message:
+              'La partida tiene un rango anotado: moverla a otra temporada lo dejaría afuera. Elegí una fecha de la misma temporada, o borrá antes el rango en Temporada.',
+          })
+        }
+        for (const shift of [-1, 0]) {
+          const from = new Date(current.playedAt.getTime() + shift)
+          const to = new Date(moved.getTime() + shift)
+          const taken = await tx.rankChange.count({ where: { at: to } })
+          if (taken === 0) await tx.rankChange.updateMany({ where: { at: from }, data: { at: to } })
+        }
+      }
+      return row
+    })
     return this.view(updated)
+  }
+
+  /** Another match played at that very instant. */
+  private async sharesInstant(tx: Prisma.TransactionClient, at: Date, except: number): Promise<boolean> {
+    return (await tx.match.count({ where: { playedAt: at, id: { not: except } } })) > 0
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -862,13 +902,17 @@ export class MatchesService {
         where: { id: { in: [...ids] } },
         select: { id: true, opponentText: true },
       })
-      if (found.length !== ids.length) throw new NotFoundException('Alguna de esas partidas ya no existe.')
+      // Deuda de #114: a match deleted meanwhile is skipped, not a 404 for the whole group (unless none is left).
+      const gone = ids.filter((id) => !found.some((row) => row.id === id))
+      if (fromKey === null && found.length === 0) throw new NotFoundException('Esas partidas ya no existen.')
       // Codex on #114: a match that changed since (edited in the app or by Claude) is left as it is.
       const expectKey = input.expect === undefined ? undefined : opponentKey(input.expect)
-      const skipped =
-        expectKey === undefined
+      const skipped = [
+        ...gone,
+        ...(expectKey === undefined
           ? []
-          : found.filter((row) => opponentKey(row.opponentText) !== expectKey).map((row) => row.id)
+          : found.filter((row) => opponentKey(row.opponentText) !== expectKey).map((row) => row.id)),
+      ]
       const targets = new Set(ids.filter((id) => !skipped.includes(id)))
       if (fromKey !== null) {
         const typed = await tx.match.findMany({
@@ -888,32 +932,15 @@ export class MatchesService {
         data: { opponentText: opponent },
       })
       // The note about the rival follows its new name when that one has none; «Deshacer» sends it back (Codex on #114:
-      // undoing a rename restored the matches but left the note on the new name).
-      const moveNote = async (from: string, to: string) => {
-        const [fromNote, toNote] = [opponentKey(from), opponentKey(to)]
-        if (fromNote === null || toNote === null) return null
-        const note = await tx.rivalNote.findUnique({ where: { key: fromNote }, select: { label: true } })
-        if (!note) return null
-        // Codex on #114: the same rival in another spelling («greninja suicune» → «Greninja Suicune»): the note's label
-        // takes it too (the Notes page shows it), and «Deshacer» gives the old one back the same way.
-        if (fromNote === toNote) {
-          if (note.label === to) return null
-          await tx.rivalNote.update({ where: { key: fromNote }, data: { label: to } })
-          return { from: note.label, to }
-        }
-        const taken = await tx.rivalNote.findUnique({ where: { key: toNote }, select: { key: true } })
-        if (taken) return null
-        await tx.rivalNote.update({ where: { key: fromNote }, data: { key: toNote, label: to } })
-        return { from: note.label, to }
-      }
-      // Codex on #114: a «Deshacer» whose matches were all edited since restores none, so the note stays too.
+      // undoing a rename restored the matches but left the note on the new name). Codex on #114: a «Deshacer» whose
+      // matches were all edited since restores none, so the note stays too.
       const noteMoved =
         count === 0
           ? null
           : input.note !== undefined
-            ? await moveNote(input.note.from, input.note.to)
+            ? await this.moveRivalNote(tx, input.note.from, input.note.to)
             : input.from !== undefined && opponent !== null
-              ? await moveNote(input.from, opponent)
+              ? await this.moveRivalNote(tx, input.from, opponent)
               : null
       return {
         updated: count,
@@ -927,9 +954,81 @@ export class MatchesService {
     })
   }
 
+  /**
+   * Deuda de #114: «Deshacer» a classification in one transaction — each match back to the rival it had, only while it
+   * still has the one given (`expect`; the others, and any deleted meanwhile, come back in `skipped`), and the note
+   * back with them when at least one match was restored.
+   */
+  async undoClassify(input: {
+    previous: { id: string; opponent: string | null }[]
+    expect: string | null
+    note?: { from: string; to: string } | undefined
+  }) {
+    const wanted = new Map(input.previous.map((row) => [parseNumericId(row.id, 'Partida'), row.opponent]))
+    const ids = [...wanted.keys()]
+    const expectKey = opponentKey(input.expect)
+    return this.prisma.$transaction(async (tx) => {
+      if (ids.length > 0) await tx.$queryRaw`SELECT id FROM matches WHERE id = ANY(${ids}) ORDER BY id FOR UPDATE`
+      const found = await tx.match.findMany({ where: { id: { in: ids } }, select: { id: true, opponentText: true } })
+      const restorable = found.filter((row) => opponentKey(row.opponentText) === expectKey)
+      const byOpponent = new Map<string | null, number[]>()
+      for (const row of restorable) {
+        const before = storedOpponent(wanted.get(row.id) ?? null)
+        byOpponent.set(before, [...(byOpponent.get(before) ?? []), row.id])
+      }
+      let updated = 0
+      for (const [opponent, group] of byOpponent) {
+        updated += (await tx.match.updateMany({ where: { id: { in: group } }, data: { opponentText: opponent } })).count
+      }
+      const noteMoved = updated > 0 && input.note ? await this.moveRivalNote(tx, input.note.from, input.note.to) : null
+      return {
+        updated,
+        noteMoved,
+        skipped: ids.filter((id) => !restorable.some((row) => row.id === id)).map(idToString),
+      }
+    })
+  }
+
+  /**
+   * The note about a rival moves to another name (or takes another spelling of it), under the note's own lock (deuda de
+   * #114: the same lock as writing a note, so a note written meanwhile is not overwritten). Null when nothing moved.
+   */
+  private async moveRivalNote(
+    tx: Prisma.TransactionClient,
+    from: string,
+    to: string,
+  ): Promise<{ from: string; to: string } | null> {
+    const [fromNote, toNote] = [opponentKey(from), opponentKey(to)]
+    if (fromNote === null || toNote === null) return null
+    for (const key of [...new Set([fromNote, toNote])].sort()) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RIVAL_NOTE_LOCK}::int, hashtext(${key}))`
+    }
+    const note = await tx.rivalNote.findUnique({ where: { key: fromNote }, select: { label: true } })
+    if (!note) return null
+    // Codex on #114: the same rival in another spelling («greninja suicune» → «Greninja Suicune»): the note's label takes
+    // it too (the Notes page shows it), and «Deshacer» gives the old one back the same way.
+    if (fromNote === toNote) {
+      if (note.label === to) return null
+      await tx.rivalNote.update({ where: { key: fromNote }, data: { label: to } })
+      return { from: note.label, to }
+    }
+    const taken = await tx.rivalNote.findUnique({ where: { key: toNote }, select: { key: true } })
+    if (taken) return null
+    await tx.rivalNote.update({ where: { key: fromNote }, data: { key: toNote, label: to } })
+    return { from: note.label, to }
+  }
+
   async delete(rawId: string): Promise<void> {
     const match = await this.requireMatch(rawId)
-    await this.prisma.match.delete({ where: { id: match.id } })
+    await this.prisma.$transaction(async (tx) => {
+      // Review of #130: the ranks are written under the same lock as noting one.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+      await tx.match.delete({ where: { id: match.id } })
+      // Deuda de #120: the rank it led to (noted at its instant) goes with it, unless another match shares that instant.
+      if (!(await this.sharesInstant(tx, match.playedAt, match.id))) {
+        await tx.rankChange.deleteMany({ where: { at: match.playedAt } })
+      }
+    })
   }
 
   // ---------------------------------------------------------------------------------------------------------------

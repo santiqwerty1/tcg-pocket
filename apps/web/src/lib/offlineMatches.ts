@@ -78,6 +78,39 @@ export function queueMatch(item: PendingMatch): boolean {
   return write([...read().filter((other) => other.clientRef !== item.clientRef), item])
 }
 
+/**
+ * Deuda de #120: «¿Cambiaste de rango?» for a match still on the phone — the rank travels with it and is noted at its
+ * instant when it gets to the server. False when it already went (or is not there).
+ */
+export function setPendingRank(clientRef: string, rank: string, points: number | null): boolean {
+  // Review of #130: not while it is being sent — what was sent would not carry it, and the send discards it.
+  if (inFlight?.clientRef === clientRef) return false
+  const items = read()
+  const item = items.find((other) => other.clientRef === clientRef && !other.error)
+  if (!item) return false
+  return write(
+    items.map((other) =>
+      other === item
+        ? { ...other, body: { ...other.body, rank, ...(points !== null ? { rankPoints: points } : {}) } }
+        : other,
+    ),
+  )
+}
+
+/** The instant the server gave a match sent from the queue (review of #130), for the rank noted after it went. */
+const sentAt = new Map<string, string>()
+/** The match being sent right now, and when that send ends. */
+let inFlight: { clientRef: string; done: Promise<void> } | null = null
+
+/**
+ * Review of #130: where a match that left the queue was played (the server's `playedAt`), waiting for a send in
+ * flight; null when it did not go (it is still waiting, or was refused).
+ */
+export async function sentPlayedAt(clientRef: string): Promise<string | null> {
+  if (inFlight?.clientRef === clientRef) await inFlight.done
+  return sentAt.get(clientRef) ?? null
+}
+
 export function discardPending(clientRef: string): void {
   write(read().filter((item) => item.clientRef !== clientRef))
 }
@@ -153,18 +186,25 @@ export async function flushPending(send: SendMatch): Promise<number> {
         .sort((a, b) => a.savedAt - b.savedAt)[0]
       if (!next) break
       tried.add(next.clientRef)
+      let finish = () => {}
+      inFlight = { clientRef: next.clientRef, done: new Promise<void>((resolve) => (finish = resolve)) }
       try {
-        await send({
+        const answer = await send({
           ...next.body,
           clientRef: next.clientRef,
           playedAgoMs: Math.min(MAX_AGO_MS, Math.max(0, Date.now() - next.savedAt)),
         })
+        const playedAt = (answer as { playedAt?: unknown } | null)?.playedAt
+        if (typeof playedAt === 'string') sentAt.set(next.clientRef, playedAt)
         discardPending(next.clientRef)
         sent += 1
       } catch (error) {
         if (!isApiError(error) || error.status === 0 || error.status === 401 || error.status === 429) break
         if (error.status >= 500) break
         markError(next.clientRef, error.message)
+      } finally {
+        inFlight = null
+        finish()
       }
     }
   } finally {

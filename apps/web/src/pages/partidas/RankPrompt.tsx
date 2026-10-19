@@ -10,9 +10,22 @@ import { errorMessage } from '@/api/client'
 import { neighbourRanks, useAddRank, useRanked } from '@/api/ranked'
 import type { MatchResult } from '@/api/schemas'
 import { Button } from '@/components/ui/button'
+import { sentPlayedAt, setPendingRank } from '@/lib/offlineMatches'
 import { RankPicker } from './SeasonPage'
 
-export function RankPrompt({ result, onDone }: { result: MatchResult; onDone: () => void }) {
+export function RankPrompt({
+  result,
+  playedAt,
+  pendingRef,
+  onDone,
+}: {
+  result: MatchResult
+  /** Deuda de #120: the rank is noted at the match's instant, not at the tap's. */
+  playedAt?: string
+  /** A match saved offline (its `clientRef`): the rank travels with it. */
+  pendingRef?: string
+  onDone: () => void
+}) {
   const ranked = useRanked()
   const add = useAddRank()
   const [busy, setBusy] = useState(false)
@@ -21,14 +34,39 @@ export function RankPrompt({ result, onDone }: { result: MatchResult; onDone: ()
   const rank = current.rank
   const { up, down } = neighbourRanks(ranked.data.ranks, rank?.rank ?? null)
   const next = result === 'win' ? up : result === 'loss' ? down : null
-  async function note(code: string) {
+  async function note(code: string, points: number | null = null): Promise<boolean> {
+    if (pendingRef && setPendingRank(pendingRef, code, points)) {
+      toast.success('Se anota con la partida, cuando vuelva la señal.')
+      onDone()
+      return true
+    }
+    // Review of #130: the match left the phone meanwhile — the rank goes at the instant the server gave it.
+    let at = playedAt
+    if (pendingRef) {
+      at = (await sentPlayedAt(pendingRef)) ?? undefined
+      if (!at && setPendingRank(pendingRef, code, points)) {
+        toast.success('Se anota con la partida, cuando vuelva la señal.')
+        onDone()
+        return true
+      }
+      if (!at) {
+        toast.error('No encontré la partida: anotá el rango desde su edición o desde Temporada.')
+        return false
+      }
+    }
     setBusy(true)
     try {
-      const noted = await add.mutateAsync({ rank: code })
+      const noted = await add.mutateAsync({
+        rank: code,
+        ...(points !== null ? { points } : {}),
+        ...(at ? { at } : {}),
+      })
       toast.success(`Anotado: ${noted.label}.`)
       onDone()
+      return true
     } catch (error) {
       toast.error(errorMessage(error))
+      return false
     } finally {
       setBusy(false)
     }
@@ -53,7 +91,7 @@ export function RankPrompt({ result, onDone }: { result: MatchResult; onDone: ()
           </Button>
         </div>
       ) : (
-        <RankPicker ranks={ranked.data.ranks} current={null} onDone={onDone} />
+        <RankPicker ranks={ranked.data.ranks} current={null} submit={note} />
       )}
     </fieldset>
   )
