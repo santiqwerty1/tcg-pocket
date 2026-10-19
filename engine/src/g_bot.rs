@@ -486,9 +486,10 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
                             later,
                             bonus: first - without,
                             clean: 1.0 - inflicted.poison,
-                            // A poison on a coin the target does not have yet: once it lands it stays (Codex on #128).
-                            round: if target.poison == 0.0 && inflicted.poison > 0.0 && inflicted.poison < 1.0 {
-                                inflicted.poison_round
+                            // A poison on a coin: once it lands it stays, in place of the one the target had (Stun
+                            // Poison on a healthy target, or over Toxic's stronger one; Codex on #128).
+                            round: if inflicted.poison > 0.0 && inflicted.poison < 1.0 {
+                                inflicted.poison_round - target.poison
                             } else {
                                 0.0
                             },
@@ -506,8 +507,12 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
                 let (discard, chance) = self_discard(mechanic, &ready, ready.len().min(cost.len() + overcharge));
                 let reuse = (chance * (discard / rate).ceil().max(1.0) + (1.0 - chance)).max(1.0 + cooldown);
                 let knockouts = knockouts_it_survives(mechanic, attacker_hp);
+                // A poison the target already has keeps falling while the attacker gets ready: a round for each turn of
+                // setup before the first hit (Codex on #128).
+                let waiting: Vec<Target> =
+                    burning.iter().map(|target| Target { hp: target.hp - target.poison * setup, ..*target }).collect();
                 let Some((hits, spare)) =
-                    hits_to_win(&burning, &damage, &bench, probe.points[attacker], knockouts, params.margin)
+                    hits_to_win(&waiting, &damage, &bench, probe.points[attacker], knockouts, params.margin)
                 else {
                     continue;
                 };
@@ -688,7 +693,10 @@ fn extra_energy(mechanic: Option<&Mechanic>, attached: &[EnergyType], nth: usize
             Mechanic::ExtraDamageIfSelfHasTypeEnergy { energy_type, .. }
             | Mechanic::ExtraDamagePerSpecificEnergy { energy_type, .. }
             | Mechanic::ExtraDamagePerSpecificEnergyAllYours { energy_type, .. }
-            | Mechanic::CoinFlipPerSpecificEnergyType { energy_type, .. },
+            | Mechanic::CoinFlipPerSpecificEnergyType { energy_type, .. }
+            | Mechanic::ExtraDamageIfTypeEnergyInPlay { energy_type, .. }
+            | Mechanic::DiscardSelfEnergyPerHeadsExtraDamage { energy_type, .. }
+            | Mechanic::SelfDiscardAllTypeEnergyAndDamageAnyOpponentPokemon { energy_type, .. },
         ) => made(*energy_type),
         Some(Mechanic::ExtraDamageIfExtraEnergy { required_extra_energy, .. }) => {
             required_extra_energy.get(nth.saturating_sub(1)).copied().and_then(made)
@@ -766,10 +774,11 @@ fn attackers(state: &State, attacker: usize, slots: &[usize], see_evolutions: bo
 /// it and `later` of the ones after: a burn the target already has is certain through the first hit of an attack that
 /// burns again on a coin, not through the later ones (Fire Fang; Codex on #128). `bonus` is what its user's first
 /// attack adds (Cold Start's 20): it goes to the first hit of the plan, on whichever target that is, even one promoted
-/// after the Active fell to poison before it (Codex on #128). For a poison on a coin that the target does not have yet, a hit after the first also
-/// brings the chance the earlier ones already poisoned it: after k hits it is Poisoned with `1 − clean^k`, not with the
-/// first hit's chance each time (Stun Poison: 50 % after the first, 75 % after the second; Codex on #128). `round` is
-/// that poison's round, 0 for every other attack and target.
+/// after the Active fell to poison before it (Codex on #128). For a poison on a coin, a hit after the first also brings
+/// the chance the earlier ones already poisoned it: after k hits the new poison is on with `1 − clean^k`, not with the
+/// first hit's chance each time (Stun Poison: 50 % after the first, 75 % after the second), and in place of the one the
+/// target had (an ordinary poison over Toxic's: 30, 25, 22,5 a round; Codex on #128). `round` is the new poison's round
+/// less the target's own, 0 for every other attack and target.
 #[derive(Clone, Copy, Debug)]
 struct Hit {
     first: f64,
@@ -849,7 +858,11 @@ fn hits_to_win(
         for at in 0..targets.len() {
             if standing[at] && hp[at] <= 0.0 {
                 standing[at] = false;
-                knocked_out += 1;
+                // Only the knockouts of its hits cost Head Smash its recoil, not one that fell before the first (Codex
+                // on #128).
+                if total > 0.0 {
+                    knocked_out += 1;
+                }
                 points += targets[at].points;
                 if active == Some(at) {
                     active = None;
@@ -2298,6 +2311,52 @@ mod tests {
         let dhelmise = card("A1a 009").with_energy(vec![EnergyType::Grass]);
         let state = board(VENUSAUR, VENUSAUR, vec![dhelmise], vec![card("B1a 004")]);
         assert_eq!(turns(&state, 0, false), 3.0 + 3.0);
+    }
+
+    #[test]
+    fn a_poison_keeps_falling_while_the_attacker_gets_ready() {
+        // Latias needs one more [P] (a turn of setup) against a Poisoned Bulbasaur with 20 HP left, with 2 points to go
+        // for 1: the round of poison in between knocks it out before the hit, 1 turn and not 2 (Codex on #128).
+        let mut state = board(MISMAGIUS, VENUSAUR, vec![card("A4a 036")], vec![card("A1 001").with_remaining_hp(20)]);
+        state.apply_status_condition(1, 0, StatusCondition::Poisoned);
+        state.points = [2, 0];
+        assert_eq!(turns(&state, 0, false), 1.0);
+    }
+
+    #[test]
+    fn a_weaker_poison_on_a_coin_mixes_in_hit_after_hit() {
+        // A Mega Venusaur ex under Toxic (40 a round) hit by Stun Poison (50, an ordinary poison on heads): after the
+        // first hit it takes 30 a round (½ × 20 + ½ × 40), after the second 25, then 22,5 (Codex on #128). 80 + 75 = 155
+        // leave 158 HP standing: 3 hits, not the 2 of 80 each.
+        let toxicroak = card("A2a 052").with_energy(vec![EnergyType::Darkness]);
+        let mut state = board(DEDENNE, VENUSAUR, vec![toxicroak.clone()], vec![card("B1a 004").with_remaining_hp(158)]);
+        apply(&mut state, SimpleAction::Attack(first_attack(&toxicroak)));
+        let venusaur = state.in_play_pokemon[1][0].as_ref().expect("Mega Venusaur ex");
+        assert_eq!((venusaur.get_remaining_hp(), venusaur.public_details().poison_damage), (158, 20));
+        state.in_play_pokemon[0][0] = Some(card("A4a 016").with_energy(vec![EnergyType::Water; 3]));
+        assert_eq!(turns(&state, 0, false), 3.0);
+    }
+
+    #[test]
+    fn the_extra_energy_is_the_type_counted_in_play() {
+        // «5 or more [P] Energy in play»: in a zone that makes [F] and [P], a Fighting attacker overcharges with [P]
+        // (Codex on #128: it took the filler, [F]).
+        let in_play = Mechanic::ExtraDamageIfTypeEnergyInPlay { energy_type: Psychic, minimum_count: 5, extra_damage: 60 };
+        let zone = [EnergyType::Fighting, Psychic];
+        assert_eq!(extra_energy(Some(&in_play), &[], 1, &zone, Some(EnergyType::Fighting)), Psychic);
+    }
+
+    #[test]
+    fn head_smash_does_not_pay_for_a_knockout_it_did_not_make() {
+        // The rival's Active, a Poisoned Bulbasaur with 10 HP, falls at its own Checkup before Rampardos hits: that
+        // point is not Head Smash's, so a Rampardos with 50 HP left still knocks out the Bulbasaur promoted after it and
+        // wins (Codex on #128: it took the first knockout as its own and gave up).
+        let rampardos = card("A2 089").with_energy(vec![EnergyType::Fighting]).with_remaining_hp(50);
+        let mut state = board(LUCARIO, VENUSAUR, vec![rampardos], vec![card("A1 001").with_remaining_hp(10), card("A1 001")]);
+        state.apply_status_condition(1, 0, StatusCondition::Poisoned);
+        state.points = [1, 0];
+        state.current_player = 1;
+        assert_ne!(turns(&state, 0, false), NO_THREAT);
     }
 
     #[test]
