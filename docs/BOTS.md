@@ -179,9 +179,11 @@ En g 1.1 (18/10), dos cambios para que las juegue de verdad:
     apaga: 20 + 10 + 5… son 40 en total, no 30 por golpe (Codex en #128).
 
   El veneno se cuenta golpe a golpe: 10 por cada control, o lo que diga el ataque, y hay un control al final de cada
-  turno, así que son 20 por vuelta después de cada golpe. Antes del primero cae solo el control que cierra el turno
-  del defensor, si ese turno viene primero. Un KO en los controles que siguen a un golpe cuenta en el turno de ese
-  golpe. Un veneno con moneda que ya cayó se queda: Stun Poison envenena con 50 % después del primer golpe y con 75 %
+  turno, así que son 20 por vuelta después de cada golpe. Antes del primero cae una vuelta por cada turno que el
+  atacante tarda en prepararse (Codex en #128), y el control que cierra el turno del defensor, si ese turno viene
+  primero. A un Activo envenenado que el ataque no puede dañar (un ex contra Safeguard) se lo espera hasta que el
+  veneno lo noquea, igual que si al atacante le faltara Energía (autorrevisión de g 1.1.1). Un KO en los controles que
+  siguen a un golpe cuenta en el turno de ese golpe. Un veneno con moneda que ya cayó se queda: Stun Poison envenena con 50 % después del primer golpe y con 75 %
   después del segundo (Codex en #128).
 
   Así, después de Cursed Prose, el tablero ya vale 90 de daño. Cambiar de Activo borra `DelayedDamage`, así que el
@@ -193,7 +195,8 @@ En g 1.1 (18/10), dos cambios para que las juegue de verdad:
     una moneda, 11/16 en Cross Poison (al menos 2 caras de 4). Un test lo compara con el motor en los 23 textos que
     envenenan o queman;
   - envenenar de nuevo reemplaza el veneno anterior, con su probabilidad: Toxic sobre un veneno común da 40 por
-    vuelta, no 20. Un estado que solo pone el primer ataque (`FirstAttackBonusDamageAndStatus`) no se cuenta golpe a
+    vuelta, no 20, y un veneno común con moneda sobre el de Toxic lo reemplaza de a poco, 30, 25 y 22,5 por vuelta,
+    no 30 en cada golpe (Codex en #128). Un estado que solo pone el primer ataque (`FirstAttackBonusDamageAndStatus`) no se cuenta golpe a
     golpe, y su daño de más tampoco: Cold Start pega 80 la primera vez y 60 después, y esos 20 van al primer golpe del
     plan aunque caiga en otro objetivo, como el que sube después de que el Activo cae envenenado (Codex en #128);
   - una quemadura que el Activo ya tiene sigue durante el primer golpe de un ataque que vuelve a quemar con moneda
@@ -216,13 +219,18 @@ En g 1.1 (18/10), dos cambios para que las juegue de verdad:
   por cada Energía que descarta: para pegar lo mismo tiene que recuperarlas todas (Codex en #128). Uno que no puede
   atacar el turno siguiente (Prismatic Laser, Big Beat) pega cada dos turnos.
 - **Cargar:** la Energía que falta se pone de a una, como llega turno a turno, así lo que cuenta doble (Jungle Totem)
-  necesita menos, también si el que ataca evoluciona a Serperior. Un ataque que pega más con más Energía prueba hasta
+  necesita menos, también si el que ataca evoluciona a Serperior. deckgym cuenta cada [G] dos veces mirando el
+  tablero, la evolución de la copia incluida, así que cada una se pone una sola vez: g 1.1 la volvía a doblar y valía 4
+  (verificación del Coordinador en #128). Un ataque que pega más con más Energía prueba hasta
   2 de más, o hasta su umbral si pide más (Energy Whip de Dhelmise: 3 de más): Mega Burst con una tercera hace 150 y noquea de un golpe a un Pokémon de 120 PS. Prueba los dos pasos
   aunque el primero no sume (en Crush the Weak de Scrafty, la primera puede empatar la Energía del rival y recién la
   segunda la pasa), con la Energía del tipo que cuenta
-  la mecánica, si la zona la hace: Psykick de Medicham pega 50 más con una [P] (Codex en #128).
+  la mecánica, si la zona la hace: Psykick de Medicham pega 50 más con una [P] (Codex en #128). Las mecánicas que
+  cuentan la Energía de un tipo en juego o descartan la de un tipo también piden el suyo, aunque hoy en todas sus cartas
+  es el del atacante.
 - **Retroceso:** un plan no pide más golpes de los que su atacante aguanta (Beat Punk, Enormous Explosion), ni más KO
-  de los que sobrevive (Head Smash: 50 por cada KO). Un ataque que baraja a su usuario en el mazo (Deck and Cover)
+  de los que sobrevive (Head Smash: 50 por cada KO). Solo cuentan los KO de sus golpes, no el de un objetivo que cayó
+  antes del primero, por un veneno o un KO programado (Codex en #128). Un ataque que baraja a su usuario en el mazo (Deck and Cover)
   gana solo con un golpe (Codex en #128).
 - **A todos a la vez:** un ataque que también le pega a toda la Banca (Swirling Disaster, Gigashock) la desgasta
   junto con el Activo. Tres Pokémon de 50 PS caen juntos en 5 golpes, no en 15. Puede ganar por la Banca aunque el
@@ -431,7 +439,8 @@ fórmula del `metaScore` de la app (un empate no cuenta como victoria):
 | g2 1.1 antes de la autorrevisión | 46,1 % (44,4–47,7 %) | 54,2 % (52,5–55,8 %) |
 | g2 1.1 antes de Codex en #128 | 44,9 % (43,2–46,6 %) | 52,5 % (50,8–54,1 %) |
 | g2 1.1 antes de los últimos de Codex | 42,2 % (40,5–43,8 %) | 50,4 % (48,7–52,1 %) |
-| **g2 1.1** (25554ff, motor `0b510d1`) | **42,0 % (40,4–43,7 %)** | **50,3 % (48,6–51,9 %)** |
+| g2 1.1 (25554ff, motor `0b510d1`) | 42,0 % (40,4–43,7 %) | 50,3 % (48,6–51,9 %) |
+| **g2 1.1.1** (motor `0b510d1`) | **42,1 % (40,4–43,8 %)** | **50,1 % (48,4–51,8 %)** |
 
 - En torneos, el arquetipo da 52,4 % (n = 584). Es otra fuente y no se combina con estas: sirve de baranda. g2 1.1
   es el bot que deja a la lista de torneo más cerca de donde está en los torneos, con el intervalo apenas abajo.
@@ -454,9 +463,13 @@ por bootstrap sobre los 55 pares):
 | 1.1 antes de Codex en #128 | 20261018 (nueva) | | 61,7 % (59,6–64,0 %) |
 | 1.1 en a75be19 | 20261015 | 68,8 % (65,7–72,0 %) | 63,5 % (61,4–65,7 %) |
 | 1.1 en a75be19 | 20261018 (nueva) | | 62,1 % (60,2–64,0 %) |
-| **1.1** (25554ff, motor `0b510d1`) | 20261015 | **68,7 % (65,6–71,9 %)** | **63,5 % (61,5–65,7 %)** |
-| **1.1** (25554ff, motor `0b510d1`) | 20261018 (nueva) | | **62,4 % (60,5–64,4 %)** |
+| 1.1 (25554ff, motor `0b510d1`) | 20261015 | 68,7 % (65,6–71,9 %) | 63,5 % (61,5–65,7 %) |
+| 1.1 (25554ff, motor `0b510d1`) | 20261018 (nueva) | | 62,4 % (60,5–64,4 %) |
+| **1.1.1** (motor `0b510d1`) | 20261015 | **68,7 % (65,6–71,9 %)** | **63,5 % (61,5–65,7 %)** |
+| **1.1.1** (motor `0b510d1`) | 20261018 (nueva) | | **62,4 % (60,5–64,4 %)** |
 
+- g 1.1.1 cambia algunas partidas de dos mazos (Mega Lucario ex y Butterfree / Mega Sceptile ex), no los totales.
+- Con el motor `c87bad0` (#138), g 1.1.1 juega las mismas partidas: g2 contra f2 con la semilla 20261015 sale idéntico.
 - g2 con «atacar ahora» le gana a g2 1.0 57,9 % (IC 56,0–59,8 %).
 - Terminar el turno antes de valer el ataque (autorrevisión) compra poco pero algo: g2 le gana 51,6 % (IC 50,8–52,5 %)
   al mismo g2 sin ese paso.
@@ -516,11 +529,15 @@ fallas.
 
 ### La deuda de g (Codex en #128)
 
-Codex revisó #128 ocho veces y dejó 31 hallazgos: 25 arreglados con su test, 2 que no se sostienen (el robo del
-rival después del fin del turno, que la búsqueda de deckgym tampoco aplica, y Stretch Kick sobre el Activo, que ya daba
-0) y 4 que piden modelar algo nuevo. Con la regla que aceptó el Coordinador el 19/10, esos tres quedan
-acá, respondidos en su hilo con el enlace, para la carrera o la evaluación aprendida (líneas 3 y 4). Siempre se arreglan, en cambio,
-los pánicos, las fallas de un cruce y cualquier cosa que deje ver lo oculto.
+Codex revisó #128 nueve veces y dejó 35 hallazgos: 29 arreglados con su test (los 4 de la última, en g 1.1.1), 2 que
+no se sostienen (el robo del rival después del fin del turno, que la búsqueda de deckgym tampoco aplica, y Stretch Kick
+sobre el Activo, que ya daba 0) y 4 que piden modelar algo nuevo. La verificación del Coordinador sumó tres: Jungle
+Totem, arreglado en g 1.1.1; el tope de Head Smash, en dos partes (el KO de antes del primer golpe es el mismo caso
+que el último de Codex, y el de una vuelta de estado después de un golpe va a la deuda); y Fire Fang, a la deuda. Con
+la regla que aceptó el Coordinador el 19/10, lo que pide modelar algo nuevo queda acá, respondido en su hilo con el
+enlace, para la carrera o la evaluación aprendida (líneas 3 y 4). Siempre se arreglan, en cambio, los pánicos, las
+fallas de un cruce y cualquier cosa que deje ver lo oculto. Desde g 1.1.1, lo que Codex encuentre después de la
+verificación del Coordinador va al PR siguiente de g, salvo esos tres casos, que se arreglan en el mismo.
 - **El daño del ataque que se carga solo** (Plasma Hurricane de Tapu Koko ex): el reloj cuenta la carga como ritmo de
   Energía, no el daño que hace mientras carga. Pide modelar el ataque de carga con su costo y sus turnos.
 - **La carta de arriba de lo oculto** (Cliff Crumbler, Crackling Snap): cualquier orden sintético deja fija la clase
@@ -529,8 +546,19 @@ los pánicos, las fallas de un cruce y cualquier cosa que deje ver lo oculto.
   vuelve por objetivo.
 - **Los ataques que le pegan a un solo Pokémon de la Banca** (Stretch Kick): el reloj no los cuenta como amenaza
   aunque su KO pueda ganar. Pide elegir objetivos de la Banca por puntos mientras el Activo queda.
-- **Menor, sin hallazgo propio:** una quemadura de antes que sigue después de dos controles (¼) en los golpes
-  siguientes de un ataque que quema con moneda.
+- **Menores:**
+  - una quemadura de antes que sigue después de dos controles (¼) en los golpes siguientes de un ataque que quema con
+    moneda, sin hallazgo propio;
+  - **la quemadura de antes contra Fire Fang** (B1 029, quema con moneda) cuando el turno del rival va primero: el
+    control de ese turno la puede curar antes del golpe, así que después del primero sigue con ½ + ½ · ½ = ¾, unos
+    22,5, no los 30 seguros que cuenta g (verificación del Coordinador en #128);
+  - **el KO de una vuelta de estado después de un golpe de Head Smash:** si el veneno o la quemadura terminan al Activo
+    en el control que sigue al golpe, el tope lo cuenta como KO del ataque, y en el juego ese KO no dispara el
+    retroceso. Pide separar en cada golpe el daño del estado del daño del ataque;
+  - de la autorrevisión de g 1.1.1, tres que cuentan de más los turnos: el veneno cae una vuelta por golpe aunque el
+    atacante espere más entre golpes (una Energía que vuelve, un ataque que no se repite el turno siguiente); una
+    quemadura que el ataque vuelve a poner cae solo el control de antes mientras el atacante se prepara; y Eruption
+    (Camerupt) descarta Energía con moneda, pero `self_discard` no lo sabe y lo deja repetir cada turno.
 
 ## Cómo entra en la app
 
@@ -560,8 +588,9 @@ los pánicos, las fallas de un cruce y cualquier cosa que deje ver lo oculto.
 1. **Este diseño** (#111, integrado).
 2. **g 1.0** (#117, integrado): puntos 1 a 5 y 7, engine-cli 0.3.13, con sus tests, contra el fork `018b419`.
    Resultados arriba.
-3. **g 1.1** (18/10): «atacar ahora» en la hoja, el golpe que sobra y los 14 hallazgos de Codex en #117. Resultados
-   abajo.
+3. **g 1.1** (18/10, #128): «atacar ahora» en la hoja, el golpe que sobra y los 14 hallazgos de Codex en #117.
+   Resultados arriba. **g 1.1.1** (19/10): los 4 últimos hallazgos de Codex en #128 y el Jungle Totem de la
+   verificación del Coordinador.
 4. **La app acepta g:** los códigos, el filtro de la cola, los avisos, las partidas contra el bot y las tools (riesgo
    medio). Ahí vuelven g1 y g2 a las partidas doradas, que g 1.1 dejó afuera.
 5. **La carrera** (punto 6) y la herramienta de la liga, con las primeras mediciones.

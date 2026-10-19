@@ -279,7 +279,8 @@ fn shown(state: &State, rival: usize) -> (usize, usize) {
 struct Target {
     slot: usize,
     /// Remaining HP minus the damage already scheduled on it, and minus the poison it takes before the attacker's first
-    /// hit (a Checkup, when the defender's own turn comes first).
+    /// hit: a Checkup, when the defender's own turn comes first, and a round for each turn the attacker takes to get
+    /// ready (`turns_to_win`).
     hp: f64,
     points: u8,
     /// The poison it takes in a round (both Checkups), 0 if it is not Poisoned: it keeps falling after every hit until
@@ -307,8 +308,9 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
             let poison = if pokemon.is_poisoned() { pokemon.public_details().poison_damage as f64 } else { 0.0 };
             let burned = pokemon.is_burned();
             // A KO at the Checkups right after a hit counts in that hit's turn: poison and burn fall a round after each
-            // hit, and before the first only at the Checkup that ends the defender's own turn (Codex on #117: counting
-            // a round as already due and then again after the first hit took one hit off).
+            // hit, and before the first at the Checkup that ends the defender's own turn (Codex on #117: counting a
+            // round as already due and then again after the first hit took one hit off) and, the poison, a round for
+            // each turn of the attacker's setup (below).
             let their_turn_first = attacker != probe.current_player;
             Some(Target {
                 slot,
@@ -340,8 +342,6 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
         .as_ref()
         .map_or(0, |active| get_retreat_cost(probe, active).len().saturating_sub(active.attached_energy.len()));
     let candidates = attackers(probe, attacker, &slots, see_evolutions);
-    // With Jungle Totem a Grass Energy can count twice: then the Energy goes on one attachment at a time.
-    let doubled = has_serperior_jungle_totem(probe, attacker);
     let active_lost = probe.in_play_pokemon[attacker][0].as_ref().map_or(0.0, |active| {
         if active.is_paralyzed() {
             1.0
@@ -385,34 +385,25 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
             _ => None,
         };
         let (had, attacker_hp) = (active.attached_energy.len(), active.get_remaining_hp() as f64);
-        // Evolving into Serperior brings Jungle Totem along, and the copy's Energy count does not know it (deckgym
-        // refreshes it when the board changes): each [G] on this Grass Pokémon is put on twice here (Codex on #128).
-        let gains_totem = saved.is_some()
-            && !doubled
-            && own_type == Some(EnergyType::Grass)
-            && has_serperior_jungle_totem(probe, attacker);
+        // With Jungle Totem a [G] on a Grass Pokémon counts twice, also when the attacker evolves into Serperior to bring
+        // it along (Codex on #128): deckgym counts it from the board as it stands, the copy's evolution included, so the
+        // [G] already on it count twice without more help and each one attached is put on once (Coordinador on #128).
+        let totem = has_serperior_jungle_totem(probe, attacker);
         let attached = probe.effective_attached_energy(attacker, 0);
         for attack in &attacks {
             let cost = probe.effective_attack_cost(attacker, attack);
             if !reachable(&attached, &cost, &zone) {
                 continue;
             }
-            if gains_totem {
-                let active = probe.in_play_pokemon[attacker][0].as_mut().expect("in play");
-                let grass = active.attached_energy.iter().filter(|energy| **energy == EnergyType::Grass).count();
-                active.attached_energy.extend(std::iter::repeat_n(EnergyType::Grass, grass));
-            }
             // The Energy it still lacks goes on the copy one attachment at a time, as the turns bring it: what counts
             // double (Serperior's Jungle Totem) needs fewer (Codex on #117). The damage is the one it does once ready
             // (Mega Burst does 50 for each Energy it discards, Fighting Pulse more with an extra one).
             let mut attachments = 0;
-            if doubled || gains_totem {
+            if totem {
                 while attachments < cost.len() {
                     let effective = probe.effective_attached_energy(attacker, 0);
                     let Some(&next) = energy_to_attack(&effective, &cost, &zone, own_type).first() else { break };
-                    let copies = if gains_totem && next == EnergyType::Grass { 2 } else { 1 };
-                    let active = probe.in_play_pokemon[attacker][0].as_mut().expect("in play");
-                    active.attached_energy.extend(std::iter::repeat_n(next, copies));
+                    probe.in_play_pokemon[attacker][0].as_mut().expect("in play").attached_energy.push(next);
                     attachments += 1;
                 }
             } else {
@@ -486,9 +477,10 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
                             later,
                             bonus: first - without,
                             clean: 1.0 - inflicted.poison,
-                            // A poison on a coin the target does not have yet: once it lands it stays (Codex on #128).
-                            round: if target.poison == 0.0 && inflicted.poison > 0.0 && inflicted.poison < 1.0 {
-                                inflicted.poison_round
+                            // A poison on a coin: once it lands it stays, in place of the one the target had (Stun
+                            // Poison on a healthy target, or over Toxic's stronger one; Codex on #128).
+                            round: if inflicted.poison > 0.0 && inflicted.poison < 1.0 {
+                                inflicted.poison_round - target.poison
                             } else {
                                 0.0
                             },
@@ -506,17 +498,30 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
                 let (discard, chance) = self_discard(mechanic, &ready, ready.len().min(cost.len() + overcharge));
                 let reuse = (chance * (discard / rate).ceil().max(1.0) + (1.0 - chance)).max(1.0 + cooldown);
                 let knockouts = knockouts_it_survives(mechanic, attacker_hp);
-                let Some((hits, spare)) =
-                    hits_to_win(&burning, &damage, &bench, probe.points[attacker], knockouts, params.margin)
-                else {
-                    continue;
+                // A poison the target already has keeps falling while the attacker gets ready: a round for each turn of
+                // setup before the first hit (Codex on #128). An Active the attack cannot hurt still falls to it, so a
+                // ready attacker waits it out as one an Energy short would (an ex against a Poisoned Oricorio's
+                // Safeguard; review of g 1.1.1).
+                let mut wait = setup;
+                let plan = loop {
+                    let waiting: Vec<Target> =
+                        burning.iter().map(|target| Target { hp: target.hp - target.poison * wait, ..*target }).collect();
+                    if let Some(plan) =
+                        hits_to_win(&waiting, &damage, &bench, probe.points[attacker], knockouts, params.margin)
+                    {
+                        break Some(plan);
+                    }
+                    let standing = waiting.iter().find(|target| target.slot == 0 && target.poison > 0.0 && target.hp > 0.0);
+                    let Some(active) = standing else { break None };
+                    wait += (active.hp / active.poison).ceil();
                 };
+                let Some((hits, spare)) = plan else { continue };
                 // An attack that also hurts its user: no more hits than it survives (the last may knock it out). One that
                 // shuffles its user into the deck hits once (Deck and Cover; Codex on #128).
                 if (recoil > 0.0 && hits > (attacker_hp / recoil).ceil()) || (leaves_play(mechanic) && hits > 1.0) {
                     continue;
                 }
-                best = best.min(setup + hits + (hits - 1.0).max(0.0) * (reuse - 1.0) + delay - spare);
+                best = best.min(wait + hits + (hits - 1.0).max(0.0) * (reuse - 1.0) + delay - spare);
             }
             probe.in_play_pokemon[attacker][0].as_mut().expect("in play").attached_energy.truncate(had);
         }
@@ -688,7 +693,10 @@ fn extra_energy(mechanic: Option<&Mechanic>, attached: &[EnergyType], nth: usize
             Mechanic::ExtraDamageIfSelfHasTypeEnergy { energy_type, .. }
             | Mechanic::ExtraDamagePerSpecificEnergy { energy_type, .. }
             | Mechanic::ExtraDamagePerSpecificEnergyAllYours { energy_type, .. }
-            | Mechanic::CoinFlipPerSpecificEnergyType { energy_type, .. },
+            | Mechanic::CoinFlipPerSpecificEnergyType { energy_type, .. }
+            | Mechanic::ExtraDamageIfTypeEnergyInPlay { energy_type, .. }
+            | Mechanic::DiscardSelfEnergyPerHeadsExtraDamage { energy_type, .. }
+            | Mechanic::SelfDiscardAllTypeEnergyAndDamageAnyOpponentPokemon { energy_type, .. },
         ) => made(*energy_type),
         Some(Mechanic::ExtraDamageIfExtraEnergy { required_extra_energy, .. }) => {
             required_extra_energy.get(nth.saturating_sub(1)).copied().and_then(made)
@@ -766,10 +774,11 @@ fn attackers(state: &State, attacker: usize, slots: &[usize], see_evolutions: bo
 /// it and `later` of the ones after: a burn the target already has is certain through the first hit of an attack that
 /// burns again on a coin, not through the later ones (Fire Fang; Codex on #128). `bonus` is what its user's first
 /// attack adds (Cold Start's 20): it goes to the first hit of the plan, on whichever target that is, even one promoted
-/// after the Active fell to poison before it (Codex on #128). For a poison on a coin that the target does not have yet, a hit after the first also
-/// brings the chance the earlier ones already poisoned it: after k hits it is Poisoned with `1 − clean^k`, not with the
-/// first hit's chance each time (Stun Poison: 50 % after the first, 75 % after the second; Codex on #128). `round` is
-/// that poison's round, 0 for every other attack and target.
+/// after the Active fell to poison before it (Codex on #128). For a poison on a coin, a hit after the first also brings
+/// the chance the earlier ones already poisoned it: after k hits the new poison is on with `1 − clean^k`, not with the
+/// first hit's chance each time (Stun Poison: 50 % after the first, 75 % after the second), and in place of the one the
+/// target had (an ordinary poison over Toxic's: 30, 25, 22,5 a round; Codex on #128). `round` is the new poison's round
+/// less the target's own, 0 for every other attack and target.
 #[derive(Clone, Copy, Debug)]
 struct Hit {
     first: f64,
@@ -849,7 +858,11 @@ fn hits_to_win(
         for at in 0..targets.len() {
             if standing[at] && hp[at] <= 0.0 {
                 standing[at] = false;
-                knocked_out += 1;
+                // Only the knockouts of its hits cost Head Smash its recoil, not one that fell before the first (Codex
+                // on #128).
+                if total > 0.0 {
+                    knocked_out += 1;
+                }
                 points += targets[at].points;
                 if active == Some(at) {
                     active = None;
@@ -2133,6 +2146,17 @@ mod tests {
     }
 
     #[test]
+    fn a_grass_energy_under_the_totem_an_evolution_brings_counts_twice() {
+        // A Servine with no Energy and Serperior in hand: Solar Beam ([G][C][C][C], 70) is ready with two [G] under
+        // Jungle Totem, 2 + 2 hits against Dedenne ex. deckgym already counts each one twice once the copy has evolved:
+        // doubled again here, one [G] was four and made it 1 + 2 (Coordinador on #128).
+        let grass = "Energy: Grass\n2 Snivy A1a 4\n2 Servine A1a 5\n2 Sabrina A1 225\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n2 Giant Cape A2 147\n2 Rocky Helmet A2 148\n2 Lucky Ice Pop B2 145\n2 Cyrus A2 150\n";
+        let mut state = board(grass, DEDENNE, vec![card("A1a 005")], vec![card("B3b 024")]);
+        state.hands[0].push(card("A1a 006").card);
+        assert_eq!(turns(&state, 0, true), 2.0 + 2.0);
+    }
+
+    #[test]
     fn can_attack_needs_the_energy_and_no_status_that_stops_it() {
         let latias = card("A4a 036");
         assert!(!can_attack(&board(MISMAGIUS, DEDENNE, vec![latias.clone()], vec![card("B3b 024")]), 0));
@@ -2298,6 +2322,69 @@ mod tests {
         let dhelmise = card("A1a 009").with_energy(vec![EnergyType::Grass]);
         let state = board(VENUSAUR, VENUSAUR, vec![dhelmise], vec![card("B1a 004")]);
         assert_eq!(turns(&state, 0, false), 3.0 + 3.0);
+    }
+
+    #[test]
+    fn a_poison_keeps_falling_while_the_attacker_gets_ready() {
+        // Latias needs one more [P] (a turn of setup) against a Poisoned Bulbasaur with 20 HP left, with 2 points to go
+        // for 1: the round of poison in between knocks it out before the hit, 1 turn and not 2 (Codex on #128).
+        let mut state = board(MISMAGIUS, VENUSAUR, vec![card("A4a 036")], vec![card("A1 001").with_remaining_hp(20)]);
+        state.apply_status_condition(1, 0, StatusCondition::Poisoned);
+        state.points = [2, 0];
+        assert_eq!(turns(&state, 0, false), 1.0);
+    }
+
+    #[test]
+    fn a_weaker_poison_on_a_coin_mixes_in_hit_after_hit() {
+        // A Mega Venusaur ex under Toxic (40 a round) hit by Stun Poison (50, an ordinary poison on heads): after the
+        // first hit it takes 30 a round (½ × 20 + ½ × 40), after the second 25, then 22,5 (Codex on #128). 80 + 75 = 155
+        // leave 158 HP standing: 3 hits, not the 2 of 80 each.
+        let toxicroak = card("A2a 052").with_energy(vec![EnergyType::Darkness]);
+        let mut state = board(DEDENNE, VENUSAUR, vec![toxicroak.clone()], vec![card("B1a 004").with_remaining_hp(158)]);
+        apply(&mut state, SimpleAction::Attack(first_attack(&toxicroak)));
+        let venusaur = state.in_play_pokemon[1][0].as_ref().expect("Mega Venusaur ex");
+        assert_eq!((venusaur.get_remaining_hp(), venusaur.public_details().poison_damage), (158, 20));
+        state.in_play_pokemon[0][0] = Some(card("A4a 016").with_energy(vec![EnergyType::Water; 3]));
+        assert_eq!(turns(&state, 0, false), 3.0);
+    }
+
+    #[test]
+    fn the_extra_energy_is_the_type_counted_in_play() {
+        // «5 or more [P] Energy in play»: in a zone that makes [F] and [P], a Fighting attacker overcharges with [P]
+        // (Codex on #128: it took the filler, [F]).
+        let in_play = Mechanic::ExtraDamageIfTypeEnergyInPlay { energy_type: Psychic, minimum_count: 5, extra_damage: 60 };
+        let zone = [EnergyType::Fighting, Psychic];
+        assert_eq!(extra_energy(Some(&in_play), &[], 1, &zone, Some(EnergyType::Fighting)), Psychic);
+    }
+
+    #[test]
+    fn an_active_it_cannot_hurt_is_waited_out_while_its_poison_falls() {
+        // Dedenne ex's Dede-Circuit (40 with its Giant Cape) does nothing to Oricorio's Safeguard: a Poisoned Oricorio
+        // with 20 HP falls to the poison in a round, and then the Dedenne ex after it. Ready, it is the same plan as an
+        // Energy short (review of g 1.1.1: ready, it was no threat at all, and an Energy short it was 4).
+        let short = card("B3b 024").with_energy(vec![Lightning]).with_tool(tool("A2 147"));
+        let ready = card("B3b 024").with_energy(vec![Lightning, Lightning]).with_tool(tool("A2 147"));
+        let theirs = || vec![card("A3 165").with_remaining_hp(20), card("B3b 024")];
+        let mut waiting = board(DEDENNE, MISMAGIUS, vec![short], theirs());
+        waiting.apply_status_condition(1, 0, StatusCondition::Poisoned);
+        let mut walled = board(DEDENNE, MISMAGIUS, vec![ready], theirs());
+        walled.apply_status_condition(1, 0, StatusCondition::Poisoned);
+        let one_short = turns(&waiting, 0, false);
+        assert!(one_short < NO_THREAT, "{one_short}");
+        assert_eq!(turns(&walled, 0, false), one_short);
+    }
+
+    #[test]
+    fn head_smash_does_not_pay_for_a_knockout_it_did_not_make() {
+        // The rival's Active, a Poisoned Bulbasaur with 10 HP, falls at its own Checkup before Rampardos hits: that
+        // point is not Head Smash's, so a Rampardos with 50 HP left still knocks out the Bulbasaur promoted after it and
+        // wins (Codex on #128: it took the first knockout as its own and gave up).
+        let rampardos = card("A2 089").with_energy(vec![EnergyType::Fighting]).with_remaining_hp(50);
+        let mut state = board(LUCARIO, VENUSAUR, vec![rampardos], vec![card("A1 001").with_remaining_hp(10), card("A1 001")]);
+        state.apply_status_condition(1, 0, StatusCondition::Poisoned);
+        state.points = [1, 0];
+        state.current_player = 1;
+        assert_eq!(turns(&state, 0, false), 1.0);
     }
 
     #[test]
