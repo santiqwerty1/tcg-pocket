@@ -194,7 +194,8 @@ En g 1.1 (18/10), dos cambios para que las juegue de verdad:
     envenenan o queman;
   - envenenar de nuevo reemplaza el veneno anterior, con su probabilidad: Toxic sobre un veneno común da 40 por
     vuelta, no 20. Un estado que solo pone el primer ataque (`FirstAttackBonusDamageAndStatus`) no se cuenta golpe a
-    golpe, y su daño de más tampoco: Cold Start pega 80 la primera vez y 60 después (Codex en #128);
+    golpe, y su daño de más tampoco: Cold Start pega 80 la primera vez y 60 después, y esos 20 van al primer golpe del
+    plan aunque caiga en otro objetivo, como el que sube después de que el Activo cae envenenado (Codex en #128);
   - una quemadura que el Activo ya tiene sigue durante el primer golpe de un ataque que vuelve a quemar con moneda
     (Fire Fang de B1 029): esa vuelta es segura, y la de los golpes siguientes lleva la moneda (Codex en #128).
 - **Sueño y parálisis:**
@@ -216,7 +217,7 @@ En g 1.1 (18/10), dos cambios para que las juegue de verdad:
   atacar el turno siguiente (Prismatic Laser, Big Beat) pega cada dos turnos.
 - **Cargar:** la Energía que falta se pone de a una, como llega turno a turno, así lo que cuenta doble (Jungle Totem)
   necesita menos, también si el que ataca evoluciona a Serperior. Un ataque que pega más con más Energía prueba hasta
-  2 de más: Mega Burst con una tercera hace 150 y noquea de un golpe a un Pokémon de 120 PS. Prueba los dos pasos
+  2 de más, o hasta su umbral si pide más (Energy Whip de Dhelmise: 3 de más): Mega Burst con una tercera hace 150 y noquea de un golpe a un Pokémon de 120 PS. Prueba los dos pasos
   aunque el primero no sume (en Crush the Weak de Scrafty, la primera puede empatar la Energía del rival y recién la
   segunda la pasa), con la Energía del tipo que cuenta
   la mecánica, si la zona la hace: Psykick de Medicham pega 50 más con una [P] (Codex en #128).
@@ -429,7 +430,8 @@ fórmula del `metaScore` de la app (un empate no cuenta como victoria):
 | e3 | 39,5 % (37,9–41,2 %) | 46,9 % (45,3–48,6 %) |
 | g2 1.1 antes de la autorrevisión | 46,1 % (44,4–47,7 %) | 54,2 % (52,5–55,8 %) |
 | g2 1.1 antes de Codex en #128 | 44,9 % (43,2–46,6 %) | 52,5 % (50,8–54,1 %) |
-| g2 1.1 | 42,2 % (40,5–43,8 %) | 50,4 % (48,7–52,1 %) |
+| g2 1.1 antes de los últimos de Codex | 42,2 % (40,5–43,8 %) | 50,4 % (48,7–52,1 %) |
+| **g2 1.1** (25554ff, motor `0b510d1`) | **42,0 % (40,4–43,7 %)** | **50,3 % (48,6–51,9 %)** |
 
 - En torneos, el arquetipo da 52,4 % (n = 584). Es otra fuente y no se combina con estas: sirve de baranda. g2 1.1
   es el bot que deja a la lista de torneo más cerca de donde está en los torneos, con el intervalo apenas abajo.
@@ -450,8 +452,10 @@ por bootstrap sobre los 55 pares):
 | 1.1 antes de la autorrevisión | 20261018 (nueva) | | 59,1 % (57,0–61,3 %) |
 | 1.1 antes de Codex en #128 | 20261015 | 67,2 % (63,9–70,6 %) | 59,7 % (57,6–62,0 %) |
 | 1.1 antes de Codex en #128 | 20261018 (nueva) | | 61,7 % (59,6–64,0 %) |
-| 1.1 | 20261015 | 68,8 % (65,7–72,0 %) | 63,5 % (61,4–65,7 %) |
-| 1.1 | 20261018 (nueva) | | 62,1 % (60,2–64,0 %) |
+| 1.1 en a75be19 | 20261015 | 68,8 % (65,7–72,0 %) | 63,5 % (61,4–65,7 %) |
+| 1.1 en a75be19 | 20261018 (nueva) | | 62,1 % (60,2–64,0 %) |
+| **1.1** (25554ff, motor `0b510d1`) | 20261015 | **68,7 % (65,6–71,9 %)** | **63,5 % (61,5–65,7 %)** |
+| **1.1** (25554ff, motor `0b510d1`) | 20261018 (nueva) | | **62,4 % (60,5–64,4 %)** |
 
 - g2 con «atacar ahora» le gana a g2 1.0 57,9 % (IC 56,0–59,8 %).
 - Terminar el turno antes de valer el ataque (autorrevisión) compra poco pero algo: g2 le gana 51,6 % (IC 50,8–52,5 %)
@@ -474,7 +478,8 @@ por bootstrap sobre los 55 pares):
 | g2 1.1, primera versión | 359 ms (3,45 veces e2) |
 | g2 1.1 antes de la autorrevisión | 293 ms (2,7–2,8 veces e2) |
 | g2 1.1 antes de Codex en #128 | 335 ms (3,2 veces e2, con e2 en 106) |
-| g2 1.1 | 324–335 ms (2,9–3,2 veces e2, con e2 en 106–115) |
+| g2 1.1 en a75be19 | 324–335 ms (2,9–3,2 veces e2, con e2 en 106–115) |
+| g2 1.1 (25554ff, motor `0b510d1`) | 333–345 ms (unas 3 veces e2, con e2 en 111–112) |
 
 **g2 1.1 queda en el borde del tope de 3 que pone este diseño.** Lo que suma la autorrevisión es terminar el turno después de
 cada ataque de «atacar ahora» (unos 46 ms por partida), y se queda: es un error de reglas, no una heurística. El
@@ -511,10 +516,10 @@ fallas.
 
 ### La deuda de g (Codex en #128)
 
-Codex revisó #128 en cinco rondas y dejó 28 hallazgos: 23 arreglados con su test, 2 que no se sostienen (el robo del
+Codex revisó #128 ocho veces y dejó 31 hallazgos: 25 arreglados con su test, 2 que no se sostienen (el robo del
 rival después del fin del turno, que la búsqueda de deckgym tampoco aplica, y Stretch Kick sobre el Activo, que ya daba
-0) y 3 que piden modelar algo nuevo de una carta. Con la regla que aceptó el Coordinador el 19/10, esos tres quedan
-acá, respondidos en su hilo, para la carrera o la evaluación aprendida (líneas 3 y 4). Siempre se arreglan, en cambio,
+0) y 4 que piden modelar algo nuevo. Con la regla que aceptó el Coordinador el 19/10, esos tres quedan
+acá, respondidos en su hilo con el enlace, para la carrera o la evaluación aprendida (líneas 3 y 4). Siempre se arreglan, en cambio,
 los pánicos, las fallas de un cruce y cualquier cosa que deje ver lo oculto.
 - **El daño del ataque que se carga solo** (Plasma Hurricane de Tapu Koko ex): el reloj cuenta la carga como ritmo de
   Energía, no el daño que hace mientras carga. Pide modelar el ataque de carga con su costo y sus turnos.
@@ -522,9 +527,10 @@ los pánicos, las fallas de un cruce y cualquier cosa que deje ver lo oculto.
   de la carta de arriba. Promediar pide pedir esos ataques con las dos clases.
 - **Las chances de Chemical Panic** según los estados que el objetivo ya tiene: `inflicts` es por ataque, y esto lo
   vuelve por objetivo.
-- **Menores, sin hallazgo propio:** una quemadura de antes que sigue después de dos controles (¼) en los golpes
-  siguientes de un ataque que quema con moneda; y los ataques que solo le pegan a la Banca (Stretch Kick), que el
-  reloj no cuenta como amenaza aunque sus KO puedan ganar.
+- **Los ataques que le pegan a un solo Pokémon de la Banca** (Stretch Kick): el reloj no los cuenta como amenaza
+  aunque su KO pueda ganar. Pide elegir objetivos de la Banca por puntos mientras el Activo queda.
+- **Menor, sin hallazgo propio:** una quemadura de antes que sigue después de dos controles (¼) en los golpes
+  siguientes de un ataque que quema con moneda.
 
 ## Cómo entra en la app
 
