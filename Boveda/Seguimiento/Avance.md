@@ -82,7 +82,7 @@ revisar: false
 
 ## Próximos pasos
 
-**Producción al 19/10/2026:** desplegada hasta `83dcb40` (#134). #135 (`419572c`) entra con el próximo deploy. Versión 1.0.0, engine-cli 0.3.14 y worker 0.3.12, con el regulador de CPU prendido. El motor es la copia de deckgym en `0b510d1`, sobre upstream `adfe505` ([D-031](Decisiones/D-031.md)), con el catálogo sincronizado. Los workers se actualizan solos ([D-026](Decisiones/D-026.md)), salvo la Ryzen, que sigue con 0.2.7 y no puede jugar con el motor nuevo. El id de la máquina cambia con los deploys que la reemplazan: se busca con `flyctl machine list --app tcg-pocket`. **Simulaciones con el motor nuevo:** los puntajes del laboratorio de los 25 mazos armados (trabajos 68–70) y la matriz 42×42 (trabajo 71, f4 contra e4, la misma configuración que la 59).
+**Producción al 19/10/2026:** desplegada hasta `83dcb40` (#134). #135 (`419572c`) entra con el próximo deploy. Versión 1.0.0, engine-cli 0.3.14 y worker 0.3.12, con el regulador de CPU prendido. El motor es la copia de deckgym en `0b510d1`, sobre upstream `adfe505` ([D-031](Decisiones/D-031.md)), con el catálogo sincronizado. Los workers se actualizan solos ([D-026](Decisiones/D-026.md)), salvo la Ryzen, que sigue con 0.2.7 y no puede jugar con el motor nuevo. El id de la máquina cambia con los deploys que la reemplazan: se busca con `flyctl machine list --app tcg-pocket`. **Simulaciones con el motor nuevo:** los puntajes del laboratorio de los 25 mazos armados (trabajos 72–74) y la matriz 42×42 (trabajo 75, f4 contra e4, la misma configuración que la 59). Los relanzados primero (68–71) armaron las fotos de los mazos con el estado de cartas de la Ryzen, y sus puntajes no se ven en los mazos ([H-059](Hallazgos/H-059.md)).
 
 **Repo:** `santiqwerty1/tcg-pocket` es público desde el 11/10 ([D-022](Decisiones/D-022.md)). main está protegida (privacy, test, e2e y screens requeridos) y, desde el 18/10, con `enforce_admins`: tampoco la cuenta de Santiago empuja directo. El hub de chat vive en `santiqwerty1/chat-hub` (privado, [D-030](Decisiones/D-030.md)), con la CI en un runner propio de la PC de Santiago.
 
@@ -99,10 +99,11 @@ Lo que sigue, en orden:
    - volver a medir los mazos 16, 23 y 40 con el motor nuevo;
    - el PR «la app acepta g», con su calibración, para que Santiago decida el bot por defecto;
    - la línea 2, sin trampa.
-2. **Con el motor nuevo:** avisar los resultados de los trabajos 68–71, y que Santiago lance desde la app las calibraciones e2, e3 y MCTS. La calibración vuelve a jugar el cruce que fallaba en la #27 ([H-052](Hallazgos/H-052.md)).
-3. **Importar partidas desde la hoja de Santiago:** en una sesión nueva, con el diseño del Coordinador y las cuatro preguntas del traspaso de Principal del 18/10. Es de riesgo alto, porque escribe en masa.
-4. **El hub ([D-030](Decisiones/D-030.md)):** T1b entró el 18/10 (#129). El paso 5 espera tres cosas: el paso 2 de Santiago (Supabase, Fly y secretos, con los comandos que prepara el Coordinador), el incremento 5 de Posta en su main (el 410 como «paro y aviso») y el token de conector «tcg-pocket (reenvío)» del hub como `HUB_MCP_TOKEN`. Después, el cambio de «posta», H4 y T2.
-5. **Santiago:**
+2. **Con el motor nuevo:** avisar los resultados de los trabajos 72–75, y que Santiago lance desde la app las calibraciones e2, e3 y MCTS. La calibración vuelve a jugar el cruce que fallaba en la #27 ([H-052](Hallazgos/H-052.md)).
+3. **Infra, [H-059](Hallazgos/H-059.md):** que las fotos de los mazos no se armen con el estado de cartas de un worker viejo después de mover el motor (riesgo medio).
+4. **Importar partidas desde la hoja de Santiago:** en una sesión nueva, con el diseño del Coordinador y las cuatro preguntas del traspaso de Principal del 18/10. Es de riesgo alto, porque escribe en masa.
+5. **El hub ([D-030](Decisiones/D-030.md)):** T1b entró el 18/10 (#129). El paso 5 espera tres cosas: el paso 2 de Santiago (Supabase, Fly y secretos, con los comandos que prepara el Coordinador), el incremento 5 de Posta en su main (el 410 como «paro y aviso») y el token de conector «tcg-pocket (reenvío)» del hub como `HUB_MCP_TOKEN`. Después, el cambio de «posta», H4 y T2.
+6. **Santiago:**
    - anotar Master Ball desde la partida 6 de ranked (las 26 del 17 y 18/10, ids 6 a 31): desde la edición de la partida, o en una conversación nueva con Claude, con `ranked_rank_note` ([T-022](Tareas/T-022.md));
    - lanzar las calibraciones e2, e3 y MCTS con el motor nuevo, desde Más → Simulación → Calibración;
    - el paso 2 del hub;
@@ -110,9 +111,9 @@ Lo que sigue, en orden:
    - los 43 términos de las traducciones de los premios de las misiones, en su página;
    - Termux «Sin restricciones» en la batería del S25, y prenderlo: está apagado desde el 18/10 a las 10:16 ([H-054](Hallazgos/H-054.md), [T-015](Tareas/T-015.md));
    - en esta PC, el runner Windows de la CI de Posta.
-6. **deckgym upstream:** bcollazo/deckgym-core#420 (el objetivo de Quick-Grow Extract y Wallace) espera al autor. El 15/10 cerró el issue #399 diciendo que en el juego no se elige y pidió un video; Santiago grabó los dos (Extracto y Plubio) el 16/10, y el autor no contestó después. #383 entró upstream, y #396–#398 los arregló el autor en sus PR #400 y #401.
-7. **Privacidad del mail en GitHub** (recomendación para Santiago): activar «Keep my email addresses private» y «Block command line pushes that expose my email» ([R-013](Riesgos/R-013.md)).
-8. **Menores:** [T-016](Tareas/T-016.md) sigue para cuando Santiago lo pida.
+7. **deckgym upstream:** bcollazo/deckgym-core#420 (el objetivo de Quick-Grow Extract y Wallace) espera al autor. El 15/10 cerró el issue #399 diciendo que en el juego no se elige y pidió un video; Santiago grabó los dos (Extracto y Plubio) el 16/10, y el autor no contestó después. #383 entró upstream, y #396–#398 los arregló el autor en sus PR #400 y #401.
+8. **Privacidad del mail en GitHub** (recomendación para Santiago): activar «Keep my email addresses private» y «Block command line pushes that expose my email» ([R-013](Riesgos/R-013.md)).
+9. **Menores:** [T-016](Tareas/T-016.md) sigue para cuando Santiago lo pida.
 
 Hechos desde la actualización del 14/10:
 - 15/10: #109 («Actualizar todos»), #110 (seguimiento del regulador), #111 (diseño del bot «g»), #113 (seguimiento de #107) y #115 (el fork de deckgym, [H-056](Hallazgos/H-056.md) resuelto), con tres deploys; chat-hub #7 (H6);
@@ -120,7 +121,7 @@ Hechos desde la actualización del 14/10:
 - la pausa general del 15/10 a las 17:05 al 18/10 a las 02:46, por el límite semanal de la cuenta;
 - el diagnóstico de Dedenne ex y la aprobación del fork sobre `adfe505`;
 - 18/10, por la tarde: #129 (T1b del hub), #130 y #131 (la deuda de ranked y de rivales) y #132 (permisos), con un deploy; `enforce_admins` en main; chat-hub #12 y #13; las cinco mejoras de la hoja de partidas de Santiago;
-- 19/10: #133 (el motor nuevo, `0b510d1`), #134 (la prueba de ranked de medianoche) y #135 (`catalog-sync` dice qué usa), con el deploy de `83dcb40`, el sync del catálogo y las simulaciones relanzadas (trabajos 68–71); el arquetipo de 20 rivales, para «mi meta».
+- 19/10: #133 (el motor nuevo, `0b510d1`), #134 (la prueba de ranked de medianoche) y #135 (`catalog-sync` dice qué usa), con el deploy de `83dcb40`, el sync del catálogo y las simulaciones relanzadas (trabajos 72–75, después de [H-059](Hallazgos/H-059.md)); el arquetipo de 20 rivales, para «mi meta».
 
 Todo entra por PR, con la CI verde y la revisión del Coordinador. Las sesiones se hablan por el chat externo al repo, en las salas «tcg» y «posta»; Bots, por el chat de la app.
 
