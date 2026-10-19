@@ -57,7 +57,10 @@ export class EngineStatusService {
 
   /**
    * The card status of the current engine; right after an engine update, before a worker with the new engine
-   * uploads it, the one of the engine a worker used last (deckgym rarely changes which cards are implemented).
+   * uploads it, the one of the engine the app used before (deckgym rarely changes which cards are implemented): the
+   * last applied catalog sync of another engine that has a status. Never a worker's engine (H-059, 19/10/2026): an
+   * old worker still online says nothing of the pin before, and with its status the reprints it lacks were played as
+   * the old edition, so the snapshots took other keys. Without one, the Fase 0 list.
    */
   private async load(): Promise<{ from: string | null; map: Map<string, boolean> }> {
     const rev = this.env.engineRev
@@ -67,18 +70,19 @@ export class EngineStatusService {
       let from: string | null = rev
       let rows = await read(rev)
       if (rows.length === 0) {
-        const worker = await this.prisma.workerNode.findFirst({
-          where: { engineRev: { not: rev } },
-          orderBy: { lastSeenAt: 'desc' },
+        const syncs = await this.prisma.catalogSync.findMany({
+          where: { status: { in: ['applied', 'needs_review'] }, engineRev: { not: rev } },
+          orderBy: { id: 'desc' },
           select: { engineRev: true },
         })
-        const other =
-          worker?.engineRev ??
-          (await this.prisma.engineCard.findFirst({ where: { engineRev: { not: rev } }, select: { engineRev: true } }))
-            ?.engineRev ??
-          null
-        from = other
-        rows = other ? await read(other) : []
+        from = null
+        for (const engineRev of new Set(syncs.map((sync) => sync.engineRev))) {
+          rows = await read(engineRev)
+          if (rows.length > 0) {
+            from = engineRev
+            break
+          }
+        }
       }
       this.cache = {
         rev,

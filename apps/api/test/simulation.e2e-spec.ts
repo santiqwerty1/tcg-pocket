@@ -213,18 +213,54 @@ describe('simulation (e2e)', () => {
       statusRev: test.env.engineRev,
     })
 
-    // Right after an engine update: the status of the engine a worker used last, until one reports the new one.
+    // Right after an engine update, until a worker reports the new one: the status of the engine the app used before
+    // (the last applied catalog sync of another engine), never the one of an old worker still online (H-059: a
+    // worker on 33ff2a5 played the B4b reprints as the old edition, and the snapshots took other keys).
     const older = 'a'.repeat(40)
+    const ancient = 'c'.repeat(40)
     await test.prisma.engineCard.updateMany({ data: { engineRev: older } })
+    await test.prisma.engineCard.createMany({
+      data: [
+        { engineRev: ancient, engineId: 'A1 001', name: 'Bulbasaur', status: 'Complete', complete: true },
+        { engineRev: ancient, engineId: 'B4b 198', name: 'Lucky Ice Pop', status: 'MissingTrainer', complete: false },
+        {
+          engineRev: ancient,
+          engineId: 'B4b 199',
+          name: 'Pokémon Center Lady',
+          status: 'MissingTrainer',
+          complete: false,
+        },
+      ],
+    })
     await test.prisma.workerNode.create({
-      data: { id: 'worker-old-engine', name: 'pc vieja', engineRev: older, cores: 2 },
+      data: { id: 'worker-old-engine', name: 'pc vieja', engineRev: ancient, cores: 2, lastSeenAt: new Date() },
     })
-    test.app.get(EngineStatusService).invalidate()
-    expect((await get('/api/simulations/engine')).body).toMatchObject({
-      source: 'previous',
-      statusRev: older,
-      incomplete: 1,
+    const syncs = await test.prisma.catalogSync.findMany({
+      where: { engineRev: test.env.engineRev },
+      select: { id: true },
     })
+    await test.prisma.catalogSync.updateMany({ where: { engineRev: test.env.engineRev }, data: { engineRev: older } })
+    try {
+      test.app.get(EngineStatusService).invalidate()
+      expect((await get('/api/simulations/engine')).body).toMatchObject({
+        source: 'previous',
+        statusRev: older,
+        incomplete: 1,
+      })
+
+      // No sync of another engine with a status: the Fase 0 list, not the old worker's.
+      await test.prisma.engineCard.deleteMany({ where: { engineRev: older } })
+      test.app.get(EngineStatusService).invalidate()
+      expect((await get('/api/simulations/engine')).body).toMatchObject({
+        source: 'fallback',
+        incomplete: 46,
+      })
+    } finally {
+      await test.prisma.catalogSync.updateMany({
+        where: { id: { in: syncs.map((sync) => sync.id) } },
+        data: { engineRev: test.env.engineRev },
+      })
+    }
     await test.prisma.workerNode.delete({ where: { id: 'worker-old-engine' } })
     // Back to the fallback list for the rest of the tests (a 2-card table would make every deck «no simulable»).
     await test.prisma.engineCard.deleteMany()
