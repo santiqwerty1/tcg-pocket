@@ -5,7 +5,7 @@ import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
 import { OWNER_TIME_ZONE, todayInOwnerZone } from '../src/config/time-zone.js'
 import { SHEET_DECK_MAP_KEY } from '../src/matches/sheet-import.service.js'
-import { RANK_NOTE_LOCK } from '../src/ranked/ranked.service.js'
+import { RANK_LOCK, RANK_NOTE_LOCK } from '../src/ranked/ranked.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /**
@@ -578,7 +578,7 @@ describe('importing the match sheet (e2e)', () => {
   })
 
   /** Runs `start` while another transaction holds the ranks' lock: did it wait for it? */
-  async function underRankLock<T>(start: () => PromiseLike<T>): Promise<{ waited: boolean; result: T }> {
+  async function underRankLock<T>(start: () => PromiseLike<T>, holdMs = 1000): Promise<{ waited: boolean; result: T }> {
     const holder = new pg.Client({ connectionString: test.env.databaseUrl })
     await holder.connect()
     try {
@@ -589,7 +589,7 @@ describe('importing the match sheet (e2e)', () => {
         done = true
         return result
       })
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      await new Promise((resolve) => setTimeout(resolve, holdMs))
       const waited = !done
       await holder.query('COMMIT')
       return { waited, result: await running }
@@ -648,5 +648,32 @@ describe('importing the match sheet (e2e)', () => {
     // The monthly drill takes it before the tables (the order of every other writer).
     const drill = await underRankLock(() => post('/api/backup/drill').send())
     expect(drill).toMatchObject({ waited: true, result: { status: 200, body: { drill: { ok: true } } } })
-  })
+    // A restore and a drill on a busy machine (the shared PC, the CI) take a while.
+  }, 180_000)
+
+  it('review of #143: a write waits for the ranks’ lock longer than Prisma’s 5 s, and past its wait it is a 503', async () => {
+    const at = (hours: number) => new Date(BASE - hours * HOUR_MS).toISOString()
+    const first = (await post('/api/ranked/ranks').send({ rank: 'great-3', at: at(510) })).body as { id: string }
+    // An import (up to a minute) holding the lock for 6 s: the delete waits and goes through, no P2028 as a 500.
+    const slow = await underRankLock(
+      () => test.http().delete(`/api/ranked/ranks/${first.id}`).set('Cookie', cookie),
+      6000,
+    )
+    expect(slow).toMatchObject({ waited: true, result: { status: 204 } })
+    // Held past the wait (lowered for the test): «ocupado, probá de nuevo».
+    const second = (await post('/api/ranked/ranks').send({ rank: 'great-4', at: at(520) })).body as { id: string }
+    const wait = RANK_LOCK.waitMs
+    RANK_LOCK.waitMs = 300
+    try {
+      const busy = await underRankLock(
+        () => test.http().delete(`/api/ranked/ranks/${second.id}`).set('Cookie', cookie),
+        1500,
+      )
+      expect(busy.result.status).toBe(503)
+      expect(busy.result.body.error.code).toBe('ranks_busy')
+      expect(await test.prisma.rankChange.count({ where: { id: Number(second.id) } })).toBe(1)
+    } finally {
+      RANK_LOCK.waitMs = wait
+    }
+  }, 30_000)
 })

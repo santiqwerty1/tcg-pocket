@@ -771,19 +771,23 @@ describe('the text for column K', () => {
     expect(sheetColumnK({ firstRow: null, lastRow: null }, [])).toBeNull()
   })
 
-  it('review of #143: only numbers or nothing — a K with a line break or a typo is no line of its own', () => {
+  it('review of #143: K stays as written (a note too), one line per row; only a K with a line break goes empty, said', () => {
     const sheet = parse(
       csv([
         row({ k: '32\nrevisar', date: '17/10/2026 22:19' }),
         row({ k: 'n.º 14', date: '17/10/2026 22:29' }),
-        row({ k: 'sí', date: '17/10/2026 22:39' }),
+        row({ k: 'ver con Santi', date: '17/10/2026 22:39' }),
         row({ date: '17/10/2026 22:49' }),
       ]),
     )
     const plan = planSheetImport(sheet, context())
     const block = sheetColumnK(sheet, plan.rows, new Map([[8, '50']]))
-    expect(block).toEqual({ firstRow: 5, text: '\n14\n\n50' })
+    expect(block).toEqual({ firstRow: 5, text: '\nn.º 14\nver con Santi\n50' })
     expect(block?.text.split('\n')).toHaveLength(4)
+    expect(plan.rows[0]?.warnings).toContain(
+      'La celda de «En la app» tiene un salto de línea: en los números para K queda vacía.',
+    )
+    expect(plan.rows[2]?.warnings).toEqual([])
   })
 })
 

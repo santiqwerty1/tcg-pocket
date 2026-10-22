@@ -10,7 +10,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { type McpAudit, Prisma } from '../generated/prisma/client.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
-import { RANK_NOTE_LOCK } from '../ranked/ranked.service.js'
+import { withRankLock } from '../ranked/ranked.service.js'
 import { RivalNotesService } from '../rivals/rival-notes.service.js'
 
 type Json = Record<string, unknown>
@@ -281,10 +281,9 @@ export class McpAuditService {
    */
   private async restoreMatchRow(match: Extract<AuditUndo, { kind: 'match_delete' }>['match']): Promise<number> {
     // One transaction: if the sequence cannot be fixed, the match is not back either (and «Deshacer» can be retried).
-    return this.prisma.$transaction(async (tx) => {
+    return withRankLock(this.prisma, async (tx) => {
       // Verification of #130: the ranks' lock first, before the table's, in the same order as moving or deleting a
       // match (they take it before their row).
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
       // No other insert into matches until this commits, and the checks below run after any insert in flight:
       // nobody takes the id or the phone's clientRef in between.
       await tx.$executeRawUnsafe('LOCK TABLE "matches" IN SHARE ROW EXCLUSIVE MODE')
@@ -416,8 +415,7 @@ export class McpAuditService {
     }
     // Codex on #143: under the ranks' lock, like every other write of `rank_changes` (the sheet import plans with
     // the ranks it read under it).
-    const count = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+    const count = await withRankLock(this.prisma, async (tx) => {
       return (
         undo.before
           ? await tx.rankChange.updateMany({ where, data: { rank: undo.before.rank, points: undo.before.points } })

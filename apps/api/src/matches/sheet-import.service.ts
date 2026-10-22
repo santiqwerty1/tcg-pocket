@@ -27,7 +27,7 @@ import { OWNER_TIME_ZONE } from '../config/time-zone.js'
 import type { Prisma } from '../generated/prisma/client.js'
 import { idToString } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
-import { RANK_NOTE_LOCK, RankedService } from '../ranked/ranked.service.js'
+import { RankedService, withRankLock } from '../ranked/ranked.service.js'
 import type { SheetImportAppliedView, SheetImportRowView, SheetImportView } from './match-views.js'
 import { storedOpponent } from './matches.service.js'
 
@@ -100,61 +100,57 @@ export class SheetImportService {
     const sheet = parseSheet(input.text, { timeZone: OWNER_TIME_ZONE, now })
     if (sheet.error) throw new BadRequestException({ code: 'validation', message: sheet.error })
     const mode = input.mode ?? SHEET_DEFAULT_MODE
-    return this.prisma.$transaction(
-      async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
-        // Review: decks before matches, the order of the backup drill's locks (it locks every table with ids, decks
-        // before matches, in EXCLUSIVE mode); ROW SHARE only waits for that, never for an edit of a deck.
-        await tx.$executeRawUnsafe('LOCK TABLE "decks", "deck_revisions" IN ROW SHARE MODE')
-        // Codex on #143: the decks the codes may go to (chosen or saved) cannot be deleted until this commits (a
-        // deck delete takes the row FOR UPDATE; editing or archiving one does not wait). A delete already under way
-        // finishes first, and then the plan no longer finds the deck: a 409, never a write against a deck that is gone.
-        await this.lockDecks(tx, input)
-        // No match is created, edited or deleted until this commits: the repeats checked are the ones written against.
-        await tx.$executeRawUnsafe('LOCK TABLE "matches" IN SHARE ROW EXCLUSIVE MODE')
-        const { plan, saved } = await this.plan(tx, sheet, input)
-        if (plan.tooMany) {
-          throw new BadRequestException({
-            code: 'too_many',
-            message: `Son ${COUNT.format(plan.counts.write)} partidas nuevas: el máximo por importación es ${SHEET_IMPORT_MAX_NEW}. Partí la hoja.`,
-          })
-        }
-        if (plan.fingerprint !== input.fingerprint) {
-          throw new ConflictException({
-            code: 'import_changed',
-            message: 'Algo cambió desde la vista previa (una partida, un mazo o un rango): revisala de nuevo.',
-          })
-        }
-        const written = plan.rows.filter((row) => row.write)
-        const created = await this.writeMatches(tx, written, mode)
-        const notes = written.flatMap((row) =>
-          row.rankPlan?.action === 'note' && row.rankPlan.at && row.rank
-            ? [{ at: row.rankPlan.at, rank: row.rank, points: null }]
-            : [],
-        )
-        if (notes.length > 0) await tx.rankChange.createMany({ data: notes })
-        // The codes' decks are kept for the next import: the ones of this one over the saved ones.
-        const map: Record<string, string> = { ...saved }
-        for (const code of plan.codes) {
-          if (code.deckId) map[code.code] = code.deckId
-          else delete map[code.code]
-        }
-        await tx.appSetting.upsert({
-          where: { key: SHEET_DECK_MAP_KEY },
-          create: { key: SHEET_DECK_MAP_KEY, value: map },
-          update: { value: map },
+    // The ranks' lock first (withRankLock: a 503 when another long write holds it past its wait, never a 500).
+    return withRankLock(this.prisma, async (tx) => {
+      // Review: decks before matches, the order of the backup drill's locks (it locks every table with ids, decks
+      // before matches, in EXCLUSIVE mode); ROW SHARE only waits for that, never for an edit of a deck.
+      await tx.$executeRawUnsafe('LOCK TABLE "decks", "deck_revisions" IN ROW SHARE MODE')
+      // Codex on #143: the decks the codes may go to (chosen or saved) cannot be deleted until this commits (a
+      // deck delete takes the row FOR UPDATE; editing or archiving one does not wait). A delete already under way
+      // finishes first, and then the plan no longer finds the deck: a 409, never a write against a deck that is gone.
+      await this.lockDecks(tx, input)
+      // No match is created, edited or deleted until this commits: the repeats checked are the ones written against.
+      await tx.$executeRawUnsafe('LOCK TABLE "matches" IN SHARE ROW EXCLUSIVE MODE')
+      const { plan, saved } = await this.plan(tx, sheet, input)
+      if (plan.tooMany) {
+        throw new BadRequestException({
+          code: 'too_many',
+          message: `Son ${COUNT.format(plan.counts.write)} partidas nuevas: el máximo por importación es ${SHEET_IMPORT_MAX_NEW}. Partí la hoja.`,
         })
-        const imported = new Map(written.map((row) => [row.row, created.get(row.key as string) as string]))
-        return {
-          imported: written.map((row) => ({ row: row.row, matchId: imported.get(row.row) as string })),
-          ranks: notes.length,
-          counts: plan.counts,
-          columnK: sheetColumnK(sheet, plan.rows, imported),
-        }
-      },
-      // Up to 500 matches on the database in São Paulo: more than Prisma's 5 s by default.
-      { timeout: 60_000, maxWait: 15_000 },
-    )
+      }
+      if (plan.fingerprint !== input.fingerprint) {
+        throw new ConflictException({
+          code: 'import_changed',
+          message: 'Algo cambió desde la vista previa (una partida, un mazo o un rango): revisala de nuevo.',
+        })
+      }
+      const written = plan.rows.filter((row) => row.write)
+      const created = await this.writeMatches(tx, written, mode)
+      const notes = written.flatMap((row) =>
+        row.rankPlan?.action === 'note' && row.rankPlan.at && row.rank
+          ? [{ at: row.rankPlan.at, rank: row.rank, points: null }]
+          : [],
+      )
+      if (notes.length > 0) await tx.rankChange.createMany({ data: notes })
+      // The codes' decks are kept for the next import: the ones of this one over the saved ones.
+      const map: Record<string, string> = { ...saved }
+      for (const code of plan.codes) {
+        if (code.deckId) map[code.code] = code.deckId
+        else delete map[code.code]
+      }
+      await tx.appSetting.upsert({
+        where: { key: SHEET_DECK_MAP_KEY },
+        create: { key: SHEET_DECK_MAP_KEY, value: map },
+        update: { value: map },
+      })
+      const imported = new Map(written.map((row) => [row.row, created.get(row.key as string) as string]))
+      return {
+        imported: written.map((row) => ({ row: row.row, matchId: imported.get(row.row) as string })),
+        ranks: notes.length,
+        counts: plan.counts,
+        columnK: sheetColumnK(sheet, plan.rows, imported),
+      }
+    })
   }
 
   /** The rows of every deck a code may go to, locked against a delete until the transaction ends (id order). */

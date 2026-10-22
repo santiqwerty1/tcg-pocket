@@ -27,7 +27,7 @@ import { DecksService } from '../decks/decks.service.js'
 import type { MatchView, RowView } from '../matches/match-views.js'
 import { MatchesService } from '../matches/matches.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
-import { RANK_NOTE_LOCK, RankedService } from '../ranked/ranked.service.js'
+import { RankedService, withRankLock } from '../ranked/ranked.service.js'
 import { RivalNotesService } from '../rivals/rival-notes.service.js'
 import type { CreateJobInput } from '../simulation/simulations.service.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
@@ -576,10 +576,9 @@ export class McpWriteToolsService {
       label: `${MATCH_RESULT_LABEL_ES[match.result]} con ${match.deck.name}${match.opponent ? ` contra ${match.opponent}` : ''} (${match.playedAt.toISOString().slice(0, 10)})`,
     }
     await note.keep(undo)
-    await this.prisma.$transaction(async (tx) => {
+    await withRankLock(this.prisma, async (tx) => {
       // Verification of #130: the ranks' lock first, before the match's row, in the same order as the app (moving or
       // deleting a match at the same time cannot deadlock).
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
       // Only the version that was copied: if it changed in between, nothing is deleted.
       const deleted = await tx.match.deleteMany({ where: { id: row.id, updatedAt: row.updatedAt } })
       if (deleted.count === 0) {

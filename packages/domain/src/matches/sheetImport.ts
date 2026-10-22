@@ -407,6 +407,9 @@ export function parseSheet(text: string, options: { timeZone: string; now: Date 
       const number = row.appIdText.replace(/^(?:n\.?\s*[º°o]?\s*|#)/iu, '').trim()
       if (/^\d{1,9}$/u.test(number) && Number(number) > 0) row.appId = String(Number(number))
       else row.errors.push(`«En la app» dice «${row.appIdText}»: tiene que ser el número de la partida.`)
+      if (/[\r\n]/u.test(row.appIdText)) {
+        row.warnings.push('La celda de «En la app» tiene un salto de línea: en los números para K queda vacía.')
+      }
     }
     if (row.code === null) row.errors.push('Falta el código del mazo.')
     // Self-review: a code is a short name (M01–M25); a long text there is something else, and would be saved as a key.
@@ -1037,7 +1040,7 @@ export function duplicateTextEs(
  */
 export function sheetColumnK(
   sheet: Pick<ParsedSheet, 'firstRow' | 'lastRow'>,
-  rows: readonly Pick<PlannedSheetRow, 'row' | 'status' | 'matchId'>[],
+  rows: readonly Pick<PlannedSheetRow, 'row' | 'status' | 'matchId' | 'appIdText'>[],
   imported: ReadonlyMap<number, string> = new Map(),
 ): { firstRow: number; text: string } | null {
   if (sheet.firstRow === null || sheet.lastRow === null) return null
@@ -1046,10 +1049,15 @@ export function sheetColumnK(
   for (let at = sheet.firstRow; at <= sheet.lastRow; at++) {
     const row = byRow.get(at)
     const written = imported.get(at)
-    // Review of #143: only a number or nothing, one line per row (a K with a line break in it would shift the rest);
-    // column K's own number goes back as the number it is («n.º 14» is 14).
-    const known = row?.status === 'duplicate' || row?.status === 'in_app' ? (row.matchId ?? '') : ''
-    lines.push(written ?? (/^\d+$/u.test(known) ? known : ''))
+    if (written !== undefined) lines.push(written)
+    else if (row?.status === 'duplicate') lines.push(row.matchId ?? '')
+    else {
+      // Whatever column K says stays as written, a number or a note of the owner's (pasting the block must not erase
+      // it), except a cell with a line break: it would take two rows and shift the rest (review of #143). The row
+      // says so.
+      const text = row?.appIdText ?? ''
+      lines.push(/[\r\n]/u.test(text) ? '' : text)
+    }
   }
   return { firstRow: sheet.firstRow, text: lines.join('\n') }
 }

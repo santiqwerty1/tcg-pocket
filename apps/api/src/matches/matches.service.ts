@@ -51,7 +51,7 @@ import type { Prisma } from '../generated/prisma/client.js'
 import type { MatchSource } from '../generated/prisma/enums.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
-import { RANK_NOTE_LOCK, RankedService } from '../ranked/ranked.service.js'
+import { RankedService, withRankLock } from '../ranked/ranked.service.js'
 import { RIVAL_NOTE_LOCK } from '../rivals/rival-notes.service.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
@@ -741,9 +741,7 @@ export class MatchesService {
     if (Object.keys(data).length === 0) return this.view(current)
     const moved = playedAt && playedAt.getTime() !== current.playedAt.getTime() ? playedAt : null
     const seasons = moved ? await this.ranked.seasons() : []
-    const updated = await this.prisma.$transaction(async (tx) => {
-      // Review of #130: the ranks are written under the same lock as noting one.
-      if (moved) await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+    const write = async (tx: Prisma.TransactionClient) => {
       const row = await tx.match.update({ where: { id: current.id }, data, include: matchInclude })
       // Deuda de #120: the ranks noted for this match (the one it was played at, a millisecond before it, and the one it
       // led to, at its instant) follow it to its new time, unless another match shares the old one.
@@ -769,7 +767,10 @@ export class MatchesService {
         }
       }
       return row
-    })
+    }
+    // Review of #130: moving a match moves its ranks, under the same lock as noting one (review of #143: waiting for
+    // it as long as an import may hold it, and a 503 past that).
+    const updated = moved ? await withRankLock(this.prisma, write) : await this.prisma.$transaction(write)
     return this.view(updated)
   }
 
@@ -1020,9 +1021,8 @@ export class MatchesService {
 
   async delete(rawId: string): Promise<void> {
     const match = await this.requireMatch(rawId)
-    await this.prisma.$transaction(async (tx) => {
+    await withRankLock(this.prisma, async (tx) => {
       // Review of #130: the ranks are written under the same lock as noting one.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
       await tx.match.delete({ where: { id: match.id } })
       // Deuda de #120: the rank it led to (noted at its instant) goes with it, unless another match shares that instant.
       if (!(await this.sharesInstant(tx, match.playedAt, match.id))) {

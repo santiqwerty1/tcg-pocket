@@ -3,7 +3,13 @@
  * and each season's summary (record, rank curve, record by rank and by deck). Only competitive matches count, by the
  * day they were played in the owner's time zone.
  */
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common'
 import {
   formatWinRateEs,
   type GameRecord,
@@ -23,11 +29,51 @@ import {
 import { dateOnly, OWNER_TIME_ZONE, todayInOwnerZone } from '../config/time-zone.js'
 import type { Prisma } from '../generated/prisma/client.js'
 import { idToString, parseNumericId } from '../http/ids.js'
+import { isLockTimeout, isTransactionTimeout } from '../prisma/lock-errors.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import type { MatchRankedView, RankChangeView, RankedView, RateRowView, SeasonSummaryView } from './ranked-views.js'
 
 /** `pg_advisory_xact_lock` key that serializes noting a rank at a moment (any constant no other lock uses). */
 export const RANK_NOTE_LOCK = 43_120
+
+/**
+ * How long a write waits for the ranks' lock: longer than the longest holder in the app (a sheet import, up to a
+ * minute), and past it `503 ranks_busy`. Review of #143: the transactions waited inside Prisma's 5 s and gave a 500.
+ * Tests lower it.
+ */
+export const RANK_LOCK = { waitMs: 75_000 }
+
+/** Room for the work itself once the lock is taken (a sheet import writes up to 500 matches). */
+const RANK_LOCKED_WORK_MS = 60_000
+
+/**
+ * `work` in a transaction that takes the ranks' lock first (every write of matches' instants, ranks and seasons): it
+ * waits for it at most `RANK_LOCK.waitMs`; a wait or a transaction past its time is `503 ranks_busy`, never a 500.
+ */
+export async function withRankLock<T>(
+  prisma: PrismaService,
+  work: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  try {
+    return await prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT set_config('lock_timeout', ${`${RANK_LOCK.waitMs}ms`}, true)`
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+        return work(tx)
+      },
+      { timeout: RANK_LOCK.waitMs + RANK_LOCKED_WORK_MS, maxWait: 15_000 },
+    )
+  } catch (error) {
+    if (isLockTimeout(error) || isTransactionTimeout(error)) {
+      throw new ServiceUnavailableException({
+        code: 'ranks_busy',
+        message:
+          'Hay otra escritura de partidas o rangos en curso (por ejemplo, una importación): probá de nuevo en un momento.',
+      })
+    }
+    throw error
+  }
+}
 
 /** A rank noted more than this ahead of the server's clock is refused (a phone with a wrong clock). */
 const FUTURE_SLACK_MS = 10 * 60 * 1000
@@ -209,8 +255,7 @@ export class RankedService {
     }
     // Review of #143: under the ranks' lock (the seasons say which ranks count, and the sheet import plans with them);
     // the overlap is also checked under it, so two edits at once cannot both pass it.
-    await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+    await withRankLock(this.prisma, async (tx) => {
       const others = (await this.seasons(tx)).filter((season) => season.code !== code)
       const overlap = others.find((season) => season.startsOn <= input.endsOn && input.startsOn <= season.endsOn)
       if (overlap) {
@@ -225,8 +270,7 @@ export class RankedService {
   }
 
   async deleteSeason(code: string): Promise<void> {
-    const count = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+    const count = await withRankLock(this.prisma, async (tx) => {
       return (await tx.rankedSeason.deleteMany({ where: { code } })).count
     })
     if (count === 0) throw new NotFoundException(`Temporada ${code} no encontrada.`)
@@ -303,15 +347,13 @@ export class RankedService {
       changeView({ id: idToString(row.id), at: row.at, rank, points: row.points })
     if (!input.at && !input.beforeMatch) {
       // Codex on #143: every write of `rank_changes` goes under the ranks' lock (the sheet import plans with them).
-      const created = await this.prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+      const created = await withRankLock(this.prisma, async (tx) => {
         return tx.rankChange.create({ data: { at, rank, points } })
       })
       return { change: view(created), replaced: null, written: true }
     }
-    return this.prisma.$transaction(async (tx) => {
+    return withRankLock(this.prisma, async (tx) => {
       // Verification of #120: two notes for one moment at once would both find nothing and create two rows.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
       const existing = await tx.rankChange.findFirst({ where: { at }, orderBy: { id: 'desc' } })
       if (!existing) {
         return {
@@ -339,8 +381,7 @@ export class RankedService {
   async deleteRank(rawId: string): Promise<void> {
     const id = parseNumericId(rawId, 'Rango')
     // Codex on #143: under the ranks' lock, so an import that planned with this rank cannot lose it half-way.
-    const count = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+    const count = await withRankLock(this.prisma, async (tx) => {
       return (await tx.rankChange.deleteMany({ where: { id } })).count
     })
     if (count === 0) throw new NotFoundException(`Rango ${rawId} no encontrado.`)
