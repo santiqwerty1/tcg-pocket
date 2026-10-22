@@ -127,7 +127,13 @@ function RowCard({
 }
 
 /** The text for column K, ready to copy, with where to paste it. */
-function ColumnK({ columnK }: { columnK: NonNullable<SheetImportPreview['columnK']> }) {
+function ColumnK({
+  columnK,
+  headerRow,
+}: {
+  columnK: NonNullable<SheetImportPreview['columnK']>
+  headerRow: number | null
+}) {
   async function copy() {
     try {
       await navigator.clipboard.writeText(columnK.text)
@@ -141,6 +147,9 @@ function ColumnK({ columnK }: { columnK: NonNullable<SheetImportPreview['columnK
       <p className="text-sm text-muted-foreground">
         Pegalo en la columna K desde la fila {columnK.firstRow} (celda K{columnK.firstRow}): una línea por fila; las que
         no entraron quedan vacías y las que ya tenían número lo conservan.
+        {headerRow === 1
+          ? ' Los encabezados son la primera fila del texto: si no copiaste desde la fila 1 de la hoja, pegalo en la fila de la primera partida que copiaste.'
+          : ''}
       </p>
       <Textarea
         readOnly
@@ -162,7 +171,7 @@ function Summary({ data }: { data: SheetImportPreview }) {
   const parts = [
     plural(counts.new, 'nueva', 'nuevas'),
     counts.inApp ? `${formatNumber(counts.inApp)} ya en la app (columna K)` : null,
-    counts.duplicate ? `${formatNumber(counts.duplicate)} ya importadas antes` : null,
+    counts.duplicate ? plural(counts.duplicate, 'ya importada antes', 'ya importadas antes') : null,
     counts.possibleDuplicate ? plural(counts.possibleDuplicate, 'posible repetida', 'posibles repetidas') : null,
     counts.unmapped ? `${formatNumber(counts.unmapped)} sin mazo` : null,
     counts.errors ? `${formatNumber(counts.errors)} con errores` : null,
@@ -216,7 +225,15 @@ export function SheetImportPage() {
         setData(result)
         setAsked(body)
       },
-      onError: (error) => toast.error(errorMessage(error)),
+      onError: (error) => {
+        toast.error(errorMessage(error))
+        // Review: the choices go back to the preview shown, which is what «Importar» sends.
+        if (asked) {
+          setDeckMap(asked.deckMap)
+          setMode(asked.mode)
+          setInclude(asked.include)
+        }
+      },
     })
   }
 
@@ -405,6 +422,27 @@ export function SheetImportPage() {
             </Section>
           ) : null}
 
+          {data.orphans.length > 0 ? (
+            <div className="flex flex-col gap-1 rounded-lg border border-dashed p-3 text-sm">
+              <p className="text-warning">
+                {data.orphans.length === 1
+                  ? 'Una partida importada de la hoja ya no coincide con ninguna fila'
+                  : `${formatNumber(data.orphans.length)} partidas importadas de la hoja ya no coinciden con ninguna fila`}{' '}
+                (¿corregiste o borraste filas antes de pegar los números en K?). Si una fila corregida es la misma
+                partida, no la importes: corregí la partida en la app y poné su número en K.
+              </p>
+              <ul className="text-muted-foreground tabular">
+                {data.orphans.map((match) => (
+                  <li key={match.id}>
+                    <Link to={`/partidas/${encodeURIComponent(match.id)}`} className="hover:underline">
+                      {match.text}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
           {shown.length > 0 ? (
             <Section title="Filas nuevas o para revisar">
               <ul className="divide-y rounded-lg border">
@@ -442,7 +480,7 @@ export function SheetImportPage() {
             {/* Self-review: only when nothing waits for a deck (those rows would import once it is chosen). */}
             {data.counts.write === 0 && missing.length === 0 && data.columnK ? (
               <Section title="Números para la columna K">
-                <ColumnK columnK={data.columnK} />
+                <ColumnK columnK={data.columnK} headerRow={data.headerRow} />
               </Section>
             ) : null}
           </div>
@@ -464,7 +502,7 @@ export function SheetImportPage() {
               ))}
             </ul>
           ) : null}
-          {applied.columnK ? <ColumnK columnK={applied.columnK} /> : null}
+          {applied.columnK ? <ColumnK columnK={applied.columnK} headerRow={data?.headerRow ?? null} /> : null}
           <Link to="/partidas/historial" className="text-sm text-primary hover:underline">
             Ver el historial
           </Link>

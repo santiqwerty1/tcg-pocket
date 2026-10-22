@@ -72,6 +72,8 @@ export const sheetImportPreviewSchema = z.object({
   rows: z.array(sheetImportRowSchema),
   columnK: columnKSchema,
   fingerprint: z.string(),
+  /** Matches imported from the sheet around its dates that no row is any more (a row corrected without K). */
+  orphans: z.array(z.object({ id: z.string(), text: z.string() })),
 })
 
 export const sheetImportAppliedSchema = z.object({

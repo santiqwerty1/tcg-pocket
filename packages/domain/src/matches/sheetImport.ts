@@ -14,9 +14,17 @@
  * «posible repetida», left out unless the owner picks it.
  */
 import { hashText } from '../catalog/hash.js'
-import { DELIMITERS, type Delimiter, parseDelimited } from './delimited.js'
+import { DELIMITERS, type Delimiter, parseDelimited, readDelimited } from './delimited.js'
 import { cleanOpponent, opponentKey } from './opponents.js'
-import { type Rank, type RankChange, type RankedSeason, rankAt, rankLabelEs, seasonOf } from './ranked.js'
+import {
+  dayIn,
+  type Rank,
+  type RankChange,
+  type RankedSeason,
+  rankLabelEs,
+  seasonOf,
+  seasonOfChange,
+} from './ranked.js'
 import {
   MATCH_NOTE_MAX_LENGTH,
   MATCH_RESULT_LABEL_ES,
@@ -31,6 +39,8 @@ export const SHEET_IMPORT_MAX_NEW = 500
 export const SHEET_IMPORT_MAX_ROWS = 10_000
 /** Characters of the text, at most. */
 export const SHEET_IMPORT_MAX_CHARS = 4_000_000
+/** Line breaks of the text, at most (rows of the sheet plus the breaks inside its notes). */
+export const SHEET_IMPORT_MAX_LINES = 50_000
 /** A match of the app this close to a row, with its deck and result, may be the same match. */
 export const SHEET_DUPLICATE_WINDOW_MS = 15 * 60 * 1000
 /** A date further ahead than this is a typo, not a clock. */
@@ -74,7 +84,8 @@ export function sheetColumnOf(header: string): SheetColumn | null {
   if (text.startsWith('mazo')) return 'deckName'
   if (text.startsWith('fecha')) return 'date'
   if (text === 'notas' || text === 'nota') return 'note'
-  if (text === 'rango') return 'rank'
+  // «Rango (si cambió)» too; «Rango (efectivo)» is a formula.
+  if (text === 'rango' || (text.startsWith('rango') && !text.includes('efectivo'))) return 'rank'
   if (text.startsWith('en la app')) return 'appId'
   return null
 }
@@ -295,13 +306,20 @@ const READ_COLUMNS: readonly SheetColumn[] = [
   'appId',
 ]
 
+function lineBreaks(text: string): number {
+  let count = 0
+  for (let at = text.indexOf('\n'); at >= 0; at = text.indexOf('\n', at + 1)) count += 1
+  return count
+}
+
 function emptySheet(error: string, delimiter: Delimiter | null = null, headerRow: number | null = null): ParsedSheet {
   return { delimiter, headerRow, rows: [], firstRow: null, lastRow: null, error }
 }
 
 /** Reads the sheet: header, rows and, for each row, what it says and what is wrong with it. */
 export function parseSheet(text: string, options: { timeZone: string; now: Date }): ParsedSheet {
-  if (text.length > SHEET_IMPORT_MAX_CHARS) {
+  if (text.length > SHEET_IMPORT_MAX_CHARS || lineBreaks(text) > SHEET_IMPORT_MAX_LINES) {
+    // Review: millions of empty lines would be millions of records in memory before any cap (the server has 512 MB).
     return emptySheet('El texto es demasiado largo: exportá solo la pestaña «Partidas».')
   }
   const delimiter = detectDelimiter(text)
@@ -310,9 +328,21 @@ export function parseSheet(text: string, options: { timeZone: string; now: Date 
       'No encontré la fila de encabezados («Código», «Resultado», «Fecha»…). Exportá la pestaña «Partidas» entera, o copiala desde la fila 1.',
     )
   }
-  const records = parseDelimited(text, delimiter)
-  const header = findHeader(records) as Header
+  const { records, unclosedAt } = readDelimited(text, delimiter)
+  const found = findHeader(records)
+  if (!found) {
+    return emptySheet('No encontré la fila de encabezados («Código», «Resultado», «Fecha»…).', delimiter)
+  }
+  const header = found
   const headerRow = header.at + 1
+  if (unclosedAt !== null) {
+    // Review: an unclosed quote takes the rest of the sheet into one cell (a note), which would go in as that note.
+    return emptySheet(
+      `La fila ${unclosedAt + 1} tiene unas comillas que no se cierran: corregí esa celda, o subí el CSV exportado.`,
+      delimiter,
+      headerRow,
+    )
+  }
   if (!header.columns.has('date')) {
     return emptySheet('Falta la columna «Fecha»: sin ella las partidas no tienen cuándo.', delimiter, headerRow)
   }
@@ -361,7 +391,7 @@ export function parseSheet(text: string, options: { timeZone: string; now: Date 
     const result = parseResult(cell(record, 'result'))
     if (result === null) row.errors.push('Falta el resultado.')
     else if (result === undefined)
-      row.errors.push(`Resultado «${cell(record, 'result')}»: tiene que ser Victoria o Derrota.`)
+      row.errors.push(`Resultado «${cell(record, 'result')}»: tiene que ser Victoria, Derrota o Empate.`)
     else row.result = result
     const wentFirst = parseWentFirst(cell(record, 'wentFirst'))
     if (wentFirst === undefined) {
@@ -494,6 +524,11 @@ export interface PlannedSheetRow extends SheetRow {
   matchId: string | null
   /** The match it may repeat. */
   duplicateOf: SheetExistingMatch | null
+  /**
+   * Why: `near`, the deck and the result 15 minutes around; `sheet`, a match imported from the sheet the same day that no
+   * row is any more (a row corrected after its import, before its number went to column K).
+   */
+  duplicateKind: 'near' | 'sheet' | null
   /** Written by the import: a new row, or a possible duplicate the owner picked. */
   write: boolean
   /** Its rank (column H), for a row written. */
@@ -537,6 +572,11 @@ export interface SheetPlan {
   tooMany: boolean
   /** Fingerprint of what would be written: applying checks it is still the same as the preview shown. */
   fingerprint: string
+  /**
+   * Matches imported from the sheet around its dates that no row is any more (by column K or by its key): a row
+   * corrected (or deleted) after its import, before its number went to column K.
+   */
+  orphans: SheetExistingMatch[]
 }
 
 export interface SheetPlanContext {
@@ -581,15 +621,21 @@ export function suggestDeckByName(names: readonly string[], decks: readonly Shee
   return best?.deck ?? null
 }
 
+/** «19/10 21:35» in the zone (Intl puts a comma after the day). */
 function formatShort(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat('es-AR', {
-    timeZone,
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).format(date)
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('es-AR', {
+      timeZone,
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(date)
+      .map((part) => [part.type, part.value]),
+  )
+  return `${parts.day}/${parts.month} ${parts.hour}:${parts.minute}`
 }
 
 /** What each row does, the decks of the codes and the counts. Pure: the caller loads what it needs. */
@@ -606,6 +652,9 @@ export function planSheetImport(sheet: ParsedSheet, context: SheetPlanContext): 
     const keyed = row.key ? byRef.get(row.key) : undefined
     if (keyed) claimed.add(keyed.id)
   }
+  const orphans = context.existing
+    .filter((match) => match.clientRef?.startsWith(SHEET_KEY_PREFIX) && !claimed.has(match.id))
+    .sort((a, b) => a.playedAt.getTime() - b.playedAt.getTime() || Number(a.id) - Number(b.id))
   const deckOf = (code: string): { deckId: string | null; source: SheetCodeMapping['source'] } => {
     if (Object.hasOwn(context.chosen, code)) {
       const chosen = context.chosen[code]
@@ -624,6 +673,7 @@ export function planSheetImport(sheet: ParsedSheet, context: SheetPlanContext): 
       deckId: null,
       matchId: null,
       duplicateOf: null,
+      duplicateKind: null,
       write: false,
       rankPlan: null,
     }
@@ -665,16 +715,27 @@ export function planSheetImport(sheet: ParsedSheet, context: SheetPlanContext): 
           Math.abs(match.playedAt.getTime() - at) <= SHEET_DUPLICATE_WINDOW_MS,
       )
       .sort((a, b) => Math.abs(a.playedAt.getTime() - at) - Math.abs(b.playedAt.getTime() - at))[0]
-    if (near) {
+    // Review: a row corrected after its import (another result, code or time) has a new key; the match of its old
+    // version is a sheet match no row is now, the same day.
+    const day = dayIn(row.playedAt as Date, context.timeZone)
+    const orphan = near
+      ? undefined
+      : orphans
+          .filter((match) => dayIn(match.playedAt, context.timeZone) === day)
+          .sort((a, b) => Math.abs(a.playedAt.getTime() - at) - Math.abs(b.playedAt.getTime() - at))[0]
+    if (near || orphan) {
       planned.status = 'possible_duplicate'
-      planned.duplicateOf = near
+      planned.duplicateOf = (near ?? orphan) as SheetExistingMatch
+      planned.duplicateKind = near ? 'near' : 'sheet'
       planned.write = include.has(row.row)
       return planned
     }
     planned.write = true
     return planned
   })
-  planRanks(rows, context)
+  const tooMany = rows.filter((row) => row.write).length > SHEET_IMPORT_MAX_NEW
+  // Review: nothing of an import that is too big is applied; its ranks are not worth planning (a cost per row).
+  if (!tooMany) planRanks(rows, context)
   const codes = mappings(rows, context, deckOf, byId, decks)
   const count = (status: SheetRowStatus) => rows.filter((row) => row.status === status).length
   const written = rows.filter((row) => row.write)
@@ -695,7 +756,7 @@ export function planSheetImport(sheet: ParsedSheet, context: SheetPlanContext): 
     rows,
     codes,
     counts,
-    tooMany: written.length > SHEET_IMPORT_MAX_NEW,
+    tooMany,
     fingerprint: hashText(
       JSON.stringify({
         mode: context.mode,
@@ -712,6 +773,7 @@ export function planSheetImport(sheet: ParsedSheet, context: SheetPlanContext): 
         ]),
       }),
     ),
+    orphans,
   }
 }
 
@@ -723,6 +785,30 @@ export function planSheetImport(sheet: ParsedSheet, context: SheetPlanContext): 
  */
 function planRanks(rows: PlannedSheetRow[], context: SheetPlanContext): void {
   const planned: RankChange[] = []
+  // Review: each note's season once (a time-zone format each), not once per row; `rankAt` would redo them all per row.
+  const seasonCodes = new Map<RankChange, string | null>()
+  const seasonCode = (change: RankChange): string | null => {
+    let code = seasonCodes.get(change)
+    if (code === undefined) {
+      code = seasonOfChange(change.at, context.seasons, context.timeZone)?.code ?? null
+      seasonCodes.set(change, code)
+    }
+    return code
+  }
+  /** The last rank noted in the season strictly before the instant (`rankAt`: same instant, the later id). */
+  const rankBefore = (time: number, code: string): RankChange | null => {
+    let found: RankChange | null = null
+    for (const change of context.changes) {
+      const at = change.at.getTime()
+      if (at >= time || seasonCode(change) !== code) continue
+      if (!found || at > found.at.getTime() || (at === found.at.getTime() && Number(change.id) > Number(found.id))) {
+        found = change
+      }
+    }
+    // The rows go in time order: the last note planned in the season is the newest one, and before this row.
+    const last = planned.filter((change) => seasonCode(change) === code).at(-1) ?? null
+    return last && (!found || last.at.getTime() >= found.at.getTime()) ? last : found
+  }
   const written = rows
     .filter((row) => row.write && row.rank !== null)
     .sort((a, b) => (a.playedAt as Date).getTime() - (b.playedAt as Date).getTime() || a.row - b.row)
@@ -752,7 +838,7 @@ function planRanks(rows: PlannedSheetRow[], context: SheetPlanContext): void {
       continue
     }
     // The sheet has no Master Ball points: Master Ball with points noted is the same rank.
-    const current = there ?? rankAt(playedAt, [...context.changes, ...planned], season, context.timeZone)
+    const current = there ?? rankBefore(playedAt.getTime(), season.code)
     if (current && current.rank === rank) {
       row.rankPlan = { rank, label, action: 'same', text: `Ya estaba en ${label}: no hace falta anotarlo.`, at: null }
       continue
@@ -803,8 +889,13 @@ function mappings(
 }
 
 /** One-line description of a possible duplicate («n.º 30, Victoria del 19/10 21:35»). */
-export function duplicateTextEs(match: SheetExistingMatch, timeZone: string): string {
-  return `n.º ${match.id}, ${MATCH_RESULT_LABEL_ES[match.result]} del ${formatShort(match.playedAt, timeZone)}`
+export function duplicateTextEs(
+  match: SheetExistingMatch,
+  timeZone: string,
+  kind: PlannedSheetRow['duplicateKind'] = 'near',
+): string {
+  const text = `n.º ${match.id}, ${MATCH_RESULT_LABEL_ES[match.result]} del ${formatShort(match.playedAt, timeZone)}`
+  return kind === 'sheet' ? `${text}, importada de una fila que ya no está igual en la hoja` : text
 }
 
 /**

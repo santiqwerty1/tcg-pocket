@@ -18,6 +18,7 @@ import {
   revisionAt,
   SHEET_DUPLICATE_WINDOW_MS,
   SHEET_IMPORT_MAX_NEW,
+  SHEET_KEY_PREFIX,
   type SheetDeck,
   type SheetPlan,
   sheetColumnK,
@@ -44,6 +45,11 @@ export interface SheetImportInput {
   /** Rows of possible repeats to import anyway. */
   include?: number[] | undefined
 }
+
+const COUNT = new Intl.NumberFormat('es-AR')
+
+/** The matches imported from the sheet this far around its dates are loaded, to find a row corrected (same day). */
+const SHEET_ORPHAN_WINDOW_MS = 36 * 60 * 60 * 1000
 
 const DELIMITER_NAME: Record<Delimiter, SheetImportView['delimiter']> = {
   ',': 'comma',
@@ -97,13 +103,16 @@ export class SheetImportService {
     return this.prisma.$transaction(
       async (tx) => {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+        // Review: decks before matches, the order of the backup drill's locks (it locks every table with ids, decks
+        // before matches, in EXCLUSIVE mode); ROW SHARE only waits for that, never for an edit of a deck.
+        await tx.$executeRawUnsafe('LOCK TABLE "decks", "deck_revisions" IN ROW SHARE MODE')
         // No match is created, edited or deleted until this commits: the repeats checked are the ones written against.
         await tx.$executeRawUnsafe('LOCK TABLE "matches" IN SHARE ROW EXCLUSIVE MODE')
         const { plan, saved } = await this.plan(tx, sheet, input)
         if (plan.tooMany) {
           throw new BadRequestException({
             code: 'too_many',
-            message: `Son ${plan.counts.write} partidas nuevas: el máximo por importación es ${SHEET_IMPORT_MAX_NEW}. Partí la hoja.`,
+            message: `Son ${COUNT.format(plan.counts.write)} partidas nuevas: el máximo por importación es ${SHEET_IMPORT_MAX_NEW}. Partí la hoja.`,
           })
         }
         if (plan.fingerprint !== input.fingerprint) {
@@ -204,6 +213,10 @@ export class SheetImportService {
     const ids = [...new Set(sheet.rows.flatMap((row) => (row.appId ? [Number(row.appId)] : [])))]
     const keys = sheet.rows.flatMap((row) => (row.key ? [row.key] : []))
     const times = sheet.rows.flatMap((row) => (row.playedAt ? [row.playedAt.getTime()] : []))
+    // Review: and the matches imported from the sheet a day and a half around its dates, so a row corrected after its
+    // import finds the match of its old version (the same day, in the owner's time zone).
+    const first = times.length > 0 ? Math.min(...times) : 0
+    const last = times.length > 0 ? Math.max(...times) : 0
     const or: Prisma.MatchWhereInput[] = [
       ...(ids.length > 0 ? [{ id: { in: ids } }] : []),
       ...(keys.length > 0 ? [{ clientRef: { in: keys } }] : []),
@@ -211,9 +224,13 @@ export class SheetImportService {
         ? [
             {
               playedAt: {
-                gte: new Date(Math.min(...times) - SHEET_DUPLICATE_WINDOW_MS),
-                lte: new Date(Math.max(...times) + SHEET_DUPLICATE_WINDOW_MS),
+                gte: new Date(first - SHEET_DUPLICATE_WINDOW_MS),
+                lte: new Date(last + SHEET_DUPLICATE_WINDOW_MS),
               },
+            },
+            {
+              clientRef: { startsWith: SHEET_KEY_PREFIX },
+              playedAt: { gte: new Date(first - SHEET_ORPHAN_WINDOW_MS), lte: new Date(last + SHEET_ORPHAN_WINDOW_MS) },
             },
           ]
         : []),
@@ -266,7 +283,7 @@ export class SheetImportService {
           : null,
         matchId: row.matchId,
         duplicateOf: row.duplicateOf
-          ? { id: row.duplicateOf.id, text: duplicateTextEs(row.duplicateOf, OWNER_TIME_ZONE) }
+          ? { id: row.duplicateOf.id, text: duplicateTextEs(row.duplicateOf, OWNER_TIME_ZONE, row.duplicateKind) }
           : null,
         write: row.write,
         errors: row.errors,
@@ -287,6 +304,7 @@ export class SheetImportService {
       rows,
       columnK: sheetColumnK(sheet, plan.rows),
       fingerprint: plan.fingerprint,
+      orphans: plan.orphans.map((match) => ({ id: match.id, text: duplicateTextEs(match, OWNER_TIME_ZONE) })),
     }
   }
 }

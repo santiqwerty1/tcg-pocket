@@ -88,6 +88,7 @@ const UNMAPPED: SheetImportPreview = {
   ],
   columnK: { firstRow: 5, text: '6\n\n' },
   fingerprint: 'f-unmapped',
+  orphans: [],
 }
 
 /** With M08 → Mega-Mawile ex: one new, one possible repeat. */
@@ -278,6 +279,39 @@ describe('importar desde la hoja (T-022)', () => {
     fireEvent.change(pasted, { target: { value: 'M08\tPrimero' } })
     await user.click(screen.getByRole('button', { name: 'Ver la vista previa' }))
     expect(await screen.findByText(/No encontré la fila de encabezados/u)).toBeInTheDocument()
+  })
+
+  it('review: an imported match no row is now is named; a failed preview puts the choices back', async () => {
+    let fail = false
+    fakeApi({
+      'POST /api/matches/import/preview': (call: FakeCall) =>
+        fail
+          ? new Response(
+              JSON.stringify({ error: { code: 'internal_error', message: 'Error interno del servidor.' } }),
+              {
+                status: 500,
+                headers: { 'content-type': 'application/json' },
+              },
+            )
+          : { ...previewAnswer(call), orphans: [{ id: '40', text: 'n.º 40, Victoria del 19/10 21:40' }] },
+    })
+    const user = userEvent.setup()
+    renderAt('/partidas/importar')
+    const pasted = await screen.findByRole('textbox', { name: 'Celdas pegadas de la hoja' })
+    fireEvent.change(pasted, { target: { value: TEXT } })
+    await user.click(screen.getByRole('button', { name: 'Ver la vista previa' }))
+    expect(
+      await screen.findByText(/^Una partida importada de la hoja ya no coincide con ninguna fila/u),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'n.º 40, Victoria del 19/10 21:40' })).toHaveAttribute(
+      'href',
+      '/partidas/40',
+    )
+    fail = true
+    const mode = screen.getByRole('combobox', { name: 'Modalidad de todas las partidas' })
+    await user.selectOptions(mode, 'casual')
+    // «Importar» would send the preview shown: the select says what that one was asked with.
+    await waitFor(() => expect(mode).toHaveValue('competitive'))
   })
 
   it('is reached from «Hoy»', async () => {

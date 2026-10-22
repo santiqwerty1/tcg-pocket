@@ -246,6 +246,8 @@ export interface SheetImportView {
   columnK: { firstRow: number; text: string } | null
   /** What applying checks: the import is still this preview. */
   fingerprint: string
+  /** Matches imported from the sheet around its dates that no row is any more (a row corrected without K). */
+  orphans: { id: string; text: string }[]
 }
 
 /** T-022: what an import wrote — each row's match, in the sheet's order, and the text for column K. */

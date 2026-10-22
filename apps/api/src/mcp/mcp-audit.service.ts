@@ -309,7 +309,8 @@ export class McpAuditService {
       if (resent) {
         throw new ConflictException({
           code: 'match_resent',
-          message: `Esa partida ya volvió a entrar desde el celu (partida ${resent.id}): no la duplico.`,
+          // T-022: or from the owner's sheet (a key `sheet:`), imported again after the delete.
+          message: `Esa partida ya volvió a entrar desde ${match.clientRef?.startsWith('sheet:') ? 'la hoja' : 'el celu'} (partida ${resent.id}): no la duplico.`,
         })
       }
       // A taken id means the sequence was moved back: past every id first, or the new one could be taken too.

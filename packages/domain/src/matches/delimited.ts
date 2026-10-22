@@ -13,10 +13,19 @@ export const DELIMITERS: readonly Delimiter[] = [',', ';', '\t']
 
 /** Every record of the text, each one its fields (an empty line is one empty field). */
 export function parseDelimited(text: string, delimiter: Delimiter): string[][] {
+  return readDelimited(text, delimiter).records
+}
+
+/**
+ * The records, and the 0-based record where a quote opened and never closed (null when every quote closed): that quote
+ * took the rest of the text into one field, which a reader should refuse rather than take as one long cell.
+ */
+export function readDelimited(text: string, delimiter: Delimiter): { records: string[][]; unclosedAt: number | null } {
   const records: string[][] = []
   let record: string[] = []
   let field = ''
   let quoted = false
+  let quotedAt = 0
   let fieldStart = true
   let i = text.charCodeAt(0) === 0xfeff ? 1 : 0
   while (i < text.length) {
@@ -41,6 +50,7 @@ export function parseDelimited(text: string, delimiter: Delimiter): string[][] {
     }
     if (ch === '"' && fieldStart) {
       quoted = true
+      quotedAt = records.length
       fieldStart = false
       i += 1
       continue
@@ -70,5 +80,5 @@ export function parseDelimited(text: string, delimiter: Delimiter): string[][] {
     record.push(field)
     records.push(record)
   }
-  return records
+  return { records, unclosedAt: quoted ? quotedAt : null }
 }

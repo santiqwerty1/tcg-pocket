@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   detectDelimiter,
+  duplicateTextEs,
   KNOWN_SEASONS,
   normalizeSheetCode,
   type ParsedSheet,
@@ -10,10 +11,12 @@ import {
   parseSheetRank,
   planSheetImport,
   type RankChange,
+  readDelimited,
   SHEET_IMPORT_MAX_NEW,
   type SheetDeck,
   type SheetExistingMatch,
   type SheetPlanContext,
+  type SheetRow,
   sheetColumnK,
   suggestDeckByName,
   wallTimeToInstant,
@@ -249,6 +252,23 @@ describe('reading the sheet', () => {
     expect(sheet.rows[5]?.appId).toBe('14')
   })
 
+  it('review: an unclosed quote (pasted cells) or millions of lines: nothing is read, it says why', () => {
+    expect(readDelimited('a\t"b\nc\td', '\t').unclosedAt).toBe(0)
+    expect(readDelimited('a\t"b\nc"\td', '\t').unclosedAt).toBeNull()
+    const pasted = csv([row({ note: '"Hoopa me ganó' }), row({ date: '19/10/2026 22:00' })], '\t')
+    expect(parse(pasted).error).toMatch(/La fila 5 tiene unas comillas que no se cierran/u)
+    expect(parse(`${csv([row()])}${'\n'.repeat(60_000)}`).error).toMatch(/demasiado largo/u)
+  })
+
+  it('review: «Rango (si cambió)» is the rank column too; «Rango (efectivo)» is not', () => {
+    const text = csv([row({ rank: 'Ultra Ball 1' })]).replace(
+      'Rango,Rango (efectivo)',
+      'Rango (si cambió),Rango (efectivo)',
+    )
+    expect(text).toContain('Rango (si cambió)')
+    expect(parse(text).rows[0]?.rank).toBe('ultra-1')
+  })
+
   it('no header row, or no «Fecha» column: nothing is read', () => {
     expect(parse('a,b,c\n1,2,3').error).toMatch(/No encontré la fila de encabezados/u)
     expect(parse('Código,Resultado\nM01,Victoria').error).toMatch(/Falta la columna «Fecha»/u)
@@ -427,10 +447,87 @@ describe('the plan of an import', () => {
       const hour = String(Math.floor(i / 60) % 24).padStart(2, '0')
       rows.push(row({ date: `${String(1 + Math.floor(i / 1440)).padStart(2, '0')}/10/2026 ${hour}:${minute}` }))
     }
+    rows[0] = row({ date: '01/10/2026 00:00', rank: 'Ultra Ball 2' })
     const plan = planSheetImport(parse(csv(rows)), context())
     expect(plan.counts.write).toBe(SHEET_IMPORT_MAX_NEW + 1)
     expect(plan.tooMany).toBe(true)
-    expect(planSheetImport(parse(csv(rows.slice(1))), context()).tooMany).toBe(false)
+    // Review: nothing of it is applied, so its ranks are not planned (a cost per row).
+    expect(plan.rows[0]?.rankPlan).toBeNull()
+    const fits = planSheetImport(parse(csv(rows.slice(0, -1))), context())
+    expect(fits.tooMany).toBe(false)
+    expect(fits.rows[0]?.rankPlan?.action).toBe('skip')
+  })
+
+  it('review: two wins in a row with the deck, the first imported before: the second is new, not its repeat', () => {
+    const sheet = parse(csv([row({ date: '19/10/2026 21:30' }), row({ date: '19/10/2026 21:40' })]))
+    const first = sheet.rows[0]?.key as string
+    const plan = planSheetImport(
+      sheet,
+      context({ existing: [existing('30', '2026-10-20T00:30:00Z', { clientRef: first })] }),
+    )
+    expect(plan.rows.map((item) => [item.status, item.matchId])).toEqual([
+      ['duplicate', '30'],
+      ['new', null],
+    ])
+    expect(plan.orphans).toEqual([])
+  })
+
+  it('review: exactly 15 minutes is a possible repeat, and the nearest match is the one named', () => {
+    const sheet = parse(csv([row({ date: '19/10/2026 21:40' })]))
+    const edge = planSheetImport(sheet, context({ existing: [existing('31', '2026-10-20T00:55:00Z')] }))
+    expect(edge.rows[0]?.status).toBe('possible_duplicate')
+    const two = planSheetImport(
+      sheet,
+      context({ existing: [existing('31', '2026-10-20T00:52:00Z'), existing('32', '2026-10-20T00:38:00Z')] }),
+    )
+    expect(two.rows[0]?.duplicateOf?.id).toBe('32')
+  })
+
+  it('review: a row corrected after its import, without K, finds the match of its old version the same day', () => {
+    const before = parse(csv([row({ date: '19/10/2026 21:40' })])).rows[0]?.key as string
+    const old = existing('40', '2026-10-20T00:40:00Z', { clientRef: before })
+    for (const corrected of [
+      row({ date: '19/10/2026 21:40', result: 'Derrota' }),
+      row({ date: '19/10/2026 21:40', code: 'M01' }),
+      row({ date: '19/10/2026 22:40' }),
+    ]) {
+      const plan = planSheetImport(parse(csv([corrected])), context({ existing: [old] }))
+      expect(plan.rows[0]).toMatchObject({ status: 'possible_duplicate', duplicateKind: 'sheet', write: false })
+      expect(plan.rows[0]?.duplicateOf?.id).toBe('40')
+      expect(plan.orphans.map((match) => match.id)).toEqual(['40'])
+    }
+    // A date that had no time (the match went in at 12:00) and got one.
+    const noon = parse(csv([row({ date: '19/10/2026' })])).rows[0] as SheetRow
+    const atNoon = existing('41', (noon.playedAt as Date).toISOString(), { clientRef: noon.key })
+    const timed = planSheetImport(parse(csv([row({ date: '19/10/2026 21:40' })])), context({ existing: [atNoon] }))
+    expect(timed.rows[0]).toMatchObject({ status: 'possible_duplicate', duplicateKind: 'sheet' })
+    // Another day, or a match typed in the app (no key of the sheet): new.
+    const otherDay = parse(csv([row({ date: '20/10/2026 21:40', result: 'Derrota' })]))
+    expect(planSheetImport(otherDay, context({ existing: [old] })).rows[0]?.status).toBe('new')
+    const typed = existing('42', '2026-10-20T00:40:00Z', { result: 'loss' })
+    const sheet = parse(csv([row({ date: '19/10/2026 21:40' })]))
+    expect(planSheetImport(sheet, context({ existing: [typed] })).rows[0]?.status).toBe('new')
+  })
+
+  it('review: the fingerprint changes with what is written — the deck, the rank noted, the mode', () => {
+    const sheet = parse(csv([row({ rank: 'Ultra Ball 2' })]))
+    const base = planSheetImport(sheet, context())
+    expect(base.rows[0]?.rankPlan?.action).toBe('note')
+    expect(planSheetImport(sheet, context()).fingerprint).toBe(base.fingerprint)
+    expect(planSheetImport(sheet, context({ chosen: { M08: '9' } })).fingerprint).not.toBe(base.fingerprint)
+    const noted: RankChange = { id: '1', at: new Date('2026-10-19T10:00:00Z'), rank: 'ultra-2', points: null }
+    const same = planSheetImport(sheet, context({ changes: [noted] }))
+    expect(same.rows[0]?.rankPlan?.action).toBe('same')
+    expect(same.fingerprint).not.toBe(base.fingerprint)
+    expect(planSheetImport(sheet, context({ mode: 'casual' })).fingerprint).not.toBe(base.fingerprint)
+  })
+
+  it('review: a possible repeat is named «n.º X, Victoria del 19/10 21:35», and says when it is an old sheet row', () => {
+    const match = existing('30', '2026-10-20T00:35:00Z')
+    expect(duplicateTextEs(match, ZONE)).toBe('n.º 30, Victoria del 19/10 21:35')
+    expect(duplicateTextEs(match, ZONE, 'sheet')).toBe(
+      'n.º 30, Victoria del 19/10 21:35, importada de una fila que ya no está igual en la hoja',
+    )
   })
 })
 

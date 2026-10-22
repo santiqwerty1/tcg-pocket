@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import pg from 'pg'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
 import { OWNER_TIME_ZONE, todayInOwnerZone } from '../src/config/time-zone.js'
@@ -133,10 +134,12 @@ describe('importing the match sheet (e2e)', () => {
     mawile = decks.find((deck) => /Mawile/u.test(deck.name))?.id as string
     butterfree = decks.find((deck) => /Butterfree/u.test(deck.name))?.id as string
     expect(mawile && butterfree).toBeTruthy()
-    // A season that holds the last six days (the migration's are truncated by the tests): every row with a rank
-    // is less than 100 hours old, and the one outside every season is 20 days old.
+    // A season that holds the last nine days (the migration's are truncated by the tests): every row with a rank is
+    // less than 200 hours old, and the one outside every season is 20 days old. Each test's rows that are written lie
+    // more than a day from the others written: a match imported from the sheet that no row of a text is, the same day
+    // as one of its rows, makes that row a possible repeat (a row corrected after its import).
     expect(
-      (await put('/api/ranked/seasons/NOW').send({ name: 'Temporada de hoy', startsOn: day(-6), endsOn: day(12) }))
+      (await put('/api/ranked/seasons/NOW').send({ name: 'Temporada de hoy', startsOn: day(-9), endsOn: day(12) }))
         .status,
     ).toBe(200)
   }, 120_000)
@@ -291,7 +294,7 @@ describe('importing the match sheet (e2e)', () => {
   })
 
   it('something that changed since the preview (a match logged meanwhile) is a 409, and nothing is written', async () => {
-    const text = sheet([{ date: ago(70) }, { date: ago(71), result: 'Derrota' }])
+    const text = sheet([{ date: ago(120) }, { date: ago(121), result: 'Derrota' }])
     const preview = await post('/api/matches/import/preview').send({ text })
     expect(preview.body.counts.write).toBe(2)
     // The same match logged in the app meanwhile: the first row is now a possible repeat.
@@ -301,7 +304,7 @@ describe('importing the match sheet (e2e)', () => {
           deckId: mawile,
           result: 'win',
           mode: 'competitive',
-          playedAt: minuteOf(70).toISOString(),
+          playedAt: minuteOf(120).toISOString(),
         })
       ).status,
     ).toBe(201)
@@ -312,18 +315,18 @@ describe('importing the match sheet (e2e)', () => {
     expect(await counts()).toEqual(before)
   })
 
-  it('all or nothing: a write that fails after the matches leaves no match, rank or deck saved', async () => {
-    // A rank that cannot be written (a trigger of the test): the matches are inserted before the ranks.
+  it('all or nothing: a write that fails after the matches and the ranks leaves none of them, nor the decks saved', async () => {
+    // The decks of the codes cannot be saved (a trigger of the test): the matches and the ranks go in before them.
     await test.prisma.$executeRawUnsafe(
-      `CREATE OR REPLACE FUNCTION e2e_refuse_rank() RETURNS trigger AS $$ BEGIN IF NEW.rank = 'beginner-1' THEN RAISE EXCEPTION 'e2e: rank refused'; END IF; RETURN NEW; END $$ LANGUAGE plpgsql`,
+      `CREATE OR REPLACE FUNCTION e2e_refuse_map() RETURNS trigger AS $$ BEGIN IF NEW.key = '${SHEET_DECK_MAP_KEY}' AND NEW.value ? 'M02' THEN RAISE EXCEPTION 'e2e: map refused'; END IF; RETURN NEW; END $$ LANGUAGE plpgsql`,
     )
     await test.prisma.$executeRawUnsafe(
-      'CREATE TRIGGER e2e_refuse_rank BEFORE INSERT ON rank_changes FOR EACH ROW EXECUTE FUNCTION e2e_refuse_rank()',
+      'CREATE TRIGGER e2e_refuse_map BEFORE INSERT OR UPDATE ON app_settings FOR EACH ROW EXECUTE FUNCTION e2e_refuse_map()',
     )
     try {
       const text = sheet([
-        { code: 'M02', deck: 'blaziken', date: ago(80) },
-        { code: 'M02', deck: 'blaziken', date: ago(79), rank: 'Principiante 1' },
+        { code: 'M02', deck: 'blaziken', date: ago(151) },
+        { code: 'M02', deck: 'blaziken', date: ago(150), rank: 'Principiante 1' },
       ])
       const blaziken = (await get('/api/decks')).body.items.find((deck: { name: string }) =>
         /Blaziken/u.test(deck.name),
@@ -336,9 +339,10 @@ describe('importing the match sheet (e2e)', () => {
       expect(applied.status).toBe(500)
       expect(await counts()).toEqual(before)
       expect(await test.prisma.match.count({ where: { deckId: Number(blaziken) } })).toBe(0)
+      expect(await test.prisma.rankChange.count({ where: { rank: 'beginner-1' } })).toBe(0)
     } finally {
-      await test.prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS e2e_refuse_rank ON rank_changes')
-      await test.prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS e2e_refuse_rank()')
+      await test.prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS e2e_refuse_map ON app_settings')
+      await test.prisma.$executeRawUnsafe('DROP FUNCTION IF EXISTS e2e_refuse_map()')
     }
   })
 
@@ -391,5 +395,84 @@ describe('importing the match sheet (e2e)', () => {
     expect(none.body.error).toMatch(/No encontré la fila de encabezados/u)
     const refused = await post('/api/matches/import').send({ text: 'M08,Primero,Victoria', fingerprint: 'x' })
     expect(refused.status).toBe(400)
+  })
+
+  it('review: applying with other decks than the preview (same number of rows) is a 409', async () => {
+    const text = sheet([{ code: 'M09', deck: 'mawile', date: ago(175) }])
+    const preview = await post('/api/matches/import/preview').send({ text, deckMap: { M09: mawile } })
+    expect(preview.body.counts.write).toBe(1)
+    const before = await counts()
+    const applied = await post('/api/matches/import').send({
+      text,
+      deckMap: { M09: butterfree },
+      fingerprint: preview.body.fingerprint,
+    })
+    expect(applied.status).toBe(409)
+    expect(await counts()).toEqual(before)
+  })
+
+  it('review: a match imported and moved in the app is still that row; a row with K finds its match whatever its date', async () => {
+    const text = sheet([{ code: 'M01', deck: 'butterfree', date: ago(230) }])
+    const preview = await post('/api/matches/import/preview').send({ text })
+    const applied = await post('/api/matches/import').send({ text, fingerprint: preview.body.fingerprint })
+    const id = applied.body.imported[0].matchId as string
+    // Three days earlier: far from every date of the sheet (loaded by its key, not by the dates).
+    const moved = await test
+      .http()
+      .patch(`/api/matches/${id}`)
+      .set('Cookie', cookie)
+      .send({ playedAt: new Date(minuteOf(230).getTime() + 72 * HOUR_MS).toISOString() })
+    expect(moved.status).toBe(200)
+    const again = await post('/api/matches/import/preview').send({ text })
+    expect((again.body.rows as PreviewRow[])[0]).toMatchObject({ status: 'duplicate', matchId: id })
+    const withK = await post('/api/matches/import/preview').send({ text: sheet([{ date: ago(300), k: id }]) })
+    expect((withK.body.rows as PreviewRow[])[0]).toMatchObject({ status: 'in_app', matchId: id, warnings: [] })
+  })
+
+  it('review: a match being saved when the import starts is seen by it (the matches table is locked): 409, no repeat', async () => {
+    const text = sheet([{ date: ago(190) }])
+    const preview = await post('/api/matches/import/preview').send({ text })
+    expect(preview.body.counts.write).toBe(1)
+    const deck = await test.prisma.deck.findUniqueOrThrow({
+      where: { id: Number(mawile) },
+      select: { currentRevisionId: true },
+    })
+    const other = new pg.Client({ connectionString: test.env.databaseUrl })
+    await other.connect()
+    try {
+      // The same match, saved by another request whose transaction has not committed yet.
+      await other.query('BEGIN')
+      await other.query(
+        `INSERT INTO matches (deck_id, deck_revision_id, result, mode, played_at) VALUES ($1, $2, 'win', 'competitive', $3)`,
+        [Number(mawile), deck.currentRevisionId, minuteOf(190)],
+      )
+      const applying = post('/api/matches/import')
+        .send({ text, fingerprint: preview.body.fingerprint })
+        .then((response) => response)
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+      await other.query('COMMIT')
+      const applied = await applying
+      expect(applied.status).toBe(409)
+      expect(await test.prisma.match.count({ where: { playedAt: minuteOf(190) } })).toBe(1)
+    } finally {
+      await other.end()
+    }
+  })
+
+  it('review: a row corrected after its import (another time, the same day) names the match of its old version', async () => {
+    // Fixed times of one day (13 days ago), so the correction never crosses midnight.
+    const date = WALL.format(new Date(BASE - 13 * DAY_MS)).slice(0, 10)
+    const first = sheet([{ code: 'M01', deck: 'butterfree', date: `${date} 12:00` }])
+    const preview = await post('/api/matches/import/preview').send({ text: first })
+    const applied = await post('/api/matches/import').send({ text: first, fingerprint: preview.body.fingerprint })
+    const id = applied.body.imported[0].matchId as string
+    const corrected = sheet([{ code: 'M01', deck: 'butterfree', date: `${date} 12:40` }])
+    const again = await post('/api/matches/import/preview').send({ text: corrected })
+    const row = (again.body.rows as PreviewRow[])[0]
+    expect(row).toMatchObject({ status: 'possible_duplicate', write: false, duplicateOf: { id } })
+    expect(row?.duplicateOf?.text).toMatch(/importada de una fila que ya no está igual en la hoja$/u)
+    expect(again.body.orphans).toEqual([
+      { id, text: expect.stringMatching(new RegExp(`^n\\.º ${id}, Victoria del `, 'u')) },
+    ])
   })
 })
