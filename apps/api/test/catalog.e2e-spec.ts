@@ -270,6 +270,7 @@ describe('catalog (e2e)', () => {
       stockChanged: 0,
       groupChanged: 0,
       nameChanged: 0,
+      typesChanged: 0,
       expansionsAdded: 0,
       expansionsRemoved: 0,
     })
