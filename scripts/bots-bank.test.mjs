@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { bankScore, DEFAULT_BANK, DEFAULT_DECKS, playBank, subjectDeck } from './bots-bank.mjs'
+import { bankScore, checkRun, DEFAULT_BANK, DEFAULT_DECKS, playBank, subjectDeck } from './bots-bank.mjs'
 
 const SCRIPT = fileURLToPath(new URL('./bots-bank.mjs', import.meta.url))
 
@@ -112,6 +112,53 @@ describe('decks against the meta bank', () => {
     }
   })
 
+  it('does not play a list without weight, and the others keep the seed of their position (Codex on #146)', () => {
+    const { dir, engine, log } = fakeEngine()
+    process.env.FAKE_BANK_LOG = log
+    try {
+      const bank = [{ ...BANK[0], weight: 0 }, BANK[1], { ...BANK[2], weight: -1 }, BANK[2]]
+      const { rows, score } = playBank({
+        engine,
+        bot: 'e2',
+        deck: 'Energy: Psychic\n',
+        bank,
+        games: 10,
+        threads: 1,
+        seed: 5,
+      })
+      const jobs = readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse)
+      assert.deepEqual(
+        jobs.map((job) => [job.deckB, job.seed]),
+        [
+          ['Energy: Water\n', 6],
+          ['Energy: Grass\n', 8],
+        ],
+      )
+      assert.deepEqual(
+        rows.map((row) => row.listKey),
+        ['bbb', 'ccc'],
+      )
+      assert.equal(score.lists, 2)
+    } finally {
+      delete process.env.FAKE_BANK_LOG
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('a run that cannot give a score is refused before playing (Codex on #146)', () => {
+    const ok = { bank: BANK, games: 200, threads: 4, seed: 777000 }
+    assert.equal(checkRun(ok), null)
+    assert.match(checkRun({ ...ok, bank: [] }), /no tiene listas con peso/)
+    assert.match(checkRun({ ...ok, bank: [{ ...BANK[0], weight: 0 }] }), /no tiene listas con peso/)
+    for (const games of [0, -1, 1.5, Number.NaN]) assert.match(checkRun({ ...ok, games }), /--games/)
+    assert.match(checkRun({ ...ok, threads: 0 }), /--threads/)
+    for (const seed of [-1, 0.5, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER - 1]) {
+      assert.match(checkRun({ ...ok, seed }), /--seed/, String(seed))
+    }
+    // The last seed that keeps the three list seeds distinct whole numbers.
+    assert.equal(checkRun({ ...ok, seed: Number.MAX_SAFE_INTEGER - 2 }), null)
+  })
+
   it('the default bank is the 18 lists of lab_meta_bank on 15/10/2026, and the league has decks 16, 23 and 40', () => {
     const bank = JSON.parse(readFileSync(DEFAULT_BANK, 'utf8'))
     assert.equal(bank.length, 18)
@@ -142,6 +189,21 @@ describe('decks against the meta bank', () => {
         /^ccc con e2: 60,0 % ponderado \(IC 95 % \d+,\d %–\d+,\d %, n = 30 partidas contra 3 listas, 2 empates\)/,
       )
       assert.match(out, / {2}Planta \(ccc, peso 0\.25\): 40,0 %/)
+      // A run with no games is refused with a message, not a TypeError (Codex on #146).
+      const refused = (() => {
+        try {
+          execFileSync(
+            process.execPath,
+            [SCRIPT, '--engine', engine, '--bot', 'e2', '--subjects', 'ccc', '--bank', bankFile, '--games', '0'],
+            { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+          )
+          return null
+        } catch (error) {
+          return error
+        }
+      })()
+      assert.equal(refused?.status, 2)
+      assert.match(refused.stderr, /--games tiene que ser un entero positivo/)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

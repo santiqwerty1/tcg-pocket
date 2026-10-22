@@ -79,9 +79,29 @@ function runEngine(engine, job) {
   }
 }
 
-/** One subject against every list of the bank: its record against each and the weighted score. */
+/**
+ * Why a run cannot give a score, or null when it can: no list with weight to play, games or threads that are not a
+ * positive whole number, or a seed whose list seeds `seed + k` are not all distinct whole numbers (past
+ * `Number.MAX_SAFE_INTEGER` two of them round to the same one).
+ */
+export function checkRun({ bank, games, threads, seed }) {
+  if (!Array.isArray(bank) || !bank.some((list) => list.weight > 0)) return 'el banco no tiene listas con peso'
+  if (!Number.isSafeInteger(games) || games <= 0) return '--games tiene que ser un entero positivo'
+  if (!Number.isSafeInteger(threads) || threads <= 0) return '--threads tiene que ser un entero positivo'
+  // Compared before adding: near the limit, `seed + k` itself rounds.
+  const highest = Number.MAX_SAFE_INTEGER - (bank.length - 1)
+  if (!Number.isSafeInteger(seed) || seed < 0 || seed > highest)
+    return `--seed tiene que ser un entero entre 0 y ${highest}`
+  return null
+}
+
+/**
+ * One subject against every list of the bank with weight: its record against each and the weighted score. A list
+ * without weight is not played (the score leaves it out); the others keep the seed of their position.
+ */
 export function playBank({ engine, bot, deck, bank, games, threads, seed }) {
-  const rows = bank.map((list, k) => {
+  const rows = bank.flatMap((list, k) => {
+    if (!(list.weight > 0)) return []
     const result = runEngine(engine, {
       deckA: deck,
       deckB: list.deck,
@@ -90,15 +110,17 @@ export function playBank({ engine, bot, deck, bank, games, threads, seed }) {
       seed: seed + k,
       threads,
     })
-    return {
-      archetype: list.archetype,
-      listKey: list.listKey,
-      weight: list.weight,
-      wins: result.winsA,
-      losses: result.winsB,
-      ties: result.ties,
-      games: result.games,
-    }
+    return [
+      {
+        archetype: list.archetype,
+        listKey: list.listKey,
+        weight: list.weight,
+        wins: result.winsA,
+        losses: result.winsB,
+        ties: result.ties,
+        games: result.games,
+      },
+    ]
   })
   return { rows, score: bankScore(rows) }
 }
@@ -118,6 +140,11 @@ function main() {
   const games = Number(argument('--games', '200'))
   const threads = Number(argument('--threads', '4'))
   const seed = Number(argument('--seed', '777000'))
+  const invalid = checkRun({ bank, games, threads, seed })
+  if (invalid) {
+    console.error(invalid)
+    process.exit(2)
+  }
   const started = Date.now()
   const results = {}
   for (const subject of subjects) {
@@ -131,6 +158,10 @@ function main() {
       seed,
     })
     results[subject] = { rows, score }
+    if (!score) {
+      console.log(`${subject} con ${bot}: el motor no jugó ninguna partida`)
+      continue
+    }
     const ties = rows.reduce((sum, row) => sum + row.ties, 0)
     const [lo, hi] = score.ci95
     console.log(
