@@ -1,0 +1,4 @@
+---
+seccion: Fase 40: día de expansión en dos toques (9/10/2026)
+---
+| **El catálogo lee las dos formas del aviso de bebés del tracker**: `packStructure.containsBabies` (hasta 3ab58f1) o `containSixthCardBabies` (desde aac8d456, 15/10/2026, «Add deluxe mega pack odds»). Adentro sigue llamándose `containsBabies`; sin ninguno de los dos, o con los dos y distintos, la sincronización falla diciendo por qué. Fixture: los literales `expansions` y `craftingCost` de `CardsDB.ts` @ aac8d456, sin el código que los rodea. | Con el nombre nuevo, «Actualizar al último del tracker» fallaba en la vista previa (ZodError en las 22 expansiones con sobres), y el día de C1 el commit que trae el set también lo trae. El significado no cambió: el tracker solo lo renombró, con los mismos valores (A4 y A4a). Los campos `foil` de las cartas y las probabilidades nuevas del Deluxe Mega no entran: el esquema ignora `foil`, y B4b sale de la venta el 28/10. |

@@ -5,6 +5,7 @@ Real data used by the domain tests. Regenerate with `pnpm fixtures:extract` (nee
 | File | Source | Commit | License |
 |---|---|---|---|
 | `tracker/cards.json`, `tracker/*_translations.json`, `tracker/CardsDB.ts`, `tracker/types.index.ts`, `tracker/es-ES.*.json`, `tracker/en-US.*.json` | marcelpanse/tcg-pocket-collection-tracker | `3ab58f1cec6a03e3e85455cf7aade3bb8561f92e` (2026-10-01) | GPL-3.0 (see docs/LICENCIAS.md) |
+| `tracker/CardsDB.aac8d456.ts` (only the `expansions` and `craftingCost` literals; copied by hand, not by `fixtures:extract`) | marcelpanse/tcg-pocket-collection-tracker | `aac8d456f6f02565dcb81c59101420d008ad6200` (2026-10-15) | GPL-3.0 (see docs/LICENCIAS.md) |
 | `deckgym/engine-cards.json` | bcollazo/deckgym-core `database.json`, reduced to id/name/stage/evolves_from/hp/energy/rarity/trainer type | `fb792ebfbaca995af9750c28101ce92a51282825` (2026-10-04) | AGPL-3.0 (data; see docs/LICENCIAS.md) |
 
 Other fixtures used by tests live outside this folder: `docs/context/tcgcollectiontracterexport-2026-10-06.csv` (collection export, sha256 `f774c6e4…17e8`), `docs/context/mazos_40_listas.md` (the 40 decks), `docs/fase0/limitless/*.json` (tournament standings), `docs/fase0/fixtures-sobres-2026-10-06.json` (pack probabilities).
