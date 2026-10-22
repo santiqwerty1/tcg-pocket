@@ -3,6 +3,7 @@ import {
   detectDelimiter,
   duplicateTextEs,
   KNOWN_SEASONS,
+  lineBreaks,
   normalizeSheetCode,
   type ParsedSheet,
   parseDelimited,
@@ -59,6 +60,19 @@ function csv(rows: Cells[], delimiter = ','): string {
   return `${lines.map((line) => line.map((cell) => (delimiter === ',' ? csvCell(cell) : cell)).join(delimiter)).join('\r\n')}\r\n`
 }
 
+/** The sheet as Sheets copies cells: tabs, and only a cell with a line break in quotes (its quotes doubled). */
+function sheetsCopy(rows: Cells[]): string {
+  const copied = (value: string) => (value.includes('\n') ? `"${value.replaceAll('"', '""')}"` : value)
+  const lines = [
+    ['Registro de partidas', '', '', '', '', '', '', '', '', '', ''],
+    ['Elegí el código del mazo en A', '', '', '', '', '', '', '', '', '', ''],
+    ['', '', '', '', '', '', '', '', '', '', ''],
+    HEADER,
+    ...rows,
+  ]
+  return lines.map((line) => line.map(copied).join('\t')).join('\n')
+}
+
 const row = (
   overrides: Partial<
     Record<'code' | 'first' | 'result' | 'deck' | 'date' | 'rival' | 'note' | 'rank' | 'k', string>
@@ -112,8 +126,30 @@ describe('delimited text (RFC 4180)', () => {
       ['a', 'b'],
       ['', 'c'],
     ])
-    expect(parseDelimited('a\tb "c"\t"d\te"', '\t')).toEqual([['a', 'b "c"', 'd\te']])
+    expect(parseDelimited('a\tb "c"\t"d\ne"\tf', '\t')).toEqual([['a', 'b "c"', 'd\ne', 'f']])
     expect(parseDelimited('a\n\nb', ',')).toEqual([['a'], [''], ['b']])
+  })
+
+  it('review of #143: a quote is a quoted field only when it is a well-formed one; with tabs, never across a tab', () => {
+    // A cell that starts with a quote and goes on after its closing quote is text as written.
+    expect(parseDelimited('"Hoopa" me ganó,x', ',')).toEqual([['"Hoopa" me ganó', 'x']])
+    expect(parseDelimited('"Hoopa" me ganó\tx', '\t')).toEqual([['"Hoopa" me ganó', 'x']])
+    // Copied from Sheets: a quote opened in one cell and one in a cell rows below are two cells.
+    expect(parseDelimited('"Hoopa me ganó\tx\ny\tle dicen "el pibe"\tz', '\t')).toEqual([
+      ['"Hoopa me ganó', 'x'],
+      ['y', 'le dicen "el pibe"', 'z'],
+    ])
+    expect(readDelimited('a\t"b\nc\td', '\t')).toEqual({
+      records: [
+        ['a', '"b'],
+        ['c', 'd'],
+      ],
+      unclosedAt: null,
+    })
+    // A cell with a line break (and quotes in it), as Sheets copies it: in quotes, the quotes doubled.
+    expect(parseDelimited('a\t"dijo ""hola""\nchau"\tb', '\t')).toEqual([['a', 'dijo "hola"\nchau', 'b']])
+    // In a CSV, an unclosed quote is reported.
+    expect(readDelimited('a,"b\nc,d', ',').unclosedAt).toBe(0)
   })
 
   it('the delimiter is the one whose header row has the columns', () => {
@@ -252,12 +288,47 @@ describe('reading the sheet', () => {
     expect(sheet.rows[5]?.appId).toBe('14')
   })
 
-  it('review: an unclosed quote (pasted cells) or millions of lines: nothing is read, it says why', () => {
-    expect(readDelimited('a\t"b\nc\td', '\t').unclosedAt).toBe(0)
-    expect(readDelimited('a\t"b\nc"\td', '\t').unclosedAt).toBeNull()
-    const pasted = csv([row({ note: '"Hoopa me ganó' }), row({ date: '19/10/2026 22:00' })], '\t')
-    expect(parse(pasted).error).toMatch(/La fila 5 tiene unas comillas que no se cierran/u)
+  it('review: an unclosed quote (CSV) or millions of lines: nothing is read, it says why', () => {
+    const exported = csv([row()]).replace('Hoopa ex / Mega-Absol ex', '"Hoopa ex')
+    expect(parse(exported).error).toMatch(/La fila 5 tiene unas comillas que no se cierran/u)
     expect(parse(`${csv([row()])}${'\n'.repeat(60_000)}`).error).toMatch(/demasiado largo/u)
+    // Codex on #143: a lone CR ends a record too (readDelimited takes it), and a CRLF is one break, not two.
+    expect(lineBreaks('a\rb\r\nc\nd\r')).toBe(4)
+    expect(parse(`${csv([row()])}${'\r'.repeat(60_000)}`).error).toMatch(/demasiado largo/u)
+    expect(parse(`${csv([row()])}${'\r\n'.repeat(40_000)}`).error).toBeNull()
+  })
+
+  it('review of #143: pasted from Sheets, a note opening a quote and one closing it rows below swallow no row', () => {
+    const rows = [
+      row({ note: '"Hoopa me ganó' }),
+      row({ date: '19/10/2026 21:50' }),
+      row({ date: '19/10/2026 22:00', note: 'dos líneas\ny una con "comillas"' }),
+      row({ date: '19/10/2026 22:10' }),
+      row({ date: '19/10/2026 22:20', note: 'le dicen "el pibe"' }),
+    ]
+    const sheet = parse(sheetsCopy(rows))
+    expect(sheet.error).toBeNull()
+    expect(sheet.rows.map((item) => [item.row, item.note])).toEqual([
+      [5, '"Hoopa me ganó'],
+      [6, ''],
+      [7, 'dos líneas\ny una con "comillas"'],
+      [8, ''],
+      [9, 'le dicen "el pibe"'],
+    ])
+    // A row with more cells than the headers is quotes read wrong: refused, naming the row.
+    const extra = `${sheetsCopy([row()])}\n${sheetsCopy([row({ date: '19/10/2026 21:50' })])
+      .split('\n')
+      .at(-1)}\tsobra`
+    expect(parse(extra).error).toMatch(/^La fila 6 tiene 12 celdas y los encabezados 11/u)
+  })
+
+  it('review of #143: a date before the game (30/10/2024) is an error, also a year of two digits', () => {
+    const sheet = parse(
+      csv([row({ date: '17/10/2006 21:00' }), row({ date: '17/10/0026 21:00' }), row({ date: '30/10/2024 00:00' })]),
+    )
+    expect(sheet.rows[0]?.errors[0]).toMatch(/es anterior al juego \(salió el 30\/10\/2024\)/u)
+    expect(sheet.rows[1]?.errors[0]).toMatch(/es anterior al juego/u)
+    expect(sheet.rows[2]?.errors).toEqual([])
   })
 
   it('review: «Rango (si cambió)» is the rank column too; «Rango (efectivo)» is not', () => {
@@ -526,6 +597,66 @@ describe('the plan of an import', () => {
     )
   })
 
+  it('Codex on #143: 10.000 rows against 20.000 matches are planned at once (indexed, not every match per row)', () => {
+    // Rows every 3 minutes from 01/10 (one per row, all M08 Victoria); against them, 10.000 matches of another
+    // result (the old search looked at each one for each row) and 10.000 old sheet rows of September (one time-zone
+    // format per orphan and row: a hundred million).
+    const rows: Cells[] = []
+    const start = Date.UTC(2026, 9, 1, 3, 0)
+    const wall = new Intl.DateTimeFormat('en-GB', {
+      timeZone: ZONE,
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+    for (let i = 0; i < 10_000; i++) {
+      rows.push(row({ date: wall.format(new Date(start + i * 3 * 60_000)).replace(', ', ' ') }))
+    }
+    const sheet = parse(csv(rows))
+    expect(sheet.rows).toHaveLength(10_000)
+    const existing: SheetExistingMatch[] = []
+    for (let i = 0; i < 10_000; i++) {
+      existing.push({
+        id: String(i + 1),
+        deckId: '3',
+        result: 'loss',
+        playedAt: new Date(start + i * 3 * 60_000 + 60_000),
+        clientRef: null,
+      })
+      existing.push({
+        id: String(20_000 + i),
+        deckId: '3',
+        result: 'win',
+        playedAt: new Date(Date.UTC(2026, 8, 1) + i * 60_000),
+        clientRef: `sheet:${i}`,
+      })
+    }
+    const began = performance.now()
+    const plan = planSheetImport(sheet, context({ existing }))
+    const ms = performance.now() - began
+    expect(plan.counts).toMatchObject({ new: 10_000, possibleDuplicate: 0 })
+    expect(plan.orphans).toHaveLength(10_000)
+    expect(ms).toBeLessThan(3000)
+    // And still the nearest within 15 minutes: one win a minute after the 5.000th row.
+    const after = new Date(start + 4999 * 3 * 60_000 + 60_000)
+    const one = planSheetImport(
+      sheet,
+      context({
+        existing: [...existing, { ...existing[0], id: '99999', result: 'win', playedAt: after } as SheetExistingMatch],
+      }),
+    )
+    expect(one.rows[4999]).toMatchObject({ status: 'possible_duplicate', duplicateKind: 'near' })
+    expect(one.rows[4999]?.duplicateOf?.id).toBe('99999')
+    // The rows 15 minutes around it (every 3 minutes: 10 of them) may be that match; the one 18 minutes away is not.
+    expect(one.counts.possibleDuplicate).toBe(10)
+    expect(one.rows.flatMap((item, at) => (item.status === 'possible_duplicate' ? [at] : []))).toEqual([
+      4995, 4996, 4997, 4998, 4999, 5000, 5001, 5002, 5003, 5004,
+    ])
+  }, 30_000)
+
   it('review: a possible repeat is named «n.º X, Victoria del 19/10 21:35», and says when it is an old sheet row', () => {
     const match = existing('30', '2026-10-20T00:35:00Z')
     expect(duplicateTextEs(match, ZONE)).toBe('n.º 30, Victoria del 19/10 21:35')
@@ -608,5 +739,68 @@ describe('the text for column K', () => {
     expect(sheetColumnK(sheet, plan.rows, new Map([[9, '41']]))).toEqual({ firstRow: 5, text: '6\n40\n\n\n41' })
     expect(sheetColumnK(sheet, plan.rows)).toEqual({ firstRow: 5, text: '6\n40\n\n\n' })
     expect(sheetColumnK({ firstRow: null, lastRow: null }, [])).toBeNull()
+  })
+
+  it('review of #143: only numbers or nothing — a K with a line break or a typo is no line of its own', () => {
+    const sheet = parse(
+      csv([
+        row({ k: '32\nrevisar', date: '17/10/2026 22:19' }),
+        row({ k: 'n.º 14', date: '17/10/2026 22:29' }),
+        row({ k: 'sí', date: '17/10/2026 22:39' }),
+        row({ date: '17/10/2026 22:49' }),
+      ]),
+    )
+    const plan = planSheetImport(sheet, context())
+    const block = sheetColumnK(sheet, plan.rows, new Map([[8, '50']]))
+    expect(block).toEqual({ firstRow: 5, text: '\n14\n\n50' })
+    expect(block?.text.split('\n')).toHaveLength(4)
+  })
+})
+
+describe('review of #143: the match of column K, and a row whose day was corrected', () => {
+  const match = (id: string, iso: string, overrides: Partial<SheetExistingMatch> = {}): SheetExistingMatch => ({
+    id,
+    deckId: '3',
+    result: 'win',
+    playedAt: new Date(iso),
+    clientRef: null,
+    ...overrides,
+  })
+
+  it('a K number whose match has another deck, result or date (pasted shifted) is said; the row is skipped anyway', () => {
+    const sheet = parse(csv([row({ k: '30', date: '19/10/2026 21:40' })]))
+    const fine = planSheetImport(sheet, context({ existing: [match('30', '2026-10-20T00:40:00Z')] }))
+    expect(fine.rows[0]).toMatchObject({ status: 'in_app', warnings: [] })
+    const shifted = planSheetImport(
+      sheet,
+      context({ existing: [match('30', '2026-10-22T00:40:00Z', { deckId: '7', result: 'loss' })] }),
+    )
+    expect(shifted.rows[0]).toMatchObject({ status: 'in_app', write: false })
+    expect(shifted.rows[0]?.warnings).toEqual([
+      'La partida n.º 30 de la columna K tiene otro mazo, otro resultado y otra fecha: ¿pegaste los números corridos?',
+    ])
+    const late = planSheetImport(sheet, context({ existing: [match('30', '2026-10-21T00:41:00Z')] }))
+    expect(late.rows[0]?.warnings[0]).toMatch(/tiene otra fecha:/u)
+  })
+
+  it('a row whose day was corrected finds its old match (same deck, result, who went first and rival) on another day', () => {
+    const before = parse(csv([row({ date: '19/10/2026 21:40' })])).rows[0] as SheetRow
+    const old = match('40', '2026-10-20T00:40:00Z', {
+      clientRef: before.key,
+      wentFirst: true,
+      opponent: 'Hoopa ex / Mega-Absol ex',
+    })
+    const corrected = parse(csv([row({ date: '20/10/2026 21:40' })]))
+    const plan = planSheetImport(corrected, context({ existing: [old] }))
+    expect(plan.rows[0]).toMatchObject({ status: 'possible_duplicate', duplicateKind: 'sheet', write: false })
+    expect(plan.rows[0]?.duplicateOf?.id).toBe('40')
+    // Another rival (or result, or who went first) on another day: a new match.
+    const other = parse(csv([row({ date: '20/10/2026 21:40', rival: 'Mega-Blaziken ex' })]))
+    expect(planSheetImport(other, context({ existing: [old] })).rows[0]?.status).toBe('new')
+    const second = parse(csv([row({ date: '20/10/2026 21:40', first: 'Segundo' })]))
+    expect(planSheetImport(second, context({ existing: [old] })).rows[0]?.status).toBe('new')
+    // Three days away is another match that says the same, not a day corrected.
+    const far = parse(csv([row({ date: '16/10/2026 21:40' })]))
+    expect(planSheetImport(far, context({ existing: [old] })).rows[0]?.status).toBe('new')
   })
 })

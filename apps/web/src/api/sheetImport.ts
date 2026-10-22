@@ -5,6 +5,12 @@ import { request } from './client'
 import { matchKeys } from './matches'
 import { type MatchMode, matchModeSchema, matchResultSchema } from './schemas'
 
+/**
+ * The longest text the API takes (`SHEET_IMPORT_MAX_CHARS` of @tcg/domain; a test checks they agree): a file bigger
+ * than that many bytes is not even read.
+ */
+export const SHEET_IMPORT_MAX_CHARS = 4_000_000
+
 export const SHEET_ROW_STATUSES = ['in_app', 'duplicate', 'possible_duplicate', 'unmapped', 'error', 'new'] as const
 export type SheetRowStatus = (typeof SHEET_ROW_STATUSES)[number]
 

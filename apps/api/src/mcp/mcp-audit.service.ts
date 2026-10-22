@@ -414,9 +414,16 @@ export class McpAuditService {
       ...(undo.rank ? { rank: undo.rank } : {}),
       ...(undo.points !== undefined ? { points: undo.points } : {}),
     }
-    const { count } = undo.before
-      ? await this.prisma.rankChange.updateMany({ where, data: { rank: undo.before.rank, points: undo.before.points } })
-      : await this.prisma.rankChange.deleteMany({ where })
+    // Codex on #143: under the ranks' lock, like every other write of `rank_changes` (the sheet import plans with
+    // the ranks it read under it).
+    const count = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+      return (
+        undo.before
+          ? await tx.rankChange.updateMany({ where, data: { rank: undo.before.rank, points: undo.before.points } })
+          : await tx.rankChange.deleteMany({ where })
+      ).count
+    })
     if (count === 0) {
       throw new ConflictException({ code: 'changed', message: 'Ese rango ya se borró o cambió después.' })
     }

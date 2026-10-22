@@ -43,8 +43,15 @@ export const SHEET_IMPORT_MAX_CHARS = 4_000_000
 export const SHEET_IMPORT_MAX_LINES = 50_000
 /** A match of the app this close to a row, with its deck and result, may be the same match. */
 export const SHEET_DUPLICATE_WINDOW_MS = 15 * 60 * 1000
+/**
+ * An old sheet row that says the same as a row (deck, result, who went first, rival) this close to it may be that row
+ * with its day corrected (review of #143); further, two matches that say the same are just two matches.
+ */
+export const SHEET_DAY_FIX_WINDOW_MS = 36 * 60 * 60 * 1000
 /** A date further ahead than this is a typo, not a clock. */
 const FUTURE_TOLERANCE_MS = 10 * 60 * 1000
+/** The game came out on 30/10/2024: a date before it is a typo (in the owner's time zone). */
+export const GAME_LAUNCH = { year: 2024, month: 10, day: 30 } as const
 /** Longest code of a deck in the sheet («M01»; room for the owner's own names). */
 export const SHEET_CODE_MAX_LENGTH = 20
 /** Prefix of the key of a row in `clientRef` (the phone's keys are UUIDs). */
@@ -306,9 +313,14 @@ const READ_COLUMNS: readonly SheetColumn[] = [
   'appId',
 ]
 
-function lineBreaks(text: string): number {
+/** Line breaks as `readDelimited` ends records: LF, CRLF (once) and a lone CR. */
+export function lineBreaks(text: string): number {
   let count = 0
-  for (let at = text.indexOf('\n'); at >= 0; at = text.indexOf('\n', at + 1)) count += 1
+  for (let at = 0; at < text.length; at++) {
+    const code = text.charCodeAt(at)
+    // Codex on #143: a lone CR ends a record too; a CR before an LF is the same break as the LF.
+    if (code === 10 || (code === 13 && text.charCodeAt(at + 1) !== 10)) count += 1
+  }
   return count
 }
 
@@ -352,8 +364,19 @@ export function parseSheet(text: string, options: { timeZone: string; now: Date 
   }
   const rows: SheetRow[] = []
   const walls = new Map<number, WallTime>()
+  const launch = wallTimeToInstant({ ...GAME_LAUNCH, hour: 0, minute: 0, second: 0 }, options.timeZone)
+  // An export, or cells copied from the sheet, have as many cells in every row as in the header row.
+  const width = (records[header.at] as string[]).length
   for (let at = header.at + 1; at < records.length; at++) {
     const record = records[at] as string[]
+    if (record.length > width) {
+      // Review of #143: more cells than the headers is quotes read wrong: the rows after it would be shifted.
+      return emptySheet(
+        `La fila ${at + 1} tiene ${record.length} celdas y los encabezados ${width}: revisá las comillas de esa fila, o subí el CSV exportado.`,
+        delimiter,
+        headerRow,
+      )
+    }
     // A row counts when something is written in a column that is read (D, I and J are formulas).
     if (READ_COLUMNS.every((column) => cell(record, column) === '')) continue
     if (rows.length >= SHEET_IMPORT_MAX_ROWS) {
@@ -414,6 +437,9 @@ export function parseSheet(text: string, options: { timeZone: string; now: Date 
         const playedAt = wallTimeToInstant(wall, options.timeZone)
         if (playedAt.getTime() > options.now.getTime() + FUTURE_TOLERANCE_MS) {
           row.errors.push(`La fecha ${row.dateText} todavía no llegó.`)
+        } else if (playedAt.getTime() < launch.getTime()) {
+          // Review of #143: «17/10/2006» is a typo, and a year of two digits («0026») went to 1926.
+          row.errors.push(`La fecha ${row.dateText} es anterior al juego (salió el 30/10/2024).`)
         } else {
           row.playedAt = playedAt
           walls.set(row.row, { ...wall, hasTime: wall.hasTime })
@@ -489,7 +515,13 @@ export interface SheetExistingMatch {
   result: MatchResult
   playedAt: Date
   clientRef: string | null
+  /** Who went first and the rival as stored: a row whose day was corrected is found by them (review of #143). */
+  wentFirst?: boolean | null
+  opponent?: string | null
 }
+
+/** A column K number this far from its row's date says the numbers were pasted shifted (review of #143). */
+const K_DATE_SLACK_MS = 24 * 60 * 60 * 1000
 
 export interface SheetDeck {
   id: string
@@ -638,6 +670,92 @@ function formatShort(date: Date, timeZone: string): string {
   return `${parts.day}/${parts.month} ${parts.hour}:${parts.minute}`
 }
 
+/** Deck, result, who went first and the rival's key: what a row says besides its date. */
+function signature(
+  deckId: string,
+  result: MatchResult | null,
+  wentFirst: boolean | null,
+  opponent: string | null,
+): string {
+  return [
+    deckId,
+    result ?? '',
+    wentFirst === null ? '' : wentFirst ? 'first' : 'second',
+    opponentKey(opponent) ?? '',
+  ].join('|')
+}
+
+/**
+ * Review of #143: the match of a column K number that does not look like its row (another deck, another result, more
+ * than a day away) — the numbers were pasted from the wrong row — is said; the row is skipped all the same.
+ */
+function kMismatch(row: SheetRow, match: SheetExistingMatch, deckId: string | null): string[] {
+  const differs: string[] = []
+  if (deckId && match.deckId !== deckId) differs.push('otro mazo')
+  if (row.result && match.result !== row.result) differs.push('otro resultado')
+  if (row.playedAt && Math.abs(match.playedAt.getTime() - row.playedAt.getTime()) > K_DATE_SLACK_MS) {
+    differs.push('otra fecha')
+  }
+  if (differs.length === 0) return []
+  const list = differs.length === 1 ? differs[0] : `${differs.slice(0, -1).join(', ')} y ${differs.at(-1)}`
+  return [`La partida n.º ${match.id} de la columna K tiene ${list}: ¿pegaste los números corridos?`]
+}
+
+/** Ids are numbers as text: «10» after «9» (any other text, alphabetically). */
+function idOrder(a: string, b: string): number {
+  const [x, y] = [Number(a), Number(b)]
+  return Number.isFinite(x) && Number.isFinite(y) ? x - y : a.localeCompare(b)
+}
+
+interface Timed {
+  time: number
+  match: SheetExistingMatch
+}
+
+/** The matches by a key, each list in time order (then id). */
+function timeIndex(
+  matches: readonly SheetExistingMatch[],
+  keyOf: (match: SheetExistingMatch) => string,
+): Map<string, Timed[]> {
+  const index = new Map<string, Timed[]>()
+  for (const match of matches) {
+    const key = keyOf(match)
+    let list = index.get(key)
+    if (!list) {
+      list = []
+      index.set(key, list)
+    }
+    list.push({ time: match.playedAt.getTime(), match })
+  }
+  for (const list of index.values()) list.sort((a, b) => a.time - b.time || idOrder(a.match.id, b.match.id))
+  return index
+}
+
+/**
+ * The match of a list nearest to an instant, within `window` (a tie: the earlier one, then the lower id), by halves:
+ * the first at or after the instant and the one right before it are the only candidates.
+ */
+function nearestIn(list: readonly Timed[] | undefined, time: number, window = Number.POSITIVE_INFINITY) {
+  if (!list || list.length === 0) return undefined
+  let low = 0
+  let high = list.length
+  while (low < high) {
+    const middle = (low + high) >>> 1
+    if ((list[middle] as Timed).time < time) low = middle + 1
+    else high = middle
+  }
+  let best: Timed | undefined
+  if (low > 0) {
+    // Before the instant, the lowest id among the latest ones.
+    let at = low - 1
+    while (at > 0 && (list[at - 1] as Timed).time === (list[at] as Timed).time) at -= 1
+    best = list[at]
+  }
+  const after = list[low]
+  if (after && (!best || after.time - time < time - best.time)) best = after
+  return best && Math.abs(best.time - time) <= window ? best.match : undefined
+}
+
 /** What each row does, the decks of the codes and the counts. Pure: the caller loads what it needs. */
 export function planSheetImport(sheet: ParsedSheet, context: SheetPlanContext): SheetPlan {
   const decks = new Map(context.decks.map((deck) => [deck.id, deck]))
@@ -652,9 +770,19 @@ export function planSheetImport(sheet: ParsedSheet, context: SheetPlanContext): 
     const keyed = row.key ? byRef.get(row.key) : undefined
     if (keyed) claimed.add(keyed.id)
   }
-  const orphans = context.existing
-    .filter((match) => match.clientRef?.startsWith(SHEET_KEY_PREFIX) && !claimed.has(match.id))
-    .sort((a, b) => a.playedAt.getTime() - b.playedAt.getTime() || Number(a.id) - Number(b.id))
+  const unclaimed = context.existing.filter((match) => !claimed.has(match.id))
+  const orphans = unclaimed
+    .filter((match) => match.clientRef?.startsWith(SHEET_KEY_PREFIX))
+    .sort((a, b) => a.playedAt.getTime() - b.playedAt.getTime() || idOrder(a.id, b.id))
+  // Codex on #143: indexed once and searched by halves, not every match for every row (10.000 rows against 10.000
+  // matches): the possible repeats by deck and result, the old sheet rows by day.
+  const nearIndex = timeIndex(unclaimed, (match) => `${match.deckId}|${match.result}`)
+  const orphanIndex = timeIndex(orphans, (match) => dayIn(match.playedAt, context.timeZone))
+  // Review of #143: a row whose day was corrected says the rest as before — the deck, result, who went first, rival.
+  const orphanBySignature = timeIndex(
+    orphans.filter((match) => match.wentFirst !== undefined && match.opponent !== undefined),
+    (match) => signature(match.deckId, match.result, match.wentFirst ?? null, match.opponent ?? null),
+  )
   const deckOf = (code: string): { deckId: string | null; source: SheetCodeMapping['source'] } => {
     if (Object.hasOwn(context.chosen, code)) {
       const chosen = context.chosen[code]
@@ -682,8 +810,9 @@ export function planSheetImport(sheet: ParsedSheet, context: SheetPlanContext): 
       planned.status = 'in_app'
       planned.matchId = row.appId
       planned.errors = []
-      planned.warnings = byId.has(row.appId)
-        ? []
+      const match = byId.get(row.appId)
+      planned.warnings = match
+        ? kMismatch(row, match, row.code ? deckOf(row.code).deckId : null)
         : [`La partida n.º ${row.appId} no está en la app (¿la borraste?): la fila se saltea igual.`]
       return planned
     }
@@ -706,23 +835,17 @@ export function planSheetImport(sheet: ParsedSheet, context: SheetPlanContext): 
     }
     planned.deckId = deckId
     const at = (row.playedAt as Date).getTime()
-    const near = context.existing
-      .filter(
-        (match) =>
-          !claimed.has(match.id) &&
-          match.deckId === deckId &&
-          match.result === row.result &&
-          Math.abs(match.playedAt.getTime() - at) <= SHEET_DUPLICATE_WINDOW_MS,
-      )
-      .sort((a, b) => Math.abs(a.playedAt.getTime() - at) - Math.abs(b.playedAt.getTime() - at))[0]
+    const near = nearestIn(nearIndex.get(`${deckId}|${row.result}`), at, SHEET_DUPLICATE_WINDOW_MS)
     // Review: a row corrected after its import (another result, code or time) has a new key; the match of its old
     // version is a sheet match no row is now, the same day.
-    const day = dayIn(row.playedAt as Date, context.timeZone)
     const orphan = near
       ? undefined
-      : orphans
-          .filter((match) => dayIn(match.playedAt, context.timeZone) === day)
-          .sort((a, b) => Math.abs(a.playedAt.getTime() - at) - Math.abs(b.playedAt.getTime() - at))[0]
+      : (nearestIn(orphanIndex.get(dayIn(row.playedAt as Date, context.timeZone)), at) ??
+        nearestIn(
+          orphanBySignature.get(signature(deckId, row.result, row.wentFirst, row.opponent)),
+          at,
+          SHEET_DAY_FIX_WINDOW_MS,
+        ))
     if (near || orphan) {
       planned.status = 'possible_duplicate'
       planned.duplicateOf = (near ?? orphan) as SheetExistingMatch
@@ -856,8 +979,13 @@ function mappings(
   decks: ReadonlyMap<string, SheetDeck>,
 ): SheetCodeMapping[] {
   const needing = new Map<string, number>()
+  // Codex on #143: the rows of each code once, not every row for every code.
+  const byCode = new Map<string, PlannedSheetRow[]>()
   for (const row of rows) {
     if (row.code === null) continue
+    const ofCode = byCode.get(row.code)
+    if (ofCode) ofCode.push(row)
+    else byCode.set(row.code, [row])
     if (row.status === 'new' || row.status === 'possible_duplicate' || row.status === 'unmapped') {
       needing.set(row.code, (needing.get(row.code) ?? 0) + 1)
     }
@@ -865,7 +993,7 @@ function mappings(
   return [...needing]
     .sort(([a], [b]) => a.localeCompare(b, 'es', { numeric: true }))
     .map(([code, count]) => {
-      const ofCode = rows.filter((row) => row.code === code)
+      const ofCode = byCode.get(code) ?? []
       const names = [...new Set(ofCode.flatMap((row) => (row.deckName ? [row.deckName] : [])))]
       // The rows of the code already in the app say its deck: the most common one (the latest match on a tie).
       const votes = new Map<string, { count: number; matchId: string }>()
@@ -905,7 +1033,7 @@ export function duplicateTextEs(
  */
 export function sheetColumnK(
   sheet: Pick<ParsedSheet, 'firstRow' | 'lastRow'>,
-  rows: readonly Pick<PlannedSheetRow, 'row' | 'status' | 'appIdText' | 'matchId'>[],
+  rows: readonly Pick<PlannedSheetRow, 'row' | 'status' | 'matchId'>[],
   imported: ReadonlyMap<number, string> = new Map(),
 ): { firstRow: number; text: string } | null {
   if (sheet.firstRow === null || sheet.lastRow === null) return null
@@ -914,13 +1042,10 @@ export function sheetColumnK(
   for (let at = sheet.firstRow; at <= sheet.lastRow; at++) {
     const row = byRow.get(at)
     const written = imported.get(at)
-    lines.push(
-      written ??
-        (row?.status === 'duplicate'
-          ? (row.matchId ?? '')
-          : // Whatever column K says stays (a number, or a typo the row was refused for).
-            (row?.appIdText ?? '')),
-    )
+    // Review of #143: only a number or nothing, one line per row (a K with a line break in it would shift the rest);
+    // column K's own number goes back as the number it is («n.º 14» is 14).
+    const known = row?.status === 'duplicate' || row?.status === 'in_app' ? (row.matchId ?? '') : ''
+    lines.push(written ?? (/^\d+$/u.test(known) ? known : ''))
   }
   return { firstRow: sheet.firstRow, text: lines.join('\n') }
 }

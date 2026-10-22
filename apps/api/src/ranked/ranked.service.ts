@@ -202,25 +202,33 @@ export class RankedService {
     if (input.endsOn < input.startsOn) {
       throw new BadRequestException({ code: 'validation', message: 'La temporada termina antes de empezar.' })
     }
-    const others = (await this.seasons()).filter((season) => season.code !== code)
-    const overlap = others.find((season) => season.startsOn <= input.endsOn && input.startsOn <= season.endsOn)
-    if (overlap) {
-      throw new BadRequestException({
-        code: 'validation',
-        message: `Se superpone con ${overlap.name} (${overlap.startsOn} a ${overlap.endsOn}).`,
-      })
-    }
     const data = {
       name: input.name.trim(),
       startsOn: new Date(`${input.startsOn}T00:00:00Z`),
       endsOn: new Date(`${input.endsOn}T00:00:00Z`),
     }
-    await this.prisma.rankedSeason.upsert({ where: { code }, create: { code, ...data }, update: data })
+    // Review of #143: under the ranks' lock (the seasons say which ranks count, and the sheet import plans with them);
+    // the overlap is also checked under it, so two edits at once cannot both pass it.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+      const others = (await this.seasons(tx)).filter((season) => season.code !== code)
+      const overlap = others.find((season) => season.startsOn <= input.endsOn && input.startsOn <= season.endsOn)
+      if (overlap) {
+        throw new BadRequestException({
+          code: 'validation',
+          message: `Se superpone con ${overlap.name} (${overlap.startsOn} a ${overlap.endsOn}).`,
+        })
+      }
+      await tx.rankedSeason.upsert({ where: { code }, create: { code, ...data }, update: data })
+    })
     return { code, name: data.name, startsOn: input.startsOn, endsOn: input.endsOn }
   }
 
   async deleteSeason(code: string): Promise<void> {
-    const { count } = await this.prisma.rankedSeason.deleteMany({ where: { code } })
+    const count = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+      return (await tx.rankedSeason.deleteMany({ where: { code } })).count
+    })
     if (count === 0) throw new NotFoundException(`Temporada ${code} no encontrada.`)
   }
 
@@ -294,11 +302,12 @@ export class RankedService {
     const view = (row: { id: number; at: Date; points: number | null }) =>
       changeView({ id: idToString(row.id), at: row.at, rank, points: row.points })
     if (!input.at && !input.beforeMatch) {
-      return {
-        change: view(await this.prisma.rankChange.create({ data: { at, rank, points } })),
-        replaced: null,
-        written: true,
-      }
+      // Codex on #143: every write of `rank_changes` goes under the ranks' lock (the sheet import plans with them).
+      const created = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+        return tx.rankChange.create({ data: { at, rank, points } })
+      })
+      return { change: view(created), replaced: null, written: true }
     }
     return this.prisma.$transaction(async (tx) => {
       // Verification of #120: two notes for one moment at once would both find nothing and create two rows.
@@ -329,7 +338,11 @@ export class RankedService {
 
   async deleteRank(rawId: string): Promise<void> {
     const id = parseNumericId(rawId, 'Rango')
-    const { count } = await this.prisma.rankChange.deleteMany({ where: { id } })
+    // Codex on #143: under the ranks' lock, so an import that planned with this rank cannot lose it half-way.
+    const count = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+      return (await tx.rankChange.deleteMany({ where: { id } })).count
+    })
     if (count === 0) throw new NotFoundException(`Rango ${rawId} no encontrado.`)
   }
 }

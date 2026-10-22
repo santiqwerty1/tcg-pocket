@@ -6,6 +6,7 @@ import { ApiError, errorMessage } from '@/api/client'
 import type { MatchMode } from '@/api/schemas'
 import { MATCH_MODES } from '@/api/schemas'
 import {
+  SHEET_IMPORT_MAX_CHARS,
   type SheetImportApplied,
   type SheetImportPreview,
   type SheetImportRequest,
@@ -21,6 +22,13 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { formatNumber, plural } from '@/lib/format'
 import { MODE_LABEL, RESULT_LABEL } from '@/lib/matches'
+
+const MEGABYTES = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 })
+
+/** «5,2 MB» (a million bytes, as the limit is said). */
+function megabytes(bytes: number): string {
+  return `${MEGABYTES.format(bytes / 1_000_000)} MB`
+}
 
 const STATUS_LABEL: Record<SheetRowStatus, string> = {
   new: 'Nueva',
@@ -205,6 +213,9 @@ export function SheetImportPage() {
   const fileRef = useRef<HTMLInputElement>(null)
   const [text, setText] = useState('')
   const [fileName, setFileName] = useState<string | null>(null)
+  /** Why the file chosen was not read (too big). */
+  const [tooBig, setTooBig] = useState<string | null>(null)
+  const pastedTooLong = text.length > SHEET_IMPORT_MAX_CHARS
   const [deckMap, setDeckMap] = useState<Record<string, string | null>>({})
   const [mode, setMode] = useState<MatchMode>('competitive')
   const [include, setInclude] = useState<number[]>([])
@@ -238,6 +249,14 @@ export function SheetImportPage() {
   }
 
   async function readFile(file: File) {
+    // Codex on #143: the size before reading it (a big file would be read whole into the page for nothing).
+    if (file.size > SHEET_IMPORT_MAX_CHARS) {
+      setTooBig(
+        `«${file.name}» pesa ${megabytes(file.size)}: el máximo es ${megabytes(SHEET_IMPORT_MAX_CHARS)}. Exportá solo la pestaña «Partidas».`,
+      )
+      return
+    }
+    setTooBig(null)
     const content = await file.text()
     setFileName(file.name)
     setText(content)
@@ -321,6 +340,7 @@ export function SheetImportPage() {
           Subir el CSV
         </Button>
         {fileName ? <p className="break-words text-sm text-muted-foreground">{fileName}</p> : null}
+        {tooBig ? <p className="break-words text-sm text-destructive">{tooBig}</p> : null}
         <Textarea
           aria-label="Celdas pegadas de la hoja"
           placeholder="…o pegá acá las celdas copiadas de la hoja (con los encabezados)"
@@ -328,18 +348,25 @@ export function SheetImportPage() {
           onChange={(event) => {
             setText(event.target.value)
             setFileName(null)
+            setTooBig(null)
             // Another text: the preview shown is no longer this one's.
             setData(null)
             setAsked(null)
           }}
           className="max-h-48 font-mono text-sm"
         />
+        {pastedTooLong ? (
+          <p className="text-sm text-destructive">
+            El texto tiene {formatNumber(text.length)} caracteres: el máximo es {formatNumber(SHEET_IMPORT_MAX_CHARS)}.
+            Copiá solo la pestaña «Partidas».
+          </p>
+        ) : null}
         <Button
           onClick={() => {
             setInclude([])
             run({ include: [] })
           }}
-          disabled={text.trim() === '' || preview.isPending}
+          disabled={text.trim() === '' || pastedTooLong || preview.isPending}
           className="self-start"
         >
           {preview.isPending ? <Spinner /> : null}

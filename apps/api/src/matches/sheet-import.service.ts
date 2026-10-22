@@ -106,6 +106,10 @@ export class SheetImportService {
         // Review: decks before matches, the order of the backup drill's locks (it locks every table with ids, decks
         // before matches, in EXCLUSIVE mode); ROW SHARE only waits for that, never for an edit of a deck.
         await tx.$executeRawUnsafe('LOCK TABLE "decks", "deck_revisions" IN ROW SHARE MODE')
+        // Codex on #143: the decks the codes may go to (chosen or saved) cannot be deleted until this commits (a
+        // deck delete takes the row FOR UPDATE; editing or archiving one does not wait). A delete already under way
+        // finishes first, and then the plan no longer finds the deck: a 409, never a write against a deck that is gone.
+        await this.lockDecks(tx, input)
         // No match is created, edited or deleted until this commits: the repeats checked are the ones written against.
         await tx.$executeRawUnsafe('LOCK TABLE "matches" IN SHARE ROW EXCLUSIVE MODE')
         const { plan, saved } = await this.plan(tx, sheet, input)
@@ -151,6 +155,19 @@ export class SheetImportService {
       // Up to 500 matches on the database in São Paulo: more than Prisma's 5 s by default.
       { timeout: 60_000, maxWait: 15_000 },
     )
+  }
+
+  /** The rows of every deck a code may go to, locked against a delete until the transaction ends (id order). */
+  private async lockDecks(tx: Prisma.TransactionClient, input: SheetImportInput): Promise<void> {
+    const saved = savedMap((await tx.appSetting.findUnique({ where: { key: SHEET_DECK_MAP_KEY } }))?.value)
+    const ids = [
+      ...new Set(
+        [...Object.values(saved), ...Object.values(chosenMap(input.deckMap))].flatMap((id) =>
+          id && /^\d{1,10}$/u.test(id) && Number(id) <= 2_147_483_647 ? [Number(id)] : [],
+        ),
+      ),
+    ]
+    if (ids.length > 0) await tx.$queryRaw`SELECT id FROM decks WHERE id = ANY(${ids}) ORDER BY id FOR KEY SHARE`
   }
 
   /** The matches of the rows written, in one insert; their ids by key (each row has its own). */
@@ -240,7 +257,15 @@ export class SheetImportService {
         ? []
         : await db.match.findMany({
             where: { OR: or },
-            select: { id: true, deckId: true, result: true, playedAt: true, clientRef: true },
+            select: {
+              id: true,
+              deckId: true,
+              result: true,
+              playedAt: true,
+              clientRef: true,
+              wentFirst: true,
+              opponentText: true,
+            },
           })
     const plan = planSheetImport(sheet, {
       decks,
@@ -252,6 +277,8 @@ export class SheetImportService {
         result: match.result,
         playedAt: match.playedAt,
         clientRef: match.clientRef,
+        wentFirst: match.wentFirst,
+        opponent: match.opponentText,
       })),
       include: input.include ?? [],
       mode: input.mode ?? SHEET_DEFAULT_MODE,

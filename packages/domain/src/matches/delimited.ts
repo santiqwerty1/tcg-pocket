@@ -2,8 +2,14 @@
  * Delimited text as a spreadsheet exports or copies it (T-022, «Importar desde la hoja»): RFC 4180 — a field in double
  * quotes may hold the delimiter, line breaks and doubled quotes — with a comma (Sheets' CSV), a semicolon (other
  * exports in Spanish) or a tab (cells copied from the sheet and pasted). CRLF, LF or a lone CR end a record, and a BOM
- * at the start is dropped. Lenient like a spreadsheet: a quote inside an unquoted field is a plain character, text after
- * a closing quote is kept, and an unclosed quote runs to the end of the text.
+ * at the start is dropped.
+ *
+ * A quote opens a quoted field only when the field is a well-formed one: it starts with the quote and its closing quote
+ * is followed by the delimiter, a line break or the end. Otherwise the quote is a plain character of the cell (review
+ * of #143): `"Hoopa" me ganó` stays as written. When cells are copied from Sheets (tabs), only a cell with a line break
+ * comes in quotes, and a cell never holds a tab: a quote whose field would take a tab is a plain character too, so a
+ * note that starts with a quote and one that has a quote rows below are two cells, not one that swallows the rows in
+ * between. In a CSV, an unclosed quote runs to the end of the text and is reported (`unclosedAt`).
  */
 
 export type Delimiter = ',' | ';' | '\t'
@@ -17,6 +23,38 @@ export function parseDelimited(text: string, delimiter: Delimiter): string[][] {
 }
 
 /**
+ * A quoted field from its opening quote at `start`: its value and the index right after its closing quote; `literal`
+ * when it is not a well-formed quoted field (the quote is then a plain character); `unclosed` when no quote closes it.
+ */
+function quotedField(
+  text: string,
+  start: number,
+  delimiter: Delimiter,
+): { value: string; end: number } | 'literal' | 'unclosed' {
+  let value = ''
+  let at = start + 1
+  for (;;) {
+    const next = text.indexOf('"', at)
+    if (delimiter === '\t') {
+      // Cells copied from Sheets never hold a tab: a quoted field that would take one is no quoted field.
+      const tab = text.indexOf('\t', at)
+      if (tab >= 0 && (next < 0 || tab < next)) return 'literal'
+      if (next < 0) return 'literal'
+    }
+    if (next < 0) return 'unclosed'
+    value += text.slice(at, next)
+    if (text.charAt(next + 1) === '"') {
+      value += '"'
+      at = next + 2
+      continue
+    }
+    const after = text.charAt(next + 1)
+    if (after === '' || after === delimiter || after === '\r' || after === '\n') return { value, end: next + 1 }
+    return 'literal'
+  }
+}
+
+/**
  * The records, and the 0-based record where a quote opened and never closed (null when every quote closed): that quote
  * took the rest of the text into one field, which a reader should refuse rather than take as one long cell.
  */
@@ -24,35 +62,25 @@ export function readDelimited(text: string, delimiter: Delimiter): { records: st
   const records: string[][] = []
   let record: string[] = []
   let field = ''
-  let quoted = false
-  let quotedAt = 0
+  let unclosedAt: number | null = null
   let fieldStart = true
   let i = text.charCodeAt(0) === 0xfeff ? 1 : 0
   while (i < text.length) {
     const ch = text.charAt(i)
-    if (quoted) {
-      if (ch === '"') {
-        if (text.charAt(i + 1) === '"') {
-          field += '"'
-          i += 2
-          continue
-        }
-        quoted = false
-        i += 1
-        continue
-      }
-      // Self-review: a quoted field is copied up to its next quote at once (a long note is one slice, not a char loop).
-      const next = text.indexOf('"', i)
-      const end = next < 0 ? text.length : next
-      field += text.slice(i, end)
-      i = end
-      continue
-    }
     if (ch === '"' && fieldStart) {
-      quoted = true
-      quotedAt = records.length
+      const quoted = quotedField(text, i, delimiter)
       fieldStart = false
-      i += 1
+      if (quoted === 'unclosed') {
+        unclosedAt = records.length
+        field += text.slice(i + 1)
+        i = text.length
+      } else if (quoted === 'literal') {
+        field += ch
+        i += 1
+      } else {
+        field += quoted.value
+        i = quoted.end
+      }
       continue
     }
     if (ch === delimiter) {
@@ -80,5 +108,5 @@ export function readDelimited(text: string, delimiter: Delimiter): { records: st
     record.push(field)
     records.push(record)
   }
-  return { records, unclosedAt: quoted ? quotedAt : null }
+  return { records, unclosedAt }
 }

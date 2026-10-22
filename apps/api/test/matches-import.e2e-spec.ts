@@ -5,6 +5,7 @@ import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
 import { OWNER_TIME_ZONE, todayInOwnerZone } from '../src/config/time-zone.js'
 import { SHEET_DECK_MAP_KEY } from '../src/matches/sheet-import.service.js'
+import { RANK_NOTE_LOCK } from '../src/ranked/ranked.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /**
@@ -374,7 +375,10 @@ describe('importing the match sheet (e2e)', () => {
 
   it('more than 500 new matches: the preview says so and applying refuses it', async () => {
     const rows: Row[] = []
-    for (let i = 0; i < 501; i++) rows.push({ code: 'M01', deck: 'butterfree', date: ago(200 + i * 0.5) })
+    // A rival of its own: no old sheet row elsewhere says the same.
+    for (let i = 0; i < 501; i++) {
+      rows.push({ code: 'M01', deck: 'butterfree', date: ago(200 + i * 0.5), rival: 'Rival del tope' })
+    }
     const text = sheet(rows)
     const preview = await post('/api/matches/import/preview').send({ text })
     expect(preview.body).toMatchObject({ tooMany: true, maxNew: 500, counts: { write: 501 } })
@@ -425,8 +429,15 @@ describe('importing the match sheet (e2e)', () => {
     expect(moved.status).toBe(200)
     const again = await post('/api/matches/import/preview').send({ text })
     expect((again.body.rows as PreviewRow[])[0]).toMatchObject({ status: 'duplicate', matchId: id })
-    const withK = await post('/api/matches/import/preview').send({ text: sheet([{ date: ago(300), k: id }]) })
-    expect((withK.body.rows as PreviewRow[])[0]).toMatchObject({ status: 'in_app', matchId: id, warnings: [] })
+    const withK = await post('/api/matches/import/preview').send({
+      text: sheet([{ code: 'M01', deck: 'butterfree', date: ago(300), k: id }]),
+    })
+    // Found (not «no está en la app»), and far from its row: said (review of #143).
+    expect((withK.body.rows as PreviewRow[])[0]).toMatchObject({
+      status: 'in_app',
+      matchId: id,
+      warnings: [`La partida n.º ${id} de la columna K tiene otra fecha: ¿pegaste los números corridos?`],
+    })
   })
 
   it('review: a match being saved when the import starts is seen by it (the matches table is locked): 409, no repeat', async () => {
@@ -474,5 +485,168 @@ describe('importing the match sheet (e2e)', () => {
     expect(again.body.orphans).toEqual([
       { id, text: expect.stringMatching(new RegExp(`^n\\.º ${id}, Victoria del `, 'u')) },
     ])
+  })
+
+  it('review of #143: a row whose day was corrected names the match of its old version (loaded with its rival)', async () => {
+    const date = (days: number) => WALL.format(new Date(BASE - days * DAY_MS)).slice(0, 10)
+    const first = sheet([{ code: 'M01', deck: 'butterfree', date: `${date(16)} 12:00`, rival: 'Gyarados ex' }])
+    const preview = await post('/api/matches/import/preview').send({ text: first })
+    const applied = await post('/api/matches/import').send({ text: first, fingerprint: preview.body.fingerprint })
+    const id = applied.body.imported[0].matchId as string
+    const corrected = sheet([{ code: 'M01', deck: 'butterfree', date: `${date(15)} 12:00`, rival: 'Gyarados ex' }])
+    const row = ((await post('/api/matches/import/preview').send({ text: corrected })).body.rows as PreviewRow[])[0]
+    expect(row).toMatchObject({ status: 'possible_duplicate', write: false, duplicateOf: { id } })
+  })
+
+  /** Codex on #143: an archived deck without matches, chosen for a code (what can be deleted while importing). */
+  async function deletableDeck(code: string, hours: number) {
+    const created = await post('/api/decks').send({ name: `Para borrar ${code}`, energies: ['fire'], cards: [] })
+    expect(created.status).toBe(201)
+    const deckId = created.body.id as string
+    expect(
+      (await test.http().patch(`/api/decks/${deckId}`).set('Cookie', cookie).send({ archived: true })).status,
+    ).toBe(200)
+    const text = sheet([{ code, deck: 'para borrar', date: ago(hours) }])
+    const deckMap = { [code]: deckId }
+    const preview = await post('/api/matches/import/preview').send({ text, deckMap })
+    expect(preview.body.counts.write).toBe(1)
+    return { deckId, body: { text, deckMap, fingerprint: preview.body.fingerprint as string } }
+  }
+
+  it('Codex on #143: a deck deleted while the import starts makes it a 409, never a 500', async () => {
+    const { deckId, body } = await deletableDeck('M30', 250)
+    const other = new pg.Client({ connectionString: test.env.databaseUrl })
+    await other.connect()
+    try {
+      // The delete is under way (not committed) when the import starts: the import waits for it, then finds no deck.
+      await other.query('BEGIN')
+      await other.query('DELETE FROM decks WHERE id = $1', [Number(deckId)])
+      const applying = post('/api/matches/import')
+        .send(body)
+        .then((response) => response)
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+      await other.query('COMMIT')
+      const applied = await applying
+      expect(applied.status).toBe(409)
+      expect(applied.body.error.code).toBe('import_changed')
+    } finally {
+      await other.end()
+    }
+  })
+
+  it('Codex on #143: a deck delete while the import holds it waits, and then says the deck has matches (409)', async () => {
+    const { deckId, body } = await deletableDeck('M31', 260)
+    const deck = await test.prisma.deck.findUniqueOrThrow({
+      where: { id: Number(mawile) },
+      select: { currentRevisionId: true },
+    })
+    const other = new pg.Client({ connectionString: test.env.databaseUrl })
+    await other.connect()
+    try {
+      // A match being saved elsewhere (far from the sheet) holds the matches table: the import has its decks locked
+      // and waits there.
+      await other.query('BEGIN')
+      await other.query(
+        `INSERT INTO matches (deck_id, deck_revision_id, result, mode, played_at) VALUES ($1, $2, 'loss', 'casual', $3)`,
+        [Number(mawile), deck.currentRevisionId, new Date(BASE - 400 * DAY_MS)],
+      )
+      const applying = post('/api/matches/import')
+        .send(body)
+        .then((response) => response)
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      let deleted = false
+      const deleting = test
+        .http()
+        .delete(`/api/decks/${deckId}`)
+        .set('Cookie', cookie)
+        .then((response) => {
+          deleted = true
+          return response
+        })
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      expect(deleted).toBe(false)
+      await other.query('COMMIT')
+      const applied = await applying
+      expect(applied.status).toBe(200)
+      const refused = await deleting
+      expect(refused.status).toBe(409)
+      expect(refused.body.error.code).toBe('deck_has_matches')
+      expect(await test.prisma.deck.count({ where: { id: Number(deckId) } })).toBe(1)
+    } finally {
+      await other.end()
+    }
+  })
+
+  /** Runs `start` while another transaction holds the ranks' lock: did it wait for it? */
+  async function underRankLock<T>(start: () => PromiseLike<T>): Promise<{ waited: boolean; result: T }> {
+    const holder = new pg.Client({ connectionString: test.env.databaseUrl })
+    await holder.connect()
+    try {
+      await holder.query('BEGIN')
+      await holder.query('SELECT pg_advisory_xact_lock($1::bigint)', [RANK_NOTE_LOCK])
+      let done = false
+      const running = Promise.resolve(start()).then((result) => {
+        done = true
+        return result
+      })
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      const waited = !done
+      await holder.query('COMMIT')
+      return { waited, result: await running }
+    } finally {
+      await holder.end()
+    }
+  }
+
+  it('Codex and review of #143: every write of ranks and seasons waits for the ranks’ lock', async () => {
+    const noted = (
+      await post('/api/ranked/ranks').send({ rank: 'great-1', at: new Date(BASE - 500 * HOUR_MS).toISOString() })
+    ).body as { id: string; at: string }
+    // Deleting a rank.
+    const deleting = await underRankLock(() =>
+      test.http().delete(`/api/ranked/ranks/${noted.id}`).set('Cookie', cookie),
+    )
+    expect(deleting).toMatchObject({ waited: true, result: { status: 204 } })
+    // Noting the rank now.
+    const now = await underRankLock(() => post('/api/ranked/ranks').send({ rank: 'great-2' }))
+    expect(now).toMatchObject({ waited: true, result: { status: 201 } })
+    // «Deshacer» of a rank Claude noted.
+    const audit = await test.prisma.mcpAudit.create({
+      data: {
+        tokenName: 'e2e',
+        tool: 'ranked_rank_note',
+        args: {},
+        ok: true,
+        ms: 1,
+        undo: {
+          kind: 'rank_change',
+          id: now.result.body.id,
+          at: now.result.body.at,
+          rank: 'great-2',
+          points: null,
+          before: null,
+          label: 'Super Ball 2',
+        },
+      },
+    })
+    const undone = await underRankLock(() => post(`/api/mcp-audit/${audit.id}/undo`).send())
+    expect(undone).toMatchObject({ waited: true, result: { status: 200 } })
+    expect(await test.prisma.rankChange.count({ where: { id: Number(now.result.body.id) } })).toBe(0)
+    // Editing and deleting a season.
+    const season = await underRankLock(() =>
+      put('/api/ranked/seasons/OLD').send({ name: 'Temporada vieja', startsOn: day(-60), endsOn: day(-50) }),
+    )
+    expect(season).toMatchObject({ waited: true, result: { status: 200 } })
+    const gone = await underRankLock(() => test.http().delete('/api/ranked/seasons/OLD').set('Cookie', cookie))
+    expect(gone).toMatchObject({ waited: true, result: { status: 204 } })
+    // Restoring a backup rewrites the ranks (and the matches) too.
+    const file = (await get('/api/backup/export').responseType('blob')).body as Buffer
+    const restored = await underRankLock(() =>
+      post('/api/backup/import?mode=replace').attach('file', file, 'backup.json.gz'),
+    )
+    expect(restored).toMatchObject({ waited: true, result: { status: 200 } })
+    // The monthly drill takes it before the tables (the order of every other writer).
+    const drill = await underRankLock(() => post('/api/backup/drill').send())
+    expect(drill).toMatchObject({ waited: true, result: { status: 200, body: { drill: { ok: true } } } })
   })
 })

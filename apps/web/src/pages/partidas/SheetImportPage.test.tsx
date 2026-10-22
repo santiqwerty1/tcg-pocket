@@ -1,9 +1,10 @@
 import { QueryClient } from '@tanstack/react-query'
+import { SHEET_IMPORT_MAX_CHARS as DOMAIN_MAX_CHARS } from '@tcg/domain'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { SheetImportPreview, SheetImportRow } from '@/api/sheetImport'
+import { SHEET_IMPORT_MAX_CHARS, type SheetImportPreview, type SheetImportRow } from '@/api/sheetImport'
 import { Providers } from '@/app/Providers'
 import { routes } from '@/app/routes'
 import { type FakeCall, fakeApi } from '@/test/fakeApi'
@@ -312,6 +313,28 @@ describe('importar desde la hoja (T-022)', () => {
     await user.selectOptions(mode, 'casual')
     // «Importar» would send the preview shown: the select says what that one was asked with.
     await waitFor(() => expect(mode).toHaveValue('competitive'))
+  })
+
+  it('Codex on #143: a file over the limit is not read and says the limit (the API’s); nor is a text too long', async () => {
+    expect(SHEET_IMPORT_MAX_CHARS).toBe(DOMAIN_MAX_CHARS)
+    const { calls } = fakeApi({})
+    const user = userEvent.setup()
+    renderAt('/partidas/importar')
+    const input = await screen.findByLabelText('Archivo CSV de la hoja')
+    const big = new File(['x'], 'Partidas.csv', { type: 'text/csv' })
+    Object.defineProperty(big, 'size', { value: 5_200_000 })
+    const read = vi.spyOn(big, 'text')
+    await user.upload(input, big)
+    expect(
+      await screen.findByText('«Partidas.csv» pesa 5,2 MB: el máximo es 4 MB. Exportá solo la pestaña «Partidas».'),
+    ).toBeInTheDocument()
+    expect(read).not.toHaveBeenCalled()
+    expect(calls.filter((call) => call.path.startsWith('/api/matches/import'))).toHaveLength(0)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Celdas pegadas de la hoja' }), {
+      target: { value: 'x'.repeat(SHEET_IMPORT_MAX_CHARS + 1) },
+    })
+    expect(screen.getByText(/^El texto tiene 4\.000\.001 caracteres: el máximo es 4\.000\.000\./u)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ver la vista previa' })).toBeDisabled()
   })
 
   it('is reached from «Hoy»', async () => {
