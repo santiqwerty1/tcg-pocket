@@ -1,7 +1,6 @@
 // Data excerpt of frontend/src/lib/CardsDB.ts @ aac8d456f6f02565dcb81c59101420d008ad6200 (2026-10-15, marcelpanse/tcg-pocket-collection-tracker, GPL-3.0):
 // only the two literals the catalog reads (`expansions`, `craftingCost`), copied verbatim; the code around them is left out.
 // The tracker renamed packStructure.containsBabies to containSixthCardBabies in this commit.
-import type { Expansion, Rarity } from '@/types'
 
 export const expansions: Expansion[] = [
   // internalId=0 skipped for error states
