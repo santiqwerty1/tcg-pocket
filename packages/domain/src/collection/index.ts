@@ -1,8 +1,10 @@
 // Public API of the collection module (apps import it through '@tcg/domain').
 export * from './adjustments.js'
 export * from './csv.js'
+export * from './dotgg.js'
 export * from './import.js'
 export * from './playable.js'
 export * from './stock.js'
 export * from './tracker.js'
+export * from './trackerGap.js'
 export * from './trades.js'

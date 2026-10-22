@@ -5,7 +5,7 @@
  * quoted fields); the writer reproduces the tracker's bytes so the export can be fed back to the tracker.
  */
 import { CatalogIndex } from '../catalog/catalogIndex.js'
-import type { Catalog } from '../catalog/types.js'
+import type { CardEdition, Catalog } from '../catalog/types.js'
 import type { StockQuantities } from './stock.js'
 
 export const TRACKER_CSV_COLUMNS = [
@@ -70,12 +70,13 @@ export interface ParsedCsv {
 const BOM = '﻿'
 const INTEGER = /^\d+$/
 
-function decode(input: string | Uint8Array): string {
+/** The text of a CSV given as text or UTF-8 bytes; a BOM is kept, so the caller can tell it was there. */
+export function decodeCsv(input: string | Uint8Array): string {
   if (typeof input === 'string') return input
   return new TextDecoder('utf-8', { ignoreBOM: true }).decode(input)
 }
 
-function detectLineEnding(text: string): CsvLineEnding {
+export function detectCsvLineEnding(text: string): CsvLineEnding {
   let crlf = 0
   let lone = 0
   for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) {
@@ -86,8 +87,8 @@ function detectLineEnding(text: string): CsvLineEnding {
   return crlf > 0 ? 'CRLF' : 'LF'
 }
 
-/** Splits one record into fields; RFC 4180 quotes are honoured only when a field starts with a quote. */
-function splitFields(line: string): string[] {
+/** Splits one CSV record into fields; RFC 4180 quotes are honoured only when a field starts with a quote. */
+export function splitCsvFields(line: string): string[] {
   if (!line.includes('"')) return line.split(',')
   const fields: string[] = []
   let i = 0
@@ -122,10 +123,10 @@ function splitFields(line: string): string[] {
 
 /** Parses a tracker export. Rows with errors are left out of `rows` and described in `errors`. */
 export function parseTrackerCsv(input: string | Uint8Array): ParsedCsv {
-  let text = decode(input)
+  let text = decodeCsv(input)
   const bom = text.startsWith(BOM)
   if (bom) text = text.slice(BOM.length)
-  const lineEnding = detectLineEnding(text)
+  const lineEnding = detectCsvLineEnding(text)
   const trailingNewline = text.endsWith('\n')
   const lines = text.split(/\r\n|\n/)
   const errors: CsvError[] = []
@@ -135,7 +136,7 @@ export function parseTrackerCsv(input: string | Uint8Array): ParsedCsv {
     errors.push({ line: 1, code: 'empty_file', column: null, message: 'The file has no header row' })
     return { rows, errors, columns: [], bom, lineEnding, trailingNewline }
   }
-  const columns = splitFields(headerLine).map((name) => name.trim())
+  const columns = splitCsvFields(headerLine).map((name) => name.trim())
   const position = new Map<string, number>()
   columns.forEach((name, at) => {
     if (!position.has(name)) position.set(name, at)
@@ -173,7 +174,7 @@ export function parseTrackerCsv(input: string | Uint8Array): ParsedCsv {
     const raw = lines[i] ?? ''
     if (raw.trim() === '') continue
     const line = i + 1
-    const fields = splitFields(raw)
+    const fields = splitCsvFields(raw)
     const short = required.find(([, column]) => fields[column] === undefined)
     if (short) {
       errors.push({
@@ -262,20 +263,35 @@ export function writeTrackerCsv(
   options: WriteTrackerCsvOptions = {},
 ): string {
   const catalog = source instanceof CatalogIndex ? source.catalog : source
+  return writeTrackerCsvRows(
+    catalog.cards.map((card) => {
+      const unit = stock[card.stockCardId]
+      return { card, amountOwned: unit?.amountOwned ?? 0, collected: unit?.collected ?? false }
+    }),
+    options,
+  )
+}
+
+/** One row of a file for the tracker's importer: the card and the values to write. */
+export interface TrackerCsvEntry {
+  card: CardEdition
+  amountOwned: number
+  collected: boolean
+}
+
+/** Given rows in the tracker's exact format (8 columns, BOM + LF, no trailing newline by default), in the order given. */
+export function writeTrackerCsvRows(entries: readonly TrackerCsvEntry[], options: WriteTrackerCsvOptions = {}): string {
   const eol = options.lineEnding === 'CRLF' ? '\r\n' : '\n'
   const lang = options.lang ?? 'es'
   const lines: string[] = [TRACKER_CSV_HEADER]
-  for (const card of catalog.cards) {
-    const unit = stock[card.stockCardId]
-    const amount = unit?.amountOwned ?? 0
-    const collected = unit?.collected ?? false
+  for (const { card, amountOwned, collected } of entries) {
     const name = lang === 'en' ? card.nameEn : card.nameEs
     lines.push(
       [
         csvField(card.id),
         csvField(name),
         String(card.internalId),
-        String(amount),
+        String(amountOwned),
         csvField(card.expansionId),
         csvField(card.pack),
         csvField(card.rarity),
