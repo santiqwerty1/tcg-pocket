@@ -53,6 +53,8 @@ export interface DotggStatus extends DotggSyncState {
 
 const EMPTY: DotggSyncState = { lastAttemptAt: null, result: null, error: null, previewId: null, automatic: false }
 const NOT_CONFIGURED = 'Pegá el link de exportación de ptcgpocket.gg en Más → Ajustes de la app.'
+const UNREADABLE =
+  'El link de ptcgpocket.gg guardado no se puede leer (cambió la clave del servidor): pegalo de nuevo en Más → Ajustes de la app.'
 
 @Injectable()
 export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
@@ -148,7 +150,7 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
 
   async tick(now = new Date()) {
     const config = await this.status()
-    if (!config.enabled || !config.configured) return null
+    if (!config.enabled || (!config.configured && !config.unreadable)) return null
     if (config.lastAttemptAt && now.getTime() - Date.parse(config.lastAttemptAt) < DOTGG_SYNC_INTERVAL_MS) return null
     return this.preview(true, now)
   }
@@ -170,13 +172,22 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
       }
       const config = await this.status()
       link = await this.links.read()
-      if (
-        automatic &&
-        (!config.enabled ||
-          !link ||
-          (config.lastAttemptAt && now.getTime() - Date.parse(config.lastAttemptAt) < DOTGG_SYNC_INTERVAL_MS))
-      )
+      const due = !config.lastAttemptAt || now.getTime() - Date.parse(config.lastAttemptAt) >= DOTGG_SYNC_INTERVAL_MS
+      if (automatic && (!config.enabled || !due || (!link && !config.unreadable))) return null
+      if (!link && config.unreadable) {
+        // The stored link cannot be opened (SESSION_SECRET changed): said where Santi looks, never a silent stop.
+        if (!automatic) throw new BadRequestException({ code: 'dotgg_unreadable', message: UNREADABLE })
+        const failed: DotggSyncState = {
+          ...EMPTY,
+          lastAttemptAt: now.toISOString(),
+          automatic,
+          result: 'error',
+          error: UNREADABLE,
+        }
+        await this.write(KEYS.state, failed)
+        await this.warning(null, { at: failed.lastAttemptAt, message: UNREADABLE, previewId: null })
         return null
+      }
       if (!link) throw new BadRequestException({ code: 'dotgg_not_configured', message: NOT_CONFIGURED })
       const fingerprint = this.links.fingerprint(link)
       const state: DotggSyncState = { ...EMPTY, lastAttemptAt: now.toISOString(), automatic }
@@ -286,14 +297,24 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
     await this.prisma.appSetting.upsert({ where: { key }, create: { key, value: json }, update: { value: json } })
   }
 
-  /** The alert of an automatic run, only while the switch is on, the link is the one read and its preview pending. */
-  private async warning(fingerprint: string, value: { at: string | null; message: string; previewId: string | null }) {
+  /**
+   * The alert of an automatic run, only while the switch is on, the link is the one read (null: the stored link is
+   * still unreadable) and its preview pending.
+   */
+  private async warning(
+    fingerprint: string | null,
+    value: { at: string | null; message: string; previewId: string | null },
+  ) {
     await this.prisma.$transaction(async (tx) => {
       // Serialize with turning the switch off, changing the link, applying or discarding the preview.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(994202)`
       const auto = await tx.appSetting.findUnique({ where: { key: KEYS.auto } })
-      const link = await this.links.read(tx)
-      if (auto?.value !== true || !link || this.links.fingerprint(link) !== fingerprint) return
+      const stored = await this.links.state(tx)
+      if (auto?.value !== true) return
+      if (
+        fingerprint === null ? !stored.unreadable : !stored.link || this.links.fingerprint(stored.link) !== fingerprint
+      )
+        return
       if (
         value.previewId &&
         !(await tx.collectionImport.findFirst({ where: { id: Number(value.previewId), status: 'pending' } }))

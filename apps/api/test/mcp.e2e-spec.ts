@@ -122,8 +122,8 @@ describe('MCP endpoint (e2e)', () => {
       'collection_pack_luck',
       'collection_playable_copies',
       'collection_summary',
-      'collection_trades',
       'collection_tracker_gap',
+      'collection_trades',
       'decks_closest',
       'decks_consistency',
       'decks_draw_odds',
@@ -511,7 +511,7 @@ describe('MCP endpoint (e2e)', () => {
       .set('Cookie', cookie)
       .send({ name: 'temporal', kind: 'mcp', scopes: ['mcp:read'] })
     const client = await connect('legacy', created.body.token)
-    expect((await client.listTools()).tools.length).toBe(45)
+    expect((await client.listTools()).tools.length).toBe(46)
     expect((await test.http().delete(`/api/tokens/${created.body.id}`).set('Cookie', cookie)).status).toBe(204)
     await expect(client.listTools()).rejects.toThrow()
   })

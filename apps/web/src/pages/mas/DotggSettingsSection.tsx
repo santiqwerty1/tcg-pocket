@@ -121,8 +121,9 @@ export function DotggSettingsSection() {
             />
           </Label>
           <p className="text-sm text-muted-foreground">
-            Aplica sola solo lo que no hace falta mirar: la primera vez, si bajan más del 10&nbsp;% de las copias, si
-            hay cambios manuales recientes o cartas que el catálogo no tiene, deja una revisión pendiente y un aviso.
+            Aplica sola solo lo que no hace falta mirar. Deja una revisión pendiente y un aviso la primera vez, si bajan
+            más del 10&nbsp;% de las copias, si hay cambios manuales recientes, cartas que el catálogo no tiene o con
+            otro nombre, una expansión con copias que la exportación no trae, o filas con errores.
           </p>
           <p className="text-sm">
             Última sincronización: {formatDateTime(status.data.lastCheckedAt ?? status.data.lastAppliedAt)}
@@ -145,7 +146,7 @@ export function DotggSettingsSection() {
             open={confirmClear}
             onOpenChange={setConfirmClear}
             title="¿Quitar el link de ptcgpocket.gg?"
-            description="La colección vuelve a venir del tracker (si lo tenés configurado) y se descarta la vista previa pendiente de ptcgpocket.gg. Para volver, pegá el link de nuevo."
+            description="La colección vuelve a venir del tracker (si lo tenés configurado) y se descarta la vista previa pendiente de ptcgpocket.gg. La primera sincronización del tracker queda para revisar: no pisa sola los números del juego. Para volver, pegá el link de nuevo."
             confirmLabel="Quitar link"
             destructive
             pending={clearLink.isPending}

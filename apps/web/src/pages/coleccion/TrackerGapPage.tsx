@@ -82,12 +82,12 @@ function GapView({ gap, refreshing, onRefresh }: { gap: TrackerGap; refreshing: 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
         <Stat label="Cartas que difieren" value={formatNumber(s.cards)} />
         <Stat
-          label="Le faltan al tracker"
+          label={s.copiesMissing === 1 ? 'Le falta al tracker' : 'Le faltan al tracker'}
           value={plural(s.copiesMissing, 'copia', 'copias')}
           hint={`en ${plural(s.cardsMissing, 'carta', 'cartas')}`}
         />
         <Stat
-          label="Le sobran al tracker"
+          label={s.copiesExtra === 1 ? 'Le sobra al tracker' : 'Le sobran al tracker'}
           value={plural(s.copiesExtra, 'copia', 'copias')}
           hint={`en ${plural(s.cardsExtra, 'carta', 'cartas')}`}
         />

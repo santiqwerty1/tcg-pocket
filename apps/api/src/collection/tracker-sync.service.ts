@@ -85,7 +85,7 @@ export class TrackerSync implements OnApplicationBootstrap, OnModuleDestroy {
     if (!config.enabled || !/^\d{16}$/.test(config.friendId)) return null
     if (config.lastAttemptAt && now.getTime() - Date.parse(config.lastAttemptAt) < TRACKER_SYNC_INTERVAL_MS) return null
     // T-020: with ptcgpocket.gg configured the tracker is only compared; it is not even read here.
-    if (await this.links.read()) return null
+    if (await this.links.present()) return null
     return this.preview(true, now)
   }
 
@@ -110,7 +110,7 @@ export class TrackerSync implements OnApplicationBootstrap, OnModuleDestroy {
           (config.lastAttemptAt && now.getTime() - Date.parse(config.lastAttemptAt) < TRACKER_SYNC_INTERVAL_MS))
       )
         return null
-      if (await this.links.read()) {
+      if (await this.links.present()) {
         if (automatic) return null
         throw new ConflictException({
           code: 'tracker_not_master',
@@ -232,7 +232,7 @@ export class TrackerSync implements OnApplicationBootstrap, OnModuleDestroy {
       const config = Object.fromEntries(rows.map((r) => [r.key, r.value]))
       if (config.trackerAutoSync !== true || config.trackerFriendId !== friendId) return
       // T-020: while ptcgpocket.gg is the source, the tracker has nothing to warn about.
-      if (await this.links.read(tx)) return
+      if (await this.links.present(tx)) return
       const json = JSON.parse(JSON.stringify(value))
       if (
         json.previewId &&

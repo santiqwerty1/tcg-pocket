@@ -1983,8 +1983,16 @@ ${MCP_CHAT_INSTRUCTIONS}`
     const view = await this.trackerGap.gap()
     const limit = args.limit ?? 30
     const s = view.summary
-    const copies = (n: number) => (n === 1 ? '1 copia' : `${n} copias`)
-    const cards = (n: number) => (n === 1 ? '1 carta' : `${n} cartas`)
+    const number = (n: number) => n.toLocaleString('es-AR')
+    const copies = (n: number) => (n === 1 ? '1 copia' : `${number(n)} copias`)
+    const cards = (n: number) => (n === 1 ? '1 carta' : `${number(n)} cartas`)
+    const parts: string[] = []
+    if (s.copiesMissing > 0)
+      parts.push(
+        `le ${s.copiesMissing === 1 ? 'falta' : 'faltan'} ${copies(s.copiesMissing)} en ${cards(s.cardsMissing)}`,
+      )
+    if (s.copiesExtra > 0)
+      parts.push(`le ${s.copiesExtra === 1 ? 'sobra' : 'sobran'} ${copies(s.copiesExtra)} en ${cards(s.cardsExtra)}`)
     return {
       checkedAt: view.checkedAt,
       summary: s,
@@ -2005,7 +2013,7 @@ ${MCP_CHAT_INSTRUCTIONS}`
       text:
         s.cards === 0
           ? `El tracker está al día con el juego (${copies(s.gameCopies)}).`
-          : `El tracker difiere del juego en ${cards(s.cards)}: le faltan ${copies(s.copiesMissing)} en ${cards(s.cardsMissing)} y le sobran ${copies(s.copiesExtra)} en ${cards(s.cardsExtra)} (tracker ${s.trackerCopies}, juego ${s.gameCopies}).`,
+          : `El tracker difiere del juego en ${cards(s.cards)}: ${parts.join(' y ')} (tracker ${number(s.trackerCopies)}, juego ${number(s.gameCopies)}).`,
     }
   }
 

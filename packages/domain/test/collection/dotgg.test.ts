@@ -6,6 +6,7 @@ import {
   diffImport,
   dotggCardId,
   dotggMissingExpansions,
+  dotggNameKey,
   dotggUnits,
   mapDotggRows,
   maskDotggExportLink,
@@ -208,6 +209,29 @@ describe('mapDotggRows', () => {
     expect(normalized.naiveTotal).toBe(4)
   })
 
+  it('flags rows whose name is another card’s (another numbering) and keeps mapping them', () => {
+    const mapped = mapDotggRows(
+      parseDotggCsv(
+        exportFile([
+          [1, 0, 'Venusaur', 'A1', '1'],
+          [2, 0, 'PROFESSOR’S RESEARCH', 'P-A', '7'],
+          [1, 0, '', 'A1', '2'],
+          [1, 0, 'Pokémon Center Lady', 'A2b', '111'],
+          [1, 0, 'FLABEBE', 'A1a', '36'],
+        ]),
+      ).rows,
+      index,
+    )
+    expect(mapped.unmatched).toEqual([])
+    expect(mapped.rows.map((row) => row.id)).toEqual(['A1-1', 'P-A-7', 'A1-2', 'A2b-111', 'A1a-36'])
+    expect(mapped.renamed).toEqual([
+      { line: 2, cardId: 'A1-1', name: 'Venusaur', catalogName: 'Bulbasaur', copies: 1 },
+      { line: 5, cardId: 'A2b-111', name: 'Pokémon Center Lady', catalogName: 'Poké Ball', copies: 1 },
+    ])
+    expect(dotggNameKey('Professor’s Research')).toBe(dotggNameKey("professor's research"))
+    expect(dotggNameKey('Flabébé')).toBe(dotggNameKey('Flabebe'))
+  })
+
   it('folds twins into one stock unit and reports twins with different counts', () => {
     const same = normalizeImportRows(
       mapDotggRows(
@@ -257,6 +281,7 @@ describe('mapDotggRows', () => {
     )
     const mapped = mapDotggRows(parseDotggCsv(file).rows, index)
     expect(mapped.unmatched).toEqual([])
+    expect(mapped.renamed).toEqual([])
     const normalized = normalizeImportRows(mapped.rows, index)
     expect(normalized.conflicts).toEqual([])
     expect(normalized.dedupTotal).toBe(4714)

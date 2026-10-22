@@ -59,6 +59,14 @@ export class DotggLinkStore {
     return (await this.state(db)).link
   }
 
+  /**
+   * A link is stored, readable or not: ptcgpocket.gg is the source of the collection. An unreadable one (SESSION_SECRET
+   * changed) still counts, so the tracker never takes the collection back by itself; Santi pastes it again or removes it.
+   */
+  async present(db: SecretReader = this.prisma): Promise<boolean> {
+    return (await db.appSecret.count({ where: { key: DOTGG_LINK_KEY } })) > 0
+  }
+
   /** Compares links without keeping them around (automatic runs stop when the link changed in the meantime). */
   fingerprint(link: string): string {
     return createHash('sha256').update(link).digest('hex')

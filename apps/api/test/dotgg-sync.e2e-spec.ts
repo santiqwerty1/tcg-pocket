@@ -7,8 +7,9 @@ import { BackupService } from '../src/backup/backup.service.js'
 import { CatalogService } from '../src/catalog/catalog.service.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { TrackerCommitsService } from '../src/catalog/tracker-commits.service.js'
+import { CollectionService } from '../src/collection/collection.service.js'
 import { DotggClient, DotggError } from '../src/collection/dotgg-client.js'
-import { DOTGG_LINK_KEY } from '../src/collection/dotgg-link.store.js'
+import { DOTGG_LINK_KEY, DotggLinkStore } from '../src/collection/dotgg-link.store.js'
 import { DOTGG_SYNC_INTERVAL_MS, DotggSync } from '../src/collection/dotgg-sync.service.js'
 import { TrackerSync } from '../src/collection/tracker-sync.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
@@ -532,6 +533,11 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     await setting('dotggAutoSync', true)
     const response = await preview()
     await apply(response.body.id)
+    // An old schedule in the file: restoring it must still wait 24 h from the restore.
+    await test.prisma.appSetting.update({
+      where: { key: 'dotggSyncState' },
+      data: { value: { lastAttemptAt: '2020-01-01T00:00:00.000Z', result: 'applied' } },
+    })
     const exported = await get('/api/backup/export').responseType('blob')
     const bytes = Buffer.from(exported.body)
     const text = gunzipSync(bytes).toString()
@@ -636,6 +642,215 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
       expect(text).not.toContain('InternalId,NumberOwned')
     } finally {
       await client.close()
+    }
+  })
+
+  // --- Scenarios of the adversarial self-review, kept as regression tests ---------------------------------------
+
+  const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, at) => from + at)
+  const remove = () => test.http().delete('/api/collection/dotgg/link').set('Cookie', cookie)
+  const OTHER = LINK.replace(TOKEN, `${TOKEN}ZZ99`)
+  const internalId = (id: string) => test.app.get(CatalogService).requireIndex().cardById(id)?.internalId ?? -1
+  const lastApplied = () =>
+    test.prisma.appSetting.create({
+      data: { key: 'dotggLastAppliedAt', value: new Date(Date.now() - 3600_000).toISOString() },
+    })
+
+  it('automatic: an expansion the export does not list makes it wait, even with a small drop', async () => {
+    await test.prisma.collectionStock.createMany({
+      data: [
+        ...range(1, 20).map((n) => ({ cardId: `A1-${n}`, amountOwned: 1, collected: true, source: 'import' as const })),
+        { cardId: 'P-A-7', amountOwned: 1, collected: true, source: 'import' as const },
+      ],
+    })
+    await lastApplied()
+    await setLink(LINK)
+    await setting('dotggAutoSync', true)
+    body = exportFile(range(1, 21).map((n) => [1, '', 'A1', n]))
+    const result = await test.app.get(DotggSync).tick(new Date(Date.now() + 60_000))
+    expect(result?.dotgg?.requiresReview).toBe(true)
+    expect(result?.dotgg?.reviewReasons.join(' ')).toContain('ninguna carta de P-A')
+    expect(await copies()).toBe(21)
+  })
+
+  it('automatic: one manual edit since the last sync makes it wait', async () => {
+    await test.prisma.collectionStock.createMany({
+      data: range(1, 40).map((n) => ({
+        cardId: `A1-${n}`,
+        amountOwned: 1,
+        collected: true,
+        source: 'import' as const,
+        updatedAt: new Date(Date.now() - 2 * 3600_000),
+      })),
+    })
+    await lastApplied()
+    await test.http().patch('/api/collection/stock/A1-1').set('Cookie', cookie).send({ amountOwned: 3 })
+    await setLink(LINK)
+    await setting('dotggAutoSync', true)
+    body = exportFile(range(1, 40).map((n) => [1, '', 'A1', n]))
+    const result = await test.app.get(DotggSync).tick(new Date(Date.now() + 60_000))
+    expect(result?.dotgg?.requiresReview).toBe(true)
+    expect(result?.dotgg?.reviewReasons.join(' ')).toContain('1 carta tiene un cambio manual')
+    expect(await copies()).toBe(42)
+  })
+
+  it('the same link keeps the pending preview; another link discards it', async () => {
+    await setLink(LINK)
+    const pending = await preview()
+    await setLink(LINK)
+    expect((await get(`/api/collection/imports/${pending.body.id}`)).body.status).toBe('pending')
+    await setLink(OTHER)
+    expect((await get(`/api/collection/imports/${pending.body.id}`)).body.status).toBe('discarded')
+  })
+
+  it.each([
+    ['removed', () => remove(), 'dotgg_not_configured'],
+    ['changed', () => setLink(OTHER), 'dotgg_config_changed'],
+  ])('a link %s during a manual read stores nothing', async (_name, change, code) => {
+    await setLink(LINK)
+    const client = test.app.get(DotggClient)
+    const original = client.fetchImpl
+    let changed = false
+    client.fetchImpl = async (input, init) => {
+      if (!changed) {
+        changed = true
+        await change()
+      }
+      return original(input, init)
+    }
+    const response = await preview()
+    expect(response.status).toBe(409)
+    expect(response.body.error.code).toBe(code)
+    clean(response)
+    expect(await test.prisma.collectionImport.count()).toBe(0)
+    expect(await copies()).toBe(0)
+  })
+
+  it('back to the tracker after removing the link, its first sync waits instead of undoing the game', async () => {
+    await setting('trackerFriendId', FRIEND)
+    await setLink(LINK)
+    body = exportFile(range(1, 30).map((n) => [1, '', 'A1', n]))
+    const game = await preview()
+    expect((await apply(game.body.id)).status).toBe(200)
+    expect(await copies()).toBe(30)
+    // The tracker is behind the game: it has not got A1-30 yet.
+    remote = range(1, 29).map((n) => ({ internal_id: internalId(`A1-${n}`), amount_owned: 1, collected: true }))
+    await setting('trackerAutoSync', true)
+    await remove()
+    const result = await test.app.get(TrackerSync).tick(new Date(Date.now() + 60_000))
+    expect(result?.tracker?.requiresReview).toBe(true)
+    expect(result?.tracker?.reviewReasons?.join(' ')).toContain('1 carta tiene el número del juego')
+    expect(await copies()).toBe(30)
+  })
+
+  it('a pending preview that came back with a backup does not apply without the link', async () => {
+    await setLink(LINK)
+    const pending = await preview()
+    const exported = await get('/api/backup/export').responseType('blob')
+    await remove()
+    const restored = await post('/api/backup/import?mode=replace').attach(
+      'file',
+      Buffer.from(exported.body),
+      'backup.json.gz',
+    )
+    expect(restored.status).toBe(200)
+    expect((await get(`/api/collection/imports/${pending.body.id}`)).body.status).toBe('pending')
+    const generic = await post(`/api/collection/imports/${pending.body.id}/apply`).send({})
+    expect(generic.status).toBe(409)
+    expect(generic.body.error.code).toBe('dotgg_not_configured')
+    expect((await apply(pending.body.id)).body.error.code).toBe('dotgg_not_configured')
+    expect(await copies()).toBe(0)
+  })
+
+  it('an automatic apply refuses a preview that asked for a look, whoever calls it', async () => {
+    await setLink(LINK)
+    await setting('dotggAutoSync', true)
+    const reviewed = await preview() // the first sync: requiresReview
+    expect(reviewed.body.dotgg.requiresReview).toBe(true)
+    const collection = test.app.get(CollectionService)
+    const fingerprint = test.app.get(DotggLinkStore).fingerprint(LINK)
+    await expect(collection.applyImport(reviewed.body.id, true, fingerprint)).rejects.toMatchObject({
+      response: { code: 'dotgg_review' },
+    })
+    expect(await copies()).toBe(0)
+  })
+
+  it('an automatic failure does not warn about a link that changed meanwhile', async () => {
+    await setLink(LINK)
+    await setting('dotggAutoSync', true)
+    const client = test.app.get(DotggClient)
+    const exportCsv = client.exportCsv
+    client.exportCsv = async () => {
+      await setLink(OTHER)
+      throw new DotggError('dotgg_auth', 'ptcgpocket.gg no reconoce el link (HTTP 404).')
+    }
+    try {
+      expect(await test.app.get(DotggSync).tick(new Date(Date.now() + 60_000))).toBeNull()
+      expect((await alerts()).some((alert) => alert.code === 'dotgg_sync')).toBe(false)
+    } finally {
+      client.exportCsv = exportCsv
+    }
+  })
+
+  it('a stored link that cannot be opened keeps the tracker paused and says so', async () => {
+    await setting('trackerFriendId', FRIEND)
+    await test.prisma.appSecret.create({ data: { key: DOTGG_LINK_KEY, value: 'v1.AAAA.BBBB.CCCC' } })
+    const state = (await get('/api/collection/dotgg/status')).body
+    expect(state).toMatchObject({ configured: false, unreadable: true, link: null })
+    expect((await post('/api/collection/tracker-sync/preview').send({})).body.error.code).toBe('tracker_not_master')
+    await setting('trackerAutoSync', true)
+    expect(await test.app.get(TrackerSync).tick(new Date(Date.now() + 7 * 3600_000))).toBeNull()
+    expect(trackerCalls).toHaveLength(0)
+    const manual = await preview()
+    expect(manual.status).toBe(400)
+    expect(manual.body.error.code).toBe('dotgg_unreadable')
+    await setting('dotggAutoSync', true)
+    expect(await test.app.get(DotggSync).tick(new Date(Date.now() + 60_000))).toBeNull()
+    expect(dotggCalls).toHaveLength(0)
+    expect((await alerts()).find((alert) => alert.code === 'dotgg_sync')?.detail).toContain('no se puede leer')
+    // Pasting it again clears it.
+    await setLink(LINK)
+    expect((await get('/api/collection/dotgg/status')).body).toMatchObject({ configured: true, unreadable: false })
+  })
+
+  it('a row with another card’s name (another numbering) waits for a look and is not compared', async () => {
+    await setting('trackerFriendId', FRIEND)
+    await setLink(LINK)
+    await lastApplied()
+    body = exportFile([
+      [2, 'Bulbasaur', 'A1', 1],
+      [1, "Professor's Research", 'P-A', 7],
+      [3, 'Charizard ex', 'B4b', 372],
+    ])
+    const response = await preview()
+    expect(response.body.dotgg.renamed).toEqual([
+      { line: 4, cardId: 'B4b-372', name: 'Charizard ex', catalogName: 'Small Balloon', copies: 3 },
+    ])
+    expect(response.body.dotgg.reviewReasons.join(' ')).toContain('con el nombre de otra carta del catálogo')
+    remote = [{ internal_id: internalId('A1-1'), amount_owned: 1, collected: true }]
+    const gap = await get('/api/collection/tracker-gap')
+    expect(gap.body.rows.map((row: { stockCardId: string }) => row.stockCardId)).toEqual(['A1-1', 'P-A-7'])
+    expect(gap.body.warnings.join(' ')).toContain('con el nombre de otra carta del catálogo')
+  })
+
+  it('«Tracker al día» warns when the tracker published changes after the catalog, and never quotes the link', async () => {
+    await setting('trackerFriendId', FRIEND)
+    await setLink(LINK)
+    test.app.get(TrackerCommitsService).fetchImpl = async () => Response.json({ sha: 'b'.repeat(40) })
+    const response = await get('/api/collection/tracker-gap')
+    expect(response.body.warnings.join(' ')).toContain('El tracker publicó cambios después del catálogo')
+    const client = test.app.get(DotggClient)
+    const exportCsv = client.exportCsv
+    client.exportCsv = async (link: string) => {
+      throw new DotggError('dotgg_http', `falló ${link}`)
+    }
+    try {
+      const failed = await get('/api/collection/tracker-gap')
+      expect(failed.status).toBe(503)
+      expect(failed.body.error.message).toBe('falló ••••')
+      clean(failed)
+    } finally {
+      client.exportCsv = exportCsv
     }
   })
 })

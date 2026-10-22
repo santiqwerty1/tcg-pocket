@@ -313,6 +313,17 @@ export const importPreviewSchema = z.object({
       unmatched: z.array(
         z.object({ line: z.number(), set: z.string(), number: z.number(), name: z.string(), copies: z.number() }),
       ),
+      renamed: z
+        .array(
+          z.object({
+            line: z.number(),
+            cardId: z.string(),
+            name: z.string(),
+            catalogName: z.string(),
+            copies: z.number(),
+          }),
+        )
+        .default([]),
       missingExpansions: z.array(z.object({ expansionId: z.string(), nameEs: z.string(), copies: z.number() })),
     })
     .optional(),

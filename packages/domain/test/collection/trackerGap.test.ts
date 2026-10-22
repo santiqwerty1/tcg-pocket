@@ -54,6 +54,12 @@ describe('trackerGap', () => {
     expect(gap.rows[0]).toMatchObject({ cardIds: ['A1-2', 'A4b-3'], internalId: 65665, trackerCollected: true })
   })
 
+  it('leaves the skipped units out of the rows and the totals', () => {
+    const gap = trackerGap(index, tracker, game, new Set(['A2-1', 'A1-3']))
+    expect(gap.rows.map((row) => row.stockCardId)).toEqual(['A1-2', 'B4b-372', 'P-A-7'])
+    expect(gap.summary).toMatchObject({ cards: 3, copiesMissing: 2, copiesExtra: 3, trackerCopies: 6, gameCopies: 5 })
+  })
+
   it('is empty when both agree (a unit missing on one side counts as 0)', () => {
     const gap = trackerGap(index, { ...game, 'A3-1': unit('A3-1', 0, true) }, game)
     expect(gap.rows).toEqual([])

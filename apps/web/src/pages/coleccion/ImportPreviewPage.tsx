@@ -9,8 +9,15 @@ import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { ErrorState, LoadingRows, Spinner } from '@/components/ListState'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { formatDateTime } from '@/lib/format'
+import { formatDateTime, formatNumber } from '@/lib/format'
 import { ImportPreviewView } from './ImportPreviewView'
+
+/** «Bajan 20 copias de las 100 actuales.», with the singular and the thousands separator. */
+function dropText(removed: number, current: number): string {
+  const drop = removed === 1 ? 'Baja 1 copia' : `Bajan ${formatNumber(removed)} copias`
+  const of = current === 1 ? 'de la única actual' : `de las ${formatNumber(current)} actuales`
+  return `${drop} ${of}.`
+}
 
 export function ImportPreviewPage() {
   const { importId } = useParams()
@@ -110,7 +117,7 @@ export function ImportPreviewPage() {
         open={confirmApply}
         onOpenChange={setConfirmApply}
         title={data.source === 'dotgg' ? '¿Aplicar los cambios de ptcgpocket.gg?' : '¿Aplicar los cambios del tracker?'}
-        description={`${(review?.removedCopies ?? 0) === 1 ? 'Baja 1 copia' : `Bajan ${review?.removedCopies ?? 0} copias`} de las ${review?.currentCopies ?? 0} actuales. ${review?.reviewReasons?.join(' ') ?? 'Revisá los cambios antes de confirmar.'}`}
+        description={`${dropText(review?.removedCopies ?? 0, review?.currentCopies ?? 0)} ${review?.reviewReasons?.join(' ') ?? 'Revisá los cambios antes de confirmar.'}`}
         confirmLabel="Aplicar cambios"
         destructive
         pending={applier.isPending}

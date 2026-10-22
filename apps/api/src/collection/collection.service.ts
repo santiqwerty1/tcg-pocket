@@ -15,6 +15,7 @@ import {
   type CsvLineEnding,
   type CsvRow,
   DOTGG_SOURCE_NAME,
+  type DotggRenamed,
   type DotggUnmatched,
   diffImport,
   dotggMissingExpansions,
@@ -134,6 +135,8 @@ interface RemoteImport {
   linkFingerprint?: string
   /** dotgg: rows the catalog does not have. */
   unmatched?: DotggUnmatched[]
+  /** dotgg: rows whose name is another card's. */
+  renamed?: DotggRenamed[]
 }
 
 /** The parse result the importer needs, from a tracker CSV or an export mapped onto the catalog. */
@@ -501,7 +504,7 @@ export class CollectionService {
       index,
       { rows: mapped.rows, errors: parsed.errors, bom: parsed.bom, lineEnding: parsed.lineEnding },
       { bytes, fileName: DOTGG_SOURCE_NAME },
-      { source: 'dotgg', unmatched: mapped.unmatched, ...options },
+      { source: 'dotgg', unmatched: mapped.unmatched, renamed: mapped.renamed, ...options },
     )
   }
 
@@ -532,7 +535,7 @@ export class CollectionService {
       }
       const dotgg =
         remote?.source === 'dotgg'
-          ? await this.dotggReview(client, index, diff, stock, baseline, normalized, remote.unmatched ?? [], parsed)
+          ? await this.dotggReview(client, index, diff, stock, baseline, normalized, remote, parsed)
           : undefined
       if (remote) {
         const keys = REMOTE_KEYS[remote.source]
@@ -989,6 +992,20 @@ export class CollectionService {
       reviewReasons.push(
         `${manual.rowCount} unidades tienen cambios manuales posteriores a la última sincronización aplicada.`,
       )
+    // T-020: back to the tracker after ptcgpocket.gg (link removed), its first sync never overwrites the game's numbers
+    // by itself: the tracker is usually behind the game.
+    const fromGame = await client.query<{ card_id: string }>(
+      `SELECT card_id FROM collection_stock WHERE source = 'dotgg' AND card_id = ANY($1::text[])
+       AND updated_at > $2::timestamptz`,
+      [diff.changes.map((c) => c.stockCardId), values.trackerLastAppliedAt ?? new Date(0).toISOString()],
+    )
+    const gameCount = fromGame.rowCount ?? 0
+    if (gameCount > 0)
+      reviewReasons.push(
+        gameCount === 1
+          ? '1 carta tiene el número del juego (ptcgpocket.gg) posterior a la última sincronización del tracker.'
+          : `${count(gameCount)} cartas tienen el número del juego (ptcgpocket.gg) posterior a la última sincronización del tracker.`,
+      )
     if (unknownIds.length) reviewReasons.push(`Hay ${unknownIds.length} internal_id desconocidos; revisá el catálogo.`)
     if (
       typeof values.trackerLastAppliedCommit === 'string' &&
@@ -1019,9 +1036,11 @@ export class CollectionService {
     stock: StockQuantities,
     baseline: string,
     normalized: NormalizedImport,
-    unmatched: readonly DotggUnmatched[],
+    remote: RemoteImport,
     parsed: ImportInput,
   ): Promise<DotggReviewView> {
+    const unmatched = remote.unmatched ?? []
+    const renamed = remote.renamed ?? []
     const stats = trackerDiffStats(diff, totalCopies(stock))
     const reasons: string[] = []
     const changed = diff.changes.length > 0
@@ -1057,6 +1076,14 @@ export class CollectionService {
         `ptcgpocket.gg trae ${unmatched.length === 1 ? '1 carta' : `${count(unmatched.length)} cartas`} que el catálogo no tiene (${copies === 1 ? '1 copia' : `${count(copies)} copias`}): sincronizá el catálogo o revisá la lista.`,
       )
     }
+    if (renamed.length > 0) {
+      reasons.push(
+        `ptcgpocket.gg trae ${renamed.length === 1 ? '1 carta' : `${count(renamed.length)} cartas`} con el nombre de otra carta del catálogo (${renamed
+          .slice(0, 3)
+          .map((row) => row.cardId)
+          .join(', ')}${renamed.length > 3 ? '…' : ''}): puede que numere distinto esa expansión.`,
+      )
+    }
     const missingExpansions = changed
       ? dotggMissingExpansions(index, stock, normalized.units).map((item) => ({
           ...item,
@@ -1088,14 +1115,19 @@ export class CollectionService {
       requiresReview: reasons.length > 0,
       reviewReasons: reasons,
       unmatched: [...unmatched],
+      renamed: [...renamed],
       missingExpansions,
     }
   }
 
   /**
-   * Who may write the collection right now (inside the import's transaction, under lock 994202). The tracker only
-   * while ptcgpocket.gg is not configured (T-020); an automatic run only with its switch still on and the same friend
-   * id or link it read; a new ptcgpocket.gg snapshot only while its link is there.
+   * Who may write the collection right now (inside the import's transaction, under lock 994202):
+   * - the tracker, only while no ptcgpocket.gg link is stored (T-020) — an unreadable one counts too, so a changed
+   *   SESSION_SECRET never hands the collection back to the tracker by itself;
+   * - a ptcgpocket.gg snapshot, only with its link there: when it is created and when it is applied (a pending one
+   *   that came back with a backup after the link was removed does not apply);
+   * - a new ptcgpocket.gg snapshot, only if the link is still the one it was read from (also by hand);
+   * - an automatic run, only with its switch still on and the same friend id or link it read.
    */
   private async requireRemoteConfig(client: PoolClient, remote: RemoteImport, creating = false): Promise<void> {
     const keys = REMOTE_KEYS[remote.source]
@@ -1107,9 +1139,10 @@ export class CollectionService {
     const secret = await client.query<{ value: string }>('SELECT value FROM app_secrets WHERE key = $1', [
       DOTGG_LINK_KEY,
     ])
-    const link = this.links.open(secret.rows[0]?.value)
+    const stored = secret.rows[0]?.value
+    const link = this.links.open(stored)
     if (remote.source === 'tracker') {
-      if (link) throw new ConflictException({ code: 'tracker_not_master', message: TRACKER_NOT_MASTER })
+      if (stored) throw new ConflictException({ code: 'tracker_not_master', message: TRACKER_NOT_MASTER })
       if (remote.automatic && (config.trackerAutoSync !== true || config.trackerFriendId !== remote.friendId))
         throw new ConflictException({
           code: 'tracker_config_changed',
@@ -1117,18 +1150,22 @@ export class CollectionService {
         })
       return
     }
-    if (creating && !link)
+    if (!link)
       throw new ConflictException({
         code: 'dotgg_not_configured',
-        message: 'Se quitó el link de ptcgpocket.gg durante la consulta. No se aplicó nada.',
+        message: creating
+          ? 'Se quitó el link de ptcgpocket.gg durante la consulta. No se aplicó nada.'
+          : 'Sin el link de ptcgpocket.gg no se aplica una vista previa suya: pegalo en Ajustes y sincronizá de nuevo.',
       })
-    if (
-      remote.automatic &&
-      (config.dotggAutoSync !== true || !link || this.links.fingerprint(link) !== remote.linkFingerprint)
-    )
+    if ((creating || remote.automatic) && this.links.fingerprint(link) !== remote.linkFingerprint)
       throw new ConflictException({
         code: 'dotgg_config_changed',
-        message: 'La configuración de ptcgpocket.gg cambió durante la consulta. No se aplicó nada.',
+        message: 'El link de ptcgpocket.gg cambió durante la consulta. No se aplicó nada.',
+      })
+    if (remote.automatic && config.dotggAutoSync !== true)
+      throw new ConflictException({
+        code: 'dotgg_config_changed',
+        message: 'Se apagó la sincronización automática con ptcgpocket.gg durante la consulta. No se aplicó nada.',
       })
   }
 

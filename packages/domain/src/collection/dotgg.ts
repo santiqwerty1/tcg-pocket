@@ -6,7 +6,8 @@
  *
  * Cards map to the catalog by expansion and number, which is the tracker's card id (`A1-1`, `P-A-7`), so the stock
  * unit (and its twins) comes from the catalog and no internal id is involved. Rows the catalog does not know (a new
- * set, another code) are kept apart and listed, never dropped in silence.
+ * set, another code) are kept apart and listed, never dropped in silence; rows whose name is another card's (another
+ * numbering) are flagged. On the real export of 22/10/2026 every row maps and every name matches.
  *
  * The link is a secret: anyone with it reads the collection. Nothing here returns it, except `parseDotggExportLink`
  * to the server that stores it; `maskDotggExportLink` is what the API and the web show.
@@ -286,11 +287,36 @@ export interface DotggUnmatched {
   copies: number
 }
 
+/**
+ * A row whose expansion and number exist but name another card (letters and digits compared, without case or
+ * accents): ptcgpocket.gg may number that set differently, and the copies would go to the wrong card.
+ */
+export interface DotggRenamed {
+  line: number
+  cardId: CardId
+  /** As written by ptcgpocket.gg. */
+  name: string
+  /** The catalog's English name of `cardId`. */
+  catalogName: string
+  copies: number
+}
+
 export interface MappedDotgg {
   /** Every row in the importer's format, in file order: matched ones with the catalog card, unmatched ones with the
    * id as written (`B9-1`) and internal id 0, so the importer lists them as unknown and stores what the file said. */
   rows: CsvRow[]
   unmatched: DotggUnmatched[]
+  /** Matched rows whose name is another card's (they are still mapped, and they make the import wait for a look). */
+  renamed: DotggRenamed[]
+}
+
+/** A name reduced to its letters and digits, without case or accents (`Professor’s Research` = `Professor's Research`). */
+export function dotggNameKey(name: string): string {
+  return name
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, '')
 }
 
 /** The catalog expansion of a set code: exact, or ignoring case. */
@@ -308,15 +334,18 @@ export function dotggCardId(set: string, number: number, index: CatalogIndex): C
   return index.cardById(id) ? id : null
 }
 
-/** Maps every row onto the catalog by expansion and number. */
+/** Maps every row onto the catalog by expansion and number, and checks the name it brings against the card's. */
 export function mapDotggRows(rows: readonly DotggRow[], index: CatalogIndex): MappedDotgg {
   const mapped: CsvRow[] = []
   const unmatched: DotggUnmatched[] = []
+  const renamed: DotggRenamed[] = []
   for (const row of rows) {
     const id = dotggCardId(row.set, row.number, index)
     const card = id ? index.cardById(id) : undefined
     if (!card) {
       unmatched.push({ line: row.line, set: row.set, number: row.number, name: row.name, copies: row.copies })
+    } else if (row.name !== '' && dotggNameKey(row.name) !== dotggNameKey(card.nameEn)) {
+      renamed.push({ line: row.line, cardId: card.id, name: row.name, catalogName: card.nameEn, copies: row.copies })
     }
     mapped.push({
       line: row.line,
@@ -330,7 +359,7 @@ export function mapDotggRows(rows: readonly DotggRow[], index: CatalogIndex): Ma
       rarity: null,
     })
   }
-  return { rows: mapped, unmatched }
+  return { rows: mapped, unmatched, renamed }
 }
 
 /**

@@ -20,6 +20,7 @@ import {
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
+import { TrackerCommitsService } from '../catalog/tracker-commits.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { DotggClient, DotggError } from './dotgg-client.js'
 import { DotggLinkStore } from './dotgg-link.store.js'
@@ -62,6 +63,7 @@ export class TrackerGapService {
     private readonly links: DotggLinkStore,
     private readonly dotgg: DotggClient,
     private readonly tracker: TrackerClient,
+    private readonly commits: TrackerCommitsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(TrackerGapService.name)
@@ -81,6 +83,11 @@ export class TrackerGapService {
         code: 'dotgg_not_configured',
         message: 'Pegá el link de exportación de ptcgpocket.gg en Más → Ajustes de la app: es la colección del juego.',
       })
+    // What the tracker published, asked alongside (GitHub may not answer: the comparison does not depend on it).
+    const upstream = this.commits.latest().then(
+      (commit) => commit.sha,
+      () => null,
+    )
     let bytes: Buffer
     let remote: TrackerCollectionRow[]
     try {
@@ -119,8 +126,24 @@ export class TrackerGapService {
       throw new ServiceUnavailableException({ code: 'tracker_data', message: 'Respuesta inválida del tracker.' })
     }
     const tracker = normalizeImportRows(trackerRows, index)
-    const gap = trackerGap(index, trackerUnits(tracker.units, index), game.units)
+    // A row with another card's name may be another numbering: its count would land on the wrong card.
+    const renamedUnits = new Set(
+      mapped.renamed.map((row) => index.cardById(row.cardId)?.stockCardId).filter((id): id is string => !!id),
+    )
+    const gap = trackerGap(index, trackerUnits(tracker.units, index), game.units, renamedUnits)
     const warnings: string[] = []
+    if (mapped.renamed.length > 0)
+      warnings.push(
+        `ptcgpocket.gg trae ${mapped.renamed.length === 1 ? '1 carta' : `${mapped.renamed.length} cartas`} con el nombre de otra carta del catálogo (puede que numere distinto esa expansión): no se comparan.`,
+      )
+    // The file writes the catalog's internal ids: if the tracker published changes after it, they may have moved.
+    const published = await upstream
+    if (published && this.catalog.trackerCommit && published !== this.catalog.trackerCommit)
+      warnings.push(
+        'El tracker publicó cambios después del catálogo de la app (' +
+          this.catalog.trackerCommit.slice(0, 7) +
+          '): el archivo usa los internal_id del catálogo. Si el tracker los cambió, tocaría otras cartas; ante la duda, sincronizá el catálogo antes de importarlo.',
+      )
     if (parsed.errors.length > 0)
       warnings.push(
         `La exportación de ptcgpocket.gg tiene ${parsed.errors.length === 1 ? '1 fila' : `${parsed.errors.length} filas`} con errores: no se arma el archivo para el tracker.`,

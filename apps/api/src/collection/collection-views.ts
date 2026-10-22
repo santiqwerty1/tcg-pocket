@@ -5,6 +5,7 @@ import type {
   AdjustmentResolution,
   CsvErrorCode,
   DotggErrorCode,
+  DotggRenamed,
   DotggUnmatched,
   ImportSummary,
   StockValue,
@@ -82,6 +83,8 @@ export interface DotggReviewView {
   reviewReasons: string[]
   /** Rows of the export the catalog does not have. */
   unmatched: DotggUnmatched[]
+  /** Rows whose name is another card's (another numbering?): mapped, but they make it wait for a look. */
+  renamed: DotggRenamed[]
   /** Expansions with copies in the collection and no row in the export. */
   missingExpansions: { expansionId: string; nameEs: string; copies: number }[]
 }

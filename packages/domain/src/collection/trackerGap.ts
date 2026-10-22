@@ -48,8 +48,16 @@ export interface TrackerGap {
   summary: TrackerGapSummary
 }
 
-/** Card by card, where the tracker's count differs from the game's. A missing unit counts as 0 on either side. */
-export function trackerGap(index: CatalogIndex, tracker: StockQuantities, game: StockQuantities): TrackerGap {
+/**
+ * Card by card, where the tracker's count differs from the game's. A missing unit counts as 0 on either side; units in
+ * `skip` (the game's count is not trustworthy, e.g. another numbering) are left out of the rows and the totals.
+ */
+export function trackerGap(
+  index: CatalogIndex,
+  tracker: StockQuantities,
+  game: StockQuantities,
+  skip: ReadonlySet<CardId> = new Set(),
+): TrackerGap {
   const rows: TrackerGapRow[] = []
   const summary: TrackerGapSummary = {
     cards: 0,
@@ -61,6 +69,7 @@ export function trackerGap(index: CatalogIndex, tracker: StockQuantities, game: 
     gameCopies: 0,
   }
   for (const unit of index.catalog.stockUnits) {
+    if (skip.has(unit.id)) continue
     const inTracker = tracker[unit.id]?.amountOwned ?? 0
     const inGame = game[unit.id]?.amountOwned ?? 0
     summary.trackerCopies += inTracker

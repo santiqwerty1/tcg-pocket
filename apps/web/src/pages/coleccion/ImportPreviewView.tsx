@@ -292,6 +292,27 @@ function DotggReview({ review, zeroed }: { review: NonNullable<ImportPreview['do
           </ul>
         </Section>
       ) : null}
+      {review.renamed.length > 0 ? (
+        <Section title={`Cartas con otro nombre (${formatNumber(review.renamed.length)})`}>
+          <p className="text-sm text-muted-foreground">
+            ptcgpocket.gg trae estas cartas con el nombre de otra del catálogo: puede que numere distinto esa expansión.
+            Si aplicás, las copias van a la carta del catálogo de la derecha.
+          </p>
+          <ul className="divide-y rounded-lg border">
+            {review.renamed.map((row) => (
+              <li key={row.cardId} className="flex min-h-12 items-center gap-3 px-3 py-2 text-sm">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{row.name}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    en el catálogo: {row.catalogName} (<span className="font-mono">{row.cardId}</span>)
+                  </span>
+                </span>
+                <span className="shrink-0 tabular">{plural(row.copies, 'copia', 'copias')}</span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
     </>
   )
 }
