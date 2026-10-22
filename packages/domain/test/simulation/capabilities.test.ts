@@ -19,6 +19,12 @@ describe('what a worker can play', () => {
     expect(versionAtLeast('0.2.4', '0.2.5')).toBe(false)
     expect(versionAtLeast('0.2.5', '0.2.5')).toBe(true)
     expect(versionAtLeast('0.3.0-dev', '0.2.5')).toBe(true)
+    // A prerelease comes before its release (review of #142), and after the release before it; build metadata is not
+    // a prerelease.
+    expect(versionAtLeast('0.3.16-rc.1', '0.3.16')).toBe(false)
+    expect(versionAtLeast('0.3.16-rc.1', '0.3.15')).toBe(true)
+    expect(versionAtLeast('0.3.17-rc.1', '0.3.16')).toBe(true)
+    expect(versionAtLeast('0.3.16+linux', '0.3.16')).toBe(true)
     expect(versionAtLeast(undefined, '0.0.1')).toBe(false)
     expect(versionAtLeast('dev', '0.0.0')).toBe(true)
   })
@@ -54,6 +60,8 @@ describe('what a worker can play', () => {
     expect(canPlayGBots({ engineFeatures: features, cliVersion: '0.3.20' })).toBe(true)
     // engine-cli 0.3.13–0.3.15 list «gBots» with an earlier g: their games and these would mix in one job.
     expect(canPlayGBots({ engineFeatures: features, cliVersion: '0.3.15' })).toBe(false)
+    // A release candidate of 0.3.16 may still play an earlier g (review of #142).
+    expect(canPlayGBots({ engineFeatures: features, cliVersion: '0.3.16-rc.1' })).toBe(false)
     expect(canPlayGBots({ engineFeatures: features })).toBe(false)
     expect(canPlayGBots({ engineFeatures: ['perGame', 'batch', 'fairBots', 'etBot'], cliVersion: '0.3.16' })).toBe(
       false,
