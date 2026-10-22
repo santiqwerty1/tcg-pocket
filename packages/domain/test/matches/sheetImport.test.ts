@@ -235,8 +235,11 @@ describe('reading the sheet', () => {
         row({ rival: 'x'.repeat(81) }),
         row({ rank: 'Diamante' }),
         row({ k: 'n.º 14' }),
+        row({ code: 'Una nota escrita en la columna A' }),
       ]),
     )
+    expect(sheet.rows[6]?.errors[0]).toMatch(/no es un código de mazo/u)
+    expect(sheet.rows[6]?.key).toBeNull()
     expect(sheet.rows[0]?.errors).toEqual(['Falta el código del mazo.'])
     expect(sheet.rows[1]?.errors[0]).toMatch(/Resultado «Ganó»/u)
     expect(sheet.rows[2]?.errors[0]).toMatch(/«En la app» dice «sí»/u)

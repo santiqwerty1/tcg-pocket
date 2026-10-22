@@ -35,6 +35,8 @@ export const SHEET_IMPORT_MAX_CHARS = 4_000_000
 export const SHEET_DUPLICATE_WINDOW_MS = 15 * 60 * 1000
 /** A date further ahead than this is a typo, not a clock. */
 const FUTURE_TOLERANCE_MS = 10 * 60 * 1000
+/** Longest code of a deck in the sheet («M01»; room for the owner's own names). */
+export const SHEET_CODE_MAX_LENGTH = 20
 /** Prefix of the key of a row in `clientRef` (the phone's keys are UUIDs). */
 export const SHEET_KEY_PREFIX = 'sheet:'
 
@@ -326,7 +328,7 @@ export function parseSheet(text: string, options: { timeZone: string; now: Date 
     if (READ_COLUMNS.every((column) => cell(record, column) === '')) continue
     if (rows.length >= SHEET_IMPORT_MAX_ROWS) {
       return emptySheet(
-        `La hoja tiene más de ${SHEET_IMPORT_MAX_ROWS} filas con datos: importá una parte.`,
+        `La hoja tiene más de ${new Intl.NumberFormat('es-AR').format(SHEET_IMPORT_MAX_ROWS)} filas con datos: importá una parte.`,
         delimiter,
         headerRow,
       )
@@ -354,6 +356,8 @@ export function parseSheet(text: string, options: { timeZone: string; now: Date 
       else row.errors.push(`«En la app» dice «${row.appIdText}»: tiene que ser el número de la partida.`)
     }
     if (row.code === null) row.errors.push('Falta el código del mazo.')
+    // Self-review: a code is a short name (M01–M25); a long text there is something else, and would be saved as a key.
+    else if (row.code.length > SHEET_CODE_MAX_LENGTH) row.errors.push(`Código «${row.code}»: no es un código de mazo.`)
     const result = parseResult(cell(record, 'result'))
     if (result === null) row.errors.push('Falta el resultado.')
     else if (result === undefined)
