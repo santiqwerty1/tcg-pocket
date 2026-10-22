@@ -880,22 +880,26 @@ export function planSheetImport(sheet: ParsedSheet, context: SheetPlanContext): 
     codes,
     counts,
     tooMany,
-    fingerprint: hashText(
-      JSON.stringify({
-        mode: context.mode,
-        rows: written.map((row) => [
-          row.row,
-          row.key,
-          row.deckId,
-          row.playedAt?.toISOString(),
-          row.result,
-          row.wentFirst,
-          row.opponent,
-          row.note,
-          row.rankPlan?.action === 'note' ? row.rank : null,
-        ]),
-      }),
-    ),
+    // Codex on #143: an import that is too big is refused before its fingerprint is compared, so it is not worth
+    // writing out every row (and their notes) to hash them; the preview and the apply give the same short one.
+    fingerprint: tooMany
+      ? hashText(`too-many|${context.mode}|${written.length}`)
+      : hashText(
+          JSON.stringify({
+            mode: context.mode,
+            rows: written.map((row) => [
+              row.row,
+              row.key,
+              row.deckId,
+              row.playedAt?.toISOString(),
+              row.result,
+              row.wentFirst,
+              row.opponent,
+              row.note,
+              row.rankPlan?.action === 'note' ? row.rank : null,
+            ]),
+          }),
+        ),
     orphans,
   }
 }

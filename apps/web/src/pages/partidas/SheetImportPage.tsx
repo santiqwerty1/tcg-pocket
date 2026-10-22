@@ -227,16 +227,31 @@ export function SheetImportPage() {
   /** What the shown preview was asked with: applying sends exactly that, with its fingerprint. */
   const [asked, setAsked] = useState<SheetImportRequest | null>(null)
 
+  /** Bumped when the preview shown is dropped: an answer to a preview asked before it is ignored. */
+  const generation = useRef(0)
+
+  /** Another text (or a file refused): nothing of the one before stays to be applied. */
+  function clearPreview() {
+    generation.current += 1
+    setData(null)
+    setAsked(null)
+    setApplied(null)
+    setInclude([])
+  }
+
   function run(next: Partial<SheetImportRequest> = {}) {
     const body: SheetImportRequest = { text, deckMap, mode, include, ...next }
     if (body.text.trim() === '') return
     setApplied(null)
+    const asking = generation.current
     preview.mutate(body, {
       onSuccess: (result) => {
+        if (asking !== generation.current) return
         setData(result)
         setAsked(body)
       },
       onError: (error) => {
+        if (asking !== generation.current) return
         toast.error(errorMessage(error))
         // Review: the choices go back to the preview shown, which is what «Importar» sends.
         if (asked) {
@@ -250,7 +265,12 @@ export function SheetImportPage() {
 
   async function readFile(file: File) {
     // Codex on #143: the size before reading it (a big file would be read whole into the page for nothing).
+    // Codex on #143: whatever was on screen belonged to the file before, so it goes, also when this one is refused
+    // («Importar» would otherwise apply that one, maybe with the same name).
+    clearPreview()
     if (file.size > SHEET_IMPORT_MAX_CHARS) {
+      setText('')
+      setFileName(null)
       setTooBig(
         `«${file.name}» pesa ${megabytes(file.size)}: el máximo es ${megabytes(SHEET_IMPORT_MAX_CHARS)}. Exportá solo la pestaña «Partidas».`,
       )
@@ -260,9 +280,6 @@ export function SheetImportPage() {
     const content = await file.text()
     setFileName(file.name)
     setText(content)
-    setInclude([])
-    setData(null)
-    setAsked(null)
     run({ text: content, include: [] })
   }
 
@@ -349,9 +366,8 @@ export function SheetImportPage() {
             setText(event.target.value)
             setFileName(null)
             setTooBig(null)
-            // Another text: the preview shown is no longer this one's.
-            setData(null)
-            setAsked(null)
+            // Another text (too long or not): the preview shown is no longer this one's, nor one still on its way.
+            clearPreview()
           }}
           className="max-h-48 font-mono text-sm"
         />

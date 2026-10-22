@@ -337,6 +337,46 @@ describe('importar desde la hoja (T-022)', () => {
     expect(screen.getByRole('button', { name: 'Ver la vista previa' })).toBeDisabled()
   })
 
+  it('Codex on #143: a file refused for its size drops the preview of the one before (nothing of it can be applied)', async () => {
+    const { calls } = fakeApi({ 'POST /api/matches/import/preview': mapped([]) })
+    const user = userEvent.setup()
+    renderAt('/partidas/importar')
+    const input = await screen.findByLabelText('Archivo CSV de la hoja')
+    await user.upload(input, new File([TEXT], 'Partidas.csv', { type: 'text/csv' }))
+    expect(await screen.findByRole('button', { name: 'Importar 1 partida' })).toBeEnabled()
+    // The next export, with the same name, too big.
+    const big = new File(['x'], 'Partidas.csv', { type: 'text/csv' })
+    Object.defineProperty(big, 'size', { value: 5_200_000 })
+    await user.upload(input, big)
+    expect(await screen.findByText(/^«Partidas\.csv» pesa 5,2 MB/u)).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Vista previa' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Importar/u })).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Celdas pegadas de la hoja' })).toHaveValue('')
+    expect(calls.filter((call) => call.path === '/api/matches/import')).toHaveLength(0)
+  })
+
+  it('Codex on #143: a text pasted after an import drops its result too (and a text too long shows nothing old)', async () => {
+    fakeApi({
+      'POST /api/matches/import/preview': mapped([]),
+      'POST /api/matches/import': {
+        imported: [{ row: 6, matchId: '32' }],
+        ranks: 0,
+        counts: counts({ new: 1, write: 1 }),
+        columnK: { firstRow: 5, text: '6\n32\n' },
+      },
+    })
+    const user = userEvent.setup()
+    renderAt('/partidas/importar')
+    const pasted = await screen.findByRole('textbox', { name: 'Celdas pegadas de la hoja' })
+    fireEvent.change(pasted, { target: { value: TEXT } })
+    await user.click(screen.getByRole('button', { name: 'Ver la vista previa' }))
+    await user.click(await screen.findByRole('button', { name: 'Importar 1 partida' }))
+    expect(await screen.findByRole('heading', { name: 'Listo' })).toBeInTheDocument()
+    fireEvent.change(pasted, { target: { value: 'x'.repeat(4_000_001) } })
+    expect(screen.queryByRole('heading', { name: 'Listo' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Vista previa' })).not.toBeInTheDocument()
+  })
+
   it('is reached from «Hoy»', async () => {
     fakeApi({})
     renderAt('/partidas')

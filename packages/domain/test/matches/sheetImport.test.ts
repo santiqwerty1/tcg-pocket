@@ -1,4 +1,18 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+
+/** Codex on #143: the longest text the plan hashes (the hash itself is the real one). */
+const hashed = vi.hoisted(() => ({ longest: 0 }))
+vi.mock('../../src/catalog/hash.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../../src/catalog/hash.js')>()
+  return {
+    ...original,
+    hashText: (text: string) => {
+      hashed.longest = Math.max(hashed.longest, text.length)
+      return original.hashText(text)
+    },
+  }
+})
+
 import {
   detectDelimiter,
   duplicateTextEs,
@@ -518,10 +532,17 @@ describe('the plan of an import', () => {
       const hour = String(Math.floor(i / 60) % 24).padStart(2, '0')
       rows.push(row({ date: `${String(1 + Math.floor(i / 1440)).padStart(2, '0')}/10/2026 ${hour}:${minute}` }))
     }
-    rows[0] = row({ date: '01/10/2026 00:00', rank: 'Ultra Ball 2' })
-    const plan = planSheetImport(parse(csv(rows)), context())
+    rows[0] = row({ date: '01/10/2026 00:00', rank: 'Ultra Ball 2', note: 'x'.repeat(2000) })
+    const tooBig = parse(csv(rows))
+    hashed.longest = 0
+    const plan = planSheetImport(tooBig, context())
     expect(plan.counts.write).toBe(SHEET_IMPORT_MAX_NEW + 1)
     expect(plan.tooMany).toBe(true)
+    // Codex on #143: refused anyway, so its rows (and notes) are not written out to hash them; the same short
+    // fingerprint for the preview and the apply.
+    expect(hashed.longest).toBeLessThan(200)
+    expect(planSheetImport(tooBig, context()).fingerprint).toBe(plan.fingerprint)
+    expect(planSheetImport(tooBig, context({ mode: 'casual' })).fingerprint).not.toBe(plan.fingerprint)
     // Review: nothing of it is applied, so its ranks are not planned (a cost per row).
     expect(plan.rows[0]?.rankPlan).toBeNull()
     const fits = planSheetImport(parse(csv(rows.slice(0, -1))), context())
