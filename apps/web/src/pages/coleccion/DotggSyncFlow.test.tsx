@@ -49,6 +49,7 @@ const preview = {
     requiresReview: true,
     reviewReasons: ['Es la primera sincronización con ptcgpocket.gg: revisá los cambios antes de aplicarlos.'],
     unmatched: [{ line: 9, set: 'C9', number: 4, name: 'Future Card', copies: 2 }],
+    renamed: [{ line: 3, cardId: 'B4b-372', name: 'Charizard ex', catalogName: 'Small Balloon', copies: 1 }],
     missingExpansions: [],
   },
   unknownIds: ['C9-4'],
@@ -155,6 +156,9 @@ describe('sync with the game', () => {
     expect(screen.getByRole('heading', { name: 'Cartas que el catálogo no tiene (1)' })).toBeInTheDocument()
     expect(screen.getByText('Future Card')).toBeInTheDocument()
     expect(screen.getByText('C9-4')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Cartas con otro nombre (1)' })).toBeInTheDocument()
+    expect(screen.getByText('Charizard ex')).toBeInTheDocument()
+    expect(screen.getByText(/en el catálogo: Small Balloon/)).toBeInTheDocument()
     expect(screen.queryByText('Filas')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /Ids desconocidos/ })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Aplicar' }))
