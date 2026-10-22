@@ -1,0 +1,115 @@
+{
+  "_inventado": "FIXTURE INVENTADO (22/10/2026). No son datos reales: cartas de C1 «Dual Fusion» armadas a mano antes de que el tracker y deckgym las carguen, para probar el tipo como lista. Solo los nombres y los dos tipos de Mega Mewtwo X ex (Psíquico/Lucha) y Mega Greninja ex (Agua/Oscuridad) son los anunciados (ptcgpocket.gg/c1); los PS, ataques, números, ids, sobres y debilidades son inventados, y también la forma en que el tracker y deckgym escriben dos tipos (una lista, un texto con «/» y un campo aparte). Reemplazarlo por los datos reales cuando existan.",
+  "expansion": {
+    "name": "dualfusion",
+    "id": "C1",
+    "internalId": 23,
+    "packs": [
+      { "name": "megamewtwoxpack", "color": "#9a78c0" },
+      { "name": "everypack", "color": "#c0c0c0" }
+    ],
+    "tradeable": true,
+    "openable": true,
+    "packStructure": { "containsShinies": true, "containsBabies": false, "containsLinkedCards": false, "cardsPerPack": 5 }
+  },
+  "cards": [
+    {
+      "expansion": "C1",
+      "card_id": "C1-1",
+      "image": "/images/en-US/C1-1.webp",
+      "hp": 180,
+      "energy": ["psychic", "fighting"],
+      "name": "Mega Mewtwo X ex",
+      "card_type": "pokémon",
+      "evolution_type": "basic",
+      "attacks": [
+        { "cost": ["psychic", "fighting", "colorless"], "name": "Invented Burst", "damage": "130", "effect": "No effect" }
+      ],
+      "weakness": "darkness",
+      "retreat": 2,
+      "rarity": "◊◊◊◊",
+      "ex": true,
+      "baby": false,
+      "pack": "megamewtwoxpack",
+      "alternate_versions": [1507395],
+      "artist": "Invented",
+      "internal_id": 1507395
+    },
+    {
+      "expansion": "C1",
+      "card_id": "C1-2",
+      "image": "/images/en-US/C1-2.webp",
+      "hp": 170,
+      "energy": "water/darkness",
+      "name": "Mega Greninja ex",
+      "card_type": "pokémon",
+      "evolution_type": "basic",
+      "attacks": [{ "cost": ["water", "darkness"], "name": "Invented Shuriken", "damage": "90", "effect": "No effect" }],
+      "weakness": "lightning",
+      "retreat": 1,
+      "rarity": "◊◊◊◊",
+      "ex": true,
+      "baby": false,
+      "pack": "everypack",
+      "alternate_versions": [1507459],
+      "artist": "Invented",
+      "internal_id": 1507459
+    },
+    {
+      "expansion": "C1",
+      "card_id": "C1-3",
+      "image": "/images/en-US/C1-3.webp",
+      "hp": 70,
+      "energy": "water",
+      "name": "Piplup",
+      "card_type": "pokémon",
+      "evolution_type": "basic",
+      "attacks": [{ "cost": ["water"], "name": "Invented Splash", "damage": "20", "effect": "No effect" }],
+      "weakness": "lightning",
+      "retreat": 1,
+      "rarity": "◊",
+      "ex": false,
+      "baby": false,
+      "pack": "everypack",
+      "alternate_versions": [1507520],
+      "artist": "Invented",
+      "internal_id": 1507520
+    }
+  ],
+  "engine": [
+    {
+      "Pokemon": {
+        "id": "C1 001",
+        "name": "Mega Mewtwo X ex",
+        "stage": 0,
+        "evolves_from": null,
+        "hp": 180,
+        "energy_type": "Psychic",
+        "secondary_energy_type": "Fighting",
+        "rarity": "◊◊◊◊"
+      }
+    },
+    {
+      "Pokemon": {
+        "id": "C1 002",
+        "name": "Mega Greninja ex",
+        "stage": 0,
+        "evolves_from": null,
+        "hp": 170,
+        "energy_types": ["Darkness", "Water"],
+        "rarity": "◊◊◊◊"
+      }
+    },
+    {
+      "Pokemon": {
+        "id": "C1 003",
+        "name": "Piplup",
+        "stage": 0,
+        "evolves_from": null,
+        "hp": 70,
+        "energy_type": "Water",
+        "rarity": "◊"
+      }
+    }
+  ]
+}

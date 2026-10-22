@@ -26,7 +26,7 @@ import type {
   RarityRule,
   StockUnit,
 } from '@tcg/domain'
-import { DEFAULT_RARITY_RULES, PACKS_LIMITED_BY_DEFAULT, PACKS_OFF_BY_DEFAULT } from '@tcg/domain'
+import { DEFAULT_RARITY_RULES, PACKS_LIMITED_BY_DEFAULT, PACKS_OFF_BY_DEFAULT, typesOf } from '@tcg/domain'
 import type pg from 'pg'
 import type { CatalogSync } from '../generated/prisma/client.js'
 import type { CatalogSyncStatus } from '../generated/prisma/enums.js'
@@ -175,6 +175,7 @@ export class CatalogRepository {
           'name_es_source',
           'hp',
           'energy',
+          'types',
           'card_type',
           'evolution_type',
           'evolves_from',
@@ -208,6 +209,7 @@ export class CatalogRepository {
           card.nameEsSource,
           card.hp,
           card.energy,
+          card.types,
           card.cardType,
           card.evolutionType,
           card.evolvesFrom,
@@ -423,6 +425,8 @@ export class CatalogRepository {
       nameEsSource: row.nameEsSource as NameEsSource,
       hp: row.hp,
       energy: row.energy as EnergyType | 'trainer',
+      // A row written before the column existed has []: its one type is `energy` (the migration fills it too).
+      types: typesOf({ energy: row.energy as EnergyType | 'trainer', types: row.types as EnergyType[] }),
       cardType: row.cardType as CardType,
       evolutionType: row.evolutionType as EvolutionType,
       evolvesFrom: row.evolvesFrom,

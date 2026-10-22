@@ -32,6 +32,8 @@ import {
   parseLocaleTable,
   parseTrackerCards,
   parseTranslationTable,
+  TRACKER_CARD_FIELDS,
+  TRACKER_IGNORED_FIELDS,
   type TrackerCard,
 } from './schemas.js'
 import type {
@@ -205,6 +207,26 @@ function parseInput(input: BuildCatalogInput): ParsedInput {
   }
 }
 
+const KNOWN_TRACKER_FIELDS: ReadonlySet<string> = new Set([...TRACKER_CARD_FIELDS, ...TRACKER_IGNORED_FIELDS])
+
+/**
+ * The `cards.json` fields the catalog neither reads nor ignores on purpose, with how many cards carry each: the schema
+ * drops them silently, so the report names them («a field may carry a second type»). Run after the schema passed.
+ */
+export function unknownTrackerFields(cardsJson: unknown): string[] {
+  if (!Array.isArray(cardsJson)) return []
+  const counts = new Map<string, number>()
+  for (const row of cardsJson) {
+    if (!row || typeof row !== 'object') continue
+    for (const key of Object.keys(row)) {
+      if (!KNOWN_TRACKER_FIELDS.has(key)) counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+  }
+  return [...counts]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, count]) => `cards.json has a field the catalog does not read: '${key}' (${count} cards)`)
+}
+
 /**
  * H-008: the pack rates exist for packs of 4 and 5 cards. A new size keeps the expansion and its cards but leaves it
  * out of the pack math, with a warning, instead of failing the whole sync.
@@ -232,6 +254,8 @@ export function buildCatalogWithReport(input: BuildCatalogInput): BuildResult {
   const warnings: string[] = []
   const craftingCost = parseCraftingCostFromCardsDb(input.cardsDbSource)
   const engineJoin = joinEngineData(cards, parseEngineCards(input.engineCards))
+  // C1: a field the catalog does not know may carry something it should read (a second type written apart, say).
+  for (const warning of unknownTrackerFields(input.cardsJson)) warnings.push(warning)
 
   // --- Expansions in catalog order (first appearance in cards.json), then CardsDB-only ones. ---
   const trackerExpansionById = new Map(parsed.expansions.map((expansion) => [expansion.id, expansion]))
@@ -373,6 +397,7 @@ export function buildCatalogWithReport(input: BuildCatalogInput): BuildResult {
       nameEsSource: localized.source,
       hp: raw.hp ?? null,
       energy: raw.energy,
+      types: [...raw.types],
       cardType,
       evolutionType: raw.evolution_type,
       evolvesFrom: cardType === 'trainer' ? null : engine.evolvesFrom,

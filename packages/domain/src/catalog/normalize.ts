@@ -122,6 +122,8 @@ export interface RulesTextInput {
   cardType: CardType
   evolutionType: EvolutionType
   energy: EnergyType | 'trainer'
+  /** Every printed type; only a second one adds to the text (C1), so the hash of a one-type card never changes. */
+  types?: readonly EnergyType[] | undefined
   hp: number | null
   weakness: EnergyType | null
   retreat: number | null
@@ -145,6 +147,7 @@ export function rulesTextOf(card: RulesTextInput): string {
     `retreat:${card.retreat ?? ''}`,
     `ex:${card.ex ? 1 : 0}`,
   ]
+  if (card.types && card.types.length > 1) lines.push(`types:${card.types.join(',')}`)
   for (const attack of card.attacks) {
     lines.push(`attack:${attack.name}|${attack.cost.join(',')}|${attack.damage ?? ''}|${attack.effect ?? ''}`)
   }
