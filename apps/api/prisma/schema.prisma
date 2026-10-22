@@ -820,6 +820,9 @@ model WorkerNode {
   pausedSince    DateTime? @map("paused_since") @db.Timestamptz(3)
   /// `process.platform` it runs on (android, win32, linux), from worker 0.3.5.
   platform       String?
+  /// D-025: whether it takes the slow bots (m, e3+, f3+ and every g), as its last claim said; a worker that does not
+  /// say it takes them all. The worker_idle alert reads it (review of #142).
+  allowSlowBots  Boolean   @default(true) @map("allow_slow_bots")
   lastSeenAt     DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(3)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 

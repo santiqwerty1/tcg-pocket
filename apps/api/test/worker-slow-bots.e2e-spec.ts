@@ -117,6 +117,22 @@ describe('worker slow bot preference (D-025)', () => {
     },
   )
 
+  it('keeps what each claim says on the worker, for the worker_idle alert (review of #142)', async () => {
+    const said = async (id = hello.workerId) =>
+      (await test.prisma.workerNode.findUniqueOrThrow({ where: { id } })).allowSlowBots
+    // A worker's first claim already says it (review of #144: a new Android is not taken as accepting them).
+    await claim({ ...hello, workerId: 'worker-new-android', allowSlowBots: false })
+    expect(await said('worker-new-android')).toBe(false)
+    await claim({ ...hello, allowSlowBots: false })
+    expect(await said()).toBe(false)
+    // A worker from before D-025 does not say it, and takes every bot.
+    await claim(hello)
+    expect(await said()).toBe(true)
+    await claim({ ...hello, allowSlowBots: false })
+    await claim({ ...hello, allowSlowBots: true })
+    expect(await said()).toBe(true)
+  })
+
   it('keeps D-024 class, priority and remaining-chunk order among eligible jobs', async () => {
     const slow = await job(['e3', 'e2'], { priority: 100, params: { lab: {} } })
     const matrix = await job(['e2', 'f2'], { kind: 'matrix', priority: 50 })

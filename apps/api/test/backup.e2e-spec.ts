@@ -14,6 +14,8 @@ import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
  */
 const CSV_PATH = join(REPO_ROOT, 'docs/context/tcgcollectiontracterexport-2026-10-06.csv')
 const DECKS_PATH = join(REPO_ROOT, 'docs/context/mazos_40_listas.md')
+/** T-022: the clientRef of one match (version 11 carries it). */
+const CLIENT_REF = '0f1e2d3c-4b5a-4968-8776-655443322110'
 
 interface Doc {
   schemaVersion: number
@@ -127,6 +129,8 @@ describe('backup and settings (e2e)', () => {
           playedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
           // Version 9 (14/10): the rival's cards seen travel with the match.
           opponentCards: [{ cardId: 'A1-89', count: 2 }],
+          // Version 11 (T-022): and its clientRef (a match saved offline, or a row of the sheet).
+          clientRef: CLIENT_REF,
         })
       ).status,
     ).toBe(201)
@@ -198,7 +202,7 @@ describe('backup and settings (e2e)', () => {
     const seen = document.matches.map((match) => (match as { opponentCards?: unknown }).opponentCards)
     expect(seen).toEqual(expect.arrayContaining([[], [{ cardId: 'A1-89', count: 2 }]]))
     expect(document).toMatchObject({
-      schemaVersion: 10,
+      schemaVersion: 11,
       catalogCommit: test.env.catalogCommit,
       engineRev: test.env.engineRev,
       settings: [
@@ -236,7 +240,13 @@ describe('backup and settings (e2e)', () => {
       result: 'win',
       opponentText: 'Mega-Blaziken ex',
     })
-    expect(document.matches[1]).toMatchObject({ deckId: Number(deckIds[1]), result: 'loss', mode: 'competitive' })
+    expect(document.matches[1]).toMatchObject({
+      deckId: Number(deckIds[1]),
+      result: 'loss',
+      mode: 'competitive',
+      clientRef: CLIENT_REF,
+    })
+    expect(document.matches[0]).toMatchObject({ clientRef: null })
     expect(document.tokens.map((t) => t.name)).toEqual(['worker'])
     expect(document.tokens[0]).not.toHaveProperty('tokenHash')
     expect(document.rarityRules.length).toBeGreaterThan(0)
@@ -262,7 +272,7 @@ describe('backup and settings (e2e)', () => {
   it('dry-run reports counts and notices without touching the data', async () => {
     const response = await post('/api/backup/import?mode=dry-run').attach('file', exported, 'backup.json.gz')
     expect(response.status).toBe(200)
-    expect(response.body).toMatchObject({ schemaVersion: 10, catalogCommit: test.env.catalogCommit })
+    expect(response.body).toMatchObject({ schemaVersion: 11, catalogCommit: test.env.catalogCommit })
     expect(response.body.diff.incoming.matches).toBe(2)
     expect(response.body.diff.incoming.playedGames).toBe(1)
     expect(response.body.diff.incoming).toEqual(response.body.diff.current)
@@ -374,6 +384,10 @@ describe('backup and settings (e2e)', () => {
     const logged = await post('/api/matches').send({ deckId: deckIds[0], result: 'tie' })
     expect(logged.status).toBe(201)
     expect(Number(logged.body.id)).toBeGreaterThan(Math.max(...document.matches.map((m) => m.id)))
+    // T-022: the clientRef came back too, so the same match sent again is still the one restored.
+    const resent = await post('/api/matches').send({ deckId: deckIds[1], result: 'loss', clientRef: CLIENT_REF })
+    expect(resent.body.id).toBe(String(document.matches[1]?.id))
+    expect((await get('/api/matches')).body.total).toBe(3)
     expect((await test.http().delete(`/api/matches/${logged.body.id}`).set('Cookie', cookie)).status).toBe(204)
 
     // The finished game comes back as a result (no moves, no replay); the one being played was left alone.
@@ -427,6 +441,37 @@ describe('backup and settings (e2e)', () => {
     expect(dry.body.diff.notices.some((n: string) => n.includes('sin cartas vistas'))).toBe(true)
     const current = await post('/api/backup/import?mode=dry-run').attach('file', exported, 'backup.json.gz')
     expect(current.body.diff.notices.some((n: string) => n.includes('sin cartas vistas'))).toBe(false)
+  })
+
+  it('T-022: a version 10 backup (no clientRef) reads with a notice; a clientRef twice is an invalid file', async () => {
+    const v10 = {
+      ...document,
+      schemaVersion: 10,
+      matches: document.matches.map((match) => {
+        const { clientRef: _ref, ...rest } = match as typeof match & { clientRef?: unknown }
+        return rest
+      }),
+    }
+    const dry = await post('/api/backup/import?mode=dry-run').attach(
+      'file',
+      gzipSync(Buffer.from(JSON.stringify(v10))),
+      'v10.json.gz',
+    )
+    expect(dry.status).toBe(200)
+    expect(dry.body.diff.notices.some((n: string) => n.includes('anterior a la importación desde la hoja'))).toBe(true)
+    const current = await post('/api/backup/import?mode=dry-run').attach('file', exported, 'backup.json.gz')
+    expect(current.body.diff.notices.some((n: string) => n.includes('importación desde la hoja'))).toBe(false)
+    const twice = {
+      ...document,
+      matches: document.matches.map((match) => ({ ...match, clientRef: 'sheet:0123456789abcdef' })),
+    }
+    const bad = await post('/api/backup/import?mode=dry-run').attach(
+      'file',
+      gzipSync(Buffer.from(JSON.stringify(twice))),
+      'twice.json.gz',
+    )
+    expect(bad.status).toBe(400)
+    expect(bad.body.error.code).toBe('invalid_backup')
   })
 
   it('review of #120: a backup with an unknown rank, points below Master Ball or overlapping seasons is refused', async () => {
@@ -512,7 +557,7 @@ describe('backup and settings (e2e)', () => {
     expect(download.status).toBe(200)
     expect(download.headers['content-type']).toBe('application/gzip')
     const parsed = JSON.parse(gunzipSync(download.body as Buffer).toString('utf8')) as Doc
-    expect(parsed.schemaVersion).toBe(10)
+    expect(parsed.schemaVersion).toBe(11)
     expect(parsed.matches).toHaveLength(2)
     expect(parsed.decks).toHaveLength(4)
     expect((await get('/api/backup/blobs/999999')).status).toBe(404)
@@ -542,7 +587,7 @@ describe('backup and settings (e2e)', () => {
     try {
       const copy = await get('/api/backup/export').responseType('blob')
       const doc = JSON.parse(gunzipSync(copy.body as Buffer).toString('utf8'))
-      expect(doc.schemaVersion).toBe(10)
+      expect(doc.schemaVersion).toBe(11)
       expect(Object.keys(doc).some((key) => /simulat/i.test(key))).toBe(false)
       expect(JSON.stringify(doc)).not.toContain(job.label)
       expect((await post('/api/backup/import?mode=replace').attach('file', copy.body, 'backup.json.gz')).status).toBe(

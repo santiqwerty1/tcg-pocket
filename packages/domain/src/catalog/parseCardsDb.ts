@@ -29,6 +29,37 @@ export interface TrackerExpansion {
   packStructure: (Omit<PackStructure, 'cardsPerPack'> & { cardsPerPack: number }) | null
 }
 
+/**
+ * The tracker renamed `containsBabies` to `containSixthCardBabies` on 15/10/2026 (aac8d456, «Add deluxe mega pack
+ * odds»), same meaning: the 6-card pack that brings the babies. Either name is read; with both, they must agree.
+ */
+const trackerPackStructureSchema = z
+  .object({
+    containsShinies: z.boolean(),
+    containsBabies: z.boolean().optional(),
+    containSixthCardBabies: z.boolean().optional(),
+    containsLinkedCards: z.boolean(),
+    // H-008: any size parses; a size without known rates is left out of the pack math (with a warning).
+    cardsPerPack: z.number().int().positive(),
+  })
+  .transform((structure, ctx) => {
+    const { containsBabies: before, containSixthCardBabies: after } = structure
+    if (before === undefined && after === undefined) {
+      ctx.addIssue({ code: 'custom', message: 'packStructure: containSixthCardBabies (or containsBabies) is missing' })
+      return z.NEVER
+    }
+    if (before !== undefined && after !== undefined && before !== after) {
+      ctx.addIssue({ code: 'custom', message: 'packStructure: containsBabies and containSixthCardBabies disagree' })
+      return z.NEVER
+    }
+    return {
+      containsShinies: structure.containsShinies,
+      containsBabies: (after ?? before) as boolean,
+      containsLinkedCards: structure.containsLinkedCards,
+      cardsPerPack: structure.cardsPerPack,
+    }
+  })
+
 const trackerExpansionSchema = z.object({
   name: z.string().min(1),
   id: z.string().min(1),
@@ -37,15 +68,7 @@ const trackerExpansionSchema = z.object({
   tradeable: z.boolean(),
   openable: z.boolean(),
   promo: z.boolean().optional(),
-  packStructure: z
-    .object({
-      containsShinies: z.boolean(),
-      containsBabies: z.boolean(),
-      containsLinkedCards: z.boolean(),
-      // H-008: any size parses; a size without known rates is left out of the pack math (with a warning).
-      cardsPerPack: z.number().int().positive(),
-    })
-    .optional(),
+  packStructure: trackerPackStructureSchema.optional(),
 })
 
 const craftingCostSchema = z.partialRecord(z.enum(RARITIES), z.number().int().nonnegative())

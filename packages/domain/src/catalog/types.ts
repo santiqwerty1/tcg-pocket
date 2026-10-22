@@ -153,7 +153,7 @@ export interface Expansion {
   sortOrder: number
   isPromo: boolean
   tradeable: boolean
-  /** The tracker's `openable` flag, informative only (A4b/B4b are false there). */
+  /** The tracker's `openable` flag, informative only (A4b is false there, and B4b was until aac8d456). */
   openableTracker: boolean
   packStructure: PackStructure | null
   packIds: string[]

@@ -5,11 +5,12 @@ import { SimulationModule } from '../simulation/simulation.controller.js'
 import { TournamentsModule } from '../tournaments/tournaments.controller.js'
 import { DeckComparisonController, MatchesController } from './matches.controller.js'
 import { MatchesService } from './matches.service.js'
+import { SheetImportService } from './sheet-import.service.js'
 
 @Module({
   imports: [TournamentsModule, SimulationModule, CatalogModule, RankedModule],
   controllers: [MatchesController, DeckComparisonController],
-  providers: [MatchesService],
+  providers: [MatchesService, SheetImportService],
   exports: [MatchesService],
 })
 export class MatchesModule {}

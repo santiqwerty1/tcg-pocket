@@ -330,6 +330,10 @@ Lo demás que g necesita ya es público:
    - el mazo 23 no sube a Latios sin Energía.
 
    Además, el porcentaje contra los mismos rivales de los trabajos de simulación #52 y #53 de Infra, con e2, f2 y e3.
+   Contra el banco se mide con `scripts/bots-bank.mjs`: el mismo bot de los dos lados, 200 partidas por lista, la
+   lista k con la semilla 777000 + k y el porcentaje ponderado como el `metaScore` del laboratorio. Las 18 listas del
+   banco del 15/10 están en `scripts/fixtures/bank-b4a-20261015.json`, y los mazos 16, 23 y 40, en el archivo de la
+   liga. Reproduce las mediciones de H-055 del 22/10 (por ejemplo, el mazo 16 con e2: 16,9 %).
 3. **La fuerza, que es la meta:** una liga entre g2, e2, f2 y e3, y más adelante g2 contra sus versiones anteriores.
    - Los mazos son el banco del meta (las 18 listas de B4a), más el 16, el 23 y el 40.
    - Se juega cada par en los dos lados, con las mismas semillas, así que se compara partida por partida.

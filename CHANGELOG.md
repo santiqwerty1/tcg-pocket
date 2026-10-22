@@ -5,10 +5,16 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-19 desde la etiqueta `v1.0.0` (257 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-22 desde la etiqueta `v1.0.0` (286 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- bots-bank.mjs — a deck against the meta bank with the same bot on both sides, as H-055 measured it (T-021) `82a94b4`
+- the worker_idle alert sees allowSlowBots — each claim saves it on the worker, and a job with slow bots that only refusing workers are left to take is alerted (D-025, T-015) (#142) `38ed95b`
+- the app accepts the g bots — the queue gives them only to engine-cli 0.3.16 on, and g1 and g2 are back in the golden games (T-021) (D-029, #128, #139, #140, D-025) `148fc08`
+- «Importar desde la hoja» in Partidas — upload the CSV or paste the cells, the codes' decks, possible repeats, mode, import and the numbers for column K (T-022) `4de1556`
+- import the sheet — preview without writes, apply all or nothing under the ranks' lock with the preview's fingerprint, the codes' decks saved; backup 11 carries clientRef (T-022) `74d6007`
+- read the owner's match sheet — RFC 4180 with comma, semicolon or tab, header by its text, keys, possible repeats, ranks and column K (T-022) `355338b`
 - the engine moves to next/adfe505 at c87bad0, with the value function that skips its zero weights (D-031) `f5c68df`
 - catalog-sync says which tracker commit and engine rev it uses, and where each comes from (Fase 38) `a589c33`
 - T1b of the chat's move to the hub — a room marked as moved answers its bridge 410 chat_moved and takes no writes, and the old connector's chat tools go to the hub (D-030, D5) `9a6ba30`
@@ -55,6 +61,17 @@ _Borrador generado al 2026-10-19 desde la etiqueta `v1.0.0` (257 commits). Escri
 
 ### Corregido
 
+- bots-bank resolves every subject before the first game, so a misspelled one costs no games (T-021) (#146) `1eec5c4`
+- bots-bank refuses a run that cannot give a score, does not play lists without weight, and keeps seed + k distinct (T-021) (#146) `76b0c16`
+- slow bots are the worker's setting — not named when no worker has the job's deckgym but one takes them, and the alert says updating does not fix it (D-025) (#144) `6aea442`
+- a prerelease comes before its release in versionAtLeast — engine-cli 0.3.16-rc.1 does not play the g of 0.3.16 (T-021) (#142) `da2bda0`
+- Codex on #143 — a file read after the next one was chosen is dropped, and an unquoted cell is read in one slice (T-022) `a8a2762`
+- the review of #143 — writes under the ranks' lock wait for it as long as an import may hold it and give 503 ranks_busy past that; column K keeps a one-line text as written (T-022) `82dd832`
+- read the tracker's renamed baby flag, containSixthCardBabies (aac8d456) `069bfda`
+- Codex on #143 — a refused file or text drops the preview before it, and a refused import is not written out to hash; hashText walks backwards instead of building the reverse (T-022) `d2beb5c`
+- Codex and the review of #143 — decks locked against a delete, every rank and season write under the ranks' lock, lone CRs counted, the file's size checked first, indexed repeats, quotes across cells, K numbers only and checked, dates before the game, a corrected day found (T-022) `e79311f`
+- the self-review of the sheet import — a corrected row finds its old match the same day, decks locked before matches (the drill's order), unclosed quotes and huge texts refused, ranks planned once per note, tests for the fingerprint, the key's claim, the table lock and the moved match (T-022) `0934cc0`
+- a long text in the code column is no deck code, and the row cap reads «10.000» (T-022) `ccf7cf1`
 - the clock's bound drops the hit whenever the knockouts that need none give the points left (T-021) `0f75472`
 - the clock's bound counts no hit when a poison can take a knockout, and tests for the Energy type of the two discards (T-021) (#139) `9bb10ae`
 - a Grass Energy under the Jungle Totem an evolution brings counts twice, not four times, and an Active it cannot hurt is waited out while its poison falls (T-021) (#128) `40ac797`
@@ -190,6 +207,12 @@ _Borrador generado al 2026-10-19 desde la etiqueta `v1.0.0` (257 commits). Escri
 
 ### Documentado
 
+- the worker_idle alert does not model the consistency version gates — a known limit (D-025) (#144) `5941e20`
+- the lock wait and column K kept as written (T-022) `72ada7d`
+- the decisions and API of the fixes to the sheet import (T-022) `23dec9a`
+- the corrected rows, what is not read and the lock order of the sheet import (T-022) `e790c8c`
+- the sheet import in API.md, backup 11, and its decisions pending (T-022) `df99e4c`
+- 19/10 afternoon — H-059 resolved by #137, g 1.1 to 1.1.2, the engine on c87bad0 after matrix 75, the calibrations of D-029's bigger bank, Master Ball noted; fold the decisions of #128 and #137–#140 (D-029, D-031, H-059, R-012, T-015, T-021, T-022) `65e0cb9`
 - g 1.1's final numbers on 25554ff with the engine 0b510d1, and the last Codex findings of #128 (T-021) `a36e43d`
 - the last Codex fixes on #128, the two panics found measuring, and g's debt (T-021) `d9dc7bd`
 - H-059 — the relaunched jobs 68–71 built the deck snapshots with the Ryzen's card status, so their scores do not reach the decks; matrix 71 cancelled and everything relaunched as 72–75 (D-031, T-015) `7415272`
@@ -252,6 +275,11 @@ _Borrador generado al 2026-10-19 desde la etiqueta `v1.0.0` (257 commits). Escri
 
 ### Pruebas
 
+- the installer test answers the slow-bots prompt that now names the g bots (T-021) `84cc7df`
+- the golden games see what g models apart from f — poison, burn and Tools — and the worker hint spares Androids that turn g down (T-021) (#142, H-051) `3429230`
+- count the reads of the matches list in the 10.000-row plan (T-022) `1354d4a`
+- the fingerprint changes with the mode alone (T-022) `d1cb6c8`
+- the sheet import on a 375 px phone (screens), and the page hides the preview once applied and offers column K only when nothing waits for a deck (T-022) `e640eb4`
 - the season of the matches_log e2e starts yesterday, so the test passes between 00:00 and 02:00 (T-022) (#130, #128) `c00e29b`
 - the engine pin guard checks both locks, the API README and every sha of LICENCIAS (review of the pin, D-031) `a56d62f`
 - Dedenne attaches its Tools before attacking, as a fixed case (T-021, H-055) `d7531a7`
@@ -274,6 +302,7 @@ _Borrador generado al 2026-10-19 desde la etiqueta `v1.0.0` (257 commits). Escri
 
 ### Mantenimiento
 
+- the aac8d456 fixture keeps only the two literals, and the openable note follows the tracker `8ab1112`
 - review of #132 — implicit pushes, combined -f flags, deletes, prune and pack options still ask; tests and lint allowed only without arguments (D-021) `50f8029`
 - fewer manual approvals — git push asks only for main, force, delete, mirror or all; safe read and test commands allowed (D-021) `aaea264`
 - engine-cli 0.3.14 for the new pin, 0.3.13 stays with #117 (D-031) `da64829`
@@ -281,7 +310,6 @@ _Borrador generado al 2026-10-19 desde la etiqueta `v1.0.0` (257 commits). Escri
 - bump the development group with 2 updates (#61) `7f62616`
 - bump the production group with 3 updates (#60) `a7f8afc`
 - bump actions/setup-node from 4 to 7 (#59) `db16eeb`
-
 ### Hallazgos cerrados
 
 - H-059 por `703b89b` en main
@@ -292,6 +320,8 @@ _Borrador generado al 2026-10-19 desde la etiqueta `v1.0.0` (257 commits). Escri
 
 ### Decidido
 
+- 2026-10-22 — D-031 y T-023, decidido por Santiago: el motor no se mueve hasta que upstream cargue C1 «Dual Fusion»; ese día entran juntos C1, los arreglos de upstream y nuestras dos ramas. Para C1, los PR 3 y 4 antes del 29/10, el issue upstream del doble tipo, el sobre especial aparte y apagado, y los Community Decks más adelante.
+- 2026-10-22 — T-024, pedido de Santiago: la colección real desde ptcgpocket.gg, con el archivo para poner al día el tracker.
 - 2026-10-19 — D-029: el Coordinador lanzó, a pedido de Santiago, las calibraciones e2 y e3 con el banco grande que Santiago decidió el 13/10 (33 listas, 1.000 partidas por cruce) y MCTS, con el motor `c87bad0`.
 - 2026-10-18 — D-021, decidido por Santiago: menos aprobaciones a mano (los comandos seguros y `git push` a las ramas que no son main, #132) y `enforce_admins` en main.
 - 2026-10-18 — D-031: Santiago aprobó rearmar el fork de deckgym sobre upstream `adfe505` con solo `fix/choose-evolution-target` y `feat/bot-api` (engine-cli 0.3.14 y worker 0.3.12); después se relanzan los 41 mazos, la matriz y las calibraciones.
