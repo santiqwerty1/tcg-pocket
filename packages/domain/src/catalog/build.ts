@@ -112,8 +112,19 @@ export interface BuildReport {
   groupsWithMixedRules: CardId[]
   /** Group ids whose editions do not all share the same English name (should be empty). */
   groupsWithMixedNames: CardId[]
+  /**
+   * `cards.json` fields the catalog neither reads nor leaves out on purpose (C1: a second type written apart would
+   * land here). Applying from the app asks for confirmation while there is any.
+   */
+  unknownTrackerFields: UnknownTrackerField[]
   /** Human-readable anomalies that did not stop the build. */
   warnings: string[]
+}
+
+export interface UnknownTrackerField {
+  field: string
+  /** How many cards carry it. */
+  cards: number
 }
 
 export interface BuildResult {
@@ -213,7 +224,7 @@ const KNOWN_TRACKER_FIELDS: ReadonlySet<string> = new Set([...TRACKER_CARD_FIELD
  * The `cards.json` fields the catalog neither reads nor ignores on purpose, with how many cards carry each: the schema
  * drops them silently, so the report names them («a field may carry a second type»). Run after the schema passed.
  */
-export function unknownTrackerFields(cardsJson: unknown): string[] {
+export function unknownTrackerFields(cardsJson: unknown): UnknownTrackerField[] {
   if (!Array.isArray(cardsJson)) return []
   const counts = new Map<string, number>()
   for (const row of cardsJson) {
@@ -222,9 +233,12 @@ export function unknownTrackerFields(cardsJson: unknown): string[] {
       if (!KNOWN_TRACKER_FIELDS.has(key)) counts.set(key, (counts.get(key) ?? 0) + 1)
     }
   }
-  return [...counts]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, count]) => `cards.json has a field the catalog does not read: '${key}' (${count} cards)`)
+  return [...counts].sort(([a], [b]) => a.localeCompare(b)).map(([field, cards]) => ({ field, cards }))
+}
+
+/** The warning for an unknown field, as the sync report and the preview show it. */
+export function unknownTrackerFieldWarning({ field, cards }: UnknownTrackerField): string {
+  return `cards.json has a field the catalog does not read: '${field}' (${cards} cards)`
 }
 
 /**
@@ -255,7 +269,8 @@ export function buildCatalogWithReport(input: BuildCatalogInput): BuildResult {
   const craftingCost = parseCraftingCostFromCardsDb(input.cardsDbSource)
   const engineJoin = joinEngineData(cards, parseEngineCards(input.engineCards))
   // C1: a field the catalog does not know may carry something it should read (a second type written apart, say).
-  for (const warning of unknownTrackerFields(input.cardsJson)) warnings.push(warning)
+  const unknownFields = unknownTrackerFields(input.cardsJson)
+  for (const field of unknownFields) warnings.push(unknownTrackerFieldWarning(field))
 
   // --- Expansions in catalog order (first appearance in cards.json), then CardsDB-only ones. ---
   const trackerExpansionById = new Map(parsed.expansions.map((expansion) => [expansion.id, expansion]))
@@ -562,6 +577,7 @@ export function buildCatalogWithReport(input: BuildCatalogInput): BuildResult {
     unmatchedEngineIds: engineJoin.unmatchedEngineIds,
     groupsWithMixedRules,
     groupsWithMixedNames,
+    unknownTrackerFields: unknownFields,
     warnings,
   }
   return { catalog, report }

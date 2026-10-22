@@ -1,6 +1,6 @@
 import { typesInPlay, typesOf } from '@tcg/domain'
 import { describe, expect, it } from 'vitest'
-import { editionTypes, editionTypesInPlay, energyLabel } from './energies'
+import { editionTypes, editionTypesInPlay, energyLabel, weaknessHint } from './energies'
 
 describe('the types of an edition (C1: two for the dual-type Pokémon)', () => {
   it('reads the list when it starts with energy, else energy alone; trainers have none', () => {
@@ -56,5 +56,23 @@ describe('the web follows the domain rule', () => {
     expect(energyLabel('dragon')).toBe('Dragón')
     expect(energyLabel('colorless')).toBe('Incoloro')
     expect(energyLabel('psychic')).toBe('Psíquico')
+  })
+})
+
+describe('the «+20 por debilidad» hint against the bot', () => {
+  it('counts any type of the attacker in play, and stays quiet without a match or without the editions', () => {
+    const mewtwo = { energy: 'psychic', types: ['psychic', 'fighting'] }
+    expect(weaknessHint(mewtwo, { weakness: 'fighting' }, 'Pikachu')).toBe('+20 por debilidad de Pikachu')
+    expect(weaknessHint(mewtwo, { weakness: 'psychic' }, 'Pikachu')).toBe('+20 por debilidad de Pikachu')
+    expect(weaknessHint(mewtwo, { weakness: 'darkness' }, 'Pikachu')).toBeNull()
+    const urshifu = {
+      energy: 'water',
+      types: ['water'],
+      ability: { effect: 'As long as this Pokémon is in play, it is [W] and [F] type.' },
+    }
+    expect(weaknessHint(urshifu, { weakness: 'fighting' }, 'Lucario')).toBe('+20 por debilidad de Lucario')
+    expect(weaknessHint({ energy: 'water' }, { weakness: 'fighting' }, 'Lucario')).toBeNull()
+    expect(weaknessHint(null, { weakness: 'fighting' }, 'Lucario')).toBeNull()
+    expect(weaknessHint(mewtwo, { weakness: null }, 'Lucario')).toBeNull()
   })
 })

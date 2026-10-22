@@ -110,7 +110,14 @@ export const enginePokemonSchema = engineBaseSchema.extend({
   /** The (first) printed type, as deckgym writes it («Psychic»). */
   energyType: z.string(),
   /** Every printed type, when the engine gives two (C1); absent for one. */
-  energyTypes: z.array(z.string().min(1)).min(1).max(MAX_POKEMON_TYPES).optional(),
+  energyTypes: z
+    .array(z.string().min(1))
+    .min(1)
+    .max(MAX_POKEMON_TYPES)
+    .refine((types) => new Set(types.map((type) => type.toLowerCase())).size === types.length, {
+      message: 'energyTypes repeats a type',
+    })
+    .optional(),
 })
 
 export const engineTrainerSchema = engineBaseSchema.extend({

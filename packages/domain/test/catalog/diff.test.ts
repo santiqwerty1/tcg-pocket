@@ -46,6 +46,7 @@ describe('diffCatalog', () => {
       stockChanged: [],
       groupChanged: [],
       nameChanged: [],
+      typesChanged: [],
       expansionsAdded: [],
       expansionsRemoved: [],
     })
@@ -66,6 +67,21 @@ describe('diffCatalog', () => {
     expect(diff.nameChanged).toEqual([{ cardId: 'B2a-89', field: 'nameEs', from: 'e-Nigma', to: 'Iono' }])
     expect(diff.expansionsAdded).toEqual(['B5'])
     expect(diff.expansionsRemoved).toEqual([])
+  })
+
+  it('C1: reports a card whose printed types changed, so a second type that comes or goes is not «nothing changes»', () => {
+    const next = structuredClone(catalog)
+    const urshifu = next.cards.find((card) => card.id === 'B3-51')
+    if (!urshifu) throw new Error('fixture card missing')
+    urshifu.types = ['water', 'fighting']
+    const diff = diffCatalog(catalog, next)
+    expect(diff.typesChanged).toEqual([{ cardId: 'B3-51', from: 'water', to: 'water/fighting' }])
+    expect(isEmptyDiff(diff)).toBe(false)
+    expect(diffCatalog(next, catalog).typesChanged).toEqual([{ cardId: 'B3-51', from: 'water/fighting', to: 'water' }])
+    // A catalog stored before the list (types empty) reads as its one energy: no change.
+    const old = structuredClone(catalog)
+    for (const card of old.cards) card.types = []
+    expect(isEmptyDiff(diffCatalog(old, catalog))).toBe(true)
   })
 
   it('is directional', () => {

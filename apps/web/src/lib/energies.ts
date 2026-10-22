@@ -91,3 +91,16 @@ export function editionTypesInPlay(edition: TypedEdition): string[] {
   }
   return types
 }
+
+/**
+ * The «+20 por debilidad de X» hint of the game against the bot: when the defender's Weakness is any of the types the
+ * attacker counts as in play (C1's dual types, Urshifu's «Double Type»); null otherwise or without both editions.
+ */
+export function weaknessHint(
+  attacker: TypedEdition | null | undefined,
+  defender: { weakness?: string | null | undefined } | null | undefined,
+  defenderName: string,
+): string | null {
+  if (!attacker || !defender?.weakness) return null
+  return editionTypesInPlay(attacker).includes(defender.weakness) ? `+20 por debilidad de ${defenderName}` : null
+}

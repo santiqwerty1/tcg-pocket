@@ -53,7 +53,8 @@ interface OwnDeck {
   cards: { card: CardEdition; count: number }[]
 }
 
-function pokemonOf(card: CardEdition): DrillPokemon | null {
+/** A deck card as a Pokémon of «¿Llega al KO?»: with the types it counts as in play (C1, Urshifu); null if it cannot be one. */
+export function pokemonOf(card: CardEdition): DrillPokemon | null {
   if (card.cardType !== 'pokemon' || card.energy === 'trainer' || !card.hp) return null
   return {
     nameEs: card.nameEs,

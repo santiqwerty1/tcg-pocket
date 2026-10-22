@@ -23,7 +23,7 @@ import { AttackLine, useAttacks } from '@/components/board/CardSheet'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { type ActionKind, activeExtras, type BoardAction } from '@/lib/board'
-import { editionTypesInPlay } from '@/lib/energies'
+import { weaknessHint } from '@/lib/energies'
 import type { ReplayReader, ReplayState } from '@/lib/replay'
 import { CoachSummarySection } from './Coach'
 
@@ -143,10 +143,7 @@ export function ActiveActions({
   const titleOf = (action: BoardAction) =>
     String(((action.action as { Attack?: { title?: unknown } }).Attack?.title as string | undefined) ?? '')
   // Any of the attacker's types hits a Weakness (C1's dual types, Urshifu's «Double Type»).
-  const weak =
-    me?.edition && rival?.edition?.weakness && editionTypesInPlay(me.edition).includes(rival.edition.weakness)
-      ? `+20 por debilidad de ${rival.name}`
-      : null
+  const weak = rival ? weaknessHint(me?.edition, rival.edition, rival.name) : null
   const matched = new Set<number>()
   const retreats = actions.filter((action) => action.kind === 'retreat')
   const abilities = actions.filter(

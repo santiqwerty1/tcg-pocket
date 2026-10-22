@@ -105,6 +105,48 @@ describe('día de expansión (Fase 40)', () => {
     })
   })
 
+  it('C1: a field the catalog does not read, type changes and the build warnings are shown, and applying asks first', async () => {
+    const unknown = {
+      ...PREVIEW,
+      diff: { ...PREVIEW.diff, removed: 0, typesChanged: 3 },
+      removed: [],
+      destructive: true,
+      unknownFields: [{ field: 'energy2', cards: 3 }],
+      warnings: [
+        "cards.json has a field the catalog does not read: 'energy2' (3 cards)",
+        'Expansion C1 has no cards in cards.json',
+      ],
+    }
+    const original = vi.mocked(fetch).getMockImplementation()
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const url = new URL(String(input), 'http://localhost')
+      if (url.pathname === '/api/catalog/preview') return json(unknown)
+      return (original as (input: unknown, init?: RequestInit) => Promise<Response>)(input, init)
+    })
+    const user = userEvent.setup()
+    const router = createMemoryRouter(routes, { initialEntries: ['/mas/catalogo'] })
+    render(
+      <Providers queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <RouterProvider router={router} />
+      </Providers>,
+    )
+    await user.click(await screen.findByRole('button', { name: /Buscar novedades/ }))
+    await user.click(await screen.findByRole('button', { name: /Actualizar al último del tracker/ }))
+    expect(
+      await screen.findByText(/El tracker trae un campo que el catálogo no lee: energy2 \(3 cartas\)/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/· 3 cambian de tipo/)).toBeInTheDocument()
+    // The other build warnings, as they come; the unknown field only once, in Spanish.
+    expect(screen.getByText('Expansion C1 has no cards in cards.json')).toBeInTheDocument()
+    expect(screen.queryByText(/does not read/)).not.toBeInTheDocument()
+    expect(screen.getByText(/una carta podría entrar con datos de menos\./)).toBeInTheDocument()
+    const apply = screen.getByRole('button', { name: /^Aplicar$/ })
+    expect(apply).toBeDisabled()
+    await user.click(screen.getByRole('checkbox', { name: /Entiendo, aplicarla igual/ }))
+    await user.click(apply)
+    expect(sent.at(-1)).toMatchObject({ url: '/api/catalog/sync', body: { confirm: true } })
+  })
+
   it('looks for news, shows what changes and applies only after confirming what leaves', async () => {
     const user = userEvent.setup()
     const router = createMemoryRouter(routes, { initialEntries: ['/mas/catalogo'] })

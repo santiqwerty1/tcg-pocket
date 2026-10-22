@@ -2,12 +2,14 @@ import { ConflictException, Inject, Injectable, type OnModuleInit } from '@nestj
 import { Cron, CronExpression } from '@nestjs/schedule'
 import {
   type BuildCounts,
+  type BuildReport,
   buildCatalogWithReport,
   type CatalogDiff,
   type CatalogRemap,
   diffCatalog,
   isEmptyDiff,
   planCatalogRemap,
+  type UnknownTrackerField,
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { ENV, type Env } from '../config/env.js'
@@ -46,8 +48,13 @@ export interface CatalogPreview {
   remap: { needsReview: boolean; empty: boolean; notes: { kind: string; review: boolean; text: string }[] } | null
   /** Of the editions added: how many the engine plays (from the card status a worker uploaded), and with which rev. */
   engine: { engineRev: string | null; plays: number; incomplete: number; unknown: number }
-  /** Applying needs `confirm: true` (it would take the owner's cards away or leave things to review). */
+  /**
+   * Applying needs `confirm: true`: it would take the owner's cards away or leave things to review, or the tracker
+   * brings fields the catalog does not read (`unknownFields`).
+   */
   destructive: boolean
+  /** `cards.json` fields the catalog does not read (C1: a second type written apart), with how many cards carry each. */
+  unknownFields: UnknownTrackerField[]
   /**
    * The catalog state this preview was computed against (loaded commit and last sync). «Aplicar» sends it back, and
    * the sync is refused if the catalog changed in between (another tab, a manual sync): the user confirmed what this
@@ -57,9 +64,16 @@ export interface CatalogPreview {
   warnings: string[]
 }
 
-/** Cards leave the catalog, or the remap had to drop or guess something of the owner's. */
-function isDestructive(diff: CatalogDiff | null, remap: CatalogRemap | null): boolean {
-  return (diff?.removed.length ?? 0) > 0 || (remap?.needsReview ?? false)
+/**
+ * Applying from the app needs confirming: cards leave the catalog, the remap had to drop or guess something of the
+ * owner's, or the tracker brings a field the catalog does not read (C1: a second type written apart would be lost).
+ */
+function isDestructive(
+  diff: CatalogDiff | null,
+  remap: CatalogRemap | null,
+  report: Pick<BuildReport, 'unknownTrackerFields'>,
+): boolean {
+  return (diff?.removed.length ?? 0) > 0 || (remap?.needsReview ?? false) || report.unknownTrackerFields.length > 0
 }
 
 /** A guarded sync that would take the owner's cards away, not confirmed: the row says why, nothing was written. */
@@ -98,6 +112,7 @@ function diffCounts(diff: CatalogDiff): DiffCounts {
     stockChanged: diff.stockChanged.length,
     groupChanged: diff.groupChanged.length,
     nameChanged: diff.nameChanged.length,
+    typesChanged: diff.typesChanged.length,
     expansionsAdded: diff.expansionsAdded.length,
     expansionsRemoved: diff.expansionsRemoved.length,
   }
@@ -115,6 +130,8 @@ function changeRows(diff: CatalogDiff): SyncChangeRow[] {
     rows.push({ cardId: change.cardId, field: 'functionalGroupId', old: change.from, new: change.to })
   for (const change of diff.nameChanged)
     rows.push({ cardId: change.cardId, field: change.field, old: change.from, new: change.to })
+  for (const change of diff.typesChanged)
+    rows.push({ cardId: change.cardId, field: 'types', old: change.from, new: change.to })
   return rows.slice(0, MAX_CHANGE_ROWS)
 }
 
@@ -269,7 +286,8 @@ export class CatalogSyncService implements OnModuleInit {
       removed: (diff?.removed ?? []).slice(0, 50).map((cardId) => ({ cardId, nameEs: names.get(cardId) ?? cardId })),
       remap: remap ? { needsReview: remap.needsReview, empty: remap.empty, notes: notes.slice(0, 50) } : null,
       engine,
-      destructive: isDestructive(diff, remap),
+      destructive: isDestructive(diff, remap, report),
+      unknownFields: report.unknownTrackerFields,
       baseline,
       warnings: prepared.warnings,
     }
@@ -410,9 +428,11 @@ export class CatalogSyncService implements OnModuleInit {
       )
       await this.prisma.catalogSync.update({ where: { id: syncId }, data: { fileHashes } })
       const needsReview = remap?.needsReview ?? false
-      if (request.guard && !request.confirm && isDestructive(diff, remap)) {
+      if (request.guard && !request.confirm && isDestructive(diff, remap, report)) {
         throw new ConfirmRequiredError(
-          'Hace falta confirmar: esta actualización saca cartas del catálogo, de la colección o de los mazos (o deja cosas para revisar). Mirá la vista previa y confirmala.',
+          report.unknownTrackerFields.length > 0
+            ? `Hace falta confirmar: el tracker trae campos que el catálogo no lee (${report.unknownTrackerFields.map((item) => item.field).join(', ')}), y una carta podría entrar con datos de menos. Mirá la vista previa y confirmala.`
+            : 'Hace falta confirmar: esta actualización saca cartas del catálogo, de la colección o de los mazos (o deja cosas para revisar). Mirá la vista previa y confirmala.',
         )
       }
 

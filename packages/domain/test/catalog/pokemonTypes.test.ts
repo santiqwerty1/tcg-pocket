@@ -16,6 +16,7 @@ import {
   rulesTextOf,
   typesOf,
   unknownTrackerFields,
+  unknownTrackerFieldWarning,
 } from '../../src/index.js'
 import { inputWithInventedC1, invented } from '../helpers/inventedC1.js'
 import { buildInput, builtCatalog } from '../helpers/loadFixtures.js'
@@ -122,9 +123,14 @@ describe('the tracker card schema and the engine data with two types (FIXTURE IN
       join(import.meta.dirname, '..', '..', '..', '..', 'scripts', 'extract-fixtures.mjs'),
       'utf8',
     )
-    expect(script).toContain('const { engineTypeFields } = await import(')
+    expect(script).toContain('const { engineTypeFields, parseEngineCards } = await import(')
     expect(script).toContain('...engineTypeFields(v),')
-    expect(script).not.toMatch(/functions+typeFields/)
+    expect(script).not.toMatch(/function\s+typeFields/)
+    // It validates the reduced cards as a sync does, before copying or writing any fixture (review of #149).
+    const validated = script.indexOf('parseEngineCards(compact)')
+    expect(validated).toBeGreaterThan(script.indexOf('const compact = db.map('))
+    expect(validated).toBeLessThan(script.indexOf('copyFileSync(join(tracker, src)'))
+    expect(validated).toBeLessThan(script.indexOf("writeFileSync(join(out, 'deckgym/engine-cards.json')"))
     // So a database.json a sync refuses (energy_type outside energy_types) stops the extraction too.
     expect(() => engineTypeFields({ id: 'C1 009', energy_type: 'Fire', energy_types: ['Grass'] })).toThrow(
       /C1 009 energy_type Fire is not in energy_types/,
@@ -148,6 +154,9 @@ describe('the tracker card schema and the engine data with two types (FIXTURE IN
     expect(typesOfEngine({ energy_type: ['Grass', 'Fire'] })).toEqual(['Grass', ['Grass', 'Fire']])
     expect(() => typesOfEngine({ energy_type: 'Grass', secondary_energy_type: '' })).toThrow()
     expect(() => typesOfEngine({ energy_type: 'Grass', secondary_energy_type: 3 })).toThrow()
+    // A second type equal to the first is not a dual type (review of #149), whatever its case.
+    expect(() => typesOfEngine({ energy_types: ['Water', 'Water'] })).toThrow(/repeats a type/)
+    expect(() => typesOfEngine({ energy_type: 'Water', secondary_energy_type: 'water' })).toThrow(/repeats a type/)
     expect(() => typesOfEngine({ energy_type: 'Fire', energy_types: ['Grass'] })).toThrow(
       /energy_type Fire is not in energy_types/,
     )
@@ -155,9 +164,10 @@ describe('the tracker card schema and the engine data with two types (FIXTURE IN
 
   it('names the fields of cards.json it does not read, except foil, which it leaves out on purpose', () => {
     const rows = invented.cards.map((card, at) => (at === 0 ? { ...card, foil: false, energy2: 'fighting' } : card))
-    expect(unknownTrackerFields(rows)).toEqual([
+    expect(unknownTrackerFields(rows)).toEqual([{ field: 'energy2', cards: 1 }])
+    expect(unknownTrackerFieldWarning({ field: 'energy2', cards: 1 })).toBe(
       "cards.json has a field the catalog does not read: 'energy2' (1 cards)",
-    ])
+    )
     expect(unknownTrackerFields(buildInput().cardsJson)).toEqual([])
   })
 })
@@ -171,6 +181,7 @@ describe('the catalog with two types', () => {
     )
     const { report } = buildCatalogWithReport(input)
     expect(report.warnings).toContain("cards.json has a field the catalog does not read: 'energy2' (1 cards)")
+    expect(report.unknownTrackerFields).toEqual([{ field: 'energy2', cards: 1 }])
     expect(report.warnings.join(' ')).not.toContain('foil')
   })
 

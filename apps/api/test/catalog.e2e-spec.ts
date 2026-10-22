@@ -112,6 +112,45 @@ describe('catalog (e2e)', () => {
     expect(await test.prisma.evolutionAlias.count()).toBeGreaterThan(0)
   })
 
+  it('C1: the card_types migration fills each Pokémon’s list from its energy on rows written before it', async () => {
+    // The real migration file, run over the synced catalog without the column (as production had it), then undone.
+    const sql = readFileSync(
+      join(import.meta.dirname, '../prisma/migrations/20261022220000_card_types/migration.sql'),
+      'utf8',
+    )
+    const statements = sql
+      .replace(/^\s*--.*$/gm, '')
+      .split(';')
+      .map((statement) => statement.trim())
+      .filter((statement) => statement !== '')
+    expect(statements).toHaveLength(2)
+    class Undo extends Error {
+      constructor(readonly counts: unknown) {
+        super('undo')
+      }
+    }
+    const counts = await test.prisma
+      .$transaction(async (tx) => {
+        await tx.$executeRawUnsafe('ALTER TABLE "cards" DROP COLUMN "types"')
+        for (const statement of statements) await tx.$executeRawUnsafe(statement)
+        const [row] = await tx.$queryRawUnsafe<{ pokemon: number; trainers: number; other: number }[]>(
+          `SELECT count(*) FILTER (WHERE card_type = 'pokemon' AND types = ARRAY[energy])::int AS pokemon,
+                  count(*) FILTER (WHERE card_type = 'trainer' AND types = '{}')::int AS trainers,
+                  count(*) FILTER (WHERE NOT ((card_type = 'pokemon' AND types = ARRAY[energy])
+                                           OR (card_type = 'trainer' AND types = '{}')))::int AS other
+             FROM cards`,
+        )
+        throw new Undo(row)
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Undo) return error.counts
+        throw error
+      })
+    expect(counts).toEqual({ pokemon: 3922, trainers: 395, other: 0 })
+    // Undone: the column and what the sync wrote are still there.
+    expect((await test.prisma.card.findUniqueOrThrow({ where: { id: 'A1-1' } })).types).toEqual(['grass'])
+  })
+
   it('finds the same functional group for Copiona and Copycat', async () => {
     const es = await get('/api/cards?q=Copiona')
     const en = await get('/api/cards?q=Copycat')
@@ -642,6 +681,59 @@ describe('catalog (e2e)', () => {
       await test.prisma.collectionAdjustment.deleteMany({})
       await test.prisma.deck.deleteMany({})
       await test.prisma.collectionStock.deleteMany({})
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('C1: a cards.json field the catalog does not read shows in the preview and needs confirming; type changes count', async () => {
+    // A second type written apart (an invented shape) and Urshifu with two types in the list.
+    const dir = mkdtempSync(join(tmpdir(), 'tcg-catalog-'))
+    cpSync(FIXTURES_DIR, dir, { recursive: true })
+    const cardsPath = join(dir, 'tracker/cards.json')
+    const original = JSON.parse(readFileSync(cardsPath, 'utf8')) as { card_id: string; energy: unknown }[]
+    writeFileSync(
+      cardsPath,
+      JSON.stringify(
+        original.map((card) =>
+          card.card_id === 'B3-51'
+            ? { ...card, energy: ['water', 'fighting'] }
+            : card.card_id === 'A1-1'
+              ? { ...card, energy2: 'darkness' }
+              : card,
+        ),
+      ),
+    )
+    const request = {
+      trackerCommit: test.env.catalogCommit,
+      engineRev: test.env.engineRev,
+      source: 'fixtures' as const,
+      fixturesDir: dir,
+    }
+    try {
+      const preview = await sync.preview(request)
+      expect(preview).toMatchObject({
+        destructive: true,
+        diffEmpty: false,
+        diff: { added: 0, removed: 0, typesChanged: 1 },
+        unknownFields: [{ field: 'energy2', cards: 1 }],
+      })
+      expect(preview.warnings).toContain("cards.json has a field the catalog does not read: 'energy2' (1 cards)")
+      // From the app without confirming: refused, saying which field.
+      await expect(sync.sync({ ...request, guard: true })).rejects.toThrow(/campos que el catálogo no lee \(energy2\)/)
+      expect((await test.prisma.card.findUniqueOrThrow({ where: { id: 'B3-51' } })).types).toEqual(['water'])
+      // Confirmed: it applies, the change row says the types moved.
+      const applied = await sync.sync({ ...request, guard: true, confirm: true })
+      expect(applied.status).toBe('applied')
+      expect((await test.prisma.card.findUniqueOrThrow({ where: { id: 'B3-51' } })).types).toEqual([
+        'water',
+        'fighting',
+      ])
+      const change = await test.prisma.catalogSyncChange.findFirst({
+        where: { syncId: applied.syncId, field: 'types' },
+      })
+      expect(change).toMatchObject({ cardId: 'B3-51', old: 'water', new: 'water/fighting' })
+    } finally {
+      await sync.sync({ trackerCommit: test.env.catalogCommit, engineRev: test.env.engineRev, source: 'fixtures' })
       rmSync(dir, { recursive: true, force: true })
     }
   })
