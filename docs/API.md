@@ -287,7 +287,7 @@ La hoja de partidas de Santi (pestaña «Partidas»: Código, Salida, Resultado,
 | Método y ruta | Cuerpo / respuesta |
 |---|---|
 | `POST /api/matches/import/preview` | `{ text (≤ 4.000.000), deckMap?: { [código]: deckId \| null }, mode? (competitive por defecto), include?: number[] }` → `200 SheetImport` sin escribir nada. `deckMap` gana sobre el mapeo guardado (`app_settings.sheetDeckMap`); `include` son las filas de posibles repetidas que se importan igual |
-| `POST /api/matches/import` | lo mismo más `fingerprint` (el de la vista previa) → `200 { imported: [{ row, matchId }], ranks, counts, columnK }`, en una transacción: todo o nada. `409 import_changed` si el plan ya no es el de esa vista previa (una partida, un mazo, un rango o lo marcado cambió); `400 too_many` con más de 500 partidas nuevas; `400 validation` si no hay encabezados. Guarda el mazo de cada código para la próxima |
+| `POST /api/matches/import` | lo mismo más `fingerprint` (el de la vista previa) → `200 { imported: [{ row, matchId }], ranks, counts, columnK }`, en una transacción: todo o nada. `409 import_changed` si el plan ya no es el de esa vista previa (una partida, un mazo, un rango o lo marcado cambió); `400 too_many` con más de 500 partidas nuevas; `400 validation` si no hay encabezados. Guarda el mazo de cada código para la próxima. Las filas de los mazos que pueden recibir partidas quedan bloqueadas contra un borrado hasta el final (un borrado en curso hace que dé 409) |
 
 ```ts
 SheetImport = { delimiter: 'comma'|'semicolon'|'tab' | null, headerRow, firstRow, error: string | null, mode, maxNew: 500, tooMany,
@@ -300,10 +300,10 @@ SheetImport = { delimiter: 'comma'|'semicolon'|'tab' | null, headerRow, firstRow
   columnK: { firstRow, text } | null, fingerprint, orphans: [{ id, text }] }
 ```
 
-- `in_app`: la columna K tiene el número; `duplicate`: una partida tiene su clave (`client_ref = "sheet:" + hash` de fecha, código, resultado, salida y rival normalizados); `possible_duplicate`: una partida del mismo mazo y resultado a ±15 min que no es de otra fila, o una partida importada de la hoja que ninguna fila es (`orphans`: una fila corregida sin K) el mismo día; `unmapped`: su código no tiene mazo; `error`: sin fecha, futura, ilegible, código > 20, rival > 80, nota > 2.000… Unas comillas sin cerrar o más de 50.000 líneas dan `error` para todo el texto
+- `in_app`: la columna K tiene el número; `duplicate`: una partida tiene su clave (`client_ref = "sheet:" + hash` de fecha, código, resultado, salida y rival normalizados); `possible_duplicate`: una partida del mismo mazo y resultado a ±15 min que no es de otra fila, o una partida importada de la hoja que ninguna fila es (`orphans`: una fila corregida sin K) el mismo día, o a un día y medio o menos si dice lo mismo (mazo, resultado, salida y rival: el día corregido); `unmapped`: su código no tiene mazo; `error`: sin fecha, futura, ilegible, código > 20, rival > 80, nota > 2.000… Unas comillas sin cerrar en un CSV, una fila con más celdas que los encabezados o más de 50.000 líneas dan `error` para todo el texto. En lo pegado (tabs), una comilla que tomaría un tab es texto. Una fecha anterior al 30/10/2024 es error de la fila. `in_app` avisa si la partida de K tiene otro mazo, otro resultado o una fecha a más de un día
 - La fecha es hora de Buenos Aires (sin hora: 12:00, con aviso); filas del mismo instante, un segundo aparte. Salida vacía: `wentFirst: null`.
 - El rango (H) es el rango con que se jugó: se anota 1 ms antes de la partida, salvo que ya rigiera, que haya otro anotado justo ahí, que la partida no sea competitiva o que no caiga en una temporada (avisos).
-- `columnK.text`: una línea por fila desde `firstRow` hasta la última con datos, con el número de su partida (K, por clave o recién importada) o vacía.
+- `columnK.text`: una línea por fila desde `firstRow` hasta la última con datos, con el número de su partida (K, por clave o recién importada) o vacía: solo números.
 
 ## Buscador (Fase 27)
 
