@@ -38,4 +38,6 @@
 // 0.3.13 (D-031): the package's engine-cli 0.3.15 plays `next/adfe505` at c87bad0: the same games, with a value function
 // that skips its terms of weight 0 (santiqwerty1/deckgym-core#1: e2 about 15 % and f2 about 19 % faster); workers
 // update to get it.
-export const WORKER_VERSION = '0.3.13'
+// 0.3.14 (T-021): the package's engine-cli 0.3.16 has the g the app plays (g 1.1.2); the queue gives the g bots only to
+// it (`canPlayGBots`), because 0.3.13–0.3.15 list «gBots» with an earlier g; workers update to get it.
+export const WORKER_VERSION = '0.3.14'

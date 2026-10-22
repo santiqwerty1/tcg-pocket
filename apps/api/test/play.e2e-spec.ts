@@ -902,4 +902,28 @@ describe('playing against a bot (e2e)', () => {
     expect((await claim(['perGame', 'fairBots'])).body).toEqual({ game: null })
     expect((await claim(['perGame', 'fairBots', 'etBot'])).body.game).toMatchObject({ id, bot: 'et' })
   })
+
+  it('T-021: a game against a g bot goes only to an engine with «gBots» and the g of engine-cli 0.3.16', async () => {
+    const created = await post('/api/play').send({
+      human: { deckId: deckIds[1] },
+      rival: { deckId: deckIds[12] },
+      seed: 94,
+      bot: 'g2',
+    })
+    expect(created.body).toMatchObject({ bot: 'g2' })
+    const id = created.body.id as number
+    const claim = (cliVersion: string, engineFeatures: string[]) =>
+      worker('post', '/api/worker/live/claim').send({
+        workerId: 'worker-g-01',
+        engineRev: engineRev(),
+        version: '0.3.13',
+        cliVersion,
+        engineFeatures,
+      })
+    const features = ['perGame', 'fairBots', 'etBot', 'gBots']
+    expect((await claim('0.3.16', features.slice(0, 3))).body).toEqual({ game: null })
+    // engine-cli 0.3.13–0.3.15 list «gBots» with an earlier g.
+    expect((await claim('0.3.15', features)).body).toEqual({ game: null })
+    expect((await claim('0.3.16', features)).body.game).toMatchObject({ id, bot: 'g2' })
+  })
 })

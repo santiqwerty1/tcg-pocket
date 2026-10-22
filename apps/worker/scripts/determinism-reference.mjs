@@ -24,7 +24,8 @@ const DECK = `Energy: Psychic
 export function determinismReference(referenceEngine, work) {
   const nativeVersion = JSON.parse(execFileSync(referenceEngine, ['version'], { encoding: 'utf8' }))
   const cases = []
-  for (const bot of ['r', 'e2', 'f2']) {
+  // g2 since engine-cli 0.3.16 (T-021): the app plays it, so every platform's engine must play it the same.
+  for (const bot of ['r', 'e2', 'f2', 'g2']) {
     const job = {
       deckA: DECK,
       deckB: DECK,

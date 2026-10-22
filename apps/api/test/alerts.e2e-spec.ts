@@ -270,6 +270,27 @@ describe('alerts (e2e)', () => {
       await node('worker-h051', ['perGame', 'batch', 'etBot', 'fairBots'], rev, 2)
       expect(await idle()).toEqual([])
       await test.prisma.simulationJob.delete({ where: { id: fixed.id } })
+      // T-021: a g bot needs «gBots» and the g of engine-cli 0.3.16; 0.3.13–0.3.15 list «gBots» with an earlier g.
+      await node('worker-h051', ['perGame', 'batch', 'etBot', 'fairBots', 'gBots'])
+      await test.prisma.workerNode.update({ where: { id: 'worker-h051' }, data: { cliVersion: '0.3.15' } })
+      const g = await job(['g2', 'r'])
+      expect(await idle()).toEqual([
+        expect.objectContaining({ detail: expect.stringMatching(/^2 chunks piden los bots g, .*0\.3\.16/) }),
+      ])
+      await test.prisma.workerNode.update({ where: { id: 'worker-h051' }, data: { cliVersion: '0.3.16' } })
+      expect(await idle()).toEqual([])
+      await test.prisma.simulationJob.delete({ where: { id: g.id } })
+      // The same for a game against g2 (review of #142: the live branch had no test).
+      await test.prisma.workerNode.update({ where: { id: 'worker-h051' }, data: { cliVersion: '0.3.15' } })
+      const live = await game('g2')
+      expect(await idle()).toEqual([
+        expect.objectContaining({
+          detail: expect.stringMatching(/^1 partida contra el bot pide los bots g, .*0\.3\.16/),
+        }),
+      ])
+      await test.prisma.workerNode.update({ where: { id: 'worker-h051' }, data: { cliVersion: '0.3.16' } })
+      expect(await idle()).toEqual([])
+      await test.prisma.liveGame.delete({ where: { id: live.id } })
       // A simulation with an f bot and a game against «et» nobody plays: both in one alert.
       await node('worker-h051', ['perGame', 'batch'])
       await test.prisma.workerNode.deleteMany({ where: { id: { in: ['worker-h051-fair', 'worker-h051-old'] } } })
