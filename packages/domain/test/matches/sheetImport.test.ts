@@ -519,7 +519,11 @@ describe('the plan of an import', () => {
     const same = planSheetImport(sheet, context({ changes: [noted] }))
     expect(same.rows[0]?.rankPlan?.action).toBe('same')
     expect(same.fingerprint).not.toBe(base.fingerprint)
-    expect(planSheetImport(sheet, context({ mode: 'casual' })).fingerprint).not.toBe(base.fingerprint)
+    // The mode alone (a row without a rank, so nothing else changes).
+    const plain = parse(csv([row()]))
+    expect(planSheetImport(plain, context({ mode: 'casual' })).fingerprint).not.toBe(
+      planSheetImport(plain, context()).fingerprint,
+    )
   })
 
   it('review: a possible repeat is named «n.º X, Victoria del 19/10 21:35», and says when it is an old sheet row', () => {
