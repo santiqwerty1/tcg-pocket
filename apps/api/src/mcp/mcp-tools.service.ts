@@ -32,6 +32,7 @@ import {
   nextBuildCostText,
   type Rarity,
   type TournamentFormat,
+  typesOf,
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { AlertsService } from '../alerts/alerts.service.js'
@@ -634,6 +635,8 @@ ${MCP_CHAT_INSTRUCTIONS}`
         stage: card.evolutionType,
         hp: card.hp,
         energy: card.energy,
+        // C1: two for the dual-type Pokémon.
+        types: typesOf(card),
         prizePoints: card.prizePoints,
         text: cardText(card),
         matchedOn,

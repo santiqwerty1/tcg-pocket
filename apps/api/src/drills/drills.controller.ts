@@ -18,6 +18,7 @@ import {
   koDrill,
   plainDamage,
   seededRandom,
+  typesInPlay,
 } from '@tcg/domain'
 import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
@@ -58,6 +59,7 @@ function pokemonOf(card: CardEdition): DrillPokemon | null {
     nameEs: card.nameEs,
     hp: card.hp,
     energy: card.energy,
+    types: typesInPlay(card),
     weakness: card.weakness,
     prizePoints: card.prizePoints,
     attacks: card.attacks.flatMap((attack) => {

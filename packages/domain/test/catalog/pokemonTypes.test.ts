@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
-  type BuildCatalogInput,
   buildCatalogWithReport,
   type Catalog,
   engineCardsFromDatabaseJson,
@@ -18,17 +17,8 @@ import {
   typesOf,
   unknownTrackerFields,
 } from '../../src/index.js'
+import { inputWithInventedC1, invented } from '../helpers/inventedC1.js'
 import { buildInput, builtCatalog } from '../helpers/loadFixtures.js'
-
-/** FIXTURE INVENTADO: C1 cards made up before the real data exists (see its `_inventado`). */
-interface InventedC1 {
-  expansion: Record<string, unknown>
-  cards: Record<string, unknown>[]
-  engine: unknown[]
-}
-const invented = JSON.parse(
-  readFileSync(join(import.meta.dirname, '..', 'fixtures', 'invented', 'c1-dual-type.json'), 'utf8'),
-) as InventedC1
 
 /**
  * The 4,317 per-edition rules hashes of the fixture catalog (tracker 3ab58f1, engine fb792eb) and the 2,319 group
@@ -44,25 +34,6 @@ function digests(catalog: Catalog, keep: (id: string) => boolean) {
   return {
     editions: sha(catalog.cards.filter((card) => keep(card.id)).map((card) => `${card.id}:${rulesHashOf(card)}`)),
     groups: sha(catalog.groups.filter((group) => keep(group.id)).map((group) => `${group.id}:${group.rulesHash}`)),
-  }
-}
-
-/** The real fixtures plus the invented C1: its expansion first in CardsDB and in `expansionIds`, its cards last. */
-function inputWithInventedC1(): BuildCatalogInput {
-  const base = buildInput()
-  const declaration = base.cardsDbSource.indexOf('export const expansions')
-  const open = base.cardsDbSource.indexOf('= [', declaration) + '= ['.length
-  const cardsDbSource = `${base.cardsDbSource.slice(0, open)}\n  ${JSON.stringify(invented.expansion)},${base.cardsDbSource.slice(open)}`
-  const typesIndexSource = base.typesIndexSource.replace(
-    'export const expansionIds = [',
-    "export const expansionIds = [\n  'C1',",
-  )
-  return {
-    ...base,
-    cardsJson: [...(base.cardsJson as unknown[]), ...invented.cards],
-    cardsDbSource,
-    typesIndexSource,
-    engineCards: [...(base.engineCards as unknown[]), ...engineCardsFromDatabaseJson(invented.engine)],
   }
 }
 
