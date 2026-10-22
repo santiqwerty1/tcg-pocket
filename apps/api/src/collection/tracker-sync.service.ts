@@ -13,6 +13,7 @@ import { TrackerCommitsService } from '../catalog/tracker-commits.service.js'
 import { ENV, type Env } from '../config/env.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { CollectionService } from './collection.service.js'
+import { DotggLinkStore } from './dotgg-link.store.js'
 import { TrackerClient, TrackerError } from './tracker-client.js'
 
 export const TRACKER_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -36,6 +37,7 @@ export class TrackerSync implements OnApplicationBootstrap, OnModuleDestroy {
     @Inject(ENV) private readonly env: Env,
     private readonly commits: TrackerCommitsService,
     private readonly catalog: CatalogService,
+    private readonly links: DotggLinkStore,
   ) {}
 
   onApplicationBootstrap() {
@@ -82,6 +84,8 @@ export class TrackerSync implements OnApplicationBootstrap, OnModuleDestroy {
     const config = await this.status()
     if (!config.enabled || !/^\d{16}$/.test(config.friendId)) return null
     if (config.lastAttemptAt && now.getTime() - Date.parse(config.lastAttemptAt) < TRACKER_SYNC_INTERVAL_MS) return null
+    // T-020: with ptcgpocket.gg configured the tracker is only compared; it is not even read here.
+    if (await this.links.read()) return null
     return this.preview(true, now)
   }
 
@@ -106,6 +110,14 @@ export class TrackerSync implements OnApplicationBootstrap, OnModuleDestroy {
           (config.lastAttemptAt && now.getTime() - Date.parse(config.lastAttemptAt) < TRACKER_SYNC_INTERVAL_MS))
       )
         return null
+      if (await this.links.read()) {
+        if (automatic) return null
+        throw new ConflictException({
+          code: 'tracker_not_master',
+          message:
+            'La colección viene de ptcgpocket.gg: el tracker queda para comparar en Colección → Tracker al día. Para que vuelva a mandar el tracker, quitá el link de ptcgpocket.gg en Ajustes.',
+        })
+      }
       if (!/^\d{16}$/.test(config.friendId))
         throw new BadRequestException({
           code: 'tracker_friend_id',
@@ -219,6 +231,8 @@ export class TrackerSync implements OnApplicationBootstrap, OnModuleDestroy {
       const rows = await tx.appSetting.findMany({ where: { key: { in: ['trackerAutoSync', 'trackerFriendId'] } } })
       const config = Object.fromEntries(rows.map((r) => [r.key, r.value]))
       if (config.trackerAutoSync !== true || config.trackerFriendId !== friendId) return
+      // T-020: while ptcgpocket.gg is the source, the tracker has nothing to warn about.
+      if (await this.links.read(tx)) return
       const json = JSON.parse(JSON.stringify(value))
       if (
         json.previewId &&

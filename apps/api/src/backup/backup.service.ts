@@ -494,6 +494,8 @@ export class BackupService {
     this.tournamentData.bump()
     if (document.settings.some((s) => s.key === 'trackerAutoSync' && s.value === true))
       notices.push('La sincronización automática del tracker esperará 6 horas después de restaurar.')
+    if (document.settings.some((s) => s.key === 'dotggAutoSync' && s.value === true))
+      notices.push('La sincronización automática con ptcgpocket.gg esperará 24 horas después de restaurar.')
     this.logger.info({ counts: backupCounts(document) }, 'backup restored')
     return { applied: true, counts: backupCounts(document), notices }
   }
@@ -757,18 +759,21 @@ export class BackupService {
         })),
       })
     }
-    // Restoring an old scheduler state must allow six hours to inspect the restored collection.
-    const trackerState = document.settings.find((s) => s.key === 'trackerSyncState')?.value
-    if (deferTracker && document.settings.some((s) => s.key === 'trackerAutoSync' && s.value === true)) {
+    // Restoring an old scheduler state must leave time to inspect the restored collection: the next automatic run of
+    // the tracker (6 h) or of ptcgpocket.gg (24 h, T-020) counts from the restore.
+    for (const [autoKey, stateKey] of [
+      ['trackerAutoSync', 'trackerSyncState'],
+      ['dotggAutoSync', 'dotggSyncState'],
+    ] as const) {
+      if (!deferTracker || !document.settings.some((s) => s.key === autoKey && s.value === true)) continue
+      const state = document.settings.find((s) => s.key === stateKey)?.value
       const value = {
-        ...(typeof trackerState === 'object' && trackerState !== null && !Array.isArray(trackerState)
-          ? trackerState
-          : {}),
+        ...(typeof state === 'object' && state !== null && !Array.isArray(state) ? state : {}),
         lastAttemptAt: new Date().toISOString(),
       }
       await tx.appSetting.upsert({
-        where: { key: 'trackerSyncState' },
-        create: { key: 'trackerSyncState', value },
+        where: { key: stateKey },
+        create: { key: stateKey, value },
         update: { value },
       })
     }
@@ -913,6 +918,14 @@ export class BackupService {
     }
     if (document.tokens.length > 0) {
       notices.push(`Los ${document.tokens.length} tokens del backup son solo metadatos: hay que crearlos de nuevo.`)
+    }
+    if (
+      document.settings.some((s) => s.key === 'dotggAutoSync') ||
+      document.collection.imports.some((item) => item.source === 'dotgg')
+    ) {
+      notices.push(
+        'El link de ptcgpocket.gg no viaja en el backup: se mantiene el que está configurado; si no hay, pegalo de nuevo en Más → Ajustes de la app.',
+      )
     }
     return { notices, needsReview, unknownCardIds: [...unknown] }
   }

@@ -949,7 +949,7 @@ describe('tournaments (e2e)', () => {
       tournaments: { sets: unknown[]; archetypeAliases: unknown[] }
       decks: { tournamentArchetypeId: string | null }[]
     }
-    expect(document.schemaVersion).toBe(10)
+    expect(document.schemaVersion).toBe(11)
     expect(document.tournaments.sets).toHaveLength(22)
     expect(document.tournaments.archetypeAliases).toEqual([])
     expect(document.decks.every((deck) => deck.tournamentArchetypeId === null)).toBe(true)

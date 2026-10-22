@@ -1,7 +1,15 @@
 /**
  * Response shapes of the collection endpoints (docs/API.md «Colección»). Numeric ids travel as strings.
  */
-import type { AdjustmentResolution, CsvErrorCode, ImportSummary, StockValue, TwinConflict } from '@tcg/domain'
+import type {
+  AdjustmentResolution,
+  CsvErrorCode,
+  DotggErrorCode,
+  DotggUnmatched,
+  ImportSummary,
+  StockValue,
+  TwinConflict,
+} from '@tcg/domain'
 import type { CardSummary, GroupSummary } from '../catalog/catalog-views.js'
 import type { CollectionImportStatus } from '../generated/prisma/enums.js'
 
@@ -56,9 +64,26 @@ export interface StockPatchResult {
 
 export interface ImportErrorView {
   line: number | null
-  code: CsvErrorCode
+  code: CsvErrorCode | DotggErrorCode
   column: string | null
   message: string
+}
+
+/** T-020: what a ptcgpocket.gg snapshot changes and why it waits for a look (`requiresReview`). */
+export interface DotggReviewView {
+  /** The collection, adjustments and catalog it was diffed against: applying refuses anything else. */
+  baseline: string
+  increased: number
+  decreased: number
+  /** Copies lost in all (gross: gains do not hide them). */
+  removedCopies: number
+  currentCopies: number
+  requiresReview: boolean
+  reviewReasons: string[]
+  /** Rows of the export the catalog does not have. */
+  unmatched: DotggUnmatched[]
+  /** Expansions with copies in the collection and no row in the export. */
+  missingExpansions: { expansionId: string; nameEs: string; copies: number }[]
 }
 
 export interface ImportChangeView {
@@ -99,6 +124,7 @@ export interface ImportPreview {
     reviewReasons?: string[]
     catalogCommit?: string | null
   }
+  dotgg?: DotggReviewView
   id: string
   /** Null when the CSV was pasted as JSON `{ csv }`. */
   fileName: string | null

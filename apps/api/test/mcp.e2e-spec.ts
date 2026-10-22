@@ -123,6 +123,7 @@ describe('MCP endpoint (e2e)', () => {
       'collection_playable_copies',
       'collection_summary',
       'collection_trades',
+      'collection_tracker_gap',
       'decks_closest',
       'decks_consistency',
       'decks_draw_odds',
@@ -173,7 +174,7 @@ describe('MCP endpoint (e2e)', () => {
   it('serves 2026-07-28 clients from the same endpoint', async () => {
     const client = await connect('modern')
     const { tools } = await client.listTools()
-    expect(tools).toHaveLength(45)
+    expect(tools).toHaveLength(46)
     // Fase 29: the games against the bot (none here) and the review of one.
     expect((await call(client, 'play_games')).structuredContent).toEqual({ games: [] })
     // 14/10: the rival by the cards seen (no tournaments here: nothing suggested, nothing to classify).

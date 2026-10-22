@@ -41,6 +41,7 @@ import { ChatService } from '../chat/chat.service.js'
 import { ChatMovedService } from '../chat/chat-moved.service.js'
 import { HubForwardService } from '../chat/hub-forward.service.js'
 import { CollectionService } from '../collection/collection.service.js'
+import { TrackerGapService } from '../collection/tracker-gap.service.js'
 import { ENV, type Env } from '../config/env.js'
 import { OWNER_TIME_ZONE } from '../config/time-zone.js'
 import type { DeckImportFormat } from '../decks/deck-formats.js'
@@ -196,6 +197,7 @@ export class McpToolsService {
     private readonly labTools: McpLabToolsService,
     private readonly playTools: McpPlayToolsService,
     private readonly trades: TradesService,
+    private readonly trackerGap: TrackerGapService,
     private readonly weekly: WeeklyService,
     private readonly ops: OpsService,
     private readonly alerts: AlertsService,
@@ -329,6 +331,9 @@ ${MCP_CHAT_INSTRUCTIONS}`
     )
     server.registerTool(t.collectionTrades.name, config(t.collectionTrades), (args) =>
       run(t.collectionTrades.name, () => this.collectionTrades(args)),
+    )
+    server.registerTool(t.collectionTrackerGap.name, config(t.collectionTrackerGap), (args) =>
+      run(t.collectionTrackerGap.name, () => this.collectionTrackerGap(args)),
     )
     server.registerTool(t.collectionMissions.name, config(t.collectionMissions), (args) =>
       run(t.collectionMissions.name, () => this.collectionMissions(args)),
@@ -1970,6 +1975,37 @@ ${MCP_CHAT_INSTRUCTIONS}`
       })),
       untradeable: view.untradeable.map((row) => ({ card: row.nameEs, missing: row.missing, decks: row.decks })),
       text: view.text,
+    }
+  }
+
+  /** T-020: «Tracker al día». The summary and the first rows; never the file nor the ptcgpocket.gg link. */
+  private async collectionTrackerGap(args: { limit?: number }): Promise<Json> {
+    const view = await this.trackerGap.gap()
+    const limit = args.limit ?? 30
+    const s = view.summary
+    const copies = (n: number) => (n === 1 ? '1 copia' : `${n} copias`)
+    const cards = (n: number) => (n === 1 ? '1 carta' : `${n} cartas`)
+    return {
+      checkedAt: view.checkedAt,
+      summary: s,
+      cards: view.rows.slice(0, limit).map((row) => ({
+        card: row.nameEs,
+        cardId: row.stockCardId,
+        rarity: row.rarity,
+        tracker: row.tracker,
+        game: row.game,
+        delta: row.delta,
+      })),
+      moreCards: Math.max(0, view.rows.length - limit),
+      notCompared: {
+        gameRowsNotInCatalog: view.unmatchedGame.length,
+        trackerIdsNotInCatalog: view.unknownTracker.length,
+      },
+      warnings: view.warnings,
+      text:
+        s.cards === 0
+          ? `El tracker está al día con el juego (${copies(s.gameCopies)}).`
+          : `El tracker difiere del juego en ${cards(s.cards)}: le faltan ${copies(s.copiesMissing)} en ${cards(s.cardsMissing)} y le sobran ${copies(s.copiesExtra)} en ${cards(s.cardsExtra)} (tracker ${s.trackerCopies}, juego ${s.gameCopies}).`,
     }
   }
 

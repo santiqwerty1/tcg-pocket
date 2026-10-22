@@ -12,15 +12,21 @@ import {
   type CatalogIndex,
   type CollectionAdjustment,
   type ConversionPlan,
-  type CsvError,
+  type CsvLineEnding,
   type CsvRow,
+  DOTGG_SOURCE_NAME,
+  type DotggUnmatched,
   diffImport,
+  dotggMissingExpansions,
+  dotggUnits,
   type ImportDiff,
   manualEdit,
+  mapDotggRows,
   missionProgress,
+  type NormalizedImport,
   normalizeImportRows,
   type PackLuck,
-  type ParsedCsv,
+  type ParsedDotgg,
   packLuck,
   parseTrackerCsv,
   planAdjustmentConversion,
@@ -50,7 +56,9 @@ import type {
   CollectionAdjustmentView,
   CollectionGroupItem,
   CollectionSummaryView,
+  DotggReviewView,
   ImportChangeView,
+  ImportErrorView,
   ImportListItem,
   ImportPreview,
   MissionsView,
@@ -58,6 +66,7 @@ import type {
   StockItem,
   StockPatchResult,
 } from './collection-views.js'
+import { DOTGG_LINK_KEY, DotggLinkStore } from './dotgg-link.store.js'
 
 export interface GroupsQuery {
   q?: string | undefined
@@ -88,15 +97,65 @@ export interface ImportSource {
 
 /** An import row as the service reads it: everything but the gzipped CSV (`raw_file_gz` is only written, never served). */
 type ImportRecord = Omit<CollectionImport, 'rawFileGz'>
-type UnchangedTrackerImport = { unchanged: true; reviewReasons: string[] }
+/** An automatic remote check that found nothing to change (no import is stored). */
+export type UnchangedRemoteImport = { unchanged: true; reviewReasons: string[] }
+
+/** Sources that answer the whole collection (a missing unit has 0 copies) and sync by themselves. */
+export type RemoteSource = 'tracker' | 'dotgg'
+
+/** The `app_settings` keys each remote source keeps. */
+export const REMOTE_KEYS = {
+  tracker: {
+    auto: 'trackerAutoSync',
+    state: 'trackerSyncState',
+    warning: 'trackerSyncWarning',
+    lastApplied: 'trackerLastAppliedAt',
+    lastChecked: 'trackerLastCheckedAt',
+  },
+  dotgg: {
+    auto: 'dotggAutoSync',
+    state: 'dotggSyncState',
+    warning: 'dotggSyncWarning',
+    lastApplied: 'dotggLastAppliedAt',
+    lastChecked: 'dotggLastCheckedAt',
+  },
+} as const satisfies Record<RemoteSource, Record<string, string>>
+
+/** What a remote snapshot carries into the importer besides its rows. */
+interface RemoteImport {
+  source: RemoteSource
+  automatic: boolean
+  checkedAt: Date
+  /** tracker: the friend id it was read for. */
+  friendId?: string
+  /** tracker: the published commit differs from the catalog (automatic runs). */
+  upstreamReview?: string
+  /** dotgg: sha-256 of the link it was read from (an automatic run stops if the link changed). */
+  linkFingerprint?: string
+  /** dotgg: rows the catalog does not have. */
+  unmatched?: DotggUnmatched[]
+}
+
+/** The parse result the importer needs, from a tracker CSV or an export mapped onto the catalog. */
+interface ImportInput {
+  rows: CsvRow[]
+  errors: ImportErrorView[]
+  bom: boolean
+  lineEnding: CsvLineEnding | string
+}
+
+/** The source is ptcgpocket.gg now: the tracker is only compared (T-020). */
+const TRACKER_NOT_MASTER =
+  'La colección viene de ptcgpocket.gg: el tracker queda para comparar en Colección → Tracker al día. Para que vuelva a mandar el tracker, quitá el link de ptcgpocket.gg en Ajustes.'
 
 /** What `collection_imports.diff_summary` holds: parse metadata (fixed) plus the diff (refreshed while pending). */
 interface StoredImport {
   tracker?: NonNullable<ImportPreview['tracker']>
+  dotgg?: DotggReviewView
   meta: {
     bom: boolean
     lineEnding: string
-    errors: CsvError[]
+    errors: ImportErrorView[]
     conflicts: TwinConflict[]
     internalIdMismatches: number
     twinRows: number
@@ -152,6 +211,7 @@ export class CollectionService {
     private readonly catalog: CatalogService,
     private readonly prisma: PrismaService,
     private readonly repository: CollectionRepository,
+    private readonly links: DotggLinkStore,
   ) {}
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -160,12 +220,19 @@ export class CollectionService {
 
   async summary(): Promise<CollectionSummaryView> {
     const index = this.catalog.requireIndex()
-    const [{ stock, adjustments }, lastImport, collectedCount, checked] = await Promise.all([
+    const [{ stock, adjustments }, lastImport, collectedCount, checks] = await Promise.all([
       this.repository.loadState(),
       this.prisma.collectionImport.findFirst({ where: { status: 'applied' }, orderBy: { appliedAt: 'desc' } }),
       this.prisma.collectionStock.count({ where: { collected: true } }),
-      this.prisma.appSetting.findUnique({ where: { key: 'trackerLastCheckedAt' } }),
+      this.prisma.appSetting.findMany({
+        where: { key: { in: [REMOTE_KEYS.tracker.lastChecked, REMOTE_KEYS.dotgg.lastChecked] } },
+      }),
     ])
+    // An automatic check that found nothing to change also says the collection is up to date (tracker or game).
+    const checked = checks
+      .map((row) => row.value)
+      .filter((value): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value)))
+      .sort((a, b) => Date.parse(b) - Date.parse(a))[0]
     let one = 0
     let two = 0
     let missing = 0
@@ -180,8 +247,8 @@ export class CollectionService {
       groupsWithAtLeast: { one, two },
       groupsMissing: missing,
       lastImportAt:
-        typeof checked?.value === 'string' && Date.parse(checked.value) > (lastImport?.appliedAt?.getTime() ?? 0)
-          ? new Date(checked.value)
+        checked && Date.parse(checked) > (lastImport?.appliedAt?.getTime() ?? 0)
+          ? new Date(checked)
           : (lastImport?.appliedAt ?? null),
       activeAdjustments: adjustments.length,
     }
@@ -401,29 +468,49 @@ export class CollectionService {
     automatic = false,
     checkedAt = new Date(),
     upstreamReview?: string,
-  ): Promise<ImportPreview | UnchangedTrackerImport> {
+  ): Promise<ImportPreview | UnchangedRemoteImport> {
     const index = this.catalog.requireIndex()
     const csvRows = trackerImportRows(rows, index)
     return this.createRows(
       index,
-      { rows: csvRows, errors: [], columns: [], bom: false, lineEnding: 'LF', trailingNewline: false },
+      { rows: csvRows, errors: [], bom: false, lineEnding: 'LF' },
       { bytes: Buffer.from(JSON.stringify(rows)), fileName: `Tracker ${friendId}` },
-      friendId,
-      automatic,
-      checkedAt,
-      upstreamReview,
+      {
+        source: 'tracker',
+        friendId,
+        automatic,
+        checkedAt,
+        ...(upstreamReview ? { upstreamReview } : {}),
+      },
+    )
+  }
+
+  /**
+   * T-020: the export of ptcgpocket.gg (the game's collection), already parsed and mapped onto the catalog, through
+   * the same importer: a complete snapshot like the tracker's, with its own review (first sync, drops, manual edits,
+   * cards the catalog does not have, expansions it does not list).
+   */
+  async createDotggImport(
+    parsed: ParsedDotgg,
+    bytes: Buffer,
+    options: { automatic: boolean; checkedAt: Date; linkFingerprint: string },
+  ): Promise<ImportPreview | UnchangedRemoteImport> {
+    const index = this.catalog.requireIndex()
+    const mapped = mapDotggRows(parsed.rows, index)
+    return this.createRows(
+      index,
+      { rows: mapped.rows, errors: parsed.errors, bom: parsed.bom, lineEnding: parsed.lineEnding },
+      { bytes, fileName: DOTGG_SOURCE_NAME },
+      { source: 'dotgg', unmatched: mapped.unmatched, ...options },
     )
   }
 
   private async createRows(
     index: CatalogIndex,
-    parsed: ParsedCsv,
+    parsed: ImportInput,
     source: ImportSource,
-    friendId?: string,
-    automatic = false,
-    checkedAt = new Date(),
-    upstreamReview?: string,
-  ): Promise<ImportPreview | UnchangedTrackerImport> {
+    remote?: RemoteImport,
+  ): Promise<ImportPreview | UnchangedRemoteImport> {
     const normalized = normalizeImportRows(parsed.rows, index)
     const client = await this.prisma.pool.connect()
     try {
@@ -431,35 +518,43 @@ export class CollectionService {
       // Same lock order as apply; also excludes catalogue remaps and manual/MCP collection writes.
       await client.query('LOCK TABLE cards, collection_stock, collection_adjustments IN SHARE ROW EXCLUSIVE MODE')
       await client.query('SELECT pg_advisory_xact_lock(994202)')
-      if (automatic && friendId) await this.requireAutomaticConfig(client, friendId)
+      if (remote) await this.requireRemoteConfig(client, remote, true)
       const { stock, adjustments, baseline } = await this.importBaseline(client, index)
-      const incoming = friendId ? trackerUnits(normalized.units, index) : normalized.units
+      const incoming = this.remoteUnits(index, remote?.source, normalized.units, stock)
       const diff = diffImport(index, stock, incoming, adjustments)
-      const tracker = friendId
-        ? await this.trackerReview(client, diff, stock, friendId, baseline, normalized.unknownIds)
-        : undefined
-      if (tracker && upstreamReview) {
-        tracker.reviewReasons?.push(upstreamReview)
+      const tracker =
+        remote?.source === 'tracker'
+          ? await this.trackerReview(client, diff, stock, remote.friendId ?? '', baseline, normalized.unknownIds)
+          : undefined
+      if (tracker && remote?.upstreamReview) {
+        tracker.reviewReasons?.push(remote.upstreamReview)
         tracker.requiresReview = true
       }
-      if (friendId) {
+      const dotgg =
+        remote?.source === 'dotgg'
+          ? await this.dotggReview(client, index, diff, stock, baseline, normalized, remote.unmatched ?? [], parsed)
+          : undefined
+      if (remote) {
+        const keys = REMOTE_KEYS[remote.source]
         await client.query(
-          "UPDATE collection_imports SET status = 'discarded' WHERE source = 'tracker' AND status = 'pending'",
+          "UPDATE collection_imports SET status = 'discarded' WHERE source = $1 AND status = 'pending'",
+          [remote.source],
         )
-        await client.query("DELETE FROM app_settings WHERE key = 'trackerSyncWarning'")
-        await this.pruneTrackerImports(client)
+        await client.query('DELETE FROM app_settings WHERE key = $1', [keys.warning])
+        await this.pruneRemoteImports(client, remote.source)
       }
-      if (automatic && diff.changes.length === 0) {
+      if (remote?.automatic && diff.changes.length === 0) {
         await client.query(
-          `INSERT INTO app_settings (key, value) VALUES ('trackerLastCheckedAt', $1::jsonb)
+          `INSERT INTO app_settings (key, value) VALUES ($1, $2::jsonb)
            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-          [JSON.stringify(checkedAt.toISOString())],
+          [REMOTE_KEYS[remote.source].lastChecked, JSON.stringify(remote.checkedAt.toISOString())],
         )
         await client.query('COMMIT')
-        return { unchanged: true, reviewReasons: tracker?.reviewReasons ?? [] }
+        return { unchanged: true, reviewReasons: tracker?.reviewReasons ?? dotgg?.reviewReasons ?? [] }
       }
       const stored: StoredImport = {
         ...(tracker ? { tracker } : {}),
+        ...(dotgg ? { dotgg } : {}),
         meta: {
           bom: parsed.bom,
           lineEnding: parsed.lineEnding,
@@ -474,7 +569,7 @@ export class CollectionService {
         `INSERT INTO collection_imports (source, file_name, sha256, row_count, naive_total, dedup_total, unknown_ids, diff_summary, raw_file_gz)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9) RETURNING id`,
         [
-          friendId ? 'tracker' : 'csv',
+          remote?.source ?? 'csv',
           source.fileName ?? '',
           createHash('sha256').update(source.bytes).digest('hex'),
           parsed.rows.length,
@@ -527,12 +622,15 @@ export class CollectionService {
     })
   }
 
-  /** The preview; a pending import is diffed again against the current stock (it may have moved since). */
+  /**
+   * The preview; a pending CSV import is diffed again against the current stock (it may have moved since). A remote
+   * snapshot (tracker, ptcgpocket.gg) keeps the diff it was reviewed with: applying it refuses a moved collection.
+   */
   async importPreview(rawId: string): Promise<ImportPreview> {
     const index = this.catalog.requireIndex()
     const row = await this.requireImport(rawId)
     const stored = readStored(row)
-    if (row.status === 'pending' && row.source !== 'tracker') {
+    if (row.status === 'pending' && row.source === 'csv') {
       const { stock, adjustments } = await this.repository.loadState()
       stored.diff = diffImport(index, stock, this.unitsOf(index, row.rows), adjustments)
     }
@@ -540,10 +638,15 @@ export class CollectionService {
   }
 
   /**
-   * Applies a pending import in one SQL transaction: every changed stock unit is upserted (source `import`), the
-   * row is marked `applied` with the diff that was actually applied. 409 when not pending or blocked.
+   * Applies a pending import in one SQL transaction: every changed stock unit is upserted (source `import`, `tracker`
+   * or `dotgg`), the row is marked `applied` with the diff that was actually applied. 409 when not pending or blocked,
+   * and for a tracker snapshot while ptcgpocket.gg is the source (T-020).
    */
-  async applyImport(rawId: string, automatic = false): Promise<{ applied: true; summary: ImportDiff['summary'] }> {
+  async applyImport(
+    rawId: string,
+    automatic = false,
+    linkFingerprint?: string,
+  ): Promise<{ applied: true; summary: ImportDiff['summary'] }> {
     const index = this.catalog.requireIndex()
     const row = await this.requireImport(rawId)
     if (row.status !== 'pending') throw notPending(row)
@@ -554,27 +657,42 @@ export class CollectionService {
         message: 'El archivo tiene errores o gemelas con valores distintos; corregilo y volvé a importarlo.',
       })
     }
-    const incoming = this.unitsOf(index, row.rows, row.source)
+    const source = remoteSourceOf(row.source)
+    const units = this.unitsOf(index, row.rows)
     const client = await this.prisma.pool.connect()
     try {
       await client.query('BEGIN')
       await client.query('LOCK TABLE cards, collection_stock, collection_adjustments IN SHARE ROW EXCLUSIVE MODE')
       await client.query('SELECT pg_advisory_xact_lock(994202)')
-      if (automatic) await this.requireAutomaticConfig(client, stored.tracker?.friendId ?? '')
+      if (source)
+        await this.requireRemoteConfig(client, {
+          source,
+          automatic,
+          checkedAt: new Date(),
+          friendId: stored.tracker?.friendId ?? '',
+          ...(linkFingerprint ? { linkFingerprint } : {}),
+        })
       const locked = await client.query<{ status: string }>(
         'SELECT status FROM collection_imports WHERE id = $1 FOR UPDATE',
         [row.id],
       )
       if (locked.rows[0]?.status !== 'pending') throw notPending(row)
       const { stock: current, adjustments, baseline } = await this.importBaseline(client, index)
-      if (row.source === 'tracker' && (!stored.tracker || stored.tracker.baseline !== baseline)) {
+      if (source === 'tracker' && (!stored.tracker || stored.tracker.baseline !== baseline)) {
         throw new ConflictException({
           code: 'tracker_stale_preview',
           message: 'La colección, sus ajustes o el catálogo cambiaron. Obtené otra vista previa antes de aplicar.',
         })
       }
-      const diff = diffImport(index, current, incoming, adjustments)
-      if (automatic && row.source === 'tracker') {
+      if (source === 'dotgg' && (!stored.dotgg || stored.dotgg.baseline !== baseline)) {
+        throw new ConflictException({
+          code: 'dotgg_stale_preview',
+          message:
+            'La colección, sus ajustes o el catálogo cambiaron. Sincronizá otra vez con ptcgpocket.gg antes de aplicar.',
+        })
+      }
+      const diff = diffImport(index, current, this.remoteUnits(index, source, units, current), adjustments)
+      if (automatic && source === 'tracker') {
         const review = await this.trackerReview(
           client,
           diff,
@@ -586,6 +704,9 @@ export class CollectionService {
         if (review.requiresReview || stored.tracker?.requiresReview)
           throw new ConflictException({ code: 'tracker_review', message: review.reviewReasons?.join(' ') })
       }
+      if (automatic && source === 'dotgg' && (!stored.dotgg || stored.dotgg.requiresReview)) {
+        throw new ConflictException({ code: 'dotgg_review', message: stored.dotgg?.reviewReasons.join(' ') ?? '' })
+      }
       const appliedAt = new Date()
       await upsertMany(
         client,
@@ -595,7 +716,7 @@ export class CollectionService {
           change.stockCardId,
           change.after.amountOwned,
           change.after.collected,
-          row.source === 'tracker' ? 'tracker' : 'import',
+          source ?? 'import',
           row.id,
           appliedAt,
         ]),
@@ -607,25 +728,38 @@ export class CollectionService {
         'UPDATE collection_imports SET status = $2::collection_import_status, applied_at = $3, diff_summary = $4 WHERE id = $1',
         [row.id, 'applied', appliedAt, JSON.stringify(toJson(stored))],
       )
-      if (row.source === 'tracker') {
+      if (source) {
+        const keys = REMOTE_KEYS[source]
         await client.query(
-          `INSERT INTO app_settings (key, value, updated_at) VALUES ('trackerLastAppliedAt', $1::jsonb, $2)
+          `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2::jsonb, $3)
           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
-          [JSON.stringify(appliedAt.toISOString()), appliedAt],
+          [keys.lastApplied, JSON.stringify(appliedAt.toISOString()), appliedAt],
         )
         await client.query(
-          `INSERT INTO app_settings (key, value) VALUES ('trackerLastAppliedCommit', $1::jsonb), ('trackerLastCheckedAt', $2::jsonb)
+          `INSERT INTO app_settings (key, value) VALUES ($1, $2::jsonb)
            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-          [JSON.stringify(this.catalog.trackerCommit), JSON.stringify(appliedAt.toISOString())],
+          [keys.lastChecked, JSON.stringify(appliedAt.toISOString())],
         )
+        if (source === 'tracker') {
+          await client.query(
+            `INSERT INTO app_settings (key, value) VALUES ('trackerLastAppliedCommit', $1::jsonb)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+            [JSON.stringify(this.catalog.trackerCommit)],
+          )
+        }
         await client.query(
-          `INSERT INTO app_settings (key, value, updated_at) VALUES ('trackerSyncState', $1::jsonb, $2)
+          `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2::jsonb, $3)
            ON CONFLICT (key) DO UPDATE SET value = app_settings.value || EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
-          [JSON.stringify({ result: 'applied', error: null, previewId: String(row.id), automatic }), appliedAt],
+          [
+            keys.state,
+            JSON.stringify({ result: 'applied', error: null, previewId: String(row.id), automatic }),
+            appliedAt,
+          ],
         )
-        await this.pruneTrackerImports(client)
+        await this.pruneRemoteImports(client, source)
+        await client.query('DELETE FROM app_settings WHERE key = $1', [keys.warning])
       }
-      // Any successful import (including CSV) resolves the previous automatic warning.
+      // Any successful import (including CSV) resolves the previous automatic warning of the tracker.
       await client.query("DELETE FROM app_settings WHERE key = 'trackerSyncWarning'")
       await client.query('COMMIT')
       return { applied: true, summary: diff.summary }
@@ -640,6 +774,7 @@ export class CollectionService {
   async discardImport(rawId: string): Promise<void> {
     const row = await this.requireImport(rawId)
     if (row.status !== 'pending') throw notPending(row)
+    const source = remoteSourceOf(row.source)
     await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(994202)`
       const discarded = await tx.collectionImport.updateMany({
@@ -647,9 +782,9 @@ export class CollectionService {
         data: { status: 'discarded' },
       })
       if (!discarded.count) throw notPending(row)
-      if (row.source === 'tracker') {
+      if (source) {
         // An older preview must not clear a warning for a newer one.
-        await tx.$executeRaw`DELETE FROM app_settings WHERE key = 'trackerSyncWarning' AND value->>'previewId' = ${String(row.id)}`
+        await tx.$executeRaw`DELETE FROM app_settings WHERE key = ${REMOTE_KEYS[source].warning} AND value->>'previewId' = ${String(row.id)}`
       }
     })
   }
@@ -802,7 +937,7 @@ export class CollectionService {
   }
 
   /** Stored rows → stock units (same fold as the original normalization; line numbers are not needed here). */
-  private unitsOf(index: CatalogIndex, rows: readonly ImportRowLike[], source = 'csv'): StockQuantities {
+  private unitsOf(index: CatalogIndex, rows: readonly ImportRowLike[]): StockQuantities {
     const csvRows: CsvRow[] = rows.map((row, at) => ({
       line: at + 2,
       id: row.cardId,
@@ -814,8 +949,19 @@ export class CollectionService {
       pack: null,
       rarity: null,
     }))
-    const units = normalizeImportRows(csvRows, index).units
-    return source === 'tracker' ? trackerUnits(units, index) : units
+    return normalizeImportRows(csvRows, index).units
+  }
+
+  /** What a source's units mean: a CSV merges, the tracker and ptcgpocket.gg are the whole collection. */
+  private remoteUnits(
+    index: CatalogIndex,
+    source: RemoteSource | null | undefined,
+    units: StockQuantities,
+    current: StockQuantities,
+  ): StockQuantities {
+    if (source === 'tracker') return trackerUnits(units, index)
+    if (source === 'dotgg') return dotggUnits(units, index, current)
+    return units
   }
 
   private async trackerReview(
@@ -829,7 +975,7 @@ export class CollectionService {
     const stats = trackerDiffStats(diff, totalCopies(stock))
     const reviewReasons: string[] = []
     if (stats.requiresReview)
-      reviewReasons.push(`Bajan ${stats.removedCopies} de ${stats.currentCopies} copias (más del 10\u00a0%).`)
+      reviewReasons.push(`Bajan ${stats.removedCopies} de ${stats.currentCopies} copias (más del 10 %).`)
     const settings = await client.query<{ key: string; value: unknown }>(
       "SELECT key, value FROM app_settings WHERE key IN ('trackerLastAppliedAt', 'trackerLastAppliedCommit')",
     )
@@ -861,29 +1007,143 @@ export class CollectionService {
     }
   }
 
-  private async requireAutomaticConfig(client: PoolClient, friendId: string) {
+  /**
+   * T-020: what makes a ptcgpocket.gg snapshot wait for Santi instead of applying by itself — gross drops above 10 %,
+   * the first sync, manual edits since the last applied one, cards the catalog does not have, expansions with copies
+   * that the export does not list, and rows it cannot read.
+   */
+  private async dotggReview(
+    client: PoolClient,
+    index: CatalogIndex,
+    diff: ImportDiff,
+    stock: StockQuantities,
+    baseline: string,
+    normalized: NormalizedImport,
+    unmatched: readonly DotggUnmatched[],
+    parsed: ImportInput,
+  ): Promise<DotggReviewView> {
+    const stats = trackerDiffStats(diff, totalCopies(stock))
+    const reasons: string[] = []
+    const changed = diff.changes.length > 0
+    if (stats.requiresReview) {
+      reasons.push(`Bajan ${count(stats.removedCopies)} de ${count(stats.currentCopies)} copias (más del 10 %).`)
+    }
+    const applied = await client.query<{ value: unknown }>('SELECT value FROM app_settings WHERE key = $1', [
+      REMOTE_KEYS.dotgg.lastApplied,
+    ])
+    const lastApplied = applied.rows[0]?.value
+    if (changed && typeof lastApplied !== 'string') {
+      reasons.push('Es la primera sincronización con ptcgpocket.gg: revisá los cambios antes de aplicarlos.')
+    }
+    const manual = await client.query<{ card_id: string }>(
+      `SELECT card_id FROM collection_stock WHERE source = 'manual' AND card_id = ANY($1::text[])
+       AND updated_at > $2::timestamptz`,
+      [
+        diff.changes.map((c) => c.stockCardId),
+        typeof lastApplied === 'string' ? lastApplied : new Date(0).toISOString(),
+      ],
+    )
+    const manualCount = manual.rowCount ?? 0
+    if (manualCount > 0) {
+      reasons.push(
+        manualCount === 1
+          ? '1 carta tiene un cambio manual posterior a la última sincronización aplicada.'
+          : `${count(manualCount)} cartas tienen cambios manuales posteriores a la última sincronización aplicada.`,
+      )
+    }
+    if (unmatched.length > 0) {
+      const copies = unmatched.reduce((sum, row) => sum + row.copies, 0)
+      reasons.push(
+        `ptcgpocket.gg trae ${unmatched.length === 1 ? '1 carta' : `${count(unmatched.length)} cartas`} que el catálogo no tiene (${copies === 1 ? '1 copia' : `${count(copies)} copias`}): sincronizá el catálogo o revisá la lista.`,
+      )
+    }
+    const missingExpansions = changed
+      ? dotggMissingExpansions(index, stock, normalized.units).map((item) => ({
+          ...item,
+          nameEs: index.expansionById(item.expansionId)?.nameEs ?? item.expansionId,
+        }))
+      : []
+    if (missingExpansions.length > 0) {
+      const copies = missingExpansions.reduce((sum, item) => sum + item.copies, 0)
+      reasons.push(
+        `La exportación no trae ninguna carta de ${missingExpansions.map((item) => item.expansionId).join(', ')} y la colección tiene ${copies === 1 ? '1 copia' : `${count(copies)} copias`} ahí: puede que ptcgpocket.gg todavía no conozca la expansión.`,
+      )
+    }
+    if (parsed.errors.length > 0) {
+      reasons.push(
+        `La exportación tiene ${parsed.errors.length === 1 ? '1 fila' : `${count(parsed.errors.length)} filas`} con errores: así no se puede aplicar.`,
+      )
+    }
+    if (normalized.conflicts.length > 0) {
+      reasons.push(
+        `La exportación trae reimpresiones de una misma carta con cantidades distintas (${count(normalized.conflicts.length)}): así no se puede aplicar.`,
+      )
+    }
+    return {
+      baseline,
+      increased: stats.increased,
+      decreased: stats.decreased,
+      removedCopies: stats.removedCopies,
+      currentCopies: stats.currentCopies,
+      requiresReview: reasons.length > 0,
+      reviewReasons: reasons,
+      unmatched: [...unmatched],
+      missingExpansions,
+    }
+  }
+
+  /**
+   * Who may write the collection right now (inside the import's transaction, under lock 994202). The tracker only
+   * while ptcgpocket.gg is not configured (T-020); an automatic run only with its switch still on and the same friend
+   * id or link it read; a new ptcgpocket.gg snapshot only while its link is there.
+   */
+  private async requireRemoteConfig(client: PoolClient, remote: RemoteImport, creating = false): Promise<void> {
+    const keys = REMOTE_KEYS[remote.source]
     const rows = await client.query<{ key: string; value: unknown }>(
-      "SELECT key, value FROM app_settings WHERE key IN ('trackerAutoSync', 'trackerFriendId')",
+      'SELECT key, value FROM app_settings WHERE key = ANY($1::text[])',
+      [[keys.auto, 'trackerFriendId']],
     )
     const config = Object.fromEntries(rows.rows.map((r) => [r.key, r.value]))
-    if (config.trackerAutoSync !== true || config.trackerFriendId !== friendId)
+    const secret = await client.query<{ value: string }>('SELECT value FROM app_secrets WHERE key = $1', [
+      DOTGG_LINK_KEY,
+    ])
+    const link = this.links.open(secret.rows[0]?.value)
+    if (remote.source === 'tracker') {
+      if (link) throw new ConflictException({ code: 'tracker_not_master', message: TRACKER_NOT_MASTER })
+      if (remote.automatic && (config.trackerAutoSync !== true || config.trackerFriendId !== remote.friendId))
+        throw new ConflictException({
+          code: 'tracker_config_changed',
+          message: 'La configuración del tracker cambió durante la consulta. No se aplicó nada.',
+        })
+      return
+    }
+    if (creating && !link)
       throw new ConflictException({
-        code: 'tracker_config_changed',
-        message: 'La configuración del tracker cambió durante la consulta. No se aplicó nada.',
+        code: 'dotgg_not_configured',
+        message: 'Se quitó el link de ptcgpocket.gg durante la consulta. No se aplicó nada.',
+      })
+    if (
+      remote.automatic &&
+      (config.dotggAutoSync !== true || !link || this.links.fingerprint(link) !== remote.linkFingerprint)
+    )
+      throw new ConflictException({
+        code: 'dotgg_config_changed',
+        message: 'La configuración de ptcgpocket.gg cambió durante la consulta. No se aplicó nada.',
       })
   }
 
-  /** Keep the first applied tracker baseline and seven recent snapshots for pack-luck comparisons. */
-  private async pruneTrackerImports(client: PoolClient) {
+  /** Keep the first applied snapshot of a remote source and seven recent ones (pack luck compares them). */
+  private async pruneRemoteImports(client: PoolClient, source: RemoteSource) {
     const removed = await client.query<{ id: number }>(
-      `DELETE FROM collection_imports WHERE source = 'tracker' AND (
+      `DELETE FROM collection_imports WHERE source = $1 AND (
         (status = 'applied' AND id NOT IN (
-          SELECT id FROM collection_imports WHERE source = 'tracker' AND status = 'applied' ORDER BY applied_at DESC, id DESC LIMIT 7
-        ) AND id <> (SELECT id FROM collection_imports WHERE source = 'tracker' AND status = 'applied' ORDER BY applied_at, id LIMIT 1))
+          SELECT id FROM collection_imports WHERE source = $1 AND status = 'applied' ORDER BY applied_at DESC, id DESC LIMIT 7
+        ) AND id <> (SELECT id FROM collection_imports WHERE source = $1 AND status = 'applied' ORDER BY applied_at, id LIMIT 1))
         OR (status = 'discarded' AND id NOT IN (
-          SELECT id FROM collection_imports WHERE source = 'tracker' AND status = 'discarded' ORDER BY id DESC LIMIT 7
+          SELECT id FROM collection_imports WHERE source = $1 AND status = 'discarded' ORDER BY id DESC LIMIT 7
         ))
       ) RETURNING id`,
+      [source],
     )
     if (removed.rows.length)
       await client.query('UPDATE collection_stock SET import_id = NULL WHERE import_id = ANY($1::int[])', [
@@ -904,6 +1164,7 @@ export class CollectionService {
       id: idToString(row.id),
       source: row.source,
       ...(stored.tracker ? { tracker: stored.tracker } : {}),
+      ...(stored.dotgg ? { dotgg: stored.dotgg } : {}),
       fileName: row.fileName === '' ? null : row.fileName,
       status: row.status,
       importedAt: row.importedAt,
@@ -983,6 +1244,7 @@ function readStored(row: ImportRecord): StoredImport {
   const raw = row.diffSummary as Partial<StoredImport> | null
   return {
     ...(raw?.tracker ? { tracker: raw.tracker } : {}),
+    ...(raw?.dotgg ? { dotgg: raw.dotgg } : {}),
     meta: {
       bom: raw?.meta?.bom ?? true,
       lineEnding: raw?.meta?.lineEnding ?? 'LF',
@@ -997,6 +1259,16 @@ function readStored(row: ImportRecord): StoredImport {
 
 function isBlocked(stored: StoredImport): boolean {
   return stored.meta.errors.length > 0 || stored.meta.conflicts.length > 0
+}
+
+/** The remote source of an import row, or null for a CSV. */
+export function remoteSourceOf(source: string): RemoteSource | null {
+  return source === 'tracker' || source === 'dotgg' ? source : null
+}
+
+/** «5.043», as the app writes counts. */
+function count(value: number): string {
+  return value.toLocaleString('es-AR')
 }
 
 function notPending(row: ImportRecord): ConflictException {

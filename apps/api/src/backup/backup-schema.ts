@@ -4,17 +4,19 @@
  * (Fase 5) the era table, the archetype merges and each deck's tournament archetype; version 5 (Fase 8) the results of
  * the games against the bot (D-019: the result only, not the moves); version 6 (Fase 12) the notes by rival; version 7
  * (Fase 16) the events; version 8 (T-020) collection imports and stock with tracker origin; version 9 (14/10) the
- * rival's cards seen in each match; version 10 (14/10) the ranked seasons and the rank changes. Tournament data is not in the
+ * rival's cards seen in each match; version 10 (14/10) the ranked seasons and the rank changes; version 11 (22/10, T-020) imports and stock
+ * from ptcgpocket.gg (`dotgg`). Tournament data is not in the
  * backup: it is Limitless's and the sync downloads it again (DECISIONES 5.7).
  * Dates are ISO strings; numeric ids keep their database values so a `replace` restores them verbatim.
- * Excluded on purpose: password hash, TOTP secret, token hashes (tokens travel as metadata only), raw CSV files.
+ * Excluded on purpose: password hash, TOTP secret, token hashes (tokens travel as metadata only), raw CSV files and
+ * `app_secrets` (the ptcgpocket.gg export link: a restore keeps the one configured).
  */
 import { RANKS } from '@tcg/domain'
 import { z } from 'zod'
 
-export const BACKUP_SCHEMA_VERSION = 10
+export const BACKUP_SCHEMA_VERSION = 11
 /** Versions this app reads. Exports always write BACKUP_SCHEMA_VERSION. */
-export const READABLE_BACKUP_VERSIONS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+export const READABLE_BACKUP_VERSIONS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 
 const isoDate = z.string().refine((value) => !Number.isNaN(Date.parse(value)), 'fecha ISO 8601 inválida')
 const nullableDate = isoDate.nullable()
@@ -31,7 +33,7 @@ const stockSchema = z.object({
   cardId: z.string(),
   amountOwned: z.number().int().min(0),
   collected: z.boolean(),
-  source: z.enum(['import', 'manual', 'tracker']),
+  source: z.enum(['import', 'manual', 'tracker', 'dotgg']),
   importId: z.number().int().nullable(),
   updatedAt: isoDate,
 })
@@ -42,7 +44,7 @@ const importRowSchema = z.object({
   collected: z.boolean(),
 })
 const importSchema = z.object({
-  source: z.enum(['csv', 'tracker']).default('csv'),
+  source: z.enum(['csv', 'tracker', 'dotgg']).default('csv'),
   id: z.number().int(),
   fileName: z.string(),
   sha256: z.string(),
@@ -144,6 +146,7 @@ export const backupDocumentSchema = z.object({
     z.literal(8),
     z.literal(9),
     z.literal(10),
+    z.literal(11),
   ]),
   exportedAt: isoDate,
   appVersion: z.string(),
