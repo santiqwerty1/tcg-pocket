@@ -130,6 +130,8 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
         data: { status: 'discarded' },
       })
       await tx.appSetting.deleteMany({ where: { key: { in: ['trackerSyncWarning', KEYS.warning] } } })
+      // Another link (or one pasted again after removing it): its first sync is a first sync, reviewed by hand.
+      if (before !== check.url) await tx.appSetting.deleteMany({ where: { key: KEYS.lastApplied } })
     })
     return this.status()
   }

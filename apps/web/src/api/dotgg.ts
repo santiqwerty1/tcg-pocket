@@ -113,13 +113,17 @@ export const trackerGapSchema = z.object({
 })
 export type TrackerGap = z.infer<typeof trackerGapSchema>
 
-/** Reads both collections when the screen opens; again only on request (each read takes a few seconds). */
+/**
+ * Reads both collections every time the screen opens and when the app gets the focus back: after importing the file
+ * in the tracker, coming back shows the new comparison (each read takes a few seconds).
+ */
 export function useTrackerGap() {
   return useQuery({
     queryKey: trackerGapKey,
     queryFn: ({ signal }) => request('/api/collection/tracker-gap', { schema: trackerGapSchema, signal }),
-    staleTime: 5 * 60_000,
-    refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always',
     retry: false,
   })
 }

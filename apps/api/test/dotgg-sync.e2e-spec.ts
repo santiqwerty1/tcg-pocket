@@ -668,13 +668,13 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
         { cardId: 'P-A-7', amountOwned: 1, collected: true, source: 'import' as const },
       ],
     })
-    await lastApplied()
     await setLink(LINK)
+    await lastApplied()
     await setting('dotggAutoSync', true)
     body = exportFile(range(1, 21).map((n) => [1, '', 'A1', n]))
     const result = await test.app.get(DotggSync).tick(new Date(Date.now() + 60_000))
     expect(result?.dotgg?.requiresReview).toBe(true)
-    expect(result?.dotgg?.reviewReasons.join(' ')).toContain('ninguna carta de P-A')
+    expect(result?.dotgg?.reviewReasons).toEqual([expect.stringContaining('ninguna carta de P-A')])
     expect(await copies()).toBe(21)
   })
 
@@ -688,15 +688,34 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
         updatedAt: new Date(Date.now() - 2 * 3600_000),
       })),
     })
+    await setLink(LINK)
     await lastApplied()
     await test.http().patch('/api/collection/stock/A1-1').set('Cookie', cookie).send({ amountOwned: 3 })
-    await setLink(LINK)
     await setting('dotggAutoSync', true)
     body = exportFile(range(1, 40).map((n) => [1, '', 'A1', n]))
     const result = await test.app.get(DotggSync).tick(new Date(Date.now() + 60_000))
     expect(result?.dotgg?.requiresReview).toBe(true)
-    expect(result?.dotgg?.reviewReasons.join(' ')).toContain('1 carta tiene un cambio manual')
+    expect(result?.dotgg?.reviewReasons).toEqual([expect.stringContaining('1 carta tiene un cambio manual')])
     expect(await copies()).toBe(42)
+  })
+
+  it('another link starts over: its first automatic sync waits for a look; the same link keeps the last one', async () => {
+    await setLink(LINK)
+    await setting('dotggAutoSync', true)
+    expect((await apply((await preview()).body.id)).status).toBe(200)
+    await setLink(LINK)
+    expect(await test.prisma.appSetting.count({ where: { key: 'dotggLastAppliedAt' } })).toBe(1)
+    await setLink(OTHER)
+    expect(await test.prisma.appSetting.count({ where: { key: 'dotggLastAppliedAt' } })).toBe(0)
+    body = exportFile([
+      [2, 'Bulbasaur', 'A1', 1],
+      [1, "Professor's Research", 'P-A', 7],
+      [4, 'Small Balloon', 'B4b', 372],
+    ])
+    const result = await test.app.get(DotggSync).tick(new Date(Date.now() + 2 * DOTGG_SYNC_INTERVAL_MS))
+    expect(result?.dotgg?.requiresReview).toBe(true)
+    expect(result?.dotgg?.reviewReasons.join(' ')).toContain('primera sincronización')
+    expect(await copies()).toBe(6)
   })
 
   it('the same link keeps the pending preview; another link discards it', async () => {

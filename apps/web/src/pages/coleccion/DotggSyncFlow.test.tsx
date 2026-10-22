@@ -1,5 +1,5 @@
-import { QueryClient } from '@tanstack/react-query'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { focusManager, QueryClient } from '@tanstack/react-query'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
@@ -316,6 +316,23 @@ describe('Tracker al día', () => {
     expect([...bytes]).toEqual([...new TextEncoder().encode(gap.trackerFile.content)])
     expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf])
     click.mockRestore()
+  })
+
+  it('compares again when the app gets the focus back and every time the screen opens (back from the tracker)', async () => {
+    const { calls } = fakeApi({ 'GET /api/collection/tracker-gap': gap })
+    const reads = () => calls.filter((call) => call.path === '/api/collection/tracker-gap').length
+    const router = renderAt('/coleccion/tracker')
+    expect(await screen.findByText('tracker 1 → juego 3')).toBeInTheDocument()
+    expect(reads()).toBe(1)
+    onTestFinished(() => focusManager.setFocused(undefined))
+    act(() => {
+      focusManager.setFocused(false)
+      focusManager.setFocused(true)
+    })
+    await waitFor(() => expect(reads()).toBe(2))
+    await act(() => router.navigate('/coleccion'))
+    await act(() => router.navigate('/coleccion/tracker'))
+    await waitFor(() => expect(reads()).toBe(3))
   })
 
   it('says when the tracker is up to date and offers no file', async () => {
