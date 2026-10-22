@@ -8,6 +8,7 @@ export * from './missions.js'
 export * from './names.js'
 export * from './normalize.js'
 export * from './parseCardsDb.js'
+export * from './pokemonTypes.js'
 export * from './remap.js'
 export {
   type EngineCard,

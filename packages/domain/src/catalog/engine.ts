@@ -79,7 +79,7 @@ export interface EngineJoin {
   unmatchedEngineIds: string[]
 }
 
-/** The tracker fields the join reads; a raw `TrackerCard` satisfies it. */
+/** The tracker fields the join reads; a parsed `TrackerCard` satisfies it. */
 export interface EngineJoinCard {
   card_id: CardId
   expansion: ExpansionId
@@ -87,8 +87,21 @@ export interface EngineJoinCard {
   card_type: 'pokémon' | 'trainer'
   evolution_type: EvolutionType
   energy: string
+  /** Every printed type (C1: two for the dual-type Pokémon); absent means `[energy]`. */
+  types?: readonly string[] | undefined
   hp?: number | undefined
   rarity: Rarity
+}
+
+/** The engine's printed types: `energyTypes` when the database gives a list or a second type, else `[energyType]`. */
+function engineTypesOf(engine: { energyType: string; energyTypes?: string[] | undefined }): string[] {
+  const types = engine.energyTypes && engine.energyTypes.length > 0 ? engine.energyTypes : [engine.energyType]
+  return types.map((type) => type.toLowerCase())
+}
+
+/** Same set of types, order aside (the tracker and the engine may write a dual type in different orders). */
+function sameTypes(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((type) => b.includes(type))
 }
 
 export function joinEngineData(cards: readonly EngineJoinCard[], engineCards: readonly EngineCard[]): EngineJoin {
@@ -131,7 +144,9 @@ export function joinEngineData(cards: readonly EngineJoinCard[], engineCards: re
       if ((card.hp ?? null) !== engine.hp) conflict('hp', card.hp ?? null, engine.hp)
       const stage = STAGE_TO_EVOLUTION[engine.stage] ?? null
       if (stage !== card.evolution_type) conflict('evolutionType', card.evolution_type, stage ?? engine.stage)
-      if (engine.energyType.toLowerCase() !== card.energy) conflict('energy', card.energy, engine.energyType)
+      const trackerTypes = card.types && card.types.length > 0 ? [...card.types] : [card.energy]
+      const engineTypes = engineTypesOf(engine)
+      if (!sameTypes(trackerTypes, engineTypes)) conflict('energy', trackerTypes.join('/'), engineTypes.join('/'))
       byCardId.set(card.card_id, { engineId, evolvesFrom: engine.evolvesFrom ?? null, isFossil: false })
     } else {
       byCardId.set(card.card_id, { engineId, evolvesFrom: null, isFossil: engine.trainerType === 'Fossil' })
@@ -146,6 +161,20 @@ export function joinEngineData(cards: readonly EngineJoinCard[], engineCards: re
  * Reduces raw deckgym `database.json` entries (`{ Pokemon: {...} } | { Trainer: {...} }`) to `EngineCard`.
  * Mirrors `scripts/extract-fixtures.mjs`, so the sync job and the fixtures produce the same shape.
  */
+/**
+ * deckgym's printed type: `energy_type` (one, as until B4b). For C1 it may add a second one apart
+ * (`secondary_energy_type`) or turn it into a list (`energy_types`, or `energy_type` itself): proposed upstream on
+ * 22/10/2026, still undecided, so the three shapes are read. A malformed value is left for the schema to refuse.
+ */
+function engineTypeFields(v: Record<string, unknown>): { energyType: unknown; energyTypes?: unknown } {
+  const list = Array.isArray(v.energy_types) ? v.energy_types : Array.isArray(v.energy_type) ? v.energy_type : null
+  if (list) return { energyType: list[0], energyTypes: list }
+  if (typeof v.secondary_energy_type === 'string') {
+    return { energyType: v.energy_type, energyTypes: [v.energy_type, v.secondary_energy_type] }
+  }
+  return { energyType: v.energy_type }
+}
+
 export function engineCardsFromDatabaseJson(json: unknown): EngineCard[] {
   if (!Array.isArray(json)) throw new Error('deckgym database.json must be an array')
   const reduced = json.map((entry: unknown) => {
@@ -160,7 +189,7 @@ export function engineCardsFromDatabaseJson(json: unknown): EngineCard[] {
         stage: v.stage,
         evolvesFrom: v.evolves_from ?? null,
         hp: v.hp,
-        energyType: v.energy_type,
+        ...engineTypeFields(v),
         rarity: v.rarity,
       }
     }

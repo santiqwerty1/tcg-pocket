@@ -96,6 +96,16 @@ describe('catalog (e2e)', () => {
     expect(missions.body.items[0].slots[0]).toMatchObject({ have: 0 })
     expect(missions.body.expansions.length).toBe(21)
     expect(await test.prisma.card.count()).toBe(EXPECTED.cards)
+    // C1: the printed types as a list, written and read back (one per Pokémon until C1, none for a trainer).
+    expect((await test.prisma.card.findUniqueOrThrow({ where: { id: 'A1-1' } })).types).toEqual(['grass'])
+    expect((await test.prisma.card.findUniqueOrThrow({ where: { id: 'P-A-1' } })).types).toEqual([])
+    expect(await test.prisma.card.count({ where: { cardType: 'pokemon', types: { isEmpty: true } } })).toBe(0)
+    expect(test.app.get(CatalogService).requireIndex().cardById('A1-1')?.types).toEqual(['grass'])
+    // A row written before the column existed (empty list) loads with its one energy.
+    await test.prisma.card.update({ where: { id: 'A1-1' }, data: { types: [] } })
+    const loaded = await test.app.get(CatalogRepository).loadCatalog()
+    expect(loaded?.catalog.cards.find((card) => card.id === 'A1-1')?.types).toEqual(['grass'])
+    await test.prisma.card.update({ where: { id: 'A1-1' }, data: { types: ['grass'] } })
     expect(await test.prisma.functionalGroup.count()).toBe(EXPECTED.groups)
     expect(await test.prisma.expansion.count()).toBe(EXPECTED.expansions)
     expect(await test.prisma.rarityRule.count()).toBeGreaterThan(0)

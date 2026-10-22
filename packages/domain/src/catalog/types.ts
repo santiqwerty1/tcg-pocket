@@ -78,8 +78,13 @@ export interface CardEdition {
   nameEs: string
   nameEsSource: NameEsSource
   hp: number | null
-  /** 'trainer' for trainer cards; otherwise the Pokémon's energy type. */
+  /** 'trainer' for trainer cards; otherwise the Pokémon's (first) energy type. */
   energy: EnergyType | 'trainer'
+  /**
+   * Every printed type of a Pokémon, in printed order: one, or two for the dual-type cards of C1 «Dual Fusion»
+   * (29/10/2026); [] for trainers. `types[0] === energy`. «Is it a [X] Pokémon» reads this (`isOfType`), not `energy`.
+   */
+  types: EnergyType[]
   cardType: CardType
   evolutionType: EvolutionType
   /** English name of the pre-evolution (from deckgym database.json), null for basics and trainers. */
