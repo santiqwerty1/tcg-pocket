@@ -56,7 +56,7 @@ cores=${answer:-$cores}
 printf 'Nombre en la app (Enter = %s): ' "$name" >/dev/tty
 IFS= read -r answer </dev/tty
 name=${answer:-$name}
-printf '¿Tomar también bots lentos (MCTS, profundidad 3 o más)? [s/N]: ' >/dev/tty
+printf '¿Tomar también bots lentos (MCTS, profundidad 3 o más, bots g)? [s/N]: ' >/dev/tty
 IFS= read -r slowBots </dev/tty
 printf '¿Solo mientras carga? [s/N]: ' >/dev/tty
 IFS= read -r charging </dev/tty

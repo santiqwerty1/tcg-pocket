@@ -17,7 +17,7 @@ export interface WorkerConfig {
   cores: number
   /** Background engines yield CPU to CI; interactive engines always use normal priority. */
   priority: EnginePriority
-  /** D-025: Android opts out of MCTS and depth 3+ jobs before leasing; PC opts in. */
+  /** D-025: Android opts out of MCTS, depth 3+ and g jobs before leasing; PC opts in. */
   allowSlowBots: boolean
   name: string
   enginePath: string

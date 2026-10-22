@@ -1277,6 +1277,135 @@
       "expected": {
         "games": 2,
         "moves": [
+          "139d7bb4286537fb",
+          "030bc183c97dbc40"
+        ],
+        "perGame": {
+          "endings": "PP",
+          "stagesA": "00",
+          "stagesB": "00",
+          "starters": "BA",
+          "turnLimit": 30,
+          "turns": [
+            12,
+            11
+          ],
+          "winners": "AA"
+        },
+        "players": [
+          "g2",
+          "e2"
+        ],
+        "seed": 4214,
+        "ties": 0,
+        "turns": 23,
+        "winsA": 2,
+        "winsB": 0
+      },
+      "job": {
+        "deckA": "Energy: Lightning\n2 Dedenne ex B3b 24\n1 Indeedee ex B1 121\n1 Oricorio A3 165\n1 Zeraora A3a 21\n1 Skull Fossil A2 144\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Cyrus A2 150\n2 Giant Cape A2 147\n2 Small Balloon B3b 64\n1 Clear Veil B4 149\n1 Protective Poncho B2 147\n1 Starting Plains B2 154\n",
+        "deckB": "Energy: Fire, Darkness\n2 Blacephalon ex B2 23\n2 Heatmor A4 37\n2 Seviper B3 104\n2 Nihilego A3a 42\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n2 Rocky Helmet A2 148\n2 Giant Cape A2 147\n1 Cyrus A2 150\n1 Pokémon Center Lady A2b 70\n",
+        "games": 2,
+        "perGame": true,
+        "players": [
+          "g2",
+          "e2"
+        ],
+        "seed": 4214,
+        "threads": 1
+      }
+    },
+    {
+      "command": "simulate",
+      "expected": {
+        "games": 2,
+        "moves": [
+          "e1a123fd816487b1",
+          "6756cb7a010446d7"
+        ],
+        "perGame": {
+          "endings": "PP",
+          "stagesA": "00",
+          "stagesB": "11",
+          "starters": "AA",
+          "turnLimit": 30,
+          "turns": [
+            13,
+            13
+          ],
+          "winners": "AA"
+        },
+        "players": [
+          "g2",
+          "r"
+        ],
+        "seed": 4215,
+        "ties": 0,
+        "turns": 26,
+        "winsA": 2,
+        "winsB": 0
+      },
+      "job": {
+        "deckA": "Energy: Fire, Darkness\n2 Blacephalon ex B2 23\n2 Heatmor A4 37\n2 Seviper B3 104\n2 Nihilego A3a 42\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n2 Rocky Helmet A2 148\n2 Giant Cape A2 147\n1 Cyrus A2 150\n1 Pokémon Center Lady A2b 70\n",
+        "deckB": "Energy: Psychic\n2 Latias A4a 36\n2 Latios A4a 37\n1 Misdreavus A4a 32\n1 Misdreavus A2 66\n2 Mismagius A4a 33\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Pokémon Center Lady A2b 70\n1 Sabrina A1 225\n1 Red Card P-A 6\n2 Rocky Helmet A2 148\n1 Giant Cape A2 147\n",
+        "games": 2,
+        "perGame": true,
+        "players": [
+          "g2",
+          "r"
+        ],
+        "seed": 4215,
+        "threads": 1
+      }
+    },
+    {
+      "command": "simulate",
+      "expected": {
+        "games": 2,
+        "moves": [
+          "fd6e4a8caabeb8fb",
+          "7a05ef6a0f61fd81"
+        ],
+        "perGame": {
+          "endings": "PP",
+          "stagesA": "11",
+          "stagesB": "00",
+          "starters": "AA",
+          "turnLimit": 30,
+          "turns": [
+            10,
+            10
+          ],
+          "winners": "BB"
+        },
+        "players": [
+          "g1",
+          "g2"
+        ],
+        "seed": 4216,
+        "ties": 0,
+        "turns": 20,
+        "winsA": 0,
+        "winsB": 2
+      },
+      "job": {
+        "deckA": "Energy: Psychic\n2 Latias A4a 36\n2 Latios A4a 37\n1 Misdreavus A4a 32\n1 Misdreavus A2 66\n2 Mismagius A4a 33\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Pokémon Center Lady A2b 70\n1 Sabrina A1 225\n1 Red Card P-A 6\n2 Rocky Helmet A2 148\n1 Giant Cape A2 147\n",
+        "deckB": "Energy: Lightning\n2 Dedenne ex B3b 24\n1 Indeedee ex B1 121\n1 Oricorio A3 165\n1 Zeraora A3a 21\n1 Skull Fossil A2 144\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Cyrus A2 150\n2 Giant Cape A2 147\n2 Small Balloon B3b 64\n1 Clear Veil B4 149\n1 Protective Poncho B2 147\n1 Starting Plains B2 154\n",
+        "games": 2,
+        "perGame": true,
+        "players": [
+          "g1",
+          "g2"
+        ],
+        "seed": 4216,
+        "threads": 1
+      }
+    },
+    {
+      "command": "simulate",
+      "expected": {
+        "games": 2,
+        "moves": [
           "36f11b27d53e021f",
           "da0467aa328871b0"
         ],
@@ -1657,6 +1786,51 @@
         "deckA": "Energy: Psychic\n2 Swablu A4a 64\n2 Mega Altaria ex B1 102\n1 Jirachi B1 106\n2 Chingling B1 109\n1 Indeedee ex B1 121\n1 Altaria B1 197\n1 Sabrina A1 225\n2 Rocky Helmet A2 148\n1 Cyrus A2 150\n1 Mars A2 155\n1 Poké Ball A2b 111\n2 Professor's Research A4b 373\n1 Copycat B1 225\n2 Lisia B1 226",
         "deckB": "Energy: Grass\n1 Bulbasaur A1 1\n2 Ivysaur B1a 2\n2 Mega Venusaur ex B1a 4\n2 Professor's Research P-A 7\n2 Copycat B1 225\n2 Quick-Grow Extract B1a 67\n2 Lucky Ice Pop B2 145\n2 Heavy Helmet B1 219\n1 Lillie A3 155\n1 Pokémon Center Lady A2b 70\n1 Cyrus A2 150\n1 Field Blower B3 147\n1 Repel A3a 64\n",
         "seed": 4212
+      }
+    },
+    {
+      "command": "gValues",
+      "expected": {
+        "burned": 8,
+        "moments": 133,
+        "poisoned": 0,
+        "tools": 124,
+        "values": "1a559a181a19d613"
+      },
+      "job": {
+        "deckA": "Energy: Fire, Darkness\n2 Blacephalon ex B2 23\n2 Heatmor A4 37\n2 Seviper B3 104\n2 Nihilego A3a 42\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n2 Rocky Helmet A2 148\n2 Giant Cape A2 147\n1 Cyrus A2 150\n1 Pokémon Center Lady A2b 70\n",
+        "deckB": "Energy: Lightning\n2 Dedenne ex B3b 24\n1 Indeedee ex B1 121\n1 Oricorio A3 165\n1 Zeraora A3a 21\n1 Skull Fossil A2 144\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Cyrus A2 150\n2 Giant Cape A2 147\n2 Small Balloon B3b 64\n1 Clear Veil B4 149\n1 Protective Poncho B2 147\n1 Starting Plains B2 154\n",
+        "seed": 4217
+      }
+    },
+    {
+      "command": "gValues",
+      "expected": {
+        "burned": 0,
+        "moments": 150,
+        "poisoned": 9,
+        "tools": 110,
+        "values": "b6e4a8bd1db82420"
+      },
+      "job": {
+        "deckA": "Energy: Psychic\n2 Latias A4a 36\n2 Latios A4a 37\n1 Misdreavus A4a 32\n1 Misdreavus A2 66\n2 Mismagius A4a 33\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Pokémon Center Lady A2b 70\n1 Sabrina A1 225\n1 Red Card P-A 6\n2 Rocky Helmet A2 148\n1 Giant Cape A2 147\n",
+        "deckB": "Energy: Fire, Darkness\n2 Blacephalon ex B2 23\n2 Heatmor A4 37\n2 Seviper B3 104\n2 Nihilego A3a 42\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n2 Rocky Helmet A2 148\n2 Giant Cape A2 147\n1 Cyrus A2 150\n1 Pokémon Center Lady A2b 70\n",
+        "seed": 4218
+      }
+    },
+    {
+      "command": "gValues",
+      "expected": {
+        "burned": 0,
+        "moments": 152,
+        "poisoned": 0,
+        "tools": 136,
+        "values": "013ba6fb0e1116a8"
+      },
+      "job": {
+        "deckA": "Energy: Lightning\n2 Dedenne ex B3b 24\n1 Indeedee ex B1 121\n1 Oricorio A3 165\n1 Zeraora A3a 21\n1 Skull Fossil A2 144\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Cyrus A2 150\n2 Giant Cape A2 147\n2 Small Balloon B3b 64\n1 Clear Veil B4 149\n1 Protective Poncho B2 147\n1 Starting Plains B2 154\n",
+        "deckB": "Energy: Psychic\n2 Latias A4a 36\n2 Latios A4a 37\n1 Misdreavus A4a 32\n1 Misdreavus A2 66\n2 Mismagius A4a 33\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Pokémon Center Lady A2b 70\n1 Sabrina A1 225\n1 Red Card P-A 6\n2 Rocky Helmet A2 148\n1 Giant Cape A2 147\n",
+        "seed": 4219
       }
     },
     {

@@ -709,7 +709,12 @@ export class WorkerQueueService {
     if (!canPlayFairBots(hello) && (await waiting({ players: { hasSome: [...FAIR_BOT_CODES] } })) > 0) {
       return FAIR_BOTS_HINT
     }
-    if (!canPlayGBots(hello) && (await waiting({ players: { hasSome: [...G_BOT_CODES] } })) > 0) {
+    // Every g is a slow bot: a worker that turns them down (D-025) would not take them with any engine either.
+    if (
+      !canPlayGBots(hello) &&
+      hello.allowSlowBots !== false &&
+      (await waiting({ players: { hasSome: [...G_BOT_CODES] } })) > 0
+    ) {
       return G_BOTS_HINT
     }
     return null

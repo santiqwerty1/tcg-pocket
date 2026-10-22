@@ -1718,6 +1718,18 @@ describe('simulation (e2e)', () => {
     expect(early).toMatchObject({ chunk: null, hint: expect.stringContaining('bots g') })
     const without = (await claim('worker-g-none', '0.3.16', features.slice(0, 4))).body
     expect(without).toMatchObject({ chunk: null, hint: expect.stringContaining('bots g') })
+    // Every g is a slow bot: an Android that turns them down (D-025) is not told to update for them (review of #142).
+    const slow = (
+      await bearer('post', '/api/worker/claim').send({
+        ...worker('worker-g-android'),
+        version: '0.3.13',
+        cliVersion: '0.3.15',
+        engineFeatures: features,
+        allowSlowBots: false,
+      })
+    ).body
+    expect(slow.chunk).toBeNull()
+    expect(slow.hint).toBeUndefined()
     const fresh = (await claim('worker-g-new', '0.3.16', features)).body.chunk as Structured
     expect(fresh).toMatchObject({ jobId: created.body.id, players: ['g2', 'e2'] })
     await post(`/api/simulations/${created.body.id}/cancel`)

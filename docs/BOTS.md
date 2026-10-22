@@ -575,9 +575,12 @@ verificación del Coordinador va al PR siguiente de g, salvo esos tres casos, qu
     pedirlo, y `GAMES_REV` no subió. Sin esa versión, un trabajo podía mezclar las partidas de dos g. Lo mismo vale
     para el reclamo de chunks, el de las partidas en vivo, la pista al worker y el aviso `worker_idle`.
   - engine-cli 0.3.16 y worker 0.3.14, así los workers se actualizan a ese motor.
-  - g1 y g2 vuelven a las partidas doradas (`games-rev.json`, de 34 casos a 39, con una partida contra g2), y el
-    dorado del navegador suma esa partida. Desde ahora un cambio en cómo juega g sube `GAMES_REV`, como con
-    cualquier otro bot.
+  - g1 y g2 vuelven a las partidas doradas (`games-rev.json`, de 34 casos a 45), y el dorado del navegador suma una
+    partida contra g2. Altaria y Venusaur solos no muestran lo que g modela aparte de f (autorrevisión de #142):
+    con otro `POISON_ROUND` o `BURN_LEFT` jugaban igual. Por eso hay tres cruces con Dedenne, Mismagius y una lista
+    que envenena y quema, y tres trazas de `g_value_function` (`gValues`) que cuentan sus momentos con veneno,
+    quemadura y Herramientas; un test falla si alguno queda en cero. La referencia de determinismo de los paquetes
+    suma g2. Así, un cambio en cómo juega g obliga a subir `GAMES_REV`, como con cualquier otro bot.
 - **El bot por defecto sigue siendo e2** (D-029). Para proponerle a Santi otro, van juntos la fuerza (la liga), el
   costo y la calibración contra torneos con g2.
 
