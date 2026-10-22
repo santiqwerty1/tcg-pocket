@@ -48,7 +48,7 @@ const bot = z
   .string()
   .regex(BOT_CODE_PATTERN)
   .describe(
-    'Bot de deckgym: r al azar, w al azar ponderado, aa adjunta y ataca, et termina el turno, v función de valor, er evoluciona primero, m MCTS, e1…e9 expectiminimax (e2 por defecto; e3 tarda ~2 veces más); f1…f9 expectiminimax corregido (ve las evoluciones y el daño variable, H-018; tarda ~1,3 veces más que e)',
+    'Bot de deckgym: r al azar, w al azar ponderado, aa adjunta y ataca, et termina el turno, v función de valor, er evoluciona primero, m MCTS, e1…e9 expectiminimax (e2 por defecto; e3 tarda ~2 veces más); f1…f9 expectiminimax corregido (ve las evoluciones y el daño variable, H-018; tarda ~1,3 veces más que e); g1…g9 expectiminimax sin trampa (no ve la mano ni el mazo del rival y cuenta el daño real de cada ataque, T-021; tarda ~3 veces más que e)',
   )
 
 const tournamentList = z.object({

@@ -80,7 +80,7 @@ function play(job, given = []) {
 }
 
 const base = { deckHuman: VENUSAUR, deckBot: ALTARIA, coach: false }
-for (const bot of ['r', 'e2', 'f2', 'e3']) {
+for (const bot of ['r', 'e2', 'f2', 'e3', 'g2']) {
   const game = play({ ...base, bot, seed: '20261011' })
   check(['you', 'bot', 'tie'].includes(game.end.winner), `${bot}: winner ${game.end.winner}`)
   check(game.replay.steps.length === game.log.length, `${bot}: one replay step per action`)

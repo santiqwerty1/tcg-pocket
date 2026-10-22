@@ -10,10 +10,12 @@ import { BadRequestException, Injectable, NotFoundException, UnprocessableEntity
 import {
   canPlayEtBot,
   canPlayFairBots,
+  canPlayGBots,
   canPlayPerGame,
   checkPerGame,
   ET_BOT_CODE,
   FAIR_BOT_CODES,
+  G_BOT_CODES,
   holderLeftMs,
   type PerGameResults,
   paceMsPerGame,
@@ -42,8 +44,16 @@ const RETURNS_COUNTED_FROM_SEVERAL = 3
 const MAX_PAUSE_MS = 6 * 60 * 60_000
 const LONG_POLL_MS = 25_000
 export const MAX_REPLAY_BYTES = 8 * 1024 * 1024
-/** D-025: filter whole jobs before taking any lease, preserving chunks and their seeds. */
-const SLOW_BOT_CODES = ['m', 'e3', 'e4', 'e5', 'e6', 'e7', 'e8', 'e9', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9']
+/**
+ * D-025: filter whole jobs before taking any lease, preserving chunks and their seeds. The g bots are all slow: their
+ * clock asks the engine for each attack's damage, and g1 already costs about what e3 does (T-021).
+ */
+const SLOW_BOT_CODES = [
+  'm',
+  ...['e3', 'e4', 'e5', 'e6', 'e7', 'e8', 'e9'],
+  ...['f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9'],
+  ...G_BOT_CODES,
+]
 
 export interface WorkerHello {
   workerId: string
@@ -74,6 +84,9 @@ export const ET_BOT_HINT =
 /** H-018: work with an f bot waits for an engine that plays them. */
 export const FAIR_BOTS_HINT =
   'Hay simulaciones con bots f y el motor de este worker no los juega: hace falta recompilar el motor (engine-cli con fairBots).'
+/** T-021: work with a g bot waits for an engine with the g the app plays. */
+export const G_BOTS_HINT =
+  'Hay simulaciones con bots g y el motor de este worker no los juega: hace falta engine-cli 0.3.16 o más nuevo (gBots).'
 
 export interface ClaimedChunk {
   chunkId: number
@@ -252,6 +265,9 @@ export class WorkerQueueService {
     // H-051: «et» needs an engine that lists «etBot»; an older one fails the chunk three times. Not a consistency job:
     // it keeps «et» as the goldfish rival, which the engine builds itself (consistency.rs), without the parser.
     const etBot = canPlayEtBot(hello)
+    // T-021: a g bot needs an engine with «gBots» and the g of engine-cli 0.3.16 (capabilities.ts).
+    const gBot = canPlayGBots(hello)
+    const gBotCodes = [...G_BOT_CODES]
     // Phase 42: a job is played whole by engines that play the same way (fixed by its first result). An engine that
     // does not say how it plays takes only jobs not fixed yet.
     const gamesRev = saidGamesRev(hello)
@@ -262,6 +278,7 @@ export class WorkerQueueService {
                OR ${metaConsistency}::boolean)
           AND (COALESCE(j.params->>'perGame', 'false') <> 'true' OR ${perGame}::boolean)
           AND (NOT (j.players && ${fairBotCodes}::text[]) OR ${fairBot}::boolean)
+          AND (NOT (j.players && ${gBotCodes}::text[]) OR ${gBot}::boolean)
           AND (j.kind = 'consistency' OR NOT (${ET_BOT_CODE} = ANY(j.players)) OR ${etBot}::boolean)
           AND (j.games_rev IS NULL OR j.games_rev = ${gamesRev}::int)
           AND (${allowSlowBots}::boolean OR NOT (j.players && ${SLOW_BOT_CODES}::text[]))`
@@ -691,6 +708,9 @@ export class WorkerQueueService {
     }
     if (!canPlayFairBots(hello) && (await waiting({ players: { hasSome: [...FAIR_BOT_CODES] } })) > 0) {
       return FAIR_BOTS_HINT
+    }
+    if (!canPlayGBots(hello) && (await waiting({ players: { hasSome: [...G_BOT_CODES] } })) > 0) {
+      return G_BOTS_HINT
     }
     return null
   }

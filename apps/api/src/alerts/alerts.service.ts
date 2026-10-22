@@ -11,9 +11,11 @@ import { Inject, Injectable } from '@nestjs/common'
 import {
   canPlayEtBot,
   canPlayFairBots,
+  canPlayGBots,
   canPlayPerGame,
   ET_BOT_CODE,
   FAIR_BOT_CODES,
+  G_BOT_CODES,
   parseExpansionIds,
   saidGamesRev,
 } from '@tcg/domain'
@@ -134,7 +136,7 @@ export class TrackerUpstreamService {
 }
 
 /** What a job or a game against the bot needs from a worker's engine, beyond its deckgym. */
-type WorkNeed = 'perGame' | 'etBot' | 'fairBots'
+type WorkNeed = 'perGame' | 'etBot' | 'fairBots' | 'gBots'
 
 /** Work waiting that no worker of the last 30 minutes can take, and why. */
 interface BlockedWork {
@@ -159,6 +161,7 @@ const NEED_ES: Record<WorkNeed, { what: string; fix: string }> = {
   perGame: { what: 'resultados partida por partida', fix: 'el worker 0.2.5 o más nuevo con el motor recompilado' },
   etBot: { what: 'el bot «et» (solo termina el turno)', fix: 'engine-cli 0.3.5 o más nuevo' },
   fairBots: { what: 'los bots f', fix: 'un motor con fairBots' },
+  gBots: { what: 'los bots g', fix: 'engine-cli 0.3.16 o más nuevo' },
 }
 
 function listEs(items: readonly string[]): string {
@@ -518,8 +521,14 @@ export class AlertsService {
       }),
     ])
     const fair = new Set<string>(FAIR_BOT_CODES)
-    const has = (worker: (typeof recent)[number], need: WorkNeed) =>
-      need === 'perGame' ? canPlayPerGame(worker) : need === 'etBot' ? canPlayEtBot(worker) : canPlayFairBots(worker)
+    const g = new Set<string>(G_BOT_CODES)
+    const can: Record<WorkNeed, (worker: (typeof recent)[number]) => boolean> = {
+      perGame: canPlayPerGame,
+      etBot: canPlayEtBot,
+      fairBots: canPlayFairBots,
+      gBots: canPlayGBots,
+    }
+    const has = (worker: (typeof recent)[number], need: WorkNeed) => can[need](worker)
     const blocked = {
       chunks: 0,
       games: 0,
@@ -549,12 +558,14 @@ export class AlertsService {
       if (perGame && ['matrix', 'compare', 'explore'].includes(job.kind)) needs.push('perGame')
       if (job.kind !== 'consistency' && job.players.includes(ET_BOT_CODE)) needs.push('etBot')
       if (job.players.some((code) => fair.has(code))) needs.push('fairBots')
+      if (job.players.some((code) => g.has(code))) needs.push('gBots')
       if (check(job.engineRev, job.gamesRev, needs, job.createdAt)) blocked.chunks += job._count.chunks
     }
     for (const game of liveGames) {
       const needs: WorkNeed[] = []
       if (game.bot === ET_BOT_CODE) needs.push('etBot')
       if (fair.has(game.bot)) needs.push('fairBots')
+      if (g.has(game.bot)) needs.push('gBots')
       if (check(game.engineRev, game.gamesRev, needs, game.createdAt)) blocked.games += 1
     }
     if (blocked.chunks + blocked.games === 0 || !blocked.first) return null

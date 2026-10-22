@@ -29,10 +29,12 @@ import {
   type CoachSummary,
   canPlayEtBot,
   canPlayFairBots,
+  canPlayGBots,
   coachContext,
   coachSummary,
   ET_BOT_CODE,
   FAIR_BOT_CODES,
+  G_BOT_CODES,
   isBotCode,
   MAX_BASE_SEED,
   parseCoachScores,
@@ -922,12 +924,15 @@ export class LiveGamesService implements OnApplicationBootstrap {
     version: string,
     fairBots: boolean,
     etBot: boolean,
+    gBots: boolean,
     gamesRev: number | null,
   ): Promise<ClaimedLiveGame | null> {
     // H-002: compared as numbers here, not as text in SQL.
     const coach = versionAtLeast(version, COACH_WORKER_VERSION)
     // H-018: a game against an f bot needs an engine that lists «fairBots».
     const fairBotCodes = [...FAIR_BOT_CODES]
+    // T-021: one against a g bot, an engine with the g of engine-cli 0.3.16 (capabilities.ts).
+    const gBotCodes = [...G_BOT_CODES]
     const rows = await this.prisma.$queryRaw<{ id: number }[]>`
       UPDATE live_games SET status = CASE WHEN status = 'queued' THEN 'running'::"LiveGameStatus" ELSE status END,
         worker_id = ${workerId}, lease_until = now() + interval '3 minutes',
@@ -939,6 +944,7 @@ export class LiveGamesService implements OnApplicationBootstrap {
           AND (coach = false OR ${coach}::boolean)
           AND (bot <> ALL(${fairBotCodes}::text[]) OR ${fairBots}::boolean)
           AND (bot <> ${ET_BOT_CODE} OR ${etBot}::boolean)
+          AND (bot <> ALL(${gBotCodes}::text[]) OR ${gBots}::boolean)
           -- Phase 42: a game is played whole by engines that play the same way (fixed by the first one that took it).
           AND (games_rev IS NULL OR games_rev = ${gamesRev}::int)
           AND (status = 'queued' OR (status IN ('running', 'waiting') AND (lease_until IS NULL OR lease_until < now())))
@@ -982,6 +988,7 @@ export class LiveGamesService implements OnApplicationBootstrap {
     const version = input.version ?? '0'
     const fairBots = canPlayFairBots(input)
     const etBot = canPlayEtBot(input)
+    const gBots = canPlayGBots(input)
     // Phase 42: how its engine plays. Worker 0.3.2 asks without saying it (review of #68: `gamesRevOf({})` is 0, and
     // its games would end as soon as it updated itself): then what it said at its last hello to the simulation queue.
     let gamesRev = saidGamesRev(input)
@@ -1000,7 +1007,7 @@ export class LiveGamesService implements OnApplicationBootstrap {
     })
     if (gamesRev !== null) await this.endForEngineChange({ stranded: { engineRev: input.engineRev, gamesRev } })
     const take = async () => {
-      const game = await this.tryClaim(input.workerId, input.engineRev, version, fairBots, etBot, gamesRev)
+      const game = await this.tryClaim(input.workerId, input.engineRev, version, fairBots, etBot, gBots, gamesRev)
       // The socket may close during UPDATE RETURNING or the reads that build the answer.
       if (signal?.aborted) {
         if (game) await this.releaseLease(game.id, input.workerId)

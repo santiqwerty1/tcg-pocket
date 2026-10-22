@@ -1700,6 +1700,30 @@ describe('simulation (e2e)', () => {
     await test.http().delete(`/api/simulations/${fair.body.id}`).set('Cookie', cookie)
   })
 
+  it('T-021: a job with a g bot goes only to engines with «gBots» and the g of engine-cli 0.3.16', async () => {
+    const created = await post('/api/simulations').send({
+      kind: 'compare',
+      sideA: decks(3, 3),
+      sideB: decks(5, 5),
+      gamesPerPair: 4,
+      players: ['g2', 'e2'],
+      seed: 81,
+    })
+    expect(created.status).toBe(201)
+    const features = ['perGame', 'batch', 'fairBots', 'etBot', 'gBots']
+    const claim = (id: string, cliVersion: string, engineFeatures: string[]) =>
+      bearer('post', '/api/worker/claim').send({ ...worker(id), version: '0.3.13', cliVersion, engineFeatures })
+    // engine-cli 0.3.13–0.3.15 list «gBots» with an earlier g: their games would mix with these in one job.
+    const early = (await claim('worker-g-early', '0.3.15', features)).body
+    expect(early).toMatchObject({ chunk: null, hint: expect.stringContaining('bots g') })
+    const without = (await claim('worker-g-none', '0.3.16', features.slice(0, 4))).body
+    expect(without).toMatchObject({ chunk: null, hint: expect.stringContaining('bots g') })
+    const fresh = (await claim('worker-g-new', '0.3.16', features)).body.chunk as Structured
+    expect(fresh).toMatchObject({ jobId: created.body.id, players: ['g2', 'e2'] })
+    await post(`/api/simulations/${created.body.id}/cancel`)
+    await test.http().delete(`/api/simulations/${created.body.id}`).set('Cookie', cookie)
+  })
+
   it('«Reintentar lo que falló»: only the failed chunks, with the same seeds; the job ends «done» if they play well', async () => {
     const created = (
       await post('/api/simulations').send({

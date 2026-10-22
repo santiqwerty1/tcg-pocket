@@ -42,8 +42,9 @@ fn cases() -> Vec<Value> {
         ("f2", 2),
         // engine-cli 0.3.5 (H-051): the bot that only ends its turn.
         ("et", 4),
-        // The g bots (T-021, docs/BOTS.md) are not here while the app does not take them: no job of the queue has their
-        // games, and they still change. They come in with the PR that lets the app use them.
+        // engine-cli 0.3.16 (T-021): the g bots, as the app takes them (docs/BOTS.md).
+        ("g1", 4),
+        ("g2", 2),
     ] {
         cases.push(json!({
             "command": "simulate",
@@ -72,7 +73,7 @@ fn cases() -> Vec<Value> {
         "job": { "deck": without_jirachi, "candidates": ["B1 106", "A1 225"], "missing": 1, "enemies": [VENUSAUR], "gamesPerEnemy": 2, "players": ["r", "r"], "seed": 4206, "threads": 1 },
     }));
     // A game against the bot (`engine-cli play`) as a worker replays it: the same seed and the owner's choices.
-    for (bot, seed) in [("e2", 4207), ("f2", 4208), ("r", 4209)] {
+    for (bot, seed) in [("e2", 4207), ("f2", 4208), ("r", 4209), ("g2", 4213)] {
         cases.push(json!({
             "command": "play",
             "job": { "deckHuman": ALTARIA, "deckBot": VENUSAUR, "bot": bot, "seed": seed, "choices": [0, 2, 1, 3, 1, 0, 2] },
