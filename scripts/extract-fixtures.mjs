@@ -1,13 +1,18 @@
 // Copies the pinned reference data from refs/ into packages/domain/test/fixtures (reproducible, run on demand).
 // refs/ is not versioned; the fixtures are. Pins: docs/LICENCIAS.md.
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const tracker = join(root, 'refs/tracker')
 const deckgym = join(root, 'refs/deckgym-core')
 const out = join(root, 'packages/domain/test/fixtures')
+// The printed types exactly as a real sync reads them (C1, 29/10/2026): the domain's own reducer, so a database.json
+// the sync refuses (an energy_type outside energy_types, say) also stops the extraction. Needs `pnpm -F @tcg/domain build`.
+const domainDist = join(root, 'packages/domain/dist/index.js')
+if (!existsSync(domainDist)) throw new Error('Build the domain first: pnpm -F @tcg/domain build')
+const { engineTypeFields } = await import(pathToFileURL(domainDist).href)
 mkdirSync(join(out, 'tracker'), { recursive: true })
 mkdirSync(join(out, 'deckgym'), { recursive: true })
 
@@ -29,17 +34,6 @@ for (const [src, dst] of copies) copyFileSync(join(tracker, src), join(out, dst)
 
 // deckgym database.json is 2.6 MB; keep only what the catalog needs.
 const db = JSON.parse(readFileSync(join(deckgym, 'database.json'), 'utf8'))
-// The printed types as packages/domain/src/catalog/engine.ts reads them (engineTypeFields): one, a second one apart or
-// a list (C1, 29/10/2026).
-function typeFields(v) {
-  const listOf = (value) => (Array.isArray(value) && value.length > 0 ? value : null)
-  const list = listOf(v.energy_types) ?? listOf(v.energy_type)
-  if (list) return { energyType: list[0], energyTypes: list }
-  if (v.secondary_energy_type !== undefined && v.secondary_energy_type !== null) {
-    return { energyType: v.energy_type, energyTypes: [v.energy_type, v.secondary_energy_type] }
-  }
-  return { energyType: v.energy_type }
-}
 const compact = db.map((entry) => {
   const kind = Object.keys(entry)[0]
   const v = entry[kind]
@@ -51,7 +45,7 @@ const compact = db.map((entry) => {
         stage: v.stage,
         evolvesFrom: v.evolves_from,
         hp: v.hp,
-        ...typeFields(v),
+        ...engineTypeFields(v),
         rarity: v.rarity,
       }
     : { id: v.id, kind: 'trainer', name: v.name, trainerType: v.trainer_card_type, rarity: v.rarity }

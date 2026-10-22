@@ -7,6 +7,7 @@ import {
   buildCatalogWithReport,
   type Catalog,
   engineCardsFromDatabaseJson,
+  engineTypeFields,
   isOfType,
   joinEngineData,
   parseEngineCards,
@@ -143,6 +144,24 @@ describe('the tracker card schema and the engine data with two types (FIXTURE IN
       { cardId: 'C1-2', field: 'energy', tracker: 'water', engine: 'Darkness/Water' },
     ])
     expect(() => parseEngineCards([{ ...engine[0], energyTypes: ['A', 'B', 'C'] }])).toThrow()
+  })
+
+  it('the fixture extraction reads the engine types with the same reducer as a real sync (Codex on #149)', () => {
+    const script = readFileSync(
+      join(import.meta.dirname, '..', '..', '..', '..', 'scripts', 'extract-fixtures.mjs'),
+      'utf8',
+    )
+    expect(script).toContain('const { engineTypeFields } = await import(')
+    expect(script).toContain('...engineTypeFields(v),')
+    expect(script).not.toMatch(/functions+typeFields/)
+    // So a database.json a sync refuses (energy_type outside energy_types) stops the extraction too.
+    expect(() => engineTypeFields({ id: 'C1 009', energy_type: 'Fire', energy_types: ['Grass'] })).toThrow(
+      /C1 009 energy_type Fire is not in energy_types/,
+    )
+    expect(engineTypeFields({ energy_type: 'Fire', energy_types: ['Grass', 'Fire'] })).toEqual({
+      energyType: 'Grass',
+      energyTypes: ['Grass', 'Fire'],
+    })
   })
 
   it('reads malformed engine types as absent when harmless and refuses them when not', () => {

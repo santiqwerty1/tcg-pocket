@@ -162,9 +162,10 @@ export function joinEngineData(cards: readonly EngineJoinCard[], engineCards: re
  * deckgym's printed type: `energy_type` (one, as until B4b). For C1 it may add a second one apart
  * (`secondary_energy_type`) or turn it into a list (`energy_types`, or `energy_type` itself): proposed upstream on
  * 22/10/2026, still undecided, so the three shapes are read. An empty list or a null second type count as absent; a
- * list that leaves out `energy_type` is an error, and a malformed value is left for the schema to refuse.
+ * list that leaves out `energy_type` is an error, and a malformed value is left for the schema to refuse. Exported for
+ * `scripts/extract-fixtures.mjs`, so the fixtures and a real sync read the same shapes (Codex on #149).
  */
-function engineTypeFields(v: Record<string, unknown>): { energyType: unknown; energyTypes?: unknown } {
+export function engineTypeFields(v: Record<string, unknown>): { energyType: unknown; energyTypes?: unknown } {
   const listOf = (value: unknown) => (Array.isArray(value) && value.length > 0 ? value : null)
   const list = listOf(v.energy_types) ?? listOf(v.energy_type)
   if (list) {
