@@ -93,15 +93,16 @@ export interface EngineJoinCard {
   rarity: Rarity
 }
 
-/** The engine's printed types: `energyTypes` when the database gives a list or a second type, else `[energyType]`. */
+/** The engine's printed types as it writes them («Psychic»): `energyTypes` when it gives two, else `[energyType]`. */
 function engineTypesOf(engine: { energyType: string; energyTypes?: string[] | undefined }): string[] {
-  const types = engine.energyTypes && engine.energyTypes.length > 0 ? engine.energyTypes : [engine.energyType]
-  return types.map((type) => type.toLowerCase())
+  return engine.energyTypes && engine.energyTypes.length > 0 ? engine.energyTypes : [engine.energyType]
 }
 
-/** Same set of types, order aside (the tracker and the engine may write a dual type in different orders). */
+/** Same set of types, case and order aside (the tracker and the engine may write a dual type in different orders). */
 function sameTypes(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((type) => b.includes(type))
+  const lower = (list: readonly string[]) => list.map((type) => type.toLowerCase())
+  const [x, y] = [lower(a), lower(b)]
+  return x.length === y.length && x.every((type) => y.includes(type))
 }
 
 export function joinEngineData(cards: readonly EngineJoinCard[], engineCards: readonly EngineCard[]): EngineJoin {
@@ -158,23 +159,30 @@ export function joinEngineData(cards: readonly EngineJoinCard[], engineCards: re
 }
 
 /**
- * Reduces raw deckgym `database.json` entries (`{ Pokemon: {...} } | { Trainer: {...} }`) to `EngineCard`.
- * Mirrors `scripts/extract-fixtures.mjs`, so the sync job and the fixtures produce the same shape.
- */
-/**
  * deckgym's printed type: `energy_type` (one, as until B4b). For C1 it may add a second one apart
  * (`secondary_energy_type`) or turn it into a list (`energy_types`, or `energy_type` itself): proposed upstream on
- * 22/10/2026, still undecided, so the three shapes are read. A malformed value is left for the schema to refuse.
+ * 22/10/2026, still undecided, so the three shapes are read. An empty list or a null second type count as absent; a
+ * list that leaves out `energy_type` is an error, and a malformed value is left for the schema to refuse.
  */
 function engineTypeFields(v: Record<string, unknown>): { energyType: unknown; energyTypes?: unknown } {
-  const list = Array.isArray(v.energy_types) ? v.energy_types : Array.isArray(v.energy_type) ? v.energy_type : null
-  if (list) return { energyType: list[0], energyTypes: list }
-  if (typeof v.secondary_energy_type === 'string') {
+  const listOf = (value: unknown) => (Array.isArray(value) && value.length > 0 ? value : null)
+  const list = listOf(v.energy_types) ?? listOf(v.energy_type)
+  if (list) {
+    if (typeof v.energy_type === 'string' && !list.includes(v.energy_type)) {
+      throw new Error(`deckgym database.json: ${String(v.id)} energy_type ${v.energy_type} is not in energy_types`)
+    }
+    return { energyType: list[0], energyTypes: list }
+  }
+  if (v.secondary_energy_type !== undefined && v.secondary_energy_type !== null) {
     return { energyType: v.energy_type, energyTypes: [v.energy_type, v.secondary_energy_type] }
   }
   return { energyType: v.energy_type }
 }
 
+/**
+ * Reduces raw deckgym `database.json` entries (`{ Pokemon: {...} } | { Trainer: {...} }`) to `EngineCard`.
+ * Mirrors `scripts/extract-fixtures.mjs`, so the sync job and the fixtures produce the same shape.
+ */
 export function engineCardsFromDatabaseJson(json: unknown): EngineCard[] {
   if (!Array.isArray(json)) throw new Error('deckgym database.json must be an array')
   const reduced = json.map((entry: unknown) => {

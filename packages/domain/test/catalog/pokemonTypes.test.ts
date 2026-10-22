@@ -32,7 +32,8 @@ const invented = JSON.parse(
 /**
  * The 4,317 per-edition rules hashes of the fixture catalog (tracker 3ab58f1, engine fb792eb) and the 2,319 group
  * hashes, as `origin/main` computed them on 22/10/2026 before the list of types existed: sha256 of the `id:hash` lines
- * in catalog order. A type list must not change any of them (the groups and the remap key on the same text).
+ * in catalog order. A type list must not change any of them: `functional_groups.rules_hash` stores the group's, and the
+ * build checks with them that every edition of a group is the same card (`groupsWithMixedRules`).
  */
 const EDITION_RULES_DIGEST = 'bf5bdf88bac9fa79aa74f4050b6297ef6a9e0689612895a613dd58e2be661253'
 const GROUP_RULES_DIGEST = 'a5c15a56c87dd725a8470d72a5504ebddeed0ec6204b434571077776f429e188'
@@ -74,6 +75,9 @@ describe('parseTrackerEnergy (C1: one or two printed types)', () => {
       'water, darkness',
       'water & darkness',
       'water darkness',
+      'water-darkness',
+      'water | darkness',
+      'water; darkness',
     ]) {
       expect(parseTrackerEnergy(text), text).toEqual({ energy: 'water', types: ['water', 'darkness'] })
     }
@@ -87,6 +91,13 @@ describe('parseTrackerEnergy (C1: one or two printed types)', () => {
     expect(() => parseTrackerEnergy('trainer/water')).toThrow(/Unknown energy type 'trainer'/)
     expect(() => parseTrackerEnergy('  ')).toThrow(/Empty/)
     expect(() => parseTrackerEnergy([])).toThrow(/Empty/)
+    // An empty piece is a malformed value, not one type less.
+    for (const text of ['psychic,', ',psychic', 'psychic//fighting']) {
+      expect(() => parseTrackerEnergy(text), text).toThrow(/Empty energy type/)
+    }
+    expect(() => parseTrackerEnergy(['psychic', 3])).toThrow('item that is not a string: ["psychic",3]')
+    expect(() => parseTrackerEnergy(3)).toThrow(/neither a string nor a list: 3/)
+    expect(() => parseTrackerEnergy(undefined)).toThrow(/neither a string nor a list/)
   })
 
   it('typesOf and isOfType read the list, and a card stored before it by its one energy', () => {
@@ -97,6 +108,9 @@ describe('parseTrackerEnergy (C1: one or two printed types)', () => {
     expect(isOfType({ energy: 'psychic', types: ['psychic', 'fighting'] }, 'fighting')).toBe(true)
     expect(isOfType({ energy: 'psychic', types: ['psychic', 'fighting'] }, 'darkness')).toBe(false)
     expect(isOfType({ energy: 'trainer', types: [] }, 'colorless')).toBe(false)
+    // A list that does not start with energy was left by an older version: energy wins.
+    expect(typesOf({ energy: 'fire', types: ['grass'] })).toEqual(['fire'])
+    expect(typesOf({ energy: 'trainer', types: ['grass'] })).toEqual([])
   })
 })
 
@@ -126,9 +140,27 @@ describe('the tracker card schema and the engine data with two types (FIXTURE IN
     // One type missing on either side is a conflict, with both lists in it.
     const oneType = parseTrackerCards([{ ...invented.cards[1], energy: 'water' }])
     expect(joinEngineData(oneType, engine).conflicts).toEqual([
-      { cardId: 'C1-2', field: 'energy', tracker: 'water', engine: 'darkness/water' },
+      { cardId: 'C1-2', field: 'energy', tracker: 'water', engine: 'Darkness/Water' },
     ])
     expect(() => parseEngineCards([{ ...engine[0], energyTypes: ['A', 'B', 'C'] }])).toThrow()
+  })
+
+  it('reads malformed engine types as absent when harmless and refuses them when not', () => {
+    const pokemon = (fields: Record<string, unknown>) => [
+      { Pokemon: { id: 'C1 009', name: 'X', stage: 0, evolves_from: null, hp: 60, rarity: '◊', ...fields } },
+    ]
+    const typesOfEngine = (fields: Record<string, unknown>) => {
+      const [card] = engineCardsFromDatabaseJson(pokemon(fields))
+      return card?.kind === 'pokemon' ? [card.energyType, card.energyTypes] : null
+    }
+    expect(typesOfEngine({ energy_type: 'Grass', energy_types: [] })).toEqual(['Grass', undefined])
+    expect(typesOfEngine({ energy_type: 'Grass', secondary_energy_type: null })).toEqual(['Grass', undefined])
+    expect(typesOfEngine({ energy_type: ['Grass', 'Fire'] })).toEqual(['Grass', ['Grass', 'Fire']])
+    expect(() => typesOfEngine({ energy_type: 'Grass', secondary_energy_type: '' })).toThrow()
+    expect(() => typesOfEngine({ energy_type: 'Grass', secondary_energy_type: 3 })).toThrow()
+    expect(() => typesOfEngine({ energy_type: 'Fire', energy_types: ['Grass'] })).toThrow(
+      /energy_type Fire is not in energy_types/,
+    )
   })
 
   it('names the fields of cards.json it does not read, except foil, which it leaves out on purpose', () => {
@@ -141,6 +173,17 @@ describe('the tracker card schema and the engine data with two types (FIXTURE IN
 })
 
 describe('the catalog with two types', () => {
+  it('the sync report names a cards.json field it does not read (a second type written apart, say)', () => {
+    const input = inputWithInventedC1()
+    const cards = input.cardsJson as Record<string, unknown>[]
+    input.cardsJson = cards.map((card) =>
+      card.card_id === 'C1-3' ? { ...card, energy2: 'darkness', foil: false } : card,
+    )
+    const { report } = buildCatalogWithReport(input)
+    expect(report.warnings).toContain("cards.json has a field the catalog does not read: 'energy2' (1 cards)")
+    expect(report.warnings.join(' ')).not.toContain('foil')
+  })
+
   it('the rules hashes of the 4,317 real cards and of their groups do not change', () => {
     expect(digests(builtCatalog().catalog, () => true)).toEqual({
       editions: EDITION_RULES_DIGEST,
@@ -168,6 +211,7 @@ describe('the catalog with two types', () => {
     expect(report.engineConflicts).toEqual(builtCatalog().report.engineConflicts)
     expect(report.groupsWithMixedRules).toEqual([])
     expect(catalog.expansions.find((expansion) => expansion.id === 'C1')?.trackerInternalId).toBe(23)
+    expect(report.warnings.filter((warning) => warning.startsWith('cards.json has a field'))).toEqual([])
     expect(digests(catalog, (id) => !id.startsWith('C1-'))).toEqual({
       editions: EDITION_RULES_DIGEST,
       groups: GROUP_RULES_DIGEST,

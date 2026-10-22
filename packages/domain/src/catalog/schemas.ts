@@ -21,16 +21,14 @@ export const trackerAttackSchema = z.object({
  * The tracker's `energy`: one type (as until B4b), or two for the dual-type Pokémon of C1 — as a list or as one string
  * with a separator, since how the tracker will write them is not known yet (`parseTrackerEnergy`). Anything else fails.
  */
-const trackerEnergySchema = z
-  .union([z.string().min(1), z.array(z.string().min(1)).min(1).max(MAX_POKEMON_TYPES)])
-  .transform((value, ctx) => {
-    try {
-      return parseTrackerEnergy(value)
-    } catch (error) {
-      ctx.addIssue({ code: 'custom', message: (error as Error).message })
-      return z.NEVER
-    }
-  })
+const trackerEnergySchema = z.unknown().transform((value, ctx) => {
+  try {
+    return parseTrackerEnergy(value)
+  } catch (error) {
+    ctx.addIssue({ code: 'custom', message: (error as Error).message })
+    return z.NEVER
+  }
+})
 
 /** The fields of a `cards.json` row the catalog reads; the build warns about any other (`TRACKER_IGNORED_FIELDS` aside). */
 export const TRACKER_CARD_FIELDS = [
@@ -112,7 +110,7 @@ export const enginePokemonSchema = engineBaseSchema.extend({
   /** The (first) printed type, as deckgym writes it («Psychic»). */
   energyType: z.string(),
   /** Every printed type, when the engine gives two (C1); absent for one. */
-  energyTypes: z.array(z.string()).min(1).max(MAX_POKEMON_TYPES).optional(),
+  energyTypes: z.array(z.string().min(1)).min(1).max(MAX_POKEMON_TYPES).optional(),
 })
 
 export const engineTrainerSchema = engineBaseSchema.extend({
