@@ -40,6 +40,9 @@ export const DEFAULT_SET_RELEASES: readonly SetRelease[] = [
   { code: 'B4a', nameEn: "Team Rocket's Ambition", releaseDate: '2026-08-27', opensEra: true },
   { code: 'B4b', nameEn: 'Deluxe Pack: Mega', releaseDate: '2026-09-30', opensEra: false },
   // Series C (22/10/2026): «Dual Fusion» comes out on 29/10/2026 at 01:00 UTC (ptcgpocket.gg/c1), not yet on Limitless.
+  // The table goes by UTC day, like every row (Codex on #147): tournaments from 00:00 UTC on the 29th (21:00 of the 28th
+  // in Buenos Aires) count for C1, as Limitless groups them, and the app's current era turns at the owner's midnight
+  // (todayInOwnerZone), three hours later, as on every release day.
   { code: 'C1', nameEn: 'Dual Fusion', releaseDate: '2026-10-29', opensEra: true },
 ]
 

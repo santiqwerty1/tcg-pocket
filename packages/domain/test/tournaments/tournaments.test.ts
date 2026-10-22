@@ -76,7 +76,9 @@ describe('format and era (PLAN §3.5)', () => {
       releaseDate: '2026-10-29',
       opensEra: true,
     })
-    // It comes out at 01:00 UTC on the 29th: 22:00 of the 28th in Buenos Aires already counts for C1, as Limitless does.
+    // It comes out at 01:00 UTC on the 29th, but the table goes by UTC day (Codex on #147): from 00:00 UTC on the 29th
+    // (21:00 of the 28th in Buenos Aires) a tournament counts for C1, as Limitless groups them.
+    expect(eraOf(new Date('2026-10-29T00:00:00Z'), sets)).toBe('C1')
     expect(eraOf(new Date('2026-10-28T23:59:00Z'), sets)).toBe('B4a')
     expect(eraOf(new Date('2026-10-29T01:00:00Z'), sets)).toBe('C1')
     expect(startedEraSets(sets, '2026-10-28').at(-1)?.code).toBe('B4a')
