@@ -15,7 +15,7 @@ Cómo se sabe si la app anda, qué corre sola y qué hacer cuando algo falla (Fa
 | Actualización del catálogo | A mano (Más → Catálogo) | Aviso `catalog_sync` si la última falló (sigue el catálogo anterior); `catalog_memory` si la memoria no tiene la última aplicada (se carga sola en un minuto) |
 | Colección del tracker | Cada 6 h si se habilita en Más → Ajustes; apagada por defecto | Aviso `tracker_sync`; deja revisión ante bajas grandes, cambios manuales recientes o dudas sobre el catálogo |
 | Chequeos de GitHub (set nuevo del tracker, commits nuevos de deckgym) | Cada 12 h (cada hora después de una falla) | Aviso `github_check` (info) |
-| Workers | Cuando hay trabajo | Aviso `worker_idle`: hay trabajo y ningún worker en 30 min, o ninguno con la feature o la revisión que pide; `worker_paused`: todos los workers vivos están en pausa por resultados perdidos (vuelven solos, sin reiniciar) |
+| Workers | Cuando hay trabajo | Aviso `worker_idle`: hay trabajo y ningún worker en 30 min, o ninguno con la feature o la revisión que pide, o que acepte sus bots lentos (`allowSlowBots`); `worker_paused`: todos los workers vivos están en pausa por resultados perdidos (vuelven solos, sin reiniciar) |
 | Tamaño de la base | — | Aviso `database_size` desde 350 MB (el plan gratis de Supabase llega a 500) |
 
 Los avisos se ven en Más → Avisos y llegan al celu como notificación (`NotificationsWatcher`, cada 15 s), una vez por título. El aviso del tracker conserva el título y lleva la fecha en el detalle: las consultas repetidas no repiten el push.

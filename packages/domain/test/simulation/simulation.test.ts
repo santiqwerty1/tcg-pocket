@@ -21,6 +21,7 @@ import {
   matrixRows,
   planChunks,
   randomBaseSeed,
+  SLOW_BOT_CODES,
   simulationRate,
   splitmix64,
   suggestEnergies,
@@ -192,6 +193,10 @@ describe('jobs', () => {
     expect(isBotCode('g10')).toBe(false)
     expect(botLabel('g2')).toBe('expectiminimax sin trampa, profundidad 2')
     expect(estimateSeconds(1000, ['g2', 'e2'], 1)).toBeCloseTo(estimateSeconds(1000, ['e2', 'e2'], 1) * 3, 6)
+    // D-025: what a worker with allowSlowBots false never takes, for the queue and the worker_idle alert.
+    for (const slow of ['m', 'e3', 'e9', 'f3', 'f9', 'g1', 'g2', 'g9']) expect(SLOW_BOT_CODES).toContain(slow)
+    for (const fast of ['r', 'w', 'aa', 'et', 'v', 'er', 'e1', 'e2', 'f1', 'f2'])
+      expect(SLOW_BOT_CODES).not.toContain(fast)
     // The 40-deck matrix: ~52 min of engine time on 8 threads at fb792eb, ~35 min expected at 33ff2a5 (DECISIONES 9.1).
     const minutes = estimateSeconds(780 * 200, ['e2', 'e2'], 8) / 60
     expect(minutes).toBeGreaterThan(25)

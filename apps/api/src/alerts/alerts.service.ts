@@ -17,6 +17,7 @@ import {
   FAIR_BOT_CODES,
   G_BOT_CODES,
   parseExpansionIds,
+  SLOW_BOT_CODES,
   saidGamesRev,
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
@@ -135,8 +136,8 @@ export class TrackerUpstreamService {
   }
 }
 
-/** What a job or a game against the bot needs from a worker's engine, beyond its deckgym. */
-type WorkNeed = 'perGame' | 'etBot' | 'fairBots' | 'gBots'
+/** What a job or a game against the bot needs from a worker's engine, beyond its deckgym, or from the worker itself. */
+type WorkNeed = 'perGame' | 'etBot' | 'fairBots' | 'gBots' | 'slowBots'
 
 /** Work waiting that no worker of the last 30 minutes can take, and why. */
 interface BlockedWork {
@@ -162,6 +163,10 @@ const NEED_ES: Record<WorkNeed, { what: string; fix: string }> = {
   etBot: { what: 'el bot «et» (solo termina el turno)', fix: 'engine-cli 0.3.5 o más nuevo' },
   fairBots: { what: 'los bots f', fix: 'un motor con fairBots' },
   gBots: { what: 'los bots g', fix: 'engine-cli 0.3.16 o más nuevo' },
+  slowBots: {
+    what: 'bots lentos (MCTS, profundidad 3 o más o bots g)',
+    fix: 'un worker que los acepte («allowSlowBots»: true; en Android viene apagado)',
+  },
 }
 
 function listEs(items: readonly string[]): string {
@@ -478,6 +483,7 @@ export class AlertsService {
           pausedUntil: true,
           pausedSince: true,
           platform: true,
+          allowSlowBots: true,
         },
       }),
     ])
@@ -522,11 +528,14 @@ export class AlertsService {
     ])
     const fair = new Set<string>(FAIR_BOT_CODES)
     const g = new Set<string>(G_BOT_CODES)
+    const slow = new Set<string>(SLOW_BOT_CODES)
     const can: Record<WorkNeed, (worker: (typeof recent)[number]) => boolean> = {
       perGame: canPlayPerGame,
       etBot: canPlayEtBot,
       fairBots: canPlayFairBots,
       gBots: canPlayGBots,
+      // D-025: not the engine but the worker, as its last claim said (review of #142).
+      slowBots: (worker) => worker.allowSlowBots,
     }
     const has = (worker: (typeof recent)[number], need: WorkNeed) => can[need](worker)
     const blocked = {
@@ -548,7 +557,11 @@ export class AlertsService {
       if (sameEngine.length === 0) blocked.engines.add(engineRev)
       else if (gamesRev !== null && !sameEngine.some((worker) => playsAs(worker, gamesRev)))
         blocked.gamesRevs.add(gamesRev)
-      for (const need of needs) blocked.needs.add(need)
+      // A need every worker with its deckgym already meets is not what blocks it: a g bot is also a slow bot, and a
+      // worker that takes slow bots is not told to (review of #142). With none of its deckgym, all of them.
+      for (const need of needs) {
+        if (sameEngine.length === 0 || !sameEngine.every((worker) => has(worker, need))) blocked.needs.add(need)
+      }
       if (!blocked.first || createdAt < blocked.first) blocked.first = createdAt
       return true
     }
@@ -559,6 +572,8 @@ export class AlertsService {
       if (job.kind !== 'consistency' && job.players.includes(ET_BOT_CODE)) needs.push('etBot')
       if (job.players.some((code) => fair.has(code))) needs.push('fairBots')
       if (job.players.some((code) => g.has(code))) needs.push('gBots')
+      // Every kind, as the claim filters them; a game against the bot is not filtered by it.
+      if (job.players.some((code) => slow.has(code))) needs.push('slowBots')
       if (check(job.engineRev, job.gamesRev, needs, job.createdAt)) blocked.chunks += job._count.chunks
     }
     for (const game of liveGames) {

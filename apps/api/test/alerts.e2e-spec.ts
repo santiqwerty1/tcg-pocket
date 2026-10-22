@@ -291,6 +291,22 @@ describe('alerts (e2e)', () => {
       await test.prisma.workerNode.update({ where: { id: 'worker-h051' }, data: { cliVersion: '0.3.16' } })
       expect(await idle()).toEqual([])
       await test.prisma.liveGame.delete({ where: { id: live.id } })
+      // D-025: a job with a slow bot and only workers that turn them down (an Android, by default): the claims leave it,
+      // so the alert says it (review of #142). Every worker, the other files' too, since a slow bot needs no feature.
+      // One worker that takes them is enough.
+      await test.prisma.workerNode.updateMany({ data: { allowSlowBots: false } })
+      const slow = await job(['e3', 'e3'])
+      expect(await idle()).toEqual([
+        expect.objectContaining({
+          detail: expect.stringMatching(
+            /^2 chunks piden bots lentos \(MCTS, profundidad 3 o más o bots g\), .*allowSlowBots/,
+          ),
+        }),
+      ])
+      await test.prisma.workerNode.update({ where: { id: 'worker-h051-fair' }, data: { allowSlowBots: true } })
+      expect(await idle()).toEqual([])
+      await test.prisma.simulationJob.delete({ where: { id: slow.id } })
+      await test.prisma.workerNode.updateMany({ data: { allowSlowBots: true } })
       // A simulation with an f bot and a game against «et» nobody plays: both in one alert.
       await node('worker-h051', ['perGame', 'batch'])
       await test.prisma.workerNode.deleteMany({ where: { id: { in: ['worker-h051-fair', 'worker-h051-old'] } } })
