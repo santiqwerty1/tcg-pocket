@@ -78,7 +78,7 @@ fs.writeFileSync(args[args.indexOf('--dump-header')+1],'HTTP/1.1 200 OK\\r\\nX-C
         'Token de worker',
         'Núcleos',
         `Nombre en la app (Enter = ${defaultName})`,
-        '¿Tomar también bots lentos (MCTS, profundidad 3 o más)? [s/N]',
+        '¿Tomar también bots lentos (MCTS, profundidad 3 o más, bots g)? [s/N]',
         '¿Solo mientras carga?',
         '¿Arrancar al encender',
         '¿Accesos directos',
