@@ -767,14 +767,44 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     expect(await copies()).toBe(0)
   })
 
+  it('a preview restored from a backup does not apply with another link', async () => {
+    await setLink(LINK)
+    const pending = await preview()
+    expect(pending.body.dotgg).not.toHaveProperty('linkId')
+    clean(await get(`/api/collection/imports/${pending.body.id}`))
+    const stored = await test.prisma.collectionImport.findUniqueOrThrow({ where: { id: Number(pending.body.id) } })
+    const linkId = (stored.diffSummary as { dotgg?: { linkId?: string } }).dotgg?.linkId
+    expect(linkId).toBe(test.app.get(DotggLinkStore).fingerprint(LINK))
+    expect(linkId).not.toContain(TOKEN)
+    const exported = await get('/api/backup/export').responseType('blob')
+    await setLink(OTHER)
+    const restored = await post('/api/backup/import?mode=replace').attach(
+      'file',
+      Buffer.from(exported.body),
+      'backup.json.gz',
+    )
+    expect(restored.status).toBe(200)
+    expect((await get(`/api/collection/imports/${pending.body.id}`)).body.status).toBe('pending')
+    const applied = await apply(pending.body.id)
+    expect(applied.status).toBe(409)
+    expect(applied.body.error.code).toBe('dotgg_other_link')
+    expect((await post(`/api/collection/imports/${pending.body.id}/apply`).send({})).body.error.code).toBe(
+      'dotgg_other_link',
+    )
+    expect(await copies()).toBe(0)
+    // With the link it was read from, it applies.
+    await setLink(LINK)
+    await test.prisma.collectionImport.update({ where: { id: Number(pending.body.id) }, data: { status: 'pending' } })
+    expect((await apply(pending.body.id)).status).toBe(200)
+  })
+
   it('an automatic apply refuses a preview that asked for a look, whoever calls it', async () => {
     await setLink(LINK)
     await setting('dotggAutoSync', true)
     const reviewed = await preview() // the first sync: requiresReview
     expect(reviewed.body.dotgg.requiresReview).toBe(true)
     const collection = test.app.get(CollectionService)
-    const fingerprint = test.app.get(DotggLinkStore).fingerprint(LINK)
-    await expect(collection.applyImport(reviewed.body.id, true, fingerprint)).rejects.toMatchObject({
+    await expect(collection.applyImport(reviewed.body.id, true)).rejects.toMatchObject({
       response: { code: 'dotgg_review' },
     })
     expect(await copies()).toBe(0)
@@ -802,17 +832,30 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     await test.prisma.appSecret.create({ data: { key: DOTGG_LINK_KEY, value: 'v1.AAAA.BBBB.CCCC' } })
     const state = (await get('/api/collection/dotgg/status')).body
     expect(state).toMatchObject({ configured: false, unreadable: true, link: null })
-    expect((await post('/api/collection/tracker-sync/preview').send({})).body.error.code).toBe('tracker_not_master')
+    const refused = await post('/api/collection/tracker-sync/preview').send({})
+    expect(refused.body.error.code).toBe('tracker_not_master')
+    expect(refused.body.error.message).toContain('no se puede leer')
     await setting('trackerAutoSync', true)
     expect(await test.app.get(TrackerSync).tick(new Date(Date.now() + 7 * 3600_000))).toBeNull()
     expect(trackerCalls).toHaveLength(0)
     const manual = await preview()
     expect(manual.status).toBe(400)
     expect(manual.body.error.code).toBe('dotgg_unreadable')
-    await setting('dotggAutoSync', true)
+    // With the daily sync off, the alert says it all the same.
     expect(await test.app.get(DotggSync).tick(new Date(Date.now() + 60_000))).toBeNull()
     expect(dotggCalls).toHaveLength(0)
     expect((await alerts()).find((alert) => alert.code === 'dotgg_sync')?.detail).toContain('no se puede leer')
+    // A pending tracker preview from before cannot be applied by any endpoint while that link is stored.
+    await test.prisma.appSecret.deleteMany()
+    remote = [{ internal_id: internalId('A1-1'), amount_owned: 2, collected: true }]
+    const pending = await post('/api/collection/tracker-sync/preview').send({})
+    expect(pending.status).toBe(200)
+    await test.prisma.appSecret.create({ data: { key: DOTGG_LINK_KEY, value: 'v1.AAAA.BBBB.CCCC' } })
+    const generic = await post(`/api/collection/imports/${pending.body.id}/apply`).send({})
+    expect(generic.status).toBe(409)
+    expect(generic.body.error.code).toBe('tracker_not_master')
+    expect(generic.body.error.message).toContain('no se puede leer')
+    expect(await copies()).toBe(0)
     // Pasting it again clears it.
     await setLink(LINK)
     expect((await get('/api/collection/dotgg/status')).body).toMatchObject({ configured: true, unreadable: false })
@@ -841,9 +884,17 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
   it('«Tracker al día» warns when the tracker published changes after the catalog, and never quotes the link', async () => {
     await setting('trackerFriendId', FRIEND)
     await setLink(LINK)
-    test.app.get(TrackerCommitsService).fetchImpl = async () => Response.json({ sha: 'b'.repeat(40) })
+    let files = ['frontend/src/components/Header.tsx', 'frontend/public/locales/es-ES/common/sets.json']
+    test.app.get(TrackerCommitsService).fetchImpl = async (input) =>
+      String(input).includes('/compare/')
+        ? Response.json({ status: 'ahead', files: files.map((filename) => ({ filename })) })
+        : Response.json({ sha: 'b'.repeat(40) })
+    // Commits that do not touch cards.json (where the internal ids live) say nothing.
+    const quiet = await get('/api/collection/tracker-gap')
+    expect(quiet.body.warnings.join(' ')).not.toContain('datos de cartas')
+    files = [...files, 'frontend/assets/cards.json']
     const response = await get('/api/collection/tracker-gap')
-    expect(response.body.warnings.join(' ')).toContain('El tracker publicó cambios después del catálogo')
+    expect(response.body.warnings.join(' ')).toContain('El tracker cambió sus datos de cartas después del catálogo')
     const client = test.app.get(DotggClient)
     const exportCsv = client.exportCsv
     client.exportCsv = async (link: string) => {

@@ -148,13 +148,17 @@ interface ImportInput {
 }
 
 /** The source is ptcgpocket.gg now: the tracker is only compared (T-020). */
-const TRACKER_NOT_MASTER =
+export const TRACKER_NOT_MASTER =
   'La colección viene de ptcgpocket.gg: el tracker queda para comparar en Colección → Tracker al día. Para que vuelva a mandar el tracker, quitá el link de ptcgpocket.gg en Ajustes.'
+/** A link is stored but cannot be opened: the tracker stays paused, and the message says why. */
+export const TRACKER_PAUSED_UNREADABLE =
+  'Hay un link de ptcgpocket.gg guardado que no se puede leer (por ejemplo, porque cambió la clave del servidor): el tracker sigue en pausa hasta que lo pegues de nuevo o lo quites en Más → Ajustes de la app.'
 
 /** What `collection_imports.diff_summary` holds: parse metadata (fixed) plus the diff (refreshed while pending). */
 interface StoredImport {
   tracker?: NonNullable<ImportPreview['tracker']>
-  dotgg?: DotggReviewView
+  /** `linkId`: the keyed fingerprint of the link it was read from (never served): it applies only with that link. */
+  dotgg?: DotggReviewView & { linkId?: string }
   meta: {
     bom: boolean
     lineEnding: string
@@ -557,7 +561,9 @@ export class CollectionService {
       }
       const stored: StoredImport = {
         ...(tracker ? { tracker } : {}),
-        ...(dotgg ? { dotgg } : {}),
+        ...(dotgg
+          ? { dotgg: { ...dotgg, ...(remote?.linkFingerprint ? { linkId: remote.linkFingerprint } : {}) } }
+          : {}),
         meta: {
           bom: parsed.bom,
           lineEnding: parsed.lineEnding,
@@ -645,11 +651,7 @@ export class CollectionService {
    * or `dotgg`), the row is marked `applied` with the diff that was actually applied. 409 when not pending or blocked,
    * and for a tracker snapshot while ptcgpocket.gg is the source (T-020).
    */
-  async applyImport(
-    rawId: string,
-    automatic = false,
-    linkFingerprint?: string,
-  ): Promise<{ applied: true; summary: ImportDiff['summary'] }> {
+  async applyImport(rawId: string, automatic = false): Promise<{ applied: true; summary: ImportDiff['summary'] }> {
     const index = this.catalog.requireIndex()
     const row = await this.requireImport(rawId)
     if (row.status !== 'pending') throw notPending(row)
@@ -673,7 +675,8 @@ export class CollectionService {
           automatic,
           checkedAt: new Date(),
           friendId: stored.tracker?.friendId ?? '',
-          ...(linkFingerprint ? { linkFingerprint } : {}),
+          // A ptcgpocket.gg preview applies only with the link it was read from (one restored from a backup, too).
+          linkFingerprint: stored.dotgg?.linkId ?? '',
         })
       const locked = await client.query<{ status: string }>(
         'SELECT status FROM collection_imports WHERE id = $1 FOR UPDATE',
@@ -1142,7 +1145,11 @@ export class CollectionService {
     const stored = secret.rows[0]?.value
     const link = this.links.open(stored)
     if (remote.source === 'tracker') {
-      if (stored) throw new ConflictException({ code: 'tracker_not_master', message: TRACKER_NOT_MASTER })
+      if (stored)
+        throw new ConflictException({
+          code: 'tracker_not_master',
+          message: link ? TRACKER_NOT_MASTER : TRACKER_PAUSED_UNREADABLE,
+        })
       if (remote.automatic && (config.trackerAutoSync !== true || config.trackerFriendId !== remote.friendId))
         throw new ConflictException({
           code: 'tracker_config_changed',
@@ -1157,11 +1164,19 @@ export class CollectionService {
           ? 'Se quitó el link de ptcgpocket.gg durante la consulta. No se aplicó nada.'
           : 'Sin el link de ptcgpocket.gg no se aplica una vista previa suya: pegalo en Ajustes y sincronizá de nuevo.',
       })
-    if ((creating || remote.automatic) && this.links.fingerprint(link) !== remote.linkFingerprint)
-      throw new ConflictException({
-        code: 'dotgg_config_changed',
-        message: 'El link de ptcgpocket.gg cambió durante la consulta. No se aplicó nada.',
-      })
+    if (this.links.fingerprint(link) !== remote.linkFingerprint)
+      throw new ConflictException(
+        creating
+          ? {
+              code: 'dotgg_config_changed',
+              message: 'El link de ptcgpocket.gg cambió durante la consulta. No se aplicó nada.',
+            }
+          : {
+              code: 'dotgg_other_link',
+              message:
+                'Esta vista previa se leyó con otro link de ptcgpocket.gg: sincronizá de nuevo con el link de ahora.',
+            },
+      )
     if (remote.automatic && config.dotggAutoSync !== true)
       throw new ConflictException({
         code: 'dotgg_config_changed',
@@ -1201,7 +1216,7 @@ export class CollectionService {
       id: idToString(row.id),
       source: row.source,
       ...(stored.tracker ? { tracker: stored.tracker } : {}),
-      ...(stored.dotgg ? { dotgg: stored.dotgg } : {}),
+      ...(stored.dotgg ? { dotgg: withoutLinkId(stored.dotgg) } : {}),
       fileName: row.fileName === '' ? null : row.fileName,
       status: row.status,
       importedAt: row.importedAt,
@@ -1296,6 +1311,12 @@ function readStored(row: ImportRecord): StoredImport {
 
 function isBlocked(stored: StoredImport): boolean {
   return stored.meta.errors.length > 0 || stored.meta.conflicts.length > 0
+}
+
+/** The review as the API shows it: without the link's fingerprint. */
+function withoutLinkId(review: DotggReviewView & { linkId?: string }): DotggReviewView {
+  const { linkId: _linkId, ...view } = review
+  return view
 }
 
 /** The remote source of an import row, or null for a CSV. */

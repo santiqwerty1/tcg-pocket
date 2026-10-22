@@ -3,7 +3,7 @@
  * SESSION_SECRET (the same SecretBox as the TOTP secret, another purpose). Neither `GET /api/settings` nor the backup
  * read that table, and nothing serves the link: the API answers `maskDotggExportLink`.
  */
-import { createHash } from 'node:crypto'
+import { createHmac, hkdfSync } from 'node:crypto'
 import { Inject, Injectable } from '@nestjs/common'
 import { maskDotggExportLink } from '@tcg/domain'
 import { SecretBox } from '../auth/secret-box.js'
@@ -27,12 +27,14 @@ type SecretReader = Pick<Prisma.TransactionClient, 'appSecret'>
 @Injectable()
 export class DotggLinkStore {
   private readonly box: SecretBox
+  private readonly idKey: Buffer
 
   constructor(
     @Inject(ENV) env: Env,
     private readonly prisma: PrismaService,
   ) {
     this.box = new SecretBox(env.sessionSecret, 'tcg-pocket/dotgg-export-link')
+    this.idKey = Buffer.from(hkdfSync('sha256', env.sessionSecret, 'tcg-pocket', 'tcg-pocket/dotgg-link-id', 32))
   }
 
   seal(link: string): string {
@@ -67,8 +69,12 @@ export class DotggLinkStore {
     return (await db.appSecret.count({ where: { key: DOTGG_LINK_KEY } })) > 0
   }
 
-  /** Compares links without keeping them around (automatic runs stop when the link changed in the meantime). */
+  /**
+   * Which link a snapshot was read from, without keeping the link: an HMAC-SHA256 under a key derived from
+   * SESSION_SECRET for this purpose only, so the value a preview stores (and a backup carries) cannot be checked
+   * against guesses without the server's key. A preview applies only with the link it was read from.
+   */
   fingerprint(link: string): string {
-    return createHash('sha256').update(link).digest('hex')
+    return createHmac('sha256', this.idKey).update(link).digest('hex')
   }
 }

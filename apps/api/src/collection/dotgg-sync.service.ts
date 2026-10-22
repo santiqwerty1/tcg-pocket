@@ -150,7 +150,12 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
 
   async tick(now = new Date()) {
     const config = await this.status()
-    if (!config.enabled || (!config.configured && !config.unreadable)) return null
+    // An unreadable link is told with the alert even with the daily sync off: the tracker stays paused meanwhile.
+    if (config.unreadable) {
+      await this.warnUnreadable(now)
+      return null
+    }
+    if (!config.enabled || !config.configured) return null
     if (config.lastAttemptAt && now.getTime() - Date.parse(config.lastAttemptAt) < DOTGG_SYNC_INTERVAL_MS) return null
     return this.preview(true, now)
   }
@@ -177,15 +182,7 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
       if (!link && config.unreadable) {
         // The stored link cannot be opened (SESSION_SECRET changed): said where Santi looks, never a silent stop.
         if (!automatic) throw new BadRequestException({ code: 'dotgg_unreadable', message: UNREADABLE })
-        const failed: DotggSyncState = {
-          ...EMPTY,
-          lastAttemptAt: now.toISOString(),
-          automatic,
-          result: 'error',
-          error: UNREADABLE,
-        }
-        await this.write(KEYS.state, failed)
-        await this.warning(null, { at: failed.lastAttemptAt, message: UNREADABLE, previewId: null })
+        await this.warnUnreadable(now)
         return null
       }
       if (!link) throw new BadRequestException({ code: 'dotgg_not_configured', message: NOT_CONFIGURED })
@@ -227,7 +224,7 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
             state.error = `${preview.dotgg?.reviewReasons.join(' ') || 'La exportación tiene errores.'} Revisá la vista previa antes de aplicar.`
             await this.warning(fingerprint, { at: state.lastAttemptAt, message: state.error, previewId: preview.id })
           } else {
-            await this.collection.applyImport(preview.id, true, fingerprint)
+            await this.collection.applyImport(preview.id, true)
             // Applied status, timestamps and the cleared warning commit atomically with the collection.
             return preview
           }
@@ -297,24 +294,31 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
     await this.prisma.appSetting.upsert({ where: { key }, create: { key, value: json }, update: { value: json } })
   }
 
-  /**
-   * The alert of an automatic run, only while the switch is on, the link is the one read (null: the stored link is
-   * still unreadable) and its preview pending.
-   */
-  private async warning(
-    fingerprint: string | null,
-    value: { at: string | null; message: string; previewId: string | null },
-  ) {
+  /** The alert for a stored link that cannot be opened, written once (pasting or removing the link takes it away). */
+  private async warnUnreadable(now: Date) {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(994202)`
+      if (!(await this.links.state(tx)).unreadable) return
+      const current = await tx.appSetting.findUnique({ where: { key: KEYS.warning } })
+      if ((current?.value as { message?: unknown } | null | undefined)?.message === UNREADABLE) return
+      const value = { at: now.toISOString(), message: UNREADABLE, previewId: null }
+      await tx.appSetting.upsert({
+        where: { key: KEYS.warning },
+        create: { key: KEYS.warning, value },
+        update: { value },
+      })
+    })
+  }
+
+  /** The alert of an automatic run, only while the switch is on, the link is the one read and its preview pending. */
+  private async warning(fingerprint: string, value: { at: string | null; message: string; previewId: string | null }) {
     await this.prisma.$transaction(async (tx) => {
       // Serialize with turning the switch off, changing the link, applying or discarding the preview.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(994202)`
       const auto = await tx.appSetting.findUnique({ where: { key: KEYS.auto } })
       const stored = await this.links.state(tx)
       if (auto?.value !== true) return
-      if (
-        fingerprint === null ? !stored.unreadable : !stored.link || this.links.fingerprint(stored.link) !== fingerprint
-      )
-        return
+      if (!stored.link || this.links.fingerprint(stored.link) !== fingerprint) return
       if (
         value.previewId &&
         !(await tx.collectionImport.findFirst({ where: { id: Number(value.previewId), status: 'pending' } }))

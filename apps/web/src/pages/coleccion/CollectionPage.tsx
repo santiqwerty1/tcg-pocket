@@ -31,8 +31,11 @@ const SUMMARY_SKELETONS = ['copies', 'units', 'one', 'two', 'missing', 'last']
 export function CollectionPage() {
   const tracker = useTrackerPreview()
   const game = useDotggPreview()
-  // T-020: with the ptcgpocket.gg link the collection comes from the game; the tracker is only compared.
-  const fromGame = useDotggStatus().data?.configured === true
+  // T-020: with the ptcgpocket.gg link the collection comes from the game; the tracker is only compared. A stored link
+  // that cannot be opened still counts (the tracker stays paused): syncing says why.
+  const dotgg = useDotggStatus().data
+  const unreadable = dotgg?.unreadable === true
+  const fromGame = dotgg?.configured === true || unreadable
   const navigate = useNavigate()
   async function sync() {
     try {
@@ -71,6 +74,18 @@ export function CollectionPage() {
 
   return (
     <div className="flex flex-col gap-4">
+      {unreadable ? (
+        <Link
+          to="/mas/ajustes"
+          className="flex flex-col gap-0.5 rounded-lg border border-warning/60 px-3 py-2 text-sm hover:bg-muted"
+        >
+          <span className="font-medium">El link de ptcgpocket.gg guardado no se puede leer</span>
+          <span className="text-xs text-muted-foreground">
+            Por ejemplo, porque cambió la clave del servidor. Pegalo de nuevo (o quitalo) en Más → Ajustes de la app;
+            mientras tanto, el tracker queda en pausa.
+          </span>
+        </Link>
+      ) : null}
       {csvNotice ? (
         <Link
           to="/coleccion/importar"

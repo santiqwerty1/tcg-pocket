@@ -89,7 +89,8 @@ export function DotggSettingsSection() {
           )}
           {status.data.unreadable ? (
             <p role="alert" className="text-sm text-destructive">
-              El link guardado no se puede leer (cambió la clave del servidor): pegalo de nuevo.
+              El link guardado no se puede leer (por ejemplo, porque cambió la clave del servidor): pegalo de nuevo o
+              quitalo. Mientras tanto, el tracker queda en pausa.
             </p>
           ) : null}
           <Label htmlFor="dotgg-link">{status.data.configured ? 'Cambiar el link' : 'Link de exportación'}</Label>
@@ -106,7 +107,7 @@ export function DotggSettingsSection() {
             <Button disabled={setLink.isPending || draft.trim() === ''} onClick={saveLink}>
               Guardar link
             </Button>
-            {status.data.configured ? (
+            {status.data.configured || status.data.unreadable ? (
               <Button variant="outline" disabled={clearLink.isPending} onClick={() => setConfirmClear(true)}>
                 Quitar link
               </Button>

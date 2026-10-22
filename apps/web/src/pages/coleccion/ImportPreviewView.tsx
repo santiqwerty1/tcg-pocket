@@ -296,7 +296,7 @@ function DotggReview({ review, zeroed }: { review: NonNullable<ImportPreview['do
         <Section title={`Cartas con otro nombre (${formatNumber(review.renamed.length)})`}>
           <p className="text-sm text-muted-foreground">
             ptcgpocket.gg trae estas cartas con el nombre de otra del catálogo: puede que numere distinto esa expansión.
-            Si aplicás, las copias van a la carta del catálogo de la derecha.
+            Si aplicás, las copias van a la carta del catálogo que figura debajo de cada nombre.
           </p>
           <ul className="divide-y rounded-lg border">
             {review.renamed.map((row) => (

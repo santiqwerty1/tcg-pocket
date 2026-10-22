@@ -137,6 +137,35 @@ describe('ptcgpocket.gg settings', () => {
   })
 })
 
+describe('a stored link that cannot be opened', () => {
+  const unreadable = { ...status, unreadable: true }
+
+  it('Collection syncs with the game (which says why) and points to the settings, not to the tracker', async () => {
+    fakeApi({
+      'GET /api/collection/summary': summary,
+      'GET /api/collection/dotgg/status': unreadable,
+    })
+    renderAt('/coleccion')
+    expect(await screen.findByText('El link de ptcgpocket.gg guardado no se puede leer')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /no se puede leer/ })).toHaveAttribute('href', '/mas/ajustes')
+    expect(screen.getByRole('button', { name: 'Sincronizar con el juego' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Sincronizar con el tracker' })).not.toBeInTheDocument()
+  })
+
+  it('the settings say the tracker stays paused and offer to remove it', async () => {
+    fakeApi({
+      'GET /api/settings': {},
+      'GET /api/collection/tracker-sync/status': trackerStatus,
+      'GET /api/collection/dotgg/status': unreadable,
+    })
+    renderAt('/mas/ajustes')
+    expect(await screen.findByText(/el tracker sigue en pausa hasta que lo pegues de nuevo/)).toBeInTheDocument()
+    expect(screen.getByText(/El link guardado no se puede leer/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Quitar link' })).toBeInTheDocument()
+    expect(screen.queryByText(/La colección viene de ptcgpocket.gg: el tracker no la cambia/)).not.toBeInTheDocument()
+  })
+})
+
 describe('sync with the game', () => {
   it('syncs from Collection, shows the review and the cards the catalog lacks, and applies through its endpoint', async () => {
     const { calls } = fakeApi({

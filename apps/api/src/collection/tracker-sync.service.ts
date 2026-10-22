@@ -12,7 +12,7 @@ import { CatalogService } from '../catalog/catalog.service.js'
 import { TrackerCommitsService } from '../catalog/tracker-commits.service.js'
 import { ENV, type Env } from '../config/env.js'
 import { PrismaService } from '../prisma/prisma.service.js'
-import { CollectionService } from './collection.service.js'
+import { CollectionService, TRACKER_NOT_MASTER, TRACKER_PAUSED_UNREADABLE } from './collection.service.js'
 import { DotggLinkStore } from './dotgg-link.store.js'
 import { TrackerClient, TrackerError } from './tracker-client.js'
 
@@ -110,12 +110,12 @@ export class TrackerSync implements OnApplicationBootstrap, OnModuleDestroy {
           (config.lastAttemptAt && now.getTime() - Date.parse(config.lastAttemptAt) < TRACKER_SYNC_INTERVAL_MS))
       )
         return null
-      if (await this.links.present()) {
+      const dotgg = await this.links.state()
+      if (dotgg.link || dotgg.unreadable) {
         if (automatic) return null
         throw new ConflictException({
           code: 'tracker_not_master',
-          message:
-            'La colección viene de ptcgpocket.gg: el tracker queda para comparar en Colección → Tracker al día. Para que vuelva a mandar el tracker, quitá el link de ptcgpocket.gg en Ajustes.',
+          message: dotgg.link ? TRACKER_NOT_MASTER : TRACKER_PAUSED_UNREADABLE,
         })
       }
       if (!/^\d{16}$/.test(config.friendId))

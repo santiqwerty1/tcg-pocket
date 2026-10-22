@@ -20,6 +20,7 @@ import {
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
+import { TRACKER_PATHS } from '../catalog/catalog-sources.js'
 import { TrackerCommitsService } from '../catalog/tracker-commits.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { DotggClient, DotggError } from './dotgg-client.js'
@@ -86,11 +87,8 @@ export class TrackerGapService {
         code: 'dotgg_not_configured',
         message: 'Pegá el link de exportación de ptcgpocket.gg en Más → Ajustes de la app: es la colección del juego.',
       })
-    // What the tracker published, asked alongside (GitHub may not answer: the comparison does not depend on it).
-    const upstream = this.commits.latest().then(
-      (commit) => commit.sha,
-      () => null,
-    )
+    // Whether the tracker changed its card data after the catalog, asked alongside (GitHub may not answer).
+    const upstream = this.cardsChangedUpstream()
     let bytes: Buffer
     let remote: TrackerCollectionRow[]
     try {
@@ -139,13 +137,10 @@ export class TrackerGapService {
       warnings.push(
         `ptcgpocket.gg trae ${mapped.renamed.length === 1 ? '1 carta' : `${mapped.renamed.length} cartas`} con el nombre de otra carta del catálogo (puede que numere distinto esa expansión): no se comparan.`,
       )
-    // The file writes the catalog's internal ids: if the tracker published changes after it, they may have moved.
-    const published = await upstream
-    if (published && this.catalog.trackerCommit && published !== this.catalog.trackerCommit)
+    // The file writes the catalog's internal ids: if the tracker changed its card data after it, they may have moved.
+    if (await upstream)
       warnings.push(
-        'El tracker publicó cambios después del catálogo de la app (' +
-          this.catalog.trackerCommit.slice(0, 7) +
-          '): el archivo usa los internal_id del catálogo. Si el tracker los cambió, tocaría otras cartas; ante la duda, sincronizá el catálogo antes de importarlo.',
+        `El tracker cambió sus datos de cartas después del catálogo de la app (${(this.catalog.trackerCommit ?? '').slice(0, 7)}): el archivo usa los internal_id del catálogo. Si el tracker los cambió, tocaría otras cartas; ante la duda, sincronizá el catálogo antes de importarlo.`,
       )
     if (parsed.errors.length > 0)
       warnings.push(
@@ -192,6 +187,24 @@ export class TrackerGapService {
           ? { fileName: TRACKER_FIX_FILE_NAME, rows: gap.rows.length, content: writeTrackerFixCsv(index, gap.rows) }
           : null,
       catalogCommit: this.catalog.trackerCommit,
+    }
+  }
+
+  /**
+   * Whether the tracker's `main` changed `cards.json` (where the internal ids live) after the catalog's commit. Only
+   * that file counts: commits to the interface do not move internal ids. False when GitHub does not answer.
+   */
+  private async cardsChangedUpstream(): Promise<boolean> {
+    const commit = this.catalog.trackerCommit
+    if (!commit) return false
+    try {
+      const latest = await this.commits.latest()
+      if (latest.sha === commit) return false
+      const diff = await this.commits.changedFiles(commit, latest.sha)
+      if (diff.status === 'behind' || diff.status === 'identical') return false
+      return !diff.complete || diff.files.includes(TRACKER_PATHS.cardsJson)
+    } catch {
+      return false
     }
   }
 }

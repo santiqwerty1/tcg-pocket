@@ -23,7 +23,9 @@ const RESULT = {
 export function TrackerSettingsSection() {
   const status = useTrackerStatus()
   // T-020: with ptcgpocket.gg configured the tracker only gets compared.
-  const comparisonOnly = useDotggStatus().data?.configured === true
+  const dotgg = useDotggStatus().data
+  const unreadable = dotgg?.unreadable === true
+  const comparisonOnly = dotgg?.configured === true || unreadable
   const save = useSetSetting()
   const [draft, setDraft] = useState<string | null>(null)
   async function update(key: string, value: unknown) {
@@ -44,7 +46,13 @@ export function TrackerSettingsSection() {
         <ErrorState error={status.error} onRetry={() => status.refetch()} />
       ) : (
         <>
-          {comparisonOnly ? (
+          {comparisonOnly && unreadable ? (
+            <p className="rounded-lg border px-3 py-2 text-sm">
+              Hay un link de ptcgpocket.gg guardado que no se puede leer (por ejemplo, porque cambió la clave del
+              servidor): el tracker sigue en pausa hasta que lo pegues de nuevo o lo quites, más arriba.
+            </p>
+          ) : null}
+          {comparisonOnly && !unreadable ? (
             <p className="rounded-lg border px-3 py-2 text-sm">
               La colección viene de ptcgpocket.gg: el tracker no la cambia y su sincronización automática queda en
               pausa. Sirve para comparar en{' '}
