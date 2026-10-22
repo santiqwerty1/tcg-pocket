@@ -21,6 +21,7 @@ import {
   seasonSummary,
 } from '@tcg/domain'
 import { dateOnly, OWNER_TIME_ZONE, todayInOwnerZone } from '../config/time-zone.js'
+import type { Prisma } from '../generated/prisma/client.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import type { MatchRankedView, RankChangeView, RankedView, RateRowView, SeasonSummaryView } from './ranked-views.js'
@@ -50,8 +51,9 @@ function changeView(change: RankChange): RankChangeView {
 export class RankedService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async seasons(): Promise<RankedSeason[]> {
-    const rows = await this.prisma.rankedSeason.findMany({ orderBy: { startsOn: 'asc' } })
+  /** `db`: a transaction's client, to read them under its locks (the sheet import, T-022). */
+  async seasons(db: Prisma.TransactionClient = this.prisma): Promise<RankedSeason[]> {
+    const rows = await db.rankedSeason.findMany({ orderBy: { startsOn: 'asc' } })
     return rows.map((row) => ({
       code: row.code,
       name: row.name,
@@ -60,8 +62,8 @@ export class RankedService {
     }))
   }
 
-  async changes(): Promise<RankChange[]> {
-    const rows = await this.prisma.rankChange.findMany({ orderBy: [{ at: 'asc' }, { id: 'asc' }] })
+  async changes(db: Prisma.TransactionClient = this.prisma): Promise<RankChange[]> {
+    const rows = await db.rankChange.findMany({ orderBy: [{ at: 'asc' }, { id: 'asc' }] })
     return rows.flatMap((row) =>
       isRank(row.rank) ? [{ id: idToString(row.id), at: row.at, rank: row.rank, points: row.points }] : [],
     )

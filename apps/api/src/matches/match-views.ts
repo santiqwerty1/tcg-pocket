@@ -7,6 +7,10 @@ import type {
   MatchResult,
   MyMeta,
   RateSource,
+  SheetCodeMapping,
+  SheetPlanCounts,
+  SheetRankPlan,
+  SheetRowStatus,
   TurnOrderImpact,
   WentFirstKey,
   WinRate,
@@ -198,4 +202,56 @@ export interface UnclassifiedView {
     suggestions: ArchetypeFit[]
   }[]
   own: { key: string; label: string; games: number }[]
+}
+
+/** T-022: one row of the sheet in the preview of «Importar desde la hoja». */
+export interface SheetImportRowView {
+  /** The sheet's row (the text's record, 1-based). */
+  row: number
+  status: SheetRowStatus
+  code: string | null
+  /** Column D as written. */
+  deckName: string | null
+  deck: { id: string; name: string } | null
+  result: MatchResult | null
+  wentFirst: boolean | null
+  playedAt: string | null
+  dateText: string
+  opponent: string | null
+  note: string
+  rank: { label: string; action: SheetRankPlan['action'] | null; text: string | null } | null
+  /** Its match in the app: column K, or the one with its key. */
+  matchId: string | null
+  duplicateOf: { id: string; text: string } | null
+  write: boolean
+  errors: string[]
+  warnings: string[]
+}
+
+/** T-022: the preview of «Importar desde la hoja» (nothing written). */
+export interface SheetImportView {
+  delimiter: 'comma' | 'semicolon' | 'tab' | null
+  headerRow: number | null
+  firstRow: number | null
+  /** Why nothing could be read. */
+  error: string | null
+  mode: MatchMode
+  maxNew: number
+  tooMany: boolean
+  counts: SheetPlanCounts
+  codes: SheetCodeMapping[]
+  decks: { id: string; name: string; archived: boolean }[]
+  rows: SheetImportRowView[]
+  /** Column K with what is known now (the rows already in the app). */
+  columnK: { firstRow: number; text: string } | null
+  /** What applying checks: the import is still this preview. */
+  fingerprint: string
+}
+
+/** T-022: what an import wrote — each row's match, in the sheet's order, and the text for column K. */
+export interface SheetImportAppliedView {
+  imported: { row: number; matchId: string }[]
+  ranks: number
+  counts: SheetPlanCounts
+  columnK: { firstRow: number; text: string } | null
 }

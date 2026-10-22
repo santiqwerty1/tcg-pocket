@@ -223,7 +223,7 @@ function toView(record: MatchRecord, index?: CatalogIndex): MatchView {
 }
 
 /** What is stored: the cleaned text, or null when it has nothing to group by («---», blanks). */
-function storedOpponent(raw: string | null | undefined): string | null {
+export function storedOpponent(raw: string | null | undefined): string | null {
   const cleaned = cleanOpponent(raw)
   return opponentKey(cleaned) === null ? null : cleaned
 }

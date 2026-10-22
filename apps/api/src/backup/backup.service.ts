@@ -338,6 +338,7 @@ export class BackupService {
         note: match.note,
         playedAt: iso(match.playedAt),
         source: match.source,
+        clientRef: match.clientRef,
         createdAt: iso(match.createdAt),
         updatedAt: iso(match.updatedAt),
       })),
@@ -873,6 +874,12 @@ export class BackupService {
     if (unknown.size > 0) {
       notices.push(
         `${unknown.size} ids del backup no existen en el catálogo cargado; no se puede restaurar hasta sincronizarlo.`,
+      )
+    }
+    if (document.schemaVersion < 11 && document.schemaVersion >= 2) {
+      // T-022: without the keys, the rows of the sheet imported before come back as possible repeats.
+      notices.push(
+        `Backup de la versión ${document.schemaVersion}, anterior a la importación desde la hoja: las partidas vuelven sin su clave, así que al importar la hoja otra vez las ya importadas salen como posibles repetidas (salvo las que tienen el número en la columna K).`,
       )
     }
     if (document.schemaVersion < 9) {

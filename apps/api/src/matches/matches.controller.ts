@@ -6,6 +6,8 @@ import {
   OPPONENT_CARDS_MAX,
   OPPONENT_MAX_LENGTH,
   RANKS,
+  SHEET_IMPORT_MAX_CHARS,
+  SHEET_IMPORT_MAX_NEW,
 } from '@tcg/domain'
 import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
@@ -20,9 +22,12 @@ import type {
   MatchView,
   MyMetaView,
   RivalSuggestionsView,
+  SheetImportAppliedView,
+  SheetImportView,
   UnclassifiedView,
 } from './match-views.js'
 import { MatchesService } from './matches.service.js'
+import { SheetImportService } from './sheet-import.service.js'
 
 const isoDateTime = z.iso.datetime({ offset: true, message: 'Fecha ISO 8601 inválida.' })
 const deckIdField = z.string().trim().min(1).max(20)
@@ -152,6 +157,23 @@ const luckQuerySchema = z.object({
   mode: z.enum(MATCH_MODES).optional(),
 })
 
+/** T-022: «Importar desde la hoja» — the sheet as text (its CSV, or the cells pasted) and the preview's choices. */
+const sheetImportSchema = z.object({
+  text: z
+    .string()
+    .min(1, 'Pegá la hoja o subí su CSV.')
+    .max(SHEET_IMPORT_MAX_CHARS, 'El texto es demasiado largo: exportá solo la pestaña «Partidas».'),
+  /** The deck of each code (null: none); the saved ones fill the rest. */
+  deckMap: z
+    .record(z.string().trim().min(1).max(20), deckIdField.nullable())
+    .refine((map) => Object.keys(map).length <= 500, 'Demasiados códigos.')
+    .optional(),
+  mode: z.enum(MATCH_MODES).optional(),
+  /** Rows of possible repeats to import anyway. */
+  include: z.array(z.number().int().min(1).max(10_000_000)).max(SHEET_IMPORT_MAX_NEW).optional(),
+})
+const sheetApplySchema = sheetImportSchema.extend({ fingerprint: z.string().trim().min(1).max(64) })
+
 /** Session-protected matches API (docs/API.md «Partidas»). Static routes go first so they never match `:id`. */
 /** A new match, and (deuda de #120) the rank it led to, for one saved offline. */
 const matchCreateSchema = matchInputSchema
@@ -165,7 +187,28 @@ export class MatchesController {
   constructor(
     private readonly matches: MatchesService,
     private readonly ranked: RankedService,
+    private readonly sheet: SheetImportService,
   ) {}
+
+  /** T-022: what importing the sheet would do (nothing is written). */
+  @Post('import/preview')
+  @HttpCode(200)
+  importPreview(
+    @Body(new ZodValidationPipe(sheetImportSchema)) body: z.infer<typeof sheetImportSchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<SheetImportView> {
+    return this.sheet.preview(body)
+  }
+
+  /** T-022: imports the sheet as previewed (its `fingerprint`), all or nothing. */
+  @Post('import')
+  @HttpCode(200)
+  importApply(
+    @Body(new ZodValidationPipe(sheetApplySchema)) body: z.infer<typeof sheetApplySchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<SheetImportAppliedView> {
+    return this.sheet.apply(body)
+  }
 
   /** Fase 13: is the deck's record (overall or against a rival) unusual for what tournaments expect? */
   @Get('luck')
