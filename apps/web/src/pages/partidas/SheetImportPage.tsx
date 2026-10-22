@@ -332,7 +332,8 @@ export function SheetImportPage() {
 
       {data?.error ? <p className="text-sm text-destructive">{data.error}</p> : null}
 
-      {data && !data.error ? (
+      {/* Self-review: once applied, the preview is gone (its rows are no longer «nuevas»); the result stays. */}
+      {data && !data.error && !applied ? (
         <>
           <Section title="Vista previa">
             <Summary data={data} />
@@ -405,7 +406,7 @@ export function SheetImportPage() {
           ) : null}
 
           {shown.length > 0 ? (
-            <Section title="Filas para revisar">
+            <Section title="Filas nuevas o para revisar">
               <ul className="divide-y rounded-lg border">
                 {shown.map((row) => (
                   <RowCard key={row.row} row={row} included={include.includes(row.row)} onInclude={toggle} />
@@ -424,26 +425,27 @@ export function SheetImportPage() {
             </Fold>
           ) : null}
 
-          {applied ? null : (
-            <div className="flex flex-col gap-2">
-              {missing.length > 0 ? (
-                <p className="text-sm text-destructive">
-                  Elegí el mazo de {missing.map((code) => code.code).join(', ')} para seguir.
-                </p>
-              ) : null}
-              <Button size="lg" onClick={() => void doApply()} disabled={!canApply}>
-                {apply.isPending ? <Spinner /> : null}
-                {data.counts.write > 0
-                  ? `Importar ${plural(data.counts.write, 'partida', 'partidas')}`
+          <div className="flex flex-col gap-2">
+            {missing.length > 0 ? (
+              <p className="text-sm text-destructive">
+                Elegí el mazo de {missing.map((code) => code.code).join(', ')} para seguir.
+              </p>
+            ) : null}
+            <Button size="lg" onClick={() => void doApply()} disabled={!canApply}>
+              {apply.isPending ? <Spinner /> : null}
+              {data.counts.write > 0
+                ? `Importar ${plural(data.counts.write, 'partida', 'partidas')}`
+                : missing.length > 0
+                  ? 'Faltan mazos por elegir'
                   : 'No hay partidas para importar'}
-              </Button>
-              {data.counts.write === 0 && data.columnK ? (
-                <Section title="Números para la columna K">
-                  <ColumnK columnK={data.columnK} />
-                </Section>
-              ) : null}
-            </div>
-          )}
+            </Button>
+            {/* Self-review: only when nothing waits for a deck (those rows would import once it is chosen). */}
+            {data.counts.write === 0 && missing.length === 0 && data.columnK ? (
+              <Section title="Números para la columna K">
+                <ColumnK columnK={data.columnK} />
+              </Section>
+            ) : null}
+          </div>
         </>
       ) : null}
 

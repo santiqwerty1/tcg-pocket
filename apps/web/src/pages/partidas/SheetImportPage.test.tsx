@@ -174,7 +174,9 @@ describe('importar desde la hoja (T-022)', () => {
     expect(bodyOf(previews()[0])).toEqual({ text: TEXT, deckMap: {}, mode: 'competitive', include: [] })
     // Nothing can be imported while a code has no deck.
     expect(screen.getByText('Elegí el mazo de M08 para seguir.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'No hay partidas para importar' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Faltan mazos por elegir' })).toBeDisabled()
+    // Those rows import once their deck is chosen: no numbers for K yet.
+    expect(screen.queryByRole('textbox', { name: 'Números para la columna K' })).not.toBeInTheDocument()
     expect(screen.getByText(/sugerido por el nombre «mawile»/u)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Usar los sugeridos' }))
@@ -199,6 +201,8 @@ describe('importar desde la hoja (T-022)', () => {
       fingerprint: 'f-picked',
     })
     const done = await screen.findByRole('heading', { name: 'Listo' })
+    // The preview goes: its rows are no longer new.
+    expect(screen.queryByRole('heading', { name: 'Vista previa' })).not.toBeInTheDocument()
     const section = done.closest('section') as HTMLElement
     expect(within(section).getByText('Importé 2 partidas y anoté 1 rango.')).toBeInTheDocument()
     expect(within(section).getByText('Fila 6 → n.º 32')).toBeInTheDocument()
