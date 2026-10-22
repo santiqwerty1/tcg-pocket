@@ -3,7 +3,7 @@ tipo: indice
 titulo: 'Riesgos'
 area: proyecto
 estado: vigente
-actualizado: '2026-10-19'
+actualizado: '2026-10-22'
 origen:
   - posta generar
 revisar: false
@@ -28,5 +28,5 @@ revisar: false
 | [R-009](R-009.md) | Limitless cambia su API o su criterio de formato | abierto | — | 2026-10-08 |
 | [R-010](R-010.md) | El conector de Claude con escritura lee texto de terceros | abierto | — | 2026-10-10 |
 | [R-011](R-011.md) | Fallas que nadie ve | abierto | — | 2026-10-13 |
-| [R-012](R-012.md) | Los resultados de simulación dependen del bot más de lo que muestran sus intervalos | abierto | — | 2026-10-19 |
+| [R-012](R-012.md) | Los resultados de simulación dependen del bot más de lo que muestran sus intervalos | abierto | — | 2026-10-22 |
 | [R-013](R-013.md) | Commits con el mail personal como autor en el repo público | abierto | — | 2026-10-12 |
