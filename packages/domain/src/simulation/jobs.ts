@@ -56,6 +56,18 @@ export const ET_BOT_CODE = 'et'
 /** The g bots (T-021), for the queue's filter: only engines with the g of this version play them (capabilities.ts). */
 export const G_BOT_CODES = ['g1', 'g2', 'g3', 'g4', 'g5', 'g6', 'g7', 'g8', 'g9'] as const
 
+/**
+ * D-025: the bots a worker with `allowSlowBots: false` (Android, by default) never takes, for the queue's filter and the
+ * worker_idle alert. The g bots are all slow: their clock asks the engine for each attack's damage, and g1 already
+ * costs about what e3 does (T-021).
+ */
+export const SLOW_BOT_CODES = [
+  'm',
+  ...['e3', 'e4', 'e5', 'e6', 'e7', 'e8', 'e9'],
+  ...['f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9'],
+  ...G_BOT_CODES,
+] as const
+
 export function usesFairBot(players: readonly string[]): boolean {
   return players.some((code) => (FAIR_BOT_CODES as readonly string[]).includes(code))
 }

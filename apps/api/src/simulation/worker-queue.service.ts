@@ -20,6 +20,7 @@ import {
   type PerGameResults,
   paceMsPerGame,
   pickCopy,
+  SLOW_BOT_CODES,
   saidGamesRev,
   summarizeAnalysisGames,
   wantsPerGame,
@@ -44,16 +45,6 @@ const RETURNS_COUNTED_FROM_SEVERAL = 3
 const MAX_PAUSE_MS = 6 * 60 * 60_000
 const LONG_POLL_MS = 25_000
 export const MAX_REPLAY_BYTES = 8 * 1024 * 1024
-/**
- * D-025: filter whole jobs before taking any lease, preserving chunks and their seeds. The g bots are all slow: their
- * clock asks the engine for each attack's damage, and g1 already costs about what e3 does (T-021).
- */
-const SLOW_BOT_CODES = [
-  'm',
-  ...['e3', 'e4', 'e5', 'e6', 'e7', 'e8', 'e9'],
-  ...['f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9'],
-  ...G_BOT_CODES,
-]
 
 export interface WorkerHello {
   workerId: string
@@ -225,6 +216,7 @@ export class WorkerQueueService {
         engineFeatures: hello.engineFeatures ?? [],
         gamesRev,
         platform: hello.platform ?? null,
+        allowSlowBots: hello.allowSlowBots ?? true,
       },
       update: {
         name: hello.name,
@@ -235,6 +227,9 @@ export class WorkerQueueService {
         engineFeatures: hello.engineFeatures ?? [],
         ...(gamesRev === null ? {} : { gamesRev }),
         ...(hello.platform ? { platform: hello.platform } : {}),
+        // What it said at this claim, for the worker_idle alert (review of #142); a worker that does not say it takes
+        // every bot, as the claim itself reads it.
+        allowSlowBots: hello.allowSlowBots ?? true,
         // A worker that claims is not paused (worker 0.3.4 pauses after lost results, 51.23); its pause episode goes on
         // until it delivers a result (`pausedSince`, 51.26).
         pausedUntil: null,
@@ -271,7 +266,9 @@ export class WorkerQueueService {
     // Phase 42: a job is played whole by engines that play the same way (fixed by its first result). An engine that
     // does not say how it plays takes only jobs not fixed yet.
     const gamesRev = saidGamesRev(hello)
+    // D-025: a worker that turns the slow bots down never takes a job with them; chunks and seeds stay for others.
     const allowSlowBots = hello.allowSlowBots ?? true
+    const slowBotCodes = [...SLOW_BOT_CODES]
     return Prisma.sql`j.status IN ('queued', 'running') AND j.engine_rev = ${hello.engineRev}
           AND (j.kind <> 'consistency' OR ${consistency}::boolean)
           AND (j.kind <> 'consistency' OR COALESCE(j.params->'consistency'->>'mode', 'goldfish') <> 'meta'
@@ -281,7 +278,7 @@ export class WorkerQueueService {
           AND (NOT (j.players && ${gBotCodes}::text[]) OR ${gBot}::boolean)
           AND (j.kind = 'consistency' OR NOT (${ET_BOT_CODE} = ANY(j.players)) OR ${etBot}::boolean)
           AND (j.games_rev IS NULL OR j.games_rev = ${gamesRev}::int)
-          AND (${allowSlowBots}::boolean OR NOT (j.players && ${SLOW_BOT_CODES}::text[]))`
+          AND (${allowSlowBots}::boolean OR NOT (j.players && ${slowBotCodes}::text[]))`
   }
 
   private async tryClaim(hello: WorkerHello): Promise<ClaimedChunk[]> {

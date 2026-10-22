@@ -24,24 +24,31 @@ export interface WorkerAbilities {
   engineFeatures?: readonly string[] | null | undefined
 }
 
-const VERSION = /^(\d{1,6})\.(\d{1,6})\.(\d{1,6})/
+const VERSION = /^(\d{1,6})\.(\d{1,6})\.(\d{1,6})(-)?/
 
-function versionParts(version: string | null | undefined): [number, number, number] {
+/** The three numbers of a version, and whether a prerelease follows them (semver's «-», as in «0.3.16-rc.1»). */
+function versionParts(version: string | null | undefined): { numbers: [number, number, number]; prerelease: boolean } {
   const match = VERSION.exec(version?.trim() ?? '')
-  return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : [0, 0, 0]
+  return match
+    ? { numbers: [Number(match[1]), Number(match[2]), Number(match[3])], prerelease: match[4] === '-' }
+    : { numbers: [0, 0, 0], prerelease: false }
 }
 
 /**
  * Versions compared as numbers (H-002): «0.2.10» is newer than «0.2.2», which a text comparison gets wrong. The
- * version is free text from the worker, so anything that does not start with three numbers counts as 0.0.0.
+ * version is free text from the worker, so anything that does not start with three numbers counts as 0.0.0. A
+ * prerelease comes before its release, as in semver: engine-cli 0.3.16-rc.1 is not yet the 0.3.16 a rule asks for
+ * (review of #142), though it is newer than 0.3.15.
  */
 export function versionAtLeast(version: string | null | undefined, minimum: string): boolean {
   const have = versionParts(version)
   const need = versionParts(minimum)
   for (let i = 0; i < 3; i++) {
-    if ((have[i] ?? 0) !== (need[i] ?? 0)) return (have[i] ?? 0) > (need[i] ?? 0)
+    const mine = have.numbers[i] ?? 0
+    const asked = need.numbers[i] ?? 0
+    if (mine !== asked) return mine > asked
   }
-  return true
+  return !have.prerelease || need.prerelease
 }
 
 function reported(worker: WorkerAbilities): readonly string[] | null {
