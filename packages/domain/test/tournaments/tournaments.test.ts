@@ -97,13 +97,32 @@ describe('format and era (PLAN §3.5)', () => {
 
   it('warns «era nueva probable» 49 days after the last era-opening release (a Deluxe pack does not count, H-006)', () => {
     expect(NEW_ERA_LIKELY_AFTER_DAYS).toBe(49)
-    expect(newEraWarning('2026-09-30', sets)).toMatchObject({ lastRelease: { code: 'B4a' }, days: 34, likely: false })
+    // The table as it was before C1 was loaded.
+    const withoutC1 = sets.filter((set) => set.code !== 'C1')
+    expect(newEraWarning('2026-09-30', withoutC1)).toMatchObject({
+      lastRelease: { code: 'B4a' },
+      days: 34,
+      likely: false,
+    })
     // Six weeks after B4a is still not «likely»: the C series comes every ~6 weeks.
-    expect(newEraWarning('2026-10-08', sets)).toMatchObject({ lastRelease: { code: 'B4a' }, days: 42, likely: false })
-    expect(newEraWarning('2026-10-15', sets)).toMatchObject({ lastRelease: { code: 'B4a' }, days: 49, likely: false })
-    expect(newEraWarning('2026-10-16', sets)).toMatchObject({ lastRelease: { code: 'B4a' }, days: 50, likely: true })
-    // C1 is in the table ahead of time: it counts only from its release.
-    expect(newEraWarning('2026-10-28', sets)).toMatchObject({ lastRelease: { code: 'B4a' }, days: 62, likely: true })
+    expect(newEraWarning('2026-10-08', withoutC1)).toMatchObject({
+      lastRelease: { code: 'B4a' },
+      days: 42,
+      likely: false,
+    })
+    expect(newEraWarning('2026-10-15', withoutC1)).toMatchObject({
+      lastRelease: { code: 'B4a' },
+      days: 49,
+      likely: false,
+    })
+    expect(newEraWarning('2026-10-16', withoutC1)).toMatchObject({
+      lastRelease: { code: 'B4a' },
+      days: 50,
+      likely: true,
+    })
+    // With C1 loaded ahead of time the warning has its answer: it counts days from B4a, without asking for a set.
+    expect(newEraWarning('2026-10-16', sets)).toMatchObject({ lastRelease: { code: 'B4a' }, days: 50, likely: false })
+    expect(newEraWarning('2026-10-28', sets)).toMatchObject({ lastRelease: { code: 'B4a' }, days: 62, likely: false })
     expect(newEraWarning('2026-10-29', sets)).toMatchObject({ lastRelease: { code: 'C1' }, days: 0, likely: false })
     expect(newEraWarning('2026-12-17', sets)).toMatchObject({ lastRelease: { code: 'C1' }, days: 49, likely: false })
     expect(newEraWarning('2026-12-18', sets)).toMatchObject({ lastRelease: { code: 'C1' }, days: 50, likely: true })

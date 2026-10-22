@@ -150,7 +150,8 @@ export function eraConflict(date: Date, codes: Iterable<string>, sets: readonly 
 export const NEW_ERA_LIKELY_AFTER_DAYS = 49
 
 /**
- * The last era-opening release in the table and how many days ago it was; `likely` when it is more than 49 days. A
+ * The last era-opening release in the table and how many days ago it was; `likely` when it is more than 49 days and
+ * the table does not have the next era yet (a row loaded ahead of its release, as C1 on 22/10, already answers it). A
  * Deluxe pack (no new era) does not count (H-006: with B4b as the last row the warning waited a month more).
  */
 export function newEraWarning(
@@ -163,7 +164,8 @@ export function newEraWarning(
   const days = Math.round(
     (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${lastRelease.releaseDate}T00:00:00Z`)) / 86_400_000,
   )
-  return { lastRelease, days, likely: days > NEW_ERA_LIKELY_AFTER_DAYS }
+  const nextLoaded = eraSets(sets).length > released.length
+  return { lastRelease, days, likely: days > NEW_ERA_LIKELY_AFTER_DAYS && !nextLoaded }
 }
 
 /** Tournaments below this size do not count (PLAN B10: 12 reproduces the 154 tournaments Limitless shows for B4a). */

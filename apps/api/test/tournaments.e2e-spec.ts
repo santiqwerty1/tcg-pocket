@@ -342,9 +342,9 @@ describe('tournaments (e2e)', () => {
       }
       expect(status.eras.map((era) => era.code)).not.toContain('Z9')
       expect(status.eras[0]?.code).toBe('B4a')
-      // B4a now ends when Z9 comes out; it is still the era of today, and the one the warning counts from.
+      // B4a now ends when Z9 comes out and is still the era of today; the warning does not ask for a set already loaded.
       expect(status.currentEra).toMatchObject({ code: 'B4a', to: ahead })
-      expect(status.newEra).toMatchObject({ lastRelease: 'B4a' })
+      expect(status.newEra).toMatchObject({ lastRelease: 'B4a', likely: false })
       expect((await get('/api/tournaments/archetypes')).body.scope.lists).toBe(393)
     } finally {
       await test.prisma.setRelease.delete({ where: { code: 'Z9' } })

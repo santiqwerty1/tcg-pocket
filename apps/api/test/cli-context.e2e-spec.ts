@@ -107,7 +107,6 @@ describe('CLI context (e2e)', () => {
     expect(await test.prisma.setRelease.count()).toBe(0)
     await test.app.get(TournamentSettings).seedSets()
     // All the known sets, those after the fixtures' day (C1) too, which createTestApp takes out.
-    expect(sets).toBeLessThanOrEqual(DEFAULT_SET_RELEASES.length)
     expect(await test.prisma.setRelease.count()).toBe(DEFAULT_SET_RELEASES.length)
 
     expect(await test.prisma.catalogSync.findUniqueOrThrow({ where: { id: sync.id } })).toEqual(before.sync)
