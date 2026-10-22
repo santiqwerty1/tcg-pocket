@@ -119,6 +119,8 @@ export const REMOTE_KEYS = {
     warning: 'dotggSyncWarning',
     lastApplied: 'dotggLastAppliedAt',
     lastChecked: 'dotggLastCheckedAt',
+    /** The keyed fingerprint of the link the last applied sync was read from (a backup carries it, not the link). */
+    lastAppliedLink: 'dotggLastAppliedLink',
   },
 } as const satisfies Record<RemoteSource, Record<string, string>>
 
@@ -741,6 +743,12 @@ export class CollectionService {
           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
           [keys.lastApplied, JSON.stringify(appliedAt.toISOString()), appliedAt],
         )
+        if (source === 'dotgg')
+          await client.query(
+            `INSERT INTO app_settings (key, value) VALUES ($1, $2::jsonb)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+            [REMOTE_KEYS.dotgg.lastAppliedLink, JSON.stringify(stored.dotgg?.linkId ?? '')],
+          )
         await client.query(
           `INSERT INTO app_settings (key, value) VALUES ($1, $2::jsonb)
            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
@@ -1050,10 +1058,17 @@ export class CollectionService {
     if (stats.requiresReview) {
       reasons.push(`Bajan ${count(stats.removedCopies)} de ${count(stats.currentCopies)} copias (más del 10 %).`)
     }
-    const applied = await client.query<{ value: unknown }>('SELECT value FROM app_settings WHERE key = $1', [
-      REMOTE_KEYS.dotgg.lastApplied,
-    ])
-    const lastApplied = applied.rows[0]?.value
+    const applied = await client.query<{ key: string; value: unknown }>(
+      'SELECT key, value FROM app_settings WHERE key = ANY($1::text[])',
+      [[REMOTE_KEYS.dotgg.lastApplied, REMOTE_KEYS.dotgg.lastAppliedLink]],
+    )
+    const marks = Object.fromEntries(applied.rows.map((r) => [r.key, r.value]))
+    // The last applied sync counts only if it was read from this same link: another link (also one a restored backup
+    // brought along, whose link is not in the file) starts with a first sync.
+    const lastApplied =
+      marks[REMOTE_KEYS.dotgg.lastAppliedLink] === remote.linkFingerprint
+        ? marks[REMOTE_KEYS.dotgg.lastApplied]
+        : undefined
     if (changed && typeof lastApplied !== 'string') {
       reasons.push('Es la primera sincronización con ptcgpocket.gg: revisá los cambios antes de aplicarlos.')
     }

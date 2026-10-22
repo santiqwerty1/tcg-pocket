@@ -3,7 +3,7 @@
  * card by card, and the file that brings the tracker up to date. Read-only: nothing in the app changes. Both sources are
  * read on each request (a few seconds); nothing is cached (512 MB machine).
  */
-import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, ServiceUnavailableException } from '@nestjs/common'
 import {
   type DotggUnmatched,
   mapDotggRows,
@@ -109,6 +109,19 @@ export class TrackerGapService {
         message,
       })
     }
+    // Both reads took seconds: if the friend id or the link changed meanwhile (another tab), the pair is not one and
+    // the file would mix them. Read again under the configuration lock (994202, the one their writes take).
+    const after = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(994202)`
+      const row = await tx.appSetting.findUnique({ where: { key: 'trackerFriendId' } })
+      return { friendId: typeof row?.value === 'string' ? row.value : '', link: await this.links.read(tx) }
+    })
+    if (after.friendId !== friendId || after.link !== link)
+      throw new ConflictException({
+        code: 'gap_config_changed',
+        message:
+          'El link de ptcgpocket.gg o el friend_id del tracker cambiaron mientras se comparaba: volvé a comparar.',
+      })
     const index = this.catalog.requireIndex()
     const parsed = parseDotggCsv(bytes)
     if (parsed.fatal || parsed.rows.length === 0)

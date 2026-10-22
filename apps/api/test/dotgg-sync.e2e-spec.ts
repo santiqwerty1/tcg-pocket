@@ -656,9 +656,13 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
   const remove = () => test.http().delete('/api/collection/dotgg/link').set('Cookie', cookie)
   const OTHER = LINK.replace(TOKEN, `${TOKEN}ZZ99`)
   const internalId = (id: string) => test.app.get(CatalogService).requireIndex().cardById(id)?.internalId ?? -1
+  /** An applied sync an hour ago, read from LINK (the mark counts only for the link it was read from). */
   const lastApplied = () =>
-    test.prisma.appSetting.create({
-      data: { key: 'dotggLastAppliedAt', value: new Date(Date.now() - 3600_000).toISOString() },
+    test.prisma.appSetting.createMany({
+      data: [
+        { key: 'dotggLastAppliedAt', value: new Date(Date.now() - 3600_000).toISOString() },
+        { key: 'dotggLastAppliedLink', value: test.app.get(DotggLinkStore).fingerprint(LINK) },
+      ],
     })
 
   it('automatic: an expansion the export does not list makes it wait, even with a small drop', async () => {
@@ -716,6 +720,57 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     expect(result?.dotgg?.requiresReview).toBe(true)
     expect(result?.dotgg?.reviewReasons.join(' ')).toContain('primera sincronización')
     expect(await copies()).toBe(6)
+  })
+
+  it.each([
+    ['another link', true],
+    ['the same link', false],
+  ])('a backup restored with %s configured: a first sync waits only for another link', async (_name, other) => {
+    await setLink(LINK)
+    expect((await apply((await preview()).body.id)).status).toBe(200)
+    const exported = await get('/api/backup/export').responseType('blob')
+    if (other) await setLink(OTHER)
+    const restored = await post('/api/backup/import?mode=replace').attach(
+      'file',
+      Buffer.from(exported.body),
+      'backup.json.gz',
+    )
+    expect(restored.status).toBe(200)
+    // The file brought back the last applied sync of LINK.
+    expect(await test.prisma.appSetting.count({ where: { key: 'dotggLastAppliedAt' } })).toBe(1)
+    await setting('dotggAutoSync', true)
+    body = exportFile([
+      [2, 'Bulbasaur', 'A1', 1],
+      [1, "Professor's Research", 'P-A', 7],
+      [4, 'Small Balloon', 'B4b', 372],
+    ])
+    const result = await test.app.get(DotggSync).tick(new Date(Date.now() + 2 * DOTGG_SYNC_INTERVAL_MS))
+    expect(result?.dotgg?.requiresReview).toBe(other)
+    expect(result?.dotgg?.reviewReasons.join(' ').includes('primera sincronización')).toBe(other)
+    expect(await copies()).toBe(other ? 6 : 7)
+  })
+
+  it.each([
+    ['friend id', () => setting('trackerFriendId', '1111222233334444')],
+    ['link', () => setLink(OTHER)],
+  ])('«Tracker al día» refuses a comparison when the %s changed during the reads', async (_name, change) => {
+    await setting('trackerFriendId', FRIEND)
+    await setLink(LINK)
+    const client = test.app.get(DotggClient)
+    const exportCsv = client.exportCsv.bind(client)
+    client.exportCsv = async (link: string) => {
+      await change()
+      return exportCsv(link)
+    }
+    try {
+      const response = await get('/api/collection/tracker-gap')
+      expect(response.status).toBe(409)
+      expect(response.body.error.code).toBe('gap_config_changed')
+      expect(response.body.error.message).toContain('volvé a comparar')
+      clean(response)
+    } finally {
+      client.exportCsv = exportCsv
+    }
   })
 
   it('the same link keeps the pending preview; another link discards it', async () => {
