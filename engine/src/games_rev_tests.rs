@@ -11,6 +11,8 @@
 
 use super::*;
 use crate::fair_bot::{create_players, fair_value_function, parse_bot_code};
+use crate::g_bot::tests::{DEDENNE, MISMAGIUS};
+use crate::g_bot::{g_value_function, GParams};
 use crate::play::{run_live_game, Ask};
 use deckgym::actions::Action;
 use deckgym::simulation_event_handler::{CompositeSimulationEventHandler, SimulationEventHandler};
@@ -23,6 +25,9 @@ use std::sync::{Arc, Mutex};
 const FILE: &str = "games-rev.json";
 
 const ALTARIA: &str = crate::coach::tests::ALTARIA;
+/// What g models that Altaria and Venusaur never show (review of #142): Poison and Burn, attacks that count on them, and
+/// Tools on both sides. Built for the golden games, with no list behind it.
+const POISON_BURN: &str = "Energy: Fire, Darkness\n2 Blacephalon ex B2 23\n2 Heatmor A4 37\n2 Seviper B3 104\n2 Nihilego A3a 42\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n2 Rocky Helmet A2 148\n2 Giant Cape A2 147\n1 Cyrus A2 150\n1 Pokémon Center Lady A2b 70\n";
 const VENUSAUR: &str = "Energy: Grass\n1 Bulbasaur A1 1\n2 Ivysaur B1a 2\n2 Mega Venusaur ex B1a 4\n2 Professor's Research P-A 7\n2 Copycat B1 225\n2 Quick-Grow Extract B1a 67\n2 Lucky Ice Pop B2 145\n2 Heavy Helmet B1 219\n1 Lillie A3 155\n1 Pokémon Center Lady A2b 70\n1 Cyrus A2 150\n1 Field Blower B3 147\n1 Repel A3a 64\n";
 
 /// Every bot, each against the random one, from both sides; the slow ones with fewer games.
@@ -42,8 +47,9 @@ fn cases() -> Vec<Value> {
         ("f2", 2),
         // engine-cli 0.3.5 (H-051): the bot that only ends its turn.
         ("et", 4),
-        // The g bots (T-021, docs/BOTS.md) are not here while the app does not take them: no job of the queue has their
-        // games, and they still change. They come in with the PR that lets the app use them.
+        // engine-cli 0.3.16 (T-021): the g bots, as the app takes them (docs/BOTS.md).
+        ("g1", 4),
+        ("g2", 2),
     ] {
         cases.push(json!({
             "command": "simulate",
@@ -52,6 +58,18 @@ fn cases() -> Vec<Value> {
         cases.push(json!({
             "command": "simulate",
             "job": { "deckA": VENUSAUR, "deckB": ALTARIA, "players": ["r", bot], "games": games, "seed": 4202, "threads": 1, "perGame": true },
+        }));
+    }
+    // g on what it models apart from f (review of #142): Dedenne's Tools and pending damage, Mismagius and Latias, and a
+    // side that poisons and burns. Without them a change in how g weighs those played the Altaria games the same.
+    for (deck_a, deck_b, players, seed) in [
+        (DEDENNE, POISON_BURN, ["g2", "e2"], 4214),
+        (POISON_BURN, MISMAGIUS, ["g2", "r"], 4215),
+        (MISMAGIUS, DEDENNE, ["g1", "g2"], 4216),
+    ] {
+        cases.push(json!({
+            "command": "simulate",
+            "job": { "deckA": deck_a, "deckB": deck_b, "players": players, "games": 2, "seed": seed, "threads": 1, "perGame": true },
         }));
     }
     cases.push(json!({
@@ -72,7 +90,7 @@ fn cases() -> Vec<Value> {
         "job": { "deck": without_jirachi, "candidates": ["B1 106", "A1 225"], "missing": 1, "enemies": [VENUSAUR], "gamesPerEnemy": 2, "players": ["r", "r"], "seed": 4206, "threads": 1 },
     }));
     // A game against the bot (`engine-cli play`) as a worker replays it: the same seed and the owner's choices.
-    for (bot, seed) in [("e2", 4207), ("f2", 4208), ("r", 4209)] {
+    for (bot, seed) in [("e2", 4207), ("f2", 4208), ("r", 4209), ("g2", 4213)] {
         cases.push(json!({
             "command": "play",
             "job": { "deckHuman": ALTARIA, "deckBot": VENUSAUR, "bot": bot, "seed": seed, "choices": [0, 2, 1, 3, 1, 0, 2] },
@@ -85,6 +103,16 @@ fn cases() -> Vec<Value> {
     for (seed, deck_a, deck_b) in [(4211, VENUSAUR, ALTARIA), (4212, ALTARIA, VENUSAUR)] {
         cases.push(json!({
             "command": "values",
+            "job": { "deckA": deck_a, "deckB": deck_b, "seed": seed },
+        }));
+    }
+    // The same for g's evaluation, with its default weights, on boards with Poison, Burn and Tools: every constant of
+    // g_bot.rs shows here even when the games above keep their moves (review of #142). Each trace also counts how many
+    // of its moments have a Poisoned or Burned Active and a Tool in play, so that a deckgym or deck change that leaves
+    // them out fails `the_g_traces_see_poison_burn_and_tools` instead of passing unseen.
+    for (seed, deck_a, deck_b) in [(4217, POISON_BURN, DEDENNE), (4218, MISMAGIUS, POISON_BURN), (4219, DEDENNE, MISMAGIUS)] {
+        cases.push(json!({
+            "command": "gValues",
             "job": { "deckA": deck_a, "deckB": deck_b, "seed": seed },
         }));
     }
@@ -143,33 +171,58 @@ impl SimulationEventHandler for Moves {
     }
 }
 
-/// Both sides' value of the table by the f bots' function, at every action of the game.
-struct Values(Arc<Mutex<Vec<String>>>);
+/// Both sides' value of the table by a bot's function, at every action of the game.
+struct Values(Arc<Mutex<Vec<String>>>, fn(&State, usize) -> f64);
 
 impl SimulationEventHandler for Values {
     fn merge(&mut self, _other: &dyn SimulationEventHandler) {}
 
     fn on_action(&mut self, _game_id: Uuid, state: &State, _actor: usize, _playable: &[Action], _action: &Action) {
-        let values = [fair_value_function(state, 0), fair_value_function(state, 1)];
+        let values = [(self.1)(state, 0), (self.1)(state, 1)];
         self.0.lock().expect("values").push(format!("{:.3},{:.3}", values[0], values[1]));
     }
 }
 
-/// A game of the random bots, and how the f bots value it as it goes.
-fn value_trace(job: &Value) -> Value {
+/// How many moments of the game have a Poisoned Active, a Burned Active and a Tool in play.
+struct Seen(Arc<Mutex<[usize; 3]>>);
+
+impl SimulationEventHandler for Seen {
+    fn merge(&mut self, _other: &dyn SimulationEventHandler) {}
+
+    fn on_action(&mut self, _game_id: Uuid, state: &State, _actor: usize, _playable: &[Action], _action: &Action) {
+        let actives: Vec<_> = state.in_play_pokemon.iter().filter_map(|side| side[0].as_ref()).collect();
+        let tools = state.in_play_pokemon.iter().flatten().flatten().any(|pokemon| pokemon.has_tool_attached());
+        let mut seen = self.0.lock().expect("seen");
+        seen[0] += usize::from(actives.iter().any(|active| active.is_poisoned()));
+        seen[1] += usize::from(actives.iter().any(|active| active.is_burned()));
+        seen[2] += usize::from(tools);
+    }
+}
+
+fn g_value(state: &State, myself: usize) -> f64 {
+    g_value_function(state, myself, &GParams::default())
+}
+
+/// A game of the random bots, and how a bot's function (the f bots' or g's) values it as it goes.
+fn value_trace(job: &Value, value: fn(&State, usize) -> f64) -> Value {
     let deck_a = require_simulable("A", job["deckA"].as_str().expect("deckA")).expect("deck");
     let deck_b = require_simulable("B", job["deckB"].as_str().expect("deckB")).expect("deck");
     let seed = job["seed"].as_u64().expect("seed");
     let random = parse_bot_code("r").expect("r");
     let players = create_players(deck_a, deck_b, vec![random.clone(), random]);
     let values = Arc::new(Mutex::new(Vec::new()));
-    let mut handler = CompositeSimulationEventHandler::new(vec![Box::new(Values(values.clone()))]);
+    let seen = Arc::new(Mutex::new([0; 3]));
+    let mut handler = CompositeSimulationEventHandler::new(vec![
+        Box::new(Values(values.clone(), value)),
+        Box::new(Seen(seen.clone())),
+    ]);
     {
         let mut game = Game::new_with_event_handlers(Uuid::from_u64_pair(seed, 1), players, seed, &mut handler);
         game.play();
     }
     let values = values.lock().expect("values");
-    json!({ "moments": values.len(), "values": fnv(&values.join("\n")) })
+    let [poisoned, burned, tools] = *seen.lock().expect("seen");
+    json!({ "moments": values.len(), "values": fnv(&values.join("\n")), "poisoned": poisoned, "burned": burned, "tools": tools })
 }
 
 /// A game against the bot through play.rs (`run_live_game`, the seat and numbering `engine-cli play` uses), with the
@@ -242,7 +295,15 @@ fn run(case: &Value) -> Value {
         }
         Some("play") => scripted_game(&job, false),
         Some("coach") => scripted_game(&job, true),
-        Some("values") => value_trace(&job),
+        Some("values") => {
+            // The f traces were recorded before these counts: their cases stay as they were.
+            let mut trace = value_trace(&job, fair_value_function);
+            for key in ["poisoned", "burned", "tools"] {
+                trace.as_object_mut().expect("trace").remove(key);
+            }
+            trace
+        }
+        Some("gValues") => value_trace(&job, g_value),
         other => panic!("unknown command {other:?}"),
     };
     let mut stable = result;
@@ -337,5 +398,16 @@ fn the_golden_games_play_the_same_for_this_games_rev() {
             "case {at} ({}) plays otherwise: if that is on purpose, raise GAMES_REV in main.rs and make games-rev.json again",
             label(case),
         );
+    }
+}
+
+#[test]
+fn the_g_traces_see_poison_burn_and_tools() {
+    // What the gValues cases are there for (review of #142): if a deck or deckgym change left them without a Poisoned or
+    // Burned Active or a Tool in play, a change in how g weighs those would pass the golden games unseen.
+    let traces: Vec<Value> = cases().iter().filter(|case| case["command"] == "gValues").map(run).collect();
+    for key in ["poisoned", "burned", "tools"] {
+        let moments: u64 = traces.iter().map(|trace| trace[key].as_u64().expect(key)).sum();
+        assert!(moments > 0, "no gValues trace has a moment with {key}: {traces:?}");
     }
 }

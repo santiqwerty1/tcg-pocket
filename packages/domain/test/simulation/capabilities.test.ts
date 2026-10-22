@@ -3,6 +3,7 @@ import {
   canBatch,
   canPlayEtBot,
   canPlayFairBots,
+  canPlayGBots,
   canPlayPerGame,
   ENGINE_FEATURES,
   gamesRevOf,
@@ -35,7 +36,7 @@ describe('what a worker can play', () => {
   })
 
   it('batch and the f bots count only when the engine lists them', () => {
-    expect(ENGINE_FEATURES).toEqual(['perGame', 'batch', 'fairBots', 'etBot'])
+    expect(ENGINE_FEATURES).toEqual(['perGame', 'batch', 'fairBots', 'etBot', 'gBots'])
     expect(canBatch({ version: '0.2.7', engineFeatures: ['perGame', 'batch'] })).toBe(true)
     expect(canBatch({ version: '0.2.7', cliVersion: '0.9.0' })).toBe(false)
     expect(canPlayFairBots({ engineFeatures: ['fairBots'] })).toBe(true)
@@ -45,6 +46,18 @@ describe('what a worker can play', () => {
     expect(canPlayEtBot({ engineFeatures: ['perGame', 'batch', 'fairBots'] })).toBe(false)
     expect(canPlayEtBot({ cliVersion: '0.3.5' })).toBe(false)
     expect(hasEngineFeature({ engineFeatures: null }, 'perGame')).toBe(false)
+  })
+
+  it('the g bots need «gBots» and the g of engine-cli 0.3.16, not an earlier one (T-021)', () => {
+    const features = ['perGame', 'batch', 'fairBots', 'etBot', 'gBots']
+    expect(canPlayGBots({ engineFeatures: features, cliVersion: '0.3.16' })).toBe(true)
+    expect(canPlayGBots({ engineFeatures: features, cliVersion: '0.3.20' })).toBe(true)
+    // engine-cli 0.3.13–0.3.15 list «gBots» with an earlier g: their games and these would mix in one job.
+    expect(canPlayGBots({ engineFeatures: features, cliVersion: '0.3.15' })).toBe(false)
+    expect(canPlayGBots({ engineFeatures: features })).toBe(false)
+    expect(canPlayGBots({ engineFeatures: ['perGame', 'batch', 'fairBots', 'etBot'], cliVersion: '0.3.16' })).toBe(
+      false,
+    )
   })
 })
 

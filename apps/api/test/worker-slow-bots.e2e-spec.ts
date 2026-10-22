@@ -12,8 +12,8 @@ describe('worker slow bot preference (D-025)', () => {
     engineRev: rev,
     cores: 2,
     version: '0.2.11',
-    cliVersion: '0.3.3',
-    engineFeatures: ['perGame', 'batch', 'fairBots', 'etBot'],
+    cliVersion: '0.3.16',
+    engineFeatures: ['perGame', 'batch', 'fairBots', 'etBot', 'gBots'],
     batch: { maxChunks: 10, maxGames: 5000 },
   }
   beforeAll(async () => {
@@ -64,22 +64,23 @@ describe('worker slow bot preference (D-025)', () => {
     })
   }
 
-  it.each(['m', 'e3', 'e4', 'e5', 'e6', 'e7', 'e8', 'e9', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9'])(
-    'excludes %s on either side before leasing, even with priority and batching',
-    async (bot) => {
-      const one = await job([bot, 'e2'], { priority: 10 })
-      const two = await job(['f2', bot], { priority: 20 })
-      const before = [await chunks(one.id), await chunks(two.id)]
-      const blocked = await claim({ ...hello, allowSlowBots: false })
-      expect(blocked.status).toBe(200)
-      expect(blocked.body).toMatchObject({ chunk: null, chunks: [] })
-      expect([await chunks(one.id), await chunks(two.id)]).toEqual(before)
-      expect(await test.prisma.simulationJob.findMany({ select: { status: true, startedAt: true } })).toEqual([
-        { status: 'queued', startedAt: null },
-        { status: 'queued', startedAt: null },
-      ])
-    },
-  )
+  it.each([
+    ...['m', 'e3', 'e4', 'e5', 'e6', 'e7', 'e8', 'e9', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9'],
+    // T-021: every g is slow, g1 included (about what e3 costs).
+    ...['g1', 'g2', 'g9'],
+  ])('excludes %s on either side before leasing, even with priority and batching', async (bot) => {
+    const one = await job([bot, 'e2'], { priority: 10 })
+    const two = await job(['f2', bot], { priority: 20 })
+    const before = [await chunks(one.id), await chunks(two.id)]
+    const blocked = await claim({ ...hello, allowSlowBots: false })
+    expect(blocked.status).toBe(200)
+    expect(blocked.body).toMatchObject({ chunk: null, chunks: [] })
+    expect([await chunks(one.id), await chunks(two.id)]).toEqual(before)
+    expect(await test.prisma.simulationJob.findMany({ select: { status: true, startedAt: true } })).toEqual([
+      { status: 'queued', startedAt: null },
+      { status: 'queued', startedAt: null },
+    ])
+  })
 
   it.each([true, undefined])(
     'allows slow bots with opt-in=%s, preserves chunk boundaries and seeds',

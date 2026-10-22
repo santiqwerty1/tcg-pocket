@@ -8,9 +8,10 @@ import { PER_GAME_CLI_VERSION, PER_GAME_WORKER_VERSION } from './perGame.js'
 
 /**
  * «perGame»: every game by index (H-010) · «batch»: several pairings per process (B2) · «fairBots»: the f bots (H-018)
- * · «etBot»: the bot that ends its turn, which deckgym's parser never reaches (H-051, engine-cli 0.3.5).
+ * · «etBot»: the bot that ends its turn, which deckgym's parser never reaches (H-051, engine-cli 0.3.5) · «gBots»:
+ * the g bots (T-021, engine-cli 0.3.13).
  */
-export const ENGINE_FEATURES = ['perGame', 'batch', 'fairBots', 'etBot'] as const
+export const ENGINE_FEATURES = ['perGame', 'batch', 'fairBots', 'etBot', 'gBots'] as const
 export type EngineFeature = (typeof ENGINE_FEATURES)[number]
 
 /** Workers from this version on report `engineFeatures`. */
@@ -98,4 +99,16 @@ export function canPlayFairBots(worker: WorkerAbilities): boolean {
 /** Jobs and games with «et» (H-051): an older engine answers «Invalid player code» and the job fails. */
 export function canPlayEtBot(worker: WorkerAbilities): boolean {
   return hasEngineFeature(worker, 'etBot')
+}
+
+/**
+ * The first engine-cli with the g the app plays (T-021). Engines from 0.3.13 to 0.3.15 list «gBots» too, but their g
+ * is an earlier one: it changed in #128, #139 and #140 while no job could ask for it, so `GAMES_REV` did not go up.
+ * From here on g1 and g2 are in the golden games, and a change to g raises it as for any other bot.
+ */
+export const G_BOTS_CLI_VERSION = '0.3.16'
+
+/** Jobs and games with a g bot (T-021): an engine with «gBots» and this g, so that one job never mixes two of them. */
+export function canPlayGBots(worker: WorkerAbilities): boolean {
+  return hasEngineFeature(worker, 'gBots') && versionAtLeast(worker.cliVersion, G_BOTS_CLI_VERSION)
 }

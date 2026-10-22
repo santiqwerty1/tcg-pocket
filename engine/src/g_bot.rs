@@ -1219,7 +1219,7 @@ fn stage(card: &Card) -> u8 {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use deckgym::card_ids::CardId;
     use deckgym::database::get_card_by_enum;
@@ -1230,8 +1230,8 @@ mod tests {
     use EnergyType::{Lightning, Psychic};
 
     // Decks 16, 23 and 40 of docs/context/mazos_40_listas.md, the three blind spots of Infra's report (14/10).
-    const DEDENNE: &str = "Energy: Lightning\n2 Dedenne ex B3b 24\n1 Indeedee ex B1 121\n1 Oricorio A3 165\n1 Zeraora A3a 21\n1 Skull Fossil A2 144\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Cyrus A2 150\n2 Giant Cape A2 147\n2 Small Balloon B3b 64\n1 Clear Veil B4 149\n1 Protective Poncho B2 147\n1 Starting Plains B2 154\n";
-    const MISMAGIUS: &str = "Energy: Psychic\n2 Latias A4a 36\n2 Latios A4a 37\n1 Misdreavus A4a 32\n1 Misdreavus A2 66\n2 Mismagius A4a 33\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Pokémon Center Lady A2b 70\n1 Sabrina A1 225\n1 Red Card P-A 6\n2 Rocky Helmet A2 148\n1 Giant Cape A2 147\n";
+    pub(crate) const DEDENNE: &str = "Energy: Lightning\n2 Dedenne ex B3b 24\n1 Indeedee ex B1 121\n1 Oricorio A3 165\n1 Zeraora A3a 21\n1 Skull Fossil A2 144\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Cyrus A2 150\n2 Giant Cape A2 147\n2 Small Balloon B3b 64\n1 Clear Veil B4 149\n1 Protective Poncho B2 147\n1 Starting Plains B2 154\n";
+    pub(crate) const MISMAGIUS: &str = "Energy: Psychic\n2 Latias A4a 36\n2 Latios A4a 37\n1 Misdreavus A4a 32\n1 Misdreavus A2 66\n2 Mismagius A4a 33\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Pokémon Center Lady A2b 70\n1 Sabrina A1 225\n1 Red Card P-A 6\n2 Rocky Helmet A2 148\n1 Giant Cape A2 147\n";
     const VENUSAUR: &str = "Energy: Grass\n1 Bulbasaur A1 1\n2 Ivysaur B1a 2\n2 Mega Venusaur ex B1a 4\n2 Professor's Research P-A 7\n2 Copycat B1 225\n2 Quick-Grow Extract B1a 67\n2 Lucky Ice Pop B2 145\n2 Heavy Helmet B1 219\n1 Lillie A3 155\n1 Pokémon Center Lady A2b 70\n1 Cyrus A2 150\n1 Field Blower B3 147\n1 Repel A3a 64\n";
 
     fn card(id: &str) -> PlayedCard {

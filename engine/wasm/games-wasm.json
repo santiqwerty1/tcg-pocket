@@ -27,6 +27,14 @@
       "moves": "e20bdbd0f3ffc7af"
     },
     {
+      "command": "play",
+      "bot": "g2",
+      "seed": 4213,
+      "winner": "bot",
+      "turns": 8,
+      "moves": "2ff4a3b538c50c3a"
+    },
+    {
       "command": "coach",
       "bot": "e2",
       "seed": 4210,

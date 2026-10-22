@@ -562,26 +562,27 @@ verificación del Coordinador va al PR siguiente de g, salvo esos tres casos, qu
 
 ## Cómo entra en la app
 
-- **Hecho en g 1.0:**
-  - el código `g<1-9>` en `parse_bot_code`, en nuestro crate;
-  - la feature `gBots` en el motor;
-  - `g_bot.rs` en el motor del navegador.
-
-  La app todavía no acepta los códigos: eso, el filtro de la cola, los avisos, las partidas contra el bot y las
-  tools van en otro PR, como se hizo con f.
-- **Lo que falta para que la app acepte g** (revisión de #111): en el motor la feature ya está, en los dos
-  `FEATURES` de `engine/src/main.rs`. Con f se hizo así, y con g va igual:
-  - `BOT_CODE_PATTERN` y la lista de códigos de `packages/domain/src/simulation/jobs.ts` (hoy rechazan `g`);
-  - `gBots` en `ENGINE_FEATURES` y su `canPlayGBots` en `capabilities.ts`;
-  - el filtro del reclamo de chunks (`worker-queue.service.ts`) y el de las partidas en vivo
-    (`live-games.service.ts`), que hoy miran los códigos de f, más el aviso al worker que no puede jugarlos;
-  - los avisos (`alerts.service.ts`), las tools de MCP y sus tests.
-- **El motor del navegador** (`engine/wasm`) incluye `fair_bot.rs` con `#[path]` y fija su propio deckgym. Tiene que
-  pasar al fork junto con el resto, o no compila. Si g entra ahí, va igual que f.
-- **La lista de bots** en la pantalla viene después.
-- **`engine/Cargo.toml` y `GAMES_REV` son de Infra.** g no cambia los resultados de los bots viejos. El cambio de
-  motor al fork, en cambio, cambia `engineRev`: claves nuevas en la cola, trabajos que se juegan enteros otra vez, la
-  caché de chunks vacía y `games-rev.json` nuevo. Eso es del cambio al fork, no de g.
+- **Hecho en g 1.0:** el código `g<1-9>` en `parse_bot_code` (lo leen `simulate`, `consistency`, `optimize` y `play`),
+  la feature `gBots` en el motor y `g_bot.rs` en el motor del navegador.
+- **Hecho en «la app acepta g»** (22/10, con g 1.1.2):
+  - `BOT_CODE_PATTERN` acepta `g1`–`g9`, y `BOT_LABEL_ES` nombra `g1`–`g4` como «expectiminimax sin trampa». Con eso,
+    g se elige en Simulación, en Calibración, en el laboratorio (la API y `lab_explore`) y en las tools de MCP.
+  - En Jugar contra un bot hay una opción más: «Sin trampa (g2: no ve tu mano ni tu mazo)».
+  - El costo estimado de g es unas 3 veces el de e con la misma profundidad, y todos los g cuentan como lentos para
+    los workers que no los aceptan (`allowSlowBots`, D-025): g1 ya cuesta lo que e3.
+  - **Solo juega g un motor con `gBots` y engine-cli 0.3.16 o más nuevo** (`canPlayGBots`). engine-cli 0.3.13–0.3.15
+    también listan `gBots`, pero con un g anterior: g cambió en #128, #139 y #140 mientras ningún trabajo podía
+    pedirlo, y `GAMES_REV` no subió. Sin esa versión, un trabajo podía mezclar las partidas de dos g. Lo mismo vale
+    para el reclamo de chunks, el de las partidas en vivo, la pista al worker y el aviso `worker_idle`.
+  - engine-cli 0.3.16 y worker 0.3.14, así los workers se actualizan a ese motor.
+  - g1 y g2 vuelven a las partidas doradas (`games-rev.json`, de 34 casos a 45), y el dorado del navegador suma una
+    partida contra g2. Altaria y Venusaur solos no muestran lo que g modela aparte de f (autorrevisión de #142):
+    con otro `POISON_ROUND` o `BURN_LEFT` jugaban igual. Por eso hay tres cruces con Dedenne, Mismagius y una lista
+    que envenena y quema, y tres trazas de `g_value_function` (`gValues`) que cuentan sus momentos con veneno,
+    quemadura y Herramientas; un test falla si alguno queda en cero. La referencia de determinismo de los paquetes
+    suma g2. Así, un cambio en cómo juega g obliga a subir `GAMES_REV`, como con cualquier otro bot.
+- **El bot por defecto sigue siendo e2** (D-029). Para proponerle a Santi otro, van juntos la fuerza (la liga), el
+  costo y la calibración contra torneos con g2.
 
 ## Plan
 
@@ -594,8 +595,8 @@ verificación del Coordinador va al PR siguiente de g, salvo esos tres casos, qu
    planes no cuenta un golpe cuando los KO que no lo necesitan dan los puntos que faltan: un veneno, una quemadura,
    un daño en camino o un objetivo que ya cae en el control. Además, los tests de las otras dos mecánicas del tipo
    de Energía.
-4. **La app acepta g:** los códigos, el filtro de la cola, los avisos, las partidas contra el bot y las tools (riesgo
-   medio). Ahí vuelven g1 y g2 a las partidas doradas, que g 1.1 dejó afuera.
+4. **La app acepta g** (22/10): los códigos, el filtro de la cola, los avisos, las partidas contra el bot y las tools.
+   g1 y g2 vuelven a las partidas doradas, que g 1.1 dejó afuera.
 5. **La carrera** (punto 6) y la herramienta de la liga, con las primeras mediciones.
 6. **Línea 2, sin trampa:**
    - una búsqueda propia: el expectiminimax de deckgym copiado en nuestro crate (unas 150 líneas, AGPL), con
