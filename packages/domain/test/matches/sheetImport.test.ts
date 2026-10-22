@@ -634,11 +634,20 @@ describe('the plan of an import', () => {
         clientRef: `sheet:${i}`,
       })
     }
+    // Every read of a match of the list is counted: a few passes over it, not one per row (that would be 200 million).
+    let reads = 0
+    const counted = new Proxy(existing, {
+      get(target, key, receiver) {
+        if (typeof key === 'string' && /^\d+$/u.test(key)) reads += 1
+        return Reflect.get(target, key, receiver)
+      },
+    })
     const began = performance.now()
-    const plan = planSheetImport(sheet, context({ existing }))
+    const plan = planSheetImport(sheet, context({ existing: counted }))
     const ms = performance.now() - began
     expect(plan.counts).toMatchObject({ new: 10_000, possibleDuplicate: 0 })
     expect(plan.orphans).toHaveLength(10_000)
+    expect(reads).toBeLessThan(10 * existing.length)
     expect(ms).toBeLessThan(3000)
     // And still the nearest within 15 minutes: one win a minute after the 5.000th row.
     const after = new Date(start + 4999 * 3 * 60_000 + 60_000)
