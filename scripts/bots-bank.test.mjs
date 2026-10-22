@@ -204,6 +204,23 @@ describe('decks against the meta bank', () => {
       })()
       assert.equal(refused?.status, 2)
       assert.match(refused.stderr, /--games tiene que ser un entero positivo/)
+      // A subject that is neither a deck nor a list is refused before any game, also when it comes last.
+      const log = join(dir, 'jobs.log')
+      const unknown = (() => {
+        try {
+          execFileSync(
+            process.execPath,
+            [SCRIPT, '--engine', engine, '--bot', 'e2', '--subjects', 'ccc,nada', '--bank', bankFile, '--games', '10'],
+            { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, FAKE_BANK_LOG: log } },
+          )
+          return null
+        } catch (error) {
+          return error
+        }
+      })()
+      assert.equal(unknown?.status, 2)
+      assert.match(unknown.stderr, /«nada» no es un mazo/)
+      assert.throws(() => readFileSync(log, 'utf8'), /ENOENT/)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

@@ -145,13 +145,22 @@ function main() {
     console.error(invalid)
     process.exit(2)
   }
+  // Every subject's deck before the first game: a misspelled last subject must not cost the games of the others
+  // (Codex on #146).
+  let subjectDecks
+  try {
+    subjectDecks = subjects.map((subject) => subjectDeck(subject, decks, bank))
+  } catch (error) {
+    console.error(error.message)
+    process.exit(2)
+  }
   const started = Date.now()
   const results = {}
-  for (const subject of subjects) {
+  for (const [index, subject] of subjects.entries()) {
     const { rows, score } = playBank({
       engine,
       bot,
-      deck: subjectDeck(subject, decks, bank),
+      deck: subjectDecks[index],
       bank,
       games,
       threads,
