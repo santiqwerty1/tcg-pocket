@@ -297,10 +297,10 @@ SheetImport = { delimiter: 'comma'|'semicolon'|'tab' | null, headerRow, firstRow
   rows: [{ row, status: 'new'|'in_app'|'duplicate'|'possible_duplicate'|'unmapped'|'error', code, deckName, deck, result,
            wentFirst, playedAt, dateText, opponent, note, rank: { label, action: 'note'|'same'|'skip' | null, text } | null,
            matchId, duplicateOf: { id, text } | null, write, errors: string[], warnings: string[] }],
-  columnK: { firstRow, text } | null, fingerprint }
+  columnK: { firstRow, text } | null, fingerprint, orphans: [{ id, text }] }
 ```
 
-- `in_app`: la columna K tiene el número; `duplicate`: una partida tiene su clave (`client_ref = "sheet:" + hash` de fecha, código, resultado, salida y rival normalizados); `possible_duplicate`: una partida del mismo mazo y resultado a ±15 min que no es de otra fila; `unmapped`: su código no tiene mazo; `error`: sin fecha, futura, ilegible, rival > 80, nota > 2.000…
+- `in_app`: la columna K tiene el número; `duplicate`: una partida tiene su clave (`client_ref = "sheet:" + hash` de fecha, código, resultado, salida y rival normalizados); `possible_duplicate`: una partida del mismo mazo y resultado a ±15 min que no es de otra fila, o una partida importada de la hoja que ninguna fila es (`orphans`: una fila corregida sin K) el mismo día; `unmapped`: su código no tiene mazo; `error`: sin fecha, futura, ilegible, código > 20, rival > 80, nota > 2.000… Unas comillas sin cerrar o más de 50.000 líneas dan `error` para todo el texto
 - La fecha es hora de Buenos Aires (sin hora: 12:00, con aviso); filas del mismo instante, un segundo aparte. Salida vacía: `wentFirst: null`.
 - El rango (H) es el rango con que se jugó: se anota 1 ms antes de la partida, salvo que ya rigiera, que haya otro anotado justo ahí, que la partida no sea competitiva o que no caiga en una temporada (avisos).
 - `columnK.text`: una línea por fila desde `firstRow` hasta la última con datos, con el número de su partida (K, por clave o recién importada) o vacía.
