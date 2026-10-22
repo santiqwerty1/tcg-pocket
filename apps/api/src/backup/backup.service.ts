@@ -12,6 +12,7 @@ import { dateOnly } from '../config/time-zone.js'
 import type { Prisma } from '../generated/prisma/client.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import { RANK_NOTE_LOCK } from '../ranked/ranked.service.js'
 import { TournamentDataVersion } from '../tournaments/tournament-settings.js'
 import {
   BACKUP_SCHEMA_VERSION,
@@ -338,6 +339,7 @@ export class BackupService {
         note: match.note,
         playedAt: iso(match.playedAt),
         source: match.source,
+        clientRef: match.clientRef,
         createdAt: iso(match.createdAt),
         updatedAt: iso(match.updatedAt),
       })),
@@ -487,10 +489,14 @@ export class BackupService {
         details: unknownCardIds,
       })
     }
-    await this.prisma.$transaction((tx) => this.restoreInto(tx, document, true), {
-      timeout: RESTORE_TIMEOUT_MS,
-      maxWait: 10_000,
-    })
+    await this.prisma.$transaction(
+      async (tx) => {
+        // Codex on #143: it rewrites `rank_changes` (and the matches), so the ranks' lock first, as every write of them.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+        await this.restoreInto(tx, document, true)
+      },
+      { timeout: RESTORE_TIMEOUT_MS, maxWait: 10_000 },
+    )
     this.tournamentData.bump()
     if (document.settings.some((s) => s.key === 'trackerAutoSync' && s.value === true))
       notices.push('La sincronización automática del tracker esperará 6 horas después de restaurar.')
@@ -533,6 +539,9 @@ export class BackupService {
       try {
         await this.prisma.$transaction(
           async (tx) => {
+            // Codex on #143: the ranks' lock before the tables, the order of every other writer of the matches and
+            // the ranks (the sheet import, moving, deleting or restoring a match): never one waiting for the other.
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
             await tx.$executeRawUnsafe(LOCK_SERIAL_TABLES)
             drill.sequences = await this.sequenceValues(tx)
             await this.restoreInto(tx, document)
@@ -878,6 +887,12 @@ export class BackupService {
     if (unknown.size > 0) {
       notices.push(
         `${unknown.size} ids del backup no existen en el catálogo cargado; no se puede restaurar hasta sincronizarlo.`,
+      )
+    }
+    if (document.schemaVersion < 11 && document.schemaVersion >= 2) {
+      // T-022: without the keys, the rows of the sheet imported before come back as possible repeats.
+      notices.push(
+        `Backup de la versión ${document.schemaVersion}, anterior a la importación desde la hoja: las partidas vuelven sin su clave, así que al importar la hoja otra vez las ya importadas salen como posibles repetidas (salvo las que tienen el número en la columna K).`,
       )
     }
     if (document.schemaVersion < 9) {

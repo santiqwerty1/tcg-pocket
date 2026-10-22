@@ -528,7 +528,7 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     }
   })
 
-  it('backs up imports, stock source and settings (v11) without the link, and a restore keeps the configured link', async () => {
+  it('backs up imports, stock source and settings (v12) without the link, and a restore keeps the configured link', async () => {
     await setLink(LINK)
     await setting('dotggAutoSync', true)
     const response = await preview()
@@ -544,7 +544,7 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     expect(text).not.toContain(TOKEN)
     expect(text).not.toContain(DOTGG_LINK_KEY)
     const document = JSON.parse(text)
-    expect(document.schemaVersion).toBe(11)
+    expect(document.schemaVersion).toBe(12)
     expect(document.collection.imports[0]).toMatchObject({ source: 'dotgg', diffSummary: { dotgg: {} } })
     expect(document.collection.stock[0].source).toBe('dotgg')
     const dry = await post('/api/backup/import?mode=dry-run').attach('file', bytes, 'backup.json.gz')

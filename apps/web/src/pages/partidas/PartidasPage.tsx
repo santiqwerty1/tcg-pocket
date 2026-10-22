@@ -79,6 +79,9 @@ export function PartidasPage() {
         <Link to="/partidas/temporada" className="text-sm text-primary hover:underline">
           Temporada de ranked
         </Link>
+        <Link to="/partidas/importar" className="text-sm text-primary hover:underline">
+          Importar desde la hoja
+        </Link>
       </div>
 
       <Section title="Últimas partidas">

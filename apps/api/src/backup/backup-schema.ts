@@ -4,8 +4,10 @@
  * (Fase 5) the era table, the archetype merges and each deck's tournament archetype; version 5 (Fase 8) the results of
  * the games against the bot (D-019: the result only, not the moves); version 6 (Fase 12) the notes by rival; version 7
  * (Fase 16) the events; version 8 (T-020) collection imports and stock with tracker origin; version 9 (14/10) the
- * rival's cards seen in each match; version 10 (14/10) the ranked seasons and the rank changes; version 11 (22/10, T-020) imports and stock
- * from ptcgpocket.gg (`dotgg`). Tournament data is not in the
+ * rival's cards seen in each match; version 10 (14/10) the ranked seasons and the rank changes; version 11 (T-022) each
+ * match's `clientRef` (the phone's id of a match saved offline, or the key of a row of the owner's sheet), so importing
+ * the sheet after a restore does not repeat it; version 12 (22/10, T-020) imports and stock from ptcgpocket.gg
+ * (`dotgg`). Tournament data is not in the
  * backup: it is Limitless's and the sync downloads it again (DECISIONES 5.7).
  * Dates are ISO strings; numeric ids keep their database values so a `replace` restores them verbatim.
  * Excluded on purpose: password hash, TOTP secret, token hashes (tokens travel as metadata only), raw CSV files and
@@ -14,9 +16,9 @@
 import { RANKS } from '@tcg/domain'
 import { z } from 'zod'
 
-export const BACKUP_SCHEMA_VERSION = 11
+export const BACKUP_SCHEMA_VERSION = 12
 /** Versions this app reads. Exports always write BACKUP_SCHEMA_VERSION. */
-export const READABLE_BACKUP_VERSIONS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+export const READABLE_BACKUP_VERSIONS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
 const isoDate = z.string().refine((value) => !Number.isNaN(Date.parse(value)), 'fecha ISO 8601 inválida')
 const nullableDate = isoDate.nullable()
@@ -119,6 +121,8 @@ const matchSchema = z.object({
   note: z.string(),
   playedAt: isoDate,
   source: z.enum(['ui', 'mcp']),
+  /** Version 11 (T-022): the phone's id of a match saved offline, or the key of a sheet row (absent before). */
+  clientRef: z.string().min(1).max(200).nullable().optional(),
   createdAt: isoDate,
   updatedAt: isoDate,
 })
@@ -147,6 +151,7 @@ export const backupDocumentSchema = z.object({
     z.literal(9),
     z.literal(10),
     z.literal(11),
+    z.literal(12),
   ]),
   exportedAt: isoDate,
   appVersion: z.string(),
@@ -161,7 +166,14 @@ export const backupDocumentSchema = z.object({
   }),
   decks: z.array(deckSchema),
   /** Own matches (version 2); a version 1 file has none. */
-  matches: z.array(matchSchema).default([]),
+  matches: z
+    .array(matchSchema)
+    .default([])
+    // `client_ref` is unique: a file with one twice could not be restored (an invalid file, not a failed restore).
+    .refine((matches) => {
+      const refs = matches.flatMap((match) => (match.clientRef ? [match.clientRef] : []))
+      return new Set(refs).size === refs.length
+    }, 'dos partidas con el mismo clientRef'),
   /**
    * Owner switches of the packs (version 3, Fase 4): «disponible», the optional points balance and «tiempo limitado»
    * with its last day (added later in version 3: a file without them keeps the current ones).

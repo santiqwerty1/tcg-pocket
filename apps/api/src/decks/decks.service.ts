@@ -40,7 +40,7 @@ import type { GroupDeckUsage } from '../catalog/catalog-views.js'
 import { toCardSummary, toGroupSummary } from '../catalog/catalog-views.js'
 import { deckUsageOfCards } from '../catalog/deck-usage.js'
 import { CollectionRepository } from '../collection/collection.repository.js'
-import type { Deck, DeckChange, DeckRevision, Prisma } from '../generated/prisma/client.js'
+import { type Deck, type DeckChange, type DeckRevision, Prisma } from '../generated/prisma/client.js'
 import type { DeckSource } from '../generated/prisma/enums.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
@@ -678,7 +678,18 @@ export class DecksService {
         details: { matches },
       })
     }
-    await this.prisma.deck.delete({ where: { id: record.id } })
+    try {
+      await this.prisma.deck.delete({ where: { id: record.id } })
+    } catch (error) {
+      // Codex on #143: a match saved meanwhile (the sheet import holds the deck until it commits): the same 409.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+        throw new ConflictException({
+          code: 'deck_has_matches',
+          message: 'El mazo tiene partidas registradas: queda archivado para no perderlas de las estadísticas.',
+        })
+      }
+      throw error
+    }
   }
 
   async duplicate(rawId: string, name: string | undefined): Promise<DeckDetail> {

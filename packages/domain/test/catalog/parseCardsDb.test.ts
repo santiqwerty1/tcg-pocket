@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   CardsDbParseError,
@@ -6,6 +8,8 @@ import {
   parseExpansionsFromCardsDb,
 } from '../../src/index.js'
 import { loadFixtures } from '../helpers/loadFixtures.js'
+
+const fixturesDir = join(import.meta.dirname, '..', 'fixtures')
 
 describe('parseExpansionsFromCardsDb', () => {
   const expansions = parseExpansionsFromCardsDb(loadFixtures().cardsDbSource)
@@ -91,6 +95,45 @@ describe('parseExpansionsFromCardsDb', () => {
       },
     ])
     expect(parseExpansionsFromCardsDb(source.replace(/\n/g, '\r\n'))).toHaveLength(1)
+  })
+
+  it('reads CardsDB.ts @ aac8d456, where the tracker renamed containsBabies to containSixthCardBabies', () => {
+    const latest = parseExpansionsFromCardsDb(readFileSync(join(fixturesDir, 'tracker/CardsDB.aac8d456.ts'), 'utf8'))
+    // The same 24 expansions with the same pack structures: only B4b turns openable in the tracker.
+    expect(latest.map((expansion) => expansion.id)).toEqual(expansions.map((expansion) => expansion.id))
+    for (const expansion of latest) {
+      const pinned = byId.get(expansion.id)
+      if (expansion.id === 'B4b') {
+        expect(pinned?.openable).toBe(false)
+        expect(expansion).toEqual({ ...pinned, openable: true })
+      } else expect(expansion).toEqual(pinned)
+    }
+    expect(latest.find((expansion) => expansion.id === 'A4')?.packStructure?.containsBabies).toBe(true)
+    expect(
+      parseCraftingCostFromCardsDb(readFileSync(join(fixturesDir, 'tracker/CardsDB.aac8d456.ts'), 'utf8')),
+    ).toEqual(parseCraftingCostFromCardsDb(loadFixtures().cardsDbSource))
+  })
+
+  it('reads either name of the baby flag, and refuses a structure without it or with both in disagreement', () => {
+    const withStructure = (structure: string) =>
+      `export const expansions = [\n  { name: 'x', id: 'X1', internalId: 7, packs: [{ name: 'p', color: '' }], tradeable: true, openable: true, packStructure: { containsShinies: false, containsLinkedCards: false, cardsPerPack: 5, ${structure} } },\n]\n`
+    const babies = (structure: string) =>
+      parseExpansionsFromCardsDb(withStructure(structure))[0]?.packStructure?.containsBabies
+    expect(babies('containsBabies: true')).toBe(true)
+    expect(babies('containSixthCardBabies: true')).toBe(true)
+    expect(babies('containSixthCardBabies: false')).toBe(false)
+    expect(babies('containsBabies: true, containSixthCardBabies: true')).toBe(true)
+    // Only the catalog's own name comes out.
+    expect(parseExpansionsFromCardsDb(withStructure('containSixthCardBabies: true'))[0]?.packStructure).toEqual({
+      containsShinies: false,
+      containsBabies: true,
+      containsLinkedCards: false,
+      cardsPerPack: 5,
+    })
+    expect(() => parseExpansionsFromCardsDb(withStructure(''))).toThrow(/containSixthCardBabies \(or containsBabies\)/)
+    expect(() =>
+      parseExpansionsFromCardsDb(withStructure('containsBabies: true, containSixthCardBabies: false')),
+    ).toThrow(/disagree/)
   })
 
   it('fails loudly when the declaration is missing, invalid or duplicated', () => {

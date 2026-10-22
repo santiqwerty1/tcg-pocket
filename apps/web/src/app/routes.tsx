@@ -78,6 +78,12 @@ export const routes: RouteObject[] = [
             element: <ClassifyRivalsPage />,
             handle: handle('Clasificar rivales', '/partidas'),
           },
+          {
+            // T-022: used now and then, so it loads when opened.
+            path: 'partidas/importar',
+            lazy: page(() => import('@/pages/partidas/SheetImportPage'), 'SheetImportPage'),
+            handle: handle('Importar desde la hoja', '/partidas'),
+          },
           { path: 'partidas/:matchId', element: <MatchEditPage />, handle: handle('Editar partida', '/partidas') },
           { path: 'sobres', element: <SobresPage />, handle: handle('Sobres') },
           {
