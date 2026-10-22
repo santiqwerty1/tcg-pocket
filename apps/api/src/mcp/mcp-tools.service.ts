@@ -1993,6 +1993,10 @@ ${MCP_CHAT_INSTRUCTIONS}`
       )
     if (s.copiesExtra > 0)
       parts.push(`le ${s.copiesExtra === 1 ? 'sobra' : 'sobran'} ${copies(s.copiesExtra)} en ${cards(s.cardsExtra)}`)
+    if (s.cardsCollected > 0)
+      parts.push(
+        `${cards(s.cardsCollected)} con el número bien solo ${s.cardsCollected === 1 ? 'cambia' : 'cambian'} el registro del carddex`,
+      )
     return {
       checkedAt: view.checkedAt,
       summary: s,
@@ -2003,6 +2007,8 @@ ${MCP_CHAT_INSTRUCTIONS}`
         tracker: row.tracker,
         game: row.game,
         delta: row.delta,
+        trackerRegistered: row.trackerCollected,
+        registered: row.collected,
       })),
       moreCards: Math.max(0, view.rows.length - limit),
       notCompared: {

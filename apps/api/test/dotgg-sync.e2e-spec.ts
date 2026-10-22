@@ -566,6 +566,7 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     remote = [
       { internal_id: 65600, amount_owned: 1, collected: true }, // A1-1: game 2
       { internal_id: 65730, amount_owned: 2, collected: true }, // A1-3: game 0
+      { internal_id: 853760, amount_owned: 0, collected: true }, // B1a-28: registered with 0, game 0
       { internal_id: 1465601, amount_owned: 3, collected: true }, // B4b-372: same
       { internal_id: 2147483000, amount_owned: 1, collected: true }, // not in the catalog
     ]
@@ -579,11 +580,12 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     expect(response.status).toBe(200)
     clean(response)
     expect(response.body.summary).toEqual({
-      cards: 3,
+      cards: 4,
       cardsMissing: 2,
       copiesMissing: 2,
       cardsExtra: 1,
       copiesExtra: 2,
+      cardsCollected: 1,
       trackerCopies: 6,
       gameCopies: 6,
     })
@@ -592,17 +594,20 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     ).toEqual([
       ['A1-1', 1],
       ['A1-3', -2],
+      ['B1a-28', 0],
       ['P-A-7', 1],
     ])
     expect(response.body.unmatchedGame).toHaveLength(1)
     expect(response.body.unknownTracker).toEqual([2147483000])
     expect(response.body.warnings).toHaveLength(2)
     const file = parseTrackerCsv(response.body.trackerFile.content)
-    expect(response.body.trackerFile).toMatchObject({ fileName: 'tcg-pocket-para-el-tracker.csv', rows: 3 })
+    expect(response.body.trackerFile).toMatchObject({ fileName: 'tcg-pocket-para-el-tracker.csv', rows: 4 })
     expect(file.errors).toEqual([])
     expect(file.rows.map((row) => [row.id, row.internalId, row.numberOwned, row.collected])).toEqual([
       ['A1-1', 65600, 2, true],
-      ['A1-3', 65730, 0, true],
+      // 0 copies in the game: Collected FALSE, though the tracker had it registered (Santi, 22/10).
+      ['A1-3', 65730, 0, false],
+      ['B1a-28', 853760, 0, false],
       ['P-A-7', 12583376, 1, true],
     ])
     expect(await copies()).toBe(0)

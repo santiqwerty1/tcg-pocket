@@ -84,6 +84,9 @@ const trackerGapRowSchema = z.object({
   tracker: z.number(),
   game: z.number(),
   delta: z.number(),
+  /** The tracker's carddex flag now, and what the file writes (TRUE with a copy in the game, FALSE without). */
+  trackerCollected: z.boolean(),
+  collected: z.boolean(),
 })
 export type TrackerGapRow = z.infer<typeof trackerGapRowSchema>
 
@@ -95,6 +98,7 @@ export const trackerGapSchema = z.object({
     copiesMissing: z.number(),
     cardsExtra: z.number(),
     copiesExtra: z.number(),
+    cardsCollected: z.number().default(0),
     trackerCopies: z.number(),
     gameCopies: z.number(),
   }),

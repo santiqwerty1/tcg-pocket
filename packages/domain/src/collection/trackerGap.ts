@@ -4,8 +4,9 @@
  * the in-game count), so a reprint is never counted twice.
  *
  * The file is for the tracker's importer (ImportReader: SheetJS reads the CSV, needs `Id`, `InternalId`, `NumberOwned`
- * and `Collected`, upserts by internal id only the rows it gets). It carries only the units whose count differs, with
- * the game's count: importing it touches nothing else, and the trades the tracker offers come from the right numbers.
+ * and `Collected`, upserts by internal id only the rows it gets). It carries only the units it changes, with the game's
+ * count and `Collected` TRUE with a copy and FALSE without (Santi, 22/10/2026): importing it touches nothing else, and
+ * the trades the tracker offers come from the right numbers.
  */
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
 import type { CardId } from '../catalog/types.js'
@@ -25,12 +26,14 @@ export interface TrackerGapRow {
   game: number
   /** game − tracker: above 0 the tracker is missing copies, below 0 it has copies of more. */
   delta: number
-  /** The tracker's carddex flag, kept in the file when the game has no copy (the game keeps the card in the dex). */
+  /** The tracker's carddex («collected») flag now. */
   trackerCollected: boolean
+  /** What the file writes in `Collected`: TRUE with a copy in the game, FALSE without (Santi, 22/10/2026). */
+  collected: boolean
 }
 
 export interface TrackerGapSummary {
-  /** Units whose count differs. */
+  /** Units the file changes: their count differs, or only their carddex flag. */
   cards: number
   /** Units the tracker has fewer copies of, and how many copies it is missing in all. */
   cardsMissing: number
@@ -38,6 +41,8 @@ export interface TrackerGapSummary {
   /** Units the tracker has more copies of, and how many copies of more in all. */
   cardsExtra: number
   copiesExtra: number
+  /** Units with the right count whose carddex flag the file changes (registered with 0 copies, or the reverse). */
+  cardsCollected: number
   trackerCopies: number
   gameCopies: number
 }
@@ -49,8 +54,9 @@ export interface TrackerGap {
 }
 
 /**
- * Card by card, where the tracker's count differs from the game's. A missing unit counts as 0 on either side; units in
- * `skip` (the game's count is not trustworthy, e.g. another numbering) are left out of the rows and the totals.
+ * Card by card, what the file would change in the tracker: the count, or only the carddex flag (TRUE with a copy in the
+ * game, FALSE without). A missing unit counts as 0 and not registered on either side; units in `skip` (the game's count
+ * is not trustworthy, e.g. another numbering) are left out of the rows and the totals.
  */
 export function trackerGap(
   index: CatalogIndex,
@@ -65,6 +71,7 @@ export function trackerGap(
     copiesMissing: 0,
     cardsExtra: 0,
     copiesExtra: 0,
+    cardsCollected: 0,
     trackerCopies: 0,
     gameCopies: 0,
   }
@@ -72,9 +79,11 @@ export function trackerGap(
     if (skip.has(unit.id)) continue
     const inTracker = tracker[unit.id]?.amountOwned ?? 0
     const inGame = game[unit.id]?.amountOwned ?? 0
+    const trackerCollected = tracker[unit.id]?.collected ?? false
+    const collected = inGame > 0
     summary.trackerCopies += inTracker
     summary.gameCopies += inGame
-    if (inTracker === inGame) continue
+    if (inTracker === inGame && trackerCollected === collected) continue
     const delta = inGame - inTracker
     rows.push({
       stockCardId: unit.id,
@@ -83,31 +92,34 @@ export function trackerGap(
       tracker: inTracker,
       game: inGame,
       delta,
-      trackerCollected: tracker[unit.id]?.collected ?? false,
+      trackerCollected,
+      collected,
     })
     summary.cards += 1
     if (delta > 0) {
       summary.cardsMissing += 1
       summary.copiesMissing += delta
-    } else {
+    } else if (delta < 0) {
       summary.cardsExtra += 1
       summary.copiesExtra -= delta
+    } else {
+      summary.cardsCollected += 1
     }
   }
   return { rows, summary }
 }
 
 /**
- * The file for the tracker's importer: one row per differing unit (its earliest edition; the tracker dedupes by
- * internal id anyway) with the game's count. `Collected` is TRUE with a copy and otherwise keeps the tracker's flag,
- * so a card traded away stays in the tracker's carddex. Same bytes as the tracker's own export (BOM, LF).
+ * The file for the tracker's importer: one row per unit it changes (its earliest edition; the tracker dedupes by
+ * internal id anyway) with the game's count, and `Collected` TRUE with a copy and FALSE without — a card left with 0
+ * copies stops counting in the tracker's carddex (Santi, 22/10/2026). Same bytes as the tracker's own export (BOM, LF).
  */
 export function writeTrackerFixCsv(index: CatalogIndex, rows: readonly TrackerGapRow[]): string {
   const entries: TrackerCsvEntry[] = []
   for (const row of rows) {
     const card = index.cardById(row.stockCardId)
     if (!card) continue
-    entries.push({ card, amountOwned: row.game, collected: row.game > 0 || row.trackerCollected })
+    entries.push({ card, amountOwned: row.game, collected: row.game > 0 })
   }
   return writeTrackerCsvRows(entries)
 }

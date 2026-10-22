@@ -80,7 +80,13 @@ function GapView({ gap, refreshing, onRefresh }: { gap: TrackerGap; refreshing: 
         </Button>
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        <Stat label="Cartas que difieren" value={formatNumber(s.cards)} />
+        <Stat
+          label="Cartas que cambian"
+          value={formatNumber(s.cards)}
+          {...(s.cardsCollected > 0
+            ? { hint: `${plural(s.cardsCollected, 'solo cambia', 'solo cambian')} el registro` }
+            : {})}
+        />
         <Stat
           label={s.copiesMissing === 1 ? 'Le falta al tracker' : 'Le faltan al tracker'}
           value={plural(s.copiesMissing, 'copia', 'copias')}
@@ -126,7 +132,7 @@ function GapView({ gap, refreshing, onRefresh }: { gap: TrackerGap; refreshing: 
           </Button>
           <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm">
             <li>
-              Bajá el archivo: trae solo las {plural(file.rows, 'carta que difiere', 'cartas que difieren')}, con el
+              Bajá el archivo: trae solo las {plural(file.rows, 'carta que cambia', 'cartas que cambian')}, con el
               número del juego.
             </li>
             <li>
@@ -136,13 +142,14 @@ function GapView({ gap, refreshing, onRefresh }: { gap: TrackerGap; refreshing: 
             </li>
           </ol>
           <p className="text-xs text-muted-foreground">
-            Una carta que queda en 0 sigue marcada como registrada si el tracker ya la tenía así.
+            Con al menos una copia en el juego, la carta queda registrada en el tracker; con 0, deja de estarlo y el
+            tracker no la cuenta en el carddex.
           </p>
         </Section>
       ) : null}
 
       {groups.length > 0 ? (
-        <Section title={`Diferencias (${formatNumber(s.cards)})`}>
+        <Section title={`Qué cambia (${formatNumber(s.cards)})`}>
           {groups.map((group, index) => (
             <details key={group.expansion} open={groups.length <= 3 || index === 0} className="rounded-lg border">
               <summary className="flex min-h-12 cursor-pointer items-center gap-2 px-3 py-2 font-medium select-none">
@@ -163,7 +170,13 @@ function GapView({ gap, refreshing, onRefresh }: { gap: TrackerGap; refreshing: 
                         tracker {formatNumber(row.tracker)} → juego {formatNumber(row.game)}
                       </span>
                       <span className={row.delta > 0 ? 'block text-xs' : 'block text-xs text-muted-foreground'}>
-                        {signed(row.delta)}
+                        {row.delta !== 0 ? signed(row.delta) : null}
+                        {row.delta !== 0 && row.trackerCollected !== row.collected ? ' · ' : null}
+                        {row.trackerCollected !== row.collected
+                          ? row.collected
+                            ? 'queda registrada'
+                            : 'deja de estar registrada'
+                          : null}
                       </span>
                     </span>
                   </li>

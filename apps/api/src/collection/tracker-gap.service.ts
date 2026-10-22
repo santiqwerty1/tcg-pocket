@@ -36,6 +36,9 @@ export interface TrackerGapRowView {
   game: number
   /** game − tracker: above 0 the tracker is missing copies. */
   delta: number
+  /** The tracker's carddex flag now, and what the file writes (TRUE with a copy in the game, FALSE without). */
+  trackerCollected: boolean
+  collected: boolean
 }
 
 export interface TrackerGapView {
@@ -173,6 +176,8 @@ export class TrackerGapService {
         tracker: row.tracker,
         game: row.game,
         delta: row.delta,
+        trackerCollected: row.trackerCollected,
+        collected: row.collected,
       }
     })
     return {

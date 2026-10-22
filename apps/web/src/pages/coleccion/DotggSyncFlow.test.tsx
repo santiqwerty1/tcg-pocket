@@ -188,11 +188,12 @@ describe('Tracker al día', () => {
   const gap = {
     checkedAt: '2026-10-22T18:00:00.000Z',
     summary: {
-      cards: 2,
+      cards: 3,
       cardsMissing: 1,
       copiesMissing: 2,
       cardsExtra: 1,
       copiesExtra: 1,
+      cardsCollected: 1,
       trackerCopies: 5043,
       gameCopies: 5044,
     },
@@ -206,6 +207,20 @@ describe('Tracker al día', () => {
         tracker: 1,
         game: 3,
         delta: 2,
+        trackerCollected: true,
+        collected: true,
+      },
+      {
+        stockCardId: 'B1a-28',
+        cardIds: ['B1a-28'],
+        nameEs: 'Helioptile',
+        expansionId: 'B1a',
+        rarity: '◊',
+        tracker: 0,
+        game: 0,
+        delta: 0,
+        trackerCollected: true,
+        collected: false,
       },
       {
         stockCardId: 'B4b-372',
@@ -216,6 +231,8 @@ describe('Tracker al día', () => {
         tracker: 3,
         game: 2,
         delta: -1,
+        trackerCollected: true,
+        collected: true,
       },
     ],
     unmatchedGame: [{ line: 4, set: 'C9', number: 1, name: 'Future Card', copies: 1 }],
@@ -223,7 +240,7 @@ describe('Tracker al día', () => {
     warnings: ['ptcgpocket.gg trae 1 carta que el catálogo no tiene: no se comparan (sincronizá el catálogo).'],
     trackerFile: {
       fileName: 'tcg-pocket-para-el-tracker.csv',
-      rows: 2,
+      rows: 3,
       content:
         '﻿Id,CardName,InternalId,NumberOwned,Expansion,Pack,Rarity,Collected\nA1-1,Bulbasaur,65600,3,A1,mewtwopack,◊,TRUE',
     },
@@ -255,7 +272,12 @@ describe('Tracker al día', () => {
     expect(screen.getByText('tracker 3 → juego 2')).toBeInTheDocument()
     expect(screen.getByText(gap.warnings[0] as string)).toBeInTheDocument()
     expect(screen.getByText('Future Card')).toBeInTheDocument()
-    expect(screen.getByText(/las 2 cartas que difieren/)).toBeInTheDocument()
+    // Registered in the tracker with 0 copies and 0 in the game: the file takes the registration off (Santi, 22/10).
+    expect(screen.getByText('tracker 0 → juego 0')).toBeInTheDocument()
+    expect(screen.getByText('deja de estar registrada')).toBeInTheDocument()
+    expect(screen.getByText('1 solo cambia el registro')).toBeInTheDocument()
+    expect(screen.getByText(/con 0, deja de estarlo/)).toBeInTheDocument()
+    expect(screen.getByText(/las 3 cartas que cambian/)).toBeInTheDocument()
     expect(screen.getByText(/pestaña Import/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Archivo para el tracker' }))
     expect(click).toHaveBeenCalled()
@@ -271,7 +293,15 @@ describe('Tracker al día', () => {
     fakeApi({
       'GET /api/collection/tracker-gap': {
         ...gap,
-        summary: { ...gap.summary, cards: 0, cardsMissing: 0, copiesMissing: 0, cardsExtra: 0, copiesExtra: 0 },
+        summary: {
+          ...gap.summary,
+          cards: 0,
+          cardsMissing: 0,
+          copiesMissing: 0,
+          cardsExtra: 0,
+          copiesExtra: 0,
+          cardsCollected: 0,
+        },
         rows: [],
         warnings: [],
         unmatchedGame: [],
