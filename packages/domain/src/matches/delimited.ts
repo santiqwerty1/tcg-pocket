@@ -54,6 +54,18 @@ function quotedField(
   }
 }
 
+/** Where an unquoted run that starts at `from` ends: the next delimiter, CR or LF (or the end of the text). */
+function cellEnd(text: string, from: number, delimiter: Delimiter): number {
+  const stop = delimiter.charCodeAt(0)
+  let at = from
+  while (at < text.length) {
+    const code = text.charCodeAt(at)
+    if (code === stop || code === 13 || code === 10) break
+    at += 1
+  }
+  return at
+}
+
 /**
  * The records, and the 0-based record where a quote opened and never closed (null when every quote closed): that quote
  * took the rest of the text into one field, which a reader should refuse rather than take as one long cell.
@@ -99,9 +111,12 @@ export function readDelimited(text: string, delimiter: Delimiter): { records: st
       i += ch === '\r' && text.charAt(i + 1) === '\n' ? 2 : 1
       continue
     }
-    field += ch
+    // Codex on #143: the rest of an unquoted cell in one slice, up to the next delimiter or line break (a cell of
+    // megabytes was a string node per character).
+    const end = cellEnd(text, i, delimiter)
+    field += text.slice(i, end)
     fieldStart = false
-    i += 1
+    i = end
   }
   // The last record, when the text does not end with a line break.
   if (!fieldStart || field !== '' || record.length > 0) {

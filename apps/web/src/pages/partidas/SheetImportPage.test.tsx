@@ -377,6 +377,35 @@ describe('importar desde la hoja (T-022)', () => {
     expect(screen.queryByRole('heading', { name: 'Vista previa' })).not.toBeInTheDocument()
   })
 
+  it('Codex on #143: a file read after the next one was chosen (its reading slower) is dropped', async () => {
+    const { calls } = fakeApi({ 'POST /api/matches/import/preview': mapped([]) })
+    const user = userEvent.setup()
+    renderAt('/partidas/importar')
+    const input = await screen.findByLabelText('Archivo CSV de la hoja')
+    const textA = `${TEXT}A`
+    const textB = `${TEXT}B`
+    const fileA = new File([textA], 'A.csv', { type: 'text/csv' })
+    const fileB = new File([textB], 'B.csv', { type: 'text/csv' })
+    let finishA: (text: string) => void = () => undefined
+    vi.spyOn(fileA, 'text').mockReturnValue(
+      new Promise<string>((resolve) => {
+        finishA = resolve
+      }),
+    )
+    // A is chosen first, and its reading takes longer than B's.
+    await user.upload(input, fileA)
+    await user.upload(input, fileB)
+    expect(await screen.findByText('B.csv')).toBeInTheDocument()
+    const previews = () => calls.filter((call) => call.path === '/api/matches/import/preview')
+    await waitFor(() => expect(previews()).toHaveLength(1))
+    finishA(textA)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    // B stays: its name, its text, and the only preview asked is B's.
+    expect(screen.queryByText('A.csv')).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Celdas pegadas de la hoja' })).toHaveValue(textB)
+    expect(previews().map((call) => bodyOf(call).text)).toEqual([textB])
+  })
+
   it('is reached from «Hoy»', async () => {
     fakeApi({})
     renderAt('/partidas')

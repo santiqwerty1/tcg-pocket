@@ -144,6 +144,28 @@ describe('delimited text (RFC 4180)', () => {
     expect(parseDelimited('a\n\nb', ',')).toEqual([['a'], [''], ['b']])
   })
 
+  it('Codex on #143: a cell of 4 MB is read in one piece (little memory, little time), and the same as before', () => {
+    const cell = 'Una nota larga sin comillas ni comas: el rival abrió con Dedenne ex. '
+      .repeat(60_000)
+      .slice(0, 4_000_000)
+    const text = `a,${cell},b\nc,d,e`
+    const before = process.memoryUsage().heapUsed
+    const began = performance.now()
+    const records = parseDelimited(text, ',')
+    const ms = performance.now() - began
+    const grew = process.memoryUsage().heapUsed - before
+    expect(records).toHaveLength(2)
+    expect(records[0]?.[1]).toBe(cell)
+    expect(records[0]?.[2]).toBe('b')
+    expect(records[1]).toEqual(['c', 'd', 'e'])
+    // A string node per character was some 130 MB.
+    expect(grew).toBeLessThan(48 * 1024 * 1024)
+    expect(ms).toBeLessThan(2000)
+    // The same cells as before for the small cases: a literal quote, CRLF, a lone CR, the last cell without a break.
+    expect(parseDelimited('ab"c,d\r\ne;f\rg', ',')).toEqual([['ab"c', 'd'], ['e;f'], ['g']])
+    expect(parseDelimited('x\t"y" z\t\tw', '\t')).toEqual([['x', '"y" z', '', 'w']])
+  })
+
   it('review of #143: a quote is a quoted field only when it is a well-formed one; with tabs, never across a tab', () => {
     // A cell that starts with a quote and goes on after its closing quote is text as written.
     expect(parseDelimited('"Hoopa" me ganó,x', ',')).toEqual([['"Hoopa" me ganó', 'x']])

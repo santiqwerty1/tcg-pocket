@@ -277,7 +277,10 @@ export function SheetImportPage() {
       return
     }
     setTooBig(null)
+    // Codex on #143: another file chosen (or a text typed) while this one is read wins; this one is dropped.
+    const reading = generation.current
     const content = await file.text()
+    if (reading !== generation.current) return
     setFileName(file.name)
     setText(content)
     run({ text: content, include: [] })
