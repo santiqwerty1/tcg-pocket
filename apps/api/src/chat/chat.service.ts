@@ -37,6 +37,7 @@ import {
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { Prisma, type SessionChatMessage, type SessionChatParticipant } from '../generated/prisma/client.js'
+import { isLockTimeout } from '../prisma/lock-errors.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { CHAT_WRITE_LOCK } from './chat-locks.js'
 import { ChatMovedService } from './chat-moved.service.js'
@@ -669,22 +670,4 @@ export class ChatService {
     })
     return { arrived, cancel: () => done() }
   }
-}
-
-/** Postgres' `lock_timeout` (55P03), wherever Prisma or the driver put its code. */
-function isLockTimeout(error: unknown): boolean {
-  let current: unknown = error
-  for (let depth = 0; depth < 6 && current && typeof current === 'object'; depth++) {
-    const { code, originalCode, meta, message, cause } = current as {
-      code?: unknown
-      originalCode?: unknown
-      meta?: { code?: unknown; driverAdapterError?: unknown }
-      message?: unknown
-      cause?: unknown
-    }
-    if ([code, originalCode, meta?.code].includes('55P03')) return true
-    if (typeof message === 'string' && /lock timeout/i.test(message)) return true
-    current = cause ?? meta?.driverAdapterError
-  }
-  return false
 }

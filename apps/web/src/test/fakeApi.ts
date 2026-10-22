@@ -25,6 +25,8 @@ export function fakeApi(routes: Record<string, Answer>) {
       return new Response(JSON.stringify({ error: { code: 'offline', message: 'sin API' } }), { status: 503 })
     }
     const value = typeof answer === 'function' ? (answer as (call: FakeCall) => unknown)(call) : answer
+    // A Response is answered as is (an error status, e.g. a 409).
+    if (value instanceof Response) return value
     return new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } })
   })
   vi.stubGlobal('fetch', fetchMock)

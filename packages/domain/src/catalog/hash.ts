@@ -17,13 +17,24 @@ export function fnv1a32(text: string, seed: number = FNV_OFFSET_32): number {
 }
 
 /**
+ * FNV-1a 32-bit over the UTF-16 code units of `text` read from the last to the first: the same as `fnv1a32` of the
+ * reversed text, without building it (Codex on #143: a reversed copy of a 4 MB text was ~140 MB of transient strings).
+ */
+export function fnv1a32Reversed(text: string, seed: number = FNV_OFFSET_32): number {
+  let hash = seed >>> 0
+  for (let i = text.length - 1; i >= 0; i--) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, FNV_PRIME_32) >>> 0
+  }
+  return hash >>> 0
+}
+
+/**
  * 64 bits of fingerprint as 16 lower-case hex characters: FNV-1a forward plus FNV-1a over the reversed text
  * with a different seed, so a one-character change anywhere alters both halves.
  */
 export function hashText(text: string): string {
   const forward = fnv1a32(text)
-  let reversed = ''
-  for (let i = text.length - 1; i >= 0; i--) reversed += text[i]
-  const backward = fnv1a32(reversed, 0x9747b28c)
+  const backward = fnv1a32Reversed(text, 0x9747b28c)
   return forward.toString(16).padStart(8, '0') + backward.toString(16).padStart(8, '0')
 }
