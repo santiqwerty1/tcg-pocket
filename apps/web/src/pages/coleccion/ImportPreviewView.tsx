@@ -58,13 +58,15 @@ export interface ImportPreviewViewProps {
 export function ImportPreviewView({ preview, onResolveAdjustment, resolvingId }: ImportPreviewViewProps) {
   const groups = groupChangesByExpansion(preview.changes)
   const hasBlockingErrors = preview.errors.length > 0 || preview.twinConflicts.length > 0
+  // The tracker and ptcgpocket.gg answer the whole collection: no file metadata to show.
+  const remote = preview.source !== 'csv'
 
   return (
     <div className="flex flex-col gap-6">
       <div className="text-sm text-muted-foreground">
         {preview.fileName ?? 'CSV pegado'} · {formatDateTime(preview.importedAt)}
-        {preview.source !== 'tracker' && preview.bom !== undefined ? ` · ${preview.bom ? 'con BOM' : 'sin BOM'}` : ''}
-        {preview.source !== 'tracker' && preview.lineEnding ? ` · ${preview.lineEnding}` : ''}
+        {!remote && preview.bom !== undefined ? ` · ${preview.bom ? 'con BOM' : 'sin BOM'}` : ''}
+        {!remote && preview.lineEnding ? ` · ${preview.lineEnding}` : ''}
       </div>
 
       {preview.tracker ? (
@@ -88,8 +90,8 @@ export function ImportPreviewView({ preview, onResolveAdjustment, resolvingId }:
       ) : null}
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {preview.source !== 'tracker' ? <Stat label="Filas" value={formatNumber(preview.rowCount)} /> : null}
-        {preview.source !== 'tracker' ? (
+        {!remote ? <Stat label="Filas" value={formatNumber(preview.rowCount)} /> : null}
+        {!remote ? (
           <Stat label="Suma ingenua" value={formatNumber(preview.naiveTotal)} hint="sumando las gemelas dos veces" />
         ) : null}
         <Stat
@@ -121,7 +123,9 @@ export function ImportPreviewView({ preview, onResolveAdjustment, resolvingId }:
         </Alert>
       ) : null}
 
-      {preview.unknownIds.length > 0 ? (
+      {preview.dotgg ? <DotggReview review={preview.dotgg} zeroed={preview.summary.zeroedUnits} /> : null}
+
+      {preview.unknownIds.length > 0 && !preview.dotgg ? (
         <Section title={`Ids desconocidos (${preview.unknownIds.length})`}>
           <p className="text-sm text-muted-foreground">
             El catálogo no tiene estas cartas; quizá haga falta sincronizarlo. Se ignoran al aplicar.
@@ -249,5 +253,45 @@ export function ImportPreviewView({ preview, onResolveAdjustment, resolvingId }:
         </p>
       ) : null}
     </div>
+  )
+}
+
+/** T-020: why a ptcgpocket.gg snapshot waits for a look, and the cards of the export the catalog lacks. */
+function DotggReview({ review, zeroed }: { review: NonNullable<ImportPreview['dotgg']>; zeroed: number }) {
+  return (
+    <>
+      <div className="rounded-lg border p-3 text-sm">
+        <p>
+          {plural(review.increased, 'carta sube', 'cartas suben')} · {plural(review.decreased, 'baja', 'bajan')} ·{' '}
+          {plural(zeroed, 'queda en cero', 'quedan en cero')}.
+        </p>
+        {review.reviewReasons.map((reason) => (
+          <p key={reason} className="text-warning-foreground">
+            {reason}
+          </p>
+        ))}
+      </div>
+      {review.unmatched.length > 0 ? (
+        <Section title={`Cartas que el catálogo no tiene (${formatNumber(review.unmatched.length)})`}>
+          <p className="text-sm text-muted-foreground">
+            Vienen de ptcgpocket.gg pero el catálogo no las conoce: quizá sean de una expansión nueva (sincronizá el
+            catálogo) o tengan otro código. La app no las cuenta hasta que el catálogo las tenga.
+          </p>
+          <ul className="divide-y rounded-lg border">
+            {review.unmatched.map((row) => (
+              <li key={`${row.set}-${row.number}`} className="flex min-h-12 items-center gap-3 px-3 py-2 text-sm">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{row.name || 'Sin nombre'}</span>
+                  <span className="block font-mono text-xs text-muted-foreground">
+                    {row.set}-{row.number}
+                  </span>
+                </span>
+                <span className="shrink-0 tabular">{plural(row.copies, 'copia', 'copias')}</span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
+    </>
   )
 }

@@ -7,6 +7,7 @@ import { CollectionPage } from '@/pages/coleccion/CollectionPage'
 import { ImportPage } from '@/pages/coleccion/ImportPage'
 import { ImportPreviewPage } from '@/pages/coleccion/ImportPreviewPage'
 import { MissionsPage } from '@/pages/coleccion/MissionsPage'
+import { TrackerGapPage } from '@/pages/coleccion/TrackerGapPage'
 import { TradesPage } from '@/pages/coleccion/TradesPage'
 import { MasPage } from '@/pages/mas/MasPage'
 import { DeckDetailPage } from '@/pages/mazos/DeckDetailPage'
@@ -203,6 +204,7 @@ export const routes: RouteObject[] = [
             element: <TradesPage />,
             handle: handle('Lista de intercambio', '/coleccion'),
           },
+          { path: 'coleccion/tracker', element: <TrackerGapPage />, handle: handle('Tracker al día', '/coleccion') },
           { path: 'cartas/:cardId', element: <CardPage />, handle: handle('Carta', '/coleccion') },
           { path: 'grupos/:groupId', element: <GroupPage />, handle: handle('Carta funcional', '/coleccion') },
 

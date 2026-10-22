@@ -1,9 +1,17 @@
-import { ArrowLeftRightIcon, DownloadIcon, SlidersHorizontalIcon, TrophyIcon, UploadIcon } from 'lucide-react'
+import {
+  ArrowLeftRightIcon,
+  DownloadIcon,
+  GitCompareArrowsIcon,
+  SlidersHorizontalIcon,
+  TrophyIcon,
+  UploadIcon,
+} from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { exportCollectionCsv, useCollectionSummary } from '@/api/collection'
+import { useDotggPreview, useDotggStatus } from '@/api/dotgg'
 import { useTrackerPreview } from '@/api/trackerSync'
 import { ErrorState } from '@/components/ListState'
 import { Stat } from '@/components/Stat'
@@ -22,15 +30,19 @@ const SUMMARY_SKELETONS = ['copies', 'units', 'one', 'two', 'missing', 'last']
 
 export function CollectionPage() {
   const tracker = useTrackerPreview()
+  const game = useDotggPreview()
+  // T-020: with the ptcgpocket.gg link the collection comes from the game; the tracker is only compared.
+  const fromGame = useDotggStatus().data?.configured === true
   const navigate = useNavigate()
-  async function syncTracker() {
+  async function sync() {
     try {
-      const preview = await tracker.mutateAsync()
+      const preview = await (fromGame ? game : tracker).mutateAsync()
       navigate(`/coleccion/importar/${preview.id}`)
     } catch (error) {
       toast.error(errorMessage(error))
     }
   }
+  const syncing = tracker.isPending || game.isPending
   const [params, setParams] = useSearchParams()
   const view: View = params.get('vista') === 'edicion' ? 'edicion' : 'carta'
   const summary = useCollectionSummary()
@@ -66,13 +78,21 @@ export function CollectionPage() {
         >
           <span className="font-medium">{csvNotice}</span>
           <span className="text-xs text-muted-foreground">
-            Sincronizá con el tracker o importá un CSV para usar tu colección de hoy.
+            {fromGame
+              ? 'Sincronizá con el juego para usar tu colección de hoy.'
+              : 'Sincronizá con el tracker o importá un CSV para usar tu colección de hoy.'}
           </span>
         </Link>
       ) : null}
       <div className="flex flex-wrap gap-2">
-        <Button onClick={syncTracker} disabled={tracker.isPending}>
-          {tracker.isPending ? 'Consultando el tracker…' : 'Sincronizar con el tracker'}
+        <Button onClick={sync} disabled={syncing}>
+          {fromGame
+            ? game.isPending
+              ? 'Consultando ptcgpocket.gg…'
+              : 'Sincronizar con el juego'
+            : tracker.isPending
+              ? 'Consultando el tracker…'
+              : 'Sincronizar con el tracker'}
         </Button>
         <Button asChild>
           <Link to="/coleccion/importar">
@@ -99,6 +119,14 @@ export function CollectionPage() {
             Misiones
           </Link>
         </Button>
+        {fromGame ? (
+          <Button variant="outline" asChild>
+            <Link to="/coleccion/tracker">
+              <GitCompareArrowsIcon data-icon="inline-start" />
+              Tracker al día
+            </Link>
+          </Button>
+        ) : null}
         <Button variant="outline" asChild>
           <Link to="/coleccion/intercambio">
             <ArrowLeftRightIcon data-icon="inline-start" />

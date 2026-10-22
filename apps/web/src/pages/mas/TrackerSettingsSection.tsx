@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
+import { useDotggStatus } from '@/api/dotgg'
 import { useSetSetting } from '@/api/settings'
 import { useTrackerStatus } from '@/api/trackerSync'
 import { ErrorState, LoadingRows } from '@/components/ListState'
@@ -21,6 +22,8 @@ const RESULT = {
 }
 export function TrackerSettingsSection() {
   const status = useTrackerStatus()
+  // T-020: with ptcgpocket.gg configured the tracker only gets compared.
+  const comparisonOnly = useDotggStatus().data?.configured === true
   const save = useSetSetting()
   const [draft, setDraft] = useState<string | null>(null)
   async function update(key: string, value: unknown) {
@@ -41,6 +44,16 @@ export function TrackerSettingsSection() {
         <ErrorState error={status.error} onRetry={() => status.refetch()} />
       ) : (
         <>
+          {comparisonOnly ? (
+            <p className="rounded-lg border px-3 py-2 text-sm">
+              La colección viene de ptcgpocket.gg: el tracker no la cambia y su sincronización automática queda en
+              pausa. Sirve para comparar en{' '}
+              <Link to="/coleccion/tracker" className="underline">
+                Tracker al día
+              </Link>
+              .
+            </p>
+          ) : null}
           <Label htmlFor="tracker-friend-id">friend_id público (16 dígitos)</Label>
           <Input
             id="tracker-friend-id"
