@@ -118,8 +118,11 @@ describe('worker slow bot preference (D-025)', () => {
   )
 
   it('keeps what each claim says on the worker, for the worker_idle alert (review of #142)', async () => {
-    const said = async () =>
-      (await test.prisma.workerNode.findUniqueOrThrow({ where: { id: hello.workerId } })).allowSlowBots
+    const said = async (id = hello.workerId) =>
+      (await test.prisma.workerNode.findUniqueOrThrow({ where: { id } })).allowSlowBots
+    // A worker's first claim already says it (review of #144: a new Android is not taken as accepting them).
+    await claim({ ...hello, workerId: 'worker-new-android', allowSlowBots: false })
+    expect(await said('worker-new-android')).toBe(false)
     await claim({ ...hello, allowSlowBots: false })
     expect(await said()).toBe(false)
     // A worker from before D-025 does not say it, and takes every bot.

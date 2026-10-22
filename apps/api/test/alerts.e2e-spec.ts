@@ -196,14 +196,17 @@ describe('alerts (e2e)', () => {
           createdAt: new Date('2026-10-11T15:00:00Z'),
         },
       })
-    const job = (players: string[], extra: { kind?: 'compare' | 'consistency'; gamesRev?: number } = {}) =>
+    const job = (
+      players: string[],
+      extra: { kind?: 'compare' | 'consistency'; gamesRev?: number; engineRev?: string } = {},
+    ) =>
       test.prisma.simulationJob.create({
         data: {
           kind: extra.kind ?? 'compare',
           status: 'queued',
           label: 'alerta',
           params: {},
-          engineRev: rev,
+          engineRev: extra.engineRev ?? rev,
           gamesRev: extra.gamesRev ?? null,
           players,
           gamesPerPair: 10,
@@ -292,20 +295,40 @@ describe('alerts (e2e)', () => {
       expect(await idle()).toEqual([])
       await test.prisma.liveGame.delete({ where: { id: live.id } })
       // D-025: a job with a slow bot and only workers that turn them down (an Android, by default): the claims leave it,
-      // so the alert says it (review of #142). Every worker, the other files' too, since a slow bot needs no feature.
-      // One worker that takes them is enough.
+      // so the alert says it (review of #142), and that updating does not fix it (review of #144). Every worker, this
+      // file's earlier one too (worker-h016), since a slow bot needs no feature. A game against «e3» is not filtered by
+      // it, so it is not counted (review of #144). One worker that takes them is enough.
       await test.prisma.workerNode.updateMany({ data: { allowSlowBots: false } })
       const slow = await job(['e3', 'e3'])
+      const slowGame = await game('e3')
       expect(await idle()).toEqual([
         expect.objectContaining({
           detail: expect.stringMatching(
-            /^2 chunks piden bots lentos \(MCTS, profundidad 3 o más o bots g\), .*allowSlowBots/,
+            /^2 chunks piden los bots lentos \(MCTS, profundidad 3 o más y los g\), .*allowSlowBots.*Es una opción del worker, no se arregla actualizando/,
           ),
         }),
       ])
       await test.prisma.workerNode.update({ where: { id: 'worker-h051-fair' }, data: { allowSlowBots: true } })
       expect(await idle()).toEqual([])
       await test.prisma.simulationJob.delete({ where: { id: slow.id } })
+      await test.prisma.liveGame.delete({ where: { id: slowGame.id } })
+      // With no worker of its deckgym, the engine is what blocks it: taking slow bots stays through an update, so it is
+      // named only if no worker takes them (review of #144).
+      const elsewhere = await job(['e3', 'e3'], { engineRev: 'c'.repeat(40) })
+      expect(await idle()).toEqual([
+        expect.objectContaining({
+          detail: expect.stringMatching(/^2 chunks piden el motor deckgym ccccccc, y ningún/),
+        }),
+      ])
+      await test.prisma.workerNode.updateMany({ data: { allowSlowBots: false } })
+      expect(await idle()).toEqual([
+        expect.objectContaining({
+          detail: expect.stringMatching(
+            /^2 chunks piden el motor deckgym ccccccc y los bots lentos .*actualizalo a mano\.$/,
+          ),
+        }),
+      ])
+      await test.prisma.simulationJob.delete({ where: { id: elsewhere.id } })
       await test.prisma.workerNode.updateMany({ data: { allowSlowBots: true } })
       // A simulation with an f bot and a game against «et» nobody plays: both in one alert.
       await node('worker-h051', ['perGame', 'batch'])

@@ -164,10 +164,15 @@ const NEED_ES: Record<WorkNeed, { what: string; fix: string }> = {
   fairBots: { what: 'los bots f', fix: 'un motor con fairBots' },
   gBots: { what: 'los bots g', fix: 'engine-cli 0.3.16 o más nuevo' },
   slowBots: {
-    what: 'bots lentos (MCTS, profundidad 3 o más o bots g)',
+    what: 'los bots lentos (MCTS, profundidad 3 o más y los g)',
     fix: 'un worker que los acepte («allowSlowBots»: true; en Android viene apagado)',
   },
 }
+
+/** How the alert ends: updating fixes an engine, not a worker's own setting (review of #144). */
+const UPDATE_ES = 'Los workers se actualizan solos desde la app; si uno no, actualizalo a mano.'
+const SLOW_BOTS_ES =
+  'Es una opción del worker, no se arregla actualizando: prendé la PC, o en el celu volvé a correr el instalador y aceptá los bots lentos (o poné «allowSlowBots»: true en su config.json).'
 
 function listEs(items: readonly string[]): string {
   return items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} y ${items.at(-1)}`
@@ -194,12 +199,13 @@ function blockedAlert(idle: BlockedWork): AlertView {
     })),
     ...idle.needs.map((need) => NEED_ES[need]),
   ]
+  const onlySlowBots = needs.length === 1 && idle.needs.length === 1 && idle.needs[0] === 'slowBots'
   return {
     code: 'worker_idle',
     level: 'warning',
     // The oldest one's date in the title: a new case is pushed again (notifications remember titles).
     title: `Hay ${what} que ningún worker puede jugar (desde el ${idle.since})`,
-    detail: `${listEs(counts)} ${one ? 'pide' : 'piden'} ${listEs(needs.map((need) => need.what))}, y ningún worker de los últimos 30 minutos tiene todo eso: hace falta ${listEs(needs.map((need) => need.fix))}. Los workers se actualizan solos desde la app; si uno no, actualizalo a mano.`,
+    detail: `${listEs(counts)} ${one ? 'pide' : 'piden'} ${listEs(needs.map((need) => need.what))}, y ningún worker de los últimos 30 minutos tiene todo eso: hace falta ${listEs(needs.map((need) => need.fix))}. ${onlySlowBots ? SLOW_BOTS_ES : UPDATE_ES}`,
     link: '/simulacion',
   }
 }
@@ -558,9 +564,15 @@ export class AlertsService {
       else if (gamesRev !== null && !sameEngine.some((worker) => playsAs(worker, gamesRev)))
         blocked.gamesRevs.add(gamesRev)
       // A need every worker with its deckgym already meets is not what blocks it: a g bot is also a slow bot, and a
-      // worker that takes slow bots is not told to (review of #142). With none of its deckgym, all of them.
+      // worker that takes slow bots is not told to (review of #142). With none of its deckgym, the engine's needs all
+      // count (the update brings them); taking slow bots is the worker's own setting and stays through an update, so it
+      // counts only if no recent worker takes them (review of #144).
       for (const need of needs) {
-        if (sameEngine.length === 0 || !sameEngine.every((worker) => has(worker, need))) blocked.needs.add(need)
+        const missing =
+          sameEngine.length > 0
+            ? !sameEngine.every((worker) => has(worker, need))
+            : need !== 'slowBots' || !recent.some((worker) => has(worker, need))
+        if (missing) blocked.needs.add(need)
       }
       if (!blocked.first || createdAt < blocked.first) blocked.first = createdAt
       return true
