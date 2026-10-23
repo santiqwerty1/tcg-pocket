@@ -1,10 +1,11 @@
-import { ConflictException, Inject, Injectable, type OnModuleInit } from '@nestjs/common'
+import { ConflictException, Inject, Injectable, type OnModuleInit, UnprocessableEntityException } from '@nestjs/common'
 import { Cron, CronExpression } from '@nestjs/schedule'
 import {
   type BuildCounts,
   type BuildReport,
   buildCatalogWithReport,
   type CatalogDiff,
+  CatalogInputError,
   type CatalogRemap,
   diffCatalog,
   isEmptyDiff,
@@ -55,6 +56,10 @@ export interface CatalogPreview {
   destructive: boolean
   /** `cards.json` fields the catalog does not read (C1: a second type written apart), with how many cards carry each. */
   unknownFields: UnknownTrackerField[]
+  /** Editions whose printed types change (the first 50), as «water» → «water/darkness». */
+  typeChanges: { cardId: string; nameEs: string; from: string; to: string }[]
+  /** New editions with two types (the first 50): what to check of C1 before applying. */
+  addedDualTypes: { cardId: string; nameEs: string; types: string[] }[]
   /**
    * The catalog state this preview was computed against (loaded commit and last sync). «Aplicar» sends it back, and
    * the sync is refused if the catalog changed in between (another tab, a manual sync): the user confirmed what this
@@ -288,6 +293,14 @@ export class CatalogSyncService implements OnModuleInit {
       engine,
       destructive: isDestructive(diff, remap, report),
       unknownFields: report.unknownTrackerFields,
+      typeChanges: (diff?.typesChanged ?? []).slice(0, 50).map((change) => ({
+        ...change,
+        nameEs: catalog.cards.find((card) => card.id === change.cardId)?.nameEs ?? change.cardId,
+      })),
+      addedDualTypes: addedCards
+        .filter((card) => card.types.length > 1)
+        .slice(0, 50)
+        .map((card) => ({ cardId: card.id, nameEs: card.nameEs, types: [...card.types] })),
       baseline,
       warnings: prepared.warnings,
     }
@@ -329,8 +342,8 @@ export class CatalogSyncService implements OnModuleInit {
 
   /** Fetch, build, diff and plan the remap: everything but writing. */
   private async prepare(request: SyncRequest) {
-    const sources = await this.loadSources(request)
-    const { catalog, report } = buildCatalogWithReport(sources.input)
+    const { sources, built } = await this.loadAndBuild(request)
+    const { catalog, report } = built
     const previous = await this.repository.loadCatalog()
     const diff = previous ? diffCatalog(previous.catalog, catalog) : null
     // I12 (Fase 21): editions that moved between stock units or groups, or left the catalog, take the owner's data
@@ -483,6 +496,23 @@ export class CatalogSyncService implements OnModuleInit {
     } finally {
       clearInterval(beat)
       this.running = false
+    }
+  }
+
+  /**
+   * Downloads and builds. Data the catalog cannot read (C1: a type written in a way it does not know) is a 422 that
+   * names the file, the card and the value, for the preview and the sync row, instead of a generic 500.
+   */
+  private async loadAndBuild(request: SyncRequest) {
+    try {
+      const sources = await this.loadSources(request)
+      return { sources, built: buildCatalogWithReport(sources.input) }
+    } catch (error) {
+      if (!(error instanceof CatalogInputError)) throw error
+      throw new UnprocessableEntityException({
+        code: 'catalog_unreadable',
+        message: `No se pudo leer el catálogo de ese commit: ${error.message}`,
+      })
     }
   }
 

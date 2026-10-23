@@ -101,6 +101,12 @@ export const catalogPreviewSchema = z.object({
   destructive: z.boolean(),
   /** `cards.json` fields the catalog does not read (C1: a second type written apart). */
   unknownFields: z.array(z.object({ field: z.string(), cards: z.number() })).default([]),
+  /** Editions whose printed types change, «water» → «water/darkness» (the first 50). */
+  typeChanges: z
+    .array(z.object({ cardId: z.string(), nameEs: z.string(), from: z.string(), to: z.string() }))
+    .default([]),
+  /** New editions with two types (the first 50). */
+  addedDualTypes: z.array(z.object({ cardId: z.string(), nameEs: z.string(), types: z.array(z.string()) })).default([]),
   older: z.boolean(),
   baseline: z.string(),
   warnings: z.array(z.string()),

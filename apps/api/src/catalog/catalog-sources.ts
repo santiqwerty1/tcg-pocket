@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { type BuildCatalogInput, engineCardsFromDatabaseJson, parseExpansionIds } from '@tcg/domain'
+import { type BuildCatalogInput, engineCardsFromDatabaseJson, parseExpansionIds, readCatalogInput } from '@tcg/domain'
 import { REPO_ROOT } from '../config/dotenv.js'
 
 export const TRACKER_RAW_BASE = 'https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker'
@@ -144,7 +144,9 @@ export async function fetchCatalogSources(pins: CatalogPins, fetchImpl: FetchLik
   })
   files.engine = fileRecord(ENGINE_PATH, engineText)
   // Same reduction as scripts/extract-fixtures.mjs, so fixtures and live data produce identical catalogs.
-  const engineCards = engineCardsFromDatabaseJson(parseJson(engineText, ENGINE_PATH))
+  const engineCards = readCatalogInput('deckgym database.json', () =>
+    engineCardsFromDatabaseJson(parseJson(engineText, ENGINE_PATH)),
+  )
   // Missions: one optional file per expansion (a 404 means the expansion has none).
   const missions: Record<string, unknown> = {}
   await Promise.all(

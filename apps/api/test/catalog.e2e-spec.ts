@@ -1,6 +1,7 @@
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { UnprocessableEntityException } from '@nestjs/common'
 import { SchedulerRegistry } from '@nestjs/schedule'
 import { CatalogService } from '../src/catalog/catalog.service.js'
 import { CatalogRepository } from '../src/catalog/catalog-repository.js'
@@ -8,6 +9,7 @@ import { DEFAULT_FIXTURES_DIR as FIXTURES_DIR } from '../src/catalog/catalog-sou
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { TrackerCommitsService } from '../src/catalog/tracker-commits.service.js'
 import type { CatalogSyncStatus } from '../src/generated/prisma/enums.js'
+import { toApiError } from '../src/http/http-exception.filter.js'
 import { createTestApp, login, seedOwner, type TestApp, waitForSync } from './helpers.js'
 
 /** Expected values from docs/PLAN.md §7 (M1 acceptance) for the pinned commit 3ab58f1. */
@@ -686,23 +688,67 @@ describe('catalog (e2e)', () => {
     }
   })
 
+  it('C1: data the catalog cannot read is a 422 that names the card and the value, in the preview and on the sync row', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tcg-catalog-'))
+    cpSync(FIXTURES_DIR, dir, { recursive: true })
+    const cardsPath = join(dir, 'tracker/cards.json')
+    const original = JSON.parse(readFileSync(cardsPath, 'utf8')) as Record<string, unknown>[]
+    writeFileSync(
+      cardsPath,
+      JSON.stringify(original.map((card) => (card.card_id === 'B3-51' ? { ...card, energy: 'water/fairy' } : card))),
+    )
+    const request = {
+      trackerCommit: test.env.catalogCommit,
+      engineRev: test.env.engineRev,
+      source: 'fixtures' as const,
+      fixturesDir: dir,
+    }
+    try {
+      const refused = await sync.preview(request).catch((error: unknown) => error)
+      expect(refused).toBeInstanceOf(UnprocessableEntityException)
+      const { status, body } = toApiError(refused)
+      expect(status).toBe(422)
+      expect(body.error.code).toBe('catalog_unreadable')
+      expect(body.error.message).toContain(`cards.json: B3-51.energy: Unknown energy type 'fairy' in "water/fairy"`)
+      // The sync row says the same, and the catalog stays as it was.
+      await expect(sync.sync(request)).rejects.toThrow('B3-51.energy')
+      const row = await test.prisma.catalogSync.findFirstOrThrow({ orderBy: { id: 'desc' } })
+      expect(row).toMatchObject({ status: 'failed' })
+      expect(row.error).toContain('No se pudo leer el catálogo de ese commit: cards.json: B3-51.energy')
+      expect((await test.prisma.card.findUniqueOrThrow({ where: { id: 'B3-51' } })).types).toEqual(['water'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('C1: a cards.json field the catalog does not read shows in the preview and needs confirming; type changes count', async () => {
     // A second type written apart (an invented shape) and Urshifu with two types in the list.
     const dir = mkdtempSync(join(tmpdir(), 'tcg-catalog-'))
     cpSync(FIXTURES_DIR, dir, { recursive: true })
     const cardsPath = join(dir, 'tracker/cards.json')
-    const original = JSON.parse(readFileSync(cardsPath, 'utf8')) as { card_id: string; energy: unknown }[]
+    const original = JSON.parse(readFileSync(cardsPath, 'utf8')) as Record<string, unknown>[]
+    // And a new edition with two types: a copy of B4b-1 as an invented B4b-430 (internal id (22 << 16) | (430 << 6)).
+    const template = original.find((card) => card.card_id === 'B4b-1') as Record<string, unknown>
+    const dual = {
+      ...template,
+      card_id: 'B4b-430',
+      name: 'Dual Test',
+      energy: ['water', 'darkness'],
+      internal_id: 1_469_312,
+      alternate_versions: [1_469_312],
+    }
     writeFileSync(
       cardsPath,
-      JSON.stringify(
-        original.map((card) =>
+      JSON.stringify([
+        ...original.map((card) =>
           card.card_id === 'B3-51'
             ? { ...card, energy: ['water', 'fighting'] }
             : card.card_id === 'A1-1'
               ? { ...card, energy2: 'darkness' }
               : card,
         ),
-      ),
+        dual,
+      ]),
     )
     const request = {
       trackerCommit: test.env.catalogCommit,
@@ -715,8 +761,10 @@ describe('catalog (e2e)', () => {
       expect(preview).toMatchObject({
         destructive: true,
         diffEmpty: false,
-        diff: { added: 0, removed: 0, typesChanged: 1 },
+        diff: { added: 1, removed: 0, typesChanged: 1 },
         unknownFields: [{ field: 'energy2', cards: 1 }],
+        typeChanges: [{ cardId: 'B3-51', from: 'water', to: 'water/fighting' }],
+        addedDualTypes: [{ cardId: 'B4b-430', types: ['water', 'darkness'] }],
       })
       expect(preview.warnings).toContain("cards.json has a field the catalog does not read: 'energy2' (1 cards)")
       // From the app without confirming: refused, saying which field.

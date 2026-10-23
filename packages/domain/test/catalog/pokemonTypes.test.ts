@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildCatalogWithReport,
   type Catalog,
+  CatalogInputError,
   engineCardsFromDatabaseJson,
   engineTypeFields,
   isOfType,
@@ -173,6 +174,27 @@ describe('the tracker card schema and the engine data with two types (FIXTURE IN
 })
 
 describe('the catalog with two types', () => {
+  it('data it cannot read stops the build with a CatalogInputError that names the file, the card and the value', () => {
+    const withCard = (change: (card: Record<string, unknown>) => Record<string, unknown>) => {
+      const input = buildInput()
+      input.cardsJson = (input.cardsJson as Record<string, unknown>[]).map((card) =>
+        card.card_id === 'B3-51' ? change(card) : card,
+      )
+      return () => buildCatalogWithReport(input)
+    }
+    expect(withCard((card) => ({ ...card, energy: 'water/fairy' }))).toThrow(CatalogInputError)
+    expect(withCard((card) => ({ ...card, energy: 'water/fairy' }))).toThrow(
+      `cards.json: B3-51.energy: Unknown energy type 'fairy' in "water/fairy"`,
+    )
+    expect(withCard((card) => ({ ...card, weakness: 'fairy' }))).toThrow("cards.json B3-51: Unknown weakness: 'fairy'")
+    const badEngine = buildInput()
+    badEngine.engineCards = (badEngine.engineCards as Record<string, unknown>[]).map((card, at) =>
+      at === 0 ? { ...card, hp: 'x' } : card,
+    )
+    expect(() => buildCatalogWithReport(badEngine)).toThrow(CatalogInputError)
+    expect(() => buildCatalogWithReport(badEngine)).toThrow('deckgym database.json: 0.hp: ')
+  })
+
   it('the sync report names a cards.json field it does not read (a second type written apart, say)', () => {
     const input = inputWithInventedC1()
     const cards = input.cardsJson as Record<string, unknown>[]

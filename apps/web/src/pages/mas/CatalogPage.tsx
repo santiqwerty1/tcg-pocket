@@ -15,10 +15,14 @@ import { KeyValue, Section } from '@/components/Section'
 import { Stat } from '@/components/Stat'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { energyLabel } from '@/lib/energies'
 import { formatDateTime, formatNumber, shortSha } from '@/lib/format'
 
 /** The build's warning for a `cards.json` field the catalog does not read (`unknownTrackerFieldWarning` in the domain). */
 const UNKNOWN_FIELD_WARNING = 'cards.json has a field the catalog does not read:'
+
+/** «Agua y Oscuridad». */
+const typesEs = (types: readonly string[]) => types.map(energyLabel).join(' y ')
 
 /** What applying a commit would change: new sets and cards, what the engine plays, what leaves, what to review. */
 function PreviewPanel({
@@ -88,6 +92,22 @@ function PreviewPanel({
             . Si trae algo que el catálogo usa (por ejemplo, el segundo tipo de un Pokémon de C1), esas cartas entrarían
             con datos de menos hasta que la app lo lea.
           </span>
+        </p>
+      ) : null}
+      {preview.addedDualTypes.length > 0 ? (
+        <p>
+          Cartas nuevas de doble tipo (revisá que los dos tipos estén bien):{' '}
+          {preview.addedDualTypes.map((card) => `${card.nameEs} (${typesEs(card.types)})`).join(', ')}
+          {preview.addedDualTypes.length >= 50 ? '…' : ''}.
+        </p>
+      ) : null}
+      {preview.typeChanges.length > 0 ? (
+        <p>
+          Cambian de tipo:{' '}
+          {preview.typeChanges
+            .map((change) => `${change.nameEs} (${typesEs(change.from.split('/'))} → ${typesEs(change.to.split('/'))})`)
+            .join(', ')}
+          {(preview.diff?.typesChanged ?? 0) > preview.typeChanges.length ? '…' : ''}.
         </p>
       ) : null}
       {otherWarnings.length > 0 ? (

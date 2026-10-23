@@ -139,6 +139,51 @@ export class CatalogBuildError extends Error {
   }
 }
 
+/**
+ * The tracker's or the engine's data cannot be read (C1: a type written in a way the catalog does not know). The
+ * message names the file, the card and the value, so the preview can say what to fix; nothing in it is secret.
+ */
+export class CatalogInputError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'CatalogInputError'
+  }
+}
+
+interface IssueLike {
+  path: readonly PropertyKey[]
+  message: string
+}
+
+/** Up to three problems of a failed parse, each with where it is (`C1-5.energy`) and why. */
+function describeParseError(error: unknown, rowLabel?: (index: number) => string | undefined): string {
+  const issues = (error as { issues?: unknown }).issues
+  if (!Array.isArray(issues) || issues.length === 0) return error instanceof Error ? error.message : String(error)
+  const parts = (issues as IssueLike[]).slice(0, 3).map((issue) => {
+    const [first, ...rest] = issue.path
+    const row = typeof first === 'number' ? rowLabel?.(first) : undefined
+    const where = row ? [row, ...rest.map(String)].join('.') : issue.path.map(String).join('.')
+    return where ? `${where}: ${issue.message}` : issue.message
+  })
+  return issues.length > 3 ? `${parts.join('; ')} (and ${issues.length - 3} more)` : parts.join('; ')
+}
+
+/** Runs one parse of the input; a failure becomes a `CatalogInputError` that says which file and row. */
+export function readCatalogInput<T>(what: string, parse: () => T, rowLabel?: (index: number) => string | undefined): T {
+  try {
+    return parse()
+  } catch (error) {
+    if (error instanceof CatalogInputError) throw error
+    throw new CatalogInputError(`${what}: ${describeParseError(error, rowLabel)}`)
+  }
+}
+
+/** The card id of row `index` of the raw `cards.json`, when it has one. */
+function cardIdAt(cardsJson: unknown, index: number): string | undefined {
+  const row = Array.isArray(cardsJson) ? (cardsJson[index] as { card_id?: unknown } | undefined) : undefined
+  return typeof row?.card_id === 'string' ? row.card_id : undefined
+}
+
 function cardNumberOf(cardId: CardId, expansionId: ExpansionId): number {
   const prefix = `${expansionId}-`
   if (!cardId.startsWith(prefix))
@@ -203,14 +248,18 @@ interface ParsedInput {
 
 function parseInput(input: BuildCatalogInput): ParsedInput {
   return {
-    cards: parseTrackerCards(input.cardsJson),
+    cards: readCatalogInput(
+      'cards.json',
+      () => parseTrackerCards(input.cardsJson),
+      (index) => cardIdAt(input.cardsJson, index),
+    ),
     translations: {
       pokemon: parseTranslationTable(input.translations.pokemon),
       trainers: parseTranslationTable(input.translations.trainers),
       tools: parseTranslationTable(input.translations.tools),
     },
-    expansions: parseExpansionsFromCardsDb(input.cardsDbSource),
-    expansionIds: parseExpansionIds(input.typesIndexSource),
+    expansions: readCatalogInput('CardsDB.ts expansions', () => parseExpansionsFromCardsDb(input.cardsDbSource)),
+    expansionIds: readCatalogInput('types/index.ts', () => parseExpansionIds(input.typesIndexSource)),
     esSets: parseLocaleTable(input.esSets),
     esPacks: parseLocaleTable(input.esPacks),
     enSets: input.enSets === undefined ? {} : parseLocaleTable(input.enSets),
@@ -266,8 +315,13 @@ export function buildCatalogWithReport(input: BuildCatalogInput): BuildResult {
   const parsed = parseInput(input)
   const { cards, translations } = parsed
   const warnings: string[] = []
-  const craftingCost = parseCraftingCostFromCardsDb(input.cardsDbSource)
-  const engineJoin = joinEngineData(cards, parseEngineCards(input.engineCards))
+  const craftingCost = readCatalogInput('CardsDB.ts craftingCost', () =>
+    parseCraftingCostFromCardsDb(input.cardsDbSource),
+  )
+  const engineJoin = joinEngineData(
+    cards,
+    readCatalogInput('deckgym database.json', () => parseEngineCards(input.engineCards)),
+  )
   // C1: a field the catalog does not know may carry something it should read (a second type written apart, say).
   const unknownFields = unknownTrackerFields(input.cardsJson)
   for (const field of unknownFields) warnings.push(unknownTrackerFieldWarning(field))
@@ -385,9 +439,9 @@ export function buildCatalogWithReport(input: BuildCatalogInput): BuildResult {
       if (attack.damage.trim() !== '0' && isDamageNoise(attack.damage)) counts.damageNoiseAttacks += 1
     }
     if (raw.ability && /Illustrated by/.test(raw.ability.effect)) counts.cleanedTrainerEffects += 1
-    const attacks = raw.attacks.map(normalizeAttack)
+    const attacks = readCatalogInput(`cards.json ${raw.card_id}`, () => raw.attacks.map(normalizeAttack))
     const ability = normalizeAbility(raw.ability)
-    const weakness = normalizeWeakness(raw.weakness)
+    const weakness = readCatalogInput(`cards.json ${raw.card_id}`, () => normalizeWeakness(raw.weakness))
     const localized = cardNameEs(
       { name: raw.name, cardType, evolutionType: raw.evolution_type, ex: raw.ex },
       translations,

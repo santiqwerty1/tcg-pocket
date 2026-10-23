@@ -112,6 +112,8 @@ describe('día de expansión (Fase 40)', () => {
       removed: [],
       destructive: true,
       unknownFields: [{ field: 'energy2', cards: 3 }],
+      typeChanges: [{ cardId: 'B3-51', nameEs: 'Urshifu Estilo Fluido', from: 'water', to: 'water/fighting' }],
+      addedDualTypes: [{ cardId: 'C1-1', nameEs: 'Mega-Mewtwo X ex', types: ['psychic', 'fighting'] }],
       warnings: [
         "cards.json has a field the catalog does not read: 'energy2' (3 cards)",
         'Expansion C1 has no cards in cards.json',
@@ -136,6 +138,10 @@ describe('día de expansión (Fase 40)', () => {
       await screen.findByText(/El tracker trae un campo que el catálogo no lee: energy2 \(3 cartas\)/),
     ).toBeInTheDocument()
     expect(screen.getByText(/· 3 cambian de tipo/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/Cartas nuevas de doble tipo .*: Mega-Mewtwo X ex \(Psíquico y Lucha\)\./),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Cambian de tipo: Urshifu Estilo Fluido \(Agua → Agua y Lucha\)…\./)).toBeInTheDocument()
     // The other build warnings, as they come; the unknown field only once, in Spanish.
     expect(screen.getByText('Expansion C1 has no cards in cards.json')).toBeInTheDocument()
     expect(screen.queryByText(/does not read/)).not.toBeInTheDocument()
