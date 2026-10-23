@@ -2018,6 +2018,7 @@ ${MCP_CHAT_INSTRUCTIONS}`
       },
       complete: view.complete,
       warnings: view.warnings,
+      emptyExpansions: view.emptyExpansions,
       text: gapText(),
     }
 
@@ -2031,7 +2032,11 @@ ${MCP_CHAT_INSTRUCTIONS}`
         return view.complete
           ? `El tracker está al día con el juego (${copies(s.gameCopies)}).`
           : `Lo que se pudo comparar está al día, pero ${outside} (mirá los avisos).`
-      const differs = `El tracker difiere del juego en ${cards(s.cards)}: ${parts.join(' y ')} (tracker ${number(s.trackerCopies)}, juego ${number(s.gameCopies)}).`
+      const empty =
+        view.emptyExpansions.length > 0
+          ? ` En el juego no queda ninguna carta de ${view.emptyExpansions.map((item) => item.nameEs).join(', ')}: el archivo pone en 0 las del tracker.`
+          : ''
+      const differs = `El tracker difiere del juego en ${cards(s.cards)}: ${parts.join(' y ')} (tracker ${number(s.trackerCopies)}, juego ${number(s.gameCopies)}).${empty}`
       return view.complete ? differs : `${differs} Además, ${outside} (mirá los avisos).`
     }
   }

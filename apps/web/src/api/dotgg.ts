@@ -108,6 +108,8 @@ export const trackerGapSchema = z.object({
   ),
   unknownTracker: z.array(z.number()),
   warnings: z.array(z.string()),
+  /** Expansions with no row in the export compared as 0 (a sync listed them before and the app has none there). */
+  emptyExpansions: z.array(z.object({ expansionId: z.string(), nameEs: z.string(), cards: z.number() })).default([]),
   /** Cards left out of the comparison; `complete`: nothing left out and the internal ids are the tracker's. */
   notCompared: z.number().default(0),
   complete: z.boolean().default(true),

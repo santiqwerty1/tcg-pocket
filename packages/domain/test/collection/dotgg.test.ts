@@ -5,6 +5,7 @@ import {
   DOTGG_CSV_COLUMNS,
   diffImport,
   dotggCardId,
+  dotggListedExpansions,
   dotggMissingExpansions,
   dotggNameKey,
   dotggUnits,
@@ -15,6 +16,7 @@ import {
   parseDotggExportLink,
   redactDotggLink,
   type StockQuantities,
+  splitDotggMissing,
 } from '../../src/collection/index.js'
 import { realCsvNormalized } from '../helpers/collectionCsv.js'
 import { catalogIndex } from '../helpers/loadFixtures.js'
@@ -344,5 +346,37 @@ describe('dotggMissingExpansions', () => {
       { expansionId: 'B4b', copies: 2, cards: 1 },
       { expansionId: 'P-A', copies: 1, cards: 1 },
     ])
+  })
+})
+
+describe('dotggListedExpansions', () => {
+  it('gives the expansion of each stock unit, once', () => {
+    expect([...dotggListedExpansions(index, ['A1-1', 'A1-2', 'B4b-372', 'not-a-card'])]).toEqual(['A1', 'B4b'])
+    expect(dotggListedExpansions(index, []).size).toBe(0)
+  })
+})
+
+describe('splitDotggMissing (S-E)', () => {
+  const missing = [
+    { expansionId: 'A2', cards: 4 },
+    { expansionId: 'B4b', cards: 1 },
+    { expansionId: 'P-A', cards: 2 },
+  ]
+
+  it('compares a set only when a sync listed it before and the app has no copy there', () => {
+    const split = splitDotggMissing(missing, { held: new Set(['A2']), seen: new Set(['A2', 'B4b']) })
+    expect(split.empty).toEqual([{ expansionId: 'B4b', cards: 1 }])
+    expect(split.leftOut).toEqual([
+      // Seen, but the app still has copies: the drop waits for Santi in the app.
+      { expansionId: 'A2', cards: 4, reason: 'held' },
+      // Never listed: ptcgpocket.gg may not know the set.
+      { expansionId: 'P-A', cards: 2, reason: 'unseen' },
+    ])
+  })
+
+  it('leaves everything out with no mark (before the first applied sync)', () => {
+    const split = splitDotggMissing(missing, { held: new Set(), seen: new Set() })
+    expect(split.empty).toEqual([])
+    expect(split.leftOut.map((item) => item.reason)).toEqual(['unseen', 'unseen', 'unseen'])
   })
 })

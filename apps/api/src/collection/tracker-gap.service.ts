@@ -6,11 +6,13 @@
 import { BadRequestException, ConflictException, Injectable, ServiceUnavailableException } from '@nestjs/common'
 import {
   type DotggUnmatched,
+  dotggListedExpansions,
   dotggMissingExpansions,
   mapDotggRows,
   normalizeImportRows,
   parseDotggCsv,
   redactDotggLink,
+  splitDotggMissing,
   TRACKER_FIX_FILE_NAME,
   type TrackerCollectionRow,
   type TrackerGapSummary,
@@ -23,6 +25,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { TRACKER_PATHS } from '../catalog/catalog-sources.js'
 import { TrackerCommitsService } from '../catalog/tracker-commits.service.js'
+import { REMOTE_KEYS, seenExpansionsOf } from './collection.service.js'
 import { DotggClient, DotggError } from './dotgg-client.js'
 import { SourceSnapshots } from './source-snapshot.js'
 import { TrackerClient, TrackerError } from './tracker-client.js'
@@ -53,6 +56,11 @@ export interface TrackerGapView {
   unknownTracker: number[]
   /** Why the comparison may be incomplete, in Spanish. */
   warnings: string[]
+  /**
+   * Expansions the export has no row of that are compared as 0 anyway (S-E): an applied sync listed them before and the
+   * app has no copy there. The file puts the tracker's cards there at 0. `cards`: the tracker's cards there.
+   */
+  emptyExpansions: { expansionId: string; nameEs: string; cards: number }[]
   /** Cards left out of the comparison (rows the catalog does not have or with another name, unknown internal ids, rows
    * that could not be read). */
   notCompared: number
@@ -137,30 +145,62 @@ export class TrackerGapService {
       throw new ServiceUnavailableException({ code: 'tracker_data', message: 'Respuesta inválida del tracker.' })
     }
     const tracker = normalizeImportRows(trackerRows, index)
+    // The reads and GitHub took seconds: if the friend id, the link or the catalog changed meanwhile (another tab, a
+    // catalog sync), the pair is not one and the file would mix them. Compared under the configuration lock, where the
+    // app's side is read too: the expansions it has copies in and those a sync listed (an apply writes both under it).
+    const ids = await compatibility
+    let held = new Set<string>()
+    let seen = new Set<string>()
+    const changed = await this.snapshots.whileSame(before, ['link', 'friend', 'catalog'], async (tx) => {
+      const stock = await tx.collectionStock.findMany({ where: { amountOwned: { gt: 0 } }, select: { cardId: true } })
+      const mark = await tx.appSetting.findUnique({ where: { key: REMOTE_KEYS.dotgg.seenExpansions } })
+      held = dotggListedExpansions(
+        index,
+        stock.map((row) => row.cardId),
+      )
+      seen = seenExpansionsOf(mark?.value)
+    })
+    if (changed.length > 0 || this.catalog.requireIndex() !== index)
+      throw new ConflictException({
+        code: 'gap_config_changed',
+        message: `Cambió ${this.snapshots.describe(changed.length > 0 ? changed : ['catalog'])} mientras se comparaba: volvé a comparar.`,
+      })
     // A row with another card's name may be another numbering: its count would land on the wrong card.
     const skipped = new Set(
       mapped.renamed.map((row) => index.cardById(row.cardId)?.stockCardId).filter((id): id is string => !!id),
     )
-    // An expansion the tracker has cards of and the export not a single row (ptcgpocket.gg may not know it, or write it
-    // with another code): its cards are not compared, or the file would put them at 0 and take their registration off.
-    const missing = dotggMissingExpansions(index, tracker.units, game.units, { registered: true })
-    const uncovered = new Set(missing.map((item) => item.expansionId))
+    // An expansion the tracker has cards of and the export not a single row. The export lists only what is owned, so
+    // that is a set with no card in the game only if ptcgpocket.gg listed it before and the app has 0 there (S-E): then
+    // it is compared, and the file puts its cards at 0. Otherwise (a set ptcgpocket.gg may not know or writes with
+    // another code, or a drop the app has not applied) its cards are not compared, or the file would zero them.
+    const missing = splitDotggMissing(dotggMissingExpansions(index, tracker.units, game.units, { registered: true }), {
+      held,
+      seen,
+    })
+    const uncovered = new Set(missing.leftOut.map((item) => item.expansionId))
     for (const unit of index.catalog.stockUnits)
       if (uncovered.has(index.cardById(unit.id)?.expansionId ?? '')) skipped.add(unit.id)
     const gap = trackerGap(index, trackerUnits(tracker.units, index), game.units, skipped)
     const warnings: string[] = []
-    const leftOut = missing.reduce((sum, item) => sum + item.cards, 0)
-    if (missing.length > 0)
+    const leftOut = missing.leftOut.reduce((sum, item) => sum + item.cards, 0)
+    for (const reason of ['unseen', 'held'] as const) {
+      const group = missing.leftOut.filter((item) => item.reason === reason)
+      if (group.length === 0) continue
+      const cards = group.reduce((sum, item) => sum + item.cards, 0)
       warnings.push(
-        `La exportación de ptcgpocket.gg no trae ninguna carta de ${missing.map((item) => item.expansionId).join(', ')} y el tracker tiene ${leftOut === 1 ? '1 carta' : `${leftOut} cartas`} ahí: no se comparan (puede que ptcgpocket.gg no conozca la expansión o la escriba con otro código).`,
+        `La exportación de ptcgpocket.gg no trae ninguna carta de ${group.map((item) => item.expansionId).join(', ')} y el tracker tiene ${cards === 1 ? '1 carta' : `${cards} cartas`} ahí: no se comparan (${
+          reason === 'unseen'
+            ? 'puede que ptcgpocket.gg no conozca la expansión o la escriba con otro código'
+            : 'la colección de la app todavía tiene copias ahí; si ya no las tenés, aplicá la sincronización con el juego y volvé a comparar'
+        }).`,
       )
+    }
     if (mapped.renamed.length > 0)
       warnings.push(
         `ptcgpocket.gg trae ${mapped.renamed.length === 1 ? '1 carta' : `${mapped.renamed.length} cartas`} con el nombre de otra carta del catálogo (puede que numere distinto esa expansión): no se comparan.`,
       )
     // The file writes the catalog's internal ids (and the tracker side is read by them): only when they are the
     // tracker's own. Changed or unknown, the comparison is told as doubtful and no file is offered.
-    const ids = await compatibility
     if (ids === 'changed')
       warnings.push(
         `El tracker tiene otros datos de cartas (cards.json) que el catálogo de la app (${(catalogCommit ?? '').slice(0, 7)}): sus internal_id pueden no coincidir y el archivo tocaría otras cartas. Sincronizá el catálogo con el tracker y volvé a comparar; mientras tanto no se arma el archivo.`,
@@ -206,14 +246,6 @@ export class TrackerGapService {
         collected: row.collected,
       }
     })
-    // Both reads and GitHub took seconds: if the friend id, the link or the catalog changed meanwhile (another tab, a
-    // catalog sync), the pair is not one and the file would mix them. Compared under the configuration lock.
-    const changed = await this.snapshots.whileSame(before, ['link', 'friend', 'catalog'])
-    if (changed.length > 0 || this.catalog.requireIndex() !== index)
-      throw new ConflictException({
-        code: 'gap_config_changed',
-        message: `Cambió ${this.snapshots.describe(changed.length > 0 ? changed : ['catalog'])} mientras se comparaba: volvé a comparar.`,
-      })
     return {
       checkedAt: now.toISOString(),
       summary: gap.summary,
@@ -221,6 +253,11 @@ export class TrackerGapService {
       unmatchedGame: mapped.unmatched,
       unknownTracker,
       warnings,
+      emptyExpansions: missing.empty.map((item) => ({
+        expansionId: item.expansionId,
+        nameEs: index.expansionById(item.expansionId)?.nameEs ?? item.expansionId,
+        cards: item.cards,
+      })),
       notCompared,
       complete: notCompared === 0 && game.conflicts.length === 0 && ids === 'same',
       trackerFile:

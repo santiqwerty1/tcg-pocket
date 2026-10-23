@@ -115,6 +115,14 @@ function GapView({ gap, refreshing, onRefresh }: { gap: TrackerGap; refreshing: 
         </Alert>
       ) : null}
 
+      {gap.emptyExpansions.length > 0 ? (
+        <p className="rounded-lg border px-3 py-2 text-sm">
+          En el juego no te queda ninguna carta de {gap.emptyExpansions.map((item) => item.nameEs).join(', ')}:
+          ptcgpocket.gg ya {gap.emptyExpansions.length === 1 ? 'trajo esa expansión' : 'trajo esas expansiones'} en una
+          sincronización y la colección de la app está en 0 ahí, así que el archivo pone en 0 las cartas del tracker.
+        </p>
+      ) : null}
+
       {s.cards === 0 ? (
         <p className="rounded-lg border px-3 py-2 text-sm">
           {gap.complete

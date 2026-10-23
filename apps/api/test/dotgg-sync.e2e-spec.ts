@@ -14,6 +14,7 @@ import { DOTGG_LINK_KEY, DotggLinkStore } from '../src/collection/dotgg-link.sto
 import { DOTGG_SYNC_INTERVAL_MS, DotggSync } from '../src/collection/dotgg-sync.service.js'
 import { TrackerGapService } from '../src/collection/tracker-gap.service.js'
 import { TrackerSync } from '../src/collection/tracker-sync.service.js'
+import { McpToolsService } from '../src/mcp/mcp-tools.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /**
@@ -662,6 +663,95 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     expect(gap.trackerFile).toBeNull()
     expect(gap.rows.map((row: { stockCardId: string }) => row.stockCardId)).toEqual(['A1-1'])
     expect(gap.complete).toBe(false)
+  })
+
+  it('«Tracker al día» compares a set the game has none of anymore, once a sync listed it and the app has 0 there (S-E)', async () => {
+    await setting('trackerFriendId', FRIEND)
+    await setLink(LINK)
+    body = exportFile([
+      [2, 'Bulbasaur', 'A1', 1],
+      [3, 'Small Balloon', 'B4b', 372],
+    ])
+    expect((await apply((await preview()).body.id)).status).toBe(200)
+    // The Globitos were traded away: the export lists A1 only, and the sync says ptcgpocket.gg knows B4b.
+    body = exportFile([[2, 'Bulbasaur', 'A1', 1]])
+    const second = await preview()
+    expect(second.body.dotgg.requiresReview).toBe(true)
+    expect(second.body.dotgg.reviewReasons.join(' ')).toContain(
+      'no trae ninguna carta de B4b y la colección tiene 3 copias ahí: ptcgpocket.gg ya la trajo en otra sincronización',
+    )
+    // The tracker still has the 3.
+    remote = [
+      { internal_id: internalId('A1-1'), amount_owned: 2, collected: true },
+      { internal_id: internalId('B4b-372'), amount_owned: 3, collected: true },
+    ].sort((a, b) => a.internal_id - b.internal_id)
+    // While the drop waits in the app, B4b is left out, and the warning says what to do.
+    const waiting = (await get('/api/collection/tracker-gap')).body
+    expect(waiting.rows).toEqual([])
+    expect(waiting).toMatchObject({ complete: false, notCompared: 1, emptyExpansions: [], trackerFile: null })
+    expect(waiting.warnings.join(' ')).toContain(
+      'B4b y el tracker tiene 1 carta ahí: no se comparan (la colección de la app',
+    )
+    // Santi applies it: the app has 0 there, and the next comparison takes the 3 off the tracker too.
+    expect((await apply(second.body.id)).status).toBe(200)
+    expect((await test.prisma.collectionStock.findUnique({ where: { cardId: 'B4b-372' } }))?.amountOwned).toBe(0)
+    const gap = (await get('/api/collection/tracker-gap')).body
+    expect(
+      gap.rows.map((row: { stockCardId: string; tracker: number; game: number }) => [
+        row.stockCardId,
+        row.tracker,
+        row.game,
+      ]),
+    ).toEqual([['B4b-372', 3, 0]])
+    expect(gap).toMatchObject({ complete: true, notCompared: 0, warnings: [] })
+    expect(gap.emptyExpansions).toEqual([{ expansionId: 'B4b', nameEs: expect.any(String), cards: 1 }])
+    const file = parseTrackerCsv(gap.trackerFile.content)
+    expect(file.rows.map((row) => [row.id, row.internalId, row.numberOwned, row.collected])).toEqual([
+      ['B4b-372', internalId('B4b-372'), 0, false],
+    ])
+    // Claude says it too (the tool's own method; the MCP transport is covered by the test below).
+    const tools = test.app.get(McpToolsService, { strict: false }) as unknown as {
+      collectionTrackerGap(args: object): Promise<{ text: string; emptyExpansions: unknown[] }>
+    }
+    const mcp = await tools.collectionTrackerGap({})
+    expect(mcp.emptyExpansions).toHaveLength(1)
+    expect(mcp.text).toContain('En el juego no queda ninguna carta de')
+  })
+
+  it('a set no applied sync listed stays out with 0 in the app; an automatic check with nothing to change marks what it lists (S-E)', async () => {
+    const sync = test.app.get(DotggSync)
+    await setting('trackerFriendId', FRIEND)
+    await setLink(LINK)
+    // A preview listing B4b that is never applied does not count.
+    body = exportFile([
+      [2, 'Bulbasaur', 'A1', 1],
+      [3, 'Small Balloon', 'B4b', 372],
+    ])
+    const discarded = await preview()
+    expect(discarded.status).toBe(200)
+    body = exportFile([[2, 'Bulbasaur', 'A1', 1]])
+    expect((await apply((await preview()).body.id)).status).toBe(200)
+    remote = [
+      { internal_id: internalId('A1-1'), amount_owned: 2, collected: true },
+      { internal_id: internalId('B4b-372'), amount_owned: 3, collected: true },
+    ].sort((a, b) => a.internal_id - b.internal_id)
+    const gap = (await get('/api/collection/tracker-gap')).body
+    expect(gap).toMatchObject({ rows: [], notCompared: 1, emptyExpansions: [] })
+    expect(gap.warnings.join(' ')).toContain('puede que ptcgpocket.gg no conozca la expansión')
+    // A sync applied before this mark existed left none: the next check with nothing to change writes it.
+    body = exportFile([
+      [2, 'Bulbasaur', 'A1', 1],
+      [3, 'Small Balloon', 'B4b', 372],
+    ])
+    expect((await apply((await preview()).body.id)).status).toBe(200)
+    await test.prisma.appSetting.delete({ where: { key: 'dotggSeenExpansions' } })
+    await setting('dotggAutoSync', true)
+    expect(await sync.tick(new Date(Date.now() + DOTGG_SYNC_INTERVAL_MS + 60_000))).toBeNull()
+    expect((await get('/api/collection/dotgg/status')).body.result).toBe('unchanged')
+    expect((await test.prisma.appSetting.findUnique({ where: { key: 'dotggSeenExpansions' } }))?.value).toEqual([
+      'A1',
+      'B4b',
+    ])
   })
 
   it('«Tracker al día» for Claude (MCP), without the link or the file', async () => {

@@ -18,6 +18,7 @@ import {
   type DotggRenamed,
   type DotggUnmatched,
   diffImport,
+  dotggListedExpansions,
   dotggMissingExpansions,
   dotggUnits,
   type ImportDiff,
@@ -121,8 +122,18 @@ export const REMOTE_KEYS = {
     lastChecked: 'dotggLastCheckedAt',
     /** The keyed fingerprint of the link the last applied sync was read from (a backup carries it, not the link). */
     lastAppliedLink: 'dotggLastAppliedLink',
+    /**
+     * Expansions an applied sync, or an automatic check that found nothing to change, listed (S-E): ptcgpocket.gg knows
+     * them under that code. Not tied to the link (what codes ptcgpocket.gg writes does not depend on the account).
+     */
+    seenExpansions: 'dotggSeenExpansions',
   },
 } as const satisfies Record<RemoteSource, Record<string, string>>
+
+/** The stored `dotggSeenExpansions` as a set (anything else, or nothing yet, is an empty one). */
+export function seenExpansionsOf(value: unknown): Set<string> {
+  return new Set(Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [])
+}
 
 /** What a remote snapshot carries into the importer besides its rows. */
 interface RemoteImport {
@@ -560,6 +571,8 @@ export class CollectionService {
            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
           [REMOTE_KEYS[remote.source].lastChecked, JSON.stringify(remote.checkedAt.toISOString())],
         )
+        // The app already matches this export: its expansions count as listed by a sync, like an applied one.
+        if (remote.source === 'dotgg') await this.markSeenExpansions(client, index, normalized.units)
         await client.query('COMMIT')
         return { unchanged: true, reviewReasons: tracker?.reviewReasons ?? dotgg?.reviewReasons ?? [] }
       }
@@ -745,12 +758,14 @@ export class CollectionService {
           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
           [keys.lastApplied, JSON.stringify(appliedAt.toISOString()), appliedAt],
         )
-        if (source === 'dotgg')
+        if (source === 'dotgg') {
           await client.query(
             `INSERT INTO app_settings (key, value) VALUES ($1, $2::jsonb)
              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
             [REMOTE_KEYS.dotgg.lastAppliedLink, JSON.stringify(stored.dotgg?.linkId ?? '')],
           )
+          await this.markSeenExpansions(client, index, units)
+        }
         await client.query(
           `INSERT INTO app_settings (key, value) VALUES ($1, $2::jsonb)
            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
@@ -968,6 +983,24 @@ export class CollectionService {
     return normalizeImportRows(csvRows, index).units
   }
 
+  /**
+   * S-E: adds the expansions an export listed (its rows' units, before the absent ones are filled with 0) to
+   * `dotggSeenExpansions`, in the transaction that applies it or records the check. Only grows.
+   */
+  private async markSeenExpansions(client: PoolClient, index: CatalogIndex, listed: StockQuantities): Promise<void> {
+    const key = REMOTE_KEYS.dotgg.seenExpansions
+    const before = await client.query<{ value: unknown }>('SELECT value FROM app_settings WHERE key = $1', [key])
+    const seen = seenExpansionsOf(before.rows[0]?.value)
+    const size = seen.size
+    for (const expansion of dotggListedExpansions(index, Object.keys(listed))) seen.add(expansion)
+    if (seen.size === size && before.rows.length > 0) return
+    await client.query(
+      `INSERT INTO app_settings (key, value) VALUES ($1, $2::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+      [key, JSON.stringify([...seen].sort())],
+    )
+  }
+
   /** What a source's units mean: a CSV merges, the tracker and ptcgpocket.gg are the whole collection. */
   private remoteUnits(
     index: CatalogIndex,
@@ -1062,7 +1095,7 @@ export class CollectionService {
     }
     const applied = await client.query<{ key: string; value: unknown }>(
       'SELECT key, value FROM app_settings WHERE key = ANY($1::text[])',
-      [[REMOTE_KEYS.dotgg.lastApplied, REMOTE_KEYS.dotgg.lastAppliedLink]],
+      [[REMOTE_KEYS.dotgg.lastApplied, REMOTE_KEYS.dotgg.lastAppliedLink, REMOTE_KEYS.dotgg.seenExpansions]],
     )
     const marks = Object.fromEntries(applied.rows.map((r) => [r.key, r.value]))
     // The last applied sync counts only if it was read from this same link: another link (also one a restored backup
@@ -1110,10 +1143,18 @@ export class CollectionService {
           nameEs: index.expansionById(item.expansionId)?.nameEs ?? item.expansionId,
         }))
       : []
-    if (missingExpansions.length > 0) {
-      const copies = missingExpansions.reduce((sum, item) => sum + item.copies, 0)
+    // S-E: a set an earlier sync listed is one ptcgpocket.gg knows, so no row there can mean no card there.
+    const seen = seenExpansionsOf(marks[REMOTE_KEYS.dotgg.seenExpansions])
+    for (const known of [false, true]) {
+      const group = missingExpansions.filter((item) => seen.has(item.expansionId) === known)
+      if (group.length === 0) continue
+      const copies = group.reduce((sum, item) => sum + item.copies, 0)
       reasons.push(
-        `La exportación no trae ninguna carta de ${missingExpansions.map((item) => item.expansionId).join(', ')} y la colección tiene ${copies === 1 ? '1 copia' : `${count(copies)} copias`} ahí: puede que ptcgpocket.gg todavía no conozca la expansión.`,
+        `La exportación no trae ninguna carta de ${group.map((item) => item.expansionId).join(', ')} y la colección tiene ${copies === 1 ? '1 copia' : `${count(copies)} copias`} ahí: ${
+          known
+            ? `ptcgpocket.gg ya ${group.length === 1 ? 'la' : 'las'} trajo en otra sincronización, así que puede que ya no tengas esas cartas; aplicá solo si es así.`
+            : 'puede que ptcgpocket.gg todavía no conozca la expansión.'
+        }`,
       )
     }
     if (parsed.errors.length > 0) {

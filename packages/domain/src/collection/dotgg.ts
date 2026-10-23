@@ -391,11 +391,7 @@ export function dotggMissingExpansions(
   units: StockQuantities,
   options: { registered?: boolean } = {},
 ): { expansionId: ExpansionId; copies: number; cards: number }[] {
-  const covered = new Set<ExpansionId>()
-  for (const stockCardId of Object.keys(units)) {
-    const expansion = index.cardById(stockCardId)?.expansionId
-    if (expansion) covered.add(expansion)
-  }
+  const covered = dotggListedExpansions(index, Object.keys(units))
   const found = new Map<ExpansionId, { copies: number; cards: number }>()
   for (const unit of Object.values(current)) {
     if (unit.amountOwned <= 0 && !(options.registered && unit.collected)) continue
@@ -409,4 +405,39 @@ export function dotggMissingExpansions(
   return index.catalog.expansions
     .filter((expansion) => found.has(expansion.id))
     .map((expansion) => ({ expansionId: expansion.id, ...(found.get(expansion.id) ?? { copies: 0, cards: 0 }) }))
+}
+
+/**
+ * The expansions of some stock units (by the expansion of each unit, as `dotggMissingExpansions` covers them): the
+ * units of an export's rows give what ptcgpocket.gg listed; the units with copies of a collection, where it has some.
+ */
+export function dotggListedExpansions(index: CatalogIndex, stockCardIds: Iterable<CardId>): Set<ExpansionId> {
+  const listed = new Set<ExpansionId>()
+  for (const stockCardId of stockCardIds) {
+    const expansion = index.cardById(stockCardId)?.expansionId
+    if (expansion) listed.add(expansion)
+  }
+  return listed
+}
+
+/**
+ * T-020 (S-E): of the expansions the export does not list but the tracker has cards of, which «Tracker al día» leaves
+ * out and which it compares as 0. The export lists only what is owned, so a set with no card in the game leaves no row,
+ * just like a set ptcgpocket.gg does not know yet. An expansion is compared (and the tracker file puts its cards at 0)
+ * only when an applied ptcgpocket.gg sync listed it before (`seen`: ptcgpocket.gg knows it, under that code) and the
+ * app's collection has no copy there (not `held`: Santi applied the drop). Otherwise it is left out: `unseen`, a set
+ * ptcgpocket.gg may not know, or `held`, a drop the app has not applied yet. In the order of `missing`.
+ */
+export function splitDotggMissing<T extends { expansionId: ExpansionId }>(
+  missing: readonly T[],
+  context: { held: ReadonlySet<ExpansionId>; seen: ReadonlySet<ExpansionId> },
+): { leftOut: (T & { reason: 'held' | 'unseen' })[]; empty: T[] } {
+  const leftOut: (T & { reason: 'held' | 'unseen' })[] = []
+  const empty: T[] = []
+  for (const item of missing) {
+    if (context.held.has(item.expansionId)) leftOut.push({ ...item, reason: 'held' })
+    else if (!context.seen.has(item.expansionId)) leftOut.push({ ...item, reason: 'unseen' })
+    else empty.push(item)
+  }
+  return { leftOut, empty }
 }
