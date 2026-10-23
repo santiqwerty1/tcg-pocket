@@ -4,6 +4,8 @@ import { AlertsService, TrackerUpstreamService } from '../src/alerts/alerts.serv
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
 import { todayInOwnerZone } from '../src/config/time-zone.js'
+import { NotificationsService } from '../src/notifications/notifications.service.js'
+import { NotificationsWatcher } from '../src/notifications/notifications.watcher.js'
 import { BACKUP_FAILURE_KEY, OpsService } from '../src/ops/ops.service.js'
 import { EngineUpstreamService } from '../src/simulation/engine-upstream.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
@@ -523,6 +525,83 @@ describe('alerts (e2e)', () => {
       ops.databaseBytes = real
     }
     expect(await operationAlerts('database_size')).toEqual([])
+  })
+
+  it('«Era nueva probable» is pushed once per era, not once in the life of the app (its title never changes)', async () => {
+    const saved = await test.prisma.setRelease.findMany()
+    const today = todayInOwnerZone()
+    const daysAgo = (days: number) => new Date(Date.parse(`${today}T00:00:00Z`) - days * 86_400_000)
+    const notifications = test.app.get(NotificationsService)
+    const realNotify = notifications.notify.bind(notifications)
+    const bodies: string[] = []
+    notifications.notify = async (_kind, payload) => {
+      bodies.push(payload.body)
+      return 1
+    }
+    const eraPushes = () => bodies.filter((body) => body.startsWith('Pasaron '))
+    // Production remembers the key of the one push this alert ever sent: the same for every era.
+    const remembered = ['new_era_likely|Era nueva probable']
+    await test.prisma.appSetting.upsert({
+      where: { key: 'notifiedAlerts' },
+      create: { key: 'notifiedAlerts', value: remembered },
+      update: { value: remembered },
+    })
+    const watcher = test.app.get(NotificationsWatcher)
+    // The alerts are checked at most every hour.
+    let at = Date.now() + 2 * 60 * 60 * 1000
+    const nextHour = () => {
+      at += 60 * 60 * 1000
+      return watcher.tick(new Date(at))
+    }
+    try {
+      // B4a opened its era 60 days ago and the table has nothing after it.
+      await test.prisma.setRelease.deleteMany()
+      await test.prisma.setRelease.createMany({
+        data: [
+          { code: 'B4', nameEn: 'Before', releaseDate: daysAgo(120), opensEra: true },
+          { code: 'B4a', nameEn: 'Last', releaseDate: daysAgo(60), opensEra: true },
+        ],
+      })
+      const [alert] = (await test.app.get(AlertsService).list()).filter((item) => item.code === 'new_era_likely')
+      expect(alert).toMatchObject({ title: 'Era nueva probable', notifyKey: 'new_era_likely|B4a' })
+      expect(alert?.detail).toMatch(/^Pasaron 60 días desde B4a\./)
+      // The key is the notifications' business: the screen gets the alert without it.
+      const shown = ((await get('/api/alerts')).body.items as { code: string }[]).find(
+        (item) => item.code === 'new_era_likely',
+      )
+      expect(shown).toEqual({
+        code: 'new_era_likely',
+        level: 'warning',
+        title: 'Era nueva probable',
+        detail: alert?.detail,
+        link: '/torneos/ajustes',
+      })
+
+      // The key kept from before does not hold it back; then once, though the days change.
+      await nextHour()
+      expect(eraPushes()).toEqual([expect.stringMatching(/^Pasaron 60 días desde B4a\./)])
+      await test.prisma.setRelease.update({ where: { code: 'B4a' }, data: { releaseDate: daysAgo(61) } })
+      await nextHour()
+      expect(eraPushes()).toHaveLength(1)
+
+      // The next set loaded, and 50 days later nothing after it: a new era is likely again, pushed once.
+      await test.prisma.setRelease.create({
+        data: { code: 'C1', nameEn: 'Next', releaseDate: daysAgo(50), opensEra: true },
+      })
+      await nextHour()
+      await nextHour()
+      expect(eraPushes()).toEqual([
+        expect.stringMatching(/desde B4a\./),
+        expect.stringMatching(/^Pasaron 50 días desde C1\./),
+      ])
+      const stored = (await test.prisma.appSetting.findUnique({ where: { key: 'notifiedAlerts' } }))?.value as string[]
+      expect(stored).toEqual(expect.arrayContaining(['new_era_likely|B4a', 'new_era_likely|C1']))
+    } finally {
+      notifications.notify = realNotify
+      await test.prisma.appSetting.deleteMany({ where: { key: 'notifiedAlerts' } })
+      await test.prisma.setRelease.deleteMany()
+      await test.prisma.setRelease.createMany({ data: saved })
+    }
   })
 
   it('Fase 38: /api/ops/status — version, memory, database, jobs, workers', async () => {

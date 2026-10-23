@@ -68,6 +68,12 @@ export interface AlertView {
   detail: string
   /** Where to act, inside the app (or an external page). */
   link: string | null
+  /**
+   * What the push remembers so as not to send it again (`NotificationsWatcher`); `code|title` when left out. For an
+   * alert whose title never changes but that comes back for another case (a new era after the next set), what tells
+   * one case from the other. Not part of `GET /api/alerts`.
+   */
+  notifyKey?: string
 }
 
 const FRESH_MS = 12 * 60 * 60 * 1000
@@ -277,6 +283,8 @@ export class AlertsService {
         title: 'Era nueva probable',
         detail: `Pasaron ${era.newEra.days} días desde ${era.newEra.lastRelease}. Si salió un set, cargalo en la tabla de eras para que los torneos se separen bien.`,
         link: '/torneos/ajustes',
+        // Once per era: the last era-opening set, not the days (they change every day).
+        notifyKey: `new_era_likely|${era.newEra.lastRelease}`,
       })
     }
     for (const pack of limited) {
