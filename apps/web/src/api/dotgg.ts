@@ -108,6 +108,9 @@ export const trackerGapSchema = z.object({
   ),
   unknownTracker: z.array(z.number()),
   warnings: z.array(z.string()),
+  /** Cards left out of the comparison; `complete`: nothing left out and the internal ids are the tracker's. */
+  notCompared: z.number().default(0),
+  complete: z.boolean().default(true),
   trackerFile: z.object({ fileName: z.string(), rows: z.number(), content: z.string() }).nullable(),
   catalogCommit: z.string().nullable(),
 })

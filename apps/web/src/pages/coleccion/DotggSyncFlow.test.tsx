@@ -335,6 +335,34 @@ describe('Tracker al día', () => {
     await waitFor(() => expect(reads()).toBe(3))
   })
 
+  it('does not call it up to date when cards were left out of the comparison', async () => {
+    fakeApi({
+      'GET /api/collection/tracker-gap': {
+        ...gap,
+        summary: {
+          ...gap.summary,
+          cards: 0,
+          cardsMissing: 0,
+          copiesMissing: 0,
+          cardsExtra: 0,
+          copiesExtra: 0,
+          cardsCollected: 0,
+        },
+        rows: [],
+        notCompared: 2,
+        complete: false,
+        trackerFile: null,
+      },
+    })
+    renderAt('/coleccion/tracker')
+    expect(
+      await screen.findByText(
+        'Lo que se pudo comparar está al día, pero 2 cartas quedaron afuera de la comparación: mirá los avisos.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/El tracker está al día con el juego/)).not.toBeInTheDocument()
+  })
+
   it('says when the tracker is up to date and offers no file', async () => {
     fakeApi({
       'GET /api/collection/tracker-gap': {

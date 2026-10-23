@@ -117,7 +117,11 @@ function GapView({ gap, refreshing, onRefresh }: { gap: TrackerGap; refreshing: 
 
       {s.cards === 0 ? (
         <p className="rounded-lg border px-3 py-2 text-sm">
-          El tracker está al día con el juego: no hay nada que cambiar.
+          {gap.complete
+            ? 'El tracker está al día con el juego: no hay nada que cambiar.'
+            : gap.notCompared > 0
+              ? `Lo que se pudo comparar está al día, pero ${plural(gap.notCompared, 'carta quedó', 'cartas quedaron')} afuera de la comparación: mirá los avisos.`
+              : 'Lo que se pudo comparar está al día, pero la comparación no se puede confirmar del todo: mirá los avisos.'}
         </p>
       ) : null}
 

@@ -114,7 +114,7 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
   /**
    * Saves the link (checked, sealed). From then on ptcgpocket.gg is the source: pending tracker previews are discarded
    * and the tracker's warning goes. Another link (or one pasted again after removing it) starts over: its pending
-   * preview, its state, its alert and its last applied sync belong to the old link and go too. The same link keeps
+   * preview, its state, its alert and its last applied and checked syncs belong to the old link and go too. The same link keeps
    * them (a pending review stays in Avisos).
    */
   async setLink(text: string): Promise<DotggStatus> {
@@ -135,7 +135,9 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
       })
       await tx.appSetting.deleteMany({ where: { key: 'trackerSyncWarning' } })
       if (!same)
-        await tx.appSetting.deleteMany({ where: { key: { in: [KEYS.warning, KEYS.state, KEYS.lastApplied] } } })
+        await tx.appSetting.deleteMany({
+          where: { key: { in: [KEYS.warning, KEYS.state, KEYS.lastApplied, KEYS.lastChecked] } },
+        })
     })
     return this.status()
   }

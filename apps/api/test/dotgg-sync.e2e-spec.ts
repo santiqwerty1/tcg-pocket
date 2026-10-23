@@ -12,6 +12,7 @@ import { CollectionService } from '../src/collection/collection.service.js'
 import { DotggClient, DotggError } from '../src/collection/dotgg-client.js'
 import { DOTGG_LINK_KEY, DotggLinkStore } from '../src/collection/dotgg-link.store.js'
 import { DOTGG_SYNC_INTERVAL_MS, DotggSync } from '../src/collection/dotgg-sync.service.js'
+import { TrackerGapService } from '../src/collection/tracker-gap.service.js'
 import { TrackerSync } from '../src/collection/tracker-sync.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
@@ -135,6 +136,8 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     client.totalTimeoutMs = 60_000
     client.maxBytes = 2 * 1024 * 1024
     client.retryDelayMs = 10
+    // Every test asks GitHub afresh (the compatibility of internal ids is kept 10 minutes in production).
+    test.app.get(TrackerGapService).cacheMs = 0
     client.fetchImpl = async (input, init) => {
       const target = new URL(String(input))
       if (target.hostname !== 'dotgg.gg' && !target.hostname.endsWith('.dotgg.gg'))
@@ -643,6 +646,19 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
       expect(structured.cards).toHaveLength(1)
       expect(structured.moreCards).toBe(2)
       expect(String(structured.text)).toContain('le faltan')
+      expect(structured.complete).toBe(true)
+      // A card the catalog does not have: the comparison is not complete, and the text does not say «al día».
+      body = exportFile([
+        [1, 'Bulbasaur', 'A1', 1],
+        [1, 'Card From The Future', 'C9', 1],
+      ])
+      const partial = (await client.callTool({ name: 'collection_tracker_gap', arguments: {} })) as {
+        structuredContent?: Record<string, unknown>
+      }
+      expect(partial.structuredContent?.complete).toBe(false)
+      expect(String(partial.structuredContent?.text)).toBe(
+        'Lo que se pudo comparar está al día, pero 1 carta quedó afuera de la comparación (mirá los avisos).',
+      )
       const text = JSON.stringify(result)
       expect(text).not.toContain(TOKEN)
       expect(text).not.toContain('InternalId,NumberOwned')
@@ -772,6 +788,18 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     } finally {
       client.exportCsv = exportCsv
     }
+  })
+
+  it('another link forgets the old link’s last check («Última sincronización»)', async () => {
+    await setLink(LINK)
+    await setting('dotggAutoSync', true)
+    expect((await apply((await preview()).body.id)).status).toBe(200)
+    expect(await test.app.get(DotggSync).tick(new Date(Date.now() + 2 * DOTGG_SYNC_INTERVAL_MS))).toBeNull()
+    expect((await get('/api/collection/dotgg/status')).body.lastCheckedAt).not.toBeNull()
+    await setLink(LINK)
+    expect((await get('/api/collection/dotgg/status')).body.lastCheckedAt).not.toBeNull()
+    await setLink(OTHER)
+    expect((await get('/api/collection/dotgg/status')).body).toMatchObject({ lastCheckedAt: null, lastAppliedAt: null })
   })
 
   it('the same link keeps the pending preview; another link discards it', async () => {
@@ -959,17 +987,49 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
   it('«Tracker al día» warns when the tracker published changes after the catalog, and never quotes the link', async () => {
     await setting('trackerFriendId', FRIEND)
     await setLink(LINK)
-    let files = ['frontend/src/components/Header.tsx', 'frontend/public/locales/es-ES/common/sets.json']
-    test.app.get(TrackerCommitsService).fetchImpl = async (input) =>
-      String(input).includes('/compare/')
-        ? Response.json({ status: 'ahead', files: files.map((filename) => ({ filename })) })
-        : Response.json({ sha: 'b'.repeat(40) })
-    // Commits that do not touch cards.json (where the internal ids live) say nothing.
-    const quiet = await get('/api/collection/tracker-gap')
-    expect(quiet.body.warnings.join(' ')).not.toContain('datos de cartas')
-    files = [...files, 'frontend/assets/cards.json']
-    const response = await get('/api/collection/tracker-gap')
-    expect(response.body.warnings.join(' ')).toContain('El tracker cambió sus datos de cartas después del catálogo')
+    const catalogCommit = test.app.get(CatalogService).trackerCommit ?? ''
+    const latest = 'b'.repeat(40)
+    const ui = ['frontend/src/components/Header.tsx', 'frontend/public/locales/es-ES/common/sets.json']
+    const ids = [...ui, 'frontend/assets/cards.json']
+    /** GitHub with main at `latest`: `forward` is catalog...main, `backward` main...catalog. */
+    const github = (status: string, forward: string[], backward: string[] = []) => {
+      test.app.get(TrackerCommitsService).fetchImpl = async (input) => {
+        const url = String(input)
+        if (url.includes(`/compare/${catalogCommit}...`))
+          return Response.json({ status, files: forward.map((filename) => ({ filename })) })
+        if (url.includes(`/compare/${latest}...`))
+          return Response.json({ status: 'ahead', files: backward.map((filename) => ({ filename })) })
+        return Response.json({ sha: latest })
+      }
+    }
+    const compare = async () => (await get('/api/collection/tracker-gap')).body
+    // Main ahead with interface commits only: the ids are the same, the file is offered.
+    github('ahead', ui)
+    const quiet = await compare()
+    expect(quiet.warnings.join(' ')).not.toContain('internal_id')
+    expect(quiet.trackerFile).not.toBeNull()
+    expect(quiet.complete).toBe(true)
+    // Main ahead with cards.json: no file.
+    github('ahead', ids)
+    const ahead = await compare()
+    expect(ahead.warnings.join(' ')).toContain('otros datos de cartas (cards.json)')
+    expect(ahead.trackerFile).toBeNull()
+    expect(ahead.complete).toBe(false)
+    // Main behind the catalog (a rollback) and cards.json changed in between: also no file (Codex 4354955470).
+    github('behind', [], ids)
+    const behind = await compare()
+    expect(behind.warnings.join(' ')).toContain('otros datos de cartas (cards.json)')
+    expect(behind.trackerFile).toBeNull()
+    github('behind', [], ui)
+    expect((await compare()).trackerFile).not.toBeNull()
+    // Diverged: either side changing cards.json counts.
+    github('diverged', ui, ids)
+    expect((await compare()).trackerFile).toBeNull()
+    // GitHub does not answer: the ids cannot be checked, no file.
+    test.app.get(TrackerCommitsService).fetchImpl = async () => new Response(null, { status: 500 })
+    const unknown = await compare()
+    expect(unknown.warnings.join(' ')).toContain('No se pudo comprobar en GitHub')
+    expect(unknown.trackerFile).toBeNull()
     const client = test.app.get(DotggClient)
     const exportCsv = client.exportCsv
     client.exportCsv = async (link: string) => {

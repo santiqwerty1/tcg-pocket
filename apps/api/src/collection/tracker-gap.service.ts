@@ -52,6 +52,11 @@ export interface TrackerGapView {
   unknownTracker: number[]
   /** Why the comparison may be incomplete, in Spanish. */
   warnings: string[]
+  /** Cards left out of the comparison (rows the catalog does not have or with another name, unknown internal ids, rows
+   * that could not be read). */
+  notCompared: number
+  /** Nothing was left out, the export had no conflicts and the internal ids are the tracker's: «al día» means it. */
+  complete: boolean
   /** The file for the tracker's importer (only the differing cards); null when nothing differs or it is not safe. */
   trackerFile: { fileName: string; rows: number; content: string } | null
   /** Commit of the catalog whose internal ids the file uses. */
@@ -71,6 +76,10 @@ export class TrackerGapService {
     this.logger.setContext(TrackerGapService.name)
   }
 
+  /** How long a compatibility result is kept (tests set 0). */
+  cacheMs = 10 * 60_000
+  private compatibilityCache: { commit: string; at: number; result: 'same' | 'changed' } | null = null
+
   async gap(now = new Date()): Promise<TrackerGapView> {
     // The snapshot this comparison stands on: the friend id, the link and the catalog (its index and commit with it).
     const before = await this.snapshots.take()
@@ -88,8 +97,8 @@ export class TrackerGapService {
         code: 'dotgg_not_configured',
         message: 'Pegá el link de exportación de ptcgpocket.gg en Más → Ajustes de la app: es la colección del juego.',
       })
-    // Whether the tracker changed its card data after the catalog, asked alongside (GitHub may not answer).
-    const upstream = this.cardsChangedUpstream(catalogCommit)
+    // Whether the catalog's internal ids are the tracker's, asked alongside (GitHub may not answer).
+    const compatibility = this.cardsCompatibility(catalogCommit)
     let bytes: Buffer
     let remote: TrackerCollectionRow[]
     try {
@@ -137,10 +146,16 @@ export class TrackerGapService {
       warnings.push(
         `ptcgpocket.gg trae ${mapped.renamed.length === 1 ? '1 carta' : `${mapped.renamed.length} cartas`} con el nombre de otra carta del catálogo (puede que numere distinto esa expansión): no se comparan.`,
       )
-    // The file writes the catalog's internal ids: if the tracker changed its card data after it, they may have moved.
-    if (await upstream)
+    // The file writes the catalog's internal ids (and the tracker side is read by them): only when they are the
+    // tracker's own. Changed or unknown, the comparison is told as doubtful and no file is offered.
+    const ids = await compatibility
+    if (ids === 'changed')
       warnings.push(
-        `El tracker cambió sus datos de cartas después del catálogo de la app (${(catalogCommit ?? '').slice(0, 7)}): el archivo usa los internal_id del catálogo. Si el tracker los cambió, tocaría otras cartas; ante la duda, sincronizá el catálogo antes de importarlo.`,
+        `El tracker tiene otros datos de cartas (cards.json) que el catálogo de la app (${(catalogCommit ?? '').slice(0, 7)}): sus internal_id pueden no coincidir y el archivo tocaría otras cartas. Sincronizá el catálogo con el tracker y volvé a comparar; mientras tanto no se arma el archivo.`,
+      )
+    if (ids === 'unknown')
+      warnings.push(
+        'No se pudo comprobar en GitHub que los internal_id del catálogo sean los del tracker: no se arma el archivo. Volvé a comparar en un rato.',
       )
     if (parsed.errors.length > 0)
       warnings.push(
@@ -159,7 +174,8 @@ export class TrackerGapService {
       warnings.push(
         `El tracker tiene ${unknownTracker.length === 1 ? '1 carta' : `${unknownTracker.length} cartas`} que el catálogo no conoce: no se comparan.`,
       )
-    const safe = parsed.errors.length === 0 && game.conflicts.length === 0
+    const safe = parsed.errors.length === 0 && game.conflicts.length === 0 && ids === 'same'
+    const notCompared = mapped.renamed.length + mapped.unmatched.length + unknownTracker.length + parsed.errors.length
     const rows: TrackerGapRowView[] = gap.rows.map((row) => {
       const card = index.cardById(row.stockCardId)
       return {
@@ -190,6 +206,8 @@ export class TrackerGapService {
       unmatchedGame: mapped.unmatched,
       unknownTracker,
       warnings,
+      notCompared,
+      complete: notCompared === 0 && game.conflicts.length === 0 && ids === 'same',
       trackerFile:
         safe && gap.rows.length > 0
           ? { fileName: TRACKER_FIX_FILE_NAME, rows: gap.rows.length, content: writeTrackerFixCsv(index, gap.rows) }
@@ -199,19 +217,33 @@ export class TrackerGapService {
   }
 
   /**
-   * Whether the tracker's `main` changed `cards.json` (where the internal ids live) after the catalog's commit. Only
-   * that file counts: commits to the interface do not move internal ids. False when GitHub does not answer.
+   * Whether the catalog's internal ids are the tracker's now: `same` when its `main` is the catalog's commit, or when
+   * `frontend/assets/cards.json` (where the internal ids live) did not change between them in either direction (main
+   * ahead, behind after a rollback, or diverged); `changed` when it did, or GitHub's list of files may be cut; `unknown`
+   * when GitHub does not answer. Kept for `cacheMs` per catalog commit (GitHub allows few calls an hour), `unknown` never.
    */
-  private async cardsChangedUpstream(commit: string | null): Promise<boolean> {
-    if (!commit) return false
+  private async cardsCompatibility(commit: string | null): Promise<'same' | 'changed' | 'unknown'> {
+    if (!commit) return 'unknown'
+    const cached = this.compatibilityCache
+    if (cached && cached.commit === commit && Date.now() - cached.at < this.cacheMs) return cached.result
+    let result: 'same' | 'changed'
     try {
       const latest = await this.commits.latest()
-      if (latest.sha === commit) return false
-      const diff = await this.commits.changedFiles(commit, latest.sha)
-      if (diff.status === 'behind' || diff.status === 'identical') return false
-      return !diff.complete || diff.files.includes(TRACKER_PATHS.cardsJson)
+      if (latest.sha === commit) result = 'same'
+      else {
+        const touched = (diff: { files: string[]; complete: boolean }) =>
+          !diff.complete || diff.files.includes(TRACKER_PATHS.cardsJson)
+        // commit...latest lists what main has since their common ancestor; latest...commit, what the catalog has.
+        const forward = await this.commits.changedFiles(commit, latest.sha)
+        let changed = forward.status !== 'identical' && touched(forward)
+        if (!changed && (forward.status === 'behind' || forward.status === 'diverged'))
+          changed = touched(await this.commits.changedFiles(latest.sha, commit))
+        result = changed ? 'changed' : 'same'
+      }
     } catch {
-      return false
+      return 'unknown'
     }
+    this.compatibilityCache = { commit, at: Date.now(), result }
+    return result
   }
 }

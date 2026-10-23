@@ -2012,14 +2012,27 @@ ${MCP_CHAT_INSTRUCTIONS}`
       })),
       moreCards: Math.max(0, view.rows.length - limit),
       notCompared: {
+        cards: view.notCompared,
         gameRowsNotInCatalog: view.unmatchedGame.length,
         trackerIdsNotInCatalog: view.unknownTracker.length,
       },
+      complete: view.complete,
       warnings: view.warnings,
-      text:
-        s.cards === 0
+      text: gapText(),
+    }
+
+    /** «Al día» only for a complete comparison; otherwise what was compared, and what was left out. */
+    function gapText(): string {
+      const outside =
+        view.notCompared > 0
+          ? `${view.notCompared === 1 ? '1 carta quedó' : `${number(view.notCompared)} cartas quedaron`} afuera de la comparación`
+          : 'la comparación no se puede confirmar del todo'
+      if (s.cards === 0)
+        return view.complete
           ? `El tracker está al día con el juego (${copies(s.gameCopies)}).`
-          : `El tracker difiere del juego en ${cards(s.cards)}: ${parts.join(' y ')} (tracker ${number(s.trackerCopies)}, juego ${number(s.gameCopies)}).`,
+          : `Lo que se pudo comparar está al día, pero ${outside} (mirá los avisos).`
+      const differs = `El tracker difiere del juego en ${cards(s.cards)}: ${parts.join(' y ')} (tracker ${number(s.trackerCopies)}, juego ${number(s.gameCopies)}).`
+      return view.complete ? differs : `${differs} Además, ${outside} (mirá los avisos).`
     }
   }
 
