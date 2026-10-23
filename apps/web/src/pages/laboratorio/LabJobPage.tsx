@@ -31,7 +31,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { formatNumber, PERCENT, shortSha } from '@/lib/format'
 import { formatInterval, formatRate, formatRateValue } from '@/lib/matches'
-import { formatDuration, isActive, progressFraction } from '@/lib/simulation'
+import { DEFAULT_BOT, formatDuration, isActive, progressFraction } from '@/lib/simulation'
 import { cn } from '@/lib/utils'
 import { ProgressBar, StatusBadge } from '../simulacion/SimulacionPage'
 import { ChangeLine, IncludeNotes } from './LaboratorioPage'
@@ -380,6 +380,8 @@ function DeckRow({ deck, job, defaultOpen }: { deck: LabDeck; job: LabJob; defau
         size: job.size,
         era: job.era,
         gamesPerRival: 200,
+        // With this job's bots, so the number compares with its own (D-029: an older one may be e2's, not g2's).
+        players: [job.job.players[0] ?? DEFAULT_BOT, job.job.players[1] ?? DEFAULT_BOT],
       })
       toast.success(`Prueba #${created.id} en cola`)
       navigate(`/laboratorio/${created.id}`)

@@ -58,6 +58,11 @@ export interface PickRowView {
   /** «Actualizar todos»: the test of the list against this era's meta, queued or playing now. */
   labRunning: { jobId: number; status: 'queued' | 'running'; gamesDone: number; totalGames: number } | null
   /**
+   * Whether the engine can play the list (D-029 review): without it «Actualizar todos» leaves the deck out, so a row
+   * without a score says so instead of asking for it. Null when the deck has no list to look at.
+   */
+  labSimulable: boolean | null
+  /**
    * H-055: «posible punto ciego del bot» of the Laboratorio's number: the list's cards the e bots play badly, and the
    * number far from what the archetype makes in tournaments against the same rivals (only a score of this era). Null
    * without a Laboratorio score or when nothing applies.
@@ -228,6 +233,7 @@ export class PickService {
         ),
         labFailed: status?.failed ?? null,
         labRunning: status?.running ?? null,
+        labSimulable: status ? status.simulable : null,
         blindSpot: warning ? { text: warning } : null,
       })
     }

@@ -36,7 +36,7 @@ import { RecentListPicker } from './RecentListPicker'
 const BOTS = [
   // T-021: it does not see your hand or the order of your deck, as a person would play.
   { code: 'g2', label: 'Normal, sin trampa (g2: no ve tu mano ni tu mazo)' },
-  { code: 'e3', label: 'Fuerte (expectiminimax 3, piensa más)' },
+  { code: 'e3', label: 'Fuerte (expectiminimax 3: piensa más, ve tu mano y tu mazo)' },
   { code: 'e2', label: 'Clásico (expectiminimax 2: ve tu mano y tu mazo)' },
   { code: 'v', label: 'Simple (función de valor)' },
   { code: 'r', label: 'Al azar' },

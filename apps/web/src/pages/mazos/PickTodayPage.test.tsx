@@ -205,7 +205,7 @@ describe('¿Qué mazo llevo hoy? and «Actualizar todos» (14/10)', () => {
     // Another bot's score goes apart, with its job.
     expect(screen.getByText(/con e3: 45,1/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '#48' })).toHaveAttribute('href', '/laboratorio/48')
-    expect(screen.getByText('Un mazo sin puntaje del Laboratorio con g2 de esta era.')).toBeInTheDocument()
+    expect(screen.getByText('Un mazo sin puntaje del Laboratorio de esta era con g2.')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Actualizar todos' }))
     expect(
       await screen.findByText(/^Un mazo contra el meta de B4a con g2: 1\.500 partidas, ~10 min/),
@@ -286,6 +286,8 @@ describe('¿Qué mazo llevo hoy? and «Actualizar todos» (14/10)', () => {
             labOthers: [{ bot: 'e2', value: 47.3, ci95: [43.2, 51.4], games: 1500, jobId: 77 }],
           },
           { ...deck, deck: { id: '3', name: 'Hoopa ex' }, lab: null, labOthers: [] },
+          // One the engine cannot play: «Actualizar todos» leaves it out, so the row does not ask for it.
+          { ...deck, deck: { id: '4', name: 'Lista rota' }, lab: null, labOthers: [], labSimulable: false },
         ],
       },
     })
@@ -300,8 +302,11 @@ describe('¿Qué mazo llevo hoy? and «Actualizar todos» (14/10)', () => {
     expect(missing.closest('li')).toHaveTextContent(/Mega-Blaziken ex.*con e2: 47,3/)
     expect(screen.getByRole('link', { name: '#77' })).toHaveAttribute('href', '/laboratorio/77')
     expect(screen.getByText('sin probar contra el meta con g2').closest('li')).toHaveTextContent('Hoopa ex')
-    expect(screen.getByText('2 mazos sin puntaje del Laboratorio con g2 de esta era.')).toBeInTheDocument()
+    expect(screen.getByText('2 mazos sin puntaje del Laboratorio de esta era con g2.')).toBeInTheDocument()
     expect(screen.queryByText(/sin probar contra el meta con e2/)).not.toBeInTheDocument()
+    const broken = screen.getByText('el motor no puede jugar esta lista').closest('li')
+    expect(broken).toHaveTextContent('Lista rota')
+    expect(broken).not.toHaveTextContent(/Actualizar todos|sin probar/)
   })
 
   it('no button when every deck has a score of this era or is under test', async () => {

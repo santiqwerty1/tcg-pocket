@@ -1541,13 +1541,16 @@ ${MCP_CHAT_INSTRUCTIONS}`
         // never filled with the other bot's number.
         ...(!row.lab && !row.labRunning && !row.labFailed
           ? {
-              labMissing: `sin puntaje con ${labBotLabel(LAB_DEFAULT_PLAYERS)}, el bot por defecto del Laboratorio${row.labOthers.length > 0 ? ' (los de otros bots van en labOtherBots y no lo reemplazan)' : ''}: «Actualizar todos» en ¿Cuál llevo hoy? lo mide`,
+              labMissing:
+                row.labSimulable === false
+                  ? 'sin puntaje del Laboratorio: el motor no puede jugar esta lista, así que «Actualizar todos» la deja afuera'
+                  : `sin puntaje con ${labBotLabel(LAB_DEFAULT_PLAYERS)}, el bot por defecto del Laboratorio${row.labOthers.length > 0 ? ' (los de otros bots van en labOtherBots y no lo reemplazan)' : ''}: «Actualizar todos» en ¿Cuál llevo hoy? lo mide`,
             }
           : {}),
       })),
       ...(view.labDue > 0
         ? {
-            labDue: `${view.labDue} ${view.labDue === 1 ? 'mazo' : 'mazos'} sin puntaje del Laboratorio con ${labBotLabel(LAB_DEFAULT_PLAYERS)} de esta era: «Actualizar todos» en ¿Cuál llevo hoy?`,
+            labDue: `${view.labDue} ${view.labDue === 1 ? 'mazo' : 'mazos'} sin puntaje del Laboratorio de esta era con ${labBotLabel(LAB_DEFAULT_PLAYERS)}: «Actualizar todos» en ¿Cuál llevo hoy?`,
           }
         : {}),
       note: view.note,

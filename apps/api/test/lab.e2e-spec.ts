@@ -601,6 +601,21 @@ describe('laboratorio (e2e)', () => {
       const view = (await get('/api/decks-today')).body as { items: Row[]; labDue: number }
       return { labDue: view.labDue, row: view.items.find((item) => item.deck.id === deckId) as Row }
     }
+    // A built deck the engine cannot play (2 cards): no score, and nothing asks «Actualizar todos» to measure it.
+    const source = (await get(`/api/decks/${deckId}`)).body as {
+      energies: string[]
+      cards: { card: { id: string }; count: number }[]
+    }
+    const broken = await post('/api/decks').send({
+      name: 'Lista rota D-029',
+      energies: source.energies,
+      cards: source.cards.slice(0, 1).map((entry) => ({ cardId: entry.card.id, count: 2 })),
+    })
+    expect(broken.status).toBe(201)
+    const brokenId = String(broken.body.id)
+    expect(
+      (await test.http().patch(`/api/decks/${brokenId}`).set('Cookie', cookie).send({ builtInGame: true })).status,
+    ).toBe(200)
     try {
       const e2 = await post('/api/lab/test').send({
         decks: [{ deckId }],
@@ -638,15 +653,27 @@ describe('laboratorio (e2e)', () => {
         'sin puntaje con g2, el bot por defecto del Laboratorio (los de otros bots van en labOtherBots y no lo reemplazan): «Actualizar todos» en ¿Cuál llevo hoy? lo mide',
       )
       expect(mine?.labOtherBots).toEqual([expect.stringMatching(/^con e2: /)])
-      expect(picked.structuredContent?.labDue).toMatch(/sin puntaje del Laboratorio con g2 de esta era/)
+      expect(picked.structuredContent?.labDue).toMatch(/sin puntaje del Laboratorio de esta era con g2/)
+      const brokenRow = picked.structuredContent?.decks?.find((row) => row.deck.startsWith(`#${brokenId} `))
+      expect(brokenRow?.labMissing).toBe(
+        'sin puntaje del Laboratorio: el motor no puede jugar esta lista, así que «Actualizar todos» la deja afuera',
+      )
+      expect(
+        ((await get('/api/decks-today')).body.items as { deck: { id: string }; labSimulable: boolean | null }[]).find(
+          (row) => row.deck.id === brokenId,
+        )?.labSimulable,
+      ).toBe(false)
 
       // «Actualizar todos» tests it with g2, and its plan estimates with g2's cost: about 3 times e2's.
       const plan = (await post('/api/decks-today/refresh').send({ dryRun: true })).body as {
         queued: string[]
+        notSimulable: string[]
         games: number
         estimatedSeconds: number
       }
       expect(plan.queued).toContain(deckId)
+      expect(plan.queued).not.toContain(brokenId)
+      expect(plan.notSimulable).toContain(brokenId)
       expect(plan.games).toBeGreaterThan(0)
       const cores = (await test.prisma.workerNode.findFirstOrThrow({ orderBy: { lastSeenAt: 'desc' } })).cores
       expect(plan.estimatedSeconds).toBe(Math.round(estimateSeconds(plan.games, ['g2', 'g2'], cores)))
@@ -665,6 +692,7 @@ describe('laboratorio (e2e)', () => {
       expect(after.labDue).toBe(before.labDue - 1)
     } finally {
       await patch(false)
+      await test.http().patch(`/api/decks/${brokenId}`).set('Cookie', cookie).send({ builtInGame: false })
     }
   })
 
@@ -2468,32 +2496,55 @@ describe('laboratorio (e2e)', () => {
     // «¿Cuál llevo hoy?» shows its score (`defaults`), with e2's apart.
     const jobs: Record<string, number> = {}
     const defaults: Record<string, number> = {}
-    for (const [deckId, seed] of [
+    const seeds = [
       [venusaur, 9300],
       [plain, 9301],
-    ] as const) {
-      // More games with e2, so the deck sheet's column (the bot pair with the most games) stays e2's.
+    ] as const
+    // 1.500 games per rival with e2: two chunks per pairing, more than the default bot's test below.
+    for (const [deckId, seed] of seeds) {
       const created = await post('/api/lab/test').send({
         decks: [{ deckId }],
         size: 3,
-        gamesPerRival: 30,
+        gamesPerRival: 1500,
         seed,
         players: ['e2', 'e2'],
       })
       expect(created.status).toBe(200)
       jobs[deckId] = created.body.id as number
+      expect((await patch(deckId, { builtInGame: true })).status).toBe(200)
+    }
+    expect(await playAll(() => 0)).toBeGreaterThanOrEqual(12)
+    // The deck sheet's simulation column: the list rules only (it pools the rivals each simulation chose). With only
+    // e2's games, e2's.
+    const columnOf = async (id: string) =>
+      (
+        (await get(`/api/decks/${id}/comparison`)).body.columns as {
+          source: string
+          note: string
+          blindSpot?: { text: string } | null
+        }[]
+      ).find((column) => column.source === 'simulation')
+    const ivysaur =
+      /^Posible punto ciego del bot: e2 casi nunca evoluciona a Ivysaur, que no hace daño, así que el mazo casi no llega a /
+    expect((await columnOf(venusaur))?.blindSpot?.text).toMatch(ivysaur)
+    expect((await columnOf(plain))?.blindSpot).toBeNull()
+    for (const [deckId, seed] of seeds) {
       const byDefault = await post('/api/lab/test').send({ decks: [{ deckId }], size: 3, gamesPerRival: 20, seed })
       expect(byDefault.status).toBe(200)
       expect(byDefault.body.players).toEqual(['g2', 'g2'])
       defaults[deckId] = byDefault.body.id as number
-      expect((await patch(deckId, { builtInGame: true })).status).toBe(200)
     }
-    expect(await playAll(() => 0)).toBeGreaterThanOrEqual(12)
+    expect(await playAll(() => 0)).toBeGreaterThanOrEqual(6)
+    // D-029: the column now shows the bot by default (g2), though e2 has more chunks, as «¿Cuál llevo hoy?» does; g2
+    // evolves into Ivysaur, so no list rule.
+    for (const deckId of [venusaur, plain]) {
+      const column = await columnOf(deckId)
+      expect(column?.note).toMatch(/^Bots expectiminimax sin trampa, profundidad 2 vs expectiminimax sin trampa/)
+      expect(column?.blindSpot).toBeNull()
+    }
     // Deck 2 plays the most played archetype of the bank, so it has a tournament number to be far from.
     const top = ((await get(`/api/lab/jobs/${jobs[plain]}`)).body.rivals as { archetypeId: string }[])[0]?.archetypeId
     expect((await patch(plain, { tournamentArchetypeId: top })).status).toBe(200)
-    const ivysaur =
-      /^Posible punto ciego del bot: e2 casi nunca evoluciona a Ivysaur, que no hace daño, así que el mazo casi no llega a /
     try {
       // The Laboratorio, on the list.
       const venusaurLab = (await get(`/api/lab/jobs/${jobs[venusaur]}`)).body
@@ -2648,13 +2699,6 @@ describe('laboratorio (e2e)', () => {
       } finally {
         await asFormat(String(params.lab.format))
       }
-      // The deck sheet's simulation column: the list rules only (it pools the rivals each simulation chose).
-      const columnOf = async (id: string) =>
-        ((await get(`/api/decks/${id}/comparison`)).body.columns as { source: string; blindSpot?: unknown }[]).find(
-          (column) => column.source === 'simulation',
-        )
-      expect(((await columnOf(venusaur))?.blindSpot as { text: string } | undefined)?.text).toMatch(ivysaur)
-      expect((await columnOf(plain))?.blindSpot).toBeNull()
       // Claude.
       const results = await call('lab_results', { job: jobs[venusaur] })
       expect((results.decks as { botBlindSpot?: string }[])[0]?.botBlindSpot).toMatch(ivysaur)

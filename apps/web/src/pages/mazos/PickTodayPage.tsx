@@ -101,7 +101,9 @@ function Row({
               ? ` · viejo: de la era ${row.lab.era}${row.lab.finishedAt ? `, del ${formatDateTime(row.lab.finishedAt)}` : ''}`
               : ''}
           </span>
-        ) : row.labRunning || row.labFailed ? null : row.labOthers.length > 0 ? (
+        ) : row.labRunning || row.labFailed ? null : row.labSimulable === false ? (
+          'el motor no puede jugar esta lista'
+        ) : row.labOthers.length > 0 ? (
           <span className="text-warning">sin puntaje con {LAB_BOT}, el bot por defecto: tocá «Actualizar todos»</span>
         ) : (
           `sin probar contra el meta con ${LAB_BOT}`
@@ -198,8 +200,8 @@ function RefreshLab({ due }: { due: number }) {
         </Button>
         <span className="text-xs text-muted-foreground">
           {due === 1
-            ? `Un mazo sin puntaje del Laboratorio con ${LAB_BOT} de esta era.`
-            : `${due} mazos sin puntaje del Laboratorio con ${LAB_BOT} de esta era.`}
+            ? `Un mazo sin puntaje del Laboratorio de esta era con ${LAB_BOT}.`
+            : `${due} mazos sin puntaje del Laboratorio de esta era con ${LAB_BOT}.`}
         </span>
       </div>
       <ConfirmDialog
@@ -211,7 +213,7 @@ function RefreshLab({ due }: { due: number }) {
         description={
           plan && decks > 0
             ? `${decks === 1 ? 'Un mazo' : `${decks} mazos`} contra el meta de ${plan.era} con ${LAB_BOT}: ${formatNumber(plan.games)} partidas, ~${formatDuration(plan.estimatedSeconds)} con los workers de hoy. Las pruebas del Laboratorio van antes que las demás simulaciones.`
-            : `No hay nada para actualizar: cada mazo ya tiene un puntaje con ${LAB_BOT} de esta era o se está probando.`
+            : `No hay nada para actualizar: cada mazo ya tiene un puntaje de esta era con ${LAB_BOT} o se está probando.`
         }
         confirmLabel={decks > 0 ? 'Probar' : 'Cerrar'}
         pending={refresh.isPending}

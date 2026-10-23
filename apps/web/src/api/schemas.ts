@@ -2701,6 +2701,8 @@ export const pickSchema = z.object({
         })
         .nullable()
         .default(null),
+      /** Whether the engine can play the list (null: unknown, as from a server from before the field). */
+      labSimulable: z.boolean().nullable().default(null),
       /** H-055: «posible punto ciego del bot» of the Laboratorio's number. */
       blindSpot: z.object({ text: z.string() }).nullable().default(null),
     }),

@@ -17,6 +17,7 @@ import {
   DEFAULT_BOT,
   DEFAULT_CONSISTENCY_GAMES,
   DEFAULT_CONSISTENCY_TURNS,
+  DEFAULT_PLAYERS,
   type DeckCardEntry,
   deckRecord,
   defaultKeyCards,
@@ -1413,7 +1414,9 @@ export class SimulationsService {
     })
     if (chunks.length === 0) return null
     // One engine and one bot pair, never mixed: the current deckgym first (after an update the old results stay
-    // apart), then its newest games revision (phase 42), then the bot pair with the most chunks.
+    // apart), then its newest games revision (phase 42), then the bot by default on both sides (D-029: g2 since
+    // 23/10/2026, the same number «¿Cuál llevo hoy?» shows), then the pair with the most chunks and, at a tie, the one
+    // with the newest job (a fixed order: the query has none).
     const currentRev = this.engine.engineRev()
     const byPlayers = new Map<string, typeof chunks>()
     for (const chunk of chunks) {
@@ -1422,8 +1425,15 @@ export class SimulationsService {
     }
     const isCurrent = (key: string) => (key.startsWith(`${currentRev}|`) ? 1 : 0)
     const revisionOf = (key: string) => Number(key.split('|')[1])
+    const isDefault = (key: string) => (key.split('|')[2] === DEFAULT_PLAYERS.join(',') ? 1 : 0)
+    const newest = (group: typeof chunks) => Math.max(...group.map((chunk) => chunk.jobId))
     const [groupKey, chosen] = [...byPlayers].sort(
-      (x, y) => isCurrent(y[0]) - isCurrent(x[0]) || revisionOf(y[0]) - revisionOf(x[0]) || y[1].length - x[1].length,
+      (x, y) =>
+        isCurrent(y[0]) - isCurrent(x[0]) ||
+        revisionOf(y[0]) - revisionOf(x[0]) ||
+        isDefault(y[0]) - isDefault(x[0]) ||
+        y[1].length - x[1].length ||
+        newest(y[1]) - newest(x[1]),
     )[0] as [string, typeof chunks]
     const pairKey = groupKey.split('|')[2] ?? ''
     const own = new Set(ids)
