@@ -2542,6 +2542,15 @@ describe('laboratorio (e2e)', () => {
       expect(column?.note).toMatch(/^Bots expectiminimax sin trampa, profundidad 2 vs expectiminimax sin trampa/)
       expect(column?.blindSpot).toBeNull()
     }
+    // The Laboratorio's notes per card follow the job's bot too: Ivysaur's is the e bots' clock, not g2's.
+    const cardNotes = async (id: number | undefined) =>
+      ((await get(`/api/lab/jobs/${id}`)).body.decks[0].blindSpots as { nameEs: string; reasons: string[] }[]).flatMap(
+        (card) => card.reasons.map((reason) => `${card.nameEs}: ${reason}`),
+      )
+    expect(await cardNotes(jobs[venusaur])).toContainEqual(
+      'Ivysaur: una evolución que no hace daño: los bots e casi nunca evolucionan a ella',
+    )
+    expect((await cardNotes(defaults[venusaur])).join(' | ')).not.toMatch(/evolucionan a ella|reloj del bot/)
     // Deck 2 plays the most played archetype of the bank, so it has a tournament number to be far from.
     const top = ((await get(`/api/lab/jobs/${jobs[plain]}`)).body.rivals as { archetypeId: string }[])[0]?.archetypeId
     expect((await patch(plain, { tournamentArchetypeId: top })).status).toBe(200)

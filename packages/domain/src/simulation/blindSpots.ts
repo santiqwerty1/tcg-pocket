@@ -9,6 +9,7 @@
  * - «discard a random Energy»: the engine always discards the last one;
  * - Mythical Slab: the engine checks «Basic» instead of «Psychic Pokémon».
  * (The second player also sees the first one's Active before choosing its own; that is no card's.)
+ * The first two are the bots', and a list played by another bot does not show them (`blindSpotApplies`).
  */
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
 import type { CardEdition, CardId } from '../catalog/types.js'
@@ -18,10 +19,24 @@ export type BlindSpot = 'variable_damage' | 'stage_without_damage' | 'deck_searc
 
 export const BLIND_SPOT_ES: Record<BlindSpot, string> = {
   variable_damage: 'daño variable: el reloj del bot solo cuenta el daño fijo',
-  stage_without_damage: 'una evolución que no hace daño: e2 casi nunca evoluciona a ella',
+  stage_without_damage: 'una evolución que no hace daño: los bots e casi nunca evolucionan a ella',
   deck_search: 'busca en el mazo: el motor ve el orden del mazo',
   random_energy: '«una Energía al azar»: el motor descarta siempre la última',
   mythical_slab: 'el motor mira «Básico» en vez de «Pokémon Psíquico»',
+}
+
+/**
+ * Whether a blind spot speaks of the bot that played the list (the Laboratorio, by its job's bot): the clock that counts
+ * only fixed damage is deckgym's, shared by e and f (f reads «N damage» out of a text, but takes an attack's fixed
+ * damage as what it does: docs/BOTS.md, line 1 of the bots), while g asks the engine for each attack's damage; the
+ * evolution without damage is only e's (f looks through the evolutions, H-018; g charges Ivysaur's Synthesis, g 1.1).
+ * The others are the engine's, with any bot. Without a bot (or with one of the others), every blind spot.
+ */
+export function blindSpotApplies(spot: BlindSpot, bot: string | null | undefined): boolean {
+  const kind = /^([efg])[1-9]$/.exec((bot ?? '').trim())?.[1]
+  if (spot === 'variable_damage') return kind !== 'g'
+  if (spot === 'stage_without_damage') return kind !== 'f' && kind !== 'g'
+  return true
 }
 
 const DAMAGE_WORD = /\b\d+\s*damage\b/i
@@ -85,10 +100,11 @@ export function blindSpotsOf(card: CardEdition): BlindSpot[] {
   return spots
 }
 
-/** A list's cards with blind spots, once per functional card, in list order. */
+/** A list's cards with blind spots, once per functional card, in list order; with a bot, only the ones it has. */
 export function listBlindSpots(
   cards: readonly DeckCardEntry[],
   index: CatalogIndex,
+  bot?: string | null,
 ): { cardId: CardId; nameEs: string; spots: BlindSpot[] }[] {
   const out: { cardId: CardId; nameEs: string; spots: BlindSpot[] }[] = []
   const seen = new Set<CardId>()
@@ -96,7 +112,7 @@ export function listBlindSpots(
     const card = index.cardById(entry.cardId)
     if (!card || seen.has(card.functionalGroupId)) continue
     seen.add(card.functionalGroupId)
-    const spots = blindSpotsOf(card)
+    const spots = blindSpotsOf(card).filter((spot) => blindSpotApplies(spot, bot))
     if (spots.length > 0) out.push({ cardId: card.id, nameEs: card.nameEs, spots })
   }
   return out
