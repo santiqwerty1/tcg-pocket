@@ -164,6 +164,8 @@ model Card {
   nameEsSource         String           @map("name_es_source")
   hp                   Int?
   energy               String
+  /// Every printed type of a Pokémon (two for the dual-type cards of C1); empty for trainers.
+  types                String[]         @default([])
   cardType             String           @map("card_type")
   evolutionType        String           @map("evolution_type")
   evolvesFrom          String?          @map("evolves_from")
