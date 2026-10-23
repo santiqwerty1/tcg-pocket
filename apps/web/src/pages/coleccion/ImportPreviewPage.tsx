@@ -3,13 +3,21 @@ import { useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { useApplyImport, useDiscardImport, useImport, useResolveAdjustment } from '@/api/collection'
+import { useApplyDotgg } from '@/api/dotgg'
 import { useApplyTracker } from '@/api/trackerSync'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { ErrorState, LoadingRows, Spinner } from '@/components/ListState'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { formatDateTime } from '@/lib/format'
+import { formatDateTime, formatNumber } from '@/lib/format'
 import { ImportPreviewView } from './ImportPreviewView'
+
+/** «Bajan 20 copias de las 100 actuales.», with the singular and the thousands separator. */
+function dropText(removed: number, current: number): string {
+  const drop = removed === 1 ? 'Baja 1 copia' : `Bajan ${formatNumber(removed)} copias`
+  const of = current === 1 ? 'de la única actual' : `de las ${formatNumber(current)} actuales`
+  return `${drop} ${of}.`
+}
 
 export function ImportPreviewPage() {
   const { importId } = useParams()
@@ -17,6 +25,7 @@ export function ImportPreviewPage() {
   const preview = useImport(importId)
   const apply = useApplyImport()
   const trackerApply = useApplyTracker()
+  const dotggApply = useApplyDotgg()
   const discard = useDiscardImport()
   const resolve = useResolveAdjustment()
   const [confirmDiscard, setConfirmDiscard] = useState(false)
@@ -27,11 +36,13 @@ export function ImportPreviewPage() {
   if (preview.isError) return <ErrorState error={preview.error} onRetry={() => preview.refetch()} />
   const data = preview.data
   const blocked = data.errors.length > 0 || data.twinConflicts.length > 0
+  const applier = data.source === 'tracker' ? trackerApply : data.source === 'dotgg' ? dotggApply : apply
+  const review = data.tracker ?? data.dotgg
 
   async function applyImport() {
     if (!importId) return
     try {
-      const result = await (data.source === 'tracker' ? trackerApply : apply).mutateAsync(importId)
+      const result = await applier.mutateAsync(importId)
       toast.success(
         result.summary ? `Import aplicado: ${result.summary.unitsChanged} unidades cambiaron` : 'Import aplicado',
       )
@@ -80,7 +91,7 @@ export function ImportPreviewPage() {
 
       <ImportPreviewView
         preview={data}
-        {...(data.status === 'pending' && data.source !== 'tracker'
+        {...(data.status === 'pending' && data.source === 'csv'
           ? { onResolveAdjustment: resolveAdjustment, resolvingId }
           : {})}
       />
@@ -90,10 +101,10 @@ export function ImportPreviewPage() {
           <Button
             className="flex-1"
             size="lg"
-            onClick={() => (data.tracker?.requiresReview ? setConfirmApply(true) : void applyImport())}
-            disabled={blocked || apply.isPending || trackerApply.isPending}
+            onClick={() => (review?.requiresReview ? setConfirmApply(true) : void applyImport())}
+            disabled={blocked || applier.isPending}
           >
-            {apply.isPending || trackerApply.isPending ? <Spinner /> : null}
+            {applier.isPending ? <Spinner /> : null}
             Aplicar
           </Button>
           <Button variant="outline" size="lg" onClick={() => setConfirmDiscard(true)} disabled={discard.isPending}>
@@ -105,11 +116,11 @@ export function ImportPreviewPage() {
       <ConfirmDialog
         open={confirmApply}
         onOpenChange={setConfirmApply}
-        title="¿Aplicar los cambios del tracker?"
-        description={`Bajan ${data.tracker?.removedCopies ?? 0} copias de las ${data.tracker?.currentCopies ?? 0} actuales. ${data.tracker?.reviewReasons?.join(' ') ?? 'Revisá los cambios antes de confirmar.'}`}
+        title={data.source === 'dotgg' ? '¿Aplicar los cambios de ptcgpocket.gg?' : '¿Aplicar los cambios del tracker?'}
+        description={`${dropText(review?.removedCopies ?? 0, review?.currentCopies ?? 0)} ${review?.reviewReasons?.join(' ') ?? 'Revisá los cambios antes de confirmar.'}`}
         confirmLabel="Aplicar cambios"
         destructive
-        pending={trackerApply.isPending}
+        pending={applier.isPending}
         onConfirm={applyImport}
       />
       <ConfirmDialog

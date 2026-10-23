@@ -1,13 +1,16 @@
-import { ConflictException, Inject, Injectable, type OnModuleInit } from '@nestjs/common'
+import { ConflictException, Inject, Injectable, type OnModuleInit, UnprocessableEntityException } from '@nestjs/common'
 import { Cron, CronExpression } from '@nestjs/schedule'
 import {
   type BuildCounts,
+  type BuildReport,
   buildCatalogWithReport,
   type CatalogDiff,
+  CatalogInputError,
   type CatalogRemap,
   diffCatalog,
   isEmptyDiff,
   planCatalogRemap,
+  type UnknownTrackerField,
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { ENV, type Env } from '../config/env.js'
@@ -46,8 +49,17 @@ export interface CatalogPreview {
   remap: { needsReview: boolean; empty: boolean; notes: { kind: string; review: boolean; text: string }[] } | null
   /** Of the editions added: how many the engine plays (from the card status a worker uploaded), and with which rev. */
   engine: { engineRev: string | null; plays: number; incomplete: number; unknown: number }
-  /** Applying needs `confirm: true` (it would take the owner's cards away or leave things to review). */
+  /**
+   * Applying needs `confirm: true`: it would take the owner's cards away or leave things to review, or the tracker
+   * brings fields the catalog does not read (`unknownFields`).
+   */
   destructive: boolean
+  /** `cards.json` fields the catalog does not read (C1: a second type written apart), with how many cards carry each. */
+  unknownFields: UnknownTrackerField[]
+  /** Editions whose printed types change (the first 50), as «water» → «water/darkness». */
+  typeChanges: { cardId: string; nameEs: string; from: string; to: string }[]
+  /** New editions with two types (the first 50): what to check of C1 before applying. */
+  addedDualTypes: { cardId: string; nameEs: string; types: string[] }[]
   /**
    * The catalog state this preview was computed against (loaded commit and last sync). «Aplicar» sends it back, and
    * the sync is refused if the catalog changed in between (another tab, a manual sync): the user confirmed what this
@@ -57,9 +69,16 @@ export interface CatalogPreview {
   warnings: string[]
 }
 
-/** Cards leave the catalog, or the remap had to drop or guess something of the owner's. */
-function isDestructive(diff: CatalogDiff | null, remap: CatalogRemap | null): boolean {
-  return (diff?.removed.length ?? 0) > 0 || (remap?.needsReview ?? false)
+/**
+ * Applying from the app needs confirming: cards leave the catalog, the remap had to drop or guess something of the
+ * owner's, or the tracker brings a field the catalog does not read (C1: a second type written apart would be lost).
+ */
+function isDestructive(
+  diff: CatalogDiff | null,
+  remap: CatalogRemap | null,
+  report: Pick<BuildReport, 'unknownTrackerFields'>,
+): boolean {
+  return (diff?.removed.length ?? 0) > 0 || (remap?.needsReview ?? false) || report.unknownTrackerFields.length > 0
 }
 
 /** A guarded sync that would take the owner's cards away, not confirmed: the row says why, nothing was written. */
@@ -98,6 +117,7 @@ function diffCounts(diff: CatalogDiff): DiffCounts {
     stockChanged: diff.stockChanged.length,
     groupChanged: diff.groupChanged.length,
     nameChanged: diff.nameChanged.length,
+    typesChanged: diff.typesChanged.length,
     expansionsAdded: diff.expansionsAdded.length,
     expansionsRemoved: diff.expansionsRemoved.length,
   }
@@ -115,6 +135,8 @@ function changeRows(diff: CatalogDiff): SyncChangeRow[] {
     rows.push({ cardId: change.cardId, field: 'functionalGroupId', old: change.from, new: change.to })
   for (const change of diff.nameChanged)
     rows.push({ cardId: change.cardId, field: change.field, old: change.from, new: change.to })
+  for (const change of diff.typesChanged)
+    rows.push({ cardId: change.cardId, field: 'types', old: change.from, new: change.to })
   return rows.slice(0, MAX_CHANGE_ROWS)
 }
 
@@ -269,7 +291,16 @@ export class CatalogSyncService implements OnModuleInit {
       removed: (diff?.removed ?? []).slice(0, 50).map((cardId) => ({ cardId, nameEs: names.get(cardId) ?? cardId })),
       remap: remap ? { needsReview: remap.needsReview, empty: remap.empty, notes: notes.slice(0, 50) } : null,
       engine,
-      destructive: isDestructive(diff, remap),
+      destructive: isDestructive(diff, remap, report),
+      unknownFields: report.unknownTrackerFields,
+      typeChanges: (diff?.typesChanged ?? []).slice(0, 50).map((change) => ({
+        ...change,
+        nameEs: catalog.cards.find((card) => card.id === change.cardId)?.nameEs ?? change.cardId,
+      })),
+      addedDualTypes: addedCards
+        .filter((card) => card.types.length > 1)
+        .slice(0, 50)
+        .map((card) => ({ cardId: card.id, nameEs: card.nameEs, types: [...card.types] })),
       baseline,
       warnings: prepared.warnings,
     }
@@ -311,8 +342,8 @@ export class CatalogSyncService implements OnModuleInit {
 
   /** Fetch, build, diff and plan the remap: everything but writing. */
   private async prepare(request: SyncRequest) {
-    const sources = await this.loadSources(request)
-    const { catalog, report } = buildCatalogWithReport(sources.input)
+    const { sources, built } = await this.loadAndBuild(request)
+    const { catalog, report } = built
     const previous = await this.repository.loadCatalog()
     const diff = previous ? diffCatalog(previous.catalog, catalog) : null
     // I12 (Fase 21): editions that moved between stock units or groups, or left the catalog, take the owner's data
@@ -410,9 +441,11 @@ export class CatalogSyncService implements OnModuleInit {
       )
       await this.prisma.catalogSync.update({ where: { id: syncId }, data: { fileHashes } })
       const needsReview = remap?.needsReview ?? false
-      if (request.guard && !request.confirm && isDestructive(diff, remap)) {
+      if (request.guard && !request.confirm && isDestructive(diff, remap, report)) {
         throw new ConfirmRequiredError(
-          'Hace falta confirmar: esta actualización saca cartas del catálogo, de la colección o de los mazos (o deja cosas para revisar). Mirá la vista previa y confirmala.',
+          report.unknownTrackerFields.length > 0
+            ? `Hace falta confirmar: el tracker trae campos que el catálogo no lee (${report.unknownTrackerFields.map((item) => item.field).join(', ')}), y una carta podría entrar con datos de menos. Mirá la vista previa y confirmala.`
+            : 'Hace falta confirmar: esta actualización saca cartas del catálogo, de la colección o de los mazos (o deja cosas para revisar). Mirá la vista previa y confirmala.',
         )
       }
 
@@ -463,6 +496,23 @@ export class CatalogSyncService implements OnModuleInit {
     } finally {
       clearInterval(beat)
       this.running = false
+    }
+  }
+
+  /**
+   * Downloads and builds. Data the catalog cannot read (C1: a type written in a way it does not know) is a 422 that
+   * names the file, the card and the value, for the preview and the sync row, instead of a generic 500.
+   */
+  private async loadAndBuild(request: SyncRequest) {
+    try {
+      const sources = await this.loadSources(request)
+      return { sources, built: buildCatalogWithReport(sources.input) }
+    } catch (error) {
+      if (!(error instanceof CatalogInputError)) throw error
+      throw new UnprocessableEntityException({
+        code: 'catalog_unreadable',
+        message: `No se pudo leer el catálogo de ese commit: ${error.message}`,
+      })
     }
   }
 

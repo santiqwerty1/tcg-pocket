@@ -264,6 +264,7 @@ enum CollectionStockSource {
   import
   manual
   tracker
+  dotgg
 
   @@map("collection_stock_source")
 }
@@ -618,6 +619,15 @@ model AppSetting {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("app_settings")
+}
+
+/// Server-side secrets (T-020: the ptcgpocket.gg export link), sealed with SecretBox. Never served, logged or backed up.
+model AppSecret {
+  key       String   @id
+  value     String
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("app_secrets")
 }
 
 model BackupBlob {

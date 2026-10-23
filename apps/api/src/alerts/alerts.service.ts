@@ -60,6 +60,7 @@ export interface AlertView {
     | 'database_size'
     | 'backup_offsite'
     | 'tracker_sync'
+    | 'dotgg_sync'
     | 'search_old_engine'
     | 'chat_moved'
   level: 'info' | 'warning'
@@ -300,6 +301,22 @@ export class AlertsService {
           ? `${new Date(trackerWarning.at).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}: ${trackerWarning.message}`
           : trackerWarning.message,
         link: trackerWarning.previewId ? `/coleccion/importar/${trackerWarning.previewId}` : '/mas/ajustes',
+      })
+    // T-020: the daily sync with ptcgpocket.gg left something to look at (its messages never carry the link).
+    const dotggWarning = (await this.prisma.appSetting.findUnique({ where: { key: 'dotggSyncWarning' } }))?.value as
+      | { at?: string; message?: string; previewId?: string | null }
+      | null
+      | undefined
+    if (dotggWarning?.message)
+      alerts.push({
+        code: 'dotgg_sync',
+        level: 'warning',
+        // A stable title: the watcher pushes each title once.
+        title: 'Revisar sincronización con ptcgpocket.gg',
+        detail: dotggWarning.at
+          ? `${new Date(dotggWarning.at).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}: ${dotggWarning.message}`
+          : dotggWarning.message,
+        link: dotggWarning.previewId ? `/coleccion/importar/${dotggWarning.previewId}` : '/mas/ajustes',
       })
     // Fase 35: the monthly restore drill failed, or the last one is more than 40 days old.
     const drill = (await this.prisma.appSetting.findUnique({ where: { key: 'backupDrill' } }))?.value as

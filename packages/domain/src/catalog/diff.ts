@@ -3,6 +3,7 @@
  * internal ids that changed, groups or stock units that split or merged, and names that fell back to English).
  * Identity is the card id; everything else is compared per card.
  */
+import { typesOf } from './pokemonTypes.js'
 import type { CardId, Catalog, ExpansionId } from './types.js'
 
 export interface CardFieldChange<T> {
@@ -25,6 +26,8 @@ export interface CatalogDiff {
   stockChanged: CardFieldChange<CardId>[]
   groupChanged: CardFieldChange<CardId>[]
   nameChanged: NameChange[]
+  /** Printed types that changed, as «water» → «water/darkness» (C1: a card that gains or loses its second type). */
+  typesChanged: CardFieldChange<string>[]
   expansionsAdded: ExpansionId[]
   expansionsRemoved: ExpansionId[]
 }
@@ -37,6 +40,7 @@ export function isEmptyDiff(diff: CatalogDiff): boolean {
     diff.stockChanged.length === 0 &&
     diff.groupChanged.length === 0 &&
     diff.nameChanged.length === 0 &&
+    diff.typesChanged.length === 0 &&
     diff.expansionsAdded.length === 0 &&
     diff.expansionsRemoved.length === 0
   )
@@ -50,6 +54,7 @@ export function diffCatalog(prev: Catalog, next: Catalog): CatalogDiff {
     stockChanged: [],
     groupChanged: [],
     nameChanged: [],
+    typesChanged: [],
     expansionsAdded: [],
     expansionsRemoved: [],
   }
@@ -77,6 +82,8 @@ export function diffCatalog(prev: Catalog, next: Catalog): CatalogDiff {
     if (before.nameEs !== card.nameEs) {
       diff.nameChanged.push({ cardId: card.id, field: 'nameEs', from: before.nameEs, to: card.nameEs })
     }
+    const [typesBefore, typesAfter] = [typesOf(before).join('/'), typesOf(card).join('/')]
+    if (typesBefore !== typesAfter) diff.typesChanged.push({ cardId: card.id, from: typesBefore, to: typesAfter })
   }
   for (const card of prev.cards) {
     if (!nextCards.has(card.id)) diff.removed.push(card.id)

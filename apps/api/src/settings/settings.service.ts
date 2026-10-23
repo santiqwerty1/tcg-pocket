@@ -8,6 +8,8 @@ import { PrismaService } from '../prisma/prisma.service.js'
 export const SETTING_KEYS = [
   'trackerFriendId',
   'trackerAutoSync',
+  /** T-020: the daily sync with ptcgpocket.gg (off by default). The link itself is not a setting: see DotggLinkStore. */
+  'dotggAutoSync',
   'ui',
   'alpha',
   'rarityFilter',
@@ -34,6 +36,12 @@ export const SETTING_KEYS = [
 ] as const
 export type SettingKey = (typeof SETTING_KEYS)[number]
 
+/**
+ * Rows of `app_settings` the server keeps for itself and `GET /api/settings` does not serve: the keyed fingerprint of
+ * the ptcgpocket.gg link the last sync was read from (T-020; it travels in the backup so a restore can tell the links).
+ */
+export const SERVER_ONLY_SETTINGS: ReadonlySet<string> = new Set(['dotggLastAppliedLink'])
+
 export function isSettingKey(key: string): key is SettingKey {
   return (SETTING_KEYS as readonly string[]).includes(key)
 }
@@ -44,14 +52,16 @@ export class SettingsService {
 
   async all(): Promise<Record<string, unknown>> {
     const rows = await this.prisma.appSetting.findMany({ orderBy: { key: 'asc' } })
-    return Object.fromEntries(rows.map((row) => [row.key, row.value]))
+    return Object.fromEntries(
+      rows.filter((row) => !SERVER_ONLY_SETTINGS.has(row.key)).map((row) => [row.key, row.value]),
+    )
   }
 
   async set(key: string, value: unknown): Promise<{ key: string; value: unknown }> {
     if (key === 'trackerFriendId' && (typeof value !== 'string' || (value !== '' && !/^\d{16}$/.test(value)))) {
       throw new BadRequestException({ code: 'validation', message: 'Pegá el friend_id de 16 dígitos del tracker.' })
     }
-    if (key === 'trackerAutoSync' && typeof value !== 'boolean') {
+    if ((key === 'trackerAutoSync' || key === 'dotggAutoSync') && typeof value !== 'boolean') {
       throw new BadRequestException({
         code: 'validation',
         message: 'La sincronización automática debe ser verdadera o falsa.',
@@ -66,7 +76,7 @@ export class SettingsService {
     }
     const json = JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
     const row = await this.prisma.$transaction(async (tx) => {
-      if (key === 'trackerAutoSync' || key === 'trackerFriendId')
+      if (key === 'trackerAutoSync' || key === 'trackerFriendId' || key === 'dotggAutoSync')
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(994202)`
       const saved = await tx.appSetting.upsert({
         where: { key },
@@ -75,6 +85,8 @@ export class SettingsService {
       })
       if ((key === 'trackerAutoSync' && value === false) || key === 'trackerFriendId')
         await tx.appSetting.deleteMany({ where: { key: 'trackerSyncWarning' } })
+      if (key === 'dotggAutoSync' && value === false)
+        await tx.appSetting.deleteMany({ where: { key: 'dotggSyncWarning' } })
       return saved
     })
     return { key: row.key, value: row.value }

@@ -12,7 +12,7 @@ const out = join(root, 'packages/domain/test/fixtures')
 // the sync refuses (an energy_type outside energy_types, say) also stops the extraction. Needs `pnpm -F @tcg/domain build`.
 const domainDist = join(root, 'packages/domain/dist/index.js')
 if (!existsSync(domainDist)) throw new Error('Build the domain first: pnpm -F @tcg/domain build')
-const { engineTypeFields } = await import(pathToFileURL(domainDist).href)
+const { engineTypeFields, parseEngineCards } = await import(pathToFileURL(domainDist).href)
 mkdirSync(join(out, 'tracker'), { recursive: true })
 mkdirSync(join(out, 'deckgym'), { recursive: true })
 
@@ -30,7 +30,6 @@ const copies = [
   // Fase 22: which card images exist in Spanish.
   ['frontend/assets/image-locales.json', 'tracker/image-locales.json'],
 ]
-for (const [src, dst] of copies) copyFileSync(join(tracker, src), join(out, dst))
 
 // deckgym database.json is 2.6 MB; keep only what the catalog needs.
 const db = JSON.parse(readFileSync(join(deckgym, 'database.json'), 'utf8'))
@@ -50,5 +49,8 @@ const compact = db.map((entry) => {
       }
     : { id: v.id, kind: 'trainer', name: v.name, trainerType: v.trainer_card_type, rarity: v.rarity }
 })
+// What a real sync refuses (a repeated type, say) is refused here too, before any fixture is written.
+parseEngineCards(compact)
+for (const [src, dst] of copies) copyFileSync(join(tracker, src), join(out, dst))
 writeFileSync(join(out, 'deckgym/engine-cards.json'), `${JSON.stringify(compact)}\n`)
 console.log(`fixtures written: ${copies.length} tracker files, ${compact.length} engine cards`)

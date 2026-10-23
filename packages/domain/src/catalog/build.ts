@@ -112,8 +112,19 @@ export interface BuildReport {
   groupsWithMixedRules: CardId[]
   /** Group ids whose editions do not all share the same English name (should be empty). */
   groupsWithMixedNames: CardId[]
+  /**
+   * `cards.json` fields the catalog neither reads nor leaves out on purpose (C1: a second type written apart would
+   * land here). Applying from the app asks for confirmation while there is any.
+   */
+  unknownTrackerFields: UnknownTrackerField[]
   /** Human-readable anomalies that did not stop the build. */
   warnings: string[]
+}
+
+export interface UnknownTrackerField {
+  field: string
+  /** How many cards carry it. */
+  cards: number
 }
 
 export interface BuildResult {
@@ -126,6 +137,52 @@ export class CatalogBuildError extends Error {
     super(message)
     this.name = 'CatalogBuildError'
   }
+}
+
+/**
+ * The tracker's or the engine's data cannot be read (C1: a type written in a way the catalog does not know). The
+ * message names the file, the card and the value, so the preview can say what to fix; nothing in it is secret. A kind
+ * of `CatalogBuildError`: the build is pure, so anything that stops it comes from its input.
+ */
+export class CatalogInputError extends CatalogBuildError {
+  constructor(message: string) {
+    super(message)
+    this.name = 'CatalogInputError'
+  }
+}
+
+interface IssueLike {
+  path: readonly PropertyKey[]
+  message: string
+}
+
+/** Up to three problems of a failed parse, each with where it is (`C1-5.energy`) and why. */
+function describeParseError(error: unknown, rowLabel?: (index: number) => string | undefined): string {
+  const issues = (error as { issues?: unknown }).issues
+  if (!Array.isArray(issues) || issues.length === 0) return error instanceof Error ? error.message : String(error)
+  const parts = (issues as IssueLike[]).slice(0, 3).map((issue) => {
+    const [first, ...rest] = issue.path
+    const row = typeof first === 'number' ? rowLabel?.(first) : undefined
+    const where = row ? [row, ...rest.map(String)].join('.') : issue.path.map(String).join('.')
+    return where ? `${where}: ${issue.message}` : issue.message
+  })
+  return issues.length > 3 ? `${parts.join('; ')} (and ${issues.length - 3} more)` : parts.join('; ')
+}
+
+/** Runs one parse of the input; a failure becomes a `CatalogInputError` that says which file and row. */
+export function readCatalogInput<T>(what: string, parse: () => T, rowLabel?: (index: number) => string | undefined): T {
+  try {
+    return parse()
+  } catch (error) {
+    if (error instanceof CatalogInputError) throw error
+    throw new CatalogInputError(`${what}: ${describeParseError(error, rowLabel)}`)
+  }
+}
+
+/** The card id of row `index` of the raw `cards.json`, when it has one. */
+function cardIdAt(cardsJson: unknown, index: number): string | undefined {
+  const row = Array.isArray(cardsJson) ? (cardsJson[index] as { card_id?: unknown } | undefined) : undefined
+  return typeof row?.card_id === 'string' ? row.card_id : undefined
 }
 
 function cardNumberOf(cardId: CardId, expansionId: ExpansionId): number {
@@ -192,18 +249,25 @@ interface ParsedInput {
 
 function parseInput(input: BuildCatalogInput): ParsedInput {
   return {
-    cards: parseTrackerCards(input.cardsJson),
+    cards: readCatalogInput(
+      'cards.json',
+      () => parseTrackerCards(input.cardsJson),
+      (index) => cardIdAt(input.cardsJson, index),
+    ),
     translations: {
-      pokemon: parseTranslationTable(input.translations.pokemon),
-      trainers: parseTranslationTable(input.translations.trainers),
-      tools: parseTranslationTable(input.translations.tools),
+      pokemon: readCatalogInput('pokemon_translations.json', () => parseTranslationTable(input.translations.pokemon)),
+      trainers: readCatalogInput('trainers_translations.json', () =>
+        parseTranslationTable(input.translations.trainers),
+      ),
+      tools: readCatalogInput('tools_translations.json', () => parseTranslationTable(input.translations.tools)),
     },
-    expansions: parseExpansionsFromCardsDb(input.cardsDbSource),
-    expansionIds: parseExpansionIds(input.typesIndexSource),
-    esSets: parseLocaleTable(input.esSets),
-    esPacks: parseLocaleTable(input.esPacks),
-    enSets: input.enSets === undefined ? {} : parseLocaleTable(input.enSets),
-    enPacks: input.enPacks === undefined ? {} : parseLocaleTable(input.enPacks),
+    expansions: readCatalogInput('CardsDB.ts expansions', () => parseExpansionsFromCardsDb(input.cardsDbSource)),
+    expansionIds: readCatalogInput('types/index.ts', () => parseExpansionIds(input.typesIndexSource)),
+    esSets: readCatalogInput('es-ES sets.json', () => parseLocaleTable(input.esSets)),
+    esPacks: readCatalogInput('es-ES packs.json', () => parseLocaleTable(input.esPacks)),
+    enSets: input.enSets === undefined ? {} : readCatalogInput('en-US sets.json', () => parseLocaleTable(input.enSets)),
+    enPacks:
+      input.enPacks === undefined ? {} : readCatalogInput('en-US packs.json', () => parseLocaleTable(input.enPacks)),
   }
 }
 
@@ -213,7 +277,7 @@ const KNOWN_TRACKER_FIELDS: ReadonlySet<string> = new Set([...TRACKER_CARD_FIELD
  * The `cards.json` fields the catalog neither reads nor ignores on purpose, with how many cards carry each: the schema
  * drops them silently, so the report names them («a field may carry a second type»). Run after the schema passed.
  */
-export function unknownTrackerFields(cardsJson: unknown): string[] {
+export function unknownTrackerFields(cardsJson: unknown): UnknownTrackerField[] {
   if (!Array.isArray(cardsJson)) return []
   const counts = new Map<string, number>()
   for (const row of cardsJson) {
@@ -222,9 +286,12 @@ export function unknownTrackerFields(cardsJson: unknown): string[] {
       if (!KNOWN_TRACKER_FIELDS.has(key)) counts.set(key, (counts.get(key) ?? 0) + 1)
     }
   }
-  return [...counts]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, count]) => `cards.json has a field the catalog does not read: '${key}' (${count} cards)`)
+  return [...counts].sort(([a], [b]) => a.localeCompare(b)).map(([field, cards]) => ({ field, cards }))
+}
+
+/** The warning for an unknown field, as the sync report and the preview show it. */
+export function unknownTrackerFieldWarning({ field, cards }: UnknownTrackerField): string {
+  return `cards.json has a field the catalog does not read: '${field}' (${cards} cards)`
 }
 
 /**
@@ -246,16 +313,36 @@ function knownPackStructure(
   return null
 }
 
+/**
+ * Builds the catalog from the tracker's and the engine's data. Every failure after the pins are checked is a
+ * `CatalogInputError` (a 422 in the preview): the build reads no network and no database, so whatever stops it —
+ * a schema, a card id the engine bridge cannot map, a duplicate, an undeclared expansion — comes from the data.
+ */
 export function buildCatalogWithReport(input: BuildCatalogInput): BuildResult {
   if (!input.trackerCommit) throw new CatalogBuildError('trackerCommit is required')
   if (!input.engineRev) throw new CatalogBuildError('engineRev is required')
+  try {
+    return buildFromInput(input)
+  } catch (error) {
+    if (error instanceof CatalogInputError) throw error
+    throw new CatalogInputError(`catalog build: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+function buildFromInput(input: BuildCatalogInput): BuildResult {
   const parsed = parseInput(input)
   const { cards, translations } = parsed
   const warnings: string[] = []
-  const craftingCost = parseCraftingCostFromCardsDb(input.cardsDbSource)
-  const engineJoin = joinEngineData(cards, parseEngineCards(input.engineCards))
+  const craftingCost = readCatalogInput('CardsDB.ts craftingCost', () =>
+    parseCraftingCostFromCardsDb(input.cardsDbSource),
+  )
+  const engineJoin = joinEngineData(
+    cards,
+    readCatalogInput('deckgym database.json', () => parseEngineCards(input.engineCards)),
+  )
   // C1: a field the catalog does not know may carry something it should read (a second type written apart, say).
-  for (const warning of unknownTrackerFields(input.cardsJson)) warnings.push(warning)
+  const unknownFields = unknownTrackerFields(input.cardsJson)
+  for (const field of unknownFields) warnings.push(unknownTrackerFieldWarning(field))
 
   // --- Expansions in catalog order (first appearance in cards.json), then CardsDB-only ones. ---
   const trackerExpansionById = new Map(parsed.expansions.map((expansion) => [expansion.id, expansion]))
@@ -370,9 +457,9 @@ export function buildCatalogWithReport(input: BuildCatalogInput): BuildResult {
       if (attack.damage.trim() !== '0' && isDamageNoise(attack.damage)) counts.damageNoiseAttacks += 1
     }
     if (raw.ability && /Illustrated by/.test(raw.ability.effect)) counts.cleanedTrainerEffects += 1
-    const attacks = raw.attacks.map(normalizeAttack)
+    const attacks = readCatalogInput(`cards.json ${raw.card_id}`, () => raw.attacks.map(normalizeAttack))
     const ability = normalizeAbility(raw.ability)
-    const weakness = normalizeWeakness(raw.weakness)
+    const weakness = readCatalogInput(`cards.json ${raw.card_id}`, () => normalizeWeakness(raw.weakness))
     const localized = cardNameEs(
       { name: raw.name, cardType, evolutionType: raw.evolution_type, ex: raw.ex },
       translations,
@@ -535,7 +622,9 @@ export function buildCatalogWithReport(input: BuildCatalogInput): BuildResult {
   const knownCards = new Set(editions.map((card) => card.id))
   const missions: Mission[] = []
   for (const [expansionId, raw] of Object.entries(input.missions ?? {})) {
-    const parsed = parseMissions(raw, (cardId) => knownCards.has(cardId))
+    const parsed = readCatalogInput(`${expansionId}-missions.json`, () =>
+      parseMissions(raw, (cardId) => knownCards.has(cardId)),
+    )
     missions.push(...parsed.missions)
     for (const warning of parsed.warnings) warnings.push(`${expansionId} ${warning}`)
   }
@@ -562,6 +651,7 @@ export function buildCatalogWithReport(input: BuildCatalogInput): BuildResult {
     unmatchedEngineIds: engineJoin.unmatchedEngineIds,
     groupsWithMixedRules,
     groupsWithMixedNames,
+    unknownTrackerFields: unknownFields,
     warnings,
   }
   return { catalog, report }

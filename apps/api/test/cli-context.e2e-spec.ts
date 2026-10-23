@@ -1,4 +1,5 @@
 import { SchedulerRegistry } from '@nestjs/schedule'
+import { DEFAULT_SET_RELEASES } from '@tcg/domain'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import webpush from 'web-push'
 import { createCliApplication } from '../src/cli/context.js'
@@ -105,7 +106,8 @@ describe('CLI context (e2e)', () => {
     await cli.close()
     expect(await test.prisma.setRelease.count()).toBe(0)
     await test.app.get(TournamentSettings).seedSets()
-    expect(await test.prisma.setRelease.count()).toBe(sets)
+    // All the known sets, those after the fixtures' day (C1) too, which createTestApp takes out.
+    expect(await test.prisma.setRelease.count()).toBe(DEFAULT_SET_RELEASES.length)
 
     expect(await test.prisma.catalogSync.findUniqueOrThrow({ where: { id: sync.id } })).toEqual(before.sync)
     expect(await test.prisma.limitlessSyncRun.findUniqueOrThrow({ where: { id: run.id } })).toEqual(before.run)

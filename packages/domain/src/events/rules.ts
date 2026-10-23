@@ -7,6 +7,7 @@
  */
 import { z } from 'zod'
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
+import { typesOf } from '../catalog/pokemonTypes.js'
 import { type CardEdition, type CardId, ENERGY_TYPES, type EnergyType, RARITIES } from '../catalog/types.js'
 import type { DeckCardEntry } from '../decks/types.js'
 
@@ -27,9 +28,9 @@ export const ENERGY_TYPE_NAME_ES: Record<EnergyType, string> = {
 }
 
 export const eventRulesSchema = z.object({
-  /** Every Pokémon of the deck is of one of these types. */
+  /** Every Pokémon of the deck is of one of these types (a dual-type Pokémon, of either of its two). */
   types: z.array(z.enum(ENERGY_TYPES)).min(1).max(10).optional(),
-  /** At least `count` Pokémon cards (copies) of this type. */
+  /** At least `count` Pokémon cards (copies) of this type (a dual-type Pokémon counts for either). */
   minOfType: z.object({ type: z.enum(ENERGY_TYPES), count: z.number().int().min(1).max(20) }).optional(),
   /** No Pokémon ex (Mega ex included). */
   noEx: z.boolean().optional(),
@@ -63,8 +64,9 @@ export interface EventCheck {
 export function cardBreaksEvent(card: CardEdition, rules: EventRules): string | null {
   if (rules.banned?.includes(card.functionalGroupId)) return 'está prohibida en el evento'
   if (card.cardType === 'pokemon') {
-    if (rules.types && !rules.types.includes(card.energy as EnergyType)) {
-      return `es de tipo ${ENERGY_TYPE_NAME_ES[card.energy as EnergyType] ?? card.energy}`
+    const types = typesOf(card)
+    if (rules.types && !types.some((type) => rules.types?.includes(type))) {
+      return `es de tipo ${types.map((type) => ENERGY_TYPE_NAME_ES[type] ?? type).join(' y ')}`
     }
     if (rules.noEx && card.ex) return 'es un Pokémon ex'
   }
@@ -95,7 +97,9 @@ export function checkEventDeck(
   for (const entry of cards) {
     const card = index.cardById(entry.cardId)
     if (!card) continue
-    if (rules.minOfType && card.cardType === 'pokemon' && card.energy === rules.minOfType.type) ofType += entry.count
+    if (rules.minOfType && card.cardType === 'pokemon' && typesOf(card).includes(rules.minOfType.type)) {
+      ofType += entry.count
+    }
     const reason = cardBreaksEvent(card, rules)
     if (reason === null) continue
     const alternative = fittingEdition(card, rules, index)

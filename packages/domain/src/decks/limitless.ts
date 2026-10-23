@@ -108,7 +108,10 @@ export function encodeLimitlessBuilderParam(draft: Pick<DeckDraft, 'cards'>): st
   return out
 }
 
-/** Inverse of `encodeLimitlessBuilderParam`; `P0A`/`P0B` are restored to `P-A`/`P-B`. */
+/**
+ * Inverse of `encodeLimitlessBuilderParam`; a promo set `P0<letter>` is restored to `P-<letter>` (`P-A`, `P-B`, and
+ * `P-C` from Promo Pack C Series Vol. 1, 17/11/2026).
+ */
 export function decodeLimitlessBuilderParam(param: string): DeckCardEntry[] {
   if (!param.startsWith(BUILDER_VERSION)) {
     throw new DeckFormatError('invalid_line', `Versión desconocida del parámetro del builder: «${param.slice(0, 1)}»`)
@@ -123,7 +126,7 @@ export function decodeLimitlessBuilderParam(param: string): DeckCardEntry[] {
     const setLength = Number(header[1])
     const numberLength = Number(header[2])
     at += 3
-    const set = param.slice(at, at + setLength).replace(/^P0([AB])$/u, 'P-$1')
+    const set = param.slice(at, at + setLength).replace(/^P0([A-Z])$/u, 'P-$1')
     at += setLength
     const number = param.slice(at, at + numberLength)
     at += numberLength

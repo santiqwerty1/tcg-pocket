@@ -18,6 +18,7 @@ import {
   koDrill,
   plainDamage,
   seededRandom,
+  typesInPlay,
 } from '@tcg/domain'
 import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
@@ -52,12 +53,14 @@ interface OwnDeck {
   cards: { card: CardEdition; count: number }[]
 }
 
-function pokemonOf(card: CardEdition): DrillPokemon | null {
+/** A deck card as a Pokémon of «¿Llega al KO?»: with the types it counts as in play (C1, Urshifu); null if it cannot be one. */
+export function pokemonOf(card: CardEdition): DrillPokemon | null {
   if (card.cardType !== 'pokemon' || card.energy === 'trainer' || !card.hp) return null
   return {
     nameEs: card.nameEs,
     hp: card.hp,
     energy: card.energy,
+    types: typesInPlay(card),
     weakness: card.weakness,
     prizePoints: card.prizePoints,
     attacks: card.attacks.flatMap((attack) => {

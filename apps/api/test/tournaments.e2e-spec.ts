@@ -327,6 +327,31 @@ describe('tournaments (e2e)', () => {
     ).toBe(400)
   })
 
+  it('a set loaded ahead of its release (C1 on 22/10) is in the table but not yet an era', async () => {
+    const ahead = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10)
+    expect(
+      (await put('/api/tournaments/sets/Z9').send({ nameEn: 'Ahead', releaseDate: ahead, opensEra: true })).status,
+    ).toBe(200)
+    try {
+      const sets = (await get('/api/tournaments/sets')).body.items as { code: string }[]
+      expect(sets.map((set) => set.code)).toContain('Z9')
+      const status = (await get('/api/tournaments/status')).body as {
+        currentEra: { code: string; to: string | null }
+        eras: { code: string }[]
+        newEra: { lastRelease: string }
+      }
+      expect(status.eras.map((era) => era.code)).not.toContain('Z9')
+      expect(status.eras[0]?.code).toBe('B4a')
+      // B4a now ends when Z9 comes out and is still the era of today; the warning does not ask for a set already loaded.
+      expect(status.currentEra).toMatchObject({ code: 'B4a', to: ahead })
+      expect(status.newEra).toMatchObject({ lastRelease: 'B4a', likely: false })
+      expect((await get('/api/tournaments/archetypes')).body.scope.lists).toBe(393)
+    } finally {
+      await test.prisma.setRelease.delete({ where: { code: 'Z9' } })
+      test.app.get(TournamentDataVersion).bump()
+    }
+  })
+
   it('archetype merges: the owner folds one Limitless archetype into another', async () => {
     const rows = (await get('/api/tournaments/archetypes')).body.rows as { archetype: { id: string }; lists: number }[]
     const [first, second] = rows
@@ -949,7 +974,7 @@ describe('tournaments (e2e)', () => {
       tournaments: { sets: unknown[]; archetypeAliases: unknown[] }
       decks: { tournamentArchetypeId: string | null }[]
     }
-    expect(document.schemaVersion).toBe(11)
+    expect(document.schemaVersion).toBe(12)
     expect(document.tournaments.sets).toHaveLength(22)
     expect(document.tournaments.archetypeAliases).toEqual([])
     expect(document.decks.every((deck) => deck.tournamentArchetypeId === null)).toBe(true)

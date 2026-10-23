@@ -7,6 +7,8 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { CHAT_MOVED_KEY } from '../chat/chat-moved.service.js'
+import { REMOTE_KEYS, seenExpansionsOf } from '../collection/collection.service.js'
+import { DotggLinkStore } from '../collection/dotgg-link.store.js'
 import { ENV, type Env } from '../config/env.js'
 import { dateOnly } from '../config/time-zone.js'
 import type { Prisma } from '../generated/prisma/client.js'
@@ -167,6 +169,7 @@ export class BackupService {
     private readonly prisma: PrismaService,
     private readonly catalog: CatalogService,
     private readonly tournamentData: TournamentDataVersion,
+    private readonly links: DotggLinkStore,
     @Inject(ENV) private readonly env: Env,
     private readonly logger: PinoLogger,
   ) {
@@ -500,6 +503,8 @@ export class BackupService {
     this.tournamentData.bump()
     if (document.settings.some((s) => s.key === 'trackerAutoSync' && s.value === true))
       notices.push('La sincronización automática del tracker esperará 6 horas después de restaurar.')
+    if (document.settings.some((s) => s.key === 'dotggAutoSync' && s.value === true))
+      notices.push('La sincronización automática con ptcgpocket.gg esperará 24 horas después de restaurar.')
     this.logger.info({ counts: backupCounts(document) }, 'backup restored')
     return { applied: true, counts: backupCounts(document), notices }
   }
@@ -622,6 +627,13 @@ export class BackupService {
     await tx.deck.deleteMany()
     await tx.collectionAdjustment.deleteMany()
     await tx.collectionStock.deleteMany()
+    // T-020 (S-E): which set codes ptcgpocket.gg writes is not data of the collection; a restore keeps what is known now.
+    // Read here, after deleting the stock: the only writers of the mark (an import's apply, a sync's check with nothing
+    // to change) hold SHARE ROW EXCLUSIVE on collection_stock until they commit, so none is in flight any more and none
+    // can start before this restore commits.
+    const seenBefore = deferTracker
+      ? await tx.appSetting.findUnique({ where: { key: REMOTE_KEYS.dotgg.seenExpansions } })
+      : null
     await tx.collectionImport.deleteMany()
     // Where the chat's rooms live (D-030, T1b) is not data of the file: a restore never brings a moved room back here.
     await tx.appSetting.deleteMany({ where: { key: { not: CHAT_MOVED_KEY } } })
@@ -766,20 +778,52 @@ export class BackupService {
         })),
       })
     }
-    // Restoring an old scheduler state must allow six hours to inspect the restored collection.
-    const trackerState = document.settings.find((s) => s.key === 'trackerSyncState')?.value
-    if (deferTracker && document.settings.some((s) => s.key === 'trackerAutoSync' && s.value === true)) {
+    // Restoring an old scheduler state must leave time to inspect the restored collection: the next automatic run of
+    // the tracker (6 h) or of ptcgpocket.gg (24 h, T-020) counts from the restore.
+    for (const [autoKey, stateKey] of [
+      ['trackerAutoSync', 'trackerSyncState'],
+      ['dotggAutoSync', 'dotggSyncState'],
+    ] as const) {
+      if (!deferTracker || !document.settings.some((s) => s.key === autoKey && s.value === true)) continue
+      const state = document.settings.find((s) => s.key === stateKey)?.value
       const value = {
-        ...(typeof trackerState === 'object' && trackerState !== null && !Array.isArray(trackerState)
-          ? trackerState
-          : {}),
+        ...(typeof state === 'object' && state !== null && !Array.isArray(state) ? state : {}),
         lastAttemptAt: new Date().toISOString(),
       }
       await tx.appSetting.upsert({
-        where: { key: 'trackerSyncState' },
-        create: { key: 'trackerSyncState', value },
+        where: { key: stateKey },
+        create: { key: stateKey, value },
         update: { value },
       })
+    }
+    // T-020: the file's last sync, check, state and alert of ptcgpocket.gg belong to the link they were read from (its
+    // keyed fingerprint travels as dotggLastAppliedLink). With another link configured, or none, they go, as saving
+    // another link does; the next automatic read still waits 24 h. The drill restores the file exactly (no reset).
+    if (deferTracker) {
+      const link = await this.links.read(tx)
+      const fromFile = document.settings.find((s) => s.key === 'dotggLastAppliedLink')?.value
+      if (!link || fromFile !== this.links.fingerprint(link)) {
+        const keys = [
+          'dotggLastAppliedAt',
+          'dotggLastCheckedAt',
+          'dotggSyncState',
+          'dotggSyncWarning',
+          'dotggLastAppliedLink',
+        ]
+        await tx.appSetting.deleteMany({ where: { key: { in: keys } } })
+        if (document.settings.some((s) => s.key === 'dotggAutoSync' && s.value === true))
+          await tx.appSetting.create({
+            data: { key: 'dotggSyncState', value: { lastAttemptAt: new Date().toISOString() } },
+          })
+      }
+      // The expansions ptcgpocket.gg was seen listing only grow: the file's and the ones known before the restore.
+      const key = REMOTE_KEYS.dotgg.seenExpansions
+      const seen = seenExpansionsOf(seenBefore?.value)
+      for (const id of seenExpansionsOf(document.settings.find((s) => s.key === key)?.value)) seen.add(id)
+      if (seen.size > 0) {
+        const value = [...seen].sort()
+        await tx.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } })
+      }
     }
     // Games against the bot (version 5): the finished ones are replaced by the file's results (no moves, no
     // snapshots); games still being played keep going. Older files keep the current ones.
@@ -928,6 +972,14 @@ export class BackupService {
     }
     if (document.tokens.length > 0) {
       notices.push(`Los ${document.tokens.length} tokens del backup son solo metadatos: hay que crearlos de nuevo.`)
+    }
+    if (
+      document.settings.some((s) => s.key === 'dotggAutoSync') ||
+      document.collection.imports.some((item) => item.source === 'dotgg')
+    ) {
+      notices.push(
+        'El link de ptcgpocket.gg no viaja en el backup: se mantiene el que está configurado; si no hay, pegalo de nuevo en Más → Ajustes de la app.',
+      )
     }
     return { notices, needsReview, unknownCardIds: [...unknown] }
   }

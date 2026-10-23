@@ -122,6 +122,7 @@ describe('MCP endpoint (e2e)', () => {
       'collection_pack_luck',
       'collection_playable_copies',
       'collection_summary',
+      'collection_tracker_gap',
       'collection_trades',
       'decks_closest',
       'decks_consistency',
@@ -173,7 +174,7 @@ describe('MCP endpoint (e2e)', () => {
   it('serves 2026-07-28 clients from the same endpoint', async () => {
     const client = await connect('modern')
     const { tools } = await client.listTools()
-    expect(tools).toHaveLength(45)
+    expect(tools).toHaveLength(46)
     // Fase 29: the games against the bot (none here) and the review of one.
     expect((await call(client, 'play_games')).structuredContent).toEqual({ games: [] })
     // 14/10: the rival by the cards seen (no tournaments here: nothing suggested, nothing to classify).
@@ -510,7 +511,7 @@ describe('MCP endpoint (e2e)', () => {
       .set('Cookie', cookie)
       .send({ name: 'temporal', kind: 'mcp', scopes: ['mcp:read'] })
     const client = await connect('legacy', created.body.token)
-    expect((await client.listTools()).tools.length).toBe(45)
+    expect((await client.listTools()).tools.length).toBe(46)
     expect((await test.http().delete(`/api/tokens/${created.body.id}`).set('Cookie', cookie)).status).toBe(204)
     await expect(client.listTools()).rejects.toThrow()
   })

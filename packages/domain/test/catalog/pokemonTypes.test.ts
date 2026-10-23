@@ -3,9 +3,10 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
-  type BuildCatalogInput,
   buildCatalogWithReport,
   type Catalog,
+  CatalogBuildError,
+  CatalogInputError,
   engineCardsFromDatabaseJson,
   engineTypeFields,
   isOfType,
@@ -17,18 +18,10 @@ import {
   rulesTextOf,
   typesOf,
   unknownTrackerFields,
+  unknownTrackerFieldWarning,
 } from '../../src/index.js'
+import { inputWithInventedC1, invented } from '../helpers/inventedC1.js'
 import { buildInput, builtCatalog } from '../helpers/loadFixtures.js'
-
-/** FIXTURE INVENTADO: C1 cards made up before the real data exists (see its `_inventado`). */
-interface InventedC1 {
-  expansion: Record<string, unknown>
-  cards: Record<string, unknown>[]
-  engine: unknown[]
-}
-const invented = JSON.parse(
-  readFileSync(join(import.meta.dirname, '..', 'fixtures', 'invented', 'c1-dual-type.json'), 'utf8'),
-) as InventedC1
 
 /**
  * The 4,317 per-edition rules hashes of the fixture catalog (tracker 3ab58f1, engine fb792eb) and the 2,319 group
@@ -44,25 +37,6 @@ function digests(catalog: Catalog, keep: (id: string) => boolean) {
   return {
     editions: sha(catalog.cards.filter((card) => keep(card.id)).map((card) => `${card.id}:${rulesHashOf(card)}`)),
     groups: sha(catalog.groups.filter((group) => keep(group.id)).map((group) => `${group.id}:${group.rulesHash}`)),
-  }
-}
-
-/** The real fixtures plus the invented C1: its expansion first in CardsDB and in `expansionIds`, its cards last. */
-function inputWithInventedC1(): BuildCatalogInput {
-  const base = buildInput()
-  const declaration = base.cardsDbSource.indexOf('export const expansions')
-  const open = base.cardsDbSource.indexOf('= [', declaration) + '= ['.length
-  const cardsDbSource = `${base.cardsDbSource.slice(0, open)}\n  ${JSON.stringify(invented.expansion)},${base.cardsDbSource.slice(open)}`
-  const typesIndexSource = base.typesIndexSource.replace(
-    'export const expansionIds = [',
-    "export const expansionIds = [\n  'C1',",
-  )
-  return {
-    ...base,
-    cardsJson: [...(base.cardsJson as unknown[]), ...invented.cards],
-    cardsDbSource,
-    typesIndexSource,
-    engineCards: [...(base.engineCards as unknown[]), ...engineCardsFromDatabaseJson(invented.engine)],
   }
 }
 
@@ -151,12 +125,17 @@ describe('the tracker card schema and the engine data with two types (FIXTURE IN
       join(import.meta.dirname, '..', '..', '..', '..', 'scripts', 'extract-fixtures.mjs'),
       'utf8',
     )
-    expect(script).toContain('const { engineTypeFields } = await import(')
+    expect(script).toContain('const { engineTypeFields, parseEngineCards } = await import(')
     expect(script).toContain('...engineTypeFields(v),')
-    expect(script).not.toMatch(/functions+typeFields/)
+    expect(script).not.toMatch(/function\s+typeFields/)
+    // It validates the reduced cards as a sync does, before copying or writing any fixture (review of #149).
+    const validated = script.indexOf('parseEngineCards(compact)')
+    expect(validated).toBeGreaterThan(script.indexOf('const compact = db.map('))
+    expect(validated).toBeLessThan(script.indexOf('copyFileSync(join(tracker, src)'))
+    expect(validated).toBeLessThan(script.indexOf("writeFileSync(join(out, 'deckgym/engine-cards.json')"))
     // So a database.json a sync refuses (energy_type outside energy_types) stops the extraction too.
     expect(() => engineTypeFields({ id: 'C1 009', energy_type: 'Fire', energy_types: ['Grass'] })).toThrow(
-      /C1 009 energy_type Fire is not in energy_types/,
+      /C1 009: energy_type Fire is not in energy_types/,
     )
     expect(engineTypeFields({ energy_type: 'Fire', energy_types: ['Grass', 'Fire'] })).toEqual({
       energyType: 'Grass',
@@ -177,6 +156,9 @@ describe('the tracker card schema and the engine data with two types (FIXTURE IN
     expect(typesOfEngine({ energy_type: ['Grass', 'Fire'] })).toEqual(['Grass', ['Grass', 'Fire']])
     expect(() => typesOfEngine({ energy_type: 'Grass', secondary_energy_type: '' })).toThrow()
     expect(() => typesOfEngine({ energy_type: 'Grass', secondary_energy_type: 3 })).toThrow()
+    // A second type equal to the first is not a dual type (review of #149), whatever its case.
+    expect(() => typesOfEngine({ energy_types: ['Water', 'Water'] })).toThrow(/repeats a type/)
+    expect(() => typesOfEngine({ energy_type: 'Water', secondary_energy_type: 'water' })).toThrow(/repeats a type/)
     expect(() => typesOfEngine({ energy_type: 'Fire', energy_types: ['Grass'] })).toThrow(
       /energy_type Fire is not in energy_types/,
     )
@@ -184,14 +166,82 @@ describe('the tracker card schema and the engine data with two types (FIXTURE IN
 
   it('names the fields of cards.json it does not read, except foil, which it leaves out on purpose', () => {
     const rows = invented.cards.map((card, at) => (at === 0 ? { ...card, foil: false, energy2: 'fighting' } : card))
-    expect(unknownTrackerFields(rows)).toEqual([
+    expect(unknownTrackerFields(rows)).toEqual([{ field: 'energy2', cards: 1 }])
+    expect(unknownTrackerFieldWarning({ field: 'energy2', cards: 1 })).toBe(
       "cards.json has a field the catalog does not read: 'energy2' (1 cards)",
-    ])
+    )
     expect(unknownTrackerFields(buildInput().cardsJson)).toEqual([])
   })
 })
 
 describe('the catalog with two types', () => {
+  it('data it cannot read stops the build with a CatalogInputError that names the file, the card and the value', () => {
+    const withCard = (change: (card: Record<string, unknown>) => Record<string, unknown>) => {
+      const input = buildInput()
+      input.cardsJson = (input.cardsJson as Record<string, unknown>[]).map((card) =>
+        card.card_id === 'B3-51' ? change(card) : card,
+      )
+      return () => buildCatalogWithReport(input)
+    }
+    expect(withCard((card) => ({ ...card, energy: 'water/fairy' }))).toThrow(CatalogInputError)
+    expect(withCard((card) => ({ ...card, energy: 'water/fairy' }))).toThrow(
+      `cards.json: B3-51.energy: Unknown energy type 'fairy' in "water/fairy"`,
+    )
+    expect(withCard((card) => ({ ...card, weakness: 'fairy' }))).toThrow("cards.json B3-51: Unknown weakness: 'fairy'")
+    const badEngine = buildInput()
+    badEngine.engineCards = (badEngine.engineCards as Record<string, unknown>[]).map((card, at) =>
+      at === 0 ? { ...card, hp: 'x' } : card,
+    )
+    expect(() => buildCatalogWithReport(badEngine)).toThrow(CatalogInputError)
+    // A card id the engine bridge cannot map is refused by the schema, with the id (Codex on #151).
+    expect(withCard((card) => ({ ...card, card_id: 'B3-x' }))).toThrow(
+      'cards.json: B3-x.card_id: card_id must be «<expansion>-<number>», like A1-12',
+    )
+    // Whatever else stops the build comes from its data: a duplicate card is an input error too, still a build error.
+    const duplicated = buildInput()
+    const firstCard = (duplicated.cardsJson as Record<string, unknown>[])[0] as Record<string, unknown>
+    duplicated.cardsJson = [...(duplicated.cardsJson as unknown[]), { ...firstCard }]
+    expect(() => buildCatalogWithReport(duplicated)).toThrow(CatalogInputError)
+    expect(() => buildCatalogWithReport(duplicated)).toThrow(CatalogBuildError)
+    expect(() => buildCatalogWithReport(duplicated)).toThrow('catalog build: Duplicate card id A1-1')
+    // The pins are the caller's, not data: still a plain CatalogBuildError.
+    const noPin = () => buildCatalogWithReport({ ...buildInput(), trackerCommit: '' })
+    expect(noPin).toThrow(CatalogBuildError)
+    expect(noPin).not.toThrow(CatalogInputError)
+    expect(() => buildCatalogWithReport(badEngine)).toThrow('deckgym database.json: 0.hp: ')
+    // The other files of the tracker, too (Codex on #151): types/index.ts, a translation table and a locale table.
+    const broken = (change: (input: ReturnType<typeof buildInput>) => void) => {
+      const input = buildInput()
+      change(input)
+      return () => buildCatalogWithReport(input)
+    }
+    expect(
+      broken((input) => {
+        input.typesIndexSource = 'export const other = [] as const\n'
+      }),
+    ).toThrow("types/index.ts: expansionIds: declaration 'export const expansionIds' not found")
+    expect(
+      broken((input) => {
+        input.translations.pokemon = { bulbasaur: 3 }
+      }),
+    ).toThrow(/^pokemon_translations\.json: bulbasaur: /)
+    expect(
+      broken((input) => {
+        input.esSets = { geneticapex: 7 }
+      }),
+    ).toThrow(/^es-ES sets\.json: geneticapex: /)
+    for (const change of [
+      (input: ReturnType<typeof buildInput>) => {
+        input.translations.pokemon = { bulbasaur: 3 }
+      },
+      (input: ReturnType<typeof buildInput>) => {
+        input.esSets = { geneticapex: 7 }
+      },
+    ]) {
+      expect(broken(change)).toThrow(CatalogInputError)
+    }
+  })
+
   it('the sync report names a cards.json field it does not read (a second type written apart, say)', () => {
     const input = inputWithInventedC1()
     const cards = input.cardsJson as Record<string, unknown>[]
@@ -200,6 +250,7 @@ describe('the catalog with two types', () => {
     )
     const { report } = buildCatalogWithReport(input)
     expect(report.warnings).toContain("cards.json has a field the catalog does not read: 'energy2' (1 cards)")
+    expect(report.unknownTrackerFields).toEqual([{ field: 'energy2', cards: 1 }])
     expect(report.warnings.join(' ')).not.toContain('foil')
   })
 

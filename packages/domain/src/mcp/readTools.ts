@@ -504,6 +504,15 @@ export const MCP_READ_TOOLS = {
         .describe('Cualquier día de la semana, «2026-10-05»; por defecto la última semana completa'),
     }),
   },
+  collectionTrackerGap: {
+    name: 'collection_tracker_gap',
+    title: 'Tracker al día',
+    description:
+      'Compara la colección del tracker (tcgpocketcollectiontracker.com, donde Santi busca intercambios) con la del juego, que la app lee ahora de ptcgpocket.gg: cuántas cartas difieren, cuántas copias le faltan o le sobran al tracker, y carta por carta (nombre, edición, tracker → juego, y si cambia el registro del carddex: registrada con al menos una copia en el juego, no registrada con 0). Solo lee: no cambia la colección de la app ni el tracker. Para actualizar el tracker, Santi baja el archivo en Colección → Tracker al día y lo importa en el tracker. Necesita el friend_id del tracker y el link de ptcgpocket.gg configurados en la app.',
+    input: z.object({
+      limit: z.number().int().min(1).max(200).optional().describe('Cartas a listar (por defecto 30)'),
+    }),
+  },
   collectionTrades: {
     name: 'collection_trades',
     title: 'Lista de intercambio',

@@ -349,7 +349,7 @@ export interface SyncStatusView {
 export interface StatusView {
   currentEra: EraView | null
   eras: EraView[]
-  /** «Era nueva probable»: more than 35 days since the last release in the table. */
+  /** «Era nueva probable»: more than 49 days since the last era-opening release, and the next era not in the table yet. */
   newEra: { lastRelease: string; releaseDate: string; days: number; likely: boolean } | null
   minPlayers: number
   sync: SyncStatusView

@@ -144,6 +144,8 @@ export const cardEditionSchema = cardSummarySchema.extend({
   internalId: z.number().optional(),
   hp: z.number().nullable().optional(),
   energy: z.string().optional(),
+  /** Every printed type (two for C1's dual-type Pokémon); absent in catalogs before the list. */
+  types: z.array(z.string()).optional(),
   evolvesFrom: z.string().nullable().optional(),
   isFossil: z.boolean().optional(),
   baby: z.boolean().optional(),
@@ -287,7 +289,7 @@ export const twinConflictSchema = z.object({
 })
 
 export const importPreviewSchema = z.object({
-  source: z.enum(['csv', 'tracker']).default('csv'),
+  source: z.enum(['csv', 'tracker', 'dotgg']).default('csv'),
   tracker: z
     .object({
       friendId: z.string(),
@@ -299,6 +301,32 @@ export const importPreviewSchema = z.object({
       requiresReview: z.boolean(),
       reviewReasons: z.array(z.string()).optional(),
       catalogCommit: z.string().nullable().optional(),
+    })
+    .optional(),
+  /** T-020: what a ptcgpocket.gg snapshot changes and why it waits for a look. */
+  dotgg: z
+    .object({
+      increased: z.number(),
+      decreased: z.number(),
+      removedCopies: z.number(),
+      currentCopies: z.number(),
+      requiresReview: z.boolean(),
+      reviewReasons: z.array(z.string()),
+      unmatched: z.array(
+        z.object({ line: z.number(), set: z.string(), number: z.number(), name: z.string(), copies: z.number() }),
+      ),
+      renamed: z
+        .array(
+          z.object({
+            line: z.number(),
+            cardId: z.string(),
+            name: z.string(),
+            catalogName: z.string(),
+            copies: z.number(),
+          }),
+        )
+        .default([]),
+      missingExpansions: z.array(z.object({ expansionId: z.string(), nameEs: z.string(), copies: z.number() })),
     })
     .optional(),
   id: z.string(),
@@ -333,7 +361,7 @@ export const importPreviewSchema = z.object({
 export type ImportPreview = z.infer<typeof importPreviewSchema>
 
 export const importListItemSchema = z.object({
-  source: z.enum(['csv', 'tracker']).default('csv'),
+  source: z.enum(['csv', 'tracker', 'dotgg']).default('csv'),
   id: z.string(),
   fileName: z.string().nullable(),
   importedAt: isoDate,

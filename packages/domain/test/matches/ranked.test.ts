@@ -57,6 +57,26 @@ describe('ranked by season and rank (pedido de Santi del 14/10)', () => {
     expect(seasonOf(at('2026-09-20T12:00:00Z'), KNOWN_SEASONS, ZONE)?.code).toBe('B4a')
   })
 
+  it('the C1 season runs from 30/11 to 14/12/2026 (ptcgpocket.gg), in the same zone, without touching the others', () => {
+    expect(KNOWN_SEASONS.find((item) => item.code === 'C1')).toEqual({
+      code: 'C1',
+      name: 'Temporada C1',
+      startsOn: '2026-11-30',
+      endsOn: '2026-12-14',
+    })
+    expect(seasonOf(at('2026-11-30T03:30:00Z'), KNOWN_SEASONS, ZONE)?.code).toBe('C1')
+    expect(seasonOf(at('2026-11-30T02:30:00Z'), KNOWN_SEASONS, ZONE)).toBeNull()
+    expect(seasonOf(at('2026-12-15T02:30:00Z'), KNOWN_SEASONS, ZONE)?.code).toBe('C1')
+    expect(seasonOf(at('2026-12-15T03:30:00Z'), KNOWN_SEASONS, ZONE)).toBeNull()
+    // Between B4b SP and C1 (the first weeks of Dual Fusion) there is no season.
+    expect(seasonOf(at('2026-11-10T12:00:00Z'), KNOWN_SEASONS, ZONE)).toBeNull()
+    // The known seasons never overlap (the app refuses it when they are corrected).
+    const sorted = [...KNOWN_SEASONS].sort((a, b) => a.startsOn.localeCompare(b.startsOn))
+    for (let i = 1; i < sorted.length; i++) {
+      expect(sorted[i - 1]?.endsOn.localeCompare(sorted[i]?.startsOn ?? '')).toBeLessThan(0)
+    }
+  })
+
   it('the rank of a match is the last noted in its season before it; a new season starts without one', () => {
     const changes = [
       change('1', '2026-09-28T20:00:00Z', 'great-4'),
