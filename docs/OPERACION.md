@@ -91,14 +91,14 @@ Una expansión nueva toca el catálogo, la tabla de eras, los sobres y el motor,
 1. **Antes de que salga** (un PR, se siembra con el deploy):
    - la fila del set en `DEFAULT_SET_RELEASES` (`packages/domain/src/tournaments/eras.ts`), con su día UTC y si abre era. El servidor la agrega al arrancar sin pisar las filas de Santi; una era que todavía no empezó no se lista;
    - la temporada de ranked, con una migración que la inserte solo si no se superpone con otra (como `20261022210000_ranked_season_c1`), o cargada desde la app;
-   - los sobres que dejan de venderse, en `PACKS_LIMITED_BY_DEFAULT` (`packages/domain/src/packs/recommend.ts`).
+   - los sobres que dejan de venderse. `PACKS_LIMITED_BY_DEFAULT` y `PACKS_OFF_BY_DEFAULT` (`packages/domain/src/packs/recommend.ts`) solo valen para un sobre que entra por primera vez: la sincronización no pisa `available`, `limited` ni `limited_until` de los que ya existen (`insertOnly`). Un sobre ya sincronizado se cambia en Sobres → Ajustes o con una migración.
 2. **Cuando el tracker lo carga** (aviso `new_set`): Más → Catálogo → «Buscar novedades» → «Actualizar al último del tracker». La vista previa no escribe nada. Hay que mirar:
    - los sets y cartas nuevos, cuántas juega el motor, los tipos que cambian y lo que sale;
    - **los avisos del armado y los campos de `cards.json` que el catálogo no lee**. Un campo nuevo puede traer algo que la app usa, como el segundo tipo de C1. Mientras haya alguno, aplicar pide confirmación;
-   - si la vista previa falla, el error nombra el valor que el catálogo no entiende (por ejemplo, un tipo escrito de otra forma). Se arregla el parser en un PR chico; hasta entonces la app sigue con el catálogo anterior.
+   - si la vista previa falla con «No se pudo leer el catálogo de ese commit» (`422 catalog_unreadable`), el mensaje nombra el archivo, la carta y el valor que el catálogo no entiende; por ejemplo, un tipo escrito de otra forma. Se arregla el parser en un PR chico; hasta entonces la app sigue con el catálogo anterior. Otro error (un 500) queda en `flyctl logs --app tcg-pocket`.
 
    «Aplicar», y confirmar si lo pide.
-3. **Torneos → Ajustes:** si la fila no estaba, aparece propuesta con la fecha del primer torneo: revisarla y «Agregar». Con la fila cargada, los torneos del set caen en su era desde las 00:00 UTC del día de salida.
+3. **Torneos → Ajustes:** si la fila no estaba, se agrega a mano. La propuesta automática sale de los torneos ya sincronizados que juegan el set (`setProposals`), así que aparece recién cuando el sync de Limitless, cada 6 h, trae alguno: entonces trae la fecha del primer torneo, y se revisa y «Agregar». Con la fila cargada, los torneos del set caen en su era desde las 00:00 UTC del día de salida.
 4. **Sobres → Ajustes:** revisar los sobres nuevos. Uno que no se abre con la estamina de todos los días (como el sobre especial semanal de la serie C) va apagado.
 5. **El motor** (sección «El motor: nuestra copia de deckgym»): cuando deckgym tenga el set, la rama de integración nueva sobre ese upstream, el diferencial, el deploy y un sync del catálogo con el `engineRev` nuevo. Hasta entonces las cartas nuevas no se simulan: las fotos de mazo las marcan como no implementadas.
 6. **Una semana después:** cuando haya listas del set en torneos, relanzar el banco del meta y las calibraciones.
