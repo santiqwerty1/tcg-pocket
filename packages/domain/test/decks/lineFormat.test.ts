@@ -172,6 +172,20 @@ describe('encodeLimitlessBuilderParam', () => {
     expect(() => decodeLimitlessBuilderParam('4')).toThrow(DeckFormatError)
     expect(() => decodeLimitlessBuilderParam('3221B3')).toThrow(DeckFormatError)
   })
+
+  it('restores the hyphen of every promo set, P-C (Promo Pack C Series, 17/11/2026) included, and of none other', () => {
+    const cards = [
+      { cardId: 'P-A-7', count: 1 },
+      { cardId: 'P-B-95', count: 2 },
+      { cardId: 'P-C-1', count: 2 },
+      { cardId: 'C1-12', count: 2 },
+    ]
+    const param = encodeLimitlessBuilderParam({ cards })
+    expect(param).toBe('3131P0A7232P0B95231P0C1222C112')
+    expect(decodeLimitlessBuilderParam(param)).toEqual(cards)
+    // Only a three-character «P0<letter>» is a promo set.
+    expect(decodeLimitlessBuilderParam('3241P0CX1')).toEqual([{ cardId: 'P0CX-1', count: 2 }])
+  })
 })
 
 describe('entryToDraft (Limitless standings JSON)', () => {

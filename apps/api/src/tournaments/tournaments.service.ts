@@ -23,7 +23,6 @@ import {
   eraMean,
   eraOf,
   eraRange,
-  eraSets,
   expectedVsMeta,
   fieldPerGame,
   formatRateDifferenceEs,
@@ -55,6 +54,7 @@ import {
   type StoredEntry,
   type StoredPairing,
   type StoredTournament,
+  startedEraSets,
   substitutesFor,
   type TournamentDataset,
   type TournamentFormat,
@@ -978,7 +978,7 @@ export class TournamentsService {
     ])
     const index = this.catalog.requireIndex()
     const today = todayInOwnerZone()
-    const eras = eraSets(sets)
+    const eras = startedEraSets(sets, today)
       .map((set) => this.eraView(set.code, sets, index, today))
       .reverse()
     const counts = { listed: 0, complete: 0, incomplete: 0, excluded: 0, failed: 0 }
