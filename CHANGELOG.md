@@ -5,7 +5,7 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-23 desde la etiqueta `v1.0.0` (348 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-23 desde la etiqueta `v1.0.0` (349 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
@@ -241,6 +241,7 @@ _Borrador generado al 2026-10-23 desde la etiqueta `v1.0.0` (348 commits). Escri
 
 ### Documentado
 
+- 22/10 night and 23/10 — ptcgpocket.gg done, C1 in production, g2 by default with the lab rescored, H-060 gets a fourth cycle; fold the decisions of #147 and #149–#155 in merge order (D-029, H-055, H-060, T-021, T-023, T-024) `b6aad13`
 - D-029 says g2 is the bot by default since 23/10/2026 (Codex on #155, D-029) `5f457a5`
 - g2 by default in BOTS.md and API.md, with its decisions (D-029) `460d6e8`
 - the runbook promises only what main has (every reason to confirm comes with #154) (T-023) `1606106`

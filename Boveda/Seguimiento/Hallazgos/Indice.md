@@ -48,4 +48,4 @@ revisar: false
 | [H-057](H-057.md) | Un KO de fin de turno en el turno 30 llega como victoria con 31 turnos y la cola rechazaba el chunk | resuelto | 3 | media | #108 | 2026-10-15 |
 | [H-058](H-058.md) | Las migraciones de producción aceptaban cualquier certificado de la base, y el motor de migraciones se bajaba en cada arranque | resuelto | — | media | #116 | 2026-10-18 |
 | [H-059](H-059.md) | Después de mover el motor, las fotos de los mazos se arman con el estado de cartas de un worker viejo y los puntajes quedan sueltos | resuelto | — | media | #137 | 2026-10-19 |
-| [H-060](H-060.md) | Tres bloqueos cruzados posibles que ya existían: la prueba mensual del backup y la restauración contra otras escrituras | abierto | — | baja | #143 | 2026-10-23 |
+| [H-060](H-060.md) | Cuatro bloqueos cruzados posibles que ya existían: la prueba mensual del backup y la restauración contra otras escrituras | abierto | — | baja | #143 | 2026-10-23 |

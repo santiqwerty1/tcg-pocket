@@ -591,7 +591,7 @@ verificación del Coordinador va al PR siguiente de g, salvo esos tres casos, qu
   129 de 233, 14,1 y 0,30. Sale de una sola constante del dominio (`DEFAULT_BOT`, en `simulation/jobs.ts`; la web la
   copia en `lib/simulation.ts` con un test que las compara). Las decisiones de ese cambio (los puntajes del
   laboratorio por bot, los workers, el navegador, los costos y lo que no se toca) están en
-  `docs/decisiones/pendientes/bots-g2-default.md`.
+  `docs/DECISIONES.md`, 58.26–58.37.
 
 ## Plan
 

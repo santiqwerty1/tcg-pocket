@@ -1114,7 +1114,7 @@ Pedido de Santi: miniaturas, tocar las cartas para ver más, mejores controles e
 | 62.19 | **Un K que no se parece a su fila se avisa**: si la partida de K tiene otro mazo, otro resultado o una fecha a más de un día de la fila, la fila dice «¿pegaste los números corridos?». Igual se saltea. | Pegar el bloque una fila más abajo dejaba filas nuevas como «Ya en la app» con el número de otra partida, sin aviso (revisión de #143). |
 | 62.20 | **Quedan para otra vez**: leer la hoja por un link público, una tool MCP para importar y cualquier cambio en la hoja. | Fuera del alcance de T-022, como lo pidió el Coordinador. |
 
-## La colección del juego vía ptcgpocket.gg (T-020, 22/10/2026)
+## La colección del juego vía ptcgpocket.gg (T-024, 22/10/2026)
 
 | # | Decisión | Motivo |
 |---|---|---|
