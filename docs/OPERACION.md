@@ -104,7 +104,7 @@ Una expansión nueva toca el catálogo, la tabla de eras, los sobres y el motor,
 2. **Cuando el tracker lo carga** (aviso `new_set`): Más → Catálogo → «Buscar novedades» → «Actualizar al último del tracker». La vista previa no escribe nada. Hay que mirar:
    - los sets y cartas nuevos, cuántas juega el motor y lo que sale;
    - **las cartas nuevas de doble tipo, con sus dos tipos, y las que cambian de tipo**: la vista previa las lista (las primeras 50) para revisar que el catálogo leyó bien los tipos de C1 antes de aplicar;
-   - **los avisos del armado y los campos de `cards.json` que el catálogo no lee**: la vista previa los muestra, el campo desconocido en castellano y aparte. Un campo nuevo puede traer algo que la app usa, como el segundo tipo de C1. Mientras haya alguno, aplicar pide confirmación, y el cartel dice todos los motivos;
+   - **los avisos del armado y los campos de `cards.json` que el catálogo no lee**: la vista previa los muestra, el campo desconocido en castellano y aparte. Un campo nuevo puede traer algo que la app usa, como el segundo tipo de C1. Mientras haya alguno, aplicar pide confirmación;
    - si la vista previa falla con «No se pudo leer el catálogo de ese commit» (`422 catalog_unreadable`), el mensaje nombra el archivo, la carta y el valor que el catálogo no entiende; por ejemplo, un tipo escrito de otra forma. Se arregla el parser en un PR chico; hasta entonces la app sigue con el catálogo anterior. Otro error (un 500) queda en `flyctl logs --app tcg-pocket`.
 
    «Aplicar», y confirmar si lo pide.
