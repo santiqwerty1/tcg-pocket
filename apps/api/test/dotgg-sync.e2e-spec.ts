@@ -720,6 +720,46 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     )
   })
 
+  it('«Tracker al día» leaves out the cards a sync to review would drop while the app still has them (S-K)', async () => {
+    await setting('trackerFriendId', FRIEND)
+    await setLink(LINK)
+    const index = test.app.get(CatalogService).requireIndex()
+    const row = (n: number) => `1,0,"${index.cardById(`A1-${n}`)?.nameEn ?? ''}","A1","${n}"`
+    body = `Normal,Foil,Name,Set,Number\n${range(1, 10).map(row).join('\n')}\n`
+    expect((await apply((await preview()).body.id)).status).toBe(200)
+    // The export drops half of A1: the sync waits for a look, and Santi has not applied it.
+    body = `Normal,Foil,Name,Set,Number\n${range(1, 5).map(row).join('\n')}\n`
+    const second = await preview()
+    expect(second.body.dotgg.requiresReview).toBe(true)
+    remote = range(1, 10)
+      .map((n) => ({ internal_id: internalId(`A1-${n}`), amount_owned: 1, collected: true }))
+      .sort((a, b) => a.internal_id - b.internal_id)
+    const waiting = (await get('/api/collection/tracker-gap')).body
+    expect(waiting.rows).toEqual([])
+    expect(waiting).toMatchObject({ complete: false, notCompared: 5, pendingDrops: 5, trackerFile: null })
+    expect(waiting.warnings).toEqual([
+      'Hay 5 cartas en 0 en la exportación de ptcgpocket.gg que la colección de la app todavía tiene: no se comparan, porque hay bajas sin aplicar. Aplicá la sincronización con el juego y volvé a comparar.',
+    ])
+    const tools = test.app.get(McpToolsService, { strict: false }) as unknown as {
+      collectionTrackerGap(args: object): Promise<{ text: string; complete: boolean; notCompared: object }>
+    }
+    const mcp = await tools.collectionTrackerGap({})
+    expect(mcp).toMatchObject({ complete: false, notCompared: { pendingDrops: 5 } })
+    expect(mcp.text).toContain('Hay bajas sin aplicar en la app (5 cartas): aplicá la sincronización con ptcgpocket.gg')
+    // Applied, the app has 0 there and the five are compared (ptcgpocket.gg knows every set, as in the real export).
+    expect((await apply(second.body.id)).status).toBe(200)
+    await test.prisma.appSetting.update({
+      where: { key: 'dotggSeenExpansions' },
+      data: { value: index.catalog.expansions.map((expansion) => expansion.id) },
+    })
+    const applied = (await get('/api/collection/tracker-gap')).body
+    expect(applied.rows.map((item: { stockCardId: string }) => item.stockCardId)).toEqual(
+      range(6, 10).map((n) => `A1-${n}`),
+    )
+    expect(applied).toMatchObject({ complete: true, pendingDrops: 0, warnings: [] })
+    expect(parseTrackerCsv(applied.trackerFile.content).rows.map((item) => item.numberOwned)).toEqual([0, 0, 0, 0, 0])
+  })
+
   it('a set no applied sync listed stays out with 0 in the app; an automatic check with nothing to change marks what it lists (S-E)', async () => {
     const sync = test.app.get(DotggSync)
     await setting('trackerFriendId', FRIEND)

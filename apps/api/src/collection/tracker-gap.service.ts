@@ -60,6 +60,8 @@ export interface TrackerGapView {
    * app has no copy there. The file puts the tracker's cards there at 0. `cards`: the tracker's cards there.
    */
   emptyExpansions: { expansionId: string; nameEs: string; cards: number }[]
+  /** Cards at 0 in the export that the app still has (S-K): a drop waits in the app, so they are not compared. */
+  pendingDrops: number
   /** Cards left out of the comparison (rows the catalog does not have or with another name, unknown internal ids, rows
    * that could not be read). */
   notCompared: number
@@ -148,15 +150,14 @@ export class TrackerGapService {
     // catalog sync), the pair is not one and the file would mix them. Compared under the configuration lock, where the
     // app's side is read too: the expansions it has copies in and those a sync listed (an apply writes both under it).
     const ids = await compatibility
+    let heldUnits = new Set<string>()
     let held = new Set<string>()
     let seen = new Set<string>()
     const changed = await this.snapshots.whileSame(before, ['link', 'friend', 'catalog'], async (tx) => {
       const stock = await tx.collectionStock.findMany({ where: { amountOwned: { gt: 0 } }, select: { cardId: true } })
       const mark = await tx.appSetting.findUnique({ where: { key: REMOTE_KEYS.dotgg.seenExpansions } })
-      held = dotggListedExpansions(
-        index,
-        stock.map((row) => row.cardId),
-      )
+      heldUnits = new Set(stock.map((row) => row.cardId))
+      held = dotggListedExpansions(index, heldUnits)
       // No mark yet (syncs applied before it existed): the applied imports still stored say what was written.
       seen = mark
         ? seenExpansionsOf(mark.value)
@@ -192,11 +193,20 @@ export class TrackerGapService {
       ),
       seen,
       held,
+      heldUnits,
     })
     for (const id of coverage.skipped) skipped.add(id)
     const gap = trackerGap(index, trackerUnits(tracker.units, index), game.units, skipped)
     const warnings: string[] = []
-    const leftOut = coverage.leftOut.reduce((sum, item) => sum + item.cards, 0) + coverage.reprints.cards
+    const leftOut =
+      coverage.leftOut.reduce((sum, item) => sum + item.cards, 0) + coverage.reprints.cards + coverage.pending
+    // A card at 0 in the export that the app still has (S-K): a drop waits for Santi in the app.
+    if (coverage.pending > 0)
+      warnings.push(
+        coverage.pending === 1
+          ? 'Hay 1 carta en 0 en la exportación de ptcgpocket.gg que la colección de la app todavía tiene: no se compara, porque hay una baja sin aplicar. Aplicá la sincronización con el juego y volvé a comparar.'
+          : `Hay ${coverage.pending} cartas en 0 en la exportación de ptcgpocket.gg que la colección de la app todavía tiene: no se comparan, porque hay bajas sin aplicar. Aplicá la sincronización con el juego y volvé a comparar.`,
+      )
     for (const reason of ['unseen', 'held'] as const) {
       const group = coverage.leftOut.filter((item) => item.reason === reason)
       if (group.length === 0) continue
@@ -273,6 +283,7 @@ export class TrackerGapService {
       unmatchedGame: mapped.unmatched,
       unknownTracker,
       warnings,
+      pendingDrops: coverage.pending,
       emptyExpansions: coverage.empty.map((item) => ({
         expansionId: item.expansionId,
         nameEs: index.expansionById(item.expansionId)?.nameEs ?? item.expansionId,

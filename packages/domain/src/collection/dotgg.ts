@@ -430,6 +430,8 @@ export interface DotggGapCoverage {
   empty: { expansionId: ExpansionId; cards: number }[]
   /** Cards with no row that have a reprint in an expansion ptcgpocket.gg never wrote: left out, with those expansions. */
   reprints: { cards: number; expansionIds: ExpansionId[] }
+  /** Cards at 0 in the export that the app still has copies of (a drop not applied yet): left out. */
+  pending: number
 }
 
 /**
@@ -440,6 +442,8 @@ export interface DotggGapCoverage {
  *   out: `held`, a drop the app has not applied yet, or `unseen`, a set ptcgpocket.gg may not know.
  * - A card the tracker has and the export does not list, with a reprint in an expansion that is not known, is left out
  *   too: its copy may be that reprint, and the file would take it off the tracker.
+ * - A card at 0 in the export that the app still has copies of (`heldUnits`) is left out as well, in any expansion:
+ *   that drop waits for Santi in the app (a sync to review), and the file follows only what he applied.
  */
 export function dotggGapCoverage(
   index: CatalogIndex,
@@ -448,7 +452,10 @@ export function dotggGapCoverage(
     game: StockQuantities
     listed: ReadonlySet<ExpansionId>
     seen: ReadonlySet<ExpansionId>
+    /** Expansions where the app has copies (by the expansion each unit is kept under). */
     held: ReadonlySet<ExpansionId>
+    /** Stock units the app has copies of. */
+    heldUnits: ReadonlySet<CardId>
   },
 ): DotggGapCoverage {
   const known = new Set([...input.listed, ...input.seen])
@@ -463,6 +470,7 @@ export function dotggGapCoverage(
   const out = new Set(leftOut.map((item) => item.expansionId))
   const reprintSets = new Set<ExpansionId>()
   let reprintCards = 0
+  let pending = 0
   const emptyCards = new Map<ExpansionId, number>()
   for (const unit of index.catalog.stockUnits) {
     const expansion = index.cardById(unit.id)?.expansionId ?? ''
@@ -471,7 +479,13 @@ export function dotggGapCoverage(
       continue
     }
     const inTracker = input.tracker[unit.id]
-    if (input.game[unit.id] || !inTracker || (inTracker.amountOwned <= 0 && !inTracker.collected)) continue
+    if (!inTracker || (inTracker.amountOwned <= 0 && !inTracker.collected)) continue
+    if ((input.game[unit.id]?.amountOwned ?? 0) === 0 && input.heldUnits.has(unit.id)) {
+      skipped.add(unit.id)
+      pending += 1
+      continue
+    }
+    if (input.game[unit.id]) continue
     const unknown = unit.cardIds
       .map((id) => index.cardById(id)?.expansionId)
       .filter((id): id is ExpansionId => !!id && !known.has(id))
@@ -491,6 +505,7 @@ export function dotggGapCoverage(
       cards: reprintCards,
       expansionIds: index.catalog.expansions.map((item) => item.id).filter((id) => reprintSets.has(id)),
     },
+    pending,
   }
 
   function pick(item: { expansionId: ExpansionId; cards: number }) {

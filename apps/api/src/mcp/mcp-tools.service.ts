@@ -2015,6 +2015,7 @@ ${MCP_CHAT_INSTRUCTIONS}`
         cards: view.notCompared,
         gameRowsNotInCatalog: view.unmatchedGame.length,
         trackerIdsNotInCatalog: view.unknownTracker.length,
+        pendingDrops: view.pendingDrops,
       },
       complete: view.complete,
       warnings: view.warnings,
@@ -2028,17 +2029,21 @@ ${MCP_CHAT_INSTRUCTIONS}`
         view.notCompared > 0
           ? `${view.notCompared === 1 ? '1 carta quedó' : `${number(view.notCompared)} cartas quedaron`} afuera de la comparación`
           : 'la comparación no se puede confirmar del todo'
+      const pending =
+        view.pendingDrops > 0
+          ? ` ${view.pendingDrops === 1 ? 'Hay una baja sin aplicar en la app (1 carta)' : `Hay bajas sin aplicar en la app (${cards(view.pendingDrops)})`}: aplicá la sincronización con ptcgpocket.gg y volvé a comparar.`
+          : ''
       if (s.cards === 0)
         return view.complete
           ? `El tracker está al día con el juego (${copies(s.gameCopies)}).`
-          : `Lo que se pudo comparar está al día, pero ${outside} (mirá los avisos).`
+          : `Lo que se pudo comparar está al día, pero ${outside} (mirá los avisos).${pending}`
       const names = view.emptyExpansions.map((item) => item.nameEs)
       const empty =
         names.length > 0
           ? ` De ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} y ${names.at(-1)}`} no queda en el juego ninguna de las cartas que tiene el tracker: el archivo las pone en 0.`
           : ''
       const differs = `El tracker difiere del juego en ${cards(s.cards)}: ${parts.join(' y ')} (tracker ${number(s.trackerCopies)}, juego ${number(s.gameCopies)}).${empty}`
-      return view.complete ? differs : `${differs} Además, ${outside} (mirá los avisos).`
+      return view.complete ? differs : `${differs} Además, ${outside} (mirá los avisos).${pending}`
     }
   }
 

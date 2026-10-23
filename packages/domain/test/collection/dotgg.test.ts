@@ -381,6 +381,7 @@ describe('dotggGapCoverage (S-B, S-E)', () => {
       listed: new Set(['A1']),
       seen: except('B1a'),
       held: new Set(['P-A']),
+      heldUnits: new Set(['P-A-7']),
     })
     expect(coverage.leftOut).toEqual([
       // Never written by ptcgpocket.gg: it may not know the set.
@@ -401,6 +402,7 @@ describe('dotggGapCoverage (S-B, S-E)', () => {
       listed: new Set(['A1']),
       seen: new Set(),
       held: new Set(),
+      heldUnits: new Set(),
     })
     expect(coverage.leftOut).toEqual([{ expansionId: 'B4b', cards: 1, reason: 'unseen' }])
     expect(coverage.empty).toEqual([])
@@ -418,6 +420,7 @@ describe('dotggGapCoverage (S-B, S-E)', () => {
       listed: new Set(['A1']),
       seen: except('A4b'),
       held: new Set(),
+      heldUnits: new Set(),
     })
     expect(empty.skipped.has('A3a-6')).toBe(true)
     expect(empty.reprints).toEqual({ cards: 1, expansionIds: ['A4b'] })
@@ -429,6 +432,7 @@ describe('dotggGapCoverage (S-B, S-E)', () => {
       listed: new Set(['A1']),
       seen: new Set(all),
       held: new Set(),
+      heldUnits: new Set(),
     })
     expect(known.skipped.has('A3a-6')).toBe(false)
     expect(known.empty).toEqual([{ expansionId: 'A3a', cards: 1 }])
@@ -439,9 +443,42 @@ describe('dotggGapCoverage (S-B, S-E)', () => {
       listed: new Set(['A1', 'A3a']),
       seen: new Set(),
       held: new Set(),
+      heldUnits: new Set(),
     })
     expect(covered.skipped.has('A3a-6')).toBe(true)
     expect(covered.reprints.expansionIds).toEqual(['A4b'])
     expect(covered.leftOut).toEqual([])
+  })
+
+  it('leaves out a card at 0 in the export that the app still has: a drop not applied yet (S-K)', () => {
+    const tracker: StockQuantities = {
+      'A1-1': unit('A1-1', 1),
+      'A1-2': unit('A1-2', 1),
+      'A1-3': unit('A1-3', 1),
+      'A1-4': unit('A1-4', 0, true),
+    }
+    const coverage = dotggGapCoverage(index, {
+      tracker,
+      // A1-2 is listed with 0 copies; A1-3 and A1-4 are not listed.
+      game: { 'A1-1': unit('A1-1', 1), 'A1-2': unit('A1-2', 0) },
+      listed: new Set(all),
+      seen: new Set(all),
+      held: new Set(['A1']),
+      heldUnits: new Set(['A1-1', 'A1-2', 'A1-3', 'A1-4']),
+    })
+    // A1-1 has its copy in the export; A1-2, A1-3 and A1-4 would go to 0 (or lose the mark) while the app has them.
+    expect(coverage.pending).toBe(3)
+    expect([...coverage.skipped].sort()).toEqual(['A1-2', 'A1-3', 'A1-4'])
+    // Applied (the app at 0 there), they are compared.
+    const applied = dotggGapCoverage(index, {
+      tracker,
+      game: { 'A1-1': unit('A1-1', 1), 'A1-2': unit('A1-2', 0) },
+      listed: new Set(all),
+      seen: new Set(all),
+      held: new Set(['A1']),
+      heldUnits: new Set(['A1-1']),
+    })
+    expect(applied.pending).toBe(0)
+    expect(applied.skipped.size).toBe(0)
   })
 })
