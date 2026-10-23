@@ -7,7 +7,7 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { Badge } from '@/components/ui/badge'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { energyLabel } from '@/lib/energies'
+import { editionTypes, energyLabel } from '@/lib/energies'
 import { type ReplaySlot, statusEs } from '@/lib/replay'
 import { useBoardCard, useBoardCards } from './BoardContext'
 import { CardArt } from './CardArt'
@@ -103,7 +103,7 @@ export function CardSheet({
                   ? [
                       edition.cardType === 'pokemon' ? 'Pokémon' : 'Entrenador',
                       edition.hp ? `${edition.hp} PS` : null,
-                      edition.energy && edition.energy !== 'trainer' ? energyLabel(edition.energy) : null,
+                      editionTypes(edition).map(energyLabel).join(' y ') || null,
                       edition.cardType === 'pokemon'
                         ? `si cae da ${edition.prizePoints} ${edition.prizePoints === 1 ? 'punto' : 'puntos'}`
                         : null,

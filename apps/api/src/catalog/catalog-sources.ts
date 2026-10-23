@@ -6,7 +6,13 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { type BuildCatalogInput, engineCardsFromDatabaseJson, parseExpansionIds } from '@tcg/domain'
+import {
+  type BuildCatalogInput,
+  CatalogInputError,
+  engineCardsFromDatabaseJson,
+  parseExpansionIds,
+  readCatalogInput,
+} from '@tcg/domain'
 import { REPO_ROOT } from '../config/dotenv.js'
 
 export const TRACKER_RAW_BASE = 'https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker'
@@ -80,11 +86,12 @@ function fileRecord(path: string, text: string): SourceFile {
   return { path, sha256: sha256Hex(text), bytes: Buffer.byteLength(text, 'utf8') }
 }
 
+/** A tracker or engine file that is not JSON is data the catalog cannot read (422), not a failed download. */
 function parseJson(text: string, what: string): unknown {
   try {
     return JSON.parse(text)
   } catch (error) {
-    throw new CatalogSourceError(`${what}: invalid JSON (${(error as Error).message})`)
+    throw new CatalogInputError(`${what}: invalid JSON (${(error as Error).message})`)
   }
 }
 
@@ -144,11 +151,13 @@ export async function fetchCatalogSources(pins: CatalogPins, fetchImpl: FetchLik
   })
   files.engine = fileRecord(ENGINE_PATH, engineText)
   // Same reduction as scripts/extract-fixtures.mjs, so fixtures and live data produce identical catalogs.
-  const engineCards = engineCardsFromDatabaseJson(parseJson(engineText, ENGINE_PATH))
+  const engineCards = readCatalogInput('deckgym database.json', () =>
+    engineCardsFromDatabaseJson(parseJson(engineText, ENGINE_PATH)),
+  )
   // Missions: one optional file per expansion (a 404 means the expansion has none).
   const missions: Record<string, unknown> = {}
   await Promise.all(
-    parseExpansionIds(texts.typesIndex).map(async (id) => {
+    readCatalogInput('types/index.ts', () => parseExpansionIds(texts.typesIndex)).map(async (id) => {
       const path = `${MISSIONS_DIR}/${id}-missions.json`
       const response = await fetchImpl(`${TRACKER_RAW_BASE}/${pins.trackerCommit}/${path}`)
       if (response.status === 404) return

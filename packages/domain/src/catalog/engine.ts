@@ -170,7 +170,7 @@ export function engineTypeFields(v: Record<string, unknown>): { energyType: unkn
   const list = listOf(v.energy_types) ?? listOf(v.energy_type)
   if (list) {
     if (typeof v.energy_type === 'string' && !list.includes(v.energy_type)) {
-      throw new Error(`deckgym database.json: ${String(v.id)} energy_type ${v.energy_type} is not in energy_types`)
+      throw new Error(`${String(v.id)}: energy_type ${v.energy_type} is not in energy_types`)
     }
     return { energyType: list[0], energyTypes: list }
   }

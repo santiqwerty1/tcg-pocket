@@ -15,7 +15,14 @@ import { KeyValue, Section } from '@/components/Section'
 import { Stat } from '@/components/Stat'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { energyLabel } from '@/lib/energies'
 import { formatDateTime, formatNumber, shortSha } from '@/lib/format'
+
+/** The build's warning for a `cards.json` field the catalog does not read (`unknownTrackerFieldWarning` in the domain). */
+const UNKNOWN_FIELD_WARNING = 'cards.json has a field the catalog does not read:'
+
+/** «Agua y Oscuridad». */
+const typesEs = (types: readonly string[]) => types.map(energyLabel).join(' y ')
 
 /** What applying a commit would change: new sets and cards, what the engine plays, what leaves, what to review. */
 function PreviewPanel({
@@ -30,6 +37,19 @@ function PreviewPanel({
   const [confirmed, setConfirmed] = useState(false)
   const added = preview.diff?.added ?? preview.counts.cards
   const review = (preview.remap?.notes ?? []).filter((note) => note.review)
+  // The unknown fields get their own sentence in Spanish; the other warnings of the build are shown as they come.
+  const otherWarnings = preview.warnings.filter((warning) => !warning.startsWith(UNKNOWN_FIELD_WARNING))
+  const takesAway = (preview.diff?.removed ?? 0) > 0 || (preview.remap?.needsReview ?? false)
+  const reasons = preview.older
+    ? ['Es un commit anterior al cargado: volver atrás puede sacar cartas de la colección y de los mazos.']
+    : [
+        ...(takesAway
+          ? ['Esta actualización saca cartas de la colección o de los mazos, o deja cosas para revisar.']
+          : []),
+        ...(preview.unknownFields.length > 0
+          ? ['El tracker trae campos que el catálogo no lee: una carta podría entrar con datos de menos.']
+          : []),
+      ]
   return (
     <div className="flex flex-col gap-3 rounded-lg border p-3 text-sm">
       <p className="font-medium">
@@ -54,8 +74,56 @@ function PreviewPanel({
         <p className="text-muted-foreground">
           {formatNumber(preview.diff.added)} cartas nuevas · {formatNumber(preview.diff.removed)} salen ·{' '}
           {formatNumber(preview.diff.stockChanged + preview.diff.groupChanged)} cambian de unidad o de carta funcional ·{' '}
-          {formatNumber(preview.diff.nameChanged)} nombres.
+          {formatNumber(preview.diff.nameChanged)} nombres
+          {preview.diff.typesChanged > 0
+            ? ` · ${formatNumber(preview.diff.typesChanged)} ${preview.diff.typesChanged === 1 ? 'cambia' : 'cambian'} de tipo`
+            : ''}
+          .
         </p>
+      ) : null}
+      {preview.unknownFields.length > 0 ? (
+        <p className="flex items-start gap-2 rounded-lg bg-warning/10 p-2">
+          <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <span>
+            El tracker trae {preview.unknownFields.length === 1 ? 'un campo' : 'campos'} que el catálogo no lee:{' '}
+            {preview.unknownFields
+              .map((item) => `${item.field} (${formatNumber(item.cards)} ${item.cards === 1 ? 'carta' : 'cartas'})`)
+              .join(', ')}
+            . Si trae algo que el catálogo usa (por ejemplo, el segundo tipo de un Pokémon de C1), esas cartas entrarían
+            con datos de menos hasta que la app lo lea.
+          </span>
+        </p>
+      ) : null}
+      {preview.addedDualTypes.length > 0 ? (
+        <p>
+          Cartas nuevas de doble tipo (revisá que los dos tipos estén bien):{' '}
+          {preview.addedDualTypes.map((card) => `${card.nameEs} (${typesEs(card.types)})`).join(', ')}
+          {preview.addedDualTypes.length >= 50 ? '…' : ''}.
+        </p>
+      ) : null}
+      {preview.typeChanges.length > 0 ? (
+        <p>
+          Cambian de tipo:{' '}
+          {preview.typeChanges
+            .map((change) => `${change.nameEs} (${typesEs(change.from.split('/'))} → ${typesEs(change.to.split('/'))})`)
+            .join(', ')}
+          {(preview.diff?.typesChanged ?? 0) > preview.typeChanges.length ? '…' : ''}.
+        </p>
+      ) : null}
+      {otherWarnings.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          <p className="font-medium">Avisos del armado del catálogo</p>
+          <ul className="list-disc pl-5 text-muted-foreground">
+            {otherWarnings.slice(0, 10).map((warning) => (
+              <li key={warning} className="break-words">
+                {warning}
+              </li>
+            ))}
+          </ul>
+          {otherWarnings.length > 10 ? (
+            <p className="text-muted-foreground">Y {formatNumber(otherWarnings.length - 10)} más.</p>
+          ) : null}
+        </div>
       ) : null}
       {added > 0 ? (
         <p>
@@ -85,9 +153,9 @@ function PreviewPanel({
         <label className="flex items-start gap-2 rounded-lg bg-destructive/10 p-2 text-destructive">
           <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           <span className="flex-1">
-            {preview.older
-              ? 'Es un commit anterior al cargado: volver atrás puede sacar cartas de la colección y de los mazos.'
-              : 'Esta actualización saca cartas de la colección o de los mazos, o deja cosas para revisar.'}{' '}
+            {reasons.length > 0
+              ? reasons.join(' ')
+              : 'No se pudo comparar este commit con el cargado: puede ser anterior y sacar cartas de la colección.'}{' '}
             <input
               type="checkbox"
               className="align-middle"

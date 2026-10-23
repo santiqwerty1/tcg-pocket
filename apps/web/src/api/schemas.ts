@@ -144,6 +144,8 @@ export const cardEditionSchema = cardSummarySchema.extend({
   internalId: z.number().optional(),
   hp: z.number().nullable().optional(),
   energy: z.string().optional(),
+  /** Every printed type (two for C1's dual-type Pokémon); absent in catalogs before the list. */
+  types: z.array(z.string()).optional(),
   evolvesFrom: z.string().nullable().optional(),
   isFossil: z.boolean().optional(),
   baby: z.boolean().optional(),

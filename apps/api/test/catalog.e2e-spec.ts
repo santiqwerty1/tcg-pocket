@@ -1,6 +1,7 @@
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { UnprocessableEntityException } from '@nestjs/common'
 import { SchedulerRegistry } from '@nestjs/schedule'
 import { CatalogService } from '../src/catalog/catalog.service.js'
 import { CatalogRepository } from '../src/catalog/catalog-repository.js'
@@ -8,6 +9,7 @@ import { DEFAULT_FIXTURES_DIR as FIXTURES_DIR } from '../src/catalog/catalog-sou
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { TrackerCommitsService } from '../src/catalog/tracker-commits.service.js'
 import type { CatalogSyncStatus } from '../src/generated/prisma/enums.js'
+import { toApiError } from '../src/http/http-exception.filter.js'
 import { createTestApp, login, seedOwner, type TestApp, waitForSync } from './helpers.js'
 
 /** Expected values from docs/PLAN.md §7 (M1 acceptance) for the pinned commit 3ab58f1. */
@@ -110,6 +112,45 @@ describe('catalog (e2e)', () => {
     expect(await test.prisma.expansion.count()).toBe(EXPECTED.expansions)
     expect(await test.prisma.rarityRule.count()).toBeGreaterThan(0)
     expect(await test.prisma.evolutionAlias.count()).toBeGreaterThan(0)
+  })
+
+  it('C1: the card_types migration fills each Pokémon’s list from its energy on rows written before it', async () => {
+    // The real migration file, run over the synced catalog without the column (as production had it), then undone.
+    const sql = readFileSync(
+      join(import.meta.dirname, '../prisma/migrations/20261022220000_card_types/migration.sql'),
+      'utf8',
+    )
+    const statements = sql
+      .replace(/^\s*--.*$/gm, '')
+      .split(';')
+      .map((statement) => statement.trim())
+      .filter((statement) => statement !== '')
+    expect(statements).toHaveLength(2)
+    class Undo extends Error {
+      constructor(readonly counts: unknown) {
+        super('undo')
+      }
+    }
+    const counts = await test.prisma
+      .$transaction(async (tx) => {
+        await tx.$executeRawUnsafe('ALTER TABLE "cards" DROP COLUMN "types"')
+        for (const statement of statements) await tx.$executeRawUnsafe(statement)
+        const [row] = await tx.$queryRawUnsafe<{ pokemon: number; trainers: number; other: number }[]>(
+          `SELECT count(*) FILTER (WHERE card_type = 'pokemon' AND types = ARRAY[energy])::int AS pokemon,
+                  count(*) FILTER (WHERE card_type = 'trainer' AND types = '{}')::int AS trainers,
+                  count(*) FILTER (WHERE NOT ((card_type = 'pokemon' AND types = ARRAY[energy])
+                                           OR (card_type = 'trainer' AND types = '{}')))::int AS other
+             FROM cards`,
+        )
+        throw new Undo(row)
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Undo) return error.counts
+        throw error
+      })
+    expect(counts).toEqual({ pokemon: 3922, trainers: 395, other: 0 })
+    // Undone: the column and what the sync wrote are still there.
+    expect((await test.prisma.card.findUniqueOrThrow({ where: { id: 'A1-1' } })).types).toEqual(['grass'])
   })
 
   it('finds the same functional group for Copiona and Copycat', async () => {
@@ -231,6 +272,7 @@ describe('catalog (e2e)', () => {
       stockChanged: 0,
       groupChanged: 0,
       nameChanged: 0,
+      typesChanged: 0,
       expansionsAdded: 0,
       expansionsRemoved: 0,
     })
@@ -642,6 +684,113 @@ describe('catalog (e2e)', () => {
       await test.prisma.collectionAdjustment.deleteMany({})
       await test.prisma.deck.deleteMany({})
       await test.prisma.collectionStock.deleteMany({})
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('C1: data the catalog cannot read is a 422 that names the card and the value, in the preview and on the sync row', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tcg-catalog-'))
+    cpSync(FIXTURES_DIR, dir, { recursive: true })
+    const cardsPath = join(dir, 'tracker/cards.json')
+    const original = JSON.parse(readFileSync(cardsPath, 'utf8')) as Record<string, unknown>[]
+    writeFileSync(
+      cardsPath,
+      JSON.stringify(original.map((card) => (card.card_id === 'B3-51' ? { ...card, energy: 'water/fairy' } : card))),
+    )
+    const request = {
+      trackerCommit: test.env.catalogCommit,
+      engineRev: test.env.engineRev,
+      source: 'fixtures' as const,
+      fixturesDir: dir,
+    }
+    try {
+      const refused = await sync.preview(request).catch((error: unknown) => error)
+      expect(refused).toBeInstanceOf(UnprocessableEntityException)
+      const { status, body } = toApiError(refused)
+      expect(status).toBe(422)
+      expect(body.error.code).toBe('catalog_unreadable')
+      expect(body.error.message).toContain(`cards.json: B3-51.energy: Unknown energy type 'fairy' in "water/fairy"`)
+      // The sync row says the same, and the catalog stays as it was.
+      await expect(sync.sync(request)).rejects.toThrow('B3-51.energy')
+      const row = await test.prisma.catalogSync.findFirstOrThrow({ orderBy: { id: 'desc' } })
+      expect(row).toMatchObject({ status: 'failed' })
+      expect(row.error).toContain('No se pudo leer el catálogo de ese commit: cards.json: B3-51.energy')
+      expect((await test.prisma.card.findUniqueOrThrow({ where: { id: 'B3-51' } })).types).toEqual(['water'])
+      // A card id the engine bridge cannot map (Codex on #151): refused by the input check, with the id (was a 500).
+      writeFileSync(
+        cardsPath,
+        JSON.stringify(original.map((card) => (card.card_id === 'B3-51' ? { ...card, card_id: 'B3-x' } : card))),
+      )
+      const badId = await sync.preview(request).catch((error: unknown) => error)
+      expect(badId).toBeInstanceOf(UnprocessableEntityException)
+      expect(toApiError(badId).body.error.message).toContain('cards.json: B3-x.card_id: card_id must be')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('C1: a cards.json field the catalog does not read shows in the preview and needs confirming; type changes count', async () => {
+    // A second type written apart (an invented shape) and Urshifu with two types in the list.
+    const dir = mkdtempSync(join(tmpdir(), 'tcg-catalog-'))
+    cpSync(FIXTURES_DIR, dir, { recursive: true })
+    const cardsPath = join(dir, 'tracker/cards.json')
+    const original = JSON.parse(readFileSync(cardsPath, 'utf8')) as Record<string, unknown>[]
+    // And a new edition with two types: a copy of B4b-1 as an invented B4b-430 (internal id (22 << 16) | (430 << 6)).
+    const template = original.find((card) => card.card_id === 'B4b-1') as Record<string, unknown>
+    const dual = {
+      ...template,
+      card_id: 'B4b-430',
+      name: 'Dual Test',
+      energy: ['water', 'darkness'],
+      internal_id: 1_469_312,
+      alternate_versions: [1_469_312],
+    }
+    writeFileSync(
+      cardsPath,
+      JSON.stringify([
+        ...original.map((card) =>
+          card.card_id === 'B3-51'
+            ? { ...card, energy: ['water', 'fighting'] }
+            : card.card_id === 'A1-1'
+              ? { ...card, energy2: 'darkness' }
+              : card,
+        ),
+        dual,
+      ]),
+    )
+    const request = {
+      trackerCommit: test.env.catalogCommit,
+      engineRev: test.env.engineRev,
+      source: 'fixtures' as const,
+      fixturesDir: dir,
+    }
+    try {
+      const preview = await sync.preview(request)
+      expect(preview).toMatchObject({
+        destructive: true,
+        diffEmpty: false,
+        diff: { added: 1, removed: 0, typesChanged: 1 },
+        unknownFields: [{ field: 'energy2', cards: 1 }],
+        typeChanges: [{ cardId: 'B3-51', from: 'water', to: 'water/fighting' }],
+        addedDualTypes: [{ cardId: 'B4b-430', types: ['water', 'darkness'] }],
+      })
+      expect(preview.warnings).toContain("cards.json has a field the catalog does not read: 'energy2' (1 cards)")
+      // From the app without confirming: refused, saying which field.
+      await expect(sync.sync({ ...request, guard: true })).rejects.toThrow(/campos que el catálogo no lee \(energy2\)/)
+      expect((await test.prisma.card.findUniqueOrThrow({ where: { id: 'B3-51' } })).types).toEqual(['water'])
+      // Confirmed: it applies, the change row says the types moved.
+      const applied = await sync.sync({ ...request, guard: true, confirm: true })
+      expect(applied.status).toBe('applied')
+      expect((await test.prisma.card.findUniqueOrThrow({ where: { id: 'B3-51' } })).types).toEqual([
+        'water',
+        'fighting',
+      ])
+      const change = await test.prisma.catalogSyncChange.findFirst({
+        where: { syncId: applied.syncId, field: 'types' },
+      })
+      expect(change).toMatchObject({ cardId: 'B3-51', old: 'water', new: 'water/fighting' })
+    } finally {
+      await sync.sync({ trackerCommit: test.env.catalogCommit, engineRev: test.env.engineRev, source: 'fixtures' })
       rmSync(dir, { recursive: true, force: true })
     }
   })

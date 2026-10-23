@@ -66,6 +66,43 @@ export function typesOf(card: {
   return [card.energy]
 }
 
+/** The game's energy symbols in rules text («[W]»). */
+export const ENERGY_SYMBOLS: Readonly<Record<string, EnergyType>> = {
+  G: 'grass',
+  R: 'fire',
+  W: 'water',
+  L: 'lightning',
+  P: 'psychic',
+  F: 'fighting',
+  D: 'darkness',
+  M: 'metal',
+  N: 'dragon',
+  C: 'colorless',
+}
+
+/** Urshifu's «Double Type» (B3): «As long as this Pokémon is in play, it is [W] and [F] type.» */
+const GRANTED_TYPES = /as long as this pok[ée]mon is in play, it is \[([A-Z])\] and \[([A-Z])\] type/iu
+
+/**
+ * The types a Pokémon counts as in play: its printed types plus the ones its Ability grants while in play (Rapid
+ * Strike Urshifu, printed [W], is [W] and [F]). What a Weakness or «a [X] Pokémon in play» looks at; deck rules look at
+ * the printed ones (`typesOf`).
+ */
+export function typesInPlay(card: {
+  energy: EnergyType | 'trainer'
+  types?: readonly EnergyType[] | undefined
+  ability?: { effect: string } | null | undefined
+}): EnergyType[] {
+  const types = typesOf(card)
+  const granted = card.ability ? GRANTED_TYPES.exec(card.ability.effect) : null
+  if (!granted || types.length === 0) return types
+  for (const symbol of [granted[1], granted[2]]) {
+    const type = symbol ? ENERGY_SYMBOLS[symbol.toUpperCase()] : undefined
+    if (type && !types.includes(type)) types.push(type)
+  }
+  return types
+}
+
 /** Is the card a Pokémon of this type (any of its printed types)? */
 export function isOfType(
   card: { energy: EnergyType | 'trainer'; types?: readonly EnergyType[] | undefined },

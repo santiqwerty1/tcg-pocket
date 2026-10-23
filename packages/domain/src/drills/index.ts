@@ -155,6 +155,11 @@ export interface DrillPokemon {
   nameEs: string
   hp: number
   energy: EnergyType
+  /**
+   * The types it counts as in play (`typesInPlay`): two for C1's dual-type Pokémon or Urshifu's «Double Type», which
+   * hit a Weakness to either; absent means `[energy]`.
+   */
+  types?: readonly EnergyType[] | undefined
   weakness: EnergyType | null
   /** Prize points it gives when knocked out (2 ex, 3 Mega ex). */
   prizePoints: number
@@ -167,6 +172,15 @@ export function plainDamage(damage: string | null): number | null {
   return damage && /^\d+$/.test(damage.trim()) ? Number(damage.trim()) : null
 }
 
+function attackerTypes(pokemon: DrillPokemon): readonly EnergyType[] {
+  return pokemon.types && pokemon.types.length > 0 ? pokemon.types : [pokemon.energy]
+}
+
+/** Does the attacker hit the defender's Weakness? Any of the attacker's types counts (C1's dual types). */
+function hitsWeakness(attacker: DrillPokemon, defender: DrillPokemon): boolean {
+  return defender.weakness !== null && attackerTypes(attacker).includes(defender.weakness)
+}
+
 export function koDrill(attackers: readonly DrillPokemon[], defenders: readonly DrillPokemon[], seed: number): Drill {
   const random = seededRandom(seed)
   const usable = attackers.filter((pokemon) => pokemon.attacks.some((attack) => attack.damage > 0))
@@ -177,15 +191,21 @@ export function koDrill(attackers: readonly DrillPokemon[], defenders: readonly 
     attacker.attacks.filter((item) => item.damage > 0),
   )
   // Weakness more often than chance would give, so it is practiced.
-  const weak = defenders.filter((pokemon) => pokemon.weakness === attacker.energy)
+  const weak = defenders.filter((pokemon) => hitsWeakness(attacker, pokemon))
   const defender = weak.length > 0 && random() < 0.4 ? pick(random, weak) : pick(random, defenders)
-  const bonus = defender.weakness === attacker.energy ? WEAKNESS_BONUS : 0
+  const bonus = hitsWeakness(attacker, defender) ? WEAKNESS_BONUS : 0
+  const typesEs = attackerTypes(attacker)
+    .map((type) => ENERGY_ES[type])
+    .join(' y ')
+  const notWeakEs = attackerTypes(attacker)
+    .map((type) => ENERGY_ES[type])
+    .join(' ni a ')
   const damage = attack.damage + bonus
   const taken = Math.floor(random() * Math.floor(defender.hp / 10)) * 10
   const left = defender.hp - taken
   const variant = pick(random, ['ko', 'ko', 'hits', 'damage'] as const)
   const facts = [
-    `Tu ${attacker.nameEs} (${ENERGY_ES[attacker.energy]}) usa «${attack.name}»: ${attack.damage} de daño.`,
+    `Tu ${attacker.nameEs} (${typesEs}) usa «${attack.name}»: ${attack.damage} de daño.`,
     `${defender.nameEs} del rival: ${defender.hp} PS${taken > 0 ? `, con ${taken} de daño (le quedan ${left})` : ''}; debilidad: ${defender.weakness ? ENERGY_ES[defender.weakness] : 'ninguna'}.`,
     'La debilidad suma 20 al daño. Sin herramientas ni efectos de otras cartas.',
   ]
@@ -225,7 +245,7 @@ export function koDrill(attackers: readonly DrillPokemon[], defenders: readonly 
     facts: [facts[0] ?? '', facts[1] ?? '', 'Sin herramientas ni efectos de otras cartas.'],
     choices: values.map(String),
     answer: values.indexOf(damage),
-    explanation: `${damage}: ${attack.damage}${bonus > 0 ? ` + 20, porque ${defender.nameEs} es débil a ${ENERGY_ES[attacker.energy]}` : `; ${defender.nameEs} no es débil a ${ENERGY_ES[attacker.energy]}`}.`,
+    explanation: `${damage}: ${attack.damage}${bonus > 0 && defender.weakness ? ` + 20, porque ${defender.nameEs} es débil a ${ENERGY_ES[defender.weakness]}` : `; ${defender.nameEs} no es débil a ${notWeakEs}`}.`,
   }
 }
 

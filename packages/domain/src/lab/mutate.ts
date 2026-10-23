@@ -9,6 +9,7 @@
  * the same seed, the same variants.
  */
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
+import { typesOf } from '../catalog/pokemonTypes.js'
 import type { CardEdition, CardId, SelectableEnergy } from '../catalog/types.js'
 import type { DeckCardEntry } from '../decks/types.js'
 import { validateDeck } from '../decks/validate.js'
@@ -133,10 +134,13 @@ export function zoneRole(
   played: boolean,
 ): 'draw' | 'helper' | null {
   if (card.cardType !== 'pokemon') return 'draw'
-  const ownType = (energies as readonly string[]).includes(card.energy)
+  // A dual-type Pokémon (C1) is of the zone's type when either of its types is.
+  const ofZone = (pokemon: CardEdition) =>
+    typesOf(pokemon).some((type) => (energies as readonly string[]).includes(type))
+  const ownType = ofZone(card)
   if (usableWith(card, energies) && (ownType || card.ability !== null || played)) return 'draw'
   const line = evolutionLine(card, index)
-  const fits = line.some((step) => step.ability !== null || (energies as readonly string[]).includes(step.energy))
+  const fits = line.some((step) => step.ability !== null || ofZone(step))
   return fits && usableWith(card, energies, index) ? 'helper' : null
 }
 

@@ -59,7 +59,8 @@ export const TRACKER_IGNORED_FIELDS = ['foil'] as const
 export const trackerCardSchema = z
   .object({
     internal_id: z.number().int(),
-    card_id: z.string().min(3),
+    /** «A1-12», «P-A-7»: what the engine bridge maps to «A1 012» (`trackerIdToEngineId`). */
+    card_id: z.string().regex(/^.+-\d+$/, 'card_id must be «<expansion>-<number>», like A1-12'),
     expansion: z.string().min(1),
     name: z.string().min(1),
     hp: z.number().int().optional(),
@@ -110,7 +111,14 @@ export const enginePokemonSchema = engineBaseSchema.extend({
   /** The (first) printed type, as deckgym writes it («Psychic»). */
   energyType: z.string(),
   /** Every printed type, when the engine gives two (C1); absent for one. */
-  energyTypes: z.array(z.string().min(1)).min(1).max(MAX_POKEMON_TYPES).optional(),
+  energyTypes: z
+    .array(z.string().min(1))
+    .min(1)
+    .max(MAX_POKEMON_TYPES)
+    .refine((types) => new Set(types.map((type) => type.toLowerCase())).size === types.length, {
+      message: 'energyTypes repeats a type',
+    })
+    .optional(),
 })
 
 export const engineTrainerSchema = engineBaseSchema.extend({

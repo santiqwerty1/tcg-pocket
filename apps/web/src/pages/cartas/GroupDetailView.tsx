@@ -5,6 +5,7 @@ import { Section } from '@/components/Section'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { editionTypes } from '@/lib/energies'
 import { cn } from '@/lib/utils'
 import { WhereToGet } from './WhereToGet'
 
@@ -68,9 +69,11 @@ export function CardFacts({ card }: { card: CardEdition }) {
       <Badge variant="outline">{card.rarity}</Badge>
       <Badge variant="outline">{card.cardType === 'pokemon' ? 'Pokémon' : 'Entrenador'}</Badge>
       <Badge variant="outline">{evolutionLabel(card.evolutionType)}</Badge>
-      {card.energy && card.energy !== 'trainer' ? (
-        <Badge variant="outline">{energyTypeLabel(card.energy)}</Badge>
-      ) : null}
+      {editionTypes(card).map((type) => (
+        <Badge key={type} variant="outline">
+          {energyTypeLabel(type)}
+        </Badge>
+      ))}
       {card.hp ? <Badge variant="outline">{card.hp} PS</Badge> : null}
       {card.ex ? <Badge>ex</Badge> : null}
       {card.cardType === 'pokemon' ? (
