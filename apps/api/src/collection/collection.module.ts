@@ -27,6 +27,6 @@ import { TrackerSync } from './tracker-sync.service.js'
     DotggSync,
     TrackerGapService,
   ],
-  exports: [CollectionRepository, CollectionService, TrackerGapService],
+  exports: [CollectionRepository, CollectionService, TrackerGapService, DotggLinkStore],
 })
 export class CollectionModule {}

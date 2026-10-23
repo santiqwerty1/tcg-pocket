@@ -576,41 +576,44 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     ]
     body = exportFile([
       [2, 'Bulbasaur', 'A1', 1],
+      [1, '', 'B1a', 1],
       [1, "Professor's Research", 'P-A', 7],
       [3, 'Small Balloon', 'B4b', 372],
-      [1, 'Card From The Future', 'C9', 1],
     ])
     const response = await get('/api/collection/tracker-gap')
     expect(response.status).toBe(200)
     clean(response)
     expect(response.body.summary).toEqual({
-      cards: 4,
-      cardsMissing: 2,
-      copiesMissing: 2,
+      cards: 5,
+      cardsMissing: 3,
+      copiesMissing: 3,
       cardsExtra: 1,
       copiesExtra: 2,
       cardsCollected: 1,
       trackerCopies: 6,
-      gameCopies: 6,
+      gameCopies: 7,
     })
     expect(
       response.body.rows.map((row: { stockCardId: string; delta: number }) => [row.stockCardId, row.delta]),
     ).toEqual([
       ['A1-1', 1],
       ['A1-3', -2],
+      ['B1a-1', 1],
       ['B1a-28', 0],
       ['P-A-7', 1],
     ])
-    expect(response.body.unmatchedGame).toHaveLength(1)
+    expect(response.body.unmatchedGame).toEqual([])
     expect(response.body.unknownTracker).toEqual([2147483000])
-    expect(response.body.warnings).toHaveLength(2)
+    expect(response.body.warnings).toHaveLength(1)
+    expect(response.body).toMatchObject({ notCompared: 1, complete: false })
     const file = parseTrackerCsv(response.body.trackerFile.content)
-    expect(response.body.trackerFile).toMatchObject({ fileName: 'tcg-pocket-para-el-tracker.csv', rows: 4 })
+    expect(response.body.trackerFile).toMatchObject({ fileName: 'tcg-pocket-para-el-tracker.csv', rows: 5 })
     expect(file.errors).toEqual([])
     expect(file.rows.map((row) => [row.id, row.internalId, row.numberOwned, row.collected])).toEqual([
       ['A1-1', 65600, 2, true],
       // 0 copies in the game: Collected FALSE, though the tracker had it registered (Santi, 22/10).
       ['A1-3', 65730, 0, false],
+      ['B1a-1', internalId('B1a-1'), 1, true],
       ['B1a-28', 853760, 0, false],
       ['P-A-7', 12583376, 1, true],
     ])
@@ -621,6 +624,44 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     const unsafe = await get('/api/collection/tracker-gap')
     expect(unsafe.body.trackerFile).toBeNull()
     expect(unsafe.body.warnings.join(' ')).toContain('no se arma el archivo')
+  })
+
+  it('«Tracker al día» leaves out the expansions the export does not cover, instead of zeroing them in the file (S-B)', async () => {
+    await setting('trackerFriendId', FRIEND)
+    await setLink(LINK)
+    // The export lists A1 only; the tracker also has P-A-7, B4b-372 and B1a-28 (registered with 0).
+    body = exportFile([[2, 'Bulbasaur', 'A1', 1]])
+    remote = [
+      { internal_id: internalId('A1-1'), amount_owned: 1, collected: true },
+      { internal_id: internalId('B1a-28'), amount_owned: 0, collected: true },
+      { internal_id: internalId('P-A-7'), amount_owned: 1, collected: true },
+      { internal_id: internalId('B4b-372'), amount_owned: 3, collected: true },
+    ].sort((a, b) => a.internal_id - b.internal_id)
+    const gap = (await get('/api/collection/tracker-gap')).body
+    expect(gap.rows.map((row: { stockCardId: string }) => row.stockCardId)).toEqual(['A1-1'])
+    expect(gap.summary).toMatchObject({ cards: 1, trackerCopies: 1, gameCopies: 2 })
+    expect(gap).toMatchObject({ complete: false, notCompared: 3 })
+    expect(gap.warnings.join(' ')).toContain('no trae ninguna carta de B1a, B4b, P-A')
+    const file = parseTrackerCsv(gap.trackerFile.content)
+    expect(file.rows.map((row) => row.id)).toEqual(['A1-1'])
+  })
+
+  it('«Tracker al día» gives no file with a row the catalog does not know: it may be a known card under another code (S-D)', async () => {
+    await setting('trackerFriendId', FRIEND)
+    await setLink(LINK)
+    body = exportFile([
+      [2, 'Bulbasaur', 'A1', 1],
+      [1, "Professor's Research", 'PA', 7],
+    ])
+    remote = [
+      { internal_id: internalId('A1-1'), amount_owned: 1, collected: true },
+      { internal_id: internalId('P-A-7'), amount_owned: 1, collected: true },
+    ].sort((a, b) => a.internal_id - b.internal_id)
+    const gap = (await get('/api/collection/tracker-gap')).body
+    expect(gap.unmatchedGame).toHaveLength(1)
+    expect(gap.trackerFile).toBeNull()
+    expect(gap.rows.map((row: { stockCardId: string }) => row.stockCardId)).toEqual(['A1-1'])
+    expect(gap.complete).toBe(false)
   })
 
   it('«Tracker al día» for Claude (MCP), without the link or the file', async () => {
@@ -753,8 +794,8 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
       'backup.json.gz',
     )
     expect(restored.status).toBe(200)
-    // The file brought back the last applied sync of LINK.
-    expect(await test.prisma.appSetting.count({ where: { key: 'dotggLastAppliedAt' } })).toBe(1)
+    // The file brought back the last applied sync of LINK: kept with LINK, gone with another link.
+    expect(await test.prisma.appSetting.count({ where: { key: 'dotggLastAppliedAt' } })).toBe(other ? 0 : 1)
     await setting('dotggAutoSync', true)
     body = exportFile([
       [2, 'Bulbasaur', 'A1', 1],
@@ -816,6 +857,34 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     expect((await get('/api/collection/dotgg/status')).body.lastCheckedAt).not.toBeNull()
     await setLink(OTHER)
     expect((await get('/api/collection/dotgg/status')).body).toMatchObject({ lastCheckedAt: null, lastAppliedAt: null })
+  })
+
+  it('the link’s fingerprint is served nowhere: settings, previews, the imports list', async () => {
+    await setLink(LINK)
+    const pending = await preview()
+    expect((await apply(pending.body.id)).status).toBe(200)
+    const fingerprint = test.app.get(DotggLinkStore).fingerprint(LINK)
+    expect(await test.prisma.appSetting.count({ where: { key: 'dotggLastAppliedLink' } })).toBe(1)
+    for (const path of ['/api/settings', `/api/collection/imports/${pending.body.id}`, '/api/collection/imports']) {
+      const response = await get(path)
+      expect(JSON.stringify(response.body), path).not.toContain(fingerprint)
+      expect(JSON.stringify(response.body), path).not.toContain('dotggLastAppliedLink')
+    }
+    expect(JSON.stringify(pending.body)).not.toContain(fingerprint)
+  })
+
+  it.each([
+    ['another link', true],
+    ['the same link', false],
+  ])('a restore with %s configured resets by link, like saving a link (S-C)', async (_name, other) => {
+    await setLink(LINK)
+    expect((await apply((await preview()).body.id)).status).toBe(200)
+    const exported = await get('/api/backup/export').responseType('blob')
+    if (other) await setLink(OTHER)
+    await post('/api/backup/import?mode=replace').attach('file', Buffer.from(exported.body), 'backup.json.gz')
+    const status = (await get('/api/collection/dotgg/status')).body
+    if (other) expect(status).toMatchObject({ lastCheckedAt: null, lastAppliedAt: null, previewId: null, result: null })
+    else expect(status.lastAppliedAt).not.toBeNull()
   })
 
   it('the same link keeps the pending preview; another link discards it', async () => {
@@ -1040,6 +1109,12 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     expect((await compare()).trackerFile).not.toBeNull()
     // Diverged: either side changing cards.json counts.
     github('diverged', ui, ids)
+    expect((await compare()).trackerFile).toBeNull()
+    // GitHub lists at most 300 files: a full list may hide cards.json.
+    github(
+      'ahead',
+      Array.from({ length: 300 }, (_, at) => `frontend/src/file-${at}.tsx`),
+    )
     expect((await compare()).trackerFile).toBeNull()
     // GitHub does not answer: the ids cannot be checked, no file.
     test.app.get(TrackerCommitsService).fetchImpl = async () => new Response(null, { status: 500 })

@@ -382,26 +382,31 @@ export function dotggUnits(units: StockQuantities, index: CatalogIndex, current:
 
 /**
  * Expansions with copies in the collection and not a single row in the export (by the expansion of each stock unit):
- * ptcgpocket.gg may not know a new set yet, and applying would zero it. In catalog order.
+ * ptcgpocket.gg may not know a new set yet, and applying would zero it. In catalog order, with the copies and the units
+ * there. With `registered`, a unit with no copy but the carddex flag counts too (the tracker file would clear it).
  */
 export function dotggMissingExpansions(
   index: CatalogIndex,
   current: StockQuantities,
   units: StockQuantities,
-): { expansionId: ExpansionId; copies: number }[] {
+  options: { registered?: boolean } = {},
+): { expansionId: ExpansionId; copies: number; cards: number }[] {
   const covered = new Set<ExpansionId>()
   for (const stockCardId of Object.keys(units)) {
     const expansion = index.cardById(stockCardId)?.expansionId
     if (expansion) covered.add(expansion)
   }
-  const copies = new Map<ExpansionId, number>()
+  const found = new Map<ExpansionId, { copies: number; cards: number }>()
   for (const unit of Object.values(current)) {
-    if (unit.amountOwned <= 0) continue
+    if (unit.amountOwned <= 0 && !(options.registered && unit.collected)) continue
     const expansion = index.cardById(unit.stockCardId)?.expansionId
     if (!expansion || covered.has(expansion)) continue
-    copies.set(expansion, (copies.get(expansion) ?? 0) + unit.amountOwned)
+    const entry = found.get(expansion) ?? { copies: 0, cards: 0 }
+    entry.copies += unit.amountOwned
+    entry.cards += 1
+    found.set(expansion, entry)
   }
   return index.catalog.expansions
-    .filter((expansion) => copies.has(expansion.id))
-    .map((expansion) => ({ expansionId: expansion.id, copies: copies.get(expansion.id) ?? 0 }))
+    .filter((expansion) => found.has(expansion.id))
+    .map((expansion) => ({ expansionId: expansion.id, ...(found.get(expansion.id) ?? { copies: 0, cards: 0 }) }))
 }

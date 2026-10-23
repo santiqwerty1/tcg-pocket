@@ -36,6 +36,12 @@ export const SETTING_KEYS = [
 ] as const
 export type SettingKey = (typeof SETTING_KEYS)[number]
 
+/**
+ * Rows of `app_settings` the server keeps for itself and `GET /api/settings` does not serve: the keyed fingerprint of
+ * the ptcgpocket.gg link the last sync was read from (T-020; it travels in the backup so a restore can tell the links).
+ */
+export const SERVER_ONLY_SETTINGS: ReadonlySet<string> = new Set(['dotggLastAppliedLink'])
+
 export function isSettingKey(key: string): key is SettingKey {
   return (SETTING_KEYS as readonly string[]).includes(key)
 }
@@ -46,7 +52,9 @@ export class SettingsService {
 
   async all(): Promise<Record<string, unknown>> {
     const rows = await this.prisma.appSetting.findMany({ orderBy: { key: 'asc' } })
-    return Object.fromEntries(rows.map((row) => [row.key, row.value]))
+    return Object.fromEntries(
+      rows.filter((row) => !SERVER_ONLY_SETTINGS.has(row.key)).map((row) => [row.key, row.value]),
+    )
   }
 
   async set(key: string, value: unknown): Promise<{ key: string; value: unknown }> {

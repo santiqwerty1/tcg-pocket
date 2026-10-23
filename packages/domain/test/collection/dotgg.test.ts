@@ -334,9 +334,15 @@ describe('dotggMissingExpansions', () => {
       index,
     ).units
     expect(dotggMissingExpansions(index, current, file)).toEqual([
-      { expansionId: 'B4b', copies: 2 },
-      { expansionId: 'P-A', copies: 1 },
+      { expansionId: 'B4b', copies: 2, cards: 1 },
+      { expansionId: 'P-A', copies: 1, cards: 1 },
     ])
     expect(dotggMissingExpansions(index, current, current)).toEqual([])
+    // A card registered with no copy counts only when asked (the tracker file would clear its flag).
+    expect(dotggMissingExpansions(index, current, file, { registered: true })).toEqual([
+      { expansionId: 'B1a', copies: 0, cards: 1 },
+      { expansionId: 'B4b', copies: 2, cards: 1 },
+      { expansionId: 'P-A', copies: 1, cards: 1 },
+    ])
   })
 })

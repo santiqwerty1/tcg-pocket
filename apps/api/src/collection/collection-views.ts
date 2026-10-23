@@ -86,7 +86,7 @@ export interface DotggReviewView {
   /** Rows whose name is another card's (another numbering?): mapped, but they make it wait for a look. */
   renamed: DotggRenamed[]
   /** Expansions with copies in the collection and no row in the export. */
-  missingExpansions: { expansionId: string; nameEs: string; copies: number }[]
+  missingExpansions: { expansionId: string; nameEs: string; copies: number; cards: number }[]
 }
 
 export interface ImportChangeView {

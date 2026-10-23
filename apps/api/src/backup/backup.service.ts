@@ -7,6 +7,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { CHAT_MOVED_KEY } from '../chat/chat-moved.service.js'
+import { DotggLinkStore } from '../collection/dotgg-link.store.js'
 import { ENV, type Env } from '../config/env.js'
 import { dateOnly } from '../config/time-zone.js'
 import type { Prisma } from '../generated/prisma/client.js'
@@ -167,6 +168,7 @@ export class BackupService {
     private readonly prisma: PrismaService,
     private readonly catalog: CatalogService,
     private readonly tournamentData: TournamentDataVersion,
+    private readonly links: DotggLinkStore,
     @Inject(ENV) private readonly env: Env,
     private readonly logger: PinoLogger,
   ) {
@@ -785,6 +787,27 @@ export class BackupService {
         create: { key: stateKey, value },
         update: { value },
       })
+    }
+    // T-020: the file's last sync, check, state and alert of ptcgpocket.gg belong to the link they were read from (its
+    // keyed fingerprint travels as dotggLastAppliedLink). With another link configured, or none, they go, as saving
+    // another link does; the next automatic read still waits 24 h. The drill restores the file exactly (no reset).
+    if (deferTracker) {
+      const link = await this.links.read(tx)
+      const fromFile = document.settings.find((s) => s.key === 'dotggLastAppliedLink')?.value
+      if (!link || fromFile !== this.links.fingerprint(link)) {
+        const keys = [
+          'dotggLastAppliedAt',
+          'dotggLastCheckedAt',
+          'dotggSyncState',
+          'dotggSyncWarning',
+          'dotggLastAppliedLink',
+        ]
+        await tx.appSetting.deleteMany({ where: { key: { in: keys } } })
+        if (document.settings.some((s) => s.key === 'dotggAutoSync' && s.value === true))
+          await tx.appSetting.create({
+            data: { key: 'dotggSyncState', value: { lastAttemptAt: new Date().toISOString() } },
+          })
+      }
     }
     // Games against the bot (version 5): the finished ones are replaced by the file's results (no moves, no
     // snapshots); games still being played keep going. Older files keep the current ones.

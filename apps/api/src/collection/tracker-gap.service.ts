@@ -6,6 +6,7 @@
 import { BadRequestException, ConflictException, Injectable, ServiceUnavailableException } from '@nestjs/common'
 import {
   type DotggUnmatched,
+  dotggMissingExpansions,
   mapDotggRows,
   normalizeImportRows,
   parseDotggCsv,
@@ -137,11 +138,22 @@ export class TrackerGapService {
     }
     const tracker = normalizeImportRows(trackerRows, index)
     // A row with another card's name may be another numbering: its count would land on the wrong card.
-    const renamedUnits = new Set(
+    const skipped = new Set(
       mapped.renamed.map((row) => index.cardById(row.cardId)?.stockCardId).filter((id): id is string => !!id),
     )
-    const gap = trackerGap(index, trackerUnits(tracker.units, index), game.units, renamedUnits)
+    // An expansion the tracker has cards of and the export not a single row (ptcgpocket.gg may not know it, or write it
+    // with another code): its cards are not compared, or the file would put them at 0 and take their registration off.
+    const missing = dotggMissingExpansions(index, tracker.units, game.units, { registered: true })
+    const uncovered = new Set(missing.map((item) => item.expansionId))
+    for (const unit of index.catalog.stockUnits)
+      if (uncovered.has(index.cardById(unit.id)?.expansionId ?? '')) skipped.add(unit.id)
+    const gap = trackerGap(index, trackerUnits(tracker.units, index), game.units, skipped)
     const warnings: string[] = []
+    const leftOut = missing.reduce((sum, item) => sum + item.cards, 0)
+    if (missing.length > 0)
+      warnings.push(
+        `La exportación de ptcgpocket.gg no trae ninguna carta de ${missing.map((item) => item.expansionId).join(', ')} y el tracker tiene ${leftOut === 1 ? '1 carta' : `${leftOut} cartas`} ahí: no se comparan (puede que ptcgpocket.gg no conozca la expansión o la escriba con otro código).`,
+      )
     if (mapped.renamed.length > 0)
       warnings.push(
         `ptcgpocket.gg trae ${mapped.renamed.length === 1 ? '1 carta' : `${mapped.renamed.length} cartas`} con el nombre de otra carta del catálogo (puede que numere distinto esa expansión): no se comparan.`,
@@ -167,15 +179,18 @@ export class TrackerGapService {
       )
     if (mapped.unmatched.length > 0)
       warnings.push(
-        `ptcgpocket.gg trae ${mapped.unmatched.length === 1 ? '1 carta' : `${mapped.unmatched.length} cartas`} que el catálogo no tiene: no se comparan (sincronizá el catálogo).`,
+        `ptcgpocket.gg trae ${mapped.unmatched.length === 1 ? '1 carta' : `${mapped.unmatched.length} cartas`} que el catálogo no tiene: no se comparan y no se arma el archivo, porque puede ser una carta conocida con otro código (sincronizá el catálogo).`,
       )
     const unknownTracker = tracker.unknownIds.map((id) => Number(id.replace('internal_id:', '')))
     if (unknownTracker.length > 0)
       warnings.push(
         `El tracker tiene ${unknownTracker.length === 1 ? '1 carta' : `${unknownTracker.length} cartas`} que el catálogo no conoce: no se comparan.`,
       )
-    const safe = parsed.errors.length === 0 && game.conflicts.length === 0 && ids === 'same'
-    const notCompared = mapped.renamed.length + mapped.unmatched.length + unknownTracker.length + parsed.errors.length
+    // A row the catalog does not know may be a known card under another code: its card would go to 0 in the file.
+    const safe =
+      parsed.errors.length === 0 && game.conflicts.length === 0 && mapped.unmatched.length === 0 && ids === 'same'
+    const notCompared =
+      mapped.renamed.length + mapped.unmatched.length + unknownTracker.length + parsed.errors.length + leftOut
     const rows: TrackerGapRowView[] = gap.rows.map((row) => {
       const card = index.cardById(row.stockCardId)
       return {
