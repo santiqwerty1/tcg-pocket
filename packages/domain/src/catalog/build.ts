@@ -254,16 +254,19 @@ function parseInput(input: BuildCatalogInput): ParsedInput {
       (index) => cardIdAt(input.cardsJson, index),
     ),
     translations: {
-      pokemon: parseTranslationTable(input.translations.pokemon),
-      trainers: parseTranslationTable(input.translations.trainers),
-      tools: parseTranslationTable(input.translations.tools),
+      pokemon: readCatalogInput('pokemon_translations.json', () => parseTranslationTable(input.translations.pokemon)),
+      trainers: readCatalogInput('trainers_translations.json', () =>
+        parseTranslationTable(input.translations.trainers),
+      ),
+      tools: readCatalogInput('tools_translations.json', () => parseTranslationTable(input.translations.tools)),
     },
     expansions: readCatalogInput('CardsDB.ts expansions', () => parseExpansionsFromCardsDb(input.cardsDbSource)),
     expansionIds: readCatalogInput('types/index.ts', () => parseExpansionIds(input.typesIndexSource)),
-    esSets: parseLocaleTable(input.esSets),
-    esPacks: parseLocaleTable(input.esPacks),
-    enSets: input.enSets === undefined ? {} : parseLocaleTable(input.enSets),
-    enPacks: input.enPacks === undefined ? {} : parseLocaleTable(input.enPacks),
+    esSets: readCatalogInput('es-ES sets.json', () => parseLocaleTable(input.esSets)),
+    esPacks: readCatalogInput('es-ES packs.json', () => parseLocaleTable(input.esPacks)),
+    enSets: input.enSets === undefined ? {} : readCatalogInput('en-US sets.json', () => parseLocaleTable(input.enSets)),
+    enPacks:
+      input.enPacks === undefined ? {} : readCatalogInput('en-US packs.json', () => parseLocaleTable(input.enPacks)),
   }
 }
 
@@ -604,7 +607,9 @@ export function buildCatalogWithReport(input: BuildCatalogInput): BuildResult {
   const knownCards = new Set(editions.map((card) => card.id))
   const missions: Mission[] = []
   for (const [expansionId, raw] of Object.entries(input.missions ?? {})) {
-    const parsed = parseMissions(raw, (cardId) => knownCards.has(cardId))
+    const parsed = readCatalogInput(`${expansionId}-missions.json`, () =>
+      parseMissions(raw, (cardId) => knownCards.has(cardId)),
+    )
     missions.push(...parsed.missions)
     for (const warning of parsed.warnings) warnings.push(`${expansionId} ${warning}`)
   }

@@ -134,7 +134,7 @@ describe('the tracker card schema and the engine data with two types (FIXTURE IN
     expect(validated).toBeLessThan(script.indexOf("writeFileSync(join(out, 'deckgym/engine-cards.json')"))
     // So a database.json a sync refuses (energy_type outside energy_types) stops the extraction too.
     expect(() => engineTypeFields({ id: 'C1 009', energy_type: 'Fire', energy_types: ['Grass'] })).toThrow(
-      /C1 009 energy_type Fire is not in energy_types/,
+      /C1 009: energy_type Fire is not in energy_types/,
     )
     expect(engineTypeFields({ energy_type: 'Fire', energy_types: ['Grass', 'Fire'] })).toEqual({
       energyType: 'Grass',
@@ -193,6 +193,37 @@ describe('the catalog with two types', () => {
     )
     expect(() => buildCatalogWithReport(badEngine)).toThrow(CatalogInputError)
     expect(() => buildCatalogWithReport(badEngine)).toThrow('deckgym database.json: 0.hp: ')
+    // The other files of the tracker, too (Codex on #151): types/index.ts, a translation table and a locale table.
+    const broken = (change: (input: ReturnType<typeof buildInput>) => void) => {
+      const input = buildInput()
+      change(input)
+      return () => buildCatalogWithReport(input)
+    }
+    expect(
+      broken((input) => {
+        input.typesIndexSource = 'export const other = [] as const\n'
+      }),
+    ).toThrow("types/index.ts: expansionIds: declaration 'export const expansionIds' not found")
+    expect(
+      broken((input) => {
+        input.translations.pokemon = { bulbasaur: 3 }
+      }),
+    ).toThrow(/^pokemon_translations\.json: bulbasaur: /)
+    expect(
+      broken((input) => {
+        input.esSets = { geneticapex: 7 }
+      }),
+    ).toThrow(/^es-ES sets\.json: geneticapex: /)
+    for (const change of [
+      (input: ReturnType<typeof buildInput>) => {
+        input.translations.pokemon = { bulbasaur: 3 }
+      },
+      (input: ReturnType<typeof buildInput>) => {
+        input.esSets = { geneticapex: 7 }
+      },
+    ]) {
+      expect(broken(change)).toThrow(CatalogInputError)
+    }
   })
 
   it('the sync report names a cards.json field it does not read (a second type written apart, say)', () => {
