@@ -71,7 +71,10 @@ export interface CatalogPreview {
 }
 
 /** The build's warnings without the ones for unknown fields, which the preview carries apart (`unknownFields`). */
-function withoutUnknownFieldWarnings(warnings: readonly string[], unknown: readonly UnknownTrackerField[]): string[] {
+export function withoutUnknownFieldWarnings(
+  warnings: readonly string[],
+  unknown: readonly UnknownTrackerField[],
+): string[] {
   const apart = new Set(unknown.map(unknownTrackerFieldWarning))
   return warnings.filter((warning) => !apart.has(warning))
 }

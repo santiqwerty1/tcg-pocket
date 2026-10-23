@@ -25,7 +25,9 @@ const trackerEnergySchema = z.unknown().transform((value, ctx) => {
   try {
     return parseTrackerEnergy(value)
   } catch (error) {
-    ctx.addIssue({ code: 'custom', message: (error as Error).message })
+    // The reader throws a plain Error on a value; anything else is a bug and stays one.
+    if (!(error instanceof Error) || Object.getPrototypeOf(error) !== Error.prototype) throw error
+    ctx.addIssue({ code: 'custom', message: error.message })
     return z.NEVER
   }
 })

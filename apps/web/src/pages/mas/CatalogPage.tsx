@@ -42,6 +42,9 @@ function PreviewPanel({
     ...(preview.older
       ? ['Es un commit anterior al cargado: volver atrás puede sacar cartas de la colección y de los mazos.']
       : []),
+    ...(preview.unknownPosition
+      ? ['No se pudo comparar este commit con el cargado: puede ser anterior y sacar cartas de la colección.']
+      : []),
     ...(takesAway ? ['Esta actualización saca cartas de la colección o de los mazos, o deja cosas para revisar.'] : []),
     ...(preview.unknownFields.length > 0
       ? ['El tracker trae campos que el catálogo no lee: una carta podría entrar con datos de menos.']

@@ -218,7 +218,20 @@ describe('the catalog with two types', () => {
         { Pokemon: { id: 'C1 002', name: 'X', stage: 0, hp: 60, energy_types: ['Water', 'Water'], rarity: '◊' } },
       ]),
     ).toThrow('deckgym database.json: C1 002.energyTypes: energyTypes repeats a type (got ["Water","Water"])')
-    expect(() => readEngineCards({})).toThrow('deckgym database.json: deckgym database.json must be an array')
+    // The reduction names the card (or the row) too, once (self-review).
+    expect(() => readEngineCards({})).toThrow('deckgym database.json: it must be a list of cards')
+    expect(() => readEngineCards([{ Energy: { id: 'C1 900' } }])).toThrow(
+      'deckgym database.json: C1 900: unknown entry kind Energy',
+    )
+    expect(() => readEngineCards([null])).toThrow('deckgym database.json: row 0: not a card (got null)')
+    // A long value is cut at 60 characters; one too deep to print does not hide its error.
+    expect(withCard((card) => ({ ...card, energy: `water/${'x'.repeat(100)}` }))).toThrow(
+      `(got "water/${'x'.repeat(50)}...)`,
+    )
+    let deep: unknown = 'bottom'
+    for (let level = 0; level < 20_000; level++) deep = { deeper: deep }
+    expect(withCard((card) => ({ ...card, attacks: deep }))).toThrow('cards.json: B3-51.attacks: ')
+    expect(withCard((card) => ({ ...card, attacks: deep }))).toThrow('(got unprintable)')
     // A bug is not unreadable data: a TypeError passes through as it is (a 500 with its stack in the logs).
     expect(() =>
       readCatalogInput('cards.json', () => {

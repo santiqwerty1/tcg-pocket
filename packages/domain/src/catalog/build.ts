@@ -165,7 +165,13 @@ function valueAt(raw: unknown, path: readonly PropertyKey[]): string {
     value = (value as Record<PropertyKey, unknown>)[key]
   }
   if (value === undefined) return 'missing'
-  const shown = JSON.stringify(value) ?? String(value)
+  let shown: string
+  try {
+    shown = JSON.stringify(value) ?? String(value)
+  } catch {
+    // A value too deep to print must not hide the data error it belongs to (self-review).
+    return 'unprintable'
+  }
   return shown.length > 60 ? `${shown.slice(0, 57)}...` : shown
 }
 
@@ -187,14 +193,14 @@ function describeParseError(error: unknown, rowLabel?: (index: number) => string
 }
 
 /**
- * An error the data caused: a schema's (zod), a literal or CardsDB parse, a check of the build, or a plain `Error`
+ * An error the data caused: a schema's (zod), a CardsDB parse (literals included), a check of the build, or a plain `Error`
  * the readers throw on a value («Unknown weakness», «Invalid tracker card id»). A `TypeError`, a `RangeError` or any
  * other subclass is a bug: it stays as it is, a 500 with its stack in the logs.
  */
 function isDataError(error: unknown): error is Error {
   if (!(error instanceof Error)) return false
   if (error instanceof CatalogBuildError || error.name === 'ZodError') return true
-  if (error.name === 'CardsDbParseError' || error.name === 'LiteralParseError') return true
+  if (error.name === 'CardsDbParseError') return true
   return Object.getPrototypeOf(error) === Error.prototype
 }
 

@@ -88,7 +88,7 @@ export class CatalogController {
   async preview(
     @Body(new ZodValidationPipe(previewSchema)) body: z.infer<typeof previewSchema>,
     @CurrentSession() _session: RequestSession,
-  ): Promise<CatalogPreview & { older: boolean }> {
+  ): Promise<CatalogPreview & { older: boolean; unknownPosition: boolean }> {
     const commit = body.commit ?? (body.fromFixtures ? this.env.catalogCommit : (await this.commits.latest()).sha)
     const preview = await this.sync.preview({
       trackerCommit: commit,
@@ -97,8 +97,9 @@ export class CatalogController {
     })
     const position = body.fromFixtures ? 'same' : await this.position(commit)
     const older = position === 'older'
-    // Unknown (GitHub did not answer): it may be going back, so it asks too.
-    return { ...preview, older, destructive: preview.destructive || older || position === 'unknown' }
+    // Unknown (GitHub did not answer): it may be going back, so it asks too, and says so next to the other reasons.
+    const unknownPosition = position === 'unknown'
+    return { ...preview, older, unknownPosition, destructive: preview.destructive || older || unknownPosition }
   }
 
   /**
