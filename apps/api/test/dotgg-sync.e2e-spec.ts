@@ -790,6 +790,22 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     }
   })
 
+  it('automatic: nothing to change but rows to look at keeps a preview, so the alert has one (Codex 4355133195)', async () => {
+    await setLink(LINK)
+    await setting('dotggAutoSync', true)
+    expect((await apply((await preview()).body.id)).status).toBe(200)
+    body = `${BASE}2,0,"Card From The Future","C9","1"\n`
+    const result = await test.app.get(DotggSync).tick(new Date(Date.now() + 2 * DOTGG_SYNC_INTERVAL_MS))
+    expect(result?.summary.unitsChanged).toBe(0)
+    expect(result?.dotgg?.unmatched).toHaveLength(1)
+    expect((await get(`/api/collection/imports/${result?.id}`)).body.status).toBe('pending')
+    const alert = ((await get('/api/alerts')).body.items as { code: string; link: string | null }[]).find(
+      (item) => item.code === 'dotgg_sync',
+    )
+    expect(alert?.link).toBe(`/coleccion/importar/${result?.id}`)
+    expect(await copies()).toBe(6)
+  })
+
   it('another link forgets the old link’s last check («Última sincronización»)', async () => {
     await setLink(LINK)
     await setting('dotggAutoSync', true)

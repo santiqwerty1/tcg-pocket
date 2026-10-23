@@ -20,6 +20,7 @@ import {
 import { parseDotggCsv, parseDotggExportLink, redactDotggLink } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { ENV, type Env } from '../config/env.js'
+import { ADVISORY_LOCKS } from '../prisma/advisory-locks.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { CollectionService, REMOTE_KEYS } from './collection.service.js'
 import { DotggClient, DotggError } from './dotgg-client.js'
@@ -27,8 +28,8 @@ import { DOTGG_LINK_KEY, DotggLinkStore } from './dotgg-link.store.js'
 import { type SourceSnapshot, SourceSnapshots } from './source-snapshot.js'
 
 export const DOTGG_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000
-/** Held while a ptcgpocket.gg read or apply is under way (the tracker's is 994201; collection writes take 994202). */
-const SYNC_LOCK = 994203
+/** Held while a ptcgpocket.gg read or apply is under way (every key: prisma/advisory-locks.ts). */
+const SYNC_LOCK = ADVISORY_LOCKS.dotggSync
 const KEYS = REMOTE_KEYS.dotgg
 
 export interface DotggSyncState {

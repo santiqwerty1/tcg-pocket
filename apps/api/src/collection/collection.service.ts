@@ -552,7 +552,9 @@ export class CollectionService {
         await client.query('DELETE FROM app_settings WHERE key = $1', [keys.warning])
         await this.pruneRemoteImports(client, remote.source)
       }
-      if (remote?.automatic && diff.changes.length === 0) {
+      // Nothing to change and nothing to look at: no import is stored. A ptcgpocket.gg export with something to look at
+      // (rows the catalog lacks or with another name, rows it cannot read) keeps its preview, so its alert has one.
+      if (remote?.automatic && diff.changes.length === 0 && !dotgg?.requiresReview) {
         await client.query(
           `INSERT INTO app_settings (key, value) VALUES ($1, $2::jsonb)
            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,

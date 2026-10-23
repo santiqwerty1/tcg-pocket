@@ -65,4 +65,29 @@ describe('ImportPreviewView', () => {
     screen.getByRole('button', { name: 'Retirar' }).click()
     expect(calls).toEqual(['adj_latias'])
   })
+
+  it('tells a twin conflict of ptcgpocket.gg as a mismatch to sync again, not as a file to fix in the tracker', () => {
+    const conflict = {
+      stockCardId: 'A1-1',
+      rows: [
+        { cardId: 'A1-1', line: 2, amountOwned: 2, collected: true },
+        { cardId: 'A4b-1', line: 3, amountOwned: 1, collected: true },
+      ],
+    }
+    const { unmount } = render(
+      <MemoryRouter>
+        <ImportPreviewView preview={{ ...preview, source: 'dotgg', twinConflicts: [conflict] }} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText(/desajuste entre ptcgpocket.gg y el catálogo/)).toBeInTheDocument()
+    expect(screen.getByText(/La exportación de ptcgpocket.gg trae errores/)).toBeInTheDocument()
+    expect(screen.queryByText(/Corregí el archivo en el tracker/)).not.toBeInTheDocument()
+    unmount()
+    render(
+      <MemoryRouter>
+        <ImportPreviewView preview={{ ...preview, twinConflicts: [conflict] }} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText(/Corregí el archivo en el tracker/)).toBeInTheDocument()
+  })
 })

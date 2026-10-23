@@ -143,8 +143,9 @@ export function ImportPreviewView({ preview, onResolveAdjustment, resolvingId }:
       {preview.twinConflicts.length > 0 ? (
         <Section title={`Gemelas con valores distintos (${preview.twinConflicts.length})`}>
           <p className="text-sm text-muted-foreground">
-            Dos filas de la misma unidad de stock traen cantidades distintas. Corregí el archivo en el tracker antes de
-            aplicar.
+            {preview.source === 'dotgg'
+              ? 'ptcgpocket.gg trae dos ediciones de una misma carta con cantidades distintas: es un desajuste entre ptcgpocket.gg y el catálogo, y así no se puede aplicar. Sincronizá de nuevo más tarde, o sincronizá el catálogo.'
+              : 'Dos filas de la misma unidad de stock traen cantidades distintas. Corregí el archivo en el tracker antes de aplicar.'}
           </p>
           <ul className="flex flex-col gap-2">
             {preview.twinConflicts.map((conflict) => (
@@ -249,7 +250,9 @@ export function ImportPreviewView({ preview, onResolveAdjustment, resolvingId }:
 
       {hasBlockingErrors ? (
         <p className="text-sm text-destructive">
-          Hay errores en el archivo: corregilo y volvé a subirlo antes de aplicar.
+          {preview.source === 'dotgg'
+            ? 'La exportación de ptcgpocket.gg trae errores: así no se puede aplicar. Sincronizá de nuevo más tarde.'
+            : 'Hay errores en el archivo: corregilo y volvé a subirlo antes de aplicar.'}
         </p>
       ) : null}
     </div>
