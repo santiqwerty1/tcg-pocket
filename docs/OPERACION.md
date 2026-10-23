@@ -98,12 +98,13 @@ Desde #75 (DECISIONES 45.51) se pueden correr con la API viva: levantan la app e
 Una expansión nueva toca el catálogo, la tabla de eras, los sobres y el motor, en ese orden. Del tracker y de deckgym depende cuándo llega cada parte: el tracker suele cargar el set uno o dos días después de que sale (B4a, B4b), y deckgym lo carga el mismo día, pero sus mecánicas nuevas llegan después.
 
 1. **Antes de que salga** (un PR, se siembra con el deploy):
-   - la fila del set en `DEFAULT_SET_RELEASES` (`packages/domain/src/tournaments/eras.ts`), con su día UTC y si abre era. El servidor la agrega al arrancar sin pisar las filas de Santi; una era que todavía no empezó no se lista;
-   - la temporada de ranked, con una migración que la inserte solo si no se superpone con otra (como `20261022210000_ranked_season_c1`), o cargada desde la app;
+   - la fila del set en `DEFAULT_SET_RELEASES` (`packages/domain/src/tournaments/eras.ts`), con su día UTC y si abre era. El servidor la agrega al arrancar sin pisar las filas de Santi. Una era que todavía no empezó no se lista, y el aviso «era nueva probable» no pide un set que ya está cargado. Los torneos cuentan para el set desde las 00:00 UTC del día de salida (21:00 del día anterior en Buenos Aires), como los agrupa Limitless; la era actual de la app cambia a la medianoche de Santi, sola (como con C1, confirmado por Santi);
+   - la temporada de ranked, con una migración que la inserte solo si no se superpone con otra y con fecha posterior a las de main (como `20261023100000_ranked_season_c1`), o cargada desde la app;
    - los sobres que dejan de venderse. `PACKS_LIMITED_BY_DEFAULT` y `PACKS_OFF_BY_DEFAULT` (`packages/domain/src/packs/recommend.ts`) solo valen para un sobre que entra por primera vez: la sincronización no pisa `available`, `limited` ni `limited_until` de los que ya existen (`insertOnly`). Un sobre ya sincronizado se cambia en Sobres → Ajustes o con una migración.
 2. **Cuando el tracker lo carga** (aviso `new_set`): Más → Catálogo → «Buscar novedades» → «Actualizar al último del tracker». La vista previa no escribe nada. Hay que mirar:
-   - los sets y cartas nuevos, cuántas juega el motor, los tipos que cambian y lo que sale;
-   - **los avisos del armado y los campos de `cards.json` que el catálogo no lee**. Un campo nuevo puede traer algo que la app usa, como el segundo tipo de C1. Mientras haya alguno, aplicar pide confirmación;
+   - los sets y cartas nuevos, cuántas juega el motor y lo que sale;
+   - **las cartas nuevas de doble tipo, con sus dos tipos, y las que cambian de tipo**: la vista previa las lista (las primeras 50) para revisar que el catálogo leyó bien los tipos de C1 antes de aplicar;
+   - **los avisos del armado y los campos de `cards.json` que el catálogo no lee**: la vista previa los muestra, el campo desconocido en castellano y aparte. Un campo nuevo puede traer algo que la app usa, como el segundo tipo de C1. Mientras haya alguno, aplicar pide confirmación, y el cartel dice todos los motivos;
    - si la vista previa falla con «No se pudo leer el catálogo de ese commit» (`422 catalog_unreadable`), el mensaje nombra el archivo, la carta y el valor que el catálogo no entiende; por ejemplo, un tipo escrito de otra forma. Se arregla el parser en un PR chico; hasta entonces la app sigue con el catálogo anterior. Otro error (un 500) queda en `flyctl logs --app tcg-pocket`.
 
    «Aplicar», y confirmar si lo pide.
