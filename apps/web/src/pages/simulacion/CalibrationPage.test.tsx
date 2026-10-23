@@ -87,4 +87,6 @@ it('empieza con g2, el bot por defecto (D-029), y lo marca en la lista', async (
   await user.click(bot)
   expect(await screen.findByRole('option', { name: 'e2 · expectiminimax, profundidad 2' })).toBeVisible()
   expect(screen.getByText(/g2, el bot por defecto, tarda unas 3 veces lo de e2/)).toBeVisible()
+  // D-029: e3 as measured (4,6 times e2, the calibration report of 12/10), as the estimates count it.
+  expect(screen.getByText(/y\s+e3 unas 4,6\./)).toBeVisible()
 })

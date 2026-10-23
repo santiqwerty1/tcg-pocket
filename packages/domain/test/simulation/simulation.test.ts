@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { engineIdToTrackerId } from '../../src/catalog/index.js'
 import {
+  botCostVsE2,
   botLabel,
   buildSnapshot,
   COMPARE_SEED_STRIDE,
@@ -11,6 +12,7 @@ import {
   comparisonSeed,
   DEFAULT_BOT,
   DEFAULT_PLAYERS,
+  DEPTH_COST_VS_E2,
   deckRecord,
   defaultReplaySample,
   type EngineStatus,
@@ -216,6 +218,53 @@ describe('jobs', () => {
     // Only for what was stored before without its bot.
     expect(LEGACY_DEFAULT_BOT).toBe('e2')
     expect(estimateSeconds(1000, DEFAULT_PLAYERS, 8)).toBeCloseTo(estimateSeconds(1000, ['e2', 'e2'], 8) * 3, 6)
+  })
+})
+
+describe('what each bot costs (estimates)', () => {
+  const e2 = estimateSeconds(1000, ['e2', 'e2'], 8)
+
+  it('e1–e4 as measured in the calibration report of 12/10: e3 4,6 times e2 (D-029), not 1,6', () => {
+    // Calibracion-2026-10-12.md, «Velocidad»: games per second on the PC, the same bank and engine for every bot.
+    const measured = { e1: 373.2, e2: 70.1, e3: 15.4, e4: 6.3 }
+    for (const [code, perSecond] of Object.entries(measured)) {
+      const ratio = measured.e2 / perSecond
+      expect(estimateSeconds(1000, [code, code], 8) / e2).toBeCloseTo(ratio, 0)
+    }
+    expect(estimateSeconds(1000, ['e3', 'e3'], 8)).toBeCloseTo(e2 * 4.6, 6)
+    expect(botCostVsE2('e3')).toBe(4.6)
+    expect(DEPTH_COST_VS_E2).toEqual({ 1: 0.19, 2: 1, 3: 4.6, 4: 11 })
+    // The bot of either side that costs more sets the pace: e2 against e3 is e3's.
+    expect(estimateSeconds(1000, ['e2', 'e3'], 8)).toBeCloseTo(e2 * 4.6, 6)
+  })
+
+  it('MCTS about 150 times e2 (0,46 games per second against 70,1), not 4', () => {
+    expect(botCostVsE2('m')).toBe(150)
+    expect(estimateSeconds(1000, ['m', 'm'], 8)).toBeCloseTo(e2 * 150, 6)
+  })
+
+  it('f and g keep their factor against e at the same depth, now on the measured depths', () => {
+    expect(estimateSeconds(1000, ['f3', 'f3'], 8)).toBeCloseTo(e2 * 4.6 * 1.3, 6)
+    expect(estimateSeconds(1000, ['g3', 'g3'], 8)).toBeCloseTo(e2 * 4.6 * 3, 6)
+    expect(botCostVsE2('g2')).toBe(3)
+    expect(botCostVsE2('f2')).toBeCloseTo(1.3, 9)
+  })
+
+  it('the depths never measured keep growing past e4, and an unknown code costs e2', () => {
+    let previous = 0
+    for (const kind of ['e', 'f', 'g']) {
+      previous = 0
+      for (let depth = 1; depth <= 9; depth++) {
+        const cost = botCostVsE2(`${kind}${depth}`)
+        expect(cost).toBeGreaterThan(previous)
+        previous = cost
+      }
+    }
+    expect(botCostVsE2('e5')).toBeCloseTo(11 * 2.5, 9)
+    expect(botCostVsE2('h')).toBe(1)
+    // The fast bots, as before.
+    expect(estimateSeconds(10_000, ['r', 'r'], 2)).toBeCloseTo(15, -1)
+    expect(botCostVsE2('v')).toBeCloseTo(0.08, 9)
   })
 })
 

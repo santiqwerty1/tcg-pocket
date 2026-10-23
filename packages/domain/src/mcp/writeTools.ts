@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { SELECTABLE_ENERGIES } from '../catalog/types.js'
 import { RANKS } from '../matches/ranked.js'
 import { MATCH_MODES, MATCH_RESULTS, OPPONENT_MAX_LENGTH } from '../matches/types.js'
-import { BOT_CODE_PATTERN, DEFAULT_BOT } from '../simulation/jobs.js'
+import { BOT_CODE_PATTERN, botCostVsE2, DEFAULT_BOT } from '../simulation/jobs.js'
 import { TOURNAMENT_FORMATS } from '../tournaments/eras.js'
 
 /** 14/10: the rival's cards seen, «2 Greninja» or «Suicune ex» (name or code; any card of the name counts). */
@@ -44,11 +44,14 @@ const deckText = z
     'La lista pegada en cualquier formato: español de mazos_40_listas.md («- Pokémon: 2 Riolu (A2-91), …»), Limitless o deckgym («2 Riolu A2 91») o JSON',
   )
 
+/** «4,6»: how many times e2's time a bot takes, from the same table as the estimates (`botCostVsE2`). */
+const timesE2 = (code: string) => new Intl.NumberFormat('es-AR', { maximumFractionDigits: 1 }).format(botCostVsE2(code))
+
 const bot = z
   .string()
   .regex(BOT_CODE_PATTERN)
   .describe(
-    `Bot de deckgym: r al azar, w al azar ponderado, aa adjunta y ataca, et termina el turno, v función de valor, er evoluciona primero, m MCTS, e1…e9 expectiminimax (e3 tarda ~2 veces lo de e2); f1…f9 expectiminimax corregido (ve las evoluciones y el daño variable, H-018; tarda ~1,3 veces más que e); g1…g9 expectiminimax sin trampa (no ve la mano ni el mazo del rival y cuenta el daño real de cada ataque, T-021; tarda ~3 veces más que e). Por defecto ${DEFAULT_BOT} (D-029)`,
+    `Bot de deckgym: r al azar, w al azar ponderado, aa adjunta y ataca, et termina el turno, v función de valor, er evoluciona primero, m MCTS (tarda ~${timesE2('m')} veces lo de e2), e1…e9 expectiminimax (e3 tarda ~${timesE2('e3')} veces lo de e2, y e4 ~${timesE2('e4')}); f1…f9 expectiminimax corregido (ve las evoluciones y el daño variable, H-018; tarda ~${timesE2('f2')} veces lo de e con la misma profundidad); g1…g9 expectiminimax sin trampa (no ve la mano ni el mazo del rival y cuenta el daño real de cada ataque, T-021; tarda ~${timesE2('g2')} veces lo de e con la misma profundidad). Por defecto ${DEFAULT_BOT} (D-029)`,
   )
 
 /** D-029: what `bots` plays when it is left out, said with the constant so the description never goes stale. */
