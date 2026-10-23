@@ -15,7 +15,8 @@ export interface BoardCards {
   images: boolean
 }
 
-const BoardCardsContext = createContext<BoardCards | null>(null)
+/** Exported for tests that give a board without the catalog requests. */
+export const BoardCardsContext = createContext<BoardCards | null>(null)
 
 export function BoardProvider({
   reader,

@@ -185,6 +185,11 @@ export function engineTypeFields(v: Record<string, unknown>): { energyType: unkn
  * Mirrors `scripts/extract-fixtures.mjs`, so the sync job and the fixtures produce the same shape.
  */
 export function engineCardsFromDatabaseJson(json: unknown): EngineCard[] {
+  return parseEngineCards(reduceEngineDatabase(json))
+}
+
+/** The reduction of `engineCardsFromDatabaseJson` without the schema, for callers that report its issues by card. */
+export function reduceEngineDatabase(json: unknown): unknown[] {
   if (!Array.isArray(json)) throw new Error('deckgym database.json must be an array')
   const reduced = json.map((entry: unknown) => {
     if (!entry || typeof entry !== 'object') throw new Error('deckgym database.json: invalid entry')
@@ -208,5 +213,5 @@ export function engineCardsFromDatabaseJson(json: unknown): EngineCard[] {
     }
     throw new Error(`deckgym database.json: unknown entry kind ${Object.keys(record).join(',')}`)
   })
-  return parseEngineCards(reduced)
+  return reduced
 }

@@ -9,7 +9,7 @@
  *   `alternate_versions[0]` (the tracker's deck-building id, including its 3 overrides).
  */
 
-import { type EngineConflict, joinEngineData, trackerIdToEngineId } from './engine.js'
+import { type EngineConflict, joinEngineData, reduceEngineDatabase, trackerIdToEngineId } from './engine.js'
 import { type Mission, parseMissions } from './missions.js'
 import { cardNameEs, type NameTranslations } from './names.js'
 import {
@@ -28,6 +28,7 @@ import {
   type TrackerExpansion,
 } from './parseCardsDb.js'
 import {
+  type EngineCard,
   parseEngineCards,
   parseLocaleTable,
   parseTrackerCards,
@@ -156,33 +157,89 @@ interface IssueLike {
   message: string
 }
 
-/** Up to three problems of a failed parse, each with where it is (`C1-5.energy`) and why. */
-function describeParseError(error: unknown, rowLabel?: (index: number) => string | undefined): string {
+/** The value at `path` inside `raw`, shown short (JSON, cut at 60 characters); «missing» when absent. */
+function valueAt(raw: unknown, path: readonly PropertyKey[]): string {
+  let value: unknown = raw
+  for (const key of path) {
+    if (value === null || typeof value !== 'object') return 'missing'
+    value = (value as Record<PropertyKey, unknown>)[key]
+  }
+  if (value === undefined) return 'missing'
+  const shown = JSON.stringify(value) ?? String(value)
+  return shown.length > 60 ? `${shown.slice(0, 57)}...` : shown
+}
+
+/**
+ * Up to three problems of a failed parse, each with where it is (`C1-5.energy`, `C1 002.energyTypes`), why, and the
+ * value it found when the raw data is at hand.
+ */
+function describeParseError(error: unknown, rowLabel?: (index: number) => string | undefined, raw?: unknown): string {
   const issues = (error as { issues?: unknown }).issues
   if (!Array.isArray(issues) || issues.length === 0) return error instanceof Error ? error.message : String(error)
   const parts = (issues as IssueLike[]).slice(0, 3).map((issue) => {
     const [first, ...rest] = issue.path
     const row = typeof first === 'number' ? rowLabel?.(first) : undefined
     const where = row ? [row, ...rest.map(String)].join('.') : issue.path.map(String).join('.')
-    return where ? `${where}: ${issue.message}` : issue.message
+    const found = raw !== undefined && issue.path.length > 0 ? ` (got ${valueAt(raw, issue.path)})` : ''
+    return where ? `${where}: ${issue.message}${found}` : `${issue.message}${found}`
   })
   return issues.length > 3 ? `${parts.join('; ')} (and ${issues.length - 3} more)` : parts.join('; ')
 }
 
-/** Runs one parse of the input; a failure becomes a `CatalogInputError` that says which file and row. */
-export function readCatalogInput<T>(what: string, parse: () => T, rowLabel?: (index: number) => string | undefined): T {
+/**
+ * An error the data caused: a schema's (zod), a literal or CardsDB parse, a check of the build, or a plain `Error`
+ * the readers throw on a value («Unknown weakness», «Invalid tracker card id»). A `TypeError`, a `RangeError` or any
+ * other subclass is a bug: it stays as it is, a 500 with its stack in the logs.
+ */
+function isDataError(error: unknown): error is Error {
+  if (!(error instanceof Error)) return false
+  if (error instanceof CatalogBuildError || error.name === 'ZodError') return true
+  if (error.name === 'CardsDbParseError' || error.name === 'LiteralParseError') return true
+  return Object.getPrototypeOf(error) === Error.prototype
+}
+
+/**
+ * Runs one parse of the input; a failure the data caused becomes a `CatalogInputError` that says which file, which
+ * row (`rowLabel`) and which value (`raw`, the data being parsed). Anything else (a bug) passes through.
+ */
+export function readCatalogInput<T>(
+  what: string,
+  parse: () => T,
+  rowLabel?: (index: number) => string | undefined,
+  raw?: unknown,
+): T {
   try {
     return parse()
   } catch (error) {
-    if (error instanceof CatalogInputError) throw error
-    throw new CatalogInputError(`${what}: ${describeParseError(error, rowLabel)}`)
+    if (error instanceof CatalogInputError || !isDataError(error)) throw error
+    throw new CatalogInputError(`${what}: ${describeParseError(error, rowLabel, raw)}`)
   }
+}
+
+/** The `key` of row `index` of a raw list (a card id), when it has one. */
+function rowKeyAt(rows: unknown, index: number, key: 'card_id' | 'id'): string | undefined {
+  const row = Array.isArray(rows) ? (rows[index] as Record<string, unknown> | undefined) : undefined
+  const value = row?.[key]
+  return typeof value === 'string' ? value : undefined
 }
 
 /** The card id of row `index` of the raw `cards.json`, when it has one. */
 function cardIdAt(cardsJson: unknown, index: number): string | undefined {
-  const row = Array.isArray(cardsJson) ? (cardsJson[index] as { card_id?: unknown } | undefined) : undefined
-  return typeof row?.card_id === 'string' ? row.card_id : undefined
+  return rowKeyAt(cardsJson, index, 'card_id')
+}
+
+/**
+ * deckgym's `database.json` as engine cards, every problem named by the card's id and the value it has
+ * («deckgym database.json: C1 002.energyTypes: energyTypes repeats a type (got ["Water","Water"])»).
+ */
+export function readEngineCards(databaseJson: unknown): EngineCard[] {
+  const reduced = readCatalogInput('deckgym database.json', () => reduceEngineDatabase(databaseJson))
+  return readCatalogInput(
+    'deckgym database.json',
+    () => parseEngineCards(reduced),
+    (index) => rowKeyAt(reduced, index, 'id'),
+    reduced,
+  )
 }
 
 function cardNumberOf(cardId: CardId, expansionId: ExpansionId): number {
@@ -253,6 +310,7 @@ function parseInput(input: BuildCatalogInput): ParsedInput {
       'cards.json',
       () => parseTrackerCards(input.cardsJson),
       (index) => cardIdAt(input.cardsJson, index),
+      input.cardsJson,
     ),
     translations: {
       pokemon: readCatalogInput('pokemon_translations.json', () => parseTranslationTable(input.translations.pokemon)),
@@ -324,8 +382,8 @@ export function buildCatalogWithReport(input: BuildCatalogInput): BuildResult {
   try {
     return buildFromInput(input)
   } catch (error) {
-    if (error instanceof CatalogInputError) throw error
-    throw new CatalogInputError(`catalog build: ${error instanceof Error ? error.message : String(error)}`)
+    if (error instanceof CatalogInputError || !isDataError(error)) throw error
+    throw new CatalogInputError(`catalog build: ${error.message}`)
   }
 }
 
@@ -338,7 +396,12 @@ function buildFromInput(input: BuildCatalogInput): BuildResult {
   )
   const engineJoin = joinEngineData(
     cards,
-    readCatalogInput('deckgym database.json', () => parseEngineCards(input.engineCards)),
+    readCatalogInput(
+      'deckgym database.json',
+      () => parseEngineCards(input.engineCards),
+      (index) => rowKeyAt(input.engineCards, index, 'id'),
+      input.engineCards,
+    ),
   )
   // C1: a field the catalog does not know may carry something it should read (a second type written apart, say).
   const unknownFields = unknownTrackerFields(input.cardsJson)

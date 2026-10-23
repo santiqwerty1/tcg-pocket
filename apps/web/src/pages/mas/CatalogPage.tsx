@@ -18,9 +18,6 @@ import { Button } from '@/components/ui/button'
 import { energyLabel } from '@/lib/energies'
 import { formatDateTime, formatNumber, shortSha } from '@/lib/format'
 
-/** The build's warning for a `cards.json` field the catalog does not read (`unknownTrackerFieldWarning` in the domain). */
-const UNKNOWN_FIELD_WARNING = 'cards.json has a field the catalog does not read:'
-
 /** «Agua y Oscuridad». */
 const typesEs = (types: readonly string[]) => types.map(energyLabel).join(' y ')
 
@@ -37,19 +34,19 @@ function PreviewPanel({
   const [confirmed, setConfirmed] = useState(false)
   const added = preview.diff?.added ?? preview.counts.cards
   const review = (preview.remap?.notes ?? []).filter((note) => note.review)
-  // The unknown fields get their own sentence in Spanish; the other warnings of the build are shown as they come.
-  const otherWarnings = preview.warnings.filter((warning) => !warning.startsWith(UNKNOWN_FIELD_WARNING))
+  // The API sends the unknown fields apart (`unknownFields`, their own sentence here) and the other warnings as they are.
+  const otherWarnings = preview.warnings
   const takesAway = (preview.diff?.removed ?? 0) > 0 || (preview.remap?.needsReview ?? false)
-  const reasons = preview.older
-    ? ['Es un commit anterior al cargado: volver atrás puede sacar cartas de la colección y de los mazos.']
-    : [
-        ...(takesAway
-          ? ['Esta actualización saca cartas de la colección o de los mazos, o deja cosas para revisar.']
-          : []),
-        ...(preview.unknownFields.length > 0
-          ? ['El tracker trae campos que el catálogo no lee: una carta podría entrar con datos de menos.']
-          : []),
-      ]
+  // Every reason to confirm, not only the first.
+  const reasons = [
+    ...(preview.older
+      ? ['Es un commit anterior al cargado: volver atrás puede sacar cartas de la colección y de los mazos.']
+      : []),
+    ...(takesAway ? ['Esta actualización saca cartas de la colección o de los mazos, o deja cosas para revisar.'] : []),
+    ...(preview.unknownFields.length > 0
+      ? ['El tracker trae campos que el catálogo no lee: una carta podría entrar con datos de menos.']
+      : []),
+  ]
   return (
     <div className="flex flex-col gap-3 rounded-lg border p-3 text-sm">
       <p className="font-medium">

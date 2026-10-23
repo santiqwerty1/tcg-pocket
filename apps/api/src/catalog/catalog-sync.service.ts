@@ -11,6 +11,7 @@ import {
   isEmptyDiff,
   planCatalogRemap,
   type UnknownTrackerField,
+  unknownTrackerFieldWarning,
 } from '@tcg/domain'
 import { PinoLogger } from 'nestjs-pino'
 import { ENV, type Env } from '../config/env.js'
@@ -67,6 +68,12 @@ export interface CatalogPreview {
    */
   baseline: string
   warnings: string[]
+}
+
+/** The build's warnings without the ones for unknown fields, which the preview carries apart (`unknownFields`). */
+function withoutUnknownFieldWarnings(warnings: readonly string[], unknown: readonly UnknownTrackerField[]): string[] {
+  const apart = new Set(unknown.map(unknownTrackerFieldWarning))
+  return warnings.filter((warning) => !apart.has(warning))
 }
 
 /**
@@ -302,7 +309,8 @@ export class CatalogSyncService implements OnModuleInit {
         .slice(0, 50)
         .map((card) => ({ cardId: card.id, nameEs: card.nameEs, types: [...card.types] })),
       baseline,
-      warnings: prepared.warnings,
+      // The unknown fields go in `unknownFields`; the warnings keep the rest (the page needs no text to tell them apart).
+      warnings: withoutUnknownFieldWarnings(prepared.warnings, report.unknownTrackerFields),
     }
   }
 
