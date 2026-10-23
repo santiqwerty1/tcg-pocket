@@ -3,6 +3,13 @@ import { TOURNAMENT_FORMATS, type TournamentFormat } from '@/api/schemas'
 import { isSelectableEnergy } from './energies'
 import { formatNumber } from './format'
 
+/**
+ * The bot by default (D-029: g2 since 23/10/2026, e2 before), as @tcg/domain `DEFAULT_BOT`: what Jugar, Simulación and
+ * Calibración start with, and whose score the Laboratorio's row shows. The app does not import the domain in the
+ * browser (DECISIONES 32.2); a test checks they agree.
+ */
+export const DEFAULT_BOT = 'g2'
+
 export const KIND_LABEL: Record<SimulationKind, string> = {
   matrix: 'Matriz',
   compare: 'Comparar',

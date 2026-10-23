@@ -8,6 +8,8 @@ import {
   SELECTABLE_ENERGIES as DOMAIN_SELECTABLE,
   ENERGY_TYPES,
 } from '../../../../packages/domain/src/catalog/types'
+import { DEFAULT_BOT as DOMAIN_DEFAULT_BOT } from '../../../../packages/domain/src/simulation/jobs'
+import { DEFAULT_BOT } from '../lib/simulation'
 import { cardTypeSchema, energyTypeSchema, evolutionTypeSchema, RARITIES, SELECTABLE_ENERGIES } from './schemas'
 
 describe('the app’s copies of the domain lists (H-008)', () => {
@@ -25,5 +27,10 @@ describe('the app’s copies of the domain lists (H-008)', () => {
       'tool',
       'stadium',
     ])
+  })
+
+  it('the bot by default is the domain’s (D-029: g2 since 23/10/2026)', () => {
+    expect(DEFAULT_BOT).toBe(DOMAIN_DEFAULT_BOT)
+    expect(DEFAULT_BOT).toBe('g2')
   })
 })

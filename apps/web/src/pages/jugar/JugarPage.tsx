@@ -24,14 +24,20 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { browserCanRunEngine, useBrowserEngine } from '@/engine/browserEngine'
 import { formatDateTime } from '@/lib/format'
+import { DEFAULT_BOT } from '@/lib/simulation'
 import { formatShare } from '@/lib/tournaments'
 import { RecentListPicker } from './RecentListPicker'
 
+/**
+ * The bots to play against, the one by default first (D-029: g2 since 23/10/2026). The browser's engine plays all of
+ * them: it is compiled from engine-cli's own bot files (engine/wasm, g_bot.rs included), and the server starts a game
+ * there only with the engine this build serves.
+ */
 const BOTS = [
-  { code: 'e2', label: 'Normal (expectiminimax 2)' },
-  { code: 'e3', label: 'Fuerte (expectiminimax 3, piensa más)' },
   // T-021: it does not see your hand or the order of your deck, as a person would play.
-  { code: 'g2', label: 'Sin trampa (g2: no ve tu mano ni tu mazo)' },
+  { code: 'g2', label: 'Normal, sin trampa (g2: no ve tu mano ni tu mazo)' },
+  { code: 'e3', label: 'Fuerte (expectiminimax 3, piensa más)' },
+  { code: 'e2', label: 'Clásico (expectiminimax 2: ve tu mano y tu mazo)' },
   { code: 'v', label: 'Simple (función de valor)' },
   { code: 'r', label: 'Al azar' },
 ] as const
@@ -127,7 +133,7 @@ export function JugarPage() {
     ...(search.get('era') ? { era: search.get('era') as string } : {}),
     ...(search.get('formato') ? { format: search.get('formato') as string } : {}),
   })
-  const [bot, setBot] = useState('e2')
+  const [bot, setBot] = useState<string>(DEFAULT_BOT)
   const [coach, setCoach] = useState(false)
   const online = (engine.data?.workers ?? []).some((worker) => worker.online)
   // T-015: where the bot plays. Until the owner picks, this device when no worker is on and it has the engine.

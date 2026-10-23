@@ -17,13 +17,16 @@ import { Section } from '@/components/Section'
 import { Button } from '@/components/ui/button'
 import { formatDateTime, formatNumber } from '@/lib/format'
 import { formatInterval, formatRateValue, ORIENTATIVE_BELOW } from '@/lib/matches'
-import { formatDuration } from '@/lib/simulation'
+import { DEFAULT_BOT, formatDuration } from '@/lib/simulation'
 import { formatDayEs, formatShare, staleTournaments } from '@/lib/tournaments'
 import { cn } from '@/lib/utils'
 
 const SORT_LABEL: Record<PickSort, string> = { tournament: 'Torneo', matches: 'Mis partidas', lab: 'Laboratorio' }
-/** The Laboratorio's bots by default (D-029): the score on each row is theirs; the others go apart. */
-const LAB_BOT = 'e2'
+/**
+ * The Laboratorio's bots by default (D-029, g2 since 23/10/2026): the score on each row is theirs; the others go apart,
+ * and a list tested only with another bot (e2, until that day) says it has no score with this one yet.
+ */
+const LAB_BOT = DEFAULT_BOT
 
 function Line({ label, active, children }: { label: string; active: boolean; children: React.ReactNode }) {
   return (
@@ -98,7 +101,9 @@ function Row({
               ? ` · viejo: de la era ${row.lab.era}${row.lab.finishedAt ? `, del ${formatDateTime(row.lab.finishedAt)}` : ''}`
               : ''}
           </span>
-        ) : row.labRunning || row.labFailed ? null : (
+        ) : row.labRunning || row.labFailed ? null : row.labOthers.length > 0 ? (
+          <span className="text-warning">sin puntaje con {LAB_BOT}, el bot por defecto: tocá «Actualizar todos»</span>
+        ) : (
           `sin probar contra el meta con ${LAB_BOT}`
         )}
         {row.labFailed ? <LabFailed jobId={row.labFailed.jobId} first={row.lab === null} /> : null}
@@ -193,8 +198,8 @@ function RefreshLab({ due }: { due: number }) {
         </Button>
         <span className="text-xs text-muted-foreground">
           {due === 1
-            ? 'Un mazo sin puntaje del Laboratorio de esta era.'
-            : `${due} mazos sin puntaje del Laboratorio de esta era.`}
+            ? `Un mazo sin puntaje del Laboratorio con ${LAB_BOT} de esta era.`
+            : `${due} mazos sin puntaje del Laboratorio con ${LAB_BOT} de esta era.`}
         </span>
       </div>
       <ConfirmDialog
@@ -205,8 +210,8 @@ function RefreshLab({ due }: { due: number }) {
         title="Actualizar el Laboratorio"
         description={
           plan && decks > 0
-            ? `${decks === 1 ? 'Un mazo' : `${decks} mazos`} contra el meta de ${plan.era}: ${formatNumber(plan.games)} partidas, ~${formatDuration(plan.estimatedSeconds)} con los workers de hoy. Las pruebas del Laboratorio van antes que las demás simulaciones.`
-            : 'No hay nada para actualizar: cada mazo ya tiene un puntaje de esta era o se está probando.'
+            ? `${decks === 1 ? 'Un mazo' : `${decks} mazos`} contra el meta de ${plan.era} con ${LAB_BOT}: ${formatNumber(plan.games)} partidas, ~${formatDuration(plan.estimatedSeconds)} con los workers de hoy. Las pruebas del Laboratorio van antes que las demás simulaciones.`
+            : `No hay nada para actualizar: cada mazo ya tiene un puntaje con ${LAB_BOT} de esta era o se está probando.`
         }
         confirmLabel={decks > 0 ? 'Probar' : 'Cerrar'}
         pending={refresh.isPending}

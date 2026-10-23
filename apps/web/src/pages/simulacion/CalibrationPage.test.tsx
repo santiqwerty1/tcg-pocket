@@ -61,5 +61,30 @@ it('elige cuántos arquetipos juega el banco (D-029), dice cuánto cuesta y lo m
   expect(screen.getByText(/Con 25 arquetipos son unas 28 listas .* 378 cruces: 378\.000 partidas/)).toBeVisible()
   await user.click(screen.getByRole('button', { name: 'Calibrar' }))
   const post = api.calls.find((call) => call.method === 'POST' && call.path === '/api/calibration')
-  expect(JSON.parse(String(post?.body))).toEqual({ bot: 'e2', gamesPerPair: 1000, size: 25 })
+  // D-029: g2 by default since 23/10/2026.
+  expect(JSON.parse(String(post?.body))).toEqual({ bot: 'g2', gamesPerPair: 1000, size: 25 })
+})
+
+it('empieza con g2, el bot por defecto (D-029), y lo marca en la lista', async () => {
+  fakeApi({
+    'GET /api/calibration': [],
+    'GET /api/simulations/engine': {
+      engineRev: 'a'.repeat(40),
+      cards: 10,
+      incomplete: 0,
+      source: 'worker',
+      workers: [],
+      bots: [
+        { code: 'e2', label: 'expectiminimax, profundidad 2' },
+        { code: 'g2', label: 'expectiminimax sin trampa, profundidad 2' },
+      ],
+    },
+  })
+  const user = userEvent.setup()
+  show()
+  const bot = await screen.findByRole('combobox', { name: 'Bot' })
+  expect(bot).toHaveTextContent('g2 · expectiminimax sin trampa, profundidad 2 (por defecto)')
+  await user.click(bot)
+  expect(await screen.findByRole('option', { name: 'e2 · expectiminimax, profundidad 2' })).toBeVisible()
+  expect(screen.getByText(/g2, el bot por defecto, tarda unas 3 veces lo de e2/)).toBeVisible()
 })
