@@ -137,4 +137,27 @@ describe('posible punto ciego del bot (H-055)', () => {
     ).toHaveLength(1)
     expect(botWarningText([], 'e2')).toBeNull()
   })
+
+  it('g2, the bot by default since 23/10 (D-029): no list rule, and a number far from tournaments asks for e3 alone', () => {
+    const far = {
+      simulated: { value: 1.4, ci95: [0.5, 4] as const },
+      tournament: { value: 45, ci95: [40, 50] as const, coverage: 80, matches: 400 },
+    }
+    // g attaches the Tools and evolves into Ivysaur (docs/BOTS.md): decks 40 and 16 get no list rule with it.
+    for (const bot of ['g2', 'g2/g2', 'g2 contra g2', 'g1', 'g3']) {
+      expect(listBotWarnings(deckDraft(40).cards, index, bot)).toEqual([])
+      expect(listBotWarnings(deckDraft(16).cards, index, bot)).toEqual([])
+    }
+    for (const bot of ['g2', 'g2/g2', 'g3']) {
+      const warnings = botWarnings({ cards: deckDraft(40).cards, index, bot, ...far })
+      expect(kinds(warnings)).toEqual(['far_from_tournament'])
+      const text = botWarningText(warnings, bot)
+      expect(text).toMatch(
+        /^Posible punto ciego del bot: 1,4 % simulado contra 45 % del arquetipo .* Probalo con e3\.$/,
+      )
+      expect(text).not.toContain('f2')
+    }
+    // The e and f bots keep their advice.
+    expect(botWarningText(botWarnings({ cards: [], index, bot: 'e3', ...far }), 'e3')).toMatch(/Probalo con f2\.$/)
+  })
 })

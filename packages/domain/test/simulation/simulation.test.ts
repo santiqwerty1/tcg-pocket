@@ -9,6 +9,8 @@ import {
   chunkSeed,
   comparePairings,
   comparisonSeed,
+  DEFAULT_BOT,
+  DEFAULT_PLAYERS,
   deckRecord,
   defaultReplaySample,
   type EngineStatus,
@@ -16,6 +18,7 @@ import {
   estimateSeconds,
   gameSeed,
   isBotCode,
+  LEGACY_DEFAULT_BOT,
   MAX_BASE_SEED,
   matrixPairings,
   matrixRows,
@@ -202,6 +205,17 @@ describe('jobs', () => {
     expect(minutes).toBeGreaterThan(25)
     expect(minutes).toBeLessThan(50)
     expect(estimateSeconds(10_000, ['r', 'r'], 2)).toBeCloseTo(15, -1)
+  })
+
+  it('D-029: g2 is the bot by default since 23/10/2026, e2 before; estimates take its cost (about 3 times e2)', () => {
+    expect(DEFAULT_BOT).toBe('g2')
+    expect(DEFAULT_PLAYERS).toEqual(['g2', 'g2'])
+    expect(isBotCode(DEFAULT_BOT)).toBe(true)
+    // A slow bot (D-025): a worker that turns them down takes nothing by default; the PC does.
+    expect(SLOW_BOT_CODES).toContain(DEFAULT_BOT)
+    // Only for what was stored before without its bot.
+    expect(LEGACY_DEFAULT_BOT).toBe('e2')
+    expect(estimateSeconds(1000, DEFAULT_PLAYERS, 8)).toBeCloseTo(estimateSeconds(1000, ['e2', 'e2'], 8) * 3, 6)
   })
 })
 

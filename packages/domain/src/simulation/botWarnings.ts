@@ -11,9 +11,12 @@
  *   look (deck 16: 18,8 % with e2 against 50,6 % for the archetype; against Rayquaza, 4 % with e2 and 49 % with e3).
  * - **The number far from tournaments:** the simulated rate and what the archetype makes in tournaments against the
  *   same rivals with the same weights, with intervals that do not overlap and at least `FAR_POINTS` apart: «probalo con
- *   f2 o e3». Only when the tournament number is mostly matchups (`FAR_MIN_COVERAGE`) and has `ORIENTATIVE_BELOW`
- *   matches (review of #119: an archetype never seen against the rivals gives its overall rate, with a narrow interval).
- * The list rules read the catalog (`blindSpotsOf`, T-017 A3), not the engine.
+ *   f2 o e3» («probalo con e3» for a g bot). Only when the tournament number is mostly matchups (`FAR_MIN_COVERAGE`)
+ *   and has `ORIENTATIVE_BELOW` matches (review of #119: an archetype never seen against the rivals gives its overall
+ *   rate, with a narrow interval).
+ * The list rules read the catalog (`blindSpotsOf`, T-017 A3), not the engine, and only for the e bots: g (the bot by
+ * default since 23/10/2026, D-029) attaches the Tools and evolves into Ivysaur (docs/BOTS.md, g 1.1), so it gets only
+ * the general rule.
  */
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
 import type { CardEdition, CardId } from '../catalog/types.js'
@@ -140,7 +143,12 @@ export function botWarningEs(warning: BotWarning, bot: string | null | undefined
   }
 }
 
-/** Which bots to try instead: f2 sees evolutions, only e3 the Tool on the Bench and then the attack; never the same one. */
+/**
+ * Which bots to try instead: f2 sees evolutions, only e3 the Tool on the Bench and then the attack; never the same one.
+ * A g bot's number far from tournaments (D-029, g2 by default since 23/10/2026) is told to try e3 alone: it is the one
+ * that calibrated as well as g2 against the tournaments (155 of 233 compatible pairs, ρ 0,41), while f2 sees less than
+ * g2 does (g2 beats it 62–64 % in the bots' league, docs/BOTS.md).
+ */
 function advice(warnings: readonly BotWarning[], bot: string | null | undefined): string {
   const code = botCode(bot)
   const bots: string[] = []
@@ -154,7 +162,7 @@ function advice(warnings: readonly BotWarning[], bot: string | null | undefined)
     if (warning.kind === 'bench_tools') add('e3')
   }
   if (bots.length === 0) {
-    add('f2')
+    if (!/^g[1-9]$/.test(code ?? '')) add('f2')
     add('e3')
   }
   return bots.length === 1 ? `probalo con ${bots[0]}` : `probalo con ${bots.slice(0, -1).join(', ')} o ${bots.at(-1)}`

@@ -47,6 +47,23 @@ export const BOT_LABEL_ES: Record<string, string> = {
  */
 export const BOT_CODE_PATTERN = /^(r|w|aa|et|v|er|m|e[1-9]|f[1-9]|g[1-9])$/
 
+/**
+ * D-029 (Santi, 23/10/2026): the bot by default wherever one is not chosen — Jugar, Simulación, Calibración, the
+ * Laboratorio and its score in «¿Cuál llevo hoy?», consistency and the MCP tools. g2 since 23/10: against the
+ * tournaments it calibrated about like e3 (151 of 232 compatible pairs, 12,2 points of mean difference, ρ 0,38;
+ * e2 129 of 233, 14,1 and 0,30) at about 3 times e2's cost, and without the e bots' blind spots (H-055).
+ */
+export const DEFAULT_BOT = 'g2'
+
+/** Both sides with the bot by default (the Laboratorio, simulations_enqueue). */
+export const DEFAULT_PLAYERS: readonly [string, string] = [DEFAULT_BOT, DEFAULT_BOT]
+
+/**
+ * The bot by default until 23/10/2026 (D-029). Only for what was stored then without saying its bot (a fallback when
+ * a stored job or response lacks it): a new job never takes it unasked.
+ */
+export const LEGACY_DEFAULT_BOT = 'e2'
+
 /** The f bots (H-018), for the queue's filter: only engines with the «fairBots» feature play them (capabilities.ts). */
 export const FAIR_BOT_CODES = ['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9'] as const
 

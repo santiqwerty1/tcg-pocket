@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { SELECTABLE_ENERGIES } from '../catalog/types.js'
 import { RANKS } from '../matches/ranked.js'
 import { MATCH_MODES, MATCH_RESULTS, OPPONENT_MAX_LENGTH } from '../matches/types.js'
-import { BOT_CODE_PATTERN } from '../simulation/jobs.js'
+import { BOT_CODE_PATTERN, DEFAULT_BOT } from '../simulation/jobs.js'
 import { TOURNAMENT_FORMATS } from '../tournaments/eras.js'
 
 /** 14/10: the rival's cards seen, «2 Greninja» or «Suicune ex» (name or code; any card of the name counts). */
@@ -48,8 +48,11 @@ const bot = z
   .string()
   .regex(BOT_CODE_PATTERN)
   .describe(
-    'Bot de deckgym: r al azar, w al azar ponderado, aa adjunta y ataca, et termina el turno, v función de valor, er evoluciona primero, m MCTS, e1…e9 expectiminimax (e2 por defecto; e3 tarda ~2 veces más); f1…f9 expectiminimax corregido (ve las evoluciones y el daño variable, H-018; tarda ~1,3 veces más que e); g1…g9 expectiminimax sin trampa (no ve la mano ni el mazo del rival y cuenta el daño real de cada ataque, T-021; tarda ~3 veces más que e)',
+    `Bot de deckgym: r al azar, w al azar ponderado, aa adjunta y ataca, et termina el turno, v función de valor, er evoluciona primero, m MCTS, e1…e9 expectiminimax (e3 tarda ~2 veces lo de e2); f1…f9 expectiminimax corregido (ve las evoluciones y el daño variable, H-018; tarda ~1,3 veces más que e); g1…g9 expectiminimax sin trampa (no ve la mano ni el mazo del rival y cuenta el daño real de cada ataque, T-021; tarda ~3 veces más que e). Por defecto ${DEFAULT_BOT} (D-029)`,
   )
+
+/** D-029: what `bots` plays when it is left out, said with the constant so the description never goes stale. */
+const defaultBots = `por defecto ${DEFAULT_BOT} y ${DEFAULT_BOT}`
 
 const tournamentList = z.object({
   key: z
@@ -262,7 +265,7 @@ export const MCP_WRITE_TOOLS = {
       decksB: z.array(deckRef).max(150).optional().describe('Mis mazos del lado B (rivales)'),
       listsB: z.array(tournamentList).max(150).optional().describe('Listas de torneo del lado B (rivales)'),
       games: z.number().int().min(1).max(20_000).optional().describe('Partidas por cruce (por defecto 200)'),
-      bots: z.tuple([bot, bot]).optional().describe('Bot del lado A y del lado B (por defecto e2 y e2)'),
+      bots: z.tuple([bot, bot]).optional().describe(`Bot del lado A y del lado B (${defaultBots})`),
       seed: z
         .number()
         .int()
@@ -330,7 +333,7 @@ export const MCP_WRITE_TOOLS = {
         .describe('Era del banco (por defecto la vigente)'),
       format: z.enum(TOURNAMENT_FORMATS).optional().describe('STANDARD (por defecto) o NOEX'),
       games: z.number().int().min(10).max(5000).optional().describe('Partidas contra cada rival (por defecto 100)'),
-      bots: z.tuple([bot, bot]).optional().describe('Bot de mis mazos y de los rivales (por defecto e2 y e2)'),
+      bots: z.tuple([bot, bot]).optional().describe(`Bot de mis mazos y de los rivales (${defaultBots})`),
       seed: z
         .number()
         .int()
@@ -420,7 +423,7 @@ export const MCP_WRITE_TOOLS = {
         .optional()
         .describe('Era del banco (por defecto la vigente)'),
       format: z.enum(TOURNAMENT_FORMATS).optional().describe('STANDARD (por defecto) o NOEX'),
-      bots: z.tuple([bot, bot]).optional().describe('Bot de las variantes y de los rivales (por defecto e2 y e2)'),
+      bots: z.tuple([bot, bot]).optional().describe(`Bot de las variantes y de los rivales (${defaultBots})`),
       objective: z
         .enum(['meta', 'mine', 'rival'])
         .optional()

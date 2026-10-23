@@ -33,6 +33,16 @@ describe('MCP write tools (Fase 43 additions)', () => {
     const enqueue = MCP_WRITE_TOOLS.simulationsEnqueue.input
     expect(enqueue.safeParse({ kind: 'compare', decksA: ['1'], dryRun: true, confirmLong: false }).success).toBe(true)
   })
+
+  it('D-029: the tools that queue games say g2 is the bot by default, never e2', () => {
+    const schema = (tool: { input: z.ZodType }) => JSON.stringify(z.toJSONSchema(tool.input))
+    for (const tool of [MCP_WRITE_TOOLS.simulationsEnqueue, MCP_WRITE_TOOLS.labTest, MCP_WRITE_TOOLS.labExplore]) {
+      const text = schema(tool)
+      expect(text).toContain('por defecto g2 y g2')
+      expect(text).toContain('Por defecto g2 (D-029)')
+      expect(text).not.toMatch(/e2 por defecto|por defecto e2/)
+    }
+  })
 })
 
 describe('MCP prompts', () => {
