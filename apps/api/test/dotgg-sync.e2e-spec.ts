@@ -874,17 +874,37 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
   })
 
   it.each([
-    ['another link', true],
-    ['the same link', false],
-  ])('a restore with %s configured resets by link, like saving a link (S-C)', async (_name, other) => {
+    ['another link', 'other'],
+    ['no link', 'none'],
+    ['the same link', 'same'],
+  ] as const)('a restore with %s configured resets by link, like saving a link (S-C)', async (_name, mode) => {
+    const other = mode !== 'same'
     await setLink(LINK)
     expect((await apply((await preview()).body.id)).status).toBe(200)
+    // A later check with nothing to change: it moves the collection's date past the import.
+    const checked = new Date(Date.now() + 60_000).toISOString()
+    await test.prisma.appSetting.upsert({
+      where: { key: 'dotggLastCheckedAt' },
+      create: { key: 'dotggLastCheckedAt', value: checked },
+      update: { value: checked },
+    })
+    const applied = (await test.prisma.collectionImport.findFirst({ where: { status: 'applied' } }))?.appliedAt
+    expect((await get('/api/collection/summary')).body.lastImportAt).toBe(checked)
     const exported = await get('/api/backup/export').responseType('blob')
-    if (other) await setLink(OTHER)
+    if (mode === 'other') await setLink(OTHER)
+    if (mode === 'none') await remove()
     await post('/api/backup/import?mode=replace').attach('file', Buffer.from(exported.body), 'backup.json.gz')
     const status = (await get('/api/collection/dotgg/status')).body
-    if (other) expect(status).toMatchObject({ lastCheckedAt: null, lastAppliedAt: null, previewId: null, result: null })
-    else expect(status.lastAppliedAt).not.toBeNull()
+    const summary = (await get('/api/collection/summary')).body
+    if (other) {
+      expect(status).toMatchObject({ lastCheckedAt: null, lastAppliedAt: null, previewId: null, result: null })
+      // The other link's check does not date the collection: only the import that came back with the file does.
+      expect(summary.lastImportAt).toBe(applied?.toISOString())
+    } else {
+      expect(status.lastAppliedAt).not.toBeNull()
+      expect(status.lastCheckedAt).toBe(checked)
+      expect(summary.lastImportAt).toBe(checked)
+    }
   })
 
   it('the same link keeps the pending preview; another link discards it', async () => {
