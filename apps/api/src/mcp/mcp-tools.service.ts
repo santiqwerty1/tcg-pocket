@@ -2032,9 +2032,10 @@ ${MCP_CHAT_INSTRUCTIONS}`
         return view.complete
           ? `El tracker está al día con el juego (${copies(s.gameCopies)}).`
           : `Lo que se pudo comparar está al día, pero ${outside} (mirá los avisos).`
+      const names = view.emptyExpansions.map((item) => item.nameEs)
       const empty =
-        view.emptyExpansions.length > 0
-          ? ` En el juego no queda ninguna carta de ${view.emptyExpansions.map((item) => item.nameEs).join(', ')}: el archivo pone en 0 las del tracker.`
+        names.length > 0
+          ? ` De ${names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} y ${names.at(-1)}`} no queda en el juego ninguna de las cartas que tiene el tracker: el archivo las pone en 0.`
           : ''
       const differs = `El tracker difiere del juego en ${cards(s.cards)}: ${parts.join(' y ')} (tracker ${number(s.trackerCopies)}, juego ${number(s.gameCopies)}).${empty}`
       return view.complete ? differs : `${differs} Además, ${outside} (mirá los avisos).`

@@ -367,16 +367,19 @@ describe('Tracker al día', () => {
     fakeApi({
       'GET /api/collection/tracker-gap': {
         ...gap,
-        emptyExpansions: [{ expansionId: 'B4b', nameEs: 'Mega Brillo', cards: 1 }],
+        emptyExpansions: [
+          { expansionId: 'A2', nameEs: 'Expansión Uno', cards: 2 },
+          { expansionId: 'B4b', nameEs: 'Expansión Dos', cards: 1 },
+        ],
       },
     })
     renderAt('/coleccion/tracker')
     expect(
       await screen.findByText(
-        /En el juego no te queda ninguna carta de Mega Brillo: ptcgpocket\.gg ya trajo esa expansión/,
+        /De Expansión Uno y Expansión Dos no te queda en el juego ninguna de las cartas que tiene el tracker: ptcgpocket\.gg ya trajo esas expansiones/,
       ),
     ).toBeInTheDocument()
-    expect(screen.getByText(/el archivo pone en 0 las cartas del tracker/)).toBeInTheDocument()
+    expect(screen.getByText(/así que el archivo las pone en 0\./)).toBeInTheDocument()
   })
 
   it('says when the tracker is up to date and offers no file', async () => {

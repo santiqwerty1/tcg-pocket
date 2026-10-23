@@ -7,6 +7,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { CHAT_MOVED_KEY } from '../chat/chat-moved.service.js'
+import { REMOTE_KEYS, seenExpansionsOf } from '../collection/collection.service.js'
 import { DotggLinkStore } from '../collection/dotgg-link.store.js'
 import { ENV, type Env } from '../config/env.js'
 import { dateOnly } from '../config/time-zone.js'
@@ -621,6 +622,10 @@ export class BackupService {
     document: BackupDocument,
     deferTracker = false,
   ): Promise<void> {
+    // T-020 (S-E): which set codes ptcgpocket.gg writes is not data of the collection; a restore keeps what is known now.
+    const seenBefore = deferTracker
+      ? await tx.appSetting.findUnique({ where: { key: REMOTE_KEYS.dotgg.seenExpansions } })
+      : null
     // Matches first: they restrict the deletion of their deck and revision.
     await tx.match.deleteMany()
     await tx.deck.deleteMany()
@@ -807,6 +812,14 @@ export class BackupService {
           await tx.appSetting.create({
             data: { key: 'dotggSyncState', value: { lastAttemptAt: new Date().toISOString() } },
           })
+      }
+      // The expansions ptcgpocket.gg was seen listing only grow: the file's and the ones known before the restore.
+      const key = REMOTE_KEYS.dotgg.seenExpansions
+      const seen = seenExpansionsOf(seenBefore?.value)
+      for (const id of seenExpansionsOf(document.settings.find((s) => s.key === key)?.value)) seen.add(id)
+      if (seen.size > 0) {
+        const value = [...seen].sort()
+        await tx.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } })
       }
     }
     // Games against the bot (version 5): the finished ones are replaced by the file's results (no moves, no

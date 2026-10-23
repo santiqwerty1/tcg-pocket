@@ -123,8 +123,9 @@ export const REMOTE_KEYS = {
     /** The keyed fingerprint of the link the last applied sync was read from (a backup carries it, not the link). */
     lastAppliedLink: 'dotggLastAppliedLink',
     /**
-     * Expansions an applied sync, or an automatic check that found nothing to change, listed (S-E): ptcgpocket.gg knows
-     * them under that code. Not tied to the link (what codes ptcgpocket.gg writes does not depend on the account).
+     * The set codes an applied sync, or an automatic check that found nothing to change, wrote (S-E; the expansion of
+     * the card each row names): ptcgpocket.gg knows them. Not tied to the link (what codes ptcgpocket.gg writes does not
+     * depend on the account), and a restore keeps the union.
      */
     seenExpansions: 'dotggSeenExpansions',
   },
@@ -572,7 +573,12 @@ export class CollectionService {
           [REMOTE_KEYS[remote.source].lastChecked, JSON.stringify(remote.checkedAt.toISOString())],
         )
         // The app already matches this export: its expansions count as listed by a sync, like an applied one.
-        if (remote.source === 'dotgg') await this.markSeenExpansions(client, index, normalized.units)
+        if (remote.source === 'dotgg')
+          await this.markSeenExpansions(
+            client,
+            index,
+            parsed.rows.map((item) => item.id),
+          )
         await client.query('COMMIT')
         return { unchanged: true, reviewReasons: tracker?.reviewReasons ?? dotgg?.reviewReasons ?? [] }
       }
@@ -764,7 +770,11 @@ export class CollectionService {
              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
             [REMOTE_KEYS.dotgg.lastAppliedLink, JSON.stringify(stored.dotgg?.linkId ?? '')],
           )
-          await this.markSeenExpansions(client, index, units)
+          await this.markSeenExpansions(
+            client,
+            index,
+            row.rows.map((item) => item.cardId),
+          )
         }
         await client.query(
           `INSERT INTO app_settings (key, value) VALUES ($1, $2::jsonb)
@@ -984,15 +994,26 @@ export class CollectionService {
   }
 
   /**
-   * S-E: adds the expansions an export listed (its rows' units, before the absent ones are filled with 0) to
-   * `dotggSeenExpansions`, in the transaction that applies it or records the check. Only grows.
+   * S-E: adds the set codes an export wrote (the expansion of the card each row names) to `dotggSeenExpansions`, in the
+   * transaction that applies it or records the check. Only grows. With no mark yet (syncs applied before it existed),
+   * it starts from the applied ptcgpocket.gg imports still stored, as «Tracker al día» reads it meanwhile.
    */
-  private async markSeenExpansions(client: PoolClient, index: CatalogIndex, listed: StockQuantities): Promise<void> {
+  private async markSeenExpansions(client: PoolClient, index: CatalogIndex, cardIds: readonly string[]): Promise<void> {
     const key = REMOTE_KEYS.dotgg.seenExpansions
     const before = await client.query<{ value: unknown }>('SELECT value FROM app_settings WHERE key = $1', [key])
-    const seen = seenExpansionsOf(before.rows[0]?.value)
+    const seen = before.rows.length
+      ? seenExpansionsOf(before.rows[0]?.value)
+      : dotggListedExpansions(
+          index,
+          (
+            await client.query<{ card_id: string }>(
+              `SELECT DISTINCT r.card_id FROM collection_import_rows r JOIN collection_imports i ON i.id = r.import_id
+               WHERE i.source = 'dotgg' AND i.status = 'applied'`,
+            )
+          ).rows.map((row) => row.card_id),
+        )
     const size = seen.size
-    for (const expansion of dotggListedExpansions(index, Object.keys(listed))) seen.add(expansion)
+    for (const expansion of dotggListedExpansions(index, cardIds)) seen.add(expansion)
     if (seen.size === size && before.rows.length > 0) return
     await client.query(
       `INSERT INTO app_settings (key, value) VALUES ($1, $2::jsonb)
@@ -1143,8 +1164,14 @@ export class CollectionService {
           nameEs: index.expansionById(item.expansionId)?.nameEs ?? item.expansionId,
         }))
       : []
-    // S-E: a set an earlier sync listed is one ptcgpocket.gg knows, so no row there can mean no card there.
+    // S-E: a set code an earlier sync wrote, or this export writes for a reprint kept elsewhere, is one ptcgpocket.gg
+    // knows, so no row there can mean no card there.
     const seen = seenExpansionsOf(marks[REMOTE_KEYS.dotgg.seenExpansions])
+    for (const id of dotggListedExpansions(
+      index,
+      parsed.rows.map((row) => row.id),
+    ))
+      seen.add(id)
     for (const known of [false, true]) {
       const group = missingExpansions.filter((item) => seen.has(item.expansionId) === known)
       if (group.length === 0) continue

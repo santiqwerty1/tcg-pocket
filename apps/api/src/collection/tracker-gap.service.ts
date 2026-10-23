@@ -6,13 +6,12 @@
 import { BadRequestException, ConflictException, Injectable, ServiceUnavailableException } from '@nestjs/common'
 import {
   type DotggUnmatched,
+  dotggGapCoverage,
   dotggListedExpansions,
-  dotggMissingExpansions,
   mapDotggRows,
   normalizeImportRows,
   parseDotggCsv,
   redactDotggLink,
-  splitDotggMissing,
   TRACKER_FIX_FILE_NAME,
   type TrackerCollectionRow,
   type TrackerGapSummary,
@@ -158,7 +157,19 @@ export class TrackerGapService {
         index,
         stock.map((row) => row.cardId),
       )
-      seen = seenExpansionsOf(mark?.value)
+      // No mark yet (syncs applied before it existed): the applied imports still stored say what was written.
+      seen = mark
+        ? seenExpansionsOf(mark.value)
+        : dotggListedExpansions(
+            index,
+            (
+              await tx.collectionImportRow.findMany({
+                where: { import: { source: 'dotgg', status: 'applied' } },
+                select: { cardId: true },
+                distinct: ['cardId'],
+              })
+            ).map((row) => row.cardId),
+          )
     })
     if (changed.length > 0 || this.catalog.requireIndex() !== index)
       throw new ConflictException({
@@ -169,30 +180,39 @@ export class TrackerGapService {
     const skipped = new Set(
       mapped.renamed.map((row) => index.cardById(row.cardId)?.stockCardId).filter((id): id is string => !!id),
     )
-    // An expansion the tracker has cards of and the export not a single row. The export lists only what is owned, so
-    // that is a set with no card in the game only if ptcgpocket.gg listed it before and the app has 0 there (S-E): then
-    // it is compared, and the file puts its cards at 0. Otherwise (a set ptcgpocket.gg may not know or writes with
-    // another code, or a drop the app has not applied) its cards are not compared, or the file would zero them.
-    const missing = splitDotggMissing(dotggMissingExpansions(index, tracker.units, game.units, { registered: true }), {
-      held,
+    // What the export's silence means (S-B, S-E): the export lists only what is owned, so «no row» is 0 copies only
+    // where ptcgpocket.gg knows the set code (it writes it now or an applied sync wrote it) and, for a whole expansion
+    // with no row, where the app has 0 too. Elsewhere the cards are not compared, or the file would zero them.
+    const coverage = dotggGapCoverage(index, {
+      tracker: tracker.units,
+      game: game.units,
+      listed: dotggListedExpansions(
+        index,
+        mapped.rows.map((row) => row.id),
+      ),
       seen,
+      held,
     })
-    const uncovered = new Set(missing.leftOut.map((item) => item.expansionId))
-    for (const unit of index.catalog.stockUnits)
-      if (uncovered.has(index.cardById(unit.id)?.expansionId ?? '')) skipped.add(unit.id)
+    for (const id of coverage.skipped) skipped.add(id)
     const gap = trackerGap(index, trackerUnits(tracker.units, index), game.units, skipped)
     const warnings: string[] = []
-    const leftOut = missing.leftOut.reduce((sum, item) => sum + item.cards, 0)
+    const leftOut = coverage.leftOut.reduce((sum, item) => sum + item.cards, 0) + coverage.reprints.cards
     for (const reason of ['unseen', 'held'] as const) {
-      const group = missing.leftOut.filter((item) => item.reason === reason)
+      const group = coverage.leftOut.filter((item) => item.reason === reason)
       if (group.length === 0) continue
       const cards = group.reduce((sum, item) => sum + item.cards, 0)
       warnings.push(
-        `La exportación de ptcgpocket.gg no trae ninguna carta de ${group.map((item) => item.expansionId).join(', ')} y el tracker tiene ${cards === 1 ? '1 carta' : `${cards} cartas`} ahí: no se comparan (${
+        `La exportación de ptcgpocket.gg no trae ninguna carta de ${listEs(group.map((item) => item.expansionId))}, donde el tracker tiene ${cards === 1 ? '1 carta: no se compara' : `${cards} cartas: no se comparan`} (${
           reason === 'unseen'
             ? 'puede que ptcgpocket.gg no conozca la expansión o la escriba con otro código'
             : 'la colección de la app todavía tiene copias ahí; si ya no las tenés, aplicá la sincronización con el juego y volvé a comparar'
         }).`,
+      )
+    }
+    if (coverage.reprints.cards > 0) {
+      const one = coverage.reprints.cards === 1
+      warnings.push(
+        `${one ? '1 carta del tracker que' : `${coverage.reprints.cards} cartas del tracker que`} ptcgpocket.gg no trae ${one ? 'tiene' : 'tienen'} una reimpresión en ${listEs(coverage.reprints.expansionIds)}, que ptcgpocket.gg nunca trajo: no se ${one ? 'compara' : 'comparan'} (la copia puede ser esa reimpresión).`,
       )
     }
     if (mapped.renamed.length > 0)
@@ -253,7 +273,7 @@ export class TrackerGapService {
       unmatchedGame: mapped.unmatched,
       unknownTracker,
       warnings,
-      emptyExpansions: missing.empty.map((item) => ({
+      emptyExpansions: coverage.empty.map((item) => ({
         expansionId: item.expansionId,
         nameEs: index.expansionById(item.expansionId)?.nameEs ?? item.expansionId,
         cards: item.cards,
@@ -298,4 +318,9 @@ export class TrackerGapService {
     this.compatibilityCache = { commit, at: Date.now(), result }
     return result
   }
+}
+
+/** «A1, A2 y B4b». */
+function listEs(items: readonly string[]): string {
+  return items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} y ${items.at(-1)}`
 }
