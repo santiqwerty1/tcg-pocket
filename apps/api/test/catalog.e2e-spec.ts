@@ -716,6 +716,14 @@ describe('catalog (e2e)', () => {
       expect(row).toMatchObject({ status: 'failed' })
       expect(row.error).toContain('No se pudo leer el catálogo de ese commit: cards.json: B3-51.energy')
       expect((await test.prisma.card.findUniqueOrThrow({ where: { id: 'B3-51' } })).types).toEqual(['water'])
+      // A card id the engine bridge cannot map (Codex on #151): refused by the input check, with the id (was a 500).
+      writeFileSync(
+        cardsPath,
+        JSON.stringify(original.map((card) => (card.card_id === 'B3-51' ? { ...card, card_id: 'B3-x' } : card))),
+      )
+      const badId = await sync.preview(request).catch((error: unknown) => error)
+      expect(badId).toBeInstanceOf(UnprocessableEntityException)
+      expect(toApiError(badId).body.error.message).toContain('cards.json: B3-x.card_id: card_id must be')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

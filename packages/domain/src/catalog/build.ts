@@ -141,9 +141,10 @@ export class CatalogBuildError extends Error {
 
 /**
  * The tracker's or the engine's data cannot be read (C1: a type written in a way the catalog does not know). The
- * message names the file, the card and the value, so the preview can say what to fix; nothing in it is secret.
+ * message names the file, the card and the value, so the preview can say what to fix; nothing in it is secret. A kind
+ * of `CatalogBuildError`: the build is pure, so anything that stops it comes from its input.
  */
-export class CatalogInputError extends Error {
+export class CatalogInputError extends CatalogBuildError {
   constructor(message: string) {
     super(message)
     this.name = 'CatalogInputError'
@@ -312,9 +313,23 @@ function knownPackStructure(
   return null
 }
 
+/**
+ * Builds the catalog from the tracker's and the engine's data. Every failure after the pins are checked is a
+ * `CatalogInputError` (a 422 in the preview): the build reads no network and no database, so whatever stops it —
+ * a schema, a card id the engine bridge cannot map, a duplicate, an undeclared expansion — comes from the data.
+ */
 export function buildCatalogWithReport(input: BuildCatalogInput): BuildResult {
   if (!input.trackerCommit) throw new CatalogBuildError('trackerCommit is required')
   if (!input.engineRev) throw new CatalogBuildError('engineRev is required')
+  try {
+    return buildFromInput(input)
+  } catch (error) {
+    if (error instanceof CatalogInputError) throw error
+    throw new CatalogInputError(`catalog build: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+function buildFromInput(input: BuildCatalogInput): BuildResult {
   const parsed = parseInput(input)
   const { cards, translations } = parsed
   const warnings: string[] = []

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildCatalogWithReport,
   type Catalog,
+  CatalogBuildError,
   CatalogInputError,
   engineCardsFromDatabaseJson,
   engineTypeFields,
@@ -192,6 +193,21 @@ describe('the catalog with two types', () => {
       at === 0 ? { ...card, hp: 'x' } : card,
     )
     expect(() => buildCatalogWithReport(badEngine)).toThrow(CatalogInputError)
+    // A card id the engine bridge cannot map is refused by the schema, with the id (Codex on #151).
+    expect(withCard((card) => ({ ...card, card_id: 'B3-x' }))).toThrow(
+      'cards.json: B3-x.card_id: card_id must be «<expansion>-<number>», like A1-12',
+    )
+    // Whatever else stops the build comes from its data: a duplicate card is an input error too, still a build error.
+    const duplicated = buildInput()
+    const firstCard = (duplicated.cardsJson as Record<string, unknown>[])[0] as Record<string, unknown>
+    duplicated.cardsJson = [...(duplicated.cardsJson as unknown[]), { ...firstCard }]
+    expect(() => buildCatalogWithReport(duplicated)).toThrow(CatalogInputError)
+    expect(() => buildCatalogWithReport(duplicated)).toThrow(CatalogBuildError)
+    expect(() => buildCatalogWithReport(duplicated)).toThrow('catalog build: Duplicate card id A1-1')
+    // The pins are the caller's, not data: still a plain CatalogBuildError.
+    const noPin = () => buildCatalogWithReport({ ...buildInput(), trackerCommit: '' })
+    expect(noPin).toThrow(CatalogBuildError)
+    expect(noPin).not.toThrow(CatalogInputError)
     expect(() => buildCatalogWithReport(badEngine)).toThrow('deckgym database.json: 0.hp: ')
     // The other files of the tracker, too (Codex on #151): types/index.ts, a translation table and a locale table.
     const broken = (change: (input: ReturnType<typeof buildInput>) => void) => {
