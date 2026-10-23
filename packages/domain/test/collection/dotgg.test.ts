@@ -448,6 +448,17 @@ describe('dotggGapCoverage (S-B, S-E)', () => {
     expect(covered.skipped.has('A3a-6')).toBe(true)
     expect(covered.reprints.expansionIds).toEqual(['A4b'])
     expect(covered.leftOut).toEqual([])
+    // A row for A3a-6 with 0 copies is no proof either: the copy may still be the A4b reprint.
+    const zeroRow = dotggGapCoverage(index, {
+      tracker,
+      game: { ...game, 'A3a-6': unit('A3a-6', 0) },
+      listed: new Set(['A1', 'A3a']),
+      seen: new Set(),
+      held: new Set(),
+      heldUnits: new Set(),
+    })
+    expect(zeroRow.skipped.has('A3a-6')).toBe(true)
+    expect(zeroRow.reprints).toEqual({ cards: 1, expansionIds: ['A4b'] })
   })
 
   it('leaves out a card at 0 in the export that the app still has: a drop not applied yet (S-K)', () => {

@@ -440,8 +440,8 @@ export interface DotggGapCoverage {
  * - An expansion the tracker has cards of and with no row (by the expansion each unit is kept under) is compared as 0
  *   only when it is known and the app's collection has no copy there (Santi applied the drop); otherwise it is left
  *   out: `held`, a drop the app has not applied yet, or `unseen`, a set ptcgpocket.gg may not know.
- * - A card the tracker has and the export does not list, with a reprint in an expansion that is not known, is left out
- *   too: its copy may be that reprint, and the file would take it off the tracker.
+ * - A card the tracker has and the export gives no copy of (no row, or a row with 0), with a reprint in an expansion
+ *   that is not known, is left out too: its copy may be that reprint, and the file would take it off the tracker.
  * - A card at 0 in the export that the app still has copies of (`heldUnits`) is left out as well, in any expansion:
  *   that drop waits for Santi in the app (a sync to review), and the file follows only what he applied.
  */
@@ -485,7 +485,9 @@ export function dotggGapCoverage(
       pending += 1
       continue
     }
-    if (input.game[unit.id]) continue
+    // A copy in the export is the game's count. A row with 0 copies is not proof: the copy may be a reprint in a set
+    // ptcgpocket.gg does not write.
+    if ((input.game[unit.id]?.amountOwned ?? 0) > 0) continue
     const unknown = unit.cardIds
       .map((id) => index.cardById(id)?.expansionId)
       .filter((id): id is ExpansionId => !!id && !known.has(id))

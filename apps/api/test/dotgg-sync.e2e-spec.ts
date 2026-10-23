@@ -718,6 +718,12 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     expect(mcp.text).toContain(
       'no queda en el juego ninguna de las cartas que tiene el tracker: el archivo las pone en 0',
     )
+    // With no file (a row the catalog does not know), nothing promises one (Codex on #153).
+    body = `${body}1,0,"Future Card","C9","1"\n`
+    const blocked = await tools.collectionTrackerGap({})
+    expect(blocked.emptyExpansions).toHaveLength(1)
+    expect(blocked.text).toContain('no queda en el juego ninguna de las cartas que tiene el tracker.')
+    expect(blocked.text).not.toContain('el archivo')
   })
 
   it('«Tracker al día» leaves out the cards a sync to review would drop while the app still has them (S-K)', async () => {
@@ -804,8 +810,12 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
       [3, 'Small Balloon', 'B4b', 372],
     ])
     expect((await apply((await preview()).body.id)).status).toBe(200)
+    await test.prisma.appSetting.delete({ where: { key: 'dotggSeenExpansions' } })
+    // The sync's review knows B4b from the applied import too (Codex on #153).
     body = exportFile([[2, 'Bulbasaur', 'A1', 1]])
-    expect((await apply((await preview()).body.id)).status).toBe(200)
+    const drop = await preview()
+    expect(drop.body.dotgg.reviewReasons.join(' ')).toContain('ptcgpocket.gg ya conoce esa expansión')
+    expect((await apply(drop.body.id)).status).toBe(200)
     await test.prisma.appSetting.delete({ where: { key: 'dotggSeenExpansions' } })
     remote = [
       { internal_id: internalId('A1-1'), amount_owned: 2, collected: true },
@@ -905,6 +915,39 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     ])
     expect((await apply((await preview()).body.id)).status).toBe(200)
     await post('/api/backup/import?mode=replace').attach('file', Buffer.from(exported.body), 'backup.json.gz')
+    expect((await test.prisma.appSetting.findUnique({ where: { key: 'dotggSeenExpansions' } }))?.value).toEqual([
+      'A1',
+      'B4b',
+    ])
+  })
+
+  it('a restore keeps what an apply in flight adds to the mark (Codex on #153)', async () => {
+    await setLink(LINK)
+    body = exportFile([[2, 'Bulbasaur', 'A1', 1]])
+    expect((await apply((await preview()).body.id)).status).toBe(200)
+    const exported = await get('/api/backup/export').responseType('blob')
+    // An apply in flight: the import's table locks, and B4b added to the mark but not committed yet.
+    const writer = await test.prisma.pool.connect()
+    try {
+      await writer.query('BEGIN')
+      await writer.query('LOCK TABLE cards, collection_stock, collection_adjustments IN SHARE ROW EXCLUSIVE MODE')
+      await writer.query(`UPDATE app_settings SET value = '["A1","B4b"]'::jsonb WHERE key = 'dotggSeenExpansions'`)
+      const restoring = post('/api/backup/import?mode=replace')
+        .attach('file', Buffer.from(exported.body), 'backup.json.gz')
+        .then((response) => response)
+      // Once the restore waits behind the apply, the apply commits.
+      for (let tries = 0; tries < 200; tries += 1) {
+        const [waiting] = await test.prisma.$queryRaw<{ n: number }[]>`
+          SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`
+        if ((waiting?.n ?? 0) > 0) break
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+      await writer.query('COMMIT')
+      expect((await restoring).status).toBe(200)
+    } finally {
+      await writer.query('ROLLBACK').catch(() => undefined)
+      writer.release()
+    }
     expect((await test.prisma.appSetting.findUnique({ where: { key: 'dotggSeenExpansions' } }))?.value).toEqual([
       'A1',
       'B4b',

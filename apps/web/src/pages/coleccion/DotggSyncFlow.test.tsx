@@ -382,6 +382,22 @@ describe('Tracker al día', () => {
     expect(screen.getByText(/así que el archivo las pone en 0\./)).toBeInTheDocument()
   })
 
+  it('does not promise a file that could not be made (Codex on #153)', async () => {
+    fakeApi({
+      'GET /api/collection/tracker-gap': {
+        ...gap,
+        emptyExpansions: [{ expansionId: 'B4b', nameEs: 'Expansión Dos', cards: 1 }],
+        trackerFile: null,
+      },
+    })
+    renderAt('/coleccion/tracker')
+    expect(
+      await screen.findByText(/De Expansión Dos no te queda en el juego .* la colección de la app está en 0 ahí\.$/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/el archivo las pone en 0/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Archivo para el tracker' })).not.toBeInTheDocument()
+  })
+
   it('says when the tracker is up to date and offers no file', async () => {
     fakeApi({
       'GET /api/collection/tracker-gap': {

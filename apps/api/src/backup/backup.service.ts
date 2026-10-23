@@ -622,15 +622,18 @@ export class BackupService {
     document: BackupDocument,
     deferTracker = false,
   ): Promise<void> {
-    // T-020 (S-E): which set codes ptcgpocket.gg writes is not data of the collection; a restore keeps what is known now.
-    const seenBefore = deferTracker
-      ? await tx.appSetting.findUnique({ where: { key: REMOTE_KEYS.dotgg.seenExpansions } })
-      : null
     // Matches first: they restrict the deletion of their deck and revision.
     await tx.match.deleteMany()
     await tx.deck.deleteMany()
     await tx.collectionAdjustment.deleteMany()
     await tx.collectionStock.deleteMany()
+    // T-020 (S-E): which set codes ptcgpocket.gg writes is not data of the collection; a restore keeps what is known now.
+    // Read here, after deleting the stock: the only writers of the mark (an import's apply, a sync's check with nothing
+    // to change) hold SHARE ROW EXCLUSIVE on collection_stock until they commit, so none is in flight any more and none
+    // can start before this restore commits.
+    const seenBefore = deferTracker
+      ? await tx.appSetting.findUnique({ where: { key: REMOTE_KEYS.dotgg.seenExpansions } })
+      : null
     await tx.collectionImport.deleteMany()
     // Where the chat's rooms live (D-030, T1b) is not data of the file: a restore never brings a moved room back here.
     await tx.appSetting.deleteMany({ where: { key: { not: CHAT_MOVED_KEY } } })
