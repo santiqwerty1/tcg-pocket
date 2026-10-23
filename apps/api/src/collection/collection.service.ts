@@ -1139,13 +1139,14 @@ export class CollectionService {
   }
 
   /**
-   * Who may write the collection right now (inside the import's transaction, under lock 994202):
-   * - the tracker, only while no ptcgpocket.gg link is stored (T-020) — an unreadable one counts too, so a changed
-   *   SESSION_SECRET never hands the collection back to the tracker by itself;
-   * - a ptcgpocket.gg snapshot, only with its link there: when it is created and when it is applied (a pending one
-   *   that came back with a backup after the link was removed does not apply);
-   * - a new ptcgpocket.gg snapshot, only if the link is still the one it was read from (also by hand);
-   * - an automatic run, only with its switch still on and the same friend id or link it read.
+   * Who may write the collection right now (inside the import's transaction, under lock 994202). Each remote read
+   * carries the snapshot it was taken under (the friend id, or the link's keyed fingerprint stored with the preview)
+   * and writes only while the present matches it (T-020, Codex on #150):
+   * - the tracker, only while no ptcgpocket.gg link is stored — an unreadable one counts too, so a changed
+   *   SESSION_SECRET never hands the collection back to the tracker by itself — and with the same friend id;
+   * - a ptcgpocket.gg snapshot, only with the same link it was read from, when it is created and when it is applied
+   *   (a pending one that came back with a backup does not apply without that link);
+   * - an automatic run, besides, only with its switch still on.
    */
   private async requireRemoteConfig(client: PoolClient, remote: RemoteImport, creating = false): Promise<void> {
     const keys = REMOTE_KEYS[remote.source]
@@ -1165,10 +1166,13 @@ export class CollectionService {
           code: 'tracker_not_master',
           message: link ? TRACKER_NOT_MASTER : TRACKER_PAUSED_UNREADABLE,
         })
-      if (remote.automatic && (config.trackerAutoSync !== true || config.trackerFriendId !== remote.friendId))
+      // The snapshot of a tracker read is its friend id: another account's collection never applies (by hand either).
+      if (config.trackerFriendId !== remote.friendId || (remote.automatic && config.trackerAutoSync !== true))
         throw new ConflictException({
           code: 'tracker_config_changed',
-          message: 'La configuración del tracker cambió durante la consulta. No se aplicó nada.',
+          message: creating
+            ? 'La configuración del tracker cambió durante la consulta. No se aplicó nada.'
+            : 'El friend_id del tracker cambió después de esta vista previa: sincronizá de nuevo.',
         })
       return
     }

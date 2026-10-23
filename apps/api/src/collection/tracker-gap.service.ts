@@ -22,9 +22,8 @@ import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { TRACKER_PATHS } from '../catalog/catalog-sources.js'
 import { TrackerCommitsService } from '../catalog/tracker-commits.service.js'
-import { PrismaService } from '../prisma/prisma.service.js'
 import { DotggClient, DotggError } from './dotgg-client.js'
-import { DotggLinkStore } from './dotgg-link.store.js'
+import { SourceSnapshots } from './source-snapshot.js'
 import { TrackerClient, TrackerError } from './tracker-client.js'
 
 export interface TrackerGapRowView {
@@ -63,8 +62,7 @@ export interface TrackerGapView {
 export class TrackerGapService {
   constructor(
     private readonly catalog: CatalogService,
-    private readonly prisma: PrismaService,
-    private readonly links: DotggLinkStore,
+    private readonly snapshots: SourceSnapshots,
     private readonly dotgg: DotggClient,
     private readonly tracker: TrackerClient,
     private readonly commits: TrackerCommitsService,
@@ -74,21 +72,24 @@ export class TrackerGapService {
   }
 
   async gap(now = new Date()): Promise<TrackerGapView> {
-    const friend = await this.prisma.appSetting.findUnique({ where: { key: 'trackerFriendId' } })
-    const friendId = typeof friend?.value === 'string' ? friend.value : ''
+    // The snapshot this comparison stands on: the friend id, the link and the catalog (its index and commit with it).
+    const before = await this.snapshots.take()
+    const index = this.catalog.requireIndex()
+    const catalogCommit = this.catalog.trackerCommit
+    const friendId = before.friendId
     if (!/^\d{16}$/.test(friendId))
       throw new BadRequestException({
         code: 'tracker_friend_id',
         message: 'Guardá tu friend_id de 16 dígitos del tracker en Más → Ajustes de la app.',
       })
-    const link = await this.links.read()
+    const link = before.link
     if (!link)
       throw new BadRequestException({
         code: 'dotgg_not_configured',
         message: 'Pegá el link de exportación de ptcgpocket.gg en Más → Ajustes de la app: es la colección del juego.',
       })
     // Whether the tracker changed its card data after the catalog, asked alongside (GitHub may not answer).
-    const upstream = this.cardsChangedUpstream()
+    const upstream = this.cardsChangedUpstream(catalogCommit)
     let bytes: Buffer
     let remote: TrackerCollectionRow[]
     try {
@@ -109,20 +110,6 @@ export class TrackerGapService {
         message,
       })
     }
-    // Both reads took seconds: if the friend id or the link changed meanwhile (another tab), the pair is not one and
-    // the file would mix them. Read again under the configuration lock (994202, the one their writes take).
-    const after = await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(994202)`
-      const row = await tx.appSetting.findUnique({ where: { key: 'trackerFriendId' } })
-      return { friendId: typeof row?.value === 'string' ? row.value : '', link: await this.links.read(tx) }
-    })
-    if (after.friendId !== friendId || after.link !== link)
-      throw new ConflictException({
-        code: 'gap_config_changed',
-        message:
-          'El link de ptcgpocket.gg o el friend_id del tracker cambiaron mientras se comparaba: volvé a comparar.',
-      })
-    const index = this.catalog.requireIndex()
     const parsed = parseDotggCsv(bytes)
     if (parsed.fatal || parsed.rows.length === 0)
       throw new ServiceUnavailableException({
@@ -153,7 +140,7 @@ export class TrackerGapService {
     // The file writes the catalog's internal ids: if the tracker changed its card data after it, they may have moved.
     if (await upstream)
       warnings.push(
-        `El tracker cambió sus datos de cartas después del catálogo de la app (${(this.catalog.trackerCommit ?? '').slice(0, 7)}): el archivo usa los internal_id del catálogo. Si el tracker los cambió, tocaría otras cartas; ante la duda, sincronizá el catálogo antes de importarlo.`,
+        `El tracker cambió sus datos de cartas después del catálogo de la app (${(catalogCommit ?? '').slice(0, 7)}): el archivo usa los internal_id del catálogo. Si el tracker los cambió, tocaría otras cartas; ante la duda, sincronizá el catálogo antes de importarlo.`,
       )
     if (parsed.errors.length > 0)
       warnings.push(
@@ -188,6 +175,14 @@ export class TrackerGapService {
         collected: row.collected,
       }
     })
+    // Both reads and GitHub took seconds: if the friend id, the link or the catalog changed meanwhile (another tab, a
+    // catalog sync), the pair is not one and the file would mix them. Compared under the configuration lock.
+    const changed = await this.snapshots.whileSame(before, ['link', 'friend', 'catalog'])
+    if (changed.length > 0 || this.catalog.requireIndex() !== index)
+      throw new ConflictException({
+        code: 'gap_config_changed',
+        message: `Cambió ${this.snapshots.describe(changed.length > 0 ? changed : ['catalog'])} mientras se comparaba: volvé a comparar.`,
+      })
     return {
       checkedAt: now.toISOString(),
       summary: gap.summary,
@@ -199,7 +194,7 @@ export class TrackerGapService {
         safe && gap.rows.length > 0
           ? { fileName: TRACKER_FIX_FILE_NAME, rows: gap.rows.length, content: writeTrackerFixCsv(index, gap.rows) }
           : null,
-      catalogCommit: this.catalog.trackerCommit,
+      catalogCommit,
     }
   }
 
@@ -207,8 +202,7 @@ export class TrackerGapService {
    * Whether the tracker's `main` changed `cards.json` (where the internal ids live) after the catalog's commit. Only
    * that file counts: commits to the interface do not move internal ids. False when GitHub does not answer.
    */
-  private async cardsChangedUpstream(): Promise<boolean> {
-    const commit = this.catalog.trackerCommit
+  private async cardsChangedUpstream(commit: string | null): Promise<boolean> {
     if (!commit) return false
     try {
       const latest = await this.commits.latest()

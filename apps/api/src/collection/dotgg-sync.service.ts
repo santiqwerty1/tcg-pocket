@@ -24,6 +24,7 @@ import { PrismaService } from '../prisma/prisma.service.js'
 import { CollectionService, REMOTE_KEYS } from './collection.service.js'
 import { DotggClient, DotggError } from './dotgg-client.js'
 import { DOTGG_LINK_KEY, DotggLinkStore } from './dotgg-link.store.js'
+import { type SourceSnapshot, SourceSnapshots } from './source-snapshot.js'
 
 export const DOTGG_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000
 /** Held while a ptcgpocket.gg read or apply is under way (the tracker's is 994201; collection writes take 994202). */
@@ -63,6 +64,7 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
   constructor(
     private readonly client: DotggClient,
     private readonly links: DotggLinkStore,
+    private readonly snapshots: SourceSnapshots,
     private readonly collection: CollectionService,
     private readonly prisma: PrismaService,
     private readonly logger: PinoLogger,
@@ -111,7 +113,9 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
 
   /**
    * Saves the link (checked, sealed). From then on ptcgpocket.gg is the source: pending tracker previews are discarded
-   * and the tracker's warning goes; a different link also discards the pending ptcgpocket.gg preview it did not read.
+   * and the tracker's warning goes. Another link (or one pasted again after removing it) starts over: its pending
+   * preview, its state, its alert and its last applied sync belong to the old link and go too. The same link keeps
+   * them (a pending review stays in Avisos).
    */
   async setLink(text: string): Promise<DotggStatus> {
     const check = parseDotggExportLink(text)
@@ -119,19 +123,19 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
     const sealed = this.links.seal(check.url)
     await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(994202)`
-      const before = await this.links.read(tx)
+      const same = (await this.links.read(tx)) === check.url
       await tx.appSecret.upsert({
         where: { key: DOTGG_LINK_KEY },
         create: { key: DOTGG_LINK_KEY, value: sealed },
         update: { value: sealed },
       })
       await tx.collectionImport.updateMany({
-        where: { status: 'pending', source: before === check.url ? 'tracker' : { in: ['tracker', 'dotgg'] } },
+        where: { status: 'pending', source: same ? 'tracker' : { in: ['tracker', 'dotgg'] } },
         data: { status: 'discarded' },
       })
-      await tx.appSetting.deleteMany({ where: { key: { in: ['trackerSyncWarning', KEYS.warning] } } })
-      // Another link (or one pasted again after removing it): its first sync is a first sync, reviewed by hand.
-      if (before !== check.url) await tx.appSetting.deleteMany({ where: { key: KEYS.lastApplied } })
+      await tx.appSetting.deleteMany({ where: { key: 'trackerSyncWarning' } })
+      if (!same)
+        await tx.appSetting.deleteMany({ where: { key: { in: [KEYS.warning, KEYS.state, KEYS.lastApplied] } } })
     })
     return this.status()
   }
@@ -162,6 +166,10 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
     return this.preview(true, now)
   }
 
+  /**
+   * Reads the export and leaves the preview. Everything it writes afterwards — the import (checked in its transaction),
+   * the state, the alert — is written only while the link is still the one of the snapshot taken at the start.
+   */
   async preview(automatic = false, now = new Date()) {
     const lock = await this.prisma.pool.connect()
     let acquired = false
@@ -178,20 +186,22 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
         })
       }
       const config = await this.status()
-      link = await this.links.read()
+      const snapshot = await this.snapshots.take()
+      link = snapshot.link
       const due = !config.lastAttemptAt || now.getTime() - Date.parse(config.lastAttemptAt) >= DOTGG_SYNC_INTERVAL_MS
-      if (automatic && (!config.enabled || !due || (!link && !config.unreadable))) return null
-      if (!link && config.unreadable) {
+      if (automatic && (!config.enabled || !due || (!link && !snapshot.unreadable))) return null
+      if (!link && snapshot.unreadable) {
         // The stored link cannot be opened (SESSION_SECRET changed): said where Santi looks, never a silent stop.
         if (!automatic) throw new BadRequestException({ code: 'dotgg_unreadable', message: UNREADABLE })
         await this.warnUnreadable(now)
         return null
       }
-      if (!link) throw new BadRequestException({ code: 'dotgg_not_configured', message: NOT_CONFIGURED })
-      const fingerprint = this.links.fingerprint(link)
+      if (!link || !snapshot.linkId)
+        throw new BadRequestException({ code: 'dotgg_not_configured', message: NOT_CONFIGURED })
+      const fingerprint = snapshot.linkId
       const state: DotggSyncState = { ...EMPTY, lastAttemptAt: now.toISOString(), automatic }
       // Persist before the request: a restart or a failure must not cause another automatic read within 24 h.
-      await this.write(KEYS.state, state)
+      await this.writeState(snapshot, state)
       try {
         const bytes = await this.client.exportCsv(link)
         const parsed = parseDotggCsv(bytes)
@@ -201,9 +211,11 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
             'dotgg_empty',
             'ptcgpocket.gg devolvió la colección vacía: revisá que el link sea el de tu cuenta y que ptcgpocket.gg esté sincronizado con el juego. No se aplicó nada.',
           )
-        const current = await this.status()
-        const currentLink = await this.links.read()
-        if (automatic && (!current.enabled || currentLink !== link)) return null
+        if (automatic) {
+          const current = await this.status()
+          const changed = this.snapshots.changes(snapshot, await this.snapshots.take(), ['link'])
+          if (!current.enabled || changed.length > 0) return null
+        }
         const preview = await this.collection.createDotggImport(parsed, bytes, {
           automatic,
           checkedAt: now,
@@ -213,9 +225,9 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
           state.result = preview.reviewReasons.length ? 'review' : 'unchanged'
           if (preview.reviewReasons.length) {
             state.error = preview.reviewReasons.join(' ')
-            await this.warning(fingerprint, { at: state.lastAttemptAt, message: state.error, previewId: null })
+            await this.warning(snapshot, { at: state.lastAttemptAt, message: state.error, previewId: null })
           }
-          await this.write(KEYS.state, state)
+          await this.writeState(snapshot, state)
           return null
         }
         state.previewId = preview.id
@@ -224,14 +236,14 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
           if (preview.blocked || preview.dotgg?.requiresReview) {
             state.result = 'review'
             state.error = `${preview.dotgg?.reviewReasons.join(' ') || 'La exportación tiene errores.'} Revisá la vista previa antes de aplicar.`
-            await this.warning(fingerprint, { at: state.lastAttemptAt, message: state.error, previewId: preview.id })
+            await this.warning(snapshot, { at: state.lastAttemptAt, message: state.error, previewId: preview.id })
           } else {
             await this.collection.applyImport(preview.id, true)
             // Applied status, timestamps and the cleared warning commit atomically with the collection.
             return preview
           }
         }
-        await this.write(KEYS.state, state)
+        await this.writeState(snapshot, state)
         return preview
       } catch (error) {
         const message = redactDotggLink(
@@ -251,9 +263,10 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
         )
         state.result = state.previewId && error instanceof ConflictException ? 'review' : 'error'
         state.error = message
-        await this.write(KEYS.state, state)
+        // A failure of the old link is not the new link's state (the link may have changed while reading).
+        await this.writeState(snapshot, state)
         if (automatic) {
-          await this.warning(fingerprint, { at: state.lastAttemptAt, message, previewId: state.previewId })
+          await this.warning(snapshot, { at: state.lastAttemptAt, message, previewId: state.previewId })
           return null
         }
         // Our own conflicts (catalog changed, link removed meanwhile) never quote the link.
@@ -269,6 +282,10 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
     }
   }
 
+  /**
+   * Applies a stored preview. Its own snapshot is the one stored with it (the link's fingerprint and the baseline,
+   * catalog included), and `applyImport` compares them with the present under the collection's locks.
+   */
   async apply(id: string) {
     const lock = await this.prisma.pool.connect()
     let acquired = false
@@ -291,9 +308,16 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
     }
   }
 
-  private async write(key: string, value: unknown) {
-    const json = JSON.parse(JSON.stringify(value))
-    await this.prisma.appSetting.upsert({ where: { key }, create: { key, value: json }, update: { value: json } })
+  /** The sync's state, only while the link is still the snapshot's (otherwise it is another link's, and dropped). */
+  private async writeState(snapshot: SourceSnapshot, state: DotggSyncState) {
+    const json = JSON.parse(JSON.stringify(state))
+    await this.snapshots.whileSame(snapshot, ['link'], (tx) =>
+      tx.appSetting.upsert({
+        where: { key: KEYS.state },
+        create: { key: KEYS.state, value: json },
+        update: { value: json },
+      }),
+    )
   }
 
   /** The alert for a stored link that cannot be opened, written once (pasting or removing the link takes it away). */
@@ -312,21 +336,23 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
     })
   }
 
-  /** The alert of an automatic run, only while the switch is on, the link is the one read and its preview pending. */
-  private async warning(fingerprint: string, value: { at: string | null; message: string; previewId: string | null }) {
-    await this.prisma.$transaction(async (tx) => {
-      // Serialize with turning the switch off, changing the link, applying or discarding the preview.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(994202)`
+  /**
+   * The alert of an automatic run, only while the link is still the snapshot's, the switch is on and its preview
+   * pending (in one transaction with turning the switch off, changing the link, applying or discarding the preview).
+   */
+  private async warning(
+    snapshot: SourceSnapshot,
+    value: { at: string | null; message: string; previewId: string | null },
+  ) {
+    const json = JSON.parse(JSON.stringify(value))
+    await this.snapshots.whileSame(snapshot, ['link'], async (tx) => {
       const auto = await tx.appSetting.findUnique({ where: { key: KEYS.auto } })
-      const stored = await this.links.state(tx)
       if (auto?.value !== true) return
-      if (!stored.link || this.links.fingerprint(stored.link) !== fingerprint) return
       if (
         value.previewId &&
         !(await tx.collectionImport.findFirst({ where: { id: Number(value.previewId), status: 'pending' } }))
       )
         return
-      const json = JSON.parse(JSON.stringify(value))
       await tx.appSetting.upsert({
         where: { key: KEYS.warning },
         create: { key: KEYS.warning, value: json },

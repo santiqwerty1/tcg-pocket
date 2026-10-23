@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net'
 import { gunzipSync } from 'node:zlib'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { parseTrackerCsv } from '@tcg/domain'
+import { onTestFinished } from 'vitest'
 import { BackupService } from '../src/backup/backup.service.js'
 import { CatalogService } from '../src/catalog/catalog.service.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
@@ -982,5 +983,133 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     } finally {
       client.exportCsv = exportCsv
     }
+  })
+
+  // --- Something changes while a request is in flight (Codex on #150): the snapshot pattern, path by path ----------
+
+  /** Runs `during` inside the next read of ptcgpocket.gg, then lets the read go on (or fail with `fail`). */
+  function duringRead(during: () => Promise<unknown>, fail?: DotggError) {
+    const client = test.app.get(DotggClient)
+    const exportCsv = client.exportCsv.bind(client)
+    let done = false
+    client.exportCsv = async (link: string) => {
+      if (!done) {
+        done = true
+        await during()
+        if (fail) throw fail
+      }
+      return exportCsv(link)
+    }
+    onTestFinished(() => {
+      client.exportCsv = exportCsv
+    })
+  }
+  const reloadCatalog = () =>
+    test.app
+      .get(CatalogSyncService)
+      .sync({ trackerCommit: test.env.catalogCommit, engineRev: test.env.engineRev, source: 'fixtures' })
+
+  it.each([
+    [
+      '4354775675: saving the same link again keeps the pending review in Avisos; another link takes it away',
+      async () => {
+        await setLink(LINK)
+        await setting('dotggAutoSync', true)
+        expect((await test.app.get(DotggSync).tick())?.dotgg?.requiresReview).toBe(true)
+        expect((await alerts()).some((alert) => alert.code === 'dotgg_sync')).toBe(true)
+        await setLink(LINK)
+        expect((await alerts()).some((alert) => alert.code === 'dotgg_sync')).toBe(true)
+        await setLink(OTHER)
+        expect((await alerts()).some((alert) => alert.code === 'dotgg_sync')).toBe(false)
+      },
+    ],
+    [
+      '4354775681: a catalog sync during «Tracker al día» refuses the comparison instead of mixing internal ids',
+      async () => {
+        await setting('trackerFriendId', FRIEND)
+        await setLink(LINK)
+        duringRead(reloadCatalog)
+        const response = await get('/api/collection/tracker-gap')
+        expect(response.status).toBe(409)
+        expect(response.body.error.code).toBe('gap_config_changed')
+        expect(response.body.error.message).toContain('el catálogo')
+      },
+    ],
+    [
+      '4354775689: a read of the old link that fails after the link changed leaves no state to the new one',
+      async () => {
+        await setLink(LINK)
+        duringRead(() => setLink(OTHER), new DotggError('dotgg_auth', 'ptcgpocket.gg no reconoce el link (HTTP 404).'))
+        expect((await preview()).status).toBe(503)
+        expect((await get('/api/collection/dotgg/status')).body).toMatchObject({
+          configured: true,
+          lastAttemptAt: null,
+          result: null,
+          error: null,
+        })
+        // The new link's daily sync is not held back 24 h by the old link's attempt.
+        await setting('dotggAutoSync', true)
+        const calls = dotggCalls.length
+        await test.app.get(DotggSync).tick()
+        expect(dotggCalls.length).toBe(calls + 1)
+      },
+    ],
+    [
+      '4354630300: a backup restored with another link brings the old link’s last sync, which does not count',
+      async () => {
+        await setLink(LINK)
+        expect((await apply((await preview()).body.id)).status).toBe(200)
+        const exported = await get('/api/backup/export').responseType('blob')
+        await setLink(OTHER)
+        await post('/api/backup/import?mode=replace').attach('file', Buffer.from(exported.body), 'backup.json.gz')
+        await setting('dotggAutoSync', true)
+        body = BASE.replace('3,0,"Small Balloon"', '4,0,"Small Balloon"')
+        const result = await test.app.get(DotggSync).tick(new Date(Date.now() + 2 * DOTGG_SYNC_INTERVAL_MS))
+        expect(result?.dotgg?.reviewReasons.join(' ')).toContain('primera sincronización')
+      },
+    ],
+    [
+      '4354630309: a friend id changed during «Tracker al día» refuses the comparison',
+      async () => {
+        await setting('trackerFriendId', FRIEND)
+        await setLink(LINK)
+        duringRead(() => setting('trackerFriendId', '1111222233334444'))
+        const response = await get('/api/collection/tracker-gap')
+        expect(response.body.error.code).toBe('gap_config_changed')
+        expect(response.body.error.message).toContain('el friend_id del tracker')
+      },
+    ],
+  ])('%s', async (_name, scenario) => {
+    await scenario()
+  })
+
+  it('apply (ptcgpocket.gg): a catalog sync after the preview makes it stale', async () => {
+    await setLink(LINK)
+    const pending = await preview()
+    await reloadCatalog()
+    const applied = await apply(pending.body.id)
+    expect(applied.status).toBe(409)
+    expect(applied.body.error.code).toBe('dotgg_stale_preview')
+    expect(await copies()).toBe(0)
+  })
+
+  it('apply (tracker): a preview read for another friend id does not apply, by hand either', async () => {
+    await setting('trackerFriendId', FRIEND)
+    const pending = await post('/api/collection/tracker-sync/preview').send({})
+    expect(pending.status).toBe(200)
+    await setting('trackerFriendId', '1111222233334444')
+    const applied = await post(`/api/collection/imports/${pending.body.id}/apply`).send({})
+    expect(applied.status).toBe(409)
+    expect(applied.body.error.code).toBe('tracker_config_changed')
+    expect(await copies()).toBe(0)
+  })
+
+  it('sync: a link changed during a manual read stores neither the preview nor its state', async () => {
+    await setLink(LINK)
+    duringRead(() => setLink(OTHER))
+    const response = await preview()
+    expect(response.body.error.code).toBe('dotgg_config_changed')
+    expect(await test.prisma.collectionImport.count()).toBe(0)
+    expect((await get('/api/collection/dotgg/status')).body).toMatchObject({ lastAttemptAt: null, previewId: null })
   })
 })

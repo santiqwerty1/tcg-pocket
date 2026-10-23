@@ -7,6 +7,7 @@ import { DotggClient } from './dotgg-client.js'
 import { DotggLinkStore } from './dotgg-link.store.js'
 import { DotggSyncController, TrackerGapController } from './dotgg-sync.controller.js'
 import { DotggSync } from './dotgg-sync.service.js'
+import { SourceSnapshots } from './source-snapshot.js'
 import { TrackerClient } from './tracker-client.js'
 import { TrackerGapService } from './tracker-gap.service.js'
 import { TrackerSyncController } from './tracker-sync.controller.js'
@@ -21,6 +22,7 @@ import { TrackerSync } from './tracker-sync.service.js'
     TrackerClient,
     TrackerSync,
     DotggLinkStore,
+    SourceSnapshots,
     DotggClient,
     DotggSync,
     TrackerGapService,
