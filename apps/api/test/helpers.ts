@@ -20,11 +20,20 @@ export interface TestApp {
   close: () => Promise<void>
 }
 
+/**
+ * The day of the tournament fixtures (`docs/fase0/limitless/`, era B4a). The tests see the era table as it was then:
+ * a set the server seeds that comes out later (C1 on 29/10/2026) would make «today» another era, with no tournaments.
+ */
+export const FIXTURES_DAY = '2026-10-06'
+
 export async function createTestApp(): Promise<TestApp> {
   const env = loadEnv()
   await truncateAllTables(env.databaseUrl)
   const app = await createApp(env)
   await app.init()
+  await app
+    .get(PrismaService)
+    .setRelease.deleteMany({ where: { releaseDate: { gt: new Date(`${FIXTURES_DAY}T00:00:00Z`) } } })
   // The tests start the app and look at the alerts right away: no grace after a «deploy».
   app.get(AlertsService).deployGraceMs = 0
   return {

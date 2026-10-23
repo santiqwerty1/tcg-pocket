@@ -39,6 +39,11 @@ export const DEFAULT_SET_RELEASES: readonly SetRelease[] = [
   { code: 'B4', nameEn: 'Ruler of the Skies', releaseDate: '2026-07-30', opensEra: true },
   { code: 'B4a', nameEn: "Team Rocket's Ambition", releaseDate: '2026-08-27', opensEra: true },
   { code: 'B4b', nameEn: 'Deluxe Pack: Mega', releaseDate: '2026-09-30', opensEra: false },
+  // Series C (22/10/2026): «Dual Fusion» comes out on 29/10/2026 at 01:00 UTC (ptcgpocket.gg/c1), not yet on Limitless.
+  // The table goes by UTC day, like every row (Codex on #147): tournaments from 00:00 UTC on the 29th (21:00 of the 28th
+  // in Buenos Aires) count for C1, as Limitless groups them, and the app's current era turns at the owner's midnight
+  // (todayInOwnerZone), three hours later, as on every release day.
+  { code: 'C1', nameEn: 'Dual Fusion', releaseDate: '2026-10-29', opensEra: true },
 ]
 
 /** Promo sets never make a list «newer» than its era. */
@@ -69,6 +74,14 @@ function byRelease(sets: readonly SetRelease[]): SetRelease[] {
 /** Sets that open an era, oldest first. */
 export function eraSets(sets: readonly SetRelease[]): SetRelease[] {
   return byRelease(sets).filter((set) => set.opensEra)
+}
+
+/**
+ * The eras that have started by `today` (YYYY-MM-DD), oldest first: a set loaded ahead of its release (C1 on 22/10) is
+ * not listed as an era yet.
+ */
+export function startedEraSets(sets: readonly SetRelease[], today: string): SetRelease[] {
+  return eraSets(sets).filter((set) => set.releaseDate <= today)
 }
 
 /** Era (set code) of an instant: the newest era-opening set released on or before its UTC day; null before A1. */
@@ -132,24 +145,30 @@ export function eraConflict(date: Date, codes: Iterable<string>, sets: readonly 
   return null
 }
 
-/** Days after which a new era is likely (sets come every ~30 days): the UI warns «era nueva probable». */
-export const NEW_ERA_LIKELY_AFTER_DAYS = 35
+/**
+ * Days after which a new era is likely: the UI warns «era nueva probable». The A and B series brought a set every ~30
+ * days (35 here); the C series, from Dual Fusion on, every ~6 weeks (developer plans on ptcgpocket.gg), so one week
+ * after that.
+ */
+export const NEW_ERA_LIKELY_AFTER_DAYS = 49
 
 /**
- * The last era-opening release in the table and how many days ago it was; `likely` when it is more than 35 days. A
+ * The last era-opening release in the table and how many days ago it was; `likely` when it is more than 49 days and
+ * the table does not have the next era yet (a row loaded ahead of its release, as C1 on 22/10, already answers it). A
  * Deluxe pack (no new era) does not count (H-006: with B4b as the last row the warning waited a month more).
  */
 export function newEraWarning(
   today: string,
   sets: readonly SetRelease[],
 ): { lastRelease: SetRelease; days: number; likely: boolean } | null {
-  const released = eraSets(sets).filter((set) => set.releaseDate <= today)
+  const released = startedEraSets(sets, today)
   const lastRelease = released.at(-1)
   if (!lastRelease) return null
   const days = Math.round(
     (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${lastRelease.releaseDate}T00:00:00Z`)) / 86_400_000,
   )
-  return { lastRelease, days, likely: days > NEW_ERA_LIKELY_AFTER_DAYS }
+  const nextLoaded = eraSets(sets).length > released.length
+  return { lastRelease, days, likely: days > NEW_ERA_LIKELY_AFTER_DAYS && !nextLoaded }
 }
 
 /** Tournaments below this size do not count (PLAN B10: 12 reproduces the 154 tournaments Limitless shows for B4a). */

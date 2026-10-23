@@ -83,10 +83,14 @@ export interface RankChange {
   points: number | null
 }
 
-/** The seasons known when the feature started (Game8 and Bulbapedia, 14/10/2026); the owner can correct them. */
+/**
+ * The seasons known when the feature started (Game8 and Bulbapedia, 14/10/2026) and C1 (ptcgpocket.gg/c1, 22/10/2026);
+ * the owner can correct them. Each one reaches the database by a migration.
+ */
 export const KNOWN_SEASONS: readonly RankedSeason[] = [
   { code: 'B4a', name: 'Temporada B4a', startsOn: '2026-09-15', endsOn: '2026-09-29' },
   { code: 'B4bSP', name: 'Temporada B4b SP', startsOn: '2026-10-14', endsOn: '2026-10-28' },
+  { code: 'C1', name: 'Temporada C1', startsOn: '2026-11-30', endsOn: '2026-12-14' },
 ]
 
 const DAY_FORMATS = new Map<string, Intl.DateTimeFormat>()

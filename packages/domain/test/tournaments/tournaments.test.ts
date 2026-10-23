@@ -14,6 +14,7 @@ import {
   eraMean,
   eraOf,
   eraRange,
+  eraSets,
   exclusionFromDetails,
   limitlessDetailsSchema,
   limitlessTournamentListSchema,
@@ -21,12 +22,14 @@ import {
   listRows,
   listsAgainstCollection,
   mapDecklist,
+  NEW_ERA_LIKELY_AFTER_DAYS,
   newEraWarning,
   opensUnknownEra,
   parseStandings,
   type StoredEntry,
   type StoredTournament,
   standingsIncomplete,
+  startedEraSets,
   substitutesFor,
   TOURNAMENT_VERSION_MIN_LISTS,
   totalRecord,
@@ -62,7 +65,28 @@ describe('format and era (PLAN §3.5)', () => {
       from: new Date('2026-07-30T00:00:00Z'),
       to: new Date('2026-08-27T00:00:00Z'),
     })
-    expect(eraRange('B4a', sets)?.to).toBeNull()
+    expect(eraRange('B4a', sets)?.to).toEqual(new Date('2026-10-29T00:00:00Z'))
+    expect(eraRange('C1', sets)).toEqual({ from: new Date('2026-10-29T00:00:00Z'), to: null })
+  })
+
+  it('C1 «Dual Fusion» opens an era on 29/10/2026 (UTC), and is not listed before it starts', () => {
+    expect(sets.find((set) => set.code === 'C1')).toEqual({
+      code: 'C1',
+      nameEn: 'Dual Fusion',
+      releaseDate: '2026-10-29',
+      opensEra: true,
+    })
+    // It comes out at 01:00 UTC on the 29th, but the table goes by UTC day (Codex on #147): from 00:00 UTC on the 29th
+    // (21:00 of the 28th in Buenos Aires) a tournament counts for C1, as Limitless groups them.
+    expect(eraOf(new Date('2026-10-29T00:00:00Z'), sets)).toBe('C1')
+    expect(eraOf(new Date('2026-10-28T23:59:00Z'), sets)).toBe('B4a')
+    expect(eraOf(new Date('2026-10-29T01:00:00Z'), sets)).toBe('C1')
+    expect(startedEraSets(sets, '2026-10-28').at(-1)?.code).toBe('B4a')
+    expect(startedEraSets(sets, '2026-10-29').at(-1)?.code).toBe('C1')
+    expect(startedEraSets(sets, '2026-10-29')).toEqual(eraSets(sets))
+    // A list with a C1 card before the 29th is a pre-release event, as with any set not out yet.
+    expect(eraConflict(new Date('2026-10-28T12:00:00Z'), ['C1', 'B4a'], sets)).toBe('C1')
+    expect(eraConflict(new Date('2026-10-30T12:00:00Z'), ['C1', 'B4a'], sets)).toBeNull()
   })
 
   it('a card of a set released after the tournament (or unknown to the table) is a conflict', () => {
@@ -73,9 +97,37 @@ describe('format and era (PLAN §3.5)', () => {
     expect(eraConflict(day, ['B5'], sets)).toBe('B5')
   })
 
-  it('warns «era nueva probable» 35 days after the last era-opening release (a Deluxe pack does not count, H-006)', () => {
-    expect(newEraWarning('2026-09-30', sets)).toMatchObject({ lastRelease: { code: 'B4a' }, days: 34, likely: false })
-    expect(newEraWarning('2026-10-08', sets)).toMatchObject({ lastRelease: { code: 'B4a' }, days: 42, likely: true })
+  it('warns «era nueva probable» 49 days after the last era-opening release (a Deluxe pack does not count, H-006)', () => {
+    expect(NEW_ERA_LIKELY_AFTER_DAYS).toBe(49)
+    // The table as it was before C1 was loaded.
+    const withoutC1 = sets.filter((set) => set.code !== 'C1')
+    expect(newEraWarning('2026-09-30', withoutC1)).toMatchObject({
+      lastRelease: { code: 'B4a' },
+      days: 34,
+      likely: false,
+    })
+    // Six weeks after B4a is still not «likely»: the C series comes every ~6 weeks.
+    expect(newEraWarning('2026-10-08', withoutC1)).toMatchObject({
+      lastRelease: { code: 'B4a' },
+      days: 42,
+      likely: false,
+    })
+    expect(newEraWarning('2026-10-15', withoutC1)).toMatchObject({
+      lastRelease: { code: 'B4a' },
+      days: 49,
+      likely: false,
+    })
+    expect(newEraWarning('2026-10-16', withoutC1)).toMatchObject({
+      lastRelease: { code: 'B4a' },
+      days: 50,
+      likely: true,
+    })
+    // With C1 loaded ahead of time the warning has its answer: it counts days from B4a, without asking for a set.
+    expect(newEraWarning('2026-10-16', sets)).toMatchObject({ lastRelease: { code: 'B4a' }, days: 50, likely: false })
+    expect(newEraWarning('2026-10-28', sets)).toMatchObject({ lastRelease: { code: 'B4a' }, days: 62, likely: false })
+    expect(newEraWarning('2026-10-29', sets)).toMatchObject({ lastRelease: { code: 'C1' }, days: 0, likely: false })
+    expect(newEraWarning('2026-12-17', sets)).toMatchObject({ lastRelease: { code: 'C1' }, days: 49, likely: false })
+    expect(newEraWarning('2026-12-18', sets)).toMatchObject({ lastRelease: { code: 'C1' }, days: 50, likely: true })
   })
 })
 
