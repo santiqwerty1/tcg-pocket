@@ -6,7 +6,8 @@
 import { BadRequestException, ConflictException, Injectable, ServiceUnavailableException } from '@nestjs/common'
 import {
   type DotggUnmatched,
-  dotggMissingExpansions,
+  dotggGapCoverage,
+  dotggListedExpansions,
   mapDotggRows,
   normalizeImportRows,
   parseDotggCsv,
@@ -23,6 +24,7 @@ import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { TRACKER_PATHS } from '../catalog/catalog-sources.js'
 import { TrackerCommitsService } from '../catalog/tracker-commits.service.js'
+import { REMOTE_KEYS, seenExpansionsOf } from './collection.service.js'
 import { DotggClient, DotggError } from './dotgg-client.js'
 import { SourceSnapshots } from './source-snapshot.js'
 import { TrackerClient, TrackerError } from './tracker-client.js'
@@ -53,6 +55,13 @@ export interface TrackerGapView {
   unknownTracker: number[]
   /** Why the comparison may be incomplete, in Spanish. */
   warnings: string[]
+  /**
+   * Expansions the export has no row of that are compared as 0 anyway (S-E): an applied sync listed them before and the
+   * app has no copy there. The file puts the tracker's cards there at 0. `cards`: the tracker's cards there.
+   */
+  emptyExpansions: { expansionId: string; nameEs: string; cards: number }[]
+  /** Cards at 0 in the export that the app still has (S-K): a drop waits in the app, so they are not compared. */
+  pendingDrops: number
   /** Cards left out of the comparison (rows the catalog does not have or with another name, unknown internal ids, rows
    * that could not be read). */
   notCompared: number
@@ -137,30 +146,91 @@ export class TrackerGapService {
       throw new ServiceUnavailableException({ code: 'tracker_data', message: 'Respuesta inválida del tracker.' })
     }
     const tracker = normalizeImportRows(trackerRows, index)
+    // The reads and GitHub took seconds: if the friend id, the link or the catalog changed meanwhile (another tab, a
+    // catalog sync), the pair is not one and the file would mix them. Compared under the configuration lock, where the
+    // app's side is read too: the expansions it has copies in and those a sync listed (an apply writes both under it).
+    const ids = await compatibility
+    let heldUnits = new Set<string>()
+    let held = new Set<string>()
+    let seen = new Set<string>()
+    const changed = await this.snapshots.whileSame(before, ['link', 'friend', 'catalog'], async (tx) => {
+      const stock = await tx.collectionStock.findMany({ where: { amountOwned: { gt: 0 } }, select: { cardId: true } })
+      const mark = await tx.appSetting.findUnique({ where: { key: REMOTE_KEYS.dotgg.seenExpansions } })
+      heldUnits = new Set(stock.map((row) => row.cardId))
+      held = dotggListedExpansions(index, heldUnits)
+      // No mark yet (syncs applied before it existed): the applied imports still stored say what was written.
+      seen = mark
+        ? seenExpansionsOf(mark.value)
+        : dotggListedExpansions(
+            index,
+            (
+              await tx.collectionImportRow.findMany({
+                where: { import: { source: 'dotgg', status: 'applied' } },
+                select: { cardId: true },
+                distinct: ['cardId'],
+              })
+            ).map((row) => row.cardId),
+          )
+    })
+    if (changed.length > 0 || this.catalog.requireIndex() !== index)
+      throw new ConflictException({
+        code: 'gap_config_changed',
+        message: `Cambió ${this.snapshots.describe(changed.length > 0 ? changed : ['catalog'])} mientras se comparaba: volvé a comparar.`,
+      })
     // A row with another card's name may be another numbering: its count would land on the wrong card.
     const skipped = new Set(
       mapped.renamed.map((row) => index.cardById(row.cardId)?.stockCardId).filter((id): id is string => !!id),
     )
-    // An expansion the tracker has cards of and the export not a single row (ptcgpocket.gg may not know it, or write it
-    // with another code): its cards are not compared, or the file would put them at 0 and take their registration off.
-    const missing = dotggMissingExpansions(index, tracker.units, game.units, { registered: true })
-    const uncovered = new Set(missing.map((item) => item.expansionId))
-    for (const unit of index.catalog.stockUnits)
-      if (uncovered.has(index.cardById(unit.id)?.expansionId ?? '')) skipped.add(unit.id)
+    // What the export's silence means (S-B, S-E): the export lists only what is owned, so «no row» is 0 copies only
+    // where ptcgpocket.gg knows the set code (it writes it now or an applied sync wrote it) and, for a whole expansion
+    // with no row, where the app has 0 too. Elsewhere the cards are not compared, or the file would zero them.
+    const coverage = dotggGapCoverage(index, {
+      tracker: tracker.units,
+      game: game.units,
+      listed: dotggListedExpansions(
+        index,
+        mapped.rows.map((row) => row.id),
+      ),
+      seen,
+      held,
+      heldUnits,
+    })
+    for (const id of coverage.skipped) skipped.add(id)
     const gap = trackerGap(index, trackerUnits(tracker.units, index), game.units, skipped)
     const warnings: string[] = []
-    const leftOut = missing.reduce((sum, item) => sum + item.cards, 0)
-    if (missing.length > 0)
+    const leftOut =
+      coverage.leftOut.reduce((sum, item) => sum + item.cards, 0) + coverage.reprints.cards + coverage.pending
+    // A card at 0 in the export that the app still has (S-K): a drop waits for Santi in the app.
+    if (coverage.pending > 0)
       warnings.push(
-        `La exportación de ptcgpocket.gg no trae ninguna carta de ${missing.map((item) => item.expansionId).join(', ')} y el tracker tiene ${leftOut === 1 ? '1 carta' : `${leftOut} cartas`} ahí: no se comparan (puede que ptcgpocket.gg no conozca la expansión o la escriba con otro código).`,
+        coverage.pending === 1
+          ? 'Hay 1 carta en 0 en la exportación de ptcgpocket.gg que la colección de la app todavía tiene: no se compara, porque hay una baja sin aplicar. Aplicá la sincronización con el juego y volvé a comparar.'
+          : `Hay ${coverage.pending} cartas en 0 en la exportación de ptcgpocket.gg que la colección de la app todavía tiene: no se comparan, porque hay bajas sin aplicar. Aplicá la sincronización con el juego y volvé a comparar.`,
       )
+    for (const reason of ['unseen', 'held'] as const) {
+      const group = coverage.leftOut.filter((item) => item.reason === reason)
+      if (group.length === 0) continue
+      const cards = group.reduce((sum, item) => sum + item.cards, 0)
+      const one = cards === 1
+      const where = listEs(group.map((item) => item.expansionId))
+      warnings.push(
+        reason === 'unseen'
+          ? `La exportación de ptcgpocket.gg no trae ninguna carta de ${where}, donde el tracker tiene ${one ? '1 carta: no se compara' : `${cards} cartas: no se comparan`} (puede que ptcgpocket.gg no conozca la expansión o la escriba con otro código).`
+          : `La exportación de ptcgpocket.gg no trae ${one ? 'la carta' : `ninguna de las ${cards} cartas`} que el tracker tiene en ${where}: no se ${one ? 'compara' : 'comparan'}, porque la colección de la app todavía tiene copias ahí (si ya no las tenés, aplicá la sincronización con el juego y volvé a comparar).`,
+      )
+    }
+    if (coverage.reprints.cards > 0) {
+      const one = coverage.reprints.cards === 1
+      warnings.push(
+        `${one ? '1 carta del tracker que' : `${coverage.reprints.cards} cartas del tracker que`} ptcgpocket.gg no trae ${one ? 'tiene' : 'tienen'} una reimpresión en ${listEs(coverage.reprints.expansionIds)}, que ptcgpocket.gg nunca trajo: no se ${one ? 'compara' : 'comparan'} (la copia puede ser esa reimpresión).`,
+      )
+    }
     if (mapped.renamed.length > 0)
       warnings.push(
         `ptcgpocket.gg trae ${mapped.renamed.length === 1 ? '1 carta' : `${mapped.renamed.length} cartas`} con el nombre de otra carta del catálogo (puede que numere distinto esa expansión): no se comparan.`,
       )
     // The file writes the catalog's internal ids (and the tracker side is read by them): only when they are the
     // tracker's own. Changed or unknown, the comparison is told as doubtful and no file is offered.
-    const ids = await compatibility
     if (ids === 'changed')
       warnings.push(
         `El tracker tiene otros datos de cartas (cards.json) que el catálogo de la app (${(catalogCommit ?? '').slice(0, 7)}): sus internal_id pueden no coincidir y el archivo tocaría otras cartas. Sincronizá el catálogo con el tracker y volvé a comparar; mientras tanto no se arma el archivo.`,
@@ -206,14 +276,6 @@ export class TrackerGapService {
         collected: row.collected,
       }
     })
-    // Both reads and GitHub took seconds: if the friend id, the link or the catalog changed meanwhile (another tab, a
-    // catalog sync), the pair is not one and the file would mix them. Compared under the configuration lock.
-    const changed = await this.snapshots.whileSame(before, ['link', 'friend', 'catalog'])
-    if (changed.length > 0 || this.catalog.requireIndex() !== index)
-      throw new ConflictException({
-        code: 'gap_config_changed',
-        message: `Cambió ${this.snapshots.describe(changed.length > 0 ? changed : ['catalog'])} mientras se comparaba: volvé a comparar.`,
-      })
     return {
       checkedAt: now.toISOString(),
       summary: gap.summary,
@@ -221,6 +283,12 @@ export class TrackerGapService {
       unmatchedGame: mapped.unmatched,
       unknownTracker,
       warnings,
+      pendingDrops: coverage.pending,
+      emptyExpansions: coverage.empty.map((item) => ({
+        expansionId: item.expansionId,
+        nameEs: index.expansionById(item.expansionId)?.nameEs ?? item.expansionId,
+        cards: item.cards,
+      })),
       notCompared,
       complete: notCompared === 0 && game.conflicts.length === 0 && ids === 'same',
       trackerFile:
@@ -261,4 +329,9 @@ export class TrackerGapService {
     this.compatibilityCache = { commit, at: Date.now(), result }
     return result
   }
+}
+
+/** «A1, A2 y B4b». */
+function listEs(items: readonly string[]): string {
+  return items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} y ${items.at(-1)}`
 }

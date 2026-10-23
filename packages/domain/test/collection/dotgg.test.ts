@@ -5,6 +5,8 @@ import {
   DOTGG_CSV_COLUMNS,
   diffImport,
   dotggCardId,
+  dotggGapCoverage,
+  dotggListedExpansions,
   dotggMissingExpansions,
   dotggNameKey,
   dotggUnits,
@@ -344,5 +346,150 @@ describe('dotggMissingExpansions', () => {
       { expansionId: 'B4b', copies: 2, cards: 1 },
       { expansionId: 'P-A', copies: 1, cards: 1 },
     ])
+  })
+})
+
+describe('dotggListedExpansions', () => {
+  it('gives the expansion of each card, once: the code a row wrote, not where its stock unit is kept', () => {
+    expect([...dotggListedExpansions(index, ['A1-1', 'A1-2', 'B4b-372', 'not-a-card'])]).toEqual(['A1', 'B4b'])
+    // B4b-8 is a reprint kept under B1-2: the row still says ptcgpocket.gg writes B4b.
+    expect(index.cardById('B4b-8')?.stockCardId).toBe('B1-2')
+    expect([...dotggListedExpansions(index, ['B4b-8'])]).toEqual(['B4b'])
+    expect(dotggListedExpansions(index, []).size).toBe(0)
+  })
+})
+
+describe('dotggGapCoverage (S-B, S-E)', () => {
+  const unit = (stockCardId: string, amountOwned: number, collected = amountOwned > 0) => ({
+    stockCardId,
+    amountOwned,
+    collected,
+  })
+  const all = index.catalog.expansions.map((expansion) => expansion.id)
+  const except = (...ids: string[]) => new Set(all.filter((id) => !ids.includes(id)))
+
+  it('compares a whole expansion with no row only when ptcgpocket.gg knows it and the app has 0 there', () => {
+    const tracker: StockQuantities = {
+      'A1-1': unit('A1-1', 1),
+      'B1a-28': unit('B1a-28', 0, true),
+      'B4b-372': unit('B4b-372', 3),
+      'P-A-7': unit('P-A-7', 1),
+    }
+    const coverage = dotggGapCoverage(index, {
+      tracker,
+      game: { 'A1-1': unit('A1-1', 2) },
+      listed: new Set(['A1']),
+      seen: except('B1a'),
+      held: new Set(['P-A']),
+      heldUnits: new Set(['P-A-7']),
+    })
+    expect(coverage.leftOut).toEqual([
+      // Never written by ptcgpocket.gg: it may not know the set.
+      { expansionId: 'B1a', cards: 1, reason: 'unseen' },
+      // Known, but the app still has copies: the drop waits for Santi in the app.
+      { expansionId: 'P-A', cards: 1, reason: 'held' },
+    ])
+    expect(coverage.empty).toEqual([{ expansionId: 'B4b', cards: 1 }])
+    expect(coverage.reprints).toEqual({ cards: 0, expansionIds: [] })
+    expect(['B1a-28', 'P-A-7'].every((id) => coverage.skipped.has(id))).toBe(true)
+    expect(['A1-1', 'B4b-372'].some((id) => coverage.skipped.has(id))).toBe(false)
+  })
+
+  it('leaves everything with no row out when nothing is known (before the first applied sync)', () => {
+    const coverage = dotggGapCoverage(index, {
+      tracker: { 'A1-1': unit('A1-1', 1), 'B4b-372': unit('B4b-372', 3) },
+      game: { 'A1-1': unit('A1-1', 1) },
+      listed: new Set(['A1']),
+      seen: new Set(),
+      held: new Set(),
+      heldUnits: new Set(),
+    })
+    expect(coverage.leftOut).toEqual([{ expansionId: 'B4b', cards: 1, reason: 'unseen' }])
+    expect(coverage.empty).toEqual([])
+  })
+
+  it('leaves out a card whose copy may be a reprint in a set ptcgpocket.gg never wrote', () => {
+    // A4b-44 is a reprint kept under A3a-6.
+    expect(index.cardById('A4b-44')?.stockCardId).toBe('A3a-6')
+    const tracker: StockQuantities = { 'A3a-6': unit('A3a-6', 1), 'A1-1': unit('A1-1', 1) }
+    const game: StockQuantities = { 'A1-1': unit('A1-1', 1) }
+    // The whole of A3a has no row, ptcgpocket.gg knows A3a and the app has 0 there, but not A4b.
+    const empty = dotggGapCoverage(index, {
+      tracker,
+      game,
+      listed: new Set(['A1']),
+      seen: except('A4b'),
+      held: new Set(),
+      heldUnits: new Set(),
+    })
+    expect(empty.skipped.has('A3a-6')).toBe(true)
+    expect(empty.reprints).toEqual({ cards: 1, expansionIds: ['A4b'] })
+    expect(empty.empty).toEqual([])
+    // Once A4b is known, the 0 is the game's.
+    const known = dotggGapCoverage(index, {
+      tracker,
+      game,
+      listed: new Set(['A1']),
+      seen: new Set(all),
+      held: new Set(),
+      heldUnits: new Set(),
+    })
+    expect(known.skipped.has('A3a-6')).toBe(false)
+    expect(known.empty).toEqual([{ expansionId: 'A3a', cards: 1 }])
+    // The same in an expansion the export covers.
+    const covered = dotggGapCoverage(index, {
+      tracker: { ...tracker, 'A3a-1': unit('A3a-1', 1) },
+      game: { ...game, 'A3a-1': unit('A3a-1', 1) },
+      listed: new Set(['A1', 'A3a']),
+      seen: new Set(),
+      held: new Set(),
+      heldUnits: new Set(),
+    })
+    expect(covered.skipped.has('A3a-6')).toBe(true)
+    expect(covered.reprints.expansionIds).toEqual(['A4b'])
+    expect(covered.leftOut).toEqual([])
+    // A row for A3a-6 with 0 copies is no proof either: the copy may still be the A4b reprint.
+    const zeroRow = dotggGapCoverage(index, {
+      tracker,
+      game: { ...game, 'A3a-6': unit('A3a-6', 0) },
+      listed: new Set(['A1', 'A3a']),
+      seen: new Set(),
+      held: new Set(),
+      heldUnits: new Set(),
+    })
+    expect(zeroRow.skipped.has('A3a-6')).toBe(true)
+    expect(zeroRow.reprints).toEqual({ cards: 1, expansionIds: ['A4b'] })
+  })
+
+  it('leaves out a card at 0 in the export that the app still has: a drop not applied yet (S-K)', () => {
+    const tracker: StockQuantities = {
+      'A1-1': unit('A1-1', 1),
+      'A1-2': unit('A1-2', 1),
+      'A1-3': unit('A1-3', 1),
+      'A1-4': unit('A1-4', 0, true),
+    }
+    const coverage = dotggGapCoverage(index, {
+      tracker,
+      // A1-2 is listed with 0 copies; A1-3 and A1-4 are not listed.
+      game: { 'A1-1': unit('A1-1', 1), 'A1-2': unit('A1-2', 0) },
+      listed: new Set(all),
+      seen: new Set(all),
+      held: new Set(['A1']),
+      heldUnits: new Set(['A1-1', 'A1-2', 'A1-3', 'A1-4']),
+    })
+    // A1-1 has its copy in the export; A1-2, A1-3 and A1-4 would go to 0 (or lose the mark) while the app has them.
+    expect(coverage.pending).toBe(3)
+    expect([...coverage.skipped].sort()).toEqual(['A1-2', 'A1-3', 'A1-4'])
+    // Applied (the app at 0 there), they are compared.
+    const applied = dotggGapCoverage(index, {
+      tracker,
+      game: { 'A1-1': unit('A1-1', 1), 'A1-2': unit('A1-2', 0) },
+      listed: new Set(all),
+      seen: new Set(all),
+      held: new Set(['A1']),
+      heldUnits: new Set(['A1-1']),
+    })
+    expect(applied.pending).toBe(0)
+    expect(applied.skipped.size).toBe(0)
   })
 })

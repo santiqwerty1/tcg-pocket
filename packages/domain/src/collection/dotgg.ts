@@ -391,11 +391,7 @@ export function dotggMissingExpansions(
   units: StockQuantities,
   options: { registered?: boolean } = {},
 ): { expansionId: ExpansionId; copies: number; cards: number }[] {
-  const covered = new Set<ExpansionId>()
-  for (const stockCardId of Object.keys(units)) {
-    const expansion = index.cardById(stockCardId)?.expansionId
-    if (expansion) covered.add(expansion)
-  }
+  const covered = dotggListedExpansions(index, Object.keys(units))
   const found = new Map<ExpansionId, { copies: number; cards: number }>()
   for (const unit of Object.values(current)) {
     if (unit.amountOwned <= 0 && !(options.registered && unit.collected)) continue
@@ -409,4 +405,112 @@ export function dotggMissingExpansions(
   return index.catalog.expansions
     .filter((expansion) => found.has(expansion.id))
     .map((expansion) => ({ expansionId: expansion.id, ...(found.get(expansion.id) ?? { copies: 0, cards: 0 }) }))
+}
+
+/**
+ * The expansion of each card, once: an export's rows by the card each one names give the set codes ptcgpocket.gg
+ * wrote; stock unit ids give the expansions those units are kept under (as `dotggMissingExpansions` covers them).
+ */
+export function dotggListedExpansions(index: CatalogIndex, cardIds: Iterable<CardId>): Set<ExpansionId> {
+  const listed = new Set<ExpansionId>()
+  for (const cardId of cardIds) {
+    const expansion = index.cardById(cardId)?.expansionId
+    if (expansion) listed.add(expansion)
+  }
+  return listed
+}
+
+/** What «Tracker al día» compares when the export says nothing of a card (T-020, S-B and S-E). */
+export interface DotggGapCoverage {
+  /** Stock units not compared (their count would not be the game's). */
+  skipped: Set<CardId>
+  /** Expansions with no row in the export left out whole, with the tracker's cards there. */
+  leftOut: { expansionId: ExpansionId; cards: number; reason: 'held' | 'unseen' }[]
+  /** Expansions with no row in the export compared as 0 (the file puts the tracker's cards there at 0). */
+  empty: { expansionId: ExpansionId; cards: number }[]
+  /** Cards with no row that have a reprint in an expansion ptcgpocket.gg never wrote: left out, with those expansions. */
+  reprints: { cards: number; expansionIds: ExpansionId[] }
+  /** Cards at 0 in the export that the app still has copies of (a drop not applied yet): left out. */
+  pending: number
+}
+
+/**
+ * The export lists only what is owned, so «no row» can mean 0 copies or a set ptcgpocket.gg does not know (or writes
+ * with another code). `known`: the set codes the export writes now plus those an applied sync wrote before (`seen`).
+ * - An expansion the tracker has cards of and with no row (by the expansion each unit is kept under) is compared as 0
+ *   only when it is known and the app's collection has no copy there (Santi applied the drop); otherwise it is left
+ *   out: `held`, a drop the app has not applied yet, or `unseen`, a set ptcgpocket.gg may not know.
+ * - A card the tracker has and the export gives no copy of (no row, or a row with 0), with a reprint in an expansion
+ *   that is not known, is left out too: its copy may be that reprint, and the file would take it off the tracker.
+ * - A card at 0 in the export that the app still has copies of (`heldUnits`) is left out as well, in any expansion:
+ *   that drop waits for Santi in the app (a sync to review), and the file follows only what he applied.
+ */
+export function dotggGapCoverage(
+  index: CatalogIndex,
+  input: {
+    tracker: StockQuantities
+    game: StockQuantities
+    listed: ReadonlySet<ExpansionId>
+    seen: ReadonlySet<ExpansionId>
+    /** Expansions where the app has copies (by the expansion each unit is kept under). */
+    held: ReadonlySet<ExpansionId>
+    /** Stock units the app has copies of. */
+    heldUnits: ReadonlySet<CardId>
+  },
+): DotggGapCoverage {
+  const known = new Set([...input.listed, ...input.seen])
+  const skipped = new Set<CardId>()
+  const leftOut: DotggGapCoverage['leftOut'] = []
+  const emptyIds = new Set<ExpansionId>()
+  for (const item of dotggMissingExpansions(index, input.tracker, input.game, { registered: true })) {
+    if (input.held.has(item.expansionId)) leftOut.push({ ...pick(item), reason: 'held' })
+    else if (!known.has(item.expansionId)) leftOut.push({ ...pick(item), reason: 'unseen' })
+    else emptyIds.add(item.expansionId)
+  }
+  const out = new Set(leftOut.map((item) => item.expansionId))
+  const reprintSets = new Set<ExpansionId>()
+  let reprintCards = 0
+  let pending = 0
+  const emptyCards = new Map<ExpansionId, number>()
+  for (const unit of index.catalog.stockUnits) {
+    const expansion = index.cardById(unit.id)?.expansionId ?? ''
+    if (out.has(expansion)) {
+      skipped.add(unit.id)
+      continue
+    }
+    const inTracker = input.tracker[unit.id]
+    if (!inTracker || (inTracker.amountOwned <= 0 && !inTracker.collected)) continue
+    if ((input.game[unit.id]?.amountOwned ?? 0) === 0 && input.heldUnits.has(unit.id)) {
+      skipped.add(unit.id)
+      pending += 1
+      continue
+    }
+    // A copy in the export is the game's count. A row with 0 copies is not proof: the copy may be a reprint in a set
+    // ptcgpocket.gg does not write.
+    if ((input.game[unit.id]?.amountOwned ?? 0) > 0) continue
+    const unknown = unit.cardIds
+      .map((id) => index.cardById(id)?.expansionId)
+      .filter((id): id is ExpansionId => !!id && !known.has(id))
+    if (unknown.length > 0) {
+      skipped.add(unit.id)
+      reprintCards += 1
+      for (const id of unknown) reprintSets.add(id)
+    } else if (emptyIds.has(expansion)) emptyCards.set(expansion, (emptyCards.get(expansion) ?? 0) + 1)
+  }
+  return {
+    skipped,
+    leftOut,
+    empty: [...emptyIds]
+      .filter((id) => emptyCards.has(id))
+      .map((expansionId) => ({ expansionId, cards: emptyCards.get(expansionId) ?? 0 })),
+    reprints: {
+      cards: reprintCards,
+      expansionIds: index.catalog.expansions.map((item) => item.id).filter((id) => reprintSets.has(id)),
+    },
+    pending,
+  }
+
+  function pick(item: { expansionId: ExpansionId; cards: number }) {
+    return { expansionId: item.expansionId, cards: item.cards }
+  }
 }
