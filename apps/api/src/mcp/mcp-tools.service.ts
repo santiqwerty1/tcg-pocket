@@ -41,6 +41,7 @@ import { ChatService } from '../chat/chat.service.js'
 import { ChatMovedService } from '../chat/chat-moved.service.js'
 import { HubForwardService } from '../chat/hub-forward.service.js'
 import { CollectionService } from '../collection/collection.service.js'
+import { TrackerGapService } from '../collection/tracker-gap.service.js'
 import { ENV, type Env } from '../config/env.js'
 import { OWNER_TIME_ZONE } from '../config/time-zone.js'
 import type { DeckImportFormat } from '../decks/deck-formats.js'
@@ -196,6 +197,7 @@ export class McpToolsService {
     private readonly labTools: McpLabToolsService,
     private readonly playTools: McpPlayToolsService,
     private readonly trades: TradesService,
+    private readonly trackerGap: TrackerGapService,
     private readonly weekly: WeeklyService,
     private readonly ops: OpsService,
     private readonly alerts: AlertsService,
@@ -329,6 +331,9 @@ ${MCP_CHAT_INSTRUCTIONS}`
     )
     server.registerTool(t.collectionTrades.name, config(t.collectionTrades), (args) =>
       run(t.collectionTrades.name, () => this.collectionTrades(args)),
+    )
+    server.registerTool(t.collectionTrackerGap.name, config(t.collectionTrackerGap), (args) =>
+      run(t.collectionTrackerGap.name, () => this.collectionTrackerGap(args)),
     )
     server.registerTool(t.collectionMissions.name, config(t.collectionMissions), (args) =>
       run(t.collectionMissions.name, () => this.collectionMissions(args)),
@@ -1970,6 +1975,64 @@ ${MCP_CHAT_INSTRUCTIONS}`
       })),
       untradeable: view.untradeable.map((row) => ({ card: row.nameEs, missing: row.missing, decks: row.decks })),
       text: view.text,
+    }
+  }
+
+  /** T-020: «Tracker al día». The summary and the first rows; never the file nor the ptcgpocket.gg link. */
+  private async collectionTrackerGap(args: { limit?: number }): Promise<Json> {
+    const view = await this.trackerGap.gap()
+    const limit = args.limit ?? 30
+    const s = view.summary
+    const number = (n: number) => n.toLocaleString('es-AR')
+    const copies = (n: number) => (n === 1 ? '1 copia' : `${number(n)} copias`)
+    const cards = (n: number) => (n === 1 ? '1 carta' : `${number(n)} cartas`)
+    const parts: string[] = []
+    if (s.copiesMissing > 0)
+      parts.push(
+        `le ${s.copiesMissing === 1 ? 'falta' : 'faltan'} ${copies(s.copiesMissing)} en ${cards(s.cardsMissing)}`,
+      )
+    if (s.copiesExtra > 0)
+      parts.push(`le ${s.copiesExtra === 1 ? 'sobra' : 'sobran'} ${copies(s.copiesExtra)} en ${cards(s.cardsExtra)}`)
+    if (s.cardsCollected > 0)
+      parts.push(
+        `${cards(s.cardsCollected)} con el número bien solo ${s.cardsCollected === 1 ? 'cambia' : 'cambian'} el registro del carddex`,
+      )
+    return {
+      checkedAt: view.checkedAt,
+      summary: s,
+      cards: view.rows.slice(0, limit).map((row) => ({
+        card: row.nameEs,
+        cardId: row.stockCardId,
+        rarity: row.rarity,
+        tracker: row.tracker,
+        game: row.game,
+        delta: row.delta,
+        trackerRegistered: row.trackerCollected,
+        registered: row.collected,
+      })),
+      moreCards: Math.max(0, view.rows.length - limit),
+      notCompared: {
+        cards: view.notCompared,
+        gameRowsNotInCatalog: view.unmatchedGame.length,
+        trackerIdsNotInCatalog: view.unknownTracker.length,
+      },
+      complete: view.complete,
+      warnings: view.warnings,
+      text: gapText(),
+    }
+
+    /** «Al día» only for a complete comparison; otherwise what was compared, and what was left out. */
+    function gapText(): string {
+      const outside =
+        view.notCompared > 0
+          ? `${view.notCompared === 1 ? '1 carta quedó' : `${number(view.notCompared)} cartas quedaron`} afuera de la comparación`
+          : 'la comparación no se puede confirmar del todo'
+      if (s.cards === 0)
+        return view.complete
+          ? `El tracker está al día con el juego (${copies(s.gameCopies)}).`
+          : `Lo que se pudo comparar está al día, pero ${outside} (mirá los avisos).`
+      const differs = `El tracker difiere del juego en ${cards(s.cards)}: ${parts.join(' y ')} (tracker ${number(s.trackerCopies)}, juego ${number(s.gameCopies)}).`
+      return view.complete ? differs : `${differs} Además, ${outside} (mirá los avisos).`
     }
   }
 

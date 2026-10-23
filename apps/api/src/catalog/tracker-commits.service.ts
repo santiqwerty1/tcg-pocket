@@ -70,6 +70,27 @@ export class TrackerCommitsService {
     }
   }
 
+  /**
+   * The files `target` changed since `base` (`base...target`). GitHub lists at most 300: `complete` is false when the
+   * list may be cut, so a caller looking for one file cannot rule it out.
+   */
+  async changedFiles(
+    base: string,
+    target: string,
+  ): Promise<{ status: TrackerComparison['status']; files: string[]; complete: boolean }> {
+    const body = (await this.get(`/compare/${base}...${target}`)) as { status?: unknown; files?: unknown }
+    const status = body.status
+    if (status !== 'ahead' && status !== 'behind' && status !== 'identical' && status !== 'diverged') {
+      throw new ServiceUnavailableException({ code: 'unavailable', message: 'GitHub devolvió una comparación rara.' })
+    }
+    const files = Array.isArray(body.files)
+      ? body.files
+          .map((file) => (file as { filename?: unknown }).filename)
+          .filter((name): name is string => typeof name === 'string')
+      : []
+    return { status, files, complete: Array.isArray(body.files) && body.files.length < 300 }
+  }
+
   /** Where `target` stands against `base` (`base...target`). */
   async compare(base: string, target: string): Promise<TrackerComparison> {
     const body = (await this.get(`/compare/${base}...${target}`)) as {

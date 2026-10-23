@@ -4,6 +4,7 @@ import { useSetUiSettings, useUiSettings } from '@/api/settings'
 import { Section } from '@/components/Section'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { DotggSettingsSection } from './DotggSettingsSection'
 import { NotificationsSection } from './NotificationsSection'
 import { TrackerSettingsSection } from './TrackerSettingsSection'
 
@@ -41,6 +42,7 @@ export function AppSettingsPage() {
   return (
     <div className="flex flex-col gap-6">
       <NotificationsSection />
+      <DotggSettingsSection />
       <TrackerSettingsSection />
       <Section title="Interfaz">
         <Label className="flex min-h-14 items-center justify-between gap-3 rounded-lg border px-3">

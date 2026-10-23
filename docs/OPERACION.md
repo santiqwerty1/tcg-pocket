@@ -13,12 +13,21 @@ Cómo se sabe si la app anda, qué corre sola y qué hacer cuando algo falla (Fa
 | Prueba de restauración | El 1 de cada mes a las 04:30 | Aviso `backup_drill` |
 | Sincronización de Limitless | Al arrancar y cada 6 h (`LIMITLESS_SYNC`, en producción) | Aviso `limitless_sync`: la última corrida falló, o ninguna buena en 13 h |
 | Actualización del catálogo | A mano (Más → Catálogo) | Aviso `catalog_sync` si la última falló (sigue el catálogo anterior); `catalog_memory` si la memoria no tiene la última aplicada (se carga sola en un minuto) |
-| Colección del tracker | Cada 6 h si se habilita en Más → Ajustes; apagada por defecto | Aviso `tracker_sync`; deja revisión ante bajas grandes, cambios manuales recientes o dudas sobre el catálogo |
+| Colección del tracker | Cada 6 h si se habilita en Más → Ajustes; apagada por defecto. En pausa mientras haya un link de ptcgpocket.gg guardado | Aviso `tracker_sync`; deja revisión ante bajas grandes, cambios manuales recientes o dudas sobre el catálogo |
+| Colección del juego (ptcgpocket.gg, T-020) | Una vez por día si se habilita en Más → Ajustes; apagada por defecto | Aviso `dotgg_sync`: la lectura falló o dejó una revisión (primera vez, bajas grandes, cambios manuales, cartas que el catálogo no tiene o con otro nombre, expansiones que no trae) |
 | Chequeos de GitHub (set nuevo del tracker, commits nuevos de deckgym) | Cada 12 h (cada hora después de una falla) | Aviso `github_check` (info) |
 | Workers | Cuando hay trabajo | Aviso `worker_idle`: hay trabajo y ningún worker en 30 min, o ninguno con la feature o la revisión que pide, o que acepte sus bots lentos (`allowSlowBots`); `worker_paused`: todos los workers vivos están en pausa por resultados perdidos (vuelven solos, sin reiniciar) |
 | Tamaño de la base | — | Aviso `database_size` desde 350 MB (el plan gratis de Supabase llega a 500) |
 
 Los avisos se ven en Más → Avisos y llegan al celu como notificación (`NotificationsWatcher`, cada 15 s), una vez por título. El aviso del tracker conserva el título y lleva la fecha en el detalle: las consultas repetidas no repiten el push.
+
+## Configurar la colección del juego (ptcgpocket.gg, T-020)
+
+No hace falta ningún secreto de Fly: Santi crea el «Permanent export link» en ptcgpocket.gg (Settings → Display & collection → Permanent export link → Create link) y lo pega en Más → Ajustes de la app. El servidor lo guarda sellado en la tabla `app_secrets`, con una clave derivada de `SESSION_SECRET`; la API solo lo muestra enmascarado, y no viaja en el backup (una restauración conserva el configurado).
+
+- Si se rota `SESSION_SECRET`, el link guardado deja de poder abrirse: la app lo dice en Ajustes y con el aviso `dotgg_sync`, y el tracker sigue en pausa hasta que se pegue el link de nuevo (o se quite).
+- Si el link se filtra, se regenera en ptcgpocket.gg (el viejo deja de andar: la sincronización da `dotgg_auth` y, la automática, el aviso `dotgg_sync`) y se pega el nuevo.
+- Con el link guardado, ptcgpocket.gg es la fuente de la colección y el tracker queda para comparar en Colección → Tracker al día. Al quitar el link, el tracker vuelve a mandar, y su primera sincronización queda para revisar.
 
 ## Configurar la colección pública del tracker (T-020)
 

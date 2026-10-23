@@ -21,6 +21,7 @@ describe('MCP read tools', () => {
         'collection_playable_copies',
         'collection_summary',
         'collection_trades',
+        'collection_tracker_gap',
         'alerts_list',
         'decks_closest',
         'decks_consistency',

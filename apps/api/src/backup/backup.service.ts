@@ -7,6 +7,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import { PinoLogger } from 'nestjs-pino'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { CHAT_MOVED_KEY } from '../chat/chat-moved.service.js'
+import { DotggLinkStore } from '../collection/dotgg-link.store.js'
 import { ENV, type Env } from '../config/env.js'
 import { dateOnly } from '../config/time-zone.js'
 import type { Prisma } from '../generated/prisma/client.js'
@@ -167,6 +168,7 @@ export class BackupService {
     private readonly prisma: PrismaService,
     private readonly catalog: CatalogService,
     private readonly tournamentData: TournamentDataVersion,
+    private readonly links: DotggLinkStore,
     @Inject(ENV) private readonly env: Env,
     private readonly logger: PinoLogger,
   ) {
@@ -500,6 +502,8 @@ export class BackupService {
     this.tournamentData.bump()
     if (document.settings.some((s) => s.key === 'trackerAutoSync' && s.value === true))
       notices.push('La sincronización automática del tracker esperará 6 horas después de restaurar.')
+    if (document.settings.some((s) => s.key === 'dotggAutoSync' && s.value === true))
+      notices.push('La sincronización automática con ptcgpocket.gg esperará 24 horas después de restaurar.')
     this.logger.info({ counts: backupCounts(document) }, 'backup restored')
     return { applied: true, counts: backupCounts(document), notices }
   }
@@ -766,20 +770,44 @@ export class BackupService {
         })),
       })
     }
-    // Restoring an old scheduler state must allow six hours to inspect the restored collection.
-    const trackerState = document.settings.find((s) => s.key === 'trackerSyncState')?.value
-    if (deferTracker && document.settings.some((s) => s.key === 'trackerAutoSync' && s.value === true)) {
+    // Restoring an old scheduler state must leave time to inspect the restored collection: the next automatic run of
+    // the tracker (6 h) or of ptcgpocket.gg (24 h, T-020) counts from the restore.
+    for (const [autoKey, stateKey] of [
+      ['trackerAutoSync', 'trackerSyncState'],
+      ['dotggAutoSync', 'dotggSyncState'],
+    ] as const) {
+      if (!deferTracker || !document.settings.some((s) => s.key === autoKey && s.value === true)) continue
+      const state = document.settings.find((s) => s.key === stateKey)?.value
       const value = {
-        ...(typeof trackerState === 'object' && trackerState !== null && !Array.isArray(trackerState)
-          ? trackerState
-          : {}),
+        ...(typeof state === 'object' && state !== null && !Array.isArray(state) ? state : {}),
         lastAttemptAt: new Date().toISOString(),
       }
       await tx.appSetting.upsert({
-        where: { key: 'trackerSyncState' },
-        create: { key: 'trackerSyncState', value },
+        where: { key: stateKey },
+        create: { key: stateKey, value },
         update: { value },
       })
+    }
+    // T-020: the file's last sync, check, state and alert of ptcgpocket.gg belong to the link they were read from (its
+    // keyed fingerprint travels as dotggLastAppliedLink). With another link configured, or none, they go, as saving
+    // another link does; the next automatic read still waits 24 h. The drill restores the file exactly (no reset).
+    if (deferTracker) {
+      const link = await this.links.read(tx)
+      const fromFile = document.settings.find((s) => s.key === 'dotggLastAppliedLink')?.value
+      if (!link || fromFile !== this.links.fingerprint(link)) {
+        const keys = [
+          'dotggLastAppliedAt',
+          'dotggLastCheckedAt',
+          'dotggSyncState',
+          'dotggSyncWarning',
+          'dotggLastAppliedLink',
+        ]
+        await tx.appSetting.deleteMany({ where: { key: { in: keys } } })
+        if (document.settings.some((s) => s.key === 'dotggAutoSync' && s.value === true))
+          await tx.appSetting.create({
+            data: { key: 'dotggSyncState', value: { lastAttemptAt: new Date().toISOString() } },
+          })
+      }
     }
     // Games against the bot (version 5): the finished ones are replaced by the file's results (no moves, no
     // snapshots); games still being played keep going. Older files keep the current ones.
@@ -928,6 +956,14 @@ export class BackupService {
     }
     if (document.tokens.length > 0) {
       notices.push(`Los ${document.tokens.length} tokens del backup son solo metadatos: hay que crearlos de nuevo.`)
+    }
+    if (
+      document.settings.some((s) => s.key === 'dotggAutoSync') ||
+      document.collection.imports.some((item) => item.source === 'dotgg')
+    ) {
+      notices.push(
+        'El link de ptcgpocket.gg no viaja en el backup: se mantiene el que está configurado; si no hay, pegalo de nuevo en Más → Ajustes de la app.',
+      )
     }
     return { notices, needsReview, unknownCardIds: [...unknown] }
   }

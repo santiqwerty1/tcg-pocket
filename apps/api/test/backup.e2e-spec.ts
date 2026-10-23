@@ -202,7 +202,7 @@ describe('backup and settings (e2e)', () => {
     const seen = document.matches.map((match) => (match as { opponentCards?: unknown }).opponentCards)
     expect(seen).toEqual(expect.arrayContaining([[], [{ cardId: 'A1-89', count: 2 }]]))
     expect(document).toMatchObject({
-      schemaVersion: 11,
+      schemaVersion: 12,
       catalogCommit: test.env.catalogCommit,
       engineRev: test.env.engineRev,
       settings: [
@@ -272,7 +272,7 @@ describe('backup and settings (e2e)', () => {
   it('dry-run reports counts and notices without touching the data', async () => {
     const response = await post('/api/backup/import?mode=dry-run').attach('file', exported, 'backup.json.gz')
     expect(response.status).toBe(200)
-    expect(response.body).toMatchObject({ schemaVersion: 11, catalogCommit: test.env.catalogCommit })
+    expect(response.body).toMatchObject({ schemaVersion: 12, catalogCommit: test.env.catalogCommit })
     expect(response.body.diff.incoming.matches).toBe(2)
     expect(response.body.diff.incoming.playedGames).toBe(1)
     expect(response.body.diff.incoming).toEqual(response.body.diff.current)
@@ -557,7 +557,7 @@ describe('backup and settings (e2e)', () => {
     expect(download.status).toBe(200)
     expect(download.headers['content-type']).toBe('application/gzip')
     const parsed = JSON.parse(gunzipSync(download.body as Buffer).toString('utf8')) as Doc
-    expect(parsed.schemaVersion).toBe(11)
+    expect(parsed.schemaVersion).toBe(12)
     expect(parsed.matches).toHaveLength(2)
     expect(parsed.decks).toHaveLength(4)
     expect((await get('/api/backup/blobs/999999')).status).toBe(404)
@@ -587,7 +587,7 @@ describe('backup and settings (e2e)', () => {
     try {
       const copy = await get('/api/backup/export').responseType('blob')
       const doc = JSON.parse(gunzipSync(copy.body as Buffer).toString('utf8'))
-      expect(doc.schemaVersion).toBe(11)
+      expect(doc.schemaVersion).toBe(12)
       expect(Object.keys(doc).some((key) => /simulat/i.test(key))).toBe(false)
       expect(JSON.stringify(doc)).not.toContain(job.label)
       expect((await post('/api/backup/import?mode=replace').attach('file', copy.body, 'backup.json.gz')).status).toBe(
