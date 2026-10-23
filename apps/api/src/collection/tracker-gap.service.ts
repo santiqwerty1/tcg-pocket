@@ -201,12 +201,12 @@ export class TrackerGapService {
       const group = coverage.leftOut.filter((item) => item.reason === reason)
       if (group.length === 0) continue
       const cards = group.reduce((sum, item) => sum + item.cards, 0)
+      const one = cards === 1
+      const where = listEs(group.map((item) => item.expansionId))
       warnings.push(
-        `La exportación de ptcgpocket.gg no trae ninguna carta de ${listEs(group.map((item) => item.expansionId))}, donde el tracker tiene ${cards === 1 ? '1 carta: no se compara' : `${cards} cartas: no se comparan`} (${
-          reason === 'unseen'
-            ? 'puede que ptcgpocket.gg no conozca la expansión o la escriba con otro código'
-            : 'la colección de la app todavía tiene copias ahí; si ya no las tenés, aplicá la sincronización con el juego y volvé a comparar'
-        }).`,
+        reason === 'unseen'
+          ? `La exportación de ptcgpocket.gg no trae ninguna carta de ${where}, donde el tracker tiene ${one ? '1 carta: no se compara' : `${cards} cartas: no se comparan`} (puede que ptcgpocket.gg no conozca la expansión o la escriba con otro código).`
+          : `La exportación de ptcgpocket.gg no trae ${one ? 'la carta' : `ninguna de las ${cards} cartas`} que el tracker tiene en ${where}: no se ${one ? 'compara' : 'comparan'}, porque la colección de la app todavía tiene copias ahí (si ya no las tenés, aplicá la sincronización con el juego y volvé a comparar).`,
       )
     }
     if (coverage.reprints.cards > 0) {

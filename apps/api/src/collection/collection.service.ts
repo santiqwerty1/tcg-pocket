@@ -1176,12 +1176,12 @@ export class CollectionService {
       const group = missingExpansions.filter((item) => seen.has(item.expansionId) === known)
       if (group.length === 0) continue
       const copies = group.reduce((sum, item) => sum + item.copies, 0)
+      const ids = group.map((item) => item.expansionId).join(', ')
+      const amount = copies === 1 ? '1 copia' : `${count(copies)} copias`
       reasons.push(
-        `La exportación no trae ninguna carta de ${group.map((item) => item.expansionId).join(', ')} y la colección tiene ${copies === 1 ? '1 copia' : `${count(copies)} copias`} ahí: ${
-          known
-            ? `ptcgpocket.gg ya ${group.length === 1 ? 'la' : 'las'} trajo en otra sincronización, así que puede que ya no tengas esas cartas; aplicá solo si es así.`
-            : 'puede que ptcgpocket.gg todavía no conozca la expansión.'
-        }`,
+        known
+          ? `La exportación no trae ninguna de las cartas que la colección tiene en ${ids} (${amount}): ptcgpocket.gg ya conoce ${group.length === 1 ? 'esa expansión' : 'esas expansiones'}, así que puede que ya no las tengas; aplicá solo si es así.`
+          : `La exportación no trae ninguna carta de ${ids} y la colección tiene ${amount} ahí: puede que ptcgpocket.gg todavía no conozca la expansión.`,
       )
     }
     if (parsed.errors.length > 0) {

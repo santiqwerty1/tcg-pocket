@@ -678,7 +678,7 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     const second = await preview()
     expect(second.body.dotgg.requiresReview).toBe(true)
     expect(second.body.dotgg.reviewReasons.join(' ')).toContain(
-      'no trae ninguna carta de B4b y la colección tiene 3 copias ahí: ptcgpocket.gg ya la trajo en otra sincronización',
+      'La exportación no trae ninguna de las cartas que la colección tiene en B4b (3 copias): ptcgpocket.gg ya conoce esa expansión, así que puede que ya no las tengas; aplicá solo si es así.',
     )
     // The tracker still has the 3.
     remote = [
@@ -690,7 +690,7 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     expect(waiting.rows).toEqual([])
     expect(waiting).toMatchObject({ complete: false, notCompared: 1, emptyExpansions: [], trackerFile: null })
     expect(waiting.warnings.join(' ')).toContain(
-      'B4b, donde el tracker tiene 1 carta: no se compara (la colección de la app',
+      'no trae la carta que el tracker tiene en B4b: no se compara, porque la colección de la app todavía tiene copias ahí',
     )
     // Santi applies it: the app has 0 there, and the next comparison takes the 3 off the tracker too.
     expect((await apply(second.body.id)).status).toBe(200)
@@ -788,23 +788,38 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     await setting('trackerFriendId', FRIEND)
     await setLink(LINK)
     // B4b-8 is kept under B1-2: the export writes B4b, so a B4b card it does not list has 0 copies in the game.
-    body = exportFile([
+    const reprint = exportFile([
       [2, 'Bulbasaur', 'A1', 1],
       [1, '', 'B4b', 8],
     ])
-    expect((await apply((await preview()).body.id)).status).toBe(200)
+    body = reprint
     remote = [
       { internal_id: internalId('A1-1'), amount_owned: 2, collected: true },
       { internal_id: internalId('B1-2'), amount_owned: 1, collected: true },
       { internal_id: internalId('B4b-372'), amount_owned: 3, collected: true },
     ].sort((a, b) => a.internal_id - b.internal_id)
+    // Nothing applied yet: the export itself says ptcgpocket.gg writes B4b.
     const gap = (await get('/api/collection/tracker-gap')).body
     expect(gap.rows.map((row: { stockCardId: string }) => row.stockCardId)).toEqual(['B4b-372'])
     expect(gap.warnings).toEqual([])
+    // The mark keeps the code the row wrote, not B1, where the card is kept.
+    expect((await apply((await preview()).body.id)).status).toBe(200)
     expect((await test.prisma.appSetting.findUnique({ where: { key: 'dotggSeenExpansions' } }))?.value).toEqual([
       'A1',
       'B4b',
     ])
+    // The sync's review says it too: B4b-372 in the app, a mark without B4b, and an export that writes B4b-8 only.
+    body = exportFile([
+      [2, 'Bulbasaur', 'A1', 1],
+      [1, '', 'B4b', 8],
+      [3, 'Small Balloon', 'B4b', 372],
+    ])
+    expect((await apply((await preview()).body.id)).status).toBe(200)
+    await test.prisma.appSetting.update({ where: { key: 'dotggSeenExpansions' }, data: { value: ['A1'] } })
+    body = reprint
+    expect((await preview()).body.dotgg.reviewReasons.join(' ')).toContain(
+      'no trae ninguna de las cartas que la colección tiene en B4b (3 copias): ptcgpocket.gg ya conoce esa expansión',
+    )
   })
 
   it('a card whose copy may be a reprint in a set ptcgpocket.gg never wrote is not zeroed (S-E)', async () => {
