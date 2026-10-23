@@ -585,8 +585,13 @@ verificación del Coordinador va al PR siguiente de g, salvo esos tres casos, qu
     que envenena y quema, y tres trazas de `g_value_function` (`gValues`) que cuentan sus momentos con veneno,
     quemadura y Herramientas; un test falla si alguno queda en cero. La referencia de determinismo de los paquetes
     suma g2. Así, un cambio en cómo juega g obliga a subir `GAMES_REV`, como con cualquier otro bot.
-- **El bot por defecto sigue siendo e2** (D-029). Para proponerle a Santi otro, van juntos la fuerza (la liga), el
-  costo y la calibración contra torneos con g2.
+- **g2 es el bot por defecto desde el 23/10/2026** (D-029, decisión de Santi), en lugar de e2. Con el banco grande
+  (33 listas, 1.000 partidas por cruce, motor `c87bad0`), las calibraciones contra los torneos dieron: g2 (trabajo 86)
+  151 de 232 pares compatibles, 12,2 puntos de diferencia media y ρ 0,38; e3 (83) 155 de 233, 11,6 y 0,41; e2 (82)
+  129 de 233, 14,1 y 0,30. Sale de una sola constante del dominio (`DEFAULT_BOT`, en `simulation/jobs.ts`; la web la
+  copia en `lib/simulation.ts` con un test que las compara). Las decisiones de ese cambio (los puntajes del
+  laboratorio por bot, los workers, el navegador, los costos y lo que no se toca) están en
+  `docs/decisiones/pendientes/bots-g2-default.md`.
 
 ## Plan
 
