@@ -14,6 +14,8 @@ import {
   parseEngineCards,
   parseTrackerCards,
   parseTrackerEnergy,
+  readCatalogInput,
+  readEngineCards,
   rulesHashOf,
   rulesTextOf,
   typesOf,
@@ -208,7 +210,49 @@ describe('the catalog with two types', () => {
     const noPin = () => buildCatalogWithReport({ ...buildInput(), trackerCommit: '' })
     expect(noPin).toThrow(CatalogBuildError)
     expect(noPin).not.toThrow(CatalogInputError)
-    expect(() => buildCatalogWithReport(badEngine)).toThrow('deckgym database.json: 0.hp: ')
+    // The engine's rows are named by their id, and every issue says the value it found (review of #151).
+    expect(() => buildCatalogWithReport(badEngine)).toThrow(/^deckgym database\.json: A1 001\.hp: .*\(got "x"\)$/)
+    expect(withCard((card) => ({ ...card, energy: 'water/fairy' }))).toThrow('(got "water/fairy")')
+    expect(() =>
+      readEngineCards([
+        { Pokemon: { id: 'C1 002', name: 'X', stage: 0, hp: 60, energy_types: ['Water', 'Water'], rarity: '◊' } },
+      ]),
+    ).toThrow('deckgym database.json: C1 002.energyTypes: energyTypes repeats a type (got ["Water","Water"])')
+    // The reduction names the card (or the row) too, once (self-review).
+    expect(() => readEngineCards({})).toThrow('deckgym database.json: it must be a list of cards')
+    expect(() => readEngineCards([{ Energy: { id: 'C1 900' } }])).toThrow(
+      'deckgym database.json: C1 900: unknown entry kind Energy',
+    )
+    expect(() => readEngineCards([null])).toThrow('deckgym database.json: row 0: not a card (got null)')
+    // A long value is cut at 60 characters; one too deep to print does not hide its error.
+    expect(withCard((card) => ({ ...card, energy: `water/${'x'.repeat(100)}` }))).toThrow(
+      `(got "water/${'x'.repeat(50)}...)`,
+    )
+    let deep: unknown = 'bottom'
+    for (let level = 0; level < 20_000; level++) deep = { deeper: deep }
+    expect(withCard((card) => ({ ...card, attacks: deep }))).toThrow('cards.json: B3-51.attacks: ')
+    expect(withCard((card) => ({ ...card, attacks: deep }))).toThrow('(got unprintable)')
+    // A bug is not unreadable data: a TypeError passes through as it is (a 500 with its stack in the logs).
+    expect(() =>
+      readCatalogInput('cards.json', () => {
+        throw new TypeError('x is not a function')
+      }),
+    ).toThrow(TypeError)
+    const buggy = buildInput()
+    Object.defineProperty(buggy, 'cardsDbSource', {
+      get() {
+        throw new TypeError('cannot read properties of undefined')
+      },
+    })
+    expect(() => buildCatalogWithReport(buggy)).toThrow(TypeError)
+    expect(() => buildCatalogWithReport(buggy)).not.toThrow(CatalogInputError)
+    const ranged = buildInput()
+    Object.defineProperty(ranged, 'typesIndexSource', {
+      get() {
+        throw new RangeError('invalid array length')
+      },
+    })
+    expect(() => buildCatalogWithReport(ranged)).toThrow(RangeError)
     // The other files of the tracker, too (Codex on #151): types/index.ts, a translation table and a locale table.
     const broken = (change: (input: ReturnType<typeof buildInput>) => void) => {
       const input = buildInput()

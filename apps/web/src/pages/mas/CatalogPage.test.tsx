@@ -114,10 +114,11 @@ describe('día de expansión (Fase 40)', () => {
       unknownFields: [{ field: 'energy2', cards: 3 }],
       typeChanges: [{ cardId: 'B3-51', nameEs: 'Urshifu Estilo Fluido', from: 'water', to: 'water/fighting' }],
       addedDualTypes: [{ cardId: 'C1-1', nameEs: 'Mega-Mewtwo X ex', types: ['psychic', 'fighting'] }],
-      warnings: [
-        "cards.json has a field the catalog does not read: 'energy2' (3 cards)",
-        'Expansion C1 has no cards in cards.json',
-      ],
+      // As the API sends it: the unknown field apart, the other warnings as they are; and an older commit too.
+      warnings: ['Expansion C1 has no cards in cards.json'],
+      older: true,
+      // GitHub did not answer too: its reason shows next to the others, not only when it is the only one.
+      unknownPosition: true,
     }
     const original = vi.mocked(fetch).getMockImplementation()
     vi.mocked(fetch).mockImplementation(async (input, init) => {
@@ -146,6 +147,12 @@ describe('día de expansión (Fase 40)', () => {
     expect(screen.getByText('Expansion C1 has no cards in cards.json')).toBeInTheDocument()
     expect(screen.queryByText(/does not read/)).not.toBeInTheDocument()
     expect(screen.getByText(/una carta podría entrar con datos de menos\./)).toBeInTheDocument()
+    // Every reason to confirm, not only the first (an older commit and the unknown field).
+    expect(
+      screen.getByText(
+        /Es un commit anterior al cargado: .* No se pudo comparar este commit con el cargado: .* El tracker trae campos que el catálogo no lee/,
+      ),
+    ).toBeInTheDocument()
     const apply = screen.getByRole('button', { name: /^Aplicar$/ })
     expect(apply).toBeDisabled()
     await user.click(screen.getByRole('checkbox', { name: /Entiendo, aplicarla igual/ }))

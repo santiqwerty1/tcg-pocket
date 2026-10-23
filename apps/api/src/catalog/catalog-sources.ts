@@ -9,9 +9,9 @@ import { join, resolve } from 'node:path'
 import {
   type BuildCatalogInput,
   CatalogInputError,
-  engineCardsFromDatabaseJson,
   parseExpansionIds,
   readCatalogInput,
+  readEngineCards,
 } from '@tcg/domain'
 import { REPO_ROOT } from '../config/dotenv.js'
 
@@ -151,9 +151,7 @@ export async function fetchCatalogSources(pins: CatalogPins, fetchImpl: FetchLik
   })
   files.engine = fileRecord(ENGINE_PATH, engineText)
   // Same reduction as scripts/extract-fixtures.mjs, so fixtures and live data produce identical catalogs.
-  const engineCards = readCatalogInput('deckgym database.json', () =>
-    engineCardsFromDatabaseJson(parseJson(engineText, ENGINE_PATH)),
-  )
+  const engineCards = readEngineCards(parseJson(engineText, ENGINE_PATH))
   // Missions: one optional file per expansion (a 404 means the expansion has none).
   const missions: Record<string, unknown> = {}
   await Promise.all(

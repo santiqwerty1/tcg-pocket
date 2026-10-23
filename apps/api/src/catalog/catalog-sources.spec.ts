@@ -61,6 +61,15 @@ describe('fetchCatalogSources: data the catalog cannot read is a CatalogInputErr
     expect((locale as Error).message).toContain(`${TRACKER_PATHS.esSets}: invalid JSON`)
   })
 
+  it('a schema problem in the engine names the card by its id and shows the value (review of #151)', async () => {
+    const engine = [{ Pokemon: { ...ENGINE[0]?.Pokemon, energy_types: ['Grass', 'Grass'] } }]
+    const error = await fetchCatalogSources(PINS, fakeFetch({}, engine)).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(CatalogInputError)
+    expect((error as Error).message).toBe(
+      'deckgym database.json: A1 001.energyTypes: energyTypes repeats a type (got ["Grass","Grass"])',
+    )
+  })
+
   it('an engine type outside its list names deckgym and the card', async () => {
     const engine = [{ Pokemon: { ...ENGINE[0]?.Pokemon, energy_type: 'Fire', energy_types: ['Grass'] } }]
     const error = await fetchCatalogSources(PINS, fakeFetch({}, engine)).catch((caught: unknown) => caught)

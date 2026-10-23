@@ -7,7 +7,7 @@
  * depend on the declaration name and on the closing bracket sitting at column 0, not on the type annotation.
  */
 import { z } from 'zod'
-import { parseJsLiteral } from './literal.js'
+import { LiteralParseError, parseJsLiteral } from './literal.js'
 import { type CraftingCost, type ExpansionId, type PackStructure, RARITIES } from './types.js'
 
 export interface TrackerPack {
@@ -85,7 +85,9 @@ function evaluateLiteral(text: string, what: string): unknown {
   try {
     return parseJsLiteral(text)
   } catch (error) {
-    throw new CardsDbParseError(`${what}: not a plain data literal (${(error as Error).message})`)
+    // Only the literal parser's own refusal is about the data; anything else is a bug and stays one.
+    if (!(error instanceof LiteralParseError)) throw error
+    throw new CardsDbParseError(`${what}: not a plain data literal (${error.message})`)
   }
 }
 

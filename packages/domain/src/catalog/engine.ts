@@ -185,9 +185,14 @@ export function engineTypeFields(v: Record<string, unknown>): { energyType: unkn
  * Mirrors `scripts/extract-fixtures.mjs`, so the sync job and the fixtures produce the same shape.
  */
 export function engineCardsFromDatabaseJson(json: unknown): EngineCard[] {
-  if (!Array.isArray(json)) throw new Error('deckgym database.json must be an array')
-  const reduced = json.map((entry: unknown) => {
-    if (!entry || typeof entry !== 'object') throw new Error('deckgym database.json: invalid entry')
+  return parseEngineCards(reduceEngineDatabase(json))
+}
+
+/** The reduction of `engineCardsFromDatabaseJson` without the schema, for callers that report its issues by card. */
+export function reduceEngineDatabase(json: unknown): unknown[] {
+  if (!Array.isArray(json)) throw new Error('it must be a list of cards')
+  const reduced = json.map((entry: unknown, row) => {
+    if (!entry || typeof entry !== 'object') throw new Error(`row ${row}: not a card (got ${JSON.stringify(entry)})`)
     const record = entry as Record<string, Record<string, unknown>>
     if (record.Pokemon) {
       const v = record.Pokemon
@@ -206,7 +211,9 @@ export function engineCardsFromDatabaseJson(json: unknown): EngineCard[] {
       const v = record.Trainer
       return { id: v.id, kind: 'trainer', name: v.name, trainerType: v.trainer_card_type, rarity: v.rarity }
     }
-    throw new Error(`deckgym database.json: unknown entry kind ${Object.keys(record).join(',')}`)
+    const inner = Object.values(record)[0] as { id?: unknown } | undefined
+    const id = typeof inner?.id === 'string' ? inner.id : `row ${row}`
+    throw new Error(`${id}: unknown entry kind ${Object.keys(record).join(',')}`)
   })
-  return parseEngineCards(reduced)
+  return reduced
 }

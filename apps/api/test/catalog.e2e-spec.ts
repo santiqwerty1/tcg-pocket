@@ -774,7 +774,8 @@ describe('catalog (e2e)', () => {
         typeChanges: [{ cardId: 'B3-51', from: 'water', to: 'water/fighting' }],
         addedDualTypes: [{ cardId: 'B4b-430', types: ['water', 'darkness'] }],
       })
-      expect(preview.warnings).toContain("cards.json has a field the catalog does not read: 'energy2' (1 cards)")
+      // The unknown field goes in `unknownFields`, not among the warnings (the page needs no text to tell them apart).
+      expect(preview.warnings.join(' ')).not.toContain('energy2')
       // From the app without confirming: refused, saying which field.
       await expect(sync.sync({ ...request, guard: true })).rejects.toThrow(/campos que el catálogo no lee \(energy2\)/)
       expect((await test.prisma.card.findUniqueOrThrow({ where: { id: 'B3-51' } })).types).toEqual(['water'])

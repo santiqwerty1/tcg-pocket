@@ -108,6 +108,8 @@ export const catalogPreviewSchema = z.object({
   /** New editions with two types (the first 50). */
   addedDualTypes: z.array(z.object({ cardId: z.string(), nameEs: z.string(), types: z.array(z.string()) })).default([]),
   older: z.boolean(),
+  /** GitHub did not answer the comparison: the commit may be older than the loaded one. */
+  unknownPosition: z.boolean().default(false),
   baseline: z.string(),
   warnings: z.array(z.string()),
 })
