@@ -35,6 +35,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { energyLabel } from '@/lib/energies'
 import { formatNumber, plural } from '@/lib/format'
 import {
+  DEFAULT_BOT,
   decodeSource,
   formatDuration,
   gamesLabel,
@@ -413,7 +414,8 @@ export function NewSimulationPage() {
   )
   const [sideA, setSideA] = useState<Picked[]>(initial.a)
   const [sideB, setSideB] = useState<Picked[]>(initial.b)
-  const [players, setPlayers] = useState<[string, string]>(['e2', 'e2'])
+  // D-029: the bot by default on both sides (g2 since 23/10/2026); the estimate below follows the bots chosen.
+  const [players, setPlayers] = useState<[string, string]>([DEFAULT_BOT, DEFAULT_BOT])
   const [games, setGames] = useState('200')
   const [seed, setSeed] = useState('')
   const [label, setLabel] = useState('')
@@ -536,7 +538,7 @@ export function NewSimulationPage() {
     }
   }
 
-  const bots = engine.data?.bots ?? [{ code: 'e2', label: 'Expectiminimax (profundidad 2)' }]
+  const bots = engine.data?.bots ?? [{ code: DEFAULT_BOT, label: 'expectiminimax sin trampa, profundidad 2' }]
   const sideBTitle = kind === 'matrix' ? 'Contra (opcional)' : 'Rivales'
   const sideBHint =
     kind === 'matrix'
@@ -600,6 +602,7 @@ export function NewSimulationPage() {
                   {bots.map((bot) => (
                     <SelectItem key={bot.code} value={bot.code}>
                       {bot.label}
+                      {bot.code === DEFAULT_BOT ? ' (por defecto)' : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>

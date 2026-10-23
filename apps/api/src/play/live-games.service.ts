@@ -32,6 +32,7 @@ import {
   canPlayGBots,
   coachContext,
   coachSummary,
+  DEFAULT_BOT,
   ET_BOT_CODE,
   FAIR_BOT_CODES,
   G_BOT_CODES,
@@ -304,7 +305,9 @@ export class LiveGamesService implements OnApplicationBootstrap {
     /** T-015: what was compiled (the manifest's `build`): the game keeps it too (review of #86). */
     build?: string
   }): Promise<LiveGameView> {
-    const bot = input.bot ?? 'e2'
+    // D-029: the domain's bot by default (g2 since 23/10/2026), on the PC and in the browser: the browser's engine is
+    // built from engine-cli's sources with g_bot.rs, and only the one this build serves can start a game.
+    const bot = input.bot ?? DEFAULT_BOT
     if (!isBotCode(bot)) throw new BadRequestException({ code: 'validation', message: `Bot «${bot}» desconocido.` })
     const runner = input.runner ?? 'worker'
     const engine = runner === 'browser' ? this.requireBrowserEngine(input) : null

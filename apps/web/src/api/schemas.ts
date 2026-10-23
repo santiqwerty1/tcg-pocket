@@ -2667,7 +2667,10 @@ export const pickSchema = z.object({
           text: z.string(),
           jobId: z.number(),
           era: z.string(),
-          /** The bots (the Laboratorio's default, D-029). */
+          /**
+           * The bots (the Laboratorio's default, D-029). A server from before the field always scored with e2, the bot
+           * by default until 23/10/2026: the fallback stays e2, not today's g2.
+           */
           bot: z.string().default('e2'),
           /** Of another era: this one has no score yet («Actualizar todos»). */
           stale: z.boolean().default(false),
@@ -2698,6 +2701,8 @@ export const pickSchema = z.object({
         })
         .nullable()
         .default(null),
+      /** Whether the engine can play the list (null: unknown, as from a server from before the field). */
+      labSimulable: z.boolean().nullable().default(null),
       /** H-055: «posible punto ciego del bot» of the Laboratorio's number. */
       blindSpot: z.object({ text: z.string() }).nullable().default(null),
     }),

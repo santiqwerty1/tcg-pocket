@@ -1181,7 +1181,8 @@ describe('simulation (e2e)', () => {
         expect((await post(`/api/simulations/${matrix.body.id}/priority`).send({ priority: 10 })).status).toBe(200)
         const short =
           kind === 'consistency'
-            ? await post('/api/simulations/consistency').send({ deckId: deckIds[1], games: 10 })
+            ? // e2, which this test's worker plays (g2, the bot by default since 23/10, has its own test).
+              await post('/api/simulations/consistency').send({ deckId: deckIds[1], games: 10, bot: 'e2' })
             : await post('/api/simulations').send({
                 kind: 'compare',
                 sideA: decks(3, 3),
@@ -1734,6 +1735,40 @@ describe('simulation (e2e)', () => {
     expect(fresh).toMatchObject({ jobId: created.body.id, players: ['g2', 'e2'] })
     await post(`/api/simulations/${created.body.id}/cancel`)
     await test.http().delete(`/api/simulations/${created.body.id}`).set('Cookie', cookie)
+  })
+
+  it('D-029: a consistency queued without a bot plays g2; the PC takes it, an old engine is told why, an Android that turns slow bots down is not', async () => {
+    const created = await post('/api/simulations/consistency').send({ deckId: deckIds[1], games: 100, seed: 15 })
+    expect(created.status).toBe(201)
+    // Against a passive rival («et»), the deck played by the bot by default.
+    expect(created.body).toMatchObject({
+      kind: 'consistency',
+      players: ['g2', 'et'],
+      playersEs: ['expectiminimax sin trampa, profundidad 2', 'termina el turno'],
+    })
+    const id = created.body.id as number
+    try {
+      const features = ['perGame', 'batch', 'fairBots', 'etBot', 'gBots']
+      const ask = (id: string, extra: Record<string, unknown>) =>
+        bearer('post', '/api/worker/claim').send({ ...worker(id), version: '0.3.14', ...extra })
+      // engine-cli 0.3.15 lists «gBots» with an earlier g: nothing, and the hint says why.
+      const early = (await ask('worker-d029-early', { cliVersion: '0.3.15', engineFeatures: features })).body
+      expect(early).toMatchObject({ chunk: null, hint: expect.stringContaining('bots g') })
+      // An Android that turns slow bots down (D-025): nothing and no hint, it would not take them with any engine.
+      const android = (
+        await ask('worker-d029-android', { cliVersion: '0.3.16', engineFeatures: features, allowSlowBots: false })
+      ).body
+      expect(android.chunk).toBeNull()
+      expect(android.hint).toBeUndefined()
+      // The PC (worker 0.3.14, engine-cli 0.3.16) takes it, with the bot in the chunk.
+      const chunk = (await ask('worker-d029-pc', { cliVersion: '0.3.16', engineFeatures: features })).body
+        .chunk as Structured
+      expect(chunk).toMatchObject({ jobId: id, kind: 'consistency', players: ['g2', 'et'] })
+      expect(chunk.consistency).toMatchObject({ bot: 'g2' })
+    } finally {
+      await post(`/api/simulations/${id}/cancel`)
+      await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)
+    }
   })
 
   it('«Reintentar lo que falló»: only the failed chunks, with the same seeds; the job ends «done» if they play well', async () => {

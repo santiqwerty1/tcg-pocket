@@ -6,6 +6,7 @@ import {
   bonferroniZ,
   engineEdition,
   eraRange,
+  estimateSeconds,
   metaScore,
   poolForZone,
   type SelectableEnergy,
@@ -118,7 +119,16 @@ describe('laboratorio (e2e)', () => {
   function bearer(method: 'post' | 'put', path: string) {
     return test.http()[method](path).set('Authorization', `Bearer ${workerToken}`)
   }
-  const hello = { workerId: 'worker-lab-01', name: 'pc-de-prueba', cliVersion: '0.1.0', cores: 8, version: '0.1.0' }
+  // D-029: the Laboratorio plays g2 by default since 23/10/2026, so the PC of these tests has an engine with its g
+  // (engine-cli 0.3.16 and «gBots», canPlayGBots), as the real one does.
+  const hello = {
+    workerId: 'worker-lab-01',
+    name: 'pc-de-prueba',
+    cliVersion: '0.3.16',
+    engineFeatures: ['gBots'],
+    cores: 8,
+    version: '0.1.0',
+  }
 
   /**
    * Plays every chunk handed out until the queue is empty (or `limit` chunks); `wins` decides the result from the
@@ -480,7 +490,7 @@ describe('laboratorio (e2e)', () => {
     const played = await rows()
     for (const row of played.mine) {
       expect(row.labRunning).toBeNull()
-      expect(row.lab).toMatchObject({ jobId, era: 'B4a', bot: 'e2', stale: false })
+      expect(row.lab).toMatchObject({ jobId, era: 'B4a', bot: 'g2', stale: false })
     }
     expect((await post('/api/decks-today/refresh').send({ dryRun: true })).body).toMatchObject({ queued: [] })
     // H-007: a score of another engine is another game (self-review: no test said so).
@@ -488,14 +498,15 @@ describe('laboratorio (e2e)', () => {
     expect((await rows()).mine.every((row) => row.lab === null)).toBe(true)
     await test.prisma.simulationJob.update({ where: { id: jobId }, data: { engineRev: test.env.engineRev } })
 
-    // Review of the coordinator (14/10): a test with e3 neither shows as the deck's test nor replaces the e2 score.
+    // Review of the coordinator (14/10): a test with e3 neither shows as the deck's test nor replaces the score of the
+    // bot by default (g2 since 23/10, D-029).
     const e3 = await post('/api/lab/test').send({ decks: [{ deckId: built[0] }], players: ['e3', 'e3'], seed: 7300 })
     expect(e3.status).toBe(200)
     const playing = await rows()
     expect(playing.mine.find((row) => row.deck.id === built[0])?.labRunning).toBeNull()
     await playAll((_a, _b, games) => Math.round(games * 0.3))
     const withE3 = (await rows()).mine.find((row) => row.deck.id === built[0])
-    expect(withE3?.lab).toMatchObject({ jobId, bot: 'e2' })
+    expect(withE3?.lab).toMatchObject({ jobId, bot: 'g2' })
     expect(withE3?.labOthers).toEqual([expect.objectContaining({ bot: 'e3', jobId: e3.body.id })])
 
     // A score of another era is old: shown as such, due again, and not what «Laboratorio» sorts by. The second deck
@@ -565,7 +576,7 @@ describe('laboratorio (e2e)', () => {
     expect(failedRows.length).toBeGreaterThan(0)
     for (const row of failedRows) {
       expect(row.labFailed).toBe(
-        `la última prueba con e2 (#${failedJob}) falló antes de jugar la lista entera: se puede reintentar lo que falló (simulations_retry_failed)`,
+        `la última prueba con g2 (#${failedJob}) falló antes de jugar la lista entera: se puede reintentar lo que falló (simulations_retry_failed)`,
       )
     }
 
@@ -574,10 +585,122 @@ describe('laboratorio (e2e)', () => {
     for (const id of [...built, copyId]) await patch(id, false)
   })
 
+  it('D-029: a list tested only with e2, the bot by default until 23/10, has no score with g2 until «Actualizar todos»', async () => {
+    const deckId = deckIds[10] as string
+    const patch = (builtInGame: boolean) =>
+      test.http().patch(`/api/decks/${deckId}`).set('Cookie', cookie).send({ builtInGame })
+    expect((await patch(true)).status).toBe(200)
+    type Row = {
+      deck: { id: string }
+      lab: { bot: string; jobId: number } | null
+      labOthers: { bot: string; jobId: number }[]
+      labRunning: { jobId: number } | null
+      blindSpot: { text: string } | null
+    }
+    const read = async () => {
+      const view = (await get('/api/decks-today')).body as { items: Row[]; labDue: number }
+      return { labDue: view.labDue, row: view.items.find((item) => item.deck.id === deckId) as Row }
+    }
+    // A built deck the engine cannot play (2 cards): no score, and nothing asks «Actualizar todos» to measure it.
+    const source = (await get(`/api/decks/${deckId}`)).body as {
+      energies: string[]
+      cards: { card: { id: string }; count: number }[]
+    }
+    const broken = await post('/api/decks').send({
+      name: 'Lista rota D-029',
+      energies: source.energies,
+      cards: source.cards.slice(0, 1).map((entry) => ({ cardId: entry.card.id, count: 2 })),
+    })
+    expect(broken.status).toBe(201)
+    const brokenId = String(broken.body.id)
+    expect(
+      (await test.http().patch(`/api/decks/${brokenId}`).set('Cookie', cookie).send({ builtInGame: true })).status,
+    ).toBe(200)
+    try {
+      const e2 = await post('/api/lab/test').send({
+        decks: [{ deckId }],
+        size: 3,
+        gamesPerRival: 20,
+        players: ['e2', 'e2'],
+        seed: 7600,
+      })
+      expect(e2.status).toBe(200)
+      await playAll((_a, _b, games) => Math.round(games * 0.6))
+      const before = await read()
+      // e2's score goes apart, without a warning; the row has none of g2's and never borrows e2's.
+      expect(before.row.lab).toBeNull()
+      expect(before.row.labRunning).toBeNull()
+      expect(before.row.blindSpot).toBeNull()
+      expect(before.row.labOthers).toEqual([expect.objectContaining({ bot: 'e2', jobId: e2.body.id })])
+
+      // Claude reads why, and e2's number apart.
+      const client = new Client({ name: 'e2e', version: '1.0.0' })
+      await client.connect(
+        new StreamableHTTPClientTransport(mcpUrl, {
+          requestInit: { headers: { Authorization: `Bearer ${mcpToken}` } },
+        }),
+      )
+      clients.push(client)
+      const picked = (await client.callTool({ name: 'decks_pick_today', arguments: { limit: 40 } })) as {
+        structuredContent?: {
+          decks?: { deck: string; lab?: string | null; labMissing?: string; labOtherBots?: string[] }[]
+          labDue?: string
+        }
+      }
+      const mine = picked.structuredContent?.decks?.find((row) => row.deck.startsWith(`#${deckId} `))
+      expect(mine?.lab).toBeNull()
+      expect(mine?.labMissing).toBe(
+        'sin puntaje con g2, el bot por defecto del Laboratorio (los de otros bots van en labOtherBots y no lo reemplazan): «Actualizar todos» en ¿Cuál llevo hoy? lo mide',
+      )
+      expect(mine?.labOtherBots).toEqual([expect.stringMatching(/^con e2: /)])
+      expect(picked.structuredContent?.labDue).toMatch(/sin puntaje del Laboratorio de esta era con g2/)
+      const brokenRow = picked.structuredContent?.decks?.find((row) => row.deck.startsWith(`#${brokenId} `))
+      expect(brokenRow?.labMissing).toBe(
+        'sin puntaje del Laboratorio: el motor no puede jugar esta lista, así que «Actualizar todos» la deja afuera',
+      )
+      expect(
+        ((await get('/api/decks-today')).body.items as { deck: { id: string }; labSimulable: boolean | null }[]).find(
+          (row) => row.deck.id === brokenId,
+        )?.labSimulable,
+      ).toBe(false)
+
+      // «Actualizar todos» tests it with g2, and its plan estimates with g2's cost: about 3 times e2's.
+      const plan = (await post('/api/decks-today/refresh').send({ dryRun: true })).body as {
+        queued: string[]
+        notSimulable: string[]
+        games: number
+        estimatedSeconds: number
+      }
+      expect(plan.queued).toContain(deckId)
+      expect(plan.queued).not.toContain(brokenId)
+      expect(plan.notSimulable).toContain(brokenId)
+      expect(plan.games).toBeGreaterThan(0)
+      const cores = (await test.prisma.workerNode.findFirstOrThrow({ orderBy: { lastSeenAt: 'desc' } })).cores
+      expect(plan.estimatedSeconds).toBe(Math.round(estimateSeconds(plan.games, ['g2', 'g2'], cores)))
+      expect(
+        Math.abs(plan.estimatedSeconds - 3 * estimateSeconds(plan.games, ['e2', 'e2'], cores)),
+      ).toBeLessThanOrEqual(1)
+      const done = (await post('/api/decks-today/refresh').send({})).body as { jobs: number[] }
+      expect(done.jobs).toHaveLength(1)
+      const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: done.jobs[0] as number } })
+      expect(job.players).toEqual(['g2', 'g2'])
+      expect((await read()).row.labRunning).toMatchObject({ jobId: job.id })
+      await playAll((_a, _b, games) => Math.round(games * 0.5))
+      const after = await read()
+      expect(after.row.lab).toMatchObject({ bot: 'g2', jobId: job.id })
+      expect(after.row.labOthers).toEqual([expect.objectContaining({ bot: 'e2', jobId: e2.body.id })])
+      expect(after.labDue).toBe(before.labDue - 1)
+    } finally {
+      await patch(false)
+      await test.http().patch(`/api/decks/${brokenId}`).set('Cookie', cookie).send({ builtInGame: false })
+    }
+  })
+
   it('consistency against the meta (D-019): the games split by weight among the bank, for workers 0.2.1+', async () => {
     const created = await post('/api/lab/consistency').send({ deckId: deckIds[1], size: 5, games: 100, seed: 11 })
     expect(created.status).toBe(201)
-    expect(created.body).toMatchObject({ kind: 'consistency', players: ['e2', 'e2'], progress: { totalGames: 100 } })
+    // D-029: both sides with the bot by default, g2 since 23/10/2026.
+    expect(created.body).toMatchObject({ kind: 'consistency', players: ['g2', 'g2'], progress: { totalGames: 100 } })
     expect(created.body.label).toMatch(/^Consistencia contra el meta B4a de .*Mega-Blaziken/)
     const claimAs = (version: string) =>
       bearer('post', '/api/worker/claim').send({ ...hello, version, engineRev: test.env.engineRev })
@@ -589,7 +712,7 @@ describe('laboratorio (e2e)', () => {
       consistency: { bot: string; rivals: { deck: string; games: number }[] }
     }
     expect(chunk.games).toBe(100)
-    expect(chunk.consistency.bot).toBe('e2')
+    expect(chunk.consistency.bot).toBe('g2')
     expect(chunk.consistency.rivals).toHaveLength(5)
     expect(chunk.consistency.rivals.reduce((sum, rival) => sum + rival.games, 0)).toBe(100)
     const bank = (await get('/api/lab/bank?size=5')).body.rivals as { weight: number }[]
@@ -1559,7 +1682,7 @@ describe('laboratorio (e2e)', () => {
   }, 60_000)
 
   it('review of #53: with per-game results the two halves pair game by game', async () => {
-    const hello25 = { ...hello, workerId: 'worker-lab-race', version: '0.2.5', cliVersion: '0.2.0' }
+    const hello25 = { ...hello, workerId: 'worker-lab-race', version: '0.2.5', engineFeatures: ['perGame', 'gBots'] }
     await bearer('post', '/api/worker/claim').send({ ...hello25, engineRev: test.env.engineRev })
     const config = {
       gamesPerRival: 20,
@@ -2369,22 +2492,59 @@ describe('laboratorio (e2e)', () => {
     // Deck 40 (Mega-Venusaur ex: Ivysaur does no damage) and deck 2, which has no such card; both lose every game.
     const venusaur = deckIds[39] as string
     const plain = deckIds[1] as string
+    // The list rules are e2's, so `jobs` play with it. D-029: g2 is the bot by default since 23/10/2026, and
+    // «¿Cuál llevo hoy?» shows its score (`defaults`), with e2's apart.
     const jobs: Record<string, number> = {}
-    for (const [deckId, seed] of [
+    const defaults: Record<string, number> = {}
+    const seeds = [
       [venusaur, 9300],
       [plain, 9301],
-    ] as const) {
-      const created = await post('/api/lab/test').send({ decks: [{ deckId }], size: 3, gamesPerRival: 20, seed })
+    ] as const
+    // 1.500 games per rival with e2: two chunks per pairing, more than the default bot's test below.
+    for (const [deckId, seed] of seeds) {
+      const created = await post('/api/lab/test').send({
+        decks: [{ deckId }],
+        size: 3,
+        gamesPerRival: 1500,
+        seed,
+        players: ['e2', 'e2'],
+      })
       expect(created.status).toBe(200)
       jobs[deckId] = created.body.id as number
       expect((await patch(deckId, { builtInGame: true })).status).toBe(200)
     }
+    expect(await playAll(() => 0)).toBeGreaterThanOrEqual(12)
+    // The deck sheet's simulation column: the list rules only (it pools the rivals each simulation chose). With only
+    // e2's games, e2's.
+    const columnOf = async (id: string) =>
+      (
+        (await get(`/api/decks/${id}/comparison`)).body.columns as {
+          source: string
+          note: string
+          blindSpot?: { text: string } | null
+        }[]
+      ).find((column) => column.source === 'simulation')
+    const ivysaur =
+      /^Posible punto ciego del bot: e2 casi nunca evoluciona a Ivysaur, que no hace daño, así que el mazo casi no llega a /
+    expect((await columnOf(venusaur))?.blindSpot?.text).toMatch(ivysaur)
+    expect((await columnOf(plain))?.blindSpot).toBeNull()
+    for (const [deckId, seed] of seeds) {
+      const byDefault = await post('/api/lab/test').send({ decks: [{ deckId }], size: 3, gamesPerRival: 20, seed })
+      expect(byDefault.status).toBe(200)
+      expect(byDefault.body.players).toEqual(['g2', 'g2'])
+      defaults[deckId] = byDefault.body.id as number
+    }
     expect(await playAll(() => 0)).toBeGreaterThanOrEqual(6)
+    // D-029: the column now shows the bot by default (g2), though e2 has more chunks, as «¿Cuál llevo hoy?» does; g2
+    // evolves into Ivysaur, so no list rule.
+    for (const deckId of [venusaur, plain]) {
+      const column = await columnOf(deckId)
+      expect(column?.note).toMatch(/^Bots expectiminimax sin trampa, profundidad 2 vs expectiminimax sin trampa/)
+      expect(column?.blindSpot).toBeNull()
+    }
     // Deck 2 plays the most played archetype of the bank, so it has a tournament number to be far from.
     const top = ((await get(`/api/lab/jobs/${jobs[plain]}`)).body.rivals as { archetypeId: string }[])[0]?.archetypeId
     expect((await patch(plain, { tournamentArchetypeId: top })).status).toBe(200)
-    const ivysaur =
-      /^Posible punto ciego del bot: e2 casi nunca evoluciona a Ivysaur, que no hace daño, así que el mazo casi no llega a /
     try {
       // The Laboratorio, on the list.
       const venusaurLab = (await get(`/api/lab/jobs/${jobs[venusaur]}`)).body
@@ -2447,25 +2607,32 @@ describe('laboratorio (e2e)', () => {
       type Row = {
         deck: { id: string }
         tournament: { value: number; ci95: [number, number] } | null
-        lab: { value: number; ci95: [number, number]; bot: string } | null
+        lab: { value: number; ci95: [number, number]; bot: string; jobId: number } | null
+        labOthers: { bot: string; jobId: number }[]
         blindSpot: { text: string } | null
       }
       const today = (await get('/api/decks-today')).body as { items: Row[] }
       const rowOf = (id: string) => today.items.find((item) => item.deck.id === id) as Row
-      expect(rowOf(venusaur).lab).toMatchObject({ value: 0, bot: 'e2' })
-      expect(rowOf(venusaur).blindSpot?.text).toMatch(ivysaur)
-      // Deck 2 has no card of the list rules: only the number far from its archetype's in tournaments can say it.
+      // D-029: the row is g2's. g2 evolves into Ivysaur (docs/BOTS.md), so no list rule; e2's score goes apart, and
+      // its warning stays on the Laboratorio's job above.
+      expect(rowOf(venusaur).lab).toMatchObject({ value: 0, bot: 'g2', jobId: defaults[venusaur] })
+      expect(rowOf(venusaur).blindSpot?.text ?? '').not.toMatch(/Ivysaur/)
+      expect(rowOf(venusaur).labOthers).toEqual([expect.objectContaining({ bot: 'e2', jobId: jobs[venusaur] })])
+      // Deck 2 has no card of the list rules: only the number far from its archetype's in tournaments can say it, and
+      // with a g bot it asks for e3 alone.
+      const farG2 =
+        /^Posible punto ciego del bot: 0 % simulado contra [\d,]+ % del arquetipo en torneos contra los mismos rivales\. Probalo con e3\.$/
       const plainRow = rowOf(plain)
-      expect(plainRow.lab).toMatchObject({ value: 0, bot: 'e2' })
+      expect(plainRow.lab).toMatchObject({ value: 0, bot: 'g2', jobId: defaults[plain] })
       expect(plainRow.tournament).not.toBeNull()
       expect(plainRow.tournament?.ci95[0]).toBeGreaterThan(15)
-      expect(plainRow.blindSpot?.text).toMatch(far)
+      expect(plainRow.blindSpot?.text).toMatch(farG2)
       // Review of #122: the tournament side weighs only the rivals with a list played, like the job's view. A rival of
       // the bank without one changes nothing.
-      const before = (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: jobs[plain] as number } }))
+      const before = (await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: defaults[plain] as number } }))
         .params as { lab: { rivals: Record<string, unknown>[] } & Record<string, unknown> }
       await test.prisma.simulationJob.update({
-        where: { id: jobs[plain] as number },
+        where: { id: defaults[plain] as number },
         data: {
           params: {
             ...before,
@@ -2492,12 +2659,14 @@ describe('laboratorio (e2e)', () => {
         expect(withUnplayed?.blindSpot?.text).toBe(plainRow.blindSpot?.text)
       } finally {
         await test.prisma.simulationJob.update({
-          where: { id: jobs[plain] as number },
+          where: { id: defaults[plain] as number },
           data: { params: before as object },
         })
       }
       // Review of #122: a score that lacks a rival (here its pairing played another list) is not compared.
-      const pairing = await test.prisma.simulationChunk.findFirstOrThrow({ where: { jobId: jobs[plain] as number } })
+      const pairing = await test.prisma.simulationChunk.findFirstOrThrow({
+        where: { jobId: defaults[plain] as number },
+      })
       const venusaurSnapshot = (await get(`/api/lab/jobs/${jobs[venusaur]}`)).body.decks[0].snapshot as number
       await test.prisma.simulationChunk.update({ where: { id: pairing.id }, data: { snapshotBId: venusaurSnapshot } })
       try {
@@ -2513,7 +2682,7 @@ describe('laboratorio (e2e)', () => {
         })
       }
       // Review of #119: a score against a NOEX bank is not compared with the STANDARD tournament number.
-      const plainJob = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: jobs[plain] as number } })
+      const plainJob = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id: defaults[plain] as number } })
       const params = plainJob.params as { lab: Record<string, unknown> }
       const asFormat = (format: string) =>
         test.prisma.simulationJob.update({
@@ -2530,19 +2699,22 @@ describe('laboratorio (e2e)', () => {
       } finally {
         await asFormat(String(params.lab.format))
       }
-      // The deck sheet's simulation column: the list rules only (it pools the rivals each simulation chose).
-      const columnOf = async (id: string) =>
-        ((await get(`/api/decks/${id}/comparison`)).body.columns as { source: string; blindSpot?: unknown }[]).find(
-          (column) => column.source === 'simulation',
-        )
-      expect(((await columnOf(venusaur))?.blindSpot as { text: string } | undefined)?.text).toMatch(ivysaur)
-      expect((await columnOf(plain))?.blindSpot).toBeNull()
       // Claude.
       const results = await call('lab_results', { job: jobs[venusaur] })
       expect((results.decks as { botBlindSpot?: string }[])[0]?.botBlindSpot).toMatch(ivysaur)
-      const picked = (await call('decks_pick_today', { limit: 40 })).decks as { deck: string; botBlindSpot?: string }[]
-      expect(picked.find((row) => row.deck.startsWith(`#${venusaur} `))?.botBlindSpot).toMatch(ivysaur)
-      expect(picked.find((row) => row.deck.startsWith(`#${plain} `))?.botBlindSpot).toMatch(/simulado contra/)
+      const picked = (await call('decks_pick_today', { limit: 40 })).decks as {
+        deck: string
+        lab?: string | null
+        botBlindSpot?: string
+        labOtherBots?: string[]
+      }[]
+      const pickedVenusaur = picked.find((row) => row.deck.startsWith(`#${venusaur} `))
+      expect(pickedVenusaur?.lab).toMatch(/, con g2$/)
+      expect(pickedVenusaur?.botBlindSpot ?? '').not.toMatch(/Ivysaur/)
+      expect(pickedVenusaur?.labOtherBots).toEqual([expect.stringMatching(/^con e2: 0\s% /)])
+      expect(picked.find((row) => row.deck.startsWith(`#${plain} `))?.botBlindSpot).toMatch(
+        /simulado contra .*Probalo con e3\.$/,
+      )
     } finally {
       for (const id of [venusaur, plain]) await patch(id, { builtInGame: false, tournamentArchetypeId: null })
     }
@@ -2886,6 +3058,13 @@ describe('laboratorio (e2e)', () => {
       dryRun: true,
     })
     expect(plan).toMatchObject({ queued: false, simulable: true, gamesPerRound: 3 * 3 * 60 })
+    // D-029: without bots the search plays g2, and the plan's minutes take g2's cost, not e2's (about 3 times more).
+    const minutes = (games: number, bot: string) => Math.max(1, Math.round(estimateSeconds(games, [bot, bot], 8) / 60))
+    expect(plan.estimatedMinutes).toEqual({
+      perRound: minutes(plan.gamesPerRound as number, 'g2'),
+      max: minutes(plan.maxGames as number, 'g2'),
+    })
+    expect(minutes(plan.maxGames as number, 'g2')).toBeGreaterThan(minutes(plan.maxGames as number, 'e2'))
     const firstRound = plan.firstRound as { out: string[] }[]
     expect(firstRound).toHaveLength(2)
     for (const variant of firstRound) for (const line of variant.out) expect(line).not.toMatch(/Mega-Blaziken ex/)
@@ -2909,7 +3088,7 @@ describe('laboratorio (e2e)', () => {
   // Last on purpose: once a 0.2.5 worker was seen, every new lab job asks for per-game results.
   it('per-game results (T-017 A2): the paired test decides, and each list says how its games went', async () => {
     // A worker that plays per-game results: 0.2.5 on, with engine-cli 0.2.0 on (the queue checks both).
-    const hello25 = { ...hello, workerId: 'worker-lab-25', version: '0.2.5', cliVersion: '0.2.0' }
+    const hello25 = { ...hello, workerId: 'worker-lab-25', version: '0.2.5', engineFeatures: ['perGame', 'gBots'] }
     // The worker introduces itself first: lab jobs ask for perGame only when one that plays it was seen.
     await bearer('post', '/api/worker/claim').send({ ...hello25, engineRev: test.env.engineRev })
     const config = {

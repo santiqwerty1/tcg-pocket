@@ -100,6 +100,11 @@ describe('playing against a bot in the browser (e2e)', () => {
     build: BUILD,
   })
   const replay = gzipSync(Buffer.from(JSON.stringify({ version: 1, steps: [], players: [] })))
+  /**
+   * D-029: a PC whose engine plays g2, the bot by default since 23/10/2026 (worker 0.3.14, engine-cli 0.3.16), so a
+   * claim that gets nothing says it is not its game, not that it cannot play the bot.
+   */
+  const pc = { workerId: 'worker-pc-browser', version: '0.3.14', cliVersion: '0.3.16', engineFeatures: ['gBots'] }
 
   async function browserGame(extra: Record<string, unknown> = {}): Promise<number> {
     const created = await post('/api/play').send({
@@ -139,7 +144,7 @@ describe('playing against a bot in the browser (e2e)', () => {
       .http()
       .post('/api/worker/live/claim')
       .set('Authorization', `Bearer ${workerToken}`)
-      .send({ workerId: 'worker-pc-browser', engineRev: engineRev() })
+      .send({ ...pc, engineRev: engineRev() })
     expect(claim.status).toBe(200)
     expect(claim.body.game).toBeNull()
 
@@ -151,7 +156,8 @@ describe('playing against a bot in the browser (e2e)', () => {
     expect((await get(`/api/play/${id}/browser`)).status).toBe(404)
     const given = await job(id)
     expect(given.status).toBe(200)
-    expect(given.body).toMatchObject({ id, bot: 'e2', seed: '77', choices: [], coach: true, status: 'running' })
+    // D-029: the browser plays g2 by default too (its engine compiles engine-cli's g_bot.rs).
+    expect(given.body).toMatchObject({ id, bot: 'g2', seed: '77', choices: [], coach: true, status: 'running' })
     expect(given.body.deckHuman).toContain('Energy:')
     expect(given.body.deckBot).toContain('Energy:')
     expect(await test.prisma.liveGame.findUniqueOrThrow({ where: { id } })).toMatchObject({
@@ -296,8 +302,8 @@ describe('playing against a bot in the browser (e2e)', () => {
       .http()
       .post('/api/worker/live/claim')
       .set('Authorization', `Bearer ${workerToken}`)
-      .send({ workerId: 'worker-pc-browser', engineRev: engineRev() })
-    expect(claim.body.game.id).toBe(id)
+      .send({ ...pc, engineRev: engineRev() })
+    expect(claim.body.game).toMatchObject({ id, bot: 'g2' })
     await post(`/api/play/${id}/abandon`).send({})
   })
 
@@ -314,7 +320,7 @@ describe('playing against a bot in the browser (e2e)', () => {
       .http()
       .post('/api/worker/live/claim')
       .set('Authorization', `Bearer ${workerToken}`)
-      .send({ workerId: 'worker-pc-browser', engineRev: engineRev(), gamesRev: 2 })
+      .send({ ...pc, engineRev: engineRev(), gamesRev: 2 })
     expect(claim.body.game).toBeNull()
     expect((await get(`/api/play/${id}`)).body.status).toBe('running')
 

@@ -459,12 +459,11 @@ export class McpLabToolsService {
         ...(result.games.probe > 0 ? { probeRoundGames: result.games.probe } : {}),
         ...(result.games.fill > 0 ? { fillRoundGamesAtMost: result.games.fill } : {}),
         maxGames: result.games.max,
+        // D-029: the plan's own estimate, with the bots the search plays (the Laboratorio's by default, g2 since
+        // 23/10/2026, about 3 times e2) and the cores of the worker seen last.
         estimatedMinutes: {
-          perRound: Math.max(
-            1,
-            Math.round(estimateSeconds(result.games.perRound, args.bots ?? ['e2', 'e2'], cores) / 60),
-          ),
-          max: Math.max(1, Math.round(estimateSeconds(result.games.max, args.bots ?? ['e2', 'e2'], cores) / 60)),
+          perRound: Math.max(1, Math.round(result.estimatedSeconds.perRound / 60)),
+          max: Math.max(1, Math.round(result.estimatedSeconds.max / 60)),
         },
       }
     }

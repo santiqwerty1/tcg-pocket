@@ -26,7 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatDateTime, formatNumber, missing, RANGE_DASH, shortSha } from '@/lib/format'
 import { formatInterval, formatRate, formatRateValue } from '@/lib/matches'
-import { progressFraction } from '@/lib/simulation'
+import { DEFAULT_BOT, progressFraction } from '@/lib/simulation'
 import { ProgressBar, StatusBadge } from './SimulacionPage'
 
 const decimal = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -85,11 +85,11 @@ export function CalibrationPage() {
   const engine = useEngineInfo()
   const calibrations = useCalibrations()
   const start = useStartCalibration()
-  const [bot, setBot] = useState('e2')
+  const [bot, setBot] = useState<string>(DEFAULT_BOT)
   const [games, setGames] = useState('200')
   const [size, setSize] = useState('15')
   const cost = bankCost(Number(size), Number(games) || 0)
-  const bots = engine.data?.bots ?? [{ code: 'e2', label: 'expectiminimax, profundidad 2' }]
+  const bots = engine.data?.bots ?? [{ code: DEFAULT_BOT, label: 'expectiminimax sin trampa, profundidad 2' }]
 
   function launch() {
     const gamesPerPair = Number(games)
@@ -134,6 +134,7 @@ export function CalibrationPage() {
                 {bots.map((item) => (
                   <SelectItem key={item.code} value={item.code}>
                     {item.code} · {item.label}
+                    {item.code === DEFAULT_BOT ? ' (por defecto)' : ''}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -171,7 +172,8 @@ export function CalibrationPage() {
         <p className="text-xs text-muted-foreground">
           Con {size} arquetipos son unas {cost.lists} listas (los 3 más jugados traen dos) y{' '}
           {count.format(cost.pairings)} cruces: {count.format(cost.games)} partidas. Más arquetipos comparan más pares
-          con los torneos, que es lo que achica los intervalos; e3 tarda unas 4 veces lo de e2.
+          con los torneos, que es lo que achica los intervalos. g2, el bot por defecto, tarda unas 3 veces lo de e2, y
+          e3 unas 4.
         </p>
       </Section>
       <Section title="Calibraciones">

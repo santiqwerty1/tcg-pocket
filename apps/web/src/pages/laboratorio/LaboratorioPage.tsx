@@ -36,7 +36,7 @@ import { cn } from '@/lib/utils'
 import { ProgressBar, StatusBadge } from '../simulacion/SimulacionPage'
 import { CoreBuilder } from './CoreBuilder'
 
-/** Deuda 5 (14/10): what the API says (the bot is e2 by default; the confirmation may play e3). */
+/** Deuda 5 (14/10): what the API says (the bot is g2 by default since 23/10, D-029; the confirmation may play e3). */
 export const LAB_NOTE =
   'Juegan bots del motor deckgym, no personas: el porcentaje depende del bot y del motor. Es una pista para probar en el juego, no un veredicto.'
 

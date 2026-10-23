@@ -59,9 +59,11 @@ test('plays a game against the bot in this device, with the coach, and keeps its
     page.getByRole('button', { name: 'Empezar' }).click(),
   ])
   expect(created.status(), await created.text()).toBe(201)
-  const game = (await created.json()) as { id: number; status: string; runner: string }
+  const game = (await created.json()) as { id: number; status: string; runner: string; bot: string }
   gameId = Number(game.id)
-  expect(game).toMatchObject({ runner: 'browser', status: 'running' })
+  // D-029: the browser plays g2 by default too (its engine compiles engine-cli's g_bot.rs).
+  expect(JSON.parse(created.request().postData() ?? '{}')).toMatchObject({ bot: 'g2', runner: 'browser' })
+  expect(game).toMatchObject({ runner: 'browser', status: 'running', bot: 'g2' })
   await expect(page).toHaveURL(`${BASE_URL}/jugar/${gameId}`)
   await expect(page.getByText('en el navegador')).toBeVisible()
 

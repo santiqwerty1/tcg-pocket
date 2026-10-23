@@ -112,6 +112,12 @@ test('plays a game against the bot with the coach, then solves the costly moment
   await page.getByRole('tab', { name: 'Mis mazos' }).click()
   await page.getByRole('combobox', { name: 'El mazo del bot' }).click()
   await page.getByRole('option').nth(1).click()
+  // D-029: the bot starts as g2. This PC's engine stand-in has no g (engine-cli 0.3.16 with «gBots»), so the game is
+  // against e2, which every engine plays; the default reaching the server is tested in the API's e2e.
+  const bot = page.getByRole('combobox', { name: 'Bot', exact: true })
+  await expect(bot).toHaveText('Normal, sin trampa (g2: no ve tu mano ni tu mazo)')
+  await bot.click()
+  await page.getByRole('option', { name: 'Clásico (expectiminimax 2: ve tu mano y tu mazo)' }).click()
   await page.getByText('Modo entrenador').click()
   const [created] = await Promise.all([
     page.waitForResponse(
@@ -120,9 +126,9 @@ test('plays a game against the bot with the coach, then solves the costly moment
     page.getByRole('button', { name: 'Empezar' }).click(),
   ])
   expect(created.status(), await created.text()).toBe(201)
-  const game = (await created.json()) as { id: number; status: string }
+  const game = (await created.json()) as { id: number; status: string; bot: string }
   gameId = Number(game.id)
-  expect(game.status).toBe('queued')
+  expect(game).toMatchObject({ status: 'queued', bot: 'e2' })
   await expect(page).toHaveURL(`${BASE_URL}/jugar/${gameId}`)
   await startWorker(request)
 
