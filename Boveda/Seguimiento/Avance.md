@@ -4,7 +4,7 @@ titulo: >-
   Avance
 area: proyecto
 estado: vigente
-actualizado: '2026-10-22'
+actualizado: '2026-10-23'
 origen:
   - posta init
   - docs/PLAN.md §7
@@ -75,16 +75,16 @@ revisar: false
 | L | Búsqueda del laboratorio: probar siempre los cambios obvios (+1 copia, paso hacia la lista de torneo) | pendiente, para cuando Santiago la pida | — | [T-016](Tareas/T-016.md) |
 | O | Optimización de mazos: análisis del 09/10 (bot que no evoluciona, velocidad, semillas, búsqueda) | T-017 en curso · #5, #15, #20, #22, #25, #27 y #28 integrados: bot f, aprendizaje/combo, explicaciones, frenar, deshacer, Energía y segundas listas del banco · revisión #35 integrada · 11/10: D4 (#47), partidas por peso y confirmación con e3 (#49) y carreras (#53) · 12/10: E3/E4 y lo que quedaba de #47 y #49 (#64, DECISIONES 40.26–40.27) · 13/10: C3, A3 y C8 · 14–15/10: «Probar estas cartas» con cualquier carta (#107 y #113) y «Actualizar todos» (#109) · 18/10: la deuda 2–5 (#118 y #121) y el aviso de punto ciego de Infra (#119, #122 y #124) · e2 sigue por defecto ([D-029](Decisiones/D-029.md)); puntos ciegos en [H-055](Hallazgos/H-055.md) | — | [Optimización](Optimizacion-2026-10-09.md), [T-017](Tareas/T-017.md) |
 | F | Fork de deckgym con arreglos (Casco Pesado, Extracto y Plubio, pánico sin Activo) | en producción desde el 15/10 (#115, `dfc8b05`, fork en `018b419`; [H-056](Hallazgos/H-056.md) resuelto) · 18/10: Santiago aprobó rearmarlo sobre upstream `adfe505` con solo `fix/choose-evolution-target` y `feat/bot-api` · 19/10: en producción en `0b510d1` (#133, `f249a9b`; deploy de `83dcb40`, engine-cli 0.3.14 y worker 0.3.12, DECISIONES 51.50–51.53) y, desde la noche, en `c87bad0` (deckgym-core#1 y #138, deploy de `051ed96`, engine-cli 0.3.15 y worker 0.3.13, 51.54–51.57) · calibraciones con el motor nuevo: e2 (79), e2 y e3 con el banco grande (82 y 83) y MCTS (85) · 21/10: bcollazo/deckgym-core#420 integrado upstream (`dfe6ff3`) · 22/10, Santiago: el motor no se mueve hasta que upstream cargue C1, y ese día entra todo junto | — | [D-031](Decisiones/D-031.md), [H-056](Hallazgos/H-056.md) |
-| B | Bots más fuertes: daño real, sin trampa, afinado y evaluación aprendida | en curso (sesión «Bots» en la nube) · diseño (#111, 15/10) y bot «g» opcional (#117, 18/10, engine-cli 0.3.13); e2 sigue por defecto ([D-029](Decisiones/D-029.md)) · 19/10: g 1.1 (#128), g 1.1.1 (#139) y g 1.1.2 (#140) integrados; en la liga, g2 le gana a e2 68,7 % y a f2 63,5 % · 22/10: la app acepta g (#142, desplegado), el seguimiento (#144) y `scripts/bots-bank.mjs` (#146); los mazos 16, 23 y 40 medidos de nuevo; la calibración con g2 (86), corriendo · la línea 2, a una sesión nueva | F | [T-021](Tareas/T-021.md), [H-055](Hallazgos/H-055.md) |
+| B | Bots más fuertes: daño real, sin trampa, afinado y evaluación aprendida | en curso (sesión «Bots» en la nube) · diseño (#111, 15/10) y bot «g» opcional (#117, 18/10, engine-cli 0.3.13); e2 sigue por defecto ([D-029](Decisiones/D-029.md)) · 19/10: g 1.1 (#128), g 1.1.1 (#139) y g 1.1.2 (#140) integrados; en la liga, g2 le gana a e2 68,7 % y a f2 63,5 % · 22/10: la app acepta g (#142, desplegado), el seguimiento (#144) y `scripts/bots-bank.mjs` (#146); los mazos 16, 23 y 40 medidos de nuevo; la calibración con g2 (86), corriendo · la línea 2, a una sesión nueva · 23/10: **g2 es el bot por defecto** (#155, [D-029](Decisiones/D-029.md)), con los puntajes del laboratorio recalculados | F | [T-021](Tareas/T-021.md), [H-055](Hallazgos/H-055.md) |
 | P | Partidas: rival por cartas vistas y ranked por temporada y rango | hecho 18/10 · rival por cartas vistas (#114) y ranked (#120), desplegados, con su deuda en #131 y #130 · 19/10: arquetipo asignado al rival de 20 partidas, y «mi meta» ya tiene 19,9 efectivas · Master Ball anotado por Santiago el 19/10 · 22/10: «Importar desde la hoja» (#143) · [H-060](Hallazgos/H-060.md): tres bloqueos cruzados que ya existían | — | [T-022](Tareas/T-022.md) |
 | H | Hub de chat propio (`santiqwerty1/chat-hub`) | en curso (Principal) · D1–D9 aprobadas · H1–H3, H6 y H5 integrados (chat-hub #1–#11), sin desplegar · T1a (#123 y #126) y T1b (#129) en tcg-pocket · chat-hub #12 y #13 integrados · el paso 5 espera el paso 2 de Santiago, el incremento 5 de Posta en su main y el token `HUB_MCP_TOKEN` | — | [D-030](Decisiones/D-030.md) |
-| C1 | C1 «Dual Fusion»: la app lista para el doble tipo antes del 29/10 | en curso · 22/10: plan en cuatro PR, el orden lo eligió Santiago · #145 integrado (el lector del tracker) · #147 en revisión · faltan el tipo como lista, los consumidores y el issue upstream del doble tipo | — | [T-023](Tareas/T-023.md) |
-| G | La colección real desde ptcgpocket.gg y el archivo para el tracker | en curso · 22/10: pedido de Santiago, sesión en marcha, con revisión adversarial en paralelo | — | [T-024](Tareas/T-024.md) |
+| C1 | C1 «Dual Fusion»: la app lista para el doble tipo antes del 29/10 | hecho lo que no depende de upstream · 22–23/10: #145, #149, #151, #147, #154 y el runbook #152, desplegados (`63c09fe` y `c247f20`) · el 29/10 la app pasa sola a C1 (Santiago) · issue upstream bcollazo/deckgym-core#429 · falta el motor de C1 cuando deckgym lo cargue ([D-031](Decisiones/D-031.md)) | — | [T-023](Tareas/T-023.md) |
+| G | La colección real desde ptcgpocket.gg y el archivo para el tracker | hecho 23/10 · #150 y #153 desplegados · Santiago guardó el link y el juego, la app y el tracker coinciden (5.128 copias) | — | [T-024](Tareas/T-024.md) |
 | K | Bóveda con el kit de Posta | hecho 07/10 · aprobado 08/10 | — | [D-009](Decisiones/D-009.md) |
 
 ## Próximos pasos
 
-**Producción al 22/10/2026:** desplegada hasta `41ee9b8` (#145), con #142–#146. Versión 1.0.0, engine-cli 0.3.16 y worker 0.3.14, con el regulador de CPU prendido. El motor es la copia de deckgym en `c87bad0`, sobre upstream `adfe505` ([D-031](Decisiones/D-031.md)), con el catálogo sincronizado. Los workers se actualizan solos ([D-026](Decisiones/D-026.md)), salvo la Ryzen, que sigue con 0.2.7 y no puede jugar el motor nuevo. El id de la máquina se busca con `flyctl machine list --app tcg-pocket`. **Simulaciones:** con `c87bad0` terminaron las calibraciones e2 y e3 con el banco grande de D-029 (82 y 83) y MCTS (85). La de g2 (86) termina cerca de las 05:00 del 23/10.
+**Producción al 23/10/2026:** desplegada hasta `c247f20` (#155), con la sincronización de ptcgpocket.gg (#150, #153), C1 (#147, #149, #151, #154) y g2 por defecto. Versión 1.0.0, engine-cli 0.3.16 y worker 0.3.14, con el regulador de CPU prendido. El motor es la copia de deckgym en `c87bad0` ([D-031](Decisiones/D-031.md)), y el catálogo, el tracker en `aac8d456`. Los workers se actualizan solos ([D-026](Decisiones/D-026.md)), salvo la Ryzen, que sigue con 0.2.7. El S25 volvió el 23/10, con 0.3.14. El id de la máquina se busca con `flyctl machine list --app tcg-pocket`. **Simulaciones:** las calibraciones 82, 83 y 86 (e2, e3 y g2) con el banco grande, y los puntajes del laboratorio con g2 (87–89). La cola está vacía.
 
 **Repo:** `santiqwerty1/tcg-pocket` es público desde el 11/10 ([D-022](Decisiones/D-022.md)). main está protegida (privacy, test, e2e y screens requeridos) y, desde el 18/10, con `enforce_admins`: tampoco la cuenta de Santiago empuja directo. El hub de chat vive en `santiqwerty1/chat-hub` (privado, [D-030](Decisiones/D-030.md)), con la CI en un runner propio de la PC de Santiago.
 
@@ -96,25 +96,24 @@ revisar: false
 
 Lo que sigue, en orden:
 
-1. **El bot por defecto ([D-029](Decisiones/D-029.md)):** cuando termine la calibración con g2 (86), el Coordinador le pasa a Santiago la propuesta con la fuerza, el costo y la calibración de e2, e3 y g2. Con la decisión se cierra [H-055](Hallazgos/H-055.md).
-2. **C1 «Dual Fusion» antes del 29/10 ([T-023](Tareas/T-023.md)):** #147 en revisión; después, el tipo como lista (riesgo alto, con migración) y los consumidores, y el issue upstream del doble tipo, que publica el Coordinador. El día de C1, sincronizar el catálogo cuando el tracker cargue las cartas. Cuando deckgym cargue C1, el cambio de motor de [D-031](Decisiones/D-031.md).
-3. **La colección real desde ptcgpocket.gg ([T-024](Tareas/T-024.md)):** revisar y verificar el PR de la sesión; después, el paso a paso para Santiago.
+1. **Arreglos chicos después de g2** (una sesión, en curso): la descripción de `decks_pick_today`, el push de «era nueva probable», que sale una sola vez, y el costo de e3 en las estimaciones.
+2. **C1, el día de la salida (29/10, [T-023](Tareas/T-023.md)):** la app pasa sola a C1. Cuando el tracker cargue las cartas, sincronizar el catálogo con la vista previa (runbook en `docs/OPERACION.md`). Cuando deckgym cargue C1, el cambio de motor de [D-031](Decisiones/D-031.md), con el diferencial y los puntajes recalculados con g2.
+3. **[H-055](Hallazgos/H-055.md):** proponer a Santiago cerrarla como explicada, con g2 como arreglo.
 4. **La línea 2 de los bots, sin trampa ([T-021](Tareas/T-021.md)):** en una sesión nueva, con el traspaso de Bots del 22/10.
-5. **[H-060](Hallazgos/H-060.md):** los tres bloqueos cruzados que ya existían, en una tanda de riesgo alto.
+5. **[H-060](Hallazgos/H-060.md):** los cuatro bloqueos cruzados que ya existían, en una tanda de riesgo alto.
 6. **El hub ([D-030](Decisiones/D-030.md)):** el paso 5 espera el paso 2 de Santiago, el incremento 5 de Posta en su main y el token `HUB_MCP_TOKEN`. Después, el cambio de «posta», H4 y T2.
 7. **Santiago:**
-   - las 52 ramas locales de antes de la reescritura (la tabla está en la sala «posta» del 22/10): no tienen nada propio;
    - los relevos viejos de Posta;
    - el paso 2 del hub;
    - en la Ryzen, actualizar el worker (sigue en 0.2.7) y lo demás del paquete `tcg-ryzen-13oct-v2.zip`;
    - los 43 términos de las traducciones de los premios de las misiones;
-   - Termux «Sin restricciones» en la batería del S25 ([H-054](Hallazgos/H-054.md), [T-015](Tareas/T-015.md));
+   - Termux «Sin restricciones» en la batería del S25 ([H-054](Hallazgos/H-054.md), [T-015](Tareas/T-015.md)); el S25 volvió a conectarse el 23/10;
    - en esta PC, el runner Windows de la CI de Posta;
-   - cuando se despliegue la sincronización, crear el link de exportación de ptcgpocket.gg.
+   - si quiere, prender la sincronización diaria de ptcgpocket.gg.
 8. **Privacidad del mail en GitHub** (recomendación para Santiago): activar «Keep my email addresses private» y «Block command line pushes that expose my email» ([R-013](Riesgos/R-013.md)).
 9. **Menores:** [T-016](Tareas/T-016.md) sigue para cuando Santiago lo pida; revisar en la mesa que el fósil se vea una sola vez, para cerrar [H-052](Hallazgos/H-052.md).
 
-Hechos desde la actualización del 14/10:
+Hechos desde la actualización del 14/10 (lo del 23/10, al final):
 - 15/10: #109 («Actualizar todos»), #110 (seguimiento del regulador), #111 (diseño del bot «g»), #113 (seguimiento de #107) y #115 (el fork de deckgym, [H-056](Hallazgos/H-056.md) resuelto), con tres deploys; chat-hub #7 (H6);
 - 18/10: #114 y #120 ([T-022](Tareas/T-022.md) hecha), #116 ([H-058](Hallazgos/H-058.md)), #117 (el bot «g»), #118 y #121 (deuda del laboratorio), #119, #122 y #124 (el aviso de punto ciego, [H-055](Hallazgos/H-055.md)), #123 y #126 (T1a del hub) y #125, con seis deploys; chat-hub #8–#11 (H6.8 y H5);
 - la pausa general del 15/10 a las 17:05 al 18/10 a las 02:46, por el límite semanal de la cuenta;
@@ -125,6 +124,7 @@ Hechos desde la actualización del 14/10:
 - 20–21/10: las calibraciones e2 y e3 con el banco grande (82 y 83) y MCTS (85); bcollazo/deckgym-core#420 integrado upstream;
 - 22/10: #142 (la app acepta g), #144, #146, #143 («Importar desde la hoja») y #145 (C1, el lector del tracker), con los deploys de `cc36161` y `41ee9b8`; los mazos 16, 23 y 40 medidos de nuevo; la calibración con g2 (86); la revisión de C1 y la sesión de ptcgpocket.gg; la limpieza de ramas y worktrees, y los textos de GitHub sin el usuario de Windows.
 
+- 22/10 a la noche y 23/10: #150 y #153 (ptcgpocket.gg), #149, #151, #147, #154 y #152 (C1), y #155 (g2 por defecto), con los deploys de `53528ca`, `75e039f`, `63c09fe` y `c247f20`; el catálogo en `aac8d456`; la calibración con g2 y los puntajes del laboratorio con g2; el issue upstream del doble tipo; la limpieza de ramas y worktrees (0 rastros del usuario de Windows).
 Todo entra por PR, con la CI verde y la revisión del Coordinador. Las sesiones se hablan por el chat externo al repo, en las salas «tcg» y «posta»; Bots, por el chat de la app.
 
 ## Pendiente de decidir (para después)
@@ -168,3 +168,6 @@ El 22/10/2026:
 - **Decididas por Santiago:** C1 con los PR 3 y 4 antes del 29/10, el issue upstream del doble tipo, el sobre especial aparte y apagado, y los Community Decks para más adelante ([T-023](Tareas/T-023.md)); el motor no se mueve hasta que upstream cargue C1 ([D-031](Decisiones/D-031.md)); la sincronización con ptcgpocket.gg ([T-024](Tareas/T-024.md)); y, por Posta-Coordinador, las ramas locales viejas se revisan y las borra él.
 - **Decidido por el Coordinador:** el P2 de Codex de #144 queda como límite conocido (DECISIONES 48.20).
 - **Espera a Santiago:** el bot por defecto, con la calibración de g2 ([D-029](Decisiones/D-029.md)).
+
+El 23/10/2026:
+- **Decididas por Santiago:** `Collected` FALSE con 0 copias en el archivo para el tracker (22/10, a la noche); el 29/10 la app pasa sola a C1; g2 es el bot por defecto ya ([D-029](Decisiones/D-029.md)); borrar las ramas locales viejas y los worktrees de Codex.

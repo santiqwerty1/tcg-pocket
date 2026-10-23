@@ -5,12 +5,23 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-22 desde la etiqueta `v1.0.0` (286 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-23 desde la etiqueta `v1.0.0` (348 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- g2 is the bot by default, from one constant (D-029) (H-055) `8e5f1bc`
+- the defaults of Jugar, the Laboratorio, consistency and MCP are g2 (D-029) `876de98`
+- Jugar, Simulación, Calibración and «¿Cuál llevo hoy?» start with g2 (D-029) `92e0483`
 - bots-bank.mjs — a deck against the meta bank with the same bot on both sides, as H-055 measured it (T-021) `82a94b4`
+- unreadable tracker data is a 422 naming the card and the value, and the preview lists type changes and new dual-type cards (T-023) (#152) `41a90fb`
+- the tracker file writes Collected FALSE with 0 copies in the game (T-020) `5e1d0ac`
 - the worker_idle alert sees allowSlowBots — each claim saves it on the worker, and a job with slow bots that only refusing workers are left to take is alerted (D-025, T-015) (#142) `38ed95b`
+- exercises, events, the laboratory, the web and MCP read both types of a Pokémon (T-023) (#149) `e7bfd77`
+- a card's printed types as a list, for C1's dual-type Pokémon `ab0d03c`
+- C1 «Dual Fusion» in the era table, the C1 ranked season and P-C in the Limitless builder `b3e6349`
+- ptcgpocket.gg in the settings, «Sincronizar con el juego» and «Tracker al día» (T-020) `1300eff`
+- the collection from the game through ptcgpocket.gg, with the tracker for comparison (T-020) `49a642f`
+- read the ptcgpocket.gg export and compare the tracker with the game (T-020) `0be81f7`
 - the app accepts the g bots — the queue gives them only to engine-cli 0.3.16 on, and g1 and g2 are back in the golden games (T-021) (D-029, #128, #139, #140, D-025) `148fc08`
 - «Importar desde la hoja» in Partidas — upload the CSV or paste the cells, the codes' decks, possible repeats, mode, import and the numbers for column K (T-022) `4de1556`
 - import the sheet — preview without writes, apply all or nothing under the ranks' lock with the preview's fingerprint, the codes' decks saved; backup 11 carries clientRef (T-022) `74d6007`
@@ -61,10 +72,33 @@ _Borrador generado al 2026-10-22 desde la etiqueta `v1.0.0` (286 commits). Escri
 
 ### Corregido
 
+- self-review of the g2 default (D-029) `081c95c`
+- self-review — the engine reduction names the card once, a value too deep to print does not hide its error, bugs stay bugs in the energy schema and the literal reader, and the unknown comparison is one more reason (T-023) `a13061c`
+- engine errors name the card and the value, bugs stay 500, unknown fields travel apart, and every reason to confirm shows (T-023) (#151) `d388bdc`
+- the weakness hint only states +20 for printed types; an Ability-granted one depends on the Ability (Codex on #151, T-023) `516935b`
+- a card id the engine bridge cannot map is refused at the input, and whatever stops the pure build is a CatalogInputError (Codex on #151, T-023) `69a3728`
+- Codex on #153 — a 0 row is no proof against a reprint, the restore reads the mark after the apply, the review's seed, no promised file (T-020) (H-060) `320396e`
+- «Tracker al día» leaves out a card a drop not applied yet would zero (S-K, T-020) `73e604f`
+- S-E texts that stay true when the export writes a set only through a reprint (T-020) `50e2b8a`
+- self-review of S-E — reprints in sets ptcgpocket.gg never wrote, the codes a row writes, restore and seed (T-020) `cd8c865`
+- «Tracker al día» compares a set the game has none of anymore (S-E, T-020) `022677a`
+- delta review of #150 — the tracker file never zeroes what the export does not cover (T-020) `ed5bb7b`
+- Codex on #150 — the sync's own lock key, a preview for rows to look at, and dotgg's conflict text (T-020) `816897c`
+- Codex on #150 — the file only with the tracker's internal ids, another link's last check, and «al día» only when complete (T-020) `5d40525`
+- every parse failure of the tracker's files is a CatalogInputError, also the ones before the build (Codex on #151, T-023) `052fc20`
 - bots-bank resolves every subject before the first game, so a misspelled one costs no games (T-021) (#146) `1eec5c4`
+- one snapshot for requests in flight — sync, apply, «Tracker al día», state and alert (T-020) (#150) `0e67922`
 - bots-bank refuses a run that cannot give a score, does not play lists without weight, and keeps seed + k distinct (T-021) (#146) `76b0c16`
+- the catalog preview shows unknown fields and type changes and asks to confirm; stricter engine types; tests for the low findings (T-023) (#149, #151) `da826e0`
+- Codex on #150 — a restored last sync counts only for its link, and the gap refuses a pair that changed (T-020) `6bbc759`
+- Codex on #150 — another link starts with a first sync, and «Tracker al día» compares again on return (T-020) `83fdda6`
+- the second review of the ptcgpocket.gg sync (T-020) `feab8c8`
 - slow bots are the worker's setting — not named when no worker has the job's deckgym but one takes them, and the alert says updating does not fix it (D-025) (#144) `6aea442`
 - a prerelease comes before its release in versionAtLeast — engine-cli 0.3.16-rc.1 does not play the g of 0.3.16 (T-021) (#142) `da2bda0`
+- the extraction reads deckgym's types with the domain's own reducer (Codex on #149) `1aa9ebe`
+- stricter and kinder type parsing, energy wins over a stale list, and the report names unknown fields `1a2d827`
+- close the gaps the self-review found in the ptcgpocket.gg sync (T-020) `5c71ab7`
+- «era nueva probable» yields to a next era already in the table (H-006) `8e0f044`
 - Codex on #143 — a file read after the next one was chosen is dropped, and an unquoted cell is read in one slice (T-022) `a8a2762`
 - the review of #143 — writes under the ranks' lock wait for it as long as an import may hold it and give 503 ranks_busy past that; column K keeps a one-line text as written (T-022) `82dd832`
 - read the tracker's renamed baby flag, containSixthCardBabies (aac8d456) `069bfda`
@@ -207,7 +241,31 @@ _Borrador generado al 2026-10-22 desde la etiqueta `v1.0.0` (286 commits). Escri
 
 ### Documentado
 
+- D-029 says g2 is the bot by default since 23/10/2026 (Codex on #155, D-029) `5f457a5`
+- g2 by default in BOTS.md and API.md, with its decisions (D-029) `460d6e8`
+- the runbook promises only what main has (every reason to confirm comes with #154) (T-023) `1606106`
+- the runbook follows what #147 and #151 landed — the C1 season migration's name, the UTC day and the app's midnight, the dual-type list and every reason to confirm (T-023) `4e1d69f`
+- Santi confirms the app turns to C1 by itself on 29/10 (T-023) `3647bf1`
+- the decision names the renamed C1 season migration (T-023) `62e948b`
+- decisions for the uncovered expansions, the server-only fingerprint and the restore reset (T-020) `9e81d8c`
+- the lock key list and the kept preview in the decisions (T-020) `3273208`
+- decisions for the internal-id check, the last check and «al día» (T-020) `d5fe055`
+- the 422 covers every file of the tracker and the engine (T-023) `02dd25d`
+- the snapshot pattern for requests in flight (T-020) `943a813`
+- Codex on #152 — pack defaults only for new packs, the era proposal needs synced tournaments, and the preview's 422 (T-023) (#151) `29bdfaf`
+- the expansion-day runbook (T-023) `cb1db66`
+- decisions for the restored last sync and the gap's re-read of the pair (T-020) `96a4359`
 - the worker_idle alert does not model the consistency version gates — a known limit (D-025) (#144) `5941e20`
+- decisions for another link's first sync and the gap's re-read (T-020) `2b8b0d6`
+- the second review's decisions and API notes (T-020) `c2e0357`
+- operating the ptcgpocket.gg source (T-020) `0555a79`
+- review of #148 — 28/10/2026 is a Wednesday, and D-029's table says its reports use the tournaments of 22/10 (79: 43 pairs then, 42 on 19/10) (T-023, D-029) `17f4c21`
+- review of #148 — Inicio points at the 22/10 log, D-029 records the 33-list bank, H-055 carries n and intervals, with tournament figures of 22/10 (D-029, H-055) `31b3389`
+- the self-review decisions and the renamed rows in the preview (T-020) `cc93190`
+- the 41ee9b8 deploy took three tries, and the Codex P2 on #147 (T-023) `80ec562`
+- the era table goes by UTC day — C1 counts from 00:00 UTC on 29/10, and the app's current era turns at the owner's midnight (Codex on #147, T-023) `c555953`
+- 20–22/10 — the big-bank calibrations (e3 ahead of e2), g in the app and the g2 calibration, the sheet import, C1 «Dual Fusion» and the ptcgpocket.gg sync as new tasks, three pre-existing lock cycles, the engine waits for C1 upstream; fold the decisions of #142–#145 (D-029, D-031, H-052, H-055, H-060, R-012, T-021, T-022, T-023, T-024) `d23ec4f`
+- the ptcgpocket.gg endpoints, backup 11 and the decisions of T-020 `71f2358`
 - the lock wait and column K kept as written (T-022) `72ada7d`
 - the decisions and API of the fixes to the sheet import (T-022) `23dec9a`
 - the corrected rows, what is not read and the lock order of the sheet import (T-022) `e790c8c`
@@ -275,6 +333,8 @@ _Borrador generado al 2026-10-22 desde la etiqueta `v1.0.0` (286 commits). Escri
 
 ### Pruebas
 
+- a restore without the link resets too, and the collection's date drops the other link's check (T-020) `b6b2114`
+- the re-sync e2e expects the typesChanged count too (T-023) `3da2b9a`
 - the installer test answers the slow-bots prompt that now names the g bots (T-021) `84cc7df`
 - the golden games see what g models apart from f — poison, burn and Tools — and the worker hint spares Androids that turn g down (T-021) (#142, H-051) `3429230`
 - count the reads of the matches list in the 10.000-row plan (T-022) `1354d4a`
@@ -302,6 +362,7 @@ _Borrador generado al 2026-10-22 desde la etiqueta `v1.0.0` (286 commits). Escri
 
 ### Mantenimiento
 
+- the C1 season migration goes after main's (20261023100000), so it never applies out of order (review of #147, T-023) `8d01d13`
 - the aac8d456 fixture keeps only the two literals, and the openable note follows the tracker `8ab1112`
 - review of #132 — implicit pushes, combined -f flags, deletes, prune and pack options still ask; tests and lint allowed only without arguments (D-021) `50f8029`
 - fewer manual approvals — git push asks only for main, force, delete, mirror or all; safe read and test commands allowed (D-021) `aaea264`
@@ -310,6 +371,10 @@ _Borrador generado al 2026-10-22 desde la etiqueta `v1.0.0` (286 commits). Escri
 - bump the development group with 2 updates (#61) `7f62616`
 - bump the production group with 3 updates (#60) `a7f8afc`
 - bump actions/setup-node from 4 to 7 (#59) `db16eeb`
+
+### Otros
+
+- docs+test: decisions of the self-review, labSimulable in API.md, the Bot select in the screens (D-029) `43b7f6e`
 ### Hallazgos cerrados
 
 - H-059 por `703b89b` en main
@@ -320,6 +385,9 @@ _Borrador generado al 2026-10-22 desde la etiqueta `v1.0.0` (286 commits). Escri
 
 ### Decidido
 
+- 2026-10-23 — D-029, decidido por Santiago: g2 es el bot por defecto ya (calibraciones 82, 83 y 86 con el banco grande); los puntajes del laboratorio se recalcularon con g2.
+- 2026-10-23 — T-023, decidido por Santiago: el 29/10 la app pasa sola a la era C1, aunque el meta quede vacío hasta que lleguen torneos.
+- 2026-10-22 — T-024, decidido por Santiago: en el archivo para el tracker, `Collected` es FALSE con 0 copias.
 - 2026-10-22 — D-031 y T-023, decidido por Santiago: el motor no se mueve hasta que upstream cargue C1 «Dual Fusion»; ese día entran juntos C1, los arreglos de upstream y nuestras dos ramas. Para C1, los PR 3 y 4 antes del 29/10, el issue upstream del doble tipo, el sobre especial aparte y apagado, y los Community Decks más adelante.
 - 2026-10-22 — T-024, pedido de Santiago: la colección real desde ptcgpocket.gg, con el archivo para poner al día el tracker.
 - 2026-10-19 — D-029: el Coordinador lanzó, a pedido de Santiago, las calibraciones e2 y e3 con el banco grande que Santiago decidió el 13/10 (33 listas, 1.000 partidas por cruce) y MCTS, con el motor `c87bad0`.
