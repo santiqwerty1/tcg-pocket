@@ -93,14 +93,22 @@ export function editionTypesInPlay(edition: TypedEdition): string[] {
 }
 
 /**
- * The «+20 por debilidad de X» hint of the game against the bot: when the defender's Weakness is any of the types the
- * attacker counts as in play (C1's dual types, Urshifu's «Double Type»); null otherwise or without both editions.
+ * The «+20 por debilidad de X» hint of the game against the bot. The printed types always hit the Weakness (C1's dual
+ * types too). A type that only an Ability grants (Urshifu's «Double Type») hits it while the Ability works: an effect
+ * can strip it (Budew's Prickly Powder, deckgym `CardEffect::AbilitiesDisabled`), and the engine's board does not say
+ * so. `abilitiesDisabled`: true leaves the granted type out, false counts it as printed; unknown (the board as it is
+ * today), the hint says it depends on the Ability. Null without a match or without both editions.
  */
 export function weaknessHint(
   attacker: TypedEdition | null | undefined,
   defender: { weakness?: string | null | undefined } | null | undefined,
   defenderName: string,
+  options: { abilitiesDisabled?: boolean | undefined } = {},
 ): string | null {
   if (!attacker || !defender?.weakness) return null
-  return editionTypesInPlay(attacker).includes(defender.weakness) ? `+20 por debilidad de ${defenderName}` : null
+  if (editionTypes(attacker).includes(defender.weakness)) return `+20 por debilidad de ${defenderName}`
+  if (options.abilitiesDisabled === true || !editionTypesInPlay(attacker).includes(defender.weakness)) return null
+  return options.abilitiesDisabled === false
+    ? `+20 por debilidad de ${defenderName}`
+    : `+20 por debilidad de ${defenderName}, si su habilidad no está anulada`
 }

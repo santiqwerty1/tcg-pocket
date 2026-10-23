@@ -70,7 +70,22 @@ describe('the «+20 por debilidad» hint against the bot', () => {
       types: ['water'],
       ability: { effect: 'As long as this Pokémon is in play, it is [W] and [F] type.' },
     }
-    expect(weaknessHint(urshifu, { weakness: 'fighting' }, 'Lucario')).toBe('+20 por debilidad de Lucario')
+    // A type only the Ability grants: the board does not say whether an effect stripped it (Budew's Prickly Powder).
+    expect(weaknessHint(urshifu, { weakness: 'fighting' }, 'Lucario')).toBe(
+      '+20 por debilidad de Lucario, si su habilidad no está anulada',
+    )
+    // Suppressed: no +20 for the granted type (Codex on #151); its printed Water still counts.
+    expect(weaknessHint(urshifu, { weakness: 'fighting' }, 'Lucario', { abilitiesDisabled: true })).toBeNull()
+    expect(weaknessHint(urshifu, { weakness: 'water' }, 'Charizard', { abilitiesDisabled: true })).toBe(
+      '+20 por debilidad de Charizard',
+    )
+    expect(weaknessHint(urshifu, { weakness: 'fighting' }, 'Lucario', { abilitiesDisabled: false })).toBe(
+      '+20 por debilidad de Lucario',
+    )
+    // A printed second type (C1) never depends on an Ability.
+    expect(weaknessHint(mewtwo, { weakness: 'fighting' }, 'Pikachu', { abilitiesDisabled: true })).toBe(
+      '+20 por debilidad de Pikachu',
+    )
     expect(weaknessHint({ energy: 'water' }, { weakness: 'fighting' }, 'Lucario')).toBeNull()
     expect(weaknessHint(null, { weakness: 'fighting' }, 'Lucario')).toBeNull()
     expect(weaknessHint(mewtwo, { weakness: null }, 'Lucario')).toBeNull()
