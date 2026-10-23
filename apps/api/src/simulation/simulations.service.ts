@@ -14,6 +14,7 @@ import {
   combinationNamesEs,
   comparePairings,
   comparisonSeed,
+  DEFAULT_BOT,
   DEFAULT_CONSISTENCY_GAMES,
   DEFAULT_CONSISTENCY_TURNS,
   type DeckCardEntry,
@@ -25,6 +26,7 @@ import {
   estimateSeconds,
   type GameRecord,
   isBotCode,
+  LEGACY_DEFAULT_BOT,
   MAX_BASE_SEED,
   MAX_GAMES_PER_CHUNK,
   matrixPairings,
@@ -484,7 +486,8 @@ export class SimulationsService {
       sideA: playable.map((snapshot) => ({ snapshotId: snapshot.id })),
       sideB: params.sideB.map((snapshotId) => ({ snapshotId })),
       gamesPerPair: Math.min(MAX_GAMES_PER_PAIR, optimizeConfirmGamesPerRival(job.gamesPerPair)),
-      players: [job.players[0] ?? 'e2', job.players[1] ?? 'e2'],
+      // The optimize job's own bots (a stored job always has them; the fallback is the one of its time, D-029).
+      players: [job.players[0] ?? LEGACY_DEFAULT_BOT, job.players[1] ?? LEGACY_DEFAULT_BOT],
       replaySample: 0,
       confirmationOf: { jobId, ...plan },
     })
@@ -921,7 +924,8 @@ export class SimulationsService {
     /** Against the meta (D-019): the bank's rivals with their games (the Laboratorio builds it). */
     meta?: { era: string; format: string; rivals: ConsistencyRival[] } | undefined
   }): Promise<JobSummaryView> {
-    const bot = input.bot ?? 'e2'
+    // D-029: the domain's bot by default (g2 since 23/10/2026), against a passive rival and against the meta.
+    const bot = input.bot ?? DEFAULT_BOT
     // «et» only ends its turn: it is the goldfish rival, never the bot that plays the deck (H-051). The queue lets
     // consistency jobs through to engines without «et» for that rival, so one with «et» as the bot would fail there.
     if (!isBotCode(bot) || bot === ET_BOT_CODE) {
@@ -1014,7 +1018,8 @@ export class SimulationsService {
       second: readinessCurve(split.second),
       all: readinessCurve(mergeHistograms(split.first, split.second)),
     })
-    const bot = params?.bot ?? job.players[0] ?? 'e2'
+    // A stored job: its own bot (the fallback is the one of its time, D-029).
+    const bot = params?.bot ?? job.players[0] ?? LEGACY_DEFAULT_BOT
     return {
       mode: consistencyMode(job.params),
       era: params?.era ?? null,

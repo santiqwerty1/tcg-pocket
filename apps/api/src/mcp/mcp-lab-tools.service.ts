@@ -17,7 +17,7 @@ import {
 import { CatalogService } from '../catalog/catalog.service.js'
 import { DecksService } from '../decks/decks.service.js'
 import { EventsService } from '../events/events.service.js'
-import { againstEs, LAB_NOTE, type LabDeckInput, LabService } from '../lab/lab.service.js'
+import { againstEs, LAB_DEFAULT_PLAYERS, LAB_NOTE, type LabDeckInput, LabService } from '../lab/lab.service.js'
 import type { LabDeckView, LabExploreView } from '../lab/lab-views.js'
 import { SimulationsService } from '../simulation/simulations.service.js'
 import { LIMITLESS_ATTRIBUTION } from '../tournaments/tournaments.service.js'
@@ -459,12 +459,13 @@ export class McpLabToolsService {
         ...(result.games.probe > 0 ? { probeRoundGames: result.games.probe } : {}),
         ...(result.games.fill > 0 ? { fillRoundGamesAtMost: result.games.fill } : {}),
         maxGames: result.games.max,
+        // D-029: with the bots the search plays, the Laboratorio's by default when none are asked (g2 costs ~3 × e2).
         estimatedMinutes: {
           perRound: Math.max(
             1,
-            Math.round(estimateSeconds(result.games.perRound, args.bots ?? ['e2', 'e2'], cores) / 60),
+            Math.round(estimateSeconds(result.games.perRound, args.bots ?? LAB_DEFAULT_PLAYERS, cores) / 60),
           ),
-          max: Math.max(1, Math.round(estimateSeconds(result.games.max, args.bots ?? ['e2', 'e2'], cores) / 60)),
+          max: Math.max(1, Math.round(estimateSeconds(result.games.max, args.bots ?? LAB_DEFAULT_PLAYERS, cores) / 60)),
         },
       }
     }

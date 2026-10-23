@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { estimateSeconds } from '@tcg/domain'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
 import { todayInOwnerZone } from '../src/config/time-zone.js'
@@ -643,6 +644,46 @@ describe('MCP write tools (e2e)', () => {
       true,
     )
     await call(client, 'simulations_cancel', { job: jobId })
+  })
+
+  it('D-029: without bots it plays g2, and the plan and confirmLong take g2’s cost (about 3 times e2’s)', async () => {
+    const client = await connect()
+    const before = ((await get('/api/simulations')).body as { items: unknown[] }).items.length
+    // 8 decks against each other: 28 pairings. With e2 about 17 minutes on 8 cores, with g2 about 52.
+    const matrix = { kind: 'matrix', decksA: ['1', '2', '3', '4', '5', '6', '7', '8'], games: 3000 }
+    const minutes = (bot: string) => Math.max(1, Math.round(estimateSeconds(28 * 3000, [bot, bot], 8) / 60))
+    const plan = await call(client, 'simulations_enqueue', { ...matrix, dryRun: true })
+    expect(plan.isError, plan.content[0]?.text).toBeFalsy()
+    expect(plan.structuredContent).toMatchObject({
+      queued: false,
+      dryRun: true,
+      plan: { bots: ['g2', 'g2'], totalGames: 28 * 3000, estimatedMinutes: minutes('g2') },
+    })
+    const classic = await call(client, 'simulations_enqueue', { ...matrix, bots: ['e2', 'e2'], dryRun: true })
+    expect(classic.structuredContent).toMatchObject({ plan: { bots: ['e2', 'e2'], estimatedMinutes: minutes('e2') } })
+    expect(minutes('e2')).toBeLessThanOrEqual(30)
+    // What e2 would play in under 30 minutes is a long job with g2: not queued without confirmLong.
+    const refused = await call(client, 'simulations_enqueue', matrix)
+    expect(refused.structuredContent).toMatchObject({
+      queued: false,
+      message: expect.stringContaining('confirmLong'),
+      plan: { bots: ['g2', 'g2'] },
+    })
+    expect(((await get('/api/simulations')).body as { items: unknown[] }).items.length).toBe(before)
+    // What it queues plays g2 on both sides.
+    const queued = await call(client, 'simulations_enqueue', {
+      kind: 'compare',
+      decksA: ['7'],
+      decksB: ['2'],
+      games: 10,
+    })
+    expect(queued.isError, queued.content[0]?.text).toBeFalsy()
+    const jobId = queued.structuredContent.jobId as number
+    try {
+      expect(((await get(`/api/simulations/${jobId}`)).body as { players: string[] }).players).toEqual(['g2', 'g2'])
+    } finally {
+      await call(client, 'simulations_cancel', { job: jobId })
+    }
   })
 
   it('Fase 43: collection_set edits one edition by code, asks when a name is ambiguous, and can be undone', async () => {

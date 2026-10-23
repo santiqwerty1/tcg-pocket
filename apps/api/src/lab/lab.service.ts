@@ -43,6 +43,7 @@ import {
   DEFAULT_CONSISTENCY_GAMES,
   DEFAULT_EXPLORE_CONFIG,
   DEFAULT_GAUNTLET_SIZE,
+  DEFAULT_PLAYERS,
   type DeckCardEntry,
   describeEventRulesEs,
   describeProblems,
@@ -174,8 +175,11 @@ import type {
 export const LAB_NOTE =
   'Juegan bots del motor deckgym, no personas: el porcentaje depende del bot y del motor. Es una pista para probar en el juego, no un veredicto.'
 export const MAX_TEST_DECKS = 10
-/** The Laboratorio's bots by default (D-029): the score of a deck in «¿Cuál llevo hoy?» is theirs. */
-export const LAB_DEFAULT_PLAYERS: [string, string] = ['e2', 'e2']
+/**
+ * The Laboratorio's bots by default (D-029): the score of a deck in «¿Cuál llevo hoy?» is theirs. The domain's bot by
+ * default on both sides (g2 since 23/10/2026): a deck with only e2's scores shows them apart until «Actualizar todos».
+ */
+export const LAB_DEFAULT_PLAYERS: [string, string] = [...DEFAULT_PLAYERS]
 /** Advisory lock key (a session lock) that serializes «Actualizar todos» (any constant no other lock uses). */
 const REFRESH_LOCK = 43_031
 const DEFAULT_TEST_GAMES = 100
@@ -205,7 +209,7 @@ export interface DeckLabScore {
   /** The bank's format and rivals (review of #119: «¿Cuál llevo hoy?» compares the score with tournaments of the same). */
   format: TournamentFormat
   rivals: { archetypeId: string; weight: number }[]
-  /** The bots that played it: «e2», or «e2 contra e3» when the two sides differ. */
+  /** The bots that played it: «g2», or «g2 contra e3» when the two sides differ. */
   bot: string
   finishedAt: Date | null
   score: LabScoreView

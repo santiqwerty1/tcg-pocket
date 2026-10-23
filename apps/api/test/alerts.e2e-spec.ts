@@ -348,6 +348,78 @@ describe('alerts (e2e)', () => {
     }
   })
 
+  it('D-029: work queued without a bot plays g2; worker_idle says what blocks it only when no worker alive can play it', async () => {
+    const post = (path: string) => test.http().post(path).set('Cookie', cookie)
+    const idle = async () =>
+      ((await get('/api/alerts')).body.items as { code: string; detail: string }[]).filter(
+        (item) => item.code === 'worker_idle',
+      )
+    // One deck of the 40 (2, Mega-Blaziken ex) and its consistency against a passive rival, without choosing a bot.
+    const text = readFileSync(join(REPO_ROOT, 'docs/context/mazos_40_listas.md'), 'utf8')
+    const section = text.slice(text.indexOf('\n### 2. ') + 1, text.indexOf('\n### 3. '))
+    const [draft] = (await post('/api/decks/import').send({ text: section })).body.drafts as {
+      title: string
+      draft: { energies: string[]; cards: unknown[] }
+    }[]
+    expect(draft).toBeDefined()
+    const committed = await post('/api/decks/import/commit').send({
+      decks: [{ name: draft?.title, energies: ['fire'], cards: draft?.draft.cards }],
+    })
+    expect(committed.status).toBe(201)
+    const deckId = ((await get('/api/decks')).body.items as { id: string; name: string }[]).find(
+      (deck) => deck.name === draft?.title,
+    )?.id
+    const created = await post('/api/simulations/consistency').send({ deckId, games: 100 })
+    expect(created.status).toBe(201)
+    expect(created.body.players).toEqual(['g2', 'et'])
+    const rev = test.env.engineRev ?? 'x'
+    const features = ['perGame', 'batch', 'fairBots', 'etBot', 'gBots']
+    const node = (id: string, data: { cliVersion: string; allowSlowBots: boolean; platform?: string }) =>
+      test.prisma.workerNode.upsert({
+        where: { id },
+        create: {
+          id,
+          name: id,
+          engineRev: rev,
+          lastSeenAt: new Date(),
+          engineFeatures: features,
+          gamesRev: 1,
+          ...data,
+        },
+        update: { lastSeenAt: new Date(), ...data },
+      })
+    // Only these workers are alive for this test; the others go back to when they were seen.
+    const seen = await test.prisma.workerNode.findMany({ select: { id: true, lastSeenAt: true } })
+    await test.prisma.workerNode.updateMany({ data: { lastSeenAt: new Date(Date.now() - 3 * 60 * 60 * 1000) } })
+    try {
+      // Only an Android that turns slow bots down (D-025): the alert says so, and that updating does not fix it.
+      await node('worker-d029-android', { cliVersion: '0.3.16', allowSlowBots: false, platform: 'android' })
+      expect(await idle()).toEqual([
+        expect.objectContaining({
+          detail: expect.stringMatching(
+            /^1 chunk pide los bots lentos \(MCTS, profundidad 3 o más y los g\), .*Es una opción del worker, no se arregla actualizando/,
+          ),
+        }),
+      ])
+      // A PC whose engine has an earlier g (0.3.15): it asks for engine-cli 0.3.16 too.
+      await node('worker-d029-pc', { cliVersion: '0.3.15', allowSlowBots: true })
+      expect(await idle()).toEqual([
+        expect.objectContaining({
+          detail: expect.stringMatching(/^1 chunk pide los bots g y los bots lentos .*engine-cli 0\.3\.16 o más nuevo/),
+        }),
+      ])
+      // The PC updated (engine-cli 0.3.16): it plays g2, so nothing to say, with the Android still alive.
+      await node('worker-d029-pc', { cliVersion: '0.3.16', allowSlowBots: true })
+      expect(await idle()).toEqual([])
+    } finally {
+      await test.prisma.simulationJob.deleteMany({ where: { id: created.body.id as number } })
+      await test.prisma.workerNode.deleteMany({ where: { id: { in: ['worker-d029-android', 'worker-d029-pc'] } } })
+      for (const worker of seen) {
+        await test.prisma.workerNode.update({ where: { id: worker.id }, data: { lastSeenAt: worker.lastSeenAt } })
+      }
+    }
+  })
+
   const operationAlerts = async (code: string) =>
     ((await get('/api/alerts')).body.items as { code: string; title: string; level: string }[]).filter(
       (item) => item.code === code,

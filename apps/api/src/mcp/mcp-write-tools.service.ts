@@ -6,6 +6,7 @@
 import type { McpServer, StandardSchemaWithJSON } from '@modelcontextprotocol/server'
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import {
+  DEFAULT_PLAYERS,
   type DeckCardEntry,
   foldText,
   formatWinRateEs,
@@ -808,7 +809,8 @@ export class McpWriteToolsService {
       sideA,
       sideB,
       gamesPerPair: args.games ?? 200,
-      players: args.bots ?? ['e2', 'e2'],
+      // D-029: the domain's bot by default (g2 since 23/10/2026); the estimate and confirmLong follow its cost.
+      players: args.bots ?? [...DEFAULT_PLAYERS],
       ...(args.seed !== undefined ? { seed: args.seed } : {}),
       ...(args.bothOrders !== undefined ? { bothOrders: args.bothOrders } : {}),
       ...(args.replaySample !== undefined ? { replaySample: args.replaySample } : {}),

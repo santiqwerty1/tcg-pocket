@@ -17,6 +17,7 @@ import {
   FAIR_BOT_CODES,
   G_BOT_CODES,
   holderLeftMs,
+  LEGACY_DEFAULT_BOT,
   type PerGameResults,
   paceMsPerGame,
   pickCopy,
@@ -371,7 +372,8 @@ export class WorkerQueueService {
           ? {
               keyCards: consistencyParams?.engineIds ?? [],
               maxTurn: consistencyParams?.maxTurn ?? 8,
-              bot: consistencyParams?.bot ?? job.players[0] ?? 'e2',
+              // The job's own bot (stored since Fase 8; the fallback is the one of its time, D-029).
+              bot: consistencyParams?.bot ?? job.players[0] ?? LEGACY_DEFAULT_BOT,
               rivals: consistencyParams?.rivals?.length
                 ? consistencyParams.rivals.map((rival) => ({
                     deck: rivalTexts.find((row) => row.id === rival.snapshot)?.deckgymText ?? '',

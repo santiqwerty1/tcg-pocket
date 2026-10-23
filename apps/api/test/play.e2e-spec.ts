@@ -12,6 +12,11 @@ import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /** Fase 8: a game against a bot, relayed by a fake worker through the worker API (no engine). */
 const DECKS_PATH = join(REPO_ROOT, 'docs/context/mazos_40_listas.md')
+/**
+ * The bot of the games that test the protocol: e2, the bot by default until 23/10/2026, which every fake worker here
+ * plays. The bot by default since then, g2 (D-029), needs an engine with its g and has tests of its own below.
+ */
+const CLASSIC_BOT = 'e2'
 
 describe('playing against a bot (e2e)', () => {
   let test: TestApp
@@ -100,6 +105,7 @@ describe('playing against a bot (e2e)', () => {
         human: { deckId: deckIds[1] },
         rival: { deckId: deckIds[12] },
         seed: 77,
+        bot: CLASSIC_BOT,
       })
       expect(created.status).toBe(201)
       id = created.body.id as number
@@ -197,7 +203,12 @@ describe('playing against a bot (e2e)', () => {
   it('a disconnected choice poll releases its lease without renewing it after the wait', async () => {
     const games = test.app.get(LiveGamesService)
     const events = (games as unknown as { events: EventEmitter }).events
-    const created = await games.create({ human: { deckId: deckId(1) }, rival: { deckId: deckId(12) }, seed: 77 })
+    const created = await games.create({
+      human: { deckId: deckId(1) },
+      rival: { deckId: deckId(12) },
+      seed: 77,
+      bot: CLASSIC_BOT,
+    })
     const id = created.id
     const workerId = 'worker-gone-choice'
     expect((await games.claim({ workerId, engineRev: engineRev() })).game?.id).toBe(id)
@@ -239,7 +250,12 @@ describe('playing against a bot (e2e)', () => {
 
   it.each([1, 2])('releases the lease if choice disconnects during read %i', async (abortAtRead) => {
     const games = test.app.get(LiveGamesService)
-    const game = await games.create({ human: { deckId: deckId(1) }, rival: { deckId: deckId(12) }, seed: 77 })
+    const game = await games.create({
+      human: { deckId: deckId(1) },
+      rival: { deckId: deckId(12) },
+      seed: 77,
+      bot: CLASSIC_BOT,
+    })
     const workerId = 'worker-gone-read'
     expect((await games.claim({ workerId, engineRev: engineRev() })).game?.id).toBe(game.id)
     const controller = new AbortController()
@@ -287,6 +303,7 @@ describe('playing against a bot (e2e)', () => {
       human: { deckId: deckIds[1] },
       rival: { deckId: deckIds[12] },
       seed: 77,
+      bot: CLASSIC_BOT,
     })
     expect(created.status).toBe(201)
     expect(created.body).toMatchObject({ status: 'queued', bot: 'e2', seed: '77', choices: 0, decision: null })
@@ -366,6 +383,7 @@ describe('playing against a bot (e2e)', () => {
       human: { deckId: deckIds[1] },
       rival: { deckId: deckIds[12] },
       seed: 88,
+      bot: CLASSIC_BOT,
     })
     const id = created.body.id as number
     const { port } = test.app.getHttpServer().address() as AddressInfo
@@ -440,6 +458,7 @@ describe('playing against a bot (e2e)', () => {
       rival: { deckId: deckIds[12] },
       seed: 91,
       coach: true,
+      bot: CLASSIC_BOT,
     })
     expect(created.body).toMatchObject({ coach: true, coachReviews: [], coachSummary: { decisions: 0 } })
     const id = created.body.id as number
@@ -507,6 +526,7 @@ describe('playing against a bot (e2e)', () => {
       rival: { deckId: deckIds[12] },
       seed: 515,
       coach: true,
+      bot: CLASSIC_BOT,
     })
     const id = created.body.id as number
     expect(created.body.undos).toBe(0)
@@ -573,6 +593,7 @@ describe('playing against a bot (e2e)', () => {
       rival: { deckId: deckIds[12] },
       seed: 31,
       coach: true,
+      bot: CLASSIC_BOT,
     })
     const id = created.body.id as number
     const state = { turn: 3, current_player: 0, points: [0, 0], winner: null, players: [], stadium: null }
@@ -650,6 +671,7 @@ describe('playing against a bot (e2e)', () => {
       rival: { deckId: deckIds[12] },
       seed: 41,
       coach: true,
+      bot: CLASSIC_BOT,
     })
     const id = created.body.id as number
     const engineId = created.body.decks.human[0].engineId as string
@@ -720,6 +742,7 @@ describe('playing against a bot (e2e)', () => {
       human: { deckId: deckIds[1] },
       rival: { deckId: deckIds[12] },
       seed: 78,
+      bot: CLASSIC_BOT,
     })
     const id = created.body.id as number
     expect(
@@ -743,7 +766,11 @@ describe('playing against a bot (e2e)', () => {
   })
 
   it('H-013: a game waiting a week for the owner is given up even while the worker keeps renewing its lease', async () => {
-    const created = await post('/api/play').send({ human: { deckId: deckIds[1] }, rival: { deckId: deckIds[12] } })
+    const created = await post('/api/play').send({
+      human: { deckId: deckIds[1] },
+      rival: { deckId: deckIds[12] },
+      bot: CLASSIC_BOT,
+    })
     const id = created.body.id as number
     // A worker holds it, waiting for the owner's move (lease set directly: other games may be queued).
     await test.prisma.liveGame.update({
@@ -767,7 +794,11 @@ describe('playing against a bot (e2e)', () => {
   })
 
   it('abandon: the worker is told and stops; a deck that cannot be played is refused', async () => {
-    const created = await post('/api/play').send({ human: { deckId: deckIds[1] }, rival: { deckId: deckIds[12] } })
+    const created = await post('/api/play').send({
+      human: { deckId: deckIds[1] },
+      rival: { deckId: deckIds[12] },
+      bot: CLASSIC_BOT,
+    })
     const id = created.body.id as number
     await worker('post', '/api/worker/live/claim').send({ workerId: 'worker-live-03', engineRev: engineRev() })
     await worker('put', `/api/worker/live/${id}/decision`).send({ ...decision(1), workerId: 'worker-live-03' })
@@ -781,7 +812,11 @@ describe('playing against a bot (e2e)', () => {
       energies: ['fire'],
       cards: [{ cardId: 'B1-33', count: 2 }],
     })
-    const refused = await post('/api/play').send({ human: { deckId: short.body.id }, rival: { deckId: deckIds[12] } })
+    const refused = await post('/api/play').send({
+      human: { deckId: short.body.id },
+      rival: { deckId: deckIds[12] },
+      bot: CLASSIC_BOT,
+    })
     expect(refused.status).toBe(400)
     expect(refused.body.error?.message ?? refused.body.message).toMatch(/no se puede jugar/)
     expect(
@@ -795,7 +830,12 @@ describe('playing against a bot (e2e)', () => {
   })
 
   it('consistency: one chunk for workers 0.2.0+, the curves of P(ready by own turn N) and the deck column', async () => {
-    const created = await post('/api/simulations/consistency').send({ deckId: deckIds[1], games: 100, seed: 5 })
+    const created = await post('/api/simulations/consistency').send({
+      deckId: deckIds[1],
+      games: 100,
+      seed: 5,
+      bot: CLASSIC_BOT,
+    })
     expect(created.status).toBe(201)
     expect(created.body).toMatchObject({ kind: 'consistency', players: ['e2', 'et'], progress: { totalGames: 100 } })
     expect(created.body.label).toMatch(/Mega-Blaziken ex/)
@@ -925,5 +965,42 @@ describe('playing against a bot (e2e)', () => {
     // engine-cli 0.3.13–0.3.15 list «gBots» with an earlier g.
     expect((await claim('0.3.15', features)).body).toEqual({ game: null })
     expect((await claim('0.3.16', features)).body.game).toMatchObject({ id, bot: 'g2' })
+  })
+
+  it('D-029: a game started without a bot is against g2, and only an engine with the g of engine-cli 0.3.16 plays it', async () => {
+    const created = await post('/api/play').send({
+      human: { deckId: deckIds[1] },
+      rival: { deckId: deckIds[12] },
+      seed: 95,
+    })
+    expect(created.status).toBe(201)
+    expect(created.body).toMatchObject({
+      status: 'queued',
+      bot: 'g2',
+      botEs: 'expectiminimax sin trampa, profundidad 2',
+    })
+    const id = created.body.id as number
+    try {
+      expect((await get('/api/play')).body.items).toContainEqual(
+        expect.objectContaining({ id, botEs: 'expectiminimax sin trampa, profundidad 2' }),
+      )
+      const claim = (body: Record<string, unknown>) =>
+        worker('post', '/api/worker/live/claim').send({
+          workerId: 'worker-default-01',
+          engineRev: engineRev(),
+          ...body,
+        })
+      // A worker from before the features, and engines without this g, never take it.
+      expect((await claim({})).body).toEqual({ game: null })
+      const features = ['perGame', 'fairBots', 'etBot', 'gBots']
+      expect((await claim({ version: '0.3.13', cliVersion: '0.3.15', engineFeatures: features })).body).toEqual({
+        game: null,
+      })
+      // The PC (worker 0.3.14, engine-cli 0.3.16) does.
+      const taken = (await claim({ version: '0.3.14', cliVersion: '0.3.16', engineFeatures: features })).body.game
+      expect(taken).toMatchObject({ id, bot: 'g2', seed: '95' })
+    } finally {
+      await post(`/api/play/${id}/abandon`).send({})
+    }
   })
 })

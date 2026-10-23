@@ -1537,10 +1537,17 @@ ${MCP_CHAT_INSTRUCTIONS}`
               labTesting: `prueba #${row.labRunning.jobId} ${row.labRunning.status === 'queued' ? 'en cola' : `jugando: ${row.labRunning.gamesDone} de ${row.labRunning.totalGames} partidas`}`,
             }
           : {}),
+        // D-029: the default bot changed (g2 since 23/10/2026); a list tested only with e2 has no score yet, said so and
+        // never filled with the other bot's number.
+        ...(!row.lab && !row.labRunning && !row.labFailed
+          ? {
+              labMissing: `sin puntaje con ${labBotLabel(LAB_DEFAULT_PLAYERS)}, el bot por defecto del Laboratorio${row.labOthers.length > 0 ? ' (los de otros bots van en labOtherBots y no lo reemplazan)' : ''}: «Actualizar todos» en ¿Cuál llevo hoy? lo mide`,
+            }
+          : {}),
       })),
       ...(view.labDue > 0
         ? {
-            labDue: `${view.labDue} ${view.labDue === 1 ? 'mazo' : 'mazos'} sin puntaje del Laboratorio de esta era: «Actualizar todos» en ¿Cuál llevo hoy?`,
+            labDue: `${view.labDue} ${view.labDue === 1 ? 'mazo' : 'mazos'} sin puntaje del Laboratorio con ${labBotLabel(LAB_DEFAULT_PLAYERS)} de esta era: «Actualizar todos» en ¿Cuál llevo hoy?`,
           }
         : {}),
       note: view.note,
