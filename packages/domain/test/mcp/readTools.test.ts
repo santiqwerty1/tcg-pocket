@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { MCP_READ_TOOLS, MCP_SERVER_INSTRUCTIONS } from '../../src/mcp/index.js'
+import { DEFAULT_BOT } from '../../src/simulation/jobs.js'
 
 const tools = Object.values(MCP_READ_TOOLS)
 
@@ -80,6 +81,15 @@ describe('MCP read tools', () => {
     expect(MCP_READ_TOOLS.simulationsResults.input.safeParse({ job: 0 }).success).toBe(false)
     expect(MCP_READ_TOOLS.labResults.description).toContain('Juegan bots')
     expect(MCP_READ_TOOLS.labMetaBank.input.safeParse({ size: 21 }).success).toBe(false)
+  })
+
+  it('D-029: decks_pick_today names the bot by default of the Laboratorio, from DEFAULT_BOT, never e2', () => {
+    const text = MCP_READ_TOOLS.decksPickToday.description
+    expect(text).toContain(`el de ${DEFAULT_BOT}, el bot por defecto del Laboratorio (D-029), de la era actual`)
+    expect(text).toContain('g2')
+    expect(text).not.toMatch(/\be2\b/)
+    // The backticks inside the template literal are kept.
+    expect(text).toContain('(`weights.tournamentNumber`)')
   })
 
   it('validate their inputs', () => {
