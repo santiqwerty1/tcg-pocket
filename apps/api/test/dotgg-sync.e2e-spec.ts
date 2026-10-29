@@ -661,6 +661,7 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     const holed = new CatalogIndex({
       ...full.catalog,
       cards: full.catalog.cards.filter((card) => card.id !== 'P-A-50'),
+      stockUnits: full.catalog.stockUnits.filter((unit) => unit.id !== 'P-A-50'),
     })
     const spy = vi.spyOn(catalog, 'requireIndex').mockReturnValue(holed)
     onTestFinished(() => spy.mockRestore())
@@ -804,7 +805,17 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
   it('«Tracker al día» counts a card once when it is left out for its row with another name and for its own name (S-D)', async () => {
     await setting('trackerFriendId', FRIEND)
     await setLink(LINK)
-    // A1-2 (Ivysaur) comes named «Venusaur» with 0 copies, and an Ivysaur comes in SP1.
+    // A1-2 (Ivysaur) comes named «Venusaur» with 0 copies, and an Ivysaur comes in SP1. ptcgpocket.gg is known to write
+    // every set (as in the real export), so A4b-3, the reprint kept under A1-2, does not leave it out on its own.
+    await test.prisma.appSetting.create({
+      data: {
+        key: 'dotggSeenExpansions',
+        value: test.app
+          .get(CatalogService)
+          .requireIndex()
+          .catalog.expansions.map((expansion) => expansion.id),
+      },
+    })
     body = exportFile([
       [2, 'Bulbasaur', 'A1', 1],
       [0, 'Venusaur', 'A1', 2],
