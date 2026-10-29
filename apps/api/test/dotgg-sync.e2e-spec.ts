@@ -885,8 +885,8 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     expect(mcp.text).toContain(
       'no queda en el juego ninguna de las cartas que tiene el tracker: el archivo las pone en 0',
     )
-    // With no file (a number the catalog does not have in a set it has), nothing promises one (Codex on #153).
-    body = `${body}1,0,"Future Card","A1","900"\n`
+    // With no file (a row with no name that the catalog does not have), nothing promises one (Codex on #153).
+    body = `${body}1,0,"","SP1","1"\n`
     const blocked = await tools.collectionTrackerGap({})
     expect(blocked.emptyExpansions).toHaveLength(1)
     expect(blocked.text).toContain('no queda en el juego ninguna de las cartas que tiene el tracker.')
