@@ -2479,6 +2479,41 @@ describe('laboratorio (e2e)', () => {
     await post(`/api/simulations/${created.body.id}/cancel`)
   }, 60_000)
 
+  it('T-017 A3 with the job’s bot: a card whose only blind spot is the e bots’ clock is one with e2, not with g2', async () => {
+    const index = test.app.get(CatalogService).requireIndex()
+    // Mawile «20+»: variable damage, nothing of the engine's. Chosen by id (not with the function under test).
+    const mawile = index.cardById('A2a-56')
+    if (!mawile) throw new Error('no Mawile A2a-56')
+    for (const [players, expected] of [
+      [['e2', 'e2'], true],
+      [['g2', 'g2'], false],
+    ] as const) {
+      const created = await post('/api/lab/explore').send({
+        deck: { deckId: deckIds[1] },
+        size: 3,
+        config: { gamesPerRival: 10, variantsPerRound: 2, maxRounds: 1, confirmGames: 0, verifyGames: 0, pool: 'all' },
+        include: [mawile.id],
+        seed: 9996,
+        players,
+      })
+      expect(created.status).toBe(200)
+      const lab = (await get(`/api/lab/jobs/${created.body.id}`)).body
+      const brought = lab.decks.find((deck: { changes: { add: { cardId: string }[] } | null }) =>
+        deck.changes?.add.some((card) => index.cardById(card.cardId)?.functionalGroupId === mawile.functionalGroupId),
+      )
+      expect(brought, players[0]).toMatchObject({ bringsBlindSpot: expected })
+      const notes = (brought.blindSpots as { cardId: string; reasons: string[] }[]).filter(
+        (card) => index.cardById(card.cardId)?.functionalGroupId === mawile.functionalGroupId,
+      )
+      expect(notes, players[0]).toEqual(
+        expected
+          ? [expect.objectContaining({ reasons: ['daño variable: el reloj del bot solo cuenta el daño fijo'] })]
+          : [],
+      )
+      await post(`/api/simulations/${created.body.id}/cancel`)
+    }
+  }, 60_000)
+
   it('H-055: «posible punto ciego del bot» in the Laboratorio, «¿Cuál llevo hoy?», the deck and Claude', async () => {
     const client = new Client({ name: 'e2e', version: '1.0.0' })
     await client.connect(

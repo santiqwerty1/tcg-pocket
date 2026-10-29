@@ -96,6 +96,35 @@ describe('the alerts the watcher pushes', () => {
     expect(await w.tick()).toBe(0)
   })
 
+  it('a limited pack beside it: only its last two days, each once by its title, and one push per key in a check', async () => {
+    const w = watcher()
+    const pack = (title: string): AlertView => ({
+      code: 'limited_pack',
+      level: 'info',
+      title,
+      detail: 'Sale de la tienda después del 28/10/2026.',
+      link: null,
+    })
+    w.set([pack('Sobre B4b: quedan 3 días'), newEra('B4a', 50), { ...newEra('B4a', 50), title: 'Otro título' }])
+    // The era once (two alerts with its key are one case); the pack not yet.
+    expect(await w.tick()).toBe(1)
+    w.set([pack('Sobre B4b: quedan 1 día'), newEra('B4a', 51)])
+    expect(await w.tick()).toBe(1)
+    w.set([pack('Sobre B4b: hoy es el último día'), newEra('B4a', 52)])
+    expect(await w.tick()).toBe(1)
+    expect(await w.tick()).toBe(0)
+    expect(w.pushed.map((push) => push.title)).toEqual([
+      'Era nueva probable',
+      'Sobre B4b: quedan 1 día',
+      'Sobre B4b: hoy es el último día',
+    ])
+    expect(w.stored()).toEqual([
+      'new_era_likely|B4a',
+      'limited_pack|Sobre B4b: quedan 1 día',
+      'limited_pack|Sobre B4b: hoy es el último día',
+    ])
+  })
+
   it('an alert without notifyKey is still told apart by its title, once each', async () => {
     const w = watcher()
     const backup = (title: string): AlertView => ({
