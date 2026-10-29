@@ -3,7 +3,7 @@ tipo: inicio
 titulo: 'TCG Pocket'
 area: proyecto
 estado: vigente
-actualizado: '2026-10-23'
+actualizado: '2026-10-29'
 origen:
   - posta init
 revisar: false
@@ -22,7 +22,7 @@ Mapa de documentos y código: [Dónde vive cada cosa](Sistema/Mapa.md) · operac
 
 ## Hoy
 
-- [Para revisar](Trabajo.base#Para%20revisar) · [Avance](Seguimiento/Avance.md) · última bitácora: [2026-10-23](Bitacora/2026-10-23.md)
+- [Para revisar](Trabajo.base#Para%20revisar) · [Avance](Seguimiento/Avance.md) · última bitácora: [2026-10-29](Bitacora/2026-10-29.md)
 
 ![[Trabajo.base#Para revisar]]
 

@@ -3,7 +3,7 @@ tipo: indice
 titulo: 'Tareas'
 area: proyecto
 estado: vigente
-actualizado: '2026-10-23'
+actualizado: '2026-10-29'
 origen:
   - posta generar
 revisar: false
@@ -39,5 +39,5 @@ revisar: false
 | [T-020](T-020.md) | Sincronizar la colección pública del tracker sin CSV | hecho | — | 2026-10-13 |
 | [T-021](T-021.md) | Bots más fuertes: evaluación con daño real, sin trampa, afinado y una evaluación aprendida | en_curso | 2 | 2026-10-23 |
 | [T-022](T-022.md) | Partidas: rival por cartas vistas, y ranked por temporada y rango | hecho | 3 | 2026-10-22 |
-| [T-023](T-023.md) | C1 «Dual Fusion»: la app lista para el doble tipo antes del 29/10 | en_curso | 1 | 2026-10-23 |
-| [T-024](T-024.md) | La colección real desde ptcgpocket.gg, y el archivo para poner al día el tracker | hecho | 2 | 2026-10-23 |
+| [T-023](T-023.md) | C1 «Dual Fusion»: la app lista para el doble tipo antes del 29/10 | en_curso | 1 | 2026-10-29 |
+| [T-024](T-024.md) | La colección real desde ptcgpocket.gg, y el archivo para poner al día el tracker | hecho | 2 | 2026-10-29 |

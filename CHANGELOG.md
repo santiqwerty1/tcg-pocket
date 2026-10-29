@@ -5,10 +5,12 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-23 desde la etiqueta `v1.0.0` (349 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-10-29 desde la etiqueta `v1.0.0` (371 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- the app on 77e0617 — DEFAULT_ENGINE_REV, About, LICENCIAS, OPERACION and the decisions (D-031, T-023) `82deb8f`
+- the engine moves to next/7aa4ef0 at 77e0617 — C1 «Dual Fusion» and upstream's rule fixes, the bots on both types (D-031, T-023) (#430, #439, #421, #275) `7115136`
 - g2 is the bot by default, from one constant (D-029) (H-055) `8e5f1bc`
 - the defaults of Jugar, the Laboratorio, consistency and MCP are g2 (D-029) `876de98`
 - Jugar, Simulación, Calibración and «¿Cuál llevo hoy?» start with g2 (D-029) `92e0483`
@@ -72,6 +74,14 @@ _Borrador generado al 2026-10-23 desde la etiqueta `v1.0.0` (349 commits). Escri
 
 ### Corregido
 
+- the game now holds 30 built decks, so the app limit goes from 25 to 30 (I8) `d58b01f`
+- read the tracker's secondary_energy as the second type of C1 Pokémon (T-023) `0922eb0`
+- a promo past the last number of its set does not stop the file either; clearer same-name warning (T-024) `51ed544`
+- «Tracker al día» builds the file without the cards of a set the catalog does not have yet (T-024) `da008d0`
+- the card notes follow the job's bot — the e bots' clock is not g's (D-029, H-055) `40a37a1`
+- decks_pick_today names the Laboratorio's bot by default from DEFAULT_BOT (D-029) (#121) `6f5829f`
+- the estimates take the measured cost of each bot — e3 4,6 times e2, not 1,6 (D-029) `ad67deb`
+- «Era nueva probable» is pushed once per era, not once in the life of the app `d88516e`
 - self-review of the g2 default (D-029) `081c95c`
 - self-review — the engine reduction names the card once, a value too deep to print does not hide its error, bugs stay bugs in the energy schema and the literal reader, and the unknown comparison is one more reason (T-023) `a13061c`
 - engine errors name the card and the value, bugs stay 500, unknown fields travel apart, and every reason to confirm shows (T-023) (#151) `d388bdc`
@@ -241,6 +251,10 @@ _Borrador generado al 2026-10-23 desde la etiqueta `v1.0.0` (349 commits). Escri
 
 ### Documentado
 
+- the GAMES_REV decision says the C1 golden games cover the engine and the unit tests cover how g and f read the second type (review of #160, D-031) `efaa4b6`
+- file the secondary_energy decision under Fase 40, next to 43.15 (T-023) `3936466`
+- decisions of fix/after-g2 — the bot of decks_pick_today, the measured costs and the card notes (D-029) `5cb9310`
+- review of #156 — Avance drops the stale e2 and running-calibration notes, the g2 decisions point to DECISIONES 58.26–58.37, the ptcgpocket section is T-024, H-060 counts four cycles, D-029 checks its application (D-029, H-060, T-024) `6144a09`
 - 22/10 night and 23/10 — ptcgpocket.gg done, C1 in production, g2 by default with the lab rescored, H-060 gets a fourth cycle; fold the decisions of #147 and #149–#155 in merge order (D-029, H-055, H-060, T-021, T-023, T-024) `b6aad13`
 - D-029 says g2 is the bot by default since 23/10/2026 (Codex on #155, D-029) `5f457a5`
 - g2 by default in BOTS.md and API.md, with its decisions (D-029) `460d6e8`
@@ -334,6 +348,13 @@ _Borrador generado al 2026-10-23 desde la etiqueta `v1.0.0` (349 commits). Escri
 
 ### Pruebas
 
+- golden games with C1's dual types, own_types, the differential fails on what it cannot explain — self-review (D-031, T-023) `73b594b`
+- the holed catalog drops the stock unit too, and the count-once check knows every set so A1-2's reprint does not leave it out first (T-024) `90324ec`
+- a known card the export numbers past the last one of its set is not zeroed; the decision says why that number does not stop the file (T-024) (#159) `9d807b9`
+- the S-E check without a file uses a nameless row, which still stops the file (T-024) `4222697`
+- the differential's list for upstream 7aa4ef0 on c87bad0, by commit, and the bot as an option (D-031) (#421, #428, #420, #275, D-029) `a3cc305`
+- a card left out for its row with another name is counted once in «Tracker al día» (T-024) `9454f4d`
+- a limited pack beside «Era nueva probable» and the lab's added card by the job's bot (D-029) `dcd27fe`
 - a restore without the link resets too, and the collection's date drops the other link's check (T-020) `b6b2114`
 - the re-sync e2e expects the typesChanged count too (T-023) `3da2b9a`
 - the installer test answers the slow-bots prompt that now names the g bots (T-021) `84cc7df`
@@ -363,6 +384,7 @@ _Borrador generado al 2026-10-23 desde la etiqueta `v1.0.0` (349 commits). Escri
 
 ### Mantenimiento
 
+- worker 0.3.15 with engine-cli 0.3.17 on 77e0617, so the workers update themselves (D-031, T-023) `c2c1234`
 - the C1 season migration goes after main's (20261023100000), so it never applies out of order (review of #147, T-023) `8d01d13`
 - the aac8d456 fixture keeps only the two literals, and the openable note follows the tracker `8ab1112`
 - review of #132 — implicit pushes, combined -f flags, deletes, prune and pack options still ask; tests and lint allowed only without arguments (D-021) `50f8029`
@@ -386,6 +408,8 @@ _Borrador generado al 2026-10-23 desde la etiqueta `v1.0.0` (349 commits). Escri
 
 ### Decidido
 
+- 2026-10-29 — pedido de Santiago: el tope de mazos armados pasa de 25 a 30 (#161).
+- 2026-10-29 — D-031 aplicada: el motor pasa a la copia sobre upstream con C1 (`77e0617`, #160).
 - 2026-10-23 — D-029, decidido por Santiago: g2 es el bot por defecto ya (calibraciones 82, 83 y 86 con el banco grande); los puntajes del laboratorio se recalcularon con g2.
 - 2026-10-23 — T-023, decidido por Santiago: el 29/10 la app pasa sola a la era C1, aunque el meta quede vacío hasta que lleguen torneos.
 - 2026-10-22 — T-024, decidido por Santiago: en el archivo para el tracker, `Collected` es FALSE con 0 copias.
