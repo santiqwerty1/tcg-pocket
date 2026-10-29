@@ -778,6 +778,27 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     )
   })
 
+  it('«Tracker al día» counts a card once when it is left out for its row with another name and for its own name (S-D)', async () => {
+    await setting('trackerFriendId', FRIEND)
+    await setLink(LINK)
+    // A1-2 (Ivysaur) comes named «Venusaur» with 0 copies, and an Ivysaur comes in SP1.
+    body = exportFile([
+      [2, 'Bulbasaur', 'A1', 1],
+      [0, 'Venusaur', 'A1', 2],
+      [1, 'Ivysaur', 'SP1', 2],
+    ])
+    remote = [
+      { internal_id: internalId('A1-1'), amount_owned: 1, collected: true },
+      { internal_id: internalId('A1-2'), amount_owned: 1, collected: true },
+    ].sort((a, b) => a.internal_id - b.internal_id)
+    const gap = (await get('/api/collection/tracker-gap')).body
+    expect(gap.rows.map((row: { stockCardId: string }) => row.stockCardId)).toEqual(['A1-1'])
+    // The row with another name and the SP1 row: A1-2 is not counted again for its name.
+    expect(gap).toMatchObject({ complete: false, notCompared: 2 })
+    expect(gap.warnings.join(' ')).not.toContain('(A1-2) no se compara')
+    expect(gap.warnings.join(' ')).toContain('con el nombre de otra carta del catálogo')
+  })
+
   it('«Tracker al día» does not zero a known expansion the export writes whole under a new code, even once applied (S-D, S-E)', async () => {
     await setting('trackerFriendId', FRIEND)
     await setLink(LINK)
