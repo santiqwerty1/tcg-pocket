@@ -1,9 +1,9 @@
 /**
- * The game holds at most 25 built decks at a time (BRIEF §2, I8); the app may store more. Archived decks do not
- * count against the limit.
+ * The game holds at most 30 built decks at a time (BRIEF §2, I8; it was 25 until 29/10/2026); the app may store
+ * more. Archived decks do not count against the limit.
  */
 
-export const MAX_BUILT_IN_GAME = 25
+export const MAX_BUILT_IN_GAME = 30
 
 export interface BuiltInGameDeck {
   id: string

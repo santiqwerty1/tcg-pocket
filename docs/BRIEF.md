@@ -40,7 +40,7 @@ Estas reglas salen de mi uso real y de errores que ya cometimos. El detalle est�
 - Al menos un Pokémon Básico. Cada evolución necesita su línea previa en el mazo (o Caramelo Raro para saltar la Fase 1).
 - Las energías del mazo se eligen entre los tipos que genera la Zona de Energía. Dragón e Incoloro no se pueden elegir.
 - Se gana con 3 puntos. Un Pokémon común da 1, un ex da 2 y un Megaevolución ex da 3.
-- El juego me deja tener 25 mazos armados a la vez. La app puede guardar más.
+- El juego me deja tener 30 mazos armados a la vez (eran 25 hasta el 29/10/2026). La app puede guardar más.
 
 **Conteo de copias**
 - La unidad es la **carta funcional**: mismo nombre y mismo texto de reglas. Varias ediciones (artes alternativos, rarezas altas, reimpresiones) son la misma carta funcional y sus copias se suman.
@@ -160,7 +160,7 @@ La app es privada y de uso personal. Aun así:
 - **Aceptación** con el CSV de contexto (valores del 5/10/2026; con un CSV más nuevo pueden ser mayores): Mega-Mawile ex = 2 copias jugables (B2-113 + B2-201); Globito = 3 (B3b-64 + B4b-372); Bulbasaur A1-1 no se duplica por la fila A4b-1; importar, exportar y volver a importar no produce diferencias.
 
 ### M3 · Mazos
-- Alta, edición, duplicado y archivo. Cada mazo tiene nombre, energías, 20 cartas con su edición, etiquetas (competitivo, casual, misión), notas, si está armado en el juego (máximo 25) y, si es variante, de qué mazo deriva. Guarda historial de cambios.
+- Alta, edición, duplicado y archivo. Cada mazo tiene nombre, energías, 20 cartas con su edición, etiquetas (competitivo, casual, misión), notas, si está armado en el juego (máximo 30) y, si es variante, de qué mazo deriva. Guarda historial de cambios.
 - Validación en vivo con las reglas de la sección 2, con mensajes concretos.
 - Completitud contra la colección: qué falta y cuántas copias.
 - Importa y exporta: texto en español con códigos (el formato de `mazos_40_listas.md`), formato de deckgym y JSON. Investigá si el juego o Limitless tienen un formato de texto propio y sumalo.

@@ -190,16 +190,16 @@ describe('decks (e2e)', () => {
     }
   })
 
-  it('refuses the 26th deck built in the game (I8)', async () => {
-    for (const deck of created.slice(0, 25)) {
+  it('refuses the 31st deck built in the game (I8)', async () => {
+    for (const deck of created.slice(0, 30)) {
       const response = await patch(`/api/decks/${deck.id}`).send({ builtInGame: true })
       expect(response.status, deck.name).toBe(200)
       expect(response.body.builtInGame).toBe(true)
     }
-    const limit = await patch(`/api/decks/${created[25]?.id}`).send({ builtInGame: true })
+    const limit = await patch(`/api/decks/${created[30]?.id}`).send({ builtInGame: true })
     expect(limit.status).toBe(409)
     expect(limit.body.error.code).toBe('built_in_game_limit')
-    expect((await get('/api/decks?builtInGame=true')).body.items).toHaveLength(25)
+    expect((await get('/api/decks?builtInGame=true')).body.items).toHaveLength(30)
     const unbuilt = await patch(`/api/decks/${created[0]?.id}`).send({ builtInGame: false })
     expect(unbuilt.body.builtInGame).toBe(false)
     expect(
@@ -208,30 +208,30 @@ describe('decks (e2e)', () => {
       ['builtInGame', false, true],
       ['builtInGame', true, false],
     ])
-    expect((await patch(`/api/decks/${created[25]?.id}`).send({ builtInGame: true })).status).toBe(200)
+    expect((await patch(`/api/decks/${created[30]?.id}`).send({ builtInGame: true })).status).toBe(200)
   })
 
   it('re-checks the limit when un-archiving a deck that is still marked as built (I8 counts active decks)', async () => {
     const built = created[1] as Summary // built and active after the previous test
     const spare = created[0] as Summary // not built
-    const other = created[26] as Summary // not built
+    const other = created[31] as Summary // not built
     const activeBuilt = () => test.prisma.deck.count({ where: { builtInGame: true, archivedAt: null } })
-    expect(await activeBuilt()).toBe(25)
+    expect(await activeBuilt()).toBe(30)
 
     // Archiving keeps the mark but frees a slot…
     const archived = await patch(`/api/decks/${built.id}`).send({ archived: true })
     expect(archived.status).toBe(200)
     expect(archived.body.builtInGame).toBe(true)
     expect(archived.body.archivedAt).not.toBeNull()
-    expect((await get('/api/decks?builtInGame=true')).body.items).toHaveLength(24)
+    expect((await get('/api/decks?builtInGame=true')).body.items).toHaveLength(29)
     expect((await patch(`/api/decks/${spare.id}`).send({ builtInGame: true })).status).toBe(200)
-    expect(await activeBuilt()).toBe(25)
+    expect(await activeBuilt()).toBe(30)
 
-    // …so bringing the deck back would make 26: refused, and it stays archived.
+    // …so bringing the deck back would make 31: refused, and it stays archived.
     const back = await patch(`/api/decks/${built.id}`).send({ archived: false })
     expect(back.status).toBe(409)
     expect(back.body.error.code).toBe('built_in_game_limit')
-    expect(back.body.error.details).toEqual({ built: 25, max: 25 })
+    expect(back.body.error.details).toEqual({ built: 30, max: 30 })
     expect((await get(`/api/decks/${built.id}`)).body.archivedAt).not.toBeNull()
 
     // Same when an archived deck is un-archived and marked in one patch; marking it while archived is fine (it does
@@ -244,7 +244,7 @@ describe('decks (e2e)', () => {
       builtInGame: true,
     })
     expect((await patch(`/api/decks/${other.id}`).send({ archived: false })).status).toBe(409)
-    expect(await activeBuilt()).toBe(25)
+    expect(await activeBuilt()).toBe(30)
 
     // Back to the previous state: free the slot, un-archive the built deck (fits again), reset the other one.
     expect((await patch(`/api/decks/${spare.id}`).send({ builtInGame: false })).status).toBe(200)
@@ -252,7 +252,7 @@ describe('decks (e2e)', () => {
     expect(restored.status).toBe(200)
     expect(restored.body).toMatchObject({ builtInGame: true, archivedAt: null })
     expect((await patch(`/api/decks/${other.id}`).send({ archived: false, builtInGame: false })).status).toBe(200)
-    expect(await activeBuilt()).toBe(25)
+    expect(await activeBuilt()).toBe(30)
   })
 
   it('creates a 19-card deck as invalid with a concrete message, and rejects unknown cards', async () => {

@@ -93,7 +93,7 @@ export function ClosestDecksSection({ deckId }: { deckId: string }) {
       {closest.isError ? <ErrorState error={closest.error} onRetry={() => closest.refetch()} /> : null}
       {closest.data && closest.data.scope === 'built' && closest.data.builtInGameDecks === 0 ? (
         <p className="rounded-lg border border-dashed px-3 py-2 text-sm">
-          No marcaste ningún mazo como «armado en el juego». Marcalos desde su ficha (hasta 25) o activá «Todos los
+          No marcaste ningún mazo como «armado en el juego». Marcalos desde su ficha (hasta 30) o activá «Todos los
           guardados».
         </p>
       ) : null}
