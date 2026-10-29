@@ -776,6 +776,29 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     expect(gap.warnings.join(' ')).toContain(
       `${test.app.get(CatalogService).requireIndex().cardById('P-A-7')?.nameEs} (P-A-7) no se compara: ptcgpocket.gg no trae copias de esa carta`,
     )
+    // The same with a number past the last one of P-A: the row may be P-A-7 numbered differently, and the file is
+    // built without zeroing it (Codex on #159).
+    const next =
+      Math.max(
+        ...test.app
+          .get(CatalogService)
+          .requireIndex()
+          .cardsOfExpansion('P-A')
+          .map((card) => card.number),
+      ) + 1
+    body = exportFile([
+      [2, 'Bulbasaur', 'A1', 1],
+      [1, 'Potion', 'P-A', 1],
+      [1, "Professor's Research", 'P-A', next],
+    ])
+    const past = (await get('/api/collection/tracker-gap')).body
+    expect(past.rows.map((row: { stockCardId: string }) => row.stockCardId)).toEqual(['A1-1', 'P-A-1'])
+    expect(parseTrackerCsv(past.trackerFile.content).rows.map((row) => row.id)).toEqual(['A1-1', 'P-A-1'])
+    expect(past).toMatchObject({ complete: false, notCompared: 2 })
+    expect(past.warnings.join(' ')).toContain(
+      `ptcgpocket.gg trae P-A-${next} Professor's Research: el catálogo todavía no tiene esa carta`,
+    )
+    expect(past.warnings.join(' ')).toContain('(P-A-7) no se compara')
   })
 
   it('«Tracker al día» counts a card once when it is left out for its row with another name and for its own name (S-D)', async () => {
