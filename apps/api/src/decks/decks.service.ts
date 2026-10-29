@@ -902,7 +902,7 @@ export class DecksService {
     if (!check.ok) {
       throw new ConflictException({
         code: 'built_in_game_limit',
-        message: check.message ?? 'Ya hay 25 mazos armados en el juego.',
+        message: check.message ?? `Ya hay ${check.built} mazos armados en el juego.`,
         details: { built: check.built, max: check.max },
       })
     }

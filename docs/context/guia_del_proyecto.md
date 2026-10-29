@@ -69,7 +69,7 @@ Fuentes secundarias que se usaron: pocketcards.net (estadísticas por variante; 
 
 ## 5. Estado al 6 de octubre de 2026
 
-- **Lugares en el juego:** Santi puede tener 25 mazos armados. Los mazos 1 a 25 del documento son los recomendados; del 26 al 40 quedan para rotar.
+- **Lugares en el juego:** Santi puede tener 30 mazos armados (25 hasta el 29/10/2026). Los mazos 1 a 25 del documento son los recomendados; del 26 al 40 quedan para rotar.
 - **Qué busca:** probar variaciones. No todos los mazos tienen que ser competitivos; también juega casual. En su momento pidió tener un mazo Incoloro, uno que mezcle energías y un par sin Pokémon ex.
 - **Favoritos:** Cachorros para casual (mazo 21). Hydreigon (19) y Mega-Steelix ex (20) los jugó en casual y le fue bien.
 - **Metal:** quiere seguir probando la versión de Mega-Mawile ex con Perrserker de Galar (mazo 8). La de Mega-Mawile ex solo (mazo 39) ya la tiene armada.

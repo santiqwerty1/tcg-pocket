@@ -13,7 +13,7 @@ import type {
 } from '@/api/schemas'
 
 export const DECK_SIZE = 20
-export const BUILT_IN_GAME_LIMIT = 25
+export const BUILT_IN_GAME_LIMIT = 30
 
 export interface EditorCard {
   card: CardSummary

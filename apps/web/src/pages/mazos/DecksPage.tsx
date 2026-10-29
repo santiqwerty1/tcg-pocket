@@ -50,7 +50,7 @@ export function DeckBadges({ deck, showBuilt = true }: { deck: DeckSummary; show
 
 /**
  * Marks a deck as built in the game right from the list (pedido del 8/10/2026). Shows the new state while it saves;
- * if the API refuses it (I8: at most 25 built decks) it goes back and says why.
+ * if the API refuses it (I8: at most 30 built decks) it goes back and says why.
  */
 function BuiltCheckbox({ deck }: { deck: DeckSummary }) {
   const update = useUpdateDeck()

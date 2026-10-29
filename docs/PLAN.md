@@ -192,7 +192,7 @@ Backup: `GET /api/backup/export` → `tcgpocket-backup-AAAAMMDD.json.gz` con **t
 | I5 | Límite de 2 por nombre sobre `nameEn` exacto, sumando ediciones y grupos (es↔en es 1:1, 0 colisiones). |
 | I6 | Cada mazo se valida y completa solo contra la colección; las copias no se reparten. |
 | I7 | Toda lista guarda la edición; dos ediciones del mismo grupo se admiten y se suman por grupo. |
-| I8 | `builtInGame` ≤ 25 mazos no archivados. |
+| I8 | `builtInGame` ≤ 30 mazos no archivados (25 hasta el 29/10/2026). |
 | I9 | Un porcentaje es `{value, games, samples, sampleKind, ci95: [lo, hi], orientative}`: `games = W + L + T` alimenta Wilson; `samples` = listas en `TournamentStat` (orientativo si < 30 listas) y partidas en `MatchStat` y `SimulationStat` (orientativo si < 30 partidas). Los tres tipos nunca se agregan entre sí. |
 | I10 | Un resultado de simulación lleva `engineRev`, `bots`, `games` y `seed` (`seedMode = reproducible | none` si se usara el CLI intacto); sin eso no se persiste. |
 | I11 | El servidor no almacena imágenes: `imageUrl` es un enlace. |
