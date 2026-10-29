@@ -2,8 +2,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net'
 import { gunzipSync } from 'node:zlib'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
-import { parseTrackerCsv } from '@tcg/domain'
-import { onTestFinished } from 'vitest'
+import { CatalogIndex, parseTrackerCsv } from '@tcg/domain'
+import { onTestFinished, vi } from 'vitest'
 import { BackupService } from '../src/backup/backup.service.js'
 import { CatalogService } from '../src/catalog/catalog.service.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
@@ -647,33 +647,43 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     expect(file.rows.map((row) => row.id)).toEqual(['A1-1'])
   })
 
-  it('«Tracker al día» gives no file with a number the catalog lacks in a set it has, or a row with no name: it may be a known card (S-D)', async () => {
+  it('«Tracker al día» gives no file with a hole in the numbering of a known set, or a row with no name: it may be a known card (S-D)', async () => {
     await setting('trackerFriendId', FRIEND)
     await setLink(LINK)
-    // Another numbering of P-A: the row may be P-A-7, which has no row of its own.
-    body = exportFile([
-      [2, 'Bulbasaur', 'A1', 1],
-      [1, "Professor's Research", 'P-A', 300],
-    ])
     remote = [
       { internal_id: internalId('A1-1'), amount_owned: 1, collected: true },
       { internal_id: internalId('P-A-7'), amount_owned: 1, collected: true },
     ].sort((a, b) => a.internal_id - b.internal_id)
+    // The real catalog numbers every set without holes; here P-A-50 is missing, and a row there may be P-A-7 with
+    // another numbering (it has no row of its own).
+    const catalog = test.app.get(CatalogService)
+    const full = catalog.requireIndex()
+    const holed = new CatalogIndex({
+      ...full.catalog,
+      cards: full.catalog.cards.filter((card) => card.id !== 'P-A-50'),
+    })
+    const spy = vi.spyOn(catalog, 'requireIndex').mockReturnValue(holed)
+    onTestFinished(() => spy.mockRestore())
+    body = exportFile([
+      [2, 'Bulbasaur', 'A1', 1],
+      [1, "Professor's Research", 'P-A', 50],
+    ])
     const gap = (await get('/api/collection/tracker-gap')).body
     expect(gap.unmatchedGame).toHaveLength(1)
     expect(gap.trackerFile).toBeNull()
     expect(gap.rows.map((row: { stockCardId: string }) => row.stockCardId)).toEqual(['A1-1'])
     expect(gap.complete).toBe(false)
     expect(gap.warnings).toContain(
-      'ptcgpocket.gg trae 1 carta con un número que el catálogo no tiene en una expansión que sí tiene (P-A-300): no se compara y no se arma el archivo, porque puede ser una carta conocida con otra numeración (sincronizá el catálogo).',
+      'ptcgpocket.gg trae 1 carta con un número que el catálogo no tiene dentro de una expansión que sí tiene (P-A-50): no se compara y no se arma el archivo, porque puede ser una carta conocida con otra numeración (sincronizá el catálogo).',
     )
+    spy.mockRestore()
     // A row of a set the catalog does not have, without a name: nothing says which card it is.
     body = `Normal,Foil,Name,Set,Number\n2,0,"Bulbasaur","A1","1"\n1,0,"Professor's Research","P-A","7"\n1,0,"","SP1","2"\n`
     const nameless = (await get('/api/collection/tracker-gap')).body
     expect(nameless.trackerFile).toBeNull()
     expect(nameless.rows.map((row: { stockCardId: string }) => row.stockCardId)).toEqual(['A1-1'])
     expect(nameless.warnings).toContain(
-      'ptcgpocket.gg trae 1 carta sin nombre de una expansión que el catálogo no tiene (SP1-2): no se compara y no se arma el archivo, porque sin el nombre no se sabe si es una carta conocida con otro código (sincronizá el catálogo).',
+      'ptcgpocket.gg trae 1 carta sin nombre que el catálogo no tiene (SP1-2): no se compara y no se arma el archivo, porque sin el nombre no se sabe si es una carta conocida con otro código (sincronizá el catálogo).',
     )
   })
 
@@ -714,9 +724,33 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     expect(named.rows.map((row: { stockCardId: string }) => row.stockCardId)).toEqual(['A1-1'])
     expect(named).toMatchObject({ complete: false, notCompared: 2 })
     expect(named.warnings).toContain(
-      'Bulbasaur (A1-227): el tracker la tiene y ptcgpocket.gg no trae copias, pero trae otra carta con el mismo nombre que no se pudo ubicar en el catálogo, así que no se compara (la copia del juego puede ser esa carta con otro código).',
+      'Bulbasaur (A1-227) no se compara: ptcgpocket.gg no trae copias de esa carta, pero su nombre aparece entre las cartas de ptcgpocket.gg que no se comparan, y puede ser ella con otro código (el archivo la pondría en 0).',
     )
     expect(parseTrackerCsv(named.trackerFile.content).rows.map((row) => row.id)).toEqual(['A1-1'])
+    // A promo past the last number of P-B, before the tracker loads it: the same.
+    const next =
+      Math.max(
+        ...test.app
+          .get(CatalogService)
+          .requireIndex()
+          .cardsOfExpansion('P-B')
+          .map((card) => card.number),
+      ) + 1
+    body = exportFile([
+      [2, 'Bulbasaur', 'A1', 1],
+      [3, 'Small Balloon', 'B4b', 372],
+      [1, 'Pikachu', 'P-B', next],
+    ])
+    remote = [
+      { internal_id: internalId('A1-1'), amount_owned: 1, collected: true },
+      { internal_id: internalId('B4b-372'), amount_owned: 3, collected: true },
+    ].sort((a, b) => a.internal_id - b.internal_id)
+    const promo = (await get('/api/collection/tracker-gap')).body
+    expect(promo).toMatchObject({ complete: false, notCompared: 1 })
+    expect(promo.warnings).toEqual([
+      `ptcgpocket.gg trae P-B-${next} Pikachu: el catálogo todavía no tiene esa carta (su número es posterior al último de su expansión), así que no se compara ni va en el archivo para el tracker. Cuando el tracker la cargue, sincronizá el catálogo y volvé a comparar.`,
+    ])
+    expect(parseTrackerCsv(promo.trackerFile.content).rows.map((row) => row.id)).toEqual(['A1-1'])
   })
 
   it('«Tracker al día» does not zero a known card the export writes under a new code (S-D)', async () => {
@@ -740,7 +774,7 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
       `ptcgpocket.gg trae PA-7 Professor's Research: el catálogo todavía no tiene`,
     )
     expect(gap.warnings.join(' ')).toContain(
-      `${test.app.get(CatalogService).requireIndex().cardById('P-A-7')?.nameEs} (P-A-7): el tracker la tiene`,
+      `${test.app.get(CatalogService).requireIndex().cardById('P-A-7')?.nameEs} (P-A-7) no se compara: ptcgpocket.gg no trae copias de esa carta`,
     )
   })
 
@@ -774,7 +808,7 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     expect(gap.rows.map((row: { stockCardId: string }) => row.stockCardId)).toEqual(['A1-1'])
     expect(gap.emptyExpansions).toEqual([])
     expect(parseTrackerCsv(gap.trackerFile.content).rows.map((row) => row.id)).toEqual(['A1-1'])
-    expect(gap.warnings.join(' ')).toContain('(P-A-7): el tracker la tiene')
+    expect(gap.warnings.join(' ')).toContain('(P-A-7) no se compara')
   })
 
   it('«Tracker al día» compares a set the game has none of anymore, once a sync listed it and the app has 0 there (S-E)', async () => {

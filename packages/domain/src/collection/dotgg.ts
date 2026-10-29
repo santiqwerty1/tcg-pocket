@@ -336,7 +336,8 @@ export function dotggCardId(set: string, number: number, index: CatalogIndex): C
 
 /**
  * Whether the catalog has no card of a set code (SP1 before the tracker loads it): a row there cannot be another
- * numbering of a card of that set, only, at worst, a known card under a new code, which its name can tell.
+ * numbering of a card of that set, only, at worst, a known card under a new code, which its name can tell (as for a
+ * number past the last one of a set, see `dotggUnplaced`).
  */
 export function dotggNewSet(set: string, index: CatalogIndex): boolean {
   const expansion = dotggExpansion(set, index)
@@ -348,22 +349,35 @@ export interface DotggUnplaced {
   /** Rows with a name of a set the catalog has no card of: left out, and the file for the tracker is built without
    * them. */
   newSet: DotggUnmatched[]
-  /** Rows with a number the catalog does not have in a set it has: another numbering may hide a known card there,
-   * whose row would be missing, so no file. */
+  /** Rows with a name and a number past the last one the catalog has in their set (a new promo before the tracker
+   * loads it): left out like `newSet`. */
+  newNumber: DotggUnmatched[]
+  /** Rows with a number the catalog lacks inside the range of a set it has: another numbering may hide a known card
+   * there, whose row would be missing, so no file. */
   otherNumber: DotggUnmatched[]
-  /** Rows of a set the catalog has no card of and without a name: nothing tells which card they are, so no file. */
+  /** Rows the catalog does not have, past the range of their set or of a set it has no card of, without a name:
+   * nothing tells which card they are, so no file. */
   nameless: DotggUnmatched[]
-  /** Name keys (`dotggNameKey`) of the rows with copies that are not compared as themselves: those of the catalog and
-   * those with another card's name. A card with one of these names and no copy in the export may be that row. */
+  /** Name keys (`dotggNameKey`) of the rows with copies that are not compared as themselves: those the catalog does not
+   * have and those with another card's name. A card with one of these names and no copy in the export may be that
+   * row. */
   names: Set<string>
 }
 
 /** Splits the rows the catalog cannot place (and those with another card's name) for «Tracker al día». */
 export function dotggUnplaced(mapped: MappedDotgg, index: CatalogIndex): DotggUnplaced {
-  const result: DotggUnplaced = { newSet: [], otherNumber: [], nameless: [], names: new Set() }
+  const result: DotggUnplaced = { newSet: [], newNumber: [], otherNumber: [], nameless: [], names: new Set() }
+  const last = new Map<ExpansionId, number>()
   for (const row of mapped.unmatched) {
-    if (!dotggNewSet(row.set, index)) result.otherNumber.push(row)
+    const expansion = dotggNewSet(row.set, index) ? null : dotggExpansion(row.set, index)
+    let end = expansion ? last.get(expansion) : undefined
+    if (expansion && end === undefined) {
+      end = Math.max(...index.cardsOfExpansion(expansion).map((card) => card.number))
+      last.set(expansion, end)
+    }
+    if (end !== undefined && row.number <= end) result.otherNumber.push(row)
     else if (dotggNameKey(row.name) === '') result.nameless.push(row)
+    else if (expansion) result.newNumber.push(row)
     else result.newSet.push(row)
   }
   for (const row of [...mapped.unmatched, ...mapped.renamed]) {

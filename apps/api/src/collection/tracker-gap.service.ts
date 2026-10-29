@@ -182,10 +182,10 @@ export class TrackerGapService {
     const skipped = new Set(
       mapped.renamed.map((row) => index.cardById(row.cardId)?.stockCardId).filter((id): id is string => !!id),
     )
-    // Rows the catalog cannot place (S-D): one of a set the catalog has no card of yet (SP1) is left out and the file is
-    // built without it; one with a number the catalog lacks in a known set, or with no name, stops the file. Either
-    // way, a card named like one of them with no copy in the export is not compared: the row may be it under another
-    // code, and the file would zero it.
+    // Rows the catalog cannot place (S-D): one with a name of a set the catalog has no card of yet (SP1), or past the
+    // last number of a set it has (a new promo), is left out and the file is built without it; one with a number the
+    // catalog lacks inside a set's range, or with no name, stops the file. Either way, a card named like one of them
+    // with no copy in the export is not compared: the row may be it under another code, and the file would zero it.
     const unplaced = dotggUnplaced(mapped, index)
     // What the export's silence means (S-B, S-E): the export lists only what is owned, so «no row» is 0 copies only
     // where ptcgpocket.gg knows the set code (it writes it now or an applied sync wrote it) and, for a whole expansion
@@ -202,6 +202,8 @@ export class TrackerGapService {
       heldUnits,
       unplacedNames: unplaced.names,
     })
+    // A card already left out for its row with another name is told there, and counted once.
+    const sameName = coverage.sameName.filter((id) => !skipped.has(id))
     for (const id of coverage.skipped) skipped.add(id)
     const gap = trackerGap(index, trackerUnits(tracker.units, index), game.units, skipped)
     const warnings: string[] = []
@@ -209,7 +211,7 @@ export class TrackerGapService {
       coverage.leftOut.reduce((sum, item) => sum + item.cards, 0) +
       coverage.reprints.cards +
       coverage.pending +
-      coverage.sameName.length
+      sameName.length
     // A card at 0 in the export that the app still has (S-K): a drop waits for Santi in the app.
     if (coverage.pending > 0)
       warnings.push(
@@ -260,7 +262,7 @@ export class TrackerGapService {
     if (unplaced.newSet.length > 0) {
       const rows = unplaced.newSet
       const one = rows.length === 1
-      const sets = [...new Set(rows.map((row) => row.set))]
+      const sets = [...new Set(rows.map((row) => row.set.toUpperCase()))]
       const which =
         rows.length <= 5
           ? listEs(rows.map((row) => `${row.set}-${row.number} ${row.name}`))
@@ -269,29 +271,41 @@ export class TrackerGapService {
         `ptcgpocket.gg trae ${which}: el catálogo todavía no tiene ${sets.length === 1 ? 'esa expansión' : 'esas expansiones'}, así que no se ${one ? 'compara ni va' : 'comparan ni van'} en el archivo para el tracker. Cuando el tracker ${sets.length === 1 ? 'la cargue' : 'las cargue'}, sincronizá el catálogo y volvé a comparar.`,
       )
     }
+    if (unplaced.newNumber.length > 0) {
+      const rows = unplaced.newNumber
+      const one = rows.length === 1
+      const which =
+        rows.length <= 5
+          ? listEs(rows.map((row) => `${row.set}-${row.number} ${row.name}`))
+          : `${rows.length} cartas de ${listEs([...new Set(rows.map((row) => row.set.toUpperCase()))])}`
+      warnings.push(
+        `ptcgpocket.gg trae ${which}: el catálogo todavía no tiene ${one ? 'esa carta (su número es posterior al último de su expansión)' : 'esas cartas (sus números son posteriores al último de su expansión)'}, así que no se ${one ? 'compara ni va' : 'comparan ni van'} en el archivo para el tracker. Cuando el tracker ${one ? 'la cargue' : 'las cargue'}, sincronizá el catálogo y volvé a comparar.`,
+      )
+    }
     if (unplaced.otherNumber.length > 0) {
       const rows = unplaced.otherNumber
       const one = rows.length === 1
       warnings.push(
-        `ptcgpocket.gg trae ${one ? '1 carta' : `${rows.length} cartas`} con un número que el catálogo no tiene en una expansión que sí tiene${cardCodes(rows)}: no se ${one ? 'compara' : 'comparan'} y no se arma el archivo, porque puede ser una carta conocida con otra numeración (sincronizá el catálogo).`,
+        `ptcgpocket.gg trae ${one ? '1 carta' : `${rows.length} cartas`} con un número que el catálogo no tiene dentro de una expansión que sí tiene${cardCodes(rows)}: no se ${one ? 'compara' : 'comparan'} y no se arma el archivo, porque puede ser una carta conocida con otra numeración (sincronizá el catálogo).`,
       )
     }
     if (unplaced.nameless.length > 0) {
       const rows = unplaced.nameless
       const one = rows.length === 1
       warnings.push(
-        `ptcgpocket.gg trae ${one ? '1 carta' : `${rows.length} cartas`} sin nombre de una expansión que el catálogo no tiene${cardCodes(rows)}: no se ${one ? 'compara' : 'comparan'} y no se arma el archivo, porque sin el nombre no se sabe si es una carta conocida con otro código (sincronizá el catálogo).`,
+        `ptcgpocket.gg trae ${one ? '1 carta' : `${rows.length} cartas`} sin nombre que el catálogo no tiene${cardCodes(rows)}: no se ${one ? 'compara' : 'comparan'} y no se arma el archivo, porque sin el nombre no se sabe si es una carta conocida con otro código (sincronizá el catálogo).`,
       )
     }
-    if (coverage.sameName.length > 0) {
-      const units = coverage.sameName
-      const one = units.length === 1
+    if (sameName.length > 0) {
+      const one = sameName.length === 1
       const which =
-        units.length <= 5
-          ? listEs(units.map((id) => `${index.cardById(id)?.nameEs ?? id} (${id})`))
-          : `${units.length} cartas`
+        sameName.length <= 5
+          ? listEs(sameName.map((id) => `${index.cardById(id)?.nameEs ?? id} (${id})`))
+          : `${sameName.length} cartas del tracker`
       warnings.push(
-        `${which}: el tracker ${one ? 'la tiene' : 'las tiene'} y ptcgpocket.gg no trae copias, pero trae ${one ? 'otra carta' : 'otras cartas'} con el mismo nombre que no se ${one ? 'pudo' : 'pudieron'} ubicar en el catálogo, así que no se ${one ? 'compara' : 'comparan'} (la copia del juego puede ser esa carta con otro código).`,
+        one
+          ? `${which} no se compara: ptcgpocket.gg no trae copias de esa carta, pero su nombre aparece entre las cartas de ptcgpocket.gg que no se comparan, y puede ser ella con otro código (el archivo la pondría en 0).`
+          : `${which} no se comparan: ptcgpocket.gg no trae copias de esas cartas, pero sus nombres aparecen entre las cartas de ptcgpocket.gg que no se comparan, y pueden ser ellas con otro código (el archivo las pondría en 0).`,
       )
     }
     const unknownTracker = tracker.unknownIds.map((id) => Number(id.replace('internal_id:', '')))
@@ -299,9 +313,9 @@ export class TrackerGapService {
       warnings.push(
         `El tracker tiene ${unknownTracker.length === 1 ? '1 carta' : `${unknownTracker.length} cartas`} que el catálogo no conoce: no se comparan.`,
       )
-    // A row with a number the catalog lacks in a known set may be a known card with another numbering, and a row with no
-    // name may be any card: its card would go to 0 in the file. A named row of a set the catalog has no card of only
-    // hides cards of its name, which are left out above.
+    // A row with a number the catalog lacks inside a known set's range may be a known card with another numbering, and
+    // a row with no name may be any card: its card would go to 0 in the file. A named row of a set the catalog has no
+    // card of, or past the last number of one, only hides cards of its name, which are left out above.
     const safe =
       parsed.errors.length === 0 &&
       game.conflicts.length === 0 &&

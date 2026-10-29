@@ -298,7 +298,13 @@ describe('mapDotggRows', () => {
 })
 
 describe('dotggUnplaced (S-D)', () => {
-  it('a named row of a set the catalog has no card of is left out; another number in a known set or no name stops the file', () => {
+  it('a named row of a new set or past the last number is left out; a hole in a known set or no name stops the file', () => {
+    // The real catalog numbers every set without holes (A1 goes from 1 to 286): here A1-5 is missing.
+    expect(index.cardsOfExpansion('A1').length).toBe(286)
+    const holed = new CatalogIndex({
+      ...index.catalog,
+      cards: index.catalog.cards.filter((card) => card.id !== 'A1-5'),
+    })
     const mapped = mapDotggRows(
       parseDotggCsv(
         exportFile([
@@ -307,22 +313,36 @@ describe('dotggUnplaced (S-D)', () => {
           [1, 0, 'Bulbasaur', 'SP1', '1'],
           [1, 0, 'Charmander', 'sp1', '4'],
           [0, 0, 'Squirtle', 'SP1', '7'],
-          // A number A1 does not have: another numbering may hide a known A1 card.
-          [1, 0, 'Pikachu', 'A1', '900'],
+          // Past the last number of A1: a new card (as a new promo before the tracker loads it).
+          [1, 0, 'Pikachu', 'A1', '287'],
+          // A hole inside A1: another numbering may hide a known A1 card.
+          [1, 0, 'Mystery Card', 'A1', '5'],
           // No name: nothing says which card it is.
           [1, 0, '', 'SP1', '2'],
+          [1, 0, '', 'A1', '900'],
           // Another card's name (A1-2 is Ivysaur).
           [1, 0, 'Venusaur', 'A1', '2'],
         ]),
       ).rows,
-      index,
+      holed,
     )
-    const unplaced = dotggUnplaced(mapped, index)
-    expect(unplaced.newSet.map((row) => `${row.set}-${row.number}`)).toEqual(['SP1-1', 'sp1-4', 'SP1-7'])
-    expect(unplaced.otherNumber.map((row) => `${row.set}-${row.number}`)).toEqual(['A1-900'])
-    expect(unplaced.nameless.map((row) => `${row.set}-${row.number}`)).toEqual(['SP1-2'])
+    const unplaced = dotggUnplaced(mapped, holed)
+    const codes = (rows: { set: string; number: number }[]) => rows.map((row) => `${row.set}-${row.number}`)
+    expect(codes(unplaced.newSet)).toEqual(['SP1-1', 'sp1-4', 'SP1-7'])
+    expect(codes(unplaced.newNumber)).toEqual(['A1-287'])
+    expect(codes(unplaced.otherNumber)).toEqual(['A1-5'])
+    expect(codes(unplaced.nameless)).toEqual(['SP1-2', 'A1-900'])
     // The names of the rows with copies that are not compared as themselves; a row with 0 copies hides no copy.
-    expect([...unplaced.names].sort()).toEqual(['bulbasaur', 'charmander', 'pikachu', 'venusaur'])
+    expect([...unplaced.names].sort()).toEqual(['bulbasaur', 'charmander', 'mysterycard', 'pikachu', 'venusaur'])
+    // In the whole catalog, A1-5 is no row to place.
+    const whole = exportFile([[1, 0, index.cardById('A1-5')?.nameEn ?? '', 'A1', '5']])
+    expect(dotggUnplaced(mapDotggRows(parseDotggCsv(whole).rows, index), index)).toEqual({
+      newSet: [],
+      newNumber: [],
+      otherNumber: [],
+      nameless: [],
+      names: new Set(),
+    })
   })
 
   it('an expansion the catalog lists with no card yet is a new set; one with cards, in any case, is not', () => {
@@ -342,6 +362,7 @@ describe('dotggUnplaced (S-D)', () => {
       withSp1,
     )
     expect(unplaced.newSet).toHaveLength(1)
+    expect(unplaced.newNumber).toEqual([])
     expect(unplaced.otherNumber).toEqual([])
   })
 })
