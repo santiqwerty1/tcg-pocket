@@ -8,6 +8,7 @@ import {
   type DotggUnmatched,
   dotggGapCoverage,
   dotggListedExpansions,
+  dotggUnplaced,
   mapDotggRows,
   normalizeImportRows,
   parseDotggCsv,
@@ -62,8 +63,8 @@ export interface TrackerGapView {
   emptyExpansions: { expansionId: string; nameEs: string; cards: number }[]
   /** Cards at 0 in the export that the app still has (S-K): a drop waits in the app, so they are not compared. */
   pendingDrops: number
-  /** Cards left out of the comparison (rows the catalog does not have or with another name, unknown internal ids, rows
-   * that could not be read). */
+  /** Cards left out of the comparison (rows the catalog does not have or with another name, the tracker's cards named
+   * like them with no copy in the export, unknown internal ids, rows that could not be read). */
   notCompared: number
   /** Nothing was left out, the export had no conflicts and the internal ids are the tracker's: «al día» means it. */
   complete: boolean
@@ -181,6 +182,11 @@ export class TrackerGapService {
     const skipped = new Set(
       mapped.renamed.map((row) => index.cardById(row.cardId)?.stockCardId).filter((id): id is string => !!id),
     )
+    // Rows the catalog cannot place (S-D): one of a set the catalog has no card of yet (SP1) is left out and the file is
+    // built without it; one with a number the catalog lacks in a known set, or with no name, stops the file. Either
+    // way, a card named like one of them with no copy in the export is not compared: the row may be it under another
+    // code, and the file would zero it.
+    const unplaced = dotggUnplaced(mapped, index)
     // What the export's silence means (S-B, S-E): the export lists only what is owned, so «no row» is 0 copies only
     // where ptcgpocket.gg knows the set code (it writes it now or an applied sync wrote it) and, for a whole expansion
     // with no row, where the app has 0 too. Elsewhere the cards are not compared, or the file would zero them.
@@ -194,12 +200,16 @@ export class TrackerGapService {
       seen,
       held,
       heldUnits,
+      unplacedNames: unplaced.names,
     })
     for (const id of coverage.skipped) skipped.add(id)
     const gap = trackerGap(index, trackerUnits(tracker.units, index), game.units, skipped)
     const warnings: string[] = []
     const leftOut =
-      coverage.leftOut.reduce((sum, item) => sum + item.cards, 0) + coverage.reprints.cards + coverage.pending
+      coverage.leftOut.reduce((sum, item) => sum + item.cards, 0) +
+      coverage.reprints.cards +
+      coverage.pending +
+      coverage.sameName.length
     // A card at 0 in the export that the app still has (S-K): a drop waits for Santi in the app.
     if (coverage.pending > 0)
       warnings.push(
@@ -247,18 +257,57 @@ export class TrackerGapService {
       warnings.push(
         'La exportación de ptcgpocket.gg trae reimpresiones de una misma carta con cantidades distintas: no se arma el archivo para el tracker.',
       )
-    if (mapped.unmatched.length > 0)
+    if (unplaced.newSet.length > 0) {
+      const rows = unplaced.newSet
+      const one = rows.length === 1
+      const sets = [...new Set(rows.map((row) => row.set))]
+      const which =
+        rows.length <= 5
+          ? listEs(rows.map((row) => `${row.set}-${row.number} ${row.name}`))
+          : `${rows.length} cartas de ${listEs(sets)}`
       warnings.push(
-        `ptcgpocket.gg trae ${mapped.unmatched.length === 1 ? '1 carta' : `${mapped.unmatched.length} cartas`} que el catálogo no tiene: no se comparan y no se arma el archivo, porque puede ser una carta conocida con otro código (sincronizá el catálogo).`,
+        `ptcgpocket.gg trae ${which}: el catálogo todavía no tiene ${sets.length === 1 ? 'esa expansión' : 'esas expansiones'}, así que no se ${one ? 'compara ni va' : 'comparan ni van'} en el archivo para el tracker. Cuando el tracker ${sets.length === 1 ? 'la cargue' : 'las cargue'}, sincronizá el catálogo y volvé a comparar.`,
       )
+    }
+    if (unplaced.otherNumber.length > 0) {
+      const rows = unplaced.otherNumber
+      const one = rows.length === 1
+      warnings.push(
+        `ptcgpocket.gg trae ${one ? '1 carta' : `${rows.length} cartas`} con un número que el catálogo no tiene en una expansión que sí tiene${cardCodes(rows)}: no se ${one ? 'compara' : 'comparan'} y no se arma el archivo, porque puede ser una carta conocida con otra numeración (sincronizá el catálogo).`,
+      )
+    }
+    if (unplaced.nameless.length > 0) {
+      const rows = unplaced.nameless
+      const one = rows.length === 1
+      warnings.push(
+        `ptcgpocket.gg trae ${one ? '1 carta' : `${rows.length} cartas`} sin nombre de una expansión que el catálogo no tiene${cardCodes(rows)}: no se ${one ? 'compara' : 'comparan'} y no se arma el archivo, porque sin el nombre no se sabe si es una carta conocida con otro código (sincronizá el catálogo).`,
+      )
+    }
+    if (coverage.sameName.length > 0) {
+      const units = coverage.sameName
+      const one = units.length === 1
+      const which =
+        units.length <= 5
+          ? listEs(units.map((id) => `${index.cardById(id)?.nameEs ?? id} (${id})`))
+          : `${units.length} cartas`
+      warnings.push(
+        `${which}: el tracker ${one ? 'la tiene' : 'las tiene'} y ptcgpocket.gg no trae copias, pero trae ${one ? 'otra carta' : 'otras cartas'} con el mismo nombre que no se ${one ? 'pudo' : 'pudieron'} ubicar en el catálogo, así que no se ${one ? 'compara' : 'comparan'} (la copia del juego puede ser esa carta con otro código).`,
+      )
+    }
     const unknownTracker = tracker.unknownIds.map((id) => Number(id.replace('internal_id:', '')))
     if (unknownTracker.length > 0)
       warnings.push(
         `El tracker tiene ${unknownTracker.length === 1 ? '1 carta' : `${unknownTracker.length} cartas`} que el catálogo no conoce: no se comparan.`,
       )
-    // A row the catalog does not know may be a known card under another code: its card would go to 0 in the file.
+    // A row with a number the catalog lacks in a known set may be a known card with another numbering, and a row with no
+    // name may be any card: its card would go to 0 in the file. A named row of a set the catalog has no card of only
+    // hides cards of its name, which are left out above.
     const safe =
-      parsed.errors.length === 0 && game.conflicts.length === 0 && mapped.unmatched.length === 0 && ids === 'same'
+      parsed.errors.length === 0 &&
+      game.conflicts.length === 0 &&
+      unplaced.otherNumber.length === 0 &&
+      unplaced.nameless.length === 0 &&
+      ids === 'same'
     const notCompared =
       mapped.renamed.length + mapped.unmatched.length + unknownTracker.length + parsed.errors.length + leftOut
     const rows: TrackerGapRowView[] = gap.rows.map((row) => {
@@ -334,4 +383,9 @@ export class TrackerGapService {
 /** «A1, A2 y B4b». */
 function listEs(items: readonly string[]): string {
   return items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} y ${items.at(-1)}`
+}
+
+/** « (A1-300 y A1-301)» for up to five rows, nothing for more. */
+function cardCodes(rows: readonly DotggUnmatched[]): string {
+  return rows.length <= 5 ? ` (${listEs(rows.map((row) => `${row.set}-${row.number}`))})` : ''
 }

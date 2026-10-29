@@ -334,6 +334,45 @@ export function dotggCardId(set: string, number: number, index: CatalogIndex): C
   return index.cardById(id) ? id : null
 }
 
+/**
+ * Whether the catalog has no card of a set code (SP1 before the tracker loads it): a row there cannot be another
+ * numbering of a card of that set, only, at worst, a known card under a new code, which its name can tell.
+ */
+export function dotggNewSet(set: string, index: CatalogIndex): boolean {
+  const expansion = dotggExpansion(set, index)
+  return !expansion || index.cardsOfExpansion(expansion).length === 0
+}
+
+/** The export rows «Tracker al día» cannot compare as themselves, by what each one allows (T-024, S-D). */
+export interface DotggUnplaced {
+  /** Rows with a name of a set the catalog has no card of: left out, and the file for the tracker is built without
+   * them. */
+  newSet: DotggUnmatched[]
+  /** Rows with a number the catalog does not have in a set it has: another numbering may hide a known card there,
+   * whose row would be missing, so no file. */
+  otherNumber: DotggUnmatched[]
+  /** Rows of a set the catalog has no card of and without a name: nothing tells which card they are, so no file. */
+  nameless: DotggUnmatched[]
+  /** Name keys (`dotggNameKey`) of the rows with copies that are not compared as themselves: those of the catalog and
+   * those with another card's name. A card with one of these names and no copy in the export may be that row. */
+  names: Set<string>
+}
+
+/** Splits the rows the catalog cannot place (and those with another card's name) for «Tracker al día». */
+export function dotggUnplaced(mapped: MappedDotgg, index: CatalogIndex): DotggUnplaced {
+  const result: DotggUnplaced = { newSet: [], otherNumber: [], nameless: [], names: new Set() }
+  for (const row of mapped.unmatched) {
+    if (!dotggNewSet(row.set, index)) result.otherNumber.push(row)
+    else if (dotggNameKey(row.name) === '') result.nameless.push(row)
+    else result.newSet.push(row)
+  }
+  for (const row of [...mapped.unmatched, ...mapped.renamed]) {
+    const key = dotggNameKey(row.name)
+    if (row.copies > 0 && key !== '') result.names.add(key)
+  }
+  return result
+}
+
 /** Maps every row onto the catalog by expansion and number, and checks the name it brings against the card's. */
 export function mapDotggRows(rows: readonly DotggRow[], index: CatalogIndex): MappedDotgg {
   const mapped: CsvRow[] = []
@@ -432,6 +471,9 @@ export interface DotggGapCoverage {
   reprints: { cards: number; expansionIds: ExpansionId[] }
   /** Cards at 0 in the export that the app still has copies of (a drop not applied yet): left out. */
   pending: number
+  /** Stock units with no copy in the export named like a row that is not compared as itself (`unplacedNames`): left
+   * out, the copy may be that row under another code. In catalog order. */
+  sameName: CardId[]
 }
 
 /**
@@ -444,6 +486,8 @@ export interface DotggGapCoverage {
  *   that is not known, is left out too: its copy may be that reprint, and the file would take it off the tracker.
  * - A card at 0 in the export that the app still has copies of (`heldUnits`) is left out as well, in any expansion:
  *   that drop waits for Santi in the app (a sync to review), and the file follows only what he applied.
+ * - A card the tracker has, with no copy in the export and named like a row the catalog cannot place (or that brings
+ *   another card's name, `unplacedNames`), is left out: that row may be this card under another code (S-D).
  */
 export function dotggGapCoverage(
   index: CatalogIndex,
@@ -456,8 +500,12 @@ export function dotggGapCoverage(
     held: ReadonlySet<ExpansionId>
     /** Stock units the app has copies of. */
     heldUnits: ReadonlySet<CardId>
+    /** Name keys of the rows with copies not compared as themselves (`dotggUnplaced(…).names`). */
+    unplacedNames?: ReadonlySet<string>
   },
 ): DotggGapCoverage {
+  const unplacedNames = input.unplacedNames ?? new Set<string>()
+  const sameName: CardId[] = []
   const known = new Set([...input.listed, ...input.seen])
   const skipped = new Set<CardId>()
   const leftOut: DotggGapCoverage['leftOut'] = []
@@ -495,6 +543,9 @@ export function dotggGapCoverage(
       skipped.add(unit.id)
       reprintCards += 1
       for (const id of unknown) reprintSets.add(id)
+    } else if (unit.cardIds.some((id) => unplacedNames.has(dotggNameKey(index.cardById(id)?.nameEn ?? '')))) {
+      skipped.add(unit.id)
+      sameName.push(unit.id)
     } else if (emptyIds.has(expansion)) emptyCards.set(expansion, (emptyCards.get(expansion) ?? 0) + 1)
   }
   return {
@@ -508,6 +559,7 @@ export function dotggGapCoverage(
       expansionIds: index.catalog.expansions.map((item) => item.id).filter((id) => reprintSets.has(id)),
     },
     pending,
+    sameName,
   }
 
   function pick(item: { expansionId: ExpansionId; cards: number }) {

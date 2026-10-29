@@ -1,6 +1,7 @@
 // ptcgpocket.gg (DotGG) export (T-020). Synthetic files in the real format: header `Normal,Foil,Name,Set,Number`,
 // numbers unquoted, strings quoted, LF and a trailing newline (what the «Permanent export link» answers).
 import { describe, expect, it } from 'vitest'
+import { CatalogIndex } from '../../src/catalog/index.js'
 import {
   DOTGG_CSV_COLUMNS,
   diffImport,
@@ -9,7 +10,9 @@ import {
   dotggListedExpansions,
   dotggMissingExpansions,
   dotggNameKey,
+  dotggNewSet,
   dotggUnits,
+  dotggUnplaced,
   mapDotggRows,
   maskDotggExportLink,
   normalizeImportRows,
@@ -294,6 +297,55 @@ describe('mapDotggRows', () => {
   })
 })
 
+describe('dotggUnplaced (S-D)', () => {
+  it('a named row of a set the catalog has no card of is left out; another number in a known set or no name stops the file', () => {
+    const mapped = mapDotggRows(
+      parseDotggCsv(
+        exportFile([
+          [2, 0, 'Bulbasaur', 'A1', '1'],
+          // The special pack «Primeros Compañeros» before the tracker loads it (29/10/2026).
+          [1, 0, 'Bulbasaur', 'SP1', '1'],
+          [1, 0, 'Charmander', 'sp1', '4'],
+          [0, 0, 'Squirtle', 'SP1', '7'],
+          // A number A1 does not have: another numbering may hide a known A1 card.
+          [1, 0, 'Pikachu', 'A1', '900'],
+          // No name: nothing says which card it is.
+          [1, 0, '', 'SP1', '2'],
+          // Another card's name (A1-2 is Ivysaur).
+          [1, 0, 'Venusaur', 'A1', '2'],
+        ]),
+      ).rows,
+      index,
+    )
+    const unplaced = dotggUnplaced(mapped, index)
+    expect(unplaced.newSet.map((row) => `${row.set}-${row.number}`)).toEqual(['SP1-1', 'sp1-4', 'SP1-7'])
+    expect(unplaced.otherNumber.map((row) => `${row.set}-${row.number}`)).toEqual(['A1-900'])
+    expect(unplaced.nameless.map((row) => `${row.set}-${row.number}`)).toEqual(['SP1-2'])
+    // The names of the rows with copies that are not compared as themselves; a row with 0 copies hides no copy.
+    expect([...unplaced.names].sort()).toEqual(['bulbasaur', 'charmander', 'pikachu', 'venusaur'])
+  })
+
+  it('an expansion the catalog lists with no card yet is a new set; one with cards, in any case, is not', () => {
+    expect(dotggNewSet('SP1', index)).toBe(true)
+    expect(dotggNewSet('A1', index)).toBe(false)
+    expect(dotggNewSet('a1A', index)).toBe(false)
+    const first = index.catalog.expansions[0]
+    if (!first) throw new Error('no expansions')
+    const withSp1 = new CatalogIndex({
+      ...index.catalog,
+      expansions: [...index.catalog.expansions, { ...first, id: 'SP1', packIds: [] }],
+    })
+    expect(withSp1.expansionById('SP1')).toBeDefined()
+    expect(dotggNewSet('SP1', withSp1)).toBe(true)
+    const unplaced = dotggUnplaced(
+      mapDotggRows(parseDotggCsv(exportFile([[1, 0, 'Bulbasaur', 'SP1', '1']])).rows, withSp1),
+      withSp1,
+    )
+    expect(unplaced.newSet).toHaveLength(1)
+    expect(unplaced.otherNumber).toEqual([])
+  })
+})
+
 describe('dotggUnits', () => {
   const current: StockQuantities = {
     'A1-1': { stockCardId: 'A1-1', amountOwned: 3, collected: true },
@@ -491,5 +543,58 @@ describe('dotggGapCoverage (S-B, S-E)', () => {
     })
     expect(applied.pending).toBe(0)
     expect(applied.skipped.size).toBe(0)
+  })
+
+  it('leaves out a card with no copy in the export named like a row the catalog cannot place (S-D)', () => {
+    // Bulbasaur: A1-1 (with its A4b-1 twin), A1-227 and P-A-23, among others; A1-2 is Ivysaur.
+    const tracker: StockQuantities = {
+      'A1-1': unit('A1-1', 1),
+      'A1-2': unit('A1-2', 1),
+      'A1-227': unit('A1-227', 1),
+      'P-A-23': unit('P-A-23', 0, true),
+    }
+    const input = {
+      tracker,
+      game: { 'A1-1': unit('A1-1', 2) },
+      listed: new Set(all),
+      seen: new Set(all),
+      held: new Set<string>(),
+      heldUnits: new Set<string>(),
+    }
+    const coverage = dotggGapCoverage(index, { ...input, unplacedNames: new Set(['bulbasaur']) })
+    // A1-1 has its copies in the export, and Ivysaur is another name: both compared.
+    expect(coverage.sameName).toEqual(['A1-227', 'P-A-23'])
+    expect([...coverage.skipped].sort()).toEqual(['A1-227', 'P-A-23'])
+    // Without the name, they would be compared (as 0).
+    expect(dotggGapCoverage(index, input)).toMatchObject({ sameName: [], skipped: new Set() })
+    // A drop the app has not applied yet stays a pending drop.
+    const held = dotggGapCoverage(index, {
+      ...input,
+      heldUnits: new Set(['A1-227']),
+      unplacedNames: new Set(['bulbasaur']),
+    })
+    expect(held).toMatchObject({ pending: 1, sameName: ['P-A-23'] })
+  })
+
+  it('a known expansion written whole under another code is not zeroed (S-D on top of S-E)', () => {
+    // ptcgpocket.gg knew P-A, the app has 0 there (a sync applied), and the export now writes P-A-7 as «PA-7».
+    const tracker: StockQuantities = { 'A1-1': unit('A1-1', 1), 'P-A-7': unit('P-A-7', 1) }
+    const input = {
+      tracker,
+      game: { 'A1-1': unit('A1-1', 1) },
+      listed: new Set(['A1']),
+      seen: new Set(all),
+      held: new Set(['A1']),
+      heldUnits: new Set(['A1-1']),
+    }
+    // Without the name, P-A is compared as 0: the file would take P-A-7 off the tracker.
+    expect(dotggGapCoverage(index, input).empty).toEqual([{ expansionId: 'P-A', cards: 1 }])
+    const coverage = dotggGapCoverage(index, {
+      ...input,
+      unplacedNames: new Set([dotggNameKey("Professor's Research")]),
+    })
+    expect(coverage.sameName).toEqual(['P-A-7'])
+    expect(coverage.skipped.has('P-A-7')).toBe(true)
+    expect(coverage.empty).toEqual([])
   })
 })
