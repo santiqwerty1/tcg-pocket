@@ -1,25 +1,30 @@
 // Differential test of two engine-cli builds (D-031: before updating deckgym, our fork): every deck A against every
-// deck B, the same job and seed, e2 vs e2, with perGame. A pairing without any of the cards the change touches must give
-// byte for byte the same result; the ones that differ are listed with the touched cards of each side, and the ones
-// without any are «UNEXPLAINED» (docs/OPERACION.md, «El motor: nuestra copia de deckgym»).
+// deck B, the same job and seed, the same bot on both sides (e2 by default), with perGame. A pairing without any of the
+// cards the change touches must give byte for byte the same result; the ones that differ are listed with the touched
+// cards of each side, and the ones without any are «UNEXPLAINED» (docs/OPERACION.md, «El motor: nuestra copia de
+// deckgym»).
 // Usage: node scripts/engine-diff.mjs <old engine-cli> <new engine-cli> <decks.jsonl> <out dir> [games] [concurrency]
-//   [seed base]
+//   [seed base] [bot]
 // Pairing i plays with seed `base × (i + 1)` (1.000.003 by default). Game g of a job uses splitmix64(seed ^ splitmix64(g)),
-// so more games with the same base replay the first ones: another base plays other games.
+// so more games with the same base replay the first ones: another base plays other games. `bot` is any code engine-cli
+// takes (e2 by default; g2 is the app's since 23/10/2026, D-029).
 // decks.jsonl: one JSON per line, {"side": "a" | "b", "label": "…", "text": "<deck in deckgym's format>"}.
-// A change to deckgym's `State` fields changes more than its rules: `forecast_action` samples the branches of an effect
-// with more than MAX_FORECAST_BRANCHES (20) results, as the search bots see it, with a seed from the hash of `State`, so
-// a new field makes e2 see other branches and play other games (Puppy-Loving Girl has hundreds). Then the old engine to
-// compare is a control: the old deckgym with the new fields, written where the new code writes them but without the new
-// rule, through a `[patch]` with `path` in engine/Cargo.toml (docs/OPERACION.md, «El motor: nuestra copia de deckgym»).
+// A change to the shape of what deckgym hashes in `State` changes more than its rules: `forecast_action` samples the
+// branches of an effect with more than MAX_FORECAST_BRANCHES (20) results, as the search bots see it, with a seed from
+// the hash of `State`, so a new field (of `State` or of `PlayedCard`) or an enum variant inserted before others
+// (`SimpleAction`, `CardEffect`, `TurnEffect`) makes e2 see other branches and play other games (Puppy-Loving Girl has
+// hundreds). Then the old engine to compare is a control: the old deckgym with the new shape, written where the new
+// code writes it but without the new rule, through a `[patch]` with `path` in engine/Cargo.toml (docs/OPERACION.md,
+// «El motor: nuestra copia de deckgym»).
 import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const [oldEngine, newEngine, decksFile, outDir, gamesArg, concurrencyArg, seedArg] = process.argv.slice(2)
+const [oldEngine, newEngine, decksFile, outDir, gamesArg, concurrencyArg, seedArg, botArg] = process.argv.slice(2)
 const games = Number(gamesArg ?? 10)
 const concurrency = Number(concurrencyArg ?? 4)
 const seedBase = Number(seedArg ?? 1_000_003)
+const bot = botArg ?? 'e2'
 mkdirSync(outDir, { recursive: true })
 const decks = readFileSync(decksFile, 'utf8')
   .trim()
@@ -28,54 +33,71 @@ const decks = readFileSync(decksFile, 'utf8')
 const sideA = decks.filter((deck) => deck.side === 'a')
 const sideB = decks.filter((deck) => deck.side === 'b')
 
-// The cards the change touches. For upstream adfe505 on top of 018b419 (18/10/2026): Boosted Evolution (#410),
-// Mimikyu ex (#411), Wallace (#412), Legendary Pulse (#414), a double knockout from an attack (#417), Rocky Helmet
-// against Cursed Jewel (#367), the Energy of «discard all Energy» attacks to the discard pile (#406), the end of the turn
-// of Kiawe and Broken-Space Bellow (#388), and one Stadium per turn (#408, below). For the first fork (018b419 on
-// 33ff2a5) it was Heavy Helmet and company (#383), Quick-Grow Extract and Wallace (#399), the Fossils (#397) and the
-// abilities that read the Active (#398). Edit it for another change.
-const AFFECTED = [
-  /^\d+ Eevee (B1 184|B4b (183|353|408)|P-B (11|54))\r?$/m, // the printings with Boosted Evolution
-  /Mimikyu ex/,
-  /Wallace/,
-  /(Suicune|Entei|Raikou) ex/,
-  /Rocky Helmet/,
-  /Mega Sableye ex/,
-  /Giratina ex|Hoopa ex|Mega Charizard Y ex|Combee|Solgaleo ex/, // damage to itself: a double knockout
-  // #406, the printings with Hyper Ray, Thunderbolt, Luster Purge, Gaia Impact, Sonic Impulse, Supreme Blast and
-  // Baneful Boom (database.json at adfe505)
-  /^\d+ ((Hydreigon|Latios|Mesprit|Raging Bolt|Landorus|Mega Latios ex) |(Raichu A1 95|Heliolisk (B1a 29|P-B 18)|Pikachu ex (A2b (22|82|92)|A4b 132|B1 321|P-B 103))\r?$)/m,
-  /Giratina ex|Kiawe/, // #388
-]
-/** deckgym's Stadiums (database.json at adfe505), for one Stadium per turn (#408). */
-const STADIUMS = [
-  'Arcade',
-  'Area Zero',
-  'Arena of Antiquity',
-  'Bounded Field',
-  'Fragrant Forest',
-  'Hiking Trail',
-  "Kid's Room",
-  'Mesagoza',
-  'Peculiar Plaza',
-  'Rainbow Cave',
-  'Soothing Shore',
-  'Starting Plains',
-  'Training Area',
-]
 /**
- * #408 changes a game only when a list can play a second Stadium in a turn: two of different names, or a second copy
- * after its own Field Blower discards the first.
+ * A line of a deck in deckgym's text: `<count> <name> <set> <number>`. Without `printings`, every printing of `name`;
+ * with them («A4 5», without zeros as the app writes them; a text with «A4 005» matches too), only those.
  */
-const twoStadiums = (text) => {
-  const lines = STADIUMS.map((name) => new RegExp(`^(\\d+) ${name} `, 'm').exec(text)).filter(Boolean)
-  const copies = lines.reduce((sum, line) => sum + Number(line[1]), 0)
-  return lines.length > 1 || (copies > 1 && /^\d+ Field Blower /m.test(text))
+const card = (name, ...printings) => {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const numbered = printings.map((printing) => printing.replace(/ (\d+)$/, ' 0*$1'))
+  const where = printings.length > 0 ? `(${numbered.join('|')})` : '[A-Za-z0-9-]+ \\d+'
+  return new RegExp(`^\\d+ ${escaped} ${where}\\r?$`, 'm')
 }
-const affected = (text) => {
-  const found = AFFECTED.filter((pattern) => pattern.test(text)).map((p) => p.source)
-  return twoStadiums(text) ? [...found, 'two Stadiums'] : found
-}
+
+// The cards the change touches. For upstream 7aa4ef0 on top of c87bad0 (29/10/2026, D-031), by upstream commit; C1, P-C
+// and SP1 (#430–#439) only add cards, our #420 was already in c87bad0, and the MCTS of #275 plays only «m». A change
+// that needs two cards to meet lists the one every changed game has. Before: 0b510d1/adfe505 on 018b419 (18/10, #133),
+// and the first fork on 33ff2a5 (15/10, #115). Edit it for another change.
+const AFFECTED = [
+  // #421: Heavy Helmet reads the holder's current Retreat Cost; Grass Knot and Shadow Seeker, the defender's side.
+  card('Heavy Helmet'),
+  card('Tangrowth', 'A4 5'),
+  card('Whimsicott ex'),
+  card("Team Rocket's Arbok"),
+  // #422: Lum Berry, Sitrus Berry and Bad Dreams in turn-owner order, after Deceptive Needle: only with one of these.
+  card('Darkrai', 'B2b 40', 'B4b 144', 'B4b 328', 'P-B 95'),
+  card('Deceptive Needle'),
+  // #423: Clemont's Backpack also for damage to the Bench.
+  card("Clemont's Backpack"),
+  // #425: coin-flip damage Abilities against damage queued after an attack.
+  card('Bastiodon'),
+  card('Togekiss', 'A4 80'),
+  card('Meowth', 'B2 124', 'B2 204', 'B4b 180', 'B4b 352'),
+  card('Hisuian Goodra'),
+  // #424: Weakness on the hit back an attack leaves.
+  card('Alolan Sandslash'),
+  card('Togedemaru', 'A3b 48', 'P-A 90'),
+  card('Turtonator', 'B1 47'),
+  card('Chesnaught'),
+  card('Mega Sableye ex'),
+  // #426: Growl-type cuts stay on the Pokémon hit and come off before Weakness.
+  card('Cubone', 'A1 151', 'A1 239', 'A3 226', 'A4b 194', 'A4b 195'),
+  card('Suicune'),
+  card('Togepi', 'A4 78', 'A4 173'),
+  card('Slowpoke', 'B3b 26'),
+  card('Teddiursa', 'B3b 56'),
+  card('Pikachu', 'B4 49', 'B4b 82', 'B4b 291', 'P-B 82'),
+  card('Skitty', 'B4 134'),
+  card('Eevee', 'P-A 30'),
+  card('Clefable', 'A2a 30'),
+  card('Bonsly'),
+  // #428: Dragon's Blessing only onto an Active [N] Pokémon.
+  card('Dragonair', 'B4 117', 'B4 175', 'B4 233', 'B4b 170', 'B4b 344'),
+  // #427: Clear Veil and Crystal Body keep the Energy an attack discards; Crunch-type attacks send it to the discard
+  // pile.
+  card('Clear Veil'),
+  card('Regice', 'A2 34'),
+  card('Mawile', 'A1 178'),
+  card('Fearow', 'A1 192'),
+  card('Drednaw', 'A1a 23'),
+  card('Mow Rotom'),
+  card('Lycanroc', 'A3 100', 'P-A 68'),
+  card('Sharpedo'),
+  card('Garbodor', 'B1a 50'),
+  card('Alolan Meowth', 'B2 94'),
+  card('Houndoom', 'B4 28'),
+]
+const affected = (text) => AFFECTED.filter((pattern) => pattern.test(text)).map((p) => p.source)
 
 function run(engine, job, name) {
   const jobFile = join(outDir, `${name}.job.json`)
@@ -116,11 +138,15 @@ let index = 0
 for (const a of sideA) {
   for (const b of sideB) {
     const seed = seedBase * (index + 1)
-    const job = { deckA: a.text, deckB: b.text, players: ['e2', 'e2'], games, seed, threads: 2, perGame: true }
+    const job = { deckA: a.text, deckB: b.text, players: [bot, bot], games, seed, threads: 2, perGame: true }
     tasks.push({ index, a, b, job })
     index++
   }
 }
+/** Pairings without any touched card on either side: the ones that must come out the same byte for byte. */
+const tasksWithout = tasks.filter(
+  (task) => affected(task.a.text).length === 0 && affected(task.b.text).length === 0,
+).length
 
 const differing = []
 const failed = []
@@ -160,6 +186,9 @@ const unexplained = differing.filter((d) => d.affectedA.length === 0 && d.affect
 const summary = {
   pairings: index,
   games,
+  bot,
+  seedBase,
+  mustMatch: tasksWithout,
   differing: differing.length,
   unexplained: unexplained.length,
   failed: failed.length,
@@ -168,3 +197,5 @@ writeFileSync(join(outDir, 'summary.json'), JSON.stringify({ summary, differing,
 console.log(JSON.stringify(summary))
 for (const d of unexplained) console.log('UNEXPLAINED', JSON.stringify(d))
 for (const f of failed) console.log('FAILED', JSON.stringify(f))
+// A pairing left unexplained or failed fails the run, so a script that calls it stops there.
+if (unexplained.length > 0 || failed.length > 0) process.exitCode = 1

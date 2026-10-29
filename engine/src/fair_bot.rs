@@ -134,7 +134,8 @@ fn threats(
 ) -> Vec<(f64, f64)> {
     let mut out = Vec::new();
     let Card::Pokemon(own) = &pokemon.card else { return out };
-    // Serperior's Jungle Totem: each Grass Energy on a Grass Pokémon counts twice.
+    // Serperior's Jungle Totem: each Grass Energy on a Grass Pokémon counts twice. Grass is any of its types, as deckgym
+    // reads it (`is_type`): a dual-type Pokémon (C1) with Grass as its second type counts too.
     let attached = |grass_type: bool| -> Vec<EnergyType> {
         let mut energy = pokemon.attached_energy.clone();
         if jungle_totem && grass_type {
@@ -142,7 +143,7 @@ fn threats(
         }
         energy
     };
-    push_attacks(&mut out, &own.attacks, &attached(own.energy_type == EnergyType::Grass), 0, zone);
+    push_attacks(&mut out, &own.attacks, &attached(pokemon.is_type(EnergyType::Grass)), 0, zone);
     if own.stage < 2 {
         let mut seen: Vec<String> = Vec::new();
         for evolution in get_highest_evolutions(&pokemon.card, deck).into_iter().chain(get_highest_evolutions(&pokemon.card, hand)) {
@@ -151,7 +152,7 @@ fn threats(
                 continue;
             }
             seen.push(evolved.id.clone());
-            let energy = attached(evolved.energy_type == EnergyType::Grass);
+            let energy = attached(evolved.is_type(EnergyType::Grass));
             push_attacks(&mut out, &evolved.attacks, &energy, usize::from(evolved.stage - own.stage), zone);
         }
     }
@@ -450,5 +451,40 @@ mod tests {
         assert_eq!(missing_energy(&[Grass], &[Grass, Colorless]), 1);
         assert_eq!(missing_energy(&[Fire, Grass], &[Grass, Colorless]), 0);
         assert_eq!(missing_energy(&[Fire], &[Grass]), 1);
+    }
+
+    /// Jungle Totem doubles the [G] on a Pokémon that is Grass by any of its types (C1's dual types, D-031): one [G]
+    /// pays [G][G] whether Grass is its printed type or its second one, and never on a Pokémon with no Grass type.
+    #[test]
+    fn jungle_totem_counts_a_second_grass_type() {
+        use deckgym::card_ids::CardId;
+        use deckgym::database::get_card_by_enum;
+        use EnergyType::{Grass, Water};
+        let with_types = |primary: EnergyType, second: Option<EnergyType>| -> PlayedCard {
+            let Card::Pokemon(mut pokemon) = get_card_by_enum(CardId::A1053Squirtle) else { panic!("a Pokémon") };
+            pokemon.energy_type = primary;
+            pokemon.secondary_energy_type = second;
+            pokemon.attacks = vec![Attack { energy_required: vec![Grass, Grass], ..attack(50, None) }];
+            PlayedCard::from_card(&Card::Pokemon(pokemon)).with_energy(vec![Grass])
+        };
+        let ready = |pokemon: &PlayedCard, totem: bool| threats(pokemon, &[], &[], totem, &[Grass, Water]);
+        assert_eq!(ready(&with_types(Grass, None), true), vec![(0.0, 50.0)]);
+        assert_eq!(ready(&with_types(Water, Some(Grass)), true), vec![(0.0, 50.0)]);
+        assert_eq!(ready(&with_types(Water, Some(Grass)), false), vec![(1.0, 50.0)]);
+        assert_eq!(ready(&with_types(Water, None), true), vec![(1.0, 50.0)]);
+        // An evolution still in the deck counts by its own types: a Wartortle that is also Grass, with a [G][G][G][G]
+        // attack, needs 2 more [G] over the one on Squirtle under the Totem, and 3 when it is only [W].
+        let wartortle = |second: Option<EnergyType>| -> Card {
+            let Card::Pokemon(mut pokemon) = get_card_by_enum(CardId::A1054Wartortle) else { panic!("a Pokémon") };
+            pokemon.secondary_energy_type = second;
+            pokemon.attacks = vec![Attack { energy_required: vec![Grass; 4], ..attack(90, None) }];
+            Card::Pokemon(pokemon)
+        };
+        let squirtle = PlayedCard::from_card(&get_card_by_enum(CardId::A1053Squirtle)).with_energy(vec![Grass]);
+        let evolved = |second: Option<EnergyType>| {
+            threats(&squirtle, &[wartortle(second)], &[], true, &[Grass, Water]).into_iter().find(|(_, damage)| *damage == 90.0)
+        };
+        assert_eq!(evolved(Some(Grass)), Some((2.0, 90.0)));
+        assert_eq!(evolved(None), Some((3.0, 90.0)));
     }
 }

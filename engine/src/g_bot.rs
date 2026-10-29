@@ -231,6 +231,7 @@ pub fn hide(state: &mut State, rival: usize) {
         evolves_from: None,
         hp: 60,
         energy_type: EnergyType::Colorless,
+        secondary_energy_type: None,
         ability: None,
         attacks: Vec::new(),
         weakness: None,
@@ -340,7 +341,7 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
     // A Benched attacker needs the Active out of the way: the Energy its retreat still lacks.
     let retreat_need = probe.in_play_pokemon[attacker][0]
         .as_ref()
-        .map_or(0, |active| get_retreat_cost(probe, active).len().saturating_sub(active.attached_energy.len()));
+        .map_or(0, |active| get_retreat_cost(probe, attacker, active, true).len().saturating_sub(active.attached_energy.len()));
     let candidates = attackers(probe, attacker, &slots, see_evolutions);
     let active_lost = probe.in_play_pokemon[attacker][0].as_ref().map_or(0.0, |active| {
         if active.is_paralyzed() {
@@ -377,10 +378,7 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
             Card::Pokemon(pokemon) => pokemon.attacks.clone(),
             _ => Vec::new(),
         };
-        let own_type = match &active.card {
-            Card::Pokemon(pokemon) => Some(pokemon.energy_type),
-            _ => None,
-        };
+        let own_types = own_types(&active.card);
         let (had, attacker_hp) = (active.attached_energy.len(), active.get_remaining_hp() as f64);
         // With Jungle Totem a [G] on a Grass Pokémon counts twice, also when the attacker evolves into Serperior to bring
         // it along (Codex on #128): deckgym counts it from the board as it stands, the copy's evolution included, so the
@@ -399,12 +397,12 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
             if totem {
                 while attachments < cost.len() {
                     let effective = probe.effective_attached_energy(attacker, 0);
-                    let Some(&next) = energy_to_attack(&effective, &cost, &zone, own_type).first() else { break };
+                    let Some(&next) = energy_to_attack(&effective, &cost, &zone, &own_types).first() else { break };
                     probe.in_play_pokemon[attacker][0].as_mut().expect("in play").attached_energy.push(next);
                     attachments += 1;
                 }
             } else {
-                let lacking = energy_to_attack(&attached, &cost, &zone, own_type);
+                let lacking = energy_to_attack(&attached, &cost, &zone, &own_types);
                 attachments = lacking.len();
                 probe.in_play_pokemon[attacker][0].as_mut().expect("in play").attached_energy.extend(lacking);
             }
@@ -458,7 +456,7 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
                     // One more Energy than its cost, each step up to `MAX_OVERCHARGE`: a threshold can need two (Energized
                     // Leaves' 5 on both Actives; Codex on #128).
                     let active = probe.in_play_pokemon[attacker][0].as_mut().expect("in play");
-                    let extra = extra_energy(mechanic, &active.attached_energy, overcharge, &zone, own_type);
+                    let extra = extra_energy(mechanic, &active.attached_energy, overcharge, &zone, &own_types);
                     active.attached_energy.push(extra);
                 }
                 let damage: Vec<Hit> = burning
@@ -693,7 +691,7 @@ fn has_poncho(pokemon: &PlayedCard) -> bool {
 /// The color of the `nth` Energy more than its cost an attack is tried with: the one its mechanic asks for when the
 /// zone makes it (Psykick's [P] on a Medicham with [F][F], a type not yet attached for one that counts types), else the
 /// `filler` (Codex on #128).
-fn extra_energy(mechanic: Option<&Mechanic>, attached: &[EnergyType], nth: usize, zone: &[EnergyType], own: Option<EnergyType>) -> EnergyType {
+fn extra_energy(mechanic: Option<&Mechanic>, attached: &[EnergyType], nth: usize, zone: &[EnergyType], own: &[EnergyType]) -> EnergyType {
     let made = |energy: EnergyType| zone.contains(&energy).then_some(energy);
     let asked = match mechanic {
         Some(
@@ -724,17 +722,24 @@ fn extra_energy(mechanic: Option<&Mechanic>, attached: &[EnergyType], nth: usize
     asked.unwrap_or_else(|| filler(zone, own))
 }
 
-/// The color of the Energy the clock attaches for a Colorless cost: the Pokémon's own type if the zone makes it, else
-/// the zone's first (an empty zone is taken as unknown: the Pokémon's type).
-fn filler(zone: &[EnergyType], own: Option<EnergyType>) -> EnergyType {
-    match own {
-        Some(own) if zone.is_empty() || zone.contains(&own) => own,
-        _ => zone.first().copied().unwrap_or(EnergyType::Colorless),
-    }
+/// The types the clock pays a Colorless cost with: the printed ones, both for a dual-type Pokémon (C1, D-031), the first
+/// printed first. A type an Ability grants in play (Urshifu) is not one its attacks ask for, so it stays out, as before.
+fn own_types(card: &Card) -> Vec<EnergyType> {
+    card.get_types()
+}
+
+/// The color of the Energy the clock attaches for a Colorless cost: the Pokémon's first own type the zone makes (a
+/// dual-type Pokémon has two, its printed one first), else the zone's first (an empty zone is taken as unknown: the
+/// Pokémon's type).
+fn filler(zone: &[EnergyType], own: &[EnergyType]) -> EnergyType {
+    own.iter()
+        .copied()
+        .find(|own| zone.is_empty() || zone.contains(own))
+        .unwrap_or_else(|| zone.first().copied().unwrap_or(EnergyType::Colorless))
 }
 
 /// The Energy `attached` still lacks to pay `cost`: each typed one, and for the Colorless ones the `filler`.
-fn energy_to_attack(attached: &[EnergyType], cost: &[EnergyType], zone: &[EnergyType], own: Option<EnergyType>) -> Vec<EnergyType> {
+fn energy_to_attack(attached: &[EnergyType], cost: &[EnergyType], zone: &[EnergyType], own: &[EnergyType]) -> Vec<EnergyType> {
     let mut left: Vec<EnergyType> = attached.to_vec();
     let mut extra = Vec::new();
     let mut colorless: usize = 0;
@@ -1526,9 +1531,9 @@ pub(crate) mod tests {
     #[test]
     fn damage_is_counted_once_the_attack_is_ready() {
         use EnergyType::{Fire, Grass};
-        assert_eq!(energy_to_attack(&[], &[Fire, Lightning], &[Fire, Lightning], Some(EnergyType::Colorless)), vec![Fire, Lightning]);
-        assert_eq!(energy_to_attack(&[Grass], &[Grass, EnergyType::Colorless], &[Grass], Some(Grass)), vec![Grass]);
-        assert_eq!(energy_to_attack(&[Grass, Grass], &[Grass, EnergyType::Colorless], &[Grass], Some(Grass)), Vec::<EnergyType>::new());
+        assert_eq!(energy_to_attack(&[], &[Fire, Lightning], &[Fire, Lightning], &[EnergyType::Colorless]), vec![Fire, Lightning]);
+        assert_eq!(energy_to_attack(&[Grass], &[Grass, EnergyType::Colorless], &[Grass], &[Grass]), vec![Grass]);
+        assert_eq!(energy_to_attack(&[Grass, Grass], &[Grass, EnergyType::Colorless], &[Grass], &[Grass]), Vec::<EnergyType>::new());
         // Mega Rayquaza ex with no Energy: Mega Burst does 50 for each Energy it discards, so 100 once its [R][L] are
         // on (the engine says 0 on the board as it is). Against a Dedenne ex (120 HP) that is 2 hits, then it waits for
         // its 2 Energy again: 2 turns to get ready, 1 + 2 to hit twice. With a third Energy first it does 150 and knocks
@@ -1835,6 +1840,41 @@ pub(crate) mod tests {
         let scheduled = game.get_state_clone();
         assert_eq!(pending_damage(&scheduled, 1, 0), 120.0);
         assert_eq!(pending_damage(&scheduled, 1, 1), 0.0);
+    }
+
+    /// A dual-type Pokémon (C1, D-031) pays a Colorless cost with either of its types: the first one the zone makes,
+    /// its printed type before the second. A single type plays as before.
+    #[test]
+    fn a_dual_type_pays_colorless_with_the_type_the_zone_makes() {
+        use EnergyType::{Colorless, Darkness, Fighting, Water};
+        // Mega Greninja ex is [W] and [D]: with a zone of [F] and [D] it takes [D], not the zone's first.
+        assert_eq!(filler(&[Fighting, Darkness], &[Water, Darkness]), Darkness);
+        assert_eq!(energy_to_attack(&[], &[Colorless], &[Fighting, Darkness], &[Water, Darkness]), vec![Darkness]);
+        assert_eq!(extra_energy(None, &[], 1, &[Fighting, Darkness], &[Water, Darkness]), Darkness);
+        // Its printed type first when the zone makes both, and an empty zone is its printed type.
+        assert_eq!(filler(&[Darkness, Water], &[Water, Darkness]), Water);
+        assert_eq!(filler(&[], &[Water, Darkness]), Water);
+        // One type, or none, as before.
+        assert_eq!(filler(&[Fighting, Darkness], &[Water]), Fighting);
+        assert_eq!(filler(&[Fighting, Darkness], &[]), Fighting);
+        // What the clock takes as a Pokémon's own types: both printed ones of C1's Mega Greninja ex and Mega Mewtwo X
+        // ex, the one of the others, and none an Ability grants (Rapid Strike Urshifu is printed [W], and [F] in play).
+        assert_eq!(own_types(&tool("C1 042")), vec![Water, Darkness]);
+        assert_eq!(own_types(&tool("C1 056")), vec![Psychic, Fighting]);
+        assert_eq!(own_types(&tool("B3b 024")), vec![Lightning]);
+        assert_eq!(own_types(&tool("B3 051")), vec![Water]);
+    }
+
+    /// The engine counts both types of a dual-type attacker for the defender's Weakness (C1, D-031), and g's damage
+    /// comes from the engine: Mega Mewtwo X ex ([P] and [F]) hits Dedenne ex, weak to [F], for 100 + 20.
+    #[test]
+    fn the_second_type_meets_weakness() {
+        let mewtwo = card("C1 056").with_energy(vec![Psychic, Psychic, Psychic]);
+        let mut probe = board(MISMAGIUS, DEDENNE, vec![mewtwo.clone()], vec![card("B3b 024")]);
+        assert_eq!(damage(&mut probe, 0, &first_attack(&mewtwo), 0, 0.0), 120.0);
+        // Latios, weak to [D], is weak to neither: the printed 100.
+        let mut neutral = board(MISMAGIUS, DEDENNE, vec![mewtwo.clone()], vec![card("A4a 037")]);
+        assert_eq!(damage(&mut neutral, 0, &first_attack(&mewtwo), 0, 0.0), 100.0);
     }
 
     #[test]
@@ -2361,7 +2401,7 @@ pub(crate) mod tests {
         // (Codex on #128: it took the filler, [F]).
         let in_play = Mechanic::ExtraDamageIfTypeEnergyInPlay { energy_type: Psychic, minimum_count: 5, extra_damage: 60 };
         let zone = [EnergyType::Fighting, Psychic];
-        assert_eq!(extra_energy(Some(&in_play), &[], 1, &zone, Some(EnergyType::Fighting)), Psychic);
+        assert_eq!(extra_energy(Some(&in_play), &[], 1, &zone, &[EnergyType::Fighting]), Psychic);
     }
 
     #[test]
@@ -2431,7 +2471,7 @@ pub(crate) mod tests {
             Mechanic::DiscardSelfEnergyPerHeadsExtraDamage { num_coins: 3, energy_type: Psychic, damage_per_discarded_energy: 50 };
         let all_of_a_type = Mechanic::SelfDiscardAllTypeEnergyAndDamageAnyOpponentPokemon { energy_type: Psychic, damage: 120 };
         for mechanic in [per_heads, all_of_a_type] {
-            assert_eq!(extra_energy(Some(&mechanic), &[], 1, &zone, Some(EnergyType::Fighting)), Psychic, "{mechanic:?}");
+            assert_eq!(extra_energy(Some(&mechanic), &[], 1, &zone, &[EnergyType::Fighting]), Psychic, "{mechanic:?}");
         }
     }
 
