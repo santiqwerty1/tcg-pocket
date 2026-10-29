@@ -475,18 +475,18 @@
       "expected": {
         "games": 2,
         "moves": [
-          "df6629a080226ba0",
-          "0657ddacdce49a66"
+          "3d32b52b7d839615",
+          "f2218683f71f186b"
         ],
         "perGame": {
-          "endings": "NP",
+          "endings": "NN",
           "stagesA": "11",
-          "stagesB": "12",
+          "stagesB": "01",
           "starters": "AB",
           "turnLimit": 30,
           "turns": [
             9,
-            18
+            10
           ],
           "winners": "AA"
         },
@@ -496,7 +496,7 @@
         ],
         "seed": 4201,
         "ties": 0,
-        "turns": 27,
+        "turns": 19,
         "winsA": 2,
         "winsB": 0
       },
@@ -518,20 +518,20 @@
       "expected": {
         "games": 2,
         "moves": [
-          "83fb093dc349e68e",
-          "52bb5e06b5990100"
+          "0c4091ec880c9ef8",
+          "3bb91f274b508f3c"
         ],
         "perGame": {
-          "endings": "NP",
-          "stagesA": "02",
-          "stagesB": "11",
+          "endings": "NN",
+          "stagesA": "01",
+          "stagesB": "00",
           "starters": "AA",
           "turnLimit": 30,
           "turns": [
-            6,
-            16
+            10,
+            6
           ],
-          "winners": "BA"
+          "winners": "BB"
         },
         "players": [
           "r",
@@ -539,9 +539,9 @@
         ],
         "seed": 4202,
         "ties": 0,
-        "turns": 22,
-        "winsA": 1,
-        "winsB": 1
+        "turns": 16,
+        "winsA": 0,
+        "winsB": 2
       },
       "job": {
         "deckA": "Energy: Grass\n1 Bulbasaur A1 1\n2 Ivysaur B1a 2\n2 Mega Venusaur ex B1a 4\n2 Professor's Research P-A 7\n2 Copycat B1 225\n2 Quick-Grow Extract B1a 67\n2 Lucky Ice Pop B2 145\n2 Heavy Helmet B1 219\n1 Lillie A3 155\n1 Pokémon Center Lady A2b 70\n1 Cyrus A2 150\n1 Field Blower B3 147\n1 Repel A3a 64\n",
@@ -1854,6 +1854,6 @@
       }
     }
   ],
-  "engineRev": "c87bad0799de162d0b0c870748319d512f5482d2",
+  "engineRev": "77e06172742bb776b232d6e5c2ca576181be97aa",
   "gamesRev": 1
 }
