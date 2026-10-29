@@ -40,4 +40,7 @@
 // update to get it.
 // 0.3.14 (T-021): the package's engine-cli 0.3.16 has the g the app plays (g 1.1.2); the queue gives the g bots only to
 // it (`canPlayGBots`), because 0.3.13–0.3.15 list «gBots» with an earlier g; workers update to get it.
-export const WORKER_VERSION = '0.3.14'
+// 0.3.15 (D-031, T-023): the package's engine-cli 0.3.17 plays `next/7aa4ef0` (77e0617): upstream 7aa4ef0, with C1
+// «Dual Fusion» and P-C, printed dual types and upstream's rule fixes since adfe505, plus the bots' exports and the
+// value function that skips its zero weights; workers update to get it.
+export const WORKER_VERSION = '0.3.15'
