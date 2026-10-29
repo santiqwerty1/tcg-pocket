@@ -40,6 +40,7 @@ export const TRACKER_CARD_FIELDS = [
   'name',
   'hp',
   'energy',
+  'secondary_energy',
   'card_type',
   'evolution_type',
   'image',
@@ -67,6 +68,8 @@ export const trackerCardSchema = z
     name: z.string().min(1),
     hp: z.number().int().optional(),
     energy: trackerEnergySchema,
+    /** The second type of a dual-type Pokémon, as the tracker writes it since C1 (9fafc07: `water` + `darkness`). */
+    secondary_energy: z.string().optional(),
     card_type: z.enum(['pokémon', 'trainer']),
     evolution_type: z.enum(TRACKER_EVOLUTION_TYPES),
     image: z.string(),
@@ -81,7 +84,18 @@ export const trackerCardSchema = z
     alternate_versions: z.array(z.number().int()).min(1),
     artist: z.string(),
   })
-  .transform(({ energy, ...card }) => ({ ...card, energy: energy.energy, types: energy.types }))
+  .transform(({ energy, secondary_energy, ...card }, ctx) => {
+    if (secondary_energy === undefined) return { ...card, energy: energy.energy, types: energy.types }
+    // Read as one list with the first type(s), so a trainer, an unknown or repeated type, or a third one fails the same way.
+    try {
+      const both = parseTrackerEnergy([...(energy.energy === 'trainer' ? ['trainer'] : energy.types), secondary_energy])
+      return { ...card, energy: both.energy, types: both.types }
+    } catch (error) {
+      if (!(error instanceof Error) || Object.getPrototypeOf(error) !== Error.prototype) throw error
+      ctx.addIssue({ code: 'custom', path: ['secondary_energy'], message: error.message })
+      return z.NEVER
+    }
+  })
 
 export const trackerCardsSchema = z.array(trackerCardSchema)
 
