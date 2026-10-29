@@ -166,6 +166,20 @@ describe('the tracker card schema and the engine data with two types (FIXTURE IN
     )
   })
 
+  it('reads the second type from secondary_energy, as the tracker writes C1 since 9fafc07', () => {
+    const [psychic] = invented.cards
+    const withSecond = (energy: unknown, secondary: unknown) => ({ ...psychic, energy, secondary_energy: secondary })
+    const [mewtwo] = parseTrackerCards([withSecond('psychic', 'fighting')])
+    expect([mewtwo?.energy, mewtwo?.types]).toEqual(['psychic', ['psychic', 'fighting']])
+    expect(unknownTrackerFields([withSecond('psychic', 'fighting')])).toEqual([])
+    const fails = (energy: unknown, secondary: unknown) => () => parseTrackerCards([withSecond(energy, secondary)])
+    expect(fails('water', 'water')).toThrow(/Repeated energy type/)
+    expect(fails('trainer', 'water')).toThrow(/Unknown energy type 'trainer'/)
+    expect(fails('psychic/fighting', 'water')).toThrow(/More than 2 types/)
+    expect(fails('water', 'shadow')).toThrow(/Unknown energy type 'shadow'/)
+    expect(fails('water', 3)).toThrow()
+  })
+
   it('names the fields of cards.json it does not read, except foil, which it leaves out on purpose', () => {
     const rows = invented.cards.map((card, at) => (at === 0 ? { ...card, foil: false, energy2: 'fighting' } : card))
     expect(unknownTrackerFields(rows)).toEqual([{ field: 'energy2', cards: 1 }])
