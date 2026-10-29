@@ -28,6 +28,10 @@ const ALTARIA: &str = crate::coach::tests::ALTARIA;
 /// What g models that Altaria and Venusaur never show (review of #142): Poison and Burn, attacks that count on them, and
 /// Tools on both sides. Built for the golden games, with no list behind it.
 const POISON_BURN: &str = "Energy: Fire, Darkness\n2 Blacephalon ex B2 23\n2 Heatmor A4 37\n2 Seviper B3 104\n2 Nihilego A3a 42\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n2 Rocky Helmet A2 148\n2 Giant Cape A2 147\n1 Cyrus A2 150\n1 Pokémon Center Lady A2b 70\n";
+/// C1 «Dual Fusion» (29/10/2026, D-031): Mega Mewtwo X ex is [P] and [F], weak to [D]; Mega Greninja ex is [W] and [D],
+/// so its hits on Mewtwo meet that Weakness through its second type. Built for the golden games, with no list behind it.
+const MEWTWO_C1: &str = "Energy: Psychic, Fighting\n2 Mega Mewtwo X ex C1 56\n2 Riolu A2 91\n2 Mega Lucario ex B3 81\n1 Lucario A2 92\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Sabrina A1 225\n1 Cyrus A2 150\n2 Giant Cape A2 147\n1 Training Area B2 153\n2 X Speed P-A 2\n";
+const GRENINJA_C1: &str = "Energy: Water, Darkness\n2 Froakie C1 40\n2 Frogadier C1 41\n2 Mega Greninja ex C1 42\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n2 Rare Candy A3 144\n1 Cyrus A2 150\n2 Giant Cape A2 147\n1 Sabrina A1 225\n2 Lucky Ice Pop B2 145\n";
 const VENUSAUR: &str = "Energy: Grass\n1 Bulbasaur A1 1\n2 Ivysaur B1a 2\n2 Mega Venusaur ex B1a 4\n2 Professor's Research P-A 7\n2 Copycat B1 225\n2 Quick-Grow Extract B1a 67\n2 Lucky Ice Pop B2 145\n2 Heavy Helmet B1 219\n1 Lillie A3 155\n1 Pokémon Center Lady A2b 70\n1 Cyrus A2 150\n1 Field Blower B3 147\n1 Repel A3a 64\n";
 
 /// Every bot, each against the random one, from both sides; the slow ones with fewer games.
@@ -76,6 +80,17 @@ fn cases() -> Vec<Value> {
         "command": "simulate",
         "job": { "deckA": ALTARIA, "deckB": VENUSAUR, "players": ["e2", "f2"], "games": 2, "seed": 4203, "threads": 1, "perGame": true },
     }));
+    // Two printed types (C1, D-031): the search bots, f's clock and g's evaluation on Pokémon of two types, so that a
+    // change in how deckgym or the bots read a second type shows here (review of the C1 engine change).
+    for (deck_a, deck_b, players, seed) in [
+        (MEWTWO_C1, GRENINJA_C1, ["e2", "g2"], 4220),
+        (GRENINJA_C1, MEWTWO_C1, ["f2", "g2"], 4221),
+    ] {
+        cases.push(json!({
+            "command": "simulate",
+            "job": { "deckA": deck_a, "deckB": deck_b, "players": players, "games": 2, "seed": seed, "threads": 1, "perGame": true },
+        }));
+    }
     cases.push(json!({
         "command": "consistency",
         "job": { "deck": ALTARIA, "keyCards": ["B1 102"], "games": 8, "seed": 4204, "threads": 1, "bot": "e1", "maxTurn": 6 },
@@ -100,7 +115,7 @@ fn cases() -> Vec<Value> {
     // How the f bots value a table, at every moment of a fixed game (the random bots on both sides): a change in how
     // they weigh things shows here even when these games happen to keep their moves (review of #68: a clock cap that
     // only matters past 20 turns).
-    for (seed, deck_a, deck_b) in [(4211, VENUSAUR, ALTARIA), (4212, ALTARIA, VENUSAUR)] {
+    for (seed, deck_a, deck_b) in [(4211, VENUSAUR, ALTARIA), (4212, ALTARIA, VENUSAUR), (4222, GRENINJA_C1, MEWTWO_C1)] {
         cases.push(json!({
             "command": "values",
             "job": { "deckA": deck_a, "deckB": deck_b, "seed": seed },
@@ -110,7 +125,12 @@ fn cases() -> Vec<Value> {
     // g_bot.rs shows here even when the games above keep their moves (review of #142). Each trace also counts how many
     // of its moments have a Poisoned or Burned Active and a Tool in play, so that a deckgym or deck change that leaves
     // them out fails `the_g_traces_see_poison_burn_and_tools` instead of passing unseen.
-    for (seed, deck_a, deck_b) in [(4217, POISON_BURN, DEDENNE), (4218, MISMAGIUS, POISON_BURN), (4219, DEDENNE, MISMAGIUS)] {
+    for (seed, deck_a, deck_b) in [
+        (4217, POISON_BURN, DEDENNE),
+        (4218, MISMAGIUS, POISON_BURN),
+        (4219, DEDENNE, MISMAGIUS),
+        (4223, MEWTWO_C1, GRENINJA_C1),
+    ] {
         cases.push(json!({
             "command": "gValues",
             "job": { "deckA": deck_a, "deckB": deck_b, "seed": seed },

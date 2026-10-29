@@ -378,9 +378,7 @@ pub fn turns_to_win(probe: &mut State, attacker: usize, see_evolutions: bool, pa
             Card::Pokemon(pokemon) => pokemon.attacks.clone(),
             _ => Vec::new(),
         };
-        // Its printed types, both for a dual-type Pokémon (C1): the Energy it attaches for a Colorless cost is one of
-        // them. A type an Ability grants in play (Urshifu) is not one its attacks ask for, so it stays out, as before.
-        let own_types = active.card.get_types();
+        let own_types = own_types(&active.card);
         let (had, attacker_hp) = (active.attached_energy.len(), active.get_remaining_hp() as f64);
         // With Jungle Totem a [G] on a Grass Pokémon counts twice, also when the attacker evolves into Serperior to bring
         // it along (Codex on #128): deckgym counts it from the board as it stands, the copy's evolution included, so the
@@ -722,6 +720,12 @@ fn extra_energy(mechanic: Option<&Mechanic>, attached: &[EnergyType], nth: usize
         _ => None,
     };
     asked.unwrap_or_else(|| filler(zone, own))
+}
+
+/// The types the clock pays a Colorless cost with: the printed ones, both for a dual-type Pokémon (C1, D-031), the first
+/// printed first. A type an Ability grants in play (Urshifu) is not one its attacks ask for, so it stays out, as before.
+fn own_types(card: &Card) -> Vec<EnergyType> {
+    card.get_types()
 }
 
 /// The color of the Energy the clock attaches for a Colorless cost: the Pokémon's first own type the zone makes (a
@@ -1853,6 +1857,12 @@ pub(crate) mod tests {
         // One type, or none, as before.
         assert_eq!(filler(&[Fighting, Darkness], &[Water]), Fighting);
         assert_eq!(filler(&[Fighting, Darkness], &[]), Fighting);
+        // What the clock takes as a Pokémon's own types: both printed ones of C1's Mega Greninja ex and Mega Mewtwo X
+        // ex, the one of the others, and none an Ability grants (Rapid Strike Urshifu is printed [W], and [F] in play).
+        assert_eq!(own_types(&tool("C1 042")), vec![Water, Darkness]);
+        assert_eq!(own_types(&tool("C1 056")), vec![Psychic, Fighting]);
+        assert_eq!(own_types(&tool("B3b 024")), vec![Lightning]);
+        assert_eq!(own_types(&tool("B3 051")), vec![Water]);
     }
 
     /// The engine counts both types of a dual-type attacker for the defender's Weakness (C1, D-031), and g's damage

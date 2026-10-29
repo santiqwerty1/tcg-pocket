@@ -35,11 +35,12 @@ const sideB = decks.filter((deck) => deck.side === 'b')
 
 /**
  * A line of a deck in deckgym's text: `<count> <name> <set> <number>`. Without `printings`, every printing of `name`;
- * with them («A4 5», numbers without zeros as in the text), only those.
+ * with them («A4 5», without zeros as the app writes them; a text with «A4 005» matches too), only those.
  */
 const card = (name, ...printings) => {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const where = printings.length > 0 ? `(${printings.join('|')})` : '[A-Za-z0-9-]+ \\d+'
+  const numbered = printings.map((printing) => printing.replace(/ (\d+)$/, ' 0*$1'))
+  const where = printings.length > 0 ? `(${numbered.join('|')})` : '[A-Za-z0-9-]+ \\d+'
   return new RegExp(`^\\d+ ${escaped} ${where}\\r?$`, 'm')
 }
 
@@ -196,3 +197,5 @@ writeFileSync(join(outDir, 'summary.json'), JSON.stringify({ summary, differing,
 console.log(JSON.stringify(summary))
 for (const d of unexplained) console.log('UNEXPLAINED', JSON.stringify(d))
 for (const f of failed) console.log('FAILED', JSON.stringify(f))
+// A pairing left unexplained or failed fails the run, so a script that calls it stops there.
+if (unexplained.length > 0 || failed.length > 0) process.exitCode = 1

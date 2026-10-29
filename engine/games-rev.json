@@ -1445,6 +1445,92 @@
       }
     },
     {
+      "command": "simulate",
+      "expected": {
+        "games": 2,
+        "moves": [
+          "aef59fd33caa9aa5",
+          "a947cae052e13c17"
+        ],
+        "perGame": {
+          "endings": "PP",
+          "stagesA": "11",
+          "stagesB": "22",
+          "starters": "AB",
+          "turnLimit": 30,
+          "turns": [
+            16,
+            12
+          ],
+          "winners": "BA"
+        },
+        "players": [
+          "e2",
+          "g2"
+        ],
+        "seed": 4220,
+        "ties": 0,
+        "turns": 28,
+        "winsA": 1,
+        "winsB": 1
+      },
+      "job": {
+        "deckA": "Energy: Psychic, Fighting\n2 Mega Mewtwo X ex C1 56\n2 Riolu A2 91\n2 Mega Lucario ex B3 81\n1 Lucario A2 92\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Sabrina A1 225\n1 Cyrus A2 150\n2 Giant Cape A2 147\n1 Training Area B2 153\n2 X Speed P-A 2\n",
+        "deckB": "Energy: Water, Darkness\n2 Froakie C1 40\n2 Frogadier C1 41\n2 Mega Greninja ex C1 42\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n2 Rare Candy A3 144\n1 Cyrus A2 150\n2 Giant Cape A2 147\n1 Sabrina A1 225\n2 Lucky Ice Pop B2 145\n",
+        "games": 2,
+        "perGame": true,
+        "players": [
+          "e2",
+          "g2"
+        ],
+        "seed": 4220,
+        "threads": 1
+      }
+    },
+    {
+      "command": "simulate",
+      "expected": {
+        "games": 2,
+        "moves": [
+          "0ae4efb7fdb2358e",
+          "4ae219c970490776"
+        ],
+        "perGame": {
+          "endings": "PP",
+          "stagesA": "12",
+          "stagesB": "11",
+          "starters": "BB",
+          "turnLimit": 30,
+          "turns": [
+            13,
+            21
+          ],
+          "winners": "BB"
+        },
+        "players": [
+          "f2",
+          "g2"
+        ],
+        "seed": 4221,
+        "ties": 0,
+        "turns": 34,
+        "winsA": 0,
+        "winsB": 2
+      },
+      "job": {
+        "deckA": "Energy: Water, Darkness\n2 Froakie C1 40\n2 Frogadier C1 41\n2 Mega Greninja ex C1 42\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n2 Rare Candy A3 144\n1 Cyrus A2 150\n2 Giant Cape A2 147\n1 Sabrina A1 225\n2 Lucky Ice Pop B2 145\n",
+        "deckB": "Energy: Psychic, Fighting\n2 Mega Mewtwo X ex C1 56\n2 Riolu A2 91\n2 Mega Lucario ex B3 81\n1 Lucario A2 92\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Sabrina A1 225\n1 Cyrus A2 150\n2 Giant Cape A2 147\n1 Training Area B2 153\n2 X Speed P-A 2\n",
+        "games": 2,
+        "perGame": true,
+        "players": [
+          "f2",
+          "g2"
+        ],
+        "seed": 4221,
+        "threads": 1
+      }
+    },
+    {
       "command": "consistency",
       "expected": {
         "attack": {
@@ -1789,6 +1875,18 @@
       }
     },
     {
+      "command": "values",
+      "expected": {
+        "moments": 131,
+        "values": "398f21ac8fb58380"
+      },
+      "job": {
+        "deckA": "Energy: Water, Darkness\n2 Froakie C1 40\n2 Frogadier C1 41\n2 Mega Greninja ex C1 42\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n2 Rare Candy A3 144\n1 Cyrus A2 150\n2 Giant Cape A2 147\n1 Sabrina A1 225\n2 Lucky Ice Pop B2 145\n",
+        "deckB": "Energy: Psychic, Fighting\n2 Mega Mewtwo X ex C1 56\n2 Riolu A2 91\n2 Mega Lucario ex B3 81\n1 Lucario A2 92\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Sabrina A1 225\n1 Cyrus A2 150\n2 Giant Cape A2 147\n1 Training Area B2 153\n2 X Speed P-A 2\n",
+        "seed": 4222
+      }
+    },
+    {
       "command": "gValues",
       "expected": {
         "burned": 8,
@@ -1831,6 +1929,21 @@
         "deckA": "Energy: Lightning\n2 Dedenne ex B3b 24\n1 Indeedee ex B1 121\n1 Oricorio A3 165\n1 Zeraora A3a 21\n1 Skull Fossil A2 144\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Cyrus A2 150\n2 Giant Cape A2 147\n2 Small Balloon B3b 64\n1 Clear Veil B4 149\n1 Protective Poncho B2 147\n1 Starting Plains B2 154\n",
         "deckB": "Energy: Psychic\n2 Latias A4a 36\n2 Latios A4a 37\n1 Misdreavus A4a 32\n1 Misdreavus A2 66\n2 Mismagius A4a 33\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Pokémon Center Lady A2b 70\n1 Sabrina A1 225\n1 Red Card P-A 6\n2 Rocky Helmet A2 148\n1 Giant Cape A2 147\n",
         "seed": 4219
+      }
+    },
+    {
+      "command": "gValues",
+      "expected": {
+        "burned": 0,
+        "moments": 128,
+        "poisoned": 0,
+        "tools": 120,
+        "values": "7e31f4d1df6e0129"
+      },
+      "job": {
+        "deckA": "Energy: Psychic, Fighting\n2 Mega Mewtwo X ex C1 56\n2 Riolu A2 91\n2 Mega Lucario ex B3 81\n1 Lucario A2 92\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Sabrina A1 225\n1 Cyrus A2 150\n2 Giant Cape A2 147\n1 Training Area B2 153\n2 X Speed P-A 2\n",
+        "deckB": "Energy: Water, Darkness\n2 Froakie C1 40\n2 Frogadier C1 41\n2 Mega Greninja ex C1 42\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n2 Rare Candy A3 144\n1 Cyrus A2 150\n2 Giant Cape A2 147\n1 Sabrina A1 225\n2 Lucky Ice Pop B2 145\n",
+        "seed": 4223
       }
     },
     {
