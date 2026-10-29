@@ -1,0 +1,5 @@
+---
+seccion: Fase 18: notificaciones al celu (8/10/2026)
+---
+| **Un aviso puede decir con qué clave no se repite su push** (`notifyKey` de `AlertView`; sin ella, `código\|título` como siempre). «Era nueva probable» la usa con el último set que abrió era (`new_era_likely\|B4a`), no con los días, así que se manda una vez por era. `GET /api/alerts` no la muestra. | Su título nunca cambia: con `código\|título`, el push salió una sola vez en la vida de la app. Los días cambian todos los días y lo mandarían a diario. |
+| **La clave vieja que guardó producción (`new_era_likely\|Era nueva probable`) no se adopta ni se borra**: no coincide con ninguna clave nueva y sale sola de la lista cuando pasa de 200. | Era la misma para todas las eras, así que no dice de cuál fue. Si se tomara por la era del momento, podría tapar el aviso de una era nueva, que es el error que se arregla. El 29/10 (C1 ya salió) el aviso no está activo en producción, así que el deploy no manda ningún push; el próximo caso es `new_era_likely\|C1`, a los 50 días de la fecha de C1 en la tabla de eras (a mediados de diciembre), si la tabla no tiene todavía el set siguiente. |

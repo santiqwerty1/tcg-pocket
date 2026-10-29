@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { BLIND_SPOT_ES, type BlindSpot, blindSpotsOf, listBlindSpots } from '../../src/simulation/index.js'
+import {
+  BLIND_SPOT_ES,
+  type BlindSpot,
+  blindSpotApplies,
+  blindSpotsOf,
+  listBlindSpots,
+} from '../../src/simulation/index.js'
 import { deckDraft } from '../helpers/loadDecks.js'
 import { catalogIndex } from '../helpers/loadFixtures.js'
 
@@ -61,5 +67,27 @@ describe('blind spots (T-017 A3)', () => {
     const spots = listBlindSpots(deck.cards, index)
     expect(spots.some((card) => card.spots.includes('stage_without_damage'))).toBe(true)
     expect(new Set(spots.map((card) => card.cardId)).size).toBe(spots.length)
+  })
+
+  it('with the bot that played the list, only its blind spots: the e bots’ clock is not g’s', () => {
+    // Chosen by id from the table above: Mawile «20+», Ivysaur that only heals, Poké Ball, Mythical Slab.
+    const cards = ['A2a-56', 'B1a-2', 'P-A-5', 'A1a-65'].map((cardId) => ({ cardId, count: 2 }))
+    const spotsWith = (bot: string | null | undefined) =>
+      listBlindSpots(cards, index, bot).flatMap((card) => card.spots.map((spot) => `${card.cardId} ${spot}`))
+    const all = ['A2a-56 variable_damage', 'B1a-2 stage_without_damage', 'P-A-5 deck_search', 'A1a-65 mythical_slab']
+    // Without a bot, the e bots and the others (no clock of their own to tell): all of them, as before.
+    expect(spotsWith(undefined)).toEqual(all)
+    expect(spotsWith(null)).toEqual(all)
+    expect(spotsWith('e2')).toEqual(all)
+    expect(spotsWith('e3')).toEqual(all)
+    expect(spotsWith('r')).toEqual(all)
+    // f looks through the evolutions (H-018) but still takes an attack's fixed damage.
+    expect(spotsWith('f2')).toEqual(['A2a-56 variable_damage', 'P-A-5 deck_search', 'A1a-65 mythical_slab'])
+    // g asks the engine for the damage and charges Ivysaur's Synthesis: only the engine's are left, and Ivysaur goes.
+    expect(spotsWith('g2')).toEqual(['P-A-5 deck_search', 'A1a-65 mythical_slab'])
+    expect(spotsWith('g1')).toEqual(spotsWith('g2'))
+    expect(blindSpotApplies('variable_damage', 'g2')).toBe(false)
+    expect(blindSpotApplies('deck_search', 'g2')).toBe(true)
+    expect(blindSpotApplies('stage_without_damage', 'e2')).toBe(true)
   })
 })

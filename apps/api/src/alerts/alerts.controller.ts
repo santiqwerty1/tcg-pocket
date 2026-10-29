@@ -15,8 +15,9 @@ export class AlertsController {
   constructor(private readonly alerts: AlertsService) {}
 
   @Get()
-  async list(@CurrentSession() _session: RequestSession): Promise<{ items: AlertView[] }> {
-    return { items: await this.alerts.list() }
+  async list(@CurrentSession() _session: RequestSession): Promise<{ items: Omit<AlertView, 'notifyKey'>[] }> {
+    // `notifyKey` is the notifications' business, not the screen's.
+    return { items: (await this.alerts.list()).map(({ notifyKey: _notifyKey, ...alert }) => alert) }
   }
 }
 

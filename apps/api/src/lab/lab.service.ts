@@ -19,6 +19,7 @@ import {
 import {
   archetypeRows,
   BLIND_SPOT_ES,
+  blindSpotApplies,
   blindSpotsOf,
   botWarnings,
   botWarningText,
@@ -2699,15 +2700,16 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
             : null,
           why: changes ? whyCards(changes.add, cards, state?.frozen, index, playable, asked, shared) : [],
           // T-017 A3: the list's cards the bots play badly or the engine approximates; a variant that brings one in says
-          // so («carta con punto ciego»; review of #82: «sensible al bot» is the replay with e3's verdict).
-          blindSpots: listBlindSpots(cards, index).map((card) => ({
+          // so («carta con punto ciego»; review of #82: «sensible al bot» is the replay with e3's verdict). Only the ones
+          // of this job's bot (the side the lists play): the e bots' clock is not g's.
+          blindSpots: listBlindSpots(cards, index, job.players[0] ?? null).map((card) => ({
             cardId: card.cardId,
             nameEs: card.nameEs,
             reasons: card.spots.map((spot) => BLIND_SPOT_ES[spot]),
           })),
           bringsBlindSpot: (changes?.add ?? []).some((change) => {
             const card = index.cardById(change.cardId)
-            return !!card && blindSpotsOf(card).length > 0
+            return !!card && blindSpotsOf(card).some((spot) => blindSpotApplies(spot, job.players[0] ?? null))
           }),
           botBlindSpot: null,
           energyChange: (() => {

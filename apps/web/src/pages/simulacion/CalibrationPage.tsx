@@ -173,7 +173,7 @@ export function CalibrationPage() {
           Con {size} arquetipos son unas {cost.lists} listas (los 3 más jugados traen dos) y{' '}
           {count.format(cost.pairings)} cruces: {count.format(cost.games)} partidas. Más arquetipos comparan más pares
           con los torneos, que es lo que achica los intervalos. g2, el bot por defecto, tarda unas 3 veces lo de e2, y
-          e3 unas 4.
+          e3 unas 4,6.
         </p>
       </Section>
       <Section title="Calibraciones">

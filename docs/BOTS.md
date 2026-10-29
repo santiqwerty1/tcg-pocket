@@ -573,7 +573,9 @@ verificación del Coordinador va al PR siguiente de g, salvo esos tres casos, qu
     g se elige en Simulación, en Calibración, en el laboratorio (la API y `lab_explore`) y en las tools de MCP.
   - En Jugar contra un bot hay una opción más: «Sin trampa (g2: no ve tu mano ni tu mazo)».
   - El costo estimado de g es unas 3 veces el de e con la misma profundidad, y todos los g cuentan como lentos para
-    los workers que no los aceptan (`allowSlowBots`, D-025): g1 ya cuesta lo que e3.
+    los workers que no los aceptan (`allowSlowBots`, D-025). Medido está solo g2 (la tabla de arriba); g1 no.
+    Desde el 23/10, la profundidad de e sale de lo medido en el informe de calibración del 12/10 (e1 0,19 veces e2,
+    e3 4,6 y e4 11), así que «g1 ya cuesta lo que e3», que salía de la cuenta vieja (e3 1,6 veces e2), ya no vale.
   - **Solo juega g un motor con `gBots` y engine-cli 0.3.16 o más nuevo** (`canPlayGBots`). engine-cli 0.3.13–0.3.15
     también listan `gBots`, pero con un g anterior: g cambió en #128, #139 y #140 mientras ningún trabajo podía
     pedirlo, y `GAMES_REV` no subió. Sin esa versión, un trabajo podía mezclar las partidas de dos g. Lo mismo vale

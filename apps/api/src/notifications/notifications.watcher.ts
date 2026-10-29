@@ -119,7 +119,9 @@ export class NotificationsWatcher implements OnApplicationBootstrap, OnModuleDes
     let sent = 0
     for (const alert of alerts) {
       if (alert.code === 'limited_pack' && !/hoy es el último día|quedan 1 día/.test(alert.title)) continue
-      const key = `${alert.code}|${alert.title}`
+      // `notifyKey` when the alert says what makes a case new (new_era_likely: its era); the title otherwise. A key
+      // stored before (`new_era_likely|Era nueva probable`, the same for every era) matches no case now and rolls out.
+      const key = alert.notifyKey ?? `${alert.code}|${alert.title}`
       if (done.has(key)) continue
       done.add(key)
       sent += await this.notifications.notify('alerts', {

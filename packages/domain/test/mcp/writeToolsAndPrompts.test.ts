@@ -43,6 +43,15 @@ describe('MCP write tools (Fase 43 additions)', () => {
       expect(text).not.toMatch(/e2 por defecto|por defecto e2/)
     }
   })
+
+  it('D-029: the costs of the bots in the description come from the table of the estimates (e3 ~4,6 times e2, measured)', () => {
+    const text = JSON.stringify(z.toJSONSchema(MCP_WRITE_TOOLS.simulationsEnqueue.input))
+    expect(text).toContain('e3 tarda ~4,6 veces lo de e2, y e4 ~11')
+    expect(text).toContain('m MCTS (tarda ~150 veces lo de e2)')
+    expect(text).toContain('tarda ~1,3 veces lo de e con la misma profundidad')
+    expect(text).toContain('tarda ~3 veces lo de e con la misma profundidad')
+    expect(text).not.toContain('e3 tarda ~2 veces')
+  })
 })
 
 describe('MCP prompts', () => {
