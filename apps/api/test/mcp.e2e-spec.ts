@@ -239,28 +239,46 @@ describe('MCP endpoint (e2e)', () => {
     const promo = (await call(client, 'packs_promo')).structuredContent as {
       event: { name: string } | null
       pick: string | null
+      pickReason: string | null
       best: string[]
       volumes: {
         volume: string
         inEvent: boolean
         missing: string
-        chanceNewPercent: number
+        chanceForDecksPercent: number
+        chanceNotOwnedPercent: number
+        chanceMissingPrintPercent: number
         winsToComplete: number
         couponSavesNow: number | null
-        cards: { cardId: string; card: string; owned: number; newCard?: boolean }[]
+        cards: { cardId: string; card: string; owned: number; notOwnedInAnyPrint?: boolean }[]
       }[]
     }
     const a7 = promo.volumes.find((row) => row.volume === 'A vol. 7')
-    expect(a7).toMatchObject({ missing: '1 de 5', chanceNewPercent: 20, winsToComplete: 5, couponSavesNow: 5 })
+    expect(a7).toMatchObject({
+      missing: '1 de 5',
+      chanceForDecksPercent: 0,
+      chanceNotOwnedPercent: 20,
+      chanceMissingPrintPercent: 20,
+      winsToComplete: 5,
+      couponSavesNow: 5,
+    })
     expect(a7?.cards.find((card) => card.cardId === 'P-A-64')).toEqual({
       cardId: 'P-A-64',
       card: 'Rayquaza ex',
       owned: 0,
-      newCard: true,
+      notOwnedInAnyPrint: true,
     })
-    expect(promo.best.length).toBeGreaterThan(0)
-    // One of the tied volumes, drawn on every call.
-    expect(promo.best).toContain(promo.pick)
+    // The answer depends on the day the suite runs: during an event one of the tied volumes is drawn; after it
+    // (13/11/2026) there is no battle to recommend.
+    if (promo.event) {
+      expect(promo.best.length).toBeGreaterThan(0)
+      expect(promo.best).toContain(promo.pick)
+      expect(promo.pickReason).toEqual(expect.any(String))
+    } else {
+      expect(promo.best).toEqual([])
+      expect(promo.pick).toBeNull()
+      expect(promo.pickReason).toBeNull()
+    }
     // B vol. 12 was complete on 6/10: left out unless asked for.
     expect(promo.volumes.some((row) => row.volume === 'B vol. 12')).toBe(false)
     const all = (await call(client, 'packs_promo', { all: true })).structuredContent as typeof promo
@@ -274,7 +292,8 @@ describe('MCP endpoint (e2e)', () => {
     expect(http.status).toBe(200)
     expect(http.body.volumes).toHaveLength(26)
     expect(http.body.best.map((id: string) => `${id.slice(0, 1)} vol. ${id.slice(1)}`)).toEqual(promo.best)
-    expect(http.body.best).toContain(http.body.pick)
+    if (http.body.event) expect(http.body.best).toContain(http.body.pick)
+    else expect(http.body.pick).toBeNull()
     expect(http.body.lastImportAt).toEqual(expect.any(String))
     expect((await test.http().get('/api/promo-packs')).status).toBe(401)
   })

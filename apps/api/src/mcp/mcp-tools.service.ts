@@ -2005,35 +2005,47 @@ ${MCP_CHAT_INSTRUCTIONS}`
     const label = (id: string) => `${id.slice(0, 1)} vol. ${id.slice(1)}`
     const percent = (chance: number) => Math.round(chance * 1000) / 10
     const wins = (value: number) => Math.round(value * 10) / 10
+    const reasons = {
+      decks: 'la mayor chance de una carta que le falta a un mazo',
+      new: 'la mayor chance de una carta que Santi no tiene en ninguna versión',
+      missing: 'la mayor chance de una edición que le falta a la colección',
+    } as const
+    const picked = plan.volumes.find((status) => status.id === plan.pick)
     return {
       event: plan.event ? { name: plan.event.nameEs, from: plan.event.from, until: plan.event.until } : null,
       collectionUpdatedAt: plan.lastImportAt,
-      pick: plan.pick ? label(plan.pick) : null,
+      pick: picked ? label(picked.id) : null,
+      pickReason: picked?.reason ? reasons[picked.reason] : null,
       best: plan.best.map(label),
       totals: { ...plan.totals, winsToComplete: wins(plan.totals.winsToComplete) },
       volumes: plan.volumes
-        .filter((status) => args.all || status.chanceUseful > 0)
+        .filter((status) => args.all || status.reason !== null)
         .map((status) => ({
           volume: label(status.id),
           inEvent: status.inEvent,
           missing: `${status.missing} de ${status.cards.length}`,
-          chanceNewPercent: percent(status.chanceMissing),
-          chanceUsefulPercent: percent(status.chanceUseful),
+          chanceForDecksPercent: percent(status.chanceDecks),
+          chanceNotOwnedPercent: percent(status.chanceNew),
+          chanceMissingPrintPercent: percent(status.chanceMissing),
           winsToComplete: wins(status.winsToComplete),
           couponSavesNow: status.couponSavesNow === null ? null : wins(status.couponSavesNow),
           cards: status.cards.map((card) => ({
             cardId: card.cardId,
             card: card.nameEs,
             owned: card.owned,
-            ...(card.newCard ? { newCard: true } : {}),
-            ...(card.decks.length > 0 ? { decks: card.decks } : {}),
+            ...(card.inCatalog ? {} : { notInCatalog: true }),
+            ...(card.newCard ? { notOwnedInAnyPrint: true } : {}),
+            ...(card.decks.length > 0 ? { missingForDecks: card.decks } : {}),
           })),
         })),
       notes: [
         'Un sobre de promoción trae 1 carta de su volumen; el juego no publica las tasas y se toman iguales.',
-        'newCard: Santi no la tiene en ninguna versión. owned: copias de esa edición.',
-        'winsToComplete: victorias esperadas para tener todas las ediciones del volumen. couponSavesNow: las que ahorra un cupón gastado ahora en una de sus cartas que faltan; guardado para la última que falte ahorra ~tantas como cartas tiene el volumen.',
-        'pick sale al azar entre best (empatan en la chance) en cada consulta.',
+        plan.event
+          ? 'Orden (Santi, 30/10): primero la chance de una carta que le falta a un mazo, después la de una carta que no tiene en ninguna versión, después la de cualquier edición que falta; pick sale al azar entre best (los empatados en las tres) en cada consulta.'
+          : 'No hay un evento de promos en curso: no hay batallas para ganar. No recomiendes ninguna; solo decí qué le falta de cada volumen.',
+        'chanceMissingPrintPercent: chance de una edición que falta (puede ser otra versión de una carta que ya tiene). chanceNotOwnedPercent: de una carta que no tiene en ninguna versión. owned: copias de esa edición.',
+        'Cupones: si va a completar un volumen, rinden más en su última carta (ahorran ~n victorias; gastados antes, couponSavesNow = n/m). Para una carta puntual (la de un mazo, por ejemplo) un cupón ahorra ~n victorias. Antes del cierre del evento, canjearlos igual. Solo si la tienda tiene esa carta.',
+        'winsToComplete: victorias esperadas para tener todas las ediciones del volumen.',
       ],
     }
   }

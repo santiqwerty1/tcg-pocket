@@ -1,8 +1,9 @@
 /**
  * Sobres de promoción (30/10/2026): which event battle to win. Each volume's battle can be won again and again and
- * every win gives one card of that volume; the page says, per volume, what the collection lacks, the chance that a
- * win brings something it lacks and the wins to finish it, and how to spend the event's coupons. Volumes with the
- * same chance tie: the API picks one at random on every call, so the page asks again each time it opens.
+ * every win gives one card of that volume; the page says, per volume, what the collection lacks, the chances that a
+ * win brings it and the wins to finish it, and how to spend the event's coupons. Santi's order: a card a deck lacks,
+ * then a card not owned in any print, then any missing print; the API picks one of the volumes still tied at random
+ * on every call, so the page asks again each time it opens. Without an event there is no battle: only what is missing.
  */
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router'
@@ -19,6 +20,7 @@ const cardSchema = z.object({
   cardId: z.string(),
   groupId: z.string(),
   nameEs: z.string(),
+  inCatalog: z.boolean(),
   owned: z.number(),
   missing: z.boolean(),
   newCard: z.boolean(),
@@ -31,9 +33,12 @@ const volumeSchema = z.object({
   cards: z.array(cardSchema),
   missing: z.number(),
   chanceMissing: z.number(),
+  chanceNew: z.number(),
+  chanceDecks: z.number(),
   chanceUseful: z.number(),
   newCards: z.number(),
   deckCards: z.number(),
+  reason: z.enum(['decks', 'new', 'missing']).nullable(),
   winsToComplete: z.number(),
   couponSavesNow: z.number().nullable(),
   inEvent: z.boolean(),
@@ -50,6 +55,7 @@ const promoSchema = z.object({
 })
 
 type PromoVolume = z.infer<typeof volumeSchema>
+type PromoCard = z.infer<typeof cardSchema>
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -57,9 +63,11 @@ function usePromoPacks() {
   return useQuery({
     queryKey: ['promo-packs'] as const,
     queryFn: ({ signal }) => request('/api/promo-packs', { schema: promoSchema, signal }),
-    // A new draw among the tied volumes every time the page opens.
+    // A new draw among the tied volumes every time the page opens, but not on coming back from the game: the
+    // suggestion would change while the collection is the same.
     staleTime: 0,
     refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
   })
 }
 
@@ -70,6 +78,8 @@ function wins(value: number): string {
   const shown = formatExpectedPacks(value)
   return value === 1 ? '1 victoria' : `~${shown} victorias`
 }
+
+const percent = (chance: number) => formatChance(chance * 100)
 
 /** «B vol. 1», «B vol. 1 y B vol. 3», «B vol. 1, 3, 4 y 11», «A vol. 7 y B vol. 1» (same series shortened). */
 function joinVolumes(volumes: PromoVolume[]): string {
@@ -85,24 +95,35 @@ function volumeState(volume: PromoVolume): string {
   return volume.deckCards > 0 ? 'faltan copias para tus mazos' : 'completo'
 }
 
-/** Why the picked volume: what a win brings and what is in it for the decks and the collection. */
+/** Why the picked volume wins, by the first of Santi's tiers where it has something. */
 function pickReason(volume: PromoVolume): string {
-  const chance =
-    volume.chanceUseful === 1
-      ? 'cada victoria te da seguro una carta que te falta'
-      : `${formatChance(volume.chanceUseful * 100)} de que una victoria te dé una carta que te falta`
-  const decks =
-    volume.deckCards === 0
-      ? ''
-      : `; a tus mazos ${volume.deckCards === 1 ? 'les falta 1 carta' : `les faltan ${volume.deckCards} cartas`} de este volumen`
-  const fresh =
-    volume.newCards === 0
-      ? ''
-      : `; ${volume.newCards === 1 ? '1 carta no la tenés' : `${volume.newCards} cartas no las tenés`} en ninguna versión`
-  return `${chance}${decks}${fresh}.`
+  if (volume.reason === 'decks') {
+    const cards = volume.cards.filter((card) => card.decks.length > 0).map((card) => card.nameEs)
+    return `es la que más chance tiene de darte una carta que le falta a tus mazos (${percent(volume.chanceDecks)}: ${cards.join(', ')}).`
+  }
+  if (volume.reason === 'new') {
+    return `es la que más chance tiene de darte una carta que no tenés en ninguna versión (${percent(volume.chanceNew)}).`
+  }
+  return `es la que más chance tiene de darte una edición que te falta (${percent(volume.chanceMissing)}).`
+}
+
+function CardName({ card }: { card: PromoCard }) {
+  const name = card.missing ? <span className="font-medium">{card.nameEs}</span> : `✓ ${card.nameEs}`
+  if (!card.inCatalog) return <span>{card.cardId} (todavía no está en el catálogo)</span>
+  return (
+    <Link to={`/cartas/${encodeURIComponent(card.cardId)}`} className="hover:underline">
+      {name}
+    </Link>
+  )
 }
 
 function VolumeRow({ volume, mark }: { volume: PromoVolume; mark: 'pick' | 'tie' | null }) {
+  const details = [
+    volume.deckCards > 0 ? `para tus mazos: ${percent(volume.chanceDecks)}` : null,
+    volume.newCards > 0 ? `nueva en ninguna versión: ${percent(volume.chanceNew)}` : null,
+    // Wins only where there is a battle now.
+    volume.missing > 0 && volume.inEvent ? `${wins(volume.winsToComplete)} para completarlo` : null,
+  ].filter((item): item is string => item !== null)
   return (
     <li className="flex flex-col gap-1 px-3 py-2">
       <div className="flex flex-wrap items-baseline gap-x-2">
@@ -110,17 +131,13 @@ function VolumeRow({ volume, mark }: { volume: PromoVolume; mark: 'pick' | 'tie'
         {mark === 'pick' ? <Badge>Conviene</Badge> : null}
         {mark === 'tie' ? <Badge variant="outline">Empata</Badge> : null}
         <span className="text-sm text-muted-foreground">{volumeState(volume)}</span>
-        <span className="tabular ml-auto text-sm font-semibold">{formatChance(volume.chanceUseful * 100)}</span>
+        <span className="tabular ml-auto text-sm font-semibold">{percent(volume.chanceUseful)}</span>
       </div>
-      {volume.missing > 0 ? (
-        <p className="text-xs text-muted-foreground">{wins(volume.winsToComplete)} para completarlo</p>
-      ) : null}
+      {details.length > 0 ? <p className="text-xs text-muted-foreground">{details.join(' · ')}</p> : null}
       <ul className="flex flex-wrap gap-x-3 gap-y-0.5 text-sm">
         {volume.cards.map((card) => (
           <li key={card.cardId} className={cn(!card.missing && card.decks.length === 0 && 'text-muted-foreground')}>
-            <Link to={`/cartas/${encodeURIComponent(card.cardId)}`} className="hover:underline">
-              {card.missing ? <span className="font-medium">{card.nameEs}</span> : `✓ ${card.nameEs}`}
-            </Link>
+            <CardName card={card} />
             {card.newCard ? <span className="text-xs text-success"> nueva</span> : null}
             {card.decks.length > 0 ? (
               <span className="text-xs text-warning"> · falta en {card.decks.join(', ')}</span>
@@ -154,6 +171,83 @@ function VolumeList({
   )
 }
 
+/** The event's coupons: for a card a deck lacks, for the last card of a volume, and the cards with no battle. */
+function Coupons({ inEvent, outside }: { inEvent: PromoVolume[]; outside: PromoVolume[] }) {
+  const forDecks = inEvent.flatMap((volume) =>
+    volume.cards.filter((card) => card.decks.length > 0).map((card) => ({ volume, card })),
+  )
+  const lastCard = inEvent.filter((volume) => volume.missing === 1)
+  const onlyCoupon = outside.filter((volume) => volume.missing > 0)
+  const onlyCouponCards = onlyCoupon.reduce((sum, volume) => sum + volume.missing, 0)
+  const anyMissing = inEvent.some((volume) => volume.missing > 0)
+  if (!anyMissing && forDecks.length === 0 && onlyCoupon.length === 0) return null
+  return (
+    <Fold title="Cupones" hint="dónde rinden más" remember="promo-coupons">
+      <div className="flex flex-col gap-3 text-sm">
+        <p className="text-muted-foreground">
+          Las misiones del evento dan cupones que se canjean en la tienda por una carta de promoción, si la tienda la
+          tiene. Para una carta puntual, como la de un mazo, un cupón ahorra todas las victorias que llevaría sacarla
+          (~5; ~7 en A vol. 9). Si vas a completar un volumen, rinde más en su última carta; gastado antes ahorra menos
+          (con 5 faltantes, ~1). Antes de que termine el evento, canjealos igual.
+        </p>
+        {forDecks.length > 0 ? (
+          <div className="flex flex-col gap-1">
+            <h3 className="text-xs font-semibold text-muted-foreground">Para tus mazos</h3>
+            <ul className="divide-y rounded-lg border">
+              {forDecks.map(({ volume, card }) => (
+                <li key={card.cardId} className="px-3 py-2">
+                  <span className="font-medium">{card.nameEs}</span>
+                  <span className="text-muted-foreground">
+                    {' '}
+                    · {label(volume)} · para {card.decks.join(', ')} · ahorra {wins(volume.cards.length)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {lastCard.length > 0 ? (
+          <div className="flex flex-col gap-1">
+            <h3 className="text-xs font-semibold text-muted-foreground">Última carta de un volumen</h3>
+            <ul className="divide-y rounded-lg border">
+              {lastCard.map((volume) => (
+                <li key={volume.id} className="px-3 py-2">
+                  <span className="font-medium">{label(volume)}</span>
+                  <span className="text-muted-foreground"> · </span>
+                  {volume.cards.find((card) => card.missing)?.nameEs}
+                  <span className="text-muted-foreground"> · ahorra {wins(volume.cards.length)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : anyMissing ? (
+          <p>A ningún volumen del evento le falta 1 sola carta todavía.</p>
+        ) : null}
+        {onlyCoupon.length > 0 ? (
+          <div className="flex flex-col gap-1">
+            <p className="text-muted-foreground">
+              Sin batalla en este evento ({plural(onlyCouponCards, 'carta', 'cartas')}): solo con cupón, si la tienda{' '}
+              {onlyCouponCards === 1 ? 'la tiene' : 'las tiene'}.
+            </p>
+            <ul className="text-xs">
+              {onlyCoupon.map((volume) => (
+                <li key={volume.id}>
+                  <span className="font-medium">{label(volume)}</span>
+                  <span className="text-muted-foreground"> · </span>
+                  {volume.cards
+                    .filter((card) => card.missing)
+                    .map((card) => card.nameEs)
+                    .join(', ')}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+    </Fold>
+  )
+}
+
 export function PromoPage() {
   const promo = usePromoPacks()
   if (promo.isPending) return <LoadingRows rows={6} />
@@ -164,13 +258,10 @@ export function PromoPage() {
   const ties = data.volumes.filter((volume) => best.has(volume.id) && volume.id !== data.pick)
   const inEvent = data.event ? data.volumes.filter((volume) => volume.inEvent) : data.volumes
   const outside = data.event ? data.volumes.filter((volume) => !volume.inEvent) : []
-  // A coupon saves the most on the last card a volume lacks: these can take one now.
-  const lastCard = inEvent.filter((volume) => volume.missing === 1)
-  const onlyCoupon = outside.filter((volume) => volume.missing > 0)
-  const onlyCouponCards = onlyCoupon.reduce((sum, volume) => sum + volume.missing, 0)
   const daysLeft = data.event ? Math.ceil((Date.parse(data.event.until) - Date.now()) / DAY_MS) : null
   // `until` is the first minute after the event: the game says «hasta las 02:59».
   const lastMinute = data.event ? new Date(Date.parse(data.event.until) - 60_000).toISOString() : null
+  const noCollection = data.lastImportAt === null
 
   return (
     <div className="flex flex-col gap-5">
@@ -191,108 +282,74 @@ export function PromoPage() {
         </div>
       ) : (
         <p className="text-sm">
-          No hay un evento de sobres de promoción en curso. Abajo, dónde rendiría más una victoria cuando vuelva.
+          No hay un evento de sobres de promoción en curso, así que no hay batallas para ganar. Abajo, qué te falta de
+          cada volumen.
         </p>
       )}
 
-      <Section title="Qué batalla ganar">
-        {picked ? (
-          <div className="flex flex-col gap-1 text-sm">
-            <p>
-              Conviene ganar <span className="font-semibold">{label(picked)}</span>: {pickReason(picked)}
-            </p>
-            {ties.length > 0 ? (
+      {noCollection ? (
+        <EmptyState
+          title="Todavía no hay una colección importada"
+          description="Importala en Colección para ver qué cartas de promoción te faltan."
+        />
+      ) : data.event ? (
+        <Section title="Qué batalla ganar">
+          {picked ? (
+            <div className="flex flex-col gap-1 text-sm">
               <p>
-                {ties.length === 1 ? 'Empata' : 'Empatan'} con la misma chance: {joinVolumes(ties)}. Te sugiero uno al
-                azar cada vez que entrás.
+                Conviene ganar <span className="font-semibold">{label(picked)}</span>: {pickReason(picked)}
               </p>
-            ) : null}
-            {data.totals.missing > 0 ? (
-              <p className="text-muted-foreground">
-                {data.event ? 'En el evento te ' : 'En los sobres de promoción te '}
-                {missing(data.totals.missing, ['carta', 'cartas'])} de {data.totals.cards}:{' '}
-                {wins(data.totals.winsToComplete)} para tenerlas todas sin cupones. Después de cada victoria volvé a
-                mirar: el orden cambia.
-              </p>
-            ) : null}
-          </div>
-        ) : (
-          <EmptyState
-            title={data.event ? 'Ya tenés todo lo del evento' : 'Ya tenés todas las promos de los sobres'}
-            description="Ninguna victoria te daría una carta nueva."
-          />
-        )}
+              {ties.length > 0 ? (
+                <p>
+                  {ties.length === 1 ? 'Empata' : 'Empatan'} en todo: {joinVolumes(ties)}. Te sugiero uno al azar cada
+                  vez que entrás.
+                </p>
+              ) : null}
+              {data.totals.missing > 0 ? (
+                <p className="text-muted-foreground">
+                  En el evento te {missing(data.totals.missing, ['carta', 'cartas'])} de {data.totals.cards}:{' '}
+                  {wins(data.totals.winsToComplete)} para tenerlas todas sin cupones. Después de cada victoria,
+                  sincronizá la colección y volvé a mirar: el orden cambia.
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <EmptyState title="Ya tenés todo lo del evento" description="Ninguna victoria te daría una carta nueva." />
+          )}
+        </Section>
+      ) : data.totals.missing > 0 ? (
+        <p className="text-sm text-muted-foreground">
+          De los sobres de promoción te {missing(data.totals.missing, ['carta', 'cartas'])} de {data.totals.cards}.
+        </p>
+      ) : (
+        <EmptyState title="Ya tenés todas las promos de los sobres" description="No te falta ninguna edición." />
+      )}
+
+      {data.lastImportAt ? (
         <p className="text-xs text-muted-foreground">
           {/* «p. m.» already ends with a period: the date goes before a colon. */}
-          {data.lastImportAt ? `Colección del ${formatDateTime(data.lastImportAt)}: si` : 'Si'} abriste sobres de
-          promoción después,{' '}
+          Colección del {formatDateTime(data.lastImportAt)}: si abriste sobres de promoción después,{' '}
           <Link to="/coleccion" className="underline">
             actualizala
           </Link>
           .
         </p>
-      </Section>
+      ) : (
+        <Link to="/coleccion" className="text-sm underline">
+          Ir a Colección
+        </Link>
+      )}
 
       <Section title={data.event ? 'Volúmenes del evento' : 'Volúmenes'}>
         <p className="text-xs text-muted-foreground">
-          El porcentaje es la chance de que una victoria te dé una carta que te falta. «Nueva»: no la tenés en ninguna
-          versión.
+          El porcentaje es la chance de que una victoria te dé algo que te falta: una edición o una carta para tus
+          mazos. Primero cuentan las de tus mazos, después las que no tenés en ninguna versión («nueva») y después
+          cualquier edición.
         </p>
         <VolumeList volumes={inEvent} pick={data.pick} best={best} />
       </Section>
 
-      {data.totals.missing > 0 || onlyCoupon.length > 0 ? (
-        <Fold title="Cupones" hint="dónde rinden más" remember="promo-coupons">
-          <div className="flex flex-col gap-3 text-sm">
-            <p className="text-muted-foreground">
-              Las misiones del evento dan cupones que se canjean en la tienda por una carta de promoción. Un cupón rinde
-              más en la última carta que le falta a un volumen: ahorra todas las victorias que llevaría sacarla (~5; ~7
-              en A vol. 9). Gastado antes ahorra menos: con 5 faltantes, ~1. Así que ganá hasta que te falte 1 y canjeá
-              esa.
-            </p>
-            {lastCard.length > 0 ? (
-              <div className="flex flex-col gap-1">
-                <h3 className="text-xs font-semibold text-muted-foreground">Ya podés canjear</h3>
-                <ul className="divide-y rounded-lg border">
-                  {lastCard.map((volume) => (
-                    <li key={volume.id} className="px-3 py-2">
-                      <span className="font-medium">{label(volume)}</span>
-                      <span className="text-muted-foreground"> · </span>
-                      {volume.cards.find((card) => card.missing)?.nameEs}
-                      <span className="text-muted-foreground">
-                        {' '}
-                        · ahorra {wins(volume.couponSavesNow ?? volume.cards.length)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : data.totals.missing > 0 ? (
-              <p>Por ahora ningún volumen del evento tiene 1 sola carta faltante: guardá los cupones.</p>
-            ) : null}
-            {onlyCoupon.length > 0 ? (
-              <div className="flex flex-col gap-1">
-                <p className="text-muted-foreground">
-                  Sin batalla en este evento ({plural(onlyCouponCards, 'carta', 'cartas')}): solo con cupón, si la
-                  tienda {onlyCouponCards === 1 ? 'la tiene' : 'las tiene'}.
-                </p>
-                <ul className="text-xs">
-                  {onlyCoupon.map((volume) => (
-                    <li key={volume.id}>
-                      <span className="font-medium">{label(volume)}</span>
-                      <span className="text-muted-foreground"> · </span>
-                      {volume.cards
-                        .filter((card) => card.missing)
-                        .map((card) => card.nameEs)
-                        .join(', ')}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </div>
-        </Fold>
-      ) : null}
+      {data.event && !noCollection ? <Coupons inEvent={inEvent} outside={outside} /> : null}
 
       {outside.length > 0 ? (
         <Fold title="Otros volúmenes" hint="sin batalla ahora" remember="promo-outside">
@@ -306,7 +363,10 @@ export function PromoPage() {
           <li>Un sobre de promoción trae 1 carta de su volumen. El juego no publica las tasas: se toman iguales.</li>
           <li>Victorias para completar: con m de n cartas faltantes, n · (1 + 1/2 + … + 1/m) en promedio.</li>
           <li>Cuenta cada edición: una promo que tenés en otra versión igual falta para la colección.</li>
-          <li>Los volúmenes con la misma chance empatan; la sugerencia sale al azar entre ellos.</li>
+          <li>
+            Orden (tuyo, del 30/10): cartas para tus mazos, después cartas que no tenés en ninguna versión, después
+            cualquier edición; entre los que empatan en todo, la sugerencia sale al azar.
+          </li>
         </ul>
       </section>
     </div>

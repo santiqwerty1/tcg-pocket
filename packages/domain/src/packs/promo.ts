@@ -12,7 +12,9 @@
  * - Coupons (event missions give coupons for a promo card of the shop): one spent now on a volume with m missing
  *   saves n/m wins; kept for the volume's last missing print it saves n (k coupons kept for the last k: n · H(k)).
  *   So the advice is to win until one print is missing and take that one with a coupon.
- * - Ties: volumes with the same chance of something useful tie, and one of them is picked at random on every call.
+ * - Which battle (Santi, 30/10/2026): by the chance of a card a deck lacks, then of a card not owned in any print,
+ *   then of any missing print, each compared exactly as a fraction; one of the volumes still tied in all three is
+ *   picked at random on every call. Without an event there is no battle: no pick, only the ranking.
  */
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
 import type { CardId } from '../catalog/types.js'
@@ -106,6 +108,8 @@ export interface PromoCardStatus {
   cardId: CardId
   groupId: CardId
   nameEs: string
+  /** False for a promo the catalog does not have yet (its id stands for the name). */
+  inCatalog: boolean
   /** Copies of this print (its stock unit). */
   owned: number
   /** No copy of this print: a win that brings it adds it to the collection. */
@@ -116,6 +120,9 @@ export interface PromoCardStatus {
   decks: string[]
 }
 
+/** Why a volume ranks where it does: the first tier where it has something (decks, then new cards, then prints). */
+export type PromoReason = 'decks' | 'new' | 'missing'
+
 export interface PromoVolumeStatus {
   id: string
   series: PromoSeries
@@ -125,15 +132,24 @@ export interface PromoVolumeStatus {
   missing: number
   /** Probability (0–1) that a win brings a print the collection lacks. */
   chanceMissing: number
+  /** Probability (0–1) that a win brings a card not owned in any print. */
+  chanceNew: number
+  /** Probability (0–1) that a win brings a card some deck lacks. */
+  chanceDecks: number
   /** Probability (0–1) that a win brings a print the collection lacks or a card a deck lacks. */
   chanceUseful: number
   /** Cards of the volume the collection has in no print. */
   newCards: number
   /** Cards of the volume some deck lacks. */
   deckCards: number
+  /** The first tier where it has something; null when a win brings nothing useful. */
+  reason: PromoReason | null
   /** Expected wins to have every print of the volume (0 when complete). */
   winsToComplete: number
-  /** Wins one coupon spent now on one of its missing prints saves (n/m); null when complete. Kept for the last missing print, a coupon saves n. */
+  /**
+   * Wins one coupon spent now on one of its missing prints saves when the goal is the whole volume (n/m); null when
+   * complete. For one card wanted on its own (a deck's), or the volume's last missing print, a coupon saves n.
+   */
   couponSavesNow: number | null
   /** It has a battle in the active event. */
   inEvent: boolean
@@ -141,9 +157,9 @@ export interface PromoVolumeStatus {
 
 export interface PromoPlan {
   event: PromoEvent | null
-  /** Best first: the event's volumes, then by chance of something useful, deck cards and new cards. */
+  /** The event's volumes first, then by chance of a deck's card, of a new card and of a missing print. */
   volumes: PromoVolumeStatus[]
-  /** The volumes to win next: every one with the top chance of something useful; [] when nothing playable gives anything. */
+  /** The event's volumes tied at the top in the three chances; [] without an event or when no battle brings anything. */
   best: string[]
   /** One of `best`, at random on every call (they are equally good); null when `best` is empty. */
   pick: string | null
@@ -160,12 +176,24 @@ function cardStatus(
 ): PromoCardStatus {
   const card = index.cardById(cardId)
   // A promo the catalog does not have yet: still one of the volume's cards, and none owned.
-  if (!card) return { cardId, groupId: cardId, nameEs: cardId, owned: 0, missing: true, newCard: true, decks: [] }
+  if (!card) {
+    return {
+      cardId,
+      groupId: cardId,
+      nameEs: cardId,
+      inCatalog: false,
+      owned: 0,
+      missing: true,
+      newCard: true,
+      decks: [],
+    }
+  }
   const owned = stockValueOf(stock, card.stockCardId).amountOwned
   return {
     cardId,
     groupId: card.functionalGroupId,
     nameEs: card.nameEs,
+    inCatalog: true,
     owned,
     missing: owned === 0,
     newCard: (playable.get(card.functionalGroupId)?.playable ?? 0) === 0,
@@ -173,12 +201,15 @@ function cardStatus(
   }
 }
 
-/** Order of the list: compared in order, higher first. Only the first key decides `best`. */
-const rankKey = (status: PromoVolumeStatus) => [status.chanceUseful, status.deckCards, status.newCards]
+/** The counts of the three tiers, in order; each is a chance k / (cards in the volume). */
+const tiers = (status: PromoVolumeStatus) => [status.deckCards, status.newCards, status.missing]
 
-function compareKeys(a: number[], b: number[]): number {
-  for (let i = 0; i < a.length; i++) {
-    const diff = (b[i] ?? 0) - (a[i] ?? 0)
+/** Higher chance first, tier by tier, comparing k/n exactly (cross-multiplied: volumes have 5 or 7 cards). */
+function compareTiers(a: PromoVolumeStatus, b: PromoVolumeStatus): number {
+  const ka = tiers(a)
+  const kb = tiers(b)
+  for (let i = 0; i < ka.length; i++) {
+    const diff = (kb[i] ?? 0) * a.cards.length - (ka[i] ?? 0) * b.cards.length
     if (diff !== 0) return diff
   }
   return 0
@@ -212,8 +243,9 @@ export function promoPlan(input: {
     const cards = promo.cardIds.map((cardId) => cardStatus(index, stock, playable, lacking, cardId))
     const size = cards.length
     const missing = cards.filter((card) => card.missing).length
+    const newCards = cards.filter((card) => card.newCard).length
+    const deckCards = cards.filter((card) => card.decks.length > 0).length
     const useful = cards.filter((card) => card.missing || card.decks.length > 0).length
-    const wins = winsToComplete(size, missing)
     return {
       id: promo.id,
       series: promo.series,
@@ -221,10 +253,13 @@ export function promoPlan(input: {
       cards,
       missing,
       chanceMissing: missing / size,
+      chanceNew: newCards / size,
+      chanceDecks: deckCards / size,
       chanceUseful: useful / size,
-      newCards: cards.filter((card) => card.newCard).length,
-      deckCards: cards.filter((card) => card.decks.length > 0).length,
-      winsToComplete: wins,
+      newCards,
+      deckCards,
+      reason: deckCards > 0 ? 'decks' : newCards > 0 ? 'new' : missing > 0 ? 'missing' : null,
+      winsToComplete: winsToComplete(size, missing),
       couponSavesNow: missing > 0 ? size / missing : null,
       inEvent: event?.volumes.includes(promo.id) ?? false,
     }
@@ -233,19 +268,18 @@ export function promoPlan(input: {
   const order = new Map(volumes.map((promo, i) => [promo.id, i]))
   const ranked = [...statuses].sort(
     (a, b) =>
-      Number(b.inEvent) - Number(a.inEvent) ||
-      compareKeys(rankKey(a), rankKey(b)) ||
-      (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
+      Number(b.inEvent) - Number(a.inEvent) || compareTiers(a, b) || (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
   )
-  // With an event on, only its volumes have a battle; without one, the ranking still says where a win would help most.
-  const playableNow = event ? ranked.filter((status) => status.inEvent) : ranked
-  const top = playableNow[0]
+  // Only an event's volumes have a battle: without one there is nothing to win, only the ranking.
+  const inEvent = ranked.filter((status) => status.inEvent)
+  const top = inEvent[0]
   const best =
-    top && top.chanceUseful > 0
-      ? playableNow.filter((status) => status.chanceUseful === top.chanceUseful).map((status) => status.id)
+    top && top.reason !== null
+      ? inEvent.filter((status) => compareTiers(status, top) === 0).map((status) => status.id)
       : []
   const random = input.random ?? Math.random
   const pick = best.length > 0 ? (best[Math.min(best.length - 1, Math.floor(random() * best.length))] ?? null) : null
+  const counted = event ? inEvent : ranked
 
   return {
     event,
@@ -253,10 +287,10 @@ export function promoPlan(input: {
     best,
     pick,
     totals: {
-      volumes: playableNow.length,
-      cards: playableNow.reduce((sum, status) => sum + status.cards.length, 0),
-      missing: playableNow.reduce((sum, status) => sum + status.missing, 0),
-      winsToComplete: playableNow.reduce((sum, status) => sum + status.winsToComplete, 0),
+      volumes: counted.length,
+      cards: counted.reduce((sum, status) => sum + status.cards.length, 0),
+      missing: counted.reduce((sum, status) => sum + status.missing, 0),
+      winsToComplete: counted.reduce((sum, status) => sum + status.winsToComplete, 0),
     },
   }
 }
