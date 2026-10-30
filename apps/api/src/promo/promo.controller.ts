@@ -1,6 +1,7 @@
 /**
  * Sobres de promoción (30/10/2026): `GET /api/promo-packs` — which event battle to win for the promo packs, against
- * the collection and the decks not archived. The volumes and the events are fixed data of @tcg/domain.
+ * the collection and the decks not archived. The volumes and the events are fixed data of @tcg/domain. Not
+ * idempotent: `pick` is drawn among the tied volumes on every call (nothing is written).
  */
 import { Controller, Get, Injectable, Module } from '@nestjs/common'
 import { type PromoPlan, promoPlan } from '@tcg/domain'
@@ -27,14 +28,14 @@ export class PromoPacksService {
   ) {}
 
   async plan(now: Date = new Date()): Promise<PromoPacksView> {
-    const [{ stock, adjustments }, decks, summary] = await Promise.all([
+    const [{ stock, adjustments }, decks, lastImportAt] = await Promise.all([
       this.collection.loadState(),
       this.trades.decks(),
-      this.collectionService.summary(),
+      this.collectionService.lastUpdatedAt(),
     ])
     return {
       ...promoPlan({ index: this.catalog.requireIndex(), stock, adjustments, decks, now }),
-      lastImportAt: summary.lastImportAt?.toISOString() ?? null,
+      lastImportAt: lastImportAt?.toISOString() ?? null,
     }
   }
 }

@@ -238,6 +238,7 @@ describe('MCP endpoint (e2e)', () => {
     const client = await connect()
     const promo = (await call(client, 'packs_promo')).structuredContent as {
       event: { name: string } | null
+      pick: string | null
       best: string[]
       volumes: {
         volume: string
@@ -245,12 +246,12 @@ describe('MCP endpoint (e2e)', () => {
         missing: string
         chanceNewPercent: number
         winsToComplete: number
-        winsPerCoupon: number | null
+        couponSavesNow: number | null
         cards: { cardId: string; card: string; owned: number; newCard?: boolean }[]
       }[]
     }
     const a7 = promo.volumes.find((row) => row.volume === 'A vol. 7')
-    expect(a7).toMatchObject({ missing: '1 de 5', chanceNewPercent: 20, winsToComplete: 5, winsPerCoupon: 5 })
+    expect(a7).toMatchObject({ missing: '1 de 5', chanceNewPercent: 20, winsToComplete: 5, couponSavesNow: 5 })
     expect(a7?.cards.find((card) => card.cardId === 'P-A-64')).toEqual({
       cardId: 'P-A-64',
       card: 'Rayquaza ex',
@@ -258,12 +259,14 @@ describe('MCP endpoint (e2e)', () => {
       newCard: true,
     })
     expect(promo.best.length).toBeGreaterThan(0)
+    // One of the tied volumes, drawn on every call.
+    expect(promo.best).toContain(promo.pick)
     // B vol. 12 was complete on 6/10: left out unless asked for.
     expect(promo.volumes.some((row) => row.volume === 'B vol. 12')).toBe(false)
     const all = (await call(client, 'packs_promo', { all: true })).structuredContent as typeof promo
     expect(all.volumes.find((row) => row.volume === 'B vol. 12')).toMatchObject({
       missing: '0 de 5',
-      winsPerCoupon: null,
+      couponSavesNow: null,
     })
     expect(all.volumes).toHaveLength(26)
 
@@ -271,6 +274,7 @@ describe('MCP endpoint (e2e)', () => {
     expect(http.status).toBe(200)
     expect(http.body.volumes).toHaveLength(26)
     expect(http.body.best.map((id: string) => `${id.slice(0, 1)} vol. ${id.slice(1)}`)).toEqual(promo.best)
+    expect(http.body.best).toContain(http.body.pick)
     expect(http.body.lastImportAt).toEqual(expect.any(String))
     expect((await test.http().get('/api/promo-packs')).status).toBe(401)
   })

@@ -9,8 +9,10 @@
  *   (7 in A vol. 9), the volumes in order. Checked against Dittobase for A 7, A 9, A 13, B 1, B 7 and B 8.
  * - Rates: the game does not publish them; every card of a volume is taken as equally likely.
  * - Wins to finish a volume with m of its n prints missing: the coupon collector, n · (1 + 1/2 + … + 1/m).
- * - Coupons (event missions give coupons for a promo card of the shop): spent on a volume, they save its wins; a
- *   volume with few prints missing saves the most per coupon (1 missing of 5: ~5 wins).
+ * - Coupons (event missions give coupons for a promo card of the shop): one spent now on a volume with m missing
+ *   saves n/m wins; kept for the volume's last missing print it saves n (k coupons kept for the last k: n · H(k)).
+ *   So the advice is to win until one print is missing and take that one with a coupon.
+ * - Ties: volumes with the same chance of something useful tie, and one of them is picked at random on every call.
  */
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
 import type { CardId } from '../catalog/types.js'
@@ -68,7 +70,7 @@ export const PROMO_VOLUMES: readonly PromoVolume[] = [
 export interface PromoEvent {
   id: string
   nameEs: string
-  /** First and last instant of its battles (UTC). */
+  /** First instant of its battles and the first instant after them (UTC; `until` is exclusive). */
   from: string
   until: string
   /** Volumes with a battle during the event. */
@@ -80,9 +82,9 @@ export const PROMO_EVENTS: readonly PromoEvent[] = [
   {
     id: 'botin-bis-promo-2026',
     nameEs: 'Evento botín bis PROMO 2026',
-    // 30/10/2026 03:00 – 13/11/2026 02:59 in Buenos Aires (UTC−3).
+    // 30/10/2026 03:00 – 13/11/2026 02:59 in Buenos Aires (UTC−3): over at 03:00.
     from: '2026-10-30T06:00:00Z',
-    until: '2026-11-13T05:59:59Z',
+    until: '2026-11-13T06:00:00Z',
     volumes: ['A7', 'B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B9', 'B10', 'B11', 'B12', 'B13'],
   },
 ]
@@ -90,7 +92,7 @@ export const PROMO_EVENTS: readonly PromoEvent[] = [
 /** The event whose battles are on at `now`, if any. */
 export function activePromoEvent(now: Date, events: readonly PromoEvent[] = PROMO_EVENTS): PromoEvent | null {
   const time = now.getTime()
-  return events.find((event) => Date.parse(event.from) <= time && time <= Date.parse(event.until)) ?? null
+  return events.find((event) => Date.parse(event.from) <= time && time < Date.parse(event.until)) ?? null
 }
 
 /** Expected wins to get every one of `missing` prints of a volume of `size` equally likely cards. */
@@ -131,8 +133,8 @@ export interface PromoVolumeStatus {
   deckCards: number
   /** Expected wins to have every print of the volume (0 when complete). */
   winsToComplete: number
-  /** Wins each coupon saves when the volume's missing prints are taken with coupons; null when complete. */
-  winsPerCoupon: number | null
+  /** Wins one coupon spent now on one of its missing prints saves (n/m); null when complete. Kept for the last missing print, a coupon saves n. */
+  couponSavesNow: number | null
   /** It has a battle in the active event. */
   inEvent: boolean
 }
@@ -141,8 +143,10 @@ export interface PromoPlan {
   event: PromoEvent | null
   /** Best first: the event's volumes, then by chance of something useful, deck cards and new cards. */
   volumes: PromoVolumeStatus[]
-  /** The volumes to win next (several when tied); [] when nothing playable gives anything. */
+  /** The volumes to win next: every one with the top chance of something useful; [] when nothing playable gives anything. */
   best: string[]
+  /** One of `best`, at random on every call (they are equally good); null when `best` is empty. */
+  pick: string | null
   /** Over the event's volumes, or every volume when no event is on. */
   totals: { volumes: number; cards: number; missing: number; winsToComplete: number }
 }
@@ -169,7 +173,7 @@ function cardStatus(
   }
 }
 
-/** Ranking key of a volume: compared in order, higher first. */
+/** Order of the list: compared in order, higher first. Only the first key decides `best`. */
 const rankKey = (status: PromoVolumeStatus) => [status.chanceUseful, status.deckCards, status.newCards]
 
 function compareKeys(a: number[], b: number[]): number {
@@ -188,6 +192,8 @@ export function promoPlan(input: {
   now: Date
   volumes?: readonly PromoVolume[]
   events?: readonly PromoEvent[]
+  /** For the pick among ties; Math.random by default. */
+  random?: () => number
 }): PromoPlan {
   const { index, stock } = input
   const volumes = input.volumes ?? PROMO_VOLUMES
@@ -219,7 +225,7 @@ export function promoPlan(input: {
       newCards: cards.filter((card) => card.newCard).length,
       deckCards: cards.filter((card) => card.decks.length > 0).length,
       winsToComplete: wins,
-      winsPerCoupon: missing > 0 ? wins / missing : null,
+      couponSavesNow: missing > 0 ? size / missing : null,
       inEvent: event?.volumes.includes(promo.id) ?? false,
     }
   })
@@ -236,13 +242,16 @@ export function promoPlan(input: {
   const top = playableNow[0]
   const best =
     top && top.chanceUseful > 0
-      ? playableNow.filter((status) => compareKeys(rankKey(status), rankKey(top)) === 0).map((status) => status.id)
+      ? playableNow.filter((status) => status.chanceUseful === top.chanceUseful).map((status) => status.id)
       : []
+  const random = input.random ?? Math.random
+  const pick = best.length > 0 ? (best[Math.min(best.length - 1, Math.floor(random() * best.length))] ?? null) : null
 
   return {
     event,
     volumes: ranked,
     best,
+    pick,
     totals: {
       volumes: playableNow.length,
       cards: playableNow.reduce((sum, status) => sum + status.cards.length, 0),

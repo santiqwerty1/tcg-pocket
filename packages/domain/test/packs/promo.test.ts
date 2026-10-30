@@ -78,6 +78,8 @@ describe('activePromoEvent', () => {
     expect(activePromoEvent(new Date('2026-10-30T05:59:59Z'))).toBeNull()
     expect(activePromoEvent(new Date('2026-10-30T06:00:00Z'))?.id).toBe('botin-bis-promo-2026')
     expect(activePromoEvent(new Date('2026-11-13T05:59:59Z'))?.id).toBe('botin-bis-promo-2026')
+    // The last second counts entirely: the battles close at 03:00.
+    expect(activePromoEvent(new Date('2026-11-13T05:59:59.500Z'))?.id).toBe('botin-bis-promo-2026')
     expect(activePromoEvent(new Date('2026-11-13T06:00:00Z'))).toBeNull()
   })
 })
@@ -93,10 +95,16 @@ describe('winsToComplete', () => {
 })
 
 describe('promoPlan on the export of 2026-10-06', () => {
-  it('A vol. 7 lacks only Rayquaza ex: 1 in 5 per win, ~5 wins, and one coupon saves them all', () => {
+  it('A vol. 7 lacks only Rayquaza ex: 1 in 5 per win, ~5 wins, and a coupon now saves them all', () => {
     const plan = promoPlan({ index, stock: stock(), now: DURING })
     const a7 = plan.volumes.find((status) => status.id === 'A7')
-    expect(a7).toMatchObject({ missing: 1, chanceMissing: 0.2, chanceUseful: 0.2, winsToComplete: 5, winsPerCoupon: 5 })
+    expect(a7).toMatchObject({
+      missing: 1,
+      chanceMissing: 0.2,
+      chanceUseful: 0.2,
+      winsToComplete: 5,
+      couponSavesNow: 5,
+    })
     expect(a7?.cards.filter((card) => card.missing).map((card) => card.cardId)).toEqual(['P-A-64'])
     // Rayquaza ex: no print owned (P-A-64 nor P-A-65); Exeggcute has A1a-1.
     expect(a7?.cards.find((card) => card.cardId === 'P-A-64')).toMatchObject({ nameEs: 'Rayquaza ex', newCard: true })
@@ -110,8 +118,33 @@ describe('promoPlan on the export of 2026-10-06', () => {
     // Pidgey: B1-180 is owned.
     expect(b1?.cards.find((card) => card.cardId === 'P-B-5')).toMatchObject({ missing: true, newCard: false })
     expect(b1?.winsToComplete).toBeCloseTo(11.42, 2)
+    // A coupon spent now saves one win (11.42 → 10.42); kept for the last card it saves 5.
+    expect(b1?.couponSavesNow).toBe(1)
+    expect(winsToComplete(5, 5) - winsToComplete(5, 4)).toBeCloseTo(1, 10)
     const b12 = plan.volumes.find((status) => status.id === 'B12')
-    expect(b12).toMatchObject({ missing: 0, chanceMissing: 0, chanceUseful: 0, winsToComplete: 0, winsPerCoupon: null })
+    expect(b12).toMatchObject({
+      missing: 0,
+      chanceMissing: 0,
+      chanceUseful: 0,
+      winsToComplete: 0,
+      couponSavesNow: null,
+    })
+  })
+
+  it('every event volume where a win is sure to bring something ties, and one is picked at random', () => {
+    const tied = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B9', 'B10', 'B11', 'B13']
+    const plan = promoPlan({ index, stock: stock(), now: DURING, random: () => 0 })
+    expect([...plan.best].sort()).toEqual([...tied].sort())
+    // The list still puts first the ones with more cards not owned in any print (4 of 5).
+    expect(plan.volumes.slice(0, 5).map((status) => status.id)).toEqual(['B1', 'B3', 'B4', 'B9', 'B11'])
+    expect(plan.best[0]).toBe('B1')
+    expect(plan.pick).toBe('B1')
+    expect(promoPlan({ index, stock: stock(), now: DURING, random: () => 0.999 }).pick).toBe(plan.best.at(-1))
+    expect(promoPlan({ index, stock: stock(), now: DURING, random: () => 5 / 12 }).pick).toBe(plan.best[5])
+    // By default Math.random: always one of them, not always the same.
+    const picks = new Set(Array.from({ length: 60 }, () => promoPlan({ index, stock: stock(), now: DURING }).pick))
+    for (const pick of picks) expect(tied).toContain(pick)
+    expect(picks.size).toBeGreaterThan(1)
   })
 
   it('during the event its volumes come first and the best is one of them, with the most useful chance', () => {
@@ -150,7 +183,7 @@ describe('promoPlan, ranking', () => {
   const volumes = [byId('A7'), byId('B12')]
   const events = [{ ...EVENT, volumes: ['A7', 'B12'] }]
 
-  it('a card a deck lacks makes an owned print useful, and breaks the tie for that volume', () => {
+  it('a card a deck lacks makes an owned print useful; same chance, so both tie and it goes first', () => {
     // One Scyther del Team Rocket (P-B-88, a promo-only card) instead of two, and a deck that plays two.
     const units: StockQuantities = { ...stock() }
     const unit = index.cardById('P-B-88')?.stockCardId as string
@@ -160,12 +193,40 @@ describe('promoPlan, ranking', () => {
     const b12 = plan.volumes.find((status) => status.id === 'B12')
     expect(b12).toMatchObject({ missing: 0, chanceMissing: 0, chanceUseful: 0.2, deckCards: 1 })
     expect(b12?.cards.find((card) => card.cardId === 'P-B-88')?.decks).toEqual(['12. Team Rocket'])
-    // Both give something 1 in 5 times; the deck's card decides.
-    expect(plan.best).toEqual(['B12'])
+    // Both give something 1 in 5 times: they tie, the deck's card first in the list.
+    expect(plan.best).toEqual(['B12', 'A7'])
     expect(plan.volumes.map((status) => status.id)).toEqual(['B12', 'A7'])
 
     // Without the deck it is A vol. 7 alone.
-    expect(promoPlan({ index, stock: units, now: DURING, volumes, events }).best).toEqual(['A7'])
+    const alone = promoPlan({ index, stock: units, now: DURING, volumes, events, random: () => 0.9 })
+    expect(alone.best).toEqual(['A7'])
+    expect(alone.pick).toBe('A7')
+  })
+
+  it('a deck with exactly the copies it plays lacks nothing; one more and it does', () => {
+    // Exeggcute: A1a-1 ×3 and P-A-60 ×1 in the export.
+    const deck = (count: number) => [{ name: 'Mazo', groups: new Map([['A1a-1', count]]) }]
+    const exeggcute = (count: number) =>
+      promoPlan({ index, stock: stock(), decks: deck(count), now: DURING, volumes, events })
+        .volumes.find((status) => status.id === 'A7')
+        ?.cards.find((card) => card.cardId === 'P-A-60')
+    expect(exeggcute(4)?.decks).toEqual([])
+    expect(exeggcute(5)?.decks).toEqual(['Mazo'])
+  })
+
+  it('a volume outside the event never ties with the event ones, even with the same chance', () => {
+    const plan = promoPlan({
+      index,
+      stock: stock(),
+      now: DURING,
+      volumes: [byId('A7'), byId('A8')],
+      events: [{ ...EVENT, volumes: ['A7'] }],
+      random: () => 0.99,
+    })
+    const a8 = plan.volumes.find((status) => status.id === 'A8')
+    expect(a8?.chanceUseful).toBe(plan.volumes.find((status) => status.id === 'A7')?.chanceUseful)
+    expect(plan.best).toEqual(['A7'])
+    expect(plan.pick).toBe('A7')
   })
 
   it('an adjustment counts for decks and for «new card», not for the print', () => {
@@ -187,6 +248,7 @@ describe('promoPlan, ranking', () => {
   it('nothing to win when the event volumes are complete', () => {
     const plan = promoPlan({ index, stock: stock(), now: DURING, volumes, events: [{ ...EVENT, volumes: ['B12'] }] })
     expect(plan.best).toEqual([])
+    expect(plan.pick).toBeNull()
     expect(plan.totals).toEqual({ volumes: 1, cards: 5, missing: 0, winsToComplete: 0 })
     // A vol. 7 still ranks, after the event's volume.
     expect(plan.volumes.map((status) => status.id)).toEqual(['B12', 'A7'])

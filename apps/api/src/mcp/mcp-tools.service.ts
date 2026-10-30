@@ -335,8 +335,11 @@ ${MCP_CHAT_INSTRUCTIONS}`
     server.registerTool(t.collectionTrades.name, config(t.collectionTrades), (args) =>
       run(t.collectionTrades.name, () => this.collectionTrades(args)),
     )
-    server.registerTool(t.packsPromo.name, config(t.packsPromo), (args) =>
-      run(t.packsPromo.name, () => this.packsPromo(args)),
+    // Read-only but not idempotent: «pick» is drawn among the tied volumes on every call.
+    server.registerTool(
+      t.packsPromo.name,
+      { ...config(t.packsPromo), annotations: { ...READ_ONLY, idempotentHint: false } },
+      (args) => run(t.packsPromo.name, () => this.packsPromo(args)),
     )
     server.registerTool(t.collectionTrackerGap.name, config(t.collectionTrackerGap), (args) =>
       run(t.collectionTrackerGap.name, () => this.collectionTrackerGap(args)),
@@ -2005,6 +2008,7 @@ ${MCP_CHAT_INSTRUCTIONS}`
     return {
       event: plan.event ? { name: plan.event.nameEs, from: plan.event.from, until: plan.event.until } : null,
       collectionUpdatedAt: plan.lastImportAt,
+      pick: plan.pick ? label(plan.pick) : null,
       best: plan.best.map(label),
       totals: { ...plan.totals, winsToComplete: wins(plan.totals.winsToComplete) },
       volumes: plan.volumes
@@ -2016,7 +2020,7 @@ ${MCP_CHAT_INSTRUCTIONS}`
           chanceNewPercent: percent(status.chanceMissing),
           chanceUsefulPercent: percent(status.chanceUseful),
           winsToComplete: wins(status.winsToComplete),
-          winsPerCoupon: status.winsPerCoupon === null ? null : wins(status.winsPerCoupon),
+          couponSavesNow: status.couponSavesNow === null ? null : wins(status.couponSavesNow),
           cards: status.cards.map((card) => ({
             cardId: card.cardId,
             card: card.nameEs,
@@ -2028,7 +2032,8 @@ ${MCP_CHAT_INSTRUCTIONS}`
       notes: [
         'Un sobre de promoción trae 1 carta de su volumen; el juego no publica las tasas y se toman iguales.',
         'newCard: Santi no la tiene en ninguna versión. owned: copias de esa edición.',
-        'winsToComplete: victorias esperadas para tener todas las ediciones del volumen; winsPerCoupon: las que ahorra cada cupón gastado en sus cartas que faltan.',
+        'winsToComplete: victorias esperadas para tener todas las ediciones del volumen. couponSavesNow: las que ahorra un cupón gastado ahora en una de sus cartas que faltan; guardado para la última que falte ahorra ~tantas como cartas tiene el volumen.',
+        'pick sale al azar entre best (empatan en la chance) en cada consulta.',
       ],
     }
   }
