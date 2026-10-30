@@ -87,6 +87,11 @@ export const routes: RouteObject[] = [
           { path: 'partidas/:matchId', element: <MatchEditPage />, handle: handle('Editar partida', '/partidas') },
           { path: 'sobres', element: <SobresPage />, handle: handle('Sobres') },
           {
+            path: 'sobres/promo',
+            lazy: page(() => import('@/pages/sobres/PromoPage'), 'PromoPage'),
+            handle: handle('Sobres de promoción', '/sobres'),
+          },
+          {
             path: 'torneos',
             lazy: page(() => import('@/pages/torneos/TorneosPage'), 'TorneosPage'),
             handle: handle('Torneos', '/mas'),

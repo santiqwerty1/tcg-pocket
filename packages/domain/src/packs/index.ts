@@ -2,6 +2,7 @@
 export * from './completion.js'
 export * from './goals.js'
 export * from './luck.js'
+export * from './promo.js'
 export * from './pullRate.js'
 export * from './rates.js'
 export * from './recommend.js'

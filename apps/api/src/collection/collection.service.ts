@@ -239,21 +239,33 @@ export class CollectionService {
   // Views
   // ---------------------------------------------------------------------------------------------------------------
 
-  async summary(): Promise<CollectionSummaryView> {
-    const index = this.catalog.requireIndex()
-    const [{ stock, adjustments }, lastImport, collectedCount, checks] = await Promise.all([
-      this.repository.loadState(),
+  /**
+   * When the collection was last brought up to date: the last applied import or, if later, an automatic check (tracker
+   * or game) that found nothing to change.
+   */
+  async lastUpdatedAt(): Promise<Date | null> {
+    const [lastImport, checks] = await Promise.all([
       this.prisma.collectionImport.findFirst({ where: { status: 'applied' }, orderBy: { appliedAt: 'desc' } }),
-      this.prisma.collectionStock.count({ where: { collected: true } }),
       this.prisma.appSetting.findMany({
         where: { key: { in: [REMOTE_KEYS.tracker.lastChecked, REMOTE_KEYS.dotgg.lastChecked] } },
       }),
     ])
-    // An automatic check that found nothing to change also says the collection is up to date (tracker or game).
     const checked = checks
       .map((row) => row.value)
       .filter((value): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value)))
       .sort((a, b) => Date.parse(b) - Date.parse(a))[0]
+    return checked && Date.parse(checked) > (lastImport?.appliedAt?.getTime() ?? 0)
+      ? new Date(checked)
+      : (lastImport?.appliedAt ?? null)
+  }
+
+  async summary(): Promise<CollectionSummaryView> {
+    const index = this.catalog.requireIndex()
+    const [{ stock, adjustments }, lastImportAt, collectedCount] = await Promise.all([
+      this.repository.loadState(),
+      this.lastUpdatedAt(),
+      this.prisma.collectionStock.count({ where: { collected: true } }),
+    ])
     let one = 0
     let two = 0
     let missing = 0
@@ -267,10 +279,7 @@ export class CollectionService {
       stockUnitsCollected: collectedCount,
       groupsWithAtLeast: { one, two },
       groupsMissing: missing,
-      lastImportAt:
-        checked && Date.parse(checked) > (lastImport?.appliedAt?.getTime() ?? 0)
-          ? new Date(checked)
-          : (lastImport?.appliedAt ?? null),
+      lastImportAt,
       activeAdjustments: adjustments.length,
     }
   }

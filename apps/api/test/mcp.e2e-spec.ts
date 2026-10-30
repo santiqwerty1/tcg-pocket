@@ -144,6 +144,7 @@ describe('MCP endpoint (e2e)', () => {
       'matches_my_meta',
       'matches_rival_suggest',
       'matches_stats',
+      'packs_promo',
       'packs_recommend',
       'play_game_review',
       'play_games',
@@ -174,7 +175,7 @@ describe('MCP endpoint (e2e)', () => {
   it('serves 2026-07-28 clients from the same endpoint', async () => {
     const client = await connect('modern')
     const { tools } = await client.listTools()
-    expect(tools).toHaveLength(46)
+    expect(tools).toHaveLength(47)
     // Fase 29: the games against the bot (none here) and the review of one.
     expect((await call(client, 'play_games')).structuredContent).toEqual({ games: [] })
     // 14/10: the rival by the cards seen (no tournaments here: nothing suggested, nothing to classify).
@@ -231,6 +232,70 @@ describe('MCP endpoint (e2e)', () => {
     const http = (await test.http().get('/api/trades').set('Cookie', cookie)).body
     expect(http.rarities).toEqual(['◊◊◊', '◊◊◊◊', '☆', '☆☆', '✵', '✵✵'])
     expect((await test.http().get('/api/trades?rarities=nope').set('Cookie', cookie)).status).toBe(400)
+  })
+
+  it('sobres de promoción: A vol. 7 lacks only Rayquaza ex; the same plan over HTTP', async () => {
+    const client = await connect()
+    const promo = (await call(client, 'packs_promo')).structuredContent as {
+      event: { name: string } | null
+      pick: string | null
+      pickReason: string | null
+      best: string[]
+      volumes: {
+        volume: string
+        inEvent: boolean
+        missing: string
+        chanceForDecksPercent: number
+        chanceNotOwnedPercent: number
+        chanceMissingPrintPercent: number
+        winsToComplete: number
+        couponSavesNow: number | null
+        cards: { cardId: string; card: string; owned: number; notOwnedInAnyPrint?: boolean }[]
+      }[]
+    }
+    const a7 = promo.volumes.find((row) => row.volume === 'A vol. 7')
+    expect(a7).toMatchObject({
+      missing: '1 de 5',
+      chanceForDecksPercent: 0,
+      chanceNotOwnedPercent: 20,
+      chanceMissingPrintPercent: 20,
+      winsToComplete: 5,
+      couponSavesNow: 5,
+    })
+    expect(a7?.cards.find((card) => card.cardId === 'P-A-64')).toEqual({
+      cardId: 'P-A-64',
+      card: 'Rayquaza ex',
+      owned: 0,
+      notOwnedInAnyPrint: true,
+    })
+    // The answer depends on the day the suite runs: during an event one of the tied volumes is drawn; after it
+    // (13/11/2026) there is no battle to recommend.
+    if (promo.event) {
+      expect(promo.best.length).toBeGreaterThan(0)
+      expect(promo.best).toContain(promo.pick)
+      expect(promo.pickReason).toEqual(expect.any(String))
+    } else {
+      expect(promo.best).toEqual([])
+      expect(promo.pick).toBeNull()
+      expect(promo.pickReason).toBeNull()
+    }
+    // B vol. 12 was complete on 6/10: left out unless asked for.
+    expect(promo.volumes.some((row) => row.volume === 'B vol. 12')).toBe(false)
+    const all = (await call(client, 'packs_promo', { all: true })).structuredContent as typeof promo
+    expect(all.volumes.find((row) => row.volume === 'B vol. 12')).toMatchObject({
+      missing: '0 de 5',
+      couponSavesNow: null,
+    })
+    expect(all.volumes).toHaveLength(26)
+
+    const http = await test.http().get('/api/promo-packs').set('Cookie', cookie)
+    expect(http.status).toBe(200)
+    expect(http.body.volumes).toHaveLength(26)
+    expect(http.body.best.map((id: string) => `${id.slice(0, 1)} vol. ${id.slice(1)}`)).toEqual(promo.best)
+    if (http.body.event) expect(http.body.best).toContain(http.body.pick)
+    else expect(http.body.pick).toBeNull()
+    expect(http.body.lastImportAt).toEqual(expect.any(String))
+    expect((await test.http().get('/api/promo-packs')).status).toBe(401)
   })
 
   it('BRIEF M8 acceptance: Hoopa ex has 1 playable copy (B4-103) and decks 13 and 19 use it', async () => {
@@ -511,7 +576,7 @@ describe('MCP endpoint (e2e)', () => {
       .set('Cookie', cookie)
       .send({ name: 'temporal', kind: 'mcp', scopes: ['mcp:read'] })
     const client = await connect('legacy', created.body.token)
-    expect((await client.listTools()).tools.length).toBe(46)
+    expect((await client.listTools()).tools.length).toBe(47)
     expect((await test.http().delete(`/api/tokens/${created.body.id}`).set('Cookie', cookie)).status).toBe(204)
     await expect(client.listTools()).rejects.toThrow()
   })

@@ -240,6 +240,18 @@ export const MCP_READ_TOOLS = {
       offset: z.number().int().min(0).max(100_000).optional().describe('Cuántas saltear (por defecto 0)'),
     }),
   },
+  packsPromo: {
+    name: 'packs_promo',
+    title: 'Sobres de promoción',
+    description:
+      'Qué batalla de evento conviene ganar para los sobres de promoción. Cada sobre de promoción trae 1 carta de su volumen (A vol. 1–13 y B vol. 1–13; el juego no publica las tasas, se toman iguales) y cada volumen tiene su batalla, que se puede ganar muchas veces. Por volumen: qué cartas tiene Santi (por edición: una arte nueva cuenta), cuáles no tiene en ninguna versión, cuáles les faltan a sus mazos, las chances de cada cosa por victoria y las victorias esperadas para completarlo. «event» es el evento de promos en curso: mientras dura, solo sus volúmenes tienen batalla; con «event» null no hay batallas, así que no recomiendes ninguna y solo decí qué falta. Orden decidido por Santi: primero la chance de una carta que le falta a un mazo, después la de una carta que no tiene en ninguna versión, después la de cualquier edición que falta. «best» son los empatados en las tres y «pick» uno de ellos al azar en cada consulta: recomendá «pick», decí por qué («pickReason») y mencioná los empates. Cupones de carta de promoción (solo si la tienda tiene la carta): para completar un volumen rinden más en su última carta (~n victorias, 5 o 7; gastados antes ahorran «couponSavesNow»); para una carta puntual, como la de un mazo, ahorran ~n; antes del cierre del evento, canjearlos igual. Solo lectura.',
+    input: z.object({
+      all: z
+        .boolean()
+        .optional()
+        .describe('También los volúmenes completos (por defecto solo los que tienen algo útil)'),
+    }),
+  },
   packsRecommend: {
     name: 'packs_recommend',
     title: 'Recomendar sobres',

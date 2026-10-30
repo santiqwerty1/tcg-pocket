@@ -44,6 +44,7 @@ describe('MCP read tools', () => {
         'matches_my_meta',
         'matches_rival_suggest',
         'matches_stats',
+        'packs_promo',
         'packs_recommend',
         'play_game_review',
         'play_games',
