@@ -117,10 +117,22 @@ function CardName({ card }: { card: PromoCard }) {
   )
 }
 
+/**
+ * The chance of each tier, labelled; the one that decides the order (`reason`) is the row's headline, so a volume
+ * that ranks first on a deck's card (20 %) does not look below one with 100 % of missing prints.
+ */
+const TIERS = [
+  { reason: 'decks', short: 'para mazos', long: 'para tus mazos', chance: (v: PromoVolume) => v.chanceDecks },
+  { reason: 'new', short: 'nueva', long: 'nueva en ninguna versión', chance: (v: PromoVolume) => v.chanceNew },
+  { reason: 'missing', short: 'edición', long: 'edición que falta', chance: (v: PromoVolume) => v.chanceMissing },
+] as const
+
 function VolumeRow({ volume, mark }: { volume: PromoVolume; mark: 'pick' | 'tie' | null }) {
+  const headline = TIERS.find((tier) => tier.reason === volume.reason)
   const details = [
-    volume.deckCards > 0 ? `para tus mazos: ${percent(volume.chanceDecks)}` : null,
-    volume.newCards > 0 ? `nueva en ninguna versión: ${percent(volume.chanceNew)}` : null,
+    ...TIERS.filter((tier) => tier !== headline && tier.chance(volume) > 0).map(
+      (tier) => `${tier.long}: ${percent(tier.chance(volume))}`,
+    ),
     // Wins only where there is a battle now.
     volume.missing > 0 && volume.inEvent ? `${wins(volume.winsToComplete)} para completarlo` : null,
   ].filter((item): item is string => item !== null)
@@ -131,7 +143,10 @@ function VolumeRow({ volume, mark }: { volume: PromoVolume; mark: 'pick' | 'tie'
         {mark === 'pick' ? <Badge>Conviene</Badge> : null}
         {mark === 'tie' ? <Badge variant="outline">Empata</Badge> : null}
         <span className="text-sm text-muted-foreground">{volumeState(volume)}</span>
-        <span className="tabular ml-auto text-sm font-semibold">{percent(volume.chanceUseful)}</span>
+        <span className="ml-auto text-sm">
+          <span className="tabular font-semibold">{headline ? percent(headline.chance(volume)) : percent(0)}</span>
+          {headline ? <span className="text-xs text-muted-foreground"> {headline.short}</span> : null}
+        </span>
       </div>
       {details.length > 0 ? <p className="text-xs text-muted-foreground">{details.join(' · ')}</p> : null}
       <ul className="flex flex-wrap gap-x-3 gap-y-0.5 text-sm">
@@ -342,9 +357,9 @@ export function PromoPage() {
 
       <Section title={data.event ? 'Volúmenes del evento' : 'Volúmenes'}>
         <p className="text-xs text-muted-foreground">
-          El porcentaje es la chance de que una victoria te dé algo que te falta: una edición o una carta para tus
-          mazos. Primero cuentan las de tus mazos, después las que no tenés en ninguna versión («nueva») y después
-          cualquier edición.
+          El porcentaje es la chance, por victoria, de lo que decide el orden: una carta para tus mazos («para mazos»)
+          si el volumen tiene alguna; si no, una que no tenés en ninguna versión («nueva»); si no, una edición que te
+          falta («edición»). Abajo de cada volumen, las otras chances.
         </p>
         <VolumeList volumes={inEvent} pick={data.pick} best={best} />
       </Section>

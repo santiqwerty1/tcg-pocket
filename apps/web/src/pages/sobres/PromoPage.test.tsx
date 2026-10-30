@@ -186,9 +186,13 @@ describe('sobres de promoción', () => {
     expect(within(first).queryByText('Conviene')).toBeNull()
     expect(within(eleventh).getByText('Conviene')).toBeInTheDocument()
     expect(within(seventh).getByText('falta 1 de 5')).toBeInTheDocument()
-    expect(
-      within(seventh).getByText('nueva en ninguna versión: 20 % · ~5 victorias para completarlo'),
-    ).toBeInTheDocument()
+    // The headline is the chance of the tier that decides the order, labelled; the others go below.
+    const headline = (row: HTMLElement) => row.querySelector('.ml-auto')?.textContent
+    expect(headline(seventh)).toBe('20\u00a0% nueva')
+    expect(within(seventh).getByText('edición que falta: 20 % · ~5 victorias para completarlo')).toBeInTheDocument()
+    expect(headline(first)).toBe('60\u00a0% nueva')
+    expect(within(first).getByText('edición que falta: 80 % · ~10 victorias para completarlo')).toBeInTheDocument()
+    expect(headline(twelfth)).toBe('0\u00a0%')
     expect(within(seventh).queryByText(/Conviene|Empata/)).toBeNull()
     expect(within(twelfth).getByText('completo')).toBeInTheDocument()
     // A vol. 1 has no battle now: not among the event's volumes.
@@ -226,6 +230,15 @@ describe('sobres de promoción', () => {
       'Conviene ganar B vol. 1: es la que más chance tiene de darte una carta que le falta a tus mazos (20 %: Mega-Pidgeot ex).',
     )
     expect(screen.queryByText(/^Empata/)).toBeNull()
+    // A deck's card decides: 20 % «para mazos» on top, though 80 % of its prints are missing.
+    const list = screen.getByRole('heading', { name: 'Volúmenes del evento' }).closest('section') as HTMLElement
+    const row = within(list).getByText('B vol. 1').closest('li') as HTMLElement
+    expect(row.querySelector('.ml-auto')?.textContent).toBe('20\u00a0% para mazos')
+    expect(
+      within(row).getByText(
+        'nueva en ninguna versión: 60 % · edición que falta: 80 % · ~10 victorias para completarlo',
+      ),
+    ).toBeInTheDocument()
     await user.click(screen.getByText('Cupones'))
     const coupons = (await screen.findByText(/Las misiones del evento dan cupones/)).parentElement as HTMLElement
     const [forDecks] = within(coupons).getAllByRole('list') as [HTMLElement]
