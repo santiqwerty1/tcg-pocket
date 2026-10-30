@@ -26,6 +26,7 @@ import { PacksModule } from './packs/packs.controller.js'
 import { PickModule } from './pick/pick.controller.js'
 import { PlayModule } from './play/play.controller.js'
 import { PrismaModule } from './prisma/prisma.module.js'
+import { PromoPacksModule } from './promo/promo.controller.js'
 import { RankedModule } from './ranked/ranked.controller.js'
 import { RivalNotesModule } from './rivals/rival-notes.controller.js'
 import { SearchModule } from './search/search.controller.js'
@@ -78,6 +79,7 @@ export class AppModule implements NestModule {
         SearchModule,
         DrillsModule,
         TradesModule,
+        PromoPacksModule,
         WeeklyModule,
         PlayModule,
         AlertsModule,

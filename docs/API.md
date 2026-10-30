@@ -381,6 +381,7 @@ Notificaciones: nuevo tipo `weekly` en `GET/PUT /api/notifications/preferences`.
 | | Fase 14: cada mazo trae `plan: { packs: { mean, p50, p80 }, days: { p50, p80 }, groups: [PackRef & { copies, cards, limited, endsBeforeDone }], redeemable } | null` (cada carta de su mejor sobre, uno después del otro; mediana y percentil 80 de una simulación del plan entero; días al ritmo de los ajustes `packsPerDay` (2) y `hourglasses` (0, 12 por sobre)), y la respuesta `planner: { packsPerDay, hourglasses }` |
 | `GET /api/rarity-rules` | `{ items: [{ rarity, points, verified, tradeable }] }` para todas las rarezas (tracker + ✵ 1000 y ✵✵ 1350 sin verificar; P sin costo) |
 | `PATCH /api/rarity-rules/:rarity` | `{ points?, verified?, tradeable? }` → la regla; `404` rareza desconocida |
+| `GET /api/promo-packs` | Sobres de promoción (30/10/2026): `{ event: { id, nameEs, from, until, volumes } \| null, volumes: [{ id, series, volume, cards: [{ cardId, groupId, nameEs, owned, missing, newCard, decks }], missing, chanceMissing, chanceUseful, newCards, deckCards, winsToComplete, winsPerCoupon, inEvent }], best: string[], totals: { volumes, cards, missing, winsToComplete }, lastImportAt }`. Chances de 0 a 1 (1 carta por sobre, todas con la misma chance); con un evento en curso sus volúmenes van primero y `best` sale solo de ellos |
 
 ```ts
 Recommendation = {

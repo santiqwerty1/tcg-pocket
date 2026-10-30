@@ -3,11 +3,14 @@
  * in the app settings (`packModel`, `alpha`, `rarityFilter`, `limitedBoost`, `packDeckTarget`) so Claude's `packs_recommend` uses
  * the same ones.
  */
+import { GiftIcon } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router'
 import { useRecommendation } from '@/api/packs'
 import type { CollectionGoal, DeckTarget, PackModel, RecommendBody } from '@/api/schemas'
 import { useSetSetting, useSettings } from '@/api/settings'
 import { ErrorState, LoadingRows } from '@/components/ListState'
+import { Button } from '@/components/ui/button'
 import { limitedLabel } from '@/lib/packs'
 import { useDebouncedValue } from '@/lib/useDebounce'
 import { GoalsSection } from './GoalsSection'
@@ -93,6 +96,13 @@ export function SobresPage() {
 
   return (
     <div className="flex flex-col gap-6">
+      <Button variant="outline" asChild className="self-start">
+        <Link to="/sobres/promo">
+          <GiftIcon data-icon="inline-start" />
+          Sobres de promoción
+        </Link>
+      </Button>
+
       <GoalsSection
         decks={recommendation.data?.goals.decks ?? []}
         collection={knobs.collection}

@@ -31,7 +31,8 @@ export class TradesService {
     private readonly packs: PacksService,
   ) {}
 
-  private async decks(): Promise<TradeDeck[]> {
+  /** The decks not archived, as copies per functional group (also used by the promo packs). */
+  async decks(): Promise<TradeDeck[]> {
     const index = this.catalog.requireIndex()
     const decks = await this.prisma.deck.findMany({
       where: { archivedAt: null, currentRevisionId: { not: null } },

@@ -240,6 +240,18 @@ export const MCP_READ_TOOLS = {
       offset: z.number().int().min(0).max(100_000).optional().describe('Cuántas saltear (por defecto 0)'),
     }),
   },
+  packsPromo: {
+    name: 'packs_promo',
+    title: 'Sobres de promoción',
+    description:
+      'Qué batalla de evento conviene ganar para los sobres de promoción. Cada sobre de promoción trae 1 carta de su volumen (A vol. 1–13 y B vol. 1–13; el juego no publica las tasas, se toman iguales) y cada volumen tiene su batalla, que se puede ganar muchas veces. Por volumen: qué cartas tiene Santi (por edición: una arte nueva cuenta), cuáles no tiene en ninguna versión, cuáles les faltan a sus mazos, la chance de que una victoria dé algo nuevo, las victorias esperadas para completarlo y cuántas ahorra cada cupón de carta de promoción gastado ahí (conviene canjear donde falta poco). Durante un evento de promos (el «botín bis PROMO 2026», del 30/10 al 13/11/2026: A vol. 7 y B vol. 1–13) solo cuentan sus volúmenes; «best» son los que conviene ganar ahora. Solo lectura.',
+    input: z.object({
+      all: z
+        .boolean()
+        .optional()
+        .describe('También los volúmenes completos (por defecto solo los que tienen algo útil)'),
+    }),
+  },
   packsRecommend: {
     name: 'packs_recommend',
     title: 'Recomendar sobres',

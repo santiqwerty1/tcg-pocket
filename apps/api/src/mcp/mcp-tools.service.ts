@@ -56,6 +56,7 @@ import { OpsService } from '../ops/ops.service.js'
 import { PacksService } from '../packs/packs.service.js'
 import { PickService } from '../pick/pick.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import { PromoPacksService } from '../promo/promo.controller.js'
 import { RankedService } from '../ranked/ranked.service.js'
 import { RivalNotesService } from '../rivals/rival-notes.service.js'
 import { SimulationAnalysisService } from '../simulation/analysis.service.js'
@@ -198,6 +199,7 @@ export class McpToolsService {
     private readonly labTools: McpLabToolsService,
     private readonly playTools: McpPlayToolsService,
     private readonly trades: TradesService,
+    private readonly promo: PromoPacksService,
     private readonly trackerGap: TrackerGapService,
     private readonly weekly: WeeklyService,
     private readonly ops: OpsService,
@@ -332,6 +334,9 @@ ${MCP_CHAT_INSTRUCTIONS}`
     )
     server.registerTool(t.collectionTrades.name, config(t.collectionTrades), (args) =>
       run(t.collectionTrades.name, () => this.collectionTrades(args)),
+    )
+    server.registerTool(t.packsPromo.name, config(t.packsPromo), (args) =>
+      run(t.packsPromo.name, () => this.packsPromo(args)),
     )
     server.registerTool(t.collectionTrackerGap.name, config(t.collectionTrackerGap), (args) =>
       run(t.collectionTrackerGap.name, () => this.collectionTrackerGap(args)),
@@ -1988,6 +1993,43 @@ ${MCP_CHAT_INSTRUCTIONS}`
       })),
       untradeable: view.untradeable.map((row) => ({ card: row.nameEs, missing: row.missing, decks: row.decks })),
       text: view.text,
+    }
+  }
+
+  /** Sobres de promoción: which event battle to win; by default only the volumes where a win can bring something. */
+  private async packsPromo(args: { all?: boolean }): Promise<Json> {
+    const plan = await this.promo.plan()
+    const label = (id: string) => `${id.slice(0, 1)} vol. ${id.slice(1)}`
+    const percent = (chance: number) => Math.round(chance * 1000) / 10
+    const wins = (value: number) => Math.round(value * 10) / 10
+    return {
+      event: plan.event ? { name: plan.event.nameEs, from: plan.event.from, until: plan.event.until } : null,
+      collectionUpdatedAt: plan.lastImportAt,
+      best: plan.best.map(label),
+      totals: { ...plan.totals, winsToComplete: wins(plan.totals.winsToComplete) },
+      volumes: plan.volumes
+        .filter((status) => args.all || status.chanceUseful > 0)
+        .map((status) => ({
+          volume: label(status.id),
+          inEvent: status.inEvent,
+          missing: `${status.missing} de ${status.cards.length}`,
+          chanceNewPercent: percent(status.chanceMissing),
+          chanceUsefulPercent: percent(status.chanceUseful),
+          winsToComplete: wins(status.winsToComplete),
+          winsPerCoupon: status.winsPerCoupon === null ? null : wins(status.winsPerCoupon),
+          cards: status.cards.map((card) => ({
+            cardId: card.cardId,
+            card: card.nameEs,
+            owned: card.owned,
+            ...(card.newCard ? { newCard: true } : {}),
+            ...(card.decks.length > 0 ? { decks: card.decks } : {}),
+          })),
+        })),
+      notes: [
+        'Un sobre de promoción trae 1 carta de su volumen; el juego no publica las tasas y se toman iguales.',
+        'newCard: Santi no la tiene en ninguna versión. owned: copias de esa edición.',
+        'winsToComplete: victorias esperadas para tener todas las ediciones del volumen; winsPerCoupon: las que ahorra cada cupón gastado en sus cartas que faltan.',
+      ],
     }
   }
 
