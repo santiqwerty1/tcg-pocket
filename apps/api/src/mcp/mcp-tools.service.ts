@@ -2047,8 +2047,8 @@ ${MCP_CHAT_INSTRUCTIONS}`
           ? 'Orden (Santi, 30/10): primero la chance de una carta que le falta a un mazo, después la de una carta que no tiene en ninguna versión, después la de una edición de la que le faltan copias; pick sale al azar entre best (los empatados en las tres) en cada consulta.'
           : 'No hay un evento de promos en curso: no hay batallas para ganar. No recomiendes ninguna; solo decí qué le falta de cada volumen.',
         `chanceMissingPrintPercent: chance de una edición de la que tiene menos de ${plan.goal} copias (puede ser otra versión de una carta que ya tiene). chanceNotOwnedPercent: de una carta que no tiene en ninguna versión. owned: copias de esa edición.`,
-        'Cupones: si va a completar un volumen, rinden más en su última copia (ahorran ~n victorias; gastado ahora, couponSavesNow, en la edición donde más ahorra). Para una carta puntual (la de un mazo, por ejemplo) un cupón ahorra ~n victorias. Antes del cierre del evento, canjearlos igual. Solo si la tienda tiene esa carta.',
-        `winsToComplete: victorias esperadas para tener ${plan.goal} copias de cada edición del volumen.`,
+        'Cupones: si va a completar un volumen, rinden más cuando le queda una sola edición por debajo del objetivo: ahí cada cupón ahorra ~n victorias, también el de su segunda copia. Gastado antes ahorra couponSavesNow (en la edición donde más ahorra). Para una carta puntual (la de un mazo, por ejemplo) un cupón ahorra ~n victorias. Antes del cierre del evento, canjearlos igual. Solo si la tienda tiene esa carta.',
+        `winsToComplete: victorias esperadas para tener ${plan.goal} copias de cada edición del volumen. En totals, missing son las ediciones por debajo del objetivo y copiesMissing las copias que les faltan.`,
       ],
     }
   }

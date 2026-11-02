@@ -219,12 +219,15 @@ function VolumeList({
   )
 }
 
-/** The event's coupons: for a card a deck lacks, for the last copy of a volume, and the cards with no battle. */
+/**
+ * The event's coupons: for a card a deck lacks, for a volume with a single print below the goal (every coupon on it
+ * saves n, also when it lacks both copies), and the cards with no battle.
+ */
 function Coupons({ inEvent, outside, goal }: { inEvent: PromoVolume[]; outside: PromoVolume[]; goal: number }) {
   const forDecks = inEvent.flatMap((volume) =>
     volume.cards.filter((card) => card.decks.length > 0).map((card) => ({ volume, card })),
   )
-  const lastCopy = inEvent.filter((volume) => volume.copiesMissing === 1)
+  const lastCard = inEvent.filter((volume) => volume.missing === 1)
   const onlyCoupon = outside.filter((volume) => volume.copiesMissing > 0)
   const onlyCouponCopies = onlyCoupon.reduce((sum, volume) => sum + volume.copiesMissing, 0)
   const anyMissing = inEvent.some((volume) => volume.copiesMissing > 0)
@@ -235,8 +238,9 @@ function Coupons({ inEvent, outside, goal }: { inEvent: PromoVolume[]; outside: 
         <p className="text-muted-foreground">
           Las misiones del evento dan cupones que se canjean en la tienda por una carta de promoción, si la tienda la
           tiene. Para una carta puntual, como la de un mazo, un cupón ahorra todas las victorias que llevaría sacarla
-          (~5; ~7 en A vol. 9). Si vas a completar un volumen ({goal} de cada carta), rinde más en su última copia;
-          gastado antes ahorra menos (con todo por sacar, 1). Antes de que termine el evento, canjealos igual.
+          (~5; ~7 en A vol. 9). Si vas a completar un volumen ({goal} de cada carta), rinde más cuando le queda una sola
+          carta por sacar: ahí cada cupón ahorra lo mismo, también para su segunda copia. Gastado antes ahorra menos
+          (con todo por sacar, 1). Antes de que termine el evento, canjealos igual.
         </p>
         {forDecks.length > 0 ? (
           <div className="flex flex-col gap-1">
@@ -254,22 +258,31 @@ function Coupons({ inEvent, outside, goal }: { inEvent: PromoVolume[]; outside: 
             </ul>
           </div>
         ) : null}
-        {lastCopy.length > 0 ? (
+        {lastCard.length > 0 ? (
           <div className="flex flex-col gap-1">
-            <h3 className="text-xs font-semibold text-muted-foreground">Última copia de un volumen</h3>
+            <h3 className="text-xs font-semibold text-muted-foreground">Última carta de un volumen</h3>
             <ul className="divide-y rounded-lg border">
-              {lastCopy.map((volume) => (
-                <li key={volume.id} className="px-3 py-2">
-                  <span className="font-medium">{label(volume)}</span>
-                  <span className="text-muted-foreground"> · </span>
-                  {volume.cards.find((card) => card.missing)?.nameEs}
-                  <span className="text-muted-foreground"> · ahorra {wins(volume.cards.length)}</span>
-                </li>
-              ))}
+              {lastCard.map((volume) => {
+                const card = volume.cards.find((item) => item.missing)
+                const copies = card?.needed ?? 1
+                return (
+                  <li key={volume.id} className="px-3 py-2">
+                    <span className="font-medium">{label(volume)}</span>
+                    <span className="text-muted-foreground"> · </span>
+                    {card?.nameEs}
+                    {copies > 1 ? ` ×${copies}` : null}
+                    <span className="text-muted-foreground">
+                      {' '}
+                      · ahorra {wins(volume.cards.length)}
+                      {copies > 1 ? ' cada cupón' : null}
+                    </span>
+                  </li>
+                )
+              })}
             </ul>
           </div>
         ) : anyMissing ? (
-          <p>A ningún volumen del evento le falta 1 sola copia todavía.</p>
+          <p>A ningún volumen del evento le queda una sola carta por sacar todavía.</p>
         ) : null}
         {onlyCoupon.length > 0 ? (
           <div className="flex flex-col gap-1">
@@ -416,8 +429,9 @@ export function PromoPage() {
         <ul className="list-disc pl-5">
           <li>Un sobre de promoción trae 1 carta de su volumen. El juego no publica las tasas: se toman iguales.</li>
           <li>
-            Objetivo (tuyo, del 2/11): 2 copias de cada edición. Victorias para completarlo: el promedio exacto con las
-            copias que ya tenés; con todo por sacar, ~19 en un volumen de 5 cartas (~11 para 1 de cada).
+            Objetivo (tuyo, del 2/11): {data.goal} copias de cada edición. Victorias para completarlo: el promedio
+            exacto con las copias que ya tenés. Con nada en la mano, en un volumen de 5 cartas: ~19 para tener 2 de cada
+            una y ~11 para 1 de cada una.
           </li>
           <li>Cuenta cada edición: una promo que tenés en otra versión igual falta para la colección.</li>
           <li>

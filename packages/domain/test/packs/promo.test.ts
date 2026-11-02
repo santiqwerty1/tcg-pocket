@@ -154,7 +154,10 @@ describe('couponSavesNow', () => {
     // Everything to go: the first win always brings a missing copy, so taking one now saves just that win.
     expect(couponSavesNow(5, [2, 2, 2, 2, 2])).toBeCloseTo(1, 10)
     expect(couponSavesNow(7, [1, 1, 1, 1, 1, 1, 1])).toBeCloseTo(1, 10)
-    // Never more than keeping it for the last copy.
+    // A single print left: every coupon on it saves all n, the second copy too.
+    expect(couponSavesNow(5, [2, 0, 0, 0, 0])).toBe(5)
+    expect(couponSavesNow(7, [0, 0, 0, 2, 0, 0, 0])).toBe(7)
+    // Never more than n.
     for (const needs of [
       [2, 1, 1, 0, 0],
       [2, 0, 0, 0, 0],
@@ -230,6 +233,14 @@ describe('promoPlan on the export of 2026-10-06', () => {
       winsToComplete: 0,
       couponSavesNow: null,
     })
+  })
+
+  it('A vol. 9 has 7 cards: none owned, 14 copies to go, ~29 wins', () => {
+    const plan = promoPlan({ index, stock: stock(), now: AFTER })
+    const a9 = plan.volumes.find((status) => status.id === 'A9')
+    expect(a9).toMatchObject({ missing: 7, copiesMissing: 14, chanceMissing: 1, couponSavesNow: 1 })
+    expect(a9?.cards.every((card) => card.owned === 0 && card.needed === 2)).toBe(true)
+    expect(a9?.winsToComplete).toBeCloseTo(29.42, 2)
   })
 
   it('during the event the most cards not owned in any print win (B vol. 1, 3, 4, 9 and 11), one at random', () => {

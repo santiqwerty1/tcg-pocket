@@ -12,9 +12,10 @@
  * - Rates: the game does not publish them; every card of a volume is taken as equally likely.
  * - Wins to finish a volume: exact, a Markov chain over the copies each print still lacks (winsToComplete). With one
  *   copy as the goal it is the coupon collector, n · (1 + 1/2 + … + 1/m).
- * - Coupons (event missions give coupons for a promo card of the shop): one spent now saves the least
- *   (couponSavesNow); kept for the volume's last missing copy it saves n. So the advice is to win until one copy is
- *   missing and take that one with a coupon.
+ * - Coupons (event missions give coupons for a promo card of the shop): one spent now saves couponSavesNow, at most
+ *   n, and exactly n when a single print of the volume is below the goal (then every coupon on it saves n, for each
+ *   copy it lacks); with two or more prints below it, less. So the advice is to win until one print is left and take
+ *   its copies with coupons.
  * - Which battle (Santi, 30/10/2026): by the chance of a card a deck lacks, then of a card not owned in any print,
  *   then of a print below the goal, each compared exactly as a fraction; one of the volumes still tied in all three
  *   is picked at random on every call. Without an event there is no battle: no pick, only the ranking.
@@ -199,7 +200,8 @@ export interface PromoVolumeStatus {
   winsToComplete: number
   /**
    * Wins one coupon spent now saves when the goal is the whole volume (on the print where it saves the most); null
-   * when complete. For one card wanted on its own (a deck's), or the volume's last missing copy, a coupon saves n.
+   * when complete. It is n when a single print is below the goal, and a coupon for one card wanted on its own (a
+   * deck's) saves n too.
    */
   couponSavesNow: number | null
   /** It has a battle in the active event. */

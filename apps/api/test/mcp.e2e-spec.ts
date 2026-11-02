@@ -234,7 +234,7 @@ describe('MCP endpoint (e2e)', () => {
     expect((await test.http().get('/api/trades?rarities=nope').set('Cookie', cookie)).status).toBe(400)
   })
 
-  it('sobres de promoción: A vol. 7 lacks only Rayquaza ex; the same plan over HTTP', async () => {
+  it('sobres de promoción: A vol. 7 lacks a second Exeggcute and two Rayquaza ex; the same plan over HTTP', async () => {
     const client = await connect()
     const promo = (await call(client, 'packs_promo')).structuredContent as {
       goalCopiesPerPrint: number
@@ -296,6 +296,7 @@ describe('MCP endpoint (e2e)', () => {
 
     const http = await test.http().get('/api/promo-packs').set('Cookie', cookie)
     expect(http.status).toBe(200)
+    expect(http.body.goal).toBe(2)
     expect(http.body.volumes).toHaveLength(26)
     expect(http.body.best.map((id: string) => `${id.slice(0, 1)} vol. ${id.slice(1)}`)).toEqual(promo.best)
     if (http.body.event) expect(http.body.best).toContain(http.body.pick)
