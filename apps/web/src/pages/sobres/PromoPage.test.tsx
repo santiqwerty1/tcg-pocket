@@ -278,20 +278,35 @@ describe('sobres de promoción', () => {
       true,
       5,
     )
+    // One print short too, but of both copies: not its last one.
+    const bothShort = volume(
+      'B12',
+      [
+        card('P-B-88', 'Scyther del Team Rocket', 0),
+        card('P-B-89', 'Lapras del Team Rocket', 2),
+        card('P-B-90', 'Wingull', 5),
+        card('P-B-91', 'Wobbuffet del Team Rocket', 4),
+        card('P-B-92', 'Marowak', 2),
+      ],
+      true,
+      10,
+    )
     renderPromo({
-      event: { ...EVENT, volumes: ['A7'] },
-      volumes: [almost],
-      best: ['A7'],
+      event: { ...EVENT, volumes: ['A7', 'B12'] },
+      volumes: [almost, bothShort],
+      best: ['A7', 'B12'],
       pick: 'A7',
-      totals: { volumes: 1, cards: 5, missing: 1, copiesMissing: 1, winsToComplete: 5 },
+      totals: { volumes: 2, cards: 10, missing: 2, copiesMissing: 3, winsToComplete: 15 },
       lastImportAt: COLLECTION_AT,
     })
     expect(await advice()).toBe(
       'Conviene ganar A vol. 7: es la que más chance tiene de darte una edición de la que tenés menos de 2 copias (20 %).',
     )
     expect(screen.getByText('falta 1 copia de 10')).toBeInTheDocument()
+    expect(screen.getByText('faltan 2 copias de 10')).toBeInTheDocument()
+    expect(screen.getByText('Scyther del Team Rocket').closest('li')?.textContent).toBe('Scyther del Team Rocket')
     expect(
-      screen.getByText(/te falta 1 copia para tener 2 de cada una de sus 5 cartas: ~5 victorias sin cupones/),
+      screen.getByText(/te faltan 3 copias para tener 2 de cada una de sus 10 cartas: ~15 victorias sin cupones/),
     ).toBeInTheDocument()
     await user.click(screen.getByText('Cupones'))
     const coupons = (await screen.findByText(/Las misiones del evento dan cupones/)).parentElement as HTMLElement

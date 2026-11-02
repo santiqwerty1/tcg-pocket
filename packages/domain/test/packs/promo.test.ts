@@ -150,6 +150,7 @@ describe('couponSavesNow', () => {
     expect(couponSavesNow(5, [1, 0, 0, 0, 0])).toBe(5)
     // One of two Rayquaza ex (11.25 → 7.5) saves more than the second Exeggcute (11.25 → 10).
     expect(couponSavesNow(5, [1, 0, 0, 0, 2])).toBeCloseTo(3.75, 10)
+    expect(couponSavesNow(5, [2, 0, 0, 0, 1])).toBeCloseTo(3.75, 10)
     // Everything to go: the first win always brings a missing copy, so taking one now saves just that win.
     expect(couponSavesNow(5, [2, 2, 2, 2, 2])).toBeCloseTo(1, 10)
     expect(couponSavesNow(7, [1, 1, 1, 1, 1, 1, 1])).toBeCloseTo(1, 10)
