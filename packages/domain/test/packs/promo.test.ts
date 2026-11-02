@@ -4,7 +4,9 @@ import type { StockQuantities } from '../../src/collection/stock.js'
 import type { TradeDeck } from '../../src/collection/trades.js'
 import {
   activePromoEvent,
+  couponSavesNow,
   PROMO_EVENTS,
+  PROMO_GOAL,
   PROMO_VOLUMES,
   type PromoEvent,
   type PromoVolume,
@@ -86,51 +88,159 @@ describe('activePromoEvent', () => {
   })
 })
 
+/**
+ * The same expectation by another road: Poissonized, size · ∫₀^∞ (1 − Π_i P(Poisson(x) ≥ needs_i)) dx, integrated
+ * with Simpson's rule.
+ */
+function poissonWins(size: number, needs: readonly number[]): number {
+  const unfinished = (x: number) => {
+    let done = 1
+    for (const need of needs) {
+      let below = 0
+      let term = Math.exp(-x)
+      for (let k = 0; k < need; k++) {
+        below += term
+        term *= x / (k + 1)
+      }
+      done *= 1 - below
+    }
+    return 1 - done
+  }
+  const step = 1e-3
+  let sum = 0
+  for (let x = 0; x < 80; x += step) {
+    sum += ((unfinished(x) + 4 * unfinished(x + step / 2) + unfinished(x + step)) * step) / 6
+  }
+  return size * sum
+}
+
 describe('winsToComplete', () => {
-  it('is the coupon collector: n · H(m)', () => {
-    expect(winsToComplete(5, 0)).toBe(0)
-    expect(winsToComplete(5, 1)).toBe(5)
-    expect(winsToComplete(5, 2)).toBeCloseTo(7.5, 10)
-    expect(winsToComplete(5, 5)).toBeCloseTo(5 * (1 + 1 / 2 + 1 / 3 + 1 / 4 + 1 / 5), 10)
-    expect(winsToComplete(7, 7)).toBeCloseTo(18.15, 2)
+  it('with one copy to go per print is the coupon collector: n · H(m)', () => {
+    expect(winsToComplete(5, [])).toBe(0)
+    expect(winsToComplete(5, [0, 0, 0, 0, 0])).toBe(0)
+    expect(winsToComplete(5, [1, 0, 0, 0, 0])).toBe(5)
+    expect(winsToComplete(5, [1, 1, 0, 0, 0])).toBeCloseTo(7.5, 10)
+    expect(winsToComplete(5, [1, 1, 1, 1, 1])).toBeCloseTo(5 * (1 + 1 / 2 + 1 / 3 + 1 / 4 + 1 / 5), 10)
+    expect(winsToComplete(7, [1, 1, 1, 1, 1, 1, 1])).toBeCloseTo(18.15, 2)
+  })
+
+  it('with two copies to go is exact (worked by hand for small volumes, and the Poisson integral)', () => {
+    expect(winsToComplete(1, [2])).toBe(2)
+    // 2 prints, 2 copies each: 1 + (2 + 4 + 3) / 2.
+    expect(winsToComplete(2, [2, 2])).toBeCloseTo(5.5, 10)
+    // A second Exeggcute and two Rayquaza ex: (5 + 10 + 7.5) / 2.
+    expect(winsToComplete(5, [1, 0, 0, 0, 2])).toBeCloseTo(11.25, 10)
+    expect(winsToComplete(5, [2, 0, 0, 0, 1])).toBeCloseTo(11.25, 10)
+    expect(winsToComplete(5, [2, 2, 2, 2, 2])).toBeCloseTo(19.04, 2)
+    for (const [size, needs] of [
+      [5, [2, 2, 2, 2, 2]],
+      [7, [2, 2, 2, 2, 2, 2, 2]],
+      [5, [2, 1, 1, 0, 0]],
+      [5, [3, 2, 1, 0, 0]],
+    ] as const) {
+      expect(winsToComplete(size, needs)).toBeCloseTo(poissonWins(size, needs), 6)
+    }
+  })
+})
+
+describe('couponSavesNow', () => {
+  it('is what the best print to take now saves; null when nothing is missing', () => {
+    expect(couponSavesNow(5, [0, 0, 0, 0, 0])).toBeNull()
+    // The volume's last copy: all n.
+    expect(couponSavesNow(5, [1, 0, 0, 0, 0])).toBe(5)
+    // One of two Rayquaza ex (11.25 → 7.5) saves more than the second Exeggcute (11.25 → 10).
+    expect(couponSavesNow(5, [1, 0, 0, 0, 2])).toBeCloseTo(3.75, 10)
+    expect(couponSavesNow(5, [2, 0, 0, 0, 1])).toBeCloseTo(3.75, 10)
+    // Everything to go: the first win always brings a missing copy, so taking one now saves just that win.
+    expect(couponSavesNow(5, [2, 2, 2, 2, 2])).toBeCloseTo(1, 10)
+    expect(couponSavesNow(7, [1, 1, 1, 1, 1, 1, 1])).toBeCloseTo(1, 10)
+    // A single print left: every coupon on it saves all n, the second copy too.
+    expect(couponSavesNow(5, [2, 0, 0, 0, 0])).toBe(5)
+    expect(couponSavesNow(7, [0, 0, 0, 2, 0, 0, 0])).toBe(7)
+    // Never more than n.
+    for (const needs of [
+      [2, 1, 1, 0, 0],
+      [2, 0, 0, 0, 0],
+      [1, 1, 0, 0, 0],
+    ]) {
+      expect(couponSavesNow(5, needs)).toBeLessThanOrEqual(5)
+    }
   })
 })
 
 describe('promoPlan on the export of 2026-10-06', () => {
-  it('A vol. 7 lacks only Rayquaza ex: 1 in 5 per win, ~5 wins, and a coupon now saves them all', () => {
+  it('the goal is two copies of each print (Santi, 2/11)', () => {
+    expect(PROMO_GOAL).toBe(2)
+    expect(promoPlan({ index, stock: stock(), now: DURING }).goal).toBe(2)
+  })
+
+  it('A vol. 7 lacks a second Exeggcute and both Rayquaza ex: 2 in 5 per win, ~11 wins', () => {
     const plan = promoPlan({ index, stock: stock(), now: DURING })
     const a7 = plan.volumes.find((status) => status.id === 'A7')
     expect(a7).toMatchObject({
-      missing: 1,
-      chanceMissing: 0.2,
-      chanceUseful: 0.2,
-      winsToComplete: 5,
-      couponSavesNow: 5,
+      missing: 2,
+      copiesMissing: 3,
+      chanceMissing: 0.4,
+      chanceUseful: 0.4,
+      winsToComplete: 11.25,
+      couponSavesNow: 3.75,
     })
-    expect(a7?.cards.filter((card) => card.missing).map((card) => card.cardId)).toEqual(['P-A-64'])
-    // Rayquaza ex: no print owned (P-A-64 nor P-A-65); Exeggcute has A1a-1.
-    expect(a7?.cards.find((card) => card.cardId === 'P-A-64')).toMatchObject({ nameEs: 'Rayquaza ex', newCard: true })
-    expect(a7?.cards.find((card) => card.cardId === 'P-A-60')).toMatchObject({ owned: 1, newCard: false })
+    expect(a7?.cards.filter((card) => card.missing).map((card) => [card.cardId, card.needed])).toEqual([
+      ['P-A-60', 1],
+      ['P-A-64', 2],
+    ])
+    // Rayquaza ex: no print owned (P-A-64 nor P-A-65); Exeggcute has A1a-1, and one copy of its promo.
+    expect(a7?.cards.find((card) => card.cardId === 'P-A-64')).toMatchObject({
+      nameEs: 'Rayquaza ex',
+      owned: 0,
+      needed: 2,
+      newCard: true,
+    })
+    expect(a7?.cards.find((card) => card.cardId === 'P-A-60')).toMatchObject({
+      owned: 1,
+      needed: 1,
+      missing: true,
+      newCard: false,
+    })
+    // Exactly the goal, and more than it: nothing missing.
+    expect(a7?.cards.find((card) => card.cardId === 'P-A-63')).toMatchObject({ owned: 2, needed: 0, missing: false })
+    expect(a7?.cards.find((card) => card.cardId === 'P-A-61')).toMatchObject({ owned: 4, needed: 0, missing: false })
   })
 
-  it('B vol. 1 lacks all 5, 4 of them in every print; B vol. 12 is complete', () => {
+  it('B vol. 1 lacks two copies of all 5, 4 of them in every print; B vol. 12 has two or more of each', () => {
     const plan = promoPlan({ index, stock: stock(), now: DURING })
     const b1 = plan.volumes.find((status) => status.id === 'B1')
-    expect(b1).toMatchObject({ missing: 5, chanceMissing: 1, chanceUseful: 1, newCards: 4, deckCards: 0 })
+    expect(b1).toMatchObject({
+      missing: 5,
+      copiesMissing: 10,
+      chanceMissing: 1,
+      chanceUseful: 1,
+      newCards: 4,
+      deckCards: 0,
+    })
     // Pidgey: B1-180 is owned.
     expect(b1?.cards.find((card) => card.cardId === 'P-B-5')).toMatchObject({ missing: true, newCard: false })
-    expect(b1?.winsToComplete).toBeCloseTo(11.42, 2)
-    // A coupon spent now saves one win (11.42 → 10.42); kept for the last card it saves 5.
-    expect(b1?.couponSavesNow).toBe(1)
-    expect(winsToComplete(5, 5) - winsToComplete(5, 4)).toBeCloseTo(1, 10)
+    expect(b1?.winsToComplete).toBeCloseTo(19.04, 2)
+    // A coupon spent now saves one win (19.04 → 18.04); kept for the last copy it saves 5.
+    expect(b1?.couponSavesNow).toBeCloseTo(1, 10)
     const b12 = plan.volumes.find((status) => status.id === 'B12')
+    expect(b12?.cards.map((card) => card.owned)).toEqual([2, 2, 5, 4, 2])
     expect(b12).toMatchObject({
       missing: 0,
+      copiesMissing: 0,
       chanceMissing: 0,
       chanceUseful: 0,
       winsToComplete: 0,
       couponSavesNow: null,
     })
+  })
+
+  it('A vol. 9 has 7 cards: none owned, 14 copies to go, ~29 wins', () => {
+    const plan = promoPlan({ index, stock: stock(), now: AFTER })
+    const a9 = plan.volumes.find((status) => status.id === 'A9')
+    expect(a9).toMatchObject({ missing: 7, copiesMissing: 14, chanceMissing: 1, couponSavesNow: 1 })
+    expect(a9?.cards.every((card) => card.owned === 0 && card.needed === 2)).toBe(true)
+    expect(a9?.winsToComplete).toBeCloseTo(29.42, 2)
   })
 
   it('during the event the most cards not owned in any print win (B vol. 1, 3, 4, 9 and 11), one at random', () => {
@@ -220,7 +330,14 @@ describe('promoPlan, ranking (Santi, 30/10: decks, then new cards, then prints, 
       events: all(['B1', 'B12']),
     })
     const b12 = plan.volumes.find((status) => status.id === 'B12')
-    expect(b12).toMatchObject({ missing: 0, chanceDecks: 0.2, chanceUseful: 0.2, deckCards: 1, reason: 'decks' })
+    expect(b12).toMatchObject({
+      missing: 1,
+      copiesMissing: 1,
+      chanceDecks: 0.2,
+      chanceUseful: 0.2,
+      deckCards: 1,
+      reason: 'decks',
+    })
     expect(b12?.cards.find((card) => card.cardId === 'P-B-88')?.decks).toEqual(['12. Team Rocket'])
     expect(plan.volumes.find((status) => status.id === 'B1')).toMatchObject({ chanceMissing: 1, reason: 'new' })
     expect(plan.best).toEqual(['B12'])
@@ -235,9 +352,10 @@ describe('promoPlan, ranking (Santi, 30/10: decks, then new cards, then prints, 
   })
 
   it('with no deck cards, a card not owned in any print wins over more missing prints; then the missing prints', () => {
-    // A vol. 7: Rayquaza ex is missing and new. Y: Pidgey P-B-5 missing (B1-180 owned). Z: Pidgey and Mega-Pidgeot ex.
-    const y = custom('B91', ['P-B-5', 'P-A-60', 'P-A-61', 'P-A-62', 'P-A-63'])
-    const z = custom('B92', ['P-B-5', 'P-B-88', 'P-B-89', 'P-B-90', 'P-B-13'])
+    // A vol. 7: Rayquaza ex is missing and new, Exeggcute has one copy. Y: Pidgey P-B-5 missing (B1-180 owned).
+    // Z: Pidgey, Arcanine P-B-13 (B1-29 owned) and a second Alolan Exeggutor P-A-69.
+    const y = custom('B91', ['P-B-5', 'P-A-61', 'P-A-62', 'P-A-63', 'P-B-90'])
+    const z = custom('B92', ['P-B-5', 'P-A-69', 'P-B-89', 'P-B-90', 'P-B-13'])
     const plan = promoPlan({
       index,
       stock: stock(),
@@ -248,19 +366,21 @@ describe('promoPlan, ranking (Santi, 30/10: decks, then new cards, then prints, 
     const at = (id: string) => plan.volumes.find((status) => status.id === id)
     // Preconditions from the export: Pidgey and Arcanine are owned in another print.
     expect(at('B91')).toMatchObject({ newCards: 0, missing: 1, reason: 'missing' })
-    expect(at('B92')).toMatchObject({ newCards: 0, missing: 2, reason: 'missing' })
-    expect(at('A7')).toMatchObject({ newCards: 1, missing: 1, reason: 'new' })
+    // A print with one copy is still below the goal.
+    expect(at('B92')).toMatchObject({ newCards: 0, missing: 3, copiesMissing: 5, reason: 'missing' })
+    expect(at('B92')?.cards.find((card) => card.cardId === 'P-A-69')).toMatchObject({ owned: 1, needed: 1 })
+    expect(at('A7')).toMatchObject({ newCards: 1, missing: 2, reason: 'new' })
     expect(plan.volumes.map((status) => status.id)).toEqual(['A7', 'B92', 'B91'])
     expect(plan.best).toEqual(['A7'])
   })
 
   it('a tie in new cards is broken by the missing prints: only the one with more is best', () => {
-    // Both have one card not owned in any print (Rayquaza ex); W also lacks Pidgey's promo.
+    // Both have one card not owned in any print (Rayquaza ex) and one Exeggcute; W also lacks Pidgey's promo.
     const w = custom('B93', ['P-A-64', 'P-B-5', 'P-A-60', 'P-A-61', 'P-A-62'])
     const plan = promoPlan({ index, stock: stock(), now: DURING, volumes: [byId('A7'), w], events: all(['A7', 'B93']) })
     expect(plan.volumes.map((status) => [status.id, status.newCards, status.missing])).toEqual([
-      ['B93', 1, 2],
-      ['A7', 1, 1],
+      ['B93', 1, 3],
+      ['A7', 1, 2],
     ])
     expect(plan.best).toEqual(['B93'])
   })
@@ -276,7 +396,8 @@ describe('promoPlan, ranking (Santi, 30/10: decks, then new cards, then prints, 
   })
 
   it('compares the chances as fractions: 1 of 5 ties 2 of 10 and beats 1 of 7', () => {
-    const owned = ['P-A-60', 'P-A-61', 'P-A-62', 'P-A-63', 'P-B-88', 'P-B-89', 'P-B-90', 'P-B-91']
+    // Two or more copies of each.
+    const owned = ['P-A-61', 'P-A-62', 'P-A-63', 'P-B-88', 'P-B-89', 'P-B-90', 'P-B-91', 'P-B-92']
     const five = custom('B95', ['P-A-64', ...owned.slice(0, 4)])
     const ten = custom('B96', ['P-A-64', 'P-B-6', ...owned])
     const seven = custom('B97', ['P-A-64', ...owned.slice(0, 6)])
@@ -308,18 +429,18 @@ describe('promoPlan, ranking (Santi, 30/10: decks, then new cards, then prints, 
       index,
       stock: stock(),
       now: DURING,
-      volumes: [byId('A7'), byId('A8')],
-      events: all(['A7']),
+      volumes: [byId('A2'), byId('A5')],
+      events: all(['A2']),
       random: () => 0.99,
     })
     const at = (id: string) => plan.volumes.find((status) => status.id === id)
-    expect([at('A8')?.chanceDecks, at('A8')?.chanceNew, at('A8')?.chanceMissing]).toEqual([
-      at('A7')?.chanceDecks,
-      at('A7')?.chanceNew,
-      at('A7')?.chanceMissing,
+    expect([at('A5')?.chanceDecks, at('A5')?.chanceNew, at('A5')?.chanceMissing]).toEqual([
+      at('A2')?.chanceDecks,
+      at('A2')?.chanceNew,
+      at('A2')?.chanceMissing,
     ])
-    expect(plan.best).toEqual(['A7'])
-    expect(plan.pick).toBe('A7')
+    expect(plan.best).toEqual(['A2'])
+    expect(plan.pick).toBe('A2')
   })
 
   it('an adjustment counts for decks and for «new card», not for the print', () => {
@@ -343,7 +464,7 @@ describe('promoPlan, ranking (Santi, 30/10: decks, then new cards, then prints, 
     expect(plan.best).toEqual([])
     expect(plan.pick).toBeNull()
     expect(plan.volumes.find((status) => status.id === 'B12')?.reason).toBeNull()
-    expect(plan.totals).toEqual({ volumes: 1, cards: 5, missing: 0, winsToComplete: 0 })
+    expect(plan.totals).toEqual({ volumes: 1, cards: 5, missing: 0, copiesMissing: 0, winsToComplete: 0 })
     // A vol. 7 still ranks, after the event's volume.
     expect(plan.volumes.map((status) => status.id)).toEqual(['B12', 'A7'])
   })
@@ -351,13 +472,15 @@ describe('promoPlan, ranking (Santi, 30/10: decks, then new cards, then prints, 
   it('a promo the catalog does not have yet counts as missing', () => {
     const future: PromoVolume = { id: 'B99', series: 'B', volume: 99, cardIds: ['P-B-88', 'P-B-999'] }
     const plan = promoPlan({ index, stock: stock(), now: AFTER, volumes: [future] })
-    expect(plan.volumes[0]).toMatchObject({ missing: 1, chanceMissing: 0.5, winsToComplete: 2 })
+    // Two copies of 1 in 2: 2 wins for the first, 2 more for the second.
+    expect(plan.volumes[0]).toMatchObject({ missing: 1, copiesMissing: 2, chanceMissing: 0.5, winsToComplete: 4 })
     expect(plan.volumes[0]?.cards[1]).toEqual({
       cardId: 'P-B-999',
       groupId: 'P-B-999',
       nameEs: 'P-B-999',
       inCatalog: false,
       owned: 0,
+      needed: 2,
       missing: true,
       newCard: true,
       decks: [],

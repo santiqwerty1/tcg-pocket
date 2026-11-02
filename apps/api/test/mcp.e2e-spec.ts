@@ -234,9 +234,10 @@ describe('MCP endpoint (e2e)', () => {
     expect((await test.http().get('/api/trades?rarities=nope').set('Cookie', cookie)).status).toBe(400)
   })
 
-  it('sobres de promoción: A vol. 7 lacks only Rayquaza ex; the same plan over HTTP', async () => {
+  it('sobres de promoción: A vol. 7 lacks a second Exeggcute and two Rayquaza ex; the same plan over HTTP', async () => {
     const client = await connect()
     const promo = (await call(client, 'packs_promo')).structuredContent as {
+      goalCopiesPerPrint: number
       event: { name: string } | null
       pick: string | null
       pickReason: string | null
@@ -244,28 +245,33 @@ describe('MCP endpoint (e2e)', () => {
       volumes: {
         volume: string
         inEvent: boolean
-        missing: string
+        missingCopies: string
         chanceForDecksPercent: number
         chanceNotOwnedPercent: number
         chanceMissingPrintPercent: number
         winsToComplete: number
         couponSavesNow: number | null
-        cards: { cardId: string; card: string; owned: number; notOwnedInAnyPrint?: boolean }[]
+        cards: { cardId: string; card: string; owned: number; needed?: number; notOwnedInAnyPrint?: boolean }[]
       }[]
     }
+    // The goal is two copies of each print: A vol. 7 lacks a second Exeggcute and both Rayquaza ex.
+    expect(promo.goalCopiesPerPrint).toBe(2)
     const a7 = promo.volumes.find((row) => row.volume === 'A vol. 7')
     expect(a7).toMatchObject({
-      missing: '1 de 5',
+      missingCopies: '3 de 10',
       chanceForDecksPercent: 0,
       chanceNotOwnedPercent: 20,
-      chanceMissingPrintPercent: 20,
-      winsToComplete: 5,
-      couponSavesNow: 5,
+      chanceMissingPrintPercent: 40,
+      winsToComplete: 11.3,
+      couponSavesNow: 3.8,
     })
+    expect(a7?.cards.find((card) => card.cardId === 'P-A-60')).toMatchObject({ owned: 1, needed: 1 })
+    expect(a7?.cards.find((card) => card.cardId === 'P-A-63')).not.toHaveProperty('needed')
     expect(a7?.cards.find((card) => card.cardId === 'P-A-64')).toEqual({
       cardId: 'P-A-64',
       card: 'Rayquaza ex',
       owned: 0,
+      needed: 2,
       notOwnedInAnyPrint: true,
     })
     // The answer depends on the day the suite runs: during an event one of the tied volumes is drawn; after it
@@ -279,17 +285,18 @@ describe('MCP endpoint (e2e)', () => {
       expect(promo.pick).toBeNull()
       expect(promo.pickReason).toBeNull()
     }
-    // B vol. 12 was complete on 6/10: left out unless asked for.
+    // B vol. 12 had two or more of each on 6/10: left out unless asked for.
     expect(promo.volumes.some((row) => row.volume === 'B vol. 12')).toBe(false)
     const all = (await call(client, 'packs_promo', { all: true })).structuredContent as typeof promo
     expect(all.volumes.find((row) => row.volume === 'B vol. 12')).toMatchObject({
-      missing: '0 de 5',
+      missingCopies: '0 de 10',
       couponSavesNow: null,
     })
     expect(all.volumes).toHaveLength(26)
 
     const http = await test.http().get('/api/promo-packs').set('Cookie', cookie)
     expect(http.status).toBe(200)
+    expect(http.body.goal).toBe(2)
     expect(http.body.volumes).toHaveLength(26)
     expect(http.body.best.map((id: string) => `${id.slice(0, 1)} vol. ${id.slice(1)}`)).toEqual(promo.best)
     if (http.body.event) expect(http.body.best).toContain(http.body.pick)

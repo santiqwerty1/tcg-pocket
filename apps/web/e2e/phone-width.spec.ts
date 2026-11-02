@@ -68,7 +68,15 @@ test('review of #87: a long word in a column of the deck’s «Rendimiento» wra
   expect(await pageWidth(page)).toBeLessThanOrEqual(PHONE)
 })
 
-for (const path of ['/partidas', '/partidas/estadisticas', '/partidas/semana', '/mazos', '/mazos/1', '/coleccion']) {
+for (const path of [
+  '/partidas',
+  '/partidas/estadisticas',
+  '/partidas/semana',
+  '/mazos',
+  '/mazos/1',
+  '/coleccion',
+  '/sobres/promo',
+]) {
   test(`${path} fits the phone with every section open`, async ({ page }) => {
     await page.goto(path)
     await page.waitForLoadState('networkidle')

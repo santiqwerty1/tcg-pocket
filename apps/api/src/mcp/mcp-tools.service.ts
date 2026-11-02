@@ -2008,10 +2008,11 @@ ${MCP_CHAT_INSTRUCTIONS}`
     const reasons = {
       decks: 'la mayor chance de una carta que le falta a un mazo',
       new: 'la mayor chance de una carta que Santi no tiene en ninguna versión',
-      missing: 'la mayor chance de una edición que le falta a la colección',
+      missing: `la mayor chance de una edición de la que Santi tiene menos de ${plan.goal} copias`,
     } as const
     const picked = plan.volumes.find((status) => status.id === plan.pick)
     return {
+      goalCopiesPerPrint: plan.goal,
       event: plan.event ? { name: plan.event.nameEs, from: plan.event.from, until: plan.event.until } : null,
       collectionUpdatedAt: plan.lastImportAt,
       pick: picked ? label(picked.id) : null,
@@ -2023,7 +2024,7 @@ ${MCP_CHAT_INSTRUCTIONS}`
         .map((status) => ({
           volume: label(status.id),
           inEvent: status.inEvent,
-          missing: `${status.missing} de ${status.cards.length}`,
+          missingCopies: `${status.copiesMissing} de ${status.cards.length * plan.goal}`,
           chanceForDecksPercent: percent(status.chanceDecks),
           chanceNotOwnedPercent: percent(status.chanceNew),
           chanceMissingPrintPercent: percent(status.chanceMissing),
@@ -2033,6 +2034,7 @@ ${MCP_CHAT_INSTRUCTIONS}`
             cardId: card.cardId,
             card: card.nameEs,
             owned: card.owned,
+            ...(card.needed > 0 ? { needed: card.needed } : {}),
             ...(card.inCatalog ? {} : { notInCatalog: true }),
             ...(card.newCard ? { notOwnedInAnyPrint: true } : {}),
             ...(card.decks.length > 0 ? { missingForDecks: card.decks } : {}),
@@ -2040,12 +2042,13 @@ ${MCP_CHAT_INSTRUCTIONS}`
         })),
       notes: [
         'Un sobre de promoción trae 1 carta de su volumen; el juego no publica las tasas y se toman iguales.',
+        `Objetivo (Santi, 2/11): ${plan.goal} copias de cada edición. missingCopies: copias que le faltan al volumen para eso; needed: las que le faltan a esa edición.`,
         plan.event
-          ? 'Orden (Santi, 30/10): primero la chance de una carta que le falta a un mazo, después la de una carta que no tiene en ninguna versión, después la de cualquier edición que falta; pick sale al azar entre best (los empatados en las tres) en cada consulta.'
+          ? 'Orden (Santi, 30/10): primero la chance de una carta que le falta a un mazo, después la de una carta que no tiene en ninguna versión, después la de una edición de la que le faltan copias; pick sale al azar entre best (los empatados en las tres) en cada consulta.'
           : 'No hay un evento de promos en curso: no hay batallas para ganar. No recomiendes ninguna; solo decí qué le falta de cada volumen.',
-        'chanceMissingPrintPercent: chance de una edición que falta (puede ser otra versión de una carta que ya tiene). chanceNotOwnedPercent: de una carta que no tiene en ninguna versión. owned: copias de esa edición.',
-        'Cupones: si va a completar un volumen, rinden más en su última carta (ahorran ~n victorias; gastados antes, couponSavesNow = n/m). Para una carta puntual (la de un mazo, por ejemplo) un cupón ahorra ~n victorias. Antes del cierre del evento, canjearlos igual. Solo si la tienda tiene esa carta.',
-        'winsToComplete: victorias esperadas para tener todas las ediciones del volumen.',
+        `chanceMissingPrintPercent: chance de una edición de la que tiene menos de ${plan.goal} copias (puede ser otra versión de una carta que ya tiene). chanceNotOwnedPercent: de una carta que no tiene en ninguna versión. owned: copias de esa edición.`,
+        'Cupones: si va a completar un volumen, rinden más cuando le queda una sola edición por debajo del objetivo: ahí cada cupón ahorra ~n victorias, también el de su segunda copia. Gastado antes ahorra couponSavesNow (en la edición donde más ahorra). Para una carta puntual (la de un mazo, por ejemplo) un cupón ahorra ~n victorias. Antes del cierre del evento, canjearlos igual. Solo si la tienda tiene esa carta.',
+        `winsToComplete: victorias esperadas para tener ${plan.goal} copias de cada edición del volumen. En totals, missing son las ediciones por debajo del objetivo y copiesMissing las copias que les faltan.`,
       ],
     }
   }
