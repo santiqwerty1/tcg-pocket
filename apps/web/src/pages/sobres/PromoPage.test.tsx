@@ -9,6 +9,9 @@ import { routes } from '@/app/routes'
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
+/** Copies of each print the goal asks for. */
+const GOAL = 2
+
 const card = (
   cardId: string,
   nameEs: string,
@@ -20,7 +23,8 @@ const card = (
   nameEs,
   inCatalog: extra.inCatalog ?? true,
   owned,
-  missing: owned === 0,
+  needed: Math.max(0, GOAL - owned),
+  missing: owned < GOAL,
   newCard: extra.newCard ?? false,
   decks: extra.decks ?? [],
 })
@@ -28,6 +32,7 @@ const card = (
 function volume(id: string, cards: ReturnType<typeof card>[], inEvent: boolean, wins: number) {
   const size = cards.length
   const missing = cards.filter((item) => item.missing).length
+  const copiesMissing = cards.reduce((sum, item) => sum + item.needed, 0)
   const newCards = cards.filter((item) => item.newCard).length
   const deckCards = cards.filter((item) => item.decks.length > 0).length
   const useful = cards.filter((item) => item.missing || item.decks.length > 0).length
@@ -37,6 +42,7 @@ function volume(id: string, cards: ReturnType<typeof card>[], inEvent: boolean, 
     volume: Number(id.slice(1)),
     cards,
     missing,
+    copiesMissing,
     chanceMissing: missing / size,
     chanceNew: newCards / size,
     chanceDecks: deckCards / size,
@@ -45,7 +51,7 @@ function volume(id: string, cards: ReturnType<typeof card>[], inEvent: boolean, 
     deckCards,
     reason: deckCards > 0 ? 'decks' : newCards > 0 ? 'new' : missing > 0 ? 'missing' : null,
     winsToComplete: wins,
-    couponSavesNow: missing > 0 ? size / missing : null,
+    couponSavesNow: copiesMissing > 0 ? 1 : null,
     inEvent,
   }
 }
@@ -61,7 +67,7 @@ const b1 = (decks: string[] = []) =>
       card('P-B-6', 'Mega-Pidgeot ex', 0, { newCard: true, decks }),
     ],
     true,
-    10.42,
+    17.04,
   )
 const B11 = volume(
   'B11',
@@ -73,7 +79,7 @@ const B11 = volume(
     card('P-B-84', 'Skitty', 1),
   ],
   true,
-  10.42,
+  17.04,
 )
 const A7 = volume(
   'A7',
@@ -85,7 +91,7 @@ const A7 = volume(
     card('P-A-64', 'Rayquaza ex', 0, { newCard: true }),
   ],
   true,
-  5,
+  11.25,
 )
 const B12 = volume(
   'B12',
@@ -127,7 +133,9 @@ function renderPromo(answer: unknown | (() => unknown), queryClient = client()) 
     'fetch',
     vi.fn(async (input: string) => {
       const url = new URL(input, 'http://localhost')
-      if (url.pathname === '/api/promo-packs') return json(typeof answer === 'function' ? answer() : answer)
+      if (url.pathname === '/api/promo-packs') {
+        return json({ goal: GOAL, ...((typeof answer === 'function' ? answer() : answer) as object) })
+      }
       return json({ error: { code: 'not_found', message: 'no' } }, 404)
     }),
   )
@@ -156,7 +164,7 @@ describe('sobres de promoción', () => {
       volumes: [b1(), B11, A7, B12, A1],
       best: ['B1', 'B11'],
       pick: 'B11',
-      totals: { volumes: 4, cards: 20, missing: 9, winsToComplete: 25.84 },
+      totals: { volumes: 4, cards: 20, missing: 12, copiesMissing: 21, winsToComplete: 45.33 },
       lastImportAt: COLLECTION_AT,
     })
     expect(await screen.findByText('Evento botín bis PROMO 2026', {}, { timeout: 5000 })).toBeInTheDocument()
@@ -169,7 +177,9 @@ describe('sobres de promoción', () => {
       'Conviene ganar B vol. 11: es la que más chance tiene de darte una carta que no tenés en ninguna versión (60 %).',
     )
     expect(screen.getByText(/^Empata en todo: B vol\. 1\. Te sugiero uno al azar/)).toBeInTheDocument()
-    expect(screen.getByText(/te faltan 9 cartas de 20: ~26 victorias/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/te faltan 21 copias para tener 2 de cada una de sus 20 cartas: ~45 victorias sin cupones/),
+    ).toBeInTheDocument()
 
     const list = screen.getByRole('heading', { name: 'Volúmenes del evento' }).closest('section') as HTMLElement
     const rows = within(list)
@@ -185,13 +195,19 @@ describe('sobres de promoción', () => {
     expect(within(first).getByText('Empata')).toBeInTheDocument()
     expect(within(first).queryByText('Conviene')).toBeNull()
     expect(within(eleventh).getByText('Conviene')).toBeInTheDocument()
-    expect(within(seventh).getByText('falta 1 de 5')).toBeInTheDocument()
+    // The goal is two of each: a second Exeggcute and two Rayquaza ex.
+    expect(within(seventh).getByText('faltan 3 copias de 10')).toBeInTheDocument()
+    expect(
+      within(seventh)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Exeggcute 1/2', '✓ Froakie', "✓ Farfetch'd", '✓ Rayquaza', 'Rayquaza ex nueva'])
     // The headline is the chance of the tier that decides the order, labelled; the others go below.
     const headline = (row: HTMLElement) => row.querySelector('.ml-auto')?.textContent
     expect(headline(seventh)).toBe('20\u00a0% nueva')
-    expect(within(seventh).getByText('edición que falta: 20 % · ~5 victorias para completarlo')).toBeInTheDocument()
+    expect(within(seventh).getByText('copia que te falta: 40 % · ~11 victorias para completarlo')).toBeInTheDocument()
     expect(headline(first)).toBe('60\u00a0% nueva')
-    expect(within(first).getByText('edición que falta: 80 % · ~10 victorias para completarlo')).toBeInTheDocument()
+    expect(within(first).getByText('copia que te falta: 100 % · ~17 victorias para completarlo')).toBeInTheDocument()
     expect(headline(twelfth)).toBe('0\u00a0%')
     expect(within(seventh).queryByText(/Conviene|Empata/)).toBeNull()
     expect(within(twelfth).getByText('completo')).toBeInTheDocument()
@@ -203,16 +219,15 @@ describe('sobres de promoción', () => {
     expect(within(coupons).getByText(/por una carta de promoción, si la tienda la tiene/)).toBeInTheDocument()
     expect(within(coupons).getByText(/Antes de que termine el evento, canjealos igual\./)).toBeInTheDocument()
     expect(within(coupons).queryByText('Para tus mazos')).toBeNull()
-    const [last, withoutBattle] = within(coupons).getAllByRole('list') as [HTMLElement, HTMLElement]
+    expect(within(coupons).getByText(/Si vas a completar un volumen \(2 de cada carta\)/)).toBeInTheDocument()
+    expect(within(coupons).getByText('A ningún volumen del evento le falta 1 sola copia todavía.')).toBeInTheDocument()
+    const [withoutBattle] = within(coupons).getAllByRole('list') as [HTMLElement]
     expect(
-      within(last)
-        .getAllByRole('listitem')
-        .map((item) => item.textContent),
-    ).toEqual(['A vol. 7 · Rayquaza ex · ahorra ~5 victorias'])
-    expect(
-      within(coupons).getByText(/^Sin batalla en este evento \(1 carta\): solo con cupón, si la tienda la tiene\.$/),
+      within(coupons).getByText(/^Sin batalla en este evento \(6 copias\): solo con cupón, si la tienda las tiene\.$/),
     ).toBeInTheDocument()
-    expect(within(withoutBattle).getByRole('listitem').textContent).toBe('A vol. 1 · Butterfree')
+    expect(within(withoutBattle).getByRole('listitem').textContent).toBe(
+      'A vol. 1 · Butterfree ×2, Lapras ex, Pikachu, Clefairy, Mankey',
+    )
   })
 
   it('a card a deck lacks wins and says so; a coupon for it saves every win', async () => {
@@ -223,20 +238,20 @@ describe('sobres de promoción', () => {
       volumes: [withDeck, B11],
       best: ['B1'],
       pick: 'B1',
-      totals: { volumes: 2, cards: 10, missing: 7, winsToComplete: 20.84 },
+      totals: { volumes: 2, cards: 10, missing: 10, copiesMissing: 18, winsToComplete: 34.08 },
       lastImportAt: COLLECTION_AT,
     })
     expect(await advice()).toBe(
       'Conviene ganar B vol. 1: es la que más chance tiene de darte una carta que le falta a tus mazos (20 %: Mega-Pidgeot ex).',
     )
     expect(screen.queryByText(/^Empata/)).toBeNull()
-    // A deck's card decides: 20 % «para mazos» on top, though 80 % of its prints are missing.
+    // A deck's card decides: 20 % «para mazos» on top, though every print lacks copies.
     const list = screen.getByRole('heading', { name: 'Volúmenes del evento' }).closest('section') as HTMLElement
     const row = within(list).getByText('B vol. 1').closest('li') as HTMLElement
     expect(row.querySelector('.ml-auto')?.textContent).toBe('20\u00a0% para mazos')
     expect(
       within(row).getByText(
-        'nueva en ninguna versión: 60 % · edición que falta: 80 % · ~10 victorias para completarlo',
+        'nueva en ninguna versión: 60 % · copia que te falta: 100 % · ~17 victorias para completarlo',
       ),
     ).toBeInTheDocument()
     await user.click(screen.getByText('Cupones'))
@@ -246,7 +261,43 @@ describe('sobres de promoción', () => {
     expect(within(forDecks).getByRole('listitem').textContent).toBe(
       'Mega-Pidgeot ex · B vol. 1 · para 7. Pidgeot · ahorra ~5 victorias',
     )
-    expect(within(coupons).getByText('A ningún volumen del evento le falta 1 sola carta todavía.')).toBeInTheDocument()
+    expect(within(coupons).getByText('A ningún volumen del evento le falta 1 sola copia todavía.')).toBeInTheDocument()
+  })
+
+  it('a volume one copy short lists it under the coupons: the last copy saves every win', async () => {
+    const user = userEvent.setup()
+    const almost = volume(
+      'A7',
+      [
+        card('P-A-60', 'Exeggcute', 2),
+        card('P-A-61', 'Froakie', 4),
+        card('P-A-62', "Farfetch'd", 4),
+        card('P-A-63', 'Rayquaza', 2),
+        card('P-A-64', 'Rayquaza ex', 1),
+      ],
+      true,
+      5,
+    )
+    renderPromo({
+      event: { ...EVENT, volumes: ['A7'] },
+      volumes: [almost],
+      best: ['A7'],
+      pick: 'A7',
+      totals: { volumes: 1, cards: 5, missing: 1, copiesMissing: 1, winsToComplete: 5 },
+      lastImportAt: COLLECTION_AT,
+    })
+    expect(await advice()).toBe(
+      'Conviene ganar A vol. 7: es la que más chance tiene de darte una edición de la que tenés menos de 2 copias (20 %).',
+    )
+    expect(screen.getByText('falta 1 copia de 10')).toBeInTheDocument()
+    expect(
+      screen.getByText(/te falta 1 copia para tener 2 de cada una de sus 5 cartas: ~5 victorias sin cupones/),
+    ).toBeInTheDocument()
+    await user.click(screen.getByText('Cupones'))
+    const coupons = (await screen.findByText(/Las misiones del evento dan cupones/)).parentElement as HTMLElement
+    expect(within(coupons).getByText('Última copia de un volumen')).toBeInTheDocument()
+    const [last] = within(coupons).getAllByRole('list') as [HTMLElement]
+    expect(within(last).getByRole('listitem').textContent).toBe('A vol. 7 · Rayquaza ex · ahorra ~5 victorias')
   })
 
   it('asks again each time the page opens, not on coming back to the window', async () => {
@@ -258,7 +309,7 @@ describe('sobres de promoción', () => {
         volumes: [b1(), B11],
         best: ['B1', 'B11'],
         pick: draws === 1 ? 'B1' : 'B11',
-        totals: { volumes: 2, cards: 10, missing: 7, winsToComplete: 20.84 },
+        totals: { volumes: 2, cards: 10, missing: 10, copiesMissing: 18, winsToComplete: 34.08 },
         lastImportAt: COLLECTION_AT,
       }
     }
@@ -288,7 +339,8 @@ describe('sobres de promoción', () => {
     const needed = volume(
       'B12',
       [
-        card('P-B-88', 'Scyther del Team Rocket', 1, { decks: ['12. Team Rocket'] }),
+        // Two copies, but an adjustment leaves the deck short.
+        card('P-B-88', 'Scyther del Team Rocket', 2, { decks: ['12. Team Rocket'] }),
         card('P-B-89', 'Lapras del Team Rocket', 2),
         card('P-B-90', 'Wingull', 5),
         card('P-B-91', 'Wobbuffet del Team Rocket', 4),
@@ -302,14 +354,14 @@ describe('sobres de promoción', () => {
       volumes: [needed],
       best: ['B12'],
       pick: 'B12',
-      totals: { volumes: 1, cards: 5, missing: 0, winsToComplete: 0 },
+      totals: { volumes: 1, cards: 5, missing: 0, copiesMissing: 0, winsToComplete: 0 },
       lastImportAt: COLLECTION_AT,
     })
     expect(await advice()).toBe(
       'Conviene ganar B vol. 12: es la que más chance tiene de darte una carta que le falta a tus mazos (20 %: Scyther del Team Rocket).',
     )
     expect(screen.getByText('faltan copias para tus mazos')).toBeInTheDocument()
-    expect(screen.queryByText(/te faltan 0 cartas/)).toBeNull()
+    expect(screen.queryByText(/te faltan 0 copias/)).toBeNull()
     // The coupons still help the deck.
     expect(screen.getByText('Cupones')).toBeInTheDocument()
   })
@@ -320,7 +372,7 @@ describe('sobres de promoción', () => {
       volumes: [A7],
       best: ['A7'],
       pick: 'A7',
-      totals: { volumes: 1, cards: 5, missing: 1, winsToComplete: 5 },
+      totals: { volumes: 1, cards: 5, missing: 2, copiesMissing: 3, winsToComplete: 11.25 },
       lastImportAt: '2026-10-30T21:16:00Z',
     })
     const note = await screen.findByText(/abriste sobres de promoción después/, {}, { timeout: 5000 })
@@ -337,7 +389,7 @@ describe('sobres de promoción', () => {
       ],
       best: [],
       pick: null,
-      totals: { volumes: 2, cards: 10, missing: 4, winsToComplete: 10.42 },
+      totals: { volumes: 2, cards: 10, missing: 5, copiesMissing: 9, winsToComplete: 17.04 },
       lastImportAt: COLLECTION_AT,
     })
     expect(
@@ -349,7 +401,9 @@ describe('sobres de promoción', () => {
         },
       ),
     ).toBeInTheDocument()
-    expect(screen.getByText('De los sobres de promoción te faltan 4 cartas de 10.')).toBeInTheDocument()
+    expect(
+      screen.getByText('De los sobres de promoción te faltan 9 copias para tener 2 de cada una de sus 10 cartas.'),
+    ).toBeInTheDocument()
     expect(screen.queryByText('Qué batalla ganar')).toBeNull()
     expect(screen.queryByText(/Conviene|Empata/)).toBeNull()
     expect(screen.queryByText(/victorias/)).toBeNull()
@@ -363,12 +417,10 @@ describe('sobres de promoción', () => {
       volumes: [{ ...B12, inEvent: false }],
       best: [],
       pick: null,
-      totals: { volumes: 1, cards: 5, missing: 0, winsToComplete: 0 },
+      totals: { volumes: 1, cards: 5, missing: 0, copiesMissing: 0, winsToComplete: 0 },
       lastImportAt: COLLECTION_AT,
     })
-    expect(
-      await screen.findByText('Ya tenés todas las promos de los sobres', {}, { timeout: 5000 }),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('Ya tenés 2 de cada promo de los sobres', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
   it('without a collection it asks to import one instead of advising', async () => {
@@ -377,7 +429,7 @@ describe('sobres de promoción', () => {
       volumes: [b1(), B11],
       best: ['B1', 'B11'],
       pick: 'B1',
-      totals: { volumes: 2, cards: 10, missing: 7, winsToComplete: 20.84 },
+      totals: { volumes: 2, cards: 10, missing: 10, copiesMissing: 18, winsToComplete: 34.08 },
       lastImportAt: null,
     })
     expect(await screen.findByText('Todavía no hay una colección importada', {}, { timeout: 5000 })).toBeInTheDocument()
@@ -398,7 +450,7 @@ describe('sobres de promoción', () => {
       volumes: [future],
       best: ['B13'],
       pick: 'B13',
-      totals: { volumes: 1, cards: 2, missing: 1, winsToComplete: 2 },
+      totals: { volumes: 1, cards: 2, missing: 2, copiesMissing: 3, winsToComplete: 4.67 },
       lastImportAt: COLLECTION_AT,
     })
     expect(

@@ -1,9 +1,10 @@
 /**
  * Sobres de promoción (30/10/2026): which event battle to win. Each volume's battle can be won again and again and
- * every win gives one card of that volume; the page says, per volume, what the collection lacks, the chances that a
- * win brings it and the wins to finish it, and how to spend the event's coupons. Santi's order: a card a deck lacks,
- * then a card not owned in any print, then any missing print; the API picks one of the volumes still tied at random
- * on every call, so the page asks again each time it opens. Without an event there is no battle: only what is missing.
+ * every win gives one card of that volume; the page says, per volume, what the collection lacks for the goal (2
+ * copies of each print since 2/11), the chances that a win brings it and the wins to finish it, and how to spend the
+ * event's coupons. Santi's order: a card a deck lacks, then a card not owned in any print, then a print below the
+ * goal; the API picks one of the volumes still tied at random on every call, so the page asks again each time it
+ * opens. Without an event there is no battle: only what is missing.
  */
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router'
@@ -22,6 +23,7 @@ const cardSchema = z.object({
   nameEs: z.string(),
   inCatalog: z.boolean(),
   owned: z.number(),
+  needed: z.number(),
   missing: z.boolean(),
   newCard: z.boolean(),
   decks: z.array(z.string()),
@@ -32,6 +34,7 @@ const volumeSchema = z.object({
   volume: z.number(),
   cards: z.array(cardSchema),
   missing: z.number(),
+  copiesMissing: z.number(),
   chanceMissing: z.number(),
   chanceNew: z.number(),
   chanceDecks: z.number(),
@@ -44,13 +47,20 @@ const volumeSchema = z.object({
   inEvent: z.boolean(),
 })
 const promoSchema = z.object({
+  goal: z.number(),
   event: z
     .object({ id: z.string(), nameEs: z.string(), from: z.string(), until: z.string(), volumes: z.array(z.string()) })
     .nullable(),
   volumes: z.array(volumeSchema),
   best: z.array(z.string()),
   pick: z.string().nullable(),
-  totals: z.object({ volumes: z.number(), cards: z.number(), missing: z.number(), winsToComplete: z.number() }),
+  totals: z.object({
+    volumes: z.number(),
+    cards: z.number(),
+    missing: z.number(),
+    copiesMissing: z.number(),
+    winsToComplete: z.number(),
+  }),
   lastImportAt: z.string().nullable(),
 })
 
@@ -89,14 +99,21 @@ function joinVolumes(volumes: PromoVolume[]): string {
   return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`
 }
 
-/** «falta 1 de 5», «completo»; complete prints but a deck still lacks copies: «faltan copias para tus mazos». */
-function volumeState(volume: PromoVolume): string {
-  if (volume.missing > 0) return `${missing(volume.missing)} de ${volume.cards.length}`
+/** «faltan 3 copias de 10», «completo»; complete prints but a deck still lacks copies: «faltan copias para tus mazos». */
+function volumeState(volume: PromoVolume, goal: number): string {
+  if (volume.copiesMissing > 0) {
+    return `${missing(volume.copiesMissing, ['copia', 'copias'])} de ${volume.cards.length * goal}`
+  }
   return volume.deckCards > 0 ? 'faltan copias para tus mazos' : 'completo'
 }
 
+/** «falta 1 copia», «faltan 3 copias para tener 2 de cada una de sus 20 cartas». */
+function copiesLine(copies: number, cards: number, goal: number): string {
+  return `${missing(copies, ['copia', 'copias'])} para tener ${goal} de cada una de sus ${plural(cards, 'carta', 'cartas')}`
+}
+
 /** Why the picked volume wins, by the first of Santi's tiers where it has something. */
-function pickReason(volume: PromoVolume): string {
+function pickReason(volume: PromoVolume, goal: number): string {
   if (volume.reason === 'decks') {
     const cards = volume.cards.filter((card) => card.decks.length > 0).map((card) => card.nameEs)
     return `es la que más chance tiene de darte una carta que le falta a tus mazos (${percent(volume.chanceDecks)}: ${cards.join(', ')}).`
@@ -104,11 +121,24 @@ function pickReason(volume: PromoVolume): string {
   if (volume.reason === 'new') {
     return `es la que más chance tiene de darte una carta que no tenés en ninguna versión (${percent(volume.chanceNew)}).`
   }
-  return `es la que más chance tiene de darte una edición que te falta (${percent(volume.chanceMissing)}).`
+  return `es la que más chance tiene de darte una edición de la que tenés menos de ${goal} copias (${percent(volume.chanceMissing)}).`
 }
 
-function CardName({ card }: { card: PromoCard }) {
-  const name = card.missing ? <span className="font-medium">{card.nameEs}</span> : `✓ ${card.nameEs}`
+/** A print with the goal's copies: «✓ name»; below it, the name in bold and, when there is one, «1/2». */
+function CardName({ card, goal }: { card: PromoCard; goal: number }) {
+  const name = card.missing ? (
+    <span className="font-medium">
+      {card.nameEs}
+      {card.owned > 0 ? (
+        <span className="tabular text-xs font-normal text-muted-foreground">
+          {' '}
+          {card.owned}/{goal}
+        </span>
+      ) : null}
+    </span>
+  ) : (
+    `✓ ${card.nameEs}`
+  )
   if (!card.inCatalog) return <span>{card.cardId} (todavía no está en el catálogo)</span>
   return (
     <Link to={`/cartas/${encodeURIComponent(card.cardId)}`} className="hover:underline">
@@ -124,17 +154,17 @@ function CardName({ card }: { card: PromoCard }) {
 const TIERS = [
   { reason: 'decks', short: 'para mazos', long: 'para tus mazos', chance: (v: PromoVolume) => v.chanceDecks },
   { reason: 'new', short: 'nueva', long: 'nueva en ninguna versión', chance: (v: PromoVolume) => v.chanceNew },
-  { reason: 'missing', short: 'edición', long: 'edición que falta', chance: (v: PromoVolume) => v.chanceMissing },
+  { reason: 'missing', short: 'edición', long: 'copia que te falta', chance: (v: PromoVolume) => v.chanceMissing },
 ] as const
 
-function VolumeRow({ volume, mark }: { volume: PromoVolume; mark: 'pick' | 'tie' | null }) {
+function VolumeRow({ volume, goal, mark }: { volume: PromoVolume; goal: number; mark: 'pick' | 'tie' | null }) {
   const headline = TIERS.find((tier) => tier.reason === volume.reason)
   const details = [
     ...TIERS.filter((tier) => tier !== headline && tier.chance(volume) > 0).map(
       (tier) => `${tier.long}: ${percent(tier.chance(volume))}`,
     ),
     // Wins only where there is a battle now.
-    volume.missing > 0 && volume.inEvent ? `${wins(volume.winsToComplete)} para completarlo` : null,
+    volume.copiesMissing > 0 && volume.inEvent ? `${wins(volume.winsToComplete)} para completarlo` : null,
   ].filter((item): item is string => item !== null)
   return (
     <li className="flex flex-col gap-1 px-3 py-2">
@@ -142,7 +172,7 @@ function VolumeRow({ volume, mark }: { volume: PromoVolume; mark: 'pick' | 'tie'
         <span className="font-medium">{label(volume)}</span>
         {mark === 'pick' ? <Badge>Conviene</Badge> : null}
         {mark === 'tie' ? <Badge variant="outline">Empata</Badge> : null}
-        <span className="text-sm text-muted-foreground">{volumeState(volume)}</span>
+        <span className="text-sm text-muted-foreground">{volumeState(volume, goal)}</span>
         <span className="ml-auto text-sm">
           <span className="tabular font-semibold">{headline ? percent(headline.chance(volume)) : percent(0)}</span>
           {headline ? <span className="text-xs text-muted-foreground"> {headline.short}</span> : null}
@@ -152,7 +182,7 @@ function VolumeRow({ volume, mark }: { volume: PromoVolume; mark: 'pick' | 'tie'
       <ul className="flex flex-wrap gap-x-3 gap-y-0.5 text-sm">
         {volume.cards.map((card) => (
           <li key={card.cardId} className={cn(!card.missing && card.decks.length === 0 && 'text-muted-foreground')}>
-            <CardName card={card} />
+            <CardName card={card} goal={goal} />
             {card.newCard ? <span className="text-xs text-success"> nueva</span> : null}
             {card.decks.length > 0 ? (
               <span className="text-xs text-warning"> · falta en {card.decks.join(', ')}</span>
@@ -166,10 +196,12 @@ function VolumeRow({ volume, mark }: { volume: PromoVolume; mark: 'pick' | 'tie'
 
 function VolumeList({
   volumes,
+  goal,
   pick,
   best,
 }: {
   volumes: PromoVolume[]
+  goal: number
   pick: string | null
   best: ReadonlySet<string>
 }) {
@@ -179,6 +211,7 @@ function VolumeList({
         <VolumeRow
           key={volume.id}
           volume={volume}
+          goal={goal}
           mark={volume.id === pick ? 'pick' : best.has(volume.id) ? 'tie' : null}
         />
       ))}
@@ -186,15 +219,15 @@ function VolumeList({
   )
 }
 
-/** The event's coupons: for a card a deck lacks, for the last card of a volume, and the cards with no battle. */
-function Coupons({ inEvent, outside }: { inEvent: PromoVolume[]; outside: PromoVolume[] }) {
+/** The event's coupons: for a card a deck lacks, for the last copy of a volume, and the cards with no battle. */
+function Coupons({ inEvent, outside, goal }: { inEvent: PromoVolume[]; outside: PromoVolume[]; goal: number }) {
   const forDecks = inEvent.flatMap((volume) =>
     volume.cards.filter((card) => card.decks.length > 0).map((card) => ({ volume, card })),
   )
-  const lastCard = inEvent.filter((volume) => volume.missing === 1)
-  const onlyCoupon = outside.filter((volume) => volume.missing > 0)
-  const onlyCouponCards = onlyCoupon.reduce((sum, volume) => sum + volume.missing, 0)
-  const anyMissing = inEvent.some((volume) => volume.missing > 0)
+  const lastCopy = inEvent.filter((volume) => volume.copiesMissing === 1)
+  const onlyCoupon = outside.filter((volume) => volume.copiesMissing > 0)
+  const onlyCouponCopies = onlyCoupon.reduce((sum, volume) => sum + volume.copiesMissing, 0)
+  const anyMissing = inEvent.some((volume) => volume.copiesMissing > 0)
   if (!anyMissing && forDecks.length === 0 && onlyCoupon.length === 0) return null
   return (
     <Fold title="Cupones" hint="dónde rinden más" remember="promo-coupons">
@@ -202,8 +235,8 @@ function Coupons({ inEvent, outside }: { inEvent: PromoVolume[]; outside: PromoV
         <p className="text-muted-foreground">
           Las misiones del evento dan cupones que se canjean en la tienda por una carta de promoción, si la tienda la
           tiene. Para una carta puntual, como la de un mazo, un cupón ahorra todas las victorias que llevaría sacarla
-          (~5; ~7 en A vol. 9). Si vas a completar un volumen, rinde más en su última carta; gastado antes ahorra menos
-          (con 5 faltantes, ~1). Antes de que termine el evento, canjealos igual.
+          (~5; ~7 en A vol. 9). Si vas a completar un volumen ({goal} de cada carta), rinde más en su última copia;
+          gastado antes ahorra menos (con todo por sacar, 1). Antes de que termine el evento, canjealos igual.
         </p>
         {forDecks.length > 0 ? (
           <div className="flex flex-col gap-1">
@@ -221,11 +254,11 @@ function Coupons({ inEvent, outside }: { inEvent: PromoVolume[]; outside: PromoV
             </ul>
           </div>
         ) : null}
-        {lastCard.length > 0 ? (
+        {lastCopy.length > 0 ? (
           <div className="flex flex-col gap-1">
-            <h3 className="text-xs font-semibold text-muted-foreground">Última carta de un volumen</h3>
+            <h3 className="text-xs font-semibold text-muted-foreground">Última copia de un volumen</h3>
             <ul className="divide-y rounded-lg border">
-              {lastCard.map((volume) => (
+              {lastCopy.map((volume) => (
                 <li key={volume.id} className="px-3 py-2">
                   <span className="font-medium">{label(volume)}</span>
                   <span className="text-muted-foreground"> · </span>
@@ -236,13 +269,13 @@ function Coupons({ inEvent, outside }: { inEvent: PromoVolume[]; outside: PromoV
             </ul>
           </div>
         ) : anyMissing ? (
-          <p>A ningún volumen del evento le falta 1 sola carta todavía.</p>
+          <p>A ningún volumen del evento le falta 1 sola copia todavía.</p>
         ) : null}
         {onlyCoupon.length > 0 ? (
           <div className="flex flex-col gap-1">
             <p className="text-muted-foreground">
-              Sin batalla en este evento ({plural(onlyCouponCards, 'carta', 'cartas')}): solo con cupón, si la tienda{' '}
-              {onlyCouponCards === 1 ? 'la tiene' : 'las tiene'}.
+              Sin batalla en este evento ({plural(onlyCouponCopies, 'copia', 'copias')}): solo con cupón, si la tienda{' '}
+              {onlyCouponCopies === 1 ? 'la tiene' : 'las tiene'}.
             </p>
             <ul className="text-xs">
               {onlyCoupon.map((volume) => (
@@ -251,7 +284,7 @@ function Coupons({ inEvent, outside }: { inEvent: PromoVolume[]; outside: PromoV
                   <span className="text-muted-foreground"> · </span>
                   {volume.cards
                     .filter((card) => card.missing)
-                    .map((card) => card.nameEs)
+                    .map((card) => (card.needed > 1 ? `${card.nameEs} ×${card.needed}` : card.nameEs))
                     .join(', ')}
                 </li>
               ))}
@@ -312,7 +345,7 @@ export function PromoPage() {
           {picked ? (
             <div className="flex flex-col gap-1 text-sm">
               <p>
-                Conviene ganar <span className="font-semibold">{label(picked)}</span>: {pickReason(picked)}
+                Conviene ganar <span className="font-semibold">{label(picked)}</span>: {pickReason(picked, data.goal)}
               </p>
               {ties.length > 0 ? (
                 <p>
@@ -320,24 +353,30 @@ export function PromoPage() {
                   vez que entrás.
                 </p>
               ) : null}
-              {data.totals.missing > 0 ? (
+              {data.totals.copiesMissing > 0 ? (
                 <p className="text-muted-foreground">
-                  En el evento te {missing(data.totals.missing, ['carta', 'cartas'])} de {data.totals.cards}:{' '}
-                  {wins(data.totals.winsToComplete)} para tenerlas todas sin cupones. Después de cada victoria,
-                  sincronizá la colección y volvé a mirar: el orden cambia.
+                  En el evento te {copiesLine(data.totals.copiesMissing, data.totals.cards, data.goal)}:{' '}
+                  {wins(data.totals.winsToComplete)} sin cupones. Después de cada victoria, sincronizá la colección y
+                  volvé a mirar: el orden cambia.
                 </p>
               ) : null}
             </div>
           ) : (
-            <EmptyState title="Ya tenés todo lo del evento" description="Ninguna victoria te daría una carta nueva." />
+            <EmptyState
+              title={`Ya tenés ${data.goal} de cada carta del evento`}
+              description="Ninguna victoria te daría algo que te falte."
+            />
           )}
         </Section>
-      ) : data.totals.missing > 0 ? (
+      ) : data.totals.copiesMissing > 0 ? (
         <p className="text-sm text-muted-foreground">
-          De los sobres de promoción te {missing(data.totals.missing, ['carta', 'cartas'])} de {data.totals.cards}.
+          De los sobres de promoción te {copiesLine(data.totals.copiesMissing, data.totals.cards, data.goal)}.
         </p>
       ) : (
-        <EmptyState title="Ya tenés todas las promos de los sobres" description="No te falta ninguna edición." />
+        <EmptyState
+          title={`Ya tenés ${data.goal} de cada promo de los sobres`}
+          description="No te falta ninguna copia."
+        />
       )}
 
       {data.lastImportAt ? (
@@ -358,17 +397,17 @@ export function PromoPage() {
       <Section title={data.event ? 'Volúmenes del evento' : 'Volúmenes'}>
         <p className="text-xs text-muted-foreground">
           El porcentaje es la chance, por victoria, de lo que decide el orden: una carta para tus mazos («para mazos»)
-          si el volumen tiene alguna; si no, una que no tenés en ninguna versión («nueva»); si no, una edición que te
-          falta («edición»). Abajo de cada volumen, las otras chances.
+          si el volumen tiene alguna; si no, una que no tenés en ninguna versión («nueva»); si no, una edición de la que
+          te faltan copias para tener {data.goal} («edición»). Abajo de cada volumen, las otras chances.
         </p>
-        <VolumeList volumes={inEvent} pick={data.pick} best={best} />
+        <VolumeList volumes={inEvent} goal={data.goal} pick={data.pick} best={best} />
       </Section>
 
-      {data.event && !noCollection ? <Coupons inEvent={inEvent} outside={outside} /> : null}
+      {data.event && !noCollection ? <Coupons inEvent={inEvent} outside={outside} goal={data.goal} /> : null}
 
       {outside.length > 0 ? (
         <Fold title="Otros volúmenes" hint="sin batalla ahora" remember="promo-outside">
-          <VolumeList volumes={outside} pick={null} best={new Set()} />
+          <VolumeList volumes={outside} goal={data.goal} pick={null} best={new Set()} />
         </Fold>
       ) : null}
 
@@ -376,11 +415,14 @@ export function PromoPage() {
         <h2 className="text-sm font-medium text-foreground">Supuestos</h2>
         <ul className="list-disc pl-5">
           <li>Un sobre de promoción trae 1 carta de su volumen. El juego no publica las tasas: se toman iguales.</li>
-          <li>Victorias para completar: con m de n cartas faltantes, n · (1 + 1/2 + … + 1/m) en promedio.</li>
+          <li>
+            Objetivo (tuyo, del 2/11): 2 copias de cada edición. Victorias para completarlo: el promedio exacto con las
+            copias que ya tenés; con todo por sacar, ~19 en un volumen de 5 cartas (~11 para 1 de cada).
+          </li>
           <li>Cuenta cada edición: una promo que tenés en otra versión igual falta para la colección.</li>
           <li>
             Orden (tuyo, del 30/10): cartas para tus mazos, después cartas que no tenés en ninguna versión, después
-            cualquier edición; entre los que empatan en todo, la sugerencia sale al azar.
+            cualquier edición de la que te falten copias; entre los que empatan en todo, la sugerencia sale al azar.
           </li>
         </ul>
       </section>

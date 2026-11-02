@@ -2,19 +2,22 @@
  * Sobres de promoción (30/10/2026): the promo packs of the game's events, one per volume of each promo series. A
  * promo pack brings ONE card of its volume, and each volume has its own event battle that can be won again and again
  * (every win gives that volume's pack). So the question is which battle to win next: the volume where a win most
- * likely brings a print the collection lacks (or a card a deck lacks), and how many wins finishing each one takes.
+ * likely brings a copy the collection lacks (or a card a deck lacks), and how many wins finishing each one takes.
+ * - Goal (Santi, 2/11/2026): PROMO_GOAL copies of each print, 2 (the copies a deck plays); a print with fewer lacks the
+ *   rest.
  *
  * - Contents: the tracker data does not say which volume a promo comes from (every promo is `everypack`). Serebii's
  *   Promo-A and Promo-B lists mark the cards «obtained from a promo pack»: runs of consecutive numbers, 5 per volume
  *   (7 in A vol. 9), the volumes in order. Checked against Dittobase for A 7, A 9, A 13, B 1, B 7 and B 8.
  * - Rates: the game does not publish them; every card of a volume is taken as equally likely.
- * - Wins to finish a volume with m of its n prints missing: the coupon collector, n · (1 + 1/2 + … + 1/m).
- * - Coupons (event missions give coupons for a promo card of the shop): one spent now on a volume with m missing
- *   saves n/m wins; kept for the volume's last missing print it saves n (k coupons kept for the last k: n · H(k)).
- *   So the advice is to win until one print is missing and take that one with a coupon.
+ * - Wins to finish a volume: exact, a Markov chain over the copies each print still lacks (winsToComplete). With one
+ *   copy as the goal it is the coupon collector, n · (1 + 1/2 + … + 1/m).
+ * - Coupons (event missions give coupons for a promo card of the shop): one spent now saves the least
+ *   (couponSavesNow); kept for the volume's last missing copy it saves n. So the advice is to win until one copy is
+ *   missing and take that one with a coupon.
  * - Which battle (Santi, 30/10/2026): by the chance of a card a deck lacks, then of a card not owned in any print,
- *   then of any missing print, each compared exactly as a fraction; one of the volumes still tied in all three is
- *   picked at random on every call. Without an event there is no battle: no pick, only the ranking.
+ *   then of a print below the goal, each compared exactly as a fraction; one of the volumes still tied in all three
+ *   is picked at random on every call. Without an event there is no battle: no pick, only the ranking.
  */
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
 import type { CardId } from '../catalog/types.js'
@@ -97,11 +100,55 @@ export function activePromoEvent(now: Date, events: readonly PromoEvent[] = PROM
   return events.find((event) => Date.parse(event.from) <= time && time < Date.parse(event.until)) ?? null
 }
 
-/** Expected wins to get every one of `missing` prints of a volume of `size` equally likely cards. */
-export function winsToComplete(size: number, missing: number): number {
-  let harmonic = 0
-  for (let k = 1; k <= missing; k++) harmonic += 1 / k
-  return size * harmonic
+/** Copies of each print the goal asks for (Santi, 2/11/2026: two of each card). */
+export const PROMO_GOAL = 2
+
+/**
+ * Expected wins until every print of a volume of `size` equally likely cards has the copies it still lacks
+ * (`needs[i]`, 0 when it has enough). A Markov chain over how many prints lack 1, 2, … copies: with c_j of them
+ * lacking j, a win brings one of those with chance c_j / size, so E = (size + Σ_j c_j · E(that print lacking
+ * j − 1)) / Σ_j c_j. With needs of 1 it is the coupon collector, size · H(m).
+ */
+export function winsToComplete(size: number, needs: readonly number[]): number {
+  const counts: number[] = []
+  for (const need of needs) if (need > 0) counts[need - 1] = (counts[need - 1] ?? 0) + 1
+  for (let j = 0; j < counts.length; j++) counts[j] ??= 0
+  const memo = new Map<string, number>()
+  const expected = (state: readonly number[]): number => {
+    const left = state.reduce((sum, count) => sum + count, 0)
+    if (left === 0) return 0
+    const key = state.join(',')
+    const known = memo.get(key)
+    if (known !== undefined) return known
+    let total = size
+    for (let j = 0; j < state.length; j++) {
+      const count = state[j] ?? 0
+      if (count === 0) continue
+      const next = [...state]
+      next[j] = count - 1
+      if (j > 0) next[j - 1] = (next[j - 1] ?? 0) + 1
+      total += count * expected(next)
+    }
+    const value = total / left
+    memo.set(key, value)
+    return value
+  }
+  return expected(counts)
+}
+
+/** Wins one coupon spent now saves at most (on the print where it saves the most); null when nothing is missing. */
+export function couponSavesNow(size: number, needs: readonly number[]): number | null {
+  const now = winsToComplete(size, needs)
+  if (now === 0) return null
+  let best = 0
+  for (let i = 0; i < needs.length; i++) {
+    const need = needs[i] ?? 0
+    if (need === 0) continue
+    const after = [...needs]
+    after[i] = need - 1
+    best = Math.max(best, now - winsToComplete(size, after))
+  }
+  return best
 }
 
 export interface PromoCardStatus {
@@ -112,7 +159,9 @@ export interface PromoCardStatus {
   inCatalog: boolean
   /** Copies of this print (its stock unit). */
   owned: number
-  /** No copy of this print: a win that brings it adds it to the collection. */
+  /** Copies of this print it lacks for the goal (PROMO_GOAL − owned, at least 0). */
+  needed: number
+  /** Fewer copies of this print than the goal: a win that brings it counts. */
   missing: boolean
   /** No copy of the card in any print: a card to play that the collection does not have. */
   newCard: boolean
@@ -128,15 +177,17 @@ export interface PromoVolumeStatus {
   series: PromoSeries
   volume: number
   cards: PromoCardStatus[]
-  /** Prints of the volume the collection lacks. */
+  /** Prints of the volume below the goal. */
   missing: number
-  /** Probability (0–1) that a win brings a print the collection lacks. */
+  /** Copies the volume lacks for the goal (the sum over its prints). */
+  copiesMissing: number
+  /** Probability (0–1) that a win brings a print below the goal. */
   chanceMissing: number
   /** Probability (0–1) that a win brings a card not owned in any print. */
   chanceNew: number
   /** Probability (0–1) that a win brings a card some deck lacks. */
   chanceDecks: number
-  /** Probability (0–1) that a win brings a print the collection lacks or a card a deck lacks. */
+  /** Probability (0–1) that a win brings a print below the goal or a card a deck lacks. */
   chanceUseful: number
   /** Cards of the volume the collection has in no print. */
   newCards: number
@@ -144,11 +195,11 @@ export interface PromoVolumeStatus {
   deckCards: number
   /** The first tier where it has something; null when a win brings nothing useful. */
   reason: PromoReason | null
-  /** Expected wins to have every print of the volume (0 when complete). */
+  /** Expected wins to have the goal's copies of every print of the volume (0 when complete). */
   winsToComplete: number
   /**
-   * Wins one coupon spent now on one of its missing prints saves when the goal is the whole volume (n/m); null when
-   * complete. For one card wanted on its own (a deck's), or the volume's last missing print, a coupon saves n.
+   * Wins one coupon spent now saves when the goal is the whole volume (on the print where it saves the most); null
+   * when complete. For one card wanted on its own (a deck's), or the volume's last missing copy, a coupon saves n.
    */
   couponSavesNow: number | null
   /** It has a battle in the active event. */
@@ -156,6 +207,8 @@ export interface PromoVolumeStatus {
 }
 
 export interface PromoPlan {
+  /** Copies of each print the goal asks for (PROMO_GOAL). */
+  goal: number
   event: PromoEvent | null
   /** The event's volumes first, then by chance of a deck's card, of a new card and of a missing print. */
   volumes: PromoVolumeStatus[]
@@ -163,8 +216,8 @@ export interface PromoPlan {
   best: string[]
   /** One of `best`, at random on every call (they are equally good); null when `best` is empty. */
   pick: string | null
-  /** Over the event's volumes, or every volume when no event is on. */
-  totals: { volumes: number; cards: number; missing: number; winsToComplete: number }
+  /** Over the event's volumes, or every volume when no event is on: prints, prints below the goal, copies lacking. */
+  totals: { volumes: number; cards: number; missing: number; copiesMissing: number; winsToComplete: number }
 }
 
 function cardStatus(
@@ -183,19 +236,22 @@ function cardStatus(
       nameEs: cardId,
       inCatalog: false,
       owned: 0,
+      needed: PROMO_GOAL,
       missing: true,
       newCard: true,
       decks: [],
     }
   }
   const owned = stockValueOf(stock, card.stockCardId).amountOwned
+  const needed = Math.max(0, PROMO_GOAL - owned)
   return {
     cardId,
     groupId: card.functionalGroupId,
     nameEs: card.nameEs,
     inCatalog: true,
     owned,
-    missing: owned === 0,
+    needed,
+    missing: needed > 0,
     newCard: (playable.get(card.functionalGroupId)?.playable ?? 0) === 0,
     decks: lacking.get(card.functionalGroupId) ?? [],
   }
@@ -243,6 +299,7 @@ export function promoPlan(input: {
     const cards = promo.cardIds.map((cardId) => cardStatus(index, stock, playable, lacking, cardId))
     const size = cards.length
     const missing = cards.filter((card) => card.missing).length
+    const needs = cards.map((card) => card.needed)
     const newCards = cards.filter((card) => card.newCard).length
     const deckCards = cards.filter((card) => card.decks.length > 0).length
     const useful = cards.filter((card) => card.missing || card.decks.length > 0).length
@@ -252,6 +309,7 @@ export function promoPlan(input: {
       volume: promo.volume,
       cards,
       missing,
+      copiesMissing: needs.reduce((sum, need) => sum + need, 0),
       chanceMissing: missing / size,
       chanceNew: newCards / size,
       chanceDecks: deckCards / size,
@@ -259,8 +317,8 @@ export function promoPlan(input: {
       newCards,
       deckCards,
       reason: deckCards > 0 ? 'decks' : newCards > 0 ? 'new' : missing > 0 ? 'missing' : null,
-      winsToComplete: winsToComplete(size, missing),
-      couponSavesNow: missing > 0 ? size / missing : null,
+      winsToComplete: winsToComplete(size, needs),
+      couponSavesNow: couponSavesNow(size, needs),
       inEvent: event?.volumes.includes(promo.id) ?? false,
     }
   })
@@ -282,6 +340,7 @@ export function promoPlan(input: {
   const counted = event ? inEvent : ranked
 
   return {
+    goal: PROMO_GOAL,
     event,
     volumes: ranked,
     best,
@@ -290,6 +349,7 @@ export function promoPlan(input: {
       volumes: counted.length,
       cards: counted.reduce((sum, status) => sum + status.cards.length, 0),
       missing: counted.reduce((sum, status) => sum + status.missing, 0),
+      copiesMissing: counted.reduce((sum, status) => sum + status.copiesMissing, 0),
       winsToComplete: counted.reduce((sum, status) => sum + status.winsToComplete, 0),
     },
   }
