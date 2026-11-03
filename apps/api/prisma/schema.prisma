@@ -1136,3 +1136,24 @@ model PuzzleAttempt {
   @@id([gameId, step])
   @@map("puzzle_attempts")
 }
+
+/// pokemon-zone (2/11/2026): what the owner's browser read from pokemon-zone.com, the game's counters as
+/// `PokemonZoneSnapshot` (packages/domain/src/pokemonZone): pack points, hourglasses, coupons, battles, packs opened
+/// and cards by rarity. Kept as a history: two imports give what happened between them. In the backup (version 13).
+model PokemonZoneImport {
+  id         Int      @id @default(autoincrement())
+  importedAt DateTime @default(now()) @map("imported_at") @db.Timestamptz(3)
+  /// When pokemon-zone last read the game: the numbers are the game's at that moment.
+  syncedAt   DateTime @map("synced_at") @db.Timestamptz(3)
+  /// Keyed HMAC of the game account's friend id (never the id itself): tells an import of another account.
+  account    String
+  /// SHA-256 of the snapshot's JSON: the same data saved twice is one row.
+  sha256     String
+  data       Json
+  /// What the import wrote to the settings of Sobres: `{ packPoints?, hourglasses? }` (the values written).
+  applied    Json     @default("{}")
+
+  @@unique([account, syncedAt, sha256])
+  @@index([syncedAt])
+  @@map("pokemon_zone_imports")
+}

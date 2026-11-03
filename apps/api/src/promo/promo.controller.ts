@@ -1,21 +1,26 @@
 /**
  * Sobres de promoción (30/10/2026): `GET /api/promo-packs` — which event battle to win for the promo packs, against
  * the collection and the decks not archived. The volumes and the events are fixed data of @tcg/domain. Not
- * idempotent: `pick` is drawn among the tied volumes on every call (nothing is written).
+ * idempotent: `pick` is drawn among the tied volumes on every call (nothing is written). Since 2/11 it also says the
+ * promo coupons of the latest pokemon-zone import, per event, with the date the game was read.
  */
 import { Controller, Get, Injectable, Module } from '@nestjs/common'
-import { type PromoPlan, promoPlan } from '@tcg/domain'
+import { type PromoCouponStatus, type PromoPlan, promoPlan } from '@tcg/domain'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
 import { CatalogModule } from '../catalog/catalog.module.js'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { CollectionModule } from '../collection/collection.module.js'
 import { CollectionRepository } from '../collection/collection.repository.js'
 import { CollectionService } from '../collection/collection.service.js'
+import { PokemonZoneModule } from '../pokemon-zone/pokemon-zone.controller.js'
+import { PokemonZoneService } from '../pokemon-zone/pokemon-zone.service.js'
 import { TradesModule, TradesService } from '../trades/trades.controller.js'
 
 export interface PromoPacksView extends PromoPlan {
   /** When the collection was last brought up to date (import or check), ISO; null = never. */
   lastImportAt: string | null
+  /** The coupons of the latest pokemon-zone import (the active event's first); null without imports. */
+  coupons: { importedAt: string; syncedAt: string; items: PromoCouponStatus[] } | null
 }
 
 @Injectable()
@@ -25,17 +30,20 @@ export class PromoPacksService {
     private readonly collection: CollectionRepository,
     private readonly collectionService: CollectionService,
     private readonly trades: TradesService,
+    private readonly pokemonZone: PokemonZoneService,
   ) {}
 
   async plan(now: Date = new Date()): Promise<PromoPacksView> {
-    const [{ stock, adjustments }, decks, lastImportAt] = await Promise.all([
+    const [{ stock, adjustments }, decks, lastImportAt, coupons] = await Promise.all([
       this.collection.loadState(),
       this.trades.decks(),
       this.collectionService.lastUpdatedAt(),
+      this.pokemonZone.coupons(now),
     ])
     return {
       ...promoPlan({ index: this.catalog.requireIndex(), stock, adjustments, decks, now }),
       lastImportAt: lastImportAt?.toISOString() ?? null,
+      coupons,
     }
   }
 }
@@ -51,7 +59,7 @@ export class PromoPacksController {
 }
 
 @Module({
-  imports: [CatalogModule, CollectionModule, TradesModule],
+  imports: [CatalogModule, CollectionModule, TradesModule, PokemonZoneModule],
   controllers: [PromoPacksController],
   providers: [PromoPacksService],
   exports: [PromoPacksService],

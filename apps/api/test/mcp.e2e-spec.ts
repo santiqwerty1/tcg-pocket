@@ -148,6 +148,7 @@ describe('MCP endpoint (e2e)', () => {
       'packs_recommend',
       'play_game_review',
       'play_games',
+      'pokemon_zone_summary',
       'ranked_season',
       'rivals_notes',
       'simulations_analysis',
@@ -175,9 +176,13 @@ describe('MCP endpoint (e2e)', () => {
   it('serves 2026-07-28 clients from the same endpoint', async () => {
     const client = await connect('modern')
     const { tools } = await client.listTools()
-    expect(tools).toHaveLength(47)
+    expect(tools).toHaveLength(48)
     // Fase 29: the games against the bot (none here) and the review of one.
     expect((await call(client, 'play_games')).structuredContent).toEqual({ games: [] })
+    // 2/11: pokemon-zone before any import says how to bring one.
+    const zone = (await call(client, 'pokemon_zone_summary')).structuredContent as { imports: number; note: string }
+    expect(zone.imports).toBe(0)
+    expect(zone.note).toMatch(/Colección → pokemon-zone/)
     // 14/10: the rival by the cards seen (no tournaments here: nothing suggested, nothing to classify).
     const rival = (await call(client, 'matches_rival_suggest', { cards: ['2 Greninja'] })).structuredContent as {
       suggestions: unknown[]
@@ -583,7 +588,7 @@ describe('MCP endpoint (e2e)', () => {
       .set('Cookie', cookie)
       .send({ name: 'temporal', kind: 'mcp', scopes: ['mcp:read'] })
     const client = await connect('legacy', created.body.token)
-    expect((await client.listTools()).tools.length).toBe(47)
+    expect((await client.listTools()).tools.length).toBe(48)
     expect((await test.http().delete(`/api/tokens/${created.body.id}`).set('Cookie', cookie)).status).toBe(204)
     await expect(client.listTools()).rejects.toThrow()
   })

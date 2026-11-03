@@ -2,6 +2,8 @@
  * Phone review (13/10/2026): on a 375 px phone nothing makes the page wider than the screen, a pack's line wraps
  * inside its card, and a match row keeps the rival readable after a long deck name.
  */
+import { readFileSync } from 'node:fs'
+import { gzipSync } from 'node:zlib'
 import { expect, type Page, test } from '@playwright/test'
 
 const PHONE = 375
@@ -76,6 +78,7 @@ for (const path of [
   '/mazos/1',
   '/coleccion',
   '/sobres/promo',
+  '/coleccion/pokemon-zone',
 ]) {
   test(`${path} fits the phone with every section open`, async ({ page }) => {
     await page.goto(path)
@@ -84,3 +87,28 @@ for (const path of [
     expect(await pageWidth(page)).toBeLessThanOrEqual(PHONE)
   })
 }
+
+/** The domain's made-up pokemon-zone payload, as the bookmarklet sends it. */
+const PZ_FIXTURE = new URL('../../../packages/domain/test/fixtures/pokemon-zone/payload.json', import.meta.url)
+
+test('pokemon-zone (2/11): with an import, the page, the counters and the luck fit; the data leaves the address bar', async ({
+  page,
+}) => {
+  const payload = JSON.parse(readFileSync(PZ_FIXTURE, 'utf8')) as Record<string, unknown>
+  // The bookmarklet's way in: the data in the fragment of the receiving page, which shows what changes.
+  await page.goto(`/coleccion/pokemon-zone/recibir#${gzipSync(JSON.stringify(payload)).toString('base64url')}`)
+  await expect(page.getByRole('button', { name: 'Guardar' })).toBeEnabled()
+  expect(new URL(page.url()).hash).toBe('')
+  await openAll(page)
+  expect(await pageWidth(page)).toBeLessThanOrEqual(PHONE)
+  await page.getByRole('button', { name: 'Guardar' }).click()
+  await expect(page).toHaveURL(/\/coleccion\/pokemon-zone$/)
+  // A fresh database (e2e/prepare.mjs) and one import; a retry saves the same numbers, still one.
+  await expect(page.getByText(/1 importación guardada\./)).toBeVisible()
+  for (const path of ['/coleccion/pokemon-zone', '/partidas/estadisticas', '/coleccion', '/sobres']) {
+    await page.goto(path)
+    await page.waitForLoadState('networkidle')
+    await openAll(page)
+    expect(await pageWidth(page), path).toBeLessThanOrEqual(PHONE)
+  }
+})

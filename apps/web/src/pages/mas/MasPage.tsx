@@ -1,4 +1,5 @@
 import {
+  BookmarkIcon,
   CalendarRangeIcon,
   ChevronRightIcon,
   CircleHelpIcon,
@@ -74,6 +75,12 @@ const GROUPS: { title: string; entries: Entry[] }[] = [
         icon: DatabaseIcon,
       },
       { to: '/mas/catalogo', label: 'Catálogo', hint: 'Commit, conteos y sincronización', icon: RefreshCwIcon },
+      {
+        to: '/coleccion/pokemon-zone',
+        label: 'pokemon-zone',
+        hint: 'Puntos de sobre, relojes, cupones y partidas del juego',
+        icon: BookmarkIcon,
+      },
       {
         to: '/mas/ajustes',
         label: 'Ajustes de la app',

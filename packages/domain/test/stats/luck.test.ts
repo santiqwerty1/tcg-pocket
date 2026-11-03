@@ -10,6 +10,104 @@ import {
   runProbability,
 } from '../../src/stats/index.js'
 
+/** The quadratic sum binomialTails had until Codex on #170, kept here as the reference. */
+function referenceTails(n: number, k: number, p: number): { lower: number; upper: number } {
+  const pmf = (i: number) => {
+    if (p <= 0) return i === 0 ? 1 : 0
+    if (p >= 1) return i === n ? 1 : 0
+    let logChoose = 0
+    for (let j = 1; j <= i; j++) logChoose += Math.log(n - i + j) - Math.log(j)
+    return Math.exp(logChoose + i * Math.log(p) + (n - i) * Math.log(1 - p))
+  }
+  let lower = 0
+  for (let i = 0; i <= k; i++) lower += pmf(i)
+  let upper = 0
+  for (let i = k; i <= n; i++) upper += pmf(i)
+  return { lower: Math.min(1, lower), upper: Math.min(1, upper) }
+}
+
+/** Equal to the reference up to rounding: relative 1e-9, or absolute 1e-300 for what underflows. */
+function sameTail(actual: number, expected: number): boolean {
+  return Math.abs(actual - expected) <= Math.max(1e-300, 1e-9 * Math.abs(expected))
+}
+
+describe('binomial tails, linear (Codex on #170)', () => {
+  it('give the reference’s results on a range of n, k and p', () => {
+    const ps = [0, 1e-4, 0.01, 0.05, 0.1, 0.2734, 1 / 3, 0.5, 0.75, 0.9, 0.999, 1]
+    let checked = 0
+    for (const n of [0, 1, 2, 3, 5, 10, 29, 30, 64, 101, 250, 700]) {
+      const ks = [...new Set([0, 1, Math.floor(n / 4), Math.floor(n / 2), Math.floor((3 * n) / 4), n - 1, n])].filter(
+        (k) => k >= 0 && k <= n,
+      )
+      for (const p of ps) {
+        for (const k of ks) {
+          const fast = binomialTails(n, k, p)
+          const slow = referenceTails(n, k, p)
+          expect(sameTail(fast.lower, slow.lower), `lower n=${n} k=${k} p=${p}: ${fast.lower} vs ${slow.lower}`).toBe(
+            true,
+          )
+          expect(sameTail(fast.upper, slow.upper), `upper n=${n} k=${k} p=${p}: ${fast.upper} vs ${slow.upper}`).toBe(
+            true,
+          )
+          checked += 1
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(700)
+  })
+
+  it('the verdicts of the luck checks do not move', () => {
+    const random = seededRandom(170)
+    for (let i = 0; i < 300; i++) {
+      const n = 5 + Math.floor(random() * 400)
+      const wins = Math.floor(random() * (n + 1))
+      const expected = 1 + random() * 98
+      const fast = luckCheck({ wins, losses: n - wins, ties: 0 }, expected)
+      const slow = referenceTails(n, wins, expected / 100)
+      expect(sameTail(fast.lowerTail, slow.lower) && sameTail(fast.upperTail, slow.upper)).toBe(true)
+    }
+  })
+
+  it('review of #170: a NaN rate gives NaN tails and «normal», as the reference did; ±∞ is clamped like 0 and 1', () => {
+    const none = binomialTails(10, 3, Number.NaN)
+    expect(none.lower).toBeNaN()
+    expect(none.upper).toBeNaN()
+    const slow = referenceTails(10, 3, Number.NaN)
+    expect(slow.lower).toBeNaN()
+    expect(slow.upper).toBeNaN()
+    for (const wins of [0, 3, 10]) {
+      expect(luckCheck({ wins, losses: 10 - wins, ties: 0 }, Number.NaN).verdict).toBe('normal')
+    }
+    expect(binomialTails(10, 3, Number.POSITIVE_INFINITY)).toEqual(referenceTails(10, 3, 1))
+    expect(binomialTails(10, 3, Number.NEGATIVE_INFINITY)).toEqual(referenceTails(10, 3, 0))
+  })
+
+  // Review of #170: the bound only has to catch the quadratic sum (seconds at 100.000 trials); CI's runners are slower
+  // than this PC (the billion took 52 ms there before the walk stopped early, ~3 ms here now).
+  it('a lifetime of cards is fast: 15.000, 100.000 and a billion trials, well under a quarter of a second each', () => {
+    for (const [n, k, p] of [
+      [15_000, 650, 0.042],
+      [100_000, 4_150, 0.042],
+      [100_000, 99_000, 0.99],
+      [1_000_000_000, 41_990_000, 0.042],
+    ] as const) {
+      const started = performance.now()
+      const { lower, upper } = binomialTails(n, k, p)
+      const ms = performance.now() - started
+      expect(ms, `n=${n}`).toBeLessThan(250)
+      expect(lower).toBeGreaterThan(0)
+      expect(lower).toBeLessThanOrEqual(1)
+      expect(upper).toBeGreaterThan(0)
+      // The two tails overlap in P(X = k): they add up to 1 + P(X = k).
+      expect(lower + upper).toBeGreaterThanOrEqual(1 - 1e-6)
+    }
+    // Mean and median of a symmetric binomial: each tail a little over a half.
+    const half = binomialTails(100_000, 50_000, 0.5)
+    expect(half.lower).toBeCloseTo(0.5 + 0.5 * 0.002522, 4)
+    expect(half.upper).toBeCloseTo(half.lower, 12)
+  })
+})
+
 describe('¿mala racha o mal matchup? (Fase 13)', () => {
   it('binomial tails: exact small cases', () => {
     // 10 games at 50 %: P(X ≤ 2) = (1 + 10 + 45) / 1024.

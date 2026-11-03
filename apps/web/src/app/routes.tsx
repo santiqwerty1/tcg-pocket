@@ -216,6 +216,17 @@ export const routes: RouteObject[] = [
             handle: handle('Lista de intercambio', '/coleccion'),
           },
           { path: 'coleccion/tracker', element: <TrackerGapPage />, handle: handle('Tracker al día', '/coleccion') },
+          {
+            // 2/11: the game's data from pokemon-zone.com, brought by a bookmarklet; used now and then.
+            path: 'coleccion/pokemon-zone',
+            lazy: page(() => import('@/pages/coleccion/PokemonZonePage'), 'PokemonZonePage'),
+            handle: handle('pokemon-zone', '/coleccion'),
+          },
+          {
+            path: 'coleccion/pokemon-zone/recibir',
+            lazy: page(() => import('@/pages/coleccion/PokemonZoneReceivePage'), 'PokemonZoneReceivePage'),
+            handle: handle('Datos de pokemon-zone', '/coleccion/pokemon-zone'),
+          },
           { path: 'cartas/:cardId', element: <CardPage />, handle: handle('Carta', '/coleccion') },
           { path: 'grupos/:groupId', element: <GroupPage />, handle: handle('Carta funcional', '/coleccion') },
 

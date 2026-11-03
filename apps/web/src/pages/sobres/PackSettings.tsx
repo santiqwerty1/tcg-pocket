@@ -1,12 +1,15 @@
 /**
  * «Disponible» and «tiempo limitado» (with its last day) per pack, the rarity rules (points, confirmed, tradeable)
- * and the pack points saved per expansion: owner settings.
+ * and the pack points saved per expansion: owner settings. Since 2/11 an import from pokemon-zone writes the pack
+ * points and the pack hourglasses, and each section says so, with the date the game was read.
  */
 import { useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { type PackPatch, packKeys, usePacks, useRarityRules, useSetRarityRule, useUpdatePack } from '@/api/packs'
+import { usePokemonZone } from '@/api/pokemonZone'
 import type { PackInfo, RarityRuleInfo } from '@/api/schemas'
 import { useSetSetting, useSettings } from '@/api/settings'
 import { ErrorState, LoadingRows } from '@/components/ListState'
@@ -14,7 +17,45 @@ import { Section } from '@/components/Section'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { formatDateTime } from '@/lib/format'
 import { rarityLabel } from '@/lib/packs'
+
+/**
+ * Where a setting came from: «Del juego, según pokemon-zone (datos del 2/11 23:43)», or that it was changed by hand
+ * afterwards; nothing when no import wrote it.
+ */
+function FromPokemonZone({
+  setting,
+  noun,
+}: {
+  setting: 'packPoints' | 'hourglasses'
+  noun: 'Los puntos' | 'Los relojes'
+}) {
+  const zone = usePokemonZone()
+  const origin = zone.data?.settings[setting] ?? null
+  const latest = zone.data?.latest ?? null
+  if (!origin || !latest) {
+    return (
+      <p className="px-3 pb-2 text-xs text-muted-foreground">
+        También se pueden traer del juego desde{' '}
+        <Link to="/coleccion/pokemon-zone" className="underline">
+          pokemon-zone
+        </Link>
+        .
+      </p>
+    )
+  }
+  return (
+    <p className="px-3 pb-2 text-xs text-muted-foreground" data-testid={`pokemon-zone-${setting}`}>
+      {origin === 'imported'
+        ? `${noun} son los del juego, según pokemon-zone (datos del ${formatDateTime(latest.syncedAt)}).`
+        : `${noun} se trajeron del juego con pokemon-zone (datos del ${formatDateTime(latest.syncedAt)}); después los cambiaste a mano.`}{' '}
+      <Link to="/coleccion/pokemon-zone" className="underline">
+        Actualizar
+      </Link>
+    </p>
+  )
+}
 
 function RarityRuleRow({ rule }: { rule: RarityRuleInfo }) {
   const setRule = useSetRarityRule()
@@ -152,6 +193,7 @@ function Pace() {
   async function save(key: 'packsPerDay' | 'hourglasses', value: number) {
     try {
       await setSetting.mutateAsync({ key, value })
+      // useSetSetting marks the pokemon-zone summary stale too (Codex on #170, review of pz/import).
       await queryClient.invalidateQueries({ queryKey: packKeys.all })
     } catch (error) {
       toast.error(errorMessage(error))
@@ -165,6 +207,7 @@ function Pace() {
         Para «completo en ~N días»: cuántos sobres abrís por día (2 gratis; 3 con el pase) y cuántos relojes de arena de
         sobre tenés guardados (12 son un sobre).
       </p>
+      <FromPokemonZone setting="hourglasses" noun="Los relojes" />
       <div className="grid grid-cols-[1fr_6rem] items-center gap-3 border-t px-3 py-2 text-sm">
         <Label htmlFor="packs-per-day">Sobres por día</Label>
         <Input
@@ -229,13 +272,16 @@ function SavedPoints() {
         Los puntos de cada expansión se pueden canjear aunque sus sobres ya no estén a la venta. Si alcanzan para una
         carta que te falta, la recomendación dice «canjear».
       </p>
+      <FromPokemonZone setting="packPoints" noun="Los puntos" />
       {packs.isPending || settings.isPending ? <LoadingRows rows={3} /> : null}
       {settings.isError ? <ErrorState error={settings.error} onRetry={() => settings.refetch()} /> : null}
       {settings.data ? (
         <ul className="divide-y border-t">
           {expansions.map(([expansionId, name]) => (
             <PointsRow
-              key={expansionId}
+              // Review of pz/import: a new value (an import while this is open) starts the row again, so leaving it
+              // does not write back the old text.
+              key={`${expansionId}:${saved[expansionId] ?? 0}`}
               expansionId={expansionId}
               name={name}
               value={saved[expansionId] ?? 0}

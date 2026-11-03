@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { formatNumber } from '@/lib/format'
 import { formatInterval, formatRateValue, MODE_LABEL, PERIODS, type PeriodKey, periodFrom } from '@/lib/matches'
+import { GameCountersSection } from './GameCounters'
 import { ChoiceGroup } from './MatchFields'
 import { MyMetaSection } from './MyMetaSection'
 
@@ -170,6 +171,8 @@ export function MatchStatsPage() {
           ) : null}
         </>
       ) : null}
+
+      <GameCountersSection />
 
       <p className="text-xs text-muted-foreground">
         Victorias sobre partidas jugadas: los empates cuentan como partidas sin victoria. Intervalo de confianza del

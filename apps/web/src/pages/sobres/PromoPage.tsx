@@ -10,6 +10,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router'
 import { z } from 'zod'
 import { request } from '@/api/client'
+import { promoCouponSchema } from '@/api/pokemonZone'
 import { EmptyState, ErrorState, LoadingRows } from '@/components/ListState'
 import { Fold, Section } from '@/components/Section'
 import { Badge } from '@/components/ui/badge'
@@ -62,9 +63,15 @@ const promoSchema = z.object({
     winsToComplete: z.number(),
   }),
   lastImportAt: z.string().nullable(),
+  /** 2/11: the coupons of the latest pokemon-zone import (absent from an API before it: none). */
+  coupons: z
+    .object({ importedAt: z.string(), syncedAt: z.string(), items: z.array(promoCouponSchema) })
+    .nullable()
+    .default(null),
 })
 
 type PromoVolume = z.infer<typeof volumeSchema>
+type PromoCoupons = z.infer<typeof promoSchema>['coupons']
 type PromoCard = z.infer<typeof cardSchema>
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -220,10 +227,69 @@ function VolumeList({
 }
 
 /**
+ * 2/11: the coupons Santi has, from the latest pokemon-zone import: the active event's (the ones its shop takes) and,
+ * apart, other events'; with the date the game was read.
+ */
+function OwnCoupons({ coupons }: { coupons: PromoCoupons }) {
+  if (!coupons) {
+    return (
+      <p className="text-muted-foreground">
+        Para ver cuántos cupones tenés,{' '}
+        <Link to="/coleccion/pokemon-zone" className="underline">
+          traelos del juego con pokemon-zone
+        </Link>
+        .
+      </p>
+    )
+  }
+  const active = coupons.items.filter((coupon) => coupon.active)
+  const others = coupons.items.filter((coupon) => !coupon.active)
+  const total = active.reduce((sum, coupon) => sum + coupon.count, 0)
+  return (
+    <div className="flex flex-col gap-1" data-testid="own-coupons">
+      <h3 className="text-xs font-semibold text-muted-foreground">Tus cupones</h3>
+      <p>
+        {total > 0 ? (
+          <>
+            De este evento tenés <span className="font-medium">{plural(total, 'cupón', 'cupones')}</span>.
+          </>
+        ) : (
+          'De este evento no tenés cupones.'
+        )}
+      </p>
+      {others.length > 0 ? (
+        <ul className="text-xs text-muted-foreground">
+          {others.map((coupon) => (
+            <li key={coupon.key}>
+              {plural(coupon.count, 'cupón', 'cupones')} de{' '}
+              {coupon.nameEs ?? `«${coupon.event}» (nombre del juego en inglés)`}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <p className="text-xs text-muted-foreground">
+        {/* «p. m.» already ends with a period: the date goes inside the parentheses. */}
+        Según pokemon-zone (datos del juego del {formatDateTime(coupons.syncedAt)}).
+      </p>
+    </div>
+  )
+}
+
+/**
  * The event's coupons: for a card a deck lacks, for a volume with a single print below the goal (every coupon on it
  * saves n, also when it lacks both copies), and the cards with no battle.
  */
-function Coupons({ inEvent, outside, goal }: { inEvent: PromoVolume[]; outside: PromoVolume[]; goal: number }) {
+function Coupons({
+  inEvent,
+  outside,
+  goal,
+  coupons,
+}: {
+  inEvent: PromoVolume[]
+  outside: PromoVolume[]
+  goal: number
+  coupons: PromoCoupons
+}) {
   const forDecks = inEvent.flatMap((volume) =>
     volume.cards.filter((card) => card.decks.length > 0).map((card) => ({ volume, card })),
   )
@@ -231,10 +297,12 @@ function Coupons({ inEvent, outside, goal }: { inEvent: PromoVolume[]; outside: 
   const onlyCoupon = outside.filter((volume) => volume.copiesMissing > 0)
   const onlyCouponCopies = onlyCoupon.reduce((sum, volume) => sum + volume.copiesMissing, 0)
   const anyMissing = inEvent.some((volume) => volume.copiesMissing > 0)
-  if (!anyMissing && forDecks.length === 0 && onlyCoupon.length === 0) return null
+  const held = (coupons?.items.length ?? 0) > 0
+  if (!anyMissing && forDecks.length === 0 && onlyCoupon.length === 0 && !held) return null
   return (
     <Fold title="Cupones" hint="dónde rinden más" remember="promo-coupons">
       <div className="flex flex-col gap-3 text-sm">
+        <OwnCoupons coupons={coupons} />
         <p className="text-muted-foreground">
           Las misiones del evento dan cupones que se canjean en la tienda por una carta de promoción, si la tienda la
           tiene. Para una carta puntual, como la de un mazo, un cupón ahorra todas las victorias que llevaría sacarla
@@ -416,7 +484,9 @@ export function PromoPage() {
         <VolumeList volumes={inEvent} goal={data.goal} pick={data.pick} best={best} />
       </Section>
 
-      {data.event && !noCollection ? <Coupons inEvent={inEvent} outside={outside} goal={data.goal} /> : null}
+      {data.event && !noCollection ? (
+        <Coupons inEvent={inEvent} outside={outside} goal={data.goal} coupons={data.coupons} />
+      ) : null}
 
       {outside.length > 0 ? (
         <Fold title="Otros volúmenes" hint="sin batalla ahora" remember="promo-outside">

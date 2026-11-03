@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { gunzipSync, gzipSync } from 'node:zlib'
+import { normalizePokemonZone, pokemonZonePayloadSchema } from '@tcg/domain'
 import { BACKUP_BLOBS_KEPT, BackupService } from '../src/backup/backup.service.js'
 import { BackupCronService } from '../src/backup/backup-cron.service.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
@@ -16,6 +17,12 @@ const CSV_PATH = join(REPO_ROOT, 'docs/context/tcgcollectiontracterexport-2026-1
 const DECKS_PATH = join(REPO_ROOT, 'docs/context/mazos_40_listas.md')
 /** T-022: the clientRef of one match (version 11 carries it). */
 const CLIENT_REF = '0f1e2d3c-4b5a-4968-8776-655443322110'
+/** Version 13: a pokemon-zone import, from the domain's made-up payload. */
+const PZ_SNAPSHOT = normalizePokemonZone(
+  pokemonZonePayloadSchema.parse(
+    JSON.parse(readFileSync(join(REPO_ROOT, 'packages/domain/test/fixtures/pokemon-zone/payload.json'), 'utf8')),
+  ),
+)
 
 interface Doc {
   schemaVersion: number
@@ -156,6 +163,16 @@ describe('backup and settings (e2e)', () => {
     expect((await put('/api/rival-notes').send({ opponent: 'Mega Blaziken ex', text: 'Nota de prueba.' })).status).toBe(
       200,
     )
+    // Version 13 (2/11): a pokemon-zone import travels as stored (written here directly: its API also writes settings).
+    await test.prisma.pokemonZoneImport.create({
+      data: {
+        syncedAt: new Date(PZ_SNAPSHOT.syncedAt),
+        account: 'a'.repeat(64),
+        sha256: 'b'.repeat(64),
+        data: PZ_SNAPSHOT,
+        applied: { hourglasses: 18 },
+      },
+    })
     // Games against the bot (Fase 8, D-019): only the finished one travels, and only its result.
     const engineRev = test.env.engineRev ?? 'test'
     await test.prisma.liveGame.create({
@@ -202,7 +219,7 @@ describe('backup and settings (e2e)', () => {
     const seen = document.matches.map((match) => (match as { opponentCards?: unknown }).opponentCards)
     expect(seen).toEqual(expect.arrayContaining([[], [{ cardId: 'A1-89', count: 2 }]]))
     expect(document).toMatchObject({
-      schemaVersion: 12,
+      schemaVersion: 13,
       catalogCommit: test.env.catalogCommit,
       engineRev: test.env.engineRev,
       settings: [
@@ -253,6 +270,17 @@ describe('backup and settings (e2e)', () => {
     expect((document as unknown as { rivalNotes: unknown[] }).rivalNotes).toEqual([
       expect.objectContaining({ key: 'mega blaziken ex', label: 'Mega Blaziken ex', text: 'Nota de prueba.' }),
     ])
+    expect((document as unknown as { pokemonZoneImports: unknown[] }).pokemonZoneImports).toEqual([
+      {
+        id: expect.any(Number),
+        importedAt: expect.any(String),
+        syncedAt: '2026-11-02T02:43:29.379Z',
+        account: 'a'.repeat(64),
+        sha256: 'b'.repeat(64),
+        data: PZ_SNAPSHOT,
+        applied: { hourglasses: 18 },
+      },
+    ])
     expect(document.playedGames).toEqual([
       {
         id: expect.any(Number),
@@ -272,7 +300,7 @@ describe('backup and settings (e2e)', () => {
   it('dry-run reports counts and notices without touching the data', async () => {
     const response = await post('/api/backup/import?mode=dry-run').attach('file', exported, 'backup.json.gz')
     expect(response.status).toBe(200)
-    expect(response.body).toMatchObject({ schemaVersion: 12, catalogCommit: test.env.catalogCommit })
+    expect(response.body).toMatchObject({ schemaVersion: 13, catalogCommit: test.env.catalogCommit })
     expect(response.body.diff.incoming.matches).toBe(2)
     expect(response.body.diff.incoming.playedGames).toBe(1)
     expect(response.body.diff.incoming).toEqual(response.body.diff.current)
@@ -306,6 +334,8 @@ describe('backup and settings (e2e)', () => {
     await test.prisma.match.deleteMany()
     await test.prisma.liveGame.deleteMany({ where: { status: 'done' } })
     await test.prisma.rivalNote.deleteMany()
+    // Version 13: the import goes and its sequence starts over; the file's comes back and the sequence moves past it.
+    await test.prisma.$executeRawUnsafe('TRUNCATE pokemon_zone_imports RESTART IDENTITY')
     await test.prisma.deck.deleteMany()
     await test.prisma.collectionAdjustment.deleteMany()
     await test.prisma.collectionStock.deleteMany()
@@ -339,7 +369,14 @@ describe('backup and settings (e2e)', () => {
       matches: 2,
       playedGames: 1,
       rivalNotes: 1,
+      pokemonZoneImports: 1,
     })
+    const pzIds = (document as unknown as { pokemonZoneImports: { id: number }[] }).pokemonZoneImports.map((r) => r.id)
+    const pzNext = await test.prisma.pokemonZoneImport.create({
+      data: { syncedAt: new Date(), account: 'c'.repeat(64), sha256: 'd'.repeat(64), data: PZ_SNAPSHOT },
+    })
+    expect(pzNext.id).toBeGreaterThan(Math.max(...pzIds))
+    await test.prisma.pokemonZoneImport.delete({ where: { id: pzNext.id } })
     const packs = (await get('/api/packs')).body.items as { id: string; available: boolean }[]
     expect(packs.find((pack) => pack.id === 'B4b/deluxepackmega')).toMatchObject({
       available: false,
@@ -420,6 +457,30 @@ describe('backup and settings (e2e)', () => {
     expect(dry.body.diff.notices.some((n: string) => n.includes('no trae partidas'))).toBe(true)
     expect(dry.body.diff.notices.some((n: string) => n.includes('partidas contra el bot'))).toBe(true)
     expect(dry.body.diff.notices.some((n: string) => n.includes('notas por rival'))).toBe(true)
+    expect(dry.body.diff.notices.some((n: string) => n.includes('anterior a pokemon-zone'))).toBe(true)
+    const current = await post('/api/backup/import?mode=dry-run').attach('file', exported, 'backup.json.gz')
+    expect(current.body.diff.notices.some((n: string) => n.includes('anterior a pokemon-zone'))).toBe(false)
+  })
+
+  it('version 13: a pokemon-zone import that is not the app’s shape, or twice, is an invalid file', async () => {
+    type Rows = { pokemonZoneImports: Record<string, unknown>[] }
+    const rows = (document as unknown as Rows).pokemonZoneImports
+    const bad = (pokemonZoneImports: unknown) =>
+      post('/api/backup/import?mode=dry-run').attach(
+        'file',
+        gzipSync(Buffer.from(JSON.stringify({ ...document, pokemonZoneImports }))),
+        'bad.json.gz',
+      )
+    const row = rows[0] as { data: Record<string, unknown> }
+    for (const pokemonZoneImports of [
+      [{ ...row, data: { ...row.data, packPoints: { A1: -1 } } }],
+      [{ ...row, account: '1111222233334444' }],
+      [row, { ...row, id: 99 }],
+    ]) {
+      const response = await bad(pokemonZoneImports)
+      expect(response.status).toBe(400)
+      expect(response.body.error.code).toBe('invalid_backup')
+    }
   })
 
   it('Codex on #114: a backup from before the cards seen warns that restoring it drops them', async () => {
@@ -557,7 +618,7 @@ describe('backup and settings (e2e)', () => {
     expect(download.status).toBe(200)
     expect(download.headers['content-type']).toBe('application/gzip')
     const parsed = JSON.parse(gunzipSync(download.body as Buffer).toString('utf8')) as Doc
-    expect(parsed.schemaVersion).toBe(12)
+    expect(parsed.schemaVersion).toBe(13)
     expect(parsed.matches).toHaveLength(2)
     expect(parsed.decks).toHaveLength(4)
     expect((await get('/api/backup/blobs/999999')).status).toBe(404)
@@ -587,7 +648,7 @@ describe('backup and settings (e2e)', () => {
     try {
       const copy = await get('/api/backup/export').responseType('blob')
       const doc = JSON.parse(gunzipSync(copy.body as Buffer).toString('utf8'))
-      expect(doc.schemaVersion).toBe(12)
+      expect(doc.schemaVersion).toBe(13)
       expect(Object.keys(doc).some((key) => /simulat/i.test(key))).toBe(false)
       expect(JSON.stringify(doc)).not.toContain(job.label)
       expect((await post('/api/backup/import?mode=replace').attach('file', copy.body, 'backup.json.gz')).status).toBe(
@@ -633,5 +694,23 @@ describe('backup and settings (e2e)', () => {
     const alerts = (await get('/api/alerts')).body.items as { code: string; title: string }[]
     expect(alerts.find((alert) => alert.code === 'backup_drill')?.title).toBe('Falló la prueba del backup')
     expect(owned(await backup.exportDocument())).toEqual(before)
+  })
+
+  it('version 13: restoring a version 12 file keeps the pokemon-zone imports there are now', async () => {
+    const now = await test.prisma.pokemonZoneImport.findMany({ select: { id: true, sha256: true } })
+    expect(now).toHaveLength(1)
+    const current = JSON.parse(
+      gunzipSync((await get('/api/backup/export').responseType('blob')).body as Buffer).toString('utf8'),
+    ) as { pokemonZoneImports?: unknown; schemaVersion: number }
+    const { pokemonZoneImports: _imports, ...v12 } = { ...current, schemaVersion: 12 }
+    const response = await post('/api/backup/import?mode=replace').attach(
+      'file',
+      gzipSync(Buffer.from(JSON.stringify(v12))),
+      'v12.json.gz',
+    )
+    expect(response.status).toBe(200)
+    expect(response.body.notices.some((n: string) => n.includes('anterior a pokemon-zone'))).toBe(true)
+    expect(response.body.counts.pokemonZoneImports).toBe(0)
+    expect(await test.prisma.pokemonZoneImport.findMany({ select: { id: true, sha256: true } })).toEqual(now)
   })
 })

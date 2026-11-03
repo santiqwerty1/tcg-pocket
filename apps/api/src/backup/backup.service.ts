@@ -13,6 +13,7 @@ import { ENV, type Env } from '../config/env.js'
 import { dateOnly } from '../config/time-zone.js'
 import type { Prisma } from '../generated/prisma/client.js'
 import { idToString, parseNumericId } from '../http/ids.js'
+import { ADVISORY_LOCKS } from '../prisma/advisory-locks.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { RANK_NOTE_LOCK } from '../ranked/ranked.service.js'
 import { TournamentDataVersion } from '../tournaments/tournament-settings.js'
@@ -28,6 +29,8 @@ import {
 export const BACKUP_BLOBS_KEPT = 14
 /** A restore (and the monthly drill) runs in one transaction of at most this long. */
 const RESTORE_TIMEOUT_MS = 120_000
+/** pokemon-zone's saves (pokemon-zone/pokemon-zone.service.ts): a restore replaces their table and settings. */
+const POKEMON_ZONE_LOCK = ADVISORY_LOCKS.pokemonZoneImport
 /**
  * Upper bound of an uploaded backup once inflated. A real backup is a few MB (one row per stock unit, per import row,
  * per deck revision); without a cap a 50 MB gzip of zeros inflates to ~50 GB and takes the 512 MB machine down.
@@ -110,6 +113,7 @@ const SERIAL_TABLES = [
   'live_games',
   'events',
   'rank_changes',
+  'pokemon_zone_imports',
 ] as const
 
 /** Thrown inside the drill's transaction so nothing it restored stays. */
@@ -199,6 +203,7 @@ export class BackupService {
       events,
       seasons,
       rankChanges,
+      pokemonZone,
     ] = await Promise.all([
       db.appSetting.findMany({ orderBy: { key: 'asc' } }),
       db.rarityRule.findMany({ orderBy: { rarity: 'asc' } }),
@@ -226,6 +231,7 @@ export class BackupService {
       db.event.findMany({ orderBy: { id: 'asc' } }),
       db.rankedSeason.findMany({ orderBy: { startsOn: 'asc' } }),
       db.rankChange.findMany({ orderBy: { id: 'asc' } }),
+      db.pokemonZoneImport.findMany({ orderBy: { id: 'asc' } }),
     ])
     return {
       schemaVersion: BACKUP_SCHEMA_VERSION,
@@ -394,6 +400,15 @@ export class BackupService {
         createdAt: iso(note.createdAt),
         updatedAt: iso(note.updatedAt),
       })),
+      pokemonZoneImports: pokemonZone.map((row) => ({
+        id: row.id,
+        importedAt: iso(row.importedAt),
+        syncedAt: iso(row.syncedAt),
+        account: row.account,
+        sha256: row.sha256,
+        data: row.data,
+        applied: row.applied,
+      })),
       events: events.map((event) => ({
         id: event.id,
         name: event.name,
@@ -496,6 +511,8 @@ export class BackupService {
       async (tx) => {
         // Codex on #143: it rewrites `rank_changes` (and the matches), so the ranks' lock first, as every write of them.
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+        // 2/11: and the pokemon-zone imports and the settings they write: a save waits, or the restore waits for it.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${POKEMON_ZONE_LOCK}::bigint)`
         await this.restoreInto(tx, document, true)
       },
       { timeout: RESTORE_TIMEOUT_MS, maxWait: 10_000 },
@@ -545,6 +562,9 @@ export class BackupService {
             // Codex on #143: the ranks' lock before the tables, the order of every other writer of the matches and
             // the ranks (the sheet import, moving, deleting or restoring a match): never one waiting for the other.
             await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+            // 2/11: a pokemon-zone save locks the settings rows before its table; the drill locks its table before the
+            // settings. Its lock first, so neither waits for the other.
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(${POKEMON_ZONE_LOCK}::bigint)`
             await tx.$executeRawUnsafe(LOCK_SERIAL_TABLES)
             drill.sequences = await this.sequenceValues(tx)
             await this.restoreInto(tx, document)
@@ -889,6 +909,23 @@ export class BackupService {
       await tx.rivalNote.deleteMany()
       if (document.rivalNotes.length > 0) await tx.rivalNote.createMany({ data: document.rivalNotes })
     }
+    // pokemon-zone imports (version 13): replaced by the file's; older files keep the current ones.
+    if (document.pokemonZoneImports) {
+      await tx.pokemonZoneImport.deleteMany()
+      if (document.pokemonZoneImports.length > 0) {
+        await tx.pokemonZoneImport.createMany({
+          data: document.pokemonZoneImports.map((row) => ({
+            id: row.id,
+            importedAt: row.importedAt,
+            syncedAt: row.syncedAt,
+            account: row.account,
+            sha256: row.sha256,
+            data: row.data as Prisma.InputJsonValue,
+            applied: row.applied as Prisma.InputJsonValue,
+          })),
+        })
+      }
+    }
     for (const rule of document.rarityRules) {
       await tx.rarityRule.upsert({
         where: { rarity: rule.rarity },
@@ -926,6 +963,11 @@ export class BackupService {
     if (unknown.size > 0) {
       notices.push(
         `${unknown.size} ids del backup no existen en el catálogo cargado; no se puede restaurar hasta sincronizarlo.`,
+      )
+    }
+    if (document.schemaVersion < 13) {
+      notices.push(
+        `Backup de la versión ${document.schemaVersion}, anterior a pokemon-zone (2/11): no trae sus importaciones; se mantienen las que hay ahora.`,
       )
     }
     if (document.schemaVersion < 11 && document.schemaVersion >= 2) {

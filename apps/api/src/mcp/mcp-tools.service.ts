@@ -55,6 +55,7 @@ import { NextBuildService } from '../next-build/next-build.controller.js'
 import { OpsService } from '../ops/ops.service.js'
 import { PacksService } from '../packs/packs.service.js'
 import { PickService } from '../pick/pick.service.js'
+import { PokemonZoneService } from '../pokemon-zone/pokemon-zone.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { PromoPacksService } from '../promo/promo.controller.js'
 import { RankedService } from '../ranked/ranked.service.js'
@@ -80,6 +81,7 @@ import { CALIBRATION_FULL_PAGE, calibrationListJson, calibrationReportJson } fro
 import { jobSummaryJson, rateView } from './mcp-json.js'
 import { McpLabToolsService } from './mcp-lab-tools.service.js'
 import { McpPlayToolsService } from './mcp-play-tools.service.js'
+import { ownerDateTime as ownerFullDateTime, pokemonZoneJson, safeName } from './mcp-pokemon-zone-json.js'
 import type { ReadRun, WriteRun } from './mcp-run.js'
 import { McpWriteToolsService } from './mcp-write-tools.service.js'
 
@@ -200,6 +202,7 @@ export class McpToolsService {
     private readonly playTools: McpPlayToolsService,
     private readonly trades: TradesService,
     private readonly promo: PromoPacksService,
+    private readonly pokemonZone: PokemonZoneService,
     private readonly trackerGap: TrackerGapService,
     private readonly weekly: WeeklyService,
     private readonly ops: OpsService,
@@ -340,6 +343,9 @@ ${MCP_CHAT_INSTRUCTIONS}`
       t.packsPromo.name,
       { ...config(t.packsPromo), annotations: { ...READ_ONLY, idempotentHint: false } },
       (args) => run(t.packsPromo.name, () => this.packsPromo(args)),
+    )
+    server.registerTool(t.pokemonZoneSummary.name, config(t.pokemonZoneSummary), () =>
+      run(t.pokemonZoneSummary.name, async () => pokemonZoneJson(await this.pokemonZone.summary())),
     )
     server.registerTool(t.collectionTrackerGap.name, config(t.collectionTrackerGap), (args) =>
       run(t.collectionTrackerGap.name, () => this.collectionTrackerGap(args)),
@@ -1971,6 +1977,12 @@ ${MCP_CHAT_INSTRUCTIONS}`
       latest: view.intervals[0] ? shape(view.intervals[0]) : null,
       overall: view.overall ? shape(view.overall) : null,
       caveat: 'Aproximado: cuenta todo lo que entró (también intercambios, Wonder Pick y premios); las promos no.',
+      ...((await this.prisma.pokemonZoneImport.count()) > 0
+        ? {
+            seeAlso:
+              'Con los números reales del juego (sobres abiertos y cartas por rareza de pokemon-zone): pokemon_zone_summary, campo luck.',
+          }
+        : {}),
     }
   }
 
@@ -2015,6 +2027,17 @@ ${MCP_CHAT_INSTRUCTIONS}`
       goalCopiesPerPrint: plan.goal,
       event: plan.event ? { name: plan.event.nameEs, from: plan.event.from, until: plan.event.until } : null,
       collectionUpdatedAt: plan.lastImportAt,
+      // 2/11: the coupons Santi has, per event, from the latest pokemon-zone import (the game read at `gameReadAt`).
+      promoCoupons: plan.coupons
+        ? {
+            gameReadAt: ownerFullDateTime(plan.coupons.syncedAt),
+            items: plan.coupons.items.map((coupon) => ({
+              event: coupon.nameEs ?? `otro evento («${safeName(coupon.event)}»)`,
+              count: coupon.count,
+              activeEvent: coupon.active,
+            })),
+          }
+        : null,
       pick: picked ? label(picked.id) : null,
       pickReason: picked?.reason ? reasons[picked.reason] : null,
       best: plan.best.map(label),
@@ -2048,6 +2071,7 @@ ${MCP_CHAT_INSTRUCTIONS}`
           : 'No hay un evento de promos en curso: no hay batallas para ganar. No recomiendes ninguna; solo decí qué le falta de cada volumen.',
         `chanceMissingPrintPercent: chance de una edición de la que tiene menos de ${plan.goal} copias (puede ser otra versión de una carta que ya tiene). chanceNotOwnedPercent: de una carta que no tiene en ninguna versión. owned: copias de esa edición.`,
         'Cupones: si va a completar un volumen, rinden más cuando le queda una sola edición por debajo del objetivo: ahí cada cupón ahorra ~n victorias, también el de su segunda copia. Gastado antes ahorra couponSavesNow (en la edición donde más ahorra). Para una carta puntual (la de un mazo, por ejemplo) un cupón ahorra ~n victorias. Antes del cierre del evento, canjearlos igual. Solo si la tienda tiene esa carta.',
+        'promoCoupons: los cupones que Santi tiene, por evento, según la última importación de pokemon-zone (los del juego a esa hora; null si nunca importó). activeEvent: los del evento en curso, que son los que se canjean en su tienda.',
         `winsToComplete: victorias esperadas para tener ${plan.goal} copias de cada edición del volumen. En totals, missing son las ediciones por debajo del objetivo y copiesMissing las copias que les faltan.`,
       ],
     }

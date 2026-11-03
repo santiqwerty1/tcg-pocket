@@ -1,5 +1,6 @@
 import {
   ArrowLeftRightIcon,
+  BookmarkIcon,
   DownloadIcon,
   GitCompareArrowsIcon,
   SlidersHorizontalIcon,
@@ -146,6 +147,12 @@ export function CollectionPage() {
           <Link to="/coleccion/intercambio">
             <ArrowLeftRightIcon data-icon="inline-start" />
             Intercambio
+          </Link>
+        </Button>
+        <Button variant="outline" asChild>
+          <Link to="/coleccion/pokemon-zone">
+            <BookmarkIcon data-icon="inline-start" />
+            pokemon-zone
           </Link>
         </Button>
       </div>

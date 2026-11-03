@@ -48,6 +48,7 @@ describe('MCP read tools', () => {
         'packs_recommend',
         'play_game_review',
         'play_games',
+        'pokemon_zone_summary',
         'ranked_season',
         'rivals_notes',
         'simulations_results',

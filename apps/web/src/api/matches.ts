@@ -1,6 +1,7 @@
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { z } from 'zod'
 import { request } from './client'
+import { pokemonZoneKey } from './pokemonZoneKey'
 import {
   deckComparisonSchema,
   deckMatchupsSchema,
@@ -54,12 +55,16 @@ export interface MatchStatsParams {
   to?: string
 }
 
-/** Every matches query (lists, stats, suggestions, comparisons) depends on every match. */
-function invalidateMatches(queryClient: QueryClient): Promise<void> {
-  // Deuda de #120: the season's record and curve change with every match saved, edited or deleted.
+/**
+ * Every matches query (lists, stats, suggestions, comparisons) depends on every match; so do the season (Deuda de
+ * #120: its record and curve) and pokemon-zone's «Según el juego» (Codex on #170: the matches logged next to the
+ * game's counters). Exported for the other ways a match comes in: the offline sync and the sheet import.
+ */
+export function invalidateMatches(queryClient: QueryClient): Promise<void> {
   return Promise.all([
     queryClient.invalidateQueries({ queryKey: matchKeys.all }),
     queryClient.invalidateQueries({ queryKey: ['ranked'] }),
+    queryClient.invalidateQueries({ queryKey: pokemonZoneKey }),
   ]).then(() => undefined)
 }
 
