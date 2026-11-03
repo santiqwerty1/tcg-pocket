@@ -2,22 +2,15 @@
  * Cupón ★★ (3/11/2026): how many coupons for a pack with a guaranteed ★★ card a pokemon-zone import says there are,
  * and the deadlines the app knows.
  *
- * The count is not read from the payload here: #172 (pz/luck) adds it to the import (the tickets one by one and a
- * derived ★★ count, null when the import did not see them, 0 when it saw none). `starCouponCount` is the only place
- * Sobres → Cupón ★★ reads it; until #172 is merged and wired here, every import is unknown, never 0.
+ * The count comes from the import's `guaranteedTickets` (pz/luck, #172) through `starStarTickets`: the anniversary's
+ * key or a name with exactly two stars. `null` (not seen: the bookmarklet's version 1, or an import saved before
+ * pz/luck) stays «unknown», never 0; `[]` (seen, none held) is 0.
  */
+import { type PokemonZoneSnapshot, STAR_STAR_TICKET_KEY, starStarTickets } from './payload.js'
 
-/** A count of the game (an integer ≥ 0), or null when it is not one: «not seen» stays apart from 0. */
-export function couponCountOf(value: unknown): number | null {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null
-}
-
-/**
- * The coupons for a guaranteed ★★ pack an import's snapshot counts; null when it does not know them. Adapter: it
- * reads #172's ★★ count once that is merged (with `couponCountOf`); before, no import keeps it.
- */
-export function starCouponCount(_snapshot: object): number | null {
-  return null
+/** The coupons for a guaranteed ★★ pack an import counts; null when it did not see them. */
+export function starCouponCount(snapshot: Pick<PokemonZoneSnapshot, 'guaranteedTickets'>): number | null {
+  return starStarTickets(snapshot.guaranteedTickets)
 }
 
 /** A ★★ coupon whose deadline the app knows. */
@@ -34,5 +27,5 @@ export interface StarCouponTicket {
  * garantizada» missions has no known deadline yet.
  */
 export const STAR_COUPON_TICKETS: readonly StarCouponTicket[] = [
-  { key: 'TICKET_2610000_EV_02', nameEs: 'Cupón del 2.º aniversario', until: '2026-12-15T07:00:00Z' },
+  { key: STAR_STAR_TICKET_KEY, nameEs: 'Cupón del 2.º aniversario', until: '2026-12-15T07:00:00Z' },
 ]

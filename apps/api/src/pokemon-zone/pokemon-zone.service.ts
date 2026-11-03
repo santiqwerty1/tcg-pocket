@@ -416,7 +416,7 @@ export class PokemonZoneService {
 
   /**
    * Cupón ★★ (3/11/2026): the coupons for a guaranteed ★★ pack the latest import counts (`starCouponCount`, the
-   * adapter over #172's ★★ count); null without imports, `count` null when that import does not know them.
+   * ★★ ones of `guaranteedTickets`); null without imports, `count` null when that import does not know them.
    */
   async starCoupons(): Promise<{ importedAt: string; syncedAt: string; count: number | null } | null> {
     const latest = await this.latest(this.prisma)

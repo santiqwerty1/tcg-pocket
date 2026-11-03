@@ -15,7 +15,11 @@ const CSV_PATH = join(REPO_ROOT, 'docs/context/tcgcollectiontracterexport-2026-1
 const DECKS_PATH = join(REPO_ROOT, 'docs/context/mazos_40_listas.md')
 const PZ_FIXTURE = join(REPO_ROOT, 'packages/domain/test/fixtures/pokemon-zone/payload.json')
 
-type Payload = { v: number; stats: { syncedAt: string } }
+type Payload = {
+  v: number
+  mine: { resourceData: { tickets: { key: string; value: number; name: string }[] } }
+  stats: { syncedAt: string }
+}
 
 describe('Cupón ★★ (e2e)', () => {
   let test: TestApp
@@ -33,6 +37,18 @@ describe('Cupón ★★ (e2e)', () => {
     const response = await get(`/api/packs/star-coupon${query}`)
     expect(response.status).toBe(200)
     return response.body as StarCouponView
+  }
+  /** packs_star_coupon's `coupons`, through the MCP endpoint. */
+  const toolCoupons = async (): Promise<unknown> => {
+    const client = new Client({ name: 'e2e', version: '1.0.0' })
+    await client.connect(
+      new StreamableHTTPClientTransport(url, { requestInit: { headers: { Authorization: `Bearer ${readToken}` } } }),
+    )
+    clients.push(client)
+    const result = (await client.callTool({ name: 'packs_star_coupon', arguments: { limit: 1 } })) as {
+      structuredContent?: Record<string, unknown>
+    }
+    return result.structuredContent?.coupons
   }
 
   beforeAll(async () => {
@@ -142,17 +158,32 @@ describe('Cupón ★★ (e2e)', () => {
     expect((await coupon()).goalCopies).toBe(1)
   })
 
-  it('the coupons of the latest pokemon-zone import: one that does not count them is unknown, not 0', async () => {
-    // The fixture is a bookmarklet version 1 payload: it does not send the guaranteed-pack tickets (#172 adds them).
-    const payload = JSON.parse(readFileSync(PZ_FIXTURE, 'utf8')) as Payload
-    const saved = await post('/api/pokemon-zone/imports').send(payload)
-    expect(saved.status).toBe(201)
-    const view = await coupon()
-    expect(view.coupons).toEqual({
+  it('the coupons of the latest pokemon-zone import: v1 unknown (never 0), v2 its ★★ tickets, v2 holding none 0', async () => {
+    const fixture = () => JSON.parse(readFileSync(PZ_FIXTURE, 'utf8')) as Payload
+    const save = async (payload: Payload) =>
+      expect((await post('/api/pokemon-zone/imports').send(payload)).status).toBe(201)
+    // The fixture is a bookmarklet version 1 payload: it holds the anniversary's ticket, but v1 does not count it.
+    await save(fixture())
+    expect((await coupon()).coupons).toEqual({
       importedAt: expect.any(String),
       syncedAt: '2026-11-02T02:43:29.379Z',
       count: null,
     })
+    expect(await toolCoupons()).toMatchObject({ status: 'unknown', gameReadAt: '1/11/2026, 23:43' })
+    // A later read with the version 2 bookmarklet: one ★★ ticket (the anniversary's).
+    const v2 = { ...fixture(), v: 2 }
+    v2.stats.syncedAt = '2026-11-02T20:00:00.000Z'
+    await save(v2)
+    expect((await coupon()).coupons).toMatchObject({ syncedAt: '2026-11-02T20:00:00.000Z', count: 1 })
+    expect(await toolCoupons()).toEqual({ status: 'known', gameReadAt: '2/11/2026, 17:00', count: 1 })
+    // Spent: version 2 with the ticket at 0 is 0, not unknown.
+    const spent = { ...fixture(), v: 2 }
+    spent.stats.syncedAt = '2026-11-02T21:00:00.000Z'
+    spent.mine.resourceData.tickets = spent.mine.resourceData.tickets.map((ticket) =>
+      ticket.key === 'TICKET_2610000_EV_02' ? { ...ticket, value: 0 } : ticket,
+    )
+    await save(spent)
+    expect((await coupon()).coupons).toMatchObject({ syncedAt: '2026-11-02T21:00:00.000Z', count: 0 })
   })
 
   it('packs_star_coupon says the same for the model', async () => {
@@ -179,8 +210,8 @@ describe('Cupón ★★ (e2e)', () => {
       forDecks: '3 de 12 (25 %)',
       newEditions: '12 de 12 (100 %)',
     })
-    // The latest import does not count them.
-    expect(json.coupons).toMatchObject({ status: 'unknown' })
+    // The latest import is the version 2 one holding none.
+    expect(json.coupons).toMatchObject({ status: 'known', count: 0 })
     expect(json.knownCoupons).toEqual([{ coupon: 'Cupón del 2.º aniversario', usableUntil: '15/12/2026, 03:59' }])
     const bad = (await client.callTool({ name: 'packs_star_coupon', arguments: { copies: 9 } })) as {
       isError?: boolean
