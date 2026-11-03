@@ -6,6 +6,8 @@
  *   and card images, no data of the owner (every API answer still needs the cookie), and unregistering it also
  *   dropped the push subscription without a word.
  */
+import { clearStash } from '@/lib/pokemonZone'
+
 let resetting = false
 
 export type ResetReason = 'expired' | 'logout'
@@ -18,6 +20,9 @@ export async function clearClientCaches(reason: ResetReason = 'logout'): Promise
     // Storage blocked: nothing stored.
   }
   if (reason === 'expired') return
+  // 2/11: pokemon-zone data received and not saved goes with a logout by hand (an expired session keeps it, so a
+  // login in between does not lose it).
+  clearStash()
   if (typeof caches !== 'undefined') {
     try {
       // Logging out by hand clears what was shared too (Codex on #1): the next person to log in must not find it.

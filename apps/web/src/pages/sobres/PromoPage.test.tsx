@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/react-query'
-import { render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -232,6 +232,96 @@ describe('sobres de promoción', () => {
     expect(within(withoutBattle).getByRole('listitem').textContent).toBe(
       'A vol. 1 · Butterfree ×2, Lapras ex, Pikachu, Clefairy, Mankey',
     )
+  })
+
+  it('2/11: the coupons Santi has, from pokemon-zone: this event’s, and other events’ apart', async () => {
+    const user = userEvent.setup()
+    renderPromo({
+      event: EVENT,
+      volumes: [b1(), B11, A7, B12, A1],
+      best: ['B1', 'B11'],
+      pick: 'B11',
+      totals: { volumes: 4, cards: 20, missing: 12, copiesMissing: 21, winsToComplete: 47.33 },
+      lastImportAt: COLLECTION_AT,
+      coupons: {
+        importedAt: '2026-11-02T03:00:00.000Z',
+        syncedAt: '2026-11-02T02:43:29.379Z',
+        items: [
+          {
+            key: 'TICKET_2610000_EV_03',
+            event: 'PROMO Reissue Drop Event 2026',
+            count: 2,
+            eventId: 'botin-bis-promo-2026',
+            nameEs: 'Evento botín bis PROMO 2026',
+            active: true,
+          },
+          {
+            key: 'TICKET_2610000_EV_04',
+            event: 'PROMO Reissue Wonder Pick Event 2026',
+            count: 1,
+            eventId: null,
+            nameEs: null,
+            active: false,
+          },
+        ],
+      },
+    })
+    await user.click(await screen.findByText('Cupones', {}, { timeout: 5000 }))
+    const own = await screen.findByTestId('own-coupons')
+    expect(own).toHaveTextContent('De este evento tenés 2 cupones.')
+    expect(
+      within(own).getByText('1 cupón de «PROMO Reissue Wonder Pick Event 2026» (nombre del juego en inglés)'),
+    ).toBeInTheDocument()
+    expect(within(own).getByText(/^Según pokemon-zone, datos del juego del /)).toHaveTextContent(
+      new Intl.DateTimeFormat('es-AR', { dateStyle: 'medium', timeStyle: 'short' }).format(
+        new Date('2026-11-02T02:43:29.379Z'),
+      ),
+    )
+  })
+
+  it('2/11: without an import it says where the coupons come from; with them, a complete event still lists them', async () => {
+    const user = userEvent.setup()
+    renderPromo({
+      event: EVENT,
+      volumes: [b1(), B11, A7, B12, A1],
+      best: ['B1', 'B11'],
+      pick: 'B11',
+      totals: { volumes: 4, cards: 20, missing: 12, copiesMissing: 21, winsToComplete: 47.33 },
+      lastImportAt: COLLECTION_AT,
+      coupons: null,
+    })
+    await user.click(await screen.findByText('Cupones', {}, { timeout: 5000 }))
+    expect(await screen.findByRole('link', { name: 'traelos del juego con pokemon-zone' })).toHaveAttribute(
+      'href',
+      '/coleccion/pokemon-zone',
+    )
+    expect(screen.queryByTestId('own-coupons')).toBeNull()
+    cleanup()
+    vi.unstubAllGlobals()
+    renderPromo({
+      event: { ...EVENT, volumes: ['B12'] },
+      volumes: [B12],
+      best: [],
+      pick: null,
+      totals: { volumes: 1, cards: 5, missing: 0, copiesMissing: 0, winsToComplete: 0 },
+      lastImportAt: COLLECTION_AT,
+      coupons: {
+        importedAt: '2026-11-02T03:00:00.000Z',
+        syncedAt: '2026-11-02T02:43:29.379Z',
+        items: [
+          {
+            key: 'TICKET_2610000_EV_03',
+            event: 'PROMO Reissue Drop Event 2026',
+            count: 1,
+            eventId: 'botin-bis-promo-2026',
+            nameEs: 'Evento botín bis PROMO 2026',
+            active: true,
+          },
+        ],
+      },
+    })
+    await user.click(await screen.findByText('Cupones', {}, { timeout: 5000 }))
+    expect(await screen.findByTestId('own-coupons')).toHaveTextContent('De este evento tenés 1 cupón.')
   })
 
   it('a card a deck lacks wins and says so; a coupon for it saves every win', async () => {
