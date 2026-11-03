@@ -34,6 +34,13 @@ const HEADLINES = [
 
 const packLabel = (pack: { nameEs: string; expansionId: string }) => `${pack.nameEs} · ${pack.expansionId}`
 
+/** Why the first goes before the ones it ties with (the API's `tieBreak`). */
+const TIE_BREAK_TEXT: Record<NonNullable<StarCoupon['tieBreak']>, string> = {
+  limited: 'Va primero porque es por tiempo limitado y termina antes.',
+  newest: 'Va primero por ser de la expansión más nueva.',
+  id: 'Son de la misma expansión: da lo mismo cuál.',
+}
+
 /** «Mega Mewtwo X · C1», «… y Suicune · A4a», «…, y 3 más». */
 function joinPacks(packs: StarCouponPack[], max = 3): string {
   const names = packs.slice(0, max).map(packLabel)
@@ -58,11 +65,12 @@ function reason(pack: StarCouponPack, goal: number, hasGoals: boolean): string {
 }
 
 /**
- * The coupons the latest pokemon-zone import counts (one number: the game's tickets for a guaranteed pack), and the
- * deadlines the app knows.
+ * The ★★ coupons the latest pokemon-zone import counts, and the deadlines the app knows. A known coupon the import still
+ * holds past its deadline (a read from before it) is said apart, as expired, never in «Tenés N».
  */
 function Coupons({ data }: { data: StarCoupon }) {
   const { coupons } = data
+  const expired = coupons?.expired ?? []
   return (
     <div className="flex flex-col gap-1 text-sm" data-testid="star-coupons">
       {coupons === null ? (
@@ -88,21 +96,30 @@ function Coupons({ data }: { data: StarCoupon }) {
               <>
                 Tenés <span className="font-medium">{plural(coupons.count, 'cupón ★★', 'cupones ★★')}</span>.
               </>
+            ) : expired.length > 0 ? (
+              'No tenés cupones ★★ para usar.'
             ) : (
               'No tenés cupones ★★.'
             )}
           </p>
+          {expired.map((ticket) => (
+            <p key={ticket.key} className="text-xs text-warning" data-testid="star-coupon-expired">
+              {ticket.nameEs} ({ticket.count} en esa lectura): ese cupón venció el {formatDeadline(ticket.until)}.
+            </p>
+          ))}
           <p className="text-xs text-muted-foreground">
             Según pokemon-zone (datos del juego del {formatDateTime(coupons.syncedAt)}).
           </p>
         </>
       )}
-      {data.known.map((ticket) => (
-        <p key={ticket.key} className="text-xs text-muted-foreground">
-          {ticket.nameEs}: {Date.parse(ticket.until) <= Date.now() ? 'venció el' : 'hasta el'}{' '}
-          {formatDeadline(ticket.until)}.
-        </p>
-      ))}
+      {data.known
+        .filter((ticket) => !expired.some((item) => item.key === ticket.key))
+        .map((ticket) => (
+          <p key={ticket.key} className="text-xs text-muted-foreground">
+            {ticket.nameEs}: {Date.parse(ticket.until) <= Date.now() ? 'venció el' : 'hasta el'}{' '}
+            {formatDeadline(ticket.until)}.
+          </p>
+        ))}
     </div>
   )
 }
@@ -190,6 +207,7 @@ function Content({ deckTarget, copies }: { deckTarget: DeckTarget; copies: numbe
             {ties.length > 0 ? (
               <p>
                 {ties.length === 1 ? 'Empata con' : 'Empatan con él'} {joinPacks(ties)}.
+                {data.tieBreak ? ` ${TIE_BREAK_TEXT[data.tieBreak]}` : ''}
               </p>
             ) : null}
           </div>

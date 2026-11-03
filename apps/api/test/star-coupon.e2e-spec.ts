@@ -5,6 +5,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
 import type { StarCouponView } from '../src/packs/pack-views.js'
+import { PacksService } from '../src/packs/packs.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /**
@@ -106,6 +107,9 @@ describe('Cupón ★★ (e2e)', () => {
     })
     expect(view.best).toContain('A4a/suicunepack')
     expect(view.best).not.toContain('B2/megagardevoirpack')
+    // Follow-up of #173: among the ties, the newest expansion first (B4a), not the first id (Charizard A1).
+    expect(view.packs[0]?.packId).toBe('B4a/teamrocketsambitionpack')
+    expect(view.tieBreak).toBe('newest')
     expect(view.known).toEqual([
       { key: 'TICKET_2610000_EV_02', nameEs: 'Cupón del 2.º aniversario', until: '2026-12-15T07:00:00Z' },
     ])
@@ -168,13 +172,22 @@ describe('Cupón ★★ (e2e)', () => {
       importedAt: expect.any(String),
       syncedAt: '2026-11-02T02:43:29.379Z',
       count: null,
+      expired: [],
     })
     expect(await toolCoupons()).toMatchObject({ status: 'unknown', gameReadAt: '1/11/2026, 23:43' })
     // A later read with the version 2 bookmarklet: one ★★ ticket (the anniversary's).
     const v2 = { ...fixture(), v: 2 }
     v2.stats.syncedAt = '2026-11-02T20:00:00.000Z'
     await save(v2)
-    expect((await coupon()).coupons).toMatchObject({ syncedAt: '2026-11-02T20:00:00.000Z', count: 1 })
+    expect((await coupon()).coupons).toMatchObject({ syncedAt: '2026-11-02T20:00:00.000Z', count: 1, expired: [] })
+    // Follow-up of #173: the same read seen after the anniversary's deadline — the ticket is apart, as expired.
+    const later = await test.app.get(PacksService).starCoupon({}, new Date('2026-12-16T00:00:00Z'))
+    expect(later.coupons).toMatchObject({
+      count: 0,
+      expired: [
+        { key: 'TICKET_2610000_EV_02', nameEs: 'Cupón del 2.º aniversario', until: '2026-12-15T07:00:00Z', count: 1 },
+      ],
+    })
     expect(await toolCoupons()).toEqual({ status: 'known', gameReadAt: '2/11/2026, 17:00', count: 1 })
     // Spent: version 2 with the ticket at 0 is 0, not unknown.
     const spent = { ...fixture(), v: 2 }

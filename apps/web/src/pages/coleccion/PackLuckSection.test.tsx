@@ -90,7 +90,7 @@ describe('suerte de los sobres', () => {
     expect(screen.getByText(/Con la próxima importación empieza «desde la primera importación»/)).toBeInTheDocument()
     expect(screen.queryByText(/se van sumando/)).toBeNull()
     expect(screen.getByTestId('import-regularly')).toHaveTextContent(
-      'Importá todos los días a la misma hora, después del Sync automático de pokemon-zone',
+      'Importá todos los días a la misma hora, después del Sync automático de pokemon-zone: así lo que salió no decide qué período cuenta.',
     )
     // The CSV's view stays, apart, with the expected count as a count (not a percentage).
     expect(screen.getByRole('heading', { name: 'Según tu colección' })).toBeInTheDocument()

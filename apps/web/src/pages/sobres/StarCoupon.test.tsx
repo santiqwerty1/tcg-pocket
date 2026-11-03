@@ -234,6 +234,7 @@ describe('Sobres → Cupón ★★ (3/11/2026)', () => {
         B4,
       ],
       best: ['A1/charizardpack', 'A1/pikachupack'],
+      tieBreak: 'id',
     })
     await open()
     expect(
@@ -241,7 +242,9 @@ describe('Sobres → Cupón ★★ (3/11/2026)', () => {
         /no hay mazos objetivo, y es el sobre con la mayor parte de ★★ que no tenés \(10 de 10, 100 %\)/,
       ),
     ).toBeInTheDocument()
-    expect(screen.getByText('Empata con Pikachu · A1.')).toBeInTheDocument()
+    expect(screen.getByText(/^Empata con Pikachu · A1./)).toHaveTextContent(
+      'Empata con Pikachu · A1. Son de la misma expansión: da lo mismo cuál.',
+    )
     const rows = screen.getAllByTestId('star-coupon-pack')
     expect(within(rows[1] as HTMLElement).getByText('Empata')).toBeInTheDocument()
     // Without a card for the decks, the headline is the share that decides: new editions.
@@ -266,6 +269,60 @@ describe('Sobres → Cupón ★★ (3/11/2026)', () => {
     await open()
     expect(screen.getByRole('link', { name: 'traelos del juego con pokemon-zone' })).toBeInTheDocument()
     expect(screen.getByText('Cupón del 2.º aniversario: hasta el 15/12, 03:59.')).toBeInTheDocument()
+  })
+
+  it('ties broken by a limited pack or the newest expansion say so', async () => {
+    answer = view({
+      packs: [CHARIZARD, pack('A1/pikachupack', 'Pikachu', filler('A1p', 10))],
+      best: ['A1/charizardpack', 'A1/pikachupack'],
+      tieBreak: 'limited',
+    })
+    await open()
+    expect(screen.getByText(/^Empata con Pikachu · A1./)).toHaveTextContent(
+      'Empata con Pikachu · A1. Va primero porque es por tiempo limitado y termina antes.',
+    )
+  })
+
+  it('past its deadline, the anniversary coupon of an older read is apart as expired, not in «Tenés»', async () => {
+    answer = view({
+      coupons: {
+        importedAt: 'x',
+        syncedAt: '2026-12-14T08:00:00.000Z',
+        // The missions' coupon still counts; the anniversary's is apart.
+        count: 1,
+        expired: [
+          { key: 'TICKET_2610000_EV_02', nameEs: 'Cupón del 2.º aniversario', until: '2026-12-15T07:00:00Z', count: 1 },
+        ],
+      },
+    })
+    vi.useFakeTimers({ now: new Date('2026-12-16T12:00:00Z'), toFake: ['Date'] })
+    try {
+      await open()
+      expect(screen.getByText('1 cupón ★★')).toBeInTheDocument()
+      expect(screen.getByTestId('star-coupon-expired')).toHaveTextContent(
+        'Cupón del 2.º aniversario (1 en esa lectura): ese cupón venció el 15/12, 03:59.',
+      )
+      // Said once: not again as a known deadline.
+      expect(screen.queryByText('Cupón del 2.º aniversario: venció el 15/12, 03:59.')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('only the expired one: «No tenés cupones ★★ para usar»', async () => {
+    answer = view({
+      coupons: {
+        importedAt: 'x',
+        syncedAt: '2026-12-14T08:00:00.000Z',
+        count: 0,
+        expired: [
+          { key: 'TICKET_2610000_EV_02', nameEs: 'Cupón del 2.º aniversario', until: '2026-12-15T07:00:00Z', count: 1 },
+        ],
+      },
+    })
+    await open()
+    expect(screen.getByText('No tenés cupones ★★ para usar.')).toBeInTheDocument()
+    expect(screen.queryByText(/^Tenés/)).toBeNull()
   })
 
   it('0 is «No tenés cupones ★★»; past the deadline, «venció»', async () => {

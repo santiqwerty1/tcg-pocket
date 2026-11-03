@@ -353,7 +353,7 @@ export class PacksService {
       this.collection.loadState(),
       this.prisma.pack.findMany({ select: { id: true, available: true, limited: true, limitedUntil: true } }),
       this.deckGoals(deckTarget),
-      this.pokemonZone.starCoupons(),
+      this.pokemonZone.starCoupons(now),
       this.collectionService.lastUpdatedAt(),
     ])
     const playable = playableCopies(index, stock, adjustments)
@@ -389,6 +389,7 @@ export class PacksService {
         limited: pack.limited,
       })),
       best: plan.best,
+      tieBreak: plan.tieBreak,
       coupons,
       known: [...STAR_COUPON_TICKETS],
     }

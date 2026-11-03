@@ -280,8 +280,8 @@ function SinceFirstCard({ since }: { since: GameLuckSinceFirst }) {
 function ImportRegularly() {
   return (
     <p className="text-xs text-muted-foreground" data-testid="import-regularly">
-      Importá todos los días a la misma hora, después del Sync automático de pokemon-zone: así ningún período lo elige
-      lo que salió.
+      Importá todos los días a la misma hora, después del Sync automático de pokemon-zone: así lo que salió no decide
+      qué período cuenta.
     </p>
   )
 }

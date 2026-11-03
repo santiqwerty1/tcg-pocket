@@ -11,8 +11,9 @@
  * - New: an edition (version, by the tracker's internal id) with no copy. Below the goal: fewer copies of it than
  *   Sobres' «Copias por edición» (`collectionWanted`, the collection goal's own rule).
  * - Order: the share for the decks, then the share of new editions, then the share below the goal, each compared
- *   exactly as k/n; then the pack id. Packs not on sale are left out (`packOnSale`, the recommendation's rule), and a
- *   pack without ☆☆ cards has no row.
+ *   exactly as k/n. Among ties: a limited-time pack on sale first (fewest days left first), then the newest expansion,
+ *   then the pack id. Packs not on sale are left out (`packOnSale`, the recommendation's rule), and a pack without ☆☆
+ *   cards has no row.
  */
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
 import type { CardId, Rarity } from '../catalog/types.js'
@@ -65,7 +66,15 @@ export interface StarCouponPlan {
   packs: StarCouponPack[]
   /** The packs tied with the first in the three shares; [] when no pack gives anything useful. */
   best: string[]
+  /** With ties, what puts the first before the second (`StarCouponTieBreak`); null without ties. */
+  tieBreak: StarCouponTieBreak | null
 }
+
+/**
+ * The tie-breaks after the three shares, in order: a limited-time pack on sale ending sooner, the newer expansion,
+ * the pack id.
+ */
+export type StarCouponTieBreak = 'limited' | 'newest' | 'id'
 
 export interface StarCouponInput {
   index: CatalogIndex
@@ -152,11 +161,41 @@ export function starCouponPlan(input: StarCouponInput): StarCouponPlan {
         : null,
     })
   }
-  packs.sort((a, b) => compareStarCouponPacks(a, b) || a.packId.localeCompare(b.packId, 'en', { numeric: true }))
+  const breaks = tieBreaks(index)
+  const tieBreak = (a: StarCouponPack, b: StarCouponPack) => {
+    for (const [, compare] of breaks) {
+      const diff = compare(a, b)
+      if (diff !== 0) return diff
+    }
+    return 0
+  }
+  packs.sort((a, b) => compareStarCouponPacks(a, b) || tieBreak(a, b))
   const top = packs[0]
   const best =
     top && tiers(top).some((count) => count > 0)
       ? packs.filter((pack) => compareStarCouponPacks(pack, top) === 0).map((pack) => pack.packId)
       : []
-  return { rarity: STAR_COUPON_RARITY, goalCopies: copies, packs, best }
+  // Why the first goes before the next one it ties with: the first tie-break that tells them apart.
+  const next = best.length > 1 ? packs[1] : undefined
+  const decidedBy = top && next ? (breaks.find(([, compare]) => compare(top, next) !== 0)?.[0] ?? null) : null
+  return { rarity: STAR_COUPON_RARITY, goalCopies: copies, packs, best, tieBreak: decidedBy }
+}
+
+/** Days left of a limited pack on sale; an unknown end goes after every known one, a pack that stays after all. */
+function limitedRank(pack: StarCouponPack): number {
+  if (pack.limited === null) return Number.MAX_SAFE_INTEGER
+  return pack.limited.daysLeft ?? Number.MAX_SAFE_INTEGER - 1
+}
+
+/**
+ * Among packs tied in the three shares: a limited-time pack on sale first, the fewest days left first (as Sobres'
+ * recommendation weighs what only they give while they last); then the newest expansion (catalog order); then the id.
+ */
+function tieBreaks(index: CatalogIndex): [StarCouponTieBreak, (a: StarCouponPack, b: StarCouponPack) => number][] {
+  const order = (pack: StarCouponPack) => index.expansionById(pack.expansionId)?.sortOrder ?? -1
+  return [
+    ['limited', (a, b) => Math.sign(limitedRank(a) - limitedRank(b))],
+    ['newest', (a, b) => order(b) - order(a)],
+    ['id', (a, b) => a.packId.localeCompare(b.packId, 'en', { numeric: true })],
+  ]
 }

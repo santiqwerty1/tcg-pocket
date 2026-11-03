@@ -7,6 +7,7 @@ import type {
   Rarity,
   StarCouponCard,
   StarCouponTicket,
+  StarCouponTieBreak,
 } from '@tcg/domain'
 
 export interface PackView {
@@ -187,11 +188,19 @@ export interface StarCouponView {
   packs: StarCouponPackView[]
   /** Pack ids tied at the top; [] when no pack gives anything useful. */
   best: string[]
+  /** With ties, what puts the first before the second: «limited», «newest» or «id»; null without ties. */
+  tieBreak: StarCouponTieBreak | null
   /**
    * The coupons for a guaranteed ★★ pack the latest pokemon-zone import counts; null without imports, `count` null when
-   * that import does not know them (bookmarklet version 1, or saved before it sent them).
+   * that import does not know them (bookmarklet version 1, or saved before it sent them). `count` is what can still be
+   * used; `expired`, the known coupons the import holds past their deadline.
    */
-  coupons: { importedAt: string; syncedAt: string; count: number | null } | null
+  coupons: {
+    importedAt: string
+    syncedAt: string
+    count: number | null
+    expired: (StarCouponTicket & { count: number })[]
+  } | null
   /** The coupons the app knows, with their deadline (exclusive, UTC). */
   known: StarCouponTicket[]
 }
