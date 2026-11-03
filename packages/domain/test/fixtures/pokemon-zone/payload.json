@@ -1,5 +1,5 @@
 {
-  "_nota": "Inventado sobre la forma real de pokemon-zone.com (2/11/2026), como lo manda el marcador: la huella es el SHA-256 de un friend id inventado (1111222233334444); nombre, nivel, monedas, relojes y partidas cambiados; sobres y rarezas con la forma y los totales de una cuenta real, sin datos que la identifiquen. «name» está para probar que se descarta.",
+  "_nota": "Inventado sobre la forma real de pokemon-zone.com (2/11/2026), como lo manda el marcador: la huella es el SHA-256 de un friend id inventado (1111222233334444); nombre, nivel, monedas, relojes y partidas cambiados; sobres y rarezas con la forma y los totales de una cuenta real, sin datos que la identifiquen. «name» está para probar que se descarta. «guaranteedTickets» es la lista aparte que el marcador manda desde el 3/11/2026 (los tickets «Card Guaranteed»).",
   "v": 1,
   "mine": {
     "player": {
@@ -71,6 +71,13 @@
           "key": "TICKET_EMBLEM_A3",
           "value": 10,
           "name": "Emblem Ticket (Celestial Guardians)"
+        }
+      ],
+      "guaranteedTickets": [
+        {
+          "key": "TICKET_2610000_EV_02",
+          "value": 1,
+          "name": "1 ★★ Card Guaranteed Booster Pack Exchange Tickets"
         }
       ],
       "eventPowerChargers": [

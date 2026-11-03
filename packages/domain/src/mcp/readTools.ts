@@ -252,6 +252,26 @@ export const MCP_READ_TOOLS = {
         .describe('También los volúmenes completos (por defecto solo los que tienen algo útil)'),
     }),
   },
+  packsStarCoupon: {
+    name: 'packs_star_coupon',
+    title: 'Cupón ★★: qué sobre conviene',
+    description:
+      'En qué sobre de la tienda conviene usar un cupón de sobre con una carta ★★ garantizada (el del 2.º aniversario vale hasta el 15/12/2026 a las 03:59 de Buenos Aires; las misiones «★★ garantizada» dan otro). La ★★ del juego es la rareza ☆☆ de la app. Por sobre a la venta, sus cartas ☆☆, todas con la misma chance (el juego no publica otra cosa): cuántas le sirven a los mazos objetivo de Sobres (los que tienen prioridad de sobres, con la lista guardada o su versión de torneo según el ajuste; cualquier versión de la carta funcional sirve, contando las copias jugables de todas las ediciones), cuántas son ediciones que Santi no tiene y cuántas tienen menos copias que «Copias por edición». Orden: primero la parte para los mazos, después la de ediciones nuevas, después la de por debajo del objetivo, cada una comparada como fracción exacta. «best» son los sobres empatados arriba: recomendá el primero y mencioná los empates. Los sobres apagados o vencidos no aparecen. «coupons» dice cuántos cupones ★★ tiene según la última importación de pokemon-zone (null si nunca importó; «unknown» si esa importación es de un marcador anterior al 3/11/2026 y hay que actualizarlo). Sin parámetros usa lo guardado en Sobres. Solo lectura.',
+    input: z.object({
+      limit: z.number().int().min(1).max(40).optional().describe('Cuántos sobres (por defecto 5)'),
+      deckTarget: z
+        .enum(['saved', 'tournament'])
+        .optional()
+        .describe('Lista guardada o versión de torneo de cada mazo objetivo (por defecto el ajuste de Sobres)'),
+      copies: z
+        .number()
+        .int()
+        .min(1)
+        .max(5)
+        .optional()
+        .describe('Copias por edición del objetivo colección (por defecto el ajuste de Sobres, o 1)'),
+    }),
+  },
   packsRecommend: {
     name: 'packs_recommend',
     title: 'Recomendar sobres',

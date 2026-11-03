@@ -25,7 +25,9 @@ import {
   promoCoupons,
   recordHourglassesEdit,
   recordPointsEdit,
+  STAR_COUPON_TICKETS,
   samePackPoints,
+  starCoupons,
 } from '../../src/pokemonZone/index.js'
 import { catalogIndex } from '../helpers/loadFixtures.js'
 
@@ -428,6 +430,89 @@ describe('pokemon-zone: promo coupons', () => {
       events,
     )
     expect(coupons.map((coupon) => [coupon.key, coupon.eventId])).toEqual([['A', 'x']])
+  })
+})
+
+describe('pokemon-zone: ★★ coupons (3/11/2026)', () => {
+  const NOW = new Date('2026-11-03T12:00:00Z')
+  type WithGuaranteed = Fixture & { mine: { resourceData: { guaranteedTickets?: Item[] } } }
+
+  it('keeps the ★★ «Card Guaranteed» tickets of the separate list, and only those', () => {
+    const payload = raw() as WithGuaranteed
+    payload.mine.resourceData.guaranteedTickets = [
+      ...(payload.mine.resourceData.guaranteedTickets ?? []),
+      { key: 'TICKET_MISSION_2STAR', value: 2, name: '★★ Card Guaranteed Booster Pack Exchange Ticket' },
+      { key: 'TICKET_ONE_STAR', value: 1, name: '1 ★ Card Guaranteed Booster Pack Exchange Tickets' },
+      { key: 'TICKET_THREE_STAR', value: 1, name: '1 ★★★ Card Guaranteed Booster Pack Exchange Tickets' },
+      { key: 'TICKET_OTHER', value: 1, name: 'Booster Pack Exchange Ticket' },
+    ]
+    const data = normalizePokemonZone(pokemonZonePayloadSchema.parse(payload))
+    expect(data.starTickets).toEqual([
+      { key: 'TICKET_2610000_EV_02', name: '1 ★★ Card Guaranteed Booster Pack Exchange Tickets', count: 1 },
+      { key: 'TICKET_MISSION_2STAR', name: '★★ Card Guaranteed Booster Pack Exchange Ticket', count: 2 },
+    ])
+    // The ★★ ticket in the promo list is not a promo coupon, and the stored form reads back.
+    expect(data.coupons.map((coupon) => coupon.key)).not.toContain('TICKET_2610000_EV_02')
+    expect(pokemonZoneSnapshotSchema.parse(JSON.parse(JSON.stringify(data)))).toEqual(data)
+  })
+
+  it('an older bookmarklet (no separate list) leaves them unknown, and the snapshot as it was', () => {
+    const payload = raw() as WithGuaranteed
+    delete payload.mine.resourceData.guaranteedTickets
+    const data = normalizePokemonZone(pokemonZonePayloadSchema.parse(payload))
+    expect('starTickets' in data).toBe(false)
+    expect(starCoupons(data, NOW)).toBeNull()
+    // An empty list is known: no coupons.
+    payload.mine.resourceData.guaranteedTickets = []
+    expect(starCoupons(normalizePokemonZone(pokemonZonePayloadSchema.parse(payload)), NOW)).toEqual([])
+    // A stored import from before 3/11 reads back without them.
+    const old = JSON.parse(JSON.stringify(snapshot())) as Record<string, unknown>
+    delete old.starTickets
+    expect(starCoupons(pokemonZoneSnapshotSchema.parse(old), NOW)).toBeNull()
+  })
+
+  it('checks a ★★ ticket strictly and ignores the rest of the list', () => {
+    const payload = raw() as WithGuaranteed
+    payload.mine.resourceData.guaranteedTickets = [{ key: 'T', value: 1.5, name: '1 ★★ Card Guaranteed Pack' }]
+    expect(pokemonZonePayloadSchema.safeParse(payload).success).toBe(false)
+    payload.mine.resourceData.guaranteedTickets = [{ key: 'a b', value: -1, name: 'Something else' }]
+    expect(pokemonZonePayloadSchema.safeParse(payload).success).toBe(true)
+  })
+
+  it('names the anniversary coupon with its deadline, the soonest first; past it, expired', () => {
+    const tickets = {
+      starTickets: [
+        { key: 'TICKET_MISSION', name: '1 ★★ Card Guaranteed Booster Pack Exchange Tickets', count: 1 },
+        { key: 'TICKET_2610000_EV_02', name: '1 ★★ Card Guaranteed Booster Pack Exchange Tickets', count: 1 },
+        { key: 'TICKET_SPENT', name: '1 ★★ Card Guaranteed Booster Pack Exchange Tickets', count: 0 },
+      ],
+    }
+    expect(starCoupons(tickets, NOW)).toEqual([
+      {
+        key: 'TICKET_2610000_EV_02',
+        name: '1 ★★ Card Guaranteed Booster Pack Exchange Tickets',
+        count: 1,
+        nameEs: 'Cupón del 2.º aniversario',
+        until: '2026-12-15T07:00:00Z',
+        expired: false,
+      },
+      {
+        key: 'TICKET_MISSION',
+        name: '1 ★★ Card Guaranteed Booster Pack Exchange Tickets',
+        count: 1,
+        nameEs: null,
+        until: null,
+        expired: false,
+      },
+    ])
+    // 03:59 in Buenos Aires is still on; 04:00 is not.
+    expect(starCoupons(tickets, new Date('2026-12-15T06:59:59Z'))?.[0]?.expired).toBe(false)
+    const after = starCoupons(tickets, new Date('2026-12-15T07:00:00Z'))
+    expect(after?.map((coupon) => [coupon.key, coupon.expired])).toEqual([
+      ['TICKET_MISSION', false],
+      ['TICKET_2610000_EV_02', true],
+    ])
+    expect(STAR_COUPON_TICKETS.map((ticket) => ticket.key)).toEqual(['TICKET_2610000_EV_02'])
   })
 })
 

@@ -46,6 +46,7 @@ describe('MCP read tools', () => {
         'matches_stats',
         'packs_promo',
         'packs_recommend',
+        'packs_star_coupon',
         'play_game_review',
         'play_games',
         'pokemon_zone_summary',
@@ -83,6 +84,9 @@ describe('MCP read tools', () => {
     expect(MCP_READ_TOOLS.simulationsResults.input.safeParse({ job: 0 }).success).toBe(false)
     expect(MCP_READ_TOOLS.labResults.description).toContain('Juegan bots')
     expect(MCP_READ_TOOLS.labMetaBank.input.safeParse({ size: 21 }).success).toBe(false)
+    expect(MCP_READ_TOOLS.packsStarCoupon.description).toContain('fracción exacta')
+    expect(MCP_READ_TOOLS.packsStarCoupon.input.safeParse({ copies: 2, deckTarget: 'tournament' }).success).toBe(true)
+    expect(MCP_READ_TOOLS.packsStarCoupon.input.safeParse({ copies: 0 }).success).toBe(false)
   })
 
   it('D-029: decks_pick_today names the bot by default of the Laboratorio, from DEFAULT_BOT, never e2', () => {

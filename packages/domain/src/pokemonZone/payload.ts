@@ -58,6 +58,12 @@ const CURRENCY_KEYS = ['SHOP_TICKET', 'BRIGHT_SAND', 'SUBSCRIPTION_TICKET'] as c
 
 /** A ticket that is a promo card exchange coupon: «Promo Card Exchange Ticket(s) (<event>)». */
 const COUPON_NAME = /^\s*promo card exchange tickets?\b/i
+/**
+ * Cupón ★★ (3/11/2026): a ticket that opens a pack with a guaranteed ★★ card, «1 ★★ Card Guaranteed Booster Pack
+ * Exchange Tickets» (two stars, never one or three). The bookmarklet sends every «Card Guaranteed» ticket apart, in
+ * `guaranteedTickets`; the app keeps the ★★ ones.
+ */
+export const STAR_TICKET_NAME = /(?<![★☆])[★☆]{2}(?![★☆])\s*card guaranteed\b/i
 
 type Issue = { path: (string | number)[]; message: string }
 
@@ -83,6 +89,11 @@ export const pokemonZonePayloadSchema = z
       resourceData: z.object({
         currencies: resourceList,
         tickets: resourceList,
+        /**
+         * 3/11/2026: the «Card Guaranteed» pack tickets, apart from `tickets`. Absent when the bookmarklet is older
+         * than that: then the import does not know how many ★★ coupons there are (not «none»).
+         */
+        guaranteedTickets: z.array(resourceItem).max(LIST_MAX).optional(),
         packCeilPoints: z.array(resourceItem).max(LIST_MAX),
         packPowerChargers: resourceList,
         challengePowerChargers: resourceList,
@@ -134,6 +145,12 @@ export const pokemonZonePayloadSchema = z
       check(issues, key, item.key, [...base, 'tickets', i, 'key'])
       check(issues, count.nullable(), item.value, [...base, 'tickets', i, 'value'])
     })
+    resources.guaranteedTickets?.forEach((item, i) => {
+      if (typeof item.name !== 'string' || !STAR_TICKET_NAME.test(item.name)) return
+      check(issues, label, item.name, [...base, 'guaranteedTickets', i, 'name'])
+      check(issues, key, item.key, [...base, 'guaranteedTickets', i, 'key'])
+      check(issues, count.nullable(), item.value, [...base, 'guaranteedTickets', i, 'value'])
+    })
     for (const [list, ids] of [
       ['headline', HEADLINE_IDS],
       ['battles', BATTLE_IDS],
@@ -177,6 +194,14 @@ export const pokemonZoneSnapshotSchema = z.object({
   currencies: z.object({ shopTickets: nullableCount, shinedust: nullableCount, premiumTickets: nullableCount }),
   /** Promo card exchange coupons, one entry per event (`event` as the game names it, in English). */
   coupons: z.array(z.object({ key, event: label, count })).max(LIST_MAX),
+  /**
+   * 3/11/2026: the ★★-guaranteed pack tickets (`name` as the game says it, in English). Absent when the bookmarklet
+   * did not read them (older than 3/11, and every import saved before): unknown, not none.
+   */
+  starTickets: z
+    .array(z.object({ key, name: label, count }))
+    .max(LIST_MAX)
+    .optional(),
   battles: z.object({
     versus: counterSchema.nullable(),
     ranked: counterSchema.nullable(),
@@ -280,6 +305,16 @@ export function normalizePokemonZone(payload: PokemonZonePayload): PokemonZoneSn
         ? [{ key: ticket.key as string, event: couponEvent(ticket.name), count: checked(ticket.value) ?? 0 }]
         : [],
     ),
+    // Only when the bookmarklet read them: without the list the snapshot is the same as before (same sha256).
+    ...(resourceData.guaranteedTickets === undefined
+      ? {}
+      : {
+          starTickets: resourceData.guaranteedTickets.flatMap((ticket) =>
+            typeof ticket.name === 'string' && STAR_TICKET_NAME.test(ticket.name)
+              ? [{ key: ticket.key as string, name: ticket.name.trim(), count: checked(ticket.value) ?? 0 }]
+              : [],
+          ),
+        }),
     battles: {
       versus: counter(stat(stats.battles, 'pvp_battles'), stat(stats.battles, 'pvp_wins')),
       ranked: counter(stat(stats.battles, 'ranked_battles'), stat(stats.battles, 'ranked_wins')),

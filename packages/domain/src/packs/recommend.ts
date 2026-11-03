@@ -88,6 +88,21 @@ export function daysBetween(from: string, to: string): number {
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000)
 }
 
+/**
+ * On sale: switched on («disponible») and, for a limited-time pack, not past its last day. The recommendation and the
+ * ★★ coupon (starCoupon.ts) leave out the same packs.
+ */
+export function packOnSale(
+  packId: string,
+  available: (packId: string) => boolean,
+  limited: ((packId: string) => LimitedPack | null) | undefined,
+  today: string | undefined,
+): boolean {
+  if (!available(packId)) return false
+  const until = limited?.(packId)?.until
+  return !(until && today && until < today)
+}
+
 export interface RecommendInput {
   index: CatalogIndex
   decks: readonly DeckGoal[]
@@ -352,11 +367,7 @@ export function recommendPacks(input: RecommendInput): Recommendation {
   // Limited-time packs: past their last day they are not on sale; while on sale, what only they give weighs more.
   const today = input.today
   const limitedOf = (packId: string): LimitedPack | null => input.limited?.(packId) ?? null
-  const onSale = (packId: string): boolean => {
-    if (!input.available(packId)) return false
-    const until = limitedOf(packId)?.until
-    return !(until && today && until < today)
-  }
+  const onSale = (packId: string): boolean => packOnSale(packId, input.available, input.limited, today)
   const limitedBoost = Math.max(1, input.limitedBoost ?? DEFAULT_LIMITED_BOOST)
   const openable = profiles.filter((profile) => onSale(profile.packId))
   const staying = openable.filter((profile) => limitedOf(profile.packId) === null)
