@@ -22,7 +22,10 @@ export const ADVISORY_LOCKS = {
   chatWrite: 20_261_009,
   /** The lab's meta-bank refresh (lab/lab.service.ts, session lock). */
   labRefresh: 43_031,
-  /** Rank notes (ranked/ranked.service.ts, backup restore). */
+  /**
+   * Rank notes and seasons (ranked/ranked.service.ts, backup restore; the migration 20261103120000_ranked_season_c1_dates
+   * takes it by its number, checked by test/ranked-c1-dates.e2e-spec.ts).
+   */
   rankNote: 43_120,
 } as const
 
