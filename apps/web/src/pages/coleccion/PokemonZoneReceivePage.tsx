@@ -110,9 +110,8 @@ function PreviewView({ preview }: { preview: PokemonZonePreview }) {
                   {packPoints.kept.length === 1
                     ? 'Los puntos de esta expansión los cambiaste'
                     : 'Los puntos de estas expansiones los cambiaste'}{' '}
-                  a mano
-                  {packPoints.editedAt ? ` el ${formatDateTime(packPoints.editedAt)}` : ''}, después de la lectura del
-                  juego: {packPoints.kept.length === 1 ? 'queda tu valor' : 'quedan tus valores'}.
+                  a mano después de la lectura del juego:{' '}
+                  {packPoints.kept.length === 1 ? 'queda tu valor' : 'quedan tus valores'}.
                 </p>
                 <ul className="divide-y rounded-lg border text-sm">
                   {packPoints.kept.map((item) => (
@@ -123,7 +122,9 @@ function PreviewView({ preview }: { preview: PokemonZonePreview }) {
                       </span>
                       <span className="tabular">
                         {formatNumber(item.value)}{' '}
-                        <span className="text-muted-foreground">(el juego: {formatNumber(item.game)})</span>
+                        <span className="text-muted-foreground">
+                          (a mano el {formatDateTime(item.editedAt)}; el juego: {formatNumber(item.game)})
+                        </span>
                       </span>
                     </li>
                   ))}

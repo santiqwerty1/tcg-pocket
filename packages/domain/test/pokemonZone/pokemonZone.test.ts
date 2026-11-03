@@ -7,13 +7,14 @@ import {
   formatGameCounterEs,
   gameBattles,
   gameCounterView,
-  handEditedPoints,
+  handEditedAfter,
   hourglassesUpdate,
   loggedComparison,
   normalizePokemonZone,
   POKEMON_ZONE_RARITY,
   type PokemonZoneSnapshot,
   packPointsUpdate,
+  parseHandEdits,
   parsePokemonZone,
   pokemonZoneLuck,
   pokemonZonePack,
@@ -21,6 +22,8 @@ import {
   pokemonZoneRarity,
   pokemonZoneSnapshotSchema,
   promoCoupons,
+  recordHourglassesEdit,
+  recordPointsEdit,
   samePackPoints,
 } from '../../src/pokemonZone/index.js'
 import { catalogIndex } from '../helpers/loadFixtures.js'
@@ -294,9 +297,10 @@ describe('pokemon-zone: the settings of Sobres', () => {
   })
 
   it('review of pz/import: what was changed by hand after the read stays', () => {
-    const points = packPointsUpdate({ A1: 100, A3: 70, B4b: 40 }, snapshot(), new Set(['A1', 'A3']))
+    const at = '2026-11-02T09:00:00.000Z'
+    const points = packPointsUpdate({ A1: 100, A3: 70, B4b: 40 }, snapshot(), { A1: at, A3: at })
     // A1 stays (100, the game says 5); A3 is equal anyway; B4b, not changed by hand, goes to the game's 0.
-    expect(points.kept).toEqual([{ expansionId: 'A1', value: 100, game: 5 }])
+    expect(points.kept).toEqual([{ expansionId: 'A1', value: 100, game: 5, editedAt: at }])
     expect(points.next).toMatchObject({ A1: 100, A3: 70, C1: 310 })
     expect(points.next).not.toHaveProperty('B4b')
     expect(points.changes.find((change) => change.expansionId === 'A1')).toBeUndefined()
@@ -308,14 +312,57 @@ describe('pokemon-zone: the settings of Sobres', () => {
     expect(hourglassesUpdate(18, snapshot(), true)).toEqual({ before: 18, after: 18, game: 18, kept: false })
   })
 
-  it('review of pz/import: which points were changed by hand after the read', () => {
-    // The setting was written before the read: nothing.
-    expect([...handEditedPoints({ A1: 100 }, { A1: 5 }, false)]).toEqual([])
-    // After it: what differs from what the last import recorded (absent and 0 are the same).
-    expect([...handEditedPoints({ A1: 100, A3: 70, B4b: 0 }, { A1: 5, A3: 70 }, true)]).toEqual(['A1'])
-    expect([...handEditedPoints({ A3: 70 }, { A1: 5, A3: 70 }, true)]).toEqual(['A1'])
-    // No import recorded anything: every expansion with points was set by hand.
-    expect([...handEditedPoints({ A1: 100, B4b: 0 }, undefined, true)]).toEqual(['A1'])
+  it('Codex on #170: each expansion keeps the time of its own hand edit', () => {
+    const none = parseHandEdits(undefined)
+    expect(none).toEqual({ packPoints: {}, hourglasses: null })
+    // A save gives its time only to the expansions whose points it changed (absent and 0 are the same).
+    const monday = new Date('2026-11-02T03:00:00Z')
+    const one = recordPointsEdit(none, { A1: 100, A2: 100, B4b: 0 }, { A1: 200, A2: 100 }, monday)
+    expect(one.packPoints).toEqual({ A1: monday.toISOString() })
+    const tuesday = new Date('2026-11-03T12:00:00Z')
+    const two = recordPointsEdit(one, { A1: 200, A2: 100 }, { A1: 200, A2: 150, A3: 0 }, tuesday)
+    expect(two.packPoints).toEqual({ A1: monday.toISOString(), A2: tuesday.toISOString() })
+    // Removing an expansion is an edit of it; saving the same points is no edit at all.
+    expect(recordPointsEdit(two, { A1: 200 }, {}, tuesday).packPoints.A1).toBe(tuesday.toISOString())
+    expect(recordPointsEdit(two, { A1: 200 }, { A1: 200, A3: 0 }, tuesday)).toBe(two)
+    expect(recordHourglassesEdit(two, 6, 6, tuesday)).toBe(two)
+    const hourglasses = recordHourglassesEdit(two, 6, 7, tuesday)
+    expect(hourglasses).toEqual({ ...two, hourglasses: tuesday.toISOString() })
+
+    // Codex's example: A1 changed by hand on Monday, the game read on Tuesday at 09:00, A2 changed by hand at noon. A1
+    // is older than the read (the game's value wins); A2 and the hourglasses are newer (they stay).
+    const read = Date.parse('2026-11-03T09:00:00Z')
+    expect(handEditedAfter(hourglasses, read)).toEqual({
+      packPoints: { A2: tuesday.toISOString() },
+      hourglasses: tuesday.toISOString(),
+    })
+    const update = packPointsUpdate(
+      { A1: 200, A2: 150 },
+      { packPoints: { A1: 250, A2: 100 } },
+      handEditedAfter(hourglasses, read).packPoints,
+    )
+    expect(update.changes).toEqual([{ expansionId: 'A1', before: 200, after: 250 }])
+    expect(update.kept).toEqual([{ expansionId: 'A2', value: 150, game: 100, editedAt: tuesday.toISOString() }])
+    // An edit exactly at the read is not after it.
+    expect(handEditedAfter(hourglasses, tuesday.getTime())).toEqual({ packPoints: {}, hourglasses: null })
+
+    // What is stored is read leniently: what is not a time is left out; an own `__proto__` key stays a key.
+    expect(
+      parseHandEdits({
+        packPoints: JSON.parse(
+          '{"A1":"2026-11-02T03:00:00.000Z","A2":"ayer","A3":5,"__proto__":"2026-11-01T00:00:00Z"}',
+        ),
+        hourglasses: 'nunca',
+      }),
+    ).toEqual({
+      packPoints: { A1: '2026-11-02T03:00:00.000Z', ['__proto__']: '2026-11-01T00:00:00Z' },
+      hourglasses: null,
+    })
+    expect(parseHandEdits([1, 2])).toEqual(none)
+    expect(parseHandEdits({ packPoints: ['2026-11-02T03:00:00Z'], hourglasses: '2026-11-02T03:00:00Z' })).toEqual({
+      packPoints: {},
+      hourglasses: '2026-11-02T03:00:00Z',
+    })
   })
 
   it('two point settings are the same when 0 and absent are', () => {

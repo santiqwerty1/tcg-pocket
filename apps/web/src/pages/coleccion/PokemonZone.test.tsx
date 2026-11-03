@@ -89,26 +89,35 @@ describe('pokemon-zone: receiving the bookmarklet’s data', () => {
   it('review of pz/import: what was changed by hand after the read stays, and the page says so', async () => {
     sessionStorage.setItem(STASH_KEY, encoded(PAYLOAD))
     const editedAt = '2026-11-02T15:00:00.000Z'
+    // Codex on #170: each expansion with its own time.
+    const otherEdit = '2026-11-01T10:30:00.000Z'
     fakeApi({
       'POST /api/pokemon-zone/preview': {
         ...PREVIEW,
         packPoints: {
           changes: [],
-          unchanged: 20,
-          kept: [{ expansionId: 'A1', value: 100, game: 5, nameEs: 'Genes Formidables' }],
-          editedAt,
+          unchanged: 19,
+          kept: [
+            { expansionId: 'A1', value: 100, game: 5, editedAt, nameEs: 'Genes Formidables' },
+            { expansionId: 'A2', value: 7, game: 5, editedAt: otherEdit, nameEs: null },
+          ],
         },
         hourglasses: { before: 6, after: 6, game: 18, kept: true, editedAt },
       },
     })
     open(RECEIVE_PATH)
-    const when = new Intl.DateTimeFormat('es-AR', { dateStyle: 'medium', timeStyle: 'short' }).format(
-      new Date(editedAt),
-    )
+    const format = (iso: string) =>
+      new Intl.DateTimeFormat('es-AR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso))
+    const when = format(editedAt)
     expect(await screen.findByTestId('kept-points')).toHaveTextContent(
-      `Los puntos de esta expansión los cambiaste a mano el ${when}, después de la lectura del juego: queda tu valor.`,
+      'Los puntos de estas expansiones los cambiaste a mano después de la lectura del juego: quedan tus valores.',
     )
-    expect(screen.getByTestId('kept-points')).toHaveTextContent('Genes Formidables · A1100 (el juego: 5)')
+    expect(screen.getByTestId('kept-points')).toHaveTextContent(
+      `Genes Formidables · A1100 (a mano el ${when}; el juego: 5)`,
+    )
+    expect(screen.getByTestId('kept-points')).toHaveTextContent(
+      `A2 · A27 (a mano el ${format(otherEdit)}; el juego: 5)`,
+    )
     expect(screen.getByTestId('kept-hourglasses')).toHaveTextContent(
       `Relojes de arena de sobre: los cambiaste a mano el ${when}, después de la lectura del juego; queda tu valor, 6 (el juego: 18).`,
     )

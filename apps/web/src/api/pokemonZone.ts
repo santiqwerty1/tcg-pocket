@@ -78,9 +78,14 @@ export const pokemonZonePreviewSchema = z.object({
     ),
     unchanged: z.number(),
     kept: z.array(
-      z.object({ expansionId: z.string(), value: z.number(), game: z.number(), nameEs: z.string().nullable() }),
+      z.object({
+        expansionId: z.string(),
+        value: z.number(),
+        game: z.number(),
+        editedAt: z.string(),
+        nameEs: z.string().nullable(),
+      }),
     ),
-    editedAt: z.string().nullable(),
   }),
   hourglasses: hourglassesUpdateSchema.extend({ editedAt: z.string().nullable() }).nullable(),
   coupons: z.array(promoCouponSchema),

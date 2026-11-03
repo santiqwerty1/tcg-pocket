@@ -2,7 +2,9 @@
  * What an import writes to the settings of Sobres: the pack points saved per expansion (`packPoints`, S-002) and the
  * pack hourglasses in stock (`hourglasses`, Fase 14: one hour of a pack each, 12 a pack). Both are the same thing the
  * game counts, so the import replaces them — except a value Santi changed by hand after pokemon-zone read the game
- * (review of pz/import): that one is newer than the import's, so it stays, and the import says so.
+ * (review of pz/import): that one is newer than the import's, so it stays, and the import says so. When each one was
+ * changed by hand is kept apart (`HandEdits`), per expansion for the points (Codex on #170: saving one expansion never
+ * dates the others).
  */
 import type { PokemonZoneSnapshot } from './payload.js'
 
@@ -21,6 +23,8 @@ export interface PackPointsKept {
   expansionId: string
   value: number
   game: number
+  /** When its points were changed by hand (ISO), after the read. */
+  editedAt: string
 }
 
 export interface PackPointsUpdate {
@@ -45,13 +49,13 @@ const pointsOf = (points: Readonly<Record<string, number>>, key: string): number
 
 /**
  * The `packPoints` setting after an import. Expansions the game does not list keep what they have (nothing says they
- * changed); 0 is not stored, as the settings screen does. Expansions in `handEdited` (changed by hand after the read)
- * keep their points.
+ * changed); 0 is not stored, as the settings screen does. Expansions in `handEdited` (changed by hand after the read,
+ * with when: `handEditedAfter`) keep their points.
  */
 export function packPointsUpdate(
   current: Readonly<Record<string, number>>,
   snapshot: Pick<PokemonZoneSnapshot, 'packPoints'>,
-  handEdited: ReadonlySet<string> = new Set(),
+  handEdited: Readonly<Record<string, string>> = {},
 ): PackPointsUpdate {
   const next: Record<string, number> = { ...current }
   const game: Record<string, number> = { ...current }
@@ -67,8 +71,9 @@ export function packPointsUpdate(
       unchanged += 1
       continue
     }
-    if (handEdited.has(expansionId)) {
-      kept.push({ expansionId, value: before, game: after })
+    const editedAt = Object.hasOwn(handEdited, expansionId) ? handEdited[expansionId] : undefined
+    if (editedAt !== undefined) {
+      kept.push({ expansionId, value: before, game: after, editedAt })
       continue
     }
     if (after > 0) next[expansionId] = after
@@ -79,21 +84,72 @@ export function packPointsUpdate(
 }
 
 /**
- * The expansions whose points were changed by hand after the read: the setting was written after it (`editedAfter`)
- * and differs, there, from what the last import recorded (`applied`; with none, every expansion with points).
+ * When Santi last changed each value by hand in Sobres → Ajustes (ISO times; Codex on #170): the points per expansion
+ * (a save gives its time only to the expansions whose points it changed), and the pack hourglasses. What an import
+ * writes is not a hand edit. A value saved by hand before these times were kept has none: it counts as older than any
+ * read.
  */
-export function handEditedPoints(
-  current: Readonly<Record<string, number>>,
-  applied: Readonly<Record<string, number>> | undefined,
-  editedAfter: boolean,
-): Set<string> {
-  const edited = new Set<string>()
-  if (!editedAfter) return edited
-  for (const key of new Set([...Object.keys(current), ...Object.keys(applied ?? {})])) {
-    if (applied === undefined ? pointsOf(current, key) > 0 : pointsOf(current, key) !== pointsOf(applied, key))
-      edited.add(key)
+export interface HandEdits {
+  packPoints: Record<string, string>
+  hourglasses: string | null
+}
+
+const isTime = (value: unknown): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value))
+
+/** The stored `HandEdits`, leniently: what is not a time is left out. */
+export function parseHandEdits(value: unknown): HandEdits {
+  const record = (item: unknown) =>
+    typeof item === 'object' && item !== null && !Array.isArray(item) ? (item as Record<string, unknown>) : null
+  const stored = record(value)
+  const points = record(stored?.packPoints)
+  const hourglasses = stored?.hourglasses
+  return {
+    packPoints: Object.fromEntries(
+      Object.entries(points ?? {}).filter((entry): entry is [string, string] => isTime(entry[1])),
+    ),
+    hourglasses: isTime(hourglasses) ? hourglasses : null,
   }
-  return edited
+}
+
+/** After the points are saved by hand at `at`: the expansions whose points changed take that time, the rest keep theirs. */
+export function recordPointsEdit(
+  edits: HandEdits,
+  before: Readonly<Record<string, number>>,
+  after: Readonly<Record<string, number>>,
+  at: Date,
+): HandEdits {
+  const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
+    (key) => pointsOf(before, key) !== pointsOf(after, key),
+  )
+  if (changed.length === 0) return edits
+  const time = at.toISOString()
+  return {
+    ...edits,
+    packPoints: Object.fromEntries([
+      ...Object.entries(edits.packPoints),
+      ...changed.map((key): [string, string] => [key, time]),
+    ]),
+  }
+}
+
+/** After the pack hourglasses are saved by hand at `at` (a save that does not change them is not an edit). */
+export function recordHourglassesEdit(edits: HandEdits, before: number, after: number, at: Date): HandEdits {
+  return before === after ? edits : { ...edits, hourglasses: at.toISOString() }
+}
+
+/**
+ * What was changed by hand after pokemon-zone read the game (`readAt`, ms): each expansion by its own time, so a later
+ * save of another expansion does not make an older one newer than the read.
+ */
+export function handEditedAfter(
+  edits: HandEdits,
+  readAt: number,
+): { packPoints: Record<string, string>; hourglasses: string | null } {
+  const after = (time: string) => Date.parse(time) > readAt
+  return {
+    packPoints: Object.fromEntries(Object.entries(edits.packPoints).filter(([, time]) => after(time))),
+    hourglasses: edits.hourglasses !== null && after(edits.hourglasses) ? edits.hourglasses : null,
+  }
 }
 
 export interface HourglassesUpdate {

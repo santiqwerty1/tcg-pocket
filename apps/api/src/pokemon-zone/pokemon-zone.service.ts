@@ -16,7 +16,7 @@ import {
   type GameBattles,
   gameBattles,
   type HourglassesUpdate,
-  handEditedPoints,
+  handEditedAfter,
   hourglassesUpdate,
   type LoggedComparison,
   loggedComparison,
@@ -39,16 +39,18 @@ import { CatalogService } from '../catalog/catalog.service.js'
 import { ENV, type Env } from '../config/env.js'
 import type { PokemonZoneImport, Prisma } from '../generated/prisma/client.js'
 import { idToString } from '../http/ids.js'
-import { ADVISORY_LOCKS } from '../prisma/advisory-locks.js'
 import { isLockTimeout, isTransactionTimeout } from '../prisma/lock-errors.js'
 import { PrismaService } from '../prisma/prisma.service.js'
+import {
+  hourglassesOf,
+  hourglassesSetting,
+  lockPackSettings,
+  POKEMON_ZONE_LOCK,
+  packPointsOf,
+  packPointsSetting,
+  readHandEdits,
+} from './pack-settings.js'
 
-const IMPORT_LOCK = ADVISORY_LOCKS.pokemonZoneImport
-/**
- * How long a save waits for the lock (a restore or the monthly drill holds it up to their 120 s): past it, `503
- * pokemon_zone_busy`. Tests lower it.
- */
-export const POKEMON_ZONE_LOCK = { waitMs: 30_000 }
 /** Room for the save itself once the lock is taken. */
 const LOCKED_WORK_MS = 15_000
 /** Rows read to find the newest one that parses. */
@@ -85,10 +87,6 @@ function checkedSnapshot(payload: PokemonZonePayload, now: Date): PokemonZoneSna
   return snapshot
 }
 
-/** The settings an import writes (their bounds are packs.service.ts'). */
-const packPointsSetting = z.record(z.string(), z.number().int().min(0).max(1_000_000))
-const hourglassesSetting = z.number().int().min(0).max(100_000)
-
 /**
  * What an import applied to the settings, as `pokemon_zone_imports.applied` keeps it: the game's values (also where a
  * value changed by hand stayed, so that one still reads as changed by hand).
@@ -120,10 +118,8 @@ export interface PokemonZonePreview {
   packPoints: {
     changes: PackPointsChangeView[]
     unchanged: number
-    /** Review of pz/import: expansions changed by hand after the read: their points stay. */
+    /** Review of pz/import: expansions changed by hand after the read (each with its own `editedAt`): they stay. */
     kept: (PackPointsKept & { nameEs: string | null })[]
-    /** When the setting was last written (ISO), when something is kept. */
-    editedAt: string | null
   }
   /** With `kept`, changed by hand after the read (`editedAt`): the value stays. */
   hourglasses: (HourglassesUpdate & { editedAt: string | null }) | null
@@ -251,10 +247,9 @@ export class PokemonZoneService {
         async (tx) => {
           // Review of pz/import: a restore (or the monthly drill) can hold the lock for a while; past this wait the
           // answer is a 503, never Prisma's 5 s and a 500.
-          await tx.$executeRaw`SELECT set_config('lock_timeout', ${`${POKEMON_ZONE_LOCK.waitMs}ms`}, true)`
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${IMPORT_LOCK}::bigint)`
-          // A manual edit of these settings (PUT /api/settings) that commits in between is read, not overwritten: the
-          // rows stay locked until this transaction ends.
+          await lockPackSettings(tx)
+          // A save of these settings by hand (PUT /api/settings) takes the same lock, with the time it records (Codex
+          // on #170): it is read whole or not at all, never overwritten. The rows stay locked too.
           await tx.$queryRaw`SELECT key FROM app_settings WHERE key IN ('packPoints', 'hourglasses') FOR UPDATE`
           return this.store(tx, snapshot, account, sha256, syncedAt)
         },
@@ -468,14 +463,8 @@ export class PokemonZoneService {
         changes: points.changes.map((change) => ({ ...change, nameEs: nameEs(change.expansionId) })),
         unchanged: points.unchanged,
         kept: points.kept.map((item) => ({ ...item, nameEs: nameEs(item.expansionId) })),
-        editedAt: points.kept.length > 0 ? (settings.editedAt.packPoints?.toISOString() ?? null) : null,
       },
-      hourglasses: settings.hourglasses
-        ? {
-            ...settings.hourglasses,
-            editedAt: settings.hourglasses.kept ? (settings.editedAt.hourglasses?.toISOString() ?? null) : null,
-          }
-        : null,
+      hourglasses: settings.hourglasses,
       coupons: promoCoupons(snapshot, new Date()),
       battles: gameBattles(snapshot),
       totals: snapshot.totals,
@@ -541,47 +530,24 @@ export class PokemonZoneService {
   private async currentSettings(db: Reader): Promise<{ packPoints: Record<string, number>; hourglasses: number }> {
     const rows = await db.appSetting.findMany({ where: { key: { in: ['packPoints', 'hourglasses'] } } })
     const value = (key: string) => rows.find((row) => row.key === key)?.value
-    const points = packPointsSetting.safeParse(value('packPoints'))
-    const hourglasses = hourglassesSetting.safeParse(value('hourglasses'))
-    return { packPoints: points.success ? points.data : {}, hourglasses: hourglasses.success ? hourglasses.data : 0 }
+    return { packPoints: packPointsOf(value('packPoints')), hourglasses: hourglassesOf(value('hourglasses')) }
   }
 
   /**
-   * What the import does to the settings (review of pz/import): a setting written after pokemon-zone read the game
-   * (`app_settings.updated_at`) that differs from what the latest import applied was changed by hand, later than the
-   * game's numbers: it stays — per expansion for the points.
+   * What the import does to the settings (review of pz/import, Codex on #170): what was changed by hand after
+   * pokemon-zone read the game is newer than the game's numbers, so it stays. When is kept per expansion for the points
+   * (pack-settings.ts: a save by hand dates only what it changed), so a save of one expansion never keeps another one.
    */
   private async settingsPlan(
     db: Reader,
     snapshot: PokemonZoneSnapshot,
-  ): Promise<{
-    points: PackPointsUpdate
-    hourglasses: HourglassesUpdate | null
-    editedAt: { packPoints: Date | null; hourglasses: Date | null }
-  }> {
-    const [rows, current, latest] = await Promise.all([
-      db.appSetting.findMany({
-        where: { key: { in: ['packPoints', 'hourglasses'] } },
-        select: { key: true, updatedAt: true },
-      }),
-      this.currentSettings(db),
-      this.latest(db),
-    ])
-    const read = Date.parse(snapshot.syncedAt)
-    const editedAt = (key: string) => rows.find((row) => row.key === key)?.updatedAt ?? null
-    const after = (key: string) => (editedAt(key)?.getTime() ?? Number.NEGATIVE_INFINITY) > read
-    const applied = latest?.applied
-    const points = packPointsUpdate(
-      current.packPoints,
-      snapshot,
-      handEditedPoints(current.packPoints, applied?.packPoints, after('packPoints')),
-    )
-    const hourglassesByHand =
-      after('hourglasses') && (applied?.hourglasses === undefined || current.hourglasses !== applied.hourglasses)
+  ): Promise<{ points: PackPointsUpdate; hourglasses: (HourglassesUpdate & { editedAt: string | null }) | null }> {
+    const [current, edits] = await Promise.all([this.currentSettings(db), readHandEdits(db)])
+    const byHand = handEditedAfter(edits, Date.parse(snapshot.syncedAt))
+    const hourglasses = hourglassesUpdate(current.hourglasses, snapshot, byHand.hourglasses !== null)
     return {
-      points,
-      hourglasses: hourglassesUpdate(current.hourglasses, snapshot, hourglassesByHand),
-      editedAt: { packPoints: editedAt('packPoints'), hourglasses: editedAt('hourglasses') },
+      points: packPointsUpdate(current.packPoints, snapshot, byHand.packPoints),
+      hourglasses: hourglasses ? { ...hourglasses, editedAt: hourglasses.kept ? byHand.hourglasses : null } : null,
     }
   }
 

@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
-import { POKEMON_ZONE_LOCK, PokemonZoneService } from '../src/pokemon-zone/pokemon-zone.service.js'
+import { HAND_EDITS_KEY, POKEMON_ZONE_LOCK } from '../src/pokemon-zone/pack-settings.js'
+import { PokemonZoneService } from '../src/pokemon-zone/pokemon-zone.service.js'
 import { ADVISORY_LOCKS } from '../src/prisma/advisory-locks.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
@@ -99,10 +100,24 @@ describe('pokemon-zone (e2e)', () => {
     await test.close()
   })
 
-  /** Dates the two settings an import writes `hoursAgo` (as if written then: before or after a read). */
-  const settingsWritten = (hoursAgo: number) =>
-    test.prisma
-      .$executeRaw`UPDATE app_settings SET updated_at = now() - make_interval(hours => ${hoursAgo}) WHERE key IN ('packPoints', 'hourglasses')`
+  /**
+   * Dates the hand edits of the two settings an import writes `msAgo` (as if saved by hand then: before or after a
+   * read): all of them, or only the expansions in `only` (the hourglasses' too only without `only`).
+   */
+  const handEditedAgo = async (msAgo: number, only?: string[]) => {
+    const row = await test.prisma.appSetting.findUnique({ where: { key: HAND_EDITS_KEY } })
+    const edits = row?.value as { packPoints: Record<string, string>; hourglasses: string | null } | undefined
+    if (!edits) return
+    const at = ago(msAgo)
+    const value = {
+      packPoints: Object.fromEntries(
+        Object.entries(edits.packPoints).map(([key, time]) => [key, !only || only.includes(key) ? at : time]),
+      ),
+      hourglasses: edits.hourglasses !== null && !only ? at : edits.hourglasses,
+    }
+    await test.prisma.appSetting.update({ where: { key: HAND_EDITS_KEY }, data: { value } })
+  }
+  const settingsWritten = (hoursAgo: number) => handEditedAgo(hoursAgo * HOUR)
 
   const get = (path: string) => test.http().get(path).set('Cookie', cookie)
   const post = (path: string) => test.http().post(path).set('Cookie', cookie)
@@ -229,13 +244,17 @@ describe('pokemon-zone (e2e)', () => {
     expect((await post('/api/pokemon-zone/preview').send(first)).body.duplicate).toBe(true)
 
     // Review of pz/import: changed by hand after the read, the value stays — per setting and per expansion — and the
-    // preview says so; what does not differ from the last import is not a hand edit.
+    // preview says so, with when; an expansion the save did not change is not a hand edit (Codex on #170).
     expect((await put('/api/settings/hourglasses').send({ value: 6 })).status).toBe(200)
     const points = (await get('/api/settings')).body.packPoints as Record<string, number>
     expect((await put('/api/settings/packPoints').send({ value: { ...points, A1: 100 } })).status).toBe(200)
+    // When they were changed by hand is the server's: Sobres does not get it.
+    expect((await get('/api/settings')).body).not.toHaveProperty(HAND_EDITS_KEY)
     const kept = (await post('/api/pokemon-zone/preview').send(first)).body
     expect(kept.hourglasses).toMatchObject({ before: 6, after: 6, game: 18, kept: true, editedAt: expect.any(String) })
-    expect(kept.packPoints.kept).toEqual([{ expansionId: 'A1', value: 100, game: 5, nameEs: 'Genes Formidables' }])
+    expect(kept.packPoints.kept).toEqual([
+      { expansionId: 'A1', value: 100, game: 5, editedAt: expect.any(String), nameEs: 'Genes Formidables' },
+    ])
     expect(kept.packPoints.changes).toEqual([])
     expect((await post('/api/pokemon-zone/imports').send(first)).body.applied).toMatchObject({
       packPointsKept: 1,
@@ -483,6 +502,12 @@ describe('pokemon-zone (e2e)', () => {
         code: 'pokemon_zone_busy',
         message: expect.stringMatching(/restauración/),
       })
+      // A save by hand of the same settings waits for the same lock (Codex on #170), and answers the same way.
+      const save = await put('/api/settings/hourglasses').send({ value: 9 })
+      expect(save.status).toBe(503)
+      expect(save.body.error).toMatchObject({ code: 'settings_busy', message: expect.stringMatching(/restauración/) })
+      // Other settings do not wait for it.
+      expect((await put('/api/settings/packsPerDay').send({ value: 2 })).status).toBe(200)
     } finally {
       release()
       await restore
@@ -493,7 +518,7 @@ describe('pokemon-zone (e2e)', () => {
   it('review of pz/import: the first import ever, saves at once — the lock alone keeps the newest read', async () => {
     // No import and no settings rows: nothing to lock with FOR UPDATE, only the advisory lock serializes.
     await test.prisma.$executeRawUnsafe('TRUNCATE pokemon_zone_imports RESTART IDENTITY')
-    await test.prisma.appSetting.deleteMany({ where: { key: { in: ['packPoints', 'hourglasses'] } } })
+    await test.prisma.appSetting.deleteMany({ where: { key: { in: ['packPoints', 'hourglasses', HAND_EDITS_KEY] } } })
     const reads = Array.from({ length: 6 }, (_, i) => {
       const next = later(ago((40 - i) * 60 * 1000), {})
       first(next.mine.resourceData.packPowerChargers).value = 10 + i
@@ -503,5 +528,40 @@ describe('pokemon-zone (e2e)', () => {
     for (const answer of answers) expect(answer.status).toBe(201)
     expect((await get('/api/settings')).body.hourglasses).toBe(15)
     expect((await get('/api/pokemon-zone')).body.settings.hourglasses).toBe('imported')
+  })
+
+  it('Codex on #170: each expansion is kept by the time of its own hand edit, not by the latest save of any', async () => {
+    const reading = (syncedAt: string, points: Record<string, number>) => {
+      const next = later(syncedAt, {})
+      for (const item of next.mine.resourceData.packCeilPoints as { key: string; value: unknown }[])
+        if (Object.hasOwn(points, item.key)) item.value = points[item.key]
+      return next
+    }
+    const points = async () => (await get('/api/settings')).body.packPoints as Record<string, number>
+    // An import sets A1 and A2 to 100 (a read 30 minutes ago, the newest so far).
+    expect(
+      (await post('/api/pokemon-zone/imports').send(reading(ago(30 * 60 * 1000), { A1: 100, A2: 100 }))).status,
+    ).toBe(201)
+    expect(await points()).toMatchObject({ A1: 100, A2: 100 })
+    // A1 changed by hand to 200, 20 minutes ago ("yesterday")…
+    expect((await put('/api/settings/packPoints').send({ value: { ...(await points()), A1: 200 } })).status).toBe(200)
+    await handEditedAgo(20 * 60 * 1000, ['A1'])
+    // …the game read 10 minutes ago ("today at 06:00") says A1 = 250…
+    const today = reading(ago(10 * 60 * 1000), { A1: 250, A2: 100 })
+    // …and only A2 changed by hand now ("at 09:00").
+    expect((await put('/api/settings/packPoints').send({ value: { ...(await points()), A2: 150 } })).status).toBe(200)
+
+    const preview = (await post('/api/pokemon-zone/preview').send(today)).body
+    expect(preview.packPoints.changes).toEqual([
+      { expansionId: 'A1', before: 200, after: 250, nameEs: 'Genes Formidables' },
+    ])
+    expect(preview.packPoints.kept).toEqual([
+      { expansionId: 'A2', value: 150, game: 100, editedAt: expect.any(String), nameEs: expect.any(String) },
+    ])
+    const saved = await post('/api/pokemon-zone/imports').send(today)
+    expect(saved.status).toBe(201)
+    expect(saved.body.applied).toMatchObject({ packPoints: 1, packPointsKept: 1 })
+    // The game's A1 is newer than its hand edit; A2's hand edit is newer than the read.
+    expect(await points()).toMatchObject({ A1: 250, A2: 150 })
   })
 })
