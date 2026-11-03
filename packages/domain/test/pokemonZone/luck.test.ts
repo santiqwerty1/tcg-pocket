@@ -210,6 +210,19 @@ describe('pz/luck: desde la primera importación', () => {
     expect(three?.rare?.observed).toBe(14)
   })
 
+  it('a span of Wonder Picks only: they count with the mix of the whole account', () => {
+    const picks = day(start, '2026-11-15T12:00:00Z', { wonderPicks: 3, rarities: { C: 2, U: 1 } })
+    const luck = pokemonZoneLuck(picks, start, index)
+    // 3 Wonder Picks: 2 with known odds, 1 (a tenth, rounded up) of unknown origin.
+    expect(luck?.sources).toMatchObject({ wonderPicks: 3, pickCards: 2, unknownPicks: 1, restCards: 0 })
+    const lifetime = pokemonZoneLuck(start, null, index, lifetimeSources([start]))
+    // The share is the account's: its packs' odds per card (its lifetime has no Wonder Pick with known odds).
+    expect(lifetime?.sources.pickCards).toBe(0)
+    expect(luck?.rare?.games).toBe(2)
+    expect(luck?.rare?.expectedShare).toBeGreaterThan(4)
+    expect(luck?.rare?.expectedShare).toBeCloseTo(lifetime?.rare?.expectedShare ?? -1, 9)
+  })
+
   it('a span with a guaranteed ★★ pack: its card is of unknown origin, not luck', () => {
     const opened = day(start, '2026-11-15T12:00:00Z', {
       packs: [['B4a', 1]],
@@ -240,6 +253,12 @@ describe('pz/luck: desde la primera importación', () => {
     // The special share of the Wonder Picks counts as unknown.
     expect(countedSpans([span(0, 1, 0, 30)])).toEqual([])
     expect(countedSpans([span(0, 16, 0, 20)])).toHaveLength(1)
+    // The order is what makes the set: C (0/1) and A (2/16) fit, then B (1/4) does not (3 > ½·√21); in another order
+    // (B first, say by what it got) B and C would fit and A would not.
+    const a = span(2, 16, 1)
+    const b = span(1, 4, 9)
+    const c = span(0, 1, 5)
+    expect(countedSpans([a, b, c])).toEqual([a, c])
   })
 
   it('the bounds of several spans: each span’s unknown cards hold at most what that span got', () => {
