@@ -517,6 +517,13 @@ describe('pokemon-zone (e2e)', () => {
       const save = await put('/api/settings/hourglasses').send({ value: 9 })
       expect(save.status).toBe(503)
       expect(save.body.error).toMatchObject({ code: 'settings_busy', message: expect.stringMatching(/restauración/) })
+      const patch = await test
+        .http()
+        .patch('/api/settings/packPoints')
+        .set('Cookie', cookie)
+        .send({ changes: { A1: 1 } })
+      expect(patch.status).toBe(503)
+      expect(patch.body.error.code).toBe('settings_busy')
       // Other settings do not wait for it.
       expect((await put('/api/settings/packsPerDay').send({ value: 2 })).status).toBe(200)
     } finally {
@@ -582,5 +589,88 @@ describe('pokemon-zone (e2e)', () => {
     expect(saved.body.applied).toMatchObject({ packPoints: 1, packPointsKept: 1 })
     // The game's A1 is newer than its hand edit; A2's hand edit is newer than the read.
     expect(await points()).toMatchObject({ A1: 250, A2: 150 })
+  })
+
+  it('review of #170: a stale screen saves its one row, never the import’s expansions with what it still shows', async () => {
+    const reading = (syncedAt: string, points: Record<string, number>) => {
+      const next = later(syncedAt, {})
+      for (const item of next.mine.resourceData.packCeilPoints as { key: string; value: unknown }[])
+        if (Object.hasOwn(points, item.key)) item.value = points[item.key]
+      return next
+    }
+    const points = async () => (await get('/api/settings')).body.packPoints as Record<string, number>
+    const edits = async () =>
+      ((await test.prisma.appSetting.findUnique({ where: { key: HAND_EDITS_KEY } }))?.value ?? {}) as {
+        packPoints: Record<string, string>
+      }
+    // A tab on the PC shows the points as they are now (A1 250, A2 150 from the test before; A3 70 and B1 10)…
+    const onThePc = await points()
+    expect(onThePc).toMatchObject({ A1: 250, A2: 150, A3: 70, B1: 10 })
+    const editsBefore = await edits()
+    // …then an import from the phone lands: the game read 5 minutes ago has A1 300 and A3 80.
+    const fromThePhone = await post('/api/pokemon-zone/imports').send(
+      reading(ago(5 * 60 * 1000), { A1: 300, A2: 150, A3: 80 }),
+    )
+    expect(fromThePhone.status).toBe(201)
+    // The PC tab, not refreshed, changes B1 only: it sends that row, and the server merges it.
+    const saved = await test
+      .http()
+      .patch('/api/settings/packPoints')
+      .set('Cookie', cookie)
+      .send({ changes: { B1: 12 } })
+    expect(saved.status).toBe(200)
+    expect(saved.body.value).toMatchObject({ A1: 300, A2: 150, A3: 80, B1: 12 })
+    expect(await points()).toMatchObject({ A1: 300, A2: 150, A3: 80, B1: 12 })
+    // Only B1 is a hand edit now; A1 keeps its old time and A3 has none.
+    const editsAfter = await edits()
+    expect(editsAfter.packPoints.A1).toBe(editsBefore.packPoints.A1)
+    expect(editsAfter.packPoints).not.toHaveProperty('A3')
+    expect(Date.parse(editsAfter.packPoints.B1 ?? '')).toBeGreaterThan(Date.parse(fromThePhone.body.import.syncedAt))
+    // So the next read of the game updates A1 and A3, and keeps only B1, the row really changed by hand.
+    const next = reading(ago(2 * 60 * 1000), { A1: 320, A2: 150, A3: 90 })
+    const preview = (await post('/api/pokemon-zone/preview').send(next)).body
+    expect(preview.packPoints.changes).toEqual([
+      { expansionId: 'A1', before: 300, after: 320, nameEs: 'Genes Formidables' },
+      { expansionId: 'A3', before: 80, after: 90, nameEs: expect.any(String) },
+    ])
+    expect(preview.packPoints.kept).toEqual([
+      { expansionId: 'B1', value: 12, game: 10, editedAt: editsAfter.packPoints.B1, nameEs: expect.any(String) },
+    ])
+    // 0 removes an expansion; what is not an expansion's points is refused whole, and nothing is written.
+    const remove = await test
+      .http()
+      .patch('/api/settings/packPoints')
+      .set('Cookie', cookie)
+      .send({ changes: { B1: 0 } })
+    expect(remove.body.value).not.toHaveProperty('B1')
+    for (const body of [
+      { changes: {} },
+      { changes: { A1: -1 } },
+      { changes: { A1: 1.5 } },
+      { changes: { A1: 1_000_001 } },
+      { changes: { 'A 1': 1 } },
+      { value: { A1: 1 } },
+    ]) {
+      const refused = await test.http().patch('/api/settings/packPoints').set('Cookie', cookie).send(body)
+      expect(refused.status, JSON.stringify(body)).toBe(400)
+    }
+    const proto = await test
+      .http()
+      .patch('/api/settings/packPoints')
+      .set('Cookie', cookie)
+      .set('Content-Type', 'application/json')
+      .send('{"changes":{"__proto__":1}}')
+    expect(proto.status).toBe(400)
+    expect(await points()).toMatchObject({ A1: 300, A2: 150, A3: 80 })
+    expect(await points()).not.toHaveProperty('B1')
+    // Without the session, nothing.
+    expect(
+      (
+        await test
+          .http()
+          .patch('/api/settings/packPoints')
+          .send({ changes: { A1: 1 } })
+      ).status,
+    ).toBe(401)
   })
 })

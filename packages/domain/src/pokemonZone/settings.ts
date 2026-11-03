@@ -111,6 +111,20 @@ export function parseHandEdits(value: unknown): HandEdits {
   }
 }
 
+/**
+ * The points after a save by hand of only some expansions (review of #170): each one in `changes` takes its value (0
+ * removes it, as the settings screen stores it); every other expansion keeps what is saved now. So a screen opened
+ * before an import never writes the import's expansions back with what it still shows.
+ */
+export function patchPackPoints(
+  current: Readonly<Record<string, number>>,
+  changes: Readonly<Record<string, number>>,
+): Record<string, number> {
+  const kept = Object.entries(current).filter(([key]) => !Object.hasOwn(changes, key))
+  const set = Object.entries(changes).filter(([, value]) => value > 0)
+  return Object.fromEntries([...kept, ...set])
+}
+
 /** After the points are saved by hand at `at`: the expansions whose points changed take that time, the rest keep theirs. */
 export function recordPointsEdit(
   edits: HandEdits,

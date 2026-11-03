@@ -16,6 +16,7 @@ import {
   packPointsUpdate,
   parseHandEdits,
   parsePokemonZone,
+  patchPackPoints,
   pokemonZoneLuck,
   pokemonZonePack,
   pokemonZonePayloadSchema,
@@ -363,6 +364,20 @@ describe('pokemon-zone: the settings of Sobres', () => {
       packPoints: {},
       hourglasses: '2026-11-02T03:00:00Z',
     })
+  })
+
+  it('review of #170: a save of some expansions keeps the others as saved, and dates only what it changed', () => {
+    // Saved now (an import wrote A1 100 and A2 200 after a stale screen read A1 10 and A2 20).
+    const saved = { A1: 100, A2: 200, B4b: 40 }
+    // That screen edits A3 only.
+    const next = patchPackPoints(saved, { A3: 5 })
+    expect(next).toEqual({ A1: 100, A2: 200, B4b: 40, A3: 5 })
+    // 0 removes an expansion; the same value is no change.
+    expect(patchPackPoints(saved, { B4b: 0, A2: 200 })).toEqual({ A1: 100, A2: 200 })
+    expect(patchPackPoints(saved, {})).toEqual(saved)
+    const at = new Date('2026-11-03T09:00:00Z')
+    const edits = recordPointsEdit(parseHandEdits(undefined), saved, next, at)
+    expect(edits.packPoints).toEqual({ A3: at.toISOString() })
   })
 
   it('two point settings are the same when 0 and absent are', () => {

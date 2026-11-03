@@ -1,7 +1,7 @@
 import { Blob as NodeBlob } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import { gzipSync } from 'node:zlib'
-import { pokemonZonePayloadSchema } from '@tcg/domain'
+import { type PokemonZonePayload, parsePokemonZone, pokemonZonePayloadSchema } from '@tcg/domain'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   bookmarkletCode,
@@ -149,13 +149,34 @@ describe('the bookmarklet', () => {
 
   it('review of #170: without stats (never synced on pokemon-zone), it says so in Spanish', async () => {
     const expected = 'TCG Pocket: pokemon-zone no devolvió tus estadísticas; tocá Sync en tu perfil y probá de nuevo.'
-    for (const data of [null, {}, { ...stats, syncedAt: undefined }]) {
+    // Without the player's read date either (the server's fallback), stats without a date are not enough.
+    const undated = { ...mine, player: { ...mine.player, lastUpdatedAt: undefined } }
+    for (const [player, data] of [
+      [mine, null],
+      [undated, {}],
+      [undated, { ...stats, syncedAt: undefined }],
+    ] as const) {
       const empty = await run('www.pokemon-zone.com', (url) =>
-        url === '/api/players/mine/' ? Response.json({ data: mine }) : Response.json({ data }),
+        url === '/api/players/mine/' ? Response.json({ data: player }) : Response.json({ data }),
       )
       expect(empty.alert).toHaveBeenCalledWith(expected)
       expect(empty.location.href).toBe('')
     }
+  })
+
+  it('review of #170: stats without their date go with the player’s, as the server takes them', async () => {
+    const { location, alert } = await run('www.pokemon-zone.com', (url) =>
+      url === '/api/players/mine/'
+        ? Response.json({ data: mine })
+        : Response.json({ data: { ...stats, syncedAt: undefined } }),
+    )
+    expect(alert).not.toHaveBeenCalled()
+    const payload = await decodeIncoming(location.href.split('#')[1] ?? '')
+    const parsed = pokemonZonePayloadSchema.safeParse(payload)
+    expect(parsed.success).toBe(true)
+    expect(parsePokemonZone(parsed.data as PokemonZonePayload).syncedAt).toBe(
+      new Date(mine.player.lastUpdatedAt).toISOString(),
+    )
   })
 })
 

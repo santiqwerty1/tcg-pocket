@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fakeApi } from '@/test/fakeApi'
 import { EMPTY_SUMMARY } from '@/test/pokemonZone'
 import { pokemonZoneKey } from './pokemonZoneKey'
-import { useSetSetting } from './settings'
+import { settingsKeys, usePatchPackPoints, useSetSetting } from './settings'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -45,5 +45,19 @@ describe('saving a setting', () => {
     const { result, stale } = setup()
     await result.current.mutateAsync({ key: 'ui', value: { thumbnails: true } })
     expect(stale()).toBe(false)
+  })
+
+  it('review of #170: saving the points of one expansion marks the summary and the settings stale too', async () => {
+    fakeApi({ 'PATCH /api/settings/packPoints': { key: 'packPoints', value: { A1: 6 } } })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    client.setQueryData(pokemonZoneKey, EMPTY_SUMMARY)
+    client.setQueryData(settingsKeys.all, { packPoints: { A1: 5 } })
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    )
+    const { result } = renderHook(() => usePatchPackPoints(), { wrapper })
+    await result.current.mutateAsync({ A1: 6 })
+    expect(client.getQueryState(pokemonZoneKey)?.isInvalidated).toBe(true)
+    expect(client.getQueryState(settingsKeys.all)?.isInvalidated).toBe(true)
   })
 })
