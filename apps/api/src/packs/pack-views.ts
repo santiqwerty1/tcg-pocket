@@ -1,5 +1,13 @@
 /** Response shapes of the packs API (docs/API.md «Sobres»). Probabilities in percent (0–100). */
-import type { CollectionGoal, ExclusiveVersion, ModelDifferenceReason, PackModel, Rarity } from '@tcg/domain'
+import type {
+  CollectionGoal,
+  ExclusiveVersion,
+  ModelDifferenceReason,
+  PackModel,
+  Rarity,
+  StarCouponCard,
+  StarCouponTicket,
+} from '@tcg/domain'
 
 export interface PackView {
   /** "<expansionId>/<name>", e.g. "B4b/deluxepackmega". */
@@ -148,3 +156,42 @@ export interface RecommendationView {
 export type { Rarity }
 
 export type DeckTarget = 'saved' | 'tournament'
+
+/** Cupón ★★ (3/11/2026): one pack on sale with its ☆☆ pool. Shares in percent (0–100), with their counts. */
+export interface StarCouponPackView extends PackRef {
+  /** ☆☆ cards of the pack, each one equally likely. */
+  size: number
+  forDecks: number
+  newEditions: number
+  belowGoal: number
+  chanceDecks: number
+  chanceNew: number
+  chanceBelowGoal: number
+  cards: StarCouponCard[]
+  limited: { until: string | null; daysLeft: number | null } | null
+}
+
+export interface StarCouponView {
+  /** The rarity the coupon guarantees (☆☆, «★★» in the game). */
+  rarity: Rarity
+  /** The date the availability used (owner's time zone). */
+  today: string
+  deckTarget: DeckTarget
+  /** «Copias por edición» used for «below the goal». */
+  goalCopies: number
+  /** The deck goals of Sobres (priority > 0), with the list aimed at. */
+  goals: { id: string; name: string; priority: number; target: DeckTarget }[]
+  /** When the collection was last brought up to date, ISO; null = never. */
+  lastImportAt: string | null
+  /** Packs on sale with ☆☆ cards, best first. */
+  packs: StarCouponPackView[]
+  /** Pack ids tied at the top; [] when no pack gives anything useful. */
+  best: string[]
+  /**
+   * The coupons for a guaranteed ★★ pack the latest pokemon-zone import counts; null without imports, `count` null when
+   * that import does not know them (bookmarklet version 1, or saved before it sent them).
+   */
+  coupons: { importedAt: string; syncedAt: string; count: number | null } | null
+  /** The coupons the app knows, with their deadline (exclusive, UTC). */
+  known: StarCouponTicket[]
+}

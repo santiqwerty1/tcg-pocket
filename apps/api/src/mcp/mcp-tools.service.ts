@@ -83,6 +83,7 @@ import { McpLabToolsService } from './mcp-lab-tools.service.js'
 import { McpPlayToolsService } from './mcp-play-tools.service.js'
 import { ownerDateTime as ownerFullDateTime, pokemonZoneJson, safeName } from './mcp-pokemon-zone-json.js'
 import type { ReadRun, WriteRun } from './mcp-run.js'
+import { STAR_COUPON_DEFAULT_LIMIT, starCouponJson } from './mcp-star-coupon-json.js'
 import { McpWriteToolsService } from './mcp-write-tools.service.js'
 
 type Json = Record<string, unknown>
@@ -343,6 +344,14 @@ ${MCP_CHAT_INSTRUCTIONS}`
       t.packsPromo.name,
       { ...config(t.packsPromo), annotations: { ...READ_ONLY, idempotentHint: false } },
       (args) => run(t.packsPromo.name, () => this.packsPromo(args)),
+    )
+    server.registerTool(t.packsStarCoupon.name, config(t.packsStarCoupon), (args) =>
+      run(t.packsStarCoupon.name, async () =>
+        starCouponJson(
+          await this.packs.starCoupon({ deckTarget: args.deckTarget, copies: args.copies }),
+          args.limit ?? STAR_COUPON_DEFAULT_LIMIT,
+        ),
+      ),
     )
     server.registerTool(t.pokemonZoneSummary.name, config(t.pokemonZoneSummary), () =>
       run(t.pokemonZoneSummary.name, async () => pokemonZoneJson(await this.pokemonZone.summary())),

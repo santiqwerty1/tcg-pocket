@@ -6,6 +6,7 @@
  */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import {
+  type CatalogIndex,
   type CollectionGoal,
   DEFAULT_LIMITED_BOOST,
   DEFAULT_PACKS_PER_DAY,
@@ -21,16 +22,20 @@ import {
   type Rarity,
   type RarityRule,
   recommendPacks,
+  STAR_COUPON_TICKETS,
+  starCouponPlan,
 } from '@tcg/domain'
 import { z } from 'zod'
 import { CatalogService } from '../catalog/catalog.service.js'
 import { CollectionRepository } from '../collection/collection.repository.js'
+import { CollectionService } from '../collection/collection.service.js'
 import { dateOnly, todayInOwnerZone } from '../config/time-zone.js'
 import { idToString } from '../http/ids.js'
+import { PokemonZoneService } from '../pokemon-zone/pokemon-zone.service.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import type { DeckVersionView } from '../tournaments/tournament-views.js'
 import { TournamentsService } from '../tournaments/tournaments.service.js'
-import type { DeckTarget, PackRef, PackView, RarityRuleView, RecommendationView } from './pack-views.js'
+import type { DeckTarget, PackRef, PackView, RarityRuleView, RecommendationView, StarCouponView } from './pack-views.js'
 
 export interface RecommendBody {
   model?: PackModel | undefined
@@ -88,6 +93,8 @@ export class PacksService {
     private readonly prisma: PrismaService,
     private readonly collection: CollectionRepository,
     private readonly tournaments: TournamentsService,
+    private readonly collectionService: CollectionService,
+    private readonly pokemonZone: PokemonZoneService,
   ) {}
 
   /** Packs that can be opened (with a pack structure; the set-wide «everypack» of multi-pack sets is not one). */
@@ -199,10 +206,7 @@ export class PacksService {
     const playable = new Map(
       [...playableCopies(index, stock, adjustments)].map(([groupId, copies]) => [groupId, copies.playable]),
     )
-    const available = new Map(packRows.map((row) => [row.id, row.available]))
-    const limited = new Map(
-      packRows.filter((row) => row.limited).map((row) => [row.id, { until: dateOnly(row.limitedUntil) }]),
-    )
+    const { available, limited } = packSwitches(packRows)
     const ruleByRarity = new Map(rules.map((rule) => [rule.rarity, rule]))
     const result = recommendPacks({
       index,
@@ -232,16 +236,7 @@ export class PacksService {
       },
     })
 
-    const ref = (packId: string): PackRef => {
-      const pack = index.packById(packId)
-      const expansion = pack ? index.expansionById(pack.expansionId) : undefined
-      return {
-        packId,
-        nameEs: pack?.nameEs ?? packId,
-        expansionId: pack?.expansionId ?? '',
-        expansionNameEs: expansion?.nameEs ?? '',
-      }
-    }
+    const ref = (packId: string): PackRef => packRef(index, packId)
     const percent = (value: number) => value * 100
     return {
       model,
@@ -337,6 +332,65 @@ export class PacksService {
       missions: result.missions,
       planner: { packsPerDay, hourglasses },
       assumptions: ASSUMPTIONS,
+    }
+  }
+
+  /**
+   * Cupón ★★ (3/11/2026): which pack on sale to open a ★★-guaranteed coupon on, against the deck goals of Sobres (the
+   * same as the recommendation's) and the collection, and how many of those coupons the latest pokemon-zone import
+   * says there are. `deckTarget` and `copies` default to Sobres' settings, as the page shows them.
+   */
+  async starCoupon(
+    options: { deckTarget?: DeckTarget | undefined; copies?: number | undefined } = {},
+    now: Date = new Date(),
+  ): Promise<StarCouponView> {
+    const index = this.catalog.requireIndex()
+    const settings = await this.savedSettings()
+    const deckTarget = options.deckTarget ?? settings.packDeckTarget ?? 'saved'
+    const copies = options.copies ?? settings.rarityFilter?.copies ?? DEFAULT_COLLECTION_GOAL.copies
+    const today = todayInOwnerZone(now)
+    const [{ stock, adjustments }, packRows, goals, coupons, lastImportAt] = await Promise.all([
+      this.collection.loadState(),
+      this.prisma.pack.findMany({ select: { id: true, available: true, limited: true, limitedUntil: true } }),
+      this.deckGoals(deckTarget),
+      this.pokemonZone.starCoupons(),
+      this.collectionService.lastUpdatedAt(),
+    ])
+    const playable = playableCopies(index, stock, adjustments)
+    const { available, limited } = packSwitches(packRows)
+    const plan = starCouponPlan({
+      index,
+      decks: goals.map((goal) => goal.goal),
+      playable: (groupId) => playable.get(groupId)?.playable ?? 0,
+      owned: (stockCardId) => stock[stockCardId]?.amountOwned ?? 0,
+      copies,
+      available: (packId) => available.get(packId) ?? true,
+      limited: (packId) => limited.get(packId) ?? null,
+      today,
+    })
+    const percent = (value: number) => value * 100
+    return {
+      rarity: plan.rarity,
+      today,
+      deckTarget,
+      goalCopies: plan.goalCopies,
+      goals: goals.map(({ goal, name, target }) => ({ id: goal.deckId, name, priority: goal.priority, target })),
+      lastImportAt: lastImportAt?.toISOString() ?? null,
+      packs: plan.packs.map((pack) => ({
+        ...packRef(index, pack.packId),
+        size: pack.size,
+        forDecks: pack.forDecks,
+        newEditions: pack.newEditions,
+        belowGoal: pack.belowGoal,
+        chanceDecks: percent(pack.chanceDecks),
+        chanceNew: percent(pack.chanceNew),
+        chanceBelowGoal: percent(pack.chanceBelowGoal),
+        cards: pack.cards,
+        limited: pack.limited,
+      })),
+      best: plan.best,
+      coupons,
+      known: [...STAR_COUPON_TICKETS],
     }
   }
 
@@ -460,6 +514,28 @@ interface SavedSettings {
   packsPerDay?: number
   hourglasses?: number
   packMissions?: boolean
+}
+
+/** The switches of each pack (Sobres → Ajustes): «disponible», and the last day of the limited-time ones. */
+function packSwitches(rows: { id: string; available: boolean; limited: boolean; limitedUntil: Date | null }[]): {
+  available: Map<string, boolean>
+  limited: Map<string, { until: string | null }>
+} {
+  return {
+    available: new Map(rows.map((row) => [row.id, row.available])),
+    limited: new Map(rows.filter((row) => row.limited).map((row) => [row.id, { until: dateOnly(row.limitedUntil) }])),
+  }
+}
+
+function packRef(index: CatalogIndex, packId: string): PackRef {
+  const pack = index.packById(packId)
+  const expansion = pack ? index.expansionById(pack.expansionId) : undefined
+  return {
+    packId,
+    nameEs: pack?.nameEs ?? packId,
+    expansionId: pack?.expansionId ?? '',
+    expansionNameEs: expansion?.nameEs ?? '',
+  }
 }
 
 export function assertPackId(expansionId: string, name: string): string {

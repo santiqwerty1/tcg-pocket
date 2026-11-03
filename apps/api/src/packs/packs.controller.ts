@@ -1,12 +1,13 @@
-import { Body, Controller, Get, HttpCode, Module, Param, Patch, Post } from '@nestjs/common'
+import { Body, Controller, Get, HttpCode, Module, Param, Patch, Post, Query } from '@nestjs/common'
 import { RARITIES } from '@tcg/domain'
 import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
 import { CatalogModule } from '../catalog/catalog.module.js'
 import { CollectionModule } from '../collection/collection.module.js'
 import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
+import { PokemonZoneModule } from '../pokemon-zone/pokemon-zone.controller.js'
 import { TournamentsModule } from '../tournaments/tournaments.controller.js'
-import type { PackView, RarityRuleView, RecommendationView } from './pack-views.js'
+import type { PackView, RarityRuleView, RecommendationView, StarCouponView } from './pack-views.js'
 import { assertPackId, PacksService } from './packs.service.js'
 
 const collectionGoalSchema = z.object({
@@ -21,6 +22,11 @@ const recommendSchema = z.object({
   limitedBoost: z.number().min(1).max(5).optional(),
   deckTarget: z.enum(['saved', 'tournament']).optional(),
   missions: z.boolean().optional(),
+})
+/** Cupón ★★: the page's knobs (the saved ones when absent). */
+const starCouponSchema = z.object({
+  deckTarget: z.enum(['saved', 'tournament']).optional(),
+  copies: z.coerce.number().int().min(1).max(5).optional(),
 })
 const packPatchSchema = z
   .object({
@@ -57,6 +63,15 @@ export class PacksController {
     return this.packs.recommend(body)
   }
 
+  /** Cupón ★★ (3/11/2026): which pack on sale to open a ★★-guaranteed coupon on, and how many coupons there are. */
+  @Get('packs/star-coupon')
+  starCoupon(
+    @Query(new ZodValidationPipe(starCouponSchema)) query: z.infer<typeof starCouponSchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<StarCouponView> {
+    return this.packs.starCoupon(query)
+  }
+
   @Patch('packs/:expansionId/:name')
   updatePack(
     @Param('expansionId') expansionId: string,
@@ -83,7 +98,7 @@ export class PacksController {
 }
 
 @Module({
-  imports: [CatalogModule, CollectionModule, TournamentsModule],
+  imports: [CatalogModule, CollectionModule, TournamentsModule, PokemonZoneModule],
   controllers: [PacksController],
   providers: [PacksService],
   exports: [PacksService],

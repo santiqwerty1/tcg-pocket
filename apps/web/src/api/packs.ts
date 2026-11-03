@@ -1,6 +1,8 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { z } from 'zod'
 import { request } from './client'
 import {
+  type DeckTarget,
   packInfoSchema,
   packsResponseSchema,
   type RecommendBody,
@@ -9,11 +11,77 @@ import {
   recommendationSchema,
 } from './schemas'
 
+export interface StarCouponParams {
+  deckTarget: DeckTarget
+  copies: number
+}
+
 export const packKeys = {
   all: ['packs'] as const,
   list: ['packs', 'list'] as const,
   rarityRules: ['packs', 'rarity-rules'] as const,
   recommend: (body: RecommendBody) => ['packs', 'recommend', body] as const,
+  starCoupon: (params: StarCouponParams) => ['packs', 'star-coupon', params] as const,
+}
+
+const starCouponCardSchema = z.object({
+  cardId: z.string(),
+  groupId: z.string(),
+  nameEs: z.string(),
+  owned: z.number(),
+  decks: z.array(z.string()),
+  newEdition: z.boolean(),
+  belowGoal: z.boolean(),
+})
+
+const starCouponPackSchema = z.object({
+  packId: z.string(),
+  nameEs: z.string(),
+  expansionId: z.string(),
+  expansionNameEs: z.string(),
+  size: z.number(),
+  forDecks: z.number(),
+  newEditions: z.number(),
+  belowGoal: z.number(),
+  /** Percent (0–100). */
+  chanceDecks: z.number(),
+  chanceNew: z.number(),
+  chanceBelowGoal: z.number(),
+  cards: z.array(starCouponCardSchema),
+  limited: z.object({ until: z.string().nullable(), daysLeft: z.number().nullable() }).nullable(),
+})
+
+/** Cupón ★★ (3/11/2026): `GET /api/packs/star-coupon`. */
+export const starCouponSchema = z.object({
+  rarity: z.string(),
+  today: z.string(),
+  deckTarget: z.enum(['saved', 'tournament']),
+  goalCopies: z.number(),
+  goals: z.array(
+    z.object({ id: z.string(), name: z.string(), priority: z.number(), target: z.enum(['saved', 'tournament']) }),
+  ),
+  lastImportAt: z.string().nullable(),
+  packs: z.array(starCouponPackSchema),
+  best: z.array(z.string()),
+  /** The latest pokemon-zone import's count; `count` null when that import does not know it. */
+  coupons: z.object({ importedAt: z.string(), syncedAt: z.string(), count: z.number().nullable() }).nullable(),
+  known: z.array(z.object({ key: z.string(), nameEs: z.string(), until: z.string() })),
+})
+export type StarCoupon = z.infer<typeof starCouponSchema>
+export type StarCouponPack = z.infer<typeof starCouponPackSchema>
+
+/** With the page's knobs, so the section follows them before they are saved. */
+export function useStarCoupon(params: StarCouponParams) {
+  return useQuery({
+    queryKey: packKeys.starCoupon(params),
+    queryFn: ({ signal }) =>
+      request('/api/packs/star-coupon', {
+        query: { deckTarget: params.deckTarget, copies: params.copies },
+        schema: starCouponSchema,
+        signal,
+      }),
+    placeholderData: keepPreviousData,
+  })
 }
 
 export function usePacks() {

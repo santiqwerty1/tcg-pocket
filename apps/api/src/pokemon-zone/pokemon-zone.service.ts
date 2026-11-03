@@ -36,6 +36,7 @@ import {
   pokemonZoneSnapshotSchema,
   promoCoupons,
   samePackPoints,
+  starCouponCount,
 } from '@tcg/domain'
 import { z } from 'zod'
 import { CatalogService } from '../catalog/catalog.service.js'
@@ -410,6 +411,20 @@ export class PokemonZoneService {
       importedAt: latest.row.importedAt.toISOString(),
       syncedAt: latest.row.syncedAt.toISOString(),
       items: promoCoupons(latest.snapshot, now),
+    }
+  }
+
+  /**
+   * Cupón ★★ (3/11/2026): the coupons for a guaranteed ★★ pack the latest import counts (`starCouponCount`, the
+   * ★★ ones of `guaranteedTickets`); null without imports, `count` null when that import does not know them.
+   */
+  async starCoupons(): Promise<{ importedAt: string; syncedAt: string; count: number | null } | null> {
+    const latest = await this.latest(this.prisma)
+    if (!latest) return null
+    return {
+      importedAt: latest.row.importedAt.toISOString(),
+      syncedAt: latest.row.syncedAt.toISOString(),
+      count: starCouponCount(latest.snapshot),
     }
   }
 
