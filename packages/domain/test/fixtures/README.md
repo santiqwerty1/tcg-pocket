@@ -10,4 +10,6 @@ Real data used by the domain tests. Regenerate with `pnpm fixtures:extract` (nee
 
 `invented/` holds **made-up** fixtures, marked as such, for data that does not exist yet (C1's dual types): see its README.
 
+`pokemon-zone/payload.json` is what the pokemon-zone bookmarklet sends (2/11/2026), on the site's real shape: the account hash is the SHA-256 of a made-up friend id, and the name, level, currencies, hourglasses and battles are **made up**; the packs and rarities keep the totals of a real account, which identify nobody (see its `_nota`). The domain tests, the API e2e and the screens use it.
+
 Other fixtures used by tests live outside this folder: `docs/context/tcgcollectiontracterexport-2026-10-06.csv` (collection export, sha256 `f774c6e4…17e8`), `docs/context/mazos_40_listas.md` (the 40 decks), `docs/fase0/limitless/*.json` (tournament standings), `docs/fase0/fixtures-sobres-2026-10-06.json` (pack probabilities).

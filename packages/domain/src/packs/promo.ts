@@ -76,6 +76,11 @@ export const PROMO_VOLUMES: readonly PromoVolume[] = [
 export interface PromoEvent {
   id: string
   nameEs: string
+  /**
+   * The event's name in the game's English, as its coupons say it («Promo Card Exchange Tickets (PROMO Reissue Drop
+   * Event 2026)», read from pokemon-zone): it ties the coupons of an import to the event.
+   */
+  nameEn?: string
   /** First instant of its battles and the first instant after them (UTC; `until` is exclusive). */
   from: string
   until: string
@@ -88,6 +93,7 @@ export const PROMO_EVENTS: readonly PromoEvent[] = [
   {
     id: 'botin-bis-promo-2026',
     nameEs: 'Evento botín bis PROMO 2026',
+    nameEn: 'PROMO Reissue Drop Event 2026',
     // 30/10/2026 03:00 – 13/11/2026 02:59 in Buenos Aires (UTC−3): over at 03:00.
     from: '2026-10-30T06:00:00Z',
     until: '2026-11-13T06:00:00Z',
