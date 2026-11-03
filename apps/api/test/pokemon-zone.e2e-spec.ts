@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
+import { PokemonZoneService } from '../src/pokemon-zone/pokemon-zone.service.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /**
@@ -369,6 +370,19 @@ describe('pokemon-zone (e2e)', () => {
       duplicate: true,
       applied: { hourglasses: { before: 1, after: 32 } },
     })
+  })
+
+  it('Codex on #170: the luck is computed once per import, and again when a new one comes', async () => {
+    const service = test.app.get(PokemonZoneService)
+    const first = await service.summary()
+    const again = await service.summary()
+    expect(first.luck).not.toBeNull()
+    expect(again.luck).toBe(first.luck)
+    const next = later(ago(5 * 60 * 1000), { b4bPacks: 1 })
+    expect((await post('/api/pokemon-zone/imports').send(next)).status).toBe(201)
+    const after = await service.summary()
+    expect(after.luck).not.toBe(first.luck)
+    expect(after.luck?.since?.packs).toBe(1)
   })
 
   it('Sobres de promoción carries the coupons of the latest import', async () => {

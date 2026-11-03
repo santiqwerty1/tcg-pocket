@@ -7,18 +7,16 @@ import { type QueryClient, useQueryClient } from '@tanstack/react-query'
 import { CloudOffIcon } from 'lucide-react'
 import { useEffect } from 'react'
 import { toast } from 'sonner'
-import { matchKeys, sendMatch } from '@/api/matches'
+import { invalidateMatches, sendMatch } from '@/api/matches'
 import { flushPending, useOnline, usePendingMatches } from '@/lib/offlineMatches'
 
 /** Sends what waits and tells how many went through. */
 export async function sendPending(queryClient: QueryClient): Promise<number> {
   const sent = await flushPending(sendMatch)
   if (sent > 0) {
-    // Review of #130: a match sent with its rank changes the season too (Temporada and Hoy).
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: matchKeys.all }),
-      queryClient.invalidateQueries({ queryKey: ['ranked'] }),
-    ])
+    // Review of #130: a match sent with its rank changes the season too (Temporada and Hoy); and pokemon-zone's
+    // «Según el juego» counts the matches logged (Codex on #170).
+    await invalidateMatches(queryClient)
     toast.success(
       sent === 1 ? 'Se envió la partida guardada sin señal' : `Se enviaron ${sent} partidas guardadas sin señal`,
     )

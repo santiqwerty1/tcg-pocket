@@ -12,6 +12,7 @@ import { BadRequestException, Inject, Injectable } from '@nestjs/common'
 import {
   type BattlesBetween,
   battlesBetween,
+  type CatalogIndex,
   type GameBattles,
   gameBattles,
   type HourglassesUpdate,
@@ -163,7 +164,7 @@ export interface PokemonZoneSummary {
 }
 
 interface StoredImport {
-  row: Pick<PokemonZoneImport, 'id' | 'importedAt' | 'syncedAt' | 'account'>
+  row: Pick<PokemonZoneImport, 'id' | 'importedAt' | 'syncedAt' | 'account' | 'sha256'>
   snapshot: PokemonZoneSnapshot
   applied: Applied
 }
@@ -173,6 +174,7 @@ const SELECT = {
   importedAt: true,
   syncedAt: true,
   account: true,
+  sha256: true,
   data: true,
   applied: true,
 } as const
@@ -182,6 +184,8 @@ type Reader = Pick<Prisma.TransactionClient, 'pokemonZoneImport' | 'appSetting'>
 @Injectable()
 export class PokemonZoneService {
   private readonly accountKey: Buffer
+  /** The last summary's luck, by the imports and the catalog it came from (Codex on #170): one entry, small. */
+  private luckMemo: { key: string; value: NonNullable<PokemonZoneSummary['luck']> } | null = null
 
   constructor(
     private readonly prisma: PrismaService,
@@ -316,12 +320,7 @@ export class PokemonZoneService {
               }
             : null,
       },
-      luck: index
-        ? {
-            lifetime: pokemonZoneLuck(snapshot, null, index),
-            since: previous ? pokemonZoneLuck(snapshot, previous.snapshot, index) : null,
-          }
-        : null,
+      luck: index ? this.luck(latest, previous, index) : null,
     }
   }
 
@@ -339,6 +338,31 @@ export class PokemonZoneService {
   }
 
   // ---------------------------------------------------------------------------------------------------------------
+
+  /**
+   * The luck of the latest import, lifetime and since the previous one. The same imports and catalog give the same
+   * numbers, so the last one is kept: each screen that opens does not compute it again (Codex on #170).
+   */
+  private luck(
+    latest: StoredImport,
+    previous: StoredImport | null,
+    index: CatalogIndex,
+  ): NonNullable<PokemonZoneSummary['luck']> {
+    const key = [
+      latest.row.id,
+      latest.row.sha256,
+      previous?.row.id ?? '-',
+      previous?.row.sha256 ?? '-',
+      this.catalog.loadedSyncId,
+    ].join(':')
+    if (this.luckMemo?.key === key) return this.luckMemo.value
+    const value = {
+      lifetime: pokemonZoneLuck(latest.snapshot, null, index),
+      since: previous ? pokemonZoneLuck(latest.snapshot, previous.snapshot, index) : null,
+    }
+    this.luckMemo = { key, value }
+    return value
+  }
 
   private async plan(db: Reader, snapshot: PokemonZoneSnapshot, account: string): Promise<PokemonZonePreview> {
     const syncedAt = new Date(snapshot.syncedAt)
@@ -476,6 +500,7 @@ function stored(row: {
   importedAt: Date
   syncedAt: Date
   account: string
+  sha256: string
   data: unknown
   applied: unknown
 }): StoredImport | null {
@@ -483,7 +508,7 @@ function stored(row: {
   if (!snapshot.success) return null
   const applied = appliedSchema.safeParse(row.applied)
   return {
-    row: { id: row.id, importedAt: row.importedAt, syncedAt: row.syncedAt, account: row.account },
+    row: { id: row.id, importedAt: row.importedAt, syncedAt: row.syncedAt, account: row.account, sha256: row.sha256 },
     snapshot: snapshot.data,
     applied: applied.success ? applied.data : {},
   }

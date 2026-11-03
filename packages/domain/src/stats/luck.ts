@@ -31,20 +31,53 @@ export interface LuckCheck {
   verdict: LuckVerdict
 }
 
-/** P(X = k) for X ~ Binomial(n, p), in log space so it holds for a few thousand games. */
-function binomialPmf(n: number, k: number, p: number): number {
-  if (p <= 0) return k === 0 ? 1 : 0
-  if (p >= 1) return k === n ? 1 : 0
-  let logChoose = 0
-  for (let i = 1; i <= k; i++) logChoose += Math.log(n - k + i) - Math.log(i)
-  return Math.exp(logChoose + k * Math.log(p) + (n - k) * Math.log(1 - p))
+/** Below this log, a term is 0 in a double (exp(−745,2) is the smallest one): further from the mode, all are. */
+const LOG_UNDERFLOW = -746
+/** Up to this many terms, log C(n, k) is summed term by term (exact to rounding); beyond, with log Γ. */
+const LOG_CHOOSE_SUM = 100_000
+
+/** log C(n, k), with the shorter of the two products. */
+function logChoose(n: number, k: number): number {
+  const r = Math.min(k, n - k)
+  if (r > LOG_CHOOSE_SUM) return logGamma(n + 1) - logGamma(k + 1) - logGamma(n - k + 1)
+  let sum = 0
+  for (let i = 1; i <= r; i++) sum += Math.log(n - r + i) - Math.log(i)
+  return sum
 }
 
+/**
+ * P(X ≤ k) and P(X ≥ k) for X ~ Binomial(n, p). The pmf is computed in log space from its mode outward with the
+ * ratio P(i+1)/P(i) = (n−i)/(i+1) · p/(1−p), and the walk stops where the terms underflow (the pmf only falls away
+ * from the mode): linear at worst and about √n in practice (Codex on #170: the quadratic sum took a second per tail
+ * on a lifetime of cards, on the API's only thread). Same results as summing each P(X = i) on its own, to rounding.
+ */
 export function binomialTails(n: number, k: number, p: number): { lower: number; upper: number } {
+  if (p <= 0) return { lower: 1, upper: k <= 0 ? 1 : 0 }
+  if (p >= 1) return { lower: k >= n ? 1 : 0, upper: 1 }
+  const logP = Math.log(p)
+  const logQ = Math.log(1 - p)
+  const mode = Math.min(n, Math.max(0, Math.floor((n + 1) * p)))
+  const atMode = logChoose(n, mode) + mode * logP + (n - mode) * logQ
   let lower = 0
-  for (let i = 0; i <= k; i++) lower += binomialPmf(n, i, p)
   let upper = 0
-  for (let i = k; i <= n; i++) upper += binomialPmf(n, i, p)
+  const add = (i: number, logPmf: number) => {
+    const value = Math.exp(logPmf)
+    if (i <= k) lower += value
+    if (i >= k) upper += value
+  }
+  add(mode, atMode)
+  let log = atMode
+  for (let i = mode; i < n; i++) {
+    log += Math.log(n - i) - Math.log(i + 1) + logP - logQ
+    if (log < LOG_UNDERFLOW) break
+    add(i + 1, log)
+  }
+  log = atMode
+  for (let i = mode; i > 0; i--) {
+    log += Math.log(i) - Math.log(n - i + 1) + logQ - logP
+    if (log < LOG_UNDERFLOW) break
+    add(i - 1, log)
+  }
   return { lower: Math.min(1, lower), upper: Math.min(1, upper) }
 }
 

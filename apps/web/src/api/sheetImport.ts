@@ -2,7 +2,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { z } from 'zod'
 import { request } from './client'
-import { matchKeys } from './matches'
+import { invalidateMatches } from './matches'
 import { type MatchMode, matchModeSchema, matchResultSchema } from './schemas'
 
 /**
@@ -116,11 +116,8 @@ export function useSheetImportApply() {
   return useMutation({
     mutationFn: (body: SheetImportRequest & { fingerprint: string }) =>
       request('/api/matches/import', { method: 'POST', body, schema: sheetImportAppliedSchema }),
-    // Every list, statistic and season reads the matches (and the ranks noted with them).
-    onSuccess: () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: matchKeys.all }),
-        queryClient.invalidateQueries({ queryKey: ['ranked'] }),
-      ]),
+    // Every list, statistic and season reads the matches (and the ranks noted with them), and so does pokemon-zone's
+    // «Según el juego» (Codex on #170).
+    onSuccess: () => invalidateMatches(queryClient),
   })
 }
