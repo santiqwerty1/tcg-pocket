@@ -7,18 +7,19 @@
  * rival's cards seen in each match; version 10 (14/10) the ranked seasons and the rank changes; version 11 (T-022) each
  * match's `clientRef` (the phone's id of a match saved offline, or the key of a row of the owner's sheet), so importing
  * the sheet after a restore does not repeat it; version 12 (22/10, T-020) imports and stock from ptcgpocket.gg
- * (`dotgg`). Tournament data is not in the
+ * (`dotgg`); version 13 (2/11) the pokemon-zone imports (the game's counters, normalized: their history cannot be
+ * downloaded again). Tournament data is not in the
  * backup: it is Limitless's and the sync downloads it again (DECISIONES 5.7).
  * Dates are ISO strings; numeric ids keep their database values so a `replace` restores them verbatim.
  * Excluded on purpose: password hash, TOTP secret, token hashes (tokens travel as metadata only), raw CSV files and
  * `app_secrets` (the ptcgpocket.gg export link: a restore keeps the one configured).
  */
-import { RANKS } from '@tcg/domain'
+import { pokemonZoneSnapshotSchema, RANKS } from '@tcg/domain'
 import { z } from 'zod'
 
-export const BACKUP_SCHEMA_VERSION = 12
+export const BACKUP_SCHEMA_VERSION = 13
 /** Versions this app reads. Exports always write BACKUP_SCHEMA_VERSION. */
-export const READABLE_BACKUP_VERSIONS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+export const READABLE_BACKUP_VERSIONS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
 
 const isoDate = z.string().refine((value) => !Number.isNaN(Date.parse(value)), 'fecha ISO 8601 inválida')
 const nullableDate = isoDate.nullable()
@@ -152,6 +153,7 @@ export const backupDocumentSchema = z.object({
     z.literal(10),
     z.literal(11),
     z.literal(12),
+    z.literal(13),
   ]),
   exportedAt: isoDate,
   appVersion: z.string(),
@@ -274,6 +276,31 @@ export const backupDocumentSchema = z.object({
       }
     })
     .optional(),
+  /**
+   * pokemon-zone imports (version 13): each the game's counters at `syncedAt`, as the app keeps them (no friend id, not even its hash:
+   * `account` is the server's keyed fingerprint of it). Absent = keep the current ones.
+   */
+  pokemonZoneImports: z
+    .array(
+      z.object({
+        id: z.number().int(),
+        importedAt: isoDate,
+        syncedAt: isoDate,
+        account: z.string().regex(/^[0-9a-f]{64}$/),
+        sha256: z.string().regex(/^[0-9a-f]{64}$/),
+        data: pokemonZoneSnapshotSchema,
+        applied: z.object({
+          packPoints: z.record(z.string(), z.number().int().min(0).max(1_000_000)).optional(),
+          hourglasses: z.number().int().min(0).max(100_000).optional(),
+        }),
+      }),
+    )
+    // The same account, read and numbers are one row (the table's unique key).
+    .refine((rows) => {
+      const keys = rows.map((row) => `${row.account} ${Date.parse(row.syncedAt)} ${row.sha256}`)
+      return new Set(keys).size === keys.length
+    }, 'dos importaciones de pokemon-zone iguales')
+    .optional(),
   /** Notes by rival (version 6). Absent = keep the current ones. */
   rivalNotes: z
     .array(
@@ -311,6 +338,7 @@ export interface BackupCounts {
   events: number
   rankedSeasons: number
   rankChanges: number
+  pokemonZoneImports: number
 }
 
 export function backupCounts(document: BackupDocument): BackupCounts {
@@ -334,5 +362,6 @@ export function backupCounts(document: BackupDocument): BackupCounts {
     events: document.events?.length ?? 0,
     rankedSeasons: document.ranked?.seasons.length ?? 0,
     rankChanges: document.ranked?.changes.length ?? 0,
+    pokemonZoneImports: document.pokemonZoneImports?.length ?? 0,
   }
 }

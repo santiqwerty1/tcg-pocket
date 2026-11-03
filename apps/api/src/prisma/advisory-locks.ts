@@ -14,6 +14,8 @@ export const ADVISORY_LOCKS = {
   catalogSyncBegin: 994_203,
   /** A ptcgpocket.gg read or apply in flight (collection/dotgg-sync.service.ts, session lock). */
   dotggSync: 994_204,
+  /** Saving a pokemon-zone import and the settings it writes (pokemon-zone/pokemon-zone.service.ts, transaction). */
+  pokemonZoneImport: 994_205,
   /** Deck writes (decks/decks.service.ts). */
   deckWrites: 1001,
   /** The chat's inserts, import and moves (chat/chat-locks.ts). */

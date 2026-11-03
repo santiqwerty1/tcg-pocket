@@ -549,7 +549,7 @@ describe('ptcgpocket.gg collection sync (local DotGG and tracker only)', () => {
     expect(text).not.toContain(TOKEN)
     expect(text).not.toContain(DOTGG_LINK_KEY)
     const document = JSON.parse(text)
-    expect(document.schemaVersion).toBe(12)
+    expect(document.schemaVersion).toBe(13)
     expect(document.collection.imports[0]).toMatchObject({ source: 'dotgg', diffSummary: { dotgg: {} } })
     expect(document.collection.stock[0].source).toBe('dotgg')
     const dry = await post('/api/backup/import?mode=dry-run').attach('file', bytes, 'backup.json.gz')

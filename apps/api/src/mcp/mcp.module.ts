@@ -23,6 +23,7 @@ import { NextBuildModule } from '../next-build/next-build.controller.js'
 import { PacksModule } from '../packs/packs.controller.js'
 import { PickModule } from '../pick/pick.controller.js'
 import { PlayModule } from '../play/play.controller.js'
+import { PokemonZoneModule } from '../pokemon-zone/pokemon-zone.controller.js'
 import { PromoPacksModule } from '../promo/promo.controller.js'
 import { RankedModule } from '../ranked/ranked.controller.js'
 import { RivalNotesModule } from '../rivals/rival-notes.controller.js'
@@ -114,6 +115,7 @@ export class McpController implements OnModuleDestroy {
     PlayModule,
     TradesModule,
     PromoPacksModule,
+    PokemonZoneModule,
     WeeklyModule,
   ],
   controllers: [McpController, McpAuditController],

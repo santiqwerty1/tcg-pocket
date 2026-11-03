@@ -110,6 +110,7 @@ const SERIAL_TABLES = [
   'live_games',
   'events',
   'rank_changes',
+  'pokemon_zone_imports',
 ] as const
 
 /** Thrown inside the drill's transaction so nothing it restored stays. */
@@ -199,6 +200,7 @@ export class BackupService {
       events,
       seasons,
       rankChanges,
+      pokemonZone,
     ] = await Promise.all([
       db.appSetting.findMany({ orderBy: { key: 'asc' } }),
       db.rarityRule.findMany({ orderBy: { rarity: 'asc' } }),
@@ -226,6 +228,7 @@ export class BackupService {
       db.event.findMany({ orderBy: { id: 'asc' } }),
       db.rankedSeason.findMany({ orderBy: { startsOn: 'asc' } }),
       db.rankChange.findMany({ orderBy: { id: 'asc' } }),
+      db.pokemonZoneImport.findMany({ orderBy: { id: 'asc' } }),
     ])
     return {
       schemaVersion: BACKUP_SCHEMA_VERSION,
@@ -393,6 +396,15 @@ export class BackupService {
         text: note.text,
         createdAt: iso(note.createdAt),
         updatedAt: iso(note.updatedAt),
+      })),
+      pokemonZoneImports: pokemonZone.map((row) => ({
+        id: row.id,
+        importedAt: iso(row.importedAt),
+        syncedAt: iso(row.syncedAt),
+        account: row.account,
+        sha256: row.sha256,
+        data: row.data,
+        applied: row.applied,
       })),
       events: events.map((event) => ({
         id: event.id,
@@ -889,6 +901,23 @@ export class BackupService {
       await tx.rivalNote.deleteMany()
       if (document.rivalNotes.length > 0) await tx.rivalNote.createMany({ data: document.rivalNotes })
     }
+    // pokemon-zone imports (version 13): replaced by the file's; older files keep the current ones.
+    if (document.pokemonZoneImports) {
+      await tx.pokemonZoneImport.deleteMany()
+      if (document.pokemonZoneImports.length > 0) {
+        await tx.pokemonZoneImport.createMany({
+          data: document.pokemonZoneImports.map((row) => ({
+            id: row.id,
+            importedAt: row.importedAt,
+            syncedAt: row.syncedAt,
+            account: row.account,
+            sha256: row.sha256,
+            data: row.data as Prisma.InputJsonValue,
+            applied: row.applied as Prisma.InputJsonValue,
+          })),
+        })
+      }
+    }
     for (const rule of document.rarityRules) {
       await tx.rarityRule.upsert({
         where: { rarity: rule.rarity },
@@ -926,6 +955,11 @@ export class BackupService {
     if (unknown.size > 0) {
       notices.push(
         `${unknown.size} ids del backup no existen en el catálogo cargado; no se puede restaurar hasta sincronizarlo.`,
+      )
+    }
+    if (document.schemaVersion < 13) {
+      notices.push(
+        `Backup de la versión ${document.schemaVersion}, anterior a pokemon-zone (2/11): no trae sus importaciones; se mantienen las que hay ahora.`,
       )
     }
     if (document.schemaVersion < 11 && document.schemaVersion >= 2) {
