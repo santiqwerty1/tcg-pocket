@@ -339,6 +339,38 @@ describe('pokemon-zone (e2e)', () => {
     expect((await get('/api/pokemon-zone')).body.settings.hourglasses).toBe('imported')
   })
 
+  it('Codex on #170: two imports with the same read — the one applied is the one shown as latest', async () => {
+    const read = ago(10 * 60 * 1000)
+    const tied = (hourglasses: number) => {
+      const next = later(read, {})
+      first(next.mine.resourceData.packPowerChargers).value = hourglasses
+      return next
+    }
+    expect((await post('/api/pokemon-zone/imports').send(tied(31))).body.applied).not.toBeNull()
+    expect((await post('/api/pokemon-zone/imports').send(tied(32))).body.applied).not.toBeNull()
+    expect((await get('/api/settings')).body.hourglasses).toBe(32)
+    // The first one again: a duplicate saved before the second, with the same read. It is not the latest, so it does
+    // not write the settings, and what Sobres has stays the latest's.
+    expect((await post('/api/pokemon-zone/preview').send(tied(31))).body).toMatchObject({
+      duplicate: true,
+      older: true,
+    })
+    expect((await post('/api/pokemon-zone/imports').send(tied(31))).body).toMatchObject({
+      duplicate: true,
+      applied: null,
+    })
+    expect((await get('/api/settings')).body.hourglasses).toBe(32)
+    const summary = (await get('/api/pokemon-zone')).body
+    expect(summary.latest.hourglasses.pack).toBe(32)
+    expect(summary.settings.hourglasses).toBe('imported')
+    // The latest one again is still the latest: it writes them back.
+    expect((await put('/api/settings/hourglasses').send({ value: 1 })).status).toBe(200)
+    expect((await post('/api/pokemon-zone/imports').send(tied(32))).body).toMatchObject({
+      duplicate: true,
+      applied: { hourglasses: { before: 1, after: 32 } },
+    })
+  })
+
   it('Sobres de promoción carries the coupons of the latest import', async () => {
     const promo = await get('/api/promo-packs')
     expect(promo.status).toBe(200)

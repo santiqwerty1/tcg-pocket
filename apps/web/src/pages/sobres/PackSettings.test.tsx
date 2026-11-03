@@ -1,9 +1,10 @@
 import { QueryClient } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Providers } from '@/app/Providers'
-import { fakeApi } from '@/test/fakeApi'
+import { type FakeCall, fakeApi } from '@/test/fakeApi'
 import { EMPTY_SUMMARY, SUMMARY } from '@/test/pokemonZone'
 import { PackSettings } from './PackSettings'
 
@@ -54,6 +55,56 @@ describe('Sobres → Ajustes: what came from pokemon-zone (2/11)', () => {
     )
     expect(screen.getByTestId('pokemon-zone-hourglasses')).toHaveTextContent(
       `Los relojes se trajeron del juego con pokemon-zone (datos del ${READ}); después los cambiaste a mano.`,
+    )
+  })
+
+  it('Codex on #170: a change by hand here says so right away, without reloading', async () => {
+    // The server's view: what the import wrote until a PUT changes each setting.
+    const edited = { packPoints: false, hourglasses: false }
+    const settings: Record<string, unknown> = { packPoints: { A1: 5, C1: 310 }, hourglasses: 18 }
+    fakeApi({
+      'GET /api/packs': { items: [PACK] },
+      'GET /api/rarity-rules': { items: [] },
+      'GET /api/settings': () => settings,
+      'PUT /api/settings/hourglasses': (call: FakeCall) => {
+        edited.hourglasses = true
+        settings.hourglasses = (JSON.parse(String(call.body)) as { value: number }).value
+        return { key: 'hourglasses', value: settings.hourglasses }
+      },
+      'PUT /api/settings/packPoints': (call: FakeCall) => {
+        edited.packPoints = true
+        settings.packPoints = (JSON.parse(String(call.body)) as { value: unknown }).value
+        return { key: 'packPoints', value: settings.packPoints }
+      },
+      'GET /api/pokemon-zone': () => ({
+        ...SUMMARY,
+        settings: {
+          packPoints: edited.packPoints ? 'edited' : 'imported',
+          hourglasses: edited.hourglasses ? 'edited' : 'imported',
+        },
+      }),
+    })
+    const router = createMemoryRouter([{ path: '/', element: <PackSettings /> }])
+    render(
+      <Providers queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <RouterProvider router={router} />
+      </Providers>,
+    )
+    const user = userEvent.setup()
+    expect(await screen.findByTestId('pokemon-zone-hourglasses')).toHaveTextContent('Los relojes son los del juego')
+    const hourglasses = await screen.findByLabelText('Relojes de arena de sobre')
+    await user.clear(hourglasses)
+    await user.type(hourglasses, '25')
+    await user.tab()
+    await waitFor(() =>
+      expect(screen.getByTestId('pokemon-zone-hourglasses')).toHaveTextContent('después los cambiaste a mano'),
+    )
+    expect(screen.getByTestId('pokemon-zone-packPoints')).toHaveTextContent('Los puntos son los del juego')
+    const points = await screen.findByLabelText('Puntos guardados de Sobre Deluxe Mega')
+    await user.type(points, '40')
+    await user.tab()
+    await waitFor(() =>
+      expect(screen.getByTestId('pokemon-zone-packPoints')).toHaveTextContent('después los cambiaste a mano'),
     )
   })
 

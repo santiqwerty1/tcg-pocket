@@ -343,12 +343,21 @@ export class PokemonZoneService {
   private async plan(db: Reader, snapshot: PokemonZoneSnapshot, account: string): Promise<PokemonZonePreview> {
     const syncedAt = new Date(snapshot.syncedAt)
     const sha256 = createHash('sha256').update(JSON.stringify(snapshot)).digest('hex')
-    const [latest, newer, duplicate, previous, settings] = await Promise.all([
+    const existing = await db.pokemonZoneImport.findUnique({
+      where: { account_syncedAt_sha256: { account, syncedAt, sha256 } },
+      select: { id: true },
+    })
+    const [latest, newer, previous, settings] = await Promise.all([
       db.pokemonZoneImport.findFirst({ orderBy: [{ syncedAt: 'desc' }, { id: 'desc' }], select: { account: true } }),
-      // Review of pz/import: older than any import, of any account. The settings follow the newest read of the game,
-      // which is also the summary's `latest`, so «imported» or «edited» stays true.
-      db.pokemonZoneImport.count({ where: { syncedAt: { gt: syncedAt } } }),
-      db.pokemonZoneImport.count({ where: { account, syncedAt, sha256 } }),
+      // Review of pz/import: older than any import, of any account, in the order of the summary's `latest` (newest
+      // read, then the latest saved). The settings follow that same import, so «imported» or «edited» stays true. A
+      // new import ranks after every saved one with its read; a duplicate keeps its row, so another import with the
+      // same read saved after it is newer (Codex on #170).
+      db.pokemonZoneImport.count({
+        where: {
+          OR: [{ syncedAt: { gt: syncedAt } }, ...(existing ? [{ syncedAt, id: { gt: existing.id } }] : [])],
+        },
+      }),
       this.previousOf(db, account, syncedAt),
       this.currentSettings(db),
     ])
@@ -359,7 +368,7 @@ export class PokemonZoneService {
       syncedAt: snapshot.syncedAt,
       level: snapshot.level,
       account: latest === null ? 'first' : latest.account === account ? 'same' : 'other',
-      duplicate: duplicate > 0,
+      duplicate: existing !== null,
       older: newer > 0,
       packPoints: {
         changes: points.changes.map((change) => ({
