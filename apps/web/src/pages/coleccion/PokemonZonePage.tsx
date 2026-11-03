@@ -83,15 +83,19 @@ function Latest({ data }: { data: PokemonZoneSummary }) {
   )
 }
 
+/** What Chrome strips from a pasted bookmark address (pz/luck): typed by hand. */
+const PREFIX = 'javascript:'
+
 export function PokemonZonePage() {
   const summary = usePokemonZone()
   const code = useMemo(() => bookmarkletCode(window.location.origin), [])
+  const withoutPrefix = code.startsWith(PREFIX) ? code.slice(PREFIX.length) : code
   const pending = readStash() !== null
 
-  async function copy() {
+  async function copy(text: string, done: string) {
     try {
-      await navigator.clipboard.writeText(code)
-      toast.success('Código del marcador copiado')
+      await navigator.clipboard.writeText(text)
+      toast.success(done)
     } catch {
       toast.error('No se pudo copiar; seleccionalo a mano.')
     }
@@ -125,17 +129,33 @@ export function PokemonZonePage() {
         >
           {code}
         </code>
-        <Button variant="outline" onClick={copy} className="self-start">
-          <CopyIcon />
-          Copiar
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            onClick={() => copy(withoutPrefix, 'Código copiado, sin «javascript:»')}
+            data-testid="copy-without-prefix"
+          >
+            <CopyIcon />
+            Copiar sin «javascript:»
+          </Button>
+          <Button variant="outline" onClick={() => copy(code, 'Código del marcador copiado')}>
+            <CopyIcon />
+            Copiar todo
+          </Button>
+        </div>
+        {/* pz/luck: Chrome strips the leading «javascript:» of what is pasted in the URL field (Santi, 3/11). */}
+        <p className="rounded-lg border border-warning/60 px-3 py-2 text-sm" data-testid="javascript-warning">
+          Chrome borra el «javascript:» al pegar: escribilo a mano al principio del campo URL y pegá el resto con
+          «Copiar sin "javascript:"». Si el campo empieza con «void(», falta: sin eso «Guardar» queda deshabilitado.
+        </p>
         <div className="flex flex-col gap-1 text-sm">
           <h3 className="font-medium">En la PC</h3>
           <ol className="list-decimal pl-5">
-            <li>Copiá el código.</li>
+            <li>Tocá «Copiar sin "javascript:"».</li>
             <li>
-              Creá un marcador nuevo (en el administrador de marcadores, «Agregar página»), llamalo «TCG Pocket» y pegá
-              el código como dirección.
+              Creá un marcador nuevo (en el administrador de marcadores, «Agregar página») y llamalo «TCG Pocket». En el
+              campo URL escribí a mano <code className="rounded bg-muted px-1">{PREFIX}</code> y pegá el código justo
+              después.
             </li>
             <li>Abrí pokemon-zone.com con tu sesión iniciada y tocá el marcador.</li>
           </ol>
@@ -143,10 +163,11 @@ export function PokemonZonePage() {
         <div className="flex flex-col gap-1 text-sm">
           <h3 className="font-medium">En el celu (Chrome para Android)</h3>
           <ol className="list-decimal pl-5">
-            <li>Copiá el código.</li>
+            <li>Tocá «Copiar sin "javascript:"».</li>
             <li>
-              Guardá esta página como favorito (⋮ → estrella) y editalo: nombre «TCG Pocket» y, en la dirección, pegá el
-              código en lugar de la que tiene.
+              Guardá esta página como favorito (⋮ → estrella) y editalo: nombre «TCG Pocket»; en la dirección, borrá la
+              que tiene, escribí a mano <code className="rounded bg-muted px-1">{PREFIX}</code> y pegá el código justo
+              después.
             </li>
             <li>
               En pokemon-zone.com, con tu sesión iniciada, escribí «TCG Pocket» en la barra de direcciones y tocá el
@@ -154,6 +175,14 @@ export function PokemonZonePage() {
             </li>
           </ol>
         </div>
+        <p className="text-xs text-muted-foreground">
+          Si ya tenías el marcador, reemplazalo por este: desde el 3/11 también trae los cupones de sobre con carta
+          asegurada, para que la suerte no cuente esa carta.
+        </p>
+        <p className="text-xs text-muted-foreground" data-testid="import-regularly">
+          Importá todos los días a la misma hora, después del Sync automático de pokemon-zone: la suerte entre
+          importaciones es más clara así, y ningún período lo elige lo que salió.
+        </p>
         <p className="text-xs text-muted-foreground">
           El marcador abre esta app con los datos y te muestra qué cambia antes de guardar. Tenés que tener la sesión de
           la app iniciada en ese navegador; si te pide iniciarla, iniciala y tocá el marcador otra vez.

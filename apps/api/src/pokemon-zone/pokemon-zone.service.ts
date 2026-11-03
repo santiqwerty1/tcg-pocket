@@ -19,17 +19,20 @@ import {
   handEditedAfter,
   hourglassesUpdate,
   type LoggedComparison,
+  lifetimeSources,
   loggedComparison,
   type PackPointsChange,
   type PackPointsKept,
   type PackPointsUpdate,
   type PokemonZoneLuck,
+  type PokemonZoneLuckSinceFirst,
   type PokemonZonePayload,
   type PokemonZoneSnapshot,
   type PromoCouponStatus,
   packPointsUpdate,
   parsePokemonZone,
   pokemonZoneLuck,
+  pokemonZoneLuckSinceFirst,
   pokemonZoneSnapshotSchema,
   promoCoupons,
   samePackPoints,
@@ -55,6 +58,8 @@ import {
 const LOCKED_WORK_MS = 15_000
 /** Rows read to find the newest one that parses. */
 const READ_AHEAD = 5
+/** Imports read at a time for «desde la primera importación» (pz/luck). */
+const CHAIN_PAGE = 100
 /** The first day of the game (TCG Pocket, 30/10/2024): an earlier read of it is not one. */
 const GAME_LAUNCH = Date.parse('2024-10-30T00:00:00Z')
 /** pokemon-zone's clock against ours: a read up to a day ahead passes, a later one is refused. */
@@ -182,8 +187,15 @@ export interface PokemonZoneSummary {
   previous: PokemonZoneImportRef | null
   settings: { packPoints: SettingOrigin; hourglasses: SettingOrigin }
   battles: PokemonZoneBattlesView | null
-  /** Null when the catalog is not loaded. `since` is null without a previous import or when a count went down. */
-  luck: { lifetime: PokemonZoneLuck | null; since: PokemonZoneLuck | null } | null
+  /**
+   * Null when the catalog is not loaded. `since` is null without a previous import or when a count went down;
+   * `sinceFirst` (pz/luck), the spans between consecutive imports of the account that count, summed; null with one.
+   */
+  luck: {
+    lifetime: PokemonZoneLuck | null
+    since: PokemonZoneLuck | null
+    sinceFirst: PokemonZoneLuckSinceFirst | null
+  } | null
 }
 
 interface StoredImport {
@@ -384,7 +396,7 @@ export class PokemonZoneService {
               }
             : null,
       },
-      luck: index ? this.luck(latest, previous, index) : null,
+      luck: index ? await this.luck(latest, previous, index) : null,
     }
   }
 
@@ -404,28 +416,62 @@ export class PokemonZoneService {
   // ---------------------------------------------------------------------------------------------------------------
 
   /**
-   * The luck of the latest import, lifetime and since the previous one. The same imports and catalog give the same
-   * numbers, so the last one is kept: each screen that opens does not compute it again (Codex on #170).
+   * The luck of the latest import: lifetime, since the previous one, and since the first one (pz/luck: the spans
+   * between consecutive imports of the account). The same imports and catalog give the same numbers, so the last one
+   * is kept: each screen that opens does not compute it again (Codex on #170); its key is the account's imports.
    */
-  private luck(
+  private async luck(
     latest: StoredImport,
     previous: StoredImport | null,
     index: CatalogIndex,
-  ): NonNullable<PokemonZoneSummary['luck']> {
-    const key = [
-      latest.row.id,
-      latest.row.sha256,
-      previous?.row.id ?? '-',
-      previous?.row.sha256 ?? '-',
-      this.catalog.loadedSyncId,
-    ].join(':')
+  ): Promise<NonNullable<PokemonZoneSummary['luck']>> {
+    const rows = await this.prisma.pokemonZoneImport.findMany({
+      where: { account: latest.row.account, syncedAt: { lte: latest.row.syncedAt } },
+      orderBy: [{ syncedAt: 'asc' }, { id: 'asc' }],
+      select: { id: true, syncedAt: true, sha256: true },
+    })
+    const ids = createHash('sha256')
+      .update(rows.map((row) => `${row.id}:${row.sha256}`).join(','))
+      .digest('hex')
+    const key = [latest.row.id, latest.row.sha256, previous?.row.id ?? '-', ids, this.catalog.loadedSyncId].join(':')
     if (this.luckMemo?.key === key) return this.luckMemo.value
+    const chain = await this.chain(latest, rows)
     const value = {
-      lifetime: pokemonZoneLuck(latest.snapshot, null, index),
+      lifetime: pokemonZoneLuck(latest.snapshot, null, index, lifetimeSources(chain)),
       since: previous ? pokemonZoneLuck(latest.snapshot, previous.snapshot, index) : null,
+      sinceFirst: pokemonZoneLuckSinceFirst(chain, index),
     }
     this.luckMemo = { key, value }
     return value
+  }
+
+  /**
+   * The account's imports up to the latest, oldest first, one per read of the game (the latest saved of a read, as
+   * the summary's `latest` picks it), read in pages; the ones that do not read back are skipped.
+   */
+  private async chain(
+    latest: StoredImport,
+    rows: readonly { id: number; syncedAt: Date }[],
+  ): Promise<PokemonZoneSnapshot[]> {
+    const byRead = new Map<number, number>()
+    for (const row of rows) byRead.set(row.syncedAt.getTime(), row.id)
+    // The latest one, as the summary has it (the newest read, the latest saved of a tie).
+    byRead.set(latest.row.syncedAt.getTime(), latest.row.id)
+    const ids = [...byRead.values()]
+    const snapshots = new Map<number, PokemonZoneSnapshot>([[latest.row.id, latest.snapshot]])
+    for (let at = 0; at < ids.length; at += CHAIN_PAGE) {
+      const page = ids.slice(at, at + CHAIN_PAGE).filter((id) => !snapshots.has(id))
+      if (page.length === 0) continue
+      const found = await this.prisma.pokemonZoneImport.findMany({ where: { id: { in: page } }, select: SELECT })
+      for (const row of found) {
+        const item = stored(row)
+        if (item) snapshots.set(row.id, item.snapshot)
+      }
+    }
+    return ids.flatMap((id) => {
+      const snapshot = snapshots.get(id)
+      return snapshot ? [snapshot] : []
+    })
   }
 
   private async plan(db: Reader, snapshot: PokemonZoneSnapshot, account: string): Promise<PokemonZonePreview> {

@@ -35,6 +35,8 @@ export const promoCouponSchema = z.object({
   eventId: z.string().nullable(),
   nameEs: z.string().nullable(),
   active: z.boolean(),
+  /** pz/luck: the event's last instant (exclusive), when the app knows it. */
+  until: z.string().nullable().optional(),
 })
 export type PromoCoupon = z.infer<typeof promoCouponSchema>
 
@@ -117,13 +119,35 @@ const luckTierSchema = z.object({
   expectedShare: z.number(),
   games: z.number(),
   expected: z.number(),
+  /** Review of #172: the low end, on the packs alone («mejor de lo normal»). */
+  packGames: z.number(),
+  packExpected: z.number(),
+  /** pz/luck: the cards of unknown origin at the low end (Wonder Picks included). */
+  unknown: z.number(),
   fromPacks: z.object({ min: z.number(), max: z.number() }),
   low: luckCheckSchema,
   high: luckCheckSchema,
   verdict: z.enum(['unknown', 'too_few', 'normal', 'unlucky', 'lucky']),
   tail: z.number().nullable(),
+  /** pz/luck: how many of the cards of unknown origin would have to be of the tier for «normal». */
+  normalIf: z.object({ min: z.number(), max: z.number() }).nullable(),
 })
 export type GameLuckTier = z.infer<typeof luckTierSchema>
+
+const luckWindowSchema = z.object({ from: z.string(), until: z.string(), why: z.string() })
+
+/** pz/luck: where the cards of a span came from (real, estimated, unknown). */
+const luckSourcesSchema = z.object({
+  wonderPicks: z.number().nullable(),
+  pickCards: z.number(),
+  unknownPicks: z.number(),
+  pickWindows: z.array(luckWindowSchema),
+  trades: z.number().nullable(),
+  guaranteedPacks: z.number(),
+  guaranteedSeen: z.boolean(),
+  restCards: z.number(),
+})
+export type GameLuckSources = z.infer<typeof luckSourcesSchema>
 
 export const gameLuckSchema = z.object({
   packs: z.number(),
@@ -132,6 +156,7 @@ export const gameLuckSchema = z.object({
   otherCards: z.number(),
   wonderPicks: z.number().nullable(),
   trades: z.number().nullable(),
+  sources: luckSourcesSchema,
   byRarity: z.record(z.string(), z.number()),
   unknownRarity: z.number(),
   expansions: z.array(
@@ -159,6 +184,17 @@ export const gameLuckSchema = z.object({
   ex: luckTierSchema.nullable(),
 })
 export type GameLuck = z.infer<typeof gameLuckSchema>
+
+/** pz/luck: «desde la primera importación», the spans between imports that count for each tier. */
+const sinceFirstTierSchema = luckTierSchema.extend({ counted: z.number() })
+const sinceFirstSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  spans: z.number(),
+  rare: sinceFirstTierSchema.nullable(),
+  ex: sinceFirstTierSchema.nullable(),
+})
+export type GameLuckSinceFirst = z.infer<typeof sinceFirstSchema>
 
 const loggedComparisonSchema = z.object({
   kind: z.enum(['ranked', 'versus']),
@@ -209,7 +245,13 @@ export const pokemonZoneSummarySchema = z.object({
         .nullable(),
     })
     .nullable(),
-  luck: z.object({ lifetime: gameLuckSchema.nullable(), since: gameLuckSchema.nullable() }).nullable(),
+  luck: z
+    .object({
+      lifetime: gameLuckSchema.nullable(),
+      since: gameLuckSchema.nullable(),
+      sinceFirst: sinceFirstSchema.nullable().default(null),
+    })
+    .nullable(),
 })
 export type PokemonZoneSummary = z.infer<typeof pokemonZoneSummarySchema>
 

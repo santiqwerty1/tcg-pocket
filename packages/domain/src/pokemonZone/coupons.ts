@@ -1,9 +1,10 @@
 /**
  * Promo card exchange coupons (Sobres de promoción): each event's missions give coupons that its shop exchanges for a
- * promo card. An import says how many of each event's the owner has; an event the app knows (PROMO_EVENTS, by its
- * English name) gets its Spanish name and says whether it is on now.
+ * promo card. An import says how many of each event's the owner has; an event the app knows (PROMO_EVENTS, and the
+ * events with coupons and no battles, PROMO_COUPON_EVENTS; by its English name) gets its Spanish name and says whether
+ * it is on now.
  */
-import { PROMO_EVENTS, type PromoEvent } from '../packs/promo.js'
+import { PROMO_COUPON_EVENTS, PROMO_EVENTS, type PromoCouponEvent } from '../packs/promo.js'
 import type { PokemonZoneSnapshot } from './payload.js'
 
 export interface PromoCouponStatus {
@@ -15,8 +16,10 @@ export interface PromoCouponStatus {
   /** The app's event, when it knows it. */
   eventId: string | null
   nameEs: string | null
-  /** Its battles are on at `now` (false for an event the app does not know). */
+  /** The event is on at `now` (false for an event the app does not know). */
   active: boolean
+  /** Its last instant (ISO, exclusive), when the app knows the event. */
+  until: string | null
 }
 
 const fold = (text: string) => text.toLowerCase().replace(/\s+/g, ' ').trim()
@@ -25,7 +28,7 @@ const fold = (text: string) => text.toLowerCase().replace(/\s+/g, ' ').trim()
 export function promoCoupons(
   snapshot: Pick<PokemonZoneSnapshot, 'coupons'>,
   now: Date,
-  events: readonly PromoEvent[] = PROMO_EVENTS,
+  events: readonly PromoCouponEvent[] = [...PROMO_EVENTS, ...PROMO_COUPON_EVENTS],
 ): PromoCouponStatus[] {
   const time = now.getTime()
   return snapshot.coupons
@@ -39,6 +42,7 @@ export function promoCoupons(
         eventId: event?.id ?? null,
         nameEs: event?.nameEs ?? null,
         active: event ? Date.parse(event.from) <= time && time < Date.parse(event.until) : false,
+        until: event?.until ?? null,
       }
     })
     .sort((a, b) => Number(b.active) - Number(a.active) || b.count - a.count || a.event.localeCompare(b.event))

@@ -9,7 +9,7 @@
 import { CloverIcon } from 'lucide-react'
 import { Link } from 'react-router'
 import { usePackLuck } from '@/api/collection'
-import { type GameLuck, type GameLuckTier, usePokemonZone } from '@/api/pokemonZone'
+import { type GameLuck, type GameLuckSinceFirst, type GameLuckTier, usePokemonZone } from '@/api/pokemonZone'
 import type { PackLuckView } from '@/api/schemas'
 import { Section } from '@/components/Section'
 import { formatDate, formatDateTime, formatNumber, plural } from '@/lib/format'
@@ -88,34 +88,53 @@ function IntervalCard({ title, interval }: { title: string; interval: Interval }
   )
 }
 
+/** «1 carta» / «1.234 cartas». */
+const cardsText = (count: number) => plural(count, 'carta', 'cartas')
+
 /**
- * Review of pz/import: the check counts over the cards the packs gave (n), and the game's count of the tier includes
- * the cards from elsewhere, so it is made at both ends of what those could hold; a verdict only when both agree.
+ * Review of pz/import and pz/luck: the check counts over the cards with known odds (n: the packs' and the Wonder
+ * Picks'), and the game's count of the tier includes the cards of unknown origin, so it is made at both ends of what
+ * those could hold; a verdict only when both agree, and otherwise how many of them would make it normal.
  */
-function GameTier({ label, tier, other }: { label: string; tier: GameLuckTier | null; other: number }) {
-  if (!tier) return null
+function TierBody({ label, tier }: { label: string; tier: GameLuckTier }) {
   const { min, max } = tier.fromPacks
+  const unknown = tier.unknown
+  const picks = tier.games - tier.packGames
   return (
-    <div className="flex flex-col gap-0.5 text-sm" data-testid="game-tier">
+    <>
       <p>
         <span className="font-medium">{label}:</span> {formatNumber(tier.observed)}{' '}
         <span className="text-muted-foreground">(del juego, de todas las fuentes)</span>. En las{' '}
-        {formatNumber(tier.games)} cartas que dieron los sobres (n) se esperaban ~
-        {formatNumber(Math.round(tier.expected))}{' '}
+        {formatNumber(tier.packGames)} cartas de los sobres (n) se esperaban ~
+        {formatNumber(Math.round(tier.packExpected))}
+        {picks > 0
+          ? `; con ${plural(picks, 'carta', 'cartas')} de Wonder Pick a la tasa de los sobres, ~${formatNumber(Math.round(tier.expected))} en ${formatNumber(tier.games)}`
+          : ''}{' '}
         <span className="text-muted-foreground">
           (estimado: {formatRateValue(tier.expectedShare)}, con las tasas de los sobres que abriste)
         </span>
-        {min === max
-          ? `; de esos sobres salieron ${formatNumber(max)}.`
-          : `; de esos sobres salieron entre ${formatNumber(min)} y ${formatNumber(max)}.`}
+        {picks > 0
+          ? `. De los sobres salieron al menos ${formatNumber(min)}; de los sobres y Wonder Pick, a lo sumo ${formatNumber(max)}.`
+          : min === max
+            ? `; de ellas salieron ${formatNumber(max)}.`
+            : `; de ellas salieron entre ${formatNumber(min)} y ${formatNumber(max)}.`}
       </p>
       <p>
         {tier.verdict === 'unknown' ? (
           <span className="text-muted-foreground">
             No se puede saber con lo que da el juego:{' '}
-            {other === 1 ? 'según si la otra carta' : `según cuántas de las otras ${formatNumber(other)} cartas`}{' '}
-            (Wonder Pick, intercambios, regalos) {other === 1 ? 'fuera' : 'fueran'} de estas, da{' '}
+            {unknown === 1
+              ? 'según si la carta de origen desconocido'
+              : `según cuántas de las ${formatNumber(unknown)} cartas de origen desconocido`}
+            {picks > 0 ? ' (Wonder Pick incluido)' : ''} {unknown === 1 ? 'fuera' : 'fueran'} de estas, da{' '}
             {VERDICT[tier.low.verdict]} o {VERDICT[tier.high.verdict]}.
+            {tier.normalIf
+              ? ` Sería normal si ${
+                  tier.normalIf.min === tier.normalIf.max
+                    ? `${formatNumber(tier.normalIf.min)} lo ${tier.normalIf.min === 1 ? 'fuera' : 'fueran'}`
+                    : `entre ${formatNumber(tier.normalIf.min)} y ${formatNumber(tier.normalIf.max)} lo fueran`
+                }; con menos, mejor de lo normal; con más, peor.`
+              : ''}
           </span>
         ) : (
           <Verdict
@@ -127,17 +146,65 @@ function GameTier({ label, tier, other }: { label: string; tier: GameLuckTier | 
           />
         )}
       </p>
+    </>
+  )
+}
+
+function GameTier({ label, tier }: { label: string; tier: GameLuckTier | null }) {
+  if (!tier) return null
+  return (
+    <div className="flex flex-col gap-0.5 text-sm" data-testid="game-tier">
+      <TierBody label={label} tier={tier} />
     </div>
+  )
+}
+
+/** pz/luck: where the cards came from — real, estimated, unknown — each said for what it is. */
+function Sources({ luck }: { luck: GameLuck }) {
+  const { sources } = luck
+  const unknownParts = [
+    sources.trades !== null && sources.trades > 0
+      ? `${plural(sources.trades, 'intercambio', 'intercambios')} (del juego)`
+      : null,
+    sources.unknownPicks > 0
+      ? `${formatNumber(sources.unknownPicks)} de Wonder Pick${
+          sources.pickWindows.length > 0 ? ` (${sources.pickWindows.map((window) => window.why).join('; ')})` : ''
+        }`
+      : null,
+    sources.guaranteedPacks > 0
+      ? `${sources.guaranteedSeen ? '' : 'a lo sumo '}${plural(sources.guaranteedPacks, 'carta asegurada', 'cartas aseguradas')} de un sobre de aniversario (★★)`
+      : null,
+    sources.restCards > 0
+      ? `~${formatNumber(sources.restCards)} de regalos, premios, canjes de puntos y promos (estimado)`
+      : null,
+  ].filter((item): item is string => item !== null)
+  return (
+    <ul className="flex list-disc flex-col gap-0.5 pl-4 text-xs text-muted-foreground" data-testid="game-sources">
+      <li>
+        Sobres: ~{cardsText(luck.packCards)} <span>(estimado: sobres × cartas por sobre)</span>.
+      </li>
+      {sources.wonderPicks !== null && sources.wonderPicks > 0 ? (
+        <li>
+          Wonder Pick: {formatNumber(sources.wonderPicks)} (del juego)
+          {sources.pickCards > 0
+            ? `; ${formatNumber(sources.pickCards)} cuentan a la tasa de los sobres para «peor de lo normal», y como de origen desconocido para «mejor»`
+            : '; ninguna cuenta como carta de sobre'}
+          .
+        </li>
+      ) : null}
+      {luck.otherCards > 0 ? (
+        <li>
+          De origen desconocido: ~{cardsText(luck.otherCards)}
+          {unknownParts.length > 0 ? ` — ${unknownParts.join(', ')}` : ''}.
+        </li>
+      ) : null}
+    </ul>
   )
 }
 
 /** One span of the game's numbers: since the previous import, or lifetime. */
 function GameLuckCard({ title, luck }: { title: string; luck: GameLuck }) {
   const top = luck.byPack.slice(0, 3)
-  const other = [
-    luck.wonderPicks !== null ? `Wonder Pick: ${formatNumber(luck.wonderPicks)}` : null,
-    luck.trades !== null ? `intercambios: ${formatNumber(luck.trades)}` : null,
-  ].filter((item): item is string => item !== null)
   return (
     <div className="flex flex-col gap-1 rounded-lg border px-3 py-2" data-testid="game-luck">
       <span className="text-xs text-muted-foreground">{title}</span>
@@ -147,20 +214,12 @@ function GameLuckCard({ title, luck }: { title: string; luck: GameLuck }) {
         <>
           <p className="text-sm">
             Abriste <span className="font-medium">{plural(luck.packs, 'sobre', 'sobres')}</span> y obtuviste{' '}
-            <span className="font-medium">{plural(luck.cards, 'carta', 'cartas')}</span>{' '}
+            <span className="font-medium">{cardsText(luck.cards)}</span>{' '}
             <span className="text-muted-foreground">(del juego)</span>.
           </p>
-          {luck.otherCards > 0 ? (
-            <p className="text-xs text-muted-foreground">
-              {luck.otherCards === 1
-                ? '1 carta no salió de esos sobres'
-                : `Unas ${formatNumber(luck.otherCards)} no salieron de esos sobres`}{' '}
-              (estimado: los sobres dan {formatNumber(luck.packCards)})
-              {other.length > 0 ? `; ${other.join(', ')} (del juego)` : ''}, y también regalos y premios.
-            </p>
-          ) : null}
-          <GameTier label="☆ o más" tier={luck.rare} other={luck.otherCards} />
-          <GameTier label="◊◊◊◊ (ex)" tier={luck.ex} other={luck.otherCards} />
+          <Sources luck={luck} />
+          <GameTier label="☆ o más" tier={luck.rare} />
+          <GameTier label="◊◊◊◊ (ex)" tier={luck.ex} />
           {top.length > 0 ? (
             <p className="text-xs text-muted-foreground">
               Los que más abriste:{' '}
@@ -172,12 +231,58 @@ function GameLuckCard({ title, luck }: { title: string; luck: GameLuck }) {
               {luck.unknownPacks === 1
                 ? '1 sobre de una expansión que el catálogo todavía no tiene no cuenta'
                 : `${formatNumber(luck.unknownPacks)} sobres de expansiones que el catálogo todavía no tiene no cuentan`}{' '}
-              en lo esperado (sus cartas sí están entre las obtenidas).
+              en lo esperado (sus cartas quedan de origen desconocido).
             </p>
           ) : null}
         </>
       )}
     </div>
+  )
+}
+
+/** pz/luck: «desde la primera importación», the spans between imports with few cards of unknown origin, summed. */
+function SinceFirstCard({ since }: { since: GameLuckSinceFirst }) {
+  const tier = (label: string, value: GameLuckSinceFirst['rare']) =>
+    value ? (
+      <div className="flex flex-col gap-0.5 text-sm" data-testid="since-first-tier">
+        <p className="text-xs text-muted-foreground">
+          {label}: {value.counted === since.spans ? 'cuentan' : `cuentan ${value.counted} de`}{' '}
+          {plural(since.spans, 'período', 'períodos')} entre importaciones.
+        </p>
+        <TierBody label={label} tier={value} />
+      </div>
+    ) : (
+      <p className="text-sm text-muted-foreground" data-testid="since-first-tier">
+        {label}: todavía no cuenta ninguno de {plural(since.spans, 'período', 'períodos')} entre importaciones.
+      </p>
+    )
+  return (
+    <div className="flex flex-col gap-1 rounded-lg border px-3 py-2" data-testid="game-luck-since-first">
+      <span className="text-xs text-muted-foreground">
+        Desde la primera importación: {formatDateTime(since.from)} → {formatDateTime(since.to)}
+      </span>
+      {tier('☆ o más', since.rare)}
+      {tier('◊◊◊◊ (ex)', since.ex)}
+      <p className="text-xs text-muted-foreground">
+        Cuentan los períodos entre importaciones con pocas cartas de origen desconocido: un día en que solo abriste
+        sobres (y Wonder Pick) cuenta; uno con muchos intercambios, promos o premios, no. Se elige por esas cartas y lo
+        esperado, nunca por lo que salió; en un empate, el más reciente.
+      </p>
+      <ImportRegularly />
+    </div>
+  )
+}
+
+/**
+ * Review of #172: when to import is Santi's choice, and a lucky run could get a span of its own; importing at a
+ * fixed time keeps the spans from being chosen by what came out.
+ */
+function ImportRegularly() {
+  return (
+    <p className="text-xs text-muted-foreground" data-testid="import-regularly">
+      Importá todos los días a la misma hora, después del Sync automático de pokemon-zone: así ningún período lo elige
+      lo que salió.
+    </p>
   )
 }
 
@@ -206,13 +311,26 @@ function FromGame() {
           luck={luck.since}
         />
       ) : null}
+      {luck?.sinceFirst ? <SinceFirstCard since={luck.sinceFirst} /> : null}
       {luck?.lifetime ? (
         <GameLuckCard title={`Desde que jugás, al ${formatDateTime(data.latest.syncedAt)}`} luck={luck.lifetime} />
       ) : null}
+      {luck && !luck.sinceFirst ? (
+        <>
+          <p className="text-xs text-muted-foreground">
+            Con la próxima importación empieza «desde la primera importación»: cuentan los períodos entre importaciones
+            con pocas cartas de origen desconocido, como un día en que solo abriste sobres.
+          </p>
+          <ImportRegularly />
+        </>
+      ) : null}
       <p className="text-xs text-muted-foreground">
-        Reales: sobres abiertos y cartas obtenidas por rareza, como los cuenta el juego (incluyen Wonder Pick,
-        intercambios y regalos). Estimado: lo esperado, con las tasas publicadas de los sobres de cada expansión pesadas
-        por los sobres que abriste.
+        Reales: sobres abiertos, Wonder Pick, intercambios y cartas obtenidas por rareza, como los cuenta el juego.
+        Estimado: las cartas de los sobres y lo esperado, con las tasas publicadas de los sobres de cada expansión
+        pesadas por los sobres que abriste. En Wonder Pick ves las cinco cartas antes de elegir, así que las tuyas tiran
+        a raras: cuentan a la tasa de los sobres para decir «peor de lo normal» (nunca son peores) y como de origen
+        desconocido para decir «mejor». De origen desconocido: lo demás; el veredicto sale solo si no cambia con lo que
+        esas cartas pudieron tener.
       </p>
     </div>
   )
