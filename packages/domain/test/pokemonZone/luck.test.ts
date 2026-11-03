@@ -415,8 +415,9 @@ describe('pz/luck: desde la primera importación', () => {
     expect(countedSpans([unseen, { ...unseen }], 0.5, 3)).toHaveLength(1)
     expect(checkTier([unseen, { ...unseen }], 1).unknown).toBe(1)
     // Review of #172: a tie goes to the newest span, so the verdict does not freeze on the oldest days.
+    // (Same unknown cards and expected hits; what they got only tells them apart here.)
     const old = span(1, 4, 0)
-    const recent = span(1, 4, 0)
+    const recent = span(1, 4, 9)
     expect(countedSpans([old, recent])).toEqual([recent])
   })
 
