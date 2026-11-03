@@ -182,7 +182,7 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 - **Integrados el 18/10/2026:** #114, #116–#126.
   - Producción exige `sslmode=verify-full` y las migraciones verifican el certificado (#116, H-058; release v70).
   - Aviso «posible punto ciego del bot» (#119, #122, #124; H-055); deuda del laboratorio (#118, #121); el empate en el límite son exactamente L+1 turnos (#125).
-  - T-022 hecha: rival por cartas vistas (#114, tool `matches_rival_suggest`, backup 9) y ranked por temporada y rango (#120, tools `ranked_season` y `ranked_rank_note`, backup 10). **45 de lectura y 14 de escritura.**
+  - T-022 hecha: rival por cartas vistas (#114, tool `matches_rival_suggest`, backup 9) y ranked por temporada y rango (#120, tools `ranked_season` y `ranked_rank_note`, backup 10). 45 de lectura y 14 de escritura entonces (49 de lectura desde #173).
   - El bot «g» y la liga entre bots (#117, feature `gBots`, engine-cli 0.3.13); e2 sigue por defecto (D-029).
   - T1a de la mudanza del chat (#123, #126; D-030); en chat-hub, #8–#11 (H6.8 y H5), sin desplegar.
 - **Dedenne ex (H-055, 18/10):** el motor está bien; la búsqueda de profundidad 2 de e2 no ve el pago de una Herramienta (jugarla son dos decisiones). Contra el banco (n = 3.600 por fila): mazo 16, e2 17,0 % y g2 29,2 %; lista de torneo, e2 27,6 % y g2 41,7 % (52,4 % en torneos). «Atacar ahora» va en #128 (g 1.1): con él, g2 da 42,2 % con el mazo 16 y 50,4 % con la lista de torneo.
@@ -216,9 +216,30 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
   - **Arreglos después de g2** (#158, 58.38–58.40 y 21.4–21.5): `decks_pick_today` dice g2, costos medidos (e3 4,6 veces e2), «Era nueva probable» una vez por era y notas de carta por bot.
   - **Tope de mazos armados en 30** (#161, 64.1, invariante I8), pedido de Santi.
   - **El motor de C1** (#160, D-031, 51.58–51.63): la copia `santiqwerty1/deckgym-core`, rama `next/7aa4ef0` en `77e0617` (etiqueta `pin-77e0617`), sobre upstream `7aa4ef0` con solo `feat/bot-api` y `perf/value-function-skips-zero-weights`; engine-cli 0.3.17 y worker 0.3.15; `GAMES_REV` en 1. El diferencial contra un motor de control lo verificó una sesión independiente.
-- **Producción al 29/10/2026:** hasta `4cd4bfb` (#160); engine-cli 0.3.17 y worker 0.3.15, que llegan solos a los workers. El catálogo, en el tracker `9fafc07` (C1 y P-C) con el motor `77e0617`. La app está en la era C1, todavía sin torneos de Limitless. El id de la máquina sale de `flyctl machine list --app tcg-pocket`. Deploys desde una copia limpia de main, con `git fetch` antes; si dos PR entran seguidos, la CI del primero queda cancelada y se despliega el segundo, que lo contiene. Justo después de un deploy, un CLI en la máquina puede chocar con el tope de 15 conexiones del pooler de Supabase: al minuto anda. Las calibraciones se lanzan con un script en modo CLI que llama a `CalibrationService.start`; «Actualizar todos», con `PickService.refreshLab` (necesita torneos en la era).
+- **Integrados el 30/10/2026:** #164–#165.
+  - **Sobres de promoción** (#164, de la sesión en la nube «Nube-Promos», DECISIONES 65.1–65.6): Sobres → Sobres de promoción (`/sobres/promo`), `GET /api/promo-packs` y la tool `packs_promo`; dice qué batalla de evento ganar. Volúmenes y eventos son datos fijos (`PROMO_VOLUMES`, `PROMO_EVENTS`). El orden lo decidió Santi: carta para un mazo, carta que no se tiene en ninguna versión, versión que falta; sorteo solo entre los empatados en las tres.
+  - #165: cada volumen muestra la chance que decide su lugar, con su etiqueta.
+- **Integrados el 2/11/2026:** #169–#171 (#170 y #171, pasada la medianoche).
+  - **Objetivo de 2 copias por versión en los sobres de promoción** (#169, `PROMO_GOAL`, 65.7–65.10), pedido de Santi: victorias exactas con una cadena de Markov y «Última carta de un volumen» para los cupones.
+  - **pokemon-zone, fase 1** (#170, T-025, 66.1–66.15; riesgo alto):
+    - un marcador en pokemon-zone.com lee la cuenta del juego y la manda por el fragmento de la URL a Colección → pokemon-zone (la API de pokemon-zone solo le contesta a un navegador);
+    - tabla `pokemon_zone_imports` (migración `20261102120000_pokemon_zone_imports`), backup `schemaVersion` 13 y lock consultivo `pokemonZoneImport`; el friend id viaja solo como hash;
+    - puntos de sobre y relojes a Sobres → Ajustes, cupones de promo a Sobres de promoción, «Según el juego» en la suerte de los sobres y en Partidas → Estadísticas, y la tool `pokemon_zone_summary`.
+  - #171 (66.16–66.18): `PATCH /api/settings/packPoints` guarda solo la fila editada, y el marcador toma la fecha del jugador. La fase 2 cruza por el `cardId` de pokemon-zone: su A4b está corrida uno contra el tracker.
+- **Integrados el 3/11/2026:** #172–#174.
+  - **La suerte «Según el juego», más fina** (#172, 66.19–66.27): Wonder Pick asimétrico, desconocido dentro de la ventana del evento, una ★★ asegurada por campaña, «desde la primera importación» y los eventos de cupones de PROMO 2026; el marcador v2, sin «javascript:» (Chrome lo borra al pegar). Entró con squash, para que los valores reales de los fixtures no queden en la historia de main. El `payload.json` de #170 queda como está (66.28, decisión de Santi).
+  - **Cupón ★★: qué sobre conviene** (#173, 67.1–67.8): sección de Sobres, `GET /api/packs/star-coupon` y la tool `packs_star_coupon`; cuántos cupones hay sale de la última importación de pokemon-zone. #174 (67.9–67.10): el cupón del aniversario vencido va aparte, y el desempate es por sobre limitado, después expansión más nueva y después id.
+  - **49 de lectura y 14 de escritura.**
+  - El evento «Partidas limitadas de Fusión Dual» (id 2), cargado en producción con un script de CLI: del 18/11 al 2/12, solo cartas de C1 y P-C; las excepciones oficiales se publican cuando empieza.
+- **Producción al 3/11/2026:** hasta `2b7282e` (#174); engine-cli 0.3.17 y worker 0.3.15, que llegan solos a los workers. El catálogo, en el tracker `9fafc07` (C1 y P-C) con el motor `77e0617`. La app está en la era C1. El id de la máquina sale de `flyctl machine list --app tcg-pocket`. Deploys desde una copia limpia de main, con `git fetch` antes; si dos PR entran seguidos, la CI del primero queda cancelada y se despliega el segundo, que lo contiene. Justo después de un deploy, un CLI en la máquina puede chocar con el tope de 15 conexiones del pooler de Supabase: al minuto anda. Las calibraciones se lanzan con un script en modo CLI que llama a `CalibrationService.start`; «Actualizar todos», con `PickService.refreshLab` (necesita torneos en la era).
 - **Pendientes** (detalle en Avance):
-  - con los primeros torneos de C1: «Actualizar todos» con g2, y después la matriz y las calibraciones;
+  - antes del 30/11: corregir las fechas de la temporada de ranked C1 (la noticia oficial dice del 1/12 al 15/12; la app tiene del 30/11 al 14/12, de ptcgpocket.gg);
+  - el 18/11: cargar las excepciones del evento limitado, y sumar promo C vol. 1 a `PROMO_VOLUMES` y a los eventos cuando se conozcan sus cartas;
+  - propuesta para Santi (D-032): la modalidad «Evento» de la app son solo los eventos de emblema contra personas (se comparan con versus); los eventos contra la CPU no se registran;
+  - el 6/11: importar de pokemon-zone antes y después de un evento de emblema, para ver si cuenta en versus;
+  - pokemon-zone, fase 2 (T-025): la colección con fechas, los mazos del juego, las colecciones temáticas, la wishlist y el calendario de eventos;
+  - menores de #174: ningún test fija «más nueva» como el orden del catálogo, el plural de «esos cupones vencieron» y «termina antes» para un sobre limitado sin fecha de fin;
+  - con los torneos de C1: «Actualizar todos» con g2, y después la matriz y las calibraciones;
   - SP1: cuando el tracker lo cargue, catálogo, sobre apagado y ptcgpocket.gg;
   - proponer a Santi cerrar H-055 (g2 como arreglo); H-060 (cuatro bloqueos cruzados que ya existían) para una tanda de riesgo alto;
   - una sesión nueva: la línea 2 de los bots;

@@ -4,7 +4,7 @@ titulo: >-
   Avance
 area: proyecto
 estado: vigente
-actualizado: '2026-10-29'
+actualizado: '2026-11-03'
 origen:
   - posta init
   - docs/PLAN.md §7
@@ -78,13 +78,18 @@ revisar: false
 | B | Bots más fuertes: daño real, sin trampa, afinado y evaluación aprendida | en curso (sesión «Bots» en la nube) · diseño (#111, 15/10) y bot «g» opcional (#117, 18/10, engine-cli 0.3.13); g2 por defecto desde el 23/10 ([D-029](Decisiones/D-029.md)) · 19/10: g 1.1 (#128), g 1.1.1 (#139) y g 1.1.2 (#140) integrados; en la liga, g2 le gana a e2 68,7 % y a f2 63,5 % · 22/10: la app acepta g (#142, desplegado), el seguimiento (#144) y `scripts/bots-bank.mjs` (#146); los mazos 16, 23 y 40 medidos de nuevo; la calibración con g2 (86), terminada el 23/10 · la línea 2, a una sesión nueva · 23/10: **g2 es el bot por defecto** (#155, [D-029](Decisiones/D-029.md)), con los puntajes del laboratorio recalculados | F | [T-021](Tareas/T-021.md), [H-055](Hallazgos/H-055.md) |
 | P | Partidas: rival por cartas vistas y ranked por temporada y rango | hecho 18/10 · rival por cartas vistas (#114) y ranked (#120), desplegados, con su deuda en #131 y #130 · 19/10: arquetipo asignado al rival de 20 partidas, y «mi meta» ya tiene 19,9 efectivas · Master Ball anotado por Santiago el 19/10 · 22/10: «Importar desde la hoja» (#143) · [H-060](Hallazgos/H-060.md): cuatro bloqueos cruzados que ya existían | — | [T-022](Tareas/T-022.md) |
 | H | Hub de chat propio (`santiqwerty1/chat-hub`) | en curso (Principal) · D1–D9 aprobadas · H1–H3, H6 y H5 integrados (chat-hub #1–#11), sin desplegar · T1a (#123 y #126) y T1b (#129) en tcg-pocket · chat-hub #12 y #13 integrados · el paso 5 espera el paso 2 de Santiago, el incremento 5 de Posta en su main y el token `HUB_MCP_TOKEN` | — | [D-030](Decisiones/D-030.md) |
-| C1 | C1 «Dual Fusion»: la app lista para el doble tipo | en producción el 29/10 · la app pasó a la era C1 · catálogo con C1 y P-C (#157, `secondary_energy`) · el motor de C1 (#160, `77e0617`) · falta «Actualizar todos» con g2 cuando haya torneos de C1, y SP1 cuando el tracker lo cargue | — | [T-023](Tareas/T-023.md) |
+| C1 | C1 «Dual Fusion»: la app lista para el doble tipo | en producción el 29/10 · la app pasó a la era C1 · catálogo con C1 y P-C (#157, `secondary_energy`) · el motor de C1 (#160, `77e0617`) · falta «Actualizar todos» con g2 cuando haya torneos de C1, y SP1 cuando el tracker lo cargue · 3/11: el evento «Partidas limitadas de Fusión Dual» (id 2, del 18/11 al 2/12) cargado en producción; las fechas de ranked C1 se corrigen antes del 30/11 (la noticia oficial dice del 1/12 al 15/12) | — | [T-023](Tareas/T-023.md) |
 | G | La colección real desde ptcgpocket.gg y el archivo para el tracker | hecho 23/10 · #150 y #153 desplegados · Santiago guardó el link y el juego, la app y el tracker coinciden (5.128 copias) | — | [T-024](Tareas/T-024.md) |
+| PP | Sobres de promoción: qué batalla de evento ganar (Sobres → Sobres de promoción, tool `packs_promo`) | hecho 30/10 (#164, de «Nube-Promos», y #165; DECISIONES 65.1–65.6) · desplegado (`a003c03`) · el orden lo decidió Santiago · promo C vol. 1, cuando se conozcan sus cartas | — | — |
+| PP.1 | Sobres de promoción: objetivo de 2 copias por versión (pedido de Santiago del 2/11) | hecho 2/11 (#169, DECISIONES 65.7–65.10) · desplegado (`7d1664e`) | PP | — |
+| PZ | pokemon-zone, fase 1: los puntos, relojes, cupones, partidas y sobres del juego, con un marcador | hecho 2/11 (#170 y #171, DECISIONES 66.1–66.18) · desplegado (`0c4c473` y `05c8592`) · primera importación real el 3/11 · Santiago vuelve a crear el marcador (versión 2) · el 6/11, ver si los eventos de emblema cuentan en versus · [D-032](Decisiones/D-032.md), propuesta · la fase 2, sin empezar | — | [T-025](Tareas/T-025.md) |
+| PZ.1 | La suerte «Según el juego», más fina | hecho 3/11 (#172, con squash: `e977b1f`; DECISIONES 66.19–66.28) · desplegado · aprobada por Santiago | PZ | [T-025](Tareas/T-025.md) |
+| CU | Cupón ★★: qué sobre conviene (Sobres, tool `packs_star_coupon`) | hecho 3/11 (#173 y #174, DECISIONES 67.1–67.10) · desplegado (`1d55fc8` y `2b7282e`) · quedan menores de #174 | PZ.1 | — |
 | K | Bóveda con el kit de Posta | hecho 07/10 · aprobado 08/10 | — | [D-009](Decisiones/D-009.md) |
 
 ## Próximos pasos
 
-**Producción al 29/10/2026:** desplegada hasta `4cd4bfb` (#160), con C1 en el catálogo (#157), «Tracker al día» con sets desconocidos (#159), los arreglos después de g2 (#158) y el tope de 30 mazos armados (#161). Versión 1.0.0, engine-cli 0.3.17 y worker 0.3.15, con el regulador de CPU prendido. El motor es la copia de deckgym en `77e0617`, sobre upstream `7aa4ef0` ([D-031](Decisiones/D-031.md)), y el catálogo, el tracker en `9fafc07` (C1 y P-C). La app está en la era C1, sin torneos todavía. Los workers se actualizan solos ([D-026](Decisiones/D-026.md)); la PC ya está en 0.3.15. El id de la máquina se busca con `flyctl machine list --app tcg-pocket`.
+**Producción al 3/11/2026:** desplegada hasta `2b7282e` (#174), con los sobres de promoción (#164, #165 y #169), pokemon-zone (#170–#172, backup `schemaVersion` 13) y el cupón ★★ (#173 y #174). Versión 1.0.0, engine-cli 0.3.17 y worker 0.3.15, con el regulador de CPU prendido. El motor es la copia de deckgym en `77e0617`, sobre upstream `7aa4ef0` ([D-031](Decisiones/D-031.md)), y el catálogo, el tracker en `9fafc07` (C1 y P-C). La app está en la era C1, y el evento limitado de Fusión Dual (id 2) ya está cargado. Los workers se actualizan solos ([D-026](Decisiones/D-026.md)); la PC ya está en 0.3.15. El id de la máquina se busca con `flyctl machine list --app tcg-pocket`. MCP: 49 tools de lectura y 14 de escritura.
 
 **Repo:** `santiqwerty1/tcg-pocket` es público desde el 11/10 ([D-022](Decisiones/D-022.md)). main está protegida (privacy, test, e2e y screens requeridos) y, desde el 18/10, con `enforce_admins`: tampoco la cuenta de Santiago empuja directo. El hub de chat vive en `santiqwerty1/chat-hub` (privado, [D-030](Decisiones/D-030.md)), con la CI en un runner propio de la PC de Santiago.
 
@@ -96,22 +101,29 @@ revisar: false
 
 Lo que sigue, en orden:
 
-1. **Con los primeros torneos de C1** ([T-023](Tareas/T-023.md)): «Actualizar todos» con g2 y el motor nuevo; después, la matriz y las calibraciones con listas de C1.
-2. **SP1 («Primeros Compañeros»):** cuando el tracker lo cargue, sincronizar el catálogo, dejar el sobre apagado (runbook, paso 4) y volver a sincronizar ptcgpocket.gg.
-3. **[H-055](Hallazgos/H-055.md):** proponer a Santiago cerrarla como explicada, con g2 como arreglo.
-4. **La línea 2 de los bots, sin trampa ([T-021](Tareas/T-021.md)):** en una sesión nueva, con el traspaso de Bots del 22/10.
-5. **[H-060](Hallazgos/H-060.md):** los cuatro bloqueos cruzados que ya existían, en una tanda de riesgo alto.
-6. **El hub ([D-030](Decisiones/D-030.md)):** el paso 5 espera el paso 2 de Santiago, el incremento 5 de Posta en su main y el token `HUB_MCP_TOKEN`. Después, el cambio de «posta», H4 y T2.
-7. **Santiago:**
-   - los relevos viejos de Posta;
-   - el paso 2 del hub;
-   - en la Ryzen, actualizar el worker (sigue en 0.2.7) y lo demás del paquete `tcg-ryzen-13oct-v2.zip`;
-   - los 43 términos de las traducciones de los premios de las misiones;
-   - Termux «Sin restricciones» en la batería del S25 ([H-054](Hallazgos/H-054.md), [T-015](Tareas/T-015.md)); el S25 volvió a conectarse el 23/10;
-   - en esta PC, el runner Windows de la CI de Posta;
-   - si quiere, prender la sincronización diaria de ptcgpocket.gg.
-8. **Privacidad del mail en GitHub** (recomendación para Santiago): activar «Keep my email addresses private» y «Block command line pushes that expose my email» ([R-013](Riesgos/R-013.md)).
-9. **Menores:** [T-016](Tareas/T-016.md) sigue para cuando Santiago lo pida; revisar en la mesa que el fósil se vea una sola vez, para cerrar [H-052](Hallazgos/H-052.md).
+1. **Antes del 30/11** ([T-023](Tareas/T-023.md)): corregir las fechas de la temporada de ranked C1. La noticia oficial dice del 1/12 a las 06:00 al 15/12 a las 06:59 UTC; la app tiene del 30/11 al 14/12, de ptcgpocket.gg.
+2. **El 6/11** ([T-025](Tareas/T-025.md)): importar de pokemon-zone antes y después de jugar un evento de emblema, para ver si cuenta en versus.
+3. **[D-032](Decisiones/D-032.md), propuesta para Santiago:** la modalidad «Evento» de la app son solo los eventos de emblema contra personas (se comparan con versus); los eventos contra la CPU no se registran.
+4. **El 18/11** ([T-023](Tareas/T-023.md)): cargar las excepciones del evento limitado de Fusión Dual, y sumar promo C vol. 1 a `PROMO_VOLUMES` y a los eventos cuando se conozcan sus cartas.
+5. **pokemon-zone, fase 2** ([T-025](Tareas/T-025.md)): la colección con fechas, los mazos del juego, las colecciones temáticas, la wishlist y el calendario de eventos. Las cartas se cruzan por el `cardId` de pokemon-zone.
+6. **Menores de #174:** un test que fije «más nueva» como el orden del catálogo, el plural de «esos cupones vencieron» y «termina antes» para un sobre limitado sin fecha de fin.
+7. **Con los torneos de C1** ([T-023](Tareas/T-023.md)): «Actualizar todos» con g2 y el motor nuevo; después, la matriz y las calibraciones con listas de C1.
+8. **SP1 («Primeros Compañeros»):** cuando el tracker lo cargue, sincronizar el catálogo, dejar el sobre apagado (runbook, paso 4) y volver a sincronizar ptcgpocket.gg.
+9. **[H-055](Hallazgos/H-055.md):** proponer a Santiago cerrarla como explicada, con g2 como arreglo.
+10. **La línea 2 de los bots, sin trampa ([T-021](Tareas/T-021.md)):** en una sesión nueva, con el traspaso de Bots del 22/10.
+11. **[H-060](Hallazgos/H-060.md):** los cuatro bloqueos cruzados que ya existían, en una tanda de riesgo alto.
+12. **El hub ([D-030](Decisiones/D-030.md)):** el paso 5 espera el paso 2 de Santiago, el incremento 5 de Posta en su main y el token `HUB_MCP_TOKEN`. Después, el cambio de «posta», H4 y T2.
+13. **Santiago:**
+    - volver a crear el marcador de pokemon-zone (versión 2) en la PC y en el celu ([T-025](Tareas/T-025.md));
+    - los relevos viejos de Posta;
+    - el paso 2 del hub;
+    - en la Ryzen, actualizar el worker (sigue en 0.2.7) y lo demás del paquete `tcg-ryzen-13oct-v2.zip`;
+    - los 43 términos de las traducciones de los premios de las misiones;
+    - Termux «Sin restricciones» en la batería del S25 ([H-054](Hallazgos/H-054.md), [T-015](Tareas/T-015.md)); el S25 volvió a conectarse el 23/10;
+    - en esta PC, el runner Windows de la CI de Posta;
+    - si quiere, prender la sincronización diaria de ptcgpocket.gg.
+14. **Privacidad del mail en GitHub** (recomendación para Santiago): activar «Keep my email addresses private» y «Block command line pushes that expose my email» ([R-013](Riesgos/R-013.md)).
+15. **Menores:** [T-016](Tareas/T-016.md) sigue para cuando Santiago lo pida; revisar en la mesa que el fósil se vea una sola vez, para cerrar [H-052](Hallazgos/H-052.md).
 
 Hechos desde la actualización del 14/10 (lo del 23/10, al final):
 - 15/10: #109 («Actualizar todos»), #110 (seguimiento del regulador), #111 (diseño del bot «g»), #113 (seguimiento de #107) y #115 (el fork de deckgym, [H-056](Hallazgos/H-056.md) resuelto), con tres deploys; chat-hub #7 (H6);
@@ -126,6 +138,9 @@ Hechos desde la actualización del 14/10 (lo del 23/10, al final):
 
 - 22/10 a la noche y 23/10: #150 y #153 (ptcgpocket.gg), #149, #151, #147, #154 y #152 (C1), y #155 (g2 por defecto), con los deploys de `53528ca`, `75e039f`, `63c09fe` y `c247f20`; el catálogo en `aac8d456`; la calibración con g2 y los puntajes del laboratorio con g2; el issue upstream del doble tipo; la limpieza de ramas y worktrees (0 rastros del usuario de Windows).
 - 29/10: #157 (C1 en el catálogo), #159 (sets desconocidos en «Tracker al día»), #158 (arreglos después de g2), #161 (tope de 30 mazos) y #160 (el motor de C1), con los deploys de `93f7f1a`, `48faef6` y `4cd4bfb`; el catálogo en `9fafc07` con el motor `77e0617`.
+- 30/10: #164 y #165 (sobres de promoción, de «Nube-Promos»), con el deploy de `a003c03`.
+- 2/11 y la madrugada del 3/11: #169 (objetivo de 2 copias), #170 y #171 (pokemon-zone, fase 1), con los deploys de `7d1664e`, `0c4c473` y `05c8592`.
+- 3/11: #172 (la suerte «Según el juego», con squash), #173 y #174 (el cupón ★★), con sus deploys hasta `2b7282e`; la primera importación real de pokemon-zone; el evento limitado de Fusión Dual en producción; la PC se reinició a las 14:23 y volvieron el worker, el despachador y el runner de Posta, y Docker.
 Todo entra por PR, con la CI verde y la revisión del Coordinador. Las sesiones se hablan por el chat externo al repo, en las salas «tcg» y «posta»; Bots, por el chat de la app.
 
 ## Pendiente de decidir (para después)
@@ -175,3 +190,13 @@ El 23/10/2026:
 
 El 29/10/2026:
 - **Pedido por Santiago:** el tope de mazos armados pasa de 25 a 30, porque el juego ahora deja 30 (#161, DECISIONES 64.1). Lo integró la sesión «Mazo contra Mega-Mewtwo X ex» a pedido explícito de Santiago.
+
+El 30/10/2026:
+- **Decidido por Santiago:** el orden de los sobres de promoción: carta para un mazo, carta que no tiene en ninguna versión, versión que falta, y sorteo solo entre los empatados en las tres (DECISIONES 65.5).
+
+El 2/11/2026:
+- **Decididos por Santiago:** el objetivo de 2 copias en los sobres de promoción (65.7) y la fase 1 de pokemon-zone con un marcador ([T-025](Tareas/T-025.md)).
+
+El 3/11/2026:
+- **Decididos por Santiago:** el refinamiento de la suerte «Según el juego» de #172 (66.19) y dejar como está el `payload.json` de #170, con los totales reales de sobres y rarezas; la regla de números inventados vale para lo que venga (66.28).
+- **Espera a Santiago:** [D-032](Decisiones/D-032.md), qué cuenta como «Evento» en la app.

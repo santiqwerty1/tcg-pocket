@@ -5,10 +5,21 @@ Formato [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El bloque s
 ## [Sin publicar]
 
 <!-- posta:cambios -->
-_Borrador generado al 2026-10-29 desde la etiqueta `v1.0.0` (371 commits). Escribí el «porqué» fuera de este bloque._
+_Borrador generado al 2026-11-03 desde la etiqueta `v1.0.0` (406 commits). Escribí el «porqué» fuera de este bloque._
 
 ### Agregado
 
+- Cupón ★★ counts the ★★ tickets of guaranteedTickets (pz/luck) — v1 unknown, v2 its count, none held 0 `6160fcc`
+- a sharper luck verdict, PROMO 2026 coupon events, bookmarklet without «javascript:» (#172) `e977b1f`
+- Cupón ★★ — each row's headline is the share that decides its place; both shares in the line `1aac65c`
+- Sobres → «Cupón ★★: qué sobre conviene», and the bookmarklet sends the ★★ tickets `d343b46`
+- GET /api/packs/star-coupon and the packs_star_coupon tool `37b059e`
+- Cupón ★★ — which pack on sale to open a ★★-guaranteed coupon on, and the ★★ tickets of a pokemon-zone import `85b4112`
+- pokemon-zone — the bookmarklet's payload, its normalized snapshot, settings, coupons, battles and pack luck from the game's numbers `0783aec`
+- pokemon-zone imports — preview, save, summary, the settings of Sobres, coupons in promo packs, backup v13 and the pokemon_zone_summary tool `3ec50b7`
+- pokemon-zone — the bookmarklet, the receiving page, «Según el juego» in Estadísticas and Suerte de los sobres, coupons and settings' origin `61a6868`
+- promo packs — the goal is two copies of each print `52ba972`
+- promo packs — which event battle to win `68ab679`
 - the app on 77e0617 — DEFAULT_ENGINE_REV, About, LICENCIAS, OPERACION and the decisions (D-031, T-023) `82deb8f`
 - the engine moves to next/7aa4ef0 at 77e0617 — C1 «Dual Fusion» and upstream's rule fixes, the bots on both types (D-031, T-023) (#430, #439, #421, #275) `7115136`
 - g2 is the bot by default, from one constant (D-029) (H-055) `8e5f1bc`
@@ -74,6 +85,21 @@ _Borrador generado al 2026-10-29 desde la etiqueta `v1.0.0` (371 commits). Escri
 
 ### Corregido
 
+- Cupón ★★ follow-up — an expired anniversary coupon apart from the count; ties by limited packs, then the newest expansion; a wording nit `30dbd0f`
+- Cupón ★★ — the count from the adapter; review texts: singular for one deck goal, «la mayor parte» (the order is by share), no deck goals said as such `3a4e39c`
+- Sobres → Ajustes saves one expansion's points (PATCH, merged under the import's lock); the bookmarklet takes the player's read date like the server `368bf90`
+- review of #170 at e3c0612 — the shown tail tested, NaN rates «normal» again, a looser speed bound, the bookmarklet without stats, one other card `3a1071b`
+- Codex on #170 — when each expansion was changed by hand is kept apart; a save of one never keeps another `763ac30`
+- binomialTails stops where the rest cannot move the tail (CI on e3c0612: 52 ms at a billion trials) `a041bf7`
+- independent review of pz/import — the luck verdict at both ends of the other cards, hand edits after the read stay, lenient on what the app does not read, the bookmarklet picks its fields, 503 while a restore holds the lock, and the rest of the list `e3c0612`
+- Codex on #170 — binomial tails linear from the mode (the luck of a lifetime of cards blocked the API), the luck kept per import; a match that changes marks pokemon-zone stale `d07f7a6`
+- Codex on #170 — a tied duplicate that is not the latest does not write the settings; a change by hand in Sobres → Ajustes refreshes where they came from `269e4e6`
+- the bookmarklet starts with void; API.md and the decisions after the review of pz/import `acbbd91`
+- review of pz/import — what is saved reads back, reads in the future refused, older than any import, locks with the settings and the restore, ranked points with their sign, own keys only, singular and plural `d0679ac`
+- promo packs — coupons pay in full when one print is left, also for its second copy `3bd2169`
+- promo packs — each volume shows the chance that decides its order (#164) `56a3339`
+- promo packs — Santi's order, coupons per goal, no battle without an event (#164) `c851598`
+- promo packs — random pick among ties, coupons for the last card `bb0cf91`
 - the game now holds 30 built decks, so the app limit goes from 25 to 30 (I8) `d58b01f`
 - read the tracker's secondary_energy as the second type of C1 Pokémon (T-023) `0922eb0`
 - a promo past the last number of its set does not stop the file either; clearer same-name warning (T-024) `51ed544`
@@ -244,6 +270,7 @@ _Borrador generado al 2026-10-29 desde la etiqueta `v1.0.0` (371 commits). Escri
 
 ### Cambiado
 
+- the ★★ coupon count goes through an adapter for #172's field; payload, snapshot and bookmarklet as on main `4e14a73`
 - g 1.1 under 3× e2 again — each attack's mechanic once, overcharge only for attacks that scale, no attack check where the Active cannot attack (T-021) `d87ea1f`
 - format backup schema `0c21628`
 - one live game for engine-cli play and the browser — live.rs shared, GAMES_REV in seeds.rs (T-015) `e3e6a03`
@@ -251,6 +278,9 @@ _Borrador generado al 2026-10-29 desde la etiqueta `v1.0.0` (371 commits). Escri
 
 ### Documentado
 
+- the decisions of Cupón ★★ `a98c5bd`
+- pokemon-zone in API.md and its decisions `7d3149c`
+- 29/10, C1 day — the catalog with C1 (#157), unknown sets in «Tracker al día» (#159), the fixes after g2 (#158), 30 built decks (#161) and the C1 engine (#160); fold their decisions (D-029, D-031, T-023, T-024) `29bdfd4`
 - the GAMES_REV decision says the C1 golden games cover the engine and the unit tests cover how g and f read the second type (review of #160, D-031) `efaa4b6`
 - file the secondary_energy decision under Fase 40, next to 43.15 (T-023) `3936466`
 - decisions of fix/after-g2 — the bot of decks_pick_today, the measured costs and the card notes (D-029) `5cb9310`
@@ -348,6 +378,9 @@ _Borrador generado al 2026-10-29 desde la etiqueta `v1.0.0` (371 commits). Escri
 
 ### Pruebas
 
+- the ★★ coupon's last minute checked by key, not by position `2c7236f`
+- the promo page fits a 375 px phone `2bbe322`
+- promo packs — the best coupon print in any position, and the last copy by copies `f3de9cf`
 - golden games with C1's dual types, own_types, the differential fails on what it cannot explain — self-review (D-031, T-023) `73b594b`
 - the holed catalog drops the stock unit too, and the count-once check knows every set so A1-2's reprint does not leave it out first (T-024) `90324ec`
 - a known card the export numbers past the last one of its set is not zeroed; the decision says why that number does not stop the file (T-024) (#159) `9d807b9`
@@ -384,6 +417,8 @@ _Borrador generado al 2026-10-29 desde la etiqueta `v1.0.0` (371 commits). Escri
 
 ### Mantenimiento
 
+- Bump zod from 4.6.5 to 4.6.6 in /apps/web `e4747e5`
+- zod 4.6.6 in the API and the domain too, and the lockfile (the bump of #162 left them at 4.6.5) `3fbaf55`
 - worker 0.3.15 with engine-cli 0.3.17 on 77e0617, so the workers update themselves (D-031, T-023) `c2c1234`
 - the C1 season migration goes after main's (20261023100000), so it never applies out of order (review of #147, T-023) `8d01d13`
 - the aac8d456 fixture keeps only the two literals, and the openable note follows the tracker `8ab1112`
@@ -408,6 +443,11 @@ _Borrador generado al 2026-10-29 desde la etiqueta `v1.0.0` (371 commits). Escri
 
 ### Decidido
 
+- 2026-11-03 — T-025, decidido por Santiago: el `payload.json` de #170 conserva los totales reales de sobres y rarezas; la regla de números inventados vale para lo que venga (DECISIONES 66.28).
+- 2026-11-03 — T-025, aprobado por Santiago: el refinamiento de la suerte «Según el juego» (#172, DECISIONES 66.19).
+- 2026-11-02 — T-025, aprobado por Santiago: la fase 1 de pokemon-zone, con un marcador (#170).
+- 2026-11-02 — pedido de Santiago: el objetivo de los sobres de promoción es tener 2 copias de cada versión (#169).
+- 2026-10-30 — decidido por Santiago: el orden de los sobres de promoción (una carta para un mazo, una que no tiene en ninguna versión, una versión que falta; sorteo solo entre los empatados) (#164).
 - 2026-10-29 — pedido de Santiago: el tope de mazos armados pasa de 25 a 30 (#161).
 - 2026-10-29 — D-031 aplicada: el motor pasa a la copia sobre upstream con C1 (`77e0617`, #160).
 - 2026-10-23 — D-029, decidido por Santiago: g2 es el bot por defecto ya (calibraciones 82, 83 y 86 con el banco grande); los puntajes del laboratorio se recalcularon con g2.
