@@ -68,7 +68,23 @@ describe('binomial tails, linear (Codex on #170)', () => {
     }
   })
 
-  it('a lifetime of cards is fast: 15.000, 100.000 and a billion trials, well under 50 ms each', () => {
+  it('review of #170: a NaN rate gives NaN tails and «normal», as the reference did; ±∞ is clamped like 0 and 1', () => {
+    const none = binomialTails(10, 3, Number.NaN)
+    expect(none.lower).toBeNaN()
+    expect(none.upper).toBeNaN()
+    const slow = referenceTails(10, 3, Number.NaN)
+    expect(slow.lower).toBeNaN()
+    expect(slow.upper).toBeNaN()
+    for (const wins of [0, 3, 10]) {
+      expect(luckCheck({ wins, losses: 10 - wins, ties: 0 }, Number.NaN).verdict).toBe('normal')
+    }
+    expect(binomialTails(10, 3, Number.POSITIVE_INFINITY)).toEqual(referenceTails(10, 3, 1))
+    expect(binomialTails(10, 3, Number.NEGATIVE_INFINITY)).toEqual(referenceTails(10, 3, 0))
+  })
+
+  // Review of #170: the bound only has to catch the quadratic sum (seconds at 100.000 trials); CI's runners are slower
+  // than this PC (the billion took 52 ms there before the walk stopped early, ~3 ms here now).
+  it('a lifetime of cards is fast: 15.000, 100.000 and a billion trials, well under a quarter of a second each', () => {
     for (const [n, k, p] of [
       [15_000, 650, 0.042],
       [100_000, 4_150, 0.042],
@@ -78,7 +94,7 @@ describe('binomial tails, linear (Codex on #170)', () => {
       const started = performance.now()
       const { lower, upper } = binomialTails(n, k, p)
       const ms = performance.now() - started
-      expect(ms, `n=${n}`).toBeLessThan(50)
+      expect(ms, `n=${n}`).toBeLessThan(250)
       expect(lower).toBeGreaterThan(0)
       expect(lower).toBeLessThanOrEqual(1)
       expect(upper).toBeGreaterThan(0)

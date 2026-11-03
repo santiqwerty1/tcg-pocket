@@ -602,6 +602,30 @@ describe('pokemon-zone: suerte de los sobres', () => {
     expect(none?.rare?.tail).toBeLessThan(0.001)
   })
 
+  it('review of #170: when both ends agree, the tail shown is the less extreme one («1 de cada N» never overstates)', () => {
+    // 100 packs of A1 (500 cards) and 20 cards from elsewhere: 80 ☆ is lucky whether 60 or 80 came from the packs
+    // (~16,7 expected). The tail is the 60's, the larger one.
+    const lucky = pokemonZoneLuck(
+      luckSnapshot({ expansions: [['A1', 100, 520]], rarities: { C: 400, U: 40, AR: 80 } }),
+      null,
+      index,
+    )?.rare
+    expect(lucky).toMatchObject({ games: 500, fromPacks: { min: 60, max: 80 }, verdict: 'lucky' })
+    expect(lucky?.low.verdict).toBe('lucky')
+    expect(lucky?.tail).toBe(lucky?.low.upperTail)
+    expect(lucky?.tail).toBeGreaterThan(lucky?.high.upperTail ?? 1)
+    // 2 ☆ is unlucky whether 0 or 2 came from the packs: the tail is the 2's, the larger one.
+    const unlucky = pokemonZoneLuck(
+      luckSnapshot({ expansions: [['A1', 100, 520]], rarities: { C: 458, U: 60, AR: 2 } }),
+      null,
+      index,
+    )?.rare
+    expect(unlucky).toMatchObject({ games: 500, fromPacks: { min: 0, max: 2 }, verdict: 'unlucky' })
+    expect(unlucky?.high.verdict).toBe('unlucky')
+    expect(unlucky?.tail).toBe(unlucky?.high.lowerTail)
+    expect(unlucky?.tail).toBeGreaterThan(unlucky?.low.lowerTail ?? 1)
+  })
+
   it('since the previous import: the differences, per expansion, pack and rarity', () => {
     const after = snapshot()
     const before = structuredClone(after)

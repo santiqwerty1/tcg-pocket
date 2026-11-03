@@ -40,6 +40,8 @@ export function bookmarkletCode(origin: string): string {
     'const m=await g("/api/players/mine/");const p=m&&m.player;',
     'if(!p||!p.friendId)throw new Error("No encontr\\u00e9 tu cuenta. Inici\\u00e1 sesi\\u00f3n en pokemon-zone.com.");',
     'const s=await g("/api/players/"+encodeURIComponent(p.friendId)+"/stats/");',
+    // Review of #170: without its stats (never synced), a message in Spanish, not «Cannot read properties of undefined».
+    'if(!s||!s.syncedAt)throw new Error("pokemon-zone no devolvi\\u00f3 tus estad\\u00edsticas; toc\\u00e1 Sync en tu perfil y prob\\u00e1 de nuevo.");',
     'const h=[...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(String(p.friendId))))].map(x=>x.toString(16).padStart(2,"0")).join("");',
     // L: a list or none; K: items {key, value}, only those keys when given; F: those fields of each item.
     'const L=a=>Array.isArray(a)?a:[];',

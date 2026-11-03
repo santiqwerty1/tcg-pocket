@@ -83,6 +83,16 @@ describe('suerte de los sobres', () => {
     expect(screen.getByText(/se esperaban 1,3, 3,3 % de lo que entró/)).toBeInTheDocument()
   })
 
+  it('review of #170: a single other card is said in the singular', async () => {
+    const lifetime = { ...SUMMARY.luck?.lifetime, otherCards: 1 }
+    open(CSV_LUCK, { ...SUMMARY, luck: { ...SUMMARY.luck, lifetime } })
+    const cards = await screen.findAllByTestId('game-luck')
+    const [rare] = within(cards[1] as HTMLElement).getAllByTestId('game-tier') as [HTMLElement]
+    expect(rare).toHaveTextContent(
+      'No se puede saber con lo que da el juego: según si la otra carta (Wonder Pick, intercambios, regalos) fuera de estas, da peor de lo normal o mejor de lo normal.',
+    )
+  })
+
   it('without an import it points to pokemon-zone', async () => {
     open(CSV_LUCK, EMPTY_SUMMARY)
     expect(await screen.findByRole('link', { name: 'traelos de pokemon-zone' })).toHaveAttribute(

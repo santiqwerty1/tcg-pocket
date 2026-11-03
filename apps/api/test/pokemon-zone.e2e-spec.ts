@@ -251,7 +251,18 @@ describe('pokemon-zone (e2e)', () => {
     // When they were changed by hand is the server's: Sobres does not get it.
     expect((await get('/api/settings')).body).not.toHaveProperty(HAND_EDITS_KEY)
     const kept = (await post('/api/pokemon-zone/preview').send(first)).body
-    expect(kept.hourglasses).toMatchObject({ before: 6, after: 6, game: 18, kept: true, editedAt: expect.any(String) })
+    const handEdits = (await test.prisma.appSetting.findUnique({ where: { key: HAND_EDITS_KEY } }))?.value as {
+      packPoints: Record<string, string>
+      hourglasses: string
+    }
+    // The time is the hand edit's, not the import's write (that wrote them after the edits of 50 h ago).
+    expect(kept.hourglasses).toMatchObject({
+      before: 6,
+      after: 6,
+      game: 18,
+      kept: true,
+      editedAt: handEdits.hourglasses,
+    })
     expect(kept.packPoints.kept).toEqual([
       { expansionId: 'A1', value: 100, game: 5, editedAt: expect.any(String), nameEs: 'Genes Formidables' },
     ])
@@ -543,20 +554,28 @@ describe('pokemon-zone (e2e)', () => {
       (await post('/api/pokemon-zone/imports').send(reading(ago(30 * 60 * 1000), { A1: 100, A2: 100 }))).status,
     ).toBe(201)
     expect(await points()).toMatchObject({ A1: 100, A2: 100 })
-    // A1 changed by hand to 200, 20 minutes ago ("yesterday")…
-    expect((await put('/api/settings/packPoints').send({ value: { ...(await points()), A1: 200 } })).status).toBe(200)
+    // A1 changed by hand to 200, 20 minutes ago ("yesterday")… (each request is built after the one before ends:
+    // supertest closes the server it opened when its request ends.)
+    const imported = await points()
+    expect((await put('/api/settings/packPoints').send({ value: { ...imported, A1: 200 } })).status).toBe(200)
     await handEditedAgo(20 * 60 * 1000, ['A1'])
     // …the game read 10 minutes ago ("today at 06:00") says A1 = 250…
     const today = reading(ago(10 * 60 * 1000), { A1: 250, A2: 100 })
     // …and only A2 changed by hand now ("at 09:00").
-    expect((await put('/api/settings/packPoints').send({ value: { ...(await points()), A2: 150 } })).status).toBe(200)
+    const edited = await points()
+    expect((await put('/api/settings/packPoints').send({ value: { ...edited, A2: 150 } })).status).toBe(200)
 
     const preview = (await post('/api/pokemon-zone/preview').send(today)).body
     expect(preview.packPoints.changes).toEqual([
       { expansionId: 'A1', before: 200, after: 250, nameEs: 'Genes Formidables' },
     ])
+    // The time shown is A2's own hand edit (review of #170: never an import's write, nor another expansion's save).
+    const edits = (await test.prisma.appSetting.findUnique({ where: { key: HAND_EDITS_KEY } }))?.value as {
+      packPoints: Record<string, string>
+    }
+    expect(Date.parse(edits.packPoints.A1 ?? '')).toBeLessThan(Date.parse(today.stats.syncedAt))
     expect(preview.packPoints.kept).toEqual([
-      { expansionId: 'A2', value: 150, game: 100, editedAt: expect.any(String), nameEs: expect.any(String) },
+      { expansionId: 'A2', value: 150, game: 100, editedAt: edits.packPoints.A2, nameEs: expect.any(String) },
     ])
     const saved = await post('/api/pokemon-zone/imports').send(today)
     expect(saved.status).toBe(201)

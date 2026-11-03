@@ -112,8 +112,10 @@ function GameTier({ label, tier, other }: { label: string; tier: GameLuckTier | 
       <p>
         {tier.verdict === 'unknown' ? (
           <span className="text-muted-foreground">
-            No se puede saber con lo que da el juego: según cuántas de las otras {formatNumber(other)} cartas (Wonder
-            Pick, intercambios, regalos) fueran de estas, da {VERDICT[tier.low.verdict]} o {VERDICT[tier.high.verdict]}.
+            No se puede saber con lo que da el juego:{' '}
+            {other === 1 ? 'según si la otra carta' : `según cuántas de las otras ${formatNumber(other)} cartas`}{' '}
+            (Wonder Pick, intercambios, regalos) {other === 1 ? 'fuera' : 'fueran'} de estas, da{' '}
+            {VERDICT[tier.low.verdict]} o {VERDICT[tier.high.verdict]}.
           </span>
         ) : (
           <Verdict

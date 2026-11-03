@@ -67,6 +67,8 @@ function restIsNegligible(logTerm: number, logRatio: number, sum: number): boole
  * summing each P(X = i) on its own, to rounding.
  */
 export function binomialTails(n: number, k: number, p: number): { lower: number; upper: number } {
+  // Review of #170: no rate, no tails — NaN, as the sum term by term gave (so the check says «normal», never «raro»).
+  if (Number.isNaN(p)) return { lower: Number.NaN, upper: Number.NaN }
   if (p <= 0) return { lower: 1, upper: k <= 0 ? 1 : 0 }
   if (p >= 1) return { lower: k >= n ? 1 : 0, upper: 1 }
   const logP = Math.log(p)

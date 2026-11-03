@@ -146,6 +146,17 @@ describe('the bookmarklet', () => {
     // A site whose name only ends like it is not pokemon-zone.
     expect((await run('evilpokemon-zone.com')).fetch).not.toHaveBeenCalled()
   })
+
+  it('review of #170: without stats (never synced on pokemon-zone), it says so in Spanish', async () => {
+    const expected = 'TCG Pocket: pokemon-zone no devolvió tus estadísticas; tocá Sync en tu perfil y probá de nuevo.'
+    for (const data of [null, {}, { ...stats, syncedAt: undefined }]) {
+      const empty = await run('www.pokemon-zone.com', (url) =>
+        url === '/api/players/mine/' ? Response.json({ data: mine }) : Response.json({ data }),
+      )
+      expect(empty.alert).toHaveBeenCalledWith(expected)
+      expect(empty.location.href).toBe('')
+    }
+  })
 })
 
 describe('receiving', () => {
