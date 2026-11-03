@@ -15,7 +15,7 @@ const CSV_PATH = join(REPO_ROOT, 'docs/context/tcgcollectiontracterexport-2026-1
 const DECKS_PATH = join(REPO_ROOT, 'docs/context/mazos_40_listas.md')
 const PZ_FIXTURE = join(REPO_ROOT, 'packages/domain/test/fixtures/pokemon-zone/payload.json')
 
-type Payload = { mine: { resourceData: { guaranteedTickets?: unknown[] } }; stats: { syncedAt: string } }
+type Payload = { v: number; stats: { syncedAt: string } }
 
 describe('Cupón ★★ (e2e)', () => {
   let test: TestApp
@@ -142,31 +142,17 @@ describe('Cupón ★★ (e2e)', () => {
     expect((await coupon()).goalCopies).toBe(1)
   })
 
-  it('the coupons of the latest pokemon-zone import; an older bookmarklet leaves them unknown', async () => {
+  it('the coupons of the latest pokemon-zone import: one that does not count them is unknown, not 0', async () => {
+    // The fixture is a bookmarklet version 1 payload: it does not send the guaranteed-pack tickets (#172 adds them).
     const payload = JSON.parse(readFileSync(PZ_FIXTURE, 'utf8')) as Payload
     const saved = await post('/api/pokemon-zone/imports').send(payload)
     expect(saved.status).toBe(201)
     const view = await coupon()
-    expect(view.coupons).toMatchObject({
+    expect(view.coupons).toEqual({
+      importedAt: expect.any(String),
       syncedAt: '2026-11-02T02:43:29.379Z',
-      items: [
-        {
-          key: 'TICKET_2610000_EV_02',
-          name: '1 ★★ Card Guaranteed Booster Pack Exchange Tickets',
-          count: 1,
-          nameEs: 'Cupón del 2.º aniversario',
-          until: '2026-12-15T07:00:00Z',
-          expired: false,
-        },
-      ],
+      count: null,
     })
-    // A newer read sent by the bookmarklet before 3/11 (no separate list): the count is unknown, not 0.
-    const old = JSON.parse(readFileSync(PZ_FIXTURE, 'utf8')) as Payload
-    delete old.mine.resourceData.guaranteedTickets
-    old.stats.syncedAt = '2026-11-02T20:00:00.000Z'
-    expect((await post('/api/pokemon-zone/imports').send(old)).status).toBe(201)
-    const unknown = await coupon()
-    expect(unknown.coupons).toMatchObject({ syncedAt: '2026-11-02T20:00:00.000Z', items: null })
   })
 
   it('packs_star_coupon says the same for the model', async () => {
@@ -193,7 +179,7 @@ describe('Cupón ★★ (e2e)', () => {
       forDecks: '3 de 12 (25 %)',
       newEditions: '12 de 12 (100 %)',
     })
-    // The latest import is the one without the list.
+    // The latest import does not count them.
     expect(json.coupons).toMatchObject({ status: 'unknown' })
     expect(json.knownCoupons).toEqual([{ coupon: 'Cupón del 2.º aniversario', usableUntil: '15/12/2026, 03:59' }])
     const bad = (await client.callTool({ name: 'packs_star_coupon', arguments: { copies: 9 } })) as {

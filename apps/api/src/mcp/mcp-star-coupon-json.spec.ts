@@ -57,28 +57,7 @@ const view = (coupons: StarCouponView['coupons']): StarCouponView => ({
 describe('packs_star_coupon', () => {
   it('says each share as «k de n (p %)», the cards that count, and the deadline in Buenos Aires', () => {
     const json = starCouponJson(
-      view({
-        importedAt: '2026-11-03T03:00:00.000Z',
-        syncedAt: '2026-11-03T02:43:00.000Z',
-        items: [
-          {
-            key: 'TICKET_2610000_EV_02',
-            name: '1 ★★ Card Guaranteed Booster Pack Exchange Tickets',
-            count: 1,
-            nameEs: 'Cupón del 2.º aniversario',
-            until: '2026-12-15T07:00:00Z',
-            expired: false,
-          },
-          {
-            key: 'X',
-            name: '1 ★★ Card Guaranteed <b>Booster</b>',
-            count: 2,
-            nameEs: null,
-            until: null,
-            expired: false,
-          },
-        ],
-      }),
+      view({ importedAt: '2026-11-03T03:00:00.000Z', syncedAt: '2026-11-03T02:43:00.000Z', count: 2 }),
       2,
     )
     expect(json.best).toEqual(['Suicune (A4a)'])
@@ -96,44 +75,21 @@ describe('packs_star_coupon', () => {
       ],
       newCards: ['Entei ex A4a-79', 'Suicune ex A4a-80'],
     })
-    expect(json.coupons).toEqual({
-      status: 'known',
-      gameReadAt: '2/11/2026, 23:43',
-      total: 3,
-      items: [
-        { coupon: 'Cupón del 2.º aniversario', count: 1, usableUntil: '15/12/2026, 03:59' },
-        // A name from the payload reaches the model only as plain text.
-        { coupon: 'otro cupón ★★ («1 Card Guaranteed bBoosterb»)', count: 2, usableUntil: null },
-      ],
-    })
+    expect(json.coupons).toEqual({ status: 'known', gameReadAt: '2/11/2026, 23:43', count: 2 })
     expect(json.knownCoupons).toEqual([{ coupon: 'Cupón del 2.º aniversario', usableUntil: '15/12/2026, 03:59' }])
+    // 0 is a count, not unknown.
+    expect(
+      starCouponJson(view({ importedAt: '2026-11-03T03:00:00.000Z', syncedAt: '2026-11-03T02:43:00.000Z', count: 0 }))
+        .coupons,
+    ).toMatchObject({ status: 'known', count: 0 })
   })
 
-  it('an import from an older bookmarklet says the coupons are unknown and how to fix it; no import, null', () => {
+  it('an import that does not count them says so and how to fix it; no import, null', () => {
     const unknown = starCouponJson(
-      view({ importedAt: '2026-11-02T03:00:00.000Z', syncedAt: '2026-11-02T02:43:00.000Z', items: null }),
+      view({ importedAt: '2026-11-02T03:00:00.000Z', syncedAt: '2026-11-02T02:43:00.000Z', count: null }),
     )
     expect(unknown.coupons).toMatchObject({ status: 'unknown', note: expect.stringContaining('marcador nuevo') })
+    expect(unknown.coupons).not.toHaveProperty('count')
     expect(starCouponJson(view(null)).coupons).toBeNull()
-  })
-
-  it('an expired coupon does not count in the total', () => {
-    const json = starCouponJson(
-      view({
-        importedAt: '2026-12-15T09:00:00.000Z',
-        syncedAt: '2026-12-15T08:00:00.000Z',
-        items: [
-          {
-            key: 'TICKET_2610000_EV_02',
-            name: '1 ★★ Card Guaranteed Booster Pack Exchange Tickets',
-            count: 1,
-            nameEs: 'Cupón del 2.º aniversario',
-            until: '2026-12-15T07:00:00Z',
-            expired: true,
-          },
-        ],
-      }),
-    )
-    expect(json.coupons).toMatchObject({ total: 0, items: [{ count: 1, expired: true }] })
   })
 })

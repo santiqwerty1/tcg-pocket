@@ -6,7 +6,6 @@ import type {
   PackModel,
   Rarity,
   StarCouponCard,
-  StarCouponStatus,
   StarCouponTicket,
 } from '@tcg/domain'
 
@@ -188,8 +187,11 @@ export interface StarCouponView {
   packs: StarCouponPackView[]
   /** Pack ids tied at the top; [] when no pack gives anything useful. */
   best: string[]
-  /** The ★★ coupons of the latest pokemon-zone import; null without imports, `items` null when it did not read them. */
-  coupons: { importedAt: string; syncedAt: string; items: StarCouponStatus[] | null } | null
+  /**
+   * The coupons for a guaranteed ★★ pack the latest pokemon-zone import counts; null without imports, `count` null when
+   * that import does not know them (bookmarklet version 1, or saved before it sent them).
+   */
+  coupons: { importedAt: string; syncedAt: string; count: number | null } | null
   /** The coupons the app knows, with their deadline (exclusive, UTC). */
   known: StarCouponTicket[]
 }

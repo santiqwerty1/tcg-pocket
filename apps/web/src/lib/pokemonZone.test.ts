@@ -31,7 +31,6 @@ const mine = {
       { key: 'GOLD', value: 7, name: 'Poke Gold' },
     ],
     tickets: [
-      { key: 'TICKET_2610000_EV_02', value: 1, name: '1 ★★ Card Guaranteed Booster Pack Exchange Tickets' },
       { key: 'T1', value: 2, name: 'Promo Card Exchange Tickets (PROMO Reissue Drop Event 2026)' },
       { key: 'T2', value: 95, name: 'Emblem Ticket (Genetic Apex)' },
     ],
@@ -113,10 +112,6 @@ describe('the bookmarklet', () => {
         resourceData: {
           currencies: [{ key: 'SHOP_TICKET', value: 3000 }],
           tickets: [{ key: 'T1', value: 2, name: 'Promo Card Exchange Tickets (PROMO Reissue Drop Event 2026)' }],
-          // 3/11/2026: the ★★ coupon in a list of its own.
-          guaranteedTickets: [
-            { key: 'TICKET_2610000_EV_02', value: 1, name: '1 ★★ Card Guaranteed Booster Pack Exchange Tickets' },
-          ],
           packCeilPoints: [{ key: 'A1', value: 5 }],
           packPowerChargers: [{ key: 'REGULAR_CHARGER_LARGE', value: 18 }],
           challengePowerChargers: [],
@@ -135,12 +130,8 @@ describe('the bookmarklet', () => {
       },
     })
     expect(JSON.stringify(payload)).not.toMatch(/jugador|isPublic|Emblem|Poke Gold|max_damage|rank|Grass/)
-    // …and it is what the API takes, with the ★★ coupon.
-    const parsed = pokemonZonePayloadSchema.safeParse(payload)
-    expect(parsed.success).toBe(true)
-    expect(parsePokemonZone(parsed.data as PokemonZonePayload).starTickets).toEqual([
-      { key: 'TICKET_2610000_EV_02', name: '1 ★★ Card Guaranteed Booster Pack Exchange Tickets', count: 1 },
-    ])
+    // …and it is what the API takes.
+    expect(pokemonZonePayloadSchema.safeParse(payload).success).toBe(true)
     expect(location.href).not.toContain(FRIEND_ID)
   })
 

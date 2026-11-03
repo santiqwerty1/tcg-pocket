@@ -32,9 +32,8 @@ import {
   pokemonZoneLuck,
   pokemonZoneSnapshotSchema,
   promoCoupons,
-  type StarCouponStatus,
   samePackPoints,
-  starCoupons,
+  starCouponCount,
 } from '@tcg/domain'
 import { z } from 'zod'
 import { CatalogService } from '../catalog/catalog.service.js'
@@ -404,18 +403,16 @@ export class PokemonZoneService {
   }
 
   /**
-   * Cupón ★★ (3/11/2026): the ★★-guaranteed pack coupons of the latest import; null without imports, `items` null when
-   * that import's bookmarklet did not read them (older than 3/11).
+   * Cupón ★★ (3/11/2026): the coupons for a guaranteed ★★ pack the latest import counts (`starCouponCount`, the
+   * adapter over #172's ★★ count); null without imports, `count` null when that import does not know them.
    */
-  async starCoupons(
-    now: Date = new Date(),
-  ): Promise<{ importedAt: string; syncedAt: string; items: StarCouponStatus[] | null } | null> {
+  async starCoupons(): Promise<{ importedAt: string; syncedAt: string; count: number | null } | null> {
     const latest = await this.latest(this.prisma)
     if (!latest) return null
     return {
       importedAt: latest.row.importedAt.toISOString(),
       syncedAt: latest.row.syncedAt.toISOString(),
-      items: starCoupons(latest.snapshot, now),
+      count: starCouponCount(latest.snapshot),
     }
   }
 

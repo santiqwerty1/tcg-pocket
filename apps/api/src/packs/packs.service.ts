@@ -353,7 +353,7 @@ export class PacksService {
       this.collection.loadState(),
       this.prisma.pack.findMany({ select: { id: true, available: true, limited: true, limitedUntil: true } }),
       this.deckGoals(deckTarget),
-      this.pokemonZone.starCoupons(now),
+      this.pokemonZone.starCoupons(),
       this.collectionService.lastUpdatedAt(),
     ])
     const playable = playableCopies(index, stock, adjustments)

@@ -1,11 +1,11 @@
 /**
  * packs_star_coupon (3/11/2026): Cupón ★★ for the model — the packs on sale ranked for a ★★-guaranteed coupon, each
- * share as «k de n (p %)», the cards that count, and the coupons of the latest pokemon-zone import. Dates in Buenos
- * Aires; names that come from the payload only as safe plain text.
+ * share as «k de n (p %)», the cards that count, and the coupons the latest pokemon-zone import counts. Dates in
+ * Buenos Aires.
  */
 import { formatPercentEs } from '@tcg/domain'
 import type { StarCouponPackView, StarCouponView } from '../packs/pack-views.js'
-import { ownerDateTime, safeName } from './mcp-pokemon-zone-json.js'
+import { ownerDateTime } from './mcp-pokemon-zone-json.js'
 
 type Json = Record<string, unknown>
 
@@ -40,25 +40,15 @@ function couponsJson(view: StarCouponView): Json | null {
   const { coupons } = view
   if (!coupons) return null
   const gameReadAt = ownerDateTime(coupons.syncedAt)
-  if (coupons.items === null) {
+  if (coupons.count === null) {
     return {
       status: 'unknown',
       gameReadAt,
-      note: 'La última importación de pokemon-zone es de un marcador anterior al 3/11/2026, que no lee estos cupones: hay que copiar el marcador nuevo (Colección → pokemon-zone) e importar de nuevo.',
+      note: 'La última importación de pokemon-zone no cuenta estos cupones (es de un marcador anterior): hay que copiar el marcador nuevo (Colección → pokemon-zone) e importar de nuevo.',
     }
   }
-  const usable = coupons.items.filter((item) => !item.expired)
-  return {
-    status: 'known',
-    gameReadAt,
-    total: usable.reduce((sum, item) => sum + item.count, 0),
-    items: coupons.items.map((item) => ({
-      coupon: item.nameEs ?? `otro cupón ★★ («${safeName(item.name)}»)`,
-      count: item.count,
-      usableUntil: item.until ? lastMinute(item.until) : null,
-      ...(item.expired ? { expired: true } : {}),
-    })),
-  }
+  // The game's count at its read: a coupon spent or expired since then still counts until the next import.
+  return { status: 'known', gameReadAt, count: coupons.count }
 }
 
 export function starCouponJson(view: StarCouponView, limit = STAR_COUPON_DEFAULT_LIMIT): Json {
@@ -70,10 +60,7 @@ export function starCouponJson(view: StarCouponView, limit = STAR_COUPON_DEFAULT
     deckGoals: view.goals.map((goal) => goal.name),
     collectionUpdatedAt: view.lastImportAt ? ownerDateTime(view.lastImportAt) : null,
     coupons: couponsJson(view),
-    knownCoupons: view.known.map((ticket) => ({
-      coupon: ticket.nameEs,
-      usableUntil: ticket.until ? lastMinute(ticket.until) : null,
-    })),
+    knownCoupons: view.known.map((ticket) => ({ coupon: ticket.nameEs, usableUntil: lastMinute(ticket.until) })),
     best: view.best.map((packId) => names.get(packId) ?? packId),
     packs: view.packs.slice(0, limit).map(packJson),
     morePacks: Math.max(0, view.packs.length - limit),
