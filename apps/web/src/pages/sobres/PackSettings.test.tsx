@@ -65,9 +65,9 @@ describe('Sobres → Ajustes: what came from pokemon-zone (2/11)', () => {
       'GET /api/rarity-rules': { items: [] },
       'GET /api/settings': () => ({ packPoints: points, hourglasses: 0 }),
       'GET /api/pokemon-zone': EMPTY_SUMMARY,
-      'PUT /api/settings/packPoints': (call: FakeCall) => ({
+      'PATCH /api/settings/packPoints': (call: FakeCall) => ({
         key: 'packPoints',
-        value: (JSON.parse(String(call.body)) as { value: unknown }).value,
+        value: (JSON.parse(String(call.body)) as { changes: unknown }).changes,
       }),
     })
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -86,7 +86,43 @@ describe('Sobres → Ajustes: what came from pokemon-zone (2/11)', () => {
     // Going through the row and leaving it writes nothing.
     await user.click(screen.getByLabelText('Puntos guardados de Sobre Deluxe Mega'))
     await user.tab()
-    expect(calls.filter((call) => call.method === 'PUT')).toEqual([])
+    expect(calls.filter((call) => call.method === 'PUT' || call.method === 'PATCH')).toEqual([])
+  })
+
+  it('review of #170: a screen opened before an import sends only the row edited there', async () => {
+    // What this screen read: A1 10 and B4b 40. An import from the phone then wrote A1 100 (not refetched here).
+    const server: Record<string, number> = { A1: 10, B4b: 40 }
+    const { calls } = fakeApi({
+      'GET /api/packs': { items: [PACK] },
+      'GET /api/rarity-rules': { items: [] },
+      'GET /api/settings': () => ({ packPoints: { ...server }, hourglasses: 0 }),
+      'GET /api/pokemon-zone': EMPTY_SUMMARY,
+      'PATCH /api/settings/packPoints': (call: FakeCall) => {
+        const { changes } = JSON.parse(String(call.body)) as { changes: Record<string, number> }
+        Object.assign(server, changes)
+        return { key: 'packPoints', value: { ...server } }
+      },
+    })
+    const router = createMemoryRouter([{ path: '/', element: <PackSettings /> }])
+    render(
+      <Providers queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <RouterProvider router={router} />
+      </Providers>,
+    )
+    const user = userEvent.setup()
+    const row = await screen.findByLabelText('Puntos guardados de Sobre Deluxe Mega')
+    expect(row).toHaveValue('40')
+    server.A1 = 100
+    await user.clear(row)
+    await user.type(row, '55')
+    await user.tab()
+    await waitFor(() => expect(calls.some((call) => call.method === 'PATCH')).toBe(true))
+    const sent = calls.filter((call) => call.method === 'PATCH' || call.method === 'PUT')
+    expect(sent.map((call) => [call.method, JSON.parse(String(call.body))])).toEqual([
+      ['PATCH', { changes: { B4b: 55 } }],
+    ])
+    // The import's A1 stays.
+    expect(server).toEqual({ A1: 100, B4b: 55 })
   })
 
   it('Codex on #170: a change by hand here says so right away, without reloading', async () => {
@@ -102,9 +138,10 @@ describe('Sobres → Ajustes: what came from pokemon-zone (2/11)', () => {
         settings.hourglasses = (JSON.parse(String(call.body)) as { value: number }).value
         return { key: 'hourglasses', value: settings.hourglasses }
       },
-      'PUT /api/settings/packPoints': (call: FakeCall) => {
+      'PATCH /api/settings/packPoints': (call: FakeCall) => {
         edited.packPoints = true
-        settings.packPoints = (JSON.parse(String(call.body)) as { value: unknown }).value
+        const { changes } = JSON.parse(String(call.body)) as { changes: Record<string, number> }
+        settings.packPoints = { ...(settings.packPoints as Record<string, number>), ...changes }
         return { key: 'packPoints', value: settings.packPoints }
       },
       'GET /api/pokemon-zone': () => ({

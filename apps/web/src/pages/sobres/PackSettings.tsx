@@ -11,7 +11,7 @@ import { errorMessage } from '@/api/client'
 import { type PackPatch, packKeys, usePacks, useRarityRules, useSetRarityRule, useUpdatePack } from '@/api/packs'
 import { usePokemonZone } from '@/api/pokemonZone'
 import type { PackInfo, RarityRuleInfo } from '@/api/schemas'
-import { useSetSetting, useSettings } from '@/api/settings'
+import { usePatchPackPoints, useSetSetting, useSettings } from '@/api/settings'
 import { ErrorState, LoadingRows } from '@/components/ListState'
 import { Section } from '@/components/Section'
 import { Input } from '@/components/ui/input'
@@ -244,7 +244,7 @@ function Pace() {
 function SavedPoints() {
   const packs = usePacks()
   const settings = useSettings()
-  const setSetting = useSetSetting()
+  const patchPoints = usePatchPackPoints()
   const queryClient = useQueryClient()
   const saved = readPoints(settings.data?.[POINTS_KEY])
   const expansions = useMemo(() => {
@@ -255,10 +255,10 @@ function SavedPoints() {
   }, [packs.data])
 
   async function save(expansionId: string, points: number) {
-    const next = { ...saved, [expansionId]: points }
-    if (points === 0) delete next[expansionId]
     try {
-      await setSetting.mutateAsync({ key: POINTS_KEY, value: next })
+      // Review of #170: only this row; the server merges it with what is saved now (an import from another device
+      // while this screen was open stays as it wrote it).
+      await patchPoints.mutateAsync({ [expansionId]: points })
       await queryClient.invalidateQueries({ queryKey: packKeys.all })
     } catch (error) {
       toast.error(errorMessage(error))

@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Put } from '@nestjs/common'
+import { Body, Controller, Get, Param, Patch, Put } from '@nestjs/common'
+import { PACK_POINTS_MAX } from '@tcg/domain'
 import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
 import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
@@ -7,6 +8,19 @@ import { SettingsService } from './settings.service.js'
 /** `value` is any JSON value (objects, arrays, numbers, strings, booleans, null). */
 const settingSchema = z.object({ value: z.json() })
 
+/** Review of #170: the points of some expansions only (an expansion id, as the catalog and the game write them). */
+const packPointsPatchSchema = z.object({
+  changes: z
+    .record(
+      z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]{0,15}$/, 'expansión inválida'),
+      z.number().int().min(0).max(PACK_POINTS_MAX),
+    )
+    .refine((changes) => {
+      const count = Object.keys(changes).length
+      return count > 0 && count <= 200
+    }, 'entre 1 y 200 expansiones'),
+})
+
 @Controller('api/settings')
 export class SettingsController {
   constructor(private readonly settings: SettingsService) {}
@@ -14,6 +28,15 @@ export class SettingsController {
   @Get()
   all(@CurrentSession() _session: RequestSession): Promise<Record<string, unknown>> {
     return this.settings.all()
+  }
+
+  /** Review of #170: Sobres → Ajustes saves one expansion's points; the others stay as saved now (`{ changes }`). */
+  @Patch('packPoints')
+  patchPackPoints(
+    @Body(new ZodValidationPipe(packPointsPatchSchema)) body: z.infer<typeof packPointsPatchSchema>,
+    @CurrentSession() _session: RequestSession,
+  ): Promise<{ key: string; value: unknown }> {
+    return this.settings.patchPackPoints(body.changes)
   }
 
   @Put(':key')

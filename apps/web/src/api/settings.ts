@@ -71,6 +71,23 @@ export function useSetSetting() {
 /** The settings a pokemon-zone import writes. */
 const POKEMON_ZONE_SETTINGS: ReadonlySet<string> = new Set(['packPoints', 'hourglasses'])
 
+/**
+ * Review of #170: saves the points of only these expansions (0 removes one); the server keeps the others as they are
+ * saved now. A whole record built from this screen's copy would write back what an import changed meanwhile.
+ */
+export function usePatchPackPoints() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (changes: Record<string, number>) =>
+      request('/api/settings/packPoints', { method: 'PATCH', body: { changes }, schema: settingValueSchema }),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: settingsKeys.all }),
+        queryClient.invalidateQueries({ queryKey: pokemonZoneKey }),
+      ]),
+  })
+}
+
 export function useSetUiSettings() {
   const current = useUiSettings()
   const setSetting = useSetSetting()
