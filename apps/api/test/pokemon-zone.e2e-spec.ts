@@ -21,6 +21,7 @@ interface Stat {
 }
 /** What the tests change of the fixture; the rest goes through as read. */
 interface Payload {
+  v: number
   mine: {
     player: { accountHash: string }
     resourceData: { packCeilPoints: { value: unknown }[]; packPowerChargers: { value: number }[] }
@@ -34,7 +35,11 @@ interface Payload {
     cardsByRarity: { rarity: string; obtained: number }[]
   }
 }
-const payload = (): Payload => JSON.parse(readFileSync(FIXTURE, 'utf8')) as Payload
+/**
+ * pz/luck: as the version 2 bookmarklet sends it (no ticket for a pack with a guaranteed card: none held), so the luck
+ * does not hang on whether today falls in the anniversary campaign.
+ */
+const payload = (): Payload => ({ ...(JSON.parse(readFileSync(FIXTURE, 'utf8')) as Payload), v: 2 })
 const first = <T>(items: T[]): T => items[0] as T
 
 const HOUR = 60 * 60 * 1000
@@ -359,6 +364,13 @@ describe('pokemon-zone (e2e)', () => {
     expect(summary.luck.since.byPack).toEqual([
       expect.objectContaining({ appPackId: 'B4b/deluxepackmega', nameEs: 'Sobre Deluxe Mega', opened: 5 }),
     ])
+    // pz/luck: a span of packs only counts towards «desde la primera importación».
+    expect(summary.luck.sinceFirst).toMatchObject({
+      from: firstRead,
+      to: new Date(secondRead).toISOString(),
+      spans: 1,
+      rare: { counted: 1, games: 20, unknown: 0, observed: 0, verdict: 'normal' },
+    })
     expect(summary.settings.hourglasses).toBe('imported')
   })
 
@@ -649,6 +661,10 @@ describe('pokemon-zone (e2e)', () => {
       { changes: { A1: 1.5 } },
       { changes: { A1: 1_000_001 } },
       { changes: { 'A 1': 1 } },
+      // Review of #171: an id as the import takes it, a capital first.
+      { changes: { constructor: 1 } },
+      { changes: { a1: 1 } },
+      { changes: { '1A': 1 } },
       { value: { A1: 1 } },
     ]) {
       const refused = await test.http().patch('/api/settings/packPoints').set('Cookie', cookie).send(body)

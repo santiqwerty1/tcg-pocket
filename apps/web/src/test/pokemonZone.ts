@@ -84,18 +84,65 @@ const tier = (
   high: ReturnType<typeof check>,
   verdict: string,
   tail: number | null,
-) => ({ observed, expected, expectedShare, games, fromPacks: { min, max }, low, high, verdict, tail })
+  unknown = 0,
+  normalIf: { min: number; max: number } | null = null,
+  packs: { games: number; expected: number } = { games, expected },
+) => ({
+  observed,
+  expected,
+  expectedShare,
+  games,
+  packGames: packs.games,
+  packExpected: packs.expected,
+  unknown,
+  fromPacks: { min, max },
+  low,
+  high,
+  verdict,
+  tail,
+  normalIf,
+})
 
-/** Lifetime: 1.226 packs and 6.883 cards; since the previous import: 5 Deluxe packs. */
+const EVENT_WINDOW = {
+  from: '2026-10-30T06:00:00Z',
+  until: '2026-11-13T07:00:00Z',
+  why: 'Evento bis PROMO 2026: promos y más elecciones Chansey en Wonder Pick',
+}
+
+const noSources = {
+  wonderPicks: 0,
+  pickCards: 0,
+  unknownPicks: 0,
+  pickWindows: [] as (typeof EVENT_WINDOW)[],
+  trades: 0,
+  guaranteedPacks: 0,
+  guaranteedSeen: true,
+  restCards: 0,
+}
+
+/**
+ * pz/luck: a made-up lifetime (review of #172: no real number of an account) read inside «Evento bis PROMO 2026»: 1.246
+ * packs and 7.138 cards; since the previous import: 5 Deluxe packs.
+ */
 export const LUCK = {
   lifetime: {
-    packs: 1226,
-    cards: 6883,
-    packCards: 5438,
-    otherCards: 1445,
-    wonderPicks: 387,
-    trades: 49,
-    byRarity: { '◊': 3666, '☆': 211 },
+    packs: 1246,
+    cards: 7138,
+    packCards: 5909,
+    otherCards: 1230,
+    wonderPicks: 388,
+    trades: 48,
+    sources: {
+      wonderPicks: 388,
+      pickCards: 0,
+      unknownPicks: 388,
+      pickWindows: [EVENT_WINDOW],
+      trades: 48,
+      guaranteedPacks: 1,
+      guaranteedSeen: false,
+      restCards: 793,
+    },
+    byRarity: { '◊': 3800, '☆': 210 },
     unknownRarity: 0,
     expansions: [],
     byPack: [
@@ -105,32 +152,37 @@ export const LUCK = {
         expansionId: 'B4b',
         appPackId: 'B4b/deluxepackmega',
         nameEs: 'Sobre Deluxe Mega',
-        opened: 372,
+        opened: 360,
       },
       {
         packId: 'CN001_0010_00_000',
         nameEn: 'Dual Fusion: Mega Mewtwo X',
         expansionId: 'C1',
-        appPackId: null,
-        nameEs: null,
-        opened: 31,
+        appPackId: 'C1/megamewtwoxpack',
+        nameEs: 'Mega-Mewtwo X',
+        opened: 48,
       },
     ],
-    unknownPacks: 64,
-    // Review of pz/import: two ends of what the 1.445 other cards could hold; ☆ cannot tell, ◊◊◊◊ is unlucky at both.
-    rare: tier(314, 228.4, 4.2, 5438, 0, 314, check('unlucky', 0, 1), check('lucky', 1, 0.0001), 'unknown', null),
-    ex: tier(
-      534,
-      620.2,
-      11.4,
-      5438,
+    unknownPacks: 2,
+    // Two ends of what the 1.230 cards of unknown origin could hold: neither tier can tell.
+    rare: tier(
+      297,
+      252.6,
+      4.28,
+      5908,
       0,
-      534,
+      297,
       check('unlucky', 0, 1),
-      check('unlucky', 0.0001, 0.9999),
-      'unlucky',
-      0.0001,
+      check('lucky', 1, 0.0001),
+      'unknown',
+      null,
+      1230,
+      { min: 30, max: 90 },
     ),
+    ex: tier(545, 424.1, 7.18, 5908, 0, 545, check('unlucky', 0, 1), check('lucky', 1, 0.0001), 'unknown', null, 1230, {
+      min: 98,
+      max: 175,
+    }),
   },
   since: {
     packs: 5,
@@ -139,6 +191,7 @@ export const LUCK = {
     otherCards: 0,
     wonderPicks: 0,
     trades: 0,
+    sources: noSources,
     byRarity: { '◊': 20 },
     unknownRarity: 0,
     expansions: [],
@@ -147,6 +200,25 @@ export const LUCK = {
     rare: tier(0, 0.9, 4.58, 20, 0, 0, check('normal'), check('normal'), 'normal', null),
     ex: null,
   },
+  sinceFirst: null as unknown,
+}
+
+/**
+ * pz/luck: «desde la primera importación» after a few days of packs (made up): 200 cards of packs and 2 Wonder Picks
+ * at the packs' odds for «peor de lo normal».
+ */
+export const SINCE_FIRST = {
+  from: '2026-11-14T12:00:00.000Z',
+  to: '2026-11-17T12:00:00.000Z',
+  spans: 3,
+  rare: {
+    ...tier(14, 8.9, 4.38, 202, 12, 14, check('lucky', 0.99, 0.02), check('lucky', 1, 0.008), 'lucky', 0.02, 2, null, {
+      games: 200,
+      expected: 8.8,
+    }),
+    counted: 2,
+  },
+  ex: null,
 }
 
 export const SUMMARY = {

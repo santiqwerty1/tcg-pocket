@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Put } from '@nestjs/common'
-import { PACK_POINTS_MAX } from '@tcg/domain'
+import { EXPANSION_ID_PATTERN, PACK_POINTS_MAX } from '@tcg/domain'
 import { z } from 'zod'
 import { CurrentSession, type RequestSession } from '../auth/request-auth.js'
 import { ZodValidationPipe } from '../http/zod-validation.pipe.js'
@@ -8,13 +8,13 @@ import { SettingsService } from './settings.service.js'
 /** `value` is any JSON value (objects, arrays, numbers, strings, booleans, null). */
 const settingSchema = z.object({ value: z.json() })
 
-/** Review of #170: the points of some expansions only (an expansion id, as the catalog and the game write them). */
+/**
+ * Review of #170: the points of some expansions only. An expansion id as the import takes it (a capital first, review
+ * of #171): «constructor» or a lowercase id is not one.
+ */
 const packPointsPatchSchema = z.object({
   changes: z
-    .record(
-      z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]{0,15}$/, 'expansión inválida'),
-      z.number().int().min(0).max(PACK_POINTS_MAX),
-    )
+    .record(z.string().regex(EXPANSION_ID_PATTERN, 'expansión inválida'), z.number().int().min(0).max(PACK_POINTS_MAX))
     .refine((changes) => {
       const count = Object.keys(changes).length
       return count > 0 && count <= 200

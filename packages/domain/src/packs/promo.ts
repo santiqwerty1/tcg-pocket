@@ -88,16 +88,36 @@ export interface PromoEvent {
   volumes: string[]
 }
 
-/** Events with promo battles, as the game's news gives them. */
+/**
+ * Events with promo battles, as the game's news gives them («Evento bis PROMO 2026», pokemon.com/es, 28/10/2026: from
+ * 30/10/2026 06:00 to 13/11/2026 06:59 UTC; pz/luck).
+ */
 export const PROMO_EVENTS: readonly PromoEvent[] = [
   {
     id: 'botin-bis-promo-2026',
     nameEs: 'Evento botín bis PROMO 2026',
     nameEn: 'PROMO Reissue Drop Event 2026',
-    // 30/10/2026 03:00 – 13/11/2026 02:59 in Buenos Aires (UTC−3): over at 03:00.
+    // 30/10/2026 03:00 – 13/11/2026 03:59 in Buenos Aires (UTC−3): over at 04:00 (07:00 UTC).
     from: '2026-10-30T06:00:00Z',
-    until: '2026-11-13T06:00:00Z',
+    until: '2026-11-13T07:00:00Z',
     volumes: ['A7', 'B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B9', 'B10', 'B11', 'B12', 'B13'],
+  },
+]
+
+/** An event whose coupons a shop takes; with battles or not. */
+export type PromoCouponEvent = Pick<PromoEvent, 'id' | 'nameEs' | 'nameEn' | 'from' | 'until'>
+
+/**
+ * Events with promo coupons and no battles: not in `PROMO_EVENTS`, so they never become «the event with battles»
+ * (`activePromoEvent`). The other half of «Evento bis PROMO 2026» (pz/luck): its coupons come from Wonder Pick.
+ */
+export const PROMO_COUPON_EVENTS: readonly PromoCouponEvent[] = [
+  {
+    id: 'eleccion-magica-bis-promo-2026',
+    nameEs: 'Evento elección mágica bis PROMO 2026',
+    nameEn: 'PROMO Reissue Wonder Pick Event 2026',
+    from: '2026-10-30T06:00:00Z',
+    until: '2026-11-13T07:00:00Z',
   },
 ]
 

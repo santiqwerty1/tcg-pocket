@@ -78,13 +78,14 @@ describe('promo volumes', () => {
 })
 
 describe('activePromoEvent', () => {
-  it('is on from 30/10 03:00 to 13/11 02:59 in Buenos Aires', () => {
+  it('is on from 30/10 03:00 to 13/11 03:59 in Buenos Aires (the news: 06:59 UTC; pz/luck)', () => {
     expect(activePromoEvent(new Date('2026-10-30T05:59:59Z'))).toBeNull()
     expect(activePromoEvent(new Date('2026-10-30T06:00:00Z'))?.id).toBe('botin-bis-promo-2026')
-    expect(activePromoEvent(new Date('2026-11-13T05:59:59Z'))?.id).toBe('botin-bis-promo-2026')
-    // The last second counts entirely: the battles close at 03:00.
-    expect(activePromoEvent(new Date('2026-11-13T05:59:59.500Z'))?.id).toBe('botin-bis-promo-2026')
-    expect(activePromoEvent(new Date('2026-11-13T06:00:00Z'))).toBeNull()
+    expect(activePromoEvent(new Date('2026-11-13T06:00:00Z'))?.id).toBe('botin-bis-promo-2026')
+    expect(activePromoEvent(new Date('2026-11-13T06:59:59Z'))?.id).toBe('botin-bis-promo-2026')
+    // The last minute counts entirely: the battles close at 04:00 in Buenos Aires.
+    expect(activePromoEvent(new Date('2026-11-13T06:59:59.500Z'))?.id).toBe('botin-bis-promo-2026')
+    expect(activePromoEvent(new Date('2026-11-13T07:00:00Z'))).toBeNull()
   })
 })
 
