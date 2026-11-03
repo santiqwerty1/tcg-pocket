@@ -1,6 +1,7 @@
-import { execFileSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { gunzipSync, gzipSync } from 'node:zlib'
 import pg from 'pg'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { API_ROOT } from '../src/config/dotenv.js'
@@ -13,8 +14,29 @@ import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
  * old dates moves, never into an overlap, never when a competitive match or a rank note sits on a day that changes
  * season, and under the ranks' lock.
  */
-const MIGRATION = join(API_ROOT, 'prisma', 'migrations', '20261103120000_ranked_season_c1_dates', 'migration.sql')
+const MIGRATION_NAME = '20261103120000_ranked_season_c1_dates'
+const MIGRATION = join(API_ROOT, 'prisma', 'migrations', MIGRATION_NAME, 'migration.sql')
 const SQL = readFileSync(MIGRATION, 'utf8')
+
+/** `prisma migrate deploy` on a database, as the release does (each statement of a script sent on its own). */
+function deploy(databaseUrl: string): Promise<{ code: number | null; output: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      [join(API_ROOT, 'node_modules', 'prisma', 'build', 'index.js'), 'migrate', 'deploy'],
+      { cwd: API_ROOT, env: { ...process.env, DATABASE_URL: databaseUrl }, stdio: ['ignore', 'pipe', 'pipe'] },
+    )
+    let output = ''
+    child.stdout.on('data', (chunk) => {
+      output += String(chunk)
+    })
+    child.stderr.on('data', (chunk) => {
+      output += String(chunk)
+    })
+    child.on('error', reject)
+    child.on('close', (code) => resolve({ code, output }))
+  })
+}
 
 type Row = [code: string, startsOn: string, endsOn: string]
 const OLD: Row = ['C1', '2026-11-30', '2026-12-14']
@@ -29,12 +51,13 @@ describe('migration 20261103120000_ranked_season_c1_dates (e2e)', () => {
   let url: string
   let deckId: number
   let revisionId: number
+  let cookie: string
 
   beforeAll(async () => {
     test = await createTestApp()
     url = test.env.databaseUrl
     await seedOwner(test.app, { totp: false })
-    const cookie = await login(test, { secret: null })
+    cookie = await login(test, { secret: null })
     const summary = await test.app
       .get(CatalogSyncService)
       .sync({ trackerCommit: test.env.catalogCommit, engineRev: test.env.engineRev, source: 'fixtures' })
@@ -54,7 +77,10 @@ describe('migration 20261103120000_ranked_season_c1_dates (e2e)', () => {
     await test.close()
   })
 
-  /** The migration's script as Prisma runs it: one simple query, so one implicit transaction. */
+  /**
+   * The migration's script on the seeded cases, as one query (Prisma sends each statement apart: the test with the real
+   * `prisma migrate deploy` below checks that its explicit transaction holds the lock).
+   */
   async function migrate(connectionString = url): Promise<void> {
     const client = new pg.Client({ connectionString })
     await client.connect()
@@ -96,41 +122,88 @@ describe('migration 20261103120000_ranked_season_c1_dates (e2e)', () => {
     expect(keys).toEqual([ADVISORY_LOCKS.rankNote])
   })
 
-  it('a fresh database migrated from scratch ends with C1 on 1/12–15/12, and the other seasons as they were', async () => {
-    const fresh = new URL(url)
-    fresh.pathname = `${fresh.pathname}_c1_fresh`
-    const name = decodeURIComponent(fresh.pathname.slice(1))
-    const admin = new URL(url)
-    admin.pathname = '/postgres'
-    const adminClient = new pg.Client({ connectionString: admin.toString() })
-    await adminClient.connect()
-    try {
-      await adminClient.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`)
-      await adminClient.query(`CREATE DATABASE "${name}"`)
-      execFileSync(
-        process.execPath,
-        [join(API_ROOT, 'node_modules', 'prisma', 'build', 'index.js'), 'migrate', 'deploy'],
-        {
-          cwd: API_ROOT,
-          env: { ...process.env, DATABASE_URL: fresh.toString() },
-          stdio: 'ignore',
-        },
-      )
-      const client = new pg.Client({ connectionString: fresh.toString() })
+  describe('with the real `prisma migrate deploy` on a fresh database', () => {
+    let fresh: string
+    let name: string
+    let admin: pg.Client
+    let client: pg.Client
+
+    beforeAll(async () => {
+      const target = new URL(url)
+      target.pathname = `${target.pathname}_c1_fresh`
+      fresh = target.toString()
+      name = decodeURIComponent(target.pathname.slice(1))
+      const adminUrl = new URL(url)
+      adminUrl.pathname = '/postgres'
+      admin = new pg.Client({ connectionString: adminUrl.toString() })
+      await admin.connect()
+      await admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`)
+      await admin.query(`CREATE DATABASE "${name}"`)
+      expect((await deploy(fresh)).code).toBe(0)
+      client = new pg.Client({ connectionString: fresh })
       await client.connect()
-      try {
-        const rows = await client.query<{ code: string; starts_on: string; ends_on: string }>(
-          `SELECT "code", to_char("starts_on", 'YYYY-MM-DD') AS "starts_on", to_char("ends_on", 'YYYY-MM-DD') AS "ends_on"
-           FROM "ranked_seasons" ORDER BY "starts_on"`,
-        )
-        expect(rows.rows.map((row) => [row.code, row.starts_on, row.ends_on])).toEqual([B4A, B4B, NEW])
-      } finally {
-        await client.end()
-      }
-    } finally {
-      await adminClient.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`)
-      await adminClient.end()
+    })
+
+    afterAll(async () => {
+      await client?.end()
+      await admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`)
+      await admin.end()
+    })
+
+    async function freshSeasons(): Promise<Row[]> {
+      const rows = await client.query<{ code: string; starts_on: string; ends_on: string }>(
+        `SELECT "code", to_char("starts_on", 'YYYY-MM-DD') AS "starts_on", to_char("ends_on", 'YYYY-MM-DD') AS "ends_on"
+         FROM "ranked_seasons" ORDER BY "starts_on"`,
+      )
+      return rows.rows.map((row) => [row.code, row.starts_on, row.ends_on])
     }
+
+    it('migrated from scratch, it ends with C1 on 1/12–15/12 and the other seasons as they were', async () => {
+      expect(await freshSeasons()).toEqual([B4A, B4B, NEW])
+    })
+
+    it('review of #176: its connection holds the ranks’ lock while its UPDATE waits for a held C1 row', async () => {
+      // As before this migration: C1 with the old dates, and the migration pending.
+      await client.query(`DELETE FROM "_prisma_migrations" WHERE "migration_name" = $1`, [MIGRATION_NAME])
+      await client.query(
+        `UPDATE "ranked_seasons" SET "starts_on" = DATE '2026-11-30', "ends_on" = DATE '2026-12-14' WHERE "code" = 'C1'`,
+      )
+      // Another session holds the C1 row (a season edit of the app in flight).
+      const holder = new pg.Client({ connectionString: fresh })
+      await holder.connect()
+      try {
+        await holder.query('BEGIN')
+        await holder.query(`SELECT 1 FROM "ranked_seasons" WHERE "code" = 'C1' FOR UPDATE`)
+        const holderPid = (await holder.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0]?.pid
+        const running = deploy(fresh)
+        // The migration's connection: the one waiting for a lock in this database.
+        let waiter: number | null = null
+        for (let tries = 0; tries < 300 && waiter === null; tries++) {
+          const rows = await admin.query<{ pid: number }>(
+            `SELECT DISTINCT l.pid FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+             WHERE NOT l.granted AND a.datname = $1 AND l.pid <> $2`,
+            [name, holderPid],
+          )
+          waiter = rows.rows[0]?.pid ?? null
+          if (waiter === null) await new Promise((resolve) => setTimeout(resolve, 100))
+        }
+        expect(waiter).not.toBeNull()
+        // It holds the ranks' advisory lock (a bigint key: classid 0, objid the key, objsubid 1) while it waits.
+        const advisory = await admin.query(
+          `SELECT 1 FROM pg_locks
+           WHERE pid = $1 AND locktype = 'advisory' AND classid = 0 AND objid = $2 AND objsubid = 1 AND granted`,
+          [waiter, ADVISORY_LOCKS.rankNote],
+        )
+        expect(advisory.rowCount).toBe(1)
+        expect(await freshSeasons()).toEqual([B4A, B4B, OLD])
+        await holder.query('COMMIT')
+        const result = await running
+        expect(result.code, result.output).toBe(0)
+        expect(await freshSeasons()).toEqual([B4A, B4B, NEW])
+      } finally {
+        await holder.end()
+      }
+    })
   })
 
   it('moves C1 when it still has the old dates; a second run changes nothing', async () => {
@@ -212,5 +285,27 @@ describe('migration 20261103120000_ranked_season_c1_dates (e2e)', () => {
     } finally {
       await holder.end()
     }
+  })
+
+  it('review of #176: a backup whose C1 still has the old dates says so in the restore dry-run', async () => {
+    const notice = (notices: string[]) => notices.filter((text) => text.includes('temporada C1 del 30/11 al 14/12'))
+    const dryRun = async () => {
+      const exported = await test.http().get('/api/backup/export').set('Cookie', cookie).responseType('blob')
+      expect(exported.status).toBe(200)
+      const document = JSON.parse(gunzipSync(exported.body as Buffer).toString('utf8')) as Record<string, unknown>
+      const response = await test
+        .http()
+        .post('/api/backup/import?mode=dry-run')
+        .set('Cookie', cookie)
+        .attach('file', gzipSync(Buffer.from(JSON.stringify(document))), 'backup.json.gz')
+      expect(response.status).toBe(200)
+      return response.body.diff.notices as string[]
+    }
+    await reset([B4A, B4B, OLD])
+    expect(notice(await dryRun())).toEqual([
+      'El backup trae la temporada C1 del 30/11 al 14/12, las fechas de antes de la noticia oficial: después de restaurar, corregila en Ranked (va del 1/12 al 15/12).',
+    ])
+    await reset([B4A, B4B, NEW])
+    expect(notice(await dryRun())).toEqual([])
   })
 })

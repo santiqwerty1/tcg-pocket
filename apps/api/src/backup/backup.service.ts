@@ -1015,6 +1015,13 @@ export class BackupService {
     if (document.tokens.length > 0) {
       notices.push(`Los ${document.tokens.length} tokens del backup son solo metadatos: hay que crearlos de nuevo.`)
     }
+    // ranked/c1-dates (review of #176): a file from before the official dates brings C1 back to 30/11–14/12.
+    const c1 = document.ranked?.seasons.find((season) => season.code === 'C1')
+    if (c1?.startsOn === '2026-11-30' && c1.endsOn === '2026-12-14') {
+      notices.push(
+        'El backup trae la temporada C1 del 30/11 al 14/12, las fechas de antes de la noticia oficial: después de restaurar, corregila en Ranked (va del 1/12 al 15/12).',
+      )
+    }
     if (
       document.settings.some((s) => s.key === 'dotggAutoSync') ||
       document.collection.imports.some((item) => item.source === 'dotgg')
