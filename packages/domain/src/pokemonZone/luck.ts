@@ -202,8 +202,13 @@ export interface SpanSources {
   regularPicks: number
   /** The windows that overlap the span. */
   pickWindows: LuckWindow[]
+  /** Packs opened with a guaranteed-card ticket, seen: the drop of the tickets in stock. */
   guaranteedPacks: number
-  guaranteedSeen: boolean
+  /**
+   * When a count was not seen, at most this many more. A bound: spans summed together share the campaign's tickets
+   * (`guaranteedAllowance`, Codex on #172), so more imports never make it bigger.
+   */
+  unseenGuaranteed: number
 }
 
 const overlaps = (window: LuckWindow, start: string | null, end: string): boolean =>
@@ -230,18 +235,37 @@ export function spanSources(
   const ticketsBefore = start ? (start.guaranteedPackTickets ?? null) : null
   const ticketsAfter = end.guaranteedPackTickets ?? null
   let guaranteedPacks = 0
-  let guaranteedSeen = true
+  let unseenGuaranteed = 0
   if (campaign) {
     if (ticketsBefore !== null && ticketsAfter !== null) {
       guaranteedPacks = Math.max(0, ticketsBefore - ticketsAfter)
     } else {
       const packs = (end.totals.packsOpened ?? 0) - (start?.totals.packsOpened ?? 0)
       const held = ticketsBefore ?? GUARANTEED_TICKETS_PER_CAMPAIGN
-      guaranteedPacks = Math.max(0, Math.min(packs, held - (ticketsAfter ?? 0)))
-      guaranteedSeen = false
+      unseenGuaranteed = Math.max(0, Math.min(packs, held - (ticketsAfter ?? 0)))
     }
   }
-  return { regularPicks: windows.length > 0 ? 0 : picks, pickWindows: windows, guaranteedPacks, guaranteedSeen }
+  return { regularPicks: windows.length > 0 ? 0 : picks, pickWindows: windows, guaranteedPacks, unseenGuaranteed }
+}
+
+/**
+ * The tickets for a guaranteed card an account's imports may have spent unseen, all spans together (Codex on #172):
+ * `GUARANTEED_TICKETS_PER_CAMPAIGN` for each campaign its life overlaps, less the ones seen spent. However many imports
+ * there are, the unseen packs of any spans summed never pass it.
+ */
+export function guaranteedAllowance(
+  chain: readonly LuckChainPoint[],
+  guaranteedWindows: readonly LuckWindow[] = GUARANTEED_PACK_WINDOWS,
+): number {
+  const last = chain[chain.length - 1]
+  if (!last) return 0
+  const campaigns = guaranteedWindows.filter((window) => overlaps(window, null, last.syncedAt)).length
+  const seen = chain.reduce(
+    (sum, point, i) =>
+      sum + spanSources(i === 0 ? null : (chain[i - 1] ?? null), point, [], guaranteedWindows).guaranteedPacks,
+    0,
+  )
+  return Math.max(0, campaigns * GUARANTEED_TICKETS_PER_CAMPAIGN - seen)
 }
 
 /** The sources of an account's whole life from its imports (oldest first): the sum of its spans. */
@@ -250,14 +274,15 @@ export function lifetimeSources(
   pickWindows: readonly LuckWindow[] = SPECIAL_PICK_WINDOWS,
   guaranteedWindows: readonly LuckWindow[] = GUARANTEED_PACK_WINDOWS,
 ): SpanSources {
-  const total: SpanSources = { regularPicks: 0, pickWindows: [], guaranteedPacks: 0, guaranteedSeen: true }
+  const total: SpanSources = { regularPicks: 0, pickWindows: [], guaranteedPacks: 0, unseenGuaranteed: 0 }
   chain.forEach((point, i) => {
     const span = spanSources(i === 0 ? null : (chain[i - 1] ?? null), point, pickWindows, guaranteedWindows)
     total.regularPicks += span.regularPicks
     for (const window of span.pickWindows) if (!total.pickWindows.includes(window)) total.pickWindows.push(window)
     total.guaranteedPacks += span.guaranteedPacks
-    total.guaranteedSeen &&= span.guaranteedSeen
+    total.unseenGuaranteed += span.unseenGuaranteed
   })
+  total.unseenGuaranteed = Math.min(total.unseenGuaranteed, guaranteedAllowance(chain, guaranteedWindows))
   return total
 }
 
@@ -269,10 +294,15 @@ export interface TierParts {
   capacity: number
   /** Estimated: hits expected among `capacity`. */
   expected: number
-  /** Cards of unknown origin, besides the special share of the regular Wonder Picks. */
+  /** Cards of unknown origin, besides the special share of the regular Wonder Picks and the unseen guaranteed packs. */
   unknown: number
   /** Regular Wonder Picks (the special share is taken over their sum). */
   regularPicks: number
+  /**
+   * Packs that may have been opened with a guaranteed-card ticket, unseen (in `capacity` until the spans are summed:
+   * then the campaign's tickets cap them, Codex on #172).
+   */
+  unseenGuaranteed: number
 }
 
 interface PackMix {
@@ -411,8 +441,9 @@ function spanParts(
   const regularPicks = pickMix.packCards > 0 ? Math.min(sources.regularPicks, wonderPicks ?? 0) : 0
   const specialPicks = Math.ceil(SPECIAL_PICK_SHARE * regularPicks)
   const guaranteedPacks = Math.min(sources.guaranteedPacks, packs)
-  // Cards with known odds, with every regular Wonder Pick (the special share comes off in `checkTier`); never more
-  // than the game counts.
+  const unseenGuaranteed = Math.min(sources.unseenGuaranteed, packs - guaranteedPacks)
+  // Cards with known odds, with every regular Wonder Pick and the unseen guaranteed packs (both come off in
+  // `checkTier`); never more than the game counts.
   const known = Math.max(0, mix.packCards - guaranteedPacks + regularPicks)
   const capacity = Math.min(known, cards)
   const unknown = cards - capacity
@@ -422,7 +453,7 @@ function spanParts(
     packs,
     cards,
     packCards: mix.packCards,
-    otherCards: unknown + specialPicks,
+    otherCards: unknown + specialPicks + unseenGuaranteed,
     wonderPicks,
     trades,
     sources: {
@@ -431,8 +462,8 @@ function spanParts(
       unknownPicks: windowPicks + specialPicks,
       pickWindows: sources.pickWindows,
       trades,
-      guaranteedPacks,
-      guaranteedSeen: sources.guaranteedSeen,
+      guaranteedPacks: guaranteedPacks + unseenGuaranteed,
+      guaranteedSeen: unseenGuaranteed === 0,
       restCards,
     },
     byRarity,
@@ -447,7 +478,7 @@ function spanParts(
   const pickShare = (hits: number) => hits / pickMix.packCards
   const parts = (observed: number, packHits: number, pickHits: number): TierParts => {
     const hits = (mix.packCards - guaranteedPacks) * packShare(packHits) + regularPicks * pickShare(pickHits)
-    return { observed, capacity, expected: (hits / known) * capacity, unknown, regularPicks }
+    return { observed, capacity, expected: (hits / known) * capacity, unknown, regularPicks, unseenGuaranteed }
   }
   const rareObserved = [...RARE_TIER].reduce((sum, rarity) => sum + (byRarity[rarity] ?? 0), 0)
   return {
@@ -458,21 +489,38 @@ function spanParts(
 }
 
 /**
- * The check of a tier over some spans: the special share of their regular Wonder Picks comes off the cards with known
- * odds and goes to the unknown ones; the hits among the known ones are at least what each span's unknown cards could
- * not hold, and at most what each span saw (or its known cards); a verdict when both ends agree.
+ * What comes off the cards with known odds of some spans summed, as whole cards: the special share of their regular
+ * Wonder Picks (rounded up over their sum) and their unseen guaranteed packs, capped by the campaign's tickets.
  */
-export function checkTier(spans: readonly TierParts[]): GameLuckTier {
+function summedOff(spans: readonly TierParts[], guaranteedAllowance: number): number {
   const special = Math.ceil(SPECIAL_PICK_SHARE * spans.reduce((sum, span) => sum + span.regularPicks, 0))
+  const guaranteed = Math.min(
+    spans.reduce((sum, span) => sum + span.unseenGuaranteed, 0),
+    guaranteedAllowance,
+  )
+  return special + guaranteed
+}
+
+/**
+ * The check of a tier over some spans: the special share of their regular Wonder Picks and their unseen guaranteed
+ * packs (`summedOff`) come off the cards with known odds and go to the unknown ones; the hits among the known ones are
+ * at least what each span's unknown cards could not hold, and at most what each span saw (or its known cards); a
+ * verdict when both ends agree.
+ */
+export function checkTier(
+  spans: readonly TierParts[],
+  guaranteedAllowance: number = Number.POSITIVE_INFINITY,
+): GameLuckTier {
+  const off = summedOff(spans, guaranteedAllowance)
   const capacity = spans.reduce((sum, span) => sum + span.capacity, 0)
-  const games = Math.max(0, capacity - special)
+  const games = Math.max(0, capacity - off)
   const expectedAll = spans.reduce((sum, span) => sum + span.expected, 0)
   const expectedShare = capacity > 0 ? (expectedAll / capacity) * 100 : 0
   const observed = spans.reduce((sum, span) => sum + span.observed, 0)
-  const unknown = spans.reduce((sum, span) => sum + span.unknown, 0) + special
+  const unknown = spans.reduce((sum, span) => sum + span.unknown, 0) + off
   const leastKnown = spans.reduce((sum, span) => sum + Math.max(0, span.observed - span.unknown), 0)
   const mostKnown = spans.reduce((sum, span) => sum + Math.min(span.observed, span.capacity), 0)
-  const fromPacks = { min: Math.min(games, Math.max(0, leastKnown - special)), max: Math.min(mostKnown, games) }
+  const fromPacks = { min: Math.min(games, Math.max(0, leastKnown - off)), max: Math.min(mostKnown, games) }
   const check = (hits: number) => luckCheck({ wins: hits, losses: games - hits, ties: 0 }, expectedShare)
   const low = check(fromPacks.min)
   const high = check(fromPacks.max)
@@ -542,26 +590,30 @@ export interface GameLuckIntervals extends GameLuckTier {
 }
 
 /**
- * The spans of a tier that count: in order of unknown cards per expected hit (fewest first), each one while the
- * unknown cards of all the counted ones — with the special share of their Wonder Picks — stay within `INCLUSION_SD`
- * standard deviations of their expected hits. What decides is the spans' unknown cards and expected hits, never what
- * they got, so the sum is a fair check.
+ * The spans of a tier that count: in order of unknown cards per expected hit (fewest first, with a tenth of their
+ * Wonder Picks and their unseen guaranteed packs), each one while the unknown cards of all the counted ones — as
+ * `checkTier` counts them: whole cards, the special share rounded up over their sum and the guaranteed packs capped by
+ * `guaranteedAllowance` (Codex on #172) — stay within `INCLUSION_SD` standard deviations of their expected hits. What
+ * decides is the spans' unknown cards and expected hits, never what they got, so the sum is a fair check.
  */
-export function countedSpans(spans: readonly TierParts[], sd: number = INCLUSION_SD): TierParts[] {
-  const load = (span: TierParts) => span.unknown + SPECIAL_PICK_SHARE * span.regularPicks
+export function countedSpans(
+  spans: readonly TierParts[],
+  sd: number = INCLUSION_SD,
+  guaranteedAllowance: number = Number.POSITIVE_INFINITY,
+): TierParts[] {
+  const load = (span: TierParts) => span.unknown + SPECIAL_PICK_SHARE * span.regularPicks + span.unseenGuaranteed
   const candidates = spans
     .map((span, at) => ({ span, at }))
     .filter(({ span }) => span.capacity > 0 && span.expected > 0)
     .sort((a, b) => load(a.span) / a.span.expected - load(b.span) / b.span.expected || a.at - b.at)
-  let unknown = 0
   let expected = 0
   const counted: { span: TierParts; at: number }[] = []
   for (const candidate of candidates) {
-    const nextUnknown = unknown + load(candidate.span)
+    const next = [...counted.map((item) => item.span), candidate.span]
+    const nextUnknown = next.reduce((sum, span) => sum + span.unknown, 0) + summedOff(next, guaranteedAllowance)
     const nextExpected = expected + candidate.span.expected
     if (nextUnknown > sd * Math.sqrt(nextExpected)) continue
     counted.push(candidate)
-    unknown = nextUnknown
     expected = nextExpected
   }
   return counted.sort((a, b) => a.at - b.at).map(({ span }) => span)
@@ -591,9 +643,11 @@ export function pokemonZoneLuckSinceFirst(
     if (parts.rare) rare.push(parts.rare)
     if (parts.ex) ex.push(parts.ex)
   }
+  // The campaign's tickets are shared by every span (Codex on #172): the unseen ones of the spans summed never pass them.
+  const allowance = guaranteedAllowance(chain)
   const tier = (parts: TierParts[]): GameLuckIntervals | null => {
-    const counted = countedSpans(parts)
-    return counted.length === 0 ? null : { ...checkTier(counted), counted: counted.length }
+    const counted = countedSpans(parts, INCLUSION_SD, allowance)
+    return counted.length === 0 ? null : { ...checkTier(counted, allowance), counted: counted.length }
   }
   return { from: first.syncedAt, to: last.syncedAt, spans, rare: tier(rare), ex: tier(ex) }
 }

@@ -227,10 +227,11 @@ function VolumeList({
 }
 
 /**
- * 2/11: the coupons Santi has, from the latest pokemon-zone import: the active event's (the ones its shop takes) and,
- * apart, other events'; with the date the game was read.
+ * 2/11: the coupons Santi has, from the latest pokemon-zone import: the ones of the event this page is about (its
+ * battles, `eventId`) and, apart and named, every other event's — on too or not (Codex on #172: which event a balance
+ * is goes by its id, never by how many balances there are); with the date the game was read.
  */
-function OwnCoupons({ coupons }: { coupons: PromoCoupons }) {
+function OwnCoupons({ coupons, eventId }: { coupons: PromoCoupons; eventId: string | null }) {
   if (!coupons) {
     return (
       <p className="text-muted-foreground">
@@ -242,40 +243,31 @@ function OwnCoupons({ coupons }: { coupons: PromoCoupons }) {
       </p>
     )
   }
-  const active = coupons.items.filter((coupon) => coupon.active)
-  const others = coupons.items.filter((coupon) => !coupon.active)
-  const total = active.reduce((sum, coupon) => sum + coupon.count, 0)
+  const own = coupons.items.filter((coupon) => eventId !== null && coupon.eventId === eventId)
+  const others = coupons.items.filter((coupon) => !own.includes(coupon))
+  const total = own.reduce((sum, coupon) => sum + coupon.count, 0)
   return (
     <div className="flex flex-col gap-1" data-testid="own-coupons">
       <h3 className="text-xs font-semibold text-muted-foreground">Tus cupones</h3>
-      <p>
-        {active.length > 1 ? (
-          // pz/luck: «Evento bis PROMO 2026» is two events with their own coupons: each count, apart.
-          <>
-            Del evento en curso tenés{' '}
-            {active.map((coupon, at) => (
-              <span key={coupon.key}>
-                {at === 0 ? '' : at === active.length - 1 ? ' y ' : ', '}
-                <span className="font-medium">{plural(coupon.count, 'cupón', 'cupones')}</span> del{' '}
-                {coupon.nameEs ?? `«${coupon.event}»`}
-              </span>
-            ))}
-            .
-          </>
-        ) : total > 0 ? (
-          <>
-            De este evento tenés <span className="font-medium">{plural(total, 'cupón', 'cupones')}</span>.
-          </>
-        ) : (
-          'De este evento no tenés cupones.'
-        )}
-      </p>
+      {eventId !== null ? (
+        <p>
+          {total > 0 ? (
+            <>
+              De este evento tenés <span className="font-medium">{plural(total, 'cupón', 'cupones')}</span>.
+            </>
+          ) : (
+            'De este evento no tenés cupones.'
+          )}
+        </p>
+      ) : null}
       {others.length > 0 ? (
         <ul className="text-xs text-muted-foreground">
           {others.map((coupon) => (
             <li key={coupon.key}>
-              {plural(coupon.count, 'cupón', 'cupones')} de{' '}
-              {coupon.nameEs ?? `«${coupon.event}» (nombre del juego en inglés)`}
+              {plural(coupon.count, 'cupón', 'cupones')}{' '}
+              {coupon.nameEs
+                ? `del ${coupon.nameEs}${coupon.active ? (eventId !== null ? ' (también en curso)' : ' (en curso)') : ''}`
+                : `de «${coupon.event}» (nombre del juego en inglés)`}
             </li>
           ))}
         </ul>
@@ -293,11 +285,14 @@ function OwnCoupons({ coupons }: { coupons: PromoCoupons }) {
  * saves n, also when it lacks both copies), and the cards with no battle.
  */
 function Coupons({
+  eventId,
   inEvent,
   outside,
   goal,
   coupons,
 }: {
+  /** The event with battles this page is about (null: none on). */
+  eventId: string | null
   inEvent: PromoVolume[]
   outside: PromoVolume[]
   goal: number
@@ -315,7 +310,7 @@ function Coupons({
   return (
     <Fold title="Cupones" hint="dónde rinden más" remember="promo-coupons">
       <div className="flex flex-col gap-3 text-sm">
-        <OwnCoupons coupons={coupons} />
+        <OwnCoupons coupons={coupons} eventId={eventId} />
         <p className="text-muted-foreground">
           Las misiones del evento dan cupones que se canjean en la tienda por una carta de promoción, si la tienda la
           tiene. Para una carta puntual, como la de un mazo, un cupón ahorra todas las victorias que llevaría sacarla
@@ -401,7 +396,7 @@ export function PromoPage() {
   const inEvent = data.event ? data.volumes.filter((volume) => volume.inEvent) : data.volumes
   const outside = data.event ? data.volumes.filter((volume) => !volume.inEvent) : []
   const daysLeft = data.event ? Math.ceil((Date.parse(data.event.until) - Date.now()) / DAY_MS) : null
-  // `until` is the first minute after the event: the game says «hasta las 02:59».
+  // `until` is the first minute after the event: the news says «hasta las 06:59 UTC» (03:59 in Buenos Aires).
   const lastMinute = data.event ? new Date(Date.parse(data.event.until) - 60_000).toISOString() : null
   const noCollection = data.lastImportAt === null
 
@@ -498,7 +493,13 @@ export function PromoPage() {
       </Section>
 
       {data.event && !noCollection ? (
-        <Coupons inEvent={inEvent} outside={outside} goal={data.goal} coupons={data.coupons} />
+        <Coupons
+          eventId={data.event?.id ?? null}
+          inEvent={inEvent}
+          outside={outside}
+          goal={data.goal}
+          coupons={data.coupons}
+        />
       ) : null}
 
       {outside.length > 0 ? (

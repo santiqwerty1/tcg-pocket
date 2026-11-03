@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   checkTier,
   countedSpans,
+  guaranteedAllowance,
   INCLUSION_SD,
   type LuckChainPoint,
   type LuckSnapshot,
@@ -116,21 +117,42 @@ describe('pz/luck: where the cards came from', () => {
       guaranteedPackTickets: tickets,
     })
     const nov = (dayOfMonth: number) => `2026-11-${String(dayOfMonth).padStart(2, '0')}T12:00:00Z`
-    expect(spanSources(at(nov(14), 1), at(nov(15), 0, 110))).toMatchObject({ guaranteedPacks: 1, guaranteedSeen: true })
-    expect(spanSources(at(nov(14), 0), at(nov(15), 0, 110))).toMatchObject({ guaranteedPacks: 0, guaranteedSeen: true })
+    expect(spanSources(at(nov(14), 1), at(nov(15), 0, 110))).toMatchObject({ guaranteedPacks: 1, unseenGuaranteed: 0 })
+    expect(spanSources(at(nov(14), 0), at(nov(15), 0, 110))).toMatchObject({ guaranteedPacks: 0, unseenGuaranteed: 0 })
     // Not seen at the end (version 1): at most the ticket held before.
-    expect(spanSources(at(nov(2), 1), at(nov(3), null, 183))).toMatchObject({
-      guaranteedPacks: 1,
-      guaranteedSeen: false,
-    })
+    expect(spanSources(at(nov(2), 1), at(nov(3), null, 183))).toMatchObject({ guaranteedPacks: 0, unseenGuaranteed: 1 })
     // Not seen at all: at most the campaign's one ticket, and never more than the packs opened.
-    expect(spanSources(at(nov(2), null), at(nov(3), null, 183)).guaranteedPacks).toBe(1)
-    expect(spanSources(at(nov(2), null), at(nov(3), null, 100)).guaranteedPacks).toBe(0)
+    expect(spanSources(at(nov(2), null), at(nov(3), null, 183)).unseenGuaranteed).toBe(1)
+    expect(spanSources(at(nov(2), null), at(nov(3), null, 100)).unseenGuaranteed).toBe(0)
     // Before the first import, less the ones it still holds.
-    expect(spanSources(null, at(nov(2), 1)).guaranteedPacks).toBe(0)
-    expect(spanSources(null, at(nov(2), null)).guaranteedPacks).toBe(1)
+    expect(spanSources(null, at(nov(2), 1)).unseenGuaranteed).toBe(0)
+    expect(spanSources(null, at(nov(2), null)).unseenGuaranteed).toBe(1)
     // Out of the campaign, nothing.
-    expect(spanSources(at('2026-12-16T00:00:00Z', null), at('2026-12-17T00:00:00Z', null, 150)).guaranteedPacks).toBe(0)
+    expect(spanSources(at('2026-12-16T00:00:00Z', null), at('2026-12-17T00:00:00Z', null, 150)).unseenGuaranteed).toBe(
+      0,
+    )
+  })
+
+  it('Codex on #172: the campaign’s one ticket is shared by every span, however many imports there are', () => {
+    // Three November imports with the version 1 bookmarklet: no ticket count seen anywhere.
+    const v1 = (dayOfMonth: number, packsOpened: number): LuckChainPoint => ({
+      syncedAt: `2026-11-${String(dayOfMonth).padStart(2, '0')}T12:00:00Z`,
+      totals: { wonderPicks: 0, packsOpened },
+      guaranteedPackTickets: null,
+    })
+    const three = [v1(3, 100), v1(4, 110), v1(5, 120)]
+    // Each span on its own could have had it…
+    expect(
+      three.map((point, i) => spanSources(i === 0 ? null : (three[i - 1] ?? null), point).unseenGuaranteed),
+    ).toEqual([1, 1, 1])
+    // …but all together, at most the one ticket.
+    expect(guaranteedAllowance(three)).toBe(1)
+    expect(lifetimeSources(three)).toMatchObject({ guaranteedPacks: 0, unseenGuaranteed: 1 })
+    expect(lifetimeSources([v1(5, 120)]).unseenGuaranteed).toBe(1)
+    // A ticket seen spent uses it up: nothing else unseen.
+    const seen = [{ ...v1(3, 100), guaranteedPackTickets: 1 }, { ...v1(4, 110), guaranteedPackTickets: 0 }, v1(5, 120)]
+    expect(guaranteedAllowance(seen)).toBe(0)
+    expect(lifetimeSources(seen)).toMatchObject({ guaranteedPacks: 1, unseenGuaranteed: 0 })
   })
 })
 
@@ -223,6 +245,22 @@ describe('pz/luck: desde la primera importación', () => {
     expect(luck?.rare?.expectedShare).toBeCloseTo(lifetime?.rare?.expectedShare ?? -1, 9)
   })
 
+  it('Codex on #172: version 1 imports every day share the campaign’s one ticket in the sum', () => {
+    const unseen = day({ ...NOV_03, guaranteedPackTickets: null }, '2026-11-14T12:00:00Z', {})
+    const first = day(unseen, '2026-11-15T12:00:00Z', {
+      packs: [['B4a', 20]],
+      rarities: { C: 60, U: 30, R: 5, RR: 2, AR: 3 },
+    })
+    const second = day(first, '2026-11-16T12:00:00Z', {
+      packs: [['B4a', 20]],
+      rarities: { C: 60, U: 30, R: 5, RR: 2, AR: 3 },
+    })
+    // Each span could have had the anniversary pack, but not both: one card of unknown origin in the sum, not two.
+    expect(pokemonZoneLuck(first, unseen, index)?.sources).toMatchObject({ guaranteedPacks: 1, guaranteedSeen: false })
+    const since = pokemonZoneLuckSinceFirst([unseen, first, second], index)
+    expect(since?.rare).toMatchObject({ counted: 2, unknown: 1, games: 199, observed: 6 })
+  })
+
   it('a span with a guaranteed ★★ pack: its card is of unknown origin, not luck', () => {
     const opened = day(start, '2026-11-15T12:00:00Z', {
       packs: [['B4a', 1]],
@@ -236,12 +274,13 @@ describe('pz/luck: desde la primera importación', () => {
   })
 
   it('the rule: fewest unknown cards per expected hit first, while Σ unknown ≤ ½·√(Σ expected)', () => {
-    const span = (unknown: number, expected: number, observed = 0, regularPicks = 0): TierParts => ({
+    const span = (unknown: number, expected: number, observed = 0, regularPicks = 0, capacity = 100): TierParts => ({
       observed,
-      capacity: 100,
+      capacity,
       expected,
       unknown,
       regularPicks,
+      unseenGuaranteed: 0,
     })
     const spans = [span(0, 4), span(5, 4), span(1, 10), span(0, 0)]
     // 0/4 first (0 ≤ 1), then 1/10 (1 ≤ ½·√14 = 1,87), not 5/4 (6 > ½·√18 = 2,12); no expected hits, nothing to say.
@@ -259,13 +298,23 @@ describe('pz/luck: desde la primera importación', () => {
     const b = span(1, 4, 9)
     const c = span(0, 1, 5)
     expect(countedSpans([a, b, c])).toEqual([a, c])
+    // Codex on #172: admitted as `checkTier` counts it — 1 Wonder Pick is a whole special card (1 > ½·√1), not 0,1.
+    const one = span(0, 1, 0, 1, 26)
+    expect(checkTier([one]).unknown).toBe(1)
+    expect(countedSpans([one])).toEqual([])
+    // Unseen guaranteed packs count too, capped by the campaign's tickets: with one, the second span still fits (1 ≤
+    // ½·√8); with three, it does not (2 > ½·√8).
+    const unseen = { ...span(0, 4), unseenGuaranteed: 1 }
+    expect(countedSpans([unseen, { ...unseen }], 0.5, 1)).toHaveLength(2)
+    expect(countedSpans([unseen, { ...unseen }], 0.5, 3)).toHaveLength(1)
+    expect(checkTier([unseen, { ...unseen }], 1).unknown).toBe(1)
   })
 
   it('the bounds of several spans: each span’s unknown cards hold at most what that span got', () => {
     // Two spans: 5 hits with 2 unknown, 0 hits with 10 unknown. Summed: at least 3 from the known cards (not 0).
     const tier = checkTier([
-      { observed: 5, capacity: 50, expected: 2, unknown: 2, regularPicks: 0 },
-      { observed: 0, capacity: 50, expected: 2, unknown: 10, regularPicks: 0 },
+      { observed: 5, capacity: 50, expected: 2, unknown: 2, regularPicks: 0, unseenGuaranteed: 0 },
+      { observed: 0, capacity: 50, expected: 2, unknown: 10, regularPicks: 0, unseenGuaranteed: 0 },
     ])
     expect(tier.fromPacks).toEqual({ min: 3, max: 5 })
     expect(tier).toMatchObject({ games: 100, unknown: 12, observed: 5 })

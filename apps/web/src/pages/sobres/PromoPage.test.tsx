@@ -360,10 +360,47 @@ describe('sobres de promoción', () => {
     })
     await user.click(await screen.findByText('Cupones', {}, { timeout: 5000 }))
     const own = await screen.findByTestId('own-coupons')
-    expect(own).toHaveTextContent(
-      'Del evento en curso tenés 2 cupones del Evento elección mágica bis PROMO 2026 y 1 cupón del Evento botín bis PROMO 2026.',
-    )
+    // This page is the Drop event's (its battles): its coupons, and the Wonder Pick event's apart, named.
+    expect(own).toHaveTextContent('De este evento tenés 1 cupón.')
+    expect(
+      within(own).getByText('2 cupones del Evento elección mágica bis PROMO 2026 (también en curso)'),
+    ).toBeInTheDocument()
     expect(own).not.toHaveTextContent('3 cupones')
+  })
+
+  it('Codex on #172: Wonder Pick coupons alone are never this event’s', async () => {
+    const user = userEvent.setup()
+    renderPromo({
+      event: EVENT,
+      volumes: [b1(), B11, A7, B12, A1],
+      best: ['B1', 'B11'],
+      pick: 'B11',
+      totals: { volumes: 4, cards: 20, missing: 12, copiesMissing: 21, winsToComplete: 47.33 },
+      lastImportAt: COLLECTION_AT,
+      // The Drop event's balance is 0 (left out); only the Wonder Pick event's is positive.
+      coupons: {
+        importedAt: '2026-11-03T17:46:00.000Z',
+        syncedAt: '2026-11-03T17:45:10.000Z',
+        items: [
+          {
+            key: 'TICKET_2610000_EV_04',
+            event: 'PROMO Reissue Wonder Pick Event 2026',
+            count: 2,
+            eventId: 'eleccion-magica-bis-promo-2026',
+            nameEs: 'Evento elección mágica bis PROMO 2026',
+            active: true,
+            until: '2026-11-13T07:00:00Z',
+          },
+        ],
+      },
+    })
+    await user.click(await screen.findByText('Cupones', {}, { timeout: 5000 }))
+    const own = await screen.findByTestId('own-coupons')
+    expect(own).toHaveTextContent('De este evento no tenés cupones.')
+    expect(
+      within(own).getByText('2 cupones del Evento elección mágica bis PROMO 2026 (también en curso)'),
+    ).toBeInTheDocument()
+    expect(own).not.toHaveTextContent('De este evento tenés 2 cupones')
   })
 
   it('a card a deck lacks wins and says so; a coupon for it saves every win', async () => {
