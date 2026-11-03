@@ -10,13 +10,17 @@ import { Section } from '@/components/Section'
 import { formatDate, formatDateTime, formatNumber, plural } from '@/lib/format'
 import { gameRateText } from '@/lib/pokemonZone'
 
-const KIND = { ranked: 'competitivas', versus: 'contra personas' } as const
+const KIND = {
+  ranked: ['competitiva', 'competitivas'],
+  versus: ['partida contra personas', 'partidas contra personas'],
+} as const
 
-/** «jugaste 3 competitivas y registraste 1: te faltan 2». */
+/** «jugaste 3 competitivas y registraste 1: te faltan 2»; «jugaste 1 competitiva y registraste 1: está». */
 function comparisonText(row: LoggedComparison): string {
-  const played = `jugaste ${formatNumber(row.game)} ${KIND[row.kind]}`
+  const [one, many] = KIND[row.kind]
+  const played = `jugaste ${plural(row.game, one, many)}`
   const logged = `registraste ${formatNumber(row.logged)}`
-  if (row.notLogged === 0) return `${played} y ${logged}: están todas`
+  if (row.notLogged === 0) return `${played} y ${logged}: ${row.game === 1 ? 'está' : 'están todas'}`
   return `${played} y ${logged}: ${row.notLogged === 1 ? 'te falta 1' : `te faltan ${formatNumber(row.notLogged)}`}`
 }
 

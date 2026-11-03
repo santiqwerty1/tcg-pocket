@@ -13,6 +13,7 @@ import { ENV, type Env } from '../config/env.js'
 import { dateOnly } from '../config/time-zone.js'
 import type { Prisma } from '../generated/prisma/client.js'
 import { idToString, parseNumericId } from '../http/ids.js'
+import { ADVISORY_LOCKS } from '../prisma/advisory-locks.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 import { RANK_NOTE_LOCK } from '../ranked/ranked.service.js'
 import { TournamentDataVersion } from '../tournaments/tournament-settings.js'
@@ -28,6 +29,8 @@ import {
 export const BACKUP_BLOBS_KEPT = 14
 /** A restore (and the monthly drill) runs in one transaction of at most this long. */
 const RESTORE_TIMEOUT_MS = 120_000
+/** pokemon-zone's saves (pokemon-zone/pokemon-zone.service.ts): a restore replaces their table and settings. */
+const POKEMON_ZONE_LOCK = ADVISORY_LOCKS.pokemonZoneImport
 /**
  * Upper bound of an uploaded backup once inflated. A real backup is a few MB (one row per stock unit, per import row,
  * per deck revision); without a cap a 50 MB gzip of zeros inflates to ~50 GB and takes the 512 MB machine down.
@@ -508,6 +511,8 @@ export class BackupService {
       async (tx) => {
         // Codex on #143: it rewrites `rank_changes` (and the matches), so the ranks' lock first, as every write of them.
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+        // 2/11: and the pokemon-zone imports and the settings they write: a save waits, or the restore waits for it.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${POKEMON_ZONE_LOCK}::bigint)`
         await this.restoreInto(tx, document, true)
       },
       { timeout: RESTORE_TIMEOUT_MS, maxWait: 10_000 },
@@ -557,6 +562,9 @@ export class BackupService {
             // Codex on #143: the ranks' lock before the tables, the order of every other writer of the matches and
             // the ranks (the sheet import, moving, deleting or restoring a match): never one waiting for the other.
             await tx.$executeRaw`SELECT pg_advisory_xact_lock(${RANK_NOTE_LOCK}::bigint)`
+            // 2/11: a pokemon-zone save locks the settings rows before its table; the drill locks its table before the
+            // settings. Its lock first, so neither waits for the other.
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(${POKEMON_ZONE_LOCK}::bigint)`
             await tx.$executeRawUnsafe(LOCK_SERIAL_TABLES)
             drill.sequences = await this.sequenceValues(tx)
             await this.restoreInto(tx, document)

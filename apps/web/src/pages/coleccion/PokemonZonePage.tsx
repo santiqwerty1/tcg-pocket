@@ -26,9 +26,10 @@ function Latest({ data }: { data: PokemonZoneSummary }) {
   const pack = latest.hourglasses.pack
   return (
     <div className="flex flex-col gap-3">
+      {/* «p. m.» already ends with a period: the dates go inside parentheses, never right before one. */}
       <p className="text-sm text-muted-foreground">
-        Datos del juego del {formatDateTime(latest.syncedAt)} (cuando pokemon-zone lo leyó), importados el{' '}
-        {formatDateTime(latest.importedAt)}. {plural(data.imports, 'importación', 'importaciones')} guardadas.
+        Datos del juego del {formatDateTime(latest.syncedAt)} (cuando pokemon-zone lo leyó; importados el{' '}
+        {formatDateTime(latest.importedAt)}). {plural(data.imports, 'importación guardada', 'importaciones guardadas')}.
       </p>
       <KeyValue
         items={[

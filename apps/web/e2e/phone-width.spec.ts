@@ -103,7 +103,8 @@ test('pokemon-zone (2/11): with an import, the page, the counters and the luck f
   expect(await pageWidth(page)).toBeLessThanOrEqual(PHONE)
   await page.getByRole('button', { name: 'Guardar' }).click()
   await expect(page).toHaveURL(/\/coleccion\/pokemon-zone$/)
-  await expect(page.getByText(/importaciones? guardadas?/)).toBeVisible()
+  // A fresh database (e2e/prepare.mjs) and one import; a retry saves the same numbers, still one.
+  await expect(page.getByText(/1 importación guardada\./)).toBeVisible()
   for (const path of ['/coleccion/pokemon-zone', '/partidas/estadisticas', '/coleccion', '/sobres']) {
     await page.goto(path)
     await page.waitForLoadState('networkidle')

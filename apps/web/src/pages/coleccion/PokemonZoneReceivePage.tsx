@@ -47,10 +47,13 @@ function PreviewView({ preview }: { preview: PokemonZonePreview }) {
       {preview.older ? (
         <Alert>
           <AlertTitle>Es más vieja que la última importación</AlertTitle>
-          <AlertDescription>Se guarda en el historial, pero no cambia los ajustes de Sobres.</AlertDescription>
+          <AlertDescription>
+            {preview.duplicate
+              ? 'Ya está en el historial y no cambia los ajustes de Sobres.'
+              : 'Se guarda en el historial, pero no cambia los ajustes de Sobres.'}
+          </AlertDescription>
         </Alert>
-      ) : null}
-      {preview.duplicate ? (
+      ) : preview.duplicate ? (
         <p className="text-sm text-muted-foreground">
           Ya la importaste: guardarla otra vez solo vuelve a poner sus puntos y relojes en Sobres.
         </p>
@@ -73,8 +76,12 @@ function PreviewView({ preview }: { preview: PokemonZonePreview }) {
             ) : (
               <div className="flex flex-col gap-1">
                 <p className="text-sm">
-                  Puntos de sobre: cambian {plural(packPoints.changes.length, 'expansión', 'expansiones')}
-                  {packPoints.unchanged > 0 ? ` (${formatNumber(packPoints.unchanged)} quedan igual)` : ''}.
+                  Puntos de sobre: {packPoints.changes.length === 1 ? 'cambia' : 'cambian'}{' '}
+                  {plural(packPoints.changes.length, 'expansión', 'expansiones')}
+                  {packPoints.unchanged > 0
+                    ? ` (${formatNumber(packPoints.unchanged)} ${packPoints.unchanged === 1 ? 'queda' : 'quedan'} igual)`
+                    : ''}
+                  .
                 </p>
                 <ul className="divide-y rounded-lg border text-sm">
                   {packPoints.changes.map((change) => (
@@ -160,12 +167,13 @@ export function PokemonZoneReceivePage() {
     try {
       const saved = await save.mutateAsync(payload)
       clearStash()
+      // An older read changes nothing in Sobres, duplicate or not (review of pz/import).
       toast.success(
-        saved.duplicate
-          ? 'Ya estaba importada: los ajustes de Sobres quedaron como en el juego.'
-          : saved.applied
-            ? 'Importado de pokemon-zone.'
-            : 'Importado de pokemon-zone, sin cambiar los ajustes de Sobres.',
+        !saved.applied
+          ? 'Guardado en el historial, sin cambiar los ajustes de Sobres.'
+          : saved.duplicate
+            ? 'Ya estaba importada: los ajustes de Sobres quedaron como en el juego.'
+            : 'Importado de pokemon-zone.',
       )
       navigate(BACK, { replace: true })
     } catch (error) {

@@ -268,7 +268,8 @@ function OwnCoupons({ coupons }: { coupons: PromoCoupons }) {
         </ul>
       ) : null}
       <p className="text-xs text-muted-foreground">
-        Según pokemon-zone, datos del juego del {formatDateTime(coupons.syncedAt)}.
+        {/* «p. m.» already ends with a period: the date goes inside the parentheses. */}
+        Según pokemon-zone (datos del juego del {formatDateTime(coupons.syncedAt)}).
       </p>
     </div>
   )

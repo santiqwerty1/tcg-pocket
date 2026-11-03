@@ -37,7 +37,8 @@ export function packPointsUpdate(
   let unchanged = 0
   for (const [expansionId, value] of Object.entries(snapshot.packPoints)) {
     const after = Math.min(PACK_POINTS_MAX, Math.max(0, Math.trunc(value)))
-    const before = current[expansionId] ?? 0
+    // Own keys only (the ids are checked by the payload's schema; this is belt and braces).
+    const before = Object.hasOwn(current, expansionId) ? (current[expansionId] ?? 0) : 0
     if (after > 0) next[expansionId] = after
     else delete next[expansionId]
     if (after === before) unchanged += 1
@@ -63,6 +64,8 @@ export function hourglassesUpdate(
 
 /** Two `packPoints` settings hold the same points (0 and absent are the same). */
 export function samePackPoints(a: Readonly<Record<string, number>>, b: Readonly<Record<string, number>>): boolean {
-  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) if ((a[key] ?? 0) !== (b[key] ?? 0)) return false
+  const value = (points: Readonly<Record<string, number>>, key: string) =>
+    Object.hasOwn(points, key) ? (points[key] ?? 0) : 0
+  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) if (value(a, key) !== value(b, key)) return false
   return true
 }

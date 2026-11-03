@@ -116,16 +116,17 @@ export function pokemonZoneJson(summary: PokemonZoneSummary): Json {
           game: {
             versus: counter(battles.game.versus),
             ranked: counter(battles.game.ranked),
-            rankedPointsEarned: battles.game.rankedPoints,
+            rankedPoints: battles.game.rankedPoints,
             solo: counter(battles.game.solo),
             rental: counter(battles.game.rental),
           },
+          // Review of pz/import: no «not logged» over the whole life of the game: the app logs since October 2026,
+          // so that difference says nothing. Only between imports.
           loggedInApp: {
             all: battles.logged.all,
             competitive: battles.logged.competitive,
             since: battles.logged.firstAt ? ownerDateTime(battles.logged.firstAt) : null,
           },
-          lifetime: notLogged(battles.lifetime),
           betweenLastImports: window
             ? {
                 from: ownerDateTime(window.from),

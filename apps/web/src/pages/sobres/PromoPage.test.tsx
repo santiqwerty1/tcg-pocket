@@ -272,7 +272,7 @@ describe('sobres de promoción', () => {
     expect(
       within(own).getByText('1 cupón de «PROMO Reissue Wonder Pick Event 2026» (nombre del juego en inglés)'),
     ).toBeInTheDocument()
-    expect(within(own).getByText(/^Según pokemon-zone, datos del juego del /)).toHaveTextContent(
+    expect(within(own).getByText(/^Según pokemon-zone \(datos del juego del /)).toHaveTextContent(
       new Intl.DateTimeFormat('es-AR', { dateStyle: 'medium', timeStyle: 'short' }).format(
         new Date('2026-11-02T02:43:29.379Z'),
       ),

@@ -13,23 +13,34 @@ import { z } from 'zod'
 
 export const POKEMON_ZONE_PAYLOAD_VERSION = 1
 
-/** Keys, ids and codes as pokemon-zone writes them («TICKET_2610000_EV_03», «AN001_0010_00_000», «B4b», «SSR»). */
+/** Keys and ids as pokemon-zone writes them («TICKET_2610000_EV_03», «AN001_0010_00_000», «pvp_wins»). */
 const key = z.string().regex(/^[\w.-]{1,80}$/, 'clave inválida')
+/**
+ * An expansion id («A1», «B4b», «C1», «SP1», «P-A»). It becomes a key of the `packPoints` setting, so it starts with a
+ * capital letter: «constructor» or «__proto__» are not ids.
+ */
+const expansionKey = z.string().regex(/^[A-Z][A-Za-z0-9-]{0,11}$/, 'expansión inválida')
+/** A rarity code («C», «RR», «SAR»): capitals only, so no key of `Object.prototype` passes. */
+const rarityKey = z.string().regex(/^[A-Z]{1,5}$/, 'rareza inválida')
 const label = z.string().max(300)
 const count = z.number().int().min(0).max(1_000_000_000)
-const instant = z
-  .string()
-  .max(40)
-  .refine((value) => !Number.isNaN(Date.parse(value)), 'fecha ISO 8601 inválida')
+/** An ISO 8601 date-time with its offset, as pokemon-zone writes them («2026-11-02T02:43:29.379814Z»). */
+const instant = z.iso.datetime({ offset: true })
 
 /** An item of `resourceData` (a currency, a ticket, pack points, hourglasses). */
 const resourceItem = z.object({ key, value: count.nullable(), name: label.nullish() })
-const resourceList = z.array(resourceItem).max(500)
+/** At most 100 of each list, and their sums fit a count: what the snapshot keeps passes its own schema. */
+const resourceList = z.array(resourceItem).max(100)
 
 /** Pack points as the settings take them (`packPoints`, at most 1 000 000 each). */
-const pointsItem = resourceItem.extend({ value: z.number().int().min(0).max(1_000_000).nullable() })
+const pointsItem = resourceItem.extend({ key: expansionKey, value: z.number().int().min(0).max(1_000_000).nullable() })
 
 const statItem = z.object({ id: key, value: count.nullable() })
+
+/** pokemon-zone's privacy switches: a few flags, nothing big (phase 1 does not use them). */
+const configSchema = z
+  .record(z.string().max(60), z.union([z.boolean(), z.number(), z.string().max(60), z.null()]))
+  .refine((config) => Object.keys(config).length <= 30, 'demasiadas claves')
 
 export const pokemonZonePayloadSchema = z
   .object({
@@ -47,7 +58,7 @@ export const pokemonZonePayloadSchema = z
       resourceData: z.object({
         currencies: resourceList.default([]),
         tickets: resourceList.default([]),
-        packCeilPoints: z.array(pointsItem).max(500),
+        packCeilPoints: z.array(pointsItem).max(100),
         packPowerChargers: resourceList.default([]),
         challengePowerChargers: resourceList.default([]),
         tradePowerChargers: resourceList.default([]),
@@ -55,17 +66,19 @@ export const pokemonZonePayloadSchema = z
         revivalClocks: resourceList.default([]),
       }),
       /** Sent by the bookmarklet (pokemon-zone's privacy switches); phase 1 does not use it. */
-      config: z.record(z.string(), z.unknown()).optional(),
+      config: configSchema.optional(),
     }),
     stats: z.object({
       syncedAt: instant.nullish(),
       headline: z.array(statItem).max(100).default([]),
       battles: z.array(statItem).max(100),
       packsByExpansion: z
-        .array(z.object({ expansionId: key, name: label, packsOpened: count, cardsObtained: count }))
+        .array(z.object({ expansionId: expansionKey, name: label, packsOpened: count, cardsObtained: count }))
         .max(200),
-      packs: z.array(z.object({ packId: key, name: label, expansionId: key.nullable(), opened: count })).max(500),
-      cardsByRarity: z.array(z.object({ rarity: key, obtained: count })).max(50),
+      packs: z
+        .array(z.object({ packId: key, name: label, expansionId: expansionKey.nullable(), opened: count }))
+        .max(500),
+      cardsByRarity: z.array(z.object({ rarity: rarityKey, obtained: count })).max(50),
     }),
   })
   .refine((payload) => payload.stats.syncedAt || payload.mine.player.lastUpdatedAt, {
@@ -92,7 +105,7 @@ export const pokemonZoneSnapshotSchema = z.object({
   syncedAt: instant,
   level: nullableCount,
   /** Pack points per expansion id («B4b»), as the game keeps them. */
-  packPoints: z.record(key, z.number().int().min(0).max(1_000_000)),
+  packPoints: z.record(expansionKey, z.number().int().min(0).max(1_000_000)),
   /** Hourglasses in stock: pack (1 hour of a pack each), Wonder Pick, trade, event; and rewind watches. */
   hourglasses: z.object({
     pack: nullableCount,
@@ -119,14 +132,26 @@ export const pokemonZoneSnapshotSchema = z.object({
     trades: nullableCount,
   }),
   /** Packs opened and cards obtained (from every source) per expansion, lifetime. */
-  expansions: z.array(z.object({ expansionId: key, nameEn: label, packsOpened: count, cardsObtained: count })).max(200),
+  expansions: z
+    .array(z.object({ expansionId: expansionKey, nameEn: label, packsOpened: count, cardsObtained: count }))
+    .max(200),
   /** Packs opened per pack, lifetime (`packId` is pokemon-zone's). */
-  packs: z.array(z.object({ packId: key, expansionId: key.nullable(), nameEn: label, opened: count })).max(500),
+  packs: z
+    .array(z.object({ packId: key, expansionId: expansionKey.nullable(), nameEn: label, opened: count }))
+    .max(500),
   /** Cards obtained per pokemon-zone rarity code, lifetime (every source: packs, Wonder Pick, trades, gifts). */
-  rarities: z.array(z.object({ code: key, obtained: count })).max(50),
+  rarities: z.array(z.object({ code: rarityKey, obtained: count })).max(50),
 })
 
 export type PokemonZoneSnapshot = z.infer<typeof pokemonZoneSnapshotSchema>
+
+/**
+ * The payload as an import keeps it, checked against the stored form too: what is saved always reads back (the
+ * summary and the backup parse it with `pokemonZoneSnapshotSchema`). Throws a ZodError when it does not.
+ */
+export function parsePokemonZone(payload: PokemonZonePayload): PokemonZoneSnapshot {
+  return pokemonZoneSnapshotSchema.parse(normalizePokemonZone(payload))
+}
 
 /** A ticket that is a promo card exchange coupon: «Promo Card Exchange Ticket(s) (<event>)». */
 const COUPON_NAME = /^\s*promo card exchange tickets?\b/i
@@ -145,9 +170,13 @@ function itemValue(items: readonly ResourceItem[], wanted: string): number | nul
   return item ? (item.value ?? 0) : null
 }
 
-/** The sum of a resource list; null when it is empty. */
+/** The sum of a resource list (at most a count's top); null when it is empty. */
 function sumOf(items: readonly ResourceItem[]): number | null {
-  return items.length === 0 ? null : items.reduce((sum, item) => sum + (item.value ?? 0), 0)
+  if (items.length === 0) return null
+  return Math.min(
+    1_000_000_000,
+    items.reduce((sum, item) => sum + (item.value ?? 0), 0),
+  )
 }
 
 function stat(items: readonly { id: string; value: number | null }[], id: string): number | null {

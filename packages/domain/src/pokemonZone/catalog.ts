@@ -25,7 +25,8 @@ export const POKEMON_ZONE_RARITY: Readonly<Record<string, Rarity>> = {
 }
 
 export function pokemonZoneRarity(code: string): Rarity | null {
-  return POKEMON_ZONE_RARITY[code] ?? null
+  // Own keys only: «toString» is not a rarity.
+  return Object.hasOwn(POKEMON_ZONE_RARITY, code) ? (POKEMON_ZONE_RARITY[code] ?? null) : null
 }
 
 /** Letters and digits only, without accents: «Ho-Oh» and «ho-ohpack» meet at «hooh». */

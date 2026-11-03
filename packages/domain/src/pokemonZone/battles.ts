@@ -100,7 +100,7 @@ export function battlesBetween(
     rankedPoints:
       before.rankedPoints === null || after.rankedPoints === null ? null : after.rankedPoints - before.rankedPoints,
   }
-  if (result.rankedPoints !== null && result.rankedPoints < 0) broken = true
+  // Ranked points can go down (losses at the top ranks, a new season): a difference with its sign, never a break.
   return broken ? null : result
 }
 

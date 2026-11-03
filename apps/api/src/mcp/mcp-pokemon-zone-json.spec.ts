@@ -64,7 +64,10 @@ describe('pokemon_zone_summary', () => {
       hourglasses: Record<string, unknown>
       promoCoupons: unknown[]
       settingsOfSobres: unknown
-      battles: { game: { ranked: { text: string }; rental: { text: string } }; betweenLastImports: { notLogged: unknown } }
+      battles: {
+        game: { ranked: { text: string }; rental: { text: string } }
+        betweenLastImports: { notLogged: unknown }
+      }
       luck: unknown
       notes: string[]
     }

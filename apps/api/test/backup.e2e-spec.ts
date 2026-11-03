@@ -695,4 +695,22 @@ describe('backup and settings (e2e)', () => {
     expect(alerts.find((alert) => alert.code === 'backup_drill')?.title).toBe('Falló la prueba del backup')
     expect(owned(await backup.exportDocument())).toEqual(before)
   })
+
+  it('version 13: restoring a version 12 file keeps the pokemon-zone imports there are now', async () => {
+    const now = await test.prisma.pokemonZoneImport.findMany({ select: { id: true, sha256: true } })
+    expect(now).toHaveLength(1)
+    const current = JSON.parse(
+      gunzipSync((await get('/api/backup/export').responseType('blob')).body as Buffer).toString('utf8'),
+    ) as { pokemonZoneImports?: unknown; schemaVersion: number }
+    const { pokemonZoneImports: _imports, ...v12 } = { ...current, schemaVersion: 12 }
+    const response = await post('/api/backup/import?mode=replace').attach(
+      'file',
+      gzipSync(Buffer.from(JSON.stringify(v12))),
+      'v12.json.gz',
+    )
+    expect(response.status).toBe(200)
+    expect(response.body.notices.some((n: string) => n.includes('anterior a pokemon-zone'))).toBe(true)
+    expect(response.body.counts.pokemonZoneImports).toBe(0)
+    expect(await test.prisma.pokemonZoneImport.findMany({ select: { id: true, sha256: true } })).toEqual(now)
+  })
 })

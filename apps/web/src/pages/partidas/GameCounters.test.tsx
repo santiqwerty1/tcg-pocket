@@ -58,7 +58,7 @@ describe('Estadísticas: según el juego (2/11)', () => {
     expect(within(section).getByText('Mazos de alquiler').closest('li')).toHaveTextContent('orientativo')
     const window = within(section).getByTestId('game-window')
     expect(window).toHaveTextContent('jugaste 3 competitivas y registraste 1: te faltan 2.')
-    expect(window).toHaveTextContent('jugaste 4 contra personas y registraste 4: están todas.')
+    expect(window).toHaveTextContent('jugaste 4 partidas contra personas y registraste 4: están todas.')
     // The game's numbers never add up with the logged ones.
     expect(section).toHaveTextContent('aparte de tus partidas registradas (no se suman)')
   })

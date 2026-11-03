@@ -124,9 +124,12 @@ function GameLuckCard({ title, luck }: { title: string; luck: GameLuck }) {
           </p>
           {luck.otherCards > 0 ? (
             <p className="text-xs text-muted-foreground">
-              Unas {formatNumber(luck.otherCards)} no salieron de esos sobres (estimado: los sobres dan{' '}
-              {formatNumber(luck.packCards)}){other.length > 0 ? `; ${other.join(', ')} (del juego)` : ''}, y también
-              regalos y premios. Se cuentan con la misma mezcla que los sobres.
+              {luck.otherCards === 1
+                ? '1 carta no salió de esos sobres'
+                : `Unas ${formatNumber(luck.otherCards)} no salieron de esos sobres`}{' '}
+              (estimado: los sobres dan {formatNumber(luck.packCards)})
+              {other.length > 0 ? `; ${other.join(', ')} (del juego)` : ''}, y también regalos y premios. Se cuentan con
+              la misma mezcla que los sobres.
             </p>
           ) : null}
           <GameTier label="☆ o más" tier={luck.rare} />
@@ -139,8 +142,10 @@ function GameLuckCard({ title, luck }: { title: string; luck: GameLuck }) {
           ) : null}
           {luck.unknownPacks > 0 ? (
             <p className="text-xs text-muted-foreground">
-              {plural(luck.unknownPacks, 'sobre', 'sobres')} de expansiones que el catálogo todavía no tiene no cuentan
-              en lo esperado.
+              {luck.unknownPacks === 1
+                ? '1 sobre de una expansión que el catálogo todavía no tiene no cuenta'
+                : `${formatNumber(luck.unknownPacks)} sobres de expansiones que el catálogo todavía no tiene no cuentan`}{' '}
+              en lo esperado (sus cartas sí están entre las obtenidas).
             </p>
           ) : null}
         </>

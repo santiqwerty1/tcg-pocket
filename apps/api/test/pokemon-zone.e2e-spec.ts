@@ -127,6 +127,22 @@ describe('pokemon-zone (e2e)', () => {
     expect(JSON.stringify(response.body)).not.toContain(ACCOUNT_HASH)
     expect(JSON.stringify(response.body)).not.toContain('muchos')
     expect((await post('/api/pokemon-zone/preview').send({ v: 1 })).status).toBe(400)
+    // Review of pz/import: a read of the game in the future (it would make every real import «older») or before the
+    // game existed is refused, and so is anything whose stored form would not read back.
+    for (const syncedAt of ['9999-12-31T00:00:00Z', ago(-3 * 24 * HOUR), '2024-01-01T00:00:00Z']) {
+      const dated = payload()
+      dated.stats.syncedAt = syncedAt
+      const refused = await post('/api/pokemon-zone/imports').send(dated)
+      expect(refused.status, syncedAt).toBe(400)
+      expect(refused.body.error.details).toEqual([{ path: 'stats.syncedAt', message: 'fecha fuera de rango' }])
+    }
+    const coupons = payload() as Payload & { mine: { resourceData: { tickets: unknown[] } } }
+    coupons.mine.resourceData.tickets = Array.from({ length: 101 }, (_, i) => ({
+      key: `T${i}`,
+      value: 1,
+      name: 'Promo Card Exchange Ticket (X)',
+    }))
+    expect((await post('/api/pokemon-zone/imports').send(coupons)).status).toBe(400)
     expect(await test.prisma.pokemonZoneImport.count()).toBe(0)
   })
 
@@ -230,13 +246,23 @@ describe('pokemon-zone (e2e)', () => {
     expect(summary.luck.lifetime).toMatchObject({ packs: 1226, cards: 6883, unknownPacks: 64 })
     expect(summary.luck.lifetime.rare.observed).toBe(314)
     expect(summary.luck.since).toBeNull()
-    // Edited by hand afterwards: the summary says so.
+    // Edited by hand afterwards: the summary says so, for each setting.
     expect((await put('/api/settings/hourglasses').send({ value: 30 })).status).toBe(200)
     expect((await get('/api/pokemon-zone')).body.settings).toEqual({ packPoints: 'imported', hourglasses: 'edited' })
+    const points = (await get('/api/settings')).body.packPoints as Record<string, number>
+    expect((await put('/api/settings/packPoints').send({ value: { ...points, A1: 6 } })).status).toBe(200)
+    expect((await get('/api/pokemon-zone')).body.settings).toEqual({ packPoints: 'edited', hourglasses: 'edited' })
   })
 
   it('a second import: since the previous one, the packs opened and the ranked matches not logged', async () => {
-    const second = later(ago(HOUR), { ranked: [3, 2], versus: [4, 2], b4bPacks: 5 })
+    const firstRead = (await get('/api/pokemon-zone')).body.latest.syncedAt as string
+    const secondRead = ago(HOUR)
+    // The window is (previous read, latest read]: a match at the previous read was counted by it, one at the latest
+    // read is in this one.
+    for (const playedAt of [firstRead, secondRead]) {
+      expect((await post('/api/matches').send({ deckId, result: 'loss', mode: 'casual', playedAt })).status).toBe(201)
+    }
+    const second = later(secondRead, { ranked: [3, 2], versus: [4, 2], b4bPacks: 5 })
     const preview = await post('/api/pokemon-zone/preview').send(second)
     expect(preview.body).toMatchObject({ account: 'same', older: false, since: { packs: 5, cards: 20 } })
     expect((await post('/api/pokemon-zone/imports').send(second)).status).toBe(201)
@@ -246,13 +272,14 @@ describe('pokemon-zone (e2e)', () => {
     expect(summary.previous).not.toBeNull()
     expect(summary.battles.window).toMatchObject({
       game: { ranked: { battles: 3, wins: 2 }, versus: { battles: 4, wins: 2 }, rankedPoints: 10 },
-      logged: { all: 1, competitive: 1 },
+      logged: { all: 2, competitive: 1 },
       comparison: [
         { kind: 'ranked', game: 3, logged: 1, notLogged: 2 },
-        { kind: 'versus', game: 4, logged: 1, notLogged: 3 },
+        { kind: 'versus', game: 4, logged: 2, notLogged: 2 },
       ],
     })
-    expect(summary.battles.logged).toMatchObject({ all: 1, competitive: 1 })
+    expect(summary.battles.logged).toMatchObject({ all: 3, competitive: 1 })
+    expect(summary.settings).toEqual({ packPoints: 'imported', hourglasses: 'imported' })
     expect(summary.luck.since).toMatchObject({ packs: 5, cards: 20, packCards: 20, otherCards: 0 })
     expect(summary.luck.since.byPack).toEqual([
       expect.objectContaining({ appPackId: 'B4b/deluxepackmega', nameEs: 'Sobre Deluxe Mega', opened: 5 }),
@@ -271,6 +298,20 @@ describe('pokemon-zone (e2e)', () => {
     expect(saved.body.applied).toBeNull()
     expect((await get('/api/settings')).body.hourglasses).toBe(7)
     expect((await get('/api/pokemon-zone')).body.imports).toBe(3)
+    // An older read of another account changes nothing either: the settings follow the newest read of the game.
+    const otherOld = payload()
+    otherOld.stats.syncedAt = ago(20 * 24 * HOUR)
+    otherOld.mine.player.accountHash = 'e'.repeat(64)
+    first(otherOld.mine.resourceData.packPowerChargers).value = 55
+    expect((await post('/api/pokemon-zone/preview').send(otherOld)).body).toMatchObject({
+      account: 'other',
+      older: true,
+    })
+    expect((await post('/api/pokemon-zone/imports').send(otherOld)).body.applied).toBeNull()
+    expect((await get('/api/settings')).body.hourglasses).toBe(7)
+    // A duplicate of an older read is still older: nothing applied.
+    expect((await post('/api/pokemon-zone/imports').send(old)).body).toMatchObject({ duplicate: true, applied: null })
+    expect((await get('/api/pokemon-zone')).body.imports).toBe(4)
 
     const other = later(ago(30 * 60 * 1000), {})
     other.mine.player.accountHash = 'f'.repeat(64)
@@ -281,6 +322,21 @@ describe('pokemon-zone (e2e)', () => {
     expect(summary.previous).toBeNull()
     expect(summary.battles.window).toBeNull()
     expect(summary.luck.since).toBeNull()
+  })
+
+  it('saves at once, newer and older mixed, leave the newest read in the settings (the lock)', async () => {
+    // Newer than every import so far (the other account's, 30 minutes ago): 20, 19, … 15 minutes ago.
+    const reads = Array.from({ length: 6 }, (_, i) => {
+      const next = later(ago((20 - i) * 60 * 1000), {})
+      first(next.mine.resourceData.packPowerChargers).value = 10 + i
+      return next
+    })
+    // Interleaved: newest, oldest, the second newest…
+    const order = [5, 0, 4, 1, 3, 2]
+    const answers = await Promise.all(order.map((i) => post('/api/pokemon-zone/imports').send(reads[i])))
+    for (const answer of answers) expect(answer.status).toBe(201)
+    expect((await get('/api/settings')).body.hourglasses).toBe(15)
+    expect((await get('/api/pokemon-zone')).body.settings.hourglasses).toBe('imported')
   })
 
   it('Sobres de promoción carries the coupons of the latest import', async () => {

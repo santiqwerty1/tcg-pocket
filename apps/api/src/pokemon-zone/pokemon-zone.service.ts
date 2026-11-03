@@ -8,7 +8,7 @@
  * account (to tell an import of another account). The friend id never gets here: the bookmarklet sends its SHA-256.
  */
 import { createHash, createHmac, hkdfSync } from 'node:crypto'
-import { Inject, Injectable } from '@nestjs/common'
+import { BadRequestException, Inject, Injectable } from '@nestjs/common'
 import {
   type BattlesBetween,
   battlesBetween,
@@ -18,13 +18,13 @@ import {
   hourglassesUpdate,
   type LoggedComparison,
   loggedComparison,
-  normalizePokemonZone,
   type PackPointsChange,
   type PokemonZoneLuck,
   type PokemonZonePayload,
   type PokemonZoneSnapshot,
   type PromoCouponStatus,
   packPointsUpdate,
+  parsePokemonZone,
   pokemonZoneLuck,
   pokemonZoneSnapshotSchema,
   promoCoupons,
@@ -39,6 +39,39 @@ import { ADVISORY_LOCKS } from '../prisma/advisory-locks.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 
 const IMPORT_LOCK = ADVISORY_LOCKS.pokemonZoneImport
+/** Rows read to find the newest one that parses. */
+const READ_AHEAD = 5
+/** The first day of the game (TCG Pocket, 30/10/2024): an earlier read of it is not one. */
+const GAME_LAUNCH = Date.parse('2024-10-30T00:00:00Z')
+/** pokemon-zone's clock against ours: a read up to a day ahead passes, a later one is refused. */
+const CLOCK_SLACK_MS = 24 * 60 * 60 * 1000
+
+/**
+ * The payload as an import keeps it, or a 400: what is saved reads back with its own schema, and its read of the game
+ * is between the game's launch and tomorrow (a read dated in the future would make every real import «older»).
+ */
+function checkedSnapshot(payload: PokemonZonePayload, now: Date): PokemonZoneSnapshot {
+  let snapshot: PokemonZoneSnapshot
+  try {
+    snapshot = parsePokemonZone(payload)
+  } catch (error) {
+    const issues = error instanceof z.ZodError ? error.issues : []
+    throw new BadRequestException({
+      code: 'validation',
+      message: 'Los datos de pokemon-zone no tienen la forma esperada.',
+      details: issues.slice(0, 20).map((issue) => ({ path: issue.path.join('.'), message: issue.message })),
+    })
+  }
+  const read = Date.parse(snapshot.syncedAt)
+  if (read < GAME_LAUNCH || read > now.getTime() + CLOCK_SLACK_MS) {
+    throw new BadRequestException({
+      code: 'validation',
+      message: 'La fecha en que pokemon-zone leyó el juego no es posible (antes del juego o en el futuro).',
+      details: [{ path: 'stats.syncedAt', message: 'fecha fuera de rango' }],
+    })
+  }
+  return snapshot
+}
 
 /** The settings an import writes (their bounds are packs.service.ts'). */
 const packPointsSetting = z.record(z.string(), z.number().int().min(0).max(1_000_000))
@@ -170,20 +203,23 @@ export class PokemonZoneService {
   }
 
   /** What saving this payload would do; writes nothing. */
-  async preview(payload: PokemonZonePayload): Promise<PokemonZonePreview> {
-    const snapshot = normalizePokemonZone(payload)
+  async preview(payload: PokemonZonePayload, now: Date = new Date()): Promise<PokemonZonePreview> {
+    const snapshot = checkedSnapshot(payload, now)
     const account = this.account(payload.mine.player.accountHash)
     return this.plan(this.prisma, snapshot, account)
   }
 
   /** Stores the import (once: the same numbers saved again are the same row) and writes the settings of Sobres. */
-  async save(payload: PokemonZonePayload): Promise<PokemonZoneSaved> {
-    const snapshot = normalizePokemonZone(payload)
+  async save(payload: PokemonZonePayload, now: Date = new Date()): Promise<PokemonZoneSaved> {
+    const snapshot = checkedSnapshot(payload, now)
     const account = this.account(payload.mine.player.accountHash)
     const sha256 = createHash('sha256').update(JSON.stringify(snapshot)).digest('hex')
     const syncedAt = new Date(snapshot.syncedAt)
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${IMPORT_LOCK}::bigint)`
+      // A manual edit of these settings (PUT /api/settings) that commits in between is read, not overwritten: the rows
+      // stay locked until this transaction ends.
+      await tx.$queryRaw`SELECT key FROM app_settings WHERE key IN ('packPoints', 'hourglasses') FOR UPDATE`
       const plan = await this.plan(tx, snapshot, account)
       const applied: Applied = {}
       if (!plan.older) {
@@ -201,7 +237,7 @@ export class PokemonZoneService {
       const row = existing
         ? await tx.pokemonZoneImport.update({
             where: { id: existing.id },
-            // A duplicate saved again rewrites the settings (Santi asked to), so it records what it wrote.
+            // A duplicate saved again («Guardar» once more) rewrites the settings, so it records what it wrote.
             data: plan.older ? {} : { applied: applied as Prisma.InputJsonValue },
             select: { id: true, importedAt: true, syncedAt: true },
           })
@@ -309,7 +345,9 @@ export class PokemonZoneService {
     const sha256 = createHash('sha256').update(JSON.stringify(snapshot)).digest('hex')
     const [latest, newer, duplicate, previous, settings] = await Promise.all([
       db.pokemonZoneImport.findFirst({ orderBy: [{ syncedAt: 'desc' }, { id: 'desc' }], select: { account: true } }),
-      db.pokemonZoneImport.count({ where: { account, syncedAt: { gt: syncedAt } } }),
+      // Review of pz/import: older than any import, of any account. The settings follow the newest read of the game,
+      // which is also the summary's `latest`, so «imported» or «edited» stays true.
+      db.pokemonZoneImport.count({ where: { syncedAt: { gt: syncedAt } } }),
       db.pokemonZoneImport.count({ where: { account, syncedAt, sha256 } }),
       this.previousOf(db, account, syncedAt),
       this.currentSettings(db),
@@ -353,21 +391,30 @@ export class PokemonZoneService {
 
   /** The import with the newest read of the game (the latest saved breaks a tie). */
   private async latest(db: Reader): Promise<StoredImport | null> {
-    const row = await db.pokemonZoneImport.findFirst({
-      orderBy: [{ syncedAt: 'desc' }, { id: 'desc' }],
-      select: SELECT,
-    })
-    return row ? stored(row) : null
+    return this.firstReadable(db, {})
   }
 
   /** The latest import of the account with an earlier read of the game than `before`. */
   private async previousOf(db: Reader, account: string, before: Date): Promise<StoredImport | null> {
-    const row = await db.pokemonZoneImport.findFirst({
-      where: { account, syncedAt: { lt: before } },
+    return this.firstReadable(db, { account, syncedAt: { lt: before } })
+  }
+
+  /**
+   * The newest import that reads back with the snapshot's schema. Every save checks it, so this only skips a row of a
+   * future schema change; a few rows at a time, never the whole table.
+   */
+  private async firstReadable(db: Reader, where: Prisma.PokemonZoneImportWhereInput): Promise<StoredImport | null> {
+    const rows = await db.pokemonZoneImport.findMany({
+      where,
       orderBy: [{ syncedAt: 'desc' }, { id: 'desc' }],
+      take: READ_AHEAD,
       select: SELECT,
     })
-    return row ? stored(row) : null
+    for (const row of rows) {
+      const item = stored(row)
+      if (item) return item
+    }
+    return null
   }
 
   /** Matches logged with `playedAt` in (from, to]: every one and the competitive ones. */

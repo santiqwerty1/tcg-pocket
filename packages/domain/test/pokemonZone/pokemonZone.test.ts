@@ -13,6 +13,7 @@ import {
   POKEMON_ZONE_RARITY,
   type PokemonZoneSnapshot,
   packPointsUpdate,
+  parsePokemonZone,
   pokemonZoneLuck,
   pokemonZonePack,
   pokemonZonePayloadSchema,
@@ -35,7 +36,8 @@ interface Fixture {
   v: unknown
   mine: {
     player: { accountHash?: unknown; lastUpdatedAt?: unknown; level?: unknown }
-    resourceData: { packCeilPoints?: Item[]; packPowerChargers: Item[] }
+    resourceData: { packCeilPoints?: Item[]; packPowerChargers: Item[]; tickets?: Item[]; tradePowerChargers?: Item[] }
+    config?: unknown
     [key: string]: unknown
   }
   stats: {
@@ -161,6 +163,41 @@ describe('pokemon-zone: the payload', () => {
     ).toBe(true)
     // …but either one is enough.
     expect(fails((p) => (p.stats.syncedAt = null))).toBe(false)
+    // Dates are ISO 8601 with their offset, not anything Date.parse takes.
+    expect(fails((p) => (p.stats.syncedAt = '2026'))).toBe(true)
+    expect(fails((p) => (p.stats.syncedAt = 'Mon, 02 Nov 2026 02:43:29 GMT'))).toBe(true)
+    expect(fails((p) => (p.stats.syncedAt = '2026-11-02T02:43:29'))).toBe(true)
+    // Review of pz/import: ids that become keys of an object never name one of Object.prototype.
+    expect(fails((p) => (first(p.mine.resourceData.packCeilPoints).key = 'constructor'))).toBe(true)
+    expect(fails((p) => (first(p.mine.resourceData.packCeilPoints).key = '__proto__'))).toBe(true)
+    expect(fails((p) => (first(p.stats.cardsByRarity).rarity = 'toString'))).toBe(true)
+    // More tickets than the snapshot keeps coupons, or a big `config`: refused, so what is saved reads back.
+    expect(
+      fails((p) => {
+        p.mine.resourceData.tickets = Array.from({ length: 101 }, (_, i) => ({
+          key: `T${i}`,
+          value: 1,
+          name: 'Promo Card Exchange Ticket (X)',
+        }))
+      }),
+    ).toBe(true)
+    expect(
+      fails((p) => (p.mine.config = Object.fromEntries(Array.from({ length: 31 }, (_, i) => [`k${i}`, true])))),
+    ).toBe(true)
+    expect(fails((p) => (p.mine.config = { isPublic: { nested: true } }))).toBe(true)
+  })
+
+  it('what is saved always reads back with the stored form (parsePokemonZone)', () => {
+    const payload = raw()
+    payload.mine.resourceData.tradePowerChargers = Array.from({ length: 100 }, (_, i) => ({
+      key: `T${i}`,
+      value: 1_000_000_000,
+    }))
+    const data = parsePokemonZone(pokemonZonePayloadSchema.parse(payload))
+    expect(data.hourglasses.trade).toBe(1_000_000_000)
+    expect(pokemonZoneSnapshotSchema.safeParse(data).success).toBe(true)
+    expect(pokemonZoneRarity('toString')).toBeNull()
+    expect(pokemonZoneRarity('constructor')).toBeNull()
   })
 
   it('a counter with more wins than battles is left out', () => {
@@ -330,7 +367,8 @@ describe('pokemon-zone: battles', () => {
     expect(battlesBetween(other, after)).toBeNull()
     const points = structuredClone(after)
     points.battles.rankedPoints = 500
-    expect(battlesBetween(points, after)).toBeNull()
+    // Ranked points can go down (losses at the top ranks, a new season): a signed difference, the window stays.
+    expect(battlesBetween(points, after)).toMatchObject({ rankedPoints: -70, versus: { battles: 0, wins: 0 } })
   })
 
   it('the game against the matches logged: ranked with competitive, versus with every match', () => {
