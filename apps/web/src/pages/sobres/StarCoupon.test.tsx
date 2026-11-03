@@ -185,13 +185,16 @@ describe('Sobres → Cupón ★★ (3/11/2026)', () => {
     const first = within(rows[0] as HTMLElement)
     expect(first.getByText('Conviene')).toBeInTheDocument()
     expect(first.getByText('26,7 %')).toBeInTheDocument()
-    expect(first.getByTestId('star-coupon-line')).toHaveTextContent('15 ★★ · 4 para mazos · 11 nuevas (73,3 %)')
+    expect(first.getByText('para mazos')).toBeInTheDocument()
+    expect(first.getByTestId('star-coupon-line')).toHaveTextContent(
+      '15 ★★ · 4 para mazos (26,7 %) · 11 nuevas (73,3 %)',
+    )
     expect(first.getByText('C1-158')).toBeInTheDocument()
     expect(first.getAllByText(/falta en 3 Mew ex, 8 Giratina/)).toHaveLength(2)
     const second = within(rows[1] as HTMLElement)
     expect(second.getByText('Suicune · A4a')).toBeInTheDocument()
     expect(second.getByText('25 %')).toBeInTheDocument()
-    expect(second.getByTestId('star-coupon-line')).toHaveTextContent('12 ★★ · 3 para mazos · 12 nuevas (100 %)')
+    expect(second.getByTestId('star-coupon-line')).toHaveTextContent('12 ★★ · 3 para mazos (25 %) · 12 nuevas (100 %)')
     expect(second.queryByText('Conviene')).toBeNull()
     // The fourth pack after «Ver todos».
     expect(screen.queryByText('Sobre Hoopa · B4')).toBeNull()
@@ -219,6 +222,9 @@ describe('Sobres → Cupón ★★ (3/11/2026)', () => {
     expect(screen.getByText('Empata con Pikachu · A1.')).toBeInTheDocument()
     const rows = screen.getAllByTestId('star-coupon-pack')
     expect(within(rows[1] as HTMLElement).getByText('Empata')).toBeInTheDocument()
+    // Without a card for the decks, the headline is the share that decides: new editions.
+    expect(within(rows[0] as HTMLElement).getByText('nuevas')).toBeInTheDocument()
+    expect(within(rows[0] as HTMLElement).queryByText('para mazos')).toBeNull()
     expect(screen.getByText(/Ningún mazo tiene prioridad de sobres/)).toBeInTheDocument()
   })
 

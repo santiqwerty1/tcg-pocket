@@ -506,7 +506,8 @@ describe('pokemon-zone: ★★ coupons (3/11/2026)', () => {
       },
     ])
     // 03:59 in Buenos Aires is still on; 04:00 is not.
-    const anniversary = (now: Date) => starCoupons(tickets, now)?.find((coupon) => coupon.key === 'TICKET_2610000_EV_02')
+    const anniversary = (now: Date) =>
+      starCoupons(tickets, now)?.find((coupon) => coupon.key === 'TICKET_2610000_EV_02')
     expect(anniversary(new Date('2026-12-15T06:59:00Z'))?.expired).toBe(false)
     expect(anniversary(new Date('2026-12-15T06:59:59Z'))?.expired).toBe(false)
     expect(anniversary(new Date('2026-12-15T07:00:00Z'))?.expired).toBe(true)

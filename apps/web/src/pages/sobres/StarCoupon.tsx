@@ -18,6 +18,20 @@ import { formatChance, formatDeadline, limitedLabel } from '@/lib/packs'
 /** Packs shown before «Ver todos». */
 const TOP = 3
 
+/**
+ * A row's headline is the share that decides its place, as in Sobres de promoción: for the decks when it has some,
+ * else new editions, else below the goal (both shares are always in the line under it).
+ */
+const HEADLINES = [
+  { count: (p: StarCouponPack) => p.forDecks, chance: (p: StarCouponPack) => p.chanceDecks, label: () => 'para mazos' },
+  { count: (p: StarCouponPack) => p.newEditions, chance: (p: StarCouponPack) => p.chanceNew, label: () => 'nuevas' },
+  {
+    count: (p: StarCouponPack) => p.belowGoal,
+    chance: (p: StarCouponPack) => p.chanceBelowGoal,
+    label: (goal: number) => `con menos de ${goal}`,
+  },
+] as const
+
 const packLabel = (pack: { nameEs: string; expansionId: string }) => `${pack.nameEs} · ${pack.expansionId}`
 
 /** «Mega Mewtwo X · C1», «… y Suicune · A4a», «…, y 3 más». */
@@ -117,6 +131,7 @@ function PackItem({
   today: string
 }) {
   const forDecks = pack.cards.filter((card) => card.decks.length > 0)
+  const headline = HEADLINES.find((item) => item.count(pack) > 0) ?? HEADLINES[0]
   return (
     <li className="flex flex-col gap-1 px-3 py-2" data-testid="star-coupon-pack">
       <div className="flex flex-wrap items-baseline gap-x-2">
@@ -124,13 +139,15 @@ function PackItem({
         {mark === 'pick' ? <Badge>Conviene</Badge> : null}
         {mark === 'tie' ? <Badge variant="outline">Empata</Badge> : null}
         <span className="ml-auto text-sm whitespace-nowrap">
-          <span className="font-semibold tabular">{formatChance(pack.chanceDecks)}</span>
-          <span className="text-xs text-muted-foreground"> para mazos</span>
+          <span className="font-semibold tabular">{formatChance(headline.chance(pack))}</span>
+          <span className="text-xs text-muted-foreground"> {headline.label(goal)}</span>
         </span>
       </div>
       <p className="text-xs text-muted-foreground tabular" data-testid="star-coupon-line">
         <span className="whitespace-nowrap">{plural(pack.size, '★★', '★★')} ·</span>{' '}
-        <span className="whitespace-nowrap">{pack.forDecks} para mazos ·</span>{' '}
+        <span className="whitespace-nowrap">
+          {pack.forDecks} para mazos ({formatChance(pack.chanceDecks)}) ·
+        </span>{' '}
         <span className="whitespace-nowrap">
           {pack.newEditions === 1 ? '1 nueva' : `${pack.newEditions} nuevas`} ({formatChance(pack.chanceNew)})
         </span>
