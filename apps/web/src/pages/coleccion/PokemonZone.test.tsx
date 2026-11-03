@@ -180,6 +180,10 @@ describe('pokemon-zone: the page', () => {
     expect(screen.getByTestId('javascript-warning')).toHaveTextContent(
       'Chrome borra el «javascript:» al pegar: escribilo a mano al principio del campo URL',
     )
+    // Review of #172: when to import.
+    expect(screen.getByTestId('import-regularly')).toHaveTextContent(
+      'Importá todos los días a la misma hora, después del Sync automático de pokemon-zone',
+    )
     expect(await screen.findByText(/18 \(1 sobre\)/)).toBeInTheDocument()
     expect(screen.getByText('3.000')).toBeInTheDocument()
     expect(screen.getByText(/2 importaciones guardadas/)).toBeInTheDocument()

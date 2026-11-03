@@ -7,24 +7,25 @@
  * What stays estimated: the cards those packs gave (packs × cards per pack, without the rare 6-card packs) and the
  * share of each rarity expected among them, from the published rates of each expansion's packs weighted by the packs
  * really opened. The game's rarity counts include every source, so the check counts over the cards whose odds are
- * known — the packs', and the Wonder Picks' (pz/luck) — and is made at both ends of what the cards of unknown origin
- * could hold (`GameLuckTier`): a verdict only when both ends agree (review of pz/import).
+ * known and is made at both ends of what the cards of unknown origin could hold (`GameLuckTier`): a verdict only when
+ * both ends agree (review of pz/import).
  *
  * pz/luck (3/11/2026):
- * - A Wonder Pick is one of the five cards of a pack another player opened, face down and shuffled (the official
- *   guide): a random card of a pack. It counts with the mix of the packs opened in the same span — except inside an
- *   event that changes Wonder Pick (`SPECIAL_PICK_WINDOWS`: promos and more Chansey picks, which offer only rare
- *   cards), and up to `SPECIAL_PICK_SHARE` of the rest, which may be special picks: those are of unknown origin.
+ * - Wonder Pick: the player sees the five cards of each offer and chooses one, and only then they are turned and
+ *   shuffled (review of #172), so a Wonder Pick leans rare. It is never worse than a card of a pack, so for «peor de
+ *   lo normal» (the low end of the luck) it counts at the packs' odds, which can only make that verdict harder; for
+ *   «mejor de lo normal» it is of unknown origin. Inside an event that changes Wonder Pick (`SPECIAL_PICK_WINDOWS`:
+ *   promos, which are no hit, and more Chansey picks) it is of unknown origin for both.
  * - A pack opened with a ticket for a guaranteed ★★ card (`GUARANTEED_PACK_WINDOWS`) has one card that is not luck.
  * - Every import is kept, so the luck is also the sum of the spans between consecutive imports where the cards of
- *   unknown origin are few (`pokemonZoneLuckSinceFirst`): a day of packs only gives a sharp verdict, and they add up.
+ *   unknown origin are few (`pokemonZoneLuckSinceFirst`): a day of packs only counts whole.
  */
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
 import type { Rarity } from '../catalog/types.js'
 import { RARE_TIER, rarityShareOfPack } from '../packs/luck.js'
 import { type LuckCheck, type LuckVerdict, luckCheck } from '../stats/luck.js'
 import { pokemonZonePack, pokemonZoneRarity } from './catalog.js'
-import type { PokemonZoneSnapshot } from './payload.js'
+import { type PokemonZoneSnapshot, starStarTickets } from './payload.js'
 
 /** A verdict of «Según el juego»: «unknown» when the cards of unknown origin could change it. */
 export type GameLuckVerdict = LuckVerdict | 'unknown'
@@ -37,9 +38,9 @@ export interface LuckWindow {
 }
 
 /**
- * Wonder Pick is not a random card of a pack inside these windows: its Wonder Picks are of unknown origin. «Evento bis
- * PROMO 2026» (pokemon.com/es, 28/10/2026): the B series promos come back to Wonder Pick and Chansey picks (rare cards
- * only) show up more often.
+ * Wonder Pick is not even a card of a pack inside these windows: its Wonder Picks are of unknown origin for both ends.
+ * «Evento bis PROMO 2026» (pokemon.com/es, 28/10/2026): the B series promos come back to Wonder Pick and Chansey picks
+ * (rare cards only) show up more often.
  */
 export const SPECIAL_PICK_WINDOWS: readonly LuckWindow[] = [
   {
@@ -50,14 +51,8 @@ export const SPECIAL_PICK_WINDOWS: readonly LuckWindow[] = [
 ]
 
 /**
- * Outside those windows, Chansey and bonus picks still happen and pokemon-zone does not tell them apart: up to this
- * share of the Wonder Picks (rounded up over the whole span) counts as unknown origin. An assumption (pz/luck).
- */
-export const SPECIAL_PICK_SHARE = 0.1
-
-/**
- * Campaigns with a ticket for a pack with a guaranteed ★★ card (`guaranteedPackTickets`): the anniversary campaign
- * until 15/12/2026 06:59 UTC (its start is taken early, at the news of 28/10).
+ * Campaigns with a ticket for a pack with a guaranteed ★★ card (`starStarTickets`): the anniversary campaign until
+ * 15/12/2026 06:59 UTC (its start is taken early, at the news of 28/10).
  */
 export const GUARANTEED_PACK_WINDOWS: readonly LuckWindow[] = [
   {
@@ -81,23 +76,29 @@ export const INCLUSION_SD = 0.5
 
 /**
  * A tier (☆ or more, ◊◊◊◊) of the game's luck. The game counts the cards of every source together, so the check is
- * made over the cards whose odds are known (packs and Wonder Picks) at both ends of what the cards of unknown origin
- * could hold of the tier — none, or as many as they could — and gives a verdict only when both ends agree.
+ * made over the cards whose odds are known at both ends of what the cards of unknown origin could hold of the tier,
+ * and gives a verdict only when both ends agree. The low end («mejor de lo normal» has to hold there) counts the packs
+ * only, with every other card of unknown origin; the high end («peor de lo normal» has to hold there) adds the Wonder
+ * Picks at the packs' odds (review of #172: a Wonder Pick leans rare, never worse).
  */
 export interface GameLuckTier {
   /** Real: cards of the tier obtained, from every source. */
   observed: number
   /** Estimated: share of the tier among the cards with known odds (0–100). */
   expectedShare: number
-  /** The n of the check: cards with known odds (estimated packs' cards, plus the Wonder Picks counted as such). */
+  /** The n of the high end: the packs' cards and the Wonder Picks at the packs' odds. */
   games: number
   /** Estimated: cards of the tier expected among them. */
   expected: number
-  /** Cards of unknown origin the bounds allow for (trades, special Wonder Picks, gifts, rewards…). */
+  /** The n of the low end: the packs' cards only. */
+  packGames: number
+  /** Estimated: cards of the tier expected among the packs' cards. */
+  packExpected: number
+  /** Cards of unknown origin at the low end (Wonder Picks, trades, gifts, rewards…). */
   unknown: number
-  /** Cards of the tier among the ones with known odds: at least `min`, at most `max`. */
+  /** Cards of the tier the packs gave at least (`min`), and the packs and Wonder Picks at most (`max`). */
   fromPacks: { min: number; max: number }
-  /** The check with `fromPacks.min` and with `fromPacks.max`. */
+  /** The check of the low end (packs only, `fromPacks.min`) and of the high end (with Wonder Pick, `max`). */
   low: LuckCheck
   high: LuckCheck
   /** Both ends' verdict when they agree; «unknown» otherwise. */
@@ -105,8 +106,8 @@ export interface GameLuckTier {
   /** For «lucky» or «unlucky», the less extreme end's tail (how often it happens, at most); otherwise null. */
   tail: number | null
   /**
-   * How many of the cards of unknown origin would have to be of the tier for the verdict to be «normal» (fewer:
-   * luckier; more: unluckier); null when none in the range gives «normal», or there are too few cards.
+   * How many of the cards of unknown origin (`unknown`, Wonder Picks included) would have to be of the tier for the
+   * packs alone to be «normal» (fewer: luckier; more: unluckier); null when none gives it, or there are too few cards.
    */
   normalIf: { min: number; max: number } | null
 }
@@ -139,17 +140,17 @@ export interface PokemonZonePackLuck {
 export interface PokemonZoneSources {
   /** Real: Wonder Picks of the span; null when the game did not give them. */
   wonderPicks: number | null
-  /** Wonder Picks counted as a random card of a pack (estimated odds). */
+  /** Wonder Picks counted at the packs' odds for «peor de lo normal» (of unknown origin for «mejor»). */
   pickCards: number
-  /** Wonder Picks of unknown origin: inside a window that changes Wonder Pick, plus the share of special picks. */
+  /** Wonder Picks of unknown origin for both: inside a window that changes Wonder Pick. */
   unknownPicks: number
   /** The windows that made Wonder Picks unknown in this span. */
   pickWindows: LuckWindow[]
   /** Real: trades; null when the game did not give them. */
   trades: number | null
   /**
-   * Packs opened with a ticket for a guaranteed card (their guaranteed card is of unknown origin); when `guaranteedSeen`
-   * is false the count was not seen and this is a bound (a campaign was on).
+   * Packs opened with a ticket for a guaranteed ★★ card (their guaranteed card is of unknown origin); when
+   * `guaranteedSeen` is false the count was not seen and this is a bound (a campaign was on).
    */
   guaranteedPacks: number
   guaranteedSeen: boolean
@@ -164,7 +165,7 @@ export interface PokemonZoneLuck {
   cards: number
   /** Estimated: the cards the packs of the expansions the app knows gave (packs × cards per pack). */
   packCards: number
-  /** Estimated: cards of unknown origin (the rest of `cards` once the packs' and the counted Wonder Picks' are out). */
+  /** Estimated: cards of unknown origin for «peor de lo normal» (the rest once the packs' and Wonder Picks' are out). */
   otherCards: number
   /** Real: Wonder Picks and trades; null when the game did not give them. */
   wonderPicks: number | null
@@ -192,17 +193,17 @@ export type LuckSnapshot = Pick<PokemonZoneSnapshot, 'expansions' | 'packs' | 'r
 export interface LuckChainPoint {
   syncedAt: string
   totals: Pick<PokemonZoneSnapshot['totals'], 'wonderPicks' | 'packsOpened'>
-  /** Absent or null: not seen. */
-  guaranteedPackTickets?: number | null
+  /** The tickets for a pack with a guaranteed card; absent or null: not seen. */
+  guaranteedTickets?: PokemonZoneSnapshot['guaranteedTickets'] | null
 }
 
 /** How a span splits its Wonder Picks and how many guaranteed packs it had (`spanSources`). */
 export interface SpanSources {
-  /** Wonder Picks outside the special windows (pack-like, but for `SPECIAL_PICK_SHARE` of them). */
+  /** Wonder Picks outside the special windows: at the packs' odds for «peor de lo normal». */
   regularPicks: number
   /** The windows that overlap the span. */
   pickWindows: LuckWindow[]
-  /** Packs opened with a guaranteed-card ticket, seen: the drop of the tickets in stock. */
+  /** Packs opened with a guaranteed ★★ ticket, seen: the drop of those tickets in stock. */
   guaranteedPacks: number
   /**
    * When a count was not seen, at most this many more. A bound: spans summed together share the campaign's tickets
@@ -214,12 +215,16 @@ export interface SpanSources {
 const overlaps = (window: LuckWindow, start: string | null, end: string): boolean =>
   Date.parse(window.from) < Date.parse(end) && (start === null || Date.parse(start) < Date.parse(window.until))
 
+/** The ★★ tickets a read says it holds; null when it did not say (version 1, or an import saved before pz/luck). */
+const ticketsOf = (point: LuckChainPoint | null): number | null =>
+  point ? starStarTickets(point.guaranteedTickets ?? null) : null
+
 /**
  * The sources of the span from `start` (null: since the account began) to `end`, two imports of the same account. Its
  * Wonder Picks are regular unless the span overlaps a special window (then all are unknown: nothing says when each was
- * made); its guaranteed packs are the drop of the tickets in stock when a campaign overlaps it — or, when a count was
- * not seen, at most the tickets it started with (unseen: `GUARANTEED_TICKETS_PER_CAMPAIGN`), less the ones still held
- * at its end, and never more than the packs it opened.
+ * made); its guaranteed packs are the drop of the ★★ tickets in stock when a campaign overlaps it — or, when a count
+ * was not seen, at most the tickets it started with (unseen: `GUARANTEED_TICKETS_PER_CAMPAIGN`), less the ones still
+ * held at its end, and never more than the packs it opened.
  */
 export function spanSources(
   start: LuckChainPoint | null,
@@ -232,8 +237,8 @@ export function spanSources(
   const picks = before === null || after === null ? 0 : Math.max(0, after - before)
   const windows = pickWindows.filter((window) => overlaps(window, start?.syncedAt ?? null, end.syncedAt))
   const campaign = guaranteedWindows.some((window) => overlaps(window, start?.syncedAt ?? null, end.syncedAt))
-  const ticketsBefore = start ? (start.guaranteedPackTickets ?? null) : null
-  const ticketsAfter = end.guaranteedPackTickets ?? null
+  const ticketsBefore = ticketsOf(start)
+  const ticketsAfter = ticketsOf(end)
   let guaranteedPacks = 0
   let unseenGuaranteed = 0
   if (campaign) {
@@ -290,17 +295,19 @@ export function lifetimeSources(
 export interface TierParts {
   /** Real: cards of the tier obtained in the span. */
   observed: number
-  /** Cards with known odds, counting every regular Wonder Pick (the special share comes off when spans are summed). */
+  /** Cards with known odds for the high end: the packs' and the regular Wonder Picks' at the packs' odds. */
   capacity: number
   /** Estimated: hits expected among `capacity`. */
   expected: number
-  /** Cards of unknown origin, besides the special share of the regular Wonder Picks and the unseen guaranteed packs. */
+  /** Cards with known odds for the low end: the packs' only. */
+  packCapacity: number
+  /** Estimated: hits expected among `packCapacity`. */
+  packExpected: number
+  /** Cards of unknown origin besides the regular Wonder Picks and the unseen guaranteed packs. */
   unknown: number
-  /** Regular Wonder Picks (the special share is taken over their sum). */
-  regularPicks: number
   /**
-   * Packs that may have been opened with a guaranteed-card ticket, unseen (in `capacity` until the spans are summed:
-   * then the campaign's tickets cap them, Codex on #172).
+   * Packs that may have been opened with a guaranteed-card ticket, unseen (in the capacities until the spans are
+   * summed: then the campaign's tickets cap them, Codex on #172).
    */
   unseenGuaranteed: number
 }
@@ -326,14 +333,16 @@ function packMix(rows: readonly { expansionId: string; packs: number }[], index:
   return mix
 }
 
+type LuckRead = LuckSnapshot & Partial<Pick<LuckChainPoint, 'syncedAt' | 'guaranteedTickets'>>
+
 /**
  * Luck over a span: since the previous import (`previous`) or lifetime (`previous` null), with its `sources` (by
  * default `spanSources`, as if `previous` and `current` were consecutive imports). Null when a count went down between
  * the two (another account, or pokemon-zone started over): the difference means nothing.
  */
 export function pokemonZoneLuck(
-  current: LuckSnapshot & Partial<Pick<LuckChainPoint, 'syncedAt' | 'guaranteedPackTickets'>>,
-  previous: (LuckSnapshot & Partial<Pick<LuckChainPoint, 'syncedAt' | 'guaranteedPackTickets'>>) | null,
+  current: LuckRead,
+  previous: LuckRead | null,
   index: CatalogIndex,
   sources?: SpanSources,
 ): PokemonZoneLuck | null {
@@ -347,8 +356,8 @@ type SpanLuck = Omit<PokemonZoneLuck, 'rare' | 'ex'>
 
 /** A span's numbers and its two tiers' parts (null parts when nothing has known odds). */
 function spanParts(
-  current: LuckSnapshot & Partial<Pick<LuckChainPoint, 'syncedAt' | 'guaranteedPackTickets'>>,
-  previous: (LuckSnapshot & Partial<Pick<LuckChainPoint, 'syncedAt' | 'guaranteedPackTickets'>>) | null,
+  current: LuckRead,
+  previous: LuckRead | null,
   index: CatalogIndex,
   given?: SpanSources,
 ): { luck: SpanLuck; rare: TierParts | null; ex: TierParts | null } | null {
@@ -424,13 +433,14 @@ function spanParts(
   if (broken) return null
   const packs = expansions.reduce((sum, row) => sum + row.packs, 0)
 
-  const point = (snapshot: typeof current): LuckChainPoint => ({
+  const point = (snapshot: LuckRead): LuckChainPoint => ({
     syncedAt: snapshot.syncedAt ?? new Date(0).toISOString(),
     totals: snapshot.totals,
-    guaranteedPackTickets: snapshot.guaranteedPackTickets ?? null,
+    guaranteedTickets: snapshot.guaranteedTickets ?? null,
   })
   const sources = given ?? spanSources(previous ? point(previous) : null, point(current))
-  // A Wonder Pick is a card of the packs being opened: the span's mix, or the account's whole mix when it opened none.
+  // A Wonder Pick is at least a card of the packs being opened: the span's mix, or the account's whole mix when it
+  // opened none.
   const pickMix =
     mix.packCards > 0
       ? mix
@@ -439,13 +449,14 @@ function spanParts(
           index,
         )
   const regularPicks = pickMix.packCards > 0 ? Math.min(sources.regularPicks, wonderPicks ?? 0) : 0
-  const specialPicks = Math.ceil(SPECIAL_PICK_SHARE * regularPicks)
   const guaranteedPacks = Math.min(sources.guaranteedPacks, packs)
   const unseenGuaranteed = Math.min(sources.unseenGuaranteed, packs - guaranteedPacks)
-  // Cards with known odds, with every regular Wonder Pick and the unseen guaranteed packs (both come off in
-  // `checkTier`); never more than the game counts.
-  const known = Math.max(0, mix.packCards - guaranteedPacks + regularPicks)
+  // Cards with known odds: the packs' (low end) and the packs' with the regular Wonder Picks' (high end); the unseen
+  // guaranteed packs come off in `checkTier`; never more than the game counts.
+  const packKnown = Math.max(0, mix.packCards - guaranteedPacks)
+  const known = packKnown + regularPicks
   const capacity = Math.min(known, cards)
+  const packCapacity = Math.min(packKnown, cards)
   const unknown = cards - capacity
   const windowPicks = Math.max(0, (wonderPicks ?? 0) - regularPicks)
   const restCards = Math.max(0, unknown - windowPicks - (trades ?? 0) - guaranteedPacks)
@@ -453,13 +464,13 @@ function spanParts(
     packs,
     cards,
     packCards: mix.packCards,
-    otherCards: unknown + specialPicks + unseenGuaranteed,
+    otherCards: unknown + unseenGuaranteed,
     wonderPicks,
     trades,
     sources: {
       wonderPicks,
-      pickCards: regularPicks - specialPicks,
-      unknownPicks: windowPicks + specialPicks,
+      pickCards: regularPicks,
+      unknownPicks: windowPicks,
       pickWindows: sources.pickWindows,
       trades,
       guaranteedPacks: guaranteedPacks + unseenGuaranteed,
@@ -473,12 +484,21 @@ function spanParts(
     unknownPacks,
   }
   if (capacity === 0) return { luck, rare: null, ex: null }
-  // Expected hits: the packs' (without the guaranteed slots) and the regular Wonder Picks', each with its mix.
+  // Expected hits: the packs' (without the guaranteed slots) and the regular Wonder Picks' at their mix's odds.
   const packShare = (hits: number) => (mix.packCards > 0 ? hits / mix.packCards : 0)
   const pickShare = (hits: number) => hits / pickMix.packCards
   const parts = (observed: number, packHits: number, pickHits: number): TierParts => {
-    const hits = (mix.packCards - guaranteedPacks) * packShare(packHits) + regularPicks * pickShare(pickHits)
-    return { observed, capacity, expected: (hits / known) * capacity, unknown, regularPicks, unseenGuaranteed }
+    const fromPacks = packKnown * packShare(packHits)
+    const hits = fromPacks + regularPicks * pickShare(pickHits)
+    return {
+      observed,
+      capacity,
+      expected: (hits / known) * capacity,
+      packCapacity,
+      packExpected: packKnown > 0 ? (fromPacks / packKnown) * packCapacity : 0,
+      unknown,
+      unseenGuaranteed,
+    }
   }
   const rareObserved = [...RARE_TIER].reduce((sum, rarity) => sum + (byRarity[rarity] ?? 0), 0)
   return {
@@ -489,61 +509,66 @@ function spanParts(
 }
 
 /**
- * What comes off the cards with known odds of some spans summed, as whole cards: the special share of their regular
- * Wonder Picks (rounded up over their sum) and their unseen guaranteed packs, capped by the campaign's tickets.
- */
-function summedOff(spans: readonly TierParts[], guaranteedAllowance: number): number {
-  const special = Math.ceil(SPECIAL_PICK_SHARE * spans.reduce((sum, span) => sum + span.regularPicks, 0))
-  const guaranteed = Math.min(
-    spans.reduce((sum, span) => sum + span.unseenGuaranteed, 0),
-    guaranteedAllowance,
-  )
-  return special + guaranteed
-}
-
-/**
- * The check of a tier over some spans: the special share of their regular Wonder Picks and their unseen guaranteed
- * packs (`summedOff`) come off the cards with known odds and go to the unknown ones; the hits among the known ones are
- * at least what each span's unknown cards could not hold, and at most what each span saw (or its known cards); a
- * verdict when both ends agree.
+ * The check of a tier over some spans. The unseen guaranteed packs, capped by the campaign's tickets, come off the
+ * cards with known odds and go to the unknown ones. Low end (for «mejor de lo normal»): the packs only, with the hits
+ * at least what each span's other cards — its Wonder Picks included — could not hold. High end (for «peor de lo
+ * normal»): the packs and the regular Wonder Picks at the packs' odds, with the hits at most what each span saw (or
+ * its cards with known odds). A verdict when both ends agree.
  */
 export function checkTier(
   spans: readonly TierParts[],
   guaranteedAllowance: number = Number.POSITIVE_INFINITY,
 ): GameLuckTier {
-  const off = summedOff(spans, guaranteedAllowance)
-  const capacity = spans.reduce((sum, span) => sum + span.capacity, 0)
-  const games = Math.max(0, capacity - off)
-  const expectedAll = spans.reduce((sum, span) => sum + span.expected, 0)
-  const expectedShare = capacity > 0 ? (expectedAll / capacity) * 100 : 0
-  const observed = spans.reduce((sum, span) => sum + span.observed, 0)
-  const unknown = spans.reduce((sum, span) => sum + span.unknown, 0) + off
-  const leastKnown = spans.reduce((sum, span) => sum + Math.max(0, span.observed - span.unknown), 0)
-  const mostKnown = spans.reduce((sum, span) => sum + Math.min(span.observed, span.capacity), 0)
-  const fromPacks = { min: Math.min(games, Math.max(0, leastKnown - off)), max: Math.min(mostKnown, games) }
-  const check = (hits: number) => luckCheck({ wins: hits, losses: games - hits, ties: 0 }, expectedShare)
-  const low = check(fromPacks.min)
-  const high = check(fromPacks.max)
+  const sum = (value: (span: TierParts) => number) => spans.reduce((total, span) => total + value(span), 0)
+  const guaranteed = Math.min(
+    sum((span) => span.unseenGuaranteed),
+    guaranteedAllowance,
+  )
+  const observed = sum((span) => span.observed)
+  // Low end: the packs alone.
+  const packCapacity = sum((span) => span.packCapacity)
+  const packGames = Math.max(0, packCapacity - guaranteed)
+  const packShare = packCapacity > 0 ? (sum((span) => span.packExpected) / packCapacity) * 100 : 0
+  const otherOf = (span: TierParts) => span.unknown + span.capacity - span.packCapacity
+  const leastPacks = sum((span) => Math.max(0, span.observed - otherOf(span)))
+  const mostPacks = Math.min(
+    sum((span) => Math.min(span.observed, span.packCapacity)),
+    packGames,
+  )
+  const min = Math.min(packGames, Math.max(0, leastPacks - guaranteed))
+  // High end: with the Wonder Picks at the packs' odds.
+  const capacity = sum((span) => span.capacity)
+  const games = Math.max(0, capacity - guaranteed)
+  const expectedShare = capacity > 0 ? (sum((span) => span.expected) / capacity) * 100 : 0
+  const max = Math.min(
+    sum((span) => Math.min(span.observed, span.capacity)),
+    games,
+  )
+  const lowCheck = (hits: number) => luckCheck({ wins: hits, losses: packGames - hits, ties: 0 }, packShare)
+  const low = lowCheck(min)
+  const high = luckCheck({ wins: max, losses: games - max, ties: 0 }, expectedShare)
   const verdict: GameLuckVerdict = low.verdict === high.verdict ? low.verdict : 'unknown'
   return {
     observed,
     expectedShare,
     games,
     expected: (games * expectedShare) / 100,
-    unknown,
-    fromPacks,
+    packGames,
+    packExpected: (packGames * packShare) / 100,
+    unknown: sum(otherOf) + guaranteed,
+    fromPacks: { min, max },
     low,
     high,
     verdict,
-    // Lucky with the fewest from the known cards is the least lucky end; unlucky with the most, the least unlucky.
+    // Lucky at the least lucky end; unlucky at the least unlucky one.
     tail: verdict === 'lucky' ? low.upperTail : verdict === 'unlucky' ? high.lowerTail : null,
-    normalIf: normalRange(fromPacks, observed, check),
+    normalIf: normalRange({ min, max: mostPacks }, observed, lowCheck),
   }
 }
 
 /**
- * The cards of unknown origin of the tier (`observed` − hits among the known ones) for which the check says «normal»:
- * more hits from the known cards is luckier, so «normal» is one run between the «unlucky» and the «lucky» ones.
+ * The cards of unknown origin of the tier (`observed` − hits among the packs) for which the packs alone say «normal»:
+ * more hits from the packs is luckier, so «normal» is one run between the «unlucky» and the «lucky» ones.
  */
 function normalRange(
   fromPacks: { min: number; max: number },
@@ -551,7 +576,7 @@ function normalRange(
   check: (hits: number) => LuckCheck,
 ): { min: number; max: number } | null {
   const verdictAt = (hits: number) => check(hits).verdict
-  if (verdictAt(fromPacks.min) === 'too_few') return null
+  if (fromPacks.max < fromPacks.min || verdictAt(fromPacks.min) === 'too_few') return null
   // The first hit count that is not «unlucky», and the last that is not «lucky».
   let lo = fromPacks.min
   let hi = fromPacks.max + 1
@@ -589,30 +614,37 @@ export interface GameLuckIntervals extends GameLuckTier {
   counted: number
 }
 
+/** The unknown cards of some spans summed as `checkTier` counts them at the high end: the guaranteed packs capped. */
+function summedUnknown(spans: readonly TierParts[], guaranteedAllowance: number): number {
+  const unknown = spans.reduce((sum, span) => sum + span.unknown, 0)
+  const guaranteed = spans.reduce((sum, span) => sum + span.unseenGuaranteed, 0)
+  return unknown + Math.min(guaranteed, guaranteedAllowance)
+}
+
 /**
- * The spans of a tier that count: in order of unknown cards per expected hit (fewest first, with a tenth of their
- * Wonder Picks and their unseen guaranteed packs), each one while the unknown cards of all the counted ones — as
- * `checkTier` counts them: whole cards, the special share rounded up over their sum and the guaranteed packs capped by
- * `guaranteedAllowance` (Codex on #172) — stay within `INCLUSION_SD` standard deviations of their expected hits. What
- * decides is the spans' unknown cards and expected hits, never what they got, so the sum is a fair check.
+ * The spans of a tier that count: in order of unknown cards per expected hit (fewest first; a tie, the newest first,
+ * so the verdict never freezes on the oldest days: review of #172), each one while the unknown cards of all the
+ * counted ones — whole cards, the guaranteed packs capped by `guaranteedAllowance` (Codex on #172), the Wonder Picks
+ * not (they count at the packs' odds for «peor de lo normal») — stay within `INCLUSION_SD` standard deviations of their
+ * expected hits. What decides is the spans' unknown cards and expected hits, never what they got, so the sum is a fair
+ * check.
  */
 export function countedSpans(
   spans: readonly TierParts[],
   sd: number = INCLUSION_SD,
   guaranteedAllowance: number = Number.POSITIVE_INFINITY,
 ): TierParts[] {
-  const load = (span: TierParts) => span.unknown + SPECIAL_PICK_SHARE * span.regularPicks + span.unseenGuaranteed
+  const load = (span: TierParts) => span.unknown + span.unseenGuaranteed
   const candidates = spans
     .map((span, at) => ({ span, at }))
     .filter(({ span }) => span.capacity > 0 && span.expected > 0)
-    .sort((a, b) => load(a.span) / a.span.expected - load(b.span) / b.span.expected || a.at - b.at)
+    .sort((a, b) => load(a.span) / a.span.expected - load(b.span) / b.span.expected || b.at - a.at)
   let expected = 0
   const counted: { span: TierParts; at: number }[] = []
   for (const candidate of candidates) {
     const next = [...counted.map((item) => item.span), candidate.span]
-    const nextUnknown = next.reduce((sum, span) => sum + span.unknown, 0) + summedOff(next, guaranteedAllowance)
     const nextExpected = expected + candidate.span.expected
-    if (nextUnknown > sd * Math.sqrt(nextExpected)) continue
+    if (summedUnknown(next, guaranteedAllowance) > sd * Math.sqrt(nextExpected)) continue
     counted.push(candidate)
     expected = nextExpected
   }

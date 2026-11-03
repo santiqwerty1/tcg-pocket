@@ -13,7 +13,6 @@ import {
   INCLUSION_SD,
   type PokemonZoneLuck,
   type PokemonZoneLuckSinceFirst,
-  SPECIAL_PICK_SHARE,
 } from '@tcg/domain'
 import { OWNER_TIME_ZONE } from '../config/time-zone.js'
 import type { PokemonZoneSummary } from '../pokemon-zone/pokemon-zone.service.js'
@@ -66,16 +65,25 @@ function tier(value: GameLuckTier | null): Json | null {
   return value
     ? {
         observed: value.observed,
-        cardsWithKnownOdds: value.games,
-        expectedEstimated: round1(value.expected),
+        // Review of #172: «mejor de lo normal» is checked on the packs alone, «peor» with the Wonder Picks at the
+        // packs' odds (a Wonder Pick leans rare: never worse).
+        forBetterThanNormal: {
+          packCards: value.packGames,
+          expectedEstimated: round1(value.packExpected),
+          hitsFromPacksAtLeast: value.fromPacks.min,
+        },
+        forWorseThanNormal: {
+          packAndWonderPickCards: value.games,
+          expectedEstimated: round1(value.expected),
+          hitsAtMost: value.fromPacks.max,
+        },
         expectedPercentEstimated: formatPercentEs(value.expectedShare),
-        cardsOfUnknownOrigin: value.unknown,
-        fromKnownCardsBetween: value.fromPacks,
+        cardsOfUnknownOriginWithWonderPicks: value.unknown,
         verdict: VERDICT[value.verdict],
         ...(value.verdict === 'unknown' && value.normalIf
           ? {
               normalIfUnknownCardsOfTier: value.normalIf,
-              normalIfText: `sería normal si entre ${value.normalIf.min} y ${value.normalIf.max} de las ${value.unknown} cartas de origen desconocido fueran de estas; con menos, mejor de lo normal; con más, peor`,
+              normalIfText: `sería normal si entre ${value.normalIf.min} y ${value.normalIf.max} de las ${value.unknown} cartas de origen desconocido (Wonder Pick incluido) fueran de estas; con menos, mejor de lo normal; con más, peor`,
             }
           : {}),
       }
@@ -92,7 +100,7 @@ function luck(item: PokemonZoneLuck | null): Json | null {
     // pz/luck: where the cards came from — real, estimated or unknown — never added into one number with another source.
     sources: {
       wonderPicks: sources.wonderPicks,
-      wonderPicksAsPackCards: sources.pickCards,
+      wonderPicksAtPackOddsForWorse: sources.pickCards,
       wonderPicksOfUnknownOrigin: sources.unknownPicks,
       ...(sources.pickWindows.length > 0
         ? { wonderPickNotPackLikeBecause: sources.pickWindows.map((window) => window.why) }
@@ -213,7 +221,7 @@ export function pokemonZoneJson(summary: PokemonZoneSummary): Json {
     notes: [
       'Los contadores de partidas son del juego, de por vida (o entre importaciones): una fuente aparte de las partidas registradas en la app; nunca se suman. Versus son todas las partidas contra personas (incluye las competitivas) y se comparan con todas las registradas; las competitivas, con las competitivas registradas.',
       'Suerte de los sobres: sobres abiertos y cartas por rareza son reales (del juego, cuentan Wonder Pick, intercambios y regalos); lo «Estimated» sale de las tasas publicadas de los sobres de cada expansión, pesadas por los sobres que abrió.',
-      `Suerte, de dónde vino cada carta: las de sobre y las de Wonder Pick tienen probabilidades conocidas (una carta de Wonder Pick es una carta al azar de un sobre que abrió otro jugador), salvo durante un evento que cambia Wonder Pick (promos, más elecciones Chansey) y hasta un ${Math.round(SPECIAL_PICK_SHARE * 100)} % que pueden ser elecciones especiales; intercambios, regalos, premios, canjes y la carta asegurada de un sobre de aniversario son de origen desconocido. El veredicto sale solo si no cambia con lo que esas pudieron tener.`,
+      'Suerte, de dónde vino cada carta: las de sobre tienen probabilidades conocidas. En Wonder Pick Santi ve las cinco cartas de cada oferta y elige una antes de que se den vuelta y se mezclen, así que sus cartas tiran a raras: cuentan a la tasa de los sobres para decir «peor de lo normal» (nunca son peores) y como de origen desconocido para decir «mejor»; durante un evento que cambia Wonder Pick (promos, más elecciones Chansey), de origen desconocido para las dos. Intercambios, regalos, premios, canjes y la carta asegurada de un sobre de aniversario son de origen desconocido. El veredicto sale solo si no cambia con lo que esas pudieron tener.',
       `Desde la primera importación: se suman los períodos entre importaciones con pocas cartas de origen desconocido (todas juntas, a lo sumo ${String(INCLUSION_SD).replace('.', ',')} desvíos de los aciertos esperados); cada período cuenta o no por esas cartas y lo esperado, nunca por lo que salió.`,
       `Relojes de arena de sobre: ${HOURGLASSES_PER_PACK} son un sobre.`,
       ...(window

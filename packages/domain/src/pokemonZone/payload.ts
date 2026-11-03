@@ -68,6 +68,23 @@ const COUPON_NAME = /^\s*promo card exchange tickets?\b/i
  * campaign until 15/12/2026, `TICKET_2610000_EV_02`). A pack opened with one is not luck (pz/luck).
  */
 export const GUARANTEED_PACK_TICKET_NAME = /guaranteed booster pack exchange tickets?\b/i
+/** The anniversary campaign's ticket (a pack with a guaranteed ★★ card, until 15/12/2026). */
+export const STAR_STAR_TICKET_KEY = 'TICKET_2610000_EV_02'
+/** Exactly two stars, ★★ (or ☆☆), not one nor three. */
+const STAR_STAR = /(?<![★☆])[★☆]{2}(?![★☆])/
+
+/**
+ * The tickets for a pack with a guaranteed ★★ card among `guaranteedTickets`: the anniversary's key, or a name with
+ * exactly two stars. `null` when the tickets were not seen (version 1, or an import saved before pz/luck).
+ */
+export function starStarTickets(
+  tickets: readonly { key: string; name: string; count: number }[] | null,
+): number | null {
+  if (tickets === null) return null
+  return tickets
+    .filter((ticket) => ticket.key === STAR_STAR_TICKET_KEY || STAR_STAR.test(ticket.name))
+    .reduce((sum, ticket) => sum + ticket.count, 0)
+}
 
 type Issue = { path: (string | number)[]; message: string }
 
@@ -190,11 +207,16 @@ export const pokemonZoneSnapshotSchema = z.object({
   /** Promo card exchange coupons, one entry per event (`event` as the game names it, in English). */
   coupons: z.array(z.object({ key, event: label, count })).max(LIST_MAX),
   /**
-   * Tickets for a pack with a guaranteed card, in stock (pz/luck): a count that goes down between two imports is a
-   * pack whose guaranteed card is not luck. Null when the bookmarklet did not send them (version 1, or an import
-   * saved before).
+   * Tickets for a pack with a guaranteed card, in stock, one entry per ticket (pz/luck; `name` as the game says it:
+   * «1 ★★ Card Guaranteed Booster Pack Exchange Tickets»). `null`: not seen (the version 1 bookmarklet, or an import
+   * saved before pz/luck); `[]`: seen, none held (version 2). A count that goes down between two imports is a pack
+   * whose guaranteed card is not luck. `starStarTickets` gives the ★★ ones.
    */
-  guaranteedPackTickets: nullableCount.default(null),
+  guaranteedTickets: z
+    .array(z.object({ key, name: label, count }))
+    .max(LIST_MAX)
+    .nullable()
+    .default(null),
   battles: z.object({
     versus: counterSchema.nullable(),
     ranked: counterSchema.nullable(),
@@ -298,15 +320,13 @@ export function normalizePokemonZone(payload: PokemonZonePayload): PokemonZoneSn
         ? [{ key: ticket.key as string, event: couponEvent(ticket.name), count: checked(ticket.value) ?? 0 }]
         : [],
     ),
-    guaranteedPackTickets:
+    guaranteedTickets:
       payload.v === 1
         ? null
-        : resourceData.tickets.reduce(
-            (sum, ticket) =>
-              typeof ticket.name === 'string' && GUARANTEED_PACK_TICKET_NAME.test(ticket.name)
-                ? sum + (checked(ticket.value) ?? 0)
-                : sum,
-            0,
+        : resourceData.tickets.flatMap((ticket) =>
+            typeof ticket.name === 'string' && GUARANTEED_PACK_TICKET_NAME.test(ticket.name)
+              ? [{ key: ticket.key as string, name: ticket.name, count: checked(ticket.value) ?? 0 }]
+              : [],
           ),
     battles: {
       versus: counter(stat(stats.battles, 'pvp_battles'), stat(stats.battles, 'pvp_wins')),

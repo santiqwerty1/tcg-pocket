@@ -179,6 +179,10 @@ export function PokemonZonePage() {
           Si ya tenías el marcador, reemplazalo por este: desde el 3/11 también trae los cupones de sobre con carta
           asegurada, para que la suerte no cuente esa carta.
         </p>
+        <p className="text-xs text-muted-foreground" data-testid="import-regularly">
+          Importá todos los días a la misma hora, después del Sync automático de pokemon-zone: la suerte entre
+          importaciones es más clara así, y ningún período lo elige lo que salió.
+        </p>
         <p className="text-xs text-muted-foreground">
           El marcador abre esta app con los datos y te muestra qué cambia antes de guardar. Tenés que tener la sesión de
           la app iniciada en ese navegador; si te pide iniciarla, iniciala y tocá el marcador otra vez.

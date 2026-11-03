@@ -99,19 +99,25 @@ const cardsText = (count: number) => plural(count, 'carta', 'cartas')
 function TierBody({ label, tier }: { label: string; tier: GameLuckTier }) {
   const { min, max } = tier.fromPacks
   const unknown = tier.unknown
+  const picks = tier.games - tier.packGames
   return (
     <>
       <p>
         <span className="font-medium">{label}:</span> {formatNumber(tier.observed)}{' '}
         <span className="text-muted-foreground">(del juego, de todas las fuentes)</span>. En las{' '}
-        {formatNumber(tier.games)} cartas con probabilidades conocidas (n) se esperaban ~
-        {formatNumber(Math.round(tier.expected))}{' '}
+        {formatNumber(tier.packGames)} cartas de los sobres (n) se esperaban ~
+        {formatNumber(Math.round(tier.packExpected))}
+        {picks > 0
+          ? `; con ${plural(picks, 'carta', 'cartas')} de Wonder Pick a la tasa de los sobres, ~${formatNumber(Math.round(tier.expected))} en ${formatNumber(tier.games)}`
+          : ''}{' '}
         <span className="text-muted-foreground">
           (estimado: {formatRateValue(tier.expectedShare)}, con las tasas de los sobres que abriste)
         </span>
-        {min === max
-          ? `; de ellas salieron ${formatNumber(max)}.`
-          : `; de ellas salieron entre ${formatNumber(min)} y ${formatNumber(max)}.`}
+        {picks > 0
+          ? `. De los sobres salieron al menos ${formatNumber(min)}; de los sobres y Wonder Pick, a lo sumo ${formatNumber(max)}.`
+          : min === max
+            ? `; de ellas salieron ${formatNumber(max)}.`
+            : `; de ellas salieron entre ${formatNumber(min)} y ${formatNumber(max)}.`}
       </p>
       <p>
         {tier.verdict === 'unknown' ? (
@@ -119,9 +125,9 @@ function TierBody({ label, tier }: { label: string; tier: GameLuckTier }) {
             No se puede saber con lo que da el juego:{' '}
             {unknown === 1
               ? 'según si la carta de origen desconocido'
-              : `según cuántas de las ${formatNumber(unknown)} cartas de origen desconocido`}{' '}
-            {unknown === 1 ? 'fuera' : 'fueran'} de estas, da {VERDICT[tier.low.verdict]} o {VERDICT[tier.high.verdict]}
-            .
+              : `según cuántas de las ${formatNumber(unknown)} cartas de origen desconocido`}
+            {picks > 0 ? ' (Wonder Pick incluido)' : ''} {unknown === 1 ? 'fuera' : 'fueran'} de estas, da{' '}
+            {VERDICT[tier.low.verdict]} o {VERDICT[tier.high.verdict]}.
             {tier.normalIf
               ? ` Sería normal si ${
                   tier.normalIf.min === tier.normalIf.max
@@ -162,9 +168,7 @@ function Sources({ luck }: { luck: GameLuck }) {
       : null,
     sources.unknownPicks > 0
       ? `${formatNumber(sources.unknownPicks)} de Wonder Pick${
-          sources.pickWindows.length > 0
-            ? ` (${sources.pickWindows.map((window) => window.why).join('; ')})`
-            : ' (pudieron ser elecciones especiales, como las de Chansey)'
+          sources.pickWindows.length > 0 ? ` (${sources.pickWindows.map((window) => window.why).join('; ')})` : ''
         }`
       : null,
     sources.guaranteedPacks > 0
@@ -183,7 +187,7 @@ function Sources({ luck }: { luck: GameLuck }) {
         <li>
           Wonder Pick: {formatNumber(sources.wonderPicks)} (del juego)
           {sources.pickCards > 0
-            ? `; ${formatNumber(sources.pickCards)} cuentan como una carta al azar de un sobre`
+            ? `; ${formatNumber(sources.pickCards)} cuentan a la tasa de los sobres para «peor de lo normal», y como de origen desconocido para «mejor»`
             : '; ninguna cuenta como carta de sobre'}
           .
         </li>
@@ -260,11 +264,25 @@ function SinceFirstCard({ since }: { since: GameLuckSinceFirst }) {
       {tier('☆ o más', since.rare)}
       {tier('◊◊◊◊ (ex)', since.ex)}
       <p className="text-xs text-muted-foreground">
-        Suma los períodos entre importaciones con pocas cartas de origen desconocido: un día en que solo abriste sobres
-        cuenta entero; uno con intercambios, promos o premios, no. Se elige por esas cartas y lo esperado, nunca por lo
-        que salió.
+        Cuentan los períodos entre importaciones con pocas cartas de origen desconocido: un día en que solo abriste
+        sobres (y Wonder Pick) cuenta; uno con muchos intercambios, promos o premios, no. Se elige por esas cartas y lo
+        esperado, nunca por lo que salió; en un empate, el más reciente.
       </p>
+      <ImportRegularly />
     </div>
+  )
+}
+
+/**
+ * Review of #172: when to import is Santi's choice, and a lucky run could get a span of its own; importing at a
+ * fixed time keeps the spans from being chosen by what came out.
+ */
+function ImportRegularly() {
+  return (
+    <p className="text-xs text-muted-foreground" data-testid="import-regularly">
+      Importá todos los días a la misma hora, después del Sync automático de pokemon-zone: así ningún período lo elige
+      lo que salió.
+    </p>
   )
 }
 
@@ -298,16 +316,21 @@ function FromGame() {
         <GameLuckCard title={`Desde que jugás, al ${formatDateTime(data.latest.syncedAt)}`} luck={luck.lifetime} />
       ) : null}
       {luck && !luck.sinceFirst ? (
-        <p className="text-xs text-muted-foreground">
-          Con la próxima importación empieza «desde la primera importación»: los días con pocas cartas de origen
-          desconocido dan un veredicto más claro, y se van sumando.
-        </p>
+        <>
+          <p className="text-xs text-muted-foreground">
+            Con la próxima importación empieza «desde la primera importación»: cuentan los períodos entre importaciones
+            con pocas cartas de origen desconocido, como un día en que solo abriste sobres.
+          </p>
+          <ImportRegularly />
+        </>
       ) : null}
       <p className="text-xs text-muted-foreground">
         Reales: sobres abiertos, Wonder Pick, intercambios y cartas obtenidas por rareza, como los cuenta el juego.
         Estimado: las cartas de los sobres y lo esperado, con las tasas publicadas de los sobres de cada expansión
-        pesadas por los sobres que abriste; una carta de Wonder Pick es una carta al azar de un sobre de otro jugador.
-        De origen desconocido: lo demás; el veredicto sale solo si no cambia con lo que esas cartas pudieron tener.
+        pesadas por los sobres que abriste. En Wonder Pick ves las cinco cartas antes de elegir, así que las tuyas tiran
+        a raras: cuentan a la tasa de los sobres para decir «peor de lo normal» (nunca son peores) y como de origen
+        desconocido para decir «mejor». De origen desconocido: lo demás; el veredicto sale solo si no cambia con lo que
+        esas cartas pudieron tener.
       </p>
     </div>
   )

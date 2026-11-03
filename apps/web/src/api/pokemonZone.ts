@@ -119,7 +119,10 @@ const luckTierSchema = z.object({
   expectedShare: z.number(),
   games: z.number(),
   expected: z.number(),
-  /** pz/luck: the cards of unknown origin the bounds allow for. */
+  /** Review of #172: the low end, on the packs alone («mejor de lo normal»). */
+  packGames: z.number(),
+  packExpected: z.number(),
+  /** pz/luck: the cards of unknown origin at the low end (Wonder Picks included). */
   unknown: z.number(),
   fromPacks: z.object({ min: z.number(), max: z.number() }),
   low: luckCheckSchema,

@@ -86,11 +86,14 @@ const tier = (
   tail: number | null,
   unknown = 0,
   normalIf: { min: number; max: number } | null = null,
+  packs: { games: number; expected: number } = { games, expected },
 ) => ({
   observed,
   expected,
   expectedShare,
   games,
+  packGames: packs.games,
+  packExpected: packs.expected,
   unknown,
   fromPacks: { min, max },
   low,
@@ -118,28 +121,28 @@ const noSources = {
 }
 
 /**
- * pz/luck: lifetime as Santi's real import of 3/11 gives it (production's catalog): 1.309 packs and 7.376 cards, read
- * inside «Evento bis PROMO 2026»; since the previous import: 5 Deluxe packs.
+ * pz/luck: a made-up lifetime (review of #172: no real number of an account) read inside «Evento bis PROMO 2026»: 1.246
+ * packs and 7.138 cards; since the previous import: 5 Deluxe packs.
  */
 export const LUCK = {
   lifetime: {
-    packs: 1309,
-    cards: 7376,
-    packCards: 6163,
-    otherCards: 1214,
-    wonderPicks: 402,
-    trades: 51,
+    packs: 1246,
+    cards: 7138,
+    packCards: 5909,
+    otherCards: 1230,
+    wonderPicks: 388,
+    trades: 48,
     sources: {
-      wonderPicks: 402,
+      wonderPicks: 388,
       pickCards: 0,
-      unknownPicks: 402,
+      unknownPicks: 388,
       pickWindows: [EVENT_WINDOW],
-      trades: 51,
+      trades: 48,
       guaranteedPacks: 1,
       guaranteedSeen: false,
-      restCards: 760,
+      restCards: 793,
     },
-    byRarity: { '◊': 3947, '☆': 236 },
+    byRarity: { '◊': 3800, '☆': 210 },
     unknownRarity: 0,
     expansions: [],
     byPack: [
@@ -149,7 +152,7 @@ export const LUCK = {
         expansionId: 'B4b',
         appPackId: 'B4b/deluxepackmega',
         nameEs: 'Sobre Deluxe Mega',
-        opened: 372,
+        opened: 360,
       },
       {
         packId: 'CN001_0010_00_000',
@@ -157,28 +160,28 @@ export const LUCK = {
         expansionId: 'C1',
         appPackId: 'C1/megamewtwoxpack',
         nameEs: 'Mega-Mewtwo X',
-        opened: 52,
+        opened: 48,
       },
     ],
     unknownPacks: 2,
-    // Two ends of what the 1.214 cards of unknown origin could hold: neither tier can tell.
+    // Two ends of what the 1.230 cards of unknown origin could hold: neither tier can tell.
     rare: tier(
-      348,
-      262.8,
-      4.27,
-      6162,
+      297,
+      252.6,
+      4.28,
+      5908,
       0,
-      348,
+      297,
       check('unlucky', 0, 1),
       check('lucky', 1, 0.0001),
       'unknown',
       null,
-      1214,
-      { min: 54, max: 116 },
+      1230,
+      { min: 30, max: 90 },
     ),
-    ex: tier(548, 449.8, 7.3, 6162, 0, 548, check('unlucky', 0, 1), check('lucky', 1, 0.0001), 'unknown', null, 1214, {
-      min: 58,
-      max: 138,
+    ex: tier(545, 424.1, 7.18, 5908, 0, 545, check('unlucky', 0, 1), check('lucky', 1, 0.0001), 'unknown', null, 1230, {
+      min: 98,
+      max: 175,
     }),
   },
   since: {
@@ -200,13 +203,19 @@ export const LUCK = {
   sinceFirst: null as unknown,
 }
 
-/** pz/luck: «desde la primera importación» after a few days of packs only (made up). */
+/**
+ * pz/luck: «desde la primera importación» after a few days of packs (made up): 200 cards of packs and 2 Wonder Picks
+ * at the packs' odds for «peor de lo normal».
+ */
 export const SINCE_FIRST = {
   from: '2026-11-14T12:00:00.000Z',
   to: '2026-11-17T12:00:00.000Z',
   spans: 3,
   rare: {
-    ...tier(14, 8.8, 4.38, 201, 13, 14, check('lucky', 0.99, 0.02), check('lucky', 1, 0.008), 'lucky', 0.02, 1),
+    ...tier(14, 8.9, 4.38, 202, 12, 14, check('lucky', 0.99, 0.02), check('lucky', 1, 0.008), 'lucky', 0.02, 2, null, {
+      games: 200,
+      expected: 8.8,
+    }),
     counted: 2,
   },
   ex: null,

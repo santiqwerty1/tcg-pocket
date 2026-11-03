@@ -114,9 +114,10 @@ describe('pokemon_zone_summary', () => {
           JSON.parse(readFileSync(join(REPO_ROOT, `packages/domain/test/fixtures/pokemon-zone/${name}`), 'utf8')),
         ),
       )
-    const nov02 = read('real-2026-11-02.json')
-    const nov03 = read('real-2026-11-03.json')
-    // Santi's real reads; every expansion with a 5-card shiny pack, the Deluxe with 4 (as the catalog has them).
+    const nov02 = read('made-up-2026-11-02.json')
+    const nov03 = read('made-up-2026-11-03.json')
+    // Two made-up reads (review of #172: no real number of an account); every expansion with a 5-card shiny pack, the
+    // Deluxe with 4 (as the catalog has them).
     const index = {
       expansionById: (id: string) => ({
         id,
@@ -140,19 +141,26 @@ describe('pokemon_zone_summary', () => {
     }) as { luck: Record<string, Record<string, unknown>> }
     const lifetime = json.luck.lifetime as Record<string, unknown>
     expect(lifetime.sources).toMatchObject({
-      wonderPicks: 402,
-      wonderPicksAsPackCards: 0,
-      wonderPicksOfUnknownOrigin: 402,
+      wonderPicks: 388,
+      wonderPicksAtPackOddsForWorse: 0,
+      wonderPicksOfUnknownOrigin: 388,
       wonderPickNotPackLikeBecause: [expect.stringMatching(/Evento bis PROMO 2026/)],
-      trades: 51,
+      trades: 48,
+      guaranteedStarStarPacks: 1,
       guaranteedStarStarPacksIsABound: true,
     })
+    // Review of #172: each end said apart — «mejor» on the packs alone, «peor» with the Wonder Picks.
     expect(lifetime.artRareOrBetter).toMatchObject({
-      observed: 348,
+      observed: 297,
+      forBetterThanNormal: { packCards: expect.any(Number), hitsFromPacksAtLeast: 0 },
+      forWorseThanNormal: { packAndWonderPickCards: expect.any(Number), hitsAtMost: 297 },
       verdict: expect.stringMatching(/no se puede saber/),
       normalIfUnknownCardsOfTier: { min: expect.any(Number), max: expect.any(Number) },
-      normalIfText: expect.stringMatching(/^sería normal si entre \d+ y \d+ de las \d+ cartas de origen desconocido/),
+      normalIfText: expect.stringMatching(
+        /^sería normal si entre \d+ y \d+ de las \d+ cartas de origen desconocido \(Wonder Pick incluido\)/,
+      ),
     })
+    expect(JSON.stringify(json)).toMatch(/elige una antes de que se den vuelta/)
     expect(json.luck.sinceFirstImport).toMatchObject({
       spansBetweenImports: 1,
       artRareOrBetter: { spansCounted: 0, verdict: 'todavía ninguno cuenta' },

@@ -51,7 +51,7 @@ function open(packLuck: unknown, zone: unknown) {
 }
 
 describe('suerte de los sobres', () => {
-  it('pz/luck: the game’s real packs and cards, where they came from, each number said for what it is', async () => {
+  it('pz/luck: the game’s packs and cards, where they came from, each number said for what it is', async () => {
     open(CSV_LUCK, SUMMARY)
     const cards = await screen.findAllByTestId('game-luck')
     expect(cards).toHaveLength(2)
@@ -60,47 +60,58 @@ describe('suerte de los sobres', () => {
     expect(since).toHaveTextContent('Abriste 5 sobres y obtuviste 20 cartas (del juego).')
     expect(within(since).queryByText(/origen desconocido/)).toBeNull()
     expect(within(since).queryByText(/◊◊◊◊/)).toBeNull()
-    // Santi's real import of 3/11.
-    expect(lifetime).toHaveTextContent('Abriste 1.309 sobres y obtuviste 7.376 cartas (del juego).')
+    // A made-up lifetime read inside «Evento bis PROMO 2026».
+    expect(lifetime).toHaveTextContent('Abriste 1.246 sobres y obtuviste 7.138 cartas (del juego).')
     const sources = within(lifetime).getByTestId('game-sources')
-    expect(sources).toHaveTextContent('Sobres: ~6.163 cartas (estimado: sobres × cartas por sobre).')
-    expect(sources).toHaveTextContent('Wonder Pick: 402 (del juego); ninguna cuenta como carta de sobre.')
+    expect(sources).toHaveTextContent('Sobres: ~5.909 cartas (estimado: sobres × cartas por sobre).')
+    expect(sources).toHaveTextContent('Wonder Pick: 388 (del juego); ninguna cuenta como carta de sobre.')
     expect(sources).toHaveTextContent(
-      'De origen desconocido: ~1.214 cartas — 51 intercambios (del juego), 402 de Wonder Pick (Evento bis PROMO 2026: promos y más elecciones Chansey en Wonder Pick), a lo sumo 1 carta asegurada de un sobre de aniversario (★★), ~760 de regalos, premios, canjes de puntos y promos (estimado).',
+      'De origen desconocido: ~1.230 cartas — 48 intercambios (del juego), 388 de Wonder Pick (Evento bis PROMO 2026: promos y más elecciones Chansey en Wonder Pick), a lo sumo 1 carta asegurada de un sobre de aniversario (★★), ~793 de regalos, premios, canjes de puntos y promos (estimado).',
     )
-    // n is the cards with known odds; the verdict only when the unknown ones could not change it, and otherwise when
-    // it would be normal.
+    // n is the packs' cards; the verdict only when the unknown ones could not change it, and otherwise when it would
+    // be normal.
     const [rare, ex] = within(lifetime).getAllByTestId('game-tier') as [HTMLElement, HTMLElement]
     expect(rare).toHaveTextContent(
-      '☆ o más: 348 (del juego, de todas las fuentes). En las 6.162 cartas con probabilidades conocidas (n) se esperaban ~263 (estimado: 4,3 %, con las tasas de los sobres que abriste); de ellas salieron entre 0 y 348.',
+      '☆ o más: 297 (del juego, de todas las fuentes). En las 5.908 cartas de los sobres (n) se esperaban ~253 (estimado: 4,3 %, con las tasas de los sobres que abriste); de ellas salieron entre 0 y 297.',
     )
     expect(rare).toHaveTextContent(
-      'No se puede saber con lo que da el juego: según cuántas de las 1.214 cartas de origen desconocido fueran de estas, da peor de lo normal o mejor de lo normal. Sería normal si entre 54 y 116 lo fueran; con menos, mejor de lo normal; con más, peor.',
+      'No se puede saber con lo que da el juego: según cuántas de las 1.230 cartas de origen desconocido fueran de estas, da peor de lo normal o mejor de lo normal. Sería normal si entre 30 y 90 lo fueran; con menos, mejor de lo normal; con más, peor.',
     )
     expect(rare).not.toHaveTextContent('pasa 1 de cada')
-    expect(ex).toHaveTextContent('◊◊◊◊ (ex): 548 (del juego, de todas las fuentes)')
-    expect(ex).toHaveTextContent('se esperaban ~450')
-    expect(ex).toHaveTextContent('Sería normal si entre 58 y 138 lo fueran')
-    expect(lifetime).toHaveTextContent('Los que más abriste: Sobre Deluxe Mega 372 · Mega-Mewtwo X 52.')
+    expect(ex).toHaveTextContent('◊◊◊◊ (ex): 545 (del juego, de todas las fuentes)')
+    expect(ex).toHaveTextContent('se esperaban ~424')
+    expect(ex).toHaveTextContent('Sería normal si entre 98 y 175 lo fueran')
+    expect(lifetime).toHaveTextContent('Los que más abriste: Sobre Deluxe Mega 360 · Mega-Mewtwo X 48.')
     expect(lifetime).toHaveTextContent('2 sobres de expansiones que el catálogo todavía no tiene no cuentan')
-    // With one import, «desde la primera importación» starts with the next one.
+    // Review of #172: why Wonder Pick counts for one end and not the other.
+    expect(screen.getByText(/En Wonder Pick ves las cinco cartas antes de elegir/)).toBeInTheDocument()
+    // With one import, «desde la primera importación» starts with the next one, and when to import is said.
     expect(screen.queryByTestId('game-luck-since-first')).toBeNull()
     expect(screen.getByText(/Con la próxima importación empieza «desde la primera importación»/)).toBeInTheDocument()
+    expect(screen.queryByText(/se van sumando/)).toBeNull()
+    expect(screen.getByTestId('import-regularly')).toHaveTextContent(
+      'Importá todos los días a la misma hora, después del Sync automático de pokemon-zone',
+    )
     // The CSV's view stays, apart, with the expected count as a count (not a percentage).
     expect(screen.getByRole('heading', { name: 'Según tu colección' })).toBeInTheDocument()
     expect(screen.getByText(/se esperaban 1,3, 3,3 % de lo que entró/)).toBeInTheDocument()
   })
 
-  it('pz/luck: «desde la primera importación» says which spans count and gives the verdict, with its tail', async () => {
+  it('pz/luck: «desde la primera importación» says which spans count, each end, and the verdict with its tail', async () => {
     open(CSV_LUCK, { ...SUMMARY, luck: { ...LUCK, sinceFirst: SINCE_FIRST } })
     const card = await screen.findByTestId('game-luck-since-first')
     expect(card).toHaveTextContent('Desde la primera importación:')
     const [rare, ex] = within(card).getAllByTestId('since-first-tier') as [HTMLElement, HTMLElement]
     expect(rare).toHaveTextContent('☆ o más: cuentan 2 de 3 períodos entre importaciones.')
-    expect(rare).toHaveTextContent('En las 201 cartas con probabilidades conocidas (n) se esperaban ~9')
-    expect(rare).toHaveTextContent('de ellas salieron entre 13 y 14.')
+    // Review of #172: the packs alone for «mejor», with the Wonder Picks at the packs' odds for «peor».
+    expect(rare).toHaveTextContent(
+      'En las 200 cartas de los sobres (n) se esperaban ~9; con 2 cartas de Wonder Pick a la tasa de los sobres, ~9 en 202',
+    )
+    expect(rare).toHaveTextContent('De los sobres salieron al menos 12; de los sobres y Wonder Pick, a lo sumo 14.')
     expect(rare).toHaveTextContent('mejor de lo normal (pasa 1 de cada 50)')
     expect(ex).toHaveTextContent('◊◊◊◊ (ex): todavía no cuenta ninguno de 3 períodos entre importaciones.')
+    expect(card).toHaveTextContent('en un empate, el más reciente')
+    expect(within(card).getByTestId('import-regularly')).toBeInTheDocument()
     expect(screen.queryByText(/Con la próxima importación empieza/)).toBeNull()
   })
 

@@ -571,23 +571,24 @@ describe('pokemon-zone: suerte de los sobres', () => {
     expect(luck?.packCards).toBe(50)
     expect(luck?.wonderPicks).toBe(8)
     expect(luck?.trades).toBe(2)
-    // pz/luck: a Wonder Pick is a random card of a pack (out of any special window), but up to a tenth of them may be
-    // special picks: 7 count with the packs' odds, 1 is of unknown origin, with the 2 trades and the 5 left.
+    // pz/luck, review of #172: the 8 Wonder Picks count at the packs' odds for «peor de lo normal» (out of any special
+    // window); the 2 trades and the 5 left are of unknown origin.
     expect(luck?.sources).toMatchObject({
       wonderPicks: 8,
-      pickCards: 7,
-      unknownPicks: 1,
+      pickCards: 8,
+      unknownPicks: 0,
       pickWindows: [],
       trades: 2,
       guaranteedPacks: 0,
       restCards: 5,
     })
-    expect(luck?.otherCards).toBe(8)
+    expect(luck?.otherCards).toBe(7)
     expect(luck?.rare?.expectedShare).toBeCloseTo(STANDARD_RARE, 6)
-    // n is the 50 cards of the packs and the 7 Wonder Picks; the 2 ☆ could all be from the 8 other cards, or none.
-    expect(luck?.rare?.games).toBe(57)
-    expect(luck?.rare?.unknown).toBe(8)
-    expect(luck?.rare?.expected).toBeCloseTo((57 * STANDARD_RARE) / 100, 6)
+    // High end: the 50 cards of the packs and the 8 Wonder Picks; low end: the 50 of the packs, with the Wonder Picks
+    // of unknown origin too (15 in all). The 2 ☆ could all be from those, or none.
+    expect(luck?.rare).toMatchObject({ games: 58, packGames: 50, unknown: 15 })
+    expect(luck?.rare?.expected).toBeCloseTo((58 * STANDARD_RARE) / 100, 6)
+    expect(luck?.rare?.packExpected).toBeCloseTo((50 * STANDARD_RARE) / 100, 6)
     expect(luck?.rare?.fromPacks).toEqual({ min: 0, max: 2 })
     expect(luck?.rare?.verdict).toBe('normal')
     // Any of the other cards being ☆ (0 to 2) keeps it normal.
