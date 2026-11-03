@@ -121,7 +121,7 @@ describe('pokemon-zone: the page', () => {
     fakeApi({ 'GET /api/pokemon-zone': SUMMARY })
     open('/coleccion/pokemon-zone')
     const code = await screen.findByTestId('bookmarklet')
-    expect(code.textContent).toMatch(/^javascript:\(async\(\)=>\{const A="http:\/\/localhost(:\d+)?";/)
+    expect(code.textContent).toMatch(/^javascript:void\(async\(\)=>\{const A="http:\/\/localhost(:\d+)?";/)
     await user.click(screen.getByRole('button', { name: 'Copiar' }))
     expect(await navigator.clipboard.readText()).toBe(code.textContent)
     expect(await screen.findByText(/18 \(1 sobre\)/)).toBeInTheDocument()

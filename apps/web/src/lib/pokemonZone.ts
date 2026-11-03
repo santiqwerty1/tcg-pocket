@@ -26,7 +26,8 @@ export function bookmarkletCode(origin: string): string {
   const app = JSON.stringify(origin.replace(/\/+$/, ''))
   const receive = JSON.stringify(RECEIVE_PATH)
   return [
-    'javascript:(async()=>{',
+    // `void`: a browser that shows what a javascript: address returns would replace the page with the promise.
+    'javascript:void(async()=>{',
     `const A=${app};`,
     'try{',
     'if(!/(^|\\.)pokemon-zone\\.com$/.test(location.hostname))throw new Error("Abr\\u00ed pokemon-zone.com y toc\\u00e1 el marcador ah\\u00ed.");',

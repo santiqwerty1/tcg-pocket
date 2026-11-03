@@ -31,7 +31,7 @@ async function run(hostname: string, answer: (url: string) => Response = default
   const location = { hostname, href: '' }
   const alert = vi.fn()
   const fetch = vi.fn(async (url: string) => answer(url))
-  const body = code.slice('javascript:'.length)
+  const body = code.slice('javascript:void'.length)
   // The bookmarklet is an async IIFE: its promise settles when it navigated or alerted. jsdom's Blob has no
   // `stream()`, a browser's (and Node's) does.
   await new Function('location', 'fetch', 'alert', 'Blob', `return ${body}`)(location, fetch, alert, NodeBlob)
@@ -51,7 +51,7 @@ afterEach(() => {
 describe('the bookmarklet', () => {
   it('is one ASCII line with nothing a bookmark address would decode or cut', () => {
     const code = bookmarkletCode(`${ORIGIN}/`)
-    expect(code.startsWith('javascript:(async()=>{')).toBe(true)
+    expect(code.startsWith('javascript:void(async()=>{')).toBe(true)
     expect(code).toContain(`const A="${ORIGIN}";`)
     expect(code).not.toMatch(/[%#\n]/)
     expect(code).toMatch(/^[\x20-\x7e]+$/)
