@@ -57,17 +57,28 @@ describe('ranked by season and rank (pedido de Santi del 14/10)', () => {
     expect(seasonOf(at('2026-09-20T12:00:00Z'), KNOWN_SEASONS, ZONE)?.code).toBe('B4a')
   })
 
-  it('the C1 season runs from 30/11 to 14/12/2026 (ptcgpocket.gg), in the same zone, without touching the others', () => {
+  it('the C1 season runs from 1/12 to 15/12/2026 (official news), by days of Buenos Aires, without touching the others', () => {
     expect(KNOWN_SEASONS.find((item) => item.code === 'C1')).toEqual({
       code: 'C1',
       name: 'Temporada C1',
-      startsOn: '2026-11-30',
-      endsOn: '2026-12-14',
+      startsOn: '2026-12-01',
+      endsOn: '2026-12-15',
     })
-    expect(seasonOf(at('2026-11-30T03:30:00Z'), KNOWN_SEASONS, ZONE)?.code).toBe('C1')
-    expect(seasonOf(at('2026-11-30T02:30:00Z'), KNOWN_SEASONS, ZONE)).toBeNull()
-    expect(seasonOf(at('2026-12-15T02:30:00Z'), KNOWN_SEASONS, ZONE)?.code).toBe('C1')
-    expect(seasonOf(at('2026-12-15T03:30:00Z'), KNOWN_SEASONS, ZONE)).toBeNull()
+    // 30/11 in Buenos Aires: none, all day (23:59 local is 1/12 02:59 UTC).
+    expect(seasonOf(at('2026-11-30T15:00:00Z'), KNOWN_SEASONS, ZONE)).toBeNull()
+    expect(seasonOf(at('2026-12-01T02:59:59Z'), KNOWN_SEASONS, ZONE)).toBeNull()
+    // 1/12 from 00:00 local (03:00 UTC); the game starts at 03:00 local (06:00 UTC), the model by the whole day.
+    expect(seasonOf(at('2026-12-01T03:00:00Z'), KNOWN_SEASONS, ZONE)?.code).toBe('C1')
+    expect(seasonOf(at('2026-12-01T06:00:00Z'), KNOWN_SEASONS, ZONE)?.code).toBe('C1')
+    // 15/12: the game ends at 03:59 local (06:59 UTC); the model keeps the whole day, to 23:59 local (16/12 02:59 UTC).
+    expect(seasonOf(at('2026-12-15T06:59:00Z'), KNOWN_SEASONS, ZONE)?.code).toBe('C1')
+    expect(seasonOf(at('2026-12-16T02:59:59Z'), KNOWN_SEASONS, ZONE)?.code).toBe('C1')
+    // 16/12 in Buenos Aires: none.
+    expect(seasonOf(at('2026-12-16T03:00:00Z'), KNOWN_SEASONS, ZONE)).toBeNull()
+    expect(seasonOf(at('2026-12-16T15:00:00Z'), KNOWN_SEASONS, ZONE)).toBeNull()
+    // A rank noted a millisecond before the first match of 1/12 at 00:00 local belongs to C1 (seasonOfChange).
+    expect(seasonOfChange(at('2026-12-01T02:59:59.999Z'), KNOWN_SEASONS, ZONE)?.code).toBe('C1')
+    expect(seasonOfChange(at('2026-12-01T02:59:59.998Z'), KNOWN_SEASONS, ZONE)).toBeNull()
     // Between B4b SP and C1 (the first weeks of Dual Fusion) there is no season.
     expect(seasonOf(at('2026-11-10T12:00:00Z'), KNOWN_SEASONS, ZONE)).toBeNull()
     // The known seasons never overlap (the app refuses it when they are corrected).

@@ -84,13 +84,18 @@ export interface RankChange {
 }
 
 /**
- * The seasons known when the feature started (Game8 and Bulbapedia, 14/10/2026) and C1 (ptcgpocket.gg/c1, 22/10/2026);
- * the owner can correct them. Each one reaches the database by a migration.
+ * The seasons known when the feature started (Game8 and Bulbapedia, 14/10/2026) and C1; the owner can correct them.
+ * Each one reaches the database by a migration.
+ *
+ * C1 (3/11/2026, ranked/c1-dates): the official news (pokemon.com/es, 28/10/2026) says «1 de diciembre de 2026 a las
+ * 06:00 UTC - 15 de diciembre de 2026 a las 06:59 UTC», 1/12 03:00 to 15/12 03:59 in Buenos Aires. Seasons are whole
+ * days of the owner's time zone, so C1 is 1/12 to 15/12: it ends at 03:59 on 15/12, and a match later that day still
+ * counts in it (no season follows that soon). It was 30/11 to 14/12, from ptcgpocket.gg on 22/10.
  */
 export const KNOWN_SEASONS: readonly RankedSeason[] = [
   { code: 'B4a', name: 'Temporada B4a', startsOn: '2026-09-15', endsOn: '2026-09-29' },
   { code: 'B4bSP', name: 'Temporada B4b SP', startsOn: '2026-10-14', endsOn: '2026-10-28' },
-  { code: 'C1', name: 'Temporada C1', startsOn: '2026-11-30', endsOn: '2026-12-14' },
+  { code: 'C1', name: 'Temporada C1', startsOn: '2026-12-01', endsOn: '2026-12-15' },
 ]
 
 const DAY_FORMATS = new Map<string, Intl.DateTimeFormat>()
