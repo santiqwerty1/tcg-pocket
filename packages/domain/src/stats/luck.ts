@@ -45,17 +45,33 @@ function logChoose(n: number, k: number): number {
   return sum
 }
 
+/** A rest below this share of its sum cannot move a double: the walk stops there. */
+const NEGLIGIBLE = 2 ** -60
+
+/**
+ * Whether what is left past a term cannot move `sum`: away from the mode each ratio of consecutive terms is smaller
+ * than the one before, so the rest is below `term · r / (1 − r)` with `r` the last ratio.
+ */
+function restIsNegligible(logTerm: number, logRatio: number, sum: number): boolean {
+  if (logRatio >= 0 || sum <= 0) return false
+  const ratio = Math.exp(logRatio)
+  return (Math.exp(logTerm) * ratio) / (1 - ratio) < sum * NEGLIGIBLE
+}
+
 /**
  * P(X ≤ k) and P(X ≥ k) for X ~ Binomial(n, p). The pmf is computed in log space from its mode outward with the
- * ratio P(i+1)/P(i) = (n−i)/(i+1) · p/(1−p), and the walk stops where the terms underflow (the pmf only falls away
- * from the mode): linear at worst and about √n in practice (Codex on #170: the quadratic sum took a second per tail
- * on a lifetime of cards, on the API's only thread). Same results as summing each P(X = i) on its own, to rounding.
+ * ratio P(i+1)/P(i) = (n−i)/(i+1) · p/(1−p) (one log a step). Each side stops where its terms underflow, or, once
+ * past k (only one tail still grows there), where the rest cannot move that tail any more. Linear at worst; for a
+ * lifetime of cards, a few standard deviations of steps (Codex on #170: the quadratic sum took a second per tail on
+ * the API's only thread; CI on 2/11: the walk to the underflow still took 50 ms at a billion trials). Same results as
+ * summing each P(X = i) on its own, to rounding.
  */
 export function binomialTails(n: number, k: number, p: number): { lower: number; upper: number } {
   if (p <= 0) return { lower: 1, upper: k <= 0 ? 1 : 0 }
   if (p >= 1) return { lower: k >= n ? 1 : 0, upper: 1 }
   const logP = Math.log(p)
   const logQ = Math.log(1 - p)
+  const logOdds = logP - logQ
   const mode = Math.min(n, Math.max(0, Math.floor((n + 1) * p)))
   const atMode = logChoose(n, mode) + mode * logP + (n - mode) * logQ
   let lower = 0
@@ -68,15 +84,21 @@ export function binomialTails(n: number, k: number, p: number): { lower: number;
   add(mode, atMode)
   let log = atMode
   for (let i = mode; i < n; i++) {
-    log += Math.log(n - i) - Math.log(i + 1) + logP - logQ
+    const step = Math.log((n - i) / (i + 1)) + logOdds
+    log += step
     if (log < LOG_UNDERFLOW) break
     add(i + 1, log)
+    // Past k only the upper tail grows.
+    if (i + 1 > k && restIsNegligible(log, step, upper)) break
   }
   log = atMode
   for (let i = mode; i > 0; i--) {
-    log += Math.log(i) - Math.log(n - i + 1) + logQ - logP
+    const step = Math.log(i / (n - i + 1)) - logOdds
+    log += step
     if (log < LOG_UNDERFLOW) break
     add(i - 1, log)
+    // Below k only the lower tail grows.
+    if (i - 1 < k && restIsNegligible(log, step, lower)) break
   }
   return { lower: Math.min(1, lower), upper: Math.min(1, upper) }
 }
