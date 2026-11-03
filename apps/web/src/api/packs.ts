@@ -51,15 +51,6 @@ const starCouponPackSchema = z.object({
   limited: z.object({ until: z.string().nullable(), daysLeft: z.number().nullable() }).nullable(),
 })
 
-const starCouponStatusSchema = z.object({
-  key: z.string(),
-  name: z.string(),
-  count: z.number(),
-  nameEs: z.string().nullable(),
-  until: z.string().nullable(),
-  expired: z.boolean(),
-})
-
 /** Cupón ★★ (3/11/2026): `GET /api/packs/star-coupon`. */
 export const starCouponSchema = z.object({
   rarity: z.string(),
@@ -72,10 +63,9 @@ export const starCouponSchema = z.object({
   lastImportAt: z.string().nullable(),
   packs: z.array(starCouponPackSchema),
   best: z.array(z.string()),
-  coupons: z
-    .object({ importedAt: z.string(), syncedAt: z.string(), items: z.array(starCouponStatusSchema).nullable() })
-    .nullable(),
-  known: z.array(z.object({ key: z.string(), nameEs: z.string(), until: z.string().nullable() })),
+  /** The latest pokemon-zone import's count; `count` null when that import does not know it. */
+  coupons: z.object({ importedAt: z.string(), syncedAt: z.string(), count: z.number().nullable() }).nullable(),
+  known: z.array(z.object({ key: z.string(), nameEs: z.string(), until: z.string() })),
 })
 export type StarCoupon = z.infer<typeof starCouponSchema>
 export type StarCouponPack = z.infer<typeof starCouponPackSchema>

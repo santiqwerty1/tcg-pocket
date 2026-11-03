@@ -42,27 +42,27 @@ function joinPacks(packs: StarCouponPack[], max = 3): string {
   return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} y ${names[names.length - 1]}`
 }
 
-/** Why the first pack wins, by the first share where it has something. */
-function reason(pack: StarCouponPack, goal: number): string {
+/**
+ * Why the first pack wins, by the first share where it has something. The order is by share, not by count: «la mayor
+ * parte», never «más» (a pack with 5 of 5 new beats one with 10 of 12).
+ */
+function reason(pack: StarCouponPack, goal: number, hasGoals: boolean): string {
   if (pack.forDecks > 0) {
     return `de sus ${plural(pack.size, '★★', '★★')}, ${pack.forDecks} ${pack.forDecks === 1 ? 'les sirve' : 'les sirven'} a tus mazos (${formatChance(pack.chanceDecks)}).`
   }
+  const before = hasGoals ? 'ninguna ★★ a la venta les sirve a tus mazos, y' : 'no hay mazos objetivo, y'
   if (pack.newEditions > 0) {
-    return `ninguna ★★ a la venta les sirve a tus mazos, y es el sobre con más ediciones que no tenés (${pack.newEditions} de ${pack.size}, ${formatChance(pack.chanceNew)}).`
+    return `${before} es el sobre con la mayor parte de ★★ que no tenés (${pack.newEditions} de ${pack.size}, ${formatChance(pack.chanceNew)}).`
   }
-  return `ya tenés todas las ★★ a la venta, y es el sobre con más ediciones de las que tenés menos de ${goal} copias (${pack.belowGoal} de ${pack.size}, ${formatChance(pack.chanceBelowGoal)}).`
+  return `${hasGoals ? 'ninguna ★★ a la venta les sirve a tus mazos y' : 'no hay mazos objetivo y'} ya tenés todas las ★★ a la venta; es el sobre con la mayor parte de ★★ de las que tenés menos de ${goal} copias (${pack.belowGoal} de ${pack.size}, ${formatChance(pack.chanceBelowGoal)}).`
 }
 
-/** The coupons Santi has, from the latest pokemon-zone import, and the anniversary's deadline. */
+/**
+ * The coupons the latest pokemon-zone import counts (one number: the game's tickets for a guaranteed pack), and the
+ * deadlines the app knows.
+ */
 function Coupons({ data }: { data: StarCoupon }) {
   const { coupons } = data
-  const items = coupons?.items ?? null
-  const usable = (items ?? []).filter((item) => !item.expired)
-  const total = usable.reduce((sum, item) => sum + item.count, 0)
-  // The known coupons' deadlines, unless the count already says them.
-  const deadlines = data.known.filter(
-    (ticket) => ticket.until !== null && !usable.some((item) => item.key === ticket.key),
-  )
   return (
     <div className="flex flex-col gap-1 text-sm" data-testid="star-coupons">
       {coupons === null ? (
@@ -73,7 +73,7 @@ function Coupons({ data }: { data: StarCoupon }) {
           </Link>
           .
         </p>
-      ) : items === null ? (
+      ) : coupons.count === null ? (
         <p className="text-muted-foreground">
           Tu última importación de pokemon-zone no dice cuántos cupones ★★ tenés: es de un marcador anterior.{' '}
           <Link to="/coleccion/pokemon-zone" className="underline">
@@ -84,37 +84,25 @@ function Coupons({ data }: { data: StarCoupon }) {
       ) : (
         <>
           <p>
-            {total > 0 ? (
+            {coupons.count > 0 ? (
               <>
-                Tenés <span className="font-medium">{plural(total, 'cupón ★★', 'cupones ★★')}</span>.
+                Tenés <span className="font-medium">{plural(coupons.count, 'cupón ★★', 'cupones ★★')}</span>.
               </>
             ) : (
               'No tenés cupones ★★.'
             )}
           </p>
-          {usable.length > 0 ? (
-            <ul className="text-xs text-muted-foreground">
-              {usable.map((item) => (
-                <li key={item.key}>
-                  {item.count} · {item.nameEs ?? `«${item.name}» (nombre del juego en inglés)`}
-                  {item.until ? `, hasta el ${formatDeadline(item.until)}` : ''}
-                </li>
-              ))}
-            </ul>
-          ) : null}
           <p className="text-xs text-muted-foreground">
             Según pokemon-zone (datos del juego del {formatDateTime(coupons.syncedAt)}).
           </p>
         </>
       )}
-      {deadlines.map((ticket) => {
-        const until = ticket.until as string
-        return (
-          <p key={ticket.key} className="text-xs text-muted-foreground">
-            {ticket.nameEs}: {Date.parse(until) <= Date.now() ? 'venció el' : 'hasta el'} {formatDeadline(until)}.
-          </p>
-        )
-      })}
+      {data.known.map((ticket) => (
+        <p key={ticket.key} className="text-xs text-muted-foreground">
+          {ticket.nameEs}: {Date.parse(ticket.until) <= Date.now() ? 'venció el' : 'hasta el'}{' '}
+          {formatDeadline(ticket.until)}.
+        </p>
+      ))}
     </div>
   )
 }
@@ -196,7 +184,8 @@ function Content({ deckTarget, copies }: { deckTarget: DeckTarget; copies: numbe
         {top ? (
           <div className="flex flex-col gap-1">
             <p>
-              Conviene <span className="font-semibold">{packLabel(top)}</span>: {reason(top, data.goalCopies)}
+              Conviene <span className="font-semibold">{packLabel(top)}</span>:{' '}
+              {reason(top, data.goalCopies, data.goals.length > 0)}
             </p>
             {ties.length > 0 ? (
               <p>
@@ -215,8 +204,10 @@ function Content({ deckTarget, copies }: { deckTarget: DeckTarget; copies: numbe
           </p>
         ) : (
           <p className="text-xs text-muted-foreground">
-            Para mazos cuenta lo que les falta a tus {plural(data.goals.length, 'mazo objetivo', 'mazos objetivo')} (
-            {data.deckTarget === 'tournament' ? 'versión de torneo' : 'lista guardada'}), con cualquier versión de la
+            {data.goals.length === 1
+              ? 'Para mazos cuenta lo que le falta a tu mazo objetivo'
+              : `Para mazos cuenta lo que les falta a tus ${data.goals.length} mazos objetivo`}{' '}
+            ({data.deckTarget === 'tournament' ? 'versión de torneo' : 'lista guardada'}), con cualquier versión de la
             carta.
           </p>
         )}

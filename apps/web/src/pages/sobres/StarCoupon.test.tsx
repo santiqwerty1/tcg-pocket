@@ -74,20 +74,7 @@ function view(overrides: Record<string, unknown> = {}) {
     lastImportAt: '2026-11-03T02:00:00.000Z',
     packs: [MEWTWO, SUICUNE, CHARIZARD, B4],
     best: ['C1/megamewtwoxpack'],
-    coupons: {
-      importedAt: '2026-11-03T03:00:00.000Z',
-      syncedAt: '2026-11-03T02:43:00.000Z',
-      items: [
-        {
-          key: 'TICKET_2610000_EV_02',
-          name: '1 ★★ Card Guaranteed Booster Pack Exchange Tickets',
-          count: 1,
-          nameEs: 'Cupón del 2.º aniversario',
-          until: '2026-12-15T07:00:00Z',
-          expired: false,
-        },
-      ],
-    },
+    coupons: { importedAt: '2026-11-03T03:00:00.000Z', syncedAt: '2026-11-03T02:43:00.000Z', count: 1 },
     known: [{ key: 'TICKET_2610000_EV_02', nameEs: 'Cupón del 2.º aniversario', until: '2026-12-15T07:00:00Z' }],
     ...overrides,
   }
@@ -203,8 +190,39 @@ describe('Sobres → Cupón ★★ (3/11/2026)', () => {
     expect(screen.getByText('Sobre Hoopa · B4')).toBeInTheDocument()
     // The coupon and its deadline, in Buenos Aires; the assumption.
     expect(screen.getByText('1 cupón ★★')).toBeInTheDocument()
-    expect(screen.getByText(/Cupón del 2\.º aniversario, hasta el 15\/12, 03:59/)).toBeInTheDocument()
+    expect(screen.getByText(/Según pokemon-zone \(datos del juego del/)).toBeInTheDocument()
+    expect(screen.getByText('Cupón del 2.º aniversario: hasta el 15/12, 03:59.')).toBeInTheDocument()
     expect(screen.getByText(/todas las ★★ de un sobre con la misma chance/)).toBeInTheDocument()
+    // One deck goal: singular.
+    expect(
+      screen.getByText(/^Para mazos cuenta lo que le falta a tu mazo objetivo \(lista guardada\)/),
+    ).toBeInTheDocument()
+  })
+
+  it('several deck goals: plural; a pack first on new editions says «la mayor parte», not «más»', async () => {
+    answer = view({
+      goals: [
+        { id: '3', name: '3 Mew ex', priority: 2, target: 'tournament' },
+        { id: '8', name: '8 Giratina', priority: 1, target: 'saved' },
+      ],
+      deckTarget: 'tournament',
+      // 5 of 5 new beats 10 of 12: the share decides, not the count.
+      packs: [
+        pack('A1/mewtwopack', 'Mewtwo', filler('A1', 5)),
+        pack('B4/x', 'Otro', [...filler('B4', 10), ...filler('B4y', 2, 1)]),
+      ],
+      best: ['A1/mewtwopack'],
+    })
+    await open()
+    expect(
+      screen.getByText(/^Para mazos cuenta lo que les falta a tus 2 mazos objetivo \(versión de torneo\)/),
+    ).toBeInTheDocument()
+    const pick = screen.getByText(
+      (_, element) => element?.tagName === 'P' && /^Conviene /.test(element.textContent ?? ''),
+    )
+    expect(pick).toHaveTextContent(
+      'Conviene Mewtwo · A1: ninguna ★★ a la venta les sirve a tus mazos, y es el sobre con la mayor parte de ★★ que no tenés (5 de 5, 100 %).',
+    )
   })
 
   it('ties: «Empata con …»; without deck goals, it says the order comes from the new editions', async () => {
@@ -218,7 +236,11 @@ describe('Sobres → Cupón ★★ (3/11/2026)', () => {
       best: ['A1/charizardpack', 'A1/pikachupack'],
     })
     await open()
-    expect(screen.getByText(/es el sobre con más ediciones que no tenés \(10 de 10, 100 %\)/)).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        /no hay mazos objetivo, y es el sobre con la mayor parte de ★★ que no tenés \(10 de 10, 100 %\)/,
+      ),
+    ).toBeInTheDocument()
     expect(screen.getByText('Empata con Pikachu · A1.')).toBeInTheDocument()
     const rows = screen.getAllByTestId('star-coupon-pack')
     expect(within(rows[1] as HTMLElement).getByText('Empata')).toBeInTheDocument()
@@ -228,8 +250,8 @@ describe('Sobres → Cupón ★★ (3/11/2026)', () => {
     expect(screen.getByText(/Ningún mazo tiene prioridad de sobres/)).toBeInTheDocument()
   })
 
-  it('coupons: unknown with an older bookmarklet, a link without imports; the anniversary’s deadline anyway', async () => {
-    answer = view({ coupons: { importedAt: 'x', syncedAt: '2026-11-02T02:43:00.000Z', items: null } })
+  it('coupons: an import that does not count them asks for the new bookmarklet; the anniversary’s deadline anyway', async () => {
+    answer = view({ coupons: { importedAt: 'x', syncedAt: '2026-11-02T02:43:00.000Z', count: null } })
     await open()
     expect(screen.getByText(/es de un marcador anterior/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Copiá el marcador nuevo' })).toHaveAttribute(
@@ -246,23 +268,8 @@ describe('Sobres → Cupón ★★ (3/11/2026)', () => {
     expect(screen.getByText('Cupón del 2.º aniversario: hasta el 15/12, 03:59.')).toBeInTheDocument()
   })
 
-  it('none, or only an expired one: «No tenés cupones ★★», with the deadline apart', async () => {
-    answer = view({
-      coupons: {
-        importedAt: 'x',
-        syncedAt: '2026-12-15T08:00:00.000Z',
-        items: [
-          {
-            key: 'TICKET_2610000_EV_02',
-            name: '1 ★★ Card Guaranteed Booster Pack Exchange Tickets',
-            count: 1,
-            nameEs: 'Cupón del 2.º aniversario',
-            until: '2026-12-15T07:00:00Z',
-            expired: true,
-          },
-        ],
-      },
-    })
+  it('0 is «No tenés cupones ★★»; past the deadline, «venció»', async () => {
+    answer = view({ coupons: { importedAt: 'x', syncedAt: '2026-12-15T08:00:00.000Z', count: 0 } })
     vi.useFakeTimers({ now: new Date('2026-12-16T12:00:00Z'), toFake: ['Date'] })
     try {
       await open()
