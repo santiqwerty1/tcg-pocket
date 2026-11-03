@@ -35,6 +35,7 @@ import {
   pokemonZoneLuckSinceFirst,
   pokemonZoneSnapshotSchema,
   promoCoupons,
+  type StarCouponTicket,
   samePackPoints,
   starCouponCount,
 } from '@tcg/domain'
@@ -416,15 +417,23 @@ export class PokemonZoneService {
 
   /**
    * Cupón ★★ (3/11/2026): the coupons for a guaranteed ★★ pack the latest import counts (`starCouponCount`, the
-   * ★★ ones of `guaranteedTickets`); null without imports, `count` null when that import does not know them.
+   * ★★ ones of `guaranteedTickets`); null without imports, `count` null when that import does not know them. `count`
+   * is what can still be used at `now`; a known coupon the import holds past its deadline goes in `expired`.
    */
-  async starCoupons(): Promise<{ importedAt: string; syncedAt: string; count: number | null } | null> {
+  async starCoupons(now: Date = new Date()): Promise<{
+    importedAt: string
+    syncedAt: string
+    count: number | null
+    expired: (StarCouponTicket & { count: number })[]
+  } | null> {
     const latest = await this.latest(this.prisma)
     if (!latest) return null
+    const coupons = starCouponCount(latest.snapshot, now)
     return {
       importedAt: latest.row.importedAt.toISOString(),
       syncedAt: latest.row.syncedAt.toISOString(),
-      count: starCouponCount(latest.snapshot),
+      count: coupons?.usable ?? null,
+      expired: coupons?.expired ?? [],
     }
   }
 

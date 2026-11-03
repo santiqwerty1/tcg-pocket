@@ -33,7 +33,7 @@ const pack = (packId: string, nameEs: string, cards: ReturnType<typeof card>[]):
   }
 }
 
-const view = (coupons: StarCouponView['coupons']): StarCouponView => ({
+const view = (coupons: StarCouponView['coupons'], tieBreak: StarCouponView['tieBreak'] = null): StarCouponView => ({
   rarity: '☆☆',
   today: '2026-11-03',
   deckTarget: 'saved',
@@ -50,6 +50,7 @@ const view = (coupons: StarCouponView['coupons']): StarCouponView => ({
     pack('A1/charizardpack', 'Charizard', [card('A1-2', 'Y', [], false)]),
   ],
   best: ['A4a/suicunepack'],
+  tieBreak,
   coupons,
   known: [...STAR_COUPON_TICKETS],
 })
@@ -57,7 +58,7 @@ const view = (coupons: StarCouponView['coupons']): StarCouponView => ({
 describe('packs_star_coupon', () => {
   it('says each share as «k de n (p %)», the cards that count, and the deadline in Buenos Aires', () => {
     const json = starCouponJson(
-      view({ importedAt: '2026-11-03T03:00:00.000Z', syncedAt: '2026-11-03T02:43:00.000Z', count: 2 }),
+      view({ importedAt: '2026-11-03T03:00:00.000Z', syncedAt: '2026-11-03T02:43:00.000Z', count: 2, expired: [] }),
       2,
     )
     expect(json.best).toEqual(['Suicune (A4a)'])
@@ -79,17 +80,47 @@ describe('packs_star_coupon', () => {
     expect(json.knownCoupons).toEqual([{ coupon: 'Cupón del 2.º aniversario', usableUntil: '15/12/2026, 03:59' }])
     // 0 is a count, not unknown.
     expect(
-      starCouponJson(view({ importedAt: '2026-11-03T03:00:00.000Z', syncedAt: '2026-11-03T02:43:00.000Z', count: 0 }))
-        .coupons,
+      starCouponJson(
+        view({ importedAt: '2026-11-03T03:00:00.000Z', syncedAt: '2026-11-03T02:43:00.000Z', count: 0, expired: [] }),
+      ).coupons,
     ).toMatchObject({ status: 'known', count: 0 })
   })
 
   it('an import that does not count them says so and how to fix it; no import, null', () => {
     const unknown = starCouponJson(
-      view({ importedAt: '2026-11-02T03:00:00.000Z', syncedAt: '2026-11-02T02:43:00.000Z', count: null }),
+      view({ importedAt: '2026-11-02T03:00:00.000Z', syncedAt: '2026-11-02T02:43:00.000Z', count: null, expired: [] }),
     )
     expect(unknown.coupons).toMatchObject({ status: 'unknown', note: expect.stringContaining('marcador nuevo') })
     expect(unknown.coupons).not.toHaveProperty('count')
     expect(starCouponJson(view(null)).coupons).toBeNull()
+  })
+
+  it('an anniversary coupon past its deadline goes apart, as expired, not in the count', () => {
+    const json = starCouponJson(
+      view({
+        importedAt: '2026-12-14T03:00:00.000Z',
+        syncedAt: '2026-12-14T02:43:00.000Z',
+        count: 2,
+        expired: [{ ...(STAR_COUPON_TICKETS[0] as (typeof STAR_COUPON_TICKETS)[number]), count: 1 }],
+      }),
+    )
+    expect(json.coupons).toEqual({
+      status: 'known',
+      gameReadAt: '13/12/2026, 23:43',
+      count: 2,
+      expired: [{ coupon: 'Cupón del 2.º aniversario', count: 1, expiredAt: '15/12/2026, 03:59' }],
+    })
+  })
+
+  it('says which tie-break put the first pack first, and nothing without ties', () => {
+    const coupons = {
+      importedAt: '2026-11-03T03:00:00.000Z',
+      syncedAt: '2026-11-03T02:43:00.000Z',
+      count: 1,
+      expired: [],
+    }
+    expect(starCouponJson(view(coupons, 'newest')).tieBreak).toBe('el primero es de la expansión más nueva')
+    expect(starCouponJson(view(coupons, 'limited')).tieBreak).toMatch(/tiempo limitado que termina antes/)
+    expect(starCouponJson(view(coupons, null))).not.toHaveProperty('tieBreak')
   })
 })

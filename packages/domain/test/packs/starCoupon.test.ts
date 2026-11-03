@@ -190,13 +190,63 @@ describe('starCouponPlan: order and ties', () => {
     (packId: string) =>
       packIds.includes(packId)
 
-  it('same shares: by pack id, and both are «best»', () => {
+  it('same shares and the same expansion: by pack id, and both are «best»', () => {
     const plan = starCouponPlan(input({ available: only('A1/pikachupack', 'A1/charizardpack'), owned: () => 0 }))
     expect(plan.packs.map((pack) => [pack.packId, pack.forDecks, pack.newEditions, pack.size])).toEqual([
       ['A1/charizardpack', 0, 10, 10],
       ['A1/pikachupack', 0, 10, 10],
     ])
     expect(plan.best).toEqual(['A1/charizardpack', 'A1/pikachupack'])
+    expect(plan.tieBreak).toBe('id')
+  })
+
+  it('ties with the 6/10 CSV: the newest expansion first (B4a), not the first id (Charizard A1)', () => {
+    const plan = starCouponPlan(input())
+    expect(plan.best.length).toBeGreaterThan(10)
+    expect(plan.best).toContain('A1/charizardpack')
+    expect(plan.packs[0]?.packId).toBe('B4a/teamrocketsambitionpack')
+    expect(plan.tieBreak).toBe('newest')
+    // The tied ones follow the catalog order backwards: each one's expansion is not older than the next one's.
+    const order = (packId: string) => index.packById(packId)?.expansionId ?? ''
+    const sortOrder = (packId: string) => index.expansionById(order(packId))?.sortOrder ?? -1
+    plan.best.slice(1).forEach((packId, at) => {
+      expect(sortOrder(plan.best[at] ?? '')).toBeGreaterThanOrEqual(sortOrder(packId))
+    })
+  })
+
+  it('ties: a limited-time pack on sale first, the fewest days left first, an unknown end after a known one', () => {
+    const limitedUntil = new Map<string, string | null>([
+      ['B4b/deluxepackmega', '2026-10-28'],
+      ['A1/charizardpack', '2026-10-22'],
+      ['A2/dialgapack', null],
+    ])
+    const plan = starCouponPlan(
+      input({
+        owned: () => 0,
+        today: '2026-10-20',
+        limited: (packId) => (limitedUntil.has(packId) ? { until: limitedUntil.get(packId) ?? null } : null),
+      }),
+    )
+    // All new in every pack: the limited ones first, Charizard (2 days) before the Deluxe Mega (8), then Dialga (no end).
+    expect(plan.packs.slice(0, 4).map((pack) => [pack.packId, pack.limited?.daysLeft ?? null])).toEqual([
+      ['A1/charizardpack', 2],
+      ['B4b/deluxepackmega', 8],
+      ['A2/dialgapack', null],
+      ['B4a/teamrocketsambitionpack', null],
+    ])
+    expect(plan.packs[3]?.limited).toBeNull()
+    expect(plan.tieBreak).toBe('limited')
+    // Never above a better share: a pack that stays with a card for the decks still goes first.
+    const withDeck = starCouponPlan(
+      input({
+        owned: () => 0,
+        today: '2026-10-20',
+        decks: [legendaryBeasts],
+        limited: (packId) => (limitedUntil.has(packId) ? { until: limitedUntil.get(packId) ?? null } : null),
+      }),
+    )
+    expect(withDeck.packs[0]?.packId).toBe('A4a/suicunepack')
+    expect(withDeck.tieBreak).toBeNull()
   })
 
   it('the new share ties as a fraction (5 of 10 = 6 of 12), not as a count; then below the goal decides', () => {
@@ -212,26 +262,29 @@ describe('starCouponPlan: order and ties', () => {
     const tied = starCouponPlan(
       input({ available: only('A1a/mewpack', 'A2/dialgapack'), owned: (id) => copies.get(id) ?? 0 }),
     )
+    // Tied: the newer expansion (A2) first.
     expect(tied.packs.map((pack) => [pack.packId, pack.newEditions, pack.size])).toEqual([
-      ['A1a/mewpack', 5, 10],
       ['A2/dialgapack', 6, 12],
+      ['A1a/mewpack', 5, 10],
     ])
-    expect(tied.best).toEqual(['A1a/mewpack', 'A2/dialgapack'])
-    // With «Tener 2» and a second copy of Mew's first card, the new share still ties and below the goal decides:
-    // Dialga 12 of 12 (its 6 owned have 1 copy each), Mew 9 of 10.
-    const mewFirst = index.cardById(mew[0] ?? '')?.stockCardId ?? ''
+    expect(tied.best).toEqual(['A2/dialgapack', 'A1a/mewpack'])
+    expect(tied.tieBreak).toBe('newest')
+    // With «Tener 2» and a second copy of Dialga's first card, the new share still ties and below the goal decides,
+    // against the newer expansion: Mew 10 of 10 (its 5 owned have 1 copy each), Dialga 11 of 12.
+    const dialgaFirst = index.cardById(dialga[0] ?? '')?.stockCardId ?? ''
     const third = starCouponPlan(
       input({
         available: only('A1a/mewpack', 'A2/dialgapack'),
-        owned: (id) => (id === mewFirst ? 2 : (copies.get(id) ?? 0)),
+        owned: (id) => (id === dialgaFirst ? 2 : (copies.get(id) ?? 0)),
         copies: 2,
       }),
     )
     expect(third.packs.map((pack) => [pack.packId, pack.newEditions, pack.belowGoal])).toEqual([
-      ['A2/dialgapack', 6, 12],
-      ['A1a/mewpack', 5, 9],
+      ['A1a/mewpack', 5, 10],
+      ['A2/dialgapack', 6, 11],
     ])
-    expect(third.best).toEqual(['A2/dialgapack'])
+    expect(third.best).toEqual(['A1a/mewpack'])
+    expect(third.tieBreak).toBeNull()
   })
 
   it('compares the shares exactly: 667 of 1000 is above 2 of 3, 8 of 30 ties 4 of 15', () => {

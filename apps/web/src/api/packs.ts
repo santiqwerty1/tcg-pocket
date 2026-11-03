@@ -63,8 +63,22 @@ export const starCouponSchema = z.object({
   lastImportAt: z.string().nullable(),
   packs: z.array(starCouponPackSchema),
   best: z.array(z.string()),
-  /** The latest pokemon-zone import's count; `count` null when that import does not know it. */
-  coupons: z.object({ importedAt: z.string(), syncedAt: z.string(), count: z.number().nullable() }).nullable(),
+  /** With ties, what put the first first (absent from an API before the follow-up of #173: none). */
+  tieBreak: z.enum(['limited', 'newest', 'id']).nullable().default(null),
+  /**
+   * The latest pokemon-zone import's count of usable ★★ coupons; `count` null when that import does not know it.
+   * `expired`: the known coupons it holds past their deadline (absent from an API before the follow-up: none).
+   */
+  coupons: z
+    .object({
+      importedAt: z.string(),
+      syncedAt: z.string(),
+      count: z.number().nullable(),
+      expired: z
+        .array(z.object({ key: z.string(), nameEs: z.string(), until: z.string(), count: z.number() }))
+        .default([]),
+    })
+    .nullable(),
   known: z.array(z.object({ key: z.string(), nameEs: z.string(), until: z.string() })),
 })
 export type StarCoupon = z.infer<typeof starCouponSchema>

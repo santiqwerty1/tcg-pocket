@@ -47,8 +47,28 @@ function couponsJson(view: StarCouponView): Json | null {
       note: 'La última importación de pokemon-zone no cuenta estos cupones (es de un marcador anterior): hay que copiar el marcador nuevo (Colección → pokemon-zone) e importar de nuevo.',
     }
   }
-  // The game's count at its read: a coupon spent or expired since then still counts until the next import.
-  return { status: 'known', gameReadAt, count: coupons.count }
+  // The game's count at its read: a coupon spent since then still counts until the next import; a known coupon past
+  // its deadline goes apart, as expired, never in `count`.
+  return {
+    status: 'known',
+    gameReadAt,
+    count: coupons.count,
+    ...(coupons.expired.length > 0
+      ? {
+          expired: coupons.expired.map((ticket) => ({
+            coupon: ticket.nameEs,
+            count: ticket.count,
+            expiredAt: lastMinute(ticket.until),
+          })),
+        }
+      : {}),
+  }
+}
+
+const TIE_BREAKS: Record<NonNullable<StarCouponView['tieBreak']>, string> = {
+  limited: 'el primero es un sobre por tiempo limitado que termina antes',
+  newest: 'el primero es de la expansión más nueva',
+  id: 'misma expansión: por el id del sobre',
 }
 
 export function starCouponJson(view: StarCouponView, limit = STAR_COUPON_DEFAULT_LIMIT): Json {
@@ -62,12 +82,14 @@ export function starCouponJson(view: StarCouponView, limit = STAR_COUPON_DEFAULT
     coupons: couponsJson(view),
     knownCoupons: view.known.map((ticket) => ({ coupon: ticket.nameEs, usableUntil: lastMinute(ticket.until) })),
     best: view.best.map((packId) => names.get(packId) ?? packId),
+    ...(view.tieBreak ? { tieBreak: TIE_BREAKS[view.tieBreak] } : {}),
     packs: view.packs.slice(0, limit).map(packJson),
     morePacks: Math.max(0, view.packs.length - limit),
     notes: [
       'Cada sobre se mira por su carta ☆☆ garantizada, con todas sus ☆☆ con la misma chance.',
       'forDecks: cartas ☆☆ cuya carta funcional les falta a los mazos objetivo de Sobres (cualquier versión sirve). newEditions: ediciones sin ninguna copia. belowGoal: ediciones con menos copias que goalCopiesPerEdition.',
-      'Orden: forDecks, después newEditions, después belowGoal, cada uno como fracción exacta; best son los empatados arriba.',
+      'Orden: forDecks, después newEditions, después belowGoal, cada uno como fracción exacta; best son los empatados arriba. Entre empatados: primero un sobre por tiempo limitado a la venta (el que termina antes), después la expansión más nueva, después el id del sobre (tieBreak dice cuál decidió el primero).',
+      'coupons.count: los cupones ★★ que se pueden usar; coupons.expired: los conocidos que la importación todavía tenía pero ya vencieron (no se pueden usar).',
       'Fechas en hora de Buenos Aires. Solo los sobres a la venta (los apagados en Sobres → Ajustes o vencidos no aparecen).',
     ],
   }

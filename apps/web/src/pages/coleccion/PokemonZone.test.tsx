@@ -182,7 +182,7 @@ describe('pokemon-zone: the page', () => {
     )
     // Review of #172: when to import.
     expect(screen.getByTestId('import-regularly')).toHaveTextContent(
-      'Importá todos los días a la misma hora, después del Sync automático de pokemon-zone',
+      'Importá todos los días a la misma hora, después del Sync automático de pokemon-zone: la suerte entre importaciones es más clara así, y lo que salió no decide qué período cuenta.',
     )
     expect(await screen.findByText(/18 \(1 sobre\)/)).toBeInTheDocument()
     expect(screen.getByText('3.000')).toBeInTheDocument()
