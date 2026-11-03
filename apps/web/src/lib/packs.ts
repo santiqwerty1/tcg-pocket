@@ -42,6 +42,33 @@ export function limitedLabel(limited: { until: string | null; daysLeft: number |
   return `Hasta el ${day} · ${limited.daysLeft === 1 ? 'queda 1 día' : `quedan ${limited.daysLeft} días`}`
 }
 
+/** The owner's time zone: the game's deadlines are said in it (the API's `OWNER_TIME_ZONE`). */
+const OWNER_TIME_ZONE = 'America/Argentina/Buenos_Aires'
+const deadlineFormat = new Intl.DateTimeFormat('es-AR', {
+  timeZone: OWNER_TIME_ZONE,
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+})
+
+/**
+ * «15/12, 03:59»: the last minute before `until` (exclusive, UTC) in Buenos Aires, as the game says it; the year only
+ * when it is not the current one there.
+ */
+export function formatDeadline(until: string, now: Date = new Date()): string {
+  const parts = (date: Date) =>
+    Object.fromEntries(deadlineFormat.formatToParts(date).map((part) => [part.type, part.value])) as Record<
+      string,
+      string
+    >
+  const last = parts(new Date(Date.parse(until) - 60_000))
+  const day = last.year === parts(now).year ? `${last.day}/${last.month}` : `${last.day}/${last.month}/${last.year}`
+  return `${day}, ${last.hour}:${last.minute}`
+}
+
 /** «×2», «×1,5». */
 export function formatBoost(boost: number): string {
   return `×${twoDecimals.format(boost)}`

@@ -32,6 +32,57 @@ test('Sobres fits the phone with every setting open, and each pack line wraps in
   expect(await pageWidth(page)).toBeLessThanOrEqual(PHONE)
 })
 
+test('Cupón ★★ (3/11): the section fits the phone with every pack, the cards for the decks and the coupons', async ({
+  page,
+}) => {
+  // The screens database has no deck goal nor coupons: long deck names on two cards of the first pack, and a coupon
+  // the app does not know (its English name shows), on top of the real answer.
+  await page.route('**/api/packs/star-coupon*', async (route) => {
+    const response = await route.fetch()
+    const body = (await response.json()) as {
+      packs: { forDecks: number; chanceDecks: number; size: number; cards: { decks: string[] }[] }[]
+      best: string[]
+      coupons: unknown
+    }
+    const first = body.packs[0]
+    if (first) {
+      first.cards = first.cards.map((card, at) =>
+        at < 2
+          ? { ...card, decks: ['12 Mega-Gardevoir ex / Gallade con Dedenne ex y Caramelo Raro', '3 Mew ex'] }
+          : card,
+      )
+      first.forDecks = 2
+      first.chanceDecks = (2 / first.size) * 100
+    }
+    body.coupons = {
+      importedAt: '2026-11-03T03:00:00.000Z',
+      syncedAt: '2026-11-03T02:43:00.000Z',
+      items: [
+        {
+          key: 'TICKET_MISSION_LONG',
+          name: '1 ★★ Card Guaranteed Booster Pack Exchange Tickets (A Mission Event With A Very Long English Name)',
+          count: 1,
+          nameEs: null,
+          until: null,
+          expired: false,
+        },
+      ],
+    }
+    await route.fulfill({ response, json: body })
+  })
+  await page.goto('/sobres')
+  await page.getByText('Cupón ★★: qué sobre conviene').click()
+  await expect(page.getByTestId('star-coupons')).toBeVisible()
+  await page.getByRole('button', { name: /^Ver todos/ }).click()
+  expect(await page.getByTestId('star-coupon-pack').count()).toBeGreaterThan(20)
+  for (const width of await page
+    .getByTestId('star-coupon-pack')
+    .evaluateAll((items) => items.map((item) => item.scrollWidth - item.clientWidth))) {
+    expect(width).toBeLessThanOrEqual(1)
+  }
+  expect(await pageWidth(page)).toBeLessThanOrEqual(PHONE)
+})
+
 test('a match row keeps the rival readable after a long deck name', async ({ page }) => {
   const decks = (await (await page.request.get('/api/decks')).json()) as { items?: { id: string; name: string }[] }
   const deck = [...(decks.items ?? [])].sort((a, b) => b.name.length - a.name.length)[0]

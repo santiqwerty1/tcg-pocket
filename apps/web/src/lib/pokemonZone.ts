@@ -21,7 +21,8 @@ export const HOURGLASSES_PER_PACK = 12
  * `/api/players/mine/` and `/api/players/<friendId>/stats/` and keeps only the fields the app reads, field by field
  * (review of pz/import: nothing pokemon-zone adds later — a name, an id — lands in the URL, sessionStorage or the
  * history): the player's read date and level (the friend id goes only as its SHA-256), the resources the app reads
- * (pack points, hourglasses, three currencies, the promo coupons), the headline and battle counters it reads, packs per
+ * (pack points, hourglasses, three currencies, the promo coupons and, since 3/11/2026, the «Card Guaranteed» pack
+ * tickets), the headline and battle counters it reads, packs per
  * expansion and per pack, and cards by rarity. It opens the app with them in the fragment. ASCII only, and no «%» nor
  * «#»: a bookmark's address would encode, decode or cut them.
  */
@@ -54,6 +55,9 @@ export function bookmarkletCode(origin: string): string {
     'const b={v:1,mine:{player:{accountHash:h,lastUpdatedAt:p.lastUpdatedAt,level:p.level},resourceData:{',
     'currencies:K(r.currencies,["SHOP_TICKET","BRIGHT_SAND","SUBSCRIPTION_TICKET"]),',
     'tickets:F(L(r.tickets).filter(x=>x&&/^\\s*promo card exchange tickets?\\b/i.test(String(x.name))),["key","value","name"]),',
+    // 3/11/2026: the «Card Guaranteed» pack tickets (the ★★ coupon) in a list of their own: an import without it is
+    // from an older bookmarklet, and the app says it does not know the count (not «none»).
+    'guaranteedTickets:F(L(r.tickets).filter(x=>x&&/card guaranteed/i.test(String(x.name))),["key","value","name"]),',
     'packCeilPoints:K(r.packCeilPoints),packPowerChargers:K(r.packPowerChargers,c),challengePowerChargers:K(r.challengePowerChargers,c),',
     'tradePowerChargers:K(r.tradePowerChargers),eventPowerChargers:K(r.eventPowerChargers),revivalClocks:K(r.revivalClocks)}},',
     'stats:{syncedAt:s.syncedAt,',

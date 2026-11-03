@@ -16,6 +16,7 @@ import { useDebouncedValue } from '@/lib/useDebounce'
 import { GoalsSection } from './GoalsSection'
 import { PackSettings } from './PackSettings'
 import { DeckCompletions, MissingCards, PackTable } from './Results'
+import { StarCouponSection } from './StarCoupon'
 
 const DEFAULT_COLLECTION: CollectionGoal = { rarities: [], copies: 1 }
 
@@ -137,6 +138,8 @@ export function SobresPage() {
           </div>
         </div>
       ) : null}
+
+      <StarCouponSection deckTarget={knobs.deckTarget} copies={knobs.collection?.copies ?? 1} />
 
       <PackSettings />
 
