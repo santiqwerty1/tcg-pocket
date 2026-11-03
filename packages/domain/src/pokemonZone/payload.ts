@@ -13,7 +13,11 @@
  */
 import { z } from 'zod'
 
-export const POKEMON_ZONE_PAYLOAD_VERSION = 1
+/**
+ * The bookmarklet's version. 2 (pz/luck, 3/11/2026) also sends the tickets for a pack with a guaranteed card (the
+ * anniversary's ★★ one): with version 1 their count is unknown, with 2 an absent ticket is 0. Both are taken.
+ */
+export const POKEMON_ZONE_PAYLOAD_VERSION = 2
 
 /** Keys and ids the app keeps («TICKET_2610000_EV_03», «AN001_0010_00_000»). */
 const key = z.string().regex(/^[\w.:-]{1,80}$/, 'clave inválida')
@@ -21,7 +25,8 @@ const key = z.string().regex(/^[\w.:-]{1,80}$/, 'clave inválida')
  * An expansion id («A1», «B4b», «C1», «SP1», «P-A»). It becomes a key of the `packPoints` setting, so it starts with a
  * capital letter: «constructor» or «__proto__» are not ids.
  */
-const expansionKey = z.string().regex(/^[A-Z][A-Za-z0-9-]{0,11}$/, 'expansión inválida')
+export const EXPANSION_ID_PATTERN = /^[A-Z][A-Za-z0-9-]{0,11}$/
+const expansionKey = z.string().regex(EXPANSION_ID_PATTERN, 'expansión inválida')
 /** A rarity code («C», «RR», «SAR», «SR2»): it starts with a capital, so no key of `Object.prototype` passes. */
 const rarityKey = z.string().regex(/^[A-Z][A-Z0-9_]{0,9}$/, 'rareza inválida')
 const label = z.string().max(300)
@@ -58,6 +63,11 @@ const CURRENCY_KEYS = ['SHOP_TICKET', 'BRIGHT_SAND', 'SUBSCRIPTION_TICKET'] as c
 
 /** A ticket that is a promo card exchange coupon: «Promo Card Exchange Ticket(s) (<event>)». */
 const COUPON_NAME = /^\s*promo card exchange tickets?\b/i
+/**
+ * A ticket for a pack with a guaranteed card: «1 ★★ Card Guaranteed Booster Pack Exchange Tickets» (the anniversary
+ * campaign until 15/12/2026, `TICKET_2610000_EV_02`). A pack opened with one is not luck (pz/luck).
+ */
+export const GUARANTEED_PACK_TICKET_NAME = /guaranteed booster pack exchange tickets?\b/i
 
 type Issue = { path: (string | number)[]; message: string }
 
@@ -69,7 +79,7 @@ function check(issues: Issue[], schema: z.ZodType, value: unknown, path: (string
 
 export const pokemonZonePayloadSchema = z
   .object({
-    v: z.literal(POKEMON_ZONE_PAYLOAD_VERSION),
+    v: z.union([z.literal(1), z.literal(POKEMON_ZONE_PAYLOAD_VERSION)]),
     mine: z.object({
       player: z.object({
         /**
@@ -129,7 +139,9 @@ export const pokemonZonePayloadSchema = z
         check(issues, count.nullable(), item.value, [...base, 'currencies', i, 'value'])
     })
     resources.tickets.forEach((item, i) => {
-      if (typeof item.name !== 'string' || !COUPON_NAME.test(item.name)) return
+      const read =
+        typeof item.name === 'string' && (COUPON_NAME.test(item.name) || GUARANTEED_PACK_TICKET_NAME.test(item.name))
+      if (!read) return
       check(issues, label, item.name, [...base, 'tickets', i, 'name'])
       check(issues, key, item.key, [...base, 'tickets', i, 'key'])
       check(issues, count.nullable(), item.value, [...base, 'tickets', i, 'value'])
@@ -177,6 +189,12 @@ export const pokemonZoneSnapshotSchema = z.object({
   currencies: z.object({ shopTickets: nullableCount, shinedust: nullableCount, premiumTickets: nullableCount }),
   /** Promo card exchange coupons, one entry per event (`event` as the game names it, in English). */
   coupons: z.array(z.object({ key, event: label, count })).max(LIST_MAX),
+  /**
+   * Tickets for a pack with a guaranteed card, in stock (pz/luck): a count that goes down between two imports is a
+   * pack whose guaranteed card is not luck. Null when the bookmarklet did not send them (version 1, or an import
+   * saved before).
+   */
+  guaranteedPackTickets: nullableCount.default(null),
   battles: z.object({
     versus: counterSchema.nullable(),
     ranked: counterSchema.nullable(),
@@ -280,6 +298,16 @@ export function normalizePokemonZone(payload: PokemonZonePayload): PokemonZoneSn
         ? [{ key: ticket.key as string, event: couponEvent(ticket.name), count: checked(ticket.value) ?? 0 }]
         : [],
     ),
+    guaranteedPackTickets:
+      payload.v === 1
+        ? null
+        : resourceData.tickets.reduce(
+            (sum, ticket) =>
+              typeof ticket.name === 'string' && GUARANTEED_PACK_TICKET_NAME.test(ticket.name)
+                ? sum + (checked(ticket.value) ?? 0)
+                : sum,
+            0,
+          ),
     battles: {
       versus: counter(stat(stats.battles, 'pvp_battles'), stat(stats.battles, 'pvp_wins')),
       ranked: counter(stat(stats.battles, 'ranked_battles'), stat(stats.battles, 'ranked_wins')),

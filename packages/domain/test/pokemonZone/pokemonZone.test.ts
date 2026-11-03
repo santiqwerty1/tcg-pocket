@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { PromoEvent } from '../../src/packs/promo.js'
+import { activePromoEvent, PROMO_COUPON_EVENTS, PROMO_EVENTS, type PromoEvent } from '../../src/packs/promo.js'
 import {
   battlesBetween,
   formatGameCounterEs,
@@ -148,7 +148,9 @@ describe('pokemon-zone: the payload', () => {
       return !pokemonZonePayloadSchema.safeParse(payload).success
     }
     expect(fails(() => undefined)).toBe(false)
-    expect(fails((p) => (p.v = 2))).toBe(true)
+    // pz/luck: version 2 (with the guaranteed-pack tickets) and version 1 are taken, nothing else.
+    expect(fails((p) => (p.v = 2))).toBe(false)
+    expect(fails((p) => (p.v = 3))).toBe(true)
     expect(fails((p) => delete p.stats.battles)).toBe(true)
     expect(fails((p) => delete p.mine.resourceData.packCeilPoints)).toBe(true)
     expect(fails((p) => delete p.mine.player.accountHash)).toBe(true)
@@ -399,18 +401,41 @@ describe('pokemon-zone: promo coupons', () => {
         eventId: 'botin-bis-promo-2026',
         nameEs: 'Evento botín bis PROMO 2026',
         active: true,
+        until: '2026-11-13T07:00:00Z',
       },
+      // pz/luck: the other half of «Evento bis PROMO 2026», with its Spanish name and dates.
       {
         key: 'TICKET_2610000_EV_04',
         event: 'PROMO Reissue Wonder Pick Event 2026',
         count: 2,
-        eventId: null,
-        nameEs: null,
-        active: false,
+        eventId: 'eleccion-magica-bis-promo-2026',
+        nameEs: 'Evento elección mágica bis PROMO 2026',
+        active: true,
+        until: '2026-11-13T07:00:00Z',
       },
     ])
     // After the event: still its coupons, not active.
-    expect(promoCoupons(snapshot(), new Date('2026-11-20T12:00:00Z'))[0]?.active).toBe(false)
+    expect(promoCoupons(snapshot(), new Date('2026-11-20T12:00:00Z')).map((coupon) => coupon.active)).toEqual([
+      false,
+      false,
+    ])
+    // The news: the battles run through 13/11 06:59 UTC (03:59 in Buenos Aires).
+    expect(promoCoupons(snapshot(), new Date('2026-11-13T06:59:59Z')).map((coupon) => coupon.active)).toEqual([
+      true,
+      true,
+    ])
+    expect(promoCoupons(snapshot(), new Date('2026-11-13T07:00:00Z')).map((coupon) => coupon.active)).toEqual([
+      false,
+      false,
+    ])
+  })
+
+  it('pz/luck: the Wonder Pick event names its coupons but is never «the event with battles»', () => {
+    expect(PROMO_EVENTS.map((event) => event.id)).toEqual(['botin-bis-promo-2026'])
+    expect(PROMO_COUPON_EVENTS.map((event) => event.id)).toEqual(['eleccion-magica-bis-promo-2026'])
+    expect(activePromoEvent(new Date('2026-11-05T12:00:00Z'))?.id).toBe('botin-bis-promo-2026')
+    expect(activePromoEvent(new Date('2026-11-13T06:59:59Z'))?.id).toBe('botin-bis-promo-2026')
+    expect(activePromoEvent(new Date('2026-11-13T07:00:00Z'))).toBeNull()
   })
 
   it('leaves out coupons at 0 and matches the event name without minding case or spaces', () => {
@@ -544,15 +569,29 @@ describe('pokemon-zone: suerte de los sobres', () => {
     )
     expect(luck?.cards).toBe(65)
     expect(luck?.packCards).toBe(50)
-    expect(luck?.otherCards).toBe(15)
     expect(luck?.wonderPicks).toBe(8)
     expect(luck?.trades).toBe(2)
+    // pz/luck: a Wonder Pick is a random card of a pack (out of any special window), but up to a tenth of them may be
+    // special picks: 7 count with the packs' odds, 1 is of unknown origin, with the 2 trades and the 5 left.
+    expect(luck?.sources).toMatchObject({
+      wonderPicks: 8,
+      pickCards: 7,
+      unknownPicks: 1,
+      pickWindows: [],
+      trades: 2,
+      guaranteedPacks: 0,
+      restCards: 5,
+    })
+    expect(luck?.otherCards).toBe(8)
     expect(luck?.rare?.expectedShare).toBeCloseTo(STANDARD_RARE, 6)
-    // n is the 50 cards the packs gave; the 2 ☆ could all be from the 15 other cards, or none.
-    expect(luck?.rare?.games).toBe(50)
-    expect(luck?.rare?.expected).toBeCloseTo((50 * STANDARD_RARE) / 100, 6)
+    // n is the 50 cards of the packs and the 7 Wonder Picks; the 2 ☆ could all be from the 8 other cards, or none.
+    expect(luck?.rare?.games).toBe(57)
+    expect(luck?.rare?.unknown).toBe(8)
+    expect(luck?.rare?.expected).toBeCloseTo((57 * STANDARD_RARE) / 100, 6)
     expect(luck?.rare?.fromPacks).toEqual({ min: 0, max: 2 })
     expect(luck?.rare?.verdict).toBe('normal')
+    // Any of the other cards being ☆ (0 to 2) keeps it normal.
+    expect(luck?.rare?.normalIf).toEqual({ min: 0, max: 2 })
     // The Deluxe ex with cards but no packs is listed; its 0 packs do not move the expected share.
     expect(luck?.expansions.map((row) => [row.expansionId, row.packs, row.cards, row.packCards])).toEqual([
       ['A1', 10, 60, 50],
@@ -706,8 +745,11 @@ describe('pokemon-zone: suerte de los sobres', () => {
     expect(luck?.unknownPacks).toBe(62 + 2)
     expect(luck?.rare?.observed).toBe(211 + 28 + 22 + 7 + 21 + 19 + 6)
     expect(luck?.ex?.observed).toBe(534)
-    // About a fifth of the cards are not from the packs the app models: the ☆ check cannot tell.
-    expect(luck?.rare).toMatchObject({ games: 5438, fromPacks: { min: 0, max: 314 }, verdict: 'unknown' })
+    // About a fifth of the cards are not from the packs the app models: the ☆ check cannot tell. Read on 2/11, inside
+    // «Evento bis PROMO 2026»: the Wonder Picks are of unknown origin; and the anniversary's ★★ pack may have been
+    // opened before (a version 1 payload does not say): its guaranteed card is out of the n.
+    expect(luck?.rare).toMatchObject({ games: 5438 - 1, fromPacks: { min: 0, max: 314 }, verdict: 'unknown' })
+    expect(luck?.sources).toMatchObject({ pickCards: 0, unknownPicks: 387, guaranteedPacks: 1, guaranteedSeen: false })
     // B4b's 372 Deluxe packs give 4 cards each; the other known packs 5.
     expect(luck?.packCards).toBe(372 * 4 + (1226 - 372 - 64) * 5)
     expect(luck?.byPack[0]).toMatchObject({ appPackId: 'B4b/deluxepackmega', opened: 372 })

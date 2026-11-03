@@ -33,6 +33,7 @@ const mine = {
     tickets: [
       { key: 'T1', value: 2, name: 'Promo Card Exchange Tickets (PROMO Reissue Drop Event 2026)' },
       { key: 'T2', value: 95, name: 'Emblem Ticket (Genetic Apex)' },
+      { key: 'T3', value: 1, name: '1 ★★ Card Guaranteed Booster Pack Exchange Tickets' },
     ],
     tradePowerChargers: [{ key: 'TRADE', value: 1000, name: 'Trade Hourglass' }],
     newResource: [{ key: 'X', value: 1 }],
@@ -100,7 +101,8 @@ describe('the bookmarklet', () => {
     expect(base).toBe(`${ORIGIN}${RECEIVE_PATH}`)
     const payload = await decodeIncoming(data ?? '')
     expect(payload).toEqual({
-      v: 1,
+      // pz/luck: version 2 also sends the tickets for a pack with a guaranteed card.
+      v: 2,
       mine: {
         // Only its SHA-256 leaves pokemon-zone: not the friend id, not the name; nor the cards and decks.
         player: {
@@ -111,7 +113,10 @@ describe('the bookmarklet', () => {
         // Only what the app reads, field by field.
         resourceData: {
           currencies: [{ key: 'SHOP_TICKET', value: 3000 }],
-          tickets: [{ key: 'T1', value: 2, name: 'Promo Card Exchange Tickets (PROMO Reissue Drop Event 2026)' }],
+          tickets: [
+            { key: 'T1', value: 2, name: 'Promo Card Exchange Tickets (PROMO Reissue Drop Event 2026)' },
+            { key: 'T3', value: 1, name: '1 ★★ Card Guaranteed Booster Pack Exchange Tickets' },
+          ],
           packCeilPoints: [{ key: 'A1', value: 5 }],
           packPowerChargers: [{ key: 'REGULAR_CHARGER_LARGE', value: 18 }],
           challengePowerChargers: [],

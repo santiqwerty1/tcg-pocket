@@ -1,0 +1,607 @@
+{
+  "_nota": "Lectura real de pokemon-zone de la cuenta de Santi (pz/luck), con la identidad inventada: la forma que manda el marcador.",
+  "v": 2,
+  "mine": {
+    "player": {
+      "accountHash": "c6b25ffac5d2c50f41af3ac4d97d07d95fd4f2d5f9fcef98dc709e5741060508",
+      "lastUpdatedAt": "2026-11-02T02:43:29.379814Z",
+      "level": 56
+    },
+    "resourceData": {
+      "currencies": [
+        {
+          "key": "SHOP_TICKET",
+          "value": 4075
+        },
+        {
+          "key": "BRIGHT_SAND",
+          "value": 527445
+        },
+        {
+          "key": "SUBSCRIPTION_TICKET",
+          "value": 27
+        }
+      ],
+      "tickets": [
+        {
+          "key": "TICKET_2610000_EV_02",
+          "value": 1,
+          "name": "1 ★★ Card Guaranteed Booster Pack Exchange Tickets"
+        },
+        {
+          "key": "TICKET_2610000_EV_03",
+          "value": 2,
+          "name": "Promo Card Exchange Tickets (PROMO Reissue Drop Event 2026)"
+        },
+        {
+          "key": "TICKET_2610000_EV_04",
+          "value": 2,
+          "name": "Promo Card Exchange Ticket (PROMO Reissue Wonder Pick Event 2026)"
+        }
+      ],
+      "packCeilPoints": [
+        {
+          "key": "A1",
+          "value": 5
+        },
+        {
+          "key": "A1a",
+          "value": 20
+        },
+        {
+          "key": "A2",
+          "value": 5
+        },
+        {
+          "key": "A2a",
+          "value": 0
+        },
+        {
+          "key": "A2b",
+          "value": 0
+        },
+        {
+          "key": "A3",
+          "value": 70
+        },
+        {
+          "key": "A3a",
+          "value": 15
+        },
+        {
+          "key": "A3b",
+          "value": 50
+        },
+        {
+          "key": "A4",
+          "value": 65
+        },
+        {
+          "key": "A4a",
+          "value": 15
+        },
+        {
+          "key": "B1",
+          "value": 10
+        },
+        {
+          "key": "B1a",
+          "value": 100
+        },
+        {
+          "key": "B2",
+          "value": 25
+        },
+        {
+          "key": "B2a",
+          "value": 20
+        },
+        {
+          "key": "B2b",
+          "value": 25
+        },
+        {
+          "key": "B3",
+          "value": 30
+        },
+        {
+          "key": "B3a",
+          "value": 0
+        },
+        {
+          "key": "B3b",
+          "value": 55
+        },
+        {
+          "key": "B4",
+          "value": 30
+        },
+        {
+          "key": "B4a",
+          "value": 90
+        },
+        {
+          "key": "B4b",
+          "value": 0
+        },
+        {
+          "key": "C1",
+          "value": 310
+        }
+      ],
+      "packPowerChargers": [
+        {
+          "key": "REGULAR_CHARGER_LARGE",
+          "value": 18
+        }
+      ],
+      "challengePowerChargers": [
+        {
+          "key": "REGULAR_CHARGER_LARGE",
+          "value": 123
+        }
+      ],
+      "tradePowerChargers": [
+        {
+          "key": "TRADE_CHAGER_140010",
+          "value": 1218
+        }
+      ],
+      "eventPowerChargers": [
+        {
+          "key": "EVENT_CHARGER",
+          "value": 0
+        }
+      ],
+      "revivalClocks": [
+        {
+          "key": "index_0",
+          "value": 25
+        }
+      ]
+    }
+  },
+  "stats": {
+    "syncedAt": "2026-11-02T02:43:29.379814Z",
+    "headline": [
+      {
+        "id": "packs_opened",
+        "value": 1226
+      },
+      {
+        "id": "cards_obtained",
+        "value": 6883
+      },
+      {
+        "id": "unique_cards",
+        "value": 2419
+      },
+      {
+        "id": "wonder_picks",
+        "value": 387
+      },
+      {
+        "id": "trades",
+        "value": 49
+      }
+    ],
+    "battles": [
+      {
+        "id": "pvp_battles",
+        "value": 505
+      },
+      {
+        "id": "pvp_wins",
+        "value": 242
+      },
+      {
+        "id": "ranked_battles",
+        "value": 347
+      },
+      {
+        "id": "ranked_wins",
+        "value": 164
+      },
+      {
+        "id": "ranked_points",
+        "value": 435
+      },
+      {
+        "id": "solo_battles",
+        "value": 1385
+      },
+      {
+        "id": "solo_wins",
+        "value": 940
+      },
+      {
+        "id": "rental_deck_battles",
+        "value": 11
+      },
+      {
+        "id": "rental_deck_wins",
+        "value": 8
+      }
+    ],
+    "packsByExpansion": [
+      {
+        "expansionId": "B4b",
+        "name": "Deluxe Pack: Mega",
+        "packsOpened": 372,
+        "cardsObtained": 1594
+      },
+      {
+        "expansionId": "A4",
+        "name": "Wisdom of Sea and Sky",
+        "packsOpened": 76,
+        "cardsObtained": 405
+      },
+      {
+        "expansionId": "A1",
+        "name": "Genetic Apex",
+        "packsOpened": 70,
+        "cardsObtained": 442
+      },
+      {
+        "expansionId": "B1",
+        "name": "Mega Rising",
+        "packsOpened": 65,
+        "cardsObtained": 371
+      },
+      {
+        "expansionId": "C1",
+        "name": "Dual Fusion",
+        "packsOpened": 62,
+        "cardsObtained": 343
+      },
+      {
+        "expansionId": "A2",
+        "name": "Space-Time Smackdown",
+        "packsOpened": 57,
+        "cardsObtained": 323
+      },
+      {
+        "expansionId": "A2b",
+        "name": "Shining Revelry",
+        "packsOpened": 49,
+        "cardsObtained": 309
+      },
+      {
+        "expansionId": "A3",
+        "name": "Celestial Guardians",
+        "packsOpened": 49,
+        "cardsObtained": 292
+      },
+      {
+        "expansionId": "B3",
+        "name": "Pulsing Aura",
+        "packsOpened": 48,
+        "cardsObtained": 266
+      },
+      {
+        "expansionId": "B4",
+        "name": "Ruler of the Skies",
+        "packsOpened": 41,
+        "cardsObtained": 260
+      },
+      {
+        "expansionId": "B2",
+        "name": "Fantastical Parade",
+        "packsOpened": 40,
+        "cardsObtained": 288
+      },
+      {
+        "expansionId": "A2a",
+        "name": "Triumphant Light",
+        "packsOpened": 35,
+        "cardsObtained": 193
+      },
+      {
+        "expansionId": "B1a",
+        "name": "Crimson Blaze",
+        "packsOpened": 34,
+        "cardsObtained": 176
+      },
+      {
+        "expansionId": "A1a",
+        "name": "Mythical Island",
+        "packsOpened": 32,
+        "cardsObtained": 172
+      },
+      {
+        "expansionId": "A3b",
+        "name": "Eevee Grove",
+        "packsOpened": 31,
+        "cardsObtained": 163
+      },
+      {
+        "expansionId": "B4a",
+        "name": "Team Rocket’s Ambition",
+        "packsOpened": 25,
+        "cardsObtained": 214
+      },
+      {
+        "expansionId": "B3b",
+        "name": "Everyday Wonders",
+        "packsOpened": 25,
+        "cardsObtained": 134
+      },
+      {
+        "expansionId": "B2a",
+        "name": "Paldean Wonders",
+        "packsOpened": 25,
+        "cardsObtained": 131
+      },
+      {
+        "expansionId": "A4a",
+        "name": "Secluded Springs",
+        "packsOpened": 24,
+        "cardsObtained": 128
+      },
+      {
+        "expansionId": "A3a",
+        "name": "Extradimensional Crisis",
+        "packsOpened": 24,
+        "cardsObtained": 125
+      },
+      {
+        "expansionId": "B3a",
+        "name": "Paradox Drive",
+        "packsOpened": 21,
+        "cardsObtained": 113
+      },
+      {
+        "expansionId": "B2b",
+        "name": "Mega Shine",
+        "packsOpened": 19,
+        "cardsObtained": 102
+      },
+      {
+        "expansionId": "SP1",
+        "name": "Special Pack: First Partners",
+        "packsOpened": 2,
+        "cardsObtained": 2
+      },
+      {
+        "expansionId": "A4b",
+        "name": "Deluxe Pack: ex",
+        "packsOpened": 0,
+        "cardsObtained": 43
+      }
+    ],
+    "packs": [
+      {
+        "packId": "BN011_0010_00_000",
+        "name": "Deluxe Pack: Mega",
+        "expansionId": "B4b",
+        "opened": 372
+      },
+      {
+        "packId": "AN005_0010_00_000",
+        "name": "Shining Revelry",
+        "expansionId": "A2b",
+        "opened": 49
+      },
+      {
+        "packId": "BN006_0010_00_000",
+        "name": "Pulsing Aura",
+        "expansionId": "B3",
+        "opened": 48
+      },
+      {
+        "packId": "AN009_0010_00_000",
+        "name": "Wisdom of Sea and Sky: Ho-Oh",
+        "expansionId": "A4",
+        "opened": 45
+      },
+      {
+        "packId": "BN009_0010_00_000",
+        "name": "Ruler of the Skies",
+        "expansionId": "B4",
+        "opened": 41
+      },
+      {
+        "packId": "BN003_0010_00_000",
+        "name": "Fantastical Parade",
+        "expansionId": "B2",
+        "opened": 40
+      },
+      {
+        "packId": "AN004_0010_00_000",
+        "name": "Triumphant Light",
+        "expansionId": "A2a",
+        "opened": 35
+      },
+      {
+        "packId": "BN002_0010_00_000",
+        "name": "Crimson Blaze",
+        "expansionId": "B1a",
+        "opened": 34
+      },
+      {
+        "packId": "AN003_0020_00_000",
+        "name": "Space-Time Smackdown: Palkia",
+        "expansionId": "A2",
+        "opened": 33
+      },
+      {
+        "packId": "AN002_0010_00_000",
+        "name": "Mythical Island",
+        "expansionId": "A1a",
+        "opened": 32
+      },
+      {
+        "packId": "AN008_0010_00_000",
+        "name": "Eevee Grove",
+        "expansionId": "A3b",
+        "opened": 31
+      },
+      {
+        "packId": "AN009_0020_00_000",
+        "name": "Wisdom of Sea and Sky: Lugia",
+        "expansionId": "A4",
+        "opened": 31
+      },
+      {
+        "packId": "CN001_0010_00_000",
+        "name": "Dual Fusion: Mega Mewtwo X",
+        "expansionId": "C1",
+        "opened": 31
+      },
+      {
+        "packId": "CN001_0020_00_000",
+        "name": "Dual Fusion: Pikachu",
+        "expansionId": "C1",
+        "opened": 31
+      },
+      {
+        "packId": "AN001_0030_00_000",
+        "name": "Genetic Apex: Pikachu",
+        "expansionId": "A1",
+        "opened": 28
+      },
+      {
+        "packId": "AN006_0020_00_000",
+        "name": "Celestial Guardians: Lunala",
+        "expansionId": "A3",
+        "opened": 27
+      },
+      {
+        "packId": "AN001_0010_00_000",
+        "name": "Genetic Apex: Mewtwo",
+        "expansionId": "A1",
+        "opened": 26
+      },
+      {
+        "packId": "BN004_0010_00_000",
+        "name": "Paldean Wonders",
+        "expansionId": "B2a",
+        "opened": 25
+      },
+      {
+        "packId": "BN008_0010_00_000",
+        "name": "Everyday Wonders",
+        "expansionId": "B3b",
+        "opened": 25
+      },
+      {
+        "packId": "BN010_0010_00_000",
+        "name": "Team Rocket’s Ambition",
+        "expansionId": "B4a",
+        "opened": 25
+      },
+      {
+        "packId": "AN003_0010_00_000",
+        "name": "Space-Time Smackdown: Dialga",
+        "expansionId": "A2",
+        "opened": 24
+      },
+      {
+        "packId": "AN007_0010_00_000",
+        "name": "Extradimensional Crisis",
+        "expansionId": "A3a",
+        "opened": 24
+      },
+      {
+        "packId": "AN010_0010_00_000",
+        "name": "Secluded Springs",
+        "expansionId": "A4a",
+        "opened": 24
+      },
+      {
+        "packId": "BN001_0020_00_000",
+        "name": "Mega Rising: Mega Gyarados",
+        "expansionId": "B1",
+        "opened": 24
+      },
+      {
+        "packId": "AN006_0010_00_000",
+        "name": "Celestial Guardians: Solgaleo",
+        "expansionId": "A3",
+        "opened": 22
+      },
+      {
+        "packId": "BN001_0030_00_000",
+        "name": "Mega Rising: Mega Altaria",
+        "expansionId": "B1",
+        "opened": 21
+      },
+      {
+        "packId": "BN007_0010_00_000",
+        "name": "Paradox Drive",
+        "expansionId": "B3a",
+        "opened": 21
+      },
+      {
+        "packId": "BN001_0010_00_000",
+        "name": "Mega Rising: Mega Blaziken",
+        "expansionId": "B1",
+        "opened": 20
+      },
+      {
+        "packId": "BN005_0010_00_000",
+        "name": "Mega Shine",
+        "expansionId": "B2b",
+        "opened": 19
+      },
+      {
+        "packId": "AN001_0020_00_000",
+        "name": "Genetic Apex: Charizard",
+        "expansionId": "A1",
+        "opened": 16
+      },
+      {
+        "packId": "SP001_0010_00_000",
+        "name": "Special Pack: First Partners",
+        "expansionId": "SP1",
+        "opened": 2
+      }
+    ],
+    "cardsByRarity": [
+      {
+        "rarity": "C",
+        "obtained": 3666
+      },
+      {
+        "rarity": "U",
+        "obtained": 1876
+      },
+      {
+        "rarity": "R",
+        "obtained": 493
+      },
+      {
+        "rarity": "RR",
+        "obtained": 534
+      },
+      {
+        "rarity": "AR",
+        "obtained": 211
+      },
+      {
+        "rarity": "SR",
+        "obtained": 28
+      },
+      {
+        "rarity": "IM",
+        "obtained": 22
+      },
+      {
+        "rarity": "SAR",
+        "obtained": 7
+      },
+      {
+        "rarity": "S",
+        "obtained": 21
+      },
+      {
+        "rarity": "SSR",
+        "obtained": 19
+      },
+      {
+        "rarity": "UR",
+        "obtained": 6
+      }
+    ]
+  }
+}

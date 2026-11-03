@@ -124,7 +124,7 @@ const EVENT = {
   id: 'botin-bis-promo-2026',
   nameEs: 'Evento botín bis PROMO 2026',
   from: '2026-10-30T06:00:00Z',
-  until: '2026-11-13T06:00:00Z',
+  until: '2026-11-13T07:00:00Z',
   volumes: ['A7', 'B1', 'B11', 'B12'],
 }
 const COLLECTION_AT = '2026-10-30T15:55:55.985Z'
@@ -170,9 +170,9 @@ describe('sobres de promoción', () => {
       lastImportAt: COLLECTION_AT,
     })
     expect(await screen.findByText('Evento botín bis PROMO 2026', {}, { timeout: 5000 })).toBeInTheDocument()
-    // The game says «hasta las 02:59»: the minute before `until`.
+    // The news says «hasta las 06:59 UTC» (03:59 in Buenos Aires): the minute before `until` (pz/luck).
     expect(screen.getByText(/^Hasta el /).textContent).toContain(
-      new Intl.DateTimeFormat('es-AR', { timeStyle: 'short' }).format(new Date('2026-11-13T05:59:00Z')),
+      new Intl.DateTimeFormat('es-AR', { timeStyle: 'short' }).format(new Date('2026-11-13T06:59:00Z')),
     )
     // The drawn one, not the first of the list, and why.
     expect(await advice()).toBe(
@@ -322,6 +322,48 @@ describe('sobres de promoción', () => {
     })
     await user.click(await screen.findByText('Cupones', {}, { timeout: 5000 }))
     expect(await screen.findByTestId('own-coupons')).toHaveTextContent('De este evento tenés 1 cupón.')
+  })
+
+  it('pz/luck: both halves of «Evento bis PROMO 2026» on, each count said apart', async () => {
+    const user = userEvent.setup()
+    renderPromo({
+      event: EVENT,
+      volumes: [b1(), B11, A7, B12, A1],
+      best: ['B1', 'B11'],
+      pick: 'B11',
+      totals: { volumes: 4, cards: 20, missing: 12, copiesMissing: 21, winsToComplete: 47.33 },
+      lastImportAt: COLLECTION_AT,
+      coupons: {
+        importedAt: '2026-11-03T17:46:00.000Z',
+        syncedAt: '2026-11-03T17:45:10.000Z',
+        items: [
+          {
+            key: 'TICKET_2610000_EV_04',
+            event: 'PROMO Reissue Wonder Pick Event 2026',
+            count: 2,
+            eventId: 'eleccion-magica-bis-promo-2026',
+            nameEs: 'Evento elección mágica bis PROMO 2026',
+            active: true,
+            until: '2026-11-13T07:00:00Z',
+          },
+          {
+            key: 'TICKET_2610000_EV_03',
+            event: 'PROMO Reissue Drop Event 2026',
+            count: 1,
+            eventId: 'botin-bis-promo-2026',
+            nameEs: 'Evento botín bis PROMO 2026',
+            active: true,
+            until: '2026-11-13T07:00:00Z',
+          },
+        ],
+      },
+    })
+    await user.click(await screen.findByText('Cupones', {}, { timeout: 5000 }))
+    const own = await screen.findByTestId('own-coupons')
+    expect(own).toHaveTextContent(
+      'Del evento en curso tenés 2 cupones del Evento elección mágica bis PROMO 2026 y 1 cupón del Evento botín bis PROMO 2026.',
+    )
+    expect(own).not.toHaveTextContent('3 cupones')
   })
 
   it('a card a deck lacks wins and says so; a coupon for it saves every win', async () => {

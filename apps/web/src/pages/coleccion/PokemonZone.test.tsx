@@ -171,8 +171,15 @@ describe('pokemon-zone: the page', () => {
     open('/coleccion/pokemon-zone')
     const code = await screen.findByTestId('bookmarklet')
     expect(code.textContent).toMatch(/^javascript:void\(async\(\)=>\{const A="http:\/\/localhost(:\d+)?";/)
-    await user.click(screen.getByRole('button', { name: 'Copiar' }))
+    await user.click(screen.getByRole('button', { name: 'Copiar todo' }))
     expect(await navigator.clipboard.readText()).toBe(code.textContent)
+    // pz/luck: Chrome strips a pasted «javascript:», so the page says to type it, and copies the rest without it.
+    await user.click(screen.getByRole('button', { name: 'Copiar sin «javascript:»' }))
+    expect(await navigator.clipboard.readText()).toBe(code.textContent?.slice('javascript:'.length))
+    expect(await navigator.clipboard.readText()).toMatch(/^void\(async\(\)=>\{/)
+    expect(screen.getByTestId('javascript-warning')).toHaveTextContent(
+      'Chrome borra el «javascript:» al pegar: escribilo a mano al principio del campo URL',
+    )
     expect(await screen.findByText(/18 \(1 sobre\)/)).toBeInTheDocument()
     expect(screen.getByText('3.000')).toBeInTheDocument()
     expect(screen.getByText(/2 importaciones guardadas/)).toBeInTheDocument()

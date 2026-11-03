@@ -249,7 +249,20 @@ function OwnCoupons({ coupons }: { coupons: PromoCoupons }) {
     <div className="flex flex-col gap-1" data-testid="own-coupons">
       <h3 className="text-xs font-semibold text-muted-foreground">Tus cupones</h3>
       <p>
-        {total > 0 ? (
+        {active.length > 1 ? (
+          // pz/luck: «Evento bis PROMO 2026» is two events with their own coupons: each count, apart.
+          <>
+            Del evento en curso tenés{' '}
+            {active.map((coupon, at) => (
+              <span key={coupon.key}>
+                {at === 0 ? '' : at === active.length - 1 ? ' y ' : ', '}
+                <span className="font-medium">{plural(coupon.count, 'cupón', 'cupones')}</span> del{' '}
+                {coupon.nameEs ?? `«${coupon.event}»`}
+              </span>
+            ))}
+            .
+          </>
+        ) : total > 0 ? (
           <>
             De este evento tenés <span className="font-medium">{plural(total, 'cupón', 'cupones')}</span>.
           </>

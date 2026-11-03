@@ -51,9 +51,10 @@ export function bookmarkletCode(origin: string): string {
     'const r=m.resourceData||{};const c=["REGULAR_CHARGER_LARGE"];',
     'const H=["packs_opened","cards_obtained","unique_cards","wonder_picks","trades"];',
     'const B=["pvp_battles","pvp_wins","ranked_battles","ranked_wins","ranked_points","solo_battles","solo_wins","rental_deck_battles","rental_deck_wins"];',
-    'const b={v:1,mine:{player:{accountHash:h,lastUpdatedAt:p.lastUpdatedAt,level:p.level},resourceData:{',
+    // Version 2 (pz/luck): also the tickets for a pack with a guaranteed card.
+    'const b={v:2,mine:{player:{accountHash:h,lastUpdatedAt:p.lastUpdatedAt,level:p.level},resourceData:{',
     'currencies:K(r.currencies,["SHOP_TICKET","BRIGHT_SAND","SUBSCRIPTION_TICKET"]),',
-    'tickets:F(L(r.tickets).filter(x=>x&&/^\\s*promo card exchange tickets?\\b/i.test(String(x.name))),["key","value","name"]),',
+    'tickets:F(L(r.tickets).filter(x=>x&&/^\\s*promo card exchange tickets?\\b|guaranteed booster pack exchange tickets?\\b/i.test(String(x.name))),["key","value","name"]),',
     'packCeilPoints:K(r.packCeilPoints),packPowerChargers:K(r.packPowerChargers,c),challengePowerChargers:K(r.challengePowerChargers,c),',
     'tradePowerChargers:K(r.tradePowerChargers),eventPowerChargers:K(r.eventPowerChargers),revivalClocks:K(r.revivalClocks)}},',
     'stats:{syncedAt:s.syncedAt,',

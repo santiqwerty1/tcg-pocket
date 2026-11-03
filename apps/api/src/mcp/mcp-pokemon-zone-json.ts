@@ -7,9 +7,13 @@ import {
   formatGameCounterEs,
   formatPercentEs,
   type GameCounterView,
+  type GameLuckTier,
   type GameLuckVerdict,
   HOURGLASSES_PER_PACK,
+  INCLUSION_SD,
   type PokemonZoneLuck,
+  type PokemonZoneLuckSinceFirst,
+  SPECIAL_PICK_SHARE,
 } from '@tcg/domain'
 import { OWNER_TIME_ZONE } from '../config/time-zone.js'
 import type { PokemonZoneSummary } from '../pokemon-zone/pokemon-zone.service.js'
@@ -58,26 +62,47 @@ export function safeName(text: string): string {
   return plain.length > 80 ? plain.slice(0, 80).trimEnd() : plain
 }
 
+function tier(value: GameLuckTier | null): Json | null {
+  return value
+    ? {
+        observed: value.observed,
+        cardsWithKnownOdds: value.games,
+        expectedEstimated: round1(value.expected),
+        expectedPercentEstimated: formatPercentEs(value.expectedShare),
+        cardsOfUnknownOrigin: value.unknown,
+        fromKnownCardsBetween: value.fromPacks,
+        verdict: VERDICT[value.verdict],
+        ...(value.verdict === 'unknown' && value.normalIf
+          ? {
+              normalIfUnknownCardsOfTier: value.normalIf,
+              normalIfText: `sería normal si entre ${value.normalIf.min} y ${value.normalIf.max} de las ${value.unknown} cartas de origen desconocido fueran de estas; con menos, mejor de lo normal; con más, peor`,
+            }
+          : {}),
+      }
+    : null
+}
+
 function luck(item: PokemonZoneLuck | null): Json | null {
   if (!item) return null
-  const tier = (value: PokemonZoneLuck['rare']) =>
-    value
-      ? {
-          observed: value.observed,
-          cardsFromPacks: value.games,
-          expectedFromPacksEstimated: round1(value.expected),
-          expectedPercentEstimated: formatPercentEs(value.expectedShare),
-          fromPacksBetween: value.fromPacks,
-          verdict: VERDICT[value.verdict],
-        }
-      : null
+  const { sources } = item
   return {
     packsOpened: item.packs,
     cardsObtained: item.cards,
     cardsFromPacksEstimated: item.packCards,
-    cardsFromElsewhereEstimated: item.otherCards,
-    wonderPicks: item.wonderPicks,
-    trades: item.trades,
+    // pz/luck: where the cards came from — real, estimated or unknown — never added into one number with another source.
+    sources: {
+      wonderPicks: sources.wonderPicks,
+      wonderPicksAsPackCards: sources.pickCards,
+      wonderPicksOfUnknownOrigin: sources.unknownPicks,
+      ...(sources.pickWindows.length > 0
+        ? { wonderPickNotPackLikeBecause: sources.pickWindows.map((window) => window.why) }
+        : {}),
+      trades: sources.trades,
+      guaranteedStarStarPacks: sources.guaranteedPacks,
+      ...(sources.guaranteedSeen ? {} : { guaranteedStarStarPacksIsABound: true }),
+      restEstimated: sources.restCards,
+    },
+    cardsOfUnknownOriginEstimated: item.otherCards,
     byRarity: item.byRarity,
     ...(item.unknownRarity > 0 ? { cardsWithoutAppRarity: item.unknownRarity } : {}),
     ...(item.unknownPacks > 0 ? { packsOfExpansionsNotInCatalog: item.unknownPacks } : {}),
@@ -95,6 +120,20 @@ function luck(item: PokemonZoneLuck | null): Json | null {
     topPacks: item.byPack
       .slice(0, 10)
       .map((row) => ({ pack: row.nameEs ?? safeName(row.nameEn), expansion: row.expansionId, opened: row.opened })),
+  }
+}
+
+/** pz/luck: «desde la primera importación», the spans between imports with few cards of unknown origin, summed. */
+function sinceFirst(item: PokemonZoneLuckSinceFirst | null): Json | null {
+  if (!item) return null
+  const counted = (value: PokemonZoneLuckSinceFirst['rare']) =>
+    value ? { spansCounted: value.counted, ...tier(value) } : { spansCounted: 0, verdict: 'todavía ninguno cuenta' }
+  return {
+    from: ownerDateTime(item.from),
+    to: ownerDateTime(item.to),
+    spansBetweenImports: item.spans,
+    artRareOrBetter: counted(item.rare),
+    ex: counted(item.ex),
   }
 }
 
@@ -165,11 +204,17 @@ export function pokemonZoneJson(summary: PokemonZoneSummary): Json {
         }
       : null,
     luck: summary.luck
-      ? { lifetime: luck(summary.luck.lifetime), sinceLastImport: luck(summary.luck.since) }
+      ? {
+          lifetime: luck(summary.luck.lifetime),
+          sinceLastImport: luck(summary.luck.since),
+          sinceFirstImport: sinceFirst(summary.luck.sinceFirst),
+        }
       : 'El catálogo no está cargado: la suerte de los sobres no se puede calcular.',
     notes: [
       'Los contadores de partidas son del juego, de por vida (o entre importaciones): una fuente aparte de las partidas registradas en la app; nunca se suman. Versus son todas las partidas contra personas (incluye las competitivas) y se comparan con todas las registradas; las competitivas, con las competitivas registradas.',
       'Suerte de los sobres: sobres abiertos y cartas por rareza son reales (del juego, cuentan Wonder Pick, intercambios y regalos); lo «Estimated» sale de las tasas publicadas de los sobres de cada expansión, pesadas por los sobres que abrió.',
+      `Suerte, de dónde vino cada carta: las de sobre y las de Wonder Pick tienen probabilidades conocidas (una carta de Wonder Pick es una carta al azar de un sobre que abrió otro jugador), salvo durante un evento que cambia Wonder Pick (promos, más elecciones Chansey) y hasta un ${Math.round(SPECIAL_PICK_SHARE * 100)} % que pueden ser elecciones especiales; intercambios, regalos, premios, canjes y la carta asegurada de un sobre de aniversario son de origen desconocido. El veredicto sale solo si no cambia con lo que esas pudieron tener.`,
+      `Desde la primera importación: se suman los períodos entre importaciones con pocas cartas de origen desconocido (todas juntas, a lo sumo ${String(INCLUSION_SD).replace('.', ',')} desvíos de los aciertos esperados); cada período cuenta o no por esas cartas y lo esperado, nunca por lo que salió.`,
       `Relojes de arena de sobre: ${HOURGLASSES_PER_PACK} son un sobre.`,
       ...(window
         ? []
