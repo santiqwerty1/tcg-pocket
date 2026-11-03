@@ -64,11 +64,18 @@ describe('suerte de los sobres', () => {
     expect(lifetime).toHaveTextContent(
       'Unas 1.445 no salieron de esos sobres (estimado: los sobres dan 5.438); Wonder Pick: 387, intercambios: 49 (del juego)',
     )
-    expect(lifetime).toHaveTextContent(
-      '☆ o más: 314 (del juego) · se esperaban ~289 (estimado: 4,2 % de las cartas, con las tasas de los sobres que abriste) · dentro de lo normal',
+    // Review of pz/import: n is the packs' cards, and the verdict only when the other cards could not change it.
+    const [rare, ex] = within(lifetime).getAllByTestId('game-tier') as [HTMLElement, HTMLElement]
+    expect(rare).toHaveTextContent(
+      '☆ o más: 314 (del juego, de todas las fuentes). En las 5.438 cartas que dieron los sobres (n) se esperaban ~228 (estimado: 4,2 %, con las tasas de los sobres que abriste); de esos sobres salieron entre 0 y 314.',
     )
-    expect(lifetime).toHaveTextContent('◊◊◊◊ (ex): 534 (del juego) · se esperaban ~620')
-    expect(lifetime).toHaveTextContent('peor de lo normal (pasa 1 de cada 10000)')
+    expect(rare).toHaveTextContent(
+      'No se puede saber con lo que da el juego: según cuántas de las otras 1.445 cartas (Wonder Pick, intercambios, regalos) fueran de estas, da peor de lo normal o mejor de lo normal.',
+    )
+    expect(rare).not.toHaveTextContent('pasa 1 de cada')
+    expect(ex).toHaveTextContent('◊◊◊◊ (ex): 534 (del juego, de todas las fuentes)')
+    expect(ex).toHaveTextContent('se esperaban ~620')
+    expect(ex).toHaveTextContent('peor de lo normal (pasa 1 de cada 10000)')
     expect(lifetime).toHaveTextContent('Los que más abriste: Sobre Deluxe Mega 372 · Dual Fusion: Mega Mewtwo X 31.')
     expect(lifetime).toHaveTextContent('64 sobres de expansiones que el catálogo todavía no tiene no cuentan')
     // The CSV's view stays, apart, with the expected count as a count (not a percentage).

@@ -31,7 +31,7 @@ function oneIn(probability: number): number {
   return probability <= 0 ? 0 : Math.max(1, Math.round(1 / probability))
 }
 
-function Verdict({ check }: { check: Pick<GameLuckTier['check'], 'verdict' | 'lowerTail' | 'upperTail'> }) {
+function Verdict({ check }: { check: Pick<GameLuckTier['low'], 'verdict' | 'lowerTail' | 'upperTail'> }) {
   const verdict = check.verdict
   const tail = verdict === 'unlucky' ? check.lowerTail : verdict === 'lucky' ? check.upperTail : null
   return (
@@ -88,18 +88,44 @@ function IntervalCard({ title, interval }: { title: string; interval: Interval }
   )
 }
 
-function GameTier({ label, tier }: { label: string; tier: GameLuckTier | null }) {
+/**
+ * Review of pz/import: the check counts over the cards the packs gave (n), and the game's count of the tier includes
+ * the cards from elsewhere, so it is made at both ends of what those could hold; a verdict only when both agree.
+ */
+function GameTier({ label, tier, other }: { label: string; tier: GameLuckTier | null; other: number }) {
   if (!tier) return null
+  const { min, max } = tier.fromPacks
   return (
-    <p className="text-sm">
-      <span className="font-medium">{label}:</span> {formatNumber(tier.observed)}{' '}
-      <span className="text-muted-foreground">(del juego)</span> · se esperaban ~
-      {formatNumber(Math.round(tier.expected))}{' '}
-      <span className="text-muted-foreground">
-        (estimado: {formatRateValue(tier.expectedShare)} de las cartas, con las tasas de los sobres que abriste)
-      </span>{' '}
-      · <Verdict check={tier.check} />
-    </p>
+    <div className="flex flex-col gap-0.5 text-sm" data-testid="game-tier">
+      <p>
+        <span className="font-medium">{label}:</span> {formatNumber(tier.observed)}{' '}
+        <span className="text-muted-foreground">(del juego, de todas las fuentes)</span>. En las{' '}
+        {formatNumber(tier.games)} cartas que dieron los sobres (n) se esperaban ~
+        {formatNumber(Math.round(tier.expected))}{' '}
+        <span className="text-muted-foreground">
+          (estimado: {formatRateValue(tier.expectedShare)}, con las tasas de los sobres que abriste)
+        </span>
+        {min === max
+          ? `; de esos sobres salieron ${formatNumber(max)}.`
+          : `; de esos sobres salieron entre ${formatNumber(min)} y ${formatNumber(max)}.`}
+      </p>
+      <p>
+        {tier.verdict === 'unknown' ? (
+          <span className="text-muted-foreground">
+            No se puede saber con lo que da el juego: según cuántas de las otras {formatNumber(other)} cartas (Wonder
+            Pick, intercambios, regalos) fueran de estas, da {VERDICT[tier.low.verdict]} o {VERDICT[tier.high.verdict]}.
+          </span>
+        ) : (
+          <Verdict
+            check={{
+              verdict: tier.verdict,
+              lowerTail: tier.verdict === 'unlucky' ? (tier.tail ?? 1) : 1,
+              upperTail: tier.verdict === 'lucky' ? (tier.tail ?? 1) : 1,
+            }}
+          />
+        )}
+      </p>
+    </div>
   )
 }
 
@@ -128,12 +154,11 @@ function GameLuckCard({ title, luck }: { title: string; luck: GameLuck }) {
                 ? '1 carta no salió de esos sobres'
                 : `Unas ${formatNumber(luck.otherCards)} no salieron de esos sobres`}{' '}
               (estimado: los sobres dan {formatNumber(luck.packCards)})
-              {other.length > 0 ? `; ${other.join(', ')} (del juego)` : ''}, y también regalos y premios. Se cuentan con
-              la misma mezcla que los sobres.
+              {other.length > 0 ? `; ${other.join(', ')} (del juego)` : ''}, y también regalos y premios.
             </p>
           ) : null}
-          <GameTier label="☆ o más" tier={luck.rare} />
-          <GameTier label="◊◊◊◊ (ex)" tier={luck.ex} />
+          <GameTier label="☆ o más" tier={luck.rare} other={luck.otherCards} />
+          <GameTier label="◊◊◊◊ (ex)" tier={luck.ex} other={luck.otherCards} />
           {top.length > 0 ? (
             <p className="text-xs text-muted-foreground">
               Los que más abriste:{' '}

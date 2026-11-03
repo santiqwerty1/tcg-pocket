@@ -1,46 +1,71 @@
 /**
  * pokemon-zone (2/11/2026): pokemon-zone.com syncs the owner's game data once a day, and its JSON answers only a real
  * browser (Cloudflare), so the app's server cannot read it. A bookmarklet run on pokemon-zone.com reads two of its
- * endpoints with the owner's cookies — `GET /api/players/mine/` (`player`, `resourceData`, `config`) and
- * `GET /api/players/<friendId>/stats/` — and hands them to the app in the URL fragment.
+ * endpoints with the owner's cookies — `GET /api/players/mine/` and `GET /api/players/<friendId>/stats/` — picks the
+ * fields phase 1 uses and hands them to the app in the URL fragment.
  *
- * This module checks that shape (anything else is refused) and keeps only what phase 1 uses, normalized: pack points
- * and hourglasses, promo coupons, the game's battle counters, packs opened and cards obtained by rarity. Nothing else
- * of the payload is kept: not the name, not the cards or the decks. The friend id does not even come: the bookmarklet
- * sends its SHA-256, and the API keeps a keyed fingerprint of that, to tell an import of another account.
+ * This module checks that shape and keeps only what phase 1 uses, normalized: pack points and hourglasses, promo
+ * coupons, the game's battle counters, packs opened and cards obtained by rarity. The fields it uses are checked
+ * strictly; anything else in the lists (another stat, another ticket, a key with «:», a decimal) is ignored, so a
+ * change on pokemon-zone's side in what the app does not read does not stop the import (review of pz/import). Nothing
+ * else is kept: the friend id does not even come (the bookmarklet sends its SHA-256, and the API keeps a keyed
+ * fingerprint of that, to tell an import of another account).
  */
 import { z } from 'zod'
 
 export const POKEMON_ZONE_PAYLOAD_VERSION = 1
 
-/** Keys and ids as pokemon-zone writes them («TICKET_2610000_EV_03», «AN001_0010_00_000», «pvp_wins»). */
-const key = z.string().regex(/^[\w.-]{1,80}$/, 'clave inválida')
+/** Keys and ids the app keeps («TICKET_2610000_EV_03», «AN001_0010_00_000»). */
+const key = z.string().regex(/^[\w.:-]{1,80}$/, 'clave inválida')
 /**
  * An expansion id («A1», «B4b», «C1», «SP1», «P-A»). It becomes a key of the `packPoints` setting, so it starts with a
  * capital letter: «constructor» or «__proto__» are not ids.
  */
 const expansionKey = z.string().regex(/^[A-Z][A-Za-z0-9-]{0,11}$/, 'expansión inválida')
-/** A rarity code («C», «RR», «SAR»): capitals only, so no key of `Object.prototype` passes. */
-const rarityKey = z.string().regex(/^[A-Z]{1,5}$/, 'rareza inválida')
+/** A rarity code («C», «RR», «SAR», «SR2»): it starts with a capital, so no key of `Object.prototype` passes. */
+const rarityKey = z.string().regex(/^[A-Z][A-Z0-9_]{0,9}$/, 'rareza inválida')
 const label = z.string().max(300)
 const count = z.number().int().min(0).max(1_000_000_000)
+const points = z.number().int().min(0).max(1_000_000)
 /** An ISO 8601 date-time with its offset, as pokemon-zone writes them («2026-11-02T02:43:29.379814Z»). */
 const instant = z.iso.datetime({ offset: true })
 
-/** An item of `resourceData` (a currency, a ticket, pack points, hourglasses). */
-const resourceItem = z.object({ key, value: count.nullable(), name: label.nullish() })
-/** At most 100 of each list, and their sums fit a count: what the snapshot keeps passes its own schema. */
-const resourceList = z.array(resourceItem).max(100)
+/** Lists are generous: pokemon-zone may add items the app does not read. */
+const LIST_MAX = 1000
 
-/** Pack points as the settings take them (`packPoints`, at most 1 000 000 each). */
-const pointsItem = resourceItem.extend({ key: expansionKey, value: z.number().int().min(0).max(1_000_000).nullable() })
+/** An item of a `resourceData` list, unchecked until the app picks it. */
+const resourceItem = z.object({ key: z.unknown(), value: z.unknown(), name: z.unknown() }).partial()
+const resourceList = z.array(resourceItem).max(LIST_MAX).default([])
+/** An item of `headline` or `battles`, unchecked until the app picks it. */
+const statItem = z.object({ id: z.unknown(), value: z.unknown() }).partial()
 
-const statItem = z.object({ id: key, value: count.nullable() })
+/** The headline counters and the battle counters the app reads. */
+const HEADLINE_IDS = ['packs_opened', 'cards_obtained', 'unique_cards', 'wonder_picks', 'trades'] as const
+const BATTLE_IDS = [
+  'pvp_battles',
+  'pvp_wins',
+  'ranked_battles',
+  'ranked_wins',
+  'ranked_points',
+  'solo_battles',
+  'solo_wins',
+  'rental_deck_battles',
+  'rental_deck_wins',
+] as const
+/** The keys of the resources the app reads one by one. */
+const HOURGLASS_KEY = 'REGULAR_CHARGER_LARGE'
+const CURRENCY_KEYS = ['SHOP_TICKET', 'BRIGHT_SAND', 'SUBSCRIPTION_TICKET'] as const
 
-/** pokemon-zone's privacy switches: a few flags, nothing big (phase 1 does not use them). */
-const configSchema = z
-  .record(z.string().max(60), z.union([z.boolean(), z.number(), z.string().max(60), z.null()]))
-  .refine((config) => Object.keys(config).length <= 30, 'demasiadas claves')
+/** A ticket that is a promo card exchange coupon: «Promo Card Exchange Ticket(s) (<event>)». */
+const COUPON_NAME = /^\s*promo card exchange tickets?\b/i
+
+type Issue = { path: (string | number)[]; message: string }
+
+/** Checks `value` against `schema` and turns a failure into an issue at `path`. */
+function check(issues: Issue[], schema: z.ZodType, value: unknown, path: (string | number)[]): void {
+  const result = schema.safeParse(value)
+  if (!result.success) issues.push({ path, message: result.error.issues[0]?.message ?? 'inválido' })
+}
 
 export const pokemonZonePayloadSchema = z
   .object({
@@ -56,34 +81,69 @@ export const pokemonZonePayloadSchema = z
         level: count.nullish(),
       }),
       resourceData: z.object({
-        currencies: resourceList.default([]),
-        tickets: resourceList.default([]),
-        packCeilPoints: z.array(pointsItem).max(100),
-        packPowerChargers: resourceList.default([]),
-        challengePowerChargers: resourceList.default([]),
-        tradePowerChargers: resourceList.default([]),
-        eventPowerChargers: resourceList.default([]),
-        revivalClocks: resourceList.default([]),
+        currencies: resourceList,
+        tickets: resourceList,
+        packCeilPoints: z.array(resourceItem).max(LIST_MAX),
+        packPowerChargers: resourceList,
+        challengePowerChargers: resourceList,
+        tradePowerChargers: resourceList,
+        eventPowerChargers: resourceList,
+        revivalClocks: resourceList,
       }),
-      /** Sent by the bookmarklet (pokemon-zone's privacy switches); phase 1 does not use it. */
-      config: configSchema.optional(),
     }),
     stats: z.object({
       syncedAt: instant.nullish(),
-      headline: z.array(statItem).max(100).default([]),
-      battles: z.array(statItem).max(100),
+      headline: z.array(statItem).max(LIST_MAX).default([]),
+      battles: z.array(statItem).max(LIST_MAX),
       packsByExpansion: z
         .array(z.object({ expansionId: expansionKey, name: label, packsOpened: count, cardsObtained: count }))
-        .max(200),
+        .max(500),
       packs: z
         .array(z.object({ packId: key, name: label, expansionId: expansionKey.nullable(), opened: count }))
-        .max(500),
-      cardsByRarity: z.array(z.object({ rarity: rarityKey, obtained: count })).max(50),
+        .max(LIST_MAX),
+      cardsByRarity: z.array(z.object({ rarity: rarityKey, obtained: count })).max(100),
     }),
   })
-  .refine((payload) => payload.stats.syncedAt || payload.mine.player.lastUpdatedAt, {
-    message: 'Falta la fecha de la última sincronización de pokemon-zone con el juego.',
-    path: ['stats', 'syncedAt'],
+  .superRefine((payload, ctx) => {
+    const issues: Issue[] = []
+    if (!payload.stats.syncedAt && !payload.mine.player.lastUpdatedAt) {
+      issues.push({
+        path: ['stats', 'syncedAt'],
+        message: 'Falta la fecha de la última sincronización de pokemon-zone con el juego.',
+      })
+    }
+    // What the app reads, strictly; the rest of each list is ignored.
+    const resources = payload.mine.resourceData
+    const base = ['mine', 'resourceData']
+    resources.packCeilPoints.forEach((item, i) => {
+      check(issues, expansionKey, item.key, [...base, 'packCeilPoints', i, 'key'])
+      check(issues, points.nullable(), item.value, [...base, 'packCeilPoints', i, 'value'])
+    })
+    for (const list of ['packPowerChargers', 'challengePowerChargers'] as const) {
+      resources[list].forEach((item, i) => {
+        if (item.key === HOURGLASS_KEY) check(issues, count.nullable(), item.value, [...base, list, i, 'value'])
+      })
+    }
+    resources.currencies.forEach((item, i) => {
+      if ((CURRENCY_KEYS as readonly unknown[]).includes(item.key))
+        check(issues, count.nullable(), item.value, [...base, 'currencies', i, 'value'])
+    })
+    resources.tickets.forEach((item, i) => {
+      if (typeof item.name !== 'string' || !COUPON_NAME.test(item.name)) return
+      check(issues, label, item.name, [...base, 'tickets', i, 'name'])
+      check(issues, key, item.key, [...base, 'tickets', i, 'key'])
+      check(issues, count.nullable(), item.value, [...base, 'tickets', i, 'value'])
+    })
+    for (const [list, ids] of [
+      ['headline', HEADLINE_IDS],
+      ['battles', BATTLE_IDS],
+    ] as const) {
+      payload.stats[list].forEach((item, i) => {
+        if ((ids as readonly unknown[]).includes(item.id))
+          check(issues, count.nullable(), item.value, ['stats', list, i, 'value'])
+      })
+    }
+    for (const issue of issues) ctx.addIssue({ code: 'custom', path: issue.path, message: issue.message })
   })
 
 export type PokemonZonePayload = z.infer<typeof pokemonZonePayloadSchema>
@@ -105,7 +165,7 @@ export const pokemonZoneSnapshotSchema = z.object({
   syncedAt: instant,
   level: nullableCount,
   /** Pack points per expansion id («B4b»), as the game keeps them. */
-  packPoints: z.record(expansionKey, z.number().int().min(0).max(1_000_000)),
+  packPoints: z.record(expansionKey, points),
   /** Hourglasses in stock: pack (1 hour of a pack each), Wonder Pick, trade, event; and rewind watches. */
   hourglasses: z.object({
     pack: nullableCount,
@@ -116,7 +176,7 @@ export const pokemonZoneSnapshotSchema = z.object({
   }),
   currencies: z.object({ shopTickets: nullableCount, shinedust: nullableCount, premiumTickets: nullableCount }),
   /** Promo card exchange coupons, one entry per event (`event` as the game names it, in English). */
-  coupons: z.array(z.object({ key, event: label, count })).max(100),
+  coupons: z.array(z.object({ key, event: label, count })).max(LIST_MAX),
   battles: z.object({
     versus: counterSchema.nullable(),
     ranked: counterSchema.nullable(),
@@ -134,13 +194,13 @@ export const pokemonZoneSnapshotSchema = z.object({
   /** Packs opened and cards obtained (from every source) per expansion, lifetime. */
   expansions: z
     .array(z.object({ expansionId: expansionKey, nameEn: label, packsOpened: count, cardsObtained: count }))
-    .max(200),
+    .max(500),
   /** Packs opened per pack, lifetime (`packId` is pokemon-zone's). */
   packs: z
     .array(z.object({ packId: key, expansionId: expansionKey.nullable(), nameEn: label, opened: count }))
-    .max(500),
+    .max(LIST_MAX),
   /** Cards obtained per pokemon-zone rarity code, lifetime (every source: packs, Wonder Pick, trades, gifts). */
-  rarities: z.array(z.object({ code: rarityKey, obtained: count })).max(50),
+  rarities: z.array(z.object({ code: rarityKey, obtained: count })).max(100),
 })
 
 export type PokemonZoneSnapshot = z.infer<typeof pokemonZoneSnapshotSchema>
@@ -153,9 +213,6 @@ export function parsePokemonZone(payload: PokemonZonePayload): PokemonZoneSnapsh
   return pokemonZoneSnapshotSchema.parse(normalizePokemonZone(payload))
 }
 
-/** A ticket that is a promo card exchange coupon: «Promo Card Exchange Ticket(s) (<event>)». */
-const COUPON_NAME = /^\s*promo card exchange tickets?\b/i
-
 /** The event of a coupon: the text in its last parentheses, or the whole name. */
 function couponEvent(name: string): string {
   const match = /\(([^()]+)\)\s*$/.exec(name)
@@ -163,25 +220,30 @@ function couponEvent(name: string): string {
 }
 
 type ResourceItem = z.infer<typeof resourceItem>
+type StatItem = z.infer<typeof statItem>
 
-/** The value of one key of a resource list; null when the list does not have it. */
+/** A value the schema already checked (null and absent are null). */
+const checked = (value: unknown): number | null => (typeof value === 'number' ? value : null)
+
+/** The value of one key of a resource list; null when the list does not have it (checked by the schema). */
 function itemValue(items: readonly ResourceItem[], wanted: string): number | null {
   const item = items.find((entry) => entry.key === wanted)
-  return item ? (item.value ?? 0) : null
+  return item ? (checked(item.value) ?? 0) : null
 }
 
-/** The sum of a resource list (at most a count's top); null when it is empty. */
+/** The sum of a resource list's counts (at most a count's top); null when none. Other values are ignored. */
 function sumOf(items: readonly ResourceItem[]): number | null {
-  if (items.length === 0) return null
+  const values = items.map((item) => item.value).filter((value) => count.safeParse(value).success) as number[]
+  if (values.length === 0) return null
   return Math.min(
     1_000_000_000,
-    items.reduce((sum, item) => sum + (item.value ?? 0), 0),
+    values.reduce((sum, value) => sum + value, 0),
   )
 }
 
-function stat(items: readonly { id: string; value: number | null }[], id: string): number | null {
+function stat(items: readonly StatItem[], id: string): number | null {
   const item = items.find((entry) => entry.id === id)
-  return item ? (item.value ?? null) : null
+  return item ? checked(item.value) : null
 }
 
 /** A counter from its battles and wins; null when the game did not give both or they do not add up. */
@@ -196,14 +258,14 @@ export function normalizePokemonZone(payload: PokemonZonePayload): PokemonZoneSn
   const { stats } = payload
   const syncedAt = new Date(Date.parse((stats.syncedAt || player.lastUpdatedAt) as string)).toISOString()
   const packPoints: Record<string, number> = {}
-  for (const item of resourceData.packCeilPoints) packPoints[item.key] = item.value ?? 0
+  for (const item of resourceData.packCeilPoints) packPoints[item.key as string] = checked(item.value) ?? 0
   return {
     syncedAt,
     level: player.level ?? null,
     packPoints,
     hourglasses: {
-      pack: itemValue(resourceData.packPowerChargers, 'REGULAR_CHARGER_LARGE'),
-      wonder: itemValue(resourceData.challengePowerChargers, 'REGULAR_CHARGER_LARGE'),
+      pack: itemValue(resourceData.packPowerChargers, HOURGLASS_KEY),
+      wonder: itemValue(resourceData.challengePowerChargers, HOURGLASS_KEY),
       trade: sumOf(resourceData.tradePowerChargers),
       event: sumOf(resourceData.eventPowerChargers),
       rewind: sumOf(resourceData.revivalClocks),
@@ -213,9 +275,11 @@ export function normalizePokemonZone(payload: PokemonZonePayload): PokemonZoneSn
       shinedust: itemValue(resourceData.currencies, 'BRIGHT_SAND'),
       premiumTickets: itemValue(resourceData.currencies, 'SUBSCRIPTION_TICKET'),
     },
-    coupons: resourceData.tickets
-      .filter((ticket) => COUPON_NAME.test(ticket.name ?? ''))
-      .map((ticket) => ({ key: ticket.key, event: couponEvent(ticket.name ?? ''), count: ticket.value ?? 0 })),
+    coupons: resourceData.tickets.flatMap((ticket) =>
+      typeof ticket.name === 'string' && COUPON_NAME.test(ticket.name)
+        ? [{ key: ticket.key as string, event: couponEvent(ticket.name), count: checked(ticket.value) ?? 0 }]
+        : [],
+    ),
     battles: {
       versus: counter(stat(stats.battles, 'pvp_battles'), stat(stats.battles, 'pvp_wins')),
       ranked: counter(stat(stats.battles, 'ranked_battles'), stat(stats.battles, 'ranked_wins')),

@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
-import { PokemonZoneService } from '../src/pokemon-zone/pokemon-zone.service.js'
+import { POKEMON_ZONE_LOCK, PokemonZoneService } from '../src/pokemon-zone/pokemon-zone.service.js'
+import { ADVISORY_LOCKS } from '../src/prisma/advisory-locks.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /**
@@ -98,6 +99,11 @@ describe('pokemon-zone (e2e)', () => {
     await test.close()
   })
 
+  /** Dates the two settings an import writes `hoursAgo` (as if written then: before or after a read). */
+  const settingsWritten = (hoursAgo: number) =>
+    test.prisma
+      .$executeRaw`UPDATE app_settings SET updated_at = now() - make_interval(hours => ${hoursAgo}) WHERE key IN ('packPoints', 'hourglasses')`
+
   const get = (path: string) => test.http().get(path).set('Cookie', cookie)
   const post = (path: string) => test.http().post(path).set('Cookie', cookie)
   const put = (path: string) => test.http().put(path).set('Cookie', cookie)
@@ -119,14 +125,21 @@ describe('pokemon-zone (e2e)', () => {
   it('refuses another shape with 400, naming the fields and never echoing what was sent', async () => {
     const broken = payload()
     delete broken.stats.battles
-    first(broken.mine.resourceData.packCeilPoints).value = 'muchos'
     const response = await post('/api/pokemon-zone/imports').send(broken)
     expect(response.status).toBe(400)
     expect(response.body.error.code).toBe('validation')
     const paths = (response.body.error.details as { path: string }[]).map((item) => item.path)
-    expect(paths).toEqual(expect.arrayContaining(['stats.battles', 'mine.resourceData.packCeilPoints.0.value']))
+    expect(paths).toEqual(['stats.battles'])
     expect(JSON.stringify(response.body)).not.toContain(ACCOUNT_HASH)
-    expect(JSON.stringify(response.body)).not.toContain('muchos')
+    // A field the app reads, with something that is not a count.
+    const points = payload()
+    first(points.mine.resourceData.packCeilPoints).value = 'muchos'
+    const refusedPoints = await post('/api/pokemon-zone/imports').send(points)
+    expect(refusedPoints.status).toBe(400)
+    expect((refusedPoints.body.error.details as { path: string }[]).map((item) => item.path)).toEqual([
+      'mine.resourceData.packCeilPoints.0.value',
+    ])
+    expect(JSON.stringify(refusedPoints.body)).not.toContain('muchos')
     expect((await post('/api/pokemon-zone/preview').send({ v: 1 })).status).toBe(400)
     // Review of pz/import: a read of the game in the future (it would make every real import «older») or before the
     // game existed is refused, and so is anything whose stored form would not read back.
@@ -138,7 +151,7 @@ describe('pokemon-zone (e2e)', () => {
       expect(refused.body.error.details).toEqual([{ path: 'stats.syncedAt', message: 'fecha fuera de rango' }])
     }
     const coupons = payload() as Payload & { mine: { resourceData: { tickets: unknown[] } } }
-    coupons.mine.resourceData.tickets = Array.from({ length: 101 }, (_, i) => ({
+    coupons.mine.resourceData.tickets = Array.from({ length: 1001 }, (_, i) => ({
       key: `T${i}`,
       value: 1,
       name: 'Promo Card Exchange Ticket (X)',
@@ -148,9 +161,10 @@ describe('pokemon-zone (e2e)', () => {
   })
 
   it('previews without writing, then saves: the import, the pack points and the pack hourglasses', async () => {
-    // Saved by hand before: A1 and a promo expansion the game does not list, and 3 hourglasses.
+    // Saved by hand before the game was read: A1 and a promo expansion the game does not list, and 3 hourglasses.
     expect((await put('/api/settings/packPoints').send({ value: { A1: 100, 'P-A': 5 } })).status).toBe(200)
     expect((await put('/api/settings/hourglasses').send({ value: 3 })).status).toBe(200)
+    await settingsWritten(50)
     const first = payload()
     first.stats.syncedAt = ago(48 * HOUR)
 
@@ -161,7 +175,7 @@ describe('pokemon-zone (e2e)', () => {
       duplicate: false,
       older: false,
       level: 40,
-      hourglasses: { before: 3, after: 18 },
+      hourglasses: { before: 3, after: 18, game: 18, kept: false, editedAt: null },
       since: null,
       battles: { ranked: { battles: 340, wins: 160, orientative: false }, rankedPoints: 430 },
       totals: { packsOpened: 1226, wonderPicks: 387 },
@@ -187,7 +201,11 @@ describe('pokemon-zone (e2e)', () => {
     expect(saved.status).toBe(201)
     expect(saved.body).toMatchObject({
       duplicate: false,
-      applied: { packPoints: preview.body.packPoints.changes.length, hourglasses: { before: 3, after: 18 } },
+      applied: {
+        packPoints: preview.body.packPoints.changes.length,
+        packPointsKept: 0,
+        hourglasses: { before: 3, after: 18, game: 18, kept: false },
+      },
     })
     const settings = (await get('/api/settings')).body
     expect(settings.hourglasses).toBe(18)
@@ -201,13 +219,37 @@ describe('pokemon-zone (e2e)', () => {
     expect(JSON.stringify(rows)).not.toContain(ACCOUNT_HASH)
     expect(JSON.stringify(rows)).not.toContain('jugador')
 
-    // The same numbers saved again are the same row (and rewrite the settings).
+    // The same numbers saved again are the same row, and write back what was changed by hand before the read.
     expect((await put('/api/settings/hourglasses').send({ value: 4 })).status).toBe(200)
+    await settingsWritten(49)
     const again = await post('/api/pokemon-zone/imports').send(first)
     expect(again.body).toMatchObject({ duplicate: true, import: { id: saved.body.import.id } })
     expect(await test.prisma.pokemonZoneImport.count()).toBe(1)
     expect((await get('/api/settings')).body.hourglasses).toBe(18)
     expect((await post('/api/pokemon-zone/preview').send(first)).body.duplicate).toBe(true)
+
+    // Review of pz/import: changed by hand after the read, the value stays — per setting and per expansion — and the
+    // preview says so; what does not differ from the last import is not a hand edit.
+    expect((await put('/api/settings/hourglasses').send({ value: 6 })).status).toBe(200)
+    const points = (await get('/api/settings')).body.packPoints as Record<string, number>
+    expect((await put('/api/settings/packPoints').send({ value: { ...points, A1: 100 } })).status).toBe(200)
+    const kept = (await post('/api/pokemon-zone/preview').send(first)).body
+    expect(kept.hourglasses).toMatchObject({ before: 6, after: 6, game: 18, kept: true, editedAt: expect.any(String) })
+    expect(kept.packPoints.kept).toEqual([{ expansionId: 'A1', value: 100, game: 5, nameEs: 'Genes Formidables' }])
+    expect(kept.packPoints.changes).toEqual([])
+    expect((await post('/api/pokemon-zone/imports').send(first)).body.applied).toMatchObject({
+      packPointsKept: 1,
+      hourglasses: { kept: true, after: 6 },
+    })
+    const now = (await get('/api/settings')).body
+    expect(now.hourglasses).toBe(6)
+    expect(now.packPoints).toMatchObject({ A1: 100, C1: 310 })
+    // They still read as changed by hand.
+    expect((await get('/api/pokemon-zone')).body.settings).toEqual({ packPoints: 'edited', hourglasses: 'edited' })
+    // Back to the game's values by hand: nothing to keep any more.
+    expect((await put('/api/settings/hourglasses').send({ value: 18 })).status).toBe(200)
+    expect((await put('/api/settings/packPoints').send({ value: { ...points } })).status).toBe(200)
+    await settingsWritten(47)
   })
 
   it('the summary: the latest import, where the settings came from, the counters next to the logged matches', async () => {
@@ -256,6 +298,8 @@ describe('pokemon-zone (e2e)', () => {
   })
 
   it('a second import: since the previous one, the packs opened and the ranked matches not logged', async () => {
+    // The hand edits of the test before, dated before this read (after it they would stay: see the save test).
+    await settingsWritten(2)
     const firstRead = (await get('/api/pokemon-zone')).body.latest.syncedAt as string
     const secondRead = ago(HOUR)
     // The window is (previous read, latest read]: a match at the previous read was counted by it, one at the latest
@@ -326,6 +370,7 @@ describe('pokemon-zone (e2e)', () => {
   })
 
   it('saves at once, newer and older mixed, leave the newest read in the settings (the lock)', async () => {
+    await settingsWritten(1)
     // Newer than every import so far (the other account's, 30 minutes ago): 20, 19, … 15 minutes ago.
     const reads = Array.from({ length: 6 }, (_, i) => {
       const next = later(ago((20 - i) * 60 * 1000), {})
@@ -364,12 +409,20 @@ describe('pokemon-zone (e2e)', () => {
     const summary = (await get('/api/pokemon-zone')).body
     expect(summary.latest.hourglasses.pack).toBe(32)
     expect(summary.settings.hourglasses).toBe('imported')
-    // The latest one again is still the latest: it writes them back.
+    // The latest one again is still the latest: it writes them back (when they were changed before its read)…
     expect((await put('/api/settings/hourglasses').send({ value: 1 })).status).toBe(200)
+    await settingsWritten(1)
     expect((await post('/api/pokemon-zone/imports').send(tied(32))).body).toMatchObject({
       duplicate: true,
-      applied: { hourglasses: { before: 1, after: 32 } },
+      applied: { hourglasses: { before: 1, after: 32, kept: false } },
     })
+    // …and keeps a value changed by hand after it (review of pz/import).
+    expect((await put('/api/settings/hourglasses').send({ value: 2 })).status).toBe(200)
+    expect((await post('/api/pokemon-zone/imports').send(tied(32))).body).toMatchObject({
+      duplicate: true,
+      applied: { hourglasses: { before: 2, after: 2, game: 32, kept: true } },
+    })
+    expect((await get('/api/settings')).body.hourglasses).toBe(2)
   })
 
   it('Codex on #170: the luck is computed once per import, and again when a new one comes', async () => {
@@ -400,5 +453,55 @@ describe('pokemon-zone (e2e)', () => {
         count: 2,
       },
     )
+  })
+
+  it('review of pz/import: a save while a restore holds the lock is a 503, not a 500', async () => {
+    const waitMs = POKEMON_ZONE_LOCK.waitMs
+    POKEMON_ZONE_LOCK.waitMs = 300
+    let release = () => {}
+    const released = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let held = () => {}
+    const holding = new Promise<void>((resolve) => {
+      held = resolve
+    })
+    // What a restore does: the pokemon-zone lock, held for a while.
+    const restore = test.prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ADVISORY_LOCKS.pokemonZoneImport}::bigint)`
+        held()
+        await released
+      },
+      { timeout: 20_000 },
+    )
+    try {
+      await holding
+      const busy = await post('/api/pokemon-zone/imports').send(later(ago(60 * 1000), {}))
+      expect(busy.status).toBe(503)
+      expect(busy.body.error).toMatchObject({
+        code: 'pokemon_zone_busy',
+        message: expect.stringMatching(/restauración/),
+      })
+    } finally {
+      release()
+      await restore
+      POKEMON_ZONE_LOCK.waitMs = waitMs
+    }
+  })
+
+  it('review of pz/import: the first import ever, saves at once — the lock alone keeps the newest read', async () => {
+    // No import and no settings rows: nothing to lock with FOR UPDATE, only the advisory lock serializes.
+    await test.prisma.$executeRawUnsafe('TRUNCATE pokemon_zone_imports RESTART IDENTITY')
+    await test.prisma.appSetting.deleteMany({ where: { key: { in: ['packPoints', 'hourglasses'] } } })
+    const reads = Array.from({ length: 6 }, (_, i) => {
+      const next = later(ago((40 - i) * 60 * 1000), {})
+      first(next.mine.resourceData.packPowerChargers).value = 10 + i
+      return next
+    })
+    const answers = await Promise.all([5, 0, 4, 1, 3, 2].map((i) => post('/api/pokemon-zone/imports').send(reads[i])))
+    for (const answer of answers) expect(answer.status).toBe(201)
+    expect((await get('/api/settings')).body.hourglasses).toBe(15)
+    expect((await get('/api/pokemon-zone')).body.settings.hourglasses).toBe('imported')
   })
 })

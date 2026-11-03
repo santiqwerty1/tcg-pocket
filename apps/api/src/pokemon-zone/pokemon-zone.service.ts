@@ -8,7 +8,7 @@
  * account (to tell an import of another account). The friend id never gets here: the bookmarklet sends its SHA-256.
  */
 import { createHash, createHmac, hkdfSync } from 'node:crypto'
-import { BadRequestException, Inject, Injectable } from '@nestjs/common'
+import { BadRequestException, Inject, Injectable, ServiceUnavailableException } from '@nestjs/common'
 import {
   type BattlesBetween,
   battlesBetween,
@@ -16,10 +16,13 @@ import {
   type GameBattles,
   gameBattles,
   type HourglassesUpdate,
+  handEditedPoints,
   hourglassesUpdate,
   type LoggedComparison,
   loggedComparison,
   type PackPointsChange,
+  type PackPointsKept,
+  type PackPointsUpdate,
   type PokemonZoneLuck,
   type PokemonZonePayload,
   type PokemonZoneSnapshot,
@@ -37,9 +40,17 @@ import { ENV, type Env } from '../config/env.js'
 import type { PokemonZoneImport, Prisma } from '../generated/prisma/client.js'
 import { idToString } from '../http/ids.js'
 import { ADVISORY_LOCKS } from '../prisma/advisory-locks.js'
+import { isLockTimeout, isTransactionTimeout } from '../prisma/lock-errors.js'
 import { PrismaService } from '../prisma/prisma.service.js'
 
 const IMPORT_LOCK = ADVISORY_LOCKS.pokemonZoneImport
+/**
+ * How long a save waits for the lock (a restore or the monthly drill holds it up to their 120 s): past it, `503
+ * pokemon_zone_busy`. Tests lower it.
+ */
+export const POKEMON_ZONE_LOCK = { waitMs: 30_000 }
+/** Room for the save itself once the lock is taken. */
+const LOCKED_WORK_MS = 15_000
 /** Rows read to find the newest one that parses. */
 const READ_AHEAD = 5
 /** The first day of the game (TCG Pocket, 30/10/2024): an earlier read of it is not one. */
@@ -78,7 +89,10 @@ function checkedSnapshot(payload: PokemonZonePayload, now: Date): PokemonZoneSna
 const packPointsSetting = z.record(z.string(), z.number().int().min(0).max(1_000_000))
 const hourglassesSetting = z.number().int().min(0).max(100_000)
 
-/** What an import wrote to the settings, as `pokemon_zone_imports.applied` keeps it. */
+/**
+ * What an import applied to the settings, as `pokemon_zone_imports.applied` keeps it: the game's values (also where a
+ * value changed by hand stayed, so that one still reads as changed by hand).
+ */
 const appliedSchema = z.object({
   packPoints: packPointsSetting.optional(),
   hourglasses: hourglassesSetting.optional(),
@@ -103,8 +117,16 @@ export interface PokemonZonePreview {
   duplicate: boolean
   /** Older than the latest import of the account: it is kept, but it does not change the settings. */
   older: boolean
-  packPoints: { changes: PackPointsChangeView[]; unchanged: number }
-  hourglasses: HourglassesUpdate | null
+  packPoints: {
+    changes: PackPointsChangeView[]
+    unchanged: number
+    /** Review of pz/import: expansions changed by hand after the read: their points stay. */
+    kept: (PackPointsKept & { nameEs: string | null })[]
+    /** When the setting was last written (ISO), when something is kept. */
+    editedAt: string | null
+  }
+  /** With `kept`, changed by hand after the read (`editedAt`): the value stays. */
+  hourglasses: (HourglassesUpdate & { editedAt: string | null }) | null
   coupons: PromoCouponStatus[]
   battles: GameBattles
   totals: PokemonZoneSnapshot['totals']
@@ -117,7 +139,12 @@ export interface PokemonZoneSaved {
   /** An import with the same numbers was there already: it was not stored again. */
   duplicate: boolean
   /** What the settings of Sobres got; null when the import is older than the latest one. */
-  applied: { packPoints: number; hourglasses: HourglassesUpdate | null } | null
+  applied: {
+    packPoints: number
+    /** Expansions kept as changed by hand. */
+    packPointsKept: number
+    hourglasses: HourglassesUpdate | null
+  } | null
 }
 
 export interface PokemonZoneLatest extends PokemonZoneImportRef {
@@ -219,21 +246,50 @@ export class PokemonZoneService {
     const account = this.account(payload.mine.player.accountHash)
     const sha256 = createHash('sha256').update(JSON.stringify(snapshot)).digest('hex')
     const syncedAt = new Date(snapshot.syncedAt)
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${IMPORT_LOCK}::bigint)`
-      // A manual edit of these settings (PUT /api/settings) that commits in between is read, not overwritten: the rows
-      // stay locked until this transaction ends.
-      await tx.$queryRaw`SELECT key FROM app_settings WHERE key IN ('packPoints', 'hourglasses') FOR UPDATE`
+    try {
+      return await this.prisma.$transaction(
+        async (tx) => {
+          // Review of pz/import: a restore (or the monthly drill) can hold the lock for a while; past this wait the
+          // answer is a 503, never Prisma's 5 s and a 500.
+          await tx.$executeRaw`SELECT set_config('lock_timeout', ${`${POKEMON_ZONE_LOCK.waitMs}ms`}, true)`
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(${IMPORT_LOCK}::bigint)`
+          // A manual edit of these settings (PUT /api/settings) that commits in between is read, not overwritten: the
+          // rows stay locked until this transaction ends.
+          await tx.$queryRaw`SELECT key FROM app_settings WHERE key IN ('packPoints', 'hourglasses') FOR UPDATE`
+          return this.store(tx, snapshot, account, sha256, syncedAt)
+        },
+        { timeout: POKEMON_ZONE_LOCK.waitMs + LOCKED_WORK_MS, maxWait: 15_000 },
+      )
+    } catch (error) {
+      if (isLockTimeout(error) || isTransactionTimeout(error)) {
+        throw new ServiceUnavailableException({
+          code: 'pokemon_zone_busy',
+          message: 'Hay una restauración del backup (o su prueba mensual) en curso: probá de nuevo en un rato.',
+        })
+      }
+      throw error
+    }
+  }
+
+  private async store(
+    tx: Prisma.TransactionClient,
+    snapshot: PokemonZoneSnapshot,
+    account: string,
+    sha256: string,
+    syncedAt: Date,
+  ): Promise<PokemonZoneSaved> {
+    {
       const plan = await this.plan(tx, snapshot, account)
       const applied: Applied = {}
       if (!plan.older) {
-        const settings = await this.currentSettings(tx)
-        const points = packPointsUpdate(settings.packPoints, snapshot)
-        applied.packPoints = points.next
-        await this.writeSetting(tx, 'packPoints', points.next)
-        if (plan.hourglasses) {
-          applied.hourglasses = plan.hourglasses.after
-          await this.writeSetting(tx, 'hourglasses', plan.hourglasses.after)
+        const settings = await this.settingsPlan(tx, snapshot)
+        // What the game says goes in `applied`; only what changes is written (a value kept keeps its time).
+        applied.packPoints = settings.points.game
+        if (settings.points.changes.length > 0) await this.writeSetting(tx, 'packPoints', settings.points.next)
+        if (settings.hourglasses) {
+          applied.hourglasses = settings.hourglasses.game
+          if (settings.hourglasses.after !== settings.hourglasses.before)
+            await this.writeSetting(tx, 'hourglasses', settings.hourglasses.after)
         }
       }
       const unique = { account_syncedAt_sha256: { account, syncedAt, sha256 } }
@@ -258,9 +314,22 @@ export class PokemonZoneService {
       return {
         import: ref(row),
         duplicate: existing !== null,
-        applied: plan.older ? null : { packPoints: plan.packPoints.changes.length, hourglasses: plan.hourglasses },
+        applied: plan.older
+          ? null
+          : {
+              packPoints: plan.packPoints.changes.length,
+              packPointsKept: plan.packPoints.kept.length,
+              hourglasses: plan.hourglasses
+                ? {
+                    before: plan.hourglasses.before,
+                    after: plan.hourglasses.after,
+                    game: plan.hourglasses.game,
+                    kept: plan.hourglasses.kept,
+                  }
+                : null,
+            },
       }
-    })
+    }
   }
 
   /** The latest import, the comparison with the previous one and with the matches logged, and the luck of the packs. */
@@ -383,10 +452,11 @@ export class PokemonZoneService {
         },
       }),
       this.previousOf(db, account, syncedAt),
-      this.currentSettings(db),
+      this.settingsPlan(db, snapshot),
     ])
-    const points = packPointsUpdate(settings.packPoints, snapshot)
+    const { points } = settings
     const expansions = this.catalog.loaded ? this.catalog.requireIndex() : null
+    const nameEs = (expansionId: string) => expansions?.expansionById(expansionId)?.nameEs ?? null
     const since = previous ? pokemonZoneSince(previous.snapshot, snapshot) : null
     return {
       syncedAt: snapshot.syncedAt,
@@ -395,13 +465,17 @@ export class PokemonZoneService {
       duplicate: existing !== null,
       older: newer > 0,
       packPoints: {
-        changes: points.changes.map((change) => ({
-          ...change,
-          nameEs: expansions?.expansionById(change.expansionId)?.nameEs ?? null,
-        })),
+        changes: points.changes.map((change) => ({ ...change, nameEs: nameEs(change.expansionId) })),
         unchanged: points.unchanged,
+        kept: points.kept.map((item) => ({ ...item, nameEs: nameEs(item.expansionId) })),
+        editedAt: points.kept.length > 0 ? (settings.editedAt.packPoints?.toISOString() ?? null) : null,
       },
-      hourglasses: hourglassesUpdate(settings.hourglasses, snapshot),
+      hourglasses: settings.hourglasses
+        ? {
+            ...settings.hourglasses,
+            editedAt: settings.hourglasses.kept ? (settings.editedAt.hourglasses?.toISOString() ?? null) : null,
+          }
+        : null,
       coupons: promoCoupons(snapshot, new Date()),
       battles: gameBattles(snapshot),
       totals: snapshot.totals,
@@ -470,6 +544,45 @@ export class PokemonZoneService {
     const points = packPointsSetting.safeParse(value('packPoints'))
     const hourglasses = hourglassesSetting.safeParse(value('hourglasses'))
     return { packPoints: points.success ? points.data : {}, hourglasses: hourglasses.success ? hourglasses.data : 0 }
+  }
+
+  /**
+   * What the import does to the settings (review of pz/import): a setting written after pokemon-zone read the game
+   * (`app_settings.updated_at`) that differs from what the latest import applied was changed by hand, later than the
+   * game's numbers: it stays — per expansion for the points.
+   */
+  private async settingsPlan(
+    db: Reader,
+    snapshot: PokemonZoneSnapshot,
+  ): Promise<{
+    points: PackPointsUpdate
+    hourglasses: HourglassesUpdate | null
+    editedAt: { packPoints: Date | null; hourglasses: Date | null }
+  }> {
+    const [rows, current, latest] = await Promise.all([
+      db.appSetting.findMany({
+        where: { key: { in: ['packPoints', 'hourglasses'] } },
+        select: { key: true, updatedAt: true },
+      }),
+      this.currentSettings(db),
+      this.latest(db),
+    ])
+    const read = Date.parse(snapshot.syncedAt)
+    const editedAt = (key: string) => rows.find((row) => row.key === key)?.updatedAt ?? null
+    const after = (key: string) => (editedAt(key)?.getTime() ?? Number.NEGATIVE_INFINITY) > read
+    const applied = latest?.applied
+    const points = packPointsUpdate(
+      current.packPoints,
+      snapshot,
+      handEditedPoints(current.packPoints, applied?.packPoints, after('packPoints')),
+    )
+    const hourglassesByHand =
+      after('hourglasses') && (applied?.hourglasses === undefined || current.hourglasses !== applied.hourglasses)
+    return {
+      points,
+      hourglasses: hourglassesUpdate(current.hourglasses, snapshot, hourglassesByHand),
+      editedAt: { packPoints: editedAt('packPoints'), hourglasses: editedAt('hourglasses') },
+    }
   }
 
   private async writeSetting(tx: Prisma.TransactionClient, key: string, value: unknown): Promise<void> {

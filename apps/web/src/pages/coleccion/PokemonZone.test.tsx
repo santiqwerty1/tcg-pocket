@@ -37,7 +37,7 @@ describe('pokemon-zone: receiving the bookmarklet’s data', () => {
       'POST /api/pokemon-zone/imports': {
         import: { id: '2', importedAt: SUMMARY.latest.importedAt, syncedAt: SUMMARY.latest.syncedAt },
         duplicate: false,
-        applied: { packPoints: 2, hourglasses: { before: 3, after: 18 } },
+        applied: { packPoints: 2, packPointsKept: 0, hourglasses: { before: 3, after: 18, game: 18, kept: false } },
       },
       'GET /api/pokemon-zone': SUMMARY,
     })
@@ -66,14 +66,54 @@ describe('pokemon-zone: receiving the bookmarklet’s data', () => {
     expect(await screen.findByText(/2 importaciones guardadas/)).toBeInTheDocument()
   })
 
-  it('warns when it is another account or an older read', async () => {
+  it('review of pz/import: another account and an older read is one message, not two that contradict', async () => {
     sessionStorage.setItem(STASH_KEY, encoded(PAYLOAD))
     fakeApi({ 'POST /api/pokemon-zone/preview': { ...PREVIEW, account: 'other', older: true, since: null } })
     open(RECEIVE_PATH)
-    expect(await screen.findByText('Es de otra cuenta del juego')).toBeInTheDocument()
-    expect(screen.getByText('Es más vieja que la última importación')).toBeInTheDocument()
+    expect(await screen.findByText('Es de otra cuenta y más vieja que la última importación')).toBeInTheDocument()
+    expect(screen.getByText('Se guarda en el historial, pero no cambia los ajustes de Sobres.')).toBeInTheDocument()
+    expect(screen.queryByText('Es de otra cuenta del juego')).toBeNull()
+    expect(screen.queryByText(/pasan a ser los de esta/)).toBeNull()
     expect(screen.getByText('No cambia nada.')).toBeInTheDocument()
     expect(screen.queryByText(/abriste/)).toBeNull()
+  })
+
+  it('another account with a newer read says the settings become this one’s', async () => {
+    sessionStorage.setItem(STASH_KEY, encoded(PAYLOAD))
+    fakeApi({ 'POST /api/pokemon-zone/preview': { ...PREVIEW, account: 'other', since: null } })
+    open(RECEIVE_PATH)
+    expect(await screen.findByText('Es de otra cuenta del juego')).toBeInTheDocument()
+    expect(screen.queryByText(/más vieja/)).toBeNull()
+  })
+
+  it('review of pz/import: what was changed by hand after the read stays, and the page says so', async () => {
+    sessionStorage.setItem(STASH_KEY, encoded(PAYLOAD))
+    const editedAt = '2026-11-02T15:00:00.000Z'
+    fakeApi({
+      'POST /api/pokemon-zone/preview': {
+        ...PREVIEW,
+        packPoints: {
+          changes: [],
+          unchanged: 20,
+          kept: [{ expansionId: 'A1', value: 100, game: 5, nameEs: 'Genes Formidables' }],
+          editedAt,
+        },
+        hourglasses: { before: 6, after: 6, game: 18, kept: true, editedAt },
+      },
+    })
+    open(RECEIVE_PATH)
+    const when = new Intl.DateTimeFormat('es-AR', { dateStyle: 'medium', timeStyle: 'short' }).format(
+      new Date(editedAt),
+    )
+    expect(await screen.findByTestId('kept-points')).toHaveTextContent(
+      `Los puntos de esta expansión los cambiaste a mano el ${when}, después de la lectura del juego: queda tu valor.`,
+    )
+    expect(screen.getByTestId('kept-points')).toHaveTextContent('Genes Formidables · A1100 (el juego: 5)')
+    expect(screen.getByTestId('kept-hourglasses')).toHaveTextContent(
+      `Relojes de arena de sobre: los cambiaste a mano el ${when}, después de la lectura del juego; queda tu valor, 6 (el juego: 18).`,
+    )
+    // Nothing else changes: no «ya son los del juego» next to a value that is not.
+    expect(screen.queryByText('Los puntos de sobre ya son los del juego.')).toBeNull()
   })
 
   it('a refused payload says why and keeps the data until it is discarded', async () => {

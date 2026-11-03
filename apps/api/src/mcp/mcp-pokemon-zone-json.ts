@@ -7,8 +7,8 @@ import {
   formatGameCounterEs,
   formatPercentEs,
   type GameCounterView,
+  type GameLuckVerdict,
   HOURGLASSES_PER_PACK,
-  type LuckVerdict,
   type PokemonZoneLuck,
 } from '@tcg/domain'
 import { OWNER_TIME_ZONE } from '../config/time-zone.js'
@@ -16,7 +16,8 @@ import type { PokemonZoneSummary } from '../pokemon-zone/pokemon-zone.service.js
 
 type Json = Record<string, unknown>
 
-const VERDICT: Record<LuckVerdict, string> = {
+const VERDICT: Record<GameLuckVerdict, string> = {
+  unknown: 'no se puede saber con lo que da el juego (las cartas de otras fuentes pueden cambiarlo)',
   too_few: 'pocas cartas',
   normal: 'dentro de lo normal',
   unlucky: 'peor de lo normal',
@@ -44,15 +45,30 @@ function counter(view: GameCounterView | null): Json | null {
 
 const round1 = (value: number) => Math.round(value * 10) / 10
 
+/**
+ * Review of pz/import: names that come from the payload (a coupon's event, a pack, an expansion) reach the model only
+ * as short plain text: letters, digits and simple punctuation, up to 80 characters.
+ */
+export function safeName(text: string): string {
+  const plain = text
+    .normalize('NFC')
+    .replace(/[^\p{L}\p{N} :'’&().,-]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return plain.length > 80 ? plain.slice(0, 80).trimEnd() : plain
+}
+
 function luck(item: PokemonZoneLuck | null): Json | null {
   if (!item) return null
   const tier = (value: PokemonZoneLuck['rare']) =>
     value
       ? {
           observed: value.observed,
-          expectedEstimated: round1(value.expected),
+          cardsFromPacks: value.games,
+          expectedFromPacksEstimated: round1(value.expected),
           expectedPercentEstimated: formatPercentEs(value.expectedShare),
-          verdict: VERDICT[value.check.verdict],
+          fromPacksBetween: value.fromPacks,
+          verdict: VERDICT[value.verdict],
         }
       : null
   return {
@@ -70,10 +86,15 @@ function luck(item: PokemonZoneLuck | null): Json | null {
     byExpansion: item.expansions
       .filter((row) => row.packs > 0)
       .slice(0, 30)
-      .map((row) => ({ expansion: row.nameEs ?? row.nameEn, id: row.expansionId, packs: row.packs, cards: row.cards })),
+      .map((row) => ({
+        expansion: row.nameEs ?? safeName(row.nameEn),
+        id: row.expansionId,
+        packs: row.packs,
+        cards: row.cards,
+      })),
     topPacks: item.byPack
       .slice(0, 10)
-      .map((row) => ({ pack: row.nameEs ?? row.nameEn, expansion: row.expansionId, opened: row.opened })),
+      .map((row) => ({ pack: row.nameEs ?? safeName(row.nameEn), expansion: row.expansionId, opened: row.opened })),
   }
 }
 
@@ -103,7 +124,7 @@ export function pokemonZoneJson(summary: PokemonZoneSummary): Json {
     },
     currencies: latest.currencies,
     promoCoupons: latest.coupons.map((coupon) => ({
-      event: coupon.nameEs ?? coupon.event,
+      event: coupon.nameEs ?? `otro evento («${safeName(coupon.event)}»)`,
       count: coupon.count,
       activeEvent: coupon.active,
     })),

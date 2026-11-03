@@ -42,6 +42,11 @@ function open(summary: unknown) {
   )
 }
 
+/** When pokemon-zone read the game, as the page writes it. */
+const READ = new Intl.DateTimeFormat('es-AR', { dateStyle: 'medium', timeStyle: 'short' }).format(
+  new Date(SUMMARY.latest.syncedAt),
+)
+
 describe('Estadísticas: según el juego (2/11)', () => {
   it('the game’s counters next to the matches logged, and what was not logged between the two imports', async () => {
     open(SUMMARY)
@@ -49,11 +54,12 @@ describe('Estadísticas: según el juego (2/11)', () => {
     const ranked = within(section).getByText('Competitivas').closest('li') as HTMLElement
     expect(ranked).toHaveTextContent('47,1 % (160 V en 340 partidas, IC 41,8–⁠52,4 %)')
     expect(ranked).toHaveTextContent('430 puntos ganados')
-    expect(ranked).toHaveTextContent('En la app: 1 competitiva registrada')
+    // Review of pz/import: up to the read, like the game's counters.
+    expect(ranked).toHaveTextContent(`En la app, hasta el ${READ}: 1 competitiva registrada`)
     const versus = within(section)
       .getByText(/^Versus/)
       .closest('li') as HTMLElement
-    expect(versus).toHaveTextContent('En la app: 1 partida registrada, desde el')
+    expect(versus).toHaveTextContent(`En la app, hasta el ${READ}: 1 partida registrada (la primera, del`)
     // Few battles: «orientativo», as every rate under 30.
     expect(within(section).getByText('Mazos de alquiler').closest('li')).toHaveTextContent('orientativo')
     const window = within(section).getByTestId('game-window')

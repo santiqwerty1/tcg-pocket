@@ -7,6 +7,7 @@ import {
   formatGameCounterEs,
   gameBattles,
   gameCounterView,
+  handEditedPoints,
   hourglassesUpdate,
   loggedComparison,
   normalizePokemonZone,
@@ -171,20 +172,45 @@ describe('pokemon-zone: the payload', () => {
     expect(fails((p) => (first(p.mine.resourceData.packCeilPoints).key = 'constructor'))).toBe(true)
     expect(fails((p) => (first(p.mine.resourceData.packCeilPoints).key = '__proto__'))).toBe(true)
     expect(fails((p) => (first(p.stats.cardsByRarity).rarity = 'toString'))).toBe(true)
-    // More tickets than the snapshot keeps coupons, or a big `config`: refused, so what is saved reads back.
+    // More items than a list takes: refused.
     expect(
       fails((p) => {
-        p.mine.resourceData.tickets = Array.from({ length: 101 }, (_, i) => ({
-          key: `T${i}`,
-          value: 1,
-          name: 'Promo Card Exchange Ticket (X)',
-        }))
+        p.mine.resourceData.tickets = Array.from({ length: 1001 }, (_, i) => ({ key: `T${i}`, value: 1, name: 'X' }))
       }),
     ).toBe(true)
+    // What the app reads is strict: a coupon or a battle counter that is not a count.
     expect(
-      fails((p) => (p.mine.config = Object.fromEntries(Array.from({ length: 31 }, (_, i) => [`k${i}`, true])))),
+      fails((p) => {
+        p.mine.resourceData.tickets = [{ key: 'T', value: 1.5, name: 'Promo Card Exchange Ticket (X)' }]
+      }),
     ).toBe(true)
-    expect(fails((p) => (p.mine.config = { isPublic: { nested: true } }))).toBe(true)
+    expect(fails((p) => (p.stats.battles = [{ id: 'ranked_wins', value: '3' }]))).toBe(true)
+  })
+
+  it('review of pz/import: what the app does not read can be anything', () => {
+    const lenient = (change: (payload: Fixture) => void) => {
+      const payload = raw()
+      change(payload)
+      return pokemonZonePayloadSchema.safeParse(payload).success
+    }
+    // A decimal stat, a key with odd characters, a ticket that is not a coupon, a new rarity code, a config.
+    expect(lenient((p) => p.stats.battles?.push({ id: 'max_combo', value: 1.5 }))).toBe(true)
+    expect(lenient((p) => p.mine.resourceData.packPowerChargers.push({ key: 'SMALL:charger', value: 'x' }))).toBe(true)
+    expect(
+      lenient((p) => {
+        p.mine.resourceData.tickets = [{ key: 'a b', value: -1, name: 'Emblem Ticket (X)' }]
+      }),
+    ).toBe(true)
+    expect(lenient((p) => p.stats.cardsByRarity.push({ rarity: 'SR2', obtained: 1 }))).toBe(true)
+    expect(lenient((p) => (p.mine.config = { isPublic: { nested: true } }))).toBe(true)
+    // …and it is not kept.
+    const payload = raw()
+    payload.mine.resourceData.packPowerChargers.push({ key: 'SMALL:charger', value: 7 })
+    payload.mine.config = { isPublic: true }
+    const data = parsePokemonZone(pokemonZonePayloadSchema.parse(payload))
+    expect(data.hourglasses.pack).toBe(18)
+    expect(JSON.stringify(data)).not.toContain('SMALL:charger')
+    expect(JSON.stringify(data)).not.toContain('isPublic')
   })
 
   it('what is saved always reads back with the stored form (parsePokemonZone)', () => {
@@ -261,10 +287,35 @@ describe('pokemon-zone: the settings of Sobres', () => {
   })
 
   it('pack hourglasses are the setting’s hourglasses; null when the game did not give them', () => {
-    expect(hourglassesUpdate(5, snapshot())).toEqual({ before: 5, after: 18 })
+    expect(hourglassesUpdate(5, snapshot())).toEqual({ before: 5, after: 18, game: 18, kept: false })
     const none = { hourglasses: { ...snapshot().hourglasses, pack: null } }
     expect(hourglassesUpdate(5, none)).toBeNull()
     expect(hourglassesUpdate(0, { hourglasses: { ...none.hourglasses, pack: 250_000 } })?.after).toBe(100_000)
+  })
+
+  it('review of pz/import: what was changed by hand after the read stays', () => {
+    const points = packPointsUpdate({ A1: 100, A3: 70, B4b: 40 }, snapshot(), new Set(['A1', 'A3']))
+    // A1 stays (100, the game says 5); A3 is equal anyway; B4b, not changed by hand, goes to the game's 0.
+    expect(points.kept).toEqual([{ expansionId: 'A1', value: 100, game: 5 }])
+    expect(points.next).toMatchObject({ A1: 100, A3: 70, C1: 310 })
+    expect(points.next).not.toHaveProperty('B4b')
+    expect(points.changes.find((change) => change.expansionId === 'A1')).toBeUndefined()
+    // What the import records as applied is the game's: A1 reads as changed by hand afterwards.
+    expect(points.game).toMatchObject({ A1: 5, A3: 70, C1: 310 })
+    expect(samePackPoints(points.next, points.game)).toBe(false)
+    expect(hourglassesUpdate(6, snapshot(), true)).toEqual({ before: 6, after: 6, game: 18, kept: true })
+    // Equal to the game's: nothing to keep.
+    expect(hourglassesUpdate(18, snapshot(), true)).toEqual({ before: 18, after: 18, game: 18, kept: false })
+  })
+
+  it('review of pz/import: which points were changed by hand after the read', () => {
+    // The setting was written before the read: nothing.
+    expect([...handEditedPoints({ A1: 100 }, { A1: 5 }, false)]).toEqual([])
+    // After it: what differs from what the last import recorded (absent and 0 are the same).
+    expect([...handEditedPoints({ A1: 100, A3: 70, B4b: 0 }, { A1: 5, A3: 70 }, true)]).toEqual(['A1'])
+    expect([...handEditedPoints({ A3: 70 }, { A1: 5, A3: 70 }, true)]).toEqual(['A1'])
+    // No import recorded anything: every expansion with points was set by hand.
+    expect([...handEditedPoints({ A1: 100, B4b: 0 }, undefined, true)]).toEqual(['A1'])
   })
 
   it('two point settings are the same when 0 and absent are', () => {
@@ -409,12 +460,13 @@ describe('pokemon-zone: suerte de los sobres', () => {
     expect(luck.rare?.expected).toBeCloseTo((90 * ((50 * STANDARD_RARE + 40 * DELUXE_RARE) / 90)) / 100, 6)
     expect(luck.ex?.observed).toBe(4)
     expect(luck.ex?.expectedShare).toBeCloseTo((50 * STANDARD_EX + 40 * DELUXE_EX) / 90, 6)
-    // 4 ex where ~10,9 were expected out of 90 cards: worse than normal.
-    expect(luck.ex?.check.verdict).toBe('unlucky')
+    // 4 ex where ~10,9 were expected out of 90 cards: worse than normal. No other cards: both ends are the same.
+    expect(luck.ex).toMatchObject({ games: 90, fromPacks: { min: 4, max: 4 }, verdict: 'unlucky' })
+    expect(luck.ex?.tail).toBe(luck.ex?.high.lowerTail)
     expect(luck.byRarity).toEqual({ '◊': 50, '◊◊': 26, '◊◊◊': 6, '◊◊◊◊': 4, '☆': 3, '☆☆': 1 })
   })
 
-  it('cards from elsewhere count over the same mix, and are said apart', () => {
+  it('cards from elsewhere are said apart and left out of the n', () => {
     const luck = pokemonZoneLuck(
       luckSnapshot({
         expansions: [
@@ -434,7 +486,11 @@ describe('pokemon-zone: suerte de los sobres', () => {
     expect(luck?.wonderPicks).toBe(8)
     expect(luck?.trades).toBe(2)
     expect(luck?.rare?.expectedShare).toBeCloseTo(STANDARD_RARE, 6)
-    expect(luck?.rare?.expected).toBeCloseTo((65 * STANDARD_RARE) / 100, 6)
+    // n is the 50 cards the packs gave; the 2 ☆ could all be from the 15 other cards, or none.
+    expect(luck?.rare?.games).toBe(50)
+    expect(luck?.rare?.expected).toBeCloseTo((50 * STANDARD_RARE) / 100, 6)
+    expect(luck?.rare?.fromPacks).toEqual({ min: 0, max: 2 })
+    expect(luck?.rare?.verdict).toBe('normal')
     // The Deluxe ex with cards but no packs is listed; its 0 packs do not move the expected share.
     expect(luck?.expansions.map((row) => [row.expansionId, row.packs, row.cards, row.packCards])).toEqual([
       ['A1', 10, 60, 50],
@@ -475,7 +531,28 @@ describe('pokemon-zone: suerte de los sobres', () => {
     )
     expect(luck?.cards).toBe(8)
     expect(luck?.unknownRarity).toBe(3)
-    expect(luck?.rare?.check.games).toBe(8)
+    expect(luck?.rare?.games).toBe(8)
+  })
+
+  it('review of pz/import: a verdict only when the other cards could not change it', () => {
+    // 100 packs of A1 (500 cards), 200 cards from elsewhere, 40 ☆: from 0 (all elsewhere) to 40 from the packs, where
+    // ~16,7 were expected — unlucky at one end, lucky at the other.
+    const split = pokemonZoneLuck(
+      luckSnapshot({ expansions: [['A1', 100, 700]], rarities: { C: 600, U: 60, AR: 40 } }),
+      null,
+      index,
+    )
+    expect(split?.rare).toMatchObject({ games: 500, fromPacks: { min: 0, max: 40 }, verdict: 'unknown', tail: null })
+    expect(split?.rare?.low.verdict).toBe('unlucky')
+    expect(split?.rare?.high.verdict).toBe('lucky')
+    // No ☆ at all in 700 cards: at both ends none came from the packs — unlucky whatever the others were.
+    const none = pokemonZoneLuck(
+      luckSnapshot({ expansions: [['A1', 100, 700]], rarities: { C: 640, U: 60 } }),
+      null,
+      index,
+    )
+    expect(none?.rare).toMatchObject({ fromPacks: { min: 0, max: 0 }, verdict: 'unlucky' })
+    expect(none?.rare?.tail).toBeLessThan(0.001)
   })
 
   it('since the previous import: the differences, per expansion, pack and rarity', () => {
@@ -543,6 +620,8 @@ describe('pokemon-zone: suerte de los sobres', () => {
     expect(luck?.unknownPacks).toBe(62 + 2)
     expect(luck?.rare?.observed).toBe(211 + 28 + 22 + 7 + 21 + 19 + 6)
     expect(luck?.ex?.observed).toBe(534)
+    // About a fifth of the cards are not from the packs the app models: the ☆ check cannot tell.
+    expect(luck?.rare).toMatchObject({ games: 5438, fromPacks: { min: 0, max: 314 }, verdict: 'unknown' })
     // B4b's 372 Deluxe packs give 4 cards each; the other known packs 5.
     expect(luck?.packCards).toBe(372 * 4 + (1226 - 372 - 64) * 5)
     expect(luck?.byPack[0]).toMatchObject({ appPackId: 'B4b/deluxepackmega', opened: 372 })

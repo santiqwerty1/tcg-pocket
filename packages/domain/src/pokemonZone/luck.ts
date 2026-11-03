@@ -6,15 +6,45 @@
  *
  * What stays estimated: the cards those packs gave (packs × cards per pack, without the rare 6-card packs) and the
  * share of each rarity expected among them, from the published rates of each expansion's packs weighted by the packs
- * really opened. The game's rarity counts include every source (Wonder Pick, trades, gifts), so the check takes the
- * cards from elsewhere with the same mix as the packs — as the CSV view does — and says how many they are.
+ * really opened. The game's rarity counts include every source (Wonder Pick, trades, gifts), and those other cards
+ * can hold more rare ones than packs do, so the check counts over the packs' cards only and is made at both ends of
+ * what the other cards could hold (`GameLuckTier`): a verdict only when both ends agree (review of pz/import).
  */
 import type { CatalogIndex } from '../catalog/catalogIndex.js'
 import type { Rarity } from '../catalog/types.js'
-import { type PackLuckTier, RARE_TIER, rarityShareOfPack } from '../packs/luck.js'
-import { luckCheck } from '../stats/luck.js'
+import { RARE_TIER, rarityShareOfPack } from '../packs/luck.js'
+import { type LuckCheck, type LuckVerdict, luckCheck } from '../stats/luck.js'
 import { pokemonZonePack, pokemonZoneRarity } from './catalog.js'
 import type { PokemonZoneSnapshot } from './payload.js'
+
+/** A verdict of «Según el juego»: «unknown» when the cards from other sources could change it. */
+export type GameLuckVerdict = LuckVerdict | 'unknown'
+
+/**
+ * A tier (☆ or more, ◊◊◊◊) of the game's luck. The game counts the cards of every source together, and the cards that
+ * did not come from the packs the app models (Wonder Pick, trades, gifts, pack points, expansions the catalog lacks)
+ * lean towards rare ones; so the check is made at both ends — those cards held none of the tier, or as many as they
+ * could — and gives a verdict only when both ends agree (review of pz/import).
+ */
+export interface GameLuckTier {
+  /** Real: cards of the tier obtained, from every source. */
+  observed: number
+  /** Estimated: share of the tier among the cards of the packs opened (0–100). */
+  expectedShare: number
+  /** The n of the check: the cards the packs gave (estimated: packs × cards per pack). */
+  games: number
+  /** Estimated: cards of the tier expected among them. */
+  expected: number
+  /** Cards of the tier the packs gave: at least `min` (the other cards held as many as they could), at most `max`. */
+  fromPacks: { min: number; max: number }
+  /** The check with `fromPacks.min` and with `fromPacks.max`. */
+  low: LuckCheck
+  high: LuckCheck
+  /** Both ends' verdict when they agree; «unknown» otherwise. */
+  verdict: GameLuckVerdict
+  /** For «lucky» or «unlucky», the less extreme end's tail (how often it happens, at most); otherwise null. */
+  tail: number | null
+}
 
 export interface PokemonZoneExpansionLuck {
   expansionId: string
@@ -63,8 +93,8 @@ export interface PokemonZoneLuck {
   /** Packs of expansions the app has no pack structure for: out of the expected shares. */
   unknownPacks: number
   /** ☆ and above, and ◊◊◊◊: observed real, expected estimated; null when no pack of a known expansion was opened. */
-  rare: PackLuckTier | null
-  ex: PackLuckTier | null
+  rare: GameLuckTier | null
+  ex: GameLuckTier | null
 }
 
 type LuckSnapshot = Pick<PokemonZoneSnapshot, 'expansions' | 'packs' | 'rarities' | 'totals'>
@@ -159,14 +189,27 @@ export function pokemonZoneLuck(
   const trades = deltaOrNull(current.totals.trades, previous?.totals.trades)
   if (broken) return null
 
-  const tier = (observed: number, expectedFromPacks: number): PackLuckTier | null => {
+  const tier = (observed: number, expectedFromPacks: number): GameLuckTier | null => {
     if (packCards === 0) return null
     const expectedShare = (expectedFromPacks / packCards) * 100
+    // The cards the packs gave (never more than the game counts), and the rest from elsewhere.
+    const games = Math.min(packCards, cards)
+    const other = cards - games
+    const fromPacks = { min: Math.max(0, observed - other), max: Math.min(observed, games) }
+    const low = luckCheck({ wins: fromPacks.min, losses: games - fromPacks.min, ties: 0 }, expectedShare)
+    const high = luckCheck({ wins: fromPacks.max, losses: games - fromPacks.max, ties: 0 }, expectedShare)
+    const verdict: GameLuckVerdict = low.verdict === high.verdict ? low.verdict : 'unknown'
     return {
       observed,
-      expected: (cards * expectedShare) / 100,
       expectedShare,
-      check: luckCheck({ wins: observed, losses: cards - observed, ties: 0 }, expectedShare),
+      games,
+      expected: (games * expectedShare) / 100,
+      fromPacks,
+      low,
+      high,
+      verdict,
+      // Lucky with the fewest from the packs is the least lucky end; unlucky with the most, the least unlucky.
+      tail: verdict === 'lucky' ? low.upperTail : verdict === 'unlucky' ? high.lowerTail : null,
     }
   }
   const rareObserved = [...RARE_TIER].reduce((sum, rarity) => sum + (byRarity[rarity] ?? 0), 0)

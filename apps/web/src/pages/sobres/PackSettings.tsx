@@ -9,7 +9,7 @@ import { Link } from 'react-router'
 import { toast } from 'sonner'
 import { errorMessage } from '@/api/client'
 import { type PackPatch, packKeys, usePacks, useRarityRules, useSetRarityRule, useUpdatePack } from '@/api/packs'
-import { pokemonZoneKey, usePokemonZone } from '@/api/pokemonZone'
+import { usePokemonZone } from '@/api/pokemonZone'
 import type { PackInfo, RarityRuleInfo } from '@/api/schemas'
 import { useSetSetting, useSettings } from '@/api/settings'
 import { ErrorState, LoadingRows } from '@/components/ListState'
@@ -193,11 +193,8 @@ function Pace() {
   async function save(key: 'packsPerDay' | 'hourglasses', value: number) {
     try {
       await setSetting.mutateAsync({ key, value })
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: packKeys.all }),
-        // Codex on #170: whether the hourglasses are still the game's comes from the pokemon-zone summary.
-        queryClient.invalidateQueries({ queryKey: pokemonZoneKey }),
-      ])
+      // useSetSetting marks the pokemon-zone summary stale too (Codex on #170, review of pz/import).
+      await queryClient.invalidateQueries({ queryKey: packKeys.all })
     } catch (error) {
       toast.error(errorMessage(error))
     }
@@ -262,11 +259,7 @@ function SavedPoints() {
     if (points === 0) delete next[expansionId]
     try {
       await setSetting.mutateAsync({ key: POINTS_KEY, value: next })
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: packKeys.all }),
-        // Codex on #170: whether the points are still the game's comes from the pokemon-zone summary.
-        queryClient.invalidateQueries({ queryKey: pokemonZoneKey }),
-      ])
+      await queryClient.invalidateQueries({ queryKey: packKeys.all })
     } catch (error) {
       toast.error(errorMessage(error))
     }
@@ -286,7 +279,9 @@ function SavedPoints() {
         <ul className="divide-y border-t">
           {expansions.map(([expansionId, name]) => (
             <PointsRow
-              key={expansionId}
+              // Review of pz/import: a new value (an import while this is open) starts the row again, so leaving it
+              // does not write back the old text.
+              key={`${expansionId}:${saved[expansionId] ?? 0}`}
               expansionId={expansionId}
               name={name}
               value={saved[expansionId] ?? 0}

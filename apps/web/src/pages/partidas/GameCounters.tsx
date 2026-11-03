@@ -45,16 +45,19 @@ function Counters({ data }: { data: PokemonZoneSummary }) {
               {plural(game.rankedPoints, 'punto ganado', 'puntos ganados')}
             </span>
           ) : null}
+          {/* Review of pz/import: up to the read, as the game's counters (Estadísticas counts until now). */}
           <span className="text-xs text-muted-foreground">
-            En la app: {plural(logged.competitive, 'competitiva registrada', 'competitivas registradas')}
+            En la app, hasta el {formatDateTime(latest.syncedAt)}:{' '}
+            {plural(logged.competitive, 'competitiva registrada', 'competitivas registradas')}
           </span>
         </li>
         <li className="flex flex-col gap-0.5 px-3 py-2">
           <span className="font-medium">Versus (contra personas, competitivas incluidas)</span>
           <span>{gameRateText(game.versus)}</span>
           <span className="text-xs text-muted-foreground">
-            En la app: {plural(logged.all, 'partida registrada', 'partidas registradas')}
-            {logged.firstAt ? `, desde el ${formatDate(logged.firstAt)}` : ''}
+            En la app, hasta el {formatDateTime(latest.syncedAt)}:{' '}
+            {plural(logged.all, 'partida registrada', 'partidas registradas')}
+            {logged.firstAt ? ` (la primera, del ${formatDate(logged.firstAt)})` : ''}
           </span>
         </li>
         <li className="flex flex-col gap-0.5 px-3 py-2">

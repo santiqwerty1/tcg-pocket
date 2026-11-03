@@ -35,22 +35,26 @@ function PreviewView({ preview }: { preview: PokemonZonePreview }) {
         Datos del juego del <span className="font-medium">{formatDateTime(preview.syncedAt)}</span> (cuando pokemon-zone
         lo leyó).
       </p>
-      {preview.account === 'other' ? (
+      {/* Review of pz/import: one message — an older read changes nothing, whichever account it is of. */}
+      {preview.older ? (
+        <Alert>
+          <AlertTitle>
+            {preview.account === 'other'
+              ? 'Es de otra cuenta y más vieja que la última importación'
+              : 'Es más vieja que la última importación'}
+          </AlertTitle>
+          <AlertDescription>
+            {preview.duplicate
+              ? 'Ya está en el historial y no cambia los ajustes de Sobres.'
+              : 'Se guarda en el historial, pero no cambia los ajustes de Sobres.'}
+          </AlertDescription>
+        </Alert>
+      ) : preview.account === 'other' ? (
         <Alert>
           <AlertTitle>Es de otra cuenta del juego</AlertTitle>
           <AlertDescription>
             La importación anterior es de otra cuenta: si guardás, los puntos y relojes de Sobres pasan a ser los de
             esta, y no se compara con la anterior.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-      {preview.older ? (
-        <Alert>
-          <AlertTitle>Es más vieja que la última importación</AlertTitle>
-          <AlertDescription>
-            {preview.duplicate
-              ? 'Ya está en el historial y no cambia los ajustes de Sobres.'
-              : 'Se guarda en el historial, pero no cambia los ajustes de Sobres.'}
           </AlertDescription>
         </Alert>
       ) : preview.duplicate ? (
@@ -72,7 +76,9 @@ function PreviewView({ preview }: { preview: PokemonZonePreview }) {
         ) : (
           <>
             {packPoints.changes.length === 0 ? (
-              <p className="text-sm">Los puntos de sobre ya son los del juego.</p>
+              packPoints.kept.length === 0 ? (
+                <p className="text-sm">Los puntos de sobre ya son los del juego.</p>
+              ) : null
             ) : (
               <div className="flex flex-col gap-1">
                 <p className="text-sm">
@@ -98,7 +104,39 @@ function PreviewView({ preview }: { preview: PokemonZonePreview }) {
                 </ul>
               </div>
             )}
-            {hourglasses ? (
+            {packPoints.kept.length > 0 ? (
+              <div className="flex flex-col gap-1" data-testid="kept-points">
+                <p className="text-sm">
+                  {packPoints.kept.length === 1
+                    ? 'Los puntos de esta expansión los cambiaste'
+                    : 'Los puntos de estas expansiones los cambiaste'}{' '}
+                  a mano
+                  {packPoints.editedAt ? ` el ${formatDateTime(packPoints.editedAt)}` : ''}, después de la lectura del
+                  juego: {packPoints.kept.length === 1 ? 'queda tu valor' : 'quedan tus valores'}.
+                </p>
+                <ul className="divide-y rounded-lg border text-sm">
+                  {packPoints.kept.map((item) => (
+                    <li key={item.expansionId} className="flex flex-wrap justify-between gap-x-3 px-3 py-1.5">
+                      <span className="min-w-0">
+                        {item.nameEs ?? item.expansionId}{' '}
+                        <span className="text-muted-foreground">· {item.expansionId}</span>
+                      </span>
+                      <span className="tabular">
+                        {formatNumber(item.value)}{' '}
+                        <span className="text-muted-foreground">(el juego: {formatNumber(item.game)})</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {hourglasses?.kept ? (
+              <p className="text-sm" data-testid="kept-hourglasses">
+                Relojes de arena de sobre: los cambiaste a mano
+                {hourglasses.editedAt ? ` el ${formatDateTime(hourglasses.editedAt)}` : ''}, después de la lectura del
+                juego; queda tu valor, {formatNumber(hourglasses.before)} (el juego: {formatNumber(hourglasses.game)}).
+              </p>
+            ) : hourglasses ? (
               <p className="text-sm">
                 Relojes de arena de sobre: {formatNumber(hourglasses.before)} → {formatNumber(hourglasses.after)} (
                 {plural(Math.floor(hourglasses.after / HOURGLASSES_PER_PACK), 'sobre', 'sobres')}).
@@ -171,9 +209,11 @@ export function PokemonZoneReceivePage() {
       toast.success(
         !saved.applied
           ? 'Guardado en el historial, sin cambiar los ajustes de Sobres.'
-          : saved.duplicate
-            ? 'Ya estaba importada: los ajustes de Sobres quedaron como en el juego.'
-            : 'Importado de pokemon-zone.',
+          : saved.applied.packPointsKept > 0 || saved.applied.hourglasses?.kept
+            ? 'Importado de pokemon-zone; quedaron los valores que cambiaste a mano después de la lectura.'
+            : saved.duplicate
+              ? 'Ya estaba importada: los ajustes de Sobres quedaron como en el juego.'
+              : 'Importado de pokemon-zone.',
       )
       navigate(BACK, { replace: true })
     } catch (error) {

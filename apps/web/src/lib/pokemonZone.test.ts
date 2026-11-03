@@ -1,6 +1,7 @@
 import { Blob as NodeBlob } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import { gzipSync } from 'node:zlib'
+import { pokemonZonePayloadSchema } from '@tcg/domain'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   bookmarkletCode,
@@ -16,14 +17,48 @@ import {
 const ORIGIN = 'https://tcg-pocket.fly.dev'
 const FRIEND_ID = '1111222233334444'
 
+/** pokemon-zone's answers, with fields the app does not read (they must not travel). */
 const mine = {
-  player: { friendId: FRIEND_ID, name: 'jugador', lastUpdatedAt: '2026-11-02T02:43:29.379814Z', level: 40 },
-  resourceData: { packCeilPoints: [{ key: 'A1', value: 5, name: 'Genetic Apex' }] },
+  player: { friendId: FRIEND_ID, name: 'jugador', lastUpdatedAt: '2026-11-02T02:43:29.379814Z', level: 40, xp: 9 },
+  resourceData: {
+    packCeilPoints: [{ key: 'A1', value: 5, name: 'Genetic Apex' }],
+    packPowerChargers: [
+      { key: 'REGULAR_CHARGER_LARGE', value: 18, name: 'Pack Hourglass' },
+      { key: 'OTHER', value: 1 },
+    ],
+    currencies: [
+      { key: 'SHOP_TICKET', value: 3000, name: 'Shop ticket' },
+      { key: 'GOLD', value: 7, name: 'Poke Gold' },
+    ],
+    tickets: [
+      { key: 'T1', value: 2, name: 'Promo Card Exchange Tickets (PROMO Reissue Drop Event 2026)' },
+      { key: 'T2', value: 95, name: 'Emblem Ticket (Genetic Apex)' },
+    ],
+    tradePowerChargers: [{ key: 'TRADE', value: 1000, name: 'Trade Hourglass' }],
+    newResource: [{ key: 'X', value: 1 }],
+  },
   config: { isPublic: true },
   cards: [{ cardId: 'PK_10_000010_00', amount: 2 }],
   decks: [{ name: 'Mazo' }],
 }
-const stats = { syncedAt: '2026-11-02T02:43:29.379814Z', battles: [{ id: 'pvp_battles', value: 3 }] }
+const stats = {
+  syncedAt: '2026-11-02T02:43:29.379814Z',
+  ownerName: 'jugador',
+  headline: [
+    { id: 'packs_opened', label: 'Packs opened', value: 1226, rank: 3905 },
+    { id: 'max_damage', label: 'Most damage', value: 250 },
+  ],
+  battles: [
+    { id: 'pvp_battles', label: 'Versus battles', value: 3 },
+    { id: 'emblems', value: 1 },
+  ],
+  packsByExpansion: [
+    { expansionId: 'A1', name: 'Genetic Apex', sortOrder: 2011, packsOpened: 70, cardsObtained: 442, uniqueCards: 1 },
+  ],
+  packs: [{ packId: 'AN001_0010_00_000', name: 'Genetic Apex: Mewtwo', subName: null, expansionId: 'A1', opened: 26 }],
+  cardsByRarity: [{ rarity: 'C', label: 'Common', sortOrder: 0, obtained: 3666, unique: 1 }],
+  cardsByType: [{ type: 'Grass', obtained: 1 }],
+}
 
 /** Runs the bookmarklet as a browser would on `hostname`, with pokemon-zone's API stubbed. */
 async function run(hostname: string, answer: (url: string) => Response = defaultAnswer) {
@@ -73,11 +108,30 @@ describe('the bookmarklet', () => {
           lastUpdatedAt: mine.player.lastUpdatedAt,
           level: 40,
         },
-        resourceData: mine.resourceData,
-        config: mine.config,
+        // Only what the app reads, field by field.
+        resourceData: {
+          currencies: [{ key: 'SHOP_TICKET', value: 3000 }],
+          tickets: [{ key: 'T1', value: 2, name: 'Promo Card Exchange Tickets (PROMO Reissue Drop Event 2026)' }],
+          packCeilPoints: [{ key: 'A1', value: 5 }],
+          packPowerChargers: [{ key: 'REGULAR_CHARGER_LARGE', value: 18 }],
+          challengePowerChargers: [],
+          tradePowerChargers: [{ key: 'TRADE', value: 1000 }],
+          eventPowerChargers: [],
+          revivalClocks: [],
+        },
       },
-      stats,
+      stats: {
+        syncedAt: stats.syncedAt,
+        headline: [{ id: 'packs_opened', value: 1226 }],
+        battles: [{ id: 'pvp_battles', value: 3 }],
+        packsByExpansion: [{ expansionId: 'A1', name: 'Genetic Apex', packsOpened: 70, cardsObtained: 442 }],
+        packs: [{ packId: 'AN001_0010_00_000', name: 'Genetic Apex: Mewtwo', expansionId: 'A1', opened: 26 }],
+        cardsByRarity: [{ rarity: 'C', obtained: 3666 }],
+      },
     })
+    expect(JSON.stringify(payload)).not.toMatch(/jugador|isPublic|Emblem|Poke Gold|max_damage|rank|Grass/)
+    // …and it is what the API takes.
+    expect(pokemonZonePayloadSchema.safeParse(payload).success).toBe(true)
     expect(location.href).not.toContain(FRIEND_ID)
   })
 

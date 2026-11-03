@@ -7,9 +7,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { z } from 'zod'
 import { request } from './client'
 import { packKeys } from './packs'
+import { pokemonZoneKey } from './pokemonZoneKey'
 import { settingsKeys } from './settings'
 
-export const pokemonZoneKey = ['pokemon-zone'] as const
+export { pokemonZoneKey }
 
 const counter = z.object({ battles: z.number(), wins: z.number() })
 export const gameCounterSchema = counter.extend({
@@ -57,7 +58,13 @@ const hourglassesSchema = z.object({
 const importRefSchema = z.object({ id: z.string(), importedAt: z.string(), syncedAt: z.string() })
 export type PokemonZoneImportRef = z.infer<typeof importRefSchema>
 
-const hourglassesUpdateSchema = z.object({ before: z.number(), after: z.number() })
+/** Review of pz/import: `kept` — changed by hand after the read, the value stays (`game` is what the game said). */
+const hourglassesUpdateSchema = z.object({
+  before: z.number(),
+  after: z.number(),
+  game: z.number(),
+  kept: z.boolean(),
+})
 
 export const pokemonZonePreviewSchema = z.object({
   syncedAt: z.string(),
@@ -70,8 +77,12 @@ export const pokemonZonePreviewSchema = z.object({
       z.object({ expansionId: z.string(), before: z.number(), after: z.number(), nameEs: z.string().nullable() }),
     ),
     unchanged: z.number(),
+    kept: z.array(
+      z.object({ expansionId: z.string(), value: z.number(), game: z.number(), nameEs: z.string().nullable() }),
+    ),
+    editedAt: z.string().nullable(),
   }),
-  hourglasses: hourglassesUpdateSchema.nullable(),
+  hourglasses: hourglassesUpdateSchema.extend({ editedAt: z.string().nullable() }).nullable(),
   coupons: z.array(promoCouponSchema),
   battles: gameBattlesSchema,
   totals: totalsSchema,
@@ -82,7 +93,9 @@ export type PokemonZonePreview = z.infer<typeof pokemonZonePreviewSchema>
 export const pokemonZoneSavedSchema = z.object({
   import: importRefSchema,
   duplicate: z.boolean(),
-  applied: z.object({ packPoints: z.number(), hourglasses: hourglassesUpdateSchema.nullable() }).nullable(),
+  applied: z
+    .object({ packPoints: z.number(), packPointsKept: z.number(), hourglasses: hourglassesUpdateSchema.nullable() })
+    .nullable(),
 })
 export type PokemonZoneSaved = z.infer<typeof pokemonZoneSavedSchema>
 
@@ -93,11 +106,17 @@ const luckCheckSchema = z.object({
   lowerTail: z.number(),
   upperTail: z.number(),
 })
+/** Review of pz/import: the check at both ends of what the cards from elsewhere could hold; «unknown» if they differ. */
 const luckTierSchema = z.object({
   observed: z.number(),
-  expected: z.number(),
   expectedShare: z.number(),
-  check: luckCheckSchema,
+  games: z.number(),
+  expected: z.number(),
+  fromPacks: z.object({ min: z.number(), max: z.number() }),
+  low: luckCheckSchema,
+  high: luckCheckSchema,
+  verdict: z.enum(['unknown', 'too_few', 'normal', 'unlucky', 'lucky']),
+  tail: z.number().nullable(),
 })
 export type GameLuckTier = z.infer<typeof luckTierSchema>
 

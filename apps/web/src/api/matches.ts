@@ -1,7 +1,7 @@
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { z } from 'zod'
 import { request } from './client'
-import { pokemonZoneKey } from './pokemonZone'
+import { pokemonZoneKey } from './pokemonZoneKey'
 import {
   deckComparisonSchema,
   deckMatchupsSchema,

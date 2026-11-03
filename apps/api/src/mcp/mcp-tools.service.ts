@@ -81,7 +81,7 @@ import { CALIBRATION_FULL_PAGE, calibrationListJson, calibrationReportJson } fro
 import { jobSummaryJson, rateView } from './mcp-json.js'
 import { McpLabToolsService } from './mcp-lab-tools.service.js'
 import { McpPlayToolsService } from './mcp-play-tools.service.js'
-import { ownerDateTime as ownerFullDateTime, pokemonZoneJson } from './mcp-pokemon-zone-json.js'
+import { ownerDateTime as ownerFullDateTime, pokemonZoneJson, safeName } from './mcp-pokemon-zone-json.js'
 import type { ReadRun, WriteRun } from './mcp-run.js'
 import { McpWriteToolsService } from './mcp-write-tools.service.js'
 
@@ -2032,7 +2032,7 @@ ${MCP_CHAT_INSTRUCTIONS}`
         ? {
             gameReadAt: ownerFullDateTime(plan.coupons.syncedAt),
             items: plan.coupons.items.map((coupon) => ({
-              event: coupon.nameEs ?? coupon.event,
+              event: coupon.nameEs ?? `otro evento («${safeName(coupon.event)}»)`,
               count: coupon.count,
               activeEvent: coupon.active,
             })),

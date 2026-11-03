@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request } from './client'
+import { pokemonZoneKey } from './pokemonZoneKey'
 import { settingsSchema, settingValueSchema, type UiSettings, uiSettingsSchema } from './schemas'
 
 export const settingsKeys = {
@@ -58,9 +59,17 @@ export function useSetSetting() {
         body: { value },
         schema: settingValueSchema,
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: settingsKeys.all }),
+    onSuccess: (_saved, { key }) =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: settingsKeys.all }),
+        // Review of pz/import: whether these are still the game's comes from the pokemon-zone summary, on any screen.
+        ...(POKEMON_ZONE_SETTINGS.has(key) ? [queryClient.invalidateQueries({ queryKey: pokemonZoneKey })] : []),
+      ]),
   })
 }
+
+/** The settings a pokemon-zone import writes. */
+const POKEMON_ZONE_SETTINGS: ReadonlySet<string> = new Set(['packPoints', 'hourglasses'])
 
 export function useSetUiSettings() {
   const current = useUiSettings()

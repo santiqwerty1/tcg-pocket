@@ -58,6 +58,37 @@ describe('Sobres → Ajustes: what came from pokemon-zone (2/11)', () => {
     )
   })
 
+  it('review of pz/import: an import while Ajustes is open does not get its old value written back', async () => {
+    let points: Record<string, number> = { B4b: 40 }
+    const { calls } = fakeApi({
+      'GET /api/packs': { items: [PACK] },
+      'GET /api/rarity-rules': { items: [] },
+      'GET /api/settings': () => ({ packPoints: points, hourglasses: 0 }),
+      'GET /api/pokemon-zone': EMPTY_SUMMARY,
+      'PUT /api/settings/packPoints': (call: FakeCall) => ({
+        key: 'packPoints',
+        value: (JSON.parse(String(call.body)) as { value: unknown }).value,
+      }),
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const router = createMemoryRouter([{ path: '/', element: <PackSettings /> }])
+    render(
+      <Providers queryClient={client}>
+        <RouterProvider router={router} />
+      </Providers>,
+    )
+    const user = userEvent.setup()
+    expect(await screen.findByLabelText('Puntos guardados de Sobre Deluxe Mega')).toHaveValue('40')
+    // An import lands: the game has 0 points of B4b now.
+    points = {}
+    await client.invalidateQueries({ queryKey: ['settings'] })
+    await waitFor(() => expect(screen.getByLabelText('Puntos guardados de Sobre Deluxe Mega')).toHaveValue(''))
+    // Going through the row and leaving it writes nothing.
+    await user.click(screen.getByLabelText('Puntos guardados de Sobre Deluxe Mega'))
+    await user.tab()
+    expect(calls.filter((call) => call.method === 'PUT')).toEqual([])
+  })
+
   it('Codex on #170: a change by hand here says so right away, without reloading', async () => {
     // The server's view: what the import wrote until a PUT changes each setting.
     const edited = { packPoints: false, hourglasses: false }

@@ -18,9 +18,12 @@ export const HOURGLASSES_PER_PACK = 12
 
 /**
  * The bookmarklet for an app served at `origin`. It runs on pokemon-zone.com with the owner's cookies, reads
- * `/api/players/mine/` and `/api/players/<friendId>/stats/`, keeps the player's read date and level (the friend id
- * goes only as its SHA-256), `resourceData`, `config` and the stats, and opens the app with them in the fragment.
- * ASCII only, and no «%» nor «#»: a bookmark's address would encode, decode or cut them.
+ * `/api/players/mine/` and `/api/players/<friendId>/stats/` and keeps only the fields the app reads, field by field
+ * (review of pz/import: nothing pokemon-zone adds later — a name, an id — lands in the URL, sessionStorage or the
+ * history): the player's read date and level (the friend id goes only as its SHA-256), the resources the app reads
+ * (pack points, hourglasses, three currencies, the promo coupons), the headline and battle counters it reads, packs per
+ * expansion and per pack, and cards by rarity. It opens the app with them in the fragment. ASCII only, and no «%» nor
+ * «#»: a bookmark's address would encode, decode or cut them.
  */
 export function bookmarkletCode(origin: string): string {
   const app = JSON.stringify(origin.replace(/\/+$/, ''))
@@ -38,7 +41,24 @@ export function bookmarkletCode(origin: string): string {
     'if(!p||!p.friendId)throw new Error("No encontr\\u00e9 tu cuenta. Inici\\u00e1 sesi\\u00f3n en pokemon-zone.com.");',
     'const s=await g("/api/players/"+encodeURIComponent(p.friendId)+"/stats/");',
     'const h=[...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(String(p.friendId))))].map(x=>x.toString(16).padStart(2,"0")).join("");',
-    'const b={v:1,mine:{player:{accountHash:h,lastUpdatedAt:p.lastUpdatedAt,level:p.level},resourceData:m.resourceData,config:m.config},stats:s};',
+    // L: a list or none; K: items {key, value}, only those keys when given; F: those fields of each item.
+    'const L=a=>Array.isArray(a)?a:[];',
+    'const F=(a,f)=>L(a).map(x=>Object.fromEntries(f.map(k=>[k,x&&x[k]])));',
+    'const K=(a,k)=>F(L(a).filter(x=>x&&(!k||k.includes(x.key))),["key","value"]);',
+    'const r=m.resourceData||{};const c=["REGULAR_CHARGER_LARGE"];',
+    'const H=["packs_opened","cards_obtained","unique_cards","wonder_picks","trades"];',
+    'const B=["pvp_battles","pvp_wins","ranked_battles","ranked_wins","ranked_points","solo_battles","solo_wins","rental_deck_battles","rental_deck_wins"];',
+    'const b={v:1,mine:{player:{accountHash:h,lastUpdatedAt:p.lastUpdatedAt,level:p.level},resourceData:{',
+    'currencies:K(r.currencies,["SHOP_TICKET","BRIGHT_SAND","SUBSCRIPTION_TICKET"]),',
+    'tickets:F(L(r.tickets).filter(x=>x&&/^\\s*promo card exchange tickets?\\b/i.test(String(x.name))),["key","value","name"]),',
+    'packCeilPoints:K(r.packCeilPoints),packPowerChargers:K(r.packPowerChargers,c),challengePowerChargers:K(r.challengePowerChargers,c),',
+    'tradePowerChargers:K(r.tradePowerChargers),eventPowerChargers:K(r.eventPowerChargers),revivalClocks:K(r.revivalClocks)}},',
+    'stats:{syncedAt:s.syncedAt,',
+    'headline:F(L(s.headline).filter(x=>x&&H.includes(x.id)),["id","value"]),',
+    'battles:F(L(s.battles).filter(x=>x&&B.includes(x.id)),["id","value"]),',
+    'packsByExpansion:F(s.packsByExpansion,["expansionId","name","packsOpened","cardsObtained"]),',
+    'packs:F(s.packs,["packId","name","expansionId","opened"]),',
+    'cardsByRarity:F(s.cardsByRarity,["rarity","obtained"])}};',
     'const z=new Blob([JSON.stringify(b)]).stream().pipeThrough(new CompressionStream("gzip"));',
     'const y=new Uint8Array(await new Response(z).arrayBuffer());let t="";',
     'for(let i=0;i<y.length;i+=32768)t+=String.fromCharCode.apply(null,y.subarray(i,i+32768));',

@@ -52,8 +52,10 @@ export const PREVIEW = {
       { expansionId: 'C1', before: 0, after: 310, nameEs: null },
     ],
     unchanged: 20,
+    kept: [] as { expansionId: string; value: number; game: number; nameEs: string | null }[],
+    editedAt: null as string | null,
   },
-  hourglasses: { before: 3, after: 18 },
+  hourglasses: { before: 3, after: 18, game: 18, kept: false, editedAt: null as string | null },
   coupons: COUPONS,
   battles: BATTLES,
   totals: TOTALS,
@@ -71,6 +73,19 @@ const check = (verdict: string, lowerTail = 0.5, upperTail = 0.5) => ({
   lowerTail,
   upperTail,
 })
+
+const tier = (
+  observed: number,
+  expected: number,
+  expectedShare: number,
+  games: number,
+  min: number,
+  max: number,
+  low: ReturnType<typeof check>,
+  high: ReturnType<typeof check>,
+  verdict: string,
+  tail: number | null,
+) => ({ observed, expected, expectedShare, games, fromPacks: { min, max }, low, high, verdict, tail })
 
 /** Lifetime: 1.226 packs and 6.883 cards; since the previous import: 5 Deluxe packs. */
 export const LUCK = {
@@ -103,8 +118,20 @@ export const LUCK = {
       },
     ],
     unknownPacks: 64,
-    rare: { observed: 314, expected: 289.4, expectedShare: 4.2, check: { ...check('normal'), games: 6883 } },
-    ex: { observed: 534, expected: 620.2, expectedShare: 9.01, check: check('unlucky', 0.0001, 0.9999) },
+    // Review of pz/import: two ends of what the 1.445 other cards could hold; ☆ cannot tell, ◊◊◊◊ is unlucky at both.
+    rare: tier(314, 228.4, 4.2, 5438, 0, 314, check('unlucky', 0, 1), check('lucky', 1, 0.0001), 'unknown', null),
+    ex: tier(
+      534,
+      620.2,
+      11.4,
+      5438,
+      0,
+      534,
+      check('unlucky', 0, 1),
+      check('unlucky', 0.0001, 0.9999),
+      'unlucky',
+      0.0001,
+    ),
   },
   since: {
     packs: 5,
@@ -118,7 +145,7 @@ export const LUCK = {
     expansions: [],
     byPack: [],
     unknownPacks: 0,
-    rare: { observed: 0, expected: 0.9, expectedShare: 4.58, check: check('normal') },
+    rare: tier(0, 0.9, 4.58, 20, 0, 0, check('normal'), check('normal'), 'normal', null),
     ex: null,
   },
 }
