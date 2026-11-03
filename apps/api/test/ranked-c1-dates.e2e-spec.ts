@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gunzipSync, gzipSync } from 'node:zlib'
 import pg from 'pg'
@@ -18,13 +19,17 @@ const MIGRATION_NAME = '20261103120000_ranked_season_c1_dates'
 const MIGRATION = join(API_ROOT, 'prisma', 'migrations', MIGRATION_NAME, 'migration.sql')
 const SQL = readFileSync(MIGRATION, 'utf8')
 
-/** `prisma migrate deploy` on a database, as the release does (each statement of a script sent on its own). */
-function deploy(databaseUrl: string): Promise<{ code: number | null; output: string }> {
+/**
+ * `prisma migrate deploy` on a database, as the release does (each statement of a script sent on its own). With
+ * `root`, the migrations of that directory (a scratch copy, through its own `prisma.config.mjs`).
+ */
+function deploy(databaseUrl: string, root?: string): Promise<{ code: number | null; output: string }> {
   return new Promise((resolve, reject) => {
+    const cli = join(API_ROOT, 'node_modules', 'prisma', 'build', 'index.js')
     const child = spawn(
       process.execPath,
-      [join(API_ROOT, 'node_modules', 'prisma', 'build', 'index.js'), 'migrate', 'deploy'],
-      { cwd: API_ROOT, env: { ...process.env, DATABASE_URL: databaseUrl }, stdio: ['ignore', 'pipe', 'pipe'] },
+      root ? [cli, 'migrate', 'deploy', '--config', join(root, 'prisma.config.mjs')] : [cli, 'migrate', 'deploy'],
+      { cwd: root ?? API_ROOT, env: { ...process.env, DATABASE_URL: databaseUrl }, stdio: ['ignore', 'pipe', 'pipe'] },
     )
     let output = ''
     child.stdout.on('data', (chunk) => {
@@ -117,9 +122,17 @@ describe('migration 20261103120000_ranked_season_c1_dates (e2e)', () => {
     })
   }
 
-  it('takes the lock the app takes for every season edit (ADVISORY_LOCKS.rankNote)', () => {
-    const keys = [...SQL.matchAll(/pg_advisory_xact_lock\((\d+)\)/g)].map((found) => Number(found[1]))
+  it('takes the lock the app takes for every season edit (ADVISORY_LOCKS.rankNote), inside its one DO block', () => {
+    const keys = [...SQL.matchAll(/\b(?:SELECT|PERFORM)\s+pg_advisory_xact_lock\((\d+)\)/g)].map((found) =>
+      Number(found[1]),
+    )
     expect(keys).toEqual([ADVISORY_LOCKS.rankNote])
+    // One statement: no explicit transaction, and the lock and the UPDATE inside the same block.
+    const code = SQL.replace(/^--.*$/gm, '').trim()
+    expect(code).toMatch(
+      /^DO \$\$\s*BEGIN\s+PERFORM pg_advisory_xact_lock\(\d+\);\s+UPDATE "ranked_seasons"[\s\S]*END\s*\$\$;$/,
+    )
+    expect(code).not.toMatch(/^\s*(BEGIN|COMMIT)\s*;/m)
   })
 
   describe('with the real `prisma migrate deploy` on a fresh database', () => {
@@ -202,6 +215,44 @@ describe('migration 20261103120000_ranked_season_c1_dates (e2e)', () => {
         expect(await freshSeasons()).toEqual([B4A, B4B, NEW])
       } finally {
         await holder.end()
+      }
+    })
+
+    it('review of #176: a failure inside the block rolls C1 back and Prisma records the real error', async () => {
+      // A scratch copy of the migrations, with this one failing right after its UPDATE.
+      const root = mkdtempSync(join(tmpdir(), 'tcg-rankedc1-fail-'))
+      try {
+        cpSync(join(API_ROOT, 'prisma'), join(root, 'prisma'), { recursive: true })
+        const failing = SQL.replace(/(\n\s*\);\n)(END\n\$\$;)/, '$1  PERFORM 1/0;\n$2')
+        expect(failing).not.toBe(SQL)
+        writeFileSync(join(root, 'prisma', 'migrations', MIGRATION_NAME, 'migration.sql'), failing)
+        writeFileSync(
+          join(root, 'prisma.config.mjs'),
+          "export default { schema: 'prisma/schema.prisma', migrations: { path: 'prisma/migrations' }, datasource: { url: process.env.DATABASE_URL } }\n",
+        )
+        await client.query(`DELETE FROM "_prisma_migrations" WHERE "migration_name" = $1`, [MIGRATION_NAME])
+        await client.query(
+          `UPDATE "ranked_seasons" SET "starts_on" = DATE '2026-11-30', "ends_on" = DATE '2026-12-14' WHERE "code" = 'C1'`,
+        )
+        const result = await deploy(fresh, root)
+        expect(result.code).not.toBe(0)
+        expect(result.output).toContain('division by zero')
+        expect(result.output).not.toContain('current transaction is aborted')
+        // The UPDATE ran before the failure and rolled back with it.
+        expect(await freshSeasons()).toEqual([B4A, B4B, OLD])
+        const row = await client.query<{ finished_at: Date | null; logs: string | null }>(
+          `SELECT "finished_at", "logs" FROM "_prisma_migrations" WHERE "migration_name" = $1`,
+          [MIGRATION_NAME],
+        )
+        expect(row.rows).toHaveLength(1)
+        expect(row.rows[0]?.finished_at).toBeNull()
+        expect(row.rows[0]?.logs).toContain('division by zero')
+        // With the failed row out of the way (what `migrate resolve --rolled-back` allows), the real one applies.
+        await client.query(`DELETE FROM "_prisma_migrations" WHERE "migration_name" = $1`, [MIGRATION_NAME])
+        expect((await deploy(fresh)).code).toBe(0)
+        expect(await freshSeasons()).toEqual([B4A, B4B, NEW])
+      } finally {
+        rmSync(root, { recursive: true, force: true })
       }
     })
   })
