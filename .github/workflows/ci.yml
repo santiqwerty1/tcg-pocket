@@ -209,7 +209,7 @@ jobs:
       - run: pnpm -F @tcg/worker build
       - run: pnpm -F @tcg/web exec playwright install ${{ runner.os == 'Linux' && '--with-deps' || '' }} chromium
       - run: pnpm -F @tcg/web test:screens
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         continue-on-error: true
         with:
@@ -249,7 +249,7 @@ jobs:
         run: |
           mkdir -p engine-dist
           cp "${CARGO_TARGET_DIR:-engine/target}/release/engine-cli.exe" engine-dist/engine-cli.exe
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         continue-on-error: true
         with:
           name: engine-cli-windows
@@ -267,7 +267,7 @@ jobs:
           cache: ${{ !vars.CI_RUNNER && 'pnpm' || '' }}
       - run: pnpm install --frozen-lockfile --filter @tcg/worker
       - run: pnpm -F @tcg/worker package --engine "$GITHUB_WORKSPACE/engine-dist/engine-cli.exe"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         continue-on-error: true
         with:
           name: tcg-worker-windows
@@ -326,13 +326,13 @@ jobs:
           mkdir -p apps/worker/build/windows-update-image
           docker cp "$container:/windows-package/." apps/worker/build/windows-update-image/
           docker rm "$container"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         continue-on-error: true
         with:
           name: tcg-worker-windows-update
           path: apps/worker/build/windows-update-image/tcg-worker-*-windows-x64-update.tar.gz*
           retention-days: 30
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         continue-on-error: true
         with:
           name: tcg-worker-android
