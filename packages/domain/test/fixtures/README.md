@@ -16,3 +16,5 @@ Real data used by the domain tests. Regenerate with `pnpm fixtures:extract` (nee
 - `made-up-2026-11-02.json` (version 2 of the bookmarklet) and `made-up-2026-11-03.json` (version 1): two consecutive reads, made up under the policy, for the luck between imports (pz/luck).
 
 Other fixtures used by tests live outside this folder: `docs/context/tcgcollectiontracterexport-2026-10-06.csv` (collection export, sha256 `f774c6e4…17e8`), `docs/context/mazos_40_listas.md` (the 40 decks), `docs/fase0/limitless/*.json` (tournament standings), `docs/fase0/fixtures-sobres-2026-10-06.json` (pack probabilities).
+
+`docs/context/tcgcollectiontracterexport-2026-11-11.csv` (sha256 `595b1da6…a14e`, 238,381 bytes, 4,547 rows) is the collection export of 11/11/2026, with C1 and P-C. It matches the catalog at tracker `9fafc07` (no unknown ids, no `InternalId` mismatches; 9,348 copies as a plain sum, 7,334 once twin editions count once). No test uses it yet: the catalog fixture above is `3ab58f1`, without C1, and the tests keep the 6/10 export.
