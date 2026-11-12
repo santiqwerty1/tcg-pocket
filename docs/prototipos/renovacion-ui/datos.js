@@ -1,7 +1,9 @@
-// Datos compartidos de las tres maquetas (a/, b/ y c/): ver ESPECIFICACION.md.
-// Generado el 11/11/2026 desde lo que devuelve la API de la app (docs/API.md) en una copia local: los mazos, la colección y
-// las partidas son los de la app; los torneos, las simulaciones, las pruebas del laboratorio y parte de las partidas
-// son datos de prueba. Ningún valor está inventado: donde la API no tiene nada va null («sin datos»).
+// Datos compartidos de las maquetas de esta carpeta: ver ESPECIFICACION.md.
+// Generado el 12/11/2026 desde lo que devuelve la API de la app (docs/API.md) en una copia local. Los mazos y la
+// colección son los de la app. Todo lo demás es de prueba, inventado para las maquetas: las partidas (y lo que sale de
+// ellas: récords, rachas, semanas, rivales, quién empezó), el rango, las notas por rival, las partidas contra el bot,
+// los ejercicios, los torneos, las simulaciones y las pruebas del laboratorio. Ninguna partida ni rango real.
+// El generador no agrega valores: donde la API no tiene nada va null («sin datos»).
 // Las imágenes son enlaces a las del tracker (no se copia ninguna). Sin datos de cuentas ni de personas.
 // Convenciones: pct y cuota en % (0–100); n = partidas (V + D + E); ci = intervalo de 95 %; record = { v, d, e };
 // orientativo = menos de 30; energías por su clave (energias); fechas AAAA-MM-DD en hora de Buenos Aires.
@@ -10,9 +12,9 @@
 // pruebas.motor.cola = tandas de partidas (chunks) que esperan; colaTrabajos = trabajos en cola o corriendo.
 // Hoy no hay temporada de ranked en curso (hoy.temporadaVigente): el rango es el último anotado.
 window.DATOS = {
-  generado: "2026-11-11",
+  generado: "2026-11-12",
   era: "C1",
-  aviso: "Torneos, simulaciones y parte de las partidas son datos de prueba",
+  aviso: "Partidas, rango, torneos y simulaciones son datos de prueba",
   energias: {
     grass: { nombre: "Planta" },
     fire: { nombre: "Fuego" },
@@ -26,21 +28,21 @@ window.DATOS = {
     colorless: { nombre: "Incoloro" },
   },
   hoy: {
-    fecha: "2026-11-11",
-    fechaTexto: "miércoles, 11 de noviembre",
+    fecha: "2026-11-12",
+    fechaTexto: "jueves, 12 de noviembre",
     record: { v: 2, d: 7, e: 0 },
     semana: {
-      v: 9,
-      d: 15,
-      e: 0,
-      pct: 37.5,
-      n: 24,
-      ci: [21.2, 57.3],
-      orientativo: true,
+      v: 12,
+      d: 20,
+      e: 1,
+      pct: 36.4,
+      n: 33,
+      ci: [22.2, 53.4],
+      orientativo: false,
       etiqueta: "9/11 al 15/11",
-      anterior: { v: 27, d: 22, e: 2, n: 51, texto: "52,9\u00a0% (n = 51, IC\u00a039,5–65,9\u00a0%)" },
+      anterior: { v: 29, d: 21, e: 1, n: 51, texto: "56,9\u00a0% (n = 51, IC\u00a043,3–69,5\u00a0%)" },
     },
-    rango: "Master Ball, 1.094 puntos",
+    rango: "Master Ball, 1.280 puntos",
     temporada: "Temporada B4b SP (terminó el 28/10)",
     temporadaVigente: false,
     proximaTemporada: "Temporada C1: del 1/12 al 15/12",
@@ -96,7 +98,7 @@ window.DATOS = {
           { nombre: "Ogerpon Máscara Turquesa ex", tipo: "grass" },
         ],
         torneo: { pct: 55.8, n: 258, orientativo: false, cobertura: 61.3, ci: [51.4, 60.1] },
-        mias: { pct: 63, n: 27, ci: [44.2, 78.5], orientativo: true, record: { v: 17, d: 10, e: 0 } },
+        mias: { pct: 66.7, n: 24, ci: [46.7, 82], orientativo: true, record: { v: 16, d: 8, e: 0 } },
         laboratorio: { pct: 57.9, n: 1800, bot: "g2", ci: [55.5, 60.4] },
       },
     ],
@@ -119,7 +121,7 @@ window.DATOS = {
         ],
         hoy: { v: 0, d: 5, e: 0 },
         racha: ["D", "D", "V", "D", "D", "D", "D", "D"],
-        mias: { pct: 48.1, n: 52, ci: [35.1, 61.3], orientativo: false, record: { v: 25, d: 26, e: 1 } },
+        mias: { pct: 51.1, n: 47, ci: [37.2, 64.7], orientativo: false, record: { v: 24, d: 22, e: 1 } },
       },
       {
         id: 14,
@@ -137,7 +139,7 @@ window.DATOS = {
         ],
         hoy: { v: 1, d: 0, e: 0 },
         racha: ["D", "V", "V", "V", "D", "D", "V", "V"],
-        mias: { pct: 63, n: 27, ci: [44.2, 78.5], orientativo: true, record: { v: 17, d: 10, e: 0 } },
+        mias: { pct: 66.7, n: 24, ci: [46.7, 82], orientativo: true, record: { v: 16, d: 8, e: 0 } },
       },
       {
         id: 86,
@@ -214,7 +216,7 @@ window.DATOS = {
       },
       {
         tipo: "promo",
-        texto: "Evento botín bis PROMO 2026: quedan 2 días",
+        texto: "Evento botín bis PROMO 2026: queda 1 día",
         detalle: "Termina el 13/11 a las 04:00; faltan 15 copias en sus volúmenes",
         destino: "#/cartas",
       },
@@ -248,7 +250,7 @@ window.DATOS = {
         mazoId: 1,
         mazo: "Butterfree / Mega-Sceptile ex",
         rival: "Mega Charizard Y ex Entei ex",
-        cuando: "hoy 18:54",
+        cuando: "hoy 14:46",
         modalidad: "Competitiva",
         empezo: "rival",
       },
@@ -257,7 +259,7 @@ window.DATOS = {
         mazoId: 1,
         mazo: "Butterfree / Mega-Sceptile ex",
         rival: "Mega-Charizard Y ex / Entei ex",
-        cuando: "hoy 17:33",
+        cuando: "hoy 13:24",
         modalidad: "Competitiva",
         empezo: "rival",
       },
@@ -266,7 +268,7 @@ window.DATOS = {
         mazoId: 1,
         mazo: "Butterfree / Mega-Sceptile ex",
         rival: "Mega Altaria ex Espeon",
-        cuando: "hoy 17:22",
+        cuando: "hoy 13:14",
         modalidad: "Competitiva",
         empezo: "yo",
       },
@@ -275,7 +277,7 @@ window.DATOS = {
         mazoId: 1,
         mazo: "Butterfree / Mega-Sceptile ex",
         rival: "Mega Charizard Y ex Entei ex",
-        cuando: "hoy 17:11",
+        cuando: "hoy 13:02",
         modalidad: "Competitiva",
         empezo: "rival",
       },
@@ -284,7 +286,7 @@ window.DATOS = {
         mazoId: 1,
         mazo: "Butterfree / Mega-Sceptile ex",
         rival: "Mega Charizard Y ex Entei ex",
-        cuando: "hoy 17:00",
+        cuando: "hoy 12:51",
         modalidad: "Competitiva",
         empezo: "rival",
       },
@@ -301,8 +303,8 @@ window.DATOS = {
       "Suicune ex Baxcalibur",
       "Giratina ex Dragonair",
       "Mega Altaria ex Espeon",
-      "Hoopa ex Mega Absol ex",
       "Mega Mewtwo X ex Mew ex",
+      "Hoopa ex Mega Absol ex",
       "Mega Lucario ex Lucario",
       "Mega Manectric ex Heliolisk",
     ],
@@ -337,11 +339,11 @@ window.DATOS = {
       deshacer: "Deshacer",
       veredicto: {
         titulo: "Dentro de lo normal · contra Mega Charizard Y ex Entei ex",
-        texto: "Vas 1-7 en la era C1 (12,5\u00a0%). Lo esperable (Butterfree Mega Sceptile ex en torneos, por partida) es 40,7\u00a0%: un resultado así o más lejos pasa 1 de cada 9 veces. Está dentro de lo normal. Llevás 5 derrotas seguidas: a ese ritmo, 5 seguidas pasan 1 de cada 14 veces, pero en 31 partidas una racha así aparece 63,8\u00a0% de las veces.",
+        texto: "Vas 1-7 en la era C1 (12,5\u00a0%). Lo esperable (Butterfree Mega Sceptile ex en torneos, por partida) es 40,7\u00a0%: un resultado así o más lejos pasa 1 de cada 9 veces. Está dentro de lo normal. Llevás 5 derrotas seguidas: a ese ritmo, 5 seguidas pasan 1 de cada 14 veces, pero en 32 partidas una racha así aparece 65,1\u00a0% de las veces.",
       },
       rango: {
-        actual: "Master Ball, 1.094 puntos",
-        opciones: ["Bajé a Ultra Ball 4", "Sigo en Master Ball, 1.094 puntos", "Otro…"],
+        actual: "Master Ball, 1.280 puntos",
+        opciones: ["Bajé a Ultra Ball 4", "Sigo en Master Ball, 1.280 puntos", "Otro…"],
         vigente: false,
         nota: "Hoy no hay temporada de ranked en curso: «¿Cambiaste de rango?» aparece solo durante una temporada. El rango es el último anotado (Temporada B4b SP).",
       },
@@ -423,8 +425,8 @@ window.DATOS = {
       energias: ["grass"],
       completo: true,
       falta: 0,
-      mias: { pct: 48.1, n: 52, ci: [35.1, 61.3], orientativo: false, record: { v: 25, d: 26, e: 1 } },
-      ultima: "2026-11-11",
+      mias: { pct: 51.1, n: 47, ci: [37.2, 64.7], orientativo: false, record: { v: 24, d: 22, e: 1 } },
+      ultima: "2026-11-12",
       miniaturas: [
         "https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/9fafc07/frontend/public/images/es-ES/B3b-3.webp",
         "https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/9fafc07/frontend/public/images/es-ES/P-B-87.webp",
@@ -493,8 +495,8 @@ window.DATOS = {
       energias: ["fire", "lightning"],
       completo: true,
       falta: 0,
-      mias: { pct: 50, n: 20, ci: [29.9, 70.1], orientativo: true, record: { v: 10, d: 10, e: 0 } },
-      ultima: "2026-11-09",
+      mias: { pct: 52.9, n: 17, ci: [31, 73.8], orientativo: true, record: { v: 9, d: 8, e: 0 } },
+      ultima: "2026-11-10",
       miniaturas: [
         "https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/9fafc07/frontend/public/images/es-ES/B4-203.webp",
         "https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/9fafc07/frontend/public/images/es-ES/B4-117.webp",
@@ -507,8 +509,8 @@ window.DATOS = {
       energias: ["darkness"],
       completo: true,
       falta: 0,
-      mias: { pct: 40, n: 10, ci: [16.8, 68.7], orientativo: true, record: { v: 4, d: 6, e: 0 } },
-      ultima: "2026-11-08",
+      mias: { pct: 44.4, n: 9, ci: [18.9, 73.3], orientativo: true, record: { v: 4, d: 5, e: 0 } },
+      ultima: "2026-11-09",
       miniaturas: [
         "https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/9fafc07/frontend/public/images/es-ES/B4-103.webp",
         "https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/9fafc07/frontend/public/images/es-ES/B1-151.webp",
@@ -521,8 +523,8 @@ window.DATOS = {
       energias: ["grass"],
       completo: true,
       falta: 0,
-      mias: { pct: 63, n: 27, ci: [44.2, 78.5], orientativo: true, record: { v: 17, d: 10, e: 0 } },
-      ultima: "2026-11-11",
+      mias: { pct: 66.7, n: 24, ci: [46.7, 82], orientativo: true, record: { v: 16, d: 8, e: 0 } },
+      ultima: "2026-11-12",
       miniaturas: [
         "https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/9fafc07/frontend/public/images/es-ES/B4-11.webp",
         "https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/9fafc07/frontend/public/images/es-ES/A4-186.webp",
@@ -535,8 +537,8 @@ window.DATOS = {
       energias: ["water"],
       completo: true,
       falta: 0,
-      mias: { pct: 56.3, n: 16, ci: [33.2, 76.9], orientativo: true, record: { v: 9, d: 6, e: 1 } },
-      ultima: "2026-11-09",
+      mias: { pct: 53.8, n: 13, ci: [29.1, 76.8], orientativo: true, record: { v: 7, d: 5, e: 1 } },
+      ultima: "2026-11-10",
       miniaturas: [
         "https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/9fafc07/frontend/public/images/es-ES/B3b-15.webp",
         "https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/9fafc07/frontend/public/images/es-ES/A3b-56.webp",
@@ -577,8 +579,8 @@ window.DATOS = {
       energias: ["fire"],
       completo: true,
       falta: 0,
-      mias: { pct: 28.6, n: 7, ci: [8.2, 64.1], orientativo: true, record: { v: 2, d: 4, e: 1 } },
-      ultima: "2026-11-08",
+      mias: { pct: 33.3, n: 6, ci: [9.7, 70], orientativo: true, record: { v: 2, d: 3, e: 1 } },
+      ultima: "2026-11-09",
       miniaturas: [
         "https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/9fafc07/frontend/public/images/es-ES/B4b-260.webp",
         "https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/9fafc07/frontend/public/images/es-ES/B3-137.webp",
@@ -591,8 +593,8 @@ window.DATOS = {
       energias: ["psychic"],
       completo: true,
       falta: 0,
-      mias: { pct: 57.1, n: 14, ci: [32.6, 78.6], orientativo: true, record: { v: 8, d: 6, e: 0 } },
-      ultima: "2026-11-10",
+      mias: { pct: 54.5, n: 11, ci: [28, 78.7], orientativo: true, record: { v: 6, d: 5, e: 0 } },
+      ultima: "2026-11-11",
       miniaturas: [
         "https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/9fafc07/frontend/public/images/es-ES/A4a-33.webp",
         "https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/9fafc07/frontend/public/images/es-ES/A4a-36.webp",
@@ -675,7 +677,7 @@ window.DATOS = {
       completo: true,
       falta: 0,
       mias: { pct: 54.5, n: 11, ci: [28, 78.7], orientativo: true, record: { v: 6, d: 5, e: 0 } },
-      ultima: "2026-11-08",
+      ultima: "2026-11-09",
       miniaturas: [
         "https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/9fafc07/frontend/public/images/es-ES/B3-8.webp",
         "https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/9fafc07/frontend/public/images/es-ES/A1-89.webp",
@@ -776,7 +778,7 @@ window.DATOS = {
       completo: true,
       falta: 0,
       mias: { pct: 50, n: 6, ci: [18.8, 81.2], orientativo: true, record: { v: 3, d: 3, e: 0 } },
-      ultima: "2026-11-11",
+      ultima: "2026-11-12",
       miniaturas: [
         "https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/9fafc07/frontend/public/images/en-US/C1-56.webp",
         "https://raw.githubusercontent.com/marcelpanse/tcg-pocket-collection-tracker/9fafc07/frontend/public/images/en-US/C1-57.webp",
@@ -1000,7 +1002,7 @@ window.DATOS = {
       ],
     },
     rinde: {
-      mias: { pct: 48.1, n: 52, ci: [35.1, 61.3], orientativo: false, record: { v: 25, d: 26, e: 1 } },
+      mias: { pct: 51.1, n: 47, ci: [37.2, 64.7], orientativo: false, record: { v: 24, d: 22, e: 1 } },
       torneo: {
         pct: 12.5,
         n: 8,
@@ -1050,7 +1052,7 @@ window.DATOS = {
         {
           rival: "Suicune ex Baxcalibur",
           cuota: 9,
-          mias: { pct: 66.7, n: 3, ci: [20.8, 93.9], orientativo: true, record: { v: 2, d: 1, e: 0 } },
+          mias: { pct: 100, n: 2, ci: [34.2, 100], orientativo: true, record: { v: 2, d: 0, e: 0 } },
           torneo: { pct: 14.3, n: 7, ci: [2.6, 51.3], orientativo: true, record: { v: 1, d: 6, e: 0 } },
         },
         {
@@ -1068,7 +1070,7 @@ window.DATOS = {
         {
           rival: "Hoopa ex Mega Absol ex",
           cuota: 6.1,
-          mias: { pct: 0, n: 2, ci: [0, 65.8], orientativo: true, record: { v: 0, d: 1, e: 1 } },
+          mias: { pct: 0, n: 1, ci: [0, 79.3], orientativo: true, record: { v: 0, d: 0, e: 1 } },
           torneo: { pct: 0, n: 2, ci: [0, 65.8], orientativo: true, record: { v: 0, d: 2, e: 0 } },
         },
         {
@@ -1091,17 +1093,15 @@ window.DATOS = {
         },
       ],
       curva: [
-        { semana: "2026-10-05", pct: 0, n: 1, record: { v: 0, d: 1, e: 0 } },
-        { semana: "2026-10-12", pct: 25, n: 4, record: { v: 1, d: 3, e: 0 } },
         { semana: "2026-10-19", pct: 84.6, n: 13, record: { v: 11, d: 2, e: 0 } },
-        { semana: "2026-10-26", pct: 36.4, n: 11, record: { v: 4, d: 7, e: 0 } },
-        { semana: "2026-11-02", pct: 53.8, n: 13, record: { v: 7, d: 5, e: 1 } },
-        { semana: "2026-11-09", pct: 20, n: 10, record: { v: 2, d: 8, e: 0 } },
+        { semana: "2026-10-26", pct: 44.4, n: 9, record: { v: 4, d: 5, e: 0 } },
+        { semana: "2026-11-02", pct: 46.2, n: 13, record: { v: 6, d: 6, e: 1 } },
+        { semana: "2026-11-09", pct: 25, n: 12, record: { v: 3, d: 9, e: 0 } },
       ],
       empezar: {
-        primero: { pct: 52.4, n: 21, ci: [32.4, 71.7], orientativo: true, record: { v: 11, d: 10, e: 0 } },
-        segundo: { pct: 36.8, n: 19, ci: [19.1, 59], orientativo: true, record: { v: 7, d: 12, e: 0 } },
-        texto: "Empezando ganás el 52,4\u00a0% (n = 21) y yendo segundo el 36,8\u00a0% (n = 19): 15,5 puntos más empezando, pero puede ser azar.",
+        primero: { pct: 57.9, n: 19, ci: [36.3, 76.9], orientativo: true, record: { v: 11, d: 8, e: 0 } },
+        segundo: { pct: 35.3, n: 17, ci: [17.3, 58.7], orientativo: true, record: { v: 6, d: 11, e: 0 } },
+        texto: "Empezando ganás el 57,9\u00a0% (n = 19) y yendo segundo el 35,3\u00a0% (n = 17): 22,6 puntos más empezando, pero puede ser azar.",
       },
     },
     mejorar: [
@@ -1209,7 +1209,7 @@ window.DATOS = {
       },
       promo: {
         texto: "Evento botín bis PROMO 2026: conviene B vol. 5, 6 y 11 (40\u00a0% de una edición con menos de 2 copias); faltan 15 copias en los volúmenes del evento.",
-        quedan: "2 días",
+        quedan: "1 día",
         vence: "2026-11-13",
       },
       faltan: [
@@ -1278,8 +1278,8 @@ window.DATOS = {
       cartasConUna: 2117,
       cartasConDos: 1617,
       faltantes: 337,
-      ultimaSync: "2026-11-11T20:24:31.804Z",
-      ultimaSyncTexto: "hoy 17:24",
+      ultimaSync: "2026-11-12T16:15:46.218Z",
+      ultimaSyncTexto: "hoy 13:15",
       fuente: "ptcgpocket.gg (juego)",
       ultimaSyncCambios: { copias: 17, nuevas: 1 },
       expansionMuestra: "Fusión Dual (C1)",
@@ -1383,7 +1383,7 @@ window.DATOS = {
         estado: "en cola",
         resultado: null,
         progreso: { hechas: 0, total: 35892, pct: 0 },
-        cuando: "hoy 18:54",
+        cuando: "hoy 14:46",
       },
       {
         id: 24,
@@ -1392,8 +1392,8 @@ window.DATOS = {
         nombre: "Los 8 que más juego, corrida larga",
         estado: "corriendo",
         resultado: null,
-        progreso: { hechas: 11489, total: 27916, pct: 41.2 },
-        cuando: "hoy 18:54",
+        progreso: { hechas: 17960, total: 27916, pct: 64.3 },
+        cuando: "hoy 14:46",
       },
       {
         id: 23,
@@ -1403,7 +1403,7 @@ window.DATOS = {
         estado: "cancelada",
         resultado: null,
         progreso: { hechas: 14, total: 1994, pct: 0.7 },
-        cuando: "hoy 18:54",
+        cuando: "hoy 14:46",
       },
       {
         id: 14,
@@ -1413,7 +1413,7 @@ window.DATOS = {
         estado: "terminada",
         resultado: "Mejor lista: +16,3 puntos (IC\u00a0+13,1 a +19,6) sobre la lista de partida; la confirmación la sostiene.",
         progreso: null,
-        cuando: "hoy 18:44",
+        cuando: "hoy 14:35",
       },
       {
         id: 13,
@@ -1423,7 +1423,7 @@ window.DATOS = {
         estado: "terminada",
         resultado: "#1 Butterfree / Mega-Sceptile ex: 47,1\u00a0% contra el meta (n = 1.800) · Mega-Kangaskhan ex / Happiny (idea): 29,3\u00a0% contra el meta (n = 1.800)",
         progreso: null,
-        cuando: "hoy 18:40",
+        cuando: "hoy 14:31",
       },
       {
         id: 7,
@@ -1433,7 +1433,7 @@ window.DATOS = {
         estado: "terminada",
         resultado: "Mega-Sceptile ex listo para el turno 4 en el 48,4\u00a0% de las partidas (n = 1.000).",
         progreso: null,
-        cuando: "hoy 18:38",
+        cuando: "hoy 14:30",
       },
       {
         id: 6,
@@ -1443,7 +1443,7 @@ window.DATOS = {
         estado: "falló",
         resultado: "1 cruces fallaron en el motor; el resto quedó. Con lo que quedó: #4 Mega-Manectric ex / Heliolisk 56,4\u00a0% (n = 750); último, #89 Raikou ex / Pawmot 42,5\u00a0%.",
         progreso: { hechas: 1250, total: 1500, pct: 83.3 },
-        cuando: "hoy 18:38",
+        cuando: "hoy 14:29",
       },
     ],
     resultado: {
@@ -1556,7 +1556,7 @@ window.DATOS = {
     motor: {
       worker: "PC de escritorio",
       estado: "en línea",
-      cola: 52,
+      cola: 45,
       colaTrabajos: 2,
       trabajoActual: 24,
       nucleos: 8,
@@ -1566,7 +1566,7 @@ window.DATOS = {
     practicar: {
       enCurso: "Te toca: #13 Hoopa ex / Mega-Absol ex contra Mega Charizard Y ex Entei ex · lista 1fbe3a (52 en torneo), con entrenador",
       situaciones: 4,
-      ejerciciosHoy: 0,
+      ejerciciosHoy: 8,
     },
   },
   meta: {
@@ -1761,7 +1761,7 @@ window.DATOS = {
       tendencia: -5.1,
       serie: [19, 15.5, 15.6, 9.7, 14],
       tengo: "armado #24",
-      misPartidas: { pct: 23.5, n: 17, ci: [9.6, 47.3], orientativo: true, record: { v: 4, d: 13, e: 0 } },
+      misPartidas: { pct: 20, n: 15, ci: [7, 45.2], orientativo: true, record: { v: 3, d: 12, e: 0 } },
       nota: "Plan general\n- Es el mazo más jugado de la era y mi peor cruce con Planta: Entei ex pega 80 desde el turno 2 con Refuerzo Fuego y Charizard remata.\n- Si empieza él, casi siempre baja Entei ex Activo y Charmander en la Banca.\n\nQué hacer\n1. Guardar a Sabrina para sacarle a Entei ex cuando ya tiene…",
       matchups: [
         {

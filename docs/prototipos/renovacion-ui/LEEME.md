@@ -25,9 +25,10 @@ completa): `#/hoy`, `#/hoy?hoja=partida`, `#/mazos`, `#/mazo/1`, `#/mazo/1/rinde
 - **Las mismas pantallas, los mismos datos y las mismas medidas** en las tres: inicio, registrar una partida (abierta,
   lista, guardada), buscador, lista de mazos, ficha del mazo #1 con sus cuatro vistas, Sobres, Colección, Pruebas y un
   resultado, Meta y un arquetipo, y el Menú.
-- **Los datos están en `datos.js`**, uno solo para las tres. Salen de una réplica local de la app (la copia de seguridad
-  del 11/11/2026 más datos de prueba): los torneos, las simulaciones y parte de las partidas son de prueba. No lleva
-  cuentas, ids de amigo ni nombres de jugadores.
+- **Los datos están en `datos.js`**, uno solo para las tres. Salen de una réplica local de la app: los mazos y la
+  colección son los de Santi; las partidas (y sus récords, rachas y semanas), el rango, las notas por rival, los
+  torneos, las simulaciones y las pruebas son inventados para las maquetas, y cada maqueta lo dice en pantalla. No
+  lleva partidas ni rangos reales, cuentas, ids de amigo ni nombres de jugadores.
 - **Las miniaturas de cartas son enlaces** a las imágenes del tracker, como en la app; ninguna imagen está en el repo.
   Si no cargan, cada maqueta dibuja un reemplazo con el color del tipo.
 - **No son la app**: no hablan con la API, no guardan nada (salvo el aspecto elegido, en el navegador) y varias acciones

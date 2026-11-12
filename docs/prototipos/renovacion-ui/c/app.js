@@ -1402,10 +1402,16 @@
     }
     if (q.estado === 'guardada') {
       P.estado = 'guardada'
-      if (!ult) {
+      if (!ult && sesion.length) {
+        // Back at the saved state through the browser history after saving in this session: it is that same match
+        // again (nothing new is counted, and «Deshacer» undoes it).
+        ult = sesion[0]
+        Object.assign(P, ult, { vistas: ult.vistas.map((c) => Object.assign({}, c)), estado: 'guardada' })
+        delete P.deDatos
+      } else if (!ult) {
         // Opened straight in the saved state: it is the last match the data already counts (2–7 stays 2–7), unless
-        // something was saved or undone in this session; then it is one more.
-        ult = Object.assign({}, P, { deDatos: !quitada && !sesion.length })
+        // it was undone in this session; then it is one more.
+        ult = Object.assign({}, P, { deDatos: !quitada })
         if (!ult.deDatos) {
           sesion.unshift(ult)
           pintarRec(false)
