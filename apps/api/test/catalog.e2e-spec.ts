@@ -10,6 +10,8 @@ import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { TrackerCommitsService } from '../src/catalog/tracker-commits.service.js'
 import type { CatalogSyncStatus } from '../src/generated/prisma/enums.js'
 import { toApiError } from '../src/http/http-exception.filter.js'
+import { PrismaService } from '../src/prisma/prisma.service.js'
+import { countDatabaseBytes } from './egress.js'
 import { createTestApp, login, seedOwner, type TestApp, waitForSync } from './helpers.js'
 
 /** Expected values from docs/PLAN.md §7 (M1 acceptance) for the pinned commit 3ab58f1. */
@@ -942,6 +944,34 @@ describe('catalog (e2e)', () => {
       expect(unknown.body.error.message).toMatch(/No se pudo comparar/)
     } finally {
       commits.fetchImpl = fetch
+    }
+  })
+
+  it('the minute check, the alerts and the status read the head of the last sync, not its missions (infra-egress)', async () => {
+    const catalog = test.app.get(CatalogService)
+    await catalog.reload()
+    const latest = await test.prisma.catalogSync.findFirstOrThrow({
+      where: { status: { in: ['applied', 'needs_review'] } },
+      orderBy: { id: 'desc' },
+    })
+    expect(catalog.loadedSyncId).toBe(latest.id)
+    // The fixtures' missions are the real ones: the row is as heavy as production's (~190 KB on 12/11/2026).
+    expect(JSON.stringify(latest.missions).length).toBeGreaterThan(100_000)
+    const counter = countDatabaseBytes(test.app.get(PrismaService).pool)
+    try {
+      expect(await sync.catchUp()).toBe(false)
+      expect((await catalog.memoryState()).latest).toEqual({
+        id: latest.id,
+        commitSha: latest.commitSha,
+        appliedAt: latest.appliedAt,
+      })
+      expect(await catalog.appliedCommit()).toBe(latest.commitSha)
+      expect((await get('/api/catalog/status')).body.lastSync).toMatchObject({ id: latest.id, status: latest.status })
+      expect((await get('/api/ops/status')).body.catalog.latestAppliedSyncId).toBe(latest.id)
+      // Each of them read the whole row before: ~190 KB apiece.
+      expect(counter.bytes()).toBeLessThan(30_000)
+    } finally {
+      counter.stop()
     }
   })
 

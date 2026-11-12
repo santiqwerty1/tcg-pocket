@@ -47,6 +47,9 @@ export interface LoadedCatalog {
   sync: CatalogSync
 }
 
+/** The last applied sync as the checks compare it (`latestAppliedSyncHead`). */
+export type CatalogSyncHead = Pick<CatalogSync, 'id' | 'commitSha' | 'appliedAt'>
+
 export interface ReplaceResult {
   deleted: { cards: number; groups: number; packs: number; expansions: number }
 }
@@ -396,6 +399,19 @@ export class CatalogRepository {
     return this.prisma.catalogSync.findFirst({
       where: { status: { in: ['applied', 'needs_review'] } },
       orderBy: { id: 'desc' },
+    })
+  }
+
+  /**
+   * The last applied sync without its JSON (missions, report, file hashes): what the minute's check, the alerts and
+   * the operation status compare. Read whole, the row was ~190 KB in production, and the minute's check alone read it
+   * 1.440 times a day: most of the database's egress (infra-egress).
+   */
+  latestAppliedSyncHead(): Promise<CatalogSyncHead | null> {
+    return this.prisma.catalogSync.findFirst({
+      where: { status: { in: ['applied', 'needs_review'] } },
+      orderBy: { id: 'desc' },
+      select: { id: true, commitSha: true, appliedAt: true },
     })
   }
 
