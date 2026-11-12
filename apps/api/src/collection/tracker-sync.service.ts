@@ -192,8 +192,15 @@ export class TrackerSync implements OnApplicationBootstrap, OnModuleDestroy {
         })
       }
     } finally {
-      if (acquired) await lock.query('SELECT pg_advisory_unlock(994201)').catch(() => undefined)
-      lock.release()
+      // An unlock that fails destroys the connection (as in the Laboratorio, review of #109): the pool keeps one
+      // connection open for good (infra-egress), and the lock must not stay held on it.
+      let unlockError: Error | undefined
+      if (acquired) {
+        await lock.query('SELECT pg_advisory_unlock(994201)').catch((error: Error) => {
+          unlockError = error
+        })
+      }
+      lock.release(unlockError)
     }
   }
 
@@ -214,8 +221,15 @@ export class TrackerSync implements OnApplicationBootstrap, OnModuleDestroy {
         throw new BadRequestException({ code: 'tracker_preview', message: 'Elegí una vista previa del tracker.' })
       return await this.collection.applyImport(id)
     } finally {
-      if (acquired) await lock.query('SELECT pg_advisory_unlock(994201)').catch(() => undefined)
-      lock.release()
+      // An unlock that fails destroys the connection (as in the Laboratorio, review of #109): the pool keeps one
+      // connection open for good (infra-egress), and the lock must not stay held on it.
+      let unlockError: Error | undefined
+      if (acquired) {
+        await lock.query('SELECT pg_advisory_unlock(994201)').catch((error: Error) => {
+          unlockError = error
+        })
+      }
+      lock.release(unlockError)
     }
   }
 

@@ -280,8 +280,15 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
         })
       }
     } finally {
-      if (acquired) await lock.query('SELECT pg_advisory_unlock($1)', [SYNC_LOCK]).catch(() => undefined)
-      lock.release()
+      // An unlock that fails destroys the connection (as in the Laboratorio, review of #109): the pool keeps one
+      // connection open for good (infra-egress), and the lock must not stay held on it.
+      let unlockError: Error | undefined
+      if (acquired) {
+        await lock.query('SELECT pg_advisory_unlock($1)', [SYNC_LOCK]).catch((error: Error) => {
+          unlockError = error
+        })
+      }
+      lock.release(unlockError)
     }
   }
 
@@ -306,8 +313,15 @@ export class DotggSync implements OnApplicationBootstrap, OnModuleDestroy {
         throw new BadRequestException({ code: 'dotgg_preview', message: 'Elegí una vista previa de ptcgpocket.gg.' })
       return await this.collection.applyImport(id)
     } finally {
-      if (acquired) await lock.query('SELECT pg_advisory_unlock($1)', [SYNC_LOCK]).catch(() => undefined)
-      lock.release()
+      // An unlock that fails destroys the connection (as in the Laboratorio, review of #109): the pool keeps one
+      // connection open for good (infra-egress), and the lock must not stay held on it.
+      let unlockError: Error | undefined
+      if (acquired) {
+        await lock.query('SELECT pg_advisory_unlock($1)', [SYNC_LOCK]).catch((error: Error) => {
+          unlockError = error
+        })
+      }
+      lock.release(unlockError)
     }
   }
 

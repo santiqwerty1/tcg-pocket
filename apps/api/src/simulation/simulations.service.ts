@@ -135,6 +135,22 @@ export interface CreateJobInput {
 
 type JobRow = Prisma.SimulationJobGetPayload<object>
 
+/**
+ * A job as its summary reads it: the row without the whole `params`, and of `params` only what `summary` reads (the
+ * Laboratorio's mode and the engine change). A Laboratorio search keeps its rounds in `params` (65 KB on average in
+ * production, up to 83 KB), and the lists and the progress of an open job (every 2 s) read it over and over
+ * (infra-egress).
+ */
+type SummaryJobRow = Omit<JobRow, 'params'> & { params: Prisma.JsonValue }
+
+/** `params` with only what `summary` reads, from the values `summaryRows` extracts in SQL. */
+function summaryParams(row: { mode: Prisma.JsonValue | null; engineChange: Prisma.JsonValue | null } | undefined) {
+  const params: Prisma.JsonObject = {}
+  if (row?.mode !== null && row?.mode !== undefined) params.lab = { mode: row.mode }
+  if (row?.engineChange !== null && row?.engineChange !== undefined) params.engineChange = row.engineChange
+  return params
+}
+
 @Injectable()
 export class SimulationsService {
   constructor(
@@ -649,7 +665,24 @@ export class SimulationsService {
     return out
   }
 
-  private summary(job: JobRow, progress: Map<number, JobProgressView>): JobSummaryView {
+  /** Jobs for their summaries, without the whole `params` (`SummaryJobRow`), in the order asked. */
+  private async summaryRows(query: {
+    where: Prisma.SimulationJobWhereInput
+    orderBy?: Prisma.SimulationJobOrderByWithRelationInput
+    take?: number
+  }): Promise<SummaryJobRow[]> {
+    const rows = await this.prisma.simulationJob.findMany({ ...query, omit: { params: true } })
+    if (rows.length === 0) return []
+    const extracted = await this.prisma.$queryRaw<
+      { id: number; mode: Prisma.JsonValue | null; engineChange: Prisma.JsonValue | null }[]
+    >`
+      SELECT id, params->'lab'->'mode' AS mode, params->'engineChange' AS "engineChange"
+      FROM simulation_jobs WHERE id = ANY(${rows.map((row) => row.id)}::int[])`
+    const byId = new Map(extracted.map((row) => [row.id, row]))
+    return rows.map((row) => ({ ...row, params: summaryParams(byId.get(row.id)) }))
+  }
+
+  private summary(job: SummaryJobRow, progress: Map<number, JobProgressView>): JobSummaryView {
     const players = [job.players[0] ?? 'r', job.players[1] ?? 'r'] as [string, string]
     return {
       id: job.id,
@@ -681,7 +714,7 @@ export class SimulationsService {
 
   /** Newest first: the ones in the list (default), the archived ones, or every job (`null`, for Claude). */
   async list(limit = 50, archived: boolean | null = false): Promise<JobSummaryView[]> {
-    const jobs = await this.prisma.simulationJob.findMany({
+    const jobs = await this.summaryRows({
       where: archived === null ? {} : { archivedAt: archived ? { not: null } : null },
       orderBy: { id: 'desc' },
       take: limit,
@@ -706,7 +739,8 @@ export class SimulationsService {
 
   /** Summaries of some jobs, newest first (the Laboratorio's list). */
   async summariesOf(ids: readonly number[]): Promise<JobSummaryView[]> {
-    const jobs = await this.prisma.simulationJob.findMany({ where: { id: { in: [...ids] } }, orderBy: { id: 'desc' } })
+    if (ids.length === 0) return []
+    const jobs = await this.summaryRows({ where: { id: { in: [...ids] } }, orderBy: { id: 'desc' } })
     const progress = await this.progress(jobs.map((job) => job.id))
     return jobs.map((job) => this.summary(job, progress))
   }
@@ -717,8 +751,10 @@ export class SimulationsService {
     return job
   }
 
+  /** The summary of one job: what the open job's events send every 2 s, and what a change of a job answers. */
   async progressOf(rawId: string): Promise<JobSummaryView> {
-    const job = await this.requireJob(rawId)
+    const [job] = await this.summaryRows({ where: { id: parseNumericId(rawId, 'Simulación') } })
+    if (!job) throw new NotFoundException(`Simulación ${rawId} no encontrada.`)
     return this.summary(job, await this.progress([job.id]))
   }
 

@@ -2486,11 +2486,34 @@ export class LabService implements OnApplicationBootstrap, OnApplicationShutdown
 
   async jobs(limit = 50): Promise<LabJobsView> {
     // Deuda 2 (14/10): the Laboratorio's jobs filtered in the query; the 500 newest of every kind dropped older ones.
-    const jobs = await this.prisma.$queryRaw<{ id: number; params: Prisma.JsonValue }[]>`
-      SELECT id, params FROM simulation_jobs
+    // Of `params`, only what the list shows (infra-egress): a search keeps its rounds there (65 KB on average in
+    // production), and the list read 1,8 MB every time the page asked (every 30 s, every 5 s while one runs).
+    const rows = await this.prisma.$queryRaw<
+      {
+        id: number
+        mode: Prisma.JsonValue | null
+        era: Prisma.JsonValue | null
+        phase: Prisma.JsonValue | null
+        objective: Prisma.JsonValue | null
+      }[]
+    >`
+      SELECT id, params->'lab'->'mode' AS mode, params->'lab'->'era' AS era,
+        params->'lab'->'explore'->'phase' AS phase, params->'lab'->'objective' AS objective
+      FROM simulation_jobs
       WHERE params->'lab'->>'mode' IN ('test', 'explore')
       ORDER BY id DESC
       LIMIT ${limit}`
+    const jobs = rows.map((row) => ({
+      id: row.id,
+      params: {
+        lab: {
+          mode: row.mode,
+          ...(row.era === null ? {} : { era: row.era }),
+          ...(row.phase === null ? {} : { explore: { phase: row.phase } }),
+          ...(row.objective === null ? {} : { objective: row.objective }),
+        },
+      } as Prisma.JsonValue,
+    }))
     const lab = jobs.filter((job) => labMode(job.params) !== null)
     const summaries = new Map(
       (await this.simulations.summariesOf(lab.map((job) => job.id))).map((summary) => [summary.id, summary]),

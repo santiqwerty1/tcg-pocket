@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { SchedulerRegistry } from '@nestjs/schedule'
 import {
   bonferroniZ,
   engineEdition,
@@ -17,10 +18,12 @@ import { CatalogService } from '../src/catalog/catalog.service.js'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
 import { LabService } from '../src/lab/lab.service.js'
+import { PrismaService } from '../src/prisma/prisma.service.js'
 import { EngineStatusService } from '../src/simulation/snapshots.service.js'
 import { WorkerQueueService } from '../src/simulation/worker-queue.service.js'
 import { type FetchLike, LimitlessTransport } from '../src/tournaments/limitless.client.js'
 import { TournamentSyncService } from '../src/tournaments/tournament-sync.service.js'
+import { countDatabaseBytes } from './egress.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /**
@@ -3232,4 +3235,66 @@ describe('laboratorio (e2e)', () => {
     expect((swept.params as { perGame?: boolean }).perGame).toBeUndefined()
     await post(`/api/simulations/${waiting.body.id}/cancel`)
   }, 60_000)
+
+  it('infra-egress: the list of jobs reads what it shows of each search, not its rounds', async () => {
+    // Searches as heavy as production's (their rounds, 65 KB on average): the list showed them every 30 s, 5 s while
+    // one ran, and read them whole twice each time (its rows and their summaries).
+    const make = (phase: string, objective: { kind: string } | null) =>
+      test.prisma.simulationJob.create({
+        data: {
+          kind: 'explore',
+          status: 'done',
+          label: 'Búsqueda pesada',
+          params: {
+            sideA: [],
+            sideB: [],
+            lab: {
+              mode: 'explore',
+              era: 'B4a',
+              format: 'standard',
+              size: 5,
+              rivals: [],
+              ...(objective ? { objective } : {}),
+              explore: { phase, base: 1, incumbent: 1, rounds: [{ kind: 'search', padding: 'x'.repeat(100_000) }] },
+            },
+          },
+          engineRev: test.env.engineRev,
+          players: ['r', 'r'],
+          gamesPerPair: 10,
+          baseSeed: 1n,
+          totalGames: 10,
+        },
+        select: { id: true },
+      })
+    const searching = await make('search', null)
+    const confirming = await make('confirm', { kind: 'mine' })
+    // The minute's catalog check reads the whole last sync on main before infra-egress: paused, it cannot land in a
+    // measured window.
+    const minute = test.app.get(SchedulerRegistry).getCronJob('catalog-memory')
+    minute.stop()
+    const counter = countDatabaseBytes(test.app.get(PrismaService).pool)
+    try {
+      const before = counter.bytes()
+      const items = (await get('/api/lab/jobs')).body.items as Structured[]
+      const bytes = counter.bytes() - before
+      expect(items.find((item) => item.id === searching.id)).toMatchObject({
+        lab: 'explore',
+        mode: 'explore',
+        era: 'B4a',
+        phase: 'search',
+        against: 'el meta',
+      })
+      expect(items.find((item) => item.id === confirming.id)).toMatchObject({
+        mode: 'explore',
+        era: 'B4a',
+        phase: 'confirm',
+        against: 'mi meta',
+      })
+      expect(bytes).toBeLessThan(60_000)
+    } finally {
+      counter.stop()
+      minute.start()
+      await test.prisma.simulationJob.deleteMany({ where: { id: { in: [searching.id, confirming.id] } } })
+    }
+  })
 })
