@@ -107,11 +107,12 @@ fn cases() -> Vec<Value> {
             "job": { "deckA": deck_a, "deckB": deck_b, "players": players, "games": 2, "seed": seed, "threads": 1, "perGame": true },
         }));
     }
-    // Misty and Sweet Honey's choices since deckgym 97b8787 (D-031), for the search bots, f and g: a change in how
+    // Misty and Sweet Honey's choices since deckgym 97b8787 (D-031), made by e2, f2 and g2 in turn: a change in how
     // deckgym or the bots handle them shows here (the engine change of 12/11/2026).
     for (deck_a, deck_b, players, seed) in [
         (MISTY_HONEY, DEDENNE, ["e2", "g2"], 4224),
-        (DEDENNE, MISTY_HONEY, ["f2", "g2"], 4225),
+        (DEDENNE, MISTY_HONEY, ["g2", "f2"], 4225),
+        (MISTY_HONEY, DEDENNE, ["g2", "e2"], 4226),
     ] {
         cases.push(json!({
             "command": "simulate",
