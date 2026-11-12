@@ -38,7 +38,7 @@ _Recuentos al 2026-11-12 (generados; no editar a mano)._
 | supuesto | 3 | refutado 1 · verificado 2 |
 | tarea | 25 | en_curso 5 · hecho 18 · parcial 1 · pendiente 1 |
 
-**Para revisar:** P-015. **Abiertas:** 26 (prioridad 4–5: P-014).
+**Para revisar:** P-015. **Abiertas:** 26 (prioridad 4–5: P-014, R-014).
 <!-- /posta:recuentos -->
 
 ## Fichas

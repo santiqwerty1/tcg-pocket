@@ -31,4 +31,4 @@ revisar: false
 | [P-012](P-012.md) | ¿Cuando vence la sesión, la app tiene que seguir desregistrando el service worker? | respondida | — | sesión y notificaciones | 2026-10-09 |
 | [P-013](P-013.md) | ¿Creamos el tag v1.0.0 y el release en el repo público? | cerrada | — | repositorio | 2026-10-12 |
 | [P-014](P-014.md) | En el juego real, ¿un KO de fin de turno en el turno 30 da la victoria o el empate por límite? | pendiente | 4 | motor | 2026-10-15 |
-| [P-015](P-015.md) | ¿Cómo bajamos el tráfico del detalle de una búsqueda del Laboratorio? | pendiente ⚑ | media | Laboratorio | 2026-11-12 |
+| [P-015](P-015.md) | ¿Cómo bajamos el tráfico del detalle de una búsqueda del Laboratorio? | pendiente ⚑ | 3 | Laboratorio | 2026-11-12 |
