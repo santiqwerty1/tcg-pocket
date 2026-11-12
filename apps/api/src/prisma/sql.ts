@@ -6,6 +6,20 @@ import type pg from 'pg'
 
 const MAX_PARAMS_PER_STATEMENT = 30_000
 
+/**
+ * Rolls back a transaction of a raw pool client that failed: undefined when it did; the error when not, to pass to
+ * `client.release(error)`: the pool then destroys the connection instead of keeping it inside the transaction, with
+ * its locks. The pool keeps one connection open for good (`min: 1`, infra-egress), so it would not close by itself.
+ */
+export async function rollback(client: pg.PoolClient): Promise<Error | undefined> {
+  try {
+    await client.query('ROLLBACK')
+    return undefined
+  } catch (error) {
+    return error instanceof Error ? error : new Error(String(error))
+  }
+}
+
 export function quoteIdentifier(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`
 }

@@ -50,7 +50,7 @@ import { toCardSummary, toGroupSummary } from '../catalog/catalog-views.js'
 import type { CollectionAdjustment as AdjustmentRow, CollectionImport, Prisma } from '../generated/prisma/client.js'
 import { idToString, parseNumericId } from '../http/ids.js'
 import { PrismaService } from '../prisma/prisma.service.js'
-import { upsertMany } from '../prisma/sql.js'
+import { rollback, upsertMany } from '../prisma/sql.js'
 import { CollectionRepository, stockFromRows, toDomainAdjustment } from './collection.repository.js'
 import type {
   ActiveAdjustmentView,
@@ -543,6 +543,7 @@ export class CollectionService {
   ): Promise<ImportPreview | UnchangedRemoteImport> {
     const normalized = normalizeImportRows(parsed.rows, index)
     const client = await this.prisma.pool.connect()
+    let rollbackError: Error | undefined
     try {
       await client.query('BEGIN')
       // Same lock order as apply; also excludes catalogue remaps and manual/MCP collection writes.
@@ -636,10 +637,11 @@ export class CollectionService {
       const row = await this.requireImport(String(id))
       return this.toPreview(index, row, stored)
     } catch (error) {
-      await client.query('ROLLBACK').catch(() => undefined)
+      rollbackError = await rollback(client)
       throw error
     } finally {
-      client.release()
+      // With the error the pool destroys the connection: it never goes back inside the transaction, with its locks.
+      client.release(rollbackError)
     }
   }
 
@@ -697,6 +699,7 @@ export class CollectionService {
     const source = remoteSourceOf(row.source)
     const units = this.unitsOf(index, row.rows)
     const client = await this.prisma.pool.connect()
+    let rollbackError: Error | undefined
     try {
       await client.query('BEGIN')
       await client.query('LOCK TABLE cards, collection_stock, collection_adjustments IN SHARE ROW EXCLUSIVE MODE')
@@ -814,10 +817,11 @@ export class CollectionService {
       await client.query('COMMIT')
       return { applied: true, summary: diff.summary }
     } catch (error) {
-      await client.query('ROLLBACK').catch(() => undefined)
+      rollbackError = await rollback(client)
       throw error
     } finally {
-      client.release()
+      // With the error the pool destroys the connection: it never goes back inside the transaction, with its locks.
+      client.release(rollbackError)
     }
   }
 
