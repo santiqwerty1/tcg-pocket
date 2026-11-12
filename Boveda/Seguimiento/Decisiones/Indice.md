@@ -46,6 +46,6 @@ revisar: false
 | [D-027](D-027.md) | Análisis exploratorio de simulaciones sin agrupar fuentes ni corridas | vigente | — | 2026-10-13 |
 | [D-028](D-028.md) | Colección del tracker por el mismo camino de importación del CSV | vigente | — | 2026-10-13 |
 | [D-029](D-029.md) | g2 es el bot por defecto desde el 23/10/2026 (antes e2); e2, f2 y e3 quedan como opciones | vigente | — | 2026-10-29 |
-| [D-030](D-030.md) | El chat entre sesiones sale de tcg-pocket a un hub propio, con una sala por proyecto | vigente | — | 2026-10-19 |
-| [D-031](D-031.md) | La app usa un fork de deckgym con arreglos, sin esperar a upstream | vigente | — | 2026-10-29 |
+| [D-030](D-030.md) | El chat entre sesiones sale de tcg-pocket a un hub propio, con una sala por proyecto | vigente | — | 2026-11-12 |
+| [D-031](D-031.md) | La app usa un fork de deckgym con arreglos, sin esperar a upstream | vigente | — | 2026-11-12 |
 | [D-032](D-032.md) | La modalidad «Evento» de la app son solo los eventos de emblema contra personas | vigente | — | 2026-11-12 |

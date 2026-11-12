@@ -3,7 +3,7 @@ tipo: indice
 titulo: 'Riesgos'
 area: proyecto
 estado: vigente
-actualizado: '2026-10-22'
+actualizado: '2026-11-12'
 origen:
   - posta generar
 revisar: false
@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-13 fichas: abierto 10 · resuelto 3. ⚑ = para revisar.
+14 fichas: abierto 11 · resuelto 3. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Actualizado |
 | --- | --- | --- | --- | --- |
@@ -30,3 +30,4 @@ revisar: false
 | [R-011](R-011.md) | Fallas que nadie ve | abierto | — | 2026-10-13 |
 | [R-012](R-012.md) | Los resultados de simulación dependen del bot más de lo que muestran sus intervalos | abierto | — | 2026-10-22 |
 | [R-013](R-013.md) | Commits con el mail personal como autor en el repo público | abierto | — | 2026-10-12 |
+| [R-014](R-014.md) | El egress de Supabase se pasa del plan gratis y la base de producción queda restringida | abierto | 5 | 2026-11-12 |
