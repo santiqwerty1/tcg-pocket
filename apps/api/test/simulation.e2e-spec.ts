@@ -4,15 +4,19 @@ import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { SchedulerRegistry } from '@nestjs/schedule'
 import { CatalogSyncService } from '../src/catalog/catalog-sync.service.js'
 import { REPO_ROOT } from '../src/config/dotenv.js'
+import type { Prisma } from '../src/generated/prisma/client.js'
 import { jobSummaryJson } from '../src/mcp/mcp-json.js'
 import { LiveGamesService } from '../src/play/live-games.service.js'
+import { PrismaService } from '../src/prisma/prisma.service.js'
 import { ChunkCacheService } from '../src/simulation/chunk-cache.service.js'
 import { EngineChangeService, GAMES_REV_GONE_MS } from '../src/simulation/engine-change.service.js'
 import { SimulationsService } from '../src/simulation/simulations.service.js'
 import { EngineStatusService } from '../src/simulation/snapshots.service.js'
 import { type ClaimedChunk, WorkerQueueService } from '../src/simulation/worker-queue.service.js'
+import { countDatabaseBytes } from './egress.js'
 import { createTestApp, login, seedOwner, type TestApp } from './helpers.js'
 
 /** docs/PLAN.md §7 Fase 6 (M7): jobs, the worker protocol and results, with a fake worker (no engine). */
@@ -1355,6 +1359,94 @@ describe('simulation (e2e)', () => {
     const stored = await test.prisma.simulationChunk.findUniqueOrThrow({ where: { id: Number(chunk.chunkId) } })
     expect(stored.extra).toMatchObject({ perGame: decidedLate, analysisGames: { version: 1 } })
     for (const id of [created.body.id, plain.body.id]) {
+      await post(`/api/simulations/${id}/cancel`)
+      await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)
+    }
+  })
+
+  it('infra-egress: the claim, the heartbeat, the result and the summaries of a job do not read its whole params', async () => {
+    const created = await post('/api/simulations').send({
+      kind: 'compare',
+      sideA: decks(3, 3),
+      sideB: decks(5, 5),
+      gamesPerPair: 4,
+      players: ['r', 'r'],
+      seed: 78,
+      perGame: true,
+    })
+    expect(created.status).toBe(201)
+    const id = created.body.id as number
+    // As heavy as a Laboratorio search keeps its rounds (65 KB on average in production, up to 83 KB), and more.
+    const job = await test.prisma.simulationJob.findUniqueOrThrow({ where: { id } })
+    const engineChange = { from: 'b'.repeat(40), at: '2026-11-12T12:00:00.000Z', replayed: true }
+    await test.prisma.simulationJob.update({
+      where: { id },
+      data: { params: { ...(job.params as Prisma.JsonObject), engineChange, heavy: 'x'.repeat(200_000) } },
+    })
+    // The minute's catalog check reads the whole last sync on main before infra-egress: paused, it cannot land in a
+    // measured window.
+    const minute = test.app.get(SchedulerRegistry).getCronJob('catalog-memory')
+    minute.stop()
+    const counter = countDatabaseBytes(test.app.get(PrismaService).pool)
+    const measured = async <T>(fn: () => Promise<T>): Promise<[T, number]> => {
+      const before = counter.bytes()
+      const out = await fn()
+      return [out, counter.bytes() - before]
+    }
+    const hello = { ...worker('worker-egress'), version: '0.2.5', cliVersion: '0.2.0' }
+    try {
+      const [claimed, claimBytes] = await measured(() => bearer('post', '/api/worker/claim').send(hello))
+      const chunk = claimed.body.chunk as Structured
+      expect(chunk).toMatchObject({ jobId: id, games: 4, perGame: true })
+      const [beat, beatBytes] = await measured(() =>
+        bearer('put', `/api/worker/chunks/${chunk.chunkId}/heartbeat`).send({
+          workerId: 'worker-egress',
+          gamesDone: 2,
+        }),
+      )
+      expect(beat.body).toMatchObject({ cancelled: false, lost: false, leaseUntil: expect.any(String) })
+      const result = {
+        workerId: 'worker-egress',
+        engineRev: test.env.engineRev,
+        winsA: 2,
+        winsB: 1,
+        ties: 1,
+        games: 4,
+        turns: 60,
+        durationMs: 40,
+      }
+      const put = (body: Structured) => bearer('put', `/api/worker/chunks/${chunk.chunkId}/result`).send(body)
+      // The job asks for per-game results: without them, refused (it reads that much of `params`, not the rest).
+      const [missing, missingBytes] = await measured(() => put(result))
+      expect(missing.status).toBe(422)
+      expect(missing.body.error.message).toContain('perGame')
+      const again = (await bearer('post', '/api/worker/claim').send(hello)).body.chunk as Structured
+      expect(again).toMatchObject({ chunkId: chunk.chunkId, perGame: true })
+      const perGame = {
+        winners: 'ABTA',
+        starters: 'AABB',
+        endings: 'PNLP',
+        turns: [12, 9, 31, 8],
+        stagesA: '1201',
+        stagesB: '0110',
+      }
+      const [accepted, resultBytes] = await measured(() => put({ ...result, extra: { perGame } }))
+      expect(accepted.body).toEqual({ accepted: true })
+      // The summaries: the list, the progress the open job sends every 2 s; the engine change is still said.
+      const [list, listBytes] = await measured(() => get('/api/simulations'))
+      expect(list.body.items.find((item: { id: number }) => item.id === id)).toMatchObject({
+        status: 'done',
+        lab: null,
+        engineChange: { from: engineChange.from, at: engineChange.at, replayed: true },
+      })
+      const [progress, progressBytes] = await measured(() => test.app.get(SimulationsService).progressOf(String(id)))
+      expect(progress).toMatchObject({ id, status: 'done', lab: null, engineChange: { from: engineChange.from } })
+      // Each of them read the 200 KB before.
+      const bytes = { claimBytes, beatBytes, missingBytes, resultBytes, listBytes, progressBytes }
+      expect(Object.entries(bytes).filter(([, value]) => value >= 50_000)).toEqual([])
+    } finally {
+      counter.stop()
+      minute.start()
       await post(`/api/simulations/${id}/cancel`)
       await test.http().delete(`/api/simulations/${id}`).set('Cookie', cookie)
     }

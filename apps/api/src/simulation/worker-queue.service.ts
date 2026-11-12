@@ -124,6 +124,14 @@ function perGamePairing(kind: ClaimedChunk['kind'], params: Prisma.JsonValue): b
   return isPairing(kind) && wantsPerGame(params)
 }
 
+/**
+ * How the queue reads a job: without `params`, and of `params` only what the protocol needs (`protocolParams`). A
+ * Laboratorio search keeps its rounds there (65 KB on average in production, up to 83 KB), and the claim, every
+ * heartbeat (every 30 s for each chunk being played) and every result read the job: whole, that was up to ~0,8 GB of
+ * the database's egress on a day of searches (infra-egress).
+ */
+const QUEUE_JOB = { omit: { params: true } } as const
+
 export interface ChunkResultInput {
   workerId: string
   engineRev: string
@@ -316,7 +324,7 @@ export class WorkerQueueService {
       RETURNING id`
     const id = rows[0]?.id
     if (id === undefined) return []
-    const first = await this.prisma.simulationChunk.findUniqueOrThrow({ where: { id }, include: { job: true } })
+    const first = await this.prisma.simulationChunk.findUniqueOrThrow({ where: { id }, include: { job: QUEUE_JOB } })
     const job = first.job
     if (job.status === 'queued') {
       await this.prisma.simulationJob.update({
@@ -343,8 +351,9 @@ export class WorkerQueueService {
       select: { id: true, deckgymText: true },
     })
     const text = (snapshotId: number | null) => texts.find((row) => row.id === snapshotId)?.deckgymText ?? null
+    const params = await this.protocolParams(job.id)
     const consistencyParams =
-      job.kind === 'consistency' ? (job.params as { consistency?: Partial<ConsistencyParams> }).consistency : undefined
+      job.kind === 'consistency' ? (params as { consistency?: Partial<ConsistencyParams> }).consistency : undefined
     const rivalTexts = consistencyParams?.rivals?.length
       ? await this.prisma.deckSnapshot.findMany({
           where: { id: { in: consistencyParams.rivals.map((rival) => rival.snapshot) } },
@@ -365,8 +374,8 @@ export class WorkerQueueService {
       leaseUntil: (chunk.leaseUntil ?? new Date(Date.now() + LEASE_MS)).toISOString(),
       deckA: text(chunk.snapshotAId),
       deckB: text(chunk.snapshotBId),
-      perGame: perGamePairing(job.kind, job.params),
-      optimize: job.kind === 'optimize' ? ((job.params as { engineJob?: Prisma.JsonValue }).engineJob ?? null) : null,
+      perGame: perGamePairing(job.kind, params),
+      optimize: job.kind === 'optimize' ? ((params as { engineJob?: Prisma.JsonValue }).engineJob ?? null) : null,
       consistency:
         job.kind === 'consistency'
           ? {
@@ -640,7 +649,7 @@ export class WorkerQueueService {
       return []
     }
     const chunks = await this.chunksInOrder(chosen.ids)
-    const job = await this.prisma.simulationJob.findUniqueOrThrow({ where: { id: chosen.jobId } })
+    const job = await this.prisma.simulationJob.findUniqueOrThrow({ where: { id: chosen.jobId }, ...QUEUE_JOB })
     this.logger.info(
       { worker: hello.workerId, chunks: chosen.ids, job: chosen.jobId },
       'copy of chunks at the end of a job',
@@ -719,10 +728,30 @@ export class WorkerQueueService {
     return null
   }
 
+  /** The chunk with its job, without the job's `params` (`QUEUE_JOB`): every heartbeat and every result read it. */
   private async requireChunk(id: number) {
-    const chunk = await this.prisma.simulationChunk.findUnique({ where: { id }, include: { job: true } })
+    const chunk = await this.prisma.simulationChunk.findUnique({ where: { id }, include: { job: QUEUE_JOB } })
     if (!chunk) throw new NotFoundException(`Chunk ${id} no encontrado.`)
     return chunk
+  }
+
+  /**
+   * Of a job's `params`, only what the worker protocol reads (`QUEUE_JOB`): whether it asks for per-game results, an
+   * optimize's engine job and a consistency's parameters, with the same keys, so the readers of `params` are the same.
+   */
+  private async protocolParams(jobId: number): Promise<Prisma.JsonObject> {
+    const [row] = await this.prisma.$queryRaw<
+      { perGame: Prisma.JsonValue | null; engineJob: Prisma.JsonValue | null; consistency: Prisma.JsonValue | null }[]
+    >`
+      SELECT params->'perGame' AS "perGame",
+        CASE WHEN kind = 'optimize' THEN params->'engineJob' END AS "engineJob",
+        CASE WHEN kind = 'consistency' THEN params->'consistency' END AS consistency
+      FROM simulation_jobs WHERE id = ${jobId}`
+    const params: Prisma.JsonObject = {}
+    if (row?.perGame !== null && row?.perGame !== undefined) params.perGame = row.perGame
+    if (row?.engineJob !== null && row?.engineJob !== undefined) params.engineJob = row.engineJob
+    if (row?.consistency !== null && row?.consistency !== undefined) params.consistency = row.consistency
+    return params
   }
 
   /**
@@ -825,12 +854,17 @@ export class WorkerQueueService {
       return { accepted: false }
     }
     const perGame = (input.extra as { perGame?: unknown } | undefined)?.perGame
+    // A pairing checks its per-game results when it sent them or when its job asked for them: only then it reads
+    // whether the job asked (`protocolParams`, infra-egress).
+    const checksPerGame = async () =>
+      isPairing(chunk.job.kind) &&
+      (perGame !== undefined || perGamePairing(chunk.job.kind, await this.protocolParams(chunk.jobId)))
     const problem =
       input.winsA + input.winsB + input.ties !== input.games
         ? 'winsA + winsB + ties tiene que sumar games.'
         : chunk.job.kind !== 'optimize' && input.games !== chunk.games
           ? `El chunk tiene ${chunk.games} partidas, no ${input.games}.`
-          : perGamePairing(chunk.job.kind, chunk.job.params) || (isPairing(chunk.job.kind) && perGame !== undefined)
+          : (await checksPerGame())
             ? checkPerGame(perGame, input)
             : null
     if (problem) {
