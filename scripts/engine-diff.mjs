@@ -9,7 +9,9 @@
 // Pairing i plays with seed `base × (i + 1)` (1.000.003 by default). Game g of a job uses splitmix64(seed ^ splitmix64(g)),
 // so more games with the same base replay the first ones: another base plays other games. `bot` is any code engine-cli
 // takes (e2 by default; g2 is the app's since 23/10/2026, D-029).
-// decks.jsonl: one JSON per line, {"side": "a" | "b", "label": "…", "text": "<deck in deckgym's format>"}.
+// decks.jsonl: one JSON per line, {"side": "a" | "b", "label": "…", "text": "<deck in deckgym's format>"}. The decks of
+// 12/11/2026 are scripts/fixtures/engine-diff-decks-20261112.jsonl: the 40 of docs/context against the meta bank of
+// era C1 that day (23 lists) and the 18 of bank-b4a-20261015.json.
 // A change to the shape of what deckgym hashes in `State` changes more than its rules: `forecast_action` samples the
 // branches of an effect with more than MAX_FORECAST_BRANCHES (20) results, as the search bots see it, with a seed from
 // the hash of `State`, so a new field (of `State` or of `PlayedCard`) or an enum variant inserted before others
