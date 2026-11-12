@@ -1,6 +1,6 @@
 [package]
 name = "engine-cli"
-version = "0.3.17"
+version = "0.3.18"
 edition = "2021"
 # Links deckgym-core (AGPL-3.0): this executable is a derivative work under the same license (DECISIONES A.5).
 license = "AGPL-3.0-only"
@@ -8,12 +8,12 @@ publish = false
 description = "JSON front end of deckgym-core for the TCG Pocket worker: validate, simulate and optimize decks."
 
 [dependencies]
-# The engine, pinned: our fork of bcollazo/deckgym-core (D-031), on upstream 7aa4ef0 since 29/10/2026 (C1 «Dual
-# Fusion» and P-C, with printed dual types), with only what upstream does not have yet, each in a branch of its own:
-# the bots' exports (feat/bot-api) and a value function that skips its terms of weight 0 (santiqwerty1/deckgym-core#1,
-# the same games). Branch `next/7aa4ef0` of the fork, tag `pin-77e0617`. Bump the rev here (and in engine/wasm) to
-# update it: docs/OPERACION.md, «El motor: nuestra copia de deckgym».
-deckgym = { git = "https://github.com/santiqwerty1/deckgym-core", rev = "77e06172742bb776b232d6e5c2ca576181be97aa" }
+# The engine, pinned: our fork of bcollazo/deckgym-core (D-031), on upstream 97b8787 since 12/11/2026 (C1 «Dual
+# Fusion» and P-C, with printed dual types, and upstream's rule fixes to 2/11), with only what upstream does not have
+# yet, each in a branch of its own: the bots' exports (feat/bot-api) and a value function that skips its terms of
+# weight 0 (santiqwerty1/deckgym-core#1, the same games). Branch `next/97b8787` of the fork, tag `pin-ca13408`. Bump
+# the rev here (and in engine/wasm) to update it: docs/OPERACION.md, «El motor: nuestra copia de deckgym».
+deckgym = { git = "https://github.com/santiqwerty1/deckgym-core", rev = "ca134083ff86df471102d56bf90784e93cd8d408" }
 rand = "0.8"
 rayon = "1.10"
 serde = { version = "1", features = ["derive"] }

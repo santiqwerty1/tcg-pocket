@@ -1531,6 +1531,92 @@
       }
     },
     {
+      "command": "simulate",
+      "expected": {
+        "games": 2,
+        "moves": [
+          "df2de04a083cfdcc",
+          "30a59dfba3c8e56d"
+        ],
+        "perGame": {
+          "endings": "PP",
+          "stagesA": "22",
+          "stagesB": "00",
+          "starters": "AA",
+          "turnLimit": 30,
+          "turns": [
+            10,
+            8
+          ],
+          "winners": "BB"
+        },
+        "players": [
+          "e2",
+          "g2"
+        ],
+        "seed": 4224,
+        "ties": 0,
+        "turns": 18,
+        "winsA": 0,
+        "winsB": 2
+      },
+      "job": {
+        "deckA": "Energy: Water\n2 Froakie C1 40\n2 Frogadier C1 41\n2 Greninja A1 89\n2 Suicune ex A4a 20\n2 Misty A1 220\n2 Sweet Honey C1 119\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Cyrus A2 150\n1 Starting Plains B2 154\n",
+        "deckB": "Energy: Lightning\n2 Dedenne ex B3b 24\n1 Indeedee ex B1 121\n1 Oricorio A3 165\n1 Zeraora A3a 21\n1 Skull Fossil A2 144\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Cyrus A2 150\n2 Giant Cape A2 147\n2 Small Balloon B3b 64\n1 Clear Veil B4 149\n1 Protective Poncho B2 147\n1 Starting Plains B2 154\n",
+        "games": 2,
+        "perGame": true,
+        "players": [
+          "e2",
+          "g2"
+        ],
+        "seed": 4224,
+        "threads": 1
+      }
+    },
+    {
+      "command": "simulate",
+      "expected": {
+        "games": 2,
+        "moves": [
+          "075417de4b36fa7d",
+          "a5d9ae88bac236a1"
+        ],
+        "perGame": {
+          "endings": "PP",
+          "stagesA": "00",
+          "stagesB": "22",
+          "starters": "BA",
+          "turnLimit": 30,
+          "turns": [
+            7,
+            12
+          ],
+          "winners": "BB"
+        },
+        "players": [
+          "f2",
+          "g2"
+        ],
+        "seed": 4225,
+        "ties": 0,
+        "turns": 19,
+        "winsA": 0,
+        "winsB": 2
+      },
+      "job": {
+        "deckA": "Energy: Lightning\n2 Dedenne ex B3b 24\n1 Indeedee ex B1 121\n1 Oricorio A3 165\n1 Zeraora A3a 21\n1 Skull Fossil A2 144\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Cyrus A2 150\n2 Giant Cape A2 147\n2 Small Balloon B3b 64\n1 Clear Veil B4 149\n1 Protective Poncho B2 147\n1 Starting Plains B2 154\n",
+        "deckB": "Energy: Water\n2 Froakie C1 40\n2 Frogadier C1 41\n2 Greninja A1 89\n2 Suicune ex A4a 20\n2 Misty A1 220\n2 Sweet Honey C1 119\n2 Professor's Research P-A 7\n2 Poké Ball P-A 5\n2 Copycat B1 225\n1 Cyrus A2 150\n1 Starting Plains B2 154\n",
+        "games": 2,
+        "perGame": true,
+        "players": [
+          "f2",
+          "g2"
+        ],
+        "seed": 4225,
+        "threads": 1
+      }
+    },
+    {
       "command": "consistency",
       "expected": {
         "attack": {
@@ -1967,6 +2053,6 @@
       }
     }
   ],
-  "engineRev": "77e06172742bb776b232d6e5c2ca576181be97aa",
+  "engineRev": "ca134083ff86df471102d56bf90784e93cd8d408",
   "gamesRev": 1
 }

@@ -224,7 +224,7 @@ checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
 [[package]]
 name = "deckgym"
 version = "0.1.0"
-source = "git+https://github.com/santiqwerty1/deckgym-core?rev=77e06172742bb776b232d6e5c2ca576181be97aa#77e06172742bb776b232d6e5c2ca576181be97aa"
+source = "git+https://github.com/santiqwerty1/deckgym-core?rev=ca134083ff86df471102d56bf90784e93cd8d408#ca134083ff86df471102d56bf90784e93cd8d408"
 dependencies = [
  "chrono",
  "clap",
