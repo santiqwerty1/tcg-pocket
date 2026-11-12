@@ -1,8 +1,9 @@
 // Differential test of two engine-cli builds (D-031: before updating deckgym, our fork): every deck A against every
 // deck B, the same job and seed, the same bot on both sides (e2 by default), with perGame. A pairing without any of the
 // cards the change touches must give byte for byte the same result; the ones that differ are listed with the touched
-// cards of each side, and the ones without any are «UNEXPLAINED» (docs/OPERACION.md, «El motor: nuestra copia de
-// deckgym»).
+// cards of each side, and the ones without any are «UNEXPLAINED». One that only the old engine fails, with a touched
+// card, is «FIXED» (its error is listed, to check it is the one the change fixes); any other failure is «FAILED»
+// (docs/OPERACION.md, «El motor: nuestra copia de deckgym»).
 // Usage: node scripts/engine-diff.mjs <old engine-cli> <new engine-cli> <decks.jsonl> <out dir> [games] [concurrency]
 //   [seed base] [bot]
 // Pairing i plays with seed `base × (i + 1)` (1.000.003 by default). Game g of a job uses splitmix64(seed ^ splitmix64(g)),
@@ -44,58 +45,25 @@ const card = (name, ...printings) => {
   return new RegExp(`^\\d+ ${escaped} ${where}\\r?$`, 'm')
 }
 
-// The cards the change touches. For upstream 7aa4ef0 on top of c87bad0 (29/10/2026, D-031), by upstream commit; C1, P-C
-// and SP1 (#430–#439) only add cards, our #420 was already in c87bad0, and the MCTS of #275 plays only «m». A change
-// that needs two cards to meet lists the one every changed game has. Before: 0b510d1/adfe505 on 018b419 (18/10, #133),
-// and the first fork on 33ff2a5 (15/10, #115). Edit it for another change.
+// The cards the change touches. For upstream 97b8787 on top of 77e0617 (12/11/2026, D-031), by upstream commit, from
+// the diff of `src` (database.json does not change). A change that needs two cards to meet lists the one every changed
+// game has. Before: 7aa4ef0 on c87bad0 (29/10, #160: #421–#428), 0b510d1/adfe505 on 018b419 (18/10, #133), and the
+// first fork on 33ff2a5 (15/10, #115). Edit it for another change.
 const AFFECTED = [
-  // #421: Heavy Helmet reads the holder's current Retreat Cost; Grass Knot and Shadow Seeker, the defender's side.
-  card('Heavy Helmet'),
-  card('Tangrowth', 'A4 5'),
-  card('Whimsicott ex'),
-  card("Team Rocket's Arbok"),
-  // #422: Lum Berry, Sitrus Berry and Bad Dreams in turn-owner order, after Deceptive Needle: only with one of these.
-  card('Darkrai', 'B2b 40', 'B4b 144', 'B4b 328', 'P-B 95'),
-  card('Deceptive Needle'),
-  // #423: Clemont's Backpack also for damage to the Bench.
-  card("Clemont's Backpack"),
-  // #425: coin-flip damage Abilities against damage queued after an attack.
-  card('Bastiodon'),
-  card('Togekiss', 'A4 80'),
-  card('Meowth', 'B2 124', 'B2 204', 'B4b 180', 'B4b 352'),
-  card('Hisuian Goodra'),
-  // #424: Weakness on the hit back an attack leaves.
-  card('Alolan Sandslash'),
-  card('Togedemaru', 'A3b 48', 'P-A 90'),
-  card('Turtonator', 'B1 47'),
-  card('Chesnaught'),
-  card('Mega Sableye ex'),
-  // #426: Growl-type cuts stay on the Pokémon hit and come off before Weakness.
-  card('Cubone', 'A1 151', 'A1 239', 'A3 226', 'A4b 194', 'A4b 195'),
-  card('Suicune'),
-  card('Togepi', 'A4 78', 'A4 173'),
-  card('Slowpoke', 'B3b 26'),
-  card('Teddiursa', 'B3b 56'),
-  card('Pikachu', 'B4 49', 'B4b 82', 'B4b 291', 'P-B 82'),
-  card('Skitty', 'B4 134'),
-  card('Eevee', 'P-A 30'),
-  card('Clefable', 'A2a 30'),
-  card('Bonsly'),
-  // #428: Dragon's Blessing only onto an Active [N] Pokémon.
-  card('Dragonair', 'B4 117', 'B4 175', 'B4 233', 'B4b 170', 'B4b 344'),
-  // #427: Clear Veil and Crystal Body keep the Energy an attack discards; Crunch-type attacks send it to the discard
-  // pile.
-  card('Clear Veil'),
-  card('Regice', 'A2 34'),
-  card('Mawile', 'A1 178'),
-  card('Fearow', 'A1 192'),
-  card('Drednaw', 'A1a 23'),
-  card('Mow Rotom'),
-  card('Lycanroc', 'A3 100', 'P-A 68'),
-  card('Sharpedo'),
-  card('Garbodor', 'B1a 50'),
-  card('Alolan Meowth', 'B2 94'),
-  card('Houndoom', 'B4 28'),
+  // #440: «Discard a random Energy from among the Energy attached to all Pokémon» leaves out the opponent's Pokémon
+  // shielded by Clear Veil or Crystal Body (Regice A2 34): only the attackers, every printing with that text.
+  card('Gyarados ex'),
+  card('Swampert', 'B2 35', 'B4 207'),
+  card('Mega Swampert ex'),
+  card('Ceruledge ex', 'P-B 66'),
+  // #441: Misty and Sweet Honey choose the Pokémon before flipping (FlipUntilTailsThenAttach / …Heal); Darkrai ex's
+  // Nightmare Aura also on an effect's attachment of [D] from the Energy Zone (every Darkrai ex has it).
+  card('Misty'),
+  card('Sweet Honey'),
+  card('Darkrai ex'),
+  // #442: no Ability offered for a Pokémon knocked out while evolving. Only a Basic kept alive by Starting Plains' +20
+  // HP is knocked out by evolving, so every changed game has it.
+  card('Starting Plains'),
 ]
 const affected = (text) => AFFECTED.filter((pattern) => pattern.test(text)).map((p) => p.source)
 
@@ -150,6 +118,8 @@ const tasksWithout = tasks.filter(
 
 const differing = []
 const failed = []
+/** Failed in the old engine only, with a touched card: what the change fixes (#442 on 97b8787: a panic of e2 and g2). */
+const fixed = []
 let done = 0
 async function worker() {
   while (tasks.length > 0) {
@@ -160,13 +130,18 @@ async function worker() {
     ])
     done++
     if (!before.result || !after.result) {
-      failed.push({
+      const failure = {
         index: task.index,
         a: task.a.label,
         b: task.b.label,
+        affectedA: affected(task.a.text),
+        affectedB: affected(task.b.text),
         old: before.stderr ?? null,
         new: after.stderr ?? null,
-      })
+      }
+      const touched = failure.affectedA.length > 0 || failure.affectedB.length > 0
+      if (!before.result && after.result && touched) fixed.push(failure)
+      else failed.push(failure)
     } else if (comparable(before.result) !== comparable(after.result)) {
       differing.push({
         index: task.index,
@@ -191,11 +166,14 @@ const summary = {
   mustMatch: tasksWithout,
   differing: differing.length,
   unexplained: unexplained.length,
+  fixed: fixed.length,
   failed: failed.length,
 }
-writeFileSync(join(outDir, 'summary.json'), JSON.stringify({ summary, differing, failed }, null, 1))
+writeFileSync(join(outDir, 'summary.json'), JSON.stringify({ summary, differing, fixed, failed }, null, 1))
 console.log(JSON.stringify(summary))
 for (const d of unexplained) console.log('UNEXPLAINED', JSON.stringify(d))
+for (const f of fixed) console.log('FIXED', JSON.stringify(f))
 for (const f of failed) console.log('FAILED', JSON.stringify(f))
-// A pairing left unexplained or failed fails the run, so a script that calls it stops there.
+// A pairing left unexplained or failed fails the run, so a script that calls it stops there. One that only the old
+// engine failed, with a touched card, is the change fixing it: listed as FIXED, to read its error, and not a failure.
 if (unexplained.length > 0 || failed.length > 0) process.exitCode = 1
