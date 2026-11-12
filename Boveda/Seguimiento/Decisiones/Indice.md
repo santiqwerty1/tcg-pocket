@@ -3,7 +3,7 @@ tipo: indice
 titulo: 'Decisiones'
 area: proyecto
 estado: vigente
-actualizado: '2026-11-03'
+actualizado: '2026-11-12'
 origen:
   - posta generar
 revisar: false
@@ -13,7 +13,7 @@ revisar: false
 
 <!-- generado por posta: no editar; se regenera con `posta generar` -->
 
-32 fichas: propuesta 1 · vigente 31. ⚑ = para revisar.
+32 fichas: vigente 32. ⚑ = para revisar.
 
 | Código | Asunto | Estado | Prioridad | Actualizado |
 | --- | --- | --- | --- | --- |
@@ -48,4 +48,4 @@ revisar: false
 | [D-029](D-029.md) | g2 es el bot por defecto desde el 23/10/2026 (antes e2); e2, f2 y e3 quedan como opciones | vigente | — | 2026-10-29 |
 | [D-030](D-030.md) | El chat entre sesiones sale de tcg-pocket a un hub propio, con una sala por proyecto | vigente | — | 2026-10-19 |
 | [D-031](D-031.md) | La app usa un fork de deckgym con arreglos, sin esperar a upstream | vigente | — | 2026-10-29 |
-| [D-032](D-032.md) | La modalidad «Evento» de la app son solo los eventos de emblema contra personas | propuesta ⚑ | — | 2026-11-03 |
+| [D-032](D-032.md) | La modalidad «Evento» de la app son solo los eventos de emblema contra personas | vigente | — | 2026-11-12 |

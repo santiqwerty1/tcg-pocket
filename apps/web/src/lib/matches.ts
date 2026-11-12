@@ -14,6 +14,8 @@ export const MODE_LABEL: Record<MatchMode, string> = {
   event: 'Evento',
   friend: 'Amigo',
 }
+/** D-032 (12/11/2026): «Evento» is an emblem event against people, which the game counts in versus. */
+export const EVENT_MODE_HINT = 'Solo eventos de emblema contra personas. Los eventos contra la CPU no se registran.'
 export const WENT_FIRST_LABEL = { first: 'Empecé yo', second: 'Empezó el rival', unknown: 'Sin dato' } as const
 
 /** Under this many games a rate is «orientativo» (the API's `ORIENTATIVE_BELOW`). */

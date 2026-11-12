@@ -231,20 +231,22 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
   - **Cupón ★★: qué sobre conviene** (#173, 67.1–67.8): sección de Sobres, `GET /api/packs/star-coupon` y la tool `packs_star_coupon`; cuántos cupones hay sale de la última importación de pokemon-zone. #174 (67.9–67.10): el cupón del aniversario vencido va aparte, y el desempate es por sobre limitado, después expansión más nueva y después id.
   - **49 de lectura y 14 de escritura.**
   - El evento «Partidas limitadas de Fusión Dual» (id 2), cargado en producción con un script de CLI: del 18/11 al 2/12, solo cartas de C1 y P-C; las excepciones oficiales se publican cuando empieza.
-- **Producción al 3/11/2026:** hasta `2b7282e` (#174); engine-cli 0.3.17 y worker 0.3.15, que llegan solos a los workers. El catálogo, en el tracker `9fafc07` (C1 y P-C) con el motor `77e0617`. La app está en la era C1. El id de la máquina sale de `flyctl machine list --app tcg-pocket`. Deploys desde una copia limpia de main, con `git fetch` antes; si dos PR entran seguidos, la CI del primero queda cancelada y se despliega el segundo, que lo contiene. Justo después de un deploy, un CLI en la máquina puede chocar con el tope de 15 conexiones del pooler de Supabase: al minuto anda. Las calibraciones se lanzan con un script en modo CLI que llama a `CalibrationService.start`; «Actualizar todos», con `PickService.refreshLab` (necesita torneos en la era).
+- **Integrados el 3/11 (noche) y el 12/11/2026:** #176 y #177.
+  - **La temporada de ranked C1 en sus fechas oficiales** (#176, DECISIONES 61.10–61.13): del 1/12 al 15/12 por días de Buenos Aires, con la migración `20261103120000_ranked_season_c1_dates` (un solo bloque `DO` bajo el lock de los rangos). B4b SP queda como está (Santi: terminó el 28/10 a la noche).
+  - **#177** (sesión en la nube «Nube-Interfaz», integrado por Santi): la colección del 11/11 como fixture (68.1) y la especificación de las maquetas de la renovación de la interfaz (`docs/prototipos/renovacion-ui/`). Antes de tocar `apps/web`, esa sesión coordina con el Coordinador.
+  - **D-032 vigente** (66.29, aprobada por Santi el 12/11): «Evento» son solo los eventos de emblema contra personas, que el juego cuenta en versus; los eventos contra la CPU no se registran. La carga de partidas lo dice.
+- **Producción al 12/11/2026:** hasta `b7d8ea2` (#176); engine-cli 0.3.17 y worker 0.3.15, que llegan solos a los workers. El catálogo, en el tracker `8f3d1d7` (sincronizado el 11/11) con el motor `77e0617`. La app está en la era C1, con 39 torneos al 12/11. El id de la máquina sale de `flyctl machine list --app tcg-pocket`. Deploys desde una copia limpia de main, con `git fetch` antes; si dos PR entran seguidos, la CI del primero queda cancelada y se despliega el segundo, que lo contiene. Justo después de un deploy, un CLI en la máquina puede chocar con el tope de 15 conexiones del pooler de Supabase: al minuto anda. Las calibraciones se lanzan con un script en modo CLI que llama a `CalibrationService.start`; «Actualizar todos», con `PickService.refreshLab` (necesita torneos en la era).
 - **Pendientes** (detalle en Avance):
-  - antes del 30/11: corregir las fechas de la temporada de ranked C1 (la noticia oficial dice del 1/12 al 15/12; la app tiene del 30/11 al 14/12, de ptcgpocket.gg);
+  - el motor nuevo (aprobado por Santi el 12/11): `engine/next-97b8787`, sobre upstream `97b8787` (los arreglos del 2/11), con la verificación del diferencial, el deploy y el sync del catálogo; después, «Actualizar todos» con g2, la matriz y las calibraciones de C1;
   - el 18/11: cargar las excepciones del evento limitado, y sumar promo C vol. 1 a `PROMO_VOLUMES` y a los eventos cuando se conozcan sus cartas;
-  - propuesta para Santi (D-032): la modalidad «Evento» de la app son solo los eventos de emblema contra personas (se comparan con versus); los eventos contra la CPU no se registran;
-  - el 6/11: importar de pokemon-zone antes y después de un evento de emblema, para ver si cuenta en versus;
+  - Dependabot #166–#168;
   - pokemon-zone, fase 2 (T-025): la colección con fechas, los mazos del juego, las colecciones temáticas, la wishlist y el calendario de eventos;
   - menores de #174: ningún test fija «más nueva» como el orden del catálogo, el plural de «esos cupones vencieron» y «termina antes» para un sobre limitado sin fecha de fin;
-  - con los torneos de C1: «Actualizar todos» con g2, y después la matriz y las calibraciones;
   - SP1: cuando el tracker lo cargue, catálogo, sobre apagado y ptcgpocket.gg;
   - proponer a Santi cerrar H-055 (g2 como arreglo); H-060 (cuatro bloqueos cruzados que ya existían) para una tanda de riesgo alto;
   - una sesión nueva: la línea 2 de los bots;
   - el hub: el paso 5 espera el paso 2 de Santi, el incremento 5 de Posta y el token `HUB_MCP_TOKEN`;
-  - Santi: el paso 2 del hub, el runner Windows de Posta en esta PC, las traducciones de los premios de las misiones y Termux «Sin restricciones» en el S25.
+  - Santi: el marcador de pokemon-zone en la versión 2 (las importaciones siguen con la 1), el paso 2 del hub, el runner Windows de Posta en esta PC, las traducciones de los premios de las misiones y Termux «Sin restricciones» en el S25.
 - **Visto bueno de Santi para todo el 8/10/2026**: fases 0–8 del plan, laboratorio y ajustes aprobados; no queda nada esperando su revisión. Siguiente paso: lo que pida Santi (abiertos: remapeo I12 al cambiar el catálogo, R-001; CI antes de cada deploy, R-007).
 
 ## Cómo trabajar acá
@@ -269,7 +271,7 @@ App personal de Pokémon TCG Pocket para un solo usuario (Santi). El brief compl
 
 - La carpeta de documentación es `docs/` (renombrada al crear el repo, DECISIONES 0.2).
 - `docs/BRIEF.md`: el brief. `docs/PLAN.md`: plan de Fase 0 (revisión 2). `docs/DECISIONES.md`, `docs/LICENCIAS.md`.
-- `docs/context/guia_del_proyecto.md`: reglas del dominio y método. `docs/context/mazos_40_listas.md`: los 40 mazos (sin energía por mazo: está en la columna «Energía» de la tabla resumen). `docs/context/tcgcollectiontracterexport-2026-10-06.csv`: exportación de la colección del 6/10/2026 (4.317 filas, sha256 `f774c6e4…17e8`); se renombra con fecha al crear el repo (DECISIONES 0.3).
+- `docs/context/guia_del_proyecto.md`: reglas del dominio y método. `docs/context/mazos_40_listas.md`: los 40 mazos (sin energía por mazo: está en la columna «Energía» de la tabla resumen). `docs/context/tcgcollectiontracterexport-2026-10-06.csv`: exportación de la colección del 6/10/2026 (4.317 filas, sha256 `f774c6e4…17e8`); se renombra con fecha al crear el repo (DECISIONES 0.3). `docs/context/tcgcollectiontracterexport-2026-11-11.csv`: la del 11/11/2026 (4.547 filas, con C1 y P-C; sha256 `595b1da6…a14e`, DECISIONES 68.1); los tests siguen con la del 6/10.
 - `docs/fase0/`: informes de investigación, respuestas crudas de Limitless (`limitless/`), fixtures de sobres y lista de cartas no implementadas en el motor. Usarlos como fixtures de tests en vez de volver a consultar la API.
 - `refs/tracker` = `marcelpanse/tcg-pocket-collection-tracker` @ `3ab58f1` (GPL-3.0). `refs/deckgym-core` = `bcollazo/deckgym-core` @ `fb792ebf` (AGPL-3.0). Clones shallow, solo lectura, no se versionan.
 - Datos clave verificados: 4.317 cartas, 3.866 `internal_id` distintos, 2.319 grupos funcionales; los 40 mazos validan y están completos contra el CSV del 6/10; copias jugables Mega-Mawile ex 2, Globito 3, Bulbasaur A1-1 3. Fixtures en `docs/PLAN.md` Apéndice B.

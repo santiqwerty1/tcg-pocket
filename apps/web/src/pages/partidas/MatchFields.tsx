@@ -14,7 +14,7 @@ import {
 import { EnergyChips } from '@/components/EnergyChip'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { MODE_LABEL, opponentKeyOf, RESULT_LABEL, WENT_FIRST_LABEL } from '@/lib/matches'
+import { EVENT_MODE_HINT, MODE_LABEL, opponentKeyOf, RESULT_LABEL, WENT_FIRST_LABEL } from '@/lib/matches'
 import { cn } from '@/lib/utils'
 
 const RESULT_STYLE: Record<MatchResult, string> = {
@@ -99,21 +99,24 @@ export function WentFirstPicker({
 
 export function ModePicker({ value, onChange }: { value: MatchMode; onChange: (value: MatchMode) => void }) {
   return (
-    <ChoiceGroup label="Modalidad" className="flex flex-wrap gap-1.5">
-      {MATCH_MODES.map((mode) => (
-        <Button
-          key={mode}
-          type="button"
-          variant="outline"
-          aria-pressed={value === mode}
-          // Default size, 44 px: the size the thumb hits without looking (Fase 41).
-          className={PRESSED}
-          onClick={() => onChange(mode)}
-        >
-          {MODE_LABEL[mode]}
-        </Button>
-      ))}
-    </ChoiceGroup>
+    <div className="flex flex-col gap-1.5">
+      <ChoiceGroup label="Modalidad" className="flex flex-wrap gap-1.5">
+        {MATCH_MODES.map((mode) => (
+          <Button
+            key={mode}
+            type="button"
+            variant="outline"
+            aria-pressed={value === mode}
+            // Default size, 44 px: the size the thumb hits without looking (Fase 41).
+            className={PRESSED}
+            onClick={() => onChange(mode)}
+          >
+            {MODE_LABEL[mode]}
+          </Button>
+        ))}
+      </ChoiceGroup>
+      {value === 'event' ? <p className="text-xs text-muted-foreground">{EVENT_MODE_HINT}</p> : null}
+    </div>
   )
 }
 
