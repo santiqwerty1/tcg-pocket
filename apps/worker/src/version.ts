@@ -43,4 +43,8 @@
 // 0.3.15 (D-031, T-023): the package's engine-cli 0.3.17 plays `next/7aa4ef0` (77e0617): upstream 7aa4ef0, with C1
 // «Dual Fusion» and P-C, printed dual types and upstream's rule fixes since adfe505, plus the bots' exports and the
 // value function that skips its zero weights; workers update to get it.
-export const WORKER_VERSION = '0.3.15'
+// 0.3.16 (D-031): the package's engine-cli 0.3.18 plays `next/97b8787` (ca13408): upstream 97b8787, with its rule
+// fixes of 2/11 (Misty and Sweet Honey choose before flipping, Nightmare Aura on effect attachments, Clear Veil and
+// Crystal Body against the random discard, no Ability of a Pokémon knocked out while evolving); workers update to get
+// it.
+export const WORKER_VERSION = '0.3.16'
