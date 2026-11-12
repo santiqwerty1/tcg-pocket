@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es-AR" data-tema="oscuro" data-movimiento="expresivo" data-vistas="arriba" data-minis="si">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0B0E13" />
+    <meta name="robots" content="noindex" />
+    <title>TCG Pocket · maqueta C · Consola de torneo</title>
+    <script>
+      // Theme, motion and view-switcher position before the first paint: URL parameters win over what was saved.
+      ;(function () {
+        var root = document.documentElement
+        var saved = {}
+        try {
+          saved = JSON.parse(localStorage.getItem('maqueta-c') || '{}') || {}
+        } catch (e) {}
+        var url = {}
+        ;(location.hash.split('?')[1] || '').split('&').forEach(function (pair) {
+          var kv = pair.split('=')
+          if (kv[0]) url[kv[0]] = decodeURIComponent(kv[1] || '')
+        })
+        var tema = url.tema || saved.tema || 'oscuro'
+        if (tema === 'sistema') tema = window.matchMedia('(prefers-color-scheme: light)').matches ? 'claro' : 'oscuro'
+        root.setAttribute('data-tema', tema === 'claro' ? 'claro' : 'oscuro')
+        var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        var niveles = ['expresivo', 'sutil', 'ninguno']
+        var mov = niveles.indexOf(url.movimiento) >= 0 ? url.movimiento : niveles.indexOf(saved.movimiento) >= 0 ? saved.movimiento : 'expresivo'
+        root.setAttribute('data-movimiento', reduce ? 'ninguno' : mov)
+        root.setAttribute('data-vistas', (url.vistas || saved.vistas) === 'abajo' ? 'abajo' : 'arriba')
+        root.setAttribute('data-minis', saved.minis === false ? 'no' : 'si')
+      })()
+    </script>
+    <!-- No external dependencies: the typefaces (IBM Plex, SIL OFL 1.1) are stored next to the mock-up, in fuentes/. -->
+    <link rel="stylesheet" href="estilos.css" />
+  </head>
+  <body>
+    <a class="salto" href="#contenido" data-salto>Saltar al contenido</a>
+
+    <aside class="pc-nota" aria-label="Sobre esta maqueta">
+      <p class="pc-nota__k">Maqueta C</p>
+      <p class="pc-nota__t">Consola de torneo</p>
+      <p>Tableros densos y ordenables con un gráfico chico por fila; arriba, un marcador; abajo, el lanzador.</p>
+      <p>Pensada para el celular (360 × 780). En la PC se ve la misma columna, centrada.</p>
+      <p><kbd>/</kbd> abre el lanzador · <kbd>Esc</kbd> cierra la hoja</p>
+    </aside>
+
+    <div class="shell" id="shell">
+      <header class="top" id="top"></header>
+      <main class="main" id="contenido" tabindex="-1"></main>
+    </div>
+
+    <div class="pie" id="pie">
+      <div class="pie__vistas" id="vistas-abajo"></div>
+      <a class="lanz" id="lanz" href="#/hoy?hoja=buscar" aria-haspopup="dialog"></a>
+      <nav class="nav" id="nav" aria-label="Secciones"></nav>
+    </div>
+
+    <div class="velo" id="velo" hidden></div>
+    <section class="hoja" id="hoja" role="dialog" aria-modal="true" aria-labelledby="hoja-t" tabindex="-1" hidden></section>
+    <div class="aviso" id="aviso" role="status" aria-live="polite"></div>
+
+    <script src="../datos.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

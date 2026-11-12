@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="es-AR" data-tema="oscuro" data-movimiento="expresivo" data-vistas="arriba">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0B0D11" />
+    <meta name="robots" content="noindex" />
+    <title>TCG Pocket · maqueta A · La respuesta primero</title>
+    <script>
+      // Tema antes de pintar: lo que diga la URL, después lo guardado, después oscuro.
+      ;(function () {
+        var root = document.documentElement
+        var q = (location.hash.split('?')[1] || '').split('&')
+        var url = {}
+        for (var i = 0; i < q.length; i++) {
+          var kv = q[i].split('=')
+          url[kv[0]] = decodeURIComponent(kv[1] || '')
+        }
+        var saved = {}
+        try {
+          saved = JSON.parse(localStorage.getItem('maqueta-a') || '{}') || {}
+        } catch (e) {}
+        var tema = url.tema || saved.tema || 'oscuro'
+        if (tema === 'sistema') tema = window.matchMedia('(prefers-color-scheme: light)').matches ? 'claro' : 'oscuro'
+        root.setAttribute('data-tema', tema === 'claro' ? 'claro' : 'oscuro')
+      })()
+    </script>
+    <link rel="stylesheet" href="estilos.css" />
+  </head>
+  <body>
+    <a class="skip" href="#contenido">Saltar al contenido</a>
+
+    <aside class="aside" aria-label="Sobre esta maqueta">
+      <p class="aside__k">Maqueta A</p>
+      <p class="aside__t">La respuesta primero</p>
+      <p class="aside__p">
+        Cada pantalla abre con un veredicto y su porqué; la evidencia va en vistas cortas y la acción principal queda abajo,
+        sobre la barra.
+      </p>
+      <p class="aside__p">Está pensada para el celular (360 × 780). En la PC se ve la misma columna, centrada.</p>
+      <p class="aside__p"><kbd>/</kbd> abre el buscador · <kbd>Esc</kbd> cierra la hoja</p>
+    </aside>
+
+    <div class="shell" id="shell">
+      <header class="top" id="top"></header>
+      <div class="tabs-slot tabs-slot--top" id="tabs-top"></div>
+      <main class="main" id="contenido" tabindex="-1"></main>
+      <div class="bottom" id="bottom">
+        <div class="tabs-slot tabs-slot--bottom" id="tabs-bottom"></div>
+        <div class="dock" id="dock"></div>
+        <nav class="nav" id="nav" aria-label="Secciones"></nav>
+      </div>
+    </div>
+
+    <div class="sheet-root" id="sheet-root" hidden></div>
+    <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+    <div class="fx" id="fx" aria-hidden="true"></div>
+
+    <noscript><p style="padding: 24px">La maqueta necesita JavaScript.</p></noscript>
+    <script src="../datos.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

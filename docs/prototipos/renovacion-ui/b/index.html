@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es-AR" data-tema="oscuro" data-movimiento="expresivo" data-vistas="abajo" data-miniaturas="si">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0a0e14">
+<meta name="robots" content="noindex">
+<title>TCG Pocket · maqueta B · El mazo al centro</title>
+<link rel="stylesheet" href="estilos.css">
+<script>
+/* Applies theme, motion and view-switcher position before the first paint. URL parameters win for this load and are never
+   saved: only the menu (Aspecto) writes to localStorage. */
+(function () {
+  var root = document.documentElement, saved = {}
+  try { saved = JSON.parse(localStorage.getItem('maquetaB.aspecto.v2') || '{}') || {} } catch (e) {}
+  var query = (location.hash.split('?')[1] || ''), params = {}
+  query.split('&').forEach(function (pair) { var kv = pair.split('='); if (kv[0]) params[kv[0]] = decodeURIComponent(kv[1] || '') })
+  var theme = params.tema || saved.tema || 'oscuro'
+  var dark = theme === 'sistema' ? !(window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches) : theme !== 'claro'
+  root.dataset.tema = dark ? 'oscuro' : 'claro'
+  var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches
+  root.dataset.movimiento = reduce ? 'ninguno' : (params.movimiento || saved.movimiento || 'expresivo')
+  root.dataset.vistas = params.vistas || saved.vistas || 'abajo'
+  root.dataset.miniaturas = saved.miniaturas === 'no' ? 'no' : 'si'
+})()
+</script>
+</head>
+<body>
+<a class="skip" href="#principal">Saltar al contenido</a>
+<div id="app">
+  <header id="encabezado" class="top"></header>
+  <main id="principal" tabindex="-1"></main>
+  <div class="bottom-zone" id="zona-inferior">
+    <div id="dock" class="dock"></div>
+    <nav id="barra" class="tabbar" aria-label="Secciones"></nav>
+  </div>
+</div>
+<div id="capa-hoja" class="sheet-layer" hidden></div>
+<div id="avisos" class="toasts" role="status" aria-live="polite"></div>
+<noscript><p style="padding:24px;color:#fff">Esta maqueta necesita JavaScript.</p></noscript>
+<script src="../datos.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
